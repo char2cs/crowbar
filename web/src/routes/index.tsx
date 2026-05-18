@@ -1,6 +1,8 @@
+import { useState } from 'react'
 import { createFileRoute } from '@tanstack/react-router'
 import { useQuery } from '@tanstack/react-query'
 import { apiFetch } from '../lib/transport'
+import { useEvents } from '../lib/useEvents'
 import type { HealthStatus } from '../domain/health'
 
 export const Route = createFileRoute('/')({
@@ -13,6 +15,9 @@ function IndexPage() {
     queryFn: () => apiFetch('/api/v0/health').then((r) => r.json()),
   })
 
+  const [lastPing, setLastPing] = useState<string | null>(null)
+  useEvents('ping', () => setLastPing(new Date().toISOString()))
+
   if (isLoading) return <p className="p-8 text-zinc-400">Connecting to daemon...</p>
   if (error) return <p className="p-8 text-red-400">Daemon unreachable</p>
 
@@ -23,6 +28,9 @@ function IndexPage() {
         Status: <span className="text-green-400">{data?.status}</span>
       </p>
       <p className="text-zinc-400">Version: {data?.version}</p>
+      <p className="text-zinc-400 text-sm mt-4">
+        Last ping: {lastPing ?? 'waiting for daemon…'}
+      </p>
     </div>
   )
 }
