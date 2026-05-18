@@ -8,6 +8,8 @@ import (
 	"syscall"
 
 	"github.com/spf13/cobra"
+
+	"github.com/rabbytesoftware/crowbar/api/internal"
 )
 
 var host string
@@ -26,10 +28,7 @@ var serveCmd = &cobra.Command{
 var versionCmd = &cobra.Command{
 	Use:   "version",
 	Short: "Print version",
-	Run: func(
-		cmd *cobra.Command,
-		args []string,
-	) {
+	Run: func(cmd *cobra.Command, args []string) {
 		fmt.Println("crowbar dev")
 	},
 }
@@ -39,17 +38,18 @@ func init() {
 	rootCmd.AddCommand(serveCmd, versionCmd)
 }
 
-func runServe(
-	cmd *cobra.Command,
-	args []string,
-) error {
+func runServe(cmd *cobra.Command, args []string) error {
 	ctx, cancel := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer cancel()
 
-	fmt.Printf("crowbar starting on %s\n", host)
-	<-ctx.Done()
-	fmt.Println("crowbar stopping")
-	return nil
+	container, err := internal.New(ctx, host, nil)
+	if err != nil {
+		return fmt.Errorf("failed to start: %w", err)
+	}
+	defer container.Close()
+
+	fmt.Printf("crowbar listening on %s\n", host)
+	return container.Run(ctx)
 }
 
 func main() {
