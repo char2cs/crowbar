@@ -1,0 +1,18 @@
+# Go
+api/bin/
+api/coverage/
+api/logs/
+
+# React / Node
+web/node_modules/
+web/dist/
+web/.vite/
+
+# Tauri / Rust
+desktop/src-tauri/target/
+desktop/src-tauri/binaries/
+
+# General
+.DS_Store
+*.env
+*.env.local
