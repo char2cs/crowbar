@@ -312,6 +312,30 @@ volumes:
 
 ---
 
+## Acceptance Criteria — End-to-End Integration
+
+The scaffolding phase is not complete until all three subsystems are connected and working together in **both** deployment modes. Each scenario below must pass before the phase is closed.
+
+### Local (Tauri)
+
+1. `make dev` (or equivalent) fetches the sidecar binary, starts the Go daemon, and launches the Tauri app without errors
+2. Tauri spawns `crowbar-api --host unix://` and the protocol handler is live
+3. The React SPA loads inside the Tauri webview via `crowbar://`
+4. A real API call (`crowbar://api/api/v0/health`) from the frontend reaches the Go daemon and returns a response
+5. The SSE event stream (`crowbar://events`) opens and at least one keep-alive or ping event flows to the frontend
+6. Quitting the Tauri app cleanly shuts down the Go sidecar
+
+### Cloud (Docker Compose)
+
+1. `docker compose -f docker/docker-compose.yml up` starts the `crowbar` container without errors
+2. The Go daemon serves the embedded React SPA at `http://localhost:3737/`
+3. The SPA loads in a browser; no broken assets, no console errors on load
+4. A real API call (`/api/v0/health`) from the browser reaches the Go daemon and returns a response
+5. The SSE event stream (`/api/events`) opens in the browser and at least one keep-alive or ping event is received
+6. Data written by the API persists across container restarts (SQLite + LanceDB volume mount)
+
+---
+
 ## Key Invariants
 
 1. `web/` has zero imports from `@tauri-apps/api` — enforced by ESLint rule
