@@ -306,6 +306,7 @@ Crowbar exposes these tools to agents via MCP. Agents call them like any Claude 
 | `crowbar_open_thread` | `(file: string, line: int, content: string) → thread_id` | Open a ReviewThread. Crowbar automatically sets `phase` and `opened_by` based on which agent is calling. |
 | `crowbar_reply_thread` | `(thread_id: string, content: string)` | Append a message to a thread. Role is set automatically from the calling agent's identity. |
 | `crowbar_get_threads` | `(status?: string, phase?: string) → Thread[]` | List ReviewThreads for this Task. Filter by `status` (`open`, `agreed`, `force_approved`) and/or `phase` (`ai_review`, `human_review`). Used by the implementer to poll for threads that need a response. |
+| `crowbar_resolve_thread` | `(thread_id: string, emoji?: string)` | Mark a thread `agreed`. Only callable by agents (human resolution is done via the UI). If `emoji` is provided (e.g. `"👍"`), the UI renders it as an emoji react bubble instead of a plain checkmark — used when the implementer agrees with a human concern without needing to elaborate. |
 | `crowbar_write_memory` | `(content: string, type: string)` | Write a Memory entry (improvement agents only) |
 
 ---
@@ -322,9 +323,6 @@ description: Full feature development — brainstorm to reviewed implementation
 item_statuses:
   - todo
   - implementing
-  - ai_review
-  - needs_revision
-  - human_review
   - done
 
 states:
@@ -368,29 +366,56 @@ states:
       intelligence: high
       tools: [crowbar.signal, crowbar.create_item, crowbar.update_item_status, crowbar.get_items, crowbar.get_threads, crowbar.reply_thread, fs.read, fs.write, terminal]
       system_prompt: |
-        Implement the approved spec. Create an item for each task before starting.
-        Work through items one at a time. When done with an item, call
-        crowbar_update_item_status(item_id, "ai_review").
+        You may be entering this state for the first time (fresh implementation) or
+        returning from AI review with open threads to address.
 
-        Periodically check for open AI review threads:
-          crowbar_get_threads(status="open", phase="ai_review")
-        For each open thread, read the concern, make the fix if valid, and reply with
-        crowbar_reply_thread(thread_id, content). After addressing all threads for an
-        item, call crowbar_update_item_status(item_id, "ai_review") to re-submit it.
+        On first entry: create an item for each task, implement them one at a time,
+        marking each crowbar_update_item_status(item_id, "implementing") when starting
+        and crowbar_update_item_status(item_id, "done") when complete.
 
-        When ALL items have reached "human_review" status, call
-        crowbar_signal("all_items_ready").
+        On re-entry after review: check open AI review threads with
+        crowbar_get_threads(status="open", phase="ai_review"). Address each one, make
+        the fix, and reply documenting what you changed using crowbar_reply_thread.
+
+        When all items are "done" and no open threads remain, call
+        crowbar_signal("implementation_complete").
     transitions:
-      - to: human_review
-        on: all_items_ready
+      - to: ai_review
+        on: implementation_complete
       - to: spec
         on: scope_changed
+
+  - name: ai_review
+    ui: diff
+    agent:
+      intelligence: high
+      tools: [crowbar.signal, crowbar.open_thread, crowbar.get_threads, crowbar.resolve_thread, crowbar.reply_thread, fs.read]
+      system_prompt: |
+        Review the full diff against the spec, repository memory, and coding standards.
+
+        First, load all existing threads with crowbar_get_threads() and read their full
+        history. Do NOT re-raise issues that are already agreed or force-approved.
+
+        For each prior thread: verify in the current diff whether the fix was correctly
+        implemented. If fixed: call crowbar_resolve_thread(thread_id). If incomplete:
+        reply with crowbar_reply_thread noting what is still missing.
+
+        For any new issues not raised in prior rounds: call crowbar_open_thread(file, line, concern).
+
+        When your review is complete:
+        - No open threads: call crowbar_signal("review_passed")
+        - Open threads remain: call crowbar_signal("review_failed")
+    transitions:
+      - to: implementation
+        on: review_failed
+      - to: human_review
+        on: review_passed
 
   - name: human_review
     ui: diff
     agent:
       intelligence: high
-      tools: [crowbar.signal, crowbar.get_threads, crowbar.reply_thread, fs.read, terminal]
+      tools: [crowbar.signal, crowbar.get_threads, crowbar.reply_thread, crowbar.resolve_thread, fs.read, terminal]
       system_prompt: |
         The implementation is complete and a human is reviewing the full diff.
         You are available via the chat panel to answer any questions about the
@@ -398,11 +423,17 @@ states:
 
         Continuously monitor for open human review threads:
           crowbar_get_threads(status="open", phase="human_review")
-        For each open thread, read the human's concern and reply with your reasoning
-        or the fix you will make using crowbar_reply_thread(thread_id, content).
+        For each open thread, read the human's concern:
+        - If you agree and no clarification is needed: call crowbar_resolve_thread(thread_id, "👍")
+          to close it with an emoji react.
+        - If you agree but need to explain your planned fix: reply with crowbar_reply_thread,
+          then resolve once the human acknowledges.
+        - If you disagree: reply with your reasoning. The conversation continues until
+          the human agrees or force-approves.
 
         Force-approved threads: the human has overridden — you MUST implement the
-        requested change. Acknowledge with a brief note describing what you will do.
+        requested change. You may ask at most one clarifying question within the same
+        thread, then you must execute. No deferring, no pushing back after that.
 
         The human controls progression:
         - If they click Approve: Crowbar fires "approved" — you are done.
@@ -433,46 +464,32 @@ states:
     terminal: true
 
 improvement_agents:
-  - name: ai_item_reviewer
-    description: Reviews each implementation item when it enters ai_review status. Runs on every review round — thread history from prior rounds is available via file pointers.
+  - name: review_learner
+    description: Analyzes the completed review cycle after human approval and writes memories so all future agents learn from this experience
     trigger:
-      event: item_status_changed
-      filter: "new_status == 'ai_review'"
+      event: task_complete
+      filter: "visited_states includes 'ai_review'"
     scope: repo
     context:
-      - step: implementation   # expose the implementation AgentRun's events.jsonl + diff.patch
-    agent:
-      intelligence: high
-      tools: [crowbar.update_item_status, crowbar.open_thread, crowbar.get_threads, crowbar.reply_thread, fs.read]
-      system_prompt: |
-        An implementation item has entered AI review (possibly for the Nth time).
-
-        1. Read the item's diff using the file pointer provided in context.
-        2. Check existing threads (crowbar_get_threads) to see what was raised in
-           prior rounds and how the implementer responded. Do NOT re-open threads
-           that were already agreed or force-approved.
-        3. For any remaining unresolved issues, or new issues introduced in this
-           revision, open a new ReviewThread with crowbar_open_thread(file, line, concern).
-        4. When your review is complete:
-           - If no open issues: crowbar_update_item_status(item_id, "human_review")
-           - If issues found: crowbar_update_item_status(item_id, "needs_revision")
-
-        The implementer will address your threads and re-submit for ai_review.
-        You will run again — this loop continues until the item is clean.
-
-  - name: review_pattern_extractor
-    description: Extracts coding principles from resolved review threads
-    trigger:
-      event: thread_resolved
-    scope: repo
+      - step: implementation
+      - step: ai_review
+      - step: human_review
     agent:
       intelligence: medium
-      tools: [crowbar.write_memory]
+      tools: [crowbar.get_threads, crowbar.write_memory, fs.read]
       system_prompt: |
-        A review thread was resolved. Analyze the full conversation and extract
-        any generalizable principle as a concise, actionable rule. Call
-        crowbar_write_memory(content, type) to save it.
-        Skip if the thread was force-approved with no substantive discussion.
+        A task just completed the full review cycle and was approved by the human.
+        You have access to the event logs and diffs for every step, plus the complete
+        thread history across both the ai_review and human_review phases.
+
+        Think like a senior engineer reflecting on what happened: what patterns emerged,
+        what the AI reviewer flagged repeatedly, what the human caught that the AI missed,
+        what coding habits caused friction, what approaches worked well.
+
+        Extract each insight as a concise, actionable principle. Call
+        crowbar_write_memory(content, type) for each one. These memories are injected
+        into every future agent run — this is how the system gets smarter over time and
+        tailors itself to the team's standards.
 
   - name: debug_pattern_extractor
     description: Captures reusable debugging patterns after debug sessions
@@ -528,7 +545,7 @@ Real-time chat interface between the user and the agent. The agent can read the 
 
 ### Kanban UI (implementation state)
 
-Displays KanbanItems and their statuses as columns. Shows which item is currently being implemented and which are in AI review. Items move across columns as the agent updates their status. The user can observe progress in real time but does not interact with individual items directly.
+Displays KanbanItems as columns: `todo`, `implementing`, `done`. Items move across columns as the agent updates their status. The user can observe progress in real time but does not interact with individual items directly. A chat panel is always available alongside the kanban for the user to talk to the implementer while it works.
 
 ### File Explorer
 
@@ -545,7 +562,13 @@ Markdown rendering is entirely a frontend concern — the backend serves raw con
 - **mermaid.js** — renders ```` ```mermaid ```` fenced blocks as diagrams (state machines, flowcharts, ER diagrams)
 - **highlight.js** — syntax highlighting inside code blocks, as a markdown-it plugin
 
-### Diff UI (human review state)
+### AI Review UI (ai_review state)
+
+The `ai_review` state uses the same diff view as `human_review` — the human can watch the AI reviewer's threads appear in real time as the reviewer works through the diff. The chat panel is available alongside the diff so the human can observe (or interrupt) the AI-to-AI exchange.
+
+The reviewer's threads have `phase=ai_review` and are visually distinguished from human threads. When the reviewer signals `review_passed`, the task transitions to `human_review`. When it signals `review_failed`, the task returns to `implementation` and the implementer addresses the open threads.
+
+### Diff UI (human_review state)
 
 The backend parses `git diff {base_branch}...{branch_name}` into structured JSON — file by file, hunk by hunk, line by line — including both old and new file line numbers for every line. The frontend renders this as a GitHub-style diff.
 
