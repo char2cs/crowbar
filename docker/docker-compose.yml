@@ -8,8 +8,6 @@ services:
       - "3737:3737"
     volumes:
       - crowbar-data:/root/.crowbar
-    environment:
-      - CROWBAR_HOST=tcp://0.0.0.0:3737
     restart: unless-stopped
 
 volumes:
