@@ -13,6 +13,26 @@ The feature development flow described in this spec is the **first built-in Flow
 
 ---
 
+## v0 Implementation Strategy
+
+The Flow schema defined in this document is the authoritative design for how Crowbar orchestrates agent work. However, **the YAML-based flow engine is planned for a future version** — v0 ships the feature development flow hardcoded in Go.
+
+**What this means for v0:**
+- The feature development flow (brainstorming → spec → implementation → ai_review → human_review → complete) is implemented directly in Go code, not parsed from YAML
+- All state names, transition events, tool lists, and agent system prompts match the Reference Flow in this spec exactly — the code is the YAML made literal
+- No flow authoring UI, no YAML parser, no custom flow support
+
+**What the backend must be architected for:**
+The Go code must treat the flow as data, not as logic. Concretely:
+- States, transitions, and improvement agent triggers are represented as structs/interfaces — not as `switch` statements or hardcoded `if` chains
+- The state machine engine (evaluate event → find matching transition → advance state) is a generic function that takes a flow definition as input
+- Improvement agent trigger evaluation (event filter expressions) is a separate, pluggable component
+- The `context` injection pipeline (file pointers, `all_runs`, per-step artifacts) is driven by a declarative config struct, not hardcoded per-agent
+
+This ensures that when the YAML engine is built, it produces the same structs the hardcoded flow already uses — making the migration a parser addition, not a rewrite.
+
+---
+
 ## Domain Entities
 
 ### Project
@@ -225,13 +245,13 @@ improvement_agents:
   description: string    # optional, for human readers
   terminal: bool         # if true, reaching this state completes the Task
   ui: chat | kanban | diff | background
-                         # what Crowbar renders when the Task is in this state.
-                         # `background` = no user-facing UI.
-                         # A chat panel is ALWAYS available alongside any primary
-                         # UI type when an agent is running — `kanban` means kanban
-                         # is the primary view with chat alongside it; `diff` means
-                         # the diff is primary with chat alongside it. This lets the
-                         # user talk to the agent at any point during its execution.
+                         # The view foregrounded when this state is entered.
+                         # ALL views (chat, kanban, diff, file explorer, git, terminal)
+                         # remain accessible as tabs at all times — the user can switch
+                         # freely regardless of the current state. When activity happens
+                         # in a non-active view (a thread opens, a commit lands), that
+                         # tab is badged to draw attention.
+                         # `background` = no primary view; the task has no foreground UI.
   items: bool            # if true, this state creates and manages KanbanItems
   agent:
     intelligence: low | medium | high | ultrahigh
@@ -413,32 +433,12 @@ states:
 
   - name: human_review
     ui: diff
-    agent:
-      intelligence: high
-      tools: [crowbar.signal, crowbar.get_threads, crowbar.reply_thread, crowbar.resolve_thread, fs.read, terminal]
-      system_prompt: |
-        The implementation is complete and a human is reviewing the full diff.
-        You are available via the chat panel to answer any questions about the
-        implementation, architectural choices, or trade-offs.
-
-        Continuously monitor for open human review threads:
-          crowbar_get_threads(status="open", phase="human_review")
-        For each open thread, read the human's concern:
-        - If you agree and no clarification is needed: call crowbar_resolve_thread(thread_id, "👍")
-          to close it with an emoji react.
-        - If you agree but need to explain your planned fix: reply with crowbar_reply_thread,
-          then resolve once the human acknowledges.
-        - If you disagree: reply with your reasoning. The conversation continues until
-          the human agrees or force-approves.
-
-        Force-approved threads: the human has overridden — you MUST implement the
-        requested change. You may ask at most one clarifying question within the same
-        thread, then you must execute. No deferring, no pushing back after that.
-
-        The human controls progression:
-        - If they click Approve: Crowbar fires "approved" — you are done.
-        - If they click Request Changes: Crowbar fires "changes_requested" — you will
-          be re-invoked in the implementation state to address broader rework.
+    # No agent. The human reviews at their own pace — no agent is running or polling.
+    # The human reads the full diff, the ai_review thread history, and opens their own threads.
+    # Transitions are fired by the human clicking UI buttons, not by an agent.
+    # When the human clicks "Request Changes": task returns to implementation; the implementer
+    # picks up all open human_review threads in bulk and addresses them.
+    # When the human clicks "Approve": task completes.
     transitions:
       - to: implementation
         on: changes_requested
@@ -471,9 +471,10 @@ improvement_agents:
       filter: "visited_states includes 'ai_review'"
     scope: repo
     context:
-      - step: implementation
-      - step: ai_review
-      - step: human_review
+      all_runs: true    # expose ALL AgentRun artifacts across every state and every run
+                        # in this task — events.jsonl + diff.patch for each one.
+                        # Needed because implementation and ai_review run multiple times;
+                        # the learner needs the full chronological arc, not just one run.
     agent:
       intelligence: medium
       tools: [crowbar.get_threads, crowbar.write_memory, fs.read]
@@ -533,15 +534,18 @@ improvement_agents:
 | **Retry** | AgentRun is `failed` or `interrupted` | Creates a new AgentRun for the same state with the same context injection; prior failed run's `output` is not carried forward |
 | **Force transition** | Task is `paused` | User manually selects which state to move to, bypassing agent execution |
 | **Resume** | Task is `paused` | Equivalent to Retry — creates a new AgentRun for the current state |
+| **Skip to Human Review** | Task is in `ai_review` state | Escape hatch: stops the running reviewer AgentRun (`interrupted`) and immediately fires `review_passed`, advancing the task to `human_review`. Use when the AI reviewer is too strict or stuck. |
 | **Archive** | Any non-running Task | Permanent; removes worktree from disk |
 
 **How AgentRuns fail:** the ACP subprocess crashes, the Docker container dies, the MCP connection drops, or the agent exits without calling `crowbar_signal()`. All of these produce `status: failed`. User-initiated stops produce `status: interrupted`. Recovery is identical for both — Retry creates a fresh AgentRun for the same state.
 
+### UI Navigation
+
+The `ui` field in a state definition sets the *foregrounded* view when the task enters that state — it is not a lock. The user can switch freely between all available views at any time: chat, kanban, diff, file explorer, git, terminal. When activity happens in a non-active view (a thread opens on the diff, a commit lands in git, an item status changes in kanban), that tab is badged to surface the change without forcing navigation.
+
 ### Chat UI
 
-Real-time chat interface between the user and the agent. The agent can read the codebase and signal transitions. Conversation history is preserved and passed to subsequent states.
-
-**Chat is always available alongside any primary UI type** when an agent is running. In `kanban` states (implementation), the user can talk to the implementer while watching it work. In `diff` states (human_review), the user can ask the agent questions about the code while reviewing the diff. The chat panel does not replace the primary view — it sits alongside it.
+Real-time chat interface between the user and the agent. The agent can read the codebase and signal transitions. Conversation history is preserved and passed to subsequent states. Chat is accessible as a tab in every state, including states whose primary view is kanban or diff.
 
 ### Kanban UI (implementation state)
 
