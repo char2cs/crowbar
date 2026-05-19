@@ -243,6 +243,11 @@ improvement_agents:
                          # Operators: ==, !=, includes, not includes.
                          # Example: "new_status == 'ai_review'"
   scope: repo | project  # where extracted Memory entries are written
+  context:               # optional — declares which step conversations to inject.
+                         # Default: full conversation of the step that generated
+                         # the triggering event. Declare additional steps when
+                         # the pattern spans multiple states.
+    - step: state_name   # inject the named state's AgentRun conversation history
   agent:
     tools:
       - crowbar.write_memory
@@ -490,8 +495,14 @@ When an **improvement agent** trigger fires:
 1. Crowbar evaluates the `filter` expression against the event payload
 2. If it matches, creates a background AgentRun (no UI)
 3. Container + worktree provisioned as above, but with the improvement agent's restricted tool set
-4. Agent runs, writes Memory or opens threads, then exits
-5. No state transition — the main Task is unaffected
+4. Crowbar injects into the agent context:
+   - The event payload (structured data: IDs, status values, etc.)
+   - Resolved entities referenced by the event (e.g. the full ReviewThread + all its ReviewMessages for a `thread_resolved` event; the KanbanItem for an `item_status_changed` event)
+   - **Full conversation history of the step(s) that generated the trigger** — not just the event, but everything said and done in the relevant AgentRun(s). This is the default and is what allows the improvement agent to extract meaningful, generalizable patterns.
+   - Any additional step conversations declared in `context.step` in the Flow YAML
+   - Relevant Memory entries (semantic search, same as any AgentRun)
+5. Agent runs, writes Memory or opens threads, then exits
+6. No state transition — the main Task is unaffected
 
 ---
 
