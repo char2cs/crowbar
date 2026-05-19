@@ -1,0 +1,61 @@
+name: Stable Release
+
+on:
+  pull_request:
+    types: [closed]
+    branches: [master]
+
+jobs:
+  stable:
+    if: github.event.pull_request.merged == true && (startsWith(github.head_ref, 'beta/') || startsWith(github.head_ref, 'hotfix/'))
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Derive stable tag
+        id: tag
+        run: |
+          BRANCH="${{ github.head_ref }}"
+          VERSION=$(echo "$BRANCH" | cut -d/ -f2-)
+          TAG="stable-${VERSION}"
+          echo "tag=$TAG" >> $GITHUB_OUTPUT
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.25'
+          cache-dependency-path: api/go.sum
+
+      - uses: oven-sh/setup-bun@v2
+
+      - name: Build frontend
+        run: cd web && bun install --frozen-lockfile && bun run build
+
+      - name: Stage web assets for embedding
+        run: cd api && make embed-web
+
+      - name: Cross-compile Go daemon
+        run: |
+          mkdir -p dist
+          cd api
+          for PLATFORM in linux/amd64 linux/arm64 darwin/amd64 darwin/arm64 windows/amd64; do
+            OS=${PLATFORM%/*}; ARCH=${PLATFORM#*/}
+            EXT=$([ "$OS" = "windows" ] && echo ".exe" || echo "")
+            GOOS=$OS GOARCH=$ARCH CGO_ENABLED=0 go build \
+              -o ../dist/crowbar-api-${OS}-${ARCH}${EXT} ./cmd/crowbar
+            sha256sum ../dist/crowbar-api-${OS}-${ARCH}${EXT} >> ../dist/SHA256SUMS
+          done
+
+      - name: Create stable GitHub release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ steps.tag.outputs.tag }}
+          prerelease: false
+          files: dist/*
+          generate_release_notes: true
+
+      - name: Trigger backport workflow
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh workflow run backport.yml \
+            --field version=${{ steps.tag.outputs.tag }}
