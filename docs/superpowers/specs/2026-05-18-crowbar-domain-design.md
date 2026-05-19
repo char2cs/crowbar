@@ -98,6 +98,7 @@ One agent execution within a Task state. Each AgentRun gets its own Docker conta
 | `agent_type` | string | Label from the Flow YAML |
 | `container_id` | string | Docker container ID |
 | `status` | enum | `running`, `complete`, `failed` |
+| `output` | text | nullable; the handoff summary the agent passed as the second argument to `crowbar_signal()`. Injected into subsequent states' context in order. |
 | `started_at` | timestamp | |
 | `completed_at` | timestamp | nullable |
 
@@ -274,7 +275,7 @@ Crowbar exposes these tools to agents via MCP. Agents call them like any Claude 
 
 | Tool | Signature | Description |
 |------|-----------|-------------|
-| `crowbar_signal` | `(event: string, payload?: object)` | Trigger a state transition or emit an event |
+| `crowbar_signal` | `(event: string, output?: string)` | Trigger a state transition or emit an event. `output` is a markdown summary of the step's decisions — stored on the AgentRun and injected into all subsequent states' context in order. |
 | `crowbar_create_item` | `(title: string, description?: string) → item_id` | Create a KanbanItem |
 | `crowbar_update_item_status` | `(item_id: string, status: string)` | Move an item to a new status |
 | `crowbar_get_items` | `() → Item[]` | List all KanbanItems for this Task |
@@ -484,8 +485,8 @@ When a Task enters a new state that has an `agent`:
 3. Spins up a **Docker container** pointed at the assigned worktree
 4. Injects into the agent context:
    - The state's `system_prompt`
+   - **Previous step outputs** — the `output` field from every completed AgentRun in this Task, injected in chronological order. This is the primary context handoff mechanism between states: each agent produces a clean markdown summary when it calls `crowbar_signal()`, and every subsequent agent receives all prior summaries.
    - Relevant Memory entries (semantic search against repo + project memory)
-   - Full Task conversation history
    - The declared tool set (Crowbar MCP tools + standard tools)
 5. The agent runs until it calls `crowbar_signal()` or fails
 6. Crowbar evaluates the signal against the state's `transitions` and moves the Task
