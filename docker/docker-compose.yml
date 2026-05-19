@@ -1,0 +1,14 @@
+services:
+  crowbar:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile
+    image: ghcr.io/rabbytesoftware/crowbar:latest
+    ports:
+      - "3737:3737"
+    volumes:
+      - crowbar-data:/root/.crowbar
+    restart: unless-stopped
+
+volumes:
+  crowbar-data:

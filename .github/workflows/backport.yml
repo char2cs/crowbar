@@ -1,0 +1,41 @@
+name: Backport
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        required: true
+        type: string
+
+permissions:
+  contents: write
+  pull-requests: write
+
+jobs:
+  backport:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Configure git
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+
+      - name: Create backport branch and PR
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          DATE=$(date +%Y-%m-%d)
+          BRANCH="backport/${DATE}-${{ inputs.version }}"
+          git checkout -b "$BRANCH" origin/master
+          git push origin "$BRANCH"
+          gh pr create \
+            --title "chore: backport ${{ inputs.version }} to develop" \
+            --body "Automated backport of ${{ inputs.version }} from master." \
+            --base develop \
+            --head "$BRANCH" \
+            --label "backport"

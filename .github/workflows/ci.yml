@@ -1,0 +1,130 @@
+name: CI
+
+on:
+  pull_request:
+    branches: [master, develop]
+    types: [opened, synchronize, reopened]
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+  pull-requests: read
+
+jobs:
+  changes:
+    if: github.event.pull_request.draft == false
+    runs-on: ubuntu-latest
+    outputs:
+      go: ${{ steps.filter.outputs.go }}
+      web: ${{ steps.filter.outputs.web }}
+      tauri: ${{ steps.filter.outputs.tauri }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dorny/paths-filter@v3
+        id: filter
+        with:
+          filters: |
+            go:
+              - 'api/**'
+            web:
+              - 'web/**'
+            tauri:
+              - 'desktop/**'
+
+  validate-branch:
+    if: github.event.pull_request.draft == false
+    runs-on: ubuntu-latest
+    steps:
+      - name: Validate branch naming convention
+        run: |
+          BRANCH="${{ github.head_ref }}"
+          if [[ "${{ github.base_ref }}" == "develop" ]]; then
+            if ! echo "$BRANCH" | grep -qE '^(enhancement|feature|fix|refactor|dependabot|backport)/'; then
+              echo "❌ Branch '$BRANCH' targeting develop must start with enhancement/, feature/, fix/, refactor/, dependabot/, or backport/"
+              exit 1
+            fi
+          elif [[ "${{ github.base_ref }}" == "master" ]]; then
+            if ! echo "$BRANCH" | grep -qE '^(hotfix|beta)/'; then
+              echo "❌ Branch '$BRANCH' targeting master must start with hotfix/ or beta/"
+              exit 1
+            fi
+          fi
+          echo "✅ Branch name valid"
+
+  go-checks:
+    needs: changes
+    if: needs.changes.outputs.go == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.25'
+          cache-dependency-path: api/go.sum
+      - name: Go vet
+        run: cd api && go vet ./...
+      - name: Race-detected tests
+        run: cd api && go test -race ./...
+      - name: Test coverage (≥90%)
+        run: |
+          cd api && go test -coverprofile=coverage.out ./...
+          go tool cover -func=coverage.out | tail -1 | awk '{
+            pct = $3+0
+            if (pct < 90) { print "❌ Coverage " pct "% < 90%"; exit 1 }
+            else { print "✅ Coverage " pct "%" }
+          }'
+      - name: Build (Linux)
+        run: cd api && go build -tags noEmbed ./cmd/crowbar
+      - name: Cross-compile (macOS)
+        run: cd api && GOOS=darwin GOARCH=arm64 go build -tags noEmbed ./cmd/crowbar
+      - name: Cross-compile (Windows)
+        run: cd api && GOOS=windows GOARCH=amd64 go build -tags noEmbed ./cmd/crowbar
+
+  frontend-checks:
+    needs: changes
+    if: needs.changes.outputs.web == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: oven-sh/setup-bun@v2
+      - name: Install deps
+        run: cd web && bun install --frozen-lockfile
+      - name: Prettier
+        run: cd web && bun prettier --check .
+      - name: ESLint
+        run: cd web && bun eslint src
+      - name: TypeScript
+        run: cd web && bun tsc --noEmit
+      - name: Test coverage (≥70%)
+        run: cd web && bun run test:coverage
+      - name: Build
+        run: cd web && bun run build
+
+  tauri-checks:
+    needs: changes
+    if: needs.changes.outputs.tauri == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: '1.85'
+          components: rustfmt, clippy
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: desktop/src-tauri
+      - name: Install system deps (Linux)
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libwebkit2gtk-4.1-dev libayatana-appindicator3-dev librsvg2-dev
+      - name: Cargo fmt
+        run: cd desktop/src-tauri && cargo fmt --check
+      - name: Cargo clippy
+        run: cd desktop/src-tauri && cargo clippy -- -D warnings
+      - name: Cargo test
+        run: cd desktop/src-tauri && cargo test
+      - name: Cargo check (release)
+        run: cd desktop/src-tauri && cargo check --release
