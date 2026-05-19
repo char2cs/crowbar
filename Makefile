@@ -1,4 +1,4 @@
-.PHONY: dev dev-api dev-web dev-desktop build test lint ci docker-up docker-down
+.PHONY: dev dev-api dev-web dev-desktop build test test-coverage lint pr-checks ci docker-up docker-down
 
 # Parallel dev: starts all three subsystems
 dev:
@@ -30,6 +30,14 @@ lint:
 	@$(MAKE) -C api lint
 	@$(MAKE) -C web lint
 	@$(MAKE) -C desktop lint
+
+test-coverage:
+	@$(MAKE) -C api test-coverage
+	@$(MAKE) -C web test-coverage
+	@$(MAKE) -C desktop test-coverage
+
+pr-checks: lint test-coverage build
+	@echo "All PR checks passed! ✓"
 
 ci: lint test build
 

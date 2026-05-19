@@ -1,4 +1,4 @@
-.PHONY: dev build test lint fetch-sidecar
+.PHONY: dev build test test-coverage lint fetch-sidecar
 
 dev: fetch-sidecar
 	bunx @tauri-apps/cli dev
@@ -7,6 +7,9 @@ build: fetch-sidecar
 	bunx @tauri-apps/cli build
 
 test:
+	cd src-tauri && cargo test
+
+test-coverage:
 	cd src-tauri && cargo test
 
 lint:

@@ -1,4 +1,4 @@
-.PHONY: dev build test lint embed-web
+.PHONY: dev build test test-coverage lint embed-web
 
 # Copy the built web/dist into the cmd package for go:embed.
 # web/dist must be built first (cd ../web && bun run build).
@@ -17,6 +17,11 @@ build: embed-web
 
 test:
 	go test -race ./...
+
+test-coverage:
+	@go test -race -coverprofile=coverage.out ./...
+	@go tool cover -func=coverage.out | awk '/^total:/{gsub("%",""); if ($$3+0 < 90) {print "Coverage " $$3 "% is below 90% threshold"; exit 1} else {print "Coverage " $$3 "% ✓"}}'
+	@rm -f coverage.out
 
 lint:
 	go vet ./...
