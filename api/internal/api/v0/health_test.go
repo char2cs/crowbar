@@ -7,8 +7,8 @@ import (
 	"testing"
 
 	"github.com/gin-gonic/gin"
-	v0 "github.com/rabbytesoftware/crowbar/api/internal/api/v0"
-	"github.com/rabbytesoftware/crowbar/api/internal/app/usecases"
+	v0 "github.com/char2cs/crowbar/api/internal/api/v0"
+	"github.com/char2cs/crowbar/api/internal/app/usecases"
 )
 
 func TestHealthEndpoint(t *testing.T) {

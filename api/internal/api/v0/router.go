@@ -2,7 +2,7 @@ package v0
 
 import (
 	"github.com/gin-gonic/gin"
-	"github.com/rabbytesoftware/crowbar/api/internal/app"
+	"github.com/char2cs/crowbar/api/internal/app"
 )
 
 func Register(rg *gin.RouterGroup, appContainer *app.Container) {

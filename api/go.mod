@@ -1,4 +1,4 @@
-module github.com/rabbytesoftware/crowbar/api
+module github.com/char2cs/crowbar/api
 
 go 1.25.0
 

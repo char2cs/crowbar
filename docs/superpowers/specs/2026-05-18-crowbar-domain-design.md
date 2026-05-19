@@ -137,9 +137,8 @@ These artifacts are never injected directly into any agent's context window. The
 
 **Drain goroutine** — runs for the lifetime of the AgentRun. Receives `SessionUpdate` notifications from the ACP SDK and simultaneously:
 1. Writes the raw event to `events.jsonl`
-2. Fans out to `Broadcaster[ConversationMessage]` for real-time frontend streaming
-3. On agent turn end: assembles the full message and writes a `ConversationMessage` to SQLite
-4. On `crowbar_signal()` tool call: sends the corresponding asynx command to advance Task state
+2. Fans out to the WebSocket broadcaster for real-time frontend streaming
+3. On `crowbar_signal()` tool call: sends the corresponding asynx command to advance Task state
 
 Pattern ported from `quiver.core/internal/app/repositories/runtime/internal/reactions.go` (`drainExecution`).
 
@@ -158,25 +157,6 @@ A unit of implementation work within a Task. Created by the agent in a state tha
 | `agent_run_id` | fk → AgentRun | nullable; the AgentRun currently working on this item |
 | `created_at` | timestamp | |
 | `updated_at` | timestamp | |
-
----
-
-### ConversationMessage
-
-A single turn in a chat conversation within a Flow state. Stored in SQLite so the full conversation history survives tab closes, restarts, and state transitions. Both user messages and agent messages are stored here — user messages arrive via HTTP POST, agent messages are assembled from the ACP event stream by the drain goroutine.
-
-| Field | Type | Notes |
-|-------|------|-------|
-| `id` | uuid | |
-| `task_id` | fk → Task | |
-| `agent_run_id` | fk → AgentRun | nullable; null for user messages posted before an AgentRun starts |
-| `state_name` | string | Flow state this message belongs to |
-| `role` | enum | `user` — typed by the human; `agent` — produced by the ACP agent |
-| `type` | enum | `text` — prose message; `tool_call` — agent invoked a tool; `tool_result` — tool response |
-| `content` | text | Full message content. For `tool_call`: JSON-encoded tool name + args. For `tool_result`: JSON-encoded result. |
-| `created_at` | timestamp | |
-
-Chat reload: `SELECT * FROM conversation_messages WHERE task_id = ? ORDER BY created_at`. Full conversation history across all states and all AgentRuns for a Task is the complete ordered list.
 
 ---
 
@@ -587,15 +567,13 @@ All real-time communication uses **WebSocket** following the same architecture a
 
 **Agent text streaming:** The drain goroutine receives `SessionUpdate` notifications from the ACP SDK and fans them out immediately via `Broadcaster[ConversationMessage]` as partial chunks. The frontend assembles chunks into a message in the browser. When the agent turn ends, the drain goroutine writes the assembled full message to SQLite.
 
-**User messages:** Sent via HTTP POST to `/v0/tasks/:id/messages`. Backend stores the `ConversationMessage`, then forwards to the ACP session via `conn.Prompt()` on the live session. No WebSocket upload path for chat — same pattern as Quiver's runtime execute method.
-
 **PTY terminal:** Uses a separate WebSocket endpoint (`/v0/tasks/:id/terminal/:tab_id`). Binary frames carry raw PTY bytes server→client; text frames carry keystrokes client→server and resize control messages.
 
 **Reference:** `quiver.core/internal/api/ws/` for broadcaster, client, and filter implementations to port directly.
 
 ### Chat UI
 
-Real-time chat interface between the user and the agent. The agent can read the codebase and signal transitions. `ConversationMessage` records are loaded on mount and new messages arrive via the `Broadcaster[ConversationMessage]` WebSocket stream. Chat is accessible as a tab in every state, including states whose primary view is kanban or diff.
+Real-time chat interface between the user and the agent. The agent can read the codebase and signal transitions. Conversation history is preserved and passed to subsequent states. Chat is accessible as a tab in every state, including states whose primary view is kanban or diff.
 
 ### Kanban UI (implementation state)
 

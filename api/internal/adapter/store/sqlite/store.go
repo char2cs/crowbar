@@ -2,7 +2,7 @@ package sqlite
 
 import (
 	"github.com/glebarez/sqlite"
-	"github.com/rabbytesoftware/crowbar/api/internal/domain"
+	"github.com/char2cs/crowbar/api/internal/domain"
 	"gorm.io/gorm"
 	"gorm.io/gorm/logger"
 )
