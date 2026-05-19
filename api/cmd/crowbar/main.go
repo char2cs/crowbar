@@ -2,15 +2,19 @@ package main
 
 import (
 	"context"
+	"embed"
 	"fmt"
+	"io/fs"
 	"os"
 	"os/signal"
 	"syscall"
 
-	"github.com/spf13/cobra"
-
 	"github.com/rabbytesoftware/crowbar/api/internal"
+	"github.com/spf13/cobra"
 )
+
+//go:embed all:web/dist
+var embeddedWeb embed.FS
 
 var host string
 
@@ -42,7 +46,12 @@ func runServe(cmd *cobra.Command, args []string) error {
 	ctx, cancel := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer cancel()
 
-	container, err := internal.New(ctx, host, nil)
+	staticFS, err := fs.Sub(embeddedWeb, "web/dist")
+	if err != nil {
+		return fmt.Errorf("embedded web assets: %w", err)
+	}
+
+	container, err := internal.New(ctx, host, staticFS)
 	if err != nil {
 		return fmt.Errorf("failed to start: %w", err)
 	}
