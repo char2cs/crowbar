@@ -9,6 +9,10 @@ concurrency:
   group: ci-${{ github.ref }}
   cancel-in-progress: true
 
+permissions:
+  contents: read
+  pull-requests: read
+
 jobs:
   changes:
     if: github.event.pull_request.draft == false
@@ -94,7 +98,7 @@ jobs:
         run: cd web && bun eslint src
       - name: TypeScript
         run: cd web && bun tsc --noEmit
-      - name: Test coverage (≥95%)
+      - name: Test coverage (≥70%)
         run: cd web && bun run test:coverage
       - name: Build
         run: cd web && bun run build

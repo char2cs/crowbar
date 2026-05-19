@@ -6,6 +6,9 @@ on:
       - 'beta/**'
       - 'hotfix/**'
 
+permissions:
+  contents: write
+
 jobs:
   prerelease:
     runs-on: ubuntu-latest
@@ -44,7 +47,7 @@ jobs:
             EXT=$([ "$OS" = "windows" ] && echo ".exe" || echo "")
             GOOS=$OS GOARCH=$ARCH CGO_ENABLED=0 go build \
               -o ../dist/crowbar-api-${OS}-${ARCH}${EXT} ./cmd/crowbar
-            sha256sum ../dist/crowbar-api-${OS}-${ARCH}${EXT} >> ../dist/SHA256SUMS
+            (cd ../dist && sha256sum "crowbar-api-${OS}-${ARCH}${EXT}") >> ../dist/SHA256SUMS
           done
 
       - name: Create GitHub pre-release

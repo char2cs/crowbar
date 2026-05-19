@@ -2,7 +2,7 @@
 
 # Parallel dev: starts all three subsystems
 dev:
-	@$(MAKE) dev-api & $(MAKE) dev-web & $(MAKE) dev-desktop; wait
+	@$(MAKE) dev-api & $(MAKE) dev-web & $(MAKE) dev-desktop & wait
 
 dev-api:
 	$(MAKE) -C api dev

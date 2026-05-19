@@ -36,7 +36,7 @@ DEST="${BINARIES_DIR}/${BINARY_NAME}"
 
 # For development: build the Go daemon locally from source
 echo "Building crowbar-api for ${PLATFORM} (${TAURI_TARGET_TRIPLE})..."
-REPO_ROOT="$(git rev-parse --show-toplevel)"
+REPO_ROOT="$(cd "$(dirname "$0")/../.." && pwd)"
 cd "${REPO_ROOT}/api"
 go build -tags noEmbed -o "$DEST" ./cmd/crowbar
 

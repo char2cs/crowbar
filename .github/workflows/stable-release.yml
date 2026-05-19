@@ -5,6 +5,10 @@ on:
     types: [closed]
     branches: [master]
 
+permissions:
+  contents: write
+  actions: write
+
 jobs:
   stable:
     if: github.event.pull_request.merged == true && (startsWith(github.head_ref, 'beta/') || startsWith(github.head_ref, 'hotfix/'))
@@ -42,7 +46,7 @@ jobs:
             EXT=$([ "$OS" = "windows" ] && echo ".exe" || echo "")
             GOOS=$OS GOARCH=$ARCH CGO_ENABLED=0 go build \
               -o ../dist/crowbar-api-${OS}-${ARCH}${EXT} ./cmd/crowbar
-            sha256sum ../dist/crowbar-api-${OS}-${ARCH}${EXT} >> ../dist/SHA256SUMS
+            (cd ../dist && sha256sum "crowbar-api-${OS}-${ARCH}${EXT}") >> ../dist/SHA256SUMS
           done
 
       - name: Create stable GitHub release
