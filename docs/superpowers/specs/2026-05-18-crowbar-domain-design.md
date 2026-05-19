@@ -67,18 +67,35 @@ Relations: has many **AgentRuns**, **KanbanItems**, **ReviewThreads**.
 
 ---
 
+### Worktree
+
+A git worktree managed by Crowbar on behalf of a Repository. Crowbar maintains a pool of worktrees per Repository and assigns them to AgentRuns as needed. The relationship is **one Worktree to many AgentRuns** — multiple Tasks (running in parallel or sequentially) can share a worktree. Crowbar handles creation, assignment, and cleanup automatically; users never manage worktrees directly.
+
+| Field | Type | Notes |
+|-------|------|-------|
+| `id` | uuid | |
+| `repo_id` | fk → Repository | |
+| `path` | string | Absolute path to the worktree on disk |
+| `branch` | string | Git branch currently checked out in this worktree |
+| `status` | enum | `idle`, `in_use` |
+| `created_at` | timestamp | |
+
+Relations: has many **AgentRuns**.
+
+---
+
 ### AgentRun
 
-One agent execution within a Task state. Each AgentRun gets its own Docker container and git worktree.
+One agent execution within a Task state. Each AgentRun gets its own Docker container and is assigned a Worktree from the pool by Crowbar.
 
 | Field | Type | Notes |
 |-------|------|-------|
 | `id` | uuid | |
 | `task_id` | fk → Task | |
+| `worktree_id` | fk → Worktree | assigned by Crowbar from the pool |
 | `state_name` | string | Flow state this run belongs to |
 | `agent_type` | string | Label from the Flow YAML |
 | `container_id` | string | Docker container ID |
-| `worktree_path` | string | Absolute path to the git worktree |
 | `status` | enum | `running`, `complete`, `failed` |
 | `started_at` | timestamp | |
 | `completed_at` | timestamp | nullable |
@@ -457,8 +474,8 @@ Per-Repository and per-Project Memory tabs where users can:
 When a Task enters a new state that has an `agent`:
 
 1. Crowbar creates an **AgentRun** record
-2. Spins up a **Docker container** for isolation
-3. Creates a **git worktree** at a unique path within the repo
+2. Assigns a **Worktree** from the Repository's pool (creating one if none are idle)
+3. Spins up a **Docker container** pointed at the assigned worktree
 4. Injects into the agent context:
    - The state's `system_prompt`
    - Relevant Memory entries (semantic search against repo + project memory)
