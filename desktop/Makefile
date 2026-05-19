@@ -1,10 +1,10 @@
 .PHONY: dev build test lint fetch-sidecar
 
 dev: fetch-sidecar
-	bunx tauri dev
+	bunx @tauri-apps/cli dev
 
 build: fetch-sidecar
-	bunx tauri build
+	bunx @tauri-apps/cli build
 
 test:
 	cd src-tauri && cargo test
