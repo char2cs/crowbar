@@ -1,4 +1,5 @@
 use std::path::PathBuf;
+use std::sync::Mutex;
 use std::time::Duration;
 
 use bytes::Bytes;
@@ -6,8 +7,22 @@ use http_body_util::Empty;
 use hyper_util::client::legacy::Client;
 use hyper_util::rt::TokioExecutor;
 use hyperlocal::{UnixConnector, Uri as UnixUri};
-use tauri::{AppHandle, Runtime};
-use tauri_plugin_shell::ShellExt;
+use tauri::{AppHandle, Manager, Runtime};
+use tauri_plugin_shell::{process::CommandChild, ShellExt};
+
+/// Holds the child process handle for the crowbar-api sidecar so it can be
+/// killed cleanly when the Tauri window closes.
+pub struct SidecarHandle {
+    pub child: Mutex<Option<CommandChild>>,
+}
+
+impl SidecarHandle {
+    pub fn new() -> Self {
+        Self {
+            child: Mutex::new(None),
+        }
+    }
+}
 
 pub fn socket_path() -> PathBuf {
     let home = dirs::home_dir().expect("no home directory");
@@ -22,7 +37,14 @@ pub async fn spawn<R: Runtime>(
         .sidecar("crowbar-api")?
         .args(["serve", "--host", "unix://"]);
 
-    let (_rx, _child) = sidecar.spawn()?;
+    let (_rx, child) = sidecar.spawn()?;
+
+    // Store child in managed state so it can be killed on window close.
+    app.state::<SidecarHandle>()
+        .child
+        .lock()
+        .unwrap()
+        .replace(child);
 
     wait_for_health(30).await?;
     log::info!("crowbar daemon is ready");

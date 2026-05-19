@@ -7,6 +7,7 @@ pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_log::Builder::new().build())
         .plugin(tauri_plugin_shell::init())
+        .manage(sidecar::SidecarHandle::new())
         .setup(|app| {
             let app_handle = app.handle().clone();
 
@@ -31,6 +32,17 @@ pub fn run() {
                 let response = protocol::handle(request).await;
                 responder.respond(response);
             });
+        })
+        .on_window_event(|window, event| {
+            if let tauri::WindowEvent::CloseRequested { .. } | tauri::WindowEvent::Destroyed =
+                event
+            {
+                if let Some(state) = window.try_state::<sidecar::SidecarHandle>() {
+                    if let Some(child) = state.child.lock().unwrap().take() {
+                        let _ = child.kill();
+                    }
+                }
+            }
         })
         .run(tauri::generate_context!())
         .expect("error running Tauri app");

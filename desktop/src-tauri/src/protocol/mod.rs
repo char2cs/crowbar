@@ -61,10 +61,11 @@ async fn proxy_request(
 }
 
 fn error_response(status: StatusCode, msg: &str) -> Response<Vec<u8>> {
+    let body = serde_json::json!({"error": msg}).to_string();
     Response::builder()
         .status(status.as_u16())
         .header("Content-Type", "application/json")
-        .body(format!(r#"{{"error":"{msg}"}}"#).into_bytes())
+        .body(body.into_bytes())
         .unwrap()
 }
 

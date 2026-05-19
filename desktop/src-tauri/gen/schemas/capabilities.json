@@ -1,1 +1,1 @@
-{}
+{"default":{"identifier":"default","description":"Default app capabilities","local":true,"windows":["main"],"permissions":["shell:allow-spawn","shell:allow-kill","log:default"]}}
