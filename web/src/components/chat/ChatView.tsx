@@ -3,6 +3,7 @@ import { ScrollArea } from '@/components/ui/scroll-area'
 import { MessageBubble } from './MessageBubble'
 import { ToolCallSeparator } from './ToolCallSeparator'
 import { ChatInput } from './ChatInput'
+import { ChatEmptyState } from './ChatEmptyState'
 import type { ChatMessage } from '@/lib/types'
 
 export type { ChatMessage }
@@ -12,16 +13,6 @@ interface ChatViewProps {
   onSend: (content: string, attachments: File[]) => void
   inputPlaceholder?: string
   sending?: boolean
-}
-
-function ChatEmptyState() {
-  return (
-    <div className="flex flex-1 flex-col items-center justify-center gap-2 py-24 text-center">
-      <span className="text-2xl text-primary/50">✦</span>
-      <p className="text-sm font-medium text-foreground">Start a conversation</p>
-      <p className="text-xs text-muted-foreground">Ask anything about this workspace</p>
-    </div>
-  )
 }
 
 export function ChatView({

@@ -71,7 +71,7 @@ export function ChatInput({ placeholder, onSend, disabled }: ChatInputProps) {
   }
 
   // base-ui ToggleGroup uses value as array; wrap effort in array for controlled single-select
-  const effortValue: readonly EffortLevel[] = [effort]
+  const effortValue: readonly string[] = [effort]
   const handleEffortChange = (values: string[]) => {
     const next = values[values.length - 1] as EffortLevel | undefined
     if (next) setEffort(next)
@@ -93,25 +93,20 @@ export function ChatInput({ placeholder, onSend, disabled }: ChatInputProps) {
 
         <PromptInputFooter className="flex items-center gap-1.5 px-3 pb-2">
           <PromptInputTools>
-            {/* Attach — uses context to open the hidden file input managed by PromptInput */}
+            {/* Attach -- uses context to open the hidden file input managed by PromptInput */}
             <AttachButton />
 
-            {/* Model selector */}
+            {/* Model selector -- DialogTrigger (base-ui) renders as <button>; style it directly */}
             <ModelSelector open={modelPickerOpen} onOpenChange={setModelPickerOpen}>
-              {/* DialogTrigger from base-ui doesn't expose asChild in its TS types, so use render prop pattern */}
-              <ModelSelectorTrigger>
-                <Button
-                  variant="outline"
-                  size="sm"
-                  type="button"
-                  className="h-7 gap-1.5 px-2 text-[12px] text-muted-foreground"
-                >
-                  <span>✦</span>
-                  <span>{modelLabel}</span>
-                </Button>
+              <ModelSelectorTrigger
+                type="button"
+                className="inline-flex h-7 items-center gap-1.5 rounded-md border border-border bg-background px-2 text-[12px] text-muted-foreground hover:bg-accent hover:text-accent-foreground"
+              >
+                <span>&#10022;</span>
+                <span>{modelLabel}</span>
               </ModelSelectorTrigger>
               <ModelSelectorContent>
-                <ModelSelectorInput placeholder="Search models…" />
+                <ModelSelectorInput placeholder="Search models..." />
                 <ModelSelectorList>
                   <ModelSelectorGroup>
                     {MODELS.map(m => (
@@ -131,7 +126,7 @@ export function ChatInput({ placeholder, onSend, disabled }: ChatInputProps) {
               </ModelSelectorContent>
             </ModelSelector>
 
-            {/* Effort level — base-ui ToggleGroup uses value as array */}
+            {/* Effort level -- base-ui ToggleGroup uses value as array */}
             <ToggleGroup
               value={effortValue}
               onValueChange={handleEffortChange}
