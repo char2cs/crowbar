@@ -36,7 +36,7 @@ export interface SidebarProps {
   onChatClick?: (id: string) => void
   onWorkspaceClick?: (repoId: string, workspaceId: string) => void
   onNewChat?: () => void
-  onNewWorkspace?: (repoId: string) => void
+  onNewWorkspace?: () => void
 }
 
 export function Sidebar({
@@ -88,7 +88,7 @@ export function Sidebar({
                   onClick={() => onWorkspaceClick?.(repo.id, ws.id)}
                 />
               ))}
-              <NewRow label="New workspace" onClick={() => onNewWorkspace?.(repo.id)} />
+              <NewRow label="New workspace" onClick={onNewWorkspace} />
             </div>
           ))}
         </div>
