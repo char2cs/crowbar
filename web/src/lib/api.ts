@@ -1,7 +1,8 @@
-import type { WorkspacePayload, FlowDefinition, ChatMessage } from './types'
+import type { WorkspacePayload, FlowDefinition, ChatMessage, Project } from './types'
 import { getMockWorkspace, createMockWorkspace } from './mock/workspaces'
 import { MOCK_FLOWS } from './mock/flows'
 import { getMockConversation } from './mock/conversations'
+import { getAllMockProjects, createMockProject } from './mock/projects'
 
 const crowbar = (window as any).__CROWBAR__
 export const API_BASE = crowbar?.api ?? import.meta.env.VITE_API_URL ?? ''
@@ -36,4 +37,12 @@ export function fetchConversation(
   step: string,
 ): Promise<{ messages: ChatMessage[] }> {
   return Promise.resolve({ messages: getMockConversation(wsId, step) })
+}
+
+export function fetchProjects(): Promise<Project[]> {
+  return Promise.resolve(getAllMockProjects())
+}
+
+export function postProject(name: string, path: string): Promise<Project> {
+  return Promise.resolve(createMockProject({ name, path }))
 }

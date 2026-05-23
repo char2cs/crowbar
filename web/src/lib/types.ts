@@ -33,3 +33,10 @@ export interface ChatMessage {
   toolCalls?: number
   durationSec?: number
 }
+
+export interface Project {
+  id: string
+  name: string
+  path: string
+  lastActivity: Date
+}
