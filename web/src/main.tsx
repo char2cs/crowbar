@@ -9,10 +9,10 @@ import './index.css'
 const router = createRouter({ routeTree })
 
 declare module '@tanstack/react-router' {
-  interface Register {
-    router: typeof router
-  }
+  interface Register { router: typeof router }
 }
+
+document.documentElement.classList.add('dark')
 
 createRoot(document.getElementById('root')!).render(
   <StrictMode>
