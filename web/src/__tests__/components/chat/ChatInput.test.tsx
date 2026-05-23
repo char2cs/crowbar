@@ -27,3 +27,12 @@ test('shows model name', () => {
   render(<ChatInput placeholder="Message…" onSend={() => {}} modelName="Sonnet 4.6" />)
   expect(screen.getByText('Sonnet 4.6')).toBeInTheDocument()
 })
+
+test('sends on Cmd+Enter', () => {
+  const onSend = vi.fn()
+  render(<ChatInput placeholder="Message…" onSend={onSend} />)
+  const textarea = screen.getByPlaceholderText('Message…')
+  fireEvent.change(textarea, { target: { value: 'hello' } })
+  fireEvent.keyDown(textarea, { key: 'Enter', metaKey: true })
+  expect(onSend).toHaveBeenCalledWith('hello')
+})

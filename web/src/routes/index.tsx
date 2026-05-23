@@ -62,6 +62,7 @@ const MOCK_MESSAGES: ChatMessage[] = [
 function IndexPage() {
   const [step, setStep] = useState<FlowStep>('brainstorm')
   const [activeChatId, setActiveChatId] = useState('c1')
+  const [activeWorkspaceId, setActiveWorkspaceId] = useState<string | undefined>(undefined)
   const [messages, setMessages] = useState<ChatMessage[]>(MOCK_MESSAGES)
 
   const handleSend = (content: string) => {
@@ -80,7 +81,9 @@ function IndexPage() {
           chats={MOCK_CHATS}
           repos={MOCK_REPOS}
           activeChatId={activeChatId}
+          activeWorkspaceId={activeWorkspaceId}
           onChatClick={setActiveChatId}
+          onWorkspaceClick={(_repoId, wsId) => setActiveWorkspaceId(wsId)}
         />
       }
     >
