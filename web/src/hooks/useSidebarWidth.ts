@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 
 const MIN = 180
 const MAX = 400
@@ -10,8 +10,12 @@ function clamp(v: number) { return Math.min(MAX, Math.max(MIN, v)) }
 export function useSidebarWidth() {
   const [width, setWidthState] = useState(() => {
     const stored = localStorage.getItem(STORAGE_KEY)
-    return stored ? clamp(Number(stored)) : DEFAULT
+    const parsed = Number(stored)
+    return stored !== null && !isNaN(parsed) ? clamp(parsed) : DEFAULT
   })
+
+  const widthRef = useRef(width)
+  useEffect(() => { widthRef.current = width }, [width])
 
   useEffect(() => {
     localStorage.setItem(STORAGE_KEY, String(width))
@@ -22,7 +26,7 @@ export function useSidebarWidth() {
   const startResize = useCallback(
     (e: React.MouseEvent) => {
       const startX = e.clientX
-      const startW = width
+      const startW = widthRef.current
       const onMove = (e: MouseEvent) => setWidthState(clamp(startW + e.clientX - startX))
       const onUp = () => {
         document.removeEventListener('mousemove', onMove)
@@ -36,7 +40,7 @@ export function useSidebarWidth() {
       document.addEventListener('mouseup', onUp)
       e.preventDefault()
     },
-    [width],
+    [], // stable reference — uses widthRef.current
   )
 
   return { width, setWidth, startResize }

@@ -31,3 +31,44 @@ test('persists width changes to localStorage', () => {
   act(() => result.current.setWidth(300))
   expect(localStorage.getItem('crowbar-sidebar-width')).toBe('300')
 })
+
+test('NaN in localStorage falls back to default', () => {
+  localStorage.setItem('crowbar-sidebar-width', 'not-a-number')
+  const { result } = renderHook(() => useSidebarWidth())
+  expect(result.current.width).toBe(256)
+})
+
+test('startResize increases width on mouse right drag', () => {
+  const { result } = renderHook(() => useSidebarWidth())
+
+  // Simulate mousedown at x=100
+  const mousedownEvent = { clientX: 100, preventDefault: () => {} } as unknown as React.MouseEvent
+  act(() => { result.current.startResize(mousedownEvent) })
+
+  // Simulate mousemove to x=150 (50px right)
+  act(() => {
+    document.dispatchEvent(new MouseEvent('mousemove', { clientX: 150 }))
+  })
+
+  expect(result.current.width).toBe(256 + 50) // 306
+
+  // Simulate mouseup to clean up
+  act(() => {
+    document.dispatchEvent(new MouseEvent('mouseup'))
+  })
+})
+
+test('startResize clamps at max on large rightward drag', () => {
+  const { result } = renderHook(() => useSidebarWidth())
+
+  const mousedownEvent = { clientX: 0, preventDefault: () => {} } as unknown as React.MouseEvent
+  act(() => { result.current.startResize(mousedownEvent) })
+
+  act(() => {
+    document.dispatchEvent(new MouseEvent('mousemove', { clientX: 500 }))
+  })
+
+  expect(result.current.width).toBe(400) // clamped to MAX
+
+  act(() => { document.dispatchEvent(new MouseEvent('mouseup')) })
+})
