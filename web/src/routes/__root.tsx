@@ -2,9 +2,10 @@ import { createRootRoute, Outlet, useNavigate, useRouterState } from '@tanstack/
 import { useState } from 'react'
 import { AppShell } from '@/components/layout/AppShell'
 import { Sidebar, type Repo } from '@/components/layout/Sidebar'
-import { getAllMockChats, createMockChat } from '@/lib/mock/chats'
+import { getAllMockChats, createMockChat, deleteMockChat } from '@/lib/mock/chats'
+import { deleteMockWorkspace } from '@/lib/mock/workspaces'
 
-const MOCK_REPOS: Repo[] = [
+const INITIAL_REPOS: Repo[] = [
   {
     id: 'crowbar', name: 'crowbar', avatarLabel: 'C', avatarColor: 'bg-indigo-700',
     workspaces: [
@@ -32,6 +33,7 @@ function RootLayout() {
   const [chats, setChats] = useState(() =>
     getAllMockChats().map(c => ({ id: c.id, title: c.title, age: c.age })),
   )
+  const [repos, setRepos] = useState(INITIAL_REPOS)
 
   const activeWorkspaceId = pathname.match(/\/workspaces\/([^/]+)/)?.[1]
   const activeChatId = pathname.match(/\/chat\/([^/]+)/)?.[1]
@@ -42,6 +44,29 @@ function RootLayout() {
     navigate({ to: '/chat/$chatId', params: { chatId: chat.id } })
   }
 
+  const handleDeleteChat = (id: string) => {
+    deleteMockChat(id)
+    setChats(prev => {
+      const next = prev.filter(c => c.id !== id)
+      if (activeChatId === id) {
+        if (next.length > 0) {
+          navigate({ to: '/chat/$chatId', params: { chatId: next[0].id } })
+        } else {
+          navigate({ to: '/' })
+        }
+      }
+      return next
+    })
+  }
+
+  const handleDeleteWorkspace = (wsId: string) => {
+    deleteMockWorkspace(wsId)
+    setRepos(prev => prev.map(r => ({ ...r, workspaces: r.workspaces.filter(w => w.id !== wsId) })))
+    if (activeWorkspaceId === wsId) {
+      navigate({ to: '/' })
+    }
+  }
+
   return (
     <AppShell
       sidebar={
@@ -49,13 +74,15 @@ function RootLayout() {
           projectName="Rabbyte"
           userInitials="MU"
           chats={chats}
-          repos={MOCK_REPOS}
+          repos={repos}
           activeChatId={activeChatId}
           activeWorkspaceId={activeWorkspaceId}
           onChatClick={(id) => navigate({ to: '/chat/$chatId', params: { chatId: id } })}
           onWorkspaceClick={(_, wsId) => navigate({ to: '/workspaces/$wsId', params: { wsId } })}
           onNewChat={handleNewChat}
           onNewWorkspace={() => navigate({ to: '/workspaces/new' })}
+          onDeleteChat={handleDeleteChat}
+          onDeleteWorkspace={handleDeleteWorkspace}
         />
       }
     >

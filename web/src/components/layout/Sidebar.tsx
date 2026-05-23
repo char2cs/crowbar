@@ -37,6 +37,8 @@ export interface SidebarProps {
   onWorkspaceClick?: (repoId: string, workspaceId: string) => void
   onNewChat?: () => void
   onNewWorkspace?: () => void
+  onDeleteChat?: (id: string) => void
+  onDeleteWorkspace?: (wsId: string) => void
 }
 
 export function Sidebar({
@@ -50,6 +52,8 @@ export function Sidebar({
   onWorkspaceClick,
   onNewChat,
   onNewWorkspace,
+  onDeleteChat,
+  onDeleteWorkspace,
 }: SidebarProps) {
   return (
     <div className="flex h-full flex-col overflow-hidden bg-card">
@@ -63,6 +67,7 @@ export function Sidebar({
               age={chat.age}
               active={chat.id === activeChatId}
               onClick={() => onChatClick?.(chat.id)}
+              onDelete={onDeleteChat ? () => onDeleteChat(chat.id) : undefined}
             />
           ))}
           <NewRow label="New chat" onClick={onNewChat} />
@@ -86,6 +91,7 @@ export function Sidebar({
                   age={ws.age}
                   active={ws.id === activeWorkspaceId}
                   onClick={() => onWorkspaceClick?.(repo.id, ws.id)}
+                  onDelete={onDeleteWorkspace ? () => onDeleteWorkspace(ws.id) : undefined}
                 />
               ))}
               <NewRow label="New workspace" onClick={onNewWorkspace} />

@@ -52,3 +52,7 @@ export function createMockChat(): MockChat {
   store.set(id, chat)
   return chat
 }
+
+export function deleteMockChat(id: string): void {
+  store.delete(id)
+}

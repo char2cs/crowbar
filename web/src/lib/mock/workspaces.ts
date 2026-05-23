@@ -57,3 +57,7 @@ export function createMockWorkspace(
   store.set(id, ws)
   return ws
 }
+
+export function deleteMockWorkspace(id: string): void {
+  store.delete(id)
+}

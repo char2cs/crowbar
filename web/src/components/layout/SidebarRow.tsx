@@ -10,18 +10,26 @@ interface ChatRowProps {
   age: string
   active?: boolean
   onClick?: () => void
+  onDelete?: () => void
 }
 
-export function ChatRow({ title, age, active, onClick }: ChatRowProps) {
+export function ChatRow({ title, age, active, onClick, onDelete }: ChatRowProps) {
   return (
-    <div className={cn(ROW, active ? 'bg-accent' : 'hover:bg-accent/50')} onClick={onClick} role="button" tabIndex={0} onKeyDown={onClick ? (e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); onClick() } } : undefined}>
+    <div className={cn(ROW, 'group', active ? 'bg-accent' : 'hover:bg-accent/50')} onClick={onClick} role="button" tabIndex={0} onKeyDown={onClick ? (e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); onClick() } } : undefined}>
       <div aria-hidden="true" className="flex h-5 w-5 flex-shrink-0 items-center justify-center rounded-md border border-border bg-card text-[11px]">
         💬
       </div>
       <span className={cn('flex-1 truncate text-[13px]', active ? 'text-foreground' : 'text-muted-foreground')}>
         {title}
       </span>
-      <span className="flex-shrink-0 text-[11px] text-muted-foreground/50">{age}</span>
+      <span className={cn('flex-shrink-0 text-[11px] text-muted-foreground/50', onDelete && 'group-hover:hidden')}>{age}</span>
+      {onDelete && (
+        <button
+          className="hidden group-hover:flex h-4 w-4 flex-shrink-0 items-center justify-center rounded text-muted-foreground/40 hover:text-muted-foreground"
+          onClick={(e) => { e.stopPropagation(); onDelete() }}
+          aria-label="Delete chat"
+        >×</button>
+      )}
     </div>
   )
 }
@@ -62,11 +70,12 @@ interface WorkspaceRowProps {
   age: string
   active?: boolean
   onClick?: () => void
+  onDelete?: () => void
 }
 
-export function WorkspaceRow({ num, branch, added, deleted, age, active, onClick }: WorkspaceRowProps) {
+export function WorkspaceRow({ num, branch, added, deleted, age, active, onClick, onDelete }: WorkspaceRowProps) {
   return (
-    <div className={cn(ROW, active ? 'bg-primary/10' : 'hover:bg-accent/50')} onClick={onClick} role="button" tabIndex={0} onKeyDown={onClick ? (e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); onClick() } } : undefined}>
+    <div className={cn(ROW, 'group', active ? 'bg-primary/10' : 'hover:bg-accent/50')} onClick={onClick} role="button" tabIndex={0} onKeyDown={onClick ? (e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); onClick() } } : undefined}>
       <span className="w-3 flex-shrink-0 text-right font-mono text-[10px] text-muted-foreground/40">
         {num ?? ''}
       </span>
@@ -80,6 +89,13 @@ export function WorkspaceRow({ num, branch, added, deleted, age, active, onClick
           <span>{age}</span>
         </div>
       </div>
+      {onDelete && (
+        <button
+          className="hidden group-hover:flex h-4 w-4 flex-shrink-0 items-center justify-center rounded text-muted-foreground/40 hover:text-muted-foreground"
+          onClick={(e) => { e.stopPropagation(); onDelete() }}
+          aria-label="Delete workspace"
+        >×</button>
+      )}
     </div>
   )
 }
