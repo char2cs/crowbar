@@ -40,7 +40,6 @@ function RootLayout() {
     <AppShell
       sidebar={
         <Sidebar
-          projectName="Rabbyte"
           userInitials="MU"
           chats={chats}
           repos={repos}
@@ -55,6 +54,7 @@ function RootLayout() {
           onDeleteWorkspace={handleDeleteWorkspace}
           onRepoToggle={toggleRepo}
           onProjectsClick={() => navigate({ to: '/projects' })}
+          onProjectSelect={() => navigate({ to: '/' })}
         />
       }
     >

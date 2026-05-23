@@ -1,5 +1,11 @@
 import { render, screen } from '@testing-library/react'
+import { beforeEach } from 'vitest'
 import { Sidebar } from '@/components/layout/Sidebar'
+import { useProjectStore } from '@/lib/store/projects'
+
+beforeEach(() => {
+  useProjectStore.setState(useProjectStore.getInitialState())
+})
 
 const CHATS = [{ id: 'c1', title: 'Auth design', age: '1h' }]
 const REPOS = [
@@ -9,9 +15,9 @@ const REPOS = [
   },
 ]
 
-test('renders project name and chats', () => {
+test('renders active project name and chats', () => {
   render(
-    <Sidebar projectName="Rabbyte" userInitials="MU" chats={CHATS} repos={REPOS} />,
+    <Sidebar userInitials="MU" chats={CHATS} repos={REPOS} />,
   )
   expect(screen.getByText('Rabbyte')).toBeInTheDocument()
   expect(screen.getByText('Auth design')).toBeInTheDocument()
@@ -19,7 +25,7 @@ test('renders project name and chats', () => {
 
 test('renders repo name and workspace branch', () => {
   render(
-    <Sidebar projectName="Rabbyte" userInitials="MU" chats={CHATS} repos={REPOS} />,
+    <Sidebar userInitials="MU" chats={CHATS} repos={REPOS} />,
   )
   expect(screen.getByText('crowbar')).toBeInTheDocument()
   expect(screen.getByText('feature/x')).toBeInTheDocument()
@@ -27,7 +33,7 @@ test('renders repo name and workspace branch', () => {
 
 test('renders New chat and New workspace rows', () => {
   render(
-    <Sidebar projectName="Rabbyte" userInitials="MU" chats={CHATS} repos={REPOS} />,
+    <Sidebar userInitials="MU" chats={CHATS} repos={REPOS} />,
   )
   expect(screen.getByText('New chat')).toBeInTheDocument()
   expect(screen.getByText('New workspace')).toBeInTheDocument()

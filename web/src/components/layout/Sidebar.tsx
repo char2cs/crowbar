@@ -7,7 +7,6 @@ import type { ProjectChat, Repo } from '@/lib/store/sidebar'
 export type { ProjectChat, Repo }
 
 interface SidebarProps {
-  projectName: string
   userInitials: string
   chats: ProjectChat[]
   repos: Repo[]
@@ -22,22 +21,23 @@ interface SidebarProps {
   onDeleteWorkspace?: (wsId: string) => void
   onRepoToggle?: (repoId: string) => void
   onProjectsClick?: () => void
+  onProjectSelect?: (id: string) => void
 }
 
 const EMPTY_SET = new Set<string>()
 
 export function Sidebar({
-  projectName, userInitials, chats, repos, collapsedRepos = EMPTY_SET,
+  userInitials, chats, repos, collapsedRepos = EMPTY_SET,
   activeChatId, activeWorkspaceId,
   onChatClick, onWorkspaceClick, onNewChat, onNewWorkspace,
-  onDeleteChat, onDeleteWorkspace, onRepoToggle, onProjectsClick,
+  onDeleteChat, onDeleteWorkspace, onRepoToggle, onProjectsClick, onProjectSelect,
 }: SidebarProps) {
   return (
     <div className="flex h-full flex-col overflow-hidden bg-card">
       <SidebarHeader
-        projectName={projectName}
         userInitials={userInitials}
         onProjectsClick={onProjectsClick}
+        onProjectSelect={onProjectSelect}
       />
       <ScrollArea className="flex-1">
         <div className="py-1">
