@@ -39,6 +39,7 @@
     "@tailwindcss/vite": "^4.0.0",
     "@tanstack/react-query-devtools": "^5.99.0",
     "@tanstack/router-plugin": "^1.168.0",
+    "@testing-library/jest-dom": "^6.9.1",
     "@testing-library/react": "^16.0.0",
     "@types/node": "^25.9.1",
     "@types/react": "^19.0.0",
