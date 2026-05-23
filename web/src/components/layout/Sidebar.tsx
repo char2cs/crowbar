@@ -2,35 +2,16 @@ import { ScrollArea } from '@/components/ui/scroll-area'
 import { Separator } from '@/components/ui/separator'
 import { SidebarHeader } from './SidebarHeader'
 import { ChatRow, RepoRow, WorkspaceRow, NewRow } from './SidebarRow'
+import type { ProjectChat, Repo } from '@/lib/store/sidebar'
 
-export interface ProjectChat {
-  id: string
-  title: string
-  age: string
-}
+export type { ProjectChat, Repo }
 
-export interface Workspace {
-  id: string
-  num?: number
-  branch: string
-  added?: number
-  deleted?: number
-  age: string
-}
-
-export interface Repo {
-  id: string
-  name: string
-  avatarLabel: string
-  avatarColor: string
-  workspaces: Workspace[]
-}
-
-export interface SidebarProps {
+interface SidebarProps {
   projectName: string
   userInitials: string
   chats: ProjectChat[]
   repos: Repo[]
+  collapsedRepos?: Set<string>
   activeChatId?: string
   activeWorkspaceId?: string
   onChatClick?: (id: string) => void
@@ -39,25 +20,25 @@ export interface SidebarProps {
   onNewWorkspace?: () => void
   onDeleteChat?: (id: string) => void
   onDeleteWorkspace?: (wsId: string) => void
+  onRepoToggle?: (repoId: string) => void
+  onProjectsClick?: () => void
 }
 
+const EMPTY_SET = new Set<string>()
+
 export function Sidebar({
-  projectName,
-  userInitials,
-  chats,
-  repos,
-  activeChatId,
-  activeWorkspaceId,
-  onChatClick,
-  onWorkspaceClick,
-  onNewChat,
-  onNewWorkspace,
-  onDeleteChat,
-  onDeleteWorkspace,
+  projectName, userInitials, chats, repos, collapsedRepos = EMPTY_SET,
+  activeChatId, activeWorkspaceId,
+  onChatClick, onWorkspaceClick, onNewChat, onNewWorkspace,
+  onDeleteChat, onDeleteWorkspace, onRepoToggle, onProjectsClick,
 }: SidebarProps) {
   return (
     <div className="flex h-full flex-col overflow-hidden bg-card">
-      <SidebarHeader projectName={projectName} userInitials={userInitials} />
+      <SidebarHeader
+        projectName={projectName}
+        userInitials={userInitials}
+        onProjectsClick={onProjectsClick}
+      />
       <ScrollArea className="flex-1">
         <div className="py-1">
           {chats.map(chat => (
@@ -71,32 +52,39 @@ export function Sidebar({
             />
           ))}
           <NewRow label="New chat" onClick={onNewChat} />
-
           <Separator className="my-1 mx-3" />
-
-          {repos.map(repo => (
-            <div key={repo.id}>
-              <RepoRow
-                name={repo.name}
-                avatarLabel={repo.avatarLabel}
-                avatarColor={repo.avatarColor}
-              />
-              {repo.workspaces.map(ws => (
-                <WorkspaceRow
-                  key={ws.id}
-                  num={ws.num}
-                  branch={ws.branch}
-                  added={ws.added}
-                  deleted={ws.deleted}
-                  age={ws.age}
-                  active={ws.id === activeWorkspaceId}
-                  onClick={() => onWorkspaceClick?.(repo.id, ws.id)}
-                  onDelete={onDeleteWorkspace ? () => onDeleteWorkspace(ws.id) : undefined}
+          {repos.map(repo => {
+            const collapsed = collapsedRepos.has(repo.id)
+            return (
+              <div key={repo.id}>
+                <RepoRow
+                  name={repo.name}
+                  avatarLabel={repo.avatarLabel}
+                  avatarColor={repo.avatarColor}
+                  collapsed={collapsed}
+                  onClick={() => onRepoToggle?.(repo.id)}
                 />
-              ))}
-              <NewRow label="New workspace" onClick={onNewWorkspace} />
-            </div>
-          ))}
+                {!collapsed && (
+                  <>
+                    {repo.workspaces.map(ws => (
+                      <WorkspaceRow
+                        key={ws.id}
+                        num={ws.num}
+                        branch={ws.branch}
+                        added={ws.added}
+                        deleted={ws.deleted}
+                        age={ws.age}
+                        active={ws.id === activeWorkspaceId}
+                        onClick={() => onWorkspaceClick?.(repo.id, ws.id)}
+                        onDelete={onDeleteWorkspace ? () => onDeleteWorkspace(ws.id) : undefined}
+                      />
+                    ))}
+                    <NewRow label="New workspace" onClick={onNewWorkspace} />
+                  </>
+                )}
+              </div>
+            )
+          })}
         </div>
       </ScrollArea>
     </div>
