@@ -14,8 +14,8 @@ interface ChatRowProps {
 
 export function ChatRow({ title, age, active, onClick }: ChatRowProps) {
   return (
-    <div className={cn(ROW, active ? 'bg-accent' : 'hover:bg-accent/50')} onClick={onClick}>
-      <div className="flex h-5 w-5 flex-shrink-0 items-center justify-center rounded-md border border-border bg-card text-[11px]">
+    <div className={cn(ROW, active ? 'bg-accent' : 'hover:bg-accent/50')} onClick={onClick} role="button" tabIndex={0} onKeyDown={onClick ? (e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); onClick() } } : undefined}>
+      <div aria-hidden="true" className="flex h-5 w-5 flex-shrink-0 items-center justify-center rounded-md border border-border bg-card text-[11px]">
         💬
       </div>
       <span className={cn('flex-1 truncate text-[13px]', active ? 'text-foreground' : 'text-muted-foreground')}>
@@ -38,14 +38,14 @@ interface RepoRowProps {
 
 export function RepoRow({ name, avatarLabel, avatarColor, collapsed, onClick }: RepoRowProps) {
   return (
-    <div className={cn(ROW, 'hover:bg-accent/50')} onClick={onClick}>
+    <div className={cn(ROW, 'hover:bg-accent/50')} onClick={onClick} role="button" tabIndex={0} onKeyDown={onClick ? (e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); onClick() } } : undefined}>
       <Avatar className="h-5 w-5 flex-shrink-0 rounded-md">
         <AvatarFallback className={cn('rounded-md text-[10px] font-bold text-primary-foreground', avatarColor)}>
           {avatarLabel}
         </AvatarFallback>
       </Avatar>
       <span className="text-[10px] flex-shrink-0 text-muted-foreground/50">
-        {collapsed ? '›' : '⌄'}
+        {collapsed === true ? '›' : '⌄'}
       </span>
       <span className="flex-1 truncate text-[13px] font-medium text-foreground/80">{name}</span>
     </div>
@@ -66,7 +66,7 @@ interface WorkspaceRowProps {
 
 export function WorkspaceRow({ num, branch, added, deleted, age, active, onClick }: WorkspaceRowProps) {
   return (
-    <div className={cn(ROW, active ? 'bg-primary/10' : 'hover:bg-accent/50')} onClick={onClick}>
+    <div className={cn(ROW, active ? 'bg-primary/10' : 'hover:bg-accent/50')} onClick={onClick} role="button" tabIndex={0} onKeyDown={onClick ? (e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); onClick() } } : undefined}>
       <span className="w-3 flex-shrink-0 text-right font-mono text-[10px] text-muted-foreground/40">
         {num ?? ''}
       </span>
@@ -75,8 +75,8 @@ export function WorkspaceRow({ num, branch, added, deleted, age, active, onClick
           {branch}
         </span>
         <div className="flex gap-1 text-[10.5px] leading-none text-muted-foreground/40">
-          {added !== undefined && <span className="text-green-500">+{added}</span>}
-          {deleted !== undefined && <span className="text-red-500">-{deleted}</span>}
+          {added !== undefined && added > 0 && <span className="text-green-500">+{added}</span>}
+          {deleted !== undefined && deleted > 0 && <span className="text-red-500">-{deleted}</span>}
           <span>{age}</span>
         </div>
       </div>
@@ -93,7 +93,7 @@ interface NewRowProps {
 
 export function NewRow({ label, onClick }: NewRowProps) {
   return (
-    <div className={cn(ROW, 'hover:bg-accent/50')} onClick={onClick}>
+    <div className={cn(ROW, 'hover:bg-accent/50')} onClick={onClick} role="button" tabIndex={0} onKeyDown={onClick ? (e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); onClick() } } : undefined}>
       <span className="text-[15px] leading-none text-muted-foreground/40">+</span>
       <span className="flex-1 truncate text-[12.5px] text-muted-foreground/40">{label}</span>
     </div>
