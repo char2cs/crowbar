@@ -1,14 +1,13 @@
-import { useRef } from 'react'
+import type { ReactNode } from 'react'
 import { useSidebarWidth } from '@/hooks/useSidebarWidth'
 
 interface AppShellProps {
-  sidebar: React.ReactNode
-  children: React.ReactNode
+  sidebar: ReactNode
+  children: ReactNode
 }
 
 export function AppShell({ sidebar, children }: AppShellProps) {
   const { width, startResize } = useSidebarWidth()
-  const dragging = useRef(false)
 
   return (
     <div className="flex h-screen overflow-hidden bg-background text-foreground">
@@ -18,7 +17,7 @@ export function AppShell({ sidebar, children }: AppShellProps) {
         {/* Resize handle */}
         <div
           className="absolute inset-y-0 right-0 w-1 cursor-col-resize transition-colors hover:bg-primary/60"
-          onMouseDown={e => { dragging.current = true; startResize(e) }}
+          onMouseDown={startResize}
         />
       </div>
       {/* Main */}
