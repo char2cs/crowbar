@@ -11,6 +11,7 @@
 import { Route as rootRouteImport } from './routes/__root'
 import { Route as IndexRouteImport } from './routes/index'
 import { Route as WorkspacesWsIdRouteImport } from './routes/workspaces/$wsId'
+import { Route as ChatChatIdRouteImport } from './routes/chat/$chatId'
 import { Route as WorkspacesWsIdIndexRouteImport } from './routes/workspaces/$wsId/index'
 import { Route as WorkspacesWsIdStepRouteImport } from './routes/workspaces/$wsId/$step'
 
@@ -22,6 +23,11 @@ const IndexRoute = IndexRouteImport.update({
 const WorkspacesWsIdRoute = WorkspacesWsIdRouteImport.update({
   id: '/workspaces/$wsId',
   path: '/workspaces/$wsId',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const ChatChatIdRoute = ChatChatIdRouteImport.update({
+  id: '/chat/$chatId',
+  path: '/chat/$chatId',
   getParentRoute: () => rootRouteImport,
 } as any)
 const WorkspacesWsIdIndexRoute = WorkspacesWsIdIndexRouteImport.update({
@@ -37,18 +43,21 @@ const WorkspacesWsIdStepRoute = WorkspacesWsIdStepRouteImport.update({
 
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
+  '/chat/$chatId': typeof ChatChatIdRoute
   '/workspaces/$wsId': typeof WorkspacesWsIdRouteWithChildren
   '/workspaces/$wsId/$step': typeof WorkspacesWsIdStepRoute
   '/workspaces/$wsId/': typeof WorkspacesWsIdIndexRoute
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
+  '/chat/$chatId': typeof ChatChatIdRoute
   '/workspaces/$wsId/$step': typeof WorkspacesWsIdStepRoute
   '/workspaces/$wsId': typeof WorkspacesWsIdIndexRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
   '/': typeof IndexRoute
+  '/chat/$chatId': typeof ChatChatIdRoute
   '/workspaces/$wsId': typeof WorkspacesWsIdRouteWithChildren
   '/workspaces/$wsId/$step': typeof WorkspacesWsIdStepRoute
   '/workspaces/$wsId/': typeof WorkspacesWsIdIndexRoute
@@ -57,14 +66,16 @@ export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
   fullPaths:
     | '/'
+    | '/chat/$chatId'
     | '/workspaces/$wsId'
     | '/workspaces/$wsId/$step'
     | '/workspaces/$wsId/'
   fileRoutesByTo: FileRoutesByTo
-  to: '/' | '/workspaces/$wsId/$step' | '/workspaces/$wsId'
+  to: '/' | '/chat/$chatId' | '/workspaces/$wsId/$step' | '/workspaces/$wsId'
   id:
     | '__root__'
     | '/'
+    | '/chat/$chatId'
     | '/workspaces/$wsId'
     | '/workspaces/$wsId/$step'
     | '/workspaces/$wsId/'
@@ -72,6 +83,7 @@ export interface FileRouteTypes {
 }
 export interface RootRouteChildren {
   IndexRoute: typeof IndexRoute
+  ChatChatIdRoute: typeof ChatChatIdRoute
   WorkspacesWsIdRoute: typeof WorkspacesWsIdRouteWithChildren
 }
 
@@ -89,6 +101,13 @@ declare module '@tanstack/react-router' {
       path: '/workspaces/$wsId'
       fullPath: '/workspaces/$wsId'
       preLoaderRoute: typeof WorkspacesWsIdRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/chat/$chatId': {
+      id: '/chat/$chatId'
+      path: '/chat/$chatId'
+      fullPath: '/chat/$chatId'
+      preLoaderRoute: typeof ChatChatIdRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/workspaces/$wsId/': {
@@ -124,6 +143,7 @@ const WorkspacesWsIdRouteWithChildren = WorkspacesWsIdRoute._addFileChildren(
 
 const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
+  ChatChatIdRoute: ChatChatIdRoute,
   WorkspacesWsIdRoute: WorkspacesWsIdRouteWithChildren,
 }
 export const routeTree = rootRouteImport
