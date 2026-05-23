@@ -35,7 +35,7 @@ function WorkspaceChatView({ workspaceId, step }: { workspaceId: string; step: s
     setMessages(getMockConversation(workspaceId, step))
   }, [workspaceId, step])
 
-  const handleSend = (content: string) => {
+  const handleSend = (content: string, _attachments: File[]) => {
     const userMsg: ChatMessage = {
       id: `u${Date.now()}`, role: 'user', content,
       authorName: 'Mateo', authorInitials: 'MU', timestamp: 'just now',

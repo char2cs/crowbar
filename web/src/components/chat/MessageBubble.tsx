@@ -8,6 +8,7 @@ interface MessageBubbleProps {
   authorInitials: string
   modelName?: string
   timestamp: string
+  isStreaming?: boolean
 }
 
 export function MessageBubble({
@@ -17,6 +18,7 @@ export function MessageBubble({
   authorInitials,
   modelName,
   timestamp,
+  isStreaming,
 }: MessageBubbleProps) {
   const isUser = role === 'user'
 
@@ -28,6 +30,7 @@ export function MessageBubble({
           isUser
             ? 'rounded-br-sm bg-primary/15 text-primary'
             : 'max-w-[80%] rounded-tl-sm border border-border bg-card text-foreground',
+          isStreaming && 'opacity-80',
         )}
       >
         {content}

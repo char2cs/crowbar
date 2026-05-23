@@ -19,7 +19,7 @@ function ChatPage() {
     setMessages(getMockChat(chatId)?.messages ?? [])
   }, [chatId])
 
-  const handleSend = (content: string) => {
+  const handleSend = (content: string, _attachments: File[]) => {
     const userMsg: ChatMessage = {
       id: `u${Date.now()}`, role: 'user', content,
       authorName: 'Mateo', authorInitials: 'MU', timestamp: 'just now',

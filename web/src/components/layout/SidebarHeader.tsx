@@ -41,15 +41,11 @@ export function SidebarHeader({ userInitials, onProjectsClick, onProjectSelect }
       <span className="text-[13px] text-muted-foreground/40">/</span>
 
       <DropdownMenu>
-        <DropdownMenuTrigger asChild>
-          <Button
-            variant="ghost"
-            size="sm"
-            className="h-auto gap-1 px-1.5 py-0.5 text-[13px] font-semibold text-foreground"
-          >
-            {activeProject?.name ?? 'Select project'}
-            <ChevronDown className="h-3 w-3 text-muted-foreground" />
-          </Button>
+        <DropdownMenuTrigger
+          className="inline-flex h-auto items-center gap-1 rounded-sm px-1.5 py-0.5 text-[13px] font-semibold text-foreground hover:bg-accent hover:text-accent-foreground"
+        >
+          {activeProject?.name ?? 'Select project'}
+          <ChevronDown className="h-3 w-3 text-muted-foreground" />
         </DropdownMenuTrigger>
         <DropdownMenuContent align="start" className="min-w-[160px]">
           {projects.map(p => (
