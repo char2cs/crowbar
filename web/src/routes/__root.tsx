@@ -1,11 +1,8 @@
 import { createRootRoute, Outlet, useNavigate, useRouterState } from '@tanstack/react-router'
+import { useState } from 'react'
 import { AppShell } from '@/components/layout/AppShell'
-import { Sidebar, type Repo, type ProjectChat } from '@/components/layout/Sidebar'
-
-const MOCK_CHATS: ProjectChat[] = [
-  { id: 'c1', title: 'Architecture decisions', age: '2h' },
-  { id: 'c2', title: 'Auth strategy across services', age: '5d' },
-]
+import { Sidebar, type Repo } from '@/components/layout/Sidebar'
+import { getAllMockChats, createMockChat } from '@/lib/mock/chats'
 
 const MOCK_REPOS: Repo[] = [
   {
@@ -32,9 +29,18 @@ const MOCK_REPOS: Repo[] = [
 function RootLayout() {
   const navigate = useNavigate()
   const pathname = useRouterState({ select: s => s.location.pathname })
+  const [chats, setChats] = useState(() =>
+    getAllMockChats().map(c => ({ id: c.id, title: c.title, age: c.age })),
+  )
 
   const activeWorkspaceId = pathname.match(/\/workspaces\/([^/]+)/)?.[1]
   const activeChatId = pathname.match(/\/chat\/([^/]+)/)?.[1]
+
+  const handleNewChat = () => {
+    const chat = createMockChat()
+    setChats(prev => [...prev, { id: chat.id, title: chat.title, age: chat.age }])
+    navigate({ to: '/chat/$chatId', params: { chatId: chat.id } })
+  }
 
   return (
     <AppShell
@@ -42,13 +48,13 @@ function RootLayout() {
         <Sidebar
           projectName="Rabbyte"
           userInitials="MU"
-          chats={MOCK_CHATS}
+          chats={chats}
           repos={MOCK_REPOS}
           activeChatId={activeChatId}
           activeWorkspaceId={activeWorkspaceId}
           onChatClick={(id) => navigate({ to: '/chat/$chatId', params: { chatId: id } })}
           onWorkspaceClick={(_, wsId) => navigate({ to: '/workspaces/$wsId', params: { wsId } })}
-          onNewChat={() => navigate({ to: '/chat/$chatId', params: { chatId: 'new' } })}
+          onNewChat={handleNewChat}
           onNewWorkspace={() => navigate({ to: '/workspaces/new' })}
         />
       }
