@@ -76,11 +76,11 @@ shadcn `Card` grid (2-col on wide screens, 1-col on narrow). Each card:
 ### Import modal
 
 shadcn `Dialog`. Single step:
-1. **Path input** — `Input` with placeholder `/Users/you/dev/my-project`. Label: "Local path".
-2. **Project name** — `Input`, auto-populated from the last path segment, editable.
-3. **Import button** — disabled until path is non-empty. On submit: calls `postProject({ path, name })`, closes modal, adds project card.
+1. **Folder picker** — a hidden `<input type="file" webkitdirectory>` triggered by a shadcn `Button`. Shows the selected folder path in a read-only `Input` once picked. Label: "Project folder".
+2. **Project name** — `Input`, auto-populated from the selected folder name, editable.
+3. **Import button** — disabled until a folder has been selected. On submit: calls `postProject({ path, name })`, closes modal, adds project card.
 
-No file picker (`<input type="file" webkitdirectory>`) — plain text input only. The backend resolves the path.
+The OS native file picker opens via `.click()` on the hidden input. `webkitdirectory` restricts selection to folders only. The resolved absolute path is read from `file.webkitRelativePath` or `file.path` (Electron/Tauri) depending on the runtime.
 
 ### Project switcher
 
