@@ -1,6 +1,7 @@
 import { createRootRoute, Outlet, useNavigate, useRouterState } from '@tanstack/react-router'
 import { AppShell } from '@/components/layout/AppShell'
 import { Sidebar } from '@/components/layout/Sidebar'
+import { ErrorBoundary } from '@/components/ErrorBoundary'
 import { useSidebarStore } from '@/lib/store/sidebar'
 import { createMockChat, deleteMockChat } from '@/lib/mock/chats'
 import { deleteMockWorkspace } from '@/lib/mock/workspaces'
@@ -58,7 +59,9 @@ function RootLayout() {
         />
       }
     >
-      <Outlet />
+      <ErrorBoundary>
+        <Outlet />
+      </ErrorBoundary>
     </AppShell>
   )
 }
