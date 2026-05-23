@@ -1,5 +1,6 @@
 import { render, screen } from '@testing-library/react'
 import { MessageBubble } from '@/components/chat/MessageBubble'
+import { expect, test } from 'vitest'
 
 test('renders user bubble with content and attribution', () => {
   render(
@@ -29,4 +30,31 @@ test('renders assistant bubble with model name', () => {
   )
   expect(screen.getByText('A shared auth service works best.')).toBeInTheDocument()
   expect(screen.getByText('Sonnet 4.6')).toBeInTheDocument()
+})
+
+test('shows streaming cursor when isStreaming=true', () => {
+  render(
+    <MessageBubble
+      role="assistant"
+      content="Hello"
+      authorName="Claude"
+      authorInitials="✦"
+      timestamp="now"
+      isStreaming={true}
+    />
+  )
+  expect(document.querySelector('.animate-pulse')).toBeInTheDocument()
+})
+
+test('no streaming cursor when isStreaming=false', () => {
+  render(
+    <MessageBubble
+      role="assistant"
+      content="Hello"
+      authorName="Claude"
+      authorInitials="✦"
+      timestamp="now"
+    />
+  )
+  expect(document.querySelector('.animate-pulse')).not.toBeInTheDocument()
 })
