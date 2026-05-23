@@ -1,0 +1,61 @@
+// web/src/components/projects/ProjectListPage.tsx
+import { useState } from 'react'
+import { Button } from '@/components/ui/button'
+import { ProjectCard } from './ProjectCard'
+import { ImportProjectModal } from './ImportProjectModal'
+import { useProjectStore } from '@/lib/store/projects'
+import type { Project } from '@/lib/types'
+
+interface ProjectListPageProps {
+  onSelect: (projectId: string) => void
+}
+
+export function ProjectListPage({ onSelect }: ProjectListPageProps) {
+  const { projects, activeProjectId, setActiveProject, addProject } = useProjectStore()
+  const [importOpen, setImportOpen] = useState(false)
+
+  const handleSelect = (id: string) => {
+    setActiveProject(id)
+    onSelect(id)
+  }
+
+  const handleImport = (project: Project) => {
+    addProject(project)
+    setImportOpen(false)
+  }
+
+  return (
+    <div className="flex flex-1 flex-col p-8">
+      <div className="mb-6 flex items-center justify-between">
+        <h1 className="text-xl font-semibold text-foreground">Projects</h1>
+        <Button size="sm" onClick={() => setImportOpen(true)}>+ Import project</Button>
+      </div>
+
+      {projects.length === 0 ? (
+        <div className="flex flex-1 flex-col items-center justify-center gap-3 text-center">
+          <p className="text-lg font-medium text-foreground">No projects yet</p>
+          <p className="text-sm text-muted-foreground">Import a local project folder to get started.</p>
+          <Button onClick={() => setImportOpen(true)}>Import project</Button>
+        </div>
+      ) : (
+        <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
+          {projects.map(project => (
+            <ProjectCard
+              key={project.id}
+              project={project}
+              active={project.id === activeProjectId}
+              repoCount={3}
+              onClick={() => handleSelect(project.id)}
+            />
+          ))}
+        </div>
+      )}
+
+      <ImportProjectModal
+        open={importOpen}
+        onOpenChange={setImportOpen}
+        onImport={handleImport}
+      />
+    </div>
+  )
+}
