@@ -6,6 +6,7 @@ import GitView from '@/features/git/components/git-view'
 import { ErrorBoundary } from '@/components/ErrorBoundary'
 import { SidebarSkeleton } from './SidebarSkeleton'
 import { getMockFileTree } from '@/lib/mock/files'
+import { useFileTreeStore } from '@/features/file-explorer/stores/file-explorer-tree-store'
 import type { ProjectChat, Repo } from '@/lib/store/sidebar'
 
 type SidebarTab = 'workspaces' | 'files' | 'git'
@@ -84,7 +85,11 @@ export function SidebarTabs({
             <FileExplorerTree
               files={getMockFileTree(activeWorkspaceRepoPath)}
               rootFolderPath={activeWorkspaceRepoPath}
-              onFileSelect={() => {}}
+              onFileSelect={(path, isDir) => {
+                if (isDir) {
+                  useFileTreeStore.getState().toggleFolder(path)
+                }
+              }}
               onCreateNewFileInDirectory={() => {}}
             />
           </Suspense>

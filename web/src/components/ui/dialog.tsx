@@ -182,7 +182,7 @@ function AppDialog({
   children,
   title,
   icon: Icon,
-  headerActions: _headerActions,
+  headerActions,
   onClose,
   footer,
   size = "md",
@@ -203,26 +203,32 @@ function AppDialog({
         <DialogPrimitive.Popup
           data-slot="dialog-content"
           className={cn(
-            "fixed top-1/2 left-1/2 z-50 flex w-full flex-col -translate-x-1/2 -translate-y-1/2 rounded-xl bg-popover text-sm text-popover-foreground ring-1 ring-foreground/10 duration-100 outline-none data-open:animate-in data-open:fade-in-0 data-open:zoom-in-95 data-closed:animate-out data-closed:fade-out-0 data-closed:zoom-out-95 max-w-[calc(100%-2rem)]",
-            SIZE_MAP[size] ?? SIZE_MAP.md,
+            "fixed top-1/2 left-1/2 z-50 flex w-full flex-col -translate-x-1/2 -translate-y-1/2 rounded-xl bg-popover text-sm text-popover-foreground ring-1 ring-foreground/10 duration-100 outline-none overflow-hidden data-open:animate-in data-open:fade-in-0 data-open:zoom-in-95 data-closed:animate-out data-closed:fade-out-0 data-closed:zoom-out-95 max-w-[calc(100%-2rem)]",
+            // use SIZE_MAP only when no explicit modal size class is given
+            !classNames?.modal && (SIZE_MAP[size] ?? SIZE_MAP.md),
             className,
-            classNames?.content,
+            classNames?.modal,
           )}
         >
-          {(title || Icon) && (
-            <div className="flex items-center gap-2 border-b px-4 py-3">
+          {(title || Icon || headerActions) && (
+            <div className={cn("shrink-0 flex items-center gap-2 border-b px-4 py-3", classNames?.header)}>
               {Icon && <Icon size={16} className="shrink-0 text-muted-foreground" />}
               {title && (
-                <DialogPrimitive.Title className="font-medium text-sm leading-none">
+                <DialogPrimitive.Title className={cn("font-medium text-sm leading-none", classNames?.title)}>
                   {title}
                 </DialogPrimitive.Title>
+              )}
+              {headerActions && (
+                <div className={cn("ml-2 flex items-center gap-2", classNames?.headerActions)}>
+                  {headerActions}
+                </div>
               )}
               <DialogPrimitive.Close
                 data-slot="dialog-close"
                 render={
                   <Button
                     variant="ghost"
-                    className="ml-auto"
+                    className="ml-auto shrink-0"
                     size="icon-sm"
                   />
                 }
@@ -233,9 +239,9 @@ function AppDialog({
               </DialogPrimitive.Close>
             </div>
           )}
-          <div className="flex-1 overflow-auto p-4">{children}</div>
+          <div className={cn("flex-1 min-h-0", classNames?.content ?? "overflow-auto p-4")}>{children}</div>
           {footer && (
-            <div className="-mx-0 flex flex-row justify-end gap-2 border-t bg-muted/50 px-4 py-3 rounded-b-xl">
+            <div className="shrink-0 flex flex-row justify-end gap-2 border-t bg-muted/50 px-4 py-3 rounded-b-xl">
               {footer}
             </div>
           )}

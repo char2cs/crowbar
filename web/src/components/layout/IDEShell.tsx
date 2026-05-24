@@ -29,11 +29,13 @@ export function IDEShell() {
   )
   const activeWorkspace = activeRepo?.workspaces.find((ws) => ws.id === activeWorkspaceId)
   const activeWorkspaceRepoPath = activeRepo ? `/repos/${activeRepo.id}` : '/repos/default'
+  const activeChat = chats.find((c) => c.id === activeChatId)
 
-  // Label for the IDE tab: show "repo / branch" when available
+  // Label for the IDE tab: show "repo / branch" for workspaces, title for chats
   const ideTabLabel = activeWorkspace
     ? `${activeRepo?.name ?? ''} / ${activeWorkspace.branch}`
     : 'Workspace'
+  const chatTabLabel = activeChat?.title ?? 'Chat'
 
   return (
     <div className="flex h-screen overflow-hidden bg-background text-foreground">
@@ -96,6 +98,15 @@ export function IDEShell() {
                 />
                 {/* Workspace content (chat + step tabs) */}
                 <FlowTab workspaceId={activeWorkspaceId} />
+              </div>
+            ) : activeChatId ? (
+              <div className="flex h-full flex-col overflow-hidden">
+                {/* Chat sessions also appear as document tabs */}
+                <IDETabBar
+                  label={chatTabLabel}
+                  onClose={() => void navigate({ to: '/' })}
+                />
+                <Outlet />
               </div>
             ) : (
               <div className="flex h-full flex-col overflow-hidden">
