@@ -5,16 +5,17 @@ import React from 'react'
 import { IDEShell } from '@/components/layout/IDEShell'
 
 // Mock heavy features — just verify composition
-vi.mock('@/features/layout/components/sidebar/main-sidebar', () => ({
-  MainSidebar: ({ children }: { children: React.ReactNode }) => (
-    <aside data-testid="main-sidebar">{children}</aside>
-  ),
-}))
-vi.mock('@/features/panes/components/split-view-root', () => ({
-  SplitViewRoot: () => <div data-testid="split-view-root" />,
+vi.mock('@/features/workspace/components/WorkspaceView', () => ({
+  WorkspaceView: () => <div data-testid="workspace-view" />,
 }))
 vi.mock('@/components/layout/SidebarTabs', () => ({
   SidebarTabs: () => <div data-testid="sidebar-tabs" />,
+}))
+vi.mock('@/components/layout/SidebarHeader', () => ({
+  SidebarHeader: () => <div data-testid="sidebar-header" />,
+}))
+vi.mock('@/features/settings/components/settings-dialog', () => ({
+  default: () => null,
 }))
 vi.mock('@/lib/store/sidebar', () => ({
   useSidebarStore: () => ({
@@ -30,22 +31,30 @@ vi.mock('@/lib/store/sidebar', () => ({
 vi.mock('@tanstack/react-router', () => ({
   useNavigate: () => vi.fn(),
   useRouterState: () => ({ location: { pathname: '/' } }),
+  Outlet: () => <div data-testid="outlet" />,
+}))
+vi.mock('@/components/ui/resizable', () => ({
+  ResizablePanelGroup: ({ children }: { children: React.ReactNode }) => <div>{children}</div>,
+  ResizablePanel: ({ children }: { children: React.ReactNode }) => <div>{children}</div>,
+  ResizableHandle: () => null,
+}))
+vi.mock('@/components/ErrorBoundary', () => ({
+  ErrorBoundary: ({ children }: { children: React.ReactNode }) => <>{children}</>,
 }))
 
 describe('IDEShell', () => {
-  it('renders MainSidebar', () => {
+  it('renders sidebar header', () => {
     render(<IDEShell />)
-    expect(screen.getByTestId('main-sidebar')).toBeInTheDocument()
+    expect(screen.getByTestId('sidebar-header')).toBeInTheDocument()
   })
 
-  it('renders SplitViewRoot', () => {
+  it('renders SidebarTabs', () => {
     render(<IDEShell />)
-    expect(screen.getByTestId('split-view-root')).toBeInTheDocument()
+    expect(screen.getByTestId('sidebar-tabs')).toBeInTheDocument()
   })
 
-  it('renders SidebarTabs inside MainSidebar', () => {
+  it('renders Outlet when no workspace or chat is active', () => {
     render(<IDEShell />)
-    const sidebar = screen.getByTestId('main-sidebar')
-    expect(sidebar.querySelector('[data-testid="sidebar-tabs"]')).toBeTruthy()
+    expect(screen.getByTestId('outlet')).toBeInTheDocument()
   })
 })
