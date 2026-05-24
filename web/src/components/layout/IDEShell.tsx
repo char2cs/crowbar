@@ -4,14 +4,14 @@ import { MainSidebar } from '@/features/layout/components/sidebar/main-sidebar'
 import { SplitViewRoot } from '@/features/panes/components/split-view-root'
 import { SidebarTabs } from './SidebarTabs'
 import { useSidebarStore } from '@/lib/store/sidebar'
-// SettingsDialog will be wired in Task 24
+import SettingsDialog from '@/features/settings/components/settings-dialog'
 
 export function IDEShell() {
   const navigate = useNavigate()
   const routerState = useRouterState()
   const pathname = routerState.location.pathname
   const { chats, repos, collapsedRepos, deleteChat, deleteWorkspace, toggleRepo } = useSidebarStore()
-  const [_settingsOpen, setSettingsOpen] = useState(false)
+  const [settingsOpen, setSettingsOpen] = useState(false)
 
   const activeWorkspaceId = pathname.match(/\/workspaces\/([^/]+)/)?.[1]
   const activeChatId = pathname.match(/\/chat\/([^/]+)/)?.[1]
@@ -48,7 +48,7 @@ export function IDEShell() {
       <div className="flex min-w-0 flex-1 flex-col overflow-hidden border-l border-border">
         <SplitViewRoot />
       </div>
-      {/* SettingsDialog will be wired in Task 24 */}
+      <SettingsDialog isOpen={settingsOpen} onClose={() => setSettingsOpen(false)} />
     </div>
   )
 }
