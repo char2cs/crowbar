@@ -21,8 +21,10 @@ describe('pane-slice', () => {
     const { paneRoot } = store.getState()
     expect(paneRoot.type).toBe('group')
     expect(paneRoot.id).toBe(ROOT_PANE_ID)
-    expect(paneRoot.bufferIds).toEqual([])
-    expect(paneRoot.activeBufferId).toBeNull()
+    if (paneRoot.type === 'group') {
+      expect(paneRoot.bufferIds).toEqual([])
+      expect(paneRoot.activeBufferId).toBeNull()
+    }
   })
 
   it('splitPane returns a new pane ID and updates root to a split', () => {

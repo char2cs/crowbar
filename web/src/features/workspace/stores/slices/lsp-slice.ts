@@ -39,7 +39,7 @@ export const createLspSlice: StateCreator<
   [['zustand/immer', never]],
   [],
   LspSlice
-> = (set, get) => ({
+> = (set, _get) => ({
   workspaceRoot: '',
   lspStatus: { status: 'idle' },
   completionCache: {},
