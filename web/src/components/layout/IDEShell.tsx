@@ -5,6 +5,7 @@ import { SplitViewRoot } from '@/features/panes/components/split-view-root'
 import { SidebarTabs } from './SidebarTabs'
 import { useSidebarStore } from '@/lib/store/sidebar'
 import SettingsDialog from '@/features/settings/components/settings-dialog'
+import { ErrorBoundary } from '@/components/ErrorBoundary'
 
 export function IDEShell() {
   const navigate = useNavigate()
@@ -46,7 +47,9 @@ export function IDEShell() {
         />
       </MainSidebar>
       <div className="flex min-w-0 flex-1 flex-col overflow-hidden border-l border-border">
-        <SplitViewRoot />
+        <ErrorBoundary>
+          <SplitViewRoot />
+        </ErrorBoundary>
       </div>
       <SettingsDialog isOpen={settingsOpen} onClose={() => setSettingsOpen(false)} />
     </div>

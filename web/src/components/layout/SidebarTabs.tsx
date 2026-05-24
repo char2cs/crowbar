@@ -1,8 +1,10 @@
-import { useState } from 'react'
+import { useState, Suspense } from 'react'
 import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs'
 import { WorkspacesSidebarPanel } from './WorkspacesSidebarPanel'
 import { FileExplorerTree } from '@/features/file-explorer/components/file-explorer-tree'
 import GitView from '@/features/git/components/git-view'
+import { ErrorBoundary } from '@/components/ErrorBoundary'
+import { SidebarSkeleton } from './SidebarSkeleton'
 import type { ProjectChat, Repo } from '@/lib/store/sidebar'
 
 type SidebarTab = 'workspaces' | 'files' | 'git'
@@ -85,16 +87,24 @@ export function SidebarTabs({
       </TabsContent>
 
       <TabsContent value="files" forceMount hidden={activeTab !== 'files'} className="flex flex-1 flex-col overflow-hidden mt-0">
-        <FileExplorerTree
-          files={[]}
-          rootFolderPath={activeWorkspaceRepoPath}
-          onFileSelect={() => {}}
-          onCreateNewFileInDirectory={() => {}}
-        />
+        <ErrorBoundary>
+          <Suspense fallback={<SidebarSkeleton />}>
+            <FileExplorerTree
+              files={[]}
+              rootFolderPath={activeWorkspaceRepoPath}
+              onFileSelect={() => {}}
+              onCreateNewFileInDirectory={() => {}}
+            />
+          </Suspense>
+        </ErrorBoundary>
       </TabsContent>
 
       <TabsContent value="git" forceMount hidden={activeTab !== 'git'} className="flex flex-1 flex-col overflow-hidden mt-0">
-        <GitView repoPath={activeWorkspaceRepoPath} />
+        <ErrorBoundary>
+          <Suspense fallback={<SidebarSkeleton />}>
+            <GitView repoPath={activeWorkspaceRepoPath} />
+          </Suspense>
+        </ErrorBoundary>
       </TabsContent>
     </Tabs>
   )
