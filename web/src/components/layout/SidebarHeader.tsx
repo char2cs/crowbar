@@ -17,7 +17,7 @@ interface SidebarHeaderProps {
   onSettingsClick?: () => void
 }
 
-export function SidebarHeader({ userInitials, onProjectsClick, onProjectSelect, onSettingsClick }: SidebarHeaderProps) {
+export function SidebarHeader({ userInitials, onProjectsClick, onProjectSelect, onSettingsClick: _onSettingsClick }: SidebarHeaderProps) {
   const { projects, activeProjectId, setActiveProject } = useProjectStore()
   const activeProject = projects.find(p => p.id === activeProjectId)
 
