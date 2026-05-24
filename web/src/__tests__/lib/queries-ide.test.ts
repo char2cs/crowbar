@@ -10,7 +10,8 @@ describe('IDE query options', () => {
 
   it('fileTreeQueryOptions queryFn returns non-empty array', async () => {
     const opts = fileTreeQueryOptions('/workspace')
-    const result = await opts.queryFn()
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const result = await (opts.queryFn as any)!()
     expect(Array.isArray(result)).toBe(true)
     expect((result as unknown[]).length).toBeGreaterThan(0)
   })
@@ -22,7 +23,8 @@ describe('IDE query options', () => {
 
   it('gitStatusQueryOptions queryFn returns status object', async () => {
     const opts = gitStatusQueryOptions('/repo')
-    const result = await opts.queryFn()
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const result = await (opts.queryFn as any)!()
     expect(result).toHaveProperty('staged')
     expect(result).toHaveProperty('unstaged')
     expect(result).toHaveProperty('branch')
@@ -30,14 +32,16 @@ describe('IDE query options', () => {
 
   it('gitHistoryQueryOptions queryFn returns commits array', async () => {
     const opts = gitHistoryQueryOptions('/repo')
-    const result = await opts.queryFn()
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const result = await (opts.queryFn as any)!()
     expect(Array.isArray(result)).toBe(true)
     expect((result as unknown[]).length).toBeGreaterThanOrEqual(3)
   })
 
   it('gitBranchesQueryOptions queryFn returns branches array', async () => {
     const opts = gitBranchesQueryOptions('/repo')
-    const result = await opts.queryFn()
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const result = await (opts.queryFn as any)!()
     expect(Array.isArray(result)).toBe(true)
     expect((result as unknown[]).some((b: unknown) => (b as { isCurrent: boolean }).isCurrent)).toBe(true)
   })
