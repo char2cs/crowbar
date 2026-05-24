@@ -421,6 +421,73 @@ web/src/features/editor/lsp/** (all 18 files; lsp-slice wraps, not replaces)
 
 ---
 
+## File Explorer Icons
+
+### Current State
+
+The rendering infrastructure is complete — `FileExplorerIcon` component, icon theme store (defaults to `"material"`), settings UI, and command palette selector all work. The `IconThemeRegistry` is a stub: `registerTheme()` is a no-op, so the component always falls back to generic Phosphor icons.
+
+### What We Port
+
+All 6 builtin themes from Athas, plus the real registry implementation and an initializer:
+
+| Theme | Description | Icon source |
+|---|---|---|
+| `colorful-material` | Material Design, full color (default) | `material-file-icons` npm package |
+| `material` | Material Design, monochrome (CSS `currentColor`) | `material-file-icons` npm package |
+| `minimal` | Simple monochrome | Phosphor icons + 3 bundled SVGs |
+| `classic` | Traditional file manager style | Phosphor icons |
+| `compact` | Space-efficient | Phosphor icons |
+| `none` | Generic file/folder only | Phosphor icons |
+
+### Files
+
+**Ported from Athas (replace stubs):**
+```
+web/src/extensions/icon-themes/icon-theme-registry.ts    ← real implementation
+web/src/extensions/icon-themes/icon-theme-initializer.ts ← registers all 6 themes at startup
+web/src/extensions/icon-themes/builtin/
+  manifest.json
+  material-theme.tsx
+  colorful-material-theme.tsx
+  minimal-theme.tsx
+  classic-theme.tsx
+  compact-theme.tsx
+  none-theme.tsx
+web/src/extensions/bundled/icon-themes/minimal/icons/
+  file.svg
+  folder.svg
+  folder-open.svg
+```
+
+**Unchanged (already correct):**
+```
+web/src/extensions/icon-themes/types.ts
+web/src/features/file-explorer/file-explorer/components/file-explorer-icon.tsx
+web/src/features/settings/stores/icon-theme-store.ts
+web/src/features/settings/components/tabs/appearance-settings.tsx
+web/src/features/command-palette/components/icon-theme-selector.tsx
+```
+
+**Stub to delete:**
+```
+web/src/features/file-explorer/components/file-explorer-icon.tsx  ← "will be replaced" comment
+```
+
+### Wiring
+
+`icon-theme-initializer.ts` is called once at app startup in `main.tsx`, before the React tree mounts. This registers all 6 themes with the registry. The active theme is read from `icon-theme-store` (persisted to localStorage). No workspace-scoped state — icon theme is a global user preference.
+
+### Dependency
+
+```
+npm install material-file-icons
+```
+
+One package. No other dependencies.
+
+---
+
 ## What This Fixes
 
 | Bug | Root Cause | Fix |
