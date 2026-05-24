@@ -89,7 +89,12 @@ class LspClientImpl {
     return { success: false }
   }
 
-  async prepareRename(_filePath: string, _line: number, _character: number): Promise<null> {
+  async prepareRename(_filePath: string, _line: number, _character: number): Promise<{
+    range: { start: { line: number; character: number }; end: { line: number; character: number } };
+    start: { line: number; character: number };
+    end: { line: number; character: number };
+    placeholder: string;
+  } | null> {
     return null
   }
 
@@ -101,15 +106,24 @@ class LspClientImpl {
     return []
   }
 
-  async getSemanticTokens(_filePath: string): Promise<null> {
-    return null
-  }
-
-  async getCodeLens(_filePath: string): Promise<unknown[]> {
+  async getSemanticTokens(_filePath: string): Promise<{ line: number; startChar: number; length: number; tokenType: number; tokenModifiers: number }[]> {
     return []
   }
 
-  async getSignatureHelp(_filePath: string, _line: number, _character: number): Promise<null> {
+  async getCodeLens(_filePath: string): Promise<{ line: number; title: string; command?: string; arguments?: unknown[] }[]> {
+    return []
+  }
+
+  async getSignatureHelp(_filePath: string, _line: number, _character: number): Promise<{
+    signatures: {
+      label: string;
+      documentation?: { kind: string; value: string } | string;
+      parameters?: { label: string | [number, number]; documentation?: { kind: string; value: string } | string }[];
+      activeParameter?: number;
+    }[];
+    activeSignature?: number;
+    activeParameter?: number;
+  } | null> {
     return null
   }
 
@@ -133,7 +147,7 @@ class LspClientImpl {
 
   async startForFile(_filePath: string, _rootFolderPath?: string, _opts?: { forceRetry?: boolean }): Promise<boolean> { return false }
   async stopForFile(_filePath: string): Promise<void> {}
-  getActiveServerEntries(): unknown[] { return [] }
+  getActiveServerEntries(): { key: string; displayName: string }[] { return [] }
   async getActiveServerEntryForFile(_filePath: string, _languageId?: string): Promise<null> { return null }
   async restartTrackedServer(_serverId: string): Promise<void> {}
   async stopTrackedServer(_serverId: string): Promise<void> {}

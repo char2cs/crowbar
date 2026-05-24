@@ -78,6 +78,10 @@ export class LspClient {
 
   getActiveServerEntryForFile(_filePath: string): null { return null }
 
+  getActiveServerEntries(): { key: string; displayName: string }[] {
+    return [];
+  }
+
   async prepareRename(
     _filePath: string,
     _line: number,
