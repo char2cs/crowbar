@@ -366,7 +366,7 @@ async function readCustomStreamingCompletion(
 }
 
 async function requestCustomAutocompleteNonStreaming(
-  request: AutocompleteRequest,
+  _request: AutocompleteRequest,
   url: string,
   apiKey: string | null,
   requestBody: CustomAutocompleteRequestBody,

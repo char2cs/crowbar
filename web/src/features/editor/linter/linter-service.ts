@@ -50,7 +50,7 @@ export async function lintContent(options: LintOptions): Promise<LintResult> {
 
     logger.debug("LinterService", `Linting ${filePath} with ${linterConfig.command}`);
 
-    const language = languageId || extensionRegistry.getLanguageId(filePath) || "unknown";
+    const _language = languageId || extensionRegistry.getLanguageId(filePath) || "unknown";
 
     // Linting via Tauri invoke is not available in Crowbar web mode — return empty result
     logger.debug("LinterService", `Linting is a no-op in web mode for ${filePath}`);
@@ -83,7 +83,7 @@ export function isLintingAvailable(filePath: string, languageId?: string): boole
 /**
  * Get workspace folder from file path
  */
-function getWorkspaceFolder(filePath: string): string | undefined {
+function _getWorkspaceFolder(filePath: string): string | undefined {
   const rootFolderPath = useFileSystemStore.getState().rootFolderPath;
   if (rootFolderPath) return rootFolderPath;
 

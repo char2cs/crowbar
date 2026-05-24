@@ -13,7 +13,7 @@ interface AiStoreState {
   providerApiKeys: Map<string, string>
 }
 
-const useAiStoreBase = create<AiStoreState>((set, get) => ({
+const useAiStoreBase = create<AiStoreState>((set, _get) => ({
   messages: [],
   isLoading: false,
   dynamicModels: {},
