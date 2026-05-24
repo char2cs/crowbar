@@ -14,8 +14,14 @@ export const keybindingPresetOptions: Array<{ value: KeybindingPreset; label: st
   { value: "emacs", label: "Emacs" },
 ]
 
-export function getKeybindingPresetCoverageReport(_preset: KeybindingPreset): Record<string, unknown> {
-  return {}
+export interface KeybindingPresetCoverageReport {
+  isComplete: boolean
+  missingCommandIds: string[]
+  coveredCommandIds: string[]
+}
+
+export function getKeybindingPresetCoverageReport(_preset: string): KeybindingPresetCoverageReport {
+  return { isComplete: true, missingCommandIds: [], coveredCommandIds: [] }
 }
 
 export interface KeybindingPresetDiffReport {
@@ -25,7 +31,7 @@ export interface KeybindingPresetDiffReport {
   modified: Keybinding[]
 }
 
-export function getKeybindingPresetDiffReport(_preset: KeybindingPreset): KeybindingPresetDiffReport {
+export function getKeybindingPresetDiffReport(_preset: string): KeybindingPresetDiffReport {
   return { changedCommandIds: [], added: [], removed: [], modified: [] }
 }
 

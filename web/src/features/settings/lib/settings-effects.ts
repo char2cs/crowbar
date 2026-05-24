@@ -175,7 +175,7 @@ export async function syncOllamaApiKey() {
     import("@/features/ai/services/ai-token-service"),
   ]);
   const token = await getProviderApiToken("ollama");
-  setOllamaApiKey(token);
+  setOllamaApiKey(token ?? "");
 }
 
 export function applySettingsSideEffects(settings: Settings) {

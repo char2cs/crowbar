@@ -1,9 +1,18 @@
-import { relaunch } from "@tauri-apps/plugin-process";
-import { check, type Update } from "@tauri-apps/plugin-updater";
+// FUTURE: implement auto-update when Tauri update plugin is available
+const relaunch = async (): Promise<void> => {}
+interface Update {
+  available?: boolean
+  version: string
+  currentVersion: string
+  body?: string
+  date?: string
+  downloadAndInstall: (_cb?: (_event: { event: string; data: { contentLength?: number; chunkLength?: number } }) => void) => Promise<void>
+}
+const check = async (): Promise<Update | null> => null
+
 import { useCallback, useEffect, useRef, useState } from "react";
-import { useBufferStore } from "@/features/editor/stores/buffer-store";
 import { prepareProjectTransitionWithUnsavedBuffers } from "@/features/file-system/controllers/workspace-project-transition";
-import { recordUpdateCheckTelemetry } from "@/features/telemetry/services/telemetry";
+import telemetry from "@/features/telemetry/services/telemetry";
 import {
   clearUpdatePreferencesForNewVersion,
   notifyUpdateDismissed,
@@ -12,6 +21,15 @@ import {
   skipUpdateVersion,
 } from "../lib/update-preferences";
 import { useWhatsNewStore } from "../stores/whats-new-store";
+
+function recordUpdateCheckTelemetry(params: {
+  status: string
+  availableVersion: string | null
+  currentVersion: string
+  error?: string
+}): void {
+  telemetry.track("update_check", params)
+}
 
 export interface UpdateInfo {
   version: string;
@@ -81,7 +99,7 @@ export const useUpdater = (checkOnMount = true) => {
             checking: false,
             updateInfo: null,
           }));
-          void recordUpdateCheckTelemetry({
+          recordUpdateCheckTelemetry({
             status: "available",
             availableVersion: update.version,
             currentVersion,
@@ -96,7 +114,7 @@ export const useUpdater = (checkOnMount = true) => {
           checking: false,
           updateInfo,
         }));
-        void recordUpdateCheckTelemetry({
+        recordUpdateCheckTelemetry({
           status: "available",
           availableVersion: update.version,
           currentVersion,
@@ -111,7 +129,7 @@ export const useUpdater = (checkOnMount = true) => {
         checking: false,
         updateInfo: null,
       }));
-      void recordUpdateCheckTelemetry({
+      recordUpdateCheckTelemetry({
         status: "up_to_date",
         availableVersion: null,
         currentVersion,
@@ -126,7 +144,7 @@ export const useUpdater = (checkOnMount = true) => {
         checking: false,
         error: message,
       }));
-      void recordUpdateCheckTelemetry({
+      recordUpdateCheckTelemetry({
         status: "failed",
         availableVersion: null,
         currentVersion: failedCurrentVersion,
@@ -153,14 +171,7 @@ export const useUpdater = (checkOnMount = true) => {
         };
       }
 
-      const canRestart = await prepareProjectTransitionWithUnsavedBuffers(
-        "restarting to update",
-        useBufferStore.getState().buffers,
-      );
-
-      if (!canRestart) {
-        return;
-      }
+      await prepareProjectTransitionWithUnsavedBuffers("restarting to update");
 
       setState((prev) => ({
         ...prev,
@@ -172,7 +183,7 @@ export const useUpdater = (checkOnMount = true) => {
       let contentLength = 0;
       let downloaded = 0;
 
-      await updateRef.current.downloadAndInstall((event) => {
+      await updateRef.current!.downloadAndInstall((event) => {
         switch (event.event) {
           case "Started":
             contentLength = event.data.contentLength ?? 0;
@@ -182,7 +193,7 @@ export const useUpdater = (checkOnMount = true) => {
             }));
             break;
           case "Progress": {
-            downloaded += event.data.chunkLength;
+            downloaded += event.data.chunkLength ?? 0;
             const percentage =
               contentLength > 0 ? Math.round((downloaded / contentLength) * 100) : 0;
             setState((prev) => ({

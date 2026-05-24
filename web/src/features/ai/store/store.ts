@@ -7,20 +7,26 @@ interface AiStoreState {
   messages: unknown[]
   isLoading: boolean
   dynamicModels: Record<string, AiModel[]>
-  setDynamicModels: (models: Record<string, AiModel[]>) => void
+  setDynamicModels: (providerIdOrModels: string | Record<string, AiModel[]>, models?: AiModel[]) => void
   hasProviderApiKey: (providerId: string) => boolean
   checkAllProviderApiKeys: () => Record<string, boolean>
-  providerApiKeys: Record<string, string>
+  providerApiKeys: Map<string, string>
 }
 
-const useAiStoreBase = create<AiStoreState>((set) => ({
+const useAiStoreBase = create<AiStoreState>((set, get) => ({
   messages: [],
   isLoading: false,
   dynamicModels: {},
-  setDynamicModels: (models) => set({ dynamicModels: models }),
+  setDynamicModels: (providerIdOrModels, models) => {
+    if (typeof providerIdOrModels === 'string' && models !== undefined) {
+      set((state) => ({ dynamicModels: { ...state.dynamicModels, [providerIdOrModels]: models } }))
+    } else if (typeof providerIdOrModels === 'object') {
+      set({ dynamicModels: providerIdOrModels })
+    }
+  },
   hasProviderApiKey: (_providerId: string) => false,
   checkAllProviderApiKeys: () => ({}),
-  providerApiKeys: {},
+  providerApiKeys: new Map<string, string>(),
 }))
 
 export const useAiStore = createSelectors(useAiStoreBase)

@@ -1,4 +1,5 @@
-import { fetch as tauriFetch } from "@tauri-apps/plugin-http";
+// FUTURE: use Tauri plugin-http fetch when running in desktop
+const tauriFetch = fetch
 import { providerFetch } from "@/features/ai/services/providers/provider-fetch";
 import { getProviderApiToken } from "@/features/ai/services/ai-token-service";
 import { getAuthToken } from "@/features/window/services/auth-api";

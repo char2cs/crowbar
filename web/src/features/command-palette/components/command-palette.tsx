@@ -76,7 +76,10 @@ const CommandPalette = () => {
     openSettingsDialog,
   } = useUIState();
   const { openQuickEdit } = useEditorAppStore.use.actions();
-  const handleFileSelect = useFileSystemStore.use.handleFileSelect?.();
+  const _rawHandleFileSelect = useFileSystemStore.use.handleFileSelect?.();
+  const handleFileSelect: ((path: string, isDir: boolean) => void) | undefined = _rawHandleFileSelect
+    ? (path: string, isDir: boolean) => _rawHandleFileSelect(path, isDir)
+    : undefined;
   const isVisible = isCommandPaletteVisible;
   const onClose = () => {
     setIsCommandPaletteVisible(false);
@@ -337,7 +340,9 @@ const CommandPalette = () => {
       setQuery("");
       setSelectedIndex(0);
       setViewStack(
-        commandPaletteInitialView === "root" ? ["root"] : ["root", commandPaletteInitialView],
+        commandPaletteInitialView === "root" || !commandPaletteInitialView
+          ? ["root"]
+          : ["root", commandPaletteInitialView as CommandPaletteViewId],
       );
       requestAnimationFrame(() => {
         if (inputRef.current) {

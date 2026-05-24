@@ -172,7 +172,7 @@ function normalizeAISkills(skills: Settings["aiSkills"]): Settings["aiSkills"] {
       ...(typeof skill.description === "string"
         ? { description: skill.description.trim().slice(0, 240) }
         : {}),
-      content: skill.content.slice(0, 100_000),
+      content: (skill.content ?? "").slice(0, 100_000),
       ...(typeof skill.author === "string" ? { author: skill.author.trim().slice(0, 120) } : {}),
       ...(skill.source === "marketplace" || skill.source === "local"
         ? { source: skill.source }

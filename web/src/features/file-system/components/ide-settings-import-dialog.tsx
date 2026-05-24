@@ -1,2 +1,2 @@
 // Stub
-export function IdeSettingsImportDialog() { return null }
+export function IdeSettingsImportDialog(_props: { onClose?: () => void }) { return null }

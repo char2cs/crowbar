@@ -48,7 +48,7 @@ export const IconThemeSelectorContent = ({
         (theme: IconThemeDefinition): IconThemeInfo => ({
           id: theme.id,
           name: theme.name,
-          description: theme.description,
+          description: theme.description ?? "",
           icon: <Palette />,
         }),
       );
@@ -237,7 +237,7 @@ export const IconThemeSelectorContent = ({
                   <div className="flex items-center gap-2 truncate ui-text-xs">
                     <span className="truncate">{theme.name}</span>
                     {isCurrent && !isPreviewing && (
-                      <Badge variant="accent" className="px-1 py-0.5">
+                      <Badge variant="secondary" className="px-1 py-0.5">
                         current
                       </Badge>
                     )}

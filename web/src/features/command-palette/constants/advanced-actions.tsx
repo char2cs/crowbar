@@ -131,7 +131,7 @@ export const createAdvancedActions = (params: AdvancedActionsParams): Action[] =
       action: async () => {
         try {
           showToast({ message: "Installing CLI command...", type: "info" });
-          const result = await invoke<string>("install_cli_command");
+          const result = await invoke("install_cli_command") as string;
           showToast({ message: result, type: "success" });
         } catch (error) {
           showToast({

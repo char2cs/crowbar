@@ -3,7 +3,8 @@ export interface Keybinding {
   command: string
   key: string
   when?: string
-  source?: "user" | "default" | "extension"
+  enabled?: boolean
+  source?: "user" | "default" | "extension" | "preset"
   args?: unknown
 }
 export interface KeymapContext {
@@ -13,6 +14,7 @@ export type KeybindingPreset = "default" | "vim" | "emacs" | "none" | "vscode" |
 export interface Command {
   id: string
   title: string
+  description?: string
   keybinding?: string
   category?: string
   when?: string

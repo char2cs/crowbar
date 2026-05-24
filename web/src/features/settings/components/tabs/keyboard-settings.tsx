@@ -8,15 +8,15 @@ import {
   Sliders,
   User,
 } from "@phosphor-icons/react";
-import { save } from "@tauri-apps/plugin-dialog";
-import { writeTextFile } from "@tauri-apps/plugin-fs";
+// FUTURE: implement keyboard export when file system API is available
+const save = async (_opts?: unknown): Promise<string | null> => null
+const writeTextFile = async (_path: string, _content: string): Promise<void> => {}
 import { useMemo, useState } from "react";
 import {
   KeybindingRow,
   keybindingTableMinWidth,
 } from "@/features/keymaps/components/keybinding-row";
 import {
-  type KeybindingPreset,
   getKeybindingPresetCoverageReport,
   getKeybindingPresetDiffReport,
   keybindingPresetOptions,
@@ -30,6 +30,7 @@ import {
   parseKeybindingsImportJson,
 } from "@/features/keymaps/utils/keybinding-import-export";
 import { getDefaultSetting, useSettingsStore } from "@/features/settings/store";
+import type { Settings } from "@/features/settings/types/settings";
 import { keymapRegistry } from "@/features/keymaps/utils/registry";
 import { useToast } from "@/features/layout/contexts/toast-context";
 import { Button } from "@/components/ui/button";
@@ -194,7 +195,7 @@ export const KeyboardSettings = () => {
         }
 
         if (imported.keybindingPreset) {
-          await updateSetting("keybindingPreset", imported.keybindingPreset);
+          await updateSetting("keybindingPreset", imported.keybindingPreset as Settings["keybindingPreset"]);
         }
 
         const { addKeybinding } = useKeymapStore.getState().actions;
@@ -350,7 +351,7 @@ export const KeyboardSettings = () => {
             >
               <Select
                 value={settings.keybindingPreset}
-                onChange={(value) => updateSetting("keybindingPreset", value as KeybindingPreset)}
+                onChange={(value) => updateSetting("keybindingPreset", value as Settings["keybindingPreset"])}
                 options={keybindingPresetOptions}
                 size="sm"
                 variant="default"

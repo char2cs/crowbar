@@ -16,6 +16,7 @@ export interface GitHubState {
     openPR: (number: number) => void
     closePR: () => void
     fetchPRDetails: (number: number) => Promise<void>
+    checkAuth: () => Promise<void>
   }
 }
 
@@ -26,5 +27,6 @@ export const useGitHubStore = create<GitHubState>(() => ({
     openPR: () => {},
     closePR: () => {},
     fetchPRDetails: async () => {},
+    checkAuth: async () => {},
   },
 }))

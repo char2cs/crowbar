@@ -276,7 +276,6 @@ export const TerminalSettings = () => {
                     }
                     placeholder="One command per line"
                     rows={3}
-                    size="sm"
                   />
                 </div>
               </div>

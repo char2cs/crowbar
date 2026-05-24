@@ -1,4 +1,5 @@
-import { invoke } from "@tauri-apps/api/core";
+// FUTURE: call Go/Rust formatter service when running in desktop
+const invoke = async <T>(_cmd: string, _args?: unknown): Promise<T> => { return '' as T }
 import { extensionRegistry } from "@/extensions/registry/extension-registry";
 import { getLanguageIdFromPath } from "@/features/editor/utils/language-id";
 import { logger } from "@/features/editor/utils/logger";

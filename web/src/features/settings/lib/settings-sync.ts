@@ -258,7 +258,7 @@ function writeMeta(patch: Partial<SettingsSyncMeta>): SettingsSyncMeta {
   return next;
 }
 
-function getTimestampMs(value: string | null): number {
+function getTimestampMs(value: string | null | undefined): number {
   if (!value) return 0;
   const parsed = Date.parse(value);
   return Number.isFinite(parsed) ? parsed : 0;
@@ -288,13 +288,14 @@ async function applyRemoteSnapshot(snapshot: CloudSettingsSyncSnapshot) {
     }
 
     lastUploadedPayloadJson = JSON.stringify(snapshot.settings);
+    const syncedAt = snapshot.updatedAt ?? new Date().toISOString();
     writeMeta({
-      localUpdatedAt: snapshot.updatedAt,
-      lastSyncedAt: snapshot.updatedAt,
+      localUpdatedAt: syncedAt,
+      lastSyncedAt: syncedAt,
       lastSyncSource: "cloud",
     });
     useSettingsSyncStore.getState().actions.finishSync({
-      updatedAt: snapshot.updatedAt,
+      updatedAt: syncedAt,
       source: "cloud",
     });
   } finally {
@@ -324,15 +325,17 @@ async function pushLocalSnapshot(source: SettingsSyncSource = "local") {
   const snapshot = await pushSettingsSyncSnapshot({
     schemaVersion: SETTINGS_SYNC_SCHEMA_VERSION,
     settings: payload,
+    version: SETTINGS_SYNC_SCHEMA_VERSION,
   });
   lastUploadedPayloadJson = payloadJson;
+  const pushedAt = snapshot.updatedAt ?? new Date().toISOString();
   writeMeta({
-    localUpdatedAt: snapshot.updatedAt,
-    lastSyncedAt: snapshot.updatedAt,
+    localUpdatedAt: pushedAt,
+    lastSyncedAt: pushedAt,
     lastSyncSource: source,
   });
   useSettingsSyncStore.getState().actions.finishSync({
-    updatedAt: snapshot.updatedAt,
+    updatedAt: pushedAt,
     source,
   });
 }

@@ -75,9 +75,9 @@ export const ThemeSelectorContent = ({
         (theme: ThemeDefinition): ThemeInfo => ({
           id: theme.id,
           name: theme.name,
-          description: theme.description,
-          category: theme.category,
-          icon: getThemeIcon(theme.category),
+          description: theme.description ?? "",
+          category: (theme.category ?? "Dark") as "System" | "Light" | "Dark" | "Colorful",
+          icon: getThemeIcon(theme.category ?? "Dark"),
         }),
       );
       setThemes(themeInfos);
@@ -311,7 +311,7 @@ export const ThemeSelectorContent = ({
                   <div className="flex items-center gap-2 truncate ui-text-xs">
                     <span className="truncate">{theme.name}</span>
                     {isCurrent && (
-                      <Badge variant="accent" size="compact">
+                      <Badge variant="secondary" size="compact">
                         Current
                       </Badge>
                     )}

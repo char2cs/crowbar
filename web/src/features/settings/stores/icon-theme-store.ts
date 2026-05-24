@@ -16,7 +16,7 @@ export const useIconThemeStore = create<IconThemeState>()(
       setCurrentTheme: (theme: string) => set({ currentTheme: theme }),
       getCurrentThemeDefinition: () => {
         const { currentTheme } = get();
-        return iconThemeRegistry.getTheme(currentTheme);
+        return iconThemeRegistry.getTheme(currentTheme) ?? undefined;
       },
     }),
     {

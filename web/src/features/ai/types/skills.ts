@@ -1,9 +1,10 @@
 // Stub
 export interface AiSkill {
   id: string
-  name: string
+  name?: string
   title: string
   content?: string
+  author?: string
   createdAt?: string | number
   updatedAt?: string | number
   upstreamUpdatedAt?: string | number

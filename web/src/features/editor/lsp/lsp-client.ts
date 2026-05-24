@@ -1,6 +1,8 @@
 // LSP is out of scope for Crowbar. All methods are no-ops.
 // Original Athas file replaced with stub.
 
+import type { CompletionItem } from "vscode-languageserver-types"
+
 export interface LspError {
   message: string
   code?: string
@@ -12,6 +14,28 @@ export interface LspLocation {
     start: { line: number; character: number }
     end: { line: number; character: number }
   }
+}
+
+export interface Definition {
+  uri: string
+  range: {
+    start: { line: number; character: number }
+    end: { line: number; character: number }
+  }
+}
+
+export interface TextEdit {
+  range: {
+    start: { line: number; character: number }
+    end: { line: number; character: number }
+  }
+  newText: string
+}
+
+export interface InlayHint {
+  label: string
+  position: { line: number; character: number }
+  character?: number
 }
 
 class LspClientImpl {
@@ -29,7 +53,7 @@ class LspClientImpl {
   async startServer(_filePath: string): Promise<void> {}
   async stopServer(): Promise<void> {}
 
-  async getCompletions(_filePath: string, _line: number, _character: number, _trigger?: string): Promise<unknown[]> {
+  async getCompletions(_filePath: string, _line: number, _character: number, _trigger?: string): Promise<CompletionItem[]> {
     return []
   }
 
@@ -37,7 +61,7 @@ class LspClientImpl {
     return null
   }
 
-  async getDefinition(_filePath: string, _line: number, _character: number): Promise<LspLocation | null> {
+  async getDefinition(_filePath: string, _line: number, _character: number): Promise<Definition[] | null> {
     return null
   }
 
@@ -49,15 +73,19 @@ class LspClientImpl {
     return []
   }
 
-  async formatDocument(_filePath: string): Promise<unknown[]> {
-    return []
+  async formatDocument(_filePath: string, _content?: string): Promise<string | null> {
+    return null
+  }
+
+  async formatRange(_filePath: string, _content?: string, _range?: unknown): Promise<string | null> {
+    return null
   }
 
   async getCodeActions(_filePath: string, _line: number, _character: number): Promise<unknown[]> {
     return []
   }
 
-  async applyCodeAction(_action: unknown): Promise<{ success: boolean }> {
+  async applyCodeAction(_filePath: string, _action: unknown): Promise<{ success: boolean }> {
     return { success: false }
   }
 
@@ -69,7 +97,7 @@ class LspClientImpl {
     return null
   }
 
-  async getInlayHints(_filePath: string, _startLine: number, _endLine: number): Promise<unknown[]> {
+  async getInlayHints(_filePath: string, _startLine: number, _endLine: number): Promise<InlayHint[]> {
     return []
   }
 
@@ -77,14 +105,22 @@ class LspClientImpl {
     return null
   }
 
-  async documentOpen(_filePath: string, _content: string): Promise<void> {}
-  async documentChange(_filePath: string, _changes: unknown[]): Promise<void> {}
-  async documentSave(_filePath: string): Promise<void> {}
-  async documentClose(_filePath: string): Promise<void> {}
+  async getCodeLens(_filePath: string): Promise<unknown[]> {
+    return []
+  }
 
   async getSignatureHelp(_filePath: string, _line: number, _character: number): Promise<null> {
     return null
   }
+
+  async getSignatureTriggerCharacters(_filePath: string): Promise<string[]> {
+    return []
+  }
+
+  async documentOpen(_filePath: string, _content: string): Promise<void> {}
+  async documentChange(_filePath: string, _changes: unknown, _version?: number): Promise<void> {}
+  async documentSave(_filePath: string, _content?: string): Promise<void> {}
+  async documentClose(_filePath: string): Promise<void> {}
 
   onDiagnosticsUpdate(_handler: (_filePath: string, _diagnostics: unknown[]) => void): () => void {
     return () => {}
@@ -92,10 +128,11 @@ class LspClientImpl {
 
   notifyDocumentOpen(_filePath: string, _content: string): Promise<void> { return this.documentOpen(_filePath, _content) }
   notifyDocumentClose(_filePath: string): Promise<void> { return this.documentClose(_filePath) }
-  notifyDocumentChange(_filePath: string, _changes: unknown[]): Promise<void> { return this.documentChange(_filePath, _changes) }
-  notifyDocumentSave(_filePath: string): Promise<void> { return this.documentSave(_filePath) }
+  notifyDocumentChange(_filePath: string, _changes: unknown, _version?: number): Promise<void> { return this.documentChange(_filePath, _changes, _version) }
+  notifyDocumentSave(_filePath: string, _content?: string): Promise<void> { return this.documentSave(_filePath, _content) }
 
   async startForFile(_filePath: string, _rootFolderPath?: string, _opts?: { forceRetry?: boolean }): Promise<boolean> { return false }
+  async stopForFile(_filePath: string): Promise<void> {}
   getActiveServerEntries(): unknown[] { return [] }
   async getActiveServerEntryForFile(_filePath: string, _languageId?: string): Promise<null> { return null }
   async restartTrackedServer(_serverId: string): Promise<void> {}

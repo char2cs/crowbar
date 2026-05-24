@@ -1,10 +1,10 @@
 // Stub
 import { create } from "zustand"
 import { createSelectors } from "@/utils/zustand-selectors"
-import type { KeybindingPreset } from "@/features/keymaps/types"
+import type { Keybinding, KeybindingPreset } from "@/features/keymaps/types"
 
 interface KeymapStoreState {
-  keybindings: unknown[]
+  keybindings: Keybinding[]
   preset: KeybindingPreset
   contexts: Record<string, unknown>
   setPreset: (preset: KeybindingPreset) => void

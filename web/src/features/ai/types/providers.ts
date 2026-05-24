@@ -20,4 +20,4 @@ export interface AiProvider {
 
 export function getAvailableProviders(): AiProvider[] { return [] }
 export function getProviderById(_id: string): AiProvider | null { return null }
-export function getModelById(_id: string): AiModel | null { return null }
+export function getModelById(_providerId: string, _modelId?: string): AiModel | null { return null }

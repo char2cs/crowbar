@@ -1,9 +1,25 @@
-import { load, type Store } from "@tauri-apps/plugin-store";
+// FUTURE: replace with persistent store when Tauri store plugin is available
 import {
   defaultSettings,
   getDefaultSettingsSnapshot,
 } from "@/features/settings/config/default-settings";
 import type { Settings } from "@/features/settings/types/settings";
+
+type Store = {
+  get: <T>(key: string) => Promise<T | null>
+  set: (key: string, value: unknown) => Promise<void>
+  save: () => Promise<void>
+  onKeyChange: (key: string, cb: (value: unknown) => void) => () => void
+}
+const load = async (_path: string, _opts?: unknown): Promise<Store> => {
+  const data: Record<string, unknown> = {}
+  return {
+    get: async <T>(key: string) => (Object.prototype.hasOwnProperty.call(data, key) ? (data[key] as T) : null),
+    set: async (key: string, value: unknown) => { data[key] = value },
+    save: async () => {},
+    onKeyChange: (_key: string, _cb: (value: unknown) => void) => () => {},
+  }
+}
 
 let storeInstance: Store;
 
@@ -13,7 +29,7 @@ async function initializeStoreDefaults(store: Store) {
     if (current === null || current === undefined) {
       await store.set(key, value);
     } else if (typeof value === "object" && value !== null && !Array.isArray(value)) {
-      const merged = { ...value, ...current };
+      const merged = { ...value, ...(current as object) };
       await store.set(key, merged);
     }
   }
@@ -22,9 +38,7 @@ async function initializeStoreDefaults(store: Store) {
 
 export async function getSettingsStore() {
   if (!storeInstance) {
-    storeInstance = await load("settings.json", {
-      autoSave: true,
-    } as Parameters<typeof load>[1]);
+    storeInstance = await load("settings.json");
     await initializeStoreDefaults(storeInstance);
   }
 
