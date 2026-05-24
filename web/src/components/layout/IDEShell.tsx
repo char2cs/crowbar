@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { Outlet, useNavigate, useRouterState } from '@tanstack/react-router'
 import {
   ResizablePanelGroup,
@@ -10,14 +10,22 @@ import { SidebarTabs } from './SidebarTabs'
 import { FlowTab } from './FlowTab'
 import { IDETabBar } from './IDETabBar'
 import { useSidebarStore } from '@/lib/store/sidebar'
+import { createMockChat } from '@/lib/mock/chats'
+import { getMockFileTree, getMockFileContent } from '@/lib/mock/files'
+import { useFileSystemStore } from '@/features/file-system/controllers/store'
+import { useBufferStore } from '@/features/editor/stores/buffer-store'
+import { usePaneStore } from '@/features/panes/stores/pane-store'
+import { getFirstPaneGroup } from '@/features/panes/utils/pane-tree'
+import { PaneContainer } from '@/features/panes/components/pane-container'
 import SettingsDialog from '@/features/settings/components/settings-dialog'
 import { ErrorBoundary } from '@/components/ErrorBoundary'
+import type { AppFile } from '@/features/file-system/types/app'
 
 export function IDEShell() {
   const navigate = useNavigate()
   const routerState = useRouterState()
   const pathname = routerState.location.pathname
-  const { chats, repos, collapsedRepos, deleteChat, deleteWorkspace, toggleRepo } =
+  const { chats, repos, collapsedRepos, addChat, deleteChat, deleteWorkspace, toggleRepo } =
     useSidebarStore()
   const [settingsOpen, setSettingsOpen] = useState(false)
 
@@ -31,11 +39,37 @@ export function IDEShell() {
   const activeWorkspaceRepoPath = activeRepo ? `/repos/${activeRepo.id}` : '/repos/default'
   const activeChat = chats.find((c) => c.id === activeChatId)
 
-  // Label for the IDE tab: show "repo / branch" for workspaces, title for chats
   const ideTabLabel = activeWorkspace
     ? `${activeRepo?.name ?? ''} / ${activeWorkspace.branch}`
     : 'Workspace'
   const chatTabLabel = activeChat?.title ?? 'Chat'
+
+  // Get the root pane for the code editor
+  const rootPaneNode = usePaneStore.use.root()
+  const rootPane = getFirstPaneGroup(rootPaneNode)
+
+  // Seed the mock file system store whenever the active workspace repo changes
+  useEffect(() => {
+    const files = getMockFileTree(activeWorkspaceRepoPath) as AppFile[]
+    useFileSystemStore.setState({
+      rootFolderPath: activeWorkspaceRepoPath,
+      files,
+      handleFileOpen: async (path: string, revealOrIsDir?: boolean) => {
+        if (revealOrIsDir === true) return
+        const name = path.split('/').pop() ?? path
+        const content = getMockFileContent(path)
+        useBufferStore.getState().actions.openContent({ type: 'editor', path, name, content })
+      },
+      handleFileSelect: (path: string, isDir?: boolean) => {
+        if (isDir) return
+        const name = path.split('/').pop() ?? path
+        const content = getMockFileContent(path)
+        useBufferStore.getState().actions.openContent({
+          type: 'editor', path, name, content, isPreview: true,
+        })
+      },
+    })
+  }, [activeWorkspaceRepoPath])
 
   return (
     <div className="flex h-screen overflow-hidden bg-background text-foreground">
@@ -50,14 +84,12 @@ export function IDEShell() {
         >
           <div className="flex h-full flex-col overflow-hidden border-r border-border bg-card">
             <ErrorBoundary>
-              {/* Header always visible above the tab switcher */}
               <SidebarHeader
                 userInitials="MU"
                 onProjectsClick={() => void navigate({ to: '/projects' })}
                 onProjectSelect={() => void navigate({ to: '/' })}
                 onSettingsClick={() => setSettingsOpen(true)}
               />
-              {/* Workspaces / Files / Git tab switcher */}
               <SidebarTabs
                 chats={chats}
                 repos={repos}
@@ -71,9 +103,16 @@ export function IDEShell() {
                 onWorkspaceClick={(_repoId, wsId) =>
                   void navigate({ to: '/workspaces/$wsId', params: { wsId } })
                 }
-                onNewChat={() => {}}
+                onNewChat={() => {
+                  const chat = createMockChat()
+                  addChat({ id: chat.id, title: chat.title, age: chat.age })
+                  void navigate({ to: '/chat/$chatId', params: { chatId: chat.id } })
+                }}
                 onNewWorkspace={() => void navigate({ to: '/workspaces/new' })}
-                onDeleteChat={(id) => deleteChat(id)}
+                onDeleteChat={(id) => {
+                  deleteChat(id)
+                  if (activeChatId === id) void navigate({ to: '/' })
+                }}
                 onDeleteWorkspace={(wsId) => {
                   deleteWorkspace(wsId)
                   if (activeWorkspaceId === wsId) void navigate({ to: '/' })
@@ -90,18 +129,36 @@ export function IDEShell() {
         <ResizablePanel className="flex min-w-0 flex-1 flex-col overflow-hidden">
           <ErrorBoundary>
             {activeWorkspaceId ? (
-              <div className="flex h-full flex-col overflow-hidden">
-                {/* IDE tab bar — the workspace renders as a document tab */}
-                <IDETabBar
-                  label={ideTabLabel}
-                  onClose={() => void navigate({ to: '/' })}
-                />
-                {/* Workspace content (chat + step tabs) */}
-                <FlowTab workspaceId={activeWorkspaceId} />
-              </div>
+              <ResizablePanelGroup orientation="horizontal" className="h-full">
+                {/* ── Flow / Chat panel ─── */}
+                <ResizablePanel
+                  defaultSize="45%"
+                  minSize="25%"
+                  maxSize="75%"
+                  className="flex flex-col overflow-hidden"
+                >
+                  <IDETabBar
+                    label={ideTabLabel}
+                    onClose={() => void navigate({ to: '/' })}
+                  />
+                  <FlowTab workspaceId={activeWorkspaceId} />
+                </ResizablePanel>
+
+                <ResizableHandle />
+
+                {/* ── Code editor pane ─── */}
+                <ResizablePanel
+                  defaultSize="55%"
+                  minSize="25%"
+                  className="flex flex-col overflow-hidden"
+                >
+                  <ErrorBoundary>
+                    <PaneContainer pane={rootPane} />
+                  </ErrorBoundary>
+                </ResizablePanel>
+              </ResizablePanelGroup>
             ) : activeChatId ? (
               <div className="flex h-full flex-col overflow-hidden">
-                {/* Chat sessions also appear as document tabs */}
                 <IDETabBar
                   label={chatTabLabel}
                   onClose={() => void navigate({ to: '/' })}

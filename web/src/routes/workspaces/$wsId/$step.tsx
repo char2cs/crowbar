@@ -1,11 +1,10 @@
-import { useState, useEffect } from 'react'
+import { useState } from 'react'
 import { createFileRoute } from '@tanstack/react-router'
 import { useQuery } from '@tanstack/react-query'
 import { workspaceQueryOptions } from '@/lib/queries'
-import { getMockConversation } from '@/lib/mock/conversations'
+import { useConversationStore } from '@/lib/store/conversations'
 import { ChatView } from '@/components/chat/ChatView'
 import { DiffView } from '@/components/review/DiffView'
-import type { ChatMessage } from '@/lib/types'
 
 export const Route = createFileRoute('/workspaces/$wsId/$step')({
   component: StepPage,
@@ -28,37 +27,29 @@ function StepPage() {
 }
 
 function WorkspaceChatView({ workspaceId, step }: { workspaceId: string; step: string }) {
-  const [messages, setMessages] = useState<ChatMessage[]>([])
   const [sending, setSending] = useState(false)
+  const { getMessages, appendMessage, pushStreamChunk, finalizeStream } = useConversationStore()
 
-  useEffect(() => {
-    setMessages(getMockConversation(workspaceId, step))
-  }, [workspaceId, step])
+  // Seed the store on first render for this wsId+step (no-op if already seeded)
+  const messages = getMessages(workspaceId, step)
 
   const handleSend = (content: string, _attachments: File[]) => {
-    const userMsg: ChatMessage = {
+    appendMessage(workspaceId, step, {
       id: `u${Date.now()}`, role: 'user', content,
       authorName: 'Mateo', authorInitials: 'MU', timestamp: 'just now',
-    }
-    setMessages(prev => [...prev, userMsg])
+    })
     setSending(true)
     simulateStream(
-      'Understood. I\'ll start working on that now and update you as I make progress.',
+      'Understood. I\'ll start working on that now.\n\n**Next steps:**\n- Analyse the requirements\n- Draft the implementation plan\n- Write the code\n\nI\'ll update you as I make progress.',
       (chunk) => {
-        setMessages(prev => {
-          const last = prev[prev.length - 1]
-          if (last?.role === 'assistant' && last.id === 'streaming') {
-            return [...prev.slice(0, -1), { ...last, content: last.content + chunk }]
-          }
-          return [...prev, {
-            id: 'streaming', role: 'assistant', content: chunk,
-            authorName: 'Claude', authorInitials: '✦', modelName: 'Sonnet 4.6',
-            timestamp: 'just now',
-          }]
+        pushStreamChunk(workspaceId, step, chunk, {
+          role: 'assistant',
+          authorName: 'Claude', authorInitials: '✦', modelName: 'Sonnet 4.6',
+          timestamp: 'just now',
         })
       },
       () => {
-        setMessages(prev => prev.map(m => m.id === 'streaming' ? { ...m, id: `a${Date.now()}` } : m))
+        finalizeStream(workspaceId, step, `a${Date.now()}`)
         setSending(false)
       },
     )

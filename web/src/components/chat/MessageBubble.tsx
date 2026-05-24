@@ -1,5 +1,6 @@
 import { cn } from '@/lib/utils'
 import { Avatar, AvatarFallback } from '@/components/ui/avatar'
+import { MarkdownContent } from './MarkdownContent'
 
 interface MessageBubbleProps {
   role: 'user' | 'assistant'
@@ -26,9 +27,20 @@ export function MessageBubble({
             : 'max-w-[80%] rounded-tl-sm border border-border bg-card text-foreground',
         )}
       >
-        {content}
-        {isStreaming && (
-          <span className="ml-0.5 inline-block h-3.5 w-0.5 animate-pulse rounded-sm bg-primary/60 align-middle" />
+        {isUser ? (
+          <span className="whitespace-pre-wrap">
+            {content}
+            {isStreaming && (
+              <span className="ml-0.5 inline-block h-3.5 w-0.5 animate-pulse rounded-sm bg-primary/60 align-middle" />
+            )}
+          </span>
+        ) : (
+          <>
+            <MarkdownContent content={content} />
+            {isStreaming && (
+              <span className="ml-0.5 inline-block h-3.5 w-0.5 animate-pulse rounded-sm bg-primary/60 align-middle" />
+            )}
+          </>
         )}
       </div>
       {!isStreaming && (

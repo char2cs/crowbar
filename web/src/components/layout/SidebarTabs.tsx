@@ -8,6 +8,7 @@ import { SidebarSkeleton } from './SidebarSkeleton'
 import { getMockFileTree } from '@/lib/mock/files'
 import { useFileTreeStore } from '@/features/file-explorer/stores/file-explorer-tree-store'
 import type { ProjectChat, Repo } from '@/lib/store/sidebar'
+import { useFileSystemStore } from '@/features/file-system/controllers/store'
 
 type SidebarTab = 'workspaces' | 'files' | 'git'
 
@@ -34,6 +35,8 @@ export function SidebarTabs({
   onDeleteChat, onDeleteWorkspace, onRepoToggle,
 }: SidebarTabsProps) {
   const [activeTab, setActiveTab] = useState<SidebarTab>('workspaces')
+  const handleFileOpen = useFileSystemStore.use.handleFileOpen?.()
+  const handleFileSelect = useFileSystemStore.use.handleFileSelect?.()
 
   return (
     <Tabs
@@ -88,8 +91,13 @@ export function SidebarTabs({
               onFileSelect={(path, isDir) => {
                 if (isDir) {
                   useFileTreeStore.getState().toggleFolder(path)
+                } else {
+                  handleFileSelect?.(path, false)
                 }
               }}
+              onFileOpen={handleFileOpen ? (path: string, isDir: boolean) => {
+                if (!isDir) void handleFileOpen(path, false)
+              } : undefined}
               onCreateNewFileInDirectory={() => {}}
             />
           </Suspense>
