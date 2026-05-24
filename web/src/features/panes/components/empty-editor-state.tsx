@@ -39,7 +39,7 @@ export function EmptyEditorState() {
   const { addAction, updateAction, deleteAction, getActionsForWorkspace } =
     useCustomActionsStore.getState().storeActions;
   const customActions = useMemo(
-    () => getActionsForWorkspace(rootFolderPath),
+    () => getActionsForWorkspace(rootFolderPath ?? undefined),
     [allCustomActions, getActionsForWorkspace, rootFolderPath],
   );
 
@@ -108,7 +108,7 @@ export function EmptyEditorState() {
     if (editingActionId) {
       updateAction(editingActionId, { name: command, command });
     } else {
-      addAction({ name: command, command, workspacePath: rootFolderPath });
+      addAction({ name: command, command, workspacePath: rootFolderPath ?? undefined });
     }
     handleCancel();
   }, [inputValue, editingActionId, addAction, updateAction, handleCancel, rootFolderPath]);

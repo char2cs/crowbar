@@ -20,7 +20,7 @@ export type SettingsTab =
   | "file-explorer"
   | "language"
 
-export type BottomPaneTab = "terminal" | "problems" | "output" | "debug" | "console" | "debugger"
+export type BottomPaneTab = "terminal" | "problems" | "output" | "debug" | "console" | "debugger" | "buffers"
 export type SidebarActivityItem = "file-explorer" | "git" | "search" | "extensions" | "outline" | "collaboration"
 
 export interface UIState {

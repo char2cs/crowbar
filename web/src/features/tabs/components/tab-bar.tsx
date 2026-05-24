@@ -867,7 +867,7 @@ const TabBar = ({
             }, 100);
           }
         }}
-        onRevealInFinder={handleRevealInFolder}
+        onRevealInFinder={handleRevealInFolder ?? undefined}
         onSplitRight={
           paneId
             ? (targetPaneId, bufferId) => {

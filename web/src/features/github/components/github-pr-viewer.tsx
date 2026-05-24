@@ -1,3 +1,7 @@
 // Stub
-export function GitHubPRViewer() { return null }
+interface GitHubPRViewerProps {
+  prNumber?: number
+  [key: string]: unknown
+}
+export function GitHubPRViewer(_props: GitHubPRViewerProps) { return null }
 export default GitHubPRViewer

@@ -30,6 +30,10 @@ TabsList.displayName = TabsPrimitive.List.displayName
 export interface TabsTriggerProps extends React.ComponentPropsWithoutRef<typeof TabsPrimitive.Trigger> {
   /** Whether this tab is active (Athas compatibility) */
   isActive?: boolean
+  /** Whether this tab is being dragged (Athas compatibility) */
+  isDragged?: boolean
+  /** Action element rendered inside the tab (Athas compatibility) */
+  action?: React.ReactNode
   /** Visual variant (Athas compatibility) */
   variant?: string
   /** Size variant (Athas compatibility) */
@@ -39,7 +43,7 @@ export interface TabsTriggerProps extends React.ComponentPropsWithoutRef<typeof 
 const TabsTrigger = React.forwardRef<
   React.ElementRef<typeof TabsPrimitive.Trigger>,
   TabsTriggerProps
->(({ className, isActive: _isActive, variant: _variant, size: _size, ...props }, ref) => (
+>(({ className, isActive: _isActive, isDragged: _isDragged, action: _action, variant: _variant, size: _size, ...props }, ref) => (
   <TabsPrimitive.Trigger
     ref={ref}
     className={cn(
@@ -66,8 +70,28 @@ const TabsContent = React.forwardRef<
 ))
 TabsContent.displayName = TabsPrimitive.Content.displayName
 
-/** Alias for TabsTrigger used by Athas feature modules */
-const Tab = TabsTrigger
+/** Standalone tab button used by Athas feature modules (does not require Radix value prop) */
+export interface TabProps extends React.ButtonHTMLAttributes<HTMLButtonElement> {
+  isActive?: boolean
+  isDragged?: boolean
+  action?: React.ReactNode
+  variant?: string
+  size?: "xs" | "sm" | "md" | "lg"
+}
+
+const Tab = React.forwardRef<HTMLButtonElement, TabProps>(
+  ({ className, isActive: _isActive, isDragged: _isDragged, action: _action, variant: _variant, size: _size, ...props }, ref) => (
+    <button
+      ref={ref}
+      className={cn(
+        "inline-flex items-center justify-center whitespace-nowrap rounded-sm px-3 py-1.5 text-sm font-medium transition-all focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:pointer-events-none disabled:opacity-50",
+        className
+      )}
+      {...props}
+    />
+  )
+)
+Tab.displayName = "Tab"
 
 /** Athas tab item descriptor */
 export interface TabsItem {
