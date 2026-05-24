@@ -41,14 +41,7 @@ const BottomPane = () => {
     return () => window.removeEventListener("athas-internal-tab-drag-hover", syncHover);
   }, []);
 
-  useEffect(() => {
-    if (
-      isBottomPaneVisible &&
-      (bottomPaneActiveTab === "diagnostics" || bottomPaneActiveTab === "references")
-    ) {
-      useUIState.getState().setIsBottomPaneVisible(false);
-    }
-  }, [bottomPaneActiveTab, isBottomPaneVisible]);
+  // diagnostics and references tabs have been removed; no auto-hide needed for them
 
   useEffect(() => {
     if (
@@ -214,7 +207,7 @@ const BottomPane = () => {
         {/* Terminal Container - Always mounted to preserve terminal sessions */}
         {settings.coreFeatures.terminal && (
           <TerminalContainer
-            currentDirectory={rootFolderPath}
+            currentDirectory={rootFolderPath ?? undefined}
             className={cn("h-full", bottomPaneActiveTab === "terminal" ? "block" : "hidden")}
             onFullScreen={() => setIsFullScreen(!isFullScreen)}
             isFullScreen={isFullScreen}

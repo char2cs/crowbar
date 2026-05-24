@@ -6,7 +6,6 @@ import type {
   TerminalAction,
   TerminalState,
 } from "@/features/terminal/types/terminal";
-import { parseRemotePath } from "@/features/remote/utils/remote-path";
 import {
   dedupePersistedTerminals,
   loadWorkspaceTerminalsFromStorage,
@@ -285,8 +284,8 @@ export const useTerminalTabs = () => {
     }): string => {
       // Generate the terminal ID here so we can return it
       const terminalId = generateTerminalId(name);
-      const resolvedRemoteConnectionId =
-        remoteConnectionId ?? parseRemotePath(currentDirectory)?.connectionId;
+      // parseRemotePath stub does not expose connectionId; fall back to passed remoteConnectionId
+      const resolvedRemoteConnectionId = remoteConnectionId ?? undefined;
       dispatch({
         type: "CREATE_TERMINAL",
         payload: {

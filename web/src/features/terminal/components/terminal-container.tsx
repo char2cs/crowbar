@@ -377,10 +377,11 @@ const TerminalContainer = ({
   );
 
   // Register focus callback with UI state
+  const terminalFocusId = "terminal-container";
   useEffect(() => {
-    registerTerminalFocus(focusActiveTerminal);
+    registerTerminalFocus(terminalFocusId, focusActiveTerminal);
     return () => {
-      clearTerminalFocus();
+      clearTerminalFocus(terminalFocusId);
     };
   }, [registerTerminalFocus, clearTerminalFocus, focusActiveTerminal]);
 

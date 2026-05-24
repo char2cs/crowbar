@@ -3,7 +3,9 @@ import type React from "react"
 
 export interface ExtensionViewEntry {
   extensionId: string
+  id: string
   title: string
+  icon: string
   render: () => React.ReactNode
 }
 

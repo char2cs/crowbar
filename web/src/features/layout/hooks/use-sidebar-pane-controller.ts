@@ -44,7 +44,7 @@ export function useSidebarPaneController() {
           isSidebarVisible,
           isGitViewActive,
           isGitHubPRsViewActive,
-          activeSidebarView,
+          activeSidebarView: activeSidebarView ?? undefined,
         },
         view,
         {

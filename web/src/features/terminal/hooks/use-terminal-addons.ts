@@ -1,5 +1,5 @@
 // Tauri plugins replaced with browser equivalents
-const ask = async (message: string): Promise<boolean> => window.confirm(message)
+const ask = async (message: string, _options?: Record<string, unknown>): Promise<boolean> => window.confirm(message)
 const open = async (url: string) => { window.open(url, '_blank') }
 import { FitAddon } from "@xterm/addon-fit";
 import { SearchAddon } from "@xterm/addon-search";

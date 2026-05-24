@@ -5,8 +5,6 @@ const createTerminal = async (_config: Record<string, unknown>): Promise<string>
 import type { ISearchOptions } from "@xterm/addon-search";
 import { Terminal } from "@xterm/xterm";
 import React, { useCallback, useEffect, useRef, useState } from "react";
-import { connectionStore } from "@/features/remote/services/remote-connection-store";
-import { parseRemotePath } from "@/features/remote/utils/remote-path";
 import { useSettingsStore } from "@/features/settings/store";
 import { useZoomStore } from "@/features/window/stores/zoom-store";
 import { useProjectStore } from "@/features/window/stores/project-store";
@@ -276,8 +274,8 @@ export const XtermTerminal: React.FC<XtermTerminalProps> = ({
       } else {
         const targetDirectory =
           workingDirectory || existingSession?.currentDirectory || rootFolderPath;
-        const remoteInfo = targetDirectory ? parseRemotePath(targetDirectory) : null;
-        const effectiveRemoteConnectionId = remoteConnectionId || remoteInfo?.connectionId;
+        // parseRemotePath does not expose connectionId in the stub; use only the passed remoteConnectionId
+        const effectiveRemoteConnectionId = remoteConnectionId || undefined;
 
         activeConnectionId = await createTerminal({
           working_directory: targetDirectory || undefined,
@@ -288,7 +286,7 @@ export const XtermTerminal: React.FC<XtermTerminalProps> = ({
 
         updateSession(sessionId, {
           connectionId: activeConnectionId,
-          currentDirectory: targetDirectory,
+          currentDirectory: targetDirectory ?? undefined,
           remoteConnectionId: effectiveRemoteConnectionId,
         });
       }

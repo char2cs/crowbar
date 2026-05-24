@@ -42,14 +42,15 @@ export const SidebarActivityRail = memo(() => {
   const { settings } = useSettingsStore();
   const { openSidebarView } = useSidebarPaneController();
 
-  const handleSidebarViewChange = (view: typeof activeSidebarView) => {
+  const handleSidebarViewChange = (view: SidebarView | null) => {
+    if (!view) return;
     openSidebarView(view, { triggerSide: "current" });
   };
 
   return (
     <div className="athas-sidebar-rail flex shrink-0 items-start px-1 pt-0 pb-1.5">
       <SidebarPaneSelector
-        activeSidebarView={activeSidebarView}
+        activeSidebarView={activeSidebarView ?? 'files'}
         isGitViewActive={isGitViewActive}
         isGitHubPRsViewActive={isGitHubPRsViewActive}
         coreFeatures={settings.coreFeatures}
@@ -112,7 +113,7 @@ export const MainSidebar = memo(
       ? "git"
       : isGitHubPRsViewActive
         ? "github-prs"
-        : activeSidebarView;
+        : (activeSidebarView ?? 'files');
     const allPaneEntries: SidebarPaneEntry[] = [
       ...(settings.coreFeatures.git
         ? [
@@ -120,8 +121,8 @@ export const MainSidebar = memo(
               id: "git" as const,
               content: (
                 <GitView
-                  repoPath={rootFolderPath}
-                  onFileSelect={handleFileSelect}
+                  repoPath={rootFolderPath ?? undefined}
+                  onFileSelect={handleFileSelect ?? undefined}
                   isActive={isGitViewActive}
                 />
               ),
@@ -143,20 +144,20 @@ export const MainSidebar = memo(
             {(!isFileTreeLoading || isSwitchingProject) && (
               <FileExplorerTree
                 files={files}
-                activePath={activePath}
-                updateActivePath={updateActivePath}
-                rootFolderPath={rootFolderPath}
-                onFileSelect={handleFileSelect}
-                onFileOpen={handleFileOpen}
-                onCreateNewFileInDirectory={handleCreateNewFileInDirectory}
-                onCreateNewFolderInDirectory={handleCreateNewFolderInDirectory}
-                onDeletePath={handleDeletePath}
-                onUpdateFiles={setFiles}
-                onRefreshDirectory={refreshDirectory}
-                onRenamePath={handleRenamePath}
-                onRevealInFinder={handleRevealInFolder}
-                onFileMove={handleFileMove}
-                onDuplicatePath={handleDuplicatePath}
+                activePath={activePath ?? undefined}
+                updateActivePath={updateActivePath ?? undefined}
+                rootFolderPath={rootFolderPath ?? undefined}
+                onFileSelect={handleFileSelect ?? (() => {})}
+                onFileOpen={handleFileOpen ?? undefined}
+                onCreateNewFileInDirectory={handleCreateNewFileInDirectory ?? ((_dir: string, _file: string) => {})}
+                onCreateNewFolderInDirectory={handleCreateNewFolderInDirectory ?? undefined}
+                onDeletePath={handleDeletePath ?? undefined}
+                onUpdateFiles={setFiles ?? undefined}
+                onRefreshDirectory={refreshDirectory ?? undefined}
+                onRenamePath={handleRenamePath ?? undefined}
+                onRevealInFinder={handleRevealInFolder ?? undefined}
+                onFileMove={handleFileMove ?? undefined}
+                onDuplicatePath={handleDuplicatePath ?? undefined}
               />
             )}
 

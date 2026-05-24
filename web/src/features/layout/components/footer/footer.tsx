@@ -81,7 +81,7 @@ function FooterTabControl({
   className?: string;
   onClick: () => void;
   commandId?: string;
-  controlRef?: Ref<HTMLDivElement>;
+  controlRef?: Ref<HTMLButtonElement>;
   children: ReactNode;
 }) {
   const shortcut = useCommandShortcut(commandId);
@@ -146,7 +146,7 @@ const Footer = () => {
     onViewReleaseNotes,
   } = useAutoUpdate();
   const [isUpdateMenuOpen, setIsUpdateMenuOpen] = useState(false);
-  const updateMenuRef = useRef<HTMLDivElement>(null);
+  const updateMenuRef = useRef<HTMLButtonElement>(null);
 
   const extensionUpdatesCount = useExtensionStore.use.extensionsWithUpdates().size;
   const diagnosticsByFile = useDiagnosticsStore.use.diagnosticsByFile();

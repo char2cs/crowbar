@@ -13,7 +13,7 @@ interface TerminalTabBarItemProps {
   isActive: boolean;
   isDraggedTab: boolean;
   showDropIndicatorBefore: boolean;
-  tabRef: (el: HTMLDivElement | null) => void;
+  tabRef: (el: HTMLButtonElement | null) => void;
   onClick: () => void;
   onContextMenu: (e: React.MouseEvent) => void;
   onKeyDown: (e: React.KeyboardEvent) => void;

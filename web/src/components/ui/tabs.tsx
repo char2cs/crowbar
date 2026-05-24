@@ -77,6 +77,8 @@ export interface TabProps extends React.ButtonHTMLAttributes<HTMLButtonElement> 
   action?: React.ReactNode
   variant?: string
   size?: "xs" | "sm" | "md" | "lg"
+  labelPosition?: "start" | "center" | "end"
+  maxWidth?: number
 }
 
 const Tab = React.forwardRef<HTMLButtonElement, TabProps>(
@@ -103,10 +105,13 @@ export interface TabsItem {
   role?: string
   ariaLabel?: string
   className?: string
+  tabIndex?: number
+  title?: string
   tooltip?: {
     content: string
     shortcut?: string
     side?: "top" | "right" | "bottom" | "left"
+    className?: string
   }
 }
 
