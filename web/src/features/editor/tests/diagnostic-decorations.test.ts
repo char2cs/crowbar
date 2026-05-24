@@ -9,7 +9,7 @@ import {
 function diagnostic(overrides: Partial<Diagnostic>): Diagnostic {
   return {
     severity: "error",
-    filePath: "/tmp/file.ts",
+    range: { start: { line: 0, character: 0 }, end: { line: 0, character: 0 } },
     line: 0,
     column: 0,
     endLine: 0,

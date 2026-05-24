@@ -33,9 +33,12 @@ export interface TextEdit {
 }
 
 export interface InlayHint {
+  line: number
+  character: number
   label: string
-  position: { line: number; character: number }
-  character?: number
+  kind?: string
+  paddingLeft: boolean
+  paddingRight: boolean
 }
 
 class LspClientImpl {

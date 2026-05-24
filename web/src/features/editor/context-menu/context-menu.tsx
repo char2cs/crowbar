@@ -1,4 +1,3 @@
-import { EDITOR_CONSTANTS } from "@/features/editor/config/constants";
 import { useEditorStateStore } from "@/features/editor/stores/state-store";
 import { ContextMenu } from "@/components/ui/context-menu";
 import { IS_MAC } from "@/utils/platform";
@@ -37,7 +36,6 @@ const EditorContextMenu = ({ isOpen, position, onClose, ...handlers }: EditorCon
       position={position}
       items={items}
       onClose={onClose}
-      style={{ zIndex: EDITOR_CONSTANTS.Z_INDEX.CONTEXT_MENU }}
     />
   );
 };

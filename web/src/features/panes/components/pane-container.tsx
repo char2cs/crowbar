@@ -519,7 +519,7 @@ export function PaneContainer({ pane }: PaneContainerProps) {
       const fileDragData = window.__fileDragData;
       if (!fileDragData) return;
 
-      await openFileTreeDropInPane(fileDragData, { x: e.detail.x, y: e.detail.y });
+      await openFileTreeDropInPane(fileDragData as { path: string; name: string; isDir: boolean }, { x: e.detail.x, y: e.detail.y });
     };
 
     window.addEventListener(
@@ -667,7 +667,7 @@ export function PaneContainer({ pane }: PaneContainerProps) {
         return; // Only handle file drops, not directory drops
       }
 
-      await openFileTreeDropInPane(fileDragData, { x: event.clientX, y: event.clientY });
+      await openFileTreeDropInPane(fileDragData as { path: string; name: string; isDir: boolean }, { x: event.clientX, y: event.clientY });
     },
     [openFileTreeDropInPane],
   );

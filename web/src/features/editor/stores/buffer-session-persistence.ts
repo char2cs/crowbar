@@ -10,7 +10,7 @@ const SAVE_SESSION_DEBOUNCE_MS = 300;
 
 const serializeBufferForSession = (
   buffer: PaneContent,
-  workspaceRootPath: string | undefined,
+  _workspaceRootPath: string | undefined,
 ): BufferSession | null => {
   if (buffer.type === "editor" && !buffer.isVirtual) {
     return {

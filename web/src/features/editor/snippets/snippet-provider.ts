@@ -35,7 +35,7 @@ export function getSnippetsByPrefix(prefix: string, languageId: string): Snippet
  */
 export function getAllSnippets(): Snippet[] {
   try {
-    return extensionRegistry.getAllSnippets();
+    return extensionRegistry.getAllSnippets() as Snippet[];
   } catch (error) {
     logger.error("SnippetProvider", "Failed to load all snippets:", error);
     return [];

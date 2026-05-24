@@ -279,7 +279,10 @@ export function Editor({
   const inlineGitBlameEnabled = useSettingsStore((state) => state.settings.enableInlineGitBlame);
   const gitGutterEnabled = useSettingsStore((state) => state.settings.enableGitGutter);
   const vimMode = useVimStore.use.mode();
-  const vimVisualSelection = useVimStore.use.visualSelection();
+  const vimVisualSelectionRaw = useVimStore.use.visualSelection();
+  const vimVisualSelection = vimVisualSelectionRaw
+    ? { start: vimVisualSelectionRaw.start ? { line: vimVisualSelectionRaw.start.line, column: vimVisualSelectionRaw.start.character } : null, end: vimVisualSelectionRaw.end ? { line: vimVisualSelectionRaw.end.line, column: vimVisualSelectionRaw.end.character } : null }
+    : { start: null, end: null };
 
   const fontSize = baseFontSize * zoomLevel;
   const showLineNumbers = useEditorSettingsStore.use.lineNumbers();

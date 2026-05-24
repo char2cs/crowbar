@@ -179,7 +179,7 @@ async function requestProviderInlineEdit(
     request.provider === "anthropic";
   const fetchFn = needsTauriFetch ? tauriFetch : fetch;
 
-  const response = await fetchFn(url, {
+  const response = await fetchFn(url!, {
     method: "POST",
     headers,
     body: JSON.stringify(payload),
