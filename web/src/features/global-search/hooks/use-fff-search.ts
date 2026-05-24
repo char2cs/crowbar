@@ -1,4 +1,5 @@
 // Stub
-export function useFffSearch() {
-  return { results: [], isSearching: false, search: async (_query: string) => {} }
+export function useFffSearch(_query?: string, _active?: boolean, _rootPath?: string, _limit?: number) {
+  const results: never[] = []
+  return { results, hits: results, isSearching: false, search: async (_q: string) => {} }
 }

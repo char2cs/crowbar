@@ -65,6 +65,14 @@ export interface UIState {
   activeView: string | null
   isRightSidebarVisible: boolean
   isQuickOpenVisible: boolean
+  isAgentLauncherVisible: boolean
+  setIsAgentLauncherVisible: (v: boolean) => void
+  isGlobalSearchVisible: boolean
+  setIsGlobalSearchVisible: (v: boolean) => void
+  isProjectPickerVisible: boolean
+  setIsProjectPickerVisible: (v: boolean) => void
+  isDatabaseConnectionVisible: boolean
+  setIsDatabaseConnectionVisible: (v: boolean) => void
 }
 
 export const useUIState = create<UIState>((set) => ({
@@ -109,4 +117,12 @@ export const useUIState = create<UIState>((set) => ({
   activeView: null,
   isRightSidebarVisible: false,
   isQuickOpenVisible: false,
+  isAgentLauncherVisible: false,
+  setIsAgentLauncherVisible: (v) => set({ isAgentLauncherVisible: v }),
+  isGlobalSearchVisible: false,
+  setIsGlobalSearchVisible: (v) => set({ isGlobalSearchVisible: v }),
+  isProjectPickerVisible: false,
+  setIsProjectPickerVisible: (v) => set({ isProjectPickerVisible: v }),
+  isDatabaseConnectionVisible: false,
+  setIsDatabaseConnectionVisible: (v) => set({ isDatabaseConnectionVisible: v }),
 }))

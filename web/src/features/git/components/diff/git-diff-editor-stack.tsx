@@ -221,9 +221,10 @@ function EmbeddedDiffSectionEditor({
     async (line: number, column: number, actualLines: Array<number | null>) => {
       const targetPath = resolveAbsolutePath();
       const targetLine = findNearestActualLine(actualLines, line) ?? 1;
-      await useFileSystemStore
-        .getState()
-        .handleFileSelect(targetPath, false, targetLine, column + 1, undefined, false);
+      const { handleFileSelect } = useFileSystemStore.getState();
+      if (handleFileSelect) {
+        handleFileSelect(targetPath, false, targetLine, column + 1, undefined, false);
+      }
     },
     [findNearestActualLine, resolveAbsolutePath],
   );
@@ -517,9 +518,10 @@ const GitDiffEditorStack = memo(function GitDiffEditorStack({
             ? joinPath(repoPath, filePath)
             : filePath;
 
-      await useFileSystemStore
-        .getState()
-        .handleFileSelect(targetPath, false, undefined, undefined, undefined, false);
+      const { handleFileSelect } = useFileSystemStore.getState();
+      if (handleFileSelect) {
+        handleFileSelect(targetPath, false, undefined, undefined, undefined, false);
+      }
     },
     [multiDiff.repoPath, rootFolderPath],
   );

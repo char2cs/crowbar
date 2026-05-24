@@ -452,7 +452,7 @@ const GitStatusPanel = ({
               <div className="relative z-1 ml-auto shrink-0" onClick={(e) => e.stopPropagation()}>
                 <Checkbox
                   checked={areAllFolderFilesStaged}
-                  onChange={(checked) =>
+                  onChange={(checked: boolean) =>
                     void handleSetFilesStaged(
                       folderFiles.map((file) => file.path),
                       checked,

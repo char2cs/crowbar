@@ -23,11 +23,14 @@ function Command({
   onClose: _onClose,
   /** Athas compatibility - title */
   title: _title,
+  /** Athas compatibility - placement */
+  placement: _placement,
   ...props
 }: React.ComponentProps<typeof CommandPrimitive> & {
   isVisible?: boolean
   onClose?: () => void
   title?: string
+  placement?: "top" | "bottom"
 }) {
   return (
     <CommandPrimitive
@@ -76,7 +79,7 @@ function CommandInput({
   value: _value,
   ...props
 }: React.ComponentProps<typeof CommandPrimitive.Input> & {
-  onChange?: React.Dispatch<React.SetStateAction<string>> | React.ChangeEventHandler<HTMLInputElement>
+  onChange?: React.Dispatch<React.SetStateAction<string>> | React.ChangeEventHandler<HTMLInputElement> | ((value: string) => void)
   value?: string
 }) {
   return (
@@ -160,8 +163,14 @@ function CommandItem({
   className,
   children,
   isSelected: _isSelected,
+  /** Athas compatibility: ignored, cmdk items are divs not buttons */
+  type: _type,
   ...props
-}: React.ComponentProps<typeof CommandPrimitive.Item> & { isSelected?: boolean }) {
+}: React.ComponentProps<typeof CommandPrimitive.Item> & {
+  isSelected?: boolean
+  /** Athas compatibility: html button type attribute (ignored) */
+  type?: string
+}) {
   return (
     <CommandPrimitive.Item
       data-slot="command-item"
@@ -194,7 +203,7 @@ function CommandShortcut({
 }
 
 /** Athas compatibility stub - header section within command palette */
-function CommandHeader({ children, className, onClose: _onClose }: { children?: React.ReactNode; className?: string; onClose?: () => void }) {
+function CommandHeader({ children, className, onClose: _onClose, showClearButton: _showClearButton }: { children?: React.ReactNode; className?: string; onClose?: () => void; showClearButton?: boolean }) {
   return <div data-slot="command-header" className={className}>{children}</div>
 }
 

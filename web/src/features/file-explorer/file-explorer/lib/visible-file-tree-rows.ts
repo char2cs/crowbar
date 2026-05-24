@@ -63,7 +63,7 @@ export function buildVisibleFileTreeRows(
         }
       }
 
-      const isExpanded = rowFile.isDir && expandedPaths.has(rowFile.path);
+      const isExpanded = !!(rowFile.isDir && expandedPaths.has(rowFile.path));
       rows.push({
         file: rowFile,
         depth,

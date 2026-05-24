@@ -23,8 +23,9 @@ export async function openGitWorktreeWorkspace(
     return true;
   }
 
-  const opened = await useFileSystemStore.getState().handleOpenFolderByPath(path);
-  if (!opened) return false;
+  const { handleOpenFolderByPath } = useFileSystemStore.getState();
+  if (!handleOpenFolderByPath) return false;
+  await handleOpenFolderByPath(path);
 
   useRepositoryStore.getState().actions.selectRepository(path);
   return true;

@@ -1,9 +1,19 @@
 // Stub: sidebar-drag feature is out of scope for this session.
 export interface SidebarDragResource {
   type: string
-  path: string
+  path?: string
   name: string
-  isDir: boolean
+  isDir?: boolean
+  repoPath?: string
+  branch?: string
+  commitHash?: string
+  message?: string
+  author?: string
+  date?: string
+  filePath?: string
+  staged?: boolean
+  status?: string
+  [key: string]: unknown
 }
 
 export function hasSidebarResourceDragData(_dataTransfer: DataTransfer): boolean {

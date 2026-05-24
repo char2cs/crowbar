@@ -8,10 +8,10 @@ export interface FileSystemState {
   handleOpenFolder: () => void
   handleOpenFolderByPath: ((path: string) => Promise<void>) | null
   handleFileOpen: ((path: string, revealOrIsDir?: boolean) => Promise<void>) | null
-  handleFileSelect: ((path: string, isDir?: boolean) => void) | null
-  addFolderToWorkspace: (path: string) => Promise<void>
+  handleFileSelect: ((path: string, isDir?: boolean, line?: number, column?: number, extra?: unknown, reveal?: boolean) => void) | null
+  addFolderToWorkspace: (path?: string) => Promise<void>
   removeFolderFromWorkspace: (path: string) => Promise<void>
-  revealPathInTree: (path: string) => void
+  revealPathInTree: (path: string) => void | Promise<void>
   fileTree: AppFile[]
   files: AppFile[]
   setFiles: (files: AppFile[]) => void

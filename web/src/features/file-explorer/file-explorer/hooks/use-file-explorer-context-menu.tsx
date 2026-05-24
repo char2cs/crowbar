@@ -484,7 +484,7 @@ export function useFileExplorerContextMenu({
         {contextMenu && (
           <ContextMenu
             isOpen
-            position={{ x: contextMenu.x, y: contextMenu.y }}
+            position={{ x: contextMenu.x ?? 0, y: contextMenu.y ?? 0 }}
             items={contextMenuItems}
             onClose={() => setContextMenu(null)}
             className="file-tree-context-menu min-w-[220px]"

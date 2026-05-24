@@ -10,10 +10,10 @@ export function filterHiddenFiles(
   isGitIgnored: (path: string, isDir: boolean) => boolean,
 ): FileEntry[] {
   return items
-    .filter((item) => !isUserHidden(item.path, item.isDir))
+    .filter((item) => !isUserHidden(item.path, item.isDir ?? false))
     .map((item) => ({
       ...item,
-      ignored: isGitIgnored(item.path, item.isDir),
+      ignored: isGitIgnored(item.path, item.isDir ?? false),
       children: item.children
         ? filterHiddenFiles(item.children, isUserHidden, isGitIgnored)
         : undefined,

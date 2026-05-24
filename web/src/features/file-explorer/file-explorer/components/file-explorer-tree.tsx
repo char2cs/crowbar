@@ -328,9 +328,9 @@ function FileExplorerTreeComponent({
     const startedAt = performance.now();
     const process = (items: FileEntry[]): FileEntry[] =>
       items.flatMap((item) => {
-        const ignored = isGitIgnored(item.path, item.isDir);
+        const ignored = isGitIgnored(item.path, item.isDir ?? false);
 
-        if (isAlwaysHiddenFileName(item.name) || isUserHidden(item.path, item.isDir)) {
+        if (isAlwaysHiddenFileName(item.name) || isUserHidden(item.path, item.isDir ?? false)) {
           return [];
         }
 
@@ -1299,7 +1299,7 @@ function FileExplorerTreeComponent({
                           >
                             <FileExplorerIcon
                               fileName={stickyAncestor.file.name}
-                              isDir={stickyAncestor.file.isDir}
+                              isDir={stickyAncestor.file.isDir ?? false}
                               isExpanded={stickyAncestor.isExpanded}
                               isSymlink={stickyAncestor.file.isSymlink}
                               className="relative z-1 shrink-0 text-text-lighter"
@@ -1331,7 +1331,7 @@ function FileExplorerTreeComponent({
                       ? {
                           path: ancestor.file.path,
                           name: ancestor.displayName ?? ancestor.file.name,
-                          isDir: ancestor.file.isDir,
+                          isDir: ancestor.file.isDir ?? false,
                           isActive: activePath
                             ? activePath === ancestor.file.path ||
                               activePath.startsWith(`${ancestor.file.path}/`) ||

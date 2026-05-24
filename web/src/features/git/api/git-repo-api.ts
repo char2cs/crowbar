@@ -1,6 +1,12 @@
 // Crowbar stub — FUTURE: replace with Go API calls
 const tauriInvoke = async <T>(_cmd: string, _args?: unknown): Promise<T> => { throw new Error(`Not implemented: ${_cmd}`) }
-const readDir = async (_path: string): Promise<unknown[]> => []
+
+interface DirEntry {
+  name?: string
+  isDirectory?: boolean
+}
+
+const readDir = async (_path: string): Promise<DirEntry[]> => []
 
 const repoDiscoveryCache = new Map<string, string | null>();
 const workspaceRepoDiscoveryCache = new Map<string, { discoveredAt: number; repos: string[] }>();

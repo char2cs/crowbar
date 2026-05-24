@@ -291,7 +291,7 @@ export function useFileExplorerDragDrop(
 
     setDragState({
       isDragging: true,
-      draggedItem: { path: file.path, name: file.name, isDir: file.isDir },
+      draggedItem: { path: file.path, name: file.name, isDir: file.isDir ?? false },
       dragOverPath: null,
       dragOverIsDir: false,
       mousePosition: { x: e.clientX, y: e.clientY },
@@ -299,9 +299,10 @@ export function useFileExplorerDragDrop(
 
     // Store drag data globally for pane containers to access
     window.__fileDragData = {
+      type: "file",
       path: file.path,
       name: file.name,
-      isDir: file.isDir,
+      isDir: file.isDir ?? false,
     };
   }, []);
 

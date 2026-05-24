@@ -114,7 +114,7 @@ export const GitFileItem = ({
         >
           <Checkbox
             checked={file.staged}
-            onChange={(checked) => {
+            onChange={(checked: boolean) => {
               if (checked) {
                 onStage?.();
                 return;

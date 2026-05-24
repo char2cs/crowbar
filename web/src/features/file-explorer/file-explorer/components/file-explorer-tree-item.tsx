@@ -158,7 +158,7 @@ function FileExplorerTreeItemComponent({
         >
           <FileExplorerIcon
             fileName={file.isDir ? "folder" : "file"}
-            isDir={file.isDir}
+            isDir={file.isDir ?? false}
             isExpanded={false}
             className="relative z-[1] shrink-0 text-text-lighter"
           />
@@ -232,7 +232,7 @@ function FileExplorerTreeItemComponent({
       >
         <FileExplorerIcon
           fileName={file.name}
-          isDir={file.isDir}
+          isDir={file.isDir ?? false}
           isExpanded={isExpanded}
           isSymlink={file.isSymlink}
           className="relative z-1 shrink-0 text-text-lighter"

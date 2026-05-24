@@ -5,7 +5,7 @@ import { getExplorerTargetPath } from "@/features/file-explorer/utils/file-explo
 interface UseFileExplorerSyncOptions {
   activePath?: string;
   updateActivePath?: (path: string) => void;
-  revealPathInTree: (path: string) => Promise<void>;
+  revealPathInTree: (path: string) => void | Promise<void>;
 }
 
 export function useFileExplorerSync({
