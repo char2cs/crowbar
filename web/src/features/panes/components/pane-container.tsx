@@ -5,8 +5,8 @@ import {
   type DatabaseViewerProps,
 } from "@/features/database/providers/provider-registry";
 import CodeEditor from "@/features/editor/components/code-editor";
-import { useBuffers } from "@/features/workspace/stores/hooks/use-buffer-store";
-import { useBufferStore } from "@/features/editor/stores/buffer-store";
+import { useBuffers, useBufferActions } from "@/features/workspace/stores/hooks/use-buffer-store";
+import { useWorkspaceStore } from "@/features/workspace/stores/workspace-context";
 import { useFileSystemStore } from "@/features/file-system/controllers/store";
 import { stageHunk, unstageHunk } from "@/features/git/api/git-status-api";
 import type { GitHunk } from "@/features/git/types/git-types";
@@ -242,7 +242,16 @@ function isStandardEditorBuffer(buffer: PaneRenderBuffer): buffer is EditorBuffe
 export function PaneContainer({ pane }: PaneContainerProps) {
   const activePaneId = useActivePaneId();
   const { reorderPaneBuffers } = usePaneActions();
-  const { closeBufferForce, openTerminalBuffer } = useBufferStore.use.actions();
+  const { closeBuffer: closeBufferForce } = useBufferActions();
+  // openTerminalBuffer: terminal content type not in workspace scope yet — noop
+  const openTerminalBuffer = (_options?: {
+    name?: string;
+    command?: string;
+    workingDirectory?: string;
+    remoteConnectionId?: string;
+    sessionId?: string;
+  }): string => "";
+  const workspaceStore = useWorkspaceStore();
   const rootFolderPath = useFileSystemStore.use.rootFolderPath?.();
   const handleFileOpen = useFileSystemStore.use.handleFileOpen?.();
   const horizontalBufferCarousel = useSettingsStore((state) => state.settings.horizontalTabScroll);
@@ -337,7 +346,7 @@ export function PaneContainer({ pane }: PaneContainerProps) {
 
       try {
         await handleFileOpen(fileDragData.path, false);
-        const openedBufferId = useBufferStore.getState().activeBufferId;
+        const openedBufferId = workspaceStore.getState().paneActions.getActivePane()?.activeBufferId ?? null;
         if (openedBufferId) {
           ensureBufferInPaneDropTarget(openedBufferId, { paneId: targetPaneId, zone: "center" });
           activateBufferInPaneAndSync(targetPaneId, openedBufferId);
