@@ -2,15 +2,28 @@
 import { create } from 'zustand'
 import { createSelectors } from '@/utils/zustand-selectors'
 
+export interface ExtensionManifest {
+  id: string
+  name: string
+  displayName?: string
+  version?: string
+  installation?: unknown
+}
+
+export interface Extension {
+  manifest: ExtensionManifest
+  isInstalled: boolean
+}
+
 export interface ExtensionStoreState {
-  extensions: unknown[]
-  installedExtensions: unknown[]
-  availableExtensions: Map<string, unknown>
+  extensions: Extension[]
+  installedExtensions: Extension[]
+  availableExtensions: Map<string, Extension>
   extensionsWithUpdates: Set<string>
   actions: {
     install: (_id: string) => Promise<void>
     uninstall: (_id: string) => Promise<void>
-    getExtensionForFile: (_path: string) => unknown
+    getExtensionForFile: (_path: string) => Extension | null
   }
 }
 

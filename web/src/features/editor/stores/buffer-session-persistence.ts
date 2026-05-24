@@ -19,7 +19,7 @@ const serializeBufferForSession = (
       name: buffer.name,
       isPinned: buffer.isPinned,
       isPreview: buffer.isPreview,
-      workspaceScope: getEditorWorkspaceScope(buffer.path, workspaceRootPath),
+      workspaceScope: getEditorWorkspaceScope(),
       editorState: buildPersistedEditorViewState(buffer),
     };
   }
