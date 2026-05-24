@@ -83,7 +83,7 @@ export const useSemanticTokens = (
       const result = await lspClient.getSemanticTokens(filePath);
 
       if (id !== requestIdRef.current) return;
-      setTokenState({ tokens: result, content: contentSnapshot, filePath: requestFilePath });
+      setTokenState({ tokens: result as SemanticToken[], content: contentSnapshot, filePath: requestFilePath });
     },
     [filePath, enabled],
   );

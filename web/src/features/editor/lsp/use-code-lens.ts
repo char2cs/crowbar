@@ -28,7 +28,7 @@ export const useCodeLens = (filePath: string | undefined, enabled: boolean) => {
     const result = await lspClient.getCodeLens(filePath);
 
     if (id !== requestIdRef.current) return;
-    setLenses(result);
+    setLenses(result as CodeLensItem[]);
   }, [filePath, enabled]);
 
   useEffect(() => {
