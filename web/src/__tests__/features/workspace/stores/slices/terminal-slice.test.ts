@@ -4,7 +4,7 @@ import { immer } from 'zustand/middleware/immer'
 import { createTerminalSlice, type TerminalSlice } from '@/features/workspace/stores/slices/terminal-slice'
 
 function makeStore() {
-  return createStore<TerminalSlice>()(immer((set, get) => createTerminalSlice(set as any, get as any)))
+  return createStore<TerminalSlice>()(immer((set, get) => createTerminalSlice(set as any, get as any, {} as any)))
 }
 
 describe('terminal-slice', () => {

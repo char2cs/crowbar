@@ -20,7 +20,7 @@ function getSystemThemePreference(): "light" | "dark" {
 }
 
 async function detectInitialTheme() {
-  let detectedTheme = getSystemThemePreference() === "dark" ? "athas-dark" : "athas-light";
+  let detectedTheme = getSystemThemePreference() === "dark" ? "crowbar-dark" : "crowbar-light";
 
   // Tauri invoke not available in web mode; browser detection used above
 

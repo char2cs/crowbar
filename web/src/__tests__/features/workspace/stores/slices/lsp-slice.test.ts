@@ -4,7 +4,7 @@ import { immer } from 'zustand/middleware/immer'
 import { createLspSlice, type LspSlice } from '@/features/workspace/stores/slices/lsp-slice'
 
 function makeStore() {
-  return createStore<LspSlice>()(immer((set, get) => createLspSlice(set as any, get as any)))
+  return createStore<LspSlice>()(immer((set, get) => createLspSlice(set as any, get as any, {} as any)))
 }
 
 describe('lsp-slice', () => {

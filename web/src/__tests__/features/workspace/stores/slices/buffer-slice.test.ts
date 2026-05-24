@@ -4,7 +4,7 @@ import { immer } from 'zustand/middleware/immer'
 import { createBufferSlice, type BufferSlice } from '@/features/workspace/stores/slices/buffer-slice'
 
 function makeStore() {
-  return createStore<BufferSlice>()(immer((set, get) => createBufferSlice(set as any, get as any)))
+  return createStore<BufferSlice>()(immer((set, get) => createBufferSlice(set as any, get as any, {} as any)))
 }
 
 describe('buffer-slice', () => {

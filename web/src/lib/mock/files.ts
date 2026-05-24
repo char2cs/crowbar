@@ -3,6 +3,9 @@ import type { FileEntry } from '@/features/file-system/types/app'
 
 export type GitStatus = 'modified' | 'added' | 'deleted' | 'renamed' | 'untracked'
 
+/** Public shape used by tests and consumers. */
+export type FileNode = FileEntry
+
 export function getMockFileTree(_rootPath: string): FileEntry[] {
   return [
     {

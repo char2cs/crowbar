@@ -7,7 +7,7 @@ import { ROOT_PANE_ID } from '@/features/panes/constants/pane'
 import { getAllPaneGroups } from '@/features/panes/utils/pane-tree'
 
 function makeStore() {
-  return createStore<PaneSlice>()(immer((set, get) => createPaneSlice(set as any, get as any)))
+  return createStore<PaneSlice>()(immer((set, get) => createPaneSlice(set as any, get as any, {} as any)))
 }
 
 describe('pane-slice', () => {

@@ -166,8 +166,7 @@ const CodeEditor = ({
     ? (onContentChange ?? (isActiveSurface ? handleContentChange : () => {}))
     : () => {};
   const isPreviewBuffer = activeBuffer?.isPreview ?? false;
-  const editorEngine = settings.editorEngine ?? "monaco";
-  const useAthasEditor = editorEngine === "athas";
+  const useAthasEditor = false;
   const enableInteractiveServices = isActiveSurface && !isPreviewBuffer && !readOnly;
   const largeEditorModeInfo = useLargeEditorModeInfo(value);
   const largeContentMode = useAthasEditor && largeEditorModeInfo.largeContentMode;

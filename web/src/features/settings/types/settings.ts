@@ -9,7 +9,7 @@ import type {
 
 export type Theme = string;
 export type RenderWhitespaceMode = "none" | "boundary" | "trailing" | "all";
-export type EditorEngine = "monaco" | "athas" | "nvim" | "helix" | "vim" | "custom";
+export type EditorEngine = "monaco" | "nvim" | "helix" | "vim" | "custom";
 
 export interface Settings {
   // General

@@ -28,6 +28,7 @@ import { usePaneStore } from "@/features/panes/stores/pane-store";
 import { ensureBufferInPane } from "@/features/panes/utils/pane-buffer-actions";
 import { cleanupBufferHistoryTracking } from "@/features/editor/stores/buffer-history-tracking";
 import type {
+  CrowbarChatContent,
   EditorContent,
   OpenContentSpec,
   PaneContent,
@@ -723,6 +724,38 @@ export const useBufferStore = createSelectors(
                   }));
                 });
                 syncAndFocusBufferInPane(existing.id);
+                return existing.id;
+              }
+
+              let newBuffers = closeNewTabInActivePane([...buffers]);
+              newBuffers = applyAutoEviction(newBuffers, maxOpenTabs);
+
+              const id = generateBufferId(path);
+              const newBuffer = createPaneContent(id, spec);
+
+              set((state) => {
+                state.buffers = [...newBuffers.map((b) => ({ ...b, isActive: false })), newBuffer];
+                state.activeBufferId = newBuffer.id;
+              });
+
+              syncBufferToPane(newBuffer.id);
+              return newBuffer.id;
+            }
+
+            case "crowbarChat": {
+              const path = `crowbar-chat://${spec.wsId}`;
+              const existing = buffers.find((b): b is CrowbarChatContent =>
+                b.type === "crowbarChat" && (b as CrowbarChatContent).wsId === spec.wsId,
+              );
+              if (existing) {
+                set((state) => {
+                  state.activeBufferId = existing.id;
+                  state.buffers = state.buffers.map((b) => ({
+                    ...b,
+                    isActive: b.id === existing.id,
+                  }));
+                });
+                syncBufferToPane(existing.id);
                 return existing.id;
               }
 

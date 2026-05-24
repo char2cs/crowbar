@@ -6,7 +6,7 @@ const registry = new Map<string, WorkspaceStore>()
 export function getOrCreateWorkspaceStore(wsId: string): WorkspaceStore {
   if (!registry.has(wsId)) {
     const snapshot = loadFromLocalStorage(wsId)
-    registry.set(wsId, createWorkspaceStore(wsId, snapshot ?? undefined))
+    registry.set(wsId, createWorkspaceStore(wsId, snapshot === null ? undefined : snapshot))
   }
   return registry.get(wsId)!
 }

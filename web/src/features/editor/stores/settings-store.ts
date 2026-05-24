@@ -51,7 +51,7 @@ export const useEditorSettingsStore = createSelectors(
       renderIndentGuides: true,
       highlightOccurrences: true,
       disabled: false,
-      theme: "athas-dark",
+      theme: "crowbar-dark",
       actions: {
         setFontSize: (size) => set({ fontSize: size }),
         setFontFamily: (family) => set({ fontFamily: family }),

@@ -28,6 +28,7 @@ import {
   getInternalTabDragHover,
   resolveDropTarget,
 } from "@/features/tabs/utils/internal-tab-drag";
+import { FlowTab } from "@/components/layout/FlowTab";
 import { cn } from "@/utils/cn";
 import { activateBufferInPaneAndSync, activatePaneAndSyncBuffer } from "../utils/pane-activation";
 import { EmptyEditorState } from "./empty-editor-state";
@@ -908,6 +909,9 @@ export function PaneContainer({ pane }: PaneContainerProps) {
               onEditorExit={handleExternalEditorExit}
             />
           );
+
+        case "crowbarChat":
+          return <FlowTab workspaceId={buffer.wsId} />;
 
         default:
           return (

@@ -138,11 +138,10 @@ export const settingsSearchIndex: SettingSearchRecord[] = [
     tab: "editor",
     section: "Editor",
     label: "Editor Engine",
-    description: "Choose Monaco, Athas Editor, or a terminal editor",
+    description: "Choose Monaco or a terminal editor",
     keywords: [
       "engine",
       "monaco",
-      "athas",
       "external",
       "editor",
       "neovim",
@@ -511,9 +510,9 @@ export const settingsSearchIndex: SettingSearchRecord[] = [
   {
     id: "ai-provider-model",
     tab: "ai",
-    section: "Athas Agent",
+    section: "Crowbar Agent",
     label: "Provider & Model",
-    description: "Choose the provider and model used by Athas Agent",
+    description: "Choose the provider and model used by Crowbar Agent",
     keywords: ["ai", "provider", "model", "llm", "service", "agent"],
   },
   {

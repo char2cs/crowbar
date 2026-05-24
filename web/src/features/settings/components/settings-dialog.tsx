@@ -8,8 +8,6 @@ import Dialog from "@/components/ui/dialog";
 import { Dropdown, type MenuItem } from "@/components/ui/dropdown";
 import Input from "@/components/ui/input";
 import { SETTINGS_TAB_ITEMS, SettingsVerticalTabs } from "./settings-vertical-tabs";
-
-// Only keep the 7 supported panels
 import { AppearanceSettings } from "./tabs/appearance-settings";
 import { EditorSettings } from "./tabs/editor-settings";
 import { GeneralSettings } from "./tabs/general-settings";
@@ -17,16 +15,6 @@ import { GitSettings } from "./tabs/git-settings";
 import { KeyboardSettings } from "./tabs/keyboard-settings";
 import { FileTreeSettings } from "./tabs/file-tree-settings";
 import { TerminalSettings } from "./tabs/terminal-settings";
-
-// Stub out removed panels
-const AccountSettings = () => null
-const AdvancedSettings = () => null
-const AISettings = () => null
-const CollaborationSettings = () => null
-const DatabaseSettings = () => null
-const EnterpriseSettings = () => null
-const ExtensionsSettings = () => null
-const FeaturesSettings = () => null
 
 interface SettingsDialogProps {
   isOpen: boolean;
@@ -99,38 +87,14 @@ const SettingsDialog = ({ isOpen, onClose }: SettingsDialogProps) => {
 
   const renderTabContent = () => {
     switch (activeTab) {
-      case "account":
-        return <AccountSettings />;
-      case "general":
-        return <GeneralSettings />;
-      case "editor":
-        return <EditorSettings />;
-      case "git":
-        return <GitSettings />;
-      case "appearance":
-        return <AppearanceSettings />;
-      case "databases":
-        return <DatabaseSettings />;
-      case "extensions":
-        return <ExtensionsSettings />;
-      case "ai":
-        return <AISettings />;
-      case "keyboard":
-        return <KeyboardSettings />;
-      case "features":
-        return <FeaturesSettings />;
-      case "collaboration":
-        return hasTeamsAccess ? <CollaborationSettings /> : <GeneralSettings />;
-      case "enterprise":
-        return hasEnterpriseAccess ? <EnterpriseSettings /> : <GeneralSettings />;
-      case "advanced":
-        return <AdvancedSettings />;
-      case "terminal":
-        return <TerminalSettings />;
-      case "file-explorer":
-        return <FileTreeSettings />;
-      default:
-        return <GeneralSettings />;
+      case "general":       return <GeneralSettings />;
+      case "appearance":    return <AppearanceSettings />;
+      case "editor":        return <EditorSettings />;
+      case "file-explorer": return <FileTreeSettings />;
+      case "git":           return <GitSettings />;
+      case "terminal":      return <TerminalSettings />;
+      case "keyboard":      return <KeyboardSettings />;
+      default:              return <GeneralSettings />;
     }
   };
 

@@ -34,7 +34,8 @@ export type PaneContentType =
   | "globalSearch"
   | "diagnostics"
   | "references"
-  | "onboarding";
+  | "onboarding"
+  | "crowbarChat";
 
 // ── Base fields shared by every content type ────────────────────────
 
@@ -177,6 +178,11 @@ export interface OnboardingContent extends PaneContentBase {
   previousVersion?: string;
 }
 
+export interface CrowbarChatContent extends PaneContentBase {
+  type: "crowbarChat";
+  wsId: string;
+}
+
 // ── Discriminated union ─────────────────────────────────────────────
 
 export type PaneContent =
@@ -200,7 +206,8 @@ export type PaneContent =
   | GlobalSearchContent
   | DiagnosticsContent
   | ReferencesContent
-  | OnboardingContent;
+  | OnboardingContent
+  | CrowbarChatContent;
 
 // ── Type guards ─────────────────────────────────────────────────────
 
@@ -268,6 +275,7 @@ const VIRTUAL_TYPES: ReadonlySet<PaneContentType> = new Set([
   "diagnostics",
   "references",
   "onboarding",
+  "crowbarChat",
 ]);
 
 export function isVirtualContent(c: PaneContent): boolean {
@@ -413,4 +421,9 @@ export type OpenContentSpec =
   | {
       type: "onboarding";
       context: import("@/features/onboarding/lib/onboarding-state").OnboardingContext;
+    }
+  | {
+      type: "crowbarChat";
+      wsId: string;
+      name: string;
     };

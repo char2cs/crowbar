@@ -61,7 +61,6 @@ const RENDER_WHITESPACE_MODES = new Set<Settings["renderWhitespace"]>([
 ]);
 const EDITOR_ENGINES = new Set<Settings["editorEngine"]>([
   "monaco",
-  "athas",
   "nvim",
   "helix",
   "vim",

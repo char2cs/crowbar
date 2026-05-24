@@ -7,16 +7,13 @@ import {
 } from '@/components/ui/resizable'
 import { SidebarHeader } from './SidebarHeader'
 import { SidebarTabs } from './SidebarTabs'
-import { FlowTab } from './FlowTab'
 import { IDETabBar } from './IDETabBar'
 import { useSidebarStore } from '@/lib/store/sidebar'
 import { createMockChat } from '@/lib/mock/chats'
 import { getMockFileTree, getMockFileContent } from '@/lib/mock/files'
 import { useFileSystemStore } from '@/features/file-system/controllers/store'
 import { useBufferStore } from '@/features/editor/stores/buffer-store'
-import { usePaneStore } from '@/features/panes/stores/pane-store'
-import { getFirstPaneGroup } from '@/features/panes/utils/pane-tree'
-import { PaneContainer } from '@/features/panes/components/pane-container'
+import { SplitViewRoot } from '@/features/panes/components/split-view-root'
 import SettingsDialog from '@/features/settings/components/settings-dialog'
 import { ErrorBoundary } from '@/components/ErrorBoundary'
 import type { AppFile } from '@/features/file-system/types/app'
@@ -39,14 +36,9 @@ export function IDEShell() {
   const activeWorkspaceRepoPath = activeRepo ? `/repos/${activeRepo.id}` : '/repos/default'
   const activeChat = chats.find((c) => c.id === activeChatId)
 
-  const ideTabLabel = activeWorkspace
-    ? `${activeRepo?.name ?? ''} / ${activeWorkspace.branch}`
-    : 'Workspace'
   const chatTabLabel = activeChat?.title ?? 'Chat'
 
-  // Get the root pane for the code editor
-  const rootPaneNode = usePaneStore.use.root()
-  const rootPane = getFirstPaneGroup(rootPaneNode)
+  // Pane tree is rendered by SplitViewRoot below
 
   // Seed the mock file system store whenever the active workspace repo changes
   useEffect(() => {
@@ -70,6 +62,19 @@ export function IDEShell() {
       },
     })
   }, [activeWorkspaceRepoPath])
+
+  // Open the workspace chat as a tab in the PaneContainer whenever the active workspace changes
+  useEffect(() => {
+    if (!activeWorkspaceId) return
+    const name = activeWorkspace
+      ? `${activeRepo?.name ?? ''} / ${activeWorkspace.branch}`
+      : 'Workspace'
+    useBufferStore.getState().actions.openContent({
+      type: 'crowbarChat',
+      wsId: activeWorkspaceId,
+      name,
+    })
+  }, [activeWorkspaceId]) // eslint-disable-line react-hooks/exhaustive-deps
 
   return (
     <div className="flex h-screen overflow-hidden bg-background text-foreground">
@@ -129,34 +134,7 @@ export function IDEShell() {
         <ResizablePanel className="flex min-w-0 flex-1 flex-col overflow-hidden">
           <ErrorBoundary>
             {activeWorkspaceId ? (
-              <ResizablePanelGroup orientation="horizontal" className="h-full">
-                {/* ── Flow / Chat panel ─── */}
-                <ResizablePanel
-                  defaultSize="45%"
-                  minSize="25%"
-                  maxSize="75%"
-                  className="flex flex-col overflow-hidden"
-                >
-                  <IDETabBar
-                    label={ideTabLabel}
-                    onClose={() => void navigate({ to: '/' })}
-                  />
-                  <FlowTab workspaceId={activeWorkspaceId} />
-                </ResizablePanel>
-
-                <ResizableHandle />
-
-                {/* ── Code editor pane ─── */}
-                <ResizablePanel
-                  defaultSize="55%"
-                  minSize="25%"
-                  className="flex flex-col overflow-hidden"
-                >
-                  <ErrorBoundary>
-                    <PaneContainer pane={rootPane} />
-                  </ErrorBoundary>
-                </ResizablePanel>
-              </ResizablePanelGroup>
+              <SplitViewRoot />
             ) : activeChatId ? (
               <div className="flex h-full flex-col overflow-hidden">
                 <IDETabBar

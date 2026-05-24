@@ -6,7 +6,7 @@ import {
 import { normalizeConfiguredFontFamily } from "./font-family-resolution";
 import { getUiFontScale, normalizeUiFontSize, UI_FONT_SIZE_DEFAULT } from "./ui-font-size";
 
-export const APPEARANCE_BOOTSTRAP_CACHE_KEY = "athas.bootstrap.appearance.v1";
+export const APPEARANCE_BOOTSTRAP_CACHE_KEY = "crowbar.bootstrap.appearance.v1";
 
 const DEFAULT_MONO_FALLBACK =
   '"JetBrains Mono Variable", ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, "Liberation Mono", monospace';
@@ -18,7 +18,7 @@ const DEFAULT_SANS_FALLBACK =
 const WINDOWS_SANS_FALLBACK =
   '"IBM Plex Sans Variable", "Segoe UI", system-ui, -apple-system, BlinkMacSystemFont, Roboto, "Helvetica Neue", Arial, sans-serif';
 
-const ATHAS_DARK_COLORS: Record<string, string> = {
+const CROWBAR_DARK_COLORS: Record<string, string> = {
   "primary-bg": "#141413",
   "secondary-bg": "#1c1b19",
   text: "#faf9f5",
@@ -60,7 +60,7 @@ const ATHAS_DARK_COLORS: Record<string, string> = {
   "terminal-bright-white": "#faf9f5",
 };
 
-const ATHAS_DARK_SYNTAX: Record<string, string> = {
+const CROWBAR_DARK_SYNTAX: Record<string, string> = {
   comment: "#8f8c82",
   keyword: "#d97757",
   string: "#6a9bcc",
@@ -81,7 +81,7 @@ const ATHAS_DARK_SYNTAX: Record<string, string> = {
   "jsx-attribute": "#d97757",
 };
 
-const ATHAS_LIGHT_COLORS: Record<string, string> = {
+const CROWBAR_LIGHT_COLORS: Record<string, string> = {
   "primary-bg": "#fcfcfd",
   "secondary-bg": "#f5f6f8",
   text: "#141413",
@@ -123,7 +123,7 @@ const ATHAS_LIGHT_COLORS: Record<string, string> = {
   "terminal-bright-white": "#2d3138",
 };
 
-const ATHAS_LIGHT_SYNTAX: Record<string, string> = {
+const CROWBAR_LIGHT_SYNTAX: Record<string, string> = {
   comment: "#8f8c82",
   keyword: "#be664a",
   string: "#4f7fae",
@@ -166,27 +166,27 @@ function prefixRecord(prefix: string, value: Record<string, string>): Record<str
   return result;
 }
 
-export const ATHAS_BOOTSTRAP_DEFAULTS = {
+export const CROWBAR_BOOTSTRAP_DEFAULTS = {
   dark: {
-    id: "athas-dark",
+    id: "crowbar-dark",
     type: "dark" as const,
-    colors: ATHAS_DARK_COLORS,
-    syntax: ATHAS_DARK_SYNTAX,
+    colors: CROWBAR_DARK_COLORS,
+    syntax: CROWBAR_DARK_SYNTAX,
   },
   light: {
-    id: "athas-light",
+    id: "crowbar-light",
     type: "light" as const,
-    colors: ATHAS_LIGHT_COLORS,
-    syntax: ATHAS_LIGHT_SYNTAX,
+    colors: CROWBAR_LIGHT_COLORS,
+    syntax: CROWBAR_LIGHT_SYNTAX,
   },
 };
 
 export const DEFAULT_APPEARANCE_BOOTSTRAP_CACHE: AppearanceBootstrapCache = {
   version: 1,
-  themeId: ATHAS_BOOTSTRAP_DEFAULTS.dark.id,
-  themeType: ATHAS_BOOTSTRAP_DEFAULTS.dark.type,
-  cssVariables: prefixRecord("--", ATHAS_BOOTSTRAP_DEFAULTS.dark.colors),
-  syntaxTokens: prefixRecord("--syntax-", ATHAS_BOOTSTRAP_DEFAULTS.dark.syntax),
+  themeId: CROWBAR_BOOTSTRAP_DEFAULTS.dark.id,
+  themeType: CROWBAR_BOOTSTRAP_DEFAULTS.dark.type,
+  cssVariables: prefixRecord("--", CROWBAR_BOOTSTRAP_DEFAULTS.dark.colors),
+  syntaxTokens: prefixRecord("--syntax-", CROWBAR_BOOTSTRAP_DEFAULTS.dark.syntax),
   editorFontFamily: DEFAULT_EDITOR_FONT,
   uiFontFamily: DEFAULT_UI_FONT,
   uiFontSize: UI_FONT_SIZE_DEFAULT,

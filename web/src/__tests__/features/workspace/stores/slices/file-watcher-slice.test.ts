@@ -4,7 +4,7 @@ import { immer } from 'zustand/middleware/immer'
 import { createFileWatcherSlice, type FileWatcherSlice } from '@/features/workspace/stores/slices/file-watcher-slice'
 
 function makeStore() {
-  return createStore<FileWatcherSlice>()(immer((set, get) => createFileWatcherSlice(set as any, get as any)))
+  return createStore<FileWatcherSlice>()(immer((set, get) => createFileWatcherSlice(set as any, get as any, {} as any)))
 }
 
 describe('file-watcher-slice', () => {

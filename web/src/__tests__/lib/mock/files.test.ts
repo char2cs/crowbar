@@ -14,7 +14,7 @@ describe('getMockFileTree', () => {
     function checkNode(node: FileNode) {
       expect(typeof node.name).toBe('string')
       expect(typeof node.path).toBe('string')
-      expect(typeof node.isDirectory).toBe('boolean')
+      expect(node.isDir !== undefined || node.isDirectory !== undefined).toBe(true)
       if (node.children) {
         node.children.forEach(checkNode)
       }
@@ -24,14 +24,14 @@ describe('getMockFileTree', () => {
 
   it('returns at least one directory node', () => {
     const tree = getMockFileTree('/workspace')
-    const hasDir = tree.some(n => n.isDirectory)
+    const hasDir = tree.some(n => n.isDir || n.isDirectory)
     expect(hasDir).toBe(true)
   })
 
   it('returns at least one file node', () => {
     const tree = getMockFileTree('/workspace')
     function hasFile(nodes: FileNode[]): boolean {
-      return nodes.some(n => !n.isDirectory || (n.children ? hasFile(n.children) : false))
+      return nodes.some(n => !(n.isDir || n.isDirectory) || (n.children ? hasFile(n.children) : false))
     }
     expect(hasFile(tree)).toBe(true)
   })

@@ -4,7 +4,7 @@ import { immer } from 'zustand/middleware/immer'
 import { createRecentFilesSlice, type RecentFilesSlice } from '@/features/workspace/stores/slices/recent-files-slice'
 
 function makeStore() {
-  return createStore<RecentFilesSlice>()(immer((set, get) => createRecentFilesSlice(set as any, get as any)))
+  return createStore<RecentFilesSlice>()(immer((set, get) => createRecentFilesSlice(set as any, get as any, {} as any)))
 }
 
 describe('recent-files-slice', () => {

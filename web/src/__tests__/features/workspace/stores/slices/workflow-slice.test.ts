@@ -15,7 +15,7 @@ const mockFlow: FlowDefinition = {
 }
 
 function makeStore() {
-  return createStore<WorkflowSlice>()(immer((set, get) => createWorkflowSlice(set as any, get as any)))
+  return createStore<WorkflowSlice>()(immer((set, get) => createWorkflowSlice(set as any, get as any, {} as any)))
 }
 
 describe('workflow-slice', () => {

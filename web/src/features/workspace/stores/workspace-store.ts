@@ -24,7 +24,7 @@ export type WorkspaceSnapshot = Partial<
 
 export function createWorkspaceStore(wsId: string, snapshot?: WorkspaceSnapshot): WorkspaceStore {
   return createStore<WorkspaceState>()(
-    immer((set: any, get: any, api: any) => ({
+    immer((set: any, get: any, api: any): WorkspaceState => ({
       workspaceId: wsId,
       ...createPaneSlice(set, get, api),
       ...createBufferSlice(set, get, api),
@@ -33,6 +33,8 @@ export function createWorkspaceStore(wsId: string, snapshot?: WorkspaceSnapshot)
       ...createTerminalSlice(set, get, api),
       ...createFileWatcherSlice(set, get, api),
       ...createRecentFilesSlice(set, get, api),
+      // snapshot only contains serializable data fields (see WorkspaceSnapshot type) —
+      // action objects and non-serializable state (Sets, functions) are excluded
       ...(snapshot ?? {}),
     }))
   )

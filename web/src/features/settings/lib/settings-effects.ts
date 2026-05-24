@@ -6,8 +6,8 @@ import { setWindowTransparency, setMacOSWindowAppearance } from '@/lib/crowbar-b
 import type { Settings, Theme } from "@/features/settings/types/settings";
 
 const ALL_THEME_CLASSES = [
-  "force-athas-light",
-  "force-athas-dark",
+  "force-crowbar-light",
+  "force-crowbar-dark",
   "force-vitesse-light",
   "force-vitesse-dark",
 ];

@@ -221,5 +221,14 @@ export const createPaneContent = (id: string, spec: OpenContentSpec): PaneConten
         currentVersion: spec.context.currentVersion ?? '',
         previousVersion: spec.context.previousVersion,
       };
+    case "crowbarChat":
+      return {
+        ...base,
+        type: "crowbarChat",
+        path: `crowbar-chat://${spec.wsId}`,
+        name: spec.name,
+        isPreview: false,
+        wsId: spec.wsId,
+      };
   }
 };

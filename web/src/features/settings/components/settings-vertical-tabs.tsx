@@ -1,28 +1,17 @@
 import {
-  ArrowSquareUp,
   CodeBlock,
-  Database,
-  Gear,
   GearSix,
   GitBranch,
   Keyboard,
   PaintBrush,
-  PuzzlePiece,
-  ShieldCheck,
-  SlidersHorizontal,
-  Sparkle,
   TerminalWindow,
   TreeStructure,
-  UserCircle,
-  UsersThree,
 } from "@phosphor-icons/react";
 import * as React from "react";
 import { useSettingsStore } from "@/features/settings/store";
-import { useUpgradeToPro } from "@/features/settings/hooks/use-upgrade-to-pro";
 import { filterVisibleSettingsTabs } from "@/features/settings/lib/settings-tab-visibility";
 import { useAuthStore } from "@/features/window/stores/auth-store";
 import type { SettingsTab } from "@/features/window/stores/ui-state-store";
-import { useProFeature } from "@/extensions/ui/hooks/use-pro-feature";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/utils/cn";
 
@@ -43,81 +32,13 @@ export interface SettingsTabItem {
 }
 
 export const SETTINGS_TAB_ITEMS: SettingsTabItem[] = [
-  {
-    id: "general",
-    label: "General",
-    icon: GearSix,
-  },
-  {
-    id: "account",
-    label: "Account",
-    icon: UserCircle,
-  },
-  {
-    id: "appearance",
-    label: "Appearance",
-    icon: PaintBrush,
-  },
-  {
-    id: "features",
-    label: "Features",
-    icon: SlidersHorizontal,
-  },
-  {
-    id: "editor",
-    label: "Editor",
-    icon: CodeBlock,
-  },
-  {
-    id: "file-explorer",
-    label: "Files",
-    icon: TreeStructure,
-  },
-  {
-    id: "git",
-    label: "Git",
-    icon: GitBranch,
-  },
-  {
-    id: "terminal",
-    label: "Terminal",
-    icon: TerminalWindow,
-  },
-  {
-    id: "keyboard",
-    label: "Keybindings",
-    icon: Keyboard,
-  },
-  {
-    id: "extensions",
-    label: "Extensions",
-    icon: PuzzlePiece,
-  },
-  {
-    id: "databases",
-    label: "Database",
-    icon: Database,
-  },
-  {
-    id: "ai",
-    label: "AI",
-    icon: Sparkle,
-  },
-  {
-    id: "collaboration",
-    label: "Collaboration",
-    icon: UsersThree,
-  },
-  {
-    id: "enterprise",
-    label: "Enterprise",
-    icon: ShieldCheck,
-  },
-  {
-    id: "advanced",
-    label: "Advanced",
-    icon: Gear,
-  },
+  { id: "general",       label: "General",     icon: GearSix },
+  { id: "appearance",    label: "Appearance",  icon: PaintBrush },
+  { id: "editor",        label: "Editor",      icon: CodeBlock },
+  { id: "file-explorer", label: "Files",       icon: TreeStructure },
+  { id: "git",           label: "Git",         icon: GitBranch },
+  { id: "terminal",      label: "Terminal",    icon: TerminalWindow },
+  { id: "keyboard",      label: "Keybindings", icon: Keyboard },
 ];
 
 export const SettingsVerticalTabs = ({
@@ -128,8 +49,6 @@ export const SettingsVerticalTabs = ({
   const searchQuery = useSettingsStore((state) => state.search.query);
   const searchResults = useSettingsStore((state) => state.search.results);
   const subscription = useAuthStore((state) => state.subscription);
-  const { isPro } = useProFeature();
-  const { promptUpgrade } = useUpgradeToPro();
   const hasEnterpriseAccess = Boolean(subscription?.enterprise?.has_access);
   const hasTeamsAccess = Boolean(subscription?.collaboration?.enabled);
   const scrollContainerRef = React.useRef<HTMLDivElement>(null);
@@ -247,20 +166,6 @@ export const SettingsVerticalTabs = ({
         )}
       </div>
 
-      {!isPro ? (
-        <div className="p-2">
-          <Button
-            type="button"
-            variant="default"
-            onClick={promptUpgrade}
-            className="w-full justify-center border border-border/70"
-            compact
-          >
-            <ArrowSquareUp className="size-4" weight="duotone" />
-            Upgrade to Pro
-          </Button>
-        </div>
-      ) : null}
     </div>
   );
 };

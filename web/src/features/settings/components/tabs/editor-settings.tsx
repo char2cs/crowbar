@@ -28,7 +28,6 @@ export const EditorSettings = () => {
   ];
   const editorEngineOptions = [
     { value: "monaco", label: "Monaco" },
-    { value: "athas", label: "Athas Editor" },
     { value: "nvim", label: "Neovim" },
     { value: "helix", label: "Helix" },
     { value: "vim", label: "Vim" },

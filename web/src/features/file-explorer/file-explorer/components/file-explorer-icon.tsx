@@ -1,5 +1,6 @@
 import DOMPurify from "dompurify";
 import { cloneElement, isValidElement } from "react";
+import { File, Folder, FolderOpen } from "@phosphor-icons/react";
 import { iconThemeRegistry } from "@/extensions/icon-themes/icon-theme-registry";
 import { useSettingsStore } from "@/features/settings/store";
 
@@ -23,8 +24,44 @@ export function FileExplorerIcon({
   const { settings } = useSettingsStore();
   const iconTheme = iconThemeRegistry.getTheme(settings.iconTheme);
 
+  // When no icon theme is registered, use Phosphor Icons as built-in fallback
   if (!iconTheme) {
-    return <span className={className}>&#8226;</span>;
+    const iconProps = { size, className, weight: "duotone" } as const;
+    if (isDir) {
+      const FolderIcon = isExpanded ? FolderOpen : Folder;
+      const folderNode = <FolderIcon {...iconProps} />;
+      if (!isSymlink) return folderNode;
+    } else {
+      const fileNode = <File {...iconProps} />;
+      if (!isSymlink) return fileNode;
+    }
+    // Symlink: wrap with badge
+    const baseIcon = isDir
+      ? (isExpanded ? <FolderOpen {...iconProps} /> : <Folder {...iconProps} />)
+      : <File {...iconProps} />;
+    return (
+      <span className="relative inline-block">
+        {baseIcon}
+        <svg
+          width="8"
+          height="8"
+          viewBox="0 0 16 16"
+          className="-bottom-0.5 -right-0.5 absolute text-accent"
+          role="img"
+          aria-label="Symlink"
+        >
+          <title>Symlink</title>
+          <path
+            fill="currentColor"
+            d="M6.879 9.934a.81.81 0 0 1-.575-.238 3.818 3.818 0 0 1 0-5.392l3-3C10.024.584 10.982.187 12 .187s1.976.397 2.696 1.117a3.818 3.818 0 0 1 0 5.392l-1.371 1.371a.813.813 0 0 1-1.149-1.149l1.371-1.371A2.19 2.19 0 0 0 12 1.812c-.584 0-1.134.228-1.547.641l-3 3a2.19 2.19 0 0 0 0 3.094.813.813 0 0 1-.575 1.387z"
+          />
+          <path
+            fill="currentColor"
+            d="M4 15.813a3.789 3.789 0 0 1-2.696-1.117 3.818 3.818 0 0 1 0-5.392l1.371-1.371a.813.813 0 0 1 1.149 1.149l-1.371 1.371A2.19 2.19 0 0 0 4 14.188c.585 0 1.134-.228 1.547-.641l3-3a2.19 2.19 0 0 0 0-3.094.813.813 0 0 1 1.149-1.149 3.818 3.818 0 0 1 0 5.392l-3 3A3.789 3.789 0 0 1 4 15.813z"
+          />
+        </svg>
+      </span>
+    );
   }
 
   const iconResult = iconTheme.getFileIcon(fileName, isDir, isExpanded, isSymlink);
@@ -59,7 +96,12 @@ export function FileExplorerIcon({
       );
     }
 
-    return <span className={className}>&#8226;</span>;
+    // Final fallback: Phosphor icon
+    if (isDir) {
+      const FolderIcon = isExpanded ? FolderOpen : Folder;
+      return <FolderIcon size={size} className={className} weight="duotone" />;
+    }
+    return <File size={size} className={className} weight="duotone" />;
   };
 
   if (isSymlink) {

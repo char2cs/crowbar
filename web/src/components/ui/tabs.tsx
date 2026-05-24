@@ -82,16 +82,33 @@ export interface TabProps extends React.ButtonHTMLAttributes<HTMLButtonElement> 
 }
 
 const Tab = React.forwardRef<HTMLButtonElement, TabProps>(
-  ({ className, isActive: _isActive, isDragged: _isDragged, action: _action, variant: _variant, size: _size, ...props }, ref) => (
+  (
+    {
+      className,
+      isActive: _isActive,
+      isDragged: _isDragged,
+      action,
+      variant: _variant,
+      size: _size,
+      labelPosition: _labelPosition,
+      maxWidth: _maxWidth,
+      children,
+      ...props
+    },
+    ref,
+  ) => (
     <button
       ref={ref}
       className={cn(
-        "inline-flex items-center justify-center whitespace-nowrap rounded-sm px-3 py-1.5 text-sm font-medium transition-all focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:pointer-events-none disabled:opacity-50",
-        className
+        "group/tab relative inline-flex items-center whitespace-nowrap rounded-sm text-sm font-medium transition-all focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:pointer-events-none disabled:opacity-50",
+        className,
       )}
       {...props}
-    />
-  )
+    >
+      {children}
+      {action}
+    </button>
+  ),
 )
 Tab.displayName = "Tab"
 
