@@ -31,13 +31,14 @@ import { navigateToJumpEntry } from "@/features/editor/utils/jump-navigation";
 import { useFileSystemStore } from "@/features/file-system/controllers/store";
 import { formatDiffBufferLabel } from "@/features/git/utils/diff-buffer-label";
 import { BOTTOM_PANE_ID } from "@/features/panes/constants/pane";
-import { usePaneStore } from "@/features/panes/stores/pane-store";
 import {
   usePaneRoot,
   useBottomRoot,
   useFullscreenPaneId,
   usePaneActions,
 } from "@/features/workspace/stores/hooks/use-pane-store";
+import { useBuffers, useBufferActions } from "@/features/workspace/stores/hooks/use-buffer-store";
+import { useWorkspaceStoreContext } from "@/features/workspace/stores/workspace-context";
 import { activateBufferInPaneAndSync } from "@/features/panes/utils/pane-activation";
 import { splitEditorGroup } from "@/features/panes/utils/pane-command-actions";
 import { moveBufferToPaneDropTarget } from "@/features/panes/utils/pane-drop-actions";
@@ -74,14 +75,16 @@ const TabBar = ({
   disablePaneActions = false,
 }: TabBarProps) => {
   // Get everything from stores
-  const allBuffers = useBufferStore.use.buffers();
-  const globalActiveBufferId = useBufferStore.use.activeBufferId();
-  const pendingClose = useBufferStore.use.pendingClose();
+  const allBuffers = useBuffers();
+  const globalActiveBufferId = useWorkspaceStoreContext(s => s.paneActions.getActivePane()?.activeBufferId ?? null);
+  const pendingClose = null as ({ bufferId: string } | null);  // workspace buffer slice tracks pending close via local state
   const paneRoot = usePaneRoot();
   const bottomRoot = useBottomRoot();
   const fullscreenPaneId = useFullscreenPaneId();
-  const { closePane, setActivePane, togglePaneFullscreen } = usePaneActions();
-  const { setPaneLocked } = usePaneStore.use.actions();
+  const { closePane, setActivePane, togglePaneFullscreen, activatePaneBuffer, removeBufferFromPane } = usePaneActions();
+  const { closeBuffer } = useBufferActions();
+  // setPaneLocked: not yet in workspace pane-slice — noop until migrated
+  const setPaneLocked = (_paneId: string, _locked: boolean) => {};
 
   // Filter buffers by paneId if provided
   const pane = paneId
@@ -98,8 +101,6 @@ const TabBar = ({
       ? activeBufferCandidate
       : null;
   const {
-    handleTabClick,
-    handleTabClose,
     handleTabPin,
     handleCloseOtherTabs,
     handleCloseAllTabs,
@@ -110,6 +111,21 @@ const TabBar = ({
     convertPreviewToDefinite,
     showNewTabView,
   } = useBufferStore.use.actions();
+
+  // Workspace-aware tab interactions
+  function handleTabClick(bufferId: string) {
+    if (paneId) {
+      activatePaneBuffer(paneId, bufferId);
+      setActivePane(paneId);
+    }
+    externalTabClick?.(bufferId);
+  }
+  function handleTabClose(bufferId: string, _event?: React.MouseEvent) {
+    if (paneId) {
+      removeBufferFromPane(paneId, bufferId);
+    }
+    closeBuffer(bufferId);
+  }
   const { handleSave } = useEditorAppStore.use.actions();
   const { settings } = useSettingsStore();
   const { updateActivePath } = useSidebarStore();
