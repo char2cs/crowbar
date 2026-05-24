@@ -22,3 +22,15 @@ Object.defineProperty(globalThis, 'localStorage', {
 
 // jsdom does not implement scrollIntoView
 window.HTMLElement.prototype.scrollIntoView = () => {}
+
+// jsdom does not implement canvas getContext("2d") — provide a minimal stub so
+// tests that indirectly call canvas text-measurement code don't crash.
+HTMLCanvasElement.prototype.getContext = function () {
+  return {
+    font: '',
+    measureText: (text: string) => ({ width: text.length * 8 }),
+    fillText: () => {},
+    clearRect: () => {},
+    fillRect: () => {},
+  } as unknown as CanvasRenderingContext2D
+} as unknown as typeof HTMLCanvasElement.prototype.getContext

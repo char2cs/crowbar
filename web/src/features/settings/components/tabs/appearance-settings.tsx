@@ -127,7 +127,7 @@ export const AppearanceSettings = () => {
         const { uploadTheme } = await import("@/features/settings/utils/theme-upload");
         const result = await uploadTheme(file);
         if (result.success) {
-          console.log("Theme uploaded successfully:", result.theme?.name);
+
         } else {
           console.error("Theme upload failed:", result.error);
         }

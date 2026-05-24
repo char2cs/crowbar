@@ -25,7 +25,9 @@ export async function openGitWorktreeWorkspace(
 
   const { handleOpenFolderByPath } = useFileSystemStore.getState();
   if (!handleOpenFolderByPath) return false;
-  await handleOpenFolderByPath(path);
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const result = await (handleOpenFolderByPath as (path: string) => Promise<any>)(path);
+  if (result === false) return false;
 
   useRepositoryStore.getState().actions.selectRepository(path);
   return true;

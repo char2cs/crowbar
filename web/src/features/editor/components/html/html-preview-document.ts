@@ -1,4 +1,5 @@
-import { convertFileSrc } from "@tauri-apps/api/core";
+// Crowbar stub — FUTURE: replace with Go API url conversion
+const convertFileSrc = (path: string): string => path
 import { getDirName, joinPath } from "@/utils/path-helpers";
 
 type ConvertFilePathToUrl = (path: string) => string;

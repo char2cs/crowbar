@@ -223,7 +223,7 @@ export const ThemeSelectorContent = ({
         const { uploadTheme } = await import("@/features/settings/utils/theme-upload");
         const result = await uploadTheme(file);
         if (result.success) {
-          console.log("Theme uploaded successfully:", result.theme?.name);
+
           // Optionally switch to the newly uploaded theme
           if (result.theme) {
             didCommitRef.current = true;

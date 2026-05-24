@@ -976,7 +976,7 @@ const TerminalTabBar = ({
 
                   if (filePath) {
                     await writeTextFile(filePath, content);
-                    console.log(`Terminal output exported to: ${filePath}`);
+
                   }
                 } catch (error) {
                   console.error("Failed to export terminal output:", error);

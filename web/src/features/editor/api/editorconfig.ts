@@ -1,4 +1,5 @@
-import { invoke } from "@tauri-apps/api/core";
+// Crowbar stub — FUTURE: replace with Go API call
+const invoke = async <T>(_cmd: string, _args?: unknown): Promise<T> => { throw new Error(`Not implemented: ${_cmd}`) }
 
 export interface EditorConfigProperties {
   indentStyle?: "tab" | "space";

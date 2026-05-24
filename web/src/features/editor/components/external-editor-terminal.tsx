@@ -1,5 +1,8 @@
-import { invoke } from "@tauri-apps/api/core";
-import { listen } from "@tauri-apps/api/event";
+// Crowbar stubs — FUTURE: replace with Go API / WebSocket calls
+const invoke = async (_cmd: string, _args?: unknown): Promise<void> => {}
+function listen<T = unknown>(_event: string, _handler: (e: { payload: T }) => void): Promise<() => void> {
+  return Promise.resolve(() => {})
+}
 import { ClipboardAddon } from "@xterm/addon-clipboard";
 import { FitAddon } from "@xterm/addon-fit";
 import { Unicode11Addon } from "@xterm/addon-unicode11";

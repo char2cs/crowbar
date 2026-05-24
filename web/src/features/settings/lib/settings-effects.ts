@@ -13,7 +13,7 @@ const ALL_THEME_CLASSES = [
 ];
 
 function applyFallbackTheme(theme: Theme) {
-  console.log(`Settings store: Falling back to class-based theme "${theme}"`);
+
   ALL_THEME_CLASSES.forEach((cls) => document.documentElement.classList.remove(cls));
   document.documentElement.classList.add(`force-${theme}`);
 }

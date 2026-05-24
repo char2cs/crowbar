@@ -99,19 +99,11 @@ export const ExternalEditorTerminal = ({
   );
 
   const initializeTerminal = useCallback(() => {
-    console.log("initializeTerminal called", {
-      terminalRef: terminalRef.current,
-      hasXterm: !!xtermRef.current,
-      isInitializing: isInitializingRef.current,
-    });
-
     if (!terminalRef.current || xtermRef.current || isInitializingRef.current) {
-      console.log("initializeTerminal: skipping initialization");
       return;
     }
 
     isInitializingRef.current = true;
-    console.log("initializeTerminal: creating terminal");
 
     const terminal = new Terminal({
       cursorBlink: true,
@@ -136,9 +128,7 @@ export const ExternalEditorTerminal = ({
 
     terminal.unicode.activeVersion = "11";
 
-    console.log("initializeTerminal: opening terminal in DOM");
     terminal.open(terminalRef.current);
-    console.log("initializeTerminal: terminal opened");
 
     if (initFitTimeoutRef.current) {
       clearTimeout(initFitTimeoutRef.current);
@@ -146,7 +136,6 @@ export const ExternalEditorTerminal = ({
     initFitTimeoutRef.current = setTimeout(() => {
       if (fitAddon && terminalRef.current) {
         fitAddon.fit();
-        console.log("initializeTerminal: terminal fitted");
       }
       initFitTimeoutRef.current = null;
     }, 150);
@@ -215,18 +204,15 @@ export const ExternalEditorTerminal = ({
     setupListeners();
 
     isInitializingRef.current = false;
-    console.log("initializeTerminal: initialization complete");
 
     terminal.focus();
 
     if (!hasExecutedCommandRef.current) {
       hasExecutedCommandRef.current = true;
       const command = getEditorCommand(filePath);
-      console.log("initializeTerminal: executing command:", command);
       setTimeout(() => {
         terminalWrite(terminalConnectionId, `${command}\n`)
           .then(() => {
-            console.log("initializeTerminal: command sent successfully");
           })
           .catch((e) => {
             console.error("Failed to execute editor command:", e);
@@ -246,11 +232,9 @@ export const ExternalEditorTerminal = ({
   ]);
 
   useEffect(() => {
-    console.log("ExternalEditorTerminal: useEffect running", { filePath, terminalConnectionId });
     initializeTerminal();
 
     return () => {
-      console.log("ExternalEditorTerminal: cleanup running");
       if (initFitTimeoutRef.current) {
         clearTimeout(initFitTimeoutRef.current);
       }

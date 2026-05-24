@@ -1,4 +1,4 @@
-// Stub
+// Stub — minimal provider registry so normalization logic works correctly.
 export interface AiModel {
   id: string
   name: string
@@ -18,6 +18,14 @@ export interface AiProvider {
   getModels?: () => Promise<AiModel[]>
 }
 
-export function getAvailableProviders(): AiProvider[] { return [] }
-export function getProviderById(_id: string): AiProvider | null { return null }
+const PROVIDERS: AiProvider[] = [
+  { id: 'anthropic', name: 'Anthropic', requiresApiKey: true, models: [{ id: 'claude-sonnet-4-6', name: 'Claude Sonnet 4.6' }] },
+  { id: 'openai',    name: 'OpenAI',    requiresApiKey: true, models: [{ id: 'gpt-4o', name: 'GPT-4o' }] },
+  { id: 'custom',    name: 'Custom',    requiresApiKey: false, models: [] },
+]
+
+export function getAvailableProviders(): AiProvider[] { return PROVIDERS }
+export function getProviderById(id: string): AiProvider | null {
+  return PROVIDERS.find(p => p.id === id) ?? null
+}
 export function getModelById(_providerId: string, _modelId?: string): AiModel | null { return null }

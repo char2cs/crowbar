@@ -1,4 +1,4 @@
-import { afterEach, beforeEach, describe, expect, it, vi } from "vite-plus/test";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { EditorContent } from "@/features/panes/types/pane-content";
 import type { useBufferStore as useBufferStoreHook } from "../stores/buffer-store";
 
