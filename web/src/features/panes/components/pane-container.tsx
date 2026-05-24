@@ -1,13 +1,12 @@
 import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { useShallow } from "zustand/react/shallow";
 import type { DatabaseType } from "@/features/database/models/provider.types";
 import {
   PROVIDER_REGISTRY,
   type DatabaseViewerProps,
 } from "@/features/database/providers/provider-registry";
 import CodeEditor from "@/features/editor/components/code-editor";
+import { useBuffers } from "@/features/workspace/stores/hooks/use-buffer-store";
 import { useBufferStore } from "@/features/editor/stores/buffer-store";
-import type { Buffer } from "@/features/editor/stores/buffer-store";
 import { useFileSystemStore } from "@/features/file-system/controllers/store";
 import { stageHunk, unstageHunk } from "@/features/git/api/git-status-api";
 import type { GitHunk } from "@/features/git/types/git-types";
@@ -28,14 +27,14 @@ import {
   getInternalTabDragHover,
   resolveDropTarget,
 } from "@/features/tabs/utils/internal-tab-drag";
-import { FlowTab } from "@/components/layout/FlowTab";
+import { FlowContent } from "@/features/workflow/components/FlowContent";
 import { cn } from "@/utils/cn";
 import { activateBufferInPaneAndSync, activatePaneAndSyncBuffer } from "../utils/pane-activation";
 import { EmptyEditorState } from "./empty-editor-state";
 import { BOTTOM_PANE_ID } from "../constants/pane";
-import { usePaneStore } from "../stores/pane-store";
+import { useActivePaneId, usePaneActions } from "@/features/workspace/stores/hooks/use-pane-store";
 import type { PaneGroup } from "../types/pane";
-import type { EditorContent, NewTabContent, PullRequestContent } from "../types/pane-content";
+import type { CrowbarChatContent, EditorContent, NewTabContent, PullRequestContent } from "../types/pane-content";
 import {
   ensureBufferInPaneDropTarget,
   getOrCreatePaneDropTarget,
@@ -111,7 +110,7 @@ const MIN_CAROUSEL_CARD_WIDTH = 320;
 const CAROUSEL_OUTER_GAP_PX = 160;
 
 type EditorBufferShell = Pick<EditorContent, "id" | "path" | "name" | "type">;
-type PaneRenderBuffer = Exclude<Buffer, EditorContent | NewTabContent> | EditorBufferShell;
+type PaneRenderBuffer = Exclude<import("../types/pane-content").PaneContent, EditorContent | NewTabContent> | EditorBufferShell;
 
 function BufferPreviewCard({ buffer }: { buffer: PaneRenderBuffer }) {
   const previewText =
@@ -241,8 +240,8 @@ function isStandardEditorBuffer(buffer: PaneRenderBuffer): buffer is EditorBuffe
 }
 
 export function PaneContainer({ pane }: PaneContainerProps) {
-  const activePaneId = usePaneStore.use.activePaneId();
-  const { reorderPaneBuffers } = usePaneStore.use.actions();
+  const activePaneId = useActivePaneId();
+  const { reorderPaneBuffers } = usePaneActions();
   const { closeBufferForce, openTerminalBuffer } = useBufferStore.use.actions();
   const rootFolderPath = useFileSystemStore.use.rootFolderPath?.();
   const handleFileOpen = useFileSystemStore.use.handleFileOpen?.();
@@ -261,28 +260,26 @@ export function PaneContainer({ pane }: PaneContainerProps) {
   const suppressAutoCenterRef = useRef(false);
   const isActivePane = pane.id === activePaneId;
 
-  const paneBuffers = useBufferStore(
-    useShallow((state) => {
-      const buffersById = new Map(state.buffers.map((buffer) => [buffer.id, buffer]));
-
-      return pane.bufferIds
-        .map((bufferId) => {
-          const buffer = buffersById.get(bufferId);
-          if (!buffer) return undefined;
-          if (buffer.type === "newTab") return undefined;
-          if (buffer.type === "editor") {
-            return {
-              id: buffer.id,
-              path: buffer.path,
-              name: buffer.name,
-              type: buffer.type,
-            } satisfies EditorBufferShell;
-          }
-          return buffer;
-        })
-        .filter((buffer): buffer is PaneRenderBuffer => buffer !== undefined);
-    }),
-  );
+  const allBuffers = useBuffers();
+  const paneBuffers = useMemo(() => {
+    const buffersById = new Map(allBuffers.map((buffer) => [buffer.id, buffer]));
+    return pane.bufferIds
+      .map((bufferId) => {
+        const buffer = buffersById.get(bufferId);
+        if (!buffer) return undefined;
+        if (buffer.type === "newTab") return undefined;
+        if (buffer.type === "editor") {
+          return {
+            id: buffer.id,
+            path: buffer.path,
+            name: buffer.name,
+            type: buffer.type,
+          } satisfies EditorBufferShell;
+        }
+        return buffer;
+      })
+      .filter((buffer): buffer is PaneRenderBuffer => buffer !== undefined);
+  }, [allBuffers, pane.bufferIds]);
 
   const activeBuffer = useMemo(() => {
     if (!pane.activeBufferId) return null;
@@ -911,7 +908,7 @@ export function PaneContainer({ pane }: PaneContainerProps) {
           );
 
         case "crowbarChat":
-          return <FlowTab workspaceId={buffer.wsId} />;
+          return <FlowContent workspaceId={(buffer as CrowbarChatContent).wsId} />;
 
         default:
           return (
