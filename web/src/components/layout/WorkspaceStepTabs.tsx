@@ -11,7 +11,7 @@ function StepDot({ state }: { state: 'done' | 'active' | 'pending' }) {
   return (
     <span className={
       'h-1.5 w-1.5 rounded-full flex-shrink-0 ' +
-      (state === 'done' ? 'bg-green-500' : state === 'active' ? 'bg-primary' : 'bg-muted')
+      (state === 'done' ? 'bg-primary/40' : state === 'active' ? 'bg-primary' : 'bg-muted-foreground/30')
     } />
   )
 }

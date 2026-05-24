@@ -5,12 +5,12 @@ import { FileExplorerTree } from '@/features/file-explorer/components/file-explo
 import GitView from '@/features/git/components/git-view'
 import { ErrorBoundary } from '@/components/ErrorBoundary'
 import { SidebarSkeleton } from './SidebarSkeleton'
+import { getMockFileTree } from '@/lib/mock/files'
 import type { ProjectChat, Repo } from '@/lib/store/sidebar'
 
 type SidebarTab = 'workspaces' | 'files' | 'git'
 
 interface SidebarTabsProps {
-  userInitials: string
   chats: ProjectChat[]
   repos: Repo[]
   collapsedRepos?: Set<string>
@@ -24,17 +24,13 @@ interface SidebarTabsProps {
   onDeleteChat?: (id: string) => void
   onDeleteWorkspace?: (wsId: string) => void
   onRepoToggle?: (repoId: string) => void
-  onProjectsClick?: () => void
-  onProjectSelect?: (id: string) => void
-  onSettingsOpen?: () => void
 }
 
 export function SidebarTabs({
-  userInitials, chats, repos, collapsedRepos,
+  chats, repos, collapsedRepos,
   activeChatId, activeWorkspaceId, activeWorkspaceRepoPath,
   onChatClick, onWorkspaceClick, onNewChat, onNewWorkspace,
   onDeleteChat, onDeleteWorkspace, onRepoToggle,
-  onProjectsClick, onProjectSelect, onSettingsOpen,
 }: SidebarTabsProps) {
   const [activeTab, setActiveTab] = useState<SidebarTab>('workspaces')
 
@@ -67,7 +63,6 @@ export function SidebarTabs({
 
       <TabsContent value="workspaces" forceMount hidden={activeTab !== 'workspaces'} className="flex flex-1 flex-col overflow-hidden mt-0">
         <WorkspacesSidebarPanel
-          userInitials={userInitials}
           chats={chats}
           repos={repos}
           collapsedRepos={collapsedRepos}
@@ -80,9 +75,6 @@ export function SidebarTabs({
           onDeleteChat={onDeleteChat}
           onDeleteWorkspace={onDeleteWorkspace}
           onRepoToggle={onRepoToggle}
-          onProjectsClick={onProjectsClick}
-          onProjectSelect={onProjectSelect}
-          onSettingsClick={onSettingsOpen}
         />
       </TabsContent>
 
@@ -90,7 +82,7 @@ export function SidebarTabs({
         <ErrorBoundary>
           <Suspense fallback={<SidebarSkeleton />}>
             <FileExplorerTree
-              files={[]}
+              files={getMockFileTree(activeWorkspaceRepoPath)}
               rootFolderPath={activeWorkspaceRepoPath}
               onFileSelect={() => {}}
               onCreateNewFileInDirectory={() => {}}

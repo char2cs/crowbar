@@ -5,8 +5,10 @@ import {
   ResizablePanel,
   ResizableHandle,
 } from '@/components/ui/resizable'
+import { SidebarHeader } from './SidebarHeader'
 import { SidebarTabs } from './SidebarTabs'
 import { FlowTab } from './FlowTab'
+import { IDETabBar } from './IDETabBar'
 import { useSidebarStore } from '@/lib/store/sidebar'
 import SettingsDialog from '@/features/settings/components/settings-dialog'
 import { ErrorBoundary } from '@/components/ErrorBoundary'
@@ -25,12 +27,19 @@ export function IDEShell() {
   const activeRepo = repos.find((r) =>
     r.workspaces.some((ws) => ws.id === activeWorkspaceId),
   )
+  const activeWorkspace = activeRepo?.workspaces.find((ws) => ws.id === activeWorkspaceId)
   const activeWorkspaceRepoPath = activeRepo ? `/repos/${activeRepo.id}` : '/repos/default'
+
+  // Label for the IDE tab: show "repo / branch" when available
+  const ideTabLabel = activeWorkspace
+    ? `${activeRepo?.name ?? ''} / ${activeWorkspace.branch}`
+    : 'Workspace'
 
   return (
     <div className="flex h-screen overflow-hidden bg-background text-foreground">
       <ResizablePanelGroup orientation="horizontal" className="h-full">
-        {/* Sidebar */}
+
+        {/* ── Sidebar ─────────────────────────────────────────── */}
         <ResizablePanel
           defaultSize="20%"
           minSize="12%"
@@ -39,8 +48,15 @@ export function IDEShell() {
         >
           <div className="flex h-full flex-col overflow-hidden border-r border-border bg-card">
             <ErrorBoundary>
-              <SidebarTabs
+              {/* Header always visible above the tab switcher */}
+              <SidebarHeader
                 userInitials="MU"
+                onProjectsClick={() => void navigate({ to: '/projects' })}
+                onProjectSelect={() => void navigate({ to: '/' })}
+                onSettingsClick={() => setSettingsOpen(true)}
+              />
+              {/* Workspaces / Files / Git tab switcher */}
+              <SidebarTabs
                 chats={chats}
                 repos={repos}
                 collapsedRepos={collapsedRepos}
@@ -61,9 +77,6 @@ export function IDEShell() {
                   if (activeWorkspaceId === wsId) void navigate({ to: '/' })
                 }}
                 onRepoToggle={toggleRepo}
-                onProjectsClick={() => void navigate({ to: '/projects' })}
-                onProjectSelect={() => void navigate({ to: '/' })}
-                onSettingsOpen={() => setSettingsOpen(true)}
               />
             </ErrorBoundary>
           </div>
@@ -71,11 +84,19 @@ export function IDEShell() {
 
         <ResizableHandle />
 
-        {/* Main content area */}
+        {/* ── Main content ─────────────────────────────────────── */}
         <ResizablePanel className="flex min-w-0 flex-1 flex-col overflow-hidden">
           <ErrorBoundary>
             {activeWorkspaceId ? (
-              <FlowTab workspaceId={activeWorkspaceId} />
+              <div className="flex h-full flex-col overflow-hidden">
+                {/* IDE tab bar — the workspace renders as a document tab */}
+                <IDETabBar
+                  label={ideTabLabel}
+                  onClose={() => void navigate({ to: '/' })}
+                />
+                {/* Workspace content (chat + step tabs) */}
+                <FlowTab workspaceId={activeWorkspaceId} />
+              </div>
             ) : (
               <div className="flex h-full flex-col overflow-hidden">
                 <Outlet />
@@ -83,6 +104,7 @@ export function IDEShell() {
             )}
           </ErrorBoundary>
         </ResizablePanel>
+
       </ResizablePanelGroup>
 
       <SettingsDialog isOpen={settingsOpen} onClose={() => setSettingsOpen(false)} />
