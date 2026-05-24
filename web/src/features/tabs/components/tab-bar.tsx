@@ -32,6 +32,12 @@ import { useFileSystemStore } from "@/features/file-system/controllers/store";
 import { formatDiffBufferLabel } from "@/features/git/utils/diff-buffer-label";
 import { BOTTOM_PANE_ID } from "@/features/panes/constants/pane";
 import { usePaneStore } from "@/features/panes/stores/pane-store";
+import {
+  usePaneRoot,
+  useBottomRoot,
+  useFullscreenPaneId,
+  usePaneActions,
+} from "@/features/workspace/stores/hooks/use-pane-store";
 import { activateBufferInPaneAndSync } from "@/features/panes/utils/pane-activation";
 import { splitEditorGroup } from "@/features/panes/utils/pane-command-actions";
 import { moveBufferToPaneDropTarget } from "@/features/panes/utils/pane-drop-actions";
@@ -71,11 +77,11 @@ const TabBar = ({
   const allBuffers = useBufferStore.use.buffers();
   const globalActiveBufferId = useBufferStore.use.activeBufferId();
   const pendingClose = useBufferStore.use.pendingClose();
-  const paneRoot = usePaneStore.use.root();
-  const bottomRoot = usePaneStore.use.bottomRoot();
-  const fullscreenPaneId = usePaneStore.use.fullscreenPaneId();
-  const { closePane, setActivePane, togglePaneFullscreen, setPaneLocked } =
-    usePaneStore.use.actions();
+  const paneRoot = usePaneRoot();
+  const bottomRoot = useBottomRoot();
+  const fullscreenPaneId = useFullscreenPaneId();
+  const { closePane, setActivePane, togglePaneFullscreen } = usePaneActions();
+  const { setPaneLocked } = usePaneStore.use.actions();
 
   // Filter buffers by paneId if provided
   const pane = paneId
