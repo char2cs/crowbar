@@ -1,5 +1,5 @@
 import { useCallback, useMemo } from "react";
-import { usePaneStore } from "../stores/pane-store";
+import { usePaneActions } from "@/features/workspace/stores/hooks/use-pane-store";
 import type { PaneNode } from "../types/pane";
 import { flattenPaneSplit, type FlatPaneEntry } from "../utils/pane-tree";
 import { PaneContainer } from "./pane-container";
@@ -43,7 +43,7 @@ function FlatResizeHandle({ direction, index, entries, onReset, onResize }: Flat
 }
 
 export function PaneNodeRenderer({ node, hiddenPaneId = null }: PaneNodeRendererProps) {
-  const { distributePaneSplit, resizePaneSplit } = usePaneStore.use.actions();
+  const { distributePaneSplit, resizePaneSplit } = usePaneActions();
   const isHorizontal = node.type === "split" ? node.direction === "horizontal" : false;
 
   const flatEntries = useMemo(() => {
