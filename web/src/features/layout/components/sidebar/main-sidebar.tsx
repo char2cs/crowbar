@@ -29,6 +29,8 @@ interface MainSidebarProps {
   activeView?: SidebarView;
   isGitActive?: boolean;
   isGitHubPRsActive?: boolean;
+  /** Optional children rendered below the sidebar content */
+  children?: ReactNode;
 }
 
 interface SidebarPaneEntry {
@@ -69,6 +71,7 @@ export const MainSidebar = memo(
     activeView,
     isGitActive,
     isGitHubPRsActive,
+    children,
   }: MainSidebarProps) => {
     const uiState = useUIState();
     const isGitViewActive = isGitActive ?? uiState.isGitViewActive;
@@ -228,6 +231,7 @@ export const MainSidebar = memo(
           )}
         >
           <div className="h-full min-h-0 overflow-hidden">{activePane?.content ?? null}</div>
+          {children ?? null}
         </SidebarPanel>
       </div>
     );
