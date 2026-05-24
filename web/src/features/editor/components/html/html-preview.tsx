@@ -30,7 +30,7 @@ export function HtmlPreview() {
   const containerRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
-    setIframeContent(buildHtmlPreviewDocument(sourceContent, { sourcePath, rootFolderPath }));
+    setIframeContent(buildHtmlPreviewDocument(sourceContent, { sourcePath, rootFolderPath: rootFolderPath ?? undefined }));
   }, [sourceContent, sourcePath, rootFolderPath]);
 
   if (!hasSourceBuffer) {

@@ -75,7 +75,7 @@ export function FilePathBreadcrumb({
 
   const handleNavigate = async (path: string) => {
     try {
-      await handleFileSelect(path, false);
+      await handleFileSelect?.(path, false);
     } catch (error) {
       logger.error("Editor", "Failed to navigate to path:", path, error);
     }

@@ -127,13 +127,13 @@ export function MarkdownPreview() {
         const fileExists = await exists(targetPath);
 
         if (fileExists) {
-          await handleFileSelect(targetPath, false);
+          await handleFileSelect?.(targetPath, false);
         } else {
           const withMd = targetPath.endsWith(".md") ? targetPath : `${targetPath}.md`;
           const mdExists = await exists(withMd);
 
           if (mdExists) {
-            await handleFileSelect(withMd, false);
+            await handleFileSelect?.(withMd, false);
           } else {
             logger.warn("MarkdownPreview", `File not found: ${targetPath}`);
           }

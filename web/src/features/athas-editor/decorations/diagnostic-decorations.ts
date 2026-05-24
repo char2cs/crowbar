@@ -75,8 +75,8 @@ export function buildDiagnosticDecorations(
   const decorations: DiagnosticDecoration[] = [];
 
   for (const diagnostic of diagnostics) {
-    const visualStartLine = toVisualLine(diagnostic.line, lineMapping);
-    const visualEndLine = toVisualLine(diagnostic.endLine, lineMapping);
+    const visualStartLine = toVisualLine(diagnostic.line ?? 0, lineMapping);
+    const visualEndLine = toVisualLine(diagnostic.endLine ?? 0, lineMapping);
     if (visualStartLine === null || visualEndLine === null) continue;
 
     const startLine = clamp(visualStartLine, 0, Math.max(0, lines.length - 1));
@@ -86,8 +86,8 @@ export function buildDiagnosticDecorations(
       const lineText = lines[line] ?? "";
       const isFirstLine = line === startLine;
       const isLastLine = line === endLine;
-      let startColumn = isFirstLine ? diagnostic.column : 0;
-      let endColumn = isLastLine ? diagnostic.endColumn : lineText.length;
+      let startColumn = isFirstLine ? (diagnostic.column ?? 0) : 0;
+      let endColumn = isLastLine ? (diagnostic.endColumn ?? lineText.length) : lineText.length;
 
       startColumn = clamp(startColumn, 0, lineText.length);
       endColumn = clamp(endColumn, 0, lineText.length);

@@ -38,10 +38,6 @@ async function saveEditorBufferById(bufferId: string): Promise<boolean> {
   const activeBuffer = buffers.find((buffer) => buffer.id === bufferId);
   if (!activeBuffer || !isEditorContent(activeBuffer)) return false;
 
-  const { parseCollaborationNoteBufferPath } =
-    await import("@/features/collaboration/lib/collaboration-sidebar-model");
-  const collaborationNoteTarget = parseCollaborationNoteBufferPath(activeBuffer.path);
-
   if (activeBuffer.path.startsWith("untitled:")) {
     // No Tauri dialog available — prompt the user for a filename via browser API
     const result = window.prompt("Save as:", activeBuffer.name);
@@ -49,35 +45,6 @@ async function saveEditorBufferById(bufferId: string): Promise<boolean> {
 
     await writeFile(result, activeBuffer.content);
     updateBufferPath(activeBuffer.id, result);
-    markBufferDirty(activeBuffer.id, false);
-    return true;
-  }
-
-  if (collaborationNoteTarget) {
-    const { updateCollaborationChannelNote } = await import("@/features/window/services/auth-api");
-    const { useAuthStore } = await import("@/features/window/stores/auth-store");
-    const { updateCollaborationNoteFile } =
-      await import("@/features/collaboration/lib/collaboration-sidebar-model");
-    const { subscription, setCollaborationSnapshot } = useAuthStore.getState();
-    const collaboration = subscription?.collaboration;
-    const channelNote = collaboration?.channelNotes.find(
-      (note) => note.channelId === collaborationNoteTarget.channelId,
-    );
-
-    if (!channelNote) {
-      markBufferDirty(activeBuffer.id, true);
-      return false;
-    }
-
-    const nextCollaboration = await updateCollaborationChannelNote({
-      channelId: collaborationNoteTarget.channelId,
-      contentMarkdown: updateCollaborationNoteFile({
-        contentMarkdown: channelNote.contentMarkdown,
-        path: collaborationNoteTarget.notePath,
-        fileContent: activeBuffer.content,
-      }),
-    });
-    setCollaborationSnapshot(nextCollaboration);
     markBufferDirty(activeBuffer.id, false);
     return true;
   }

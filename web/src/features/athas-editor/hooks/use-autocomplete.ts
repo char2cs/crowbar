@@ -119,7 +119,7 @@ export function useAutocomplete({
   const enterprisePolicy = subscription?.enterprise?.policy;
   const managedPolicy = enterprisePolicy?.managedMode ? enterprisePolicy : null;
   const isPro = subscriptionStatus === "pro";
-  const useByok = managedPolicy ? managedPolicy.allowByok && !isPro : !isPro;
+  const useByok = managedPolicy ? ((managedPolicy.allowByok ?? false) && !isPro) : !isPro;
   const needsAthasAuth = provider !== "custom";
 
   const requestIdRef = useRef(0);

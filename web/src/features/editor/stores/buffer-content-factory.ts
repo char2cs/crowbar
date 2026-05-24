@@ -218,7 +218,7 @@ export const createPaneContent = (id: string, spec: OpenContentSpec): PaneConten
         name: "Welcome",
         isPreview: false,
         mode: spec.context.mode,
-        currentVersion: spec.context.currentVersion,
+        currentVersion: spec.context.currentVersion ?? '',
         previousVersion: spec.context.previousVersion,
       };
   }
