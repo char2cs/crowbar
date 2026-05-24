@@ -149,10 +149,10 @@ function getThemeId(theme: string): string {
 
 function colorValue(theme: ThemeDefinition, name: string, fallback: string): string {
   return (
-    theme.cssVariables[`--color-${name}`] ??
-    theme.cssVariables[`--${name}`] ??
-    theme.syntaxTokens?.[`--color-${name}`] ??
-    theme.syntaxTokens?.[`--${name}`] ??
+    theme.cssVariables?.[`--color-${name}`] ??
+    theme.cssVariables?.[`--${name}`] ??
+    (theme.syntaxTokens?.[`--color-${name}`] as string | undefined) ??
+    (theme.syntaxTokens?.[`--${name}`] as string | undefined) ??
     fallback
   );
 }
@@ -191,10 +191,10 @@ function toMonacoThemeName(themeId: string): string {
 
 function syntaxTokenColor(theme: ThemeDefinition, token: string): string | undefined {
   return (
-    theme.syntaxTokens?.[`--color-syntax-${token}`] ??
-    theme.syntaxTokens?.[`--syntax-${token}`] ??
-    theme.syntaxTokens?.[`--color-${token}`] ??
-    theme.syntaxTokens?.[`--${token}`]
+    (theme.syntaxTokens?.[`--color-syntax-${token}`] as string | undefined) ??
+    (theme.syntaxTokens?.[`--syntax-${token}`] as string | undefined) ??
+    (theme.syntaxTokens?.[`--color-${token}`] as string | undefined) ??
+    (theme.syntaxTokens?.[`--${token}`] as string | undefined)
   );
 }
 
@@ -325,7 +325,7 @@ function registerAthasVimCommands(): void {
 
   for (const command of vimCommands) {
     register(command.name, command.name);
-    for (const alias of command.aliases ?? []) {
+    for (const alias of (command as { name: string; aliases?: string[] }).aliases ?? []) {
       register(alias, alias);
     }
   }
@@ -913,15 +913,14 @@ export function MonacoBackedEditor({
     });
 
     const unsubscribeRegistry = themeRegistry.onRegistryChange(applyTheme);
-    const unsubscribeTheme = themeRegistry.onThemeChange((themeId) => {
-      if (themeId === (settingsTheme || theme)) applyTheme();
+    const unsubscribeTheme = themeRegistry.onThemeChange(() => {
+      applyTheme();
     });
-    const unsubscribeReady = themeRegistry.onReady(applyTheme);
+    themeRegistry.onReady(applyTheme);
 
     return () => {
       unsubscribeRegistry();
       unsubscribeTheme();
-      unsubscribeReady();
     };
   }, [
     autoCompletion,
