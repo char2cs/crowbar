@@ -25,7 +25,13 @@ export function TooltipProvider({ children }: { children: React.ReactNode }) {
   );
 }
 
-export default function Tooltip({
+// Named exports for Athas feature compatibility
+export const Tooltip = TooltipPrimitive.Root
+export const TooltipTrigger = TooltipPrimitive.Trigger
+export const TooltipContent = TooltipPrimitive.Content
+export const TooltipPortal = TooltipPrimitive.Portal
+
+export default function TooltipCompound({
   content,
   children,
   side = "top",
