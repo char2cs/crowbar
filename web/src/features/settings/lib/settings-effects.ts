@@ -1,0 +1,230 @@
+import {
+  cacheFontsForBootstrap,
+  cacheThemeForBootstrap,
+} from "@/features/settings/lib/appearance-bootstrap";
+import { setWindowTransparency, setMacOSWindowAppearance } from '@/lib/crowbar-bridge';
+import type { Settings, Theme } from "@/features/settings/types/settings";
+
+const ALL_THEME_CLASSES = [
+  "force-athas-light",
+  "force-athas-dark",
+  "force-vitesse-light",
+  "force-vitesse-dark",
+];
+
+function applyFallbackTheme(theme: Theme) {
+  console.log(`Settings store: Falling back to class-based theme "${theme}"`);
+  ALL_THEME_CLASSES.forEach((cls) => document.documentElement.classList.remove(cls));
+  document.documentElement.classList.add(`force-${theme}`);
+}
+
+type SystemThemePreference = "light" | "dark";
+
+interface LegacyMediaQueryList extends MediaQueryList {
+  addListener(listener: (event: MediaQueryListEvent) => void): void;
+  removeListener(listener: (event: MediaQueryListEvent) => void): void;
+}
+
+let currentThemeSyncQuery: MediaQueryList | null = null;
+let removeThemeSyncListener: (() => void) | null = null;
+
+function applyWindowTransparency(enabled: boolean) {
+  if (typeof document === "undefined") return;
+
+  document.documentElement.setAttribute(
+    "data-window-transparency",
+    enabled ? "enabled" : "disabled",
+  );
+
+  void setWindowTransparency(enabled).catch((error) => {
+    console.warn("Failed to sync window transparency", error);
+  });
+}
+
+function getSystemThemePreference(): SystemThemePreference {
+  if (typeof window !== "undefined" && window.matchMedia) {
+    try {
+      return window.matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light";
+    } catch (error) {
+      console.warn("matchMedia not available:", error);
+    }
+  }
+
+  return "dark";
+}
+
+function getEffectiveTheme(
+  settings: Pick<Settings, "theme" | "syncSystemTheme" | "autoThemeLight" | "autoThemeDark">,
+): Theme {
+  if (!settings.syncSystemTheme) {
+    return settings.theme;
+  }
+
+  return getSystemThemePreference() === "dark" ? settings.autoThemeDark : settings.autoThemeLight;
+}
+
+function stopSystemThemeSync() {
+  removeThemeSyncListener?.();
+  removeThemeSyncListener = null;
+  currentThemeSyncQuery = null;
+}
+
+function syncThemeWithSystem(settings: Settings) {
+  if (typeof window === "undefined" || !window.matchMedia) {
+    return;
+  }
+
+  const mediaQuery = window.matchMedia("(prefers-color-scheme: dark)");
+  const handleChange = () => {
+    void applyTheme(getEffectiveTheme(settings));
+  };
+
+  if (currentThemeSyncQuery === mediaQuery && removeThemeSyncListener) {
+    return;
+  }
+
+  stopSystemThemeSync();
+
+  if ("addEventListener" in mediaQuery) {
+    mediaQuery.addEventListener("change", handleChange);
+    removeThemeSyncListener = () => mediaQuery.removeEventListener("change", handleChange);
+  } else {
+    const legacyMediaQuery = mediaQuery as LegacyMediaQueryList;
+    legacyMediaQuery.addListener(handleChange);
+    removeThemeSyncListener = () => legacyMediaQuery.removeListener(handleChange);
+  }
+
+  currentThemeSyncQuery = mediaQuery;
+}
+
+export async function applyTheme(theme: Theme) {
+  if (typeof window === "undefined") return;
+
+  try {
+    const { themeRegistry } = await import("@/extensions/themes/theme-registry");
+
+    if (!themeRegistry.isRegistryReady()) {
+      themeRegistry.onReady(() => {
+        themeRegistry.applyTheme(theme);
+        const appliedTheme = themeRegistry.getTheme(theme);
+        if (appliedTheme) {
+          cacheThemeForBootstrap(appliedTheme);
+          syncMacOSWindowAppearance(appliedTheme.isDark ? "dark" : "light");
+        }
+      });
+      return;
+    }
+
+    themeRegistry.applyTheme(theme);
+    const appliedTheme = themeRegistry.getTheme(theme);
+    if (appliedTheme) {
+      cacheThemeForBootstrap(appliedTheme);
+      syncMacOSWindowAppearance(appliedTheme.isDark ? "dark" : "light");
+    }
+  } catch (error) {
+    console.error("Failed to apply theme via registry:", error);
+    applyFallbackTheme(theme);
+  }
+}
+
+function syncMacOSWindowAppearance(themeType: "light" | "dark") {
+  const transparencyEnabled =
+    typeof document === "undefined"
+      ? true
+      : document.documentElement.getAttribute("data-window-transparency") !== "disabled";
+
+  void setMacOSWindowAppearance(themeType, transparencyEnabled).catch((error) => {
+    console.warn("Failed to sync macOS window appearance", error);
+  });
+}
+
+export function cacheFontSettings(
+  settings: Pick<Settings, "fontFamily" | "uiFontFamily" | "uiFontSize">,
+) {
+  cacheFontsForBootstrap(settings.fontFamily, settings.uiFontFamily, settings.uiFontSize);
+}
+
+export function syncOllamaBaseUrl(baseUrl: string) {
+  if (!baseUrl) {
+    return;
+  }
+
+  void import("@/features/ai/services/providers/ai-provider-registry").then(
+    ({ setOllamaBaseUrl }) => {
+      setOllamaBaseUrl(baseUrl);
+    },
+  );
+}
+
+export function syncCustomProviderBaseUrl(baseUrl: string) {
+  void import("@/features/ai/services/providers/ai-provider-registry").then(
+    ({ setCustomProviderBaseUrl }) => {
+      setCustomProviderBaseUrl(baseUrl);
+    },
+  );
+}
+
+/**
+ * Pushes the Ollama API key (stored in Tauri's secure storage) into the
+ * singleton provider instance so `getModels`, connection checks, and other
+ * non-streaming calls can authenticate with Ollama Cloud.
+ */
+export async function syncOllamaApiKey() {
+  const [{ setOllamaApiKey }, { getProviderApiToken }] = await Promise.all([
+    import("@/features/ai/services/providers/ai-provider-registry"),
+    import("@/features/ai/services/ai-token-service"),
+  ]);
+  const token = await getProviderApiToken("ollama");
+  setOllamaApiKey(token);
+}
+
+export function applySettingsSideEffects(settings: Settings) {
+  cacheFontSettings(settings);
+  applyWindowTransparency(settings.windowTransparency);
+  void applyTheme(getEffectiveTheme(settings));
+  if (settings.syncSystemTheme) {
+    syncThemeWithSystem(settings);
+  } else {
+    stopSystemThemeSync();
+  }
+  syncOllamaBaseUrl(settings.ollamaBaseUrl);
+  syncCustomProviderBaseUrl(settings.aiCustomBaseUrl);
+  void syncOllamaApiKey();
+}
+
+export function applySettingSideEffect<K extends keyof Settings>(
+  key: K,
+  value: Settings[K],
+  getSettings: () => Settings,
+) {
+  if (key === "theme") {
+    void applyTheme(getEffectiveTheme(getSettings()));
+  }
+
+  if (key === "syncSystemTheme" || key === "autoThemeLight" || key === "autoThemeDark") {
+    const settings = getSettings();
+    void applyTheme(getEffectiveTheme(settings));
+
+    if (settings.syncSystemTheme) {
+      syncThemeWithSystem(settings);
+    } else {
+      stopSystemThemeSync();
+    }
+  }
+
+  if (key === "ollamaBaseUrl") {
+    syncOllamaBaseUrl(value as string);
+  }
+
+  if (key === "aiCustomBaseUrl") {
+    syncCustomProviderBaseUrl(value as string);
+  }
+
+  if (key === "fontFamily" || key === "uiFontFamily" || key === "uiFontSize") {
+    cacheFontSettings(getSettings());
+  }
+
+  if (key === "windowTransparency") {
+    applyWindowTransparency(value as boolean);
+  }
+}

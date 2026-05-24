@@ -1,10 +1,128 @@
 import * as React from "react"
 import { ContextMenu as ContextMenuPrimitive } from "@base-ui/react/context-menu"
+import { useCallback, useState } from "react"
+import { createPortal } from "react-dom"
 
 import { cn } from "@/lib/utils"
 import { ChevronRightIcon, CheckIcon } from "lucide-react"
 
-function ContextMenu({ ...props }: ContextMenuPrimitive.Root.Props) {
+// ── Imperative context-menu compatibility (used by Athas feature modules) ──────
+
+export interface ContextMenuItem {
+  id: string
+  label: string
+  icon?: React.ReactNode
+  onClick: () => void
+  separator?: boolean
+  disabled?: boolean
+  shortcut?: string
+  keybinding?: React.ReactNode
+  className?: string
+  items?: ContextMenuItem[]
+}
+
+export interface ContextMenuRootProps {
+  isOpen: boolean
+  position: { x: number; y: number }
+  items: ContextMenuItem[]
+  onClose: () => void
+  className?: string
+}
+
+function ImperativeContextMenu({
+  isOpen,
+  position,
+  items,
+  onClose,
+  className,
+}: ContextMenuRootProps) {
+  if (!isOpen) return null
+
+  const style: React.CSSProperties = {
+    position: "fixed",
+    top: position.y,
+    left: position.x,
+    zIndex: 10040,
+  }
+
+  const menu = (
+    <div
+      style={style}
+      className={cn(
+        "min-w-[180px] rounded-lg border border-border bg-popover p-1 shadow-lg text-popover-foreground",
+        className,
+      )}
+      onContextMenu={(e) => e.preventDefault()}
+    >
+      {items.map((item) =>
+        item.separator ? (
+          <div key={item.id} className="my-1 h-px bg-border" />
+        ) : (
+          <button
+            key={item.id}
+            type="button"
+            disabled={item.disabled}
+            className="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-sm hover:bg-accent hover:text-accent-foreground disabled:pointer-events-none disabled:opacity-50"
+            onClick={() => {
+              item.onClick()
+              onClose()
+            }}
+          >
+            {item.icon && <span className="size-4 shrink-0">{item.icon}</span>}
+            <span className="flex-1">{item.label}</span>
+            {item.shortcut && (
+              <span className="ml-auto text-xs text-muted-foreground">{item.shortcut}</span>
+            )}
+          </button>
+        ),
+      )}
+    </div>
+  )
+
+  return createPortal(
+    <>
+      <div className="fixed inset-0 z-[10039]" onClick={onClose} onContextMenu={onClose} />
+      {menu}
+    </>,
+    document.body,
+  )
+}
+
+interface ContextMenuState<T = unknown> {
+  isOpen: boolean
+  position: { x: number; y: number }
+  data: T | null
+}
+
+export function useContextMenu<T = unknown>() {
+  const [state, setState] = useState<ContextMenuState<T>>({
+    isOpen: false,
+    position: { x: 0, y: 0 },
+    data: null,
+  })
+
+  const open = useCallback((e: React.MouseEvent, data?: T) => {
+    e.preventDefault()
+    e.stopPropagation()
+    setState({ isOpen: true, position: { x: e.clientX, y: e.clientY }, data: data ?? null })
+  }, [])
+
+  const openAt = useCallback((position: { x: number; y: number }, data?: T) => {
+    setState({ isOpen: true, position, data: data ?? null })
+  }, [])
+
+  const close = useCallback(() => {
+    setState({ isOpen: false, position: { x: 0, y: 0 }, data: null })
+  }, [])
+
+  return { ...state, open, openAt, close }
+}
+
+// Re-export imperative ContextMenu under the same name for Athas modules.
+// The base-ui declarative version is exported as ContextMenuRoot for the Crowbar UI library.
+export { ImperativeContextMenu as ContextMenu }
+
+function ContextMenuRoot({ ...props }: ContextMenuPrimitive.Root.Props) {
   return <ContextMenuPrimitive.Root data-slot="context-menu" {...props} />
 }
 
@@ -251,10 +369,9 @@ function ContextMenuShortcut({
 }
 
 export {
-  ContextMenu,
+  ContextMenuRoot,
   ContextMenuTrigger,
   ContextMenuContent,
-  ContextMenuItem,
   ContextMenuCheckboxItem,
   ContextMenuRadioItem,
   ContextMenuLabel,
