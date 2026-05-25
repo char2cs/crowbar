@@ -156,7 +156,7 @@ function FlowLineNumbersComponent({
                               ? enabled
                                 ? "size-2.5 rounded-full bg-error"
                                 : "size-2.5 rounded-full border border-error"
-                              : "size-2.5 rounded-full bg-text-lighter/0 transition-colors group-hover:bg-text-lighter/30"
+                              : "size-2.5 rounded-full bg-muted-foreground/0 transition-colors group-hover:bg-muted-foreground/30"
                           }
                         />
                       </button>
@@ -197,7 +197,7 @@ function FlowLineNumbersComponent({
                         }}
                         aria-label={isCollapsed ? "Expand fold" : "Collapse fold"}
                         aria-expanded={!isCollapsed}
-                        className="flex h-4 w-4 items-center justify-center rounded text-text-lighter transition-colors hover:bg-hover/40 hover:text-text"
+                        className="flex h-4 w-4 items-center justify-center rounded text-muted-foreground transition-colors hover:bg-muted/40 hover:text-foreground"
                       >
                         {isCollapsed ? (
                           <ChevronRight size={14} strokeWidth={2} />

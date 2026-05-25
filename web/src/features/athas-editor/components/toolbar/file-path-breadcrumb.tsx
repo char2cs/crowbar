@@ -206,7 +206,7 @@ export function FilePathBreadcrumb({
               onClick={handleGoBack}
               variant="ghost"
               className={dropdownItemClassName(
-                "justify-start border-border/70 border-b text-text-lighter hover:text-text",
+                "justify-start border-border/70 border-b text-muted-foreground hover:text-foreground",
               )}
               compact
             >

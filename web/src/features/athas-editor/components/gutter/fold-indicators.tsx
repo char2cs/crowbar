@@ -102,7 +102,7 @@ function FoldIndicatorsComponent({
                     ? "Expand fold"
                     : "Collapse fold"
             }
-            className="transition-colors hover:bg-hover/40 hover:text-text"
+            className="transition-colors hover:bg-muted/40 hover:text-foreground"
           >
             {isCollapsed ? (
               <ChevronRight size={14} strokeWidth={2} />

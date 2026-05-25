@@ -34,19 +34,19 @@ import { getFilenameFromPath } from "@/features/file-system/controllers/file-uti
 
 const actionButtonClass = cn(
   buttonVariants({ variant: "ghost", compact: true }),
-  "rounded text-text-lighter",
+  "rounded text-muted-foreground",
 );
 
 const statusChipClass =
-  "ui-font inline-flex h-5 items-center self-center rounded-md border border-transparent px-1.5 ui-text-xs leading-none text-text-lighter transition-colors hover:bg-hover hover:text-text";
+  "ui-font inline-flex h-5 items-center self-center rounded-md border border-transparent px-1.5 ui-text-xs leading-none text-muted-foreground transition-colors hover:bg-muted hover:text-foreground";
 
 const menuTriggerClass = cn(
   buttonVariants({ variant: "ghost", compact: true }),
-  "rounded text-text-lighter",
+  "rounded text-muted-foreground",
 );
 
 const menuItemClass =
-  "ui-font flex w-full items-center justify-between gap-3 rounded-lg px-2.5 py-1.5 text-left ui-text-xs text-text transition-colors hover:bg-hover";
+  "ui-font flex w-full items-center justify-between gap-3 rounded-lg px-2.5 py-1.5 text-left ui-text-xs text-foreground transition-colors hover:bg-muted";
 
 const menuItemDisabledClass = "cursor-not-allowed opacity-50 hover:bg-transparent";
 function getLanguageDisplayNameOrNull(languageId: string | null) {
@@ -119,7 +119,7 @@ export function EditorStatusActions({ bufferId, editorViewKey }: EditorStatusAct
       default:
         return {
           icon: <ZapOff />,
-          color: "text-text-lighter opacity-50",
+          color: "text-muted-foreground opacity-50",
           title: "No active language servers",
         };
     }
@@ -366,7 +366,7 @@ export function EditorStatusActions({ bufferId, editorViewKey }: EditorStatusAct
             className={cn(
               statusChipClass,
               "min-w-0 cursor-pointer",
-              isLanguageOpen && "bg-hover text-text",
+              isLanguageOpen && "bg-muted text-foreground",
             )}
             aria-expanded={isLanguageOpen}
             aria-haspopup="listbox"
@@ -399,7 +399,7 @@ export function EditorStatusActions({ bufferId, editorViewKey }: EditorStatusAct
                   }
                 }}
                 placeholder="Search languages..."
-                className="ui-font w-full rounded-md border border-border/70 bg-primary-bg px-2 py-1 ui-text-xs text-text outline-none placeholder:text-text-lighter/50 focus:border-accent/50"
+                className="ui-font w-full rounded-md border border-border/70 bg-background px-2 py-1 ui-text-xs text-foreground outline-none placeholder:text-muted-foreground/50 focus:border-accent/50"
                 autoFocus
                 aria-label="Search languages"
               />
@@ -423,7 +423,7 @@ export function EditorStatusActions({ bufferId, editorViewKey }: EditorStatusAct
                 </Button>
               ))}
               {filteredLanguages.length === 0 && (
-                <div className="px-2.5 py-2 text-center text-text-lighter ui-text-xs">
+                <div className="px-2.5 py-2 text-center text-muted-foreground ui-text-xs">
                   No languages found
                 </div>
               )}
@@ -441,7 +441,7 @@ export function EditorStatusActions({ bufferId, editorViewKey }: EditorStatusAct
           onClick={() => setIsLspOpen((open) => !open)}
           variant="ghost"
           compact
-          className={cn(actionButtonClass, config.color, isLspOpen && "bg-hover text-text")}
+          className={cn(actionButtonClass, config.color, isLspOpen && "bg-muted text-foreground")}
           aria-label="Language server status"
           tooltip={config.title}
           tooltipSide="bottom"
@@ -458,7 +458,7 @@ export function EditorStatusActions({ bufferId, editorViewKey }: EditorStatusAct
         >
           <div className="space-y-2">
             <div className="px-1">
-              <span className="font-medium text-text ui-text-xs">{projectName}</span>
+              <span className="font-medium text-foreground ui-text-xs">{projectName}</span>
             </div>
             {hasActiveServers || isCurrentFileLspAvailable ? (
               <div className="space-y-1">
@@ -467,11 +467,11 @@ export function EditorStatusActions({ bufferId, editorViewKey }: EditorStatusAct
                   return (
                     <div
                       key={entry.key}
-                      className="group flex items-center justify-between gap-2 rounded-lg px-2 py-1.5 hover:bg-hover"
+                      className="group flex items-center justify-between gap-2 rounded-lg px-2 py-1.5 hover:bg-muted"
                     >
                       <div className="flex min-w-0 items-center gap-2">
                         <Zap className="shrink-0 text-green-400" />
-                        <span className="truncate text-text ui-text-xs">{entry.displayName}</span>
+                        <span className="truncate text-foreground ui-text-xs">{entry.displayName}</span>
                       </div>
                       <div className="flex items-center gap-1 opacity-0 transition-opacity group-hover:opacity-100">
                         <Button
@@ -480,7 +480,7 @@ export function EditorStatusActions({ bufferId, editorViewKey }: EditorStatusAct
                           disabled={isBusy || isRestartingCurrent}
                           variant="default"
                           compact
-                          className="rounded-md px-2 ui-text-xs text-text-lighter"
+                          className="rounded-md px-2 ui-text-xs text-muted-foreground"
                         >
                           {isBusy ? "..." : "Restart"}
                         </Button>
@@ -490,7 +490,7 @@ export function EditorStatusActions({ bufferId, editorViewKey }: EditorStatusAct
                           disabled={isBusy || isRestartingCurrent}
                           variant="default"
                           compact
-                          className="rounded-md px-2 ui-text-xs text-text-lighter"
+                          className="rounded-md px-2 ui-text-xs text-muted-foreground"
                         >
                           <Square />
                         </Button>
@@ -499,10 +499,10 @@ export function EditorStatusActions({ bufferId, editorViewKey }: EditorStatusAct
                   );
                 })}
                 {!currentServerEntry && isCurrentFileLspAvailable && currentFileDisplayName && (
-                  <div className="group flex items-center justify-between gap-2 rounded-lg px-2 py-1.5 hover:bg-hover">
+                  <div className="group flex items-center justify-between gap-2 rounded-lg px-2 py-1.5 hover:bg-muted">
                     <div className="flex min-w-0 items-center gap-2">
                       <ZapOff className="shrink-0 opacity-60" />
-                      <span className="truncate text-text ui-text-xs">
+                      <span className="truncate text-foreground ui-text-xs">
                         {currentFileDisplayName}
                       </span>
                     </div>
@@ -513,7 +513,7 @@ export function EditorStatusActions({ bufferId, editorViewKey }: EditorStatusAct
                         disabled={isRestartingCurrent}
                         variant="default"
                         compact
-                        className="rounded-md px-2 ui-text-xs text-text-lighter"
+                        className="rounded-md px-2 ui-text-xs text-muted-foreground"
                       >
                         {isRestartingCurrent ? "Starting..." : "Start"}
                       </Button>
@@ -522,7 +522,7 @@ export function EditorStatusActions({ bufferId, editorViewKey }: EditorStatusAct
                 )}
               </div>
             ) : lspStatus.status === "connecting" ? (
-              <div className="flex items-center gap-2 rounded-lg px-2 py-2 text-text-lighter">
+              <div className="flex items-center gap-2 rounded-lg px-2 py-2 text-muted-foreground">
                 <LoadingIndicator label="Connecting" showLabel compact />
               </div>
             ) : lspStatus.status === "error" ? (
@@ -531,13 +531,13 @@ export function EditorStatusActions({ bufferId, editorViewKey }: EditorStatusAct
                   <ZapOff />
                   <span className="ui-text-xs">Language server issue</span>
                 </div>
-                <div className="px-0.5 ui-text-xs text-text-lighter">
+                <div className="px-0.5 ui-text-xs text-muted-foreground">
                   Check notifications for the latest error. Reinstall the affected language tools
                   from Extensions if the server binary is missing or failed to launch.
                 </div>
               </div>
             ) : (
-              <div className="flex items-center gap-2 rounded-lg px-2 py-2 text-text-lighter">
+              <div className="flex items-center gap-2 rounded-lg px-2 py-2 text-muted-foreground">
                 <ZapOff className="opacity-50" />
                 <span className="ui-text-xs">No active language servers</span>
               </div>
@@ -555,7 +555,7 @@ export function EditorStatusActions({ bufferId, editorViewKey }: EditorStatusAct
           compact
           className={cn(
             menuTriggerClass,
-            isViewMenuOpen && "border-border/60 bg-hover/80 text-text",
+            isViewMenuOpen && "border-border/60 bg-muted/80 text-foreground",
           )}
           tooltip="Editor preferences"
           tooltipSide="bottom"

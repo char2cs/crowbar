@@ -26,7 +26,7 @@ export const InlineEditPopover = forwardRef<HTMLDivElement, InlineEditPopoverPro
           aria-modal="false"
           aria-labelledby="inline-edit-title"
           aria-describedby="inline-edit-description"
-          className="pointer-events-auto absolute overflow-hidden rounded-md border border-border/70 bg-primary-bg shadow-lg"
+          className="pointer-events-auto absolute overflow-hidden rounded-md border border-border/70 bg-background shadow-lg"
           style={{
             top: `${zoneTop ?? state.popoverPosition.top}px`,
             left: `${state.popoverPosition.left}px`,
@@ -71,7 +71,7 @@ export const InlineEditPopover = forwardRef<HTMLDivElement, InlineEditPopoverPro
                   : "inline-edit-description"
               }
               aria-invalid={state.inlineEditError ? true : undefined}
-              className="ui-font h-7 min-w-0 flex-1 bg-transparent px-0 ui-text-xs placeholder:text-text-lighter/80 focus:bg-transparent"
+              className="ui-font h-7 min-w-0 flex-1 bg-transparent px-0 ui-text-xs placeholder:text-muted-foreground/80 focus:bg-transparent"
               placeholder={
                 selection && selection.start.offset !== selection.end.offset
                   ? "Edit selection..."
@@ -105,7 +105,7 @@ export const InlineEditPopover = forwardRef<HTMLDivElement, InlineEditPopoverPro
               variant="ghost"
               compact
               onClick={() => state.inlineEditToolbarActions.hide()}
-              className="text-text-lighter hover:text-text"
+              className="text-muted-foreground hover:text-foreground"
               tooltip="Close inline edit"
               shortcut="escape"
             >
