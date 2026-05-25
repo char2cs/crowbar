@@ -86,7 +86,7 @@ export const useUIState = create<UIState>((set) => ({
   setActiveSidebarView: (view) => set({ activeSidebarView: view }),
   isGitViewActive: false,
   isGitHubPRsViewActive: false,
-  settingsInitialTab: "general" as SettingsTab,
+  settingsInitialTab: "appearance" as SettingsTab,
   setSettingsInitialTab: (tab) => set({ settingsInitialTab: tab }),
   isSettingsOpen: false,
   setIsSettingsOpen: (open) => set({ isSettingsOpen: open }),

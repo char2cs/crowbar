@@ -10,9 +10,7 @@ import Input from "@/components/ui/input";
 import { SETTINGS_TAB_ITEMS, SettingsVerticalTabs } from "./settings-vertical-tabs";
 import { AppearanceSettings } from "./tabs/appearance-settings";
 import { EditorSettings } from "./tabs/editor-settings";
-import { GeneralSettings } from "./tabs/general-settings";
 import { GitSettings } from "./tabs/git-settings";
-import { KeyboardSettings } from "./tabs/keyboard-settings";
 import { FileTreeSettings } from "./tabs/file-tree-settings";
 import { TerminalSettings } from "./tabs/terminal-settings";
 
@@ -23,7 +21,7 @@ interface SettingsDialogProps {
 
 const SettingsDialog = ({ isOpen, onClose }: SettingsDialogProps) => {
   const { settingsInitialTab, setSettingsInitialTab } = useUIState();
-  const [activeTab, setActiveTab] = useState<SettingsTab>("general");
+  const [activeTab, setActiveTab] = useState<SettingsTab>("appearance");
   const subscription = useAuthStore((state) => state.subscription);
   const hasEnterpriseAccess = Boolean(subscription?.enterprise?.has_access);
   const hasTeamsAccess = Boolean(subscription?.collaboration?.enabled);
@@ -53,9 +51,11 @@ const SettingsDialog = ({ isOpen, onClose }: SettingsDialogProps) => {
         setActiveTab("editor");
       } else if (
         (!hasEnterpriseAccess && settingsInitialTab === "enterprise") ||
-        (!hasTeamsAccess && settingsInitialTab === "collaboration")
+        (!hasTeamsAccess && settingsInitialTab === "collaboration") ||
+        settingsInitialTab === "general" ||
+        settingsInitialTab === "keyboard"
       ) {
-        setActiveTab("general");
+        setActiveTab("appearance");
       } else {
         setActiveTab(settingsInitialTab);
       }
@@ -87,14 +87,12 @@ const SettingsDialog = ({ isOpen, onClose }: SettingsDialogProps) => {
 
   const renderTabContent = () => {
     switch (activeTab) {
-      case "general":       return <GeneralSettings />;
       case "appearance":    return <AppearanceSettings />;
       case "editor":        return <EditorSettings />;
       case "file-explorer": return <FileTreeSettings />;
       case "git":           return <GitSettings />;
       case "terminal":      return <TerminalSettings />;
-      case "keyboard":      return <KeyboardSettings />;
-      default:              return <GeneralSettings />;
+      default:              return <AppearanceSettings />;
     }
   };
 

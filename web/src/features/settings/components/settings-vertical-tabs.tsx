@@ -1,8 +1,6 @@
 import {
   CodeBlock,
-  GearSix,
   GitBranch,
-  Keyboard,
   PaintBrush,
   TerminalWindow,
   TreeStructure,
@@ -32,13 +30,11 @@ export interface SettingsTabItem {
 }
 
 export const SETTINGS_TAB_ITEMS: SettingsTabItem[] = [
-  { id: "general",       label: "General",     icon: GearSix },
   { id: "appearance",    label: "Appearance",  icon: PaintBrush },
   { id: "editor",        label: "Editor",      icon: CodeBlock },
   { id: "file-explorer", label: "Files",       icon: TreeStructure },
   { id: "git",           label: "Git",         icon: GitBranch },
   { id: "terminal",      label: "Terminal",    icon: TerminalWindow },
-  { id: "keyboard",      label: "Keybindings", icon: Keyboard },
 ];
 
 export const SettingsVerticalTabs = ({
