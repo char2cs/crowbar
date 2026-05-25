@@ -1,5 +1,7 @@
-// Stub: FileExplorerIcon — will be replaced when file-explorer is fully copied
-import { FileText } from '@phosphor-icons/react'
+import { FileText } from "@phosphor-icons/react"
+import { useMemo } from "react"
+import { iconThemeRegistry } from "@/extensions/icon-themes/icon-theme-registry"
+import { useSettingsStore } from "@/features/settings/store"
 
 export interface FileExplorerIconProps {
   fileName?: string
@@ -12,6 +14,51 @@ export interface FileExplorerIconProps {
   size?: number
 }
 
-export function FileExplorerIcon({ className }: FileExplorerIconProps) {
-  return <FileText className={className} />
+export function FileExplorerIcon({
+  fileName = "",
+  isDirectory,
+  isDir,
+  isExpanded = false,
+  className,
+  size = 16,
+}: FileExplorerIconProps) {
+  const iconThemeId = useSettingsStore((state) => state.settings.iconTheme)
+
+  const iconResult = useMemo(() => {
+    const theme = iconThemeRegistry.getTheme(iconThemeId) ?? iconThemeRegistry.getAllThemes()[0]
+    if (!theme) return null
+    try {
+      return theme.getFileIcon(fileName, isDirectory ?? isDir ?? false, isExpanded)
+    } catch {
+      return null
+    }
+  }, [iconThemeId, fileName, isDirectory, isDir, isExpanded])
+
+  if (!iconResult) {
+    return <FileText className={className} size={size} />
+  }
+
+  if (iconResult.component) {
+    return (
+      <span
+        className={className}
+        style={{ display: "inline-flex", alignItems: "center", width: size, height: size, flexShrink: 0 }}
+      >
+        {iconResult.component}
+      </span>
+    )
+  }
+
+  if (iconResult.svg) {
+    return (
+      <span
+        className={className}
+        style={{ display: "inline-flex", alignItems: "center", width: size, height: size, flexShrink: 0 }}
+        // eslint-disable-next-line react/no-danger
+        dangerouslySetInnerHTML={{ __html: iconResult.svg }}
+      />
+    )
+  }
+
+  return <FileText className={className} size={size} />
 }
