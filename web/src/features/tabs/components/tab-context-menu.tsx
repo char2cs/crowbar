@@ -14,6 +14,7 @@ import { useBufferStore } from "@/features/editor/stores/buffer-store";
 import type { PaneContent } from "@/features/panes/types/pane-content";
 import { isVirtualContent } from "@/features/panes/types/pane-content";
 import { useTerminalStore } from "@/features/terminal/stores/terminal-store";
+import { useWorkspaceStore } from "@/features/workspace/stores/workspace-context";
 import { ContextMenu, type ContextMenuItem } from "@/components/ui/context-menu";
 import { primitivePrompt } from "@/components/ui/primitive-dialog-service";
 import { getBaseName, getDirName } from "@/utils/path-helpers";
@@ -57,6 +58,8 @@ const TabContextMenu = ({
   onSplitRight,
   onSplitDown,
 }: TabContextMenuProps) => {
+  const workspaceStore = useWorkspaceStore();
+
   if (!isOpen || !buffer) return null;
 
   const closeKeys = [IS_MAC ? "Cmd" : "Ctrl", "W"];
@@ -156,8 +159,8 @@ const TabContextMenu = ({
             onClick: () => {
               const dirPath = getDirName(buffer.path);
               const dirName = getBaseName(dirPath, "terminal");
-              const { openTerminalBuffer } = useBufferStore.getState().actions;
-              openTerminalBuffer({
+              workspaceStore.getState().bufferActions.openContent({
+                type: 'terminal',
                 name: dirName,
                 workingDirectory: dirPath,
               });

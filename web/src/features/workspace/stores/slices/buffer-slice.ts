@@ -1,6 +1,6 @@
 import type { StateCreator } from 'zustand'
 import type { WorkspaceState } from '../workspace-store.types'
-import type { PaneContent, EditorContent, CrowbarChatContent, DiffContent } from '@/features/panes/types/pane-content'
+import type { PaneContent, EditorContent, CrowbarChatContent, DiffContent, TerminalContent, WebViewerContent } from '@/features/panes/types/pane-content'
 import { nanoid } from 'nanoid'
 
 // ── Open spec union ──────────────────────────────────────────────────
@@ -25,6 +25,19 @@ export type OurOpenContentSpec =
       path: string
       name: string
       content: string
+    }
+  | {
+      type: 'terminal'
+      name?: string
+      command?: string
+      workingDirectory?: string
+      remoteConnectionId?: string
+      sessionId?: string
+    }
+  | {
+      type: 'webViewer'
+      url: string
+      name?: string
     }
 
 // ── Actions ──────────────────────────────────────────────────────────
@@ -72,6 +85,18 @@ export const createBufferSlice: StateCreator<
         }
         if (spec.type === 'diff') {
           return get().buffers.find(b => b.type === 'diff' && b.path === spec.path)
+        }
+        // Terminal: only deduplicate by sessionId when one is explicitly provided
+        if (spec.type === 'terminal' && spec.sessionId) {
+          return get().buffers.find(
+            b => b.type === 'terminal' && (b as TerminalContent).sessionId === spec.sessionId,
+          )
+        }
+        // WebViewer: deduplicate by URL
+        if (spec.type === 'webViewer') {
+          return get().buffers.find(
+            b => b.type === 'webViewer' && (b as WebViewerContent).url === spec.url,
+          )
         }
         return undefined
       })()
@@ -127,6 +152,46 @@ export const createBufferSlice: StateCreator<
           name: spec.name,
           content: spec.content,
           savedContent: spec.content,
+          isPinned: false,
+          isPreview: false,
+          isActive: false,
+        }
+        set(state => { state.buffers.push(buf as any) })
+        get().paneActions.addBufferToPane(get().activePaneId, id, true)
+      } else if (spec.type === 'terminal') {
+        const terminalCount = get().buffers.filter(b => b.type === 'terminal').length
+        const sessionId = spec.sessionId ?? `terminal-tab-${Date.now()}`
+        const buf: TerminalContent = {
+          id,
+          type: 'terminal',
+          sessionId,
+          path: `terminal://${sessionId}`,
+          name: spec.name ?? `Terminal ${terminalCount + 1}`,
+          initialCommand: spec.command,
+          workingDirectory: spec.workingDirectory,
+          remoteConnectionId: spec.remoteConnectionId,
+          isPinned: false,
+          isPreview: false,
+          isActive: false,
+        }
+        set(state => { state.buffers.push(buf as any) })
+        get().paneActions.addBufferToPane(get().activePaneId, id, true)
+      } else if (spec.type === 'webViewer') {
+        let displayName = spec.name ?? 'Web Viewer'
+        if (!spec.name && spec.url && spec.url !== 'about:blank') {
+          try {
+            const urlObj = new URL(spec.url)
+            if (urlObj.hostname) displayName = urlObj.hostname
+          } catch {
+            // Invalid URL, keep default
+          }
+        }
+        const buf: WebViewerContent = {
+          id,
+          type: 'webViewer',
+          url: spec.url,
+          path: `web-viewer://${spec.url}`,
+          name: displayName,
           isPinned: false,
           isPreview: false,
           isActive: false,
