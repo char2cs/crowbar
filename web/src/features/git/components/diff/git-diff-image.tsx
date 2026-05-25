@@ -36,7 +36,7 @@ const ImageContainer = memo(({ label, labelColor, base64, alt, zoom }: ImageCont
           style={{ transform: `scale(${zoom})`, transformOrigin: "center" }}
         />
       ) : (
-        <div className="text-text-lighter ui-text-xs italic">No image</div>
+        <div className="text-muted-foreground ui-text-xs italic">No image</div>
       )}
     </div>
   </div>
@@ -60,7 +60,7 @@ const ImageDiffViewer = memo(({ diff, fileName, onClose, commitHash }: ImageDiff
   const hasNewImage = !!diff.new_blob_base64;
 
   return (
-    <div className="flex h-full flex-col overflow-hidden bg-primary-bg">
+    <div className="flex h-full flex-col overflow-hidden bg-background">
       <DiffHeader
         fileName={fileName}
         diff={diff}
@@ -70,19 +70,19 @@ const ImageDiffViewer = memo(({ diff, fileName, onClose, commitHash }: ImageDiff
         onClose={onClose}
       />
 
-      <div className="flex items-center justify-center gap-2 border-border border-b bg-secondary-bg py-1">
+      <div className="flex items-center justify-center gap-2 border-border border-b bg-card py-1">
         <Button
           onClick={handleZoomOut}
           disabled={zoom <= MIN_ZOOM}
           variant="ghost"
-          className="text-text-lighter disabled:opacity-50"
+          className="text-muted-foreground disabled:opacity-50"
           tooltip="Zoom out"
           aria-label="Zoom out"
           compact
         >
           <ZoomOut />
         </Button>
-        <span className="ui-font w-12 text-center text-text-lighter ui-text-xs">
+        <span className="ui-font w-12 text-center text-muted-foreground ui-text-xs">
           {Math.round(zoom * 100)}%
         </span>
         <Button
@@ -90,7 +90,7 @@ const ImageDiffViewer = memo(({ diff, fileName, onClose, commitHash }: ImageDiff
           disabled={zoom >= MAX_ZOOM}
           variant="ghost"
           compact
-          className="text-text-lighter disabled:opacity-50"
+          className="text-muted-foreground disabled:opacity-50"
           tooltip="Zoom in"
           aria-label="Zoom in"
         >

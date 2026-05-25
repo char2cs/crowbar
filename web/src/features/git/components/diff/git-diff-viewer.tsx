@@ -25,15 +25,15 @@ const DiffViewer = memo((_props: DiffViewerProps) => {
 
   if (isLoading) {
     return (
-      <div className="flex h-full items-center justify-center bg-primary-bg">
-        <div className="ui-text-sm text-text-lighter">Loading diff...</div>
+      <div className="flex h-full items-center justify-center bg-background">
+        <div className="ui-text-sm text-muted-foreground">Loading diff...</div>
       </div>
     );
   }
 
   if (error) {
     return (
-      <div className="flex h-full items-center justify-center bg-primary-bg">
+      <div className="flex h-full items-center justify-center bg-background">
         <div className="text-error ui-text-sm">{error}</div>
       </div>
     );
@@ -41,8 +41,8 @@ const DiffViewer = memo((_props: DiffViewerProps) => {
 
   if (!diff || !filePath) {
     return (
-      <div className="flex h-full items-center justify-center bg-primary-bg">
-        <div className="ui-text-sm text-text-lighter">No diff data available</div>
+      <div className="flex h-full items-center justify-center bg-background">
+        <div className="ui-text-sm text-muted-foreground">No diff data available</div>
       </div>
     );
   }
@@ -54,7 +54,7 @@ const DiffViewer = memo((_props: DiffViewerProps) => {
   }
 
   return (
-    <div className="flex h-full flex-col overflow-hidden bg-primary-bg">
+    <div className="flex h-full flex-col overflow-hidden bg-background">
       <GitDiffEditorSurface
         cacheKey={filePath}
         diff={diff}

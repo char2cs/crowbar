@@ -25,14 +25,14 @@ const renderWhitespace = (content: string, showWhitespace: boolean) => {
   return content.split("").map((char, i) => {
     if (char === " ") {
       return (
-        <span key={i} className="text-text-lighter opacity-30">
+        <span key={i} className="text-muted-foreground opacity-30">
           ·
         </span>
       );
     }
     if (char === "\t") {
       return (
-        <span key={i} className="text-text-lighter opacity-30">
+        <span key={i} className="text-muted-foreground opacity-30">
           →{"   "}
         </span>
       );
@@ -159,7 +159,7 @@ const DiffLine = memo(
           <div
             className={cn(
               "w-11 shrink-0 select-none border-border border-r px-2 py-0.5 text-right",
-              "editor-font code-editor-font-override text-text-lighter tabular-nums",
+              "editor-font code-editor-font-override text-muted-foreground tabular-nums",
               getGutterBackground(diffType),
             )}
             style={gutterStyle}
@@ -173,7 +173,7 @@ const DiffLine = memo(
                 ? getContentColor("added")
                 : diffType === "removed"
                   ? getContentColor("removed")
-                  : "text-text",
+                  : "text-foreground",
             )}
             style={contentStyle}
           >
@@ -195,7 +195,7 @@ const DiffLine = memo(
             <div
               className={cn(
                 "w-11 shrink-0 select-none border-border border-r px-2 py-0.5 text-right",
-                "editor-font code-editor-font-override text-text-lighter tabular-nums",
+                "editor-font code-editor-font-override text-muted-foreground tabular-nums",
                 getGutterBackground(line.line_type === "removed" ? "removed" : ""),
               )}
               style={gutterStyle}
@@ -205,7 +205,7 @@ const DiffLine = memo(
             <div
               className={cn(
                 "editor-font code-editor-font-override m-0 min-w-0 flex-1 overflow-x-auto overflow-y-hidden px-2.5 py-0.5 antialiased",
-                line.line_type === "removed" ? getContentColor("removed") : "text-text",
+                line.line_type === "removed" ? getContentColor("removed") : "text-foreground",
               )}
               style={contentStyle}
             >
@@ -222,7 +222,7 @@ const DiffLine = memo(
             <div
               className={cn(
                 "w-11 shrink-0 select-none border-border border-r px-2 py-0.5 text-right",
-                "editor-font code-editor-font-override text-text-lighter tabular-nums",
+                "editor-font code-editor-font-override text-muted-foreground tabular-nums",
                 getGutterBackground(line.line_type === "added" ? "added" : ""),
               )}
               style={gutterStyle}
@@ -232,7 +232,7 @@ const DiffLine = memo(
             <div
               className={cn(
                 "editor-font code-editor-font-override m-0 min-w-0 flex-1 overflow-x-auto overflow-y-hidden px-2.5 py-0.5 antialiased",
-                line.line_type === "added" ? getContentColor("added") : "text-text",
+                line.line_type === "added" ? getContentColor("added") : "text-foreground",
               )}
               style={contentStyle}
             >
@@ -251,7 +251,7 @@ const DiffLine = memo(
         <div
           className={cn(
             "w-11 shrink-0 select-none border-border border-r px-2 py-0.5 text-right",
-            "editor-font code-editor-font-override text-text-lighter tabular-nums",
+            "editor-font code-editor-font-override text-muted-foreground tabular-nums",
             getGutterBackground(line.line_type),
           )}
           style={gutterStyle}
@@ -261,7 +261,7 @@ const DiffLine = memo(
         <div
           className={cn(
             "w-11 shrink-0 select-none border-border border-r px-2 py-0.5 text-right",
-            "editor-font code-editor-font-override text-text-lighter tabular-nums",
+            "editor-font code-editor-font-override text-muted-foreground tabular-nums",
             getGutterBackground(line.line_type),
           )}
           style={gutterStyle}

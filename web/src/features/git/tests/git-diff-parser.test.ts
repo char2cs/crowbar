@@ -116,8 +116,8 @@ describe("git diff parser", () => {
     });
     expect(getDiffLineVisualState("header")).toEqual({
       lineBackground: "",
-      gutterBackground: "bg-primary-bg",
-      contentColor: "text-text",
+      gutterBackground: "bg-background",
+      contentColor: "text-foreground",
     });
   });
 });

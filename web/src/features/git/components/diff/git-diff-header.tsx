@@ -33,9 +33,9 @@ const DiffHeader = memo(
     const { closeBuffer } = useBufferStore.use.actions();
     const activeBufferId = useBufferStore.use.activeBufferId();
     const iconButtonClass =
-      "flex size-5 items-center justify-center rounded text-text-lighter transition-colors hover:bg-hover hover:text-text";
+      "flex size-5 items-center justify-center rounded text-muted-foreground transition-colors hover:bg-muted hover:text-foreground";
     const segmentedButtonClass =
-      "flex size-5 items-center justify-center rounded text-text-lighter transition-colors hover:bg-hover hover:text-text";
+      "flex size-5 items-center justify-center rounded text-muted-foreground transition-colors hover:bg-muted hover:text-foreground";
 
     const handleClose = () => {
       if (onClose) {
@@ -98,7 +98,7 @@ const DiffHeader = memo(
           showDefaultActions={false}
           extraLeftContent={
             isMultiFileView ? (
-              <span className="text-text-lighter">
+              <span className="text-muted-foreground">
                 {totalFiles} file{totalFiles !== 1 ? "s" : ""}
               </span>
             ) : (
@@ -143,8 +143,8 @@ const DiffHeader = memo(
                     variant="ghost"
                     compact
                     className={cn(
-                      "flex h-5 items-center gap-1 rounded px-1.5 transition-colors hover:bg-hover hover:text-text",
-                      showWhitespace ? "bg-hover text-text" : "text-text-lighter",
+                      "flex h-5 items-center gap-1 rounded px-1.5 transition-colors hover:bg-muted hover:text-foreground",
+                      showWhitespace ? "bg-muted text-foreground" : "text-muted-foreground",
                     )}
                     tooltip={showWhitespace ? "Hide whitespace" : "Show whitespace"}
                     aria-label={showWhitespace ? "Hide whitespace" : "Show whitespace"}
@@ -161,7 +161,7 @@ const DiffHeader = memo(
                         compact
                         className={cn(
                           segmentedButtonClass,
-                          viewMode === "unified" && "bg-hover text-text",
+                          viewMode === "unified" && "bg-muted text-foreground",
                         )}
                         tooltip="Unified view"
                         aria-label="Unified diff view"
@@ -174,7 +174,7 @@ const DiffHeader = memo(
                         compact
                         className={cn(
                           segmentedButtonClass,
-                          viewMode === "split" && "bg-hover text-text",
+                          viewMode === "split" && "bg-muted text-foreground",
                         )}
                         tooltip="Split view"
                         aria-label="Split diff view"

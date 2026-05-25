@@ -42,13 +42,13 @@ function SplitDiffCodePanel({
 
   return (
     <div className="flex min-w-0 flex-1">
-      <div className="w-11 shrink-0 border-border border-r bg-primary-bg">
+      <div className="w-11 shrink-0 border-border border-r bg-background">
         {lines.map((line, index) => {
           const meta = getSplitLineMeta(line, side);
           return (
             <div
               key={`${side}-gutter-${index}`}
-              className="select-none px-2 py-0.5 text-right text-text-lighter tabular-nums"
+              className="select-none px-2 py-0.5 text-right text-muted-foreground tabular-nums"
               style={{
                 fontSize: `${fontSize}px`,
                 lineHeight: `${lineHeight}px`,
@@ -126,7 +126,7 @@ const TextDiffViewer = memo(
 
     if (diff.lines.length === 0) {
       return (
-        <div className="flex items-center justify-center py-8 text-text-lighter ui-text-xs">
+        <div className="flex items-center justify-center py-8 text-muted-foreground ui-text-xs">
           No changes in this file
         </div>
       );

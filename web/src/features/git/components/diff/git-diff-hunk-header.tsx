@@ -75,24 +75,24 @@ const DiffHunkHeader = memo(
       <div
         className={cn(
           "group flex cursor-pointer items-center justify-between border-border border-b",
-          "bg-primary-bg px-3 py-1 ui-text-sm leading-5 hover:bg-hover",
+          "bg-background px-3 py-1 ui-text-sm leading-5 hover:bg-muted",
         )}
         onClick={onToggleCollapse}
       >
         <div className="flex items-center gap-2">
           {isCollapsed ? (
-            <ChevronRight className="text-text-lighter" />
+            <ChevronRight className="text-muted-foreground" />
           ) : (
-            <ChevronDown className="text-text-lighter" />
+            <ChevronDown className="text-muted-foreground" />
           )}
 
-          <span className="ui-font text-text-lighter">
+          <span className="ui-font text-muted-foreground">
             @@ -{headerInfo.oldStart},{headerInfo.oldCount} +{headerInfo.newStart},
             {headerInfo.newCount} @@
           </span>
 
           {headerInfo.context && (
-            <span className="truncate text-text-light">{headerInfo.context}</span>
+            <span className="truncate text-muted-foreground">{headerInfo.context}</span>
           )}
         </div>
 

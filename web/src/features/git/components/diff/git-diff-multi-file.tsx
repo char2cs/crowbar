@@ -47,22 +47,22 @@ const FileDiffSection = memo(
         <div
           className={cn(
             "group flex cursor-pointer items-center gap-2 px-3 py-1",
-            "bg-primary-bg ui-text-sm leading-5 hover:bg-hover",
+            "bg-background ui-text-sm leading-5 hover:bg-muted",
           )}
           onClick={onToggle}
         >
           {isExpanded ? (
-            <ChevronDown className="text-text-lighter" />
+            <ChevronDown className="text-muted-foreground" />
           ) : (
-            <ChevronRight className="text-text-lighter" />
+            <ChevronRight className="text-muted-foreground" />
           )}
 
           <FileText className={cn("shrink-0", statusColors[summary.status])} />
 
-          <span className="truncate font-medium text-text">{summary.fileName}</span>
+          <span className="truncate font-medium text-foreground">{summary.fileName}</span>
 
           {diff.is_renamed && diff.old_path && (
-            <span className="text-text-lighter">← {diff.old_path.split("/").pop()}</span>
+            <span className="text-muted-foreground">← {diff.old_path.split("/").pop()}</span>
           )}
 
           <div className="ui-text-sm ml-auto flex items-center gap-2 leading-none">
@@ -121,16 +121,16 @@ const CommitMetaHeader = memo(
     }
 
     return (
-      <div className="border-border border-b bg-primary-bg px-3 py-2">
+      <div className="border-border border-b bg-background px-3 py-2">
         {multiDiff.commitMessage && (
-          <div className="ui-text-sm font-medium text-text">{multiDiff.commitMessage}</div>
+          <div className="ui-text-sm font-medium text-foreground">{multiDiff.commitMessage}</div>
         )}
         {multiDiff.commitDescription && (
-          <div className="ui-text-sm mt-1 whitespace-pre-wrap text-text-lighter">
+          <div className="ui-text-sm mt-1 whitespace-pre-wrap text-muted-foreground">
             {multiDiff.commitDescription}
           </div>
         )}
-        <div className="ui-text-sm mt-1 flex flex-wrap items-center gap-x-2 gap-y-1 text-text-lighter">
+        <div className="ui-text-sm mt-1 flex flex-wrap items-center gap-x-2 gap-y-1 text-muted-foreground">
           {multiDiff.commitAuthor && <span>{multiDiff.commitAuthor}</span>}
           {multiDiff.commitDate && <span>{formatRelativeDate(multiDiff.commitDate)}</span>}
           <span className="editor-font">{multiDiff.commitHash.slice(0, 7)}</span>
@@ -234,7 +234,7 @@ const MultiFileDiffViewer = memo(({ multiDiff, onClose }: MultiFileDiffViewerPro
   });
 
   return (
-    <div className="flex h-full flex-col overflow-hidden bg-primary-bg">
+    <div className="flex h-full flex-col overflow-hidden bg-background">
       <DiffHeader
         title={multiDiff.title}
         commitHash={multiDiff.commitHash}
@@ -288,7 +288,7 @@ const MultiFileDiffViewer = memo(({ multiDiff, onClose }: MultiFileDiffViewerPro
         </div>
       </div>
 
-      <div className="flex items-center justify-between border-border border-t bg-primary-bg px-3 py-1 ui-text-xs text-text-lighter">
+      <div className="flex items-center justify-between border-border border-t bg-background px-3 py-1 ui-text-xs text-muted-foreground">
         <span className="flex items-center gap-1.5">
           {multiDiff.isLoading ? (
             <LoadingIndicator label="Loading remaining files" showLabel compact />

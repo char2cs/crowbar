@@ -22,8 +22,8 @@ const DIFF_LINE_VISUALS: Record<DiffLineVisualType, DiffLineVisualState> = {
   },
   context: {
     lineBackground: "",
-    gutterBackground: "bg-primary-bg",
-    contentColor: "text-text",
+    gutterBackground: "bg-background",
+    contentColor: "text-foreground",
   },
 };
 
