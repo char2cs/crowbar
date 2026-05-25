@@ -200,7 +200,9 @@ export function applySettingSideEffect<K extends keyof Settings>(
   getSettings: () => Settings,
 ) {
   if (key === "theme") {
-    void applyTheme(getSettings().theme);
+    const settings = getSettings();
+    void applyTheme(settings.theme);
+    applyThemeMode(settings.themeMode);
   }
 
   if (key === "themeMode") {
