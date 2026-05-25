@@ -69,8 +69,8 @@ export const useEditorSettingsStore = createSelectors(
   ),
 );
 
-// Subscribe to settings store and sync all editor settings
-useSettingsStore.subscribe((state) => {
+// Sync all editor settings from the app settings store snapshot
+function syncEditorSettings(state: ReturnType<typeof useSettingsStore.getState>) {
   const {
     fontSize,
     fontFamily,
@@ -96,4 +96,11 @@ useSettingsStore.subscribe((state) => {
   actions.setRenderIndentGuides(renderIndentGuides);
   actions.setHighlightOccurrences(highlightOccurrences);
   actions.setTheme(theme);
-});
+}
+
+// Apply current settings immediately (handles the case where initializeSettingsStore()
+// has already resolved before this module is first imported by Monaco).
+syncEditorSettings(useSettingsStore.getState());
+
+// Subscribe for all future settings changes.
+useSettingsStore.subscribe(syncEditorSettings);
