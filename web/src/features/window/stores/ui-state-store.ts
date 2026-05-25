@@ -101,7 +101,7 @@ export const useUIState = create<UIState>((set) => ({
   clearTerminalFocus: () => {},
   sidebarActivityItem: null,
   setSidebarActivityItem: (item) => set({ sidebarActivityItem: item }),
-  openSettingsDialog: (tab) => set({ isSettingsOpen: true, settingsInitialTab: tab ?? "general" }),
+  openSettingsDialog: (tab) => set({ isSettingsOpen: true, settingsInitialTab: tab ?? "appearance" }),
   openCommandPaletteView: (view) => set({ isCommandPaletteVisible: true, commandPaletteInitialView: view ?? null }),
   // Command palette
   isCommandPaletteVisible: false,
