@@ -25,7 +25,6 @@ interface LegacyMediaQueryList extends MediaQueryList {
   removeListener(listener: (event: MediaQueryListEvent) => void): void;
 }
 
-let currentThemeSyncQuery: MediaQueryList | null = null;
 let removeThemeSyncListener: (() => void) | null = null;
 
 function applyWindowTransparency(enabled: boolean) {
@@ -66,7 +65,6 @@ function getEffectiveTheme(
 function stopSystemThemeSync() {
   removeThemeSyncListener?.();
   removeThemeSyncListener = null;
-  currentThemeSyncQuery = null;
 }
 
 function syncThemeWithSystem(settings: Settings) {
@@ -75,15 +73,16 @@ function syncThemeWithSystem(settings: Settings) {
   }
 
   const mediaQuery = window.matchMedia("(prefers-color-scheme: dark)");
+
+  // Always stop the previous listener before registering a new one. This
+  // prevents the stale-closure problem where a previously registered
+  // handleChange would keep using an old `settings` snapshot even after
+  // autoThemeLight / autoThemeDark are updated by the user.
+  stopSystemThemeSync();
+
   const handleChange = () => {
     void applyTheme(getEffectiveTheme(settings));
   };
-
-  if (currentThemeSyncQuery === mediaQuery && removeThemeSyncListener) {
-    return;
-  }
-
-  stopSystemThemeSync();
 
   if ("addEventListener" in mediaQuery) {
     mediaQuery.addEventListener("change", handleChange);
@@ -94,7 +93,6 @@ function syncThemeWithSystem(settings: Settings) {
     removeThemeSyncListener = () => legacyMediaQuery.removeListener(handleChange);
   }
 
-  currentThemeSyncQuery = mediaQuery;
 }
 
 export async function applyTheme(theme: Theme) {

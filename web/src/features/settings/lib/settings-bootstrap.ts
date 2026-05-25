@@ -19,13 +19,6 @@ function getSystemThemePreference(): "light" | "dark" {
   return "dark";
 }
 
-async function detectInitialTheme() {
-  let detectedTheme = getSystemThemePreference() === "dark" ? "crowbar-dark" : "crowbar-light";
-
-  // Tauri invoke not available in web mode; browser detection used above
-
-  return detectedTheme;
-}
 
 export async function resolveInitialSettings(): Promise<Settings> {
   if (typeof window === "undefined") {
@@ -34,8 +27,14 @@ export async function resolveInitialSettings(): Promise<Settings> {
 
   const loadedSettings = await loadSettingsFromStore();
 
-  if (!loadedSettings.theme) {
-    loadedSettings.theme = await detectInitialTheme();
+  // When system-sync is on, derive the active theme from the OS preference
+  // using the user's chosen light/dark theme pair. This also covers the very
+  // first launch (before any theme has been stored) so the app matches the
+  // system out of the box.
+  if (loadedSettings.syncSystemTheme || !loadedSettings.theme) {
+    const systemPref = getSystemThemePreference();
+    loadedSettings.theme =
+      systemPref === "dark" ? loadedSettings.autoThemeDark : loadedSettings.autoThemeLight;
   }
 
   return normalizeSettings(loadedSettings);

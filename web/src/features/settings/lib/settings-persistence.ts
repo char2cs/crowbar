@@ -1,4 +1,3 @@
-// FUTURE: replace with persistent store when Tauri store plugin is available
 import {
   defaultSettings,
   getDefaultSettingsSnapshot,
@@ -11,15 +10,46 @@ type Store = {
   save: () => Promise<void>
   onKeyChange: (key: string, cb: (value: unknown) => void) => () => void
 }
+
+// localStorage-backed store. Keys are namespaced under "crowbar:settings:" to
+// avoid collisions with other things in the same origin.
+const STORAGE_PREFIX = "crowbar:settings:";
+
 const load = async (_path: string, _opts?: unknown): Promise<Store> => {
-  const data: Record<string, unknown> = {}
   return {
-    get: async <T>(key: string) => (Object.prototype.hasOwnProperty.call(data, key) ? (data[key] as T) : null),
-    set: async (key: string, value: unknown) => { data[key] = value },
-    save: async () => {},
-    onKeyChange: (_key: string, _cb: (value: unknown) => void) => () => {},
-  }
-}
+    get: async <T>(key: string): Promise<T | null> => {
+      try {
+        const raw = localStorage.getItem(STORAGE_PREFIX + key);
+        if (raw === null) return null;
+        return JSON.parse(raw) as T;
+      } catch {
+        return null;
+      }
+    },
+    set: async (key: string, value: unknown): Promise<void> => {
+      try {
+        localStorage.setItem(STORAGE_PREFIX + key, JSON.stringify(value));
+      } catch (error) {
+        console.warn("Failed to persist setting:", key, error);
+      }
+    },
+    // localStorage writes are synchronous — no explicit flush needed.
+    save: async (): Promise<void> => {},
+    onKeyChange: (key: string, cb: (value: unknown) => void) => {
+      const handler = (e: StorageEvent) => {
+        if (e.key === STORAGE_PREFIX + key) {
+          try {
+            cb(e.newValue !== null ? JSON.parse(e.newValue) : null);
+          } catch {
+            cb(null);
+          }
+        }
+      };
+      window.addEventListener("storage", handler);
+      return () => window.removeEventListener("storage", handler);
+    },
+  };
+};
 
 let storeInstance: Store;
 
