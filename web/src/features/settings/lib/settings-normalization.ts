@@ -322,6 +322,10 @@ export function normalizeSettings(settings: Settings): Settings {
     normalizedSettings.iconTheme = "material";
   }
 
+  if (!normalizedSettings.themeMode) {
+    normalizedSettings.themeMode = normalizedSettings.syncSystemTheme ? "system" : "light";
+  }
+
   normalizedSettings.headerTrailingItemsOrder = normalizeItemOrder(
     normalizedSettings.headerTrailingItemsOrder,
     HEADER_TRAILING_ITEM_IDS,

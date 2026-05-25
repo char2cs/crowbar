@@ -8,6 +8,7 @@ import type {
 } from "@/features/layout/config/item-order";
 
 export type Theme = string;
+export type ThemeMode = "light" | "dark" | "system";
 export type RenderWhitespaceMode = "none" | "boundary" | "trailing" | "all";
 export type EditorEngine = "monaco" | "nvim" | "helix" | "vim" | "custom";
 
@@ -45,9 +46,10 @@ export interface Settings {
   // Theme
   theme: Theme;
   iconTheme: string;
-  syncSystemTheme: boolean;
-  autoThemeLight: Theme;
-  autoThemeDark: Theme;
+  themeMode: ThemeMode;
+  syncSystemTheme: boolean;     // deprecated — kept for migration only
+  autoThemeLight: Theme;        // deprecated — kept for migration only
+  autoThemeDark: Theme;         // deprecated — kept for migration only
   nativeMenuBar: boolean;
   compactMenuBar: boolean;
   windowTransparency: boolean;

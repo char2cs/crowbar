@@ -54,6 +54,7 @@ export const defaultSettings: Settings = {
   // Theme
   theme: "crowbar-dark",
   iconTheme: "material",
+  themeMode: "system",
   syncSystemTheme: false,
   autoThemeLight: "crowbar-light",
   autoThemeDark: "crowbar-dark",
