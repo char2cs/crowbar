@@ -1,4 +1,4 @@
-import { useState, Suspense } from 'react'
+import { Suspense } from 'react'
 import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs'
 import { WorkspacesSidebarPanel } from './WorkspacesSidebarPanel'
 import { FileExplorerTree } from '@/features/file-explorer/components/file-explorer-tree'
@@ -7,10 +7,8 @@ import { ErrorBoundary } from '@/components/ErrorBoundary'
 import { SidebarSkeleton } from './SidebarSkeleton'
 import { getMockFileTree } from '@/lib/mock/files'
 import { useFileTreeStore } from '@/features/file-explorer/stores/file-explorer-tree-store'
-import type { ProjectChat, Repo } from '@/lib/store/sidebar'
+import { useSidebarStore, type SidebarTab, type ProjectChat, type Repo } from '@/lib/store/sidebar'
 import { useFileSystemStore } from '@/features/file-system/controllers/store'
-
-type SidebarTab = 'workspaces' | 'files' | 'git'
 
 interface SidebarTabsProps {
   chats: ProjectChat[]
@@ -34,7 +32,9 @@ export function SidebarTabs({
   onChatClick, onWorkspaceClick, onNewChat, onNewWorkspace,
   onDeleteChat, onDeleteWorkspace, onRepoToggle,
 }: SidebarTabsProps) {
-  const [activeTab, setActiveTab] = useState<SidebarTab>('workspaces')
+  // Use persistent store so tab survives any re-mounts of this component.
+  const activeTab = useSidebarStore(s => s.activeTab)
+  const setActiveTab = useSidebarStore(s => s.setActiveTab)
   const handleFileOpen = useFileSystemStore.use.handleFileOpen?.()
   const handleFileSelect = useFileSystemStore.use.handleFileSelect?.()
 

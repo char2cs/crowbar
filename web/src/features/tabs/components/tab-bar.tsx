@@ -9,6 +9,27 @@ import {
   type DragMoveEvent,
   type DragStartEvent,
 } from "@dnd-kit/core";
+
+/**
+ * Custom PointerSensor that skips drag activation when the pointer event
+ * originates on a `[data-no-dnd]` element (e.g. the tab close button).
+ * Without this, DndKit captures the pointer on the close button's pointerdown,
+ * which fires handleDragStart → handleTabSelect before the close button's
+ * onClick can run, causing the tab to be activated instead of closed.
+ */
+class NoDndPointerSensor extends PointerSensor {
+  static activators = [
+    {
+      eventName: 'onPointerDown' as const,
+      handler: ({ nativeEvent: event }: { nativeEvent: PointerEvent }): boolean => {
+        if (!event.isPrimary || event.button !== 0) return false;
+        const target = event.target as HTMLElement | null;
+        if (target?.closest('[data-no-dnd]')) return false;
+        return true;
+      },
+    },
+  ];
+}
 import { SortableContext, horizontalListSortingStrategy, useSortable } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
 import {
@@ -168,7 +189,7 @@ const TabBar = ({
   const { clearPositionCache } = useEditorStateStore.getState().actions;
   const terminalSessions = useTerminalStore((state) => state.sessions);
   const sensors = useSensors(
-    useSensor(PointerSensor, {
+    useSensor(NoDndPointerSensor, {
       activationConstraint: {
         distance: 6,
       },

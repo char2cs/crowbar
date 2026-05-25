@@ -241,7 +241,7 @@ function isStandardEditorBuffer(buffer: PaneRenderBuffer): buffer is EditorBuffe
 
 export function PaneContainer({ pane }: PaneContainerProps) {
   const activePaneId = useActivePaneId();
-  const { reorderPaneBuffers } = usePaneActions();
+  const { reorderPaneBuffers, activatePaneBuffer, setActivePane } = usePaneActions();
   const { closeBuffer: closeBufferForce } = useBufferActions();
   // openTerminalBuffer: terminal content type not in workspace scope yet — noop
   const openTerminalBuffer = (_options?: {
@@ -297,9 +297,10 @@ export function PaneContainer({ pane }: PaneContainerProps) {
 
   const handlePaneClick = useCallback(() => {
     if (!isActivePane) {
+      setActivePane(pane.id);
       activatePaneAndSyncBuffer(pane.id);
     }
-  }, [isActivePane, pane.id]);
+  }, [isActivePane, pane.id, setActivePane]);
 
   const handlePaneMouseDownCapture = useCallback(
     (e: React.MouseEvent) => {
@@ -315,17 +316,22 @@ export function PaneContainer({ pane }: PaneContainerProps) {
       }
 
       if (!isActivePane) {
+        setActivePane(pane.id);
         activatePaneAndSyncBuffer(pane.id);
       }
     },
-    [isActivePane, pane.id],
+    [isActivePane, pane.id, setActivePane],
   );
 
   const handleTabClick = useCallback(
     (bufferId: string) => {
+      // Update workspace pane store (new system)
+      activatePaneBuffer(pane.id, bufferId);
+      setActivePane(pane.id);
+      // Also sync the legacy global stores (CodeEditor reads activeBufferId from old store)
       activateBufferInPaneAndSync(pane.id, bufferId);
     },
-    [pane.id],
+    [pane.id, activatePaneBuffer, setActivePane],
   );
 
   const openFileTreeDropInPane = useCallback(

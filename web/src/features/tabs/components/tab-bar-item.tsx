@@ -86,7 +86,18 @@ const TabBarItem = memo(function TabBarItem({
   );
 
   return (
-    <div ref={tabRef} className="relative">
+    /*
+     * The outer div carries `group/tab` so that the close button's
+     * `group-hover/tab:opacity-100` class still works on hover.
+     *
+     * IMPORTANT: the close/pin Button is rendered here as a SIBLING of the
+     * Tab <button>, NOT nested inside it.  Nesting <button> inside <button>
+     * is invalid HTML and causes browsers to fire events unpredictably —
+     * in particular DndKit's PointerSensor captured the pointerdown from the
+     * close button and called handleDragStart → handleTabSelect before the
+     * close button's own onClick could run.
+     */
+    <div ref={tabRef} className="group/tab relative">
       {showDropIndicatorBefore ? (
         <div className="drop-indicator absolute top-1 bottom-1 left-0 z-20 w-0.5 bg-accent" />
       ) : null}
@@ -104,36 +115,6 @@ const TabBarItem = memo(function TabBarItem({
         onContextMenu={onContextMenu}
         onKeyDown={onKeyDown}
         onAuxClick={handleAuxClick}
-        action={
-          <Button
-            type="button"
-            compact
-            variant="ghost"
-            onClick={(e) => {
-              e.stopPropagation();
-              if (buffer.isPinned) {
-                handleTabPin(buffer.id);
-              } else {
-                handleTabClose(buffer.id);
-              }
-            }}
-            className={cn(
-              "-translate-y-1/2 absolute top-1/2 right-1 h-4 min-w-4 cursor-pointer select-none rounded-sm px-0 text-text-lighter transition-opacity",
-              "hover:text-text",
-              buffer.isPinned || isActive ? "opacity-100" : "opacity-0 group-hover/tab:opacity-100",
-            )}
-            tooltip={buffer.isPinned ? "Unpin tab" : "Close"}
-            shortcut={buffer.isPinned ? undefined : "mod+w"}
-            tabIndex={-1}
-            draggable={false}
-          >
-            {buffer.isPinned ? (
-              <Pin className="pointer-events-none select-none fill-current text-accent" />
-            ) : (
-              <X className="pointer-events-none select-none" />
-            )}
-          </Button>
-        }
       >
         <div className="grid size-3 shrink-0 place-content-center">
           {buffer.path === "extensions://marketplace" ? (
@@ -215,6 +196,38 @@ const TabBarItem = memo(function TabBarItem({
           />
         )}
       </Tab>
+
+      {/* Close / pin button — rendered OUTSIDE the Tab <button> to avoid
+          invalid nested-button HTML that breaks event propagation. */}
+      <Button
+        type="button"
+        compact
+        variant="ghost"
+        data-no-dnd
+        onClick={(e) => {
+          e.stopPropagation();
+          if (buffer.isPinned) {
+            handleTabPin(buffer.id);
+          } else {
+            handleTabClose(buffer.id);
+          }
+        }}
+        className={cn(
+          "-translate-y-1/2 absolute top-1/2 right-1 h-4 min-w-4 cursor-pointer select-none rounded-sm px-0 text-text-lighter transition-opacity",
+          "hover:text-text",
+          buffer.isPinned || isActive ? "opacity-100" : "opacity-0 group-hover/tab:opacity-100",
+        )}
+        tooltip={buffer.isPinned ? "Unpin tab" : "Close"}
+        shortcut={buffer.isPinned ? undefined : "mod+w"}
+        tabIndex={-1}
+        draggable={false}
+      >
+        {buffer.isPinned ? (
+          <Pin className="pointer-events-none select-none fill-current text-accent" />
+        ) : (
+          <X className="pointer-events-none select-none" />
+        )}
+      </Button>
     </div>
   );
 });
