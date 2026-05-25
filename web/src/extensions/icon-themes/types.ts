@@ -1,4 +1,3 @@
-// Stub
 import type React from "react"
 
 export interface FileIconResult {
@@ -17,4 +16,9 @@ export interface IconThemeDefinition {
     isExpanded?: boolean,
     isSymlink?: boolean,
   ): FileIconResult
+}
+
+export interface IconThemeSource {
+  extensionId: string
+  isBundled?: boolean
 }
