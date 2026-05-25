@@ -11,6 +11,7 @@ import { useSidebarStore } from '@/lib/store/sidebar'
 import { createMockChat } from '@/lib/mock/chats'
 import { WorkspaceView } from '@/features/workspace/components/WorkspaceView'
 import SettingsDialog from '@/features/settings/components/settings-dialog'
+import { TerminalHost } from '@/features/terminal/components/terminal-host'
 import { ErrorBoundary } from '@/components/ErrorBoundary'
 
 export function IDEShell() {
@@ -93,6 +94,7 @@ export function IDEShell() {
       </ResizablePanelGroup>
 
       <SettingsDialog isOpen={settingsOpen} onClose={() => setSettingsOpen(false)} />
+      <TerminalHost />
     </div>
   )
 }
