@@ -36,7 +36,7 @@
   user-select: none;
   -webkit-user-select: none;
   -moz-user-select: none;
-  color: var(--color-text, var(--text, #d4d4d4));
+  color: var(--foreground);
   font-kerning: none;
   font-variant-ligatures: none;
   font-feature-settings:
@@ -80,7 +80,7 @@
   outline: none;
   resize: none;
   color: transparent;
-  caret-color: var(--text, #d4d4d4);
+  caret-color: var(--foreground);
   white-space: pre;
   word-wrap: break-word;
   font-family: inherit;
@@ -105,7 +105,7 @@
 
 @supports not selector(::-webkit-scrollbar) {
   .input-layer {
-    scrollbar-color: var(--app-scrollbar-thumb, rgba(128, 128, 128, 0.42)) transparent;
+    scrollbar-color: var(--app-scrollbar-thumb) transparent;
     scrollbar-width: thin;
   }
 }
@@ -122,8 +122,8 @@
 
 .input-layer::-webkit-scrollbar {
   -webkit-appearance: none !important;
-  width: var(--app-scrollbar-size, 11px) !important;
-  height: var(--app-scrollbar-size, 11px) !important;
+  width: var(--app-scrollbar-size) !important;
+  height: var(--app-scrollbar-size) !important;
   background-color: transparent !important;
   cursor: default;
 }
@@ -136,10 +136,9 @@
 
 .input-layer::-webkit-scrollbar-thumb {
   -webkit-appearance: none !important;
-  background-color: rgba(128, 128, 128, 0.42) !important;
-  background-color: var(--app-scrollbar-thumb, rgba(128, 128, 128, 0.42)) !important;
-  border: var(--app-scrollbar-thumb-border, 3px solid transparent) !important;
-  border-radius: var(--app-scrollbar-radius, 999px) !important;
+  background-color: var(--app-scrollbar-thumb) !important;
+  border: var(--app-scrollbar-thumb-border) !important;
+  border-radius: var(--app-scrollbar-radius) !important;
   background-clip: content-box !important;
   transition: background-color 0.18s ease;
   cursor: default;
@@ -148,15 +147,13 @@
 .input-layer:hover::-webkit-scrollbar-thumb,
 .input-layer:focus::-webkit-scrollbar-thumb,
 .input-layer:focus-within::-webkit-scrollbar-thumb {
-  background-color: rgba(128, 128, 128, 0.58) !important;
-  background-color: var(--app-scrollbar-thumb-hover, rgba(128, 128, 128, 0.58)) !important;
+  background-color: var(--app-scrollbar-thumb-hover) !important;
   border: 2px solid transparent !important;
   background-clip: content-box !important;
 }
 
 .input-layer::-webkit-scrollbar-thumb:hover {
-  background-color: rgba(160, 160, 160, 0.7) !important;
-  background-color: var(--app-scrollbar-thumb-hover, rgba(160, 160, 160, 0.7)) !important;
+  background-color: var(--app-scrollbar-thumb-hover) !important;
   border: 2px solid transparent !important;
   background-clip: content-box !important;
 }
@@ -168,14 +165,12 @@
 
 /* Native selection styling for wrapped mode */
 .input-layer.native-selection::selection {
-  background: rgba(106, 155, 204, 0.42);
-  background: color-mix(in srgb, var(--accent, #6a9bcc) 44%, transparent);
+  background: color-mix(in srgb, var(--accent) 44%, transparent);
   color: transparent;
 }
 
 .input-layer.native-selection::-moz-selection {
-  background: rgba(106, 155, 204, 0.42);
-  background: color-mix(in srgb, var(--accent, #6a9bcc) 44%, transparent);
+  background: color-mix(in srgb, var(--accent) 44%, transparent);
   color: transparent;
 }
 
@@ -195,13 +190,13 @@ textarea.input-layer.selection-transparent::-moz-selection {
   position: absolute;
   box-sizing: border-box;
   border: 0;
-  border-bottom: 1px solid color-mix(in srgb, var(--accent, #6a9bcc) 72%, transparent);
+  border-bottom: 1px solid color-mix(in srgb, var(--accent) 72%, transparent);
   border-radius: 0;
   background: transparent;
 }
 
 .editor-bracket-match-unmatched {
-  border-bottom-color: color-mix(in srgb, var(--color-error, #ef4444) 72%, transparent);
+  border-bottom-color: color-mix(in srgb, var(--destructive) 72%, transparent);
   background: transparent;
 }
 
@@ -210,11 +205,11 @@ textarea.input-layer.selection-transparent::-moz-selection {
   position: absolute;
   box-sizing: border-box;
   border-radius: 3px;
-  background: color-mix(in srgb, var(--color-text, #d4d4d4) 10%, transparent);
+  background: color-mix(in srgb, var(--foreground) 10%, transparent);
 }
 
 .editor-word-highlight-current {
-  border: 1px solid color-mix(in srgb, var(--color-text, #d4d4d4) 18%, transparent);
+  border: 1px solid color-mix(in srgb, var(--foreground) 18%, transparent);
 }
 
 .editor-current-line {
@@ -223,17 +218,17 @@ textarea.input-layer.selection-transparent::-moz-selection {
   left: 0;
   box-sizing: border-box;
   border: 0;
-  background: color-mix(in srgb, var(--color-text, #d4d4d4) 5%, transparent);
+  background: color-mix(in srgb, var(--foreground) 5%, transparent);
 }
 
 .editor-indent-guide {
   position: absolute;
   width: 1px;
-  background: color-mix(in srgb, var(--color-border, #8a8f98) 42%, transparent);
+  background: color-mix(in srgb, var(--border) 42%, transparent);
 }
 
 .editor-indent-guide-active {
-  background: color-mix(in srgb, var(--accent, #6a9bcc) 52%, transparent);
+  background: color-mix(in srgb, var(--accent) 52%, transparent);
 }
 
 .editor-visible-whitespace {
@@ -245,7 +240,7 @@ textarea.input-layer.selection-transparent::-moz-selection {
   inset: 0;
   display: flex;
   align-items: center;
-  color: color-mix(in srgb, var(--color-text-lighter, #8a8f98) 56%, transparent);
+  color: color-mix(in srgb, var(--muted-foreground) 56%, transparent);
   pointer-events: none;
 }
 
@@ -273,10 +268,10 @@ textarea.input-layer.selection-transparent::-moz-selection {
   margin: 0 2px;
   padding: 0 3px;
   max-height: 1.45em;
-  border: 1px solid color-mix(in srgb, var(--color-border, #8a8f98) 42%, transparent);
+  border: 1px solid color-mix(in srgb, var(--border) 42%, transparent);
   border-radius: 4px;
-  background: color-mix(in srgb, var(--color-primary-bg, #ffffff) 94%, transparent);
-  color: var(--color-text-lighter, #8a8f98);
+  background: color-mix(in srgb, var(--background) 94%, transparent);
+  color: var(--muted-foreground);
   font-size: 0.85em;
   line-height: 1.25;
   vertical-align: 0.08em;
@@ -291,27 +286,20 @@ textarea.input-layer.selection-transparent::-moz-selection {
 }
 
 .diagnostic-error {
-  text-decoration-color: var(--error, #f85149);
+  text-decoration-color: var(--destructive);
 }
 
 .diagnostic-warning {
-  text-decoration-color: var(--warning, #d29922);
+  text-decoration-color: var(--warning);
 }
 
 .diagnostic-info {
-  text-decoration-color: var(--info, #58a6ff);
+  text-decoration-color: var(--info);
 }
 
 .editor-selection-box {
-  background-color: rgba(106, 155, 204, 0.42);
-  background-color: color-mix(in srgb, var(--accent, #6a9bcc) 44%, transparent);
+  background-color: color-mix(in srgb, var(--accent) 44%, transparent);
   border-radius: 4px;
-}
-
-@supports not (background-color: color-mix(in srgb, #6a9bcc 44%, transparent)) {
-  .editor-selection-box {
-    background-color: rgba(106, 155, 204, 0.42);
-  }
 }
 
 /* Multi-cursor layer */
