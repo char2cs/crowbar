@@ -398,6 +398,11 @@ export function normalizeSettingValue<K extends keyof Settings>(
     return "none" as Settings[K];
   }
 
+  if (key === "themeMode") {
+    const valid: string[] = ["light", "dark", "system"];
+    return (valid.includes(value as string) ? value : "system") as Settings[K];
+  }
+
   if (key === "aiSkills") {
     return normalizeAISkills(value as Settings["aiSkills"]) as Settings[K];
   }

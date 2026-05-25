@@ -5,6 +5,7 @@ import {
   DEFAULT_UI_FONT_FAMILY,
 } from "@/features/settings/config/typography-defaults";
 import { normalizeSettings, normalizeSettingValue } from "../lib/settings-normalization";
+import type { ThemeMode } from "@/features/settings/types/settings";
 
 describe("settings normalization", () => {
   it("preserves configured font settings that may exist on the system", () => {
@@ -103,6 +104,38 @@ describe("settings normalization", () => {
     expect(normalizeSettingValue("aiCustomBaseUrl", " https://example.test/v1/ ")).toBe(
       "https://example.test/v1",
     );
+  });
+
+  describe("themeMode migration", () => {
+    it("sets themeMode to system when syncSystemTheme was true", () => {
+      const result = normalizeSettings({
+        ...getDefaultSettingsSnapshot(),
+        themeMode: undefined as unknown as ThemeMode,
+        syncSystemTheme: true,
+      });
+      expect(result.themeMode).toBe("system");
+    });
+
+    it("sets themeMode to light when syncSystemTheme was false", () => {
+      const result = normalizeSettings({
+        ...getDefaultSettingsSnapshot(),
+        themeMode: undefined as unknown as ThemeMode,
+        syncSystemTheme: false,
+      });
+      expect(result.themeMode).toBe("light");
+    });
+
+    it("preserves existing themeMode when present", () => {
+      const result = normalizeSettings({
+        ...getDefaultSettingsSnapshot(),
+        themeMode: "dark",
+      });
+      expect(result.themeMode).toBe("dark");
+    });
+
+    it("rejects invalid themeMode and falls back to system", () => {
+      expect(normalizeSettingValue("themeMode", "invalid" as ThemeMode)).toBe("system");
+    });
   });
 
   it("preserves supported marketplace skill metadata", () => {
