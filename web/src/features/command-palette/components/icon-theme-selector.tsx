@@ -186,7 +186,7 @@ export const IconThemeSelectorContent = ({
             aria-label="Back to commands"
             compact
           >
-            <CaretLeft className="text-text-lighter" />
+            <CaretLeft className="text-muted-foreground" />
           </Button>
           <CommandInput
             ref={inputRef}
@@ -232,7 +232,7 @@ export const IconThemeSelectorContent = ({
                 isSelected={isSelected}
                 className="gap-3 px-2 py-1.5"
               >
-                <div className="shrink-0 text-text-lighter">{theme.icon || <Palette />}</div>
+                <div className="shrink-0 text-muted-foreground">{theme.icon || <Palette />}</div>
                 <div className="min-w-0 flex-1">
                   <div className="flex items-center gap-2 truncate ui-text-xs">
                     <span className="truncate">{theme.name}</span>

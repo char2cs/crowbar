@@ -19,7 +19,7 @@ export function FileExplorerIcon({
   isExpanded = false,
   isSymlink = false,
   size = 14,
-  className = "text-text-lighter",
+  className = "text-muted-foreground",
 }: FileExplorerIconProps) {
   const { settings } = useSettingsStore();
   const iconTheme = iconThemeRegistry.getTheme(settings.iconTheme);

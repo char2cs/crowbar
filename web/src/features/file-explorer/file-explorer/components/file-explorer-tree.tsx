@@ -1292,7 +1292,7 @@ function FileExplorerTreeComponent({
                             data-depth={stickyAncestor.depth}
                             title={stickyAncestor.file.path}
                             className={cn(
-                              "file-tree-row ui-font ui-text-sm flex w-full min-w-max cursor-pointer select-none items-center whitespace-nowrap rounded-none border-none bg-transparent text-left text-text outline-none transition-colors duration-150 hover:bg-hover focus:outline-none",
+                              "file-tree-row ui-font ui-text-sm flex w-full min-w-max cursor-pointer select-none items-center whitespace-nowrap rounded-none border-none bg-transparent text-left text-foreground outline-none transition-colors duration-150 hover:bg-muted focus:outline-none",
                               densityConfig.rowClassName,
                             )}
                             style={{ paddingLeft: `${stickyAncestorPaddingLeft}px` }}
@@ -1302,7 +1302,7 @@ function FileExplorerTreeComponent({
                               isDir={stickyAncestor.file.isDir ?? false}
                               isExpanded={stickyAncestor.isExpanded}
                               isSymlink={stickyAncestor.file.isSymlink}
-                              className="relative z-1 shrink-0 text-text-lighter"
+                              className="relative z-1 shrink-0 text-muted-foreground"
                             />
                             <span
                               className={cn(
@@ -1395,7 +1395,7 @@ function FileExplorerTreeComponent({
             </Button>
           }
         >
-          <p className="text-text ui-text-xs">{alertDialog.message}</p>
+          <p className="text-foreground ui-text-xs">{alertDialog.message}</p>
         </Dialog>
       )}
       {openAllFilesDialog && (
@@ -1424,7 +1424,7 @@ function FileExplorerTreeComponent({
             </>
           }
         >
-          <p className="text-text ui-text-xs">
+          <p className="text-foreground ui-text-xs">
             {openAllFilesDialog.filePaths.length} files will be opened in tabs. Continue?
           </p>
         </Dialog>
@@ -1457,7 +1457,7 @@ function FileExplorerTreeComponent({
             </>
           }
         >
-          <p className="text-text ui-text-xs">
+          <p className="text-foreground ui-text-xs">
             {deleteCandidate.isDir
               ? `Are you sure you want to delete the folder "${getPathBaseName(deleteCandidate.path)}" and all its contents? This action cannot be undone.`
               : `Are you sure you want to delete the file "${getPathBaseName(deleteCandidate.path)}"? This action cannot be undone.`}

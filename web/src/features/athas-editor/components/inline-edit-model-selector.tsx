@@ -174,7 +174,7 @@ export const InlineEditModelSelector = ({
         compact
         onClick={openSelector}
         disabled={disabled}
-        className="max-w-[144px] justify-start px-1.5 text-text"
+        className="max-w-[144px] justify-start px-1.5 text-foreground"
         tooltip="Inline edit model"
       >
         <span className="truncate ui-text-xs">
@@ -200,7 +200,7 @@ export const InlineEditModelSelector = ({
               <CaretLeft />
             </Button>
           ) : (
-            <Search className="shrink-0 text-text-lighter" size={14} />
+            <Search className="shrink-0 text-muted-foreground" size={14} />
           )}
           <CommandInput
             ref={inputRef}
@@ -230,9 +230,9 @@ export const InlineEditModelSelector = ({
                       <ProviderIcon
                         providerId={selectedProvider.id}
                         size={14}
-                        className="shrink-0 text-text-lighter"
+                        className="shrink-0 text-muted-foreground"
                       />
-                      <span className="min-w-0 flex-1 truncate ui-text-xs text-text">
+                      <span className="min-w-0 flex-1 truncate ui-text-xs text-foreground">
                         {model.name}
                       </span>
                       {isSelected && <Check className="shrink-0 text-accent" size={13} />}
@@ -247,7 +247,7 @@ export const InlineEditModelSelector = ({
                   type="button"
                   variant="ghost"
                   onClick={() => setIsApiKeyOpen(true)}
-                  className="px-1.5 text-text-lighter hover:text-text"
+                  className="px-1.5 text-muted-foreground hover:text-foreground"
                 >
                   Add API key
                 </Button>
@@ -268,9 +268,9 @@ export const InlineEditModelSelector = ({
                   <ProviderIcon
                     providerId={provider.id}
                     size={14}
-                    className="shrink-0 text-text-lighter"
+                    className="shrink-0 text-muted-foreground"
                   />
-                  <span className="min-w-0 flex-1 truncate ui-text-xs text-text">
+                  <span className="min-w-0 flex-1 truncate ui-text-xs text-foreground">
                     {provider.name}
                   </span>
                 </CommandItem>

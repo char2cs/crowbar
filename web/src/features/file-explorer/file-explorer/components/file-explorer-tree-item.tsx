@@ -160,7 +160,7 @@ function FileExplorerTreeItemComponent({
             fileName={file.isDir ? "folder" : "file"}
             isDir={file.isDir ?? false}
             isExpanded={false}
-            className="relative z-[1] shrink-0 text-text-lighter"
+            className="relative z-[1] shrink-0 text-muted-foreground"
           />
           <Input
             ref={(el) => {
@@ -188,7 +188,7 @@ function FileExplorerTreeItemComponent({
             onKeyDown={(e) => onKeyDown(e, file)}
             onBlur={() => onBlur(file)}
             variant="ghost"
-            className="ui-font relative z-1 flex-1 border-text border-b px-0 focus:border-text-lighter"
+            className="ui-font relative z-1 flex-1 border-foreground border-b px-0 focus:border-muted-foreground"
             placeholder={file.isDir ? "folder name" : "file name"}
           />
         </div>
@@ -235,7 +235,7 @@ function FileExplorerTreeItemComponent({
           isDir={file.isDir ?? false}
           isExpanded={isExpanded}
           isSymlink={file.isSymlink}
-          className="relative z-1 shrink-0 text-text-lighter"
+          className="relative z-1 shrink-0 text-muted-foreground"
         />
         <span
           className={cn(

@@ -35,7 +35,7 @@ export function HtmlPreview() {
 
   if (!hasSourceBuffer) {
     return (
-      <div className="flex h-full items-center justify-center text-text-lighter">
+      <div className="flex h-full items-center justify-center text-muted-foreground">
         No active buffer
       </div>
     );

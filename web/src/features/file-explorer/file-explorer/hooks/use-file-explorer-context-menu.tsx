@@ -508,7 +508,7 @@ export function useFileExplorerContextMenu({
               </>
             }
           >
-            <p className="ui-font ui-text-sm text-text">
+            <p className="ui-font ui-text-sm text-foreground">
               {envOverwriteDialog.targetFileName} already exists. Overwrite it?
             </p>
           </Dialog>
@@ -522,14 +522,14 @@ export function useFileExplorerContextMenu({
             size="md"
           >
             <dl className="grid grid-cols-[72px_1fr] gap-x-3 gap-y-2 ui-font ui-text-sm">
-              <dt className="text-text-lighter">File</dt>
-              <dd className="min-w-0 break-words text-text">{propertiesDialog.fileName}</dd>
-              <dt className="text-text-lighter">Path</dt>
-              <dd className="min-w-0 break-words text-text">{propertiesDialog.path}</dd>
-              <dt className="text-text-lighter">Size</dt>
-              <dd className="text-text">{propertiesDialog.size}</dd>
-              <dt className="text-text-lighter">Type</dt>
-              <dd className="text-text">{propertiesDialog.type}</dd>
+              <dt className="text-muted-foreground">File</dt>
+              <dd className="min-w-0 break-words text-foreground">{propertiesDialog.fileName}</dd>
+              <dt className="text-muted-foreground">Path</dt>
+              <dd className="min-w-0 break-words text-foreground">{propertiesDialog.path}</dd>
+              <dt className="text-muted-foreground">Size</dt>
+              <dd className="text-foreground">{propertiesDialog.size}</dd>
+              <dt className="text-muted-foreground">Type</dt>
+              <dd className="text-foreground">{propertiesDialog.type}</dd>
             </dl>
           </Dialog>
         )}
