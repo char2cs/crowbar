@@ -13,9 +13,10 @@ const ALL_THEME_CLASSES = [
 ];
 
 function applyFallbackTheme(theme: Theme) {
-
   ALL_THEME_CLASSES.forEach((cls) => document.documentElement.classList.remove(cls));
   document.documentElement.classList.add(`force-${theme}`);
+  // Keep .dark in sync so Tailwind dark: variants still apply in error cases.
+  document.documentElement.classList.toggle("dark", !theme.includes("light"));
 }
 
 type SystemThemePreference = "light" | "dark";
@@ -108,6 +109,10 @@ export async function applyTheme(theme: Theme) {
         if (appliedTheme) {
           cacheThemeForBootstrap(appliedTheme);
           syncMacOSWindowAppearance(appliedTheme.isDark ? "dark" : "light");
+        } else {
+          const isDark = !theme.includes("light");
+          document.documentElement.classList.toggle("dark", isDark);
+          syncMacOSWindowAppearance(isDark ? "dark" : "light");
         }
       });
       return;
@@ -118,6 +123,12 @@ export async function applyTheme(theme: Theme) {
     if (appliedTheme) {
       cacheThemeForBootstrap(appliedTheme);
       syncMacOSWindowAppearance(appliedTheme.isDark ? "dark" : "light");
+    } else {
+      // Registry is a stub or doesn't recognise this theme yet.
+      // Derive dark/light from the theme name so Tailwind dark: variants apply correctly.
+      const isDark = !theme.includes("light");
+      document.documentElement.classList.toggle("dark", isDark);
+      syncMacOSWindowAppearance(isDark ? "dark" : "light");
     }
   } catch (error) {
     console.error("Failed to apply theme via registry:", error);

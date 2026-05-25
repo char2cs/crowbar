@@ -291,6 +291,8 @@ export function applyBootstrapAppearance(cache: AppearanceBootstrapCache): void 
   const root = document.documentElement;
   root.setAttribute("data-theme", cache.themeId);
   root.setAttribute("data-theme-type", cache.themeType);
+  // The .dark class gates all Tailwind dark: variants — keep it in sync with the theme type.
+  root.classList.toggle("dark", cache.themeType === "dark");
 
   for (const [key, value] of Object.entries(cache.cssVariables)) {
     root.style.setProperty(key, value);
