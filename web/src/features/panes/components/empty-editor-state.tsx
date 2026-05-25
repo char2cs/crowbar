@@ -1,15 +1,10 @@
 import {
-  FileText,
   FolderOpen,
   GlobeHemisphereWest as Globe,
-  Plus,
   TerminalWindow as Terminal,
 } from "@phosphor-icons/react";
 import { useCallback } from "react";
 import { createPortal } from "react-dom";
-import { useBufferStore } from "@/features/editor/stores/buffer-store";
-import { readFileContent } from "@/features/file-system/controllers/file-operations";
-import { openFile } from "@/features/file-system/controllers/platform";
 import { useFileSystemStore } from "@/features/file-system/controllers/store";
 import { useBufferActions } from "@/features/workspace/stores/hooks/use-buffer-store";
 import { Button } from "@/components/ui/button";
@@ -26,7 +21,6 @@ const newTabRowClassName =
   "h-auto w-full justify-start gap-3 rounded-md px-3 py-1.5 text-left hover:bg-muted";
 
 export function EmptyEditorState() {
-  const { openBuffer } = useBufferStore.use.actions();
   const bufferActions = useBufferActions();
   const handleOpenFolder = useFileSystemStore.use.handleOpenFolder();
 
@@ -40,45 +34,13 @@ export function EmptyEditorState() {
     bufferActions.openContent({ type: 'webViewer', url: 'https://' });
   }, [bufferActions]);
 
-  const handleNewFile = useCallback(() => {
-    const id = `untitled-${Date.now()}`;
-    openBuffer(id, "Untitled", "", false, undefined, false, true);
-    bufferActions.registerExternalBuffer(id, id, "Untitled", false);
-  }, [bufferActions, openBuffer]);
-
-  const handleOpenFile = useCallback(async () => {
-    try {
-      const selected = await openFile();
-      if (selected && typeof selected === "string") {
-        const fileName = selected.split("/").pop() || selected;
-        const content = await readFileContent(selected);
-        const bufferId = openBuffer(selected, fileName, content);
-        bufferActions.registerExternalBuffer(bufferId, selected, fileName, false);
-      }
-    } catch (error) {
-      console.error("Failed to open file:", error);
-    }
-  }, [bufferActions, openBuffer]);
-
   const getContextMenuItems = useCallback((): ContextMenuItem[] => {
     return [
-      {
-        id: "new-file",
-        label: "New File",
-        icon: <Plus />,
-        onClick: handleNewFile,
-      },
       {
         id: "open-folder",
         label: "Open Folder",
         icon: <FolderOpen />,
         onClick: handleOpenFolder,
-      },
-      {
-        id: "open-file",
-        label: "Open File",
-        icon: <FileText />,
-        onClick: handleOpenFile,
       },
       { id: "sep-1", label: "", separator: true, onClick: () => {} },
       {
@@ -94,32 +56,14 @@ export function EmptyEditorState() {
         onClick: handleOpenWebViewer,
       },
     ];
-  }, [
-    handleNewFile,
-    handleOpenFolder,
-    handleOpenFile,
-    handleOpenTerminal,
-    handleOpenWebViewer,
-  ]);
+  }, [handleOpenFolder, handleOpenTerminal, handleOpenWebViewer]);
 
   const actions: ActionItem[] = [
-    {
-      id: "new-file",
-      label: "New File",
-      icon: <Plus className="text-muted-foreground" />,
-      action: handleNewFile,
-    },
     {
       id: "folder",
       label: "Open Folder",
       icon: <FolderOpen className="text-muted-foreground" />,
       action: handleOpenFolder,
-    },
-    {
-      id: "file",
-      label: "Open File",
-      icon: <FileText className="text-muted-foreground" />,
-      action: handleOpenFile,
     },
     {
       id: "terminal",
