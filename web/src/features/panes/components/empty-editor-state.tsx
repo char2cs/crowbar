@@ -1,11 +1,9 @@
 import {
-  FolderOpen,
   GlobeHemisphereWest as Globe,
   TerminalWindow as Terminal,
 } from "@phosphor-icons/react";
 import { useCallback } from "react";
 import { createPortal } from "react-dom";
-import { useFileSystemStore } from "@/features/file-system/controllers/store";
 import { useBufferActions } from "@/features/workspace/stores/hooks/use-buffer-store";
 import { Button } from "@/components/ui/button";
 import { ContextMenu, useContextMenu, type ContextMenuItem } from "@/components/ui/context-menu";
@@ -22,7 +20,6 @@ const newTabRowClassName =
 
 export function EmptyEditorState() {
   const bufferActions = useBufferActions();
-  const handleOpenFolder = useFileSystemStore.use.handleOpenFolder();
 
   const contextMenu = useContextMenu();
 
@@ -37,13 +34,6 @@ export function EmptyEditorState() {
   const getContextMenuItems = useCallback((): ContextMenuItem[] => {
     return [
       {
-        id: "open-folder",
-        label: "Open Folder",
-        icon: <FolderOpen />,
-        onClick: handleOpenFolder,
-      },
-      { id: "sep-1", label: "", separator: true, onClick: () => {} },
-      {
         id: "new-terminal",
         label: "New Terminal",
         icon: <Terminal />,
@@ -56,15 +46,9 @@ export function EmptyEditorState() {
         onClick: handleOpenWebViewer,
       },
     ];
-  }, [handleOpenFolder, handleOpenTerminal, handleOpenWebViewer]);
+  }, [handleOpenTerminal, handleOpenWebViewer]);
 
   const actions: ActionItem[] = [
-    {
-      id: "folder",
-      label: "Open Folder",
-      icon: <FolderOpen className="text-muted-foreground" />,
-      action: handleOpenFolder,
-    },
     {
       id: "terminal",
       label: "New Terminal",
