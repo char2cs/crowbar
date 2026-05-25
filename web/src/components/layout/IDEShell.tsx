@@ -42,7 +42,7 @@ export function IDEShell() {
       <ResizablePanelGroup orientation="horizontal" className={cn("h-full", sidebarPosition === "right" && "flex-row-reverse")}>
 
         <ResizablePanel defaultSize="20%" minSize="12%" maxSize="45%" className="flex flex-col overflow-hidden">
-          <div className="flex h-full flex-col overflow-hidden border-r border-border bg-card">
+          <div className={cn("flex h-full flex-col overflow-hidden bg-card", sidebarPosition === "right" ? "border-l border-border" : "border-r border-border")}>
             <ErrorBoundary>
               <SidebarHeader
                 userInitials="MU"
