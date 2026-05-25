@@ -1,9 +1,7 @@
 import { Upload } from "@phosphor-icons/react";
 import { useEffect, useMemo, useState } from "react";
 import { iconThemeRegistry } from "@/extensions/icon-themes/icon-theme-registry";
-import type { IconThemeDefinition } from "@/extensions/icon-themes/types";
 import { themeRegistry } from "@/extensions/themes/theme-registry";
-import type { ThemeDefinition } from "@/extensions/themes/types";
 import {
   formatUiFontSize,
   UI_FONT_SIZE_MAX,
@@ -25,10 +23,10 @@ const THEME_MODE_OPTIONS: { value: ThemeMode; label: string }[] = [
   { value: "dark",   label: "Dark" },
 ];
 
-const SIDEBAR_POSITION_OPTIONS = [
-  { value: "left",  label: "Left" },
+const SIDEBAR_POSITION_OPTIONS: { value: "left" | "right"; label: string }[] = [
+  { value: "left", label: "Left" },
   { value: "right", label: "Right" },
-];
+]
 
 export const AppearanceSettings = () => {
   const { settings, updateSetting } = useSettingsStore();
@@ -38,7 +36,7 @@ export const AppearanceSettings = () => {
   // Load color themes from registry
   useEffect(() => {
     const load = () => {
-      const options = themeRegistry.getAllThemes().map((theme: ThemeDefinition) => ({
+      const options = themeRegistry.getAllThemes().map((theme) => ({
         value: theme.id,
         label: theme.name,
       }));
@@ -59,7 +57,7 @@ export const AppearanceSettings = () => {
   // Load icon themes from registry
   useEffect(() => {
     const load = () => {
-      const options = iconThemeRegistry.getAllThemes().map((theme: IconThemeDefinition) => ({
+      const options = iconThemeRegistry.getAllThemes().map((theme) => ({
         value: theme.id,
         label: theme.name,
       }));
@@ -76,22 +74,25 @@ export const AppearanceSettings = () => {
     return [{ value: fallback.id, label: fallback.name }, ...iconThemeOptions];
   }, [iconThemeOptions, settings.iconTheme]);
 
-  const handleUploadTheme = async () => {
-    const input = document.createElement("input");
-    input.type = "file";
-    input.accept = ".json";
+  const handleUploadTheme = () => {
+    const input = document.createElement("input")
+    input.type = "file"
+    input.accept = ".json"
+    input.style.display = "none"
+    document.body.appendChild(input)
     input.onchange = async (e) => {
-      const file = (e.target as HTMLInputElement).files?.[0];
+      const file = (e.target as HTMLInputElement).files?.[0]
+      input.remove()
       if (file) {
-        const { uploadTheme } = await import("@/features/settings/utils/theme-upload");
-        const result = await uploadTheme(file);
+        const { uploadTheme } = await import("@/features/settings/utils/theme-upload")
+        const result = await uploadTheme(file)
         if (!result.success) {
-          console.error("Theme upload failed:", result.error);
+          console.error("Theme upload failed:", result.error)
         }
       }
-    };
-    input.click();
-  };
+    }
+    input.click()
+  }
 
   return (
     <div className="space-y-4">
@@ -205,7 +206,7 @@ export const AppearanceSettings = () => {
           <Select
             value={settings.sidebarPosition}
             options={SIDEBAR_POSITION_OPTIONS}
-            onChange={(value) => updateSetting("sidebarPosition", value as "left" | "right")}
+            onChange={(value) => updateSetting("sidebarPosition", value)}
             className={SETTINGS_CONTROL_WIDTHS.compact}
             size="xs"
             variant="default"
