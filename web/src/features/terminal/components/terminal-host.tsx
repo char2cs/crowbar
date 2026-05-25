@@ -10,6 +10,11 @@ import { XtermTerminal } from "./terminal";
 // is currently displaying it. React always portals XtermTerminal into the
 // wrapper — only the wrapper's DOM parent changes. Pane moves never unmount
 // xterm; PTY listeners + scrollback survive.
+//
+// IMPORTANT: Only slot-registered sessions get a portal. Sessions from direct
+// XtermTerminal renders (TerminalTab without TerminalSlot) must NOT appear in
+// liveIds, otherwise a duplicate offscreen xterm instance is created. We
+// deliberately only add IDs from slotIds to knownRef.current.all.
 export function TerminalHost() {
   const slotIds = useTerminalSlotsStore(useShallow((state) => Array.from(state.slots.keys())));
   const sessionStoreIds = useTerminalStore(
@@ -21,16 +26,19 @@ export function TerminalHost() {
     everInStore: new Set(),
   });
 
+  // Only slot-registered sessions get portals. Direct-render sessions (e.g.
+  // TerminalTab without TerminalSlot) are excluded to prevent duplicate instances.
   for (const id of slotIds) knownRef.current.all.add(id);
   for (const id of sessionStoreIds) {
-    knownRef.current.all.add(id);
+    // Track for purge detection only — do NOT add to all if not in slotIds.
     knownRef.current.everInStore.add(id);
   }
 
-  // Once a session has been registered in the terminal store (PTY connected),
-  // its disappearance from there means it was explicitly closed — drop it.
+  // Purge: session's slot is gone AND its PTY connection was terminated.
   for (const id of Array.from(knownRef.current.all)) {
-    if (knownRef.current.everInStore.has(id) && !sessionStoreIds.includes(id)) {
+    const slotGone = !slotIds.includes(id);
+    const ptyGone = knownRef.current.everInStore.has(id) && !sessionStoreIds.includes(id);
+    if (slotGone && ptyGone) {
       knownRef.current.all.delete(id);
       knownRef.current.everInStore.delete(id);
     }
