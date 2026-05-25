@@ -35,9 +35,17 @@ export function PaneResizeHandle({
     if (!isDragging) return;
 
     const handleMouseMove = (e: MouseEvent) => {
-      const container = containerRef.current?.parentElement;
       const handle = containerRef.current;
-      if (!container || !handle) return;
+      if (!handle) return;
+
+      // Walk up past any `display: contents` ancestors — they generate no box and
+      // getBoundingClientRect() returns a zero-sized rect for them.  The actual
+      // measurable flex container is the first ancestor that is NOT contents.
+      let container: HTMLElement | null = handle.parentElement;
+      while (container && getComputedStyle(container).display === "contents") {
+        container = container.parentElement;
+      }
+      if (!container) return;
 
       const containerRect = container.getBoundingClientRect();
       const handleSize = isHorizontal ? handle.offsetWidth : handle.offsetHeight;
