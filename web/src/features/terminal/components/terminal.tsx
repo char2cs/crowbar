@@ -715,7 +715,7 @@ export const XtermTerminal: React.FC<XtermTerminalProps> = ({
   );
 
   return (
-    <div className="relative flex h-full w-full flex-col overflow-hidden bg-primary-bg">
+    <div className="relative flex h-full w-full flex-col overflow-hidden bg-background">
       <TerminalSearch
         isVisible={isSearchVisible}
         onSearch={handleSearch}
@@ -731,7 +731,7 @@ export const XtermTerminal: React.FC<XtermTerminalProps> = ({
           id={`terminal-${sessionId}`}
           data-terminal-drop-target
           data-terminal-session-id={sessionId}
-          className={`xterm-container flex h-full min-h-0 flex-1 text-text ${!isActive ? "opacity-60" : ""}`}
+          className={`xterm-container flex h-full min-h-0 flex-1 text-foreground ${!isActive ? "opacity-60" : ""}`}
           onDragOver={handleTerminalDragOver}
           onDrop={handleTerminalFileDrop}
           onMouseDown={() => {

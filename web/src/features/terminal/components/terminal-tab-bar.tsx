@@ -215,15 +215,15 @@ const ToolbarContextMenu = ({
 
   return (
     <Dropdown isOpen={isOpen} point={position} onClose={onClose} className="min-w-[180px]">
-      <div className="ui-font ui-text-sm px-2.5 py-1 text-text-lighter">Terminal Width</div>
+      <div className="ui-font ui-text-sm px-2.5 py-1 text-muted-foreground">Terminal Width</div>
       <MenuItemsList items={modeItems} onItemSelect={onClose} />
       <div className="my-0.5 border-border/70 border-t" />
-      <div className="ui-font ui-text-sm px-2.5 py-1 text-text-lighter">Tab Layout</div>
+      <div className="ui-font ui-text-sm px-2.5 py-1 text-muted-foreground">Tab Layout</div>
       <MenuItemsList items={layoutItems} onItemSelect={onClose} />
       {currentLayout === "vertical" && (
         <>
           <div className="my-0.5 border-border/70 border-t" />
-          <div className="ui-font ui-text-sm px-2.5 py-1 text-text-lighter">Tab Position</div>
+          <div className="ui-font ui-text-sm px-2.5 py-1 text-muted-foreground">Tab Position</div>
           <MenuItemsList items={sidebarPositionItems} onItemSelect={onClose} />
         </>
       )}
@@ -480,7 +480,7 @@ const TerminalTabBar = ({
   const profileMenuItems: MenuItem[] = terminalProfiles.map((profile) => ({
     id: profile.id,
     label: profile.name,
-    icon: <TerminalIcon className="text-text-lighter" />,
+    icon: <TerminalIcon className="text-muted-foreground" />,
     onClick: () => {
       onNewTerminalWithProfile?.(profile.id);
       closeProfileMenu();
@@ -633,12 +633,12 @@ const TerminalTabBar = ({
       <div
         className={cn(
           "flex min-h-8 items-center justify-between",
-          "border-border border-b bg-secondary-bg px-2 py-1.5",
+          "border-border border-b bg-card px-2 py-1.5",
         )}
       >
         <div className="flex items-center gap-1.5">
-          <TerminalIcon className="text-text-lighter" />
-          <span className="ui-font ui-text-sm text-text-lighter">No terminals</span>
+          <TerminalIcon className="text-muted-foreground" />
+          <span className="ui-font ui-text-sm text-muted-foreground">No terminals</span>
         </div>
         {onNewTerminal && (
           <div className="flex items-center gap-0.5">
@@ -646,7 +646,7 @@ const TerminalTabBar = ({
               <Button
                 onClick={onNewTerminal}
                 variant="ghost"
-                className="rounded-lg text-text-lighter"
+                className="rounded-lg text-muted-foreground"
                 compact
               >
                 <Plus />
@@ -658,7 +658,7 @@ const TerminalTabBar = ({
                   ref={profileMenuButtonRef}
                   onClick={openProfileMenu}
                   variant="ghost"
-                  className="h-6 w-5 rounded-lg text-text-lighter"
+                  className="h-6 w-5 rounded-lg text-muted-foreground"
                   compact
                 >
                   <ChevronDown />
@@ -685,8 +685,8 @@ const TerminalTabBar = ({
           ref={tabBarRef}
           className={cn(
             orientation === "vertical"
-              ? "relative flex h-full min-h-0 flex-col overflow-hidden bg-primary-bg"
-              : "relative flex h-7 min-h-7 items-center justify-between gap-1 overflow-hidden bg-primary-bg px-1.5 py-0.5",
+              ? "relative flex h-full min-h-0 flex-col overflow-hidden bg-background"
+              : "relative flex h-7 min-h-7 items-center justify-between gap-1 overflow-hidden bg-background px-1.5 py-0.5",
             "scrollbar-hidden [overscroll-behavior-x:contain]",
           )}
           style={orientation === "vertical" ? { width: tabSidebarWidth } : undefined}
@@ -821,7 +821,7 @@ const TerminalTabBar = ({
                   <Button
                     onClick={onSearchTerminal}
                     variant="ghost"
-                    className="shrink-0 rounded-lg text-text-lighter"
+                    className="shrink-0 rounded-lg text-muted-foreground"
                     compact
                   >
                     <Search />
@@ -833,7 +833,7 @@ const TerminalTabBar = ({
                   <Button
                     onClick={onNewTerminal}
                     variant="ghost"
-                    className="shrink-0 rounded-lg text-text-lighter"
+                    className="shrink-0 rounded-lg text-muted-foreground"
                     compact
                   >
                     <Plus />
@@ -845,7 +845,7 @@ const TerminalTabBar = ({
                       ref={profileMenuButtonRef}
                       onClick={openProfileMenu}
                       variant="ghost"
-                      className="h-6 w-5 shrink-0 rounded-lg text-text-lighter"
+                      className="h-6 w-5 shrink-0 rounded-lg text-muted-foreground"
                       compact
                     >
                       <ChevronDown />
@@ -861,7 +861,7 @@ const TerminalTabBar = ({
                   <Button
                     onClick={onFullScreen}
                     variant="ghost"
-                    className="shrink-0 rounded-lg text-text-lighter"
+                    className="shrink-0 rounded-lg text-muted-foreground"
                     compact
                   >
                     {isFullScreen ? <Minimize2 /> : <Maximize2 />}
@@ -873,9 +873,9 @@ const TerminalTabBar = ({
 
           <DragOverlay dropAnimation={null}>
             {draggedTerminal ? (
-              <div className="ui-font ui-text-sm flex cursor-pointer items-center gap-1.5 rounded-lg border border-border/70 bg-primary-bg/95 px-2 py-1.5 opacity-95 shadow-sm">
+              <div className="ui-font ui-text-sm flex cursor-pointer items-center gap-1.5 rounded-lg border border-border/70 bg-background/95 px-2 py-1.5 opacity-95 shadow-sm">
                 <span className="shrink-0">
-                  <TerminalIcon className="text-text-lighter" />
+                  <TerminalIcon className="text-muted-foreground" />
                 </span>
                 {draggedTerminal.isPinned && <Pin className="shrink-0 fill-current text-accent" />}
                 <span className="max-w-[220px] truncate">
@@ -1007,7 +1007,7 @@ const TerminalTabBar = ({
             onClose={closeProfileMenu}
             className="w-[220px]"
           >
-            <div className="ui-font ui-text-sm px-2.5 py-1 text-text-lighter">New Terminal</div>
+            <div className="ui-font ui-text-sm px-2.5 py-1 text-muted-foreground">New Terminal</div>
             <div className="my-0.5 border-border/70 border-t" />
             <MenuItemsList items={profileMenuItems} onItemSelect={closeProfileMenu} />
           </Dropdown>

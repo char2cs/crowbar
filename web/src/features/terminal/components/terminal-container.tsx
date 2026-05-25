@@ -617,7 +617,7 @@ const TerminalContainer = ({
   };
 
   const terminalSessions = (
-    <div className="relative flex h-full min-h-0 flex-1 flex-col overflow-hidden bg-primary-bg">
+    <div className="relative flex h-full min-h-0 flex-1 flex-col overflow-hidden bg-background">
       {(() => {
         return (
           <div className="flex h-full min-h-0 flex-col">
@@ -684,13 +684,13 @@ const TerminalContainer = ({
     >
       {/* Vertical-only actions header */}
       {isVertical && (
-        <div className="flex min-h-8 shrink-0 items-center justify-end gap-1 rounded-t-lg bg-primary-bg px-1.5 py-1">
+        <div className="flex min-h-8 shrink-0 items-center justify-end gap-1 rounded-t-lg bg-background px-1.5 py-1">
           <Tooltip content="Find in Terminal (Cmd/Ctrl+F)" side="bottom">
             <Button
               type="button"
               onClick={handleSearchTerminal}
               variant="ghost"
-              className="size-6 shrink-0 text-text-lighter"
+              className="size-6 shrink-0 text-muted-foreground"
               aria-label="Find in Terminal"
               compact
             >
@@ -703,7 +703,7 @@ const TerminalContainer = ({
               onClick={() => handleNewTerminal()}
               variant="ghost"
               compact
-              className="size-6 shrink-0 text-text-lighter"
+              className="size-6 shrink-0 text-muted-foreground"
               aria-label="New Terminal"
             >
               <Plus />
@@ -718,7 +718,7 @@ const TerminalContainer = ({
                 type="button"
                 onClick={onFullScreen}
                 variant="ghost"
-                className="size-6 shrink-0 text-text-lighter"
+                className="size-6 shrink-0 text-muted-foreground"
                 aria-label="Full Screen Terminal"
                 compact
               >
@@ -736,7 +736,7 @@ const TerminalContainer = ({
 
         <div
           className={cn(
-            "flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden bg-primary-bg",
+            "flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden bg-background",
             isVertical &&
               (tabSidebarPosition === "left"
                 ? "rounded-tl-lg border-border/60 border-t border-l"

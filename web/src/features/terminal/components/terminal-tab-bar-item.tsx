@@ -99,7 +99,7 @@ const TerminalTabBarItem = memo(function TerminalTabBarItem({
           orientation === "vertical"
             ? "w-full max-w-none justify-start pr-6 pl-2"
             : "min-w-[88px] w-fit pr-6 pl-2",
-          isActive ? "bg-hover/80" : undefined,
+          isActive ? "bg-muted/80" : undefined,
           isEditing ? "pr-2" : undefined,
         )}
         maxWidth={orientation === "vertical" ? undefined : 290}
@@ -122,8 +122,8 @@ const TerminalTabBarItem = memo(function TerminalTabBarItem({
                 }
               }}
               className={cn(
-                "-translate-y-1/2 absolute top-1/2 right-1 h-4 min-w-4 cursor-pointer select-none rounded-sm px-0 text-text-lighter transition-opacity",
-                "hover:text-text",
+                "-translate-y-1/2 absolute top-1/2 right-1 h-4 min-w-4 cursor-pointer select-none rounded-sm px-0 text-muted-foreground transition-opacity",
+                "hover:text-foreground",
                 terminal.isPinned || isActive
                   ? "opacity-100"
                   : "opacity-0 group-hover/tab:opacity-100",
@@ -166,7 +166,7 @@ const TerminalTabBarItem = memo(function TerminalTabBarItem({
             className={cn(
               "ui-font ui-text-sm h-5 min-w-0 px-0",
               orientation === "vertical" ? "text-left" : "text-left",
-              isActive ? "text-text" : "text-text-lighter",
+              isActive ? "text-foreground" : "text-muted-foreground",
             )}
             style={{
               width: `${Math.max(editingName.trim().length || terminal.name.length, 1)}ch`,
@@ -180,7 +180,7 @@ const TerminalTabBarItem = memo(function TerminalTabBarItem({
             className={cn(
               "ui-font ui-text-sm max-w-full select-none overflow-hidden text-ellipsis whitespace-nowrap",
               "text-left",
-              isActive ? "text-text" : "text-text-lighter",
+              isActive ? "text-foreground" : "text-muted-foreground",
             )}
             title={terminal.currentDirectory}
           >

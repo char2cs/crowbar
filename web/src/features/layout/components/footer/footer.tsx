@@ -335,7 +335,7 @@ const Footer = () => {
               onClick={() => uiState.openSettingsDialog("extensions")}
             >
               <PuzzlePiece weight="duotone" />
-              <span className={cn(footerCountPill(), "bg-blue-400 text-primary-bg")}>
+              <span className={cn(footerCountPill(), "bg-blue-400 text-background")}>
                 {extensionUpdatesCount > 9 ? "9+" : extensionUpdatesCount}
               </span>
             </FooterTabControl>
@@ -499,8 +499,8 @@ const Footer = () => {
   ];
 
   return (
-    <div className="athas-footer-bar relative z-20 flex h-8 shrink-0 items-center justify-between bg-secondary-bg/70 px-2.5 py-1 backdrop-blur-sm">
-      <div className="ui-font ui-text-sm flex items-center gap-1 text-text-lighter">
+    <div className="athas-footer-bar relative z-20 flex h-8 shrink-0 items-center justify-between bg-card/70 px-2.5 py-1 backdrop-blur-sm">
+      <div className="ui-font ui-text-sm flex items-center gap-1 text-muted-foreground">
         {orderFooterItems(footerLeadingItems, settings.footerLeadingItemsOrder).map((item) => (
           <div key={item.id} className={chromeItemWrapper()}>
             {item.content}
@@ -508,7 +508,7 @@ const Footer = () => {
         ))}
       </div>
 
-      <div className="ui-font ui-text-sm flex items-center gap-1 text-text-lighter">
+      <div className="ui-font ui-text-sm flex items-center gap-1 text-muted-foreground">
         {orderFooterItems(footerTrailingItems, footerTrailingOrder).map((item) => (
           <div key={item.id} className={chromeItemWrapper()}>
             {item.content}
