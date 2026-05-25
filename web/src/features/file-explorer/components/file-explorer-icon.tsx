@@ -1,3 +1,4 @@
+import DOMPurify from "dompurify"
 import { FileText } from "@phosphor-icons/react"
 import { useMemo } from "react"
 import { iconThemeRegistry } from "@/extensions/icon-themes/icon-theme-registry"
@@ -34,6 +35,8 @@ export function FileExplorerIcon({
     }
   }, [iconThemeId, fileName, isDirectory, isDir, isExpanded])
 
+  const iconSpanStyle = { display: "inline-flex", alignItems: "center", width: size, height: size, flexShrink: 0 } as const
+
   if (!iconResult) {
     return <FileText className={className} size={size} />
   }
@@ -42,7 +45,7 @@ export function FileExplorerIcon({
     return (
       <span
         className={className}
-        style={{ display: "inline-flex", alignItems: "center", width: size, height: size, flexShrink: 0 }}
+        style={iconSpanStyle}
       >
         {iconResult.component}
       </span>
@@ -50,12 +53,13 @@ export function FileExplorerIcon({
   }
 
   if (iconResult.svg) {
+    const sanitizedSvg = DOMPurify.sanitize(iconResult.svg, { USE_PROFILES: { svg: true, svgFilters: true } })
     return (
       <span
         className={className}
-        style={{ display: "inline-flex", alignItems: "center", width: size, height: size, flexShrink: 0 }}
+        style={iconSpanStyle}
         // eslint-disable-next-line react/no-danger
-        dangerouslySetInnerHTML={{ __html: iconResult.svg }}
+        dangerouslySetInnerHTML={{ __html: sanitizedSvg }}
       />
     )
   }
