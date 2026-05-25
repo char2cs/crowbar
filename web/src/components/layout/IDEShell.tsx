@@ -13,6 +13,8 @@ import { WorkspaceView } from '@/features/workspace/components/WorkspaceView'
 import SettingsDialog from '@/features/settings/components/settings-dialog'
 import { TerminalHost } from '@/features/terminal/components/terminal-host'
 import { ErrorBoundary } from '@/components/ErrorBoundary'
+import { cn } from '@/utils/cn'
+import { useSettingsStore } from '@/features/settings/store'
 
 export function IDEShell() {
   const navigate = useNavigate()
@@ -21,6 +23,7 @@ export function IDEShell() {
   const { chats, repos, collapsedRepos, addChat, deleteChat, deleteWorkspace, toggleRepo } =
     useSidebarStore()
   const [settingsOpen, setSettingsOpen] = useState(false)
+  const sidebarPosition = useSettingsStore((state) => state.settings.sidebarPosition)
 
   const activeWorkspaceId = pathname.match(/\/workspaces\/([^/]+)/)?.[1]
   const activeChatId = pathname.match(/\/chat\/([^/]+)/)?.[1]
@@ -36,7 +39,7 @@ export function IDEShell() {
 
   return (
     <div className="flex h-screen overflow-hidden bg-background text-foreground">
-      <ResizablePanelGroup orientation="horizontal" className="h-full">
+      <ResizablePanelGroup orientation="horizontal" className={cn("h-full", sidebarPosition === "right" && "flex-row-reverse")}>
 
         <ResizablePanel defaultSize="20%" minSize="12%" maxSize="45%" className="flex flex-col overflow-hidden">
           <div className="flex h-full flex-col overflow-hidden border-r border-border bg-card">
