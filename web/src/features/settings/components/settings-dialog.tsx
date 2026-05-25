@@ -73,7 +73,7 @@ const SettingsDialog = ({ isOpen, onClose }: SettingsDialogProps) => {
       id: tab.id,
       label: tab.label,
       icon: <Icon className="size-4" weight="duotone" />,
-      className: tab.id === activeTab ? "bg-hover text-text" : undefined,
+      className: tab.id === activeTab ? "bg-muted text-foreground" : undefined,
       onClick: () => handleTabChange(tab.id),
     };
   });
@@ -113,12 +113,12 @@ const SettingsDialog = ({ isOpen, onClose }: SettingsDialogProps) => {
             <button
               ref={tabDropdownRef}
               type="button"
-              className="hidden h-7 max-w-48 min-w-0 items-center gap-1.5 rounded-md border border-border/70 bg-secondary-bg/50 px-2 text-left text-text transition-colors hover:bg-hover max-[720px]:inline-flex"
+              className="hidden h-7 max-w-48 min-w-0 items-center gap-1.5 rounded-md border border-border/70 bg-card/50 px-2 text-left text-foreground transition-colors hover:bg-muted max-[720px]:inline-flex"
               onClick={() => setIsTabDropdownOpen(true)}
             >
-              <ActiveTabIcon className="size-4 shrink-0 text-text-lighter" weight="duotone" />
+              <ActiveTabIcon className="size-4 shrink-0 text-muted-foreground" weight="duotone" />
               <span className="truncate">{activeTabItem.label}</span>
-              <CaretDown className="size-3.5 shrink-0 text-text-lighter" />
+              <CaretDown className="size-3.5 shrink-0 text-muted-foreground" />
             </button>
           </>
         }

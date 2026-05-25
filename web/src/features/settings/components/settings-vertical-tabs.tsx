@@ -151,7 +151,9 @@ export const SettingsVerticalTabs = ({
                 tabIndex={isActive ? 0 : -1}
                 className={cn(
                   "ui-text-sm h-auto w-full justify-start gap-2.5 rounded-xl px-2.5 py-1.5 text-left",
-                  isActive ? "bg-accent/10 text-accent" : "text-text hover:bg-hover",
+                  isActive
+                    ? "bg-accent/10 text-accent-foreground font-medium"
+                    : "text-muted-foreground hover:bg-accent/5 hover:text-foreground",
                 )}
               >
                 <Icon className="size-[18px] shrink-0 text-current" weight="duotone" />
@@ -160,7 +162,7 @@ export const SettingsVerticalTabs = ({
             );
           })
         ) : (
-          <div className="ui-font ui-text-sm p-2 text-center text-text-lighter">
+          <div className="ui-font ui-text-sm p-2 text-center text-muted-foreground">
             No matching settings
           </div>
         )}

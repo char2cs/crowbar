@@ -28,8 +28,8 @@ export default function Section({ title, description, children, className }: Sec
       data-settings-section={title}
     >
       <div className="settings-section-header mb-2 px-1 py-1.5">
-        <h4 className="ui-font ui-text-base text-text">{title}</h4>
-        {description && <p className="ui-font ui-text-sm text-text-lighter">{description}</p>}
+        <h4 className="ui-font ui-text-base text-foreground">{title}</h4>
+        {description && <p className="ui-font ui-text-sm text-muted-foreground">{description}</p>}
       </div>
       <div className="space-y-2">{children}</div>
     </section>
@@ -158,14 +158,14 @@ export function SettingRow({
       aria-labelledby={labelId}
       aria-describedby={description ? descriptionId : undefined}
       className={cn(
-        "flex items-center justify-between gap-3 rounded-lg px-1 py-2 select-none transition-colors hover:bg-hover/40 focus-within:bg-hover/40 max-[640px]:flex-col max-[640px]:items-stretch max-[640px]:gap-2",
+        "flex items-center justify-between gap-3 rounded-lg px-1 py-2 select-none transition-colors hover:bg-muted/50 focus-within:bg-muted/50 max-[640px]:flex-col max-[640px]:items-stretch max-[640px]:gap-2",
         className,
       )}
       onClick={handleRowClick}
     >
       <div className="min-w-0 flex-1">
         <div className="flex items-center gap-1.5">
-          <div id={labelId} className="ui-font ui-text-sm cursor-default text-text">
+          <div id={labelId} className="ui-font ui-text-sm cursor-default text-foreground">
             {label}
           </div>
           {labelAccessory}
@@ -187,7 +187,7 @@ export function SettingRow({
           ) : null}
         </div>
         {description && (
-          <div id={descriptionId} className="ui-font ui-text-sm cursor-default text-text-lighter">
+          <div id={descriptionId} className="ui-font ui-text-sm cursor-default text-muted-foreground">
             {description}
           </div>
         )}
