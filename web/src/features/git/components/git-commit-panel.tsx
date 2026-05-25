@@ -358,7 +358,7 @@ const GitCommitPanel = ({
   const hasRemoteChanges = ahead > 0 || behind > 0;
   const isRemoteActionLoading = remoteAction !== null;
   const composerButtonClassName =
-    "h-6 rounded-md border-transparent bg-transparent px-1.5 ui-text-xs leading-none text-text-lighter shadow-none hover:bg-hover/80 hover:text-text focus-visible:ring-1 focus-visible:ring-border-strong/35 [&_svg]:size-3";
+    "h-6 rounded-md border-transparent bg-transparent px-1.5 ui-text-xs leading-none text-muted-foreground shadow-none hover:bg-muted/80 hover:text-foreground focus-visible:ring-1 focus-visible:ring-border-strong/35 [&_svg]:size-3";
   const generateModeItems: MenuItem[] = [
     {
       id: "title",
@@ -398,7 +398,7 @@ const GitCommitPanel = ({
           variant="ghost"
           className={cn(
             "max-h-32 min-h-16 w-full resize-none overflow-x-hidden bg-transparent",
-            "ui-font ui-text-sm px-3 pt-3 pb-2 text-text placeholder:text-text-lighter",
+            "ui-font ui-text-sm px-3 pt-3 pb-2 text-foreground placeholder:text-muted-foreground",
             "focus:outline-none",
           )}
           rows={2}
@@ -408,7 +408,7 @@ const GitCommitPanel = ({
 
       <div className="flex flex-wrap items-center gap-x-2 gap-y-1 px-1 pt-1.5">
         <div className="flex min-w-0 flex-1 flex-wrap items-center gap-1">
-          <span className="px-1 ui-text-xs text-text-lighter">
+          <span className="px-1 ui-text-xs text-muted-foreground">
             {stagedFilesCount > 0
               ? `${stagedFilesCount} file${stagedFilesCount !== 1 ? "s" : ""} staged`
               : "No files staged"}
@@ -453,11 +453,11 @@ const GitCommitPanel = ({
           <div
             ref={generateMenuAnchorRef}
             className={cn(
-              "flex h-6 overflow-hidden rounded-md border border-border/60 bg-transparent text-text-lighter shadow-none transition-colors",
+              "flex h-6 overflow-hidden rounded-md border border-border/60 bg-transparent text-muted-foreground shadow-none transition-colors",
               isGenerateDisabled
                 ? "cursor-not-allowed opacity-50"
-                : "hover:border-border/80 hover:bg-hover/70",
-              isGenerateModeMenuOpen && "border-border/80 bg-hover/70 text-text",
+                : "hover:border-border/80 hover:bg-muted/70",
+              isGenerateModeMenuOpen && "border-border/80 bg-muted/70 text-foreground",
             )}
           >
             <Tooltip content="Generate commit message with AI" side="top">
@@ -465,7 +465,7 @@ const GitCommitPanel = ({
                 type="button"
                 onClick={() => void handleGenerateCommitMessage()}
                 disabled={isGenerateDisabled}
-                className="flex size-6 items-center justify-center transition-colors hover:text-text focus-visible:ring-1 focus-visible:ring-border-strong/35 focus-visible:outline-none disabled:pointer-events-none [&_svg]:size-3"
+                className="flex size-6 items-center justify-center transition-colors hover:text-foreground focus-visible:ring-1 focus-visible:ring-border-strong/35 focus-visible:outline-none disabled:pointer-events-none [&_svg]:size-3"
                 aria-label="Generate commit message with AI"
               >
                 <Sparkles />
@@ -477,7 +477,7 @@ const GitCommitPanel = ({
                 type="button"
                 onClick={() => setIsGenerateModeMenuOpen((open) => !open)}
                 disabled={isGenerating || isCommitting}
-                className="flex h-full w-5 items-center justify-center transition-colors hover:text-text focus-visible:ring-1 focus-visible:ring-border-strong/35 focus-visible:outline-none disabled:pointer-events-none [&_svg]:size-3"
+                className="flex h-full w-5 items-center justify-center transition-colors hover:text-foreground focus-visible:ring-1 focus-visible:ring-border-strong/35 focus-visible:outline-none disabled:pointer-events-none [&_svg]:size-3"
                 aria-haspopup="menu"
                 aria-expanded={isGenerateModeMenuOpen}
                 aria-label="Commit message format"
@@ -504,7 +504,7 @@ const GitCommitPanel = ({
             className={cn(
               composerButtonClassName,
               isCommitDisabled
-                ? "cursor-not-allowed text-text-lighter opacity-50"
+                ? "cursor-not-allowed text-muted-foreground opacity-50"
                 : "text-accent hover:bg-accent/8 hover:text-accent/80",
             )}
           >

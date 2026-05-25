@@ -188,8 +188,8 @@ const GitWorktreeSwitcher = ({
         disabled={isLoading}
         variant="ghost"
         className={cn(
-          "inline-flex max-w-full shrink-0 overflow-hidden px-2 text-text-lighter hover:bg-hover/80",
-          isDropdownOpen ? "bg-hover/80" : "cursor-pointer",
+          "inline-flex max-w-full shrink-0 overflow-hidden px-2 text-muted-foreground hover:bg-muted/80",
+          isDropdownOpen ? "bg-muted/80" : "cursor-pointer",
           triggerClassName,
         )}
         aria-label="Search worktrees"
@@ -234,8 +234,8 @@ const GitWorktreeSwitcher = ({
                   onMouseEnter={() => setSelectedIndex(0)}
                   className="ui-font"
                 >
-                  <Plus size={14} className="shrink-0 text-text-lighter" />
-                  <span className="ui-text-xs min-w-0 flex-1 truncate text-text">
+                  <Plus size={14} className="shrink-0 text-muted-foreground" />
+                  <span className="ui-text-xs min-w-0 flex-1 truncate text-foreground">
                     Create worktree "{createWorktreePath}"
                   </span>
                 </CommandItem>
@@ -276,17 +276,17 @@ function WorktreeRow({
       isSelected={isSelected}
       onMouseEnter={onMouseEnter}
       onClick={onSelect}
-      className={cn("group ui-font", isCurrent ? "text-text" : "text-text-lighter hover:text-text")}
+      className={cn("group ui-font", isCurrent ? "text-foreground" : "text-muted-foreground hover:text-foreground")}
     >
       {isCurrent ? (
         <Check size={14} className="shrink-0 text-success" />
       ) : (
-        <GitFork size={14} className="shrink-0 text-text-lighter" />
+        <GitFork size={14} className="shrink-0 text-muted-foreground" />
       )}
-      <span className="ui-text-xs min-w-0 flex-1 truncate text-text">
+      <span className="ui-text-xs min-w-0 flex-1 truncate text-foreground">
         {getFolderName(worktree.path)}
       </span>
-      <span className="ui-text-xs flex max-w-[45%] shrink min-w-0 items-center gap-1.5 text-text-lighter/80">
+      <span className="ui-text-xs flex max-w-[45%] shrink min-w-0 items-center gap-1.5 text-muted-foreground/80">
         <GitBranch className="size-3.5 shrink-0" />
         <span className="truncate">{getBranchLabel(worktree)}</span>
       </span>

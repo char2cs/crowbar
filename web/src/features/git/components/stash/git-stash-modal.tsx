@@ -61,16 +61,16 @@ export const StashMessageModal = ({
         initial={{ opacity: 0, scale: 0.95 }}
         animate={{ opacity: 1, scale: 1 }}
         transition={{ duration: 0.15, ease: "easeOut" }}
-        className="w-80 rounded-lg border border-border bg-secondary-bg p-4"
+        className="w-80 rounded-lg border border-border bg-card p-4"
       >
-        <h3 className="mb-3 font-medium ui-text-sm text-text">{title}</h3>
+        <h3 className="mb-3 font-medium ui-text-sm text-foreground">{title}</h3>
         <Input
           ref={inputRef}
           type="text"
           value={message}
           onChange={(e) => setMessage(e.target.value)}
           placeholder={placeholder}
-          className={cn("mb-4 w-full bg-primary-bg ui-text-sm")}
+          className={cn("mb-4 w-full bg-background ui-text-sm")}
           onKeyDown={(e) => {
             if (e.key === "Enter") handleConfirm();
             if (e.key === "Escape") onClose();
@@ -80,7 +80,7 @@ export const StashMessageModal = ({
           <Button
             onClick={onClose}
             variant="ghost"
-            className="text-text-lighter ui-text-xs hover:text-text"
+            className="text-muted-foreground ui-text-xs hover:text-foreground"
             compact
           >
             Cancel

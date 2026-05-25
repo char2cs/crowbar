@@ -68,7 +68,7 @@ export const GitFileItem = ({
         <FileExplorerIcon
           fileName={fileName}
           isDir={false}
-          className="relative z-1 shrink-0 text-text-lighter"
+          className="relative z-1 shrink-0 text-muted-foreground"
           size={SIDEBAR_TREE_ICON_SIZE}
         />
       )}
@@ -80,13 +80,13 @@ export const GitFileItem = ({
           className={cn(
             "min-w-0 truncate leading-[1.35]",
             showDirectory ? "shrink-0 basis-auto max-w-[45%]" : "flex-1",
-            "text-text",
+            "text-foreground",
           )}
         >
           {fileName}
         </span>
         {showDirectory && directory && (
-          <span className="ui-text-sm min-w-0 flex-1 truncate leading-[1.35] text-text-lighter/80">
+          <span className="ui-text-sm min-w-0 flex-1 truncate leading-[1.35] text-muted-foreground/80">
             {directory}
           </span>
         )}

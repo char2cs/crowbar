@@ -272,8 +272,8 @@ const GitBranchManager = ({
         disabled={isLoading}
         variant="ghost"
         className={cn(
-          "inline-flex max-w-full shrink overflow-hidden px-2 text-text-lighter hover:bg-hover/80",
-          isDropdownOpen ? "bg-hover/80" : "cursor-pointer",
+          "inline-flex max-w-full shrink overflow-hidden px-2 text-muted-foreground hover:bg-muted/80",
+          isDropdownOpen ? "bg-muted/80" : "cursor-pointer",
           triggerClassName,
         )}
         aria-label="Search branches"
@@ -310,8 +310,8 @@ const GitBranchManager = ({
                   onMouseEnter={() => setSelectedIndex(0)}
                   className="ui-font"
                 >
-                  <Plus size={14} className="shrink-0 text-text-lighter" />
-                  <span className="ui-text-xs min-w-0 flex-1 truncate text-text">
+                  <Plus size={14} className="shrink-0 text-muted-foreground" />
+                  <span className="ui-text-xs min-w-0 flex-1 truncate text-foreground">
                     Create new branch "{createBranchName}"
                   </span>
                 </CommandItem>
@@ -359,14 +359,14 @@ function BranchRow({
       isSelected={isSelected}
       onMouseEnter={onMouseEnter}
       onClick={onSelect}
-      className={cn("group ui-font", isCurrent ? "text-text" : "text-text-lighter hover:text-text")}
+      className={cn("group ui-font", isCurrent ? "text-foreground" : "text-muted-foreground hover:text-foreground")}
     >
       {isCurrent ? (
         <Check size={14} className="shrink-0 text-success" />
       ) : (
-        <GitBranch size={14} className="shrink-0 text-text-lighter" />
+        <GitBranch size={14} className="shrink-0 text-muted-foreground" />
       )}
-      <span className="ui-text-xs min-w-0 flex-1 truncate text-text">{branch}</span>
+      <span className="ui-text-xs min-w-0 flex-1 truncate text-foreground">{branch}</span>
       {isCurrent ? <span className="ui-text-xs ml-auto shrink-0 text-success">current</span> : null}
       {!isCurrent ? (
         <Button

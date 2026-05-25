@@ -49,7 +49,7 @@ const GitCommandSurface = ({
           placeholder={placeholder}
           className="ui-font"
         />
-        {meta ? <div className="ui-font ui-text-xs shrink-0 text-text-lighter">{meta}</div> : null}
+        {meta ? <div className="ui-font ui-text-xs shrink-0 text-muted-foreground">{meta}</div> : null}
       </CommandHeader>
       {children}
     </Command>

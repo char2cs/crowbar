@@ -156,8 +156,8 @@ const GitProjectSelector = ({
         disabled={isSelectingRepo}
         variant="ghost"
         className={cn(
-          "inline-flex max-w-full shrink overflow-hidden px-2 text-text-lighter hover:bg-hover/80 sm:max-w-[360px]",
-          isOpen ? "bg-hover/80" : "cursor-pointer",
+          "inline-flex max-w-full shrink overflow-hidden px-2 text-muted-foreground hover:bg-muted/80 sm:max-w-[360px]",
+          isOpen ? "bg-muted/80" : "cursor-pointer",
           className,
         )}
         aria-label="Search repositories"
@@ -211,7 +211,7 @@ const GitProjectSelector = ({
             disabled={isSelectingRepo}
             variant="ghost"
             compact
-            className="h-7 justify-start px-2 text-text-lighter"
+            className="h-7 justify-start px-2 text-muted-foreground"
           >
             <FolderOpen />
             {isSelectingRepo ? "Selecting..." : "Browse"}
@@ -221,7 +221,7 @@ const GitProjectSelector = ({
               type="button"
               onClick={handleUseWorkspaceRepositories}
               variant="ghost"
-              className="h-7 justify-start px-2 text-text-lighter"
+              className="h-7 justify-start px-2 text-muted-foreground"
               compact
             >
               <RefreshCw />
@@ -261,16 +261,16 @@ function RepositoryRow({
       isSelected={isSelected}
       onMouseEnter={onMouseEnter}
       onClick={onSelect}
-      className={cn("group ui-font", isCurrent ? "text-text" : "text-text-lighter hover:text-text")}
+      className={cn("group ui-font", isCurrent ? "text-foreground" : "text-muted-foreground hover:text-foreground")}
     >
       {isCurrent ? (
         <Check size={14} className="shrink-0 text-success" />
       ) : (
-        <FolderOpen size={14} className="shrink-0 text-text-lighter" />
+        <FolderOpen size={14} className="shrink-0 text-muted-foreground" />
       )}
       <span className="min-w-0 flex-1 truncate">
-        <span className="ui-text-xs text-text">{getFolderName(repoPath)}</span>
-        <span className="ui-text-xs ml-2 text-text-lighter/80">
+        <span className="ui-text-xs text-foreground">{getFolderName(repoPath)}</span>
+        <span className="ui-text-xs ml-2 text-muted-foreground/80">
           {relativePath === "." ? repoPath : relativePath}
         </span>
       </span>

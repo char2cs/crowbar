@@ -89,8 +89,8 @@ const GitRemoteManager = ({ isOpen, onClose, repoPath, onRefresh }: GitRemoteMan
       meta={`${remotes.length} remote${remotes.length === 1 ? "" : "s"}`}
     >
       <div className="border-border/70 border-b px-3 py-2">
-        <div className="mb-1.5 flex items-center gap-2 text-text">
-          <Plus className="size-4 text-text-lighter" />
+        <div className="mb-1.5 flex items-center gap-2 text-foreground">
+          <Plus className="size-4 text-muted-foreground" />
           <span className="ui-text-sm font-medium">Add remote</span>
         </div>
         <div className="grid gap-1.5">
@@ -144,10 +144,10 @@ const GitRemoteManager = ({ isOpen, onClose, repoPath, onRefresh }: GitRemoteMan
                 key={remote.name}
                 className="ui-font h-auto min-h-8 items-start whitespace-normal px-2 py-1.5 leading-normal"
               >
-                <Globe className="mt-0.5 size-4 shrink-0 text-text-lighter" />
+                <Globe className="mt-0.5 size-4 shrink-0 text-muted-foreground" />
                 <div className="min-w-0 flex-1">
-                  <div className="ui-text-sm break-words text-text">{remote.name}</div>
-                  <div className="ui-text-xs mt-0.5 break-all text-text-lighter">{remote.url}</div>
+                  <div className="ui-text-sm break-words text-foreground">{remote.name}</div>
+                  <div className="ui-text-xs mt-0.5 break-all text-muted-foreground">{remote.url}</div>
                 </div>
                 <Button
                   onClick={(event) => {

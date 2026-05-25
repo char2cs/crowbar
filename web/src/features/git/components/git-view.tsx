@@ -1070,7 +1070,7 @@ const GitView = ({ repoPath, onFileSelect, isActive }: GitViewProps) => {
                   key={stash.index}
                   role="button"
                   tabIndex={0}
-                  className="group/stash ui-font relative mb-1 flex min-h-12 w-full cursor-pointer items-center gap-2 rounded-lg px-2.5 py-2 text-left transition-colors hover:bg-hover focus:bg-hover focus:outline-none"
+                  className="group/stash ui-font relative mb-1 flex min-h-12 w-full cursor-pointer items-center gap-2 rounded-lg px-2.5 py-2 text-left transition-colors hover:bg-muted focus:bg-muted focus:outline-none"
                   onClick={() => {
                     void handleViewStashDiff(stash.index);
                     setShowStashList(false);
@@ -1085,21 +1085,21 @@ const GitView = ({ repoPath, onFileSelect, isActive }: GitViewProps) => {
                     setStashSearchQuery("");
                   }}
                 >
-                  <div className="flex size-7 shrink-0 items-center justify-center rounded-md border border-border/50 bg-secondary-bg/70 text-text-lighter">
+                  <div className="flex size-7 shrink-0 items-center justify-center rounded-md border border-border/50 bg-card/70 text-muted-foreground">
                     <Archive className="size-4" />
                   </div>
                   <div className="min-w-0 flex-1 pr-24">
-                    <div className="ui-text-sm truncate text-text" title={displayTitle}>
+                    <div className="ui-text-sm truncate text-foreground" title={displayTitle}>
                       {displayTitle}
                     </div>
-                    <div className="ui-text-xs mt-1 flex min-w-0 items-center gap-2 text-text-lighter/80">
+                    <div className="ui-text-xs mt-1 flex min-w-0 items-center gap-2 text-muted-foreground/80">
                       <span className="truncate">{formatRelativeDate(stash.date)}</span>
                       <span className="rounded border border-border/50 px-1 ui-text-xs leading-4">
                         {getStashPositionLabel(stash.index)}
                       </span>
                     </div>
                   </div>
-                  <div className="pointer-events-none absolute right-2 top-1/2 flex -translate-y-1/2 translate-x-1 items-center gap-0.5 rounded-md border border-border/60 bg-secondary-bg p-0.5 opacity-0 transition-all group-hover/stash:pointer-events-auto group-hover/stash:translate-x-0 group-hover/stash:opacity-100 group-focus-within/stash:pointer-events-auto group-focus-within/stash:translate-x-0 group-focus-within/stash:opacity-100">
+                  <div className="pointer-events-none absolute right-2 top-1/2 flex -translate-y-1/2 translate-x-1 items-center gap-0.5 rounded-md border border-border/60 bg-card p-0.5 opacity-0 transition-all group-hover/stash:pointer-events-auto group-hover/stash:translate-x-0 group-hover/stash:opacity-100 group-focus-within/stash:pointer-events-auto group-focus-within/stash:translate-x-0 group-focus-within/stash:opacity-100">
                     <Button
                       type="button"
                       onClick={(event) => {
@@ -1113,7 +1113,7 @@ const GitView = ({ repoPath, onFileSelect, isActive }: GitViewProps) => {
                       disabled={isActionLoading}
                       variant="ghost"
                       compact
-                      className="text-text-lighter disabled:opacity-50"
+                      className="text-muted-foreground disabled:opacity-50"
                       tooltip="Apply stash"
                     >
                       <Download />
@@ -1131,7 +1131,7 @@ const GitView = ({ repoPath, onFileSelect, isActive }: GitViewProps) => {
                       disabled={isActionLoading}
                       variant="ghost"
                       compact
-                      className="text-text-lighter disabled:opacity-50"
+                      className="text-muted-foreground disabled:opacity-50"
                       tooltip="Pop stash"
                     >
                       <Upload />

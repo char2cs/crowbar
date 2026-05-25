@@ -274,7 +274,7 @@ export const InlineGitBlame = ({
       style={{ height: `${effectiveLineHeight}px` }}
     >
       <div
-        className={cn("ml-2 flex items-center gap-1", "text-text-lighter", className)}
+        className={cn("ml-2 flex items-center gap-1", "text-muted-foreground", className)}
         style={{
           fontSize: `${effectiveFontSize}px`,
           lineHeight: 1,
@@ -306,20 +306,20 @@ export const InlineGitBlame = ({
           >
             <div className="flex max-w-96 flex-col gap-2 p-2">
               <div className="flex items-center justify-between gap-2">
-                <span className="truncate font-medium ui-text-sm text-text">
+                <span className="truncate font-medium ui-text-sm text-foreground">
                   {blameLine.author}
                 </span>
-                <div className="flex shrink-0 items-center gap-1 text-text-lighter ui-text-xs">
+                <div className="flex shrink-0 items-center gap-1 text-muted-foreground ui-text-xs">
                   <Clock />
                   <span>{formatRelativeTime(blameLine.time)}</span>
                 </div>
               </div>
 
-              <pre className="whitespace-pre-wrap break-words text-text-light ui-text-xs leading-relaxed">
+              <pre className="whitespace-pre-wrap break-words text-muted-foreground ui-text-xs leading-relaxed">
                 {blameLine.commit.trim()}
               </pre>
 
-              <div className="flex items-center gap-1.5 text-text-lighter ui-text-xs">
+              <div className="flex items-center gap-1.5 text-muted-foreground ui-text-xs">
                 <Button
                   type="button"
                   variant="ghost"
@@ -329,12 +329,12 @@ export const InlineGitBlame = ({
                   compact
                 >
                   <GitCommit />
-                  <span className="ui-font text-text">{blameLine.commit_hash.substring(0, 7)}</span>
+                  <span className="ui-font text-foreground">{blameLine.commit_hash.substring(0, 7)}</span>
                 </Button>
                 <Button
                   type="button"
                   variant="ghost"
-                  className="ml-auto text-text-lighter hover:text-text"
+                  className="ml-auto text-muted-foreground hover:text-foreground"
                   onClick={handleCopyCommitHash}
                   tooltip="Copy commit hash"
                   compact

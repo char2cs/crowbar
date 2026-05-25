@@ -241,7 +241,7 @@ const GitTagManager = ({
           </div>
         ) : (
           <div className="flex items-start gap-2">
-            <div className="flex size-7 shrink-0 items-center justify-center rounded-md border border-border/50 bg-secondary-bg text-text-lighter">
+            <div className="flex size-7 shrink-0 items-center justify-center rounded-md border border-border/50 bg-card text-muted-foreground">
               <Plus className="size-4" />
             </div>
             <div className="grid min-w-0 flex-1 grid-cols-[minmax(0,1fr)_minmax(0,1fr)] gap-1.5">
@@ -279,7 +279,7 @@ const GitTagManager = ({
                   }
                 }}
               />
-              <label className="ui-text-xs col-span-2 inline-flex items-center gap-2 text-text-lighter">
+              <label className="ui-text-xs col-span-2 inline-flex items-center gap-2 text-muted-foreground">
                 <Checkbox checked={newTagSigned} onChange={setNewTagSigned} />
                 Sign tag
               </label>
@@ -329,7 +329,7 @@ const GitTagManager = ({
             return (
               <div
                 key={tag.name}
-                className="group/tag ui-font relative mb-1 rounded-lg text-left transition-colors hover:bg-hover focus-within:bg-hover"
+                className="group/tag ui-font relative mb-1 rounded-lg text-left transition-colors hover:bg-muted focus-within:bg-muted"
               >
                 <div
                   role="button"
@@ -344,29 +344,29 @@ const GitTagManager = ({
                   className="flex min-h-12 w-full cursor-pointer items-center gap-2 px-2.5 py-2 outline-none"
                   aria-expanded={isExpanded}
                 >
-                  <div className="flex size-7 shrink-0 items-center justify-center rounded-md border border-border/50 bg-secondary-bg/70 text-text-lighter">
+                  <div className="flex size-7 shrink-0 items-center justify-center rounded-md border border-border/50 bg-card/70 text-muted-foreground">
                     <Tag className="size-4" />
                   </div>
                   <div className="min-w-0 flex-1 pr-48">
                     <div className="flex min-w-0 items-center gap-2">
-                      <div className="ui-text-sm truncate text-text" title={tag.name}>
+                      <div className="ui-text-sm truncate text-foreground" title={tag.name}>
                         {tag.name}
                       </div>
                       {isExpanded ? (
-                        <CaretDown className="size-3.5 shrink-0 text-text-lighter" />
+                        <CaretDown className="size-3.5 shrink-0 text-muted-foreground" />
                       ) : (
-                        <CaretRight className="size-3.5 shrink-0 text-text-lighter" />
+                        <CaretRight className="size-3.5 shrink-0 text-muted-foreground" />
                       )}
                     </div>
                     {tag.message ? (
                       <div
-                        className="ui-text-xs mt-1 truncate text-text-lighter"
+                        className="ui-text-xs mt-1 truncate text-muted-foreground"
                         title={tag.message}
                       >
                         {tag.message}
                       </div>
                     ) : null}
-                    <div className="ui-text-xs mt-1 flex min-w-0 flex-wrap items-center gap-3 text-text-lighter/80">
+                    <div className="ui-text-xs mt-1 flex min-w-0 flex-wrap items-center gap-3 text-muted-foreground/80">
                       <span className="inline-flex items-center gap-1">
                         <GitCommit className="size-3.5" />
                         <span className="ui-font">{shortCommit}</span>
@@ -380,7 +380,7 @@ const GitTagManager = ({
                     </div>
                   </div>
                 </div>
-                <div className="pointer-events-none absolute top-6 right-2 flex -translate-y-1/2 translate-x-1 items-center gap-0.5 rounded-md border border-border/60 bg-secondary-bg p-0.5 opacity-0 transition-all group-hover/tag:pointer-events-auto group-hover/tag:translate-x-0 group-hover/tag:opacity-100 group-focus-within/tag:pointer-events-auto group-focus-within/tag:translate-x-0 group-focus-within/tag:opacity-100">
+                <div className="pointer-events-none absolute top-6 right-2 flex -translate-y-1/2 translate-x-1 items-center gap-0.5 rounded-md border border-border/60 bg-card p-0.5 opacity-0 transition-all group-hover/tag:pointer-events-auto group-hover/tag:translate-x-0 group-hover/tag:opacity-100 group-focus-within/tag:pointer-events-auto group-focus-within/tag:translate-x-0 group-focus-within/tag:opacity-100">
                   <Button
                     type="button"
                     onClick={(event) => {
@@ -389,7 +389,7 @@ const GitTagManager = ({
                     }}
                     variant="ghost"
                     compact
-                    className="text-text-lighter"
+                    className="text-muted-foreground"
                     tooltip="Copy tag name"
                     aria-label={`Copy ${tag.name}`}
                   >
@@ -403,7 +403,7 @@ const GitTagManager = ({
                     }}
                     variant="ghost"
                     compact
-                    className="text-text-lighter"
+                    className="text-muted-foreground"
                     tooltip="Copy commit SHA"
                     aria-label={`Copy commit ${shortCommit}`}
                   >
@@ -424,7 +424,7 @@ const GitTagManager = ({
                     disabled={!previousTag}
                     variant="ghost"
                     compact
-                    className="text-text-lighter disabled:opacity-50"
+                    className="text-muted-foreground disabled:opacity-50"
                     tooltip="Compare with previous tag"
                     aria-label={`Compare ${tag.name} with previous tag`}
                   >
@@ -439,7 +439,7 @@ const GitTagManager = ({
                     }}
                     variant="ghost"
                     compact
-                    className="text-text-lighter"
+                    className="text-muted-foreground"
                     tooltip="Compare with HEAD"
                     aria-label={`Compare ${tag.name} with HEAD`}
                   >
@@ -454,7 +454,7 @@ const GitTagManager = ({
                     disabled={actionLoading.has(`checkout:${tag.name}`)}
                     variant="ghost"
                     compact
-                    className="text-text-lighter disabled:opacity-50"
+                    className="text-muted-foreground disabled:opacity-50"
                     tooltip="Checkout tag"
                     aria-label={`Checkout ${tag.name}`}
                   >
@@ -472,7 +472,7 @@ const GitTagManager = ({
                     disabled={!selectedRemoteName || actionLoading.has(`Push tag:${tag.name}`)}
                     variant="ghost"
                     compact
-                    className="text-text-lighter disabled:opacity-50"
+                    className="text-muted-foreground disabled:opacity-50"
                     tooltip={selectedRemoteName ? `Push tag to ${selectedRemoteName}` : "No remote"}
                     aria-label={`Push ${tag.name}`}
                   >
@@ -526,14 +526,14 @@ const GitTagManager = ({
                   <div className="border-border/50 border-t px-2.5 py-2">
                     <div className="grid gap-1.5 pl-9">
                       <div className="flex min-w-0 items-center gap-2">
-                        <span className="ui-text-xs w-14 shrink-0 text-text-lighter">Commit</span>
+                        <span className="ui-text-xs w-14 shrink-0 text-muted-foreground">Commit</span>
                         <button
                           type="button"
                           onClick={(event) => {
                             event.stopPropagation();
                             void handleCopy(tag.commit, "Commit SHA");
                           }}
-                          className="ui-font ui-text-xs min-w-0 truncate text-text hover:text-accent"
+                          className="ui-font ui-text-xs min-w-0 truncate text-foreground hover:text-accent"
                           title={tag.commit}
                         >
                           {tag.commit}
@@ -541,24 +541,24 @@ const GitTagManager = ({
                       </div>
                       {tag.date ? (
                         <div className="flex min-w-0 items-center gap-2">
-                          <span className="ui-text-xs w-14 shrink-0 text-text-lighter">Date</span>
-                          <span className="ui-text-xs truncate text-text">
+                          <span className="ui-text-xs w-14 shrink-0 text-muted-foreground">Date</span>
+                          <span className="ui-text-xs truncate text-foreground">
                             {formatShortDate(tag.date)}
                           </span>
                         </div>
                       ) : null}
                       <div className="flex min-w-0 items-center gap-2">
-                        <span className="ui-text-xs w-14 shrink-0 text-text-lighter">Type</span>
+                        <span className="ui-text-xs w-14 shrink-0 text-muted-foreground">Type</span>
                         <Badge variant="muted" size="compact" className="ui-text-xs">
                           {tag.is_annotated ? "Annotated" : "Lightweight"}
                         </Badge>
                       </div>
                       {tag.message ? (
                         <div className="flex min-w-0 items-start gap-2">
-                          <span className="ui-text-xs w-14 shrink-0 text-text-lighter">
+                          <span className="ui-text-xs w-14 shrink-0 text-muted-foreground">
                             Message
                           </span>
-                          <span className="ui-text-xs min-w-0 break-words text-text">
+                          <span className="ui-text-xs min-w-0 break-words text-foreground">
                             {tag.message}
                           </span>
                         </div>

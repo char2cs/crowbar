@@ -395,19 +395,19 @@ const GitStatusPanel = ({
   const renderSectionHeader = (section: StatusSection, title: string, count: number) => (
     <button
       type="button"
-      className="ui-text-sm mt-2 flex w-full min-w-0 items-center justify-between gap-2 rounded-none px-2.5 py-1 text-left text-text-lighter transition-colors hover:bg-hover"
+      className="ui-text-sm mt-2 flex w-full min-w-0 items-center justify-between gap-2 rounded-none px-2.5 py-1 text-left text-muted-foreground transition-colors hover:bg-muted"
       onClick={() => toggleSectionCollapsed(section)}
       aria-expanded={!collapsedSections.has(section)}
     >
       <span className="min-w-0 truncate">{title}</span>
       <span className="flex shrink-0 items-center gap-1.5">
-        <span className="rounded bg-hover px-1.5 py-0.5 ui-text-xs uppercase tracking-[0.08em] text-text-lighter/80">
+        <span className="rounded bg-muted px-1.5 py-0.5 ui-text-xs uppercase tracking-[0.08em] text-muted-foreground/80">
           {count}
         </span>
         {collapsedSections.has(section) ? (
-          <CaretRight className="size-3 text-text-lighter" />
+          <CaretRight className="size-3 text-muted-foreground" />
         ) : (
-          <CaretDown className="size-3 text-text-lighter" />
+          <CaretDown className="size-3 text-muted-foreground" />
         )}
       </span>
     </button>
@@ -445,7 +445,7 @@ const GitStatusPanel = ({
                 fileName={folderNode.name}
                 isDir
                 isExpanded={!isCollapsed}
-                className="relative z-1 shrink-0 text-text-lighter"
+                className="relative z-1 shrink-0 text-muted-foreground"
                 size={SIDEBAR_TREE_ICON_SIZE}
               />
               <span className="relative z-1 truncate leading-[1.35]">{folderNode.name}</span>

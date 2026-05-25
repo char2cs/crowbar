@@ -34,11 +34,11 @@ const GitSidebarSectionHeader = ({
       <PaneGroup className="min-w-0 flex-1">
         {collapsible &&
           (isCollapsed ? (
-            <ChevronRight className="size-3.5 shrink-0 text-text-lighter" />
+            <ChevronRight className="size-3.5 shrink-0 text-muted-foreground" />
           ) : (
-            <ChevronDown className="size-3.5 shrink-0 text-text-lighter" />
+            <ChevronDown className="size-3.5 shrink-0 text-muted-foreground" />
           ))}
-        {Icon ? <Icon className="size-3.5 shrink-0 text-text-lighter" /> : null}
+        {Icon ? <Icon className="size-3.5 shrink-0 text-muted-foreground" /> : null}
         <span className={paneTitleClassName()}>{title}</span>
       </PaneGroup>
       {actions ? <PaneGroup className="shrink-0">{actions}</PaneGroup> : null}
@@ -52,7 +52,7 @@ const GitSidebarSectionHeader = ({
         variant="ghost"
         onClick={onToggle}
         className={cn(
-          paneHeaderClassName("w-full shrink-0 justify-between rounded-none px-2.5 hover:bg-hover"),
+          paneHeaderClassName("w-full shrink-0 justify-between rounded-none px-2.5 hover:bg-muted"),
           className,
         )}
         compact

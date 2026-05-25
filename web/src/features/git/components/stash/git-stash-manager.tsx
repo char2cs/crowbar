@@ -113,15 +113,15 @@ const GitStashManager = ({ isOpen, onClose, repoPath, onRefresh }: GitStashManag
       <div
         className={cn(
           "flex max-h-[80vh] w-96 flex-col rounded-lg",
-          "border border-border bg-secondary-bg",
+          "border border-border bg-card",
         )}
       >
         <div className="flex items-center justify-between border-border border-b p-4">
           <div className="flex items-center gap-2">
-            <Archive className="text-text-lighter" />
-            <h2 className="font-medium ui-text-sm text-text">Stash Manager</h2>
+            <Archive className="text-muted-foreground" />
+            <h2 className="font-medium ui-text-sm text-foreground">Stash Manager</h2>
           </div>
-          <Button onClick={onClose} variant="ghost" className="text-text-lighter" compact>
+          <Button onClick={onClose} variant="ghost" className="text-muted-foreground" compact>
             <X />
           </Button>
         </div>
@@ -129,8 +129,8 @@ const GitStashManager = ({ isOpen, onClose, repoPath, onRefresh }: GitStashManag
         <div className="border-border border-b p-4">
           <div className="space-y-2">
             <div className="mb-2 flex items-center gap-2">
-              <Plus className="text-text-lighter" />
-              <span className="font-medium text-text ui-text-xs">Create New Stash</span>
+              <Plus className="text-muted-foreground" />
+              <span className="font-medium text-foreground ui-text-xs">Create New Stash</span>
             </div>
 
             <Input
@@ -138,7 +138,7 @@ const GitStashManager = ({ isOpen, onClose, repoPath, onRefresh }: GitStashManag
               placeholder="Stash message (optional)..."
               value={newStashMessage}
               onChange={(e) => setNewStashMessage(e.target.value)}
-              className={cn("w-full bg-primary-bg")}
+              className={cn("w-full bg-background")}
               onKeyDown={(e) => {
                 if (e.key === "Enter") {
                   handleCreateStash();
@@ -149,7 +149,7 @@ const GitStashManager = ({ isOpen, onClose, repoPath, onRefresh }: GitStashManag
             <div className="flex items-center gap-2">
               <label
                 htmlFor="include-untracked-stash"
-                className="flex cursor-pointer items-center gap-1 text-text ui-text-xs"
+                className="flex cursor-pointer items-center gap-1 text-foreground ui-text-xs"
               >
                 <Checkbox
                   id="include-untracked-stash"
@@ -174,11 +174,11 @@ const GitStashManager = ({ isOpen, onClose, repoPath, onRefresh }: GitStashManag
 
         <div className="flex-1 overflow-y-auto">
           {isLoading && stashes.length === 0 ? (
-            <div className="flex justify-center p-4 text-text-lighter ui-text-xs">
+            <div className="flex justify-center p-4 text-muted-foreground ui-text-xs">
               <LoadingIndicator label="Loading stashes" showLabel compact />
             </div>
           ) : stashes.length === 0 ? (
-            <div className="p-4 text-center text-text-lighter ui-text-xs">No stashes found</div>
+            <div className="p-4 text-center text-muted-foreground ui-text-xs">No stashes found</div>
           ) : (
             <div className="space-y-0">
               {stashes.map((stash) => {
@@ -187,21 +187,21 @@ const GitStashManager = ({ isOpen, onClose, repoPath, onRefresh }: GitStashManag
                 return (
                   <div
                     key={stash.index}
-                    className={cn("border-border border-b p-3", "last:border-b-0 hover:bg-hover")}
+                    className={cn("border-border border-b p-3", "last:border-b-0 hover:bg-muted")}
                   >
                     <div className="mb-2 flex items-start justify-between">
                       <div className="min-w-0 flex-1">
                         <div className="mb-1 flex items-center gap-2">
-                          <span className="ui-font text-text-lighter ui-text-xs">
+                          <span className="ui-font text-muted-foreground ui-text-xs">
                             {`stash@{${stash.index}}`}
                           </span>
                         </div>
 
-                        <div className="mb-1 text-text ui-text-xs">
+                        <div className="mb-1 text-foreground ui-text-xs">
                           {stash.message || "Stashed changes"}
                         </div>
 
-                        <div className="flex items-center gap-1 ui-text-xs text-text-lighter">
+                        <div className="flex items-center gap-1 ui-text-xs text-muted-foreground">
                           <Clock />
                           {formatRelativeDate(stash.date)}
                         </div>
@@ -253,7 +253,7 @@ const GitStashManager = ({ isOpen, onClose, repoPath, onRefresh }: GitStashManag
         </div>
 
         <div
-          className={cn("border-border border-t bg-primary-bg p-3", "ui-text-xs text-text-lighter")}
+          className={cn("border-border border-t bg-background p-3", "ui-text-xs text-muted-foreground")}
         >
           {stashes.length} stash{stashes.length !== 1 ? "es" : ""} total
         </div>

@@ -31,8 +31,8 @@ const CommitItem = memo(({ commit, onViewCommitDiff, isSelected, repoPath }: Com
     <div
       onClick={handleCommitClick}
       className={cn(
-        "ui-text-sm mx-1 mb-1 cursor-pointer rounded-lg px-2.5 py-2 transition-[transform,background-color,opacity] hover:bg-hover",
-        isSelected && "bg-hover",
+        "ui-text-sm mx-1 mb-1 cursor-pointer rounded-lg px-2.5 py-2 transition-[transform,background-color,opacity] hover:bg-muted",
+        isSelected && "bg-muted",
       )}
       draggable={!!repoPath}
       onDragStart={(event) => {
@@ -48,8 +48,8 @@ const CommitItem = memo(({ commit, onViewCommitDiff, isSelected, repoPath }: Com
         });
       }}
     >
-      <div className="truncate text-inherit text-text leading-tight">{commit.message}</div>
-      <div className="ui-text-sm mt-1 flex items-center gap-2 text-text-lighter">
+      <div className="truncate text-inherit text-foreground leading-tight">{commit.message}</div>
+      <div className="ui-text-sm mt-1 flex items-center gap-2 text-muted-foreground">
         <span className="truncate">{commit.author}</span>
         <span className="shrink-0">{formatRelativeDate(commit.date)}</span>
       </div>
@@ -169,7 +169,7 @@ const GitCommitHistory = ({
       <div
         className={cn(
           "flex min-h-0 flex-1 flex-col overflow-hidden",
-          showHeader && "rounded-lg border border-border/60 bg-primary-bg/55",
+          showHeader && "rounded-lg border border-border/60 bg-background/55",
         )}
       >
         <div className="shrink-0 px-1 py-1">
@@ -189,12 +189,12 @@ const GitCommitHistory = ({
           <div
             className={cn(
               "scrollbar-none relative min-h-0 flex-1 overflow-y-scroll px-1 pb-1",
-              showHeader ? "bg-primary-bg/70" : "bg-transparent",
+              showHeader ? "bg-background/70" : "bg-transparent",
             )}
             ref={scrollContainerRef}
           >
             {commits.length === 0 ? (
-              <div className="ui-text-sm px-2.5 py-2 text-text-lighter italic">No commits</div>
+              <div className="ui-text-sm px-2.5 py-2 text-muted-foreground italic">No commits</div>
             ) : (
               <>
                 {commits.map((commit) => (
@@ -208,13 +208,13 @@ const GitCommitHistory = ({
                 ))}
 
                 {isLoadingMoreCommits && (
-                  <div className="flex justify-center px-3 py-1.5 text-text-lighter">
+                  <div className="flex justify-center px-3 py-1.5 text-muted-foreground">
                     <LoadingIndicator label="Loading commits" showLabel compact />
                   </div>
                 )}
 
                 {!hasMoreCommits && commits.length > 0 && (
-                  <div className="ui-text-sm px-3 py-1.5 text-center text-text-lighter">
+                  <div className="ui-text-sm px-3 py-1.5 text-center text-muted-foreground">
                     end of history
                   </div>
                 )}

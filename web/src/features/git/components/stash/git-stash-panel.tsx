@@ -83,7 +83,7 @@ const GitStashPanel = ({
       <div
         className={cn(
           "flex min-h-0 flex-1 flex-col overflow-hidden",
-          showHeader && "rounded-lg border border-border/60 bg-primary-bg/55",
+          showHeader && "rounded-lg border border-border/60 bg-background/55",
         )}
       >
         <div className="shrink-0 px-1 py-1">
@@ -103,11 +103,11 @@ const GitStashPanel = ({
           <div
             className={cn(
               "scrollbar-none min-h-0 flex-1 overflow-y-scroll px-1 pb-1",
-              showHeader ? "bg-primary-bg/70" : "bg-transparent",
+              showHeader ? "bg-background/70" : "bg-transparent",
             )}
           >
             {stashes.length === 0 ? (
-              <div className="ui-text-sm px-2.5 py-2 text-text-lighter italic">No stashes</div>
+              <div className="ui-text-sm px-2.5 py-2 text-muted-foreground italic">No stashes</div>
             ) : (
               stashes.map((stash) => {
                 const displayTitle = getStashDisplayTitle(stash.message);
@@ -116,30 +116,30 @@ const GitStashPanel = ({
                   <div
                     key={stash.index}
                     onClick={() => handleStashClick(stash.index)}
-                    className="group/stash relative mb-1 cursor-pointer rounded-lg px-2.5 py-2.5 transition-colors hover:bg-hover/80 focus-within:bg-hover/80"
+                    className="group/stash relative mb-1 cursor-pointer rounded-lg px-2.5 py-2.5 transition-colors hover:bg-muted/80 focus-within:bg-muted/80"
                   >
                     <div className="min-w-0 pr-24">
                       <div
-                        className="ui-text-sm truncate leading-tight text-text"
+                        className="ui-text-sm truncate leading-tight text-foreground"
                         title={displayTitle}
                       >
                         {displayTitle}
                       </div>
-                      <div className="ui-text-xs mt-1 flex min-w-0 items-center gap-2 text-text-lighter">
+                      <div className="ui-text-xs mt-1 flex min-w-0 items-center gap-2 text-muted-foreground">
                         <span className="truncate">{formatRelativeDate(stash.date)}</span>
-                        <span className="rounded border border-border/50 px-1 ui-text-xs leading-4 text-text-lighter/80">
+                        <span className="rounded border border-border/50 px-1 ui-text-xs leading-4 text-muted-foreground/80">
                           {getStashPositionLabel(stash.index)}
                         </span>
                       </div>
                     </div>
-                    <div className="pointer-events-none absolute right-2 top-1/2 flex -translate-y-1/2 translate-x-1 items-center gap-0.5 rounded-md border border-border/60 bg-secondary-bg p-0.5 opacity-0 transition-all group-hover/stash:pointer-events-auto group-hover/stash:translate-x-0 group-hover/stash:opacity-100 group-focus-within/stash:pointer-events-auto group-focus-within/stash:translate-x-0 group-focus-within/stash:opacity-100">
+                    <div className="pointer-events-none absolute right-2 top-1/2 flex -translate-y-1/2 translate-x-1 items-center gap-0.5 rounded-md border border-border/60 bg-card p-0.5 opacity-0 transition-all group-hover/stash:pointer-events-auto group-hover/stash:translate-x-0 group-hover/stash:opacity-100 group-focus-within/stash:pointer-events-auto group-focus-within/stash:translate-x-0 group-focus-within/stash:opacity-100">
                       <Button
                         type="button"
                         onClick={(e) => handleApplyStash(stash.index, e)}
                         disabled={actionLoading.has(stash.index)}
                         variant="ghost"
                         compact
-                        className="text-text-lighter disabled:opacity-50"
+                        className="text-muted-foreground disabled:opacity-50"
                         tooltip="Apply stash"
                         aria-label="Apply stash"
                       >
@@ -151,7 +151,7 @@ const GitStashPanel = ({
                         disabled={actionLoading.has(stash.index)}
                         variant="ghost"
                         compact
-                        className="text-text-lighter disabled:opacity-50"
+                        className="text-muted-foreground disabled:opacity-50"
                         tooltip="Pop stash"
                         aria-label="Pop stash"
                       >

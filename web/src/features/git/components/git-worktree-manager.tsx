@@ -236,7 +236,7 @@ const GitWorktreeManager = ({
                 compact
                 className={cn(
                   gitSidebarSectionActionButtonClassName(),
-                  isAddFormOpen && "bg-hover text-text",
+                  isAddFormOpen && "bg-muted text-foreground",
                 )}
                 data-active={isAddFormOpen}
                 aria-label={isAddFormOpen ? "Hide add form" : "Add worktree"}
@@ -267,7 +267,7 @@ const GitWorktreeManager = ({
       </div>
 
       {isAddFormOpen && (
-        <div className="mx-1 mb-1 rounded-lg border border-border/60 bg-secondary-bg/25 px-2.5 py-2">
+        <div className="mx-1 mb-1 rounded-lg border border-border/60 bg-card/25 px-2.5 py-2">
           <div className="space-y-2">
             <Input
               type="text"
@@ -288,7 +288,7 @@ const GitWorktreeManager = ({
                 }
               }}
             />
-            <label className="ui-text-sm flex items-center gap-2 rounded-lg px-1 py-0.5 text-text-lighter">
+            <label className="ui-text-sm flex items-center gap-2 rounded-lg px-1 py-0.5 text-muted-foreground">
               <Checkbox checked={createBranch} onChange={setCreateBranch} />
               <span>Create a new branch for this worktree</span>
             </label>
@@ -318,11 +318,11 @@ const GitWorktreeManager = ({
 
       <div className="min-h-0 flex-1 overflow-y-auto px-1 py-1">
         {isLoading && worktrees.length === 0 ? (
-          <div className="ui-text-sm flex h-full min-h-[160px] items-center justify-center px-4 text-center text-text-lighter">
+          <div className="ui-text-sm flex h-full min-h-[160px] items-center justify-center px-4 text-center text-muted-foreground">
             <LoadingIndicator label="Loading worktrees" showLabel compact />
           </div>
         ) : worktrees.length === 0 ? (
-          <div className="ui-text-sm flex h-full min-h-[160px] items-center justify-center px-4 text-center text-text-lighter">
+          <div className="ui-text-sm flex h-full min-h-[160px] items-center justify-center px-4 text-center text-muted-foreground">
             No worktrees found
           </div>
         ) : (
@@ -364,25 +364,25 @@ const GitWorktreeManager = ({
               >
                 <div className="min-w-0 flex-1">
                   <div className="flex min-w-0 items-center gap-2">
-                    <span className="truncate ui-text-sm text-text leading-4" title={worktree.path}>
+                    <span className="truncate ui-text-sm text-foreground leading-4" title={worktree.path}>
                       {worktreeName}
                     </span>
                     {worktree.is_current && (
-                      <span className="ui-text-xs shrink-0 rounded-md bg-secondary-bg/80 px-1.5 py-0.5 text-text-lighter">
+                      <span className="ui-text-xs shrink-0 rounded-md bg-card/80 px-1.5 py-0.5 text-muted-foreground">
                         Current
                       </span>
                     )}
                     {statusLabel && (
-                      <span className="ui-text-xs shrink-0 rounded-md bg-secondary-bg/80 px-1.5 py-0.5 text-text-lighter">
+                      <span className="ui-text-xs shrink-0 rounded-md bg-card/80 px-1.5 py-0.5 text-muted-foreground">
                         {statusLabel}
                       </span>
                     )}
                     {isActionBusy ? (
-                      <span className="ui-text-xs shrink-0 text-text-lighter">Removing...</span>
+                      <span className="ui-text-xs shrink-0 text-muted-foreground">Removing...</span>
                     ) : null}
                   </div>
 
-                  <div className="mt-1 flex min-w-0 items-center gap-2 text-text-lighter/90">
+                  <div className="mt-1 flex min-w-0 items-center gap-2 text-muted-foreground/90">
                     <span className="ui-text-xs inline-flex min-w-0 flex-1 items-center gap-1 editor-font">
                       <GitBranch className="size-3.5 shrink-0" />
                       <span className="min-w-0 truncate">{branchLabel}</span>
@@ -393,7 +393,7 @@ const GitWorktreeManager = ({
                     </span>
                   </div>
 
-                  <div className="ui-text-xs mt-1 truncate text-text-lighter/70">
+                  <div className="ui-text-xs mt-1 truncate text-muted-foreground/70">
                     {relativePath === worktree.path ? worktree.path : relativePath}
                   </div>
                 </div>
