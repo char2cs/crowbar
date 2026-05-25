@@ -27,7 +27,7 @@ interface ActionItem {
 }
 
 const newTabRowClassName =
-  "h-auto w-full justify-start gap-3 rounded-md px-3 py-1.5 text-left hover:bg-hover";
+  "h-auto w-full justify-start gap-3 rounded-md px-3 py-1.5 text-left hover:bg-muted";
 
 export function EmptyEditorState() {
   const { openTerminalBuffer, openAgentBuffer, openWebViewerBuffer, openBuffer } =
@@ -186,37 +186,37 @@ export function EmptyEditorState() {
     {
       id: "new-file",
       label: "New File",
-      icon: <Plus className="text-text-light" />,
+      icon: <Plus className="text-muted-foreground" />,
       action: handleNewFile,
     },
     {
       id: "folder",
       label: "Open Folder",
-      icon: <FolderOpen className="text-text-light" />,
+      icon: <FolderOpen className="text-muted-foreground" />,
       action: handleOpenFolder,
     },
     {
       id: "file",
       label: "Open File",
-      icon: <FileText className="text-text-light" />,
+      icon: <FileText className="text-muted-foreground" />,
       action: handleOpenFile,
     },
     {
       id: "terminal",
       label: "New Terminal",
-      icon: <Terminal className="text-text-light" />,
+      icon: <Terminal className="text-muted-foreground" />,
       action: handleOpenTerminal,
     },
     {
       id: "agent",
       label: "New Agent",
-      icon: <Sparkles className="text-text-light" />,
+      icon: <Sparkles className="text-muted-foreground" />,
       action: handleOpenAgent,
     },
     {
       id: "web",
       label: "Open URL",
-      icon: <Globe className="text-text-light" />,
+      icon: <Globe className="text-muted-foreground" />,
       action: handleOpenWebViewer,
     },
   ];
@@ -234,7 +234,7 @@ export function EmptyEditorState() {
             compact
           >
             <span className="shrink-0">{item.icon}</span>
-            <span className="text-text ui-text-xs">{item.label}</span>
+            <span className="text-foreground ui-text-xs">{item.label}</span>
           </Button>
         ))}
 
@@ -252,13 +252,13 @@ export function EmptyEditorState() {
                     onChange={(e) => setInputValue(e.target.value)}
                     onKeyDown={handleKeyDown}
                     onBlur={handleSave}
-                    className="w-full bg-secondary-bg"
+                    className="w-full bg-card"
                   />
                 </div>
               ) : (
                 <div
                   key={action.id}
-                  className="group flex min-w-0 items-center gap-1 rounded-md px-3 py-1.5 hover:bg-hover"
+                  className="group flex min-w-0 items-center gap-1 rounded-md px-3 py-1.5 hover:bg-muted"
                 >
                   <Button
                     type="button"
@@ -269,15 +269,15 @@ export function EmptyEditorState() {
                     compact
                     className="h-auto min-w-0 flex-1 justify-start gap-3 px-0 py-0 hover:bg-transparent"
                   >
-                    <Terminal className="shrink-0 text-text-light" />
-                    <span className="truncate text-text ui-text-xs">{action.name}</span>
+                    <Terminal className="shrink-0 text-muted-foreground" />
+                    <span className="truncate text-foreground ui-text-xs">{action.name}</span>
                   </Button>
                   <Button
                     type="button"
                     onClick={() => handleStartEdit(action.id, action.command)}
                     variant="ghost"
                     compact
-                    className="shrink-0 opacity-0 transition-opacity hover:text-text group-hover:opacity-100"
+                    className="shrink-0 opacity-0 transition-opacity hover:text-foreground group-hover:opacity-100"
                   >
                     <Pencil />
                   </Button>
@@ -308,7 +308,7 @@ export function EmptyEditorState() {
               onChange={(e) => setInputValue(e.target.value)}
               onKeyDown={handleKeyDown}
               onBlur={handleSave}
-              className="w-full bg-secondary-bg"
+              className="w-full bg-card"
             />
           </div>
         ) : (
@@ -319,8 +319,8 @@ export function EmptyEditorState() {
             className={newTabRowClassName}
             compact
           >
-            <Plus className="shrink-0 text-text-lighter" />
-            <span className="text-text-light ui-text-xs">Add custom action...</span>
+            <Plus className="shrink-0 text-muted-foreground" />
+            <span className="text-muted-foreground ui-text-xs">Add custom action...</span>
           </Button>
         )}
       </div>

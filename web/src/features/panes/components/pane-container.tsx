@@ -152,25 +152,25 @@ function BufferPreviewCard({ buffer }: { buffer: PaneRenderBuffer }) {
   const previewLines = summary.split("\n").slice(0, 12);
 
   return (
-    <div className="flex h-full min-h-0 flex-col overflow-hidden bg-primary-bg">
+    <div className="flex h-full min-h-0 flex-col overflow-hidden bg-background">
       <div className="pointer-events-none flex min-h-0 flex-1 overflow-hidden">
-        <div className="flex w-12 shrink-0 flex-col items-end gap-1 border-r border-border/60 bg-secondary-bg/80 px-2 py-4 ui-text-xs leading-5 text-text-lighter">
+        <div className="flex w-12 shrink-0 flex-col items-end gap-1 border-r border-border/60 bg-card/80 px-2 py-4 ui-text-xs leading-5 text-muted-foreground">
           {previewLines.map((_, index) => (
             <span key={`${buffer.id}-line-${index + 1}`}>{index + 1}</span>
           ))}
         </div>
         <div className="min-h-0 flex-1 overflow-hidden p-4">
-          <pre className="h-full overflow-hidden whitespace-pre-wrap break-words ui-text-xs leading-5 text-text-lighter">
+          <pre className="h-full overflow-hidden whitespace-pre-wrap break-words ui-text-xs leading-5 text-muted-foreground">
             {summary}
           </pre>
         </div>
       </div>
 
-      <div className="border-t border-border/60 bg-secondary-bg/80 px-4 py-2">
-        <div className="truncate ui-text-xs font-medium text-text">
+      <div className="border-t border-border/60 bg-card/80 px-4 py-2">
+        <div className="truncate ui-text-xs font-medium text-foreground">
           {buffer.type === "diff" ? formatDiffBufferLabel(buffer.name, buffer.path) : buffer.name}
         </div>
-        <div className="truncate ui-text-xs text-text-lighter">{buffer.path}</div>
+        <div className="truncate ui-text-xs text-muted-foreground">{buffer.path}</div>
       </div>
     </div>
   );
@@ -186,19 +186,19 @@ function PullRequestPreviewCard({ buffer }: { buffer: PullRequestContent }) {
   const authorLogin = details ? details.author.login : null;
 
   return (
-    <div className="flex h-full min-h-0 flex-col overflow-hidden bg-primary-bg">
-      <div className="shrink-0 bg-secondary-bg/60 px-3 py-3">
+    <div className="flex h-full min-h-0 flex-col overflow-hidden bg-background">
+      <div className="shrink-0 bg-card/60 px-3 py-3">
         <div className="flex min-w-0 items-start gap-2">
           <div className="mt-0.5 size-4 shrink-0 rounded-[4px] bg-green-500/80" />
           <div className="min-w-0 flex-1">
             <div className="flex flex-wrap items-center gap-2">
-              <span className="rounded-md border border-border bg-primary-bg/70 px-1.5 py-0.5 editor-font ui-text-xs text-text-lighter">
+              <span className="rounded-md border border-border bg-background/70 px-1.5 py-0.5 editor-font ui-text-xs text-muted-foreground">
                 #{buffer.prNumber ?? "--"}
               </span>
-              <div className="min-w-0 truncate font-medium ui-text-sm text-text">{buffer.name}</div>
+              <div className="min-w-0 truncate font-medium ui-text-sm text-foreground">{buffer.name}</div>
             </div>
-            <div className="mt-2 flex flex-wrap items-center gap-x-3 gap-y-1 ui-text-xs text-text-lighter">
-              <span className="font-medium text-text-light">
+            <div className="mt-2 flex flex-wrap items-center gap-x-3 gap-y-1 ui-text-xs text-muted-foreground">
+              <span className="font-medium text-muted-foreground">
                 {authorLogin ? `@${authorLogin}` : "Pull request"}
               </span>
               <span>{fileCount ?? "--"} files</span>
@@ -206,28 +206,28 @@ function PullRequestPreviewCard({ buffer }: { buffer: PullRequestContent }) {
               <span>{commentCount ?? "--"} comments</span>
             </div>
             <div className="mt-2 flex flex-wrap items-center gap-1.5 ui-text-xs">
-              <span className="rounded-md border border-border bg-primary-bg/70 px-2 py-1 text-text-lighter">
+              <span className="rounded-md border border-border bg-background/70 px-2 py-1 text-muted-foreground">
                 Description
               </span>
-              <span className="rounded-md border border-border bg-primary-bg/70 px-2 py-1 text-text-lighter">
+              <span className="rounded-md border border-border bg-background/70 px-2 py-1 text-muted-foreground">
                 Files
               </span>
-              <span className="rounded-md border border-border bg-primary-bg/70 px-2 py-1 text-text-lighter">
+              <span className="rounded-md border border-border bg-background/70 px-2 py-1 text-muted-foreground">
                 Comments
               </span>
             </div>
           </div>
         </div>
       </div>
-      <div className="min-h-0 flex-1 bg-primary-bg/40 px-3 py-3">
-        <div className="rounded-lg bg-secondary-bg/35 px-3 py-2">
-          <div className="line-clamp-5 ui-text-sm leading-6 text-text-lighter">
+      <div className="min-h-0 flex-1 bg-background/40 px-3 py-3">
+        <div className="rounded-lg bg-card/35 px-3 py-2">
+          <div className="line-clamp-5 ui-text-sm leading-6 text-muted-foreground">
             {details?.body?.trim()
               ? details.body
               : "Activate this card to inspect the full pull request description, changed files, comments, review state, and checkout actions."}
           </div>
         </div>
-        <div className="mt-3 rounded-lg bg-secondary-bg/35 px-3 py-2 ui-text-xs text-text-lighter">
+        <div className="mt-3 rounded-lg bg-card/35 px-3 py-2 ui-text-xs text-muted-foreground">
           {buffer.path}
         </div>
       </div>
@@ -893,7 +893,7 @@ export function PaneContainer({ pane }: PaneContainerProps) {
             const connectionId = buffer.connectionId;
             if (!connectionId) {
               return (
-                <div className="flex h-full items-center justify-center text-text-lighter ui-text-sm">
+                <div className="flex h-full items-center justify-center text-muted-foreground ui-text-sm">
                   Missing database connection
                 </div>
               );
@@ -946,7 +946,7 @@ export function PaneContainer({ pane }: PaneContainerProps) {
       ref={containerRef}
       data-pane-container
       data-pane-id={pane.id}
-      className={`relative flex h-full w-full flex-col overflow-hidden bg-primary-bg ${
+      className={`relative flex h-full w-full flex-col overflow-hidden bg-background ${
         isActivePane ? "ring-1 ring-accent/30" : ""
       } ${isDragOver || internalHoverZone ? "ring-2 ring-accent" : ""}`}
       onMouseDownCapture={handlePaneMouseDownCapture}
@@ -993,8 +993,8 @@ export function PaneContainer({ pane }: PaneContainerProps) {
                     className={cn(
                       "relative h-full shrink-0 overflow-hidden rounded-2xl border text-left transition-[transform,opacity,border-color,box-shadow] duration-200",
                       isActiveBuffer
-                        ? "border-accent/50 bg-primary-bg shadow-[0_0_0_1px_rgba(99,102,241,0.15)]"
-                        : "border-border/70 bg-primary-bg hover:border-border/90",
+                        ? "border-accent/50 bg-background shadow-[0_0_0_1px_rgba(99,102,241,0.15)]"
+                        : "border-border/70 bg-background hover:border-border/90",
                       isDropTarget && "border-accent shadow-[0_0_0_1px_rgba(99,102,241,0.25)]",
                       draggedCarouselBufferId === buffer.id && "opacity-70",
                       isCarouselResizing && "transition-none",

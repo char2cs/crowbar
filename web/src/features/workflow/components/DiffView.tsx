@@ -26,8 +26,8 @@ export function DiffView({ stepId }: DiffViewProps) {
     <div className="flex h-full flex-col items-center justify-center gap-3 text-muted-foreground">
       <FileText className="size-8 opacity-30" />
       <div className="text-center">
-        <p className="text-sm font-medium text-text">{label.title}</p>
-        <p className="mt-1 max-w-xs text-xs text-text-lighter">{label.description}</p>
+        <p className="text-sm font-medium text-foreground">{label.title}</p>
+        <p className="mt-1 max-w-xs text-xs text-muted-foreground">{label.description}</p>
       </div>
     </div>
   )

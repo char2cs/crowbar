@@ -66,7 +66,7 @@ export function PaneNodeRenderer({ node, hiddenPaneId = null }: PaneNodeRenderer
 
   if (node.type === "group") {
     if (hiddenPaneId && node.id === hiddenPaneId) {
-      return <div className="h-full w-full bg-primary-bg" aria-hidden="true" />;
+      return <div className="h-full w-full bg-background" aria-hidden="true" />;
     }
 
     return <PaneContainer pane={node} />;
@@ -96,7 +96,7 @@ export function PaneNodeRenderer({ node, hiddenPaneId = null }: PaneNodeRenderer
                 <PaneNodeRenderer node={entry.node} hiddenPaneId={hiddenPaneId} />
               ) : entry.node.type === "group" ? (
                 entry.node.id === hiddenPaneId ? (
-                  <div className="h-full w-full bg-primary-bg" aria-hidden="true" />
+                  <div className="h-full w-full bg-background" aria-hidden="true" />
                 ) : (
                   <PaneContainer pane={entry.node} />
                 )
