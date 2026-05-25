@@ -37,9 +37,9 @@ import type { PaneGroup } from "../types/pane";
 import type { CrowbarChatContent, EditorContent, NewTabContent, PullRequestContent } from "../types/pane-content";
 import {
   ensureBufferInPaneDropTarget,
-  getOrCreatePaneDropTarget,
   moveBufferToPaneDropTarget,
 } from "../utils/pane-drop-actions";
+import { getPaneSplitDropOptions } from "../utils/pane-drop-zones";
 import { type DropZone, SplitDropOverlay } from "./split-drop-overlay";
 
 const AgentTab = lazy(() =>
@@ -345,8 +345,11 @@ export function PaneContainer({ pane }: PaneContainerProps) {
       const target = resolveDropTarget(point);
       if (target.paneId !== pane.id) return;
 
-      const targetPaneId = getOrCreatePaneDropTarget({ paneId: pane.id, zone: target.zone });
-      if (!targetPaneId) return;
+      // Use workspace store for split creation so the new pane renders correctly.
+      const splitOptions = getPaneSplitDropOptions(target.zone);
+      const targetPaneId = splitOptions
+        ? workspaceStore.getState().paneActions.splitPane(pane.id, splitOptions.direction, undefined, splitOptions.placement) ?? pane.id
+        : pane.id;
 
       activatePaneAndSyncBuffer(targetPaneId);
 
@@ -354,8 +357,9 @@ export function PaneContainer({ pane }: PaneContainerProps) {
         await handleFileOpen(fileDragData.path, false);
         const openedBufferId = workspaceStore.getState().paneActions.getActivePane()?.activeBufferId ?? null;
         if (openedBufferId) {
-          ensureBufferInPaneDropTarget(openedBufferId, { paneId: targetPaneId, zone: "center" });
-          activateBufferInPaneAndSync(targetPaneId, openedBufferId);
+          workspaceStore.getState().paneActions.addBufferToPane(targetPaneId, openedBufferId, true);
+          workspaceStore.getState().paneActions.activatePaneBuffer(targetPaneId, openedBufferId);
+          activateBufferInPaneAndSync(targetPaneId, openedBufferId); // sync legacy buffer store for CodeEditor
         }
       } catch (error) {
         console.error("Failed to open file from file tree drop:", error);
@@ -363,7 +367,7 @@ export function PaneContainer({ pane }: PaneContainerProps) {
         delete window.__fileDragData;
       }
     },
-    [handleFileOpen, pane.id],
+    [handleFileOpen, pane.id, workspaceStore],
   );
 
   const openSidebarResourceInPane = useCallback(
@@ -373,10 +377,14 @@ export function PaneContainer({ pane }: PaneContainerProps) {
       const target = resolveDropTarget(point);
       if (target.paneId !== pane.id) return;
 
-      const targetPaneId = opensBuffer
-        ? getOrCreatePaneDropTarget({ paneId: pane.id, zone: target.zone })
-        : pane.id;
-      if (!targetPaneId) return;
+      // Use workspace store for split creation so the new pane renders correctly.
+      let targetPaneId = pane.id;
+      if (opensBuffer) {
+        const splitOptions = getPaneSplitDropOptions(target.zone);
+        if (splitOptions) {
+          targetPaneId = workspaceStore.getState().paneActions.splitPane(pane.id, splitOptions.direction, undefined, splitOptions.placement) ?? pane.id;
+        }
+      }
 
       activatePaneAndSyncBuffer(targetPaneId);
 
@@ -384,13 +392,14 @@ export function PaneContainer({ pane }: PaneContainerProps) {
         const bufferId = await openSidebarResourceBuffer(resource);
         if (!bufferId) return;
 
-        ensureBufferInPaneDropTarget(bufferId, { paneId: targetPaneId, zone: "center" });
-        activateBufferInPaneAndSync(targetPaneId, bufferId);
+        workspaceStore.getState().paneActions.addBufferToPane(targetPaneId, bufferId, true);
+        workspaceStore.getState().paneActions.activatePaneBuffer(targetPaneId, bufferId);
+        activateBufferInPaneAndSync(targetPaneId, bufferId); // sync legacy buffer store for CodeEditor
       } catch (error) {
         console.error("Failed to open sidebar resource from drop:", error);
       }
     },
-    [pane.id],
+    [pane.id, workspaceStore],
   );
 
   const getCarouselWidthBounds = useCallback(() => {
@@ -643,7 +652,18 @@ export function PaneContainer({ pane }: PaneContainerProps) {
         return;
       }
 
-      const newPaneId = getOrCreatePaneDropTarget({ paneId: pane.id, zone });
+      // Create the new pane in the workspace store (the authoritative UI source).
+      // The legacy usePaneStore utility (getOrCreatePaneDropTarget) wrote to a separate
+      // standalone store that the render tree no longer reads — the split would fire but
+      // nothing would appear. Using workspaceStore directly fixes the rendering.
+      const splitOptions = getPaneSplitDropOptions(zone);
+      if (!splitOptions) return; // non-center zone always has valid split options
+      const newPaneId = workspaceStore.getState().paneActions.splitPane(
+        pane.id,
+        splitOptions.direction,
+        undefined,
+        splitOptions.placement,
+      );
       if (!newPaneId) return;
 
       // Move the dragged buffer into the newly created pane.
@@ -662,14 +682,18 @@ export function PaneContainer({ pane }: PaneContainerProps) {
           }),
         );
       } else if (sourcePaneId && sourcePaneId !== pane.id && bufferId) {
-        moveBufferToPaneDropTarget(bufferId, sourcePaneId, { paneId: newPaneId, zone: "center" });
-        activateBufferInPaneAndSync(newPaneId, bufferId);
+        // Move from a different source pane into the new split pane
+        workspaceStore.getState().paneActions.moveBufferToPane(bufferId, sourcePaneId, newPaneId);
+        workspaceStore.getState().paneActions.activatePaneBuffer(newPaneId, bufferId);
+        activateBufferInPaneAndSync(newPaneId, bufferId); // sync legacy buffer store for CodeEditor
       } else if (bufferId) {
-        moveBufferToPaneDropTarget(bufferId, pane.id, { paneId: newPaneId, zone: "center" });
-        activateBufferInPaneAndSync(newPaneId, bufferId);
+        // Move from this pane into the new split pane
+        workspaceStore.getState().paneActions.moveBufferToPane(bufferId, pane.id, newPaneId);
+        workspaceStore.getState().paneActions.activatePaneBuffer(newPaneId, bufferId);
+        activateBufferInPaneAndSync(newPaneId, bufferId); // sync legacy buffer store for CodeEditor
       }
     },
-    [pane.id, openTerminalBuffer],
+    [pane.id, openTerminalBuffer, workspaceStore],
   );
 
   // Handle mouse up for file tree drag (which uses mouse events, not HTML5 drag API)
