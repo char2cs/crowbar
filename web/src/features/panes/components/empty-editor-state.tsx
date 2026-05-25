@@ -15,6 +15,7 @@ import { readFileContent } from "@/features/file-system/controllers/file-operati
 import { openFile } from "@/features/file-system/controllers/platform";
 import { useFileSystemStore } from "@/features/file-system/controllers/store";
 import { useCustomActionsStore } from "@/features/terminal/stores/custom-actions-store";
+import { useBufferActions } from "@/features/workspace/stores/hooks/use-buffer-store";
 import { Button } from "@/components/ui/button";
 import { ContextMenu, useContextMenu, type ContextMenuItem } from "@/components/ui/context-menu";
 import Input from "@/components/ui/input";
@@ -30,8 +31,8 @@ const newTabRowClassName =
   "h-auto w-full justify-start gap-3 rounded-md px-3 py-1.5 text-left hover:bg-muted";
 
 export function EmptyEditorState() {
-  const { openTerminalBuffer, openAgentBuffer, openWebViewerBuffer, openBuffer } =
-    useBufferStore.use.actions();
+  const { openBuffer } = useBufferStore.use.actions();
+  const bufferActions = useBufferActions();
   const handleOpenFolder = useFileSystemStore.use.handleOpenFolder();
   const rootFolderPath = useFileSystemStore((state) => state.rootFolderPath);
 
@@ -51,21 +52,22 @@ export function EmptyEditorState() {
   const inputRef = useRef<HTMLInputElement>(null);
 
   const handleOpenTerminal = useCallback(() => {
-    openTerminalBuffer();
-  }, [openTerminalBuffer]);
+    bufferActions.openContent({ type: 'terminal' });
+  }, [bufferActions]);
 
   const handleOpenAgent = useCallback(() => {
-    openAgentBuffer();
-  }, [openAgentBuffer]);
+    bufferActions.openContent({ type: 'agent' });
+  }, [bufferActions]);
 
   const handleOpenWebViewer = useCallback(() => {
-    openWebViewerBuffer("https://");
-  }, [openWebViewerBuffer]);
+    bufferActions.openContent({ type: 'webViewer', url: 'https://' });
+  }, [bufferActions]);
 
   const handleNewFile = useCallback(() => {
     const id = `untitled-${Date.now()}`;
     openBuffer(id, "Untitled", "", false, undefined, false, true);
-  }, [openBuffer]);
+    bufferActions.registerExternalBuffer(id, id, "Untitled", false);
+  }, [bufferActions, openBuffer]);
 
   const handleOpenFile = useCallback(async () => {
     try {
@@ -73,12 +75,13 @@ export function EmptyEditorState() {
       if (selected && typeof selected === "string") {
         const fileName = selected.split("/").pop() || selected;
         const content = await readFileContent(selected);
-        openBuffer(selected, fileName, content);
+        const bufferId = openBuffer(selected, fileName, content);
+        bufferActions.registerExternalBuffer(bufferId, selected, fileName, false);
       }
     } catch (error) {
       console.error("Failed to open file:", error);
     }
-  }, [openBuffer]);
+  }, [bufferActions, openBuffer]);
 
   const handleStartAdd = useCallback(() => {
     setIsAddingAction(true);
@@ -263,7 +266,7 @@ export function EmptyEditorState() {
                   <Button
                     type="button"
                     onClick={() =>
-                      openTerminalBuffer({ name: action.name, command: action.command })
+                      bufferActions.openContent({ type: 'terminal', name: action.name, command: action.command })
                     }
                     variant="ghost"
                     compact

@@ -1,6 +1,6 @@
 import type { StateCreator } from 'zustand'
 import type { WorkspaceState } from '../workspace-store.types'
-import type { PaneContent, EditorContent, CrowbarChatContent, DiffContent, TerminalContent, WebViewerContent } from '@/features/panes/types/pane-content'
+import type { PaneContent, EditorContent, CrowbarChatContent, DiffContent, TerminalContent, WebViewerContent, AgentContent } from '@/features/panes/types/pane-content'
 import { nanoid } from 'nanoid'
 
 // ── Open spec union ──────────────────────────────────────────────────
@@ -38,6 +38,10 @@ export type OurOpenContentSpec =
       type: 'webViewer'
       url: string
       name?: string
+    }
+  | {
+      type: 'agent'
+      sessionId?: string
     }
 
 // ── Actions ──────────────────────────────────────────────────────────
@@ -96,6 +100,12 @@ export const createBufferSlice: StateCreator<
         if (spec.type === 'webViewer') {
           return get().buffers.find(
             b => b.type === 'webViewer' && (b as WebViewerContent).url === spec.url,
+          )
+        }
+        // Agent: deduplicate by sessionId when provided
+        if (spec.type === 'agent' && spec.sessionId) {
+          return get().buffers.find(
+            b => b.type === 'agent' && (b as AgentContent).sessionId === spec.sessionId,
           )
         }
         return undefined
@@ -192,6 +202,21 @@ export const createBufferSlice: StateCreator<
           url: spec.url,
           path: `web-viewer://${spec.url}`,
           name: displayName,
+          isPinned: false,
+          isPreview: false,
+          isActive: false,
+        }
+        set(state => { state.buffers.push(buf as any) })
+        get().paneActions.addBufferToPane(get().activePaneId, id, true)
+      } else if (spec.type === 'agent') {
+        const agentCount = get().buffers.filter(b => b.type === 'agent').length
+        const sessionId = spec.sessionId ?? nanoid()
+        const buf: AgentContent = {
+          id,
+          type: 'agent',
+          sessionId,
+          path: `agent://${sessionId}`,
+          name: `Agent ${agentCount + 1}`,
           isPinned: false,
           isPreview: false,
           isActive: false,
