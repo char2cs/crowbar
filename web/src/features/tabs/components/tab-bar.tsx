@@ -732,7 +732,7 @@ const TabBar = ({
         <div
           ref={tabBarRef}
           data-tab-bar-pane-id={paneId ?? ""}
-          className="relative flex h-7 shrink-0 items-center gap-1 overflow-hidden bg-primary-bg px-1.5 py-0.5"
+          className="relative flex h-7 shrink-0 items-center gap-1 overflow-hidden bg-background px-1.5 py-0.5"
           role="tablist"
           aria-label="Open files"
           onWheel={handleWheel}
@@ -743,7 +743,7 @@ const TabBar = ({
               onClick={handleJumpBack}
               disabled={!canGoBack}
               variant="ghost"
-              className="h-5 min-w-5 shrink-0 rounded-md px-1 text-text-lighter"
+              className="h-5 min-w-5 shrink-0 rounded-md px-1 text-muted-foreground"
               tooltip="Go Back"
               tooltipSide="bottom"
               commandId="navigation.goBack"
@@ -757,7 +757,7 @@ const TabBar = ({
               onClick={handleJumpForward}
               disabled={!canGoForward}
               variant="ghost"
-              className="h-5 min-w-5 shrink-0 rounded-md px-1 text-text-lighter"
+              className="h-5 min-w-5 shrink-0 rounded-md px-1 text-muted-foreground"
               tooltip="Go Forward"
               tooltipSide="bottom"
               commandId="navigation.goForward"
@@ -803,7 +803,7 @@ const TabBar = ({
                 onClick={handleShowNewTab}
                 variant="ghost"
                 compact
-                className="h-5 min-w-5 shrink-0 rounded-md px-1 text-text-lighter"
+                className="h-5 min-w-5 shrink-0 rounded-md px-1 text-muted-foreground"
                 tooltip="New Tab"
                 tooltipSide="bottom"
                 aria-label="New tab"
@@ -817,7 +817,7 @@ const TabBar = ({
                 onClick={() => closePane(paneId)}
                 variant="ghost"
                 compact
-                className="h-5 min-w-5 shrink-0 rounded-md px-1 text-text-lighter"
+                className="h-5 min-w-5 shrink-0 rounded-md px-1 text-muted-foreground"
                 tooltip="Close Split"
                 tooltipSide="bottom"
                 aria-label="Close split pane"
@@ -833,7 +833,7 @@ const TabBar = ({
                 className={
                   isPaneLocked
                     ? "h-5 min-w-5 shrink-0 rounded-md px-1 text-accent"
-                    : "h-5 min-w-5 shrink-0 rounded-md px-1 text-text-lighter"
+                    : "h-5 min-w-5 shrink-0 rounded-md px-1 text-muted-foreground"
                 }
                 tooltip={isPaneLocked ? "Unlock Editor Group" : "Lock Editor Group"}
                 tooltipSide="bottom"
@@ -848,7 +848,7 @@ const TabBar = ({
                 type="button"
                 onClick={handleTogglePaneFullscreen}
                 variant="ghost"
-                className="h-5 min-w-5 shrink-0 rounded-md px-1 text-text-lighter"
+                className="h-5 min-w-5 shrink-0 rounded-md px-1 text-muted-foreground"
                 tooltip={isPaneFullscreen ? "Exit Full Screen" : "Full Screen Editor"}
                 tooltipSide="bottom"
                 aria-label="Toggle editor full screen"
@@ -862,8 +862,8 @@ const TabBar = ({
 
         <DragOverlay dropAnimation={null}>
           {draggedBuffer ? (
-            <div className="tab-drag-preview ui-font flex items-center gap-1.5 rounded-lg border border-border/70 bg-primary-bg/95 px-2 py-1 ui-text-xs opacity-95 shadow-sm">
-              <span className="max-w-[200px] truncate text-text">{draggedBuffer.name}</span>
+            <div className="tab-drag-preview ui-font flex items-center gap-1.5 rounded-lg border border-border/70 bg-background/95 px-2 py-1 ui-text-xs opacity-95 shadow-sm">
+              <span className="max-w-[200px] truncate text-foreground">{draggedBuffer.name}</span>
             </div>
           ) : null}
         </DragOverlay>

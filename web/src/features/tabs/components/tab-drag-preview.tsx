@@ -13,26 +13,26 @@ const TabDragPreview = ({ x, y, buffer }: TabDragPreviewProps) => (
     className="pointer-events-none fixed z-50"
     style={{ left: x, top: y, transform: "translate(0, 0)" }}
   >
-    <div className="tab-drag-preview ui-font flex items-center gap-1.5 rounded-lg border border-border/70 bg-primary-bg/95 px-2 py-1 ui-text-xs opacity-95 shadow-sm">
+    <div className="tab-drag-preview ui-font flex items-center gap-1.5 rounded-lg border border-border/70 bg-background/95 px-2 py-1 ui-text-xs opacity-95 shadow-sm">
       <span className="grid size-3 shrink-0 place-content-center">
         {buffer.path === "extensions://marketplace" ? (
           <Package className="text-accent" />
         ) : buffer.type === "database" ? (
-          <Database className="text-text-lighter" />
+          <Database className="text-muted-foreground" />
         ) : (
           <FileExplorerIcon
             fileName={buffer.name}
             isDir={false}
-            className="text-text-lighter"
+            className="text-muted-foreground"
             size={12}
           />
         )}
       </span>
       {buffer.isPinned && <Pin className="shrink-0 text-accent" />}
-      <span className="max-w-[200px] truncate text-text">
+      <span className="max-w-[200px] truncate text-foreground">
         {buffer.name}
         {buffer.type === "editor" && buffer.isDirty && (
-          <span className="ml-1 text-text-lighter">•</span>
+          <span className="ml-1 text-muted-foreground">•</span>
         )}
       </span>
     </div>

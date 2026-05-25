@@ -108,7 +108,7 @@ const TabBarItem = memo(function TabBarItem({
         tabIndex={isActive ? 0 : -1}
         isActive={isActive}
         isDragged={isDraggedTab}
-        className={cn("h-5 pl-2 pr-6", isActive && "bg-hover/80")}
+        className={cn("h-5 pl-2 pr-6", isActive && "bg-muted/80")}
         onClick={onClick}
         onMouseDown={onMouseDown}
         onDoubleClick={onDoubleClick}
@@ -118,13 +118,13 @@ const TabBarItem = memo(function TabBarItem({
       >
         <div className="grid size-3 shrink-0 place-content-center">
           {buffer.path === "extensions://marketplace" ? (
-            <Package className="text-text-lighter" />
+            <Package className="text-muted-foreground" />
           ) : buffer.type === "diff" && isMultiFileDiff(buffer.diffData) ? (
-            <GitBranch className="text-text-lighter" />
+            <GitBranch className="text-muted-foreground" />
           ) : buffer.type === "terminal" ? (
-            <Terminal className="text-text-lighter" />
+            <Terminal className="text-muted-foreground" />
           ) : buffer.type === "agent" ? (
-            <Sparkles className="text-text-lighter" />
+            <Sparkles className="text-muted-foreground" />
           ) : buffer.type === "webViewer" ? (
             buffer.favicon && !faviconError ? (
               <img
@@ -134,10 +134,10 @@ const TabBarItem = memo(function TabBarItem({
                 onError={() => setFaviconError(true)}
               />
             ) : (
-              <Globe className="text-text-lighter" />
+              <Globe className="text-muted-foreground" />
             )
           ) : buffer.type === "database" ? (
-            <Database className="text-text-lighter" />
+            <Database className="text-muted-foreground" />
           ) : buffer.type === "pullRequest" ? (
             buffer.authorAvatarUrl ? (
               <img
@@ -147,7 +147,7 @@ const TabBarItem = memo(function TabBarItem({
                 loading="lazy"
               />
             ) : (
-              <GitPullRequest className="text-text-lighter" />
+              <GitPullRequest className="text-muted-foreground" />
             )
           ) : buffer.type === "githubIssue" ? (
             buffer.authorAvatarUrl ? (
@@ -158,21 +158,21 @@ const TabBarItem = memo(function TabBarItem({
                 loading="lazy"
               />
             ) : (
-              <MessageSquare className="text-text-lighter" />
+              <MessageSquare className="text-muted-foreground" />
             )
           ) : buffer.type === "githubAction" ? (
-            <Activity className="text-text-lighter" />
+            <Activity className="text-muted-foreground" />
           ) : buffer.type === "globalSearch" ? (
-            <Search className="text-text-lighter" />
+            <Search className="text-muted-foreground" />
           ) : buffer.type === "diagnostics" ? (
-            <WarningCircle className="text-text-lighter" />
+            <WarningCircle className="text-muted-foreground" />
           ) : buffer.type === "references" ? (
-            <Search className="text-text-lighter" />
+            <Search className="text-muted-foreground" />
           ) : (
             <FileExplorerIcon
               fileName={getDiffIconName() ?? buffer.name}
               isDir={false}
-              className="text-text-lighter"
+              className="text-muted-foreground"
               size={12}
             />
           )}
@@ -180,7 +180,7 @@ const TabBarItem = memo(function TabBarItem({
         <span
           className={cn(
             "ui-font ui-text-sm min-w-0 flex-1 overflow-hidden text-ellipsis whitespace-nowrap",
-            isActive ? "text-text" : "text-text-lighter",
+            isActive ? "text-foreground" : "text-muted-foreground",
             buffer.isPreview && "italic",
           )}
           title={buffer.path}
@@ -213,8 +213,8 @@ const TabBarItem = memo(function TabBarItem({
           }
         }}
         className={cn(
-          "-translate-y-1/2 absolute top-1/2 right-1 h-4 min-w-4 cursor-pointer select-none rounded-sm px-0 text-text-lighter transition-opacity",
-          "hover:text-text",
+          "-translate-y-1/2 absolute top-1/2 right-1 h-4 min-w-4 cursor-pointer select-none rounded-sm px-0 text-muted-foreground transition-opacity",
+          "hover:text-foreground",
           buffer.isPinned || isActive ? "opacity-100" : "opacity-0 group-hover/tab:opacity-100",
         )}
         tooltip={buffer.isPinned ? "Unpin tab" : "Close"}
