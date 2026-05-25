@@ -42,14 +42,12 @@ interface SettingsActionsParams {
 
 const settingsTabLabels: Record<SettingsTab, string> = {
   account: "Account",
-  general: "General",
   editor: "Editor",
   git: "Git",
   appearance: "Appearance",
   databases: "Database",
   extensions: "Extensions",
   ai: "AI",
-  keyboard: "Keybindings",
   language: "Editor",
   features: "Features",
   collaboration: "Collaboration",

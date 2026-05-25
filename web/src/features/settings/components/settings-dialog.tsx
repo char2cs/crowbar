@@ -51,9 +51,7 @@ const SettingsDialog = ({ isOpen, onClose }: SettingsDialogProps) => {
         setActiveTab("editor");
       } else if (
         (!hasEnterpriseAccess && settingsInitialTab === "enterprise") ||
-        (!hasTeamsAccess && settingsInitialTab === "collaboration") ||
-        settingsInitialTab === "general" ||
-        settingsInitialTab === "keyboard"
+        (!hasTeamsAccess && settingsInitialTab === "collaboration")
       ) {
         setActiveTab("appearance");
       } else {

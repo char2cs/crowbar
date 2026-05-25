@@ -3,10 +3,8 @@ import { create } from 'zustand'
 import type { SidebarView } from "@/features/layout/utils/sidebar-pane-utils"
 
 export type SettingsTab =
-  | "general"
   | "editor"
   | "appearance"
-  | "keyboard"
   | "terminal"
   | "git"
   | "account"

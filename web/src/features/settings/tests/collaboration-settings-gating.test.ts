@@ -3,7 +3,6 @@ import type { SettingsTab } from "@/features/window/stores/ui-state-store";
 import { filterVisibleSettingsTabs } from "../lib/settings-tab-visibility";
 
 const tabs = [
-  { id: "general" },
   { id: "account" },
   { id: "collaboration" },
   { id: "enterprise" },
