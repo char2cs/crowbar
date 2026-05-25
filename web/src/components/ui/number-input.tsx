@@ -158,7 +158,7 @@ export default function NumberInput({
           controlFieldSizeVariants({ size }),
           numberInputTextSize[size],
           numberInputFieldPadding[size],
-          "min-w-[5ch] flex-1 bg-transparent text-center tabular-nums text-text outline-none placeholder:text-text-lighter",
+          "min-w-[5ch] flex-1 bg-transparent text-center tabular-nums text-foreground outline-none placeholder:text-muted-foreground",
         )}
       />
 

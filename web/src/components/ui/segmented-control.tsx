@@ -31,7 +31,7 @@ export function SegmentedControl({
       className={
         className ??
         (wrap
-          ? "inline-flex h-auto max-w-full flex-wrap items-stretch gap-1 overflow-visible self-start rounded-xl border border-border/60 bg-secondary-bg/40 p-1"
+          ? "inline-flex h-auto max-w-full flex-wrap items-stretch gap-1 overflow-visible self-start rounded-xl border border-border/60 bg-card/40 p-1"
           : "inline-flex w-fit max-w-full self-start")
       }
     >

@@ -43,11 +43,11 @@ interface SearchPopoverProps {
 }
 
 const searchSurfaceVariants = cva(
-  "w-[320px] rounded-xl border border-border/70 bg-primary-bg/95 p-1.5 shadow-[0_16px_36px_-28px_rgba(0,0,0,0.55)] backdrop-blur-sm",
+  "w-[320px] rounded-xl border border-border/70 bg-background/95 p-1.5 shadow-[0_16px_36px_-28px_rgba(0,0,0,0.55)] backdrop-blur-sm",
 );
 
 const searchIconButtonVariants = cva(
-  "flex size-6 items-center justify-center rounded-lg border border-transparent text-text-lighter transition-colors hover:border-border/70 hover:bg-hover hover:text-text",
+  "flex size-6 items-center justify-center rounded-lg border border-transparent text-muted-foreground transition-colors hover:border-border/70 hover:bg-muted hover:text-foreground",
   {
     variants: {
       disabled: {
@@ -62,12 +62,12 @@ const searchIconButtonVariants = cva(
 );
 
 const searchToggleButtonVariants = cva(
-  "flex size-6 items-center justify-center rounded-lg border border-transparent transition-colors hover:border-border/70 hover:bg-hover",
+  "flex size-6 items-center justify-center rounded-lg border border-transparent transition-colors hover:border-border/70 hover:bg-muted",
   {
     variants: {
       active: {
-        true: "border-border/70 bg-hover text-text",
-        false: "text-text-lighter",
+        true: "border-border/70 bg-muted text-foreground",
+        false: "text-muted-foreground",
       },
     },
     defaultVariants: {
@@ -77,7 +77,7 @@ const searchToggleButtonVariants = cva(
 );
 
 const searchActionButtonVariants = cva(
-  "ui-font ui-text-sm flex h-8 items-center justify-center rounded-lg border border-transparent px-2.5 text-text-lighter transition-colors hover:border-border/70 hover:bg-hover hover:text-text",
+  "ui-font ui-text-sm flex h-8 items-center justify-center rounded-lg border border-transparent px-2.5 text-muted-foreground transition-colors hover:border-border/70 hover:bg-muted hover:text-foreground",
   {
     variants: {
       disabled: {
@@ -115,7 +115,7 @@ export function SearchPopover({
         {leadingControl}
 
         <div className="relative min-w-0 flex-1">
-          <Search className="-translate-y-1/2 pointer-events-none absolute top-1/2 left-2.5 text-text-lighter" />
+          <Search className="-translate-y-1/2 pointer-events-none absolute top-1/2 left-2.5 text-muted-foreground" />
           <Input
             ref={inputRef}
             type="text"
@@ -123,7 +123,7 @@ export function SearchPopover({
             onChange={(event) => onChange(event.target.value)}
             onKeyDown={onKeyDown}
             placeholder={placeholder}
-            className="ui-text-sm h-8 rounded-lg border-border/80 bg-primary-bg py-1 pr-8 pl-8"
+            className="ui-text-sm h-8 rounded-lg border-border/80 bg-background py-1 pr-8 pl-8"
           />
           {value && (
             <Button
@@ -143,7 +143,7 @@ export function SearchPopover({
           <span
             className={cn(
               "ui-font ui-text-sm shrink-0",
-              matchTone === "warning" ? "text-amber-400" : "text-text-lighter",
+              matchTone === "warning" ? "text-amber-400" : "text-muted-foreground",
             )}
           >
             {matchLabel}
@@ -279,7 +279,7 @@ export function SearchReplaceRow({
 }) {
   return (
     <div className="flex items-center gap-1.5 border-border/60 border-t pt-1.5">
-      <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg border border-border/70 bg-primary-bg text-text-lighter">
+      <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg border border-border/70 bg-background text-muted-foreground">
         <Replace />
       </span>
 
@@ -290,7 +290,7 @@ export function SearchReplaceRow({
         onChange={(event) => onChange(event.target.value)}
         onKeyDown={onKeyDown}
         placeholder="Replace with..."
-        className="ui-text-sm h-8 flex-1 rounded-lg border-border/80 bg-primary-bg py-1"
+        className="ui-text-sm h-8 flex-1 rounded-lg border-border/80 bg-background py-1"
       />
 
       <Button
@@ -344,7 +344,7 @@ export function SearchInput({
   return (
     <div className={cn("flex min-w-0 flex-1 items-center gap-1.5", className)}>
       <div className="relative min-w-0 flex-1">
-        <Search className="-translate-y-1/2 pointer-events-none absolute top-1/2 left-2.5 text-text-lighter" />
+        <Search className="-translate-y-1/2 pointer-events-none absolute top-1/2 left-2.5 text-muted-foreground" />
         <Input
           ref={inputRef}
           type="text"
@@ -352,7 +352,7 @@ export function SearchInput({
           onChange={(event) => onChange(event.target.value)}
           onKeyDown={onKeyDown}
           placeholder={placeholder}
-          className="ui-text-sm h-8 rounded-lg border-border/80 bg-primary-bg py-1 pr-8 pl-8"
+          className="ui-text-sm h-8 rounded-lg border-border/80 bg-background py-1 pr-8 pl-8"
         />
         {value && (
           <Button
@@ -391,7 +391,7 @@ export function SearchInput({
       )}
 
       {matchLabel && (
-        <span className="ui-font ui-text-sm shrink-0 text-text-lighter">{matchLabel}</span>
+        <span className="ui-font ui-text-sm shrink-0 text-muted-foreground">{matchLabel}</span>
       )}
 
       {extraActions}

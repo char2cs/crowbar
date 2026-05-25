@@ -22,23 +22,23 @@ export const DROPDOWN_TRIGGER_BASE = cn(
   buttonVariants({
     variant: "default",
   }),
-  "min-w-0 gap-1 rounded-lg px-2 text-text-lighter",
+  "min-w-0 gap-1 rounded-lg px-2 text-muted-foreground",
 );
 
 const dropdownRootVariants = cva(
-  "pointer-events-auto fixed z-[10040] min-w-[240px] max-w-[min(480px,calc(100vw-16px))] select-none overflow-y-auto rounded-xl border border-border bg-secondary-bg/95 p-1 shadow-[0_14px_30px_-24px_rgba(0,0,0,0.45)] backdrop-blur-sm [overscroll-behavior:contain]",
+  "pointer-events-auto fixed z-[10040] min-w-[240px] max-w-[min(480px,calc(100vw-16px))] select-none overflow-y-auto rounded-xl border border-border bg-card/95 p-1 shadow-[0_14px_30px_-24px_rgba(0,0,0,0.45)] backdrop-blur-sm [overscroll-behavior:contain]",
 );
 
 const dropdownItemVariants = cva(
-  "ui-font ui-text-sm flex w-full items-center justify-between gap-3 whitespace-nowrap rounded-lg px-2.5 py-1.5 text-left text-text transition-colors",
+  "ui-font ui-text-sm flex w-full items-center justify-between gap-3 whitespace-nowrap rounded-lg px-2.5 py-1.5 text-left text-foreground transition-colors",
   {
     variants: {
       disabled: {
         true: "cursor-not-allowed opacity-50",
-        false: "cursor-pointer hover:bg-hover",
+        false: "cursor-pointer hover:bg-muted",
       },
       focused: {
-        true: "bg-hover",
+        true: "bg-muted",
         false: "",
       },
     },
@@ -49,7 +49,7 @@ const dropdownItemVariants = cva(
   },
 );
 
-const dropdownSectionLabelVariants = cva("ui-font ui-text-sm px-2.5 py-1 text-text-lighter");
+const dropdownSectionLabelVariants = cva("ui-font ui-text-sm px-2.5 py-1 text-muted-foreground");
 
 export const DROPDOWN_ITEM_BASE = dropdownItemVariants();
 
@@ -214,7 +214,7 @@ export function MenuItemsList({
             {item.icon && <span className="size-3 shrink-0">{item.icon}</span>}
             <span className="min-w-0 flex-1 truncate whitespace-nowrap">{item.label}</span>
             {item.keybinding && (
-              <span className="ui-text-sm ml-8 shrink-0 whitespace-nowrap text-text-lighter">
+              <span className="ui-text-sm ml-8 shrink-0 whitespace-nowrap text-muted-foreground">
                 {item.keybinding}
               </span>
             )}

@@ -19,7 +19,7 @@ export function LoadingIndicator({
   return (
     <div
       className={cn(
-        "editor-font inline-flex items-center gap-2 text-text-lighter",
+        "editor-font inline-flex items-center gap-2 text-muted-foreground",
         compact ? "ui-text-xs" : "ui-text-sm",
         className,
       )}
