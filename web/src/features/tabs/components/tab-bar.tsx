@@ -62,7 +62,7 @@ import { useBuffers, useBufferActions } from "@/features/workspace/stores/hooks/
 import { useWorkspaceStoreContext } from "@/features/workspace/stores/workspace-context";
 import { activateBufferInPaneAndSync } from "@/features/panes/utils/pane-activation";
 import { splitEditorGroup } from "@/features/panes/utils/pane-command-actions";
-import { moveBufferToPaneDropTarget } from "@/features/panes/utils/pane-drop-actions";
+import { getPaneSplitDropOptions } from "@/features/panes/utils/pane-drop-zones";
 import { findPaneGroup } from "@/features/panes/utils/pane-tree";
 import { useSettingsStore } from "@/features/settings/store";
 import type { PaneContent } from "@/features/panes/types/pane-content";
@@ -102,7 +102,7 @@ const TabBar = ({
   const paneRoot = usePaneRoot();
   const bottomRoot = useBottomRoot();
   const fullscreenPaneId = useFullscreenPaneId();
-  const { closePane, setActivePane, togglePaneFullscreen, activatePaneBuffer, removeBufferFromPane } = usePaneActions();
+  const { closePane, setActivePane, togglePaneFullscreen, activatePaneBuffer, removeBufferFromPane, splitPane, moveBufferToPane } = usePaneActions();
   const { closeBuffer } = useBufferActions();
   // setPaneLocked: not yet in workspace pane-slice — noop until migrated
   const setPaneLocked = (_paneId: string, _locked: boolean) => {};
@@ -598,17 +598,19 @@ const TabBar = ({
         target.paneId &&
         (target.paneId !== paneId || (target.zone && target.zone !== "center"))
       ) {
-        const preserveEmptySource = target.paneId === paneId;
-        const destinationPaneId = moveBufferToPaneDropTarget(
-          dragged.id,
-          paneId,
-          { paneId: target.paneId, zone: target.zone },
-          preserveEmptySource,
-        );
+        const splitOptions = target.zone ? getPaneSplitDropOptions(target.zone) : null;
+        let destinationPaneId: string | null;
+        if (splitOptions && target.paneId) {
+          destinationPaneId = splitPane(target.paneId, splitOptions.direction, undefined, splitOptions.placement) ?? null;
+        } else {
+          destinationPaneId = target.paneId ?? null;
+        }
         if (!destinationPaneId) {
           resetDrag();
           return;
         }
+        if (paneId) moveBufferToPane(dragged.id, paneId, destinationPaneId);
+        activatePaneBuffer(destinationPaneId, dragged.id);
         activateBufferInPaneAndSync(destinationPaneId, dragged.id);
         if (destinationPaneId === BOTTOM_PANE_ID) {
           useUIState.getState().setBottomPaneActiveTab("buffers");
@@ -627,7 +629,7 @@ const TabBar = ({
 
       resetDrag();
     },
-    [handleTabClick, paneId, reorderBuffers, resetDrag, sortedBuffers],
+    [activatePaneBuffer, handleTabClick, moveBufferToPane, paneId, reorderBuffers, resetDrag, sortedBuffers, splitPane],
   );
 
   useEffect(() => {
