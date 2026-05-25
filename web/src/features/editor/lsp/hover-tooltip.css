@@ -4,7 +4,7 @@
 }
 
 .hover-tooltip-content {
-  font-family: var(--app-font-family);
+  font-family: var(--font-sans);
   font-size: var(--hover-tooltip-font-size, var(--ui-text-sm));
   line-height: var(--hover-tooltip-line-height, 20px);
   max-width: 100%;
@@ -17,7 +17,7 @@
 
 /* Code blocks: subtle background, no border — must override .markdown-preview pre */
 .hover-tooltip-content.markdown-preview pre {
-  background: color-mix(in srgb, var(--color-hover) 50%, transparent);
+  background: color-mix(in srgb, var(--accent) 50%, transparent);
   border: none;
   border-radius: 6px;
   margin: 0.25em 0;

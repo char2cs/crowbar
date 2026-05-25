@@ -5,11 +5,11 @@
 .editor-completion-list,
 .editor-completion-docs {
   border-radius: 12px;
-  border: 1px solid var(--color-border);
-  background: var(--color-secondary-bg);
-  border: 1px solid color-mix(in srgb, var(--color-border) 85%, transparent);
-  background: color-mix(in srgb, var(--color-secondary-bg) 96%, transparent);
-  color: var(--color-text);
+  border: 1px solid var(--border);
+  background: var(--card);
+  border: 1px solid color-mix(in srgb, var(--border) 85%, transparent);
+  background: color-mix(in srgb, var(--card) 96%, transparent);
+  color: var(--foreground);
 }
 
 @supports ((-webkit-backdrop-filter: blur(10px)) or (backdrop-filter: blur(10px))) {
@@ -17,7 +17,7 @@
   .editor-completion-docs {
     -webkit-backdrop-filter: blur(10px);
     backdrop-filter: blur(10px);
-    background: color-mix(in srgb, var(--color-secondary-bg) 90%, transparent);
+    background: color-mix(in srgb, var(--card) 90%, transparent);
   }
 }
 
@@ -29,7 +29,7 @@
 }
 
 .editor-completion-item-selected {
-  background: color-mix(in srgb, var(--color-hover) 88%, var(--color-accent) 12%);
+  background: color-mix(in srgb, var(--accent) 88%, var(--accent) 12%);
 }
 
 .editor-completion-item-selected::before {
@@ -40,11 +40,11 @@
   bottom: 3px;
   width: 2px;
   border-radius: 2px;
-  background: var(--color-accent);
+  background: var(--accent);
 }
 
 .editor-completion-docs {
   box-shadow:
     0 10px 28px rgba(0, 0, 0, 0.18),
-    inset 0 1px 0 color-mix(in srgb, var(--color-hover) 42%, transparent);
+    inset 0 1px 0 color-mix(in srgb, var(--accent) 42%, transparent);
 }
