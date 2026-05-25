@@ -8,6 +8,7 @@ import { routeTree } from './routeTree.gen'
 import { queryClient } from './lib/query'
 import { initializeSettingsStore } from '@/features/settings/store'
 import { ensureStartupAppearanceApplied } from '@/features/settings/lib/appearance-bootstrap'
+import { initializeIconThemes } from '@/extensions/icon-themes/icon-theme-initializer'
 import './index.css'
 
 // Required for Zustand stores that use immer middleware with Set/Map state
@@ -16,6 +17,10 @@ enableMapSet()
 // Apply the cached theme immediately (synchronous) so the correct dark/light
 // class is set before React renders anything — prevents a flash of light mode.
 ensureStartupAppearanceApplied()
+
+// Register all built-in icon themes with the registry before React renders
+// so the icon theme dropdown in settings is populated when first opened
+initializeIconThemes()
 
 // Kick off settings load. The store starts with defaults and updates
 // asynchronously when localStorage values are loaded — this fires the
