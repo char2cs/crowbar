@@ -1113,7 +1113,7 @@ export function MonacoBackedEditor({
 
   return (
     <div
-      className={`monaco-editor-shell absolute inset-0 min-h-0 bg-primary-bg ${className ?? ""}`}
+      className={`monaco-editor-shell absolute inset-0 min-h-0 bg-background ${className ?? ""}`}
       onMouseMove={onMouseMove}
       onMouseLeave={onMouseLeave}
       onMouseEnter={onMouseEnter}

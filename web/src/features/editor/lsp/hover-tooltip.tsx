@@ -152,7 +152,7 @@ export const HoverTooltip = memo(() => {
       {displayHtml && (
         <div className="hover-tooltip-body custom-scrollbar" style={{ maxHeight: maxHeight - 4 }}>
           <div
-            className="markdown-preview hover-tooltip-content text-text"
+            className="markdown-preview hover-tooltip-content text-foreground"
             dangerouslySetInnerHTML={{ __html: displayHtml }}
           />
         </div>

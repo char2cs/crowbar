@@ -35,12 +35,12 @@ export function PathBreadcrumb({
       className={cn("flex min-w-0 items-center gap-0.5 overflow-x-auto scrollbar-none", className)}
       title={fullPath}
     >
-      <span className="flex size-5 shrink-0 items-center justify-center rounded text-text-lighter">
+      <span className="flex size-5 shrink-0 items-center justify-center rounded text-muted-foreground">
         <FileExplorerIcon
           fileName={fileName}
           isDir={false}
           isExpanded={false}
-          className="text-text-lighter"
+          className="text-muted-foreground"
         />
       </span>
 
@@ -49,7 +49,7 @@ export function PathBreadcrumb({
 
         return (
           <div key={`${segment}-${index}`} className="flex shrink-0 items-center gap-0.5">
-            {index > 0 && <ChevronRight className="mx-0.5 shrink-0 text-text-lighter" />}
+            {index > 0 && <ChevronRight className="mx-0.5 shrink-0 text-muted-foreground" />}
             {interactive ? (
               <Button
                 ref={(element) => setSegmentRef?.(index, element)}
@@ -59,8 +59,8 @@ export function PathBreadcrumb({
                 className={cn(
                   "min-w-0 gap-1 whitespace-nowrap rounded px-1 py-0.5 ui-text-xs",
                   isLast
-                    ? "font-medium text-text hover:text-text"
-                    : "text-text-lighter hover:text-text",
+                    ? "font-medium text-foreground hover:text-foreground"
+                    : "text-muted-foreground hover:text-foreground",
                 )}
                 tooltip={getSegmentPath(index)}
                 tooltipSide="bottom"
@@ -72,7 +72,7 @@ export function PathBreadcrumb({
                 <span
                   className={cn(
                     "truncate rounded px-1 py-0.5 ui-text-xs",
-                    isLast ? "font-medium text-text" : "text-text-lighter",
+                    isLast ? "font-medium text-foreground" : "text-muted-foreground",
                   )}
                 >
                   {segment}

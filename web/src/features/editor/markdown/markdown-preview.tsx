@@ -159,7 +159,7 @@ export function MarkdownPreview() {
   return (
     <div
       ref={containerRef}
-      className="markdown-preview flex h-full justify-center overflow-auto bg-primary-bg p-6"
+      className="markdown-preview flex h-full justify-center overflow-auto bg-background p-6"
       style={{
         fontSize: `${fontSize}px`,
         fontFamily: `${uiFontFamily}, sans-serif`,

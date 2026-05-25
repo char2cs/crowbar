@@ -481,7 +481,7 @@ const CodeEditor = ({
   }, [currentMatchIndex, enableInteractiveServices, searchMatches]);
 
   if (!activeBuffer) {
-    return <div className="flex flex-1 items-center justify-center text-text"></div>;
+    return <div className="flex flex-1 items-center justify-center text-foreground"></div>;
   }
 
   return (
@@ -559,7 +559,7 @@ const CodeEditor = ({
           )}
 
           {/* Main editor - absolute positioned to fill container */}
-          <div className="absolute inset-0 bg-primary-bg">
+          <div className="absolute inset-0 bg-background">
             {showMarkdownPreview ? (
               <MarkdownPreview />
             ) : showHtmlPreview ? (
@@ -567,7 +567,7 @@ const CodeEditor = ({
             ) : showCsvPreview ? (
               <CsvPreview />
             ) : useAthasEditor ? (
-              <Suspense fallback={<div className="absolute inset-0 bg-primary-bg" />}>
+              <Suspense fallback={<div className="absolute inset-0 bg-background" />}>
                 <AthasEditor
                   bufferId={activeBufferId ?? undefined}
                   viewStateKey={editorViewKey ?? undefined}
