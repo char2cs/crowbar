@@ -2,23 +2,18 @@ import {
   FileText,
   FolderOpen,
   GlobeHemisphereWest as Globe,
-  Pencil,
   Plus,
-  Sparkle as Sparkles,
   TerminalWindow as Terminal,
-  Trash as Trash2,
 } from "@phosphor-icons/react";
-import { useCallback, useMemo, useRef, useState } from "react";
+import { useCallback } from "react";
 import { createPortal } from "react-dom";
 import { useBufferStore } from "@/features/editor/stores/buffer-store";
 import { readFileContent } from "@/features/file-system/controllers/file-operations";
 import { openFile } from "@/features/file-system/controllers/platform";
 import { useFileSystemStore } from "@/features/file-system/controllers/store";
-import { useCustomActionsStore } from "@/features/terminal/stores/custom-actions-store";
 import { useBufferActions } from "@/features/workspace/stores/hooks/use-buffer-store";
 import { Button } from "@/components/ui/button";
 import { ContextMenu, useContextMenu, type ContextMenuItem } from "@/components/ui/context-menu";
-import Input from "@/components/ui/input";
 
 interface ActionItem {
   id: string;
@@ -34,29 +29,11 @@ export function EmptyEditorState() {
   const { openBuffer } = useBufferStore.use.actions();
   const bufferActions = useBufferActions();
   const handleOpenFolder = useFileSystemStore.use.handleOpenFolder();
-  const rootFolderPath = useFileSystemStore((state) => state.rootFolderPath);
-
-  const allCustomActions = useCustomActionsStore.use.actions();
-  const { addAction, updateAction, deleteAction, getActionsForWorkspace } =
-    useCustomActionsStore.getState().storeActions;
-  const customActions = useMemo(
-    () => getActionsForWorkspace(rootFolderPath ?? undefined),
-    [allCustomActions, getActionsForWorkspace, rootFolderPath],
-  );
 
   const contextMenu = useContextMenu();
 
-  const [isAddingAction, setIsAddingAction] = useState(false);
-  const [editingActionId, setEditingActionId] = useState<string | null>(null);
-  const [inputValue, setInputValue] = useState("");
-  const inputRef = useRef<HTMLInputElement>(null);
-
   const handleOpenTerminal = useCallback(() => {
     bufferActions.openContent({ type: 'terminal' });
-  }, [bufferActions]);
-
-  const handleOpenAgent = useCallback(() => {
-    bufferActions.openContent({ type: 'agent' });
   }, [bufferActions]);
 
   const handleOpenWebViewer = useCallback(() => {
@@ -82,59 +59,6 @@ export function EmptyEditorState() {
       console.error("Failed to open file:", error);
     }
   }, [bufferActions, openBuffer]);
-
-  const handleStartAdd = useCallback(() => {
-    setIsAddingAction(true);
-    setInputValue("");
-    setTimeout(() => inputRef.current?.focus(), 0);
-  }, []);
-
-  const handleStartEdit = useCallback((actionId: string, command: string) => {
-    setEditingActionId(actionId);
-    setInputValue(command);
-    setTimeout(() => inputRef.current?.focus(), 0);
-  }, []);
-
-  const handleCancel = useCallback(() => {
-    setIsAddingAction(false);
-    setEditingActionId(null);
-    setInputValue("");
-  }, []);
-
-  const handleSave = useCallback(() => {
-    const command = inputValue.trim();
-    if (!command) {
-      handleCancel();
-      return;
-    }
-
-    if (editingActionId) {
-      updateAction(editingActionId, { name: command, command });
-    } else {
-      addAction({ name: command, command, workspacePath: rootFolderPath ?? undefined });
-    }
-    handleCancel();
-  }, [inputValue, editingActionId, addAction, updateAction, handleCancel, rootFolderPath]);
-
-  const handleKeyDown = useCallback(
-    (e: React.KeyboardEvent) => {
-      if (e.key === "Enter") {
-        e.preventDefault();
-        handleSave();
-      } else if (e.key === "Escape") {
-        handleCancel();
-      }
-    },
-    [handleSave, handleCancel],
-  );
-
-  const handleDelete = useCallback(
-    (id: string, e: React.MouseEvent) => {
-      e.stopPropagation();
-      deleteAction(id);
-    },
-    [deleteAction],
-  );
 
   const getContextMenuItems = useCallback((): ContextMenuItem[] => {
     return [
@@ -164,12 +88,6 @@ export function EmptyEditorState() {
         onClick: handleOpenTerminal,
       },
       {
-        id: "new-agent",
-        label: "New Agent",
-        icon: <Sparkles />,
-        onClick: handleOpenAgent,
-      },
-      {
         id: "open-url",
         label: "Open URL",
         icon: <Globe />,
@@ -181,7 +99,6 @@ export function EmptyEditorState() {
     handleOpenFolder,
     handleOpenFile,
     handleOpenTerminal,
-    handleOpenAgent,
     handleOpenWebViewer,
   ]);
 
@@ -211,12 +128,6 @@ export function EmptyEditorState() {
       action: handleOpenTerminal,
     },
     {
-      id: "agent",
-      label: "New Agent",
-      icon: <Sparkles className="text-muted-foreground" />,
-      action: handleOpenAgent,
-    },
-    {
       id: "web",
       label: "Open URL",
       icon: <Globe className="text-muted-foreground" />,
@@ -240,92 +151,6 @@ export function EmptyEditorState() {
             <span className="text-foreground ui-text-xs">{item.label}</span>
           </Button>
         ))}
-
-        {customActions.length > 0 && (
-          <>
-            <div className="my-1 h-px bg-border" />
-            {customActions.map((action) =>
-              editingActionId === action.id ? (
-                <div key={action.id} className="min-w-0 px-1">
-                  <Input
-                    ref={inputRef}
-                    type="text"
-                    placeholder="command"
-                    value={inputValue}
-                    onChange={(e) => setInputValue(e.target.value)}
-                    onKeyDown={handleKeyDown}
-                    onBlur={handleSave}
-                    className="w-full bg-card"
-                  />
-                </div>
-              ) : (
-                <div
-                  key={action.id}
-                  className="group flex min-w-0 items-center gap-1 rounded-md px-3 py-1.5 hover:bg-muted"
-                >
-                  <Button
-                    type="button"
-                    onClick={() =>
-                      bufferActions.openContent({ type: 'terminal', name: action.name, command: action.command })
-                    }
-                    variant="ghost"
-                    compact
-                    className="h-auto min-w-0 flex-1 justify-start gap-3 px-0 py-0 hover:bg-transparent"
-                  >
-                    <Terminal className="shrink-0 text-muted-foreground" />
-                    <span className="truncate text-foreground ui-text-xs">{action.name}</span>
-                  </Button>
-                  <Button
-                    type="button"
-                    onClick={() => handleStartEdit(action.id, action.command)}
-                    variant="ghost"
-                    compact
-                    className="shrink-0 opacity-0 transition-opacity hover:text-foreground group-hover:opacity-100"
-                  >
-                    <Pencil />
-                  </Button>
-                  <Button
-                    type="button"
-                    onClick={(e) => handleDelete(action.id, e)}
-                    variant="ghost"
-                    compact
-                    className="shrink-0 opacity-0 transition-opacity hover:text-error group-hover:opacity-100"
-                  >
-                    <Trash2 />
-                  </Button>
-                </div>
-              ),
-            )}
-          </>
-        )}
-
-        <div className="my-1 h-px bg-border" />
-
-        {isAddingAction ? (
-          <div className="min-w-0 px-1">
-            <Input
-              ref={inputRef}
-              type="text"
-              placeholder="command"
-              value={inputValue}
-              onChange={(e) => setInputValue(e.target.value)}
-              onKeyDown={handleKeyDown}
-              onBlur={handleSave}
-              className="w-full bg-card"
-            />
-          </div>
-        ) : (
-          <Button
-            type="button"
-            onClick={handleStartAdd}
-            variant="ghost"
-            className={newTabRowClassName}
-            compact
-          >
-            <Plus className="shrink-0 text-muted-foreground" />
-            <span className="text-muted-foreground ui-text-xs">Add custom action...</span>
-          </Button>
-        )}
       </div>
 
       {createPortal(
