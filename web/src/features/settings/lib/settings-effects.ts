@@ -53,14 +53,14 @@ function getSystemThemePreference(): SystemThemePreference {
   return "dark";
 }
 
-function getEffectiveTheme(
-  settings: Pick<Settings, "theme" | "syncSystemTheme" | "autoThemeLight" | "autoThemeDark">,
-): Theme {
-  if (!settings.syncSystemTheme) {
-    return settings.theme;
+function applyThemeMode(themeMode: "light" | "dark" | "system") {
+  if (typeof document === "undefined") return;
+  if (themeMode === "system") {
+    const systemIsDark = getSystemThemePreference() === "dark";
+    document.documentElement.classList.toggle("dark", systemIsDark);
+  } else {
+    document.documentElement.classList.toggle("dark", themeMode === "dark");
   }
-
-  return getSystemThemePreference() === "dark" ? settings.autoThemeDark : settings.autoThemeLight;
 }
 
 function stopSystemThemeSync() {
@@ -68,21 +68,18 @@ function stopSystemThemeSync() {
   removeThemeSyncListener = null;
 }
 
-function syncThemeWithSystem(settings: Settings) {
-  if (typeof window === "undefined" || !window.matchMedia) {
+function syncThemeWithSystem(themeMode: "light" | "dark" | "system") {
+  if (typeof window === "undefined" || !window.matchMedia) return;
+  if (themeMode !== "system") {
+    stopSystemThemeSync();
     return;
   }
 
   const mediaQuery = window.matchMedia("(prefers-color-scheme: dark)");
-
-  // Always stop the previous listener before registering a new one. This
-  // prevents the stale-closure problem where a previously registered
-  // handleChange would keep using an old `settings` snapshot even after
-  // autoThemeLight / autoThemeDark are updated by the user.
   stopSystemThemeSync();
 
   const handleChange = () => {
-    void applyTheme(getEffectiveTheme(settings));
+    applyThemeMode("system");
   };
 
   if ("addEventListener" in mediaQuery) {
@@ -93,7 +90,6 @@ function syncThemeWithSystem(settings: Settings) {
     legacyMediaQuery.addListener(handleChange);
     removeThemeSyncListener = () => legacyMediaQuery.removeListener(handleChange);
   }
-
 }
 
 export async function applyTheme(theme: Theme) {
@@ -190,12 +186,9 @@ export async function syncOllamaApiKey() {
 export function applySettingsSideEffects(settings: Settings) {
   cacheFontSettings(settings);
   applyWindowTransparency(settings.windowTransparency);
-  void applyTheme(getEffectiveTheme(settings));
-  if (settings.syncSystemTheme) {
-    syncThemeWithSystem(settings);
-  } else {
-    stopSystemThemeSync();
-  }
+  applyThemeMode(settings.themeMode);
+  void applyTheme(settings.theme);
+  syncThemeWithSystem(settings.themeMode);
   syncOllamaBaseUrl(settings.ollamaBaseUrl);
   syncCustomProviderBaseUrl(settings.aiCustomBaseUrl);
   void syncOllamaApiKey();
@@ -207,18 +200,13 @@ export function applySettingSideEffect<K extends keyof Settings>(
   getSettings: () => Settings,
 ) {
   if (key === "theme") {
-    void applyTheme(getEffectiveTheme(getSettings()));
+    void applyTheme(getSettings().theme);
   }
 
-  if (key === "syncSystemTheme" || key === "autoThemeLight" || key === "autoThemeDark") {
+  if (key === "themeMode") {
     const settings = getSettings();
-    void applyTheme(getEffectiveTheme(settings));
-
-    if (settings.syncSystemTheme) {
-      syncThemeWithSystem(settings);
-    } else {
-      stopSystemThemeSync();
-    }
+    applyThemeMode(settings.themeMode);
+    syncThemeWithSystem(settings.themeMode);
   }
 
   if (key === "ollamaBaseUrl") {
