@@ -35,13 +35,17 @@ import { CSS } from "@dnd-kit/utilities";
 import {
   ArrowLeft,
   ArrowRight,
-  ArrowsOut as Maximize2,
-  ArrowsIn as Minimize2,
-  Lock,
-  LockOpen,
+  GlobeHemisphereWest as Globe,
   Plus,
   SidebarSimple as PanelLeftClose,
+  TerminalWindow as Terminal,
 } from "@phosphor-icons/react";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 // Use browser clipboard API instead of Tauri clipboard plugin
 const writeText = (text: string) => navigator.clipboard.writeText(text);
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
@@ -55,7 +59,6 @@ import { BOTTOM_PANE_ID } from "@/features/panes/constants/pane";
 import {
   usePaneRoot,
   useBottomRoot,
-  useFullscreenPaneId,
   usePaneActions,
 } from "@/features/workspace/stores/hooks/use-pane-store";
 import { useBuffers, useBufferActions } from "@/features/workspace/stores/hooks/use-buffer-store";
@@ -101,11 +104,8 @@ const TabBar = ({
   const pendingClose = null as ({ bufferId: string } | null);  // workspace buffer slice tracks pending close via local state
   const paneRoot = usePaneRoot();
   const bottomRoot = useBottomRoot();
-  const fullscreenPaneId = useFullscreenPaneId();
-  const { closePane, setActivePane, togglePaneFullscreen, activatePaneBuffer, removeBufferFromPane, splitPane, moveBufferToPane } = usePaneActions();
-  const { closeBuffer } = useBufferActions();
-  // setPaneLocked: not yet in workspace pane-slice — noop until migrated
-  const setPaneLocked = (_paneId: string, _locked: boolean) => {};
+  const { closePane, setActivePane, activatePaneBuffer, removeBufferFromPane, splitPane, moveBufferToPane } = usePaneActions();
+  const { closeBuffer, openContent } = useBufferActions();
 
   // Filter buffers by paneId if provided
   const pane = paneId
@@ -130,7 +130,6 @@ const TabBar = ({
     confirmCloseWithoutSaving,
     cancelPendingClose,
     convertPreviewToDefinite,
-    showNewTabView,
   } = useBufferStore.use.actions();
 
   // Workspace-aware tab interactions
@@ -166,8 +165,6 @@ const TabBar = ({
   const canGoForward = usesWebViewerNavigation
     ? Boolean(activeWebViewerNavigation?.canGoForward)
     : jumpListActions.canGoForward();
-  const isPaneFullscreen = paneId ? fullscreenPaneId === paneId : false;
-  const isPaneLocked = Boolean(pane?.locked);
   const isInSplit = paneRoot.type === "split";
   const isBottomPane = paneId === BOTTOM_PANE_ID;
 
@@ -267,22 +264,6 @@ const TabBar = ({
       await navigateToJumpEntry(entry);
     }
   }, [activeWebViewerNavigation, jumpListActions, usesWebViewerNavigation]);
-
-  const handleShowNewTab = useCallback(() => {
-    if (!paneId) return;
-    setActivePane(paneId);
-    showNewTabView();
-  }, [paneId, setActivePane, showNewTabView]);
-
-  const handleTogglePaneFullscreen = useCallback(() => {
-    if (!paneId) return;
-    togglePaneFullscreen(paneId);
-  }, [paneId, togglePaneFullscreen]);
-
-  const handleTogglePaneLocked = useCallback(() => {
-    if (!paneId) return;
-    setPaneLocked(paneId, !isPaneLocked);
-  }, [isPaneLocked, paneId, setPaneLocked]);
 
   const canScrollTabsHorizontally = useCallback(() => {
     const container = tabBarRef.current;
@@ -800,18 +781,21 @@ const TabBar = ({
 
           <div className="flex shrink-0 items-center gap-1 pl-0.5">
             {paneId && !isBottomPane && (
-              <Button
-                type="button"
-                onClick={handleShowNewTab}
-                variant="ghost"
-                compact
-                className="h-5 min-w-5 shrink-0 rounded-md px-1 text-muted-foreground"
-                tooltip="New Tab"
-                tooltipSide="bottom"
-                aria-label="New tab"
-              >
-                <Plus weight="bold" />
-              </Button>
+              <DropdownMenu>
+                <DropdownMenuTrigger className="flex h-5 min-w-5 shrink-0 items-center justify-center rounded-md px-1 text-muted-foreground hover:bg-muted hover:text-foreground focus:outline-none" aria-label="New tab">
+                  <Plus weight="bold" size={12} />
+                </DropdownMenuTrigger>
+                <DropdownMenuContent side="bottom" align="start" className="min-w-[140px]">
+                  <DropdownMenuItem onClick={() => { if (paneId) setActivePane(paneId); openContent({ type: 'terminal' }); }}>
+                    <Terminal className="text-muted-foreground" />
+                    New Terminal
+                  </DropdownMenuItem>
+                  <DropdownMenuItem onClick={() => { if (paneId) setActivePane(paneId); openContent({ type: 'webViewer', url: 'https://' }); }}>
+                    <Globe className="text-muted-foreground" />
+                    Open URL
+                  </DropdownMenuItem>
+                </DropdownMenuContent>
+              </DropdownMenu>
             )}
             {paneId && !disablePaneActions && !isBottomPane && isInSplit && (
               <Button
@@ -825,38 +809,6 @@ const TabBar = ({
                 aria-label="Close split pane"
               >
                 <PanelLeftClose />
-              </Button>
-            )}
-            {paneId && !disablePaneActions && !isBottomPane && (
-              <Button
-                type="button"
-                onClick={handleTogglePaneLocked}
-                variant="ghost"
-                className={
-                  isPaneLocked
-                    ? "h-5 min-w-5 shrink-0 rounded-md px-1 text-accent"
-                    : "h-5 min-w-5 shrink-0 rounded-md px-1 text-muted-foreground"
-                }
-                tooltip={isPaneLocked ? "Unlock Editor Group" : "Lock Editor Group"}
-                tooltipSide="bottom"
-                aria-label={isPaneLocked ? "Unlock editor group" : "Lock editor group"}
-                compact
-              >
-                {isPaneLocked ? <Lock /> : <LockOpen />}
-              </Button>
-            )}
-            {paneId && !disablePaneActions && !isBottomPane && (
-              <Button
-                type="button"
-                onClick={handleTogglePaneFullscreen}
-                variant="ghost"
-                className="h-5 min-w-5 shrink-0 rounded-md px-1 text-muted-foreground"
-                tooltip={isPaneFullscreen ? "Exit Full Screen" : "Full Screen Editor"}
-                tooltipSide="bottom"
-                aria-label="Toggle editor full screen"
-                compact
-              >
-                {isPaneFullscreen ? <Minimize2 /> : <Maximize2 />}
               </Button>
             )}
           </div>
