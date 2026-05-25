@@ -126,7 +126,7 @@ export const GeneralSettings = () => {
         </div>
       </SettingRow>
 
-      <div className="ui-font ui-text-xs -mt-3 px-1 text-text-lighter/75">
+      <div className="ui-font ui-text-xs -mt-3 px-1 text-muted-foreground/75">
         {downloading
           ? `Crowbar ${appVersion || "..."} · Downloading ${downloadProgress?.percentage ?? 0}%`
           : installing
@@ -140,7 +140,7 @@ export const GeneralSettings = () => {
 
       {downloading && downloadProgress && (
         <div className="px-3">
-          <div className="h-1 w-full overflow-hidden rounded-full bg-secondary-bg">
+          <div className="h-1 w-full overflow-hidden rounded-full bg-card">
             <div
               className="h-full bg-accent transition-all duration-300"
               style={{ width: `${downloadProgress.percentage}%` }}
@@ -250,8 +250,8 @@ function ReportBugCommandDialog({
               onMouseEnter={() => setSelectedIndex(index)}
               className="h-8 items-center justify-between px-3"
             >
-              <span className="ui-font ui-text-sm text-text">{channel.label}</span>
-              <span className="ui-font ui-text-sm shrink-0 text-text-lighter">
+              <span className="ui-font ui-text-sm text-foreground">{channel.label}</span>
+              <span className="ui-font ui-text-sm shrink-0 text-muted-foreground">
                 {channel.detail}
               </span>
             </CommandItem>

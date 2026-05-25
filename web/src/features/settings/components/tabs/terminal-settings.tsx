@@ -170,7 +170,7 @@ export const TerminalSettings = () => {
       >
         <div className="space-y-3 px-1">
           <div className="flex items-center justify-between">
-            <div className="ui-font ui-text-sm text-text-lighter">
+            <div className="ui-font ui-text-sm text-muted-foreground">
               Built-in profiles are generated from detected shells. Custom profiles appear in the
               terminal toolbar profile picker.
             </div>
@@ -190,19 +190,19 @@ export const TerminalSettings = () => {
           </div>
 
           {profiles.length === 0 ? (
-            <div className="ui-font ui-text-sm rounded-xl border border-dashed border-border/70 bg-secondary-bg/50 px-3 py-3 text-text-lighter">
+            <div className="ui-font ui-text-sm rounded-xl border border-dashed border-border/70 bg-card/50 px-3 py-3 text-muted-foreground">
               No custom terminal profiles yet.
             </div>
           ) : (
             profiles.map((profile) => (
               <div
                 key={profile.id}
-                className="space-y-3 rounded-xl border border-border/70 bg-secondary-bg/60 p-3"
+                className="space-y-3 rounded-xl border border-border/70 bg-card/60 p-3"
               >
                 <div className="flex items-start justify-between gap-3">
                   <div className="min-w-0 flex-1">
-                    <div className="ui-font ui-text-sm mb-1 text-text">{profile.name}</div>
-                    <div className="ui-font ui-text-sm text-text-lighter">
+                    <div className="ui-font ui-text-sm mb-1 text-foreground">{profile.name}</div>
+                    <div className="ui-font ui-text-sm text-muted-foreground">
                       Visible in the terminal profile picker.
                     </div>
                   </div>
@@ -217,7 +217,7 @@ export const TerminalSettings = () => {
 
                 <div className="grid gap-3 md:grid-cols-2">
                   <div className="space-y-1.5">
-                    <label className="ui-font ui-text-sm text-text">Name</label>
+                    <label className="ui-font ui-text-sm text-foreground">Name</label>
                     <Input
                       value={profile.name}
                       onChange={(event) =>
@@ -230,7 +230,7 @@ export const TerminalSettings = () => {
                     />
                   </div>
                   <div className="space-y-1.5">
-                    <label className="ui-font ui-text-sm text-text">Shell</label>
+                    <label className="ui-font ui-text-sm text-foreground">Shell</label>
                     <Select
                       value={profile.shell || DEFAULT_SHELL_OPTION_VALUE}
                       options={shellOptions}
@@ -249,7 +249,7 @@ export const TerminalSettings = () => {
                 </div>
 
                 <div className="space-y-1.5">
-                  <label className="ui-font ui-text-sm text-text">Startup Directory</label>
+                  <label className="ui-font ui-text-sm text-foreground">Startup Directory</label>
                   <Input
                     value={profile.startupDirectory || ""}
                     onChange={(event) =>
@@ -263,7 +263,7 @@ export const TerminalSettings = () => {
                 </div>
 
                 <div className="space-y-1.5">
-                  <label className="ui-font ui-text-sm text-text">Startup Commands</label>
+                  <label className="ui-font ui-text-sm text-foreground">Startup Commands</label>
                   <Textarea
                     value={(profile.startupCommands || []).join("\n")}
                     onChange={(event) =>
@@ -306,7 +306,7 @@ export const TerminalSettings = () => {
               placeholder="Select font..."
             />
             <Tooltip content={FONT_HELP_TEXT} side="left">
-              <Info className="size-4 cursor-help text-text-lighter transition-colors hover:text-text" />
+              <Info className="size-4 cursor-help text-muted-foreground transition-colors hover:text-foreground" />
             </Tooltip>
           </div>
         </SettingRow>

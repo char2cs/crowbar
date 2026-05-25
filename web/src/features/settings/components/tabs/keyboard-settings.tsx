@@ -260,7 +260,7 @@ export const KeyboardSettings = () => {
               <SegmentedControl
                 value={filterType}
                 onChange={(value) => setFilterType(value as FilterType)}
-                className="inline-flex h-auto min-w-max max-w-full flex-wrap items-stretch gap-1 overflow-visible self-start rounded-xl border border-border/60 bg-secondary-bg/40 p-1"
+                className="inline-flex h-auto min-w-max max-w-full flex-wrap items-stretch gap-1 overflow-visible self-start rounded-xl border border-border/60 bg-card/40 p-1"
                 options={[
                   {
                     value: "all",
@@ -311,7 +311,7 @@ export const KeyboardSettings = () => {
                   </TableHeader>
 
                   {filteredCommands.length === 0 ? (
-                    <div className="ui-font ui-text-base flex items-center justify-center py-12 text-text-lighter">
+                    <div className="ui-font ui-text-base flex items-center justify-center py-12 text-muted-foreground">
                       No keybindings found
                     </div>
                   ) : (
@@ -376,7 +376,7 @@ export const KeyboardSettings = () => {
               </Button>
             </SettingRow>
             {userOverrideCount > 0 ? (
-              <div className="ui-font ui-text-sm px-1 text-text-lighter">
+              <div className="ui-font ui-text-sm px-1 text-muted-foreground">
                 {userOverrideCount} user override{userOverrideCount === 1 ? "" : "s"} currently
                 saved.
               </div>
