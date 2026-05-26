@@ -243,7 +243,15 @@ function isStandardEditorBuffer(buffer: PaneRenderBuffer): buffer is EditorBuffe
 export function PaneContainer({ pane }: PaneContainerProps) {
   const activePaneId = useActivePaneId();
   const { reorderPaneBuffers, activatePaneBuffer, setActivePane } = usePaneActions();
-  const { closeBuffer: closeBufferForce } = useBufferActions();
+  const bufferActions = useBufferActions();
+  const { closeBuffer: closeBufferForce } = bufferActions;
+
+  const handlePromote = useCallback(
+    (bufferId: string) => {
+      bufferActions.promotePreview(bufferId)
+    },
+    [bufferActions],
+  );
   // openTerminalBuffer: terminal content type not in workspace scope yet — noop
   const openTerminalBuffer = (_options?: {
     name?: string;
@@ -959,7 +967,13 @@ export function PaneContainer({ pane }: PaneContainerProps) {
                 </div>
               }
             >
-              <CodeEditor paneId={pane.id} bufferId={buffer.id} isActiveSurface={isActivePane} />
+              <CodeEditor
+                paneId={pane.id}
+                bufferId={buffer.id}
+                isActiveSurface={isActivePane}
+                isPreview={pane.previewBufferId === buffer.id}
+                onPromote={() => handlePromote(buffer.id)}
+              />
             </ErrorBoundary>
           );
       }
@@ -1073,6 +1087,8 @@ export function PaneContainer({ pane }: PaneContainerProps) {
                           isActiveSurface={isActivePane && isActiveBuffer}
                           showToolbar={false}
                           className={isActiveBuffer ? undefined : "pointer-events-none"}
+                          isPreview={pane.previewBufferId === buffer.id}
+                          onPromote={() => handlePromote(buffer.id)}
                         />
                       ) : buffer.type === "terminal" ? (
                         <div

@@ -71,6 +71,8 @@ interface CodeEditorProps {
     previousCursorPosition?: Position,
     previousSelection?: Range,
   ) => void;
+  isPreview?: boolean;
+  onPromote?: () => void;
 }
 
 export interface CodeEditorRef {
@@ -104,6 +106,8 @@ const CodeEditor = ({
   lineNumberStart,
   lineNumberMap,
   onContentChange,
+  isPreview: _isPreview = false,
+  onPromote: _onPromote,
 }: CodeEditorProps) => {
   const editorRef = useRef<HTMLDivElement>(null);
   const searchTimerRef = useRef<NodeJS.Timeout | null>(null);
