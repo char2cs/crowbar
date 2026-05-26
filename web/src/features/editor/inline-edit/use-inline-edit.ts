@@ -15,13 +15,13 @@ import {
 } from "@/features/editor/services/editor-inline-edit-service";
 import { EDITOR_CONSTANTS } from "@/features/editor/config/constants";
 import type { Position, Range } from "@/features/editor/types/editor";
-import type { EditorModelPositionResolver } from "@/features/athas-editor/view-model/view-layout";
+import type { EditorModelPositionResolver } from "@/features/editor/view-model/view-layout";
 import {
   calculateCursorPositionFromContent,
   calculateCursorPositionFromLineOffsets,
   calculateOffsetFromPosition,
   getAccurateCursorX,
-} from "@/features/athas-editor/utils/position";
+} from "@/features/editor/utils/position";
 
 const DEFAULT_INLINE_EDIT_INSTRUCTION = "Improve this code while preserving behavior.";
 const INLINE_EDIT_POPOVER_WIDTH = 380;

@@ -18,8 +18,8 @@ import {
 import { useOnClickOutside } from "usehooks-ts";
 import { themeRegistry } from "@/extensions/themes/theme-registry";
 import type { ThemeDefinition } from "@/extensions/themes/types";
-import { InlineEditPopover } from "@/features/athas-editor/components/inline-edit-popover";
-import { useInlineEdit } from "@/features/athas-editor/hooks/use-inline-edit";
+import { InlineEditPopover } from "@/features/editor/inline-edit/inline-edit-popover";
+import { useInlineEdit } from "@/features/editor/inline-edit/use-inline-edit";
 import { useSettingsStore } from "@/features/settings/store";
 import { parseAndExecuteVimCommand, vimCommands } from "@/features/vim/stores/vim-commands";
 import { useVimStore, type VimMode as AthasVimMode } from "@/features/vim/stores/vim-store";

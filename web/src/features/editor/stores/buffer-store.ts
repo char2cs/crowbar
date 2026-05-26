@@ -1068,19 +1068,8 @@ export const useBufferStore = createSelectors(
             });
           }
 
-          // Stop LSP for this file (only for real editor files)
+          // Track closed buffer history (only for real editor files)
           if (shouldStartLsp(closedBuffer)) {
-            import("@/features/editor/lsp/lsp-client")
-              .then(({ LspClient }) => {
-                const lspClient = LspClient.getInstance();
-                logger.info("BufferStore", `Stopping LSP for ${closedBuffer.path}`);
-                return lspClient.stopForFile(closedBuffer.path);
-              })
-              .catch((error) => {
-                logger.error("BufferStore", "Failed to stop LSP:", error);
-              });
-
-            // Add to closed history
             const closedBufferInfo: ClosedBuffer = {
               path: closedBuffer.path,
               name: closedBuffer.name,
