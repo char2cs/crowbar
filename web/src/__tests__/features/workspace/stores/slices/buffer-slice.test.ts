@@ -3,8 +3,16 @@ import { createStore } from 'zustand'
 import { immer } from 'zustand/middleware/immer'
 import { createBufferSlice, type BufferSlice } from '@/features/workspace/stores/slices/buffer-slice'
 
+const noopPaneActions = {
+  addBufferToPane: () => {},
+  setPanePreviewBuffer: () => {},
+}
+
 function makeStore() {
-  return createStore<BufferSlice>()(immer((set, get) => createBufferSlice(set as any, get as any, {} as any)))
+  return createStore<BufferSlice>()(immer((set, get) => ({
+    ...createBufferSlice(set as any, get as any, {} as any),
+    paneActions: noopPaneActions,
+  })))
 }
 
 describe('buffer-slice', () => {
