@@ -109,7 +109,7 @@ describe('buffer-slice', () => {
       const { store } = makeStore(paneActions)
 
       // Seed the old preview buffer
-      store.getState().bufferActions.registerExternalBuffer('old-buf', '/old.ts', 'old.ts', false)
+      store.getState().bufferActions.registerExternalBuffer('old-buf', '/old.ts', 'old.ts', true)
       const countBefore = store.getState().buffers.length
 
       // Open a new preview
