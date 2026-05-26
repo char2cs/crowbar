@@ -52,7 +52,7 @@ export const defaultSettings: Settings = {
   uiFontFamily: DEFAULT_UI_FONT_FAMILY,
   uiFontSize: UI_FONT_SIZE_DEFAULT,
   // Theme
-  theme: "crowbar-dark",
+  theme: "crowbar",
   iconTheme: "material",
   themeMode: "system",
   syncSystemTheme: false,

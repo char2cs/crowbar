@@ -2,12 +2,10 @@ import type React from "react";
 import { Minus, Plus } from "@phosphor-icons/react";
 import { useEffect, useState } from "react";
 import { Button } from "@/components/ui/button";
-import {
-  controlFieldIconSizes,
-  controlFieldSizeVariants,
-  controlFieldSurfaceVariants,
-} from "@/components/ui/control-field";
 import { cn } from "@/utils/cn";
+
+const iconSizes = { xs: "size-3", sm: "size-3.5", md: "size-4" } as const;
+const fieldHeights = { xs: "h-6", sm: "h-7", md: "h-8" } as const;
 
 interface InputProps extends Omit<
   React.InputHTMLAttributes<HTMLInputElement>,
@@ -140,7 +138,7 @@ export default function NumberInput({
         aria-label="Decrease value"
         className="shrink-0"
       >
-        <Minus size={controlFieldIconSizes[size]} />
+        <Minus className={iconSizes[size]} />
       </Button>
 
       <input
@@ -154,11 +152,10 @@ export default function NumberInput({
         type="text"
         inputMode="decimal"
         className={cn(
-          controlFieldSurfaceVariants({ variant: "secondary" }),
-          controlFieldSizeVariants({ size }),
+          fieldHeights[size],
           numberInputTextSize[size],
           numberInputFieldPadding[size],
-          "min-w-[5ch] flex-1 bg-transparent text-center tabular-nums text-foreground outline-none placeholder:text-muted-foreground",
+          "min-w-[5ch] flex-1 rounded-md border border-border bg-muted text-center tabular-nums text-foreground outline-none placeholder:text-muted-foreground disabled:opacity-50",
         )}
       />
 
@@ -171,7 +168,7 @@ export default function NumberInput({
         aria-label="Increase value"
         className="shrink-0"
       >
-        <Plus size={controlFieldIconSizes[size]} />
+        <Plus className={iconSizes[size]} />
       </Button>
     </div>
   );

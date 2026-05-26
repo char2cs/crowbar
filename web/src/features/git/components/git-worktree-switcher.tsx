@@ -2,7 +2,7 @@ import { Check, GitBranch, GitFork, Plus } from "@phosphor-icons/react";
 import { type KeyboardEvent, useCallback, useEffect, useMemo, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { CommandEmpty, CommandItem, CommandList } from "@/components/ui/command";
-import { LoadingIndicator } from "@/components/ui/loading";
+import { LoadingSpinner } from "@/components/ui/spinner";
 import { cn } from "@/utils/cn";
 import { getFolderName } from "@/utils/path-helpers";
 import { addWorktree, getWorktrees } from "../api/git-worktrees-api";
@@ -217,7 +217,7 @@ const GitWorktreeSwitcher = ({
           {filteredWorktrees.length === 0 ? (
             <CommandEmpty>
               {isLoading ? (
-                <LoadingIndicator label="Loading worktrees" showLabel compact />
+                <LoadingSpinner label="Loading worktrees" showLabel compact />
               ) : (
                 "No worktrees found"
               )}

@@ -14,7 +14,7 @@ import { setSyntaxHighlightingFilePath } from "@/features/editor/extensions/buil
 import { LspClient } from "@/features/editor/lsp/lsp-client";
 import { type LspStatus, useLspStore } from "@/features/editor/lsp/lsp-store";
 import type { Position } from "@/features/editor/types/editor";
-import { LoadingIndicator } from "@/components/ui/loading";
+import { LoadingSpinner } from "@/components/ui/spinner";
 import { useBufferStore } from "@/features/editor/stores/buffer-store";
 import { useEditorStateStore } from "@/features/editor/stores/state-store";
 import {
@@ -106,7 +106,7 @@ export function EditorStatusActions({ bufferId, editorViewKey }: EditorStatusAct
         };
       case "connecting":
         return {
-          icon: <LoadingIndicator label="Connecting" compact />,
+          icon: <LoadingSpinner label="Connecting" compact />,
           color: "text-yellow-400",
           title: "Connecting to Language Server...",
         };
@@ -523,7 +523,7 @@ export function EditorStatusActions({ bufferId, editorViewKey }: EditorStatusAct
               </div>
             ) : lspStatus.status === "connecting" ? (
               <div className="flex items-center gap-2 rounded-lg px-2 py-2 text-muted-foreground">
-                <LoadingIndicator label="Connecting" showLabel compact />
+                <LoadingSpinner label="Connecting" showLabel compact />
               </div>
             ) : lspStatus.status === "error" ? (
               <div className="space-y-2 px-1 py-1">

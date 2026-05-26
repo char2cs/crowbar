@@ -5,7 +5,7 @@ import {
   FileText,
 } from "@phosphor-icons/react";
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { LoadingIndicator } from "@/components/ui/loading";
+import { LoadingSpinner } from "@/components/ui/spinner";
 import { cn } from "@/utils/cn";
 import { formatRelativeDate } from "@/utils/date";
 import type { FileDiffSummary, MultiFileDiffViewerProps } from "../../types/git-diff-types";
@@ -291,7 +291,7 @@ const MultiFileDiffViewer = memo(({ multiDiff, onClose }: MultiFileDiffViewerPro
       <div className="flex items-center justify-between border-border border-t bg-background px-3 py-1 ui-text-xs text-muted-foreground">
         <span className="flex items-center gap-1.5">
           {multiDiff.isLoading ? (
-            <LoadingIndicator label="Loading remaining files" showLabel compact />
+            <LoadingSpinner label="Loading remaining files" showLabel compact />
           ) : (
             `${multiDiff.totalFiles} file${multiDiff.totalFiles !== 1 ? "s" : ""} changed`
           )}

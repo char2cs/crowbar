@@ -14,7 +14,7 @@ import { Button } from "@/components/ui/button";
 import Input from "@/components/ui/input";
 import NumberInput from "@/components/ui/number-input";
 import Section, { SETTINGS_CONTROL_WIDTHS, SettingRow } from "../settings-section";
-import Select from "@/components/ui/select";
+import { Select, SelectTrigger, SelectValue, SelectContent, SelectItem } from "@/components/ui/select";
 import Switch from "@/components/ui/switch";
 import Textarea from "@/components/ui/textarea";
 import Tooltip from "@/components/ui/tooltip";
@@ -119,21 +119,18 @@ export const TerminalSettings = () => {
           }
           canReset={settings.terminalDefaultShellId !== getDefaultSetting("terminalDefaultShellId")}
         >
-          <Select
-            value={selectedDefaultShellId}
-            options={shellOptions}
-            onChange={(value) =>
-              updateSetting(
-                "terminalDefaultShellId",
-                value === DEFAULT_SHELL_OPTION_VALUE ? "" : value,
-              )
-            }
-            className={SETTINGS_CONTROL_WIDTHS.xwide}
-            size="xs"
-            variant="default"
-            searchable
-            searchableTrigger="input"
-          />
+          <Select value={selectedDefaultShellId} onValueChange={(value) => { if (value !== null) updateSetting("terminalDefaultShellId", value === DEFAULT_SHELL_OPTION_VALUE ? "" : value) }}>
+            <SelectTrigger size="sm" className={SETTINGS_CONTROL_WIDTHS.xwide}>
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              {shellOptions.map((opt) => (
+                <SelectItem key={opt.value} value={opt.value}>
+                  {opt.label}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
         </SettingRow>
 
         <SettingRow
@@ -146,21 +143,18 @@ export const TerminalSettings = () => {
             settings.terminalDefaultProfileId !== getDefaultSetting("terminalDefaultProfileId")
           }
         >
-          <Select
-            value={selectedDefaultProfileId}
-            options={profileOptions}
-            onChange={(value) =>
-              updateSetting(
-                "terminalDefaultProfileId",
-                value === SYSTEM_DEFAULT_PROFILE_ID ? "" : value,
-              )
-            }
-            className={SETTINGS_CONTROL_WIDTHS.xwide}
-            size="xs"
-            variant="default"
-            searchable
-            searchableTrigger="input"
-          />
+          <Select value={selectedDefaultProfileId} onValueChange={(value) => { if (value !== null) updateSetting("terminalDefaultProfileId", value === SYSTEM_DEFAULT_PROFILE_ID ? "" : value) }}>
+            <SelectTrigger size="sm" className={SETTINGS_CONTROL_WIDTHS.xwide}>
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              {profileOptions.map((opt) => (
+                <SelectItem key={opt.value} value={opt.value}>
+                  {opt.label}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
         </SettingRow>
       </Section>
 
@@ -231,20 +225,18 @@ export const TerminalSettings = () => {
                   </div>
                   <div className="space-y-1.5">
                     <label className="ui-font ui-text-sm text-foreground">Shell</label>
-                    <Select
-                      value={profile.shell || DEFAULT_SHELL_OPTION_VALUE}
-                      options={shellOptions}
-                      onChange={(value) =>
-                        profileActions.updateProfile(profile.id, {
-                          shell: value === DEFAULT_SHELL_OPTION_VALUE ? undefined : value,
-                        })
-                      }
-                      className="w-full"
-                      size="sm"
-                      variant="default"
-                      searchable
-                      searchableTrigger="input"
-                    />
+                    <Select value={profile.shell || DEFAULT_SHELL_OPTION_VALUE} onValueChange={(value) => { if (value !== null) profileActions.updateProfile(profile.id, { shell: value === DEFAULT_SHELL_OPTION_VALUE ? undefined : value }) }}>
+                      <SelectTrigger size="sm" className="w-full">
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {shellOptions.map((opt) => (
+                          <SelectItem key={opt.value} value={opt.value}>
+                            {opt.label}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
                   </div>
                 </div>
 
@@ -294,17 +286,18 @@ export const TerminalSettings = () => {
           canReset={settings.terminalFontFamily !== getDefaultSetting("terminalFontFamily")}
         >
           <div className="flex items-center gap-2">
-            <Select
-              value={settings.terminalFontFamily}
-              options={fontOptions}
-              onChange={(val) => updateSetting("terminalFontFamily", val)}
-              className={SETTINGS_CONTROL_WIDTHS.xwide}
-              size="xs"
-              variant="default"
-              searchable
-              searchableTrigger="input"
-              placeholder="Select font..."
-            />
+            <Select value={settings.terminalFontFamily} onValueChange={(val) => { if (val) updateSetting("terminalFontFamily", val) }}>
+              <SelectTrigger size="sm" className={SETTINGS_CONTROL_WIDTHS.xwide}>
+                <SelectValue placeholder="Select font..." />
+              </SelectTrigger>
+              <SelectContent>
+                {fontOptions.map((opt) => (
+                  <SelectItem key={opt.value} value={opt.value}>
+                    {opt.label}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
             <Tooltip content={FONT_HELP_TEXT} side="left">
               <Info className="size-4 cursor-help text-muted-foreground transition-colors hover:text-foreground" />
             </Tooltip>
@@ -394,22 +387,22 @@ export const TerminalSettings = () => {
           }
           canReset={settings.terminalCursorStyle !== getDefaultSetting("terminalCursorStyle")}
         >
-          <Select
-            value={settings.terminalCursorStyle}
-            options={[
-              { value: "block", label: "Block" },
-              { value: "underline", label: "Underline" },
-              { value: "bar", label: "Bar" },
-            ]}
-            onChange={(val) =>
-              updateSetting("terminalCursorStyle", val as "block" | "underline" | "bar")
-            }
-            className={SETTINGS_CONTROL_WIDTHS.default}
-            size="xs"
-            variant="default"
-            searchable
-            searchableTrigger="input"
-          />
+          <Select value={settings.terminalCursorStyle} onValueChange={(val) => { if (val) updateSetting("terminalCursorStyle", val as "block" | "underline" | "bar") }}>
+            <SelectTrigger size="sm" className={SETTINGS_CONTROL_WIDTHS.default}>
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              {[
+                { value: "block", label: "Block" },
+                { value: "underline", label: "Underline" },
+                { value: "bar", label: "Bar" },
+              ].map((opt) => (
+                <SelectItem key={opt.value} value={opt.value}>
+                  {opt.label}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
         </SettingRow>
 
         <SettingRow

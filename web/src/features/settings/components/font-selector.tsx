@@ -9,8 +9,8 @@ import {
 } from "@/features/settings/lib/font-family-resolution";
 import { useFontStore } from "@/features/settings/stores/font-store";
 import type { FontInfo } from "@/features/settings/stores/types/font";
-import { LoadingIndicator } from "@/components/ui/loading";
-import Select from "@/components/ui/select";
+import { Skeleton } from "@/components/ui/skeleton";
+import { Select, SelectTrigger, SelectValue, SelectContent, SelectItem } from "@/components/ui/select";
 import { cn } from "@/utils/cn";
 
 // Bundled fonts that are always available
@@ -141,7 +141,7 @@ export const FontSelector = ({
   };
 
   if (isLoading) {
-    return <LoadingIndicator label="Loading fonts" showLabel compact className={className} />;
+    return <Skeleton className={cn("h-7 w-full rounded-md", className)} />;
   }
 
   if (error) {
@@ -153,16 +153,17 @@ export const FontSelector = ({
   }
 
   return (
-    <Select
-      value={resolvedValue}
-      options={fontOptions}
-      onChange={handleFontChange}
-      placeholder="Select font"
-      className={className}
-      size="xs"
-      variant="default"
-      searchable
-      searchableTrigger="input"
-    />
+    <Select value={resolvedValue} onValueChange={(val) => { if (val) handleFontChange(val) }}>
+      <SelectTrigger size="sm" className={className}>
+        <SelectValue placeholder="Select font" />
+      </SelectTrigger>
+      <SelectContent>
+        {fontOptions.map((opt) => (
+          <SelectItem key={opt.value} value={opt.value}>
+            {opt.label}
+          </SelectItem>
+        ))}
+      </SelectContent>
+    </Select>
   );
 };

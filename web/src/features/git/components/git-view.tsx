@@ -16,7 +16,7 @@ import { useBufferStore } from "@/features/editor/stores/buffer-store";
 import { useSettingsStore } from "@/features/settings/store";
 import { Button } from "@/components/ui/button";
 import { CommandEmpty, CommandList } from "@/components/ui/command";
-import { LoadingIndicator } from "@/components/ui/loading";
+import { LoadingSpinner } from "@/components/ui/spinner";
 import { PaneGroup } from "@/components/ui/pane";
 import { primitiveAlert } from "@/components/ui/primitive-dialog-service";
 import {
@@ -968,7 +968,7 @@ const GitView = ({ repoPath, onFileSelect, isActive }: GitViewProps) => {
               aria-label="Refresh git status"
             >
               {isLoadingGitData || isRefreshing ? (
-                <LoadingIndicator label="Refreshing git status" compact />
+                <LoadingSpinner label="Refreshing git status" compact />
               ) : (
                 <RefreshCw />
               )}

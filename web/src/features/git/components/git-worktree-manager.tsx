@@ -14,7 +14,7 @@ import Checkbox from "@/components/ui/checkbox";
 import { ContextMenu, useContextMenu, type ContextMenuItem } from "@/components/ui/context-menu";
 import Dialog from "@/components/ui/dialog";
 import Input from "@/components/ui/input";
-import { LoadingIndicator } from "@/components/ui/loading";
+import { LoadingSpinner } from "@/components/ui/spinner";
 import { primitiveConfirm } from "@/components/ui/primitive-dialog-service";
 import { SidebarListItem } from "@/components/ui/sidebar";
 import { cn } from "@/utils/cn";
@@ -255,7 +255,7 @@ const GitWorktreeManager = ({
                   tooltip="Prune prunable worktrees"
                 >
                   {isLoading ? (
-                    <LoadingIndicator label="Pruning worktrees" compact />
+                    <LoadingSpinner label="Pruning worktrees" compact />
                   ) : (
                     <RefreshCw />
                   )}
@@ -319,7 +319,7 @@ const GitWorktreeManager = ({
       <div className="min-h-0 flex-1 overflow-y-auto px-1 py-1">
         {isLoading && worktrees.length === 0 ? (
           <div className="ui-text-sm flex h-full min-h-[160px] items-center justify-center px-4 text-center text-muted-foreground">
-            <LoadingIndicator label="Loading worktrees" showLabel compact />
+            <LoadingSpinner label="Loading worktrees" showLabel compact />
           </div>
         ) : worktrees.length === 0 ? (
           <div className="ui-text-sm flex h-full min-h-[160px] items-center justify-center px-4 text-center text-muted-foreground">

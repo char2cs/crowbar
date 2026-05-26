@@ -15,6 +15,7 @@ import { TerminalHost } from '@/features/terminal/components/terminal-host'
 import { ErrorBoundary } from '@/components/ErrorBoundary'
 import { cn } from '@/utils/cn'
 import { useSettingsStore } from '@/features/settings/store'
+import { FontStyleInjector } from '@/features/settings/components/font-style-injector'
 
 export function IDEShell() {
   const navigate = useNavigate()
@@ -24,6 +25,7 @@ export function IDEShell() {
     useSidebarStore()
   const [settingsOpen, setSettingsOpen] = useState(false)
   const sidebarPosition = useSettingsStore((state) => state.settings.sidebarPosition)
+
 
   const activeWorkspaceId = pathname.match(/\/workspaces\/([^/]+)/)?.[1]
   const activeChatId = pathname.match(/\/chat\/([^/]+)/)?.[1]
@@ -37,67 +39,74 @@ export function IDEShell() {
   const activeWorkspaceRepoPath = activeRepo ? `/repos/${activeRepo.id}` : '/repos/default'
   const chatTabLabel = chats.find(c => c.id === activeChatId)?.title ?? 'Chat'
 
+  const sidebarPanel = (
+    <ResizablePanel id="sidebar" defaultSize="20%" minSize="12%" maxSize="45%" className="flex flex-col overflow-hidden">
+      <div className={cn("flex h-full flex-col overflow-hidden bg-card", sidebarPosition === "right" ? "border-l border-border" : "border-r border-border")}>
+        <ErrorBoundary>
+          <SidebarHeader
+            userInitials="MU"
+            onProjectsClick={() => void navigate({ to: '/projects' })}
+            onProjectSelect={() => void navigate({ to: '/' })}
+            onSettingsClick={() => setSettingsOpen(true)}
+          />
+          <SidebarTabs
+            chats={chats}
+            repos={repos}
+            collapsedRepos={collapsedRepos}
+            activeChatId={activeChatId}
+            activeWorkspaceId={activeWorkspaceId}
+            activeWorkspaceRepoPath={activeWorkspaceRepoPath}
+            onChatClick={id => void navigate({ to: '/chat/$chatId', params: { chatId: id } })}
+            onWorkspaceClick={(_repoId, wsId) => void navigate({ to: '/workspaces/$wsId', params: { wsId } })}
+            onNewChat={() => {
+              const chat = createMockChat()
+              addChat({ id: chat.id, title: chat.title, age: chat.age })
+              void navigate({ to: '/chat/$chatId', params: { chatId: chat.id } })
+            }}
+            onNewWorkspace={() => void navigate({ to: '/workspaces/new' })}
+            onDeleteChat={id => { deleteChat(id); if (activeChatId === id) void navigate({ to: '/' }) }}
+            onDeleteWorkspace={wsId => { deleteWorkspace(wsId); if (activeWorkspaceId === wsId) void navigate({ to: '/' }) }}
+            onRepoToggle={toggleRepo}
+          />
+        </ErrorBoundary>
+      </div>
+    </ResizablePanel>
+  )
+
+  const contentPanel = (
+    <ResizablePanel id="content" className="flex min-w-0 flex-1 flex-col overflow-hidden">
+      <ErrorBoundary>
+        {activeWorkspaceId ? (
+          <WorkspaceView wsId={activeWorkspaceId} label={workspaceLabel} />
+        ) : activeChatId ? (
+          <div className="flex h-full flex-col overflow-hidden">
+            <div className="flex items-center border-b border-border px-3 py-1 text-sm font-medium">
+              {chatTabLabel}
+            </div>
+            <Outlet />
+          </div>
+        ) : (
+          <div className="flex h-full flex-col overflow-hidden">
+            <Outlet />
+          </div>
+        )}
+      </ErrorBoundary>
+    </ResizablePanel>
+  )
+
   return (
     <div className="flex h-screen overflow-hidden bg-background text-foreground">
-      <ResizablePanelGroup orientation="horizontal" className={cn("h-full", sidebarPosition === "right" && "flex-row-reverse")}>
-
-        <ResizablePanel defaultSize="20%" minSize="12%" maxSize="45%" className="flex flex-col overflow-hidden">
-          <div className={cn("flex h-full flex-col overflow-hidden bg-card", sidebarPosition === "right" ? "border-l border-border" : "border-r border-border")}>
-            <ErrorBoundary>
-              <SidebarHeader
-                userInitials="MU"
-                onProjectsClick={() => void navigate({ to: '/projects' })}
-                onProjectSelect={() => void navigate({ to: '/' })}
-                onSettingsClick={() => setSettingsOpen(true)}
-              />
-              <SidebarTabs
-                chats={chats}
-                repos={repos}
-                collapsedRepos={collapsedRepos}
-                activeChatId={activeChatId}
-                activeWorkspaceId={activeWorkspaceId}
-                activeWorkspaceRepoPath={activeWorkspaceRepoPath}
-                onChatClick={id => void navigate({ to: '/chat/$chatId', params: { chatId: id } })}
-                onWorkspaceClick={(_repoId, wsId) => void navigate({ to: '/workspaces/$wsId', params: { wsId } })}
-                onNewChat={() => {
-                  const chat = createMockChat()
-                  addChat({ id: chat.id, title: chat.title, age: chat.age })
-                  void navigate({ to: '/chat/$chatId', params: { chatId: chat.id } })
-                }}
-                onNewWorkspace={() => void navigate({ to: '/workspaces/new' })}
-                onDeleteChat={id => { deleteChat(id); if (activeChatId === id) void navigate({ to: '/' }) }}
-                onDeleteWorkspace={wsId => { deleteWorkspace(wsId); if (activeWorkspaceId === wsId) void navigate({ to: '/' }) }}
-                onRepoToggle={toggleRepo}
-              />
-            </ErrorBoundary>
-          </div>
-        </ResizablePanel>
-
-        <ResizableHandle />
-
-        <ResizablePanel className="flex min-w-0 flex-1 flex-col overflow-hidden">
-          <ErrorBoundary>
-            {activeWorkspaceId ? (
-              <WorkspaceView wsId={activeWorkspaceId} label={workspaceLabel} />
-            ) : activeChatId ? (
-              <div className="flex h-full flex-col overflow-hidden">
-                <div className="flex items-center border-b border-border px-3 py-1 text-sm font-medium">
-                  {chatTabLabel}
-                </div>
-                <Outlet />
-              </div>
-            ) : (
-              <div className="flex h-full flex-col overflow-hidden">
-                <Outlet />
-              </div>
-            )}
-          </ErrorBoundary>
-        </ResizablePanel>
-
+      <ResizablePanelGroup orientation="horizontal" className="h-full">
+        {sidebarPosition === "right" ? (
+          <>{contentPanel}<ResizableHandle />{sidebarPanel}</>
+        ) : (
+          <>{sidebarPanel}<ResizableHandle />{contentPanel}</>
+        )}
       </ResizablePanelGroup>
 
       <SettingsDialog isOpen={settingsOpen} onClose={() => setSettingsOpen(false)} />
       <TerminalHost />
+      <FontStyleInjector />
     </div>
   )
 }

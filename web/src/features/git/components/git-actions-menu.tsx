@@ -13,7 +13,7 @@ import {
 import { useState } from "react";
 import { useSettingsStore } from "@/features/settings/store";
 import { ContextMenu, type ContextMenuItem } from "@/components/ui/context-menu";
-import { LoadingIndicator } from "@/components/ui/loading";
+import { LoadingSpinner } from "@/components/ui/spinner";
 import { primitiveConfirm } from "@/components/ui/primitive-dialog-service";
 import { toast } from "@/components/ui/toast";
 import {
@@ -240,7 +240,7 @@ const GitActionsMenu = ({
           id: "refresh",
           label: "Refresh Status",
           icon: isRefreshing ? (
-            <LoadingIndicator label="Refreshing status" compact />
+            <LoadingSpinner label="Refreshing status" compact />
           ) : (
             <RefreshCw />
           ),
@@ -270,7 +270,7 @@ const GitActionsMenu = ({
           id: "refresh",
           label: "Refresh Status",
           icon: isRefreshing ? (
-            <LoadingIndicator label="Refreshing status" compact />
+            <LoadingSpinner label="Refreshing status" compact />
           ) : (
             <RefreshCw />
           ),

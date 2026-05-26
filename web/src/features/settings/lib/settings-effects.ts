@@ -68,7 +68,7 @@ function stopSystemThemeSync() {
   removeThemeSyncListener = null;
 }
 
-function syncThemeWithSystem(themeMode: "light" | "dark" | "system") {
+function syncThemeWithSystem(themeMode: "light" | "dark" | "system", onModeChanged?: () => void) {
   if (typeof window === "undefined" || !window.matchMedia) return;
   if (themeMode !== "system") {
     stopSystemThemeSync();
@@ -80,6 +80,7 @@ function syncThemeWithSystem(themeMode: "light" | "dark" | "system") {
 
   const handleChange = () => {
     applyThemeMode("system");
+    onModeChanged?.();
   };
 
   if ("addEventListener" in mediaQuery) {
@@ -188,7 +189,7 @@ export function applySettingsSideEffects(settings: Settings) {
   applyWindowTransparency(settings.windowTransparency);
   applyThemeMode(settings.themeMode);
   void applyTheme(settings.theme);
-  syncThemeWithSystem(settings.themeMode);
+  syncThemeWithSystem(settings.themeMode, () => void applyTheme(settings.theme));
   syncOllamaBaseUrl(settings.ollamaBaseUrl);
   syncCustomProviderBaseUrl(settings.aiCustomBaseUrl);
   void syncOllamaApiKey();
@@ -208,7 +209,9 @@ export function applySettingSideEffect<K extends keyof Settings>(
   if (key === "themeMode") {
     const settings = getSettings();
     applyThemeMode(settings.themeMode);
-    syncThemeWithSystem(settings.themeMode);
+    syncThemeWithSystem(settings.themeMode, () => void applyTheme(settings.theme));
+    // Re-apply the theme's color palette for the new light/dark mode
+    void applyTheme(settings.theme);
   }
 
   if (key === "ollamaBaseUrl") {

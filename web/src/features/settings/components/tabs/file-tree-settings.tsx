@@ -5,9 +5,8 @@ import {
 } from "@/features/file-explorer/lib/file-tree-density";
 import { getDefaultSetting, useSettingsStore } from "@/features/settings/store";
 import NumberInput from "@/components/ui/number-input";
-import Select from "@/components/ui/select";
+import { Select, SelectTrigger, SelectValue, SelectContent, SelectItem } from "@/components/ui/select";
 import Section, { SETTINGS_CONTROL_WIDTHS, SettingRow } from "../settings-section";
-import { controlFieldSurfaceVariants } from "@/components/ui/control-field";
 import Switch from "@/components/ui/switch";
 import { cn } from "@/utils/cn";
 
@@ -70,14 +69,18 @@ export const FileTreeSettings = () => {
           onReset={() => updateSetting("fileTreeDensity", getDefaultSetting("fileTreeDensity"))}
           canReset={settings.fileTreeDensity !== getDefaultSetting("fileTreeDensity")}
         >
-          <Select
-            value={settings.fileTreeDensity}
-            options={FILE_TREE_DENSITY_OPTIONS}
-            onChange={(value) => updateSetting("fileTreeDensity", value as FileTreeDensity)}
-            className={SETTINGS_CONTROL_WIDTHS.default}
-            size="xs"
-            variant="default"
-          />
+          <Select value={settings.fileTreeDensity} onValueChange={(value) => updateSetting("fileTreeDensity", value as FileTreeDensity)}>
+            <SelectTrigger size="sm" className={SETTINGS_CONTROL_WIDTHS.default}>
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              {FILE_TREE_DENSITY_OPTIONS.map((opt) => (
+                <SelectItem key={opt.value} value={opt.value}>
+                  {opt.label}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
         </SettingRow>
 
         <SettingRow
@@ -164,8 +167,7 @@ export const FileTreeSettings = () => {
             placeholder="*.log, *.tmp, **/*.bak"
             rows={2}
             className={cn(
-              controlFieldSurfaceVariants({ variant: "secondary" }),
-              "ui-font ui-text-sm w-48 max-w-full resize-none px-2 py-1.5 placeholder:text-muted-foreground",
+              "ui-font ui-text-sm w-48 max-w-full resize-none rounded-md border border-border bg-muted px-2 py-1.5 text-foreground outline-none placeholder:text-muted-foreground focus:border-ring",
             )}
           />
         </SettingRow>
@@ -194,8 +196,7 @@ export const FileTreeSettings = () => {
             placeholder="node_modules, .git, build/"
             rows={2}
             className={cn(
-              controlFieldSurfaceVariants({ variant: "secondary" }),
-              "ui-font ui-text-sm w-48 max-w-full resize-none px-2 py-1.5 placeholder:text-muted-foreground",
+              "ui-font ui-text-sm w-48 max-w-full resize-none rounded-md border border-border bg-muted px-2 py-1.5 text-foreground outline-none placeholder:text-muted-foreground focus:border-ring",
             )}
           />
         </SettingRow>

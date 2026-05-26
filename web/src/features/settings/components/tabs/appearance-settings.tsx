@@ -12,10 +12,10 @@ import { getDefaultSetting, useSettingsStore } from "@/features/settings/store";
 import { Button } from "@/components/ui/button";
 import NumberInput from "@/components/ui/number-input";
 import Section, { SETTINGS_CONTROL_WIDTHS, SettingRow } from "../settings-section";
-import Select from "@/components/ui/select";
+import { Select, SelectTrigger, SelectValue, SelectContent, SelectItem } from "@/components/ui/select";
 import { cn } from "@/utils/cn";
 import { FontSelector } from "../font-selector";
-import type { ThemeMode } from "@/features/settings/types/settings";
+import type { Theme, ThemeMode } from "@/features/settings/types/settings";
 
 const THEME_MODE_OPTIONS: { value: ThemeMode; label: string }[] = [
   { value: "system", label: "Sync with System" },
@@ -104,16 +104,18 @@ export const AppearanceSettings = () => {
           canReset={settings.theme !== getDefaultSetting("theme")}
         >
           <div className="flex items-center gap-2">
-            <Select
-              value={settings.theme}
-              options={normalizedThemeOptions}
-              onChange={(value) => updateSetting("theme", value)}
-              className={SETTINGS_CONTROL_WIDTHS.wide}
-              size="xs"
-              variant="default"
-              searchable
-              searchableTrigger="input"
-            />
+            <Select value={settings.theme} onValueChange={(value) => { if (value) updateSetting("theme", value as Theme) }}>
+              <SelectTrigger size="sm" className={SETTINGS_CONTROL_WIDTHS.wide}>
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                {normalizedThemeOptions.map((opt) => (
+                  <SelectItem key={opt.value} value={opt.value}>
+                    {opt.label}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
             <Button
               type="button"
               onClick={handleUploadTheme}
@@ -133,14 +135,18 @@ export const AppearanceSettings = () => {
           onReset={() => updateSetting("themeMode", getDefaultSetting("themeMode"))}
           canReset={settings.themeMode !== getDefaultSetting("themeMode")}
         >
-          <Select
-            value={settings.themeMode}
-            options={THEME_MODE_OPTIONS}
-            onChange={(value) => updateSetting("themeMode", value as ThemeMode)}
-            className={SETTINGS_CONTROL_WIDTHS.wide}
-            size="xs"
-            variant="default"
-          />
+          <Select value={settings.themeMode} onValueChange={(value) => { if (value) updateSetting("themeMode", value as ThemeMode) }}>
+            <SelectTrigger size="sm" className={SETTINGS_CONTROL_WIDTHS.wide}>
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              {THEME_MODE_OPTIONS.map((opt) => (
+                <SelectItem key={opt.value} value={opt.value}>
+                  {opt.label}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
         </SettingRow>
       </Section>
 
@@ -151,14 +157,18 @@ export const AppearanceSettings = () => {
           onReset={() => updateSetting("iconTheme", getDefaultSetting("iconTheme"))}
           canReset={settings.iconTheme !== getDefaultSetting("iconTheme")}
         >
-          <Select
-            value={settings.iconTheme}
-            options={normalizedIconThemeOptions}
-            onChange={(value) => updateSetting("iconTheme", value)}
-            className={SETTINGS_CONTROL_WIDTHS.wide}
-            size="xs"
-            variant="default"
-          />
+          <Select value={settings.iconTheme} onValueChange={(value) => { if (value) updateSetting("iconTheme", value) }}>
+            <SelectTrigger size="sm" className={SETTINGS_CONTROL_WIDTHS.wide}>
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              {normalizedIconThemeOptions.map((opt) => (
+                <SelectItem key={opt.value} value={opt.value}>
+                  {opt.label}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
         </SettingRow>
       </Section>
 
@@ -203,14 +213,18 @@ export const AppearanceSettings = () => {
           onReset={() => updateSetting("sidebarPosition", getDefaultSetting("sidebarPosition"))}
           canReset={settings.sidebarPosition !== getDefaultSetting("sidebarPosition")}
         >
-          <Select
-            value={settings.sidebarPosition}
-            options={SIDEBAR_POSITION_OPTIONS}
-            onChange={(value) => updateSetting("sidebarPosition", value)}
-            className={SETTINGS_CONTROL_WIDTHS.compact}
-            size="xs"
-            variant="default"
-          />
+          <Select value={settings.sidebarPosition} onValueChange={(value) => { if (value) updateSetting("sidebarPosition", value as "left" | "right") }}>
+            <SelectTrigger size="sm" className={SETTINGS_CONTROL_WIDTHS.compact}>
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              {SIDEBAR_POSITION_OPTIONS.map((opt) => (
+                <SelectItem key={opt.value} value={opt.value}>
+                  {opt.label}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
         </SettingRow>
       </Section>
     </div>

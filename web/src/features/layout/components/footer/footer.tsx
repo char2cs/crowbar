@@ -12,7 +12,7 @@ import {
 import { cva } from "class-variance-authority";
 import { type ReactNode, type Ref, useMemo, useRef, useState } from "react";
 import { Tab, TabsList } from "@/components/ui/tabs";
-import { LoadingIndicator } from "@/components/ui/loading";
+import { LoadingSpinner } from "@/components/ui/spinner";
 import Tooltip from "@/components/ui/tooltip";
 import { Dropdown } from "@/components/ui/dropdown";
 import { useDiagnosticsStore } from "@/features/diagnostics/stores/diagnostics-store";
@@ -373,7 +373,7 @@ const Footer = () => {
                 }}
               >
                 {downloading || installing ? (
-                  <LoadingIndicator label={downloading ? "Downloading" : "Installing"} compact />
+                  <LoadingSpinner label={downloading ? "Downloading" : "Installing"} compact />
                 ) : (
                   <DownloadSimple weight="duotone" />
                 )}

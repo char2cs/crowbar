@@ -20,7 +20,7 @@ import Checkbox from "@/components/ui/checkbox";
 import { CommandEmpty, CommandList } from "@/components/ui/command";
 import Input from "@/components/ui/input";
 import { primitiveConfirm } from "@/components/ui/primitive-dialog-service";
-import Select from "@/components/ui/select";
+import { Select, SelectTrigger, SelectValue, SelectContent, SelectItem } from "@/components/ui/select";
 import { toast } from "@/components/ui/toast";
 import { formatShortDate } from "@/utils/date";
 import { matchesSearchQuery } from "@/utils/search-match";
@@ -573,14 +573,18 @@ const GitTagManager = ({
       </CommandList>
       {remotes.length > 0 ? (
         <div className="border-border/70 border-t px-3 py-2">
-          <Select
-            value={selectedRemote}
-            onChange={setSelectedRemote}
-            options={remotes.map((remote) => ({ value: remote.name, label: remote.name }))}
-            size="xs"
-            variant="default"
-            aria-label="Tag remote"
-          />
+          <Select value={selectedRemote} onValueChange={(val) => { if (val) setSelectedRemote(val) }}>
+            <SelectTrigger size="sm" aria-label="Tag remote">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              {remotes.map((remote) => (
+                <SelectItem key={remote.name} value={remote.name}>
+                  {remote.name}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
         </div>
       ) : null}
     </GitCommandSurface>

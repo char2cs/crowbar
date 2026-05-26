@@ -19,7 +19,7 @@ import { NotificationsPane } from "@/features/window/components/notifications-si
 import { useAuthStore } from "@/features/window/stores/auth-store";
 import { useExtensionViews } from "@/extensions/ui/hooks/use-extension-views";
 import { ExtensionErrorBoundary } from "@/extensions/ui/components/extension-error-boundary";
-import { LoadingIndicator } from "@/components/ui/loading";
+import { LoadingSpinner } from "@/components/ui/spinner";
 import { SidebarPanel } from "@/components/ui/sidebar";
 import { cn } from "@/utils/cn";
 
@@ -167,7 +167,7 @@ export const MainSidebar = memo(
             {isFileTreeLoading && !isSwitchingProject && (
               <div className="pointer-events-none absolute inset-0 flex items-start justify-center p-3">
                 <div className="rounded-full border border-border/60 bg-card/92 px-3 py-1.5 shadow-lg backdrop-blur-sm">
-                  <LoadingIndicator label="Loading files" showLabel compact />
+                  <LoadingSpinner label="Loading files" showLabel compact />
                 </div>
               </div>
             )}

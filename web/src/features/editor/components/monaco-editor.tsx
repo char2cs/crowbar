@@ -601,6 +601,8 @@ export function MonacoBackedEditor({
     if (!container || !buffer) return;
 
     const model = monacoEditor.createModel(content, monacoLanguageId, modelUri);
+    // Apply tab settings on the model directly (model-level options)
+    model.updateOptions({ tabSize, insertSpaces: true, detectIndentation: false });
     const editor = monacoEditor.create(container, {
       model,
       automaticLayout: true,
@@ -609,6 +611,7 @@ export function MonacoBackedEditor({
       lineHeight,
       tabSize,
       insertSpaces: true,
+      detectIndentation: false,
       readOnly: readOnly || isPreviewMode,
       domReadOnly: readOnly || isPreviewMode,
       minimap: { enabled: minimapEnabled },
@@ -884,11 +887,14 @@ export function MonacoBackedEditor({
     const applyTheme = () => monacoEditor.setTheme(defineMonacoTheme(settingsTheme || theme));
 
     applyTheme();
+    // tabSize and detectIndentation are model-level options — must go through the model
+    editor.getModel()?.updateOptions({ tabSize, detectIndentation: false });
     editor.updateOptions({
       fontFamily,
       fontSize,
       lineHeight,
       tabSize,
+      detectIndentation: false,
       readOnly: readOnly || isPreviewMode,
       domReadOnly: readOnly || isPreviewMode,
       lineNumbers: lineNumbers ? lineNumberFormatter : "off",

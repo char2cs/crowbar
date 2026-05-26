@@ -7,7 +7,7 @@ import {
   X,
 } from "@phosphor-icons/react";
 import { Toaster as SonnerToaster, toast as sonnerToast } from "sonner";
-import { LoadingIndicator } from "@/components/ui/loading";
+import { LoadingSpinner } from "@/components/ui/spinner";
 import { createSelectors } from "@/utils/zustand-selectors";
 
 export interface Toast {
@@ -273,7 +273,7 @@ export const ToastContainer = () => {
         info: <Info size={18} />,
         warning: <AlertTriangle size={18} />,
         error: <AlertTriangle size={18} />,
-        loading: <LoadingIndicator label="Loading" compact />,
+        loading: <LoadingSpinner label="Loading" compact />,
         close: <X size={14} />,
       }}
       toastOptions={{

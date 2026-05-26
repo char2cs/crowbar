@@ -9,385 +9,649 @@ export type FileNode = FileEntry
 export function getMockFileTree(_rootPath: string): FileEntry[] {
   return [
     {
-      name: 'src',
-      path: 'src',
+      name: 'cmd',
+      path: 'cmd',
       isDir: true,
       children: [
         {
-          name: 'payment',
-          path: 'src/payment',
+          name: 'server',
+          path: 'cmd/server',
           isDir: true,
           children: [
-            { name: 'PaymentService.ts', path: 'src/payment/PaymentService.ts', isDir: false, gitStatus: 'modified' },
-            { name: 'PaymentError.ts', path: 'src/payment/PaymentError.ts', isDir: false, gitStatus: 'added' },
-            { name: 'webhook.ts', path: 'src/payment/webhook.ts', isDir: false },
-            { name: 'payment.test.ts', path: 'src/payment/payment.test.ts', isDir: false, gitStatus: 'modified' },
+            { name: 'main.go', path: 'cmd/server/main.go', isDir: false },
+          ],
+        },
+      ],
+    },
+    {
+      name: 'internal',
+      path: 'internal',
+      isDir: true,
+      children: [
+        {
+          name: 'auth',
+          path: 'internal/auth',
+          isDir: true,
+          children: [
+            { name: 'service.go', path: 'internal/auth/service.go', isDir: false, gitStatus: 'modified' },
+            { name: 'middleware.go', path: 'internal/auth/middleware.go', isDir: false },
           ],
         },
         {
-          name: 'auth',
-          path: 'src/auth',
+          name: 'payment',
+          path: 'internal/payment',
           isDir: true,
           children: [
-            { name: 'AuthService.ts', path: 'src/auth/AuthService.ts', isDir: false },
-            { name: 'middleware.ts', path: 'src/auth/middleware.ts', isDir: false },
+            { name: 'service.go', path: 'internal/payment/service.go', isDir: false, gitStatus: 'added' },
+            { name: 'webhook.go', path: 'internal/payment/webhook.go', isDir: false, gitStatus: 'modified' },
           ],
         },
         {
           name: 'db',
-          path: 'src/db',
+          path: 'internal/db',
           isDir: true,
           children: [
-            { name: 'schema.ts', path: 'src/db/schema.ts', isDir: false },
-            { name: 'migrations.ts', path: 'src/db/migrations.ts', isDir: false },
+            { name: 'db.go', path: 'internal/db/db.go', isDir: false },
+            { name: 'models.go', path: 'internal/db/models.go', isDir: false },
           ],
         },
-        { name: 'index.ts', path: 'src/index.ts', isDir: false },
-        { name: 'config.ts', path: 'src/config.ts', isDir: false },
+        {
+          name: 'config',
+          path: 'internal/config',
+          isDir: true,
+          children: [
+            { name: 'config.go', path: 'internal/config/config.go', isDir: false },
+          ],
+        },
       ],
     },
-    { name: 'package.json', path: 'package.json', isDir: false },
-    { name: 'tsconfig.json', path: 'tsconfig.json', isDir: false },
+    { name: 'go.mod', path: 'go.mod', isDir: false },
+    { name: 'go.sum', path: 'go.sum', isDir: false },
+    { name: 'Makefile', path: 'Makefile', isDir: false },
     { name: 'README.md', path: 'README.md', isDir: false },
     { name: '.env.example', path: '.env.example', isDir: false, gitStatus: 'untracked' },
   ]
 }
 
-/** Realistic mock content for each file in the mock tree */
+/** Realistic mock content for each file in the mock tree.
+ *  Go files use real tab characters for indentation — intentional! */
 const MOCK_CONTENT: Record<string, string> = {
-  'src/payment/PaymentService.ts': `import Stripe from 'stripe'
-import { PaymentError } from './PaymentError'
+  'cmd/server/main.go': `package main
 
-const stripe = new Stripe(process.env.STRIPE_SECRET_KEY!, { apiVersion: '2023-10-16' })
+import (
+\t"context"
+\t"fmt"
+\t"log/slog"
+\t"net/http"
+\t"os"
+\t"os/signal"
+\t"syscall"
+\t"time"
 
-export interface CreatePaymentIntentParams {
-  amount: number
-  currency: string
-  customerId?: string
-  metadata?: Record<string, string>
+\t"github.com/rabbyte/crowbar/internal/auth"
+\t"github.com/rabbyte/crowbar/internal/config"
+\t"github.com/rabbyte/crowbar/internal/db"
+\t"github.com/rabbyte/crowbar/internal/payment"
+)
+
+func main() {
+\tcfg, err := config.Load()
+\tif err != nil {
+\t\tslog.Error("failed to load config", "error", err)
+\t\tos.Exit(1)
+\t}
+
+\tpool, err := db.Connect(cfg.DatabaseURL)
+\tif err != nil {
+\t\tslog.Error("failed to connect to database", "error", err)
+\t\tos.Exit(1)
+\t}
+\tdefer pool.Close()
+
+\tauthSvc := auth.NewService(pool, cfg.JWTSecret)
+\tpaymentSvc := payment.NewService(cfg.StripeSecretKey)
+
+\tmux := http.NewServeMux()
+\tmux.HandleFunc("POST /auth/login", authSvc.HandleLogin)
+\tmux.HandleFunc("POST /auth/refresh", authSvc.HandleRefresh)
+\tmux.HandleFunc("POST /webhooks/stripe", paymentSvc.HandleWebhook)
+
+\t// Protected routes
+\tprotected := auth.Middleware(authSvc)(mux)
+\tmux.HandleFunc("GET /api/me", auth.RequireAuth(authSvc, handleMe))
+\tmux.HandleFunc("POST /api/payments", auth.RequireAuth(authSvc, paymentSvc.HandleCreateIntent))
+
+\tserver := &http.Server{
+\t\tAddr:         fmt.Sprintf(":%d", cfg.Port),
+\t\tHandler:      protected,
+\t\tReadTimeout:  15 * time.Second,
+\t\tWriteTimeout: 15 * time.Second,
+\t\tIdleTimeout:  60 * time.Second,
+\t}
+
+\tgo func() {
+\t\tslog.Info("server starting", "addr", server.Addr)
+\t\tif err := server.ListenAndServe(); err != nil && err != http.ErrServerClosed {
+\t\t\tslog.Error("server error", "error", err)
+\t\t\tos.Exit(1)
+\t\t}
+\t}()
+
+\tquit := make(chan os.Signal, 1)
+\tsignal.Notify(quit, syscall.SIGINT, syscall.SIGTERM)
+\t<-quit
+
+\tctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+\tdefer cancel()
+\tif err := server.Shutdown(ctx); err != nil {
+\t\tslog.Error("shutdown error", "error", err)
+\t}
+\tslog.Info("server stopped")
 }
 
-export async function createPaymentIntent(params: CreatePaymentIntentParams) {
-  try {
-    const intent = await stripe.paymentIntents.create({
-      amount: params.amount,
-      currency: params.currency,
-      customer: params.customerId,
-      metadata: params.metadata ?? {},
-      automatic_payment_methods: { enabled: true },
-    })
-    return { clientSecret: intent.client_secret, id: intent.id }
-  } catch (err) {
-    throw new PaymentError(\`Failed to create payment intent: \${(err as Error).message}\`)
-  }
-}
-
-export async function confirmPayment(paymentIntentId: string) {
-  const intent = await stripe.paymentIntents.retrieve(paymentIntentId)
-  return intent.status === 'succeeded'
+func handleMe(w http.ResponseWriter, r *http.Request) {
+\tclaims := auth.ClaimsFromContext(r.Context())
+\tw.Header().Set("Content-Type", "application/json")
+\tfmt.Fprintf(w, \`{"user_id":%q,"email":%q,"role":%q}\`, claims.UserID, claims.Email, claims.Role)
 }`,
 
-  'src/payment/PaymentError.ts': `export class PaymentError extends Error {
-  constructor(
-    message: string,
-    public readonly code?: string,
-    public readonly stripeCode?: string,
-  ) {
-    super(message)
-    this.name = 'PaymentError'
-  }
-}`,
+  'internal/auth/service.go': `package auth
 
-  'src/payment/webhook.ts': `import type { Request, Response } from 'express'
-import Stripe from 'stripe'
+import (
+\t"context"
+\t"errors"
+\t"time"
 
-const stripe = new Stripe(process.env.STRIPE_SECRET_KEY!, { apiVersion: '2023-10-16' })
-const webhookSecret = process.env.STRIPE_WEBHOOK_SECRET!
+\t"github.com/golang-jwt/jwt/v5"
+\t"github.com/jackc/pgx/v5/pgxpool"
+\t"golang.org/x/crypto/bcrypt"
+)
 
-export async function handleWebhook(req: Request, res: Response) {
-  const sig = req.headers['stripe-signature'] as string
-
-  let event: Stripe.Event
-  try {
-    event = stripe.webhooks.constructEvent(req.body, sig, webhookSecret)
-  } catch (err) {
-    return res.status(400).send(\`Webhook Error: \${(err as Error).message}\`)
-  }
-
-  switch (event.type) {
-    case 'payment_intent.succeeded':
-      await handlePaymentSucceeded(event.data.object as Stripe.PaymentIntent)
-      break
-    case 'payment_intent.payment_failed':
-      await handlePaymentFailed(event.data.object as Stripe.PaymentIntent)
-      break
-  }
-
-  res.json({ received: true })
+type Service struct {
+\tdb        *pgxpool.Pool
+\tjwtSecret []byte
 }
 
-async function handlePaymentSucceeded(intent: Stripe.PaymentIntent) {
-  console.log('Payment succeeded:', intent.id)
+type Claims struct {
+\tjwt.RegisteredClaims
+\tUserID string \`json:"user_id"\`
+\tEmail  string \`json:"email"\`
+\tRole   string \`json:"role"\`
 }
 
-async function handlePaymentFailed(intent: Stripe.PaymentIntent) {
-  console.error('Payment failed:', intent.id, intent.last_payment_error?.message)
-}`,
+type contextKey string
 
-  'src/payment/payment.test.ts': `import { describe, it, expect, vi, beforeEach } from 'vitest'
-import { createPaymentIntent, confirmPayment } from './PaymentService'
-import { PaymentError } from './PaymentError'
+const claimsKey contextKey = "claims"
 
-vi.mock('stripe')
-
-describe('PaymentService', () => {
-  beforeEach(() => {
-    vi.clearAllMocks()
-  })
-
-  it('creates a payment intent with the correct params', async () => {
-    const result = await createPaymentIntent({
-      amount: 2000,
-      currency: 'usd',
-      metadata: { orderId: 'ord_123' },
-    })
-    expect(result.clientSecret).toBeDefined()
-    expect(result.id).toBeDefined()
-  })
-
-  it('throws PaymentError when Stripe fails', async () => {
-    await expect(createPaymentIntent({ amount: -1, currency: 'usd' }))
-      .rejects
-      .toThrow(PaymentError)
-  })
-})`,
-
-  'src/auth/AuthService.ts': `import jwt from 'jsonwebtoken'
-import { db } from '../db/schema'
-
-const JWT_SECRET = process.env.JWT_SECRET!
-const JWT_EXPIRES_IN = '7d'
-
-export interface TokenPayload {
-  userId: string
-  email: string
-  role: 'user' | 'admin'
+func NewService(db *pgxpool.Pool, secret string) *Service {
+\treturn &Service{db: db, jwtSecret: []byte(secret)}
 }
 
-export function signToken(payload: TokenPayload): string {
-  return jwt.sign(payload, JWT_SECRET, { expiresIn: JWT_EXPIRES_IN })
+func (s *Service) Authenticate(ctx context.Context, email, password string) (string, error) {
+\tvar id, hash, role string
+\terr := s.db.QueryRow(ctx,
+\t\t"SELECT id, password_hash, role FROM users WHERE email = $1",
+\t\temail,
+\t).Scan(&id, &hash, &role)
+\tif err != nil {
+\t\treturn "", errors.New("invalid credentials")
+\t}
+
+\tif err := bcrypt.CompareHashAndPassword([]byte(hash), []byte(password)); err != nil {
+\t\treturn "", errors.New("invalid credentials")
+\t}
+
+\treturn s.signToken(id, email, role)
 }
 
-export function verifyToken(token: string): TokenPayload {
-  return jwt.verify(token, JWT_SECRET) as TokenPayload
+func (s *Service) signToken(userID, email, role string) (string, error) {
+\tclaims := Claims{
+\t\tRegisteredClaims: jwt.RegisteredClaims{
+\t\t\tExpiresAt: jwt.NewNumericDate(time.Now().Add(7 * 24 * time.Hour)),
+\t\t\tIssuedAt:  jwt.NewNumericDate(time.Now()),
+\t\t},
+\t\tUserID: userID,
+\t\tEmail:  email,
+\t\tRole:   role,
+\t}
+\treturn jwt.NewWithClaims(jwt.SigningMethodHS256, claims).SignedString(s.jwtSecret)
 }
 
-export async function authenticateUser(email: string, password: string) {
-  const user = await db.users.findByEmail(email)
-  if (!user) throw new Error('Invalid credentials')
-
-  const valid = await user.comparePassword(password)
-  if (!valid) throw new Error('Invalid credentials')
-
-  return signToken({ userId: user.id, email: user.email, role: user.role })
-}`,
-
-  'src/auth/middleware.ts': `import type { Request, Response, NextFunction } from 'express'
-import { verifyToken } from './AuthService'
-
-export function requireAuth(req: Request, res: Response, next: NextFunction) {
-  const authHeader = req.headers.authorization
-  if (!authHeader?.startsWith('Bearer ')) {
-    return res.status(401).json({ error: 'Missing or invalid Authorization header' })
-  }
-
-  const token = authHeader.slice(7)
-  try {
-    const payload = verifyToken(token)
-    req.user = payload
-    next()
-  } catch {
-    res.status(401).json({ error: 'Invalid or expired token' })
-  }
-}`,
-
-  'src/db/schema.ts': `import { pgTable, uuid, text, varchar, timestamp, pgEnum } from 'drizzle-orm/pg-core'
-
-export const roleEnum = pgEnum('role', ['user', 'admin'])
-
-export const users = pgTable('users', {
-  id:        uuid('id').primaryKey().defaultRandom(),
-  email:     varchar('email', { length: 255 }).notNull().unique(),
-  password:  text('password').notNull(),
-  role:      roleEnum('role').default('user').notNull(),
-  createdAt: timestamp('created_at').defaultNow().notNull(),
-  updatedAt: timestamp('updated_at').defaultNow().notNull(),
-})
-
-export const sessions = pgTable('sessions', {
-  id:        uuid('id').primaryKey().defaultRandom(),
-  userId:    uuid('user_id').references(() => users.id).notNull(),
-  token:     text('token').notNull().unique(),
-  expiresAt: timestamp('expires_at').notNull(),
-  createdAt: timestamp('created_at').defaultNow().notNull(),
-})`,
-
-  'src/db/migrations.ts': `import { drizzle } from 'drizzle-orm/postgres-js'
-import { migrate } from 'drizzle-orm/postgres-js/migrator'
-import postgres from 'postgres'
-
-const connectionString = process.env.DATABASE_URL!
-const sql = postgres(connectionString, { max: 1 })
-const db = drizzle(sql)
-
-async function runMigrations() {
-  console.log('Running migrations...')
-  await migrate(db, { migrationsFolder: './drizzle' })
-  console.log('Migrations complete')
-  await sql.end()
+func (s *Service) Verify(tokenStr string) (*Claims, error) {
+\ttoken, err := jwt.ParseWithClaims(tokenStr, &Claims{}, func(t *jwt.Token) (any, error) {
+\t\tif _, ok := t.Method.(*jwt.SigningMethodHMAC); !ok {
+\t\t\treturn nil, errors.New("unexpected signing method")
+\t\t}
+\t\treturn s.jwtSecret, nil
+\t})
+\tif err != nil || !token.Valid {
+\t\treturn nil, errors.New("invalid token")
+\t}
+\treturn token.Claims.(*Claims), nil
 }
 
-runMigrations().catch((err) => {
-  console.error('Migration failed:', err)
-  process.exit(1)
-})`,
-
-  'src/index.ts': `import express from 'express'
-import cors from 'cors'
-import helmet from 'helmet'
-import { requireAuth } from './auth/middleware'
-import { handleWebhook } from './payment/webhook'
-
-const app = express()
-const PORT = process.env.PORT ?? 3000
-
-app.use(helmet())
-app.use(cors({ origin: process.env.ALLOWED_ORIGINS?.split(',') }))
-app.use(express.json())
-
-// Public routes
-app.post('/auth/login', async (req, res) => {
-  const { email, password } = req.body
-  try {
-    const token = await import('./auth/AuthService').then(m => m.authenticateUser(email, password))
-    res.json({ token })
-  } catch (err) {
-    res.status(401).json({ error: (err as Error).message })
-  }
-})
-
-// Stripe webhook (raw body required)
-app.post('/webhooks/stripe', express.raw({ type: 'application/json' }), handleWebhook)
-
-// Protected routes
-app.use('/api', requireAuth)
-app.get('/api/me', (req, res) => res.json({ user: req.user }))
-
-app.listen(PORT, () => console.log(\`Server running on port \${PORT}\`))`,
-
-  'src/config.ts': `export const config = {
-  database: {
-    url: process.env.DATABASE_URL ?? 'postgresql://localhost:5432/crowbar_dev',
-    maxConnections: parseInt(process.env.DB_MAX_CONNECTIONS ?? '10'),
-  },
-  jwt: {
-    secret: process.env.JWT_SECRET ?? 'dev-secret-change-in-production',
-    expiresIn: process.env.JWT_EXPIRES_IN ?? '7d',
-  },
-  stripe: {
-    secretKey: process.env.STRIPE_SECRET_KEY ?? '',
-    webhookSecret: process.env.STRIPE_WEBHOOK_SECRET ?? '',
-  },
-  server: {
-    port: parseInt(process.env.PORT ?? '3000'),
-    corsOrigins: process.env.ALLOWED_ORIGINS?.split(',') ?? ['http://localhost:5173'],
-  },
-} as const`,
-
-  'package.json': `{
-  "name": "crowbar-api",
-  "version": "0.1.0",
-  "type": "module",
-  "scripts": {
-    "dev": "tsx watch src/index.ts",
-    "build": "tsc",
-    "start": "node dist/index.js",
-    "test": "vitest",
-    "db:migrate": "tsx src/db/migrations.ts",
-    "db:generate": "drizzle-kit generate"
-  },
-  "dependencies": {
-    "cors": "^2.8.5",
-    "drizzle-orm": "^0.29.3",
-    "express": "^4.18.2",
-    "helmet": "^7.1.0",
-    "jsonwebtoken": "^9.0.2",
-    "postgres": "^3.4.3",
-    "stripe": "^14.12.0"
-  },
-  "devDependencies": {
-    "@types/express": "^4.17.21",
-    "@types/jsonwebtoken": "^9.0.5",
-    "@types/node": "^20.11.5",
-    "drizzle-kit": "^0.20.14",
-    "tsx": "^4.7.0",
-    "typescript": "^5.3.3",
-    "vitest": "^1.2.2"
-  }
+func ClaimsFromContext(ctx context.Context) *Claims {
+\tc, _ := ctx.Value(claimsKey).(*Claims)
+\treturn c
 }`,
 
-  'tsconfig.json': `{
-  "compilerOptions": {
-    "target": "ES2022",
-    "module": "NodeNext",
-    "moduleResolution": "NodeNext",
-    "lib": ["ES2022"],
-    "outDir": "dist",
-    "rootDir": "src",
-    "strict": true,
-    "esModuleInterop": true,
-    "skipLibCheck": true,
-    "forceConsistentCasingInFileNames": true,
-    "resolveJsonModule": true,
-    "declaration": true,
-    "declarationMap": true,
-    "sourceMap": true
-  },
-  "include": ["src/**/*"],
-  "exclude": ["node_modules", "dist"]
+  'internal/auth/middleware.go': `package auth
+
+import (
+\t"context"
+\t"net/http"
+\t"strings"
+)
+
+// Middleware returns an http.Handler that validates JWT tokens.
+func Middleware(svc *Service) func(http.Handler) http.Handler {
+\treturn func(next http.Handler) http.Handler {
+\t\treturn http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+\t\t\ttoken := bearerToken(r)
+\t\t\tif token == "" {
+\t\t\t\tnext.ServeHTTP(w, r)
+\t\t\t\treturn
+\t\t\t}
+\t\t\tclaims, err := svc.Verify(token)
+\t\t\tif err != nil {
+\t\t\t\tnext.ServeHTTP(w, r)
+\t\t\t\treturn
+\t\t\t}
+\t\t\tctx := context.WithValue(r.Context(), claimsKey, claims)
+\t\t\tnext.ServeHTTP(w, r.WithContext(ctx))
+\t\t})
+\t}
+}
+
+// RequireAuth wraps a handler and returns 401 if no valid claims are present.
+func RequireAuth(svc *Service, h http.HandlerFunc) http.HandlerFunc {
+\treturn func(w http.ResponseWriter, r *http.Request) {
+\t\tif ClaimsFromContext(r.Context()) == nil {
+\t\t\thttp.Error(w, \`{"error":"unauthorized"}\`, http.StatusUnauthorized)
+\t\t\treturn
+\t\t}
+\t\th(w, r)
+\t}
+}
+
+func bearerToken(r *http.Request) string {
+\th := r.Header.Get("Authorization")
+\tif !strings.HasPrefix(h, "Bearer ") {
+\t\treturn ""
+\t}
+\treturn strings.TrimPrefix(h, "Bearer ")
+}
+
+func (s *Service) HandleLogin(w http.ResponseWriter, r *http.Request) {
+\tvar body struct {
+\t\tEmail    string \`json:"email"\`
+\t\tPassword string \`json:"password"\`
+\t}
+\tif err := decodeJSON(r, &body); err != nil {
+\t\thttp.Error(w, \`{"error":"bad request"}\`, http.StatusBadRequest)
+\t\treturn
+\t}
+\ttoken, err := s.Authenticate(r.Context(), body.Email, body.Password)
+\tif err != nil {
+\t\thttp.Error(w, \`{"error":"invalid credentials"}\`, http.StatusUnauthorized)
+\t\treturn
+\t}
+\twriteJSON(w, http.StatusOK, map[string]string{"token": token})
+}
+
+func (s *Service) HandleRefresh(w http.ResponseWriter, r *http.Request) {
+\tclaims := ClaimsFromContext(r.Context())
+\tif claims == nil {
+\t\thttp.Error(w, \`{"error":"unauthorized"}\`, http.StatusUnauthorized)
+\t\treturn
+\t}
+\ttoken, err := s.signToken(claims.UserID, claims.Email, claims.Role)
+\tif err != nil {
+\t\thttp.Error(w, \`{"error":"internal error"}\`, http.StatusInternalServerError)
+\t\treturn
+\t}
+\twriteJSON(w, http.StatusOK, map[string]string{"token": token})
 }`,
+
+  'internal/payment/service.go': `package payment
+
+import (
+\t"errors"
+\t"net/http"
+
+\t"github.com/stripe/stripe-go/v76"
+\t"github.com/stripe/stripe-go/v76/paymentintent"
+)
+
+type Service struct {
+\tstripeKey string
+}
+
+func NewService(stripeKey string) *Service {
+\tstripe.Key = stripeKey
+\treturn &Service{stripeKey: stripeKey}
+}
+
+type CreateIntentRequest struct {
+\tAmount   int64  \`json:"amount"\`
+\tCurrency string \`json:"currency"\`
+\tOrderID  string \`json:"order_id"\`
+}
+
+func (s *Service) HandleCreateIntent(w http.ResponseWriter, r *http.Request) {
+\tvar req CreateIntentRequest
+\tif err := decodeJSON(r, &req); err != nil {
+\t\thttp.Error(w, \`{"error":"bad request"}\`, http.StatusBadRequest)
+\t\treturn
+\t}
+\tif req.Amount <= 0 {
+\t\thttp.Error(w, \`{"error":"amount must be positive"}\`, http.StatusBadRequest)
+\t\treturn
+\t}
+
+\tparams := &stripe.PaymentIntentParams{
+\t\tAmount:   stripe.Int64(req.Amount),
+\t\tCurrency: stripe.String(req.Currency),
+\t\tMetadata: map[string]string{
+\t\t\t"order_id": req.OrderID,
+\t\t},
+\t\tAutomaticPaymentMethods: &stripe.PaymentIntentAutomaticPaymentMethodsParams{
+\t\t\tEnabled: stripe.Bool(true),
+\t\t},
+\t}
+
+\tintent, err := paymentintent.New(params)
+\tif err != nil {
+\t\tvar stripeErr *stripe.Error
+\t\tif errors.As(err, &stripeErr) {
+\t\t\thttp.Error(w, \`{"error":"\`+stripeErr.Msg+\`"}\`, http.StatusBadGateway)
+\t\t\treturn
+\t\t}
+\t\thttp.Error(w, \`{"error":"internal error"}\`, http.StatusInternalServerError)
+\t\treturn
+\t}
+
+\twriteJSON(w, http.StatusCreated, map[string]string{
+\t\t"client_secret": intent.ClientSecret,
+\t\t"intent_id":     intent.ID,
+\t})
+}`,
+
+  'internal/payment/webhook.go': `package payment
+
+import (
+\t"encoding/json"
+\t"io"
+\t"log/slog"
+\t"net/http"
+
+\t"github.com/stripe/stripe-go/v76"
+\t"github.com/stripe/stripe-go/v76/webhook"
+)
+
+const maxBodyBytes = int64(65536)
+
+func (s *Service) HandleWebhook(w http.ResponseWriter, r *http.Request) {
+\tr.Body = http.MaxBytesReader(w, r.Body, maxBodyBytes)
+
+\tpayload, err := io.ReadAll(r.Body)
+\tif err != nil {
+\t\thttp.Error(w, "payload too large", http.StatusRequestEntityTooLarge)
+\t\treturn
+\t}
+
+\tsig := r.Header.Get("Stripe-Signature")
+\tevent, err := webhook.ConstructEvent(payload, sig, stripe.Key)
+\tif err != nil {
+\t\tslog.Warn("webhook signature verification failed", "error", err)
+\t\thttp.Error(w, "invalid signature", http.StatusBadRequest)
+\t\treturn
+\t}
+
+\tswitch event.Type {
+\tcase stripe.EventTypePaymentIntentSucceeded:
+\t\tvar intent stripe.PaymentIntent
+\t\tif err := json.Unmarshal(event.Data.Raw, &intent); err != nil {
+\t\t\tslog.Error("unmarshal payment intent", "error", err)
+\t\t\tbreak
+\t\t}
+\t\tslog.Info("payment succeeded", "intent_id", intent.ID, "amount", intent.Amount)
+
+\tcase stripe.EventTypePaymentIntentPaymentFailed:
+\t\tvar intent stripe.PaymentIntent
+\t\tif err := json.Unmarshal(event.Data.Raw, &intent); err != nil {
+\t\t\tslog.Error("unmarshal payment intent", "error", err)
+\t\t\tbreak
+\t\t}
+\t\tslog.Warn("payment failed",
+\t\t\t"intent_id", intent.ID,
+\t\t\t"reason", intent.LastPaymentError.Msg,
+\t\t)
+\t}
+
+\twriteJSON(w, http.StatusOK, map[string]bool{"received": true})
+}`,
+
+  'internal/db/db.go': `package db
+
+import (
+\t"context"
+\t"fmt"
+\t"time"
+
+\t"github.com/jackc/pgx/v5/pgxpool"
+)
+
+func Connect(url string) (*pgxpool.Pool, error) {
+\tcfg, err := pgxpool.ParseConfig(url)
+\tif err != nil {
+\t\treturn nil, fmt.Errorf("parse db url: %w", err)
+\t}
+
+\tcfg.MaxConns = 20
+\tcfg.MinConns = 2
+\tcfg.MaxConnLifetime = 1 * time.Hour
+\tcfg.MaxConnIdleTime = 30 * time.Minute
+\tcfg.HealthCheckPeriod = 1 * time.Minute
+
+\tpool, err := pgxpool.NewWithConfig(context.Background(), cfg)
+\tif err != nil {
+\t\treturn nil, fmt.Errorf("create pool: %w", err)
+\t}
+
+\tif err := pool.Ping(context.Background()); err != nil {
+\t\treturn nil, fmt.Errorf("ping db: %w", err)
+\t}
+
+\treturn pool, nil
+}`,
+
+  'internal/db/models.go': `package db
+
+import "time"
+
+type Role string
+
+const (
+\tRoleUser  Role = "user"
+\tRoleAdmin Role = "admin"
+)
+
+type User struct {
+\tID           string    \`db:"id"\`
+\tEmail        string    \`db:"email"\`
+\tPasswordHash string    \`db:"password_hash"\`
+\tRole         Role      \`db:"role"\`
+\tCreatedAt    time.Time \`db:"created_at"\`
+\tUpdatedAt    time.Time \`db:"updated_at"\`
+}
+
+type Session struct {
+\tID        string    \`db:"id"\`
+\tUserID    string    \`db:"user_id"\`
+\tToken     string    \`db:"token"\`
+\tExpiresAt time.Time \`db:"expires_at"\`
+\tCreatedAt time.Time \`db:"created_at"\`
+}
+
+type PaymentIntent struct {
+\tID         string    \`db:"id"\`
+\tUserID     string    \`db:"user_id"\`
+\tStripeID   string    \`db:"stripe_id"\`
+\tAmount     int64     \`db:"amount"\`
+\tCurrency   string    \`db:"currency"\`
+\tStatus     string    \`db:"status"\`
+\tOrderID    string    \`db:"order_id"\`
+\tCreatedAt  time.Time \`db:"created_at"\`
+}`,
+
+  'internal/config/config.go': `package config
+
+import (
+\t"fmt"
+\t"os"
+\t"strconv"
+)
+
+type Config struct {
+\tDatabaseURL     string
+\tJWTSecret       string
+\tStripeSecretKey string
+\tWebhookSecret   string
+\tPort            int
+\tAllowedOrigins  []string
+}
+
+func Load() (*Config, error) {
+\tport, err := strconv.Atoi(getenv("PORT", "8080"))
+\tif err != nil {
+\t\treturn nil, fmt.Errorf("invalid PORT: %w", err)
+\t}
+
+\tcfg := &Config{
+\t\tDatabaseURL:     require("DATABASE_URL"),
+\t\tJWTSecret:       require("JWT_SECRET"),
+\t\tStripeSecretKey: require("STRIPE_SECRET_KEY"),
+\t\tWebhookSecret:   require("STRIPE_WEBHOOK_SECRET"),
+\t\tPort:            port,
+\t}
+\tif cfg.DatabaseURL == "" || cfg.JWTSecret == "" {
+\t\treturn nil, fmt.Errorf("missing required environment variables")
+\t}
+\treturn cfg, nil
+}
+
+func require(key string) string {
+\treturn os.Getenv(key)
+}
+
+func getenv(key, fallback string) string {
+\tif v := os.Getenv(key); v != "" {
+\t\treturn v
+\t}
+\treturn fallback
+}`,
+
+  'go.mod': `module github.com/rabbyte/crowbar
+
+go 1.22
+
+require (
+\tgithub.com/golang-jwt/jwt/v5 v5.2.1
+\tgithub.com/jackc/pgx/v5 v5.5.4
+\tgithub.com/stripe/stripe-go/v76 v76.18.0
+\tgolang.org/x/crypto v0.21.0
+)
+
+require (
+\tgithub.com/jackc/pgpassfile v1.0.0 // indirect
+\tgithub.com/jackc/pgservicefile v0.0.0-20231201235250-de7065d787c7 // indirect
+\tgithub.com/jackc/puddle/v2 v2.2.1 // indirect
+\tgolang.org/x/sync v0.6.0 // indirect
+\tgolang.org/x/text v0.14.0 // indirect
+)`,
+
+  'go.sum': `github.com/golang-jwt/jwt/v5 v5.2.1 h1:OuVbFODueb089Lh128TAcimifWaLhJwVflnrgM17wHk=
+github.com/golang-jwt/jwt/v5 v5.2.1/go.mod h1:pqrtFR0X4osieyHYxtmOUWsAWrfe1Q5UVIyoH402zdk=
+github.com/jackc/pgpassfile v1.0.0 h1:/6Hmqy13Ss2zCq62VdNG8yXl6vi81tthe7ium9kK/N4=
+github.com/jackc/pgpassfile v1.0.0/go.mod h1:CEx0iS5ambNFdcRtxPj5JhEz+xB6uRky5eyVu/W2HEg=
+github.com/jackc/pgservicefile v0.0.0-20231201235250-de7065d787c7 h1:bbPeKD0xmW/Y25WS6uQEDPhHpDbG6Nxl9oBzRwYcHK0=
+github.com/jackc/pgx/v5 v5.5.4 h1:Bh0MslJOHmmDFUxsHoHKjbHoXBNam1AJEV6HHKNTq0o=
+github.com/jackc/pgx/v5 v5.5.4/go.mod h1:ez9gd+YPOCUTcjvUPQFfGBMfZEJeqEQmCkRSFVHUnR4=
+github.com/stripe/stripe-go/v76 v76.18.0 h1:kJIWIQ4GGOL8eFaZK7TEr0lC6qBL7m5lMGWBzFGjYms=
+github.com/stripe/stripe-go/v76 v76.18.0/go.mod h1:gVHlAj2dLUxwQAmrjBa4nqBWMRq5R5qFLYn1LFR4K7M=
+golang.org/x/crypto v0.21.0 h1:X31++rzVUdKhX5sWmSOFZxx8UW/ldWx8S1QFfgRRd0E=
+golang.org/x/crypto v0.21.0/go.mod h1:0BP7YvVV9gBbVKyeTG0Gyn+gZm94bibOW5BjDEYAOMs=`,
+
+  'Makefile': `.PHONY: build run test lint migrate
+
+build:
+\tgo build -o bin/server ./cmd/server
+
+run:
+\tgo run ./cmd/server
+
+test:
+\tgo test ./... -v -race -count=1
+
+lint:
+\tgolangci-lint run ./...
+
+migrate:
+\tgoose -dir migrations postgres "$(DATABASE_URL)" up
+
+migrate-down:
+\tgoose -dir migrations postgres "$(DATABASE_URL)" down
+
+tidy:
+\tgo mod tidy
+
+generate:
+\tgo generate ./...`,
 
   'README.md': `# Crowbar API
 
-Backend service for the Crowbar agentic IDE platform.
+Go backend service for the Crowbar agentic IDE platform.
+
+## Requirements
+
+- Go 1.22+
+- PostgreSQL 15+
+- Stripe account
 
 ## Setup
 
 \`\`\`bash
-npm install
 cp .env.example .env
 # Edit .env with your credentials
-npm run db:migrate
-npm run dev
+
+make migrate
+make run
 \`\`\`
 
-## Environment Variables
+## API
 
-| Variable | Description |
-|---|---|
-| DATABASE_URL | PostgreSQL connection string |
-| JWT_SECRET | Secret for signing JWTs |
-| STRIPE_SECRET_KEY | Stripe API key |
-| STRIPE_WEBHOOK_SECRET | Stripe webhook signing secret |
-| PORT | Server port (default: 3000) |`,
+| Method | Path | Auth | Description |
+|--------|------|------|-------------|
+| POST | /auth/login | — | Exchange credentials for JWT |
+| POST | /auth/refresh | Bearer | Refresh JWT |
+| GET | /api/me | Bearer | Current user info |
+| POST | /api/payments | Bearer | Create payment intent |
+| POST | /webhooks/stripe | — | Stripe webhook handler |
 
-  '.env.example': `DATABASE_URL=postgresql://localhost:5432/crowbar_dev
+## Development
+
+\`\`\`bash
+make test    # run all tests with race detector
+make lint    # run golangci-lint
+make build   # compile to bin/server
+\`\`\``,
+
+  '.env.example': `DATABASE_URL=postgres://localhost:5432/crowbar_dev?sslmode=disable
 JWT_SECRET=change-me-in-production
-JWT_EXPIRES_IN=7d
 STRIPE_SECRET_KEY=sk_test_...
 STRIPE_WEBHOOK_SECRET=whsec_...
-PORT=3000
-ALLOWED_ORIGINS=http://localhost:5173`,
+PORT=8080`,
 }
 
 const DEFAULT_CONTENT = `// File content not available in mock mode`

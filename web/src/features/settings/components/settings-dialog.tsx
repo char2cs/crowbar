@@ -5,7 +5,12 @@ import { filterVisibleSettingsTabs } from "@/features/settings/lib/settings-tab-
 import { useAuthStore } from "@/features/window/stores/auth-store";
 import { type SettingsTab, useUIState } from "@/features/window/stores/ui-state-store";
 import Dialog from "@/components/ui/dialog";
-import { Dropdown, type MenuItem } from "@/components/ui/dropdown";
+import {
+  DropdownMenu,
+  DropdownMenuTrigger,
+  DropdownMenuContent,
+  DropdownMenuItem,
+} from "@/components/ui/dropdown-menu";
 import Input from "@/components/ui/input";
 import { SETTINGS_TAB_ITEMS, SettingsVerticalTabs } from "./settings-vertical-tabs";
 import { AppearanceSettings } from "./tabs/appearance-settings";
@@ -31,7 +36,6 @@ const SettingsDialog = ({ isOpen, onClose }: SettingsDialogProps) => {
   const searchResults = useSettingsStore((state) => state.search.results);
   const setSearchQuery = useSettingsStore((state) => state.setSearchQuery);
   const contentRef = useRef<HTMLDivElement>(null);
-  const tabDropdownRef = useRef<HTMLButtonElement>(null);
   const [isTabDropdownOpen, setIsTabDropdownOpen] = useState(false);
   const matchingTabs = searchQuery ? new Set(searchResults.map((result) => result.tab)) : null;
   const visibleTabs = filterVisibleSettingsTabs(SETTINGS_TAB_ITEMS, {
@@ -65,16 +69,6 @@ const SettingsDialog = ({ isOpen, onClose }: SettingsDialogProps) => {
     setActiveTab(tab);
     setSettingsInitialTab(tab);
   };
-  const tabMenuItems: MenuItem[] = visibleTabs.map((tab) => {
-    const Icon = tab.icon;
-    return {
-      id: tab.id,
-      label: tab.label,
-      icon: <Icon className="size-4" weight="duotone" />,
-      className: tab.id === activeTab ? "bg-muted text-foreground" : undefined,
-      onClick: () => handleTabChange(tab.id),
-    };
-  });
 
   // Clear search when dialog closes
   useEffect(() => {
@@ -106,16 +100,30 @@ const SettingsDialog = ({ isOpen, onClose }: SettingsDialogProps) => {
         title={
           <>
             <span className="max-[720px]:hidden">Settings</span>
-            <button
-              ref={tabDropdownRef}
-              type="button"
-              className="hidden h-7 max-w-48 min-w-0 items-center gap-1.5 rounded-md border border-border/70 bg-card/50 px-2 text-left text-foreground transition-colors hover:bg-muted max-[720px]:inline-flex"
-              onClick={() => setIsTabDropdownOpen(true)}
-            >
-              <ActiveTabIcon className="size-4 shrink-0 text-muted-foreground" weight="duotone" />
-              <span className="truncate">{activeTabItem.label}</span>
-              <CaretDown className="size-3.5 shrink-0 text-muted-foreground" />
-            </button>
+            <DropdownMenu open={isTabDropdownOpen} onOpenChange={setIsTabDropdownOpen}>
+              <DropdownMenuTrigger
+                className="hidden h-7 max-w-48 min-w-0 items-center gap-1.5 rounded-md border border-border/70 bg-card/50 px-2 text-left text-foreground transition-colors hover:bg-muted max-[720px]:inline-flex"
+              >
+                <ActiveTabIcon className="size-4 shrink-0 text-muted-foreground" weight="duotone" />
+                <span className="truncate">{activeTabItem.label}</span>
+                <CaretDown className="size-3.5 shrink-0 text-muted-foreground" />
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="start" className="min-w-44">
+                {visibleTabs.map((tab) => {
+                  const Icon = tab.icon;
+                  return (
+                    <DropdownMenuItem
+                      key={tab.id}
+                      onClick={() => handleTabChange(tab.id)}
+                      className={tab.id === activeTab ? "bg-muted text-foreground" : undefined}
+                    >
+                      <Icon className="size-4" weight="duotone" />
+                      {tab.label}
+                    </DropdownMenuItem>
+                  );
+                })}
+              </DropdownMenuContent>
+            </DropdownMenu>
           </>
         }
         headerActions={
@@ -160,15 +168,6 @@ const SettingsDialog = ({ isOpen, onClose }: SettingsDialogProps) => {
           </div>
         </div>
       </Dialog>
-      <Dropdown
-        isOpen={isTabDropdownOpen}
-        anchorRef={tabDropdownRef}
-        anchorSide="bottom"
-        anchorAlign="start"
-        items={tabMenuItems}
-        onClose={() => setIsTabDropdownOpen(false)}
-        className="w-fit min-w-44"
-      />
     </>
   );
 };

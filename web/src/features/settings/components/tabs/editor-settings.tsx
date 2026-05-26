@@ -3,7 +3,7 @@ import { getAllLanguages } from "@/features/editor/utils/language-id";
 import { getDefaultSetting, useSettingsStore } from "@/features/settings/store";
 import NumberInput from "@/components/ui/number-input";
 import Section, { SETTINGS_CONTROL_WIDTHS, SettingRow } from "../settings-section";
-import Select from "@/components/ui/select";
+import { Select, SelectTrigger, SelectValue, SelectContent, SelectItem } from "@/components/ui/select";
 import Switch from "@/components/ui/switch";
 import { FontSelector } from "../font-selector";
 
@@ -123,16 +123,18 @@ export const EditorSettings = () => {
           onReset={() => updateSetting("renderWhitespace", getDefaultSetting("renderWhitespace"))}
           canReset={settings.renderWhitespace !== getDefaultSetting("renderWhitespace")}
         >
-          <Select
-            value={settings.renderWhitespace}
-            options={renderWhitespaceOptions}
-            onChange={(value) =>
-              updateSetting("renderWhitespace", value as typeof settings.renderWhitespace)
-            }
-            className={SETTINGS_CONTROL_WIDTHS.default}
-            size="xs"
-            variant="default"
-          />
+          <Select value={settings.renderWhitespace} onValueChange={(value) => { if (value) updateSetting("renderWhitespace", value as typeof settings.renderWhitespace) }}>
+            <SelectTrigger size="sm" className={SETTINGS_CONTROL_WIDTHS.default}>
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              {renderWhitespaceOptions.map((opt) => (
+                <SelectItem key={opt.value} value={opt.value}>
+                  {opt.label}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
         </SettingRow>
 
         <SettingRow
@@ -241,16 +243,18 @@ export const EditorSettings = () => {
           onReset={() => updateSetting("defaultLanguage", getDefaultSetting("defaultLanguage"))}
           canReset={settings.defaultLanguage !== getDefaultSetting("defaultLanguage")}
         >
-          <Select
-            value={settings.defaultLanguage}
-            options={languageOptions}
-            onChange={(value) => updateSetting("defaultLanguage", value)}
-            className={SETTINGS_CONTROL_WIDTHS.default}
-            size="xs"
-            variant="default"
-            searchable
-            searchableTrigger="input"
-          />
+          <Select value={settings.defaultLanguage} onValueChange={(value) => { if (value) updateSetting("defaultLanguage", value) }}>
+            <SelectTrigger size="sm" className={SETTINGS_CONTROL_WIDTHS.default}>
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              {languageOptions.map((opt) => (
+                <SelectItem key={opt.value} value={opt.value}>
+                  {opt.label}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
         </SettingRow>
 
         <SettingRow

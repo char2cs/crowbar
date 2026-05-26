@@ -1,6 +1,7 @@
 import { ArrowCounterClockwise as RotateCcw } from "@phosphor-icons/react";
 import React from "react";
 import { Button } from "@/components/ui/button";
+import { Label } from "@/components/ui/label";
 import { cn } from "@/utils/cn";
 
 interface SectionProps {
@@ -28,7 +29,7 @@ export default function Section({ title, description, children, className }: Sec
       data-settings-section={title}
     >
       <div className="settings-section-header mb-2 px-1 py-1.5">
-        <h4 className="ui-font ui-text-base text-foreground">{title}</h4>
+        <Label className="ui-font ui-text-base font-medium text-foreground">{title}</Label>
         {description && <p className="ui-font ui-text-sm text-muted-foreground">{description}</p>}
       </div>
       <div className="space-y-2">{children}</div>
@@ -165,9 +166,9 @@ export function SettingRow({
     >
       <div className="min-w-0 flex-1">
         <div className="flex items-center gap-1.5">
-          <div id={labelId} className="ui-font ui-text-sm cursor-default text-foreground">
+          <Label id={labelId} className="ui-font ui-text-sm cursor-default font-normal text-foreground">
             {label}
-          </div>
+          </Label>
           {labelAccessory}
           {onReset ? (
             <span className="flex size-5 items-center justify-center">

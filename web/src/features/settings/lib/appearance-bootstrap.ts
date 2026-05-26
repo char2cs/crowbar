@@ -183,7 +183,7 @@ export const CROWBAR_BOOTSTRAP_DEFAULTS = {
 
 export const DEFAULT_APPEARANCE_BOOTSTRAP_CACHE: AppearanceBootstrapCache = {
   version: 1,
-  themeId: CROWBAR_BOOTSTRAP_DEFAULTS.dark.id,
+  themeId: "crowbar",
   themeType: CROWBAR_BOOTSTRAP_DEFAULTS.dark.type,
   cssVariables: prefixRecord("--", CROWBAR_BOOTSTRAP_DEFAULTS.dark.colors),
   syntaxTokens: prefixRecord("--syntax-", CROWBAR_BOOTSTRAP_DEFAULTS.dark.syntax),
@@ -213,7 +213,7 @@ function buildFontVariable(primary: string, fallback: string): string {
   return `"${normalized}", ${fallback}`;
 }
 
-function sanitizeVarMap(value: unknown): Record<string, string> {
+export function sanitizeVarMap(value: unknown): Record<string, string> {
   if (!value || typeof value !== "object" || Array.isArray(value)) {
     return {};
   }
@@ -275,7 +275,7 @@ export function readAppearanceBootstrapCache(): AppearanceBootstrapCache | null 
   }
 }
 
-function writeAppearanceBootstrapCache(cache: AppearanceBootstrapCache): void {
+export function writeAppearanceBootstrapCache(cache: AppearanceBootstrapCache): void {
   if (typeof window === "undefined") return;
 
   try {
@@ -353,4 +353,6 @@ export function cacheFontsForBootstrap(
     uiFontSize: uiFontSize === undefined ? existing.uiFontSize : normalizeUiFontSize(uiFontSize),
   };
   writeAppearanceBootstrapCache(next);
+  // Apply immediately so font changes take effect without a reload
+  applyBootstrapAppearance(next);
 }

@@ -1,6 +1,6 @@
 import { getDefaultSetting, useSettingsStore } from "@/features/settings/store";
 import Section, { SETTINGS_CONTROL_WIDTHS, SettingRow } from "../settings-section";
-import Select from "@/components/ui/select";
+import { Select, SelectTrigger, SelectValue, SelectContent, SelectItem } from "@/components/ui/select";
 import Switch from "@/components/ui/switch";
 
 export const GitSettings = () => {
@@ -170,19 +170,21 @@ export const GitSettings = () => {
           }
           canReset={settings.gitDefaultDiffView !== getDefaultSetting("gitDefaultDiffView")}
         >
-          <Select
-            value={settings.gitDefaultDiffView}
-            options={[
-              { value: "unified", label: "Unified" },
-              { value: "split", label: "Split" },
-            ]}
-            onChange={(value) => updateSetting("gitDefaultDiffView", value as "unified" | "split")}
-            className={SETTINGS_CONTROL_WIDTHS.default}
-            size="xs"
-            variant="default"
-            searchable
-            searchableTrigger="input"
-          />
+          <Select value={settings.gitDefaultDiffView} onValueChange={(value) => updateSetting("gitDefaultDiffView", value as "unified" | "split")}>
+            <SelectTrigger size="sm" className={SETTINGS_CONTROL_WIDTHS.default}>
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              {[
+                { value: "unified", label: "Unified" },
+                { value: "split", label: "Split" },
+              ].map((opt) => (
+                <SelectItem key={opt.value} value={opt.value}>
+                  {opt.label}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
         </SettingRow>
       </Section>
 

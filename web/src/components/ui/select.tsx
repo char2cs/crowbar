@@ -185,54 +185,6 @@ function SelectScrollDownButton({
   )
 }
 
-/** Athas-compatible controlled Select component */
-interface AthasSelectOption {
-  value: string
-  label: string
-  disabled?: boolean
-}
-
-interface AthasSelectProps<T extends string = string> {
-  value: T
-  options: AthasSelectOption[]
-  onChange: (value: T) => void | Promise<void>
-  className?: string
-  size?: "xs" | "sm" | "md" | "default"
-  variant?: string
-  searchable?: boolean
-  searchableTrigger?: string
-  disabled?: boolean
-  placeholder?: string
-}
-
-function AthasSelect<T extends string = string>({
-  value,
-  options,
-  onChange,
-  className,
-  disabled,
-  placeholder,
-}: AthasSelectProps<T>) {
-  return (
-    <SelectPrimitive.Root
-      value={value}
-      onValueChange={(v) => onChange(v as T)}
-      disabled={disabled}
-    >
-      <SelectTrigger className={className}>
-        <SelectValue placeholder={placeholder} />
-      </SelectTrigger>
-      <SelectContent>
-        {options.map((opt) => (
-          <SelectItem key={opt.value} value={opt.value} disabled={opt.disabled}>
-            {opt.label}
-          </SelectItem>
-        ))}
-      </SelectContent>
-    </SelectPrimitive.Root>
-  )
-}
-
 export {
   Select,
   SelectContent,
@@ -244,6 +196,4 @@ export {
   SelectSeparator,
   SelectTrigger,
   SelectValue,
-  AthasSelect,
 }
-export default AthasSelect

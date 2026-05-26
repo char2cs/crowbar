@@ -1,6 +1,6 @@
 import { memo, useCallback, useEffect, useRef, useState } from "react";
 import { writeSidebarResourceDragData } from "@/features/sidebar-drag/sidebar-resource-drag";
-import { LoadingIndicator } from "@/components/ui/loading";
+import { LoadingSpinner } from "@/components/ui/spinner";
 import { cn } from "@/utils/cn";
 import { formatRelativeDate } from "@/utils/date";
 import type { GitCommit } from "../types/git-types";
@@ -209,7 +209,7 @@ const GitCommitHistory = ({
 
                 {isLoadingMoreCommits && (
                   <div className="flex justify-center px-3 py-1.5 text-muted-foreground">
-                    <LoadingIndicator label="Loading commits" showLabel compact />
+                    <LoadingSpinner label="Loading commits" showLabel compact />
                   </div>
                 )}
 

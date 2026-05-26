@@ -315,13 +315,6 @@ export function normalizeSettings(settings: Settings): Settings {
     normalizedSettings.keybindingPreset = "none";
   }
 
-  if (
-    normalizedSettings.iconTheme === "colorful-material" ||
-    normalizedSettings.iconTheme === "seti"
-  ) {
-    normalizedSettings.iconTheme = "material";
-  }
-
   if (!normalizedSettings.themeMode) {
     normalizedSettings.themeMode = normalizedSettings.syncSystemTheme ? "system" : "light";
   }
@@ -388,10 +381,6 @@ export function normalizeSettingValue<K extends keyof Settings>(
 
   if (key === "fileTreeDensity") {
     return normalizeFileTreeDensity(value as string) as Settings[K];
-  }
-
-  if (key === "iconTheme" && (value === "colorful-material" || value === "seti")) {
-    return "material" as Settings[K];
   }
 
   if (key === "keybindingPreset" && !isKeybindingPreset(value as string)) {
