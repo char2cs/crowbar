@@ -34,9 +34,9 @@ export function useWorkspaceEffects(wsId: string, label?: string) {
         const name = path.split('/').pop() ?? path
         const content = getMockFileContent(path)
         const bufferId = useBufferStore.getState().actions.openContent({
-          type: 'editor', path, name, content, isPreview: true,
+          type: 'editor', path, name, content,
         })
-        bufferActions.registerExternalBuffer(bufferId, path, name, true)
+        bufferActions.registerExternalBuffer(bufferId, path, name, false)
       },
     })
   }, [repoPath]) // eslint-disable-line react-hooks/exhaustive-deps
