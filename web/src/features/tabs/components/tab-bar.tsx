@@ -105,7 +105,7 @@ const TabBar = ({
   const paneRoot = usePaneRoot();
   const bottomRoot = useBottomRoot();
   const { closePane, setActivePane, activatePaneBuffer, removeBufferFromPane, splitPane, moveBufferToPane } = usePaneActions();
-  const { closeBuffer, openContent } = useBufferActions();
+  const { closeBuffer, openContent, promotePreview: promotePreviewBuffer } = useBufferActions();
 
   // Filter buffers by paneId if provided
   const pane = paneId
@@ -391,12 +391,13 @@ const TabBar = ({
       e.preventDefault();
       e.stopPropagation();
       const buffer = sortedBuffers[index];
-      // Convert preview tab to definite on double-click
+      // Convert preview tab to definite on double-click — update both stores
       if (buffer.isPreview) {
-        convertPreviewToDefinite(buffer.id);
+        convertPreviewToDefinite(buffer.id);    // legacy store
+        promotePreviewBuffer(buffer.id);        // workspace store (also clears pane pointer)
       }
     },
-    [sortedBuffers, convertPreviewToDefinite],
+    [sortedBuffers, convertPreviewToDefinite, promotePreviewBuffer],
   );
 
   const handleContextMenu = useCallback((e: React.MouseEvent, buffer: PaneContent) => {
