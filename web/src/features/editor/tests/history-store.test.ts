@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it } from "vite-plus/test";
+import { beforeEach, describe, expect, it } from "vitest";
 import type { HistoryEntry } from "@/features/editor/history/types";
 import { useHistoryStore } from "@/features/editor/stores/history-store";
 

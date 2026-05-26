@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vite-plus/test";
+import { describe, expect, it } from "vitest";
 import { ROOT_PANE_ID } from "../constants/pane";
 import type { PaneGroup, PaneNode } from "../types/pane";
 import { createPaneGroup, createPaneSplit } from "../utils/pane-tree";

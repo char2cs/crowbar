@@ -1,4 +1,4 @@
-import { afterEach, beforeEach, describe, expect, it, vi } from "vite-plus/test";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { CompletionItem } from "vscode-languageserver-protocol";
 import type { useLspStore as useLspStoreHook } from "../lsp/lsp-store";
 import type { useEditorUIStore as useEditorUIStoreHook } from "../stores/ui-store";

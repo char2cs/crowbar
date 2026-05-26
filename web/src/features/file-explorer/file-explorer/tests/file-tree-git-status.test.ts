@@ -1,4 +1,4 @@
-import { describe, expect, test } from "vite-plus/test";
+import { describe, expect, test } from "vitest";
 import type { FileEntry } from "@/features/file-system/types/app";
 import type { GitFile, GitStatus } from "@/features/git/types/git-types";
 import {

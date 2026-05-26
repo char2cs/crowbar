@@ -1,4 +1,4 @@
-import { describe, expect, test } from "vite-plus/test";
+import { describe, expect, test } from "vitest";
 import type { MultiFileDiff } from "../types/git-diff-types";
 import type { GitDiff } from "../types/git-types";
 import {

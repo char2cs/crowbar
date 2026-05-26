@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vite-plus/test";
+import { describe, expect, it } from "vitest";
 import { getPaneDropZoneFromRect, getPaneSplitDropOptions } from "../utils/pane-drop-zones";
 
 const rect = {

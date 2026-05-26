@@ -1,4 +1,4 @@
-import { afterEach, beforeEach, describe, expect, it, vi } from "vite-plus/test";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { editorAPI as editorAPIInstance } from "../extensions/api";
 import type { useBufferStore as useBufferStoreHook } from "../stores/buffer-store";
 import type { useEditorStateStore as useEditorStateStoreHook } from "../stores/state-store";

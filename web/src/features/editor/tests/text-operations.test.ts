@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vite-plus/test";
+import { describe, expect, it } from "vitest";
 import { indentText, outdentText, toggleCaseText } from "../utils/text-operations";
 
 describe("editor text operations", () => {

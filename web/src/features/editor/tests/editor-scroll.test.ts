@@ -1,5 +1,5 @@
 import type { RefObject } from "react";
-import { describe, expect, it } from "vite-plus/test";
+import { describe, expect, it } from "vitest";
 import { applyEditorScrollTransform } from "../utils/scroll-layers";
 
 function layerRef(dataset: Partial<DOMStringMap> = {}): RefObject<HTMLElement | null> {

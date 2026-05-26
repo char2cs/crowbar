@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vite-plus/test";
+import { describe, expect, it } from "vitest";
 import { EditorUndoGroupTracker } from "@/features/editor/history/undo-group-tracker";
 
 describe("editor undo group tracker", () => {

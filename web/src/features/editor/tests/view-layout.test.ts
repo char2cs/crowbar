@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vite-plus/test";
+import { describe, expect, it } from "vitest";
 import { EDITOR_CONSTANTS } from "../config/constants";
 import { buildEditorViewLayout } from "../view-model/view-layout";
 

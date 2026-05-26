@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vite-plus/test";
+import { describe, expect, it } from "vitest";
 import type { PaneContent } from "@/features/panes/types/pane-content";
 import { evictLeastRecentAutoClosableBuffer } from "../stores/buffer-eviction";
 

@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vite-plus/test";
+import { describe, expect, it } from "vitest";
 import { buildTerminalFontFamily } from "@/features/terminal/utils/resolve-font";
 
 describe("terminal font resolution", () => {

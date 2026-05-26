@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vite-plus/test";
+import { describe, expect, it } from "vitest";
 import { getDefaultSettingsSnapshot } from "@/features/settings/config/default-settings";
 import {
   DEFAULT_MONO_FONT_FAMILY,

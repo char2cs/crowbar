@@ -1,5 +1,5 @@
 import type { Node } from "web-tree-sitter";
-import { describe, expect, it } from "vite-plus/test";
+import { describe, expect, it } from "vitest";
 import { getInjectionRules, resolveInjectedLanguage } from "../lib/wasm-parser/language-injections";
 
 function nodeRange(startIndex: number, endIndex: number): Node {

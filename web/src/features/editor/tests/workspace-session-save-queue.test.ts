@@ -1,4 +1,4 @@
-import { afterEach, beforeEach, describe, expect, it, vi } from "vite-plus/test";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { createWorkspaceSessionSaveQueue } from "../stores/workspace-session-save-queue";
 
 describe("createWorkspaceSessionSaveQueue", () => {

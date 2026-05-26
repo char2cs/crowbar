@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vite-plus/test";
+import { describe, expect, it } from "vitest";
 import { resolveLspCompletionKeyAction } from "../utils/lsp-completion-keys";
 import type { FilteredCompletion } from "@/utils/fuzzy-matcher";
 
