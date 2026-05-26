@@ -24,7 +24,7 @@ export type WorkspaceSnapshot = Partial<
 
 export function createWorkspaceStore(wsId: string, snapshot?: WorkspaceSnapshot): WorkspaceStore {
   return createStore<WorkspaceState>()(
-    immer((set: any, get: any, api: any): WorkspaceState => ({
+    immer((set, get, api): WorkspaceState => ({
       workspaceId: wsId,
       ...createPaneSlice(set, get, api),
       ...createBufferSlice(set, get, api),
