@@ -173,7 +173,6 @@ const CodeEditor = ({
       }
       onChange(content, previousContent, previousCursorPosition, previousSelection)
     },
-    // eslint-disable-next-line react-hooks/exhaustive-deps
     [isPreview, onPromote, onChange],
   )
 

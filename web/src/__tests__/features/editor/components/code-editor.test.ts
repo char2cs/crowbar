@@ -36,18 +36,18 @@ describe('auto-promote wrapper logic', () => {
     expect(onChange).toHaveBeenCalledWith('new content')
   })
 
-  it('still calls onChange even when isPreview=true (does not short-circuit)', () => {
-    const onPromote = vi.fn()
+  it('does not throw when isPreview=true but onPromote is undefined', () => {
     const onChange = vi.fn()
     const isPreview = true
+    const onPromote = undefined
 
     const wrappedChange = (content: string) => {
       if (isPreview) onPromote?.()
       onChange(content)
     }
 
-    wrappedChange('typed text')
-
-    expect(onChange).toHaveBeenCalledWith('typed text')
+    // Should not throw even though onPromote is undefined
+    expect(() => wrappedChange('text')).not.toThrow()
+    expect(onChange).toHaveBeenCalledWith('text')
   })
 })
