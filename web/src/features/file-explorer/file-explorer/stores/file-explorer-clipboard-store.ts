@@ -16,6 +16,7 @@ export interface PastedEntry {
   source_path: string;
   destination_path: string;
   is_dir: boolean;
+  success: boolean;
 }
 
 interface FileClipboardStore {
@@ -46,7 +47,9 @@ const useFileClipboardStoreBase = create<FileClipboardStore>()((set) => ({
       const result: PastedEntry[] = bridgeResult.map((r) => ({
         source_path: r.path,
         destination_path: r.path,
+        // TODO: bridge does not return is_dir — add when real backend is wired
         is_dir: false,
+        success: r.success,
       }));
       const bridgeClipboard = await clipboardGet();
       const clipboard: FileClipboardState | null = bridgeClipboard
