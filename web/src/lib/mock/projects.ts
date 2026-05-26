@@ -1,3 +1,4 @@
+import { nanoid } from 'nanoid'
 import type { Project } from '@/lib/types'
 
 const INITIAL_PROJECTS: Project[] = [
@@ -16,7 +17,7 @@ export function getMockProject(id: string): Project | undefined {
 }
 
 export function createMockProject(data: { name: string; path: string }): Project {
-  const id = `proj-${Date.now()}`
+  const id = nanoid()
   const project: Project = { id, ...data, lastActivity: new Date() }
   store.set(id, project)
   return project

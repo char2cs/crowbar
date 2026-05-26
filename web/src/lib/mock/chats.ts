@@ -1,3 +1,4 @@
+import { nanoid } from 'nanoid'
 import type { ChatMessage } from '@/lib/types'
 
 export interface MockChat {
@@ -47,7 +48,7 @@ export function getAllMockChats(): MockChat[] {
 }
 
 export function createMockChat(): MockChat {
-  const id = `c-${Date.now()}`
+  const id = nanoid()
   const chat: MockChat = { id, title: 'New chat', age: 'just now', messages: [] }
   store.set(id, chat)
   return chat
