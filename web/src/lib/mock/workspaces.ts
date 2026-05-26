@@ -1,3 +1,4 @@
+import { nanoid } from 'nanoid'
 import type { WorkspacePayload } from '@/lib/types'
 import { FEATURE_DEV_FLOW, MOCK_FLOWS } from './flows'
 
@@ -48,7 +49,7 @@ export function createMockWorkspace(
   flowName: string,
 ): WorkspacePayload {
   const flow = MOCK_FLOWS.find(f => f.name === flowName) ?? FEATURE_DEV_FLOW
-  const id = `ws-${Date.now()}`
+  const id = nanoid()
   const ws: WorkspacePayload = {
     id, repoId, branch, flowName,
     currentState: flow.states[0].name,
