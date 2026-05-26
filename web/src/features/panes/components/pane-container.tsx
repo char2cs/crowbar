@@ -27,7 +27,7 @@ import {
   getInternalTabDragHover,
   resolveDropTarget,
 } from "@/features/tabs/utils/internal-tab-drag";
-import { FlowContent } from "@/features/workflow/components/FlowContent";
+import { FlowContent } from "@/features/workflow/components/flow-content";
 import { cn } from "@/utils/cn";
 import { ErrorBoundary } from "@/components/ErrorBoundary";
 import { activateBufferInPaneAndSync, activatePaneAndSyncBuffer } from "../utils/pane-activation";

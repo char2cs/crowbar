@@ -1,7 +1,7 @@
 import { useCurrentStep } from '@/features/workspace/stores/hooks/use-workflow'
-import { ChatView } from './ChatView'
-import { DiffView } from './DiffView'
-import { SplitView } from './SplitView'
+import { ChatView } from './chat-view'
+import { DiffView } from './diff-view'
+import { SplitView } from './split-view'
 
 interface FlowContentProps {
   workspaceId: string

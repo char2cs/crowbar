@@ -1,5 +1,5 @@
-import { ChatView } from './ChatView'
-import { DiffView } from './DiffView'
+import { ChatView } from './chat-view'
+import { DiffView } from './diff-view'
 
 interface SplitViewProps {
   workspaceId: string
