@@ -98,7 +98,7 @@ export const SettingsVerticalTabs = ({
         role="tablist"
         aria-orientation="vertical"
         aria-label="Settings sections"
-        className="flex-1 space-y-0.5 overflow-y-auto p-2"
+        className="flex-1 space-y-0.5 overflow-hidden p-2"
         onWheelCapture={handleSidebarWheel}
       >
         {visibleTabs.length > 0 ? (
