@@ -1,6 +1,5 @@
 import type React from "react";
 import { useCallback, useEffect, useState } from "react";
-import DebuggerView from "@/features/debugger/components/debugger-view";
 import { useBufferStore } from "@/features/editor/stores/buffer-store";
 import { BOTTOM_PANE_ID } from "@/features/panes/constants/pane";
 import { usePaneStore } from "@/features/panes/stores/pane-store";
@@ -42,16 +41,6 @@ const BottomPane = () => {
   }, []);
 
   // diagnostics and references tabs have been removed; no auto-hide needed for them
-
-  useEffect(() => {
-    if (
-      isBottomPaneVisible &&
-      bottomPaneActiveTab === "debugger" &&
-      !settings.coreFeatures.debugger
-    ) {
-      useUIState.getState().setIsBottomPaneVisible(false);
-    }
-  }, [bottomPaneActiveTab, isBottomPaneVisible, settings.coreFeatures.debugger]);
 
   useEffect(() => {
     if (
@@ -212,12 +201,6 @@ const BottomPane = () => {
             onFullScreen={() => setIsFullScreen(!isFullScreen)}
             isFullScreen={isFullScreen}
           />
-        )}
-
-        {settings.coreFeatures.debugger && bottomPaneActiveTab === "debugger" && (
-          <div className="h-full">
-            <DebuggerView />
-          </div>
         )}
 
         {bottomPaneActiveTab === "buffers" && (
