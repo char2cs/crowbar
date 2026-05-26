@@ -41,6 +41,12 @@ vi.mock('@/components/ui/resizable', () => ({
 vi.mock('@/components/ErrorBoundary', () => ({
   ErrorBoundary: ({ children }: { children: React.ReactNode }) => <>{children}</>,
 }))
+vi.mock('@/components/ui/sonner', () => ({
+  Toaster: () => null,
+}))
+vi.mock('@/features/settings/components/font-style-injector', () => ({
+  FontStyleInjector: () => null,
+}))
 
 describe('IDEShell', () => {
   it('renders sidebar header', () => {
