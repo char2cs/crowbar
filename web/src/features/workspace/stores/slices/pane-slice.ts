@@ -189,15 +189,17 @@ export const createPaneSlice: StateCreator<
 
     clearPreviewBufferEverywhere(bufferId) {
       set(state => {
-        for (const pane of getAllPaneGroups(state.paneRoot)) {
-          if (pane.previewBufferId === bufferId) {
-            state.paneRoot = setPanePreviewBuffer(state.paneRoot, pane.id, null)
-          }
+        const rootPaneIds = getAllPaneGroups(state.paneRoot)
+          .filter(p => p.previewBufferId === bufferId)
+          .map(p => p.id)
+        for (const id of rootPaneIds) {
+          state.paneRoot = setPanePreviewBuffer(state.paneRoot, id, null)
         }
-        for (const pane of getAllPaneGroups(state.bottomRoot)) {
-          if (pane.previewBufferId === bufferId) {
-            state.bottomRoot = setPanePreviewBuffer(state.bottomRoot, pane.id, null)
-          }
+        const bottomPaneIds = getAllPaneGroups(state.bottomRoot)
+          .filter(p => p.previewBufferId === bufferId)
+          .map(p => p.id)
+        for (const id of bottomPaneIds) {
+          state.bottomRoot = setPanePreviewBuffer(state.bottomRoot, id, null)
         }
       })
     },

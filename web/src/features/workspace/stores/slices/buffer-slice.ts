@@ -249,13 +249,15 @@ export const createBufferSlice: StateCreator<
     },
 
     promotePreview(id) {
-      const found = get().buffers.some(b => b.id === id)
-      if (!found) return
+      let found = false
       set(state => {
         const buf = state.buffers.find(b => b.id === id)
-        if (buf) buf.isPreview = false
+        if (buf) {
+          buf.isPreview = false
+          found = true
+        }
       })
-      get().paneActions.clearPreviewBufferEverywhere(id)
+      if (found) get().paneActions.clearPreviewBufferEverywhere(id)
     },
 
     getBufferById(id) {
