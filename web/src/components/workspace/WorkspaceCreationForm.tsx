@@ -57,7 +57,7 @@ export function WorkspaceCreationForm({ repos, flows, onSubmit, loading }: Props
         </select>
       </label>
 
-      <Button type="submit" disabled={!branch.trim() || loading}>
+      <Button type="submit" disabled={!branch.trim() || !flowName || loading}>
         {loading ? 'Creating…' : 'Create workspace'}
       </Button>
     </form>

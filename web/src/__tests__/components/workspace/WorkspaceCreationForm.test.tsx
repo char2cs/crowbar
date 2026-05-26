@@ -35,3 +35,16 @@ test('calls onSubmit with selected values', () => {
     flowName: 'feature-development',
   })
 })
+
+test('Create button is disabled when flows list is empty (no flowName)', () => {
+  render(
+    <WorkspaceCreationForm
+      repos={REPOS}
+      flows={[]}       // no flows loaded yet
+      onSubmit={() => {}}
+    />,
+  )
+  // Set a branch so it's clear flowName is the blocker, not branch
+  fireEvent.change(screen.getByLabelText('Branch'), { target: { value: 'main' } })
+  expect(screen.getByRole('button', { name: /create/i })).toBeDisabled()
+})
