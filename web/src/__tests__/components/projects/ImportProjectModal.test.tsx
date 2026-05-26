@@ -1,6 +1,13 @@
 import { render, screen, fireEvent, waitFor } from '@testing-library/react'
-import { ImportProjectModal } from '@/components/projects/ImportProjectModal'
 import { vi, expect, test } from 'vitest'
+
+vi.mock('@/lib/api', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@/lib/api')>()
+  return { ...actual, postProject: vi.fn(actual.postProject) }
+})
+
+import * as api from '@/lib/api'
+import { ImportProjectModal } from '@/components/projects/ImportProjectModal'
 
 test('Import button is disabled when no folder is selected', () => {
   render(<ImportProjectModal open={true} onOpenChange={() => {}} onImport={() => {}} />)
@@ -31,5 +38,24 @@ test('calls onImport with name and path on submit', async () => {
   fireEvent.click(screen.getByRole('button', { name: /import/i }))
   await waitFor(() => {
     expect(onImport).toHaveBeenCalledWith(expect.objectContaining({ name: 'test-proj' }))
+  })
+})
+
+test('resets loading and re-enables Import button when postProject rejects', async () => {
+  vi.mocked(api.postProject).mockRejectedValueOnce(new Error('disk full'))
+
+  render(<ImportProjectModal open={true} onOpenChange={() => {}} onImport={() => {}} />)
+
+  const fileInput = document.querySelector('input[type="file"]') as HTMLInputElement
+  const file = new File([''], 'my-project', { type: '' })
+  Object.defineProperty(file, 'webkitRelativePath', { value: 'my-project/', configurable: true })
+  Object.defineProperty(fileInput, 'files', { value: [file], configurable: true })
+  fireEvent.change(fileInput)
+
+  fireEvent.click(screen.getByRole('button', { name: /import/i }))
+
+  await waitFor(() => {
+    expect(screen.getByRole('button', { name: /import/i })).not.toBeDisabled()
+    expect(screen.queryByText('Importing…')).not.toBeInTheDocument()
   })
 })
