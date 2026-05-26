@@ -22,9 +22,29 @@ export function ChatView({
   sending,
 }: ChatViewProps) {
   const bottomRef = useRef<HTMLDivElement>(null)
+  // True when the bottom sentinel is visible — user is at (or near) the bottom.
+  const isAtBottomRef = useRef(true)
 
+  // Track whether the bottom sentinel is visible. When the user scrolls up,
+  // the sentinel exits the scroll area's clipping region and isIntersecting becomes false.
+  // Guard for environments (e.g. jsdom) that don't implement IntersectionObserver.
   useEffect(() => {
-    bottomRef.current?.scrollIntoView({ behavior: 'smooth' })
+    if (typeof IntersectionObserver === 'undefined') return
+    const sentinel = bottomRef.current
+    if (!sentinel) return
+    const observer = new IntersectionObserver(
+      ([entry]) => { isAtBottomRef.current = entry.isIntersecting },
+      { threshold: 0.1 },
+    )
+    observer.observe(sentinel)
+    return () => observer.disconnect()
+  }, [])
+
+  // Auto-scroll only when the user is already at the bottom.
+  useEffect(() => {
+    if (isAtBottomRef.current) {
+      bottomRef.current?.scrollIntoView({ behavior: 'smooth' })
+    }
   }, [messages])
 
   return (
