@@ -17,6 +17,7 @@ import { cn } from '@/utils/cn'
 import { useSettingsStore } from '@/features/settings/store'
 import { FontStyleInjector } from '@/features/settings/components/font-style-injector'
 import { destroyWorkspaceStore } from '@/features/workspace/stores/workspace-store-registry'
+import { Toaster } from '@/components/ui/sonner'
 
 export function IDEShell() {
   const navigate = useNavigate()
@@ -112,6 +113,7 @@ export function IDEShell() {
       <SettingsDialog isOpen={settingsOpen} onClose={() => setSettingsOpen(false)} />
       <TerminalHost />
       <FontStyleInjector />
+      <Toaster />
     </div>
   )
 }
