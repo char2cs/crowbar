@@ -265,11 +265,41 @@ export const createBufferSlice: StateCreator<
     },
 
     registerExternalBuffer(id, path, name, isPreview = false) {
-      // If already tracked, just bring it into focus in the active pane.
-      if (get().buffers.some(b => b.id === id)) {
-        get().paneActions.addBufferToPane(get().activePaneId, id, true)
-        if (isPreview) get().paneActions.setPanePreviewBuffer(get().activePaneId, id)
+      const existing = get().buffers.find(b => b.id === id)
+
+      if (existing) {
+        // Don't downgrade a permanent tab to a preview on single-click.
+        // Only update isPreview if:
+        //   (a) current buffer is already a preview and we're keeping/clearing it, or
+        //   (b) we're promoting it to permanent (isPreview = false)
+        const willBecomePreview = isPreview && !existing.isPreview
+        if (!willBecomePreview) {
+          set(state => {
+            const buf = state.buffers.find(b => b.id === id)
+            if (buf) buf.isPreview = isPreview
+          })
+          get().paneActions.addBufferToPane(get().activePaneId, id, true)
+          if (isPreview) {
+            get().paneActions.setPanePreviewBuffer(get().activePaneId, id)
+          } else {
+            get().paneActions.clearPreviewBufferEverywhere(id)
+          }
+        } else {
+          // Buffer is already permanent — just activate it without changing preview status
+          get().paneActions.addBufferToPane(get().activePaneId, id, true)
+        }
         return id
+      }
+
+      // New buffer — close any existing preview in the active pane first
+      if (isPreview) {
+        const activePaneId = get().activePaneId
+        const pane = get().paneActions.getPaneById(activePaneId)
+        if (pane?.previewBufferId && pane.previewBufferId !== id) {
+          const oldId = pane.previewBufferId
+          set(state => { state.buffers = state.buffers.filter(b => b.id !== oldId) })
+          get().paneActions.removeBufferFromPane(activePaneId, oldId)
+        }
       }
 
       // Create a minimal shell — CodeEditor reads the real content from the

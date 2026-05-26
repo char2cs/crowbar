@@ -86,6 +86,83 @@ describe('buffer-slice', () => {
     expect(store.getState().bufferActions.getBufferById(id)?.isPinned).toBe(false)
   })
 
+  describe('registerExternalBuffer', () => {
+    it('creates a new buffer with isPreview=false', () => {
+      const { store } = makeStore()
+      store.getState().bufferActions.registerExternalBuffer('b1', '/a.ts', 'a.ts', false)
+      expect(store.getState().bufferActions.getBufferById('b1')?.isPreview).toBe(false)
+    })
+
+    it('creates a new buffer with isPreview=true, sets preview flag', () => {
+      const paneActions = makePaneActions()
+      const { store } = makeStore(paneActions)
+      store.getState().bufferActions.registerExternalBuffer('b1', '/a.ts', 'a.ts', true)
+      const buf = store.getState().bufferActions.getBufferById('b1')
+      expect(buf?.isPreview).toBe(true)
+      expect(paneActions.setPanePreviewBuffer).toHaveBeenCalled()
+    })
+
+    it('with isPreview=true: closes old preview before opening new one', () => {
+      const paneActions = makePaneActions()
+      // Simulate pane with existing preview
+      paneActions.getPaneById.mockReturnValue({ id: 'pane-1', previewBufferId: 'old-buf' } as any)
+      const { store } = makeStore(paneActions)
+
+      // Seed the old preview buffer
+      store.getState().bufferActions.registerExternalBuffer('old-buf', '/old.ts', 'old.ts', false)
+      const countBefore = store.getState().buffers.length
+
+      // Open a new preview
+      store.getState().bufferActions.registerExternalBuffer('new-buf', '/new.ts', 'new.ts', true)
+
+      expect(store.getState().bufferActions.getBufferById('old-buf')).toBeUndefined()
+      expect(paneActions.removeBufferFromPane).toHaveBeenCalled()
+      expect(store.getState().buffers.length).toBe(countBefore) // net 0: 1 removed, 1 added
+    })
+
+    it('does NOT close old preview when re-registering the same buffer as preview', () => {
+      const paneActions = makePaneActions()
+      paneActions.getPaneById.mockReturnValue({ id: 'pane-1', previewBufferId: 'same-buf' } as any)
+      const { store } = makeStore(paneActions)
+
+      store.getState().bufferActions.registerExternalBuffer('same-buf', '/a.ts', 'a.ts', true)
+      const countAfterFirst = store.getState().buffers.length
+      paneActions.removeBufferFromPane.mockClear()
+
+      store.getState().bufferActions.registerExternalBuffer('same-buf', '/a.ts', 'a.ts', true)
+
+      expect(store.getState().buffers.length).toBe(countAfterFirst)
+      expect(paneActions.removeBufferFromPane).not.toHaveBeenCalled()
+    })
+
+    it('existing preview buffer: re-registering with isPreview=false clears preview', () => {
+      const paneActions = makePaneActions()
+      const { store } = makeStore(paneActions)
+
+      store.getState().bufferActions.registerExternalBuffer('buf-x', '/x.ts', 'x.ts', true)
+      expect(store.getState().bufferActions.getBufferById('buf-x')?.isPreview).toBe(true)
+
+      store.getState().bufferActions.registerExternalBuffer('buf-x', '/x.ts', 'x.ts', false)
+      expect(store.getState().bufferActions.getBufferById('buf-x')?.isPreview).toBe(false)
+      expect(paneActions.clearPreviewBufferEverywhere).toHaveBeenCalledWith('buf-x')
+    })
+
+    it('existing permanent buffer: NOT downgraded to preview on single-click', () => {
+      const paneActions = makePaneActions()
+      const { store } = makeStore(paneActions)
+
+      // Register as permanent
+      store.getState().bufferActions.registerExternalBuffer('perm', '/perm.ts', 'perm.ts', false)
+      paneActions.setPanePreviewBuffer.mockClear()
+
+      // Try to open as preview — should be blocked (it's already permanent)
+      store.getState().bufferActions.registerExternalBuffer('perm', '/perm.ts', 'perm.ts', true)
+
+      expect(store.getState().bufferActions.getBufferById('perm')?.isPreview).toBe(false)
+      expect(paneActions.setPanePreviewBuffer).not.toHaveBeenCalled()
+    })
+  })
+
   describe('promotePreview', () => {
     it('sets isPreview to false', () => {
       const { store: storeInst } = makeStore()
