@@ -7,7 +7,6 @@ import { QuickQuestionCommandContent } from "@/features/ai/components/quick-ques
 import { useLspStore } from "@/features/editor/lsp/lsp-store";
 import { useBufferStore } from "@/features/editor/stores/buffer-store";
 import { useFileSystemStore } from "@/features/file-system/controllers/store";
-import { OutlineCommandContent } from "@/features/outline/components/outline-command";
 import { commitChanges } from "@/features/git/api/git-commits-api";
 import { fetchChanges, pullChanges, pushChanges } from "@/features/git/api/git-remotes-api";
 import {
@@ -392,12 +391,6 @@ const CommandPalette = () => {
           onClose={onClose}
           onThemeChange={handleIconThemeChange}
           currentTheme={settings.iconTheme}
-        />
-      ) : currentView === "outline" ? (
-        <OutlineCommandContent
-          isActive={currentView === "outline"}
-          onBack={popView}
-          onClose={onClose}
         />
       ) : (
         <>

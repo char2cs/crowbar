@@ -9,7 +9,6 @@ const GitHubPRsView = () => null
 import { SidebarPaneSelector } from "@/features/layout/components/sidebar/sidebar-pane-selector";
 import { useSidebarPaneController } from "@/features/layout/hooks/use-sidebar-pane-controller";
 import { getSidebarPaneLevel, type SidebarView } from "@/features/layout/utils/sidebar-pane-utils";
-import { OutlineSidebar } from "@/features/outline/components/outline-sidebar";
 import { useSettingsStore } from "@/features/settings/store";
 import { useSidebarStore } from "@/features/layout/stores/sidebar-store";
 import { useBufferStore } from "@/features/editor/stores/buffer-store";
@@ -102,7 +101,6 @@ export const MainSidebar = memo(
     const updateActivePath = useSidebarStore.use.updateActivePath?.();
 
     const { settings } = useSettingsStore();
-    const isOutlineFeatureEnabled = settings.coreFeatures.outline;
     const showLeftSidebarTabs = settings.sidebarTabsPosition === "left";
     const shouldRenderActivityRail = showActivityRail && showLeftSidebarTabs;
     const activePaneId: SidebarView = isGitViewActive
@@ -167,14 +165,6 @@ export const MainSidebar = memo(
           </div>
         ),
       },
-      ...(isOutlineFeatureEnabled
-        ? [
-            {
-              id: "outline" as const,
-              content: <OutlineSidebar />,
-            },
-          ]
-        : []),
       {
         id: "notifications",
         content: <NotificationsPane />,
