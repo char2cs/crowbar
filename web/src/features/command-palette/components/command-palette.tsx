@@ -71,11 +71,7 @@ const CommandPalette = () => {
     openSettingsDialog,
   } = useUIState();
   const { openQuickEdit } = useEditorAppStore.use.actions();
-  const _rawHandleFileSelect = useFileSystemStore.use.handleFileSelect?.();
-
-  const handleFileSelect: ((path: string, isDir: boolean) => void) | undefined = _rawHandleFileSelect
-    ? (path: string, isDir: boolean) => _rawHandleFileSelect(path, isDir)
-    : undefined;
+  const handleFileOpen = useFileSystemStore.use.handleFileOpen?.();
   const isVisible = isCommandPaletteVisible;
   const onClose = () => {
     setIsCommandPaletteVisible(false);
@@ -187,7 +183,7 @@ const CommandPalette = () => {
         key: string,
         value: any,
       ) => void | Promise<void>,
-      handleFileSelect,
+      handleFileOpen,
       getAppDataDir: appDataDir,
       openWhatsNew,
       openOnboarding,

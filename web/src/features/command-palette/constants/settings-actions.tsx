@@ -32,7 +32,7 @@ interface SettingsActionsParams {
   setSettingsSearchQuery: (query: string) => void;
   pushPaletteView: (view: CommandPaletteViewId) => void;
   updateSetting: (key: string, value: any) => void | Promise<void>;
-  handleFileSelect: ((path: string, isDir: boolean) => void) | undefined;
+  handleFileOpen: ((path: string, revealOrIsDir?: boolean) => Promise<void>) | null | undefined;
   getAppDataDir: () => Promise<string>;
   openWhatsNew: () => void | Promise<void>;
   openOnboarding: () => void | Promise<void>;
@@ -95,7 +95,7 @@ export const createSettingsActions = (params: SettingsActionsParams): Action[] =
     setSettingsSearchQuery,
     pushPaletteView,
     updateSetting,
-    handleFileSelect,
+    handleFileOpen,
     getAppDataDir,
     openWhatsNew,
     openOnboarding,
@@ -192,8 +192,8 @@ export const createSettingsActions = (params: SettingsActionsParams): Action[] =
       action: () => {
         onClose();
         getAppDataDir().then((path) => {
-          if (handleFileSelect) {
-            handleFileSelect(`${path}/settings.json`, false);
+          if (handleFileOpen) {
+            void handleFileOpen(`${path}/settings.json`, false);
           }
         });
       },
