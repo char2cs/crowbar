@@ -1,4 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { initViewStoreSubscription, _resetViewStoreUnsubscribeForTesting } from "@/features/editor/stores/view-store";
 import { usePaneStore } from "@/features/panes/stores/pane-store";
 
 const createMockStorage = () => {
@@ -24,6 +25,7 @@ const createMockStorage = () => {
 
 describe("editor view store large files", () => {
   beforeEach(() => {
+    initViewStoreSubscription();
     vi.stubGlobal("localStorage", createMockStorage());
     vi.stubGlobal("window", {
       __TAURI_INTERNALS__: {
@@ -40,6 +42,7 @@ describe("editor view store large files", () => {
   });
 
   afterEach(async () => {
+    _resetViewStoreUnsubscribeForTesting();
     usePaneStore.getState().actions.reset();
     const { useBufferStore } = await import("../stores/buffer-store");
     const { useEditorViewStore } = await import("../stores/view-store");

@@ -1,4 +1,4 @@
-import { vi, describe, it, expect, beforeEach } from 'vitest'
+import { describe, it, expect, beforeEach } from 'vitest'
 import { initViewStoreSubscription, _resetViewStoreUnsubscribeForTesting } from '@/features/editor/stores/view-store'
 import { useBufferStore } from '@/features/editor/stores/buffer-store'
 

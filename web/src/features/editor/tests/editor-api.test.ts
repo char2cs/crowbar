@@ -1,4 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { initViewStoreSubscription, _resetViewStoreUnsubscribeForTesting } from "@/features/editor/stores/view-store";
 import type { editorAPI as editorAPIInstance } from "../extensions/api";
 import type { useBufferStore as useBufferStoreHook } from "../stores/buffer-store";
 import type { useEditorStateStore as useEditorStateStoreHook } from "../stores/state-store";
@@ -59,6 +60,7 @@ describe("editor API model operations", () => {
   let useEditorSettingsStore: EditorSettingsStoreHook;
 
   beforeEach(async () => {
+    initViewStoreSubscription();
     vi.stubGlobal("localStorage", createMockStorage());
     const styleHost = { appendChild: vi.fn() };
     const documentStub = {
@@ -109,6 +111,7 @@ describe("editor API model operations", () => {
   });
 
   afterEach(() => {
+    _resetViewStoreUnsubscribeForTesting();
     useBufferStore?.setState({
       activeBufferId: null,
       buffers: [],
