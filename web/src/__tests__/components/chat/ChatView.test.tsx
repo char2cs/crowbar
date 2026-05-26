@@ -24,7 +24,7 @@ test('does not call scrollIntoView when sentinel is not intersecting (user scrol
 
   // IntersectionObserver reports sentinel NOT visible (user scrolled away)
   let observerCallback: ((entries: Partial<IntersectionObserverEntry>[]) => void) | null = null
-  vi.stubGlobal('IntersectionObserver', vi.fn((cb: typeof observerCallback) => {
+  vi.stubGlobal('IntersectionObserver', vi.fn((cb: (entries: Partial<IntersectionObserverEntry>[]) => void) => {
     observerCallback = cb
     return { observe: vi.fn(), disconnect: vi.fn() }
   }))
@@ -37,7 +37,7 @@ test('does not call scrollIntoView when sentinel is not intersecting (user scrol
   )
 
   // Simulate user having scrolled up (sentinel not visible)
-  observerCallback?.([{ isIntersecting: false }])
+  ;(observerCallback as ((entries: Partial<IntersectionObserverEntry>[]) => void) | null)?.([{ isIntersecting: false }])
 
   // Clear calls from initial render (which fired before observer reported not-intersecting)
   scrollIntoView.mockClear()
