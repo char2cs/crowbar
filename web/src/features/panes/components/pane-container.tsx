@@ -29,6 +29,7 @@ import {
 } from "@/features/tabs/utils/internal-tab-drag";
 import { FlowContent } from "@/features/workflow/components/FlowContent";
 import { cn } from "@/utils/cn";
+import { ErrorBoundary } from "@/components/ErrorBoundary";
 import { activateBufferInPaneAndSync, activatePaneAndSyncBuffer } from "../utils/pane-activation";
 import { EmptyEditorState } from "./empty-editor-state";
 import { BOTTOM_PANE_ID } from "../constants/pane";
@@ -951,7 +952,15 @@ export function PaneContainer({ pane }: PaneContainerProps) {
 
         default:
           return (
-            <CodeEditor paneId={pane.id} bufferId={buffer.id} isActiveSurface={isActivePane} />
+            <ErrorBoundary
+              fallback={
+                <div className="flex h-full flex-1 items-center justify-center p-8 text-sm text-muted-foreground">
+                  Editor failed to load. Try closing and reopening this file.
+                </div>
+              }
+            >
+              <CodeEditor paneId={pane.id} bufferId={buffer.id} isActiveSurface={isActivePane} />
+            </ErrorBoundary>
           );
       }
     },
