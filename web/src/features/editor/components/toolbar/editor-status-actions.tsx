@@ -29,7 +29,6 @@ import { Dropdown, dropdownItemClassName } from "@/components/ui/dropdown";
 import Keybinding from "@/components/ui/keybinding";
 import { toast } from "@/components/ui/toast";
 import { cn } from "@/utils/cn";
-import VimStatusIndicator from "@/features/vim/components/vim-status-indicator";
 import { getFilenameFromPath } from "@/features/file-system/controllers/file-utils";
 
 const actionButtonClass = cn(
@@ -431,8 +430,6 @@ export function EditorStatusActions({ bufferId, editorViewKey }: EditorStatusAct
           </Dropdown>
         </div>
       )}
-
-      <VimStatusIndicator compact />
 
       <div className="relative flex items-center self-center">
         <Button

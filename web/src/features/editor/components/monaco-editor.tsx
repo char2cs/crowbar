@@ -5,7 +5,6 @@ import "../styles/monaco-editor.css";
 
 import { editor as monacoEditor, KeyCode, KeyMod, Range as MonacoRange, Uri } from "monaco-editor";
 import type * as Monaco from "monaco-editor";
-import { initVimMode, VimMode, type VimAdapterInstance } from "monaco-vim";
 import {
   useCallback,
   useEffect,
@@ -21,8 +20,6 @@ import type { ThemeDefinition } from "@/extensions/themes/types";
 import { InlineEditPopover } from "@/features/editor/inline-edit/inline-edit-popover";
 import { useInlineEdit } from "@/features/editor/inline-edit/use-inline-edit";
 import { useSettingsStore } from "@/features/settings/store";
-import { parseAndExecuteVimCommand, vimCommands } from "@/features/vim/stores/vim-commands";
-import { useVimStore, type VimMode as AthasVimMode } from "@/features/vim/stores/vim-store";
 import { useZoomStore } from "@/features/window/stores/zoom-store";
 import { useBufferStore } from "../stores/buffer-store";
 import { useEditorSettingsStore } from "../stores/settings-store";
@@ -293,49 +290,6 @@ function defineMonacoTheme(themeId: string): string {
   return monacoThemeId;
 }
 
-let athasVimCommandsRegistered = false;
-
-function registerAthasVimCommands(): void {
-  if (athasVimCommandsRegistered) return;
-  athasVimCommandsRegistered = true;
-
-  const vimApi = (
-    VimMode as unknown as {
-      Vim?: {
-        defineEx: (
-          name: string,
-          prefix: string,
-          callback: (_cm: unknown, params: unknown) => void,
-        ) => void;
-      };
-    }
-  ).Vim;
-  if (!vimApi) return;
-
-  const register = (name: string, prefix: string) => {
-    vimApi.defineEx(name, prefix, (_cm, params) => {
-      const argString =
-        typeof params === "object" && params && "argString" in params
-          ? String((params as { argString?: string }).argString ?? "")
-          : "";
-      const input = `${prefix}${argString ? ` ${argString.trim()}` : ""}`;
-      void parseAndExecuteVimCommand(input);
-    });
-  };
-
-  for (const command of vimCommands) {
-    register(command.name, command.name);
-    for (const alias of (command as { name: string; aliases?: string[] }).aliases ?? []) {
-      register(alias, alias);
-    }
-  }
-}
-
-function toAthasVimMode(mode: string): AthasVimMode {
-  if (mode === "insert") return "insert";
-  if (mode === "visual") return "visual";
-  return "normal";
-}
 
 export function MonacoBackedEditor({
   bufferId: propBufferId,
@@ -364,8 +318,6 @@ export function MonacoBackedEditor({
   const containerRef = useRef<HTMLDivElement>(null);
   const editorRef = useRef<Monaco.editor.IStandaloneCodeEditor | null>(null);
   const modelRef = useRef<Monaco.editor.ITextModel | null>(null);
-  const vimAdapterRef = useRef<VimAdapterInstance | null>(null);
-  const vimStatusRef = useRef<HTMLDivElement | null>(null);
   const applyingExternalChangeRef = useRef(false);
   const previousContentRef = useRef("");
   const decorationsRef = useRef<string[]>([]);
@@ -400,10 +352,6 @@ export function MonacoBackedEditor({
   const minimapEnabled = useSettingsStore((state) => state.settings.showMinimap);
   const autoCompletion = useSettingsStore((state) => state.settings.autoCompletion);
   const parameterHints = useSettingsStore((state) => state.settings.parameterHints);
-  const vimModeEnabled = useSettingsStore((state) => state.settings.vimMode);
-  const vimRelativeLineNumbers = useSettingsStore((state) => state.settings.vimRelativeLineNumbers);
-  const vimCurrentMode = useVimStore.use.mode();
-  const cursorPosition = useEditorStateStore.use.cursorPosition();
   const selection = useEditorStateStore((state) => state.selection);
   const { setCursorPosition, setSelection, setScrollForBuffer, setViewportHeight } =
     useEditorStateStore.use.actions();
@@ -423,14 +371,9 @@ export function MonacoBackedEditor({
     (lineNumber: number) => {
       const mappedLine = lineNumberMap?.[lineNumber - 1];
       if (typeof mappedLine === "number") return String(mappedLine);
-      if (vimModeEnabled && vimRelativeLineNumbers && !lineNumberMap) {
-        const cursorLine = useEditorStateStore.getState().cursorPosition.line + 1;
-        const distance = Math.abs(lineNumber - cursorLine);
-        if (distance > 0) return String(distance);
-      }
       return String((lineNumberStart ?? 1) + lineNumber - 1);
     },
-    [lineNumberMap, lineNumberStart, vimModeEnabled, vimRelativeLineNumbers],
+    [lineNumberMap, lineNumberStart],
   );
 
   const updateVisibleLineRange = useCallback(
@@ -629,8 +572,8 @@ export function MonacoBackedEditor({
       suggestOnTriggerCharacters: autoCompletion,
       parameterHints: { enabled: parameterHints },
       theme: defineMonacoTheme(settingsTheme || theme),
-      cursorStyle: vimModeEnabled && vimCurrentMode === "normal" ? "block" : "line",
-      cursorBlinking: vimModeEnabled && vimCurrentMode === "normal" ? "solid" : "blink",
+      cursorStyle: "line",
+      cursorBlinking: "blink",
       contextmenu: false,
       overviewRulerLanes: 0,
       fixedOverflowWidgets: true,
@@ -866,24 +809,6 @@ export function MonacoBackedEditor({
     const editor = editorRef.current;
     if (!editor) return;
 
-    if (!vimModeEnabled || !vimRelativeLineNumbers || lineNumberMap) return;
-
-    editor.updateOptions({
-      lineNumbers: lineNumbers ? lineNumberFormatter : "off",
-    });
-  }, [
-    cursorPosition.line,
-    lineNumberFormatter,
-    lineNumberMap,
-    lineNumbers,
-    vimModeEnabled,
-    vimRelativeLineNumbers,
-  ]);
-
-  useEffect(() => {
-    const editor = editorRef.current;
-    if (!editor) return;
-
     const applyTheme = () => monacoEditor.setTheme(defineMonacoTheme(settingsTheme || theme));
 
     applyTheme();
@@ -910,8 +835,8 @@ export function MonacoBackedEditor({
       quickSuggestions: autoCompletion,
       suggestOnTriggerCharacters: autoCompletion,
       parameterHints: { enabled: parameterHints },
-      cursorStyle: vimModeEnabled && vimCurrentMode === "normal" ? "block" : "line",
-      cursorBlinking: vimModeEnabled && vimCurrentMode === "normal" ? "solid" : "blink",
+      cursorStyle: "line",
+      cursorBlinking: "blink",
       scrollbar: {
         vertical: scrollable ? "auto" : "hidden",
         horizontal: scrollable ? "auto" : "hidden",
@@ -946,51 +871,8 @@ export function MonacoBackedEditor({
     settingsTheme,
     tabSize,
     theme,
-    vimCurrentMode,
-    vimModeEnabled,
     wordWrap,
   ]);
-
-  useEffect(() => {
-    const editor = editorRef.current;
-    const container = containerRef.current;
-    const { setMode } = useVimStore.getState().actions;
-
-    vimAdapterRef.current?.dispose();
-    vimAdapterRef.current = null;
-    vimStatusRef.current?.remove();
-    vimStatusRef.current = null;
-
-    if (!editor || !container || !vimModeEnabled || readOnly || isPreviewMode) {
-      return;
-    }
-
-    registerAthasVimCommands();
-
-    const statusNode = document.createElement("div");
-    statusNode.className = "monaco-vim-statusbar";
-    statusNode.setAttribute("aria-live", "polite");
-    container.appendChild(statusNode);
-
-    const adapter = initVimMode(editor, statusNode);
-    adapter.on("vim-mode-change", (event: { mode: string }) => {
-      setMode(toAthasVimMode(event.mode));
-    });
-    adapter.on("dispose", () => {
-      useVimStore.getState().actions.setMode("normal");
-    });
-
-    vimAdapterRef.current = adapter;
-    vimStatusRef.current = statusNode;
-    setMode("normal");
-
-    return () => {
-      adapter.dispose();
-      if (vimAdapterRef.current === adapter) vimAdapterRef.current = null;
-      statusNode.remove();
-      if (vimStatusRef.current === statusNode) vimStatusRef.current = null;
-    };
-  }, [isPreviewMode, readOnly, vimModeEnabled]);
 
   useEffect(() => {
     const editor = editorRef.current;

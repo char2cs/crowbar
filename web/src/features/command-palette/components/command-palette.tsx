@@ -23,8 +23,6 @@ import { useToast } from "@/features/layout/contexts/toast-context";
 import { useOnboardingStore } from "@/features/onboarding/store";
 import { useSettingsStore } from "@/features/settings/store";
 import { useWhatsNewStore } from "@/features/settings/stores/whats-new-store";
-import { vimCommands } from "@/features/vim/stores/vim-commands";
-import { useVimStore } from "@/features/vim/stores/vim-store";
 import { useEditorAppStore } from "@/features/editor/stores/editor-app-store";
 import { useUIState } from "@/features/window/stores/ui-state-store";
 import { useZoomStore } from "@/features/window/stores/zoom-store";
@@ -77,6 +75,7 @@ const CommandPalette = () => {
   } = useUIState();
   const { openQuickEdit } = useEditorAppStore.use.actions();
   const _rawHandleFileSelect = useFileSystemStore.use.handleFileSelect?.();
+
   const handleFileSelect: ((path: string, isDir: boolean) => void) | undefined = _rawHandleFileSelect
     ? (path: string, isDir: boolean) => _rawHandleFileSelect(path, isDir)
     : undefined;
@@ -117,7 +116,6 @@ const CommandPalette = () => {
   const lastEnteredActions = useActionsStore.use.lastEnteredActionsStack();
   const pushAction = useActionsStore.use.pushAction();
   const { settings } = useSettingsStore();
-  const { setMode } = useVimStore.use.actions();
   const lspStatus = useLspStore.use.lspStatus();
   const { clearLspError, updateLspStatus } = useLspStore.use.actions();
   const { rootFolderPath } = useFileSystemStore();
@@ -275,9 +273,6 @@ const CommandPalette = () => {
       ) => void,
       clearLspError,
       rootFolderPath,
-      vimMode: settings.vimMode,
-      vimCommands,
-      setMode,
       openQuickEdit,
       pushPaletteView: pushView,
       showToast,

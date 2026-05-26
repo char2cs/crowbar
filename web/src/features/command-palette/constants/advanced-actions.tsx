@@ -24,9 +24,6 @@ interface AdvancedActionsParams {
   ) => void;
   clearLspError: () => void;
   rootFolderPath: string | null | undefined;
-  vimMode: boolean;
-  vimCommands: Array<{ name: string; description: string; execute: () => void }>;
-  setMode: (mode: "normal" | "insert" | "visual") => void;
   openQuickEdit: (params: {
     text: string;
     cursorPosition: { x: number; y: number };
@@ -43,9 +40,6 @@ export const createAdvancedActions = (params: AdvancedActionsParams): Action[] =
     updateLspStatus,
     clearLspError,
     rootFolderPath,
-    vimMode,
-    vimCommands,
-    setMode,
     openQuickEdit,
     pushPaletteView,
     showToast,
@@ -144,59 +138,5 @@ export const createAdvancedActions = (params: AdvancedActionsParams): Action[] =
     },
   ];
 
-  // Add vim commands if vim mode is enabled
-  const vimActions: Action[] = vimMode
-    ? vimCommands.map((cmd) => ({
-        id: `vim-${cmd.name}`,
-        label: `Vim: ${cmd.name}`,
-        description: cmd.description,
-        icon: undefined,
-        category: "Vim",
-        action: () => {
-          cmd.execute();
-          onClose();
-        },
-      }))
-    : [];
-
-  // Add mode-switching commands if vim mode is enabled
-  const vimModeActions: Action[] = vimMode
-    ? [
-        {
-          id: "vim-normal-mode",
-          label: "Vim: Enter Normal Mode",
-          description: "Switch to normal mode",
-          icon: undefined,
-          category: "Vim",
-          action: () => {
-            setMode("normal");
-            onClose();
-          },
-        },
-        {
-          id: "vim-insert-mode",
-          label: "Vim: Enter Insert Mode",
-          description: "Switch to insert mode",
-          icon: undefined,
-          category: "Vim",
-          action: () => {
-            setMode("insert");
-            onClose();
-          },
-        },
-        {
-          id: "vim-visual-mode",
-          label: "Vim: Enter Visual Mode",
-          description: "Switch to visual mode (character)",
-          icon: undefined,
-          category: "Vim",
-          action: () => {
-            setMode("visual");
-            onClose();
-          },
-        },
-      ]
-    : [];
-
-  return [...baseActions, ...vimActions, ...vimModeActions];
+  return baseActions;
 };
