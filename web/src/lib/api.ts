@@ -4,15 +4,14 @@ import { MOCK_FLOWS } from './mock/flows'
 import { getMockConversation } from './mock/conversations'
 import { getAllMockProjects, createMockProject } from './mock/projects'
 
+/**
+ * True when the app is running against mock data (no backend configured).
+ * When VITE_API_URL is set (or window.__CROWBAR__.api), this is false and
+ * the functions below should call apiFetch() from transport.ts instead.
+ */
 const crowbar = (window as any).__CROWBAR__
 export const API_BASE = crowbar?.api ?? import.meta.env.VITE_API_URL ?? ''
-
-export function apiFetch(path: string, init?: RequestInit): Promise<unknown> {
-  return fetch(`${API_BASE}${path}`, init).then(r => {
-    if (!r.ok) throw new Error(`${r.status} ${r.statusText}`)
-    return r.json()
-  })
-}
+export const IS_MOCK = !API_BASE
 
 export function fetchWorkspace(wsId: string): Promise<WorkspacePayload> {
   const ws = getMockWorkspace(wsId)
