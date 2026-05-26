@@ -1,5 +1,5 @@
 import { describe, expect, test } from "vitest";
-import { resolveGitActionsMenuPosition } from "../utils/git-actions-menu-position";
+import { resolveGitActionsMenuPosition } from "@/features/git/utils/git-actions-menu-position";
 
 describe("resolveGitActionsMenuPosition", () => {
   const viewport = { width: 320, height: 240 };

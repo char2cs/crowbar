@@ -3,7 +3,7 @@ import {
   buildEnvTemplateContent,
   isEnvFileName,
   normalizeEnvTargetFileName,
-} from "../lib/env-template";
+} from "@/features/file-explorer/file-explorer/lib/env-template";
 
 describe("env-template helpers", () => {
   it("detects env file names", () => {

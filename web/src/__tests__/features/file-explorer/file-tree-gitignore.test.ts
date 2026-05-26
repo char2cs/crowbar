@@ -4,7 +4,7 @@ import {
   collectGitIgnoreFileReferences,
   createFileTreeGitIgnoreRules,
   isPathGitIgnoredByFileTreeRules,
-} from "../lib/file-tree-gitignore";
+} from "@/features/file-explorer/file-explorer/lib/file-tree-gitignore";
 
 const dir = (name: string, path: string, children?: FileEntry[]): FileEntry => ({
   name,

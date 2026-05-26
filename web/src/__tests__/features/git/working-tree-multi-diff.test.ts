@@ -1,10 +1,10 @@
 import { describe, expect, test } from "vitest";
-import type { GitDiff, GitFile, GitStatus } from "../types/git-types";
+import type { GitDiff, GitFile, GitStatus } from "@/features/git/types/git-types";
 import {
   buildWorkingTreeMultiDiff,
   getDiffableWorkingTreeFiles,
   reconcileWorkingTreeFiles,
-} from "../utils/working-tree-multi-diff";
+} from "@/features/git/utils/working-tree-multi-diff";
 
 const createFile = (
   path: string,

@@ -1,8 +1,8 @@
 import { describe, expect, test } from "vitest";
-import type { MultiFileDiff } from "../types/git-diff-types";
-import type { GitDiff } from "../types/git-types";
-import { isDiffFile, parseRawDiffContent } from "../utils/git-diff-parser";
-import { getDiffLineVisualState } from "../utils/git-diff-helpers";
+import type { MultiFileDiff } from "@/features/git/types/git-diff-types";
+import type { GitDiff } from "@/features/git/types/git-types";
+import { isDiffFile, parseRawDiffContent } from "@/features/git/utils/git-diff-parser";
+import { getDiffLineVisualState } from "@/features/git/utils/git-diff-helpers";
 
 function isMultiFileDiff(value: GitDiff | MultiFileDiff): value is MultiFileDiff {
   return "files" in value;

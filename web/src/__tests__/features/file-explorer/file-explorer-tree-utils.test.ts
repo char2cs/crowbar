@@ -3,7 +3,7 @@ import type { PaneContent } from "@/features/panes/types/pane-content";
 import {
   getAncestorDirectoryPaths,
   getExplorerTargetPath,
-} from "../utils/file-explorer-tree-utils";
+} from "@/features/file-explorer/utils/file-explorer-tree-utils";
 
 describe("getAncestorDirectoryPaths", () => {
   it("returns parent directories from root to leaf parent", () => {

@@ -1,5 +1,5 @@
 import { describe, expect, test } from "vitest";
-import { getDiffBufferFilePath } from "../utils/diff-buffer-path";
+import { getDiffBufferFilePath } from "@/features/git/utils/diff-buffer-path";
 
 describe("getDiffBufferFilePath", () => {
   test("resolves virtual working-tree diff paths", () => {

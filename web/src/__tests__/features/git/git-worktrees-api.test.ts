@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { removeWorktree } from "../api/git-worktrees-api";
+import { removeWorktree } from "@/features/git/api/git-worktrees-api";
 
 // NOTE: git-worktrees-api uses a crowbar stub that throws "Not implemented".
 // These tests verify the error handling wrappers return false gracefully.

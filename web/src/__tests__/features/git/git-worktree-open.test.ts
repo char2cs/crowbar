@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { openGitWorktreeWorkspace } from "../utils/git-worktree-open";
+import { openGitWorktreeWorkspace } from "@/features/git/utils/git-worktree-open";
 
 const mocks = vi.hoisted(() => ({
   createAppWindow: vi.fn(),

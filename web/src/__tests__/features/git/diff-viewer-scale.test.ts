@@ -1,11 +1,11 @@
 import { describe, expect, test } from "vitest";
-import type { MultiFileDiff } from "../types/git-diff-types";
-import type { GitDiff } from "../types/git-types";
+import type { MultiFileDiff } from "@/features/git/types/git-diff-types";
+import type { GitDiff } from "@/features/git/types/git-types";
 import {
   LARGE_DIFF_EDITOR_LINE_THRESHOLD,
   getInitialExpandedDiffFileKeys,
   shouldUseScrollableDiffEditor,
-} from "../utils/diff-viewer-scale";
+} from "@/features/git/utils/diff-viewer-scale";
 
 const createDiff = (filePath: string, lineCount: number): GitDiff => ({
   file_path: filePath,
