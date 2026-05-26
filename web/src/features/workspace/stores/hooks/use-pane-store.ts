@@ -1,3 +1,4 @@
+import { useShallow } from 'zustand/react/shallow'
 import { useWorkspaceStoreContext } from '../workspace-context'
 import type { PaneActions } from '../slices/pane-slice'
 import type { PaneGroup, PaneNode } from '@/features/panes/types/pane'
@@ -20,5 +21,10 @@ export const useMostRecentActivePaneIds = (): string[] =>
 export const usePaneActions = (): PaneActions =>
   useWorkspaceStoreContext(s => s.paneActions)
 
+/**
+ * Returns all pane groups in the workspace.
+ * useShallow prevents re-renders when the returned array has the same elements
+ * even though getAllPaneGroups() builds a new array reference each call.
+ */
 export const useAllPaneGroups = (): PaneGroup[] =>
-  useWorkspaceStoreContext(s => s.paneActions.getAllPaneGroups())
+  useWorkspaceStoreContext(useShallow(s => s.paneActions.getAllPaneGroups()))
