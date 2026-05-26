@@ -12,7 +12,7 @@ import { useFileSystemStore } from "@/features/file-system/controllers/store";
 import { useCommandShortcut } from "@/features/keymaps/hooks/use-command-shortcut";
 import { setSyntaxHighlightingFilePath } from "@/features/editor/extensions/builtin/syntax-highlighting";
 import { LspClient } from "@/features/editor/lsp/lsp-client";
-import { type LspStatus, useLspStore } from "@/features/editor/lsp/lsp-store";
+import { LSP_ERROR_TOAST_KEY, type LspStatus, useLspStore } from "@/features/editor/lsp/lsp-store";
 import type { Position } from "@/features/editor/types/editor";
 import { LoadingSpinner } from "@/components/ui/spinner";
 import { useBufferStore } from "@/features/editor/stores/buffer-store";
@@ -165,6 +165,23 @@ export function EditorStatusActions({ bufferId, editorViewKey }: EditorStatusAct
 
     setIsCurrentFileLspAvailable(Boolean(extensionRegistry.getLspServerPath(activeBuffer.path)));
   }, [activeBuffer?.path, currentServerEntry]);
+
+  // Show/dismiss LSP error toast reactively.
+  // The store sets lastError; this component surfaces it as a notification.
+  const lspLastError = useLspStore((state) => state.lspStatus.lastError);
+
+  useEffect(() => {
+    if (lspLastError) {
+      toast.show({
+        key: LSP_ERROR_TOAST_KEY,
+        type: "error",
+        message: lspLastError,
+        duration: 8000,
+      });
+    } else {
+      toast.dismissByKey(LSP_ERROR_TOAST_KEY);
+    }
+  }, [lspLastError]);
 
   const handleRestartServer = async (serverKey: string) => {
     setBusyServerKey(serverKey);

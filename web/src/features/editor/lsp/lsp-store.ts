@@ -5,7 +5,6 @@ import { EDITOR_CONSTANTS } from "@/features/editor/config/constants";
 import { expandSnippet } from "@/features/editor/snippets/snippet-expander";
 import { logger } from "@/features/editor/utils/logger";
 import { calculateCursorPositionFromContent } from "@/features/editor/utils/position";
-import { toast } from "@/components/ui/toast";
 import { detectCompletionContext, extractPrefix, filterCompletions } from "@/utils/fuzzy-matcher";
 import { createSelectors } from "@/utils/zustand-selectors";
 import { useEditorUIStore } from "../stores/ui-store";
@@ -79,7 +78,7 @@ interface CompletionCache {
 
 // LSP Status types
 export type LspStatus = "disconnected" | "connecting" | "connected" | "error";
-const LSP_ERROR_TOAST_KEY = "lsp-runtime-error";
+export const LSP_ERROR_TOAST_KEY = "lsp-runtime-error";
 
 interface LspStatusInfo {
   status: LspStatus;
@@ -528,12 +527,6 @@ export const useLspStore = createSelectors(
       },
 
       setLspError: (error) => {
-        toast.show({
-          key: LSP_ERROR_TOAST_KEY,
-          type: "error",
-          message: error,
-          duration: 8000,
-        });
         set((state) => ({
           lspStatus: {
             ...state.lspStatus,
@@ -544,7 +537,6 @@ export const useLspStore = createSelectors(
       },
 
       clearLspError: () => {
-        toast.dismissByKey(LSP_ERROR_TOAST_KEY);
         set((state) => ({
           lspStatus: {
             ...state.lspStatus,
