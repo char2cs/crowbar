@@ -147,7 +147,8 @@ const TabBar = ({
     closeBuffer(bufferId);
   }
   const { handleSave } = useEditorAppStore.use.actions();
-  const { settings } = useSettingsStore();
+  const horizontalTabScroll = useSettingsStore((state) => state.settings.horizontalTabScroll);
+  const maxOpenTabs = useSettingsStore((state) => state.settings.maxOpenTabs);
   const { updateActivePath } = useSidebarStore();
   const rootFolderPath = useFileSystemStore.use.rootFolderPath?.() || undefined;
   const jumpListActions = useJumpListStore.use.actions();
@@ -277,7 +278,7 @@ const TabBar = ({
     (e: React.WheelEvent<HTMLDivElement>) => {
       const container = tabBarRef.current;
       if (!container) return;
-      if (!settings.horizontalTabScroll) return;
+      if (!horizontalTabScroll) return;
       if (draggedBufferId) return;
       if (e.ctrlKey || e.metaKey) return;
       if (!canScrollTabsHorizontally()) return;
@@ -302,7 +303,7 @@ const TabBar = ({
       e.preventDefault();
       container.scrollLeft = nextScrollLeft;
     },
-    [canScrollTabsHorizontally, draggedBufferId, settings.horizontalTabScroll],
+    [canScrollTabsHorizontally, draggedBufferId, horizontalTabScroll],
   );
 
   const sortedBuffers = useMemo(() => {
@@ -351,16 +352,16 @@ const TabBar = ({
   );
 
   useEffect(() => {
-    if (settings.maxOpenTabs > 0 && buffers.length > settings.maxOpenTabs && handleTabClose) {
+    if (maxOpenTabs > 0 && buffers.length > maxOpenTabs && handleTabClose) {
       const closableBuffers = buffers.filter((b) => !b.isPinned && b.id !== activeBufferId);
 
-      let tabsToClose = buffers.length - settings.maxOpenTabs;
+      let tabsToClose = buffers.length - maxOpenTabs;
       for (let i = 0; i < closableBuffers.length && tabsToClose > 0; i++) {
         handleTabClose(closableBuffers[i].id);
         tabsToClose--;
       }
     }
-  }, [buffers, settings.maxOpenTabs, activeBufferId, handleTabClose]);
+  }, [buffers, maxOpenTabs, activeBufferId, handleTabClose]);
 
   // Auto-scroll active tab into view
   useEffect(() => {
