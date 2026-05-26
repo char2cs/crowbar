@@ -253,6 +253,7 @@ export const createBufferSlice: StateCreator<
         const buf = state.buffers.find(b => b.id === id)
         if (buf) buf.isPreview = false
       })
+      get().paneActions.clearPreviewBufferEverywhere(id)
     },
 
     getBufferById(id) {

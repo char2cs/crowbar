@@ -1,23 +1,31 @@
-import { describe, it, expect, beforeEach } from 'vitest'
+import { describe, it, expect, beforeEach, vi } from 'vitest'
 import { createStore } from 'zustand'
 import { immer } from 'zustand/middleware/immer'
 import { createBufferSlice, type BufferSlice } from '@/features/workspace/stores/slices/buffer-slice'
 
-const noopPaneActions = {
-  addBufferToPane: () => {},
-  setPanePreviewBuffer: () => {},
-}
+const makePaneActions = () => ({
+  addBufferToPane: vi.fn(),
+  setPanePreviewBuffer: vi.fn(),
+  removeBufferFromPane: vi.fn(),
+  clearPreviewBufferEverywhere: vi.fn(),
+  getPaneById: vi.fn(() => null as any),
+})
 
-function makeStore() {
-  return createStore<BufferSlice>()(immer((set, get) => ({
-    ...createBufferSlice(set as any, get as any, {} as any),
-    paneActions: noopPaneActions,
-  })))
+type PaneActions = ReturnType<typeof makePaneActions>
+
+function makeStore(paneActions: PaneActions = makePaneActions()) {
+  const store = createStore<BufferSlice & { paneActions: PaneActions }>()(
+    immer((set, get) => ({
+      ...createBufferSlice(set as any, get as any, {} as any),
+      paneActions,
+    })),
+  )
+  return { store, paneActions }
 }
 
 describe('buffer-slice', () => {
-  let store: ReturnType<typeof makeStore>
-  beforeEach(() => { store = makeStore() })
+  let store: ReturnType<typeof makeStore>['store']
+  beforeEach(() => { store = makeStore().store })
 
   it('starts empty', () => {
     expect(store.getState().buffers).toHaveLength(0)
@@ -76,5 +84,26 @@ describe('buffer-slice', () => {
     expect(store.getState().bufferActions.getBufferById(id)?.isPinned).toBe(true)
     store.getState().bufferActions.setPinned(id, false)
     expect(store.getState().bufferActions.getBufferById(id)?.isPinned).toBe(false)
+  })
+
+  describe('promotePreview', () => {
+    it('sets isPreview to false', () => {
+      const { store: storeInst } = makeStore()
+      const id = storeInst.getState().bufferActions.openContent({
+        type: 'editor', path: '/src/a.ts', name: 'a.ts', content: '', isPreview: true,
+      })
+      storeInst.getState().bufferActions.promotePreview(id)
+      expect(storeInst.getState().bufferActions.getBufferById(id)?.isPreview).toBe(false)
+    })
+
+    it('calls clearPreviewBufferEverywhere with the buffer id', () => {
+      const paneActions = makePaneActions()
+      const { store: storeInst } = makeStore(paneActions)
+      const id = storeInst.getState().bufferActions.openContent({
+        type: 'editor', path: '/src/a.ts', name: 'a.ts', content: '', isPreview: true,
+      })
+      storeInst.getState().bufferActions.promotePreview(id)
+      expect(paneActions.clearPreviewBufferEverywhere).toHaveBeenCalledWith(id)
+    })
   })
 })
