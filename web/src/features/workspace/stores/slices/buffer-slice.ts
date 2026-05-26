@@ -136,7 +136,7 @@ export const createBufferSlice: StateCreator<
           isPreview,
           isActive: false,
         }
-        set(state => { state.buffers.push(buf as any) })
+        set(state => { state.buffers.push(buf as PaneContent) })
         get().paneActions.addBufferToPane(get().activePaneId, id, true)
         if (isPreview) {
           get().paneActions.setPanePreviewBuffer(get().activePaneId, id)
@@ -152,7 +152,7 @@ export const createBufferSlice: StateCreator<
           isPreview: false,
           isActive: false,
         }
-        set(state => { state.buffers.push(buf as any) })
+        set(state => { state.buffers.push(buf as PaneContent) })
         get().paneActions.addBufferToPane(get().activePaneId, id, true)
       } else if (spec.type === 'diff') {
         const buf: DiffContent = {
@@ -166,7 +166,7 @@ export const createBufferSlice: StateCreator<
           isPreview: false,
           isActive: false,
         }
-        set(state => { state.buffers.push(buf as any) })
+        set(state => { state.buffers.push(buf as PaneContent) })
         get().paneActions.addBufferToPane(get().activePaneId, id, true)
       } else if (spec.type === 'terminal') {
         const terminalCount = get().buffers.filter(b => b.type === 'terminal').length
@@ -184,7 +184,7 @@ export const createBufferSlice: StateCreator<
           isPreview: false,
           isActive: false,
         }
-        set(state => { state.buffers.push(buf as any) })
+        set(state => { state.buffers.push(buf as PaneContent) })
         get().paneActions.addBufferToPane(get().activePaneId, id, true)
       } else if (spec.type === 'webViewer') {
         let displayName = spec.name ?? 'Web Viewer'
@@ -206,7 +206,7 @@ export const createBufferSlice: StateCreator<
           isPreview: false,
           isActive: false,
         }
-        set(state => { state.buffers.push(buf as any) })
+        set(state => { state.buffers.push(buf as PaneContent) })
         get().paneActions.addBufferToPane(get().activePaneId, id, true)
       } else if (spec.type === 'agent') {
         const agentCount = get().buffers.filter(b => b.type === 'agent').length
@@ -221,7 +221,7 @@ export const createBufferSlice: StateCreator<
           isPreview: false,
           isActive: false,
         }
-        set(state => { state.buffers.push(buf as any) })
+        set(state => { state.buffers.push(buf as PaneContent) })
         get().paneActions.addBufferToPane(get().activePaneId, id, true)
       }
 
@@ -283,7 +283,7 @@ export const createBufferSlice: StateCreator<
         isPreview,
         isActive: false,
       }
-      set(state => { state.buffers.push(buf as any) })
+      set(state => { state.buffers.push(buf as PaneContent) })
       get().paneActions.addBufferToPane(get().activePaneId, id, true)
       if (isPreview) get().paneActions.setPanePreviewBuffer(get().activePaneId, id)
       return id
