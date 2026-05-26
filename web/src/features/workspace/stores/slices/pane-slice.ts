@@ -40,6 +40,7 @@ export interface PaneActions {
   getPaneById(paneId: string): PaneGroup | null
   getPaneByBufferId(bufferId: string): PaneGroup | null
   getActivePane(): PaneGroup | null
+  clearPreviewBufferEverywhere(bufferId: string): void
 }
 
 export interface PaneSlice {
@@ -185,5 +186,20 @@ export const createPaneSlice: StateCreator<
     getPaneById(paneId) { return findPaneGroup(get().paneRoot, paneId) },
     getPaneByBufferId(bufferId) { return findPaneGroupByBufferId(get().paneRoot, bufferId) },
     getActivePane() { return findPaneGroup(get().paneRoot, get().activePaneId) },
+
+    clearPreviewBufferEverywhere(bufferId) {
+      set(state => {
+        for (const pane of getAllPaneGroups(state.paneRoot)) {
+          if (pane.previewBufferId === bufferId) {
+            state.paneRoot = setPanePreviewBuffer(state.paneRoot, pane.id, null)
+          }
+        }
+        for (const pane of getAllPaneGroups(state.bottomRoot)) {
+          if (pane.previewBufferId === bufferId) {
+            state.bottomRoot = setPanePreviewBuffer(state.bottomRoot, pane.id, null)
+          }
+        }
+      })
+    },
   },
 })

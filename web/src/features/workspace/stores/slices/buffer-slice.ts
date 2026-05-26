@@ -249,6 +249,8 @@ export const createBufferSlice: StateCreator<
     },
 
     promotePreview(id) {
+      const found = get().buffers.some(b => b.id === id)
+      if (!found) return
       set(state => {
         const buf = state.buffers.find(b => b.id === id)
         if (buf) buf.isPreview = false

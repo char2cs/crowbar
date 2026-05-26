@@ -105,5 +105,13 @@ describe('buffer-slice', () => {
       storeInst.getState().bufferActions.promotePreview(id)
       expect(paneActions.clearPreviewBufferEverywhere).toHaveBeenCalledWith(id)
     })
+
+    it('does nothing when buffer id is not found', () => {
+      const paneActions = makePaneActions()
+      const { store: storeInst } = makeStore(paneActions)
+      // no buffer in store
+      storeInst.getState().bufferActions.promotePreview('nonexistent-id')
+      expect(paneActions.clearPreviewBufferEverywhere).not.toHaveBeenCalled()
+    })
   })
 })
