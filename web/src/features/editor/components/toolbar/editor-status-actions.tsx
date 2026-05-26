@@ -290,14 +290,6 @@ export function EditorStatusActions({ bufferId, editorViewKey }: EditorStatusAct
       disabled: false,
     },
     {
-      id: "relative-line-numbers",
-      label: "Relative Line Numbers",
-      checked: settings.vimRelativeLineNumbers,
-      shortcut: null,
-      onToggle: () => updateSetting("vimRelativeLineNumbers", !settings.vimRelativeLineNumbers),
-      disabled: !settings.lineNumbers,
-    },
-    {
       id: "word-wrap",
       label: "Word Wrap",
       checked: settings.wordWrap,
@@ -319,14 +311,6 @@ export function EditorStatusActions({ bufferId, editorViewKey }: EditorStatusAct
       checked: settings.autoCompletion,
       shortcut: null,
       onToggle: () => updateSetting("autoCompletion", !settings.autoCompletion),
-      disabled: false,
-    },
-    {
-      id: "vim-mode",
-      label: "Vim Mode",
-      checked: settings.vimMode,
-      shortcut: null,
-      onToggle: () => updateSetting("vimMode", !settings.vimMode),
       disabled: false,
     },
     {

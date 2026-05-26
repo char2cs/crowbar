@@ -1,12 +1,9 @@
 import {
-  BugBeetle,
   CaretUp,
   Database,
   DownloadSimple,
-  ListBullets,
   PuzzlePiece,
   TerminalWindow,
-  UsersThree,
   WarningCircle,
 } from "@phosphor-icons/react";
 import { cva } from "class-variance-authority";
@@ -36,7 +33,6 @@ import { useSettingsStore } from "@/features/settings/store";
 import { useCommandShortcut } from "@/features/keymaps/hooks/use-command-shortcut";
 import { cn } from "@/utils/cn";
 import { useUIState } from "@/features/window/stores/ui-state-store";
-import { useAuthStore } from "@/features/window/stores/auth-store";
 import { NotificationsTrigger } from "@/features/window/components/notifications-sidebar";
 import {
   FOOTER_TRAILING_ITEM_IDS,
@@ -116,11 +112,6 @@ function FooterTabControl({
 const Footer = () => {
   const settings = useSettingsStore((state) => state.settings);
   const uiState = useUIState();
-  const hasTeamsCollaborationAccess = useAuthStore(
-    (state) => state.subscription?.collaboration?.enabled === true,
-  );
-  const isCollaborationFeatureEnabled =
-    hasTeamsCollaborationAccess && settings.coreFeatures.teamCollaboration;
   const { openSidebarView } = useSidebarPaneController();
   const activeBufferId = useBufferStore.use.activeBufferId();
   const buffers = useBufferStore.use.buffers();
@@ -273,28 +264,6 @@ const Footer = () => {
           ),
         }
       : null,
-    settings.coreFeatures.debugger
-      ? {
-          id: "debugger",
-          label: "Run and Debug",
-          content: (
-            <FooterTabControl
-              tooltip="Toggle Run and Debug"
-              active={uiState.isBottomPaneVisible && uiState.bottomPaneActiveTab === "debugger"}
-              className={chromeControl()}
-              commandId="workbench.showDebugger"
-              onClick={() => {
-                uiState.setBottomPaneActiveTab("debugger");
-                const showingDebugger =
-                  !uiState.isBottomPaneVisible || uiState.bottomPaneActiveTab !== "debugger";
-                uiState.setIsBottomPaneVisible(showingDebugger);
-              }}
-            >
-              <BugBeetle weight="duotone" />
-            </FooterTabControl>
-          ),
-        }
-      : null,
     settings.coreFeatures.diagnostics
       ? {
           id: "diagnostics",
@@ -418,13 +387,8 @@ const Footer = () => {
   const footerLeadingItems = footerLeadingItemsSource.filter(
     (item): item is FooterItem<FooterLeadingItemId> => item !== null,
   );
-  const shouldShowOutline = settings.coreFeatures.outline;
-  const isOutlineActive =
-    uiState.isRightSidebarVisible && uiState.activeRightSidebarView === "outline";
   const isDatabasesActive =
     uiState.isRightSidebarVisible && uiState.activeRightSidebarView === "databases";
-  const isCollaborationActive =
-    uiState.isRightSidebarVisible && uiState.activeRightSidebarView === "collaboration";
   const footerTrailingOrder = useMemo<FooterTrailingItemId[]>(() => {
     return normalizeItemOrder(
       settings.footerTrailingItemsOrder,
@@ -433,27 +397,6 @@ const Footer = () => {
   }, [settings.footerTrailingItemsOrder]);
 
   const footerTrailingItems: Array<FooterItem<FooterTrailingItemId>> = [
-    ...(shouldShowOutline
-      ? [
-          {
-            id: "outline" as const,
-            label: "Outline",
-            content: (
-              <FooterTabControl
-                tooltip="Outline"
-                active={isOutlineActive}
-                className={chromeControl()}
-                commandId="workbench.focusOutline"
-                onClick={() => {
-                  openSidebarView("outline", { triggerSide: "right" });
-                }}
-              >
-                <ListBullets className={chromeIcon()} weight="duotone" />
-              </FooterTabControl>
-            ),
-          },
-        ]
-      : []),
     {
       id: "databases",
       label: "Databases",
@@ -471,26 +414,6 @@ const Footer = () => {
         </FooterTabControl>
       ),
     },
-    ...(isCollaborationFeatureEnabled
-      ? [
-          {
-            id: "collaboration" as const,
-            label: "Collaboration",
-            content: (
-              <FooterTabControl
-                tooltip="Collaboration"
-                active={isCollaborationActive}
-                className={chromeControl()}
-                onClick={() => {
-                  openSidebarView("collaboration", { triggerSide: "right" });
-                }}
-              >
-                <UsersThree className={chromeIcon()} weight="duotone" />
-              </FooterTabControl>
-            ),
-          },
-        ]
-      : []),
     {
       id: "notifications",
       label: "Notifications",

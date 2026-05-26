@@ -90,8 +90,6 @@ export const defaultSettings: Settings = {
   showGitHubActions: true,
   // Keyboard
   keybindingPreset: "none",
-  vimMode: false,
-  vimRelativeLineNumbers: false,
   // Language
   defaultLanguage: "auto",
   autoDetectLanguage: true,
@@ -107,14 +105,10 @@ export const defaultSettings: Settings = {
   coreFeatures: {
     git: true,
     github: true,
-    remote: true,
     terminal: true,
     search: true,
     diagnostics: true,
-    debugger: false,
-    outline: true,
     aiChat: true,
-    teamCollaboration: true,
     breadcrumbs: true,
     persistentCommands: true,
   },

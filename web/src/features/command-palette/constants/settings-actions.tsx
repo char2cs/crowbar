@@ -6,7 +6,6 @@ import {
   GitBranch,
   Hash,
   Info,
-  ListBullets,
   Translate as Languages,
   Lightbulb,
   ChatCircleText as MessageSquare,
@@ -221,17 +220,6 @@ export const createSettingsActions = (params: SettingsActionsParams): Action[] =
       },
     },
     {
-      id: "toggle-vim-mode",
-      label: "Vim Mode: Toggle",
-      description: settings.vimMode ? "Currently enabled" : "Currently disabled",
-      icon: <Terminal />,
-      category: "Vim",
-      action: () => {
-        updateSetting("vimMode", !settings.vimMode);
-        onClose();
-      },
-    },
-    {
       id: "toggle-word-wrap",
       label: settings.wordWrap ? "Editor: Disable Word Wrap" : "Editor: Enable Word Wrap",
       description: settings.wordWrap
@@ -254,25 +242,6 @@ export const createSettingsActions = (params: SettingsActionsParams): Action[] =
       category: "Editor",
       action: () => {
         updateSetting("lineNumbers", !settings.lineNumbers);
-        onClose();
-      },
-    },
-    {
-      id: "toggle-relative-line-numbers",
-      label: settings.vimRelativeLineNumbers
-        ? "Editor: Disable Relative Line Numbers"
-        : "Editor: Enable Relative Line Numbers",
-      description: settings.vimRelativeLineNumbers
-        ? "Use absolute line numbers"
-        : "Show relative line numbers (Vim mode)",
-      icon: <Hash />,
-      category: "Editor",
-      action: () => {
-        const nextEnabled = !settings.vimRelativeLineNumbers;
-        if (nextEnabled && !settings.lineNumbers) {
-          updateSetting("lineNumbers", true);
-        }
-        updateSetting("vimRelativeLineNumbers", nextEnabled);
         onClose();
       },
     },
@@ -425,42 +394,6 @@ export const createSettingsActions = (params: SettingsActionsParams): Action[] =
       },
     },
     {
-      id: "toggle-debugger-feature",
-      label: settings.coreFeatures.debugger
-        ? "Features: Disable Debugger"
-        : "Features: Enable Debugger",
-      description: settings.coreFeatures.debugger
-        ? "Disable run and debug panel"
-        : "Enable run and debug panel",
-      icon: <AlertCircle />,
-      category: "Features",
-      action: () => {
-        updateSetting("coreFeatures", {
-          ...settings.coreFeatures,
-          debugger: !settings.coreFeatures.debugger,
-        });
-        onClose();
-      },
-    },
-    {
-      id: "toggle-outline-feature",
-      label: settings.coreFeatures.outline
-        ? "Features: Disable Outline"
-        : "Features: Enable Outline",
-      description: settings.coreFeatures.outline
-        ? "Hide document symbol outline"
-        : "Show document symbol outline",
-      icon: <ListBullets />,
-      category: "Features",
-      action: () => {
-        updateSetting("coreFeatures", {
-          ...settings.coreFeatures,
-          outline: !settings.coreFeatures.outline,
-        });
-        onClose();
-      },
-    },
-    {
       id: "toggle-search-feature",
       label: settings.coreFeatures.search ? "Features: Disable Search" : "Features: Enable Search",
       description: settings.coreFeatures.search
@@ -520,22 +453,6 @@ export const createSettingsActions = (params: SettingsActionsParams): Action[] =
         updateSetting("coreFeatures", {
           ...settings.coreFeatures,
           aiChat: !settings.coreFeatures.aiChat,
-        });
-        onClose();
-      },
-    },
-    {
-      id: "toggle-remote-feature",
-      label: settings.coreFeatures.remote ? "Features: Disable Remote" : "Features: Enable Remote",
-      description: settings.coreFeatures.remote
-        ? "Disable remote development"
-        : "Enable remote development",
-      icon: <Cloud />,
-      category: "Features",
-      action: () => {
-        updateSetting("coreFeatures", {
-          ...settings.coreFeatures,
-          remote: !settings.coreFeatures.remote,
         });
         onClose();
       },

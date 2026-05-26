@@ -90,8 +90,6 @@ export interface Settings {
     | "atom"
     | "emacs"
     | "zed";
-  vimMode: boolean;
-  vimRelativeLineNumbers: boolean;
   // Language
   defaultLanguage: string;
   autoDetectLanguage: boolean;

@@ -73,8 +73,6 @@ type SyncableSettingsKey =
   | "showGitHubIssues"
   | "showGitHubActions"
   | "keybindingPreset"
-  | "vimMode"
-  | "vimRelativeLineNumbers"
   | "defaultLanguage"
   | "autoDetectLanguage"
   | "formatOnSave"
@@ -165,8 +163,6 @@ const SYNCABLE_SETTINGS_KEYS: SyncableSettingsKey[] = [
   "showGitHubIssues",
   "showGitHubActions",
   "keybindingPreset",
-  "vimMode",
-  "vimRelativeLineNumbers",
   "defaultLanguage",
   "autoDetectLanguage",
   "formatOnSave",

@@ -168,22 +168,6 @@ export const EditorSettings = () => {
         </SettingRow>
 
         <SettingRow
-          label="Relative Line Numbers"
-          description="Show relative numbers when Vim mode is active"
-          onReset={() =>
-            updateSetting("vimRelativeLineNumbers", getDefaultSetting("vimRelativeLineNumbers"))
-          }
-          canReset={settings.vimRelativeLineNumbers !== getDefaultSetting("vimRelativeLineNumbers")}
-        >
-          <Switch
-            checked={settings.vimRelativeLineNumbers}
-            onChange={(checked) => updateSetting("vimRelativeLineNumbers", checked)}
-            size="sm"
-            disabled={!settings.lineNumbers}
-          />
-        </SettingRow>
-
-        <SettingRow
           label="Show Minimap"
           description="Show a minimap overview on the right side of the editor"
           onReset={() => updateSetting("showMinimap", getDefaultSetting("showMinimap"))}

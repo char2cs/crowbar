@@ -1,16 +1,12 @@
 import {
   Brain,
   Bug,
-  BugBeetle,
   GitBranch,
   GitPullRequest,
-  ListBullets,
   ChatCircleText as MessageSquare,
   NavigationArrow as Navigation,
   MagnifyingGlass as Search,
-  HardDrives as Server,
   TerminalWindow as TerminalIcon,
-  UsersThree,
 } from "@phosphor-icons/react";
 import type { CoreFeature, CoreFeaturesState } from "../types/feature";
 
@@ -28,13 +24,6 @@ export const createCoreFeaturesList = (coreFeatures: CoreFeaturesState): CoreFea
     description: "Pull requests, issues, and GitHub features",
     icon: GitPullRequest,
     enabled: coreFeatures.github,
-  },
-  {
-    id: "remote",
-    name: "Remote Development",
-    description: "Connect to remote servers via SSH",
-    icon: Server,
-    enabled: coreFeatures.remote,
   },
   {
     id: "terminal",
@@ -58,34 +47,11 @@ export const createCoreFeaturesList = (coreFeatures: CoreFeaturesState): CoreFea
     enabled: coreFeatures.diagnostics,
   },
   {
-    id: "debugger",
-    name: "Debugger",
-    description: "Run and debug files with launch configurations and breakpoints",
-    icon: BugBeetle,
-    enabled: coreFeatures.debugger,
-    status: "experimental",
-  },
-  {
-    id: "outline",
-    name: "Outline",
-    description: "Document symbols and quick navigation for the active file",
-    icon: ListBullets,
-    enabled: coreFeatures.outline,
-  },
-  {
     id: "aiChat",
     name: "AI Assistant",
     description: "AI-powered code assistance and chat",
     icon: MessageSquare,
     enabled: coreFeatures.aiChat,
-  },
-  {
-    id: "teamCollaboration",
-    name: "Collaboration",
-    description: "Team workspace invites, roles, projects, and channels",
-    icon: UsersThree,
-    enabled: coreFeatures.teamCollaboration,
-    status: "experimental",
   },
   {
     id: "breadcrumbs",

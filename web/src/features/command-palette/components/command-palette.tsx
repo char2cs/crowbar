@@ -67,7 +67,6 @@ const CommandPalette = () => {
     setActiveView,
     setActiveRightSidebarView,
     setIsQuickOpenVisible,
-    openCommandPaletteView,
     setIsRightSidebarVisible,
     openSettingsDialog,
   } = useUIState();
@@ -197,12 +196,8 @@ const CommandPalette = () => {
     ...createNavigationActions({
       setIsSidebarVisible,
       setActiveView,
-      setIsBottomPaneVisible,
-      setBottomPaneActiveTab,
       setIsQuickOpenVisible,
-      openCommandPaletteView,
       openSettingsDialog,
-      coreFeatures: settings.coreFeatures,
       onClose,
     }),
     ...createPaneActions({
