@@ -5,7 +5,6 @@ import { extensionRegistry } from "@/extensions/registry/extension-registry";
 import { useFileSystemStore } from "@/features/file-system/controllers/store";
 import { useFileWatcherStore } from "@/features/file-system/controllers/file-watcher-store";
 import { gitDiffCache } from "@/features/git/utils/git-diff-cache";
-import { recordLocalHistoryFile } from "@/features/local-history/api/local-history-api";
 import {
   isEditorContent,
   type EditorContent,
@@ -17,17 +16,6 @@ import { writeFile } from "@/features/file-system/controllers/platform";
 import type { Position, Range } from "../types/editor";
 import { trackBufferHistoryChange } from "./buffer-history-tracking";
 import { useBufferStore } from "./buffer-store";
-
-async function recordLocalHistoryBeforeWrite(
-  path: string,
-  reason: "save" | "auto-save" | "restore",
-): Promise<void> {
-  try {
-    await recordLocalHistoryFile(path, reason);
-  } catch (error) {
-    console.warn("Failed to record local history:", error);
-  }
-}
 
 async function saveEditorBufferById(bufferId: string): Promise<boolean> {
   const { buffers } = useBufferStore.getState();
@@ -89,7 +77,6 @@ async function saveEditorBufferById(bufferId: string): Promise<boolean> {
       }
     }
 
-    await recordLocalHistoryBeforeWrite(activeBuffer.path, "save");
     await writeFile(activeBuffer.path, contentToSave);
     const { LspClient } = await import("@/features/editor/lsp/lsp-client");
     await LspClient.getInstance().notifyDocumentSave(activeBuffer.path, contentToSave);
@@ -231,7 +218,6 @@ export const useEditorAppStore = createSelectors(
               const newTimeoutId = setTimeout(async () => {
                 try {
                   markPendingSave(activeBuffer.path);
-                  await recordLocalHistoryBeforeWrite(activeBuffer.path, "auto-save");
                   await writeFile(activeBuffer.path, content);
                   markBufferDirty(activeBuffer.id, false);
 

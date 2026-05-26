@@ -15,7 +15,6 @@ import { useSidebarStore } from "@/features/layout/stores/sidebar-store";
 import { useBufferStore } from "@/features/editor/stores/buffer-store";
 import { useUIState } from "@/features/window/stores/ui-state-store";
 import { NotificationsPane } from "@/features/window/components/notifications-sidebar";
-import { useAuthStore } from "@/features/window/stores/auth-store";
 import { useExtensionViews } from "@/extensions/ui/hooks/use-extension-views";
 import { ExtensionErrorBoundary } from "@/extensions/ui/components/extension-error-boundary";
 import { LoadingSpinner } from "@/components/ui/spinner";
@@ -103,11 +102,6 @@ export const MainSidebar = memo(
     const updateActivePath = useSidebarStore.use.updateActivePath?.();
 
     const { settings } = useSettingsStore();
-    const hasTeamsCollaborationAccess = useAuthStore(
-      (state) => state.subscription?.collaboration?.enabled === true,
-    );
-    const isCollaborationFeatureEnabled =
-      hasTeamsCollaborationAccess && settings.coreFeatures.teamCollaboration;
     const isOutlineFeatureEnabled = settings.coreFeatures.outline;
     const showLeftSidebarTabs = settings.sidebarTabsPosition === "left";
     const shouldRenderActivityRail = showActivityRail && showLeftSidebarTabs;
@@ -189,14 +183,6 @@ export const MainSidebar = memo(
         id: "databases",
         content: <DatabaseSidebar />,
       },
-      ...(isCollaborationFeatureEnabled
-        ? [
-            {
-              id: "collaboration" as const,
-              content: <CollaborationSidebarView />,
-            },
-          ]
-        : []),
       ...Array.from(extensionViews).map(
         ([viewId, view]) =>
           ({

@@ -1,7 +1,6 @@
 import {
   CaretDoubleUp,
   Clipboard,
-  ClockCounterClockwise,
   Copy,
   PencilSimple as Edit,
   Eye,
@@ -29,7 +28,6 @@ import {
   ENV_TEMPLATE_TARGETS,
   isEnvFileName,
 } from "@/features/file-explorer/lib/env-template";
-import { openLocalHistoryForPath } from "@/features/local-history/utils/open-local-history";
 import { useFileClipboardStore } from "@/features/file-explorer/stores/file-explorer-clipboard-store";
 import { useFileTreeStore } from "@/features/file-explorer/stores/file-explorer-tree-store";
 import type { ContextMenuState } from "@/features/file-system/types/app";
@@ -315,12 +313,6 @@ export function useFileExplorerContextMenu({
           label: "Duplicate",
           icon: <FileText />,
           onClick: () => onDuplicatePath?.(contextMenu.path),
-        },
-        {
-          id: "local-history",
-          label: "Local History",
-          icon: <ClockCounterClockwise />,
-          onClick: () => openLocalHistoryForPath(contextMenu.path),
         },
         ...(canCreateEnvTemplate
           ? [
