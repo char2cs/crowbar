@@ -36,7 +36,7 @@ export function useWorkspaceEffects(wsId: string, label?: string) {
         const bufferId = useBufferStore.getState().actions.openContent({
           type: 'editor', path, name, content,
         })
-        bufferActions.registerExternalBuffer(bufferId, path, name, false)
+        bufferActions.registerExternalBuffer(bufferId, path, name, true)
       },
     })
   }, [repoPath]) // eslint-disable-line react-hooks/exhaustive-deps
