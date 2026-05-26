@@ -98,9 +98,16 @@ function syncEditorSettings(state: ReturnType<typeof useSettingsStore.getState>)
   actions.setTheme(theme);
 }
 
-// Apply current settings immediately (handles the case where initializeSettingsStore()
-// has already resolved before this module is first imported by Monaco).
+// Apply current settings immediately (no debounce — needed for initial render).
 syncEditorSettings(useSettingsStore.getState());
 
-// Subscribe for all future settings changes.
-useSettingsStore.subscribe(syncEditorSettings);
+// Debounce subscription so rapid changes (e.g., typing in a settings field)
+// don't call 10+ setter methods on every keystroke.
+let _syncTimer: ReturnType<typeof setTimeout> | null = null;
+useSettingsStore.subscribe((state) => {
+  if (_syncTimer !== null) clearTimeout(_syncTimer);
+  _syncTimer = setTimeout(() => {
+    syncEditorSettings(state);
+    _syncTimer = null;
+  }, 50);
+});
