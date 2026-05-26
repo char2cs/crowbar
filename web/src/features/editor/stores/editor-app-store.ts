@@ -198,9 +198,6 @@ export const useEditorAppStore = createSelectors(
 
           const activeBuffer = buffers.find((b) => b.id === activeBufferId);
           if (!activeBuffer || !isEditorContent(activeBuffer)) return;
-          const { parseCollaborationNoteBufferPath } =
-            await import("@/features/collaboration/lib/collaboration-sidebar-model");
-          const collaborationNoteTarget = parseCollaborationNoteBufferPath(activeBuffer.path);
 
           if (activeBufferId) {
             trackBufferHistoryChange({
@@ -220,11 +217,6 @@ export const useEditorAppStore = createSelectors(
             if (!contentAlreadyApplied) {
               updateBufferContent(activeBuffer.id, content, false);
             }
-          } else if (collaborationNoteTarget) {
-            if (!contentAlreadyApplied) {
-              updateBufferContent(activeBuffer.id, content, true);
-            }
-            markBufferDirty(activeBuffer.id, content !== activeBuffer.savedContent);
           } else {
             if (!contentAlreadyApplied) {
               updateBufferContent(activeBuffer.id, content, true);

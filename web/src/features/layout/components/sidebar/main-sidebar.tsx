@@ -1,6 +1,5 @@
 import { memo, type ReactNode } from "react";
-// Collaboration and database sidebars are out of scope — stubbed
-const CollaborationSidebarView = () => null
+// Database sidebars are out of scope — stubbed
 const DatabaseSidebar = () => null
 import { FileExplorerTree } from "@/features/file-explorer/components/file-explorer-tree";
 import { useFileSystemStore } from "@/features/file-system/controllers/store";
