@@ -1,10 +1,10 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest'
-import { initTreeCacheSubscription } from '@/features/editor/stores/tree-cache-store'
+import { initTreeCacheSubscription, useTreeCacheStore, _resetTreeCacheSubscriptionForTesting } from '@/features/editor/stores/tree-cache-store'
 import { useBufferStore } from '@/features/editor/stores/buffer-store'
-import { useTreeCacheStore } from '@/features/editor/stores/tree-cache-store'
 
 describe('initTreeCacheSubscription', () => {
   beforeEach(() => {
+    _resetTreeCacheSubscriptionForTesting()
     // Reset stores between tests
     useTreeCacheStore.setState({ trees: new Map() })
     useBufferStore.setState({ buffers: [] })

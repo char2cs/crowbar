@@ -113,3 +113,8 @@ export function initTreeCacheSubscription() {
     });
   });
 }
+
+/** Reset the subscription guard — only for use in tests. */
+export function _resetTreeCacheSubscriptionForTesting(): void {
+  subscribed = false;
+}
