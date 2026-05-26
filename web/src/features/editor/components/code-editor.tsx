@@ -106,8 +106,8 @@ const CodeEditor = ({
   lineNumberStart,
   lineNumberMap,
   onContentChange,
-  isPreview: _isPreview = false,
-  onPromote: _onPromote,
+  isPreview = false,
+  onPromote,
 }: CodeEditorProps) => {
   const editorRef = useRef<HTMLDivElement>(null);
   const searchTimerRef = useRef<NodeJS.Timeout | null>(null);
@@ -159,6 +159,24 @@ const CodeEditor = ({
   const onChange = activeBuffer
     ? (onContentChange ?? (isActiveSurface ? handleContentChange : () => {}))
     : () => {};
+
+  // When this is a preview tab, promote it to permanent on first content change.
+  const onChangeWithPromote = useCallback(
+    (
+      content: string,
+      previousContent?: string,
+      previousCursorPosition?: Position,
+      previousSelection?: Range,
+    ) => {
+      if (isPreview) {
+        onPromote?.()
+      }
+      onChange(content, previousContent, previousCursorPosition, previousSelection)
+    },
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [isPreview, onPromote, onChange],
+  )
+
   const isPreviewBuffer = activeBuffer?.isPreview ?? false;
   const enableInteractiveServices = isActiveSurface && !isPreviewBuffer && !readOnly;
   const enableRichEditorServices = enableInteractiveServices;
@@ -558,7 +576,7 @@ const CodeEditor = ({
                 currentHighlightIndex={currentHighlightIndex}
                 lineNumberStart={lineNumberStart}
                 lineNumberMap={lineNumberMap}
-                onContentChange={onChange}
+                onContentChange={onChangeWithPromote}
                 onVisibleLineRangeChange={setLspVisibleLineRange}
                 onScrollOffsetChange={syncLspOverlayTransform}
                 onCoordinateResolverChange={handleCoordinateResolverChange}
