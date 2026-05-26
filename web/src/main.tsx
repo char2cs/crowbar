@@ -10,6 +10,7 @@ import { initializeSettingsStore } from '@/features/settings/store'
 import { ensureStartupAppearanceApplied } from '@/features/settings/lib/appearance-bootstrap'
 import { initializeIconThemes } from '@/extensions/icon-themes/icon-theme-initializer'
 import { initTreeCacheSubscription } from '@/features/editor/stores/tree-cache-store'
+import { initViewStoreSubscription } from '@/features/editor/stores/view-store'
 import './index.css'
 
 // Required for Zustand stores that use immer middleware with Set/Map state
@@ -30,6 +31,7 @@ void initializeSettingsStore()
 
 // Wire up tree-sitter cache cleanup: removes parse trees when buffers are closed.
 initTreeCacheSubscription()
+initViewStoreSubscription()
 
 const router = createRouter({ routeTree, history: createHashHistory() })
 

@@ -148,60 +148,77 @@ export function applyIncrementalLineEdit(
   ];
 }
 
-// Subscribe to buffer changes and update computed values
-useBufferStore.subscribe((state) => {
-  const activeBuffer = state.actions.getActiveBuffer();
-  if (activeBuffer && isEditorContent(activeBuffer)) {
-    const previousSnapshot = previousActiveBufferSnapshot;
+// Subscribe to buffer changes and update computed values.
+// Call this once at app startup (main.tsx). Returns an unsubscribe function.
+let _viewStoreUnsubscribe: (() => void) | null = null
 
-    if (
-      previousSnapshot &&
-      previousSnapshot.id === activeBuffer.id &&
-      previousSnapshot.content === activeBuffer.content
-    ) {
-      return;
-    }
+export function initViewStoreSubscription(): () => void {
+  if (_viewStoreUnsubscribe) return _viewStoreUnsubscribe
 
-    const largeEditorInfo = getLargeEditorModeInfo(activeBuffer.content);
-    if (largeEditorInfo.largeContentMode) {
-      const lines: string[] = [];
+  _viewStoreUnsubscribe = useBufferStore.subscribe((state) => {
+    const activeBuffer = state.actions.getActiveBuffer();
+    if (activeBuffer && isEditorContent(activeBuffer)) {
+      const previousSnapshot = previousActiveBufferSnapshot;
+
+      if (
+        previousSnapshot &&
+        previousSnapshot.id === activeBuffer.id &&
+        previousSnapshot.content === activeBuffer.content
+      ) {
+        return;
+      }
+
+      const largeEditorInfo = getLargeEditorModeInfo(activeBuffer.content);
+      if (largeEditorInfo.largeContentMode) {
+        const lines: string[] = [];
+        previousActiveBufferSnapshot = {
+          id: activeBuffer.id,
+          content: activeBuffer.content,
+          lines,
+        };
+        useEditorViewStore.setState({
+          lines,
+          lineCount: largeEditorInfo.lineCount,
+        });
+        return;
+      }
+
+      const previousLines = previousSnapshot?.id === activeBuffer.id ? previousSnapshot.lines : [""];
+      const lines =
+        previousSnapshot?.id === activeBuffer.id
+          ? (applyIncrementalLineEdit(
+              previousSnapshot.content,
+              activeBuffer.content,
+              previousLines,
+            ) ?? activeBuffer.content.split("\n"))
+          : activeBuffer.content.split("\n");
+
       previousActiveBufferSnapshot = {
         id: activeBuffer.id,
         content: activeBuffer.content,
         lines,
       };
+
       useEditorViewStore.setState({
         lines,
-        lineCount: largeEditorInfo.lineCount,
+        lineCount: lines.length,
       });
-      return;
+    } else {
+      previousActiveBufferSnapshot = null;
+      useEditorViewStore.setState({
+        lines: [""],
+        lineCount: 1,
+      });
     }
+  });
 
-    const previousLines = previousSnapshot?.id === activeBuffer.id ? previousSnapshot.lines : [""];
-    const lines =
-      previousSnapshot?.id === activeBuffer.id
-        ? (applyIncrementalLineEdit(
-            previousSnapshot.content,
-            activeBuffer.content,
-            previousLines,
-          ) ?? activeBuffer.content.split("\n"))
-        : activeBuffer.content.split("\n");
+  return _viewStoreUnsubscribe;
+}
 
-    previousActiveBufferSnapshot = {
-      id: activeBuffer.id,
-      content: activeBuffer.content,
-      lines,
-    };
-
-    useEditorViewStore.setState({
-      lines,
-      lineCount: lines.length,
-    });
-  } else {
-    previousActiveBufferSnapshot = null;
-    useEditorViewStore.setState({
-      lines: [""],
-      lineCount: 1,
-    });
+/** For testing only: resets the singleton so initViewStoreSubscription() can be called fresh. */
+export function _resetViewStoreUnsubscribeForTesting(): void {
+  if (_viewStoreUnsubscribe) {
+    _viewStoreUnsubscribe()
+    _viewStoreUnsubscribe = null
   }
-});
+}
