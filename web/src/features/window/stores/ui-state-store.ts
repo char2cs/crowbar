@@ -18,8 +18,8 @@ export type SettingsTab =
   | "file-explorer"
   | "language"
 
-export type BottomPaneTab = "terminal" | "problems" | "output" | "debug" | "console" | "debugger" | "buffers"
-export type SidebarActivityItem = "file-explorer" | "git" | "search" | "extensions" | "outline" | "collaboration"
+export type BottomPaneTab = "terminal" | "buffers"
+export type SidebarActivityItem = "file-explorer" | "git" | "search" | "extensions"
 
 export interface UIState {
   sidebarWidth: number
