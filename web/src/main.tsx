@@ -9,6 +9,7 @@ import { queryClient } from './lib/query'
 import { initializeSettingsStore } from '@/features/settings/store'
 import { ensureStartupAppearanceApplied } from '@/features/settings/lib/appearance-bootstrap'
 import { initializeIconThemes } from '@/extensions/icon-themes/icon-theme-initializer'
+import { initTreeCacheSubscription } from '@/features/editor/stores/tree-cache-store'
 import './index.css'
 
 // Required for Zustand stores that use immer middleware with Set/Map state
@@ -26,6 +27,9 @@ initializeIconThemes()
 // asynchronously when localStorage values are loaded — this fires the
 // subscriptions in settings-store.ts which propagate to editor/theme/etc.
 void initializeSettingsStore()
+
+// Wire up tree-sitter cache cleanup: removes parse trees when buffers are closed.
+initTreeCacheSubscription()
 
 const router = createRouter({ routeTree, history: createHashHistory() })
 
