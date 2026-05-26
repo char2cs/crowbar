@@ -16,6 +16,7 @@ import { ErrorBoundary } from '@/components/ErrorBoundary'
 import { cn } from '@/utils/cn'
 import { useSettingsStore } from '@/features/settings/store'
 import { FontStyleInjector } from '@/features/settings/components/font-style-injector'
+import { destroyWorkspaceStore } from '@/features/workspace/stores/workspace-store-registry'
 
 export function IDEShell() {
   const navigate = useNavigate()
@@ -65,7 +66,11 @@ export function IDEShell() {
             }}
             onNewWorkspace={() => void navigate({ to: '/workspaces/new' })}
             onDeleteChat={id => { deleteChat(id); if (activeChatId === id) void navigate({ to: '/' }) }}
-            onDeleteWorkspace={wsId => { deleteWorkspace(wsId); if (activeWorkspaceId === wsId) void navigate({ to: '/' }) }}
+            onDeleteWorkspace={wsId => {
+              deleteWorkspace(wsId)
+              destroyWorkspaceStore(wsId)
+              if (activeWorkspaceId === wsId) void navigate({ to: '/' })
+            }}
             onRepoToggle={toggleRepo}
           />
         </ErrorBoundary>
