@@ -2,10 +2,15 @@ import * as React from "react"
 
 import { cn } from "@/lib/utils"
 
+type TextareaProps = React.ComponentProps<"textarea"> & {
+  /** Athas compatibility: visual variant (ignored in this implementation) */
+  variant?: "default" | "ghost" | "outline"
+}
+
 const Textarea = React.forwardRef<
   HTMLTextAreaElement,
-  React.ComponentProps<"textarea">
->(({ className, ...props }, ref) => {
+  TextareaProps
+>(({ className, variant: _variant, ...props }, ref) => {
   return (
     <textarea
       className={cn(
@@ -20,3 +25,4 @@ const Textarea = React.forwardRef<
 Textarea.displayName = "Textarea"
 
 export { Textarea }
+export default Textarea

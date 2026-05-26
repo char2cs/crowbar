@@ -1,0 +1,171 @@
+/* Enable proper mouse wheel scrolling with horizontal overflow */
+.file-tree-container {
+  overflow-y: auto !important;
+  overflow-x: auto !important;
+  height: 100% !important;
+  position: relative !important;
+  overscroll-behavior: none !important;
+  -webkit-overflow-scrolling: auto !important;
+  scroll-behavior: auto !important;
+  pointer-events: auto !important;
+}
+
+/* Apply UI font family to file tree */
+.file-tree-container {
+  font-family: var(--font-sans);
+}
+
+/* Cover gap above sticky headers to prevent content bleeding through (only when stuck) */
+/* Removed JS-managed .is-stuck marker; pure CSS sticky remains */
+
+/* Ensure file tree content wrapper stretches to full scrollable area */
+.file-tree-container > .file-tree-scroll-body {
+  width: max-content !important;
+  min-width: 100% !important;
+}
+
+/* File tree item containers need to stretch full width */
+.file-tree-item {
+  width: 100% !important;
+  min-width: 100% !important;
+}
+
+/* All file tree items have same background behavior - ensure full width coverage */
+.file-tree-container .file-tree-item button {
+  box-sizing: border-box !important;
+  border: 1px solid transparent !important;
+  border-radius: 2px !important;
+  background-color: transparent !important;
+  width: 100% !important;
+  min-width: 100% !important;
+  display: flex !important;
+  justify-content: flex-start !important;
+}
+
+.file-tree-container .file-tree-item button:hover {
+  background-color: transparent !important;
+}
+
+.file-tree-container .file-tree-item button.bg-selected,
+.file-tree-container .file-tree-item button.bg-selected:hover {
+  border-color: color-mix(in srgb, var(--border) 78%, transparent) !important;
+  background-color: transparent !important;
+}
+
+.file-tree-container .file-tree-item button:focus-visible {
+  border-color: color-mix(in srgb, var(--accent) 42%, var(--border)) !important;
+}
+
+.file-tree-item {
+  position: relative;
+  --file-tree-hover-bg: color-mix(in srgb, var(--accent) 68%, transparent);
+  --file-tree-guide-icon-offset: 7px;
+  --tree-guide-color: color-mix(in srgb, var(--muted-foreground) 18%, transparent);
+}
+
+.file-tree-item::before {
+  position: absolute;
+  inset: 0;
+  z-index: 0;
+  border-radius: 2px;
+  background-color: transparent;
+  content: "";
+  pointer-events: none;
+}
+
+.file-tree-item:hover::before {
+  background-color: var(--file-tree-hover-bg);
+}
+
+.file-tree-item[data-active="true"]::before {
+  background-color: var(--accent);
+}
+
+.file-tree-row {
+  position: relative;
+  z-index: 2;
+}
+
+.file-tree-context-menu [role="menuitem"],
+.file-tree-context-menu [role="menuitem"] .ui-text-sm {
+  font-size: var(--ui-text-xs);
+}
+
+.file-tree-row:hover {
+  background-color: transparent !important;
+}
+
+.file-tree-search-highlight {
+  border-radius: 2px;
+  background-color: color-mix(in srgb, var(--accent) 30%, transparent);
+  color: inherit;
+  padding: 0 1px;
+}
+
+.file-tree-search-match:not(.bg-selected) {
+  background-color: color-mix(in srgb, var(--accent) 7%, transparent) !important;
+}
+
+.file-tree-guides {
+  pointer-events: none;
+  position: absolute;
+  z-index: 1;
+  inset: 0;
+}
+
+.file-tree-guide {
+  position: absolute;
+  width: 7px;
+  cursor: pointer;
+  opacity: 0.9;
+  pointer-events: auto;
+  transform: translateX(-3px);
+}
+
+.file-tree-guide::before {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: 3px;
+  width: 1px;
+  background-color: var(--tree-guide-color);
+  content: "";
+}
+
+.file-tree-sticky-ancestors {
+  position: sticky;
+  top: calc(var(--file-tree-header-height, 32px) - var(--file-tree-container-inset, 4px));
+  z-index: 12;
+  height: 0;
+  overflow: visible;
+  pointer-events: none;
+}
+
+.file-tree-sticky-ancestor-stack {
+  position: relative;
+  width: calc(100% + var(--file-tree-container-inset, 4px) + var(--file-tree-container-inset, 4px));
+  min-width: calc(
+    100% + var(--file-tree-container-inset, 4px) + var(--file-tree-container-inset, 4px)
+  );
+  height: var(--file-tree-sticky-stack-height, 24px);
+  margin-left: calc(0px - var(--file-tree-container-inset, 4px));
+  overflow: hidden;
+  background-color: var(--background);
+  box-shadow: 0 -1px 0 0 var(--background);
+  pointer-events: auto;
+}
+
+.file-tree-sticky-ancestor-stack::after {
+  position: absolute;
+  right: 0;
+  bottom: 0;
+  left: 0;
+  height: 1px;
+  background-color: color-mix(in srgb, var(--border) 58%, transparent);
+  content: "";
+  opacity: 0.7;
+}
+
+.file-tree-sticky-ancestor-stack .file-tree-row {
+  height: var(--file-tree-sticky-row-height, 24px);
+}

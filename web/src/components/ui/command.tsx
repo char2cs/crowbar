@@ -17,8 +17,21 @@ import {
 
 function Command({
   className,
+  /** Athas compatibility - popover visibility control */
+  isVisible: _isVisible,
+  /** Athas compatibility - close handler */
+  onClose: _onClose,
+  /** Athas compatibility - title */
+  title: _title,
+  /** Athas compatibility - placement */
+  placement: _placement,
   ...props
-}: React.ComponentProps<typeof CommandPrimitive>) {
+}: React.ComponentProps<typeof CommandPrimitive> & {
+  isVisible?: boolean
+  onClose?: () => void
+  title?: string
+  placement?: "top" | "bottom"
+}) {
   return (
     <CommandPrimitive
       data-slot="command"
@@ -60,8 +73,15 @@ function CommandDialog({
 
 function CommandInput({
   className,
+  /** Athas compatibility: onChange from Dispatch<SetStateAction<string>> - delegates to onValueChange */
+  onChange: _onChange,
+  /** Athas compatibility: value prop */
+  value: _value,
   ...props
-}: React.ComponentProps<typeof CommandPrimitive.Input>) {
+}: React.ComponentProps<typeof CommandPrimitive.Input> & {
+  onChange?: React.Dispatch<React.SetStateAction<string>> | React.ChangeEventHandler<HTMLInputElement> | ((value: string) => void)
+  value?: string
+}) {
   return (
     <div data-slot="command-input-wrapper" className="p-1 pb-0">
       <InputGroup className="h-8 rounded-lg border-input/30 bg-input/30 shadow-none">
@@ -142,8 +162,15 @@ function CommandSeparator({
 function CommandItem({
   className,
   children,
+  isSelected: _isSelected,
+  /** Athas compatibility: ignored, cmdk items are divs not buttons */
+  type: _type,
   ...props
-}: React.ComponentProps<typeof CommandPrimitive.Item>) {
+}: React.ComponentProps<typeof CommandPrimitive.Item> & {
+  isSelected?: boolean
+  /** Athas compatibility: html button type attribute (ignored) */
+  type?: string
+}) {
   return (
     <CommandPrimitive.Item
       data-slot="command-item"
@@ -175,6 +202,16 @@ function CommandShortcut({
   )
 }
 
+/** Athas compatibility stub - header section within command palette */
+function CommandHeader({ children, className, onClose: _onClose, showClearButton: _showClearButton }: { children?: React.ReactNode; className?: string; onClose?: () => void; showClearButton?: boolean }) {
+  return <div data-slot="command-header" className={className}>{children}</div>
+}
+
+/** Athas compatibility stub - footer section within command palette */
+function CommandFooter({ children, className }: { children?: React.ReactNode; className?: string }) {
+  return <div data-slot="command-footer" className={className}>{children}</div>
+}
+
 export {
   Command,
   CommandDialog,
@@ -185,4 +222,8 @@ export {
   CommandItem,
   CommandShortcut,
   CommandSeparator,
+  CommandHeader,
+  CommandFooter,
 }
+
+export default Command

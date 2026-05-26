@@ -1,7 +1,9 @@
 // web/src/routes/chat/$chatId.tsx
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef, useCallback } from 'react'
 import { createFileRoute } from '@tanstack/react-router'
+import { nanoid } from 'nanoid'
 import { ChatView } from '@/components/chat/ChatView'
+import { simulateStream } from '@/lib/mock/simulate-stream'
 import { getMockChat } from '@/lib/mock/chats'
 import type { ChatMessage } from '@/lib/types'
 
@@ -9,41 +11,57 @@ export const Route = createFileRoute('/chat/$chatId')({
   component: ChatPage,
 })
 
-function ChatPage() {
+export function ChatPage() {
   const { chatId } = Route.useParams()
   const [messages, setMessages] = useState<ChatMessage[]>([])
   const [sending, setSending] = useState(false)
+  const cancelStreamRef = useRef<(() => void) | null>(null)
 
-  // Reset messages whenever chatId changes
+  // Cancel any in-flight stream and reset when chatId changes
   useEffect(() => {
+    cancelStreamRef.current?.()
+    cancelStreamRef.current = null
+    setSending(false)
     setMessages(getMockChat(chatId)?.messages ?? [])
   }, [chatId])
 
-  const handleSend = (content: string, _attachments: File[]) => {
+  // Cancel stream on unmount
+  useEffect(() => {
+    return () => { cancelStreamRef.current?.() }
+  }, [])
+
+  const handleSend = useCallback((content: string, _attachments: File[]) => {
+    cancelStreamRef.current?.()
+
     const userMsg: ChatMessage = {
-      id: `u${Date.now()}`, role: 'user', content,
+      id: nanoid(), role: 'user', content,
       authorName: 'Mateo', authorInitials: 'MU', timestamp: 'just now',
     }
     setMessages(prev => [...prev, userMsg])
     setSending(true)
-    simulateStream('I can help with that. What would you like to know?', (chunk) => {
-      setMessages(prev => {
-        const last = prev[prev.length - 1]
-        if (last?.role === 'assistant' && last.id === 'streaming') {
-          return [...prev.slice(0, -1), { ...last, content: last.content + chunk }]
-        }
-        return [...prev, {
-          id: 'streaming', role: 'assistant',
-          content: chunk,
-          authorName: 'Claude', authorInitials: '✦', modelName: 'Sonnet 4.6',
-          timestamp: 'just now',
-        }]
-      })
-    }, () => {
-      setMessages(prev => prev.map(m => m.id === 'streaming' ? { ...m, id: `a${Date.now()}` } : m))
-      setSending(false)
-    })
-  }
+
+    cancelStreamRef.current = simulateStream(
+      'I can help with that. What would you like to know?',
+      (chunk) => {
+        setMessages(prev => {
+          const last = prev[prev.length - 1]
+          if (last?.role === 'assistant' && last.id === 'streaming') {
+            return [...prev.slice(0, -1), { ...last, content: last.content + chunk }]
+          }
+          return [...prev, {
+            id: 'streaming', role: 'assistant', content: chunk,
+            authorName: 'Claude', authorInitials: '✦', modelName: 'Sonnet 4.6',
+            timestamp: 'just now',
+          }]
+        })
+      },
+      () => {
+        setMessages(prev => prev.map(m => m.id === 'streaming' ? { ...m, id: nanoid() } : m))
+        setSending(false)
+        cancelStreamRef.current = null
+      },
+    )
+  }, [])
 
   return (
     <ChatView
@@ -53,21 +71,4 @@ function ChatPage() {
       inputPlaceholder="Ask about the Rabbyte project…"
     />
   )
-}
-
-// Simulate token streaming with word-by-word delays
-function simulateStream(
-  text: string,
-  onChunk: (chunk: string) => void,
-  onDone: () => void,
-) {
-  const words = text.split(' ')
-  let i = 0
-  const tick = () => {
-    if (i >= words.length) { onDone(); return }
-    onChunk((i === 0 ? '' : ' ') + words[i])
-    i++
-    setTimeout(tick, 40)
-  }
-  setTimeout(tick, 400) // initial delay before first token
 }

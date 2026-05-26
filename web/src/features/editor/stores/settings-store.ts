@@ -1,0 +1,113 @@
+import { create } from "zustand";
+import { subscribeWithSelector } from "zustand/middleware";
+import {
+  DEFAULT_CODE_FONT_SIZE,
+  DEFAULT_MONO_FONT_FAMILY,
+} from "@/features/settings/config/typography-defaults";
+import { EDITOR_CONSTANTS } from "@/features/editor/config/constants";
+import { useSettingsStore } from "@/features/settings/store";
+import type { RenderWhitespaceMode } from "@/features/settings/types/settings";
+import { createSelectors } from "@/utils/zustand-selectors";
+
+interface EditorSettingsState {
+  fontSize: number;
+  fontFamily: string;
+  lineHeight: number;
+  tabSize: number;
+  wordWrap: boolean;
+  lineNumbers: boolean;
+  renderWhitespace: RenderWhitespaceMode;
+  renderIndentGuides: boolean;
+  highlightOccurrences: boolean;
+  disabled: boolean;
+  theme: string;
+  actions: EditorSettingsActions;
+}
+
+interface EditorSettingsActions {
+  setFontSize: (size: number) => void;
+  setFontFamily: (family: string) => void;
+  setLineHeight: (lineHeight: number) => void;
+  setTabSize: (size: number) => void;
+  setWordWrap: (wrap: boolean) => void;
+  setLineNumbers: (show: boolean) => void;
+  setRenderWhitespace: (mode: RenderWhitespaceMode) => void;
+  setRenderIndentGuides: (show: boolean) => void;
+  setHighlightOccurrences: (show: boolean) => void;
+  setDisabled: (disabled: boolean) => void;
+  setTheme: (theme: string) => void;
+}
+
+export const useEditorSettingsStore = createSelectors(
+  create<EditorSettingsState>()(
+    subscribeWithSelector((set) => ({
+      fontSize: DEFAULT_CODE_FONT_SIZE,
+      fontFamily: DEFAULT_MONO_FONT_FAMILY,
+      lineHeight: EDITOR_CONSTANTS.LINE_HEIGHT_MULTIPLIER,
+      tabSize: 2,
+      wordWrap: false,
+      lineNumbers: true,
+      renderWhitespace: "none",
+      renderIndentGuides: true,
+      highlightOccurrences: true,
+      disabled: false,
+      theme: "crowbar-dark",
+      actions: {
+        setFontSize: (size) => set({ fontSize: size }),
+        setFontFamily: (family) => set({ fontFamily: family }),
+        setLineHeight: (lineHeight) => set({ lineHeight }),
+        setTabSize: (size) => set({ tabSize: size }),
+        setWordWrap: (wrap) => set({ wordWrap: wrap }),
+        setLineNumbers: (show) => set({ lineNumbers: show }),
+        setRenderWhitespace: (mode) => set({ renderWhitespace: mode }),
+        setRenderIndentGuides: (show) => set({ renderIndentGuides: show }),
+        setHighlightOccurrences: (show) => set({ highlightOccurrences: show }),
+        setDisabled: (disabled) => set({ disabled }),
+        setTheme: (theme) => set({ theme }),
+      },
+    })),
+  ),
+);
+
+// Sync all editor settings from the app settings store snapshot
+function syncEditorSettings(state: ReturnType<typeof useSettingsStore.getState>) {
+  const {
+    fontSize,
+    fontFamily,
+    editorLineHeight,
+    tabSize,
+    wordWrap,
+    lineNumbers,
+    renderWhitespace,
+    renderIndentGuides,
+    highlightOccurrences,
+    horizontalTabScroll,
+    theme,
+  } = state.settings;
+  const actions = useEditorSettingsStore.getState().actions;
+
+  actions.setFontSize(fontSize);
+  actions.setFontFamily(fontFamily);
+  actions.setLineHeight(editorLineHeight);
+  actions.setTabSize(tabSize);
+  actions.setWordWrap(wordWrap || horizontalTabScroll);
+  actions.setLineNumbers(lineNumbers);
+  actions.setRenderWhitespace(renderWhitespace);
+  actions.setRenderIndentGuides(renderIndentGuides);
+  actions.setHighlightOccurrences(highlightOccurrences);
+  actions.setTheme(theme);
+}
+
+// Apply current settings immediately (no debounce — needed for initial render).
+syncEditorSettings(useSettingsStore.getState());
+
+// Debounce subscription so rapid changes (e.g., typing in a settings field)
+// don't call 10+ setter methods on every keystroke.
+let _syncTimer: ReturnType<typeof setTimeout> | null = null;
+useSettingsStore.subscribe((state) => {
+  if (_syncTimer !== null) clearTimeout(_syncTimer);
+  _syncTimer = setTimeout(() => {
+    syncEditorSettings(state);
+    _syncTimer = null;
+  }, 50);
+});

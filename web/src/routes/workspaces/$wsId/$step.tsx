@@ -1,11 +1,12 @@
-import { useState, useEffect } from 'react'
-import { createFileRoute } from '@tanstack/react-router'
+import { useState, useEffect, useRef, useCallback } from 'react'
+import { createFileRoute, Link } from '@tanstack/react-router'
 import { useQuery } from '@tanstack/react-query'
+import { nanoid } from 'nanoid'
 import { workspaceQueryOptions } from '@/lib/queries'
-import { getMockConversation } from '@/lib/mock/conversations'
+import { useConversationStore } from '@/lib/store/conversations'
+import { simulateStream } from '@/lib/mock/simulate-stream'
 import { ChatView } from '@/components/chat/ChatView'
 import { DiffView } from '@/components/review/DiffView'
-import type { ChatMessage } from '@/lib/types'
 
 export const Route = createFileRoute('/workspaces/$wsId/$step')({
   component: StepPage,
@@ -13,56 +14,68 @@ export const Route = createFileRoute('/workspaces/$wsId/$step')({
 
 function StepPage() {
   const { wsId, step } = Route.useParams()
-  const { data: workspace } = useQuery(workspaceQueryOptions(wsId))
+  const { data: workspace, isError, isPending } = useQuery(workspaceQueryOptions(wsId))
 
-  if (!workspace) return null
+  if (isPending) return null
+
+  if (isError || !workspace) {
+    return (
+      <div className="flex flex-1 flex-col items-center justify-center gap-2 text-sm text-muted-foreground">
+        <p>Workspace not found.</p>
+        <Link to="/" className="underline hover:text-foreground">Back to home</Link>
+      </div>
+    )
+  }
 
   const stateDef = workspace.flow.states.find(s => s.name === step)
   const ui = stateDef?.ui ?? 'chat'
 
-  if (ui === 'diff') {
-    return <DiffView workspaceId={wsId} step={step} />
-  }
-
+  if (ui === 'diff') return <DiffView workspaceId={wsId} step={step} />
   return <WorkspaceChatView workspaceId={wsId} step={step} />
 }
 
 function WorkspaceChatView({ workspaceId, step }: { workspaceId: string; step: string }) {
-  const [messages, setMessages] = useState<ChatMessage[]>([])
   const [sending, setSending] = useState(false)
+  const cancelStreamRef = useRef<(() => void) | null>(null)
+  const { getMessages, appendMessage, pushStreamChunk, finalizeStream } = useConversationStore()
 
+  // Cancel in-flight stream when workspaceId or step changes
   useEffect(() => {
-    setMessages(getMockConversation(workspaceId, step))
+    return () => { cancelStreamRef.current?.() }
   }, [workspaceId, step])
 
-  const handleSend = (content: string, _attachments: File[]) => {
-    const userMsg: ChatMessage = {
-      id: `u${Date.now()}`, role: 'user', content,
+  // Cancel in-flight stream on unmount
+  useEffect(() => {
+    return () => { cancelStreamRef.current?.() }
+  }, [])
+
+  const messages = getMessages(workspaceId, step)
+
+  const handleSend = useCallback((content: string, _attachments: File[]) => {
+    cancelStreamRef.current?.()
+
+    appendMessage(workspaceId, step, {
+      id: nanoid(), role: 'user', content,
       authorName: 'Mateo', authorInitials: 'MU', timestamp: 'just now',
-    }
-    setMessages(prev => [...prev, userMsg])
+    })
     setSending(true)
-    simulateStream(
-      'Understood. I\'ll start working on that now and update you as I make progress.',
+
+    cancelStreamRef.current = simulateStream(
+      'Understood. I\'ll start working on that now.\n\n**Next steps:**\n- Analyse the requirements\n- Draft the implementation plan\n- Write the code\n\nI\'ll update you as I make progress.',
       (chunk) => {
-        setMessages(prev => {
-          const last = prev[prev.length - 1]
-          if (last?.role === 'assistant' && last.id === 'streaming') {
-            return [...prev.slice(0, -1), { ...last, content: last.content + chunk }]
-          }
-          return [...prev, {
-            id: 'streaming', role: 'assistant', content: chunk,
-            authorName: 'Claude', authorInitials: '✦', modelName: 'Sonnet 4.6',
-            timestamp: 'just now',
-          }]
+        pushStreamChunk(workspaceId, step, chunk, {
+          role: 'assistant',
+          authorName: 'Claude', authorInitials: '✦', modelName: 'Sonnet 4.6',
+          timestamp: 'just now',
         })
       },
       () => {
-        setMessages(prev => prev.map(m => m.id === 'streaming' ? { ...m, id: `a${Date.now()}` } : m))
+        finalizeStream(workspaceId, step, nanoid())
         setSending(false)
+        cancelStreamRef.current = null
       },
     )
-  }
+  }, [workspaceId, step, appendMessage, pushStreamChunk, finalizeStream])
 
   return (
     <ChatView
@@ -72,20 +85,4 @@ function WorkspaceChatView({ workspaceId, step }: { workspaceId: string; step: s
       inputPlaceholder={`Message… (${step})`}
     />
   )
-}
-
-function simulateStream(
-  text: string,
-  onChunk: (chunk: string) => void,
-  onDone: () => void,
-) {
-  const words = text.split(' ')
-  let i = 0
-  const tick = () => {
-    if (i >= words.length) { onDone(); return }
-    onChunk((i === 0 ? '' : ' ') + words[i])
-    i++
-    setTimeout(tick, 40)
-  }
-  setTimeout(tick, 400)
 }

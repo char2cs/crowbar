@@ -9,14 +9,16 @@ import {
 } from '@/components/ui/dropdown-menu'
 import { useProjectStore } from '@/lib/store/projects'
 import { ChevronDown } from 'lucide-react'
+import { GearSix } from '@phosphor-icons/react'
 
 interface SidebarHeaderProps {
   userInitials: string
   onProjectsClick?: () => void
   onProjectSelect?: (projectId: string) => void
+  onSettingsClick?: () => void
 }
 
-export function SidebarHeader({ userInitials, onProjectsClick, onProjectSelect }: SidebarHeaderProps) {
+export function SidebarHeader({ userInitials, onProjectsClick, onProjectSelect, onSettingsClick }: SidebarHeaderProps) {
   const { projects, activeProjectId, setActiveProject } = useProjectStore()
   const activeProject = projects.find(p => p.id === activeProjectId)
 
@@ -63,6 +65,16 @@ export function SidebarHeader({ userInitials, onProjectsClick, onProjectSelect }
           </DropdownMenuItem>
         </DropdownMenuContent>
       </DropdownMenu>
+
+      {onSettingsClick && (
+        <button
+          onClick={onSettingsClick}
+          aria-label="Settings"
+          className="flex h-7 w-7 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
+        >
+          <GearSix size={16} />
+        </button>
+      )}
 
       <Avatar className="ml-auto h-6 w-6">
         <AvatarFallback className="text-[10px] font-bold">{userInitials}</AvatarFallback>

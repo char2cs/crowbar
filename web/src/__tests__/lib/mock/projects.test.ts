@@ -15,3 +15,9 @@ test('getMockProject returns created project', () => {
   const proj = createMockProject({ name: 'lookup', path: '/tmp/lookup' })
   expect(getMockProject(proj.id)?.name).toBe('lookup')
 })
+
+test('two rapid createMockProject calls produce unique IDs', () => {
+  const p1 = createMockProject({ name: 'a', path: '/a' })
+  const p2 = createMockProject({ name: 'b', path: '/b' })
+  expect(p1.id).not.toBe(p2.id)
+})

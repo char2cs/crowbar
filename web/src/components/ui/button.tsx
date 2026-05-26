@@ -18,6 +18,10 @@ const buttonVariants = cva(
         destructive:
           "bg-destructive/10 text-destructive hover:bg-destructive/20 focus-visible:border-destructive/40 focus-visible:ring-destructive/20 dark:bg-destructive/20 dark:hover:bg-destructive/30 dark:focus-visible:ring-destructive/40",
         link: "text-primary underline-offset-4 hover:underline",
+        /** Athas variant aliases */
+        accent: "bg-primary text-primary-foreground hover:bg-primary/90",
+        muted: "bg-transparent hover:bg-accent hover:text-accent-foreground",
+        danger: "bg-destructive text-destructive-foreground hover:bg-destructive/90",
       },
       size: {
         default:
@@ -32,6 +36,11 @@ const buttonVariants = cva(
           "size-7 rounded-[min(var(--radius-md),12px)] in-data-[slot=button-group]:rounded-lg",
         "icon-lg": "size-9",
       },
+      /** Athas compact variant - maps to no extra classes */
+      compact: {
+        true: "",
+        false: "",
+      },
     },
     defaultVariants: {
       variant: "default",
@@ -40,16 +49,39 @@ const buttonVariants = cva(
   }
 )
 
+export interface ButtonProps
+  extends ButtonPrimitive.Props,
+    VariantProps<typeof buttonVariants> {
+  /** Compact height variant used by Athas feature modules */
+  compact?: boolean
+  /** Tooltip text displayed on hover (Athas compatibility) */
+  tooltip?: string
+  /** Keyboard shortcut hint (Athas compatibility) */
+  shortcut?: string
+  /** Tooltip side preference (Athas compatibility) */
+  tooltipSide?: "top" | "right" | "bottom" | "left"
+  /** Command ID for keybinding hints (Athas compatibility) */
+  commandId?: string
+  /** Active state — adds bg-accent/20 highlight when true (Athas compatibility) */
+  active?: boolean
+}
+
 function Button({
   className,
   variant = "default",
   size = "default",
+  compact: _compact,
+  tooltip: _tooltip,
+  shortcut: _shortcut,
+  tooltipSide: _tooltipSide,
+  commandId: _commandId,
+  active,
   ...props
-}: ButtonPrimitive.Props & VariantProps<typeof buttonVariants>) {
+}: ButtonProps) {
   return (
     <ButtonPrimitive
       data-slot="button"
-      className={cn(buttonVariants({ variant, size, className }))}
+      className={cn(buttonVariants({ variant, size, className }), active && "bg-accent/20")}
       {...props}
     />
   )

@@ -5,6 +5,7 @@ import {
 } from '@/components/ui/dialog'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
+import { toast } from 'sonner'
 import { postProject } from '@/lib/api'
 import type { Project } from '@/lib/types'
 
@@ -32,11 +33,16 @@ export function ImportProjectModal({ open, onOpenChange, onImport }: ImportProje
   const handleImport = async () => {
     if (!selectedPath) return
     setLoading(true)
-    const project = await postProject(projectName || selectedPath, selectedPath)
-    onImport(project)
-    setLoading(false)
-    setSelectedPath('')
-    setProjectName('')
+    try {
+      const project = await postProject(projectName || selectedPath, selectedPath)
+      onImport(project)
+      setSelectedPath('')
+      setProjectName('')
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : 'Failed to import project')
+    } finally {
+      setLoading(false)
+    }
   }
 
   return (

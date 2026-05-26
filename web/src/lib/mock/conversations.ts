@@ -9,7 +9,28 @@ const MOCK_MESSAGES: Record<string, ChatMessage[]> = {
     },
     {
       id: 'm2', role: 'assistant',
-      content: 'Given all three share a user identity, a shared auth service makes the most sense — lightweight Go, token issuance and refresh, each app verifying JWTs locally.',
+      content: `Given all three share a user identity, a **shared auth service** makes the most sense. Here's my recommendation:
+
+## Architecture
+
+- **Token issuance** — lightweight Go service, issues JWTs on login
+- **Refresh** — sliding 7-day window, short-lived access tokens
+- **Verification** — each app verifies locally, no round-trips
+
+## Implementation
+
+\`\`\`go
+func IssueToken(userID string) (string, error) {
+  claims := jwt.MapClaims{
+    "sub": userID,
+    "exp": time.Now().Add(15 * time.Minute).Unix(),
+  }
+  return jwt.NewWithClaims(jwt.SigningMethodHS256, claims).
+    SignedString([]byte(os.Getenv("JWT_SECRET")))
+}
+\`\`\`
+
+Each app calls \`VerifyToken(token)\` locally — _no_ shared database lookups needed.`,
       authorName: 'Claude', authorInitials: '✦', modelName: 'Sonnet 4.6',
       timestamp: '2h ago · 18.3s', toolCalls: 4, durationSec: 18.3,
     },

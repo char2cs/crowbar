@@ -1,13 +1,8 @@
-import { createFileRoute, redirect } from '@tanstack/react-router'
-import { getMockWorkspace } from '@/lib/mock/workspaces'
+import { createFileRoute } from '@tanstack/react-router'
 
+// Step is now Zustand state, not part of the URL.
+// This index route no longer needs to redirect anywhere — IDEShell renders
+// WorkspaceView directly based on the wsId path segment.
 export const Route = createFileRoute('/workspaces/$wsId/')({
-  beforeLoad: ({ params }) => {
-    const ws = getMockWorkspace(params.wsId)
-    throw redirect({
-      to: '/workspaces/$wsId/$step',
-      params: { wsId: params.wsId, step: ws?.currentState ?? 'brainstorming' },
-    })
-  },
   component: () => null,
 })

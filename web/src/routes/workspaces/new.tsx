@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import { createFileRoute, useNavigate } from '@tanstack/react-router'
 import { useQuery } from '@tanstack/react-query'
+import { toast } from 'sonner'
 import { flowsQueryOptions } from '@/lib/queries'
 import { postWorkspace } from '@/lib/api'
 import { WorkspaceCreationForm } from '@/components/workspace/WorkspaceCreationForm'
@@ -16,7 +17,7 @@ const REPOS = [
   { id: 'quiver-desktop', name: 'quiver.desktop' },
 ]
 
-function NewWorkspacePage() {
+export function NewWorkspacePage() {
   const navigate = useNavigate()
   const { data: flows = [] } = useQuery(flowsQueryOptions())
   const [loading, setLoading] = useState(false)
@@ -24,9 +25,15 @@ function NewWorkspacePage() {
 
   const handleSubmit = async (data: { repoId: string; branch: string; flowName: string }) => {
     setLoading(true)
-    const ws = await postWorkspace(data.repoId, data.branch, data.flowName)
-    addWorkspace(data.repoId, ws.id, data.branch)
-    navigate({ to: '/workspaces/$wsId/$step', params: { wsId: ws.id, step: ws.currentState } })
+    try {
+      const ws = await postWorkspace(data.repoId, data.branch, data.flowName)
+      addWorkspace(data.repoId, ws.id, data.branch)
+      void navigate({ to: '/workspaces/$wsId/$step', params: { wsId: ws.id, step: ws.currentState } })
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : 'Failed to create workspace')
+    } finally {
+      setLoading(false)
+    }
   }
 
   return (

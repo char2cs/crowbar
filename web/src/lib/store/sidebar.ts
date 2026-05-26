@@ -24,15 +24,20 @@ export interface Repo {
   workspaces: Workspace[]
 }
 
+export type SidebarTab = 'workspaces' | 'files' | 'git'
+
 interface SidebarState {
   chats: ProjectChat[]
   repos: Repo[]
   collapsedRepos: Set<string>
+  /** Persisted active tab so re-mounts of SidebarTabs don't reset it. */
+  activeTab: SidebarTab
   addChat: (chat: ProjectChat) => void
   deleteChat: (id: string) => void
   addWorkspace: (repoId: string, wsId: string, branch: string) => void
   deleteWorkspace: (wsId: string) => void
   toggleRepo: (repoId: string) => void
+  setActiveTab: (tab: SidebarTab) => void
 }
 
 const INITIAL_REPOS: Repo[] = [
@@ -62,6 +67,7 @@ function getInitialState() {
     chats: getAllMockChats().map(c => ({ id: c.id, title: c.title, age: c.age })),
     repos: INITIAL_REPOS,
     collapsedRepos: new Set<string>(),
+    activeTab: 'workspaces' as SidebarTab,
   }
 }
 
@@ -93,6 +99,8 @@ export const useSidebarStore = create<SidebarState>()((set) => ({
       next.has(repoId) ? next.delete(repoId) : next.add(repoId)
       return { collapsedRepos: next }
     }),
+
+  setActiveTab: (tab) => set({ activeTab: tab }),
 }))
 
 // Expose for test reset
