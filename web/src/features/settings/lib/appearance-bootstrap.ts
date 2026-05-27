@@ -320,15 +320,13 @@ export function ensureStartupAppearanceApplied(): void {
 }
 
 /**
- * Convert a `ThemeTokens` partial into a `--var-name: value` map.
- * Only explicitly set optional tokens are emitted; required tokens that are
- * present on `tokens` are also included.  This map is merged on top of the
- * theme's legacy `cssVariables` bag so typed overrides win.
+ * Converts typed ThemeTokens fields to a CSS variable map.
+ * Add a line here for each new typed token.
  */
 export function themeTokensToCssVars(tokens: ThemeDefinition["tokens"]): Record<string, string> {
   if (!tokens) return {};
   const vars: Record<string, string> = {};
-  if (tokens.chromeBg) vars["--chrome-bg"] = tokens.chromeBg;
+  if (tokens.chromeBg != null) vars["--chrome-bg"] = tokens.chromeBg;
   return vars;
 }
 
