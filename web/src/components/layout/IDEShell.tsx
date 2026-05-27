@@ -86,7 +86,8 @@ export function IDEShell() {
       {/* h-full wrapper gives children a definite height to resolve against,
           matching the sidebar's pattern and avoiding flex-1 percentage resolution issues */}
       <div className="flex h-full flex-col overflow-hidden">
-        <div className="h-[38px] w-full flex-shrink-0 select-none" data-tauri-drag-region />
+        {/* Chrome title-bar strip — same frosted-glass treatment as the sidebar */}
+        <div className="h-[38px] w-full flex-shrink-0 select-none bg-chrome-bg backdrop-blur-sm" data-tauri-drag-region />
         <div className="flex min-h-0 flex-1 flex-col overflow-hidden bg-background">
           <ErrorBoundary>
             {activeWorkspaceId ? (
