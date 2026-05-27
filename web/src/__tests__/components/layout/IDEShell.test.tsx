@@ -4,7 +4,6 @@ import { describe, it, expect, vi } from 'vitest'
 import React from 'react'
 import { IDEShell } from '@/components/layout/IDEShell'
 
-// Mock heavy features — just verify composition
 vi.mock('@/features/workspace/components/WorkspaceView', () => ({
   WorkspaceView: () => <div data-testid="workspace-view" />,
 }))
@@ -13,6 +12,9 @@ vi.mock('@/components/layout/SidebarTabs', () => ({
 }))
 vi.mock('@/components/layout/SidebarHeader', () => ({
   SidebarHeader: () => <div data-testid="sidebar-header" />,
+}))
+vi.mock('@/components/layout/sidebar-nav-icons', () => ({
+  SidebarNavIcons: () => <div data-testid="sidebar-nav-icons" />,
 }))
 vi.mock('@/features/settings/components/settings-dialog', () => ({
   default: () => null,
@@ -47,6 +49,9 @@ vi.mock('@/components/ui/sonner', () => ({
 vi.mock('@/features/settings/components/font-style-injector', () => ({
   FontStyleInjector: () => null,
 }))
+vi.mock('@/features/terminal/components/terminal-host', () => ({
+  TerminalHost: () => null,
+}))
 
 describe('IDEShell', () => {
   it('renders sidebar header', () => {
@@ -57,6 +62,11 @@ describe('IDEShell', () => {
   it('renders SidebarTabs', () => {
     render(<IDEShell />)
     expect(screen.getByTestId('sidebar-tabs')).toBeInTheDocument()
+  })
+
+  it('renders SidebarNavIcons', () => {
+    render(<IDEShell />)
+    expect(screen.getByTestId('sidebar-nav-icons')).toBeInTheDocument()
   })
 
   it('renders Outlet when no workspace or chat is active', () => {

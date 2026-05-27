@@ -7,6 +7,8 @@ import {
 } from '@/components/ui/resizable'
 import { SidebarHeader } from './SidebarHeader'
 import { SidebarTabs } from './SidebarTabs'
+import { SidebarNavIcons } from './sidebar-nav-icons'
+import { IS_MAC } from '@/utils/platform'
 import { useSidebarStore } from '@/lib/store/sidebar'
 import { createMockChat } from '@/lib/mock/chats'
 import { WorkspaceView } from '@/features/workspace/components/WorkspaceView'
@@ -43,40 +45,51 @@ export function IDEShell() {
 
   const sidebarPanel = (
     <ResizablePanel id="sidebar" defaultSize="20%" minSize="12%" maxSize="45%" className="flex flex-col overflow-hidden">
-      <div className={cn("flex h-full flex-col overflow-hidden bg-chrome-bg backdrop-blur-sm", sidebarPosition === "right" ? "border-l border-border" : "border-r border-border")}>
-        {/* Traffic-light spacer: draggable empty strip that clears the macOS window controls */}
-        <div className="h-[38px] w-full flex-shrink-0 select-none" data-tauri-drag-region />
-        <ErrorBoundary>
-          <SidebarHeader
-            userInitials="MU"
-            onProjectsClick={() => void navigate({ to: '/projects' })}
-            onProjectSelect={() => void navigate({ to: '/' })}
-            onSettingsClick={() => setSettingsOpen(true)}
-          />
-          <SidebarTabs
-            chats={chats}
-            repos={repos}
-            collapsedRepos={collapsedRepos}
-            activeChatId={activeChatId}
-            activeWorkspaceId={activeWorkspaceId}
-            activeWorkspaceRepoPath={activeWorkspaceRepoPath}
-            onChatClick={id => void navigate({ to: '/chat/$chatId', params: { chatId: id } })}
-            onWorkspaceClick={(_repoId, wsId) => void navigate({ to: '/workspaces/$wsId', params: { wsId } })}
-            onNewChat={() => {
-              const chat = createMockChat()
-              addChat({ id: chat.id, title: chat.title, age: chat.age })
-              void navigate({ to: '/chat/$chatId', params: { chatId: chat.id } })
-            }}
-            onNewWorkspace={() => void navigate({ to: '/workspaces/new' })}
-            onDeleteChat={id => { deleteChat(id); if (activeChatId === id) void navigate({ to: '/' }) }}
-            onDeleteWorkspace={wsId => {
-              deleteWorkspace(wsId)
-              destroyWorkspaceStore(wsId)
-              if (activeWorkspaceId === wsId) void navigate({ to: '/' })
-            }}
-            onRepoToggle={toggleRepo}
-          />
-        </ErrorBoundary>
+      <div className="flex h-full flex-col overflow-hidden bg-chrome-bg backdrop-blur-sm">
+        {/* Unified titlebar strip — no border here so both strips read as one bar */}
+        <div
+          className={cn('flex w-full flex-shrink-0 items-center', IS_MAC ? 'h-[38px]' : 'h-[28px]')}
+          data-tauri-drag-region
+        >
+          <SidebarNavIcons />
+        </div>
+        {/* Sidebar content — border starts here, below the unified strip */}
+        <div className={cn(
+          'flex flex-1 flex-col overflow-hidden',
+          sidebarPosition === 'right' ? 'border-l border-border' : 'border-r border-border',
+        )}>
+          <ErrorBoundary>
+            <SidebarHeader
+              userInitials="MU"
+              onProjectsClick={() => void navigate({ to: '/projects' })}
+              onProjectSelect={() => void navigate({ to: '/' })}
+              onSettingsClick={() => setSettingsOpen(true)}
+            />
+            <SidebarTabs
+              chats={chats}
+              repos={repos}
+              collapsedRepos={collapsedRepos}
+              activeChatId={activeChatId}
+              activeWorkspaceId={activeWorkspaceId}
+              activeWorkspaceRepoPath={activeWorkspaceRepoPath}
+              onChatClick={id => void navigate({ to: '/chat/$chatId', params: { chatId: id } })}
+              onWorkspaceClick={(_repoId, wsId) => void navigate({ to: '/workspaces/$wsId', params: { wsId } })}
+              onNewChat={() => {
+                const chat = createMockChat()
+                addChat({ id: chat.id, title: chat.title, age: chat.age })
+                void navigate({ to: '/chat/$chatId', params: { chatId: chat.id } })
+              }}
+              onNewWorkspace={() => void navigate({ to: '/workspaces/new' })}
+              onDeleteChat={id => { deleteChat(id); if (activeChatId === id) void navigate({ to: '/' }) }}
+              onDeleteWorkspace={wsId => {
+                deleteWorkspace(wsId)
+                destroyWorkspaceStore(wsId)
+                if (activeWorkspaceId === wsId) void navigate({ to: '/' })
+              }}
+              onRepoToggle={toggleRepo}
+            />
+          </ErrorBoundary>
+        </div>
       </div>
     </ResizablePanel>
   )
