@@ -34,12 +34,11 @@ const shared = {
 }
 
 describe('TabBarItem pill restyle', () => {
-  it('active tab has rounded-full and bg-muted classes', () => {
+  it('active tab has rounded-full and bg-primary/15 classes', () => {
     render(<TabBarItem buffer={editorBuffer} isActive={true} {...shared} />)
     const tab = screen.getByRole('tab')
-    // toHaveClass does exact class-list matching — will not match bg-muted/80
     expect(tab).toHaveClass('rounded-full')
-    expect(tab).toHaveClass('bg-muted')
+    expect(tab).toHaveClass('bg-primary/15')
   })
 
   it('inactive tab has rounded-full but not bg-muted', () => {
