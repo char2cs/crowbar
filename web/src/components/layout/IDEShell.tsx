@@ -100,7 +100,7 @@ export function IDEShell() {
           matching the sidebar's pattern and avoiding flex-1 percentage resolution issues */}
       <div className="flex h-full flex-col overflow-hidden">
         {/* Chrome title-bar strip — same frosted-glass treatment as the sidebar */}
-        <div className="h-[38px] w-full flex-shrink-0 select-none bg-chrome-bg backdrop-blur-sm" data-tauri-drag-region />
+        <div className={cn(IS_MAC ? 'h-[38px]' : 'h-[28px]', 'w-full flex-shrink-0 select-none bg-chrome-bg backdrop-blur-sm')} data-tauri-drag-region />
         {/* No bg-background here — each surface owns its own background so the
             tab bar's backdrop-blur can reach through to the actual window/desktop */}
         <div className="flex min-h-0 flex-1 flex-col overflow-hidden">

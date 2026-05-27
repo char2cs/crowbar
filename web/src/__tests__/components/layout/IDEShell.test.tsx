@@ -4,6 +4,11 @@ import { describe, it, expect, vi } from 'vitest'
 import React from 'react'
 import { IDEShell } from '@/components/layout/IDEShell'
 
+vi.mock('@/utils/platform', () => ({
+  IS_MAC: true,
+  IS_WINDOWS: false,
+  IS_LINUX: false,
+}))
 vi.mock('@/features/workspace/components/WorkspaceView', () => ({
   WorkspaceView: () => <div data-testid="workspace-view" />,
 }))
