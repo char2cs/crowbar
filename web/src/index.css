@@ -51,6 +51,7 @@
     --color-warning: var(--warning);
     --color-info: var(--info);
     --font-editor: var(--editor-font-family);
+    --color-chrome-bg: var(--chrome-bg);
 }
 
 :root {
@@ -101,6 +102,7 @@
     --app-scrollbar-thumb-hover: oklch(0.55 0 0 / 58%);
     --app-scrollbar-track: transparent;
     --app-scrollbar-radius: 999px;
+    --chrome-bg: oklch(1 0 0 / 50%);
 
     /* syntax highlighting — light mode */
     --syntax-keyword: oklch(0.45 0.18 310);
@@ -168,6 +170,7 @@
     /* custom tokens — dark overrides */
     --warning: oklch(0.80 0.16 85);
     --info: oklch(0.72 0.15 250);
+    --chrome-bg: oklch(0.148 0.004 228.8 / 75%);
 
     /* syntax highlighting — dark mode */
     --syntax-keyword: oklch(0.68 0.18 310);
