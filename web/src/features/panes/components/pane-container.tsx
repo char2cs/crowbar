@@ -993,7 +993,7 @@ export function PaneContainer({ pane }: PaneContainerProps) {
       ref={containerRef}
       data-pane-container
       data-pane-id={pane.id}
-      className={`relative flex h-full w-full flex-col overflow-hidden bg-background ${
+      className={`relative flex h-full w-full flex-col overflow-hidden ${
         isActivePane ? "ring-1 ring-accent/30" : ""
       } ${isDragOver || internalHoverZone ? "ring-2 ring-accent" : ""}`}
       onMouseDownCapture={handlePaneMouseDownCapture}
@@ -1016,7 +1016,7 @@ export function PaneContainer({ pane }: PaneContainerProps) {
         onTabClick={handleTabClick}
         disablePaneActions={pane.id === BOTTOM_PANE_ID}
       />
-      <div className="relative min-h-0 flex-1 overflow-hidden">
+      <div className="relative min-h-0 flex-1 overflow-hidden bg-background">
         {!activeBuffer && !shouldRenderCarousel && <EmptyEditorState />}
 
         <Suspense fallback={null}>

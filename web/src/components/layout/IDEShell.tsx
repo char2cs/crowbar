@@ -88,19 +88,24 @@ export function IDEShell() {
       <div className="flex h-full flex-col overflow-hidden">
         {/* Chrome title-bar strip — same frosted-glass treatment as the sidebar */}
         <div className="h-[38px] w-full flex-shrink-0 select-none bg-chrome-bg backdrop-blur-sm" data-tauri-drag-region />
-        <div className="flex min-h-0 flex-1 flex-col overflow-hidden bg-background">
+        {/* No bg-background here — each surface owns its own background so the
+            tab bar's backdrop-blur can reach through to the actual window/desktop */}
+        <div className="flex min-h-0 flex-1 flex-col overflow-hidden">
           <ErrorBoundary>
             {activeWorkspaceId ? (
               <WorkspaceView wsId={activeWorkspaceId} label={workspaceLabel} />
             ) : activeChatId ? (
               <div className="flex h-full flex-col overflow-hidden">
-                <div className="flex items-center border-b border-border px-3 py-1 text-sm font-medium">
+                {/* Chrome tab-label strip — transparent chrome, not solid */}
+                <div className="flex flex-shrink-0 items-center border-b border-border bg-chrome-bg px-3 py-1 text-sm font-medium backdrop-blur-sm">
                   {chatTabLabel}
                 </div>
-                <Outlet />
+                <div className="flex min-h-0 flex-1 overflow-hidden bg-background">
+                  <Outlet />
+                </div>
               </div>
             ) : (
-              <div className="flex h-full flex-col overflow-hidden">
+              <div className="flex h-full flex-col overflow-hidden bg-background">
                 <Outlet />
               </div>
             )}
