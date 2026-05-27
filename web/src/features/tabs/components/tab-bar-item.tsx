@@ -109,8 +109,8 @@ const TabBarItem = memo(function TabBarItem({
         isActive={isActive}
         isDragged={isDraggedTab}
         className={cn(
-          "h-5 rounded-full",
-          isActive ? "bg-muted pl-2 pr-5" : "bg-transparent pl-2 pr-2",
+          "h-7 rounded-full",
+          isActive ? "bg-muted pl-2.5 pr-6" : "bg-transparent pl-2.5 pr-2.5",
         )}
         onClick={onClick}
         onMouseDown={onMouseDown}
@@ -216,7 +216,7 @@ const TabBarItem = memo(function TabBarItem({
           }
         }}
         className={cn(
-          "-translate-y-1/2 absolute top-1/2 right-1 h-3.5 min-w-3.5 cursor-pointer select-none rounded-full p-0 text-muted-foreground transition-opacity",
+          "-translate-y-1/2 absolute top-1/2 right-1.5 h-4 min-w-4 cursor-pointer select-none rounded-full p-0 text-muted-foreground transition-opacity",
           "hover:bg-foreground/10 dark:hover:bg-foreground/10 hover:text-foreground",
           buffer.isPinned || isActive ? "opacity-60" : "opacity-0 group-hover/tab:opacity-100",
         )}

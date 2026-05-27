@@ -717,7 +717,7 @@ const TabBar = ({
         <div
           ref={tabBarRef}
           data-tab-bar-pane-id={paneId ?? ""}
-          className="relative flex h-7 shrink-0 items-center gap-1 overflow-hidden bg-background px-1.5 py-0.5"
+          className="relative flex h-9 shrink-0 items-center gap-1.5 overflow-hidden bg-background px-2 py-1"
           role="tablist"
           aria-label="Open files"
           onWheel={handleWheel}
@@ -728,7 +728,7 @@ const TabBar = ({
               onClick={handleJumpBack}
               disabled={!canGoBack}
               variant="ghost"
-              className="h-5 w-5 shrink-0 rounded-full p-0 text-muted-foreground"
+              className="h-6 w-6 shrink-0 rounded-full p-0 text-muted-foreground"
               tooltip="Go Back"
               tooltipSide="bottom"
               commandId="navigation.goBack"
@@ -742,7 +742,7 @@ const TabBar = ({
               onClick={handleJumpForward}
               disabled={!canGoForward}
               variant="ghost"
-              className="h-5 w-5 shrink-0 rounded-full p-0 text-muted-foreground"
+              className="h-6 w-6 shrink-0 rounded-full p-0 text-muted-foreground"
               tooltip="Go Forward"
               tooltipSide="bottom"
               commandId="navigation.goForward"
@@ -754,7 +754,7 @@ const TabBar = ({
           </div>
 
           <SortableContext items={sortedBufferIds} strategy={horizontalListSortingStrategy}>
-            <div className="scrollbar-hidden flex min-w-0 flex-1 gap-1 overflow-x-auto overflow-y-hidden [overscroll-behavior-x:contain]">
+            <div className="scrollbar-hidden flex min-w-0 flex-1 gap-1.5 overflow-x-auto overflow-y-hidden [overscroll-behavior-x:contain]">
               {sortedBuffers.map((buffer, index) => (
                 <SortableEditorTab
                   key={buffer.id}
@@ -784,7 +784,7 @@ const TabBar = ({
           <div className="flex shrink-0 items-center gap-1 pl-0.5">
             {paneId && !isBottomPane && (
               <DropdownMenu>
-                <DropdownMenuTrigger className="flex h-5 w-5 shrink-0 items-center justify-center rounded-full p-0 text-muted-foreground hover:bg-muted hover:text-foreground focus:outline-none" aria-label="New tab">
+                <DropdownMenuTrigger className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full p-0 text-muted-foreground hover:bg-muted hover:text-foreground focus:outline-none" aria-label="New tab">
                   <Plus weight="bold" size={12} />
                 </DropdownMenuTrigger>
                 <DropdownMenuContent side="bottom" align="start" className="min-w-[140px]">
@@ -805,7 +805,7 @@ const TabBar = ({
                 onClick={() => closePane(paneId)}
                 variant="ghost"
                 compact
-                className="h-5 w-5 shrink-0 rounded-full p-0 text-muted-foreground"
+                className="h-6 w-6 shrink-0 rounded-full p-0 text-muted-foreground"
                 tooltip="Close Split"
                 tooltipSide="bottom"
                 aria-label="Close split pane"
