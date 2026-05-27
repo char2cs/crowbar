@@ -83,24 +83,28 @@ export function IDEShell() {
 
   const contentPanel = (
     <ResizablePanel id="content" className="flex min-w-0 flex-1 flex-col overflow-hidden">
-      <div className="h-[38px] w-full flex-shrink-0 select-none" data-tauri-drag-region />
-      <div className="flex min-h-0 flex-1 flex-col overflow-hidden bg-background">
-        <ErrorBoundary>
-          {activeWorkspaceId ? (
-            <WorkspaceView wsId={activeWorkspaceId} label={workspaceLabel} />
-          ) : activeChatId ? (
-            <div className="flex h-full flex-col overflow-hidden">
-              <div className="flex items-center border-b border-border px-3 py-1 text-sm font-medium">
-                {chatTabLabel}
+      {/* h-full wrapper gives children a definite height to resolve against,
+          matching the sidebar's pattern and avoiding flex-1 percentage resolution issues */}
+      <div className="flex h-full flex-col overflow-hidden">
+        <div className="h-[38px] w-full flex-shrink-0 select-none" data-tauri-drag-region />
+        <div className="flex min-h-0 flex-1 flex-col overflow-hidden bg-background">
+          <ErrorBoundary>
+            {activeWorkspaceId ? (
+              <WorkspaceView wsId={activeWorkspaceId} label={workspaceLabel} />
+            ) : activeChatId ? (
+              <div className="flex h-full flex-col overflow-hidden">
+                <div className="flex items-center border-b border-border px-3 py-1 text-sm font-medium">
+                  {chatTabLabel}
+                </div>
+                <Outlet />
               </div>
-              <Outlet />
-            </div>
-          ) : (
-            <div className="flex h-full flex-col overflow-hidden">
-              <Outlet />
-            </div>
-          )}
-        </ErrorBoundary>
+            ) : (
+              <div className="flex h-full flex-col overflow-hidden">
+                <Outlet />
+              </div>
+            )}
+          </ErrorBoundary>
+        </div>
       </div>
     </ResizablePanel>
   )
