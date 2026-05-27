@@ -51,7 +51,7 @@ export const SidebarFooter = forwardRef<
     <div
       ref={ref}
       className={cn(
-        "shrink-0 bg-primary-bg/95 px-2 py-2",
+        "shrink-0 bg-chrome-bg px-2 py-2",
         surface &&
           cn(
             "mx-2 mb-2 border border-border/70 bg-[color-mix(in_srgb,var(--color-secondary-bg)_82%,var(--color-border)_18%)] px-0 py-0 pb-1 transition-[border-radius,background-color,border-color,box-shadow]",
@@ -76,7 +76,7 @@ export function SidebarHeader({
   return (
     <div
       className={cn(
-        "sticky top-0 z-20 flex h-8 shrink-0 select-none items-center gap-1.5 bg-primary-bg/95 px-1.5 py-1 backdrop-blur-sm",
+        "sticky top-0 z-20 flex h-8 shrink-0 select-none items-center gap-1.5 bg-chrome-bg px-1.5 py-1 backdrop-blur-sm",
         className,
       )}
       {...props}
