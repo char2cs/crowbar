@@ -717,7 +717,7 @@ const TabBar = ({
         <div
           ref={tabBarRef}
           data-tab-bar-pane-id={paneId ?? ""}
-          className="relative flex h-9 shrink-0 items-center gap-1.5 overflow-hidden bg-background px-2 py-1"
+          className="relative flex h-9 shrink-0 items-center gap-1.5 overflow-hidden bg-chrome-bg backdrop-blur-sm px-2 py-1"
           role="tablist"
           aria-label="Open files"
           onWheel={handleWheel}
