@@ -74,4 +74,12 @@ describe('TabBarItem pill restyle', () => {
     expect(closeBtn).toBeDefined()
     expect(closeBtn).toHaveClass('hover:bg-foreground/10')
   })
+
+  it('close button has opacity-60 when tab is active', () => {
+    const { container } = render(<TabBarItem buffer={editorBuffer} isActive={true} {...shared} />)
+    const closeBtn = container.querySelectorAll('button')[1] as HTMLElement
+    expect(closeBtn).toBeDefined()
+    expect(closeBtn).toHaveClass('opacity-60')
+    expect(closeBtn).not.toHaveClass('opacity-100')
+  })
 })

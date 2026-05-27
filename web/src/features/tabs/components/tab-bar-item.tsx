@@ -217,7 +217,7 @@ const TabBarItem = memo(function TabBarItem({
         }}
         className={cn(
           "-translate-y-1/2 absolute top-1/2 right-1 h-3.5 min-w-3.5 cursor-pointer select-none rounded-full p-0 text-muted-foreground transition-opacity",
-          "hover:bg-foreground/10 hover:text-foreground",
+          "hover:bg-foreground/10 dark:hover:bg-foreground/10 hover:text-foreground",
           buffer.isPinned || isActive ? "opacity-60" : "opacity-0 group-hover/tab:opacity-100",
         )}
         tooltip={buffer.isPinned ? "Unpin tab" : "Close"}
