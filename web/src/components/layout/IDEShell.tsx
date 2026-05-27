@@ -82,7 +82,7 @@ export function IDEShell() {
   )
 
   const contentPanel = (
-    <ResizablePanel id="content" className="flex min-w-0 flex-1 flex-col overflow-hidden">
+    <ResizablePanel id="content" className="flex min-w-0 flex-1 flex-col overflow-hidden bg-background">
       <ErrorBoundary>
         {activeWorkspaceId ? (
           <WorkspaceView wsId={activeWorkspaceId} label={workspaceLabel} />
