@@ -5,9 +5,9 @@ import (
 	"net/http"
 
 	"github.com/gin-gonic/gin"
-	"github.com/rabbytesoftware/crowbar/api/internal/api/middleware"
-	v0 "github.com/rabbytesoftware/crowbar/api/internal/api/v0"
-	"github.com/rabbytesoftware/crowbar/api/internal/app"
+	"github.com/char2cs/crowbar/api/internal/api/middleware"
+	v0 "github.com/char2cs/crowbar/api/internal/api/v0"
+	"github.com/char2cs/crowbar/api/internal/app"
 )
 
 type Container struct {

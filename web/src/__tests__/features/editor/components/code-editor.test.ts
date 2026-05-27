@@ -38,13 +38,16 @@ describe('auto-promote wrapper logic', () => {
 
   it('does not throw when isPreview=true but onPromote is undefined', () => {
     const onChange = vi.fn()
-    const isPreview = true
-    const onPromote = undefined
 
-    const wrappedChange = (content: string) => {
-      if (isPreview) onPromote?.()
-      onChange(content)
-    }
+    // Build the wrapper the same way the component does — parameters typed as the component
+    // receives them, so TypeScript cannot narrow onPromote to `never` via const-folding.
+    const buildWrapper = (isPreview: boolean, onPromote: (() => void) | undefined) =>
+      (content: string) => {
+        if (isPreview) onPromote?.()
+        onChange(content)
+      }
+
+    const wrappedChange = buildWrapper(true, undefined)
 
     // Should not throw even though onPromote is undefined
     expect(() => wrappedChange('text')).not.toThrow()

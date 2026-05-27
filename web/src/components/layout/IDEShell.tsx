@@ -96,34 +96,34 @@ export function IDEShell() {
 
   const contentPanel = (
     <ResizablePanel id="content" className="flex min-w-0 flex-1 flex-col overflow-hidden">
-      {/* h-full wrapper gives children a definite height to resolve against,
-          matching the sidebar's pattern and avoiding flex-1 percentage resolution issues */}
+      {/* h-full wrapper gives children a definite height — no separate drag strip here;
+          the tab bar is already h-[38px]/h-[28px] and has data-tauri-drag-region */}
       <div className="flex h-full flex-col overflow-hidden">
-        {/* Chrome title-bar strip — same frosted-glass treatment as the sidebar */}
-        <div className={cn(IS_MAC ? 'h-[38px]' : 'h-[28px]', 'w-full flex-shrink-0 select-none bg-chrome-bg backdrop-blur-sm')} data-tauri-drag-region />
-        {/* No bg-background here — each surface owns its own background so the
-            tab bar's backdrop-blur can reach through to the actual window/desktop */}
-        <div className="flex min-h-0 flex-1 flex-col overflow-hidden">
-          <ErrorBoundary>
-            {activeWorkspaceId ? (
-              <WorkspaceView wsId={activeWorkspaceId} label={workspaceLabel} />
-            ) : activeChatId ? (
-              <div className="flex h-full flex-col overflow-hidden">
-                {/* Chrome tab-label strip — transparent chrome, not solid */}
-                <div className="flex flex-shrink-0 items-center border-b border-border bg-chrome-bg px-3 py-1 text-sm font-medium backdrop-blur-sm">
-                  {chatTabLabel}
-                </div>
-                <div className="flex min-h-0 flex-1 overflow-hidden bg-background">
-                  <Outlet />
-                </div>
+        <ErrorBoundary>
+          {activeWorkspaceId ? (
+            <WorkspaceView wsId={activeWorkspaceId} label={workspaceLabel} />
+          ) : activeChatId ? (
+            <div className="flex h-full flex-col overflow-hidden">
+              {/* Chrome chat-title strip — platform-adaptive height matches the tab bar */}
+              <div
+                className={cn(
+                  'flex flex-shrink-0 items-center border-b border-border bg-chrome-bg backdrop-blur-sm px-3 font-medium',
+                  IS_MAC ? 'h-[38px] text-[13px]' : 'h-[28px] text-xs',
+                )}
+                data-tauri-drag-region
+              >
+                {chatTabLabel}
               </div>
-            ) : (
-              <div className="flex h-full flex-col overflow-hidden bg-background">
+              <div className="flex min-h-0 flex-1 overflow-hidden bg-background">
                 <Outlet />
               </div>
-            )}
-          </ErrorBoundary>
-        </div>
+            </div>
+          ) : (
+            <div className="flex h-full flex-col overflow-hidden bg-background">
+              <Outlet />
+            </div>
+          )}
+        </ErrorBoundary>
       </div>
     </ResizablePanel>
   )

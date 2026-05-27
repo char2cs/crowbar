@@ -4,7 +4,7 @@ import (
 	"net"
 	"testing"
 
-	"github.com/rabbytesoftware/crowbar/api/internal/core/gateway"
+	"github.com/char2cs/crowbar/api/internal/core/gateway"
 )
 
 func TestGatewayTCP(t *testing.T) {

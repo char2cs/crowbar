@@ -4,6 +4,9 @@ mod sse_bridge;
 
 use tauri::Manager;
 
+#[cfg(target_os = "macos")]
+use window_vibrancy::{apply_vibrancy, NSVisualEffectMaterial, NSVisualEffectState};
+
 pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_log::Builder::new().build())
@@ -11,6 +14,18 @@ pub fn run() {
         .manage(sidecar::SidecarHandle::new())
         .setup(|app| {
             let app_handle = app.handle().clone();
+
+            // Apply macOS vibrancy (frosted glass) to the whole window
+            if let Some(window) = app.get_webview_window("main") {
+                #[cfg(target_os = "macos")]
+                apply_vibrancy(
+                    &window,
+                    NSVisualEffectMaterial::HudWindow,
+                    Some(NSVisualEffectState::FollowsWindowActiveState),
+                    None,
+                )
+                .expect("Failed to apply vibrancy");
+            }
 
             // Inject window.__CROWBAR__ before the frontend loads
             if let Some(window) = app.get_webview_window("main") {

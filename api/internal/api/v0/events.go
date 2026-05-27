@@ -6,7 +6,7 @@ import (
 	"time"
 
 	"github.com/gin-gonic/gin"
-	"github.com/rabbytesoftware/crowbar/api/internal/app/hub"
+	"github.com/char2cs/crowbar/api/internal/app/hub"
 )
 
 type EventsHandler struct {

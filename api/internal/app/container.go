@@ -1,8 +1,8 @@
 package app
 
 import (
-	"github.com/rabbytesoftware/crowbar/api/internal/app/hub"
-	"github.com/rabbytesoftware/crowbar/api/internal/app/usecases"
+	"github.com/char2cs/crowbar/api/internal/app/hub"
+	"github.com/char2cs/crowbar/api/internal/app/usecases"
 )
 
 type Container struct {

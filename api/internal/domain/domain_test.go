@@ -4,7 +4,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/rabbytesoftware/crowbar/api/internal/domain"
+	"github.com/char2cs/crowbar/api/internal/domain"
 )
 
 func TestProjectDefaults(t *testing.T) {

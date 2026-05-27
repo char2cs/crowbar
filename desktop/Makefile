@@ -1,3 +1,7 @@
+export PATH := $(HOME)/.bun/bin:$(HOME)/.cargo/bin:$(HOME)/.rustup/toolchains/stable-aarch64-apple-darwin/bin:$(PATH)
+export RUSTUP_HOME := $(HOME)/.rustup
+export CARGO_HOME := $(HOME)/.cargo
+
 .PHONY: dev build test test-coverage lint fetch-sidecar
 
 dev: fetch-sidecar
