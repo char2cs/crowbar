@@ -108,7 +108,10 @@ const TabBarItem = memo(function TabBarItem({
         tabIndex={isActive ? 0 : -1}
         isActive={isActive}
         isDragged={isDraggedTab}
-        className={cn("h-5 pl-2 pr-6", isActive && "bg-muted/80")}
+        className={cn(
+          "h-5 rounded-full",
+          isActive ? "bg-muted pl-2 pr-5" : "bg-transparent pl-2 pr-2",
+        )}
         onClick={onClick}
         onMouseDown={onMouseDown}
         onDoubleClick={onDoubleClick}
@@ -213,9 +216,9 @@ const TabBarItem = memo(function TabBarItem({
           }
         }}
         className={cn(
-          "-translate-y-1/2 absolute top-1/2 right-1 h-4 min-w-4 cursor-pointer select-none rounded-sm px-0 text-muted-foreground transition-opacity",
-          "hover:text-foreground",
-          buffer.isPinned || isActive ? "opacity-100" : "opacity-0 group-hover/tab:opacity-100",
+          "-translate-y-1/2 absolute top-1/2 right-1 h-3.5 min-w-3.5 cursor-pointer select-none rounded-full p-0 text-muted-foreground transition-opacity",
+          "hover:bg-foreground/10 hover:text-foreground",
+          buffer.isPinned || isActive ? "opacity-60" : "opacity-0 group-hover/tab:opacity-100",
         )}
         tooltip={buffer.isPinned ? "Unpin tab" : "Close"}
         shortcut={buffer.isPinned ? undefined : "mod+w"}
