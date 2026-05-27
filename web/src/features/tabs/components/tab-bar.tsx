@@ -77,6 +77,8 @@ import UnsavedChangesDialog from "@/features/window/components/unsaved-changes-d
 import { useUIState } from "@/features/window/stores/ui-state-store";
 import { Button } from "@/components/ui/button";
 import { getRelativePath } from "@/utils/path-helpers";
+import { cn } from "@/utils/cn";
+import { IS_MAC } from "@/utils/platform";
 import { calculateDisplayNames } from "../utils/path-shortener";
 import {
   clearInternalTabDragData,
@@ -717,7 +719,10 @@ const TabBar = ({
         <div
           ref={tabBarRef}
           data-tab-bar-pane-id={paneId ?? ""}
-          className="relative flex h-9 shrink-0 items-center gap-1.5 overflow-hidden bg-chrome-bg backdrop-blur-sm px-2 py-1"
+          className={cn(
+            'relative flex shrink-0 items-center gap-1.5 overflow-hidden bg-chrome-bg backdrop-blur-sm px-2 py-1',
+            IS_MAC ? 'h-[38px]' : 'h-[28px]',
+          )}
           role="tablist"
           aria-label="Open files"
           onWheel={handleWheel}
