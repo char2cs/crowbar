@@ -55,17 +55,23 @@ describe('SidebarTabs', () => {
     useSidebarStore.setState({ activeTab: 'workspaces' })
     render(<SidebarTabs {...defaultProps} />)
     expect(screen.getByTestId('workspaces-panel')).toBeVisible()
+    expect(screen.getByTestId('files-panel')).not.toBeVisible()
+    expect(screen.getByTestId('git-panel')).not.toBeVisible()
   })
 
   it('shows files panel when activeTab is files', () => {
     useSidebarStore.setState({ activeTab: 'files' })
     render(<SidebarTabs {...defaultProps} />)
     expect(screen.getByTestId('files-panel')).toBeVisible()
+    expect(screen.getByTestId('workspaces-panel')).not.toBeVisible()
+    expect(screen.getByTestId('git-panel')).not.toBeVisible()
   })
 
   it('shows git panel when activeTab is git', () => {
     useSidebarStore.setState({ activeTab: 'git' })
     render(<SidebarTabs {...defaultProps} />)
     expect(screen.getByTestId('git-panel')).toBeVisible()
+    expect(screen.getByTestId('workspaces-panel')).not.toBeVisible()
+    expect(screen.getByTestId('files-panel')).not.toBeVisible()
   })
 })
