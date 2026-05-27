@@ -728,7 +728,7 @@ const TabBar = ({
               onClick={handleJumpBack}
               disabled={!canGoBack}
               variant="ghost"
-              className="h-5 min-w-5 shrink-0 rounded-md px-1 text-muted-foreground"
+              className="h-5 w-5 shrink-0 rounded-full p-0 text-muted-foreground"
               tooltip="Go Back"
               tooltipSide="bottom"
               commandId="navigation.goBack"
@@ -742,7 +742,7 @@ const TabBar = ({
               onClick={handleJumpForward}
               disabled={!canGoForward}
               variant="ghost"
-              className="h-5 min-w-5 shrink-0 rounded-md px-1 text-muted-foreground"
+              className="h-5 w-5 shrink-0 rounded-full p-0 text-muted-foreground"
               tooltip="Go Forward"
               tooltipSide="bottom"
               commandId="navigation.goForward"
@@ -784,7 +784,7 @@ const TabBar = ({
           <div className="flex shrink-0 items-center gap-1 pl-0.5">
             {paneId && !isBottomPane && (
               <DropdownMenu>
-                <DropdownMenuTrigger className="flex h-5 min-w-5 shrink-0 items-center justify-center rounded-md px-1 text-muted-foreground hover:bg-muted hover:text-foreground focus:outline-none" aria-label="New tab">
+                <DropdownMenuTrigger className="flex h-5 w-5 shrink-0 items-center justify-center rounded-full p-0 text-muted-foreground hover:bg-muted hover:text-foreground focus:outline-none" aria-label="New tab">
                   <Plus weight="bold" size={12} />
                 </DropdownMenuTrigger>
                 <DropdownMenuContent side="bottom" align="start" className="min-w-[140px]">
@@ -805,7 +805,7 @@ const TabBar = ({
                 onClick={() => closePane(paneId)}
                 variant="ghost"
                 compact
-                className="h-5 min-w-5 shrink-0 rounded-md px-1 text-muted-foreground"
+                className="h-5 w-5 shrink-0 rounded-full p-0 text-muted-foreground"
                 tooltip="Close Split"
                 tooltipSide="bottom"
                 aria-label="Close split pane"
