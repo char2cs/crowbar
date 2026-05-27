@@ -27,6 +27,9 @@ export interface ThemeTokens {
   input: string
   ring: string
 
+  // chrome tokens
+  chromeBg?: string
+
   // custom tokens — no shadcn equivalent
   warning: string
   info: string

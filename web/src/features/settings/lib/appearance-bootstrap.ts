@@ -319,13 +319,30 @@ export function ensureStartupAppearanceApplied(): void {
   applyBootstrapAppearance(cache);
 }
 
+/**
+ * Convert a `ThemeTokens` partial into a `--var-name: value` map.
+ * Only explicitly set optional tokens are emitted; required tokens that are
+ * present on `tokens` are also included.  This map is merged on top of the
+ * theme's legacy `cssVariables` bag so typed overrides win.
+ */
+export function themeTokensToCssVars(tokens: ThemeDefinition["tokens"]): Record<string, string> {
+  if (!tokens) return {};
+  const vars: Record<string, string> = {};
+  if (tokens.chromeBg) vars["--chrome-bg"] = tokens.chromeBg;
+  return vars;
+}
+
 export function cacheThemeForBootstrap(theme: ThemeDefinition): void {
   const existing = readAppearanceBootstrapCache() || DEFAULT_APPEARANCE_BOOTSTRAP_CACHE;
+  const cssVariables = {
+    ...sanitizeVarMap(theme.cssVariables),
+    ...themeTokensToCssVars(theme.tokens),
+  };
   const next: AppearanceBootstrapCache = {
     version: 1,
     themeId: theme.id,
     themeType: theme.isDark ? "dark" : "light",
-    cssVariables: sanitizeVarMap(theme.cssVariables),
+    cssVariables,
     syntaxTokens: sanitizeVarMap(theme.syntaxTokens),
     editorFontFamily: existing.editorFontFamily,
     uiFontFamily: existing.uiFontFamily,
