@@ -44,7 +44,7 @@ export function SidebarTabs({
       onValueChange={(v) => setActiveTab(v as SidebarTab)}
       className="flex flex-1 flex-col overflow-hidden"
     >
-      <TabsList className="h-9 w-full justify-start gap-0 rounded-none border-b border-border bg-card px-0">
+      <TabsList className="h-9 w-full justify-start gap-0 rounded-none border-b border-border bg-transparent px-0">
         <TabsTrigger
           value="workspaces"
           className="flex-1 rounded-none border-b-2 border-transparent px-3 py-1.5 text-[12px] text-muted-foreground data-[state=active]:border-primary data-[state=active]:bg-transparent data-[state=active]:text-foreground data-[state=active]:shadow-none"

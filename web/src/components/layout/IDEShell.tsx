@@ -43,7 +43,9 @@ export function IDEShell() {
 
   const sidebarPanel = (
     <ResizablePanel id="sidebar" defaultSize="20%" minSize="12%" maxSize="45%" className="flex flex-col overflow-hidden">
-      <div className={cn("flex h-full flex-col overflow-hidden bg-card", sidebarPosition === "right" ? "border-l border-border" : "border-r border-border")}>
+      <div className={cn("flex h-full flex-col overflow-hidden bg-chrome-bg backdrop-blur-sm", sidebarPosition === "right" ? "border-l border-border" : "border-r border-border")}>
+        {/* Traffic-light spacer: draggable empty strip that clears the macOS window controls */}
+        <div className="h-[38px] w-full flex-shrink-0" data-tauri-drag-region />
         <ErrorBoundary>
           <SidebarHeader
             userInitials="MU"
@@ -101,7 +103,7 @@ export function IDEShell() {
   )
 
   return (
-    <div className="flex h-screen overflow-hidden bg-background text-foreground">
+    <div className="flex h-screen overflow-hidden bg-transparent text-foreground">
       <ResizablePanelGroup orientation="horizontal" className="h-full">
         {sidebarPosition === "right" ? (
           <>{contentPanel}<ResizableHandle />{sidebarPanel}</>

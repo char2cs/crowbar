@@ -25,7 +25,7 @@ export function SidebarPanel({
   return (
     <div
       className={cn(
-        "flex h-full min-h-0 flex-col bg-primary-bg",
+        "flex h-full min-h-0 flex-col bg-chrome-bg",
         framed && "rounded-lg border border-border/70",
         className,
       )}
