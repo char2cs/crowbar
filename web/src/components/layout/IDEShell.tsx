@@ -45,7 +45,7 @@ export function IDEShell() {
     <ResizablePanel id="sidebar" defaultSize="20%" minSize="12%" maxSize="45%" className="flex flex-col overflow-hidden">
       <div className={cn("flex h-full flex-col overflow-hidden bg-chrome-bg backdrop-blur-sm", sidebarPosition === "right" ? "border-l border-border" : "border-r border-border")}>
         {/* Traffic-light spacer: draggable empty strip that clears the macOS window controls */}
-        <div className="h-[38px] w-full flex-shrink-0" data-tauri-drag-region />
+        <div className="h-[38px] w-full flex-shrink-0 select-none" data-tauri-drag-region />
         <ErrorBoundary>
           <SidebarHeader
             userInitials="MU"
@@ -82,23 +82,26 @@ export function IDEShell() {
   )
 
   const contentPanel = (
-    <ResizablePanel id="content" className="flex min-w-0 flex-1 flex-col overflow-hidden bg-background">
-      <ErrorBoundary>
-        {activeWorkspaceId ? (
-          <WorkspaceView wsId={activeWorkspaceId} label={workspaceLabel} />
-        ) : activeChatId ? (
-          <div className="flex h-full flex-col overflow-hidden">
-            <div className="flex items-center border-b border-border px-3 py-1 text-sm font-medium">
-              {chatTabLabel}
+    <ResizablePanel id="content" className="flex min-w-0 flex-1 flex-col overflow-hidden">
+      <div className="h-[38px] w-full flex-shrink-0 select-none" data-tauri-drag-region />
+      <div className="flex min-h-0 flex-1 flex-col overflow-hidden bg-background">
+        <ErrorBoundary>
+          {activeWorkspaceId ? (
+            <WorkspaceView wsId={activeWorkspaceId} label={workspaceLabel} />
+          ) : activeChatId ? (
+            <div className="flex h-full flex-col overflow-hidden">
+              <div className="flex items-center border-b border-border px-3 py-1 text-sm font-medium">
+                {chatTabLabel}
+              </div>
+              <Outlet />
             </div>
-            <Outlet />
-          </div>
-        ) : (
-          <div className="flex h-full flex-col overflow-hidden">
-            <Outlet />
-          </div>
-        )}
-      </ErrorBoundary>
+          ) : (
+            <div className="flex h-full flex-col overflow-hidden">
+              <Outlet />
+            </div>
+          )}
+        </ErrorBoundary>
+      </div>
     </ResizablePanel>
   )
 
