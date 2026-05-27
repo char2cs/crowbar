@@ -109,8 +109,8 @@ const TabBarItem = memo(function TabBarItem({
         isActive={isActive}
         isDragged={isDraggedTab}
         className={cn(
-          "h-7 rounded-full",
-          isActive ? "bg-muted pl-2.5 pr-6" : "bg-transparent pl-2.5 pr-2.5",
+          "h-7 gap-1.5 rounded-full",
+          isActive ? "bg-muted pl-2.5 pr-7" : "bg-transparent pl-2.5 pr-2.5",
         )}
         onClick={onClick}
         onMouseDown={onMouseDown}
@@ -119,7 +119,7 @@ const TabBarItem = memo(function TabBarItem({
         onKeyDown={onKeyDown}
         onAuxClick={handleAuxClick}
       >
-        <div className="grid size-3 shrink-0 place-content-center">
+        <div className="grid size-3.5 shrink-0 place-content-center">
           {buffer.path === "extensions://marketplace" ? (
             <Package className="text-muted-foreground" />
           ) : buffer.type === "diff" && isMultiFileDiff(buffer.diffData) ? (
@@ -133,7 +133,7 @@ const TabBarItem = memo(function TabBarItem({
               <img
                 src={buffer.favicon}
                 alt=""
-                className="size-3 object-contain"
+                className="size-3.5 object-contain"
                 onError={() => setFaviconError(true)}
               />
             ) : (
@@ -146,7 +146,7 @@ const TabBarItem = memo(function TabBarItem({
               <img
                 src={buffer.authorAvatarUrl}
                 alt=""
-                className="size-3 rounded-full object-cover"
+                className="size-3.5 rounded-full object-cover"
                 loading="lazy"
               />
             ) : (
@@ -157,7 +157,7 @@ const TabBarItem = memo(function TabBarItem({
               <img
                 src={buffer.authorAvatarUrl}
                 alt=""
-                className="size-3 rounded-full object-cover"
+                className="size-3.5 rounded-full object-cover"
                 loading="lazy"
               />
             ) : (
@@ -176,13 +176,13 @@ const TabBarItem = memo(function TabBarItem({
               fileName={getDiffIconName() ?? buffer.name}
               isDir={false}
               className="text-muted-foreground"
-              size={12}
+              size={14}
             />
           )}
         </div>
         <span
           className={cn(
-            "ui-font ui-text-sm min-w-0 flex-1 overflow-hidden text-ellipsis whitespace-nowrap",
+            "ui-font text-[13px] min-w-0 flex-1 overflow-hidden text-ellipsis whitespace-nowrap",
             isActive ? "text-foreground" : "text-muted-foreground",
             buffer.isPreview && "italic",
           )}
@@ -216,7 +216,7 @@ const TabBarItem = memo(function TabBarItem({
           }
         }}
         className={cn(
-          "-translate-y-1/2 absolute top-1/2 right-1.5 h-4 min-w-4 cursor-pointer select-none rounded-full p-0 text-muted-foreground transition-opacity",
+          "absolute inset-y-0 my-auto right-1.5 h-4 min-w-4 cursor-pointer select-none rounded-full p-0 text-muted-foreground transition-opacity",
           "hover:bg-foreground/10 dark:hover:bg-foreground/10 hover:text-foreground",
           buffer.isPinned || isActive ? "opacity-60" : "opacity-0 group-hover/tab:opacity-100",
         )}
@@ -228,7 +228,7 @@ const TabBarItem = memo(function TabBarItem({
         {buffer.isPinned ? (
           <Pin className="pointer-events-none select-none fill-current text-accent" />
         ) : (
-          <X className="pointer-events-none select-none" />
+          <X className="pointer-events-none select-none size-3" />
         )}
       </Button>
     </div>
