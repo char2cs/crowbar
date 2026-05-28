@@ -10,7 +10,8 @@ import {
 import CsvPreview from "@/extensions/viewers/csv/csv-preview";
 import { useLspIntegration } from "@/features/editor/hooks/use-lsp-integration";
 import { useEditorScroll } from "@/features/editor/hooks/use-scroll";
-import { useBufferStore } from "@/features/editor/stores/buffer-store";
+import { useWorkspaceStoreContext } from "@/features/workspace/stores/workspace-context";
+import { findPaneGroup } from "@/features/panes/utils/pane-tree";
 import { useEditorSettingsStore } from "@/features/editor/stores/settings-store";
 import { useEditorStateStore } from "@/features/editor/stores/state-store";
 import { useEditorUIStore } from "@/features/editor/stores/ui-store";
@@ -126,9 +127,18 @@ const CodeEditor = ({
     useEditorStateStore.use.actions();
   const { setDisabled } = useEditorSettingsStore.use.actions();
 
-  const activeBufferId = useBufferStore((state) => propBufferId ?? state.activeBufferId);
+  const activeBufferId = useWorkspaceStoreContext(
+    useCallback(
+      (state) => {
+        if (propBufferId) return propBufferId
+        const paneToUse = paneId ?? state.activePaneId
+        return findPaneGroup(state.paneRoot, paneToUse)?.activeBufferId ?? null
+      },
+      [paneId, propBufferId],
+    ),
+  );
   const zoomLevel = useZoomStore.use.editorZoomLevel();
-  const activeBuffer = useBufferStore(
+  const activeBuffer = useWorkspaceStoreContext(
     useCallback(
       (state) =>
         activeBufferId
