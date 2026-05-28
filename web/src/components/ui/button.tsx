@@ -52,6 +52,18 @@ export interface ButtonProps extends useRender.ComponentProps<"button"> {
   variant?: VariantProps<typeof buttonVariants>["variant"];
   size?: VariantProps<typeof buttonVariants>["size"];
   loading?: boolean;
+  /** Active state — adds bg-accent/20 highlight when true (Crowbar/Athas compat) */
+  active?: boolean;
+  /** Compact mode (Crowbar/Athas compat, no visual effect) */
+  compact?: boolean;
+  /** Tooltip text (Crowbar/Athas compat, not rendered) */
+  tooltip?: string;
+  /** Keyboard shortcut hint (Crowbar/Athas compat, not rendered) */
+  shortcut?: string;
+  /** Tooltip side preference (Crowbar/Athas compat, not rendered) */
+  tooltipSide?: "top" | "right" | "bottom" | "left";
+  /** Command ID for keybinding hints (Crowbar/Athas compat, not rendered) */
+  commandId?: string;
 }
 
 export function Button({
@@ -62,6 +74,12 @@ export function Button({
   children,
   loading = false,
   disabled: disabledProp,
+  active,
+  compact: _compact,
+  tooltip: _tooltip,
+  shortcut: _shortcut,
+  tooltipSide: _tooltipSide,
+  commandId: _commandId,
   ...props
 }: ButtonProps): React.ReactElement {
   const isDisabled: boolean = Boolean(loading || disabledProp);
@@ -80,7 +98,7 @@ export function Button({
         )}
       </>
     ),
-    className: cn(buttonVariants({ className, size, variant })),
+    className: cn(buttonVariants({ className, size, variant }), active && "bg-accent/20"),
     "aria-disabled": loading || undefined,
     "data-loading": loading ? "" : undefined,
     "data-slot": "button",

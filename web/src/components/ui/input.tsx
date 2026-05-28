@@ -1,6 +1,7 @@
 "use client";
 
 import { Input as InputPrimitive } from "@base-ui/react/input";
+import type { Icon } from "@phosphor-icons/react";
 import type * as React from "react";
 import { cn } from "@/lib/utils";
 
@@ -11,6 +12,10 @@ export type InputProps = Omit<
   size?: "sm" | "default" | "lg" | number;
   unstyled?: boolean;
   nativeInput?: boolean;
+  /** Icon component displayed on the left side (Crowbar/Athas compat) */
+  leftIcon?: Icon | React.ComponentType<{ className?: string }>;
+  /** Container class (Crowbar/Athas compat, not applied to inner element) */
+  containerClassName?: string;
 };
 
 export function Input({
@@ -19,6 +24,8 @@ export function Input({
   unstyled = false,
   nativeInput = false,
   style,
+  leftIcon: _leftIcon,
+  containerClassName: _containerClassName,
   ...props
 }: InputProps): React.ReactElement {
   const inputClassName = cn(
