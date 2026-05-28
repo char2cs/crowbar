@@ -34,11 +34,11 @@ const shared = {
 }
 
 describe('TabBarItem pill restyle', () => {
-  it('active tab has rounded-full and bg-primary/15 classes', () => {
+  it('active tab has rounded-full and bg-foreground/85 classes', () => {
     render(<TabBarItem buffer={editorBuffer} isActive={true} {...shared} />)
     const tab = screen.getByRole('tab')
     expect(tab).toHaveClass('rounded-full')
-    expect(tab).toHaveClass('bg-primary/15')
+    expect(tab).toHaveClass('bg-foreground/85')
   })
 
   it('inactive tab has rounded-full but not bg-muted', () => {
@@ -65,9 +65,9 @@ describe('TabBarItem pill restyle', () => {
     expect(closeBtn).toHaveClass('rounded-full')
   })
 
-  it('close button has hover:bg-foreground/10 class', () => {
+  it('inactive close button has hover:bg-foreground/10 class', () => {
     const { container } = render(
-      <TabBarItem buffer={editorBuffer} isActive={true} {...shared} />
+      <TabBarItem buffer={editorBuffer} isActive={false} {...shared} />
     )
     const closeBtn = container.querySelectorAll('button')[1] as HTMLElement
     expect(closeBtn).toBeDefined()
