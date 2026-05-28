@@ -152,9 +152,10 @@ export function collectWorkspaceTextEdits(edit: WorkspaceEdit): Map<string, LspT
 async function readEditableSource(
   filePath: string,
 ): Promise<{ bufferId: string | null; content: string }> {
-  const { useBufferStore } = await import("../stores/buffer-store");
+  const { getActiveWorkspaceStoreRef } = await import("@/features/workspace/stores/workspace-store-ref");
   const { readFile } = await import("@/features/file-system/controllers/platform");
-  const { buffers } = useBufferStore.getState();
+  const wsStore = getActiveWorkspaceStoreRef()?.getState();
+  const buffers = wsStore?.buffers ?? [];
   const openBuffer = buffers.find(
     (buffer) => buffer.type === "editor" && !buffer.isVirtual && buffer.path === filePath,
   );
@@ -167,11 +168,19 @@ async function readEditableSource(
 }
 
 async function writeEditableSource(filePath: string, bufferId: string | null, content: string) {
-  const { useBufferStore } = await import("../stores/buffer-store");
+  const { getActiveWorkspaceStoreRef } = await import("@/features/workspace/stores/workspace-store-ref");
+  const { isEditorContent } = await import("@/features/panes/types/pane-content");
   const { writeFile } = await import("@/features/file-system/controllers/platform");
 
   if (bufferId) {
-    useBufferStore.getState().actions.updateBufferContent(bufferId, content, true);
+    const wsRef = getActiveWorkspaceStoreRef();
+    wsRef?.setState((state) => ({
+      buffers: state.buffers.map((b) =>
+        b.id === bufferId && isEditorContent(b)
+          ? { ...b, content, isDirty: content !== b.savedContent }
+          : b,
+      ),
+    }));
     return;
   }
 

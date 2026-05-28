@@ -3,6 +3,8 @@ import { createWithEqualityFn } from "zustand/traditional";
 import { isEditorContent } from "@/features/panes/types/pane-content";
 import { createSelectors } from "@/utils/zustand-selectors";
 import { createSparseLineArray, getLargeEditorModeInfo } from "../utils/large-file";
+import { getActiveWorkspaceStoreRef } from "@/features/workspace/stores/workspace-store-ref";
+import { findPaneGroup } from "@/features/panes/utils/pane-tree";
 import { useBufferStore } from "./buffer-store";
 
 interface EditorViewState {
@@ -35,7 +37,10 @@ export const useEditorViewStore = createSelectors(
         getLineCount: () => get().lineCount,
 
         getContent: () => {
-          const activeBuffer = useBufferStore.getState().actions.getActiveBuffer();
+          const wsStore = getActiveWorkspaceStoreRef()?.getState();
+          if (!wsStore) return "";
+          const activeBufferId = findPaneGroup(wsStore.paneRoot, wsStore.activePaneId)?.activeBufferId ?? null;
+          const activeBuffer = activeBufferId ? wsStore.buffers.find((b) => b.id === activeBufferId) : null;
           if (!activeBuffer || !isEditorContent(activeBuffer)) return "";
           return activeBuffer.content;
         },

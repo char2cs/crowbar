@@ -13,18 +13,55 @@ import {
 import { useSettingsStore } from "@/features/settings/store";
 import { createSelectors } from "@/utils/zustand-selectors";
 import { writeFile } from "@/features/file-system/controllers/platform";
+import { getActiveWorkspaceStoreRef } from "@/features/workspace/stores/workspace-store-ref";
+import { findPaneGroup } from "@/features/panes/utils/pane-tree";
 import type { Position, Range } from "../types/editor";
 import { trackBufferHistoryChange } from "./buffer-history-tracking";
-import { useBufferStore } from "./buffer-store";
 
 async function saveEditorBufferById(bufferId: string): Promise<boolean> {
-  const { buffers } = useBufferStore.getState();
-  const { markBufferDirty, updateBufferContent, updateBufferPath } =
-    useBufferStore.getState().actions;
+  const wsRef = getActiveWorkspaceStoreRef();
+  const wsStore = wsRef?.getState();
+  if (!wsStore) return false;
+  const { buffers } = wsStore;
   const { updateSettingsFromJSON } = useSettingsStore.getState();
   const { markPendingSave } = useFileWatcherStore.getState();
   const activeBuffer = buffers.find((buffer) => buffer.id === bufferId);
   if (!activeBuffer || !isEditorContent(activeBuffer)) return false;
+
+  const markBufferDirty = (id: string, isDirty: boolean) => {
+    wsRef?.setState((state) => ({
+      buffers: state.buffers.map((b) =>
+        b.id === id && isEditorContent(b)
+          ? { ...b, isDirty, ...(isDirty ? {} : { savedContent: b.content }) }
+          : b,
+      ),
+    }));
+  };
+
+  const updateBufferContent = (id: string, content: string, markDirty = true) => {
+    wsRef?.setState((state) => ({
+      buffers: state.buffers.map((b) =>
+        b.id === id && isEditorContent(b)
+          ? {
+              ...b,
+              content,
+              ...(markDirty ? { isDirty: content !== b.savedContent } : { savedContent: content, isDirty: false }),
+            }
+          : b,
+      ),
+    }));
+  };
+
+  const updateBufferPath = (id: string, newPath: string) => {
+    const newName = newPath.split("/").pop() || newPath;
+    wsRef?.setState((state) => ({
+      buffers: state.buffers.map((b) =>
+        b.id === id && isEditorContent(b)
+          ? { ...b, path: newPath, name: newName, isVirtual: false, savedContent: b.content }
+          : b,
+      ),
+    }));
+  };
 
   if (activeBuffer.path.startsWith("untitled:")) {
     // No Tauri dialog available — prompt the user for a filename via browser API
@@ -177,8 +214,11 @@ export const useEditorAppStore = createSelectors(
           previousSelection?: Range,
           options?: { contentAlreadyApplied?: boolean; skipUndoGrouping?: boolean },
         ) => {
-          const { activeBufferId, buffers } = useBufferStore.getState();
-          const { updateBufferContent, markBufferDirty } = useBufferStore.getState().actions;
+          const wsRef = getActiveWorkspaceStoreRef();
+          const wsStore = wsRef?.getState();
+          if (!wsStore) return;
+          const { buffers, paneRoot, activePaneId } = wsStore;
+          const activeBufferId = findPaneGroup(paneRoot, activePaneId)?.activeBufferId ?? null;
           const { settings } = useSettingsStore.getState();
           const { markPendingSave } = useFileWatcherStore.getState();
           const contentAlreadyApplied = options?.contentAlreadyApplied === true;
@@ -202,11 +242,21 @@ export const useEditorAppStore = createSelectors(
 
           if (isRemoteFile) {
             if (!contentAlreadyApplied) {
-              updateBufferContent(activeBuffer.id, content, false);
+              wsRef?.setState((state) => ({
+                buffers: state.buffers.map((b) =>
+                  b.id === activeBuffer.id && isEditorContent(b) ? { ...b, content } : b,
+                ),
+              }));
             }
           } else {
             if (!contentAlreadyApplied) {
-              updateBufferContent(activeBuffer.id, content, true);
+              wsRef?.setState((state) => ({
+                buffers: state.buffers.map((b) =>
+                  b.id === activeBuffer.id && isEditorContent(b)
+                    ? { ...b, content, isDirty: content !== b.savedContent }
+                    : b,
+                ),
+              }));
             }
 
             if (!activeBuffer.isVirtual && settings.autoSave) {
@@ -219,7 +269,13 @@ export const useEditorAppStore = createSelectors(
                 try {
                   markPendingSave(activeBuffer.path);
                   await writeFile(activeBuffer.path, content);
-                  markBufferDirty(activeBuffer.id, false);
+                  wsRef?.setState((state) => ({
+                    buffers: state.buffers.map((b) =>
+                      b.id === activeBuffer.id && isEditorContent(b)
+                        ? { ...b, isDirty: false, savedContent: content }
+                        : b,
+                    ),
+                  }));
 
                   const rootFolderPath = useFileSystemStore.getState().rootFolderPath;
                   if (rootFolderPath) {
@@ -234,7 +290,13 @@ export const useEditorAppStore = createSelectors(
                   }
                 } catch (error) {
                   console.error("Error saving file:", error);
-                  markBufferDirty(activeBuffer.id, true);
+                  wsRef?.setState((state) => ({
+                    buffers: state.buffers.map((b) =>
+                      b.id === activeBuffer.id && isEditorContent(b)
+                        ? { ...b, isDirty: true }
+                        : b,
+                    ),
+                  }));
                 }
               }, 150);
 
@@ -246,7 +308,10 @@ export const useEditorAppStore = createSelectors(
         },
 
         handleSave: async () => {
-          const { activeBufferId, buffers } = useBufferStore.getState();
+          const wsStore = getActiveWorkspaceStoreRef()?.getState();
+          if (!wsStore) return;
+          const { buffers, paneRoot, activePaneId } = wsStore;
+          const activeBufferId = findPaneGroup(paneRoot, activePaneId)?.activeBufferId ?? null;
           const activeBuffer = buffers.find((b) => b.id === activeBufferId);
           if (!activeBuffer || !isEditorContent(activeBuffer)) return;
 
@@ -254,15 +319,17 @@ export const useEditorAppStore = createSelectors(
         },
 
         handleSaveAll: async () => {
-          const dirtyBufferIds = getDirtyEditorBuffers(useBufferStore.getState().buffers).map(
+          const wsStore = getActiveWorkspaceStoreRef()?.getState();
+          if (!wsStore) return 0;
+          const dirtyBufferIds = getDirtyEditorBuffers(wsStore.buffers).map(
             (buffer) => buffer.id,
           );
           let savedCount = 0;
 
           for (const bufferId of dirtyBufferIds) {
             const saved = await saveEditorBufferById(bufferId);
-            const nextBuffer = useBufferStore
-              .getState()
+            const nextBuffer = getActiveWorkspaceStoreRef()
+              ?.getState()
               .buffers.find((buffer) => buffer.id === bufferId);
             if (saved && (!nextBuffer || !isEditorContent(nextBuffer) || !nextBuffer.isDirty)) {
               savedCount += 1;

@@ -2,7 +2,8 @@ import { useCallback } from "react";
 import { EDITOR_CONSTANTS } from "@/features/editor/config/constants";
 import { editorAPI } from "@/features/editor/extensions/api";
 import { useCenterCursor } from "@/features/editor/hooks/use-center-cursor";
-import { useBufferStore } from "@/features/editor/stores/buffer-store";
+import { getActiveWorkspaceStoreRef } from "@/features/workspace/stores/workspace-store-ref";
+import { findPaneGroup } from "@/features/panes/utils/pane-tree";
 import { useJumpListStore } from "@/features/editor/stores/jump-list-store";
 import { useEditorStateStore } from "@/features/editor/stores/state-store";
 import { calculateOffsetFromContentPosition } from "@/features/editor/utils/position";
@@ -84,10 +85,12 @@ export const useGoToDefinition = ({
             const target = definitions[0];
             const targetFilePath = target.uri.replace("file://", "");
 
-            const bufferStore = useBufferStore.getState();
+            const wsRef = getActiveWorkspaceStoreRef();
+            const wsStore = wsRef?.getState();
+            if (!wsStore) return;
 
             // Push current position to jump list before navigating
-            const activeBufferId = bufferStore.activeBufferId;
+            const activeBufferId = findPaneGroup(wsStore.paneRoot, wsStore.activePaneId)?.activeBufferId ?? null;
             if (activeBufferId && filePath) {
               const editorState = useEditorStateStore.getState();
               useJumpListStore.getState().actions.pushEntry({
@@ -100,15 +103,20 @@ export const useGoToDefinition = ({
                 scrollLeft: editorState.scrollLeft,
               });
             }
-            const existingBuffer = bufferStore.buffers.find((b) => b.path === targetFilePath);
+            const existingBuffer = wsStore.buffers.find((b) => b.path === targetFilePath);
 
             if (existingBuffer) {
-              bufferStore.actions.setActiveBuffer(existingBuffer.id);
+              wsStore.paneActions.activatePaneBuffer(wsStore.activePaneId, existingBuffer.id);
             } else {
               const content = await readFileContent(targetFilePath);
               const fileName = targetFilePath.split("/").pop() || "untitled";
-              const bufferId = bufferStore.actions.openBuffer(targetFilePath, fileName, content);
-              bufferStore.actions.setActiveBuffer(bufferId);
+              const bufferId = wsStore.bufferActions.openContent({
+                type: "editor",
+                path: targetFilePath,
+                name: fileName,
+                content,
+              });
+              wsStore.paneActions.activatePaneBuffer(wsStore.activePaneId, bufferId);
             }
 
             // Set cursor position after buffer is ready

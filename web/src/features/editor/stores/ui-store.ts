@@ -1,6 +1,7 @@
 import type { CompletionItem } from "vscode-languageserver-protocol";
 import { create } from "zustand";
-import { useBufferStore } from "@/features/editor/stores/buffer-store";
+import { getActiveWorkspaceStoreRef } from "@/features/workspace/stores/workspace-store-ref";
+import { findPaneGroup } from "@/features/panes/utils/pane-tree";
 import { useEditorStateStore } from "@/features/editor/stores/state-store";
 import { hasTextContent } from "@/features/panes/types/pane-content";
 import { useSettingsStore } from "@/features/settings/store";
@@ -44,9 +45,11 @@ type DefinitionLinkRange = {
 };
 
 function getActiveTextContent(): string {
-  const { activeBufferId, buffers } = useBufferStore.getState();
+  const wsStore = getActiveWorkspaceStoreRef()?.getState();
+  if (!wsStore) return "";
+  const activeBufferId = findPaneGroup(wsStore.paneRoot, wsStore.activePaneId)?.activeBufferId ?? null;
   const activeBuffer = activeBufferId
-    ? buffers.find((buffer) => buffer.id === activeBufferId)
+    ? wsStore.buffers.find((buffer) => buffer.id === activeBufferId)
     : null;
   return activeBuffer && hasTextContent(activeBuffer) ? activeBuffer.content : "";
 }
