@@ -43,30 +43,15 @@ export const buttonVariants = cva(
           "border-input bg-popover not-dark:bg-clip-padding text-foreground shadow-xs/5 not-disabled:not-active:not-data-pressed:before:shadow-[0_1px_--theme(--color-black/4%)] hover:bg-accent/50 data-pressed:bg-accent/50 *:data-[slot=button-loading-indicator]:text-foreground dark:bg-input/32 dark:data-pressed:bg-input/64 dark:hover:bg-input/64 dark:not-disabled:before:shadow-[0_-1px_--theme(--color-white/2%)] dark:not-disabled:not-active:not-data-pressed:before:shadow-[0_-1px_--theme(--color-white/6%)] [:disabled,:active,[data-pressed]]:shadow-none",
         secondary:
           "border-transparent bg-secondary text-secondary-foreground hover:bg-secondary/90 data-pressed:bg-secondary/90 *:data-[slot=button-loading-indicator]:text-secondary-foreground [:active,[data-pressed]]:bg-secondary/80",
-        // Crowbar aliases — map to nearest @coss/ui variant
-        accent:
-          "not-disabled:inset-shadow-[0_1px_--theme(--color-white/16%)] border-primary bg-primary text-primary-foreground shadow-primary/24 shadow-xs hover:bg-primary/90 data-pressed:bg-primary/90 [:active,[data-pressed]]:inset-shadow-[0_1px_--theme(--color-black/8%)] [:disabled,:active,[data-pressed]]:shadow-none",
-        muted:
-          "border-transparent text-foreground hover:bg-accent data-pressed:bg-accent",
-        danger:
-          "not-disabled:inset-shadow-[0_1px_--theme(--color-white/16%)] border-destructive bg-destructive text-white shadow-destructive/24 shadow-xs hover:bg-destructive/90 data-pressed:bg-destructive/90 [:active,[data-pressed]]:inset-shadow-[0_1px_--theme(--color-black/8%)] [:disabled,:active,[data-pressed]]:shadow-none",
       },
     },
-  }
+  },
 );
 
 export interface ButtonProps extends useRender.ComponentProps<"button"> {
   variant?: VariantProps<typeof buttonVariants>["variant"];
   size?: VariantProps<typeof buttonVariants>["size"];
   loading?: boolean;
-  /** Crowbar compat — accepted but silent (no tooltip infrastructure in @coss/ui button) */
-  compact?: boolean;
-  tooltip?: string;
-  shortcut?: string;
-  tooltipSide?: "top" | "right" | "bottom" | "left";
-  commandId?: string;
-  /** Adds bg-accent/20 highlight when true */
-  active?: boolean;
 }
 
 export function Button({
@@ -77,12 +62,6 @@ export function Button({
   children,
   loading = false,
   disabled: disabledProp,
-  compact: _compact,
-  tooltip: _tooltip,
-  shortcut: _shortcut,
-  tooltipSide: _tooltipSide,
-  commandId: _commandId,
-  active,
   ...props
 }: ButtonProps): React.ReactElement {
   const isDisabled: boolean = Boolean(loading || disabledProp);
@@ -101,10 +80,7 @@ export function Button({
         )}
       </>
     ),
-    className: cn(
-      buttonVariants({ className, size, variant }),
-      active && "bg-accent/20",
-    ),
+    className: cn(buttonVariants({ className, size, variant })),
     "aria-disabled": loading || undefined,
     "data-loading": loading ? "" : undefined,
     "data-slot": "button",
