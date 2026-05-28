@@ -44,7 +44,7 @@ export function SidebarTabs({
       onValueChange={(v) => setActiveTab(v as SidebarTab)}
       className="flex flex-1 flex-col overflow-hidden"
     >
-      <TabsContent value="workspaces" forceMount hidden={activeTab !== 'workspaces'} className="flex flex-1 flex-col overflow-hidden mt-0">
+      <TabsContent value="workspaces" keepMounted className="flex flex-1 flex-col overflow-hidden mt-0">
         <WorkspacesSidebarPanel
           chats={chats}
           repos={repos}
@@ -61,7 +61,7 @@ export function SidebarTabs({
         />
       </TabsContent>
 
-      <TabsContent value="files" forceMount hidden={activeTab !== 'files'} className="flex flex-1 flex-col overflow-hidden mt-0">
+      <TabsContent value="files" keepMounted className="flex flex-1 flex-col overflow-hidden mt-0">
         <ErrorBoundary>
           <Suspense fallback={<SidebarSkeleton />}>
             <FileExplorerTree
@@ -83,7 +83,7 @@ export function SidebarTabs({
         </ErrorBoundary>
       </TabsContent>
 
-      <TabsContent value="git" forceMount hidden={activeTab !== 'git'} className="flex flex-1 flex-col overflow-hidden mt-0">
+      <TabsContent value="git" keepMounted className="flex flex-1 flex-col overflow-hidden mt-0">
         <ErrorBoundary>
           <Suspense fallback={<SidebarSkeleton />}>
             <GitView repoPath={activeWorkspaceRepoPath} />

@@ -18,8 +18,8 @@ test('renders all state labels', () => {
 test('calls onStepChange with state name when tab clicked', () => {
   const onStepChange = vi.fn()
   render(<WorkspaceStepTabs states={STATES} currentStep="brainstorming" onStepChange={onStepChange} />)
-  // Radix UI Tabs fires onValueChange via onMouseDown, not onClick
-  fireEvent.mouseDown(screen.getByRole('tab', { name: /spec/i }))
+  // Base UI Tabs fires onValueChange via onClick
+  fireEvent.click(screen.getByRole('tab', { name: /spec/i }))
   expect(onStepChange).toHaveBeenCalledWith('spec')
 })
 

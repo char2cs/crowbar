@@ -19,7 +19,7 @@ function StepDot({ state }: { state: 'done' | 'active' | 'pending' }) {
 export function WorkspaceStepTabs({ states, currentStep, onStepChange }: WorkspaceStepTabsProps) {
   const activeIdx = states.findIndex(s => s.name === currentStep)
   return (
-    <Tabs value={currentStep} onValueChange={onStepChange}>
+    <Tabs value={currentStep} onValueChange={(v) => onStepChange(v as string)}>
       <TabsList className="h-10 w-full justify-start gap-0 rounded-none border-b border-border bg-card px-4">
         {states.map((s, i) => (
           <div key={s.name} className="flex items-center">
