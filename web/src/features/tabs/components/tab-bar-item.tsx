@@ -108,10 +108,7 @@ const TabBarItem = memo(function TabBarItem({
         tabIndex={isActive ? 0 : -1}
         isActive={isActive}
         isDragged={isDraggedTab}
-        className={cn(
-          "h-7 gap-1.5 pl-2.5",
-          isActive ? "pr-7" : "pr-2.5",
-        )}
+        className="h-7 gap-1.5 pl-2.5 pr-7"
         onClick={onClick}
         onMouseDown={onMouseDown}
         onDoubleClick={onDoubleClick}
