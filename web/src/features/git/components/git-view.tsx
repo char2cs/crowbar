@@ -12,7 +12,7 @@ import {
   Upload,
 } from "@phosphor-icons/react";
 import { memo, type ReactNode, useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { useBufferStore } from "@/features/editor/stores/buffer-store";
+import { getActiveWorkspaceStoreRef } from "@/features/workspace/stores/workspace-store-ref";
 import { useSettingsStore } from "@/features/settings/store";
 import { Button } from "@/components/ui/button";
 import { CommandEmpty, CommandList } from "@/components/ui/command";
@@ -489,18 +489,13 @@ const GitView = ({ repoPath, onFileSelect, isActive }: GitViewProps) => {
         };
 
         const virtualPath = "diff://working-tree/all-files";
-        const bufferId = useBufferStore
-          .getState()
-          .actions.openBuffer(
-            virtualPath,
-            "Uncommitted Changes",
-            "",
-            false,
-            undefined,
-            true,
-            true,
-            initialMultiDiff,
-          );
+        const bufferId = getActiveWorkspaceStoreRef()?.getState().bufferActions.openContent({
+          type: 'diff',
+          path: virtualPath,
+          name: "Uncommitted Changes",
+          content: "",
+          diffData: initialMultiDiff,
+        }) ?? "";
 
         // Load remaining diffs in the background
         const repoPath = activeRepoPath;
@@ -532,7 +527,7 @@ const GitView = ({ repoPath, onFileSelect, isActive }: GitViewProps) => {
               });
 
               const stats = countDiffStats(accumulatedDiffs.map((item) => item.diff));
-              useBufferStore.getState().actions.updateBufferContent(bufferId, "", false, {
+              const nextDiffData1: MultiFileDiff = {
                 title: "Uncommitted Changes",
                 commitHash: "working-tree",
                 files: accumulatedDiffs.map((item) => item.diff),
@@ -542,12 +537,18 @@ const GitView = ({ repoPath, onFileSelect, isActive }: GitViewProps) => {
                 fileKeys: accumulatedDiffs.map((item) => item.fileKey),
                 initiallyExpandedFileKey: selectedFileKey,
                 isLoading: true,
-              } satisfies MultiFileDiff);
+              };
+              getActiveWorkspaceStoreRef()?.setState((state) => ({
+                ...state,
+                buffers: state.buffers.map((b) =>
+                  b.id === bufferId && b.type === 'diff' ? { ...b, diffData: nextDiffData1 } : b,
+                ),
+              }));
               await Promise.resolve();
             }
 
             const allStats = countDiffStats(accumulatedDiffs.map((item) => item.diff));
-            useBufferStore.getState().actions.updateBufferContent(bufferId, "", false, {
+            const nextDiffData2: MultiFileDiff = {
               title: "Uncommitted Changes",
               commitHash: "working-tree",
               files: accumulatedDiffs.map((item) => item.diff),
@@ -557,14 +558,23 @@ const GitView = ({ repoPath, onFileSelect, isActive }: GitViewProps) => {
               fileKeys: accumulatedDiffs.map((item) => item.fileKey),
               initiallyExpandedFileKey: selectedFileKey,
               isLoading: false,
-            } satisfies MultiFileDiff);
+            };
+            getActiveWorkspaceStoreRef()?.setState((state) => ({
+              ...state,
+              buffers: state.buffers.map((b) =>
+                b.id === bufferId && b.type === 'diff' ? { ...b, diffData: nextDiffData2 } : b,
+              ),
+            }));
           })();
         } else {
           // No other files to load, mark as done
-          useBufferStore.getState().actions.updateBufferContent(bufferId, "", false, {
-            ...initialMultiDiff,
-            isLoading: false,
-          });
+          const finalDiffData: MultiFileDiff = { ...initialMultiDiff, isLoading: false };
+          getActiveWorkspaceStoreRef()?.setState((state) => ({
+            ...state,
+            buffers: state.buffers.map((b) =>
+              b.id === bufferId && b.type === 'diff' ? { ...b, diffData: finalDiffData } : b,
+            ),
+          }));
         }
       } else {
         handleOpenOriginalFile(actualFilePath);
@@ -588,9 +598,13 @@ const GitView = ({ repoPath, onFileSelect, isActive }: GitViewProps) => {
           const diffFileName = `${diff.file_path.split("/").pop()}.diff`;
           const virtualPath = `diff://commit/${commitHash}/${diffFileName}`;
 
-          useBufferStore
-            .getState()
-            .actions.openBuffer(virtualPath, diffFileName, "", false, undefined, true, true, diff);
+          getActiveWorkspaceStoreRef()?.getState().bufferActions.openContent({
+            type: 'diff',
+            path: virtualPath,
+            name: diffFileName,
+            content: "",
+            diffData: diff,
+          });
         } else {
           const { additions, deletions } = countDiffStats(diffs);
 
@@ -611,18 +625,13 @@ const GitView = ({ repoPath, onFileSelect, isActive }: GitViewProps) => {
           const virtualPath = `diff://commit/${commitHash}/all-files`;
           const displayName = `Commit ${commitHash.substring(0, 7)} (${diffs.length} files)`;
 
-          useBufferStore
-            .getState()
-            .actions.openBuffer(
-              virtualPath,
-              displayName,
-              "",
-              false,
-              undefined,
-              true,
-              true,
-              multiDiff,
-            );
+          getActiveWorkspaceStoreRef()?.getState().bufferActions.openContent({
+            type: 'diff',
+            path: virtualPath,
+            name: displayName,
+            content: "",
+            diffData: multiDiff,
+          });
         }
       } else {
         await primitiveAlert(
@@ -657,18 +666,13 @@ const GitView = ({ repoPath, onFileSelect, isActive }: GitViewProps) => {
         const virtualPath = `diff://stash/${stashIndex}/all-files`;
         const displayName = `Stash @{${stashIndex}} (${diffs.length} files)`;
 
-        useBufferStore
-          .getState()
-          .actions.openBuffer(
-            virtualPath,
-            displayName,
-            "",
-            false,
-            undefined,
-            true,
-            true,
-            multiDiff,
-          );
+        getActiveWorkspaceStoreRef()?.getState().bufferActions.openContent({
+          type: 'diff',
+          path: virtualPath,
+          name: displayName,
+          content: "",
+          diffData: multiDiff,
+        });
       } else {
         await primitiveAlert("No changes in this stash.", "Git Diff");
       }
@@ -698,18 +702,13 @@ const GitView = ({ repoPath, onFileSelect, isActive }: GitViewProps) => {
         };
 
         const encodedTitle = encodeURIComponent(title);
-        useBufferStore
-          .getState()
-          .actions.openBuffer(
-            `diff://tag/${encodedTitle}/all-files`,
-            `${title} (${diffs.length} files)`,
-            "",
-            false,
-            undefined,
-            true,
-            true,
-            multiDiff,
-          );
+        getActiveWorkspaceStoreRef()?.getState().bufferActions.openContent({
+          type: 'diff',
+          path: `diff://tag/${encodedTitle}/all-files`,
+          name: `${title} (${diffs.length} files)`,
+          content: "",
+          diffData: multiDiff,
+        });
       } else {
         await primitiveAlert(`No changes between ${baseRef} and ${targetRef}.`, "Git Diff");
       }

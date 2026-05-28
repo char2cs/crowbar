@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { useBufferStore } from "@/features/editor/stores/buffer-store";
+import { useStore } from "zustand";
+import { useWorkspaceStore } from "@/features/workspace/stores/workspace-context";
 import { useFileSystemStore } from "@/features/file-system/controllers/store";
 import { getFileDiff } from "../api/git-diff-api";
 import type { MultiFileDiff } from "../types/git-diff-types";
@@ -18,10 +19,21 @@ interface UseDiffDataReturn {
 }
 
 export const useDiffData = (): UseDiffDataReturn => {
-  const buffers = useBufferStore.use.buffers();
-  const activeBufferId = useBufferStore.use.activeBufferId();
+  const workspaceStore = useWorkspaceStore();
+  const buffers = useStore(workspaceStore, (s) => s.buffers);
+  const activeBufferId = useStore(workspaceStore, (s) => s.paneActions.getActivePane()?.activeBufferId ?? null);
   const activeBuffer = buffers.find((b) => b.id === activeBufferId) || null;
-  const { updateBufferContent, closeBuffer } = useBufferStore.use.actions();
+  const updateBufferContent = (bufferId: string, content: string, _markDirty: boolean, diffData?: import('../types/git-diff-types').MultiFileDiff | import('../types/git-types').GitDiff) => {
+    workspaceStore.setState((state) => ({
+      ...state,
+      buffers: state.buffers.map((b) =>
+        b.id === bufferId && b.type === 'diff'
+          ? { ...b, content, ...(diffData !== undefined ? { diffData } : {}) }
+          : b,
+      ),
+    }));
+  };
+  const closeBuffer = (id: string) => workspaceStore.getState().bufferActions.closeBuffer(id);
   const { rootFolderPath } = useFileSystemStore();
 
   const [isLoading, setIsLoading] = useState(false);
@@ -58,22 +70,17 @@ export const useDiffData = (): UseDiffDataReturn => {
 
       getFileDiff(rootFolderPath!, filePath, viewType === "staged").then((newDiff) => {
         if (newDiff && newDiff.lines.length > 0) {
-          useBufferStore
-            .getState()
-            .actions.openBuffer(
-              newVirtualPath,
-              displayName,
-              "",
-              false,
-              undefined,
-              true,
-              true,
-              newDiff,
-            );
+          workspaceStore.getState().bufferActions.openContent({
+            type: 'diff',
+            path: newVirtualPath,
+            name: displayName,
+            content: "",
+            diffData: newDiff,
+          });
         }
       });
     },
-    [filePath, rootFolderPath],
+    [filePath, rootFolderPath, workspaceStore],
   );
 
   const refresh = useCallback(async () => {

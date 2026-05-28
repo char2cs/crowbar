@@ -8,12 +8,13 @@ import {
   Trash as Trash2,
 } from "@phosphor-icons/react";
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useStore } from "zustand";
 const openUrl = (url: string) => { window.open(url, "_blank") }
 import CodeEditor from "@/features/editor/components/code-editor";
 import Breadcrumb from "@/features/editor/components/toolbar/breadcrumb";
 import { EDITOR_CONSTANTS } from "@/features/editor/config/constants";
 import { FileExplorerIcon } from "@/features/file-explorer/components/file-explorer-icon";
-import { useBufferStore } from "@/features/editor/stores/buffer-store";
+import { useWorkspaceStore } from "@/features/workspace/stores/workspace-context";
 import { useEditorSettingsStore } from "@/features/editor/stores/settings-store";
 import { calculateLineHeight, splitLines } from "@/features/editor/utils/lines";
 import { useZoomStore } from "@/features/window/stores/zoom-store";
@@ -497,10 +498,20 @@ const GitDiffEditorStack = memo(function GitDiffEditorStack({
 }: {
   multiDiff: MultiFileDiff;
 }) {
-  const buffers = useBufferStore.use.buffers();
-  const activeBufferId = useBufferStore.use.activeBufferId();
-  const updateBufferContent = useBufferStore.use.actions().updateBufferContent;
-  const closeBuffer = useBufferStore.use.actions().closeBuffer;
+  const workspaceStore = useWorkspaceStore();
+  const buffers = useStore(workspaceStore, (s) => s.buffers);
+  const activeBufferId = useStore(workspaceStore, (s) => s.paneActions.getActivePane()?.activeBufferId ?? null);
+  const updateBufferContent = (bufferId: string, content: string, _markDirty: boolean, diffData?: MultiFileDiff) => {
+    workspaceStore.setState((state) => ({
+      ...state,
+      buffers: state.buffers.map((b) =>
+        b.id === bufferId && b.type === 'diff'
+          ? { ...b, content, ...(diffData !== undefined ? { diffData } : {}) }
+          : b,
+      ),
+    }));
+  };
+  const closeBuffer = (id: string) => workspaceStore.getState().bufferActions.closeBuffer(id);
   const rootFolderPath = useFileSystemStore((state) => state.rootFolderPath);
   const [viewMode, setViewMode] = useState<"unified" | "split">("unified");
   const [showWhitespace, setShowWhitespace] = useState(false);

@@ -8,8 +8,9 @@ import {
   X,
 } from "@phosphor-icons/react";
 import { memo } from "react";
+import { useStore } from "zustand";
 import Breadcrumb from "@/features/editor/components/toolbar/breadcrumb";
-import { useBufferStore } from "@/features/editor/stores/buffer-store";
+import { useWorkspaceStore } from "@/features/workspace/stores/workspace-context";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/utils/cn";
 import type { DiffHeaderProps } from "../../types/git-diff-types";
@@ -30,8 +31,9 @@ const DiffHeader = memo(
     onClose,
     showDisplayControls = true,
   }: DiffHeaderProps) => {
-    const { closeBuffer } = useBufferStore.use.actions();
-    const activeBufferId = useBufferStore.use.activeBufferId();
+    const workspaceStore = useWorkspaceStore();
+    const activeBufferId = useStore(workspaceStore, (s) => s.paneActions.getActivePane()?.activeBufferId ?? null);
+    const closeBuffer = (id: string) => workspaceStore.getState().bufferActions.closeBuffer(id);
     const iconButtonClass =
       "flex size-5 items-center justify-center rounded text-muted-foreground transition-colors hover:bg-muted hover:text-foreground";
     const segmentedButtonClass =

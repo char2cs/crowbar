@@ -7,7 +7,7 @@ import {
   Package,
   MagnifyingGlass as Search,
 } from "@phosphor-icons/react";
-import { useBufferStore } from "@/features/editor/stores/buffer-store";
+import { getActiveWorkspaceStoreRef } from "@/features/workspace/stores/workspace-store-ref";
 import type { SidebarView } from "@/features/layout/utils/sidebar-pane-utils";
 import type { SettingsTab } from "@/features/window/stores/ui-state/types";
 import type { Action } from "../models/action.types";
@@ -78,7 +78,7 @@ export const createNavigationActions = (params: NavigationActionsParams): Action
       commandId: "workbench.showGlobalSearch",
       action: () => {
         onClose();
-        useBufferStore.getState().actions.openGlobalSearchBuffer();
+        getActiveWorkspaceStoreRef()?.getState().bufferActions.openContent({ type: 'globalSearch' });
       },
     },
     {

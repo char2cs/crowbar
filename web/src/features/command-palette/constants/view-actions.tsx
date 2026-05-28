@@ -12,7 +12,7 @@ import {
   MagnifyingGlassPlus as ZoomIn,
   MagnifyingGlassMinus as ZoomOut,
 } from "@phosphor-icons/react";
-import { useBufferStore } from "@/features/editor/stores/buffer-store";
+import { getActiveWorkspaceStoreRef } from "@/features/workspace/stores/workspace-store-ref";
 import { useSettingsStore } from "@/features/settings/store";
 import type { BottomPaneTab } from "@/features/window/stores/ui-state/types";
 import { primitivePrompt } from "@/components/ui/primitive-dialog-service";
@@ -114,7 +114,7 @@ export const createViewActions = (params: ViewActionsParams): Action[] => {
       category: "View",
       commandId: "workbench.toggleDiagnostics",
       action: () => {
-        useBufferStore.getState().actions.openDiagnosticsBuffer();
+        getActiveWorkspaceStoreRef()?.getState().bufferActions.openContent({ type: 'diagnostics' });
         onClose();
       },
     },

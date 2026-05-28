@@ -1,12 +1,13 @@
 const appDataDir = async (): Promise<string> => '/tmp/crowbar-data' // stub for web mode
 import { ClockCounterClockwise as History } from "@phosphor-icons/react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useStore } from "zustand";
 import { IconThemeSelectorContent } from "@/features/command-palette/components/icon-theme-selector";
 import { ThemeSelectorContent } from "@/features/command-palette/components/theme-selector";
 import { QuickQuestionCommandContent } from "@/features/ai/components/quick-question-command";
 import { useLspStore } from "@/features/editor/lsp/lsp-store";
-import { useBufferStore } from "@/features/editor/stores/buffer-store";
 import { useFileSystemStore } from "@/features/file-system/controllers/store";
+import { useWorkspaceStore } from "@/features/workspace/stores/workspace-context";
 import { commitChanges } from "@/features/git/api/git-commits-api";
 import { fetchChanges, pullChanges, pushChanges } from "@/features/git/api/git-remotes-api";
 import {
@@ -119,19 +120,46 @@ const CommandPalette = () => {
   const { showToast } = useToast();
   const openWhatsNew = useWhatsNewStore((state) => state.open);
   const openOnboarding = useOnboardingStore((state) => state.openPreview);
-  const buffers = useBufferStore.use.buffers();
-  const activeBufferId = useBufferStore.use.activeBufferId();
+  const workspaceStore = useWorkspaceStore();
+  const buffers = useStore(workspaceStore, (s) => s.buffers);
+  const activePaneId = useStore(workspaceStore, (s) => s.activePaneId);
+  const activeBufferId = useStore(workspaceStore, (s) => s.paneActions.getActivePane()?.activeBufferId ?? null);
   const activeBuffer = buffers.find((b) => b.id === activeBufferId) || null;
-  const {
-    closeBuffer,
-    setActiveBuffer,
-    switchToNextBuffer,
-    switchToPreviousBuffer,
-    reopenClosedTab,
-    openWebViewerBuffer,
-  } = useBufferStore.use.actions();
+  const closeBuffer = (id: string) => workspaceStore.getState().bufferActions.closeBuffer(id);
+  const setActiveBuffer = (id: string) => workspaceStore.getState().paneActions.activatePaneBuffer(activePaneId, id);
+  const switchToNextBuffer = () => {};
+  const switchToPreviousBuffer = () => {};
+  const reopenClosedTab = async () => { workspaceStore.getState().bufferActions.reopenLastClosedBuffer(); };
+  const openWebViewerBuffer = (url: string) => workspaceStore.getState().bufferActions.openContent({ type: 'webViewer', url });
   const { zoomIn, zoomOut, resetZoom } = useZoomStore.use.actions();
-  const { openBuffer } = useBufferStore.use.actions();
+  const openBuffer = (
+    path: string,
+    name: string,
+    content: string,
+    _isImage?: boolean,
+    _databaseType?: any,
+    _isDiff?: boolean,
+    _isVirtual?: boolean,
+    diffData?: any,
+    isMarkdownPreview?: boolean,
+    isHtmlPreview?: boolean,
+    isCsvPreview?: boolean,
+    sourceFilePath?: string,
+  ) => {
+    if (isMarkdownPreview) {
+      return workspaceStore.getState().bufferActions.openContent({ type: 'markdownPreview', path, name, content, sourceFilePath: sourceFilePath ?? path });
+    }
+    if (isHtmlPreview) {
+      return workspaceStore.getState().bufferActions.openContent({ type: 'htmlPreview', path, name, content, sourceFilePath: sourceFilePath ?? path });
+    }
+    if (isCsvPreview) {
+      return workspaceStore.getState().bufferActions.openContent({ type: 'csvPreview', path, name, content, sourceFilePath: sourceFilePath ?? path });
+    }
+    if (diffData) {
+      return workspaceStore.getState().bufferActions.openContent({ type: 'diff', path, name, content, diffData });
+    }
+    return workspaceStore.getState().bufferActions.openContent({ type: 'editor', path, name, content });
+  };
 
   // Helper function to check if the active buffer is a markdown file
   const isMarkdownFile = () => {
