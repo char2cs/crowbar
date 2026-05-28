@@ -34,11 +34,12 @@ const shared = {
 }
 
 describe('TabBarItem pill restyle', () => {
-  it('active tab has rounded-lg and outline variant classes', () => {
+  it('active tab has rounded-lg, bg-background and border-border', () => {
     render(<TabBarItem buffer={editorBuffer} isActive={true} {...shared} />)
     const tab = screen.getByRole('tab')
     expect(tab).toHaveClass('rounded-lg')
-    expect(tab).toHaveClass('border-input')
+    expect(tab).toHaveClass('bg-background')
+    expect(tab).toHaveClass('border-border')
   })
 
   it('inactive tab has ghost variant classes', () => {
