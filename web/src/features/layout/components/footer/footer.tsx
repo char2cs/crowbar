@@ -7,13 +7,14 @@ import {
   WarningCircle,
 } from "@phosphor-icons/react";
 import { cva } from "class-variance-authority";
-import { type ReactNode, type Ref, useMemo, useRef, useState } from "react";
+import { useCallback, type ReactNode, type Ref, useMemo, useRef, useState } from "react";
 import { Tab, TabsList } from "@/components/ui/tabs";
 import { LoadingSpinner } from "@/components/ui/loading-spinner";
 import Tooltip from "@/components/ui/tooltip";
 import { Dropdown } from "@/components/ui/dropdown";
 import { useDiagnosticsStore } from "@/features/diagnostics/stores/diagnostics-store";
-import { useBufferStore } from "@/features/editor/stores/buffer-store";
+import { findPaneGroup } from "@/features/panes/utils/pane-tree";
+import { useWorkspaceStoreContext } from "@/features/workspace/stores/workspace-context";
 import { useExtensionStore } from "@/extensions/registry/extension-store";
 import {
   chromeControl,
@@ -113,9 +114,14 @@ const Footer = () => {
   const settings = useSettingsStore((state) => state.settings);
   const uiState = useUIState();
   const { openSidebarView } = useSidebarPaneController();
-  const activeBufferId = useBufferStore.use.activeBufferId();
-  const buffers = useBufferStore.use.buffers();
-  const openDiagnosticsBuffer = useBufferStore.use.actions().openDiagnosticsBuffer;
+  const activeBufferId = useWorkspaceStoreContext(
+    useCallback(
+      (state) => findPaneGroup(state.paneRoot, state.activePaneId)?.activeBufferId ?? null,
+      [],
+    )
+  );
+  const buffers = useWorkspaceStoreContext((state) => state.buffers);
+  const bufferActions = useWorkspaceStoreContext((state) => state.bufferActions);
   const { rootFolderPath } = useFileSystemStore();
   const activeRepoPath = useRepositoryStore.use.activeRepoPath();
   const gitStatus = useGitStore((state) => state.gitStatus);
@@ -281,7 +287,7 @@ const Footer = () => {
                 !isDiagnosticsBufferActive && diagnosticsCount > 0 && "text-warning",
               )}
               commandId="workbench.toggleDiagnostics"
-              onClick={() => openDiagnosticsBuffer()}
+              onClick={() => bufferActions.openContent({ type: "diagnostics" })}
             >
               <WarningCircle weight="duotone" />
               {diagnosticsCount > 0 && (

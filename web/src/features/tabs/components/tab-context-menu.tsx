@@ -10,7 +10,6 @@ import {
   TerminalWindow as Terminal,
   X,
 } from "@phosphor-icons/react";
-import { useBufferStore } from "@/features/editor/stores/buffer-store";
 import type { PaneContent } from "@/features/panes/types/pane-content";
 import { isVirtualContent } from "@/features/panes/types/pane-content";
 import { useTerminalStore } from "@/features/terminal/stores/terminal-store";
@@ -92,7 +91,11 @@ const TabContextMenu = ({
                 name: nextName,
                 customName: true,
               });
-              useBufferStore.getState().actions.updateBuffer({ ...buffer, name: nextName });
+              workspaceStore.setState((state) => ({
+                buffers: state.buffers.map((b) =>
+                  b.id === buffer.id ? { ...b, name: nextName } : b,
+                ),
+              }));
             },
           },
         ]

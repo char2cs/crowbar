@@ -1,4 +1,4 @@
-import { useBufferStore } from "@/features/editor/stores/buffer-store";
+import { getActiveWorkspaceStoreRef } from "@/features/workspace/stores/workspace-store-ref";
 import { BOTTOM_PANE_ID } from "../constants/pane";
 import { usePaneStore } from "../stores/pane-store";
 import type { PaneNode } from "../types/pane";
@@ -8,7 +8,7 @@ import { getAllPaneGroups } from "./pane-tree";
 
 export const getShareableSplitBufferId = (bufferId: string | null | undefined) => {
   if (!bufferId) return undefined;
-  const activeBuffer = useBufferStore.getState().buffers.find((buffer) => buffer.id === bufferId);
+  const activeBuffer = getActiveWorkspaceStoreRef()?.getState().buffers.find((buffer) => buffer.id === bufferId);
   if (
     activeBuffer?.type === "terminal" ||
     activeBuffer?.type === "agent" ||
