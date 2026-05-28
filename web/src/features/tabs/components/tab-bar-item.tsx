@@ -109,8 +109,8 @@ const TabBarItem = memo(function TabBarItem({
         isActive={isActive}
         isDragged={isDraggedTab}
         className={cn(
-          "h-7 gap-1.5 rounded-full",
-          isActive ? "bg-muted pl-2.5 pr-7" : "bg-transparent pl-2.5 pr-2.5",
+          "h-7 pl-2.5",
+          isActive ? "pr-7" : "pr-2.5",
         )}
         onClick={onClick}
         onMouseDown={onMouseDown}
@@ -183,7 +183,7 @@ const TabBarItem = memo(function TabBarItem({
         <span
           className={cn(
             "ui-font text-[13px] min-w-0 flex-1 overflow-hidden text-ellipsis whitespace-nowrap",
-            isActive ? "text-foreground" : "text-muted-foreground",
+            !isActive && "text-muted-foreground",
             buffer.isPreview && "italic",
           )}
           title={buffer.path}
@@ -216,8 +216,7 @@ const TabBarItem = memo(function TabBarItem({
           }
         }}
         className={cn(
-          "absolute inset-y-0 my-auto right-1.5 h-4 min-w-4 cursor-pointer select-none rounded-full p-0 text-muted-foreground transition-opacity",
-          "hover:bg-foreground/10 dark:hover:bg-foreground/10 hover:text-foreground",
+          "absolute inset-y-0 my-auto right-1.5 h-4 w-4 grid place-items-center cursor-pointer select-none rounded-full p-0 text-muted-foreground transition-opacity hover:bg-accent hover:text-foreground",
           buffer.isPinned || isActive ? "opacity-60" : "opacity-0 group-hover/tab:opacity-100",
         )}
         tooltip={buffer.isPinned ? "Unpin tab" : "Close"}

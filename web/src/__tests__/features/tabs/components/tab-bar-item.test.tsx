@@ -34,25 +34,24 @@ const shared = {
 }
 
 describe('TabBarItem pill restyle', () => {
-  it('active tab has rounded-full and bg-foreground/85 classes', () => {
+  it('active tab has rounded-lg and outline variant classes', () => {
     render(<TabBarItem buffer={editorBuffer} isActive={true} {...shared} />)
     const tab = screen.getByRole('tab')
-    expect(tab).toHaveClass('rounded-full')
-    expect(tab).toHaveClass('bg-foreground/85')
+    expect(tab).toHaveClass('rounded-lg')
+    expect(tab).toHaveClass('border-input')
   })
 
-  it('inactive tab has rounded-full but not bg-muted', () => {
+  it('inactive tab has ghost variant classes', () => {
     render(<TabBarItem buffer={editorBuffer} isActive={false} {...shared} />)
     const tab = screen.getByRole('tab')
-    expect(tab).toHaveClass('rounded-full')
-    expect(tab).not.toHaveClass('bg-muted')
+    expect(tab).toHaveClass('rounded-lg')
+    expect(tab).toHaveClass('border-transparent')
   })
 
-  it('active tab does not have bg-muted/80 (old style removed)', () => {
+  it('active tab does not have bg-foreground/85 (old pill style removed)', () => {
     render(<TabBarItem buffer={editorBuffer} isActive={true} {...shared} />)
     const tab = screen.getByRole('tab')
-    // Exact class-list check: 'bg-muted/80' must not be present
-    expect(tab).not.toHaveClass('bg-muted/80')
+    expect(tab).not.toHaveClass('bg-foreground/85')
   })
 
   it('close button has rounded-full class', () => {
@@ -65,13 +64,13 @@ describe('TabBarItem pill restyle', () => {
     expect(closeBtn).toHaveClass('rounded-full')
   })
 
-  it('inactive close button has hover:bg-foreground/10 class', () => {
+  it('close button has hover:bg-accent class regardless of active state', () => {
     const { container } = render(
       <TabBarItem buffer={editorBuffer} isActive={false} {...shared} />
     )
     const closeBtn = container.querySelectorAll('button')[1] as HTMLElement
     expect(closeBtn).toBeDefined()
-    expect(closeBtn).toHaveClass('hover:bg-foreground/10')
+    expect(closeBtn).toHaveClass('hover:bg-accent')
   })
 
   it('close button has opacity-60 when tab is active', () => {

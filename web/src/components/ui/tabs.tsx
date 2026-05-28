@@ -4,6 +4,7 @@ import * as React from "react"
 import * as TabsPrimitive from "@radix-ui/react-tabs"
 
 import { cn } from "@/lib/utils"
+import { buttonVariants } from "@/components/ui/button"
 
 const Tabs = TabsPrimitive.Root
 
@@ -85,7 +86,7 @@ const Tab = React.forwardRef<HTMLButtonElement, TabProps>(
   (
     {
       className,
-      isActive: _isActive,
+      isActive,
       isDragged: _isDragged,
       action,
       variant: _variant,
@@ -100,7 +101,8 @@ const Tab = React.forwardRef<HTMLButtonElement, TabProps>(
     <button
       ref={ref}
       className={cn(
-        "group/tab relative inline-flex items-center whitespace-nowrap rounded-sm text-sm font-medium transition-all focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:pointer-events-none disabled:opacity-50",
+        buttonVariants({ variant: isActive ? "outline" : "ghost" }),
+        "justify-start",
         className,
       )}
       {...props}
