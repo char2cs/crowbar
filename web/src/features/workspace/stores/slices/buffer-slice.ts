@@ -29,6 +29,7 @@ import type {
   PendingClose,
 } from '@/features/panes/types/pane-content'
 import { shouldStartLsp } from '@/features/panes/types/pane-content'
+import { getAllPaneGroups } from '@/features/panes/utils/pane-tree'
 import { EDITOR_CONSTANTS } from '@/features/editor/config/constants'
 import { nanoid } from 'nanoid'
 
@@ -155,6 +156,26 @@ export const createBufferSlice: StateCreator<
       if (existing) {
         get().paneActions.addBufferToPane(get().activePaneId, existing.id, true)
         return existing.id
+      }
+
+      // Auto-evict when at max tabs (before creating a new buffer)
+      if (get().buffers.length >= get().maxOpenTabs) {
+        const AUTO_EVICTION_PROTECTED = new Set<PaneContent['type']>([
+          'agent', 'externalEditor', 'terminal', 'webViewer',
+        ])
+        const evictee = get().buffers.find(b => !b.isPinned && !AUTO_EVICTION_PROTECTED.has(b.type))
+        if (evictee) {
+          const allPanes = [
+            ...getAllPaneGroups(get().paneRoot),
+            ...getAllPaneGroups(get().bottomRoot),
+          ]
+          for (const pane of allPanes) {
+            if (pane.bufferIds.includes(evictee.id)) {
+              get().paneActions.removeBufferFromPane(pane.id, evictee.id, true)
+            }
+          }
+          set(state => { state.buffers = state.buffers.filter(b => b.id !== evictee.id) })
+        }
       }
 
       const id = nanoid()
