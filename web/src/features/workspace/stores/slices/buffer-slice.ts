@@ -33,6 +33,12 @@ import { getAllPaneGroups } from '@/features/panes/utils/pane-tree'
 import { EDITOR_CONSTANTS } from '@/features/editor/config/constants'
 import { nanoid } from 'nanoid'
 
+// ── Constants ────────────────────────────────────────────────────────
+
+const AUTO_EVICTION_PROTECTED = new Set<PaneContent['type']>([
+  'agent', 'externalEditor', 'terminal', 'webViewer',
+])
+
 // ── Actions ──────────────────────────────────────────────────────────
 
 export interface BufferActions {
@@ -160,9 +166,6 @@ export const createBufferSlice: StateCreator<
 
       // Auto-evict when at max tabs (before creating a new buffer)
       if (get().buffers.length >= get().maxOpenTabs) {
-        const AUTO_EVICTION_PROTECTED = new Set<PaneContent['type']>([
-          'agent', 'externalEditor', 'terminal', 'webViewer',
-        ])
         const evictee = get().buffers.find(b => !b.isPinned && !AUTO_EVICTION_PROTECTED.has(b.type))
         if (evictee) {
           const allPanes = [

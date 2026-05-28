@@ -57,4 +57,22 @@ describe('buffer slice auto-eviction', () => {
     expect(store.getState().buffers.map(b => b.type)).toContain('terminal')
     expect(store.getState().buffers.map(b => b.name)).not.toContain('a.ts')
   })
+
+  it('proceeds with buffer creation when no evictable buffer exists (all protected or pinned)', () => {
+    const store = createWorkspaceStore('test-ws')
+    store.setState({ maxOpenTabs: 1 })
+
+    // Terminal is protected — cannot be evicted
+    store.getState().bufferActions.openContent({ type: 'terminal' })
+    expect(store.getState().buffers).toHaveLength(1)
+
+    // Opening a new buffer proceeds even though we're at the limit (nothing evictable)
+    store.getState().bufferActions.openContent({
+      type: 'editor', path: '/a.ts', name: 'a.ts', content: '',
+    })
+    // Terminal stays (protected), editor is also created — intentionally exceeds limit
+    expect(store.getState().buffers).toHaveLength(2)
+    expect(store.getState().buffers.map(b => b.type)).toContain('terminal')
+    expect(store.getState().buffers.map(b => b.name)).toContain('a.ts')
+  })
 })
