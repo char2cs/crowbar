@@ -573,9 +573,9 @@ export function SidebarMenuButton({
 
   return (
     <Tooltip>
-      <TooltipTrigger
-        render={buttonElement as React.ReactElement<Record<string, unknown>>}
-      />
+      <TooltipTrigger asChild>
+        {buttonElement as React.ReactElement}
+      </TooltipTrigger>
       <TooltipPopup
         align="center"
         hidden={state !== "collapsed" || isMobile}
