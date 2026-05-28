@@ -1,7 +1,7 @@
 "use client";
 
 import { Tabs as TabsPrimitive } from "@base-ui/react/tabs";
-import type React from "react";
+import * as React from "react";
 import { cn } from "@/lib/utils";
 
 export type TabsVariant = "default" | "underline";
@@ -85,5 +85,74 @@ export function TabsPanel({
     />
   );
 }
+
+/** Standalone tab button used by Crowbar feature modules (does not require a tabs value context) */
+export interface TabProps extends React.ButtonHTMLAttributes<HTMLButtonElement> {
+  isActive?: boolean
+  isDragged?: boolean
+  action?: React.ReactNode
+  variant?: string
+  size?: "xs" | "sm" | "md" | "lg"
+  labelPosition?: "start" | "center" | "end"
+  maxWidth?: number
+}
+
+const Tab = React.forwardRef<HTMLButtonElement, TabProps>(
+  (
+    {
+      className,
+      isActive,
+      isDragged: _isDragged,
+      action,
+      variant: _variant,
+      size: _size,
+      labelPosition: _labelPosition,
+      maxWidth: _maxWidth,
+      children,
+      ...props
+    },
+    ref,
+  ) => (
+    <button
+      ref={ref}
+      className={cn(
+        "relative inline-flex shrink-0 cursor-pointer items-center whitespace-nowrap rounded-lg border font-medium text-sm outline-none transition-colors",
+        "focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-1 focus-visible:ring-offset-background",
+        "disabled:pointer-events-none disabled:opacity-64",
+        isActive
+          ? "border-border bg-background text-foreground"
+          : "border-transparent text-muted-foreground hover:bg-accent hover:text-foreground",
+        className,
+      )}
+      {...props}
+    >
+      {children}
+      {action}
+    </button>
+  ),
+)
+Tab.displayName = "Tab"
+
+/** Crowbar tab item descriptor */
+export interface TabsItem {
+  id: string
+  icon?: React.ReactNode
+  label?: string
+  isActive?: boolean
+  onClick?: () => void
+  role?: string
+  ariaLabel?: string
+  className?: string
+  tabIndex?: number
+  title?: string
+  tooltip?: {
+    content: string
+    shortcut?: string
+    side?: "top" | "right" | "bottom" | "left"
+    className?: string
+  }
+}
+
+export { Tab }
 
 export { TabsPrimitive, TabsTab as TabsTrigger, TabsPanel as TabsContent };
