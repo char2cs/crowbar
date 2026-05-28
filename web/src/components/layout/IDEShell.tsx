@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useState, useRef, useEffect } from 'react'
 import { Outlet, useNavigate, useRouterState } from '@tanstack/react-router'
 import {
   ResizablePanelGroup,
@@ -20,6 +20,8 @@ import { useSettingsStore } from '@/features/settings/store'
 import { FontStyleInjector } from '@/features/settings/components/font-style-injector'
 import { destroyWorkspaceStore } from '@/features/workspace/stores/workspace-store-registry'
 import { Toaster } from '@/components/ui/sonner'
+import type { PanelImperativeHandle } from '@/components/ui/resizable'
+import { useSidebarStore as useLayoutSidebarStore } from '@/features/layout/stores/sidebar-store'
 
 export function IDEShell() {
   const navigate = useNavigate()
@@ -29,7 +31,17 @@ export function IDEShell() {
     useSidebarStore()
   const [settingsOpen, setSettingsOpen] = useState(false)
   const sidebarPosition = useSettingsStore((state) => state.settings.sidebarPosition)
+  const sidebarPanelRef = useRef<PanelImperativeHandle | null>(null)
+  const sidebarVisible = useLayoutSidebarStore((s) => s.sidebarVisible)
+  const setSidebarVisible = useLayoutSidebarStore((s) => s.setSidebarVisible)
 
+  useEffect(() => {
+    if (sidebarVisible) {
+      sidebarPanelRef.current?.expand()
+    } else {
+      sidebarPanelRef.current?.collapse()
+    }
+  }, [sidebarVisible])
 
   const activeWorkspaceId = pathname.match(/\/workspaces\/([^/]+)/)?.[1]
   const activeChatId = pathname.match(/\/chat\/([^/]+)/)?.[1]
@@ -44,11 +56,21 @@ export function IDEShell() {
   const chatTabLabel = chats.find(c => c.id === activeChatId)?.title ?? 'Chat'
 
   const sidebarPanel = (
-    <ResizablePanel id="sidebar" defaultSize="20%" minSize="12%" maxSize="45%" className="flex flex-col overflow-hidden">
+    <ResizablePanel
+      id="sidebar"
+      ref={sidebarPanelRef}
+      defaultSize="20%"
+      minSize="12%"
+      maxSize="45%"
+      collapsible
+      collapsedSize={0}
+      onResize={(size) => setSidebarVisible(size.asPercentage > 0)}
+      className="flex flex-col overflow-hidden"
+    >
       <div className="flex h-full flex-col overflow-hidden">
         {/* Unified titlebar strip — no border here so both strips read as one bar */}
         <div
-          className={cn('flex w-full flex-shrink-0 items-center', IS_MAC ? 'h-[38px]' : 'h-[28px]')}
+          className={cn('flex w-full flex-shrink-0 items-center', IS_MAC ? 'h-[44px]' : 'h-[34px]')}
           data-tauri-drag-region
         >
           <SidebarNavIcons />
@@ -105,7 +127,7 @@ export function IDEShell() {
               <div
                 className={cn(
                   'flex flex-shrink-0 items-center border-b border-border px-3 font-medium',
-                  IS_MAC ? 'h-[38px] text-[13px]' : 'h-[28px] text-xs',
+                  IS_MAC ? 'h-[44px] text-[13px]' : 'h-[34px] text-xs',
                 )}
                 data-tauri-drag-region
               >
@@ -129,9 +151,9 @@ export function IDEShell() {
     <div className="flex h-screen overflow-hidden bg-transparent text-foreground">
       <ResizablePanelGroup orientation="horizontal" className="h-full">
         {sidebarPosition === "right" ? (
-          <>{contentPanel}<ResizableHandle />{sidebarPanel}</>
+          <>{contentPanel}{sidebarVisible && <ResizableHandle />}{sidebarPanel}</>
         ) : (
-          <>{sidebarPanel}<ResizableHandle />{contentPanel}</>
+          <>{sidebarPanel}{sidebarVisible && <ResizableHandle />}{contentPanel}</>
         )}
       </ResizablePanelGroup>
 
