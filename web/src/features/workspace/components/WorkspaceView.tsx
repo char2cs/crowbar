@@ -1,5 +1,7 @@
+import { useEffect } from 'react'
 import { WorkspaceStoreContext } from '../stores/workspace-context'
 import { getOrCreateWorkspaceStore } from '../stores/workspace-store-registry'
+import { setActiveWorkspaceStoreRef } from '../stores/workspace-store-ref'
 import { WorkspaceLayoutRoot } from './WorkspaceLayoutRoot'
 import { useWorkspaceEffects } from '../stores/hooks/use-workspace-effects'
 
@@ -10,6 +12,11 @@ interface WorkspaceViewProps {
 
 export function WorkspaceView({ wsId, label }: WorkspaceViewProps) {
   const store = getOrCreateWorkspaceStore(wsId)
+
+  useEffect(() => {
+    setActiveWorkspaceStoreRef(store)
+    return () => { setActiveWorkspaceStoreRef(null) }
+  }, [store])
 
   return (
     <WorkspaceStoreContext.Provider value={store}>

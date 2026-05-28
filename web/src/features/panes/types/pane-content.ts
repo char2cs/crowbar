@@ -427,3 +427,18 @@ export type OpenContentSpec =
       wsId: string;
       name: string;
     };
+
+// ── Buffer history / dialog state (used by workspace store) ─────────
+
+export interface ClosedBuffer {
+  path: string;
+  name: string;
+  isPinned: boolean;
+}
+
+export interface PendingClose {
+  bufferId: string;
+  type: "single" | "others" | "all" | "to-left" | "to-right";
+  anchorBufferId?: string;
+  keepBufferId?: string;
+}
