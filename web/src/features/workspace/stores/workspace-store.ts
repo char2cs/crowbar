@@ -9,6 +9,8 @@ import { createLspSlice } from './slices/lsp-slice'
 import { createTerminalSlice } from './slices/terminal-slice'
 import { createFileWatcherSlice } from './slices/file-watcher-slice'
 import { createRecentFilesSlice } from './slices/recent-files-slice'
+import { saveSessionToStore } from '@/features/editor/stores/buffer-session-persistence'
+import { findPaneGroup } from '@/features/panes/utils/pane-tree'
 
 export type WorkspaceStore = StoreApi<WorkspaceState>
 
@@ -23,7 +25,7 @@ export type WorkspaceSnapshot = Partial<
 >
 
 export function createWorkspaceStore(wsId: string, snapshot?: WorkspaceSnapshot): WorkspaceStore {
-  return createStore<WorkspaceState>()(
+  const store = createStore<WorkspaceState>()(
     immer((set, get, api): WorkspaceState => ({
       workspaceId: wsId,
       ...createPaneSlice(set, get, api),
@@ -38,4 +40,12 @@ export function createWorkspaceStore(wsId: string, snapshot?: WorkspaceSnapshot)
       ...(snapshot ?? {}),
     }))
   )
+
+  store.subscribe((state, prev) => {
+    if (state.buffers === prev.buffers) return
+    const activePane = findPaneGroup(state.paneRoot, state.activePaneId)
+    saveSessionToStore(state.buffers, activePane?.activeBufferId ?? null)
+  })
+
+  return store
 }
