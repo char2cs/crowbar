@@ -1,6 +1,6 @@
 import { useCallback } from "react";
 import { useBufferStore } from "@/features/editor/stores/buffer-store";
-import { activateBufferInPaneAndSync } from "@/features/panes/utils/pane-activation";
+import { useWorkspaceStore } from "@/features/workspace/stores/workspace-context";
 import { XtermTerminal } from "./terminal";
 
 interface TerminalTabProps {
@@ -29,6 +29,7 @@ export function TerminalTab({
   isVisible = true,
 }: TerminalTabProps) {
   const { closeBufferForce } = useBufferStore.use.actions();
+  const workspaceStore = useWorkspaceStore();
 
   const handleTerminalExit = useCallback(() => {
     closeBufferForce(bufferId);
@@ -36,11 +37,11 @@ export function TerminalTab({
 
   const handleActivate = useCallback(() => {
     if (paneId) {
-      activateBufferInPaneAndSync(paneId, bufferId);
+      workspaceStore.getState().paneActions.addBufferToPane(paneId, bufferId, true);
       return;
     }
     useBufferStore.getState().actions.setActiveBuffer(bufferId);
-  }, [bufferId, paneId]);
+  }, [bufferId, paneId, workspaceStore]);
 
   return (
     // onMouseDownCapture: xterm canvas events don't bubble through React, so we

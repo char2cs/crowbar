@@ -63,7 +63,6 @@ import {
 } from "@/features/workspace/stores/hooks/use-pane-store";
 import { useBuffers, useBufferActions } from "@/features/workspace/stores/hooks/use-buffer-store";
 import { useWorkspaceStoreContext } from "@/features/workspace/stores/workspace-context";
-import { activateBufferInPaneAndSync } from "@/features/panes/utils/pane-activation";
 import { splitEditorGroup } from "@/features/panes/utils/pane-command-actions";
 import { getPaneSplitDropOptions } from "@/features/panes/utils/pane-drop-zones";
 import { findPaneGroup } from "@/features/panes/utils/pane-tree";
@@ -589,7 +588,6 @@ const handleDragStart = useCallback(
         }
         if (paneId) moveBufferToPane(dragged.id, paneId, destinationPaneId);
         activatePaneBuffer(destinationPaneId, dragged.id);
-        activateBufferInPaneAndSync(destinationPaneId, dragged.id);
         if (destinationPaneId === BOTTOM_PANE_ID) {
           useUIState.getState().setBottomPaneActiveTab("buffers");
           useUIState.getState().setIsBottomPaneVisible(true);

@@ -48,8 +48,8 @@ import { useTerminalProfilesStore } from "@/features/terminal/stores/profiles-st
 import { useTerminalShellsStore } from "@/features/terminal/stores/shells-store";
 import { useBufferStore } from "@/features/editor/stores/buffer-store";
 import { BOTTOM_PANE_ID } from "@/features/panes/constants/pane";
-import { activateBufferInPaneAndSync } from "@/features/panes/utils/pane-activation";
 import { getOrCreatePaneDropTarget } from "@/features/panes/utils/pane-drop-actions";
+import { useWorkspaceStore } from "@/features/workspace/stores/workspace-context";
 import {
   type TerminalTabLayout,
   type TerminalTabSidebarPosition,
@@ -308,6 +308,7 @@ const TerminalTabBar = ({
   const availableShells = useTerminalShellsStore.use.shells();
   const { openTerminalBuffer } = useBufferStore.use.actions();
 
+  const workspaceStore = useWorkspaceStore();
   const tabBarRef = useRef<HTMLDivElement>(null);
   const tabRefs = useRef<(HTMLDivElement | null)[]>([]);
   const profileMenuButtonRef = useRef<HTMLButtonElement>(null);
@@ -578,7 +579,7 @@ const TerminalTabBar = ({
         workingDirectory: terminal.currentDirectory,
         remoteConnectionId: terminal.remoteConnectionId,
       });
-      activateBufferInPaneAndSync(destinationPaneId, bufferId);
+      workspaceStore.getState().paneActions.addBufferToPane(destinationPaneId, bufferId, true);
       window.dispatchEvent(
         new CustomEvent("terminal-detach-to-buffer", {
           detail: { terminalId: terminal.id },

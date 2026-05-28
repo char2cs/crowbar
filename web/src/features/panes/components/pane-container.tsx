@@ -30,7 +30,7 @@ import {
 import { FlowContent } from "@/features/workflow/components/flow-content";
 import { cn } from "@/utils/cn";
 import { ErrorBoundary } from "@/components/ErrorBoundary";
-import { activateBufferInPaneAndSync, activatePaneAndSyncBuffer } from "../utils/pane-activation";
+
 import { EmptyEditorState } from "./empty-editor-state";
 import { BOTTOM_PANE_ID } from "../constants/pane";
 import { useActivePaneId, usePaneActions } from "@/features/workspace/stores/hooks/use-pane-store";
@@ -307,7 +307,6 @@ export function PaneContainer({ pane }: PaneContainerProps) {
   const handlePaneClick = useCallback(() => {
     if (!isActivePane) {
       setActivePane(pane.id);
-      activatePaneAndSyncBuffer(pane.id);
     }
   }, [isActivePane, pane.id, setActivePane]);
 
@@ -326,7 +325,6 @@ export function PaneContainer({ pane }: PaneContainerProps) {
 
       if (!isActivePane) {
         setActivePane(pane.id);
-        activatePaneAndSyncBuffer(pane.id);
       }
     },
     [isActivePane, pane.id, setActivePane],
@@ -337,8 +335,6 @@ export function PaneContainer({ pane }: PaneContainerProps) {
       // Update workspace pane store (new system)
       activatePaneBuffer(pane.id, bufferId);
       setActivePane(pane.id);
-      // Also sync the legacy global stores (CodeEditor reads activeBufferId from old store)
-      activateBufferInPaneAndSync(pane.id, bufferId);
     },
     [pane.id, activatePaneBuffer, setActivePane],
   );
@@ -360,7 +356,7 @@ export function PaneContainer({ pane }: PaneContainerProps) {
         ? workspaceStore.getState().paneActions.splitPane(pane.id, splitOptions.direction, undefined, splitOptions.placement) ?? pane.id
         : pane.id;
 
-      activatePaneAndSyncBuffer(targetPaneId);
+      workspaceStore.getState().paneActions.setActivePane(targetPaneId);
 
       try {
         await handleFileOpen(fileDragData.path, false);
@@ -368,7 +364,6 @@ export function PaneContainer({ pane }: PaneContainerProps) {
         if (openedBufferId) {
           workspaceStore.getState().paneActions.addBufferToPane(targetPaneId, openedBufferId, true);
           workspaceStore.getState().paneActions.activatePaneBuffer(targetPaneId, openedBufferId);
-          activateBufferInPaneAndSync(targetPaneId, openedBufferId); // sync legacy buffer store for CodeEditor
         }
       } catch (error) {
         console.error("Failed to open file from file tree drop:", error);
@@ -395,7 +390,7 @@ export function PaneContainer({ pane }: PaneContainerProps) {
         }
       }
 
-      activatePaneAndSyncBuffer(targetPaneId);
+      workspaceStore.getState().paneActions.setActivePane(targetPaneId);
 
       try {
         const bufferId = await openSidebarResourceBuffer(resource);
@@ -403,7 +398,6 @@ export function PaneContainer({ pane }: PaneContainerProps) {
 
         workspaceStore.getState().paneActions.addBufferToPane(targetPaneId, bufferId, true);
         workspaceStore.getState().paneActions.activatePaneBuffer(targetPaneId, bufferId);
-        activateBufferInPaneAndSync(targetPaneId, bufferId); // sync legacy buffer store for CodeEditor
       } catch (error) {
         console.error("Failed to open sidebar resource from drop:", error);
       }
@@ -645,7 +639,7 @@ export function PaneContainer({ pane }: PaneContainerProps) {
             workingDirectory: currentDirectory,
             remoteConnectionId,
           });
-          activateBufferInPaneAndSync(pane.id, newBufferId);
+          workspaceStore.getState().paneActions.addBufferToPane(pane.id, newBufferId, true);
           window.dispatchEvent(
             new CustomEvent("terminal-detach-to-buffer", {
               detail: { terminalId },
@@ -653,10 +647,10 @@ export function PaneContainer({ pane }: PaneContainerProps) {
           );
         } else if (sourcePaneId && sourcePaneId !== pane.id && bufferId) {
           moveBufferToPaneDropTarget(bufferId, sourcePaneId, { paneId: pane.id, zone: "center" });
-          activateBufferInPaneAndSync(pane.id, bufferId);
+          workspaceStore.getState().paneActions.addBufferToPane(pane.id, bufferId, true);
         } else if (!sourcePaneId && bufferId) {
           ensureBufferInPaneDropTarget(bufferId, { paneId: pane.id, zone: "center" });
-          activateBufferInPaneAndSync(pane.id, bufferId);
+          workspaceStore.getState().paneActions.addBufferToPane(pane.id, bufferId, true);
         }
         return;
       }
@@ -684,7 +678,7 @@ export function PaneContainer({ pane }: PaneContainerProps) {
           workingDirectory: currentDirectory,
           remoteConnectionId,
         });
-        activateBufferInPaneAndSync(newPaneId, newBufferId);
+        workspaceStore.getState().paneActions.addBufferToPane(newPaneId, newBufferId, true);
         window.dispatchEvent(
           new CustomEvent("terminal-detach-to-buffer", {
             detail: { terminalId },
@@ -694,12 +688,10 @@ export function PaneContainer({ pane }: PaneContainerProps) {
         // Move from a different source pane into the new split pane
         workspaceStore.getState().paneActions.moveBufferToPane(bufferId, sourcePaneId, newPaneId);
         workspaceStore.getState().paneActions.activatePaneBuffer(newPaneId, bufferId);
-        activateBufferInPaneAndSync(newPaneId, bufferId); // sync legacy buffer store for CodeEditor
       } else if (bufferId) {
         // Move from this pane into the new split pane
         workspaceStore.getState().paneActions.moveBufferToPane(bufferId, pane.id, newPaneId);
         workspaceStore.getState().paneActions.activatePaneBuffer(newPaneId, bufferId);
-        activateBufferInPaneAndSync(newPaneId, bufferId); // sync legacy buffer store for CodeEditor
       }
     },
     [pane.id, openTerminalBuffer, workspaceStore],
@@ -724,7 +716,7 @@ export function PaneContainer({ pane }: PaneContainerProps) {
       e.stopPropagation();
       setIsDragOver(false);
       setIsTabDragOver(false);
-      activatePaneAndSyncBuffer(pane.id);
+      workspaceStore.getState().paneActions.setActivePane(pane.id);
 
       // Tab drops are handled by SplitDropOverlay — skip here
       if (e.dataTransfer.types.includes("application/tab-data") || getInternalTabDragData()) {
