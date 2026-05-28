@@ -83,7 +83,7 @@ import { calculateDisplayNames } from "../utils/path-shortener";
 import {
   clearInternalTabDragData,
   resolveDropTarget,
-  setInternalTabDragHover,
+  setInternalTabDragHoverTarget,
   setInternalTabDragData,
 } from "../utils/internal-tab-drag";
 import TabBarItem from "./tab-bar-item";
@@ -510,21 +510,7 @@ const TabBar = ({
     };
   };
 
-  const isPointOutsideTabBar = (point: { x: number; y: number }) => {
-    const rect = tabBarRef.current?.getBoundingClientRect();
-    if (!rect) return false;
-
-    const horizontalSlop = 24;
-    const verticalSlop = 64;
-    return (
-      point.x < rect.left - horizontalSlop ||
-      point.x > rect.right + horizontalSlop ||
-      point.y < rect.top - verticalSlop ||
-      point.y > rect.bottom + verticalSlop
-    );
-  };
-
-  const handleDragStart = useCallback(
+const handleDragStart = useCallback(
     (event: DragStartEvent) => {
       const buffer = sortedBuffers.find((item) => item.id === String(event.active.id));
       if (!buffer) return;
@@ -546,10 +532,18 @@ const TabBar = ({
     if (!point) return;
 
     dragPointRef.current = point;
-    if (isPointOutsideTabBar(point)) {
-      setInternalTabDragHover(point);
+
+    // Update cross-pane hover state whenever the pointer is over a different pane
+    // or a split zone of any pane. The old isPointOutsideTabBar gate broke horizontal
+    // splits: both tab bars sit at the same Y, so verticalSlop=64 never triggered.
+    const dropTarget = resolveDropTarget(point);
+    if (dropTarget.paneId !== null && (dropTarget.paneId !== paneId || dropTarget.zone !== "center")) {
+      setInternalTabDragHoverTarget(dropTarget);
+    } else {
+      // Hovering over the source tab bar (reorder mode) — clear any stale indicator
+      setInternalTabDragHoverTarget({ paneId: null, zone: null });
     }
-  }, []);
+  }, [paneId]);
 
   const resetDrag = useCallback(() => {
     setDraggedBufferId(null);
@@ -575,12 +569,10 @@ const TabBar = ({
       const dragged = sortedBuffers.find((buffer) => buffer.id === activeId);
       const point = getDragPoint(event);
       const target = point ? resolveDropTarget(point) : { paneId: null, zone: null };
-      const isOutsideTabBar = point ? isPointOutsideTabBar(point) : false;
 
       if (
         dragged &&
         paneId &&
-        isOutsideTabBar &&
         target.paneId &&
         (target.paneId !== paneId || (target.zone && target.zone !== "center"))
       ) {
