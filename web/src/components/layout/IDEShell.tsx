@@ -45,7 +45,7 @@ export function IDEShell() {
 
   const sidebarPanel = (
     <ResizablePanel id="sidebar" defaultSize="20%" minSize="12%" maxSize="45%" className="flex flex-col overflow-hidden">
-      <div className="flex h-full flex-col overflow-hidden bg-chrome-bg backdrop-blur-sm">
+      <div className="flex h-full flex-col overflow-hidden">
         {/* Unified titlebar strip — no border here so both strips read as one bar */}
         <div
           className={cn('flex w-full flex-shrink-0 items-center', IS_MAC ? 'h-[38px]' : 'h-[28px]')}
@@ -54,10 +54,7 @@ export function IDEShell() {
           <SidebarNavIcons />
         </div>
         {/* Sidebar content — border starts here, below the unified strip */}
-        <div className={cn(
-          'flex flex-1 flex-col overflow-hidden',
-          sidebarPosition === 'right' ? 'border-l border-border' : 'border-r border-border',
-        )}>
+        <div className="flex flex-1 flex-col overflow-hidden">
           <ErrorBoundary>
             <SidebarHeader
               userInitials="MU"
@@ -107,7 +104,7 @@ export function IDEShell() {
               {/* Chrome chat-title strip — platform-adaptive height matches the tab bar */}
               <div
                 className={cn(
-                  'flex flex-shrink-0 items-center border-b border-border bg-chrome-bg backdrop-blur-sm px-3 font-medium',
+                  'flex flex-shrink-0 items-center border-b border-border px-3 font-medium',
                   IS_MAC ? 'h-[38px] text-[13px]' : 'h-[28px] text-xs',
                 )}
                 data-tauri-drag-region

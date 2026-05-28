@@ -104,7 +104,7 @@ export function PaneResizeHandle({
       tabIndex={0}
     >
       <div
-        className={`bg-border transition-colors ${
+        className={`bg-transparent transition-colors ${
           isDragging ? "bg-accent" : "group-hover:bg-accent"
         } ${isHorizontal ? "h-full w-px" : "h-px w-full"}`}
       />

@@ -720,7 +720,7 @@ const TabBar = ({
           ref={tabBarRef}
           data-tab-bar-pane-id={paneId ?? ""}
           className={cn(
-            'relative flex shrink-0 items-center gap-1.5 overflow-hidden bg-chrome-bg backdrop-blur-sm px-2 py-1',
+            'relative flex shrink-0 items-center gap-1.5 overflow-hidden px-2 py-1',
             IS_MAC ? 'h-[38px]' : 'h-[28px]',
           )}
           role="tablist"
@@ -760,7 +760,7 @@ const TabBar = ({
           </div>
 
           <SortableContext items={sortedBufferIds} strategy={horizontalListSortingStrategy}>
-            <div className="scrollbar-hidden flex min-w-0 flex-1 gap-1.5 overflow-x-auto overflow-y-hidden [overscroll-behavior-x:contain]">
+            <div className="scrollbar-hidden flex min-w-0 flex-1 items-center gap-1.5 overflow-x-auto overflow-y-hidden [overscroll-behavior-x:contain]">
               {sortedBuffers.map((buffer, index) => (
                 <SortableEditorTab
                   key={buffer.id}

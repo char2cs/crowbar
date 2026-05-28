@@ -107,7 +107,7 @@
     --app-scrollbar-thumb-hover: oklch(0.55 0 0 / 58%);
     --app-scrollbar-track: transparent;
     --app-scrollbar-radius: 999px;
-    --chrome-bg: oklch(1 0 0 / 50%);
+    --chrome-bg: oklch(1 0 0 / 75%);
     --success: oklch(0.65 0.16 145);
     --success-foreground: oklch(0.98 0.02 145);
     --warning-foreground: oklch(0.98 0.02 85);
@@ -180,7 +180,7 @@
     /* custom tokens — dark overrides */
     --warning: oklch(0.80 0.16 85);
     --info: oklch(0.72 0.15 250);
-    --chrome-bg: oklch(0.148 0.004 228.8 / 75%);
+    --chrome-bg: oklch(0.148 0.004 228.8 / 85%);
     --success: oklch(0.72 0.18 145);
     --success-foreground: oklch(0.15 0.03 145);
     --warning-foreground: oklch(0.15 0.03 85);
