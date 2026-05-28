@@ -393,6 +393,7 @@ const TabBar = ({
       e.preventDefault();
       e.stopPropagation();
       const buffer = sortedBuffers[index];
+      if (!buffer) return;
       // Convert preview tab to definite on double-click — update both stores
       if (buffer.isPreview) {
         convertPreviewToDefinite(buffer.id);    // legacy store
@@ -624,6 +625,7 @@ const TabBar = ({
   const handleKeyDown = useCallback(
     (e: React.KeyboardEvent, index: number) => {
       const buffer = sortedBuffers[index];
+      if (!buffer) return;
 
       switch (e.key) {
         case "ArrowLeft":
