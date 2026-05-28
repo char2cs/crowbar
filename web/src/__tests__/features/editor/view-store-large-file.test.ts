@@ -1,6 +1,10 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { initViewStoreSubscription, _resetViewStoreUnsubscribeForTesting } from "@/features/editor/stores/view-store";
 import { usePaneStore } from "@/features/panes/stores/pane-store";
+import { createWorkspaceStore } from "@/features/workspace/stores/workspace-store";
+import { setActiveWorkspaceStoreRef } from "@/features/workspace/stores/workspace-store-ref";
+import { ROOT_PANE_ID } from "@/features/panes/constants/pane";
+import type { WorkspaceStore } from "@/features/workspace/stores/workspace-store";
 
 const createMockStorage = () => {
   const storage = new Map<string, string>();
@@ -24,6 +28,8 @@ const createMockStorage = () => {
 };
 
 describe("editor view store large files", () => {
+  let wsStore: WorkspaceStore;
+
   beforeEach(() => {
     initViewStoreSubscription();
     vi.stubGlobal("localStorage", createMockStorage());
@@ -39,19 +45,15 @@ describe("editor view store large files", () => {
       removeEventListener: vi.fn(),
       dispatchEvent: vi.fn(),
     });
+    wsStore = createWorkspaceStore("test-ws");
+    setActiveWorkspaceStoreRef(wsStore);
   });
 
   afterEach(async () => {
     _resetViewStoreUnsubscribeForTesting();
+    setActiveWorkspaceStoreRef(null);
     usePaneStore.getState().actions.reset();
-    const { useBufferStore } = await import("@/features/editor/stores/buffer-store");
     const { useEditorViewStore } = await import("@/features/editor/stores/view-store");
-    useBufferStore.setState({
-      buffers: [],
-      activeBufferId: null,
-      pendingClose: null,
-      closedBuffersHistory: [],
-    });
     useEditorViewStore.setState({
       lines: [""],
       lineCount: 1,
@@ -60,9 +62,8 @@ describe("editor view store large files", () => {
   });
 
   it("tracks large active buffers by line count without storing every line", async () => {
-    const { useBufferStore } = await import("@/features/editor/stores/buffer-store");
     const { useEditorViewStore } = await import("@/features/editor/stores/view-store");
-    const bufferActions = useBufferStore.getState().actions;
+    const { bufferActions } = wsStore.getState();
     const content = Array.from({ length: 50_000 }, (_, index) => `line ${index}`).join("\n");
 
     const bufferId = bufferActions.openContent({
@@ -72,7 +73,28 @@ describe("editor view store large files", () => {
       content: "",
     });
 
-    bufferActions.updateBufferContent(bufferId, content);
+    // Make the buffer active in the pane so the view store picks it up
+    wsStore.setState((state) => ({
+      ...state,
+      activePaneId: ROOT_PANE_ID,
+      paneRoot: {
+        type: "group",
+        id: ROOT_PANE_ID,
+        bufferIds: [bufferId],
+        activeBufferId: bufferId,
+        locked: false,
+        previewBufferId: null,
+        pinnedBufferIds: [],
+      },
+    }));
+
+    // Update the buffer content
+    wsStore.setState((state) => ({
+      ...state,
+      buffers: state.buffers.map((b) =>
+        b.id === bufferId && b.type === "editor" ? { ...b, content, isDirty: true } : b,
+      ),
+    }));
 
     const viewState = useEditorViewStore.getState();
     expect(viewState.lineCount).toBe(50_000);

@@ -1,6 +1,9 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { EditorContent } from "@/features/panes/types/pane-content";
-import type { useBufferStore as useBufferStoreHook } from "@/features/editor/stores/buffer-store";
+import { createWorkspaceStore } from "@/features/workspace/stores/workspace-store";
+import { setActiveWorkspaceStoreRef } from "@/features/workspace/stores/workspace-store-ref";
+import type { WorkspaceStore } from "@/features/workspace/stores/workspace-store";
+import { ROOT_PANE_ID } from "@/features/panes/constants/pane";
 
 const mocks = vi.hoisted(() => ({
   readFileContent: vi.fn(),
@@ -55,8 +58,8 @@ function makeDirtyEditorBuffer(): EditorContent {
 }
 
 describe("editor revert file command", () => {
-  let useBufferStore: typeof useBufferStoreHook;
   let revertActiveFile: () => Promise<void>;
+  let wsStore: WorkspaceStore;
 
   beforeEach(async () => {
     vi.stubGlobal("localStorage", createMockStorage());
@@ -75,24 +78,29 @@ describe("editor revert file command", () => {
 
     mocks.readFileContent.mockResolvedValue("disk");
 
-    ({ useBufferStore } = await import("@/features/editor/stores/buffer-store"));
-    ({ revertActiveFile } = await import("@/features/keymaps/commands/file-command-actions"));
+    const buffer = makeDirtyEditorBuffer();
+    wsStore = createWorkspaceStore("test-ws");
+    wsStore.setState((state) => ({
+      ...state,
+      buffers: [buffer],
+      activePaneId: ROOT_PANE_ID,
+      paneRoot: {
+        type: "group",
+        id: ROOT_PANE_ID,
+        bufferIds: [buffer.id],
+        activeBufferId: buffer.id,
+        locked: false,
+        previewBufferId: null,
+        pinnedBufferIds: [],
+      },
+    }));
+    setActiveWorkspaceStoreRef(wsStore);
 
-    useBufferStore.setState({
-      activeBufferId: "revert-buffer",
-      buffers: [makeDirtyEditorBuffer()],
-      pendingClose: null,
-      closedBuffersHistory: [],
-    });
+    ({ revertActiveFile } = await import("@/features/keymaps/commands/file-command-actions"));
   });
 
   afterEach(() => {
-    useBufferStore?.setState({
-      activeBufferId: null,
-      buffers: [],
-      pendingClose: null,
-      closedBuffersHistory: [],
-    });
+    setActiveWorkspaceStoreRef(null);
     vi.unstubAllGlobals();
     vi.clearAllMocks();
   });
@@ -101,7 +109,7 @@ describe("editor revert file command", () => {
     await revertActiveFile();
 
     expect(mocks.readFileContent).toHaveBeenCalledWith("/workspace/revert.ts");
-    const buffer = useBufferStore.getState().buffers[0];
+    const buffer = wsStore.getState().buffers[0];
     expect(buffer).toMatchObject({
       content: "disk",
       isDirty: false,

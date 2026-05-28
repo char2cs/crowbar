@@ -1,10 +1,11 @@
 import { describe, it, expect, beforeEach } from 'vitest'
 import { initViewStoreSubscription, _resetViewStoreUnsubscribeForTesting } from '@/features/editor/stores/view-store'
-import { useBufferStore } from '@/features/editor/stores/buffer-store'
+import { setActiveWorkspaceStoreRef } from '@/features/workspace/stores/workspace-store-ref'
 
 describe('initViewStoreSubscription', () => {
   beforeEach(() => {
     _resetViewStoreUnsubscribeForTesting()
+    setActiveWorkspaceStoreRef(null)
   })
 
   it('is exported and returns an unsubscribe function', () => {
@@ -13,14 +14,13 @@ describe('initViewStoreSubscription', () => {
     unsubscribe()
   })
 
-  it('stops responding to buffer changes after unsubscribe is called', () => {
+  it('stops responding to workspace store changes after unsubscribe is called', () => {
     const unsubscribe = initViewStoreSubscription()
     unsubscribe()
 
-    // Trigger a buffer change; if the subscription is still active it would
-    // update the view store. We just verify no throw and the function returned.
+    // Trigger a workspace store change after unsubscribing; should not throw.
     expect(() => {
-      useBufferStore.setState({ buffers: [] })
+      setActiveWorkspaceStoreRef(null)
     }).not.toThrow()
   })
 })

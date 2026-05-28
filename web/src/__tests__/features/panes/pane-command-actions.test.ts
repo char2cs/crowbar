@@ -2,6 +2,8 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { BOTTOM_PANE_ID, ROOT_PANE_ID } from "@/features/panes/constants/pane";
 import { usePaneStore } from "@/features/panes/stores/pane-store";
 import { getAllPaneGroups } from "@/features/panes/utils/pane-tree";
+import { createWorkspaceStore } from "@/features/workspace/stores/workspace-store";
+import { setActiveWorkspaceStoreRef } from "@/features/workspace/stores/workspace-store-ref";
 
 const createMockStorage = () => {
   const storage = new Map<string, string>();
@@ -41,24 +43,18 @@ describe("pane command actions", () => {
     });
   });
 
-  afterEach(async () => {
+  afterEach(() => {
     usePaneStore.getState().actions.reset();
-    const { useBufferStore } = await import("@/features/editor/stores/buffer-store");
-    useBufferStore.setState({
-      buffers: [],
-      activeBufferId: null,
-      pendingClose: null,
-      closedBuffersHistory: [],
-    });
+    setActiveWorkspaceStoreRef(null);
     vi.unstubAllGlobals();
   });
 
   it("splits the active editor group with an editor buffer", async () => {
-    const { useBufferStore } = await import("@/features/editor/stores/buffer-store");
     const { splitActiveEditorGroup } = await import("@/features/panes/utils/pane-command-actions");
     const paneActions = usePaneStore.getState().actions;
 
-    useBufferStore.setState((state) => ({
+    const wsStore = createWorkspaceStore("test-ws");
+    wsStore.setState((state) => ({
       ...state,
       buffers: [
         {
@@ -76,8 +72,9 @@ describe("pane command actions", () => {
           tokens: [],
         },
       ],
-      activeBufferId: "buffer-a",
     }));
+    setActiveWorkspaceStoreRef(wsStore);
+
     paneActions.addBufferToPane(ROOT_PANE_ID, "buffer-a");
 
     expect(splitActiveEditorGroup("horizontal")).toBe(true);
@@ -88,11 +85,11 @@ describe("pane command actions", () => {
   });
 
   it("splits stateful buffers into an empty editor group", async () => {
-    const { useBufferStore } = await import("@/features/editor/stores/buffer-store");
     const { splitActiveEditorGroup } = await import("@/features/panes/utils/pane-command-actions");
     const paneActions = usePaneStore.getState().actions;
 
-    useBufferStore.setState((state) => ({
+    const wsStore = createWorkspaceStore("test-ws");
+    wsStore.setState((state) => ({
       ...state,
       buffers: [
         {
@@ -106,8 +103,9 @@ describe("pane command actions", () => {
           sessionId: "terminal-a",
         },
       ],
-      activeBufferId: "terminal-a",
     }));
+    setActiveWorkspaceStoreRef(wsStore);
+
     paneActions.addBufferToPane(ROOT_PANE_ID, "terminal-a");
 
     expect(splitActiveEditorGroup("horizontal")).toBe(true);

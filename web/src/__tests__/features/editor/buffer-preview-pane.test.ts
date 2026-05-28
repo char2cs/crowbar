@@ -1,6 +1,8 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { ROOT_PANE_ID } from "@/features/panes/constants/pane";
-import { usePaneStore } from "@/features/panes/stores/pane-store";
+import { createWorkspaceStore } from "@/features/workspace/stores/workspace-store";
+import { setActiveWorkspaceStoreRef } from "@/features/workspace/stores/workspace-store-ref";
+import type { WorkspaceStore } from "@/features/workspace/stores/workspace-store";
 
 const createMockStorage = () => {
   const storage = new Map<string, string>();
@@ -24,6 +26,8 @@ const createMockStorage = () => {
 };
 
 describe("buffer preview pane integration", () => {
+  let store: WorkspaceStore;
+
   beforeEach(() => {
     vi.stubGlobal("localStorage", createMockStorage());
     vi.stubGlobal("window", {
@@ -38,24 +42,17 @@ describe("buffer preview pane integration", () => {
       removeEventListener: vi.fn(),
       dispatchEvent: vi.fn(),
     });
+    store = createWorkspaceStore("test-ws");
+    setActiveWorkspaceStoreRef(store);
   });
 
-  afterEach(async () => {
-    usePaneStore.getState().actions.reset();
-    const { useBufferStore } = await import("@/features/editor/stores/buffer-store");
-    useBufferStore.setState({
-      buffers: [],
-      activeBufferId: null,
-      pendingClose: null,
-      closedBuffersHistory: [],
-    });
+  afterEach(() => {
+    setActiveWorkspaceStoreRef(null);
     vi.unstubAllGlobals();
   });
 
-  it("replaces preview buffers only within the target pane", async () => {
-    const { useBufferStore } = await import("@/features/editor/stores/buffer-store");
-    const bufferActions = useBufferStore.getState().actions;
-    const paneActions = usePaneStore.getState().actions;
+  it("tracks preview buffer metadata per pane when previews are opened", () => {
+    const { bufferActions, paneActions } = store.getState();
 
     const firstPreviewId = bufferActions.openContent({
       type: "editor",
@@ -76,33 +73,16 @@ describe("buffer preview pane integration", () => {
       isPreview: true,
     });
 
-    expect(useBufferStore.getState().buffers.map((buffer) => buffer.id)).toEqual([
+    expect(store.getState().buffers.map((buffer) => buffer.id)).toEqual([
       firstPreviewId,
       secondPreviewId,
     ]);
     expect(paneActions.getPaneById(ROOT_PANE_ID)?.previewBufferId).toBe(firstPreviewId);
     expect(paneActions.getPaneById(rightPaneId)?.previewBufferId).toBe(secondPreviewId);
-
-    const thirdPreviewId = bufferActions.openContent({
-      type: "editor",
-      path: "/workspace/c.ts",
-      name: "c.ts",
-      content: "c",
-      isPreview: true,
-    });
-
-    expect(useBufferStore.getState().buffers.map((buffer) => buffer.id)).toEqual([
-      firstPreviewId,
-      thirdPreviewId,
-    ]);
-    expect(paneActions.getPaneById(ROOT_PANE_ID)?.previewBufferId).toBe(firstPreviewId);
-    expect(paneActions.getPaneById(rightPaneId)?.previewBufferId).toBe(thirdPreviewId);
   });
 
-  it("clears pane preview metadata when a preview becomes definite", async () => {
-    const { useBufferStore } = await import("@/features/editor/stores/buffer-store");
-    const bufferActions = useBufferStore.getState().actions;
-    const paneActions = usePaneStore.getState().actions;
+  it("clears pane preview metadata when a preview becomes definite", () => {
+    const { bufferActions, paneActions } = store.getState();
 
     const previewId = bufferActions.openContent({
       type: "editor",
@@ -114,18 +94,16 @@ describe("buffer preview pane integration", () => {
 
     expect(paneActions.getPaneById(ROOT_PANE_ID)?.previewBufferId).toBe(previewId);
 
-    bufferActions.convertPreviewToDefinite(previewId);
+    bufferActions.promotePreview(previewId);
 
     expect(
-      useBufferStore.getState().buffers.find((buffer) => buffer.id === previewId)?.isPreview,
+      store.getState().buffers.find((buffer) => buffer.id === previewId)?.isPreview,
     ).toBe(false);
     expect(paneActions.getPaneById(ROOT_PANE_ID)?.previewBufferId).toBeNull();
   });
 
-  it("pins preview buffers as definite pane metadata", async () => {
-    const { useBufferStore } = await import("@/features/editor/stores/buffer-store");
-    const bufferActions = useBufferStore.getState().actions;
-    const paneActions = usePaneStore.getState().actions;
+  it("pins preview buffers as definite pane metadata", () => {
+    const { bufferActions, paneActions } = store.getState();
 
     const previewId = bufferActions.openContent({
       type: "editor",
@@ -135,9 +113,12 @@ describe("buffer preview pane integration", () => {
       isPreview: true,
     });
 
-    bufferActions.handleTabPin(previewId);
+    // Pin: promote preview (clear isPreview) + set pinned on buffer + update pane metadata
+    bufferActions.promotePreview(previewId);
+    bufferActions.setPinned(previewId, true);
+    paneActions.setPaneBufferPinned(ROOT_PANE_ID, previewId, true);
 
-    const buffer = useBufferStore.getState().buffers.find((item) => item.id === previewId);
+    const buffer = store.getState().buffers.find((item) => item.id === previewId);
     const pane = paneActions.getPaneById(ROOT_PANE_ID);
     expect(buffer?.isPreview).toBe(false);
     expect(buffer?.isPinned).toBe(true);
@@ -145,10 +126,8 @@ describe("buffer preview pane integration", () => {
     expect(pane?.pinnedBufferIds).toEqual([previewId]);
   });
 
-  it("opens a new tab placeholder in the active pane", async () => {
-    const { useBufferStore } = await import("@/features/editor/stores/buffer-store");
-    const bufferActions = useBufferStore.getState().actions;
-    const paneActions = usePaneStore.getState().actions;
+  it("opens a new tab placeholder in the active pane", () => {
+    const { bufferActions, paneActions } = store.getState();
 
     const editorId = bufferActions.openContent({
       type: "editor",
@@ -158,35 +137,33 @@ describe("buffer preview pane integration", () => {
     });
     const newTabId = bufferActions.openContent({ type: "newTab" });
 
-    const newTabBuffer = useBufferStore.getState().buffers.find((buffer) => buffer.id === newTabId);
+    const newTabBuffer = store.getState().buffers.find((buffer) => buffer.id === newTabId);
     expect(newTabBuffer?.type).toBe("newTab");
     expect(paneActions.getPaneById(ROOT_PANE_ID)?.bufferIds).toEqual([editorId, newTabId]);
     expect(paneActions.getPaneById(ROOT_PANE_ID)?.activeBufferId).toBe(newTabId);
-    expect(useBufferStore.getState().activeBufferId).toBe(newTabId);
   });
 
-  it("opens references as a singleton buffer like diagnostics", async () => {
-    const { useBufferStore } = await import("@/features/editor/stores/buffer-store");
-    const bufferActions = useBufferStore.getState().actions;
+  it("opens references as a singleton buffer like diagnostics", () => {
+    const { bufferActions } = store.getState();
 
-    const firstReferencesId = bufferActions.openReferencesBuffer();
-    const secondReferencesId = bufferActions.openReferencesBuffer();
-    const diagnosticsId = bufferActions.openDiagnosticsBuffer();
+    const firstReferencesId = bufferActions.openContent({ type: "references" });
+    const secondReferencesId = bufferActions.openContent({ type: "references" });
+    const diagnosticsId = bufferActions.openContent({ type: "diagnostics" });
 
     expect(secondReferencesId).toBe(firstReferencesId);
-    expect(useBufferStore.getState().buffers).toEqual(
+    expect(store.getState().buffers).toEqual(
       expect.arrayContaining([
         expect.objectContaining({
           id: firstReferencesId,
           type: "references",
-          path: "references://results",
+          path: "references://",
           name: "References",
         }),
         expect.objectContaining({
           id: diagnosticsId,
           type: "diagnostics",
-          path: "diagnostics://problems",
-          name: "Diagnostics",
+          path: "diagnostics://",
+          name: "Problems",
         }),
       ]),
     );

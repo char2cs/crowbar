@@ -4,7 +4,6 @@ import { useWorkspaceEffects } from '@/features/workspace/stores/hooks/use-works
 import { useFileSystemStore } from '@/features/file-system/controllers/store'
 
 const mockBufferActions = {
-  registerExternalBuffer: vi.fn(() => 'buf-id'),
   openContent: vi.fn(() => 'buf-id'),
   promotePreview: vi.fn(),
 }
@@ -26,16 +25,6 @@ vi.mock('@/lib/mock/files', () => ({
   getMockFileTree: () => [],
   getMockFileContent: (_path: string) => '// file content',
 }))
-vi.mock('@/features/editor/stores/buffer-store', () => ({
-  useBufferStore: {
-    getState: () => ({
-      actions: {
-        openContent: vi.fn(() => 'legacy-buf-id'),
-        closeBuffer: vi.fn(),
-      },
-    }),
-  },
-}))
 
 beforeEach(() => {
   vi.clearAllMocks()
@@ -43,17 +32,19 @@ beforeEach(() => {
 
 describe('useWorkspaceEffects', () => {
   describe('handleFileSelect', () => {
-    it('registers the file as a preview buffer (isPreview=true)', () => {
+    it('opens the file as a preview buffer (isPreview=true)', () => {
       renderHook(() => useWorkspaceEffects('ws-test'))
 
       const { handleFileSelect } = useFileSystemStore.getState()
       handleFileSelect?.('/src/foo.ts')
 
-      expect(mockBufferActions.registerExternalBuffer).toHaveBeenCalledWith(
-        'legacy-buf-id',
-        '/src/foo.ts',
-        'foo.ts',
-        true,
+      expect(mockBufferActions.openContent).toHaveBeenCalledWith(
+        expect.objectContaining({
+          type: 'editor',
+          path: '/src/foo.ts',
+          name: 'foo.ts',
+          isPreview: true,
+        }),
       )
     })
 
@@ -61,7 +52,9 @@ describe('useWorkspaceEffects', () => {
       renderHook(() => useWorkspaceEffects('ws-test'))
       const { handleFileSelect } = useFileSystemStore.getState()
       handleFileSelect?.('/src', true)
-      expect(mockBufferActions.registerExternalBuffer).not.toHaveBeenCalled()
+      expect(mockBufferActions.openContent).not.toHaveBeenCalledWith(
+        expect.objectContaining({ path: '/src' }),
+      )
     })
   })
 })

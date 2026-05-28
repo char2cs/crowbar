@@ -4,6 +4,9 @@ import {
   replaceAllSearchMatches,
   replaceSearchMatch,
 } from "@/features/editor/utils/search-replace";
+import { createWorkspaceStore } from "@/features/workspace/stores/workspace-store";
+import { setActiveWorkspaceStoreRef } from "@/features/workspace/stores/workspace-store-ref";
+import { ROOT_PANE_ID } from "@/features/panes/constants/pane";
 
 const createMockStorage = () => {
   const storage = new Map<string, string>();
@@ -98,16 +101,10 @@ describe("search replace store actions", () => {
   });
 
   afterEach(async () => {
-    const { useBufferStore } = await import("@/features/editor/stores/buffer-store");
+    setActiveWorkspaceStoreRef(null);
     const { useEditorStateStore } = await import("@/features/editor/stores/state-store");
     const { useEditorUIStore } = await import("@/features/editor/stores/ui-store");
 
-    useBufferStore.setState({
-      activeBufferId: null,
-      buffers: [],
-      pendingClose: null,
-      closedBuffersHistory: [],
-    });
     useEditorUIStore.getState().actions.clearSearch();
     useEditorUIStore.setState({
       searchOptions: {
@@ -167,29 +164,29 @@ describe("search replace store actions", () => {
       },
     });
 
-    const { useBufferStore } = await import("@/features/editor/stores/buffer-store");
-    useBufferStore.setState({
-      activeBufferId: "active",
-      buffers: [
-        {
-          id: "active",
-          type: "editor",
-          path: "/tmp/search.txt",
-          name: "search.txt",
-          isPinned: false,
-          isPreview: false,
-          isActive: true,
-          content: "foo Foo FOO",
-          savedContent: "foo Foo FOO",
-          isDirty: false,
-          isVirtual: false,
-          language: "text",
-          tokens: [],
-        },
-      ],
-      pendingClose: null,
-      closedBuffersHistory: [],
+    // Set up active workspace store with a buffer containing the search content
+    const wsStore = createWorkspaceStore("test-ws");
+    const bufferId = wsStore.getState().bufferActions.openContent({
+      type: "editor",
+      path: "/tmp/search.txt",
+      name: "search.txt",
+      content: "foo Foo FOO",
     });
+    // Make it the active pane buffer
+    wsStore.setState((state) => ({
+      ...state,
+      activePaneId: ROOT_PANE_ID,
+      paneRoot: {
+        type: "group",
+        id: ROOT_PANE_ID,
+        bufferIds: [bufferId],
+        activeBufferId: bufferId,
+        locked: false,
+        previewBufferId: null,
+        pinnedBufferIds: [],
+      },
+    }));
+    setActiveWorkspaceStoreRef(wsStore);
 
     useEditorUIStore.getState().actions.replaceAll();
 

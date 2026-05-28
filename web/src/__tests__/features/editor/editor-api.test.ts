@@ -1,15 +1,17 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { initViewStoreSubscription, _resetViewStoreUnsubscribeForTesting } from "@/features/editor/stores/view-store";
 import type { editorAPI as editorAPIInstance } from "@/features/editor/extensions/api";
-import type { useBufferStore as useBufferStoreHook } from "@/features/editor/stores/buffer-store";
 import type { useEditorStateStore as useEditorStateStoreHook } from "@/features/editor/stores/state-store";
 import type { useHistoryStore as useHistoryStoreHook } from "@/features/editor/stores/history-store";
 import type { useEditorSettingsStore as useEditorSettingsStoreHook } from "@/features/editor/stores/settings-store";
 import { calculateCursorPositionFromContent } from "@/features/editor/utils/position";
 import type { EditorContent } from "@/features/panes/types/pane-content";
+import { createWorkspaceStore } from "@/features/workspace/stores/workspace-store";
+import { setActiveWorkspaceStoreRef } from "@/features/workspace/stores/workspace-store-ref";
+import type { WorkspaceStore } from "@/features/workspace/stores/workspace-store";
+import { ROOT_PANE_ID } from "@/features/panes/constants/pane";
 
 type EditorAPIInstance = typeof editorAPIInstance;
-type BufferStoreHook = typeof useBufferStoreHook;
 type EditorStateStoreHook = typeof useEditorStateStoreHook;
 type HistoryStoreHook = typeof useHistoryStoreHook;
 type EditorSettingsStoreHook = typeof useEditorSettingsStoreHook;
@@ -51,13 +53,31 @@ const makeBuffer = (content: string, language = "typescript"): EditorContent => 
   tokens: [],
 });
 
+/** Set the active buffer in the workspace store used by the API. */
+function setWorkspaceBuffer(store: WorkspaceStore, buffer: EditorContent): void {
+  store.setState((state) => ({
+    ...state,
+    buffers: [buffer],
+    activePaneId: ROOT_PANE_ID,
+    paneRoot: {
+      type: "group",
+      id: ROOT_PANE_ID,
+      bufferIds: [buffer.id],
+      activeBufferId: buffer.id,
+      locked: false,
+      previewBufferId: null,
+      pinnedBufferIds: [],
+    },
+  }));
+}
+
 describe("editor API model operations", () => {
   const onChange = vi.fn();
   let editorAPI: EditorAPIInstance;
-  let useBufferStore: BufferStoreHook;
   let useEditorStateStore: EditorStateStoreHook;
   let useHistoryStore: HistoryStoreHook;
   let useEditorSettingsStore: EditorSettingsStoreHook;
+  let wsStore: WorkspaceStore;
 
   beforeEach(async () => {
     initViewStoreSubscription();
@@ -89,20 +109,19 @@ describe("editor API model operations", () => {
     vi.stubGlobal("document", documentStub);
 
     ({ editorAPI } = await import("@/features/editor/extensions/api"));
-    ({ useBufferStore } = await import("@/features/editor/stores/buffer-store"));
     ({ useEditorStateStore } = await import("@/features/editor/stores/state-store"));
     ({ useHistoryStore } = await import("@/features/editor/stores/history-store"));
     ({ useEditorSettingsStore } = await import("@/features/editor/stores/settings-store"));
+
+    wsStore = createWorkspaceStore("test-ws");
+    setActiveWorkspaceStoreRef(wsStore);
+    setWorkspaceBuffer(wsStore, makeBuffer("alpha\nbeta"));
 
     onChange.mockReset();
     editorAPI.setTextareaRef?.(null);
     editorAPI.setActiveEditorAdapter(null);
     editorAPI.updateCursorAndSelection({ line: 0, column: 0, offset: 0 }, null);
 
-    useBufferStore.setState({
-      activeBufferId: "buffer_editor_api_test",
-      buffers: [makeBuffer("alpha\nbeta")],
-    });
     useEditorStateStore.setState({
       cursorPosition: { line: 1, column: 2, offset: "alpha\nbe".length },
       selection: undefined,
@@ -112,12 +131,7 @@ describe("editor API model operations", () => {
 
   afterEach(() => {
     _resetViewStoreUnsubscribeForTesting();
-    useBufferStore?.setState({
-      activeBufferId: null,
-      buffers: [],
-      pendingClose: null,
-      closedBuffersHistory: [],
-    });
+    setActiveWorkspaceStoreRef(null);
     useEditorStateStore?.setState({
       cursorPosition: { line: 0, column: 0, offset: 0 },
       selection: undefined,
@@ -260,10 +274,7 @@ describe("editor API model operations", () => {
 
   it("jumps between brackets through the model cursor", () => {
     const content = "fn call(value)";
-    useBufferStore.setState({
-      activeBufferId: "buffer_editor_api_test",
-      buffers: [makeBuffer(content)],
-    });
+    setWorkspaceBuffer(wsStore, makeBuffer(content));
     useEditorStateStore.setState({
       cursorPosition: calculateCursorPositionFromContent("fn call(".length, content),
       selection: {
@@ -288,10 +299,7 @@ describe("editor API model operations", () => {
 
   it("selects to the nearest bracket pair through the model cursor", () => {
     const content = "fn call(value)";
-    useBufferStore.setState({
-      activeBufferId: "buffer_editor_api_test",
-      buffers: [makeBuffer(content)],
-    });
+    setWorkspaceBuffer(wsStore, makeBuffer(content));
     useEditorStateStore.setState({
       cursorPosition: calculateCursorPositionFromContent("fn call(va".length, content),
       selection: undefined,
@@ -312,10 +320,7 @@ describe("editor API model operations", () => {
     const content = "var x = (3 + (5-7));";
     const nextContent = "var x = (3 + 5-7);";
     const cursor = calculateCursorPositionFromContent("var x = (3 + (5".length, content);
-    useBufferStore.setState({
-      activeBufferId: "buffer_editor_api_test",
-      buffers: [makeBuffer(content)],
-    });
+    setWorkspaceBuffer(wsStore, makeBuffer(content));
     useEditorStateStore.setState({
       cursorPosition: cursor,
       selection: undefined,
@@ -332,10 +337,7 @@ describe("editor API model operations", () => {
 
   it("expands and shrinks smart selection ranges through the model cursor", () => {
     const content = "const value = call(alpha);\nnext();";
-    useBufferStore.setState({
-      activeBufferId: "buffer_editor_api_test",
-      buffers: [makeBuffer(content)],
-    });
+    setWorkspaceBuffer(wsStore, makeBuffer(content));
     useEditorStateStore.setState({
       cursorPosition: calculateCursorPositionFromContent("const value = call(al".length, content),
       selection: undefined,
@@ -365,10 +367,7 @@ describe("editor API model operations", () => {
 
   it("adds vertical cursors through the model API without stealing the primary cursor", () => {
     const content = "one\nlonger\nx";
-    useBufferStore.setState({
-      activeBufferId: "buffer_editor_api_test",
-      buffers: [makeBuffer(content)],
-    });
+    setWorkspaceBuffer(wsStore, makeBuffer(content));
     useEditorStateStore.setState({
       cursorPosition: calculateCursorPositionFromContent("one\nlong".length, content),
       selection: undefined,
@@ -393,10 +392,7 @@ describe("editor API model operations", () => {
 
   it("adds cursors to selected line ends through the model API", () => {
     const content = "one\ntwo\nthree";
-    useBufferStore.setState({
-      activeBufferId: "buffer_editor_api_test",
-      buffers: [makeBuffer(content)],
-    });
+    setWorkspaceBuffer(wsStore, makeBuffer(content));
     useEditorStateStore.setState({
       cursorPosition: calculateCursorPositionFromContent("one\ntwo\nth".length, content),
       selection: {
@@ -437,10 +433,7 @@ describe("editor API model operations", () => {
 
   it("reads individual lines from sparse large-file view state", () => {
     const largeContent = Array.from({ length: 50_001 }, (_, index) => `line-${index}`).join("\n");
-    useBufferStore.setState({
-      activeBufferId: "buffer_editor_api_test",
-      buffers: [makeBuffer(largeContent, "txt")],
-    });
+    setWorkspaceBuffer(wsStore, makeBuffer(largeContent, "txt"));
 
     expect(editorAPI.getLineCount()).toBe(50_001);
     expect(editorAPI.getLines()).toHaveLength(50_001);
@@ -495,9 +488,10 @@ describe("editor API model operations", () => {
 
     editorAPI.undo();
 
-    expect(useBufferStore.getState().actions.getActiveBuffer()).toMatchObject({
-      content: "alpha",
-    });
+    const activeBuffer = wsStore.getState().buffers.find(
+      (b) => b.id === "buffer_editor_api_test",
+    );
+    expect(activeBuffer).toMatchObject({ content: "alpha" });
     expect(textarea.value).toBe("");
   });
 });
