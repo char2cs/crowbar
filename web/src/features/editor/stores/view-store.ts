@@ -1,11 +1,12 @@
 import isEqual from "fast-deep-equal";
 import { createWithEqualityFn } from "zustand/traditional";
+import type { PaneContent } from "@/features/panes/types/pane-content";
 import { isEditorContent } from "@/features/panes/types/pane-content";
 import { createSelectors } from "@/utils/zustand-selectors";
 import { createSparseLineArray, getLargeEditorModeInfo } from "../utils/large-file";
-import { getActiveWorkspaceStoreRef } from "@/features/workspace/stores/workspace-store-ref";
+import { getActiveWorkspaceStoreRef, onActiveWorkspaceStoreChange } from "@/features/workspace/stores/workspace-store-ref";
+import type { PaneNode } from "@/features/panes/types/pane";
 import { findPaneGroup } from "@/features/panes/utils/pane-tree";
-import { useBufferStore } from "./buffer-store";
 
 interface EditorViewState {
   // Computed views of the active buffer
@@ -153,77 +154,116 @@ export function applyIncrementalLineEdit(
   ];
 }
 
-// Subscribe to buffer changes and update computed values.
+// Subscribe to workspace store changes and update computed view values.
 // Call this once at app startup (main.tsx). Returns an unsubscribe function.
+//
+// Because the workspace store is set asynchronously (when the WorkspaceView
+// React component mounts), this function uses onActiveWorkspaceStoreChange to
+// wire up a workspace-store subscription whenever the store becomes available
+// and tear it down when the store is removed.
 let _viewStoreUnsubscribe: (() => void) | null = null
 
-export function initViewStoreSubscription(): () => void {
-  if (_viewStoreUnsubscribe) return _viewStoreUnsubscribe
+function handleWorkspaceState(state: { buffers: PaneContent[]; paneRoot: PaneNode; activePaneId: string }) {
+  const activeBufferId = findPaneGroup(state.paneRoot, state.activePaneId)?.activeBufferId ?? null;
+  const activeBuffer = activeBufferId ? state.buffers.find((b) => b.id === activeBufferId) : null;
 
-  _viewStoreUnsubscribe = useBufferStore.subscribe((state) => {
-    const activeBuffer = state.actions.getActiveBuffer();
-    if (activeBuffer && isEditorContent(activeBuffer)) {
-      const previousSnapshot = previousActiveBufferSnapshot;
+  if (activeBuffer && isEditorContent(activeBuffer)) {
+    const previousSnapshot = previousActiveBufferSnapshot;
 
-      if (
-        previousSnapshot &&
-        previousSnapshot.id === activeBuffer.id &&
-        previousSnapshot.content === activeBuffer.content
-      ) {
-        return;
-      }
+    if (
+      previousSnapshot &&
+      previousSnapshot.id === activeBuffer.id &&
+      previousSnapshot.content === activeBuffer.content
+    ) {
+      return;
+    }
 
-      const largeEditorInfo = getLargeEditorModeInfo(activeBuffer.content);
-      if (largeEditorInfo.largeContentMode) {
-        const lines: string[] = [];
-        previousActiveBufferSnapshot = {
-          id: activeBuffer.id,
-          content: activeBuffer.content,
-          lines,
-        };
-        useEditorViewStore.setState({
-          lines,
-          lineCount: largeEditorInfo.lineCount,
-        });
-        return;
-      }
-
-      const previousLines = previousSnapshot?.id === activeBuffer.id ? previousSnapshot.lines : [""];
-      const lines =
-        previousSnapshot?.id === activeBuffer.id
-          ? (applyIncrementalLineEdit(
-              previousSnapshot.content,
-              activeBuffer.content,
-              previousLines,
-            ) ?? activeBuffer.content.split("\n"))
-          : activeBuffer.content.split("\n");
-
+    const largeEditorInfo = getLargeEditorModeInfo(activeBuffer.content);
+    if (largeEditorInfo.largeContentMode) {
+      const lines: string[] = [];
       previousActiveBufferSnapshot = {
         id: activeBuffer.id,
         content: activeBuffer.content,
         lines,
       };
-
       useEditorViewStore.setState({
         lines,
-        lineCount: lines.length,
+        lineCount: largeEditorInfo.lineCount,
       });
-    } else {
-      previousActiveBufferSnapshot = null;
-      useEditorViewStore.setState({
-        lines: [""],
-        lineCount: 1,
-      });
+      return;
     }
-  });
 
-  return _viewStoreUnsubscribe;
+    const previousLines = previousSnapshot?.id === activeBuffer.id ? previousSnapshot.lines : [""];
+    const lines =
+      previousSnapshot?.id === activeBuffer.id
+        ? (applyIncrementalLineEdit(
+            previousSnapshot.content,
+            activeBuffer.content,
+            previousLines,
+          ) ?? activeBuffer.content.split("\n"))
+        : activeBuffer.content.split("\n");
+
+    previousActiveBufferSnapshot = {
+      id: activeBuffer.id,
+      content: activeBuffer.content,
+      lines,
+    };
+
+    useEditorViewStore.setState({
+      lines,
+      lineCount: lines.length,
+    });
+  } else {
+    previousActiveBufferSnapshot = null;
+    useEditorViewStore.setState({
+      lines: [""],
+      lineCount: 1,
+    });
+  }
+}
+
+export function initViewStoreSubscription(): () => void {
+  if (_viewStoreUnsubscribe) return _viewStoreUnsubscribe
+
+  let _wsSubscriptionUnsub: (() => void) | null = null
+
+  const _stopWatchingRef = onActiveWorkspaceStoreChange((store) => {
+    // Tear down previous workspace store subscription when store changes.
+    if (_wsSubscriptionUnsub) {
+      _wsSubscriptionUnsub()
+      _wsSubscriptionUnsub = null
+    }
+
+    if (store) {
+      // Wire up subscription on the new workspace store.
+      _wsSubscriptionUnsub = store.subscribe((state) => {
+        handleWorkspaceState(state)
+      })
+      // Also fire immediately with current state so view is up to date.
+      handleWorkspaceState(store.getState())
+    } else {
+      // Workspace was torn down — reset to blank state.
+      previousActiveBufferSnapshot = null
+      useEditorViewStore.setState({ lines: [""], lineCount: 1 })
+    }
+  })
+
+  _viewStoreUnsubscribe = () => {
+    if (_wsSubscriptionUnsub) {
+      _wsSubscriptionUnsub()
+      _wsSubscriptionUnsub = null
+    }
+    _stopWatchingRef()
+    _viewStoreUnsubscribe = null
+  }
+
+  return _viewStoreUnsubscribe
 }
 
 /** For testing only: resets the singleton so initViewStoreSubscription() can be called fresh. */
 export function _resetViewStoreUnsubscribeForTesting(): void {
   if (_viewStoreUnsubscribe) {
     _viewStoreUnsubscribe()
-    _viewStoreUnsubscribe = null
+    // _viewStoreUnsubscribe sets itself to null on call — nothing more needed.
   }
 }
