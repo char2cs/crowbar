@@ -100,13 +100,11 @@ const Tab = React.forwardRef<HTMLButtonElement, TabProps>(
     <button
       ref={ref}
       className={cn(
-        // @coss/ui button visual DNA — without layout side-effects (no shrink-0, no justify-center, no SVG auto-sizing)
-        "relative inline-flex cursor-pointer items-center whitespace-nowrap rounded-lg border font-medium text-sm outline-none transition-shadow",
-        "before:pointer-events-none before:absolute before:inset-0 before:rounded-[calc(var(--radius-lg)-1px)]",
+        "relative inline-flex shrink-0 cursor-pointer items-center whitespace-nowrap rounded-lg border font-medium text-sm outline-none transition-colors",
         "focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-1 focus-visible:ring-offset-background",
         "disabled:pointer-events-none disabled:opacity-64",
         isActive
-          ? "border-border bg-background text-foreground shadow-xs/5 dark:before:shadow-[0_-1px_--theme(--color-white/6%)]"
+          ? "border-border bg-background text-foreground"
           : "border-transparent text-muted-foreground hover:bg-accent hover:text-foreground",
         className,
       )}
