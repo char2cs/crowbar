@@ -46,7 +46,6 @@ import { useEffect, useRef, useState, type ReactNode } from "react";
 import { createPortal } from "react-dom";
 import { useTerminalProfilesStore } from "@/features/terminal/stores/profiles-store";
 import { useTerminalShellsStore } from "@/features/terminal/stores/shells-store";
-import { useBufferStore } from "@/features/editor/stores/buffer-store";
 import { BOTTOM_PANE_ID } from "@/features/panes/constants/pane";
 import { getOrCreatePaneDropTarget } from "@/features/panes/utils/pane-drop-actions";
 import { useWorkspaceStore } from "@/features/workspace/stores/workspace-context";
@@ -306,7 +305,6 @@ const TerminalTabBar = ({
   const sessions = useTerminalStore((state) => state.sessions);
   const customProfiles = useTerminalProfilesStore.use.profiles();
   const availableShells = useTerminalShellsStore.use.shells();
-  const { openTerminalBuffer } = useBufferStore.use.actions();
 
   const workspaceStore = useWorkspaceStore();
   const tabBarRef = useRef<HTMLDivElement>(null);
@@ -572,7 +570,8 @@ const TerminalTabBar = ({
         return;
       }
 
-      const bufferId = openTerminalBuffer({
+      const bufferId = workspaceStore.getState().bufferActions.openContent({
+        type: "terminal",
         sessionId: terminal.id,
         name: terminal.name,
         command: terminal.initialCommand,

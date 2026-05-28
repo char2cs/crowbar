@@ -49,7 +49,6 @@ import {
 // Use browser clipboard API instead of Tauri clipboard plugin
 const writeText = (text: string) => navigator.clipboard.writeText(text);
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
-import { useBufferStore } from "@/features/editor/stores/buffer-store";
 import { useJumpListStore } from "@/features/editor/stores/jump-list-store";
 import { useEditorStateStore } from "@/features/editor/stores/state-store";
 import { navigateToJumpEntry } from "@/features/editor/utils/jump-navigation";
@@ -62,7 +61,7 @@ import {
   usePaneActions,
 } from "@/features/workspace/stores/hooks/use-pane-store";
 import { useBuffers, useBufferActions } from "@/features/workspace/stores/hooks/use-buffer-store";
-import { useWorkspaceStoreContext } from "@/features/workspace/stores/workspace-context";
+import { useWorkspaceStore, useWorkspaceStoreContext } from "@/features/workspace/stores/workspace-context";
 import { splitEditorGroup } from "@/features/panes/utils/pane-command-actions";
 import { getPaneSplitDropOptions } from "@/features/panes/utils/pane-drop-zones";
 import { findPaneGroup } from "@/features/panes/utils/pane-tree";
@@ -105,8 +104,9 @@ const TabBar = ({
   const pendingClose = null as ({ bufferId: string } | null);  // workspace buffer slice tracks pending close via local state
   const paneRoot = usePaneRoot();
   const bottomRoot = useBottomRoot();
-  const { closePane, setActivePane, activatePaneBuffer, removeBufferFromPane, splitPane, moveBufferToPane } = usePaneActions();
-  const { closeBuffer, openContent, promotePreview: promotePreviewBuffer } = useBufferActions();
+  const { closePane, setActivePane, activatePaneBuffer, removeBufferFromPane, splitPane, moveBufferToPane, reorderPaneBuffers } = usePaneActions();
+  const { closeBuffer, openContent, promotePreview: promotePreviewBuffer, setPinned, confirmPendingClose, setPendingClose } = useBufferActions();
+  const workspaceStore = useWorkspaceStore();
 
   // Filter buffers by paneId if provided
   const pane = paneId
@@ -122,16 +122,43 @@ const TabBar = ({
     activeBufferCandidate && buffers.some((buffer) => buffer.id === activeBufferCandidate)
       ? activeBufferCandidate
       : null;
-  const {
-    handleTabPin,
-    handleCloseOtherTabs,
-    handleCloseAllTabs,
-    handleCloseTabsToRight,
-    reorderBuffers,
-    confirmCloseWithoutSaving,
-    cancelPendingClose,
-    convertPreviewToDefinite,
-  } = useBufferStore.use.actions();
+  // Inline replacements for legacy buffer-store tab actions
+  function handleTabPin(bufferId: string) {
+    const buf = workspaceStore.getState().buffers.find((b) => b.id === bufferId);
+    if (buf) setPinned(bufferId, !buf.isPinned);
+  }
+  function handleCloseOtherTabs(keepBufferId: string) {
+    const { buffers: allBufs } = workspaceStore.getState();
+    const toClose = allBufs.filter((b) => b.id !== keepBufferId && !b.isPinned);
+    toClose.forEach((b) => {
+      if (paneId) removeBufferFromPane(paneId, b.id);
+      closeBuffer(b.id);
+    });
+  }
+  function handleCloseAllTabs() {
+    const { buffers: allBufs } = workspaceStore.getState();
+    const toClose = allBufs.filter((b) => !b.isPinned);
+    toClose.forEach((b) => {
+      if (paneId) removeBufferFromPane(paneId, b.id);
+      closeBuffer(b.id);
+    });
+  }
+  function handleCloseTabsToRight(bufferId: string) {
+    const { buffers: allBufs } = workspaceStore.getState();
+    const idx = allBufs.findIndex((b) => b.id === bufferId);
+    if (idx === -1) return;
+    const toClose = allBufs.slice(idx + 1).filter((b) => !b.isPinned);
+    toClose.forEach((b) => {
+      if (paneId) removeBufferFromPane(paneId, b.id);
+      closeBuffer(b.id);
+    });
+  }
+  function reorderBuffers(startIndex: number, endIndex: number) {
+    if (paneId) reorderPaneBuffers(paneId, startIndex, endIndex);
+  }
+  const confirmCloseWithoutSaving = confirmPendingClose;
+  const cancelPendingClose = () => setPendingClose(null);
+  const convertPreviewToDefinite = promotePreviewBuffer;
 
   // Workspace-aware tab interactions
   function handleTabClick(bufferId: string) {
@@ -231,10 +258,13 @@ const TabBar = ({
       return;
     }
 
-    const bufferStore = useBufferStore.getState();
+    const wsState = workspaceStore.getState();
     const editorState = useEditorStateStore.getState();
-    const currentActiveBufferId = bufferStore.activeBufferId;
-    const currentActiveBuffer = bufferStore.buffers.find((b) => b.id === currentActiveBufferId);
+    const activePaneGroup = findPaneGroup(wsState.paneRoot, wsState.activePaneId);
+    const currentActiveBufferId = activePaneGroup?.activeBufferId ?? null;
+    const currentActiveBuffer = currentActiveBufferId
+      ? wsState.buffers.find((b) => b.id === currentActiveBufferId)
+      : undefined;
 
     const currentPosition =
       currentActiveBufferId && currentActiveBuffer?.path
@@ -253,7 +283,7 @@ const TabBar = ({
     if (entry) {
       await navigateToJumpEntry(entry);
     }
-  }, [activeWebViewerNavigation, jumpListActions, usesWebViewerNavigation]);
+  }, [activeWebViewerNavigation, jumpListActions, usesWebViewerNavigation, workspaceStore]);
 
   const handleJumpForward = useCallback(async () => {
     if (usesWebViewerNavigation) {
@@ -713,7 +743,7 @@ const handleDragStart = useCallback(
           data-tab-bar-pane-id={paneId ?? ""}
           className={cn(
             'relative flex shrink-0 items-center gap-1.5 overflow-hidden px-2 py-1',
-            IS_MAC ? 'h-[38px]' : 'h-[28px]',
+            IS_MAC ? 'h-[44px]' : 'h-[34px]',
           )}
           role="tablist"
           aria-label="Open files"
@@ -844,20 +874,18 @@ const handleDragStart = useCallback(
         onReload={(bufferId: string) => {
           const buffer = buffers.find((b) => b.id === bufferId);
           if (buffer && buffer.path !== "extensions://marketplace") {
-            const { closeBuffer, openBuffer } = useBufferStore.getState().actions;
+            if (paneId) removeBufferFromPane(paneId, bufferId);
             closeBuffer(bufferId);
             setTimeout(async () => {
               try {
                 const content =
                   buffer.type === "editor" || buffer.type === "diff" ? buffer.content : "";
-                openBuffer(
-                  buffer.path,
-                  buffer.name,
-                  content,
-                  buffer.type === "image",
-                  undefined, // databaseType
-                  buffer.type === "diff",
-                );
+                const spec = buffer.type === "image"
+                  ? ({ type: "image", path: buffer.path, name: buffer.name } as const)
+                  : buffer.type === "diff"
+                  ? ({ type: "diff", path: buffer.path, name: buffer.name, content } as const)
+                  : ({ type: "editor", path: buffer.path, name: buffer.name, content } as const);
+                openContent(spec);
               } catch (error) {
                 console.error("Failed to reload buffer:", error);
               }

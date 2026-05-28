@@ -1,6 +1,5 @@
 import type React from "react";
 import { useCallback, useEffect, useState } from "react";
-import { useBufferStore } from "@/features/editor/stores/buffer-store";
 import { BOTTOM_PANE_ID } from "@/features/panes/constants/pane";
 import { usePaneStore } from "@/features/panes/stores/pane-store";
 import { getAllPaneGroups } from "@/features/panes/utils/pane-tree";
@@ -25,7 +24,6 @@ const BottomPane = () => {
   const bottomRoot = usePaneStore.use.bottomRoot();
   const bottomPaneBufferIds = getAllPaneGroups(bottomRoot).flatMap((pane) => pane.bufferIds);
   const { moveBufferToPane } = usePaneStore.use.actions();
-  const { openTerminalBuffer } = useBufferStore.use.actions();
   const workspaceStore = useWorkspaceStore();
   const [height, setHeight] = useState(320);
   const [isResizing, setIsResizing] = useState(false);
@@ -119,7 +117,8 @@ const BottomPane = () => {
         if (!tabData) return;
 
         if (tabData.source === "terminal-panel" && tabData.terminalId) {
-          const bufferId = openTerminalBuffer({
+          const bufferId = workspaceStore.getState().bufferActions.openContent({
+            type: "terminal",
             sessionId: tabData.terminalId,
             name: tabData.name,
             command: tabData.initialCommand,
@@ -147,7 +146,7 @@ const BottomPane = () => {
         clearInternalTabDragData();
       }
     },
-    [moveBufferToPane, openTerminalBuffer, workspaceStore],
+    [moveBufferToPane, workspaceStore],
   );
 
   return (
