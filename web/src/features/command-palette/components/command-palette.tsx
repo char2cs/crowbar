@@ -127,8 +127,8 @@ const CommandPalette = () => {
   const activeBuffer = buffers.find((b) => b.id === activeBufferId) || null;
   const closeBuffer = (id: string) => workspaceStore.getState().bufferActions.closeBuffer(id);
   const setActiveBuffer = (id: string) => workspaceStore.getState().paneActions.activatePaneBuffer(activePaneId, id);
-  const switchToNextBuffer = () => {};
-  const switchToPreviousBuffer = () => {};
+  const switchToNextBuffer = () => workspaceStore.getState().paneActions.switchToNextBufferInPane();
+  const switchToPreviousBuffer = () => workspaceStore.getState().paneActions.switchToPreviousBufferInPane();
   const reopenClosedTab = async () => { workspaceStore.getState().bufferActions.reopenLastClosedBuffer(); };
   const openWebViewerBuffer = (url: string) => workspaceStore.getState().bufferActions.openContent({ type: 'webViewer', url });
   const { zoomIn, zoomOut, resetZoom } = useZoomStore.use.actions();

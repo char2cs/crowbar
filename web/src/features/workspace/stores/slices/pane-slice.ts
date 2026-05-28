@@ -41,6 +41,8 @@ export interface PaneActions {
   getPaneByBufferId(bufferId: string): PaneGroup | null
   getActivePane(): PaneGroup | null
   clearPreviewBufferEverywhere(bufferId: string): void
+  switchToNextBufferInPane(): void
+  switchToPreviousBufferInPane(): void
 }
 
 export interface PaneSlice {
@@ -202,6 +204,39 @@ export const createPaneSlice: StateCreator<
           state.bottomRoot = setPanePreviewBuffer(state.bottomRoot, id, null)
         }
       })
+    },
+
+    switchToNextBufferInPane() {
+      const state = get()
+      const activePane =
+        findPaneGroup(state.paneRoot, state.activePaneId) ??
+        findPaneGroup(state.bottomRoot, state.activePaneId)
+      if (!activePane || activePane.bufferIds.length <= 1) return
+
+      const currentIndex = activePane.activeBufferId
+        ? activePane.bufferIds.indexOf(activePane.activeBufferId)
+        : -1
+      const nextIndex = (currentIndex + 1) % activePane.bufferIds.length
+      const nextBufferId = activePane.bufferIds[nextIndex]
+
+      get().paneActions.activatePaneBuffer(activePane.id, nextBufferId)
+    },
+
+    switchToPreviousBufferInPane() {
+      const state = get()
+      const activePane =
+        findPaneGroup(state.paneRoot, state.activePaneId) ??
+        findPaneGroup(state.bottomRoot, state.activePaneId)
+      if (!activePane || activePane.bufferIds.length <= 1) return
+
+      const currentIndex = activePane.activeBufferId
+        ? activePane.bufferIds.indexOf(activePane.activeBufferId)
+        : 0
+      const prevIndex =
+        (currentIndex - 1 + activePane.bufferIds.length) % activePane.bufferIds.length
+      const prevBufferId = activePane.bufferIds[prevIndex]
+
+      get().paneActions.activatePaneBuffer(activePane.id, prevBufferId)
     },
   },
 })
