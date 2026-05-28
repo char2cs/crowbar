@@ -110,7 +110,7 @@ const TabBarItem = memo(function TabBarItem({
         isDragged={isDraggedTab}
         className={cn(
           "h-7 pl-2.5",
-          isActive ? "pr-7" : "pr-2.5",
+          isActive ? "pr-7 bg-background" : "pr-2.5",
         )}
         onClick={onClick}
         onMouseDown={onMouseDown}
