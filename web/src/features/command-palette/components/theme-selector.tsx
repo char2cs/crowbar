@@ -12,7 +12,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { themeRegistry } from "@/extensions/themes/theme-registry";
 import type { ThemeDefinition } from "@/extensions/themes/types";
 import { useUIState } from "@/features/window/stores/ui-state-store";
-import Badge from "@/components/ui/badge";
+import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { CommandEmpty, CommandHeader, CommandInput, CommandItem, CommandList } from "@/components/ui/command";
 import { matchesSearchQuery } from "@/utils/search-match";
@@ -311,7 +311,7 @@ export const ThemeSelectorContent = ({
                   <div className="flex items-center gap-2 truncate ui-text-xs">
                     <span className="truncate">{theme.name}</span>
                     {isCurrent && (
-                      <Badge variant="secondary" size="compact">
+                      <Badge variant="secondary" size="sm">
                         Current
                       </Badge>
                     )}

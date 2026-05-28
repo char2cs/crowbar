@@ -5,6 +5,7 @@ import { mergeProps } from "@base-ui/react/merge-props";
 import { useRender } from "@base-ui/react/use-render";
 import { XIcon } from "lucide-react";
 import type React from "react";
+import { useState } from "react";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { ScrollArea } from "@/components/ui/scroll-area";
@@ -210,6 +211,106 @@ export function DialogPanel({
         render,
       })}
     </ScrollArea>
+  );
+}
+
+// ─── Crowbar AppDialog ─────────────────────────────────────────────────────────
+// Higher-level dialog used by Crowbar feature modules.
+// Accepts title, icon, footer, size, onClose, classNames props.
+
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+type AppDialogIconComponent = React.ComponentType<any>;
+
+interface AppDialogProps {
+  children?: React.ReactNode;
+  title?: React.ReactNode;
+  icon?: AppDialogIconComponent;
+  headerActions?: React.ReactNode;
+  onClose?: () => void;
+  footer?: React.ReactNode;
+  size?: "sm" | "md" | "lg" | "xl";
+  classNames?: {
+    content?: string;
+    modal?: string;
+    header?: string;
+    title?: string;
+    headerActions?: string;
+  };
+  className?: string;
+}
+
+const APP_DIALOG_SIZE_MAP: Record<string, string> = {
+  sm: "sm:max-w-sm",
+  md: "sm:max-w-md",
+  lg: "sm:max-w-2xl",
+  xl: "sm:max-w-4xl",
+};
+
+export function AppDialog({
+  children,
+  title,
+  icon: Icon,
+  headerActions,
+  onClose,
+  footer,
+  size = "md",
+  classNames,
+  className,
+}: AppDialogProps): React.ReactElement {
+  const [open, setOpen] = useState(true);
+
+  const handleOpenChange = (nextOpen: boolean) => {
+    setOpen(nextOpen);
+    if (!nextOpen) onClose?.();
+  };
+
+  return (
+    <Dialog open={open} onOpenChange={handleOpenChange}>
+      <DialogPortal>
+        <DialogBackdrop />
+        <DialogViewport>
+          <DialogPrimitive.Popup
+            data-slot="dialog-content"
+            className={cn(
+              "relative row-start-2 flex w-full flex-col -translate-x-1/2 rounded-xl bg-popover text-popover-foreground shadow-lg/5 outline-none overflow-hidden transition-[scale,opacity,translate] duration-200 ease-in-out data-ending-style:opacity-0 data-starting-style:opacity-0 max-w-[calc(100%-2rem)]",
+              !classNames?.modal && (APP_DIALOG_SIZE_MAP[size] ?? APP_DIALOG_SIZE_MAP.md),
+              className,
+              classNames?.modal,
+            )}
+          >
+            {(title || Icon || headerActions) && (
+              <div className={cn("shrink-0 flex items-center gap-2 border-b px-4 py-3", classNames?.header)}>
+                {Icon && <Icon size={16} className="shrink-0 text-muted-foreground" />}
+                {title && (
+                  <DialogPrimitive.Title className={cn("font-medium text-sm leading-none", classNames?.title)}>
+                    {title}
+                  </DialogPrimitive.Title>
+                )}
+                {headerActions && (
+                  <div className={cn("ml-2 flex items-center gap-2", classNames?.headerActions)}>
+                    {headerActions}
+                  </div>
+                )}
+                <DialogPrimitive.Close
+                  data-slot="dialog-close"
+                  render={<Button variant="ghost" className="ml-auto shrink-0" size="icon-sm" />}
+                  onClick={onClose}
+                >
+                  <XIcon />
+                  <span className="sr-only">Close</span>
+                </DialogPrimitive.Close>
+              </div>
+            )}
+            <div className={cn("flex-1 min-h-0", classNames?.content ?? "overflow-auto p-4")}>{children}</div>
+            {footer && (
+              <div className="shrink-0 flex flex-row justify-end gap-2 border-t bg-muted/50 px-4 py-3 rounded-b-xl">
+                {footer}
+              </div>
+            )}
+          </DialogPrimitive.Popup>
+        </DialogViewport>
+      </DialogPortal>
+    </Dialog>
   );
 }
 

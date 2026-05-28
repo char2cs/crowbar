@@ -10,11 +10,11 @@ import {
 } from "@phosphor-icons/react";
 import { useEffect, useState } from "react";
 import { Button } from "@/components/ui/button";
-import Checkbox from "@/components/ui/checkbox";
+import { Checkbox } from "@/components/ui/checkbox";
 import { ContextMenu, useContextMenu, type ContextMenuItem } from "@/components/ui/context-menu";
-import Dialog from "@/components/ui/dialog";
-import Input from "@/components/ui/input";
-import { LoadingSpinner } from "@/components/ui/spinner";
+import { AppDialog as Dialog } from "@/components/ui/dialog";
+import { Input } from "@/components/ui/input";
+import { LoadingSpinner } from "@/components/ui/loading-spinner";
 import { primitiveConfirm } from "@/components/ui/primitive-dialog-service";
 import { SidebarListItem } from "@/components/ui/sidebar";
 import { cn } from "@/utils/cn";

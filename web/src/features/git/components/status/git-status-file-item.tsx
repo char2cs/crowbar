@@ -2,7 +2,7 @@ import type { MouseEvent } from "react";
 import { FileExplorerIcon } from "@/features/file-explorer/components/file-explorer-icon";
 import { writeSidebarResourceDragData } from "@/features/sidebar-drag/sidebar-resource-drag";
 import { useSettingsStore } from "@/features/settings/store";
-import Checkbox from "@/components/ui/checkbox";
+import { Checkbox } from "@/components/ui/checkbox";
 import { SIDEBAR_TREE_ICON_SIZE, SidebarTreeRow } from "@/components/ui/sidebar-tree";
 import { cn } from "@/utils/cn";
 import type { GitFile } from "../../types/git-types";

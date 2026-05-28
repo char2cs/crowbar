@@ -2,7 +2,7 @@ import { Check, GitBranch, GitFork, Plus } from "@phosphor-icons/react";
 import { type KeyboardEvent, useCallback, useEffect, useMemo, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { CommandEmpty, CommandItem, CommandList } from "@/components/ui/command";
-import { LoadingSpinner } from "@/components/ui/spinner";
+import { LoadingSpinner } from "@/components/ui/loading-spinner";
 import { cn } from "@/utils/cn";
 import { getFolderName } from "@/utils/path-helpers";
 import { addWorktree, getWorktrees } from "../api/git-worktrees-api";

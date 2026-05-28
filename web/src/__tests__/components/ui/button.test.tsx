@@ -49,15 +49,15 @@ describe('Button', () => {
     expect(screen.getByRole('button')).toBeDisabled()
   })
 
-  it('renders accent variant without error (Crowbar alias → default style)', () => {
-    expect(() => render(<Button variant="accent">Accent</Button>)).not.toThrow()
+  it('renders secondary variant as accent alias', () => {
+    expect(() => render(<Button variant="secondary">Secondary</Button>)).not.toThrow()
   })
 
-  it('renders muted variant without error (Crowbar alias → ghost style)', () => {
-    expect(() => render(<Button variant="muted">Muted</Button>)).not.toThrow()
+  it('renders ghost variant as muted alias', () => {
+    expect(() => render(<Button variant="ghost">Ghost alias</Button>)).not.toThrow()
   })
 
-  it('renders danger variant without error (Crowbar alias → destructive style)', () => {
-    expect(() => render(<Button variant="danger">Danger</Button>)).not.toThrow()
+  it('renders destructive variant as danger alias', () => {
+    expect(() => render(<Button variant="destructive">Destructive</Button>)).not.toThrow()
   })
 })

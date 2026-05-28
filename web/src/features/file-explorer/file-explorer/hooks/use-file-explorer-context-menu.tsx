@@ -33,7 +33,7 @@ import { useFileTreeStore } from "@/features/file-explorer/stores/file-explorer-
 import type { ContextMenuState } from "@/features/file-system/types/app";
 import { Button } from "@/components/ui/button";
 import { ContextMenu, type ContextMenuItem } from "@/components/ui/context-menu";
-import Dialog from "@/components/ui/dialog";
+import { AppDialog as Dialog } from "@/components/ui/dialog";
 import { toast } from "@/components/ui/toast";
 import { getBaseName, getDirName, getRelativePath, joinPath } from "@/utils/path-helpers";
 
@@ -494,7 +494,7 @@ export function useFileExplorerContextMenu({
                 <Button variant="ghost" onClick={() => setEnvOverwriteDialog(null)}>
                   Cancel
                 </Button>
-                <Button variant="danger" onClick={handleEnvOverwriteConfirm} compact>
+                <Button variant="destructive" onClick={handleEnvOverwriteConfirm} compact>
                   Overwrite
                 </Button>
               </>

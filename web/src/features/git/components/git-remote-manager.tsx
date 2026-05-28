@@ -2,7 +2,7 @@ import { GlobeHemisphereWest as Globe, Plus, Trash as Trash2 } from "@phosphor-i
 import { useEffect, useMemo, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { CommandEmpty, CommandItem, CommandList } from "@/components/ui/command";
-import Input from "@/components/ui/input";
+import { Input } from "@/components/ui/input";
 import { matchesSearchQuery } from "@/utils/search-match";
 import { addRemote, getRemotes, removeRemote } from "../api/git-remotes-api";
 import type { GitRemote } from "../types/git-types";
@@ -99,7 +99,7 @@ const GitRemoteManager = ({ isOpen, onClose, repoPath, onRefresh }: GitRemoteMan
             placeholder="Remote name"
             value={newRemoteName}
             onChange={(e) => setNewRemoteName(e.target.value)}
-            size="xs"
+            size="sm"
             className="w-full"
           />
           <Input
@@ -107,7 +107,7 @@ const GitRemoteManager = ({ isOpen, onClose, repoPath, onRefresh }: GitRemoteMan
             placeholder="Remote URL"
             value={newRemoteUrl}
             onChange={(e) => setNewRemoteUrl(e.target.value)}
-            size="xs"
+            size="sm"
             className="w-full"
             onKeyDown={(e) => {
               if (e.key === "Enter") {

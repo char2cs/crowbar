@@ -4,7 +4,7 @@ import { getDefaultSetting, useSettingsStore } from "@/features/settings/store";
 import NumberInput from "@/components/ui/number-input";
 import Section, { SETTINGS_CONTROL_WIDTHS, SettingRow } from "../settings-section";
 import { Select, SelectTrigger, SelectValue, SelectContent, SelectItem } from "@/components/ui/select";
-import Switch from "@/components/ui/switch";
+import { Switch } from "@/components/ui/switch";
 import { FontSelector } from "../font-selector";
 
 export const EditorSettings = () => {

@@ -43,7 +43,7 @@ import {
 import DiffLineBackgroundLayer from "./diff-line-background-layer";
 import ImageDiffViewer from "./git-diff-image";
 import TextDiffViewer from "./git-diff-text";
-import Badge from "@/components/ui/badge";
+import { Badge } from "@/components/ui/badge";
 
 function countStats(diff: GitDiff) {
   if (typeof diff.additions === "number" || typeof diff.deletions === "number") {
@@ -447,8 +447,8 @@ const DiffFileSection = memo(function DiffFileSection({
                 {additions > 0 ? <span className="text-git-added">+{additions}</span> : null}
                 {deletions > 0 ? <span className="text-git-deleted">-{deletions}</span> : null}
                 <Badge
-                  size="compact"
-                  variant="muted"
+                  size="sm"
+                  variant="secondary"
                   className={`rounded px-1.5 py-0.5 capitalize ${statusBadgeClass[status]}`}
                 >
                   {status}
@@ -733,7 +733,7 @@ const GitDiffEditorStack = memo(function GitDiffEditorStack({
               {multiDiff.commitDate ? (
                 <span>{formatRelativeDate(multiDiff.commitDate)}</span>
               ) : null}
-              <Badge size="compact" variant="muted">
+              <Badge size="sm" variant="secondary">
                 {multiDiff.commitHash}
               </Badge>
             </div>

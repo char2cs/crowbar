@@ -9,6 +9,8 @@ export type TextareaProps = React.ComponentPropsWithoutRef<"textarea"> &
   React.RefAttributes<HTMLTextAreaElement> & {
     size?: "sm" | "default" | "lg" | number;
     unstyled?: boolean;
+    /** Visual style variant (Crowbar/Athas compat, not applied) */
+    variant?: string;
   };
 
 export function Textarea({
@@ -16,6 +18,7 @@ export function Textarea({
   size = "default",
   unstyled = false,
   ref,
+  variant: _variant,
   ...props
 }: TextareaProps): React.ReactElement {
   return (

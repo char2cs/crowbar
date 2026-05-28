@@ -13,7 +13,7 @@ import {
 } from "react";
 import { createPortal } from "react-dom";
 import { buttonVariants } from "@/components/ui/button";
-import Input from "@/components/ui/input";
+import { Input } from "@/components/ui/input";
 import { cn } from "@/utils/cn";
 import { matchesSearchQuery } from "@/utils/search-match";
 import { MagnifyingGlass as Search } from "@phosphor-icons/react";

@@ -98,24 +98,47 @@ export function CommandDialogPopup({
 export function Command({
   autoHighlight = "always",
   keepHighlight = true,
+  isVisible: _isVisible,
+  onClose: _onClose,
+  placement: _placement,
+  title: _title,
+  className,
   ...props
-}: React.ComponentProps<typeof Autocomplete>): React.ReactElement {
+}: React.ComponentProps<typeof Autocomplete> & {
+  /** Crowbar compat: visibility flag (ignored; Command is always open inline) */
+  isVisible?: boolean;
+  /** Crowbar compat: close handler (ignored) */
+  onClose?: () => void;
+  /** Crowbar compat: placement hint (ignored) */
+  placement?: "top" | "bottom";
+  /** Crowbar compat: title label (ignored) */
+  title?: string;
+  className?: string;
+}): React.ReactElement {
   return (
-    <Autocomplete
-      autoHighlight={autoHighlight}
-      inline
-      keepHighlight={keepHighlight}
-      open
-      {...props}
-    />
+    <div className={className} data-slot="command">
+      <Autocomplete
+        autoHighlight={autoHighlight}
+        inline
+        keepHighlight={keepHighlight}
+        open
+        {...props}
+      />
+    </div>
   );
 }
 
 export function CommandInput({
   className,
   placeholder = undefined,
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  onChange,
   ...props
-}: React.ComponentProps<typeof AutocompleteInput>): React.ReactElement {
+}: Omit<React.ComponentProps<typeof AutocompleteInput>, "onChange"> & {
+  /** Accept both the Base UI event handler and the legacy Crowbar string handler */
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  onChange?: ((event: any) => void) | ((value: string) => void);
+}): React.ReactElement {
   return (
     <div className="px-2.5 py-1.5">
       <AutocompleteInput
@@ -127,6 +150,8 @@ export function CommandInput({
         placeholder={placeholder}
         size="lg"
         startAddon={<SearchIcon />}
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        onChange={onChange as any}
         {...props}
       />
     </div>
@@ -208,14 +233,44 @@ export function CommandCollection({
 
 export function CommandItem({
   className,
+  isSelected: _isSelected,
+  type: _type,
+  onClick,
   ...props
-}: React.ComponentProps<typeof AutocompleteItem>): React.ReactElement {
+}: React.ComponentProps<typeof AutocompleteItem> & {
+  /** Crowbar compat: visual selection state (ignored; Base UI uses data-highlighted) */
+  isSelected?: boolean;
+  /** Crowbar compat: html button type attribute (ignored) */
+  type?: string;
+  /** Crowbar compat: click handler */
+  onClick?: React.MouseEventHandler<HTMLDivElement>;
+}): React.ReactElement {
   return (
     <AutocompleteItem
       className={cn("py-1.5", className)}
       data-slot="command-item"
+      onClick={onClick as React.ComponentProps<typeof AutocompleteItem>["onClick"]}
       {...props}
     />
+  );
+}
+
+/** Crowbar compat: header section within a command surface */
+export function CommandHeader({
+  children,
+  className,
+  onClose: _onClose,
+  showClearButton: _showClearButton,
+}: {
+  children?: React.ReactNode;
+  className?: string;
+  onClose?: () => void;
+  showClearButton?: boolean;
+}): React.ReactElement {
+  return (
+    <div className={className} data-slot="command-header">
+      {children}
+    </div>
   );
 }
 

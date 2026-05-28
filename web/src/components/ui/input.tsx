@@ -16,6 +16,8 @@ export type InputProps = Omit<
   leftIcon?: Icon | React.ComponentType<{ className?: string }>;
   /** Container class (Crowbar/Athas compat, not applied to inner element) */
   containerClassName?: string;
+  /** Visual style variant (Crowbar/Athas compat, not applied) */
+  variant?: string;
 };
 
 export function Input({
@@ -26,6 +28,7 @@ export function Input({
   style,
   leftIcon: _leftIcon,
   containerClassName: _containerClassName,
+  variant: _variant,
   ...props
 }: InputProps): React.ReactElement {
   const inputClassName = cn(

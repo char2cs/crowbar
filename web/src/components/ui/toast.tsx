@@ -7,7 +7,7 @@ import {
   X,
 } from "@phosphor-icons/react";
 import { Toaster as SonnerToaster, toast as sonnerToast } from "sonner";
-import { LoadingSpinner } from "@/components/ui/spinner";
+import { LoadingSpinner } from "@/components/ui/loading-spinner";
 import { createSelectors } from "@/utils/zustand-selectors";
 
 export interface Toast {

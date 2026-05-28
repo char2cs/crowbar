@@ -1,7 +1,7 @@
 import { getDefaultSetting, useSettingsStore } from "@/features/settings/store";
 import Section, { SETTINGS_CONTROL_WIDTHS, SettingRow } from "../settings-section";
 import { Select, SelectTrigger, SelectValue, SelectContent, SelectItem } from "@/components/ui/select";
-import Switch from "@/components/ui/switch";
+import { Switch } from "@/components/ui/switch";
 
 export const GitSettings = () => {
   const { settings, updateSetting } = useSettingsStore();

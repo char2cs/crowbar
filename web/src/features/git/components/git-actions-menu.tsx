@@ -13,7 +13,7 @@ import {
 import { useState } from "react";
 import { useSettingsStore } from "@/features/settings/store";
 import { ContextMenu, type ContextMenuItem } from "@/components/ui/context-menu";
-import { LoadingSpinner } from "@/components/ui/spinner";
+import { LoadingSpinner } from "@/components/ui/loading-spinner";
 import { primitiveConfirm } from "@/components/ui/primitive-dialog-service";
 import { toast } from "@/components/ui/toast";
 import {

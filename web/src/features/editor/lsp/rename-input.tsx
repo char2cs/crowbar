@@ -1,7 +1,7 @@
 import type { ForwardedRef, RefObject } from "react";
 import { forwardRef, useCallback, useState } from "react";
 import { EDITOR_CONSTANTS } from "@/features/editor/config/constants";
-import Input from "@/components/ui/input";
+import { Input } from "@/components/ui/input";
 import type { EditorModelPositionResolver } from "../view-model/view-layout";
 
 interface RenameInputProps {

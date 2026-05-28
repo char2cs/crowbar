@@ -9,7 +9,8 @@ import { useAIChatStore } from "@/features/ai/store/store";
 import { getAvailableProviders, getProviderById } from "@/features/ai/types/providers";
 import { useAuthStore } from "@/features/window/stores/auth-store";
 import { Button } from "@/components/ui/button";
-import Command, {
+import {
+  Command,
   CommandEmpty,
   CommandFooter,
   CommandHeader,

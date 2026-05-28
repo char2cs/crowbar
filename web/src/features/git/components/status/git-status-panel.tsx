@@ -14,7 +14,7 @@ import { FileExplorerIcon } from "@/features/file-explorer/components/file-explo
 import { writeSidebarResourceDragData } from "@/features/sidebar-drag/sidebar-resource-drag";
 import { useSettingsStore } from "@/features/settings/store";
 import { Button } from "@/components/ui/button";
-import Checkbox from "@/components/ui/checkbox";
+import { Checkbox } from "@/components/ui/checkbox";
 import { ContextMenu, useContextMenu } from "@/components/ui/context-menu";
 import { primitiveConfirm } from "@/components/ui/primitive-dialog-service";
 import { SidebarEmptyActionState } from "@/components/ui/sidebar";

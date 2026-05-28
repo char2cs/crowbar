@@ -13,7 +13,7 @@ import { useAuthStore } from "@/features/window/stores/auth-store";
 import { Button } from "@/components/ui/button";
 import { Dropdown, type MenuItem } from "@/components/ui/dropdown";
 import { SidebarComposerBody } from "@/components/ui/sidebar";
-import Textarea from "@/components/ui/textarea";
+import { Textarea } from "@/components/ui/textarea";
 import Tooltip from "@/components/ui/tooltip";
 import { toast } from "@/components/ui/toast";
 import { cn } from "@/utils/cn";

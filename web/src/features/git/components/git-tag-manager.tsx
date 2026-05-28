@@ -14,11 +14,11 @@ import {
   X,
 } from "@phosphor-icons/react";
 import { useEffect, useMemo, useState } from "react";
-import Badge from "@/components/ui/badge";
+import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import Checkbox from "@/components/ui/checkbox";
+import { Checkbox } from "@/components/ui/checkbox";
 import { CommandEmpty, CommandList } from "@/components/ui/command";
-import Input from "@/components/ui/input";
+import { Input } from "@/components/ui/input";
 import { primitiveConfirm } from "@/components/ui/primitive-dialog-service";
 import { Select, SelectTrigger, SelectValue, SelectContent, SelectItem } from "@/components/ui/select";
 import { toast } from "@/components/ui/toast";
@@ -250,7 +250,7 @@ const GitTagManager = ({
                 placeholder="Tag name"
                 value={newTagName}
                 onChange={(e) => setNewTagName(e.target.value)}
-                size="xs"
+                size="sm"
                 className="w-full"
               />
               <Input
@@ -258,7 +258,7 @@ const GitTagManager = ({
                 placeholder="Commit SHA or ref"
                 value={newTagCommit}
                 onChange={(e) => setNewTagCommit(e.target.value)}
-                size="xs"
+                size="sm"
                 className="w-full"
                 onKeyDown={(e) => {
                   if (e.key === "Enter") {
@@ -271,7 +271,7 @@ const GitTagManager = ({
                 placeholder="Message"
                 value={newTagMessage}
                 onChange={(e) => setNewTagMessage(e.target.value)}
-                size="xs"
+                size="sm"
                 className="col-span-2 w-full"
                 onKeyDown={(e) => {
                   if (e.key === "Enter") {
@@ -549,7 +549,7 @@ const GitTagManager = ({
                       ) : null}
                       <div className="flex min-w-0 items-center gap-2">
                         <span className="ui-text-xs w-14 shrink-0 text-muted-foreground">Type</span>
-                        <Badge variant="muted" size="compact" className="ui-text-xs">
+                        <Badge variant="secondary" size="sm" className="ui-text-xs">
                           {tag.is_annotated ? "Annotated" : "Lightweight"}
                         </Badge>
                       </div>

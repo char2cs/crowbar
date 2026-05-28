@@ -25,7 +25,8 @@ import { useEditorAppStore } from "@/features/editor/stores/editor-app-store";
 import { useUIState } from "@/features/window/stores/ui-state-store";
 import { useZoomStore } from "@/features/window/stores/zoom-store";
 import { keymapRegistry } from "@/features/keymaps/utils/registry";
-import Command, {
+import {
+  Command,
   CommandEmpty,
   CommandHeader,
   CommandInput,

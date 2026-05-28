@@ -7,7 +7,7 @@ import {
 import type { FileTreeGitStatusDecoration } from "@/features/file-explorer/lib/file-tree-git-status";
 import { useFileClipboardStore } from "@/features/file-explorer/stores/file-explorer-clipboard-store";
 import type { FileEntry } from "@/features/file-system/types/app";
-import Input from "@/components/ui/input";
+import { Input } from "@/components/ui/input";
 import { TreeRow } from "@/components/ui/tree-row";
 import { cn } from "@/utils/cn";
 import { FileExplorerIcon } from "./file-explorer-icon";

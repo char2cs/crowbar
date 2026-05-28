@@ -11,12 +11,12 @@ import {
   getAllTerminalProfiles,
 } from "@/features/terminal/utils/terminal-profiles";
 import { Button } from "@/components/ui/button";
-import Input from "@/components/ui/input";
+import { Input } from "@/components/ui/input";
 import NumberInput from "@/components/ui/number-input";
 import Section, { SETTINGS_CONTROL_WIDTHS, SettingRow } from "../settings-section";
 import { Select, SelectTrigger, SelectValue, SelectContent, SelectItem } from "@/components/ui/select";
-import Switch from "@/components/ui/switch";
-import Textarea from "@/components/ui/textarea";
+import { Switch } from "@/components/ui/switch";
+import { Textarea } from "@/components/ui/textarea";
 import Tooltip from "@/components/ui/tooltip";
 
 const FONT_HELP_TEXT =
@@ -201,7 +201,7 @@ export const TerminalSettings = () => {
                     </div>
                   </div>
                   <Button
-                    variant="danger"
+                    variant="destructive"
                     onClick={() => profileActions.deleteProfile(profile.id)}
                     aria-label={`Delete ${profile.name}`}
                   >

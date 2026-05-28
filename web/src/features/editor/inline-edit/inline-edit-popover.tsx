@@ -1,7 +1,7 @@
 import { ArrowBendDownLeft as CornerDownLeft, X } from "@phosphor-icons/react";
 import { forwardRef } from "react";
 import { Button } from "@/components/ui/button";
-import Input from "@/components/ui/input";
+import { Input } from "@/components/ui/input";
 import type { useInlineEdit } from "@/features/editor/inline-edit/use-inline-edit";
 import type { Range } from "@/features/editor/types/editor";
 import { InlineEditModelSelector } from "./inline-edit-model-selector";

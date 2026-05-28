@@ -41,7 +41,7 @@ import { useFffSearch } from "@/features/global-search/hooks/use-fff-search";
 import { useGitStore } from "@/features/git/stores/git-store";
 import { useSettingsStore } from "@/features/settings/store";
 import { Button } from "@/components/ui/button";
-import Dialog from "@/components/ui/dialog";
+import { AppDialog as Dialog } from "@/components/ui/dialog";
 import { Dropdown, type MenuItem } from "@/components/ui/dropdown";
 import {
   SidebarEmptyActionState,
@@ -1390,7 +1390,7 @@ function FileExplorerTreeComponent({
           icon={AlertTriangle}
           onClose={() => setAlertDialog(null)}
           footer={
-            <Button onClick={() => setAlertDialog(null)} variant="accent" compact>
+            <Button onClick={() => setAlertDialog(null)} variant="ghost" compact>
               OK
             </Button>
           }
@@ -1417,7 +1417,7 @@ function FileExplorerTreeComponent({
               <Button
                 onClick={() => void handleOpenAllFilesConfirm()}
                 disabled={isOpeningAllFiles}
-                variant="accent"
+                variant="secondary"
               >
                 {isOpeningAllFiles ? "Opening..." : "Open"}
               </Button>
@@ -1449,7 +1449,7 @@ function FileExplorerTreeComponent({
               <Button
                 onClick={() => void handleDeleteConfirm()}
                 disabled={isDeletingPath}
-                variant="danger"
+                variant="destructive"
                 className="disabled:cursor-not-allowed disabled:opacity-50"
               >
                 {isDeletingPath ? "Deleting..." : "Delete"}

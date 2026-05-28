@@ -5,7 +5,7 @@ import {
   FileText,
 } from "@phosphor-icons/react";
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { LoadingSpinner } from "@/components/ui/spinner";
+import { LoadingSpinner } from "@/components/ui/loading-spinner";
 import { cn } from "@/utils/cn";
 import { formatRelativeDate } from "@/utils/date";
 import type { FileDiffSummary, MultiFileDiffViewerProps } from "../../types/git-diff-types";

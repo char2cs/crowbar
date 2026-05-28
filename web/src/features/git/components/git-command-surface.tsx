@@ -1,6 +1,6 @@
 import type { KeyboardEventHandler, ReactNode } from "react";
 import { useEffect, useRef } from "react";
-import Command, { CommandHeader, CommandInput } from "@/components/ui/command";
+import { Command, CommandHeader, CommandInput } from "@/components/ui/command";
 
 interface GitCommandSurfaceProps {
   isOpen: boolean;

@@ -3,11 +3,14 @@
 import { mergeProps } from "@base-ui/react/merge-props";
 import { useRender } from "@base-ui/react/use-render";
 import { cva, type VariantProps } from "class-variance-authority";
+import { animate, motion, useMotionValue } from "framer-motion";
 import { PanelLeftIcon } from "lucide-react";
 import * as React from "react";
+import { useEffect, useRef, useState } from "react";
+import type { Icon as PhosphorIcon } from "@phosphor-icons/react";
 import { useMediaQuery } from "@/hooks/use-media-query";
 import { cn } from "@/lib/utils";
-import { Button } from "@/components/ui/button";
+import { Button, type ButtonProps } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Separator } from "@/components/ui/separator";
@@ -24,6 +27,7 @@ import {
   TooltipPopup,
   TooltipTrigger,
 } from "@/components/ui/tooltip";
+import TooltipCompound from "@/components/ui/tooltip";
 
 const SIDEBAR_COOKIE_NAME: string = "sidebar_state";
 const SIDEBAR_COOKIE_MAX_AGE: number = 60 * 60 * 24 * 7;
@@ -381,8 +385,12 @@ export function SidebarHeader({
 
 export function SidebarFooter({
   className,
+  surface: _surface,
   ...props
-}: React.ComponentProps<"div">): React.ReactElement {
+}: React.ComponentProps<"div"> & {
+  /** Crowbar compat: surface elevation flag (no visual effect) */
+  surface?: boolean;
+}): React.ReactElement {
   return (
     <div
       className={cn("flex flex-col gap-2 p-2", className)}
@@ -740,4 +748,376 @@ export function SidebarMenuSubButton({
     props: mergeProps<"a">(defaultProps, props),
     render,
   });
+}
+
+// ─── Crowbar-specific sidebar extensions ────────────────────────────────────
+
+export function SidebarPanel({
+  children,
+  className,
+  framed = false,
+  ...props
+}: React.ComponentProps<"div"> & {
+  children: React.ReactNode;
+  framed?: boolean;
+}): React.ReactElement {
+  return (
+    <div
+      className={cn(
+        "flex h-full min-h-0 flex-col",
+        framed && "rounded-lg border border-border/70",
+        className,
+      )}
+      {...props}
+    >
+      {children}
+    </div>
+  );
+}
+
+export function SidebarComposerBody({
+  children,
+  className,
+  ...props
+}: React.ComponentProps<"div"> & {
+  children: React.ReactNode;
+}): React.ReactElement {
+  return (
+    <div
+      className={cn(
+        "overflow-hidden rounded-xl border border-border/60 bg-background",
+        className,
+      )}
+      {...props}
+    >
+      {children}
+    </div>
+  );
+}
+
+export const SidebarHeaderSearch = React.forwardRef<
+  HTMLInputElement,
+  Omit<React.ComponentProps<typeof Input>, "onChange" | "value" | "size"> & {
+    value: string;
+    onChange: (value: string) => void;
+    leftIcon: PhosphorIcon;
+  }
+>(function SidebarHeaderSearch(
+  { value, onChange, leftIcon: LeftIcon, placeholder = "Search", className, ...props },
+  ref,
+) {
+  return (
+    <span className={cn("relative inline-flex min-w-0 flex-1", className)}>
+      {LeftIcon && (
+        <span className="pointer-events-none absolute inset-y-0 start-2 flex items-center text-muted-foreground/72">
+          <LeftIcon className="size-3.5" />
+        </span>
+      )}
+      <Input
+        nativeInput
+        ref={ref}
+        value={value}
+        onChange={(e: React.ChangeEvent<HTMLInputElement>) => onChange(e.target.value)}
+        placeholder={placeholder}
+        size="sm"
+        unstyled
+        className="h-6 min-w-0 w-full rounded-md px-2 ps-7 text-sm bg-transparent border-transparent outline-none"
+        {...props}
+      />
+    </span>
+  );
+});
+
+export const SidebarHeaderIconButton = React.forwardRef<
+  HTMLButtonElement,
+  Omit<ButtonProps, "variant">
+>(function SidebarHeaderIconButton({ className, ...props }, ref) {
+  return (
+    <Button
+      ref={ref}
+      type="button"
+      variant="ghost"
+      compact
+      className={cn("size-6 rounded-md p-0", className)}
+      {...props}
+    />
+  );
+});
+
+export function SidebarEmptyState({
+  children,
+  className,
+  ...props
+}: React.ComponentProps<"div"> & {
+  children: React.ReactNode;
+}): React.ReactElement {
+  return (
+    <div
+      className={cn(
+        "ui-font ui-text-sm flex min-h-24 select-none items-center justify-center px-3 py-6 text-center text-muted-foreground",
+        className,
+      )}
+      {...props}
+    >
+      {children}
+    </div>
+  );
+}
+
+export function SidebarEmptyActionState({
+  icon,
+  message,
+  description,
+  actionLabel,
+  onAction,
+  actionDisabled = false,
+  className,
+  actionClassName,
+  tone = "neutral",
+  children,
+  ...props
+}: React.ComponentProps<"div"> & {
+  icon?: React.ReactNode;
+  message: React.ReactNode;
+  description?: React.ReactNode;
+  actionLabel?: React.ReactNode;
+  onAction?: () => void;
+  actionDisabled?: boolean;
+  actionClassName?: string;
+  tone?: "neutral" | "error" | "success";
+}): React.ReactElement {
+  return (
+    <div
+      className={cn(
+        "ui-font flex min-h-24 select-none flex-col items-center justify-center gap-1.5 px-3 py-6 text-center text-muted-foreground",
+        className,
+      )}
+      {...props}
+    >
+      {icon ? (
+        <span
+          className={cn(
+            "mb-0.5 flex size-7 items-center justify-center text-muted-foreground",
+            tone === "error" && "text-destructive",
+            tone === "success" && "text-success",
+          )}
+        >
+          {icon}
+        </span>
+      ) : null}
+      <div
+        className={cn(
+          "ui-text-sm leading-[1.35]",
+          tone === "error" && "text-destructive",
+          tone === "success" && "text-success",
+        )}
+      >
+        {message}
+      </div>
+      {description ? (
+        <div className="ui-text-xs max-w-[24ch] leading-[1.35] text-muted-foreground">
+          {description}
+        </div>
+      ) : null}
+      {actionLabel && onAction ? (
+        <Button
+          type="button"
+          variant="ghost"
+          compact
+          className={cn("ui-text-xs h-6 px-2 text-muted-foreground hover:text-foreground", actionClassName)}
+          disabled={actionDisabled}
+          onClick={onAction}
+        >
+          {actionLabel}
+        </Button>
+      ) : null}
+      {children}
+    </div>
+  );
+}
+
+export function SidebarListItem({
+  children,
+  active = false,
+  leading,
+  trailing,
+  className,
+  contentClassName,
+  ...props
+}: React.ComponentProps<"button"> & {
+  children: React.ReactNode;
+  active?: boolean;
+  leading?: React.ReactNode;
+  trailing?: React.ReactNode;
+  contentClassName?: string;
+}): React.ReactElement {
+  return (
+    <button
+      type="button"
+      className={cn(
+        "ui-font flex min-h-7 w-full min-w-0 cursor-pointer items-center gap-2 rounded-sm px-2 py-1.5 text-left text-muted-foreground transition-[background-color,color]",
+        "hover:bg-accent/70 hover:text-foreground focus-visible:bg-accent/70 focus-visible:text-foreground focus-visible:outline-none",
+        active && "bg-accent/80 text-foreground",
+        className,
+      )}
+      {...props}
+    >
+      {leading ? (
+        <span className="flex shrink-0 items-center justify-center">{leading}</span>
+      ) : null}
+      <span className={cn("min-w-0 flex-1", contentClassName)}>{children}</span>
+      {trailing ? <span className="shrink-0 text-muted-foreground">{trailing}</span> : null}
+    </button>
+  );
+}
+
+const SIDEBAR_SECTION_PAGER_SPRING = {
+  type: "spring" as const,
+  stiffness: 360,
+  damping: 36,
+  mass: 0.8,
+};
+
+export interface SidebarSectionPagerItem {
+  id: string;
+  content: React.ReactNode;
+  disabled?: boolean;
+}
+
+export function SidebarSectionPager({
+  items,
+  value,
+  className,
+}: {
+  items: SidebarSectionPagerItem[];
+  value: string;
+  onChange: (value: string) => void;
+  className?: string;
+}): React.ReactElement {
+  const viewportRef = useRef<HTMLDivElement>(null);
+  const animationStopRef = useRef<(() => void) | null>(null);
+  const x = useMotionValue(0);
+  const [pagerWidth, setPagerWidth] = useState(0);
+  const activeIndex = Math.max(
+    0,
+    items.findIndex((item) => item.id === value),
+  );
+  const activeX = pagerWidth > 0 ? -activeIndex * pagerWidth : 0;
+
+  useEffect(() => {
+    const viewport = viewportRef.current;
+    if (!viewport) return;
+
+    const updateWidth = () => setPagerWidth(viewport.clientWidth);
+    updateWidth();
+
+    const resizeObserver = new ResizeObserver(updateWidth);
+    resizeObserver.observe(viewport);
+
+    return () => resizeObserver.disconnect();
+  }, []);
+
+  useEffect(() => {
+    if (pagerWidth <= 0) return;
+
+    animationStopRef.current?.();
+    const controls = animate(x, activeX, SIDEBAR_SECTION_PAGER_SPRING);
+    animationStopRef.current = () => controls.stop();
+    return () => controls.stop();
+  }, [activeX, pagerWidth, x]);
+
+  useEffect(() => {
+    return () => {
+      animationStopRef.current?.();
+    };
+  }, []);
+
+  return (
+    <div ref={viewportRef} className={cn("min-h-0 overflow-hidden", className)}>
+      <motion.div className="flex h-full min-h-0" style={{ x }}>
+        {items.map((item) => {
+          const isActive = item.id === value;
+          return (
+            <div
+              key={item.id}
+              aria-hidden={!isActive}
+              className={cn(
+                "h-full min-w-full cursor-auto overflow-hidden",
+                !isActive && "pointer-events-none",
+              )}
+            >
+              {item.content}
+            </div>
+          );
+        })}
+      </motion.div>
+    </div>
+  );
+}
+
+export interface SidebarSectionSwitcherItem {
+  id: string;
+  label: string;
+  icon?: React.ReactNode;
+  disabled?: boolean;
+}
+
+export function SidebarSectionSwitcher({
+  items,
+  value,
+  onChange,
+  className,
+  itemClassName,
+}: {
+  items: SidebarSectionSwitcherItem[];
+  value: string;
+  onChange: (value: string) => void;
+  className?: string;
+  itemClassName?: string;
+}): React.ReactElement {
+  return (
+    <div
+      role="tablist"
+      className={cn(
+        "mx-auto flex h-7 w-fit max-w-full shrink-0 select-none items-center justify-center gap-1 rounded-full bg-muted/45 p-0.5",
+        className,
+      )}
+    >
+      {items.map((item) => {
+        const selected = item.id === value;
+        const button = (
+          <button
+            key={item.id}
+            type="button"
+            role="tab"
+            aria-selected={selected}
+            aria-label={item.label}
+            disabled={item.disabled}
+            className={cn(
+              "ui-font ui-text-xs flex h-6 min-w-0 items-center justify-center gap-1.5 rounded-full outline-none transition-[background-color,color,width,padding]",
+              selected
+                ? "max-w-28 bg-accent px-2 text-accent-foreground"
+                : "w-7 px-0 text-muted-foreground hover:bg-accent/70 hover:text-accent-foreground",
+              item.disabled && "cursor-not-allowed opacity-50",
+              itemClassName,
+            )}
+            onClick={() => onChange(item.id)}
+          >
+            {item.icon ? (
+              <span className="flex size-4 shrink-0 items-center justify-center">{item.icon}</span>
+            ) : null}
+            {selected ? (
+              <span className="min-w-0 truncate whitespace-nowrap">{item.label}</span>
+            ) : null}
+          </button>
+        );
+
+        return (
+          <TooltipCompound key={item.id} content={item.label} side="bottom">
+            {button}
+          </TooltipCompound>
+        );
+      })}
+    </div>
+  );
 }

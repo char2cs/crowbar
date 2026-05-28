@@ -1,6 +1,6 @@
 import { memo, useCallback, useEffect, useRef, useState } from "react";
 import { writeSidebarResourceDragData } from "@/features/sidebar-drag/sidebar-resource-drag";
-import { LoadingSpinner } from "@/components/ui/spinner";
+import { LoadingSpinner } from "@/components/ui/loading-spinner";
 import { cn } from "@/utils/cn";
 import { formatRelativeDate } from "@/utils/date";
 import type { GitCommit } from "../types/git-types";

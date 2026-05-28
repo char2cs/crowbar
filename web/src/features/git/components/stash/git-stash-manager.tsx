@@ -1,9 +1,9 @@
 import { Archive, Clock, Download, Plus, Trash as Trash2, Upload, X } from "@phosphor-icons/react";
 import { useEffect, useState } from "react";
 import { Button } from "@/components/ui/button";
-import Checkbox from "@/components/ui/checkbox";
-import Input from "@/components/ui/input";
-import { LoadingSpinner } from "@/components/ui/spinner";
+import { Checkbox } from "@/components/ui/checkbox";
+import { Input } from "@/components/ui/input";
+import { LoadingSpinner } from "@/components/ui/loading-spinner";
 import { cn } from "@/utils/cn";
 import { formatRelativeDate } from "@/utils/date";
 import { applyStash, createStash, dropStash, getStashes, popStash } from "../../api/git-stash-api";
@@ -236,7 +236,7 @@ const GitStashManager = ({ isOpen, onClose, repoPath, onRefresh }: GitStashManag
                       <Button
                         onClick={() => handleDropStash(stash.index)}
                         disabled={isActionLoading}
-                        variant="danger"
+                        variant="destructive"
                         compact
                         className="gap-1 px-2 py-1 ui-text-xs"
                         tooltip="Drop stash (delete permanently)"

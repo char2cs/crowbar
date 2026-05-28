@@ -14,7 +14,7 @@ import { setSyntaxHighlightingFilePath } from "@/features/editor/extensions/buil
 import { LspClient } from "@/features/editor/lsp/lsp-client";
 import { LSP_ERROR_TOAST_KEY, type LspStatus, useLspStore } from "@/features/editor/lsp/lsp-store";
 import type { Position } from "@/features/editor/types/editor";
-import { LoadingSpinner } from "@/components/ui/spinner";
+import { LoadingSpinner } from "@/components/ui/loading-spinner";
 import { useBufferStore } from "@/features/editor/stores/buffer-store";
 import { useEditorStateStore } from "@/features/editor/stores/state-store";
 import {
@@ -32,7 +32,7 @@ import { cn } from "@/utils/cn";
 import { getFilenameFromPath } from "@/features/file-system/controllers/file-utils";
 
 const actionButtonClass = cn(
-  buttonVariants({ variant: "ghost", compact: true }),
+  buttonVariants({ variant: "ghost" }),
   "rounded text-muted-foreground",
 );
 
@@ -40,7 +40,7 @@ const statusChipClass =
   "ui-font inline-flex h-5 items-center self-center rounded-md border border-transparent px-1.5 ui-text-xs leading-none text-muted-foreground transition-colors hover:bg-muted hover:text-foreground";
 
 const menuTriggerClass = cn(
-  buttonVariants({ variant: "ghost", compact: true }),
+  buttonVariants({ variant: "ghost" }),
   "rounded text-muted-foreground",
 );
 

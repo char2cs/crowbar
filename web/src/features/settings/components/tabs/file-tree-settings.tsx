@@ -7,7 +7,7 @@ import { getDefaultSetting, useSettingsStore } from "@/features/settings/store";
 import NumberInput from "@/components/ui/number-input";
 import { Select, SelectTrigger, SelectValue, SelectContent, SelectItem } from "@/components/ui/select";
 import Section, { SETTINGS_CONTROL_WIDTHS, SettingRow } from "../settings-section";
-import Switch from "@/components/ui/switch";
+import { Switch } from "@/components/ui/switch";
 import { cn } from "@/utils/cn";
 
 export const FileTreeSettings = () => {

@@ -16,7 +16,7 @@ import { useBufferStore } from "@/features/editor/stores/buffer-store";
 import { useSettingsStore } from "@/features/settings/store";
 import { Button } from "@/components/ui/button";
 import { CommandEmpty, CommandList } from "@/components/ui/command";
-import { LoadingSpinner } from "@/components/ui/spinner";
+import { LoadingSpinner } from "@/components/ui/loading-spinner";
 import { PaneGroup } from "@/components/ui/pane";
 import { primitiveAlert } from "@/components/ui/primitive-dialog-service";
 import {
@@ -777,7 +777,7 @@ const GitView = ({ repoPath, onFileSelect, isActive }: GitViewProps) => {
       <Button
         onClick={() => void handleInitializeRepository()}
         disabled={!canInitializeRepository || isInitializingRepo}
-        variant="accent"
+        variant="secondary"
         compact
         className="mt-1.5 h-6 px-2 ui-text-xs"
         tooltip={

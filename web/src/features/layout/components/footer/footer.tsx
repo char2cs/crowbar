@@ -9,7 +9,7 @@ import {
 import { cva } from "class-variance-authority";
 import { type ReactNode, type Ref, useMemo, useRef, useState } from "react";
 import { Tab, TabsList } from "@/components/ui/tabs";
-import { LoadingSpinner } from "@/components/ui/spinner";
+import { LoadingSpinner } from "@/components/ui/loading-spinner";
 import Tooltip from "@/components/ui/tooltip";
 import { Dropdown } from "@/components/ui/dropdown";
 import { useDiagnosticsStore } from "@/features/diagnostics/stores/diagnostics-store";
