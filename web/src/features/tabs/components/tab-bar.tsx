@@ -178,6 +178,9 @@ const TabBar = ({
   const horizontalTabScroll = useSettingsStore((state) => state.settings.horizontalTabScroll);
   const maxOpenTabs = useSettingsStore((state) => state.settings.maxOpenTabs);
   const { updateActivePath } = useSidebarStore();
+  const sidebarVisible = useSidebarStore((s) => s.sidebarVisible)
+  const setSidebarVisible = useSidebarStore((s) => s.setSidebarVisible)
+  const sidebarPosition = useSettingsStore((s) => s.settings.sidebarPosition)
   const rootFolderPath = useFileSystemStore.use.rootFolderPath?.() || undefined;
   const jumpListActions = useJumpListStore.use.actions();
   const activeBuffer = useMemo(
@@ -750,6 +753,24 @@ const handleDragStart = useCallback(
           data-tauri-drag-region
           onWheel={handleWheel}
         >
+          {!isBottomPane && (
+            <Button
+              type="button"
+              onClick={() => setSidebarVisible(!sidebarVisible)}
+              variant="ghost"
+              compact
+              className={cn(
+                "h-6 w-6 shrink-0 rounded-full p-0 text-muted-foreground",
+                sidebarPosition === 'right' && "scale-x-[-1]",
+              )}
+              tooltip={sidebarVisible ? "Hide Sidebar" : "Show Sidebar"}
+              tooltipSide="bottom"
+              aria-label={sidebarVisible ? "Hide sidebar" : "Show sidebar"}
+            >
+              <PanelLeftClose size={14} />
+            </Button>
+          )}
+
           <div className="flex shrink-0 items-center gap-0.5">
             <Button
               type="button"
