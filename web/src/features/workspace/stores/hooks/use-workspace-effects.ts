@@ -1,7 +1,6 @@
 import { useEffect } from 'react'
 import { getMockFileTree, getMockFileContent } from '@/lib/mock/files'
 import { useFileSystemStore } from '@/features/file-system/controllers/store'
-import { useBufferStore } from '@/features/editor/stores/buffer-store'
 import { useBufferActions } from './use-buffer-store'
 import { useWorkflowActions } from './use-workflow'
 import type { AppFile } from '@/features/file-system/types/app'
@@ -22,21 +21,13 @@ export function useWorkspaceEffects(wsId: string, label?: string) {
         if (revealOrIsDir === true) return
         const name = path.split('/').pop() ?? path
         const content = getMockFileContent(path)
-        // Open in the legacy global store so CodeEditor can read the content,
-        // then mirror the same buffer id into the workspace pane system.
-        const bufferId = useBufferStore.getState().actions.openContent({
-          type: 'editor', path, name, content,
-        })
-        bufferActions.registerExternalBuffer(bufferId, path, name, false)
+        bufferActions.openContent({ type: 'editor', path, name, content })
       },
       handleFileSelect: (path: string, isDir?: boolean) => {
         if (isDir) return
         const name = path.split('/').pop() ?? path
         const content = getMockFileContent(path)
-        const bufferId = useBufferStore.getState().actions.openContent({
-          type: 'editor', path, name, content,
-        })
-        bufferActions.registerExternalBuffer(bufferId, path, name, true)
+        bufferActions.openContent({ type: 'editor', path, name, content, isPreview: true })
       },
     })
   }, [repoPath]) // eslint-disable-line react-hooks/exhaustive-deps
