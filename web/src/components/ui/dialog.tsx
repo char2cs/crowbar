@@ -272,7 +272,7 @@ export function AppDialog({
           <DialogPrimitive.Popup
             data-slot="dialog-content"
             className={cn(
-              "relative row-start-2 flex w-full flex-col -translate-x-1/2 rounded-xl bg-popover text-popover-foreground shadow-lg/5 outline-none overflow-hidden transition-[scale,opacity,translate] duration-200 ease-in-out data-ending-style:opacity-0 data-starting-style:opacity-0 max-w-[calc(100%-2rem)]",
+              "relative row-start-2 flex w-full flex-col rounded-xl bg-popover text-popover-foreground shadow-lg/5 outline-none overflow-hidden transition-[scale,opacity,translate] duration-200 ease-in-out data-ending-style:opacity-0 data-starting-style:opacity-0 max-w-[calc(100%-2rem)]",
               !classNames?.modal && (APP_DIALOG_SIZE_MAP[size] ?? APP_DIALOG_SIZE_MAP.md),
               className,
               classNames?.modal,
