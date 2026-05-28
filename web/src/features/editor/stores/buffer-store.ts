@@ -34,6 +34,8 @@ import type {
   PaneContent,
   TerminalContent,
   TokenEntry,
+  ClosedBuffer,
+  PendingClose,
 } from "@/features/panes/types/pane-content";
 import {
   isEditorContent,
@@ -45,19 +47,6 @@ import { createSelectors } from "@/utils/zustand-selectors";
 
 /** @deprecated Use `PaneContent` directly. Kept for backward compatibility. */
 export type Buffer = PaneContent;
-
-interface PendingClose {
-  bufferId: string;
-  type: "single" | "others" | "all" | "to-left" | "to-right";
-  anchorBufferId?: string;
-  keepBufferId?: string;
-}
-
-interface ClosedBuffer {
-  path: string;
-  name: string;
-  isPinned: boolean;
-}
 
 interface BufferState {
   buffers: PaneContent[];
