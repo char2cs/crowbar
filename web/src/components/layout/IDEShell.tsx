@@ -33,7 +33,6 @@ export function IDEShell() {
   const sidebarPosition = useSettingsStore((state) => state.settings.sidebarPosition)
   const sidebarPanelRef = useRef<PanelImperativeHandle | null>(null)
   const sidebarVisible = useLayoutSidebarStore((s) => s.sidebarVisible)
-  const setSidebarVisible = useLayoutSidebarStore((s) => s.setSidebarVisible)
 
   useEffect(() => {
     if (sidebarVisible) {
@@ -64,7 +63,7 @@ export function IDEShell() {
       maxSize="45%"
       collapsible
       collapsedSize={0}
-      onResize={(size) => setSidebarVisible(size.asPercentage > 0)}
+      onResize={(size) => useLayoutSidebarStore.getState().setSidebarVisible(size.asPercentage > 0)}
       className="flex flex-col overflow-hidden"
     >
       <div className="flex h-full flex-col overflow-hidden">
