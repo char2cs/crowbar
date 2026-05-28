@@ -4,7 +4,8 @@ const exists = async (_path: string) => false
 const open = async (url: string) => { window.open(url, '_blank') }
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useShallow } from "zustand/react/shallow";
-import { useBufferStore } from "@/features/editor/stores/buffer-store";
+import { useWorkspaceStoreContext } from "@/features/workspace/stores/workspace-context";
+import { findPaneGroup } from "@/features/panes/utils/pane-tree";
 import { useEditorSettingsStore } from "@/features/editor/stores/settings-store";
 import { useFileSystemStore } from "@/features/file-system/controllers/store";
 import { hasTextContent } from "@/features/panes/types/pane-content";
@@ -13,10 +14,11 @@ import { logger } from "../utils/logger";
 import { parseMarkdown } from "./parser";
 
 export function MarkdownPreview() {
-  const { sourceBufferPath, sourceContent } = useBufferStore(
+  const { sourceBufferPath, sourceContent } = useWorkspaceStoreContext(
     useShallow((state) => {
-      const activeBuffer = state.activeBufferId
-        ? state.buffers.find((buffer) => buffer.id === state.activeBufferId)
+      const activeBufferId = findPaneGroup(state.paneRoot, state.activePaneId)?.activeBufferId ?? null;
+      const activeBuffer = activeBufferId
+        ? state.buffers.find((buffer) => buffer.id === activeBufferId)
         : null;
       const sourceBuffer =
         activeBuffer?.type === "markdownPreview"

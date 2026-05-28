@@ -21,7 +21,8 @@ import { InlineEditPopover } from "@/features/editor/inline-edit/inline-edit-pop
 import { useInlineEdit } from "@/features/editor/inline-edit/use-inline-edit";
 import { useSettingsStore } from "@/features/settings/store";
 import { useZoomStore } from "@/features/window/stores/zoom-store";
-import { useBufferStore } from "../stores/buffer-store";
+import { useWorkspaceStoreContext } from "@/features/workspace/stores/workspace-context";
+import { findPaneGroup } from "@/features/panes/utils/pane-tree";
 import { useEditorSettingsStore } from "../stores/settings-store";
 import { useEditorStateStore } from "../stores/state-store";
 import { useEditorUIStore } from "../stores/ui-store";
@@ -322,8 +323,13 @@ export function MonacoBackedEditor({
   const previousContentRef = useRef("");
   const decorationsRef = useRef<string[]>([]);
   const latestContentChangeRef = useRef(onContentChange);
-  const activeBufferId = useBufferStore((state) => propBufferId ?? state.activeBufferId);
-  const activeBuffer = useBufferStore(
+  const activeBufferId = useWorkspaceStoreContext(
+    useCallback(
+      (state) => propBufferId ?? findPaneGroup(state.paneRoot, state.activePaneId)?.activeBufferId ?? null,
+      [propBufferId],
+    ),
+  );
+  const activeBuffer = useWorkspaceStoreContext(
     useCallback(
       (state) =>
         activeBufferId

@@ -2,7 +2,8 @@ import type { ReactNode } from "react";
 import { Eye, MagnifyingGlass as Search, Sparkle as Sparkles } from "@phosphor-icons/react";
 import { useShallow } from "zustand/react/shallow";
 import { EditorStatusActions } from "@/features/editor/components/toolbar/editor-status-actions";
-import { useBufferStore } from "@/features/editor/stores/buffer-store";
+import { useWorkspaceStoreContext, useWorkspaceStore } from "@/features/workspace/stores/workspace-context";
+import { findPaneGroup } from "@/features/panes/utils/pane-tree";
 import { useInlineEditToolbarStore } from "@/features/editor/stores/inline-edit-toolbar-store";
 import { hasTextContent } from "@/features/panes/types/pane-content";
 import { useUIState } from "@/features/window/stores/ui-state-store";
@@ -33,8 +34,11 @@ export default function Breadcrumb({
   interactive = true,
   showPath = true,
 }: BreadcrumbProps = {}) {
-  const resolvedBufferId = useBufferStore((state) => bufferId ?? state.activeBufferId);
-  const activeBuffer = useBufferStore(
+  const workspaceStore = useWorkspaceStore();
+  const resolvedBufferId = useWorkspaceStoreContext(
+    (state) => bufferId ?? findPaneGroup(state.paneRoot, state.activePaneId)?.activeBufferId ?? null,
+  );
+  const activeBuffer = useWorkspaceStoreContext(
     useShallow((state) => {
       const buffer = resolvedBufferId
         ? state.buffers.find((candidate) => candidate.id === resolvedBufferId)
@@ -87,7 +91,7 @@ export default function Breadcrumb({
 
   const handlePreviewClick = () => {
     const fullActiveBuffer = resolvedBufferId
-      ? useBufferStore.getState().buffers.find((buffer) => buffer.id === resolvedBufferId)
+      ? workspaceStore.getState().buffers.find((buffer) => buffer.id === resolvedBufferId)
       : null;
     if (
       !fullActiveBuffer ||
@@ -97,7 +101,6 @@ export default function Breadcrumb({
     )
       return;
 
-    const { openBuffer } = useBufferStore.getState().actions;
     const previewPath = `${fullActiveBuffer.path}:preview`;
     const previewName = `${fullActiveBuffer.name} (Preview)`;
 
@@ -107,20 +110,31 @@ export default function Breadcrumb({
 
     const bufferContent = hasTextContent(fullActiveBuffer) ? fullActiveBuffer.content : "";
 
-    openBuffer(
-      previewPath,
-      previewName,
-      bufferContent,
-      false, // isImage
-      undefined, // databaseType
-      false, // isDiff
-      true, // isVirtual
-      undefined, // diffData
-      isMarkdown, // isMarkdownPreview
-      isHtml, // isHtmlPreview
-      isCsv, // isCsvPreview
-      fullActiveBuffer.path, // sourceFilePath
-    );
+    if (isMarkdown) {
+      workspaceStore.getState().bufferActions.openContent({
+        type: "markdownPreview",
+        path: previewPath,
+        name: previewName,
+        content: bufferContent,
+        sourceFilePath: fullActiveBuffer.path,
+      });
+    } else if (isHtml) {
+      workspaceStore.getState().bufferActions.openContent({
+        type: "htmlPreview",
+        path: previewPath,
+        name: previewName,
+        content: bufferContent,
+        sourceFilePath: fullActiveBuffer.path,
+      });
+    } else if (isCsv) {
+      workspaceStore.getState().bufferActions.openContent({
+        type: "csvPreview",
+        path: previewPath,
+        name: previewName,
+        content: bufferContent,
+        sourceFilePath: fullActiveBuffer.path,
+      });
+    }
   };
 
   const filePath = filePathOverride ?? activeBuffer?.path ?? "";
