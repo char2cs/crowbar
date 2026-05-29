@@ -2,15 +2,20 @@ import '@/lib/transport/polyfill'
 import { QueryClient } from '@tanstack/react-query'
 import { connectDaemonEvents } from '@/lib/events/connect'
 import { queryKeys } from '@/lib/queries/keys'
-import { describe, it, expect, vi, beforeEach } from 'vitest'
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 
 describe('connectDaemonEvents', () => {
   let qc: QueryClient
+  let disconnect: () => void
 
   beforeEach(() => {
     qc = new QueryClient()
     vi.spyOn(qc, 'invalidateQueries')
-    connectDaemonEvents(qc)
+    disconnect = connectDaemonEvents(qc)
+  })
+
+  afterEach(() => {
+    disconnect()
   })
 
   it('invalidates workspaces on workspace:updated', () => {

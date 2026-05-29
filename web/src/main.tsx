@@ -20,7 +20,8 @@ enableMapSet()
 
 // Wire up daemon event listeners for cache invalidation.
 // This must be called once at module load, before any queries are made.
-connectDaemonEvents(queryClient)
+// Store disconnect function (used in tests and future hot reload)
+const _disconnectDaemonEvents = connectDaemonEvents(queryClient)
 
 // Apply the cached theme immediately (synchronous) so the correct dark/light
 // class is set before React renders anything — prevents a flash of light mode.
