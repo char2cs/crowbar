@@ -62,14 +62,15 @@ function Inline({ raw }: { raw: string }) {
   return (
     <>
       {tokenizeInline(raw).map((t, i) => {
-        if (t.kind === 'bold')   return <strong key={i} className="font-semibold">{t.text}</strong>
-        if (t.kind === 'italic') return <em key={i}>{t.text}</em>
+        const key = `${t.kind}:${t.text}:${i}`
+        if (t.kind === 'bold')   return <strong key={key} className="font-semibold">{t.text}</strong>
+        if (t.kind === 'italic') return <em key={key}>{t.text}</em>
         if (t.kind === 'code')   return (
-          <code key={i} className="rounded bg-muted px-1 py-0.5 font-mono text-[0.88em] text-primary/90">
+          <code key={key} className="rounded bg-muted px-1 py-0.5 font-mono text-[0.88em] text-primary/90">
             {t.text}
           </code>
         )
-        return <span key={i}>{t.text}</span>
+        return <span key={key}>{t.text}</span>
       })}
     </>
   )
