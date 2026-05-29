@@ -9,6 +9,7 @@ import {
   distributeFlattenedPaneSplit,
   findPaneGroup,
   findPaneGroupByBufferId,
+  findPaneNode,
   getAllPaneGroups,
   moveBufferBetweenPanes,
   normalizePaneTree,
@@ -62,6 +63,17 @@ function createInitialBottomRoot(): PaneGroup {
   return { id: BOTTOM_PANE_ID, type: 'group', bufferIds: [], activeBufferId: null }
 }
 
+// Returns which tree owns `paneId`. Searches paneRoot first, falls back to bottomRoot.
+// If not found in either, uses BOTTOM_PANE_ID hint to decide, defaulting to paneRoot.
+function getTreeForPane(
+  state: Pick<PaneSlice, 'paneRoot' | 'bottomRoot'>,
+  paneId: string,
+): 'paneRoot' | 'bottomRoot' {
+  if (findPaneGroup(state.paneRoot, paneId)) return 'paneRoot'
+  if (findPaneGroup(state.bottomRoot, paneId)) return 'bottomRoot'
+  return paneId === BOTTOM_PANE_ID ? 'bottomRoot' : 'paneRoot'
+}
+
 export const createPaneSlice: StateCreator<
   WorkspaceState,
   [['zustand/immer', never]],
@@ -78,9 +90,16 @@ export const createPaneSlice: StateCreator<
     splitPane(paneId, direction, bufferId?, placement = 'after') {
       let newPaneId: string | null = null
       set(state => {
-        const oldIds = getAllPaneGroups(state.paneRoot).map(g => g.id)
-        state.paneRoot = splitPaneUtil(state.paneRoot, paneId, direction, bufferId, placement)
-        const newGroup = getAllPaneGroups(state.paneRoot).find(g => !oldIds.includes(g.id))
+        const target = getTreeForPane(state, paneId)
+        const currentTree = target === 'paneRoot' ? state.paneRoot : state.bottomRoot
+        const oldIds = getAllPaneGroups(currentTree).map(g => g.id)
+        const newTree = splitPaneUtil(currentTree, paneId, direction, bufferId, placement)
+        if (target === 'paneRoot') {
+          state.paneRoot = newTree
+        } else {
+          state.bottomRoot = newTree
+        }
+        const newGroup = getAllPaneGroups(newTree).find(g => !oldIds.includes(g.id))
         newPaneId = newGroup?.id ?? null
         if (newPaneId) {
           state.activePaneId = newPaneId
@@ -92,13 +111,21 @@ export const createPaneSlice: StateCreator<
 
     closePane(paneId) {
       set(state => {
-        const result = closePane(state.paneRoot, paneId)
+        const target = getTreeForPane(state, paneId)
+        const currentTree = target === 'paneRoot' ? state.paneRoot : state.bottomRoot
+        const result = closePane(currentTree, paneId)
         if (result !== null) {
-          state.paneRoot = normalizePaneTree(result)
-        }
-        if (state.activePaneId === paneId) {
-          const remaining = getAllPaneGroups(state.paneRoot)
-          state.activePaneId = remaining[0]?.id ?? ROOT_PANE_ID
+          const normalized = normalizePaneTree(result)
+          if (target === 'paneRoot') {
+            state.paneRoot = normalized
+          } else {
+            state.bottomRoot = normalized
+          }
+          if (state.activePaneId === paneId) {
+            const remaining = getAllPaneGroups(normalized)
+            const fallbackId = target === 'paneRoot' ? ROOT_PANE_ID : BOTTOM_PANE_ID
+            state.activePaneId = remaining[0]?.id ?? fallbackId
+          }
         }
         state.mostRecentActivePaneIds = state.mostRecentActivePaneIds.filter(id => id !== paneId)
         if (state.fullscreenPaneId === paneId) state.fullscreenPaneId = null
@@ -114,25 +141,47 @@ export const createPaneSlice: StateCreator<
 
     activatePaneBuffer(paneId, bufferId) {
       set(state => {
-        state.paneRoot = setActivePaneBuffer(state.paneRoot, paneId, bufferId)
+        const target = getTreeForPane(state, paneId)
+        if (target === 'paneRoot') {
+          state.paneRoot = setActivePaneBuffer(state.paneRoot, paneId, bufferId)
+        } else {
+          state.bottomRoot = setActivePaneBuffer(state.bottomRoot, paneId, bufferId)
+        }
         state.activePaneId = paneId
       })
     },
 
     addBufferToPane(paneId, bufferId, setActive = true) {
       set(state => {
-        state.paneRoot = addBufferToPane(state.paneRoot, paneId, bufferId, setActive)
+        const target = getTreeForPane(state, paneId)
+        if (target === 'paneRoot') {
+          state.paneRoot = addBufferToPane(state.paneRoot, paneId, bufferId, setActive)
+        } else {
+          state.bottomRoot = addBufferToPane(state.bottomRoot, paneId, bufferId, setActive)
+        }
       })
     },
 
     removeBufferFromPane(paneId, bufferId, preserveEmptyPane = false) {
       set(state => {
-        state.paneRoot = removeBufferFromPane(state.paneRoot, paneId, bufferId)
-        if (!preserveEmptyPane) {
-          const pane = findPaneGroup(state.paneRoot, paneId)
-          if (pane && pane.bufferIds.length === 0 && paneId !== ROOT_PANE_ID) {
-            const result = closePane(state.paneRoot, paneId)
-            if (result !== null) state.paneRoot = normalizePaneTree(result)
+        const target = getTreeForPane(state, paneId)
+        if (target === 'paneRoot') {
+          state.paneRoot = removeBufferFromPane(state.paneRoot, paneId, bufferId)
+          if (!preserveEmptyPane) {
+            const pane = findPaneGroup(state.paneRoot, paneId)
+            if (pane && pane.bufferIds.length === 0 && paneId !== ROOT_PANE_ID) {
+              const result = closePane(state.paneRoot, paneId)
+              if (result !== null) state.paneRoot = normalizePaneTree(result)
+            }
+          }
+        } else {
+          state.bottomRoot = removeBufferFromPane(state.bottomRoot, paneId, bufferId)
+          if (!preserveEmptyPane) {
+            const pane = findPaneGroup(state.bottomRoot, paneId)
+            if (pane && pane.bufferIds.length === 0 && paneId !== BOTTOM_PANE_ID) {
+              const result = closePane(state.bottomRoot, paneId)
+              if (result !== null) state.bottomRoot = normalizePaneTree(result)
+            }
           }
         }
       })
@@ -140,37 +189,78 @@ export const createPaneSlice: StateCreator<
 
     moveBufferToPane(bufferId, fromPaneId, toPaneId) {
       set(state => {
-        state.paneRoot = moveBufferBetweenPanes(state.paneRoot, bufferId, fromPaneId, toPaneId)
+        const fromTarget = getTreeForPane(state, fromPaneId)
+        const toTarget = getTreeForPane(state, toPaneId)
+
+        if (fromTarget === toTarget) {
+          if (fromTarget === 'paneRoot') {
+            state.paneRoot = moveBufferBetweenPanes(state.paneRoot, bufferId, fromPaneId, toPaneId)
+          } else {
+            state.bottomRoot = moveBufferBetweenPanes(state.bottomRoot, bufferId, fromPaneId, toPaneId)
+          }
+        } else {
+          // Cross-tree: remove from source, add to destination
+          if (fromTarget === 'paneRoot') {
+            state.paneRoot = removeBufferFromPane(state.paneRoot, fromPaneId, bufferId)
+            state.bottomRoot = addBufferToPane(state.bottomRoot, toPaneId, bufferId, true)
+          } else {
+            state.bottomRoot = removeBufferFromPane(state.bottomRoot, fromPaneId, bufferId)
+            state.paneRoot = addBufferToPane(state.paneRoot, toPaneId, bufferId, true)
+          }
+        }
       })
     },
 
     setPanePreviewBuffer(paneId, bufferId) {
       set(state => {
-        state.paneRoot = setPanePreviewBuffer(state.paneRoot, paneId, bufferId)
+        const target = getTreeForPane(state, paneId)
+        if (target === 'paneRoot') {
+          state.paneRoot = setPanePreviewBuffer(state.paneRoot, paneId, bufferId)
+        } else {
+          state.bottomRoot = setPanePreviewBuffer(state.bottomRoot, paneId, bufferId)
+        }
       })
     },
 
     setPaneBufferPinned(paneId, bufferId, pinned) {
       set(state => {
-        state.paneRoot = setPaneBufferPinned(state.paneRoot, paneId, bufferId, pinned)
+        const target = getTreeForPane(state, paneId)
+        if (target === 'paneRoot') {
+          state.paneRoot = setPaneBufferPinned(state.paneRoot, paneId, bufferId, pinned)
+        } else {
+          state.bottomRoot = setPaneBufferPinned(state.bottomRoot, paneId, bufferId, pinned)
+        }
       })
     },
 
     reorderPaneBuffers(paneId, startIndex, endIndex) {
       set(state => {
-        state.paneRoot = reorderPaneBuffers(state.paneRoot, paneId, startIndex, endIndex)
+        const target = getTreeForPane(state, paneId)
+        if (target === 'paneRoot') {
+          state.paneRoot = reorderPaneBuffers(state.paneRoot, paneId, startIndex, endIndex)
+        } else {
+          state.bottomRoot = reorderPaneBuffers(state.bottomRoot, paneId, startIndex, endIndex)
+        }
       })
     },
 
     resizePaneSplit(splitId, index, sizes) {
       set(state => {
-        state.paneRoot = resizeFlattenedPaneSplit(state.paneRoot, splitId, index, sizes)
+        if (findPaneNode(state.paneRoot, splitId)) {
+          state.paneRoot = resizeFlattenedPaneSplit(state.paneRoot, splitId, index, sizes)
+        } else {
+          state.bottomRoot = resizeFlattenedPaneSplit(state.bottomRoot, splitId, index, sizes)
+        }
       })
     },
 
     distributePaneSplit(splitId) {
       set(state => {
-        state.paneRoot = distributeFlattenedPaneSplit(state.paneRoot, splitId)
+        if (findPaneNode(state.paneRoot, splitId)) {
+          state.paneRoot = distributeFlattenedPaneSplit(state.paneRoot, splitId)
+        } else {
+          state.bottomRoot = distributeFlattenedPaneSplit(state.bottomRoot, splitId)
+        }
       })
     },
 
@@ -184,10 +274,37 @@ export const createPaneSlice: StateCreator<
       set(state => { state.fullscreenPaneId = null })
     },
 
-    getAllPaneGroups() { return getAllPaneGroups(get().paneRoot) },
-    getPaneById(paneId) { return findPaneGroup(get().paneRoot, paneId) },
-    getPaneByBufferId(bufferId) { return findPaneGroupByBufferId(get().paneRoot, bufferId) },
-    getActivePane() { return findPaneGroup(get().paneRoot, get().activePaneId) },
+    getAllPaneGroups() {
+      return [
+        ...getAllPaneGroups(get().paneRoot),
+        ...getAllPaneGroups(get().bottomRoot),
+      ]
+    },
+
+    getPaneById(paneId) {
+      return (
+        findPaneGroup(get().paneRoot, paneId) ??
+        findPaneGroup(get().bottomRoot, paneId) ??
+        null
+      )
+    },
+
+    getPaneByBufferId(bufferId) {
+      return (
+        findPaneGroupByBufferId(get().paneRoot, bufferId) ??
+        findPaneGroupByBufferId(get().bottomRoot, bufferId) ??
+        null
+      )
+    },
+
+    getActivePane() {
+      const id = get().activePaneId
+      return (
+        findPaneGroup(get().paneRoot, id) ??
+        findPaneGroup(get().bottomRoot, id) ??
+        null
+      )
+    },
 
     clearPreviewBufferEverywhere(bufferId) {
       set(state => {
