@@ -6,7 +6,7 @@ import { RouterProvider, createRouter, createHashHistory } from '@tanstack/react
 import { QueryClientProvider } from '@tanstack/react-query'
 import { TooltipProvider } from '@/components/ui/tooltip'
 import { routeTree } from './routeTree.gen'
-import { queryClient } from './lib/query'
+import { queryClient } from '@/lib/queries/client'
 import { initializeSettingsStore } from '@/features/settings/store'
 import { ensureStartupAppearanceApplied } from '@/features/settings/lib/appearance-bootstrap'
 import { initializeIconThemes } from '@/extensions/icon-themes/icon-theme-initializer'
