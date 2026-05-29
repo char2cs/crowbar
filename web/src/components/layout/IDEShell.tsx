@@ -21,12 +21,18 @@ export function IDEShell() {
   const navigate = useNavigate()
   const routerState = useRouterState()
   const pathname = routerState.location.pathname
-  const { chats, repos, collapsedRepos, addChat, deleteChat, deleteWorkspace, toggleRepo } =
-    useSidebarStore()
+  const chats = useSidebarStore((s) => s.chats)
+  const repos = useSidebarStore((s) => s.repos)
+  const collapsedRepos = useSidebarStore((s) => s.collapsedRepos)
+  const addChat = useSidebarStore((s) => s.addChat)
+  const deleteChat = useSidebarStore((s) => s.deleteChat)
+  const deleteWorkspace = useSidebarStore((s) => s.deleteWorkspace)
+  const toggleRepo = useSidebarStore((s) => s.toggleRepo)
   const [settingsOpen, setSettingsOpen] = useState(false)
-  const [sidebarWidth, setSidebarWidth] = useState(
-    () => parseInt(localStorage.getItem('sidebar-width') ?? '256', 10)
-  )
+  const [sidebarWidth, setSidebarWidth] = useState(() => {
+    const stored = parseInt(localStorage.getItem('sidebar-width') ?? '', 10)
+    return Number.isFinite(stored) ? stored : 256
+  })
   const sidebarPosition = useSettingsStore((state) => state.settings.sidebarPosition)
 
   const activeWorkspaceId = pathname.match(/\/workspaces\/([^/]+)/)?.[1]
@@ -47,14 +53,16 @@ export function IDEShell() {
     const startWidth = sidebarWidth
     const position = sidebarPosition
 
+    let currentWidth = startWidth
+
     function onMouseMove(e: MouseEvent) {
       const delta = position === 'left' ? e.clientX - startX : startX - e.clientX
-      const next = Math.min(640, Math.max(192, startWidth + delta))
-      setSidebarWidth(next)
-      localStorage.setItem('sidebar-width', String(next))
+      currentWidth = Math.min(640, Math.max(192, startWidth + delta))
+      setSidebarWidth(currentWidth)
     }
 
     function onMouseUp() {
+      localStorage.setItem('sidebar-width', String(currentWidth))
       document.removeEventListener('mousemove', onMouseMove)
       document.removeEventListener('mouseup', onMouseUp)
     }

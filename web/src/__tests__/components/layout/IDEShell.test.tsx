@@ -24,8 +24,8 @@ vi.mock('@/components/layout/sidebar-nav-icons', () => ({
 vi.mock('@/features/settings/components/settings-dialog', () => ({
   default: () => null,
 }))
-vi.mock('@/lib/store/sidebar', () => ({
-  useSidebarStore: () => ({
+vi.mock('@/lib/store/sidebar', () => {
+  const state = {
     chats: [],
     repos: [],
     collapsedRepos: new Set(),
@@ -33,8 +33,12 @@ vi.mock('@/lib/store/sidebar', () => ({
     deleteChat: vi.fn(),
     deleteWorkspace: vi.fn(),
     toggleRepo: vi.fn(),
-  }),
-}))
+  }
+  return {
+    useSidebarStore: (selector?: (s: typeof state) => unknown) =>
+      selector ? selector(state) : state,
+  }
+})
 vi.mock('@tanstack/react-router', () => ({
   useNavigate: () => vi.fn(),
   useRouterState: () => ({ location: { pathname: '/' } }),
