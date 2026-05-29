@@ -30,8 +30,12 @@ export function IDEShell() {
   const toggleRepo = useSidebarStore((s) => s.toggleRepo)
   const [settingsOpen, setSettingsOpen] = useState(false)
   const [sidebarWidth, setSidebarWidth] = useState(() => {
-    const stored = parseInt(localStorage.getItem('sidebar-width') ?? '', 10)
-    return Number.isFinite(stored) ? stored : 256
+    try {
+      const stored = parseInt(localStorage.getItem('sidebar-width') ?? '', 10)
+      return Number.isFinite(stored) ? Math.max(250, stored) : 250
+    } catch {
+      return 250
+    }
   })
   const sidebarPosition = useSettingsStore((state) => state.settings.sidebarPosition)
 
@@ -70,7 +74,7 @@ export function IDEShell() {
       if (rafId !== null) return
       rafId = requestAnimationFrame(() => {
         const delta = position === 'left' ? latestX - startX : startX - latestX
-        currentWidth = Math.min(640, Math.max(192, startWidth + delta))
+        currentWidth = Math.min(640, Math.max(250, startWidth + delta))
         if (gapEl) gapEl.style.width = `${currentWidth}px`
         if (containerEl) containerEl.style.width = `${currentWidth}px`
         rafId = null
@@ -97,7 +101,7 @@ export function IDEShell() {
       className="h-screen overflow-hidden bg-transparent text-foreground"
       style={{ '--sidebar-width': `${sidebarWidth}px` } as React.CSSProperties}
     >
-      <Sidebar side={sidebarPosition} collapsible="offcanvas" className="[&>[data-slot=sidebar-inner]]:bg-transparent">
+      <Sidebar side={sidebarPosition} collapsible="offcanvas" className="[&>[data-slot=sidebar-inner]]:bg-transparent !border-0">
         <div className="relative flex h-full flex-col overflow-hidden">
           <div
             data-testid="sidebar-resize-handle"

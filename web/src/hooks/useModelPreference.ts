@@ -13,12 +13,20 @@ const DEFAULT_MODEL: ModelId = 'claude-sonnet-4-6'
 
 export function useModelPreference() {
   const [model, setModelState] = useState<ModelId>(() => {
-    const stored = localStorage.getItem(STORAGE_KEY)
-    return (MODELS.find(m => m.id === stored)?.id ?? DEFAULT_MODEL)
+    try {
+      const stored = localStorage.getItem(STORAGE_KEY)
+      return (MODELS.find(m => m.id === stored)?.id ?? DEFAULT_MODEL)
+    } catch {
+      return DEFAULT_MODEL
+    }
   })
 
   const setModel = (id: ModelId) => {
-    localStorage.setItem(STORAGE_KEY, id)
+    try {
+      localStorage.setItem(STORAGE_KEY, id)
+    } catch {
+      // storage unavailable — preference not persisted this session
+    }
     setModelState(id)
   }
 
