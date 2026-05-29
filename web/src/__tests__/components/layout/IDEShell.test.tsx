@@ -78,4 +78,9 @@ describe('IDEShell', () => {
     render(<IDEShell />)
     expect(screen.getByTestId('outlet')).toBeInTheDocument()
   })
+
+  it('renders a resize handle inside the sidebar', () => {
+    render(<IDEShell />)
+    expect(screen.getByTestId('sidebar-resize-handle')).toBeInTheDocument()
+  })
 })

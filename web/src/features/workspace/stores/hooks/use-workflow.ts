@@ -3,6 +3,8 @@ import type { WorkflowActions } from '../slices/workflow-slice'
 import type { FlowDefinition, FlowStep } from '@/features/workflow/types/workflow'
 import type { ChatMessage } from '@/lib/types'
 
+const EMPTY_MESSAGES: ChatMessage[] = []
+
 export const useFlowDefinition = (): FlowDefinition | null =>
   useWorkspaceStoreContext(s => s.flowDefinition)
 
@@ -20,7 +22,7 @@ export const useWorkflowActions = (): WorkflowActions =>
 
 /** Returns the persisted chat messages for a specific step. */
 export const useChatMessages = (stepId: string): ChatMessage[] =>
-  useWorkspaceStoreContext(s => s.chatMessages[stepId] ?? [])
+  useWorkspaceStoreContext(s => s.chatMessages[stepId] ?? EMPTY_MESSAGES)
 
 /** Returns whether the given step has an in-flight response. */
 export const useIsSending = (stepId: string): boolean =>

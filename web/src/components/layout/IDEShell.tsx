@@ -24,6 +24,9 @@ export function IDEShell() {
   const { chats, repos, collapsedRepos, addChat, deleteChat, deleteWorkspace, toggleRepo } =
     useSidebarStore()
   const [settingsOpen, setSettingsOpen] = useState(false)
+  const [sidebarWidth, setSidebarWidth] = useState(
+    () => parseInt(localStorage.getItem('sidebar-width') ?? '256', 10)
+  )
   const sidebarPosition = useSettingsStore((state) => state.settings.sidebarPosition)
 
   const activeWorkspaceId = pathname.match(/\/workspaces\/([^/]+)/)?.[1]
@@ -38,46 +41,81 @@ export function IDEShell() {
   const activeWorkspaceRepoPath = activeRepo ? `/repos/${activeRepo.id}` : '/repos/default'
   const chatTabLabel = chats.find(c => c.id === activeChatId)?.title ?? 'Chat'
 
+  function handleResizeDragStart(e: React.MouseEvent) {
+    e.preventDefault()
+    const startX = e.clientX
+    const startWidth = sidebarWidth
+    const position = sidebarPosition
+
+    function onMouseMove(e: MouseEvent) {
+      const delta = position === 'left' ? e.clientX - startX : startX - e.clientX
+      const next = Math.min(640, Math.max(192, startWidth + delta))
+      setSidebarWidth(next)
+      localStorage.setItem('sidebar-width', String(next))
+    }
+
+    function onMouseUp() {
+      document.removeEventListener('mousemove', onMouseMove)
+      document.removeEventListener('mouseup', onMouseUp)
+    }
+
+    document.addEventListener('mousemove', onMouseMove)
+    document.addEventListener('mouseup', onMouseUp)
+  }
+
   return (
-    <SidebarProvider className="h-screen overflow-hidden bg-transparent text-foreground">
+    <SidebarProvider
+      className="h-screen overflow-hidden bg-transparent text-foreground"
+      style={{ '--sidebar-width': `${sidebarWidth}px` } as React.CSSProperties}
+    >
       <Sidebar side={sidebarPosition} collapsible="offcanvas" className="[&>[data-slot=sidebar-inner]]:bg-transparent">
-        <div
-          className={cn('flex w-full flex-shrink-0 items-center', IS_MAC ? 'h-[44px]' : 'h-[34px]')}
-          data-tauri-drag-region
-        >
-          <SidebarNavIcons />
+        <div className="relative flex h-full flex-col overflow-hidden">
+          <div
+            data-testid="sidebar-resize-handle"
+            className={cn(
+              'absolute inset-y-0 z-50 w-1 cursor-col-resize opacity-0 transition-opacity hover:opacity-100 hover:bg-border',
+              sidebarPosition === 'right' ? 'left-0' : 'right-0',
+            )}
+            onMouseDown={handleResizeDragStart}
+          />
+          <div
+            className={cn('flex w-full flex-shrink-0 items-center', IS_MAC ? 'h-[44px]' : 'h-[34px]')}
+            data-tauri-drag-region
+          >
+            <SidebarNavIcons />
+          </div>
+          <ErrorBoundary>
+            <SidebarHeader
+              userInitials="MU"
+              onProjectsClick={() => void navigate({ to: '/projects' })}
+              onProjectSelect={() => void navigate({ to: '/' })}
+              onSettingsClick={() => setSettingsOpen(true)}
+            />
+            <SidebarTabs
+              chats={chats}
+              repos={repos}
+              collapsedRepos={collapsedRepos}
+              activeChatId={activeChatId}
+              activeWorkspaceId={activeWorkspaceId}
+              activeWorkspaceRepoPath={activeWorkspaceRepoPath}
+              onChatClick={id => void navigate({ to: '/chat/$chatId', params: { chatId: id } })}
+              onWorkspaceClick={(_repoId, wsId) => void navigate({ to: '/workspaces/$wsId', params: { wsId } })}
+              onNewChat={() => {
+                const chat = createMockChat()
+                addChat({ id: chat.id, title: chat.title, age: chat.age })
+                void navigate({ to: '/chat/$chatId', params: { chatId: chat.id } })
+              }}
+              onNewWorkspace={() => void navigate({ to: '/workspaces/new' })}
+              onDeleteChat={id => { deleteChat(id); if (activeChatId === id) void navigate({ to: '/' }) }}
+              onDeleteWorkspace={wsId => {
+                deleteWorkspace(wsId)
+                destroyWorkspaceStore(wsId)
+                if (activeWorkspaceId === wsId) void navigate({ to: '/' })
+              }}
+              onRepoToggle={toggleRepo}
+            />
+          </ErrorBoundary>
         </div>
-        <ErrorBoundary>
-          <SidebarHeader
-            userInitials="MU"
-            onProjectsClick={() => void navigate({ to: '/projects' })}
-            onProjectSelect={() => void navigate({ to: '/' })}
-            onSettingsClick={() => setSettingsOpen(true)}
-          />
-          <SidebarTabs
-            chats={chats}
-            repos={repos}
-            collapsedRepos={collapsedRepos}
-            activeChatId={activeChatId}
-            activeWorkspaceId={activeWorkspaceId}
-            activeWorkspaceRepoPath={activeWorkspaceRepoPath}
-            onChatClick={id => void navigate({ to: '/chat/$chatId', params: { chatId: id } })}
-            onWorkspaceClick={(_repoId, wsId) => void navigate({ to: '/workspaces/$wsId', params: { wsId } })}
-            onNewChat={() => {
-              const chat = createMockChat()
-              addChat({ id: chat.id, title: chat.title, age: chat.age })
-              void navigate({ to: '/chat/$chatId', params: { chatId: chat.id } })
-            }}
-            onNewWorkspace={() => void navigate({ to: '/workspaces/new' })}
-            onDeleteChat={id => { deleteChat(id); if (activeChatId === id) void navigate({ to: '/' }) }}
-            onDeleteWorkspace={wsId => {
-              deleteWorkspace(wsId)
-              destroyWorkspaceStore(wsId)
-              if (activeWorkspaceId === wsId) void navigate({ to: '/' })
-            }}
-            onRepoToggle={toggleRepo}
-          />
-        </ErrorBoundary>
       </Sidebar>
 
       <SidebarInset className="min-w-0 overflow-hidden bg-transparent">

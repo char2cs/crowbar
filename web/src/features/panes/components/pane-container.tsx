@@ -252,15 +252,15 @@ export function PaneContainer({ pane }: PaneContainerProps) {
     },
     [bufferActions],
   );
-  // openTerminalBuffer: terminal content type not in workspace scope yet — noop
-  const openTerminalBuffer = (_options?: {
+  const workspaceStore = useWorkspaceStore();
+  const openTerminalBuffer = (options?: {
     name?: string;
     command?: string;
     workingDirectory?: string;
     remoteConnectionId?: string;
     sessionId?: string;
-  }): string => "";
-  const workspaceStore = useWorkspaceStore();
+  }): string =>
+    workspaceStore.getState().bufferActions.openContent({ type: 'terminal', ...options });
   const rootFolderPath = useFileSystemStore.use.rootFolderPath?.();
   const handleFileOpen = useFileSystemStore.use.handleFileOpen?.();
   const horizontalBufferCarousel = useSettingsStore((state) => state.settings.horizontalTabScroll);
