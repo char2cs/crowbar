@@ -53,16 +53,24 @@ export function IDEShell() {
     const startWidth = sidebarWidth
     const position = sidebarPosition
 
+    // Walk up to find the SidebarProvider element (has --sidebar-width as inline style)
+    let providerEl: HTMLElement | null = e.currentTarget as HTMLElement
+    while (providerEl && !providerEl.style.getPropertyValue('--sidebar-width')) {
+      providerEl = providerEl.parentElement
+    }
+
     let currentWidth = startWidth
 
     function onMouseMove(e: MouseEvent) {
       const delta = position === 'left' ? e.clientX - startX : startX - e.clientX
       currentWidth = Math.min(640, Math.max(192, startWidth + delta))
-      setSidebarWidth(currentWidth)
+      // Mutate the CSS var directly — no React re-render during drag
+      providerEl?.style.setProperty('--sidebar-width', `${currentWidth}px`)
     }
 
     function onMouseUp() {
       localStorage.setItem('sidebar-width', String(currentWidth))
+      setSidebarWidth(currentWidth) // sync React state once on release
       document.removeEventListener('mousemove', onMouseMove)
       document.removeEventListener('mouseup', onMouseUp)
     }
