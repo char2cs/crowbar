@@ -48,7 +48,7 @@ import {
 } from "@/components/ui/dropdown-menu";
 // Use browser clipboard API instead of Tauri clipboard plugin
 const writeText = (text: string) => navigator.clipboard.writeText(text);
-import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { useJumpListStore } from "@/features/editor/stores/jump-list-store";
 import { useEditorStateStore } from "@/features/editor/stores/state-store";
 import { navigateToJumpEntry } from "@/features/editor/utils/jump-navigation";
@@ -214,6 +214,20 @@ const TabBar = ({
   const tabRefs = useRef<(HTMLDivElement | null)[]>([]);
   const dragPointRef = useRef<{ x: number; y: number } | null>(null);
   const pointerPointRef = useRef<{ x: number; y: number } | null>(null);
+
+  const [isAtLeftEdge, setIsAtLeftEdge] = useState(false);
+  useLayoutEffect(() => {
+    const el = tabBarRef.current;
+    if (!el) return;
+    function check() {
+      setIsAtLeftEdge((el?.getBoundingClientRect().left ?? 1) < 10);
+    }
+    check();
+    const ro = new ResizeObserver(check);
+    ro.observe(el);
+    window.addEventListener('resize', check);
+    return () => { ro.disconnect(); window.removeEventListener('resize', check); };
+  }, [sidebarPosition]);
   const handleRevealInFolder = useFileSystemStore.use.handleRevealInFolder?.();
   const { clearPositionCache } = useEditorStateStore.getState().actions;
   const terminalSessions = useTerminalStore((state) => state.sessions);
@@ -747,6 +761,7 @@ const handleDragStart = useCallback(
           className={cn(
             'relative flex shrink-0 items-center gap-1.5 overflow-hidden px-2 py-1',
             IS_MAC ? 'h-[44px]' : 'h-[34px]',
+            IS_MAC && !isBottomPane && sidebarPosition === 'right' && isAtLeftEdge && 'pl-[80px]',
           )}
           role="tablist"
           aria-label="Open files"

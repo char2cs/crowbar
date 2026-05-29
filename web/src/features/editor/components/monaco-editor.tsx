@@ -10,15 +10,11 @@ import {
   useEffect,
   useMemo,
   useRef,
-  type RefObject,
   type MouseEventHandler,
   type ReactNode,
 } from "react";
-import { useOnClickOutside } from "usehooks-ts";
 import { themeRegistry } from "@/extensions/themes/theme-registry";
 import type { ThemeDefinition } from "@/extensions/themes/types";
-import { InlineEditPopover } from "@/features/editor/inline-edit/inline-edit-popover";
-import { useInlineEdit } from "@/features/editor/inline-edit/use-inline-edit";
 import { useSettingsStore } from "@/features/settings/store";
 import { useZoomStore } from "@/features/window/stores/zoom-store";
 import { useWorkspaceStoreContext } from "@/features/workspace/stores/workspace-context";
@@ -129,16 +125,6 @@ function createModelUri(bufferId: string | undefined, filePath: string): Monaco.
   const sanitizedPath = filePath.replace(/^\/+/, "");
   const path = sanitizedPath.length > 0 ? sanitizedPath : `${bufferId ?? "untitled"}.txt`;
   return Uri.parse(`athas://editor/${encodeURIComponent(bufferId ?? path)}/${path}`);
-}
-
-function buildLineOffsets(content: string): number[] {
-  const offsets = [0];
-  for (let index = 0; index < content.length; index++) {
-    if (content.charCodeAt(index) === 10) {
-      offsets.push(index + 1);
-    }
-  }
-  return offsets;
 }
 
 function getThemeId(theme: string): string {
@@ -358,7 +344,6 @@ export function MonacoBackedEditor({
   const minimapEnabled = useSettingsStore((state) => state.settings.showMinimap);
   const autoCompletion = useSettingsStore((state) => state.settings.autoCompletion);
   const parameterHints = useSettingsStore((state) => state.settings.parameterHints);
-  const selection = useEditorStateStore((state) => state.selection);
   const { setCursorPosition, setSelection, setScrollForBuffer, setViewportHeight } =
     useEditorStateStore.use.actions();
   const searchMatches = useEditorUIStore.use.searchMatches();
@@ -409,141 +394,6 @@ export function MonacoBackedEditor({
     const selection = editor.getSelection();
     setSelection(selection ? toEditorRange(model, selection) : undefined);
   }, [setCursorPosition, setSelection]);
-
-  const lines = useMemo(() => content.split(/\r?\n/), [content]);
-  const lineOffsets = useMemo(() => buildLineOffsets(content), [content]);
-
-  const getMonacoCursorOffset = useCallback(() => {
-    const editor = editorRef.current;
-    const model = modelRef.current;
-    const position = editor?.getPosition();
-    if (!model || !position) return null;
-    return model.getOffsetAt(position);
-  }, []);
-
-  const getMonacoSelectionAnchor = useCallback(() => {
-    const editor = editorRef.current;
-    const model = modelRef.current;
-    const currentSelection = editor?.getSelection();
-    if (!model || !currentSelection) return null;
-
-    return toEditorPosition(model, currentSelection.getPosition());
-  }, []);
-
-  const getMonacoViewportMetrics = useCallback(() => {
-    const editor = editorRef.current;
-    if (!editor) return null;
-    const layout = editor.getLayoutInfo();
-    return {
-      scrollTop: 0,
-      scrollLeft: 0,
-      viewportWidth: layout.width,
-      viewportHeight: layout.height,
-    };
-  }, []);
-
-  const applyMonacoInlineEdit = useCallback(
-    (edit: { range: Range; editedText: string; newCursorOffset: number }) => {
-      const editor = editorRef.current;
-      const model = modelRef.current;
-      if (!editor || !model) return;
-
-      editor.pushUndoStop();
-      editor.executeEdits("inline-edit", [
-        {
-          range: toMonacoRange(model, edit.range),
-          text: edit.editedText,
-          forceMoveMarkers: true,
-        },
-      ]);
-      const nextPosition = model.getPositionAt(edit.newCursorOffset);
-      editor.setSelection(
-        new MonacoRange(
-          nextPosition.lineNumber,
-          nextPosition.column,
-          nextPosition.lineNumber,
-          nextPosition.column,
-        ),
-      );
-      editor.setPosition(nextPosition);
-      editor.revealPositionInCenterIfOutsideViewport(nextPosition);
-      editor.pushUndoStop();
-      syncCursorAndSelection();
-    },
-    [syncCursorAndSelection],
-  );
-
-  const inlineEditState = useInlineEdit({
-    enabled: isActiveSurface && !readOnly && !isPreviewMode,
-    viewKey: viewStateKey ?? activeBufferId ?? null,
-    buffer: buffer
-      ? {
-          id: buffer.id,
-          content: buffer.content,
-          path: buffer.path,
-          language: languageId ?? "",
-        }
-      : undefined,
-    selection,
-    lines,
-    lineOffsets,
-    fontSize,
-    fontFamily,
-    lineHeight,
-    tabSize,
-    lastScrollRef: { current: { top: 0, left: 0 } } as React.RefObject<{
-      top: number;
-      left: number;
-    }>,
-    resolveModelPosition: (line, column) => {
-      const editor = editorRef.current;
-      const model = modelRef.current;
-      if (!editor || !model || model.isDisposed()) return null;
-      const position = clampMonacoPosition(model, {
-        lineNumber: line + 1,
-        column: column + 1,
-      });
-      const top = editor.getTopForLineNumber(position.lineNumber) - editor.getScrollTop();
-      const left =
-        editor.getOffsetForColumn(position.lineNumber, position.column) - editor.getScrollLeft();
-      const lineLength = model.getLineLength(position.lineNumber);
-      const modelLine = position.lineNumber - 1;
-      return {
-        ...toEditorPosition(model, position),
-        viewLine: modelLine,
-        modelLine,
-        top,
-        left,
-        height: lineHeight,
-        segment: {
-          viewLine: modelLine,
-          modelLine,
-          startColumn: 0,
-          endColumn: lineLength,
-          top,
-          height: lineHeight,
-        },
-      };
-    },
-    getCursorOffset: getMonacoCursorOffset,
-    getSelectionAnchor: getMonacoSelectionAnchor,
-    getViewportMetrics: getMonacoViewportMetrics,
-    applyInlineEdit: applyMonacoInlineEdit,
-    setCursorPosition,
-    setSelection,
-  });
-
-  useOnClickOutside(inlineEditState.inlineEditPopoverRef as RefObject<HTMLElement>, (event) => {
-    if (!inlineEditState.inlineEditVisible) return;
-    const target = event.target as HTMLElement | null;
-    if (
-      target?.closest(".inline-edit-model-selector-menu") ||
-      target?.closest(".inline-edit-model-command")
-    ) {
-      return;
-    }
-    inlineEditState.inlineEditToolbarActions.hide();
-  });
 
   useEffect(() => {
     const container = containerRef.current;
@@ -1033,7 +883,6 @@ export function MonacoBackedEditor({
         data-line-number-start={lineNumberStart}
         data-line-number-map={lineNumberMap?.length ?? undefined}
       />
-      <InlineEditPopover state={inlineEditState} selection={selection} />
     </div>
   );
 }

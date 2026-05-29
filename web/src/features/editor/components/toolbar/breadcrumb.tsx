@@ -1,10 +1,9 @@
 import type { ReactNode } from "react";
-import { Eye, MagnifyingGlass as Search, Sparkle as Sparkles } from "@phosphor-icons/react";
+import { Eye, MagnifyingGlass as Search } from "@phosphor-icons/react";
 import { useShallow } from "zustand/react/shallow";
 import { EditorStatusActions } from "@/features/editor/components/toolbar/editor-status-actions";
 import { useWorkspaceStoreContext, useWorkspaceStore } from "@/features/workspace/stores/workspace-context";
 import { findPaneGroup } from "@/features/panes/utils/pane-tree";
-import { useInlineEditToolbarStore } from "@/features/editor/stores/inline-edit-toolbar-store";
 import { hasTextContent } from "@/features/panes/types/pane-content";
 import { useUIState } from "@/features/window/stores/ui-state-store";
 import { useExtensionActions } from "@/extensions/ui/hooks/use-extension-actions";
@@ -60,15 +59,10 @@ export default function Breadcrumb({
       setIsFindVisible: state.setIsFindVisible,
     })),
   );
-  const inlineEditActions = useInlineEditToolbarStore.use.actions();
   const extensionActions = useExtensionActions();
 
   const handleSearchClick = () => {
     setIsFindVisible(!isFindVisible);
-  };
-
-  const handleInlineEditClick = () => {
-    inlineEditActions.show(editorViewKey ?? resolvedBufferId ?? null);
   };
 
   const isMarkdownFile = () => {
@@ -159,17 +153,6 @@ export default function Breadcrumb({
             <Eye />
           </Button>
         )}
-        <Button
-          onClick={handleInlineEditClick}
-          variant="ghost"
-          className="rounded text-muted-foreground"
-          tooltip="AI inline edit"
-          commandId="editor.inlineEdit"
-          tooltipSide="bottom"
-          compact
-        >
-          <Sparkles />
-        </Button>
         <Button
           onClick={onSearchClick}
           variant="ghost"
