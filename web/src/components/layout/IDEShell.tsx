@@ -1,7 +1,7 @@
 import { useState, useRef, useEffect } from 'react'
 import { Outlet, useNavigate, useRouterState } from '@tanstack/react-router'
-import { SidebarProvider, Sidebar, SidebarInset, SidebarFooter } from '@/components/ui/sidebar'
-import { SidebarProjectSwitcher } from './sidebar-project-switcher'
+import { SidebarProvider, Sidebar, SidebarInset } from '@/components/ui/sidebar'
+import { SidebarProjectHeader } from './sidebar-project-header'
 import { SidebarTabs } from './SidebarTabs'
 import { SidebarNavIcons } from './sidebar-nav-icons'
 import { IS_MAC } from '@/utils/platform'
@@ -118,10 +118,11 @@ export function IDEShell() {
           )}
           onMouseDown={handleResizeDragStart}
         />
-        <div
-          className={cn('flex w-full flex-shrink-0 items-center', IS_MAC ? 'h-[44px]' : 'h-[34px]')}
-          data-tauri-drag-region
-        >
+        <SidebarProjectHeader
+          onProjectsClick={() => void navigate({ to: '/projects' })}
+          onProjectSelect={() => void navigate({ to: '/' })}
+        />
+        <div className="flex h-8 flex-shrink-0 items-center justify-center">
           <SidebarNavIcons />
         </div>
         <ErrorBoundary>
@@ -149,13 +150,6 @@ export function IDEShell() {
             onRepoToggle={toggleRepo}
           />
         </ErrorBoundary>
-        <SidebarFooter className="p-0">
-          <SidebarProjectSwitcher
-            onProjectsClick={() => void navigate({ to: '/projects' })}
-            onProjectSelect={() => void navigate({ to: '/' })}
-            onSettingsClick={() => setSettingsOpen(true)}
-          />
-        </SidebarFooter>
       </div>
     </Sidebar>
   )

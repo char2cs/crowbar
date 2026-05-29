@@ -15,8 +15,8 @@ vi.mock('@/features/workspace/components/WorkspaceView', () => ({
 vi.mock('@/components/layout/SidebarTabs', () => ({
   SidebarTabs: () => <div data-testid="sidebar-tabs" />,
 }))
-vi.mock('@/components/layout/sidebar-project-switcher', () => ({
-  SidebarProjectSwitcher: () => <div data-testid="sidebar-project-switcher" />,
+vi.mock('@/components/layout/sidebar-project-header', () => ({
+  SidebarProjectHeader: () => <div data-testid="sidebar-project-header" />,
 }))
 vi.mock('@/components/layout/sidebar-nav-icons', () => ({
   SidebarNavIcons: () => <div data-testid="sidebar-nav-icons" />,
@@ -48,7 +48,7 @@ vi.mock('@/components/ui/sidebar', () => ({
   SidebarProvider: ({ children }: { children: React.ReactNode }) => <div data-testid="sidebar-provider">{children}</div>,
   Sidebar: ({ children }: { children: React.ReactNode }) => <div data-testid="sidebar">{children}</div>,
   SidebarInset: ({ children }: { children: React.ReactNode }) => <div data-testid="sidebar-inset">{children}</div>,
-  SidebarFooter: ({ children }: { children: React.ReactNode }) => <>{children}</>,
+
 }))
 vi.mock('@/components/ErrorBoundary', () => ({
   ErrorBoundary: ({ children }: { children: React.ReactNode }) => <>{children}</>,
@@ -64,9 +64,9 @@ vi.mock('@/features/terminal/components/terminal-host', () => ({
 }))
 
 describe('IDEShell', () => {
-  it('renders project switcher', () => {
+  it('renders project header', () => {
     render(<IDEShell />)
-    expect(screen.getByTestId('sidebar-project-switcher')).toBeInTheDocument()
+    expect(screen.getByTestId('sidebar-project-header')).toBeInTheDocument()
   })
 
   it('renders SidebarTabs', () => {
