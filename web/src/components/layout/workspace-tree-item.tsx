@@ -48,12 +48,12 @@ export function WorkspaceTreeItem({
           {isActive && (workspace.added !== undefined || workspace.deleted !== undefined) && (
             <span className="flex shrink-0 gap-1 font-mono">
               {workspace.added !== undefined && workspace.added > 0 && (
-                <span className={isActive ? 'text-green-300' : 'text-green-500'}>
+                <span className="text-green-300">
                   +{workspace.added > 999 ? `${Math.round(workspace.added / 1000)}k` : workspace.added}
                 </span>
               )}
               {workspace.deleted !== undefined && workspace.deleted > 0 && (
-                <span className={isActive ? 'text-red-300' : 'text-red-500'}>
+                <span className="text-red-300">
                   -{workspace.deleted > 999 ? `${Math.round(workspace.deleted / 1000)}k` : workspace.deleted}
                 </span>
               )}
