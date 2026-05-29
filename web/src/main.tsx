@@ -7,6 +7,7 @@ import { QueryClientProvider } from '@tanstack/react-query'
 import { TooltipProvider } from '@/components/ui/tooltip'
 import { routeTree } from './routeTree.gen'
 import { queryClient } from '@/lib/queries/client'
+import { connectDaemonEvents } from '@/lib/events/connect'
 import { initializeSettingsStore } from '@/features/settings/store'
 import { ensureStartupAppearanceApplied } from '@/features/settings/lib/appearance-bootstrap'
 import { initializeIconThemes } from '@/extensions/icon-themes/icon-theme-initializer'
@@ -16,6 +17,10 @@ import './index.css'
 
 // Required for Zustand stores that use immer middleware with Set/Map state
 enableMapSet()
+
+// Wire up daemon event listeners for cache invalidation.
+// This must be called once at module load, before any queries are made.
+connectDaemonEvents(queryClient)
 
 // Apply the cached theme immediately (synchronous) so the correct dark/light
 // class is set before React renders anything — prevents a flash of light mode.
