@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import {
   getActiveWorkspaceStoreRef,
   onActiveWorkspaceStoreChange,
@@ -13,16 +13,22 @@ import type { WorkspaceState } from '../workspace-store.types'
  * Returns `fallback` when no workspace is active, and automatically
  * re-subscribes when the active workspace changes.
  *
- * Pass a stable selector (module-level function or useCallback) to avoid
- * stale closure issues — the selector is captured at mount time.
+ * Unlike useWorkspaceStoreContext, this hook always uses the latest selector
+ * even if the parent re-renders with a new one — safe with inline selectors.
  */
 export function useActiveWorkspaceState<T>(
   selector: (state: WorkspaceState) => T,
   fallback: T,
 ): T {
+  // Always-current refs so the subscription closure never goes stale.
+  const selectorRef = useRef(selector)
+  selectorRef.current = selector
+  const fallbackRef = useRef(fallback)
+  fallbackRef.current = fallback
+
   const [value, setValue] = useState<T>(() => {
     const store = getActiveWorkspaceStoreRef()
-    return store ? selector(store.getState()) : fallback
+    return store ? selectorRef.current(store.getState()) : fallbackRef.current
   })
 
   useEffect(() => {
@@ -33,13 +39,13 @@ export function useActiveWorkspaceState<T>(
       storeUnsub = null
 
       if (!store) {
-        setValue(fallback)
+        setValue(fallbackRef.current)
         return
       }
 
-      setValue(selector(store.getState()))
+      setValue(selectorRef.current(store.getState()))
       storeUnsub = store.subscribe((state) => {
-        setValue(selector(state))
+        setValue(selectorRef.current(state))
       })
     })
 
