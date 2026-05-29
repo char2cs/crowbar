@@ -74,6 +74,7 @@ import { useWebViewerNavigationStore } from "@/features/web-viewer/stores/web-vi
 import UnsavedChangesDialog from "@/features/window/components/unsaved-changes-dialog";
 import { useUIState } from "@/features/window/stores/ui-state-store";
 import { Button } from "@/components/ui/button";
+import { useSidebar } from "@/components/ui/sidebar";
 import { getRelativePath } from "@/utils/path-helpers";
 import { cn } from "@/utils/cn";
 import { IS_MAC } from "@/utils/platform";
@@ -178,9 +179,8 @@ const TabBar = ({
   const horizontalTabScroll = useSettingsStore((state) => state.settings.horizontalTabScroll);
   const maxOpenTabs = useSettingsStore((state) => state.settings.maxOpenTabs);
   const { updateActivePath } = useSidebarStore();
-  const sidebarVisible = useSidebarStore((s) => s.sidebarVisible)
-  const setSidebarVisible = useSidebarStore((s) => s.setSidebarVisible)
   const sidebarPosition = useSettingsStore((s) => s.settings.sidebarPosition)
+  const { open: sidebarOpen, toggleSidebar } = useSidebar()
   const rootFolderPath = useFileSystemStore.use.rootFolderPath?.() || undefined;
   const jumpListActions = useJumpListStore.use.actions();
   const activeBuffer = useMemo(
@@ -756,16 +756,16 @@ const handleDragStart = useCallback(
           {!isBottomPane && (
             <Button
               type="button"
-              onClick={() => setSidebarVisible(!sidebarVisible)}
+              onClick={toggleSidebar}
               variant="ghost"
               compact
               className={cn(
                 "h-6 w-6 shrink-0 rounded-full p-0 text-muted-foreground",
                 sidebarPosition === 'right' && "scale-x-[-1]",
               )}
-              tooltip={sidebarVisible ? "Hide Sidebar" : "Show Sidebar"}
+              tooltip={sidebarOpen ? "Hide Sidebar" : "Show Sidebar"}
               tooltipSide="bottom"
-              aria-label={sidebarVisible ? "Hide sidebar" : "Show sidebar"}
+              aria-label={sidebarOpen ? "Hide sidebar" : "Show sidebar"}
             >
               <PanelLeftClose size={14} />
             </Button>
