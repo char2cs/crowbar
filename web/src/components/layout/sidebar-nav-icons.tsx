@@ -2,8 +2,6 @@ import { useState, useEffect } from 'react'
 import { motion, useMotionValue, animate } from 'motion/react'
 import { SquaresFour, FolderOpen, GitBranch } from '@phosphor-icons/react'
 import { useSidebarStore, type SidebarTab } from '@/lib/store/sidebar'
-import { useSettingsStore } from '@/features/settings/store'
-import { IS_MAC, IS_WINDOWS } from '@/utils/platform'
 import { Toolbar, ToolbarButton, ToolbarGroup } from '@/components/ui/toolbar'
 import { cn } from '@/utils/cn'
 
@@ -57,31 +55,21 @@ function NavItem({ tab, label, Icon, isActive }: NavItemProps) {
 }
 
 export function SidebarNavIcons() {
-  const activeTab       = useSidebarStore(s => s.activeTab)
-  const sidebarPosition = useSettingsStore(s => s.settings.sidebarPosition)
-
-  const wrapperClass = cn(
-    'flex items-center',
-    sidebarPosition === 'right'
-      ? (IS_MAC     ? 'mr-auto ml-[80px]' : 'mr-auto ml-2')
-      : (IS_WINDOWS ? 'ml-auto mr-[138px]' : 'ml-auto mr-2'),
-  )
+  const activeTab = useSidebarStore(s => s.activeTab)
 
   return (
-    <div className={wrapperClass}>
-      <Toolbar className="gap-0 p-0.5 rounded-lg">
-        <ToolbarGroup>
-          {NAV_ITEMS.map(({ tab, label, Icon }) => (
-            <NavItem
-              key={tab}
-              tab={tab}
-              label={label}
-              Icon={Icon}
-              isActive={activeTab === tab}
-            />
-          ))}
-        </ToolbarGroup>
-      </Toolbar>
-    </div>
+    <Toolbar className="gap-0 p-0.5 rounded-lg">
+      <ToolbarGroup>
+        {NAV_ITEMS.map(({ tab, label, Icon }) => (
+          <NavItem
+            key={tab}
+            tab={tab}
+            label={label}
+            Icon={Icon}
+            isActive={activeTab === tab}
+          />
+        ))}
+      </ToolbarGroup>
+    </Toolbar>
   )
 }
