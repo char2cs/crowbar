@@ -28,3 +28,21 @@ export interface PaneState {
   mostRecentActivePaneIds?: string[];
   fullscreenPaneId?: string | null;
 }
+
+export interface PanePosition {
+  /** Left edge of this pane touches the absolute left of the content area. */
+  atLeft: boolean;
+  /** Top edge touches the absolute top of the content area (below tab bar). */
+  atTop: boolean;
+  /** Right edge touches the absolute right of the content area. */
+  atRight: boolean;
+  /** Bottom edge touches the absolute bottom (no visible pane below). */
+  atBottom: boolean;
+}
+
+export const ROOT_PANE_POSITION: PanePosition = {
+  atLeft: true,
+  atTop: true,
+  atRight: true,
+  atBottom: true,
+};
