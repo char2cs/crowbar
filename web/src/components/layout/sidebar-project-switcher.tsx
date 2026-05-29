@@ -17,7 +17,9 @@ interface SidebarProjectSwitcherProps {
 }
 
 export function SidebarProjectSwitcher({ onProjectsClick, onProjectSelect, onSettingsClick }: SidebarProjectSwitcherProps) {
-  const { projects, activeProjectId, setActiveProject } = useProjectStore()
+  const projects = useProjectStore((s) => s.projects)
+  const activeProjectId = useProjectStore((s) => s.activeProjectId)
+  const setActiveProject = useProjectStore((s) => s.setActiveProject)
   const activeProject = projects.find(p => p.id === activeProjectId)
 
   const handleSelect = (id: string) => {
