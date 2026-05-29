@@ -1,9 +1,11 @@
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuTrigger } from '@/components/ui/dropdown-menu'
 import { useProjectStore } from '@/lib/store/projects'
 import { useSettingsStore } from '@/features/settings/store'
+import { useUIState } from '@/features/window/stores/ui-state-store'
 import { IS_MAC } from '@/utils/platform'
 import { cn } from '@/utils/cn'
 import { ChevronDown } from 'lucide-react'
+import { GearSix } from '@phosphor-icons/react'
 
 export function projectNameToHue(name: string): number {
   let hash = 0
@@ -76,6 +78,14 @@ export function SidebarProjectHeader({ onProjectsClick, onProjectSelect }: Sideb
           </DropdownMenuItem>
         </DropdownMenuContent>
       </DropdownMenu>
+
+      <button
+        onClick={() => useUIState.getState().openSettingsDialog()}
+        aria-label="Settings"
+        className="relative z-10 flex h-7 w-7 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
+      >
+        <GearSix size={16} />
+      </button>
 
       {/* On Mac with right sidebar, traffic lights are in content area — no spacer needed */}
     </div>
