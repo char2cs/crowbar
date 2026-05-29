@@ -53,11 +53,13 @@ export function IDEShell() {
     const startWidth = sidebarWidth
     const position = sidebarPosition
 
-    // Walk up to find the SidebarProvider element (has --sidebar-width as inline style)
-    let providerEl: HTMLElement | null = e.currentTarget as HTMLElement
-    while (providerEl && !providerEl.style.getPropertyValue('--sidebar-width')) {
-      providerEl = providerEl.parentElement
-    }
+    // Target only the two elements that actually change width — bypasses CSS var cascade
+    const gapEl = document.querySelector<HTMLElement>('[data-slot="sidebar-gap"]')
+    const containerEl = document.querySelector<HTMLElement>('[data-slot="sidebar-container"]')
+
+    // Disable transitions so they don't fight the rapid updates during drag
+    if (gapEl) gapEl.style.transition = 'none'
+    if (containerEl) containerEl.style.transition = 'none'
 
     let currentWidth = startWidth
     let latestX = startX
@@ -69,13 +71,17 @@ export function IDEShell() {
       rafId = requestAnimationFrame(() => {
         const delta = position === 'left' ? latestX - startX : startX - latestX
         currentWidth = Math.min(640, Math.max(192, startWidth + delta))
-        providerEl?.style.setProperty('--sidebar-width', `${currentWidth}px`)
+        if (gapEl) gapEl.style.width = `${currentWidth}px`
+        if (containerEl) containerEl.style.width = `${currentWidth}px`
         rafId = null
       })
     }
 
     function onMouseUp() {
       if (rafId !== null) cancelAnimationFrame(rafId)
+      // Update CSS var to match, then clear inline overrides so toggle animation still works
+      if (gapEl) { gapEl.style.transition = ''; gapEl.style.width = '' }
+      if (containerEl) { containerEl.style.transition = ''; containerEl.style.width = '' }
       localStorage.setItem('sidebar-width', String(currentWidth))
       setSidebarWidth(currentWidth)
       document.removeEventListener('mousemove', onMouseMove)
