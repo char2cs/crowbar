@@ -1,4 +1,4 @@
-import { describe, it, expect, vi } from 'vitest'
+import { describe, it, expect, vi, afterEach } from 'vitest'
 import { render, screen } from '@testing-library/react'
 import { WorkspaceLayoutRoot } from '@/features/workspace/components/WorkspaceLayoutRoot'
 import { useUIState } from '@/features/window/stores/ui-state-store'
@@ -12,6 +12,8 @@ vi.mock('@/features/workspace/components/bottom-pane', () => ({
 }))
 
 describe('WorkspaceLayoutRoot', () => {
+  afterEach(() => useUIState.setState({ isBottomPaneVisible: false }))
+
   it('does not render bottom pane when isBottomPaneVisible is false', () => {
     useUIState.setState({ isBottomPaneVisible: false })
     render(<WorkspaceLayoutRoot />)

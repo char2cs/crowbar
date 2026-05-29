@@ -12,6 +12,7 @@ export function BottomPane() {
   const height = useUIState(s => s.bottomPaneHeight)
   const setHeight = useUIState(s => s.setBottomPaneHeight)
   const cleanupRef = useRef<(() => void) | null>(null)
+  const containerRef = useRef<HTMLDivElement>(null)
 
   // Clean up any in-progress drag on unmount
   useEffect(() => () => { cleanupRef.current?.() }, [])
@@ -20,20 +21,30 @@ export function BottomPane() {
     e.preventDefault()
     const startY = e.clientY
     const startHeight = height
+    let currentHeight = startHeight
+    let rafId: number | null = null
 
     const handleMouseMove = (ev: MouseEvent) => {
       // Dragging the top border upward increases height
       const delta = startY - ev.clientY
-      const next = Math.max(120, Math.min(600, startHeight + delta))
-      setHeight(next)
+      currentHeight = Math.max(120, Math.min(600, startHeight + delta))
+      if (rafId !== null) return // already scheduled
+      rafId = requestAnimationFrame(() => {
+        if (containerRef.current) {
+          containerRef.current.style.height = `${currentHeight}px`
+        }
+        rafId = null
+      })
     }
 
     const cleanup = () => {
       document.removeEventListener('mousemove', handleMouseMove)
       document.removeEventListener('mouseup', cleanup)
+      if (rafId !== null) cancelAnimationFrame(rafId)
       document.body.style.cursor = ''
       document.body.style.userSelect = ''
       cleanupRef.current = null
+      setHeight(currentHeight) // persist to Zustand once, after drag ends
     }
 
     document.addEventListener('mousemove', handleMouseMove)
@@ -44,10 +55,10 @@ export function BottomPane() {
   }
 
   return (
-    <div className="flex flex-col border-t border-border" style={{ height }}>
+    <div ref={containerRef} className="flex flex-col border-t border-border" style={{ height }}>
       {/* Drag handle */}
       <div
-        className="h-1 w-full shrink-0 cursor-ns-resize hover:bg-primary/30 transition-colors"
+        className="h-1 w-full shrink-0 cursor-ns-resize hover:bg-primary/30"
         onMouseDown={handleResizeDragStart}
         aria-label="Resize bottom pane"
         role="separator"
