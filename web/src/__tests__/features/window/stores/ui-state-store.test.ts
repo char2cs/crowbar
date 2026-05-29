@@ -1,10 +1,10 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
-import { useUIState } from '@/features/window/stores/ui-state-store'
+import { useUIState, _resetTerminalFocusRegistryForTests } from '@/features/window/stores/ui-state-store'
 
 describe('ui-state-store focus registry', () => {
   beforeEach(() => {
-    // Clear any terminal registrations from previous tests
-    useUIState.getState().clearTerminalFocus('term-1')
+    // Reset module-level registry singletons between tests
+    _resetTerminalFocusRegistryForTests()
     // Reset bottomPaneHeight to default
     useUIState.setState({ bottomPaneHeight: 240 })
   })
@@ -22,6 +22,17 @@ describe('ui-state-store focus registry', () => {
     useUIState.getState().clearTerminalFocus('term-1')
     useUIState.getState().requestTerminalFocus()
     expect(focusCalled).not.toHaveBeenCalled()
+  })
+
+  it('clearTerminalFocus falls back to the previously registered terminal', () => {
+    const fn1 = vi.fn()
+    const fn2 = vi.fn()
+    useUIState.getState().registerTerminalFocus('term-1', fn1)
+    useUIState.getState().registerTerminalFocus('term-2', fn2)
+    useUIState.getState().clearTerminalFocus('term-2') // clear the latest
+    useUIState.getState().requestTerminalFocus()
+    expect(fn1).toHaveBeenCalledOnce() // should fall back to term-1
+    expect(fn2).not.toHaveBeenCalled()
   })
 
   it('setBottomPaneHeight updates bottomPaneHeight', () => {

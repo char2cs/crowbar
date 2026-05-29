@@ -3,7 +3,12 @@ import type { SidebarView } from "@/features/layout/utils/sidebar-pane-utils"
 
 // Module-level registry — not Zustand state (functions aren't serializable)
 const _terminalFocusRegistry = new Map<string, () => void>()
-let _lastRegisteredTerminalId: string | null = null
+const _registrationOrder: string[] = [] // tracks insertion order for recency
+
+export function _resetTerminalFocusRegistryForTests(): void {
+  _terminalFocusRegistry.clear()
+  _registrationOrder.length = 0
+}
 
 export type SettingsTab =
   | "editor"
@@ -101,20 +106,19 @@ export const useUIState = create<UIState>((set) => ({
   setBottomPaneActiveTab: (tab) => set({ bottomPaneActiveTab: tab, activeBottomTab: tab }),
   registerTerminalFocus: (id: string, fn: () => void) => {
     _terminalFocusRegistry.set(id, fn)
-    _lastRegisteredTerminalId = id
+    // remove existing entry (if re-registering) then push to end
+    const idx = _registrationOrder.indexOf(id)
+    if (idx !== -1) _registrationOrder.splice(idx, 1)
+    _registrationOrder.push(id)
   },
   clearTerminalFocus: (id: string) => {
     _terminalFocusRegistry.delete(id)
-    if (_lastRegisteredTerminalId === id) {
-      _lastRegisteredTerminalId = _terminalFocusRegistry.size > 0
-        ? ([..._terminalFocusRegistry.keys()].at(-1) ?? null)
-        : null
-    }
+    const idx = _registrationOrder.indexOf(id)
+    if (idx !== -1) _registrationOrder.splice(idx, 1)
   },
   requestTerminalFocus: () => {
-    if (_lastRegisteredTerminalId) {
-      _terminalFocusRegistry.get(_lastRegisteredTerminalId)?.()
-    }
+    const lastId = _registrationOrder.at(-1)
+    if (lastId) _terminalFocusRegistry.get(lastId)?.()
   },
   sidebarActivityItem: null,
   setSidebarActivityItem: (item) => set({ sidebarActivityItem: item }),
