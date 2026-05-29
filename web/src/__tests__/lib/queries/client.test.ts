@@ -15,4 +15,9 @@ describe('queryClient', () => {
     const defaults = queryClient.getDefaultOptions()
     expect(defaults.queries?.retry).toBe(1)
   })
+
+  it('disables refetching on window focus', () => {
+    const defaults = queryClient.getDefaultOptions()
+    expect(defaults.queries?.refetchOnWindowFocus).toBe(false)
+  })
 })
