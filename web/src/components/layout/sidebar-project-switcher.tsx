@@ -1,0 +1,76 @@
+import { Button } from '@/components/ui/button'
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from '@/components/ui/dropdown-menu'
+import { useProjectStore } from '@/lib/store/projects'
+import { ChevronDown } from 'lucide-react'
+import { GearSix } from '@phosphor-icons/react'
+
+interface SidebarProjectSwitcherProps {
+  onProjectsClick?: () => void
+  onProjectSelect?: (projectId: string) => void
+  onSettingsClick?: () => void
+}
+
+export function SidebarProjectSwitcher({ onProjectsClick, onProjectSelect, onSettingsClick }: SidebarProjectSwitcherProps) {
+  const { projects, activeProjectId, setActiveProject } = useProjectStore()
+  const activeProject = projects.find(p => p.id === activeProjectId)
+
+  const handleSelect = (id: string) => {
+    setActiveProject(id)
+    onProjectSelect?.(id)
+  }
+
+  return (
+    <div className="flex h-12 flex-shrink-0 items-center gap-1.5 border-t border-border px-3">
+      <Button
+        variant="ghost"
+        size="sm"
+        className="h-auto px-1.5 py-0.5 text-[13px] text-muted-foreground hover:text-foreground"
+        onClick={onProjectsClick}
+      >
+        Projects
+      </Button>
+
+      <span className="text-[13px] text-muted-foreground/40">/</span>
+
+      <DropdownMenu>
+        <DropdownMenuTrigger
+          className="inline-flex h-auto items-center gap-1 rounded-sm px-1.5 py-0.5 text-[13px] font-semibold text-foreground hover:bg-accent hover:text-accent-foreground"
+        >
+          {activeProject?.name ?? 'Select project'}
+          <ChevronDown className="h-3 w-3 text-muted-foreground" />
+        </DropdownMenuTrigger>
+        <DropdownMenuContent align="start" className="min-w-[160px]">
+          {projects.map(p => (
+            <DropdownMenuItem
+              key={p.id}
+              onClick={() => handleSelect(p.id)}
+              className={p.id === activeProjectId ? 'font-medium text-primary' : ''}
+            >
+              {p.name}
+            </DropdownMenuItem>
+          ))}
+          <DropdownMenuSeparator />
+          <DropdownMenuItem onClick={onProjectsClick} className="text-muted-foreground">
+            Manage projects…
+          </DropdownMenuItem>
+        </DropdownMenuContent>
+      </DropdownMenu>
+
+      {onSettingsClick && (
+        <button
+          onClick={onSettingsClick}
+          aria-label="Settings"
+          className="flex h-7 w-7 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
+        >
+          <GearSix size={16} />
+        </button>
+      )}
+    </div>
+  )
+}

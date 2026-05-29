@@ -1,7 +1,7 @@
 import { useState } from 'react'
 import { Outlet, useNavigate, useRouterState } from '@tanstack/react-router'
-import { SidebarProvider, Sidebar, SidebarInset } from '@/components/ui/sidebar'
-import { SidebarHeader } from './SidebarHeader'
+import { SidebarProvider, Sidebar, SidebarInset, SidebarFooter } from '@/components/ui/sidebar'
+import { SidebarProjectSwitcher } from './sidebar-project-switcher'
 import { SidebarTabs } from './SidebarTabs'
 import { SidebarNavIcons } from './sidebar-nav-icons'
 import { IS_MAC } from '@/utils/platform'
@@ -118,12 +118,6 @@ export function IDEShell() {
             <SidebarNavIcons />
           </div>
           <ErrorBoundary>
-            <SidebarHeader
-              userInitials="MU"
-              onProjectsClick={() => void navigate({ to: '/projects' })}
-              onProjectSelect={() => void navigate({ to: '/' })}
-              onSettingsClick={() => setSettingsOpen(true)}
-            />
             <SidebarTabs
               chats={chats}
               repos={repos}
@@ -148,6 +142,13 @@ export function IDEShell() {
               onRepoToggle={toggleRepo}
             />
           </ErrorBoundary>
+          <SidebarFooter className="p-0">
+            <SidebarProjectSwitcher
+              onProjectsClick={() => void navigate({ to: '/projects' })}
+              onProjectSelect={() => void navigate({ to: '/' })}
+              onSettingsClick={() => setSettingsOpen(true)}
+            />
+          </SidebarFooter>
         </div>
       </Sidebar>
 
