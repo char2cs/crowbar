@@ -1,6 +1,9 @@
-// Stub: window/ui-state feature is out of scope for this session.
 import { create } from 'zustand'
 import type { SidebarView } from "@/features/layout/utils/sidebar-pane-utils"
+
+// Module-level registry — not Zustand state (functions aren't serializable)
+const _terminalFocusRegistry = new Map<string, () => void>()
+let _lastRegisteredTerminalId: string | null = null
 
 export type SettingsTab =
   | "editor"
@@ -24,6 +27,7 @@ export type SidebarActivityItem = "file-explorer" | "git" | "search" | "extensio
 export interface UIState {
   sidebarWidth: number
   bottomPaneHeight: number
+  setBottomPaneHeight: (h: number) => void
   isSidebarVisible: boolean
   setIsSidebarVisible: (v: boolean) => void
   isBottomPaneVisible: boolean
@@ -76,6 +80,7 @@ export interface UIState {
 export const useUIState = create<UIState>((set) => ({
   sidebarWidth: 260,
   bottomPaneHeight: 240,
+  setBottomPaneHeight: (h: number) => set({ bottomPaneHeight: h }),
   isSidebarVisible: true,
   setIsSidebarVisible: (v) => set({ isSidebarVisible: v }),
   isBottomPaneVisible: false,
@@ -94,9 +99,23 @@ export const useUIState = create<UIState>((set) => ({
   setActiveBottomTab: (tab) => set({ activeBottomTab: tab, bottomPaneActiveTab: tab }),
   bottomPaneActiveTab: "terminal" as BottomPaneTab,
   setBottomPaneActiveTab: (tab) => set({ bottomPaneActiveTab: tab, activeBottomTab: tab }),
-  requestTerminalFocus: () => {},
-  registerTerminalFocus: () => {},
-  clearTerminalFocus: () => {},
+  registerTerminalFocus: (id: string, fn: () => void) => {
+    _terminalFocusRegistry.set(id, fn)
+    _lastRegisteredTerminalId = id
+  },
+  clearTerminalFocus: (id: string) => {
+    _terminalFocusRegistry.delete(id)
+    if (_lastRegisteredTerminalId === id) {
+      _lastRegisteredTerminalId = _terminalFocusRegistry.size > 0
+        ? ([..._terminalFocusRegistry.keys()].at(-1) ?? null)
+        : null
+    }
+  },
+  requestTerminalFocus: () => {
+    if (_lastRegisteredTerminalId) {
+      _terminalFocusRegistry.get(_lastRegisteredTerminalId)?.()
+    }
+  },
   sidebarActivityItem: null,
   setSidebarActivityItem: (item) => set({ sidebarActivityItem: item }),
   openSettingsDialog: (tab) => set({ isSettingsOpen: true, settingsInitialTab: tab ?? "appearance" }),
