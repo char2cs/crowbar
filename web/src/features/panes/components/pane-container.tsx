@@ -19,6 +19,8 @@ import {
   type SidebarDragResource,
 } from "@/features/sidebar-drag/sidebar-resource-drag";
 import { useSettingsStore } from "@/features/settings/store";
+import { buildPaneContentStyle } from "../utils/pane-border";
+import { ROOT_PANE_POSITION, type PanePosition } from "../types/pane";
 import TabBar from "@/features/tabs/components/tab-bar";
 import { extractDroppedFilePaths } from "@/features/file-system/utils/file-system-dropped-paths";
 import {
@@ -104,6 +106,7 @@ const WebViewer = lazy(() =>
 
 interface PaneContainerProps {
   pane: PaneGroup;
+  position?: PanePosition;
 }
 
 const DEFAULT_CAROUSEL_CARD_WIDTH = 640;
@@ -240,7 +243,7 @@ function isStandardEditorBuffer(buffer: PaneRenderBuffer): buffer is EditorBuffe
   return buffer.type === "editor";
 }
 
-export function PaneContainer({ pane }: PaneContainerProps) {
+export function PaneContainer({ pane, position = ROOT_PANE_POSITION }: PaneContainerProps) {
   const activePaneId = useActivePaneId();
   const { reorderPaneBuffers, activatePaneBuffer, setActivePane } = usePaneActions();
   const bufferActions = useBufferActions();
@@ -264,6 +267,7 @@ export function PaneContainer({ pane }: PaneContainerProps) {
   const rootFolderPath = useFileSystemStore.use.rootFolderPath?.();
   const handleFileOpen = useFileSystemStore.use.handleFileOpen?.();
   const horizontalBufferCarousel = useSettingsStore((state) => state.settings.horizontalTabScroll);
+  const sidebarPosition = useSettingsStore((state) => state.settings.sidebarPosition);
 
   const [isDragOver, setIsDragOver] = useState(false);
   const [isTabDragOver, setIsTabDragOver] = useState(false);
@@ -1014,7 +1018,10 @@ export function PaneContainer({ pane }: PaneContainerProps) {
         onTabClick={handleTabClick}
         disablePaneActions={pane.id === BOTTOM_PANE_ID}
       />
-      <div className="relative min-h-0 flex-1 overflow-hidden bg-background">
+      <div
+        className="relative min-h-0 flex-1 overflow-hidden bg-background"
+        style={buildPaneContentStyle(position, sidebarPosition)}
+      >
         {!activeBuffer && !shouldRenderCarousel && <EmptyEditorState />}
 
         <Suspense fallback={null}>
