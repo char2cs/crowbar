@@ -1,5 +1,6 @@
-import { useCallback } from "react";
+import { useCallback, useEffect, useRef } from "react";
 import { useWorkspaceStore } from "@/features/workspace/stores/workspace-context";
+import { useUIState } from "@/features/window/stores/ui-state-store";
 import { XtermTerminal } from "./terminal";
 
 interface TerminalTabProps {
@@ -28,6 +29,9 @@ export function TerminalTab({
   isVisible = true,
 }: TerminalTabProps) {
   const workspaceStore = useWorkspaceStore();
+  const registerTerminalFocus = useUIState(s => s.registerTerminalFocus);
+  const clearTerminalFocus = useUIState(s => s.clearTerminalFocus);
+  const focusFnRef = useRef<(() => void) | null>(null);
 
   const handleTerminalExit = useCallback(() => {
     workspaceStore.getState().bufferActions.closeBuffer(bufferId);
@@ -44,6 +48,26 @@ export function TerminalTab({
     );
   }, [bufferId, paneId, workspaceStore]);
 
+  const handleTerminalRef = useCallback(
+    (ref: { focus: () => void; showSearch: () => void; terminal: unknown } | null) => {
+      if (ref) {
+        focusFnRef.current = ref.focus;
+      } else {
+        focusFnRef.current = null;
+      }
+    },
+    [],
+  );
+
+  // Register this terminal's focus function with the global registry so
+  // requestTerminalFocus() can target it when "Show Terminal" is triggered.
+  useEffect(() => {
+    registerTerminalFocus(bufferId, () => {
+      focusFnRef.current?.();
+    });
+    return () => clearTerminalFocus(bufferId);
+  }, [bufferId, registerTerminalFocus, clearTerminalFocus]);
+
   return (
     // onMouseDownCapture: xterm canvas events don't bubble through React, so we
     // capture the native mousedown here to activate the pane without fighting
@@ -57,6 +81,7 @@ export function TerminalTab({
         isActive={isActive}
         isVisible={isVisible}
         onTerminalExit={handleTerminalExit}
+        onTerminalRef={handleTerminalRef}
         initialCommand={initialCommand}
         workingDirectory={workingDirectory}
         remoteConnectionId={remoteConnectionId}
