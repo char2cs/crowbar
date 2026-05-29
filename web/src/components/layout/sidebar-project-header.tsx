@@ -21,7 +21,6 @@ interface SidebarProjectHeaderProps {
 export function SidebarProjectHeader({ onProjectsClick, onProjectSelect }: SidebarProjectHeaderProps) {
   const projects = useProjectStore(s => s.projects)
   const activeProjectId = useProjectStore(s => s.activeProjectId)
-  const setActiveProject = useProjectStore(s => s.setActiveProject)
   const sidebarPosition = useSettingsStore(s => s.settings.sidebarPosition)
 
   const activeProject = projects.find(p => p.id === activeProjectId)
@@ -33,7 +32,7 @@ export function SidebarProjectHeader({ onProjectsClick, onProjectSelect }: Sideb
   }
 
   const handleSelect = (id: string) => {
-    setActiveProject(id)
+    useProjectStore.getState().setActiveProject(id)
     onProjectSelect?.(id)
   }
 
@@ -61,7 +60,7 @@ export function SidebarProjectHeader({ onProjectsClick, onProjectSelect }: Sideb
           {activeProject?.name ?? 'Select project'}
           <ChevronDown className="h-3 w-3 text-muted-foreground" />
         </DropdownMenuTrigger>
-        <DropdownMenuContent align={isRight ? 'start' : 'end'} className="min-w-[160px]">
+        <DropdownMenuContent align={isRight ? 'start' : 'end'} style={{ minWidth: '160px' }}>
           {projects.map(p => (
             <DropdownMenuItem
               key={p.id}
