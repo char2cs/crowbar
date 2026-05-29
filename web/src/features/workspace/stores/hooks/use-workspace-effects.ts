@@ -44,6 +44,8 @@ export function useWorkspaceEffects(wsId: string, label?: string) {
   // Listen for the terminal-ensure-session event dispatched by the command palette.
   // When triggered, ensure the bottom pane has a terminal buffer and request focus.
   useEffect(() => {
+    let pendingFocusTimer: ReturnType<typeof setTimeout> | null = null
+
     const handler = () => {
       const store = getActiveWorkspaceStoreRef()
       if (!store) return
@@ -63,23 +65,33 @@ export function useWorkspaceEffects(wsId: string, label?: string) {
         if (bufferId) {
           state.paneActions.addBufferToPane(BOTTOM_PANE_ID, bufferId, true)
         }
-      } else if (bottomPane?.activeBufferId) {
-        // Activate the existing terminal buffer
-        state.paneActions.addBufferToPane(BOTTOM_PANE_ID, bottomPane.activeBufferId, true)
+      } else {
+        // Re-activate the terminal buffer specifically (not just the active buffer,
+        // which might be a diff or settings buffer, not the terminal)
+        const terminalBufId = bottomPane.bufferIds.find(id => {
+          const buf = state.buffers.find(b => b.id === id)
+          return buf?.type === 'terminal'
+        })
+        if (terminalBufId) {
+          state.paneActions.addBufferToPane(BOTTOM_PANE_ID, terminalBufId, true)
+        }
       }
 
       // Make bottom pane visible and request terminal focus after a brief delay
       // to let the terminal mount and register its focus function.
       useUIState.getState().setIsBottomPaneVisible(true)
-      const timer = setTimeout(() => {
+      if (pendingFocusTimer !== null) clearTimeout(pendingFocusTimer)
+      pendingFocusTimer = setTimeout(() => {
         useUIState.getState().requestTerminalFocus()
+        pendingFocusTimer = null
       }, 50)
-
-      return () => clearTimeout(timer)
     }
 
     window.addEventListener('terminal-ensure-session', handler)
-    return () => window.removeEventListener('terminal-ensure-session', handler)
+    return () => {
+      window.removeEventListener('terminal-ensure-session', handler)
+      if (pendingFocusTimer !== null) clearTimeout(pendingFocusTimer)
+    }
   }, []) // eslint-disable-line react-hooks/exhaustive-deps
 
   // Seed mock flow definition

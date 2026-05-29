@@ -52,6 +52,8 @@ beforeEach(() => {
   _resetTerminalFocusRegistryForTests()
   // Reset isBottomPaneVisible to false before each test
   useUIState.setState({ isBottomPaneVisible: false })
+  // Reset the mutable buffers array between tests
+  mockBuffers.length = 0
   // Default: bottom pane has no terminal buffers
   mockGetPane.mockReturnValue({ id: 'bottom-pane', bufferIds: [], activeBufferId: null })
 })
@@ -151,6 +153,53 @@ describe('useWorkspaceEffects', () => {
 
       // After unmount, isBottomPaneVisible should remain false
       expect(useUIState.getState().isBottomPaneVisible).toBe(false)
+    })
+
+    it('calls requestTerminalFocus after the delay', () => {
+      vi.useFakeTimers()
+      const focusSpy = vi.spyOn(useUIState.getState(), 'requestTerminalFocus')
+
+      const { unmount } = renderHook(() => useWorkspaceEffects('ws-test'))
+
+      act(() => {
+        window.dispatchEvent(new CustomEvent('terminal-ensure-session'))
+      })
+
+      // Before timer fires: not called yet
+      expect(focusSpy).not.toHaveBeenCalled()
+
+      // Advance timer
+      act(() => {
+        vi.advanceTimersByTime(50)
+      })
+      expect(focusSpy).toHaveBeenCalledOnce()
+
+      unmount()
+      vi.useRealTimers()
+      focusSpy.mockRestore()
+    })
+
+    it('does not call requestTerminalFocus after unmount', () => {
+      vi.useFakeTimers()
+      const focusSpy = vi.spyOn(useUIState.getState(), 'requestTerminalFocus')
+
+      const { unmount } = renderHook(() => useWorkspaceEffects('ws-test'))
+
+      act(() => {
+        window.dispatchEvent(new CustomEvent('terminal-ensure-session'))
+      })
+
+      // Unmount before timer fires — cleanup should cancel the pending timer
+      unmount()
+
+      act(() => {
+        vi.advanceTimersByTime(100)
+      })
+
+      expect(focusSpy).not.toHaveBeenCalled()
+
+      vi.useRealTimers()
+      focusSpy.mockRestore()
     })
   })
 })
