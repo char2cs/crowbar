@@ -8,7 +8,6 @@ import { IS_MAC } from '@/utils/platform'
 import { useSidebarStore } from '@/lib/store/sidebar'
 import { createMockChat } from '@/lib/mock/chats'
 import { WorkspaceView } from '@/features/workspace/components/WorkspaceView'
-import SettingsDialog from '@/features/settings/components/settings-dialog'
 import { TerminalHost } from '@/features/terminal/components/terminal-host'
 import { ErrorBoundary } from '@/components/ErrorBoundary'
 import { cn } from '@/utils/cn'
@@ -28,7 +27,6 @@ export function IDEShell() {
   const deleteChat = useSidebarStore((s) => s.deleteChat)
   const deleteWorkspace = useSidebarStore((s) => s.deleteWorkspace)
   const toggleRepo = useSidebarStore((s) => s.toggleRepo)
-  const [settingsOpen, setSettingsOpen] = useState(false)
   const [sidebarWidth, setSidebarWidth] = useState(() => {
     try {
       const stored = parseInt(localStorage.getItem('sidebar-width') ?? '', 10)
@@ -191,7 +189,6 @@ export function IDEShell() {
       style={{ '--sidebar-width': `${sidebarWidth}px` } as React.CSSProperties}
     >
       {sidebarPosition === 'right' ? <>{contentEl}{sidebarEl}</> : <>{sidebarEl}{contentEl}</>}
-      <SettingsDialog isOpen={settingsOpen} onClose={() => setSettingsOpen(false)} />
       <TerminalHost />
       <FontStyleInjector />
       <Toaster />
