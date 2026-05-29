@@ -32,9 +32,9 @@ export function IDEShell() {
   const [sidebarWidth, setSidebarWidth] = useState(() => {
     try {
       const stored = parseInt(localStorage.getItem('sidebar-width') ?? '', 10)
-      return Number.isFinite(stored) ? Math.max(250, stored) : 250
+      return Number.isFinite(stored) ? Math.max(294, stored) : 294
     } catch {
-      return 250
+      return 294
     }
   })
   const sidebarPosition = useSettingsStore((state) => state.settings.sidebarPosition)
