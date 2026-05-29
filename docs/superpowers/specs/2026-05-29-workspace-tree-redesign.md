@@ -182,7 +182,7 @@ The import site (wherever `WorkspacesSidebarPanel` is used in `IDEShell.tsx` or 
 ## Dependency
 
 ```
-pnpm add cli-loaders
+bun add cli-loaders
 ```
 
 `cli-loaders` is a zero-dependency React package. Verify it is already in `package.json` before adding.
@@ -211,7 +211,7 @@ After implementation, verify the running app with the Chrome MCP before marking 
 
 **Steps:**
 
-1. Start the dev server (`pnpm dev` in `web/`)
+1. Start the dev server (`bun dev` in `web/`)
 2. Navigate to `http://localhost:5173` (or whatever port)
 3. **Screenshot the sidebar** — confirm the recursive tree renders with the correct repo headers
 4. **Verify all 6 branch states** — check the mock data covers all statuses; confirm icons and colours match the spec table above
