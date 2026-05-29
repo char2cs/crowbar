@@ -1023,7 +1023,7 @@ export function PaneContainer({ pane, position = ROOT_PANE_POSITION }: PaneConta
         disablePaneActions={pane.id === BOTTOM_PANE_ID}
       />
       <div
-        className="relative min-h-0 flex-1 overflow-hidden bg-background"
+        className="relative min-h-0 flex-1 overflow-hidden bg-background mt-1"
         style={paneContentStyle}
       >
         {!activeBuffer && !shouldRenderCarousel && <EmptyEditorState />}
