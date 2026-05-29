@@ -1,6 +1,6 @@
 import * as React from "react"
 import { ContextMenu as ContextMenuPrimitive } from "@base-ui/react/context-menu"
-import { useCallback, useState } from "react"
+import { useCallback, useEffect, useState } from "react"
 import { createPortal } from "react-dom"
 
 import { cn } from "@/lib/utils"
@@ -36,6 +36,18 @@ function ImperativeContextMenu({
   onClose,
   className,
 }: ContextMenuRootProps) {
+  useEffect(() => {
+    if (!isOpen) return
+    const handler = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') {
+        e.stopPropagation()
+        onClose()
+      }
+    }
+    document.addEventListener('keydown', handler)
+    return () => document.removeEventListener('keydown', handler)
+  }, [isOpen, onClose])
+
   if (!isOpen) return null
 
   const style: React.CSSProperties = {
@@ -81,7 +93,7 @@ function ImperativeContextMenu({
 
   return createPortal(
     <>
-      <div className="fixed inset-0 z-[10039]" onClick={onClose} onContextMenu={onClose} />
+      <div role="presentation" className="fixed inset-0 z-[10039]" onClick={onClose} onContextMenu={onClose} />
       {menu}
     </>,
     document.body,
