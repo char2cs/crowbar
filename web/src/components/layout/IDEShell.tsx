@@ -60,17 +60,24 @@ export function IDEShell() {
     }
 
     let currentWidth = startWidth
+    let latestX = startX
+    let rafId: number | null = null
 
     function onMouseMove(e: MouseEvent) {
-      const delta = position === 'left' ? e.clientX - startX : startX - e.clientX
-      currentWidth = Math.min(640, Math.max(192, startWidth + delta))
-      // Mutate the CSS var directly — no React re-render during drag
-      providerEl?.style.setProperty('--sidebar-width', `${currentWidth}px`)
+      latestX = e.clientX
+      if (rafId !== null) return
+      rafId = requestAnimationFrame(() => {
+        const delta = position === 'left' ? latestX - startX : startX - latestX
+        currentWidth = Math.min(640, Math.max(192, startWidth + delta))
+        providerEl?.style.setProperty('--sidebar-width', `${currentWidth}px`)
+        rafId = null
+      })
     }
 
     function onMouseUp() {
+      if (rafId !== null) cancelAnimationFrame(rafId)
       localStorage.setItem('sidebar-width', String(currentWidth))
-      setSidebarWidth(currentWidth) // sync React state once on release
+      setSidebarWidth(currentWidth)
       document.removeEventListener('mousemove', onMouseMove)
       document.removeEventListener('mouseup', onMouseUp)
     }
