@@ -268,6 +268,10 @@ export function PaneContainer({ pane, position = ROOT_PANE_POSITION }: PaneConta
   const handleFileOpen = useFileSystemStore.use.handleFileOpen?.();
   const horizontalBufferCarousel = useSettingsStore((state) => state.settings.horizontalTabScroll);
   const sidebarPosition = useSettingsStore((state) => state.settings.sidebarPosition);
+  const paneContentStyle = useMemo(
+    () => buildPaneContentStyle(position, sidebarPosition),
+    [position, sidebarPosition],
+  );
 
   const [isDragOver, setIsDragOver] = useState(false);
   const [isTabDragOver, setIsTabDragOver] = useState(false);
@@ -1020,7 +1024,7 @@ export function PaneContainer({ pane, position = ROOT_PANE_POSITION }: PaneConta
       />
       <div
         className="relative min-h-0 flex-1 overflow-hidden bg-background"
-        style={buildPaneContentStyle(position, sidebarPosition)}
+        style={paneContentStyle}
       >
         {!activeBuffer && !shouldRenderCarousel && <EmptyEditorState />}
 
