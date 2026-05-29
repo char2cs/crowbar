@@ -276,6 +276,8 @@ export function PaneContainer({ pane }: PaneContainerProps) {
   const carouselViewportRef = useRef<HTMLDivElement>(null);
   const lastCarouselBufferIdRef = useRef<string | null>(null);
   const suppressAutoCenterRef = useRef(false);
+  const cleanupCarouselDragRef = useRef<(() => void) | null>(null);
+  useEffect(() => () => { cleanupCarouselDragRef.current?.() }, []);
   const isActivePane = pane.id === activePaneId;
 
   const allBuffers = useBuffers();
@@ -442,17 +444,21 @@ export function PaneContainer({ pane }: PaneContainerProps) {
       };
 
       const handleMouseUp = () => {
+        cleanupCarouselDragRef.current?.();
         setIsCarouselResizing(false);
-        document.removeEventListener("mousemove", handleMouseMove);
-        document.removeEventListener("mouseup", handleMouseUp);
-        document.body.style.cursor = "";
-        document.body.style.userSelect = "";
       };
 
       document.addEventListener("mousemove", handleMouseMove);
       document.addEventListener("mouseup", handleMouseUp);
       document.body.style.cursor = "col-resize";
       document.body.style.userSelect = "none";
+      cleanupCarouselDragRef.current = () => {
+        document.removeEventListener("mousemove", handleMouseMove);
+        document.removeEventListener("mouseup", handleMouseUp);
+        document.body.style.cursor = "";
+        document.body.style.userSelect = "";
+        cleanupCarouselDragRef.current = null;
+      };
     },
     [carouselCardWidth, getCarouselWidthBounds],
   );

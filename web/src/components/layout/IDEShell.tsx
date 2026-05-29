@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useState, useRef, useEffect } from 'react'
 import { Outlet, useNavigate, useRouterState } from '@tanstack/react-router'
 import { SidebarProvider, Sidebar, SidebarInset, SidebarFooter } from '@/components/ui/sidebar'
 import { SidebarProjectSwitcher } from './sidebar-project-switcher'
@@ -38,6 +38,9 @@ export function IDEShell() {
     }
   })
   const sidebarPosition = useSettingsStore((state) => state.settings.sidebarPosition)
+
+  const cleanupDragRef = useRef<(() => void) | null>(null)
+  useEffect(() => () => { cleanupDragRef.current?.() }, [])
 
   const activeWorkspaceId = pathname.match(/\/workspaces\/([^/]+)/)?.[1]
   const activeChatId = pathname.match(/\/chat\/([^/]+)/)?.[1]
@@ -82,7 +85,7 @@ export function IDEShell() {
     }
 
     function onMouseUp() {
-      if (rafId !== null) cancelAnimationFrame(rafId)
+      cleanupDragRef.current?.()
       // Update CSS var to match, then clear inline overrides so toggle animation still works
       if (gapEl) { gapEl.style.transition = ''; gapEl.style.width = '' }
       if (containerEl) { containerEl.style.transition = ''; containerEl.style.width = '' }
@@ -92,12 +95,16 @@ export function IDEShell() {
         // storage unavailable — width not persisted
       }
       setSidebarWidth(currentWidth)
-      document.removeEventListener('mousemove', onMouseMove)
-      document.removeEventListener('mouseup', onMouseUp)
     }
 
     document.addEventListener('mousemove', onMouseMove)
     document.addEventListener('mouseup', onMouseUp)
+    cleanupDragRef.current = () => {
+      document.removeEventListener('mousemove', onMouseMove)
+      document.removeEventListener('mouseup', onMouseUp)
+      if (rafId !== null) cancelAnimationFrame(rafId)
+      cleanupDragRef.current = null
+    }
   }
 
   const sidebarEl = (
