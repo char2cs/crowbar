@@ -10,10 +10,13 @@ interface WorkspaceTreeItemProps {
   onWorkspaceClick: (wsId: string) => void
 }
 
+// Coss UI button base + xs size, adapted to w-full left-aligned layout
 const NAV_BASE =
-  'relative flex min-w-0 flex-1 shrink-0 cursor-pointer items-center gap-1.5 rounded-lg border ' +
-  'px-2 py-1 text-xs font-medium outline-none transition-shadow ' +
-  'focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-1 focus-visible:ring-offset-background'
+  'relative inline-flex w-full shrink-0 cursor-pointer items-center gap-1 rounded-md border ' +
+  'h-8 sm:h-7 px-[calc(--spacing(2)-1px)] text-sm sm:text-xs font-medium outline-none transition-shadow ' +
+  'before:pointer-events-none before:absolute before:inset-0 before:rounded-[calc(var(--radius-md)-1px)] ' +
+  'focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-1 focus-visible:ring-offset-background ' +
+  'disabled:pointer-events-none disabled:opacity-64'
 
 export function WorkspaceTreeItem({
   node, depth, activeWorkspaceId, onWorkspaceClick,
@@ -25,15 +28,14 @@ export function WorkspaceTreeItem({
   const [expanded, setExpanded] = useState(true)
 
   const variant = isActive
-    ? 'border-primary bg-primary text-primary-foreground shadow-xs hover:bg-primary/90'
+    ? 'not-disabled:inset-shadow-[0_1px_--theme(--color-white/16%)] border-primary bg-primary text-primary-foreground shadow-primary/24 shadow-xs hover:bg-primary/90 active:inset-shadow-[0_1px_--theme(--color-black/8%)] active:shadow-none'
     : isLocked
       ? 'border-transparent text-foreground/30 hover:bg-accent'
       : 'border-transparent text-foreground hover:bg-accent'
 
   return (
     <div>
-      {/* Row: nav button + optional chevron as siblings — no nested buttons */}
-      <div className="mb-px flex items-center" style={{ paddingLeft: depth * 14 }}>
+      <div className="flex items-center" style={{ paddingLeft: depth * 14 }}>
         <button
           type="button"
           className={cn(NAV_BASE, variant)}
@@ -64,13 +66,13 @@ export function WorkspaceTreeItem({
         {hasChildren && (
           <button
             type="button"
-            className="ml-0.5 shrink-0 rounded p-1 opacity-30 hover:opacity-80 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
+            className="ml-0.5 shrink-0 rounded-md p-1 text-foreground/30 hover:text-foreground/60 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
             onClick={() => setExpanded(v => !v)}
             aria-label={expanded ? 'Collapse' : 'Expand'}
           >
             <svg
               aria-hidden="true"
-              className={cn('size-2.5 transition-transform', expanded && 'rotate-90')}
+              className={cn('size-3 transition-transform', expanded && 'rotate-90')}
               viewBox="0 0 16 16"
               fill="none"
               stroke="currentColor"
