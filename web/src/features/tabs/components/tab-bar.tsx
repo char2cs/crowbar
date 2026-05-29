@@ -178,7 +178,7 @@ const TabBar = ({
   const { handleSave } = useEditorAppStore.use.actions();
   const horizontalTabScroll = useSettingsStore((state) => state.settings.horizontalTabScroll);
   const maxOpenTabs = useSettingsStore((state) => state.settings.maxOpenTabs);
-  const { updateActivePath } = useSidebarStore();
+  const updateActivePath = useSidebarStore((s) => s.updateActivePath)
   const sidebarPosition = useSettingsStore((s) => s.settings.sidebarPosition)
   const { open: sidebarOpen, toggleSidebar } = useSidebar()
   const rootFolderPath = useFileSystemStore.use.rootFolderPath?.() || undefined;
