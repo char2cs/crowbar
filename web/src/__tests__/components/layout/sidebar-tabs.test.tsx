@@ -4,8 +4,8 @@ import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { SidebarTabs } from '@/components/layout/SidebarTabs'
 import { useSidebarStore } from '@/lib/store/sidebar'
 
-vi.mock('@/components/layout/WorkspacesSidebarPanel', () => ({
-  WorkspacesSidebarPanel: () => <div data-testid="workspaces-panel" />,
+vi.mock('@/components/layout/workspace-tree', () => ({
+  WorkspaceTree: () => <div data-testid="workspaces-panel" />,
 }))
 vi.mock('@/features/file-explorer/components/file-explorer-tree', () => ({
   FileExplorerTree: () => <div data-testid="files-panel" />,
@@ -30,11 +30,6 @@ vi.mock('@/features/file-explorer/stores/file-explorer-tree-store', () => ({
 }))
 
 const defaultProps = {
-  chats: [],
-  repos: [],
-  collapsedRepos: new Set<string>(),
-  activeChatId: undefined,
-  activeWorkspaceId: undefined,
   activeWorkspaceRepoPath: '/repos/default',
 }
 

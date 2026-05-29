@@ -6,7 +6,6 @@ import { SidebarTabs } from './SidebarTabs'
 import { SidebarNavIcons } from './sidebar-nav-icons'
 import { IS_MAC } from '@/utils/platform'
 import { useSidebarStore } from '@/lib/store/sidebar'
-import { createMockChat } from '@/lib/mock/chats'
 import { WorkspaceView } from '@/features/workspace/components/WorkspaceView'
 import SettingsDialog from '@/features/settings/components/settings-dialog'
 import { TerminalHost } from '@/features/terminal/components/terminal-host'
@@ -15,7 +14,6 @@ import { cn } from '@/utils/cn'
 import { useSettingsStore } from '@/features/settings/store'
 import { useUIState } from '@/features/window/stores/ui-state-store'
 import { FontStyleInjector } from '@/features/settings/components/font-style-injector'
-import { destroyWorkspaceStore } from '@/features/workspace/stores/workspace-store-registry'
 import { Toaster } from '@/components/ui/sonner'
 
 export function IDEShell() {
@@ -24,11 +22,6 @@ export function IDEShell() {
   const pathname = routerState.location.pathname
   const chats = useSidebarStore((s) => s.chats)
   const repos = useSidebarStore((s) => s.repos)
-  const collapsedRepos = useSidebarStore((s) => s.collapsedRepos)
-  const addChat = useSidebarStore((s) => s.addChat)
-  const deleteChat = useSidebarStore((s) => s.deleteChat)
-  const deleteWorkspace = useSidebarStore((s) => s.deleteWorkspace)
-  const toggleRepo = useSidebarStore((s) => s.toggleRepo)
   const isSettingsOpen = useUIState(s => s.isSettingsOpen)
   const [sidebarWidth, setSidebarWidth] = useState(() => {
     try {
@@ -127,29 +120,7 @@ export function IDEShell() {
           <SidebarNavIcons />
         </div>
         <ErrorBoundary>
-          <SidebarTabs
-            chats={chats}
-            repos={repos}
-            collapsedRepos={collapsedRepos}
-            activeChatId={activeChatId}
-            activeWorkspaceId={activeWorkspaceId}
-            activeWorkspaceRepoPath={activeWorkspaceRepoPath}
-            onChatClick={id => void navigate({ to: '/chat/$chatId', params: { chatId: id } })}
-            onWorkspaceClick={(_repoId, wsId) => void navigate({ to: '/workspaces/$wsId', params: { wsId } })}
-            onNewChat={() => {
-              const chat = createMockChat()
-              addChat({ id: chat.id, title: chat.title, age: chat.age })
-              void navigate({ to: '/chat/$chatId', params: { chatId: chat.id } })
-            }}
-            onNewWorkspace={() => void navigate({ to: '/workspaces/new' })}
-            onDeleteChat={id => { deleteChat(id); if (activeChatId === id) void navigate({ to: '/' }) }}
-            onDeleteWorkspace={wsId => {
-              deleteWorkspace(wsId)
-              destroyWorkspaceStore(wsId)
-              if (activeWorkspaceId === wsId) void navigate({ to: '/' })
-            }}
-            onRepoToggle={toggleRepo}
-          />
+          <SidebarTabs activeWorkspaceRepoPath={activeWorkspaceRepoPath} />
         </ErrorBoundary>
       </div>
     </Sidebar>
