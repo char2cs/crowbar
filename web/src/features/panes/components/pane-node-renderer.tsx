@@ -124,24 +124,16 @@ export function PaneNodeRenderer({
                 [isHorizontal ? "width" : "height"]: `calc(${pct}% - ${handleDeduction})`,
               }}
             >
-              {entry.node.type === "split" && entry.node.direction !== node.direction ? (
+              {entry.node.type === "split" ? (
                 <PaneNodeRenderer
                   node={entry.node}
                   hiddenPaneId={hiddenPaneId}
                   position={entryPosition}
                 />
-              ) : entry.node.type === "group" ? (
-                entry.node.id === hiddenPaneId ? (
-                  <div className="h-full w-full bg-background" aria-hidden="true" />
-                ) : (
-                  <PaneContainer pane={entry.node} position={entryPosition} />
-                )
+              ) : entry.node.id === hiddenPaneId ? (
+                <div className="h-full w-full bg-background" aria-hidden="true" />
               ) : (
-                <PaneNodeRenderer
-                  node={entry.node}
-                  hiddenPaneId={hiddenPaneId}
-                  position={entryPosition}
-                />
+                <PaneContainer pane={entry.node} position={entryPosition} />
               )}
             </div>
             {index < flatEntries.length - 1 && (
