@@ -1,3 +1,4 @@
+import '@/lib/transport/polyfill'
 import { StrictMode } from 'react'
 import { createRoot } from 'react-dom/client'
 import { enableMapSet } from 'immer'
