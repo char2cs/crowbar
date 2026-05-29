@@ -18,13 +18,11 @@ describe('pane-slice', () => {
   })
 
   it('initialises with a single empty root group', () => {
-    const { paneRoot } = store.getState()
-    expect(paneRoot.type).toBe('group')
-    expect(paneRoot.id).toBe(ROOT_PANE_ID)
-    if (paneRoot.type === 'group') {
-      expect(paneRoot.bufferIds).toEqual([])
-      expect(paneRoot.activeBufferId).toBeNull()
-    }
+    const rootGroup = store.getState().paneActions.getPaneById(ROOT_PANE_ID)
+    expect(rootGroup).not.toBeNull()
+    expect(rootGroup?.id).toBe(ROOT_PANE_ID)
+    expect(rootGroup?.bufferIds).toEqual([])
+    expect(rootGroup?.activeBufferId).toBeNull()
   })
 
   it('splitPane returns a new pane ID and updates root to a split', () => {
@@ -38,12 +36,9 @@ describe('pane-slice', () => {
 
   it('addBufferToPane adds bufferId to the correct group', () => {
     store.getState().paneActions.addBufferToPane(ROOT_PANE_ID, 'buf-1', true)
-    const root = store.getState().paneRoot
-    expect(root.type).toBe('group')
-    if (root.type === 'group') {
-      expect(root.bufferIds).toContain('buf-1')
-      expect(root.activeBufferId).toBe('buf-1')
-    }
+    const rootGroup = store.getState().paneActions.getPaneById(ROOT_PANE_ID)
+    expect(rootGroup?.bufferIds).toContain('buf-1')
+    expect(rootGroup?.activeBufferId).toBe('buf-1')
   })
 
   it('removeBufferFromPane removes bufferId from the group', () => {
@@ -51,11 +46,9 @@ describe('pane-slice', () => {
     actions.addBufferToPane(ROOT_PANE_ID, 'buf-1', true)
     actions.addBufferToPane(ROOT_PANE_ID, 'buf-2', false)
     actions.removeBufferFromPane(ROOT_PANE_ID, 'buf-1', true)
-    const root = store.getState().paneRoot
-    if (root.type === 'group') {
-      expect(root.bufferIds).not.toContain('buf-1')
-      expect(root.bufferIds).toContain('buf-2')
-    }
+    const rootGroup = store.getState().paneActions.getPaneById(ROOT_PANE_ID)
+    expect(rootGroup?.bufferIds).not.toContain('buf-1')
+    expect(rootGroup?.bufferIds).toContain('buf-2')
   })
 
   it('getAllPaneGroups returns all leaf groups from paneRoot and bottomRoot', () => {
@@ -90,14 +83,8 @@ describe('pane-slice bottomRoot routing', () => {
 
   it('addBufferToPane adds to bottomRoot when paneId is BOTTOM_PANE_ID', () => {
     store.getState().paneActions.addBufferToPane(BOTTOM_PANE_ID, 'buf-1', true)
-    const bottomRoot = store.getState().bottomRoot
-    if (bottomRoot.type === 'group') {
-      expect(bottomRoot.bufferIds).toContain('buf-1')
-    } else {
-      const groups = getAllPaneGroups(bottomRoot)
-      const bottomGroup = groups.find(g => g.id === BOTTOM_PANE_ID)
-      expect(bottomGroup?.bufferIds).toContain('buf-1')
-    }
+    const bottomGroup = store.getState().paneActions.getPaneById(BOTTOM_PANE_ID)
+    expect(bottomGroup?.bufferIds).toContain('buf-1')
   })
 
   it('getAllPaneGroups includes groups from both paneRoot and bottomRoot', () => {
@@ -116,10 +103,8 @@ describe('pane-slice bottomRoot routing', () => {
   it('activatePaneBuffer works for bottomRoot pane', () => {
     store.getState().paneActions.addBufferToPane(BOTTOM_PANE_ID, 'buf-bottom', false)
     store.getState().paneActions.activatePaneBuffer(BOTTOM_PANE_ID, 'buf-bottom')
-    const bottomRoot = store.getState().bottomRoot
-    if (bottomRoot.type === 'group') {
-      expect(bottomRoot.activeBufferId).toBe('buf-bottom')
-    }
+    const bottomGroup = store.getState().paneActions.getPaneById(BOTTOM_PANE_ID)
+    expect(bottomGroup?.activeBufferId).toBe('buf-bottom')
   })
 
   it('removeBufferFromPane removes buffer from bottomRoot pane', () => {
@@ -127,11 +112,9 @@ describe('pane-slice bottomRoot routing', () => {
     actions.addBufferToPane(BOTTOM_PANE_ID, 'buf-1', true)
     actions.addBufferToPane(BOTTOM_PANE_ID, 'buf-2', false)
     actions.removeBufferFromPane(BOTTOM_PANE_ID, 'buf-1', true)
-    const bottomRoot = store.getState().bottomRoot
-    if (bottomRoot.type === 'group') {
-      expect(bottomRoot.bufferIds).not.toContain('buf-1')
-      expect(bottomRoot.bufferIds).toContain('buf-2')
-    }
+    const bottomGroup = store.getState().paneActions.getPaneById(BOTTOM_PANE_ID)
+    expect(bottomGroup?.bufferIds).not.toContain('buf-1')
+    expect(bottomGroup?.bufferIds).toContain('buf-2')
   })
 
   it('getPaneByBufferId finds buffer in bottomRoot', () => {

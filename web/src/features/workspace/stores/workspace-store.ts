@@ -43,7 +43,9 @@ export function createWorkspaceStore(wsId: string, snapshot?: WorkspaceSnapshot)
 
   store.subscribe((state, prev) => {
     if (state.buffers === prev.buffers) return
-    const activePane = findPaneGroup(state.paneRoot, state.activePaneId)
+    const activePane =
+      findPaneGroup(state.paneRoot, state.activePaneId) ??
+      findPaneGroup(state.bottomRoot, state.activePaneId)
     saveSessionToStore(state.buffers, activePane?.activeBufferId ?? null)
   })
 

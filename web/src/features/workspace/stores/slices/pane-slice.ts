@@ -65,6 +65,10 @@ function createInitialBottomRoot(): PaneGroup {
 
 // Returns which tree owns `paneId`. Searches paneRoot first, falls back to bottomRoot.
 // If not found in either, uses BOTTOM_PANE_ID hint to decide, defaulting to paneRoot.
+//
+// Note: uses findPaneGroup — only routes group-node actions.
+// For split-node actions (resizePaneSplit, distributePaneSplit), use findPaneNode directly
+// (see those implementations below).
 function getTreeForPane(
   state: Pick<PaneSlice, 'paneRoot' | 'bottomRoot'>,
   paneId: string,
@@ -112,19 +116,35 @@ export const createPaneSlice: StateCreator<
     closePane(paneId) {
       set(state => {
         const target = getTreeForPane(state, paneId)
-        const currentTree = target === 'paneRoot' ? state.paneRoot : state.bottomRoot
+        const isInBottomTree = target === 'bottomRoot'
+        const currentTree = isInBottomTree ? state.bottomRoot : state.paneRoot
         const result = closePane(currentTree, paneId)
         if (result !== null) {
           const normalized = normalizePaneTree(result)
-          if (target === 'paneRoot') {
-            state.paneRoot = normalized
-          } else {
+          if (isInBottomTree) {
             state.bottomRoot = normalized
+          } else {
+            state.paneRoot = normalized
           }
           if (state.activePaneId === paneId) {
             const remaining = getAllPaneGroups(normalized)
-            const fallbackId = target === 'paneRoot' ? ROOT_PANE_ID : BOTTOM_PANE_ID
+            const fallbackId = isInBottomTree ? BOTTOM_PANE_ID : ROOT_PANE_ID
             state.activePaneId = remaining[0]?.id ?? fallbackId
+          }
+        } else {
+          // closePane returned null — paneId was the root of this tree.
+          // Reset to a fresh initial root to avoid leaving the store in a broken state.
+          if (isInBottomTree) {
+            state.bottomRoot = createInitialBottomRoot()
+            if (state.activePaneId === paneId) {
+              // Fall back to the main pane root when the bottom root is cleared
+              state.activePaneId = ROOT_PANE_ID
+            }
+          } else {
+            state.paneRoot = createInitialRoot()
+            if (state.activePaneId === paneId) {
+              state.activePaneId = ROOT_PANE_ID
+            }
           }
         }
         state.mostRecentActivePaneIds = state.mostRecentActivePaneIds.filter(id => id !== paneId)
@@ -199,12 +219,22 @@ export const createPaneSlice: StateCreator<
             state.bottomRoot = moveBufferBetweenPanes(state.bottomRoot, bufferId, fromPaneId, toPaneId)
           }
         } else {
-          // Cross-tree: remove from source, add to destination
+          // Cross-tree: remove from source, collapse if empty, add to destination
           if (fromTarget === 'paneRoot') {
             state.paneRoot = removeBufferFromPane(state.paneRoot, fromPaneId, bufferId)
+            const sourcePane = findPaneGroup(state.paneRoot, fromPaneId)
+            if (sourcePane && sourcePane.bufferIds.length === 0 && fromPaneId !== ROOT_PANE_ID) {
+              const collapsed = closePane(state.paneRoot, fromPaneId)
+              if (collapsed !== null) state.paneRoot = normalizePaneTree(collapsed)
+            }
             state.bottomRoot = addBufferToPane(state.bottomRoot, toPaneId, bufferId, true)
           } else {
             state.bottomRoot = removeBufferFromPane(state.bottomRoot, fromPaneId, bufferId)
+            const sourcePane = findPaneGroup(state.bottomRoot, fromPaneId)
+            if (sourcePane && sourcePane.bufferIds.length === 0 && fromPaneId !== BOTTOM_PANE_ID) {
+              const collapsed = closePane(state.bottomRoot, fromPaneId)
+              if (collapsed !== null) state.bottomRoot = normalizePaneTree(collapsed)
+            }
             state.paneRoot = addBufferToPane(state.paneRoot, toPaneId, bufferId, true)
           }
         }
