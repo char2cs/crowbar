@@ -1,10 +1,6 @@
-import { useState, useRef, useEffect } from 'react'
+import { useState } from 'react'
 import { Outlet, useNavigate, useRouterState } from '@tanstack/react-router'
-import {
-  ResizablePanelGroup,
-  ResizablePanel,
-  ResizableHandle,
-} from '@/components/ui/resizable'
+import { SidebarProvider, Sidebar, SidebarInset } from '@/components/ui/sidebar'
 import { SidebarHeader } from './SidebarHeader'
 import { SidebarTabs } from './SidebarTabs'
 import { SidebarNavIcons } from './sidebar-nav-icons'
@@ -20,8 +16,6 @@ import { useSettingsStore } from '@/features/settings/store'
 import { FontStyleInjector } from '@/features/settings/components/font-style-injector'
 import { destroyWorkspaceStore } from '@/features/workspace/stores/workspace-store-registry'
 import { Toaster } from '@/components/ui/sonner'
-import type { PanelImperativeHandle } from '@/components/ui/resizable'
-import { useSidebarStore as useLayoutSidebarStore } from '@/features/layout/stores/sidebar-store'
 
 export function IDEShell() {
   const navigate = useNavigate()
@@ -31,16 +25,6 @@ export function IDEShell() {
     useSidebarStore()
   const [settingsOpen, setSettingsOpen] = useState(false)
   const sidebarPosition = useSettingsStore((state) => state.settings.sidebarPosition)
-  const sidebarPanelRef = useRef<PanelImperativeHandle | null>(null)
-  const sidebarVisible = useLayoutSidebarStore((s) => s.sidebarVisible)
-
-  useEffect(() => {
-    if (sidebarVisible) {
-      sidebarPanelRef.current?.expand()
-    } else {
-      sidebarPanelRef.current?.collapse()
-    }
-  }, [sidebarVisible])
 
   const activeWorkspaceId = pathname.match(/\/workspaces\/([^/]+)/)?.[1]
   const activeChatId = pathname.match(/\/chat\/([^/]+)/)?.[1]
@@ -54,112 +38,81 @@ export function IDEShell() {
   const activeWorkspaceRepoPath = activeRepo ? `/repos/${activeRepo.id}` : '/repos/default'
   const chatTabLabel = chats.find(c => c.id === activeChatId)?.title ?? 'Chat'
 
-  const sidebarPanel = (
-    <ResizablePanel
-      id="sidebar"
-      ref={sidebarPanelRef}
-      defaultSize="20%"
-      minSize="12%"
-      maxSize="45%"
-      collapsible
-      collapsedSize={0}
-      onResize={(size) => useLayoutSidebarStore.getState().setSidebarVisible(size.asPercentage > 0)}
-      className="flex flex-col overflow-hidden"
-    >
-      <div className="flex h-full flex-col overflow-hidden">
-        {/* Unified titlebar strip — no border here so both strips read as one bar */}
+  return (
+    <SidebarProvider className="h-screen overflow-hidden bg-transparent text-foreground">
+      <Sidebar side={sidebarPosition} collapsible="offcanvas">
         <div
           className={cn('flex w-full flex-shrink-0 items-center', IS_MAC ? 'h-[44px]' : 'h-[34px]')}
           data-tauri-drag-region
         >
           <SidebarNavIcons />
         </div>
-        {/* Sidebar content — border starts here, below the unified strip */}
-        <div className="flex flex-1 flex-col overflow-hidden">
-          <ErrorBoundary>
-            <SidebarHeader
-              userInitials="MU"
-              onProjectsClick={() => void navigate({ to: '/projects' })}
-              onProjectSelect={() => void navigate({ to: '/' })}
-              onSettingsClick={() => setSettingsOpen(true)}
-            />
-            <SidebarTabs
-              chats={chats}
-              repos={repos}
-              collapsedRepos={collapsedRepos}
-              activeChatId={activeChatId}
-              activeWorkspaceId={activeWorkspaceId}
-              activeWorkspaceRepoPath={activeWorkspaceRepoPath}
-              onChatClick={id => void navigate({ to: '/chat/$chatId', params: { chatId: id } })}
-              onWorkspaceClick={(_repoId, wsId) => void navigate({ to: '/workspaces/$wsId', params: { wsId } })}
-              onNewChat={() => {
-                const chat = createMockChat()
-                addChat({ id: chat.id, title: chat.title, age: chat.age })
-                void navigate({ to: '/chat/$chatId', params: { chatId: chat.id } })
-              }}
-              onNewWorkspace={() => void navigate({ to: '/workspaces/new' })}
-              onDeleteChat={id => { deleteChat(id); if (activeChatId === id) void navigate({ to: '/' }) }}
-              onDeleteWorkspace={wsId => {
-                deleteWorkspace(wsId)
-                destroyWorkspaceStore(wsId)
-                if (activeWorkspaceId === wsId) void navigate({ to: '/' })
-              }}
-              onRepoToggle={toggleRepo}
-            />
-          </ErrorBoundary>
-        </div>
-      </div>
-    </ResizablePanel>
-  )
-
-  const contentPanel = (
-    <ResizablePanel id="content" className="flex min-w-0 flex-1 flex-col overflow-hidden">
-      {/* h-full wrapper gives children a definite height — no separate drag strip here;
-          the tab bar is already h-[38px]/h-[28px] and has data-tauri-drag-region */}
-      <div className="flex h-full flex-col overflow-hidden">
         <ErrorBoundary>
-          {activeWorkspaceId ? (
-            <WorkspaceView wsId={activeWorkspaceId} label={workspaceLabel} />
-          ) : activeChatId ? (
-            <div className="flex h-full flex-col overflow-hidden">
-              {/* Chrome chat-title strip — platform-adaptive height matches the tab bar */}
-              <div
-                className={cn(
-                  'flex flex-shrink-0 items-center border-b border-border px-3 font-medium',
-                  IS_MAC ? 'h-[44px] text-[13px]' : 'h-[34px] text-xs',
-                )}
-                data-tauri-drag-region
-              >
-                {chatTabLabel}
+          <SidebarHeader
+            userInitials="MU"
+            onProjectsClick={() => void navigate({ to: '/projects' })}
+            onProjectSelect={() => void navigate({ to: '/' })}
+            onSettingsClick={() => setSettingsOpen(true)}
+          />
+          <SidebarTabs
+            chats={chats}
+            repos={repos}
+            collapsedRepos={collapsedRepos}
+            activeChatId={activeChatId}
+            activeWorkspaceId={activeWorkspaceId}
+            activeWorkspaceRepoPath={activeWorkspaceRepoPath}
+            onChatClick={id => void navigate({ to: '/chat/$chatId', params: { chatId: id } })}
+            onWorkspaceClick={(_repoId, wsId) => void navigate({ to: '/workspaces/$wsId', params: { wsId } })}
+            onNewChat={() => {
+              const chat = createMockChat()
+              addChat({ id: chat.id, title: chat.title, age: chat.age })
+              void navigate({ to: '/chat/$chatId', params: { chatId: chat.id } })
+            }}
+            onNewWorkspace={() => void navigate({ to: '/workspaces/new' })}
+            onDeleteChat={id => { deleteChat(id); if (activeChatId === id) void navigate({ to: '/' }) }}
+            onDeleteWorkspace={wsId => {
+              deleteWorkspace(wsId)
+              destroyWorkspaceStore(wsId)
+              if (activeWorkspaceId === wsId) void navigate({ to: '/' })
+            }}
+            onRepoToggle={toggleRepo}
+          />
+        </ErrorBoundary>
+      </Sidebar>
+
+      <SidebarInset className="min-w-0 overflow-hidden bg-transparent">
+        <div className="flex h-full flex-col overflow-hidden">
+          <ErrorBoundary>
+            {activeWorkspaceId ? (
+              <WorkspaceView wsId={activeWorkspaceId} label={workspaceLabel} />
+            ) : activeChatId ? (
+              <div className="flex h-full flex-col overflow-hidden">
+                <div
+                  className={cn(
+                    'flex flex-shrink-0 items-center border-b border-border px-3 font-medium',
+                    IS_MAC ? 'h-[44px] text-[13px]' : 'h-[34px] text-xs',
+                  )}
+                  data-tauri-drag-region
+                >
+                  {chatTabLabel}
+                </div>
+                <div className="flex min-h-0 flex-1 overflow-hidden bg-background">
+                  <Outlet />
+                </div>
               </div>
-              <div className="flex min-h-0 flex-1 overflow-hidden bg-background">
+            ) : (
+              <div className="flex h-full flex-col overflow-hidden bg-background">
                 <Outlet />
               </div>
-            </div>
-          ) : (
-            <div className="flex h-full flex-col overflow-hidden bg-background">
-              <Outlet />
-            </div>
-          )}
-        </ErrorBoundary>
-      </div>
-    </ResizablePanel>
-  )
-
-  return (
-    <div className="flex h-screen overflow-hidden bg-transparent text-foreground">
-      <ResizablePanelGroup orientation="horizontal" className="h-full">
-        {sidebarPosition === "right" ? (
-          <>{contentPanel}{sidebarVisible && <ResizableHandle />}{sidebarPanel}</>
-        ) : (
-          <>{sidebarPanel}{sidebarVisible && <ResizableHandle />}{contentPanel}</>
-        )}
-      </ResizablePanelGroup>
+            )}
+          </ErrorBoundary>
+        </div>
+      </SidebarInset>
 
       <SettingsDialog isOpen={settingsOpen} onClose={() => setSettingsOpen(false)} />
       <TerminalHost />
       <FontStyleInjector />
       <Toaster />
-    </div>
+    </SidebarProvider>
   )
 }
