@@ -41,6 +41,8 @@ describe('buildWorkspaceTree', () => {
     const b: Workspace = { id: 'b', branch: 'b', parentId: 'a', age: 'now' }
     const result = buildWorkspaceTree([a, b])
     expect(result).toHaveLength(2)
+    expect(result[0].children).toHaveLength(0)
+    expect(result[1].children).toHaveLength(0)
   })
 
   test('preserves workspace data on nodes', () => {
