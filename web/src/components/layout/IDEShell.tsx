@@ -86,7 +86,11 @@ export function IDEShell() {
       // Update CSS var to match, then clear inline overrides so toggle animation still works
       if (gapEl) { gapEl.style.transition = ''; gapEl.style.width = '' }
       if (containerEl) { containerEl.style.transition = ''; containerEl.style.width = '' }
-      localStorage.setItem('sidebar-width', String(currentWidth))
+      try {
+        localStorage.setItem('sidebar-width', String(currentWidth))
+      } catch {
+        // storage unavailable — width not persisted
+      }
       setSidebarWidth(currentWidth)
       document.removeEventListener('mousemove', onMouseMove)
       document.removeEventListener('mouseup', onMouseUp)
