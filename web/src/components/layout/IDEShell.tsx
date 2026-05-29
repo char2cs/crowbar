@@ -40,7 +40,7 @@ export function IDEShell() {
 
   return (
     <SidebarProvider className="h-screen overflow-hidden bg-transparent text-foreground">
-      <Sidebar side={sidebarPosition} collapsible="offcanvas">
+      <Sidebar side={sidebarPosition} collapsible="offcanvas" className="[&>[data-slot=sidebar-inner]]:bg-transparent">
         <div
           className={cn('flex w-full flex-shrink-0 items-center', IS_MAC ? 'h-[44px]' : 'h-[34px]')}
           data-tauri-drag-region
