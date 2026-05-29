@@ -57,7 +57,6 @@ export function WorkspacesSidebarPanel({
                   {repo.workspaces.map(ws => (
                     <WorkspaceRow
                       key={ws.id}
-                      num={ws.num}
                       branch={ws.branch}
                       added={ws.added}
                       deleted={ws.deleted}

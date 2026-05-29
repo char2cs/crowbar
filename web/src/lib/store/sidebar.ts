@@ -7,10 +7,19 @@ export interface ProjectChat {
   age: string
 }
 
+export type WorkspaceStatus =
+  | 'locked'
+  | 'new'
+  | 'pr-open'
+  | 'pr-closed'
+  | 'pr-merged'
+  | 'agent-running'
+
 export interface Workspace {
   id: string
-  num?: number
   branch: string
+  parentId?: string
+  status?: WorkspaceStatus
   added?: number
   deleted?: number
   age: string
@@ -44,20 +53,25 @@ const INITIAL_REPOS: Repo[] = [
   {
     id: 'crowbar', name: 'crowbar', avatarLabel: 'C', avatarColor: 'bg-indigo-700',
     workspaces: [
-      { id: 'ws3', num: 3, branch: 'feature/app-design', added: 5672, age: '16h ago' },
-      { id: 'ws2', num: 2, branch: 'feature/api-backend', added: 27347, deleted: 455, age: '1d ago' },
-      { id: 'ws1', num: 1, branch: 'enhancement/scaffold', added: 22892, age: '3d ago' },
+      { id: 'ws-develop', branch: 'develop', status: 'locked', age: '—' },
+      { id: 'ws3', branch: 'feature/app-design', parentId: 'ws-develop', status: 'pr-open', added: 5672, age: '16h ago' },
+      { id: 'ws1', branch: 'enhancement/scaffold', parentId: 'ws3', status: 'agent-running', added: 22892, age: '3d ago' },
+      { id: 'ws-fix', branch: 'fix/toolbar-crash', parentId: 'ws3', status: 'new', age: 'just now' },
+      { id: 'ws2', branch: 'feature/api-backend', parentId: 'ws-develop', status: 'pr-merged', added: 27347, deleted: 455, age: '1d ago' },
     ],
   },
   {
     id: 'quiver-core', name: 'quiver.core', avatarLabel: 'Q', avatarColor: 'bg-emerald-700',
-    workspaces: [{ id: 'qc1', branch: 'develop', age: '3d ago' }],
+    workspaces: [
+      { id: 'qc-develop', branch: 'develop', status: 'locked', age: '—' },
+      { id: 'qc1', branch: 'feature/old-auth', parentId: 'qc-develop', status: 'pr-closed', age: '3d ago' },
+    ],
   },
   {
     id: 'quiver-desktop', name: 'quiver.desktop', avatarLabel: 'Q', avatarColor: 'bg-orange-700',
     workspaces: [
-      { id: 'qd1', branch: 'develop', age: '6d ago' },
-      { id: 'qd2', branch: 'feature/quiver-shell', added: 13485, deleted: 69, age: '3d ago' },
+      { id: 'qd-develop', branch: 'develop', status: 'locked', age: '—' },
+      { id: 'qd2', branch: 'feature/quiver-shell', parentId: 'qd-develop', status: 'pr-open', added: 13485, deleted: 69, age: '3d ago' },
     ],
   },
 ]
@@ -83,7 +97,7 @@ export const useSidebarStore = create<SidebarState>()((set) => ({
       repos: s.repos.map(r =>
         r.id !== repoId ? r : {
           ...r,
-          workspaces: [...r.workspaces, { id: wsId, branch, age: 'just now' }],
+          workspaces: [...r.workspaces, { id: wsId, branch, status: 'new' as WorkspaceStatus, age: 'just now' }],
         },
       ),
     })),
