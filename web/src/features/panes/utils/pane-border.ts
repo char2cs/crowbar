@@ -27,7 +27,7 @@ export function buildPaneContentStyle(
   const we = (edge: Edge) => isWindowEdge(edge, position, sidebarSide);
   const BORDER = "1px solid var(--border)";
   const NONE = "none";
-  const R = "var(--radius-sm)";
+  const R = "var(--radius-xl)";
   const ZERO = "0";
 
   return {

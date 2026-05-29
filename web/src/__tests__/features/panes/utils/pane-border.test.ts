@@ -36,7 +36,7 @@ describe("buildPaneContentStyle — left sidebar", () => {
 
   it("single pane: only TL rounded; right+bottom border hidden", () => {
     const s = buildPaneContentStyle(full, sidebar);
-    expect(s.borderTopLeftRadius).toBe("var(--radius-sm)");
+    expect(s.borderTopLeftRadius).toBe("var(--radius-xl)");
     expect(s.borderTopRightRadius).toBe("0");
     expect(s.borderBottomLeftRadius).toBe("0");
     expect(s.borderBottomRightRadius).toBe("0");
@@ -49,8 +49,8 @@ describe("buildPaneContentStyle — left sidebar", () => {
   it("H-split left pane: TL+TR rounded; bottom hidden", () => {
     const pos: PanePosition = { atLeft: true, atTop: true, atRight: false, atBottom: true };
     const s = buildPaneContentStyle(pos, sidebar);
-    expect(s.borderTopLeftRadius).toBe("var(--radius-sm)");
-    expect(s.borderTopRightRadius).toBe("var(--radius-sm)");
+    expect(s.borderTopLeftRadius).toBe("var(--radius-xl)");
+    expect(s.borderTopRightRadius).toBe("var(--radius-xl)");
     expect(s.borderBottomLeftRadius).toBe("0");
     expect(s.borderBottomRightRadius).toBe("0");
     expect(s.borderRight).toBe("1px solid var(--border)"); // faces gap
@@ -60,7 +60,7 @@ describe("buildPaneContentStyle — left sidebar", () => {
   it("H-split right pane: TL rounded only; right+bottom hidden", () => {
     const pos: PanePosition = { atLeft: false, atTop: true, atRight: true, atBottom: true };
     const s = buildPaneContentStyle(pos, sidebar);
-    expect(s.borderTopLeftRadius).toBe("var(--radius-sm)");
+    expect(s.borderTopLeftRadius).toBe("var(--radius-xl)");
     expect(s.borderTopRightRadius).toBe("0");
     expect(s.borderBottomLeftRadius).toBe("0");
     expect(s.borderRight).toBe("none");
@@ -69,9 +69,9 @@ describe("buildPaneContentStyle — left sidebar", () => {
   it("V-split top pane: TL+BL rounded; right hidden", () => {
     const pos: PanePosition = { atLeft: true, atTop: true, atRight: true, atBottom: false };
     const s = buildPaneContentStyle(pos, sidebar);
-    expect(s.borderTopLeftRadius).toBe("var(--radius-sm)");
+    expect(s.borderTopLeftRadius).toBe("var(--radius-xl)");
     expect(s.borderTopRightRadius).toBe("0");
-    expect(s.borderBottomLeftRadius).toBe("var(--radius-sm)");
+    expect(s.borderBottomLeftRadius).toBe("var(--radius-xl)");
     expect(s.borderBottomRightRadius).toBe("0");
     expect(s.borderBottom).toBe("1px solid var(--border)"); // faces gap below
   });
@@ -79,17 +79,17 @@ describe("buildPaneContentStyle — left sidebar", () => {
   it("V-split bottom pane: TL rounded; right+bottom hidden", () => {
     const pos: PanePosition = { atLeft: true, atTop: false, atRight: true, atBottom: true };
     const s = buildPaneContentStyle(pos, sidebar);
-    expect(s.borderTopLeftRadius).toBe("var(--radius-sm)");
+    expect(s.borderTopLeftRadius).toBe("var(--radius-xl)");
     expect(s.borderTopRightRadius).toBe("0");
     expect(s.borderBottomLeftRadius).toBe("0");
   });
 
   it("interior pane (not at any edge): all 4 corners rounded, no border hidden", () => {
     const s = buildPaneContentStyle(notAtEdge, sidebar);
-    expect(s.borderTopLeftRadius).toBe("var(--radius-sm)");
-    expect(s.borderTopRightRadius).toBe("var(--radius-sm)");
-    expect(s.borderBottomLeftRadius).toBe("var(--radius-sm)");
-    expect(s.borderBottomRightRadius).toBe("var(--radius-sm)");
+    expect(s.borderTopLeftRadius).toBe("var(--radius-xl)");
+    expect(s.borderTopRightRadius).toBe("var(--radius-xl)");
+    expect(s.borderBottomLeftRadius).toBe("var(--radius-xl)");
+    expect(s.borderBottomRightRadius).toBe("var(--radius-xl)");
     expect(s.borderLeft).toBe("1px solid var(--border)");
     expect(s.borderRight).toBe("1px solid var(--border)");
     expect(s.borderBottom).toBe("1px solid var(--border)");
@@ -102,7 +102,7 @@ describe("buildPaneContentStyle — right sidebar (mirror)", () => {
   it("single pane: only TR rounded; left+bottom border hidden", () => {
     const s = buildPaneContentStyle(full, sidebar);
     expect(s.borderTopLeftRadius).toBe("0");
-    expect(s.borderTopRightRadius).toBe("var(--radius-sm)");
+    expect(s.borderTopRightRadius).toBe("var(--radius-xl)");
     expect(s.borderBottomLeftRadius).toBe("0");
     expect(s.borderBottomRightRadius).toBe("0");
     expect(s.borderLeft).toBe("none");   // window edge
@@ -113,7 +113,7 @@ describe("buildPaneContentStyle — right sidebar (mirror)", () => {
   it("H-split right pane (at sidebar): TL+TR rounded", () => {
     const pos: PanePosition = { atLeft: false, atTop: true, atRight: true, atBottom: true };
     const s = buildPaneContentStyle(pos, sidebar);
-    expect(s.borderTopLeftRadius).toBe("var(--radius-sm)");
-    expect(s.borderTopRightRadius).toBe("var(--radius-sm)");
+    expect(s.borderTopLeftRadius).toBe("var(--radius-xl)");
+    expect(s.borderTopRightRadius).toBe("var(--radius-xl)");
   });
 });

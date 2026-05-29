@@ -6,7 +6,7 @@ import {
 import { normalizeConfiguredFontFamily } from "./font-family-resolution";
 import { getUiFontScale, normalizeUiFontSize, UI_FONT_SIZE_DEFAULT } from "./ui-font-size";
 
-export const APPEARANCE_BOOTSTRAP_CACHE_KEY = "crowbar.bootstrap.appearance.v1";
+export const APPEARANCE_BOOTSTRAP_CACHE_KEY = "crowbar.bootstrap.appearance.v2";
 
 const DEFAULT_MONO_FALLBACK =
   '"JetBrains Mono Variable", ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, "Liberation Mono", monospace';
@@ -24,7 +24,7 @@ const CROWBAR_DARK_COLORS: Record<string, string> = {
   text: "#faf9f5",
   "text-light": "#d7d3c6",
   "text-lighter": "#b0aea5",
-  border: "#2f2d29",
+  border: "oklch(1 0 0 / 6%)",
   hover: "#252320",
   selected: "#2c2925",
   "selection-bg": "rgba(106, 155, 204, 0.30)",
