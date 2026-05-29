@@ -6,8 +6,10 @@ import {
   useFullscreenPaneId,
   usePaneActions,
 } from '@/features/workspace/stores/hooks/use-pane-store'
+import { useUIState } from '@/features/window/stores/ui-state-store'
 import { PaneContainer } from './pane-container'
 import { PaneNodeRenderer } from './pane-node-renderer'
+import { ROOT_PANE_POSITION } from '../types/pane'
 
 export function SplitViewRoot() {
   const root = usePaneRoot()
@@ -26,13 +28,16 @@ export function SplitViewRoot() {
     if (fullscreenPaneId && !fullscreenPane) exitPaneFullscreen()
   }, [exitPaneFullscreen, fullscreenPane, fullscreenPaneId])
 
+  const isBottomPaneVisible = useUIState((state) => state.isBottomPaneVisible)
+  const rootPosition = { ...ROOT_PANE_POSITION, atBottom: !isBottomPaneVisible }
+
   const titleBarHeight = IS_MAC ? 44 : 28
   const footerHeight = 32
 
   return (
     <>
       <div className="h-full w-full overflow-hidden">
-        <PaneNodeRenderer node={root} hiddenPaneId={fullscreenPaneId} />
+        <PaneNodeRenderer node={root} hiddenPaneId={fullscreenPaneId} position={rootPosition} />
       </div>
 
       {fullscreenPane && (
