@@ -1,5 +1,4 @@
 import { cn } from '@/lib/utils'
-import { Avatar, AvatarFallback } from '@/components/ui/avatar'
 
 const ROW = 'flex items-center h-9 px-2 mx-1.5 gap-2 rounded-lg my-0.5 cursor-pointer overflow-hidden select-none'
 
@@ -28,72 +27,6 @@ export function ChatRow({ title, age, active, onClick, onDelete }: ChatRowProps)
           className="hidden group-hover:flex h-4 w-4 flex-shrink-0 items-center justify-center rounded text-muted-foreground/40 hover:text-muted-foreground"
           onClick={(e) => { e.stopPropagation(); onDelete() }}
           aria-label="Delete chat"
-        >×</button>
-      )}
-    </div>
-  )
-}
-
-// ── RepoRow ───────────────────────────────────────────────────────────────────
-
-interface RepoRowProps {
-  name: string
-  avatarLabel: string
-  avatarColor: string
-  collapsed?: boolean
-  onClick?: () => void
-}
-
-export function RepoRow({ name, avatarLabel, avatarColor, collapsed, onClick }: RepoRowProps) {
-  return (
-    <div className={cn(ROW, 'hover:bg-accent/50')} onClick={onClick} role="button" tabIndex={0} onKeyDown={onClick ? (e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); onClick() } } : undefined}>
-      <Avatar className="h-5 w-5 flex-shrink-0 rounded-md">
-        <AvatarFallback className={cn('rounded-md text-[10px] font-bold text-primary-foreground', avatarColor)}>
-          {avatarLabel}
-        </AvatarFallback>
-      </Avatar>
-      <span className="text-[10px] flex-shrink-0 text-muted-foreground/50">
-        {collapsed === true ? '›' : '⌄'}
-      </span>
-      <span className="flex-1 truncate text-[13px] font-medium text-foreground/80">{name}</span>
-    </div>
-  )
-}
-
-// ── WorkspaceRow ──────────────────────────────────────────────────────────────
-
-interface WorkspaceRowProps {
-  num?: number
-  branch: string
-  added?: number
-  deleted?: number
-  age: string
-  active?: boolean
-  onClick?: () => void
-  onDelete?: () => void
-}
-
-export function WorkspaceRow({ num, branch, added, deleted, age, active, onClick, onDelete }: WorkspaceRowProps) {
-  return (
-    <div className={cn(ROW, 'group', active ? 'bg-primary/10' : 'hover:bg-accent/50')} onClick={onClick} role="button" tabIndex={0} onKeyDown={onClick ? (e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); onClick() } } : undefined}>
-      <span className="w-3 flex-shrink-0 text-right font-mono text-[10px] text-muted-foreground/40">
-        {num ?? ''}
-      </span>
-      <div className="flex min-w-0 flex-1 flex-col justify-center gap-0.5">
-        <span className={cn('truncate font-mono text-[12px] leading-tight', active ? 'text-primary' : 'text-muted-foreground')}>
-          {branch}
-        </span>
-        <div className="flex gap-1 text-[10.5px] leading-none text-muted-foreground/40">
-          {added !== undefined && added > 0 && <span className="text-green-500">+{added}</span>}
-          {deleted !== undefined && deleted > 0 && <span className="text-red-500">-{deleted}</span>}
-          <span>{age}</span>
-        </div>
-      </div>
-      {onDelete && (
-        <button
-          className="hidden group-hover:flex h-4 w-4 flex-shrink-0 items-center justify-center rounded text-muted-foreground/40 hover:text-muted-foreground"
-          onClick={(e) => { e.stopPropagation(); onDelete() }}
-          aria-label="Delete workspace"
         >×</button>
       )}
     </div>
