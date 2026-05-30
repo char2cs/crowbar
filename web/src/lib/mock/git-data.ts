@@ -28,24 +28,61 @@ export interface Branch {
   lastCommit?: string
 }
 
-export function getMockGitStatus(_repoPath: string): GitStatus {
-  return {
+const REPO_GIT_STATUS: Record<string, GitStatus> = {
+  crowbar: {
     branch: 'feature/app-design',
-    ahead: 3,
-    behind: 0,
+    ahead: 3, behind: 0,
     files: [
       { path: 'web/src/features/git/components/git-view.tsx', status: 'modified', staged: true },
-      { path: 'web/src/lib/mock/git-data.ts', status: 'added', staged: true },
-      { path: 'web/src/features/settings/components/tabs/developer-settings.tsx', status: 'modified', staged: false },
-      { path: 'web/src/components/layout/IDEShell.tsx', status: 'modified', staged: false },
-      { path: 'api/internal/fixtures/git-log.json', status: 'added', staged: false },
-      { path: 'web/src/features/git/api/git-commits-api.ts', status: 'modified', staged: true },
-      { path: 'web/src/features/git/api/git-status-api.ts', status: 'modified', staged: true },
-      { path: 'web/src/features/git/api/git-branches-api.ts', status: 'modified', staged: true },
+      { path: 'web/src/lib/mock/git-data.ts', status: 'modified', staged: true },
+      { path: 'api/internal/fixtures/git-log.json', status: 'added', staged: true },
+      { path: 'web/src/features/git/api/git-commits-api.ts', status: 'modified', staged: false },
+      { path: 'web/src/features/git/api/git-status-api.ts', status: 'modified', staged: false },
+      { path: 'web/src/features/settings/components/tabs/developer-settings.tsx', status: 'added', staged: false },
       { path: 'web/src/mocks/handlers/git.ts', status: 'modified', staged: false },
-      { path: 'web/src/lib/store/sidebar.ts', status: 'modified', staged: false },
     ],
-  }
+  },
+  'quiver-core': {
+    branch: 'feature/oauth2',
+    ahead: 5, behind: 1,
+    files: [
+      { path: 'src/auth/oauth2.ts', status: 'added', staged: true },
+      { path: 'src/auth/jwt.ts', status: 'modified', staged: true },
+      { path: 'src/db/migrations/002_add_oauth.sql', status: 'added', staged: true },
+      { path: 'src/lib/redis.ts', status: 'added', staged: false },
+      { path: 'tests/auth.test.ts', status: 'modified', staged: false },
+      { path: 'src/api/routes.ts', status: 'modified', staged: false },
+    ],
+  },
+  'quiver-desktop': {
+    branch: 'feature/quiver-shell',
+    ahead: 8, behind: 0,
+    files: [
+      { path: 'src-tauri/src/shell/mod.rs', status: 'added', staged: true },
+      { path: 'src-tauri/src/shell/pty.rs', status: 'added', staged: true },
+      { path: 'src/app/shell/ShellWindow.tsx', status: 'added', staged: true },
+      { path: 'src/app/shell/TerminalPane.tsx', status: 'added', staged: true },
+      { path: 'src/bridge/shell.ts', status: 'added', staged: false },
+      { path: 'src-tauri/Cargo.toml', status: 'modified', staged: false },
+      { path: 'src-tauri/src/fs/watcher.rs', status: 'modified', staged: false },
+    ],
+  },
+  'quiver-cloud': {
+    branch: 'feature/multi-tenant',
+    ahead: 2, behind: 3,
+    files: [
+      { path: 'k8s/apps/multi-tenant.yaml', status: 'added', staged: true },
+      { path: 'terraform/modules/eks/node_groups.tf', status: 'added', staged: true },
+      { path: 'terraform/environments/staging/main.tf', status: 'modified', staged: false },
+      { path: 'k8s/base/rbac.yaml', status: 'modified', staged: false },
+      { path: '.github/workflows/deploy.yml', status: 'modified', staged: false },
+    ],
+  },
+}
+
+export function getMockGitStatus(repoPath: string): GitStatus {
+  const repoId = repoPath.split('/').filter(Boolean).pop() ?? 'crowbar'
+  return REPO_GIT_STATUS[repoId] ?? REPO_GIT_STATUS['crowbar']
 }
 
 const COMMIT_MESSAGES = [
@@ -133,11 +170,21 @@ const BRANCH_TOPICS = [
   'websocket-hub', 'file-explorer', 'git-integration', 'settings-panel', 'dark-mode',
 ]
 
-export function getMockBranches(_repoPath: string): Branch[] {
+const REPO_CURRENT_BRANCH: Record<string, string> = {
+  crowbar: 'feature/app-design',
+  'quiver-core': 'feature/oauth2',
+  'quiver-desktop': 'feature/quiver-shell',
+  'quiver-cloud': 'feature/multi-tenant',
+}
+
+export function getMockBranches(repoPath: string): Branch[] {
+  const repoId = repoPath.split('/').filter(Boolean).pop() ?? 'crowbar'
+  const currentBranch = REPO_CURRENT_BRANCH[repoId] ?? 'develop'
+
   const base: Branch[] = [
     { name: 'main', isCurrent: false, isRemote: false, lastCommit: COMMIT_MESSAGES[3] },
     { name: 'develop', isCurrent: false, isRemote: false, lastCommit: COMMIT_MESSAGES[9] },
-    { name: 'feature/app-design', isCurrent: true, isRemote: false, lastCommit: COMMIT_MESSAGES[0] },
+    { name: currentBranch, isCurrent: true, isRemote: false, lastCommit: COMMIT_MESSAGES[0] },
     { name: 'origin/main', isCurrent: false, isRemote: true, lastCommit: COMMIT_MESSAGES[3] },
     { name: 'origin/develop', isCurrent: false, isRemote: true, lastCommit: COMMIT_MESSAGES[9] },
   ]

@@ -54,6 +54,7 @@ const settingsTabLabels: Record<SettingsTab, string> = {
   advanced: "Advanced",
   terminal: "Terminal",
   "file-explorer": "Files",
+  developer: "Developer",
 };
 
 const settingsTabCommands = (Object.entries(settingsTabLabels) as Array<[SettingsTab, string]>)
