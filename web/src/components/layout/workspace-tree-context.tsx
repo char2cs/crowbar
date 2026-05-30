@@ -49,10 +49,10 @@ export function WorkspaceTreeProvider({ children }: { children: ReactNode }) {
   }, [])
 
   const confirmCreate = useCallback((branch: string) => {
-    if (!creatingChildOf || !branch.trim()) { setCreatingChildOf(null); return }
+    if (!creatingChildOf) return
     const id = `ws-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`
     useSidebarStore.getState().addWorkspace(
-      creatingChildOf.repoId, id, branch.trim(), creatingChildOf.parentId,
+      creatingChildOf.repoId, id, branch, creatingChildOf.parentId,
     )
     setCreatingChildOf(null)
   }, [creatingChildOf])
@@ -76,6 +76,7 @@ export function WorkspaceTreeProvider({ children }: { children: ReactNode }) {
 
   const endDragging = useCallback(() => setDraggingWs(null), [])
 
+  // Use setDraggingWs directly (not endDragging) to avoid circular useCallback deps
   const dropOnWorkspace = useCallback((targetWsId: string, targetRepoId: string) => {
     if (!draggingWs || draggingWs.id === targetWsId) { setDraggingWs(null); return }
     if (draggingWs.repoId !== targetRepoId) { setDraggingWs(null); return }
@@ -83,6 +84,7 @@ export function WorkspaceTreeProvider({ children }: { children: ReactNode }) {
     setDraggingWs(null)
   }, [draggingWs])
 
+  // Use setDraggingWs directly (not endDragging) to avoid circular useCallback deps
   const dropOnRepo = useCallback((targetRepoId: string) => {
     if (!draggingWs || draggingWs.repoId !== targetRepoId) { setDraggingWs(null); return }
     useSidebarStore.getState().reparentWorkspace(draggingWs.id, undefined)
