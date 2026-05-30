@@ -43,8 +43,10 @@ interface SidebarState {
   activeTab: SidebarTab
   addChat: (chat: ProjectChat) => void
   deleteChat: (id: string) => void
-  addWorkspace: (repoId: string, wsId: string, branch: string) => void
+  addWorkspace: (repoId: string, wsId: string, branch: string, parentId?: string) => void
   deleteWorkspace: (wsId: string) => void
+  renameWorkspace: (wsId: string, branch: string) => void
+  reparentWorkspace: (wsId: string, newParentId: string | undefined) => void
   toggleRepo: (repoId: string) => void
   setActiveTab: (tab: SidebarTab) => void
 }
@@ -92,12 +94,14 @@ export const useSidebarStore = create<SidebarState>()((set) => ({
 
   deleteChat: (id) => set(s => ({ chats: s.chats.filter(c => c.id !== id) })),
 
-  addWorkspace: (repoId, wsId, branch) =>
+  addWorkspace: (repoId, wsId, branch, parentId) =>
     set(s => ({
       repos: s.repos.map(r =>
         r.id !== repoId ? r : {
           ...r,
-          workspaces: [...r.workspaces, { id: wsId, branch, status: 'new' as WorkspaceStatus, age: 'just now' }],
+          workspaces: [...r.workspaces, {
+            id: wsId, branch, parentId, status: 'new' as WorkspaceStatus, age: 'just now',
+          }],
         },
       ),
     })),
@@ -106,6 +110,41 @@ export const useSidebarStore = create<SidebarState>()((set) => ({
     set(s => ({
       repos: s.repos.map(r => ({ ...r, workspaces: r.workspaces.filter(w => w.id !== wsId) })),
     })),
+
+  renameWorkspace: (wsId, branch) =>
+    set(s => ({
+      repos: s.repos.map(r => ({
+        ...r,
+        workspaces: r.workspaces.map(w => w.id === wsId ? { ...w, branch } : w),
+      })),
+    })),
+
+  reparentWorkspace: (wsId, newParentId) =>
+    set(s => {
+      const repo = s.repos.find(r => r.workspaces.some(w => w.id === wsId))
+      if (!repo) return s
+      // Reject cross-repo: newParentId must exist in the same repo (or be undefined for root)
+      if (newParentId !== undefined && !repo.workspaces.some(w => w.id === newParentId)) return s
+      // Reject cycles: walk up from newParentId; if we reach wsId it's a cycle
+      if (newParentId !== undefined) {
+        const wsMap = new Map(repo.workspaces.map(w => [w.id, w]))
+        let cursor: string | undefined = newParentId
+        while (cursor !== undefined) {
+          if (cursor === wsId) return s
+          cursor = wsMap.get(cursor)?.parentId
+        }
+      }
+      return {
+        repos: s.repos.map(r =>
+          r.id !== repo.id ? r : {
+            ...r,
+            workspaces: r.workspaces.map(w =>
+              w.id === wsId ? { ...w, parentId: newParentId } : w,
+            ),
+          },
+        ),
+      }
+    }),
 
   toggleRepo: (repoId) =>
     set(s => {
