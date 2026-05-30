@@ -15,18 +15,16 @@ interface OpenSidebarViewOptions {
 }
 
 export function useSidebarPaneController() {
-  const {
-    isSidebarVisible,
-    isRightSidebarVisible,
-    isGitViewActive,
-    isGitHubPRsViewActive,
-    activeSidebarView,
-    activeRightSidebarView,
-    setActiveView,
-    setActiveRightSidebarView,
-    setIsSidebarVisible,
-    setIsRightSidebarVisible,
-  } = useUIState();
+  const isSidebarVisible = useUIState((s) => s.isSidebarVisible);
+  const isRightSidebarVisible = useUIState((s) => s.isRightSidebarVisible);
+  const isGitViewActive = useUIState((s) => s.isGitViewActive);
+  const isGitHubPRsViewActive = useUIState((s) => s.isGitHubPRsViewActive);
+  const activeSidebarView = useUIState((s) => s.activeSidebarView);
+  const activeRightSidebarView = useUIState((s) => s.activeRightSidebarView);
+  const setActiveView = useUIState((s) => s.setActiveView);
+  const setActiveRightSidebarView = useUIState((s) => s.setActiveRightSidebarView);
+  const setIsSidebarVisible = useUIState((s) => s.setIsSidebarVisible);
+  const setIsRightSidebarVisible = useUIState((s) => s.setIsRightSidebarVisible);
   const settings = useSettingsStore((s) => s.settings);
   const updateSetting = useSettingsStore((s) => s.updateSetting);
 

@@ -53,25 +53,23 @@ import { useActionsStore } from "../store";
 
 const CommandPalette = () => {
   // Get data from stores
-  const {
-    isCommandPaletteVisible,
-    commandPaletteInitialView,
-    setIsCommandPaletteVisible,
-    setIsSettingsDialogVisible,
-    isSidebarVisible,
-    setIsSidebarVisible,
-    isBottomPaneVisible,
-    setIsBottomPaneVisible,
-    bottomPaneActiveTab,
-    setBottomPaneActiveTab,
-    isFindVisible,
-    setIsFindVisible,
-    setActiveView,
-    setActiveRightSidebarView,
-    setIsQuickOpenVisible,
-    setIsRightSidebarVisible,
-    openSettingsDialog,
-  } = useUIState();
+  const isCommandPaletteVisible = useUIState((s) => s.isCommandPaletteVisible);
+  const commandPaletteInitialView = useUIState((s) => s.commandPaletteInitialView);
+  const setIsCommandPaletteVisible = useUIState((s) => s.setIsCommandPaletteVisible);
+  const setIsSettingsDialogVisible = useUIState((s) => s.setIsSettingsDialogVisible);
+  const isSidebarVisible = useUIState((s) => s.isSidebarVisible);
+  const setIsSidebarVisible = useUIState((s) => s.setIsSidebarVisible);
+  const isBottomPaneVisible = useUIState((s) => s.isBottomPaneVisible);
+  const setIsBottomPaneVisible = useUIState((s) => s.setIsBottomPaneVisible);
+  const bottomPaneActiveTab = useUIState((s) => s.bottomPaneActiveTab);
+  const setBottomPaneActiveTab = useUIState((s) => s.setBottomPaneActiveTab);
+  const isFindVisible = useUIState((s) => s.isFindVisible);
+  const setIsFindVisible = useUIState((s) => s.setIsFindVisible);
+  const setActiveView = useUIState((s) => s.setActiveView);
+  const setActiveRightSidebarView = useUIState((s) => s.setActiveRightSidebarView);
+  const setIsQuickOpenVisible = useUIState((s) => s.setIsQuickOpenVisible);
+  const setIsRightSidebarVisible = useUIState((s) => s.setIsRightSidebarVisible);
+  const openSettingsDialog = useUIState((s) => s.openSettingsDialog);
   const { openQuickEdit } = useEditorAppStore.use.actions();
   const handleFileOpen = useFileSystemStore.use.handleFileOpen?.();
   const isVisible = isCommandPaletteVisible;

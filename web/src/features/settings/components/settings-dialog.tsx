@@ -25,7 +25,8 @@ interface SettingsDialogProps {
 }
 
 const SettingsDialog = ({ isOpen, onClose }: SettingsDialogProps) => {
-  const { settingsInitialTab, setSettingsInitialTab } = useUIState();
+  const settingsInitialTab = useUIState((s) => s.settingsInitialTab);
+  const setSettingsInitialTab = useUIState((s) => s.setSettingsInitialTab);
   const [activeTab, setActiveTab] = useState<SettingsTab>("appearance");
   const subscription = useAuthStore((state) => state.subscription);
   const hasEnterpriseAccess = Boolean(subscription?.enterprise?.has_access);
