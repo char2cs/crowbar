@@ -120,8 +120,7 @@ const TabBar = ({
       (pane ? allBuffers.filter((b) => pane.bufferIds.includes(b.id)) : allBuffers).filter(
         (buffer) => buffer.type !== "newTab",
       ),
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-    [allBuffers, pane?.bufferIds, pane],
+    [allBuffers, pane],
   );
   const activeBufferCandidate = pane ? pane.activeBufferId : globalActiveBufferId;
   const activeBufferId =
