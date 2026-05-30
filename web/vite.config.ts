@@ -3,6 +3,12 @@ import react from '@vitejs/plugin-react'
 import tailwindcss from '@tailwindcss/vite'
 import { TanStackRouterVite } from '@tanstack/router-plugin/vite'
 import path from 'path'
+import { execSync } from 'child_process'
+
+const gitSHA = (() => {
+  try { return execSync('git rev-parse --short HEAD').toString().trim() }
+  catch { return 'dev' }
+})()
 
 export default defineConfig({
   plugins: [
@@ -10,6 +16,9 @@ export default defineConfig({
     react(),
     tailwindcss(),
   ],
+  define: {
+    __APP_VERSION__: JSON.stringify(gitSHA),
+  },
   worker: { format: 'es' },
   server: { port: 5173 },
   resolve: {
