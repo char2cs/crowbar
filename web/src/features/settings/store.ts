@@ -21,6 +21,7 @@ import { scoreSearchQuery } from "@/utils/search-match";
 import { settingsSearchIndex } from "./config/search-index";
 import type { SearchResult, SearchState } from "./types/search";
 import type { Settings } from "./types/settings";
+import { saveUIPreferences } from "@/lib/persistence/ui-preferences";
 
 export type { Settings } from "./types/settings";
 
@@ -183,11 +184,10 @@ export const useSettingsStore = create(
 
 export { defaultSettings, getDefaultSetting };
 
-import { saveUIPreferences } from '@/lib/persistence/ui-preferences'
+let _prefTimer: ReturnType<typeof setTimeout>;
 
-let _prefTimer: ReturnType<typeof setTimeout>
-useSettingsStore.subscribe((state) => {
-  clearTimeout(_prefTimer)
+const unsubscribeUIPrefs = useSettingsStore.subscribe((state) => {
+  clearTimeout(_prefTimer);
   _prefTimer = setTimeout(() => {
     void saveUIPreferences({
       theme: state.settings.theme,
@@ -196,7 +196,11 @@ useSettingsStore.subscribe((state) => {
       tabSize: state.settings.tabSize,
       wordWrap: state.settings.wordWrap,
       minimap: state.settings.showMinimap,
-      updatedAt: Date.now(),
-    })
-  }, 300)
-})
+    });
+  }, 300);
+});
+
+export function teardownUIPreferencesPersistence(): void {
+  clearTimeout(_prefTimer);
+  unsubscribeUIPrefs();
+}
