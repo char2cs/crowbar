@@ -1,10 +1,19 @@
 import type { WorkspacePayload, FlowDefinition, ChatMessage, Project } from './types'
+import { useChaosStore } from '@/lib/store/chaos'
 
 const crowbar = (window as any).__CROWBAR__
 export const API_BASE: string = crowbar?.api ?? import.meta.env.VITE_API_URL ?? ''
 
 export async function apiFetch<T>(path: string, init?: RequestInit): Promise<T> {
-  const res = await fetch(`${API_BASE}${path}`, init)
+  const { latency, errorRate } = useChaosStore.getState()
+  const chaosHeaders: Record<string, string> = {}
+  if (latency > 0) chaosHeaders['X-Crowbar-Latency'] = String(latency)
+  if (errorRate > 0) chaosHeaders['X-Crowbar-Error-Rate'] = String(errorRate)
+
+  const res = await fetch(`${API_BASE}${path}`, {
+    ...init,
+    headers: { ...init?.headers, ...chaosHeaders },
+  })
   if (!res.ok) throw new Error(`${res.status} ${res.statusText}`)
   return res.json() as Promise<T>
 }
