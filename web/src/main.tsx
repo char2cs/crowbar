@@ -46,29 +46,27 @@ initViewStoreSubscription()
 
 const router = createRouter({ routeTree, history: createHashHistory() })
 
-async function main() {
-  if (import.meta.env.VITE_USE_MOCK === 'true') {
-    const { worker } = await import('./mocks/browser')
-    await worker.start({ onUnhandledRequest: 'warn' })
-  }
-
-  createRoot(document.getElementById('root')!).render(
-    <StrictMode>
-      <PersistQueryClientProvider
-        client={queryClient}
-        persistOptions={{
-          persister,
-          maxAge: 7 * 24 * 60 * 60 * 1000,
-          buster: __APP_VERSION__,
-        }}
-      >
-        <TooltipProvider>
-          <RouterProvider router={router} />
-          {import.meta.env.DEV && import.meta.env.VITE_USE_MOCK !== 'true' && <ChaosPanel />}
-        </TooltipProvider>
-      </PersistQueryClientProvider>
-    </StrictMode>,
-  )
+// Start MSW non-blocking — dev requests may arrive before it's ready, which is fine
+// since QueryClient has retry logic. Awaiting MSW before render causes a blank screen
+// if main() throws (void swallows the error).
+if (import.meta.env.VITE_USE_MOCK === 'true') {
+  import('./mocks/browser').then(({ worker }) => worker.start({ onUnhandledRequest: 'warn' }))
 }
 
-void main()
+createRoot(document.getElementById('root')!).render(
+  <StrictMode>
+    <PersistQueryClientProvider
+      client={queryClient}
+      persistOptions={{
+        persister,
+        maxAge: 7 * 24 * 60 * 60 * 1000,
+        buster: __APP_VERSION__,
+      }}
+    >
+      <TooltipProvider>
+        <RouterProvider router={router} />
+        {import.meta.env.DEV && import.meta.env.VITE_USE_MOCK !== 'true' && <ChaosPanel />}
+      </TooltipProvider>
+    </PersistQueryClientProvider>
+  </StrictMode>,
+)
