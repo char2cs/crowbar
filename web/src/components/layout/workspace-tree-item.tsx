@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import { cn } from '@/lib/utils'
 import { WorkspaceBranchIcon } from './workspace-branch-icon'
+import { ROW_BASE } from './workspace-row-base'
 import type { WorkspaceTreeNode } from './workspace-tree'
 
 interface WorkspaceTreeItemProps {
@@ -9,14 +10,6 @@ interface WorkspaceTreeItemProps {
   activeWorkspaceId: string
   onWorkspaceClick: (wsId: string) => void
 }
-
-// Coss UI button base + xs size, adapted to w-full left-aligned layout
-const NAV_BASE =
-  'relative inline-flex w-full shrink-0 cursor-pointer items-center gap-1 rounded-md border ' +
-  'h-8 sm:h-7 px-[calc(--spacing(2)-1px)] text-sm sm:text-xs font-medium outline-none transition-shadow ' +
-  'before:pointer-events-none before:absolute before:inset-0 before:rounded-[calc(var(--radius-md)-1px)] ' +
-  'focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-1 focus-visible:ring-offset-background ' +
-  'disabled:pointer-events-none disabled:opacity-64'
 
 export function WorkspaceTreeItem({
   node, depth, activeWorkspaceId, onWorkspaceClick,
@@ -28,18 +21,25 @@ export function WorkspaceTreeItem({
   const [expanded, setExpanded] = useState(true)
 
   const variant = isActive
-    ? 'not-disabled:inset-shadow-[0_1px_--theme(--color-white/16%)] border-primary bg-primary text-primary-foreground shadow-primary/24 shadow-xs hover:bg-primary/90 active:inset-shadow-[0_1px_--theme(--color-black/8%)] active:shadow-none'
+    ? 'border-transparent bg-secondary text-secondary-foreground hover:bg-secondary/90'
     : isLocked
       ? 'border-transparent text-foreground/30 hover:bg-accent'
       : 'border-transparent text-foreground hover:bg-accent'
 
   return (
     <div>
-      <div className="flex items-center" style={{ paddingLeft: depth * 14 }}>
-        <button
-          type="button"
-          className={cn(NAV_BASE, variant)}
+      <div style={{ paddingLeft: (depth + 1) * 14 }}>
+        <div
+          role="button"
+          tabIndex={0}
+          className={cn(ROW_BASE, variant)}
           onClick={() => onWorkspaceClick(workspace.id)}
+          onKeyDown={(e) => {
+            if (e.key === 'Enter' || e.key === ' ') {
+              e.preventDefault()
+              onWorkspaceClick(workspace.id)
+            }
+          }}
         >
           <WorkspaceBranchIcon status={workspace.status ?? 'new'} />
 
@@ -61,28 +61,28 @@ export function WorkspaceTreeItem({
               )}
             </span>
           )}
-        </button>
 
-        {hasChildren && (
-          <button
-            type="button"
-            className="ml-0.5 shrink-0 rounded-md p-1 text-foreground/30 hover:text-foreground/60 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
-            onClick={() => setExpanded(v => !v)}
-            aria-label={expanded ? 'Collapse' : 'Expand'}
-          >
-            <svg
-              aria-hidden="true"
-              className={cn('size-3 transition-transform', expanded && 'rotate-90')}
-              viewBox="0 0 16 16"
-              fill="none"
-              stroke="currentColor"
-              strokeWidth="2"
-              strokeLinecap="round"
+          {hasChildren && (
+            <button
+              type="button"
+              className="shrink-0 rounded-md p-1 text-foreground/30 hover:text-foreground/60 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
+              onClick={(e) => { e.stopPropagation(); setExpanded(v => !v) }}
+              aria-label={expanded ? 'Collapse' : 'Expand'}
             >
-              <path d="M6 3l5 5-5 5" />
-            </svg>
-          </button>
-        )}
+              <svg
+                aria-hidden="true"
+                className={cn('size-3 transition-transform', expanded && 'rotate-90')}
+                viewBox="0 0 16 16"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="2"
+                strokeLinecap="round"
+              >
+                <path d="M6 3l5 5-5 5" />
+              </svg>
+            </button>
+          )}
+        </div>
       </div>
 
       {hasChildren && expanded && (
