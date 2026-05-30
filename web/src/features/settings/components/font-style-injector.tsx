@@ -47,7 +47,7 @@ function buildFontVariable(primary: string, fallback: string): string {
  */
 export const FontStyleInjector = () => {
   const codeEditorFontFamily = useEditorSettingsStore((state) => state.fontFamily);
-  const { settings } = useSettingsStore();
+  const settings = useSettingsStore((s) => s.settings);
 
   useEffect(() => {
     document.documentElement.setAttribute("data-platform", currentPlatform);

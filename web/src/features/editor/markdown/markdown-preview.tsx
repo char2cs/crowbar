@@ -34,7 +34,7 @@ export function MarkdownPreview() {
   );
   const fontSize = useEditorSettingsStore.use.fontSize();
   const uiFontFamily = useSettingsStore((state) => state.settings.uiFontFamily);
-  const { handleFileSelect } = useFileSystemStore();
+  const handleFileSelect = useFileSystemStore((s) => s.handleFileSelect);
   const rootFolderPath = useFileSystemStore.use.rootFolderPath?.() || "";
   const [html, setHtml] = useState("");
   const containerRef = useRef<HTMLDivElement>(null);

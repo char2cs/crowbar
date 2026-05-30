@@ -34,7 +34,7 @@ export const useDiffData = (): UseDiffDataReturn => {
     }));
   };
   const closeBuffer = (id: string) => workspaceStore.getState().bufferActions.closeBuffer(id);
-  const { rootFolderPath } = useFileSystemStore();
+  const rootFolderPath = useFileSystemStore((s) => s.rootFolderPath);
 
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);

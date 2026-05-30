@@ -27,7 +27,8 @@ export function useSidebarPaneController() {
     setIsSidebarVisible,
     setIsRightSidebarVisible,
   } = useUIState();
-  const { settings, updateSetting } = useSettingsStore();
+  const settings = useSettingsStore((s) => s.settings);
+  const updateSetting = useSettingsStore((s) => s.updateSetting);
 
   const openSidebarView = useCallback(
     (view: SidebarView, options: OpenSidebarViewOptions = {}) => {

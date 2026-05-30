@@ -43,7 +43,9 @@ export const InlineEditModelSelector = ({
   const [isLoadingModels, setIsLoadingModels] = useState(false);
 
   const subscription = useAuthStore((state) => state.subscription);
-  const { dynamicModels, setDynamicModels, hasProviderApiKey } = useAIChatStore();
+  const dynamicModels = useAIChatStore((s) => s.dynamicModels);
+  const setDynamicModels = useAIChatStore((s) => s.setDynamicModels);
+  const hasProviderApiKey = useAIChatStore((s) => s.hasProviderApiKey);
 
   const providers = useMemo(() => getAvailableProviders(), []);
   const currentProvider = getProviderById(providerId);

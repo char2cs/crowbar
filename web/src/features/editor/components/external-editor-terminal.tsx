@@ -57,9 +57,10 @@ export const ExternalEditorTerminal = ({
   const resizeRafRef = useRef<number | null>(null);
 
   const workspaceStore = useWorkspaceStore();
-  const { fontSize: editorFontSize, fontFamily: editorFontFamily } = useEditorSettingsStore();
-  const { rootFolderPath } = useProjectStore();
-  const { settings } = useSettingsStore();
+  const editorFontSize = useEditorSettingsStore((s) => s.fontSize);
+  const editorFontFamily = useEditorSettingsStore((s) => s.fontFamily);
+  const rootFolderPath = useProjectStore((s) => s.rootFolderPath);
+  const settings = useSettingsStore((s) => s.settings);
   const { getTerminalTheme } = useTerminalTheme();
 
   const updateExternalEditorBufferTitle = useCallback(

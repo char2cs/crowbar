@@ -11,7 +11,8 @@ import { Switch } from "@/components/ui/switch";
 import { cn } from "@/utils/cn";
 
 export const FileTreeSettings = () => {
-  const { settings, updateSetting } = useSettingsStore();
+  const settings = useSettingsStore((s) => s.settings);
+  const updateSetting = useSettingsStore((s) => s.updateSetting);
 
   const [filePatternsInput, setFilePatternsInput] = useState(
     settings.hiddenFilePatterns.join(", "),

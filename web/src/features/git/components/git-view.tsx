@@ -80,7 +80,10 @@ type GitPaletteAction =
 
 const GitView = ({ repoPath, onFileSelect, isActive }: GitViewProps) => {
   const MAX_STATUS_DIFF_STATS_FILES = 40;
-  const { gitStatus, isLoadingGitData, isRefreshing, actions } = useGitStore();
+  const gitStatus = useGitStore((s) => s.gitStatus);
+  const isLoadingGitData = useGitStore((s) => s.isLoadingGitData);
+  const isRefreshing = useGitStore((s) => s.isRefreshing);
+  const actions = useGitStore((s) => s.actions);
   const stashes = useGitStore((state) => state.stashes);
   const { setIsLoadingGitData, setIsRefreshing } = actions;
   const activeRepoPath = useRepositoryStore.use.activeRepoPath();

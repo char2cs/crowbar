@@ -58,7 +58,7 @@ const GitActionsMenu = ({
   isInitializingRepository,
 }: GitActionsMenuProps) => {
   const [isLoading, setIsLoading] = useState(false);
-  const { isRefreshing } = useGitStore();
+  const isRefreshing = useGitStore((s) => s.isRefreshing);
   const confirmBeforeDiscard = useSettingsStore((state) => state.settings.confirmBeforeDiscard);
 
   const handleAction = async (

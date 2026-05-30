@@ -64,7 +64,10 @@ const GitCommitHistory = ({
   repoPath,
   showHeader = true,
 }: GitCommitHistoryProps) => {
-  const { commits, hasMoreCommits, isLoadingMoreCommits, actions } = useGitStore();
+  const commits = useGitStore((s) => s.commits);
+  const hasMoreCommits = useGitStore((s) => s.hasMoreCommits);
+  const isLoadingMoreCommits = useGitStore((s) => s.isLoadingMoreCommits);
+  const actions = useGitStore((s) => s.actions);
   const scrollContainerRef = useRef<HTMLDivElement>(null);
   const lastScrollTop = useRef(0);
   const scrollSetupTimeoutRef = useRef<NodeJS.Timeout | null>(null);

@@ -154,7 +154,7 @@ const CodeEditor = ({
   const currentMatchIndex = useEditorUIStore.use.currentMatchIndex();
   const searchOptions = useEditorUIStore.use.searchOptions();
   const { setSearchResults } = useEditorUIStore.use.actions();
-  const { settings } = useSettingsStore();
+  const settings = useSettingsStore((s) => s.settings);
   const isFindVisible = useUIState((state) => state.isFindVisible);
   const lspClient = useMemo(() => LspClient.getInstance(), []);
 

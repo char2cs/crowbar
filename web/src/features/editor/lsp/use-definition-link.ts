@@ -78,7 +78,7 @@ export const useDefinitionLink = ({
   getDefinition,
   resolveEditorPosition,
 }: UseDefinitionLinkProps) => {
-  const { actions } = useEditorUIStore();
+  const actions = useEditorUIStore((s) => s.actions);
   const latestContentRef = useRef(content);
   const isModifierHeldRef = useRef(false);
   const lastMousePosRef = useRef<{ x: number; y: number } | null>(null);

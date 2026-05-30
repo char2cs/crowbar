@@ -80,11 +80,12 @@ function CursorPositionChip({ editorViewKey }: { editorViewKey?: string | null }
 
 export function EditorStatusActions({ bufferId, editorViewKey }: EditorStatusActionsProps = {}) {
   const workspaceStore = useWorkspaceStore();
-  const { rootFolderPath } = useFileSystemStore();
+  const rootFolderPath = useFileSystemStore((s) => s.rootFolderPath);
   const resolvedBufferId = useWorkspaceStoreContext(
     (state) => bufferId ?? findPaneGroup(state.paneRoot, state.activePaneId)?.activeBufferId ?? null,
   );
-  const { settings, updateSetting } = useSettingsStore();
+  const settings = useSettingsStore((s) => s.settings);
+  const updateSetting = useSettingsStore((s) => s.updateSetting);
   const minimapShortcut = useCommandShortcut("workbench.toggleMinimap");
   const lspStatus = useLspStore.use.lspStatus();
   const [isLspOpen, setIsLspOpen] = useState(false);

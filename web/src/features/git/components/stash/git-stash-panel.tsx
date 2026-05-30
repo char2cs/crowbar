@@ -25,7 +25,7 @@ const GitStashPanel = ({
   onViewStashDiff,
   showHeader = true,
 }: GitStashPanelProps) => {
-  const { stashes } = useGitStore();
+  const stashes = useGitStore((s) => s.stashes);
   const [actionLoading, setActionLoading] = useState<Set<number>>(new Set());
 
   const handleStashAction = async (

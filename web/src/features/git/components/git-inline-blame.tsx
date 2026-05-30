@@ -41,7 +41,7 @@ export const InlineGitBlame = ({
   const hideTimeoutRef = useRef<NodeJS.Timeout | null>(null);
   const showTimeoutRef = useRef<NodeJS.Timeout | null>(null);
   const documentRef = useRef(document);
-  const { settings } = useSettingsStore();
+  const settings = useSettingsStore((s) => s.settings);
   const effectiveFontSize = fontSize ?? settings.fontSize;
   const effectiveLineHeight =
     lineHeight ?? settings.fontSize * EDITOR_CONSTANTS.LINE_HEIGHT_MULTIPLIER;

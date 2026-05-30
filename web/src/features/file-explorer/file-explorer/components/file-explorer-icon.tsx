@@ -21,8 +21,8 @@ export function FileExplorerIcon({
   size = 14,
   className = "text-muted-foreground",
 }: FileExplorerIconProps) {
-  const { settings } = useSettingsStore();
-  const iconTheme = iconThemeRegistry.getTheme(settings.iconTheme);
+  const iconThemeValue = useSettingsStore((s) => s.settings.iconTheme);
+  const iconTheme = iconThemeRegistry.getTheme(iconThemeValue);
 
   // When no icon theme is registered, use Phosphor Icons as built-in fallback
   if (!iconTheme) {

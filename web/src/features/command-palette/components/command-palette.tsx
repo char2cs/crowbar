@@ -110,13 +110,13 @@ const CommandPalette = () => {
 
   const lastEnteredActions = useActionsStore.use.lastEnteredActionsStack();
   const pushAction = useActionsStore.use.pushAction();
-  const { settings } = useSettingsStore();
+  const settings = useSettingsStore((s) => s.settings);
   const lspStatus = useLspStore.use.lspStatus();
   const { clearLspError, updateLspStatus } = useLspStore.use.actions();
-  const { rootFolderPath } = useFileSystemStore();
+  const rootFolderPath = useFileSystemStore((s) => s.rootFolderPath);
   const activeRepoPath = useRepositoryStore.use.activeRepoPath();
-  const gitStore = useGitStore();
-  const { checkAuth: checkGitHubAuth } = useGitHubStore().actions;
+  const gitStoreActions = useGitStore((s) => s.actions);
+  const checkGitHubAuth = useGitHubStore((s) => s.actions.checkAuth);
   const { showToast } = useToast();
   const openWhatsNew = useWhatsNewStore((state) => state.open);
   const openOnboarding = useOnboardingStore((state) => state.openPreview);
@@ -247,7 +247,7 @@ const CommandPalette = () => {
       setIsSidebarVisible,
       setActiveView,
       showToast,
-      gitStore,
+      gitStore: { actions: gitStoreActions },
       gitOperations: {
         stageAllFiles,
         unstageAllFiles,
