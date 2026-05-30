@@ -1,7 +1,11 @@
 import { http, HttpResponse } from 'msw'
-import { getMockWorkspace, createMockWorkspace } from '@/lib/mock/workspaces'
+import { getMockWorkspace, createMockWorkspace, getMockRepos } from '@/lib/mock/workspaces'
 
 export const workspaceHandlers = [
+  http.get('/api/v0/workspaces', () => {
+    return HttpResponse.json(getMockRepos())
+  }),
+
   http.get('/api/v0/workspaces/:id', ({ params }) => {
     const ws = getMockWorkspace(params.id as string)
     if (!ws) return HttpResponse.json({ error: 'not found' }, { status: 404 })

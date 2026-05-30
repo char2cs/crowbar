@@ -237,6 +237,12 @@ export async function discoverWorkspaceRepositories(
     }
   }
 
+  // In web mode the readDir stub always returns [] so filesystem scanning finds nothing.
+  // Fall back to treating the root itself as the repo so git data can load via the HTTP API.
+  if (discoveredRepos.size === 0 && normalizedWorkspacePath) {
+    discoveredRepos.add(normalizedWorkspacePath)
+  }
+
   const repositories = sortWorkspaceRepositories(
     Array.from(discoveredRepos),
     normalizedWorkspacePath,

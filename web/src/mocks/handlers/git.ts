@@ -7,8 +7,12 @@ export const gitHandlers = [
     return HttpResponse.json(getMockGitStatus(repo))
   }),
   http.get('/api/v0/git/log', ({ request }) => {
-    const repo = new URL(request.url).searchParams.get('repo') ?? ''
-    return HttpResponse.json(getMockCommitHistory(repo))
+    const url = new URL(request.url)
+    const repo = url.searchParams.get('repo') ?? ''
+    const limit = Math.min(parseInt(url.searchParams.get('limit') ?? '50', 10), 200)
+    const skip = parseInt(url.searchParams.get('skip') ?? '0', 10)
+    const all = getMockCommitHistory(repo)
+    return HttpResponse.json(all.slice(skip, skip + limit))
   }),
   http.get('/api/v0/git/branches', ({ request }) => {
     const repo = new URL(request.url).searchParams.get('repo') ?? ''

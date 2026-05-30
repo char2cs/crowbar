@@ -45,26 +45,33 @@ initViewStoreSubscription()
 
 const router = createRouter({ routeTree, history: createHashHistory() })
 
-// Start MSW non-blocking — dev requests may arrive before it's ready, which is fine
-// since QueryClient has retry logic. Awaiting MSW before render causes a blank screen
-// if main() throws (void swallows the error).
-if (import.meta.env.VITE_USE_MOCK === 'true') {
-  import('./mocks/browser').then(({ worker }) => worker.start({ onUnhandledRequest: 'warn' }))
+function renderApp() {
+  createRoot(document.getElementById('root')!).render(
+    <StrictMode>
+      <PersistQueryClientProvider
+        client={queryClient}
+        persistOptions={{
+          persister,
+          maxAge: 7 * 24 * 60 * 60 * 1000,
+          buster: __APP_VERSION__,
+        }}
+      >
+        <TooltipProvider>
+          <RouterProvider router={router} />
+        </TooltipProvider>
+      </PersistQueryClientProvider>
+    </StrictMode>,
+  )
 }
 
-createRoot(document.getElementById('root')!).render(
-  <StrictMode>
-    <PersistQueryClientProvider
-      client={queryClient}
-      persistOptions={{
-        persister,
-        maxAge: 7 * 24 * 60 * 60 * 1000,
-        buster: __APP_VERSION__,
-      }}
-    >
-      <TooltipProvider>
-        <RouterProvider router={router} />
-      </TooltipProvider>
-    </PersistQueryClientProvider>
-  </StrictMode>,
-)
+// In mock mode, wait for MSW to register its service worker before rendering
+// so that all API calls from keepMounted components (GitView, etc.) are intercepted.
+// Use finally so a failed MSW startup still renders the app.
+if (import.meta.env.VITE_USE_MOCK === 'true') {
+  import('./mocks/browser')
+    .then(({ worker }) => worker.start({ onUnhandledRequest: 'warn' }))
+    .catch(console.error)
+    .finally(renderApp)
+} else {
+  renderApp()
+}
