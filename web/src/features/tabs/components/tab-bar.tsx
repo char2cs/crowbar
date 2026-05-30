@@ -115,9 +115,14 @@ const TabBar = ({
       ? findPaneGroup(bottomRoot, BOTTOM_PANE_ID)
       : findPaneGroup(paneRoot, paneId)
     : null;
-  const buffers = (
-    pane ? allBuffers.filter((b) => pane.bufferIds.includes(b.id)) : allBuffers
-  ).filter((buffer) => buffer.type !== "newTab");
+  const buffers = useMemo(
+    () =>
+      (pane ? allBuffers.filter((b) => pane.bufferIds.includes(b.id)) : allBuffers).filter(
+        (buffer) => buffer.type !== "newTab",
+      ),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [allBuffers, pane?.bufferIds, pane],
+  );
   const activeBufferCandidate = pane ? pane.activeBufferId : globalActiveBufferId;
   const activeBufferId =
     activeBufferCandidate && buffers.some((buffer) => buffer.id === activeBufferCandidate)
@@ -745,6 +750,62 @@ const handleDragStart = useCallback(
 
   const MemoizedTabContextMenu = useMemo(() => TabContextMenu, []);
 
+  const handleContextMenuCloseTab = useCallback(
+    (bufferId: string) => {
+      const buf = buffers.find((b) => b.id === bufferId);
+      if (buf) {
+        closeTab(bufferId);
+      }
+    },
+    [buffers, closeTab],
+  );
+
+  const handleReloadTab = useCallback(
+    (bufferId: string) => {
+      const buf = buffers.find((b) => b.id === bufferId);
+      if (buf && buf.path !== "extensions://marketplace") {
+        if (paneId) removeBufferFromPane(paneId, bufferId);
+        closeBuffer(bufferId);
+        setTimeout(async () => {
+          try {
+            const content =
+              buf.type === "editor" || buf.type === "diff" ? buf.content : "";
+            const spec =
+              buf.type === "image"
+                ? ({ type: "image", path: buf.path, name: buf.name } as const)
+                : buf.type === "diff"
+                  ? ({ type: "diff", path: buf.path, name: buf.name, content } as const)
+                  : ({ type: "editor", path: buf.path, name: buf.name, content } as const);
+            openContent(spec);
+          } catch (error) {
+            console.error("Failed to reload buffer:", error);
+          }
+        }, 100);
+      }
+    },
+    [buffers, closeBuffer, openContent, paneId, removeBufferFromPane],
+  );
+
+  const handleSplitRight = useMemo(
+    () =>
+      paneId
+        ? (targetPaneId: string, bufferId: string) => {
+            splitEditorGroup(targetPaneId, "horizontal", bufferId);
+          }
+        : undefined,
+    [paneId],
+  );
+
+  const handleSplitDown = useMemo(
+    () =>
+      paneId
+        ? (targetPaneId: string, bufferId: string) => {
+            splitEditorGroup(targetPaneId, "vertical", bufferId);
+          }
+        : undefined,
+    [paneId],
+  );
+
   return (
     <>
       <DndContext
@@ -896,53 +957,16 @@ const handleDragStart = useCallback(
         paneId={paneId}
         onClose={closeContextMenu}
         onPin={handleTabPin}
-        onCloseTab={(bufferId) => {
-          const buffer = buffers.find((b) => b.id === bufferId);
-          if (buffer) {
-            closeTab(bufferId);
-          }
-        }}
+        onCloseTab={handleContextMenuCloseTab}
         onCloseOthers={handleCloseOtherTabs}
         onCloseAll={handleCloseAllTabs}
         onCloseToRight={handleCloseTabsToRight}
         onCopyPath={handleCopyPath}
         onCopyRelativePath={handleCopyRelativePath}
-        onReload={(bufferId: string) => {
-          const buffer = buffers.find((b) => b.id === bufferId);
-          if (buffer && buffer.path !== "extensions://marketplace") {
-            if (paneId) removeBufferFromPane(paneId, bufferId);
-            closeBuffer(bufferId);
-            setTimeout(async () => {
-              try {
-                const content =
-                  buffer.type === "editor" || buffer.type === "diff" ? buffer.content : "";
-                const spec = buffer.type === "image"
-                  ? ({ type: "image", path: buffer.path, name: buffer.name } as const)
-                  : buffer.type === "diff"
-                  ? ({ type: "diff", path: buffer.path, name: buffer.name, content } as const)
-                  : ({ type: "editor", path: buffer.path, name: buffer.name, content } as const);
-                openContent(spec);
-              } catch (error) {
-                console.error("Failed to reload buffer:", error);
-              }
-            }, 100);
-          }
-        }}
+        onReload={handleReloadTab}
         onRevealInFinder={handleRevealInFolder ?? undefined}
-        onSplitRight={
-          paneId
-            ? (targetPaneId, bufferId) => {
-                splitEditorGroup(targetPaneId, "horizontal", bufferId);
-              }
-            : undefined
-        }
-        onSplitDown={
-          paneId
-            ? (targetPaneId, bufferId) => {
-                splitEditorGroup(targetPaneId, "vertical", bufferId);
-              }
-            : undefined
-        }
+        onSplitRight={handleSplitRight}
+        onSplitDown={handleSplitDown}
       />
 
       {pendingClose && (
