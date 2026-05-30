@@ -34,6 +34,11 @@ export function getOrCreateWorkspaceStore(wsId: string): WorkspaceStore {
 }
 
 export function destroyWorkspaceStore(wsId: string): void {
+  const existing = persistTimers.get(wsId)
+  if (existing !== undefined) {
+    clearTimeout(existing)
+    persistTimers.delete(wsId)
+  }
   registry.delete(wsId)
 }
 

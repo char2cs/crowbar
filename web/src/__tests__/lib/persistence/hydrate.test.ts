@@ -1,6 +1,7 @@
 import { hydrateFromIDB } from '@/lib/persistence/hydrate'
 import { getDB, resetDB } from '@/lib/persistence/idb'
 import type { WorkspaceLayout, UIPreferences, EditorState } from '@/lib/persistence/schemas'
+import { destroyWorkspaceStore } from '@/features/workspace/stores/workspace-store-registry'
 import { IDBFactory } from 'fake-indexeddb'
 
 async function seedDB(workspaceId: string) {
@@ -44,6 +45,11 @@ describe('hydrateFromIDB', () => {
     resetDB()
     // @ts-expect-error — reset global indexedDB to fresh instance
     globalThis.indexedDB = new IDBFactory()
+  })
+
+  afterEach(() => {
+    destroyWorkspaceStore('missing-ws')
+    destroyWorkspaceStore('ws-test')
   })
 
   it('returns null layout and prefs when IDB is empty', async () => {
