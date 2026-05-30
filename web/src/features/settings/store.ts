@@ -182,3 +182,21 @@ export const useSettingsStore = create(
 );
 
 export { defaultSettings, getDefaultSetting };
+
+import { saveUIPreferences } from '@/lib/persistence/ui-preferences'
+
+let _prefTimer: ReturnType<typeof setTimeout>
+useSettingsStore.subscribe((state) => {
+  clearTimeout(_prefTimer)
+  _prefTimer = setTimeout(() => {
+    void saveUIPreferences({
+      theme: state.settings.theme,
+      fontSize: state.settings.fontSize,
+      fontFamily: state.settings.fontFamily,
+      tabSize: state.settings.tabSize,
+      wordWrap: state.settings.wordWrap,
+      minimap: state.settings.showMinimap,
+      updatedAt: Date.now(),
+    })
+  }, 300)
+})

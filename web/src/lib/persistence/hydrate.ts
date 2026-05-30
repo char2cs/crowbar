@@ -1,6 +1,7 @@
 import { getDB } from './idb'
 import type { WorkspaceLayout, EditorState, UIPreferences } from './schemas'
 import { getOrCreateWorkspaceStore } from '@/features/workspace/stores/workspace-store-registry'
+import { useSettingsStore } from '@/features/settings/store'
 
 export interface HydrationResult {
   layout: WorkspaceLayout | null
@@ -26,6 +27,20 @@ export async function hydrateFromIDB(workspaceId: string): Promise<HydrationResu
         ?? store.getState().bottomRoot,
       activePaneId: layout.activePane,
     })
+  }
+
+  if (prefs) {
+    useSettingsStore.setState((state) => ({
+      settings: {
+        ...state.settings,
+        theme: prefs.theme,
+        fontSize: prefs.fontSize,
+        fontFamily: prefs.fontFamily,
+        tabSize: prefs.tabSize,
+        wordWrap: prefs.wordWrap,
+        showMinimap: prefs.minimap,
+      },
+    }))
   }
 
   return { layout, prefs, editorStates }
