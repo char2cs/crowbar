@@ -4,7 +4,6 @@ import {
   PROVIDER_REGISTRY,
   type DatabaseViewerProps,
 } from "@/features/database/providers/provider-registry";
-import CodeEditor from "@/features/editor/components/code-editor";
 import { useBuffers, useBufferActions } from "@/features/workspace/stores/hooks/use-buffer-store";
 import { useWorkspaceStore } from "@/features/workspace/stores/workspace-context";
 import { useFileSystemStore } from "@/features/file-system/controllers/store";
@@ -31,7 +30,6 @@ import {
 } from "@/features/tabs/utils/internal-tab-drag";
 import { FlowContent } from "@/features/workflow/components/flow-content";
 import { cn } from "@/utils/cn";
-import { ErrorBoundary } from "@/components/ErrorBoundary";
 
 import { EmptyEditorState } from "./empty-editor-state";
 import { BOTTOM_PANE_ID } from "../constants/pane";
@@ -66,7 +64,6 @@ const ExternalEditorTerminal = lazy(() =>
     default: m.ExternalEditorTerminal,
   })),
 );
-const DiffViewer = lazy(() => import("@/features/git/components/diff/git-diff-viewer"));
 const GlobalSearchBuffer = lazy(
   () => import("@/features/global-search/components/global-search-buffer"),
 );
@@ -78,31 +75,17 @@ const OnboardingView = lazy(() => import("@/features/onboarding/components/onboa
 const GitHubPRViewer = lazy(() => import("@/features/github/components/github-pr-viewer"));
 const GitHubIssueViewer = lazy(() => import("@/features/github/components/github-issue-viewer"));
 const GitHubActionViewer = lazy(() => import("@/features/github/components/github-action-viewer"));
-const ImageViewer = lazy(() =>
-  import("@/features/image-viewer/components/image-viewer").then((m) => ({
-    default: m.ImageViewer,
-  })),
-);
-const PdfViewer = lazy(() =>
-  import("@/features/pdf-viewer/components/pdf-viewer").then((m) => ({
-    default: m.PdfViewer,
-  })),
-);
 const BinaryFileViewer = lazy(() =>
   import("@/features/binary-viewer/components/binary-file-viewer").then((m) => ({
     default: m.BinaryFileViewer,
   })),
 );
-const TerminalTab = lazy(() =>
-  import("@/features/terminal/components/terminal-tab").then((m) => ({
-    default: m.TerminalTab,
-  })),
-);
-const WebViewer = lazy(() =>
-  import("@/features/web-viewer/components/web-viewer").then((m) => ({
-    default: m.WebViewer,
-  })),
-);
+import { EditorPane } from "./editor-pane";
+import { TerminalPane } from "./terminal-pane";
+import { WebViewerPane } from "./web-viewer-pane";
+import { DiffPane } from "./diff-pane";
+import { ImagePane } from "./image-pane";
+import { PdfPane } from "./pdf-pane";
 
 interface PaneContainerProps {
   pane: PaneGroup;
@@ -854,7 +837,7 @@ export function PaneContainer({ pane, position = ROOT_PANE_POSITION }: PaneConta
       switch (buffer.type) {
         case "terminal":
           return (
-            <TerminalTab
+            <TerminalPane
               sessionId={buffer.sessionId}
               bufferId={buffer.id}
               paneId={pane.id}
@@ -866,13 +849,13 @@ export function PaneContainer({ pane, position = ROOT_PANE_POSITION }: PaneConta
           );
 
         case "webViewer":
-          return <WebViewer url={buffer.url} bufferId={buffer.id} isActive={isActivePane} />;
+          return <WebViewerPane url={buffer.url} bufferId={buffer.id} isActive={isActivePane} />;
 
         case "agent":
           return <AgentTab buffer={buffer} isActive={isActivePane} />;
 
         case "diff":
-          return <DiffViewer onStageHunk={handleStageHunk} onUnstageHunk={handleUnstageHunk} />;
+          return <DiffPane onStageHunk={handleStageHunk} onUnstageHunk={handleUnstageHunk} />;
 
         case "pullRequest":
           return <GitHubPRViewer prNumber={buffer.prNumber} />;
@@ -917,10 +900,10 @@ export function PaneContainer({ pane, position = ROOT_PANE_POSITION }: PaneConta
           );
 
         case "image":
-          return <ImageViewer filePath={buffer.path} fileName={buffer.name} bufferId={buffer.id} />;
+          return <ImagePane filePath={buffer.path} fileName={buffer.name} bufferId={buffer.id} />;
 
         case "pdf":
-          return <PdfViewer filePath={buffer.path} fileName={buffer.name} bufferId={buffer.id} />;
+          return <PdfPane filePath={buffer.path} fileName={buffer.name} bufferId={buffer.id} />;
 
         case "database": {
           const config = PROVIDER_REGISTRY[buffer.databaseType];
@@ -966,21 +949,13 @@ export function PaneContainer({ pane, position = ROOT_PANE_POSITION }: PaneConta
 
         default:
           return (
-            <ErrorBoundary
-              fallback={
-                <div className="flex h-full flex-1 items-center justify-center p-8 text-sm text-muted-foreground">
-                  Editor failed to load. Try closing and reopening this file.
-                </div>
-              }
-            >
-              <CodeEditor
-                paneId={pane.id}
-                bufferId={buffer.id}
-                isActiveSurface={isActivePane}
-                isPreview={pane.previewBufferId === buffer.id}
-                onPromote={() => handlePromote(buffer.id)}
-              />
-            </ErrorBoundary>
+            <EditorPane
+              paneId={pane.id}
+              bufferId={buffer.id}
+              isActiveSurface={isActivePane}
+              isPreview={pane.previewBufferId === buffer.id}
+              onPromote={() => handlePromote(buffer.id)}
+            />
           );
       }
     },
@@ -1090,7 +1065,7 @@ export function PaneContainer({ pane, position = ROOT_PANE_POSITION }: PaneConta
                   >
                     <div className="h-full w-full">
                       {isStandardEditorBuffer(buffer) ? (
-                        <CodeEditor
+                        <EditorPane
                           paneId={pane.id}
                           bufferId={buffer.id}
                           isActiveSurface={isActivePane && isActiveBuffer}
@@ -1105,7 +1080,7 @@ export function PaneContainer({ pane, position = ROOT_PANE_POSITION }: PaneConta
                             isActiveBuffer ? "h-full w-full" : "pointer-events-none h-full w-full"
                           }
                         >
-                          <TerminalTab
+                          <TerminalPane
                             sessionId={buffer.sessionId}
                             bufferId={buffer.id}
                             paneId={pane.id}
@@ -1121,7 +1096,7 @@ export function PaneContainer({ pane, position = ROOT_PANE_POSITION }: PaneConta
                             isActiveBuffer ? "h-full w-full" : "pointer-events-none h-full w-full"
                           }
                         >
-                          <WebViewer
+                          <WebViewerPane
                             url={buffer.url}
                             bufferId={buffer.id}
                             profileKey={buffer.profileKey}
@@ -1172,7 +1147,7 @@ export function PaneContainer({ pane, position = ROOT_PANE_POSITION }: PaneConta
                       style={isActive ? undefined : { visibility: "hidden" }}
                     >
                       {b.type === "terminal" ? (
-                        <TerminalTab
+                        <TerminalPane
                           sessionId={b.sessionId}
                           bufferId={b.id}
                           paneId={pane.id}
@@ -1182,7 +1157,7 @@ export function PaneContainer({ pane, position = ROOT_PANE_POSITION }: PaneConta
                           isVisible={isActive}
                         />
                       ) : (
-                        <WebViewer
+                        <WebViewerPane
                           url={b.url}
                           bufferId={b.id}
                           profileKey={b.profileKey}
