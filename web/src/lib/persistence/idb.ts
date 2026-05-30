@@ -17,6 +17,7 @@ export async function getDB(): Promise<IDBPDatabase<CrowbarDB>> {
         })
         editorStore.createIndex('workspaceId', 'workspaceId')
         db.createObjectStore('ui-preferences')
+        db.createObjectStore('query-cache')
       }
     },
   })

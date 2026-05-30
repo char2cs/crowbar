@@ -44,4 +44,8 @@ export interface CrowbarDB extends DBSchema {
     key: string
     value: UIPreferences
   }
+  'query-cache': {
+    key: string
+    value: string
+  }
 }
