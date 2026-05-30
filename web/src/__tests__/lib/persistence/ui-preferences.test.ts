@@ -15,7 +15,6 @@ const mockPrefs: UIPreferences = {
 
 beforeEach(() => {
   resetDB()
-  // @ts-expect-error
   globalThis.indexedDB = new IDBFactory()
 })
 

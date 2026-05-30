@@ -43,7 +43,6 @@ describe('hydrateFromIDB', () => {
   beforeEach(async () => {
     // Reset the IDB singleton so each test gets a fresh database
     resetDB()
-    // @ts-expect-error — reset global indexedDB to fresh instance
     globalThis.indexedDB = new IDBFactory()
   })
 
@@ -66,6 +65,6 @@ describe('hydrateFromIDB', () => {
     expect(result.layout?.sidebarWidth).toBe(240)
     expect(result.prefs?.theme).toBe(prefs.theme)
     expect(result.editorStates).toHaveLength(1)
-    expect(result.editorStates[0].bufferId).toBe('/src/main.ts')
+    expect(result.editorStates[0].bufferId).toBe(editorState.bufferId)
   })
 })

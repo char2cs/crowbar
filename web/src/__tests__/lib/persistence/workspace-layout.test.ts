@@ -15,7 +15,6 @@ const mockLayout: WorkspaceLayout = {
 
 beforeEach(() => {
   resetDB()
-  // @ts-expect-error — reset global indexedDB to fresh instance
   globalThis.indexedDB = new IDBFactory()
 })
 

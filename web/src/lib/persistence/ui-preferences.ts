@@ -1,7 +1,7 @@
 import { getDB } from './idb'
 import type { UIPreferences } from './schemas'
 
-export async function saveUIPreferences(prefs: UIPreferences): Promise<void> {
+export async function saveUIPreferences(prefs: Omit<UIPreferences, 'updatedAt'>): Promise<void> {
   const db = await getDB()
   await db.put('ui-preferences', { ...prefs, updatedAt: Date.now() }, 'global')
 }

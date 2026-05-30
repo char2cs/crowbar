@@ -46,7 +46,7 @@ describe('useActiveWorkspaceState', () => {
     mockGetState.mockReturnValue({ key: 'hello' })
 
     const { result } = renderHook(() =>
-      useActiveWorkspaceState((s: { key: string }) => s.key, 'default'),
+      useActiveWorkspaceState((s) => (s as unknown as { key: string }).key, 'default'),
     )
 
     expect(result.current).toBe('hello')
@@ -69,8 +69,8 @@ describe('useActiveWorkspaceState', () => {
 
     const { result, rerender } = renderHook(
       ({ pick }: { pick: 'key' | 'other' }) =>
-        useActiveWorkspaceState((s: typeof storeState) => s[pick], 'fallback'),
-      { initialProps: { pick: 'key' as const } },
+        useActiveWorkspaceState((s) => (s as unknown as typeof storeState)[pick], 'fallback'),
+      { initialProps: { pick: 'key' as 'key' | 'other' } },
     )
 
     // Initial render: selector reads 'key' → 'a'.
@@ -94,7 +94,7 @@ describe('useActiveWorkspaceState', () => {
     mockGetState.mockReturnValue(initialState)
 
     const { result } = renderHook(() =>
-      useActiveWorkspaceState((s: typeof initialState) => s.key, 'fallback'),
+      useActiveWorkspaceState((s) => (s as unknown as typeof initialState).key, 'fallback'),
     )
 
     expect(result.current).toBe('first')
@@ -120,7 +120,7 @@ describe('useActiveWorkspaceState', () => {
     mockGetState.mockReturnValue({ key: 'active' })
 
     const { result } = renderHook(() =>
-      useActiveWorkspaceState((s: { key: string }) => s.key, 'no-workspace'),
+      useActiveWorkspaceState((s) => (s as unknown as { key: string }).key, 'no-workspace'),
     )
 
     expect(result.current).toBe('active')

@@ -13,7 +13,7 @@ const EMPTY_BUFFERS: PaneContent[] = [];
 
 const selectBuffers = (s: { buffers: PaneContent[] }) => s.buffers;
 const selectActiveBufferId = (s: {
-  paneActions: { getActivePane(): { activeBufferId: string } | null | undefined };
+  paneActions: { getActivePane(): { activeBufferId: string | null } | null | undefined };
 }) => s.paneActions.getActivePane()?.activeBufferId ?? null;
 
 export function useFileExplorerSync({
