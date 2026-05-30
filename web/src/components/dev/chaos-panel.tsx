@@ -1,13 +1,11 @@
 import { useChaosStore } from '@/lib/store/chaos'
 
 export function ChaosPanel() {
-  const { latency, errorRate, setLatency, setErrorRate, reset } = useChaosStore((s) => ({
-    latency: s.latency,
-    errorRate: s.errorRate,
-    setLatency: s.setLatency,
-    setErrorRate: s.setErrorRate,
-    reset: s.reset,
-  }))
+  const latency = useChaosStore((s) => s.latency)
+  const errorRate = useChaosStore((s) => s.errorRate)
+  const setLatency = useChaosStore((s) => s.setLatency)
+  const setErrorRate = useChaosStore((s) => s.setErrorRate)
+  const reset = useChaosStore((s) => s.reset)
 
   return (
     <div className="fixed bottom-4 right-4 z-50 w-56 rounded-lg border border-border bg-background p-3 shadow-lg text-xs font-mono">

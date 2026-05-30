@@ -11,7 +11,10 @@ export function HydrationGate({ workspaceId, children }: HydrationGateProps) {
   const [hydrated, setHydrated] = useState(false)
 
   useEffect(() => {
-    if (!workspaceId) return
+    if (!workspaceId) {
+      setHydrated(true)
+      return
+    }
     hydrateFromIDB(workspaceId).then(() => setHydrated(true)).catch(() => setHydrated(true))
   }, [workspaceId])
 
