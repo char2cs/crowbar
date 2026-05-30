@@ -5,6 +5,9 @@ import { projectHandlers } from './projects'
 import { gitHandlers } from './git'
 import { fsHandlers } from './fs'
 import { terminalHandlers } from './terminal'
+import { gitWsHandler } from './ws/git'
+import { chatWsHandler } from './ws/chat'
+import { terminalWsHandler } from './ws/terminal'
 
 export const handlers = [
   ...workspaceHandlers,
@@ -14,4 +17,7 @@ export const handlers = [
   ...gitHandlers,
   ...fsHandlers,
   ...terminalHandlers,
+  gitWsHandler,
+  chatWsHandler,
+  terminalWsHandler,
 ]
