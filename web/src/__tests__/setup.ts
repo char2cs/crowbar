@@ -1,4 +1,5 @@
 import '@testing-library/jest-dom'
+import 'fake-indexeddb/auto'
 
 // Node 25 exposes a native localStorage that lacks .clear()/.removeItem() etc.
 // Replace it with a proper in-memory implementation so tests can use the full Web Storage API.
