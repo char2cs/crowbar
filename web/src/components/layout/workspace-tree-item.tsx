@@ -55,7 +55,7 @@ export function WorkspaceTreeItem({
   }
 
   function handleDragLeave() {
-    dragCounter.current--
+    dragCounter.current = Math.max(0, dragCounter.current - 1)
     if (dragCounter.current === 0) setIsDragOver(false)
   }
 
@@ -92,7 +92,7 @@ export function WorkspaceTreeItem({
             }
           }}
           onDragStart={handleDragStart}
-          onDragEnd={endDragging}
+          onDragEnd={() => { dragCounter.current = 0; setIsDragOver(false); endDragging() }}
           onDragEnter={handleDragEnter}
           onDragLeave={handleDragLeave}
           onDragOver={handleDragOver}
