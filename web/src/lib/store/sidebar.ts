@@ -100,7 +100,7 @@ export const useSidebarStore = create<SidebarState>()((set) => ({
         r.id !== repoId ? r : {
           ...r,
           workspaces: [...r.workspaces, {
-            id: wsId, branch, parentId, status: 'new' as WorkspaceStatus, age: 'just now',
+            id: wsId, branch, ...(parentId !== undefined && { parentId }), status: 'new' as WorkspaceStatus, age: 'just now',
           }],
         },
       ),
@@ -128,9 +128,11 @@ export const useSidebarStore = create<SidebarState>()((set) => ({
       // Reject cycles: walk up from newParentId; if we reach wsId it's a cycle
       if (newParentId !== undefined) {
         const wsMap = new Map(repo.workspaces.map(w => [w.id, w]))
+        const visited = new Set<string>()
         let cursor: string | undefined = newParentId
         while (cursor !== undefined) {
-          if (cursor === wsId) return s
+          if (cursor === wsId || visited.has(cursor)) return s
+          visited.add(cursor)
           cursor = wsMap.get(cursor)?.parentId
         }
       }
