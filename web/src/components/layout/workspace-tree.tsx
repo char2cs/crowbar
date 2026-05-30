@@ -1,4 +1,3 @@
-import { useState } from 'react'
 import { useNavigate, useRouterState } from '@tanstack/react-router'
 import { ScrollArea } from '@/components/ui/scroll-area'
 import { useSidebarStore } from '@/lib/store/sidebar'
@@ -30,8 +29,11 @@ export function buildWorkspaceTree(workspaces: Workspace[]): WorkspaceTreeNode[]
     } else {
       let cursor: WorkspaceTreeNode | undefined = parent
       let cycle = false
+      const visited = new Set<string>()
       while (cursor) {
         if (cursor.workspace.id === ws.id) { cycle = true; break }
+        if (visited.has(cursor.workspace.id)) { cycle = true; break }
+        visited.add(cursor.workspace.id)
         cursor = cursor.workspace.parentId ? nodeMap.get(cursor.workspace.parentId) : undefined
       }
       if (cycle) roots.push(node)
@@ -45,22 +47,13 @@ function WorkspaceTreeInner() {
   const navigate = useNavigate()
   const pathname = useRouterState({ select: s => s.location.pathname })
   const repos = useSidebarStore(s => s.repos)
-  const [collapsedRepos, setCollapsedRepos] = useState<Set<string>>(new Set())
+  const collapsedRepos = useSidebarStore(s => s.collapsedRepos)
   const { draggingWs, dropOnRepo } = useWorkspaceTreeContext()
 
   const activeWorkspaceId = pathname.match(/\/workspaces\/([^/]+)/)?.[1] ?? ''
 
   function handleWorkspaceClick(wsId: string) {
     void navigate({ to: '/workspaces/$wsId', params: { wsId } })
-  }
-
-  function toggleRepo(repoId: string) {
-    setCollapsedRepos(prev => {
-      const next = new Set(prev)
-      if (next.has(repoId)) next.delete(repoId)
-      else next.add(repoId)
-      return next
-    })
   }
 
   return (
@@ -81,9 +74,9 @@ function WorkspaceTreeInner() {
                     'border-transparent text-foreground hover:bg-accent',
                     isRepoDragOver && 'ring-1 ring-ring',
                   )}
-                  onClick={() => toggleRepo(repo.id)}
+                  onClick={() => useSidebarStore.getState().toggleRepo(repo.id)}
                   onKeyDown={(e) => {
-                    if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); toggleRepo(repo.id) }
+                    if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); useSidebarStore.getState().toggleRepo(repo.id) }
                   }}
                   aria-label={isCollapsed ? 'Expand repo' : 'Collapse repo'}
                   onDragOver={(e) => { e.preventDefault(); e.dataTransfer.dropEffect = 'move' }}
