@@ -19,6 +19,11 @@ func (h *WSTerminalHandler) Upgrade(c *gin.Context) {
 	if err != nil {
 		return
 	}
+	h.hub.Register(conn)
+	defer func() {
+		h.hub.Unregister(conn)
+		conn.Close()
+	}()
 	sessionID := c.Param("sessionId")
 
 	_ = conn.WriteJSON(fixtures.TerminalFrame{
