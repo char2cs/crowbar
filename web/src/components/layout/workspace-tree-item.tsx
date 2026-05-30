@@ -1,4 +1,4 @@
-import { useRef, useState } from 'react'
+import { useState } from 'react'
 import { cn } from '@/lib/utils'
 import { WorkspaceBranchIcon } from './workspace-branch-icon'
 import { WorkspaceInlineInput } from './workspace-inline-input'
@@ -22,54 +22,24 @@ export function WorkspaceTreeItem({
   const isLocked = workspace.status === 'locked'
   const hasChildren = children.length > 0
   const [expanded, setExpanded] = useState(true)
-  const [isDragOver, setIsDragOver] = useState(false)
-  const dragCounter = useRef(0)
 
   const {
     creatingChildOf, startCreating, confirmCreate, cancelCreate,
     renamingId, startRenaming, confirmRename, cancelRename,
-    draggingWs, startDragging, endDragging, dropOnWorkspace,
+    draggingWs, hoverTargetId, onPointerDownDrag,
   } = useWorkspaceTreeContext()
 
   const isCreatingChild = creatingChildOf?.parentId === workspace.id
   const isRenaming = renamingId === workspace.id
   const isDraggingThis = draggingWs?.id === workspace.id
+  const isDropTarget = hoverTargetId === `ws:${workspace.id}` && !isDraggingThis
   const showChildrenSection = (hasChildren && expanded) || isCreatingChild
 
   const variant = isActive
-    ? 'border-transparent bg-secondary text-secondary-foreground hover:bg-secondary/90'
+    ? 'border-background bg-background text-foreground shadow-xs shadow-black/10 not-disabled:inset-shadow-[0_1px_--theme(--color-white/16%)] active:inset-shadow-[0_1px_--theme(--color-black/8%)] active:shadow-none'
     : isLocked
       ? 'border-transparent text-foreground/30 hover:bg-accent'
       : 'border-transparent text-foreground hover:bg-accent'
-
-  function handleDragStart(e: React.DragEvent) {
-    e.dataTransfer.effectAllowed = 'move'
-    // Slight delay so the drag image captures the pre-fade state
-    requestAnimationFrame(() => startDragging(workspace.id, repoId))
-  }
-
-  function handleDragEnter(e: React.DragEvent) {
-    e.preventDefault()
-    dragCounter.current++
-    setIsDragOver(true)
-  }
-
-  function handleDragLeave() {
-    dragCounter.current = Math.max(0, dragCounter.current - 1)
-    if (dragCounter.current === 0) setIsDragOver(false)
-  }
-
-  function handleDragOver(e: React.DragEvent) {
-    e.preventDefault()
-    e.dataTransfer.dropEffect = 'move'
-  }
-
-  function handleDrop(e: React.DragEvent) {
-    e.preventDefault()
-    dragCounter.current = 0
-    setIsDragOver(false)
-    dropOnWorkspace(workspace.id, repoId)
-  }
 
   return (
     <div>
@@ -77,12 +47,12 @@ export function WorkspaceTreeItem({
         <div
           role="button"
           tabIndex={0}
-          draggable={!isRenaming}
+          data-ws-drop={!isRenaming ? workspace.id : undefined}
           className={cn(
             ROW_BASE,
             variant,
             isDraggingThis && 'opacity-40',
-            isDragOver && !isDraggingThis && 'ring-1 ring-ring',
+            isDropTarget && 'ring-1 ring-ring',
           )}
           onClick={() => !isRenaming && onWorkspaceClick(workspace.id)}
           onKeyDown={(e) => {
@@ -91,12 +61,7 @@ export function WorkspaceTreeItem({
               onWorkspaceClick(workspace.id)
             }
           }}
-          onDragStart={handleDragStart}
-          onDragEnd={() => { dragCounter.current = 0; setIsDragOver(false); endDragging() }}
-          onDragEnter={handleDragEnter}
-          onDragLeave={handleDragLeave}
-          onDragOver={handleDragOver}
-          onDrop={handleDrop}
+          onPointerDown={!isRenaming && !isLocked ? (e) => onPointerDownDrag(workspace.id, repoId, workspace.branch, e) : undefined}
         >
           <WorkspaceBranchIcon status={workspace.status ?? 'new'} />
 
@@ -135,6 +100,7 @@ export function WorkspaceTreeItem({
               type="button"
               className="shrink-0 rounded-md p-1 text-foreground/30 hover:text-foreground/60 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
               onClick={(e) => { e.stopPropagation(); setExpanded(v => !v) }}
+              onPointerDown={(e) => e.stopPropagation()}
               aria-label={expanded ? 'Collapse' : 'Expand'}
             >
               <svg
@@ -154,6 +120,7 @@ export function WorkspaceTreeItem({
                 setExpanded(true)
                 startCreating(repoId, workspace.id)
               }}
+              onPointerDown={(e) => e.stopPropagation()}
               aria-label="Add child workspace"
             >
               <svg aria-hidden="true" className="size-3" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round">

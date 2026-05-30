@@ -107,9 +107,27 @@ export const useSidebarStore = create<SidebarState>()((set) => ({
     })),
 
   deleteWorkspace: (wsId) =>
-    set(s => ({
-      repos: s.repos.map(r => ({ ...r, workspaces: r.workspaces.filter(w => w.id !== wsId) })),
-    })),
+    set(s => {
+      // BFS to collect the target and all non-locked descendants
+      const allWorkspaces = s.repos.flatMap(r => r.workspaces)
+      const toDelete = new Set<string>()
+      const queue = [wsId]
+      while (queue.length > 0) {
+        const id = queue.shift()!
+        const ws = allWorkspaces.find(w => w.id === id)
+        if (ws?.status === 'locked') continue
+        toDelete.add(id)
+        for (const child of allWorkspaces.filter(w => w.parentId === id)) {
+          queue.push(child.id)
+        }
+      }
+      return {
+        repos: s.repos.map(r => ({
+          ...r,
+          workspaces: r.workspaces.filter(w => !toDelete.has(w.id)),
+        })),
+      }
+    }),
 
   renameWorkspace: (wsId, branch) =>
     set(s => ({
@@ -123,7 +141,7 @@ export const useSidebarStore = create<SidebarState>()((set) => ({
     set(s => {
       const repo = s.repos.find(r => r.workspaces.some(w => w.id === wsId))
       if (!repo) return s
-      // Reject cross-repo: newParentId must exist in the same repo (or be undefined for root)
+      // newParentId must exist in the same repo (or be undefined for root)
       if (newParentId !== undefined && !repo.workspaces.some(w => w.id === newParentId)) return s
       // Reject cycles: walk up from newParentId; if we reach wsId it's a cycle
       if (newParentId !== undefined) {

@@ -1,4 +1,4 @@
-import { createContext, useCallback, useContext, useState, type ReactNode } from 'react'
+import { createContext, useCallback, useContext, useEffect, useRef, useState, type ReactNode } from 'react'
 import { useSidebarStore } from '@/lib/store/sidebar'
 
 interface CreatingState {
@@ -9,6 +9,7 @@ interface CreatingState {
 interface DraggingState {
   id: string
   repoId: string
+  label: string
 }
 
 interface WorkspaceTreeContextValue {
@@ -22,13 +23,11 @@ interface WorkspaceTreeContextValue {
   startRenaming: (wsId: string) => void
   confirmRename: (branch: string) => void
   cancelRename: () => void
-  // Drag
+  // Drag (pointer-based)
   draggingWs: DraggingState | null
-  startDragging: (id: string, repoId: string) => void
-  endDragging: () => void
-  dropOnWorkspace: (targetWsId: string, targetRepoId: string) => void
-  dropOnRepo: (targetRepoId: string) => void
-  dropOnTrash: () => void
+  dragPos: { x: number; y: number } | null
+  hoverTargetId: string | null
+  onPointerDownDrag: (wsId: string, repoId: string, label: string, e: React.PointerEvent) => void
 }
 
 const WorkspaceTreeContext = createContext<WorkspaceTreeContextValue | null>(null)
@@ -39,10 +38,34 @@ export function useWorkspaceTreeContext() {
   return ctx
 }
 
+// Skips the dragging workspace itself to prevent self-drop flicker
+function findDropTarget(x: number, y: number, draggingId: string | null): string | null {
+  const els = document.elementsFromPoint(x, y)
+  for (const el of els) {
+    if (!(el instanceof Element)) continue
+    if (el.getAttribute('data-trash-drop') !== null) return 'trash'
+    const wsId = el.getAttribute('data-ws-drop')
+    if (wsId !== null && wsId !== draggingId) return `ws:${wsId}`
+    const repoId = el.getAttribute('data-repo-drop')
+    if (repoId !== null) return `repo:${repoId}`
+  }
+  return null
+}
+
 export function WorkspaceTreeProvider({ children }: { children: ReactNode }) {
   const [creatingChildOf, setCreatingChildOf] = useState<CreatingState | null>(null)
   const [renamingId, setRenamingId] = useState<string | null>(null)
   const [draggingWs, setDraggingWs] = useState<DraggingState | null>(null)
+  const [dragPos, setDragPos] = useState<{ x: number; y: number } | null>(null)
+  const [hoverTargetId, setHoverTargetId] = useState<string | null>(null)
+
+  const pendingRef = useRef<{
+    wsId: string; repoId: string; label: string
+    startX: number; startY: number
+  } | null>(null)
+  // Mirrors draggingWs for use inside window event handlers without stale closures.
+  // Set synchronously at the point of change, not via useEffect, to avoid one-render lag.
+  const draggingRef = useRef<DraggingState | null>(null)
 
   const startCreating = useCallback((repoId: string, parentId: string) => {
     setCreatingChildOf({ repoId, parentId })
@@ -50,15 +73,13 @@ export function WorkspaceTreeProvider({ children }: { children: ReactNode }) {
 
   const confirmCreate = useCallback((branch: string) => {
     if (!creatingChildOf) return
-    const id = `ws-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`
     useSidebarStore.getState().addWorkspace(
-      creatingChildOf.repoId, id, branch, creatingChildOf.parentId,
+      creatingChildOf.repoId, crypto.randomUUID(), branch, creatingChildOf.parentId,
     )
     setCreatingChildOf(null)
   }, [creatingChildOf])
 
   const cancelCreate = useCallback(() => setCreatingChildOf(null), [])
-
   const startRenaming = useCallback((wsId: string) => setRenamingId(wsId), [])
 
   const confirmRename = useCallback((branch: string) => {
@@ -70,37 +91,91 @@ export function WorkspaceTreeProvider({ children }: { children: ReactNode }) {
 
   const cancelRename = useCallback(() => setRenamingId(null), [])
 
-  const startDragging = useCallback((id: string, repoId: string) => {
-    setDraggingWs({ id, repoId })
+  const onPointerDownDrag = useCallback((wsId: string, repoId: string, label: string, e: React.PointerEvent) => {
+    if (e.button !== 0) return
+    if (draggingRef.current) return  // ignore second pointer mid-drag
+    // Capture the pointer so drag continues even if pointer leaves the element or
+    // window, and prevents text selection without suppressing the click event.
+    ;(e.currentTarget as HTMLElement).setPointerCapture(e.pointerId)
+    pendingRef.current = { wsId, repoId, label, startX: e.clientX, startY: e.clientY }
   }, [])
 
-  const endDragging = useCallback(() => setDraggingWs(null), [])
+  useEffect(() => {
+    function onPointerMove(e: PointerEvent) {
+      if (pendingRef.current) {
+        const { wsId, repoId, label, startX, startY } = pendingRef.current
+        if (Math.hypot(e.clientX - startX, e.clientY - startY) > 5) {
+          pendingRef.current = null
+          const ws = { id: wsId, repoId, label }
+          draggingRef.current = ws
+          setDraggingWs(ws)
+          setDragPos({ x: e.clientX, y: e.clientY })
+          // Update hover target immediately so highlight appears on the first move
+          setHoverTargetId(findDropTarget(e.clientX, e.clientY, wsId))
+        }
+        return
+      }
+      if (!draggingRef.current) return
+      setDragPos({ x: e.clientX, y: e.clientY })
+      setHoverTargetId(findDropTarget(e.clientX, e.clientY, draggingRef.current.id))
+    }
 
-  // Use setDraggingWs directly (not endDragging) to avoid circular useCallback deps
-  const dropOnWorkspace = useCallback((targetWsId: string, targetRepoId: string) => {
-    if (!draggingWs || draggingWs.id === targetWsId) { setDraggingWs(null); return }
-    if (draggingWs.repoId !== targetRepoId) { setDraggingWs(null); return }
-    useSidebarStore.getState().reparentWorkspace(draggingWs.id, targetWsId)
-    setDraggingWs(null)
-  }, [draggingWs])
+    function onPointerUp(e: PointerEvent) {
+      pendingRef.current = null
+      const ws = draggingRef.current
+      if (!ws) return
 
-  // Use setDraggingWs directly (not endDragging) to avoid circular useCallback deps
-  const dropOnRepo = useCallback((targetRepoId: string) => {
-    if (!draggingWs || draggingWs.repoId !== targetRepoId) { setDraggingWs(null); return }
-    useSidebarStore.getState().reparentWorkspace(draggingWs.id, undefined)
-    setDraggingWs(null)
-  }, [draggingWs])
+      const target = findDropTarget(e.clientX, e.clientY, ws.id)
 
-  const dropOnTrash = useCallback(() => {
-    if (draggingWs) useSidebarStore.getState().deleteWorkspace(draggingWs.id)
-    setDraggingWs(null)
-  }, [draggingWs])
+      if (target === 'trash') {
+        useSidebarStore.getState().deleteWorkspace(ws.id)
+      } else if (target?.startsWith('ws:')) {
+        const targetWsId = target.slice(3)
+        if (targetWsId !== ws.id) {
+          const repos = useSidebarStore.getState().repos
+          const targetRepo = repos.find(r => r.workspaces.some(w => w.id === targetWsId))
+          if (targetRepo?.id === ws.repoId) {
+            useSidebarStore.getState().reparentWorkspace(ws.id, targetWsId)
+          }
+        }
+      } else if (target?.startsWith('repo:')) {
+        const targetRepoId = target.slice(5)
+        if (targetRepoId === ws.repoId) {
+          useSidebarStore.getState().reparentWorkspace(ws.id, undefined)
+        }
+      }
+
+      draggingRef.current = null
+      setDraggingWs(null)
+      setDragPos(null)
+      setHoverTargetId(null)
+    }
+
+    function onPointerCancel() {
+      pendingRef.current = null
+      if (draggingRef.current) {
+        draggingRef.current = null
+        setDraggingWs(null)
+        setDragPos(null)
+        setHoverTargetId(null)
+      }
+    }
+
+    window.addEventListener('pointermove', onPointerMove)
+    window.addEventListener('pointerup', onPointerUp)
+    window.addEventListener('pointercancel', onPointerCancel)
+    return () => {
+      window.removeEventListener('pointermove', onPointerMove)
+      window.removeEventListener('pointerup', onPointerUp)
+      window.removeEventListener('pointercancel', onPointerCancel)
+    }
+  }, [])
 
   return (
     <WorkspaceTreeContext.Provider value={{
       creatingChildOf, startCreating, confirmCreate, cancelCreate,
       renamingId, startRenaming, confirmRename, cancelRename,
-      draggingWs, startDragging, endDragging, dropOnWorkspace, dropOnRepo, dropOnTrash,
+      draggingWs, dragPos, hoverTargetId, onPointerDownDrag,
     }}>
       {children}
     </WorkspaceTreeContext.Provider>

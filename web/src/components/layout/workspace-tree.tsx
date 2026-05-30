@@ -48,7 +48,7 @@ function WorkspaceTreeInner() {
   const pathname = useRouterState({ select: s => s.location.pathname })
   const repos = useSidebarStore(s => s.repos)
   const collapsedRepos = useSidebarStore(s => s.collapsedRepos)
-  const { draggingWs, dropOnRepo } = useWorkspaceTreeContext()
+  const { draggingWs, dragPos, hoverTargetId } = useWorkspaceTreeContext()
 
   const activeWorkspaceId = pathname.match(/\/workspaces\/([^/]+)/)?.[1] ?? ''
 
@@ -63,7 +63,7 @@ function WorkspaceTreeInner() {
           {repos.map(repo => {
             const roots = buildWorkspaceTree(repo.workspaces)
             const isCollapsed = collapsedRepos.has(repo.id)
-            const isRepoDragOver = draggingWs?.repoId === repo.id
+            const isRepoDragOver = hoverTargetId === `repo:${repo.id}`
             return (
               <div key={repo.id} className="mb-1">
                 <div
@@ -79,8 +79,7 @@ function WorkspaceTreeInner() {
                     if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); useSidebarStore.getState().toggleRepo(repo.id) }
                   }}
                   aria-label={isCollapsed ? 'Expand repo' : 'Collapse repo'}
-                  onDragOver={(e) => { e.preventDefault(); e.dataTransfer.dropEffect = 'move' }}
-                  onDrop={(e) => { e.preventDefault(); dropOnRepo(repo.id) }}
+                  data-repo-drop={repo.id}
                 >
                   <span className={cn('inline-flex h-4 w-4 shrink-0 items-center justify-center rounded px-1 text-[10px] font-bold text-primary-foreground', repo.avatarColor)}>
                     {repo.avatarLabel}
@@ -118,6 +117,14 @@ function WorkspaceTreeInner() {
         </div>
       </ScrollArea>
       <WorkspaceTreeFooter />
+      {draggingWs && dragPos && (
+        <div
+          className="pointer-events-none fixed z-50 rounded-md border border-border bg-secondary px-2 py-1 font-mono text-[13px] text-secondary-foreground shadow-md opacity-90"
+          style={{ left: dragPos.x + 12, top: dragPos.y - 10 }}
+        >
+          {draggingWs.label}
+        </div>
+      )}
     </div>
   )
 }
