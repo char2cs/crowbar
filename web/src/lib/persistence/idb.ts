@@ -18,3 +18,8 @@ export async function getDB(): Promise<IDBPDatabase<CrowbarDB>> {
   })
   return _db
 }
+
+/** Only for testing — resets the module-level singleton so tests get a fresh database. */
+export function resetDB(): void {
+  _db = null
+}

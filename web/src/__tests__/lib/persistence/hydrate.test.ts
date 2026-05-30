@@ -1,6 +1,7 @@
 import { hydrateFromIDB } from '@/lib/persistence/hydrate'
-import { getDB } from '@/lib/persistence/idb'
-import type { WorkspaceLayout, UIPreferences } from '@/lib/persistence/schemas'
+import { getDB, resetDB } from '@/lib/persistence/idb'
+import type { WorkspaceLayout, UIPreferences, EditorState } from '@/lib/persistence/schemas'
+import { IDBFactory } from 'fake-indexeddb'
 
 async function seedDB(workspaceId: string) {
   const db = await getDB()
@@ -22,12 +23,29 @@ async function seedDB(workspaceId: string) {
     minimap: true,
     updatedAt: Date.now(),
   }
+  const editorState: EditorState = {
+    workspaceId,
+    bufferId: '/src/main.ts',
+    cursorLine: 10,
+    cursorColumn: 5,
+    scrollTop: 200,
+    folds: [],
+    updatedAt: Date.now(),
+  }
   await db.put('workspace-layout', layout)
   await db.put('ui-preferences', prefs, 'global')
-  return { layout, prefs }
+  await db.put('editor-state', editorState)
+  return { layout, prefs, editorState }
 }
 
 describe('hydrateFromIDB', () => {
+  beforeEach(async () => {
+    // Reset the IDB singleton so each test gets a fresh database
+    resetDB()
+    // @ts-expect-error — reset global indexedDB to fresh instance
+    globalThis.indexedDB = new IDBFactory()
+  })
+
   it('returns null layout and prefs when IDB is empty', async () => {
     const result = await hydrateFromIDB('missing-ws')
     expect(result.layout).toBeNull()
@@ -36,10 +54,12 @@ describe('hydrateFromIDB', () => {
   })
 
   it('returns layout and prefs when seeded', async () => {
-    const { layout, prefs } = await seedDB('ws-test')
+    const { layout, prefs, editorState } = await seedDB('ws-test')
     const result = await hydrateFromIDB('ws-test')
     expect(result.layout?.workspaceId).toBe(layout.workspaceId)
     expect(result.layout?.sidebarWidth).toBe(240)
     expect(result.prefs?.theme).toBe(prefs.theme)
+    expect(result.editorStates).toHaveLength(1)
+    expect(result.editorStates[0].bufferId).toBe('/src/main.ts')
   })
 })
