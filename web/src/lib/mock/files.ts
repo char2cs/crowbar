@@ -10,6 +10,14 @@ function repoIdFromPath(rootPath: string): string {
   return rootPath.split('/').filter(Boolean).pop() ?? 'default'
 }
 
+function prefixPaths(root: string, nodes: FileEntry[]): FileEntry[] {
+  return nodes.map(node => ({
+    ...node,
+    path: root ? `${root}/${node.path}` : node.path,
+    children: node.children ? prefixPaths(root, node.children) : undefined,
+  }))
+}
+
 const TREES: Record<string, FileEntry[]> = {
   crowbar: [
     { name: 'api', path: 'api', isDir: true, children: [
@@ -199,7 +207,10 @@ const TREES: Record<string, FileEntry[]> = {
 
 export function getMockFileTree(rootPath: string): FileEntry[] {
   const repoId = repoIdFromPath(rootPath)
-  return TREES[repoId] ?? TREES['crowbar']
+  const tree = TREES[repoId] ?? TREES['crowbar']
+  // Prefix all paths with rootPath so getWorkspaceRootForPath can match them
+  // against the absolute rootFolderPath in file-explorer-tree.tsx
+  return rootPath ? prefixPaths(rootPath, tree) : tree
 }
 
 /** Realistic mock content for each file in the mock tree.

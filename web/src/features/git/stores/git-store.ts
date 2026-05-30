@@ -83,6 +83,10 @@ export const useGitStore = create<GitState>((set, get) => ({
     loadFreshGitData: ({ gitStatus, commits, branches, stashes, repoPath }) => {
       set({
         gitStatus,
+        // Also drive file-explorer git decorations — file-explorer-tree reads
+        // workspaceGitStatus + currentWorkspaceRepoPath from this store
+        workspaceGitStatus: toWorkspaceGitStatus(gitStatus),
+        currentWorkspaceRepoPath: repoPath,
         commits,
         branches,
         stashes,
@@ -95,7 +99,7 @@ export const useGitStore = create<GitState>((set, get) => ({
       const { currentRepoPath, commits: existingCommits } = get();
 
       if (currentRepoPath !== repoPath || existingCommits.length === 0) {
-        set({ gitStatus, branches });
+        set({ gitStatus, workspaceGitStatus: toWorkspaceGitStatus(gitStatus), currentWorkspaceRepoPath: repoPath, branches });
         return;
       }
 
