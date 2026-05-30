@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react'
+import { useRef, useState } from 'react'
 
 interface WorkspaceInlineInputProps {
   defaultValue?: string
@@ -14,14 +14,8 @@ export function WorkspaceInlineInput({
   onCancel,
 }: WorkspaceInlineInputProps) {
   const [value, setValue] = useState(defaultValue)
-  const ref = useRef<HTMLInputElement>(null)
   // Prevents blur from double-firing after Enter/Escape already handled
   const handledRef = useRef(false)
-
-  useEffect(() => {
-    ref.current?.focus()
-    ref.current?.select()
-  }, [])
 
   function handleKeyDown(e: React.KeyboardEvent<HTMLInputElement>) {
     if (e.key === 'Enter') {
@@ -44,7 +38,7 @@ export function WorkspaceInlineInput({
 
   return (
     <input
-      ref={ref}
+      ref={el => { el?.focus(); el?.select() }}
       type="text"
       value={value}
       onChange={e => setValue(e.target.value)}

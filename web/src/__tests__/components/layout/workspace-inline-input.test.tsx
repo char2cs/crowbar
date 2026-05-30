@@ -45,3 +45,34 @@ test('does not double-fire after Enter then blur', () => {
   fireEvent.blur(input)
   expect(onConfirm).toHaveBeenCalledTimes(1)
 })
+
+test('confirms trimmed value on blur', () => {
+  const onConfirm = vi.fn()
+  const onCancel = vi.fn()
+  render(<WorkspaceInlineInput onConfirm={onConfirm} onCancel={onCancel} />)
+  const input = screen.getByRole('textbox')
+  fireEvent.change(input, { target: { value: '  feature/blur  ' } })
+  fireEvent.blur(input)
+  expect(onConfirm).toHaveBeenCalledWith('feature/blur')
+  expect(onCancel).not.toHaveBeenCalled()
+})
+
+test('cancels on blur with blank value', () => {
+  const onConfirm = vi.fn()
+  const onCancel = vi.fn()
+  render(<WorkspaceInlineInput onConfirm={onConfirm} onCancel={onCancel} />)
+  fireEvent.blur(screen.getByRole('textbox'))
+  expect(onCancel).toHaveBeenCalled()
+  expect(onConfirm).not.toHaveBeenCalled()
+})
+
+test('Escape cancels even when input has a value', () => {
+  const onConfirm = vi.fn()
+  const onCancel = vi.fn()
+  render(<WorkspaceInlineInput onConfirm={onConfirm} onCancel={onCancel} />)
+  const input = screen.getByRole('textbox')
+  fireEvent.change(input, { target: { value: 'feature/typed' } })
+  fireEvent.keyDown(input, { key: 'Escape' })
+  expect(onCancel).toHaveBeenCalled()
+  expect(onConfirm).not.toHaveBeenCalled()
+})
