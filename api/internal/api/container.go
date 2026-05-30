@@ -20,6 +20,7 @@ func New(appContainer *app.Container, staticFS fs.FS) (*Container, error) {
 	router.Use(middleware.Logger(), middleware.Recovery())
 
 	apiV0 := router.Group("/api/v0")
+	apiV0.Use(middleware.Chaos())
 	v0.Register(apiV0, appContainer)
 
 	if staticFS != nil {
