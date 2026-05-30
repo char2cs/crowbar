@@ -25,6 +25,7 @@ export type SettingsTab =
   | "databases"
   | "file-explorer"
   | "language"
+  | "developer"
 
 export type BottomPaneTab = "terminal" | "buffers"
 export type SidebarActivityItem = "file-explorer" | "git" | "search" | "extensions"

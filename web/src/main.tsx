@@ -14,7 +14,6 @@ import { initializeIconThemes } from '@/extensions/icon-themes/icon-theme-initia
 import { initTreeCacheSubscription } from '@/features/editor/stores/tree-cache-store'
 import { initViewStoreSubscription } from '@/features/editor/stores/view-store'
 import { persister } from '@/lib/persistence/query-persister'
-import { ChaosPanel } from '@/components/dev/chaos-panel'
 import './index.css'
 
 // Required for Zustand stores that use immer middleware with Set/Map state
@@ -65,7 +64,6 @@ createRoot(document.getElementById('root')!).render(
     >
       <TooltipProvider>
         <RouterProvider router={router} />
-        {import.meta.env.DEV && import.meta.env.VITE_USE_MOCK !== 'true' && <ChaosPanel />}
       </TooltipProvider>
     </PersistQueryClientProvider>
   </StrictMode>,

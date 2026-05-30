@@ -18,6 +18,7 @@ import { EditorSettings } from "./tabs/editor-settings";
 import { GitSettings } from "./tabs/git-settings";
 import { FileTreeSettings } from "./tabs/file-tree-settings";
 import { TerminalSettings } from "./tabs/terminal-settings";
+import { DeveloperSettings } from "./tabs/developer-settings";
 
 interface SettingsDialogProps {
   isOpen: boolean;
@@ -85,6 +86,7 @@ const SettingsDialog = ({ isOpen, onClose }: SettingsDialogProps) => {
       case "file-explorer": return <FileTreeSettings />;
       case "git":           return <GitSettings />;
       case "terminal":      return <TerminalSettings />;
+      case "developer":     return <DeveloperSettings />;
       default:              return <AppearanceSettings />;
     }
   };
