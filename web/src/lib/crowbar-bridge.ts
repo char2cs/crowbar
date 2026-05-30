@@ -76,6 +76,14 @@ export async function clipboardClear(): Promise<void> {
   // FUTURE: DELETE /api/fs/clipboard
 }
 
+// ── Native Dialogs ────────────────────────────────────────────────────────────
+// FUTURE: Tauri plugin-dialog when crowbar desktop wrapper exposes it
+
+export async function openDirectory(): Promise<string | null> {
+  // FUTURE: @tauri-apps/plugin-dialog open({ directory: true, multiple: false })
+  return null;
+}
+
 // ── Window Management ─────────────────────────────────────────────────────────
 // FUTURE: Tauri plugin calls when Crowbar's desktop wrapper exposes them
 

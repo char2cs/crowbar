@@ -1,4 +1,3 @@
-const open = async (_opts: unknown): Promise<string | null> => null
 import {
   ClockCounterClockwise,
   DotsThree as MoreHorizontal,
@@ -29,6 +28,7 @@ import { getGitLog } from "../api/git-commits-api";
 import { clearRepositoryDiscoveryCache, resolveRepositoryPath } from "../api/git-repo-api";
 import { getStashes } from "../api/git-stash-api";
 import { getGitStatus, initRepository } from "../api/git-status-api";
+import { openDirectory } from "@/lib/crowbar-bridge";
 import { useGitDiffHandlers } from "../hooks/use-git-diff-handlers";
 import { useGitFileDiffStats } from "../hooks/use-git-file-diff-stats";
 import { useRepositoryStore } from "../stores/git-repository-store";
@@ -82,8 +82,8 @@ const GitView = ({ repoPath, onFileSelect, isActive }: GitViewProps) => {
 
   const [showRemoteManager, setShowRemoteManager] = useState(false);
   const [showTagManager, setShowTagManager] = useState(false);
-  const settings = useSettingsStore((state) => state.settings);
-  const updateSetting = useSettingsStore((state) => state.updateSetting);
+  const settings = useSettingsStore((s) => s.settings);
+  const updateSetting = useSettingsStore((s) => s.updateSetting);
   const [activeTab, setActiveTab] = useState<GitSidebarTab>("changes");
 
   const wasActiveRef = useRef(isActive);
@@ -105,10 +105,7 @@ const GitView = ({ repoPath, onFileSelect, isActive }: GitViewProps) => {
     setIsSelectingRepo(true);
     setRepoSelectionError(null);
     try {
-      const selected = await open({
-        directory: true,
-        multiple: false,
-      });
+      const selected = await openDirectory();
 
       if (!selected || Array.isArray(selected)) {
         return;

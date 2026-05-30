@@ -56,7 +56,7 @@ const TabBar = ({
 }: TabBarProps) => {
   const allBuffers = useBuffers();
   const globalActiveBufferId = useWorkspaceStoreContext(s => s.paneActions.getActivePane()?.activeBufferId ?? null);
-  const pendingClose = null as ({ bufferId: string } | null);
+  const pendingClose = useWorkspaceStoreContext((s) => s.pendingClose);
   const paneRoot = usePaneRoot();
   const bottomRoot = useBottomRoot();
   const { closePane, setActivePane, activatePaneBuffer, removeBufferFromPane, splitPane, moveBufferToPane, reorderPaneBuffers } = usePaneActions();

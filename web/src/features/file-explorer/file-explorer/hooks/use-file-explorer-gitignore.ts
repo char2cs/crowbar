@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { readFile } from "@/features/file-system/controllers/platform";
 import {
   createFileTreeGitIgnoreRules,
@@ -58,11 +58,14 @@ export function useFileExplorerGitignore(
     };
   }, [gitIgnoreFileReferences, rootFolderPath]);
 
-  const isGitIgnored = (fullPath: string, isDir: boolean): boolean => {
-    if (!gitIgnoreRules || !rootFolderPath) return false;
-    if (getWorkspaceRootForPath(fullPath) !== rootFolderPath) return false;
-    return isPathGitIgnoredByFileTreeRules(gitIgnoreRules, fullPath, isDir);
-  };
+  const isGitIgnored = useCallback(
+    (fullPath: string, isDir: boolean): boolean => {
+      if (!gitIgnoreRules || !rootFolderPath) return false;
+      if (getWorkspaceRootForPath(fullPath) !== rootFolderPath) return false;
+      return isPathGitIgnoredByFileTreeRules(gitIgnoreRules, fullPath, isDir);
+    },
+    [gitIgnoreRules, rootFolderPath, getWorkspaceRootForPath],
+  );
 
   return { isGitIgnored };
 }

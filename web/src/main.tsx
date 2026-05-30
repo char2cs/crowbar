@@ -19,9 +19,11 @@ import './index.css'
 enableMapSet()
 
 // Wire up daemon event listeners for cache invalidation.
-// This must be called once at module load, before any queries are made.
-// Store disconnect function (used in tests and future hot reload)
-connectDaemonEvents(queryClient)
+// Cleanup is registered with Vite HMR so hot-reloading doesn't leak listeners.
+const disconnectDaemonEvents = connectDaemonEvents(queryClient)
+if (import.meta.hot) {
+  import.meta.hot.dispose(() => disconnectDaemonEvents())
+}
 
 // Apply the cached theme immediately (synchronous) so the correct dark/light
 // class is set before React renders anything — prevents a flash of light mode.
