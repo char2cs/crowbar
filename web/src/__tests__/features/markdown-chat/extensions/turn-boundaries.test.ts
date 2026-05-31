@@ -13,6 +13,7 @@ test('turnsToDocument produces boundary markers followed by content', () => {
   expect(doc).toContain('Hello')
   expect(doc).toContain('<!-- turn:u1 role:user -->')
   expect(doc).toContain('World')
+  expect(doc).not.toContain('<!-- input -->')
 })
 
 test('parseTurnBoundaries finds turn ranges in document text', () => {
