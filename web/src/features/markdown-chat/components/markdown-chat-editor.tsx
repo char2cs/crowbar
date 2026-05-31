@@ -4,7 +4,7 @@ import { EditorView, keymap } from '@codemirror/view'
 import { defaultKeymap, history, historyKeymap } from '@codemirror/commands'
 import { markdown } from '@codemirror/lang-markdown'
 import type { MarkdownTurn } from '../types'
-import { turnsToDocument } from '../extensions/turn-boundaries'
+import { turnsToDocument, getInputPos } from '../extensions/turn-boundaries'
 import { livePreview } from '../extensions/live-preview'
 import { streamingExt } from '../extensions/streaming-ext'
 import { todoStickyExt } from '../extensions/todo-sticky'
@@ -19,6 +19,7 @@ import './mermaid-widget'
 interface MarkdownChatEditorProps {
   turns: MarkdownTurn[]
   streamingTurnId: string | null
+  getTurns: () => MarkdownTurn[]
   onSubmit: (content: string) => void
   onWidgetChange: (widgetId: string, payload: unknown) => void
   onSlashCommand: (command: SlashCommand) => void
@@ -28,6 +29,7 @@ interface MarkdownChatEditorProps {
 export function MarkdownChatEditor({
   turns,
   streamingTurnId,
+  getTurns,
   onSubmit,
   onWidgetChange,
   onSlashCommand,
@@ -43,29 +45,19 @@ export function MarkdownChatEditor({
     anchorRect: null,
   })
 
-  const turnsRef = useRef(turns)
-
-  // Keep refs in sync with latest props without recreating the editor
   useEffect(() => { onSubmitRef.current = onSubmit }, [onSubmit])
   useEffect(() => { onSlashCommandRef.current = onSlashCommand }, [onSlashCommand])
-  useEffect(() => { turnsRef.current = turns }, [turns])
 
   const handleSlashCommand = useCallback((cmd: SlashCommand) => {
     const view = viewRef.current
     if (view) {
-      // Remove the /query text that triggered the palette
       const { from } = view.state.selection.main
       const line = view.state.doc.lineAt(from)
-      const col = from - line.from
-      const textBefore = line.text.slice(0, col)
+      const textBefore = line.text.slice(0, from - line.from)
       const slashIdx = textBefore.lastIndexOf('/')
       if (slashIdx !== -1) {
         view.dispatch({
-          changes: {
-            from: line.from + slashIdx,
-            to: from,
-            insert: cmd.id,
-          },
+          changes: { from: line.from + slashIdx, to: from, insert: cmd.id },
         })
       }
     }
@@ -76,19 +68,15 @@ export function MarkdownChatEditor({
   useEffect(() => {
     if (!containerRef.current) return
 
-    const docContent = turns.length > 0 ? turnsToDocument(turns) : ''
+    const docContent = turnsToDocument(turns)
 
     const submitKeymap = keymap.of([
       {
         key: 'Mod-Enter',
         run(view) {
-          const fullContent = view.state.doc.toString()
-          // Extract user input: everything after the last turn boundary marker
-          const lines = fullContent.split('\n')
-          const lastMarkerIdx = [...lines.entries()]
-            .filter(([, l]) => /^<!-- turn:/.test(l))
-            .at(-1)?.[0] ?? -1
-          const userInput = lines.slice(lastMarkerIdx + 1).join('\n').trim()
+          const doc = view.state.doc
+          const inputPos = getInputPos(doc)
+          const userInput = doc.sliceString(inputPos, doc.length).trim()
           if (userInput) onSubmitRef.current(userInput)
           return true
         },
@@ -106,18 +94,20 @@ export function MarkdownChatEditor({
         livePreview(),
         streamingExt(),
         todoStickyExt(),
-        widgetExt(turnsRef, onWidgetChange),
+        widgetExt(getTurns, onWidgetChange),
         slashCommandExt(setSlashState),
         EditorView.theme({
-          '&': { height: '100%', fontSize: '14px' },
+          '&': { height: '100%', width: '100%', fontSize: '14px' },
           '.cm-scroller': {
             overflow: 'auto',
             fontFamily: 'var(--font-sans, system-ui)',
           },
           '.cm-content': { padding: '16px', minHeight: '100%' },
           '.cm-line': { lineHeight: '1.7' },
-          '.cm-editor': { height: '100%' },
+          '.cm-editor': { height: '100%', width: '100%' },
           '.cm-widget-container': { margin: '8px 0' },
+          // Input area gets a subtle top border to separate it from read-only content
+          '.cm-line:last-child': { borderTop: '1px dashed oklch(0 0 0 / 10%)' },
         }),
         EditorView.lineWrapping,
       ],
@@ -132,11 +122,11 @@ export function MarkdownChatEditor({
       viewRef.current = null
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []) // Mount once — streaming updates happen imperatively via appendStreamChunk
+  }, []) // Mount once — turns update via INPUT_MARKER, streaming happens imperatively
 
   return (
     <div className="relative flex min-h-0 flex-1 flex-col overflow-hidden">
-      <div ref={containerRef} className="min-h-0 flex-1" />
+      <div ref={containerRef} className="min-h-0 w-full flex-1" />
       {slashState.open && slashState.anchorRect && (
         <SlashCommandPalette
           query={slashState.query}

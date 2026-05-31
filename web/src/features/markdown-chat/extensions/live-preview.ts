@@ -2,7 +2,6 @@ import { EditorState, StateField, RangeSetBuilder } from '@codemirror/state'
 import { Decoration, DecorationSet, EditorView } from '@codemirror/view'
 import { syntaxTree } from '@codemirror/language'
 
-// Exposed for testing — checks if a decoration of a given class exists at position.
 export function hasLivePreviewDecoration(
   state: EditorState,
   pos: number,
@@ -21,37 +20,108 @@ function cursorLine(state: EditorState): number {
   return state.doc.lineAt(state.selection.main.head).number
 }
 
+interface PendingDeco {
+  from: number
+  to: number
+  deco: Decoration
+}
+
 function buildLivePreviewDecorations(state: EditorState): DecorationSet {
-  const builder = new RangeSetBuilder<Decoration>()
+  const pending: PendingDeco[] = []
   const activeLine = cursorLine(state)
   const tree = syntaxTree(state)
 
   tree.cursor().iterate((node) => {
-    const lineNum = state.doc.lineAt(node.from).number
-    if (lineNum === activeLine) return // show raw syntax on cursor line
-
     switch (node.name) {
       case 'ATXHeading1':
-        builder.add(node.from, node.to, Decoration.mark({ class: 'cm-live-heading-1' }))
-        break
       case 'ATXHeading2':
-        builder.add(node.from, node.to, Decoration.mark({ class: 'cm-live-heading-2' }))
-        break
-      case 'ATXHeading3':
-        builder.add(node.from, node.to, Decoration.mark({ class: 'cm-live-heading-3' }))
-        break
-      case 'StrongEmphasis':
-        builder.add(node.from, node.to, Decoration.mark({ class: 'cm-live-bold' }))
-        break
-      case 'Emphasis':
-        builder.add(node.from, node.to, Decoration.mark({ class: 'cm-live-italic' }))
-        break
-      case 'InlineCode':
-        builder.add(node.from, node.to, Decoration.mark({ class: 'cm-live-inline-code' }))
-        break
+      case 'ATXHeading3': {
+        if (state.doc.lineAt(node.from).number === activeLine) return false
+
+        const level = node.name === 'ATXHeading1' ? 1 : node.name === 'ATXHeading2' ? 2 : 3
+        let headerMarkTo = node.from
+
+        // Walk children to find and hide the HeaderMark (e.g., "## ")
+        let child = node.node.firstChild
+        while (child) {
+          if (child.name === 'HeaderMark') {
+            pending.push({ from: child.from, to: child.to, deco: Decoration.replace({}) })
+            headerMarkTo = child.to
+          }
+          child = child.nextSibling
+        }
+
+        // Mark only the text portion (after the hidden header mark)
+        if (headerMarkTo < node.to) {
+          pending.push({
+            from: headerMarkTo,
+            to: node.to,
+            deco: Decoration.mark({ class: `cm-live-heading-${level}` }),
+          })
+        }
+        return false
+      }
+
+      case 'StrongEmphasis': {
+        if (state.doc.lineAt(node.from).number === activeLine) return false
+
+        let contentFrom = node.from
+        let contentTo = node.to
+
+        let child = node.node.firstChild
+        while (child) {
+          if (child.name === 'EmphasisMark') {
+            pending.push({ from: child.from, to: child.to, deco: Decoration.replace({}) })
+            if (child.from === node.from) contentFrom = child.to
+            else contentTo = child.from
+          }
+          child = child.nextSibling
+        }
+
+        if (contentFrom < contentTo) {
+          pending.push({ from: contentFrom, to: contentTo, deco: Decoration.mark({ class: 'cm-live-bold' }) })
+        }
+        return false
+      }
+
+      case 'Emphasis': {
+        if (state.doc.lineAt(node.from).number === activeLine) return false
+
+        let contentFrom = node.from
+        let contentTo = node.to
+
+        let child = node.node.firstChild
+        while (child) {
+          if (child.name === 'EmphasisMark') {
+            pending.push({ from: child.from, to: child.to, deco: Decoration.replace({}) })
+            if (child.from === node.from) contentFrom = child.to
+            else contentTo = child.from
+          }
+          child = child.nextSibling
+        }
+
+        if (contentFrom < contentTo) {
+          pending.push({ from: contentFrom, to: contentTo, deco: Decoration.mark({ class: 'cm-live-italic' }) })
+        }
+        return false
+      }
+
+      case 'InlineCode': {
+        if (state.doc.lineAt(node.from).number !== activeLine) {
+          pending.push({ from: node.from, to: node.to, deco: Decoration.mark({ class: 'cm-live-inline-code' }) })
+        }
+        return false
+      }
     }
   })
 
+  // Sort by from (RangeSetBuilder requires strictly ascending from values)
+  pending.sort((a, b) => a.from !== b.from ? a.from - b.from : a.to - b.to)
+
+  const builder = new RangeSetBuilder<Decoration>()
+  for (const { from, to, deco } of pending) {
+    builder.add(from, to, deco)
+  }
   return builder.finish()
 }
 
@@ -65,23 +135,14 @@ const livePreviewField = StateField.define<DecorationSet>({
 })
 
 const livePreviewTheme = EditorView.theme({
-  '.cm-live-heading-1': {
-    fontSize: '1.5em',
-    fontWeight: '700',
-  },
-  '.cm-live-heading-2': {
-    fontSize: '1.25em',
-    fontWeight: '700',
-  },
-  '.cm-live-heading-3': {
-    fontSize: '1.1em',
-    fontWeight: '700',
-  },
+  '.cm-live-heading-1': { fontSize: '1.5em', fontWeight: '700', lineHeight: '1.3' },
+  '.cm-live-heading-2': { fontSize: '1.25em', fontWeight: '700', lineHeight: '1.3' },
+  '.cm-live-heading-3': { fontSize: '1.1em', fontWeight: '600', lineHeight: '1.3' },
   '.cm-live-bold': { fontWeight: '700' },
   '.cm-live-italic': { fontStyle: 'italic' },
   '.cm-live-inline-code': {
     fontFamily: 'var(--font-editor)',
-    backgroundColor: 'hsl(var(--color-code) / 0.15)',
+    backgroundColor: 'oklch(0 0 0 / 6%)',
     borderRadius: '3px',
     padding: '0 3px',
   },

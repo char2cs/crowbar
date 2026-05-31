@@ -2,7 +2,14 @@ import { useEffect, useRef, useCallback, useState } from 'react'
 import { useStore } from 'zustand'
 import { nanoid } from 'nanoid'
 import type { EditorView } from '@codemirror/view'
-import { appendStreamChunk, finalizeStreaming } from '../extensions/streaming-ext'
+import {
+  appendStreamChunk,
+  finalizeStreaming,
+} from '../extensions/streaming-ext'
+import {
+  insertTurnAndStartStreaming,
+  resetInputMarker,
+} from '../extensions/turn-boundaries'
 import { getOrCreateConversationStore } from '../stores/conversation-store'
 import { getMockMarkdownTurns, simulateMarkdownStream } from '@/lib/mock/markdown-chat'
 import { MarkdownChatEditor } from './markdown-chat-editor'
@@ -37,6 +44,9 @@ export function MarkdownChatView({ workspaceId, stepId }: MarkdownChatViewProps)
   const [toolbarEditorView, setToolbarEditorView] = useState<EditorView | null>(null)
   const cancelStreamRef = useRef<(() => void) | null>(null)
 
+  // Always-fresh turns getter — avoids stale closures in FencedWidget.toDOM()
+  const getTurns = useCallback(() => store.getState().turns, [store])
+
   // Seed turns on mount
   useEffect(() => {
     const state = store.getState()
@@ -66,18 +76,22 @@ export function MarkdownChatView({ workspaceId, stepId }: MarkdownChatViewProps)
   const handleSubmit = useCallback(
     (content: string) => {
       cancelStreamRef.current?.()
-      const state = store.getState()
+      const view = editorViewRef.current
+      if (!view) return
 
+      const state = store.getState()
+      const userId = nanoid()
+      const agentId = nanoid()
+
+      // Update store
       state.appendTurn({
-        id: nanoid(),
+        id: userId,
         role: 'user',
         content,
         timestamp: new Date().toISOString(),
         authorName: 'You',
         widgets: [],
       })
-
-      const agentId = nanoid()
       state.appendTurn({
         id: agentId,
         role: 'agent',
@@ -88,15 +102,19 @@ export function MarkdownChatView({ workspaceId, stepId }: MarkdownChatViewProps)
         streaming: true,
       })
 
+      // Update CM6 document — replaces input area with turn markers
+      insertTurnAndStartStreaming(view, userId, content, agentId)
+
       cancelStreamRef.current = simulateMarkdownStream(
         MOCK_RESPONSE,
         (chunk) => {
           state.updateStreamingTurn(agentId, chunk)
-          if (editorViewRef.current) appendStreamChunk(editorViewRef.current, chunk)
+          appendStreamChunk(view, chunk)
         },
         () => {
           state.finalizeStreamingTurn(agentId)
-          if (editorViewRef.current) finalizeStreaming(editorViewRef.current)
+          finalizeStreaming(view)
+          resetInputMarker(view)
           cancelStreamRef.current = null
         },
       )
@@ -151,10 +169,11 @@ export function MarkdownChatView({ workspaceId, stepId }: MarkdownChatViewProps)
   }
 
   return (
-    <div className="flex h-full flex-col overflow-hidden">
+    <div className="flex h-full w-full flex-col overflow-hidden">
       <MarkdownChatEditor
         turns={turns}
         streamingTurnId={streamingTurnId}
+        getTurns={getTurns}
         onSubmit={handleSubmit}
         onWidgetChange={handleWidgetChange}
         onSlashCommand={handleSlashCommand}
