@@ -1,4 +1,4 @@
-import type { MarkdownTurn } from '@/features/markdown-chat/types'
+import type { MarkdownTurn, SlashCommand } from '@/features/markdown-chat/types'
 
 const MOCK_TURNS: Record<string, MarkdownTurn[]> = {
   'ws3:brainstorm': [
@@ -62,6 +62,20 @@ I'd recommend **Option A** for Crowbar specifically since you already have a Go 
 
 export function getMockMarkdownTurns(wsId: string, stepId: string): MarkdownTurn[] {
   return MOCK_TURNS[`${wsId}:${stepId}`] ?? []
+}
+
+// Placeholder for the provider-supplied slash command list. In production these
+// arrive from the AI provider; this mock stands in until that feed is wired.
+const MOCK_SLASH_COMMANDS: SlashCommand[] = [
+  { id: '/tdd', label: '/tdd', description: 'Test-driven development workflow', icon: '🧪' },
+  { id: '/code-review', label: '/code-review', description: 'Review current branch', icon: '🔍' },
+  { id: '/plan', label: '/plan', description: 'Write an implementation plan', icon: '📋' },
+  { id: '/debug', label: '/debug', description: 'Systematic debugging', icon: '🐛' },
+  { id: '/explain', label: '/explain', description: 'Explain selected code', icon: '💬' },
+]
+
+export function getMockSlashCommands(): SlashCommand[] {
+  return MOCK_SLASH_COMMANDS
 }
 
 // Simulate streaming a response in chunks every 30ms.

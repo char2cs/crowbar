@@ -1,72 +1,95 @@
-import { useState, useEffect, useRef } from 'react'
+import { type CSSProperties, useMemo, useState } from 'react'
+import { Search } from 'lucide-react'
+import {
+  Autocomplete,
+  AutocompleteEmpty,
+  AutocompleteInput,
+  AutocompleteItem,
+  AutocompleteList,
+  AutocompletePopup,
+} from '@/components/ui/autocomplete'
+import type { SlashCommand } from '../types'
 
-export interface SlashCommand {
-  id: string
-  label: string
-  description: string
-  icon?: string
-}
-
-// The real list — extend as new skills are added.
-export const SLASH_COMMANDS: SlashCommand[] = [
-  { id: '/tdd', label: '/tdd', description: 'Test-driven development workflow', icon: '🧪' },
-  { id: '/code-review', label: '/code-review', description: 'Review current branch', icon: '🔍' },
-  { id: '/plan', label: '/plan', description: 'Write an implementation plan', icon: '📋' },
-  { id: '/debug', label: '/debug', description: 'Systematic debugging', icon: '🐛' },
-  { id: '/explain', label: '/explain', description: 'Explain selected code', icon: '💬' },
-]
+// Re-export so existing importers keep working.
+export type { SlashCommand }
 
 interface SlashCommandPaletteProps {
-  query: string
+  /** Provider-supplied commands. We don't own this list. */
+  commands: SlashCommand[]
   onSelect: (command: SlashCommand) => void
   onClose: () => void
   anchorRect: DOMRect
 }
 
-export function SlashCommandPalette({ query, onSelect, onClose, anchorRect }: SlashCommandPaletteProps) {
-  const [activeIdx, setActiveIdx] = useState(0)
-  const filtered = SLASH_COMMANDS.filter(
-    (c) => c.label.toLowerCase().includes(query.toLowerCase()),
-  )
+export function SlashCommandPalette({
+  commands,
+  onSelect,
+  onClose,
+  anchorRect,
+}: SlashCommandPaletteProps) {
+  const [query, setQuery] = useState('')
 
-  const ref = useRef<HTMLDivElement>(null)
+  const filtered = useMemo(() => {
+    const q = query.trim().toLowerCase()
+    if (!q) return commands
+    return commands.filter(
+      (c) =>
+        c.label.toLowerCase().includes(q) ||
+        c.description.toLowerCase().includes(q),
+    )
+  }, [commands, query])
 
-  // Reset active index when filter changes
-  useEffect(() => { setActiveIdx(0) }, [query])
-
-  // Keyboard navigation
-  useEffect(() => {
-    const handler = (e: KeyboardEvent) => {
-      if (e.key === 'ArrowDown') { e.preventDefault(); setActiveIdx((i) => Math.min(i + 1, filtered.length - 1)) }
-      if (e.key === 'ArrowUp') { e.preventDefault(); setActiveIdx((i) => Math.max(i - 1, 0)) }
-      if (e.key === 'Enter') { e.preventDefault(); if (filtered[activeIdx]) onSelect(filtered[activeIdx]) }
-      if (e.key === 'Escape') { e.preventDefault(); onClose() }
-    }
-    window.addEventListener('keydown', handler, true)
-    return () => window.removeEventListener('keydown', handler, true)
-  }, [filtered, activeIdx, onSelect, onClose])
-
-  if (filtered.length === 0) return null
+  // Pin the palette's own search input to the editor caret; the Autocomplete
+  // list floats from that input.
+  const anchorStyle: CSSProperties = {
+    position: 'fixed',
+    top: anchorRect.top,
+    left: anchorRect.left,
+    transform: 'translateY(-100%)',
+    zIndex: 50,
+  }
 
   return (
-    <div
-      ref={ref}
-      className="fixed z-50 w-72 rounded-lg border border-border bg-popover shadow-lg"
-      style={{ top: anchorRect.top - 8, left: anchorRect.left, transform: 'translateY(-100%)' }}
+    <Autocomplete
+      items={filtered}
+      mode="none"
+      open
+      value={query}
+      onValueChange={setQuery}
+      onOpenChange={(open) => { if (!open) onClose() }}
+      autoHighlight="always"
+      itemToStringValue={(c: SlashCommand) => c.label}
     >
-      {filtered.map((cmd, i) => (
-        <button
-          key={cmd.id}
-          className={`flex w-full items-start gap-2 px-3 py-2 text-left text-sm transition-colors hover:bg-muted ${i === activeIdx ? 'bg-muted' : ''}`}
-          onClick={() => onSelect(cmd)}
-        >
-          {cmd.icon && <span className="mt-0.5 text-base leading-none">{cmd.icon}</span>}
-          <div>
-            <div className="font-mono font-medium text-foreground">{cmd.label}</div>
-            <div className="text-xs text-muted-foreground">{cmd.description}</div>
-          </div>
-        </button>
-      ))}
-    </div>
+      <div style={anchorStyle}>
+        <AutocompleteInput
+          autoFocus
+          size="sm"
+          startAddon={<Search />}
+          placeholder="Search commands…"
+          className="w-72"
+        />
+      </div>
+      <AutocompletePopup side="top" align="start" sideOffset={8} className="w-72">
+        <AutocompleteList>
+          <AutocompleteEmpty>No commands</AutocompleteEmpty>
+          {filtered.map((cmd) => (
+            <AutocompleteItem
+              key={cmd.id}
+              value={cmd}
+              onClick={() => onSelect(cmd)}
+              className="items-start gap-2 py-1.5"
+            >
+              {cmd.icon && (
+                <span className="mt-0.5 text-base leading-none">{cmd.icon}</span>
+              )}
+              <span className="flex min-w-0 flex-col">
+                <span className="font-mono font-medium text-foreground">{cmd.label}</span>
+                <span className="truncate text-xs text-muted-foreground">{cmd.description}</span>
+              </span>
+            </AutocompleteItem>
+          ))}
+        </AutocompleteList>
+      </AutocompletePopup>
+    </Autocomplete>
   )
 }

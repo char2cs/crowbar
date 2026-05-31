@@ -8,6 +8,7 @@ import { livePreview } from '../extensions/live-preview'
 import { widgetExt } from '../extensions/widget-ext'
 import { slashCommandExt, type SlashCommandState } from '../extensions/slash-command-ext'
 import { SlashCommandPalette, type SlashCommand } from './slash-command-palette'
+import { getMockSlashCommands } from '@/lib/mock/markdown-chat'
 import './excalidraw-widget'
 import './mermaid-widget'
 
@@ -122,7 +123,7 @@ export function MarkdownChatInput({
       <div ref={containerRef} className="w-full" />
       {slashState.open && slashState.anchorRect && (
         <SlashCommandPalette
-          query={slashState.query}
+          commands={getMockSlashCommands()}
           anchorRect={slashState.anchorRect}
           onSelect={handleSlashCommand}
           onClose={() => setSlashState({ open: false, query: '', anchorRect: null })}
