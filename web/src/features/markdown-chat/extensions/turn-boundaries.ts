@@ -72,23 +72,26 @@ function buildDecorations(state: EditorState): DecorationSet {
     const markerLine = state.doc.lineAt(range.from)
     // Hide the boundary marker line (including trailing newline)
     const markerEnd = Math.min(markerLine.to + 1, state.doc.length)
-    builder.add(markerLine.from, markerEnd, Decoration.replace({}))
 
     if (range.role === 'user') {
-      // Apply warm-tint class to every line of the user turn.
-      // Decoration.line adds to the .cm-line element, which spans the full
-      // content width — CSS gives it a full-viewport background.
-      const contentStart = markerLine.to + 1
-      if (contentStart < range.to) {
-        const firstLineNum = state.doc.lineAt(contentStart).number
-        const lastLineNum = state.doc.lineAt(range.to).number
-        for (let ln = firstLineNum; ln <= lastLineNum; ln++) {
-          const l = state.doc.line(ln)
-          builder.add(l.from, l.from, Decoration.line({ class: 'cm-turn-user' }))
-        }
+      // Decoration.replace spans the marker line AND its newline, causing CM6 to
+      // merge the marker line into the first content line's visual .cm-line element.
+      // That merged visual line's "from" is markerLine.from (not doc.line(N+1).from),
+      // so Decoration.line must be placed at markerLine.from to target it correctly.
+      builder.add(markerLine.from, markerLine.from, Decoration.line({ class: 'cm-turn-user' }))
+      builder.add(markerLine.from, markerEnd, Decoration.replace({}))
+
+      // Tint remaining content lines (not merged with the replace block).
+      const firstLineNum = markerLine.number + 2  // +2: skip marker(+1) and first content(+1)
+      const lastLineNum = state.doc.lineAt(range.to).number
+      for (let ln = firstLineNum; ln <= lastLineNum; ln++) {
+        const l = state.doc.line(ln)
+        builder.add(l.from, l.from, Decoration.line({ class: 'cm-turn-user' }))
       }
+    } else {
+      // Agent turns: hide marker line, no tint
+      builder.add(markerLine.from, markerEnd, Decoration.replace({}))
     }
-    // Agent turns: no tint (plain document background)
   }
 
   return builder.finish()
