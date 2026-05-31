@@ -53,9 +53,12 @@ export function appendTurnToHistory(
 ): void {
   const sep = view.state.doc.length === 0 ? '' : '\n\n'
   const insert = `${sep}<!-- turn:${id} role:${role} -->\n${content}`
+  const end = view.state.doc.length + insert.length
   view.dispatch({
     changes: { from: view.state.doc.length, insert },
     annotations: streamingAnnotation.of(true),
+    // Scroll the freshly appended turn into view.
+    effects: EditorView.scrollIntoView(end, { y: 'end' }),
   })
 }
 

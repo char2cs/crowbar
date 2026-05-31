@@ -61,6 +61,8 @@ export function appendStreamChunk(view: EditorView, text: string): void {
   view.dispatch({
     changes: { from: pos, insert: text },
     annotations: streamingAnnotation.of(true),
+    // Keep the latest streamed content in view as the agent writes.
+    effects: EditorView.scrollIntoView(pos + text.length, { y: 'end' }),
   })
 }
 
