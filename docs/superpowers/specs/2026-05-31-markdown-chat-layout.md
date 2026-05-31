@@ -21,10 +21,13 @@ The current markdown-chat view looked like a chat app (bubbles, tinted panels, s
 
 - The input zone is **the same warm tint** as user turns — it visually reads as the next user message being composed.
 - A top border (`rgba(255,215,80,0.09)`) separates it from the document.
-- Contains a `textarea` (auto-expanding, min 2 rows, max ~240px) in the same serif font as the document. Placeholder text is amber-tinted and italic.
-- The **CrossUI Toolbar** (`Toolbar`, `ToolbarButton`, `ToolbarGroup`, `ToolbarSeparator` from `@/components/ui/toolbar`) lives **inside** the tinted zone, below the textarea. Toolbar buttons use a muted amber tint so they feel like part of the user space.
+- Contains a **second CM6 editor instance** (not a `<textarea>`) — this is required so users can insert and preview rich content (Excalidraw drawings, Mermaid diagrams, images, fenced code blocks) inline while composing. The input CM6 shares the same widget registry, live-preview extension, and slash-command palette as the history viewer.
+- The input CM6 is fully editable, auto-expands (min 2 rows, max ~240px), uses the same serif font/theme as the document area.
+- The **CrossUI Toolbar** (`Toolbar`, `ToolbarButton`, `ToolbarGroup`, `ToolbarSeparator` from `@/components/ui/toolbar`) lives **inside** the tinted zone, below the input CM6. Toolbar buttons use a muted amber tint so they feel like part of the user space. Toolbar `onInsertWidget` targets the **input CM6**, not the history viewer.
 - A **send/pause button** (filled blue, 28×28px, rounded) sits at the far right of the toolbar row. `⌘↵` hint to its left.
-- Submission: `⌘↵` sends; plain `Enter` inserts a newline. No other submission affordance needed.
+- Submission: `⌘↵` sends the full content of the input CM6 (including any embedded widget markers); plain `Enter` inserts a newline. On submit, the input CM6 is cleared.
+
+**Rich content in the input:** When a user inserts an Excalidraw drawing or Mermaid block via the Insert dropdown, it renders as a live widget inside the input CM6 immediately. On submit, the fenced block markers (`\`\`\`excalidraw widget-id:…\`\`\``) travel with the turn content into the history viewer, where the same widget registry re-renders them read-only.
 
 ### Typography
 
@@ -44,20 +47,36 @@ Replace the default browser scrollbar with a custom thin scrollbar using `scroll
 |------|--------|
 | `turn-boundaries.ts` | Agent tint removed entirely. User tint becomes full-width via a block-level element, not a CM6 `Decoration.mark`. |
 | `markdown-chat-view.tsx` | Remove separate toolbar component from below the editor. Layout becomes: `[scroll-doc] [input-zone]`. |
-| `markdown-chat-editor.tsx` | CM6 editor covers **only the read-only conversation history** (agent + past user turns). Input zone is a separate React `<textarea>` — not CM6. |
+| `markdown-chat-editor.tsx` | Renamed to `markdown-chat-history.tsx`. CM6 editor covers **only the read-only conversation history** (agent + past user turns). No editable region, no transaction filter hacks. |
+| `markdown-chat-input.tsx` | New component. A second CM6 instance: fully editable, full live-preview + widget extensions, auto-expands. Clears on submit. Shares the same widget registry as the history viewer. |
 | `markdown-chat-toolbar.tsx` | Moved inside the input zone, below the textarea. Toolbar buttons get amber tint to match user zone. |
 | CSS | Add custom scrollbar styles. Input zone background matches user turn tint. |
 
-## Architecture Decision: Split Editor / Input
+## Architecture Decision: Two CM6 Instances
 
-The current design uses a single CM6 instance for both history and input. The new design splits them:
+The current design uses a single CM6 instance with a read-only filter and an `<!-- input -->` marker hack. The new design splits history and input into two separate CM6 instances.
 
-- **CM6 editor** = read-only conversation history display (agent + committed user turns). No editable region.
-- **React `<textarea>`** = the user's active input. Auto-expands. Submits via `⌘↵`.
+**History viewer (`markdown-chat-history.tsx`)**
+- Read-only CM6. No transaction filter needed — the entire document is immutable.
+- Renders all turns from the `ConversationStore` via `turnsToDocument(turns)`.
+- Supports: live-preview decorations, widget extensions (Excalidraw, Mermaid), turn tinting via React wrappers (not CM6 `Decoration.mark`), streaming via `appendStreamChunk`.
+- Rebuilds when `turns` array changes length (new turn appended) or a turn's content changes (streaming).
 
-This eliminates the `<!-- input -->` marker hack, the `Prec.highest` keymap workaround, and the complexity of keeping the input area editable within a read-only CM6 doc. The history is purely display; the input is purely input.
+**Input editor (`markdown-chat-input.tsx`)**
+- Fully editable CM6. Same extensions as history: markdown, live-preview, widget registry, slash commands.
+- Starts empty. User types, inserts widgets, etc.
+- On `⌘↵`: extracts full doc content, calls `onSubmit(content)`, then clears by replacing doc with empty string.
+- The toolbar's `onInsertWidget` targets this instance.
 
-On submit: content from the textarea becomes a new user turn appended to the CM6 doc (as a read-only tinted band), and an agent turn starts streaming in below it. The textarea clears.
+**Submit flow:**
+1. Input CM6 content (plain markdown + any widget markers) → `onSubmit(content)`
+2. `handleSubmit` in the view: appends user turn to store, appends empty streaming agent turn, calls `appendStreamChunk` into the history CM6 as chunks arrive, calls `resetInputMarker` (not needed anymore — input CM6 just clears itself).
+3. History CM6 re-renders the new user turn as a warm-tinted band; agent turn streams in below.
+
+**Why two instances is correct here:**
+- Rich content (Excalidraw, Mermaid) requires CM6's widget system in the input — a `<textarea>` can't render inline widgets.
+- Keeping history read-only is trivially enforced by never dispatching user edits to it.
+- No `<!-- input -->` markers, no `Prec.highest` workarounds, no transaction filters.
 
 ## Non-Goals
 
