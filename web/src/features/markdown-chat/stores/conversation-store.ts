@@ -1,11 +1,12 @@
 import { createStore } from 'zustand'
 import type { MarkdownTurn, WidgetData } from '../types'
 
-interface ConversationState {
+export interface ConversationState {
   turns: MarkdownTurn[]
   appendTurn: (turn: MarkdownTurn) => void
   updateStreamingTurn: (id: string, contentDelta: string) => void
   finalizeStreamingTurn: (id: string) => void
+  // Silent no-op if turnId or widgetId not found — callers must ensure IDs are valid
   updateWidgetPayload: (turnId: string, widgetId: string, payload: unknown) => void
 }
 

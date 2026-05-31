@@ -47,6 +47,14 @@ test('updateWidgetPayload updates widget in turn', () => {
   expect((widget.payload as { elements: unknown[] }).elements).toEqual([])
 })
 
+test('updateWidgetPayload is a no-op when turnId does not match', () => {
+  const store = getOrCreateConversationStore('ws1')
+  store.getState().appendTurn({ ...TURN, widgets: [{ id: 'w1', type: 'excalidraw', payload: null }] })
+  const before = store.getState().turns
+  store.getState().updateWidgetPayload('nonexistent', 'w1', { elements: [] })
+  expect(store.getState().turns).toEqual(before)
+})
+
 test('getOrCreateConversationStore returns same instance for same wsId', () => {
   const a = getOrCreateConversationStore('ws1')
   const b = getOrCreateConversationStore('ws1')
