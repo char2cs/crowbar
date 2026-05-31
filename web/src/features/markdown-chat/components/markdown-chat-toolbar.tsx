@@ -18,6 +18,7 @@ type CodeLanguage = (typeof CODE_LANGUAGES)[number]
 interface ToolbarProps {
   editorView: EditorView | null
   onInsertWidget: (widgetType: string, widgetId: string) => void
+  onSubmit: () => void
 }
 
 function wrapSelection(view: EditorView, syntax: string) {
@@ -133,62 +134,62 @@ function InsertDropdown({
   )
 }
 
-export function MarkdownChatToolbar({ editorView, onInsertWidget }: ToolbarProps) {
+export function MarkdownChatToolbar({ editorView, onInsertWidget, onSubmit }: ToolbarProps) {
   const v = editorView
 
   return (
-    <Toolbar className="rounded-none border-x-0 border-b-0 border-t bg-transparent px-2 py-1">
+    <Toolbar className="rounded-none border-x-0 border-b-0 border-t border-[rgba(255,215,80,0.09)] bg-transparent px-2 py-1.5">
       <ToolbarGroup>
         <ToolbarButton
           aria-label="Bold"
           onClick={() => v && wrapSelection(v, '**')}
-          className="flex h-6 min-w-6 items-center justify-center rounded px-1.5 text-xs font-bold text-muted-foreground hover:bg-muted hover:text-foreground"
+          className="flex h-6 min-w-6 items-center justify-center rounded px-1.5 text-xs font-bold text-[rgba(255,215,80,0.35)] hover:bg-[rgba(255,215,80,0.08)] hover:text-[rgba(255,215,80,0.7)]"
         >
           B
         </ToolbarButton>
         <ToolbarButton
           aria-label="Italic"
           onClick={() => v && wrapSelection(v, '*')}
-          className="flex h-6 min-w-6 items-center justify-center rounded px-1.5 text-xs italic text-muted-foreground hover:bg-muted hover:text-foreground"
+          className="flex h-6 min-w-6 items-center justify-center rounded px-1.5 text-xs italic text-[rgba(255,215,80,0.35)] hover:bg-[rgba(255,215,80,0.08)] hover:text-[rgba(255,215,80,0.7)]"
         >
           I
         </ToolbarButton>
         <ToolbarButton
           aria-label="Inline code"
           onClick={() => v && wrapSelection(v, '`')}
-          className="flex h-6 min-w-6 items-center justify-center rounded px-1.5 font-mono text-[10px] text-muted-foreground hover:bg-muted hover:text-foreground"
+          className="flex h-6 min-w-6 items-center justify-center rounded px-1.5 font-mono text-[10px] text-[rgba(255,215,80,0.35)] hover:bg-[rgba(255,215,80,0.08)] hover:text-[rgba(255,215,80,0.7)]"
         >
           {"`x`"}
         </ToolbarButton>
       </ToolbarGroup>
 
-      <ToolbarSeparator />
+      <ToolbarSeparator className="bg-[rgba(255,215,80,0.1)]" />
 
       <ToolbarGroup>
         <ToolbarButton
           aria-label="Heading 1"
           onClick={() => v && prependLine(v, '# ')}
-          className="flex h-6 min-w-6 items-center justify-center rounded px-1.5 text-xs font-semibold text-muted-foreground hover:bg-muted hover:text-foreground"
+          className="flex h-6 min-w-6 items-center justify-center rounded px-1.5 text-xs font-semibold text-[rgba(255,215,80,0.35)] hover:bg-[rgba(255,215,80,0.08)] hover:text-[rgba(255,215,80,0.7)]"
         >
           H1
         </ToolbarButton>
         <ToolbarButton
           aria-label="Heading 2"
           onClick={() => v && prependLine(v, '## ')}
-          className="flex h-6 min-w-6 items-center justify-center rounded px-1.5 text-xs font-semibold text-muted-foreground hover:bg-muted hover:text-foreground"
+          className="flex h-6 min-w-6 items-center justify-center rounded px-1.5 text-xs font-semibold text-[rgba(255,215,80,0.35)] hover:bg-[rgba(255,215,80,0.08)] hover:text-[rgba(255,215,80,0.7)]"
         >
           H2
         </ToolbarButton>
         <ToolbarButton
           aria-label="Heading 3"
           onClick={() => v && prependLine(v, '### ')}
-          className="flex h-6 min-w-6 items-center justify-center rounded px-1.5 text-xs font-semibold text-muted-foreground hover:bg-muted hover:text-foreground"
+          className="flex h-6 min-w-6 items-center justify-center rounded px-1.5 text-xs font-semibold text-[rgba(255,215,80,0.35)] hover:bg-[rgba(255,215,80,0.08)] hover:text-[rgba(255,215,80,0.7)]"
         >
           H3
         </ToolbarButton>
       </ToolbarGroup>
 
-      <ToolbarSeparator />
+      <ToolbarSeparator className="bg-[rgba(255,215,80,0.1)]" />
 
       <InsertDropdown
         onInsertExcalidraw={() => {
@@ -201,6 +202,30 @@ export function MarkdownChatToolbar({ editorView, onInsertWidget }: ToolbarProps
         onInsertCodeBlock={(lang) => v && insertCodeBlock(v, lang)}
         onInsertMermaid={() => v && insertMermaid(v)}
       />
+
+      <div className="ml-auto flex items-center gap-2">
+        <span className="font-mono text-[10px] text-[rgba(255,215,80,0.2)]">⌘↵</span>
+        <button
+          type="button"
+          onClick={onSubmit}
+          title="Send (⌘↵)"
+          className="flex h-7 w-7 items-center justify-center rounded-lg bg-[rgba(80,140,255,0.8)] text-white transition-colors hover:bg-[rgba(80,140,255,1)]"
+        >
+          <svg
+            width="12"
+            height="12"
+            viewBox="0 0 16 16"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth="2.5"
+            strokeLinecap="round"
+            strokeLinejoin="round"
+            aria-hidden="true"
+          >
+            <path d="M2 8L14 2L8 14L6.5 9.5Z" />
+          </svg>
+        </button>
+      </div>
     </Toolbar>
   )
 }
