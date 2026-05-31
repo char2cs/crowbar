@@ -41,6 +41,11 @@ export function MarkdownChatView({ workspaceId, stepId }: MarkdownChatViewProps)
   const cancelStreamRef = useRef<(() => void) | null>(null)
   const draftWidgetsRef = useRef<WidgetData[]>([])
 
+  // getTurns is used by widgetExt in both CM6 instances to look up widget payloads.
+  // When the user has inserted widgets in the input zone before submitting, they live
+  // in draftWidgetsRef (not yet in any store turn). We expose them via a synthetic
+  // '__input_draft__' turn so FencedWidget.toDOM() can find them. This turn has no
+  // content/timestamp/authorName — callers that need well-formed turns must filter it.
   const getTurns = useCallback((): MarkdownTurn[] => {
     const storeTurns = store.getState().turns
     const draft = draftWidgetsRef.current
@@ -81,6 +86,10 @@ export function MarkdownChatView({ workspaceId, stepId }: MarkdownChatViewProps)
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [workspaceId, stepId])
 
+  // NOTE: handleSubmit does NOT clear the input CM6. Callers are responsible:
+  // - Mod-Enter keymap in MarkdownChatInput clears via its own dispatch
+  // - handleSendClick clears after calling handleSubmit
+  // Any future callsite must also clear the input editor itself.
   const handleSubmit = useCallback(
     (content: string) => {
       cancelStreamRef.current?.()
