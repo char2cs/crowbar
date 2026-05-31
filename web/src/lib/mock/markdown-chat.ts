@@ -67,11 +67,11 @@ export function getMockMarkdownTurns(wsId: string, stepId: string): MarkdownTurn
 // Placeholder for the provider-supplied slash command list. In production these
 // arrive from the AI provider; this mock stands in until that feed is wired.
 const MOCK_SLASH_COMMANDS: SlashCommand[] = [
-  { id: '/tdd', label: '/tdd', description: 'Test-driven development workflow', icon: '🧪' },
-  { id: '/code-review', label: '/code-review', description: 'Review current branch', icon: '🔍' },
-  { id: '/plan', label: '/plan', description: 'Write an implementation plan', icon: '📋' },
-  { id: '/debug', label: '/debug', description: 'Systematic debugging', icon: '🐛' },
-  { id: '/explain', label: '/explain', description: 'Explain selected code', icon: '💬' },
+  { id: '/tdd', label: '/tdd' },
+  { id: '/code-review', label: '/code-review' },
+  { id: '/plan', label: '/plan' },
+  { id: '/debug', label: '/debug' },
+  { id: '/explain', label: '/explain' },
 ]
 
 export function getMockSlashCommands(): SlashCommand[] {

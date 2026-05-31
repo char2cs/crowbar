@@ -35,12 +35,9 @@ export const WIDGET_ID_RE = /widget-id:([a-zA-Z0-9_-]+)/
 // <!-- tool-call:{...JSON...} -->
 export const TOOL_CALL_RE = /^<!-- tool-call:(.+) -->$/
 
-// Slash command surfaced in the input palette. These are supplied by the AI
-// provider at runtime — we don't define or own the list. `icon` is an optional
-// short glyph the provider may include.
+// Slash command surfaced in the input palette. Supplied by the AI provider at
+// runtime — we don't define or own the list. Just the command name (e.g. "/plan").
 export interface SlashCommand {
   id: string
   label: string
-  description: string
-  icon?: string
 }

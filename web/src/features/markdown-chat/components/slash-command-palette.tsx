@@ -1,13 +1,4 @@
-import { type CSSProperties, useMemo, useState } from 'react'
-import { Search } from 'lucide-react'
-import {
-  Autocomplete,
-  AutocompleteEmpty,
-  AutocompleteInput,
-  AutocompleteItem,
-  AutocompleteList,
-  AutocompletePopup,
-} from '@/components/ui/autocomplete'
+import { type CSSProperties, useEffect, useMemo, useState } from 'react'
 import type { SlashCommand } from '../types'
 
 // Re-export so existing importers keep working.
@@ -16,6 +7,8 @@ export type { SlashCommand }
 interface SlashCommandPaletteProps {
   /** Provider-supplied commands. We don't own this list. */
   commands: SlashCommand[]
+  /** Text typed after the `/` in the editor — filters the list. */
+  query: string
   onSelect: (command: SlashCommand) => void
   onClose: () => void
   anchorRect: DOMRect
@@ -23,73 +16,62 @@ interface SlashCommandPaletteProps {
 
 export function SlashCommandPalette({
   commands,
+  query,
   onSelect,
   onClose,
   anchorRect,
 }: SlashCommandPaletteProps) {
-  const [query, setQuery] = useState('')
+  const [activeIdx, setActiveIdx] = useState(0)
 
   const filtered = useMemo(() => {
     const q = query.trim().toLowerCase()
     if (!q) return commands
-    return commands.filter(
-      (c) =>
-        c.label.toLowerCase().includes(q) ||
-        c.description.toLowerCase().includes(q),
-    )
+    return commands.filter((c) => c.label.toLowerCase().includes(q))
   }, [commands, query])
 
-  // Pin the palette's own search input to the editor caret; the Autocomplete
-  // list floats from that input.
-  const anchorStyle: CSSProperties = {
+  useEffect(() => { setActiveIdx(0) }, [query])
+
+  // Keyboard nav stays in the editor — the user keeps typing the `/query` there.
+  useEffect(() => {
+    const handler = (e: KeyboardEvent) => {
+      if (e.key === 'ArrowDown') { e.preventDefault(); setActiveIdx((i) => Math.min(i + 1, filtered.length - 1)) }
+      else if (e.key === 'ArrowUp') { e.preventDefault(); setActiveIdx((i) => Math.max(i - 1, 0)) }
+      else if (e.key === 'Enter') { e.preventDefault(); if (filtered[activeIdx]) onSelect(filtered[activeIdx]) }
+      else if (e.key === 'Escape') { e.preventDefault(); onClose() }
+    }
+    window.addEventListener('keydown', handler, true)
+    return () => window.removeEventListener('keydown', handler, true)
+  }, [filtered, activeIdx, onSelect, onClose])
+
+  if (filtered.length === 0) return null
+
+  const style: CSSProperties = {
     position: 'fixed',
-    top: anchorRect.top,
+    top: anchorRect.top - 8,
     left: anchorRect.left,
     transform: 'translateY(-100%)',
     zIndex: 50,
   }
 
   return (
-    <Autocomplete
-      items={filtered}
-      mode="none"
-      open
-      value={query}
-      onValueChange={setQuery}
-      onOpenChange={(open) => { if (!open) onClose() }}
-      autoHighlight="always"
-      itemToStringValue={(c: SlashCommand) => c.label}
+    <div
+      style={style}
+      className="w-56 overflow-hidden rounded-lg border bg-popover p-1 text-popover-foreground shadow-md ring-1 ring-foreground/10"
     >
-      <div style={anchorStyle}>
-        <AutocompleteInput
-          autoFocus
-          size="sm"
-          startAddon={<Search />}
-          placeholder="Search commands…"
-          className="w-72"
-        />
-      </div>
-      <AutocompletePopup side="top" align="start" sideOffset={8} className="w-72">
-        <AutocompleteList>
-          <AutocompleteEmpty>No commands</AutocompleteEmpty>
-          {filtered.map((cmd) => (
-            <AutocompleteItem
-              key={cmd.id}
-              value={cmd}
-              onClick={() => onSelect(cmd)}
-              className="items-start gap-2 py-1.5"
-            >
-              {cmd.icon && (
-                <span className="mt-0.5 text-base leading-none">{cmd.icon}</span>
-              )}
-              <span className="flex min-w-0 flex-col">
-                <span className="font-mono font-medium text-foreground">{cmd.label}</span>
-                <span className="truncate text-xs text-muted-foreground">{cmd.description}</span>
-              </span>
-            </AutocompleteItem>
-          ))}
-        </AutocompleteList>
-      </AutocompletePopup>
-    </Autocomplete>
+      {filtered.map((cmd, i) => (
+        <button
+          key={cmd.id}
+          type="button"
+          // onMouseDown (not onClick) so the editor doesn't blur before select fires.
+          onMouseDown={(e) => { e.preventDefault(); onSelect(cmd) }}
+          onMouseEnter={() => setActiveIdx(i)}
+          className={`flex w-full items-center rounded-md px-2 py-1.5 text-left font-mono text-sm outline-hidden transition-colors ${
+            i === activeIdx ? 'bg-accent text-accent-foreground' : 'text-foreground'
+          }`}
+        >
+          {cmd.label}
+        </button>
+      ))}
+    </div>
   )
 }

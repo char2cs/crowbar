@@ -124,6 +124,7 @@ export function MarkdownChatInput({
       {slashState.open && slashState.anchorRect && (
         <SlashCommandPalette
           commands={getMockSlashCommands()}
+          query={slashState.query}
           anchorRect={slashState.anchorRect}
           onSelect={handleSlashCommand}
           onClose={() => setSlashState({ open: false, query: '', anchorRect: null })}
