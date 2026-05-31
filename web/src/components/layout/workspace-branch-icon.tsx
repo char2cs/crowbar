@@ -33,7 +33,7 @@ export function WorkspaceAgentSpinner() {
     () => spinnerNames[Math.floor(Math.random() * spinnerNames.length)]
   )
   return (
-    <span className="size-4 shrink-0 text-violet-400 leading-none flex items-center justify-center">
+    <span className="size-4 shrink-0 text-primary leading-none flex items-center justify-center">
       <Spinner name={name} color="currentColor" size="0.875rem" shape="square" />
     </span>
   )
