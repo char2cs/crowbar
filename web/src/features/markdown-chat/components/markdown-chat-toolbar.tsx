@@ -139,60 +139,60 @@ export function MarkdownChatToolbar({ editorView, onInsertWidget, onSubmit }: To
 
   return (
     <Toolbar
-      className="rounded-none border-x-0 border-b-0 border-t border-chat-user-tint-border bg-transparent py-1.5"
+      className="rounded-none border-x-0 border-b-0 border-t border-border bg-transparent py-1.5"
       style={{ paddingLeft: 'max(48px, calc((100% - 680px) / 2 + 48px))', paddingRight: 'max(48px, calc((100% - 680px) / 2 + 48px))' }}
     >
       <ToolbarGroup>
         <ToolbarButton
           aria-label="Bold"
           onClick={() => v && wrapSelection(v, '**')}
-          className="flex h-6 min-w-6 items-center justify-center rounded px-1.5 text-xs font-bold text-chat-user-fg hover:bg-chat-user-fg-hover-bg hover:text-chat-user-fg-active"
+          className="flex h-6 min-w-6 items-center justify-center rounded px-1.5 text-xs font-bold text-muted-foreground hover:bg-muted hover:text-foreground"
         >
           B
         </ToolbarButton>
         <ToolbarButton
           aria-label="Italic"
           onClick={() => v && wrapSelection(v, '*')}
-          className="flex h-6 min-w-6 items-center justify-center rounded px-1.5 text-xs italic text-chat-user-fg hover:bg-chat-user-fg-hover-bg hover:text-chat-user-fg-active"
+          className="flex h-6 min-w-6 items-center justify-center rounded px-1.5 text-xs italic text-muted-foreground hover:bg-muted hover:text-foreground"
         >
           I
         </ToolbarButton>
         <ToolbarButton
           aria-label="Inline code"
           onClick={() => v && wrapSelection(v, '`')}
-          className="flex h-6 min-w-6 items-center justify-center rounded px-1.5 font-mono text-[10px] text-chat-user-fg hover:bg-chat-user-fg-hover-bg hover:text-chat-user-fg-active"
+          className="flex h-6 min-w-6 items-center justify-center rounded px-1.5 font-mono text-[10px] text-muted-foreground hover:bg-muted hover:text-foreground"
         >
           {"`x`"}
         </ToolbarButton>
       </ToolbarGroup>
 
-      <ToolbarSeparator className="bg-chat-user-sep" />
+      <ToolbarSeparator className="bg-border" />
 
       <ToolbarGroup>
         <ToolbarButton
           aria-label="Heading 1"
           onClick={() => v && prependLine(v, '# ')}
-          className="flex h-6 min-w-6 items-center justify-center rounded px-1.5 text-xs font-semibold text-chat-user-fg hover:bg-chat-user-fg-hover-bg hover:text-chat-user-fg-active"
+          className="flex h-6 min-w-6 items-center justify-center rounded px-1.5 text-xs font-semibold text-muted-foreground hover:bg-muted hover:text-foreground"
         >
           H1
         </ToolbarButton>
         <ToolbarButton
           aria-label="Heading 2"
           onClick={() => v && prependLine(v, '## ')}
-          className="flex h-6 min-w-6 items-center justify-center rounded px-1.5 text-xs font-semibold text-chat-user-fg hover:bg-chat-user-fg-hover-bg hover:text-chat-user-fg-active"
+          className="flex h-6 min-w-6 items-center justify-center rounded px-1.5 text-xs font-semibold text-muted-foreground hover:bg-muted hover:text-foreground"
         >
           H2
         </ToolbarButton>
         <ToolbarButton
           aria-label="Heading 3"
           onClick={() => v && prependLine(v, '### ')}
-          className="flex h-6 min-w-6 items-center justify-center rounded px-1.5 text-xs font-semibold text-chat-user-fg hover:bg-chat-user-fg-hover-bg hover:text-chat-user-fg-active"
+          className="flex h-6 min-w-6 items-center justify-center rounded px-1.5 text-xs font-semibold text-muted-foreground hover:bg-muted hover:text-foreground"
         >
           H3
         </ToolbarButton>
       </ToolbarGroup>
 
-      <ToolbarSeparator className="bg-chat-user-sep" />
+      <ToolbarSeparator className="bg-border" />
 
       <InsertDropdown
         onInsertExcalidraw={() => {
@@ -207,12 +207,12 @@ export function MarkdownChatToolbar({ editorView, onInsertWidget, onSubmit }: To
       />
 
       <div className="ml-auto flex items-center gap-2">
-        <span className="font-mono text-[10px] text-chat-user-fg-hint">⌘↵</span>
+        <span className="font-mono text-[10px] text-muted-foreground/50">⌘↵</span>
         <button
           type="button"
           onClick={onSubmit}
           title="Send (⌘↵)"
-          className="flex h-7 w-7 items-center justify-center rounded-lg bg-info/80 text-white transition-colors hover:bg-info"
+          className="flex h-7 w-7 items-center justify-center rounded-lg bg-primary text-primary-foreground transition-colors hover:bg-primary/90"
         >
           <svg
             width="12"

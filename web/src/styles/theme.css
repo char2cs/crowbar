@@ -60,14 +60,6 @@
   --color-code-highlight: var(--code-highlight);
   --color-chrome-bg: var(--chrome-bg);
   --font-editor: var(--editor-font-family);
-  /* Markdown chat — user-zone amber accent (derived from --warning) */
-  --color-chat-user-tint: var(--chat-user-tint);
-  --color-chat-user-tint-border: var(--chat-user-tint-border);
-  --color-chat-user-fg: var(--chat-user-fg);
-  --color-chat-user-fg-active: var(--chat-user-fg-active);
-  --color-chat-user-fg-hover-bg: var(--chat-user-fg-hover-bg);
-  --color-chat-user-fg-hint: var(--chat-user-fg-hint);
-  --color-chat-user-sep: var(--chat-user-sep);
   --radius-sm: calc(var(--radius) * 0.6);
   --radius-md: calc(var(--radius) * 0.8);
   --radius-lg: var(--radius);
@@ -216,15 +208,6 @@
   --code: var(--color-white);
   --code-foreground: var(--foreground);
   --code-highlight: oklch(0 0 0 / 4%);
-
-  /* ── Markdown chat user-zone accent (derived from --warning) ── */
-  --chat-user-tint:        color-mix(in srgb, var(--warning) 5.5%, transparent);
-  --chat-user-tint-border: color-mix(in srgb, var(--warning)   9%, transparent);
-  --chat-user-fg:          color-mix(in srgb, var(--warning)  35%, transparent);
-  --chat-user-fg-active:   color-mix(in srgb, var(--warning)  70%, transparent);
-  --chat-user-fg-hover-bg: color-mix(in srgb, var(--warning)   8%, transparent);
-  --chat-user-fg-hint:     color-mix(in srgb, var(--warning)  20%, transparent);
-  --chat-user-sep:         color-mix(in srgb, var(--warning)  10%, transparent);
 
   /* ── Crowbar UI-layer tokens (not in Cross/UI) ── */
   --chrome-bg: oklch(1 0 0 / 75%);

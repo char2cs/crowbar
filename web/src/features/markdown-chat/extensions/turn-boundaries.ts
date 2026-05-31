@@ -129,7 +129,7 @@ const turnTheme = EditorView.theme({
     lineHeight: '1.75',
   },
   '.cm-turn-user': {
-    background: 'var(--chat-user-tint)',
+    background: 'var(--muted)',
   },
 })
 

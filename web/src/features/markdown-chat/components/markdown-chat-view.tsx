@@ -220,8 +220,8 @@ export function MarkdownChatView({ workspaceId, stepId }: MarkdownChatViewProps)
       <div
         className="flex-shrink-0"
         style={{
-          background: 'var(--chat-user-tint)',
-          borderTop: '1px solid var(--chat-user-tint-border)',
+          background: 'var(--muted)',
+          borderTop: '1px solid var(--border)',
         }}
       >
         <MarkdownChatInput
