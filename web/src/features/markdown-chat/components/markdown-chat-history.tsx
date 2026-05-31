@@ -56,7 +56,7 @@ export function MarkdownChatHistory({
   return (
     <div
       ref={containerRef}
-      className="min-h-0 w-full flex-1"
+      className="h-full w-full"
     />
   )
 }
