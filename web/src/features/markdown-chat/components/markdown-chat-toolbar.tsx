@@ -138,7 +138,10 @@ export function MarkdownChatToolbar({ editorView, onInsertWidget, onSubmit }: To
   const v = editorView
 
   return (
-    <Toolbar className="rounded-none border-x-0 border-b-0 border-t border-[rgba(255,215,80,0.09)] bg-transparent px-2 py-1.5">
+    <Toolbar
+      className="rounded-none border-x-0 border-b-0 border-t border-[rgba(255,215,80,0.09)] bg-transparent py-1.5"
+      style={{ paddingLeft: 'max(48px, calc((100% - 680px) / 2 + 48px))', paddingRight: 'max(48px, calc((100% - 680px) / 2 + 48px))' }}
+    >
       <ToolbarGroup>
         <ToolbarButton
           aria-label="Bold"
