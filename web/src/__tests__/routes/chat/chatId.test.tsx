@@ -1,12 +1,5 @@
-import { vi, test, expect, beforeEach, afterEach } from 'vitest'
-import { render, act } from '@testing-library/react'
-
-beforeEach(() => { vi.useFakeTimers() })
-afterEach(() => { vi.useRealTimers(); vi.restoreAllMocks() })
-
-vi.mock('@/lib/mock/chats', () => ({
-  getMockChat: () => ({ messages: [] }),
-}))
+import { vi, test, expect } from 'vitest'
+import { render } from '@testing-library/react'
 
 vi.mock('@tanstack/react-router', async (importOriginal) => {
   const actual = await importOriginal<typeof import('@tanstack/react-router')>()
@@ -19,19 +12,19 @@ vi.mock('@tanstack/react-router', async (importOriginal) => {
   }
 })
 
-const cancelFn = vi.fn()
-vi.mock('@/lib/mock/simulate-stream', () => ({
-  simulateStream: vi.fn(() => cancelFn),
+// MarkdownChatView has complex deps — stub it out
+vi.mock('@/features/markdown-chat/components/markdown-chat-view', () => ({
+  MarkdownChatView: ({ workspaceId, stepId }: { workspaceId: string; stepId: string }) => (
+    <div data-testid="markdown-chat-view" data-workspace-id={workspaceId} data-step-id={stepId} />
+  ),
 }))
 
 import { ChatPage } from '@/routes/chat/$chatId'
 
-test('ChatPage renders without errors and cancel is available on unmount', () => {
-  const { unmount } = render(<ChatPage />)
-  // Unmount before any stream fires — should not throw
-  unmount()
-  act(() => { vi.runAllTimers() })
-  // If component threw on unmount, the test would already have failed
-  // Verify the cancel function was not spuriously called without a send action
-  expect(cancelFn).not.toHaveBeenCalled()
+test('ChatPage renders MarkdownChatView with chatId as workspaceId', () => {
+  const { getByTestId } = render(<ChatPage />)
+  const view = getByTestId('markdown-chat-view')
+  expect(view).toBeTruthy()
+  expect(view.getAttribute('data-workspace-id')).toBe('c1')
+  expect(view.getAttribute('data-step-id')).toBe('chat')
 })
