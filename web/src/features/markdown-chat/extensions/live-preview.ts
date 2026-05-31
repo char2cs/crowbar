@@ -41,12 +41,16 @@ function buildLivePreviewDecorations(state: EditorState): DecorationSet {
         const level = node.name === 'ATXHeading1' ? 1 : node.name === 'ATXHeading2' ? 2 : 3
         let headerMarkTo = node.from
 
-        // Walk children to find and hide the HeaderMark (e.g., "## ")
+        // Walk children to find and hide the HeaderMark + trailing space (e.g., "## ")
         let child = node.node.firstChild
         while (child) {
           if (child.name === 'HeaderMark') {
-            pending.push({ from: child.from, to: child.to, deco: Decoration.replace({}) })
-            headerMarkTo = child.to
+            // HeaderMark = just "#", "##", "###" — does NOT include the trailing space.
+            // Extend by 1 if the next character is a space so "## Heading" hides "## ".
+            const trailingSpace = state.doc.sliceString(child.to, child.to + 1) === ' ' ? 1 : 0
+            const replaceEnd = child.to + trailingSpace
+            pending.push({ from: child.from, to: replaceEnd, deco: Decoration.replace({}) })
+            headerMarkTo = replaceEnd
           }
           child = child.nextSibling
         }

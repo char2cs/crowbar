@@ -187,9 +187,11 @@ function makeReadOnlyFilter() {
 }
 
 const turnTheme = EditorView.theme({
-  // Subtle but distinct tinting using direct oklch values (the project uses oklch)
-  '.cm-turn-user': { backgroundColor: 'oklch(0 0 0 / 2%)' },
-  '.cm-turn-agent': { backgroundColor: 'oklch(0.55 0.12 250 / 7%)' },
+  // var(--muted) is "oklch(0 0 0 / 4%)" in light and "oklch(1 0 0 / 4%)" in dark
+  // — a subtle neutral overlay that adapts to the active theme.
+  '.cm-turn-user': { backgroundColor: 'var(--muted)' },
+  // Blue-accent tint for agent turns; color-mix produces ~10% blue on any background.
+  '.cm-turn-agent': { backgroundColor: 'color-mix(in oklch, oklch(0.6 0.15 250) 12%, transparent)' },
 })
 
 export function turnBoundaries(_streamingTurnId: string | null = null) {

@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState, useCallback } from 'react'
-import { EditorState } from '@codemirror/state'
+import { EditorState, Prec } from '@codemirror/state'
 import { EditorView, keymap } from '@codemirror/view'
 import { defaultKeymap, history, historyKeymap } from '@codemirror/commands'
 import { markdown } from '@codemirror/lang-markdown'
@@ -70,7 +70,8 @@ export function MarkdownChatEditor({
 
     const docContent = turnsToDocument(turns)
 
-    const submitKeymap = keymap.of([
+    // Use Prec.highest so this keymap beats markdown() and defaultKeymap
+    const submitKeymap = Prec.highest(keymap.of([
       {
         key: 'Mod-Enter',
         run(view) {
@@ -81,7 +82,7 @@ export function MarkdownChatEditor({
           return true
         },
       },
-    ])
+    ]))
 
     const state = EditorState.create({
       doc: docContent,
