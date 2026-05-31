@@ -31,11 +31,10 @@ function formatTime(iso: string): string {
 
 export function metaLabel(turn: MarkdownTurn): string {
   const time = formatTime(turn.timestamp)
-  if (turn.role === 'agent') {
-    const model = turn.model || turn.authorName
-    return [model, time].filter(Boolean).join(' · ')
-  }
-  return time
+  // Lead with the author so it's unambiguous who wrote each turn: the model for
+  // agent turns, the person's name for user turns.
+  const who = turn.role === 'agent' ? turn.model || turn.authorName : turn.authorName
+  return [who, time].filter(Boolean).join(' · ')
 }
 
 export interface TurnMetaHandle {
@@ -97,9 +96,10 @@ export function mountTurnMeta(
           display: 'flex',
           justifyContent: 'flex-end',
           paddingRight: '16px',
-          fontSize: '11px',
+          fontSize: '10px',
           // Match the first text line's box height so the label aligns with it.
           lineHeight: '26px',
+          letterSpacing: '0.01em',
           color: 'var(--muted-foreground)',
           willChange: 'transform',
         })
