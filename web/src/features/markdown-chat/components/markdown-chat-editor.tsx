@@ -43,9 +43,12 @@ export function MarkdownChatEditor({
     anchorRect: null,
   })
 
+  const turnsRef = useRef(turns)
+
   // Keep refs in sync with latest props without recreating the editor
   useEffect(() => { onSubmitRef.current = onSubmit }, [onSubmit])
   useEffect(() => { onSlashCommandRef.current = onSlashCommand }, [onSlashCommand])
+  useEffect(() => { turnsRef.current = turns }, [turns])
 
   const handleSlashCommand = useCallback((cmd: SlashCommand) => {
     const view = viewRef.current
@@ -103,7 +106,7 @@ export function MarkdownChatEditor({
         livePreview(),
         streamingExt(),
         todoStickyExt(),
-        widgetExt(turns, onWidgetChange),
+        widgetExt(turnsRef, onWidgetChange),
         slashCommandExt(setSlashState),
         EditorView.theme({
           '&': { height: '100%', fontSize: '14px' },

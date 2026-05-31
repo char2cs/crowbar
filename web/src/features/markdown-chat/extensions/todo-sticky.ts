@@ -1,4 +1,4 @@
-import { EditorState, StateField, RangeSetBuilder } from '@codemirror/state'
+import { EditorState, StateField } from '@codemirror/state'
 import { Decoration, DecorationSet, EditorView } from '@codemirror/view'
 
 const TODO_ITEM_RE = /^- \[[ x]\] /

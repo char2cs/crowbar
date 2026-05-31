@@ -1,4 +1,4 @@
-import { useEffect, useRef, useCallback } from 'react'
+import { useEffect, useRef, useCallback, useState } from 'react'
 import { useStore } from 'zustand'
 import { nanoid } from 'nanoid'
 import type { EditorView } from '@codemirror/view'
@@ -34,7 +34,7 @@ export function MarkdownChatView({ workspaceId, stepId }: MarkdownChatViewProps)
   const store = getOrCreateConversationStore(workspaceId)
   const turns = useStore(store, (s) => s.turns)
   const editorViewRef = useRef<EditorView | null>(null)
-  const toolbarEditorRef = useRef<EditorView | null>(null)
+  const [toolbarEditorView, setToolbarEditorView] = useState<EditorView | null>(null)
   const cancelStreamRef = useRef<(() => void) | null>(null)
 
   // Seed turns on mount
@@ -114,11 +114,15 @@ export function MarkdownChatView({ workspaceId, stepId }: MarkdownChatViewProps)
   )
 
   const handleInsertWidget = useCallback(
-    (_widgetType: string, widgetId: string) => {
+    (widgetType: string, widgetId: string) => {
       const { turns: currentTurns } = store.getState()
       const lastTurn = currentTurns.at(-1)
-      if (lastTurn?.role === 'user') {
-        store.getState().updateWidgetPayload(lastTurn.id, widgetId, null)
+      if (lastTurn) {
+        store.getState().appendWidget(lastTurn.id, {
+          id: widgetId,
+          type: widgetType,
+          payload: null,
+        })
       }
     },
     [store],
@@ -133,7 +137,7 @@ export function MarkdownChatView({ workspaceId, stepId }: MarkdownChatViewProps)
 
   const handleEditorReady = useCallback((view: EditorView) => {
     editorViewRef.current = view
-    toolbarEditorRef.current = view
+    setToolbarEditorView(view)
   }, [])
 
   const streamingTurnId = turns.find((t) => t.streaming)?.id ?? null
@@ -157,7 +161,7 @@ export function MarkdownChatView({ workspaceId, stepId }: MarkdownChatViewProps)
         onEditorReady={handleEditorReady}
       />
       <MarkdownChatToolbar
-        editorView={toolbarEditorRef.current}
+        editorView={toolbarEditorView}
         onInsertWidget={handleInsertWidget}
       />
     </div>

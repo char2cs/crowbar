@@ -8,6 +8,7 @@ export interface ConversationState {
   finalizeStreamingTurn: (id: string) => void
   // Silent no-op if turnId or widgetId not found — callers must ensure IDs are valid
   updateWidgetPayload: (turnId: string, widgetId: string, payload: unknown) => void
+  appendWidget: (turnId: string, widget: WidgetData) => void
 }
 
 type ConversationStore = ReturnType<typeof createConversationStore>
@@ -40,6 +41,14 @@ function createConversationStore() {
                   w.id === widgetId ? { ...w, payload } : w
                 ),
               }
+        ),
+      })),
+    appendWidget: (turnId, widget) =>
+      set((s) => ({
+        turns: s.turns.map((t) =>
+          t.id !== turnId
+            ? t
+            : { ...t, widgets: [...t.widgets, widget] }
         ),
       })),
   }))

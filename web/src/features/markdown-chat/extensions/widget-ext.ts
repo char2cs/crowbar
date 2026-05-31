@@ -44,7 +44,7 @@ class FencedWidget extends WidgetType {
   constructor(
     private widgetId: string,
     private widgetType: string,
-    private turns: MarkdownTurn[],
+    private turnsRef: { current: MarkdownTurn[] },
     private onWidgetChange: (widgetId: string, payload: unknown) => void,
   ) {
     super()
@@ -67,7 +67,8 @@ class FencedWidget extends WidgetType {
       return div
     }
 
-    const turn = this.turns.find((t) => t.widgets.some((w) => w.id === this.widgetId))
+    const turns = this.turnsRef.current
+    const turn = turns.find((t) => t.widgets.some((w) => w.id === this.widgetId))
     const widgetData = turn?.widgets.find((w) => w.id === this.widgetId)
     if (!widgetData) {
       div.textContent = `[widget not found: ${this.widgetId}]`
@@ -94,7 +95,7 @@ interface PendingDeco {
 
 function buildWidgetDecorations(
   state: EditorState,
-  turns: MarkdownTurn[],
+  turnsRef: { current: MarkdownTurn[] },
   onWidgetChange: (widgetId: string, payload: unknown) => void,
 ): DecorationSet {
   const pending: PendingDeco[] = []
@@ -131,7 +132,7 @@ function buildWidgetDecorations(
       from: node.from,
       to: node.to,
       deco: Decoration.replace({
-        widget: new FencedWidget(widgetId, widgetType, turns, onWidgetChange),
+        widget: new FencedWidget(widgetId, widgetType, turnsRef, onWidgetChange),
         inclusive: true,
       }),
     })
@@ -150,14 +151,14 @@ function buildWidgetDecorations(
 
 // Factory that creates the StateField with access to turns and callback.
 export function widgetExt(
-  turns: MarkdownTurn[],
+  turnsRef: { current: MarkdownTurn[] },
   onWidgetChange: (widgetId: string, payload: unknown) => void,
 ) {
   const widgetDecoField = StateField.define<DecorationSet>({
-    create: (state) => buildWidgetDecorations(state, turns, onWidgetChange),
+    create: (state) => buildWidgetDecorations(state, turnsRef, onWidgetChange),
     update(_deco, tr) {
       if (!tr.docChanged) return _deco
-      return buildWidgetDecorations(tr.state, turns, onWidgetChange)
+      return buildWidgetDecorations(tr.state, turnsRef, onWidgetChange)
     },
     provide: (f) => EditorView.decorations.from(f),
   })
