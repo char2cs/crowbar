@@ -46,7 +46,7 @@ const streamingTheme = EditorView.theme({
     display: 'inline-block',
     width: '2px',
     height: '1em',
-    backgroundColor: 'currentColor',
+    backgroundColor: 'var(--foreground)',
     verticalAlign: 'text-bottom',
     animation: 'cm-blink 1s step-start infinite',
   },

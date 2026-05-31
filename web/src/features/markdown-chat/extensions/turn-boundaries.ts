@@ -108,6 +108,7 @@ const turnDecorationsField = StateField.define<DecorationSet>({
 // User lines get background that fills the full .cm-line block width.
 const turnTheme = EditorView.theme({
   '&': { height: '100%', width: '100%' },
+  '&.cm-focused': { outline: 'none' },
   '.cm-scroller': {
     overflow: 'auto',
     fontFamily: 'var(--font-sans, system-ui)',

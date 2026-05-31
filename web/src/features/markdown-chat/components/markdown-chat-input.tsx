@@ -88,6 +88,7 @@ export function MarkdownChatInput({
         EditorView.lineWrapping,
         EditorView.theme({
           '&': { fontSize: '14px', height: 'auto', maxHeight: '240px' },
+          '&.cm-focused': { outline: 'none' },
           '.cm-scroller': {
             overflow: 'auto',
             fontFamily: 'var(--font-sans, system-ui)',
