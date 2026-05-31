@@ -14,19 +14,31 @@ import {
 import { type EditorState, RangeSetBuilder } from '@codemirror/state'
 import { WIDGET_ID_RE } from '../types'
 
-interface LineDeco {
-  pos: number
-  cls: string
+// order 0 = line decorations (must precede replace decos at the same position),
+// order 1 = replace decorations.
+interface Entry {
+  from: number
+  to: number
+  order: number
+  deco: Decoration
 }
 
-// Style every fenced code block (```lang … ```) as a monospace panel.
-// Widget blocks (excalidraw/mermaid, identified by a `widget-id:` info string)
-// are skipped — those are rendered as inline widgets by widget-ext. We don't do
-// per-language token highlighting here: most languages (e.g. Go) have no parser
-// installed, so a consistent code-panel treatment is what actually applies
-// across all of them.
+// Style fenced code blocks (```lang … ```) as monospace panels and hide the
+// ``` fence lines (Obsidian-style live preview). Hiding is cursor-aware: while
+// the cursor is inside a block the fences stay visible so they can be edited;
+// otherwise (and always in the read-only history) they're hidden.
+// Widget fences (excalidraw/mermaid, `widget-id:`) are left to widget-ext.
 function buildCodeBlockDecorations(state: EditorState, view: EditorView): DecorationSet {
-  const lines: LineDeco[] = []
+  const cursorLine = state.doc.lineAt(state.selection.main.head).number
+  const docLen = state.doc.length
+  const entries: Entry[] = []
+
+  const lineDeco = (pos: number, first: boolean, last: boolean) => {
+    let cls = 'cm-code-block'
+    if (first) cls += ' cm-code-block-first'
+    if (last) cls += ' cm-code-block-last'
+    entries.push({ from: pos, to: pos, order: 0, deco: Decoration.line({ class: cls }) })
+  }
 
   for (const { from, to } of view.visibleRanges) {
     syntaxTree(state).iterate({
@@ -35,28 +47,75 @@ function buildCodeBlockDecorations(state: EditorState, view: EditorView): Decora
       enter: (node) => {
         if (node.name !== 'FencedCode') return
         const startLine = state.doc.lineAt(node.from)
-        // Skip widget fences — handled by widget-ext.
         if (WIDGET_ID_RE.test(startLine.text)) return
         const endLine = state.doc.lineAt(node.to)
+        const cursorInside = cursorLine >= startLine.number && cursorLine <= endLine.number
 
-        for (let ln = startLine.number; ln <= endLine.number; ln++) {
-          let cls = 'cm-code-block'
-          if (ln === startLine.number) cls += ' cm-code-block-first'
-          if (ln === endLine.number) cls += ' cm-code-block-last'
-          lines.push({ pos: state.doc.line(ln).from, cls })
+        if (cursorInside) {
+          // Editing: keep fences visible, just tint every line.
+          for (let ln = startLine.number; ln <= endLine.number; ln++) {
+            lineDeco(state.doc.line(ln).from, ln === startLine.number, ln === endLine.number)
+          }
+          return
+        }
+
+        const contentFirst = startLine.number + 1
+        const contentLast = endLine.number - 1
+
+        // Empty block (```lang immediately followed by ```): hide it entirely.
+        if (contentFirst > contentLast) {
+          entries.push({
+            from: startLine.from,
+            to: Math.min(endLine.to + 1, docLen),
+            order: 1,
+            deco: Decoration.replace({}),
+          })
+          return
+        }
+
+        const firstContent = state.doc.line(contentFirst)
+        const lastContent = state.doc.line(contentLast)
+
+        // Hide opening "```lang\n" (merges into the first content line) …
+        entries.push({ from: startLine.from, to: firstContent.from, order: 1, deco: Decoration.replace({}) })
+        // … and the closing "\n```" (keeps the fence line's trailing newline so
+        // following text stays on its own line).
+        entries.push({ from: lastContent.to, to: endLine.to, order: 1, deco: Decoration.replace({}) })
+
+        for (let ln = contentFirst; ln <= contentLast; ln++) {
+          // The opening replace merges the fence line into the first content
+          // line, so the first visual line starts at startLine.from.
+          const pos = ln === contentFirst ? startLine.from : state.doc.line(ln).from
+          lineDeco(pos, ln === contentFirst, ln === contentLast)
         }
       },
     })
   }
 
-  // RangeSetBuilder requires strictly ascending positions.
-  lines.sort((a, b) => a.pos - b.pos)
+  entries.sort((a, b) => a.from - b.from || a.order - b.order)
   const builder = new RangeSetBuilder<Decoration>()
-  for (const { pos, cls } of lines) {
-    builder.add(pos, pos, Decoration.line({ class: cls }))
+  for (const { from, to, deco } of entries) {
+    builder.add(from, to, deco)
   }
   return builder.finish()
 }
+
+// Code-scoped token colours, mapped to the --syntax-* theme vars. Markdown's own
+// tags (heading, link, strong, emphasis) are deliberately omitted so document
+// text keeps its plain look — only nested code-block tokens get coloured.
+const codeHighlightStyle = HighlightStyle.define([
+  { tag: t.keyword, color: 'var(--syntax-keyword)' },
+  { tag: [t.name, t.deleted, t.character, t.propertyName, t.macroName], color: 'var(--syntax-variable)' },
+  { tag: [t.function(t.variableName), t.labelName], color: 'var(--syntax-function)' },
+  { tag: [t.color, t.constant(t.name), t.standard(t.name)], color: 'var(--syntax-constant)' },
+  { tag: [t.definition(t.name), t.separator], color: 'var(--syntax-variable)' },
+  { tag: [t.typeName, t.className, t.number, t.changed, t.annotation, t.modifier, t.self, t.namespace], color: 'var(--syntax-type)' },
+  { tag: [t.operator, t.operatorKeyword, t.url, t.escape, t.regexp, t.special(t.string)], color: 'var(--syntax-operator)' },
+  { tag: [t.meta, t.comment], color: 'var(--syntax-comment)', fontStyle: 'italic' },
+  { tag: [t.atom, t.bool, t.special(t.variableName)], color: 'var(--syntax-constant)' },
+  { tag: [t.processingInstruction, t.string, t.inserted], color: 'var(--syntax-string)' },
+  { tag: t.invalid, color: 'var(--syntax-invalid)' },
+])
 
 const codeBlockTheme = EditorView.theme({
   '.cm-code-block': {
@@ -79,23 +138,6 @@ const codeBlockTheme = EditorView.theme({
   },
 })
 
-// Code-scoped token colours, mapped to the --syntax-* theme vars. Markdown's own
-// tags (heading, link, strong, emphasis) are deliberately omitted so document
-// text keeps its plain look — only nested code-block tokens get coloured.
-const codeHighlightStyle = HighlightStyle.define([
-  { tag: t.keyword, color: 'var(--syntax-keyword)' },
-  { tag: [t.name, t.deleted, t.character, t.propertyName, t.macroName], color: 'var(--syntax-variable)' },
-  { tag: [t.function(t.variableName), t.labelName], color: 'var(--syntax-function)' },
-  { tag: [t.color, t.constant(t.name), t.standard(t.name)], color: 'var(--syntax-constant)' },
-  { tag: [t.definition(t.name), t.separator], color: 'var(--syntax-variable)' },
-  { tag: [t.typeName, t.className, t.number, t.changed, t.annotation, t.modifier, t.self, t.namespace], color: 'var(--syntax-type)' },
-  { tag: [t.operator, t.operatorKeyword, t.url, t.escape, t.regexp, t.special(t.string)], color: 'var(--syntax-operator)' },
-  { tag: [t.meta, t.comment], color: 'var(--syntax-comment)', fontStyle: 'italic' },
-  { tag: [t.atom, t.bool, t.special(t.variableName)], color: 'var(--syntax-constant)' },
-  { tag: [t.processingInstruction, t.string, t.inserted], color: 'var(--syntax-string)' },
-  { tag: t.invalid, color: 'var(--syntax-invalid)' },
-])
-
 const codeBlockPlugin = ViewPlugin.fromClass(
   class {
     decorations: DecorationSet
@@ -103,7 +145,7 @@ const codeBlockPlugin = ViewPlugin.fromClass(
       this.decorations = buildCodeBlockDecorations(view.state, view)
     }
     update(update: ViewUpdate) {
-      if (update.docChanged || update.viewportChanged) {
+      if (update.docChanged || update.viewportChanged || update.selectionSet) {
         this.decorations = buildCodeBlockDecorations(update.state, update.view)
       }
     }
