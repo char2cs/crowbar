@@ -216,12 +216,12 @@ export function MarkdownChatView({ workspaceId, stepId }: MarkdownChatViewProps)
         />
       </div>
 
-      {/* Input zone: warm tint matching user turns */}
+      {/* Input zone: same warm tint as user turns */}
       <div
         className="flex-shrink-0"
         style={{
-          background: 'rgba(255, 215, 80, 0.055)',
-          borderTop: '1px solid rgba(255, 215, 80, 0.09)',
+          background: 'var(--chat-user-tint)',
+          borderTop: '1px solid var(--chat-user-tint-border)',
         }}
       >
         <MarkdownChatInput

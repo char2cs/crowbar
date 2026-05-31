@@ -139,60 +139,60 @@ export function MarkdownChatToolbar({ editorView, onInsertWidget, onSubmit }: To
 
   return (
     <Toolbar
-      className="rounded-none border-x-0 border-b-0 border-t border-[rgba(255,215,80,0.09)] bg-transparent py-1.5"
+      className="rounded-none border-x-0 border-b-0 border-t border-chat-user-tint-border bg-transparent py-1.5"
       style={{ paddingLeft: 'max(48px, calc((100% - 680px) / 2 + 48px))', paddingRight: 'max(48px, calc((100% - 680px) / 2 + 48px))' }}
     >
       <ToolbarGroup>
         <ToolbarButton
           aria-label="Bold"
           onClick={() => v && wrapSelection(v, '**')}
-          className="flex h-6 min-w-6 items-center justify-center rounded px-1.5 text-xs font-bold text-[rgba(255,215,80,0.35)] hover:bg-[rgba(255,215,80,0.08)] hover:text-[rgba(255,215,80,0.7)]"
+          className="flex h-6 min-w-6 items-center justify-center rounded px-1.5 text-xs font-bold text-chat-user-fg hover:bg-chat-user-fg-hover-bg hover:text-chat-user-fg-active"
         >
           B
         </ToolbarButton>
         <ToolbarButton
           aria-label="Italic"
           onClick={() => v && wrapSelection(v, '*')}
-          className="flex h-6 min-w-6 items-center justify-center rounded px-1.5 text-xs italic text-[rgba(255,215,80,0.35)] hover:bg-[rgba(255,215,80,0.08)] hover:text-[rgba(255,215,80,0.7)]"
+          className="flex h-6 min-w-6 items-center justify-center rounded px-1.5 text-xs italic text-chat-user-fg hover:bg-chat-user-fg-hover-bg hover:text-chat-user-fg-active"
         >
           I
         </ToolbarButton>
         <ToolbarButton
           aria-label="Inline code"
           onClick={() => v && wrapSelection(v, '`')}
-          className="flex h-6 min-w-6 items-center justify-center rounded px-1.5 font-mono text-[10px] text-[rgba(255,215,80,0.35)] hover:bg-[rgba(255,215,80,0.08)] hover:text-[rgba(255,215,80,0.7)]"
+          className="flex h-6 min-w-6 items-center justify-center rounded px-1.5 font-mono text-[10px] text-chat-user-fg hover:bg-chat-user-fg-hover-bg hover:text-chat-user-fg-active"
         >
           {"`x`"}
         </ToolbarButton>
       </ToolbarGroup>
 
-      <ToolbarSeparator className="bg-[rgba(255,215,80,0.1)]" />
+      <ToolbarSeparator className="bg-chat-user-sep" />
 
       <ToolbarGroup>
         <ToolbarButton
           aria-label="Heading 1"
           onClick={() => v && prependLine(v, '# ')}
-          className="flex h-6 min-w-6 items-center justify-center rounded px-1.5 text-xs font-semibold text-[rgba(255,215,80,0.35)] hover:bg-[rgba(255,215,80,0.08)] hover:text-[rgba(255,215,80,0.7)]"
+          className="flex h-6 min-w-6 items-center justify-center rounded px-1.5 text-xs font-semibold text-chat-user-fg hover:bg-chat-user-fg-hover-bg hover:text-chat-user-fg-active"
         >
           H1
         </ToolbarButton>
         <ToolbarButton
           aria-label="Heading 2"
           onClick={() => v && prependLine(v, '## ')}
-          className="flex h-6 min-w-6 items-center justify-center rounded px-1.5 text-xs font-semibold text-[rgba(255,215,80,0.35)] hover:bg-[rgba(255,215,80,0.08)] hover:text-[rgba(255,215,80,0.7)]"
+          className="flex h-6 min-w-6 items-center justify-center rounded px-1.5 text-xs font-semibold text-chat-user-fg hover:bg-chat-user-fg-hover-bg hover:text-chat-user-fg-active"
         >
           H2
         </ToolbarButton>
         <ToolbarButton
           aria-label="Heading 3"
           onClick={() => v && prependLine(v, '### ')}
-          className="flex h-6 min-w-6 items-center justify-center rounded px-1.5 text-xs font-semibold text-[rgba(255,215,80,0.35)] hover:bg-[rgba(255,215,80,0.08)] hover:text-[rgba(255,215,80,0.7)]"
+          className="flex h-6 min-w-6 items-center justify-center rounded px-1.5 text-xs font-semibold text-chat-user-fg hover:bg-chat-user-fg-hover-bg hover:text-chat-user-fg-active"
         >
           H3
         </ToolbarButton>
       </ToolbarGroup>
 
-      <ToolbarSeparator className="bg-[rgba(255,215,80,0.1)]" />
+      <ToolbarSeparator className="bg-chat-user-sep" />
 
       <InsertDropdown
         onInsertExcalidraw={() => {
@@ -207,12 +207,12 @@ export function MarkdownChatToolbar({ editorView, onInsertWidget, onSubmit }: To
       />
 
       <div className="ml-auto flex items-center gap-2">
-        <span className="font-mono text-[10px] text-[rgba(255,215,80,0.2)]">⌘↵</span>
+        <span className="font-mono text-[10px] text-chat-user-fg-hint">⌘↵</span>
         <button
           type="button"
           onClick={onSubmit}
           title="Send (⌘↵)"
-          className="flex h-7 w-7 items-center justify-center rounded-lg bg-[rgba(80,140,255,0.8)] text-white transition-colors hover:bg-[rgba(80,140,255,1)]"
+          className="flex h-7 w-7 items-center justify-center rounded-lg bg-info/80 text-white transition-colors hover:bg-info"
         >
           <svg
             width="12"

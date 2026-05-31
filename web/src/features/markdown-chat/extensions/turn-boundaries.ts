@@ -112,13 +112,13 @@ const turnTheme = EditorView.theme({
     overflow: 'auto',
     fontFamily: 'var(--font-sans, system-ui)',
     scrollbarWidth: 'thin',
-    scrollbarColor: 'oklch(0.4 0 0 / 35%) transparent',
+    scrollbarColor: 'var(--app-scrollbar-thumb) var(--app-scrollbar-track)',
   },
   '.cm-scroller::-webkit-scrollbar': { width: '6px' },
-  '.cm-scroller::-webkit-scrollbar-track': { background: 'transparent' },
+  '.cm-scroller::-webkit-scrollbar-track': { background: 'var(--app-scrollbar-track)' },
   '.cm-scroller::-webkit-scrollbar-thumb': {
-    background: 'oklch(0.4 0 0 / 35%)',
-    borderRadius: '99px',
+    background: 'var(--app-scrollbar-thumb)',
+    borderRadius: 'var(--app-scrollbar-radius)',
   },
   '.cm-content': {
     padding: '40px 0 32px',
@@ -129,7 +129,7 @@ const turnTheme = EditorView.theme({
     lineHeight: '1.75',
   },
   '.cm-turn-user': {
-    background: 'rgba(255, 215, 80, 0.055)',
+    background: 'var(--chat-user-tint)',
   },
 })
 

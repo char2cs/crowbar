@@ -92,7 +92,7 @@ export function MarkdownChatInput({
             overflow: 'auto',
             fontFamily: 'var(--font-sans, system-ui)',
             scrollbarWidth: 'thin',
-            scrollbarColor: 'oklch(0.4 0 0 / 35%) transparent',
+            scrollbarColor: 'var(--app-scrollbar-thumb) var(--app-scrollbar-track)',
           },
           '.cm-content': {
             padding: '8px max(48px, calc((100% - 680px) / 2 + 48px))',
