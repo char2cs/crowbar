@@ -63,6 +63,9 @@ const codeBlockTheme = EditorView.theme({
     fontFamily: 'var(--font-editor, monospace)',
     fontSize: '0.9em',
     background: 'var(--code-highlight)',
+    // Disable JetBrains Mono ligatures so "!=" stays "!=" (not "≠"), "=>" stays "=>", etc.
+    fontVariantLigatures: 'none',
+    fontFeatureSettings: '"liga" 0, "calt" 0',
   },
   '.cm-code-block-first': {
     paddingTop: '8px',
