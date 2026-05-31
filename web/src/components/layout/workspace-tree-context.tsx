@@ -62,6 +62,7 @@ export function WorkspaceTreeProvider({ children }: { children: ReactNode }) {
   const pendingRef = useRef<{
     wsId: string; repoId: string; label: string
     startX: number; startY: number
+    target: HTMLElement; pointerId: number
   } | null>(null)
   // Mirrors draggingWs for use inside window event handlers without stale closures.
   // Set synchronously at the point of change, not via useEffect, to avoid one-render lag.
@@ -94,18 +95,22 @@ export function WorkspaceTreeProvider({ children }: { children: ReactNode }) {
   const onPointerDownDrag = useCallback((wsId: string, repoId: string, label: string, e: React.PointerEvent) => {
     if (e.button !== 0) return
     if (draggingRef.current) return  // ignore second pointer mid-drag
-    // Capture the pointer so drag continues even if pointer leaves the element or
-    // window, and prevents text selection without suppressing the click event.
-    ;(e.currentTarget as HTMLElement).setPointerCapture(e.pointerId)
-    pendingRef.current = { wsId, repoId, label, startX: e.clientX, startY: e.clientY }
+    // Don't capture here — deferring setPointerCapture to the pointermove threshold
+    // prevents it from swallowing the dblclick event used for rename.
+    pendingRef.current = {
+      wsId, repoId, label, startX: e.clientX, startY: e.clientY,
+      target: e.currentTarget as HTMLElement, pointerId: e.pointerId,
+    }
   }, [])
 
   useEffect(() => {
     function onPointerMove(e: PointerEvent) {
       if (pendingRef.current) {
-        const { wsId, repoId, label, startX, startY } = pendingRef.current
+        const { wsId, repoId, label, startX, startY, target, pointerId } = pendingRef.current
         if (Math.hypot(e.clientX - startX, e.clientY - startY) > 5) {
           pendingRef.current = null
+          // Capture only now that drag is confirmed — keeps dblclick working.
+          if (target.isConnected) target.setPointerCapture(pointerId)
           const ws = { id: wsId, repoId, label }
           draggingRef.current = ws
           setDraggingWs(ws)
