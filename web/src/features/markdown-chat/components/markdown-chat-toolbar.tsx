@@ -1,6 +1,7 @@
 import { useState, useRef, useEffect } from 'react'
 import type { EditorView } from '@codemirror/view'
 import { nanoid } from 'nanoid'
+import { SendHorizontal, Square } from 'lucide-react'
 import {
   Toolbar,
   ToolbarButton,
@@ -19,6 +20,8 @@ interface ToolbarProps {
   editorView: EditorView | null
   onInsertWidget: (widgetType: string, widgetId: string) => void
   onSubmit: () => void
+  isStreaming?: boolean
+  onStop?: () => void
 }
 
 function wrapSelection(view: EditorView, syntax: string) {
@@ -134,12 +137,12 @@ function InsertDropdown({
   )
 }
 
-export function MarkdownChatToolbar({ editorView, onInsertWidget, onSubmit }: ToolbarProps) {
+export function MarkdownChatToolbar({ editorView, onInsertWidget, onSubmit, isStreaming, onStop }: ToolbarProps) {
   const v = editorView
 
   return (
     <Toolbar
-      className="rounded-none border-x-0 border-b-0 border-t border-border bg-transparent py-1.5"
+      className="rounded-none border-x-0 border-y-0 bg-transparent py-1.5"
       style={{ paddingLeft: 'max(48px, calc((100% - 680px) / 2 + 48px))', paddingRight: 'max(48px, calc((100% - 680px) / 2 + 48px))' }}
     >
       <ToolbarGroup>
@@ -207,27 +210,28 @@ export function MarkdownChatToolbar({ editorView, onInsertWidget, onSubmit }: To
       />
 
       <div className="ml-auto flex items-center gap-2">
-        <span className="font-mono text-[10px] text-muted-foreground/50">⌘↵</span>
-        <button
-          type="button"
-          onClick={onSubmit}
-          title="Send (⌘↵)"
-          className="flex h-7 w-7 items-center justify-center rounded-lg bg-primary text-primary-foreground transition-colors hover:bg-primary/90"
-        >
-          <svg
-            width="12"
-            height="12"
-            viewBox="0 0 16 16"
-            fill="none"
-            stroke="currentColor"
-            strokeWidth="2.5"
-            strokeLinecap="round"
-            strokeLinejoin="round"
-            aria-hidden="true"
+        {!isStreaming && (
+          <span className="font-mono text-[10px] text-muted-foreground/50">⌘↵</span>
+        )}
+        {isStreaming ? (
+          <Button
+            variant="destructive"
+            size="icon-sm"
+            onClick={onStop}
+            title="Stop"
           >
-            <path d="M2 8L14 2L8 14L6.5 9.5Z" />
-          </svg>
-        </button>
+            <Square />
+          </Button>
+        ) : (
+          <Button
+            variant="default"
+            size="icon-sm"
+            onClick={onSubmit}
+            title="Send (⌘↵)"
+          >
+            <SendHorizontal />
+          </Button>
+        )}
       </div>
     </Toolbar>
   )

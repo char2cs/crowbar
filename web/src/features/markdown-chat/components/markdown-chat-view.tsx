@@ -38,6 +38,7 @@ export function MarkdownChatView({ workspaceId, stepId }: MarkdownChatViewProps)
   const turns = useStore(store, (s) => s.turns)
   const historyViewRef = useRef<EditorView | null>(null)
   const [inputEditorView, setInputEditorView] = useState<EditorView | null>(null)
+  const [isStreaming, setIsStreaming] = useState(false)
   const cancelStreamRef = useRef<(() => void) | null>(null)
   const draftWidgetsRef = useRef<WidgetData[]>([])
 
@@ -127,6 +128,7 @@ export function MarkdownChatView({ workspaceId, stepId }: MarkdownChatViewProps)
       appendTurnToHistory(historyView, userId, 'user', content)
       appendTurnToHistory(historyView, agentId, 'agent', '')
 
+      setIsStreaming(true)
       cancelStreamRef.current = simulateMarkdownStream(
         MOCK_RESPONSE,
         (chunk) => {
@@ -137,6 +139,7 @@ export function MarkdownChatView({ workspaceId, stepId }: MarkdownChatViewProps)
           state.finalizeStreamingTurn(agentId)
           finalizeStreaming(historyView)
           cancelStreamRef.current = null
+          setIsStreaming(false)
         },
       )
     },
@@ -196,6 +199,12 @@ export function MarkdownChatView({ workspaceId, stepId }: MarkdownChatViewProps)
     }
   }, [inputEditorView, handleSubmit])
 
+  const handleStop = useCallback(() => {
+    cancelStreamRef.current?.()
+    cancelStreamRef.current = null
+    setIsStreaming(false)
+  }, [])
+
   if (turns.length === 0) {
     return (
       <div className="flex h-full items-center justify-center text-muted-foreground">
@@ -229,6 +238,8 @@ export function MarkdownChatView({ workspaceId, stepId }: MarkdownChatViewProps)
           editorView={inputEditorView}
           onInsertWidget={handleInsertWidget}
           onSubmit={handleSendClick}
+          isStreaming={isStreaming}
+          onStop={handleStop}
         />
       </div>
     </div>
