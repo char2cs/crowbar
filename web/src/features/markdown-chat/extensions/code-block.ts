@@ -1,4 +1,9 @@
-import { syntaxTree } from '@codemirror/language'
+import {
+  HighlightStyle,
+  syntaxHighlighting,
+  syntaxTree,
+} from '@codemirror/language'
+import { tags as t } from '@lezer/highlight'
 import {
   Decoration,
   type DecorationSet,
@@ -71,6 +76,23 @@ const codeBlockTheme = EditorView.theme({
   },
 })
 
+// Code-scoped token colours, mapped to the --syntax-* theme vars. Markdown's own
+// tags (heading, link, strong, emphasis) are deliberately omitted so document
+// text keeps its plain look — only nested code-block tokens get coloured.
+const codeHighlightStyle = HighlightStyle.define([
+  { tag: t.keyword, color: 'var(--syntax-keyword)' },
+  { tag: [t.name, t.deleted, t.character, t.propertyName, t.macroName], color: 'var(--syntax-variable)' },
+  { tag: [t.function(t.variableName), t.labelName], color: 'var(--syntax-function)' },
+  { tag: [t.color, t.constant(t.name), t.standard(t.name)], color: 'var(--syntax-constant)' },
+  { tag: [t.definition(t.name), t.separator], color: 'var(--syntax-variable)' },
+  { tag: [t.typeName, t.className, t.number, t.changed, t.annotation, t.modifier, t.self, t.namespace], color: 'var(--syntax-type)' },
+  { tag: [t.operator, t.operatorKeyword, t.url, t.escape, t.regexp, t.special(t.string)], color: 'var(--syntax-operator)' },
+  { tag: [t.meta, t.comment], color: 'var(--syntax-comment)', fontStyle: 'italic' },
+  { tag: [t.atom, t.bool, t.special(t.variableName)], color: 'var(--syntax-constant)' },
+  { tag: [t.processingInstruction, t.string, t.inserted], color: 'var(--syntax-string)' },
+  { tag: t.invalid, color: 'var(--syntax-invalid)' },
+])
+
 const codeBlockPlugin = ViewPlugin.fromClass(
   class {
     decorations: DecorationSet
@@ -87,5 +109,5 @@ const codeBlockPlugin = ViewPlugin.fromClass(
 )
 
 export function codeBlockExt() {
-  return [codeBlockPlugin, codeBlockTheme]
+  return [codeBlockPlugin, codeBlockTheme, syntaxHighlighting(codeHighlightStyle)]
 }

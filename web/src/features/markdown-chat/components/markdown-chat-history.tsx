@@ -7,6 +7,7 @@ import type { MarkdownTurn } from '../types'
 import { turnsToDocument, turnBoundaries } from '../extensions/turn-boundaries'
 import { livePreview } from '../extensions/live-preview'
 import { codeBlockExt } from '../extensions/code-block'
+import { codeLanguages } from '../extensions/code-languages'
 import { streamingExt } from '../extensions/streaming-ext'
 import { todoStickyExt } from '../extensions/todo-sticky'
 import { widgetExt } from '../extensions/widget-ext'
@@ -34,7 +35,7 @@ export function MarkdownChatHistory({
     const state = EditorState.create({
       doc: turnsToDocument(turns),
       extensions: [
-        markdown(),
+        markdown({ codeLanguages }),
         history(),
         keymap.of([...defaultKeymap, ...historyKeymap]),
         EditorView.editable.of(false),

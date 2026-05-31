@@ -6,6 +6,7 @@ import { history, defaultKeymap, historyKeymap } from '@codemirror/commands'
 import type { MarkdownTurn } from '../types'
 import { livePreview } from '../extensions/live-preview'
 import { codeBlockExt } from '../extensions/code-block'
+import { codeLanguages } from '../extensions/code-languages'
 import { widgetExt } from '../extensions/widget-ext'
 import { slashCommandExt, type SlashCommandState } from '../extensions/slash-command-ext'
 import { SlashCommandPalette, type SlashCommand } from './slash-command-palette'
@@ -80,7 +81,7 @@ export function MarkdownChatInput({
     const state = EditorState.create({
       doc: '',
       extensions: [
-        markdown(),
+        markdown({ codeLanguages }),
         history(),
         keymap.of([...defaultKeymap, ...historyKeymap]),
         submitKeymap,
