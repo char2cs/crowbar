@@ -4,14 +4,8 @@ import {
   syntaxTree,
 } from '@codemirror/language'
 import { tags as t } from '@lezer/highlight'
-import {
-  Decoration,
-  type DecorationSet,
-  EditorView,
-  ViewPlugin,
-  type ViewUpdate,
-} from '@codemirror/view'
-import { type EditorState, RangeSetBuilder } from '@codemirror/state'
+import { Decoration, type DecorationSet, EditorView } from '@codemirror/view'
+import { type EditorState, RangeSetBuilder, StateField } from '@codemirror/state'
 import { WIDGET_ID_RE } from '../types'
 
 // order 0 = line decorations (must precede replace decos at the same position),
@@ -27,8 +21,12 @@ interface Entry {
 // ``` fence lines (Obsidian-style live preview). Hiding is cursor-aware: while
 // the cursor is inside a block the fences stay visible so they can be edited;
 // otherwise (and always in the read-only history) they're hidden.
-// Widget fences (excalidraw/mermaid, `widget-id:`) are left to widget-ext.
-function buildCodeBlockDecorations(state: EditorState, view: EditorView): DecorationSet {
+//
+// This MUST be a StateField, not a ViewPlugin: the fence-hiding replace
+// decorations span line breaks, and CodeMirror forbids line-break-replacing
+// decorations from plugins ("Decorations that replace line breaks may not be
+// specified via plugins"). Widget fences (`widget-id:`) are left to widget-ext.
+function buildCodeBlockDecorations(state: EditorState): DecorationSet {
   const cursorLine = state.doc.lineAt(state.selection.main.head).number
   const docLen = state.doc.length
   const entries: Entry[] = []
@@ -40,57 +38,53 @@ function buildCodeBlockDecorations(state: EditorState, view: EditorView): Decora
     entries.push({ from: pos, to: pos, order: 0, deco: Decoration.line({ class: cls }) })
   }
 
-  for (const { from, to } of view.visibleRanges) {
-    syntaxTree(state).iterate({
-      from,
-      to,
-      enter: (node) => {
-        if (node.name !== 'FencedCode') return
-        const startLine = state.doc.lineAt(node.from)
-        if (WIDGET_ID_RE.test(startLine.text)) return
-        const endLine = state.doc.lineAt(node.to)
-        const cursorInside = cursorLine >= startLine.number && cursorLine <= endLine.number
+  syntaxTree(state).iterate({
+    enter: (node) => {
+      if (node.name !== 'FencedCode') return
+      const startLine = state.doc.lineAt(node.from)
+      if (WIDGET_ID_RE.test(startLine.text)) return
+      const endLine = state.doc.lineAt(node.to)
+      const cursorInside = cursorLine >= startLine.number && cursorLine <= endLine.number
 
-        if (cursorInside) {
-          // Editing: keep fences visible, just tint every line.
-          for (let ln = startLine.number; ln <= endLine.number; ln++) {
-            lineDeco(state.doc.line(ln).from, ln === startLine.number, ln === endLine.number)
-          }
-          return
+      if (cursorInside) {
+        // Editing: keep fences visible, just tint every line.
+        for (let ln = startLine.number; ln <= endLine.number; ln++) {
+          lineDeco(state.doc.line(ln).from, ln === startLine.number, ln === endLine.number)
         }
+        return
+      }
 
-        const contentFirst = startLine.number + 1
-        const contentLast = endLine.number - 1
+      const contentFirst = startLine.number + 1
+      const contentLast = endLine.number - 1
 
-        // Empty block (```lang immediately followed by ```): hide it entirely.
-        if (contentFirst > contentLast) {
-          entries.push({
-            from: startLine.from,
-            to: Math.min(endLine.to + 1, docLen),
-            order: 1,
-            deco: Decoration.replace({}),
-          })
-          return
-        }
+      // Empty block (```lang immediately followed by ```): hide it entirely.
+      if (contentFirst > contentLast) {
+        entries.push({
+          from: startLine.from,
+          to: Math.min(endLine.to + 1, docLen),
+          order: 1,
+          deco: Decoration.replace({}),
+        })
+        return
+      }
 
-        const firstContent = state.doc.line(contentFirst)
-        const lastContent = state.doc.line(contentLast)
+      const firstContent = state.doc.line(contentFirst)
+      const lastContent = state.doc.line(contentLast)
 
-        // Hide opening "```lang\n" (merges into the first content line) …
-        entries.push({ from: startLine.from, to: firstContent.from, order: 1, deco: Decoration.replace({}) })
-        // … and the closing "\n```" (keeps the fence line's trailing newline so
-        // following text stays on its own line).
-        entries.push({ from: lastContent.to, to: endLine.to, order: 1, deco: Decoration.replace({}) })
+      // Hide opening "```lang\n" (merges into the first content line) …
+      entries.push({ from: startLine.from, to: firstContent.from, order: 1, deco: Decoration.replace({}) })
+      // … and the closing "\n```" (keeps the fence line's trailing newline so
+      // following text stays on its own line).
+      entries.push({ from: lastContent.to, to: endLine.to, order: 1, deco: Decoration.replace({}) })
 
-        for (let ln = contentFirst; ln <= contentLast; ln++) {
-          // The opening replace merges the fence line into the first content
-          // line, so the first visual line starts at startLine.from.
-          const pos = ln === contentFirst ? startLine.from : state.doc.line(ln).from
-          lineDeco(pos, ln === contentFirst, ln === contentLast)
-        }
-      },
-    })
-  }
+      for (let ln = contentFirst; ln <= contentLast; ln++) {
+        // The opening replace merges the fence line into the first content
+        // line, so the first visual line starts at startLine.from.
+        const pos = ln === contentFirst ? startLine.from : state.doc.line(ln).from
+        lineDeco(pos, ln === contentFirst, ln === contentLast)
+      }
+    },
+  })
 
   entries.sort((a, b) => a.from - b.from || a.order - b.order)
   const builder = new RangeSetBuilder<Decoration>()
@@ -99,6 +93,13 @@ function buildCodeBlockDecorations(state: EditorState, view: EditorView): Decora
   }
   return builder.finish()
 }
+
+const codeBlockField = StateField.define<DecorationSet>({
+  create: (state) => buildCodeBlockDecorations(state),
+  update: (deco, tr) =>
+    tr.docChanged || tr.selection ? buildCodeBlockDecorations(tr.state) : deco,
+  provide: (f) => EditorView.decorations.from(f),
+})
 
 // Code-scoped token colours, mapped to the --syntax-* theme vars. Markdown's own
 // tags (heading, link, strong, emphasis) are deliberately omitted so document
@@ -138,21 +139,6 @@ const codeBlockTheme = EditorView.theme({
   },
 })
 
-const codeBlockPlugin = ViewPlugin.fromClass(
-  class {
-    decorations: DecorationSet
-    constructor(view: EditorView) {
-      this.decorations = buildCodeBlockDecorations(view.state, view)
-    }
-    update(update: ViewUpdate) {
-      if (update.docChanged || update.viewportChanged || update.selectionSet) {
-        this.decorations = buildCodeBlockDecorations(update.state, update.view)
-      }
-    }
-  },
-  { decorations: (v) => v.decorations },
-)
-
 export function codeBlockExt() {
-  return [codeBlockPlugin, codeBlockTheme, syntaxHighlighting(codeHighlightStyle)]
+  return [codeBlockField, codeBlockTheme, syntaxHighlighting(codeHighlightStyle)]
 }
