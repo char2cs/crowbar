@@ -86,7 +86,12 @@ function buildDecorations(state: EditorState): DecorationSet {
 
       // Tint remaining content lines (not merged with the replace block).
       const firstLineNum = markerLine.number + 2  // +2: skip marker(+1) and first content(+1)
-      const lastLineNum = state.doc.lineAt(range.to).number
+      let lastLineNum = state.doc.lineAt(range.to).number
+      // Don't tint the trailing blank line(s) — the "\n\n" separator before the
+      // next turn falls inside this range and would show as an empty tinted line.
+      while (lastLineNum >= firstLineNum && state.doc.line(lastLineNum).text.trim() === '') {
+        lastLineNum--
+      }
       for (let ln = firstLineNum; ln <= lastLineNum; ln++) {
         const l = state.doc.line(ln)
         builder.add(l.from, l.from, Decoration.line({ class: 'cm-turn-user' }))
