@@ -85,7 +85,7 @@ function InsertDropdown({
     <DropdownMenu>
       <DropdownMenuTrigger
         render={
-          <Button variant="ghost" size="sm" className="h-6 px-2 text-xs text-muted-foreground" />
+          <Button variant="ghost" size="sm" className="h-8 px-2.5 text-sm text-muted-foreground" />
         }
       >
         + Insert
@@ -135,21 +135,21 @@ export function MarkdownChatToolbar({ editorView, onInsertWidget, onSubmit, isSt
           <ToolbarButton
             aria-label="Bold"
             onClick={() => v && wrapSelection(v, '**')}
-            className="flex h-6 min-w-6 items-center justify-center rounded px-1.5 text-xs font-bold text-muted-foreground hover:bg-muted hover:text-foreground"
+            className="flex h-8 min-w-8 items-center justify-center rounded px-2 text-sm font-bold text-muted-foreground hover:bg-muted hover:text-foreground"
           >
             B
           </ToolbarButton>
           <ToolbarButton
             aria-label="Italic"
             onClick={() => v && wrapSelection(v, '*')}
-            className="flex h-6 min-w-6 items-center justify-center rounded px-1.5 text-xs italic text-muted-foreground hover:bg-muted hover:text-foreground"
+            className="flex h-8 min-w-8 items-center justify-center rounded px-2 text-sm italic text-muted-foreground hover:bg-muted hover:text-foreground"
           >
             I
           </ToolbarButton>
           <ToolbarButton
             aria-label="Inline code"
             onClick={() => v && wrapSelection(v, '`')}
-            className="flex h-6 min-w-6 items-center justify-center rounded px-1.5 font-mono text-[10px] text-muted-foreground hover:bg-muted hover:text-foreground"
+            className="flex h-8 min-w-8 items-center justify-center rounded px-2 font-mono text-xs text-muted-foreground hover:bg-muted hover:text-foreground"
           >
             {"`x`"}
           </ToolbarButton>
@@ -161,21 +161,21 @@ export function MarkdownChatToolbar({ editorView, onInsertWidget, onSubmit, isSt
           <ToolbarButton
             aria-label="Heading 1"
             onClick={() => v && prependLine(v, '# ')}
-            className="flex h-6 min-w-6 items-center justify-center rounded px-1.5 text-xs font-semibold text-muted-foreground hover:bg-muted hover:text-foreground"
+            className="flex h-8 min-w-8 items-center justify-center rounded px-2 text-sm font-semibold text-muted-foreground hover:bg-muted hover:text-foreground"
           >
             H1
           </ToolbarButton>
           <ToolbarButton
             aria-label="Heading 2"
             onClick={() => v && prependLine(v, '## ')}
-            className="flex h-6 min-w-6 items-center justify-center rounded px-1.5 text-xs font-semibold text-muted-foreground hover:bg-muted hover:text-foreground"
+            className="flex h-8 min-w-8 items-center justify-center rounded px-2 text-sm font-semibold text-muted-foreground hover:bg-muted hover:text-foreground"
           >
             H2
           </ToolbarButton>
           <ToolbarButton
             aria-label="Heading 3"
             onClick={() => v && prependLine(v, '### ')}
-            className="flex h-6 min-w-6 items-center justify-center rounded px-1.5 text-xs font-semibold text-muted-foreground hover:bg-muted hover:text-foreground"
+            className="flex h-8 min-w-8 items-center justify-center rounded px-2 text-sm font-semibold text-muted-foreground hover:bg-muted hover:text-foreground"
           >
             H3
           </ToolbarButton>
@@ -200,7 +200,7 @@ export function MarkdownChatToolbar({ editorView, onInsertWidget, onSubmit, isSt
         {isStreaming ? (
           <Button
             variant="destructive"
-            size="icon-sm"
+            size="icon"
             onClick={onStop}
             title="Stop"
           >
@@ -209,7 +209,7 @@ export function MarkdownChatToolbar({ editorView, onInsertWidget, onSubmit, isSt
         ) : (
           <Button
             variant="default"
-            size="icon-sm"
+            size="icon"
             onClick={onSubmit}
             title="Send (⌘↵)"
           >
