@@ -1,7 +1,6 @@
-import { useState, useRef, useEffect } from 'react'
 import type { EditorView } from '@codemirror/view'
 import { nanoid } from 'nanoid'
-import { SendHorizontal, Square } from 'lucide-react'
+import { SendHorizontal, Square, Pencil, Code2, ChartNetwork } from 'lucide-react'
 import {
   Toolbar,
   ToolbarButton,
@@ -9,6 +8,15 @@ import {
   ToolbarSeparator,
 } from '@/components/ui/toolbar'
 import { Button } from '@/components/ui/button'
+import {
+  DropdownMenu,
+  DropdownMenuTrigger,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuSub,
+  DropdownMenuSubTrigger,
+  DropdownMenuSubContent,
+} from '@/components/ui/dropdown-menu'
 
 const CODE_LANGUAGES = [
   'typescript', 'javascript', 'python', 'go', 'shell', 'json', 'plain',
@@ -73,67 +81,39 @@ function InsertDropdown({
   onInsertCodeBlock: (lang: CodeLanguage) => void
   onInsertMermaid: () => void
 }) {
-  const [open, setOpen] = useState(false)
-  const [codeOpen, setCodeOpen] = useState(false)
-  const ref = useRef<HTMLDivElement>(null)
-
-  useEffect(() => {
-    if (!open) { setCodeOpen(false); return }
-    const handler = (e: MouseEvent) => {
-      if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false)
-    }
-    document.addEventListener('mousedown', handler)
-    return () => document.removeEventListener('mousedown', handler)
-  }, [open])
-
   return (
-    <div ref={ref} className="relative">
-      <Button
-        variant="ghost"
-        size="sm"
-        className="h-6 px-2 text-xs text-muted-foreground"
-        onClick={() => setOpen((v) => !v)}
+    <DropdownMenu>
+      <DropdownMenuTrigger
+        render={
+          <Button variant="ghost" size="sm" className="h-6 px-2 text-xs text-muted-foreground" />
+        }
       >
         + Insert
-      </Button>
-      {open && (
-        <div className="absolute bottom-full left-0 z-50 mb-1 min-w-44 rounded-md border border-border bg-popover shadow-md">
-          <button
-            onClick={() => { onInsertExcalidraw(); setOpen(false) }}
-            className="flex w-full items-center gap-2 px-3 py-1.5 text-left text-sm hover:bg-muted"
-          >
-            ✏️ Excalidraw drawing
-          </button>
-          <div className="relative">
-            <button
-              onClick={() => setCodeOpen((v) => !v)}
-              className="flex w-full items-center gap-2 px-3 py-1.5 text-left text-sm hover:bg-muted"
-            >
-              <span className="font-mono text-xs">&lt;/&gt;</span> Code block ▸
-            </button>
-            {codeOpen && (
-              <div className="absolute bottom-0 left-full min-w-36 rounded-md border border-border bg-popover shadow-md">
-                {CODE_LANGUAGES.map((lang) => (
-                  <button
-                    key={lang}
-                    onClick={() => { onInsertCodeBlock(lang); setOpen(false); setCodeOpen(false) }}
-                    className="flex w-full items-center px-3 py-1.5 text-left text-sm hover:bg-muted"
-                  >
-                    {lang}
-                  </button>
-                ))}
-              </div>
-            )}
-          </div>
-          <button
-            onClick={() => { onInsertMermaid(); setOpen(false) }}
-            className="flex w-full items-center gap-2 px-3 py-1.5 text-left text-sm hover:bg-muted"
-          >
-            📊 Mermaid diagram
-          </button>
-        </div>
-      )}
-    </div>
+      </DropdownMenuTrigger>
+      <DropdownMenuContent side="top" align="start" className="min-w-44">
+        <DropdownMenuItem onClick={onInsertExcalidraw}>
+          <Pencil />
+          Excalidraw drawing
+        </DropdownMenuItem>
+        <DropdownMenuSub>
+          <DropdownMenuSubTrigger>
+            <Code2 />
+            Code block
+          </DropdownMenuSubTrigger>
+          <DropdownMenuSubContent>
+            {CODE_LANGUAGES.map((lang) => (
+              <DropdownMenuItem key={lang} onClick={() => onInsertCodeBlock(lang)}>
+                {lang}
+              </DropdownMenuItem>
+            ))}
+          </DropdownMenuSubContent>
+        </DropdownMenuSub>
+        <DropdownMenuItem onClick={onInsertMermaid}>
+          <ChartNetwork />
+          Mermaid diagram
+        </DropdownMenuItem>
+      </DropdownMenuContent>
+    </DropdownMenu>
   )
 }
 
