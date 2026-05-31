@@ -217,13 +217,7 @@ export function MarkdownChatView({ workspaceId, stepId }: MarkdownChatViewProps)
       </div>
 
       {/* Input zone: same warm tint as user turns */}
-      <div
-        className="flex-shrink-0"
-        style={{
-          background: 'var(--muted)',
-          borderTop: '1px solid var(--border)',
-        }}
-      >
+      <div className="flex-shrink-0 border-t border-primary/10 bg-primary/5">
         <MarkdownChatInput
           getTurns={getTurns}
           onSubmit={handleSubmit}

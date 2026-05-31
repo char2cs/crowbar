@@ -129,7 +129,7 @@ const turnTheme = EditorView.theme({
     lineHeight: '1.75',
   },
   '.cm-turn-user': {
-    background: 'var(--muted)',
+    background: 'color-mix(in srgb, var(--primary) 5%, transparent)',
   },
 })
 
