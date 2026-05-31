@@ -210,9 +210,6 @@ export function MarkdownChatToolbar({ editorView, onInsertWidget, onSubmit, isSt
       />
 
       <div className="ml-auto flex items-center gap-2">
-        {!isStreaming && (
-          <span className="font-mono text-[10px] text-muted-foreground/50">⌘↵</span>
-        )}
         {isStreaming ? (
           <Button
             variant="destructive"
