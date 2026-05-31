@@ -110,11 +110,15 @@ const turnDecorationsField = StateField.define<DecorationSet>({
 // .cm-content has no horizontal padding; .cm-line carries the column padding.
 // User lines get background that fills the full .cm-line block width.
 const turnTheme = EditorView.theme({
-  '&': { height: '100%', width: '100%' },
+  // Shared text metrics — must match the input editor (markdown-chat-input.tsx).
+  '&': { height: '100%', width: '100%', fontSize: '15px' },
   '&.cm-focused': { outline: 'none' },
   '.cm-scroller': {
     overflow: 'auto',
     fontFamily: 'var(--font-sans, system-ui)',
+    // Reserve scrollbar space so the centered text column lines up with the
+    // input editor whether or not a scrollbar is present.
+    scrollbarGutter: 'stable',
     scrollbarWidth: 'thin',
     scrollbarColor: 'var(--app-scrollbar-thumb) var(--app-scrollbar-track)',
   },
