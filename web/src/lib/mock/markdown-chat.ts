@@ -31,6 +31,7 @@ Each app runs its own OAuth flow. Simpler to deploy, harder to revoke globally.
 I'd recommend **Option A** for Crowbar specifically since you already have a Go backend planned.`,
       timestamp: '2026-05-31T10:01:00Z',
       authorName: 'Claude',
+      model: 'Opus 4.8',
       widgets: [],
     },
     {

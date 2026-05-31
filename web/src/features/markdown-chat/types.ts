@@ -19,6 +19,7 @@ export interface MarkdownTurn {
   content: string        // raw markdown; fenced blocks reference widget IDs
   timestamp: string      // ISO 8601
   authorName: string
+  model?: string         // model that produced an agent turn (e.g. "Opus 4.8")
   widgets: WidgetData[]
   streaming?: boolean    // true while agent is actively writing
 }

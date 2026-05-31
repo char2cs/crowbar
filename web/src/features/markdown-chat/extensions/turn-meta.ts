@@ -2,23 +2,25 @@ import { EditorView } from '@codemirror/view'
 import { getTurnRanges } from './turn-boundaries'
 import type { MarkdownTurn } from '../types'
 
-// Per-turn metadata (model + time sent) shown as a subtle line at the start of
-// each turn, sticky-pinned to the top of the viewport while that turn is
-// scrolled through. The next turn's line slides up and takes over.
+// Per-turn metadata (model + time sent) shown as a subtle label in the left
+// margin, beside the start of each turn's text — outside the text column, so it
+// never overlaps content. It is sticky-pinned to the top of the viewport while
+// that turn is scrolled through; the next turn's label then slides up and takes
+// over.
 //
 // Why an overlay instead of a CM6 block widget: a sticky element is, by
 // definition, always at the viewport edge, and CM6 forbids block decorations
 // "around the viewport" from a field/plugin that updates. So we render the
 // labels in our own absolutely-positioned layer and reproduce sticky behaviour
 // from CM6's height map (works even for turns taller than the viewport).
-//
-// Space for the at-rest label is reserved by the `.cm-turn-head` padding added
-// in turn-boundaries.ts, so the label never covers the turn's first line.
 
 // Gap kept between the pinned label and the top of the viewport.
 const STICKY_TOP = 10
 // Fallback label height before the node has been measured.
 const FALLBACK_LABEL_H = 20
+// The left margin width — same as .cm-line's left padding (turn-boundaries.ts /
+// input). The label occupies this margin and hugs the text column's left edge.
+const COLUMN_PAD = 'max(48px, calc((100% - 680px) / 2 + 48px))'
 
 function formatTime(iso: string): string {
   if (!iso) return ''
@@ -48,7 +50,16 @@ export function mountTurnMeta(
   overlay: HTMLElement,
   getTurns: () => MarkdownTurn[],
 ): TurnMetaHandle {
-  overlay.classList.add('cm-turn-meta-layer')
+  // Styles are applied inline (not via EditorView.theme): the overlay lives
+  // outside the .cm-editor root, so theme rules — which CM6 scopes under that
+  // root — would not reach it.
+  Object.assign(overlay.style, {
+    position: 'absolute',
+    inset: '0',
+    overflow: 'hidden',
+    pointerEvents: 'none',
+    zIndex: '5',
+  })
   const nodes = new Map<string, HTMLElement>()
 
   const build = () => {
@@ -77,8 +88,25 @@ export function mountTurnMeta(
       if (!el) {
         el = document.createElement('div')
         el.className = `cm-turn-meta cm-turn-meta-${range.role}`
+        Object.assign(el.style, {
+          position: 'absolute',
+          left: '0',
+          // Span only the left margin (same width as .cm-line's left padding);
+          // text is right-aligned so it sits just left of the text column.
+          width: COLUMN_PAD,
+          display: 'flex',
+          justifyContent: 'flex-end',
+          paddingRight: '16px',
+          fontSize: '11px',
+          // Match the first text line's box height so the label aligns with it.
+          lineHeight: '26px',
+          color: 'var(--muted-foreground)',
+          willChange: 'transform',
+        })
         const span = document.createElement('span')
         span.className = 'cm-turn-meta-text'
+        span.style.fontVariantNumeric = 'tabular-nums'
+        span.style.whiteSpace = 'nowrap'
         el.appendChild(span)
         overlay.appendChild(el)
         nodes.set(range.id, el)
@@ -127,34 +155,3 @@ export function mountTurnMeta(
   }
 }
 
-// Same centered-column padding as .cm-line (turn-boundaries.ts / input).
-const COLUMN_PAD = 'max(48px, calc((100% - 680px) / 2 + 48px))'
-
-export const turnMetaTheme = EditorView.theme({
-  '.cm-turn-meta-layer': {
-    position: 'absolute',
-    inset: '0',
-    overflow: 'hidden',
-    pointerEvents: 'none',
-    zIndex: '5',
-  },
-  '.cm-turn-meta': {
-    position: 'absolute',
-    left: '0',
-    right: '0',
-    display: 'flex',
-    justifyContent: 'flex-end',
-    padding: `0 ${COLUMN_PAD}`,
-    fontSize: '12px',
-    lineHeight: '1.4',
-    color: 'var(--muted-foreground)',
-    // Padding-top inside the band gives a touch of breathing room above the text.
-    paddingTop: '6px',
-    // Will-change keeps transform updates cheap during scroll.
-    willChange: 'transform',
-  },
-  '.cm-turn-meta-text': {
-    fontVariantNumeric: 'tabular-nums',
-    whiteSpace: 'nowrap',
-  },
-})

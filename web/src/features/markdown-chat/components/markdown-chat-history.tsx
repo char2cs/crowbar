@@ -5,7 +5,7 @@ import { markdown } from '@codemirror/lang-markdown'
 import { history, defaultKeymap, historyKeymap } from '@codemirror/commands'
 import type { MarkdownTurn } from '../types'
 import { turnsToDocument, turnBoundaries } from '../extensions/turn-boundaries'
-import { mountTurnMeta, turnMetaTheme } from '../extensions/turn-meta'
+import { mountTurnMeta } from '../extensions/turn-meta'
 import { livePreview } from '../extensions/live-preview'
 import { codeBlockExt } from '../extensions/code-block'
 import { codeLanguages } from '../extensions/code-languages'
@@ -47,7 +47,6 @@ export function MarkdownChatHistory({
         EditorView.editable.of(false),
         EditorView.lineWrapping,
         turnBoundaries(),
-        turnMetaTheme,
         livePreview(),
         codeBlockExt(),
         streamingExt(),
