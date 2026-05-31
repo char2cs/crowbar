@@ -74,11 +74,12 @@ function buildDecorations(state: EditorState): DecorationSet {
 
   for (const range of ranges) {
     const markerLine = state.doc.lineAt(range.from)
-    // Hide the marker line itself
+    // Replace marker line + its trailing newline so no blank gap appears
+    const lineEnd = markerLine.to + 1 <= state.doc.length ? markerLine.to + 1 : markerLine.to
     builder.add(
       markerLine.from,
-      markerLine.to,
-      Decoration.mark({ class: 'cm-turn-marker-hidden' }),
+      lineEnd,
+      Decoration.replace({}),
     )
     // Tint the entire turn range
     const contentFrom = markerLine.to + 1
@@ -129,12 +130,12 @@ function makeReadOnlyFilter() {
 
 // CSS for turn tinting — injected via EditorView.theme.
 const turnTheme = EditorView.theme({
-  '.cm-turn-marker-hidden': { display: 'none' },
   '.cm-turn-user': { backgroundColor: 'hsl(var(--color-muted) / 0.4)' },
   '.cm-turn-agent': { backgroundColor: 'hsl(var(--color-accent) / 0.15)' },
 })
 
-export function turnBoundaries(streamingTurnId: string | null = null) {
+// streamingTurnId is reserved for future use — bypass is handled globally via streamingAnnotation
+export function turnBoundaries(_streamingTurnId: string | null = null) {
   return [
     turnRangesField,
     turnDecorationsField,
