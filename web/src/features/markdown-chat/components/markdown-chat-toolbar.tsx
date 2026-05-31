@@ -131,69 +131,69 @@ export function MarkdownChatToolbar({ editorView, onInsertWidget, onSubmit, isSt
       style={{ paddingLeft: 'max(48px, calc((100% - 680px) / 2 + 48px))', paddingRight: 'max(48px, calc((100% - 680px) / 2 + 48px))' }}
     >
       <Toolbar className="rounded-none border-0 bg-transparent p-0 shadow-none">
-      <ToolbarGroup>
-        <ToolbarButton
-          aria-label="Bold"
-          onClick={() => v && wrapSelection(v, '**')}
-          className="flex h-6 min-w-6 items-center justify-center rounded px-1.5 text-xs font-bold text-muted-foreground hover:bg-muted hover:text-foreground"
-        >
-          B
-        </ToolbarButton>
-        <ToolbarButton
-          aria-label="Italic"
-          onClick={() => v && wrapSelection(v, '*')}
-          className="flex h-6 min-w-6 items-center justify-center rounded px-1.5 text-xs italic text-muted-foreground hover:bg-muted hover:text-foreground"
-        >
-          I
-        </ToolbarButton>
-        <ToolbarButton
-          aria-label="Inline code"
-          onClick={() => v && wrapSelection(v, '`')}
-          className="flex h-6 min-w-6 items-center justify-center rounded px-1.5 font-mono text-[10px] text-muted-foreground hover:bg-muted hover:text-foreground"
-        >
-          {"`x`"}
-        </ToolbarButton>
-      </ToolbarGroup>
+        <ToolbarGroup>
+          <ToolbarButton
+            aria-label="Bold"
+            onClick={() => v && wrapSelection(v, '**')}
+            className="flex h-6 min-w-6 items-center justify-center rounded px-1.5 text-xs font-bold text-muted-foreground hover:bg-muted hover:text-foreground"
+          >
+            B
+          </ToolbarButton>
+          <ToolbarButton
+            aria-label="Italic"
+            onClick={() => v && wrapSelection(v, '*')}
+            className="flex h-6 min-w-6 items-center justify-center rounded px-1.5 text-xs italic text-muted-foreground hover:bg-muted hover:text-foreground"
+          >
+            I
+          </ToolbarButton>
+          <ToolbarButton
+            aria-label="Inline code"
+            onClick={() => v && wrapSelection(v, '`')}
+            className="flex h-6 min-w-6 items-center justify-center rounded px-1.5 font-mono text-[10px] text-muted-foreground hover:bg-muted hover:text-foreground"
+          >
+            {"`x`"}
+          </ToolbarButton>
+        </ToolbarGroup>
 
-      <ToolbarSeparator className="bg-border" />
+        <ToolbarSeparator className="bg-border" />
 
-      <ToolbarGroup>
-        <ToolbarButton
-          aria-label="Heading 1"
-          onClick={() => v && prependLine(v, '# ')}
-          className="flex h-6 min-w-6 items-center justify-center rounded px-1.5 text-xs font-semibold text-muted-foreground hover:bg-muted hover:text-foreground"
-        >
-          H1
-        </ToolbarButton>
-        <ToolbarButton
-          aria-label="Heading 2"
-          onClick={() => v && prependLine(v, '## ')}
-          className="flex h-6 min-w-6 items-center justify-center rounded px-1.5 text-xs font-semibold text-muted-foreground hover:bg-muted hover:text-foreground"
-        >
-          H2
-        </ToolbarButton>
-        <ToolbarButton
-          aria-label="Heading 3"
-          onClick={() => v && prependLine(v, '### ')}
-          className="flex h-6 min-w-6 items-center justify-center rounded px-1.5 text-xs font-semibold text-muted-foreground hover:bg-muted hover:text-foreground"
-        >
-          H3
-        </ToolbarButton>
-      </ToolbarGroup>
+        <ToolbarGroup>
+          <ToolbarButton
+            aria-label="Heading 1"
+            onClick={() => v && prependLine(v, '# ')}
+            className="flex h-6 min-w-6 items-center justify-center rounded px-1.5 text-xs font-semibold text-muted-foreground hover:bg-muted hover:text-foreground"
+          >
+            H1
+          </ToolbarButton>
+          <ToolbarButton
+            aria-label="Heading 2"
+            onClick={() => v && prependLine(v, '## ')}
+            className="flex h-6 min-w-6 items-center justify-center rounded px-1.5 text-xs font-semibold text-muted-foreground hover:bg-muted hover:text-foreground"
+          >
+            H2
+          </ToolbarButton>
+          <ToolbarButton
+            aria-label="Heading 3"
+            onClick={() => v && prependLine(v, '### ')}
+            className="flex h-6 min-w-6 items-center justify-center rounded px-1.5 text-xs font-semibold text-muted-foreground hover:bg-muted hover:text-foreground"
+          >
+            H3
+          </ToolbarButton>
+        </ToolbarGroup>
 
-      <ToolbarSeparator className="bg-border" />
+        <ToolbarSeparator className="bg-border" />
 
-      <InsertDropdown
-        onInsertExcalidraw={() => {
-          if (!v) return
-          const id = nanoid()
-          // appendWidget BEFORE inserting into CM6 so FencedWidget.toDOM() finds it
-          onInsertWidget('excalidraw', id)
-          insertExcalidraw(v, id)
-        }}
-        onInsertCodeBlock={(lang) => v && insertCodeBlock(v, lang)}
-        onInsertMermaid={() => v && insertMermaid(v)}
-      />
+        <InsertDropdown
+          onInsertExcalidraw={() => {
+            if (!v) return
+            const id = nanoid()
+            // appendWidget BEFORE inserting into CM6 so FencedWidget.toDOM() finds it
+            onInsertWidget('excalidraw', id)
+            insertExcalidraw(v, id)
+          }}
+          onInsertCodeBlock={(lang) => v && insertCodeBlock(v, lang)}
+          onInsertMermaid={() => v && insertMermaid(v)}
+        />
       </Toolbar>
 
       <div className="ml-auto flex items-center gap-2">
