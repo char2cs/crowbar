@@ -89,6 +89,7 @@ export function MarkdownChatInput({
         EditorView.theme({
           '&': { fontSize: '14px', height: 'auto', maxHeight: '240px' },
           '&.cm-focused': { outline: 'none' },
+          '.cm-cursor, .cm-dropCursor': { borderLeftColor: 'var(--foreground)' },
           '.cm-scroller': {
             overflow: 'auto',
             fontFamily: 'var(--font-sans, system-ui)',
@@ -98,6 +99,7 @@ export function MarkdownChatInput({
           '.cm-content': {
             padding: '8px max(48px, calc((100% - 680px) / 2 + 48px))',
             minHeight: '52px',
+            caretColor: 'var(--foreground)',
           },
           '.cm-line': { lineHeight: '1.7' },
         }),
