@@ -6,6 +6,7 @@ import { history, defaultKeymap, historyKeymap } from '@codemirror/commands'
 import type { MarkdownTurn } from '../types'
 import { turnsToDocument, turnBoundaries } from '../extensions/turn-boundaries'
 import { livePreview } from '../extensions/live-preview'
+import { codeBlockExt } from '../extensions/code-block'
 import { streamingExt } from '../extensions/streaming-ext'
 import { todoStickyExt } from '../extensions/todo-sticky'
 import { widgetExt } from '../extensions/widget-ext'
@@ -40,6 +41,7 @@ export function MarkdownChatHistory({
         EditorView.lineWrapping,
         turnBoundaries(),
         livePreview(),
+        codeBlockExt(),
         streamingExt(),
         todoStickyExt(),
         widgetExt(getTurns, onWidgetChange),
