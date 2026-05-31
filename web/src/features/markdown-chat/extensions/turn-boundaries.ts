@@ -81,7 +81,7 @@ function buildDecorations(state: EditorState): DecorationSet {
       // merge the marker line into the first content line's visual .cm-line element.
       // That merged visual line's "from" is markerLine.from (not doc.line(N+1).from),
       // so Decoration.line must be placed at markerLine.from to target it correctly.
-      builder.add(markerLine.from, markerLine.from, Decoration.line({ class: 'cm-turn-user' }))
+      builder.add(markerLine.from, markerLine.from, Decoration.line({ class: 'cm-turn-user cm-turn-head' }))
       builder.add(markerLine.from, markerEnd, Decoration.replace({}))
 
       // Tint remaining content lines (not merged with the replace block).
@@ -97,7 +97,11 @@ function buildDecorations(state: EditorState): DecorationSet {
         builder.add(l.from, l.from, Decoration.line({ class: 'cm-turn-user' }))
       }
     } else {
-      // Agent turns: hide marker line, no tint
+      // Agent turns: hide marker line, no tint. The head class reserves the gap
+      // for the sticky metadata label (turn-meta.ts). The line deco at
+      // markerLine.from targets the merged first visual line (the replace below
+      // spans the marker's newline), so it must precede the replace at this pos.
+      builder.add(markerLine.from, markerLine.from, Decoration.line({ class: 'cm-turn-head' }))
       builder.add(markerLine.from, markerEnd, Decoration.replace({}))
     }
   }
@@ -143,6 +147,11 @@ const turnTheme = EditorView.theme({
   },
   '.cm-turn-user': {
     background: 'color-mix(in srgb, var(--primary) 5%, transparent)',
+  },
+  // Reserve space at the start of each turn for the sticky metadata label
+  // rendered by turn-meta.ts, so the label never overlaps the first line.
+  '.cm-turn-head': {
+    paddingTop: '26px',
   },
 })
 

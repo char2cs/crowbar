@@ -78,6 +78,7 @@ export function MarkdownChatView({ workspaceId, stepId }: MarkdownChatViewProps)
           content: greeting,
           timestamp: new Date().toISOString(),
           authorName: 'Claude',
+          model: 'Opus 4.8',
           widgets: [],
         })
       }
@@ -120,6 +121,7 @@ export function MarkdownChatView({ workspaceId, stepId }: MarkdownChatViewProps)
         content: '',
         timestamp: new Date().toISOString(),
         authorName: 'Claude',
+        model: 'Opus 4.8',
         widgets: [],
         streaming: true,
       })
