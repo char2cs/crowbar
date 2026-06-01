@@ -299,3 +299,25 @@ export function createCollapsedDiffAccordionLine(
     collapsed: true,
   } satisfies DiffAccordionLineMeta)}`;
 }
+
+export function buildMonacoDiffContent(diff: GitDiff): { original: string; modified: string } {
+  const originalLines: string[] = [];
+  const modifiedLines: string[] = [];
+
+  for (const line of diff.lines) {
+    if (line.line_type === "header") continue;
+    if (line.line_type === "context") {
+      originalLines.push(line.content);
+      modifiedLines.push(line.content);
+    } else if (line.line_type === "removed") {
+      originalLines.push(line.content);
+    } else if (line.line_type === "added") {
+      modifiedLines.push(line.content);
+    }
+  }
+
+  return {
+    original: originalLines.join("\n"),
+    modified: modifiedLines.join("\n"),
+  };
+}
