@@ -11,8 +11,7 @@ import { Badge } from '@/components/ui/badge'
 import { MergeButton } from './merge-button'
 import { AboutTab } from './about-tab'
 import { CommitsTab } from './commits-tab'
-import { BranchReviewDiffViewer } from './branch-review-diff-viewer'
-import { DiffFileTree, diffFileAnchorId } from './diff-file-tree'
+import { BranchReviewDiffPanel } from './branch-review-diff-panel'
 
 interface BranchReviewPaneProps {
   wsId: string
@@ -91,10 +90,6 @@ export function BranchReviewPane({ wsId, branchName }: BranchReviewPaneProps) {
     store.getState().bufferActions.openContent({ type: 'crowbarChat', wsId: id, name: id })
   }
 
-  function handleSelectFile(filePath: string) {
-    document.getElementById(diffFileAnchorId(filePath))?.scrollIntoView({ behavior: 'smooth', block: 'start' })
-  }
-
   return (
     // ONE Frame = the whole window. Override side + bottom padding so the body
     // bleeds to the edges; keep the top padding as a gap.
@@ -160,22 +155,15 @@ export function BranchReviewPane({ wsId, branchName }: BranchReviewPaneProps) {
             <CommitsTab repoPath={wsId} />
           </TabsPanel>
 
-          <TabsPanel value="diff" className="flex h-full overflow-hidden">
+          <TabsPanel value="diff" className="h-full overflow-hidden">
             {diffCache ? (
-              <>
-                <div className="w-64 shrink-0 overflow-hidden border-r border-border/50">
-                  <DiffFileTree files={diffCache.files} onSelectFile={handleSelectFile} />
-                </div>
-                <div className="min-w-0 flex-1">
-                  <BranchReviewDiffViewer
-                    multiDiff={diffCache}
-                    threads={threads}
-                    onAddThread={handleAddThread}
-                    onReply={handleReply}
-                    onResolve={handleResolve}
-                  />
-                </div>
-              </>
+              <BranchReviewDiffPanel
+                multiDiff={diffCache}
+                threads={threads}
+                onAddThread={handleAddThread}
+                onReply={handleReply}
+                onResolve={handleResolve}
+              />
             ) : (
               <p className="p-5 text-xs text-muted-foreground/50">Loading diff…</p>
             )}
