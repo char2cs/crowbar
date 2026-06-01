@@ -2,7 +2,6 @@ import type React from "react";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { moveFile } from "@/features/file-system/controllers/platform";
 import type { FileEntry } from "@/features/file-system/types/app";
-import { dispatchSidebarResourceDropOnAI } from "@/features/sidebar-drag/sidebar-resource-drag";
 import {
   setInternalTabDragHover,
   setInternalTabDragHoverTarget,
@@ -195,22 +194,6 @@ export function useFileExplorerDragDrop(
       const elementUnder = document.elementFromPoint(e.clientX, e.clientY);
       const isOverPane = elementUnder?.closest("[data-pane-container]") !== null;
       const isOverFileTree = elementUnder?.closest(".file-tree-container") !== null;
-      const isOverAIContextDropTarget =
-        elementUnder?.closest("[data-ai-context-drop-target]") !== null;
-
-      if (isOverAIContextDropTarget && dragState.draggedItem) {
-        dispatchSidebarResourceDropOnAI({
-          type: "file",
-          path: dragState.draggedItem.path,
-          name: dragState.draggedItem.name,
-          isDir: dragState.draggedItem.isDir,
-        });
-        setDragState(initialDragState);
-        clearAutoExpand();
-        clearEditorDropHover();
-        return;
-      }
-
       // If dropping on a pane (not in file tree), dispatch event for pane to handle
       if (isOverPane && !isOverFileTree && dragState.draggedItem && !dragState.draggedItem.isDir) {
         window.dispatchEvent(

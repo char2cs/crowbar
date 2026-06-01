@@ -69,16 +69,6 @@ export const createPaneContent = (id: string, spec: OpenContentSpec): PaneConten
         savedContent: spec.content,
         diffData: spec.diffData,
       };
-    case "database":
-      return {
-        ...base,
-        type: "database",
-        path: spec.path,
-        name: spec.name,
-        isPreview: false,
-        databaseType: spec.databaseType,
-        connectionId: spec.connectionId,
-      };
     case "markdownPreview":
       return {
         ...base,

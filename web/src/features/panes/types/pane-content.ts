@@ -1,4 +1,3 @@
-import type { DatabaseType } from "@/features/database/models/provider.types";
 import type { MultiFileDiff } from "@/features/git/types/git-diff-types";
 import type { GitDiff } from "@/features/git/types/git-types";
 
@@ -19,7 +18,6 @@ export type PaneContentType =
   | "webViewer"
   | "newTab"
   | "diff"
-  | "database"
   | "markdownPreview"
   | "htmlPreview"
   | "csvPreview"
@@ -81,12 +79,6 @@ export interface DiffContent extends PaneContentBase {
   diffData?: GitDiff | MultiFileDiff;
 }
 
-export interface DatabaseContent extends PaneContentBase {
-  type: "database";
-  databaseType: DatabaseType;
-  connectionId?: string;
-}
-
 export interface MarkdownPreviewContent extends PaneContentBase {
   type: "markdownPreview";
   content: string;
@@ -123,7 +115,6 @@ export type PaneContent =
   | WebViewerContent
   | NewTabContent
   | DiffContent
-  | DatabaseContent
   | MarkdownPreviewContent
   | HtmlPreviewContent
   | CsvPreviewContent
@@ -150,10 +141,6 @@ export function isNewTabContent(c: PaneContent): c is NewTabContent {
 
 export function isDiffContent(c: PaneContent): c is DiffContent {
   return c.type === "diff";
-}
-
-export function isDatabaseContent(c: PaneContent): c is DatabaseContent {
-  return c.type === "database";
 }
 
 export function isExternalEditorContent(c: PaneContent): c is ExternalEditorContent {
@@ -245,13 +232,6 @@ export type OpenContentSpec =
       name: string;
       content: string;
       diffData?: GitDiff | MultiFileDiff;
-    }
-  | {
-      type: "database";
-      path: string;
-      name: string;
-      databaseType: DatabaseType;
-      connectionId?: string;
     }
   | {
       type: "markdownPreview";

@@ -453,43 +453,6 @@ export const settingsSearchIndex: SettingSearchRecord[] = [
     keywords: ["open", "folder", "project", "new", "window", "separate"],
   },
 
-  // Database Settings
-  {
-    id: "databases-new-connection",
-    tab: "databases",
-    section: "Connections",
-    label: "New Connection",
-    description:
-      "Open workspace database connections for SQLite, DuckDB, PostgreSQL, MySQL, MongoDB, or Redis",
-    keywords: [
-      "database",
-      "connection",
-      "sqlite",
-      "postgres",
-      "mysql",
-      "mongodb",
-      "redis",
-      "connect",
-    ],
-  },
-  {
-    id: "databases-saved-connections",
-    tab: "databases",
-    section: "Connections",
-    label: "Saved Connections",
-    description: "Manage saved workspace database connections",
-    keywords: [
-      "database",
-      "saved",
-      "connections",
-      "postgres",
-      "mysql",
-      "mongodb",
-      "redis",
-      "remove",
-    ],
-  },
-
   // Language Settings
   {
     id: "language-default-language",

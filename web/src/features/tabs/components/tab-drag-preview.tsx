@@ -1,4 +1,4 @@
-import { Database, Package, PushPin as Pin } from "@phosphor-icons/react";
+import { Package, PushPin as Pin } from "@phosphor-icons/react";
 import { FileExplorerIcon } from "@/features/file-explorer/components/file-explorer-icon";
 import type { PaneContent } from "@/features/panes/types/pane-content";
 
@@ -17,8 +17,6 @@ const TabDragPreview = ({ x, y, buffer }: TabDragPreviewProps) => (
       <span className="grid size-3 shrink-0 place-content-center">
         {buffer.path === "extensions://marketplace" ? (
           <Package className="text-accent" />
-        ) : buffer.type === "database" ? (
-          <Database className="text-muted-foreground" />
         ) : (
           <FileExplorerIcon
             fileName={buffer.name}

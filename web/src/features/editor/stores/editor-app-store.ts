@@ -120,25 +120,13 @@ async function saveEditorBufferById(bufferId: string): Promise<boolean> {
 
     if (settings.lintOnSave) {
       const { lintContent } = await import("@/features/editor/linter/linter-service");
-      const { convertLintDiagnostic, useDiagnosticsStore } =
-        await import("@/features/diagnostics/stores/diagnostics-store");
       const languageId = extensionRegistry.getLanguageId(activeBuffer.path);
 
-      const lintResult = await lintContent({
+      await lintContent({
         filePath: activeBuffer.path,
         content: contentToSave,
         languageId: languageId || undefined,
       });
-
-      if (lintResult.success && lintResult.diagnostics) {
-        useDiagnosticsStore.getState().actions.setDiagnostics(
-          activeBuffer.path,
-          lintResult.diagnostics.map((diagnostic) =>
-            convertLintDiagnostic(activeBuffer.path, diagnostic),
-          ),
-          "linter",
-        );
-      }
     }
 
     const rootFolderPath = useFileSystemStore.getState().rootFolderPath;

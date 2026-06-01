@@ -184,7 +184,6 @@ export function getExplorerTargetPath(activeBuffer: PaneContent | null): string 
 
   if (
     activeBuffer.type === "editor" ||
-    activeBuffer.type === "database" ||
     activeBuffer.type === "externalEditor"
   ) {
     return activeBuffer.path;

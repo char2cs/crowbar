@@ -22,7 +22,6 @@ export type SettingsTab =
   | "advanced"
   | "collaboration"
   | "enterprise"
-  | "databases"
   | "file-explorer"
   | "language"
   | "developer"
@@ -78,8 +77,6 @@ export interface UIState {
   setIsGlobalSearchVisible: (v: boolean) => void
   isProjectPickerVisible: boolean
   setIsProjectPickerVisible: (v: boolean) => void
-  isDatabaseConnectionVisible: boolean
-  setIsDatabaseConnectionVisible: (v: boolean) => void
 }
 
 export const useUIState = create<UIState>((set) => ({
@@ -143,6 +140,4 @@ export const useUIState = create<UIState>((set) => ({
   setIsGlobalSearchVisible: (v) => set({ isGlobalSearchVisible: v }),
   isProjectPickerVisible: false,
   setIsProjectPickerVisible: (v) => set({ isProjectPickerVisible: v }),
-  isDatabaseConnectionVisible: false,
-  setIsDatabaseConnectionVisible: (v) => set({ isDatabaseConnectionVisible: v }),
 }))

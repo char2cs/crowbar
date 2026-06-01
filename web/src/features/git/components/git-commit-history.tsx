@@ -1,5 +1,4 @@
 import { memo, useCallback, useEffect, useRef, useState } from "react";
-import { writeSidebarResourceDragData } from "@/features/sidebar-drag/sidebar-resource-drag";
 import { LoadingSpinner } from "@/components/ui/loading-spinner";
 import { cn } from "@/utils/cn";
 import { formatRelativeDate } from "@/utils/date";
@@ -35,18 +34,6 @@ const CommitItem = memo(({ commit, onViewCommitDiff, isSelected, repoPath }: Com
         isSelected && "bg-muted",
       )}
       draggable={!!repoPath}
-      onDragStart={(event) => {
-        if (!repoPath) return;
-        writeSidebarResourceDragData(event.dataTransfer, {
-          type: "git-commit",
-          repoPath,
-          commitHash: commit.hash,
-          message: commit.message,
-          author: commit.author,
-          date: commit.date,
-          name: `Commit ${commit.hash.substring(0, 7)}`,
-        });
-      }}
     >
       <div className="truncate text-inherit text-foreground leading-tight">{commit.message}</div>
       <div className="ui-text-sm mt-1 flex items-center gap-2 text-muted-foreground">

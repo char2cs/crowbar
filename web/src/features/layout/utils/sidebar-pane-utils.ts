@@ -2,7 +2,6 @@ export type SidebarView =
   | "files"
   | "git"
   | "outline"
-  | "databases"
   | "collaboration"
   | "notifications"
   | (string & {});
@@ -33,7 +32,6 @@ interface SidebarPaneTriggerResult extends SidebarPaneClickResult {
 
 const EDGE_SIDEBAR_VIEWS = new Set<SidebarView>([
   "outline",
-  "databases",
   "collaboration",
   "notifications",
 ]);

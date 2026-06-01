@@ -1,5 +1,4 @@
 import {
-  Database,
   GitBranch,
   GlobeHemisphereWest as Globe,
   Package,
@@ -128,8 +127,6 @@ const TabBarItem = memo(function TabBarItem({
             ) : (
               <Globe className="text-muted-foreground" />
             )
-          ) : buffer.type === "database" ? (
-            <Database className="text-muted-foreground" />
           ) : (
             <FileExplorerIcon
               fileName={getDiffIconName() ?? buffer.name}

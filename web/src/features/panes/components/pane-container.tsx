@@ -1,20 +1,9 @@
 import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react";
-import type { DatabaseType } from "@/features/database/models/provider.types";
-import {
-  PROVIDER_REGISTRY,
-  type DatabaseViewerProps,
-} from "@/features/database/providers/provider-registry";
 import { useBuffersByIds, useBufferActions } from "@/features/workspace/stores/hooks/use-buffer-store";
 import { useWorkspaceStore } from "@/features/workspace/stores/workspace-context";
 import { useFileSystemStore } from "@/features/file-system/controllers/store";
 import { stageHunk, unstageHunk } from "@/features/git/api/git-status-api";
 import type { GitHunk } from "@/features/git/types/git-types";
-import { openSidebarResourceBuffer } from "@/features/sidebar-drag/open-sidebar-resource";
-import {
-  hasSidebarResourceDragData,
-  readSidebarResourceDragData,
-  type SidebarDragResource,
-} from "@/features/sidebar-drag/sidebar-resource-drag";
 import { useSettingsStore } from "@/features/settings/store";
 import { buildPaneContentStyle } from "../utils/pane-border";
 import { ROOT_PANE_POSITION, type PanePosition } from "../types/pane";
@@ -40,16 +29,6 @@ import {
 import { getPaneSplitDropOptions } from "../utils/pane-drop-zones";
 import { type DropZone, SplitDropOverlay } from "./split-drop-overlay";
 
-const databaseViewerCache = new Map<
-  DatabaseType,
-  React.LazyExoticComponent<React.ComponentType<DatabaseViewerProps>>
->();
-function getDatabaseViewer(dbType: DatabaseType) {
-  if (!databaseViewerCache.has(dbType)) {
-    databaseViewerCache.set(dbType, lazy(PROVIDER_REGISTRY[dbType].viewerComponent));
-  }
-  return databaseViewerCache.get(dbType)!;
-}
 const ExternalEditorTerminal = lazy(() =>
   import("@/features/editor/components/external-editor-terminal").then((m) => ({
     default: m.ExternalEditorTerminal,
@@ -194,37 +173,6 @@ export function PaneContainer({ pane, position = ROOT_PANE_POSITION }: PaneConta
     [handleFileOpen, pane.id, workspaceStore],
   );
 
-  const openSidebarResourceInPane = useCallback(
-    async (resource: SidebarDragResource, point: { x: number; y: number }) => {
-      const opensBuffer =
-        !(resource.type === "file" && resource.isDir) && resource.type !== "git-worktree";
-      const target = resolveDropTarget(point);
-      if (target.paneId !== pane.id) return;
-
-      // Use workspace store for split creation so the new pane renders correctly.
-      let targetPaneId = pane.id;
-      if (opensBuffer) {
-        const splitOptions = getPaneSplitDropOptions(target.zone);
-        if (splitOptions) {
-          targetPaneId = workspaceStore.getState().paneActions.splitPane(pane.id, splitOptions.direction, undefined, splitOptions.placement) ?? pane.id;
-        }
-      }
-
-      workspaceStore.getState().paneActions.setActivePane(targetPaneId);
-
-      try {
-        const bufferId = await openSidebarResourceBuffer(resource);
-        if (!bufferId) return;
-
-        workspaceStore.getState().paneActions.addBufferToPane(targetPaneId, bufferId, true);
-        workspaceStore.getState().paneActions.activatePaneBuffer(targetPaneId, bufferId);
-      } catch (error) {
-        console.error("Failed to open sidebar resource from drop:", error);
-      }
-    },
-    [pane.id, workspaceStore],
-  );
-
   const handleStageHunk = useCallback(
     async (hunk: GitHunk) => {
       if (!rootFolderPath) return;
@@ -299,12 +247,10 @@ export function PaneContainer({ pane, position = ROOT_PANE_POSITION }: PaneConta
     const hasTabData =
       e.dataTransfer.types.includes("application/tab-data") || !!getInternalTabDragData();
     const hasFilePath = e.dataTransfer.types.includes("text/plain");
-    const hasSidebarResource = hasSidebarResourceDragData(e.dataTransfer);
     const hasFileDragData = !!window.__fileDragData;
 
     if (
       hasTabData ||
-      hasSidebarResource ||
       hasFilePath ||
       hasFileDragData ||
       e.dataTransfer.types.includes("Files")
@@ -456,12 +402,6 @@ export function PaneContainer({ pane, position = ROOT_PANE_POSITION }: PaneConta
         return;
       }
 
-      const sidebarResource = readSidebarResourceDragData(e.dataTransfer);
-      if (sidebarResource) {
-        await openSidebarResourceInPane(sidebarResource, { x: e.clientX, y: e.clientY });
-        return;
-      }
-
       const droppedPaths = extractDroppedFilePaths(e.dataTransfer);
       if (droppedPaths.length > 0 && handleFileOpen) {
         for (const droppedPath of droppedPaths) {
@@ -470,7 +410,7 @@ export function PaneContainer({ pane, position = ROOT_PANE_POSITION }: PaneConta
         return;
       }
     },
-    [pane.id, handleFileOpen, openSidebarResourceInPane],
+    [pane.id, handleFileOpen],
   );
 
   const renderActiveBuffer = useCallback(
@@ -494,26 +434,6 @@ export function PaneContainer({ pane, position = ROOT_PANE_POSITION }: PaneConta
 
         case "diff":
           return <DiffPane onStageHunk={handleStageHunk} onUnstageHunk={handleUnstageHunk} />;
-
-        case "database": {
-          const config = PROVIDER_REGISTRY[buffer.databaseType];
-          const DatabaseViewer = getDatabaseViewer(buffer.databaseType);
-          let viewerProps: DatabaseViewerProps;
-          if (config.isFileBased) {
-            viewerProps = { databasePath: buffer.path };
-          } else {
-            const connectionId = buffer.connectionId;
-            if (!connectionId) {
-              return (
-                <div className="flex h-full items-center justify-center text-muted-foreground ui-text-sm">
-                  Missing database connection
-                </div>
-              );
-            }
-            viewerProps = { connectionId };
-          }
-          return <DatabaseViewer {...viewerProps} />;
-        }
 
         case "externalEditor":
           return (

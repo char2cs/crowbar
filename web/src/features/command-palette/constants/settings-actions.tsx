@@ -42,7 +42,6 @@ const settingsTabLabels: Record<SettingsTab, string> = {
   editor: "Editor",
   git: "Git",
   appearance: "Appearance",
-  databases: "Database",
   extensions: "Extensions",
   ai: "AI",
   language: "Editor",

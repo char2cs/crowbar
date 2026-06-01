@@ -33,7 +33,6 @@ import {
 import Keybinding from "@/components/ui/keybinding";
 import { matchesSearchQuery } from "@/utils/search-match";
 import { createAdvancedActions } from "../constants/advanced-actions";
-import { createDatabaseActions } from "../constants/database-actions";
 import { createFileActions } from "../constants/file-actions";
 import { createGitActions } from "../constants/git-actions";
 import { createMarkdownActions } from "../constants/markdown-actions";
@@ -61,9 +60,7 @@ const CommandPalette = () => {
   const isFindVisible = useUIState((s) => s.isFindVisible);
   const setIsFindVisible = useUIState((s) => s.setIsFindVisible);
   const setActiveView = useUIState((s) => s.setActiveView);
-  const setActiveRightSidebarView = useUIState((s) => s.setActiveRightSidebarView);
   const setIsQuickOpenVisible = useUIState((s) => s.setIsQuickOpenVisible);
-  const setIsRightSidebarVisible = useUIState((s) => s.setIsRightSidebarVisible);
   const openSettingsDialog = useUIState((s) => s.openSettingsDialog);
   const handleFileOpen = useFileSystemStore.use.handleFileOpen?.();
   const isVisible = isCommandPaletteVisible;
@@ -246,13 +243,6 @@ const CommandPalette = () => {
         discardAllChanges,
       },
       onClose,
-    }),
-    ...createDatabaseActions({
-      onClose,
-      openDatabaseSidebar: () => {
-        setActiveRightSidebarView("databases");
-        setIsRightSidebarVisible(true);
-      },
     }),
     ...createAdvancedActions({
       lspStatus,

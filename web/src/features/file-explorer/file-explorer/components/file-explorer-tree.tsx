@@ -30,7 +30,6 @@ import { findFileInTree } from "@/features/file-system/controllers/file-tree-uti
 import { readDirectory } from "@/features/file-system/controllers/platform";
 import { useFileSystemStore } from "@/features/file-system/controllers/store";
 import type { FileEntry } from "@/features/file-system/types/app";
-import { useFffSearch } from "@/features/global-search/hooks/use-fff-search";
 import { useGitStore } from "@/features/git/stores/git-store";
 import { useSettingsStore } from "@/features/settings/store";
 import { Dropdown, type MenuItem } from "@/components/ui/dropdown";
@@ -104,7 +103,6 @@ interface OpenAllFilesDialogState {
 const FILE_TREE_CONTAINER_INSET = 4;
 const FILE_TREE_HEADER_HEIGHT = 32;
 const FILE_TREE_SEARCH_DEBOUNCE_DELAY = 80;
-const FILE_TREE_SEARCH_RESULT_LIMIT = 500;
 const getFileTreeRowId = (path: string) => `file-tree-row-${path.replace(/[^a-zA-Z0-9_-]/g, "_")}`;
 
 function FileExplorerTreeComponent({
@@ -317,20 +315,12 @@ function FileExplorerTreeComponent({
   });
 
   const isTreeSearchActive = treeSearchQuery.trim().length > 0;
-  const isDebouncedTreeSearchActive = debouncedTreeSearchQuery.trim().length > 0;
-  const { hits: treeSearchHits, isSearching: isFffTreeSearchSearching } = useFffSearch(
-    debouncedTreeSearchQuery,
-    isDebouncedTreeSearchActive,
-    rootFolderPath,
-    FILE_TREE_SEARCH_RESULT_LIMIT,
-  );
   const isTreeSearchSettling =
     isTreeSearchActive && treeSearchQuery.trim() !== debouncedTreeSearchQuery.trim();
-  const isTreeSearchSearching =
-    isTreeSearchActive && (isTreeSearchSettling || isFffTreeSearchSearching);
+  const isTreeSearchSearching = isTreeSearchActive && isTreeSearchSettling;
   const treeSearchResult = useMemo(
-    () => filterFileTreeForFffHits(filteredFiles, treeSearchHits),
-    [filteredFiles, treeSearchHits],
+    () => filterFileTreeForFffHits(filteredFiles, []),
+    [filteredFiles],
   );
   const displayedFiles =
     isTreeSearchActive && !isTreeSearchSearching

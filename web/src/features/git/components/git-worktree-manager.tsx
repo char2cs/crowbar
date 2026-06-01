@@ -26,7 +26,6 @@ import {
   removeWorktree,
 } from "../api/git-worktrees-api";
 import type { GitWorktree } from "../types/git-types";
-import { writeSidebarResourceDragData } from "@/features/sidebar-drag/sidebar-resource-drag";
 import GitSidebarSectionHeader, {
   gitSidebarSectionActionButtonClassName,
 } from "./git-sidebar-section-header";
@@ -348,14 +347,6 @@ const GitWorktreeManager = ({
                   contextMenu.open(e, { path: worktree.path, isCurrent: worktree.is_current })
                 }
                 draggable
-                onDragStart={(event) => {
-                  writeSidebarResourceDragData(event.dataTransfer, {
-                    type: "git-worktree",
-                    path: worktree.path,
-                    branch: worktree.branch,
-                    name: worktreeName,
-                  });
-                }}
                 className={cn(
                   "mb-px items-start rounded-md border border-transparent px-2 py-2 transition-[transform,background-color,border-color,opacity]",
                   worktree.is_current && "border-border/60",

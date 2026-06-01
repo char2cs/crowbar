@@ -9,7 +9,6 @@ import type {
   TerminalContent,
   WebViewerContent,
   NewTabContent,
-  DatabaseContent,
   MarkdownPreviewContent,
   HtmlPreviewContent,
   CsvPreviewContent,
@@ -86,9 +85,6 @@ export const createBufferSlice: StateCreator<
           return get().buffers.find(
             b => b.type === 'webViewer' && (b as WebViewerContent).url === spec.url,
           )
-        }
-        if (spec.type === 'database') {
-          return get().buffers.find(b => b.type === 'database' && b.path === spec.path)
         }
         if (spec.type === 'markdownPreview') {
           return get().buffers.find(b => b.type === 'markdownPreview' && b.path === spec.path)
@@ -190,14 +186,6 @@ export const createBufferSlice: StateCreator<
           path: '', name: 'New Tab',
           isPinned: false, isPreview: false, isActive: false,
         } satisfies NewTabContent
-      } else if (spec.type === 'database') {
-        buf = {
-          id, type: 'database',
-          path: spec.path, name: spec.name,
-          databaseType: spec.databaseType,
-          connectionId: spec.connectionId,
-          isPinned: false, isPreview: false, isActive: false,
-        } satisfies DatabaseContent
       } else if (spec.type === 'markdownPreview') {
         buf = {
           id, type: 'markdownPreview',
