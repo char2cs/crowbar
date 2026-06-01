@@ -189,7 +189,7 @@ export const useSidebarStore = create<SidebarState>()((set) => ({
     set(s => {
       const next = new Set(s.collapsedRepos)
       next.has(repoId) ? next.delete(repoId) : next.add(repoId)
-      saveSidebarUI([...next])
+      void saveSidebarUI([...next])
       return { collapsedRepos: next }
     }),
 
