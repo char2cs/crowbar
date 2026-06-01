@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { useGitStore } from '@/features/git/stores/git-store'
 import { useRepositoryStore } from '@/features/git/stores/git-repository-store'
 import { useSettingsStore } from '@/features/settings/store'
@@ -46,9 +46,32 @@ export function GitTab({ wsId }: GitTabProps) {
     return () => observer.disconnect()
   }, [])
 
-  const handleRefresh = activeRepoPath
-    ? () => void useGitStore.getState().actions.refreshWorkspaceGitStatus(activeRepoPath)
-    : undefined
+  const handleRefresh = useMemo(
+    () =>
+      activeRepoPath
+        ? () => void useGitStore.getState().actions.refreshWorkspaceGitStatus(activeRepoPath)
+        : undefined,
+    [activeRepoPath],
+  )
+
+  useEffect(() => {
+    function handlePaletteAction(e: Event) {
+      const action = (e as CustomEvent).detail as { type: string; tab?: string }
+      if (action.type === 'view-stashes') {
+        setShowStash(true)
+      } else if (action.type === 'manage-remotes') {
+        setShowRemotes(true)
+      } else if (action.type === 'manage-tags') {
+        setShowTags(true)
+      } else if (action.type === 'refresh') {
+        if (activeRepoPath) {
+          void useGitStore.getState().actions.refreshWorkspaceGitStatus(activeRepoPath)
+        }
+      }
+    }
+    window.addEventListener('athas:git-palette-action', handlePaletteAction)
+    return () => window.removeEventListener('athas:git-palette-action', handlePaletteAction)
+  }, [activeRepoPath])
 
   const stickyCommit = (
     <div className="shrink-0 border-b border-border bg-background px-3 py-2">

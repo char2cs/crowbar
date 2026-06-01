@@ -33,7 +33,7 @@ const REPO_GIT_STATUS: Record<string, GitStatus> = {
     branch: 'feature/app-design',
     ahead: 3, behind: 0,
     files: [
-      { path: 'web/src/features/git/components/git-view.tsx', status: 'modified', staged: true },
+      { path: 'web/src/features/branch-review/components/git-tab.tsx', status: 'modified', staged: true },
       { path: 'web/src/lib/mock/git-data.ts', status: 'modified', staged: true },
       { path: 'api/internal/fixtures/git-log.json', status: 'added', staged: true },
       { path: 'web/src/features/git/api/git-commits-api.ts', status: 'modified', staged: false },

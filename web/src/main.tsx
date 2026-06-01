@@ -86,7 +86,7 @@ function renderApp() {
 }
 
 // In mock mode, wait for MSW to register its service worker before rendering
-// so that all API calls from keepMounted components (GitView, etc.) are intercepted.
+// so that all API calls from keepMounted components are intercepted.
 // Use finally so a failed MSW startup still renders the app.
 if (import.meta.env.VITE_USE_MOCK === 'true') {
   import('./mocks/browser')

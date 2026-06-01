@@ -120,15 +120,7 @@ function LargeDiffSectionEditor({ diff, cacheKey }: { diff: GitDiff; cacheKey: s
     minHeight: "420px",
   } as const;
 
-  // raw_patch diffs have no parsed lines; fall back to plain text display
-  if (diff.raw_patch && diff.lines.length === 0) {
-    return (
-      <div className="relative overflow-hidden border-border border-t bg-background" style={containerStyle}>
-        <GitDiffEditorSurface cacheKey={`${cacheKey}_raw`} diff={diff} />
-      </div>
-    );
-  }
-
+  // Hoist all hooks above any early returns (Rules of Hooks)
   const sourcePath = diff.new_path || diff.old_path || diff.file_path;
   const editorContent = useMemo(() => serializeGitDiffForEditor(diff), [diff]);
   const bufferId = useDiffEditorBuffer({
@@ -137,6 +129,15 @@ function LargeDiffSectionEditor({ diff, cacheKey }: { diff: GitDiff; cacheKey: s
     sourcePath,
     name: `${sourcePath.split("/").pop() || "Diff"}.diff`,
   });
+
+  // raw_patch diffs have no parsed lines; fall back to plain text display
+  if (diff.raw_patch && diff.lines.length === 0) {
+    return (
+      <div className="relative overflow-hidden border-border border-t bg-background" style={containerStyle}>
+        <GitDiffEditorSurface cacheKey={`${cacheKey}_raw`} diff={diff} />
+      </div>
+    );
+  }
 
   return (
     <div

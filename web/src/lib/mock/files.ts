@@ -53,7 +53,7 @@ const TREES: Record<string, FileEntry[]> = {
         { name: 'features', path: 'web/src/features', isDir: true, children: [
           { name: 'git', path: 'web/src/features/git', isDir: true, children: [
             { name: 'components', path: 'web/src/features/git/components', isDir: true, children: [
-              { name: 'git-view.tsx', path: 'web/src/features/git/components/git-view.tsx', isDir: false, gitStatus: 'modified' },
+              { name: 'git-tab.tsx', path: 'web/src/features/branch-review/components/git-tab.tsx', isDir: false, gitStatus: 'modified' },
             ]},
             { name: 'api', path: 'web/src/features/git/api', isDir: true, children: [
               { name: 'git-commits-api.ts', path: 'web/src/features/git/api/git-commits-api.ts', isDir: false, gitStatus: 'modified' },
