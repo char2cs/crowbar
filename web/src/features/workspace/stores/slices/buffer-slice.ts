@@ -108,6 +108,13 @@ export const createBufferSlice: StateCreator<
       })()
 
       if (existing) {
+        // For branchReview, also update name/branchName in case the label format changed
+        if (spec.type === 'branchReview' && (existing.name !== spec.name)) {
+          set(state => {
+            const buf = state.buffers.find(b => b.id === existing.id)
+            if (buf) { buf.name = spec.name; (buf as BranchReviewContent).branchName = spec.branchName }
+          })
+        }
         get().paneActions.addBufferToPane(get().activePaneId, existing.id, true)
         return existing.id
       }

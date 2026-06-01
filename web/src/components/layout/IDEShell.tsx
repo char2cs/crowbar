@@ -50,9 +50,7 @@ export function IDEShell() {
 
   const activeRepo = repos.find(r => r.workspaces.some(ws => ws.id === activeWorkspaceId))
   const activeWorkspace = activeRepo?.workspaces.find(ws => ws.id === activeWorkspaceId)
-  const workspaceLabel = activeWorkspace
-    ? `${activeRepo?.name ?? ''} / ${activeWorkspace.branch}`
-    : undefined
+  const workspaceLabel = activeWorkspace?.branch
 
   const activeWorkspaceRepoPath = activeRepo ? `/repos/${activeRepo.id}` : '/repos/default'
   const chatTabLabel = chats.find(c => c.id === activeChatId)?.title ?? 'Chat'
