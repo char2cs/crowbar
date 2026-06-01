@@ -1,5 +1,5 @@
 import { queryOptions } from '@tanstack/react-query'
-import { fetchWorkspace, fetchConversation, apiFetch } from './api'
+import { fetchWorkspace, apiFetch } from './api'
 import type { GitStatus, Commit, Branch } from '@/lib/mock/git-data'
 import type { FileNode } from '@/lib/mock/files'
 
@@ -9,11 +9,6 @@ export const workspaceQueryOptions = (wsId: string) =>
     queryFn: () => fetchWorkspace(wsId),
   })
 
-export const conversationQueryOptions = (wsId: string, step: string) =>
-  queryOptions({
-    queryKey: ['conversation', wsId, step],
-    queryFn: () => fetchConversation(wsId, step),
-  })
 
 export const fileTreeQueryOptions = (rootPath: string) =>
   queryOptions({

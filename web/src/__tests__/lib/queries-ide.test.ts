@@ -5,7 +5,6 @@ vi.mock('@/lib/api', () => ({
   apiFetch: vi.fn(),
   fetchWorkspace: vi.fn(),
   fetchFlows: vi.fn(),
-  fetchConversation: vi.fn(),
 }))
 
 import * as api from '@/lib/api'
