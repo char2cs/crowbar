@@ -1,7 +1,6 @@
 // Stub
 export const SIDEBAR_ITEM_ORDER: string[] = [
   "file-explorer",
-  "git",
   "search",
   "extensions",
 ]

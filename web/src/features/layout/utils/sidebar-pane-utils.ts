@@ -1,6 +1,5 @@
 export type SidebarView =
   | "files"
-  | "git"
   | "outline"
   | "collaboration"
   | "notifications"
@@ -8,7 +7,6 @@ export type SidebarView =
 
 interface SidebarPaneState {
   isSidebarVisible: boolean;
-  isGitViewActive: boolean;
   activeSidebarView?: SidebarView;
 }
 
@@ -42,10 +40,8 @@ export function getSidebarPaneLevel(view: SidebarView): SidebarPaneLevel {
 }
 
 export function getActiveSidebarView({
-  isGitViewActive,
   activeSidebarView,
 }: Omit<SidebarPaneState, "isSidebarVisible">): SidebarView {
-  if (isGitViewActive) return "git";
   return activeSidebarView ?? "files";
 }
 

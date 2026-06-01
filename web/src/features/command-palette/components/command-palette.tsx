@@ -229,8 +229,6 @@ const CommandPalette = () => {
     ...createGitActions({
       rootFolderPath,
       activeRepoPath,
-      setIsSidebarVisible,
-      setActiveView,
       showToast,
       gitStore: { actions: gitStoreActions },
       gitOperations: {

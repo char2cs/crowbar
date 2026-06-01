@@ -39,7 +39,6 @@ export interface UIState {
   setIsBottomPaneVisible: (v: boolean) => void
   activeSidebarView: SidebarView | null
   setActiveSidebarView: (view: SidebarView | null) => void
-  isGitViewActive: boolean
   settingsInitialTab: SettingsTab
   setSettingsInitialTab: (tab: SettingsTab) => void
   isSettingsOpen: boolean
@@ -89,7 +88,6 @@ export const useUIState = create<UIState>((set) => ({
   setIsBottomPaneVisible: (v) => set({ isBottomPaneVisible: v }),
   activeSidebarView: null,
   setActiveSidebarView: (view) => set({ activeSidebarView: view }),
-  isGitViewActive: false,
   settingsInitialTab: "appearance" as SettingsTab,
   setSettingsInitialTab: (tab) => set({ settingsInitialTab: tab }),
   isSettingsOpen: false,

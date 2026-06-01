@@ -1,7 +1,6 @@
 import {
   FileText,
   FolderOpen,
-  GitBranch,
   Hash,
   Package,
 } from "@phosphor-icons/react";
@@ -37,19 +36,6 @@ export const createNavigationActions = (params: NavigationActionsParams): Action
       action: () => {
         setIsSidebarVisible(true);
         setActiveView("files");
-        onClose();
-      },
-    },
-    {
-      id: "view-show-git",
-      label: "View: Show Git",
-      description: "Switch to Git view",
-      icon: <GitBranch />,
-      category: "Navigation",
-      commandId: "workbench.showSourceControl",
-      action: () => {
-        setIsSidebarVisible(true);
-        setActiveView("git");
         onClose();
       },
     },

@@ -51,7 +51,6 @@ export function SidebarTabs({ activeWorkspaceRepoPath }: SidebarTabsProps) {
         </ErrorBoundary>
       </TabsContent>
 
-
     </Tabs>
   )
 }

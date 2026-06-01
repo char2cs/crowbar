@@ -17,7 +17,6 @@ interface OpenSidebarViewOptions {
 export function useSidebarPaneController() {
   const isSidebarVisible = useUIState((s) => s.isSidebarVisible);
   const isRightSidebarVisible = useUIState((s) => s.isRightSidebarVisible);
-  const isGitViewActive = useUIState((s) => s.isGitViewActive);
   const activeSidebarView = useUIState((s) => s.activeSidebarView);
   const activeRightSidebarView = useUIState((s) => s.activeRightSidebarView);
   const setActiveView = useUIState((s) => s.setActiveView);
@@ -40,7 +39,6 @@ export function useSidebarPaneController() {
       const { nextIsSidebarVisible, nextView, nextPosition } = resolveSidebarPaneTrigger(
         {
           isSidebarVisible,
-          isGitViewActive,
           activeSidebarView: activeSidebarView ?? undefined,
         },
         view,
@@ -60,7 +58,6 @@ export function useSidebarPaneController() {
     [
       activeSidebarView,
       activeRightSidebarView,
-      isGitViewActive,
       isRightSidebarVisible,
       isSidebarVisible,
       setActiveView,
