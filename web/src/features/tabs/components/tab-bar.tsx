@@ -339,11 +339,9 @@ const TabBar = ({
           try {
             const content = buf.type === "editor" || buf.type === "diff" ? buf.content : "";
             const spec =
-              buf.type === "image"
-                ? ({ type: "image", path: buf.path, name: buf.name } as const)
-                : buf.type === "diff"
-                  ? ({ type: "diff", path: buf.path, name: buf.name, content } as const)
-                  : ({ type: "editor", path: buf.path, name: buf.name, content } as const);
+              buf.type === "diff"
+                ? ({ type: "diff", path: buf.path, name: buf.name, content } as const)
+                : ({ type: "editor", path: buf.path, name: buf.name, content } as const);
             openContent(spec);
           } catch (error) {
             console.error("Failed to reload buffer:", error);

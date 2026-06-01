@@ -143,29 +143,4 @@ describe("buffer preview pane integration", () => {
     expect(paneActions.getPaneById(ROOT_PANE_ID)?.activeBufferId).toBe(newTabId);
   });
 
-  it("opens references as a singleton buffer like diagnostics", () => {
-    const { bufferActions } = store.getState();
-
-    const firstReferencesId = bufferActions.openContent({ type: "references" });
-    const secondReferencesId = bufferActions.openContent({ type: "references" });
-    const diagnosticsId = bufferActions.openContent({ type: "diagnostics" });
-
-    expect(secondReferencesId).toBe(firstReferencesId);
-    expect(store.getState().buffers).toEqual(
-      expect.arrayContaining([
-        expect.objectContaining({
-          id: firstReferencesId,
-          type: "references",
-          path: "references://",
-          name: "References",
-        }),
-        expect.objectContaining({
-          id: diagnosticsId,
-          type: "diagnostics",
-          path: "diagnostics://",
-          name: "Problems",
-        }),
-      ]),
-    );
-  });
 });

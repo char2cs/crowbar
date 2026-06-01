@@ -41,7 +41,6 @@ export interface UIState {
   activeSidebarView: SidebarView | null
   setActiveSidebarView: (view: SidebarView | null) => void
   isGitViewActive: boolean
-  isGitHubPRsViewActive: boolean
   settingsInitialTab: SettingsTab
   setSettingsInitialTab: (tab: SettingsTab) => void
   isSettingsOpen: boolean
@@ -94,7 +93,6 @@ export const useUIState = create<UIState>((set) => ({
   activeSidebarView: null,
   setActiveSidebarView: (view) => set({ activeSidebarView: view }),
   isGitViewActive: false,
-  isGitHubPRsViewActive: false,
   settingsInitialTab: "appearance" as SettingsTab,
   setSettingsInitialTab: (tab) => set({ settingsInitialTab: tab }),
   isSettingsOpen: false,

@@ -81,7 +81,6 @@ function syncEditorSettings(state: ReturnType<typeof useSettingsStore.getState>)
     renderWhitespace,
     renderIndentGuides,
     highlightOccurrences,
-    horizontalTabScroll,
     theme,
   } = state.settings;
   const actions = useEditorSettingsStore.getState().actions;
@@ -90,7 +89,7 @@ function syncEditorSettings(state: ReturnType<typeof useSettingsStore.getState>)
   actions.setFontFamily(fontFamily);
   actions.setLineHeight(editorLineHeight);
   actions.setTabSize(tabSize);
-  actions.setWordWrap(wordWrap || horizontalTabScroll);
+  actions.setWordWrap(wordWrap);
   actions.setLineNumbers(lineNumbers);
   actions.setRenderWhitespace(renderWhitespace);
   actions.setRenderIndentGuides(renderIndentGuides);

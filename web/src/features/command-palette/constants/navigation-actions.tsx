@@ -2,12 +2,9 @@ import {
   FileText,
   FolderOpen,
   GitBranch,
-  GitPullRequest,
   Hash,
   Package,
-  MagnifyingGlass as Search,
 } from "@phosphor-icons/react";
-import { getActiveWorkspaceStoreRef } from "@/features/workspace/stores/workspace-store-ref";
 import type { SidebarView } from "@/features/layout/utils/sidebar-pane-utils";
 import type { SettingsTab } from "@/features/window/stores/ui-state/types";
 import type { Action } from "../models/action.types";
@@ -54,31 +51,6 @@ export const createNavigationActions = (params: NavigationActionsParams): Action
         setIsSidebarVisible(true);
         setActiveView("git");
         onClose();
-      },
-    },
-    {
-      id: "view-show-github-prs",
-      label: "View: Show Pull Requests",
-      description: "Switch to GitHub Pull Requests view",
-      icon: <GitPullRequest />,
-      category: "Navigation",
-      commandId: "workbench.showGitHub",
-      action: () => {
-        setIsSidebarVisible(true);
-        setActiveView("github-prs");
-        onClose();
-      },
-    },
-    {
-      id: "search-global",
-      label: "Search: Global Search",
-      description: "Search across files in workspace",
-      icon: <Search />,
-      category: "Navigation",
-      commandId: "workbench.showGlobalSearch",
-      action: () => {
-        onClose();
-        getActiveWorkspaceStoreRef()?.getState().bufferActions.openContent({ type: 'globalSearch' });
       },
     },
     {

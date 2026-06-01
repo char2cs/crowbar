@@ -19,21 +19,11 @@ export type PaneContentType =
   | "webViewer"
   | "newTab"
   | "diff"
-  | "image"
-  | "pdf"
-  | "binary"
   | "database"
-  | "pullRequest"
-  | "githubIssue"
-  | "githubAction"
   | "markdownPreview"
   | "htmlPreview"
   | "csvPreview"
   | "externalEditor"
-  | "globalSearch"
-  | "diagnostics"
-  | "references"
-  | "onboarding"
   | "crowbarChat";
 
 // ── Base fields shared by every content type ────────────────────────
@@ -91,43 +81,10 @@ export interface DiffContent extends PaneContentBase {
   diffData?: GitDiff | MultiFileDiff;
 }
 
-export interface ImageContent extends PaneContentBase {
-  type: "image";
-}
-
-export interface PdfContent extends PaneContentBase {
-  type: "pdf";
-}
-
-export interface BinaryContent extends PaneContentBase {
-  type: "binary";
-}
-
 export interface DatabaseContent extends PaneContentBase {
   type: "database";
   databaseType: DatabaseType;
   connectionId?: string;
-}
-
-export interface PullRequestContent extends PaneContentBase {
-  type: "pullRequest";
-  prNumber: number;
-  authorAvatarUrl?: string;
-}
-
-export interface GitHubIssueContent extends PaneContentBase {
-  type: "githubIssue";
-  repoPath?: string;
-  issueNumber: number;
-  authorAvatarUrl?: string;
-  url?: string;
-}
-
-export interface GitHubActionContent extends PaneContentBase {
-  type: "githubAction";
-  repoPath?: string;
-  runId: number;
-  url?: string;
 }
 
 export interface MarkdownPreviewContent extends PaneContentBase {
@@ -153,25 +110,6 @@ export interface ExternalEditorContent extends PaneContentBase {
   terminalConnectionId: string;
 }
 
-export interface GlobalSearchContent extends PaneContentBase {
-  type: "globalSearch";
-}
-
-export interface DiagnosticsContent extends PaneContentBase {
-  type: "diagnostics";
-}
-
-export interface ReferencesContent extends PaneContentBase {
-  type: "references";
-}
-
-export interface OnboardingContent extends PaneContentBase {
-  type: "onboarding";
-  mode: import("@/features/onboarding/lib/onboarding-state").OnboardingMode;
-  currentVersion: string;
-  previousVersion?: string;
-}
-
 export interface CrowbarChatContent extends PaneContentBase {
   type: "crowbarChat";
   wsId: string;
@@ -185,21 +123,11 @@ export type PaneContent =
   | WebViewerContent
   | NewTabContent
   | DiffContent
-  | ImageContent
-  | PdfContent
-  | BinaryContent
   | DatabaseContent
-  | PullRequestContent
-  | GitHubIssueContent
-  | GitHubActionContent
   | MarkdownPreviewContent
   | HtmlPreviewContent
   | CsvPreviewContent
   | ExternalEditorContent
-  | GlobalSearchContent
-  | DiagnosticsContent
-  | ReferencesContent
-  | OnboardingContent
   | CrowbarChatContent;
 
 // ── Type guards ─────────────────────────────────────────────────────
@@ -228,18 +156,6 @@ export function isDatabaseContent(c: PaneContent): c is DatabaseContent {
   return c.type === "database";
 }
 
-export function isPullRequestContent(c: PaneContent): c is PullRequestContent {
-  return c.type === "pullRequest";
-}
-
-export function isGitHubIssueContent(c: PaneContent): c is GitHubIssueContent {
-  return c.type === "githubIssue";
-}
-
-export function isGitHubActionContent(c: PaneContent): c is GitHubActionContent {
-  return c.type === "githubAction";
-}
-
 export function isExternalEditorContent(c: PaneContent): c is ExternalEditorContent {
   return c.type === "externalEditor";
 }
@@ -256,13 +172,6 @@ const VIRTUAL_TYPES: ReadonlySet<PaneContentType> = new Set([
   "terminal",
   "webViewer",
   "newTab",
-  "pullRequest",
-  "githubIssue",
-  "githubAction",
-  "globalSearch",
-  "diagnostics",
-  "references",
-  "onboarding",
   "crowbarChat",
 ]);
 
@@ -337,37 +246,12 @@ export type OpenContentSpec =
       content: string;
       diffData?: GitDiff | MultiFileDiff;
     }
-  | { type: "image"; path: string; name: string }
-  | { type: "pdf"; path: string; name: string }
-  | { type: "binary"; path: string; name: string }
   | {
       type: "database";
       path: string;
       name: string;
       databaseType: DatabaseType;
       connectionId?: string;
-    }
-  | {
-      type: "pullRequest";
-      prNumber: number;
-      authorAvatarUrl?: string;
-      name?: string;
-      selectedFilePath?: string;
-    }
-  | {
-      type: "githubIssue";
-      issueNumber: number;
-      repoPath?: string;
-      authorAvatarUrl?: string;
-      name?: string;
-      url?: string;
-    }
-  | {
-      type: "githubAction";
-      runId: number;
-      repoPath?: string;
-      name?: string;
-      url?: string;
     }
   | {
       type: "markdownPreview";
@@ -395,19 +279,6 @@ export type OpenContentSpec =
       path: string;
       name: string;
       terminalConnectionId: string;
-    }
-  | {
-      type: "globalSearch";
-    }
-  | {
-      type: "diagnostics";
-    }
-  | {
-      type: "references";
-    }
-  | {
-      type: "onboarding";
-      context: import("@/features/onboarding/lib/onboarding-state").OnboardingContext;
     }
   | {
       type: "crowbarChat";

@@ -63,9 +63,6 @@ export const defaultSettings: Settings = {
   openFoldersInNewWindow: false,
   // Layout
   sidebarWidth: 220,
-  showGitHubPullRequests: true,
-  showGitHubIssues: true,
-  showGitHubActions: true,
   // Keyboard
   keybindingPreset: "none",
   // Language
@@ -82,7 +79,6 @@ export const defaultSettings: Settings = {
   // Features
   coreFeatures: {
     git: true,
-    github: true,
     terminal: true,
     search: true,
     diagnostics: true,
@@ -118,7 +114,6 @@ export const defaultSettings: Settings = {
   rememberLastGitPanelMode: false,
   gitLastPanelMode: "changes",
   gitSidebarTabOrder: ["changes", "history", "worktrees"],
-  githubSidebarSectionOrder: ["pull-requests", "issues", "actions"],
   enableInlineGitBlame: true,
   enableGitGutter: true,
   // Telemetry

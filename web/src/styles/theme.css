@@ -211,6 +211,7 @@
 
   /* ── Crowbar UI-layer tokens (not in Cross/UI) ── */
   --chrome-bg: oklch(1 0 0 / 75%);
+  
   --app-ui-scale: 1;
   --ui-text-xs: calc(0.6875rem * var(--app-ui-scale));
   --ui-text-sm: calc(0.75rem * var(--app-ui-scale));
@@ -268,5 +269,5 @@
   --code-highlight: oklch(1 0 0 / 4%);
 
   /* ── Crowbar UI-layer dark overrides ── */
-  --chrome-bg: oklch(0.148 0.004 228.8 / 85%);
+  --chrome-bg: oklch(0.20 0 0 / 65%);
 }

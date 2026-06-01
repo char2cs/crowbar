@@ -3,7 +3,6 @@ import type { RefObject } from 'react'
 
 interface UseTabBarScrollOptions {
   sidebarPosition: string
-  horizontalTabScroll: boolean
   draggedBufferId: string | null
 }
 
@@ -15,7 +14,6 @@ interface UseTabBarScrollResult {
 
 export function useTabBarScroll({
   sidebarPosition,
-  horizontalTabScroll,
   draggedBufferId,
 }: UseTabBarScrollOptions): UseTabBarScrollResult {
   const tabBarRef = useRef<HTMLDivElement>(null)
@@ -44,7 +42,6 @@ export function useTabBarScroll({
     (e: React.WheelEvent<HTMLDivElement>) => {
       const container = tabBarRef.current
       if (!container) return
-      if (!horizontalTabScroll) return
       if (draggedBufferId) return
       if (e.ctrlKey || e.metaKey) return
       if (!canScrollTabsHorizontally()) return
@@ -67,7 +64,7 @@ export function useTabBarScroll({
       e.preventDefault()
       container.scrollLeft = nextScrollLeft
     },
-    [canScrollTabsHorizontally, draggedBufferId, horizontalTabScroll],
+    [canScrollTabsHorizontally, draggedBufferId],
   )
 
   return { tabBarRef, isAtLeftEdge, handleWheel }

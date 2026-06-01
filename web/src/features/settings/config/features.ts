@@ -2,7 +2,6 @@ import {
   Brain,
   Bug,
   GitBranch,
-  GitPullRequest,
   ChatCircleText as MessageSquare,
   NavigationArrow as Navigation,
   MagnifyingGlass as Search,
@@ -17,13 +16,6 @@ export const createCoreFeaturesList = (coreFeatures: CoreFeaturesState): CoreFea
     description: "Source control management with Git repositories",
     icon: GitBranch,
     enabled: coreFeatures.git,
-  },
-  {
-    id: "github",
-    name: "GitHub Integration",
-    description: "Pull requests, issues, and GitHub features",
-    icon: GitPullRequest,
-    enabled: coreFeatures.github,
   },
   {
     id: "terminal",

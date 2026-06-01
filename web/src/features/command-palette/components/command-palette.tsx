@@ -16,9 +16,7 @@ import {
 } from "@/features/git/api/git-status-api";
 import { useGitStore } from "@/features/git/stores/git-store";
 import { useRepositoryStore } from "@/features/git/stores/git-repository-store";
-import { useGitHubStore } from "@/features/github/stores/github-store";
 import { useToast } from "@/features/layout/contexts/toast-context";
-import { useOnboardingStore } from "@/features/onboarding/store";
 import { useSettingsStore } from "@/features/settings/store";
 import { useWhatsNewStore } from "@/features/settings/stores/whats-new-store";
 import { useUIState } from "@/features/window/stores/ui-state-store";
@@ -38,7 +36,6 @@ import { createAdvancedActions } from "../constants/advanced-actions";
 import { createDatabaseActions } from "../constants/database-actions";
 import { createFileActions } from "../constants/file-actions";
 import { createGitActions } from "../constants/git-actions";
-import { createGitHubActions } from "../constants/github-actions";
 import { createMarkdownActions } from "../constants/markdown-actions";
 import { createNavigationActions } from "../constants/navigation-actions";
 import { createPaneActions } from "../constants/pane-actions";
@@ -111,10 +108,8 @@ const CommandPalette = () => {
   const rootFolderPath = useFileSystemStore((s) => s.rootFolderPath);
   const activeRepoPath = useRepositoryStore.use.activeRepoPath();
   const gitStoreActions = useGitStore((s) => s.actions);
-  const checkGitHubAuth = useGitHubStore((s) => s.actions.checkAuth);
   const { showToast } = useToast();
   const openWhatsNew = useWhatsNewStore((state) => state.open);
-  const openOnboarding = useOnboardingStore((state) => state.openPreview);
   const workspaceStore = useWorkspaceStore();
   const buffers = useStore(workspaceStore, (s) => s.buffers);
   const activePaneId = useStore(workspaceStore, (s) => s.activePaneId);
@@ -209,7 +204,6 @@ const CommandPalette = () => {
       handleFileOpen,
       getAppDataDir: appDataDir,
       openWhatsNew,
-      openOnboarding,
       onClose,
     }),
     ...createNavigationActions({
@@ -251,22 +245,6 @@ const CommandPalette = () => {
         fetchChanges,
         discardAllChanges,
       },
-      onClose,
-    }),
-    ...createGitHubActions({
-      setIsSidebarVisible,
-      setActiveView,
-      settings: {
-        showGitHubPullRequests: settings.showGitHubPullRequests,
-        showGitHubIssues: settings.showGitHubIssues,
-        showGitHubActions: settings.showGitHubActions,
-      },
-      updateSetting: useSettingsStore.getState().updateSetting as (
-        key: string,
-        value: any,
-      ) => void | Promise<void>,
-      checkAuth: checkGitHubAuth,
-      showToast,
       onClose,
     }),
     ...createDatabaseActions({

@@ -61,9 +61,6 @@ export interface Settings {
   openFoldersInNewWindow: boolean;
   // Layout
   sidebarWidth: number;
-  showGitHubPullRequests: boolean;
-  showGitHubIssues: boolean;
-  showGitHubActions: boolean;
   // Keyboard
   keybindingPreset:
     | "none"
@@ -124,7 +121,6 @@ export interface Settings {
   rememberLastGitPanelMode: boolean;
   gitLastPanelMode: "changes" | "history" | "worktrees";
   gitSidebarTabOrder: Array<"changes" | "history" | "worktrees">;
-  githubSidebarSectionOrder: Array<"pull-requests" | "issues" | "actions">;
   enableInlineGitBlame: boolean;
   enableGitGutter: boolean;
   // Telemetry

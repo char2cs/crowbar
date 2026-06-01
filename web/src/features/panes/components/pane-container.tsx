@@ -55,28 +55,10 @@ const ExternalEditorTerminal = lazy(() =>
     default: m.ExternalEditorTerminal,
   })),
 );
-const GlobalSearchBuffer = lazy(
-  () => import("@/features/global-search/components/global-search-buffer"),
-);
-const DiagnosticsBuffer = lazy(
-  () => import("@/features/diagnostics/components/diagnostics-buffer"),
-);
-const ReferencesBuffer = lazy(() => import("@/features/references/components/references-buffer"));
-const OnboardingView = lazy(() => import("@/features/onboarding/components/onboarding-view"));
-const GitHubPRViewer = lazy(() => import("@/features/github/components/github-pr-viewer"));
-const GitHubIssueViewer = lazy(() => import("@/features/github/components/github-issue-viewer"));
-const GitHubActionViewer = lazy(() => import("@/features/github/components/github-action-viewer"));
-const BinaryFileViewer = lazy(() =>
-  import("@/features/binary-viewer/components/binary-file-viewer").then((m) => ({
-    default: m.BinaryFileViewer,
-  })),
-);
 import { EditorPane } from "./editor-pane";
 import { TerminalPane } from "./terminal-pane";
 import { WebViewerPane } from "./web-viewer-pane";
 import { DiffPane } from "./diff-pane";
-import { ImagePane } from "./image-pane";
-import { PdfPane } from "./pdf-pane";
 
 interface PaneContainerProps {
   pane: PaneGroup;
@@ -513,54 +495,6 @@ export function PaneContainer({ pane, position = ROOT_PANE_POSITION }: PaneConta
         case "diff":
           return <DiffPane onStageHunk={handleStageHunk} onUnstageHunk={handleUnstageHunk} />;
 
-        case "pullRequest":
-          return <GitHubPRViewer prNumber={buffer.prNumber} />;
-
-        case "githubIssue":
-          return (
-            <GitHubIssueViewer
-              issueNumber={buffer.issueNumber}
-              repoPath={buffer.repoPath}
-              bufferId={buffer.id}
-            />
-          );
-
-        case "githubAction":
-          return (
-            <GitHubActionViewer
-              runId={buffer.runId}
-              repoPath={buffer.repoPath}
-              bufferId={buffer.id}
-            />
-          );
-
-        case "globalSearch":
-          return <GlobalSearchBuffer />;
-
-        case "diagnostics":
-          return <DiagnosticsBuffer />;
-
-        case "references":
-          return <ReferencesBuffer />;
-
-        case "onboarding":
-          return (
-            <OnboardingView
-              bufferId={buffer.id}
-              context={{
-                mode: buffer.mode,
-                currentVersion: buffer.currentVersion,
-                previousVersion: buffer.previousVersion,
-              }}
-            />
-          );
-
-        case "image":
-          return <ImagePane filePath={buffer.path} fileName={buffer.name} bufferId={buffer.id} />;
-
-        case "pdf":
-          return <PdfPane filePath={buffer.path} fileName={buffer.name} bufferId={buffer.id} />;
-
         case "database": {
           const config = PROVIDER_REGISTRY[buffer.databaseType];
           const DatabaseViewer = getDatabaseViewer(buffer.databaseType);
@@ -580,15 +514,6 @@ export function PaneContainer({ pane, position = ROOT_PANE_POSITION }: PaneConta
           }
           return <DatabaseViewer {...viewerProps} />;
         }
-
-        case "binary":
-          return (
-            <BinaryFileViewer
-              filePath={buffer.path}
-              fileName={buffer.name}
-              rootFolderPath={rootFolderPath}
-            />
-          );
 
         case "externalEditor":
           return (

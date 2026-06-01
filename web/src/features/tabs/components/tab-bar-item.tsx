@@ -1,15 +1,10 @@
 import {
-  Pulse as Activity,
   Database,
   GitBranch,
-  GitPullRequest,
   GlobeHemisphereWest as Globe,
-  MagnifyingGlass as Search,
-  ChatCircleText as MessageSquare,
   Package,
   PushPin as Pin,
   TerminalWindow as Terminal,
-  WarningCircle,
   X,
 } from "@phosphor-icons/react";
 import { memo, useCallback, useEffect, useState } from "react";
@@ -135,36 +130,6 @@ const TabBarItem = memo(function TabBarItem({
             )
           ) : buffer.type === "database" ? (
             <Database className="text-muted-foreground" />
-          ) : buffer.type === "pullRequest" ? (
-            buffer.authorAvatarUrl ? (
-              <img
-                src={buffer.authorAvatarUrl}
-                alt=""
-                className="size-3.5 rounded-full object-cover"
-                loading="lazy"
-              />
-            ) : (
-              <GitPullRequest className="text-muted-foreground" />
-            )
-          ) : buffer.type === "githubIssue" ? (
-            buffer.authorAvatarUrl ? (
-              <img
-                src={buffer.authorAvatarUrl}
-                alt=""
-                className="size-3.5 rounded-full object-cover"
-                loading="lazy"
-              />
-            ) : (
-              <MessageSquare className="text-muted-foreground" />
-            )
-          ) : buffer.type === "githubAction" ? (
-            <Activity className="text-muted-foreground" />
-          ) : buffer.type === "globalSearch" ? (
-            <Search className="text-muted-foreground" />
-          ) : buffer.type === "diagnostics" ? (
-            <WarningCircle className="text-muted-foreground" />
-          ) : buffer.type === "references" ? (
-            <Search className="text-muted-foreground" />
           ) : (
             <FileExplorerIcon
               fileName={getDiffIconName() ?? buffer.name}

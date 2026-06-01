@@ -8,18 +8,10 @@
   border: 1px solid var(--border);
   background: var(--card);
   border: 1px solid color-mix(in srgb, var(--border) 85%, transparent);
-  background: color-mix(in srgb, var(--card) 96%, transparent);
+  background: var(--card);
   color: var(--foreground);
 }
 
-@supports ((-webkit-backdrop-filter: blur(10px)) or (backdrop-filter: blur(10px))) {
-  .editor-completion-list,
-  .editor-completion-docs {
-    -webkit-backdrop-filter: blur(10px);
-    backdrop-filter: blur(10px);
-    background: color-mix(in srgb, var(--card) 90%, transparent);
-  }
-}
 
 .editor-completion-item {
   position: relative;

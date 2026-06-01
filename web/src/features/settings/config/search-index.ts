@@ -590,14 +590,6 @@ export const settingsSearchIndex: SettingSearchRecord[] = [
     keywords: ["breadcrumbs", "navigation", "path"],
   },
   {
-    id: "features-github",
-    tab: "features",
-    section: "Features",
-    label: "GitHub Integration",
-    description: "Pull requests, issues, and GitHub features",
-    keywords: ["github", "pull", "requests", "issues", "integration"],
-  },
-  {
     id: "features-persistent-commands",
     tab: "features",
     section: "Features",

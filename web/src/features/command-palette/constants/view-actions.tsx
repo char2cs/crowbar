@@ -1,5 +1,4 @@
 import {
-  WarningCircle as AlertCircle,
   ArrowsLeftRight as ArrowLeftRight,
   GlobeHemisphereWest as Globe,
   List as Menu,
@@ -11,7 +10,6 @@ import {
   MagnifyingGlassPlus as ZoomIn,
   MagnifyingGlassMinus as ZoomOut,
 } from "@phosphor-icons/react";
-import { getActiveWorkspaceStoreRef } from "@/features/workspace/stores/workspace-store-ref";
 import type { BottomPaneTab } from "@/features/window/stores/ui-state/types";
 import { primitivePrompt } from "@/components/ui/primitive-dialog-service";
 import { IS_MAC, IS_WINDOWS } from "@/utils/platform";
@@ -100,18 +98,6 @@ export const createViewActions = (params: ViewActionsParams): Action[] => {
           setIsBottomPaneVisible(true);
           window.dispatchEvent(new CustomEvent("terminal-ensure-session"));
         }
-        onClose();
-      },
-    },
-    {
-      id: "toggle-diagnostics-panel",
-      label: "View: Show Diagnostics",
-      description: "Open diagnostics",
-      icon: <AlertCircle />,
-      category: "View",
-      commandId: "workbench.toggleDiagnostics",
-      action: () => {
-        getActiveWorkspaceStoreRef()?.getState().bufferActions.openContent({ type: 'diagnostics' });
         onClose();
       },
     },

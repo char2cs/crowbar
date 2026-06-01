@@ -1,7 +1,6 @@
 export type SidebarView =
   | "files"
   | "git"
-  | "github-prs"
   | "outline"
   | "databases"
   | "collaboration"
@@ -11,7 +10,6 @@ export type SidebarView =
 interface SidebarPaneState {
   isSidebarVisible: boolean;
   isGitViewActive: boolean;
-  isGitHubPRsViewActive: boolean;
   activeSidebarView?: SidebarView;
 }
 
@@ -47,11 +45,9 @@ export function getSidebarPaneLevel(view: SidebarView): SidebarPaneLevel {
 
 export function getActiveSidebarView({
   isGitViewActive,
-  isGitHubPRsViewActive,
   activeSidebarView,
 }: Omit<SidebarPaneState, "isSidebarVisible">): SidebarView {
   if (isGitViewActive) return "git";
-  if (isGitHubPRsViewActive) return "github-prs";
   return activeSidebarView ?? "files";
 }
 

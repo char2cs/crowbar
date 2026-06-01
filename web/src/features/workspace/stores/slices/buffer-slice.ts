@@ -9,21 +9,11 @@ import type {
   TerminalContent,
   WebViewerContent,
   NewTabContent,
-  ImageContent,
-  PdfContent,
-  BinaryContent,
   DatabaseContent,
-  PullRequestContent,
-  GitHubIssueContent,
-  GitHubActionContent,
   MarkdownPreviewContent,
   HtmlPreviewContent,
   CsvPreviewContent,
   ExternalEditorContent,
-  GlobalSearchContent,
-  DiagnosticsContent,
-  ReferencesContent,
-  OnboardingContent,
   ClosedBuffer,
   PendingClose,
 } from '@/features/panes/types/pane-content'
@@ -97,33 +87,8 @@ export const createBufferSlice: StateCreator<
             b => b.type === 'webViewer' && (b as WebViewerContent).url === spec.url,
           )
         }
-        if (spec.type === 'image') {
-          return get().buffers.find(b => b.type === 'image' && b.path === spec.path)
-        }
-        if (spec.type === 'pdf') {
-          return get().buffers.find(b => b.type === 'pdf' && b.path === spec.path)
-        }
-        if (spec.type === 'binary') {
-          return get().buffers.find(b => b.type === 'binary' && b.path === spec.path)
-        }
         if (spec.type === 'database') {
           return get().buffers.find(b => b.type === 'database' && b.path === spec.path)
-        }
-        if (spec.type === 'pullRequest') {
-          return get().buffers.find(
-            b => b.type === 'pullRequest' && (b as PullRequestContent).prNumber === spec.prNumber,
-          )
-        }
-        if (spec.type === 'githubIssue') {
-          return get().buffers.find(
-            b => b.type === 'githubIssue' &&
-              (b as GitHubIssueContent).issueNumber === spec.issueNumber,
-          )
-        }
-        if (spec.type === 'githubAction') {
-          return get().buffers.find(
-            b => b.type === 'githubAction' && (b as GitHubActionContent).runId === spec.runId,
-          )
         }
         if (spec.type === 'markdownPreview') {
           return get().buffers.find(b => b.type === 'markdownPreview' && b.path === spec.path)
@@ -136,18 +101,6 @@ export const createBufferSlice: StateCreator<
         }
         if (spec.type === 'externalEditor') {
           return get().buffers.find(b => b.type === 'externalEditor' && b.path === spec.path)
-        }
-        if (spec.type === 'globalSearch') {
-          return get().buffers.find(b => b.type === 'globalSearch')
-        }
-        if (spec.type === 'diagnostics') {
-          return get().buffers.find(b => b.type === 'diagnostics')
-        }
-        if (spec.type === 'references') {
-          return get().buffers.find(b => b.type === 'references')
-        }
-        if (spec.type === 'onboarding') {
-          return get().buffers.find(b => b.type === 'onboarding')
         }
         return undefined
       })()
@@ -237,24 +190,6 @@ export const createBufferSlice: StateCreator<
           path: '', name: 'New Tab',
           isPinned: false, isPreview: false, isActive: false,
         } satisfies NewTabContent
-      } else if (spec.type === 'image') {
-        buf = {
-          id, type: 'image',
-          path: spec.path, name: spec.name,
-          isPinned: false, isPreview: false, isActive: false,
-        } satisfies ImageContent
-      } else if (spec.type === 'pdf') {
-        buf = {
-          id, type: 'pdf',
-          path: spec.path, name: spec.name,
-          isPinned: false, isPreview: false, isActive: false,
-        } satisfies PdfContent
-      } else if (spec.type === 'binary') {
-        buf = {
-          id, type: 'binary',
-          path: spec.path, name: spec.name,
-          isPinned: false, isPreview: false, isActive: false,
-        } satisfies BinaryContent
       } else if (spec.type === 'database') {
         buf = {
           id, type: 'database',
@@ -263,36 +198,6 @@ export const createBufferSlice: StateCreator<
           connectionId: spec.connectionId,
           isPinned: false, isPreview: false, isActive: false,
         } satisfies DatabaseContent
-      } else if (spec.type === 'pullRequest') {
-        buf = {
-          id, type: 'pullRequest',
-          path: `pr://${spec.prNumber}`,
-          name: spec.name ?? `PR #${spec.prNumber}`,
-          prNumber: spec.prNumber,
-          authorAvatarUrl: spec.authorAvatarUrl,
-          isPinned: false, isPreview: false, isActive: false,
-        } satisfies PullRequestContent
-      } else if (spec.type === 'githubIssue') {
-        buf = {
-          id, type: 'githubIssue',
-          path: `github-issue://${spec.issueNumber}`,
-          name: spec.name ?? `Issue #${spec.issueNumber}`,
-          issueNumber: spec.issueNumber,
-          repoPath: spec.repoPath,
-          authorAvatarUrl: spec.authorAvatarUrl,
-          url: spec.url,
-          isPinned: false, isPreview: false, isActive: false,
-        } satisfies GitHubIssueContent
-      } else if (spec.type === 'githubAction') {
-        buf = {
-          id, type: 'githubAction',
-          path: `github-action://${spec.runId}`,
-          name: spec.name ?? `Action #${spec.runId}`,
-          runId: spec.runId,
-          repoPath: spec.repoPath,
-          url: spec.url,
-          isPinned: false, isPreview: false, isActive: false,
-        } satisfies GitHubActionContent
       } else if (spec.type === 'markdownPreview') {
         buf = {
           id, type: 'markdownPreview',
@@ -317,41 +222,14 @@ export const createBufferSlice: StateCreator<
           sourceFilePath: spec.sourceFilePath,
           isPinned: false, isPreview: false, isActive: false,
         } satisfies CsvPreviewContent
-      } else if (spec.type === 'externalEditor') {
+      } else {
+        // spec.type === 'externalEditor'
         buf = {
           id, type: 'externalEditor',
           path: spec.path, name: spec.name,
           terminalConnectionId: spec.terminalConnectionId,
           isPinned: false, isPreview: false, isActive: false,
         } satisfies ExternalEditorContent
-      } else if (spec.type === 'globalSearch') {
-        buf = {
-          id, type: 'globalSearch',
-          path: 'global-search://', name: 'Search',
-          isPinned: false, isPreview: false, isActive: false,
-        } satisfies GlobalSearchContent
-      } else if (spec.type === 'diagnostics') {
-        buf = {
-          id, type: 'diagnostics',
-          path: 'diagnostics://', name: 'Problems',
-          isPinned: false, isPreview: false, isActive: false,
-        } satisfies DiagnosticsContent
-      } else if (spec.type === 'references') {
-        buf = {
-          id, type: 'references',
-          path: 'references://', name: 'References',
-          isPinned: false, isPreview: false, isActive: false,
-        } satisfies ReferencesContent
-      } else {
-        // spec.type === 'onboarding'
-        buf = {
-          id, type: 'onboarding',
-          path: 'onboarding://', name: 'Welcome',
-          mode: spec.context.mode,
-          currentVersion: spec.context.currentVersion ?? '',
-          previousVersion: spec.context.previousVersion,
-          isPinned: false, isPreview: false, isActive: false,
-        } satisfies OnboardingContent
       }
 
       set(state => { state.buffers.push(buf) })

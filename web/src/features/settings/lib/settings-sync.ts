@@ -55,9 +55,6 @@ type SyncableSettingsKey =
   | "footerTrailingItemsOrder"
   | "openFoldersInNewWindow"
   | "sidebarWidth"
-  | "showGitHubPullRequests"
-  | "showGitHubIssues"
-  | "showGitHubActions"
   | "keybindingPreset"
   | "defaultLanguage"
   | "autoDetectLanguage"
@@ -85,7 +82,6 @@ type SyncableSettingsKey =
   | "rememberLastGitPanelMode"
   | "gitLastPanelMode"
   | "gitSidebarTabOrder"
-  | "githubSidebarSectionOrder"
   | "enableInlineGitBlame"
   | "enableGitGutter"
   | "telemetry";
@@ -130,9 +126,6 @@ const SYNCABLE_SETTINGS_KEYS: SyncableSettingsKey[] = [
   "footerTrailingItemsOrder",
   "openFoldersInNewWindow",
   "sidebarWidth",
-  "showGitHubPullRequests",
-  "showGitHubIssues",
-  "showGitHubActions",
   "keybindingPreset",
   "defaultLanguage",
   "autoDetectLanguage",
@@ -160,7 +153,6 @@ const SYNCABLE_SETTINGS_KEYS: SyncableSettingsKey[] = [
   "rememberLastGitPanelMode",
   "gitLastPanelMode",
   "gitSidebarTabOrder",
-  "githubSidebarSectionOrder",
   "enableInlineGitBlame",
   "enableGitGutter",
   "telemetry",

@@ -18,7 +18,6 @@ export function useSidebarPaneController() {
   const isSidebarVisible = useUIState((s) => s.isSidebarVisible);
   const isRightSidebarVisible = useUIState((s) => s.isRightSidebarVisible);
   const isGitViewActive = useUIState((s) => s.isGitViewActive);
-  const isGitHubPRsViewActive = useUIState((s) => s.isGitHubPRsViewActive);
   const activeSidebarView = useUIState((s) => s.activeSidebarView);
   const activeRightSidebarView = useUIState((s) => s.activeRightSidebarView);
   const setActiveView = useUIState((s) => s.setActiveView);
@@ -42,7 +41,6 @@ export function useSidebarPaneController() {
         {
           isSidebarVisible,
           isGitViewActive,
-          isGitHubPRsViewActive,
           activeSidebarView: activeSidebarView ?? undefined,
         },
         view,
@@ -62,7 +60,6 @@ export function useSidebarPaneController() {
     [
       activeSidebarView,
       activeRightSidebarView,
-      isGitHubPRsViewActive,
       isGitViewActive,
       isRightSidebarVisible,
       isSidebarVisible,
