@@ -9,14 +9,11 @@ export const SIDEBAR_ACTIVITY_ITEM_IDS: string[] = SIDEBAR_ITEM_ORDER
 
 export const BOTTOM_PANE_ITEM_ORDER: string[] = [
   "terminal",
-  "problems",
-  "output",
 ]
 
 export const FOOTER_LEADING_ITEM_IDS: string[] = [
   "branch",
   "sync",
-  "problems",
 ]
 
 export const FOOTER_TRAILING_ITEM_IDS: string[] = [
