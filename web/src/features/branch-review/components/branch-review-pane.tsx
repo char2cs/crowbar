@@ -1,7 +1,7 @@
 import { useEffect } from 'react'
-import { GitBranch } from '@phosphor-icons/react'
 import { useWorkspaceStoreContext, useWorkspaceStore } from '@/features/workspace/stores/workspace-context'
 import { useSidebarStore } from '@/lib/store/sidebar'
+import { WorkspaceBranchIcon } from '@/components/layout/workspace-branch-icon'
 import { getMockBranchDiff, getMockBranchReviewThreads, getMockBranchReviewDescription } from '@/lib/mock/branch-diff'
 import type { ReviewThread, ReviewMessage } from '@/features/branch-review/types/review-types'
 import { Frame, FrameHeader, FramePanel, FrameTitle, FrameDescription } from '@/components/ui/frame'
@@ -31,6 +31,11 @@ export function BranchReviewPane({ wsId, branchName }: BranchReviewPaneProps) {
     const ws = allWs.find(w => w.id === wsId)
     if (!ws?.parentId) return null
     return allWs.find(w => w.id === ws.parentId)?.branch ?? null
+  })
+
+  const status = useSidebarStore(s => {
+    const allWs = s.repos.flatMap(r => r.workspaces)
+    return allWs.find(w => w.id === wsId)?.status ?? 'new'
   })
 
   useEffect(() => {
@@ -82,8 +87,8 @@ export function BranchReviewPane({ wsId, branchName }: BranchReviewPaneProps) {
 
 
   return (
-    // ONE Frame = the whole window
-    <Frame className="h-full overflow-hidden rounded-none p-2">
+    // ONE Frame = the whole window. No horizontal/bottom gap; small top gap.
+    <Frame className="h-full overflow-hidden rounded-none px-0 pb-0 pt-2">
       <Tabs
         value={activeSubtab}
         onValueChange={v => store.getState().setBranchReviewSubtab(v as typeof activeSubtab)}
@@ -93,8 +98,8 @@ export function BranchReviewPane({ wsId, branchName }: BranchReviewPaneProps) {
         <FrameHeader className="shrink-0 flex-col gap-2 border-b border-border/50 pb-0">
           <div className="flex items-start justify-between gap-4">
             <div className="flex min-w-0 flex-col gap-0.5">
-              <FrameTitle className="flex items-center gap-2">
-                <GitBranch size={14} className="shrink-0 text-muted-foreground" />
+              <FrameTitle className="flex items-center gap-2 text-base">
+                <WorkspaceBranchIcon status={status} />
                 <span className="truncate">{branchName}</span>
                 {parentBranch && (
                   <Badge variant="outline" className="shrink-0 text-xs font-normal text-muted-foreground">
@@ -128,8 +133,8 @@ export function BranchReviewPane({ wsId, branchName }: BranchReviewPaneProps) {
           </TabsList>
         </FrameHeader>
 
-        {/* ONE FramePanel — the entire scrollable content body */}
-        <FramePanel className="min-h-0 flex-1 overflow-y-auto">
+        {/* ONE FramePanel — the entire scrollable content body, full-bleed with a top gap */}
+        <FramePanel className="mt-2 min-h-0 flex-1 overflow-y-auto rounded-none border-0 before:hidden">
           <TabsPanel value="about">
             <AboutTab
               wsId={wsId}

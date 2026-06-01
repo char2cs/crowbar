@@ -37,8 +37,12 @@ function useShikiTokens(lines: GitDiffLine[], lang: string): Map<number, ShikiTo
 
     void (async () => {
       try {
-        const { codeToTokens } = await import('shiki')
-        const { tokens } = await codeToTokens(code, { lang, theme: 'github-dark-default' })
+        const { codeToTokens, bundledLanguages } = await import('shiki')
+        if (!(lang in bundledLanguages)) return
+        const { tokens } = await codeToTokens(code, {
+          lang: lang as keyof typeof bundledLanguages,
+          theme: 'github-dark-default',
+        })
         if (!cancelled) {
           const map = new Map<number, ShikiToken[]>()
           newLines.forEach((line, idx) => {

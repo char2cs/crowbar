@@ -11,7 +11,7 @@ export function CommitsTab({ repoPath }: CommitsTabProps) {
 
   return (
     <div className="flex flex-col gap-4">
-      <FrameTitle>Commit history</FrameTitle>
+      <FrameTitle className="text-base">Commit history</FrameTitle>
       <div className="flex flex-col gap-1.5">
         {commits.map(commit => (
           <FramePanel key={commit.hash} className="py-2 px-3">

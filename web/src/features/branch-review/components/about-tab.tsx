@@ -38,7 +38,7 @@ export function AboutTab({ wsId, description, onDescriptionChange, onOpenConvers
     <div className="flex flex-col gap-4">
       {/* Description — rendered markdown, click to edit */}
       <div className="flex flex-col gap-2">
-        <FrameTitle>Description</FrameTitle>
+        <FrameTitle className="text-base">Description</FrameTitle>
         {editing ? (
           <CodeMirror
             autoFocus
@@ -83,7 +83,7 @@ export function AboutTab({ wsId, description, onDescriptionChange, onOpenConvers
 
       {/* Conversations */}
       <div className="flex flex-col gap-2">
-        <FrameTitle>Conversations</FrameTitle>
+        <FrameTitle className="text-base">Conversations</FrameTitle>
         {chats.length === 0 ? (
           <p className="text-sm text-muted-foreground/40">No conversations yet.</p>
         ) : (
