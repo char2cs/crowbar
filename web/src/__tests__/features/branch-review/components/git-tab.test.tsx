@@ -4,7 +4,7 @@ import { GitTab } from '@/features/branch-review/components/git-tab'
 
 // ResizeObserver is not available in jsdom
 beforeAll(() => {
-  global.ResizeObserver = vi.fn().mockImplementation((cb) => ({
+  global.ResizeObserver = vi.fn().mockImplementation((_cb) => ({
     observe: vi.fn(),
     unobserve: vi.fn(),
     disconnect: vi.fn(),
@@ -15,7 +15,7 @@ vi.mock('@/features/git/stores/git-store', () => ({
   useGitStore: vi.fn((selector) => selector({
     gitStatus: { files: [], ahead: 0, behind: 0 },
     stashes: [],
-    actions: { setStashes: vi.fn() },
+    actions: { setStashes: vi.fn(), refreshWorkspaceGitStatus: vi.fn() },
   })),
 }))
 
@@ -41,7 +41,7 @@ vi.mock('@/features/branch-review/components/commits-tab', () => ({
 }))
 
 vi.mock('@/features/git/components/git-commit-panel', () => ({
-  default: vi.fn(({ stagedFilesCount }: { stagedFilesCount: number }) => (
+  default: vi.fn(({ stagedFilesCount: _stagedFilesCount }: { stagedFilesCount: number }) => (
     <textarea placeholder="Commit message..." />
   )),
 }))

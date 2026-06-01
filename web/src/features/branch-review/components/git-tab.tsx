@@ -29,8 +29,6 @@ export function GitTab({ wsId }: GitTabProps) {
   const activeRepoPath = useRepositoryStore.use.activeRepoPath()
   const gitStatus = useGitStore(s => s.gitStatus)
   const showUntracked = useSettingsStore(s => s.settings.showUntrackedFiles)
-  const gitActions = useGitStore(s => s.actions)
-
   const visibleFiles = showUntracked
     ? (gitStatus?.files ?? [])
     : (gitStatus?.files ?? []).filter(f => f.status !== 'untracked')
@@ -49,7 +47,7 @@ export function GitTab({ wsId }: GitTabProps) {
   }, [])
 
   const handleRefresh = activeRepoPath
-    ? () => void gitActions.refreshWorkspaceGitStatus(activeRepoPath)
+    ? () => void useGitStore.getState().actions.refreshWorkspaceGitStatus(activeRepoPath)
     : undefined
 
   const stickyCommit = (
