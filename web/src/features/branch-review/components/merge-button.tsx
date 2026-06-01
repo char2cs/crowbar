@@ -42,6 +42,7 @@ export function MergeButton({ strategy, isLocked, hasConflicts, onMerge, onStrat
         disabled={disabled}
         onClick={onMerge}
         tooltip={tooltip}
+        className="text-foreground"
       >
         {STRATEGY_LABELS[strategy]}
       </Button>
@@ -53,6 +54,7 @@ export function MergeButton({ strategy, isLocked, hasConflicts, onMerge, onStrat
               variant={variant}
               size="icon"
               disabled={disabled}
+              className="text-foreground"
             />
           }
         >

@@ -14,6 +14,10 @@ const transparentTheme = EditorView.theme({
   '.cm-line': { padding: '0' },
   '.cm-scroller': { fontFamily: 'inherit', backgroundColor: 'transparent !important' },
   '.cm-gutters': { backgroundColor: 'transparent !important', border: 'none' },
+  '.cm-activeLine': { backgroundColor: 'transparent !important' },
+  '.cm-activeLineGutter': { backgroundColor: 'transparent !important' },
+  '.cm-selectionBackground': { backgroundColor: 'color-mix(in srgb, var(--primary) 20%, transparent) !important' },
+  '&.cm-focused .cm-selectionBackground': { backgroundColor: 'color-mix(in srgb, var(--primary) 30%, transparent) !important' },
 })
 
 interface AboutTabProps {
