@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import type { ReviewThread, ReviewMessage, MergeStrategy } from '@/features/branch-review/types/review-types'
+import type { ReviewMessage, MergeStrategy } from '@/features/branch-review/types/review-types'
 import { getMockBranchDiff } from '@/lib/mock/branch-diff'
 
 describe('review-types', () => {
