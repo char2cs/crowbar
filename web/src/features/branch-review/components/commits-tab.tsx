@@ -1,4 +1,5 @@
-import { getMockCommitHistory } from '@/lib/mock/git-data'
+import { useQuery } from '@tanstack/react-query'
+import { gitHistoryQueryOptions } from '@/lib/queries'
 import { formatRelativeDate } from '@/utils/date'
 import { FramePanel, FrameTitle } from '@/components/ui/frame'
 
@@ -7,26 +8,30 @@ interface CommitsTabProps {
 }
 
 export function CommitsTab({ repoPath }: CommitsTabProps) {
-  const commits = getMockCommitHistory(repoPath)
+  const { data: commits = [], isLoading } = useQuery(gitHistoryQueryOptions(repoPath))
 
   return (
     <div className="flex flex-col gap-4">
       <FrameTitle className="text-base">Commit history</FrameTitle>
-      <div className="flex flex-col gap-1.5">
-        {commits.map(commit => (
-          <FramePanel key={commit.hash} className="py-2 px-3">
-            <div className="flex items-center gap-3">
-              <span className="w-12 shrink-0 font-mono text-[10px] text-muted-foreground/60">
-                {commit.hash.slice(0, 7)}
-              </span>
-              <span className="flex-1 truncate text-sm text-foreground">{commit.message}</span>
-              <span className="shrink-0 text-xs text-muted-foreground/50">
-                {formatRelativeDate(commit.date)}
-              </span>
-            </div>
-          </FramePanel>
-        ))}
-      </div>
+      {isLoading ? (
+        <p className="text-xs text-muted-foreground/50">Loading…</p>
+      ) : (
+        <div className="flex flex-col gap-1.5">
+          {commits.map(commit => (
+            <FramePanel key={commit.hash} className="py-2 px-3">
+              <div className="flex items-center gap-3">
+                <span className="w-12 shrink-0 font-mono text-[10px] text-muted-foreground/60">
+                  {commit.hash.slice(0, 7)}
+                </span>
+                <span className="flex-1 truncate text-sm text-foreground">{commit.message}</span>
+                <span className="shrink-0 text-xs text-muted-foreground/50">
+                  {formatRelativeDate(commit.date)}
+                </span>
+              </div>
+            </FramePanel>
+          ))}
+        </div>
+      )}
     </div>
   )
 }

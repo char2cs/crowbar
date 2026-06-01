@@ -1,9 +1,10 @@
 import { useEffect } from 'react'
+import { useQuery } from '@tanstack/react-query'
 import { useWorkspaceStoreContext, useWorkspaceStore } from '@/features/workspace/stores/workspace-context'
 import { useSidebarStore } from '@/lib/store/sidebar'
 import { WorkspaceBranchIcon } from '@/components/layout/workspace-branch-icon'
-import { getMockBranchDiff, getMockBranchReviewThreads, getMockBranchReviewDescription, getMockBranchReviewChats } from '@/lib/mock/branch-diff'
-import type { ReviewThread, ReviewMessage, ReviewConversation } from '@/features/branch-review/types/review-types'
+import { branchDiffQueryOptions, branchThreadsQueryOptions, branchDescriptionQueryOptions } from '@/features/branch-review/queries'
+import type { ReviewThread, ReviewMessage } from '@/features/branch-review/types/review-types'
 import { Frame, FrameHeader, FramePanel, FrameTitle, FrameDescription } from '@/components/ui/frame'
 import { Tabs, TabsList, TabsTab, TabsPanel } from '@/components/ui/tabs'
 import { Badge } from '@/components/ui/badge'
@@ -26,7 +27,6 @@ export function BranchReviewPane({ wsId, branchName }: BranchReviewPaneProps) {
   const activeSubtab = useWorkspaceStoreContext(s => s.branchReview.activeSubtab)
   const diffCache = useWorkspaceStoreContext(s => s.branchReview.diffCache)
   const threads = useWorkspaceStoreContext(s => s.branchReview.threads)
-  const conversations = useWorkspaceStoreContext(s => s.branchReview.conversations)
 
   const parentBranch = useSidebarStore(s => {
     const allWs = s.repos.flatMap(r => r.workspaces)
@@ -40,24 +40,25 @@ export function BranchReviewPane({ wsId, branchName }: BranchReviewPaneProps) {
     return allWs.find(w => w.id === wsId)?.status ?? 'new'
   })
 
+  // Diff always comes fresh from the API — never stored in IDB
+  const { data: diff } = useQuery(branchDiffQueryOptions(wsId))
   useEffect(() => {
-    const { branchReview, setBranchReviewDiff, setBranchReviewDescription } = store.getState()
-    if (branchReview.diffStatus !== 'idle') return
+    if (diff) store.getState().setBranchReviewDiff(diff)
+  }, [diff, store])
 
-    setBranchReviewDiff(getMockBranchDiff(wsId))
+  // Threads — cold-start guard: only seed from API if IDB didn't restore any
+  const { data: apiThreads } = useQuery(branchThreadsQueryOptions(wsId))
+  useEffect(() => {
+    if (!apiThreads || store.getState().branchReview.threads.length > 0) return
+    apiThreads.forEach(t => store.getState().addReviewThread(t))
+  }, [apiThreads, store])
 
-    // Seed mock threads and description if not already persisted
-    if (branchReview.threads.length === 0) {
-      const mockThreads = getMockBranchReviewThreads(wsId)
-      mockThreads.forEach(t => store.getState().addReviewThread(t))
-    }
-    if (!branchReview.description) {
-      setBranchReviewDescription(getMockBranchReviewDescription(wsId))
-    }
-    if (branchReview.conversations.length === 0) {
-      store.getState().setBranchReviewConversations(getMockBranchReviewChats(wsId))
-    }
-  }, [wsId, store])
+  // Description — cold-start guard: only seed from API if IDB didn't restore one
+  const { data: apiDescription } = useQuery(branchDescriptionQueryOptions(wsId))
+  useEffect(() => {
+    if (!apiDescription || store.getState().branchReview.description) return
+    store.getState().setBranchReviewDescription(apiDescription)
+  }, [apiDescription, store])
 
   function handleAddThread(filePath: string, lineNumber: number) {
     const thread: ReviewThread = {
@@ -93,14 +94,6 @@ export function BranchReviewPane({ wsId, branchName }: BranchReviewPaneProps) {
   function handleSelectFile(filePath: string) {
     document.getElementById(diffFileAnchorId(filePath))?.scrollIntoView({ behavior: 'smooth', block: 'start' })
   }
-
-  function handleAddConversation() {
-    const id = `conv-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`
-    const conversation: ReviewConversation = { id, title: 'New conversation', age: 'just now', isActive: true }
-    store.getState().addReviewConversation(conversation)
-    handleOpenConversation(id)
-  }
-
 
   return (
     // ONE Frame = the whole window. Override side + bottom padding so the body
@@ -156,11 +149,10 @@ export function BranchReviewPane({ wsId, branchName }: BranchReviewPaneProps) {
         <FramePanel className="mt-2 min-h-0 flex-1 overflow-y-auto p-0 !rounded-b-none">
           <TabsPanel value="about" className="p-5">
             <AboutTab
+              wsId={wsId}
               description={description}
-              conversations={conversations}
               onDescriptionChange={v => store.getState().setBranchReviewDescription(v)}
               onOpenConversation={handleOpenConversation}
-              onAddConversation={handleAddConversation}
             />
           </TabsPanel>
 

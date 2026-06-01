@@ -1,12 +1,11 @@
 import { useState } from 'react'
 import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
+import { useQuery } from '@tanstack/react-query'
 import CodeMirror from '@uiw/react-codemirror'
 import { EditorView } from '@codemirror/view'
 import { markdown } from '@codemirror/lang-markdown'
-import { Plus } from '@phosphor-icons/react'
-import type { ReviewConversation } from '@/features/branch-review/types/review-types'
-import { Button } from '@/components/ui/button'
+import { branchChatsQueryOptions } from '@/features/branch-review/queries'
 import { FramePanel, FrameTitle } from '@/components/ui/frame'
 import { cn } from '@/utils/cn'
 
@@ -26,19 +25,18 @@ const transparentTheme = EditorView.theme({
 })
 
 interface AboutTabProps {
+  wsId: string
   description: string
-  conversations: ReviewConversation[]
   onDescriptionChange: (value: string) => void
   onOpenConversation: (id: string) => void
-  onAddConversation: () => void
 }
 
-export function AboutTab({ description, conversations, onDescriptionChange, onOpenConversation, onAddConversation }: AboutTabProps) {
+export function AboutTab({ wsId, description, onDescriptionChange, onOpenConversation }: AboutTabProps) {
   const [editing, setEditing] = useState(false)
+  const { data: chats = [] } = useQuery(branchChatsQueryOptions(wsId))
 
   return (
     <div className="flex flex-col gap-4">
-      {/* Description — rendered markdown, click to edit */}
       <div className="flex flex-col gap-2">
         <FrameTitle className="text-base">Description</FrameTitle>
         {editing ? (
@@ -83,25 +81,13 @@ export function AboutTab({ description, conversations, onDescriptionChange, onOp
         )}
       </div>
 
-      {/* Conversations */}
       <div className="flex flex-col gap-2">
-        <div className="flex items-center justify-between">
-          <FrameTitle className="text-base">Conversations</FrameTitle>
-          <Button
-            variant="ghost"
-            size="icon-xs"
-            onClick={onAddConversation}
-            tooltip="New conversation"
-            aria-label="New conversation"
-          >
-            <Plus weight="bold" size={13} />
-          </Button>
-        </div>
-        {conversations.length === 0 ? (
+        <FrameTitle className="text-base">Conversations</FrameTitle>
+        {chats.length === 0 ? (
           <p className="text-sm text-muted-foreground/40">No conversations yet.</p>
         ) : (
           <div className="flex flex-col gap-1.5">
-            {conversations.map(chat => (
+            {chats.map(chat => (
               <FramePanel
                 key={chat.id}
                 className="cursor-pointer py-2.5 px-3 transition-colors hover:bg-accent/20"
