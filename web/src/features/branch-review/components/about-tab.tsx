@@ -88,7 +88,7 @@ export function AboutTab({ wsId, description, onDescriptionChange, onOpenConvers
                   tabIndex={0}
                 >
                   <div className="flex items-center gap-2.5">
-                    <span className={cn('h-1.5 w-1.5 shrink-0 rounded-full', chat.isActive ? 'bg-green-500' : 'bg-muted-foreground/30')} />
+                    <span className={cn('h-1.5 w-1.5 shrink-0 rounded-full', chat.isActive ? 'bg-success' : 'bg-muted-foreground/30')} />
                     <span className="flex-1 truncate text-sm text-foreground">{chat.title}</span>
                     <span className="text-xs text-muted-foreground/50">{chat.age}</span>
                   </div>
