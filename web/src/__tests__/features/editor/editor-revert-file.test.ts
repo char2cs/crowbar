@@ -93,6 +93,15 @@ describe("editor revert file command", () => {
         previewBufferId: null,
         pinnedBufferIds: [],
       },
+      panes: {
+        ...state.panes,
+        [ROOT_PANE_ID]: {
+          id: ROOT_PANE_ID,
+          type: "group" as const,
+          bufferIds: [buffer.id],
+          activeBufferId: buffer.id,
+        },
+      },
     }));
     setActiveWorkspaceStoreRef(wsStore);
 

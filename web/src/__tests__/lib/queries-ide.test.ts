@@ -43,8 +43,7 @@ describe('IDE query options', () => {
     const opts = gitStatusQueryOptions('/repo')
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const result = await (opts.queryFn as any)!()
-    expect(result).toHaveProperty('staged')
-    expect(result).toHaveProperty('unstaged')
+    expect(result).toHaveProperty('files')
     expect(result).toHaveProperty('branch')
   })
 
