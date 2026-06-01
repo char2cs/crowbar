@@ -42,6 +42,8 @@ export function MarkdownChatView({ workspaceId, stepId }: MarkdownChatViewProps)
   const [isStreaming, setIsStreaming] = useState(false)
   const cancelStreamRef = useRef<(() => void) | null>(null)
   const draftWidgetsRef = useRef<WidgetData[]>([])
+  const historyScrollRef = useRef<HTMLDivElement>(null)
+  const prevTurnCountRef = useRef(0)
 
   // getTurns is used by widgetExt in the input editor to look up widget payloads.
   // Widgets inserted in the input zone before submitting live in draftWidgetsRef
@@ -191,6 +193,19 @@ export function MarkdownChatView({ workspaceId, stepId }: MarkdownChatViewProps)
     setIsStreaming(false)
   }, [])
 
+  // Auto-follow the conversation: jump to the bottom when a new turn is added
+  // (you just sent), and follow streaming output — unless you've scrolled up.
+  useEffect(() => {
+    const el = historyScrollRef.current
+    if (!el) return
+    const grewByTurn = turns.length > prevTurnCountRef.current
+    prevTurnCountRef.current = turns.length
+    const nearBottom = el.scrollHeight - el.scrollTop - el.clientHeight < 160
+    if (grewByTurn || (isStreaming && nearBottom)) {
+      el.scrollTop = el.scrollHeight
+    }
+  }, [turns, isStreaming])
+
   // No empty-state placeholder: when there are no turns, the editable tail simply
   // fills the whole canvas (like opening a blank document).
   return (
@@ -209,6 +224,7 @@ export function MarkdownChatView({ workspaceId, stepId }: MarkdownChatViewProps)
 
       {/* Rendered turns — scroll internally; don't grow, so the composer fills slack */}
       <div
+        ref={historyScrollRef}
         className="min-h-0 shrink grow-0 overflow-y-auto"
         style={{
           // both-edges keeps the centered column aligned with the rails/input
