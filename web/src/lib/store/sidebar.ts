@@ -1,5 +1,6 @@
 import { create } from 'zustand'
 import { getAllMockChats } from '@/lib/mock/chats'
+import { saveSidebarUI } from '@/lib/persistence/sidebar-ui'
 
 export interface ProjectChat {
   id: string
@@ -188,6 +189,7 @@ export const useSidebarStore = create<SidebarState>()((set) => ({
     set(s => {
       const next = new Set(s.collapsedRepos)
       next.has(repoId) ? next.delete(repoId) : next.add(repoId)
+      saveSidebarUI([...next])
       return { collapsedRepos: next }
     }),
 

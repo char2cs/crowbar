@@ -95,3 +95,32 @@ test('reparentWorkspace rejects cross-repo moves', () => {
     .flatMap(r => r.workspaces).find(w => w.id === 'ws3')!
   expect(ws.parentId).toBe('ws-develop') // unchanged
 })
+
+import { loadSidebarUI } from '@/lib/persistence/sidebar-ui'
+import { IDBFactory } from 'fake-indexeddb'
+import { resetDB } from '@/lib/persistence/idb'
+import { describe } from 'vitest'
+
+describe('toggleRepo persistence', () => {
+  beforeEach(() => {
+    resetDB()
+    globalThis.indexedDB = new IDBFactory()
+    useSidebarStore.setState((useSidebarStore as any).getInitialState())
+  })
+
+  test('writes collapsed state to IDB after toggling on', async () => {
+    useSidebarStore.getState().toggleRepo('crowbar')
+    await new Promise(r => setTimeout(r, 20))
+    const saved = await loadSidebarUI()
+    expect(saved?.collapsedRepos).toContain('crowbar')
+  })
+
+  test('removes repo from IDB after toggling off', async () => {
+    useSidebarStore.getState().toggleRepo('crowbar')
+    await new Promise(r => setTimeout(r, 20))
+    useSidebarStore.getState().toggleRepo('crowbar')
+    await new Promise(r => setTimeout(r, 20))
+    const saved = await loadSidebarUI()
+    expect(saved?.collapsedRepos).not.toContain('crowbar')
+  })
+})
