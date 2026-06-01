@@ -31,7 +31,7 @@ function thread(
  * Generate a realistic block of TypeScript/Go diff lines for large files.
  * Produces `count` lines alternating between added/context/removed groups.
  */
-function generateLargeFileDiff(_filePath: string, count: number): GitDiffLine[] {
+export function generateLargeFileDiff(_filePath: string, count: number): GitDiffLine[] {
   const lines: GitDiffLine[] = []
 
   const tsSnippets = [
