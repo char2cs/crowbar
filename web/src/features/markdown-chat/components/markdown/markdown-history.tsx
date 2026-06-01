@@ -34,12 +34,16 @@ function railColor(role: TurnRole): string {
     : 'color-mix(in srgb, var(--foreground) 15%, transparent)'
 }
 
+// Left/right edge of the centered text column (same as the input's).
+const COLUMN_EDGE = 'max(48px, calc((100% - 680px) / 2))'
+
 // 3-column grid: [left margin] [centered ≤680 content] [right margin].
 // The metadata sits in the left margin, right-justified against the content,
 // and is `position: sticky` — so the browser pins it at the top of the viewport
 // while its turn is scrolled through, then the next turn's label takes over.
 // Native sticky, scoped per <article>: no overlay, no scroll JS.
 const articleStyle: CSSProperties = {
+  position: 'relative',
   display: 'grid',
   gridTemplateColumns: 'minmax(48px, 1fr) minmax(0, 680px) minmax(48px, 1fr)',
   padding: '8px 0',
@@ -60,7 +64,7 @@ const metaStyle: CSSProperties = {
 
 export function MarkdownHistory({ turns, onWidgetChange }: MarkdownHistoryProps) {
   return (
-    <div className="pt-10 pb-6">
+    <div className="pt-10">
       {turns.map((turn) => (
           <article
             key={turn.id}
@@ -73,6 +77,18 @@ export function MarkdownHistory({ turns, onWidgetChange }: MarkdownHistoryProps)
                   : undefined,
             }}
           >
+            {/* Full-height column rails (span the tint and touch the adjacent
+                turn's rails); colored by role. */}
+            <div
+              aria-hidden
+              className="pointer-events-none absolute inset-y-0 w-px"
+              style={{ left: COLUMN_EDGE, background: railColor(turn.role) }}
+            />
+            <div
+              aria-hidden
+              className="pointer-events-none absolute inset-y-0 w-px"
+              style={{ right: COLUMN_EDGE, background: railColor(turn.role) }}
+            />
             {/* Hidden when the pane is too narrow to hold the label in the margin. */}
             <header
               className="text-muted-foreground @max-[880px]:hidden"
@@ -86,8 +102,6 @@ export function MarkdownHistory({ turns, onWidgetChange }: MarkdownHistoryProps)
                 minWidth: 0,
                 paddingLeft: '24px',
                 paddingRight: '24px',
-                borderLeft: `1px solid ${railColor(turn.role)}`,
-                borderRight: `1px solid ${railColor(turn.role)}`,
               }}
             >
               <TurnMarkdown

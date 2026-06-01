@@ -191,7 +191,9 @@ export function MarkdownChatView({ workspaceId, stepId }: MarkdownChatViewProps)
           ref={historyScrollRef}
           className="min-h-0 shrink grow-0 overflow-y-auto"
           style={{
-            // both-edges keeps the centered column aligned with the rails/input.
+            // both-edges reserves the scrollbar gutter symmetrically, keeping the
+            // centered column (and its rails) aligned with the input's column
+            // whether or not a scrollbar is present.
             scrollbarGutter: 'stable both-edges',
             scrollbarWidth: 'thin',
             scrollbarColor: 'var(--app-scrollbar-thumb) var(--app-scrollbar-track)',
