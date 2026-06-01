@@ -42,6 +42,7 @@ describe('loadable', () => {
 
   it('failed from idle has null stale data', () => {
     const l = failed(new Error('x'), idle())
-    expect(l.status === 'error' && l.staleData).toBeNull()
+    expect(l.status).toBe('error')
+    expect(dataOf(l)).toBeUndefined()
   })
 })
