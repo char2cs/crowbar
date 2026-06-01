@@ -13,7 +13,7 @@ import GitRemoteManager from '@/features/git/components/git-remote-manager'
 import GitTagManager from '@/features/git/components/git-tag-manager'
 import { CommitsTab } from './commits-tab'
 
-const WIDE_BREAKPOINT = 640
+const WIDE_BREAKPOINT = 800
 
 interface GitTabProps {
   wsId: string
@@ -146,7 +146,7 @@ export function GitTab({ wsId }: GitTabProps) {
   )
 
   return (
-    <div ref={containerRef} className="flex h-full overflow-hidden">
+    <div ref={containerRef} className="flex h-full w-full min-w-0 overflow-hidden">
       {isWide ? (
         <>
           <div className="flex flex-1 flex-col overflow-hidden border-r border-border">
