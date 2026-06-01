@@ -10,23 +10,26 @@ const mockBufferActions = {
 vi.mock('@/features/workspace/stores/hooks/use-buffer-store', () => ({
   useBufferActions: () => mockBufferActions,
 }))
+vi.mock('@/features/workspace/stores/workspace-context', () => ({
+  useWorkspaceStore: () => ({ getState: () => ({ buffers: [] }) }),
+}))
 
 beforeEach(() => {
   vi.clearAllMocks()
 })
 
 describe('useWorkspaceEffects', () => {
-  it('opens a crowbarChat buffer on mount', () => {
-    renderHook(() => useWorkspaceEffects('ws-test'))
-    expect(mockBufferActions.openContent).toHaveBeenCalledWith(
-      expect.objectContaining({ type: 'crowbarChat', wsId: 'ws-test' }),
-    )
-  })
-
-  it('opens a branchReview buffer on mount', () => {
+  it('opens the branchReview buffer on mount (sole default pane)', () => {
     renderHook(() => useWorkspaceEffects('ws-test'))
     expect(mockBufferActions.openContent).toHaveBeenCalledWith(
       expect.objectContaining({ type: 'branchReview', wsId: 'ws-test' }),
+    )
+  })
+
+  it('does not open a standalone crowbarChat buffer on mount', () => {
+    renderHook(() => useWorkspaceEffects('ws-test'))
+    expect(mockBufferActions.openContent).not.toHaveBeenCalledWith(
+      expect.objectContaining({ type: 'crowbarChat' }),
     )
   })
 })
