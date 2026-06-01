@@ -28,7 +28,23 @@ Ship a shared \`@quiver/auth\` package that each app installs. Keeps network hop
 ## Option C — OAuth + PKCE per app
 Each app runs its own OAuth flow. Simpler to deploy, harder to revoke globally.
 
-I'd recommend **Option A** for Crowbar specifically since you already have a Go backend planned.`,
+I'd recommend **Option A** for Crowbar specifically since you already have a Go backend planned.
+
+\`\`\`typescript
+export async function refreshToken(token: string): Promise<Session> {
+  const res = await fetch('/auth/refresh', { method: 'POST', body: token })
+  if (!res.ok) throw new Error('refresh failed')
+  return res.json()
+}
+\`\`\`
+
+Here's the high-level flow:
+
+\`\`\`mermaid
+flowchart LR
+  App -->|token| Auth
+  Auth -->|session| App
+\`\`\``,
       timestamp: '2026-05-31T10:01:00Z',
       authorName: 'Claude',
       model: 'Opus 4.8',

@@ -2,11 +2,8 @@ import { useEffect, useRef, useCallback, useState } from 'react'
 import { useStore } from 'zustand'
 import { nanoid } from 'nanoid'
 import type { EditorView } from '@codemirror/view'
-import { appendStreamChunk, finalizeStreaming } from '../extensions/streaming-ext'
-import { appendTurnToHistory } from '../extensions/turn-boundaries'
 import { getOrCreateConversationStore } from '../stores/conversation-store'
 import { getMockMarkdownTurns, simulateMarkdownStream } from '@/lib/mock/markdown-chat'
-import { MarkdownChatHistory } from './markdown-chat-history'
 import { MarkdownHistory } from './markdown/markdown-history'
 import { MarkdownChatInput } from './markdown-chat-input'
 import { MarkdownChatToolbar } from './markdown-chat-toolbar'
@@ -26,13 +23,6 @@ const STEP_GREETINGS: Record<string, string> = {
   human_review: 'Waiting for your review comments.',
 }
 
-// Dev flag (Phase 1): opt into the React-rendered history with
-// `localStorage.setItem('md-react-history', '1')` then reload. Default off, so
-// the production path (CodeMirror history) is unchanged.
-const USE_REACT_HISTORY =
-  typeof window !== 'undefined' &&
-  window.localStorage.getItem('md-react-history') === '1'
-
 const MOCK_RESPONSE =
   'Great point. Let me think through this carefully.\n\n' +
   'There are several considerations here:\n\n' +
@@ -44,17 +34,16 @@ const MOCK_RESPONSE =
 export function MarkdownChatView({ workspaceId, stepId }: MarkdownChatViewProps) {
   const store = getOrCreateConversationStore(workspaceId)
   const turns = useStore(store, (s) => s.turns)
-  const historyViewRef = useRef<EditorView | null>(null)
   const [inputEditorView, setInputEditorView] = useState<EditorView | null>(null)
   const [isStreaming, setIsStreaming] = useState(false)
   const cancelStreamRef = useRef<(() => void) | null>(null)
   const draftWidgetsRef = useRef<WidgetData[]>([])
 
-  // getTurns is used by widgetExt in both CM6 instances to look up widget payloads.
-  // When the user has inserted widgets in the input zone before submitting, they live
-  // in draftWidgetsRef (not yet in any store turn). We expose them via a synthetic
-  // '__input_draft__' turn so FencedWidget.toDOM() can find them. This turn has no
-  // content/timestamp/authorName — callers that need well-formed turns must filter it.
+  // getTurns is used by widgetExt in the input editor to look up widget payloads.
+  // Widgets inserted in the input zone before submitting live in draftWidgetsRef
+  // (not yet in any store turn); we expose them via a synthetic '__input_draft__'
+  // turn so the input's FencedWidget can find them. Callers needing well-formed
+  // turns must filter this one (it has no content/timestamp/authorName).
   const getTurns = useCallback((): MarkdownTurn[] => {
     const storeTurns = store.getState().turns
     const draft = draftWidgetsRef.current
@@ -96,16 +85,11 @@ export function MarkdownChatView({ workspaceId, stepId }: MarkdownChatViewProps)
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [workspaceId, stepId])
 
-  // NOTE: handleSubmit does NOT clear the input CM6. Callers are responsible:
-  // - Mod-Enter keymap in MarkdownChatInput clears via its own dispatch
-  // - handleSendClick clears after calling handleSubmit
-  // Any future callsite must also clear the input editor itself.
+  // Store-driven: the React history (MarkdownHistory) renders reactively from the
+  // store, so submitting only updates the store — no imperative view calls.
   const handleSubmit = useCallback(
     (content: string) => {
       cancelStreamRef.current?.()
-      // historyView is null when the React history is active (dev flag); the
-      // store updates below drive that path, so the CM calls are guarded.
-      const historyView = historyViewRef.current
 
       const state = store.getState()
       const userId = nanoid()
@@ -115,7 +99,6 @@ export function MarkdownChatView({ workspaceId, stepId }: MarkdownChatViewProps)
       const inputWidgets = [...draftWidgetsRef.current]
       draftWidgetsRef.current = []
 
-      // Update store
       state.appendTurn({
         id: userId,
         role: 'user',
@@ -135,22 +118,12 @@ export function MarkdownChatView({ workspaceId, stepId }: MarkdownChatViewProps)
         streaming: true,
       })
 
-      // Update history CM6 document imperatively (only when CM history is mounted)
-      if (historyView) {
-        appendTurnToHistory(historyView, userId, 'user', content)
-        appendTurnToHistory(historyView, agentId, 'agent', '')
-      }
-
       setIsStreaming(true)
       cancelStreamRef.current = simulateMarkdownStream(
         MOCK_RESPONSE,
-        (chunk) => {
-          state.updateStreamingTurn(agentId, chunk)
-          if (historyView) appendStreamChunk(historyView, chunk)
-        },
+        (chunk) => state.updateStreamingTurn(agentId, chunk),
         () => {
           state.finalizeStreamingTurn(agentId)
-          if (historyView) finalizeStreaming(historyView)
           cancelStreamRef.current = null
           setIsStreaming(false)
         },
@@ -194,10 +167,6 @@ export function MarkdownChatView({ workspaceId, stepId }: MarkdownChatViewProps)
     [handleSubmit],
   )
 
-  const handleHistoryReady = useCallback((view: EditorView) => {
-    historyViewRef.current = view
-  }, [])
-
   const handleInputReady = useCallback((view: EditorView) => {
     setInputEditorView(view)
   }, [])
@@ -228,18 +197,9 @@ export function MarkdownChatView({ workspaceId, stepId }: MarkdownChatViewProps)
 
   return (
     <div className="flex h-full w-full flex-col overflow-hidden">
-      {/* History: flex-1 scrollable document */}
+      {/* History: flex-1 scrollable document, rendered from the store */}
       <div className="min-h-0 flex-1 overflow-hidden">
-        {USE_REACT_HISTORY ? (
-          <MarkdownHistory turns={turns} onWidgetChange={handleWidgetChange} />
-        ) : (
-          <MarkdownChatHistory
-            turns={turns}
-            getTurns={getTurns}
-            onWidgetChange={handleWidgetChange}
-            onReady={handleHistoryReady}
-          />
-        )}
+        <MarkdownHistory turns={turns} onWidgetChange={handleWidgetChange} />
       </div>
 
       {/* Input zone: same warm tint as user turns */}

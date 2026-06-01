@@ -91,7 +91,7 @@ export function MarkdownChatInput({
         slashCommandExt(setSlashState),
         EditorView.lineWrapping,
         EditorView.theme({
-          // Text metrics must match the history viewer (turn-boundaries.ts turnTheme).
+          // Text metrics should stay close to the history renderer (markdown/markdown-history.tsx).
           '&': { fontSize: '15px', height: 'auto', maxHeight: '240px' },
           '&.cm-focused': { outline: 'none' },
           '.cm-cursor, .cm-dropCursor': { borderLeftColor: 'var(--foreground)' },
