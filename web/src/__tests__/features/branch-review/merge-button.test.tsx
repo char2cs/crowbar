@@ -19,10 +19,17 @@ describe('MergeButton', () => {
     expect(screen.getByRole('button', { name: /squash and merge/i })).toBeDisabled()
   })
 
-  it('calls onMerge when enabled and clicked', async () => {
+  it('opens a commit-message popover and calls onMerge on submit', async () => {
     const onMerge = vi.fn()
-    render(<MergeButton strategy="rebase" isLocked={false} hasConflicts={false} onMerge={onMerge} onStrategyChange={() => {}} />)
+    render(<MergeButton strategy="rebase" branchName="feature/x" isLocked={false} hasConflicts={false} onMerge={onMerge} onStrategyChange={() => {}} />)
+    // Click the trigger to open the popover
     await userEvent.click(screen.getByRole('button', { name: /rebase and merge/i }))
+    // The form fields appear
+    expect(await screen.findByText('Commit message')).toBeInTheDocument()
+    // Submit (the in-popover submit button is the second "rebase and merge")
+    const submitButtons = screen.getAllByRole('button', { name: /rebase and merge/i })
+    await userEvent.click(submitButtons[submitButtons.length - 1])
     expect(onMerge).toHaveBeenCalledOnce()
+    expect(onMerge).toHaveBeenCalledWith({ title: 'Merge feature/x', description: '' })
   })
 })

@@ -2,8 +2,8 @@ import { useEffect } from 'react'
 import { useWorkspaceStoreContext, useWorkspaceStore } from '@/features/workspace/stores/workspace-context'
 import { useSidebarStore } from '@/lib/store/sidebar'
 import { WorkspaceBranchIcon } from '@/components/layout/workspace-branch-icon'
-import { getMockBranchDiff, getMockBranchReviewThreads, getMockBranchReviewDescription } from '@/lib/mock/branch-diff'
-import type { ReviewThread, ReviewMessage } from '@/features/branch-review/types/review-types'
+import { getMockBranchDiff, getMockBranchReviewThreads, getMockBranchReviewDescription, getMockBranchReviewChats } from '@/lib/mock/branch-diff'
+import type { ReviewThread, ReviewMessage, ReviewConversation } from '@/features/branch-review/types/review-types'
 import { Frame, FrameHeader, FramePanel, FrameTitle, FrameDescription } from '@/components/ui/frame'
 import { Tabs, TabsList, TabsTab, TabsPanel } from '@/components/ui/tabs'
 import { Badge } from '@/components/ui/badge'
@@ -11,6 +11,7 @@ import { MergeButton } from './merge-button'
 import { AboutTab } from './about-tab'
 import { CommitsTab } from './commits-tab'
 import { BranchReviewDiffViewer } from './branch-review-diff-viewer'
+import { DiffFileTree, diffFileAnchorId } from './diff-file-tree'
 
 interface BranchReviewPaneProps {
   wsId: string
@@ -25,6 +26,7 @@ export function BranchReviewPane({ wsId, branchName }: BranchReviewPaneProps) {
   const activeSubtab = useWorkspaceStoreContext(s => s.branchReview.activeSubtab)
   const diffCache = useWorkspaceStoreContext(s => s.branchReview.diffCache)
   const threads = useWorkspaceStoreContext(s => s.branchReview.threads)
+  const conversations = useWorkspaceStoreContext(s => s.branchReview.conversations)
 
   const parentBranch = useSidebarStore(s => {
     const allWs = s.repos.flatMap(r => r.workspaces)
@@ -51,6 +53,9 @@ export function BranchReviewPane({ wsId, branchName }: BranchReviewPaneProps) {
     }
     if (!branchReview.description) {
       setBranchReviewDescription(getMockBranchReviewDescription(wsId))
+    }
+    if (branchReview.conversations.length === 0) {
+      store.getState().setBranchReviewConversations(getMockBranchReviewChats(wsId))
     }
   }, [wsId, store])
 
@@ -83,6 +88,17 @@ export function BranchReviewPane({ wsId, branchName }: BranchReviewPaneProps) {
 
   function handleOpenConversation(id: string) {
     store.getState().bufferActions.openContent({ type: 'crowbarChat', wsId: id, name: id })
+  }
+
+  function handleSelectFile(filePath: string) {
+    document.getElementById(diffFileAnchorId(filePath))?.scrollIntoView({ behavior: 'smooth', block: 'start' })
+  }
+
+  function handleAddConversation() {
+    const id = `conv-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`
+    const conversation: ReviewConversation = { id, title: 'New conversation', age: 'just now', isActive: true }
+    store.getState().addReviewConversation(conversation)
+    handleOpenConversation(id)
   }
 
 
@@ -120,6 +136,7 @@ export function BranchReviewPane({ wsId, branchName }: BranchReviewPaneProps) {
             <div className="shrink-0">
               <MergeButton
                 strategy={mergeStrategy}
+                branchName={branchName}
                 isLocked={false}
                 hasConflicts={false}
                 onMerge={() => {}}
@@ -139,10 +156,11 @@ export function BranchReviewPane({ wsId, branchName }: BranchReviewPaneProps) {
         <FramePanel className="mt-2 min-h-0 flex-1 overflow-y-auto p-0 !rounded-b-none">
           <TabsPanel value="about" className="p-5">
             <AboutTab
-              wsId={wsId}
               description={description}
+              conversations={conversations}
               onDescriptionChange={v => store.getState().setBranchReviewDescription(v)}
               onOpenConversation={handleOpenConversation}
+              onAddConversation={handleAddConversation}
             />
           </TabsPanel>
 
@@ -150,15 +168,22 @@ export function BranchReviewPane({ wsId, branchName }: BranchReviewPaneProps) {
             <CommitsTab repoPath={wsId} />
           </TabsPanel>
 
-          <TabsPanel value="diff" className="overflow-hidden">
+          <TabsPanel value="diff" className="flex h-full overflow-hidden">
             {diffCache ? (
-              <BranchReviewDiffViewer
-                multiDiff={diffCache}
-                threads={threads}
-                onAddThread={handleAddThread}
-                onReply={handleReply}
-                onResolve={handleResolve}
-              />
+              <>
+                <div className="w-64 shrink-0 overflow-hidden border-r border-border/50">
+                  <DiffFileTree files={diffCache.files} onSelectFile={handleSelectFile} />
+                </div>
+                <div className="min-w-0 flex-1">
+                  <BranchReviewDiffViewer
+                    multiDiff={diffCache}
+                    threads={threads}
+                    onAddThread={handleAddThread}
+                    onReply={handleReply}
+                    onResolve={handleResolve}
+                  />
+                </div>
+              </>
             ) : (
               <p className="p-5 text-xs text-muted-foreground/50">Loading diff…</p>
             )}

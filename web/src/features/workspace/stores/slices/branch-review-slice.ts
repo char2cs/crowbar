@@ -1,6 +1,6 @@
 import type { StateCreator } from 'zustand'
 import type { WorkspaceState } from '../workspace-store.types'
-import type { ReviewThread, ReviewMessage, MergeStrategy } from '@/features/branch-review/types/review-types'
+import type { ReviewThread, ReviewMessage, ReviewConversation, MergeStrategy } from '@/features/branch-review/types/review-types'
 import type { MultiFileDiff } from '@/features/git/types/git-diff-types'
 
 export interface BranchReviewState {
@@ -10,6 +10,7 @@ export interface BranchReviewState {
   diffCache: MultiFileDiff | null
   diffStatus: 'idle' | 'loading' | 'loaded' | 'error'
   threads: ReviewThread[]
+  conversations: ReviewConversation[]
 }
 
 export interface BranchReviewSlice {
@@ -22,6 +23,8 @@ export interface BranchReviewSlice {
   addReviewThread: (thread: ReviewThread) => void
   addReviewMessage: (threadId: string, message: ReviewMessage) => void
   resolveReviewThread: (threadId: string) => void
+  setBranchReviewConversations: (conversations: ReviewConversation[]) => void
+  addReviewConversation: (conversation: ReviewConversation) => void
 }
 
 export const INITIAL_BRANCH_REVIEW_STATE: BranchReviewState = {
@@ -31,6 +34,7 @@ export const INITIAL_BRANCH_REVIEW_STATE: BranchReviewState = {
   diffCache: null,
   diffStatus: 'idle',
   threads: [],
+  conversations: [],
 }
 
 export const createBranchReviewSlice: StateCreator<
@@ -70,4 +74,10 @@ export const createBranchReviewSlice: StateCreator<
       const t = s.branchReview.threads.find(t => t.id === threadId)
       if (t) t.isResolved = true
     }),
+
+  setBranchReviewConversations: (conversations) =>
+    set(s => { s.branchReview.conversations = conversations }),
+
+  addReviewConversation: (conversation) =>
+    set(s => { s.branchReview.conversations.unshift(conversation) }),
 })

@@ -16,3 +16,10 @@ export interface ReviewThread {
   messages: ReviewMessage[]
   isResolved: boolean
 }
+
+export interface ReviewConversation {
+  id: string
+  title: string
+  age: string
+  isActive: boolean
+}

@@ -1,5 +1,5 @@
 import type { MultiFileDiff } from '@/features/git/types/git-diff-types'
-import type { ReviewThread, ReviewMessage } from '@/features/branch-review/types/review-types'
+import type { ReviewThread, ReviewMessage, ReviewConversation } from '@/features/branch-review/types/review-types'
 import type { GitDiffLine } from '@/features/git/types/git-types'
 
 // ---------------------------------------------------------------------------
@@ -1038,12 +1038,7 @@ export function getMockBranchReviewDescription(wsId: string): string {
 // Workspace-specific conversations
 // ---------------------------------------------------------------------------
 
-export interface BranchReviewChat {
-  id: string
-  title: string
-  age: string
-  isActive: boolean
-}
+export type BranchReviewChat = ReviewConversation
 
 const CHATS: Record<string, BranchReviewChat[]> = {
   ws3: [
