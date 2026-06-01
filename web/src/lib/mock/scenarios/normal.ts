@@ -3,8 +3,36 @@ import type { ScenarioDataset } from './index'
 import type { ReviewThread, ReviewMessage } from '@/features/branch-review/types/review-types'
 import type { BranchReviewChat } from '@/lib/mock/branch-diff'
 import type { GitDiffLine } from '@/features/git/types/git-types'
+import type { MarkdownTurn } from '@/features/markdown-chat/types'
 import { getMockFileTree, getMockFileContent } from '@/lib/mock/files'
 import { getMockMarkdownTurns } from '@/lib/mock/markdown-chat'
+
+// Fallback conversation for chats/workspaces without a specific fixture, so an
+// opened conversation is never empty in the normal scenario.
+function genNormalTurns(wsId: string): MarkdownTurn[] {
+  return [
+    {
+      id: `turn-${wsId}-0-u`, role: 'user',
+      content: 'How should we validate the email field before submitting the signup form?',
+      timestamp: '2026-06-01T09:00:00Z', authorName: 'Mateo', widgets: [],
+    },
+    {
+      id: `turn-${wsId}-0-a`, role: 'agent',
+      content: 'Validate client-side for instant feedback, then trust the server as the source of truth:\n\n```ts\nif (!isValidEmail(data.email)) {\n  setError("email", { message: "Invalid email address" })\n  return\n}\n```\n\nKeep the regex permissive (`/^[^\\s@]+@[^\\s@]+\\.[^\\s@]+$/`) — strict RFC validation is a rabbit hole and rejects valid addresses. The API still re-validates, so this is purely UX.',
+      timestamp: '2026-06-01T09:00:30Z', authorName: 'Claude', model: 'Opus 4.8', widgets: [],
+    },
+    {
+      id: `turn-${wsId}-1-u`, role: 'user',
+      content: 'Should the form show a single error or distinguish network vs validation failures?',
+      timestamp: '2026-06-01T09:01:00Z', authorName: 'Mateo', widgets: [],
+    },
+    {
+      id: `turn-${wsId}-1-a`, role: 'agent',
+      content: 'Distinguish them: inline field errors for validation, a toast for network/server errors. They have different recovery actions — fix the input vs retry — so collapsing them into one message hurts UX.',
+      timestamp: '2026-06-01T09:01:30Z', authorName: 'Claude', model: 'Opus 4.8', widgets: [],
+    },
+  ]
+}
 
 // ─── Repos ───────────────────────────────────────────────────────────────────
 
@@ -294,5 +322,8 @@ export const normalDataset: ScenarioDataset = {
     { name: 'feature/onboarding', isCurrent: true, isRemote: false },
     { name: 'fix/signup-form', isCurrent: false, isRemote: false },
   ],
-  markdownTurns: (wsId, stepId) => getMockMarkdownTurns(wsId, stepId),
+  markdownTurns: (wsId, stepId) => {
+    const fixture = getMockMarkdownTurns(wsId, stepId)
+    return fixture.length > 0 ? fixture : genNormalTurns(wsId)
+  },
 }

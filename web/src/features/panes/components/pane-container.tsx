@@ -20,7 +20,7 @@ import { EmptyEditorState } from "./empty-editor-state";
 import { BOTTOM_PANE_ID } from "../constants/pane";
 import { useActivePaneId, usePaneActions } from "@/features/workspace/stores/hooks/use-pane-store";
 import type { PaneGroup } from "../types/pane";
-import type { BranchReviewContent, EditorContent, NewTabContent } from "../types/pane-content";
+import type { BranchReviewContent, CrowbarChatContent, EditorContent, NewTabContent } from "../types/pane-content";
 import {
   ensureBufferInPaneDropTarget,
   moveBufferToPaneDropTarget,
@@ -36,6 +36,11 @@ const ExternalEditorTerminal = lazy(() =>
 const BranchReviewPane = lazy(() =>
   import("@/features/branch-review/components/branch-review-pane").then((m) => ({
     default: m.BranchReviewPane,
+  })),
+);
+const MarkdownChatView = lazy(() =>
+  import("@/features/markdown-chat/components/markdown-chat-view").then((m) => ({
+    default: m.MarkdownChatView,
   })),
 );
 import { EditorPane } from "./editor-pane";
@@ -450,7 +455,12 @@ export function PaneContainer({ pane, position = ROOT_PANE_POSITION }: PaneConta
           );
 
         case "crowbarChat":
-          return <EmptyEditorState />;
+          return (
+            <MarkdownChatView
+              workspaceId={(buffer as CrowbarChatContent).wsId}
+              stepId="chat"
+            />
+          );
 
         case "branchReview":
           return (

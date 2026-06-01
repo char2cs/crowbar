@@ -6,6 +6,7 @@ import type { Commit, GitStatus } from '@/lib/mock/git-data'
 import { generateLargeFileDiff } from '@/lib/mock/branch-diff'
 import { getMockFileTree, getMockFileContent } from '@/lib/mock/files'
 import type { GitDiffLine } from '@/features/git/types/git-types'
+import type { MarkdownTurn } from '@/features/markdown-chat/types'
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -317,6 +318,58 @@ const GIT_STATUSES: Record<string, GitStatus> = {
 
 const commitCache = genCommits(500)
 
+// ─── Markdown chat turns ────────────────────────────────────────────────────
+// A rich, multi-turn technical conversation generated for any chat/workspace id
+// so opened conversations are never empty in the extreme scenario.
+
+const CHAT_EXCHANGES: Array<[string, string]> = [
+  [
+    'The `QueryLayer.fetch` timeout leaks a timer when the fetcher resolves first. Under load we accumulate thousands of pending timers. How should I fix it?',
+    'Store the timeout id and clear it in a `finally`:\n\n```ts\nconst id = setTimeout(() => controller.abort(), this.config.timeout)\ntry {\n  return await fetcher()\n} finally {\n  clearTimeout(id)\n}\n```\n\nThis guarantees the timer is cleared on both the success and error paths. The previous `Promise.race` left the loser dangling.',
+  ],
+  [
+    'Should `CacheManager` handle cache stampede? Multiple concurrent requests for the same key before the first resolves.',
+    'Yes — this is the **thundering herd** problem. Store a pending promise per key and return the same promise to all concurrent callers:\n\n```ts\nif (this.inflight.has(key)) return this.inflight.get(key)!\nconst p = fetcher().finally(() => this.inflight.delete(key))\nthis.inflight.set(key, p)\nreturn p\n```\n\nThis is **in-flight deduplication**. Given this refactor touches every data-fetching path, it should ship before production.',
+  ],
+  [
+    'For React 18 concurrent mode, `setData` and `setStatus` in the `.then` chain trigger two renders. Worth optimizing?',
+    'Merge them into a single state object or use `useReducer` — React 18 batches updates inside event handlers automatically, but not inside promise callbacks. A single `setState({ data, status })` collapses the two renders into one and removes the flicker.',
+  ],
+  [
+    'The `destroy()` method clears the client but nothing stops a caller from using the instance afterward.',
+    'Add an `isDestroyed` guard and **throw** (not return early) so callers don\'t silently get `undefined`:\n\n```ts\nif (this.isDestroyed) throw new Error("QueryLayer used after destroy()")\n```\n\nFailing loud here surfaces the lifecycle bug at the call site instead of much later.',
+  ],
+  [
+    'There are 3 remaining callers of `legacyFetch` in `src/features/dashboard/`. Block the merge on migrating them?',
+    'Yes — block it. Leaving `legacyFetch` callers alive after deleting the module breaks the build. Migrate all three to `QueryLayer.fetch`, run the full type-check, then merge. I\'d also add a CI grep guard so no new `legacyFetch` imports sneak back in.',
+  ],
+]
+
+function genTurns(wsId: string): MarkdownTurn[] {
+  const turns: MarkdownTurn[] = []
+  CHAT_EXCHANGES.forEach(([q, a], i) => {
+    const baseMin = i * 7
+    turns.push({
+      id: `turn-${wsId}-${i}-u`,
+      role: 'user',
+      content: q,
+      timestamp: `2026-05-28T${String(9 + Math.floor(baseMin / 60)).padStart(2, '0')}:${String(baseMin % 60).padStart(2, '0')}:00Z`,
+      authorName: 'Mateo',
+      widgets: [],
+    })
+    turns.push({
+      id: `turn-${wsId}-${i}-a`,
+      role: 'agent',
+      content: a,
+      timestamp: `2026-05-28T${String(9 + Math.floor((baseMin + 1) / 60)).padStart(2, '0')}:${String((baseMin + 1) % 60).padStart(2, '0')}:00Z`,
+      authorName: 'Claude',
+      model: 'Opus 4.8',
+      widgets: [],
+    })
+  })
+  return turns
+}
+
 export const extremeDataset: ScenarioDataset = {
   repos: () => EXTREME_REPOS,
   projects: () => [
@@ -349,5 +402,5 @@ export const extremeDataset: ScenarioDataset = {
     isCurrent: i === 2,
     isRemote: i % 3 === 0,
   })),
-  markdownTurns: () => [],
+  markdownTurns: (wsId) => genTurns(wsId),
 }
