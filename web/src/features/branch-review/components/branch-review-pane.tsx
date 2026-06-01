@@ -87,8 +87,8 @@ export function BranchReviewPane({ wsId, branchName }: BranchReviewPaneProps) {
 
 
   return (
-    // ONE Frame = the whole window. No horizontal/bottom gap; small top gap.
-    <Frame className="h-full overflow-hidden rounded-none px-0 pb-0 pt-2">
+    // ONE Frame = the whole window
+    <Frame className="h-full overflow-hidden rounded-none p-2">
       <Tabs
         value={activeSubtab}
         onValueChange={v => store.getState().setBranchReviewSubtab(v as typeof activeSubtab)}
@@ -133,8 +133,8 @@ export function BranchReviewPane({ wsId, branchName }: BranchReviewPaneProps) {
           </TabsList>
         </FrameHeader>
 
-        {/* ONE FramePanel — the entire scrollable content body, full-bleed with a top gap */}
-        <FramePanel className="mt-2 min-h-0 flex-1 overflow-y-auto rounded-none border-0 before:hidden">
+        {/* ONE FramePanel — the entire scrollable content body */}
+        <FramePanel className="min-h-0 flex-1 overflow-y-auto">
           <TabsPanel value="about">
             <AboutTab
               wsId={wsId}
