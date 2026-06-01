@@ -192,51 +192,57 @@ export function MarkdownChatView({ workspaceId, stepId }: MarkdownChatViewProps)
       <div
         aria-hidden
         className="pointer-events-none absolute inset-y-0 z-10 w-px"
-        style={{ left: COLUMN_EDGE, background: 'color-mix(in srgb, var(--foreground) 28%, transparent)' }}
+        style={{ left: COLUMN_EDGE, background: 'color-mix(in srgb, var(--foreground) 25%, transparent)' }}
       />
       <div
         aria-hidden
         className="pointer-events-none absolute inset-y-0 z-10 w-px"
-        style={{ right: COLUMN_EDGE, background: 'color-mix(in srgb, var(--foreground) 28%, transparent)' }}
+        style={{ right: COLUMN_EDGE, background: 'color-mix(in srgb, var(--foreground) 25%, transparent)' }}
       />
 
-      {/* Rendered turns — scroll internally; don't grow, so the composer fills slack */}
-      <div
-        ref={historyScrollRef}
-        className="min-h-0 shrink grow-0 overflow-y-auto"
-        style={{
-          // both-edges keeps the centered column aligned with the rails/input
-          // whether or not a scrollbar is present.
-          scrollbarGutter: 'stable both-edges',
-          scrollbarWidth: 'thin',
-          scrollbarColor: 'var(--app-scrollbar-thumb) var(--app-scrollbar-track)',
-        }}
-      >
-        <MarkdownHistory turns={turns} onWidgetChange={handleWidgetChange} />
-      </div>
+      {/* Rendered turns — only when there are any (an empty conversation shows
+          just the input canvas, no blank gap at the top). Scrolls internally. */}
+      {turns.length > 0 && (
+        <div
+          ref={historyScrollRef}
+          className="min-h-0 shrink grow-0 overflow-y-auto"
+          style={{
+            // both-edges keeps the centered column aligned with the rails/input.
+            scrollbarGutter: 'stable both-edges',
+            scrollbarWidth: 'thin',
+            scrollbarColor: 'var(--app-scrollbar-thumb) var(--app-scrollbar-track)',
+          }}
+        >
+          <MarkdownHistory turns={turns} onWidgetChange={handleWidgetChange} />
+        </div>
+      )}
 
-      {/* Editable tail — the live end of the canvas. Grows to fill the viewport
-          when the conversation is short; stays docked at the bottom otherwise. */}
+      {/* Editable tail — the tinted canvas fills the viewport when short. The
+          input grows with its text; the toolbar (sticky) follows the text down
+          and pins to the bottom once the input overflows the screen. */}
       <div
-        className="flex shrink-0 grow flex-col border-t border-primary/10"
+        className="flex min-h-[120px] shrink grow flex-col overflow-y-auto"
         style={{ background: 'color-mix(in srgb, var(--primary) 10%, transparent)' }}
       >
-        <div className="min-h-[88px] flex-1">
-          <MarkdownChatInput
-            getTurns={getTurns}
-            onSubmit={handleSubmit}
-            onWidgetChange={handleWidgetChange}
-            onEditorReady={handleInputReady}
-            onSlashCommand={handleSlashCommand}
+        <MarkdownChatInput
+          getTurns={getTurns}
+          onSubmit={handleSubmit}
+          onWidgetChange={handleWidgetChange}
+          onEditorReady={handleInputReady}
+          onSlashCommand={handleSlashCommand}
+        />
+        <div
+          className="sticky bottom-0"
+          style={{ background: 'color-mix(in srgb, var(--primary) 10%, var(--background))' }}
+        >
+          <MarkdownChatToolbar
+            editorView={inputEditorView}
+            onInsertWidget={handleInsertWidget}
+            onSubmit={handleSendClick}
+            isStreaming={isStreaming}
+            onStop={handleStop}
           />
         </div>
-        <MarkdownChatToolbar
-          editorView={inputEditorView}
-          onInsertWidget={handleInsertWidget}
-          onSubmit={handleSendClick}
-          isStreaming={isStreaming}
-          onStop={handleStop}
-        />
       </div>
     </div>
   )

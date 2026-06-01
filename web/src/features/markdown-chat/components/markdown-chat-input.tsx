@@ -93,20 +93,17 @@ export function MarkdownChatInput({
         slashCommandExt(setSlashState),
         EditorView.lineWrapping,
         EditorView.theme({
-          // The input is the editable tail of the canvas: it fills its region so
-          // the whole area is clickable-to-focus (min-height 100%).
-          '&': { fontSize: '15px', height: '100%' },
+          // The input grows with its content; the composer scrolls and the
+          // toolbar (sticky) rides the bottom of the text.
+          '&': { fontSize: '15px', height: 'auto' },
           '&.cm-focused': { outline: 'none' },
           '.cm-cursor, .cm-dropCursor': { borderLeftColor: 'var(--foreground)' },
           '.cm-scroller': {
-            overflow: 'auto',
+            overflow: 'visible',
             fontFamily: 'var(--font-sans, system-ui)',
-            scrollbarWidth: 'thin',
-            scrollbarColor: 'var(--app-scrollbar-thumb) var(--app-scrollbar-track)',
           },
           '.cm-content': {
             padding: '8px 0',
-            minHeight: '100%',
             minWidth: '100%',
             caretColor: 'var(--foreground)',
           },
@@ -134,8 +131,8 @@ export function MarkdownChatInput({
   }, [])
 
   return (
-    <div className="relative h-full">
-      <div ref={containerRef} className="h-full w-full" />
+    <div className="relative">
+      <div ref={containerRef} className="w-full" />
       {slashState.open && slashState.anchorRect && (
         <SlashCommandPalette
           commands={getMockSlashCommands()}
