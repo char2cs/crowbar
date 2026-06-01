@@ -51,6 +51,7 @@ interface GitState {
   fetchGitData: (repoPath: string) => Promise<void>;
   startGitSync: (repoPath: string) => () => void;
   applyGitDelta: (event: unknown, repoPath: string) => Promise<void>;
+  optimisticWriteGitData: (optimistic: GitData, commit: () => Promise<GitData | void>) => Promise<void>;
   gitStatus: GitStatus | null;
   workspaceGitStatus: GitStatus | null;
   commits: GitCommit[];
@@ -98,20 +99,24 @@ export const useGitStore = create<GitState>((set, get) => ({
       fetcher: fetchAllGitData,
       wsEndpoint: (repoPath: string) => `/api/v0/ws/git?repo=${encodeURIComponent(repoPath)}`,
     })(
-      // setter: remap the slice's { data } writes onto the host's gitData field
+      // setter: remap the slice's { data } writes onto the host's gitData field.
+      // The slice only ever calls set({ data: ... }) (verified in loadable-slice.ts);
+      // the `'data' in partial` guard makes that assumption explicit.
       (partial) => {
         if (partial && "data" in partial) {
           set({ gitData: (partial as { data: Loadable<GitData> }).data } as Partial<GitState>);
         }
       },
       // getter: expose host fields under the slice's expected shape so the slice's
-      // internal get().fetch / get().applyDelta resolve to the host methods
+      // internal get().fetch / get().applyDelta resolve to the host methods.
+      // `as never` bridges the host's renamed fields to the slice's flat LoadableSlice shape.
       () =>
         ({
           data: get().gitData,
           fetch: get().fetchGitData,
           startSync: get().startGitSync,
           applyDelta: get().applyGitDelta,
+          optimisticWrite: get().optimisticWriteGitData,
         }) as never,
     );
     return {
@@ -119,6 +124,7 @@ export const useGitStore = create<GitState>((set, get) => ({
       fetchGitData: slice.fetch,
       startGitSync: slice.startSync,
       applyGitDelta: slice.applyDelta,
+      optimisticWriteGitData: slice.optimisticWrite,
     };
   })(),
   gitStatus: null,
