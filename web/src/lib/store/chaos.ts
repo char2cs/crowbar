@@ -86,6 +86,18 @@ export const useChaosStore = create<ChaosState>()(
     {
       name: 'crowbar.chaos',
       partialize: (s) => ({ scenario: s.scenario, faults: s.faults }),
+      // Persisted state may be partial or stale (older schema, manually edited,
+      // or a fault key added since it was written). Deep-merge `faults` over the
+      // full defaults so every key is always present — a missing key would render
+      // an empty "%" and feed `undefined` into the slider.
+      merge: (persisted, current) => {
+        const p = (persisted ?? {}) as Partial<ChaosState>
+        return {
+          ...current,
+          ...p,
+          faults: { ...DEFAULT_FAULTS, ...(p.faults ?? {}) },
+        }
+      },
     },
   ),
 )

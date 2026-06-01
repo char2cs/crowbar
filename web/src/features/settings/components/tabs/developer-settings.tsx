@@ -138,34 +138,38 @@ export function DeveloperSettings() {
             title="Fault Injection"
             description="Force specific API endpoints to return 500 errors. Changes take effect on the next request — no reload needed."
           >
-            {FAULT_KEYS.map(key => (
-              <SettingRow
-                key={key}
-                label={FAULT_LABELS[key]}
-                onReset={() => setFault(key, 0)}
-                canReset={faults[key] > 0}
-                resetLabel={`Reset ${FAULT_LABELS[key]}`}
-              >
-                <div className="flex items-center gap-3 w-64">
+            {/* Purpose-built rows (not SettingRow): a fixed label column, a slider
+                that fills the available width, and a percentage with a guaranteed
+                right gutter (pr-2) so it never clips against the panel edge at any
+                dialog width. */}
+            <div className="flex flex-col gap-0.5 pr-2">
+              {FAULT_KEYS.map(key => (
+                <div
+                  key={key}
+                  className="flex items-center gap-4 rounded-lg px-1 py-1.5 transition-colors hover:bg-muted/50"
+                >
+                  <span className="w-32 shrink-0 truncate text-sm text-foreground">
+                    {FAULT_LABELS[key]}
+                  </span>
                   <Slider
                     value={faults[key]}
                     onValueChange={(values) => setFault(key, Array.isArray(values) ? (values[0] ?? 0) : values)}
                     min={0}
                     max={100}
                     step={5}
-                    className="flex-1"
+                    className="min-w-0 flex-1"
                     aria-label={`${FAULT_LABELS[key]} fault rate`}
                   />
                   <span className={cn(
-                    'w-10 shrink-0 text-right text-xs tabular-nums',
-                    faults[key] > 0 ? 'text-destructive font-medium' : 'text-muted-foreground'
+                    'w-9 shrink-0 text-right text-xs tabular-nums',
+                    faults[key] > 0 ? 'text-destructive font-medium' : 'text-muted-foreground',
                   )}>
                     {faults[key]}%
                   </span>
                 </div>
-              </SettingRow>
-            ))}
-            <div className="px-1 pt-1">
+              ))}
+            </div>
+            <div className="px-1 pt-2">
               <Button
                 type="button"
                 variant="outline"
