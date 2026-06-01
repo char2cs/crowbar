@@ -205,9 +205,20 @@ export function MarkdownChatView({ workspaceId, stepId }: MarkdownChatViewProps)
           docks at the bottom otherwise. The input fills the region (scrolls
           internally when long); the toolbar is pinned at the bottom. */}
       <div
-        className="flex min-h-[120px] shrink grow flex-col overflow-hidden"
+        className="relative flex min-h-[120px] shrink grow flex-col overflow-hidden"
         style={{ background: 'color-mix(in srgb, var(--primary) 10%, transparent)' }}
       >
+        {/* Column rails — primary, since the input is the user's turn. */}
+        <div
+          aria-hidden
+          className="pointer-events-none absolute inset-y-0 w-px"
+          style={{ left: 'max(48px, calc((100% - 680px) / 2))', background: 'color-mix(in srgb, var(--primary) 35%, transparent)' }}
+        />
+        <div
+          aria-hidden
+          className="pointer-events-none absolute inset-y-0 w-px"
+          style={{ right: 'max(48px, calc((100% - 680px) / 2))', background: 'color-mix(in srgb, var(--primary) 35%, transparent)' }}
+        />
         <div className="min-h-0 flex-1">
           <MarkdownChatInput
             getTurns={getTurns}

@@ -1,5 +1,5 @@
 import type { CSSProperties } from 'react'
-import type { MarkdownTurn } from '../../types'
+import type { MarkdownTurn, TurnRole } from '../../types'
 import { TurnMarkdown } from './turn-markdown'
 // Import block registrations so they self-register into the registry.
 import './blocks/mermaid-block'
@@ -24,6 +24,14 @@ function metaLabel(turn: MarkdownTurn): string {
     return [who, time].filter(Boolean).join(' · ')
   }
   return time
+}
+
+// Per-turn column rails: primary for the user's turns, foreground for the
+// agent's. Low-opacity so they read as a subtle accent, not a hard border.
+function railColor(role: TurnRole): string {
+  return role === 'user'
+    ? 'color-mix(in srgb, var(--primary) 35%, transparent)'
+    : 'color-mix(in srgb, var(--foreground) 15%, transparent)'
 }
 
 // 3-column grid: [left margin] [centered ≤680 content] [right margin].
@@ -72,7 +80,16 @@ export function MarkdownHistory({ turns, onWidgetChange }: MarkdownHistoryProps)
             >
               {metaLabel(turn)}
             </header>
-            <div style={{ gridColumn: 2, minWidth: 0, paddingLeft: '24px', paddingRight: '24px' }}>
+            <div
+              style={{
+                gridColumn: 2,
+                minWidth: 0,
+                paddingLeft: '24px',
+                paddingRight: '24px',
+                borderLeft: `1px solid ${railColor(turn.role)}`,
+                borderRight: `1px solid ${railColor(turn.role)}`,
+              }}
+            >
               <TurnMarkdown
                 content={turn.content}
                 widgets={turn.widgets}
