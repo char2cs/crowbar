@@ -12,6 +12,19 @@ export interface DiffAccordionLineMeta {
   hiddenCount?: number;
 }
 
+export type DiffEditorLineKind = "context" | "added" | "removed" | "spacer";
+
+export interface SerializedEditorDiffContent {
+  content: string;
+  lineKinds: DiffEditorLineKind[];
+  actualLines: Array<number | null>;
+}
+
+export interface SerializedSplitEditorDiffContent {
+  left: SerializedEditorDiffContent;
+  right: SerializedEditorDiffContent;
+}
+
 function getDisplayPath(diff: GitDiff): string {
   return diff.new_path || diff.old_path || diff.file_path;
 }
@@ -77,6 +90,133 @@ export function serializeGitDiffForEditor(diff: GitDiff): string {
   return [...(hasPatchHeader ? [] : serializeFileHeader(diff)), ...serializedLines].join("\n");
 }
 
+function pushLine(
+  lines: string[],
+  kinds: DiffEditorLineKind[],
+  actualLines: Array<number | null>,
+  text: string,
+  kind: DiffEditorLineKind,
+  actualLine: number | null,
+) {
+  lines.push(text);
+  kinds.push(kind);
+  actualLines.push(actualLine);
+}
+
+export function serializeGitDiffSourceForEditor(diff: GitDiff): SerializedEditorDiffContent {
+  const lines: string[] = [];
+  const lineKinds: DiffEditorLineKind[] = [];
+  const actualLines: Array<number | null> = [];
+  let previousWasHeader = true;
+
+  for (const line of diff.lines) {
+    if (line.line_type === "header") {
+      if (!previousWasHeader && lines.length > 0 && lines[lines.length - 1] !== "") {
+        pushLine(lines, lineKinds, actualLines, "", "spacer", null);
+      }
+      previousWasHeader = true;
+      continue;
+    }
+
+    pushLine(
+      lines,
+      lineKinds,
+      actualLines,
+      line.content,
+      line.line_type,
+      line.new_line_number ?? line.old_line_number ?? null,
+    );
+    previousWasHeader = false;
+  }
+
+  return {
+    content: lines.join("\n"),
+    lineKinds,
+    actualLines,
+  };
+}
+
+export function serializeGitDiffSourceForSplitEditor(
+  diff: GitDiff,
+): SerializedSplitEditorDiffContent {
+  const leftLines: string[] = [];
+  const leftKinds: DiffEditorLineKind[] = [];
+  const leftActualLines: Array<number | null> = [];
+  const rightLines: string[] = [];
+  const rightKinds: DiffEditorLineKind[] = [];
+  const rightActualLines: Array<number | null> = [];
+  let previousWasHeader = true;
+
+  for (const line of diff.lines) {
+    if (line.line_type === "header") {
+      if (!previousWasHeader && leftLines.length > 0 && leftLines[leftLines.length - 1] !== "") {
+        pushLine(leftLines, leftKinds, leftActualLines, "", "spacer", null);
+        pushLine(rightLines, rightKinds, rightActualLines, "", "spacer", null);
+      }
+      previousWasHeader = true;
+      continue;
+    }
+
+    switch (line.line_type) {
+      case "removed":
+        pushLine(
+          leftLines,
+          leftKinds,
+          leftActualLines,
+          line.content,
+          "removed",
+          line.old_line_number ?? line.new_line_number ?? null,
+        );
+        pushLine(rightLines, rightKinds, rightActualLines, "", "spacer", null);
+        break;
+      case "added":
+        pushLine(leftLines, leftKinds, leftActualLines, "", "spacer", null);
+        pushLine(
+          rightLines,
+          rightKinds,
+          rightActualLines,
+          line.content,
+          "added",
+          line.new_line_number ?? line.old_line_number ?? null,
+        );
+        break;
+      case "context":
+      default:
+        pushLine(
+          leftLines,
+          leftKinds,
+          leftActualLines,
+          line.content,
+          "context",
+          line.new_line_number ?? line.old_line_number ?? null,
+        );
+        pushLine(
+          rightLines,
+          rightKinds,
+          rightActualLines,
+          line.content,
+          "context",
+          line.new_line_number ?? line.old_line_number ?? null,
+        );
+        break;
+    }
+
+    previousWasHeader = false;
+  }
+
+  return {
+    left: {
+      content: leftLines.join("\n"),
+      lineKinds: leftKinds,
+      actualLines: leftActualLines,
+    },
+    right: {
+      content: rightLines.join("\n"),
+      lineKinds: rightKinds,
+      actualLines: rightActualLines,
+    },
+  };
+}
 
 export function serializeMultiFileDiffForEditor(multiDiff: MultiFileDiff): string {
   return multiDiff.files
@@ -158,26 +298,4 @@ export function createCollapsedDiffAccordionLine(
     ...meta,
     collapsed: true,
   } satisfies DiffAccordionLineMeta)}`;
-}
-
-export function buildMonacoDiffContent(diff: GitDiff): { original: string; modified: string } {
-  const originalLines: string[] = [];
-  const modifiedLines: string[] = [];
-
-  for (const line of diff.lines) {
-    if (line.line_type === "header") continue;
-    if (line.line_type === "context") {
-      originalLines.push(line.content);
-      modifiedLines.push(line.content);
-    } else if (line.line_type === "removed") {
-      originalLines.push(line.content);
-    } else if (line.line_type === "added") {
-      modifiedLines.push(line.content);
-    }
-  }
-
-  return {
-    original: originalLines.join("\n"),
-    modified: modifiedLines.join("\n"),
-  };
 }
