@@ -1,4 +1,4 @@
-import type { MarkdownTurn, SlashCommand } from '@/features/markdown-chat/types'
+import type { MarkdownTurn } from '@/features/markdown-chat/types'
 
 const MOCK_TURNS: Record<string, MarkdownTurn[]> = {
   'ws3:brainstorm': [
@@ -79,20 +79,6 @@ flowchart LR
 
 export function getMockMarkdownTurns(wsId: string, stepId: string): MarkdownTurn[] {
   return MOCK_TURNS[`${wsId}:${stepId}`] ?? []
-}
-
-// Placeholder for the provider-supplied slash command list. In production these
-// arrive from the AI provider; this mock stands in until that feed is wired.
-const MOCK_SLASH_COMMANDS: SlashCommand[] = [
-  { id: '/tdd', label: '/tdd' },
-  { id: '/code-review', label: '/code-review' },
-  { id: '/plan', label: '/plan' },
-  { id: '/debug', label: '/debug' },
-  { id: '/explain', label: '/explain' },
-]
-
-export function getMockSlashCommands(): SlashCommand[] {
-  return MOCK_SLASH_COMMANDS
 }
 
 // Simulate streaming a response in chunks every 30ms.

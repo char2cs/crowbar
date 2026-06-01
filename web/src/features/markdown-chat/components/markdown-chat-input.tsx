@@ -10,7 +10,7 @@ import { codeLanguages } from '../extensions/code-languages'
 import { widgetExt } from '../extensions/widget-ext'
 import { slashCommandExt, type SlashCommandState } from '../extensions/slash-command-ext'
 import { SlashCommandPalette, type SlashCommand } from './slash-command-palette'
-import { getMockSlashCommands } from '@/lib/mock/markdown-chat'
+import { getSlashCommands } from '../lib/slash-commands'
 // Register the block renderers (excalidraw is widgetized in the input; the
 // others are used when rendering history but registering here is harmless).
 import './markdown/blocks/excalidraw-block'
@@ -138,7 +138,7 @@ export function MarkdownChatInput({
       <div ref={containerRef} className="h-full w-full" />
       {slashState.open && slashState.anchorRect && (
         <SlashCommandPalette
-          commands={getMockSlashCommands()}
+          commands={getSlashCommands()}
           query={slashState.query}
           anchorRect={slashState.anchorRect}
           onSelect={handleSlashCommand}
