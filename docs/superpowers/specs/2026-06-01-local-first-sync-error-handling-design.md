@@ -75,7 +75,7 @@ Store layer — Zustand (replaces TanStack Query entirely)
   complex domains: createLoadableSlice + domain-specific actions
         ↕
 Persistence — IndexedDB (the source of truth)
-  v5 schema · stores write on every successful fetch · app reads on every start
+  end-state schema · stores write on every successful fetch · app reads on every start
         ↕
 Network — sync peers (never the source of truth)
   HTTP via apiFetch (pull: initial load, retry)
@@ -159,9 +159,11 @@ export const fetchedAtOf = <T>(l?: Loadable<T>): number | undefined => {
 
 ---
 
-## Layer 2 — Persistence (IndexedDB v5)
+## Layer 2 — Persistence (IndexedDB)
 
-Bump `crowbar` DB to version 5 in `web/src/lib/persistence/idb.ts`; add six object stores. Each stored record is `{ data: T; fetchedAt: number }` so `fetchedAt` survives reloads and feeds the stale banner.
+Crowbar is pre-production with **zero users**. Per the project's no-legacy-migration rule, we **do not write any migration or data-preservation code**. The schema is set to its desired end state; developers clear their dev IndexedDB (delete the `crowbar` database) to pick it up. The only reason the version number moves at all is the IndexedDB API requirement that the `upgrade()` callback fires only on a version increment — it is a mechanism to create object stores, not a migration ladder.
+
+Add six new object stores. Each stored record is `{ data: T; fetchedAt: number }` so `fetchedAt` survives reloads and feeds the stale banner.
 
 | New store | Key | Holds |
 |---|---|---|
@@ -172,11 +174,9 @@ Bump `crowbar` DB to version 5 in `web/src/lib/persistence/idb.ts`; add six obje
 | `chat-history` | `chatId` | Markdown chat turn history |
 | `projects-data` | `'projects'` (singleton) | Project list snapshot |
 
-Add to the `upgrade()` callback under `if (oldVersion < 5)`. Add matching typed schemas to `lib/persistence/schemas.ts` (`CrowbarDB`).
+Create these stores in the `upgrade()` callback and **drop `query-cache` in the same upgrade** (`db.deleteObjectStore('query-cache')`) — no users means no reason to preserve it or stage its removal. Set the schema to its end state; no `if (oldVersion < N)` migration branches are needed beyond creating the desired stores. Add matching typed schemas to `lib/persistence/schemas.ts` (`CrowbarDB`). Developers with an existing dev database clear IndexedDB to adopt the new schema.
 
 New persistence-module helpers (one file per store, mirroring `branch-review.ts`/`sidebar-ui.ts`), exposing typed `saveX(key, record)` / `loadX(key)`. The generic slice calls these via a small adapter (see below).
-
-`query-cache` store is **deprecated** in this PR (no longer written/read once React Query is removed) and **deleted** in a follow-up DB version bump — never delete an object store in the same release that stops using it.
 
 ---
 
@@ -421,14 +421,14 @@ return (
 
 The app stays working at every step; React Query and the new stores coexist until the final removal.
 
-1. **Foundation** — `loadable.ts`, `loadable-slice.ts`, IDB v5 schema + persistence helpers, `<DataState>`/`<StaleBanner>`/`<InlineError>`/`useRetry`.
+1. **Foundation** — `loadable.ts`, `loadable-slice.ts`, IDB schema (new stores + drop `query-cache`) + persistence helpers, `<DataState>`/`<StaleBanner>`/`<InlineError>`/`useRetry`.
 2. **Simple stores** — projects, workspace-list, file-tree, chat (pure factory) + swap their call sites to `DataState`.
 3. **Complex stores** — git, branch-review (slice + extensions); refactor `git-blame-store` off Maps; swap call sites.
 4. **Sync wiring** — `useXxxSync` hooks + `<AppSyncProvider>`; `applyDelta` = re-fetch.
 5. **Optimistic mutations** — review threads, merge commit, workspace create + rollback.
 6. **Action feedback + critical fixes** — file-open toast, merge feedback, terminal status, git/projects error-vs-empty.
 7. **Hydration expansion** — `hydrateAllStores()` extends `hydrate.ts` to all new domains (concurrent IDB reads → `loading(staleData)`).
-8. **Remove TanStack Query** — delete `useQuery` call sites, `lib/queries.ts`, `features/*/queries.ts`, `PersistQueryClientProvider`/`QueryClientProvider`; stop reading/writing `query-cache` (object store deleted in a later DB bump).
+8. **Remove TanStack Query** — delete `useQuery` call sites, `lib/queries.ts`, `features/*/queries.ts`, `PersistQueryClientProvider`/`QueryClientProvider`; drop the `query-cache` object store in the schema upgrade (no users → removed outright, no migration).
 
 ---
 
@@ -455,4 +455,3 @@ The chaos panel (`useChaosStore`) is the integration harness: each silent-void f
 - **Offline write queue** — persisting the optimistic mutation queue across reloads/reconnects for true offline editing.
 - **Auth** — 401 handling, session boot script (Linear-style `localStorage` gate).
 - **Granular reactivity** (MobX/signals) — current Zustand + narrow selectors is sufficient at Crowbar's scale.
-- **`query-cache` object-store deletion** — deferred to a later DB version bump.
