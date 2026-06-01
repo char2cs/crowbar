@@ -3,6 +3,7 @@ import { useWorkspaceStoreContext, useWorkspaceStore } from '@/features/workspac
 import { getRefDiff } from '@/features/git/api/git-diff-api'
 import type { MultiFileDiff } from '@/features/git/types/git-diff-types'
 import type { ReviewThread, ReviewMessage } from '@/features/branch-review/types/review-types'
+import { Tabs, TabsList, TabsTab, TabsPanel } from '@/components/ui/tabs'
 import { BranchReviewHeader } from './branch-review-header'
 import { AboutTab } from './about-tab'
 import { CommitsTab } from './commits-tab'
@@ -88,38 +89,37 @@ export function BranchReviewPane({ wsId, branchName }: BranchReviewPaneProps) {
         onStrategyChange={s => store.getState().setBranchReviewMergeStrategy(s)}
       />
 
-      <div className="flex shrink-0 gap-1 border-b border-border px-4">
-        {(['about', 'commits', 'diff'] as const).map(tab => (
-          <button
-            key={tab}
-            onClick={() => store.getState().setBranchReviewSubtab(tab)}
-            className={
-              'px-2 py-1.5 text-xs font-medium capitalize transition-colors ' +
-              (activeSubtab === tab
-                ? 'border-b-2 border-foreground text-foreground'
-                : 'text-muted-foreground hover:text-foreground')
-            }
-          >
-            {tab}
-          </button>
-        ))}
-      </div>
+      <Tabs
+        value={activeSubtab}
+        onValueChange={v => store.getState().setBranchReviewSubtab(v as typeof activeSubtab)}
+        className="min-h-0 flex-1 overflow-hidden"
+      >
+        <TabsList variant="underline" className="w-full justify-start gap-0 rounded-none border-b border-border px-4">
+          <TabsTab value="about" className="capitalize">About</TabsTab>
+          <TabsTab value="commits" className="capitalize">Commits</TabsTab>
+          <TabsTab value="diff" className="capitalize">Diff</TabsTab>
+        </TabsList>
 
-      <div className="min-h-0 flex-1 overflow-y-auto">
-        {activeSubtab === 'about' && (
+        <TabsPanel value="about" className="overflow-y-auto">
           <AboutTab
             description={description}
             onDescriptionChange={v => store.getState().setBranchReviewDescription(v)}
             onOpenConversation={handleOpenConversation}
           />
-        )}
-        {activeSubtab === 'commits' && <CommitsTab repoPath={wsId} />}
-        {activeSubtab === 'diff' && (
-          diffStatus === 'loading' ? (
+        </TabsPanel>
+
+        <TabsPanel value="commits" className="overflow-y-auto">
+          <CommitsTab repoPath={wsId} />
+        </TabsPanel>
+
+        <TabsPanel value="diff" className="overflow-y-auto">
+          {diffStatus === 'loading' && (
             <p className="p-4 text-xs text-muted-foreground/50">Loading diff…</p>
-          ) : diffStatus === 'error' ? (
+          )}
+          {diffStatus === 'error' && (
             <p className="p-4 text-xs text-destructive/70">Failed to load diff.</p>
-          ) : diffCache ? (
+          )}
+          {diffStatus === 'loaded' && diffCache && (
             <BranchReviewDiffViewer
               multiDiff={diffCache}
               threads={threads}
@@ -127,11 +127,12 @@ export function BranchReviewPane({ wsId, branchName }: BranchReviewPaneProps) {
               onReply={handleReply}
               onResolve={handleResolve}
             />
-          ) : (
+          )}
+          {diffStatus === 'loaded' && !diffCache && (
             <p className="p-4 text-xs text-muted-foreground/50">No diff available.</p>
-          )
-        )}
-      </div>
+          )}
+        </TabsPanel>
+      </Tabs>
     </div>
   )
 }
