@@ -1,4 +1,4 @@
-import type { WorkspacePayload, FlowDefinition, ChatMessage, Project } from './types'
+import type { WorkspacePayload, ChatMessage, Project } from './types'
 import { useChaosStore } from '@/lib/store/chaos'
 
 const crowbar = (window as any).__CROWBAR__
@@ -22,16 +22,12 @@ export function fetchWorkspace(wsId: string): Promise<WorkspacePayload> {
   return apiFetch(`/api/v0/workspaces/${wsId}`)
 }
 
-export function postWorkspace(repoId: string, branch: string, flowName: string): Promise<WorkspacePayload> {
+export function postWorkspace(repoId: string, branch: string): Promise<WorkspacePayload> {
   return apiFetch('/api/v0/workspaces', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ repoId, branch, flowName }),
+    body: JSON.stringify({ repoId, branch }),
   })
-}
-
-export function fetchFlows(): Promise<FlowDefinition[]> {
-  return apiFetch('/api/v0/flows')
 }
 
 export function fetchConversation(wsId: string, step: string): Promise<{ messages: ChatMessage[] }> {

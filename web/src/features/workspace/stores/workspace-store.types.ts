@@ -1,7 +1,6 @@
 // web/src/features/workspace/stores/workspace-store.types.ts
 import type { PaneSlice } from './slices/pane-slice'
 import type { BufferSlice } from './slices/buffer-slice'
-import type { WorkflowSlice } from './slices/workflow-slice'
 import type { LspSlice } from './slices/lsp-slice'
 import type { TerminalSlice } from './slices/terminal-slice'
 import type { FileWatcherSlice } from './slices/file-watcher-slice'
@@ -16,7 +15,6 @@ export type WorkspaceState =
   & WorkspaceBaseState
   & PaneSlice
   & BufferSlice
-  & WorkflowSlice
   & LspSlice
   & TerminalSlice
   & FileWatcherSlice

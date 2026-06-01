@@ -15,13 +15,12 @@ import {
   getInternalTabDragHover,
   resolveDropTarget,
 } from "@/features/tabs/utils/internal-tab-drag";
-import { FlowContent } from "@/features/workflow/components/flow-content";
 
 import { EmptyEditorState } from "./empty-editor-state";
 import { BOTTOM_PANE_ID } from "../constants/pane";
 import { useActivePaneId, usePaneActions } from "@/features/workspace/stores/hooks/use-pane-store";
 import type { PaneGroup } from "../types/pane";
-import type { BranchReviewContent, CrowbarChatContent, EditorContent, NewTabContent } from "../types/pane-content";
+import type { BranchReviewContent, EditorContent, NewTabContent } from "../types/pane-content";
 import {
   ensureBufferInPaneDropTarget,
   moveBufferToPaneDropTarget,
@@ -451,7 +450,7 @@ export function PaneContainer({ pane, position = ROOT_PANE_POSITION }: PaneConta
           );
 
         case "crowbarChat":
-          return <FlowContent workspaceId={(buffer as CrowbarChatContent).wsId} />;
+          return <EmptyEditorState />;
 
         case "branchReview":
           return (

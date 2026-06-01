@@ -1,5 +1,5 @@
 import { queryOptions } from '@tanstack/react-query'
-import { fetchWorkspace, fetchFlows, fetchConversation, apiFetch } from './api'
+import { fetchWorkspace, fetchConversation, apiFetch } from './api'
 import type { GitStatus, Commit, Branch } from '@/lib/mock/git-data'
 import type { FileNode } from '@/lib/mock/files'
 
@@ -7,12 +7,6 @@ export const workspaceQueryOptions = (wsId: string) =>
   queryOptions({
     queryKey: ['workspace', wsId],
     queryFn: () => fetchWorkspace(wsId),
-  })
-
-export const flowsQueryOptions = () =>
-  queryOptions({
-    queryKey: ['flows'],
-    queryFn: fetchFlows,
   })
 
 export const conversationQueryOptions = (wsId: string, step: string) =>
@@ -25,6 +19,13 @@ export const fileTreeQueryOptions = (rootPath: string) =>
   queryOptions({
     queryKey: ['file-tree', rootPath] as const,
     queryFn: () => apiFetch<FileNode>(`/api/v0/fs/tree?root=${encodeURIComponent(rootPath)}`),
+  })
+
+export const fileContentQueryOptions = (path: string) =>
+  queryOptions({
+    queryKey: ['file-content', path] as const,
+    queryFn: () => apiFetch<string>(`/api/v0/fs/file?path=${encodeURIComponent(path)}`),
+    staleTime: 5 * 60 * 1000,
   })
 
 export const gitStatusQueryOptions = (repoPath: string) =>
@@ -43,4 +44,16 @@ export const gitBranchesQueryOptions = (repoPath: string) =>
   queryOptions({
     queryKey: ['git-branches', repoPath] as const,
     queryFn: () => apiFetch<Branch[]>(`/api/v0/git/branches?repo=${encodeURIComponent(repoPath)}`),
+  })
+
+export const workspacesQueryOptions = () =>
+  queryOptions({
+    queryKey: ['workspaces'] as const,
+    queryFn: () => apiFetch<import('@/lib/store/sidebar').Repo[]>('/api/v0/workspaces'),
+  })
+
+export const projectsQueryOptions = () =>
+  queryOptions({
+    queryKey: ['projects'] as const,
+    queryFn: () => apiFetch<import('@/lib/types').Project[]>('/api/v0/projects'),
   })

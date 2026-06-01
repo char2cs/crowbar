@@ -13,8 +13,8 @@ export const workspaceHandlers = [
   }),
 
   http.post('/api/v0/workspaces', async ({ request }) => {
-    const body = await request.json() as { repoId: string; branch: string; flowName: string }
-    const ws = createMockWorkspace(body.repoId, body.branch, body.flowName)
+    const body = await request.json() as { repoId: string; branch: string }
+    const ws = createMockWorkspace(body.repoId, body.branch)
     return HttpResponse.json(ws, { status: 201 })
   }),
 ]

@@ -4,7 +4,6 @@ import { immer } from 'zustand/middleware/immer'
 import type { WorkspaceState } from './workspace-store.types'
 import { createPaneSlice } from './slices/pane-slice'
 import { createBufferSlice } from './slices/buffer-slice'
-import { createWorkflowSlice } from './slices/workflow-slice'
 import { createLspSlice } from './slices/lsp-slice'
 import { createTerminalSlice } from './slices/terminal-slice'
 import { createFileWatcherSlice } from './slices/file-watcher-slice'
@@ -20,7 +19,6 @@ export type WorkspaceSnapshot = Partial<
     | 'panes' | 'rootLayout' | 'bottomLayout'
     | 'activePaneId' | 'fullscreenPaneId' | 'mostRecentActivePaneIds'
     | 'buffers'
-    | 'currentStepId'
     | 'recentFiles'
     | 'terminalLayout'
   >
@@ -32,14 +30,11 @@ export function createWorkspaceStore(wsId: string, snapshot?: WorkspaceSnapshot)
       workspaceId: wsId,
       ...createPaneSlice(set, get, api),
       ...createBufferSlice(set, get, api),
-      ...createWorkflowSlice(set, get, api),
       ...createLspSlice(set, get, api),
       ...createTerminalSlice(set, get, api),
       ...createFileWatcherSlice(set, get, api),
       ...createRecentFilesSlice(set, get, api),
       ...createBranchReviewSlice(set, get, api),
-      // snapshot only contains serializable data fields (see WorkspaceSnapshot type) —
-      // action objects and non-serializable state (Sets, functions) are excluded
       ...(snapshot ?? {}),
     }))
   )
