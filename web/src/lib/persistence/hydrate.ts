@@ -2,6 +2,9 @@ import { getDB } from './idb'
 import type { WorkspaceLayout, EditorState, UIPreferences } from './schemas'
 import { getOrCreateWorkspaceStore } from '@/features/workspace/stores/workspace-store-registry'
 import { useSettingsStore } from '@/features/settings/store'
+import { loadSidebarUI } from './sidebar-ui'
+import { loadAllWorkspaceHierarchies } from './workspace-hierarchy'
+import { useSidebarStore } from '@/lib/store/sidebar'
 
 export interface WorkspaceHydrationResult {
   layout: WorkspaceLayout | null
@@ -50,4 +53,33 @@ export async function hydrateWorkspace(workspaceId: string): Promise<WorkspaceHy
   }
 
   return { layout, editorStates }
+}
+
+export async function hydrateSidebar(): Promise<void> {
+  const [sidebarUI, hierarchies] = await Promise.all([
+    loadSidebarUI(),
+    loadAllWorkspaceHierarchies(),
+  ])
+
+  if (sidebarUI) {
+    useSidebarStore.setState({ collapsedRepos: new Set(sidebarUI.collapsedRepos) })
+  }
+
+  if (hierarchies.length > 0) {
+    useSidebarStore.setState(s => ({
+      repos: s.repos.map(repo => {
+        const hierarchy = hierarchies.find(h => h.repoId === repo.id)
+        if (!hierarchy) return repo
+        const entryMap = new Map(hierarchy.entries.map(e => [e.wsId, e.parentId]))
+        return {
+          ...repo,
+          workspaces: repo.workspaces.map(ws =>
+            entryMap.has(ws.id)
+              ? { ...ws, parentId: entryMap.get(ws.id) }
+              : ws,
+          ),
+        }
+      }),
+    }))
+  }
 }

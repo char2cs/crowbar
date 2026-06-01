@@ -1,10 +1,13 @@
-import { hydrateWorkspace, hydratePreferences } from '@/lib/persistence/hydrate'
+import { hydrateWorkspace, hydratePreferences, hydrateSidebar } from '@/lib/persistence/hydrate'
 import { getDB, resetDB } from '@/lib/persistence/idb'
 import type { WorkspaceLayout, UIPreferences, EditorState } from '@/lib/persistence/schemas'
 import { destroyWorkspaceStore } from '@/features/workspace/stores/workspace-store-registry'
 import { IDBFactory } from 'fake-indexeddb'
 import { ROOT_PANE_ID } from '@/features/panes/constants/pane'
 import { createLeaf } from '@/features/panes/utils/pane-layout'
+import { saveSidebarUI } from '@/lib/persistence/sidebar-ui'
+import { saveWorkspaceHierarchy } from '@/lib/persistence/workspace-hierarchy'
+import { useSidebarStore } from '@/lib/store/sidebar'
 
 async function seedDB(workspaceId: string) {
   const db = await getDB()
@@ -86,5 +89,46 @@ describe('hydratePreferences', () => {
     const { prefs } = await seedDB('ws-test')
     const result = await hydratePreferences()
     expect(result?.theme).toBe(prefs.theme)
+  })
+})
+
+describe('hydrateSidebar', () => {
+  beforeEach(async () => {
+    resetDB()
+    globalThis.indexedDB = new IDBFactory()
+    useSidebarStore.setState((useSidebarStore as any).getInitialState())
+  })
+
+  it('does nothing when IDB is empty', async () => {
+    await hydrateSidebar()
+    expect(useSidebarStore.getState().collapsedRepos.size).toBe(0)
+  })
+
+  it('restores collapsedRepos from IDB', async () => {
+    await saveSidebarUI(['crowbar', 'quiver-core'])
+    await hydrateSidebar()
+    const { collapsedRepos } = useSidebarStore.getState()
+    expect(collapsedRepos.has('crowbar')).toBe(true)
+    expect(collapsedRepos.has('quiver-core')).toBe(true)
+  })
+
+  it('overlays parentId values from IDB onto repos', async () => {
+    await saveWorkspaceHierarchy('crowbar', [
+      { wsId: 'ws3', parentId: 'ws-develop' },
+      { wsId: 'ws1', parentId: 'ws3' },
+    ])
+    await hydrateSidebar()
+    const repo = useSidebarStore.getState().repos.find(r => r.id === 'crowbar')!
+    expect(repo.workspaces.find(w => w.id === 'ws3')?.parentId).toBe('ws-develop')
+    expect(repo.workspaces.find(w => w.id === 'ws1')?.parentId).toBe('ws3')
+  })
+
+  it('clears parentId for workspaces not in hierarchy entries', async () => {
+    await saveWorkspaceHierarchy('crowbar', [
+      { wsId: 'ws1' },
+    ])
+    await hydrateSidebar()
+    const repo = useSidebarStore.getState().repos.find(r => r.id === 'crowbar')!
+    expect(repo.workspaces.find(w => w.id === 'ws1')?.parentId).toBeUndefined()
   })
 })
