@@ -11,14 +11,12 @@ import { useEditorStateStore } from "@/features/editor/stores/state-store";
 import { useFileSystemStore } from "@/features/file-system/controllers/store";
 import { BOTTOM_PANE_ID } from "@/features/panes/constants/pane";
 import {
-  usePaneRoot,
-  useBottomRoot,
+  usePaneById,
   usePaneActions,
 } from "@/features/workspace/stores/hooks/use-pane-store";
-import { useBuffers, useBufferActions } from "@/features/workspace/stores/hooks/use-buffer-store";
+import { useBuffers, useBuffersByIds, useBufferActions } from "@/features/workspace/stores/hooks/use-buffer-store";
 import { useWorkspaceStore, useWorkspaceStoreContext } from "@/features/workspace/stores/workspace-context";
 import { splitEditorGroup } from "@/features/panes/utils/pane-command-actions";
-import { findPaneGroup } from "@/features/panes/utils/pane-tree";
 import { useSettingsStore } from "@/features/settings/store";
 import type { PaneContent } from "@/features/panes/types/pane-content";
 import { useEditorAppStore } from "@/features/editor/stores/editor-app-store";
@@ -54,26 +52,19 @@ const TabBar = ({
   onTabClick: externalTabClick,
   disablePaneActions = false,
 }: TabBarProps) => {
-  const allBuffers = useBuffers();
   const globalActiveBufferId = useWorkspaceStoreContext(s => s.paneActions.getActivePane()?.activeBufferId ?? null);
   const pendingClose = useWorkspaceStoreContext((s) => s.pendingClose);
-  const paneRoot = usePaneRoot();
-  const bottomRoot = useBottomRoot();
+  const pane = usePaneById(paneId ?? '');
   const { closePane, setActivePane, activatePaneBuffer, removeBufferFromPane, splitPane, moveBufferToPane, reorderPaneBuffers } = usePaneActions();
   const { closeBuffer, openContent, promotePreview: promotePreviewBuffer, setPinned, confirmPendingClose, setPendingClose } = useBufferActions();
   const workspaceStore = useWorkspaceStore();
-
-  const pane = paneId
-    ? paneId === BOTTOM_PANE_ID
-      ? findPaneGroup(bottomRoot, BOTTOM_PANE_ID)
-      : findPaneGroup(paneRoot, paneId)
-    : null;
+  const allBuffers = useBuffers();
+  const paneBufferIds = pane?.bufferIds ?? [];
+  const paneSpecificBuffers = useBuffersByIds(paneBufferIds);
   const buffers = useMemo(
     () =>
-      (pane ? allBuffers.filter((b) => pane.bufferIds.includes(b.id)) : allBuffers).filter(
-        (buffer) => buffer.type !== "newTab",
-      ),
-    [allBuffers, pane],
+      (pane ? paneSpecificBuffers : allBuffers).filter((buffer) => buffer.type !== "newTab"),
+    [pane, paneSpecificBuffers, allBuffers],
   );
   const activeBufferCandidate = pane ? pane.activeBufferId : globalActiveBufferId;
   const activeBufferId =
@@ -141,7 +132,6 @@ const TabBar = ({
   );
 
   const { handleSave } = useEditorAppStore.use.actions();
-  const horizontalTabScroll = useSettingsStore((state) => state.settings.horizontalTabScroll);
   const maxOpenTabs = useSettingsStore((state) => state.settings.maxOpenTabs);
   const updateActivePath = useSidebarStore((s) => s.updateActivePath);
   const sidebarPosition = useSettingsStore((s) => s.settings.sidebarPosition);
@@ -159,7 +149,7 @@ const TabBar = ({
     usesWebViewerNavigation,
     activeWebViewerNavigation,
   });
-  const isInSplit = paneRoot.type === "split";
+  const isInSplit = pane !== null && paneId !== null;
   const isBottomPane = paneId === BOTTOM_PANE_ID;
 
   const [contextMenu, setContextMenu] = useState<{
@@ -219,7 +209,6 @@ const TabBar = ({
 
   const { tabBarRef, isAtLeftEdge, handleWheel } = useTabBarScroll({
     sidebarPosition,
-    horizontalTabScroll,
     draggedBufferId,
   });
 
