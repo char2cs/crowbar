@@ -13,7 +13,7 @@ import GitRemoteManager from '@/features/git/components/git-remote-manager'
 import GitTagManager from '@/features/git/components/git-tag-manager'
 import { CommitsTab } from './commits-tab'
 
-const WIDE_BREAKPOINT = 480
+const WIDE_BREAKPOINT = 640
 
 interface GitTabProps {
   wsId: string
