@@ -6,6 +6,7 @@ import type { LspSlice } from './slices/lsp-slice'
 import type { TerminalSlice } from './slices/terminal-slice'
 import type { FileWatcherSlice } from './slices/file-watcher-slice'
 import type { RecentFilesSlice } from './slices/recent-files-slice'
+import type { BranchReviewSlice } from './slices/branch-review-slice'
 
 export interface WorkspaceBaseState {
   workspaceId: string
@@ -20,3 +21,4 @@ export type WorkspaceState =
   & TerminalSlice
   & FileWatcherSlice
   & RecentFilesSlice
+  & BranchReviewSlice

@@ -9,6 +9,7 @@ import { createLspSlice } from './slices/lsp-slice'
 import { createTerminalSlice } from './slices/terminal-slice'
 import { createFileWatcherSlice } from './slices/file-watcher-slice'
 import { createRecentFilesSlice } from './slices/recent-files-slice'
+import { createBranchReviewSlice } from './slices/branch-review-slice'
 import { saveSessionToStore } from '@/features/editor/stores/buffer-session-persistence'
 
 export type WorkspaceStore = StoreApi<WorkspaceState>
@@ -35,6 +36,7 @@ export function createWorkspaceStore(wsId: string, snapshot?: WorkspaceSnapshot)
       ...createTerminalSlice(set, get, api),
       ...createFileWatcherSlice(set, get, api),
       ...createRecentFilesSlice(set, get, api),
+      ...createBranchReviewSlice(set, get, api),
       // snapshot only contains serializable data fields (see WorkspaceSnapshot type) —
       // action objects and non-serializable state (Sets, functions) are excluded
       ...(snapshot ?? {}),
