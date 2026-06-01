@@ -1,4 +1,4 @@
-import { memo, useRef, useState } from 'react'
+import { memo, useEffect, useRef, useState } from 'react'
 import { useVirtualizer } from '@tanstack/react-virtual'
 import { CaretDown, CaretRight, FilePlus, FileText, FileX, Plus } from '@phosphor-icons/react'
 import { Button } from '@/components/ui/button'
@@ -8,6 +8,57 @@ import type { ReviewThread } from '@/features/branch-review/types/review-types'
 import { cn } from '@/utils/cn'
 
 const LINE_THRESHOLD = 200
+
+const EXT_LANG: Record<string, string> = {
+  ts: 'typescript', tsx: 'tsx', js: 'javascript', jsx: 'jsx',
+  go: 'go', py: 'python', rs: 'rust', json: 'json',
+  css: 'css', html: 'html', md: 'markdown', sh: 'bash',
+  yaml: 'yaml', yml: 'yaml', toml: 'toml', sql: 'sql',
+}
+
+type ShikiToken = { content: string; color: string }
+
+function detectLang(filePath: string): string {
+  const ext = filePath.split('.').pop() ?? ''
+  return EXT_LANG[ext] ?? 'text'
+}
+
+function useShikiTokens(lines: GitDiffLine[], lang: string): Map<number, ShikiToken[]> {
+  const [tokenMap, setTokenMap] = useState<Map<number, ShikiToken[]>>(new Map())
+
+  useEffect(() => {
+    if (lang === 'text') return
+    const newLines = lines
+      .filter(l => l.line_type === 'context' || l.line_type === 'added')
+      .sort((a, b) => (a.new_line_number ?? 0) - (b.new_line_number ?? 0))
+
+    const code = newLines.map(l => l.content).join('\n')
+    let cancelled = false
+
+    void (async () => {
+      try {
+        const { codeToTokens } = await import('shiki')
+        const { tokens } = await codeToTokens(code, { lang, theme: 'github-dark-default' })
+        if (!cancelled) {
+          const map = new Map<number, ShikiToken[]>()
+          newLines.forEach((line, idx) => {
+            if (line.new_line_number != null) {
+              map.set(line.new_line_number, (tokens[idx] ?? []).map(t => ({
+                content: t.content,
+                color: (t as { color?: string }).color ?? 'inherit',
+              })))
+            }
+          })
+          setTokenMap(map)
+        }
+      } catch { /* fall back to plain text */ }
+    })()
+
+    return () => { cancelled = true }
+  }, [lines, lang])
+
+  return tokenMap
+}
 
 export interface DiffFileSectionProps {
   diff: GitDiff
@@ -33,6 +84,7 @@ function DiffLineRow({
   line,
   threads,
   filePath,
+  tokenMap,
   onAddThread,
   onReply,
   onResolve,
@@ -40,6 +92,7 @@ function DiffLineRow({
   line: GitDiffLine
   threads: ReviewThread[]
   filePath: string
+  tokenMap: Map<number, ShikiToken[]>
   onAddThread: (filePath: string, lineNumber: number) => void
   onReply: (threadId: string, body: string) => void
   onResolve: (threadId: string) => void
@@ -53,6 +106,8 @@ function DiffLineRow({
         : line.line_type === 'header'
           ? 'bg-muted/40 italic text-muted-foreground'
           : ''
+
+  const tokens = line.new_line_number != null ? tokenMap.get(line.new_line_number) : undefined
 
   return (
     <>
@@ -89,7 +144,13 @@ function DiffLineRow({
           >
             {line.line_type === 'added' ? '+' : line.line_type === 'removed' ? '-' : ' '}
           </span>
-          {line.content}
+          {tokens?.length ? (
+            tokens.map((tok, i) => (
+              <span key={i} style={{ color: tok.color }}>{tok.content}</span>
+            ))
+          ) : (
+            line.content
+          )}
         </div>
       </div>
       {lineThreads.map(thread => (
@@ -105,7 +166,9 @@ function DiffLineRow({
   )
 }
 
-function FlatLines({ diff, threads, onAddThread, onReply, onResolve }: DiffFileSectionProps) {
+type LinesProps = DiffFileSectionProps & { tokenMap: Map<number, ShikiToken[]> }
+
+function FlatLines({ diff, threads, tokenMap, onAddThread, onReply, onResolve }: LinesProps) {
   return (
     <div>
       {diff.lines.map((line, i) => (
@@ -114,6 +177,7 @@ function FlatLines({ diff, threads, onAddThread, onReply, onResolve }: DiffFileS
           line={line}
           threads={threads}
           filePath={diff.file_path}
+          tokenMap={tokenMap}
           onAddThread={onAddThread}
           onReply={onReply}
           onResolve={onResolve}
@@ -123,7 +187,7 @@ function FlatLines({ diff, threads, onAddThread, onReply, onResolve }: DiffFileS
   )
 }
 
-function VirtualizedLines({ diff, threads, onAddThread, onReply, onResolve }: DiffFileSectionProps) {
+function VirtualizedLines({ diff, threads, tokenMap, onAddThread, onReply, onResolve }: LinesProps) {
   const parentRef = useRef<HTMLDivElement>(null)
   const virtualizer = useVirtualizer({
     count: diff.lines.length,
@@ -157,6 +221,7 @@ function VirtualizedLines({ diff, threads, onAddThread, onReply, onResolve }: Di
               line={diff.lines[vItem.index]}
               threads={threads}
               filePath={diff.file_path}
+              tokenMap={tokenMap}
               onAddThread={onAddThread}
               onReply={onReply}
               onResolve={onResolve}
@@ -178,6 +243,7 @@ export const DiffFileSection = memo(function DiffFileSection({
   const [expanded, setExpanded] = useState(true)
   const fileName = diff.file_path.split('/').pop() ?? diff.file_path
   const isLarge = diff.lines.length > LINE_THRESHOLD
+  const tokenMap = useShikiTokens(diff.lines, detectLang(diff.file_path))
 
   return (
     <div className="border-b border-border last:border-b-0">
@@ -209,6 +275,7 @@ export const DiffFileSection = memo(function DiffFileSection({
           <VirtualizedLines
             diff={diff}
             threads={threads}
+            tokenMap={tokenMap}
             onAddThread={onAddThread}
             onReply={onReply}
             onResolve={onResolve}
@@ -217,6 +284,7 @@ export const DiffFileSection = memo(function DiffFileSection({
           <FlatLines
             diff={diff}
             threads={threads}
+            tokenMap={tokenMap}
             onAddThread={onAddThread}
             onReply={onReply}
             onResolve={onResolve}

@@ -132,6 +132,7 @@ export function BranchReviewPane({ wsId, branchName }: BranchReviewPaneProps) {
         <FramePanel className="min-h-0 flex-1 overflow-y-auto">
           <TabsPanel value="about">
             <AboutTab
+              wsId={wsId}
               description={description}
               onDescriptionChange={v => store.getState().setBranchReviewDescription(v)}
               onOpenConversation={handleOpenConversation}

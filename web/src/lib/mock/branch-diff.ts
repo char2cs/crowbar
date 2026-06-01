@@ -1033,3 +1033,47 @@ The new \`QueryLayer\` + \`CacheManager\` architecture addresses all of these.
 export function getMockBranchReviewDescription(wsId: string): string {
   return DESCRIPTIONS[wsId] ?? ''
 }
+
+// ---------------------------------------------------------------------------
+// Workspace-specific conversations
+// ---------------------------------------------------------------------------
+
+export interface BranchReviewChat {
+  id: string
+  title: string
+  age: string
+  isActive: boolean
+}
+
+const CHATS: Record<string, BranchReviewChat[]> = {
+  ws3: [
+    { id: 'ws3-c1', title: 'Token naming conventions', age: '3h', isActive: true },
+    { id: 'ws3-c2', title: 'CSS variable vs Tailwind tokens', age: '1d', isActive: false },
+    { id: 'ws3-c3', title: 'ThemeProvider SSR concerns', age: '2d', isActive: false },
+  ],
+  ws5: [
+    { id: 'ws5-c1', title: 'QueryLayer API design', age: '1h', isActive: true },
+    { id: 'ws5-c2', title: 'AbortController memory leak', age: '4h', isActive: true },
+    { id: 'ws5-c3', title: 'Cache stampede mitigation', age: '1d', isActive: false },
+    { id: 'ws5-c4', title: 'Migration plan for dashboard callers', age: '2d', isActive: false },
+  ],
+  ws1: [
+    { id: 'ws1-c1', title: 'Scaffold command spec', age: '6h', isActive: true },
+  ],
+  ws2: [
+    { id: 'ws2-c1', title: 'Auth flow edge cases', age: '2h', isActive: true },
+    { id: 'ws2-c2', title: 'JWT refresh strategy', age: '3d', isActive: false },
+  ],
+  ws4: [
+    { id: 'ws4-c1', title: 'WebSocket reconnection logic', age: '5h', isActive: true },
+    { id: 'ws4-c2', title: 'Message ordering guarantees', age: '1d', isActive: false },
+  ],
+}
+
+const DEFAULT_CHATS: BranchReviewChat[] = [
+  { id: 'default-c1', title: 'Implementation discussion', age: '1d', isActive: false },
+]
+
+export function getMockBranchReviewChats(wsId: string): BranchReviewChat[] {
+  return CHATS[wsId] ?? DEFAULT_CHATS
+}
