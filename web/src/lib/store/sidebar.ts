@@ -24,6 +24,7 @@ export interface Workspace {
   added?: number
   deleted?: number
   age: string
+  hasConflicts?: boolean
 }
 
 export interface Repo {
@@ -63,7 +64,7 @@ const INITIAL_REPOS: Repo[] = [
       { id: 'ws-fix', branch: 'fix/toolbar-crash', parentId: 'ws3', status: 'new', age: 'just now' },
       { id: 'ws2', branch: 'feature/api-backend', parentId: 'ws-develop', status: 'pr-merged', added: 27347, deleted: 455, age: '1d ago' },
       { id: 'ws4', branch: 'feature/ws-channels', parentId: 'ws-develop', status: 'pr-open', added: 8841, deleted: 203, age: '2d ago' },
-      { id: 'ws5', branch: 'refactor/query-layer', parentId: 'ws-develop', status: 'agent-running', added: 103482, deleted: 88910, age: '5d ago' },
+      { id: 'ws5', branch: 'refactor/query-layer', parentId: 'ws-develop', status: 'agent-running', added: 103482, deleted: 88910, age: '5d ago', hasConflicts: true },
       { id: 'ws6', branch: 'chore/bump-deps', parentId: 'ws-develop', status: 'pr-closed', added: 312, deleted: 298, age: '6d ago' },
     ],
   },
@@ -73,7 +74,7 @@ const INITIAL_REPOS: Repo[] = [
       { id: 'qc-develop', branch: 'develop', status: 'locked', age: '—' },
       { id: 'qc1', branch: 'feature/old-auth', parentId: 'qc-develop', status: 'pr-closed', age: '3d ago' },
       { id: 'qc2', branch: 'feature/oauth2', parentId: 'qc-develop', status: 'pr-open', added: 4521, deleted: 89, age: '1d ago' },
-      { id: 'qc3', branch: 'fix/token-expiry', parentId: 'qc2', status: 'new', added: 47, age: 'just now' },
+      { id: 'qc3', branch: 'fix/token-expiry', parentId: 'qc2', status: 'new', added: 47, age: 'just now', hasConflicts: true },
       { id: 'qc4', branch: 'perf/redis-cache', parentId: 'qc-develop', status: 'agent-running', added: 1823, deleted: 402, age: '12h ago' },
     ],
   },

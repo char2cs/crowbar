@@ -22,7 +22,8 @@ export type PaneContentType =
   | "htmlPreview"
   | "csvPreview"
   | "externalEditor"
-  | "crowbarChat";
+  | "crowbarChat"
+  | "branchReview";
 
 // ── Base fields shared by every content type ────────────────────────
 
@@ -34,6 +35,7 @@ interface PaneContentBase {
   isPinned: boolean;
   isPreview: boolean;
   isActive: boolean;
+  isUncloseable?: boolean;
 }
 
 // ── Per-type content definitions ────────────────────────────────────
@@ -107,6 +109,13 @@ export interface CrowbarChatContent extends PaneContentBase {
   wsId: string;
 }
 
+export interface BranchReviewContent extends PaneContentBase {
+  type: "branchReview";
+  wsId: string;
+  branchName: string;
+  isUncloseable: true;
+}
+
 // ── Discriminated union ─────────────────────────────────────────────
 
 export type PaneContent =
@@ -119,7 +128,8 @@ export type PaneContent =
   | HtmlPreviewContent
   | CsvPreviewContent
   | ExternalEditorContent
-  | CrowbarChatContent;
+  | CrowbarChatContent
+  | BranchReviewContent;
 
 // ── Type guards ─────────────────────────────────────────────────────
 
@@ -147,6 +157,10 @@ export function isExternalEditorContent(c: PaneContent): c is ExternalEditorCont
   return c.type === "externalEditor";
 }
 
+export function isBranchReviewContent(c: PaneContent): c is BranchReviewContent {
+  return c.type === "branchReview";
+}
+
 // ── Helpers ─────────────────────────────────────────────────────────
 
 /** Content types that represent real files on disk and should be persisted to session. */
@@ -160,6 +174,7 @@ const VIRTUAL_TYPES: ReadonlySet<PaneContentType> = new Set([
   "webViewer",
   "newTab",
   "crowbarChat",
+  "branchReview",
 ]);
 
 export function isVirtualContent(c: PaneContent): boolean {
@@ -264,7 +279,8 @@ export type OpenContentSpec =
       type: "crowbarChat";
       wsId: string;
       name: string;
-    };
+    }
+  | { type: "branchReview"; wsId: string; branchName: string; name: string; };
 
 // ── Buffer history / dialog state (used by workspace store) ─────────
 
