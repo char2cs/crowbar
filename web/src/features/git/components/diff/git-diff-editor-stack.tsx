@@ -14,6 +14,7 @@ import Breadcrumb from "@/features/editor/components/toolbar/breadcrumb";
 import { FileExplorerIcon } from "@/features/file-explorer/components/file-explorer-icon";
 import { useWorkspaceStore } from "@/features/workspace/stores/workspace-context";
 import { useEditorSettingsStore } from "@/features/editor/stores/settings-store";
+import { EDITOR_CONSTANTS } from "@/features/editor/config/constants";
 import { calculateLineHeight, splitLines } from "@/features/editor/utils/lines";
 import { useZoomStore } from "@/features/window/stores/zoom-store";
 import { useFileSystemStore } from "@/features/file-system/controllers/store";
@@ -144,10 +145,16 @@ function EmbeddedDiffSectionEditor({
   const height = useMemo(() => {
     const lineCount = Math.max(splitLines(original).length, splitLines(modified).length);
     const lineHeight = calculateLineHeight(fontSize * zoomLevel);
-    return Math.max(lineCount * lineHeight + 16, 160);
+    return Math.max(
+      lineCount * lineHeight + EDITOR_CONSTANTS.EDITOR_PADDING_TOP + EDITOR_CONSTANTS.EDITOR_PADDING_BOTTOM,
+      160,
+    );
   }, [original, modified, fontSize, zoomLevel]);
 
   const filePath = diff.new_path || diff.old_path || diff.file_path;
+
+  // Note: click-to-navigate-to-source (onReadonlySurfaceClick) is not implemented here;
+  // Monaco DiffEditor view zones would be needed to restore it.
 
   return (
     <div className="border-border border-t bg-background" style={{ height: `${height}px` }}>
