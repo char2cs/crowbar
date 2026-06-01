@@ -217,32 +217,29 @@ export function MarkdownChatView({ workspaceId, stepId }: MarkdownChatViewProps)
         </div>
       )}
 
-      {/* Editable tail — the tinted canvas fills the viewport when short. The
-          input grows with its text; the toolbar (sticky) follows the text down
-          and pins to the bottom once the input overflows the screen. */}
+      {/* Editable tail — tinted canvas that fills the viewport when short and
+          docks at the bottom otherwise. The input fills the region (scrolls
+          internally when long); the toolbar is pinned at the bottom. */}
       <div
-        className="flex min-h-[120px] shrink grow flex-col overflow-y-auto"
+        className="flex min-h-[120px] shrink grow flex-col overflow-hidden"
         style={{ background: 'color-mix(in srgb, var(--primary) 10%, transparent)' }}
       >
-        <MarkdownChatInput
-          getTurns={getTurns}
-          onSubmit={handleSubmit}
-          onWidgetChange={handleWidgetChange}
-          onEditorReady={handleInputReady}
-          onSlashCommand={handleSlashCommand}
-        />
-        <div
-          className="sticky bottom-0"
-          style={{ background: 'color-mix(in srgb, var(--primary) 10%, var(--background))' }}
-        >
-          <MarkdownChatToolbar
-            editorView={inputEditorView}
-            onInsertWidget={handleInsertWidget}
-            onSubmit={handleSendClick}
-            isStreaming={isStreaming}
-            onStop={handleStop}
+        <div className="min-h-0 flex-1">
+          <MarkdownChatInput
+            getTurns={getTurns}
+            onSubmit={handleSubmit}
+            onWidgetChange={handleWidgetChange}
+            onEditorReady={handleInputReady}
+            onSlashCommand={handleSlashCommand}
           />
         </div>
+        <MarkdownChatToolbar
+          editorView={inputEditorView}
+          onInsertWidget={handleInsertWidget}
+          onSubmit={handleSendClick}
+          isStreaming={isStreaming}
+          onStop={handleStop}
+        />
       </div>
     </div>
   )
