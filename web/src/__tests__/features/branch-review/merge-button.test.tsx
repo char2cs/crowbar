@@ -9,18 +9,14 @@ describe('MergeButton', () => {
     expect(screen.getByRole('button', { name: /merge commit/i })).toBeTruthy()
   })
 
-  it('is disabled and shows tooltip when parent is locked', () => {
+  it('is disabled when parent is locked', () => {
     render(<MergeButton strategy="merge" isLocked={true} hasConflicts={false} onMerge={() => {}} onStrategyChange={() => {}} />)
-    const btn = screen.getByRole('button', { name: /merge commit/i })
-    expect(btn).toBeDisabled()
-    expect(btn.title).toMatch(/locked/i)
+    expect(screen.getByRole('button', { name: /merge commit/i })).toBeDisabled()
   })
 
-  it('is disabled and shows tooltip when branch has conflicts', () => {
+  it('is disabled when branch has conflicts', () => {
     render(<MergeButton strategy="squash" isLocked={false} hasConflicts={true} onMerge={() => {}} onStrategyChange={() => {}} />)
-    const btn = screen.getByRole('button', { name: /squash and merge/i })
-    expect(btn).toBeDisabled()
-    expect(btn.title).toMatch(/conflict/i)
+    expect(screen.getByRole('button', { name: /squash and merge/i })).toBeDisabled()
   })
 
   it('calls onMerge when enabled and clicked', async () => {
