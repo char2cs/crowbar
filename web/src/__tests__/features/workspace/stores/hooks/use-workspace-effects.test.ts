@@ -21,6 +21,9 @@ vi.mock('@/features/workspace/stores/hooks/use-pane-store', () => ({
 vi.mock('@/features/workspace/stores/hooks/use-workflow', () => ({
   useWorkflowActions: () => mockWorkflowActions,
 }))
+vi.mock('@/features/workspace/stores/workspace-context', () => ({
+  useWorkspaceStore: () => ({ getState: () => ({ buffers: [] }) }),
+}))
 vi.mock('@/lib/mock/files', () => ({
   getMockFileTree: () => [],
   getMockFileContent: (_path: string) => '// file content',
