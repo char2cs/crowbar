@@ -8,6 +8,18 @@ import { createLeaf } from '@/features/panes/utils/pane-layout'
 import { saveSidebarUI } from '@/lib/persistence/sidebar-ui'
 import { saveWorkspaceHierarchy } from '@/lib/persistence/workspace-hierarchy'
 import { useSidebarStore } from '@/lib/store/sidebar'
+import type { Repo } from '@/lib/store/sidebar'
+
+const HYDRATE_TEST_REPOS: Repo[] = [
+  {
+    id: 'crowbar', name: 'crowbar', avatarLabel: 'C', avatarColor: 'bg-indigo-700',
+    workspaces: [
+      { id: 'ws-develop', branch: 'develop', status: 'locked', age: '—' },
+      { id: 'ws3', branch: 'feature/app-design', parentId: 'ws-develop', status: 'pr-open', age: '16h ago' },
+      { id: 'ws1', branch: 'enhancement/scaffold', parentId: 'ws3', status: 'agent-running', age: '3d ago' },
+    ],
+  },
+]
 
 async function seedDB(workspaceId: string) {
   const db = await getDB()
@@ -96,7 +108,13 @@ describe('hydrateSidebar', () => {
   beforeEach(async () => {
     resetDB()
     globalThis.indexedDB = new IDBFactory()
-    useSidebarStore.setState((useSidebarStore as any).getInitialState())
+    useSidebarStore.setState({
+      chats: [],
+      repos: HYDRATE_TEST_REPOS.map(r => ({ ...r, workspaces: [...r.workspaces] })),
+      collapsedRepos: new Set<string>(),
+      collapsedWorkspaces: new Set<string>(),
+      activeTab: 'workspaces',
+    })
   })
 
   it('does nothing when IDB is empty', async () => {

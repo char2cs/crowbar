@@ -1,8 +1,39 @@
 import { beforeEach, expect, test } from 'vitest'
 import { useSidebarStore } from '@/lib/store/sidebar'
+import type { Repo } from '@/lib/store/sidebar'
+
+const FIXTURE_REPOS: Repo[] = [
+  {
+    id: 'crowbar', name: 'crowbar', avatarLabel: 'C', avatarColor: 'bg-indigo-700',
+    workspaces: [
+      { id: 'ws-develop', branch: 'develop', status: 'locked', age: '—' },
+      { id: 'ws3', branch: 'feature/app-design', parentId: 'ws-develop', status: 'pr-open', added: 5672, age: '16h ago' },
+      { id: 'ws1', branch: 'enhancement/scaffold', parentId: 'ws3', status: 'agent-running', added: 22892, age: '3d ago' },
+      { id: 'ws-fix', branch: 'fix/toolbar-crash', parentId: 'ws3', status: 'new', age: 'just now' },
+      { id: 'ws2', branch: 'feature/api-backend', parentId: 'ws-develop', status: 'pr-merged', added: 27347, deleted: 455, age: '1d ago' },
+      { id: 'ws4', branch: 'feature/ws-channels', parentId: 'ws-develop', status: 'pr-open', added: 8841, deleted: 203, age: '2d ago' },
+      { id: 'ws5', branch: 'refactor/query-layer', parentId: 'ws-develop', status: 'agent-running', added: 103482, deleted: 88910, age: '5d ago', hasConflicts: true },
+      { id: 'ws6', branch: 'chore/bump-deps', parentId: 'ws-develop', status: 'pr-closed', added: 312, deleted: 298, age: '6d ago' },
+    ],
+  },
+  {
+    id: 'quiver-core', name: 'quiver.core', avatarLabel: 'Q', avatarColor: 'bg-emerald-700',
+    workspaces: [
+      { id: 'qc-develop', branch: 'develop', status: 'locked', age: '—' },
+      { id: 'qc1', branch: 'feature/old-auth', parentId: 'qc-develop', status: 'pr-closed', age: '3d ago' },
+      { id: 'qc2', branch: 'feature/oauth2', parentId: 'qc-develop', status: 'pr-open', added: 4521, deleted: 89, age: '1d ago' },
+    ],
+  },
+]
 
 beforeEach(() => {
-  useSidebarStore.setState(useSidebarStore.getInitialState())
+  useSidebarStore.setState({
+    chats: [],
+    repos: FIXTURE_REPOS.map(r => ({ ...r, workspaces: [...r.workspaces] })),
+    collapsedRepos: new Set<string>(),
+    collapsedWorkspaces: new Set<string>(),
+    activeTab: 'workspaces',
+  })
 })
 
 test('addWorkspace appends to the correct repo', () => {
@@ -105,7 +136,13 @@ describe('toggleRepo persistence', () => {
   beforeEach(() => {
     resetDB()
     globalThis.indexedDB = new IDBFactory()
-    useSidebarStore.setState((useSidebarStore as any).getInitialState())
+    useSidebarStore.setState({
+      chats: [],
+      repos: [],
+      collapsedRepos: new Set<string>(),
+      collapsedWorkspaces: new Set<string>(),
+      activeTab: 'workspaces',
+    })
   })
 
   test('writes collapsed state to IDB after toggling on', async () => {

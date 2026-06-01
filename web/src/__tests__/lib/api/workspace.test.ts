@@ -1,13 +1,30 @@
 import { reparentWorkspace, handleWorkspaceReparented } from '@/lib/api/workspace'
 import { loadWorkspaceHierarchy } from '@/lib/persistence/workspace-hierarchy'
 import { useSidebarStore } from '@/lib/store/sidebar'
+import type { Repo } from '@/lib/store/sidebar'
 import { IDBFactory } from 'fake-indexeddb'
 import { resetDB } from '@/lib/persistence/idb'
+
+const WORKSPACE_TEST_REPOS: Repo[] = [
+  {
+    id: 'crowbar', name: 'crowbar', avatarLabel: 'C', avatarColor: 'bg-indigo-700',
+    workspaces: [
+      { id: 'ws-develop', branch: 'develop', status: 'locked', age: '—' },
+      { id: 'ws3', branch: 'feature/app-design', parentId: 'ws-develop', status: 'pr-open', age: '16h ago' },
+    ],
+  },
+]
 
 beforeEach(() => {
   resetDB()
   globalThis.indexedDB = new IDBFactory()
-  useSidebarStore.setState((useSidebarStore as any).getInitialState())
+  useSidebarStore.setState({
+    chats: [],
+    repos: WORKSPACE_TEST_REPOS.map(r => ({ ...r, workspaces: [...r.workspaces] })),
+    collapsedRepos: new Set<string>(),
+    collapsedWorkspaces: new Set<string>(),
+    activeTab: 'workspaces',
+  })
 })
 
 describe('handleWorkspaceReparented', () => {
