@@ -57,6 +57,12 @@ export interface WorkspaceHierarchy {
   updatedAt: number
 }
 
+export interface CachedRecord<T> {
+  key: string
+  data: T
+  fetchedAt: number
+}
+
 export interface CrowbarDB extends DBSchema {
   'workspace-layout': {
     key: string
@@ -71,10 +77,6 @@ export interface CrowbarDB extends DBSchema {
     key: string
     value: UIPreferences
   }
-  'query-cache': {
-    key: string
-    value: string
-  }
   'sidebar-ui': {
     key: string
     value: SidebarUI
@@ -87,4 +89,10 @@ export interface CrowbarDB extends DBSchema {
     key: string
     value: BranchReviewPersistedState
   }
+  'workspaces-data': { key: string; value: CachedRecord<unknown> }
+  'git-data': { key: string; value: CachedRecord<unknown> }
+  'file-tree-data': { key: string; value: CachedRecord<unknown> }
+  'branch-review-data': { key: string; value: CachedRecord<unknown> }
+  'chat-history': { key: string; value: CachedRecord<unknown> }
+  'projects-data': { key: string; value: CachedRecord<unknown> }
 }
