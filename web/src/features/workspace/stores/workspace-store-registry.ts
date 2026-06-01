@@ -5,6 +5,17 @@ import { saveWorkspaceLayout } from '@/lib/persistence/workspace-layout'
 const registry = new Map<string, WorkspaceStore>()
 const persistTimers = new Map<string, ReturnType<typeof setTimeout>>()
 
+let _activeWorkspaceId: string | null = null
+
+export function setActiveWorkspaceId(wsId: string): void {
+  _activeWorkspaceId = wsId
+}
+
+export function getActiveWorkspaceStore(): WorkspaceStore | null {
+  if (!_activeWorkspaceId) return null
+  return registry.get(_activeWorkspaceId) ?? null
+}
+
 export function getOrCreateWorkspaceStore(wsId: string): WorkspaceStore {
   if (!registry.has(wsId)) {
     const snapshot = loadFromLocalStorage(wsId)
@@ -17,9 +28,9 @@ export function getOrCreateWorkspaceStore(wsId: string): WorkspaceStore {
         persistTimers.delete(wsId)
         saveWorkspaceLayout({
           workspaceId: wsId,
-          panes: [state.paneRoot],
+          panes: [state.panes],
           activePane: state.activePaneId,
-          tabGroups: [state.bottomRoot],
+          tabGroups: [state.rootLayout, state.bottomLayout],
           sidebarWidth: 0,
           rightSidebarWidth: 0,
           updatedAt: Date.now(),

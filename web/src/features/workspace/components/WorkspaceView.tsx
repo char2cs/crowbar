@@ -1,6 +1,6 @@
-import { useLayoutEffect } from 'react'
+import { useEffect, useLayoutEffect } from 'react'
 import { WorkspaceStoreContext } from '../stores/workspace-context'
-import { getOrCreateWorkspaceStore } from '../stores/workspace-store-registry'
+import { getOrCreateWorkspaceStore, setActiveWorkspaceId } from '../stores/workspace-store-registry'
 import { setActiveWorkspaceStoreRef } from '../stores/workspace-store-ref'
 import { WorkspaceLayoutRoot } from './WorkspaceLayoutRoot'
 import { useWorkspaceEffects } from '../stores/hooks/use-workspace-effects'
@@ -17,6 +17,10 @@ export function WorkspaceView({ wsId, label }: WorkspaceViewProps) {
     setActiveWorkspaceStoreRef(store)
     return () => { setActiveWorkspaceStoreRef(null) }
   }, [store])
+
+  useEffect(() => {
+    setActiveWorkspaceId(wsId)
+  }, [wsId])
 
   return (
     <WorkspaceStoreContext.Provider value={store}>
