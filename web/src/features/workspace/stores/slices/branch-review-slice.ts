@@ -38,6 +38,29 @@ export const INITIAL_BRANCH_REVIEW_STATE: BranchReviewState = {
   conversations: [],
 }
 
+export interface OptimisticOp {
+  apply: () => void
+  rollback: () => void
+  commit: () => Promise<void>
+}
+
+/**
+ * Optimistic mutation: apply the local change immediately, then attempt the
+ * server commit. If the commit throws, roll the local change back. Returns
+ * whether the commit succeeded so the caller can surface a toast on failure
+ * (stores never import components).
+ */
+export async function addThreadOptimistic({ apply, rollback, commit }: OptimisticOp): Promise<boolean> {
+  apply()
+  try {
+    await commit()
+    return true
+  } catch {
+    rollback()
+    return false
+  }
+}
+
 export const createBranchReviewSlice: StateCreator<
   WorkspaceState,
   [['zustand/immer', never]],
