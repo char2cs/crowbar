@@ -42,6 +42,7 @@ import {
   serializeGitDiffSourceForSplitEditor,
 } from "../../utils/diff-editor-content";
 import DiffLineBackgroundLayer from "./diff-line-background-layer";
+import GitDiffEditorSurface from "./git-diff-editor-surface";
 import ImageDiffViewer from "./git-diff-image";
 import TextDiffViewer from "./git-diff-text";
 import { Badge } from "@/components/ui/badge";
@@ -114,6 +115,20 @@ function buildGitHubReferenceUrl(remoteUrl: string, gitRef: string): string | nu
 }
 
 function LargeDiffSectionEditor({ diff, cacheKey }: { diff: GitDiff; cacheKey: string }) {
+  const containerStyle = {
+    height: "min(72vh, 760px)",
+    minHeight: "420px",
+  } as const;
+
+  // raw_patch diffs have no parsed lines; fall back to plain text display
+  if (diff.raw_patch && diff.lines.length === 0) {
+    return (
+      <div className="relative overflow-hidden border-border border-t bg-background" style={containerStyle}>
+        <GitDiffEditorSurface cacheKey={`${cacheKey}_raw`} diff={diff} />
+      </div>
+    );
+  }
+
   const sourcePath = diff.new_path || diff.old_path || diff.file_path;
   const editorContent = useMemo(() => serializeGitDiffForEditor(diff), [diff]);
   const bufferId = useDiffEditorBuffer({
@@ -126,7 +141,7 @@ function LargeDiffSectionEditor({ diff, cacheKey }: { diff: GitDiff; cacheKey: s
   return (
     <div
       className="relative overflow-hidden border-border border-t bg-background"
-      style={{ height: "min(72vh, 760px)", minHeight: "420px" }}
+      style={containerStyle}
     >
       <CodeEditor
         bufferId={bufferId}

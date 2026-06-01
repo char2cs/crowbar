@@ -1,4 +1,4 @@
-import { memo, useEffect, useRef } from "react";
+import { memo, useEffect, useMemo, useRef } from "react";
 import { editor as monacoEditor, Uri } from "monaco-editor";
 import { detectLanguageFromPath } from "@/features/editor/utils/language-detection";
 
@@ -23,7 +23,7 @@ function MonacoDiffEditorViewComponent({
 }: MonacoDiffEditorViewProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const editorRef = useRef<monacoEditor.IStandaloneDiffEditor | null>(null);
-  const language = detectLanguageFromPath(filePath);
+  const language = useMemo(() => detectLanguageFromPath(filePath), [filePath]);
 
   // Create the diff editor once per cacheKey; dispose on unmount or cacheKey change.
   // language and initial content are captured at mount time — cacheKey drives identity.

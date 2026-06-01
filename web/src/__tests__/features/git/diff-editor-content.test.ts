@@ -65,4 +65,19 @@ describe("buildMonacoDiffContent", () => {
     expect(original).toBe("");
     expect(modified).toBe("");
   });
+
+  test("raw_patch diff with empty lines produces empty strings", () => {
+    const diff: GitDiff = {
+      file_path: "src/big.ts",
+      is_new: false,
+      is_deleted: false,
+      is_renamed: false,
+      raw_patch: "--- a/src/big.ts\n+++ b/src/big.ts\n@@ -1 +1 @@\n-old\n+new",
+      lines: [],
+    };
+    const { original, modified } = buildMonacoDiffContent(diff);
+    // raw_patch is not parsed by buildMonacoDiffContent; callers must handle this case
+    expect(original).toBe("");
+    expect(modified).toBe("");
+  });
 });
