@@ -45,6 +45,27 @@ initViewStoreSubscription()
 
 const router = createRouter({ routeTree, history: createHashHistory() })
 
+// Fold the active mock scenario into the React Query persistence buster. When the
+// scenario changes, the buster changes, so PersistQueryClientProvider DISCARDS the
+// entire persisted query-cache on the next load. This is what makes scenario
+// switching deterministic: without it, the old in-memory cache can be flushed back
+// to IDB during the reload's unload (racing applyScenario's manual clear), and the
+// restored stale data would be served to useQuery consumers — the app would
+// intermittently "not apply" the new scenario. In real-backend mode (no mock) the
+// scenario is irrelevant, so the buster stays as just the app version.
+function scenarioBusterSuffix(): string {
+  if (import.meta.env.VITE_USE_MOCK !== 'true') return ''
+  try {
+    const raw = localStorage.getItem('crowbar.chaos')
+    const scenario = raw ? JSON.parse(raw)?.state?.scenario : null
+    return scenario ? `-${scenario}` : ''
+  } catch {
+    return ''
+  }
+}
+
+const queryCacheBuster = `${__APP_VERSION__}${scenarioBusterSuffix()}`
+
 function renderApp() {
   createRoot(document.getElementById('root')!).render(
     <StrictMode>
@@ -53,7 +74,7 @@ function renderApp() {
         persistOptions={{
           persister,
           maxAge: 7 * 24 * 60 * 60 * 1000,
-          buster: __APP_VERSION__,
+          buster: queryCacheBuster,
         }}
       >
         <TooltipProvider>
