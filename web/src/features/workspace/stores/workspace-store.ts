@@ -10,13 +10,13 @@ import { createTerminalSlice } from './slices/terminal-slice'
 import { createFileWatcherSlice } from './slices/file-watcher-slice'
 import { createRecentFilesSlice } from './slices/recent-files-slice'
 import { saveSessionToStore } from '@/features/editor/stores/buffer-session-persistence'
-import { findPaneGroup } from '@/features/panes/utils/pane-tree'
 
 export type WorkspaceStore = StoreApi<WorkspaceState>
 
 export type WorkspaceSnapshot = Partial<
   Pick<WorkspaceState,
-    | 'paneRoot' | 'bottomRoot' | 'activePaneId' | 'fullscreenPaneId' | 'mostRecentActivePaneIds'
+    | 'panes' | 'rootLayout' | 'bottomLayout'
+    | 'activePaneId' | 'fullscreenPaneId' | 'mostRecentActivePaneIds'
     | 'buffers'
     | 'currentStepId'
     | 'recentFiles'
@@ -43,9 +43,7 @@ export function createWorkspaceStore(wsId: string, snapshot?: WorkspaceSnapshot)
 
   store.subscribe((state, prev) => {
     if (state.buffers === prev.buffers) return
-    const activePane =
-      findPaneGroup(state.paneRoot, state.activePaneId) ??
-      findPaneGroup(state.bottomRoot, state.activePaneId)
+    const activePane = state.panes[state.activePaneId] ?? null
     saveSessionToStore(state.buffers, activePane?.activeBufferId ?? null)
   })
 
