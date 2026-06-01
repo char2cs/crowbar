@@ -18,6 +18,9 @@ import {
   DropdownMenuSubContent,
 } from '@/components/ui/dropdown-menu'
 
+// Align the toolbar with the centered text column.
+const COLUMN_PAD = 'max(48px, calc((100% - 680px) / 2))'
+
 const CODE_LANGUAGES = [
   'typescript', 'javascript', 'python', 'go', 'shell', 'json', 'plain',
 ] as const
@@ -121,16 +124,14 @@ export function MarkdownChatToolbar({ editorView, onInsertWidget, onSubmit, isSt
   const v = editorView
 
   return (
-    // The Send/Stop primary action lives OUTSIDE the base-ui <Toolbar>: that
-    // component manages its children as a roving-focus composite, and a plain
-    // <Button> placed inside it as a non-registered child doesn't receive click
-    // activation (only the ToolbarButton composite items do). Keeping it as a
-    // sibling guarantees its onClick fires.
     <div
-      className="flex items-center py-1.5"
-      style={{ paddingLeft: 'max(48px, calc((100% - 680px) / 2 + 48px))', paddingRight: 'max(48px, calc((100% - 680px) / 2 + 48px))' }}
+      className="py-2"
+      style={{ paddingLeft: COLUMN_PAD, paddingRight: COLUMN_PAD }}
     >
-      <Toolbar className="rounded-none border-0 bg-transparent p-0 shadow-none">
+      {/* CrossUI Toolbar. The Send/Stop primary action is a registered composite
+          item via `render={<Button/>}` so its click activates inside the
+          roving-focus toolbar (a plain <Button> child wouldn't). */}
+      <Toolbar className="w-full">
         <ToolbarGroup>
           <ToolbarButton
             aria-label="Bold"
@@ -194,29 +195,29 @@ export function MarkdownChatToolbar({ editorView, onInsertWidget, onSubmit, isSt
           onInsertCodeBlock={(lang) => v && insertCodeBlock(v, lang)}
           onInsertMermaid={() => v && insertMermaid(v)}
         />
-      </Toolbar>
 
-      <div className="ml-auto flex items-center gap-2">
         {isStreaming ? (
-          <Button
-            variant="destructive"
-            size="icon"
-            onClick={onStop}
+          <ToolbarButton
+            render={<Button variant="destructive" size="icon-sm" />}
+            aria-label="Stop"
             title="Stop"
+            onClick={onStop}
+            className="ml-auto"
           >
             <Square />
-          </Button>
+          </ToolbarButton>
         ) : (
-          <Button
-            variant="default"
-            size="icon"
-            onClick={onSubmit}
+          <ToolbarButton
+            render={<Button variant="default" size="icon-sm" />}
+            aria-label="Send"
             title="Send (⌘↵)"
+            onClick={onSubmit}
+            className="ml-auto"
           >
             <SendHorizontal />
-          </Button>
+          </ToolbarButton>
         )}
-      </div>
+      </Toolbar>
     </div>
   )
 }

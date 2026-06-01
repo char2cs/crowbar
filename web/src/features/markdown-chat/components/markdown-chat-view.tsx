@@ -23,10 +23,6 @@ const MOCK_RESPONSE =
   '3. **Maintainability** — the code is hard to follow\n\n' +
   'My recommendation is to refactor the core loop first.'
 
-// Left/right edge of the centered text column — shared by the history grid, the
-// input's line padding, and the vertical rails so everything lines up.
-const COLUMN_EDGE = 'max(48px, calc((100% - 680px) / 2))'
-
 export function MarkdownChatView({ workspaceId, stepId }: MarkdownChatViewProps) {
   const store = getOrCreateConversationStore(workspaceId)
   const turns = useStore(store, (s) => s.turns)
@@ -187,19 +183,7 @@ export function MarkdownChatView({ workspaceId, stepId }: MarkdownChatViewProps)
   // No empty-state placeholder: when there are no turns, the editable tail simply
   // fills the whole canvas (like opening a blank document).
   return (
-    <div className="@container relative flex h-full w-full flex-col overflow-hidden">
-      {/* Continuous vertical rails at the text column edges */}
-      <div
-        aria-hidden
-        className="pointer-events-none absolute inset-y-0 z-10 w-px"
-        style={{ left: COLUMN_EDGE, background: 'color-mix(in srgb, var(--foreground) 25%, transparent)' }}
-      />
-      <div
-        aria-hidden
-        className="pointer-events-none absolute inset-y-0 z-10 w-px"
-        style={{ right: COLUMN_EDGE, background: 'color-mix(in srgb, var(--foreground) 25%, transparent)' }}
-      />
-
+    <div className="@container flex h-full w-full flex-col overflow-hidden">
       {/* Rendered turns — only when there are any (an empty conversation shows
           just the input canvas, no blank gap at the top). Scrolls internally. */}
       {turns.length > 0 && (
