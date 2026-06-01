@@ -4,7 +4,6 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useStore } from "zustand";
 import { IconThemeSelectorContent } from "@/features/command-palette/components/icon-theme-selector";
 import { ThemeSelectorContent } from "@/features/command-palette/components/theme-selector";
-import { QuickQuestionCommandContent } from "@/features/ai/components/quick-question-command";
 import { useLspStore } from "@/features/editor/lsp/lsp-store";
 import { useFileSystemStore } from "@/features/file-system/controllers/store";
 import { useWorkspaceStore } from "@/features/workspace/stores/workspace-context";
@@ -22,7 +21,6 @@ import { useToast } from "@/features/layout/contexts/toast-context";
 import { useOnboardingStore } from "@/features/onboarding/store";
 import { useSettingsStore } from "@/features/settings/store";
 import { useWhatsNewStore } from "@/features/settings/stores/whats-new-store";
-import { useEditorAppStore } from "@/features/editor/stores/editor-app-store";
 import { useUIState } from "@/features/window/stores/ui-state-store";
 import { useZoomStore } from "@/features/window/stores/zoom-store";
 import { keymapRegistry } from "@/features/keymaps/utils/registry";
@@ -70,7 +68,6 @@ const CommandPalette = () => {
   const setIsQuickOpenVisible = useUIState((s) => s.setIsQuickOpenVisible);
   const setIsRightSidebarVisible = useUIState((s) => s.setIsRightSidebarVisible);
   const openSettingsDialog = useUIState((s) => s.openSettingsDialog);
-  const { openQuickEdit } = useEditorAppStore.use.actions();
   const handleFileOpen = useFileSystemStore.use.handleFileOpen?.();
   const isVisible = isCommandPaletteVisible;
   const onClose = () => {
@@ -184,7 +181,6 @@ const CommandPalette = () => {
       isFindVisible,
       setIsFindVisible,
       settings: {
-        isAIChatVisible: settings.isAIChatVisible,
         sidebarPosition: settings.sidebarPosition,
         nativeMenuBar: settings.nativeMenuBar,
         compactMenuBar: settings.compactMenuBar,
@@ -289,7 +285,6 @@ const CommandPalette = () => {
       ) => void,
       clearLspError,
       rootFolderPath,
-      openQuickEdit,
       pushPaletteView: pushView,
       showToast,
       onClose,
@@ -385,16 +380,7 @@ const CommandPalette = () => {
 
   return (
     <Command isVisible={isVisible} onClose={onClose}>
-      {currentView === "quick-question" ? (
-        <QuickQuestionCommandContent
-          isActive={currentView === "quick-question"}
-          onBack={popView}
-          onClose={onClose}
-          activeBuffer={activeBuffer}
-          buffers={buffers}
-          projectRoot={rootFolderPath}
-        />
-      ) : currentView === "color-theme" ? (
+      {currentView === "color-theme" ? (
         <ThemeSelectorContent
           isActive={currentView === "color-theme"}
           onBack={popView}

@@ -197,20 +197,6 @@ export const EditorSettings = () => {
         </SettingRow>
 
         <SettingRow
-          label="Buffer Carousel"
-          description="Show open buffers as a horizontally scrollable carousel in the main view"
-          onReset={() =>
-            updateSetting("horizontalTabScroll", getDefaultSetting("horizontalTabScroll"))
-          }
-          canReset={settings.horizontalTabScroll !== getDefaultSetting("horizontalTabScroll")}
-        >
-          <Switch
-            checked={settings.horizontalTabScroll}
-            onChange={(checked) => updateSetting("horizontalTabScroll", checked)}
-            size="sm"
-          />
-        </SettingRow>
-        <SettingRow
           label="Auto Save"
           description="Automatically save files when editing"
           onReset={() => updateSetting("autoSave", getDefaultSetting("autoSave"))}

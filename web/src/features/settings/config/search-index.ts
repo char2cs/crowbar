@@ -490,72 +490,6 @@ export const settingsSearchIndex: SettingSearchRecord[] = [
     ],
   },
 
-  // AI Settings
-  {
-    id: "ai-provider-model",
-    tab: "ai",
-    section: "Crowbar Agent",
-    label: "Provider & Model",
-    description: "Choose the provider and model used by Crowbar Agent",
-    keywords: ["ai", "provider", "model", "llm", "service", "agent"],
-  },
-  {
-    id: "ai-ollama-endpoint",
-    tab: "ai",
-    section: "Ollama",
-    label: "Ollama Endpoint",
-    description: "Base URL for the Ollama API server",
-    keywords: ["ollama", "endpoint", "url", "local", "lan", "cloud", "host", "port"],
-  },
-  {
-    id: "ai-custom-provider",
-    tab: "ai",
-    section: "Custom Provider",
-    label: "Custom Provider",
-    description: "Configure an OpenAI-compatible base URL, model, and optional API key",
-    keywords: ["ai", "custom", "provider", "endpoint", "base", "url", "api", "key", "model"],
-  },
-  {
-    id: "ai-ollama-api-key",
-    tab: "ai",
-    section: "Ollama",
-    label: "Ollama API Key",
-    description: "Bearer token for Ollama Cloud (optional for local servers)",
-    keywords: ["ollama", "api", "key", "token", "auth", "cloud", "bearer"],
-  },
-  {
-    id: "ai-default-session-mode",
-    tab: "ai",
-    section: "Agent Defaults",
-    label: "Default Session Mode",
-    description: "Default mode for ACP agent sessions",
-    keywords: ["ai", "session", "mode", "default", "agent", "acp"],
-  },
-  {
-    id: "ai-autocomplete",
-    tab: "ai",
-    section: "Autocomplete",
-    label: "AI Completion",
-    description: "Enable AI autocomplete while typing",
-    keywords: ["ai", "autocomplete", "completion", "openrouter"],
-  },
-  {
-    id: "ai-autocomplete-model",
-    tab: "ai",
-    section: "Autocomplete",
-    label: "Autocomplete Model",
-    description: "Choose any OpenRouter model for autocomplete",
-    keywords: ["ai", "model", "autocomplete", "openrouter"],
-  },
-  {
-    id: "ai-clear-chats",
-    tab: "ai",
-    section: "Chat History",
-    label: "Clear All Chats",
-    description: "Permanently delete all chat history",
-    keywords: ["ai", "chat", "clear", "delete", "history"],
-  },
-
   // Language Settings
   {
     id: "language-default-language",
@@ -754,14 +688,6 @@ export const settingsSearchIndex: SettingSearchRecord[] = [
     keywords: ["terminal", "cursor", "width", "thickness", "bar"],
   },
 
-  {
-    id: "editor-horizontal-tab-scroll",
-    tab: "editor",
-    section: "Tabs",
-    label: "Buffer Carousel",
-    description: "Show open buffers as a horizontally scrollable carousel in the main view",
-    keywords: ["tabs", "buffers", "carousel", "scroll", "horizontal", "trackpad", "main view"],
-  },
   {
     id: "editor-custom-editor-command",
     tab: "editor",

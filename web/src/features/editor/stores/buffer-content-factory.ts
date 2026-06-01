@@ -37,15 +37,6 @@ export const createPaneContent = (id: string, spec: OpenContentSpec): PaneConten
         remoteConnectionId: spec.remoteConnectionId,
       };
     }
-    case "agent":
-      return {
-        ...base,
-        type: "agent",
-        path: `agent://${spec.sessionId ?? id}`,
-        name: "Agent",
-        isPreview: false,
-        sessionId: spec.sessionId ?? id.replace("buffer_", ""),
-      };
     case "webViewer":
       return {
         ...base,

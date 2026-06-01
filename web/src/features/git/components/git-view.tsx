@@ -623,8 +623,6 @@ const GitView = ({ repoPath, onFileSelect, isActive }: GitViewProps) => {
         <SidebarFooter surface>
           <GitCommitPanel
             stagedFilesCount={stagedFiles.length}
-            stagedFiles={stagedFiles}
-            currentBranch={gitStatus.branch}
             repoPath={activeRepoPath}
             ahead={gitStatus.ahead}
             behind={gitStatus.behind}

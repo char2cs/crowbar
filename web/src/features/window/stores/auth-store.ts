@@ -3,7 +3,6 @@ import { create } from 'zustand'
 
 export interface EnterprisePolicy {
   managedMode?: boolean
-  aiCompletionEnabled?: boolean
   allowByok?: boolean
   [key: string]: unknown
 }

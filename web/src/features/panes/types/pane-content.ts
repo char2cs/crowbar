@@ -16,7 +16,6 @@ export interface TokenEntry {
 export type PaneContentType =
   | "editor"
   | "terminal"
-  | "agent"
   | "webViewer"
   | "newTab"
   | "diff"
@@ -68,11 +67,6 @@ export interface TerminalContent extends PaneContentBase {
   initialCommand?: string;
   workingDirectory?: string;
   remoteConnectionId?: string;
-}
-
-export interface AgentContent extends PaneContentBase {
-  type: "agent";
-  sessionId: string;
 }
 
 export interface WebViewerContent extends PaneContentBase {
@@ -188,7 +182,6 @@ export interface CrowbarChatContent extends PaneContentBase {
 export type PaneContent =
   | EditorContent
   | TerminalContent
-  | AgentContent
   | WebViewerContent
   | NewTabContent
   | DiffContent
@@ -217,10 +210,6 @@ export function isEditorContent(c: PaneContent): c is EditorContent {
 
 export function isTerminalContent(c: PaneContent): c is TerminalContent {
   return c.type === "terminal";
-}
-
-export function isAgentContent(c: PaneContent): c is AgentContent {
-  return c.type === "agent";
 }
 
 export function isWebViewerContent(c: PaneContent): c is WebViewerContent {
@@ -265,7 +254,6 @@ export function isPersistableContent(c: PaneContent): c is EditorContent {
 /** Content types that are virtual (not backed by a real file on disk). */
 const VIRTUAL_TYPES: ReadonlySet<PaneContentType> = new Set([
   "terminal",
-  "agent",
   "webViewer",
   "newTab",
   "pullRequest",
@@ -333,7 +321,6 @@ export type OpenContentSpec =
       sessionId?: string;
       path?: string;
     }
-  | { type: "agent"; sessionId?: string }
   | {
       type: "webViewer";
       url: string;

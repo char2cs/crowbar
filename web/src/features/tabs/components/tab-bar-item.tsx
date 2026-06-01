@@ -8,7 +8,6 @@ import {
   ChatCircleText as MessageSquare,
   Package,
   PushPin as Pin,
-  Sparkle as Sparkles,
   TerminalWindow as Terminal,
   WarningCircle,
   X,
@@ -123,8 +122,6 @@ const TabBarItem = memo(function TabBarItem({
             <GitBranch className="text-muted-foreground" />
           ) : buffer.type === "terminal" ? (
             <Terminal className="text-muted-foreground" />
-          ) : buffer.type === "agent" ? (
-            <Sparkles className="text-muted-foreground" />
           ) : buffer.type === "webViewer" ? (
             buffer.favicon && !faviconError ? (
               <img

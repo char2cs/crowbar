@@ -25,8 +25,6 @@ import { saveUIPreferences } from "@/lib/persistence/ui-preferences";
 
 export type { Settings } from "./types/settings";
 
-const AI_CHAT_TOGGLE_COOLDOWN_MS = 120;
-
 let settingsStoreInitPromise: Promise<Settings> | null = null;
 
 export function initializeSettingsStore(): Promise<Settings> {
@@ -46,7 +44,6 @@ export const useSettingsStore = create(
     combine(
       {
         settings: getDefaultSettingsSnapshot(),
-        _lastAiChatToggleAt: 0,
         search: {
           query: "",
           results: [] as SearchResult[],
@@ -54,7 +51,7 @@ export const useSettingsStore = create(
           selectedResultId: null,
         } as SearchState,
       },
-      (set, get) => ({
+      (set) => ({
         updateSettingsFromJSON: (jsonString: string): boolean => {
           try {
             const validatedSettings = parseSettingsImportJson(jsonString);
@@ -91,23 +88,6 @@ export const useSettingsStore = create(
 
           applySettingsSideEffects(nextSettings);
           await saveSettingsToStore(nextSettings);
-        },
-
-        toggleAIChatVisible: (forceValue?: boolean) => {
-          const now = Date.now();
-          const previousToggleAt = get()._lastAiChatToggleAt;
-          if (now - previousToggleAt < AI_CHAT_TOGGLE_COOLDOWN_MS) {
-            return;
-          }
-
-          const nextValue = forceValue !== undefined ? forceValue : !get().settings.isAIChatVisible;
-
-          set((state) => {
-            state.settings.isAIChatVisible = nextValue;
-            state._lastAiChatToggleAt = now;
-          });
-
-          debouncedSaveSettingsToStore({ isAIChatVisible: nextValue });
         },
 
         updateSetting: async <K extends keyof Settings>(key: K, value: Settings[K]) => {

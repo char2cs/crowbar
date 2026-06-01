@@ -3,7 +3,6 @@ import {
   ArrowsLeftRight as ArrowLeftRight,
   GlobeHemisphereWest as Globe,
   List as Menu,
-  ChatCircleText as MessageSquare,
   SidebarSimple as PanelBottom,
   SidebarSimple as PanelLeft,
   ArrowCounterClockwise as RotateCcw,
@@ -13,7 +12,6 @@ import {
   MagnifyingGlassMinus as ZoomOut,
 } from "@phosphor-icons/react";
 import { getActiveWorkspaceStoreRef } from "@/features/workspace/stores/workspace-store-ref";
-import { useSettingsStore } from "@/features/settings/store";
 import type { BottomPaneTab } from "@/features/window/stores/ui-state/types";
 import { primitivePrompt } from "@/components/ui/primitive-dialog-service";
 import { IS_MAC, IS_WINDOWS } from "@/utils/platform";
@@ -29,7 +27,6 @@ interface ViewActionsParams {
   isFindVisible: boolean;
   setIsFindVisible: (v: boolean) => void;
   settings: {
-    isAIChatVisible: boolean;
     sidebarPosition: "left" | "right";
     nativeMenuBar: boolean;
     compactMenuBar: boolean;
@@ -115,18 +112,6 @@ export const createViewActions = (params: ViewActionsParams): Action[] => {
       commandId: "workbench.toggleDiagnostics",
       action: () => {
         getActiveWorkspaceStoreRef()?.getState().bufferActions.openContent({ type: 'diagnostics' });
-        onClose();
-      },
-    },
-    {
-      id: "toggle-ai-chat-view",
-      label: settings.isAIChatVisible ? "View: Hide AI Chat" : "View: Show AI Chat",
-      description: settings.isAIChatVisible ? "Hide AI chat panel" : "Show AI chat panel",
-      icon: <MessageSquare />,
-      category: "View",
-      commandId: "workbench.toggleAIChat",
-      action: () => {
-        useSettingsStore.getState().toggleAIChatVisible();
         onClose();
       },
     },

@@ -54,20 +54,6 @@ type SyncableSettingsKey =
   | "footerLeadingItemsOrder"
   | "footerTrailingItemsOrder"
   | "openFoldersInNewWindow"
-  | "aiProviderId"
-  | "aiModelId"
-  | "aiCustomBaseUrl"
-  | "aiCustomModelId"
-  | "aiChatWidth"
-  | "isAIChatVisible"
-  | "aiCompletion"
-  | "aiAutocompleteProvider"
-  | "aiAutocompleteModelId"
-  | "aiAutocompleteCustomBaseUrl"
-  | "aiAutocompleteCustomModelId"
-  | "aiDefaultSessionMode"
-  | "aiSkills"
-  | "ollamaBaseUrl"
   | "sidebarWidth"
   | "showGitHubPullRequests"
   | "showGitHubIssues"
@@ -84,7 +70,6 @@ type SyncableSettingsKey =
   | "coreFeatures"
   | "extensionsActiveTab"
   | "maxOpenTabs"
-  | "horizontalTabScroll"
   | "hiddenFilePatterns"
   | "hiddenDirectoryPatterns"
   | "gitChangesFolderView"
@@ -144,20 +129,6 @@ const SYNCABLE_SETTINGS_KEYS: SyncableSettingsKey[] = [
   "footerLeadingItemsOrder",
   "footerTrailingItemsOrder",
   "openFoldersInNewWindow",
-  "aiProviderId",
-  "aiModelId",
-  "aiCustomBaseUrl",
-  "aiCustomModelId",
-  "aiChatWidth",
-  "isAIChatVisible",
-  "aiCompletion",
-  "aiAutocompleteProvider",
-  "aiAutocompleteModelId",
-  "aiAutocompleteCustomBaseUrl",
-  "aiAutocompleteCustomModelId",
-  "aiDefaultSessionMode",
-  "aiSkills",
-  "ollamaBaseUrl",
   "sidebarWidth",
   "showGitHubPullRequests",
   "showGitHubIssues",
@@ -174,7 +145,6 @@ const SYNCABLE_SETTINGS_KEYS: SyncableSettingsKey[] = [
   "coreFeatures",
   "extensionsActiveTab",
   "maxOpenTabs",
-  "horizontalTabScroll",
   "hiddenFilePatterns",
   "hiddenDirectoryPatterns",
   "gitChangesFolderView",

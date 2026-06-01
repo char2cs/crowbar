@@ -13,13 +13,6 @@ import {
 } from "@/features/layout/config/item-order";
 import type { Settings } from "@/features/settings/types/settings";
 
-export const DEFAULT_AI_PROVIDER_ID = "anthropic";
-export const DEFAULT_AI_MODEL_ID = "claude-sonnet-4-6";
-export const DEFAULT_AI_CUSTOM_BASE_URL = "";
-export const DEFAULT_AI_CUSTOM_MODEL_ID = "";
-export const DEFAULT_AI_AUTOCOMPLETE_MODEL_ID = "mistralai/devstral-small";
-export const DEFAULT_AI_AUTOCOMPLETE_CUSTOM_BASE_URL = "";
-
 export const defaultSettings: Settings = {
   // General
   autoSave: false,
@@ -68,21 +61,6 @@ export const defaultSettings: Settings = {
   footerLeadingItemsOrder: [...FOOTER_LEADING_ITEM_IDS],
   footerTrailingItemsOrder: [...FOOTER_TRAILING_ITEM_IDS],
   openFoldersInNewWindow: false,
-  // AI
-  aiProviderId: DEFAULT_AI_PROVIDER_ID,
-  aiModelId: DEFAULT_AI_MODEL_ID,
-  aiCustomBaseUrl: DEFAULT_AI_CUSTOM_BASE_URL,
-  aiCustomModelId: DEFAULT_AI_CUSTOM_MODEL_ID,
-  aiChatWidth: 400,
-  isAIChatVisible: false,
-  aiCompletion: true,
-  aiAutocompleteProvider: "openrouter",
-  aiAutocompleteModelId: DEFAULT_AI_AUTOCOMPLETE_MODEL_ID,
-  aiAutocompleteCustomBaseUrl: DEFAULT_AI_AUTOCOMPLETE_CUSTOM_BASE_URL,
-  aiAutocompleteCustomModelId: "",
-  aiDefaultSessionMode: "",
-  aiSkills: [],
-  ollamaBaseUrl: "http://localhost:11434",
   // Layout
   sidebarWidth: 220,
   showGitHubPullRequests: true,
@@ -119,7 +97,6 @@ export const defaultSettings: Settings = {
   // Other
   extensionsActiveTab: "all",
   maxOpenTabs: 100,
-  horizontalTabScroll: false,
   //// File tree
   fileTreeIndentSize: 16,
   compactFoldersInFileTree: false,
@@ -162,7 +139,6 @@ export function getDefaultSettingsSnapshot(): Settings {
     sidebarActivityItemsOrder: [...defaultSettings.sidebarActivityItemsOrder],
     footerLeadingItemsOrder: [...defaultSettings.footerLeadingItemsOrder],
     footerTrailingItemsOrder: [...defaultSettings.footerTrailingItemsOrder],
-    aiSkills: defaultSettings.aiSkills.map((skill) => ({ ...skill })),
     uiFontSize: normalizeUiFontSize(defaultSettings.uiFontSize),
   };
 }
