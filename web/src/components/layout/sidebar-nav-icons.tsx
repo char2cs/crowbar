@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react'
 import { motion, useMotionValue, animate } from 'motion/react'
-import { SquaresFour, FolderOpen, GitBranch } from '@phosphor-icons/react'
+import { SquaresFour, FolderOpen } from '@phosphor-icons/react'
 import { useSidebarStore, type SidebarTab } from '@/lib/store/sidebar'
 import { Toolbar, ToolbarButton, ToolbarGroup } from '@/components/ui/toolbar'
 import { cn } from '@/utils/cn'
@@ -8,7 +8,6 @@ import { cn } from '@/utils/cn'
 const NAV_ITEMS = [
   { tab: 'workspaces' as SidebarTab, label: 'Workspaces', Icon: SquaresFour },
   { tab: 'files'      as SidebarTab, label: 'Files',      Icon: FolderOpen  },
-  { tab: 'git'        as SidebarTab, label: 'Git',        Icon: GitBranch   },
 ] as const
 
 type NavItemProps = {

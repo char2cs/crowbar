@@ -10,9 +10,6 @@ vi.mock('@/components/layout/workspace-tree', () => ({
 vi.mock('@/features/file-explorer/components/file-explorer-tree', () => ({
   FileExplorerTree: () => <div data-testid="files-panel" />,
 }))
-vi.mock('@/features/git/components/git-view', () => ({
-  default: () => <div data-testid="git-panel" />,
-}))
 vi.mock('@/components/ErrorBoundary', () => ({
   ErrorBoundary: ({ children }: { children: React.ReactNode }) => <>{children}</>,
 }))
@@ -48,7 +45,6 @@ describe('SidebarTabs', () => {
     render(<SidebarTabs {...defaultProps} />)
     expect(screen.queryByRole('tab', { name: 'Workspaces' })).not.toBeInTheDocument()
     expect(screen.queryByRole('tab', { name: 'Files' })).not.toBeInTheDocument()
-    expect(screen.queryByRole('tab', { name: 'Git' })).not.toBeInTheDocument()
   })
 
   it('shows workspaces panel when activeTab is workspaces', () => {
@@ -56,7 +52,6 @@ describe('SidebarTabs', () => {
     render(<SidebarTabs {...defaultProps} />)
     expect(screen.getByTestId('workspaces-panel')).toBeVisible()
     expect(screen.getByTestId('files-panel')).not.toBeVisible()
-    expect(screen.getByTestId('git-panel')).not.toBeVisible()
   })
 
   it('shows files panel when activeTab is files', () => {
@@ -64,14 +59,5 @@ describe('SidebarTabs', () => {
     render(<SidebarTabs {...defaultProps} />)
     expect(screen.getByTestId('files-panel')).toBeVisible()
     expect(screen.getByTestId('workspaces-panel')).not.toBeVisible()
-    expect(screen.getByTestId('git-panel')).not.toBeVisible()
-  })
-
-  it('shows git panel when activeTab is git', () => {
-    useSidebarStore.setState({ activeTab: 'git' })
-    render(<SidebarTabs {...defaultProps} />)
-    expect(screen.getByTestId('git-panel')).toBeVisible()
-    expect(screen.getByTestId('workspaces-panel')).not.toBeVisible()
-    expect(screen.getByTestId('files-panel')).not.toBeVisible()
   })
 })

@@ -34,7 +34,7 @@ export interface Repo {
   workspaces: Workspace[]
 }
 
-export type SidebarTab = 'workspaces' | 'files' | 'git'
+export type SidebarTab = 'workspaces' | 'files'
 
 interface SidebarState {
   chats: ProjectChat[]

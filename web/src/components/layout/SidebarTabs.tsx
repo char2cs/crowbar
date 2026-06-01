@@ -2,7 +2,6 @@ import { Suspense } from 'react'
 import { Tabs, TabsContent } from '@/components/ui/tabs'
 import { WorkspaceTree } from './workspace-tree'
 import { FileExplorerTree } from '@/features/file-explorer/components/file-explorer-tree'
-import GitView from '@/features/git/components/git-view'
 import { ErrorBoundary } from '@/components/ErrorBoundary'
 import { SidebarSkeleton } from './SidebarSkeleton'
 import { useFileTreeStore } from '@/features/file-explorer/stores/file-explorer-tree-store'
@@ -52,13 +51,7 @@ export function SidebarTabs({ activeWorkspaceRepoPath }: SidebarTabsProps) {
         </ErrorBoundary>
       </TabsContent>
 
-      <TabsContent value="git" keepMounted className="flex flex-1 flex-col overflow-hidden mt-0">
-        <ErrorBoundary>
-          <Suspense fallback={<SidebarSkeleton />}>
-            <GitView repoPath={activeWorkspaceRepoPath} />
-          </Suspense>
-        </ErrorBoundary>
-      </TabsContent>
+
     </Tabs>
   )
 }
