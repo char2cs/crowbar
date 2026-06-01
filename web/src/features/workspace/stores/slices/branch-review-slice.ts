@@ -6,7 +6,7 @@ import type { MultiFileDiff } from '@/features/git/types/git-diff-types'
 export interface BranchReviewState {
   description: string
   mergeStrategy: MergeStrategy
-  activeSubtab: 'about' | 'commits' | 'diff'
+  activeSubtab: 'about' | 'git' | 'diff'
   diffCache: MultiFileDiff | null
   diffStatus: 'idle' | 'loading' | 'loaded' | 'error'
   threads: ReviewThread[]
