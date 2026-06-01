@@ -41,6 +41,7 @@ interface SidebarState {
   chats: ProjectChat[]
   repos: Repo[]
   collapsedRepos: Set<string>
+  collapsedWorkspaces: Set<string>
   /** Persisted active tab so re-mounts of SidebarTabs don't reset it. */
   activeTab: SidebarTab
   addChat: (chat: ProjectChat) => void
@@ -50,6 +51,7 @@ interface SidebarState {
   renameWorkspace: (wsId: string, branch: string) => void
   reparentWorkspace: (wsId: string, newParentId: string | undefined) => void
   toggleRepo: (repoId: string) => void
+  toggleWorkspace: (wsId: string) => void
   setActiveTab: (tab: SidebarTab) => void
   setRepos: (repos: Repo[]) => void
 }
@@ -103,6 +105,7 @@ function getInitialState() {
     chats: getAllMockChats().map(c => ({ id: c.id, title: c.title, age: c.age })),
     repos: INITIAL_REPOS,
     collapsedRepos: new Set<string>(),
+    collapsedWorkspaces: new Set<string>(),
     activeTab: 'workspaces' as SidebarTab,
   }
 }
@@ -190,8 +193,16 @@ export const useSidebarStore = create<SidebarState>()((set) => ({
     set(s => {
       const next = new Set(s.collapsedRepos)
       next.has(repoId) ? next.delete(repoId) : next.add(repoId)
-      void saveSidebarUI([...next])
+      void saveSidebarUI([...next], [...s.collapsedWorkspaces])
       return { collapsedRepos: next }
+    }),
+
+  toggleWorkspace: (wsId) =>
+    set(s => {
+      const next = new Set(s.collapsedWorkspaces)
+      next.has(wsId) ? next.delete(wsId) : next.add(wsId)
+      void saveSidebarUI([...s.collapsedRepos], [...next])
+      return { collapsedWorkspaces: next }
     }),
 
   setActiveTab: (tab) => set({ activeTab: tab }),

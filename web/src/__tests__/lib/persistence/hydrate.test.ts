@@ -105,7 +105,7 @@ describe('hydrateSidebar', () => {
   })
 
   it('restores collapsedRepos from IDB', async () => {
-    await saveSidebarUI(['crowbar', 'quiver-core'])
+    await saveSidebarUI(['crowbar', 'quiver-core'], [])
     await hydrateSidebar()
     const { collapsedRepos } = useSidebarStore.getState()
     expect(collapsedRepos.has('crowbar')).toBe(true)
@@ -130,5 +130,13 @@ describe('hydrateSidebar', () => {
     await hydrateSidebar()
     const repo = useSidebarStore.getState().repos.find(r => r.id === 'crowbar')!
     expect(repo.workspaces.find(w => w.id === 'ws1')?.parentId).toBeUndefined()
+  })
+
+  it('restores collapsedWorkspaces from IDB', async () => {
+    await saveSidebarUI([], ['ws3', 'ws1'])
+    await hydrateSidebar()
+    const { collapsedWorkspaces } = useSidebarStore.getState()
+    expect(collapsedWorkspaces.has('ws3')).toBe(true)
+    expect(collapsedWorkspaces.has('ws1')).toBe(true)
   })
 })

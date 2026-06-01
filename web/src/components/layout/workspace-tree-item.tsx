@@ -1,9 +1,9 @@
-import { useState } from 'react'
 import { cn } from '@/lib/utils'
 import { WorkspaceBranchIcon } from './workspace-branch-icon'
 import { WorkspaceInlineInput } from './workspace-inline-input'
 import { ROW_BASE } from './workspace-row-base'
 import { useWorkspaceTreeContext } from './workspace-tree-context'
+import { useSidebarStore } from '@/lib/store/sidebar'
 import type { WorkspaceTreeNode } from './workspace-tree'
 
 interface WorkspaceTreeItemProps {
@@ -21,7 +21,8 @@ export function WorkspaceTreeItem({
   const isActive = workspace.id === activeWorkspaceId
   const isLocked = workspace.status === 'locked'
   const hasChildren = children.length > 0
-  const [expanded, setExpanded] = useState(true)
+  const isCollapsed = useSidebarStore(s => s.collapsedWorkspaces.has(workspace.id))
+  const expanded = !isCollapsed
 
   const {
     creatingChildOf, startCreating, confirmCreate, cancelCreate,
@@ -99,7 +100,7 @@ export function WorkspaceTreeItem({
             <button
               type="button"
               className="shrink-0 rounded-md p-1 text-foreground/30 hover:text-foreground/60 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
-              onClick={(e) => { e.stopPropagation(); setExpanded(v => !v) }}
+              onClick={(e) => { e.stopPropagation(); useSidebarStore.getState().toggleWorkspace(workspace.id) }}
               onPointerDown={(e) => e.stopPropagation()}
               aria-label={expanded ? 'Collapse' : 'Expand'}
             >
@@ -117,7 +118,7 @@ export function WorkspaceTreeItem({
               className="shrink-0 rounded-md p-1 text-foreground/30 hover:text-foreground/60 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
               onClick={(e) => {
                 e.stopPropagation()
-                setExpanded(true)
+                if (isCollapsed) useSidebarStore.getState().toggleWorkspace(workspace.id)
                 startCreating(repoId, workspace.id)
               }}
               onPointerDown={(e) => e.stopPropagation()}

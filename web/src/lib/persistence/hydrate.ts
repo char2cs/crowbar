@@ -62,7 +62,10 @@ export async function hydrateSidebar(): Promise<void> {
   ])
 
   if (sidebarUI) {
-    useSidebarStore.setState({ collapsedRepos: new Set(sidebarUI.collapsedRepos) })
+    useSidebarStore.setState({
+      collapsedRepos: new Set(sidebarUI.collapsedRepos),
+      collapsedWorkspaces: new Set(sidebarUI.collapsedWorkspaces ?? []),
+    })
   }
 
   if (hierarchies.length > 0) {
