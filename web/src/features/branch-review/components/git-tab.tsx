@@ -4,6 +4,8 @@ import { useRepositoryStore } from '@/features/git/stores/git-repository-store'
 import { useSettingsStore } from '@/features/settings/store'
 import { useGitFileDiffStats } from '@/features/git/hooks/use-git-file-diff-stats'
 import { Separator } from '@/components/ui/separator'
+import { Button } from '@/components/ui/button'
+import { toast } from '@/components/ui/toast'
 import GitCommitPanel from '@/features/git/components/git-commit-panel'
 import GitStatusPanel from '@/features/git/components/status/git-status-panel'
 import { GitStashCommandSurface } from '@/features/git/components/git-stash-command-surface'
@@ -27,6 +29,7 @@ export function GitTab({ wsId }: GitTabProps) {
   const activeRepoPath = useRepositoryStore.use.activeRepoPath()
   const gitStatus = useGitStore(s => s.gitStatus)
   const showUntracked = useSettingsStore(s => s.settings.showUntrackedFiles)
+  const gitActions = useGitStore(s => s.actions)
 
   const visibleFiles = showUntracked
     ? (gitStatus?.files ?? [])
@@ -44,6 +47,10 @@ export function GitTab({ wsId }: GitTabProps) {
     observer.observe(el)
     return () => observer.disconnect()
   }, [])
+
+  const handleRefresh = activeRepoPath
+    ? () => void gitActions.refreshWorkspaceGitStatus(activeRepoPath)
+    : undefined
 
   const stickyCommit = (
     <div className="shrink-0 border-b border-border bg-background px-3 py-2">
@@ -63,22 +70,51 @@ export function GitTab({ wsId }: GitTabProps) {
         fileDiffStats={fileDiffStats}
         repoPath={activeRepoPath ?? undefined}
       />
-      <GitStashCommandSurface
-        isOpen={showStash}
-        onClose={() => setShowStash(false)}
-        repoPath={activeRepoPath}
-        onViewStashDiff={async () => {}}
-      />
-      <GitRemoteManager
-        isOpen={showRemotes}
-        onClose={() => setShowRemotes(false)}
-        repoPath={activeRepoPath ?? undefined}
-      />
-      <GitTagManager
-        isOpen={showTags}
-        onClose={() => setShowTags(false)}
-        repoPath={activeRepoPath ?? undefined}
-      />
+      <div className="flex flex-col gap-2">
+        <div className="flex items-center justify-between px-1">
+          <span className="text-xs font-medium text-muted-foreground uppercase tracking-wide">Stash</span>
+          <Button variant="ghost" compact onClick={() => setShowStash(v => !v)} className="h-5 px-1.5 text-xs text-muted-foreground">
+            {showStash ? 'Close' : 'Manage'}
+          </Button>
+        </div>
+        <GitStashCommandSurface
+          isOpen={showStash}
+          onClose={() => setShowStash(false)}
+          repoPath={activeRepoPath}
+          onRefresh={handleRefresh}
+          onViewStashDiff={async () => {
+            toast.show({ message: 'Open the Diff tab to view stash changes', type: 'info' })
+          }}
+        />
+      </div>
+      <div className="flex flex-col gap-2">
+        <div className="flex items-center justify-between px-1">
+          <span className="text-xs font-medium text-muted-foreground uppercase tracking-wide">Remotes</span>
+          <Button variant="ghost" compact onClick={() => setShowRemotes(v => !v)} className="h-5 px-1.5 text-xs text-muted-foreground">
+            {showRemotes ? 'Close' : 'Manage'}
+          </Button>
+        </div>
+        <GitRemoteManager
+          isOpen={showRemotes}
+          onClose={() => setShowRemotes(false)}
+          repoPath={activeRepoPath ?? undefined}
+          onRefresh={handleRefresh}
+        />
+      </div>
+      <div className="flex flex-col gap-2">
+        <div className="flex items-center justify-between px-1">
+          <span className="text-xs font-medium text-muted-foreground uppercase tracking-wide">Tags</span>
+          <Button variant="ghost" compact onClick={() => setShowTags(v => !v)} className="h-5 px-1.5 text-xs text-muted-foreground">
+            {showTags ? 'Close' : 'Manage'}
+          </Button>
+        </div>
+        <GitTagManager
+          isOpen={showTags}
+          onClose={() => setShowTags(false)}
+          repoPath={activeRepoPath ?? undefined}
+          onRefresh={handleRefresh}
+        />
+      </div>
     </div>
   )
 
