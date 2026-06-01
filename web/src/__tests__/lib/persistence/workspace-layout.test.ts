@@ -11,6 +11,8 @@ const mockLayout: WorkspaceLayout = {
   rootLayout: createLeaf(ROOT_PANE_ID),
   bottomLayout: createLeaf('bottom-pane'),
   activePaneId: ROOT_PANE_ID,
+  mostRecentActivePaneIds: [ROOT_PANE_ID],
+  buffers: [],
   sidebarWidth: 260,
   rightSidebarWidth: 300,
   updatedAt: 1000,

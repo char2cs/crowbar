@@ -1,5 +1,6 @@
 import type { DBSchema } from 'idb'
 import type { PaneGroup, LayoutNode } from '@/features/panes/types/pane'
+import type { PaneContent } from '@/features/panes/types/pane-content'
 
 export interface WorkspaceLayout {
   workspaceId: string
@@ -7,6 +8,8 @@ export interface WorkspaceLayout {
   rootLayout: LayoutNode
   bottomLayout: LayoutNode
   activePaneId: string
+  mostRecentActivePaneIds: string[]
+  buffers: PaneContent[]
   sidebarWidth: number
   rightSidebarWidth: number
   updatedAt: number

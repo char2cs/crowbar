@@ -32,6 +32,8 @@ export function getOrCreateWorkspaceStore(wsId: string): WorkspaceStore {
           rootLayout: state.rootLayout,
           bottomLayout: state.bottomLayout,
           activePaneId: state.activePaneId,
+          mostRecentActivePaneIds: state.mostRecentActivePaneIds,
+          buffers: state.buffers,
           sidebarWidth: 0,
           rightSidebarWidth: 0,
           updatedAt: Date.now(),

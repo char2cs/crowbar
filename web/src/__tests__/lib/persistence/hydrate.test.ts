@@ -14,6 +14,8 @@ async function seedDB(workspaceId: string) {
     rootLayout: createLeaf(ROOT_PANE_ID),
     bottomLayout: createLeaf('bottom-pane'),
     activePaneId: ROOT_PANE_ID,
+    mostRecentActivePaneIds: [ROOT_PANE_ID],
+    buffers: [],
     sidebarWidth: 240,
     rightSidebarWidth: 280,
     updatedAt: Date.now(),
