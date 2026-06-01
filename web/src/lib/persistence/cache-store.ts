@@ -1,7 +1,7 @@
 import { getDB } from './idb'
 import type { CrowbarDB, CachedRecord } from './schemas'
 
-type CacheStoreName =
+export type CacheStoreName =
   | 'workspaces-data'
   | 'git-data'
   | 'file-tree-data'
