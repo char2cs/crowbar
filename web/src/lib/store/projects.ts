@@ -1,6 +1,8 @@
 import { create } from 'zustand'
 import { persist } from 'zustand/middleware'
 import type { Project } from '@/lib/types'
+import { createLoadableSlice, type LoadableSlice } from '@/lib/store/loadable-slice'
+import { fetchProjects } from '@/lib/api'
 
 interface ProjectState {
   projects: Project[]
@@ -9,6 +11,14 @@ interface ProjectState {
   setProjects: (projects: Project[]) => void
   addProject: (project: Project) => void
 }
+
+export const useProjectDataStore = create<LoadableSlice<Project[], []>>()((set, get) =>
+  createLoadableSlice<Project[], []>({
+    store: 'projects-data',
+    fetcher: () => fetchProjects(),
+    cacheKey: () => 'projects',
+  })(set, get),
+)
 
 export const useProjectStore = create<ProjectState>()(
   persist(
