@@ -28,9 +28,10 @@ export function getOrCreateWorkspaceStore(wsId: string): WorkspaceStore {
         persistTimers.delete(wsId)
         saveWorkspaceLayout({
           workspaceId: wsId,
-          panes: [state.panes],
-          activePane: state.activePaneId,
-          tabGroups: [state.rootLayout, state.bottomLayout],
+          panes: state.panes,
+          rootLayout: state.rootLayout,
+          bottomLayout: state.bottomLayout,
+          activePaneId: state.activePaneId,
           sidebarWidth: 0,
           rightSidebarWidth: 0,
           updatedAt: Date.now(),

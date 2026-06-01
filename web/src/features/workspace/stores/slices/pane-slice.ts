@@ -18,6 +18,7 @@ export interface PaneActions {
   moveBufferToPane(bufferId: string, fromPaneId: string, toPaneId: string): void
   setPanePreviewBuffer(paneId: string, bufferId: string | null): void
   setPaneBufferPinned(paneId: string, bufferId: string, pinned: boolean): void
+  setPaneLocked(paneId: string, locked: boolean): void
   reorderPaneBuffers(paneId: string, startIndex: number, endIndex: number): void
   resizePaneSplit(splitId: string, index: number, sizes: [number, number]): void
   distributePaneSplit(splitId: string): void
@@ -210,6 +211,13 @@ export const createPaneSlice: StateCreator<
         if (!pane.pinnedBufferIds) pane.pinnedBufferIds = []
         if (pinned) { if (!pane.pinnedBufferIds.includes(bufferId)) pane.pinnedBufferIds.push(bufferId) }
         else pane.pinnedBufferIds = pane.pinnedBufferIds.filter(id => id !== bufferId)
+      })
+    },
+
+    setPaneLocked(paneId, locked) {
+      set(state => {
+        const pane = state.panes[paneId]
+        if (pane) pane.locked = locked
       })
     },
 

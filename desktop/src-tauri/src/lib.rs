@@ -9,6 +9,7 @@ use window_vibrancy::{apply_vibrancy, NSVisualEffectMaterial, NSVisualEffectStat
 
 pub fn run() {
     tauri::Builder::default()
+        .plugin(tauri_plugin_macos_fps::init())
         .plugin(tauri_plugin_log::Builder::new().build())
         .plugin(tauri_plugin_shell::init())
         .manage(sidecar::SidecarHandle::new())

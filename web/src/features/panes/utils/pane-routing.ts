@@ -1,29 +1,33 @@
-import type { PaneGroup, PaneNode } from "../types/pane";
-import { getAllPaneGroups } from "./pane-tree";
+import type { PaneGroup, LayoutNode } from "../types/pane";
+import { getAllLeafIds } from "./pane-layout";
+
+export function getPaneScopeForPaneId(
+  rootLayout: LayoutNode,
+  bottomLayout: LayoutNode,
+  panes: Record<string, PaneGroup>,
+  paneId: string,
+): PaneGroup[] {
+  const rootIds = getAllLeafIds(rootLayout);
+  if (rootIds.includes(paneId)) {
+    return rootIds.map(id => panes[id]).filter(Boolean) as PaneGroup[];
+  }
+  return getAllLeafIds(bottomLayout)
+    .map(id => panes[id])
+    .filter(Boolean) as PaneGroup[];
+}
 
 export interface WritablePaneRoutingInput {
   activePane: PaneGroup | null;
   bufferId?: string;
-  bottomRoot: PaneNode;
   mostRecentActivePaneIds: string[];
-  root: PaneNode;
-}
-
-export function getPaneScopeForPaneId(root: PaneNode, bottomRoot: PaneNode, paneId: string) {
-  const rootPanes = getAllPaneGroups(root);
-  if (rootPanes.some((pane) => pane.id === paneId)) {
-    return rootPanes;
-  }
-
-  return getAllPaneGroups(bottomRoot);
+  paneScope: PaneGroup[];
 }
 
 export function resolveWritablePaneForBuffer({
   activePane,
   bufferId,
-  bottomRoot,
   mostRecentActivePaneIds,
-  root,
+  paneScope,
 }: WritablePaneRoutingInput): PaneGroup | null {
   if (!activePane) return null;
 
@@ -31,7 +35,6 @@ export function resolveWritablePaneForBuffer({
     return activePane;
   }
 
-  const paneScope = getPaneScopeForPaneId(root, bottomRoot, activePane.id);
   const paneById = new Map(paneScope.map((pane) => [pane.id, pane] as const));
   return (
     mostRecentActivePaneIds

@@ -1,6 +1,5 @@
 import { useEffect } from "react";
 import { IS_MAC } from "@/utils/platform";
-import { usePaneStore } from "../stores/pane-store";
 import { splitActiveEditorGroup } from "../utils/pane-command-actions";
 import { useWorkspaceStore } from "@/features/workspace/stores/workspace-context";
 
@@ -12,8 +11,6 @@ export function usePaneKeyboard() {
       const modKey = IS_MAC ? e.metaKey : e.ctrlKey;
 
       if (!modKey) return;
-
-      const paneStore = usePaneStore.getState();
 
       // Cmd+\ or Ctrl+\ - Split right
       if (e.key === "\\" && !e.shiftKey) {
@@ -38,12 +35,7 @@ export function usePaneKeyboard() {
           ArrowUp: "up",
           ArrowDown: "down",
         };
-        paneStore.actions.navigateToPane(directionMap[e.key]);
-
-        const newActivePane = paneStore.actions.getActivePane();
-        if (newActivePane) {
-          workspaceStore.getState().paneActions.setActivePane(newActivePane.id);
-        }
+        workspaceStore.getState().paneActions.navigateToPane(directionMap[e.key]);
         return;
       }
     };

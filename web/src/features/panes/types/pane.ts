@@ -25,25 +25,8 @@ export interface LayoutSplit {
 
 export type LayoutNode = LayoutLeaf | LayoutSplit
 
-export interface PaneSplit {
-  id: string;
-  type: "split";
-  direction: "horizontal" | "vertical";
-  children: [PaneNode, PaneNode];
-  sizes: [number, number];
-}
-
-export type PaneNode = PaneGroup | PaneSplit;
-
 export type SplitDirection = "horizontal" | "vertical";
 export type SplitPlacement = "before" | "after";
-
-export interface PaneState {
-  root: PaneNode;
-  activePaneId: string;
-  mostRecentActivePaneIds?: string[];
-  fullscreenPaneId?: string | null;
-}
 
 export interface PanePosition {
   /** Left edge of this pane touches the absolute left of the content area. */

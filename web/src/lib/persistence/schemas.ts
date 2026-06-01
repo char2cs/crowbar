@@ -1,10 +1,12 @@
 import type { DBSchema } from 'idb'
+import type { PaneGroup, LayoutNode } from '@/features/panes/types/pane'
 
 export interface WorkspaceLayout {
   workspaceId: string
-  panes: unknown[]
-  activePane: string
-  tabGroups: unknown[]
+  panes: Record<string, PaneGroup>
+  rootLayout: LayoutNode
+  bottomLayout: LayoutNode
+  activePaneId: string
   sidebarWidth: number
   rightSidebarWidth: number
   updatedAt: number

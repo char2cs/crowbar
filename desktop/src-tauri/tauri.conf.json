@@ -23,9 +23,13 @@
         "resizable": true,
         "transparent": true,
         "titleBarStyle": "Overlay",
-        "hiddenTitle": true
+        "hiddenTitle": true,
+        "backgroundThrottling": "disabled"
       }
     ]
+  },
+  "plugins": {
+    "macos-fps": {}
   },
   "bundle": {
     "active": true,

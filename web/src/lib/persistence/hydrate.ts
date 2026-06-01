@@ -21,7 +21,10 @@ export async function hydrateFromIDB(workspaceId: string): Promise<HydrationResu
   if (layout) {
     const store = getOrCreateWorkspaceStore(workspaceId)
     store.setState({
-      activePaneId: layout.activePane,
+      activePaneId: layout.activePaneId,
+      panes: layout.panes,
+      rootLayout: layout.rootLayout,
+      bottomLayout: layout.bottomLayout,
     })
   }
 

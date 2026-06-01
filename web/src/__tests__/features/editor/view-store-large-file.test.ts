@@ -1,6 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { initViewStoreSubscription, _resetViewStoreUnsubscribeForTesting } from "@/features/editor/stores/view-store";
-import { usePaneStore } from "@/features/panes/stores/pane-store";
 import { createWorkspaceStore } from "@/features/workspace/stores/workspace-store";
 import { setActiveWorkspaceStoreRef } from "@/features/workspace/stores/workspace-store-ref";
 import { ROOT_PANE_ID } from "@/features/panes/constants/pane";
@@ -52,7 +51,6 @@ describe("editor view store large files", () => {
   afterEach(async () => {
     _resetViewStoreUnsubscribeForTesting();
     setActiveWorkspaceStoreRef(null);
-    usePaneStore.getState().actions.reset();
     const { useEditorViewStore } = await import("@/features/editor/stores/view-store");
     useEditorViewStore.setState({
       lines: [""],
@@ -63,7 +61,7 @@ describe("editor view store large files", () => {
 
   it("tracks large active buffers by line count without storing every line", async () => {
     const { useEditorViewStore } = await import("@/features/editor/stores/view-store");
-    const { bufferActions } = wsStore.getState();
+    const { bufferActions, paneActions } = wsStore.getState();
     const content = Array.from({ length: 50_000 }, (_, index) => `line ${index}`).join("\n");
 
     const bufferId = bufferActions.openContent({
@@ -73,22 +71,9 @@ describe("editor view store large files", () => {
       content: "",
     });
 
-    // Make the buffer active in the pane so the view store picks it up
-    wsStore.setState((state) => ({
-      ...state,
-      activePaneId: ROOT_PANE_ID,
-      paneRoot: {
-        type: "group",
-        id: ROOT_PANE_ID,
-        bufferIds: [bufferId],
-        activeBufferId: bufferId,
-        locked: false,
-        previewBufferId: null,
-        pinnedBufferIds: [],
-      },
-    }));
+    paneActions.addBufferToPane(ROOT_PANE_ID, bufferId);
+    paneActions.activatePaneBuffer(ROOT_PANE_ID, bufferId);
 
-    // Update the buffer content
     wsStore.setState((state) => ({
       ...state,
       buffers: state.buffers.map((b) =>

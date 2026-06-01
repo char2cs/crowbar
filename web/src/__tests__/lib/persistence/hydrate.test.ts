@@ -3,14 +3,17 @@ import { getDB, resetDB } from '@/lib/persistence/idb'
 import type { WorkspaceLayout, UIPreferences, EditorState } from '@/lib/persistence/schemas'
 import { destroyWorkspaceStore } from '@/features/workspace/stores/workspace-store-registry'
 import { IDBFactory } from 'fake-indexeddb'
+import { ROOT_PANE_ID } from '@/features/panes/constants/pane'
+import { createLeaf } from '@/features/panes/utils/pane-layout'
 
 async function seedDB(workspaceId: string) {
   const db = await getDB()
   const layout: WorkspaceLayout = {
     workspaceId,
-    panes: [],
-    activePane: 'pane-1',
-    tabGroups: [],
+    panes: { [ROOT_PANE_ID]: { id: ROOT_PANE_ID, type: 'group', bufferIds: [], activeBufferId: null } },
+    rootLayout: createLeaf(ROOT_PANE_ID),
+    bottomLayout: createLeaf('bottom-pane'),
+    activePaneId: ROOT_PANE_ID,
     sidebarWidth: 240,
     rightSidebarWidth: 280,
     updatedAt: Date.now(),
@@ -41,7 +44,6 @@ async function seedDB(workspaceId: string) {
 
 describe('hydrateFromIDB', () => {
   beforeEach(async () => {
-    // Reset the IDB singleton so each test gets a fresh database
     resetDB()
     globalThis.indexedDB = new IDBFactory()
   })

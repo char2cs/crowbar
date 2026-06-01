@@ -6,10 +6,8 @@ let _db: IDBPDatabase<CrowbarDB> | null = null
 
 export async function getDB(): Promise<IDBPDatabase<CrowbarDB>> {
   if (_db) return _db
-  _db = await openDB<CrowbarDB>('crowbar', 1, {
+  _db = await openDB<CrowbarDB>('crowbar', 2, {
     upgrade(db, oldVersion) {
-      // Each version block is additive — do not modify stores created in earlier versions.
-      // To add a store: bump the version number above, add an `if (oldVersion < N)` block.
       if (oldVersion < 1) {
         db.createObjectStore('workspace-layout', { keyPath: 'workspaceId' })
         const editorStore = db.createObjectStore('editor-state', {
@@ -18,6 +16,10 @@ export async function getDB(): Promise<IDBPDatabase<CrowbarDB>> {
         editorStore.createIndex('workspaceId', 'workspaceId')
         db.createObjectStore('ui-preferences')
         db.createObjectStore('query-cache')
+      }
+      if (oldVersion < 2) {
+        db.deleteObjectStore('workspace-layout')
+        db.createObjectStore('workspace-layout', { keyPath: 'workspaceId' })
       }
     },
   })
