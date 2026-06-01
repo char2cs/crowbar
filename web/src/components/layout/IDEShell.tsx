@@ -6,7 +6,6 @@ import { SidebarTabs } from './SidebarTabs'
 import { SidebarNavIcons } from './sidebar-nav-icons'
 import { IS_MAC } from '@/utils/platform'
 import { useSidebarStore } from '@/lib/store/sidebar'
-import type { Repo } from '@/lib/store/sidebar'
 import { WorkspaceView } from '@/features/workspace/components/WorkspaceView'
 import SettingsDialog from '@/features/settings/components/settings-dialog'
 import { TerminalHost } from '@/features/terminal/components/terminal-host'
@@ -36,14 +35,6 @@ export function IDEShell() {
 
   const cleanupDragRef = useRef<(() => void) | null>(null)
   useEffect(() => () => { cleanupDragRef.current?.() }, [])
-
-  // Load workspace list from API (intercepted by MSW in mock mode, no-op otherwise)
-  useEffect(() => {
-    fetch('/api/v0/workspaces')
-      .then(r => r.ok ? r.json() as Promise<Repo[]> : Promise.reject())
-      .then(repos => useSidebarStore.getState().setRepos(repos))
-      .catch(() => { /* keep hardcoded initial data */ })
-  }, [])
 
   const activeWorkspaceId = pathname.match(/\/workspaces\/([^/]+)/)?.[1]
   const activeChatId = pathname.match(/\/chat\/([^/]+)/)?.[1]
