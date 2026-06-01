@@ -9,19 +9,20 @@ const mockDiff = getMockBranchDiff('ws1')
 describe('BranchReviewDiffViewer', () => {
   it('renders file names from the diff', () => {
     render(<BranchReviewDiffViewer multiDiff={mockDiff} threads={[]} onAddThread={() => {}} onReply={() => {}} onResolve={() => {}} />)
-    expect(screen.getByText('routes.ts')).toBeTruthy()
-    expect(screen.getByText('auth.ts')).toBeTruthy()
+    expect(screen.getByText('scaffold.ts')).toBeTruthy()
+    expect(screen.getByText('index.ts')).toBeTruthy()
   })
 
-  it('shows additions and deletions counts per file', () => {
+  it('shows additions count per file', () => {
     render(<BranchReviewDiffViewer multiDiff={mockDiff} threads={[]} onAddThread={() => {}} onReply={() => {}} onResolve={() => {}} />)
-    expect(screen.getByText('+42')).toBeTruthy()
-    expect(screen.getByText('-8')).toBeTruthy()
+    expect(screen.getByText('+22')).toBeTruthy()
+    expect(screen.getByText('+3')).toBeTruthy()
   })
 
   it('renders inline thread for the correct line', () => {
+    const firstFilePath = mockDiff.files[0].file_path
     const threads = [{
-      id: 't1', filePath: 'src/api/routes.ts', lineNumber: 2,
+      id: 't1', filePath: firstFilePath, lineNumber: 2,
       side: 'right' as const, isResolved: false,
       messages: [{ id: 'm1', author: 'Claude', isAgent: true, body: 'Use strict mode', createdAt: '2026-06-01' }],
     }]

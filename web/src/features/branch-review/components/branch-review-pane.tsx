@@ -2,7 +2,7 @@ import { useEffect } from 'react'
 import { GitBranch } from '@phosphor-icons/react'
 import { useWorkspaceStoreContext, useWorkspaceStore } from '@/features/workspace/stores/workspace-context'
 import { useSidebarStore } from '@/lib/store/sidebar'
-import { getMockBranchDiff } from '@/lib/mock/branch-diff'
+import { getMockBranchDiff, getMockBranchReviewThreads, getMockBranchReviewDescription } from '@/lib/mock/branch-diff'
 import type { ReviewThread, ReviewMessage } from '@/features/branch-review/types/review-types'
 import { Frame, FrameHeader, FramePanel, FrameTitle, FrameDescription } from '@/components/ui/frame'
 import { Tabs, TabsList, TabsTab, TabsPanel } from '@/components/ui/tabs'
@@ -34,9 +34,19 @@ export function BranchReviewPane({ wsId, branchName }: BranchReviewPaneProps) {
   })
 
   useEffect(() => {
-    const { branchReview, setBranchReviewDiff } = store.getState()
+    const { branchReview, setBranchReviewDiff, setBranchReviewDescription } = store.getState()
     if (branchReview.diffStatus !== 'idle') return
+
     setBranchReviewDiff(getMockBranchDiff(wsId))
+
+    // Seed mock threads and description if not already persisted
+    if (branchReview.threads.length === 0) {
+      const mockThreads = getMockBranchReviewThreads(wsId)
+      mockThreads.forEach(t => store.getState().addReviewThread(t))
+    }
+    if (!branchReview.description) {
+      setBranchReviewDescription(getMockBranchReviewDescription(wsId))
+    }
   }, [wsId, store])
 
   function handleAddThread(filePath: string, lineNumber: number) {
@@ -70,9 +80,6 @@ export function BranchReviewPane({ wsId, branchName }: BranchReviewPaneProps) {
     store.getState().bufferActions.openContent({ type: 'crowbarChat', wsId: id, name: id })
   }
 
-  const stats = diffCache
-    ? `${diffCache.totalFiles} file${diffCache.totalFiles !== 1 ? 's' : ''} · +${diffCache.totalAdditions} −${diffCache.totalDeletions}`
-    : null
 
   return (
     // ONE Frame = the whole window
@@ -95,7 +102,14 @@ export function BranchReviewPane({ wsId, branchName }: BranchReviewPaneProps) {
                   </Badge>
                 )}
               </FrameTitle>
-              {stats && <FrameDescription>{stats}</FrameDescription>}
+              {diffCache && (
+                <FrameDescription className="flex items-center gap-1.5">
+                  <span>{diffCache.totalFiles} file{diffCache.totalFiles !== 1 ? 's' : ''}</span>
+                  <span className="text-muted-foreground/40">·</span>
+                  <span className="text-git-added">+{diffCache.totalAdditions.toLocaleString()}</span>
+                  <span className="text-git-deleted">−{diffCache.totalDeletions.toLocaleString()}</span>
+                </FrameDescription>
+              )}
             </div>
             <div className="shrink-0">
               <MergeButton
