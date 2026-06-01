@@ -5,6 +5,7 @@ import type {
   OpenContentSpec,
   EditorContent,
   CrowbarChatContent,
+  BranchReviewContent,
   DiffContent,
   TerminalContent,
   WebViewerContent,
@@ -71,6 +72,11 @@ export const createBufferSlice: StateCreator<
         if (spec.type === 'crowbarChat') {
           return get().buffers.find(
             b => b.type === 'crowbarChat' && (b as CrowbarChatContent).wsId === spec.wsId,
+          )
+        }
+        if (spec.type === 'branchReview') {
+          return get().buffers.find(
+            b => b.type === 'branchReview' && (b as BranchReviewContent).wsId === spec.wsId,
           )
         }
         if (spec.type === 'diff') {
@@ -143,6 +149,18 @@ export const createBufferSlice: StateCreator<
           wsId: spec.wsId, name: spec.name,
           path: '', isPinned: false, isPreview: false, isActive: false,
         } satisfies CrowbarChatContent
+      } else if (spec.type === 'branchReview') {
+        buf = {
+          id, type: 'branchReview',
+          wsId: spec.wsId,
+          branchName: spec.branchName,
+          name: spec.name,
+          path: `branch-review://${spec.wsId}`,
+          isPinned: false,
+          isPreview: false,
+          isActive: false,
+          isUncloseable: true,
+        } satisfies BranchReviewContent
       } else if (spec.type === 'diff') {
         buf = {
           id, type: 'diff',

@@ -158,34 +158,36 @@ const TabBarItem = memo(function TabBarItem({
 
       {/* Close / pin button — rendered OUTSIDE the Tab <button> to avoid
           invalid nested-button HTML that breaks event propagation. */}
-      <Button
-        type="button"
-        compact
-        variant="ghost"
-        data-no-dnd
-        onClick={(e) => {
-          e.stopPropagation();
-          if (buffer.isPinned) {
-            handleTabPin(buffer.id);
-          } else {
-            handleTabClose(buffer.id);
-          }
-        }}
-        className={cn(
-          "absolute inset-y-0 my-auto right-1.5 h-4 w-4 grid place-items-center cursor-pointer select-none rounded-full p-0 text-muted-foreground transition-opacity hover:bg-accent hover:text-foreground",
-          buffer.isPinned || isActive ? "opacity-60" : "opacity-0 group-hover/tab:opacity-60",
-        )}
-        tooltip={buffer.isPinned ? "Unpin tab" : "Close"}
-        shortcut={buffer.isPinned ? undefined : "mod+w"}
-        tabIndex={-1}
-        draggable={false}
-      >
-        {buffer.isPinned ? (
-          <Pin className="pointer-events-none select-none size-3.5 fill-current text-accent" />
-        ) : (
-          <X className="pointer-events-none select-none size-3" />
-        )}
-      </Button>
+      {!buffer.isUncloseable && (
+        <Button
+          type="button"
+          compact
+          variant="ghost"
+          data-no-dnd
+          onClick={(e) => {
+            e.stopPropagation();
+            if (buffer.isPinned) {
+              handleTabPin(buffer.id);
+            } else {
+              handleTabClose(buffer.id);
+            }
+          }}
+          className={cn(
+            "absolute inset-y-0 my-auto right-1.5 h-4 w-4 grid place-items-center cursor-pointer select-none rounded-full p-0 text-muted-foreground transition-opacity hover:bg-accent hover:text-foreground",
+            buffer.isPinned || isActive ? "opacity-60" : "opacity-0 group-hover/tab:opacity-60",
+          )}
+          tooltip={buffer.isPinned ? "Unpin tab" : "Close"}
+          shortcut={buffer.isPinned ? undefined : "mod+w"}
+          tabIndex={-1}
+          draggable={false}
+        >
+          {buffer.isPinned ? (
+            <Pin className="pointer-events-none select-none size-3.5 fill-current text-accent" />
+          ) : (
+            <X className="pointer-events-none select-none size-3" />
+          )}
+        </Button>
+      )}
     </div>
   );
 });
