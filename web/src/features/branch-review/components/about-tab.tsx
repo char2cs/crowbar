@@ -6,13 +6,14 @@ import { FramePanel, FrameTitle } from '@/components/ui/frame'
 import { cn } from '@/utils/cn'
 
 const transparentTheme = EditorView.theme({
-  '&': { backgroundColor: 'transparent', color: 'var(--foreground)' },
-  '&.cm-focused': { outline: 'none' },
+  '&': { backgroundColor: 'transparent !important', color: 'var(--foreground)' },
+  '&.cm-focused': { outline: 'none !important', backgroundColor: 'transparent !important' },
   '.cm-content': { caretColor: 'var(--foreground)', padding: '0' },
   '.cm-cursor': { borderLeftColor: 'var(--foreground)' },
   '.cm-placeholder': { color: 'var(--muted-foreground)', opacity: '0.4' },
   '.cm-line': { padding: '0' },
-  '.cm-scroller': { fontFamily: 'inherit' },
+  '.cm-scroller': { fontFamily: 'inherit', backgroundColor: 'transparent !important' },
+  '.cm-gutters': { backgroundColor: 'transparent !important', border: 'none' },
 })
 
 interface AboutTabProps {
