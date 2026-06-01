@@ -4,6 +4,7 @@ import { HydrationGate } from '@/components/hydration-gate'
 
 vi.mock('@/lib/persistence/hydrate', () => ({
   hydratePreferences: vi.fn().mockResolvedValue(null),
+  hydrateSidebar: vi.fn().mockResolvedValue(null),
 }))
 
 describe('HydrationGate', () => {

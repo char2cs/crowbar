@@ -1,5 +1,6 @@
 import { createContext, useCallback, useContext, useEffect, useRef, useState, type ReactNode } from 'react'
 import { useSidebarStore } from '@/lib/store/sidebar'
+import { reparentWorkspace } from '@/lib/api/workspace'
 
 interface CreatingState {
   repoId: string
@@ -140,13 +141,13 @@ export function WorkspaceTreeProvider({ children }: { children: ReactNode }) {
           const repos = useSidebarStore.getState().repos
           const targetRepo = repos.find(r => r.workspaces.some(w => w.id === targetWsId))
           if (targetRepo?.id === ws.repoId) {
-            useSidebarStore.getState().reparentWorkspace(ws.id, targetWsId)
+            void reparentWorkspace(ws.id, targetWsId, ws.repoId)
           }
         }
       } else if (target?.startsWith('repo:')) {
         const targetRepoId = target.slice(5)
         if (targetRepoId === ws.repoId) {
-          useSidebarStore.getState().reparentWorkspace(ws.id, undefined)
+          void reparentWorkspace(ws.id, undefined, ws.repoId)
         }
       }
 
