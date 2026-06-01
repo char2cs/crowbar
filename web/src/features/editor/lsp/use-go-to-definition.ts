@@ -3,7 +3,6 @@ import { EDITOR_CONSTANTS } from "@/features/editor/config/constants";
 import { editorAPI } from "@/features/editor/extensions/api";
 import { useCenterCursor } from "@/features/editor/hooks/use-center-cursor";
 import { getActiveWorkspaceStoreRef } from "@/features/workspace/stores/workspace-store-ref";
-import { findPaneGroup } from "@/features/panes/utils/pane-tree";
 import { useJumpListStore } from "@/features/editor/stores/jump-list-store";
 import { useEditorStateStore } from "@/features/editor/stores/state-store";
 import { calculateOffsetFromContentPosition } from "@/features/editor/utils/position";
@@ -90,7 +89,7 @@ export const useGoToDefinition = ({
             if (!wsStore) return;
 
             // Push current position to jump list before navigating
-            const activeBufferId = findPaneGroup(wsStore.paneRoot, wsStore.activePaneId)?.activeBufferId ?? null;
+            const activeBufferId = wsStore.panes[wsStore.activePaneId]?.activeBufferId ?? null;
             if (activeBufferId && filePath) {
               const editorState = useEditorStateStore.getState();
               useJumpListStore.getState().actions.pushEntry({

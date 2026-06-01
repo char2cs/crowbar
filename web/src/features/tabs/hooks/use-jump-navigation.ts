@@ -2,7 +2,6 @@ import { useCallback } from "react";
 import { useJumpListStore } from "@/features/editor/stores/jump-list-store";
 import { useEditorStateStore } from "@/features/editor/stores/state-store";
 import { navigateToJumpEntry } from "@/features/editor/utils/jump-navigation";
-import { findPaneGroup } from "@/features/panes/utils/pane-tree";
 import { useWorkspaceStore } from "@/features/workspace/stores/workspace-context";
 
 interface WebViewerNavigation {
@@ -44,8 +43,7 @@ export function useJumpNavigation({
 
     const wsState = workspaceStore.getState();
     const editorState = useEditorStateStore.getState();
-    const activePaneGroup = findPaneGroup(wsState.paneRoot, wsState.activePaneId);
-    const currentActiveBufferId = activePaneGroup?.activeBufferId ?? null;
+    const currentActiveBufferId = wsState.panes[wsState.activePaneId]?.activeBufferId ?? null;
     const currentActiveBuffer = currentActiveBufferId
       ? wsState.buffers.find((b) => b.id === currentActiveBufferId)
       : undefined;

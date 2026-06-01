@@ -4,7 +4,6 @@ import { createStore } from 'zustand'
 import { immer } from 'zustand/middleware/immer'
 import { createPaneSlice, type PaneSlice } from '@/features/workspace/stores/slices/pane-slice'
 import { ROOT_PANE_ID, BOTTOM_PANE_ID } from '@/features/panes/constants/pane'
-import { getAllPaneGroups } from '@/features/panes/utils/pane-tree'
 
 function makeStore() {
   return createStore<PaneSlice>()(immer((set, get) => createPaneSlice(set as any, get as any, {} as any)))
@@ -25,13 +24,13 @@ describe('pane-slice', () => {
     expect(rootGroup?.activeBufferId).toBeNull()
   })
 
-  it('splitPane returns a new pane ID and updates root to a split', () => {
+  it('splitPane returns a new pane ID and updates rootLayout to a split', () => {
     const newPaneId = store.getState().paneActions.splitPane(ROOT_PANE_ID, 'horizontal')
     expect(newPaneId).not.toBeNull()
-    const root = store.getState().paneRoot
-    expect(root.type).toBe('split')
-    const groups = getAllPaneGroups(root)
-    expect(groups.map(g => g.id)).toContain(newPaneId!)
+    const rootLayout = store.getState().rootLayout
+    expect(rootLayout.type).toBe('split')
+    const panes = store.getState().panes
+    expect(Object.keys(panes)).toContain(newPaneId!)
   })
 
   it('addBufferToPane adds bufferId to the correct group', () => {

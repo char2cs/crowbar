@@ -16,7 +16,6 @@ import { LSP_ERROR_TOAST_KEY, type LspStatus, useLspStore } from "@/features/edi
 import type { Position } from "@/features/editor/types/editor";
 import { LoadingSpinner } from "@/components/ui/loading-spinner";
 import { useWorkspaceStoreContext, useWorkspaceStore } from "@/features/workspace/stores/workspace-context";
-import { findPaneGroup } from "@/features/panes/utils/pane-tree";
 import { useEditorStateStore } from "@/features/editor/stores/state-store";
 import {
   getAllLanguages,
@@ -82,7 +81,7 @@ export function EditorStatusActions({ bufferId, editorViewKey }: EditorStatusAct
   const workspaceStore = useWorkspaceStore();
   const rootFolderPath = useFileSystemStore((s) => s.rootFolderPath);
   const resolvedBufferId = useWorkspaceStoreContext(
-    (state) => bufferId ?? findPaneGroup(state.paneRoot, state.activePaneId)?.activeBufferId ?? null,
+    (state) => bufferId ?? state.panes[state.activePaneId]?.activeBufferId ?? null,
   );
   const settings = useSettingsStore((s) => s.settings);
   const updateSetting = useSettingsStore((s) => s.updateSetting);

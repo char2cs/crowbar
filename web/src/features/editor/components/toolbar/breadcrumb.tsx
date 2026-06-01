@@ -3,7 +3,6 @@ import { Eye, MagnifyingGlass as Search } from "@phosphor-icons/react";
 import { useShallow } from "zustand/react/shallow";
 import { EditorStatusActions } from "@/features/editor/components/toolbar/editor-status-actions";
 import { useWorkspaceStoreContext, useWorkspaceStore } from "@/features/workspace/stores/workspace-context";
-import { findPaneGroup } from "@/features/panes/utils/pane-tree";
 import { hasTextContent } from "@/features/panes/types/pane-content";
 import { useUIState } from "@/features/window/stores/ui-state-store";
 import { useExtensionActions } from "@/extensions/ui/hooks/use-extension-actions";
@@ -35,7 +34,7 @@ export default function Breadcrumb({
 }: BreadcrumbProps = {}) {
   const workspaceStore = useWorkspaceStore();
   const resolvedBufferId = useWorkspaceStoreContext(
-    (state) => bufferId ?? findPaneGroup(state.paneRoot, state.activePaneId)?.activeBufferId ?? null,
+    (state) => bufferId ?? state.panes[state.activePaneId]?.activeBufferId ?? null,
   );
   const activeBuffer = useWorkspaceStoreContext(
     useShallow((state) => {

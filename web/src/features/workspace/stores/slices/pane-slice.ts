@@ -3,8 +3,8 @@ import type { WorkspaceState } from '../workspace-store.types'
 import { ROOT_PANE_ID, BOTTOM_PANE_ID } from '@/features/panes/constants/pane'
 import type { PaneGroup, LayoutNode, SplitDirection, SplitPlacement } from '@/features/panes/types/pane'
 import {
-  createLeaf, createSplit, splitLayout, closeLayout, findLeaf, findSplit,
-  getAllLeafIds, getFirstLeafId, updateSplitSizes, distributeSplit,
+  createLeaf, splitLayout, closeLayout, findLeaf, findSplit,
+  getAllLeafIds, distributeSplit,
   resizeFlattenedLayout, normalizeLayout, getAdjacentLeafId,
 } from '@/features/panes/utils/pane-layout'
 

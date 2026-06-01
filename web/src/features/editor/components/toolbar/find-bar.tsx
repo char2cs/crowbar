@@ -2,7 +2,6 @@ import type React from "react";
 import { useEffect, useRef } from "react";
 import { useShallow } from "zustand/react/shallow";
 import { useWorkspaceStore } from "@/features/workspace/stores/workspace-context";
-import { findPaneGroup } from "@/features/panes/utils/pane-tree";
 import { useEditorStateStore } from "@/features/editor/stores/state-store";
 import { useEditorUIStore } from "@/features/editor/stores/ui-store";
 import { hasTextContent } from "@/features/panes/types/pane-content";
@@ -90,8 +89,8 @@ const FindBar = () => {
         return textarea.value;
       }
 
-      const { paneRoot, activePaneId, buffers } = workspaceStore.getState();
-      const activeBufferId = findPaneGroup(paneRoot, activePaneId)?.activeBufferId ?? null;
+      const { panes, activePaneId, buffers } = workspaceStore.getState();
+      const activeBufferId = panes[activePaneId]?.activeBufferId ?? null;
       const activeBuffer = activeBufferId
         ? buffers.find((candidate) => candidate.id === activeBufferId)
         : null;

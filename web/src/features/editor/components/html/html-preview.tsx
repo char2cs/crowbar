@@ -1,7 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { useShallow } from "zustand/react/shallow";
 import { useWorkspaceStoreContext } from "@/features/workspace/stores/workspace-context";
-import { findPaneGroup } from "@/features/panes/utils/pane-tree";
 import { useFileSystemStore } from "@/features/file-system/controllers/store";
 import { hasTextContent } from "@/features/panes/types/pane-content";
 import { buildHtmlPreviewDocument } from "./html-preview-document";
@@ -9,7 +8,7 @@ import { buildHtmlPreviewDocument } from "./html-preview-document";
 export function HtmlPreview() {
   const { hasSourceBuffer, sourceContent, sourcePath } = useWorkspaceStoreContext(
     useShallow((state) => {
-      const activeBufferId = findPaneGroup(state.paneRoot, state.activePaneId)?.activeBufferId ?? null;
+      const activeBufferId = state.panes[state.activePaneId]?.activeBufferId ?? null;
       const activeBuffer = activeBufferId
         ? state.buffers.find((buffer) => buffer.id === activeBufferId)
         : null;

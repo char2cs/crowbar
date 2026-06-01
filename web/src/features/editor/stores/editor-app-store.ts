@@ -14,7 +14,6 @@ import { useSettingsStore } from "@/features/settings/store";
 import { createSelectors } from "@/utils/zustand-selectors";
 import { writeFile } from "@/features/file-system/controllers/platform";
 import { getActiveWorkspaceStoreRef } from "@/features/workspace/stores/workspace-store-ref";
-import { findPaneGroup } from "@/features/panes/utils/pane-tree";
 import type { Position, Range } from "../types/editor";
 import { trackBufferHistoryChange } from "./buffer-history-tracking";
 
@@ -169,12 +168,6 @@ function getDirtyEditorBuffers(buffers: PaneContent[]): EditorContent[] {
 
 interface AppState {
   autoSaveTimeoutId: NodeJS.Timeout | null;
-  quickEditState: {
-    isOpen: boolean;
-    selectedText: string;
-    cursorPosition: { x: number; y: number };
-    selectionRange: { start: number; end: number };
-  };
   actions: AppActions;
 }
 
@@ -188,11 +181,6 @@ interface AppActions {
   ) => Promise<void>;
   handleSave: () => Promise<void>;
   handleSaveAll: () => Promise<number>;
-  openQuickEdit: (params: {
-    text: string;
-    cursorPosition: { x: number; y: number };
-    selectionRange: { start: number; end: number };
-  }) => void;
   cleanup: () => void;
 }
 
@@ -200,12 +188,6 @@ export const useEditorAppStore = createSelectors(
   create<AppState>()(
     immer((set, get) => ({
       autoSaveTimeoutId: null,
-      quickEditState: {
-        isOpen: false,
-        selectedText: "",
-        cursorPosition: { x: 0, y: 0 },
-        selectionRange: { start: 0, end: 0 },
-      },
       actions: {
         handleContentChange: async (
           content: string,
@@ -217,8 +199,8 @@ export const useEditorAppStore = createSelectors(
           const wsRef = getActiveWorkspaceStoreRef();
           const wsStore = wsRef?.getState();
           if (!wsStore) return;
-          const { buffers, paneRoot, activePaneId } = wsStore;
-          const activeBufferId = findPaneGroup(paneRoot, activePaneId)?.activeBufferId ?? null;
+          const { buffers, panes, activePaneId } = wsStore;
+          const activeBufferId = panes[activePaneId]?.activeBufferId ?? null;
           const { settings } = useSettingsStore.getState();
           const { markPendingSave } = useFileWatcherStore.getState();
           const contentAlreadyApplied = options?.contentAlreadyApplied === true;
@@ -310,8 +292,8 @@ export const useEditorAppStore = createSelectors(
         handleSave: async () => {
           const wsStore = getActiveWorkspaceStoreRef()?.getState();
           if (!wsStore) return;
-          const { buffers, paneRoot, activePaneId } = wsStore;
-          const activeBufferId = findPaneGroup(paneRoot, activePaneId)?.activeBufferId ?? null;
+          const { buffers, panes, activePaneId } = wsStore;
+          const activeBufferId = panes[activePaneId]?.activeBufferId ?? null;
           const activeBuffer = buffers.find((b) => b.id === activeBufferId);
           if (!activeBuffer || !isEditorContent(activeBuffer)) return;
 
@@ -337,17 +319,6 @@ export const useEditorAppStore = createSelectors(
           }
 
           return savedCount;
-        },
-
-        openQuickEdit: (params) => {
-          set((state) => {
-            state.quickEditState = {
-              isOpen: true,
-              selectedText: params.text,
-              cursorPosition: params.cursorPosition,
-              selectionRange: params.selectionRange,
-            };
-          });
         },
 
         cleanup: () => {

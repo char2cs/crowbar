@@ -1,5 +1,4 @@
 import { getActiveWorkspaceStoreRef } from "@/features/workspace/stores/workspace-store-ref";
-import { findPaneGroup } from "@/features/panes/utils/pane-tree";
 import { useEditorDecorationsStore } from "../stores/decorations-store";
 import {
   flushPendingBufferHistory,
@@ -106,7 +105,7 @@ class EditorAPIImpl implements EditorAPI {
   setContent(content: string): void {
     const wsRef = getActiveWorkspaceStoreRef();
     const wsStore = wsRef?.getState();
-    const activeBufferId = wsStore ? (findPaneGroup(wsStore.paneRoot, wsStore.activePaneId)?.activeBufferId ?? null) : null;
+    const activeBufferId = wsStore ? (wsStore.panes[wsStore.activePaneId]?.activeBufferId ?? null) : null;
     if (activeBufferId && wsRef) {
       wsRef.setState((state) => ({
         buffers: state.buffers.map((b) =>
@@ -525,7 +524,7 @@ class EditorAPIImpl implements EditorAPI {
 
     const wsRef = getActiveWorkspaceStoreRef();
     const wsStore = wsRef?.getState();
-    const activeBufferId = wsStore ? (findPaneGroup(wsStore.paneRoot, wsStore.activePaneId)?.activeBufferId ?? null) : null;
+    const activeBufferId = wsStore ? (wsStore.panes[wsStore.activePaneId]?.activeBufferId ?? null) : null;
 
     if (!activeBufferId) {
       logger.warn("Editor", "No active buffer for undo");
@@ -587,7 +586,7 @@ class EditorAPIImpl implements EditorAPI {
 
     const wsRef2 = getActiveWorkspaceStoreRef();
     const wsStore2 = wsRef2?.getState();
-    const activeBufferId = wsStore2 ? (findPaneGroup(wsStore2.paneRoot, wsStore2.activePaneId)?.activeBufferId ?? null) : null;
+    const activeBufferId = wsStore2 ? (wsStore2.panes[wsStore2.activePaneId]?.activeBufferId ?? null) : null;
 
     if (!activeBufferId) {
       logger.warn("Editor", "No active buffer for redo");
@@ -643,7 +642,7 @@ class EditorAPIImpl implements EditorAPI {
 
   canUndo(): boolean {
     const wsStore = getActiveWorkspaceStoreRef()?.getState();
-    const activeBufferId = wsStore ? (findPaneGroup(wsStore.paneRoot, wsStore.activePaneId)?.activeBufferId ?? null) : null;
+    const activeBufferId = wsStore ? (wsStore.panes[wsStore.activePaneId]?.activeBufferId ?? null) : null;
     if (!activeBufferId) return false;
 
     return useHistoryStore.getState().actions.canUndo(activeBufferId);
@@ -651,7 +650,7 @@ class EditorAPIImpl implements EditorAPI {
 
   canRedo(): boolean {
     const wsStore = getActiveWorkspaceStoreRef()?.getState();
-    const activeBufferId = wsStore ? (findPaneGroup(wsStore.paneRoot, wsStore.activePaneId)?.activeBufferId ?? null) : null;
+    const activeBufferId = wsStore ? (wsStore.panes[wsStore.activePaneId]?.activeBufferId ?? null) : null;
     if (!activeBufferId) return false;
 
     return useHistoryStore.getState().actions.canRedo(activeBufferId);
@@ -774,7 +773,7 @@ class EditorAPIImpl implements EditorAPI {
 
   private getActiveLineCommentToken(): string {
     const wsStore = getActiveWorkspaceStoreRef()?.getState();
-    const activeBufferId = wsStore ? (findPaneGroup(wsStore.paneRoot, wsStore.activePaneId)?.activeBufferId ?? null) : null;
+    const activeBufferId = wsStore ? (wsStore.panes[wsStore.activePaneId]?.activeBufferId ?? null) : null;
     const activeBuffer = wsStore?.buffers.find((buffer) => buffer.id === activeBufferId);
     const languageId =
       activeBuffer && "language" in activeBuffer && typeof activeBuffer.language === "string"

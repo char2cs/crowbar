@@ -5,8 +5,7 @@ import { isEditorContent } from "@/features/panes/types/pane-content";
 import { createSelectors } from "@/utils/zustand-selectors";
 import { createSparseLineArray, getLargeEditorModeInfo } from "../utils/large-file";
 import { getActiveWorkspaceStoreRef, onActiveWorkspaceStoreChange } from "@/features/workspace/stores/workspace-store-ref";
-import type { PaneNode } from "@/features/panes/types/pane";
-import { findPaneGroup } from "@/features/panes/utils/pane-tree";
+import type { PaneGroup } from "@/features/panes/types/pane";
 
 interface EditorViewState {
   // Computed views of the active buffer
@@ -40,7 +39,7 @@ export const useEditorViewStore = createSelectors(
         getContent: () => {
           const wsStore = getActiveWorkspaceStoreRef()?.getState();
           if (!wsStore) return "";
-          const activeBufferId = findPaneGroup(wsStore.paneRoot, wsStore.activePaneId)?.activeBufferId ?? null;
+          const activeBufferId = wsStore.panes[wsStore.activePaneId]?.activeBufferId ?? null;
           const activeBuffer = activeBufferId ? wsStore.buffers.find((b) => b.id === activeBufferId) : null;
           if (!activeBuffer || !isEditorContent(activeBuffer)) return "";
           return activeBuffer.content;
@@ -163,8 +162,8 @@ export function applyIncrementalLineEdit(
 // and tear it down when the store is removed.
 let _viewStoreUnsubscribe: (() => void) | null = null
 
-function handleWorkspaceState(state: { buffers: PaneContent[]; paneRoot: PaneNode; activePaneId: string }) {
-  const activeBufferId = findPaneGroup(state.paneRoot, state.activePaneId)?.activeBufferId ?? null;
+function handleWorkspaceState(state: { buffers: PaneContent[]; panes: Record<string, PaneGroup>; activePaneId: string }) {
+  const activeBufferId = state.panes[state.activePaneId]?.activeBufferId ?? null;
   const activeBuffer = activeBufferId ? state.buffers.find((b) => b.id === activeBufferId) : null;
 
   if (activeBuffer && isEditorContent(activeBuffer)) {

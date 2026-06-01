@@ -8,7 +8,6 @@ import type {
   DiffContent,
   TerminalContent,
   WebViewerContent,
-  AgentContent,
   NewTabContent,
   ImageContent,
   PdfContent,
@@ -29,14 +28,13 @@ import type {
   PendingClose,
 } from '@/features/panes/types/pane-content'
 import { shouldStartLsp } from '@/features/panes/types/pane-content'
-import { getAllPaneGroups } from '@/features/panes/utils/pane-tree'
 import { EDITOR_CONSTANTS } from '@/features/editor/config/constants'
 import { nanoid } from 'nanoid'
 
 // ── Constants ────────────────────────────────────────────────────────
 
 const AUTO_EVICTION_PROTECTED = new Set<PaneContent['type']>([
-  'agent', 'externalEditor', 'terminal', 'webViewer',
+  'externalEditor', 'terminal', 'webViewer',
 ])
 
 // ── Actions ──────────────────────────────────────────────────────────
@@ -97,11 +95,6 @@ export const createBufferSlice: StateCreator<
         if (spec.type === 'webViewer') {
           return get().buffers.find(
             b => b.type === 'webViewer' && (b as WebViewerContent).url === spec.url,
-          )
-        }
-        if (spec.type === 'agent' && spec.sessionId) {
-          return get().buffers.find(
-            b => b.type === 'agent' && (b as AgentContent).sessionId === spec.sessionId,
           )
         }
         if (spec.type === 'image') {
@@ -168,10 +161,7 @@ export const createBufferSlice: StateCreator<
       if (get().buffers.length >= get().maxOpenTabs) {
         const evictee = get().buffers.find(b => !b.isPinned && !AUTO_EVICTION_PROTECTED.has(b.type))
         if (evictee) {
-          const allPanes = [
-            ...getAllPaneGroups(get().paneRoot),
-            ...getAllPaneGroups(get().bottomRoot),
-          ]
+          const allPanes = Object.values(get().panes)
           for (const pane of allPanes) {
             if (pane.bufferIds.includes(evictee.id)) {
               get().paneActions.removeBufferFromPane(pane.id, evictee.id, true)
@@ -241,16 +231,6 @@ export const createBufferSlice: StateCreator<
           historyIndex: spec.historyIndex,
           isPinned: false, isPreview: false, isActive: false,
         } satisfies WebViewerContent
-      } else if (spec.type === 'agent') {
-        const agentCount = get().buffers.filter(b => b.type === 'agent').length
-        const sessionId = spec.sessionId ?? nanoid()
-        buf = {
-          id, type: 'agent',
-          sessionId,
-          path: `agent://${sessionId}`,
-          name: `Agent ${agentCount + 1}`,
-          isPinned: false, isPreview: false, isActive: false,
-        } satisfies AgentContent
       } else if (spec.type === 'newTab') {
         buf = {
           id, type: 'newTab',

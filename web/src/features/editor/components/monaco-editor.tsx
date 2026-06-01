@@ -18,7 +18,6 @@ import type { ThemeDefinition } from "@/extensions/themes/types";
 import { useSettingsStore } from "@/features/settings/store";
 import { useZoomStore } from "@/features/window/stores/zoom-store";
 import { useWorkspaceStoreContext } from "@/features/workspace/stores/workspace-context";
-import { findPaneGroup } from "@/features/panes/utils/pane-tree";
 import { useEditorSettingsStore } from "../stores/settings-store";
 import { useEditorStateStore } from "../stores/state-store";
 import { useEditorUIStore } from "../stores/ui-store";
@@ -311,7 +310,7 @@ export function MonacoBackedEditor({
   const latestContentChangeRef = useRef(onContentChange);
   const activeBufferId = useWorkspaceStoreContext(
     useCallback(
-      (state) => propBufferId ?? findPaneGroup(state.paneRoot, state.activePaneId)?.activeBufferId ?? null,
+      (state) => propBufferId ?? state.panes[state.activePaneId]?.activeBufferId ?? null,
       [propBufferId],
     ),
   );

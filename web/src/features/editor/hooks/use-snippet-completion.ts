@@ -11,7 +11,6 @@ import {
 import type { SnippetSession } from "@/features/editor/snippets/types";
 import { useWorkspaceStore } from "@/features/workspace/stores/workspace-context";
 import { getActiveWorkspaceStoreRef } from "@/features/workspace/stores/workspace-store-ref";
-import { findPaneGroup } from "@/features/panes/utils/pane-tree";
 import { useEditorStateStore } from "@/features/editor/stores/state-store";
 import type { Position } from "@/features/editor/types/editor";
 import { calculateCursorPositionFromContent } from "@/features/editor/utils/position";
@@ -70,7 +69,7 @@ export function useSnippetCompletion(filePath: string | undefined) {
    */
   const expandSnippetAtCursor = useCallback((completion: CompletionItem) => {
     const wsState = workspaceStore.getState();
-    const activeBufferId = findPaneGroup(wsState.paneRoot, wsState.activePaneId)?.activeBufferId ?? null;
+    const activeBufferId = wsState.panes[wsState.activePaneId]?.activeBufferId ?? null;
     if (!activeBufferId || !completion.data?.isSnippet) return false;
 
     const cursorPosition = useEditorStateStore.getState().cursorPosition;
@@ -160,7 +159,7 @@ export function useSnippetCompletion(filePath: string | undefined) {
     const session = sessionRef.current;
     const newOffset = session.insertPosition.offset + tabStop.offset;
     const wsStateNext = workspaceStore.getState();
-    const nextActiveId = findPaneGroup(wsStateNext.paneRoot, wsStateNext.activePaneId)?.activeBufferId ?? null;
+    const nextActiveId = wsStateNext.panes[wsStateNext.activePaneId]?.activeBufferId ?? null;
     const buffer = nextActiveId ? wsStateNext.buffers.find((b) => b.id === nextActiveId) : undefined;
 
     if (buffer && isEditorContent(buffer)) {
@@ -193,7 +192,7 @@ export function useSnippetCompletion(filePath: string | undefined) {
     const session = sessionRef.current;
     const newOffset = session.insertPosition.offset + tabStop.offset;
     const wsStatePrev = workspaceStore.getState();
-    const prevActiveId = findPaneGroup(wsStatePrev.paneRoot, wsStatePrev.activePaneId)?.activeBufferId ?? null;
+    const prevActiveId = wsStatePrev.panes[wsStatePrev.activePaneId]?.activeBufferId ?? null;
     const buffer = prevActiveId ? wsStatePrev.buffers.find((b) => b.id === prevActiveId) : undefined;
 
     if (buffer && isEditorContent(buffer)) {
@@ -246,7 +245,7 @@ function selectRange(start: number, end: number) {
   const store = getActiveWorkspaceStoreRef();
   if (!store) return;
   const state = store.getState();
-  const activeBufferId = findPaneGroup(state.paneRoot, state.activePaneId)?.activeBufferId ?? null;
+  const activeBufferId = state.panes[state.activePaneId]?.activeBufferId ?? null;
   const activeBuffer = activeBufferId ? state.buffers.find((b) => b.id === activeBufferId) : null;
   if (!activeBuffer || !isEditorContent(activeBuffer)) return;
 

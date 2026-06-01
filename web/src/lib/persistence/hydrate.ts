@@ -21,10 +21,6 @@ export async function hydrateFromIDB(workspaceId: string): Promise<HydrationResu
   if (layout) {
     const store = getOrCreateWorkspaceStore(workspaceId)
     store.setState({
-      paneRoot: layout.panes[0] as ReturnType<typeof store.getState>['paneRoot'] | undefined
-        ?? store.getState().paneRoot,
-      bottomRoot: layout.tabGroups[0] as ReturnType<typeof store.getState>['bottomRoot'] | undefined
-        ?? store.getState().bottomRoot,
       activePaneId: layout.activePane,
     })
   }

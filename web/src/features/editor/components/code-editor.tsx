@@ -11,7 +11,6 @@ import CsvPreview from "@/extensions/viewers/csv/csv-preview";
 import { useLspIntegration } from "@/features/editor/hooks/use-lsp-integration";
 import { useEditorScroll } from "@/features/editor/hooks/use-scroll";
 import { useWorkspaceStoreContext } from "@/features/workspace/stores/workspace-context";
-import { findPaneGroup } from "@/features/panes/utils/pane-tree";
 import { useEditorSettingsStore } from "@/features/editor/stores/settings-store";
 import { useEditorStateStore } from "@/features/editor/stores/state-store";
 import { useEditorUIStore } from "@/features/editor/stores/ui-store";
@@ -132,7 +131,7 @@ const CodeEditor = ({
       (state) => {
         if (propBufferId) return propBufferId
         const paneToUse = paneId ?? state.activePaneId
-        return findPaneGroup(state.paneRoot, paneToUse)?.activeBufferId ?? null
+        return state.panes[paneToUse]?.activeBufferId ?? null
       },
       [paneId, propBufferId],
     ),
