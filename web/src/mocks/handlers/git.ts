@@ -1,21 +1,32 @@
 import { http, HttpResponse } from 'msw'
-import { getMockGitStatus, getMockCommitHistory, getMockBranches } from '@/lib/mock/git-data'
+import { shouldFault } from '@/lib/mock/fault'
+import { getDataForScenario } from '@/lib/mock/scenarios'
 
 export const gitHandlers = [
   http.get('/api/v0/git/status', ({ request }) => {
+    if (shouldFault(request, 'git-status'))
+      return HttpResponse.json({ error: 'simulated failure' }, { status: 500 })
     const repo = new URL(request.url).searchParams.get('repo') ?? ''
-    return HttpResponse.json(getMockGitStatus(repo))
+    const data = getDataForScenario(request.headers.get('X-Crowbar-Scenario') ?? 'normal')
+    return HttpResponse.json(data.gitStatus(repo))
   }),
+
   http.get('/api/v0/git/log', ({ request }) => {
+    if (shouldFault(request, 'git-commits'))
+      return HttpResponse.json({ error: 'simulated failure' }, { status: 500 })
     const url = new URL(request.url)
     const repo = url.searchParams.get('repo') ?? ''
-    const limit = Math.min(parseInt(url.searchParams.get('limit') ?? '50', 10), 200)
+    const limit = Math.min(parseInt(url.searchParams.get('limit') ?? '50', 10), 500)
     const skip = parseInt(url.searchParams.get('skip') ?? '0', 10)
-    const all = getMockCommitHistory(repo)
-    return HttpResponse.json(all.slice(skip, skip + limit))
+    const data = getDataForScenario(request.headers.get('X-Crowbar-Scenario') ?? 'normal')
+    return HttpResponse.json(data.gitLog(repo).slice(skip, skip + limit))
   }),
+
   http.get('/api/v0/git/branches', ({ request }) => {
+    if (shouldFault(request, 'git-branches'))
+      return HttpResponse.json({ error: 'simulated failure' }, { status: 500 })
     const repo = new URL(request.url).searchParams.get('repo') ?? ''
-    return HttpResponse.json(getMockBranches(repo))
+    const data = getDataForScenario(request.headers.get('X-Crowbar-Scenario') ?? 'normal')
+    return HttpResponse.json(data.gitBranches(repo))
   }),
 ]

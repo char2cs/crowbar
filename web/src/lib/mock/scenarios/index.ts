@@ -24,23 +24,17 @@ export interface ScenarioDataset {
   markdownTurns: (wsId: string, stepId: string) => MarkdownTurn[]
 }
 
-let _extreme: ScenarioDataset | null = null
-let _normal: ScenarioDataset | null = null
-let _empty: ScenarioDataset | null = null
+import { normalDataset } from './normal'
+import { extremeDataset } from './extreme'
+import { emptyDataset } from './empty'
 
 export function getDataForScenario(scenario: string): ScenarioDataset {
   switch (scenario) {
-    case 'extreme': {
-      if (!_extreme) _extreme = require('./extreme').extremeDataset
-      return _extreme!
-    }
-    case 'empty': {
-      if (!_empty) _empty = require('./empty').emptyDataset
-      return _empty!
-    }
-    default: {
-      if (!_normal) _normal = require('./normal').normalDataset
-      return _normal!
-    }
+    case 'extreme':
+      return extremeDataset
+    case 'empty':
+      return emptyDataset
+    default:
+      return normalDataset
   }
 }

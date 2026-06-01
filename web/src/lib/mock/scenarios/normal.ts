@@ -4,6 +4,7 @@ import type { ReviewThread, ReviewMessage } from '@/features/branch-review/types
 import type { BranchReviewChat } from '@/lib/mock/branch-diff'
 import type { GitDiffLine } from '@/features/git/types/git-types'
 import { getMockFileTree, getMockFileContent } from '@/lib/mock/files'
+import { getMockMarkdownTurns } from '@/lib/mock/markdown-chat'
 
 // ─── Repos ───────────────────────────────────────────────────────────────────
 
@@ -293,5 +294,5 @@ export const normalDataset: ScenarioDataset = {
     { name: 'feature/onboarding', isCurrent: true, isRemote: false },
     { name: 'fix/signup-form', isCurrent: false, isRemote: false },
   ],
-  markdownTurns: () => [],
+  markdownTurns: (wsId, stepId) => getMockMarkdownTurns(wsId, stepId),
 }
