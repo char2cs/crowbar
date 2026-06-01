@@ -1,6 +1,8 @@
 import { render, screen } from '@testing-library/react'
 import { describe, it, expect } from 'vitest'
+import userEvent from '@testing-library/user-event'
 import { Button } from '@/components/ui/button'
+import { TooltipProvider } from '@/components/ui/tooltip'
 
 describe('Button', () => {
   it('renders a button element by default', () => {
@@ -14,20 +16,26 @@ describe('Button', () => {
     expect(btn.className).toContain('hover:bg-accent')
   })
 
-  it('accepts and ignores Crowbar compat props without error', () => {
+  it('renders tooltip content when tooltip prop is provided', async () => {
+    const user = userEvent.setup()
+    render(
+      <TooltipProvider>
+        <Button tooltip="Go Back">Click me</Button>
+      </TooltipProvider>
+    )
+    await user.hover(screen.getByRole('button', { name: 'Click me' }))
+    expect((await screen.findAllByText('Go Back'))[0]).toBeInTheDocument()
+  })
+
+  it('renders no tooltip when tooltip prop is absent', () => {
+    render(<Button>Click me</Button>)
+    expect(screen.getByRole('button', { name: 'Click me' })).toBeInTheDocument()
+    expect(screen.queryByRole('tooltip')).not.toBeInTheDocument()
+  })
+
+  it('still accepts compact and commandId props without error (compat)', () => {
     expect(() =>
-      render(
-        <Button
-          tooltip="hint"
-          compact
-          active
-          shortcut="mod+k"
-          tooltipSide="bottom"
-          commandId="some.command"
-        >
-          label
-        </Button>
-      )
+      render(<Button compact commandId="some.command">label</Button>)
     ).not.toThrow()
   })
 

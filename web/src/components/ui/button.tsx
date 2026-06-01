@@ -1,10 +1,12 @@
 "use client";
 
+import * as TooltipPrimitive from "@radix-ui/react-tooltip";
 import { mergeProps } from "@base-ui/react/merge-props";
 import { useRender } from "@base-ui/react/use-render";
 import { cva, type VariantProps } from "class-variance-authority";
 import type * as React from "react";
 import { cn } from "@/lib/utils";
+import Keybinding from "@/components/ui/keybinding";
 import { Spinner } from "@/components/ui/spinner";
 
 export const buttonVariants = cva(
@@ -48,21 +50,24 @@ export const buttonVariants = cva(
   },
 );
 
+const tooltipContentClass =
+  "ui-text-sm pointer-events-none z-[99999] whitespace-nowrap rounded-lg border border-border/70 bg-card/95 px-2.5 py-1.5 text-foreground shadow-lg backdrop-blur-sm animate-in fade-in-0 zoom-in-95 data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=closed]:zoom-out-95 data-[side=bottom]:slide-in-from-top-1 data-[side=left]:slide-in-from-right-1 data-[side=right]:slide-in-from-left-1 data-[side=top]:slide-in-from-bottom-1";
+
 export interface ButtonProps extends useRender.ComponentProps<"button"> {
   variant?: VariantProps<typeof buttonVariants>["variant"];
   size?: VariantProps<typeof buttonVariants>["size"];
   loading?: boolean;
-  /** Active state — adds bg-accent/20 highlight when true (Crowbar/Athas compat) */
+  /** Active state — adds bg-accent/20 highlight when true */
   active?: boolean;
-  /** Compact mode (Crowbar/Athas compat, no visual effect) */
+  /** Compact mode (compat, no visual effect) */
   compact?: boolean;
-  /** Tooltip text (Crowbar/Athas compat, not rendered) */
+  /** Tooltip text — renders a real tooltip on hover */
   tooltip?: string;
-  /** Keyboard shortcut hint (Crowbar/Athas compat, not rendered) */
+  /** Keyboard shortcut shown in the tooltip */
   shortcut?: string;
-  /** Tooltip side preference (Crowbar/Athas compat, not rendered) */
+  /** Tooltip side preference */
   tooltipSide?: "top" | "right" | "bottom" | "left";
-  /** Command ID for keybinding hints (Crowbar/Athas compat, not rendered) */
+  /** Command ID for keybinding hints (compat, not rendered) */
   commandId?: string;
 }
 
@@ -76,9 +81,9 @@ export function Button({
   disabled: disabledProp,
   active,
   compact: _compact,
-  tooltip: _tooltip,
-  shortcut: _shortcut,
-  tooltipSide: _tooltipSide,
+  tooltip,
+  shortcut,
+  tooltipSide = "top",
   commandId: _commandId,
   ...props
 }: ButtonProps): React.ReactElement {
@@ -106,9 +111,28 @@ export function Button({
     type: typeValue,
   };
 
-  return useRender({
+  const buttonEl = useRender({
     defaultTagName: "button",
     props: mergeProps<"button">(defaultProps, props),
     render,
   });
+
+  if (!tooltip) return buttonEl;
+
+  return (
+    <TooltipPrimitive.Root>
+      <TooltipPrimitive.Trigger asChild>{buttonEl}</TooltipPrimitive.Trigger>
+      <TooltipPrimitive.Portal>
+        <TooltipPrimitive.Content
+          side={tooltipSide}
+          sideOffset={6}
+          collisionPadding={8}
+          className={cn(tooltipContentClass, shortcut && "flex items-center gap-2")}
+        >
+          {tooltip}
+          {shortcut && <Keybinding binding={shortcut} />}
+        </TooltipPrimitive.Content>
+      </TooltipPrimitive.Portal>
+    </TooltipPrimitive.Root>
+  );
 }
