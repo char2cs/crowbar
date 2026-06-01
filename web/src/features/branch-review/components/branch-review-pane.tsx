@@ -95,7 +95,7 @@ export function BranchReviewPane({ wsId, branchName }: BranchReviewPaneProps) {
         className="flex h-full flex-col overflow-hidden gap-0"
       >
         {/* FrameHeader — branch identity + stats + tabs navigation */}
-        <FrameHeader className="shrink-0 flex-col gap-2 border-b border-border/50 pb-0">
+        <FrameHeader className="shrink-0 flex-col gap-2 pb-0">
           <div className="flex items-start justify-between gap-4">
             <div className="flex min-w-0 flex-col gap-0.5">
               <FrameTitle className="flex items-center gap-2 text-base">
@@ -135,7 +135,7 @@ export function BranchReviewPane({ wsId, branchName }: BranchReviewPaneProps) {
 
         {/* ONE FramePanel — the entire scrollable content body. Padding removed
             here (p-0); each tab owns its own padding so the diff can go edge-to-edge. */}
-        <FramePanel className="min-h-0 flex-1 overflow-y-auto p-0">
+        <FramePanel className="mt-2 min-h-0 flex-1 overflow-y-auto p-0">
           <TabsPanel value="about" className="p-5">
             <AboutTab
               wsId={wsId}
