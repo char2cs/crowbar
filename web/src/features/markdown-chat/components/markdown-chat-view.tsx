@@ -4,7 +4,7 @@ import { nanoid } from 'nanoid'
 import type { EditorView } from '@codemirror/view'
 import { useQuery } from '@tanstack/react-query'
 import { getOrCreateConversationStore } from '../stores/conversation-store'
-import { simulateMarkdownStream } from '@/lib/mock/markdown-chat'
+import { wsManager } from '@/lib/ws/manager'
 import { markdownChatQueryOptions } from '@/features/markdown-chat/queries'
 import { MarkdownHistory } from './markdown/markdown-history'
 import { MarkdownChatInput } from './markdown-chat-input'
@@ -16,14 +16,6 @@ interface MarkdownChatViewProps {
   workspaceId: string
   stepId: string
 }
-
-const MOCK_RESPONSE =
-  'Great point. Let me think through this carefully.\n\n' +
-  'There are several considerations here:\n\n' +
-  '1. **Performance** — the current approach has O(n²) complexity\n' +
-  '2. **Correctness** — edge cases around empty inputs\n' +
-  '3. **Maintainability** — the code is hard to follow\n\n' +
-  'My recommendation is to refactor the core loop first.'
 
 export function MarkdownChatView({ workspaceId, stepId }: MarkdownChatViewProps) {
   const store = getOrCreateConversationStore(workspaceId)
@@ -102,16 +94,21 @@ export function MarkdownChatView({ workspaceId, stepId }: MarkdownChatViewProps)
         streaming: true,
       })
 
+      const endpoint = `/api/v0/ws/chat/${workspaceId}`
       setIsStreaming(true)
-      cancelStreamRef.current = simulateMarkdownStream(
-        MOCK_RESPONSE,
-        (chunk) => state.updateStreamingTurn(agentId, chunk),
-        () => {
+      const unsubscribe = wsManager.subscribe(endpoint, (msg: unknown) => {
+        const m = msg as { content: string; done: boolean }
+        if (!m.done) {
+          state.updateStreamingTurn(agentId, m.content)
+        } else {
           state.finalizeStreamingTurn(agentId)
           cancelStreamRef.current = null
           setIsStreaming(false)
-        },
-      )
+          unsubscribe()
+        }
+      })
+      wsManager.send(endpoint, { turnId: agentId, message: content })
+      cancelStreamRef.current = unsubscribe
     },
     [store],
   )
