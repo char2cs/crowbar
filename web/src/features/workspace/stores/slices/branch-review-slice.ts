@@ -21,6 +21,7 @@ export interface BranchReviewSlice {
   setBranchReviewDiff: (diff: MultiFileDiff) => void
   setBranchReviewDiffStatus: (status: BranchReviewState['diffStatus']) => void
   addReviewThread: (thread: ReviewThread) => void
+  removeReviewThread: (threadId: string) => void
   addReviewMessage: (threadId: string, message: ReviewMessage) => void
   resolveReviewThread: (threadId: string) => void
   setBranchReviewConversations: (conversations: ReviewConversation[]) => void
@@ -62,6 +63,9 @@ export const createBranchReviewSlice: StateCreator<
 
   addReviewThread: (thread) =>
     set(s => { s.branchReview.threads.push(thread) }),
+
+  removeReviewThread: (threadId) =>
+    set(s => { s.branchReview.threads = s.branchReview.threads.filter(t => t.id !== threadId) }),
 
   addReviewMessage: (threadId, message) =>
     set(s => {

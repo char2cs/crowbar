@@ -3,26 +3,11 @@ import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 import { useQuery } from '@tanstack/react-query'
 import CodeMirror from '@uiw/react-codemirror'
-import { EditorView } from '@codemirror/view'
 import { markdown } from '@codemirror/lang-markdown'
 import { branchChatsQueryOptions } from '@/features/branch-review/queries'
 import { FramePanel, FrameTitle } from '@/components/ui/frame'
+import { transparentMarkdownTheme } from '../lib/markdown'
 import { cn } from '@/utils/cn'
-
-const transparentTheme = EditorView.theme({
-  '&': { backgroundColor: 'transparent !important', color: 'var(--foreground)' },
-  '&.cm-focused': { outline: 'none !important', backgroundColor: 'transparent !important' },
-  '.cm-content': { caretColor: 'var(--foreground)', padding: '0' },
-  '.cm-cursor': { borderLeftColor: 'var(--foreground)' },
-  '.cm-placeholder': { color: 'var(--muted-foreground)', opacity: '0.4' },
-  '.cm-line': { padding: '0' },
-  '.cm-scroller': { fontFamily: 'inherit', backgroundColor: 'transparent !important' },
-  '.cm-gutters': { backgroundColor: 'transparent !important', border: 'none' },
-  '.cm-activeLine': { backgroundColor: 'transparent !important' },
-  '.cm-activeLineGutter': { backgroundColor: 'transparent !important' },
-  '.cm-selectionBackground': { backgroundColor: 'color-mix(in srgb, var(--primary) 20%, transparent) !important' },
-  '&.cm-focused .cm-selectionBackground': { backgroundColor: 'color-mix(in srgb, var(--primary) 30%, transparent) !important' },
-})
 
 interface AboutTabProps {
   wsId: string
@@ -44,7 +29,7 @@ export function AboutTab({ wsId, description, onDescriptionChange, onOpenConvers
             autoFocus
             value={description}
             placeholder="Describe what this branch does, its goals, and any context needed for review…"
-            extensions={[markdown(), transparentTheme]}
+            extensions={[markdown(), transparentMarkdownTheme]}
             onChange={onDescriptionChange}
             onBlur={() => setEditing(false)}
             basicSetup={{ lineNumbers: false, foldGutter: false, dropCursor: false, allowMultipleSelections: false, indentOnInput: true }}

@@ -8,13 +8,13 @@ const mockDiff = getMockBranchDiff('ws1')
 
 describe('BranchReviewDiffViewer', () => {
   it('renders file names from the diff', () => {
-    render(<BranchReviewDiffViewer multiDiff={mockDiff} threads={[]} onAddThread={() => {}} onReply={() => {}} onResolve={() => {}} />)
+    render(<BranchReviewDiffViewer multiDiff={mockDiff} threads={[]} onAddThread={() => {}} onReply={() => {}} onResolve={() => {}} onDelete={() => {}} />)
     expect(screen.getByText('scaffold.ts')).toBeTruthy()
     expect(screen.getByText('index.ts')).toBeTruthy()
   })
 
   it('shows additions count per file', () => {
-    render(<BranchReviewDiffViewer multiDiff={mockDiff} threads={[]} onAddThread={() => {}} onReply={() => {}} onResolve={() => {}} />)
+    render(<BranchReviewDiffViewer multiDiff={mockDiff} threads={[]} onAddThread={() => {}} onReply={() => {}} onResolve={() => {}} onDelete={() => {}} />)
     expect(screen.getByText('+22')).toBeTruthy()
     expect(screen.getByText('+3')).toBeTruthy()
   })
@@ -26,13 +26,13 @@ describe('BranchReviewDiffViewer', () => {
       side: 'right' as const, isResolved: false,
       messages: [{ id: 'm1', author: 'Claude', isAgent: true, body: 'Use strict mode', createdAt: '2026-06-01' }],
     }]
-    render(<BranchReviewDiffViewer multiDiff={mockDiff} threads={threads} onAddThread={() => {}} onReply={() => {}} onResolve={() => {}} />)
+    render(<BranchReviewDiffViewer multiDiff={mockDiff} threads={threads} onAddThread={() => {}} onReply={() => {}} onResolve={() => {}} onDelete={() => {}} />)
     expect(screen.getByText('Use strict mode')).toBeTruthy()
   })
 
   it('calls onAddThread when + button is clicked on a line', async () => {
     const onAddThread = vi.fn()
-    render(<BranchReviewDiffViewer multiDiff={mockDiff} threads={[]} onAddThread={onAddThread} onReply={() => {}} onResolve={() => {}} />)
+    render(<BranchReviewDiffViewer multiDiff={mockDiff} threads={[]} onAddThread={onAddThread} onReply={() => {}} onResolve={() => {}} onDelete={() => {}} />)
     const addButtons = screen.getAllByRole('button', { name: /add comment/i })
     await userEvent.click(addButtons[0])
     expect(onAddThread).toHaveBeenCalledOnce()

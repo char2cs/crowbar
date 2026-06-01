@@ -9,6 +9,7 @@ interface BranchReviewDiffViewerProps {
   onAddThread: (filePath: string, lineNumber: number, side: 'left' | 'right') => void
   onReply: (threadId: string, body: string) => void
   onResolve: (threadId: string) => void
+  onDelete: (threadId: string) => void
 }
 
 export function BranchReviewDiffViewer({
@@ -17,6 +18,7 @@ export function BranchReviewDiffViewer({
   onAddThread,
   onReply,
   onResolve,
+  onDelete,
 }: BranchReviewDiffViewerProps) {
   return (
     <div className="h-full overflow-y-auto">
@@ -30,6 +32,7 @@ export function BranchReviewDiffViewer({
               onAddThread={onAddThread}
               onReply={onReply}
               onResolve={onResolve}
+              onDelete={onDelete}
             />
           </div>
         )

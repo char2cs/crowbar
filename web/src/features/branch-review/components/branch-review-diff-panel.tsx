@@ -17,6 +17,7 @@ interface BranchReviewDiffPanelProps {
   onAddThread: (filePath: string, lineNumber: number, side: 'left' | 'right') => void
   onReply: (threadId: string, body: string) => void
   onResolve: (threadId: string) => void
+  onDelete: (threadId: string) => void
 }
 
 export function BranchReviewDiffPanel(props: BranchReviewDiffPanelProps) {

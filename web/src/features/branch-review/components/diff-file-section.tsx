@@ -70,6 +70,7 @@ export interface DiffFileSectionProps {
   onAddThread: (filePath: string, lineNumber: number, side: 'left' | 'right') => void
   onReply: (threadId: string, body: string) => void
   onResolve: (threadId: string) => void
+  onDelete: (threadId: string) => void
 }
 
 function statusIcon(diff: GitDiff) {
@@ -92,6 +93,7 @@ function DiffLineRow({
   onAddThread,
   onReply,
   onResolve,
+  onDelete,
 }: {
   line: GitDiffLine
   threads: ReviewThread[]
@@ -100,6 +102,7 @@ function DiffLineRow({
   onAddThread: (filePath: string, lineNumber: number, side: 'left' | 'right') => void
   onReply: (threadId: string, body: string) => void
   onResolve: (threadId: string) => void
+  onDelete: (threadId: string) => void
 }) {
   // Every code line is commentable. Removed lines anchor to the left (old)
   // line number; added/context lines anchor to the right (new) one.
@@ -167,6 +170,7 @@ function DiffLineRow({
             thread={thread}
             onReply={body => onReply(thread.id, body)}
             onResolve={() => onResolve(thread.id)}
+            onDelete={() => onDelete(thread.id)}
           />
         </div>
       ))}
@@ -176,7 +180,7 @@ function DiffLineRow({
 
 type LinesProps = DiffFileSectionProps & { tokenMap: Map<number, ShikiToken[]> }
 
-function FlatLines({ diff, threads, tokenMap, onAddThread, onReply, onResolve }: LinesProps) {
+function FlatLines({ diff, threads, tokenMap, onAddThread, onReply, onResolve, onDelete }: LinesProps) {
   return (
     <div>
       {diff.lines.map((line, i) => (
@@ -189,13 +193,14 @@ function FlatLines({ diff, threads, tokenMap, onAddThread, onReply, onResolve }:
           onAddThread={onAddThread}
           onReply={onReply}
           onResolve={onResolve}
+          onDelete={onDelete}
         />
       ))}
     </div>
   )
 }
 
-function VirtualizedLines({ diff, threads, tokenMap, onAddThread, onReply, onResolve }: LinesProps) {
+function VirtualizedLines({ diff, threads, tokenMap, onAddThread, onReply, onResolve, onDelete }: LinesProps) {
   const parentRef = useRef<HTMLDivElement>(null)
   const virtualizer = useVirtualizer({
     count: diff.lines.length,
@@ -233,6 +238,7 @@ function VirtualizedLines({ diff, threads, tokenMap, onAddThread, onReply, onRes
               onAddThread={onAddThread}
               onReply={onReply}
               onResolve={onResolve}
+              onDelete={onDelete}
             />
           </div>
         ))}
@@ -247,6 +253,7 @@ export const DiffFileSection = memo(function DiffFileSection({
   onAddThread,
   onReply,
   onResolve,
+  onDelete,
 }: DiffFileSectionProps) {
   const [expanded, setExpanded] = useState(true)
   const fileName = diff.file_path.split('/').pop() ?? diff.file_path
@@ -287,6 +294,7 @@ export const DiffFileSection = memo(function DiffFileSection({
             onAddThread={onAddThread}
             onReply={onReply}
             onResolve={onResolve}
+            onDelete={onDelete}
           />
         ) : (
           <FlatLines
@@ -296,6 +304,7 @@ export const DiffFileSection = memo(function DiffFileSection({
             onAddThread={onAddThread}
             onReply={onReply}
             onResolve={onResolve}
+            onDelete={onDelete}
           />
         ))}
     </div>

@@ -86,6 +86,10 @@ export function BranchReviewPane({ wsId, branchName }: BranchReviewPaneProps) {
     store.getState().resolveReviewThread(threadId)
   }
 
+  function handleDeleteThread(threadId: string) {
+    store.getState().removeReviewThread(threadId)
+  }
+
   function handleOpenConversation(id: string) {
     store.getState().bufferActions.openContent({ type: 'crowbarChat', wsId: id, name: id })
   }
@@ -163,6 +167,7 @@ export function BranchReviewPane({ wsId, branchName }: BranchReviewPaneProps) {
                 onAddThread={handleAddThread}
                 onReply={handleReply}
                 onResolve={handleResolve}
+                onDelete={handleDeleteThread}
               />
             ) : (
               <p className="p-5 text-xs text-muted-foreground/50">Loading diff…</p>
