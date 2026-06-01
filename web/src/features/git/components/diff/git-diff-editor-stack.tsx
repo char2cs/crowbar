@@ -10,9 +10,7 @@ import {
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useStore } from "zustand";
 const openUrl = (url: string) => { window.open(url, "_blank") }
-import CodeEditor from "@/features/editor/components/code-editor";
 import Breadcrumb from "@/features/editor/components/toolbar/breadcrumb";
-import { EDITOR_CONSTANTS } from "@/features/editor/config/constants";
 import { FileExplorerIcon } from "@/features/file-explorer/components/file-explorer-icon";
 import { useWorkspaceStore } from "@/features/workspace/stores/workspace-context";
 import { useEditorSettingsStore } from "@/features/editor/stores/settings-store";
@@ -26,7 +24,6 @@ import { formatRelativeDate } from "@/utils/date";
 import { joinPath } from "@/utils/path-helpers";
 import { getRemotes } from "../../api/git-remotes-api";
 import { getGitStatus } from "../../api/git-status-api";
-import { useDiffEditorBuffer } from "../../hooks/use-diff-editor-buffer";
 import type { MultiFileDiff } from "../../types/git-diff-types";
 import type { GitDiff } from "../../types/git-types";
 import { gitDiffCache } from "../../utils/git-diff-cache";
@@ -36,12 +33,8 @@ import {
   shouldUseScrollableDiffEditor,
 } from "../../utils/diff-viewer-scale";
 import { buildWorkingTreeMultiDiff } from "../../utils/working-tree-multi-diff";
-import {
-  serializeGitDiffForEditor,
-  serializeGitDiffSourceForEditor,
-  serializeGitDiffSourceForSplitEditor,
-} from "../../utils/diff-editor-content";
-import DiffLineBackgroundLayer from "./diff-line-background-layer";
+import { buildMonacoDiffContent } from "../../utils/diff-editor-content";
+import MonacoDiffEditorView from "./monaco-diff-editor-view";
 import ImageDiffViewer from "./git-diff-image";
 import TextDiffViewer from "./git-diff-text";
 import { Badge } from "@/components/ui/badge";
@@ -114,25 +107,21 @@ function buildGitHubReferenceUrl(remoteUrl: string, gitRef: string): string | nu
 }
 
 function LargeDiffSectionEditor({ diff, cacheKey }: { diff: GitDiff; cacheKey: string }) {
-  const sourcePath = diff.new_path || diff.old_path || diff.file_path;
-  const editorContent = useMemo(() => serializeGitDiffForEditor(diff), [diff]);
-  const bufferId = useDiffEditorBuffer({
-    cacheKey: `${cacheKey}_large`,
-    content: editorContent,
-    sourcePath,
-    name: `${sourcePath.split("/").pop() || "Diff"}.diff`,
-  });
+  const { original, modified } = useMemo(() => buildMonacoDiffContent(diff), [diff]);
+  const filePath = diff.new_path || diff.old_path || diff.file_path;
 
   return (
     <div
       className="relative overflow-hidden border-border border-t bg-background"
       style={{ height: "min(72vh, 760px)", minHeight: "420px" }}
     >
-      <CodeEditor
-        bufferId={bufferId}
-        isActiveSurface={false}
-        showToolbar={false}
-        readOnly={true}
+      <MonacoDiffEditorView
+        originalContent={original}
+        modifiedContent={modified}
+        filePath={filePath}
+        renderSideBySide={false}
+        height="100%"
+        cacheKey={`${cacheKey}_large`}
         scrollable={true}
       />
     </div>
@@ -150,143 +139,26 @@ function EmbeddedDiffSectionEditor({
 }) {
   const fontSize = useEditorSettingsStore.use.fontSize();
   const zoomLevel = useZoomStore.use.editorZoomLevel();
-  const rootFolderPath = useFileSystemStore((state) => state.rootFolderPath);
-  const sourcePath = diff.new_path || diff.old_path || diff.file_path;
-  const unifiedContent = useMemo(() => serializeGitDiffSourceForEditor(diff), [diff]);
-  const splitContent = useMemo(() => serializeGitDiffSourceForSplitEditor(diff), [diff]);
-  const unifiedBufferId = useDiffEditorBuffer({
-    cacheKey,
-    content: unifiedContent.content,
-    sourcePath,
-    name: sourcePath.split("/").pop() || "Diff",
-    pathOverride: sourcePath,
-  });
-  const leftSplitBufferId = useDiffEditorBuffer({
-    cacheKey: `${cacheKey}_left`,
-    content: splitContent.left.content,
-    sourcePath,
-    name: `${sourcePath.split("/").pop() || "Diff"} (left)`,
-    pathOverride: sourcePath,
-  });
-  const rightSplitBufferId = useDiffEditorBuffer({
-    cacheKey: `${cacheKey}_right`,
-    content: splitContent.right.content,
-    sourcePath,
-    name: `${sourcePath.split("/").pop() || "Diff"} (right)`,
-    pathOverride: sourcePath,
-  });
+  const { original, modified } = useMemo(() => buildMonacoDiffContent(diff), [diff]);
+
   const height = useMemo(() => {
-    const lineCount =
-      viewMode === "split"
-        ? Math.max(
-            splitLines(splitContent.left.content).length,
-            splitLines(splitContent.right.content).length,
-          )
-        : splitLines(unifiedContent.content).length;
+    const lineCount = Math.max(splitLines(original).length, splitLines(modified).length);
     const lineHeight = calculateLineHeight(fontSize * zoomLevel);
+    return Math.max(lineCount * lineHeight + 16, 160);
+  }, [original, modified, fontSize, zoomLevel]);
 
-    return Math.max(
-      lineCount * lineHeight +
-        EDITOR_CONSTANTS.EDITOR_PADDING_TOP +
-        EDITOR_CONSTANTS.EDITOR_PADDING_BOTTOM,
-      160,
-    );
-  }, [
-    fontSize,
-    splitContent.left.content,
-    splitContent.right.content,
-    unifiedContent.content,
-    viewMode,
-    zoomLevel,
-  ]);
-  const lineHeight = useMemo(
-    () => calculateLineHeight(fontSize * zoomLevel),
-    [fontSize, zoomLevel],
-  );
-  const resolveAbsolutePath = useCallback(() => {
-    if (sourcePath.startsWith("/") || sourcePath.startsWith("remote://")) return sourcePath;
-    if (!rootFolderPath) return sourcePath;
-    return `${rootFolderPath.replace(/\/$/, "")}/${sourcePath.replace(/^\//, "")}`;
-  }, [rootFolderPath, sourcePath]);
-  const findNearestActualLine = useCallback((actualLines: Array<number | null>, line: number) => {
-    if (actualLines[line] != null) return actualLines[line];
-    for (let delta = 1; delta < actualLines.length; delta++) {
-      const before = line - delta;
-      if (before >= 0 && actualLines[before] != null) return actualLines[before];
-      const after = line + delta;
-      if (after < actualLines.length && actualLines[after] != null) return actualLines[after];
-    }
-    return 1;
-  }, []);
-  const openSourceLocation = useCallback(
-    async (line: number, column: number, actualLines: Array<number | null>) => {
-      const targetPath = resolveAbsolutePath();
-      const targetLine = findNearestActualLine(actualLines, line) ?? 1;
-      const { handleFileSelect } = useFileSystemStore.getState();
-      if (handleFileSelect) {
-        handleFileSelect(targetPath, false, targetLine, column + 1, undefined, false);
-      }
-    },
-    [findNearestActualLine, resolveAbsolutePath],
-  );
-
-  if (viewMode === "split") {
-    return (
-      <div
-        className="grid grid-cols-2 border-border border-t bg-background"
-        style={{ height: `${height}px` }}
-      >
-        <div className="relative overflow-hidden border-border border-r bg-background">
-          <DiffLineBackgroundLayer
-            lineKinds={splitContent.left.lineKinds}
-            lineHeight={lineHeight}
-          />
-          <CodeEditor
-            bufferId={leftSplitBufferId}
-            isActiveSurface={false}
-            showToolbar={false}
-            readOnly={true}
-            scrollable={false}
-            onReadonlySurfaceClick={({ line, column }) =>
-              void openSourceLocation(line, column, splitContent.left.actualLines)
-            }
-          />
-        </div>
-        <div className="relative overflow-hidden bg-background">
-          <DiffLineBackgroundLayer
-            lineKinds={splitContent.right.lineKinds}
-            lineHeight={lineHeight}
-          />
-          <CodeEditor
-            bufferId={rightSplitBufferId}
-            isActiveSurface={false}
-            showToolbar={false}
-            readOnly={true}
-            scrollable={false}
-            onReadonlySurfaceClick={({ line, column }) =>
-              void openSourceLocation(line, column, splitContent.right.actualLines)
-            }
-          />
-        </div>
-      </div>
-    );
-  }
+  const filePath = diff.new_path || diff.old_path || diff.file_path;
 
   return (
-    <div
-      className="relative overflow-hidden border-border border-t bg-background"
-      style={{ height: `${height}px` }}
-    >
-      <DiffLineBackgroundLayer lineKinds={unifiedContent.lineKinds} lineHeight={lineHeight} />
-      <CodeEditor
-        bufferId={unifiedBufferId}
-        isActiveSurface={false}
-        showToolbar={false}
-        readOnly={true}
+    <div className="border-border border-t bg-background" style={{ height: `${height}px` }}>
+      <MonacoDiffEditorView
+        originalContent={original}
+        modifiedContent={modified}
+        filePath={filePath}
+        renderSideBySide={viewMode === "split"}
+        height={height}
+        cacheKey={cacheKey}
         scrollable={false}
-        onReadonlySurfaceClick={({ line, column }) =>
-          void openSourceLocation(line, column, unifiedContent.actualLines)
-        }
       />
     </div>
   );
