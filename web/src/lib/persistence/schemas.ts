@@ -1,6 +1,16 @@
 import type { DBSchema } from 'idb'
 import type { PaneGroup, LayoutNode } from '@/features/panes/types/pane'
 import type { PaneContent } from '@/features/panes/types/pane-content'
+import type { ReviewThread, MergeStrategy } from '@/features/branch-review/types/review-types'
+
+export interface BranchReviewPersistedState {
+  wsId: string
+  description: string
+  mergeStrategy: MergeStrategy
+  activeSubtab: 'about' | 'commits' | 'diff'
+  threads: ReviewThread[]
+  updatedAt: number
+}
 
 export interface WorkspaceLayout {
   workspaceId: string
@@ -72,5 +82,9 @@ export interface CrowbarDB extends DBSchema {
   'workspace-hierarchy': {
     key: string
     value: WorkspaceHierarchy
+  }
+  'branch-review': {
+    key: string
+    value: BranchReviewPersistedState
   }
 }
