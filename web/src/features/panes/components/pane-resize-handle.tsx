@@ -1,120 +1,143 @@
-import { useCallback, useEffect, useRef, useState } from "react";
-import { MIN_PANE_SIZE } from "../constants/pane";
+import { useCallback, useEffect, useRef, useState } from 'react'
+import { MIN_PANE_SIZE } from '../constants/pane'
 
 interface PaneResizeHandleProps {
-  direction: "horizontal" | "vertical";
-  onResize: (sizes: [number, number]) => void;
-  onReset?: () => void;
-  initialSizes: [number, number];
+  direction: 'horizontal' | 'vertical'
+  index: number
+  initialSizes: [number, number]
+  splitContainerRef: React.RefObject<HTMLElement | null>
+  onResize: (sizes: [number, number]) => void
+  onReset?: () => void
 }
 
 export function PaneResizeHandle({
   direction,
+  index,
+  initialSizes,
+  splitContainerRef,
   onResize,
   onReset,
-  initialSizes,
 }: PaneResizeHandleProps) {
-  const [isDragging, setIsDragging] = useState(false);
-  const containerRef = useRef<HTMLDivElement>(null);
-  const startPositionRef = useRef(0);
-  const startSizesRef = useRef(initialSizes);
-
-  const isHorizontal = direction === "horizontal";
+  const [isDragging, setIsDragging] = useState(false)
+  const isHorizontal = direction === 'horizontal'
+  const startPositionRef = useRef(0)
+  const startSizesRef = useRef<[number, number]>(initialSizes)
+  const containerSizeRef = useRef(0)
+  const latestPositionRef = useRef(0)
+  const rafIdRef = useRef<number | null>(null)
+  const committedSizesRef = useRef<[number, number]>(initialSizes)
 
   const handleMouseDown = useCallback(
     (e: React.MouseEvent) => {
-      e.preventDefault();
-      setIsDragging(true);
-      startPositionRef.current = isHorizontal ? e.clientX : e.clientY;
-      startSizesRef.current = initialSizes;
+      e.preventDefault()
+      const container = splitContainerRef.current
+      if (!container) return
+      const rect = container.getBoundingClientRect()
+      containerSizeRef.current = isHorizontal ? rect.width : rect.height
+      startSizesRef.current = initialSizes
+      committedSizesRef.current = initialSizes
+      startPositionRef.current = isHorizontal ? e.clientX : e.clientY
+      latestPositionRef.current = startPositionRef.current
+      setIsDragging(true)
     },
-    [isHorizontal, initialSizes],
-  );
+    [isHorizontal, initialSizes, splitContainerRef],
+  )
 
   useEffect(() => {
-    if (!isDragging) return;
+    if (!isDragging) return
 
     const handleMouseMove = (e: MouseEvent) => {
-      const handle = containerRef.current;
-      if (!handle) return;
-
-      // Walk up past any `display: contents` ancestors — they generate no box and
-      // getBoundingClientRect() returns a zero-sized rect for them.  The actual
-      // measurable flex container is the first ancestor that is NOT contents.
-      let container: HTMLElement | null = handle.parentElement;
-      while (container && getComputedStyle(container).display === "contents") {
-        container = container.parentElement;
-      }
-      if (!container) return;
-
-      const containerRect = container.getBoundingClientRect();
-      const handleSize = isHorizontal ? handle.offsetWidth : handle.offsetHeight;
-      const containerSize =
-        (isHorizontal ? containerRect.width : containerRect.height) - handleSize;
-
-      const currentPosition = isHorizontal ? e.clientX : e.clientY;
-      const delta = currentPosition - startPositionRef.current;
-
-      const pairTotal = startSizesRef.current[0] + startSizesRef.current[1];
-      // Scale delta to pair's proportion of the container
-      const scaledDelta = (delta / containerSize) * pairTotal;
-
-      let newFirstSize = startSizesRef.current[0] + scaledDelta;
-      let newSecondSize = startSizesRef.current[1] - scaledDelta;
-
-      const minSize = Math.min(MIN_PANE_SIZE, pairTotal * 0.1);
-      if (newFirstSize < minSize) {
-        newFirstSize = minSize;
-        newSecondSize = pairTotal - minSize;
-      } else if (newSecondSize < minSize) {
-        newSecondSize = minSize;
-        newFirstSize = pairTotal - minSize;
-      }
-
-      onResize([newFirstSize, newSecondSize]);
-    };
+      latestPositionRef.current = isHorizontal ? e.clientX : e.clientY
+      if (rafIdRef.current !== null) return
+      rafIdRef.current = requestAnimationFrame(() => {
+        rafIdRef.current = null
+        const containerSize = containerSizeRef.current
+        if (containerSize === 0) return
+        const delta = latestPositionRef.current - startPositionRef.current
+        const deltaPct = (delta / containerSize) * 100
+        const [startFirst, startSecond] = startSizesRef.current
+        const total = startFirst + startSecond
+        let newFirst = startFirst + deltaPct
+        let newSecond = startSecond - deltaPct
+        if (newFirst < MIN_PANE_SIZE) { newFirst = MIN_PANE_SIZE; newSecond = total - MIN_PANE_SIZE }
+        if (newSecond < MIN_PANE_SIZE) { newSecond = MIN_PANE_SIZE; newFirst = total - MIN_PANE_SIZE }
+        committedSizesRef.current = [newFirst, newSecond]
+        const container = splitContainerRef.current
+        if (container) {
+          container.style.setProperty(`--pane-${index}-size`, String(newFirst))
+          container.style.setProperty(`--pane-${index + 1}-size`, String(newSecond))
+        }
+      })
+    }
 
     const handleMouseUp = () => {
-      setIsDragging(false);
-    };
+      if (rafIdRef.current !== null) {
+        cancelAnimationFrame(rafIdRef.current)
+        rafIdRef.current = null
+      }
+      const container = splitContainerRef.current
+      if (container) {
+        container.style.removeProperty(`--pane-${index}-size`)
+        container.style.removeProperty(`--pane-${index + 1}-size`)
+      }
+      onResize(committedSizesRef.current)
+      setIsDragging(false)
+    }
 
-    document.addEventListener("mousemove", handleMouseMove);
-    document.addEventListener("mouseup", handleMouseUp);
-
+    document.addEventListener('mousemove', handleMouseMove)
+    document.addEventListener('mouseup', handleMouseUp)
     return () => {
-      document.removeEventListener("mousemove", handleMouseMove);
-      document.removeEventListener("mouseup", handleMouseUp);
-    };
-  }, [isDragging, isHorizontal, onResize]);
+      document.removeEventListener('mousemove', handleMouseMove)
+      document.removeEventListener('mouseup', handleMouseUp)
+      if (rafIdRef.current !== null) {
+        cancelAnimationFrame(rafIdRef.current)
+        rafIdRef.current = null
+      }
+    }
+  }, [isDragging, isHorizontal, index, onResize, splitContainerRef])
+
+  const handleKeyDown = useCallback(
+    (e: React.KeyboardEvent) => {
+      const relevant = isHorizontal
+        ? ['ArrowLeft', 'ArrowRight']
+        : ['ArrowUp', 'ArrowDown']
+      if (!relevant.includes(e.key)) return
+      e.preventDefault()
+      const step = e.shiftKey ? 10 : 2
+      const [first, second] = initialSizes
+      const total = first + second
+      const delta = (e.key === 'ArrowRight' || e.key === 'ArrowDown') ? step : -step
+      const newFirst = Math.max(MIN_PANE_SIZE, Math.min(total - MIN_PANE_SIZE, first + delta))
+      onResize([newFirst, total - newFirst])
+    },
+    [isHorizontal, initialSizes, onResize],
+  )
 
   return (
     <div
-      ref={containerRef}
       className={`group relative flex shrink-0 items-center justify-center ${
-        isHorizontal ? "h-full w-1 cursor-col-resize" : "h-1 w-full cursor-row-resize"
+        isHorizontal ? 'h-full w-1 cursor-col-resize' : 'h-1 w-full cursor-row-resize'
       }`}
-      onDoubleClick={onReset}
       onMouseDown={handleMouseDown}
+      onDoubleClick={onReset}
+      onKeyDown={handleKeyDown}
       role="separator"
-      aria-orientation={isHorizontal ? "vertical" : "horizontal"}
-      aria-label="Resize panes"
+      aria-orientation={isHorizontal ? 'vertical' : 'horizontal'}
       aria-valuenow={Math.round(initialSizes[0])}
       aria-valuemin={MIN_PANE_SIZE}
       aria-valuemax={100 - MIN_PANE_SIZE}
       tabIndex={0}
     >
       <div
-        className={`bg-transparent ${
-          isDragging ? "bg-accent" : "group-hover:bg-accent"
-        } ${isHorizontal ? "h-full w-px" : "h-px w-full"}`}
+        className={`${isDragging ? 'bg-accent' : 'bg-transparent group-hover:bg-accent'} ${
+          isHorizontal ? 'h-full w-px' : 'h-px w-full'
+        }`}
       />
       {isDragging && (
         <div
-          className={`pointer-events-none fixed inset-0 z-50 ${
-            isHorizontal ? "cursor-col-resize" : "cursor-row-resize"
-          }`}
+          className={`fixed inset-0 z-50 ${isHorizontal ? 'cursor-col-resize' : 'cursor-row-resize'}`}
         />
       )}
     </div>
-  );
+  )
 }
