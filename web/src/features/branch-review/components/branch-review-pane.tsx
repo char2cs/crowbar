@@ -59,12 +59,12 @@ export function BranchReviewPane({ wsId, branchName }: BranchReviewPaneProps) {
     store.getState().setBranchReviewDescription(apiDescription)
   }, [apiDescription, store])
 
-  function handleAddThread(filePath: string, lineNumber: number) {
+  function handleAddThread(filePath: string, lineNumber: number, side: 'left' | 'right' = 'right') {
     const thread: ReviewThread = {
       id: `thread-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
       filePath,
       lineNumber,
-      side: 'right',
+      side,
       messages: [],
       isResolved: false,
     }

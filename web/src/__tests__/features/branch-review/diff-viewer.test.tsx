@@ -33,7 +33,7 @@ describe('BranchReviewDiffViewer', () => {
   it('calls onAddThread when + button is clicked on a line', async () => {
     const onAddThread = vi.fn()
     render(<BranchReviewDiffViewer multiDiff={mockDiff} threads={[]} onAddThread={onAddThread} onReply={() => {}} onResolve={() => {}} />)
-    const addButtons = screen.getAllByRole('button', { name: /add thread/i })
+    const addButtons = screen.getAllByRole('button', { name: /add comment/i })
     await userEvent.click(addButtons[0])
     expect(onAddThread).toHaveBeenCalledOnce()
   })

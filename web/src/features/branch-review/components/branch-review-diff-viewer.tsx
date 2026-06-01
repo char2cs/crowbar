@@ -6,7 +6,7 @@ import type { ReviewThread } from '@/features/branch-review/types/review-types'
 interface BranchReviewDiffViewerProps {
   multiDiff: MultiFileDiff
   threads: ReviewThread[]
-  onAddThread: (filePath: string, lineNumber: number) => void
+  onAddThread: (filePath: string, lineNumber: number, side: 'left' | 'right') => void
   onReply: (threadId: string, body: string) => void
   onResolve: (threadId: string) => void
 }

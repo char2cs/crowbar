@@ -67,7 +67,7 @@ function useShikiTokens(lines: GitDiffLine[], lang: string): Map<number, ShikiTo
 export interface DiffFileSectionProps {
   diff: GitDiff
   threads: ReviewThread[]
-  onAddThread: (filePath: string, lineNumber: number) => void
+  onAddThread: (filePath: string, lineNumber: number, side: 'left' | 'right') => void
   onReply: (threadId: string, body: string) => void
   onResolve: (threadId: string) => void
 }
@@ -97,11 +97,16 @@ function DiffLineRow({
   threads: ReviewThread[]
   filePath: string
   tokenMap: Map<number, ShikiToken[]>
-  onAddThread: (filePath: string, lineNumber: number) => void
+  onAddThread: (filePath: string, lineNumber: number, side: 'left' | 'right') => void
   onReply: (threadId: string, body: string) => void
   onResolve: (threadId: string) => void
 }) {
-  const lineThreads = threads.filter(t => t.lineNumber === line.new_line_number)
+  // Every code line is commentable. Removed lines anchor to the left (old)
+  // line number; added/context lines anchor to the right (new) one.
+  const side: 'left' | 'right' = line.line_type === 'removed' ? 'left' : 'right'
+  const anchorLine = side === 'left' ? line.old_line_number : line.new_line_number
+  const canComment = line.line_type !== 'header' && anchorLine != null
+  const lineThreads = threads.filter(t => t.side === side && t.lineNumber === anchorLine)
   const bg =
     line.line_type === 'added'
       ? 'bg-git-added/10'
@@ -123,11 +128,11 @@ function DiffLineRow({
           {line.new_line_number != null && (
             <span className="w-6 text-right">{line.new_line_number}</span>
           )}
-          {line.new_line_number != null && (
+          {canComment && (
             <Button
               size="icon-xs"
               aria-label="Add comment"
-              onClick={() => onAddThread(filePath, line.new_line_number!)}
+              onClick={() => onAddThread(filePath, anchorLine!, side)}
               className="absolute left-0.5 top-1/2 hidden -translate-y-1/2 group-hover:inline-flex"
             >
               <Plus weight="bold" />
