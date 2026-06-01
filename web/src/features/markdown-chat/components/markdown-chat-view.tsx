@@ -199,12 +199,12 @@ export function MarkdownChatView({ workspaceId, stepId }: MarkdownChatViewProps)
       <div
         aria-hidden
         className="pointer-events-none absolute inset-y-0 z-10 w-px"
-        style={{ left: COLUMN_EDGE, background: 'color-mix(in srgb, var(--foreground) 12%, transparent)' }}
+        style={{ left: COLUMN_EDGE, background: 'color-mix(in srgb, var(--foreground) 16%, transparent)' }}
       />
       <div
         aria-hidden
         className="pointer-events-none absolute inset-y-0 z-10 w-px"
-        style={{ right: COLUMN_EDGE, background: 'color-mix(in srgb, var(--foreground) 12%, transparent)' }}
+        style={{ right: COLUMN_EDGE, background: 'color-mix(in srgb, var(--foreground) 16%, transparent)' }}
       />
 
       {/* Rendered turns — scroll internally; don't grow, so the composer fills slack */}

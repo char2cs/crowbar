@@ -112,8 +112,10 @@ export function MarkdownChatInput({
           },
           // Same column geometry as the history content column (markdown-history.tsx
           // grid) and the column rails: centered 680px, ≥48px margins.
+          // +24px so the text sits clear of the column rails (which sit at the
+          // column edge); keeps alignment with the history content padding.
           '.cm-line': {
-            padding: '0 max(48px, calc((100% - 680px) / 2))',
+            padding: '0 calc(max(48px, calc((100% - 680px) / 2)) + 24px)',
             lineHeight: '1.75',
           },
         }),

@@ -71,7 +71,7 @@ export function MarkdownHistory({ turns, onWidgetChange }: MarkdownHistoryProps)
             >
               {metaLabel(turn)}
             </header>
-            <div style={{ gridColumn: 2, minWidth: 0 }}>
+            <div style={{ gridColumn: 2, minWidth: 0, paddingLeft: '24px', paddingRight: '24px' }}>
               <TurnMarkdown
                 content={turn.content}
                 widgets={turn.widgets}
