@@ -64,6 +64,8 @@ function MonacoDiffEditorViewComponent({
       originalModel.dispose();
       modifiedModel.dispose();
     };
+    // cacheKey alone drives editor identity. language and initial content are captured at mount;
+    // content/renderSideBySide changes are handled by the separate effects below.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [cacheKey]);
 
@@ -94,5 +96,7 @@ function MonacoDiffEditorViewComponent({
     />
   );
 }
+
+MonacoDiffEditorViewComponent.displayName = "MonacoDiffEditorView";
 
 export default memo(MonacoDiffEditorViewComponent);
