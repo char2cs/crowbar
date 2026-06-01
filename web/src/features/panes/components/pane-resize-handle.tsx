@@ -54,11 +54,11 @@ export function PaneResizeHandle({
         const containerSize = containerSizeRef.current
         if (containerSize === 0) return
         const delta = latestPositionRef.current - startPositionRef.current
-        const deltaPct = (delta / containerSize) * 100
         const [startFirst, startSecond] = startSizesRef.current
         const total = startFirst + startSecond
-        let newFirst = startFirst + deltaPct
-        let newSecond = startSecond - deltaPct
+        const scaledDelta = (delta / containerSize) * total
+        let newFirst = startFirst + scaledDelta
+        let newSecond = startSecond - scaledDelta
         if (newFirst < MIN_PANE_SIZE) { newFirst = MIN_PANE_SIZE; newSecond = total - MIN_PANE_SIZE }
         if (newSecond < MIN_PANE_SIZE) { newSecond = MIN_PANE_SIZE; newFirst = total - MIN_PANE_SIZE }
         committedSizesRef.current = [newFirst, newSecond]
@@ -103,9 +103,9 @@ export function PaneResizeHandle({
         : ['ArrowUp', 'ArrowDown']
       if (!relevant.includes(e.key)) return
       e.preventDefault()
-      const step = e.shiftKey ? 10 : 2
       const [first, second] = initialSizes
       const total = first + second
+      const step = (e.shiftKey ? 0.10 : 0.02) * total
       const delta = (e.key === 'ArrowRight' || e.key === 'ArrowDown') ? step : -step
       const newFirst = Math.max(MIN_PANE_SIZE, Math.min(total - MIN_PANE_SIZE, first + delta))
       onResize([newFirst, total - newFirst])

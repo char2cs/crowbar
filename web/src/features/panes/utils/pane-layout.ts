@@ -157,10 +157,9 @@ export function resizeFlattenedLayout(
   if (!split) return root
   const entries = flattenForRender(split)
   if (index < 0 || index >= entries.length - 1) return root
-  const total = entries[index].size + entries[index + 1].size
   const newEntries = entries.map((e, i) => {
-    if (i === index) return { ...e, size: (sizes[0] / 100) * total }
-    if (i === index + 1) return { ...e, size: (sizes[1] / 100) * total }
+    if (i === index) return { ...e, size: sizes[0] }
+    if (i === index + 1) return { ...e, size: sizes[1] }
     return e
   })
   return writeFlatSizesToLayout(newEntries, root)
