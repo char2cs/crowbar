@@ -93,27 +93,27 @@ export function MarkdownChatInput({
         slashCommandExt(setSlashState),
         EditorView.lineWrapping,
         EditorView.theme({
-          // Text metrics should stay close to the history renderer (markdown/markdown-history.tsx).
-          '&': { fontSize: '15px', height: 'auto', maxHeight: '240px' },
+          // The input is the editable tail of the canvas: it fills its region so
+          // the whole area is clickable-to-focus (min-height 100%).
+          '&': { fontSize: '15px', height: '100%' },
           '&.cm-focused': { outline: 'none' },
           '.cm-cursor, .cm-dropCursor': { borderLeftColor: 'var(--foreground)' },
           '.cm-scroller': {
             overflow: 'auto',
             fontFamily: 'var(--font-sans, system-ui)',
-            scrollbarGutter: 'stable',
             scrollbarWidth: 'thin',
             scrollbarColor: 'var(--app-scrollbar-thumb) var(--app-scrollbar-track)',
           },
-          // Same column model as history: vertical padding on content, the
-          // centered column padding on each line.
           '.cm-content': {
             padding: '8px 0',
-            minHeight: '52px',
+            minHeight: '100%',
             minWidth: '100%',
             caretColor: 'var(--foreground)',
           },
+          // Same column geometry as the history content column (markdown-history.tsx
+          // grid) and the column rails: centered 680px, ≥48px margins.
           '.cm-line': {
-            padding: '0 max(48px, calc((100% - 680px) / 2 + 48px))',
+            padding: '0 max(48px, calc((100% - 680px) / 2))',
             lineHeight: '1.75',
           },
         }),
@@ -132,8 +132,8 @@ export function MarkdownChatInput({
   }, [])
 
   return (
-    <div className="relative">
-      <div ref={containerRef} className="w-full" />
+    <div className="relative h-full">
+      <div ref={containerRef} className="h-full w-full" />
       {slashState.open && slashState.anchorRect && (
         <SlashCommandPalette
           commands={getMockSlashCommands()}

@@ -17,8 +17,13 @@ function metaLabel(turn: MarkdownTurn): string {
         minute: '2-digit',
       })
     : ''
-  const who = turn.role === 'agent' ? turn.model || turn.authorName : turn.authorName
-  return [who, time].filter(Boolean).join(' · ')
+  // User turns: time only (the tint band already marks them as yours). Agent
+  // turns lead with the model so it's clear who produced the answer.
+  if (turn.role === 'agent') {
+    const who = turn.model || turn.authorName
+    return [who, time].filter(Boolean).join(' · ')
+  }
+  return time
 }
 
 // 3-column grid: [left margin] [centered ≤680 content] [right margin].
@@ -47,16 +52,8 @@ const metaStyle: CSSProperties = {
 
 export function MarkdownHistory({ turns, onWidgetChange }: MarkdownHistoryProps) {
   return (
-    <div
-      className="h-full w-full overflow-auto"
-      style={{
-        scrollbarGutter: 'stable',
-        scrollbarWidth: 'thin',
-        scrollbarColor: 'var(--app-scrollbar-thumb) var(--app-scrollbar-track)',
-      }}
-    >
-      <div className="py-10">
-        {turns.map((turn) => (
+    <div className="pt-10 pb-6">
+      {turns.map((turn) => (
           <article
             key={turn.id}
             style={{
@@ -67,7 +64,11 @@ export function MarkdownHistory({ turns, onWidgetChange }: MarkdownHistoryProps)
                   : undefined,
             }}
           >
-            <header className="text-muted-foreground" style={metaStyle}>
+            {/* Hidden when the pane is too narrow to hold the label in the margin. */}
+            <header
+              className="text-muted-foreground @max-[880px]:hidden"
+              style={metaStyle}
+            >
               {metaLabel(turn)}
             </header>
             <div style={{ gridColumn: 2, minWidth: 0 }}>
@@ -80,7 +81,6 @@ export function MarkdownHistory({ turns, onWidgetChange }: MarkdownHistoryProps)
             </div>
           </article>
         ))}
-      </div>
     </div>
   )
 }

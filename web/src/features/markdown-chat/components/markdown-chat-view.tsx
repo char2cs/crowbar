@@ -31,6 +31,10 @@ const MOCK_RESPONSE =
   '3. **Maintainability** — the code is hard to follow\n\n' +
   'My recommendation is to refactor the core loop first.'
 
+// Left/right edge of the centered text column — shared by the history grid, the
+// input's line padding, and the vertical rails so everything lines up.
+const COLUMN_EDGE = 'max(48px, calc((100% - 680px) / 2))'
+
 export function MarkdownChatView({ workspaceId, stepId }: MarkdownChatViewProps) {
   const store = getOrCreateConversationStore(workspaceId)
   const turns = useStore(store, (s) => s.turns)
@@ -187,30 +191,51 @@ export function MarkdownChatView({ workspaceId, stepId }: MarkdownChatViewProps)
     setIsStreaming(false)
   }, [])
 
-  if (turns.length === 0) {
-    return (
-      <div className="flex h-full items-center justify-center text-muted-foreground">
-        <p className="text-sm">Loading conversation…</p>
-      </div>
-    )
-  }
-
+  // No empty-state placeholder: when there are no turns, the editable tail simply
+  // fills the whole canvas (like opening a blank document).
   return (
-    <div className="flex h-full w-full flex-col overflow-hidden">
-      {/* History: flex-1 scrollable document, rendered from the store */}
-      <div className="min-h-0 flex-1 overflow-hidden">
+    <div className="@container relative flex h-full w-full flex-col overflow-hidden">
+      {/* Continuous vertical rails at the text column edges */}
+      <div
+        aria-hidden
+        className="pointer-events-none absolute inset-y-0 z-10 w-px"
+        style={{ left: COLUMN_EDGE, background: 'color-mix(in srgb, var(--foreground) 12%, transparent)' }}
+      />
+      <div
+        aria-hidden
+        className="pointer-events-none absolute inset-y-0 z-10 w-px"
+        style={{ right: COLUMN_EDGE, background: 'color-mix(in srgb, var(--foreground) 12%, transparent)' }}
+      />
+
+      {/* Rendered turns — scroll internally; don't grow, so the composer fills slack */}
+      <div
+        className="min-h-0 shrink grow-0 overflow-y-auto"
+        style={{
+          // both-edges keeps the centered column aligned with the rails/input
+          // whether or not a scrollbar is present.
+          scrollbarGutter: 'stable both-edges',
+          scrollbarWidth: 'thin',
+          scrollbarColor: 'var(--app-scrollbar-thumb) var(--app-scrollbar-track)',
+        }}
+      >
         <MarkdownHistory turns={turns} onWidgetChange={handleWidgetChange} />
       </div>
 
-      {/* Input zone: same warm tint as user turns */}
-      <div className="flex-shrink-0 border-t border-primary/10 bg-primary/5">
-        <MarkdownChatInput
-          getTurns={getTurns}
-          onSubmit={handleSubmit}
-          onWidgetChange={handleWidgetChange}
-          onEditorReady={handleInputReady}
-          onSlashCommand={handleSlashCommand}
-        />
+      {/* Editable tail — the live end of the canvas. Grows to fill the viewport
+          when the conversation is short; stays docked at the bottom otherwise. */}
+      <div
+        className="flex shrink-0 grow flex-col border-t border-primary/10"
+        style={{ background: 'color-mix(in srgb, var(--primary) 10%, transparent)' }}
+      >
+        <div className="min-h-[88px] flex-1">
+          <MarkdownChatInput
+            getTurns={getTurns}
+            onSubmit={handleSubmit}
+            onWidgetChange={handleWidgetChange}
+            onEditorReady={handleInputReady}
+            onSlashCommand={handleSlashCommand}
+          />
+        </div>
         <MarkdownChatToolbar
           editorView={inputEditorView}
           onInsertWidget={handleInsertWidget}
