@@ -14,13 +14,9 @@ import {
 import { Button } from "@/components/ui/button";
 
 interface TabNewButtonProps {
-  /** The pane this button belongs to — required for actions */
   paneId: string;
-  /** Whether the pane is the bottom pane (hides this button) */
   isBottomPane: boolean;
-  /** Whether pane actions (close split) are disabled */
   disablePaneActions: boolean;
-  /** Whether the workspace is currently split */
   isInSplit: boolean;
   onNewTerminal: () => void;
   onOpenUrl: () => void;
@@ -41,8 +37,14 @@ const TabNewButton = React.memo(function TabNewButton({
     <div className="flex shrink-0 items-center gap-1 pl-0.5">
       <DropdownMenu>
         <DropdownMenuTrigger
-          className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full p-0 text-muted-foreground hover:bg-muted hover:text-foreground focus:outline-none"
-          aria-label="New tab"
+          render={
+            <Button
+              variant="ghost"
+              size="icon-xs"
+              className="shrink-0 text-muted-foreground"
+              aria-label="New tab"
+            />
+          }
         >
           <Plus weight="bold" size={12} />
         </DropdownMenuTrigger>
@@ -60,11 +62,10 @@ const TabNewButton = React.memo(function TabNewButton({
 
       {!disablePaneActions && isInSplit && (
         <Button
-          type="button"
           onClick={onClosePane}
           variant="ghost"
-          compact
-          className="h-6 w-6 shrink-0 rounded-full p-0 text-muted-foreground"
+          size="icon-xs"
+          className="shrink-0 text-muted-foreground"
           tooltip="Close Split"
           tooltipSide="bottom"
           aria-label="Close split pane"
