@@ -32,13 +32,9 @@ export function useWorkspaceEffects(wsId: string, label?: string) {
     })
   }, [repoPath]) // eslint-disable-line react-hooks/exhaustive-deps
 
-  // Open crowbarChat buffer
-  useEffect(() => {
-    const name = label ?? 'Workspace'
-    bufferActions.openContent({ type: 'crowbarChat', wsId, name })
-  }, [wsId]) // eslint-disable-line react-hooks/exhaustive-deps
-
-  // Open branchReview buffer
+  // Open the branchReview buffer — the sole default pane for a workspace.
+  // (Conversations are surfaced inside the review's About tab; individual
+  // chats open on demand as their own crowbarChat buffers.)
   useEffect(() => {
     const branchName = label ?? wsId
     bufferActions.openContent({ type: 'branchReview', wsId, branchName, name: branchName })
