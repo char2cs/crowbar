@@ -75,14 +75,16 @@ export function BranchReviewPane({ wsId, branchName }: BranchReviewPaneProps) {
     : null
 
   return (
+    // ONE Frame = the whole window
     <Frame className="h-full overflow-hidden rounded-none p-2">
-      <FramePanel className="flex h-full flex-col overflow-hidden p-0">
-        <Tabs
-          value={activeSubtab}
-          onValueChange={v => store.getState().setBranchReviewSubtab(v as typeof activeSubtab)}
-          className="flex h-full flex-col overflow-hidden gap-0"
-        >
-          <FrameHeader className="shrink-0 flex-row items-start justify-between gap-4 border-b border-border/50">
+      <Tabs
+        value={activeSubtab}
+        onValueChange={v => store.getState().setBranchReviewSubtab(v as typeof activeSubtab)}
+        className="flex h-full flex-col overflow-hidden gap-0"
+      >
+        {/* FrameHeader — branch identity + stats + tabs navigation */}
+        <FrameHeader className="shrink-0 flex-col gap-2 border-b border-border/50 pb-0">
+          <div className="flex items-start justify-between gap-4">
             <div className="flex min-w-0 flex-col gap-0.5">
               <FrameTitle className="flex items-center gap-2">
                 <GitBranch size={14} className="shrink-0 text-muted-foreground" />
@@ -95,7 +97,7 @@ export function BranchReviewPane({ wsId, branchName }: BranchReviewPaneProps) {
               </FrameTitle>
               {stats && <FrameDescription>{stats}</FrameDescription>}
             </div>
-            <div className="shrink-0 pt-0.5">
+            <div className="shrink-0">
               <MergeButton
                 strategy={mergeStrategy}
                 isLocked={false}
@@ -104,45 +106,43 @@ export function BranchReviewPane({ wsId, branchName }: BranchReviewPaneProps) {
                 onStrategyChange={s => store.getState().setBranchReviewMergeStrategy(s)}
               />
             </div>
-          </FrameHeader>
-
-          <div className="shrink-0 px-5 pt-3">
-            <TabsList className="w-fit">
-              <TabsTab value="about">About</TabsTab>
-              <TabsTab value="commits">Commits</TabsTab>
-              <TabsTab value="diff">Diff</TabsTab>
-            </TabsList>
           </div>
+          <TabsList className="w-fit">
+            <TabsTab value="about">About</TabsTab>
+            <TabsTab value="commits">Commits</TabsTab>
+            <TabsTab value="diff">Diff</TabsTab>
+          </TabsList>
+        </FrameHeader>
 
-          <div className="min-h-0 flex-1 overflow-y-auto">
-            <TabsPanel value="about">
-              <AboutTab
-                description={description}
-                onDescriptionChange={v => store.getState().setBranchReviewDescription(v)}
-                onOpenConversation={handleOpenConversation}
+        {/* ONE FramePanel — the entire scrollable content body */}
+        <FramePanel className="min-h-0 flex-1 overflow-y-auto">
+          <TabsPanel value="about">
+            <AboutTab
+              description={description}
+              onDescriptionChange={v => store.getState().setBranchReviewDescription(v)}
+              onOpenConversation={handleOpenConversation}
+            />
+          </TabsPanel>
+
+          <TabsPanel value="commits">
+            <CommitsTab repoPath={wsId} />
+          </TabsPanel>
+
+          <TabsPanel value="diff" className="-m-5 overflow-hidden">
+            {diffCache ? (
+              <BranchReviewDiffViewer
+                multiDiff={diffCache}
+                threads={threads}
+                onAddThread={handleAddThread}
+                onReply={handleReply}
+                onResolve={handleResolve}
               />
-            </TabsPanel>
-
-            <TabsPanel value="commits">
-              <CommitsTab repoPath={wsId} />
-            </TabsPanel>
-
-            <TabsPanel value="diff">
-              {diffCache ? (
-                <BranchReviewDiffViewer
-                  multiDiff={diffCache}
-                  threads={threads}
-                  onAddThread={handleAddThread}
-                  onReply={handleReply}
-                  onResolve={handleResolve}
-                />
-              ) : (
-                <p className="p-5 text-xs text-muted-foreground/50">Loading diff…</p>
-              )}
-            </TabsPanel>
-          </div>
-        </Tabs>
-      </FramePanel>
+            ) : (
+              <p className="p-5 text-xs text-muted-foreground/50">Loading diff…</p>
+            )}
+          </TabsPanel>
+        </FramePanel>
+      </Tabs>
     </Frame>
   )
 }

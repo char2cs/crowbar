@@ -1,6 +1,19 @@
+import CodeMirror from '@uiw/react-codemirror'
+import { EditorView } from '@codemirror/view'
+import { markdown } from '@codemirror/lang-markdown'
 import { useSidebarStore } from '@/lib/store/sidebar'
 import { FramePanel, FrameTitle } from '@/components/ui/frame'
 import { cn } from '@/utils/cn'
+
+const transparentTheme = EditorView.theme({
+  '&': { backgroundColor: 'transparent', color: 'var(--foreground)' },
+  '&.cm-focused': { outline: 'none' },
+  '.cm-content': { caretColor: 'var(--foreground)', padding: '0' },
+  '.cm-cursor': { borderLeftColor: 'var(--foreground)' },
+  '.cm-placeholder': { color: 'var(--muted-foreground)', opacity: '0.4' },
+  '.cm-line': { padding: '0' },
+  '.cm-scroller': { fontFamily: 'inherit' },
+})
 
 interface AboutTabProps {
   description: string
@@ -12,39 +25,46 @@ export function AboutTab({ description, onDescriptionChange, onOpenConversation 
   const chats = useSidebarStore(s => s.chats)
 
   return (
-    <div className="flex flex-col gap-2 p-5">
-      <FramePanel>
-        <FrameTitle className="mb-3">Description</FrameTitle>
-        <textarea
+    <div className="flex flex-col gap-4">
+      {/* Description */}
+      <div className="flex flex-col gap-2">
+        <FrameTitle>Description</FrameTitle>
+        <CodeMirror
           value={description}
-          onChange={e => onDescriptionChange(e.target.value)}
           placeholder="Describe what this branch does, its goals, and any context needed for review…"
-          rows={5}
-          className="w-full resize-none bg-transparent text-sm text-foreground placeholder:text-muted-foreground/40 outline-none leading-relaxed"
+          extensions={[markdown(), transparentTheme]}
+          onChange={onDescriptionChange}
+          basicSetup={{ lineNumbers: false, foldGutter: false, dropCursor: false, allowMultipleSelections: false, indentOnInput: true }}
+          className="text-sm"
         />
-      </FramePanel>
+      </div>
 
-      <FramePanel>
-        <FrameTitle className="mb-3">Conversations</FrameTitle>
+      {/* Conversations */}
+      <div className="flex flex-col gap-2">
+        <FrameTitle>Conversations</FrameTitle>
         {chats.length === 0 ? (
           <p className="text-sm text-muted-foreground/40">No conversations yet.</p>
         ) : (
-          <div className="flex flex-col -mx-2">
+          <div className="flex flex-col gap-1.5">
             {chats.map(chat => (
-              <button
+              <FramePanel
                 key={chat.id}
+                className="cursor-pointer py-2.5 px-3 transition-colors hover:bg-accent/20"
                 onClick={() => onOpenConversation(chat.id)}
-                className="flex w-full items-center gap-2.5 rounded-lg px-2 py-2 text-left transition-colors hover:bg-accent"
+                role="button"
+                tabIndex={0}
               >
-                <span className={cn('h-1.5 w-1.5 shrink-0 rounded-full',
-                  chat.age === 'active' ? 'bg-green-500' : 'bg-muted-foreground/30')} />
-                <span className="flex-1 truncate text-sm text-foreground">{chat.title}</span>
-                <span className="text-xs text-muted-foreground/50">{chat.age}</span>
-              </button>
+                <div className="flex items-center gap-2.5">
+                  <span className={cn('h-1.5 w-1.5 shrink-0 rounded-full',
+                    chat.age === 'active' ? 'bg-green-500' : 'bg-muted-foreground/30')} />
+                  <span className="flex-1 truncate text-sm text-foreground">{chat.title}</span>
+                  <span className="text-xs text-muted-foreground/50">{chat.age}</span>
+                </div>
+              </FramePanel>
             ))}
           </div>
         )}
-      </FramePanel>
+      </div>
     </div>
   )
 }
