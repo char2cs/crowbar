@@ -5,6 +5,7 @@ import { gitHandlers } from './git'
 import { fsHandlers } from './fs'
 import { terminalHandlers } from './terminal'
 import { markdownChatHandlers } from './markdown-chat'
+import { branchReviewHandlers } from './branch-review'
 import { gitWsHandler } from './ws/git'
 import { chatWsHandler } from './ws/chat'
 import { terminalWsHandler } from './ws/terminal'
@@ -17,6 +18,7 @@ export const handlers = [
   ...fsHandlers,
   ...terminalHandlers,
   ...markdownChatHandlers,
+  ...branchReviewHandlers,
   gitWsHandler,
   chatWsHandler,
   terminalWsHandler,
