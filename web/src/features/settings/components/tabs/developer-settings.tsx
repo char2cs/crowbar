@@ -146,7 +146,7 @@ export function DeveloperSettings() {
                 canReset={faults[key] > 0}
                 resetLabel={`Reset ${FAULT_LABELS[key]}`}
               >
-                <div className="flex items-center gap-2.5 w-44">
+                <div className="flex items-center gap-3 w-64">
                   <Slider
                     value={faults[key]}
                     onValueChange={(values) => setFault(key, Array.isArray(values) ? (values[0] ?? 0) : values)}
@@ -157,7 +157,7 @@ export function DeveloperSettings() {
                     aria-label={`${FAULT_LABELS[key]} fault rate`}
                   />
                   <span className={cn(
-                    'w-8 text-right text-xs tabular-nums',
+                    'w-10 shrink-0 text-right text-xs tabular-nums',
                     faults[key] > 0 ? 'text-destructive font-medium' : 'text-muted-foreground'
                   )}>
                     {faults[key]}%
