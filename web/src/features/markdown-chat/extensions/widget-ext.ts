@@ -1,49 +1,55 @@
 import { EditorState, StateField, RangeSetBuilder } from '@codemirror/state'
 import { Decoration, DecorationSet, EditorView, WidgetType } from '@codemirror/view'
 import { createElement } from 'react'
-import { createRoot } from 'react-dom/client'
+import { createRoot, type Root } from 'react-dom/client'
 import { syntaxTree } from '@codemirror/language'
 import type { MarkdownTurn, ToolCallData } from '../types'
 import { WIDGET_ID_RE, TOOL_CALL_RE } from '../types'
-import { getWidget } from './widget-registry'
 import { ToolCallPill } from '../components/tool-call-pill'
+import { MarkdownBlock } from '../components/markdown/markdown-block'
+
+// Both CM widgets below mount a React root; each unmounts it in destroy() to
+// avoid leaking roots as CodeMirror recycles decorations.
 
 // -- Tool call pill widget --
 
 class ToolCallWidget extends WidgetType {
+  private root: Root | null = null
+
   constructor(private data: ToolCallData) {
     super()
   }
 
   eq(other: ToolCallWidget) {
-    return JSON.stringify(this.data) === JSON.stringify((other as ToolCallWidget).data)
+    return JSON.stringify(this.data) === JSON.stringify(other.data)
   }
 
   toDOM() {
     const div = document.createElement('div')
-    const root = createRoot(div)
-    root.render(createElement(ToolCallPill, { data: this.data }))
+    this.root = createRoot(div)
+    this.root.render(createElement(ToolCallPill, { data: this.data }))
     return div
   }
 
-  destroy(_dom: HTMLElement) {
-    // React roots should be unmounted to prevent memory leaks.
-    // We use a microtask to avoid unmounting during render.
-    Promise.resolve().then(() => {
-      try {
-        // createRoot().unmount() is the proper cleanup but we can't hold a ref here.
-        // The DOM node is removed by CM6 anyway; GC handles the rest.
-      } catch { /* ignore */ }
-    })
+  destroy() {
+    const root = this.root
+    this.root = null
+    if (root) Promise.resolve().then(() => root.unmount())
   }
 }
 
-// -- Generic (Excalidraw / Mermaid) widget --
+// -- Fenced widget (referenced blocks, e.g. excalidraw) --
+//
+// Renders the SAME block component the history uses (via MarkdownBlock), in its
+// editable variant. Only fenced blocks carrying a `widget-id` are widgetized;
+// plain code/mermaid stay as editable text in the input.
 
 class FencedWidget extends WidgetType {
+  private root: Root | null = null
+
   constructor(
     private widgetId: string,
-    private widgetType: string,
+    private info: string,
     private getTurns: () => MarkdownTurn[],
     private onWidgetChange: (widgetId: string, payload: unknown) => void,
   ) {
@@ -51,39 +57,30 @@ class FencedWidget extends WidgetType {
   }
 
   eq(other: FencedWidget) {
-    return (
-      this.widgetId === (other as FencedWidget).widgetId &&
-      this.widgetType === (other as FencedWidget).widgetType
-    )
+    return this.widgetId === other.widgetId && this.info === other.info
   }
 
   toDOM() {
     const div = document.createElement('div')
     div.className = 'cm-widget-container'
-
-    const Component = getWidget(this.widgetType)
-    if (!Component) {
-      div.textContent = `[unknown widget type: ${this.widgetType}]`
-      return div
-    }
-
-    // Always read fresh state — getTurns() reads directly from the Zustand store
-    const turns = this.getTurns()
-    const turn = turns.find((t) => t.widgets.some((w) => w.id === this.widgetId))
-    const widgetData = turn?.widgets.find((w) => w.id === this.widgetId)
-    if (!widgetData) {
-      div.textContent = `[widget not found: ${this.widgetId}]`
-      return div
-    }
-
-    const root = createRoot(div)
-    root.render(
-      createElement(Component, {
-        data: widgetData,
-        onChange: (payload) => this.onWidgetChange(this.widgetId, payload),
+    const widgets = this.getTurns().flatMap((t) => t.widgets)
+    this.root = createRoot(div)
+    this.root.render(
+      createElement(MarkdownBlock, {
+        info: this.info,
+        source: '',
+        widgets,
+        editable: true,
+        onChange: this.onWidgetChange,
       }),
     )
     return div
+  }
+
+  destroy() {
+    const root = this.root
+    this.root = null
+    if (root) Promise.resolve().then(() => root.unmount())
   }
 }
 
@@ -101,7 +98,7 @@ function buildWidgetDecorations(
 ): DecorationSet {
   const pending: PendingDeco[] = []
 
-  // Collect tool call decorations line by line
+  // Tool call comment lines → pill
   for (let i = 1; i <= state.doc.lines; i++) {
     const line = state.doc.line(i)
     const toolMatch = line.text.match(TOOL_CALL_RE)
@@ -113,11 +110,13 @@ function buildWidgetDecorations(
           to: line.to,
           deco: Decoration.replace({ widget: new ToolCallWidget(data) }),
         })
-      } catch { /* malformed JSON — skip */ }
+      } catch {
+        /* malformed JSON — skip */
+      }
     }
   }
 
-  // Collect fenced widget block decorations via syntax tree
+  // Fenced blocks carrying a widget-id → editable block widget
   syntaxTree(state).cursor().iterate((node) => {
     if (node.name !== 'FencedCode') return
     const infoLine = state.doc.lineAt(node.from).text
@@ -125,22 +124,19 @@ function buildWidgetDecorations(
     if (!widgetIdMatch) return
 
     const widgetId = widgetIdMatch[1]
-    // Extract widget type from info string: e.g. "```excalidraw widget-id:abc"
-    const infoString = infoLine.replace(/^```/, '').trim()
-    const widgetType = infoString.split(' ')[0]
+    const info = infoLine.replace(/^```/, '').trim()
 
     pending.push({
       from: node.from,
       to: node.to,
       deco: Decoration.replace({
-        widget: new FencedWidget(widgetId, widgetType, getTurns, onWidgetChange),
+        widget: new FencedWidget(widgetId, info, getTurns, onWidgetChange),
         inclusive: true,
       }),
     })
   })
 
-  // Sort ascending by `from` — CM6 RangeSetBuilder requires strictly ascending order
-  // across all ranges. Tool calls and fenced blocks may be interleaved in the document.
+  // CM6 RangeSetBuilder requires strictly ascending `from`.
   pending.sort((a, b) => a.from - b.from)
 
   const builder = new RangeSetBuilder<Decoration>()
@@ -157,8 +153,8 @@ export function widgetExt(
 ) {
   const widgetDecoField = StateField.define<DecorationSet>({
     create: (state) => buildWidgetDecorations(state, getTurns, onWidgetChange),
-    update(_deco, tr) {
-      if (!tr.docChanged) return _deco
+    update(deco, tr) {
+      if (!tr.docChanged) return deco
       return buildWidgetDecorations(tr.state, getTurns, onWidgetChange)
     },
     provide: (f) => EditorView.decorations.from(f),

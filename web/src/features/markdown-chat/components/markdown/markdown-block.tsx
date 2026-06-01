@@ -14,6 +14,8 @@ interface MarkdownBlockProps {
   widgets?: WidgetData[]
   /** True while the enclosing turn is still streaming. */
   streaming?: boolean
+  /** Render the editable variant (Editor) when available — used by the input. */
+  editable?: boolean
   /** Payload change handler for editable blocks (input only). */
   onChange?: (widgetId: string, payload: unknown) => void
 }
@@ -26,6 +28,7 @@ export function MarkdownBlock({
   source,
   widgets,
   streaming,
+  editable,
   onChange,
 }: MarkdownBlockProps) {
   const parsed = parseBlockInfo(info)
@@ -49,7 +52,7 @@ export function MarkdownBlock({
       ? widgets?.find((w) => w.id === widgetId)
       : undefined
 
-  const View = ext.View
+  const Comp = editable && ext.Editor ? ext.Editor : ext.View
   return (
     <BlockErrorBoundary label={ext.type}>
       <Suspense
@@ -57,7 +60,7 @@ export function MarkdownBlock({
           <div className="my-1 h-16 animate-pulse rounded border border-border bg-muted" />
         }
       >
-        <View
+        <Comp
           type={parsed.type}
           params={parsed.params}
           source={source}

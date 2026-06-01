@@ -11,8 +11,10 @@ import { widgetExt } from '../extensions/widget-ext'
 import { slashCommandExt, type SlashCommandState } from '../extensions/slash-command-ext'
 import { SlashCommandPalette, type SlashCommand } from './slash-command-palette'
 import { getMockSlashCommands } from '@/lib/mock/markdown-chat'
-import './excalidraw-widget'
-import './mermaid-widget'
+// Register the block renderers (excalidraw is widgetized in the input; the
+// others are used when rendering history but registering here is harmless).
+import './markdown/blocks/excalidraw-block'
+import './markdown/blocks/mermaid-block'
 
 interface MarkdownChatInputProps {
   getTurns: () => MarkdownTurn[]
