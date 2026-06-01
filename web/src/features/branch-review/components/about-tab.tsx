@@ -1,11 +1,11 @@
-import { useState } from 'react'
+import { useState, useEffect, useCallback } from 'react'
 import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
-import { useQuery } from '@tanstack/react-query'
 import CodeMirror from '@uiw/react-codemirror'
 import { markdown } from '@codemirror/lang-markdown'
-import { branchChatsQueryOptions } from '@/features/branch-review/queries'
 import { FramePanel, FrameTitle } from '@/components/ui/frame'
+import { DataState } from '@/components/ui/data-state'
+import { useBranchReviewDataStore } from '@/features/branch-review/stores/branch-review-data-store'
 import { transparentMarkdownTheme } from '../lib/markdown'
 import { cn } from '@/utils/cn'
 
@@ -18,7 +18,9 @@ interface AboutTabProps {
 
 export function AboutTab({ wsId, description, onDescriptionChange, onOpenConversation }: AboutTabProps) {
   const [editing, setEditing] = useState(false)
-  const { data: chats = [] } = useQuery(branchChatsQueryOptions(wsId))
+  const reviewData = useBranchReviewDataStore(s => s.data)
+  const retryChats = useCallback(() => { void useBranchReviewDataStore.getState().fetch(wsId) }, [wsId])
+  useEffect(() => { void useBranchReviewDataStore.getState().fetch(wsId) }, [wsId])
 
   return (
     <div className="flex flex-col gap-4">
@@ -68,28 +70,33 @@ export function AboutTab({ wsId, description, onDescriptionChange, onOpenConvers
 
       <div className="flex flex-col gap-2">
         <FrameTitle className="text-base">Conversations</FrameTitle>
-        {chats.length === 0 ? (
-          <p className="text-sm text-muted-foreground/40">No conversations yet.</p>
-        ) : (
-          <div className="flex flex-col gap-1.5">
-            {chats.map(chat => (
-              <FramePanel
-                key={chat.id}
-                className="cursor-pointer py-2.5 px-3 transition-colors hover:bg-accent/20"
-                onClick={() => onOpenConversation(chat.id)}
-                role="button"
-                tabIndex={0}
-              >
-                <div className="flex items-center gap-2.5">
-                  <span className={cn('h-1.5 w-1.5 shrink-0 rounded-full',
-                    chat.isActive ? 'bg-green-500' : 'bg-muted-foreground/30')} />
-                  <span className="flex-1 truncate text-sm text-foreground">{chat.title}</span>
-                  <span className="text-xs text-muted-foreground/50">{chat.age}</span>
-                </div>
-              </FramePanel>
-            ))}
-          </div>
-        )}
+        <DataState
+          loadable={reviewData}
+          onRetry={retryChats}
+          loadingLabel="Loading conversations"
+          emptyMessage="No conversations yet."
+          isEmpty={(d) => d.chats.length === 0}
+        >
+          {({ chats }) => (
+            <div className="flex flex-col gap-1.5">
+              {chats.map(chat => (
+                <FramePanel
+                  key={chat.id}
+                  className="cursor-pointer py-2.5 px-3 transition-colors hover:bg-accent/20"
+                  onClick={() => onOpenConversation(chat.id)}
+                  role="button"
+                  tabIndex={0}
+                >
+                  <div className="flex items-center gap-2.5">
+                    <span className={cn('h-1.5 w-1.5 shrink-0 rounded-full', chat.isActive ? 'bg-green-500' : 'bg-muted-foreground/30')} />
+                    <span className="flex-1 truncate text-sm text-foreground">{chat.title}</span>
+                    <span className="text-xs text-muted-foreground/50">{chat.age}</span>
+                  </div>
+                </FramePanel>
+              ))}
+            </div>
+          )}
+        </DataState>
       </div>
     </div>
   )
