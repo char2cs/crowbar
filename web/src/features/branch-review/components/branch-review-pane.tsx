@@ -133,9 +133,10 @@ export function BranchReviewPane({ wsId, branchName }: BranchReviewPaneProps) {
           </TabsList>
         </FrameHeader>
 
-        {/* ONE FramePanel — the entire scrollable content body */}
-        <FramePanel className="min-h-0 flex-1 overflow-y-auto">
-          <TabsPanel value="about">
+        {/* ONE FramePanel — the entire scrollable content body. Padding removed
+            here (p-0); each tab owns its own padding so the diff can go edge-to-edge. */}
+        <FramePanel className="min-h-0 flex-1 overflow-y-auto p-0">
+          <TabsPanel value="about" className="p-5">
             <AboutTab
               wsId={wsId}
               description={description}
@@ -144,11 +145,11 @@ export function BranchReviewPane({ wsId, branchName }: BranchReviewPaneProps) {
             />
           </TabsPanel>
 
-          <TabsPanel value="commits">
+          <TabsPanel value="commits" className="p-5">
             <CommitsTab repoPath={wsId} />
           </TabsPanel>
 
-          <TabsPanel value="diff" className="-m-5 overflow-hidden">
+          <TabsPanel value="diff" className="overflow-hidden">
             {diffCache ? (
               <BranchReviewDiffViewer
                 multiDiff={diffCache}
