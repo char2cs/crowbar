@@ -9,6 +9,22 @@ export interface PaneGroup {
   locked?: boolean;
 }
 
+export interface LayoutLeaf {
+  type: 'pane'
+  id: string
+}
+
+export interface LayoutSplit {
+  type: 'split'
+  id: string
+  direction: 'horizontal' | 'vertical'
+  sizes: [number, number]
+  first: LayoutNode
+  second: LayoutNode
+}
+
+export type LayoutNode = LayoutLeaf | LayoutSplit
+
 export interface PaneSplit {
   id: string;
   type: "split";
