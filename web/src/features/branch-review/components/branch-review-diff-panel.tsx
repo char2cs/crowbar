@@ -39,13 +39,14 @@ export function BranchReviewDiffPanel(props: BranchReviewDiffPanelProps) {
         <>
           <Button
             variant="outline"
-            size="icon-sm"
+            size="icon"
             onClick={() => setOverlayOpen(o => !o)}
             tooltip="Changed files"
+            tooltipSide="right"
             aria-label="Toggle changed files"
-            className="absolute left-2 top-2 z-30 shadow-sm"
+            className="absolute bottom-3 left-3 z-30 rounded-full shadow-lg"
           >
-            <ListBullets size={15} />
+            <ListBullets size={16} />
           </Button>
 
           <div className="h-full">{viewer}</div>
