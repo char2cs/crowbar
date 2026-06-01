@@ -5,7 +5,6 @@ import { FileExplorerTree } from '@/features/file-explorer/components/file-explo
 import GitView from '@/features/git/components/git-view'
 import { ErrorBoundary } from '@/components/ErrorBoundary'
 import { SidebarSkeleton } from './SidebarSkeleton'
-import { getMockFileTree } from '@/lib/mock/files'
 import { useFileTreeStore } from '@/features/file-explorer/stores/file-explorer-tree-store'
 import { useSidebarStore, type SidebarTab } from '@/lib/store/sidebar'
 import { useFileSystemStore } from '@/features/file-system/controllers/store'
@@ -17,6 +16,7 @@ interface SidebarTabsProps {
 export function SidebarTabs({ activeWorkspaceRepoPath }: SidebarTabsProps) {
   const activeTab = useSidebarStore(s => s.activeTab)
   const setActiveTab = useSidebarStore(s => s.setActiveTab)
+  const files = useFileSystemStore(s => s.files)
   const handleFileOpen = useFileSystemStore.use.handleFileOpen?.()
   const handleFileSelect = useFileSystemStore.use.handleFileSelect?.()
 
@@ -34,7 +34,7 @@ export function SidebarTabs({ activeWorkspaceRepoPath }: SidebarTabsProps) {
         <ErrorBoundary>
           <Suspense fallback={<SidebarSkeleton />}>
             <FileExplorerTree
-              files={getMockFileTree(activeWorkspaceRepoPath)}
+              files={files}
               rootFolderPath={activeWorkspaceRepoPath}
               onFileSelect={(path, isDir) => {
                 if (isDir) {

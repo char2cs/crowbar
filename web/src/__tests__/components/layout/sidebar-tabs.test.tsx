@@ -22,9 +22,14 @@ vi.mock('@/components/layout/SidebarSkeleton', () => ({
 vi.mock('@/lib/mock/files', () => ({
   getMockFileTree: () => [],
 }))
-vi.mock('@/features/file-system/controllers/store', () => ({
-  useFileSystemStore: { use: { handleFileOpen: () => undefined, handleFileSelect: () => undefined } },
-}))
+vi.mock('@/features/file-system/controllers/store', () => {
+  const store = Object.assign(
+    (selector: (s: { files: never[]; handleFileOpen: null; handleFileSelect: null }) => unknown) =>
+      selector({ files: [], handleFileOpen: null, handleFileSelect: null }),
+    { use: { handleFileOpen: () => null, handleFileSelect: () => null } }
+  )
+  return { useFileSystemStore: store }
+})
 vi.mock('@/features/file-explorer/stores/file-explorer-tree-store', () => ({
   useFileTreeStore: { getState: () => ({ toggleFolder: vi.fn() }) },
 }))
