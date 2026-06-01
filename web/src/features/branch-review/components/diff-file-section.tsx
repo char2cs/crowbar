@@ -125,13 +125,12 @@ function DiffLineRow({
           )}
           {line.new_line_number != null && (
             <Button
-              variant="ghost"
-              size="sm"
-              aria-label="Add thread"
-              className="absolute right-0 hidden h-4 w-4 p-0 group-hover:flex"
+              size="icon-xs"
+              aria-label="Add comment"
               onClick={() => onAddThread(filePath, line.new_line_number!)}
+              className="absolute left-0.5 top-1/2 hidden -translate-y-1/2 group-hover:inline-flex"
             >
-              <Plus size={10} />
+              <Plus weight="bold" />
             </Button>
           )}
         </div>
