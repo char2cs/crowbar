@@ -10,7 +10,7 @@ import { Tabs, TabsList, TabsTab, TabsPanel } from '@/components/ui/tabs'
 import { Badge } from '@/components/ui/badge'
 import { MergeButton } from './merge-button'
 import { AboutTab } from './about-tab'
-import { CommitsTab } from './commits-tab'
+import { GitTab } from './git-tab'
 import { BranchReviewDiffPanel } from './branch-review-diff-panel'
 
 interface BranchReviewPaneProps {
@@ -138,7 +138,7 @@ export function BranchReviewPane({ wsId, branchName }: BranchReviewPaneProps) {
           </div>
           <TabsList className="w-fit">
             <TabsTab value="about">About</TabsTab>
-            <TabsTab value="commits">Commits</TabsTab>
+            <TabsTab value="git">Git</TabsTab>
             <TabsTab value="diff">Diff</TabsTab>
           </TabsList>
         </FrameHeader>
@@ -155,8 +155,8 @@ export function BranchReviewPane({ wsId, branchName }: BranchReviewPaneProps) {
             />
           </TabsPanel>
 
-          <TabsPanel value="commits" className="p-5">
-            <CommitsTab repoPath={wsId} />
+          <TabsPanel value="git" className="h-full overflow-hidden p-0">
+            <GitTab wsId={wsId} />
           </TabsPanel>
 
           <TabsPanel value="diff" className="h-full overflow-hidden">
