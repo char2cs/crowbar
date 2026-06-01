@@ -119,19 +119,21 @@ export function Button({
   if (!tooltip) return buttonEl;
 
   return (
-    <TooltipPrimitive.Root>
-      <TooltipPrimitive.Trigger asChild>{buttonEl}</TooltipPrimitive.Trigger>
-      <TooltipPrimitive.Portal>
-        <TooltipPrimitive.Content
-          side={tooltipSide}
-          sideOffset={6}
-          collisionPadding={8}
-          className={cn(tooltipContentBase, shortcut && "flex items-center gap-2")}
-        >
-          {tooltip}
-          {shortcut && <Keybinding binding={shortcut} />}
-        </TooltipPrimitive.Content>
-      </TooltipPrimitive.Portal>
-    </TooltipPrimitive.Root>
+    <TooltipPrimitive.Provider delayDuration={150} skipDelayDuration={100} disableHoverableContent>
+      <TooltipPrimitive.Root>
+        <TooltipPrimitive.Trigger asChild>{buttonEl}</TooltipPrimitive.Trigger>
+        <TooltipPrimitive.Portal>
+          <TooltipPrimitive.Content
+            side={tooltipSide}
+            sideOffset={6}
+            collisionPadding={8}
+            className={cn(tooltipContentBase, shortcut && "flex items-center gap-2")}
+          >
+            {tooltip}
+            {shortcut && <Keybinding binding={shortcut} />}
+          </TooltipPrimitive.Content>
+        </TooltipPrimitive.Portal>
+      </TooltipPrimitive.Root>
+    </TooltipPrimitive.Provider>
   );
 }
