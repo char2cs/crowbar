@@ -1,12 +1,15 @@
 import { useWorkspaceStoreContext } from '../workspace-context'
 import type { PaneActions } from '../slices/pane-slice'
-import type { PaneNode } from '@/features/panes/types/pane'
+import type { PaneGroup, LayoutNode } from '@/features/panes/types/pane'
 
-export const usePaneRoot = (): PaneNode =>
-  useWorkspaceStoreContext(s => s.paneRoot)
+export const useRootLayout = (): LayoutNode =>
+  useWorkspaceStoreContext(s => s.rootLayout)
 
-export const useBottomRoot = (): PaneNode =>
-  useWorkspaceStoreContext(s => s.bottomRoot)
+export const useBottomLayout = (): LayoutNode =>
+  useWorkspaceStoreContext(s => s.bottomLayout)
+
+export const usePanes = (): Record<string, PaneGroup> =>
+  useWorkspaceStoreContext(s => s.panes)
 
 export const useFullscreenPaneId = (): string | null =>
   useWorkspaceStoreContext(s => s.fullscreenPaneId)
@@ -19,3 +22,6 @@ export const useMostRecentActivePaneIds = (): string[] =>
 
 export const usePaneActions = (): PaneActions =>
   useWorkspaceStoreContext(s => s.paneActions)
+
+export const usePaneById = (paneId: string): PaneGroup | null =>
+  useWorkspaceStoreContext(s => s.panes[paneId] ?? null)
