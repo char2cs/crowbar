@@ -98,14 +98,15 @@ test('renders without crashing', async () => {
   })
 })
 
-test('seeds greeting turn for unknown workspace + brainstorm step', async () => {
-  render(<MarkdownChatView workspaceId={WS_ID} stepId={STEP_ID} />)
+test('starts empty (no pre-generated greeting) for an unknown workspace', async () => {
+  const { container } = render(<MarkdownChatView workspaceId={WS_ID} stepId={STEP_ID} />)
+  // The editable input mounts and fills the canvas...
   await waitFor(() => {
-    const store = getOrCreateConversationStore(WS_ID)
-    const { turns } = store.getState()
-    expect(turns.length).toBeGreaterThan(0)
-    expect(turns[0].role).toBe('agent')
+    expect(container.querySelector('.cm-editor')).not.toBeNull()
   })
+  // ...with no seeded turns.
+  const { turns } = getOrCreateConversationStore(WS_ID).getState()
+  expect(turns.length).toBe(0)
 })
 
 test('seeds mock turns for ws3 brainstorm step', async () => {

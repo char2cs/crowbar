@@ -1,14 +1,21 @@
-import { useState } from 'react'
+import { useState, type CSSProperties } from 'react'
 import type { ToolCallData } from '../types'
 
 interface ToolCallPillProps {
   data: ToolCallData
 }
 
-const STATUS_COLORS: Record<ToolCallData['status'], string> = {
-  pending: 'bg-yellow-100 text-yellow-800',
-  done: 'bg-blue-100 text-blue-800',
-  error: 'bg-red-100 text-red-800',
+// Theme tokens (no hardcoded palette): warning = pending, info = done,
+// destructive = error. Subtle tinted background + the token as the text color.
+const tint = (token: string): CSSProperties => ({
+  background: `color-mix(in srgb, var(${token}) 15%, transparent)`,
+  color: `var(${token})`,
+})
+
+const STATUS_STYLE: Record<ToolCallData['status'], CSSProperties> = {
+  pending: tint('--warning'),
+  done: tint('--info'),
+  error: tint('--destructive'),
 }
 
 export function ToolCallPill({ data }: ToolCallPillProps) {
@@ -28,7 +35,8 @@ export function ToolCallPill({ data }: ToolCallPillProps) {
           </span>
         )}
         <span
-          className={`rounded px-1 py-0.5 text-[10px] font-semibold ${STATUS_COLORS[data.status]}`}
+          className="rounded px-1 py-0.5 text-[10px] font-semibold"
+          style={STATUS_STYLE[data.status]}
         >
           {data.status}
         </span>

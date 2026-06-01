@@ -58,9 +58,10 @@ export function MarkdownHistory({ turns, onWidgetChange }: MarkdownHistoryProps)
             key={turn.id}
             style={{
               ...articleStyle,
+              // Same tint as the input/composer (markdown-chat-view).
               background:
                 turn.role === 'user'
-                  ? 'color-mix(in srgb, var(--primary) 5%, transparent)'
+                  ? 'color-mix(in srgb, var(--primary) 10%, transparent)'
                   : undefined,
             }}
           >

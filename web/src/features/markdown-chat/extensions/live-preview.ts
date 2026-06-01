@@ -146,7 +146,7 @@ const livePreviewTheme = EditorView.theme({
   '.cm-live-italic': { fontStyle: 'italic' },
   '.cm-live-inline-code': {
     fontFamily: 'var(--font-editor)',
-    backgroundColor: 'oklch(0 0 0 / 6%)',
+    backgroundColor: 'var(--code-highlight)',
     borderRadius: '3px',
     padding: '0 3px',
   },

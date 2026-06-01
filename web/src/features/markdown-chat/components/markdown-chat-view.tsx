@@ -15,14 +15,6 @@ interface MarkdownChatViewProps {
   stepId: string
 }
 
-const STEP_GREETINGS: Record<string, string> = {
-  brainstorm: "I'm ready to brainstorm. What do you want to build?",
-  spec: "Let's refine the spec. What would you like to discuss?",
-  build: 'Ready to implement. What should we tackle first?',
-  ai_review: "I've reviewed the diff. Here's what I found.",
-  human_review: 'Waiting for your review comments.',
-}
-
 const MOCK_RESPONSE =
   'Great point. Let me think through this carefully.\n\n' +
   'There are several considerations here:\n\n' +
@@ -69,23 +61,9 @@ export function MarkdownChatView({ workspaceId, stepId }: MarkdownChatViewProps)
     const state = store.getState()
     if (state.turns.length > 0) return
 
-    const mockTurns = getMockMarkdownTurns(workspaceId, stepId)
-    if (mockTurns.length > 0) {
-      mockTurns.forEach((t) => state.appendTurn(t))
-    } else {
-      const greeting = STEP_GREETINGS[stepId]
-      if (greeting) {
-        state.appendTurn({
-          id: nanoid(),
-          role: 'agent',
-          content: greeting,
-          timestamp: new Date().toISOString(),
-          authorName: 'Claude',
-          model: 'Opus 4.8',
-          widgets: [],
-        })
-      }
-    }
+    // Seed mock turns if any; otherwise the conversation starts empty and the
+    // input fills the canvas (no pre-generated greeting).
+    getMockMarkdownTurns(workspaceId, stepId).forEach((t) => state.appendTurn(t))
 
     return () => { cancelStreamRef.current?.() }
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -214,12 +192,12 @@ export function MarkdownChatView({ workspaceId, stepId }: MarkdownChatViewProps)
       <div
         aria-hidden
         className="pointer-events-none absolute inset-y-0 z-10 w-px"
-        style={{ left: COLUMN_EDGE, background: 'color-mix(in srgb, var(--foreground) 16%, transparent)' }}
+        style={{ left: COLUMN_EDGE, background: 'color-mix(in srgb, var(--foreground) 28%, transparent)' }}
       />
       <div
         aria-hidden
         className="pointer-events-none absolute inset-y-0 z-10 w-px"
-        style={{ right: COLUMN_EDGE, background: 'color-mix(in srgb, var(--foreground) 16%, transparent)' }}
+        style={{ right: COLUMN_EDGE, background: 'color-mix(in srgb, var(--foreground) 28%, transparent)' }}
       />
 
       {/* Rendered turns — scroll internally; don't grow, so the composer fills slack */}

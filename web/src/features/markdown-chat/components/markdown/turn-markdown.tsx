@@ -156,8 +156,9 @@ export function TurnMarkdown(props: TurnMarkdownProps) {
   }
 
   return (
-    // First block has no top margin so the text top aligns with the margin label.
-    <div className="md-body [&>*:first-child]:mt-0">
+    // First block: no top margin (aligns text top with the margin label).
+    // Last block: no bottom margin (so a tinted user turn wraps tightly, no gap).
+    <div className="md-body [&>*:first-child]:mt-0 [&>*:last-child]:mb-0">
       <ReactMarkdown remarkPlugins={remarkPlugins} components={buildComponents(props)}>
         {content}
       </ReactMarkdown>
