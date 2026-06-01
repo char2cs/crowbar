@@ -1,10 +1,13 @@
 import { useEffect } from 'react'
+import { GitBranch } from '@phosphor-icons/react'
 import { useWorkspaceStoreContext, useWorkspaceStore } from '@/features/workspace/stores/workspace-context'
 import { getRefDiff } from '@/features/git/api/git-diff-api'
 import type { MultiFileDiff } from '@/features/git/types/git-diff-types'
 import type { ReviewThread, ReviewMessage } from '@/features/branch-review/types/review-types'
+import { Frame, FrameHeader, FramePanel } from '@/components/ui/frame'
 import { Tabs, TabsList, TabsTab, TabsPanel } from '@/components/ui/tabs'
-import { BranchReviewHeader } from './branch-review-header'
+import { Badge } from '@/components/ui/badge'
+import { MergeButton } from './merge-button'
 import { AboutTab } from './about-tab'
 import { CommitsTab } from './commits-tab'
 import { BranchReviewDiffViewer } from './branch-review-diff-viewer'
@@ -74,65 +77,82 @@ export function BranchReviewPane({ wsId, branchName }: BranchReviewPaneProps) {
     store.getState().bufferActions.openContent({ type: 'crowbarChat', wsId: id, name: id })
   }
 
-  return (
-    <div className="flex h-full flex-col overflow-hidden">
-      <BranchReviewHeader
-        branchName={branchName}
-        parentBranch="main"
-        isLocked={false}
-        hasConflicts={false}
-        aheadCount={diffCache?.totalFiles ?? 0}
-        additions={diffCache?.totalAdditions ?? 0}
-        deletions={diffCache?.totalDeletions ?? 0}
-        mergeStrategy={mergeStrategy}
-        onMerge={() => {}}
-        onStrategyChange={s => store.getState().setBranchReviewMergeStrategy(s)}
-      />
+  const stats = [
+    diffCache && diffCache.totalFiles > 0 && `${diffCache.totalFiles} file${diffCache.totalFiles !== 1 ? 's' : ''}`,
+    diffCache && diffCache.totalAdditions > 0 && `+${diffCache.totalAdditions.toLocaleString()}`,
+    diffCache && diffCache.totalDeletions > 0 && `-${diffCache.totalDeletions.toLocaleString()}`,
+  ].filter(Boolean).join(' · ')
 
+  return (
+    <Frame className="h-full overflow-hidden rounded-none p-2">
       <Tabs
         value={activeSubtab}
         onValueChange={v => store.getState().setBranchReviewSubtab(v as typeof activeSubtab)}
-        className="min-h-0 flex-1 overflow-hidden"
+        className="flex h-full flex-col overflow-hidden gap-0"
       >
-        <TabsList variant="underline" className="w-full justify-start gap-0 rounded-none border-b border-border px-4">
-          <TabsTab value="about" className="capitalize">About</TabsTab>
-          <TabsTab value="commits" className="capitalize">Commits</TabsTab>
-          <TabsTab value="diff" className="capitalize">Diff</TabsTab>
-        </TabsList>
-
-        <TabsPanel value="about" className="overflow-y-auto">
-          <AboutTab
-            description={description}
-            onDescriptionChange={v => store.getState().setBranchReviewDescription(v)}
-            onOpenConversation={handleOpenConversation}
-          />
-        </TabsPanel>
-
-        <TabsPanel value="commits" className="overflow-y-auto">
-          <CommitsTab repoPath={wsId} />
-        </TabsPanel>
-
-        <TabsPanel value="diff" className="overflow-y-auto">
-          {diffStatus === 'loading' && (
-            <p className="p-4 text-xs text-muted-foreground/50">Loading diff…</p>
-          )}
-          {diffStatus === 'error' && (
-            <p className="p-4 text-xs text-destructive/70">Failed to load diff.</p>
-          )}
-          {diffStatus === 'loaded' && diffCache && (
-            <BranchReviewDiffViewer
-              multiDiff={diffCache}
-              threads={threads}
-              onAddThread={handleAddThread}
-              onReply={handleReply}
-              onResolve={handleResolve}
+        <FrameHeader className="shrink-0 gap-3 border-b border-border/60 pb-0">
+          <div className="flex items-center justify-between">
+            <div>
+              <div className="flex items-center gap-2 text-sm font-semibold text-foreground">
+                <GitBranch size={14} className="text-muted-foreground" />
+                {branchName}
+                <Badge variant="outline" className="text-xs font-normal text-muted-foreground">
+                  → main
+                </Badge>
+              </div>
+              {stats && <p className="mt-0.5 text-xs text-muted-foreground">{stats}</p>}
+            </div>
+            <MergeButton
+              strategy={mergeStrategy}
+              isLocked={false}
+              hasConflicts={false}
+              onMerge={() => {}}
+              onStrategyChange={s => store.getState().setBranchReviewMergeStrategy(s)}
             />
-          )}
-          {diffStatus === 'loaded' && !diffCache && (
-            <p className="p-4 text-xs text-muted-foreground/50">No diff available.</p>
-          )}
-        </TabsPanel>
+          </div>
+
+          <TabsList variant="underline" className="w-full justify-start gap-0 rounded-none border-0 bg-transparent px-0">
+            <TabsTab value="about">About</TabsTab>
+            <TabsTab value="commits">Commits</TabsTab>
+            <TabsTab value="diff">Diff</TabsTab>
+          </TabsList>
+        </FrameHeader>
+
+        <FramePanel className="min-h-0 flex-1 overflow-y-auto p-0">
+          <TabsPanel value="about">
+            <AboutTab
+              description={description}
+              onDescriptionChange={v => store.getState().setBranchReviewDescription(v)}
+              onOpenConversation={handleOpenConversation}
+            />
+          </TabsPanel>
+
+          <TabsPanel value="commits">
+            <CommitsTab repoPath={wsId} />
+          </TabsPanel>
+
+          <TabsPanel value="diff">
+            {diffStatus === 'loading' && (
+              <p className="p-4 text-xs text-muted-foreground/50">Loading diff…</p>
+            )}
+            {diffStatus === 'error' && (
+              <p className="p-4 text-xs text-destructive/70">Failed to load diff.</p>
+            )}
+            {diffStatus === 'loaded' && diffCache && (
+              <BranchReviewDiffViewer
+                multiDiff={diffCache}
+                threads={threads}
+                onAddThread={handleAddThread}
+                onReply={handleReply}
+                onResolve={handleResolve}
+              />
+            )}
+            {diffStatus === 'loaded' && !diffCache && (
+              <p className="p-4 text-xs text-muted-foreground/50">No diff available.</p>
+            )}
+          </TabsPanel>
+        </FramePanel>
       </Tabs>
-    </div>
+    </Frame>
   )
 }
