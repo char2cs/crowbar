@@ -3,6 +3,7 @@ import type { WidgetData } from '../../types'
 import { parseBlockInfo } from '../../lib/parse-block-info'
 import { findBlock } from '../../lib/block-registry'
 import { BlockErrorBoundary } from './block-error-boundary'
+import { CodeBlockView } from './blocks/code-block-view'
 
 interface MarkdownBlockProps {
   /** Raw fence info string (text after the opening ```). */
@@ -30,8 +31,16 @@ export function MarkdownBlock({
   const parsed = parseBlockInfo(info)
   const ext = findBlock(parsed)
 
+  // No registered extension → it's a plain code block (the default renderer).
   if (!ext) {
-    return <pre className="cm-fallback-code">{source}</pre>
+    return (
+      <CodeBlockView
+        type={parsed.type}
+        params={parsed.params}
+        source={source}
+        streaming={streaming}
+      />
+    )
   }
 
   const widgetId = parsed.params['widget-id']

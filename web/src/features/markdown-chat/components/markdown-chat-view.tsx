@@ -7,6 +7,7 @@ import { appendTurnToHistory } from '../extensions/turn-boundaries'
 import { getOrCreateConversationStore } from '../stores/conversation-store'
 import { getMockMarkdownTurns, simulateMarkdownStream } from '@/lib/mock/markdown-chat'
 import { MarkdownChatHistory } from './markdown-chat-history'
+import { MarkdownHistory } from './markdown/markdown-history'
 import { MarkdownChatInput } from './markdown-chat-input'
 import { MarkdownChatToolbar } from './markdown-chat-toolbar'
 import type { SlashCommand } from './slash-command-palette'
@@ -24,6 +25,13 @@ const STEP_GREETINGS: Record<string, string> = {
   ai_review: "I've reviewed the diff. Here's what I found.",
   human_review: 'Waiting for your review comments.',
 }
+
+// Dev flag (Phase 1): opt into the React-rendered history with
+// `localStorage.setItem('md-react-history', '1')` then reload. Default off, so
+// the production path (CodeMirror history) is unchanged.
+const USE_REACT_HISTORY =
+  typeof window !== 'undefined' &&
+  window.localStorage.getItem('md-react-history') === '1'
 
 const MOCK_RESPONSE =
   'Great point. Let me think through this carefully.\n\n' +
@@ -95,8 +103,9 @@ export function MarkdownChatView({ workspaceId, stepId }: MarkdownChatViewProps)
   const handleSubmit = useCallback(
     (content: string) => {
       cancelStreamRef.current?.()
+      // historyView is null when the React history is active (dev flag); the
+      // store updates below drive that path, so the CM calls are guarded.
       const historyView = historyViewRef.current
-      if (!historyView) return
 
       const state = store.getState()
       const userId = nanoid()
@@ -126,20 +135,22 @@ export function MarkdownChatView({ workspaceId, stepId }: MarkdownChatViewProps)
         streaming: true,
       })
 
-      // Update history CM6 document imperatively
-      appendTurnToHistory(historyView, userId, 'user', content)
-      appendTurnToHistory(historyView, agentId, 'agent', '')
+      // Update history CM6 document imperatively (only when CM history is mounted)
+      if (historyView) {
+        appendTurnToHistory(historyView, userId, 'user', content)
+        appendTurnToHistory(historyView, agentId, 'agent', '')
+      }
 
       setIsStreaming(true)
       cancelStreamRef.current = simulateMarkdownStream(
         MOCK_RESPONSE,
         (chunk) => {
           state.updateStreamingTurn(agentId, chunk)
-          appendStreamChunk(historyView, chunk)
+          if (historyView) appendStreamChunk(historyView, chunk)
         },
         () => {
           state.finalizeStreamingTurn(agentId)
-          finalizeStreaming(historyView)
+          if (historyView) finalizeStreaming(historyView)
           cancelStreamRef.current = null
           setIsStreaming(false)
         },
@@ -219,12 +230,16 @@ export function MarkdownChatView({ workspaceId, stepId }: MarkdownChatViewProps)
     <div className="flex h-full w-full flex-col overflow-hidden">
       {/* History: flex-1 scrollable document */}
       <div className="min-h-0 flex-1 overflow-hidden">
-        <MarkdownChatHistory
-          turns={turns}
-          getTurns={getTurns}
-          onWidgetChange={handleWidgetChange}
-          onReady={handleHistoryReady}
-        />
+        {USE_REACT_HISTORY ? (
+          <MarkdownHistory turns={turns} onWidgetChange={handleWidgetChange} />
+        ) : (
+          <MarkdownChatHistory
+            turns={turns}
+            getTurns={getTurns}
+            onWidgetChange={handleWidgetChange}
+            onReady={handleHistoryReady}
+          />
+        )}
       </div>
 
       {/* Input zone: same warm tint as user turns */}
