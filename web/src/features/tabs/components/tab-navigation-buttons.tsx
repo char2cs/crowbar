@@ -11,7 +11,6 @@ interface TabNavigationButtonsProps {
   isBottomPane: boolean;
   sidebarOpen: boolean;
   sidebarPosition: "left" | "right";
-  isAtLeftEdge: boolean;
   canGoBack: boolean;
   canGoForward: boolean;
   onToggleSidebar: () => void;

@@ -14,7 +14,6 @@ import {
 import { Button } from "@/components/ui/button";
 
 interface TabNewButtonProps {
-  paneId: string;
   isBottomPane: boolean;
   disablePaneActions: boolean;
   isInSplit: boolean;

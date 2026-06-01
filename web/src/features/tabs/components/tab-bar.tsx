@@ -395,7 +395,6 @@ const TabBar = ({
             isBottomPane={isBottomPane}
             sidebarOpen={sidebarOpen}
             sidebarPosition={sidebarPosition}
-            isAtLeftEdge={isAtLeftEdge}
             canGoBack={canGoBack}
             canGoForward={canGoForward}
             onToggleSidebar={toggleSidebar}
@@ -431,7 +430,6 @@ const TabBar = ({
 
           {paneId && (
             <TabNewButton
-              paneId={paneId}
               isBottomPane={isBottomPane}
               disablePaneActions={disablePaneActions}
               isInSplit={isInSplit}
