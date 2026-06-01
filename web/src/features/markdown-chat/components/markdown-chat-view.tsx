@@ -2,8 +2,10 @@ import { useEffect, useRef, useCallback, useState } from 'react'
 import { useStore } from 'zustand'
 import { nanoid } from 'nanoid'
 import type { EditorView } from '@codemirror/view'
+import { useQuery } from '@tanstack/react-query'
 import { getOrCreateConversationStore } from '../stores/conversation-store'
-import { getMockMarkdownTurns, simulateMarkdownStream } from '@/lib/mock/markdown-chat'
+import { simulateMarkdownStream } from '@/lib/mock/markdown-chat'
+import { markdownChatQueryOptions } from '@/features/markdown-chat/queries'
 import { MarkdownHistory } from './markdown/markdown-history'
 import { MarkdownChatInput } from './markdown-chat-input'
 import { MarkdownChatToolbar } from './markdown-chat-toolbar'
@@ -52,15 +54,17 @@ export function MarkdownChatView({ workspaceId, stepId }: MarkdownChatViewProps)
     }]
   }, [store])
 
-  // Seed turns on mount
+  // Seed turns on mount from API — only when the store is empty (cold start)
+  const { data: initialTurns } = useQuery(markdownChatQueryOptions(workspaceId, stepId))
   useEffect(() => {
     const state = store.getState()
-    if (state.turns.length > 0) return
+    if (!initialTurns || state.turns.length > 0) return
+    initialTurns.forEach(t => state.appendTurn(t))
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [initialTurns])
 
-    // Seed mock turns if any; otherwise the conversation starts empty and the
-    // input fills the canvas (no pre-generated greeting).
-    getMockMarkdownTurns(workspaceId, stepId).forEach((t) => state.appendTurn(t))
-
+  // Cleanup streaming on unmount/workspace change
+  useEffect(() => {
     return () => { cancelStreamRef.current?.() }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [workspaceId, stepId])

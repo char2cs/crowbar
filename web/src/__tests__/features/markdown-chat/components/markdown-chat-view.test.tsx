@@ -1,6 +1,15 @@
 import { render, screen, waitFor } from '@testing-library/react'
-import { vi, beforeEach, afterEach } from 'vitest'
+import { vi, beforeEach, afterEach, beforeAll, afterAll } from 'vitest'
+import { setupServer } from 'msw/node'
+import { QueryClientProvider } from '@tanstack/react-query'
+import { queryClient } from '@/lib/queries/client'
+import { markdownChatHandlers } from '@/mocks/handlers/markdown-chat'
 import { destroyConversationStore, getOrCreateConversationStore } from '@/features/markdown-chat/stores/conversation-store'
+
+const server = setupServer(...markdownChatHandlers)
+beforeAll(() => server.listen())
+afterEach(() => server.resetHandlers())
+afterAll(() => server.close())
 
 // Mock heavy dependencies that don't work well in jsdom
 vi.mock('@excalidraw/excalidraw', () => ({
@@ -80,6 +89,7 @@ const STEP_ID = 'brainstorm'
 
 beforeEach(() => {
   destroyConversationStore(WS_ID)
+  queryClient.clear()
 })
 
 afterEach(() => {
@@ -88,7 +98,9 @@ afterEach(() => {
 
 test('renders without crashing', async () => {
   const { container } = render(
-    <MarkdownChatView workspaceId={WS_ID} stepId={STEP_ID} />
+    <QueryClientProvider client={queryClient}>
+      <MarkdownChatView workspaceId={WS_ID} stepId={STEP_ID} />
+    </QueryClientProvider>
   )
   // Either the loading state or the editor mounted
   await waitFor(() => {
@@ -99,7 +111,11 @@ test('renders without crashing', async () => {
 })
 
 test('starts empty (no pre-generated greeting) for an unknown workspace', async () => {
-  const { container } = render(<MarkdownChatView workspaceId={WS_ID} stepId={STEP_ID} />)
+  const { container } = render(
+    <QueryClientProvider client={queryClient}>
+      <MarkdownChatView workspaceId={WS_ID} stepId={STEP_ID} />
+    </QueryClientProvider>
+  )
   // The editable input mounts and fills the canvas...
   await waitFor(() => {
     expect(container.querySelector('.cm-editor')).not.toBeNull()
@@ -111,7 +127,11 @@ test('starts empty (no pre-generated greeting) for an unknown workspace', async 
 
 test('seeds mock turns for ws3 brainstorm step', async () => {
   destroyConversationStore('ws3')
-  render(<MarkdownChatView workspaceId="ws3" stepId="brainstorm" />)
+  render(
+    <QueryClientProvider client={queryClient}>
+      <MarkdownChatView workspaceId="ws3" stepId="brainstorm" />
+    </QueryClientProvider>
+  )
   await waitFor(() => {
     const store = getOrCreateConversationStore('ws3')
     const { turns } = store.getState()
