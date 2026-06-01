@@ -6,7 +6,7 @@ let _db: IDBPDatabase<CrowbarDB> | null = null
 
 export async function getDB(): Promise<IDBPDatabase<CrowbarDB>> {
   if (_db) return _db
-  _db = await openDB<CrowbarDB>('crowbar', 2, {
+  _db = await openDB<CrowbarDB>('crowbar', 3, {
     upgrade(db, oldVersion) {
       if (oldVersion < 1) {
         db.createObjectStore('workspace-layout', { keyPath: 'workspaceId' })
@@ -20,6 +20,10 @@ export async function getDB(): Promise<IDBPDatabase<CrowbarDB>> {
       if (oldVersion < 2) {
         db.deleteObjectStore('workspace-layout')
         db.createObjectStore('workspace-layout', { keyPath: 'workspaceId' })
+      }
+      if (oldVersion < 3) {
+        db.createObjectStore('sidebar-ui')
+        db.createObjectStore('workspace-hierarchy', { keyPath: 'repoId' })
       }
     },
   })

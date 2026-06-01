@@ -35,6 +35,17 @@ export interface UIPreferences {
   updatedAt: number
 }
 
+export interface SidebarUI {
+  collapsedRepos: string[]
+  updatedAt: number
+}
+
+export interface WorkspaceHierarchy {
+  repoId: string
+  entries: Array<{ wsId: string; parentId?: string }>
+  updatedAt: number
+}
+
 export interface CrowbarDB extends DBSchema {
   'workspace-layout': {
     key: string
@@ -52,5 +63,13 @@ export interface CrowbarDB extends DBSchema {
   'query-cache': {
     key: string
     value: string
+  }
+  'sidebar-ui': {
+    key: string
+    value: SidebarUI
+  }
+  'workspace-hierarchy': {
+    key: string
+    value: WorkspaceHierarchy
   }
 }
