@@ -1,4 +1,5 @@
 import { useSidebarStore } from '@/lib/store/sidebar'
+import { FramePanel, FrameTitle } from '@/components/ui/frame'
 import { cn } from '@/utils/cn'
 
 interface AboutTabProps {
@@ -11,9 +12,9 @@ export function AboutTab({ description, onDescriptionChange, onOpenConversation 
   const chats = useSidebarStore(s => s.chats)
 
   return (
-    <div className="flex flex-col gap-6 p-5">
-      <div className="flex flex-col gap-2">
-        <p className="text-xs font-medium text-muted-foreground uppercase tracking-wide">Description</p>
+    <div className="flex flex-col gap-2 p-5">
+      <FramePanel>
+        <FrameTitle className="mb-3">Description</FrameTitle>
         <textarea
           value={description}
           onChange={e => onDescriptionChange(e.target.value)}
@@ -21,14 +22,14 @@ export function AboutTab({ description, onDescriptionChange, onOpenConversation 
           rows={5}
           className="w-full resize-none bg-transparent text-sm text-foreground placeholder:text-muted-foreground/40 outline-none leading-relaxed"
         />
-      </div>
+      </FramePanel>
 
-      <div className="flex flex-col gap-2">
-        <p className="text-xs font-medium text-muted-foreground uppercase tracking-wide">Conversations</p>
+      <FramePanel>
+        <FrameTitle className="mb-3">Conversations</FrameTitle>
         {chats.length === 0 ? (
-          <p className="text-xs text-muted-foreground/40">No conversations yet.</p>
+          <p className="text-sm text-muted-foreground/40">No conversations yet.</p>
         ) : (
-          <div className="flex flex-col">
+          <div className="flex flex-col -mx-2">
             {chats.map(chat => (
               <button
                 key={chat.id}
@@ -43,7 +44,7 @@ export function AboutTab({ description, onDescriptionChange, onOpenConversation 
             ))}
           </div>
         )}
-      </div>
+      </FramePanel>
     </div>
   )
 }

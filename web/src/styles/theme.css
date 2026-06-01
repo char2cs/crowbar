@@ -59,6 +59,12 @@
   --color-code-foreground: var(--code-foreground);
   --color-code-highlight: var(--code-highlight);
   --color-chrome-bg: var(--chrome-bg);
+  --color-git-added: var(--git-added);
+  --color-git-deleted: var(--git-deleted);
+  --color-git-modified: var(--git-modified);
+  --color-git-modified-staged: var(--git-modified-staged);
+  --color-git-untracked: var(--git-untracked);
+  --color-git-renamed: var(--git-renamed);
   --font-editor: var(--editor-font-family);
   --radius-sm: calc(var(--radius) * 0.6);
   --radius-md: calc(var(--radius) * 0.8);

@@ -17,8 +17,6 @@ const STRATEGY_LABELS: Record<MergeStrategy, string> = {
   rebase: 'Rebase and merge',
 }
 
-const SUCCESS_CLASSES = 'bg-[var(--success)] hover:bg-[var(--success)]/90 border-[var(--success)] text-white'
-
 interface MergeButtonProps {
   strategy: MergeStrategy
   isLocked: boolean
@@ -35,14 +33,15 @@ export function MergeButton({ strategy, isLocked, hasConflicts, onMerge, onStrat
       ? 'Branch has conflicts with parent'
       : undefined
 
+  const variant = hasConflicts ? 'destructive' : 'default'
+
   return (
     <Group>
       <Button
-        variant={hasConflicts ? 'destructive' : 'default'}
+        variant={variant}
         disabled={disabled}
         onClick={onMerge}
         tooltip={tooltip}
-        className={!disabled && !hasConflicts ? SUCCESS_CLASSES : undefined}
       >
         {STRATEGY_LABELS[strategy]}
       </Button>
@@ -51,10 +50,9 @@ export function MergeButton({ strategy, isLocked, hasConflicts, onMerge, onStrat
           disabled={disabled}
           render={
             <Button
-              variant={hasConflicts ? 'destructive' : 'default'}
-              size="icon-sm"
+              variant={variant}
+              size="icon"
               disabled={disabled}
-              className={!disabled && !hasConflicts ? SUCCESS_CLASSES : undefined}
             />
           }
         >
