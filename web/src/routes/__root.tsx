@@ -3,12 +3,15 @@ import { createRootRoute } from '@tanstack/react-router'
 import { IDEShell } from '@/components/layout/IDEShell'
 import { ErrorBoundary } from '@/components/ErrorBoundary'
 import { HydrationGate } from '@/components/hydration-gate'
+import { AppSyncProvider } from '@/components/app-sync-provider'
 
 function RootComponent() {
   return (
     <HydrationGate>
       <ErrorBoundary>
-        <IDEShell />
+        <AppSyncProvider>
+          <IDEShell />
+        </AppSyncProvider>
       </ErrorBoundary>
     </HydrationGate>
   )

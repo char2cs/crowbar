@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useState } from 'react'
 import { Button } from '@/components/ui/button'
 import { ProjectCard } from './ProjectCard'
 import { ImportProjectModal } from './ImportProjectModal'
@@ -18,8 +18,6 @@ export function ProjectListPage({ onSelect }: ProjectListPageProps) {
   const setActiveProject = useProjectStore(s => s.setActiveProject)
   const addProject = useProjectStore(s => s.addProject)
   const [importOpen, setImportOpen] = useState(false)
-
-  useEffect(() => { void useProjectDataStore.getState().fetch() }, [])
 
   const handleSelect = (id: string) => { setActiveProject(id); onSelect(id) }
   const handleImport = (project: Project) => {
