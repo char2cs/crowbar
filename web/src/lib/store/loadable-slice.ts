@@ -26,8 +26,16 @@ type Getter<T> = () => LoadableSlice<T, any>
 export function createLoadableSlice<T, K extends unknown[] = [string]>(
   cfg: LoadableConfig<T, K>,
 ) {
-  const keyOf = (...args: K): string =>
-    cfg.cacheKey ? cfg.cacheKey(...args) : (args[0] as string)
+  const keyOf = (...args: K): string => {
+    if (cfg.cacheKey) return cfg.cacheKey(...args)
+    const k = args[0]
+    if (typeof k !== 'string') {
+      throw new Error(
+        `[loadable-slice] store "${cfg.store}": first arg is ${typeof k}; provide a cacheKey for non-string keys`,
+      )
+    }
+    return k
+  }
 
   return (set: Setter<T>, get: Getter<T>): LoadableSlice<T, K> => ({
     data: idle() as Loadable<T>,
@@ -49,7 +57,7 @@ export function createLoadableSlice<T, K extends unknown[] = [string]>(
     startSync: (...args: K) => {
       if (!cfg.wsEndpoint) return () => {}
       return wsManager.subscribe(cfg.wsEndpoint(...args), (event) => {
-        void get().applyDelta(event, ...(args as unknown[] as K))
+        void get().applyDelta(event, ...args)
       })
     },
 
