@@ -110,8 +110,13 @@ function genThreads(wsId: string, count: number): ReviewThread[] {
 function makeMassiveDiff(wsId: string, seed: number) {
   const isMassive = seed % 3 === 0
   if (isMassive) {
-    const big = generateLargeFileDiff('src/lib/query/query-layer.ts', 260)
-    const medium = generateLargeFileDiff('src/lib/query/cache-manager.ts', 120)
+    // Genuinely large single-file diffs — the whole point of the "extreme"
+    // scenario is to stress the diff viewer. (It used to be capped at 260
+    // lines, so the renderer was never actually exercised.) The viewer
+    // virtualises lines and highlights only the visible window, so even these
+    // render in ~150ms regardless of file size.
+    const big = generateLargeFileDiff('src/lib/query/query-layer.ts', 12000)
+    const medium = generateLargeFileDiff('src/lib/query/cache-manager.ts', 6000)
     return {
       commitHash: genHash(seed),
       commitMessage: `refactor: major rewrite of ${wsId} data layer`,
