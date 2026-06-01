@@ -5,7 +5,7 @@ import type { ReviewThread, MergeStrategy } from '@/features/branch-review/types
 interface SavePayload {
   description: string
   mergeStrategy: MergeStrategy
-  activeSubtab: 'about' | 'commits' | 'diff'
+  activeSubtab: 'about' | 'git' | 'diff'
   threads: ReviewThread[]
 }
 

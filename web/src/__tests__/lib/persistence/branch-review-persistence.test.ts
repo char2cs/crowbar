@@ -26,7 +26,7 @@ describe('branch-review persistence', () => {
 
   it('overwrites previous state on save', async () => {
     await saveBranchReview('ws-test', { description: 'v1', mergeStrategy: 'merge', activeSubtab: 'about', threads: [] })
-    await saveBranchReview('ws-test', { description: 'v2', mergeStrategy: 'rebase', activeSubtab: 'commits', threads: [] })
+    await saveBranchReview('ws-test', { description: 'v2', mergeStrategy: 'rebase', activeSubtab: 'git', threads: [] })
     const loaded = await loadBranchReview('ws-test')
     expect(loaded?.description).toBe('v2')
     expect(loaded?.mergeStrategy).toBe('rebase')

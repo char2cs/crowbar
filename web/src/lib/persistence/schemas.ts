@@ -7,7 +7,7 @@ export interface BranchReviewPersistedState {
   wsId: string
   description: string
   mergeStrategy: MergeStrategy
-  activeSubtab: 'about' | 'commits' | 'diff'
+  activeSubtab: 'about' | 'git' | 'diff'
   threads: ReviewThread[]
   updatedAt: number
 }
