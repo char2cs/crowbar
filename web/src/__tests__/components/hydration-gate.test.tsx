@@ -3,11 +3,7 @@ import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { HydrationGate } from '@/components/hydration-gate'
 
 vi.mock('@/lib/persistence/hydrate', () => ({
-  hydrateFromIDB: vi.fn().mockResolvedValue({
-    layout: null,
-    prefs: null,
-    editorStates: [],
-  }),
+  hydratePreferences: vi.fn().mockResolvedValue(null),
 }))
 
 describe('HydrationGate', () => {
@@ -15,13 +11,13 @@ describe('HydrationGate', () => {
     vi.clearAllMocks()
   })
 
-  it('renders children after hydration resolves', async () => {
-    const { hydrateFromIDB } = await import('@/lib/persistence/hydrate')
-    vi.mocked(hydrateFromIDB).mockResolvedValue({ layout: null, prefs: null, editorStates: [] })
+  it('renders children after preferences hydration resolves', async () => {
+    const { hydratePreferences } = await import('@/lib/persistence/hydrate')
+    vi.mocked(hydratePreferences).mockResolvedValue(null)
 
     await act(async () => {
       render(
-        <HydrationGate workspaceId="ws-1">
+        <HydrationGate>
           <div>app content</div>
         </HydrationGate>
       )
@@ -33,12 +29,11 @@ describe('HydrationGate', () => {
   })
 
   it('renders nothing before hydration resolves', async () => {
-    // Use a never-resolving promise so the gate stays closed
-    const { hydrateFromIDB } = await import('@/lib/persistence/hydrate')
-    vi.mocked(hydrateFromIDB).mockImplementation(() => new Promise(() => {}))
+    const { hydratePreferences } = await import('@/lib/persistence/hydrate')
+    vi.mocked(hydratePreferences).mockImplementation(() => new Promise(() => {}))
 
     const { container } = render(
-      <HydrationGate workspaceId="ws-pending">
+      <HydrationGate>
         <span>should not appear</span>
       </HydrationGate>
     )

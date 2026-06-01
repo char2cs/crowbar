@@ -1,4 +1,4 @@
-import { hydrateFromIDB } from '@/lib/persistence/hydrate'
+import { hydrateWorkspace, hydratePreferences } from '@/lib/persistence/hydrate'
 import { getDB, resetDB } from '@/lib/persistence/idb'
 import type { WorkspaceLayout, UIPreferences, EditorState } from '@/lib/persistence/schemas'
 import { destroyWorkspaceStore } from '@/features/workspace/stores/workspace-store-registry'
@@ -44,7 +44,7 @@ async function seedDB(workspaceId: string) {
   return { layout, prefs, editorState }
 }
 
-describe('hydrateFromIDB', () => {
+describe('hydrateWorkspace', () => {
   beforeEach(async () => {
     resetDB()
     globalThis.indexedDB = new IDBFactory()
@@ -55,20 +55,36 @@ describe('hydrateFromIDB', () => {
     destroyWorkspaceStore('ws-test')
   })
 
-  it('returns null layout and prefs when IDB is empty', async () => {
-    const result = await hydrateFromIDB('missing-ws')
+  it('returns null layout and empty editor states when IDB is empty', async () => {
+    const result = await hydrateWorkspace('missing-ws')
     expect(result.layout).toBeNull()
-    expect(result.prefs).toBeNull()
     expect(result.editorStates).toEqual([])
   })
 
-  it('returns layout and prefs when seeded', async () => {
-    const { layout, prefs, editorState } = await seedDB('ws-test')
-    const result = await hydrateFromIDB('ws-test')
+  it('returns layout and editor states when seeded', async () => {
+    const { layout, editorState } = await seedDB('ws-test')
+    const result = await hydrateWorkspace('ws-test')
     expect(result.layout?.workspaceId).toBe(layout.workspaceId)
     expect(result.layout?.sidebarWidth).toBe(240)
-    expect(result.prefs?.theme).toBe(prefs.theme)
     expect(result.editorStates).toHaveLength(1)
     expect(result.editorStates[0].bufferId).toBe(editorState.bufferId)
+  })
+})
+
+describe('hydratePreferences', () => {
+  beforeEach(async () => {
+    resetDB()
+    globalThis.indexedDB = new IDBFactory()
+  })
+
+  it('returns null when no prefs are stored', async () => {
+    const prefs = await hydratePreferences()
+    expect(prefs).toBeNull()
+  })
+
+  it('returns stored preferences', async () => {
+    const { prefs } = await seedDB('ws-test')
+    const result = await hydratePreferences()
+    expect(result?.theme).toBe(prefs.theme)
   })
 })

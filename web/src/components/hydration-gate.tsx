@@ -1,22 +1,17 @@
 import { useEffect, useState } from 'react'
 import type { ReactNode } from 'react'
-import { hydrateFromIDB } from '@/lib/persistence/hydrate'
+import { hydratePreferences } from '@/lib/persistence/hydrate'
 
 interface HydrationGateProps {
-  workspaceId: string
   children: ReactNode
 }
 
-export function HydrationGate({ workspaceId, children }: HydrationGateProps) {
+export function HydrationGate({ children }: HydrationGateProps) {
   const [hydrated, setHydrated] = useState(false)
 
   useEffect(() => {
-    if (!workspaceId) {
-      setHydrated(true)
-      return
-    }
-    hydrateFromIDB(workspaceId).then(() => setHydrated(true)).catch(() => setHydrated(true))
-  }, [workspaceId])
+    hydratePreferences().then(() => setHydrated(true)).catch(() => setHydrated(true))
+  }, [])
 
   if (!hydrated) return null
 
