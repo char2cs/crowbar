@@ -31,10 +31,20 @@ func Register(rg *gin.RouterGroup, c *app.Container) {
 
 	// REST — fs + git
 	rg.GET("/fs/tree", NewFsHandler(store).Tree)
+	rg.GET("/fs/file", FsFile)
 	git := NewGitHandler(store)
 	rg.GET("/git/status", git.Status)
 	rg.GET("/git/log", git.Log)
 	rg.GET("/git/branches", git.Branches)
+
+	// REST — branch review (mock surfaces the browser serves via MSW)
+	rg.GET("/branch-review/:wsId/diff", BranchReviewDiff)
+	rg.GET("/branch-review/:wsId/chats", BranchReviewChats)
+	rg.GET("/branch-review/:wsId/threads", BranchReviewThreads)
+	rg.GET("/branch-review/:wsId/description", BranchReviewDescription)
+
+	// REST — markdown chat
+	rg.GET("/markdown-chat/:wsId/:stepId", MarkdownChat)
 
 	// REST — terminal sessions
 	rg.POST("/terminal/sessions", NewTerminalHandler().CreateSession)

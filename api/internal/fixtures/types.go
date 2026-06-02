@@ -125,3 +125,50 @@ type DaemonStatus struct {
 	Status  string `json:"status"`
 	Version string `json:"version,omitempty"`
 }
+
+// Branch-review + markdown-chat shapes — mirror the frontend's MSW types so the
+// desktop daemon can serve the same surfaces the browser mocks (diff, chats,
+// threads, description, markdown turns).
+
+type DiffLine struct {
+	LineType      string `json:"line_type"`
+	Content       string `json:"content"`
+	OldLineNumber int    `json:"old_line_number,omitempty"`
+	NewLineNumber int    `json:"new_line_number,omitempty"`
+}
+
+type FileDiff struct {
+	FilePath  string     `json:"file_path"`
+	IsNew     bool       `json:"is_new"`
+	IsDeleted bool       `json:"is_deleted"`
+	IsRenamed bool       `json:"is_renamed"`
+	Additions int        `json:"additions,omitempty"`
+	Deletions int        `json:"deletions,omitempty"`
+	Lines     []DiffLine `json:"lines"`
+}
+
+type MultiFileDiff struct {
+	CommitHash     string     `json:"commitHash"`
+	CommitMessage  string     `json:"commitMessage,omitempty"`
+	Files          []FileDiff `json:"files"`
+	TotalFiles     int        `json:"totalFiles"`
+	TotalAdditions int        `json:"totalAdditions"`
+	TotalDeletions int        `json:"totalDeletions"`
+}
+
+type ReviewConversation struct {
+	ID       string `json:"id"`
+	Title    string `json:"title"`
+	Age      string `json:"age"`
+	IsActive bool   `json:"isActive"`
+}
+
+type MarkdownTurn struct {
+	ID         string `json:"id"`
+	Role       string `json:"role"`
+	Content    string `json:"content"`
+	Timestamp  string `json:"timestamp"`
+	AuthorName string `json:"authorName"`
+	Model      string `json:"model,omitempty"`
+	Widgets    []any  `json:"widgets"`
+}
