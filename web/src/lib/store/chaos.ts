@@ -74,10 +74,15 @@ export const useChaosStore = create<ChaosState>()(
         try {
           const db = await getDB()
           await Promise.all([
-            db.clear('query-cache'),
             db.clear('branch-review'),
             db.clear('workspace-hierarchy'),
             db.clear('sidebar-ui'),
+            db.clear('workspaces-data'),
+            db.clear('git-data'),
+            db.clear('file-tree-data'),
+            db.clear('branch-review-data'),
+            db.clear('chat-history'),
+            db.clear('projects-data'),
           ])
         } catch { /* best effort */ }
         window.location.reload()

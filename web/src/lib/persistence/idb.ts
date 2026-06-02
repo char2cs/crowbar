@@ -15,7 +15,8 @@ export async function getDB(): Promise<IDBPDatabase<CrowbarDB>> {
         })
         editorStore.createIndex('workspaceId', 'workspaceId')
         db.createObjectStore('ui-preferences')
-        db.createObjectStore('query-cache')
+        // query-cache was removed in v5; created here only for upgrade path completeness
+        ;(db as IDBDatabase).createObjectStore('query-cache')
       }
       if (oldVersion < 2) {
         db.deleteObjectStore('workspace-layout')
@@ -29,8 +30,8 @@ export async function getDB(): Promise<IDBPDatabase<CrowbarDB>> {
         db.createObjectStore('branch-review', { keyPath: 'wsId' })
       }
       if (oldVersion < 5) {
-        if (db.objectStoreNames.contains('query-cache')) {
-          db.deleteObjectStore('query-cache')
+        if ((db as IDBDatabase).objectStoreNames.contains('query-cache')) {
+          ;(db as IDBDatabase).deleteObjectStore('query-cache')
         }
         for (const name of [
           'workspaces-data', 'git-data', 'file-tree-data',
