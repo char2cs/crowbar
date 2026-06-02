@@ -116,7 +116,7 @@ export function PaneResizeHandle({
   return (
     <div
       className={`group relative flex shrink-0 items-center justify-center ${
-        isHorizontal ? 'h-full w-1 cursor-col-resize' : 'h-1 w-full cursor-row-resize'
+        isHorizontal ? 'h-full w-2 cursor-col-resize' : 'h-2 w-full cursor-row-resize'
       }`}
       onMouseDown={handleMouseDown}
       onDoubleClick={onReset}
