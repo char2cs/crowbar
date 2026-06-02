@@ -1,4 +1,5 @@
 import { workspaceHandlers } from './workspaces'
+import { chatHandlers } from './chats'
 import { conversationHandlers } from './conversations'
 import { projectHandlers } from './projects'
 import { gitHandlers } from './git'
@@ -11,6 +12,7 @@ import { terminalWsHandler } from './ws/terminal'
 
 export const handlers = [
   ...workspaceHandlers,
+  ...chatHandlers,
   ...conversationHandlers,
   ...projectHandlers,
   ...gitHandlers,

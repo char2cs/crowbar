@@ -1,5 +1,6 @@
 import { nanoid } from 'nanoid'
 import type { ScenarioDataset } from './index'
+import type { ProjectChat } from '@/lib/store/sidebar'
 import type { ReviewThread, ReviewMessage } from '@/features/workspace/stores/slices/branch-review-slice'
 import type { BranchReviewChat } from '@/lib/mock/branch-diff'
 import type { GitDiffLine } from '@/features/git/types/git-types'
@@ -264,6 +265,23 @@ const CHATS: Record<string, BranchReviewChat[]> = {
   'rb-fix': [],
 }
 
+// ─── Project Chats ────────────────────────────────────────────────────────────
+
+const PROJECT_CHATS: Record<string, ProjectChat[]> = {
+  'rb-fix': [
+    { id: 'chat-fix-1', wsId: 'rb-fix', title: 'Email validation approach', age: '5m', status: 'idle', type: 'chat' },
+    { id: 'chat-fix-2', wsId: 'rb-fix', title: 'Form error handling', age: '2h', parentId: 'chat-fix-1', status: 'agent-running', type: 'chat' },
+    { id: 'chat-fix-3', wsId: 'rb-fix', title: 'Unit test strategy', age: '1d', status: 'idle', type: 'chat' },
+  ],
+  'rb-onboarding': [
+    { id: 'chat-ob-1', wsId: 'rb-onboarding', title: 'Onboarding flow design', age: '3d', status: 'idle', type: 'chat' },
+    { id: 'chat-ob-2', wsId: 'rb-onboarding', title: 'Step validation logic', age: '4d', parentId: 'chat-ob-1', status: 'idle', type: 'chat' },
+  ],
+  'rb-develop': [
+    { id: 'chat-dev-1', wsId: 'rb-develop', title: 'Architecture review', age: '1w', status: 'idle', type: 'chat' },
+  ],
+}
+
 // ─── Git ──────────────────────────────────────────────────────────────────────
 
 const COMMIT_MSGS = [
@@ -301,6 +319,7 @@ export const normalDataset: ScenarioDataset = {
   branchThreads: (wsId) => THREADS[wsId] ?? [],
   branchDescription: (wsId) => DESCRIPTIONS[wsId] ?? '',
   branchChats: (wsId) => CHATS[wsId] ?? [],
+  chats: (wsId) => PROJECT_CHATS[wsId] ?? [],
   gitLog: () => Array.from({ length: 20 }, (_, i) => ({
     hash: genHash(i + 1),
     shortHash: genHash(i + 1).slice(0, 7),

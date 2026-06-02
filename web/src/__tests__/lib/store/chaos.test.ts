@@ -9,6 +9,7 @@ beforeEach(() => {
       workspaces: 0, projects: 0, 'file-tree': 0, 'file-content': 0,
       'branch-diff': 0, 'branch-threads': 0, 'branch-description': 0, 'branch-chats': 0,
       'git-commits': 0, 'git-status': 0, 'git-branches': 0, 'markdown-chat': 0,
+      'chats': 0,
     },
   })
 })

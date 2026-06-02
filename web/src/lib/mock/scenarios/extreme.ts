@@ -1,5 +1,6 @@
 import { nanoid } from 'nanoid'
 import type { ScenarioDataset } from './index'
+import type { ProjectChat } from '@/lib/store/sidebar'
 import type { ReviewThread, ReviewMessage } from '@/features/workspace/stores/slices/branch-review-slice'
 import type { BranchReviewChat } from '@/lib/mock/branch-diff'
 import type { Commit, GitStatus } from '@/lib/mock/git-data'
@@ -397,6 +398,15 @@ export const extremeDataset: ScenarioDataset = {
   branchThreads: (wsId) => genThreads(wsId, 28),
   branchDescription: (wsId) => `## ${wsId}\n\nThis branch contains significant changes across multiple subsystems. Review carefully before merging.\n\n- [ ] Tests passing\n- [ ] Performance benchmarks acceptable\n- [ ] Security review complete`,
   branchChats: (wsId) => genChats(wsId, 9),
+  chats: (wsId) => Array.from({ length: 15 }, (_, i) => ({
+    id: `chat-ext-${wsId}-${i}`,
+    wsId,
+    title: `Chat ${i + 1}: ${['Refactor approach', 'API design', 'Testing strategy', 'Deployment plan', 'Performance fix'][i % 5]}`,
+    age: `${i + 1}d`,
+    parentId: i > 0 && i % 4 === 0 ? `chat-ext-${wsId}-${i - 1}` : undefined,
+    status: i % 6 === 0 ? 'agent-running' as const : 'idle' as const,
+    type: 'chat' as const,
+  })) satisfies ProjectChat[],
   gitLog: () => commitCache,
   gitStatus: (repoPath) => {
     const repoId = repoPath.split('/').filter(Boolean).pop() ?? 'crowbar'

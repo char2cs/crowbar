@@ -1,4 +1,4 @@
-import type { Repo } from '@/lib/store/sidebar'
+import type { Repo, ProjectChat } from '@/lib/store/sidebar'
 import type { Project, WorkspacePayload } from '@/lib/types'
 import type { FileNode } from '@/lib/mock/files'
 import type { MultiFileDiff } from '@/features/git/types/git-diff-types'
@@ -22,6 +22,7 @@ export interface ScenarioDataset {
   gitStatus: (repoPath: string) => GitStatus
   gitBranches: (repoPath: string) => Branch[]
   markdownTurns: (wsId: string, stepId: string) => MarkdownTurn[]
+  chats: (wsId: string) => ProjectChat[]
 }
 
 import { normalDataset } from './normal'
