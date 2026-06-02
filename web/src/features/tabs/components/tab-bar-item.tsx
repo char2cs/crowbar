@@ -9,7 +9,9 @@ import {
 import { memo, useCallback, useEffect, useState } from "react";
 import type { RefCallback } from "react";
 import { FileExplorerIcon } from "@/features/file-explorer/components/file-explorer-icon";
+import { WorkspaceBranchIcon } from "@/components/layout/workspace-branch-icon";
 import type { PaneContent } from "@/features/panes/types/pane-content";
+import { useSidebarStore } from "@/lib/store/sidebar";
 import { Button } from "@/components/ui/button";
 import { Tab } from "@/components/ui/tabs";
 import { getBaseName } from "@/utils/path-helpers";
@@ -50,6 +52,11 @@ const TabBarItem = memo(function TabBarItem({
   handleTabPin,
 }: TabBarItemProps) {
   const [faviconError, setFaviconError] = useState(false);
+  const branchReviewWsStatus = useSidebarStore((s) => {
+    if (buffer.type !== "branchReview") return undefined;
+    const ws = s.repos.flatMap((r) => r.workspaces).find((w) => w.id === buffer.wsId);
+    return ws?.status ?? "new";
+  });
 
   const getDiffIconName = () => {
     if (buffer.type !== "diff") return buffer.name;
@@ -101,7 +108,13 @@ const TabBarItem = memo(function TabBarItem({
         tabIndex={isActive ? 0 : -1}
         isActive={isActive}
         isDragged={isDraggedTab}
-        className="h-8 gap-1.5 pl-2.5 pr-7"
+        className={cn(
+          "h-8",
+          buffer.type === "branchReview"
+            ? "w-8 p-0 justify-center"
+            : "gap-1.5 pl-2.5 pr-7",
+        )}
+        style={buffer.type === "branchReview" ? { borderRadius: "9999px" } : undefined}
         onClick={onClick}
         onMouseDown={onMouseDown}
         onDoubleClick={onDoubleClick}
@@ -110,7 +123,9 @@ const TabBarItem = memo(function TabBarItem({
         onAuxClick={handleAuxClick}
       >
         <div className="grid size-3.5 shrink-0 place-content-center">
-          {buffer.path === "extensions://marketplace" ? (
+          {buffer.type === "branchReview" && branchReviewWsStatus ? (
+            <WorkspaceBranchIcon status={branchReviewWsStatus} />
+          ) : buffer.path === "extensions://marketplace" ? (
             <Package className="text-muted-foreground" />
           ) : buffer.type === "diff" && isMultiFileDiff(buffer.diffData) ? (
             <GitBranch className="text-muted-foreground" />
@@ -136,16 +151,18 @@ const TabBarItem = memo(function TabBarItem({
             />
           )}
         </div>
-        <span
-          className={cn(
-            "ui-font text-[13px] min-w-0 flex-1 overflow-hidden text-ellipsis whitespace-nowrap",
-            !isActive && "text-muted-foreground",
-            buffer.isPreview && "italic",
-          )}
-          title={buffer.path}
-        >
-          {displayName}
-        </span>
+        {buffer.type !== "branchReview" && (
+          <span
+            className={cn(
+              "ui-font text-[13px] min-w-0 flex-1 overflow-hidden text-ellipsis whitespace-nowrap",
+              !isActive && "text-muted-foreground",
+              buffer.isPreview && "italic",
+            )}
+            title={buffer.path}
+          >
+            {displayName}
+          </span>
+        )}
         {buffer.type === "editor" && buffer.isDirty && (
           <div
             className="size-2 shrink-0 rounded-full bg-accent"
@@ -161,6 +178,7 @@ const TabBarItem = memo(function TabBarItem({
       {!buffer.isUncloseable && (
         <Button
           variant="ghost"
+          size="icon-xs"
           data-no-dnd
           onClick={(e) => {
             e.stopPropagation();
@@ -171,7 +189,7 @@ const TabBarItem = memo(function TabBarItem({
             }
           }}
           className={cn(
-            "absolute inset-y-0 my-auto right-1.5 h-4 w-4 grid place-items-center cursor-pointer select-none rounded-full p-0 text-muted-foreground transition-opacity",
+            "absolute inset-y-0 my-auto right-1.5 size-4 grid place-items-center cursor-pointer select-none rounded-md p-0 text-muted-foreground transition-opacity",
             buffer.isPinned || isActive ? "opacity-60" : "opacity-0 group-hover/tab:opacity-60",
           )}
           tooltip={buffer.isPinned ? "Unpin tab" : "Close"}
