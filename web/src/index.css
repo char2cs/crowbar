@@ -45,7 +45,8 @@
     scrollbar-width: thin;
     scrollbar-color: var(--app-scrollbar-thumb) transparent;
   }
-  .tab-scrollbar::-webkit-scrollbar {
+  .tab-scrollbar::-webkit-scrollbar,
+  .tab-scrollbar::-webkit-scrollbar:hover {
     height: 2px;
     width: 2px;
   }
