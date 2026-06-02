@@ -2,9 +2,9 @@ import { useEffect } from 'react'
 import { useFileSystemStore } from '@/features/file-system/controllers/store'
 import { useBufferActions } from './use-buffer-store'
 import { useWorkspaceStore } from '../workspace-context'
-import { fileTreeQueryOptions } from '@/lib/queries'
+import { useFileTreeStore } from '@/features/files/stores/file-tree-store'
+import { dataOf } from '@/lib/loadable'
 import { openFileContent } from '@/features/workspace/lib/open-file-content'
-import { queryClient } from '@/lib/queries/client'
 import type { AppFile } from '@/features/file-system/types/app'
 import type { BranchReviewContent } from '@/features/panes/types/pane-content'
 
@@ -15,22 +15,23 @@ export function useWorkspaceEffects(wsId: string, label?: string) {
 
   // Seed file system from API
   useEffect(() => {
-    queryClient.fetchQuery(fileTreeQueryOptions(repoPath))
-      .then(files => {
-        useFileSystemStore.setState({
-          rootFolderPath: repoPath,
-          files: files as unknown as AppFile[],
-          handleFileOpen: async (path: string, revealOrIsDir?: boolean) => {
-            if (revealOrIsDir === true) return
-            await openFileContent(path, bufferActions, { preview: false })
-          },
-          handleFileSelect: (path: string, isDir?: boolean) => {
-            if (isDir) return
-            void openFileContent(path, bufferActions, { preview: true })
-          },
-        })
+    void (async () => {
+      await useFileTreeStore.getState().fetch(repoPath)
+      const files = dataOf(useFileTreeStore.getState().data)
+      if (!files) return
+      useFileSystemStore.setState({
+        rootFolderPath: repoPath,
+        files: files as unknown as AppFile[],
+        handleFileOpen: async (path: string, revealOrIsDir?: boolean) => {
+          if (revealOrIsDir === true) return
+          await openFileContent(path, bufferActions, { preview: false })
+        },
+        handleFileSelect: (path: string, isDir?: boolean) => {
+          if (isDir) return
+          void openFileContent(path, bufferActions, { preview: true })
+        },
       })
-      .catch(() => {})
+    })()
   }, [repoPath]) // eslint-disable-line react-hooks/exhaustive-deps
 
   // Open the branchReview buffer — the sole default pane for a workspace.

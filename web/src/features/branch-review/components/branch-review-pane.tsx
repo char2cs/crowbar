@@ -1,10 +1,11 @@
 import { useEffect } from 'react'
-import { useQuery } from '@tanstack/react-query'
 import { nanoid } from 'nanoid'
 import { useWorkspaceStoreContext, useWorkspaceStore } from '@/features/workspace/stores/workspace-context'
 import { useSidebarStore } from '@/lib/store/sidebar'
 import { WorkspaceBranchIcon } from '@/components/layout/workspace-branch-icon'
-import { branchDiffQueryOptions, branchThreadsQueryOptions, branchDescriptionQueryOptions } from '@/features/branch-review/queries'
+import { apiFetch } from '@/lib/api'
+import { dataOf } from '@/lib/loadable'
+import { useBranchReviewDataStore } from '@/features/branch-review/stores/branch-review-data-store'
 import type { ReviewThread, ReviewMessage } from '@/features/branch-review/types/review-types'
 import { Frame, FrameHeader, FramePanel, FrameTitle, FrameDescription } from '@/components/ui/frame'
 import { Tabs, TabsList, TabsTab, TabsPanel } from '@/components/ui/tabs'
@@ -40,25 +41,37 @@ export function BranchReviewPane({ wsId, branchName }: BranchReviewPaneProps) {
     return allWs.find(w => w.id === wsId)?.status ?? 'new'
   })
 
-  // Diff always comes fresh from the API — never stored in IDB
-  const { data: diff } = useQuery(branchDiffQueryOptions(wsId))
+  // Diff comes from the branch-review data store (IDB-cached + fetched).
+  const reviewData = useBranchReviewDataStore(s => s.data)
+  useEffect(() => { void useBranchReviewDataStore.getState().fetch(wsId) }, [wsId])
   useEffect(() => {
+    const diff = dataOf(reviewData)?.diff
     if (diff) store.getState().setBranchReviewDiff(diff)
-  }, [diff, store])
+  }, [reviewData, store])
 
-  // Threads — cold-start guard: only seed from API if IDB didn't restore any
-  const { data: apiThreads } = useQuery(branchThreadsQueryOptions(wsId))
+  // Threads — cold-start seed from API only if IDB didn't restore any.
   useEffect(() => {
-    if (!apiThreads || store.getState().branchReview.threads.length > 0) return
-    apiThreads.forEach(t => store.getState().addReviewThread(t))
-  }, [apiThreads, store])
+    let cancelled = false
+    void apiFetch<ReviewThread[]>(`/api/v0/branch-review/${wsId}/threads`)
+      .then(apiThreads => {
+        if (cancelled || store.getState().branchReview.threads.length > 0) return
+        apiThreads.forEach(t => store.getState().addReviewThread(t))
+      })
+      .catch(() => {})
+    return () => { cancelled = true }
+  }, [wsId, store])
 
-  // Description — cold-start guard: only seed from API if IDB didn't restore one
-  const { data: apiDescription } = useQuery(branchDescriptionQueryOptions(wsId))
+  // Description — cold-start seed from API only if IDB didn't restore one.
   useEffect(() => {
-    if (!apiDescription || store.getState().branchReview.description) return
-    store.getState().setBranchReviewDescription(apiDescription)
-  }, [apiDescription, store])
+    let cancelled = false
+    void apiFetch<string>(`/api/v0/branch-review/${wsId}/description`)
+      .then(apiDescription => {
+        if (cancelled || !apiDescription || store.getState().branchReview.description) return
+        store.getState().setBranchReviewDescription(apiDescription)
+      })
+      .catch(() => {})
+    return () => { cancelled = true }
+  }, [wsId, store])
 
   function handleAddThread(filePath: string, lineNumber: number, side: 'left' | 'right' = 'right') {
     const thread: ReviewThread = {

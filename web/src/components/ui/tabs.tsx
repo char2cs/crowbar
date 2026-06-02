@@ -120,7 +120,7 @@ const Tab = React.forwardRef<HTMLButtonElement, TabProps>(
         "focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-1 focus-visible:ring-offset-background",
         "disabled:pointer-events-none disabled:opacity-64",
         isActive
-          ? "border-border bg-background text-foreground"
+          ? "rounded-full border-background bg-background text-foreground shadow-xs shadow-black/10 not-disabled:inset-shadow-[0_1px_--theme(--color-white/16%)] active:inset-shadow-[0_1px_--theme(--color-black/8%)] active:shadow-none"
           : "border-transparent text-muted-foreground hover:bg-accent hover:text-foreground",
         className,
       )}

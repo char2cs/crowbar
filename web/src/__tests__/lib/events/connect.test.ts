@@ -1,48 +1,48 @@
 import '@/lib/transport/polyfill'
-import { QueryClient } from '@tanstack/react-query'
 import { connectDaemonEvents } from '@/lib/events/connect'
-import { queryKeys } from '@/lib/queries/keys'
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 
+const mockFetch = vi.fn().mockResolvedValue(undefined)
+
+vi.mock('@/lib/store/workspace-list', () => ({
+  useWorkspaceListStore: {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    getState: () => ({ fetch: mockFetch } as any),
+  },
+}))
+
 describe('connectDaemonEvents', () => {
-  let qc: QueryClient
   let disconnect: () => void
 
   beforeEach(() => {
-    qc = new QueryClient()
-    vi.spyOn(qc, 'invalidateQueries')
-    disconnect = connectDaemonEvents(qc)
+    mockFetch.mockClear()
+    disconnect = connectDaemonEvents()
   })
 
   afterEach(() => {
     disconnect()
   })
 
-  it('invalidates workspaces on workspace:updated', () => {
+  it('calls workspace list fetch on workspace:updated', () => {
     window.__CROWBAR__.emit('workspace:updated')
-    expect(qc.invalidateQueries).toHaveBeenCalledWith({
-      queryKey: queryKeys.workspaces.all,
-    })
+    expect(mockFetch).toHaveBeenCalled()
   })
 
-  it('invalidates specific chat messages on chat:message', () => {
-    window.__CROWBAR__.emit('chat:message', { chatId: 'chat-1' })
-    expect(qc.invalidateQueries).toHaveBeenCalledWith({
-      queryKey: queryKeys.chats.messages('chat-1'),
-    })
-  })
-
-  it('invalidates git status on git:changed', () => {
+  it('dispatches git-status-changed CustomEvent on git:changed', () => {
+    const handler = vi.fn()
+    window.addEventListener('git-status-changed', handler)
     window.__CROWBAR__.emit('git:changed', { workspaceId: 'ws-1' })
-    expect(qc.invalidateQueries).toHaveBeenCalledWith({
-      queryKey: queryKeys.git.status('ws-1'),
-    })
+    expect(handler).toHaveBeenCalled()
+    window.removeEventListener('git-status-changed', handler)
   })
 
-  it('invalidates file tree on file:changed', () => {
-    window.__CROWBAR__.emit('file:changed', { workspaceId: 'ws-1', path: '/src' })
-    expect(qc.invalidateQueries).toHaveBeenCalledWith({
-      queryKey: queryKeys.files.tree('ws-1', '/src'),
-    })
+  it('dispatches file-external-change CustomEvent on file:changed', () => {
+    const handler = vi.fn()
+    window.addEventListener('file-external-change', handler)
+    window.__CROWBAR__.emit('file:changed', { workspaceId: 'ws-1', path: '/src/foo.ts' })
+    expect(handler).toHaveBeenCalledOnce()
+    const event = handler.mock.calls[0][0] as CustomEvent
+    expect(event.detail).toMatchObject({ event_type: 'modify', path: '/src/foo.ts' })
+    window.removeEventListener('file-external-change', handler)
   })
 })

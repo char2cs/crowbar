@@ -38,8 +38,8 @@ function NavItem({ tab, label, Icon, isActive }: NavItemProps) {
       aria-label={label}
       aria-pressed={isActive}
       className={cn(
-        'flex h-7 items-center gap-1 rounded-md px-1.5 transition-[background-color,color] duration-150',
-        isActive ? 'bg-accent text-foreground' : 'text-muted-foreground hover:text-foreground',
+        'flex h-7 items-center gap-1 rounded-md px-1.5 transition-[color] duration-150',
+        isActive ? 'text-foreground' : 'text-muted-foreground hover:text-foreground',
       )}
     >
       <Icon size={14} weight={isActive ? 'fill' : 'regular'} className="shrink-0" />
@@ -57,7 +57,7 @@ export function SidebarNavIcons() {
   const activeTab = useSidebarStore(s => s.activeTab)
 
   return (
-    <Toolbar className="gap-0 p-0.5 rounded-lg">
+    <Toolbar className="gap-0 p-0.5 rounded-lg border border-white/8 bg-background shadow-sm shadow-black/30 not-disabled:inset-shadow-[0_1px_--theme(--color-white/16%)]">
       <ToolbarGroup>
         {NAV_ITEMS.map(({ tab, label, Icon }) => (
           <NavItem

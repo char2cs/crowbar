@@ -19,13 +19,6 @@ vi.mock('@tanstack/react-router', async (importOriginal) => {
   }
 })
 
-vi.mock('@tanstack/react-query', async (importOriginal) => {
-  const actual = await importOriginal<typeof import('@tanstack/react-query')>()
-  return {
-    ...actual,
-    useQuery: () => ({ data: [{ name: 'feature-development', description: 'Feature dev' }] }),
-  }
-})
 
 import { NewWorkspacePage } from '@/routes/workspaces/new'
 import * as api from '@/lib/api'

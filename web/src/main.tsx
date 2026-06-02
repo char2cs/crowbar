@@ -3,10 +3,8 @@ import { StrictMode } from 'react'
 import { createRoot } from 'react-dom/client'
 import { enableMapSet } from 'immer'
 import { RouterProvider, createRouter, createHashHistory } from '@tanstack/react-router'
-import { QueryClientProvider } from '@tanstack/react-query'
 import { TooltipProvider } from '@/components/ui/tooltip'
 import { routeTree } from './routeTree.gen'
-import { queryClient } from '@/lib/queries/client'
 import { connectDaemonEvents } from '@/lib/events/connect'
 import { initializeSettingsStore } from '@/features/settings/store'
 import { ensureStartupAppearanceApplied } from '@/features/settings/lib/appearance-bootstrap'
@@ -20,7 +18,7 @@ enableMapSet()
 
 // Wire up daemon event listeners for cache invalidation.
 // Cleanup is registered with Vite HMR so hot-reloading doesn't leak listeners.
-const disconnectDaemonEvents = connectDaemonEvents(queryClient)
+const disconnectDaemonEvents = connectDaemonEvents()
 if (import.meta.hot) {
   import.meta.hot.dispose(() => disconnectDaemonEvents())
 }
@@ -47,11 +45,9 @@ const router = createRouter({ routeTree, history: createHashHistory() })
 function renderApp() {
   createRoot(document.getElementById('root')!).render(
     <StrictMode>
-      <QueryClientProvider client={queryClient}>
-        <TooltipProvider>
-          <RouterProvider router={router} />
-        </TooltipProvider>
-      </QueryClientProvider>
+      <TooltipProvider>
+        <RouterProvider router={router} />
+      </TooltipProvider>
     </StrictMode>,
   )
 }

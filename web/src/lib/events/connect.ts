@@ -1,35 +1,30 @@
-import { QueryClient } from '@tanstack/react-query'
-import { queryKeys } from '@/lib/queries/keys'
+import { useWorkspaceListStore } from '@/lib/store/workspace-list'
 import type { DaemonEvent } from './types'
 
 type EventOf<T extends DaemonEvent['type']> = Extract<DaemonEvent, { type: T }>
 
-export function connectDaemonEvents(qc: QueryClient): () => void {
+export function connectDaemonEvents(): () => void {
   const unlisteners: Array<() => void> = []
 
   unlisteners.push(
-    window.__CROWBAR__.on<EventOf<'workspace:updated'>>('workspace:updated', () =>
-      qc.invalidateQueries({ queryKey: queryKeys.workspaces.all })
-    )
+    window.__CROWBAR__.on<EventOf<'workspace:updated'>>('workspace:updated', () => {
+      void useWorkspaceListStore.getState().fetch()
+    }),
   )
 
   unlisteners.push(
-    window.__CROWBAR__.on<EventOf<'chat:message'>>('chat:message', (p) =>
-      qc.invalidateQueries({ queryKey: queryKeys.chats.messages(p.chatId) })
-    )
+    window.__CROWBAR__.on<EventOf<'git:changed'>>('git:changed', () => {
+      window.dispatchEvent(new CustomEvent('git-status-changed'))
+    }),
   )
 
   unlisteners.push(
-    window.__CROWBAR__.on<EventOf<'git:changed'>>('git:changed', (p) =>
-      qc.invalidateQueries({ queryKey: queryKeys.git.status(p.workspaceId) })
-    )
+    window.__CROWBAR__.on<EventOf<'file:changed'>>('file:changed', (p) => {
+      window.dispatchEvent(new CustomEvent('file-external-change', { detail: { event_type: 'modify', path: p.path } }))
+    }),
   )
 
-  unlisteners.push(
-    window.__CROWBAR__.on<EventOf<'file:changed'>>('file:changed', (p) =>
-      qc.invalidateQueries({ queryKey: queryKeys.files.tree(p.workspaceId, p.path) })
-    )
-  )
+  // chat:message — live chat updates arrive via the chat WebSocket stream; no refetch needed.
 
   return () => unlisteners.forEach(u => u())
 }
