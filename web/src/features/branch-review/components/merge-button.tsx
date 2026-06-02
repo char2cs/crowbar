@@ -19,7 +19,20 @@ import {
   PopoverContent,
   PopoverClose,
 } from '@/components/ui/popover'
+import { toast } from '@/components/ui/toast'
 import type { MergeStrategy } from '@/features/branch-review/types/review-types'
+
+export async function executeMerge(
+  onMerge: (message: { title: string; description: string }) => void | Promise<void>,
+  message: { title: string; description: string },
+): Promise<void> {
+  try {
+    await onMerge(message)
+    toast.success('Merged successfully')
+  } catch {
+    toast.error('Merge failed — check logs')
+  }
+}
 
 const STRATEGY_LABELS: Record<MergeStrategy, string> = {
   merge: 'Merge commit',
@@ -32,7 +45,7 @@ interface MergeButtonProps {
   branchName?: string
   isLocked: boolean
   hasConflicts: boolean
-  onMerge: (message: { title: string; description: string }) => void
+  onMerge: (message: { title: string; description: string }) => void | Promise<void>
   onStrategyChange: (strategy: MergeStrategy) => void
 }
 
@@ -56,12 +69,19 @@ export function MergeButton({
   const [open, setOpen] = useState(false)
   const [title, setTitle] = useState('')
   const [description, setDescription] = useState('')
+  const [merging, setMerging] = useState(false)
 
   const defaultTitle = branchName ? `Merge ${branchName}` : STRATEGY_LABELS[strategy]
 
-  function handleSubmit() {
-    onMerge({ title: title.trim() || defaultTitle, description: description.trim() })
-    setOpen(false)
+  async function handleSubmit() {
+    const message = { title: title.trim() || defaultTitle, description: description.trim() }
+    setMerging(true)
+    try {
+      await executeMerge(onMerge, message)
+    } finally {
+      setMerging(false)
+      setOpen(false)
+    }
   }
 
   return (
@@ -78,7 +98,7 @@ export function MergeButton({
         <PopoverContent align="end" className="w-[440px]">
           <form
             className="flex flex-col gap-3"
-            onSubmit={e => { e.preventDefault(); handleSubmit() }}
+            onSubmit={e => { e.preventDefault(); void handleSubmit() }}
           >
             <div className="flex flex-col gap-1.5">
               <Label htmlFor="merge-title">Commit message</Label>
@@ -107,8 +127,8 @@ export function MergeButton({
               >
                 Cancel
               </PopoverClose>
-              <Button type="submit" variant={variant} size="sm" className="text-foreground">
-                {STRATEGY_LABELS[strategy]}
+              <Button type="submit" variant={variant} size="sm" className="text-foreground" disabled={merging}>
+                {merging ? 'Merging…' : STRATEGY_LABELS[strategy]}
               </Button>
             </div>
           </form>
