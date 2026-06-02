@@ -2,8 +2,8 @@ import {
   Chat,
   GlobeHemisphereWest as Globe,
   Plus,
-  SidebarSimple as PanelLeftClose,
   TerminalWindow as Terminal,
+  X,
 } from "@phosphor-icons/react";
 import React from "react";
 import {
@@ -78,7 +78,7 @@ const TabNewButton = React.memo(function TabNewButton({
           tooltipSide="bottom"
           aria-label="Close split pane"
         >
-          <PanelLeftClose />
+          <X size={12} />
         </Button>
       )}
     </div>
