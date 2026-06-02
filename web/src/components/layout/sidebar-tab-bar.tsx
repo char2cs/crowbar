@@ -23,7 +23,8 @@ export function SidebarTabBar() {
               key={tab}
               isActive={isActive}
               aria-label={label}
-              data-active={isActive}
+              aria-pressed={isActive}
+              data-active={isActive || undefined}
               className="flex h-7 items-center gap-1 px-2"
               onClick={() => setActiveTab(tab)}
             >

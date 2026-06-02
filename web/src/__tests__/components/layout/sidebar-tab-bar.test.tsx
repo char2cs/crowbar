@@ -20,7 +20,9 @@ describe('SidebarTabBar', () => {
   it('marks the active tab as pressed', () => {
     useSidebarStore.setState({ activeTab: 'files' })
     render(<SidebarTabBar />)
-    expect(screen.getByRole('button', { name: /files/i })).toHaveAttribute('data-active', 'true')
+    const filesBtn = screen.getByRole('button', { name: /files/i })
+    expect(filesBtn).toHaveAttribute('data-active', 'true')
+    expect(filesBtn).toHaveAttribute('aria-pressed', 'true')
   })
 
   it('calls setActiveTab when a tab is clicked', () => {
