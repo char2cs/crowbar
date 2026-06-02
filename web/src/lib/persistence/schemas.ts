@@ -96,4 +96,5 @@ export interface CrowbarDB extends DBSchema {
   'branch-review-data': { key: string; value: CachedRecord<unknown> }
   'chat-history': { key: string; value: CachedRecord<unknown> }
   'projects-data': { key: string; value: CachedRecord<unknown> }
+  'chats-data': { key: string; value: CachedRecord<unknown> }
 }

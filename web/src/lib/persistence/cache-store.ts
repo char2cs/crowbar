@@ -8,6 +8,7 @@ export type CacheStoreName =
   | 'branch-review-data'
   | 'chat-history'
   | 'projects-data'
+  | 'chats-data'
 
 // The cache layer is strictly best-effort: it must NEVER break the data flow.
 // A missing object store (stale schema), a quota error, or a private-mode

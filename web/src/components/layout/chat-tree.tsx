@@ -8,7 +8,8 @@ import { ROW_BASE } from './workspace-row-base'
 import { ChatTreeItem, type ChatTreeNode } from './chat-tree-item'
 import { ChatTreeProvider, useChatTreeContext } from './chat-tree-context'
 import { useSidebarStore, type ProjectChat } from '@/lib/store/sidebar'
-import { apiFetch } from '@/lib/api'
+import { useChatListStore } from '@/lib/store/chat-list-store'
+import { dataOf } from '@/lib/loadable'
 
 function buildChatTree(chats: ProjectChat[]): ChatTreeNode[] {
   const nodeMap = new Map<string, ChatTreeNode>()
@@ -50,17 +51,23 @@ function ChatTreeInner({ wsId }: ChatTreeProps) {
   const chats = useMemo(() => allChats.filter(c => c.wsId === wsId), [allChats, wsId])
   const { draggingChat, dragPos, hoverTrash } = useChatTreeContext()
 
+  // Fetch via LoadableSlice (IDB-cached, stale-while-revalidate)
   useEffect(() => {
-    apiFetch<ProjectChat[]>(`/api/v0/chats?wsId=${wsId}`)
-      .then(fetched => {
-        const existing = new Set(useSidebarStore.getState().chats.map(c => c.id))
-        const fresh = fetched.filter(c => !existing.has(c.id))
-        if (fresh.length > 0) {
-          fresh.forEach(c => useSidebarStore.getState().addChat(c))
-        }
-      })
-      .catch(() => {})
+    void useChatListStore.getState().fetch(wsId)
   }, [wsId])
+
+  // Seed sidebar store when loadable data arrives
+  useEffect(() => {
+    return useChatListStore.subscribe(state => {
+      const fetched = dataOf(state.data)
+      if (!fetched) return
+      const existing = new Set(useSidebarStore.getState().chats.map(c => c.id))
+      const fresh = fetched.filter(c => !existing.has(c.id))
+      if (fresh.length > 0) {
+        fresh.forEach(c => useSidebarStore.getState().addChat(c))
+      }
+    })
+  }, [])
 
   const roots = buildChatTree(chats)
 
