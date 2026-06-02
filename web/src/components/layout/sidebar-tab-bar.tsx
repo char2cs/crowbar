@@ -14,8 +14,8 @@ export function SidebarTabBar() {
   const setActiveTab = useSidebarStore(s => s.setActiveTab)
 
   return (
-    <div className="flex h-8 shrink-0 items-center justify-center px-2">
-      <div className="flex items-center gap-0.5 rounded-lg border border-white/8 bg-background p-0.5 shadow-sm shadow-black/30 not-disabled:inset-shadow-[0_1px_--theme(--color-white/16%)]">
+    <div className="flex shrink-0 items-center px-2 py-1.5">
+      <div className="relative z-0 flex w-full items-center justify-center gap-x-0.5 rounded-lg bg-muted p-0.5 text-muted-foreground/72">
         {TABS.map(({ tab, label, Icon }) => {
           const isActive = activeTab === tab
           return (
@@ -25,7 +25,7 @@ export function SidebarTabBar() {
               aria-label={label}
               aria-pressed={isActive}
               data-active={isActive || undefined}
-              className="flex h-7 items-center gap-1 px-2"
+              className="flex flex-1 h-7 items-center justify-center gap-1 px-2"
               onClick={() => setActiveTab(tab)}
             >
               <Icon size={14} weight={isActive ? 'fill' : 'regular'} />
