@@ -5,7 +5,7 @@ import { useSidebarStore } from '@/lib/store/sidebar'
 import { WorkspaceBranchIcon } from '@/components/layout/workspace-branch-icon'
 import { apiFetch } from '@/lib/api'
 import { dataOf } from '@/lib/loadable'
-import { useBranchReviewDataStore } from '@/features/branch-review/stores/branch-review-data-store'
+import { useBranchReviewDiffStore } from '@/features/branch-review/stores/branch-review-data-store'
 import type { ReviewThread, ReviewMessage } from '@/features/branch-review/types/review-types'
 import { Frame, FrameHeader, FramePanel, FrameTitle, FrameDescription } from '@/components/ui/frame'
 import { Tabs, TabsList, TabsTab, TabsPanel } from '@/components/ui/tabs'
@@ -41,13 +41,13 @@ export function BranchReviewPane({ wsId, branchName }: BranchReviewPaneProps) {
     return allWs.find(w => w.id === wsId)?.status ?? 'new'
   })
 
-  // Diff comes from the branch-review data store (IDB-cached + fetched).
-  const reviewData = useBranchReviewDataStore(s => s.data)
-  useEffect(() => { void useBranchReviewDataStore.getState().fetch(wsId) }, [wsId])
+  // Diff comes from its own loadable store (IDB-cached + fetched), independent of chats.
+  const diffLoadable = useBranchReviewDiffStore(s => s.data)
+  useEffect(() => { void useBranchReviewDiffStore.getState().fetch(wsId) }, [wsId])
   useEffect(() => {
-    const diff = dataOf(reviewData)?.diff
+    const diff = dataOf(diffLoadable)
     if (diff) store.getState().setBranchReviewDiff(diff)
-  }, [reviewData, store])
+  }, [diffLoadable, store])
 
   // Threads — cold-start seed from API only if IDB didn't restore any.
   useEffect(() => {

@@ -7,7 +7,7 @@ import { markdown } from '@codemirror/lang-markdown'
 import { FramePanel, FrameTitle } from '@/components/ui/frame'
 import { DataState } from '@/components/ui/data-state'
 import { Button } from '@/components/ui/button'
-import { useBranchReviewDataStore } from '@/features/branch-review/stores/branch-review-data-store'
+import { useBranchReviewChatsStore } from '@/features/branch-review/stores/branch-review-data-store'
 import { transparentMarkdownTheme } from '../lib/markdown'
 import { cn } from '@/utils/cn'
 
@@ -21,9 +21,9 @@ interface AboutTabProps {
 
 export function AboutTab({ wsId, description, onDescriptionChange, onOpenConversation, onNewConversation }: AboutTabProps) {
   const [editing, setEditing] = useState(false)
-  const reviewData = useBranchReviewDataStore(s => s.data)
-  const retryChats = useCallback(() => { void useBranchReviewDataStore.getState().fetch(wsId) }, [wsId])
-  useEffect(() => { void useBranchReviewDataStore.getState().fetch(wsId) }, [wsId])
+  const chatsLoadable = useBranchReviewChatsStore(s => s.data)
+  const retryChats = useCallback(() => { void useBranchReviewChatsStore.getState().fetch(wsId) }, [wsId])
+  useEffect(() => { void useBranchReviewChatsStore.getState().fetch(wsId) }, [wsId])
 
   return (
     <div className="flex flex-col gap-4">
@@ -85,13 +85,13 @@ export function AboutTab({ wsId, description, onDescriptionChange, onOpenConvers
           </Button>
         </div>
         <DataState
-          loadable={reviewData}
+          loadable={chatsLoadable}
           onRetry={retryChats}
           loadingLabel="Loading conversations"
           emptyMessage="No conversations yet."
-          isEmpty={(d) => d.chats.length === 0}
+          isEmpty={(d) => d.length === 0}
         >
-          {({ chats }) => (
+          {(chats) => (
             <div className="flex flex-col gap-1.5">
               {chats.map(chat => (
                 <FramePanel
