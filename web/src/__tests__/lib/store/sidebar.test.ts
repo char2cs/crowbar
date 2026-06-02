@@ -55,7 +55,7 @@ test('deleteWorkspace removes from repo', () => {
 })
 
 test('addChat appends a new chat entry', () => {
-  useSidebarStore.getState().addChat({ id: 'c-test', title: 'New', age: 'just now' })
+  useSidebarStore.getState().addChat({ id: 'c-test', wsId: 'ws1', title: 'New', age: 'just now', status: 'idle', type: 'chat' })
   const chats = useSidebarStore.getState().chats
   expect(chats.some(c => c.id === 'c-test')).toBe(true)
 })
