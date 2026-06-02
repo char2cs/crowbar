@@ -89,6 +89,7 @@ interface FileExplorerTreeProps {
   onRevealInFinder?: (path: string) => void;
   onUploadFile?: (directoryPath: string) => void;
   onFileMove?: (oldPath: string, newPath: string) => void;
+  filter?: 'all' | 'changed';
 }
 
 interface FileExplorerAlertDialogState {
@@ -123,6 +124,7 @@ function FileExplorerTreeComponent({
   onRevealInFinder,
   onUploadFile,
   onFileMove,
+  filter = 'all' as const,
 }: FileExplorerTreeProps) {
   const [deleteCandidate, setDeleteCandidate] = useState<{
     path: string;
@@ -379,12 +381,30 @@ function FileExplorerTreeComponent({
     ],
   );
 
+  const changedFilteredFiles = useMemo(() => {
+    if (filter !== 'changed') return displayedFiles;
+
+    const pruneTree = (items: FileEntry[]): FileEntry[] =>
+      items.flatMap((item) => {
+        if (!item.isDir) {
+          return getGitStatusDecoration(item) !== null ? [item] : [];
+        }
+        const prunedChildren = pruneTree(item.children ?? []);
+        const dirDecoration = getGitStatusDecoration(item);
+        if (prunedChildren.length === 0 && dirDecoration === null) return [];
+        return [{ ...item, children: prunedChildren }];
+      });
+
+    return pruneTree(displayedFiles);
+  }, [filter, displayedFiles, getGitStatusDecoration]);
+
   const { visibleRows, rowVirtualizer } = useFileExplorerVisibleRows({
-    files: displayedFiles,
+    files: changedFilteredFiles,
     activePath,
     containerRef,
     expandedPathsOverride: displayedExpandedPaths,
   });
+
   const keyboardPath = focusedPath || activePath;
   const highlightedPath = hasTreeFocus ? keyboardPath : activePath;
 
