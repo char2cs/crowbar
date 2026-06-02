@@ -2,7 +2,8 @@ import { useEffect } from 'react'
 import { useFileSystemStore } from '@/features/file-system/controllers/store'
 import { useBufferActions } from './use-buffer-store'
 import { useWorkspaceStore } from '../workspace-context'
-import { fileTreeQueryOptions, fileContentQueryOptions } from '@/lib/queries'
+import { fileTreeQueryOptions } from '@/lib/queries'
+import { openFileContent } from '@/features/workspace/lib/open-file-content'
 import { queryClient } from '@/lib/queries/client'
 import type { AppFile } from '@/features/file-system/types/app'
 import type { BranchReviewContent } from '@/features/panes/types/pane-content'
@@ -21,16 +22,11 @@ export function useWorkspaceEffects(wsId: string, label?: string) {
           files: files as unknown as AppFile[],
           handleFileOpen: async (path: string, revealOrIsDir?: boolean) => {
             if (revealOrIsDir === true) return
-            const name = path.split('/').pop() ?? path
-            const content = await queryClient.fetchQuery(fileContentQueryOptions(path))
-            bufferActions.openContent({ type: 'editor', path, name, content })
+            await openFileContent(path, bufferActions, { preview: false })
           },
           handleFileSelect: (path: string, isDir?: boolean) => {
             if (isDir) return
-            const name = path.split('/').pop() ?? path
-            queryClient.fetchQuery(fileContentQueryOptions(path)).then(content => {
-              bufferActions.openContent({ type: 'editor', path, name, content, isPreview: true })
-            })
+            void openFileContent(path, bufferActions, { preview: true })
           },
         })
       })
