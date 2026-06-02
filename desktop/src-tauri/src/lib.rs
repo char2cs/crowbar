@@ -8,10 +8,19 @@ use tauri::Manager;
 use window_vibrancy::{apply_vibrancy, NSVisualEffectMaterial, NSVisualEffectState};
 
 pub fn run() {
-    tauri::Builder::default()
+    let mut builder = tauri::Builder::default()
         .plugin(tauri_plugin_macos_fps::init())
         .plugin(tauri_plugin_log::Builder::new().build())
-        .plugin(tauri_plugin_shell::init())
+        .plugin(tauri_plugin_shell::init());
+
+    // Dev-only: exposes the webview to the Tauri MCP server (WebSocket :9223).
+    // Gated to debug builds so it never ships in a release.
+    #[cfg(debug_assertions)]
+    {
+        builder = builder.plugin(tauri_plugin_mcp_bridge::init());
+    }
+
+    builder
         .manage(sidecar::SidecarHandle::new())
         .setup(|app| {
             let app_handle = app.handle().clone();

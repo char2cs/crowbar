@@ -11,6 +11,7 @@
   },
   "app": {
     "macOSPrivateApi": true,
+    "withGlobalTauri": true,
     "security": {
       "csp": null,
       "dangerousDisableAssetCspModification": true
@@ -24,6 +25,7 @@
         "transparent": true,
         "titleBarStyle": "Overlay",
         "hiddenTitle": true,
+        "trafficLightPosition": { "x": 12, "y": 23 },
         "backgroundThrottling": "disabled"
       }
     ]
