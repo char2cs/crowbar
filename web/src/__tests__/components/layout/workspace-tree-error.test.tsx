@@ -7,7 +7,7 @@ vi.mock('@tanstack/react-router', () => ({
   useRouterState: () => '',
 }))
 
-import { failed, success, idle } from '@/lib/loadable'
+import { failed, idle } from '@/lib/loadable'
 import { useWorkspaceListStore } from '@/lib/store/workspace-list'
 import { useSidebarStore } from '@/lib/store/sidebar'
 import { WorkspaceTree } from '@/components/layout/workspace-tree'

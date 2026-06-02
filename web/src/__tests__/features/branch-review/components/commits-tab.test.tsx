@@ -1,11 +1,11 @@
 import { describe, it, expect, beforeEach } from 'vitest'
 import { render, screen } from '@testing-library/react'
 import { success, failed, idle } from '@/lib/loadable'
-import { useGitStore } from '@/features/git/stores/git-store'
+import { useGitStore, type GitData } from '@/features/git/stores/git-store'
 import { CommitsTab } from '@/features/branch-review/components/commits-tab'
 
 const gitData = (commits: { hash: string; message: string; date: string }[]) =>
-  ({ status: { branch: 'main', files: [] }, commits, branches: [], stashes: [] })
+  ({ status: { branch: 'main', files: [], ahead: 0, behind: 0 }, commits, branches: [], stashes: [] }) as unknown as GitData
 
 beforeEach(() => { useGitStore.setState({ gitData: idle() }) })
 

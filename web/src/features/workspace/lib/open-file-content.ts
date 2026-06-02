@@ -26,6 +26,6 @@ export async function openFileContent(
     const content = await apiFetch<string>(`/api/v0/fs/file?path=${encodeURIComponent(path)}`)
     bufferActions.openContent({ type: 'editor', path, name, content, isPreview: opts.preview })
   } catch {
-    toast.error('Failed to open file', { description: name })
+    toast.error('Failed to open file', name)
   }
 }

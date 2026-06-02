@@ -25,7 +25,7 @@ describe('openFileContent', () => {
     const openContent = vi.fn()
     await openFileContent('web/vite.config.ts', { openContent } as never, { preview: false })
     expect(openContent).not.toHaveBeenCalled()
-    expect(toast.error).toHaveBeenCalledWith('Failed to open file', expect.objectContaining({ description: 'vite.config.ts' }))
+    expect(toast.error).toHaveBeenCalledWith('Failed to open file', 'vite.config.ts')
   })
 
   it('passes isPreview when preview=true', async () => {

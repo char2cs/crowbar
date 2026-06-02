@@ -2,11 +2,11 @@ import { describe, it, expect, beforeEach, vi } from 'vitest'
 import { render, screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { success, failed, idle } from '@/lib/loadable'
-import { useBranchReviewDataStore } from '@/features/branch-review/stores/branch-review-data-store'
+import { useBranchReviewDataStore, type BranchReviewData } from '@/features/branch-review/stores/branch-review-data-store'
 import { AboutTab } from '@/features/branch-review/components/about-tab'
 
 const data = (chats: { id: string; title: string; age: string; isActive: boolean }[]) =>
-  ({ diff: { files: [] }, chats })
+  ({ diff: { commitHash: '', totalFiles: 0, totalAdditions: 0, totalDeletions: 0, files: [] }, chats }) as unknown as BranchReviewData
 
 beforeEach(() => { useBranchReviewDataStore.setState({ data: idle() }) })
 

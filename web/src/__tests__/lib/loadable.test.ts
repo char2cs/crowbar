@@ -29,7 +29,7 @@ describe('loadable', () => {
   it('failed preserves stale data from previous success', () => {
     const l = failed(new Error('boom'), success(['y'], 700))
     expect(l.status).toBe('error')
-    expect(l.error.message).toBe('boom')
+    if (l.status === 'error') expect(l.error.message).toBe('boom')
     expect(dataOf(l)).toEqual(['y'])
     expect(fetchedAtOf(l)).toBe(700)
   })
