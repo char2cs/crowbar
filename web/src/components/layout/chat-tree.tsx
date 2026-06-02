@@ -1,5 +1,6 @@
 import { useEffect, useMemo } from 'react'
-import { useRouterState, useNavigate } from '@tanstack/react-router'
+import { useRouterState } from '@tanstack/react-router'
+import { getActiveWorkspaceStore } from '@/features/workspace/stores/workspace-store-registry'
 import { Plus } from '@phosphor-icons/react'
 import { ScrollArea } from '@/components/ui/scroll-area'
 import { cn } from '@/lib/utils'
@@ -42,7 +43,6 @@ interface ChatTreeProps {
 }
 
 function ChatTreeInner({ wsId }: ChatTreeProps) {
-  const navigate = useNavigate()
   const pathname = useRouterState({ select: s => s.location.pathname })
   const activeChatId = pathname.match(/\/chat\/([^/]+)/)?.[1] ?? ''
   const allChats = useSidebarStore(s => s.chats)
@@ -65,7 +65,14 @@ function ChatTreeInner({ wsId }: ChatTreeProps) {
   const roots = buildChatTree(chats)
 
   function handleChatClick(chatId: string) {
-    void navigate({ to: '/chat/$chatId', params: { chatId } })
+    const chat = useSidebarStore.getState().chats.find(c => c.id === chatId)
+    const store = getActiveWorkspaceStore()
+    if (!store || !chat) return
+    store.getState().bufferActions.openContent({
+      type: 'crowbarChat',
+      wsId: chatId,
+      name: chat.title,
+    })
   }
 
   function handleNew() {
