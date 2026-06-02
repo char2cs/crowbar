@@ -1,4 +1,5 @@
 import {
+  Chat,
   GlobeHemisphereWest as Globe,
   Plus,
   SidebarSimple as PanelLeftClose,
@@ -9,6 +10,7 @@ import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
+  DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { Button } from "@/components/ui/button";
@@ -17,6 +19,7 @@ interface TabNewButtonProps {
   isBottomPane: boolean;
   disablePaneActions: boolean;
   isInSplit: boolean;
+  onNewConversation: () => void;
   onNewTerminal: () => void;
   onOpenUrl: () => void;
   onClosePane: () => void;
@@ -26,6 +29,7 @@ const TabNewButton = React.memo(function TabNewButton({
   isBottomPane,
   disablePaneActions,
   isInSplit,
+  onNewConversation,
   onNewTerminal,
   onOpenUrl,
   onClosePane,
@@ -47,7 +51,12 @@ const TabNewButton = React.memo(function TabNewButton({
         >
           <Plus weight="bold" size={12} />
         </DropdownMenuTrigger>
-        <DropdownMenuContent side="bottom" align="start" className="min-w-[140px]">
+        <DropdownMenuContent side="bottom" align="start" className="min-w-[160px]">
+          <DropdownMenuItem onClick={onNewConversation}>
+            <Chat className="text-muted-foreground" />
+            New Conversation
+          </DropdownMenuItem>
+          <DropdownMenuSeparator />
           <DropdownMenuItem onClick={onNewTerminal}>
             <Terminal className="text-muted-foreground" />
             New Terminal
