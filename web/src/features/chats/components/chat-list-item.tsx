@@ -23,7 +23,7 @@ export function ChatListItem({ chat, isActive, onClick }: ChatListItemProps) {
       <span
         className={cn(
           'size-1.5 shrink-0 rounded-full',
-          isActive ? 'bg-green-400' : 'bg-muted-foreground/40',
+          isActive ? 'bg-success' : 'bg-muted-foreground/40',
         )}
       />
       <span className="min-w-0 flex-1 truncate text-left text-[13px]">{chat.title}</span>

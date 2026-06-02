@@ -21,8 +21,8 @@ export function ChatList() {
           <ChatListItem
             key={chat.id}
             chat={chat}
-            isActive={false}
-            onClick={() => {}}
+            isActive={false} // TODO: wire to active chat ID from routing/store
+            onClick={() => {}} // TODO: navigate to chat
           />
         ))}
         <button
