@@ -41,7 +41,7 @@ interface SidebarState {
   repos: Repo[]
   collapsedRepos: Set<string>
   collapsedWorkspaces: Set<string>
-  /** Persisted active tab so re-mounts of SidebarTabs don't reset it. */
+  /** Persisted active tab so re-mounts don't reset it. */
   activeTab: SidebarTab
   addChat: (chat: ProjectChat) => void
   deleteChat: (id: string) => void
