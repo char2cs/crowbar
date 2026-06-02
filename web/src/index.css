@@ -42,19 +42,9 @@
   }
 
   .tab-scrollbar {
-    scrollbar-width: thin;
-    scrollbar-color: var(--app-scrollbar-thumb) transparent;
+    scrollbar-width: none;
   }
-  .tab-scrollbar::-webkit-scrollbar,
-  .tab-scrollbar::-webkit-scrollbar:hover {
-    height: 2px;
-    width: 2px;
-  }
-  .tab-scrollbar::-webkit-scrollbar-thumb {
-    background: var(--app-scrollbar-thumb);
-    border-radius: 999px;
-  }
-  .tab-scrollbar::-webkit-scrollbar-track {
-    background: transparent;
+  .tab-scrollbar::-webkit-scrollbar {
+    display: none;
   }
 }
