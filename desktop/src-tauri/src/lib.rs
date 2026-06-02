@@ -23,6 +23,7 @@ pub fn run() {
 
     builder
         .manage(sidecar::SidecarHandle::new())
+        .manage(browser_pane::BrowserPaneManager::new())
         .setup(|app| {
             let app_handle = app.handle().clone();
 
@@ -114,6 +115,15 @@ pub fn run() {
                 }
             }
         })
+        .invoke_handler(tauri::generate_handler![
+            browser_pane::browser_pane_sync,
+            browser_pane::browser_pane_navigate,
+            browser_pane::browser_pane_go_back,
+            browser_pane::browser_pane_go_forward,
+            browser_pane::browser_pane_reload,
+            browser_pane::browser_pane_close,
+            browser_pane::browser_pane_nav_event,
+        ])
         .run(tauri::generate_context!())
         .expect("error running Tauri app");
 }
