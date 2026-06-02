@@ -99,15 +99,17 @@ function ChatTreeInner({ wsId }: ChatTreeProps) {
               onChatClick={handleChatClick}
             />
           ))}
-          <button
-            type="button"
+          <div
+            role="button"
+            tabIndex={0}
             aria-label="New chat"
-            className={cn(ROW_BASE, 'mx-1.5 border-transparent text-muted-foreground/50 hover:bg-accent hover:text-muted-foreground')}
+            className={cn(ROW_BASE, 'border-transparent text-muted-foreground/40 hover:bg-accent hover:text-muted-foreground/60')}
             onClick={handleNew}
+            onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); handleNew() } }}
           >
             <Plus size={14} className="shrink-0" />
             <span className="text-[13px]">New chat</span>
-          </button>
+          </div>
         </div>
       </ScrollArea>
 

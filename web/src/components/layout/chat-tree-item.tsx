@@ -42,7 +42,7 @@ export function ChatTreeItem({ node, depth, activeChatId, onChatClick }: ChatTre
 
   return (
     <div>
-      <div style={{ paddingLeft: (depth + 1) * 14 }}>
+      <div style={{ paddingLeft: depth * 14 }}>
         <div
           role="button"
           tabIndex={0}
@@ -124,7 +124,7 @@ export function ChatTreeItem({ node, depth, activeChatId, onChatClick }: ChatTre
               onChatClick={onChatClick}
             />
           ))}
-          <div style={{ paddingLeft: (depth + 2) * 14 }}>
+          <div style={{ paddingLeft: (depth + 1) * 14 }}>
             {isCreatingChild ? (
               <div className={cn(ROW_BASE, 'border-transparent text-foreground')}>
                 <Plus aria-hidden="true" className="size-4 shrink-0 text-foreground/30" />
