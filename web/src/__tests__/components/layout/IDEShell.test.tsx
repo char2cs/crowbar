@@ -12,14 +12,14 @@ vi.mock('@/utils/platform', () => ({
 vi.mock('@/features/workspace/components/WorkspaceView', () => ({
   WorkspaceView: () => <div data-testid="workspace-view" />,
 }))
-vi.mock('@/components/layout/SidebarTabs', () => ({
-  SidebarTabs: () => <div data-testid="sidebar-tabs" />,
+vi.mock('@/components/layout/sidebar-tab-bar', () => ({
+  SidebarTabBar: () => <div data-testid="sidebar-tab-bar" />,
+}))
+vi.mock('@/components/layout/sidebar-carousel', () => ({
+  SidebarCarousel: () => <div data-testid="sidebar-carousel" />,
 }))
 vi.mock('@/components/layout/sidebar-project-header', () => ({
   SidebarProjectHeader: () => <div data-testid="sidebar-project-header" />,
-}))
-vi.mock('@/components/layout/sidebar-nav-icons', () => ({
-  SidebarNavIcons: () => <div data-testid="sidebar-nav-icons" />,
 }))
 vi.mock('@/features/settings/components/settings-dialog', () => ({
   default: () => null,
@@ -69,14 +69,14 @@ describe('IDEShell', () => {
     expect(screen.getByTestId('sidebar-project-header')).toBeInTheDocument()
   })
 
-  it('renders SidebarTabs', () => {
+  it('renders SidebarTabBar', () => {
     render(<IDEShell />)
-    expect(screen.getByTestId('sidebar-tabs')).toBeInTheDocument()
+    expect(screen.getByTestId('sidebar-tab-bar')).toBeInTheDocument()
   })
 
-  it('renders SidebarNavIcons', () => {
+  it('renders SidebarCarousel', () => {
     render(<IDEShell />)
-    expect(screen.getByTestId('sidebar-nav-icons')).toBeInTheDocument()
+    expect(screen.getByTestId('sidebar-carousel')).toBeInTheDocument()
   })
 
   it('renders Outlet when no workspace or chat is active', () => {

@@ -32,9 +32,16 @@ export function SidebarCarousel({ activeWorkspaceRepoPath }: SidebarCarouselProp
     if (index === -1) return
     isScrollingProgrammatically.current = true
     el.scrollTo({ left: index * el.clientWidth, behavior: 'smooth' })
-    // Reset flag after animation (~300ms)
-    const id = setTimeout(() => { isScrollingProgrammatically.current = false }, 350)
-    return () => clearTimeout(id)
+
+    function onScrollEnd() {
+      isScrollingProgrammatically.current = false
+      el!.removeEventListener('scrollend', onScrollEnd)
+    }
+    el.addEventListener('scrollend', onScrollEnd)
+
+    return () => {
+      el.removeEventListener('scrollend', onScrollEnd)
+    }
   }, [activeTab])
 
   // Sync activeTab when user swipes

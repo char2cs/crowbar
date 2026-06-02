@@ -2,8 +2,8 @@ import { useState, useRef, useEffect } from 'react'
 import { Outlet, useNavigate, useRouterState } from '@tanstack/react-router'
 import { SidebarProvider, Sidebar, SidebarInset } from '@/components/ui/sidebar'
 import { SidebarProjectHeader } from './sidebar-project-header'
-import { SidebarTabs } from './SidebarTabs'
-import { SidebarNavIcons } from './sidebar-nav-icons'
+import { SidebarTabBar } from './sidebar-tab-bar'
+import { SidebarCarousel } from './sidebar-carousel'
 import { IS_MAC } from '@/utils/platform'
 import { useSidebarStore } from '@/lib/store/sidebar'
 import { WorkspaceView } from '@/features/workspace/components/WorkspaceView'
@@ -114,11 +114,9 @@ export function IDEShell() {
           onProjectsClick={() => void navigate({ to: '/projects' })}
           onProjectSelect={() => void navigate({ to: '/' })}
         />
-        <div className="flex h-8 flex-shrink-0 items-center justify-center">
-          <SidebarNavIcons />
-        </div>
+        <SidebarTabBar />
         <ErrorBoundary>
-          <SidebarTabs activeWorkspaceRepoPath={activeWorkspaceRepoPath} />
+          <SidebarCarousel activeWorkspaceRepoPath={activeWorkspaceRepoPath} />
         </ErrorBoundary>
       </div>
     </Sidebar>
