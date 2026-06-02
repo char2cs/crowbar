@@ -81,7 +81,7 @@ Replace the current 2-tab sidebar (workspaces, files) with a 4-tab sidebar (work
 - Two subtabs:
   - **Changes**: `FileExplorerTree` with `filter="changed"` — same component as Files tab, different context. Clicking a file opens DiffPane.
   - **History**: `GitHistoryList` — commit list for the current branch (sha short, message, author avatar, relative age)
-- Data: existing `git-store` for changed files; new `GET /api/git/log` for history (this endpoint does not yet exist in the Go daemon — must be added as part of this PR)
+- Data: existing `git-store` for changed files; `GET /api/git/log` for history (already exists in the Go daemon — handler in `api/internal/api/v0/git_handler.go`, route registered in `router.go`)
 
 ### DiffPane
 
