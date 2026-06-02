@@ -33,25 +33,27 @@
   font-size: var(--ui-text-base);
 }
 
-@utility scrollbar-hidden {
-  scrollbar-width: none;
-  &::-webkit-scrollbar {
+@layer utilities {
+  .scrollbar-hidden {
+    scrollbar-width: none;
+  }
+  .scrollbar-hidden::-webkit-scrollbar {
     display: none;
   }
-}
 
-@utility tab-scrollbar {
-  scrollbar-width: thin;
-  scrollbar-color: var(--app-scrollbar-thumb) transparent;
-  &::-webkit-scrollbar {
-    height: 3px;
-    width: 3px;
+  .tab-scrollbar {
+    scrollbar-width: thin;
+    scrollbar-color: var(--app-scrollbar-thumb) transparent;
   }
-  &::-webkit-scrollbar-thumb {
+  .tab-scrollbar::-webkit-scrollbar {
+    height: 2px;
+    width: 2px;
+  }
+  .tab-scrollbar::-webkit-scrollbar-thumb {
     background: var(--app-scrollbar-thumb);
     border-radius: 999px;
   }
-  &::-webkit-scrollbar-track {
+  .tab-scrollbar::-webkit-scrollbar-track {
     background: transparent;
   }
 }
