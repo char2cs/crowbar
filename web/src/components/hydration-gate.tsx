@@ -1,11 +1,10 @@
 import { useEffect, useState } from 'react'
 import type { ReactNode } from 'react'
 import { hydratePreferences, hydrateSidebar } from '@/lib/persistence/hydrate'
-import { apiFetch } from '@/lib/api'
 import { useSidebarStore } from '@/lib/store/sidebar'
-import { useProjectStore } from '@/lib/store/projects'
-import type { Repo } from '@/lib/store/sidebar'
-import type { Project } from '@/lib/types'
+import { useProjectStore, useProjectDataStore } from '@/lib/store/projects'
+import { useWorkspaceListStore } from '@/lib/store/workspace-list'
+import { dataOf } from '@/lib/loadable'
 
 interface HydrationGateProps {
   children: ReactNode
@@ -16,18 +15,20 @@ export function HydrationGate({ children }: HydrationGateProps) {
 
   useEffect(() => {
     async function boot() {
-      // Step 1+2: seed stores from API — must happen BEFORE hydrateSidebar
-      // because hydrateSidebar maps over s.repos to apply hierarchy overrides
+      // Fetch via LoadableSlice stores (IDB-cached, stale-while-revalidate).
+      // Must complete BEFORE hydrateSidebar which applies hierarchy overrides to s.repos.
       await Promise.all([
-        apiFetch<Repo[]>('/api/v0/workspaces')
-          .then(repos => useSidebarStore.getState().setRepos(repos))
-          .catch(() => {}),
-        apiFetch<Project[]>('/api/v0/projects')
-          .then(projects => useProjectStore.getState().setProjects(projects))
-          .catch(() => {}),
+        useWorkspaceListStore.getState().fetch(),
+        useProjectDataStore.getState().fetch(),
       ])
 
-      // Step 3+4: overlay IDB-persisted state on top of API data
+      const repos = dataOf(useWorkspaceListStore.getState().data) ?? []
+      const projects = dataOf(useProjectDataStore.getState().data) ?? []
+
+      useSidebarStore.getState().setRepos(repos)
+      useProjectStore.getState().setProjects(projects)
+
+      // Overlay IDB-persisted UI state on top of API data
       await Promise.all([hydratePreferences(), hydrateSidebar()])
     }
 
