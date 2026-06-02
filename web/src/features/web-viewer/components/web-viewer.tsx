@@ -1,9 +1,12 @@
-import { useState, useRef, useCallback } from 'react'
+import { useState, useRef, useCallback, useEffect } from 'react'
 import {
   ArrowClockwise as RotateCw,
   GlobeHemisphereWest as Globe,
 } from '@phosphor-icons/react'
 import { cn } from '@/utils/cn'
+import { browserPaneNavigate, browserPaneReload } from '@/lib/crowbar-bridge'
+import { useBrowserPaneAnchor } from '@/features/web-viewer/hooks/use-browser-pane-anchor'
+import { useWebViewerNavigationStore } from '@/features/web-viewer/stores/web-viewer-navigation-store'
 
 export interface WebViewerProps {
   url?: string
@@ -21,35 +24,63 @@ function normalizeUrl(raw: string): string {
   if (!trimmed) return 'about:blank'
   if (trimmed.startsWith('about:')) return trimmed
   if (/^https?:\/\//i.test(trimmed)) return trimmed
-  // Looks like a domain (contains a dot, no spaces)
   if (/^[^\s/]+\.[^\s/]+/.test(trimmed)) return `https://${trimmed}`
-  // Treat as a search query
   return `https://www.google.com/search?q=${encodeURIComponent(trimmed)}`
 }
 
-export function WebViewer({ url: initialUrl = 'about:blank', isActive }: WebViewerProps) {
-  const [src, setSrc] = useState(() => normalizeUrl(initialUrl))
-  const [inputValue, setInputValue] = useState(src)
-  const [key, setKey] = useState(0) // bump to force iframe reload
-  const iframeRef = useRef<HTMLIFrameElement>(null)
+export function WebViewer({
+  url: initialUrl = 'about:blank',
+  bufferId = '',
+  isActive,
+  isVisible = true,
+}: WebViewerProps) {
+  const anchorRef = useRef<HTMLDivElement>(null)
+  const { isTauri } = useBrowserPaneAnchor({ bufferId, isVisible, anchorRef })
 
-  const navigate = useCallback((raw: string) => {
-    const normalized = normalizeUrl(raw)
-    setSrc(normalized)
-    setInputValue(normalized)
-  }, [])
+  const navEntry = useWebViewerNavigationStore(state =>
+    bufferId ? state.navigationByBufferId[bufferId] : undefined,
+  )
+
+  // Register this buffer in the nav store; initial URL drives the address bar
+  useEffect(() => {
+    if (!bufferId) return
+    const { registerBuffer, removeBuffer } = useWebViewerNavigationStore.getState()
+    registerBuffer(bufferId, normalizeUrl(initialUrl))
+    return () => {
+      useWebViewerNavigationStore.getState().removeBuffer(bufferId)
+    }
+  }, [bufferId]) // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Navigate the native webview to the initial URL once on mount
+  const didNavigate = useRef(false)
+  useEffect(() => {
+    if (!isTauri || !bufferId || didNavigate.current) return
+    const url = normalizeUrl(initialUrl)
+    if (url !== 'about:blank') {
+      didNavigate.current = true
+      void browserPaneNavigate(bufferId, url)
+    }
+  }, [isTauri, bufferId, initialUrl])
+
+  // Address bar follows the nav store url; falls back to normalized initial url
+  const [inputValue, setInputValue] = useState(() => normalizeUrl(initialUrl))
+  useEffect(() => {
+    if (navEntry?.url) setInputValue(navEntry.url)
+  }, [navEntry?.url])
 
   const handleSubmit = useCallback(
     (e: React.FormEvent) => {
       e.preventDefault()
-      navigate(inputValue)
+      const url = normalizeUrl(inputValue)
+      setInputValue(url)
+      if (bufferId) void browserPaneNavigate(bufferId, url)
     },
-    [inputValue, navigate],
+    [bufferId, inputValue],
   )
 
   const handleReload = useCallback(() => {
-    setKey(k => k + 1)
-  }, [])
+    if (bufferId) void browserPaneReload(bufferId)
+  }, [bufferId])
 
   return (
     <div className={cn('flex h-full flex-col overflow-hidden', !isActive && 'pointer-events-none')}>
@@ -84,18 +115,15 @@ export function WebViewer({ url: initialUrl = 'about:blank', isActive }: WebView
       </form>
 
       {/* Content */}
-      {src === 'about:blank' || src === 'https://' ? (
+      {!isTauri ? (
         <div className="flex flex-1 items-center justify-center text-muted-foreground ui-text-sm">
-          Enter a URL above to browse
+          This feature requires the desktop app
         </div>
       ) : (
-        <iframe
-          key={key}
-          ref={iframeRef}
-          src={src}
-          className="min-h-0 flex-1 border-none"
-          sandbox="allow-scripts allow-same-origin allow-forms allow-popups allow-downloads"
-          title="Web Viewer"
+        <div
+          ref={anchorRef}
+          data-browser-anchor
+          className="min-h-0 flex-1"
         />
       )}
     </div>
