@@ -1,5 +1,6 @@
-import { describe, it, expect, beforeEach } from 'vitest'
+import { describe, it, expect, beforeEach, vi } from 'vitest'
 import { render, screen } from '@testing-library/react'
+import userEvent from '@testing-library/user-event'
 import { success, failed, idle } from '@/lib/loadable'
 import { useBranchReviewDataStore } from '@/features/branch-review/stores/branch-review-data-store'
 import { AboutTab } from '@/features/branch-review/components/about-tab'
@@ -22,5 +23,20 @@ describe('AboutTab conversations', () => {
     useBranchReviewDataStore.setState({ data: failed(new Error('500'), idle()) })
     render(<AboutTab wsId="ws3" description="" onDescriptionChange={noop} onOpenConversation={noop} onNewConversation={noop} />)
     expect(screen.getByText(/failed to load/i)).toBeInTheDocument()
+  })
+})
+
+describe('AboutTab — new conversation', () => {
+  it('renders a new conversation button', () => {
+    const onNewConversation = vi.fn()
+    render(<AboutTab wsId="ws3" description="" onDescriptionChange={noop} onOpenConversation={noop} onNewConversation={onNewConversation} />)
+    expect(screen.getByRole('button', { name: 'New conversation' })).toBeInTheDocument()
+  })
+
+  it('calls onNewConversation when the + button is clicked', async () => {
+    const onNewConversation = vi.fn()
+    render(<AboutTab wsId="ws3" description="" onDescriptionChange={noop} onOpenConversation={noop} onNewConversation={onNewConversation} />)
+    await userEvent.click(screen.getByRole('button', { name: 'New conversation' }))
+    expect(onNewConversation).toHaveBeenCalledOnce()
   })
 })
