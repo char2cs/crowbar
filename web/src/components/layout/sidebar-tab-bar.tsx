@@ -1,5 +1,5 @@
 import { SquaresFour, ChatsCircle, FolderOpen, GitBranch } from '@phosphor-icons/react'
-import { Tab } from '@/components/ui/tabs'
+import { Tabs, TabsList, TabsTab } from '@/components/ui/tabs'
 import { useSidebarStore, type SidebarTab } from '@/lib/store/sidebar'
 
 const TABS: { tab: SidebarTab; label: string; Icon: React.ComponentType<{ size: number; weight: 'fill' | 'regular' }> }[] = [
@@ -15,25 +15,24 @@ export function SidebarTabBar() {
 
   return (
     <div className="flex shrink-0 items-center px-2 py-1.5">
-      <div className="relative z-0 flex w-full items-center justify-center gap-x-0.5 rounded-lg bg-muted p-0.5 text-muted-foreground/72">
-        {TABS.map(({ tab, label, Icon }) => {
-          const isActive = activeTab === tab
-          return (
-            <Tab
+      <Tabs
+        value={activeTab}
+        onValueChange={(v) => setActiveTab(v as SidebarTab)}
+        className="w-full"
+      >
+        <TabsList variant="default" className="w-full">
+          {TABS.map(({ tab, label, Icon }) => (
+            <TabsTab
               key={tab}
-              isActive={isActive}
-              aria-label={label}
-              aria-pressed={isActive}
-              data-active={isActive || undefined}
-              className="flex flex-1 h-7 items-center justify-center gap-1 px-2"
-              onClick={() => setActiveTab(tab)}
+              value={tab}
+              className="flex flex-1 items-center justify-center gap-1"
             >
-              <Icon size={14} weight={isActive ? 'fill' : 'regular'} />
-              <span className="text-[13px] font-medium">{label}</span>
-            </Tab>
-          )
-        })}
-      </div>
+              <Icon size={14} weight={activeTab === tab ? 'fill' : 'regular'} />
+              <span>{label}</span>
+            </TabsTab>
+          ))}
+        </TabsList>
+      </Tabs>
     </div>
   )
 }
