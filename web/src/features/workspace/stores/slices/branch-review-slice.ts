@@ -1,7 +1,32 @@
 import type { StateCreator } from 'zustand'
 import type { WorkspaceState } from '../workspace-store.types'
-import type { ReviewThread, ReviewMessage, ReviewConversation, MergeStrategy } from '@/features/branch-review/types/review-types'
 import type { MultiFileDiff } from '@/features/git/types/git-diff-types'
+
+export type MergeStrategy = 'merge' | 'squash' | 'rebase'
+
+export interface ReviewMessage {
+  id: string
+  author: string | null
+  isAgent: boolean
+  body: string
+  createdAt: string
+}
+
+export interface ReviewThread {
+  id: string
+  filePath: string
+  lineNumber: number
+  side: 'left' | 'right'
+  messages: ReviewMessage[]
+  isResolved: boolean
+}
+
+export interface ReviewConversation {
+  id: string
+  title: string
+  age: string
+  isActive: boolean
+}
 
 export interface BranchReviewState {
   description: string

@@ -10,9 +10,7 @@ import {
 import { memo, useCallback, useEffect, useState } from "react";
 import type { RefCallback } from "react";
 import { FileExplorerIcon } from "@/features/file-explorer/components/file-explorer-icon";
-import { WorkspaceBranchIcon } from "@/components/layout/workspace-branch-icon";
 import type { PaneContent } from "@/features/panes/types/pane-content";
-import { useSidebarStore } from "@/lib/store/sidebar";
 import { Button } from "@/components/ui/button";
 import { Tab } from "@/components/ui/tabs";
 import { getBaseName } from "@/utils/path-helpers";
@@ -53,11 +51,6 @@ const TabBarItem = memo(function TabBarItem({
   handleTabPin,
 }: TabBarItemProps) {
   const [faviconError, setFaviconError] = useState(false);
-  const branchReviewWsStatus = useSidebarStore((s) => {
-    if (buffer.type !== "branchReview") return undefined;
-    const ws = s.repos.flatMap((r) => r.workspaces).find((w) => w.id === buffer.wsId);
-    return ws?.status ?? "new";
-  });
 
   const getDiffIconName = () => {
     if (buffer.type !== "diff") return buffer.name;
@@ -111,11 +104,8 @@ const TabBarItem = memo(function TabBarItem({
         isDragged={isDraggedTab}
         className={cn(
           "h-8",
-          buffer.type === "branchReview"
-            ? "w-8 p-0 justify-center"
-            : "gap-1.5 pl-2.5 pr-8",
+          "gap-1.5 pl-2.5 pr-8",
         )}
-        style={buffer.type === "branchReview" ? { borderRadius: "9999px" } : undefined}
         onClick={onClick}
         onMouseDown={onMouseDown}
         onDoubleClick={onDoubleClick}
@@ -124,9 +114,7 @@ const TabBarItem = memo(function TabBarItem({
         onAuxClick={handleAuxClick}
       >
         <div className="grid size-3.5 shrink-0 place-content-center">
-          {buffer.type === "branchReview" && branchReviewWsStatus ? (
-            <WorkspaceBranchIcon status={branchReviewWsStatus} />
-          ) : buffer.type === "crowbarChat" ? (
+          {buffer.type === "crowbarChat" ? (
             <Chat className="text-muted-foreground" />
           ) : buffer.path === "extensions://marketplace" ? (
             <Package className="text-muted-foreground" />
@@ -154,8 +142,7 @@ const TabBarItem = memo(function TabBarItem({
             />
           )}
         </div>
-        {buffer.type !== "branchReview" && (
-          <span
+        <span
             className={cn(
               "ui-font text-[13px] min-w-0 flex-1 overflow-hidden text-ellipsis whitespace-nowrap",
               !isActive && "text-muted-foreground",
@@ -165,7 +152,6 @@ const TabBarItem = memo(function TabBarItem({
           >
             {displayName}
           </span>
-        )}
         {buffer.type === "editor" && buffer.isDirty && (
           <div
             className="size-2 shrink-0 rounded-full bg-accent"

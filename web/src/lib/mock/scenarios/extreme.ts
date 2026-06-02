@@ -1,6 +1,6 @@
 import { nanoid } from 'nanoid'
 import type { ScenarioDataset } from './index'
-import type { ReviewThread, ReviewMessage } from '@/features/branch-review/types/review-types'
+import type { ReviewThread, ReviewMessage } from '@/features/workspace/stores/slices/branch-review-slice'
 import type { BranchReviewChat } from '@/lib/mock/branch-diff'
 import type { Commit, GitStatus } from '@/lib/mock/git-data'
 import { generateLargeFileDiff } from '@/lib/mock/branch-diff'

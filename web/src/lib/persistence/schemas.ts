@@ -1,7 +1,7 @@
 import type { DBSchema } from 'idb'
 import type { PaneGroup, LayoutNode } from '@/features/panes/types/pane'
 import type { PaneContent } from '@/features/panes/types/pane-content'
-import type { ReviewThread, MergeStrategy } from '@/features/branch-review/types/review-types'
+import type { ReviewThread, MergeStrategy } from '@/features/workspace/stores/slices/branch-review-slice'
 
 export interface BranchReviewPersistedState {
   wsId: string

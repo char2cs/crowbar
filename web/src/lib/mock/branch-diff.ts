@@ -1,5 +1,5 @@
 import type { MultiFileDiff } from '@/features/git/types/git-diff-types'
-import type { ReviewThread, ReviewMessage, ReviewConversation } from '@/features/branch-review/types/review-types'
+import type { ReviewThread, ReviewMessage, ReviewConversation } from '@/features/workspace/stores/slices/branch-review-slice'
 import type { GitDiffLine } from '@/features/git/types/git-types'
 
 // ---------------------------------------------------------------------------

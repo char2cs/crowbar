@@ -8,10 +8,9 @@ import { useWorkspaceEffects } from '../stores/hooks/use-workspace-effects'
 
 interface WorkspaceViewProps {
   wsId: string
-  label?: string
 }
 
-export function WorkspaceView({ wsId, label }: WorkspaceViewProps) {
+export function WorkspaceView({ wsId }: WorkspaceViewProps) {
   const store = getOrCreateWorkspaceStore(wsId)
   const [hydratedWsId, setHydratedWsId] = useState<string | null>(null)
 
@@ -36,12 +35,12 @@ export function WorkspaceView({ wsId, label }: WorkspaceViewProps) {
 
   return (
     <WorkspaceStoreContext.Provider value={store}>
-      <WorkspaceViewInner wsId={wsId} label={label} />
+      <WorkspaceViewInner wsId={wsId} />
     </WorkspaceStoreContext.Provider>
   )
 }
 
-function WorkspaceViewInner({ wsId, label }: WorkspaceViewProps) {
-  useWorkspaceEffects(wsId, label)
+function WorkspaceViewInner({ wsId }: Pick<WorkspaceViewProps, 'wsId'>) {
+  useWorkspaceEffects(wsId)
   return <WorkspaceLayoutRoot />
 }

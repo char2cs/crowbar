@@ -5,8 +5,6 @@ import { useSettingsStore } from '@/features/settings/store'
 import { loadSidebarUI } from './sidebar-ui'
 import { loadAllWorkspaceHierarchies } from './workspace-hierarchy'
 import { useSidebarStore } from '@/lib/store/sidebar'
-import { loadBranchReview } from './branch-review'
-import { INITIAL_BRANCH_REVIEW_STATE } from '@/features/workspace/stores/slices/branch-review-slice'
 
 export interface WorkspaceHydrationResult {
   layout: WorkspaceLayout | null
@@ -37,10 +35,9 @@ export async function hydratePreferences(): Promise<UIPreferences | null> {
 export async function hydrateWorkspace(workspaceId: string): Promise<WorkspaceHydrationResult> {
   const db = await getDB()
 
-  const [layout, editorStates, branchReview] = await Promise.all([
+  const [layout, editorStates] = await Promise.all([
     db.get('workspace-layout', workspaceId).then(r => r ?? null),
     db.getAllFromIndex('editor-state', 'workspaceId', workspaceId),
-    loadBranchReview(workspaceId),
   ])
 
   const store = getOrCreateWorkspaceStore(workspaceId)
@@ -53,18 +50,6 @@ export async function hydrateWorkspace(workspaceId: string): Promise<WorkspaceHy
       rootLayout: layout.rootLayout,
       bottomLayout: layout.bottomLayout,
       buffers: layout.buffers ?? [],
-    })
-  }
-
-  if (branchReview) {
-    store.setState({
-      branchReview: {
-        ...INITIAL_BRANCH_REVIEW_STATE,
-        description: branchReview.description,
-        mergeStrategy: branchReview.mergeStrategy,
-        activeSubtab: branchReview.activeSubtab,
-        threads: branchReview.threads,
-      },
     })
   }
 

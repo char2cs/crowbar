@@ -1,6 +1,6 @@
 import { getDB } from './idb'
 import type { BranchReviewPersistedState } from './schemas'
-import type { ReviewThread, MergeStrategy } from '@/features/branch-review/types/review-types'
+import type { ReviewThread, MergeStrategy } from '@/features/workspace/stores/slices/branch-review-slice'
 
 interface SavePayload {
   description: string

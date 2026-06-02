@@ -1,8 +1,24 @@
 import { useState } from 'react'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
-import type { ReviewThread } from '@/features/branch-review/types/review-types'
 import { cn } from '@/utils/cn'
+
+interface ReviewMessage {
+  id: string
+  author: string | null
+  isAgent: boolean
+  body: string
+  createdAt: string
+}
+
+interface ReviewThread {
+  id: string
+  filePath: string
+  lineNumber: number
+  side: 'left' | 'right'
+  messages: ReviewMessage[]
+  isResolved: boolean
+}
 import { CommentComposer } from './comment-composer'
 import { MarkdownPreview } from '@/features/panes/lib/markdown'
 

@@ -10,19 +10,16 @@ const mockBufferActions = {
 vi.mock('@/features/workspace/stores/hooks/use-buffer-store', () => ({
   useBufferActions: () => mockBufferActions,
 }))
-vi.mock('@/features/workspace/stores/workspace-context', () => ({
-  useWorkspaceStore: () => ({ getState: () => ({ buffers: [] }) }),
-}))
 
 beforeEach(() => {
   vi.clearAllMocks()
 })
 
 describe('useWorkspaceEffects', () => {
-  it('opens the branchReview buffer on mount (sole default pane)', () => {
+  it('does not open a branchReview buffer on mount (feature removed)', () => {
     renderHook(() => useWorkspaceEffects('ws-test'))
-    expect(mockBufferActions.openContent).toHaveBeenCalledWith(
-      expect.objectContaining({ type: 'branchReview', wsId: 'ws-test' }),
+    expect(mockBufferActions.openContent).not.toHaveBeenCalledWith(
+      expect.objectContaining({ type: 'branchReview' }),
     )
   })
 

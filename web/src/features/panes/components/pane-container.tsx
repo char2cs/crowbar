@@ -20,7 +20,7 @@ import { EmptyEditorState } from "./empty-editor-state";
 import { BOTTOM_PANE_ID } from "../constants/pane";
 import { useActivePaneId, usePaneActions } from "@/features/workspace/stores/hooks/use-pane-store";
 import type { PaneGroup } from "../types/pane";
-import type { BranchReviewContent, CrowbarChatContent, EditorContent, NewTabContent } from "../types/pane-content";
+import type { CrowbarChatContent, EditorContent, NewTabContent } from "../types/pane-content";
 import {
   ensureBufferInPaneDropTarget,
   moveBufferToPaneDropTarget,
@@ -31,11 +31,6 @@ import { type DropZone, SplitDropOverlay } from "./split-drop-overlay";
 const ExternalEditorTerminal = lazy(() =>
   import("@/features/editor/components/external-editor-terminal").then((m) => ({
     default: m.ExternalEditorTerminal,
-  })),
-);
-const BranchReviewPane = lazy(() =>
-  import("@/features/branch-review/components/branch-review-pane").then((m) => ({
-    default: m.BranchReviewPane,
   })),
 );
 const MarkdownChatView = lazy(() =>
@@ -459,14 +454,6 @@ export function PaneContainer({ pane, position = ROOT_PANE_POSITION }: PaneConta
             <MarkdownChatView
               workspaceId={(buffer as CrowbarChatContent).wsId}
               stepId="chat"
-            />
-          );
-
-        case "branchReview":
-          return (
-            <BranchReviewPane
-              wsId={(buffer as BranchReviewContent).wsId}
-              branchName={(buffer as BranchReviewContent).branchName}
             />
           );
 
