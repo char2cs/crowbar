@@ -1,4 +1,4 @@
-import { ChatCircle, Plus } from '@phosphor-icons/react'
+import { Chat, Plus } from '@phosphor-icons/react'
 import { cn } from '@/lib/utils'
 import { ROW_BASE } from './workspace-row-base'
 import { WorkspaceAgentSpinner } from './workspace-branch-icon'
@@ -59,7 +59,7 @@ export function ChatTreeItem({ node, depth, activeChatId, onChatClick }: ChatTre
           <span className="size-4 shrink-0 flex items-center justify-center">
             {chat.status === 'agent-running'
               ? <WorkspaceAgentSpinner />
-              : <ChatCircle aria-hidden="true" className="size-4 text-foreground" weight="fill" />
+              : <Chat aria-hidden="true" className="size-4 text-foreground" weight="fill" />
             }
           </span>
 
