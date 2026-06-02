@@ -1,6 +1,9 @@
+import { useCallback } from 'react'
 import { useNavigate, useRouterState } from '@tanstack/react-router'
 import { ScrollArea } from '@/components/ui/scroll-area'
 import { useSidebarStore } from '@/lib/store/sidebar'
+import { useWorkspaceListStore } from '@/lib/store/workspace-list'
+import { InlineError } from '@/components/ui/inline-error'
 import { cn } from '@/lib/utils'
 import { ROW_BASE } from './workspace-row-base'
 import { WorkspaceTreeFooter } from './workspace-tree-footer'
@@ -49,11 +52,21 @@ function WorkspaceTreeInner() {
   const repos = useSidebarStore(s => s.repos)
   const collapsedRepos = useSidebarStore(s => s.collapsedRepos)
   const { draggingWs, dragPos, hoverTargetId } = useWorkspaceTreeContext()
+  const wsListData = useWorkspaceListStore(s => s.data)
+  const retryWorkspaces = useCallback(() => { void useWorkspaceListStore.getState().fetch() }, [])
 
   const activeWorkspaceId = pathname.match(/\/workspaces\/([^/]+)/)?.[1] ?? ''
 
   function handleWorkspaceClick(wsId: string) {
     void navigate({ to: '/workspaces/$wsId', params: { wsId } })
+  }
+
+  if (wsListData.status === 'error' && repos.length === 0) {
+    return (
+      <div className="flex flex-1 flex-col overflow-hidden">
+        <InlineError error={wsListData.error} onRetry={retryWorkspaces} />
+      </div>
+    )
   }
 
   return (
