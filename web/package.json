@@ -49,6 +49,7 @@
     "@streamdown/mermaid": "^1.0.2",
     "@tanstack/react-router": "^1.168.0",
     "@tanstack/react-virtual": "^3.13.25",
+    "@tauri-apps/api": "^2.11.0",
     "@uiw/react-codemirror": "^4.25.10",
     "@xterm/addon-clipboard": "^0.1.0",
     "@xterm/addon-fit": "^0.10.0",

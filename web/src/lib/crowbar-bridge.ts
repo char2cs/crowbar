@@ -109,6 +109,7 @@ export function isTauri(): boolean {
 }
 
 async function tauriInvoke(cmd: string, args?: Record<string, unknown>): Promise<void> {
+  if (!isTauri()) throw new Error(`tauriInvoke called outside Tauri: ${cmd}`)
   const { invoke } = await import('@tauri-apps/api/core')
   await invoke(cmd, args)
 }
@@ -119,6 +120,7 @@ export async function browserPaneSync(
   visible: boolean,
 ): Promise<void> {
   if (!isTauri()) return
+  // Tauri command expects flat args, not a nested rect object
   await tauriInvoke('browser_pane_sync', {
     bufferId,
     x: rect.x,
