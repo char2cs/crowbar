@@ -433,9 +433,6 @@ export function PaneContainer({ pane, position = ROOT_PANE_POSITION }: PaneConta
             />
           );
 
-        case "webViewer":
-          return <WebViewerPane url={buffer.url} bufferId={buffer.id} isActive={isActivePane} />;
-
         case "diff":
           return <DiffPane onStageHunk={handleStageHunk} onUnstageHunk={handleUnstageHunk} />;
 

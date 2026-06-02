@@ -30,14 +30,14 @@ const NAV_SCRIPT_TEMPLATE: &str = r#"
   history.pushState = function(state, title, url) {
     idx += 1;
     max = Math.max(max, idx);
-    origPush({ __ci: idx, __cm: max }, title, url);
+    origPush(Object.assign({}, typeof state === 'object' ? state : {}, { __ci: idx, __cm: max }), title, url);
     save();
     emit(String(url || location.href));
   };
 
   var origReplace = history.replaceState.bind(history);
   history.replaceState = function(state, title, url) {
-    origReplace({ __ci: idx, __cm: max }, title, url);
+    origReplace(Object.assign({}, typeof state === 'object' ? state : {}, { __ci: idx, __cm: max }), title, url);
     save();
     emit(String(url || location.href));
   };
