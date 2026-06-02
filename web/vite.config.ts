@@ -31,6 +31,10 @@ export default defineConfig({
     },
     globals: true,
     setupFiles: ['./src/__tests__/setup.ts'],
+    alias: {
+      // Stub the Tauri desktop API — it is only available inside the native shell.
+      '@tauri-apps/api/core': path.resolve(__dirname, './src/__tests__/__mocks__/tauri-api-core.ts'),
+    },
     coverage: {
       provider: 'v8',
       reporter: ['text', 'lcov'],

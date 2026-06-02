@@ -101,3 +101,55 @@ export async function setMacOSWindowAppearance(
 export async function toggleMenuBar(_toggle: boolean): Promise<void> {
   // FUTURE: invoke Tauri menu bar plugin
 }
+
+// ── Browser Pane (native child webview) ──────────────────────────────────────
+
+export function isTauri(): boolean {
+  return typeof window !== 'undefined' && '__TAURI_INTERNALS__' in window
+}
+
+async function tauriInvoke(cmd: string, args?: Record<string, unknown>): Promise<void> {
+  const { invoke } = await import('@tauri-apps/api/core')
+  await invoke(cmd, args)
+}
+
+export async function browserPaneSync(
+  bufferId: string,
+  rect: { x: number; y: number; width: number; height: number },
+  visible: boolean,
+): Promise<void> {
+  if (!isTauri()) return
+  await tauriInvoke('browser_pane_sync', {
+    bufferId,
+    x: rect.x,
+    y: rect.y,
+    width: rect.width,
+    height: rect.height,
+    visible,
+  })
+}
+
+export async function browserPaneNavigate(bufferId: string, url: string): Promise<void> {
+  if (!isTauri()) return
+  await tauriInvoke('browser_pane_navigate', { bufferId, url })
+}
+
+export async function browserPaneGoBack(bufferId: string): Promise<void> {
+  if (!isTauri()) return
+  await tauriInvoke('browser_pane_go_back', { bufferId })
+}
+
+export async function browserPaneGoForward(bufferId: string): Promise<void> {
+  if (!isTauri()) return
+  await tauriInvoke('browser_pane_go_forward', { bufferId })
+}
+
+export async function browserPaneReload(bufferId: string): Promise<void> {
+  if (!isTauri()) return
+  await tauriInvoke('browser_pane_reload', { bufferId })
+}
+
+export async function browserPaneClose(bufferId: string): Promise<void> {
+  if (!isTauri()) return
+  await tauriInvoke('browser_pane_close', { bufferId })
+}
