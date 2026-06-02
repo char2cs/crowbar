@@ -5,6 +5,7 @@ import { setActiveWorkspaceStoreRef } from '../stores/workspace-store-ref'
 import { hydrateWorkspace } from '@/lib/persistence/hydrate'
 import { WorkspaceLayoutRoot } from './WorkspaceLayoutRoot'
 import { useWorkspaceEffects } from '../stores/hooks/use-workspace-effects'
+import { BrowserPaneEventListener } from '@/features/web-viewer/components/browser-pane-event-listener'
 
 interface WorkspaceViewProps {
   wsId: string
@@ -42,5 +43,10 @@ export function WorkspaceView({ wsId }: WorkspaceViewProps) {
 
 function WorkspaceViewInner({ wsId }: Pick<WorkspaceViewProps, 'wsId'>) {
   useWorkspaceEffects(wsId)
-  return <WorkspaceLayoutRoot />
+  return (
+    <>
+      <BrowserPaneEventListener />
+      <WorkspaceLayoutRoot />
+    </>
+  )
 }
