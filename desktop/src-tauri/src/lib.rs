@@ -1,3 +1,4 @@
+mod browser_pane;
 mod protocol;
 mod sidecar;
 mod sse_bridge;
