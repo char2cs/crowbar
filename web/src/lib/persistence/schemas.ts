@@ -48,6 +48,7 @@ export interface UIPreferences {
 export interface SidebarUI {
   collapsedRepos: string[]
   collapsedWorkspaces?: string[]
+  collapsedChats?: string[]
   updatedAt: number
 }
 

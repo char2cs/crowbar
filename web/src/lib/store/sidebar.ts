@@ -90,6 +90,7 @@ export const useSidebarStore = create<SidebarState>()((set) => ({
     set(s => {
       const next = new Set(s.collapsedChats)
       next.has(chatId) ? next.delete(chatId) : next.add(chatId)
+      void saveSidebarUI([...s.collapsedRepos], [...s.collapsedWorkspaces], [...next])
       return { collapsedChats: next }
     }),
 
