@@ -3,9 +3,16 @@ import { saveSidebarUI } from '@/lib/persistence/sidebar-ui'
 
 export interface ProjectChat {
   id: string
+  wsId: string          // workspace this chat belongs to
   title: string
   age: string
+  parentId?: string     // for forks
+  status: ChatStatus
+  type: ChatType
 }
+
+export type ChatStatus = 'idle' | 'agent-running'
+export type ChatType = 'chat' | 'workflow'
 
 export type WorkspaceStatus =
   | 'locked'
@@ -45,6 +52,9 @@ interface SidebarState {
   activeTab: SidebarTab
   addChat: (chat: ProjectChat) => void
   deleteChat: (id: string) => void
+  renameChat: (id: string, title: string) => void
+  collapsedChats: Set<string>
+  toggleChat: (chatId: string) => void
   addWorkspace: (repoId: string, wsId: string, branch: string, parentId?: string) => void
   deleteWorkspace: (wsId: string) => void
   renameWorkspace: (wsId: string, branch: string) => void
@@ -61,6 +71,7 @@ function getInitialState() {
     repos: [],
     collapsedRepos: new Set<string>(),
     collapsedWorkspaces: new Set<string>(),
+    collapsedChats: new Set<string>(),
     activeTab: 'workspaces' as SidebarTab,
   }
 }
@@ -71,6 +82,16 @@ export const useSidebarStore = create<SidebarState>()((set) => ({
   addChat: (chat) => set(s => ({ chats: [...s.chats, chat] })),
 
   deleteChat: (id) => set(s => ({ chats: s.chats.filter(c => c.id !== id) })),
+
+  renameChat: (id, title) =>
+    set(s => ({ chats: s.chats.map(c => c.id === id ? { ...c, title } : c) })),
+
+  toggleChat: (chatId) =>
+    set(s => {
+      const next = new Set(s.collapsedChats)
+      next.has(chatId) ? next.delete(chatId) : next.add(chatId)
+      return { collapsedChats: next }
+    }),
 
   addWorkspace: (repoId, wsId, branch, parentId) =>
     set(s => ({
