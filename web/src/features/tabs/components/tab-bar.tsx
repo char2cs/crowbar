@@ -150,7 +150,9 @@ const TabBar = ({
     usesWebViewerNavigation,
     activeWebViewerNavigation,
   });
-  const isInSplit = pane !== null && paneId !== null;
+  const allPanes = useWorkspaceStoreContext(s => s.panes)
+  const mainPaneCount = Object.keys(allPanes).filter(id => id !== BOTTOM_PANE_ID).length
+  const isInSplit = pane !== null && paneId !== null && mainPaneCount > 1
   const isBottomPane = paneId === BOTTOM_PANE_ID;
 
   const [contextMenu, setContextMenu] = useState<{
