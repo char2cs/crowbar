@@ -1,4 +1,5 @@
 import {
+  Chat,
   GitBranch,
   GlobeHemisphereWest as Globe,
   Package,
@@ -125,6 +126,8 @@ const TabBarItem = memo(function TabBarItem({
         <div className="grid size-3.5 shrink-0 place-content-center">
           {buffer.type === "branchReview" && branchReviewWsStatus ? (
             <WorkspaceBranchIcon status={branchReviewWsStatus} />
+          ) : buffer.type === "crowbarChat" ? (
+            <Chat className="text-muted-foreground" />
           ) : buffer.path === "extensions://marketplace" ? (
             <Package className="text-muted-foreground" />
           ) : buffer.type === "diff" && isMultiFileDiff(buffer.diffData) ? (

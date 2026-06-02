@@ -116,7 +116,7 @@ const Tab = React.forwardRef<HTMLButtonElement, TabProps>(
     <button
       ref={ref}
       className={cn(
-        "relative inline-flex shrink-0 cursor-pointer items-center whitespace-nowrap rounded-lg border font-medium text-sm outline-none transition-colors",
+        "relative inline-flex shrink-0 cursor-pointer items-center whitespace-nowrap rounded-full border font-medium text-sm outline-none transition-colors",
         "focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-1 focus-visible:ring-offset-background",
         "disabled:pointer-events-none disabled:opacity-64",
         isActive

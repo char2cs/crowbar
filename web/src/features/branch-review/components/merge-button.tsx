@@ -90,7 +90,7 @@ export function MergeButton({
         <PopoverTrigger
           disabled={disabled}
           render={
-            <Button variant={variant} disabled={disabled} tooltip={tooltip} className="text-foreground" />
+            <Button variant={variant} disabled={disabled} tooltip={tooltip} className="text-primary-foreground" />
           }
         >
           {STRATEGY_LABELS[strategy]}
@@ -127,7 +127,7 @@ export function MergeButton({
               >
                 Cancel
               </PopoverClose>
-              <Button type="submit" variant={variant} size="sm" className="text-foreground" disabled={merging}>
+              <Button type="submit" variant={variant} size="sm" className="text-primary-foreground" disabled={merging}>
                 {merging ? 'Merging…' : STRATEGY_LABELS[strategy]}
               </Button>
             </div>
@@ -138,7 +138,7 @@ export function MergeButton({
       <DropdownMenu>
         <DropdownMenuTrigger
           disabled={disabled}
-          render={<Button variant={variant} size="icon" disabled={disabled} className="text-foreground" />}
+          render={<Button variant={variant} size="icon" disabled={disabled} className="text-primary-foreground" />}
         >
           <CaretDown size={12} />
         </DropdownMenuTrigger>

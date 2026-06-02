@@ -75,7 +75,7 @@ export function WorkspaceTreeItem({
           ) : (
             <span
               className="min-w-0 flex-1 truncate font-mono text-left"
-              onDoubleClick={(e) => { e.stopPropagation(); startRenaming(workspace.id) }}
+              onDoubleClick={(e) => { if (isLocked) return; e.stopPropagation(); startRenaming(workspace.id) }}
             >
               {workspace.branch}
             </span>

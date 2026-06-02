@@ -275,5 +275,5 @@
   --code-highlight: oklch(1 0 0 / 4%);
 
   /* ── Crowbar UI-layer dark overrides ── */
-  --chrome-bg: oklch(0.20 0 0 / 65%);
+  --chrome-bg: oklch(0.20 0 0 / 90%);
 }

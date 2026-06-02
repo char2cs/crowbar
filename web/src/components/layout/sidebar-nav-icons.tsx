@@ -20,10 +20,10 @@ type NavItemProps = {
 function NavItem({ tab, label, Icon, isActive }: NavItemProps) {
   const setActiveTab = useSidebarStore(s => s.setActiveTab)
   const [hovered, setHovered] = useState(false)
-  const maxWidth = useMotionValue(isActive ? 80 : 0)
+  const maxWidth = useMotionValue(isActive ? 85 : 0)
 
   useEffect(() => {
-    const controls = animate(maxWidth, isActive || hovered ? 80 : 0, {
+    const controls = animate(maxWidth, isActive || hovered ? 85 : 0, {
       duration: 0.22,
       ease: [0.25, 0.1, 0.25, 1],
     })
@@ -38,14 +38,14 @@ function NavItem({ tab, label, Icon, isActive }: NavItemProps) {
       aria-label={label}
       aria-pressed={isActive}
       className={cn(
-        'flex h-7 items-center gap-1 rounded-md px-1.5 transition-[color] duration-150',
+        'flex h-7 items-center gap-1 rounded-md px-2 transition-[color] duration-150',
         isActive ? 'text-foreground' : 'text-muted-foreground hover:text-foreground',
       )}
     >
       <Icon size={14} weight={isActive ? 'fill' : 'regular'} className="shrink-0" />
       <motion.span
         style={{ maxWidth }}
-        className="overflow-hidden whitespace-nowrap text-[12px] font-medium"
+        className="overflow-hidden whitespace-nowrap text-[13px] font-medium"
       >
         {label}
       </motion.span>
