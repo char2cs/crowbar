@@ -1,10 +1,12 @@
 import { useState, useEffect, useCallback } from 'react'
 import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
+import { Plus } from '@phosphor-icons/react'
 import CodeMirror from '@uiw/react-codemirror'
 import { markdown } from '@codemirror/lang-markdown'
 import { FramePanel, FrameTitle } from '@/components/ui/frame'
 import { DataState } from '@/components/ui/data-state'
+import { Button } from '@/components/ui/button'
 import { useBranchReviewDataStore } from '@/features/branch-review/stores/branch-review-data-store'
 import { transparentMarkdownTheme } from '../lib/markdown'
 import { cn } from '@/utils/cn'
@@ -14,9 +16,10 @@ interface AboutTabProps {
   description: string
   onDescriptionChange: (value: string) => void
   onOpenConversation: (id: string) => void
+  onNewConversation: () => void
 }
 
-export function AboutTab({ wsId, description, onDescriptionChange, onOpenConversation }: AboutTabProps) {
+export function AboutTab({ wsId, description, onDescriptionChange, onOpenConversation, onNewConversation }: AboutTabProps) {
   const [editing, setEditing] = useState(false)
   const reviewData = useBranchReviewDataStore(s => s.data)
   const retryChats = useCallback(() => { void useBranchReviewDataStore.getState().fetch(wsId) }, [wsId])
@@ -69,7 +72,18 @@ export function AboutTab({ wsId, description, onDescriptionChange, onOpenConvers
       </div>
 
       <div className="flex flex-col gap-2">
-        <FrameTitle className="text-base">Conversations</FrameTitle>
+        <div className="flex items-center justify-between">
+          <FrameTitle className="text-base">Conversations</FrameTitle>
+          <Button
+            variant="ghost"
+            size="icon-xs"
+            onClick={onNewConversation}
+            tooltip="New conversation"
+            aria-label="New conversation"
+          >
+            <Plus weight="bold" size={12} />
+          </Button>
+        </div>
         <DataState
           loadable={reviewData}
           onRetry={retryChats}

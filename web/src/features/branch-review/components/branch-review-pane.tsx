@@ -1,5 +1,6 @@
 import { useEffect } from 'react'
 import { useQuery } from '@tanstack/react-query'
+import { nanoid } from 'nanoid'
 import { useWorkspaceStoreContext, useWorkspaceStore } from '@/features/workspace/stores/workspace-context'
 import { useSidebarStore } from '@/lib/store/sidebar'
 import { WorkspaceBranchIcon } from '@/components/layout/workspace-branch-icon'
@@ -94,6 +95,14 @@ export function BranchReviewPane({ wsId, branchName }: BranchReviewPaneProps) {
     store.getState().bufferActions.openContent({ type: 'crowbarChat', wsId: id, name: id })
   }
 
+  function handleNewConversation() {
+    store.getState().bufferActions.openContent({
+      type: 'crowbarChat',
+      wsId: nanoid(),
+      name: 'New Conversation',
+    })
+  }
+
   return (
     // ONE Frame = the whole window. Override side + bottom padding so the body
     // bleeds to the edges; keep the top padding as a gap.
@@ -152,6 +161,7 @@ export function BranchReviewPane({ wsId, branchName }: BranchReviewPaneProps) {
               description={description}
               onDescriptionChange={v => store.getState().setBranchReviewDescription(v)}
               onOpenConversation={handleOpenConversation}
+              onNewConversation={handleNewConversation}
             />
           </TabsPanel>
 

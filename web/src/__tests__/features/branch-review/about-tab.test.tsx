@@ -14,13 +14,13 @@ const noop = () => {}
 describe('AboutTab conversations', () => {
   it('renders chats on success', () => {
     useBranchReviewDataStore.setState({ data: success(data([{ id: 'c1', title: 'Arch review', age: '2h', isActive: true }])) })
-    render(<AboutTab wsId="ws3" description="" onDescriptionChange={noop} onOpenConversation={noop} />)
+    render(<AboutTab wsId="ws3" description="" onDescriptionChange={noop} onOpenConversation={noop} onNewConversation={noop} />)
     expect(screen.getByText('Arch review')).toBeInTheDocument()
   })
 
   it('shows inline error when chats fail with no cache', () => {
     useBranchReviewDataStore.setState({ data: failed(new Error('500'), idle()) })
-    render(<AboutTab wsId="ws3" description="" onDescriptionChange={noop} onOpenConversation={noop} />)
+    render(<AboutTab wsId="ws3" description="" onDescriptionChange={noop} onOpenConversation={noop} onNewConversation={noop} />)
     expect(screen.getByText(/failed to load/i)).toBeInTheDocument()
   })
 })
