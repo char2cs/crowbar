@@ -388,7 +388,7 @@ const TabBar = ({
           className={cn(
             'relative flex shrink-0 items-center gap-1.5 overflow-hidden px-2 py-1',
             IS_MAC ? 'h-[44px]' : 'h-[34px]',
-            IS_MAC && !isBottomPane && sidebarPosition === 'right' && isAtLeftEdge && 'pl-[80px]',
+            IS_MAC && !isBottomPane && isAtLeftEdge && 'pl-[80px]',
           )}
           role="tablist"
           aria-label="Open files"
@@ -407,7 +407,7 @@ const TabBar = ({
           />
 
           <SortableContext items={sortedBufferIds} strategy={horizontalListSortingStrategy}>
-            <div className="scrollbar-hidden flex min-w-0 flex-1 items-center gap-1.5 overflow-x-auto overflow-y-hidden [overscroll-behavior-x:contain]">
+            <div className="tab-scrollbar flex min-w-0 flex-1 items-center gap-1.5 overflow-x-auto overflow-y-hidden [overscroll-behavior-x:contain]">
               {sortedBuffers.map((buffer, index) => (
                 <SortableEditorTab
                   key={buffer.id}
