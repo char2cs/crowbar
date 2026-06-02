@@ -434,7 +434,7 @@ const TabBar = ({
               isBottomPane={isBottomPane}
               disablePaneActions={disablePaneActions}
               isInSplit={isInSplit}
-              onNewConversation={() => { setActivePane(paneId); openContent({ type: 'crowbarChat', wsId: nanoid(), name: 'New conversation' }); }}
+              onNewConversation={() => { setActivePane(paneId); openContent({ type: 'crowbarChat', wsId: nanoid(), name: 'New Conversation' }); }}
               onNewTerminal={() => { setActivePane(paneId); openContent({ type: 'terminal' }); }}
               onOpenUrl={() => { setActivePane(paneId); openContent({ type: 'webViewer', url: 'https://' }); }}
               onClosePane={() => closePane(paneId)}
