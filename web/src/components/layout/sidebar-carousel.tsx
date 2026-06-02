@@ -1,6 +1,7 @@
 import { useEffect, useRef, Suspense } from 'react'
+import { useRouterState } from '@tanstack/react-router'
 import { WorkspaceTree } from './workspace-tree'
-import { ChatList } from '@/features/chats/components/chat-list'
+import { ChatTree } from './chat-tree'
 import { FileExplorerTree } from '@/features/file-explorer/components/file-explorer-tree'
 import { GitPanel } from '@/features/git/components/git-panel'
 import { ErrorBoundary } from '@/components/ErrorBoundary'
@@ -16,6 +17,8 @@ interface SidebarCarouselProps {
 }
 
 export function SidebarCarousel({ activeWorkspaceRepoPath }: SidebarCarouselProps) {
+  const pathname = useRouterState({ select: s => s.location.pathname })
+  const activeWorkspaceId = pathname.match(/\/workspaces\/([^/]+)/)?.[1] ?? ''
   const activeTab = useSidebarStore(s => s.activeTab)
   const setActiveTab = useSidebarStore(s => s.setActiveTab)
   const files = useFileSystemStore(s => s.files)
@@ -69,7 +72,7 @@ export function SidebarCarousel({ activeWorkspaceRepoPath }: SidebarCarouselProp
 
       {/* Chats panel */}
       <div className="min-w-full [scroll-snap-align:start] flex flex-col overflow-hidden">
-        <ChatList />
+        <ChatTree wsId={activeWorkspaceId} />
       </div>
 
       {/* Files panel */}
