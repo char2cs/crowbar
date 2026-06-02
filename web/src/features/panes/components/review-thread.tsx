@@ -66,7 +66,7 @@ export function ReviewThreadView({ thread, onReply, onResolve, onDelete }: Revie
           <div className="mb-1 flex items-center gap-1.5">
             <span className="text-[11px] font-semibold text-foreground">{msg.author ?? 'You'}</span>
             {msg.isAgent && (
-              <Badge variant="outline" className="h-3.5 border-blue-400/30 px-1 text-[9px] text-blue-400">
+              <Badge variant="outline" className="h-3.5 border-primary/30 px-1 text-[9px] text-primary">
                 agent
               </Badge>
             )}
