@@ -50,7 +50,8 @@ and re-parenting.
 
 ```
 GET    /v0/workspaces            (dual)     list (?repoId=) — flat, tree built client-side
-GET    /v0/workspaces/:id        (dual)     full Workspace object (see 00 §5.3)
+GET    /v0/workspaces/:id                    full Workspace object (see 00 §5.3) — REST only
+                                            (live updates for this row arrive on the global /v0/ws/workspaces)
 POST   /v0/workspaces                       create { repoId, branch, parentId? } → status:new
                                             (locked resolved via provider engine)
 DELETE /v0/workspaces/:id                   delete (cascades to children, skips locked)
@@ -58,10 +59,12 @@ POST   /v0/workspaces/:childId/merge-into-parent  { strategy }   local child→p
 POST   /v0/workspaces/:childId/reparent           { newParentId } rebase --onto (child must be a leaf)
 ```
 
-> `GET /v0/workspaces/:id` returns the **full `Workspace`** (`00` §5.3) — the
-> same shape its WS stream pushes, so the dual-serve modes agree. (The minimal
-> `WorkspacePayload { id, repoId, branch }` from UX §3.2 is just the subset the
-> navigation resolver reads; it is not a separate response shape.)
+> `GET /v0/workspaces/:id` returns the **full `Workspace`** (`00` §5.3) and is
+> **REST-only** — it is not dual-serve, because there is no single-`:id` WS stream
+> (the global `/v0/ws/workspaces` already carries this row's live updates, keyed by
+> `id`). Only the **list** route `GET /v0/workspaces` is dual-serve, upgrading to
+> that global stream. (The minimal `WorkspacePayload { id, repoId, branch }` from
+> UX §3.2 is just the subset the navigation resolver reads; not a separate shape.)
 
 ### 2.3 Chats (lifecycle only) — UX §4
 

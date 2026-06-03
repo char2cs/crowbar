@@ -154,7 +154,7 @@ fsnotify fires (debounced)
         ├─► recompute GitStatus
         │     └─► hub.BroadcastGit(GitStatus)          → Git broadcaster   (wsId)   [Class B, direct]
         └─► recompute +N/-N (and hasConflicts)
-              └─► if changed: SyncWorkingTreeState{wsId, added, deleted, hasConflicts}
+              └─► if changed: SyncWorkingTreeState{wsId, added, deleted, hasConflicts, hasCommits}
                     → Workspace aggregate (Asynx) → projection → Workspaces broadcaster (global)  [Class A]
 ```
 

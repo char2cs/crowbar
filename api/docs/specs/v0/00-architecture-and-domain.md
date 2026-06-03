@@ -195,12 +195,19 @@ disjoint lifecycle phases and are guarded so they cannot fight (§6.1).
 
 **`hasConflicts` and `SyncWorkingTreeState` have two issuers, one command.** Both
 the watcher (on disk change) and the git write usecases (after a merge / rebase /
-pull / conflict-resolve, `04` §5/§6) recompute the summary from `git status`
-(unmerged paths → `hasConflicts`) and issue the **same** `SyncWorkingTreeState`
-command. This is *not* a multi-writer hazard: there is exactly one command that
-writes these fields, it is fully recompute-from-truth (idempotent), and Asynx
-serializes it. The git usecase never sets `hasConflicts` "out of band" — it
-always goes through the command.
+pull / conflict-resolve, `04` §5/§6) recompute the summary **from git** and issue
+the **same** `SyncWorkingTreeState` command. Each field has a distinct source:
+
+- `hasConflicts` ← `git status --porcelain=v2` (presence of unmerged paths)
+- `added` / `deleted` ← `git diff --numstat <forkPointSha>..HEAD` (committed lines
+  vs the fork parent) combined with working-tree numstat
+- `hasCommits` ← `git rev-list --count <forkPointSha>..HEAD > 0`
+
+This is *not* a multi-writer hazard: there is exactly one command that writes
+these fields, it is fully recompute-from-truth (idempotent), and Asynx serializes
+it. The git usecase never sets `hasConflicts` "out of band" — it always goes
+through the command. `hasCommits` is a **transient command input** (it decides the
+`new`→null clear); it is **not** a stored field on the aggregate.
 
 `lastActivity` is bumped by any command representing activity (the two
 `SyncWorkingTreeState` issuers cover commits/file writes; `TouchActivity` covers
@@ -277,9 +284,9 @@ new ──► (status: null — has commits, no PR)
 - `added` / `deleted` / `hasConflicts` are mutated **only** through
   `SyncWorkingTreeState` — issued by the watcher (debounced, change-only) *and* by
   git write usecases after a merge/rebase/pull/resolve (`04` §6), both recomputing
-  from `git status`. One command, recompute-from-truth, serialized by Asynx →
-  still single-source-of-truth (§5.3). They are *not* pushed to the broadcaster
-  out-of-band.
+  from git (per-field sources in §5.3). One command, recompute-from-truth,
+  serialized by Asynx → still single-source-of-truth (§5.3). They are *not* pushed
+  to the broadcaster out-of-band.
 - The `agent-running` badge is the live presence of an AgentRun projected onto the
   row (overlay), not a stored base status — the same string is a real `status`
   value on **Chat** (`01`) but only an overlay here.

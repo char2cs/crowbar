@@ -94,6 +94,10 @@ Writes UTF-8 to disk. The **most frequent write in the app**. It writes bytes
 only — formatter / linter on save are client- or LSP-side concerns, not this
 endpoint's job. The write triggers the watcher, which fans out (§5).
 
+> **Locked guard.** This endpoint and all structural mutations (§4) reject with a
+> `locked` error on a provider-protected workspace (`07` §2, `04` §5) — a locked
+> workspace is chat-only.
+
 ---
 
 ## 4. Structural Mutations — UX §21
@@ -137,7 +141,7 @@ watch/ watches the repo root (recursively, honoring ignore rules §2)
   → recompute GitStatus
        → hub.BroadcastGit(GitStatus)          → Git topic    (wsId)   [direct, Class B]
   → recompute +N/-N (and hasConflicts)
-       → if changed: SyncWorkingTreeState{wsId, added, deleted, hasConflicts}
+       → if changed: SyncWorkingTreeState{wsId, added, deleted, hasConflicts, hasCommits}
             → Workspace aggregate (Asynx) → Workspaces topic (global) [Class A]
 ```
 

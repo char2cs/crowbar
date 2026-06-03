@@ -142,6 +142,12 @@ All map to a git command and run through the same `exec/` runner. Every op that
 mutates the working tree or index triggers a `GitStatus` recompute and broadcast
 (see §7).
 
+> **Locked guard.** A `locked` (provider-protected) workspace is chat-only
+> (`07` §2). Every write op here — and every file write in
+> `05-filesystem-and-watcher.md` §3/§4 — first checks the workspace and **rejects
+> with `locked` error** if it is locked. The only thing permitted on a locked
+> workspace is chat creation.
+
 | Op | Command |
 |----|---------|
 | Stage (files) | `git add <paths>` |
@@ -186,10 +192,11 @@ When merge / rebase / pull exits with conflicts:
 1. The engine detects it: non-zero exit **and** `git status` reports unmerged
    paths.
 2. The usecase issues `SyncWorkingTreeState{hasConflicts: true, …}` to the
-   Workspace aggregate (recomputed from `git status`) → the aggregate projects and
-   broadcasts on the Workspaces topic (the sidebar shows the conflict indicator).
-   It does **not** set `hasConflicts` out of band — same single command as the
-   watcher (`00` §5.3, §6.1).
+   Workspace aggregate (recomputed from git — `git status` unmerged paths for
+   `hasConflicts`, per `00` §5.3) → the aggregate projects and broadcasts on the
+   Workspaces topic (the sidebar shows the conflict indicator). It does **not** set
+   `hasConflicts` out of band — same single command as the watcher (`00` §5.3,
+   §6.1).
 3. `conflicts/` builds the three-way view for each conflicting file:
    - Working-tree markers (`<<<<<<<`, `=======`, `>>>>>>>`) delimit hunks.
    - `git show :1:<path>` = **base** (common ancestor),

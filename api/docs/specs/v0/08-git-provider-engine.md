@@ -93,9 +93,15 @@ Therefore PR/branch-protection state is **polled**.
   opens, query that branch's PR state **once, immediately** — fresh data when the
   user is looking.
 - **Background sweep:** a slow ticker (default **60s**, configurable) re-polls
-  **only workspaces with an `open` PR**. `merged` / `closed` are terminal, so
-  those workspaces drop out of the sweep. This bounds API usage to branches with
-  live PRs.
+  **only workspaces with an `open` PR**. `merged` / `closed` are treated as
+  terminal, so those workspaces drop out of the sweep. This bounds API usage to
+  branches with live PRs.
+
+> **v0 limitation — PR reopen is not tracked by the sweep.** Because `pr-closed`
+> drops out of the background sweep (and the state machine has no `pr-closed →
+> pr-open` edge), reopening a closed PR on the provider is only picked up by an
+> **on-view** poll, not the sweep. Acceptable for v0; revisit if reopen becomes
+> common (keep closed PRs in the sweep + add the edge).
 
 Each poll that detects a change issues a `SyncProviderState` command to the
 **Workspace** aggregate (§5).
