@@ -97,7 +97,7 @@ Single GORM database at `~/.crowbar/state/store/crowbar.db`.
 
 > **Note:** The contents *inside* a chat (turns, tool calls, widgets, agent TODO
 > lists) are **deliberately excluded** from this spec. Their storage is decided
-> after the Agentic Bridge spike (see `11-agentic-bridge-spike.md`).
+> after the Agentic Bridge spike (see `12-agentic-bridge-spike.md`).
 
 ### In-memory only
 

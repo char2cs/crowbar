@@ -110,7 +110,7 @@ via a PR the user/agent opens — Crowbar only reads that PR's state (`08`).
 The **About** tab description (and the PR-title/body pre-fill the frontend does
 in UX §23) is "AI-generated" — it depends on an agent summarizing the branch
 diff. That generation depends on the **Agentic Bridge**
-(`11-agentic-bridge-spike.md`) and is therefore **deferred**.
+(`12-agentic-bridge-spike.md`) and is therefore **deferred**.
 
 For this spec:
 - The `description` field **exists** in the read model.
@@ -134,11 +134,13 @@ fields (`08` §5) are the PR surface the review panel renders.
 
 ## 7. Real-time
 
-ReviewThread changes flow through the standard Asynx → hub path. Thread
-updates can ride the Workspaces topic (the review panel is workspace-scoped) or a
-dedicated review broadcast if needed; the default is to refresh the review read
-model on thread mutation and let the panel re-fetch, since review editing is
-low-frequency and not latency-critical (unlike git status or terminal output).
+ReviewThread changes flow through the standard Asynx → hub path. The decision:
+**re-fetch on mutation, no dedicated broadcaster.** On a thread mutation the
+backend refreshes the review read model and the panel re-fetches
+`GET /v0/workspaces/:wsId/review`. Review editing is low-frequency and not
+latency-critical (unlike git status or terminal output), so it does **not**
+warrant its own WS topic — this keeps the broadcaster set at the seven listed in
+`03-realtime-websockets.md` §3 with no review-specific channel.
 
 ---
 

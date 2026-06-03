@@ -139,7 +139,7 @@ the UX spec. **No backend work beyond §12.**
 The agent's `run_command` tool (UX §28) streams output "into a terminal buffer,"
 but **agents run their own shell** — entirely separate from this subsystem.
 Agent command execution is an **Agentic Bridge** concern
-(`11-agentic-bridge-spike.md`) and reuses **none** of this PTY machinery. This
+(`12-agentic-bridge-spike.md`) and reuses **none** of this PTY machinery. This
 subsystem serves only **user-opened** terminals.
 
 ---

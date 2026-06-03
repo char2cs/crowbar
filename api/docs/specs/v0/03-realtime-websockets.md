@@ -186,14 +186,15 @@ last client for that workspace disconnects
 
 ```
 app.New()
-  ├─ build Asynx instances (Workspace, Chat, AgentRun, ReviewThread, PullRequest)
+  ├─ build Asynx instances (Workspace, Chat, AgentRun, ReviewThread)
   ├─ build repositories
   ├─ hub := hub.New()
   ├─ RegisterHubProjections(hub):
   │     Workspace Asynx sub   → hub.BroadcastWorkspace
   │     Chat Asynx sub        → hub.BroadcastChat
   │     AgentRun Asynx sub    → (drives Chat + Workspace agent-running overlay)
-  │     PullRequest Asynx sub → hub.BroadcastWorkspace (pr-open/merged/closed)
+  │     Git Provider engine   → SyncProviderState → Workspace (pr-open/merged/closed)
+  │                              (read-only poll; not an aggregate — see 08)
   └─ build usecases
 
 api.New(app)
@@ -207,7 +208,7 @@ api.New(app)
 ## 8. Out of Scope
 
 - **ChatStream** frame protocol (`ChatFrame`) — post-spike
-  (`11-agentic-bridge-spike.md`).
+  (`12-agentic-bridge-spike.md`).
 - Detailed `GitStatus`, `FileChangeEvent`, `Diagnostic`, `PTYFrame` payload
   shapes — in their respective subsystem specs.
 ```

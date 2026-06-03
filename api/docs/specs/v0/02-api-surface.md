@@ -216,7 +216,7 @@ always-WS channels for push-only event streams.
 ## 4. Open Items Tracked Elsewhere
 
 - Agent **message-send** + **content stream** frame protocol — post-spike
-  (`11-agentic-bridge-spike.md`).
+  (`12-agentic-bridge-spike.md`).
 - Detailed payload shapes per subsystem — in each subsystem's own spec
   (git, files, terminal, review/PR, LSP, search).
 ```

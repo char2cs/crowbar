@@ -6,7 +6,7 @@
 > **Scope:** The lifecycle of a chat as a domain aggregate — creation, forking,
 > renaming, deletion, and live status. **Conversation content** (turns, tool
 > calls, widgets, agent TODO lists, streaming wire protocol) is **out of scope**
-> and decided after the Agentic Bridge spike (`11-agentic-bridge-spike.md`).
+> and decided after the Agentic Bridge spike (`12-agentic-bridge-spike.md`).
 
 ---
 
