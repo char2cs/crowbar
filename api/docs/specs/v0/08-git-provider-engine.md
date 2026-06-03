@@ -101,7 +101,9 @@ Therefore PR/branch-protection state is **polled**.
 
 - **On-view:** when a workspace row renders in the sidebar or its review panel
   opens, query that branch's PR state **once, immediately** — fresh data when the
-  user is looking.
+  user is looking. The backend hook for this is the on-demand REST route
+  `GET /v0/workspaces/:wsId/provider` (§6), which the frontend calls on view; the
+  handler runs a single poll and issues `SyncProviderState` if state changed.
 - **Background sweep:** a slow ticker (default **60s**, configurable) re-polls
   **only workspaces with an `open` PR**. `merged` / `closed` are treated as
   terminal, so those workspaces drop out of the sweep. This bounds API usage to

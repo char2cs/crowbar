@@ -39,7 +39,9 @@ Chat {
 }
 
 ChatStatus = "idle" | "agent-running"
-ChatType   = "chat" | "workflow"
+ChatType   = "chat" | "workflow"   // v0 creates only "chat"; "workflow" is a
+                                   // forward-compat marker with no v0 writer
+                                   // (no endpoint produces a workflow chat yet)
 ```
 
 The frontend reconstructs the tree client-side from `parentId` references (root

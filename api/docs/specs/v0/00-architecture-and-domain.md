@@ -131,7 +131,10 @@ org" = switch project. `lastActivity` is bumped whenever any descendant
 nothing fires on it automatically — the same activity that issues
 `SyncWorkingTreeState` / `TouchActivity` to a Workspace (§5.3) also performs a
 **GORM update of that workspace's Project (`repoId`→`projectId`) `lastActivity`**
-(a cheap denormalized roll-up). Without this the §1 label would never move.
+(a cheap denormalized roll-up). This is the one place an Asynx command and a GORM
+write are coupled in one usecase — the roll-up is **best-effort**: a GORM update
+failure is logged but does **not** fail the Asynx command. Without this the §1
+label would never move.
 
 ### 5.2 Repository (GORM)
 
@@ -271,6 +274,35 @@ TerminalProfile {
   color            string?
 }
 ```
+
+### 5.7 Project Import — the writer for Repository (and adopted Workspaces)
+
+`Repository` rows are not created by any workspace op — they are produced by the
+**project-import** usecase behind `POST /v0/projects { name, path }` (UX §1). This
+is the writer the rest of the model presupposes.
+
+On import, the usecase:
+
+1. Creates the `Project` row.
+2. **Discovers git repos** under `path` (walk for `.git` directories, bounded
+   depth) and creates a `Repository` row for each:
+   - `defaultBranch` resolved per §5.2 (never empty).
+   - `avatarLabel` / `avatarColor` are **generated** (not git-derived): `avatarLabel`
+     = first alphanumeric char of the repo name (uppercased); `avatarColor` = a
+     stable hash of the repo name into the theme's avatar-color palette.
+3. **Adopts existing branches/worktrees** as `Workspace` rows. For each existing
+   `git worktree` (and the primary checkout), it creates a Workspace with
+   `branch`, `worktreePath`, `repoId`, `projectId`, and resolves `parentId` from
+   the branch topology where determinable.
+   - **`forkPointSha` for an adopted worktree** (no `git worktree add` event to
+     record it) is the **one legitimate exception** to the "never recompute via
+     `merge-base`" rule (§5.3): seed it as `git merge-base <branch> <parentBranch>`
+     (or the repo `defaultBranch` for a root). From then on it is treated as the
+     recorded fork point and never recomputed again.
+   - `locked` resolved via the provider engine (`08`); the default/protected
+     branch checkout is locked.
+
+This makes every `Repository` and adopted `Workspace` field have a defined writer.
 
 ---
 

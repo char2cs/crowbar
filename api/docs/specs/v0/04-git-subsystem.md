@@ -63,7 +63,7 @@ where broadcasts and error classification happen.
 | Log    | `git log --skip=N --max-count=50 --pretty=<fmt>` | `Commit[]` (paginated) |
 | Diff (working tree) | `git diff -M` / `git diff -M --cached` (`-M` so renames are detected as `is_renamed` rather than add+delete, regardless of the user's `diff.renames` config) | `FileDiff` with `hunkId` per hunk |
 | Diff (commit) | `git diff -M <sha>^ <sha>` — for the **root commit** (no parent) fall back to `git show --format= <sha>` (or `git diff --root <sha>`) | `MultiFileDiff` |
-| Branches | `git branch -a --format=<fmt>` | `Branch[]` |
+| Branches | `git branch -a --format=<fmt>` (`<fmt>` must include `%(refname:short)`, `%(upstream:track)` for ahead/behind, `%(committerdate)` for `lastCommitDate`) | `Branch[]` |
 | Stashes | `git stash list` | `Stash[]` |
 | Blame | `git blame --porcelain <file>` | `BlameEntry[]` |
 
