@@ -52,11 +52,19 @@ gitStatus = modified | added | deleted | untracked | renamed
 
 The tree and the watcher behave like common IDEs:
 
-- Always skip `.git/`.
+- Skip `.git/` for **content** — but watch **`.git/HEAD` and `.git/refs/`**
+  specifically (see below). Everything else under `.git/` is ignored.
 - Respect `.gitignore` for **watching** — ignored paths produce no watch events
   (so we don't drown in `node_modules` churn or exhaust inotify limits).
 - The tree **may still display** ignored files (greyed/decorated), but they are
   not watched. Displaying-vs-watching are independent concerns.
+
+**Narrow `.git` exception — commit detection.** An agent (UX §28) or external
+process commit moves refs under `.git/` **without touching the working tree**, so
+a blanket `.git/` skip would miss it and the row/panel would not refresh (UX §17
+row 1). The watcher therefore watches `.git/HEAD` and `.git/refs/` specifically; a
+change there triggers a `GitStatus` recompute and a `SyncWorkingTreeState` command
+(ahead/behind, clears `new` status). This is the only part of `.git/` watched.
 
 ---
 
@@ -125,22 +133,26 @@ watch/ watches the repo root (recursively, honoring ignore rules §2)
   → raw fsnotify event
   → debounce (coalesce bursts, ~100ms window)
   → classify: created | modified | deleted | renamed
-  → hub.BroadcastFile(FileChangeEvent)       → Files topic       (wsId)
+  → hub.BroadcastFile(FileChangeEvent)       → Files topic  (wsId)   [direct, Class B]
   → recompute GitStatus
-       → hub.BroadcastGit(GitStatus)          → Git topic         (wsId)
+       → hub.BroadcastGit(GitStatus)          → Git topic    (wsId)   [direct, Class B]
   → recompute +N/-N (and hasConflicts)
-       → hub.BroadcastWorkspace(Workspace)    → Workspaces topic  (global)
+       → if changed: SyncWorkingTreeState{wsId, added, deleted, hasConflicts}
+            → Workspace aggregate (Asynx) → Workspaces topic (global) [Class A]
 ```
 
 ```
 FileChangeEvent { type: created|modified|deleted|renamed, path, newPath? }
 ```
 
-This single fan-out (one disk event → three topics) is what makes agent work
-visible live: agent writes a file → watcher fires → editor tab reloads, file
-tree updates, git panel refreshes — with no user action (UX §27).
+This fan-out (one disk event → Files + Git directly, plus a Workspace command) is
+what makes agent work visible live: agent writes a file → watcher fires → editor
+tab reloads, file tree updates, git panel refreshes — with no user action (UX
+§27). The Workspaces row goes **through the aggregate** (not a direct broadcast)
+so it stays a single complete object (`03` §2); the command is emitted **only when
+a summary value changes**.
 
-Debouncing bounds the broadcast rate when an agent edits many files in a burst.
+Debouncing bounds the rate when an agent edits many files in a burst.
 
 ---
 
@@ -159,11 +171,16 @@ reload/keep prompt. The backend tracks no "open" or "dirty" state.
 
 ## 7. Real-time Integration
 
-The watcher is the busiest **Class B producer** (`03-realtime-websockets.md`).
-It is the single source that drives the Files topic and, through recomputation,
-the Git and Workspaces topics. The watcher and the git status recompute share
-the same per-workspace lifecycle (lazy start / ref-counted teardown across the
-Files, Git, and LSP subscriptions for that `wsId`).
+The watcher is the busiest producer (`03-realtime-websockets.md`). It drives the
+**Files** and **Git** topics directly, and the **Workspaces** row indirectly via
+a `SyncWorkingTreeState` command to the aggregate (`03` §2, §5).
+
+**Lifecycle:** the watcher is ref-counted across the **Files and Git**
+subscriptions for a `wsId` — it must be alive whenever **either** is subscribed,
+because it produces `GitStatus` (so a git-only subscriber keeps it running). The
+**LSP** client is a **separate, independent ref-count** (`03` §6) — it does *not*
+share the watcher's lifecycle (LSP sync is frontend-driven and needs no disk
+events).
 
 ---
 

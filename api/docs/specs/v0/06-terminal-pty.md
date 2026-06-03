@@ -79,19 +79,33 @@ select+copy, hyperlink clicks, large-paste confirmation. Rendering settings
 
 Each session keeps a **server-side ring buffer** of recent output (last N KB).
 When a WS attaches — including a **re-attach** after an accidental disconnect —
-the backend first **replays the ring buffer** so the xterm shows recent history,
-then streams live output. This survives transient disconnects without losing
-context.
+the backend **replays the ring buffer** so the xterm shows recent history, then
+streams live output.
+
+**Attach must be atomic.** Snapshotting the ring buffer for replay and
+registering the new client in the fan-out set happen **under the session mutex at
+a single sequence point**. Otherwise output produced between the snapshot and the
+registration is either **lost** (produced after snapshot, before registration) or
+**duplicated** (registered first, then replay re-sends bytes already streamed
+live). The atomic snapshot-and-register against one sequence number is a required
+property, not an implementation detail.
 
 ### Multiple attachments (Q2)
 
 **Multiple WebSockets may attach to the same `sessionId` simultaneously**
 (mirrored / observed terminals). The session **fans output out** to all attached
-WS clients. Input from any attached client is written to the single PTY stdin.
-Resize is last-writer-wins on the shared PTY.
+WS clients; input from any client is written to the single PTY stdin; resize is
+last-writer-wins on the shared PTY.
+
+**Per-client send queue (backpressure).** The PTY has a single read pump. If it
+wrote directly to every socket, one slow/stalled client would block the pump and
+freeze output for **all** clients. So each attached client has its **own buffered
+send queue**; the pump fans a copy into each queue and never blocks on a socket.
+A client whose queue overflows (persistently slow) is **dropped and
+disconnected** rather than allowed to stall the session.
 
 This makes the Terminal topic a small fan-out broadcaster keyed by `sessionId`,
-with the session's ring buffer as the replay source on each new attach.
+with the ring buffer as the atomic replay source on each new attach.
 
 ---
 

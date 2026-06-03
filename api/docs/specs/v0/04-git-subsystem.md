@@ -76,6 +76,13 @@ git read op implemented in `internal/blame/` and exposed at the editor-friendly
 URL `GET /v0/workspaces/:wsId/blame` — the endpoint location is an API
 convenience; the implementation belongs to git.
 
+**Binary / image diff blobs.** `git diff` only reports "Binary files differ" for
+binary paths — it does not emit bytes. So for `is_binary` / `is_image` files the
+`diff/` package makes **separate `git show <blob>` / `git cat-file blob` calls per
+side** to populate `old_blob_base64` / `new_blob_base64` (UX §10 image diff, §31).
+The blob SHAs come from the diff's raw header (`git diff --raw` /
+`:<mode> <mode> <sha> <sha>`). Text diffs never trigger this path.
+
 ### Data shapes (from UX spec)
 
 ```
@@ -143,7 +150,7 @@ mutates the working tree or index triggers a `GitStatus` recompute and broadcast
 | Discard | `git restore <paths>` |
 | Commit | `git commit -m <subject> [-m <body>]` |
 | Push / Pull / Fetch | `git push` / `git pull` / `git fetch` |
-| Create branch | `git checkout -b <name> [<source>]` or `git branch` |
+| Create branch | `git checkout -b <name> [<source>]` (creates **and** switches; pass `checkout:false` → `git branch <name>` to create without switching) |
 | Rename branch | `git branch -m <old> <new>` |
 | Delete branch | `git branch -d <name>` (blocked if current) |
 | Switch branch | `git checkout <branch>` |
@@ -157,6 +164,18 @@ mutates the working tree or index triggers a `GitStatus` recompute and broadcast
 Switching branches changes the workspace's working tree; the usecase
 re-resolves the workspace's `branch`, refreshes the file tree, and re-broadcasts
 status.
+
+### Per-repo serialization (concurrency)
+
+All worktrees of a repo **share one `.git` object store, refs, and
+`index.lock`**. A `git merge` in one worktree while a `git rebase` runs in a
+sibling worktree (or a `SyncWorkingTreeState` status recompute reads refs
+mid-rewrite) will contend and fail with a lock error. The usecase therefore holds
+a **per-repository (not per-worktree) mutation lock** around every write op and
+around the re-parent rebase (`07` §4). Read-only ops (status recompute, the
+provider poller's `gh pr view`) do not take the write lock but must tolerate a
+transient mid-rewrite ref state (retry on `index.lock`). The lock is keyed by
+`repoId`, not `wsId`.
 
 ---
 
@@ -175,8 +194,9 @@ When merge / rebase / pull exits with conflicts:
    - Produces `ConflictHunk[]`.
 4. The frontend resolves per hunk;
    `POST /v0/workspaces/:wsId/git/conflicts/resolve
-   { path, hunkId, resolution, resolvedContent? }` writes the resolved content
-   into the file.
+   { path, conflictHunkId, resolution, resolvedContent? }` writes the resolved
+   content into the file. `conflictHunkId` is `ConflictHunk.id` (below) — **not**
+   the staging `hunkId` of §4.
 5. When every hunk in every conflicting file is resolved and staged,
    `hasConflicts` clears → broadcast.
 
@@ -202,11 +222,13 @@ The git subsystem is both a **producer** and a **consumer** of real-time
 signals (see `03-realtime-websockets.md`):
 
 - **File watcher → git** (Class B): every disk write recomputes `GitStatus` and
-  re-broadcasts on the Git topic (`wsId`), and recomputes the workspace's
-  `+N/-N` diff stats and `hasConflicts` for the Workspaces topic (global).
+  re-broadcasts **directly** on the Git topic (`wsId`). The workspace's `+N/-N`
+  diff stats and `hasConflicts` go **through the Workspace aggregate** via a
+  `SyncWorkingTreeState` command (Class A) so the global Workspaces row stays a
+  single complete object — not a direct broadcast (`03` §2, §5).
 - **Git write ops → broadcast**: any mutation (commit, stage, checkout, merge…)
-  recomputes status and broadcasts, so the panel reflects the change without the
-  frontend re-fetching.
+  recomputes status, pushes `GitStatus`, and issues `SyncWorkingTreeState`, so the
+  panel and row reflect the change without the frontend re-fetching.
 
 `GitStatus` push is therefore driven by **both** the filesystem watcher and
 explicit git mutations — never by polling.

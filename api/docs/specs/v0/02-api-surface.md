@@ -50,20 +50,25 @@ and re-parenting.
 
 ```
 GET    /v0/workspaces            (dual)     list (?repoId=) — flat, tree built client-side
-GET    /v0/workspaces/:id        (dual)     WorkspacePayload { id, repoId, branch }
+GET    /v0/workspaces/:id        (dual)     full Workspace object (see 00 §5.3)
 POST   /v0/workspaces                       create { repoId, branch, parentId? } → status:new
                                             (locked resolved via provider engine)
 DELETE /v0/workspaces/:id                   delete (cascades to children, skips locked)
 POST   /v0/workspaces/:childId/merge-into-parent  { strategy }   local child→parent merge
-POST   /v0/workspaces/:childId/reparent           { newParentId } rebase --onto migration
+POST   /v0/workspaces/:childId/reparent           { newParentId } rebase --onto (child must be a leaf)
 ```
+
+> `GET /v0/workspaces/:id` returns the **full `Workspace`** (`00` §5.3) — the
+> same shape its WS stream pushes, so the dual-serve modes agree. (The minimal
+> `WorkspacePayload { id, repoId, branch }` from UX §3.2 is just the subset the
+> navigation resolver reads; it is not a separate response shape.)
 
 ### 2.3 Chats (lifecycle only) — UX §4
 
 ```
 GET    /v0/workspaces/:wsId/chats           flat list for workspace
 POST   /v0/workspaces/:wsId/chats           create root chat { title? }
-POST   /v0/chats/:id/fork                    fork { fromTurnId } → child with parentId
+POST   /v0/chats/:id/fork                    fork (from current tip) → child with parentId
 PATCH  /v0/chats/:id                          rename { title }
 DELETE /v0/chats/:id                          delete
 ```
@@ -90,6 +95,7 @@ POST   /v0/workspaces/:wsId/lsp/definition     go-to-definition { path, position
 POST   /v0/workspaces/:wsId/lsp/references     find references { path, position }
 POST   /v0/workspaces/:wsId/lsp/rename         rename symbol { path, position, newName }
 POST   /v0/workspaces/:wsId/lsp/codeAction     quick fixes { path, range }
+POST   /v0/workspaces/:wsId/lsp/documentSymbol symbols in a file (go-to-symbol, UX §16) { path }
 GET    /v0/workspaces/:wsId/lsp/diagnostics    current diagnostics (also pushed via WS)
 ```
 LSP request/response stays on REST (low-latency, request-scoped). Only
@@ -137,8 +143,10 @@ POST   /v0/workspaces/:wsId/git/rebase            { onto }
 
 ```
 GET    /v0/workspaces/:wsId/git/conflicts          conflicting files + ConflictHunk[]
-POST   /v0/workspaces/:wsId/git/conflicts/resolve  { path, hunkId, resolution, resolvedContent? }
+POST   /v0/workspaces/:wsId/git/conflicts/resolve  { path, conflictHunkId, resolution, resolvedContent? }
 ```
+> `conflictHunkId` is `ConflictHunk.id` (§2.8 / `04` §6) — distinct from the
+> staging `hunkId` of §2.7 / `04` §4. Named explicitly to avoid conflating them.
 
 ### 2.9 Branch Review — UX §11
 
@@ -198,8 +206,8 @@ parentheses) scopes delivery so a client subscribed for one workspace/chat/
 session never receives another's events.
 
 ```
-WS  /v0/ws/workspaces?repoId=        (wsId)       status, +N/-N, hasConflicts, agent-running badges
-WS  /v0/ws/chats?wsId=               (chatId)     chat list status (idle ↔ agent-running)
+WS  /v0/ws/workspaces?repoId=        (global)     full Workspace objects: status, +N/-N, hasConflicts, PR, agent-running
+WS  /v0/ws/chats?wsId=               (wsId)       chat list status (idle ↔ agent-running), payload carries chatId
 WS  /v0/ws/git?wsId=                 (wsId)       live GitStatus on every disk change
 WS  /v0/ws/files?wsId=               (wsId)       FileChangeEvent (created/modified/deleted/renamed)
 WS  /v0/ws/lsp?wsId=                 (wsId)       Diagnostic[] pushes

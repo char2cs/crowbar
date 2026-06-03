@@ -38,13 +38,19 @@ BranchReview {
   conversations  BranchChat[]           // branch-scoped discussions
 }
 
-BranchChat { id, title, age, isActive }   // lightweight; lifecycle = chat spec
+BranchChat { id, title, age, isActive }   // a Chat (01), surfaced read-only here
 ```
 
 - `diff` comes from the git engine: `git diff <base>...<branch>`.
 - `threads` come from the ReviewThread Asynx repo (§3).
 - `mergeStrategy` is stored on the workspace (set via `PATCH .../review`).
 - `description` — see §5.
+- **`conversations` are just `Chat`s** (`01-chat-lifecycle.md`) belonging to the
+  workspace, projected into the panel as `BranchChat` (a lightweight view — `id`,
+  `title`, `age`, `isActive`). There is **no separate branch-chat entity**.
+  "Start a new branch-scoped discussion" (UX §11) reuses the existing
+  `POST /v0/workspaces/:wsId/chats` route — no new endpoint. (A future `type`
+  marker could distinguish review discussions from main chats; not needed for v0.)
 
 ---
 

@@ -121,6 +121,14 @@ Project {
 ```
 `repoCount` is derived (count of repos with this `projectId`), not stored.
 
+**Project is the org-level node.** The sidebar's top-level "Org name" row (UX §2)
+and the org-switcher dropdown are the **Project** — a Project is a dumb top-level
+container that groups repos to keep contexts together (it owns a folder; its repos
+may even live in different folders). There is **no separate Org entity**; "switch
+org" = switch project. `lastActivity` is bumped whenever any descendant
+(repo/workspace) sees activity — a commit, a file write, or chat activity — so the
+"last touched" label (UX §1) stays accurate.
+
 ### 5.2 Repository (GORM)
 
 ```
@@ -148,24 +156,38 @@ Workspace {
   repoId       uuid
   branch       string
   worktreePath string      // the git worktree directory on disk
+  forkPointSha string      // commit the branch was created from (recorded at worktree add)
   parentId     uuid?       // nested (fork-of-fork) workspaces
-  status       WorkspaceStatus
+  status       WorkspaceStatus?   // new | pr-open | pr-merged | pr-closed; null once it has commits but no PR
   locked       bool        // provider-protected branch — chat-only, cannot delete/merge-into
-  hasConflicts bool        // overlay flag
-  added        int         // +N lines vs parent (live, from git subsystem)
-  deleted      int         // -N lines  (live, from git subsystem)
+  hasConflicts bool        // summary overlay (from git subsystem, via SyncWorkingTreeState)
+  added        int         // +N lines vs parent (from git subsystem, via SyncWorkingTreeState)
+  deleted      int         // -N lines
   // provider-synced PR state (Git Provider engine — 08); empty when no provider access
   prUrl          string?
   prTitle        string?
   prTargetBranch string?
+  lastActivity time.Time   // bumped on commit / file write / chat activity
   createdAt    time.Time
 }
 ```
 
-`age` (the relative-time string the UI renders) is derived from `createdAt` /
-last activity, not stored. `locked` is resolved at creation via the Git Provider
+`age` (the relative-time string the UI renders) is derived from `lastActivity` /
+`createdAt`, not stored. `locked` is resolved at creation via the Git Provider
 engine (protected-branch detection, falling back to a config list when no
-provider access).
+provider access). `forkPointSha` is recorded at `git worktree add` time and is the
+authoritative fork point for re-parenting (`07` §4) — never recomputed via
+`merge-base`.
+
+**Single source of truth.** Every field on the workspace row is owned by this
+aggregate and mutated **only through Asynx commands** — `SyncWorkingTreeState`
+(watcher: `added`/`deleted`/`hasConflicts`, debounced + emitted only on change),
+`SyncProviderState` (provider poller: PR fields + `locked`), and the
+status/hierarchy commands. The aggregate therefore always holds a **complete**
+row, and the Workspaces broadcaster emits that complete projected object — there
+is no second producer writing a half-populated object. See §6.1 and
+`03-realtime-websockets.md` §4. (The verbose `GitStatus` for the Git panel is a
+separate, non-event-sourced channel — `04`/`05`.)
 
 ### 5.4 Chat (Asynx) — see `01-chat-lifecycle.md`
 
@@ -201,11 +223,11 @@ TerminalProfile {
 
 ### 6.1 Workspace
 
-The Workspace aggregate owns the status badge the sidebar renders. Six badge
-states from the UX spec map onto a base lifecycle plus two overlays.
+The Workspace aggregate owns the row the sidebar renders. The six UX badge states
+map onto a small base lifecycle plus two overlays.
 
 ```
-new ──► active
+new ──► (status: null — has commits, no PR)
          │
          ├──► pr-open ──► pr-merged
          │           └──► pr-closed
@@ -217,16 +239,20 @@ new ──► active
                                       conflict; cleared when all resolved)
 ```
 
+- Base `status` values: `new`, `pr-open`, `pr-merged`, `pr-closed`. A workspace is
+  `new` until its **first commit** (UX §2: "new = just created, no commits yet"),
+  at which point a command clears `status` to `null` (the row then shows only diff
+  stats + age, no badge) until a PR appears. There is **no `active` state** — it
+  was unreachable and is removed.
 - `locked` is a **flag, not a state** — it gates deletion and cascade-delete,
   independent of `status`.
-- `added` / `deleted` diff stats and `hasConflicts` are **not** mutated through
-  Asynx commands. The git subsystem computes them from filesystem events and
-  pushes them to the workspace broadcaster directly. (Detailed in the git and
-  real-time specs.)
-
-Base status values: `new`, `active`, `pr-open`, `pr-merged`, `pr-closed`.
-The `agent-running` badge is the live presence of an AgentRun, projected onto the
-row; it is not a stored base status.
+- `added` / `deleted` / `hasConflicts` **are** mutated through Asynx commands
+  (`SyncWorkingTreeState`, issued by the watcher — debounced, change-only). This
+  keeps the aggregate the single complete source of truth (§5.3). They are *not*
+  pushed to the broadcaster out-of-band.
+- The `agent-running` badge is the live presence of an AgentRun projected onto the
+  row (overlay), not a stored base status — the same string is a real `status`
+  value on **Chat** (`01`) but only an overlay here.
 
 ### 6.2 AgentRun
 
@@ -238,7 +264,12 @@ pending ──► running ──► done
 
 **Crash recovery:** on startup, any AgentRun left in `running` is recovered to
 `error` (same pattern as quiver.core's `ArrowRuntime` recovery — scan read model,
-preload aggregate, send a fail command).
+preload aggregate, send a fail command). The recovery command **flows through the
+normal Asynx path**, so the AgentRun subscription fires and issues
+`AgentRunCompleted` to the Chat projection — clearing its spinner. As a
+belt-and-suspenders second pass, startup also **reconciles chats directly**: any
+Chat in `agent-running` with no live AgentRun is reset to `idle`. Without this, a
+chat mid-run at crash time would show a spinner forever.
 
 ### 6.3 ReviewThread
 

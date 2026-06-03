@@ -55,9 +55,9 @@ returns a **flat list**.
 | Command | Trigger | Effect | Transition |
 |---------|---------|--------|------------|
 | `CreateChat`        | `POST /v0/workspaces/:wsId/chats` | New root chat | → idle |
-| `ForkChat`          | `POST /v0/chats/:id/fork`         | New child with `parentId` set, inheriting context up to `fromTurnId` | → idle |
+| `ForkChat`          | `POST /v0/chats/:id/fork`         | New child with `parentId` set, copying the parent **as it currently stands** | → idle |
 | `RenameChat`        | `PATCH /v0/chats/:id`             | Update title | — |
-| `DeleteChat`        | `DELETE /v0/chats/:id`            | Soft-delete; cascades to children | → deleted |
+| `DeleteChat`        | `DELETE /v0/chats/:id`            | Soft-delete (sets `deletedAt`); cascades to children | (sets `deletedAt`; not a `status`) |
 | `AgentRunStarted`   | AgentRun subscription (internal)  | Reflect a live agent | → agent-running |
 | `AgentRunCompleted` | AgentRun subscription (internal)  | Reflect agent finishing | → idle |
 
@@ -69,19 +69,22 @@ Chat aggregate has no opinion on *why* an agent started — it only reflects sta
 
 ## 4. Fork Semantics
 
-A fork creates a new `Chat` with `parentId` pointing at the source chat. The fork
-point is identified by a `fromTurnId`.
+A fork creates a new `Chat` with `parentId` pointing at the source chat.
 
-- The child inherits conversation context up to and including `fromTurnId`, then
-  continues independently.
+**v0: fork from current tip.** The child is a copy of the parent chat **as it
+currently stands** — it inherits the full conversation so far, then continues
+independently. There is **no `fromTurnId`** in the v0 fork payload.
+
 - Forks can themselves be forked — depth is unbounded.
 - A parent may have multiple forks.
 
-> **How inherited context is materialized** (copy rows vs. reference a parent
-> pointer vs. replay) is **deferred** — it depends on the conversation-content
-> storage model decided after the Agentic Bridge spike. This spec fixes only the
-> aggregate-level relationship (`parentId` + `fromTurnId`), not the content
-> mechanics.
+> **Fork-at-a-specific-turn is deferred to the spike.** Forking from an arbitrary
+> point mid-conversation requires a `turnId` — an identifier into the
+> conversation-content model that does not exist yet (turns are deferred to
+> `12-agentic-bridge-spike.md`). Until that model is designed, the v0 fork point
+> is fixed at the parent's current tip. Likewise, **how** the inherited context is
+> materialized (copy vs. parent-pointer vs. replay) is decided after the spike;
+> this spec fixes only the aggregate-level relationship (`parentId`).
 
 ---
 
@@ -118,7 +121,7 @@ The sidebar spinner is driven entirely by these pushes — never by polling.
 ```
 GET    /v0/workspaces/:wsId/chats     flat list for the workspace
 POST   /v0/workspaces/:wsId/chats     create root chat { title? }
-POST   /v0/chats/:id/fork             fork { fromTurnId } → child with parentId
+POST   /v0/chats/:id/fork             fork (from current tip) → child with parentId
 PATCH  /v0/chats/:id                  rename { title }
 DELETE /v0/chats/:id                  delete (cascades to children)
 ```

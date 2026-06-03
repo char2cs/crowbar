@@ -29,10 +29,15 @@ Creating a child workspace:
 git worktree add <childPath> -b <childBranch> <parentBranch>
 ```
 
-The child branches off the **parent's current tip**. Deleting a workspace runs
-`git worktree remove <path>` (and deletes the branch if Crowbar-managed). The
-`parentId` field on the Workspace aggregate (`00-architecture-and-domain.md`
-§5.3) tracks the tree.
+The child branches off the **parent's current tip**. That tip's SHA is recorded
+as the child's **`forkPointSha`** (`00` §5.3) at creation time — it is the
+authoritative fork point for re-parenting (§4), never recomputed via `merge-base`.
+Deleting a workspace runs `git worktree remove <path>` (and deletes the branch if
+Crowbar-managed). The `parentId` field on the Workspace aggregate tracks the tree.
+
+> **Org/Project context.** Above `Repository` in the sidebar sits the **Project**
+> (`00` §5.1) — the "Org name" node and org-switcher. It is just a top-level
+> grouping of repos; there is no separate Org entity.
 
 ---
 
@@ -103,12 +108,19 @@ protected branch is a **real pull request on the provider** — and Crowbar does
 
 ## 4. Re-parenting (child migrates to a new parent)
 
-A child workspace can migrate to a different parent. The git operation:
+A **leaf** child workspace can migrate to a different parent. The git operation:
 
 ```
-git rebase --onto <newParentTip> <forkPoint> <childBranch>
-where forkPoint = git merge-base <childBranch> <oldParentBranch>
+git rebase --onto <newParentTip> <forkPointSha> <childBranch>
 ```
+
+`forkPointSha` is the commit the child branch was **created from**, recorded on
+the Workspace aggregate at `git worktree add` time (`00` §5.3). We use the
+**recorded SHA**, not `git merge-base` — because once a local merge (§3.1) has
+happened between the child and its parent, `merge-base` can return a commit that
+includes parent history, and `rebase --onto` would then drop legitimate child
+commits or replay parent commits. The recorded fork point is robust to prior
+merges.
 
 This replays **only the child's own commits** onto the new parent's tip,
 dropping the old parent's history from underneath.
@@ -117,12 +129,18 @@ dropping the old parent's history from underneath.
   child must resolve them before migration completes.
 - It **rewrites the child's commit SHAs** — safe, because the child is local and
   Crowbar-managed (never been on the provider).
-- On success, set `parentId = newParentId` and re-broadcast the workspace.
-- **Guard:** the new parent must be **unlocked**. Re-parenting onto a protected
-  branch is not a valid operation (that path is a PR, not a local rebase).
+- On success, set `parentId = newParentId`, **update `forkPointSha` to the new
+  parent's tip** (the new branch-creation point), and re-broadcast.
+- **Guard — new parent unlocked:** re-parenting onto a protected branch is invalid
+  (that path is a PR, not a local rebase).
+- **Guard — child must be a leaf:** re-parenting a workspace that **has its own
+  children is forbidden** in v0. The rebase rewrites the child's SHAs, which would
+  orphan every descendant's `forkPointSha` (they branched off commits that no
+  longer exist) and corrupt their merge bases. The user must re-parent or detach
+  descendants first. (Cascade-rebasing a whole subtree may be added later.)
 
 ```
-POST /v0/workspaces/:childId/reparent { newParentId }
+POST /v0/workspaces/:childId/reparent { newParentId }   // 409 if child has children
 ```
 
 ---

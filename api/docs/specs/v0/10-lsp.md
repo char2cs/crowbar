@@ -46,7 +46,11 @@ The frontend asks, the backend forwards to the LSP server, waits, returns.
 | References | `textDocument/references` | `POST /v0/workspaces/:wsId/lsp/references` |
 | Rename | `textDocument/rename` | `POST /v0/workspaces/:wsId/lsp/rename` |
 | Code actions | `textDocument/codeAction` | `POST /v0/workspaces/:wsId/lsp/codeAction` |
+| Document symbols | `textDocument/documentSymbol` | `POST /v0/workspaces/:wsId/lsp/documentSymbol` |
 | Signature help | `textDocument/signatureHelp` | (part of the completion flow) |
+
+"Go to symbol in current file" (UX §16) is served by `documentSymbol`. ("Go to
+line" is client-side.)
 
 ### B) Push (WS) — asynchronous diagnostics
 

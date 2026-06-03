@@ -112,11 +112,15 @@ The UX spec (§5, §28) sketches a frame shape (`text` / `widget` / `tool_call` 
 `done`), but the **real** frames must be derived from the actual CLI outputs and
 normalized into one common protocol. Not locked.
 
-### 4.4 Fork content materialization
+### 4.4 Fork content materialization + fork-at-a-turn
 
-`01-chat-lifecycle.md` §4 fixes the *aggregate* relationship (`parentId` +
-`fromTurnId`) but explicitly defers **how inherited context is materialized**
-(copy rows vs. parent-pointer vs. replay). Depends on 4.1.
+`01-chat-lifecycle.md` §4 fixes the *aggregate* relationship (`parentId`) and
+ships **fork-from-current-tip** for v0. Two things are deferred here:
+1. **How** inherited context is materialized (copy rows vs. parent-pointer vs.
+   replay) — depends on 4.1.
+2. **Fork-at-a-specific-turn** (`fromTurnId`) — needs the turn ID space from 4.1
+   before it can be specified. v0 forks only from the tip; the `fromTurnId`
+   parameter is added once turns exist.
 
 ### 4.5 Message-send + run endpoints
 

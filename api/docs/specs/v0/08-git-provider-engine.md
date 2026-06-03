@@ -100,6 +100,12 @@ Therefore PR/branch-protection state is **polled**.
 Each poll that detects a change issues a `SyncProviderState` command to the
 **Workspace** aggregate (§5).
 
+> **Accepted deviation from UX §17.** UX §17 lists `pr-open/merged/closed` as
+> "Event-driven." Because no provider push exists for a local tool, the real
+> behavior is poll-driven: after a user merges a PR, the badge can lag up to one
+> sweep interval (~60s), or updates immediately if the row/panel is viewed
+> (on-view poll). This is a conscious trade-off, not an oversight.
+
 ---
 
 ## 5. Integration With the Workspace Aggregate
@@ -121,6 +127,14 @@ poll detects change
 So provider sync rides the **same** Class A path as every other workspace state
 change (`03-realtime-websockets.md`): command → event → subscription → hub →
 broadcaster. No new broadcaster, no new WS endpoint.
+
+> **`locked` can transition after creation.** It is resolved at creation, but a
+> later poll may flip it — e.g. a workspace created while `gh` was unauthenticated
+> (config-list fallback → `locked:false`) where the branch later proves protected
+> once `gh` is available. If a workspace gains `locked:true` after the user has
+> already made local commits/merges into it, the lock takes effect **going
+> forward** (no further local mutations / merges-into); already-applied local work
+> is **not** rewound. Integrating it then requires a provider PR (`07` §3.2).
 
 Fields added to the Workspace aggregate by this engine:
 

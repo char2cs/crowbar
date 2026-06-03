@@ -70,12 +70,18 @@ Asynx entirely.
 fsnotify / LSP / PTY → producer → hub.BroadcastX → Broadcaster
 ```
 
-Producers: **FileWatcher**, **LSP client**, **PTY session**.
+Producers: **FileWatcher** (→ Git, Files topics), **LSP client**, **PTY session**.
 
-> Mixing the two is fine and expected — e.g. a file write (Class B) also causes
-> the workspace's diff stats to change, which is broadcast on the Workspaces
-> topic that otherwise carries Class A events. The broadcaster does not care
-> which class produced the event.
+> **Important nuance — the Workspaces topic is Class A only.** A file write does
+> change the workspace's diff stats, but those updates do **not** go straight to
+> the Workspaces broadcaster. The watcher issues a `SyncWorkingTreeState` command
+> to the **Workspace aggregate** (Class A), which then projects and broadcasts a
+> **complete** row. This keeps the aggregate the single source of truth and means
+> exactly **one** producer ever emits a `Workspace` object — eliminating the
+> field-clobbering hazard of two producers each sending half a row. The watcher's
+> *direct* Class-B pushes are only to the **Git** (`GitStatus`) and **Files**
+> (`FileChangeEvent`) topics, which are pure recomputable snapshots not worth
+> event-sourcing.
 
 ---
 
@@ -83,7 +89,7 @@ Producers: **FileWatcher**, **LSP client**, **PTY session**.
 
 | Broadcaster | `T` | Subscription scope (namespace) | Payload identifies | Class |
 |-------------|-----|-------------------------------|--------------------|-------|
-| **Workspaces** | `Workspace` (full object) | **global** (optional `?repoId=` filter) | `id` | A + B |
+| **Workspaces** | `Workspace` (full object) | **global** (optional `?repoId=` filter) | `id` | A |
 | **Chats**      | `ChatStatusEvent`         | **`wsId`**     | `chatId`    | A |
 | **Git**        | `GitStatus` (full object) | `wsId`         | `wsId`      | B |
 | **Files**      | `FileChangeEvent`         | `wsId`         | `path`      | B |
@@ -144,16 +150,30 @@ same disk event.
 ```
 fsnotify fires (debounced)
   └─► FileWatcher
-        ├─► hub.BroadcastFile(FileChangeEvent)        → Files broadcaster   (wsId)
+        ├─► hub.BroadcastFile(FileChangeEvent)        → Files broadcaster (wsId)   [Class B, direct]
         ├─► recompute GitStatus
-        │     └─► hub.BroadcastGit(GitStatus)          → Git broadcaster     (wsId)
+        │     └─► hub.BroadcastGit(GitStatus)          → Git broadcaster   (wsId)   [Class B, direct]
         └─► recompute +N/-N (and hasConflicts)
-              └─► hub.BroadcastWorkspace(Workspace)    → Workspaces broadcaster (global)
+              └─► if changed: SyncWorkingTreeState{wsId, added, deleted, hasConflicts}
+                    → Workspace aggregate (Asynx) → projection → Workspaces broadcaster (global)  [Class A]
 ```
 
-The FileWatcher is therefore the busiest producer. Recomputation is debounced so
-a burst of writes (e.g. an agent editing many files) collapses into a bounded
-number of broadcasts.
+Two topics (Files, Git) are pushed **directly** (Class B — pure disk snapshots).
+The third path goes **through the Workspace aggregate** via a command, so the
+Workspaces broadcaster always emits a complete row (see §2). The command is
+emitted **only when a summary value actually changes**, and the watcher debounces,
+so a burst of writes (e.g. an agent editing many files) collapses into a bounded
+number of commands and broadcasts. The Workspace aggregate **snapshots**
+periodically so reconstruction stays cheap despite frequent `SyncWorkingTreeState`
+events.
+
+### Agent commits (`.git/` ref changes)
+
+The watcher skips `.git/` for content, but **does watch `.git/HEAD` and
+`.git/refs/`** specifically — so an agent (or external) commit, which moves refs
+without touching the working tree, still triggers a `GitStatus` recompute and a
+`SyncWorkingTreeState` (ahead/behind, cleared `new` status). Without this narrow
+exception, agent-side commits (UX §28) would not refresh the row (UX §17 row 1).
 
 ---
 
@@ -161,24 +181,30 @@ number of broadcasts.
 
 The per-workspace **file watcher** and **LSP client** are expensive (inotify
 handles, a language-server subprocess). They start **lazily on first WS
-subscription** and tear down when the last client disconnects.
+subscription** and tear down when the last relevant client disconnects. They are
+**two independent resources with two independent ref-counts** — they are unrelated
+(an inotify watcher vs. a language-server subprocess) and must not share a
+lifecycle.
 
 ```
-first client connects to /v0/ws/files?wsId=X (or /v0/ws/git, /v0/ws/lsp)
-  └─► start the workspace's FileWatcher / LSP client if not already running
+FileWatcher refcount = subscribers to (Files ∪ Git) for wsId
+  first such client → start watcher;  last → stop watcher
 
-last client for that workspace disconnects
-  └─► stop the FileWatcher / LSP client, release handles
+LSP client refcount = subscribers to (LSP) for wsId  (+ any in-flight LSP request)
+  first → spawn server(s);  last → shut down
 ```
 
-- Cheap when idle: a workspace nobody is viewing consumes no watcher/LSP
-  resources.
-- The Files, Git, and LSP topics for a given `wsId` share **one** underlying
-  FileWatcher / LSP client — reference-counted across those subscriptions, not
-  one per topic.
-- Terminal sessions are independent: their lifecycle is tied to the PTY process
-  (created via REST, killed via REST or on disconnect), not to subscription
-  counting.
+- **The watcher must be alive whenever Git OR Files is subscribed** — because the
+  watcher is what produces `GitStatus` (and the `SyncWorkingTreeState` command).
+  A git-only subscriber (sidebar wants live conflict/ahead-behind with no file
+  tree open) therefore keeps the watcher running; the Git topic never goes silent.
+- **LSP is decoupled from the watcher.** An LSP-only subscriber spawns the
+  language server but **not** the watcher (LSP document sync is frontend-driven,
+  `10` §3 — it does not need disk events). Likewise a Files/Git subscriber never
+  spawns a language server.
+- Terminal sessions are independent again: their lifecycle is tied to the PTY
+  process (created via REST, killed via REST or on disconnect), not to
+  subscription counting.
 
 ---
 
@@ -199,8 +225,10 @@ app.New()
 
 api.New(app)
   └─ construct 7 Broadcasters, each registers as a hub subscriber
-     Process-driven producers (FileWatcher, LSP, PTY) publish to the hub
-     directly when started (lazily, per §6).
+     Class-B producers publish directly when started (lazily, per §6):
+       FileWatcher → Git + Files topics (direct)
+       FileWatcher → Workspace aggregate via SyncWorkingTreeState (Class A, not direct)
+       LSP → LSP topic (direct);  PTY → Terminal topic (direct)
 ```
 
 ---
