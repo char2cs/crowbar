@@ -4,11 +4,22 @@ import { describe, it, expect, beforeEach, vi } from 'vitest'
 import { SidebarCarousel } from '@/components/layout/sidebar-carousel'
 import { useSidebarStore } from '@/lib/store/sidebar'
 
+vi.mock('@tanstack/react-router', async () => {
+  const actual = await vi.importActual('@tanstack/react-router')
+  return {
+    ...actual,
+    useRouterState: (opts: any) => {
+      const select = opts.select
+      return select({ location: { pathname: '/workspaces/test-ws' } })
+    },
+  }
+})
+
 vi.mock('@/components/layout/workspace-tree', () => ({
   WorkspaceTree: () => <div data-testid="panel-workspaces" />,
 }))
-vi.mock('@/features/chats/components/chat-list', () => ({
-  ChatList: () => <div data-testid="panel-chats" />,
+vi.mock('@/components/layout/chat-tree', () => ({
+  ChatTree: () => <div data-testid="panel-chats" />,
 }))
 vi.mock('@/features/file-explorer/components/file-explorer-tree', () => ({
   FileExplorerTree: () => <div data-testid="panel-files" />,
@@ -28,6 +39,10 @@ vi.mock('@/features/file-system/controllers/store', () => ({
 vi.mock('@/features/file-explorer/stores/file-explorer-tree-store', () => ({
   useFileTreeStore: { getState: () => ({ toggleFolder: vi.fn() }) },
 }))
+vi.mock('@/lib/store/sidebar', async () => {
+  const actual = await vi.importActual('@/lib/store/sidebar')
+  return actual
+})
 
 describe('SidebarCarousel', () => {
   beforeEach(() => {

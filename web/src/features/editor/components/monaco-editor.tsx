@@ -403,7 +403,7 @@ export function MonacoBackedEditor({
     model.updateOptions({ tabSize, insertSpaces: true });
     const editor = monacoEditor.create(container, {
       model,
-      automaticLayout: true,
+      automaticLayout: false,
       fontFamily,
       fontSize,
       lineHeight,
@@ -592,7 +592,21 @@ export function MonacoBackedEditor({
       setTimeout(() => editor.focus(), 0);
     }
 
+    // rAF-debounced ResizeObserver — fires editor.layout() only once per resize burst,
+    // so continuous drag does not call layout() every frame (same pattern as terminal.tsx).
+    let layoutRafId: number | null = null;
+    const resizeObserver = new ResizeObserver(() => {
+      if (layoutRafId !== null) cancelAnimationFrame(layoutRafId);
+      layoutRafId = requestAnimationFrame(() => {
+        layoutRafId = null;
+        editor.layout();
+      });
+    });
+    resizeObserver.observe(container);
+
     return () => {
+      resizeObserver.disconnect();
+      if (layoutRafId !== null) cancelAnimationFrame(layoutRafId);
       onCoordinateResolverChange?.(null);
       onModelPositionResolverChange?.(null);
       unsubscribeCursor();

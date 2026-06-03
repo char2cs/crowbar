@@ -53,10 +53,19 @@ export function IDEShell() {
     // Target only the two elements that actually change width — bypasses CSS var cascade
     const gapEl = document.querySelector<HTMLElement>('[data-slot="sidebar-gap"]')
     const containerEl = document.querySelector<HTMLElement>('[data-slot="sidebar-container"]')
+    // Freeze the content area so Monaco never gets resize events during drag.
+    // Without this, SidebarInset (flex-1) refluxes on every mousemove, triggering
+    // Monaco's ResizeObserver and editor.layout() — 2-10ms per editor per frame.
+    const insetEl = document.querySelector<HTMLElement>('[data-slot="sidebar-inset"]')
+    const insetWidth = insetEl?.getBoundingClientRect().width ?? 0
 
     // Disable transitions so they don't fight the rapid updates during drag
     if (gapEl) gapEl.style.transition = 'none'
     if (containerEl) containerEl.style.transition = 'none'
+    if (insetEl && insetWidth) {
+      insetEl.style.flex = 'none'
+      insetEl.style.width = `${insetWidth}px`
+    }
 
     let currentWidth = startWidth
     let latestX = startX
@@ -79,6 +88,8 @@ export function IDEShell() {
       // Update CSS var to match, then clear inline overrides so toggle animation still works
       if (gapEl) { gapEl.style.transition = ''; gapEl.style.width = '' }
       if (containerEl) { containerEl.style.transition = ''; containerEl.style.width = '' }
+      // Unfreeze content area — Monaco ResizeObserver fires once here, layout() called once
+      if (insetEl) { insetEl.style.flex = ''; insetEl.style.width = '' }
       try {
         localStorage.setItem('sidebar-width', String(currentWidth))
       } catch {
