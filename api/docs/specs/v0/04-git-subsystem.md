@@ -157,7 +157,7 @@ mutates the working tree or index triggers a `GitStatus` recompute and broadcast
 | Stash | `git stash push [-m <msg>]` |
 | Stash apply/pop | `git stash apply <id>` / `git stash pop <id>` |
 | Stash drop | `git stash drop <id>` |
-| Reset | `git reset --soft|--mixed|--hard <commit>` |
+| Reset | `git reset --soft\|--mixed\|--hard <commit>` |
 | Merge | `git merge <branch>` |
 | Rebase | `git rebase <onto>` |
 
@@ -185,8 +185,11 @@ When merge / rebase / pull exits with conflicts:
 
 1. The engine detects it: non-zero exit **and** `git status` reports unmerged
    paths.
-2. The usecase sets `hasConflicts: true` on the Workspace aggregate → broadcast
-   on the Workspaces topic (the sidebar shows the conflict indicator).
+2. The usecase issues `SyncWorkingTreeState{hasConflicts: true, …}` to the
+   Workspace aggregate (recomputed from `git status`) → the aggregate projects and
+   broadcasts on the Workspaces topic (the sidebar shows the conflict indicator).
+   It does **not** set `hasConflicts` out of band — same single command as the
+   watcher (`00` §5.3, §6.1).
 3. `conflicts/` builds the three-way view for each conflicting file:
    - Working-tree markers (`<<<<<<<`, `=======`, `>>>>>>>`) delimit hunks.
    - `git show :1:<path>` = **base** (common ancestor),
@@ -197,8 +200,8 @@ When merge / rebase / pull exits with conflicts:
    { path, conflictHunkId, resolution, resolvedContent? }` writes the resolved
    content into the file. `conflictHunkId` is `ConflictHunk.id` (below) — **not**
    the staging `hunkId` of §4.
-5. When every hunk in every conflicting file is resolved and staged,
-   `hasConflicts` clears → broadcast.
+5. When every hunk in every conflicting file is resolved and staged, the usecase
+   issues `SyncWorkingTreeState{hasConflicts: false, …}` → broadcast.
 
 ### Shape (from UX spec)
 

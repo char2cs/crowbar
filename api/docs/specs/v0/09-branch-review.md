@@ -15,8 +15,8 @@ The branch review panel is the "review before merge" surface for a workspace's
 branch. It has three subtabs:
 
 - **About** — an AI-generated markdown description of what the branch does.
-- **Git** — the branch's commit diff (the same `MultiFileDiff` viewer as §10 /
-  `04-git-subsystem.md`).
+- **Git** — the branch's commit diff (the same `MultiFileDiff` viewer as UX §10;
+  shape defined in `04-git-subsystem.md` §3).
 - **Discussion** — inline comment threads anchored to specific diff lines.
 
 A merge-strategy selector (merge / squash / rebase) sits in the header; it feeds

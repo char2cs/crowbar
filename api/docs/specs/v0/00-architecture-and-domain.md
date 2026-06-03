@@ -184,15 +184,28 @@ aggregate and mutated **only through Asynx commands**:
 
 | Command | Owns (writes) | Issued by |
 |---------|---------------|-----------|
-| `SyncWorkingTreeState{added, deleted, hasConflicts, hasCommits}` | `added`, `deleted`, `hasConflicts`; **clears `new`→null** (see below) | watcher (debounced, only-on-change) |
+| `SyncWorkingTreeState{added, deleted, hasConflicts, hasCommits}` | `added`, `deleted`, `hasConflicts`; **clears `new`→null**; bumps `lastActivity` | the watcher **and** git write usecases (both recompute from `git status`; see below) |
 | `SyncProviderState{prInfo?, protected}` | `status` ∈ {pr-open,pr-merged,pr-closed}, `prUrl`, `prTitle`, `prTargetBranch`, `locked` | provider poller (`08`) |
-| create / hierarchy / merge / reparent | `status` (`new` at create), `parentId`, `forkPointSha`, `branch`, `worktreePath` | usecases (`07`) |
+| create / hierarchy / merge / reparent | `status` (`new` at create), `parentId`, `forkPointSha`, `branch`, `worktreePath`; bumps `lastActivity` | usecases (`07`) |
+| `TouchActivity` | `lastActivity` only | chat / AgentRun activity (`01`) |
 
 Asynx **serializes commands per aggregate**, so no two ever interleave a
 half-write. Field ownership is disjoint **except `status`**, whose writers act in
-disjoint lifecycle phases and are guarded so they cannot fight (§6.1). The
-aggregate therefore always holds a **complete** row, and the Workspaces
-broadcaster emits that complete projected object. See §6.1 and
+disjoint lifecycle phases and are guarded so they cannot fight (§6.1).
+
+**`hasConflicts` and `SyncWorkingTreeState` have two issuers, one command.** Both
+the watcher (on disk change) and the git write usecases (after a merge / rebase /
+pull / conflict-resolve, `04` §5/§6) recompute the summary from `git status`
+(unmerged paths → `hasConflicts`) and issue the **same** `SyncWorkingTreeState`
+command. This is *not* a multi-writer hazard: there is exactly one command that
+writes these fields, it is fully recompute-from-truth (idempotent), and Asynx
+serializes it. The git usecase never sets `hasConflicts` "out of band" — it
+always goes through the command.
+
+`lastActivity` is bumped by any command representing activity (the two
+`SyncWorkingTreeState` issuers cover commits/file writes; `TouchActivity` covers
+chat/agent activity). The aggregate therefore always holds a **complete** row, and
+the Workspaces broadcaster emits that complete projected object. See §6.1 and
 `03-realtime-websockets.md` §4. (The verbose `GitStatus` for the Git panel is a
 separate, non-event-sourced channel — `04`/`05`.)
 
@@ -242,8 +255,8 @@ new ──► (status: null — has commits, no PR)
          ├─ overlay: agent-running  (set while any AgentRun for this ws is live;
          │                           previous status restored when it stops)
          │
-         └─ overlay: hasConflicts   (set by git subsystem on merge/rebase
-                                      conflict; cleared when all resolved)
+         └─ overlay: hasConflicts   (recomputed from `git status` unmerged paths
+                                      via SyncWorkingTreeState; cleared when resolved)
 ```
 
 - Base `status` values: `new`, `pr-open`, `pr-merged`, `pr-closed`. A workspace is
@@ -262,9 +275,11 @@ new ──► (status: null — has commits, no PR)
 - `locked` is a **flag, not a state** — it gates deletion and cascade-delete,
   independent of `status`.
 - `added` / `deleted` / `hasConflicts` are mutated **only** through
-  `SyncWorkingTreeState` (watcher — debounced, change-only), keeping the aggregate
-  the single complete source of truth (§5.3). They are *not* pushed to the
-  broadcaster out-of-band.
+  `SyncWorkingTreeState` — issued by the watcher (debounced, change-only) *and* by
+  git write usecases after a merge/rebase/pull/resolve (`04` §6), both recomputing
+  from `git status`. One command, recompute-from-truth, serialized by Asynx →
+  still single-source-of-truth (§5.3). They are *not* pushed to the broadcaster
+  out-of-band.
 - The `agent-running` badge is the live presence of an AgentRun projected onto the
   row (overlay), not a stored base status — the same string is a real `status`
   value on **Chat** (`01`) but only an overlay here.

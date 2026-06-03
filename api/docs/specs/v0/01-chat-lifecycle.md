@@ -114,6 +114,11 @@ Agent finishes
 
 The sidebar spinner is driven entirely by these pushes — never by polling.
 
+Chat and AgentRun activity also issues a `TouchActivity` command to the
+**Workspace** aggregate (`00` §5.3) to bump its `lastActivity` — so a workspace
+whose only recent activity is a conversation still surfaces as "recently touched"
+(UX §1/§2 age).
+
 ---
 
 ## 6. REST Surface (lifecycle only)
