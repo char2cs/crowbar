@@ -299,13 +299,18 @@ POST /v0/workspaces/:wsId/git/operation/continue   finalize the in-progress op
 POST /v0/workspaces/:wsId/git/operation/abort       roll back to pre-op state
 ```
 
-The usecase reads the on-disk marker to know which operation is in progress and
-runs the right finalize:
+The usecase identifies the in-progress operation and runs the right finalize.
+**Detection differs by op:** `merge` / `rebase` / `pull` leave an on-disk marker
+(`.git/MERGE_HEAD`, `rebase-merge/`, `rebase-apply/`); a conflicted **`--squash`
+leaves NO marker** (git prints "Squash commit -- not updating HEAD"), only an
+unmerged index — so squash-in-progress is identified by **unmerged index +
+`pendingMerge.strategy == squash`** (squash only ever arises from
+`merge-into-parent`, below), not by a disk marker.
 
 | In progress | Continue | Abort |
 |-------------|----------|-------|
 | merge | `git commit` (pre-populated message) | `git merge --abort` |
-| squash | `git commit` | `git merge --abort` / `git reset --merge` |
+| squash | `git commit` | `git reset --merge` (a squash has **no** `MERGE_HEAD`, so `git merge --abort` would error) |
 | rebase / pull-rebase | `git rebase --continue` (loops if more conflicted commits) | `git rebase --abort` |
 | pull-merge | `git commit` | `git merge --abort` |
 

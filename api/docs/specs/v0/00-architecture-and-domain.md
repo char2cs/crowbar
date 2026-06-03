@@ -301,6 +301,9 @@ On import, the usecase:
      recorded fork point and never recomputed again.
    - `locked` resolved via the provider engine (`08`); the default/protected
      branch checkout is locked.
+   - `status` is seeded at import from the branch's reality (not blindly `new`):
+     `new` only if the branch has no commits beyond its fork point, else `null`,
+     and the first on-view provider poll may upgrade it to `pr-*`.
 
 This makes every `Repository` and adopted `Workspace` field have a defined writer.
 

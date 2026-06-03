@@ -1,9 +1,13 @@
-# WAVE 3 — App layer + Branch Review + LSP
+# WAVE 3 — App layer + Worktree Hierarchy + Branch Review + LSP
 
 After the engines (Wave 2) land, build the **application layer** that ties them
-to the domain aggregates and the hub, then Branch Review, then LSP (last /
-optional). The app-layer work and `09` can run partly in parallel; do `10` LSP
-last.
+to the domain aggregates and the hub: the aggregate command sets + usecases +
+hub projections (3A), the worktree hierarchy (3D, the signature feature), Branch
+Review (3B), then LSP (3C, last / optional).
+
+**Sub-ordering:** **3A first** — it lands the Workspace aggregate command set;
+**3D (hierarchy) and the provider-poll wiring depend on it**. 3B can run alongside
+3A once the ReviewThread commands exist; 3C (LSP) is independent and goes last.
 
 ## ⛔ Rabbyte standards — NON-NEGOTIABLE (violating ANY = task failure)
 
@@ -52,9 +56,33 @@ and each engine's public API.
   `hub.BroadcastX`; AgentRun sub drives Chat status + Workspace `agent-running`
   overlay; finalize the AgentRun crash-recovery two-pass.
 - **Usecases** for projects/repos/workspaces/chats(lifecycle)/files/git/terminal,
-  composing the engines.
+  composing the engines. (Worktree-hierarchy usecases are Agent 3D.)
+- **Wire the provider poll** (Wave-2 engine) → `SyncProviderState` command on the
+  Workspace aggregate (`08` §5).
 > Scaffold the AgentRun *shape* and Chat aggregate, but **do not** build the
 > message-send/run path (deferred — `12`).
+> **3A lands the Workspace aggregate command set first** — 3D and the provider
+> wiring depend on it.
+
+---
+
+## Agent 3D — Worktree Hierarchy (`07`) ★ signature feature  (depends on 3A's Workspace commands)
+
+**Read:** `api/docs/specs/v0/07-workspace-worktree-hierarchy.md`, `00` §5.3/§6.1,
+`04` §5/§6.1 (the Wave-1 git **primitives** you call: worktree add/remove,
+rebase-onto, ff-only).
+**Owns:** the Workspace-hierarchy **usecases** in `app/usecases/` — orchestrating
+the Wave-1 git primitives + 3A's Workspace Asynx commands (do not fork either).
+**Build:** worktree-backed workspace create (`git worktree add`, record
+`forkPointSha`); local merge — all **three** strategies (merge/squash append-only
+in parent; **rebase = rebase child onto parent then `git merge --ff-only`**;
+update kept-child `forkPointSha` for every strategy); re-parent
+(`git rebase --onto <newParentTip> <forkPointSha>`, leaf-guard → `has_children`);
+cascade delete (`git worktree remove --force` then `git branch -D`, skip locked);
+the `pendingMerge` marker + cross-worktree conflict resume; locked = chat-only.
+**Verify:** real repo — child create → commit → local merge (each strategy) →
+parent advances correctly; re-parent a leaf; re-parent with children is rejected;
+delete cascade skips a locked child. **This is the one to get exactly right.**
 
 ---
 

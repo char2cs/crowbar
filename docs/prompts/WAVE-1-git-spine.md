@@ -54,7 +54,12 @@ credentials/config.
   branch ops, checkout (switch-branch reconciled with the worktree model),
   stash, reset, merge/rebase (generic, single-worktree).
 - **Conflict/operation lifecycle** (§6, §6.1): `operation/continue|abort`, the
-  per-strategy finalize table, the `pendingMerge` resume path.
+  per-strategy finalize table, the `pendingMerge` resume path. (Squash conflict
+  has **no** `MERGE_HEAD` — abort with `git reset --merge`, not `git merge --abort`.)
+- **Worktree primitives** (the git ops `07` will call from its Wave-3 usecases):
+  `git worktree add/remove --force/list`, the `rebase --onto <newTip> <forkPoint>
+  <branch>` helper, and the rebase-child-then-`merge --ff-only` helper. Engine-level
+  only — the hierarchy *usecases* (issuing Asynx commands) are Wave 3.
 - **Per-repo mutation lock** keyed by `repoId`; defer status recompute while a
   rewrite is in progress (`MERGE_HEAD`/`rebase-merge`/`rebase-apply`).
 - **Error classification** (§8): `conflict`, `rejected_non_fast_forward`,

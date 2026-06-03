@@ -1,11 +1,15 @@
-# WAVE 2 — Engines (FOUR agents in parallel)
+# WAVE 2 — Engines (THREE agents in parallel)
 
-After GATE 1 passes, fan out these four **independent** engine agents
+After GATE 1 passes, fan out these three **genuinely independent** engine agents
 concurrently. Each owns its own package(s) and **must not touch another agent's
-code** or the foundation. They all consume the Wave 0 contracts and (for some)
-the Wave 1 git engine.
+code** or the foundation. They consume the Wave 0 contracts and (for provider)
+the Workspace aggregate.
 
-## ⛔ Rabbyte standards — NON-NEGOTIABLE for all four agents (violating ANY = task failure)
+> The worktree hierarchy (`07`) is **NOT** here — it is app-layer usecases over
+> the Workspace aggregate and lives in **Wave 3** (its git primitives are in the
+> Wave 1 engine).
+
+## ⛔ Rabbyte standards — NON-NEGOTIABLE for all three agents (violating ANY = task failure)
 
 A reviewer checks each one on every agent's output.
 1. **Replicate quiver.core's structure** (`/Users/char2cs/Projects/Rabbyte/quiver.core`):
@@ -19,8 +23,8 @@ A reviewer checks each one on every agent's output.
 5. **Coverage ≥95%** (100% is the standard). **No flaky tests.** **NO `time.Sleep`
    in tests, EVER** — event-driven WS watchers / condition-based wait helpers
    (mirror quiver `tests/kit`).
-6. **Benchmarks (`*_bench_test.go`) for hot paths** (per-agent: hierarchy diff,
-   PTY fan-out, search match/walk, provider parse) — Crowbar is an IDE, be fast.
+6. **Benchmarks (`*_bench_test.go`) for hot paths** (per-agent: PTY fan-out,
+   search match/walk, provider parse) — Crowbar is an IDE, be fast.
 7. **CLEAN**: guard clauses, composition, `fmt.Errorf("op: ctx: %w", err)`,
    gofumpt + goimports. Enforced by `.golangci.yml` (funlen 100/50, gocyclo 15,
    nestif ≤2, revive early-return). Full statement: `docs/prompts/README.md`.
@@ -36,27 +40,7 @@ behavior with **no `time.Sleep`**.
 
 ---
 
-## Agent 2A — Worktree Hierarchy (`07`) ★ signature feature
-
-**Read:** `api/docs/specs/v0/07-workspace-worktree-hierarchy.md`,
-`00` §5.3/§6.1, `04` §5/§6.1 (the git primitives you call).
-**Owns:** the Workspace-hierarchy **usecases** in `app/usecases/` + any
-`engine/git` helpers needed (coordinate via the git engine's public API — do not
-fork it).
-**Build:** worktree-backed workspace create (`git worktree add`, record
-`forkPointSha`); local merge — all **three** strategies (merge/squash append-only
-in parent; **rebase = rebase child onto parent then `git merge --ff-only`**;
-update kept-child `forkPointSha` for every strategy); re-parent
-(`git rebase --onto <newParentTip> <forkPointSha>`, leaf-guard → `has_children`);
-cascade delete (`git worktree remove --force` then `git branch -D`, skip locked);
-the `pendingMerge` marker + cross-worktree conflict resume; locked = chat-only.
-**Verify:** real repo — child create → commit → local merge (each strategy) →
-parent advances correctly; re-parent a leaf; re-parent with children is rejected;
-delete cascade skips a locked child. **This is the one to get exactly right.**
-
----
-
-## Agent 2B — Terminal / PTY (`06`)
+## Agent 2A — Terminal / PTY (`06`)
 
 **Read:** `api/docs/specs/v0/06-terminal-pty.md`, `03` §3 (Terminal topic).
 **Owns:** `engine/terminal/` (`session/`, `registry/`, `profile/`) + the terminal
@@ -71,7 +55,7 @@ replay-on-reattach with no loss/dup; resize works.
 
 ---
 
-## Agent 2C — Global Search (`11`)
+## Agent 2B — Global Search (`11`)
 
 **Read:** `api/docs/specs/v0/11-global-search.md`.
 **Owns:** `engine/search/` (`walk/`, `ignore/`, `match/`, `replace/`) + the two
@@ -86,7 +70,7 @@ files and the watcher picks it up.
 
 ---
 
-## Agent 2D — Git Provider Engine (`08`)
+## Agent 2C — Git Provider Engine (`08`)
 
 **Read:** `api/docs/specs/v0/08-git-provider-engine.md`, `00` §5.3/§6.4.
 **Owns:** `engine/provider/` (`github/`, `gitlab/`, `detect/`, `poll/`) + the two
@@ -95,8 +79,10 @@ read-only provider REST routes.
 `PullRequestForBranch`) over the **`gh` / `glab` CLIs** (required; graceful
 disable + config-list fallback when absent); PR selection rules (pushed branches
 only, head-match same repo, most-recent-open wins); polling (on-view via
-`GET …/provider` + 60s background sweep of open-PR workspaces); on change issue
-`SyncProviderState` to the Workspace aggregate (no new broadcaster). Never create
+`GET …/provider` + 60s background sweep of open-PR workspaces). The engine
+produces `PRInfo`; **wiring the resulting `SyncProviderState` command into the
+Workspace aggregate is finalized in Wave 3** (the aggregate's command set lands
+there) — expose the poll result so Wave-3 3A can issue the command. Never create
 PRs.
 **Verify:** with `gh` present, resolve protected branches + a branch's PR state
 and drive a Workspace `pr-*` badge; with the CLI absent, capability disables

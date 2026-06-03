@@ -13,7 +13,7 @@
 ## ⛔ RABBYTE ENGINEERING STANDARDS — NON-NEGOTIABLE
 
 At Rabbyte we are maniacs about clean-code principles. Every rule below is
-mandatory and is **embedded verbatim in every wave prompt**. **Violating ANY of
+mandatory and is **embedded (condensed) in every wave prompt**. **Violating ANY of
 them means the agent failed its task** — a reviewer will check each one and reject
 non-compliant code. No exceptions, no "just this once."
 
@@ -96,20 +96,26 @@ api/
 
 ```
 WAVE 0  Foundation + scaffold demolition (sequential)        → GATE 0
-WAVE 1  Git spine: 04 git → 05 fs/watcher (sequential)       → GATE 1   ★ "first runnable" near here
-WAVE 2  Engines (4 parallel agents): 07 · 06 · 11 · 08
-WAVE 3  App layer + 09 review + 10 LSP (LSP last/optional)
+WAVE 1  Git spine: 04 git (+ worktree primitives) → 05 fs/watcher (seq.)  → GATE 1   ★ "first runnable" near here
+WAVE 2  Engines (3 parallel agents): 06 terminal · 11 search · 08 provider
+WAVE 3  App layer: aggregates/usecases/projections + 07 hierarchy + 09 review + 10 LSP
 WAVE 4  API consolidation (02)                               → GATE 4 (backend green)
 WAVE 5  Integration suite to quiver parity (tests/kit + tests/integration)
 WAVE 6  Tauri + Web + backend: wire all 3, e2e + pressure test (chrome-devtools MCP)
 ```
 
+> **Layering note (why 07 is in Wave 3, not 2):** the worktree hierarchy is
+> *app-layer usecases* over the Workspace Asynx aggregate — it issues
+> `create/hierarchy/merge/reparent` commands that are built in Wave 3. Wave 1's
+> git engine provides the worktree *primitives* (add/remove, rebase-onto,
+> ff-only) it calls. Wave 2 holds only the genuinely independent engines.
+
 | Wave | File | Specs / scope | Parallelism |
 |------|------|---------------|-------------|
 | 0 | [WAVE-0-foundation.md](./WAVE-0-foundation.md) | 00, 03 framework + demolish old scaffold | 1 agent |
-| 1 | [WAVE-1-git-spine.md](./WAVE-1-git-spine.md) | 04, 05 | 1 agent |
-| 2 | [WAVE-2-engines.md](./WAVE-2-engines.md) | 07, 06, 11, 08 | **4 parallel** |
-| 3 | [WAVE-3-app-layer.md](./WAVE-3-app-layer.md) | app aggregates/usecases, 09, 10 | partial parallel |
+| 1 | [WAVE-1-git-spine.md](./WAVE-1-git-spine.md) | 04 (+ worktree primitives), 05 | 1 agent |
+| 2 | [WAVE-2-engines.md](./WAVE-2-engines.md) | 06, 11, 08 | **3 parallel** |
+| 3 | [WAVE-3-app-layer.md](./WAVE-3-app-layer.md) | app aggregates/usecases, 07 hierarchy, 09, 10 | partial parallel (3D depends on 3A) |
 | 4 | [WAVE-4-api.md](./WAVE-4-api.md) | 02 | 1 agent |
 | 5 | [WAVE-5-integration-suite.md](./WAVE-5-integration-suite.md) | tests/kit + tests/integration | 1 agent |
 | 6 | [WAVE-6-app-e2e.md](./WAVE-6-app-e2e.md) | wire web + Tauri + backend; e2e + stress | 1 driver agent |

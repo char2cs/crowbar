@@ -67,9 +67,11 @@ cascade delete skip-locked), `conflicts/` (detect → resolve → operation/cont
 & abort), `files/` (tree, content, mutations, watcher fan-out), `terminal/`
 (create, multi-attach, ring-buffer replay, resize), `search/` (toggles, gitignore,
 cap), `provider/` (gh-backed PR badge, graceful disable), `review/` (threads,
-read model), `websocket/` (**snapshot-on-subscribe** for every topic — connect
-mid-state, assert the snapshot arrives), `concurrency/` (parallel git ops under
-the per-repo lock), `crash/` (AgentRun recovery + chat reconcile on restart).
+read model), `websocket/` (**snapshot-on-subscribe** for the snapshot topics —
+Workspaces/Chats/Git/LSP: connect mid-state, assert the snapshot arrives; Files is
+**change-only** (no snapshot); Terminal **replays its ring buffer** — `03` §1a),
+`concurrency/` (parallel git ops under the per-repo lock), `crash/` (AgentRun
+recovery + chat reconcile on restart).
 
 ## Definition of done
 - `make test-integration` green, **fully deterministic** (run it 3× and with
