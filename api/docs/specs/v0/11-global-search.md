@@ -122,7 +122,9 @@ POST /v0/workspaces/:wsId/search/replace
 ```
 
 `replace/` rewrites file content on disk (supporting regex backreferences in
-`replacement`). Each write triggers the **file watcher**, which fans out to the
+`replacement`). Like every other disk-write path, it **rejects with a `locked`
+error on a provider-protected workspace** (chat-only — `07` §2, `04` §5, `05`
+§3/§4). Each write triggers the **file watcher**, which fans out to the
 Files / Git / Workspaces topics (`05-filesystem-and-watcher.md` §5) — so the
 editor, tree, and git panel update live, with no special-casing for replace.
 
