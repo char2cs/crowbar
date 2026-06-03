@@ -15,7 +15,9 @@ export function useWorkspaceEffects(wsId: string) {
     void (async () => {
       await useFileTreeStore.getState().fetch(repoPath)
       const files = dataOf(useFileTreeStore.getState().data)
-      if (!files) return
+      // Guard: the mock returns FileEntry[] but the real backend may return a
+      // tree object or error body — only set if we got a real array.
+      if (!Array.isArray(files)) return
       useFileSystemStore.setState({
         rootFolderPath: repoPath,
         files: files as unknown as AppFile[],
