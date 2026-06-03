@@ -114,7 +114,10 @@ events for **every** workspace.
 - Subscription scope: **global**, with an optional **`?projectId=`** filter — the
   sidebar renders the active **Project's** repos (a Project groups repos, `00`
   §5.1), so it subscribes by `projectId` to get all workspaces across that
-  project's repos in one stream. `?repoId=` narrows further to a single repo.
+  project's repos in one stream. `?repoId=` narrows further to a single repo. Both
+  filters evaluate against fields **on the payload** — `Workspace` carries both
+  `repoId` and a denormalized `projectId` (`00` §5.3) — so the `StreamDef`
+  predicate needs no DB join at filter time.
 - Payload: the **full `Workspace` object** (Q2 decision: full object, not
   granular deltas — idempotent, frontend replaces the row by `id`)
 - Carries: status, `added`/`deleted`, `hasConflicts`, `agent-running` overlay

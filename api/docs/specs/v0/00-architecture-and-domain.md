@@ -127,7 +127,11 @@ container that groups repos to keep contexts together (it owns a folder; its rep
 may even live in different folders). There is **no separate Org entity**; "switch
 org" = switch project. `lastActivity` is bumped whenever any descendant
 (repo/workspace) sees activity — a commit, a file write, or chat activity — so the
-"last touched" label (UX §1) stays accurate.
+"last touched" label (UX §1) stays accurate. **Writer path:** Project is GORM, so
+nothing fires on it automatically — the same activity that issues
+`SyncWorkingTreeState` / `TouchActivity` to a Workspace (§5.3) also performs a
+**GORM update of that workspace's Project (`repoId`→`projectId`) `lastActivity`**
+(a cheap denormalized roll-up). Without this the §1 label would never move.
 
 ### 5.2 Repository (GORM)
 
@@ -159,6 +163,9 @@ local child→parent merge, re-parenting — are in
 Workspace {
   id           uuid
   repoId       uuid
+  projectId    uuid        // denormalized from the repo, so the Workspaces
+                          //   broadcaster can filter by ?projectId= on the
+                          //   payload alone (no join at filter time) — 03 §4.1
   branch       string
   worktreePath string      // the git worktree directory on disk
   forkPointSha string      // commit the branch was created from (recorded at worktree add)
@@ -192,7 +199,7 @@ aggregate and mutated **only through Asynx commands**:
 |---------|---------------|-----------|
 | `SyncWorkingTreeState{added, deleted, hasConflicts, hasCommits}` | `added`, `deleted`, `hasConflicts`; **clears `new`→null**; bumps `lastActivity` | the watcher **and** git write usecases (both recompute from git — per-field sources below) |
 | `SyncProviderState{prInfo?, protected}` | `status` ∈ {pr-open,pr-merged,pr-closed}, `prUrl`, `prTitle`, `prTargetBranch`, `locked` | provider poller (`08`) |
-| create / hierarchy / merge / reparent | `status` (`new` at create), `parentId`, `forkPointSha`, `branch`, `worktreePath`; bumps `lastActivity` | usecases (`07`) |
+| create / hierarchy / merge / reparent | `status` (`new` at create), `parentId`, `forkPointSha`, `branch`, `worktreePath`, `pendingMerge` (set on a conflicted merge-into-parent, cleared on continue/abort — `04` §6.1); bumps `lastActivity` | usecases (`07`) |
 | `TouchActivity` | `lastActivity` only | chat / AgentRun activity (`01`) |
 
 Asynx **serializes commands per aggregate**, so no two ever interleave a
@@ -237,6 +244,13 @@ AgentRun {
   createdAt time.Time
 }
 ```
+
+> **All AgentRun *writers* are bridge-owned (post-spike).** The command that
+> creates an AgentRun and drives `pending → running → done|error|interrupted`
+> lives in the deferred message-send/run surface (`12` §4.5). This spec fixes the
+> aggregate's *shape* and its *crash recovery* (§6.2) and the *projections* it
+> drives (Chat status `01` §5, Workspace `agent-running` overlay §6.1); the
+> mutation commands themselves are designed in the Agentic Bridge spike.
 
 ### 5.6 TerminalProfile (GORM)
 

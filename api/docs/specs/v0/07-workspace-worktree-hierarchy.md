@@ -114,22 +114,28 @@ completes (or is abandoned) once all hunks are resolved.
 onto the parent tip, so — **if the child is kept** — its fork point has moved: the
 usecase **updates `child.forkPointSha` to the parent tip it was rebased onto**
 (parallel to re-parent, §4). Without this, the kept child's `+N/-N`
-(`git diff --numstat <forkPointSha>..HEAD`) would be inflated by the parent
-history pulled in underneath. (`merge`/`squash` are append-only on the parent and
-leave the child's fork point unchanged.)
+(`git diff --numstat <forkPointSha>`, `00` §5.3) would be inflated by the parent
+history pulled in underneath.
+
+**A *kept* child has its `forkPointSha` updated to the parent's post-merge tip
+for *every* strategy** (not just `rebase`). For `merge`/`squash` the parent
+advances while the child branch is unchanged, so leaving `forkPointSha` at the old
+fork would still count the now-already-merged commits as `+N`. Resetting it to the
+parent's new tip makes a kept child a true `+0/-0` continuation workspace until it
+gets new work — consistent across all three strategies. (The default post-merge
+action is delete; keep is the explicit alternative.)
 
 Never pushed unless the user later pushes the parent. After a successful local
 merge the child may be kept or deleted (user choice).
 
 **State of a *kept* child after merge.** Once merged, the child's commits are in
-the parent, so the child's diff vs parent is now empty (`+0/-0`). A kept child is
-therefore a **fresh continuation workspace** rooted at the parent's new tip — its
-`forkPointSha` is updated to that tip (for the `rebase` strategy explicitly;
-`merge`/`squash` leave the child branch where it was, so the user typically
-deletes it or keeps working and its `+N/-N` reflects new work). This is intended,
-not a phantom: keeping the child means "continue working from here on top of the
-just-merged parent." The default UI action after merge is **delete**; keep is the
-explicit alternative.
+the parent, so the child's diff vs parent is now empty. A kept child is therefore
+a **fresh continuation workspace** rooted at the parent's new tip — its
+`forkPointSha` is updated to that tip (for **every** strategy — see the
+`forkPointSha` note below), so it shows `+0/-0` until new work lands. This is
+intended, not a phantom: keeping the child means "continue working from here on
+top of the just-merged parent." The default UI action after merge is **delete**;
+keep is the explicit alternative.
 
 ```
 POST /v0/workspaces/:childId/merge-into-parent { strategy }

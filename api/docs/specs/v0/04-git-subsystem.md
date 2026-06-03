@@ -125,11 +125,18 @@ no `hunkId`.
 When the `diff/` parser produces a hunk it computes:
 
 ```
-hunkId = sha256(filePath + "@@" + hunkHeader + hunkBody)[:12]
+hunkId = sha256(filePath + "\n" + hunkBody)[:12]     // body = the +/-/context
+                                                     // lines only; NOT the @@ header
 ```
 
-This is **stable** while the hunk's content is unchanged, and is **embedded in
-the `FileDiff`** returned to the frontend (each hunk carries its `hunkId`).
+The hash deliberately **excludes the `@@` header**, because the header carries
+line numbers that **shift when a *sibling* hunk in the same file is staged** —
+hashing the header would change later hunks' ids mid-workflow and break "stage
+hunk A, then hunk B" with a spurious "hunk not found." Hashing only the body (the
+actual changed + context lines) keeps the id stable across sibling staging. The
+id is **embedded in the `FileDiff`** returned to the frontend (each hunk carries
+its `hunkId`). On a stage, the backend re-diffs and matches by recomputed
+body-hash, so it locates the right hunk even after earlier hunks moved.
 
 ### Staging a hunk
 
@@ -171,7 +178,7 @@ mutates the working tree or index triggers a `GitStatus` recompute and broadcast
 | Stage (files) | `git add <paths>` |
 | Stage (hunk) | `git apply --cached` with reconstructed patch (§4) |
 | Unstage | `git restore --staged <paths>` |
-| Discard | `git restore <paths>` |
+| Discard | `git restore <paths>` for tracked-modified; `git clean -f <paths>` for **untracked** files (UX §8 "discard" expects an untracked file to be removed — `git restore` alone is a silent no-op on it). Behind the §8 confirmation dialog. |
 | Commit | `git commit -m <subject> [-m <body>]` |
 | Push / Fetch | `git push` / `git fetch` |
 | Pull | `git pull --no-rebase` (merge) or `git pull --rebase` per the request's `{ mode: "merge"\|"rebase" }` (UX §22) — **not** bare `git pull`, which would nondeterministically honor the user's `pull.rebase` config. A conflicted pull finalizes/aborts via §6.1. |
@@ -251,7 +258,11 @@ When merge / rebase / pull exits with conflicts:
    `POST /v0/workspaces/:wsId/git/conflicts/resolve
    { path, conflictHunkId, resolution, resolvedContent? }` writes the resolved
    content into the file. `conflictHunkId` is `ConflictHunk.id` (below) — **not**
-   the staging `hunkId` of §4.
+   the staging `hunkId` of §4. **When a file has no remaining conflict markers,
+   the resolve usecase runs `git add <path>`** to clear its unmerged index
+   entries — without this stage step the index stays unmerged and
+   `operation/continue` (§6.1) would fail (`git commit` / `rebase --continue`
+   refuse with unmerged paths).
 5. When every hunk in every conflicting file is resolved and staged, the user
    **completes** the operation (§6.1) — resolving hunks alone does **not** finish
    the merge/rebase; an explicit finalize step does. On completion the usecase
@@ -289,6 +300,14 @@ starts and conflicts. `operation/continue` then drives the strategy to completio
 section), update `forkPointSha` (`07` §3.1), and clear `pendingMerge`. `abort`
 runs `git rebase --abort` in the child and clears the marker (the parent was never
 advanced). After a clean finalize, `hasConflicts` clears.
+
+> The single-locked-critical-section guarantee holds for an **unconflicted**
+> rebase merge. For a **conflicted** one, resolution happens across separate HTTP
+> requests, so the parent could (in principle) advance between the child rebase
+> and the resume — then `--ff-only` fails. The usecase falls back by re-running
+> `git rebase --continue` semantics against the new parent tip (or surfaces a
+> `dirty_tree`/`non-fast-forward` error to retry). In a single-user local tool
+> this race is rare but is handled, not assumed away.
 
 ### Shape (from UX spec)
 
