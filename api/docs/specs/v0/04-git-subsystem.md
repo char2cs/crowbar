@@ -96,7 +96,8 @@ FileDiff  { file_path, old_path?, new_path?, is_new, is_deleted, is_renamed,
             is_binary?, is_image?, old_blob_base64?, new_blob_base64?,
             lines: DiffLine[], additions, deletions, hunks: Hunk[] }
 DiffLine  { line_type: added|removed|context|header, content,
-            old_line_number?, new_line_number? }
+            old_line_number?, new_line_number?, hunkId? }   // hunkId set on changed lines
+Hunk      { hunkId, header, startLine, endLine }            // line range this hunk covers in lines[]
 MultiFileDiff { commitHash?, commitMessage?, commitDescription?, commitAuthor?,
                 commitDate?, files: FileDiff[], totalFiles, totalAdditions,
                 totalDeletions }
@@ -108,6 +109,14 @@ MultiFileDiff { commitHash?, commitMessage?, commitDescription?, commitAuthor?,
 
 A **hunk** is a contiguous block of changed lines within one file's diff. The
 UX (§8, §10) lets the user stage/unstage individual hunks.
+
+`FileDiff` carries **both** representations of the same diff: `lines[]` (the flat
+list the UX renders) and `hunks[]` (the staging units). They are linked by
+`hunkId` — each `Hunk` records the `[startLine, endLine]` range it covers in
+`lines[]`, and each changed `DiffLine` carries its `hunkId`. So the frontend
+renders from `lines[]` and draws a per-hunk "stage" button using the `hunks[]`
+ranges, sending `{ path, hunkId }` to stage (§ below). Context/header lines have
+no `hunkId`.
 
 ### Hunk ID assignment
 
@@ -158,7 +167,7 @@ mutates the working tree or index triggers a `GitStatus` recompute and broadcast
 | Push / Pull / Fetch | `git push` / `git pull` / `git fetch` |
 | Create branch | `git checkout -b <name> [<source>]` (creates **and** switches; pass `checkout:false` → `git branch <name>` to create without switching) |
 | Rename branch | `git branch -m <old> <new>` |
-| Delete branch | `git branch -d <name>` (blocked if current) |
+| Delete branch (user-facing) | `git branch -d <name>` (blocked if current; `-d` surfaces "not fully merged" so the user can confirm). Workspace **teardown** instead uses `-D` — `07` §5 |
 | Switch branch | `git checkout <branch>` |
 | Stash | `git stash push [-m <msg>]` |
 | Stash apply/pop | `git stash apply <id>` / `git stash pop <id>` |
@@ -167,9 +176,21 @@ mutates the working tree or index triggers a `GitStatus` recompute and broadcast
 | Merge | `git merge <branch>` |
 | Rebase | `git rebase <onto>` |
 
-Switching branches changes the workspace's working tree; the usecase
-re-resolves the workspace's `branch`, refreshes the file tree, and re-broadcasts
-status.
+**Switch branch — reconciled with the worktree model.** A workspace *is* a
+`git worktree` pinned to one branch, and git refuses to check out a branch already
+checked out in another worktree. So "Switch branch" (UX §22) has two cases:
+
+- Target branch **is already a workspace** (materialized in a sibling worktree):
+  do **not** `git checkout` — instead **navigate to that sibling workspace**. This
+  is the common case in Crowbar's model and is a client-side navigation, not a git
+  op.
+- Target branch is **not materialized** as any workspace: run
+  `git checkout <branch>` in this worktree, re-resolve the workspace's `branch`,
+  refresh the file tree, and re-broadcast status. (If the checkout fails because
+  the branch is in use elsewhere, fall back to the navigate case.)
+
+Switching changes the working tree; the usecase re-resolves `branch`, refreshes
+the file tree, and re-broadcasts.
 
 ### Per-repo serialization (concurrency)
 
@@ -178,10 +199,18 @@ All worktrees of a repo **share one `.git` object store, refs, and
 sibling worktree (or a `SyncWorkingTreeState` status recompute reads refs
 mid-rewrite) will contend and fail with a lock error. The usecase therefore holds
 a **per-repository (not per-worktree) mutation lock** around every write op and
-around the re-parent rebase (`07` §4). Read-only ops (status recompute, the
-provider poller's `gh pr view`) do not take the write lock but must tolerate a
-transient mid-rewrite ref state (retry on `index.lock`). The lock is keyed by
-`repoId`, not `wsId`.
+around the re-parent rebase (`07` §4). The lock is keyed by `repoId`, not `wsId`.
+
+A multi-step rewrite (merge/rebase) leaves the repo in a transiently
+**inconsistent** state (detached/rewritten HEAD, partial index), not merely
+locked — a status recompute that ran then could emit a nonsense `+N/-N` or a
+spurious `hasConflicts`. So a `SyncWorkingTreeState` recompute **must not run
+while a rewrite is in progress** for that repo: the watcher checks for an
+in-progress operation (`.git/MERGE_HEAD`, `rebase-merge/`, `rebase-apply/`) and
+**defers** the recompute until it clears, rather than reading a half-rewritten
+state. (A genuine mid-merge `hasConflicts:true` is set explicitly by the conflict
+flow, `04` §6 — not inferred from a transient snapshot.) The provider poller's
+read-only `gh`/`glab` calls don't touch `.git` and are unaffected.
 
 ---
 

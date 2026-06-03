@@ -41,7 +41,13 @@ BranchReview {
 BranchChat { id, title, age, isActive }   // a Chat (01), surfaced read-only here
 ```
 
-- `diff` comes from the git engine: `git diff <base>...<branch>`.
+- `diff` comes from the git engine: `git diff <base>...<branch>` (three-dot, from
+  the merge-base), where **`<base>` is the parent workspace's branch** (the
+  `parentId` branch; for a root workspace, the repo's default/base branch). Note
+  this three-dot review diff and the sidebar's `+N/-N` (which uses two-dot
+  `git diff --numstat <forkPointSha>..HEAD`, `00` §5.3) can diverge once the parent
+  advances past the fork point — intentional: the sidebar shows "lines this branch
+  added since it forked," the review shows "the change set vs the current base."
 - `threads` come from the ReviewThread Asynx repo (§3).
 - `mergeStrategy` is stored on the workspace (set via `PATCH .../review`).
 - `description` — see §5.

@@ -79,13 +79,26 @@ never knows the child existed.
   conflict, the child must resolve them **first** (conflict UI, §24 /
   `04-git-subsystem.md` §6) before the merge is allowed.
 
-**Operation** (run in the parent's worktree), per the merge-strategy selector:
+**Operation**, per the merge-strategy selector. **Note the worktree each command
+runs in** — this matters, because `git rebase` rewrites whichever branch is
+checked out where it runs:
 
-| Strategy | Command |
-|----------|---------|
-| merge  | `git merge <childBranch>` |
-| squash | `git merge --squash <childBranch>` && `git commit` |
-| rebase | `git rebase <childBranch>` (replays onto parent) |
+| Strategy | Commands | Runs in |
+|----------|----------|---------|
+| merge  | `git merge <childBranch>` | **parent** worktree (append-only on parent) |
+| squash | `git merge --squash <childBranch>` && `git commit` | **parent** worktree (append-only on parent) |
+| rebase | `git rebase <parentBranch>` (in child) **then** `git merge --ff-only <childBranch>` (in parent) | **child** worktree first, then parent |
+
+- `merge` / `squash` are **append-only on the parent** — they never rewrite the
+  parent's history, so the parent may be a non-leaf node safely.
+- `rebase` replays the **child's** commits onto the parent tip, then fast-forwards
+  the parent. The naive `git rebase <childBranch>` in the parent worktree would be
+  **wrong** — it rebases the *parent* onto the child, rewriting the parent's SHAs
+  and orphaning the parent's other children. The correct form rebases the child,
+  then ff-merges. Because the `rebase` strategy **rewrites the child's SHAs**, the
+  leaf guard of §4 applies: a child that has its **own children** cannot use the
+  `rebase` strategy (it would orphan its descendants' `forkPointSha`); use `merge`
+  or `squash`, or detach descendants first.
 
 Never pushed unless the user later pushes the parent. After a successful local
 merge the child may be kept or deleted (user choice).
@@ -94,8 +107,8 @@ merge the child may be kept or deleted (user choice).
 POST /v0/workspaces/:childId/merge-into-parent { strategy }
 ```
 
-Guarded: returns an error if the parent is locked or the child has unresolved
-conflicts.
+Guarded: returns an error if the parent is locked, the child has unresolved
+conflicts, or the `rebase` strategy is chosen for a non-leaf child.
 
 ### 3.2 Platform PR (→ protected parent)
 
@@ -155,12 +168,14 @@ Classifying the mutations:
 
 - **Append-only — always safe** (never rewrite existing history a descendant
   forked from): local `merge` and `squash` merges *received by* a node (§3.1 —
-  they add commits on top), ordinary commits, and `git reset` (moves a ref but the
-  forked commit objects remain reachable from the descendant).
+  they add commits on top of the parent), and ordinary commits. `git reset` keeps
+  the forked objects reachable from the descendant for re-parent purposes, so it
+  does not break `forkPointSha` (though it does move the node's own branch ref).
 - **History-rewriting — restricted to leaf nodes** (same guard as re-parent): the
-  `rebase` merge strategy (§3.1) and re-parent (§4), both of which rewrite the
-  node's own commit SHAs. If the node **has children**, these are **forbidden** in
-  v0 (the operation returns 409); the user detaches/re-parents descendants first.
+  `rebase` merge strategy (§3.1 — rewrites the **child's** SHAs) and re-parent (§4
+  — also rewrites the child's SHAs). If the node being rewritten **has children**,
+  these are **forbidden** in v0 (the operation returns 409); the user
+  detaches/re-parents descendants first.
 
 This keeps `forkPointSha` valid for every node without a cascade-repair pass in
 v0. (Subtree cascade-rebase may relax this later.)
@@ -174,8 +189,16 @@ locked** ones (a locked child blocks its own deletion and is left in place;
 unlocked descendants are removed). Each removal:
 
 ```
-git worktree remove <path>      # and delete the branch if Crowbar-managed
+git worktree remove <path>      # and, if Crowbar-managed:
+git branch -D <branch>          # force (-D, not -d): a child carries unmerged
+                                # commits by design, so -d would refuse it
 ```
+
+`git branch -D` (force) is required here — a Crowbar-managed child branch
+intentionally carries unmerged commits, so `-d` (safe delete) would fail with
+"not fully merged." This is distinct from the **user-facing "Delete branch"** git
+op (`04` §5 / `02` §2.7), which keeps `-d` so the user is warned about unmerged
+work and can confirm.
 
 Cascade is computed over the `parentId` tree. The Workspace aggregate's delete
 command enforces the locked-skip rule.

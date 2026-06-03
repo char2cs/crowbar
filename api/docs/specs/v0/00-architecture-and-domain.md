@@ -184,7 +184,7 @@ aggregate and mutated **only through Asynx commands**:
 
 | Command | Owns (writes) | Issued by |
 |---------|---------------|-----------|
-| `SyncWorkingTreeState{added, deleted, hasConflicts, hasCommits}` | `added`, `deleted`, `hasConflicts`; **clears `new`→null**; bumps `lastActivity` | the watcher **and** git write usecases (both recompute from `git status`; see below) |
+| `SyncWorkingTreeState{added, deleted, hasConflicts, hasCommits}` | `added`, `deleted`, `hasConflicts`; **clears `new`→null**; bumps `lastActivity` | the watcher **and** git write usecases (both recompute from git — per-field sources below) |
 | `SyncProviderState{prInfo?, protected}` | `status` ∈ {pr-open,pr-merged,pr-closed}, `prUrl`, `prTitle`, `prTargetBranch`, `locked` | provider poller (`08`) |
 | create / hierarchy / merge / reparent | `status` (`new` at create), `parentId`, `forkPointSha`, `branch`, `worktreePath`; bumps `lastActivity` | usecases (`07`) |
 | `TouchActivity` | `lastActivity` only | chat / AgentRun activity (`01`) |
@@ -278,7 +278,11 @@ new ──► (status: null — has commits, no PR)
     status. So a stray ref-watch firing after a PR opened cannot stomp `pr-open`
     back to null.
   - `SyncProviderState` only ever sets `pr-*` (you cannot have a PR without
-    commits, so `new` is already gone by then).
+    commits, so `new` is already gone by then). It sets **whatever the provider
+    reports**, so `pr-closed → pr-open` (PR reopened) and `pr-open → pr-closed`
+    are both allowed — there is no terminal `pr-*` state at the command level
+    (the sweep treats closed/merged as terminal only as a polling optimization,
+    `08` §4).
 - `locked` is a **flag, not a state** — it gates deletion and cascade-delete,
   independent of `status`.
 - `added` / `deleted` / `hasConflicts` are mutated **only** through

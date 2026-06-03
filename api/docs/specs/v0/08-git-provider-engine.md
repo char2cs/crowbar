@@ -97,11 +97,13 @@ Therefore PR/branch-protection state is **polled**.
   terminal, so those workspaces drop out of the sweep. This bounds API usage to
   branches with live PRs.
 
-> **v0 limitation — PR reopen is not tracked by the sweep.** Because `pr-closed`
-> drops out of the background sweep (and the state machine has no `pr-closed →
-> pr-open` edge), reopening a closed PR on the provider is only picked up by an
-> **on-view** poll, not the sweep. Acceptable for v0; revisit if reopen becomes
-> common (keep closed PRs in the sweep + add the edge).
+> **v0 limitation — the sweep does not re-poll closed/merged PRs.** Reopening a
+> closed PR on the provider *is* a valid transition (`SyncProviderState` sets
+> whatever the provider reports, including `pr-closed → pr-open`; `00` §6.1), but
+> only an **on-view** poll will observe it — the background sweep skips
+> closed/merged workspaces, so without opening the row the badge can stay stale
+> indefinitely. Acceptable for v0; revisit by keeping closed PRs in the sweep if
+> reopen becomes common.
 
 Each poll that detects a change issues a `SyncProviderState` command to the
 **Workspace** aggregate (§5).

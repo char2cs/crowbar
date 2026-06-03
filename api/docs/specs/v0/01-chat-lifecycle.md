@@ -155,3 +155,8 @@ the API-surface spec for completeness but its frame protocol is **post-spike**.
 children — implemented via the Chat subscription reacting to a parent's delete
 event and issuing `DeleteChat` for each child. This mirrors the
 drag-to-delete behavior in the sidebar (UX spec §4, §15).
+
+Child lookup is by `parentId` regardless of the parent's `deletedAt` (the parent
+row remains queryable after soft-delete). `DeleteChat` is **idempotent** —
+re-issuing it on an already-`deletedAt` chat is a no-op — so a cascade can replay
+safely.
