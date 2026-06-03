@@ -133,12 +133,15 @@ org" = switch project. `lastActivity` is bumped whenever any descendant
 
 ```
 Repository {
-  id          uuid
-  projectId   uuid
-  name        string
-  path        string       // absolute path on disk
-  avatarLabel string       // single char for the avatar badge
-  avatarColor string       // color class for the badge background
+  id            uuid
+  projectId     uuid
+  name          string
+  path          string       // absolute path on disk
+  defaultBranch string       // resolved at import (git symbolic-ref
+                             //   refs/remotes/origin/HEAD, fallback to the
+                             //   08 §3 config list); the base for root reviews
+  avatarLabel   string       // single char for the avatar badge
+  avatarColor   string       // color class for the badge background
 }
 ```
 

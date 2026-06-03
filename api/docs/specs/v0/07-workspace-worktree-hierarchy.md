@@ -75,9 +75,10 @@ never knows the child existed.
 
 **Preconditions:**
 - Parent is **unlocked**.
-- Child has **no unresolved conflicts** with the parent. If merging would
-  conflict, the child must resolve them **first** (conflict UI, §24 /
-  `04-git-subsystem.md` §6) before the merge is allowed.
+- The whole operation runs **inside the per-repo mutation lock** (`04` §5) as a
+  **single critical section** — for `rebase`, both steps (rebase the child, then
+  ff-merge the parent) are one locked unit, so nothing can advance the parent
+  between them and break the `--ff-only`.
 
 **Operation**, per the merge-strategy selector. **Note the worktree each command
 runs in** — this matters, because `git rebase` rewrites whichever branch is
@@ -100,6 +101,23 @@ checked out where it runs:
   `rebase` strategy (it would orphan its descendants' `forkPointSha`); use `merge`
   or `squash`, or detach descendants first.
 
+**Conflicts differ by strategy.** For `merge` / `squash`, conflicts surface when
+the single merge command runs. For `rebase`, conflicts surface **mid-operation**
+during `git rebase <parentBranch>` (per replayed commit) — there is no reliable
+pre-flight gate. In all cases the conflict UI (§24 / `04` §6) drives resolution;
+the usecase then **continues** (`git rebase --continue`) or **aborts**
+(`git rebase --abort`, rolling back to the pre-merge state). The
+`merge-into-parent` call returns a "conflicts pending" result and the operation
+completes (or is abandoned) once all hunks are resolved.
+
+**`forkPointSha` after a `rebase`-strategy merge.** The rebase replays the child
+onto the parent tip, so — **if the child is kept** — its fork point has moved: the
+usecase **updates `child.forkPointSha` to the parent tip it was rebased onto**
+(parallel to re-parent, §4). Without this, the kept child's `+N/-N`
+(`git diff --numstat <forkPointSha>..HEAD`) would be inflated by the parent
+history pulled in underneath. (`merge`/`squash` are append-only on the parent and
+leave the child's fork point unchanged.)
+
 Never pushed unless the user later pushes the parent. After a successful local
 merge the child may be kept or deleted (user choice).
 
@@ -107,8 +125,9 @@ merge the child may be kept or deleted (user choice).
 POST /v0/workspaces/:childId/merge-into-parent { strategy }
 ```
 
-Guarded: returns an error if the parent is locked, the child has unresolved
-conflicts, or the `rebase` strategy is chosen for a non-leaf child.
+Guarded: returns an error if the parent is locked, or the `rebase` strategy is
+chosen for a non-leaf child. (Conflicts do not block the *start* of the
+operation — they are surfaced and resolved as described above.)
 
 ### 3.2 Platform PR (→ protected parent)
 
@@ -189,16 +208,24 @@ locked** ones (a locked child blocks its own deletion and is left in place;
 unlocked descendants are removed). Each removal:
 
 ```
-git worktree remove <path>      # and, if Crowbar-managed:
-git branch -D <branch>          # force (-D, not -d): a child carries unmerged
-                                # commits by design, so -d would refuse it
+git worktree remove --force <path>   # --force: a workspace being deleted often
+                                      # has uncommitted/untracked files; plain
+                                      # remove refuses those
+git branch -D <branch>               # force (-D, not -d), and ONLY after the
+                                      # worktree is removed (a checked-out branch
+                                      # can't be deleted)
 ```
 
-`git branch -D` (force) is required here — a Crowbar-managed child branch
-intentionally carries unmerged commits, so `-d` (safe delete) would fail with
-"not fully merged." This is distinct from the **user-facing "Delete branch"** git
-op (`04` §5 / `02` §2.7), which keeps `-d` so the user is warned about unmerged
-work and can confirm.
+Two forces are required and the **order matters**:
+- `git worktree remove --force` — the user is discarding the workspace, so its
+  worktree frequently has modified/untracked files that plain `remove` would
+  refuse. Worktree removal must come **first**: a branch checked out in a worktree
+  cannot be deleted.
+- `git branch -D` (force delete) — a Crowbar-managed child intentionally carries
+  unmerged commits, so `-d` would fail "not fully merged." **This permanently
+  drops those unmerged child commits** — which is the intended meaning of "delete
+  workspace." This is distinct from the **user-facing "Delete branch"** git op
+  (`04` §5 / `02` §2.7), which keeps `-d` so the user is warned and can confirm.
 
 Cascade is computed over the `parentId` tree. The Workspace aggregate's delete
 command enforces the locked-skip rule.

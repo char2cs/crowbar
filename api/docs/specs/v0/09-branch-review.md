@@ -43,7 +43,8 @@ BranchChat { id, title, age, isActive }   // a Chat (01), surfaced read-only her
 
 - `diff` comes from the git engine: `git diff <base>...<branch>` (three-dot, from
   the merge-base), where **`<base>` is the parent workspace's branch** (the
-  `parentId` branch; for a root workspace, the repo's default/base branch). Note
+  `parentId` branch; for a root workspace with no `parentId`, the repo's
+  `defaultBranch`, `00` §5.2). Note
   this three-dot review diff and the sidebar's `+N/-N` (which uses two-dot
   `git diff --numstat <forkPointSha>..HEAD`, `00` §5.3) can diverge once the parent
   advances past the fork point — intentional: the sidebar shows "lines this branch

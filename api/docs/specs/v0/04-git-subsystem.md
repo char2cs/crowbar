@@ -62,7 +62,7 @@ where broadcasts and error classification happen.
 | Status | `git status --porcelain=v2 --branch` | `GitStatus { branch, ahead, behind, files[] }` |
 | Log    | `git log --skip=N --max-count=50 --pretty=<fmt>` | `Commit[]` (paginated) |
 | Diff (working tree) | `git diff` / `git diff --cached` | `FileDiff` with `hunkId` per hunk |
-| Diff (commit) | `git diff <sha>^ <sha>` | `MultiFileDiff` |
+| Diff (commit) | `git diff <sha>^ <sha>` — for the **root commit** (no parent) fall back to `git show --format= <sha>` (or `git diff --root <sha>`) | `MultiFileDiff` |
 | Branches | `git branch -a --format=<fmt>` | `Branch[]` |
 | Stashes | `git stash list` | `Stash[]` |
 | Blame | `git blame --porcelain <file>` | `BlameEntry[]` |
@@ -190,7 +190,13 @@ checked out in another worktree. So "Switch branch" (UX §22) has two cases:
   the branch is in use elsewhere, fall back to the navigate case.)
 
 Switching changes the working tree; the usecase re-resolves `branch`, refreshes
-the file tree, and re-broadcasts.
+the file tree, and re-broadcasts. Two guards:
+- **Locked workspace:** switch-branch is **rejected** on a `locked` workspace —
+  re-pointing a protected workspace at another branch is a mutation it doesn't
+  permit (`07` §2).
+- **Nonexistent target:** "switch" operates on **existing** branches only.
+  Creating a branch is the separate **Create branch** op (`git checkout -b`,
+  above); the switch entry point does not create.
 
 ### Per-repo serialization (concurrency)
 
