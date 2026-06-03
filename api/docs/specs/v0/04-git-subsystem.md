@@ -61,8 +61,8 @@ where broadcasts and error classification happen.
 |-----------|-------------|---------|
 | Status | `git status --porcelain=v2 --branch` | `GitStatus { branch, ahead, behind, files[] }` — **unmerged (`u`) records → `status: conflicted`** so the Changes panel can badge conflicting files and route a click into conflict mode (UX §24); do not drop the `u` records |
 | Log    | `git log --skip=N --max-count=50 --pretty=<fmt>` | `Commit[]` (paginated) |
-| Diff (working tree) | `git diff` / `git diff --cached` | `FileDiff` with `hunkId` per hunk |
-| Diff (commit) | `git diff <sha>^ <sha>` — for the **root commit** (no parent) fall back to `git show --format= <sha>` (or `git diff --root <sha>`) | `MultiFileDiff` |
+| Diff (working tree) | `git diff -M` / `git diff -M --cached` (`-M` so renames are detected as `is_renamed` rather than add+delete, regardless of the user's `diff.renames` config) | `FileDiff` with `hunkId` per hunk |
+| Diff (commit) | `git diff -M <sha>^ <sha>` — for the **root commit** (no parent) fall back to `git show --format= <sha>` (or `git diff --root <sha>`) | `MultiFileDiff` |
 | Branches | `git branch -a --format=<fmt>` | `Branch[]` |
 | Stashes | `git stash list` | `Stash[]` |
 | Blame | `git blame --porcelain <file>` | `BlameEntry[]` |
@@ -379,7 +379,7 @@ The usecase classifies common cases so the frontend can show the correct dialog:
 | `nothing_to_commit` | commit with empty index |
 | `dirty_tree` | operation blocked by uncommitted changes |
 | `stale_hunk` | hunk-stage `hunkId` no longer matches (file edited since the diff was fetched) — frontend re-fetches and retries (§4) |
-| `has_children` | re-parent / rebase-strategy merge rejected because the node has descendants (§4.1 / `07` §4) |
+| `has_children` | re-parent / rebase-strategy merge rejected because the node has descendants (`07` §4 / §4.1) |
 | `auth_failed` | credential failure (surfaced from git, not handled by us) |
 | `unknown` | anything else; raw stderr passed through |
 

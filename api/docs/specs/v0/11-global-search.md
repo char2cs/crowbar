@@ -116,7 +116,9 @@ response includes a `truncated: bool` so the UI can show "showing first N"
 
 ```
 POST /v0/workspaces/:wsId/search/replace
-{ query, replacement, scope }      // scope: one file or all matches
+{ query, replacement, scope, caseSensitive, wholeWord, regex }
+                                   // scope: one file or all matches; the same
+                                   // toggles as search govern which occurrences match
 ```
 
 `replace/` rewrites file content on disk (supporting regex backreferences in

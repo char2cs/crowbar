@@ -175,6 +175,7 @@ Workspace {
   status       WorkspaceStatus?   // new | pr-open | pr-merged | pr-closed; null once it has commits but no PR
   locked       bool        // provider-protected branch — chat-only, cannot delete/merge-into
   hasConflicts bool        // summary overlay (from git subsystem, via SyncWorkingTreeState)
+  mergeStrategy merge|squash|rebase            // default merge; the branch-review selector (09 §4)
   pendingMerge { strategy, targetParentId }?   // set when a merge-into-parent conflicts (07 §3.1, 04 §6.1)
   added        int         // +N lines vs parent (from git subsystem, via SyncWorkingTreeState)
   deleted      int         // -N lines
@@ -202,6 +203,7 @@ aggregate and mutated **only through Asynx commands**:
 | `SyncWorkingTreeState{added, deleted, hasConflicts, hasCommits}` | `added`, `deleted`, `hasConflicts`; **clears `new`→null**; bumps `lastActivity` | the watcher **and** git write usecases (both recompute from git — per-field sources below) |
 | `SyncProviderState{prInfo?, protected}` | `status` ∈ {pr-open,pr-merged,pr-closed}, `prUrl`, `prTitle`, `prTargetBranch`, `locked` | provider poller (`08`) |
 | create / hierarchy / merge / reparent | `status` (`new` at create), `parentId`, `forkPointSha`, `branch`, `worktreePath`, `pendingMerge` (set on a conflicted merge-into-parent, cleared on continue/abort — `04` §6.1); bumps `lastActivity` | usecases (`07`) |
+| `SetMergeStrategy{strategy}` | `mergeStrategy` only | branch-review usecase (`PATCH .../review`, `09` §4) |
 | `TouchActivity` | `lastActivity` only | chat / AgentRun activity (`01`) |
 
 Asynx **serializes commands per aggregate**, so no two ever interleave a

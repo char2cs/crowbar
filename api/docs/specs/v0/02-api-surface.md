@@ -183,7 +183,7 @@ GET    /v0/repos/:id/protected-branches    protected-branch list for the repo
 
 ```
 POST   /v0/workspaces/:wsId/search           { query, caseSensitive, wholeWord, regex, include[], exclude[] } → SearchResult[]
-POST   /v0/workspaces/:wsId/search/replace   { query, replacement, scope }
+POST   /v0/workspaces/:wsId/search/replace   { query, replacement, scope, caseSensitive, wholeWord, regex }
 ```
 
 ### 2.11 Terminal — UX §12, §29

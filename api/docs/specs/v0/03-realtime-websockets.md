@@ -53,10 +53,14 @@ next change. Every broadcaster therefore defines its first-connect behavior:
 - **Snapshot-on-subscribe** (Workspaces, Chats, Git, LSP): immediately on connect,
   the broadcaster sends the **current state** for the subscription scope (all
   workspaces for the `projectId`; all chats' status for the `wsId`; the current
-  `GitStatus`; the current `Diagnostic[]`), then streams live deltas. The client
-  needs no separate REST priming and there is no gap between snapshot and the
-  first live event (the snapshot is taken under the same lock that registers the
-  client — same atomicity requirement as the terminal attach, `06` §4).
+  `GitStatus`; the current `Diagnostic[]`, which is empty until documents are
+  opened), then streams live deltas. The client needs no separate REST priming and
+  there is no gap between snapshot and the first live event (the snapshot is taken
+  under the same lock that registers the client — same atomicity requirement as the
+  terminal attach, `06` §4). The **Workspaces** snapshot computes the derived
+  overlays (`agent-running` = `hasLiveAgentRun(ws)`, and `hasConflicts`) **at
+  snapshot time**, so a client connecting mid-agent-run sees the spinner
+  immediately — not only after the next AgentRun transition fires.
 - **No snapshot** (Files): the file watcher emits *change* events only; there is
   no "current state" to replay — the client already has the tree from
   `GET …/files/tree`. Subsequent `FileChangeEvent`s patch it.
@@ -64,8 +68,9 @@ next change. Every broadcaster therefore defines its first-connect behavior:
 - **History frame** (ChatStream, post-spike): sends turn history on connect
   (`01` §7 / `12`).
 
-The dual-serve routes (`02` §2.2) get the same guarantee for free: the REST body
-is the snapshot, the upgraded WS is the live stream.
+The dual-serve routes (`02` §2.2 workspaces, §2.6 git status) get the same
+guarantee for free: the REST body is the snapshot, the upgraded WS is the live
+stream.
 
 ## 2. Two Classes of Event Producer
 

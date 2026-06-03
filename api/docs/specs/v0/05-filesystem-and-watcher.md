@@ -41,11 +41,16 @@ GET /v0/workspaces/:wsId/files/tree?path=
   `node_modules`) up front. The UX `FileNode.children?` being optional supports
   this directly.
 - **Git decorations.** The walker calls the git engine's status once and merges
-  `gitStatus?` onto each node, so the file tree and the Git panel always agree.
+  `gitStatus?` onto each node, so the file tree and the Git panel agree on each
+  file's state. The tree decoration enum matches UX §6 and has **no `conflicted`
+  value** (conflict badging lives in the Changes panel, UX §24); a conflicted file
+  (`GitFile.status = conflicted`, `04` §3) decorates as **`modified`** on the
+  tree. "Agree" therefore means same underlying status, with the tree collapsing
+  `conflicted → modified`.
 
 ```
 FileNode { name, path, type: file|directory, children?, gitStatus? }
-gitStatus = modified | added | deleted | untracked | renamed
+gitStatus = modified | added | deleted | untracked | renamed   // conflicted → modified
 ```
 
 ### Ignore rules (Q1 — IDE behavior)
