@@ -86,6 +86,9 @@ pub async fn browser_pane_sync(
     width: f64,
     height: f64,
     visible: bool,
+    // Used only on creation — the webview starts at this URL so no
+    // separate browser_pane_navigate call is needed on mount.
+    initial_url: Option<String>,
 ) -> Result<(), String> {
     let mut panes = state.panes.lock().map_err(|e| e.to_string())?;
 
@@ -109,9 +112,14 @@ pub async fn browser_pane_sync(
         let label = format!("browser-pane-{}", buffer_id);
         let init_script = make_init_script(&buffer_id);
 
+        let start_url = initial_url
+            .filter(|u| !u.is_empty() && u != "about:blank")
+            .and_then(|u| u.parse().ok())
+            .unwrap_or_else(|| "about:blank".parse().unwrap());
+
         let webview = main_window
             .add_child(
-                WebviewBuilder::new(&label, WebviewUrl::External("about:blank".parse().unwrap()))
+                WebviewBuilder::new(&label, WebviewUrl::External(start_url))
                     .initialization_script(&init_script),
                 LogicalPosition::new(x, y),
                 LogicalSize::new(width, height),

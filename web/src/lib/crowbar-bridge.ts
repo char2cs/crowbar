@@ -119,6 +119,9 @@ export async function browserPaneSync(
   bufferId: string,
   rect: { x: number; y: number; width: number; height: number },
   visible: boolean,
+  // Used only on the first call (webview creation). Eliminates the race
+  // between sync creating the pane and a separate navigate call on mount.
+  initialUrl?: string,
 ): Promise<void> {
   if (!isTauri()) return
   // Tauri command expects flat args, not a nested rect object
@@ -129,6 +132,7 @@ export async function browserPaneSync(
     width: rect.width,
     height: rect.height,
     visible,
+    initialUrl,
   })
 }
 

@@ -4,6 +4,7 @@
   "description": "Default app capabilities",
   "windows": ["main"],
   "permissions": [
+    "core:default",
     {
       "identifier": "shell:allow-execute",
       "allow": [{"name": "crowbar-api", "sidecar": true, "args": true}]

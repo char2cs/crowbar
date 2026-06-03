@@ -34,8 +34,16 @@ export function WebViewer({
   isActive,
   isVisible = true,
 }: WebViewerProps) {
+  const normalizedInitialUrl = normalizeUrl(initialUrl)
   const anchorRef = useRef<HTMLDivElement>(null)
-  const { isTauri } = useBrowserPaneAnchor({ bufferId, isVisible, anchorRef })
+  // Pass the initial URL to the hook so it's sent with the first browserPaneSync
+  // call. This avoids a race where browserPaneNavigate fires before the webview exists.
+  const { isTauri } = useBrowserPaneAnchor({
+    bufferId,
+    isVisible,
+    anchorRef,
+    initialUrl: normalizedInitialUrl !== 'about:blank' ? normalizedInitialUrl : undefined,
+  })
 
   const navEntry = useWebViewerNavigationStore(state =>
     bufferId ? state.navigationByBufferId[bufferId] : undefined,
@@ -45,22 +53,11 @@ export function WebViewer({
   useEffect(() => {
     if (!bufferId) return
     const { registerBuffer, removeBuffer } = useWebViewerNavigationStore.getState()
-    registerBuffer(bufferId, normalizeUrl(initialUrl))
+    registerBuffer(bufferId, normalizedInitialUrl)
     return () => {
       useWebViewerNavigationStore.getState().removeBuffer(bufferId)
     }
   }, [bufferId]) // eslint-disable-line react-hooks/exhaustive-deps
-
-  // Navigate the native webview to the initial URL once on mount
-  const didNavigate = useRef(false)
-  useEffect(() => {
-    if (!isTauri || !bufferId || didNavigate.current) return
-    const url = normalizeUrl(initialUrl)
-    if (url !== 'about:blank') {
-      didNavigate.current = true
-      void browserPaneNavigate(bufferId, url)
-    }
-  }, [isTauri, bufferId, initialUrl])
 
   // Address bar follows the nav store url; falls back to normalized initial url
   const [inputValue, setInputValue] = useState(() => normalizeUrl(initialUrl))

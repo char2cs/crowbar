@@ -5,13 +5,17 @@ interface Options {
   bufferId: string
   isVisible: boolean
   anchorRef: RefObject<HTMLDivElement | null>
+  // Passed to the first browser_pane_sync call so the webview starts at the
+  // correct URL without a separate browser_pane_navigate race on mount.
+  initialUrl?: string
 }
 
-export function useBrowserPaneAnchor({ bufferId, isVisible, anchorRef }: Options): {
+export function useBrowserPaneAnchor({ bufferId, isVisible, anchorRef, initialUrl }: Options): {
   isTauri: boolean
 } {
   const isTauriEnv = useRef(isTauri())
   const isVisibleRef = useRef(isVisible)
+  const initialUrlSentRef = useRef(false)
 
   // Keep ref in sync with prop — no re-render triggered
   useEffect(() => {
@@ -27,10 +31,14 @@ export function useBrowserPaneAnchor({ bufferId, isVisible, anchorRef }: Options
       const el = anchorRef.current
       if (!el) return
       const r = el.getBoundingClientRect()
+      // Pass initialUrl only on the first sync call (webview creation).
+      const urlForThisCall = initialUrlSentRef.current ? undefined : initialUrl
+      initialUrlSentRef.current = true
       void browserPaneSync(
         bufferId,
         { x: r.x, y: r.y, width: r.width, height: r.height },
-        isVisibleRef.current,  // always current, never stale
+        isVisibleRef.current,
+        urlForThisCall,
       )
     }
 

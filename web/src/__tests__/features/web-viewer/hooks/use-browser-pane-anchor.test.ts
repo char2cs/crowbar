@@ -68,6 +68,7 @@ describe('useBrowserPaneAnchor — Tauri env', () => {
       'b1',
       { x: 10, y: 20, width: 400, height: 300 },
       true,
+      undefined, // no initialUrl provided
     )
   })
 
@@ -110,6 +111,6 @@ describe('useBrowserPaneAnchor — Tauri env', () => {
     vi.clearAllMocks()
     // Simulate ResizeObserver firing AFTER the flip
     if (resizeCallback) resizeCallback([], null as unknown as ResizeObserver)
-    expect(browserPaneSync).toHaveBeenCalledWith('b1', expect.any(Object), false)
+    expect(browserPaneSync).toHaveBeenCalledWith('b1', expect.any(Object), false, undefined)
   })
 })
