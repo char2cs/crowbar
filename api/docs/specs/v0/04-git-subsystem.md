@@ -68,7 +68,9 @@ where broadcasts and error classification happen.
 | Blame | `git blame --porcelain <file>` | `BlameEntry[]` |
 
 **Pagination** (log): `limit` / `skip` query params map to `--max-count` /
-`--skip`. Default 50.
+`--skip`. Default 50. The log is `HEAD`'s history (full ancestry of the
+workspace's branch, UX §9) — not scoped to `<base>..HEAD`; the History tab shows
+the complete commit history reachable from the branch, like any git client.
 
 **Blame** annotates each line of a file with the commit that last changed it
 (author, date, message). It powers the editor's inline blame (UX §7). It is a
@@ -134,10 +136,17 @@ the `FileDiff`** returned to the frontend (each hunk carries its `hunkId`).
 The frontend sends `{ path, hunkId }` (never raw patch text). The `apply/`
 package:
 
-1. Runs a fresh `git diff` for `path`.
+1. Runs a fresh `git diff` for `path` (normal context, e.g. `-U3`).
 2. Locates the hunk whose recomputed `hunkId` matches.
-3. Reconstructs the minimal patch (file header + that single `@@` hunk).
-4. Pipes it to `git apply --cached --unidiff-zero` (or `-R` to unstage).
+3. Reconstructs the minimal patch (file header + that single `@@` hunk **with its
+   context lines intact**).
+4. Pipes it to `git apply --cached` (or `--cached -R` to unstage).
+
+> **No `--unidiff-zero`.** That flag is for **zero-context** patches; applying it
+> to a normal hunk that carries context lines (the kind plain `git diff` emits)
+> mis-applies or rejects. We keep the hunk's context and apply with plain
+> `git apply --cached`, whose context matching places the hunk correctly even when
+> other hunks in the file are unstaged.
 
 Git-patch knowledge stays entirely on the backend; the frontend only ever
 references hunks by id. (Sub-hunk / line-level staging is **not** required by the
@@ -164,7 +173,8 @@ mutates the working tree or index triggers a `GitStatus` recompute and broadcast
 | Unstage | `git restore --staged <paths>` |
 | Discard | `git restore <paths>` |
 | Commit | `git commit -m <subject> [-m <body>]` |
-| Push / Pull / Fetch | `git push` / `git pull` / `git fetch` |
+| Push / Fetch | `git push` / `git fetch` |
+| Pull | `git pull --no-rebase` (merge) or `git pull --rebase` per the request's `{ mode: "merge"\|"rebase" }` (UX §22) — **not** bare `git pull`, which would nondeterministically honor the user's `pull.rebase` config. A conflicted pull finalizes/aborts via §6.1. |
 | Create branch | `git checkout -b <name> [<source>]` (creates **and** switches; pass `checkout:false` → `git branch <name>` to create without switching) |
 | Rename branch | `git branch -m <old> <new>` |
 | Delete branch (user-facing) | `git branch -d <name>` (blocked if current; `-d` surfaces "not fully merged" so the user can confirm). Workspace **teardown** instead uses `-D` — `07` §5 |
@@ -242,8 +252,43 @@ When merge / rebase / pull exits with conflicts:
    { path, conflictHunkId, resolution, resolvedContent? }` writes the resolved
    content into the file. `conflictHunkId` is `ConflictHunk.id` (below) — **not**
    the staging `hunkId` of §4.
-5. When every hunk in every conflicting file is resolved and staged, the usecase
+5. When every hunk in every conflicting file is resolved and staged, the user
+   **completes** the operation (§6.1) — resolving hunks alone does **not** finish
+   the merge/rebase; an explicit finalize step does. On completion the usecase
    issues `SyncWorkingTreeState{hasConflicts: false, …}` → broadcast.
+
+### 6.1 Completing or aborting an in-progress operation
+
+A conflicted `merge` / `rebase` / `pull` (and the `merge-into-parent` rebase
+strategy, `07` §3.1) leaves the repo in an **in-progress** state with a marker on
+disk (`.git/MERGE_HEAD`, `rebase-merge/`, `rebase-apply/`). Resolving hunks stages
+content but does **not** finalize — the operation must be explicitly continued or
+aborted. UX §24 has both a "complete the merge commit" action and an abort.
+
+```
+POST /v0/workspaces/:wsId/git/operation/continue   finalize the in-progress op
+POST /v0/workspaces/:wsId/git/operation/abort       roll back to pre-op state
+```
+
+The usecase reads the on-disk marker to know which operation is in progress and
+runs the right finalize:
+
+| In progress | Continue | Abort |
+|-------------|----------|-------|
+| merge | `git commit` (pre-populated message) | `git merge --abort` |
+| squash | `git commit` | `git merge --abort` / `git reset --merge` |
+| rebase / pull-rebase | `git rebase --continue` (loops if more conflicted commits) | `git rebase --abort` |
+| pull-merge | `git commit` | `git merge --abort` |
+
+**`merge-into-parent` spans two worktrees**, so its in-progress state can't be
+inferred from one worktree's marker. The Workspace aggregate records a
+**`pendingMerge { strategy, targetParentId }`** marker when `merge-into-parent`
+starts and conflicts. `operation/continue` then drives the strategy to completion
+— for the `rebase` strategy: finish the child rebase (`git rebase --continue`)
+**then** run `git merge --ff-only` in the parent worktree (one locked critical
+section), update `forkPointSha` (`07` §3.1), and clear `pendingMerge`. `abort`
+runs `git rebase --abort` in the child and clears the marker (the parent was never
+advanced). After a clean finalize, `hasConflicts` clears.
 
 ### Shape (from UX spec)
 

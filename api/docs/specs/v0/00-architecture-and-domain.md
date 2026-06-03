@@ -90,7 +90,7 @@ One SQLite event-store file per aggregate type, under
 | Entity | Notes |
 |--------|-------|
 | `Project`         | id, name, path, lastActivity |
-| `Repository`      | id, projectId, name, path, avatarLabel, avatarColor |
+| `Repository`      | id, projectId, name, path, defaultBranch, avatarLabel, avatarColor |
 | `TerminalProfile` | id, name, shell?, startupDirectory?, startupCommands[], icon?, color? |
 
 Single GORM database at `~/.crowbar/state/store/crowbar.db`.
@@ -137,9 +137,11 @@ Repository {
   projectId     uuid
   name          string
   path          string       // absolute path on disk
-  defaultBranch string       // resolved at import (git symbolic-ref
-                             //   refs/remotes/origin/HEAD, fallback to the
-                             //   08 §3 config list); the base for root reviews
+  defaultBranch string       // resolved at import: git symbolic-ref
+                             //   refs/remotes/origin/HEAD; if unset, the first
+                             //   of the 08 §3 config list (main/develop/master)
+                             //   that `git rev-parse --verify` confirms EXISTS.
+                             //   the base for root reviews (09 §2)
   avatarLabel   string       // single char for the avatar badge
   avatarColor   string       // color class for the badge background
 }
@@ -164,6 +166,7 @@ Workspace {
   status       WorkspaceStatus?   // new | pr-open | pr-merged | pr-closed; null once it has commits but no PR
   locked       bool        // provider-protected branch — chat-only, cannot delete/merge-into
   hasConflicts bool        // summary overlay (from git subsystem, via SyncWorkingTreeState)
+  pendingMerge { strategy, targetParentId }?   // set when a merge-into-parent conflicts (07 §3.1, 04 §6.1)
   added        int         // +N lines vs parent (from git subsystem, via SyncWorkingTreeState)
   deleted      int         // -N lines
   // provider-synced PR state (Git Provider engine — 08); empty when no provider access
@@ -202,8 +205,10 @@ pull / conflict-resolve, `04` §5/§6) recompute the summary **from git** and is
 the **same** `SyncWorkingTreeState` command. Each field has a distinct source:
 
 - `hasConflicts` ← `git status --porcelain=v2` (presence of unmerged paths)
-- `added` / `deleted` ← `git diff --numstat <forkPointSha>..HEAD` (committed lines
-  vs the fork parent) combined with working-tree numstat
+- `added` / `deleted` ← `git diff --numstat <forkPointSha>` — a **single** diff
+  from the fork point to the **working tree** (spans committed + uncommitted in one
+  pass; adding a separate `..HEAD` numstat to a working-tree numstat would
+  double-count lines that were committed and then further edited)
 - `hasCommits` ← `git rev-list --count <forkPointSha>..HEAD > 0`
 
 This is *not* a multi-writer hazard: there is exactly one command that writes
@@ -262,8 +267,9 @@ new ──► (status: null — has commits, no PR)
          ├──► pr-open ──► pr-merged
          │           └──► pr-closed
          │
-         ├─ overlay: agent-running  (set while any AgentRun for this ws is live;
-         │                           previous status restored when it stops)
+         ├─ overlay: agent-running  (a derived predicate: true iff ≥1 live
+         │                           AgentRun for this ws — never a saved/restored
+         │                           prior status; see below)
          │
          └─ overlay: hasConflicts   (recomputed from `git status` unmerged paths
                                       via SyncWorkingTreeState; cleared when resolved)
@@ -296,7 +302,13 @@ new ──► (status: null — has commits, no PR)
   to the broadcaster out-of-band.
 - The `agent-running` badge is the live presence of an AgentRun projected onto the
   row (overlay), not a stored base status — the same string is a real `status`
-  value on **Chat** (`01`) but only an overlay here.
+  value on **Chat** (`01`) but only an overlay here. It is a **derived predicate
+  `hasLiveAgentRun(ws)`** (true iff at least one AgentRun for the workspace is
+  `running`), **not** a save/restore of a prior status. This is essential because a
+  workspace can have **multiple** concurrent AgentRuns (many chats): the overlay
+  clears only when the **last** live run ends, and the underlying `status`
+  (`new`/null/`pr-*`) is never overwritten by the overlay, so there is nothing to
+  "restore."
 
 ### 6.2 AgentRun
 
@@ -311,9 +323,15 @@ pending ──► running ──► done
 preload aggregate, send a fail command). The recovery command **flows through the
 normal Asynx path**, so the AgentRun subscription fires and issues
 `AgentRunCompleted` to the Chat projection — clearing its spinner. As a
-belt-and-suspenders second pass, startup also **reconciles chats directly**: any
+belt-and-suspenders second pass, startup then **reconciles chats directly**: any
 Chat in `agent-running` with no live AgentRun is reset to `idle`. Without this, a
 chat mid-run at crash time would show a spinner forever.
+
+Ordering and idempotency are defined to avoid a race between the two passes: the
+direct Chat reconciliation runs **after** the AgentRun recovery commands have
+**drained** (subscriptions processed), and the Chat idle-reset command is
+**idempotent** (resetting an already-`idle` chat is a no-op). So whichever pass
+clears a given chat first, the other is harmless.
 
 ### 6.3 ReviewThread
 
@@ -360,6 +378,10 @@ AgentRun runs synchronously before `app.New()` returns.
   pending the Agentic Bridge spike.
 - **Settings persistence** — the UX spec keeps all settings client-side
   (IndexedDB / localStorage). The only backend-stored settings are
-  `TerminalProfile` rows, because the PTY layer needs them server-side.
+  `TerminalProfile` rows, because the PTY layer needs them server-side. The UX
+  "export/import all settings" (§14) is therefore client-side for everything
+  *except* terminal profiles — those round-trip through the profiles API
+  (`/v0/settings/terminal/profiles`, `06` §5), so an atomic export must include
+  them via that API rather than silently omitting server-stored profiles.
 - **Pane layout / open buffers / recent files** — client-only (IndexedDB), per
   UX spec §18.

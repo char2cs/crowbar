@@ -89,7 +89,7 @@ Producers: **FileWatcher** (→ Git, Files topics), **LSP client**, **PTY sessio
 
 | Broadcaster | `T` | Subscription scope (namespace) | Payload identifies | Class |
 |-------------|-----|-------------------------------|--------------------|-------|
-| **Workspaces** | `Workspace` (full object) | **global** (optional `?repoId=` filter) | `id` | A |
+| **Workspaces** | `Workspace` (full object) | **global** (optional `?projectId=` / `?repoId=` filter) | `id` | A |
 | **Chats**      | `ChatStatusEvent`         | **`wsId`**     | `chatId`    | A |
 | **Git**        | `GitStatus` (full object) | `wsId`         | `wsId`      | B |
 | **Files**      | `FileChangeEvent`         | `wsId`         | `path`      | B |
@@ -111,7 +111,10 @@ workspaces`), and every row shows live badges regardless of which workspace is
 active. So the frontend subscribes **once** to `/v0/ws/workspaces` and receives
 events for **every** workspace.
 
-- Subscription scope: **global**
+- Subscription scope: **global**, with an optional **`?projectId=`** filter — the
+  sidebar renders the active **Project's** repos (a Project groups repos, `00`
+  §5.1), so it subscribes by `projectId` to get all workspaces across that
+  project's repos in one stream. `?repoId=` narrows further to a single repo.
 - Payload: the **full `Workspace` object** (Q2 decision: full object, not
   granular deltas — idempotent, frontend replaces the row by `id`)
 - Carries: status, `added`/`deleted`, `hasConflicts`, `agent-running` overlay

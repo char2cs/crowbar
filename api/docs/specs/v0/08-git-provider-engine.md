@@ -52,6 +52,16 @@ type PRInfo struct {
 }
 ```
 
+**PR selection rules** (`PullRequestForBranch`):
+- Query **only branches that exist on the remote** (`git ls-remote` / the branch
+  has an upstream). A Crowbar-managed branch never pushed has **no** provider PR —
+  return nil without calling the provider.
+- Match by **head branch** on the **same repo** (`gh pr list --head <branch>` /
+  glab equivalent), not by name alone, to avoid same-named branches on forks.
+- If multiple PRs match, pick the **most-recent `open`** one; if none are open,
+  the **most-recently-updated** closed/merged one. (This makes reopen observable:
+  an open PR always wins.)
+
 ---
 
 ## 3. Access Detection & Enforcement

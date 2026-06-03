@@ -77,7 +77,8 @@ select+copy, hyperlink clicks, large-paste confirmation. Rendering settings
 
 ### Ring buffer (Q1)
 
-Each session keeps a **server-side ring buffer** of recent output (last N KB).
+Each session keeps a **server-side ring buffer** of recent output (last N KB,
+**default 64 KB**, configurable).
 When a WS attaches — including a **re-attach** after an accidental disconnect —
 the backend **replays the ring buffer** so the xterm shows recent history, then
 streams live output.

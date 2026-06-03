@@ -82,8 +82,14 @@ Therefore document sync is **frontend-driven**:
 
 - The frontend issues `didOpen` / `didChange` / `didClose` (the backend forwards
   them to the server), and/or includes the current buffer text with LSP requests.
-- The backend stays **stateless** about buffer content — the browser's buffer is
-  authoritative.
+- The backend stays **stateless about buffer _content_** — the browser's buffer is
+  authoritative — but it **does track the set of open document URIs** (not their
+  content) per workspace. This is required because the language server is stateful
+  and may be **respawned** (lazy lifecycle, §5) or reconnected: on (re)spawn the
+  backend **replays `didOpen` for every currently-open URI**, then asks the
+  frontend to re-send current buffer text for those URIs (or replays the last
+  `didChange` it forwarded). Tracking URIs ≠ tracking content — the content still
+  comes from the browser.
 - Consequence: completions, diagnostics, hover, etc. reflect **unsaved edits**,
   matching VS Code's in-browser model and the UX's "live diagnostics while
   typing" expectation.

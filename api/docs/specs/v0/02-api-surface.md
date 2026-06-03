@@ -49,7 +49,7 @@ See `07-workspace-worktree-hierarchy.md` for worktree mechanics, local merge,
 and re-parenting.
 
 ```
-GET    /v0/workspaces            (dual)     list (?repoId=) — flat, tree built client-side
+GET    /v0/workspaces            (dual)     list (?projectId= or ?repoId=) — flat, tree built client-side
 GET    /v0/workspaces/:id                    full Workspace object (see 00 §5.3) — REST only
                                             (live updates for this row arrive on the global /v0/ws/workspaces)
 POST   /v0/workspaces                       create { repoId, branch, parentId? } → status:new
@@ -124,7 +124,7 @@ POST   /v0/workspaces/:wsId/git/unstage           { paths[] } or hunk { path, hu
 POST   /v0/workspaces/:wsId/git/discard           { paths[] }
 POST   /v0/workspaces/:wsId/git/commit            { subject, body? }
 POST   /v0/workspaces/:wsId/git/push              { }
-POST   /v0/workspaces/:wsId/git/pull              { }
+POST   /v0/workspaces/:wsId/git/pull              { mode: "merge"|"rebase" }
 POST   /v0/workspaces/:wsId/git/fetch             { }
 POST   /v0/workspaces/:wsId/git/branches          create { name, source? }
 PATCH  /v0/workspaces/:wsId/git/branches/:branch  rename { newName }
@@ -147,6 +147,8 @@ POST   /v0/workspaces/:wsId/git/rebase            { onto }
 ```
 GET    /v0/workspaces/:wsId/git/conflicts          conflicting files + ConflictHunk[]
 POST   /v0/workspaces/:wsId/git/conflicts/resolve  { path, conflictHunkId, resolution, resolvedContent? }
+POST   /v0/workspaces/:wsId/git/operation/continue finalize the in-progress merge/rebase/pull (04 §6.1)
+POST   /v0/workspaces/:wsId/git/operation/abort     roll back the in-progress op (04 §6.1)
 ```
 > `conflictHunkId` is `ConflictHunk.id` (§2.8 / `04` §6) — distinct from the
 > staging `hunkId` of §2.7 / `04` §4. Named explicitly to avoid conflating them.
@@ -209,7 +211,8 @@ parentheses) scopes delivery so a client subscribed for one workspace/chat/
 session never receives another's events.
 
 ```
-WS  /v0/ws/workspaces?repoId=        (global)     full Workspace objects: status, +N/-N, hasConflicts, PR, agent-running
+WS  /v0/ws/workspaces?projectId=     (global)     full Workspace objects: status, +N/-N, hasConflicts, PR, agent-running
+                                                  (optional ?projectId= / ?repoId= narrowing; sidebar uses projectId)
 WS  /v0/ws/chats?wsId=               (wsId)       chat list status (idle ↔ agent-running), payload carries chatId
 WS  /v0/ws/git?wsId=                 (wsId)       live GitStatus on every disk change
 WS  /v0/ws/files?wsId=               (wsId)       FileChangeEvent (created/modified/deleted/renamed)

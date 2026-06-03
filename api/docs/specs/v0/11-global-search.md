@@ -105,6 +105,11 @@ SearchResult { filePath, lineNumber, lineText, matchStart, matchEnd }
 character (UTF-16) columns, `match/` converts before returning — a small,
 contained mapping step.
 
+**Result cap.** Results are capped (default **1000** matches, configurable) so a
+broad pattern (e.g. `.` on a large repo) cannot return millions of rows. The
+response includes a `truncated: bool` so the UI can show "showing first N"
+(consistent with the no-silent-caps principle — the cap is reported, not hidden).
+
 ---
 
 ## 7. Replace Endpoint

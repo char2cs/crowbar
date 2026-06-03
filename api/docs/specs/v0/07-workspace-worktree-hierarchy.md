@@ -121,6 +121,16 @@ leave the child's fork point unchanged.)
 Never pushed unless the user later pushes the parent. After a successful local
 merge the child may be kept or deleted (user choice).
 
+**State of a *kept* child after merge.** Once merged, the child's commits are in
+the parent, so the child's diff vs parent is now empty (`+0/-0`). A kept child is
+therefore a **fresh continuation workspace** rooted at the parent's new tip — its
+`forkPointSha` is updated to that tip (for the `rebase` strategy explicitly;
+`merge`/`squash` leave the child branch where it was, so the user typically
+deletes it or keeps working and its `+N/-N` reflects new work). This is intended,
+not a phantom: keeping the child means "continue working from here on top of the
+just-merged parent." The default UI action after merge is **delete**; keep is the
+explicit alternative.
+
 ```
 POST /v0/workspaces/:childId/merge-into-parent { strategy }
 ```
