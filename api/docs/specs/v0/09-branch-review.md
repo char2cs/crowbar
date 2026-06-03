@@ -39,6 +39,8 @@ BranchReview {
 }
 
 BranchChat { id, title, age, isActive }   // a Chat (01), surfaced read-only here
+                                          // isActive = the Chat's status is
+                                          //   agent-running (01); purely derived
 ```
 
 - `diff` comes from the git engine: `git diff <base>...<branch>` (three-dot, from

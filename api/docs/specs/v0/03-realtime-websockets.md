@@ -44,6 +44,29 @@ layer and register themselves as hub subscribers.
 
 ---
 
+## 1a. Initial-State Contract (snapshot on subscribe)
+
+A `Broadcaster[T]` only delivers events that fire **after** a client subscribes —
+so without an explicit contract the sidebar would render blank badges until the
+next change. Every broadcaster therefore defines its first-connect behavior:
+
+- **Snapshot-on-subscribe** (Workspaces, Chats, Git, LSP): immediately on connect,
+  the broadcaster sends the **current state** for the subscription scope (all
+  workspaces for the `projectId`; all chats' status for the `wsId`; the current
+  `GitStatus`; the current `Diagnostic[]`), then streams live deltas. The client
+  needs no separate REST priming and there is no gap between snapshot and the
+  first live event (the snapshot is taken under the same lock that registers the
+  client — same atomicity requirement as the terminal attach, `06` §4).
+- **No snapshot** (Files): the file watcher emits *change* events only; there is
+  no "current state" to replay — the client already has the tree from
+  `GET …/files/tree`. Subsequent `FileChangeEvent`s patch it.
+- **Replay buffer** (Terminal): the ring buffer is the snapshot (`06` §4).
+- **History frame** (ChatStream, post-spike): sends turn history on connect
+  (`01` §7 / `12`).
+
+The dual-serve routes (`02` §2.2) get the same guarantee for free: the REST body
+is the snapshot, the upgraded WS is the live stream.
+
 ## 2. Two Classes of Event Producer
 
 This is the central design point. Not every live event is a domain event.

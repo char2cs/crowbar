@@ -128,15 +128,6 @@ action is delete; keep is the explicit alternative.)
 Never pushed unless the user later pushes the parent. After a successful local
 merge the child may be kept or deleted (user choice).
 
-**State of a *kept* child after merge.** Once merged, the child's commits are in
-the parent, so the child's diff vs parent is now empty. A kept child is therefore
-a **fresh continuation workspace** rooted at the parent's new tip — its
-`forkPointSha` is updated to that tip (for **every** strategy — see the
-`forkPointSha` note below), so it shows `+0/-0` until new work lands. This is
-intended, not a phantom: keeping the child means "continue working from here on
-top of the just-merged parent." The default UI action after merge is **delete**;
-keep is the explicit alternative.
-
 ```
 POST /v0/workspaces/:childId/merge-into-parent { strategy }
 ```

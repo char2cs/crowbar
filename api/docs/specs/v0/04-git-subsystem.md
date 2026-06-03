@@ -59,7 +59,7 @@ where broadcasts and error classification happen.
 
 | Operation | git command | Returns |
 |-----------|-------------|---------|
-| Status | `git status --porcelain=v2 --branch` | `GitStatus { branch, ahead, behind, files[] }` |
+| Status | `git status --porcelain=v2 --branch` | `GitStatus { branch, ahead, behind, files[] }` — **unmerged (`u`) records → `status: conflicted`** so the Changes panel can badge conflicting files and route a click into conflict mode (UX §24); do not drop the `u` records |
 | Log    | `git log --skip=N --max-count=50 --pretty=<fmt>` | `Commit[]` (paginated) |
 | Diff (working tree) | `git diff` / `git diff --cached` | `FileDiff` with `hunkId` per hunk |
 | Diff (commit) | `git diff <sha>^ <sha>` — for the **root commit** (no parent) fall back to `git show --format= <sha>` (or `git diff --root <sha>`) | `MultiFileDiff` |
@@ -89,7 +89,7 @@ The blob SHAs come from the diff's raw header (`git diff --raw` /
 
 ```
 GitStatus { branch, ahead, behind, files: GitFile[] }
-GitFile   { path, status: modified|added|deleted|untracked|renamed, staged: bool }
+GitFile   { path, status: modified|added|deleted|untracked|renamed|conflicted, staged: bool }
 Commit    { hash, shortHash, message, description?, author, email?, date }
 Branch    { name, isCurrent, isRemote, ahead?, behind?, lastCommitDate? }
 Stash     { id, message, date, filesChanged }
@@ -137,6 +137,13 @@ actual changed + context lines) keeps the id stable across sibling staging. The
 id is **embedded in the `FileDiff`** returned to the frontend (each hunk carries
 its `hunkId`). On a stage, the backend re-diffs and matches by recomputed
 body-hash, so it locates the right hunk even after earlier hunks moved.
+
+**Stale-hunk contract.** Body-only hashing survives *sibling* staging, but **not a
+content edit** to the same lines between fetching the diff and clicking stage
+(the normal editor flow — the file is being actively edited). If no current hunk's
+recomputed `hunkId` matches the requested one, the stage returns a **`stale_hunk`**
+error (§8); the frontend re-fetches the diff and retries. This makes the failure
+explicit rather than a silent mis-stage.
 
 ### Staging a hunk
 
@@ -190,8 +197,8 @@ mutates the working tree or index triggers a `GitStatus` recompute and broadcast
 | Stash apply/pop | `git stash apply <id>` / `git stash pop <id>` |
 | Stash drop | `git stash drop <id>` |
 | Reset | `git reset --soft\|--mixed\|--hard <commit>` |
-| Merge | `git merge <branch>` |
-| Rebase | `git rebase <onto>` |
+| Merge | `git merge <branch>` (generic, single-worktree — see note) |
+| Rebase | `git rebase <onto>` (generic, single-worktree — see note) |
 
 **Switch branch — reconciled with the worktree model.** A workspace *is* a
 `git worktree` pinned to one branch, and git refuses to check out a branch already
@@ -214,6 +221,17 @@ the file tree, and re-broadcasts. Two guards:
 - **Nonexistent target:** "switch" operates on **existing** branches only.
   Creating a branch is the separate **Create branch** op (`git checkout -b`,
   above); the switch entry point does not create.
+
+### Generic `merge` / `rebase` vs. `merge-into-parent`
+
+The generic git-write `merge {branch}` / `rebase {onto}` ops (UX §22) act on the
+**current workspace's own worktree** — distinct from the cross-worktree
+`merge-into-parent` (`07` §3.1). They do **not** use the `pendingMerge` marker; a
+conflict leaves the ordinary on-disk marker (`MERGE_HEAD` / `rebase-merge/`) and
+is finalized/aborted via the single-worktree path of §6.1. Like switch-branch, the
+`<branch>` / `<onto>` target **must not be checked out in a sibling worktree**
+(git refuses); if it is, the op is rejected with guidance to operate from that
+sibling workspace.
 
 ### Per-repo serialization (concurrency)
 
@@ -306,7 +324,7 @@ advanced). After a clean finalize, `hasConflicts` clears.
 > requests, so the parent could (in principle) advance between the child rebase
 > and the resume — then `--ff-only` fails. The usecase falls back by re-running
 > `git rebase --continue` semantics against the new parent tip (or surfaces a
-> `dirty_tree`/`non-fast-forward` error to retry). In a single-user local tool
+> `dirty_tree`/`rejected_non_fast_forward` error to retry). In a single-user local tool
 > this race is rare but is handled, not assumed away.
 
 ### Shape (from UX spec)
@@ -360,6 +378,8 @@ The usecase classifies common cases so the frontend can show the correct dialog:
 | `rejected_non_fast_forward` | push rejected (remote ahead) |
 | `nothing_to_commit` | commit with empty index |
 | `dirty_tree` | operation blocked by uncommitted changes |
+| `stale_hunk` | hunk-stage `hunkId` no longer matches (file edited since the diff was fetched) — frontend re-fetches and retries (§4) |
+| `has_children` | re-parent / rebase-strategy merge rejected because the node has descendants (§4.1 / `07` §4) |
 | `auth_failed` | credential failure (surfaced from git, not handled by us) |
 | `unknown` | anything else; raw stderr passed through |
 

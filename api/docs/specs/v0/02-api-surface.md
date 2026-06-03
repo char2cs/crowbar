@@ -113,8 +113,9 @@ GET    /v0/workspaces/:wsId/git/diff              working-tree or commit diff (?
 GET    /v0/workspaces/:wsId/git/branches          Branch[]
 GET    /v0/workspaces/:wsId/git/stashes           Stash[]
 ```
-Each hunk in a returned diff carries a stable **`hunkId`** (hash of its `@@`
-header + content) so the frontend can address it for hunk-level staging.
+Each hunk in a returned diff carries a stable **`hunkId`** (hash of its body — the
+`+`/`-`/context lines, **not** the line-number-bearing `@@` header; see `04` §4)
+so the frontend can address it for hunk-level staging.
 
 ### 2.7 Git — Write — UX §8, §22
 

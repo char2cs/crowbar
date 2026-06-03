@@ -141,10 +141,12 @@ Repository {
   projectId     uuid
   name          string
   path          string       // absolute path on disk
-  defaultBranch string       // resolved at import: git symbolic-ref
-                             //   refs/remotes/origin/HEAD; if unset, the first
-                             //   of the 08 §3 config list (main/develop/master)
-                             //   that `git rev-parse --verify` confirms EXISTS.
+  defaultBranch string       // resolved at import, never empty: git symbolic-ref
+                             //   refs/remotes/origin/HEAD; else the first of the
+                             //   08 §3 config list (main/develop/master) that
+                             //   `git rev-parse --verify` confirms exists; else
+                             //   the repo's current HEAD branch
+                             //   (`git rev-parse --abbrev-ref HEAD`).
                              //   the base for root reviews (09 §2)
   avatarLabel   string       // single char for the avatar badge
   avatarColor   string       // color class for the badge background
@@ -215,7 +217,9 @@ the **same** `SyncWorkingTreeState` command. Each field has a distinct source:
 - `added` / `deleted` ← `git diff --numstat <forkPointSha>` — a **single** diff
   from the fork point to the **working tree** (spans committed + uncommitted in one
   pass; adding a separate `..HEAD` numstat to a working-tree numstat would
-  double-count lines that were committed and then further edited)
+  double-count lines that were committed and then further edited). Reported values
+  are clamped `≥ 0` (a `git reset --hard` that moves the branch *below* its own
+  `forkPointSha` could otherwise yield a negative/garbage count).
 - `hasCommits` ← `git rev-list --count <forkPointSha>..HEAD > 0`
 
 This is *not* a multi-writer hazard: there is exactly one command that writes
