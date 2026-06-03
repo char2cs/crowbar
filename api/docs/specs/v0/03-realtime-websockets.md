@@ -239,4 +239,3 @@ api.New(app)
   (`12-agentic-bridge-spike.md`).
 - Detailed `GitStatus`, `FileChangeEvent`, `Diagnostic`, `PTYFrame` payload
   shapes — in their respective subsystem specs.
-```

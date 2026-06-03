@@ -172,4 +172,3 @@ stores only `{ sessionId, workingDirectory }` in memory per UX §18).
 - Agent shells / `run_command` (Agentic Bridge, §7 above).
 - Persisting sessions across restart (intentional).
 - Client-only rendering/settings (font, theme, scrollback, zoom, find).
-```

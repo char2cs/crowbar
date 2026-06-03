@@ -189,4 +189,3 @@ events).
 - Formatter / linter execution on save (client or LSP).
 - Tracking open/dirty buffers (client-side, UX §18).
 - Recent files, pane layout (client-side IndexedDB, UX §18).
-```

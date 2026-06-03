@@ -261,4 +261,3 @@ The usecase classifies common cases so the frontend can show the correct dialog:
 - Pure-Go git (rejected — see §1).
 - Credential management (rejected — user's own git credentials, §1).
 - Sub-hunk / line-level staging (not in UX spec).
-```

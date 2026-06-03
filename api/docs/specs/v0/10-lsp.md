@@ -119,13 +119,15 @@ The backend does not bundle the servers themselves — it expects them installed
 
 ## 5. Server Lifecycle
 
-Per-workspace, **lazy** (matching the watcher / LSP lifecycle in
-`03-realtime-websockets.md` §6):
+Per-workspace, **lazy** (the lazy-start model of `03-realtime-websockets.md` §6):
 
 - The first LSP request or WS subscription for a workspace spawns the needed
   server(s).
-- Servers shut down when the workspace's LSP subscription drops (ref-counted with
-  the Files/Git subscriptions for that `wsId`).
+- Servers shut down when the workspace's LSP subscription drops — **ref-counted
+  on its own LSP subscriptions only, independent of the Files/Git watcher**
+  (`03` §6, `05` §7). LSP and the file watcher are two unrelated resources and do
+  **not** share a lifecycle: an LSP-only subscriber spawns no watcher, and a
+  Files/Git subscriber spawns no language server.
 - A workspace may run **multiple** servers concurrently (e.g. a repo with both Go
   and TS code) — one per language, managed by `manager/`.
 

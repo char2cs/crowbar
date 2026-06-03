@@ -227,4 +227,3 @@ always-WS channels for push-only event streams.
   (`12-agentic-bridge-spike.md`).
 - Detailed payload shapes per subsystem — in each subsystem's own spec
   (git, files, terminal, review/PR, LSP, search).
-```

@@ -180,12 +180,19 @@ authoritative fork point for re-parenting (`07` §4) — never recomputed via
 `merge-base`.
 
 **Single source of truth.** Every field on the workspace row is owned by this
-aggregate and mutated **only through Asynx commands** — `SyncWorkingTreeState`
-(watcher: `added`/`deleted`/`hasConflicts`, debounced + emitted only on change),
-`SyncProviderState` (provider poller: PR fields + `locked`), and the
-status/hierarchy commands. The aggregate therefore always holds a **complete**
-row, and the Workspaces broadcaster emits that complete projected object — there
-is no second producer writing a half-populated object. See §6.1 and
+aggregate and mutated **only through Asynx commands**:
+
+| Command | Owns (writes) | Issued by |
+|---------|---------------|-----------|
+| `SyncWorkingTreeState{added, deleted, hasConflicts, hasCommits}` | `added`, `deleted`, `hasConflicts`; **clears `new`→null** (see below) | watcher (debounced, only-on-change) |
+| `SyncProviderState{prInfo?, protected}` | `status` ∈ {pr-open,pr-merged,pr-closed}, `prUrl`, `prTitle`, `prTargetBranch`, `locked` | provider poller (`08`) |
+| create / hierarchy / merge / reparent | `status` (`new` at create), `parentId`, `forkPointSha`, `branch`, `worktreePath` | usecases (`07`) |
+
+Asynx **serializes commands per aggregate**, so no two ever interleave a
+half-write. Field ownership is disjoint **except `status`**, whose writers act in
+disjoint lifecycle phases and are guarded so they cannot fight (§6.1). The
+aggregate therefore always holds a **complete** row, and the Workspaces
+broadcaster emits that complete projected object. See §6.1 and
 `03-realtime-websockets.md` §4. (The verbose `GitStatus` for the Git panel is a
 separate, non-event-sourced channel — `04`/`05`.)
 
@@ -240,16 +247,24 @@ new ──► (status: null — has commits, no PR)
 ```
 
 - Base `status` values: `new`, `pr-open`, `pr-merged`, `pr-closed`. A workspace is
-  `new` until its **first commit** (UX §2: "new = just created, no commits yet"),
-  at which point a command clears `status` to `null` (the row then shows only diff
-  stats + age, no badge) until a PR appears. There is **no `active` state** — it
-  was unreachable and is removed.
+  `new` until its **first commit**, then `null` (row shows only diff stats + age,
+  no badge) until a PR appears. There is **no `active` state** — it was
+  unreachable and is removed.
+- **`status` is the one co-owned field, but its writers never fight** — they act
+  in disjoint lifecycle phases and are guarded:
+  - `SyncWorkingTreeState` carries `hasCommits` (detected as
+    `git rev-list --count <forkPointSha>..HEAD > 0`). Its handler clears
+    `status` **only if `status == new`** (`new → null`). It never touches a `pr-*`
+    status. So a stray ref-watch firing after a PR opened cannot stomp `pr-open`
+    back to null.
+  - `SyncProviderState` only ever sets `pr-*` (you cannot have a PR without
+    commits, so `new` is already gone by then).
 - `locked` is a **flag, not a state** — it gates deletion and cascade-delete,
   independent of `status`.
-- `added` / `deleted` / `hasConflicts` **are** mutated through Asynx commands
-  (`SyncWorkingTreeState`, issued by the watcher — debounced, change-only). This
-  keeps the aggregate the single complete source of truth (§5.3). They are *not*
-  pushed to the broadcaster out-of-band.
+- `added` / `deleted` / `hasConflicts` are mutated **only** through
+  `SyncWorkingTreeState` (watcher — debounced, change-only), keeping the aggregate
+  the single complete source of truth (§5.3). They are *not* pushed to the
+  broadcaster out-of-band.
 - The `agent-running` badge is the live presence of an AgentRun projected onto the
   row (overlay), not a stored base status — the same string is a real `status`
   value on **Chat** (`01`) but only an overlay here.
@@ -319,4 +334,3 @@ AgentRun runs synchronously before `app.New()` returns.
   `TerminalProfile` rows, because the PTY layer needs them server-side.
 - **Pane layout / open buffers / recent files** — client-only (IndexedDB), per
   UX spec §18.
-```

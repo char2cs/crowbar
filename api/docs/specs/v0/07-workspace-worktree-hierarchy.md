@@ -143,6 +143,28 @@ dropping the old parent's history from underneath.
 POST /v0/workspaces/:childId/reparent { newParentId }   // 409 if child has children
 ```
 
+### 4.1 The fork-point invariant (applies beyond re-parent)
+
+The rule re-parent enforces is one instance of a general invariant:
+
+> A workspace's `forkPointSha` must remain a **reachable ancestor of its own
+> branch**. Any operation that **rewrites a node's own committed history below a
+> descendant's fork point** orphans that descendant.
+
+Classifying the mutations:
+
+- **Append-only — always safe** (never rewrite existing history a descendant
+  forked from): local `merge` and `squash` merges *received by* a node (§3.1 —
+  they add commits on top), ordinary commits, and `git reset` (moves a ref but the
+  forked commit objects remain reachable from the descendant).
+- **History-rewriting — restricted to leaf nodes** (same guard as re-parent): the
+  `rebase` merge strategy (§3.1) and re-parent (§4), both of which rewrite the
+  node's own commit SHAs. If the node **has children**, these are **forbidden** in
+  v0 (the operation returns 409); the user detaches/re-parents descendants first.
+
+This keeps `forkPointSha` valid for every node without a cascade-repair pass in
+v0. (Subtree cascade-rebase may relax this later.)
+
 ---
 
 ## 5. Deletion & Cascade — UX §2, §15
@@ -166,7 +188,7 @@ All hierarchy mutations (create child, local merge, re-parent, delete) go
 through the **Workspace Asynx aggregate** and broadcast on the global Workspaces
 topic (`03-realtime-websockets.md`), so the sidebar tree stays live. The
 `+N/-N`, `hasConflicts`, and `agent-running` overlays are driven as described in
-§0 §6.1 and the git/fs specs.
+`00` §6.1 and the git/fs specs.
 
 ---
 
