@@ -314,8 +314,10 @@ unmerged index — so squash-in-progress is identified by **unmerged index +
 | rebase / pull-rebase | `git rebase --continue` (loops if more conflicted commits) | `git rebase --abort` |
 | pull-merge | `git commit` | `git merge --abort` |
 
-**`merge-into-parent` spans two worktrees**, so its in-progress state can't be
-inferred from one worktree's marker. The Workspace aggregate records a
+**`merge-into-parent` needs a durable in-progress marker** that a single
+worktree's on-disk state can't reliably provide — the `rebase` strategy spans the
+child *and* parent worktrees, and the `squash` strategy leaves **no** disk marker
+at all. So the Workspace aggregate records a
 **`pendingMerge { strategy, targetParentId }`** marker when `merge-into-parent`
 starts and conflicts. `operation/continue` then drives the strategy to completion
 — for the `rebase` strategy: finish the child rebase (`git rebase --continue`)

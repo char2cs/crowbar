@@ -79,8 +79,8 @@ credentials/config.
   either is subscribed); LSP is a separate refcount (not your concern here).
 
 ## Out of scope
-Worktree hierarchy mutations (`07` — Wave 2; you provide the git primitives it
-calls), provider, terminal, LSP, search, the full API wiring.
+Worktree hierarchy **usecases** (`07` — Wave 3 Agent 3D; you provide the git
+primitives it calls), provider, terminal, LSP, search, the full API wiring.
 
 ## GATE 1 — Definition of done (must demonstrate against a REAL repo)
 - `go build ./...` + `go vet ./...` clean; unit tests pass.
