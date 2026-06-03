@@ -52,11 +52,12 @@ describe('browserPane stubs (non-Tauri env)', () => {
 describe('browserPane functions (Tauri env)', () => {
   let invokeMock: ReturnType<typeof vi.fn>
 
-  beforeEach(async () => {
-    ;(window as unknown as Record<string, unknown>)['__TAURI_INTERNALS__'] = {}
-    // The vite alias points @tauri-apps/api/core to the stub — spy on it
-    const mod = await import('@tauri-apps/api/core')
-    invokeMock = vi.spyOn(mod, 'invoke') as ReturnType<typeof vi.fn>
+  beforeEach(() => {
+    // Mock window.__TAURI_INTERNALS__ directly — tauriInvoke uses it without any npm import
+    invokeMock = vi.fn().mockResolvedValue(undefined)
+    ;(window as unknown as Record<string, unknown>)['__TAURI_INTERNALS__'] = {
+      invoke: invokeMock,
+    }
   })
 
   afterEach(() => {

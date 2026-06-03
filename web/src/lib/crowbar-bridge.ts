@@ -110,8 +110,9 @@ export function isTauri(): boolean {
 
 async function tauriInvoke(cmd: string, args?: Record<string, unknown>): Promise<void> {
   if (!isTauri()) throw new Error(`tauriInvoke called outside Tauri: ${cmd}`)
-  const { invoke } = await import('@tauri-apps/api/core')
-  await invoke(cmd, args)
+  // Use the global injected by Tauri before any JS runs — no npm import needed
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  await (window as any).__TAURI_INTERNALS__.invoke(cmd, args)
 }
 
 export async function browserPaneSync(

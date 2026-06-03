@@ -21,6 +21,11 @@ export default defineConfig({
   },
   worker: { format: 'es' },
   server: { port: 5173 },
+  optimizeDeps: {
+    // Pre-bundle Tauri packages so the dev server never serves them as
+    // "Outdated Optimize Dep" 504s when running inside the Tauri shell.
+    include: ['@tauri-apps/api/event'],
+  },
   resolve: {
     alias: { '@': path.resolve(__dirname, './src') },
   },
