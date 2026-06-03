@@ -6,10 +6,12 @@
   "build": {
     "frontendDist": "../../web/dist",
     "devUrl": "http://localhost:5173",
-    "beforeDevCommand": "",
+    "beforeDevCommand": "pkill -f vite 2>/dev/null; sleep 0.5; cd ../web && npm run dev -- --port 5173",
     "beforeBuildCommand": ""
   },
   "app": {
+    "macOSPrivateApi": true,
+    "withGlobalTauri": true,
     "security": {
       "csp": null,
       "dangerousDisableAssetCspModification": true
@@ -19,9 +21,17 @@
         "title": "Crowbar",
         "width": 1200,
         "height": 800,
-        "resizable": true
+        "resizable": true,
+        "transparent": true,
+        "titleBarStyle": "Overlay",
+        "hiddenTitle": true,
+        "trafficLightPosition": { "x": 12, "y": 23 },
+        "backgroundThrottling": "disabled"
       }
     ]
+  },
+  "plugins": {
+    "macos-fps": {}
   },
   "bundle": {
     "active": true,

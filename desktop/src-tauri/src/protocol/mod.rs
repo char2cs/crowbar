@@ -19,8 +19,20 @@ pub(crate) fn rewrite_path(uri: &str) -> String {
 
 pub async fn handle(request: tauri::http::Request<Vec<u8>>) -> Response<Vec<u8>> {
     let uri_str = request.uri().to_string();
-    let path = rewrite_path(&uri_str);
     let method = request.method().as_str().to_uppercase();
+
+    // Respond to CORS preflight without hitting the Go backend.
+    if method == "OPTIONS" {
+        return Response::builder()
+            .status(204)
+            .header("Access-Control-Allow-Origin", "*")
+            .header("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS")
+            .header("Access-Control-Allow-Headers", "Content-Type, Authorization")
+            .body(vec![])
+            .unwrap();
+    }
+
+    let path = rewrite_path(&uri_str);
     let body_bytes = Bytes::from(request.body().clone());
 
     match proxy_request(&method, &path, body_bytes).await {
@@ -57,6 +69,12 @@ async fn proxy_request(
     }
 
     let body_bytes = resp.into_body().collect().await?.to_bytes().to_vec();
+    // Add CORS headers so the Vite dev server origin (localhost:5173) can reach
+    // the crowbar:// custom protocol in Tauri dev mode.
+    let builder = builder
+        .header("Access-Control-Allow-Origin", "*")
+        .header("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS")
+        .header("Access-Control-Allow-Headers", "Content-Type, Authorization");
     Ok(builder.body(body_bytes)?)
 }
 
@@ -65,6 +83,7 @@ fn error_response(status: StatusCode, msg: &str) -> Response<Vec<u8>> {
     Response::builder()
         .status(status.as_u16())
         .header("Content-Type", "application/json")
+        .header("Access-Control-Allow-Origin", "*")
         .body(body.into_bytes())
         .unwrap()
 }

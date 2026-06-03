@@ -1,0 +1,279 @@
+/* Cal Sans UI — body/UI font (variable, wght 300–700) */
+@font-face {
+  font-family: 'CalSansUI';
+  src: url('/fonts/CalSansUI.woff2') format('woff2');
+  font-weight: 300 700;
+  font-display: swap;
+}
+
+/* Cal Sans — heading font */
+@font-face {
+  font-family: 'CalSans';
+  src: url('/fonts/CalSans-Regular.woff2') format('woff2');
+  font-weight: 400 600;
+  font-display: swap;
+}
+
+@theme inline {
+  --font-sans: 'CalSansUI', sans-serif;
+  --font-heading: 'CalSans', sans-serif;
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --color-card: var(--card);
+  --color-card-foreground: var(--card-foreground);
+  --color-popover: var(--popover);
+  --color-popover-foreground: var(--popover-foreground);
+  --color-primary: var(--primary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-secondary: var(--secondary);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-muted: var(--muted);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-accent: var(--accent);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-destructive: var(--destructive);
+  --color-destructive-foreground: var(--destructive-foreground);
+  --color-border: var(--border);
+  --color-input: var(--input);
+  --color-ring: var(--ring);
+  --color-chart-1: var(--chart-1);
+  --color-chart-2: var(--chart-2);
+  --color-chart-3: var(--chart-3);
+  --color-chart-4: var(--chart-4);
+  --color-chart-5: var(--chart-5);
+  --color-sidebar: var(--sidebar);
+  --color-sidebar-foreground: var(--sidebar-foreground);
+  --color-sidebar-primary: var(--sidebar-primary);
+  --color-sidebar-primary-foreground: var(--sidebar-primary-foreground);
+  --color-sidebar-accent: var(--sidebar-accent);
+  --color-sidebar-accent-foreground: var(--sidebar-accent-foreground);
+  --color-sidebar-border: var(--sidebar-border);
+  --color-sidebar-ring: var(--sidebar-ring);
+  --color-success: var(--success);
+  --color-success-foreground: var(--success-foreground);
+  --color-warning: var(--warning);
+  --color-warning-foreground: var(--warning-foreground);
+  --color-info: var(--info);
+  --color-info-foreground: var(--info-foreground);
+  --color-code: var(--code);
+  --color-code-foreground: var(--code-foreground);
+  --color-code-highlight: var(--code-highlight);
+  --color-chrome-bg: var(--chrome-bg);
+  --color-git-added: var(--git-added);
+  --color-git-deleted: var(--git-deleted);
+  --color-git-modified: var(--git-modified);
+  --color-git-modified-staged: var(--git-modified-staged);
+  --color-git-untracked: var(--git-untracked);
+  --color-git-renamed: var(--git-renamed);
+  --font-editor: var(--editor-font-family);
+  --radius-sm: calc(var(--radius) * 0.6);
+  --radius-md: calc(var(--radius) * 0.8);
+  --radius-lg: var(--radius);
+  --radius-xl: calc(var(--radius) * 1.4);
+  --radius-2xl: calc(var(--radius) * 1.8);
+  --radius-3xl: calc(var(--radius) * 2.2);
+  --radius-4xl: calc(var(--radius) * 2.6);
+  --animate-skeleton: skeleton 2s -1s infinite linear;
+  --animate-caret-blink: 1s ease-out infinite caret-blink;
+  --animate-toast-success-odd: toast-success-odd 0.32s cubic-bezier(0.5, 1, 0.89, 1);
+  --animate-toast-success-even: toast-success-even 0.32s cubic-bezier(0.5, 1, 0.89, 1);
+  --animate-toast-error-odd: toast-error-odd 0.28s cubic-bezier(0.5, 1, 0.89, 1);
+  --animate-toast-error-even: toast-error-even 0.28s cubic-bezier(0.5, 1, 0.89, 1);
+  --animate-label-in: label-in 140ms cubic-bezier(0, 0, 0.2, 1) both;
+  @keyframes skeleton {
+    to {
+      background-position: -200% 0;
+    }
+  }
+  @keyframes caret-blink {
+    0%,
+    70%,
+    to {
+      opacity: 1;
+    }
+    20%,
+    50% {
+      opacity: 0;
+    }
+  }
+  @keyframes toast-success-odd {
+    0% {
+      scale: 1;
+    }
+    30% {
+      scale: 1.025;
+    }
+    60% {
+      scale: 0.99;
+    }
+    100% {
+      scale: 1;
+    }
+  }
+  @keyframes toast-success-even {
+    0% {
+      scale: 1;
+    }
+    30% {
+      scale: 1.025;
+    }
+    60% {
+      scale: 0.99;
+    }
+    100% {
+      scale: 1;
+    }
+  }
+  @keyframes toast-error-odd {
+    0% {
+      translate: 0 0;
+    }
+    25% {
+      translate: -3px 0;
+    }
+    50% {
+      translate: 3px 0;
+    }
+    75% {
+      translate: -3px 0;
+    }
+    100% {
+      translate: 0 0;
+    }
+  }
+  @keyframes toast-error-even {
+    0% {
+      translate: 0 0;
+    }
+    25% {
+      translate: -3px 0;
+    }
+    50% {
+      translate: 3px 0;
+    }
+    75% {
+      translate: -3px 0;
+    }
+    100% {
+      translate: 0 0;
+    }
+  }
+  @keyframes label-in {
+    from {
+      opacity: 0;
+      translate: 0 3px;
+    }
+    to {
+      opacity: 1;
+      translate: 0 0;
+    }
+  }
+}
+
+:root {
+  /* ── Cross/UI light-mode tokens ── */
+  --radius: 0.625rem;
+  --background: var(--color-white);
+  --foreground: var(--color-neutral-800);
+  --card: var(--color-white);
+  --card-foreground: var(--color-neutral-800);
+  --popover: var(--color-white);
+  --popover-foreground: var(--color-neutral-800);
+  --primary: var(--color-neutral-800);
+  --primary-foreground: var(--color-neutral-50);
+  --secondary: oklch(0 0 0 / 4%);
+  --secondary-foreground: var(--color-neutral-800);
+  --muted: oklch(0 0 0 / 4%);
+  --muted-foreground: oklch(0.52 0 0);
+  --accent: oklch(0 0 0 / 4%);
+  --accent-foreground: var(--color-neutral-800);
+  --destructive: var(--color-red-500);
+  --destructive-foreground: var(--color-red-700);
+  --info: var(--color-blue-500);
+  --info-foreground: var(--color-blue-700);
+  --success: var(--color-emerald-500);
+  --success-foreground: var(--color-emerald-700);
+  --warning: var(--color-amber-500);
+  --warning-foreground: var(--color-amber-700);
+  --border: oklch(0 0 0 / 8%);
+  --input: oklch(0 0 0 / 10%);
+  --ring: var(--color-neutral-400);
+  --chart-1: var(--color-orange-600);
+  --chart-2: var(--color-teal-600);
+  --chart-3: var(--color-cyan-900);
+  --chart-4: var(--color-amber-400);
+  --chart-5: var(--color-amber-500);
+  --sidebar: var(--color-neutral-50);
+  --sidebar-foreground: var(--color-neutral-800);
+  --sidebar-primary: var(--color-neutral-800);
+  --sidebar-primary-foreground: var(--color-neutral-50);
+  --sidebar-accent: oklch(0 0 0 / 4%);
+  --sidebar-accent-foreground: var(--color-neutral-800);
+  --sidebar-border: oklch(0 0 0 / 6%);
+  --sidebar-ring: var(--color-neutral-400);
+  --code: var(--color-white);
+  --code-foreground: var(--foreground);
+  --code-highlight: oklch(0 0 0 / 4%);
+
+  /* ── Crowbar UI-layer tokens (not in Cross/UI) ── */
+  --chrome-bg: oklch(1 0 0 / 75%);
+  
+  --app-ui-scale: 1;
+  --ui-text-xs: calc(0.6875rem * var(--app-ui-scale));
+  --ui-text-sm: calc(0.75rem * var(--app-ui-scale));
+  --ui-text-base: calc(0.875rem * var(--app-ui-scale));
+  --app-scrollbar-size: 11px;
+  --app-scrollbar-thumb: oklch(0.55 0 0 / 42%);
+  --app-scrollbar-thumb-border: 3px solid transparent;
+  --app-scrollbar-thumb-hover: oklch(0.55 0 0 / 58%);
+  --app-scrollbar-track: transparent;
+  --app-scrollbar-radius: 999px;
+}
+
+.dark {
+  /* ── Cross/UI dark-mode tokens ── */
+  --background: oklch(0.19 0 0);
+  --foreground: var(--color-neutral-100);
+  --card: var(--background);
+  --card-foreground: var(--color-neutral-100);
+  --popover: var(--background);
+  --popover-foreground: var(--color-neutral-100);
+  --primary: var(--color-neutral-100);
+  --primary-foreground: var(--color-neutral-800);
+  --secondary: oklch(1 0 0 / 4%);
+  --secondary-foreground: var(--color-neutral-100);
+  --muted: oklch(1 0 0 / 4%);
+  --muted-foreground: oklch(0.6 0 0);
+  --accent: oklch(1 0 0 / 4%);
+  --accent-foreground: var(--color-neutral-100);
+  --destructive: oklch(0.65 0.22 24);
+  --destructive-foreground: var(--color-red-400);
+  --info: var(--color-blue-500);
+  --info-foreground: var(--color-blue-400);
+  --success: var(--color-emerald-500);
+  --success-foreground: var(--color-emerald-400);
+  --warning: var(--color-amber-500);
+  --warning-foreground: var(--color-amber-400);
+  --border: oklch(1 0 0 / 6%);
+  --input: oklch(1 0 0 / 8%);
+  --ring: var(--color-neutral-500);
+  --chart-1: var(--color-blue-700);
+  --chart-2: var(--color-emerald-500);
+  --chart-3: var(--color-amber-500);
+  --chart-4: var(--color-purple-500);
+  --chart-5: var(--color-rose-500);
+  --sidebar: oklch(0.18 0 0);
+  --sidebar-foreground: var(--color-neutral-100);
+  --sidebar-primary: var(--color-neutral-100);
+  --sidebar-primary-foreground: var(--color-neutral-800);
+  --sidebar-accent: oklch(1 0 0 / 4%);
+  --sidebar-accent-foreground: var(--color-neutral-100);
+  --sidebar-border: oklch(1 0 0 / 5%);
+  --sidebar-ring: var(--color-neutral-400);
+  --code: var(--background);
+  --code-foreground: var(--foreground);
+  --code-highlight: oklch(1 0 0 / 4%);
+
+  /* ── Crowbar UI-layer dark overrides ── */
+  --chrome-bg: oklch(0.20 0 0 / 90%);
+}

@@ -1,64 +1,90 @@
 package hub
 
-import "context"
+import (
+	"sync"
 
-type Event struct {
-	ID   string `json:"id,omitempty"`
-	Type string `json:"type"`
-	Data any    `json:"data"`
-}
+	"github.com/char2cs/crowbar/api/internal/domain"
+)
 
+// Hub fans out domain broadcasts to all registered Subscribers.
+// It implements WebSocketHub so the app layer can broadcast domain events
+// without depending on the API layer.
 type Hub struct {
-	broadcast  chan Event
-	register   chan chan Event
-	unregister chan chan Event
-	clients    map[chan Event]struct{}
+	mu          sync.RWMutex
+	subscribers []Subscriber
 }
 
-func New() *Hub {
-	return &Hub{
-		broadcast:  make(chan Event, 256),
-		register:   make(chan chan Event),
-		unregister: make(chan chan Event),
-		clients:    make(map[chan Event]struct{}),
-	}
+// NewHub returns a ready-to-use Hub.
+func NewHub() *Hub {
+	return &Hub{}
 }
 
-func (h *Hub) Run(ctx context.Context) {
-	for {
-		select {
-		case client := <-h.register:
-			h.clients[client] = struct{}{}
-		case client := <-h.unregister:
-			if _, ok := h.clients[client]; ok {
-				delete(h.clients, client)
-				close(client)
-			}
-		case event := <-h.broadcast:
-			for client := range h.clients {
-				select {
-				case client <- event:
-				default:
-					delete(h.clients, client)
-					close(client)
-				}
-			}
-		case <-ctx.Done():
-			return
+// Register adds s to the set of active subscribers.
+// Safe to call concurrently.
+func (h *Hub) Register(
+	s Subscriber,
+) {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	h.subscribers = append(h.subscribers, s)
+}
+
+// Unregister removes s from the set of active subscribers.
+// Safe to call concurrently.
+func (h *Hub) Unregister(
+	s Subscriber,
+) {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	next := make([]Subscriber, 0, len(h.subscribers))
+	for _, sub := range h.subscribers {
+		if sub != s {
+			next = append(next, sub)
 		}
 	}
+	h.subscribers = next
 }
 
-func (h *Hub) Register() chan Event {
-	ch := make(chan Event, 10)
-	h.register <- ch
-	return ch
+// BroadcastTask fans out t to every registered Subscriber.
+func (h *Hub) BroadcastTask(
+	t domain.Task,
+) {
+	h.mu.RLock()
+	defer h.mu.RUnlock()
+	for _, s := range h.subscribers {
+		s.PushTask(t)
+	}
 }
 
-func (h *Hub) Unregister(ch chan Event) {
-	h.unregister <- ch
+// BroadcastAgentRun fans out r to every registered Subscriber.
+func (h *Hub) BroadcastAgentRun(
+	r domain.AgentRun,
+) {
+	h.mu.RLock()
+	defer h.mu.RUnlock()
+	for _, s := range h.subscribers {
+		s.PushAgentRun(r)
+	}
 }
 
-func (h *Hub) Broadcast(e Event) {
-	h.broadcast <- e
+// BroadcastKanbanItem fans out i to every registered Subscriber.
+func (h *Hub) BroadcastKanbanItem(
+	i domain.KanbanItem,
+) {
+	h.mu.RLock()
+	defer h.mu.RUnlock()
+	for _, s := range h.subscribers {
+		s.PushKanbanItem(i)
+	}
+}
+
+// BroadcastReviewThread fans out t to every registered Subscriber.
+func (h *Hub) BroadcastReviewThread(
+	t domain.ReviewThread,
+) {
+	h.mu.RLock()
+	defer h.mu.RUnlock()
+	for _, s := range h.subscribers {
+		s.PushReviewThread(t)
+	}
 }

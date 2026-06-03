@@ -1,3 +1,7 @@
+export PATH := $(HOME)/.bun/bin:$(HOME)/.cargo/bin:$(HOME)/.rustup/toolchains/stable-aarch64-apple-darwin/bin:$(PATH)
+export RUSTUP_HOME := $(HOME)/.rustup
+export CARGO_HOME := $(HOME)/.cargo
+
 .PHONY: dev dev-api dev-web dev-desktop build test test-coverage lint pr-checks ci docker-up docker-down
 
 # Parallel dev: starts all three subsystems

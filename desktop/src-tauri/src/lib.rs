@@ -1,16 +1,43 @@
+mod browser_pane;
 mod protocol;
 mod sidecar;
 mod sse_bridge;
 
 use tauri::Manager;
 
+#[cfg(target_os = "macos")]
+use window_vibrancy::{apply_vibrancy, NSVisualEffectMaterial, NSVisualEffectState};
+
 pub fn run() {
-    tauri::Builder::default()
+    let mut builder = tauri::Builder::default()
+        .plugin(tauri_plugin_macos_fps::init())
         .plugin(tauri_plugin_log::Builder::new().build())
-        .plugin(tauri_plugin_shell::init())
+        .plugin(tauri_plugin_shell::init());
+
+    // Dev-only: exposes the webview to the Tauri MCP server (WebSocket :9223).
+    // Gated to debug builds so it never ships in a release.
+    #[cfg(debug_assertions)]
+    {
+        builder = builder.plugin(tauri_plugin_mcp_bridge::init());
+    }
+
+    builder
         .manage(sidecar::SidecarHandle::new())
+        .manage(browser_pane::BrowserPaneManager::new())
         .setup(|app| {
             let app_handle = app.handle().clone();
+
+            // Apply macOS vibrancy (frosted glass) to the whole window
+            if let Some(window) = app.get_webview_window("main") {
+                #[cfg(target_os = "macos")]
+                apply_vibrancy(
+                    &window,
+                    NSVisualEffectMaterial::HudWindow,
+                    Some(NSVisualEffectState::FollowsWindowActiveState),
+                    None,
+                )
+                .expect("Failed to apply vibrancy");
+            }
 
             // Inject window.__CROWBAR__ before the frontend loads
             if let Some(window) = app.get_webview_window("main") {
@@ -88,6 +115,15 @@ pub fn run() {
                 }
             }
         })
+        .invoke_handler(tauri::generate_handler![
+            browser_pane::browser_pane_sync,
+            browser_pane::browser_pane_navigate,
+            browser_pane::browser_pane_go_back,
+            browser_pane::browser_pane_go_forward,
+            browser_pane::browser_pane_reload,
+            browser_pane::browser_pane_close,
+            browser_pane::browser_pane_nav_event,
+        ])
         .run(tauri::generate_context!())
         .expect("error running Tauri app");
 }

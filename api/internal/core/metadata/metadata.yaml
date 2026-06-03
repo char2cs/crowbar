@@ -1,0 +1,3 @@
+name: crowbar
+version: v0
+home: "{{home}}/.crowbar"

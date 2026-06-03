@@ -1,0 +1,350 @@
+const writeText = (text: string) => navigator.clipboard.writeText(text)
+import { Check, Clock, Copy, GitBranch, GitCommit } from "@phosphor-icons/react";
+import { useCallback, useEffect, useRef, useState } from "react";
+import { createPortal } from "react-dom";
+import { useEventListener } from "usehooks-ts";
+import { EDITOR_CONSTANTS } from "@/features/editor/config/constants";
+import { useOverlayManager } from "@/features/editor/hooks/use-overlay-manager";
+import { useThrottledCallback } from "@/features/editor/hooks/use-performance";
+import { useSelectionScope } from "@/features/editor/hooks/use-selection-scope";
+import { getActiveWorkspaceStoreRef } from "@/features/workspace/stores/workspace-store-ref";
+import { useEditorStateStore } from "@/features/editor/stores/state-store";
+import { useSettingsStore } from "@/features/settings/store";
+import { Button } from "@/components/ui/button";
+import { cn } from "@/utils/cn";
+import { formatRelativeTime } from "@/utils/date";
+import { getCommitDiff } from "../api/git-diff-api";
+import { useGitBlameStore } from "../stores/git-blame-store";
+import type { MultiFileDiff } from "../types/git-diff-types";
+import type { GitBlameLine } from "../types/git-types";
+import { countDiffStats } from "../utils/git-diff-helpers";
+
+interface InlineGitBlameProps {
+  blameLine: GitBlameLine;
+  containerClassName?: string;
+  className?: string;
+  fontSize?: number;
+  lineHeight?: number;
+}
+
+export const InlineGitBlame = ({
+  blameLine,
+  containerClassName,
+  className,
+  fontSize,
+  lineHeight,
+}: InlineGitBlameProps) => {
+  const [showCard, setShowCard] = useState(false);
+  const [position, setPosition] = useState({ x: 0, y: 0 });
+  const triggerRef = useRef<HTMLDivElement>(null);
+  const popoverRef = useRef<HTMLDivElement>(null);
+  const hideTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+  const showTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+  const documentRef = useRef(document);
+  const settings = useSettingsStore((s) => s.settings);
+  const effectiveFontSize = fontSize ?? settings.fontSize;
+  const effectiveLineHeight =
+    lineHeight ?? settings.fontSize * EDITOR_CONSTANTS.LINE_HEIGHT_MULTIPLIER;
+  const [isCopied, setIsCopied] = useState(false);
+  const { showOverlay, hideOverlay, shouldShowOverlay } = useOverlayManager();
+
+  const POPOVER_MARGIN = 8;
+
+  useSelectionScope(popoverRef, showCard);
+
+  const clearHideTimeout = useCallback(() => {
+    if (hideTimeoutRef.current) {
+      clearTimeout(hideTimeoutRef.current);
+      hideTimeoutRef.current = null;
+    }
+  }, []);
+
+  const clearShowTimeout = useCallback(() => {
+    if (showTimeoutRef.current) {
+      clearTimeout(showTimeoutRef.current);
+      showTimeoutRef.current = null;
+    }
+  }, []);
+
+  const scheduleHide = useCallback(() => {
+    clearHideTimeout();
+    hideTimeoutRef.current = setTimeout(() => {
+      setShowCard(false);
+    }, 150);
+  }, [clearHideTimeout]);
+
+  const updatePosition = useCallback(() => {
+    if (!triggerRef.current) return;
+
+    const rect = triggerRef.current.getBoundingClientRect();
+    const viewportWidth = window.innerWidth;
+    const viewportHeight = window.innerHeight;
+
+    const popoverRect = popoverRef.current?.getBoundingClientRect();
+    const popoverWidth = popoverRect?.width ?? 384;
+    const popoverHeight = popoverRect?.height ?? 200;
+
+    let x = rect.left;
+    let y = rect.bottom + POPOVER_MARGIN;
+
+    if (x + popoverWidth > viewportWidth - POPOVER_MARGIN) {
+      x = viewportWidth - popoverWidth - POPOVER_MARGIN;
+    }
+    if (x < POPOVER_MARGIN) {
+      x = POPOVER_MARGIN;
+    }
+
+    if (y + popoverHeight > viewportHeight - POPOVER_MARGIN) {
+      y = rect.top - popoverHeight - POPOVER_MARGIN;
+    }
+
+    setPosition({ x, y });
+  }, []);
+
+  const showPopover = useCallback(() => {
+    clearHideTimeout();
+    if (!showCard && !showTimeoutRef.current) {
+      showTimeoutRef.current = setTimeout(() => {
+        updatePosition();
+        setShowCard(true);
+        showOverlay("git-blame");
+        showTimeoutRef.current = null;
+      }, 1000);
+    }
+  }, [clearHideTimeout, showCard, updatePosition, showOverlay]);
+
+  const hidePopover = useCallback(() => {
+    clearShowTimeout();
+    scheduleHide();
+    hideOverlay("git-blame");
+  }, [clearShowTimeout, scheduleHide, hideOverlay]);
+
+  const handleCopyCommitHash = useCallback(
+    async (e: React.MouseEvent) => {
+      e.stopPropagation();
+      await writeText(blameLine.commit_hash.substring(0, 7));
+      setIsCopied(true);
+      setTimeout(() => setIsCopied(false), 1500);
+    },
+    [blameLine.commit_hash],
+  );
+
+  const handleViewCommit = useCallback(async () => {
+    const { filePath } = useEditorStateStore.getState();
+    const { getRepoPath } = useGitBlameStore.getState();
+    const repoPath = getRepoPath(filePath);
+
+    if (!repoPath) return;
+
+    try {
+      const diffs = await getCommitDiff(repoPath, blameLine.commit_hash);
+
+      if (diffs && diffs.length > 0) {
+        const { additions, deletions } = countDiffStats(diffs);
+
+        const multiDiff: MultiFileDiff = {
+          title: `Commit ${blameLine.commit_hash.substring(0, 7)}`,
+          repoPath,
+          commitHash: blameLine.commit_hash,
+          files: diffs,
+          totalFiles: diffs.length,
+          totalAdditions: additions,
+          totalDeletions: deletions,
+        };
+
+        const virtualPath = `diff://commit/${blameLine.commit_hash}/all-files`;
+        const displayName = `Commit ${blameLine.commit_hash.substring(0, 7)} (${diffs.length} files)`;
+
+        getActiveWorkspaceStoreRef()
+          ?.getState()
+          .bufferActions.openContent({
+            type: "diff",
+            path: virtualPath,
+            name: displayName,
+            content: "",
+            diffData: multiDiff,
+          });
+      }
+    } catch (error) {
+      console.error("Error getting commit diff:", error);
+    }
+  }, [blameLine.commit_hash]);
+
+  const throttleCallback = useThrottledCallback((e: MouseEvent) => {
+    if (!triggerRef.current) return;
+
+    const { clientX, clientY } = e;
+
+    const {
+      left: triggerLeft,
+      top: triggerTop,
+      width: triggerWidth,
+      height: triggerHeight,
+    } = triggerRef.current.getBoundingClientRect();
+
+    const isOverTrigger =
+      clientX >= triggerLeft &&
+      clientX <= triggerLeft + triggerWidth &&
+      clientY >= triggerTop &&
+      clientY <= triggerTop + triggerHeight;
+
+    let isOverPopover = false;
+    if (popoverRef.current) {
+      const {
+        left: popoverLeft,
+        top: popoverTop,
+        width: popoverWidth,
+        height: popoverHeight,
+      } = popoverRef.current.getBoundingClientRect();
+      isOverPopover =
+        clientX >= popoverLeft &&
+        clientX <= popoverLeft + popoverWidth &&
+        clientY >= popoverTop &&
+        clientY <= popoverTop + popoverHeight;
+    }
+
+    if (isOverTrigger || isOverPopover) {
+      showPopover();
+    } else {
+      hidePopover();
+    }
+  }, 100);
+
+  useEventListener("mousemove", throttleCallback, documentRef);
+
+  useEffect(() => {
+    if (showCard && triggerRef.current && popoverRef.current) {
+      const triggerRect = triggerRef.current.getBoundingClientRect();
+      const popoverRect = popoverRef.current.getBoundingClientRect();
+      const viewportWidth = window.innerWidth;
+      const viewportHeight = window.innerHeight;
+
+      let x = triggerRect.left;
+      let y = triggerRect.bottom + POPOVER_MARGIN;
+
+      if (x + popoverRect.width > viewportWidth - POPOVER_MARGIN) {
+        x = viewportWidth - popoverRect.width - POPOVER_MARGIN;
+      }
+      if (x < POPOVER_MARGIN) {
+        x = POPOVER_MARGIN;
+      }
+
+      if (y + popoverRect.height > viewportHeight - POPOVER_MARGIN) {
+        y = triggerRect.top - popoverRect.height - POPOVER_MARGIN;
+      }
+
+      setPosition({ x, y });
+    }
+  }, [showCard]);
+
+  useEffect(() => {
+    if (!showCard) return;
+
+    const handleResize = () => {
+      setShowCard(false);
+    };
+
+    const handleScroll = () => {
+      setShowCard(false);
+    };
+
+    window.addEventListener("resize", handleResize);
+    window.addEventListener("scroll", handleScroll, true);
+
+    return () => {
+      window.removeEventListener("resize", handleResize);
+      window.removeEventListener("scroll", handleScroll, true);
+    };
+  }, [showCard]);
+
+  useEffect(() => {
+    return () => {
+      clearHideTimeout();
+      clearShowTimeout();
+    };
+  }, [clearHideTimeout, clearShowTimeout]);
+
+  return (
+    <div
+      ref={triggerRef}
+      className={cn("relative flex items-center", containerClassName)}
+      style={{ height: `${effectiveLineHeight}px` }}
+    >
+      <div
+        className={cn("ml-2 flex items-center gap-1", "text-muted-foreground", className)}
+        style={{
+          fontSize: `${effectiveFontSize}px`,
+          lineHeight: 1,
+          verticalAlign: "top",
+          whiteSpace: "nowrap",
+        }}
+      >
+        <span className="flex shrink-0 items-center">
+          <GitBranch size={effectiveFontSize} />
+        </span>
+        <span>{blameLine.author},</span>
+        <span>{formatRelativeTime(blameLine.time)}</span>
+      </div>
+
+      {showCard &&
+        shouldShowOverlay("git-blame") &&
+        createPortal(
+          <div
+            ref={popoverRef}
+            className="editor-overlay-card fixed min-w-92"
+            style={{
+              zIndex: EDITOR_CONSTANTS.Z_INDEX.TOOLTIP,
+              left: `${position.x}px`,
+              top: `${position.y}px`,
+            }}
+            onClick={(e) => e.stopPropagation()}
+            onSelect={(e) => e.stopPropagation()}
+            onMouseDown={(e) => e.stopPropagation()}
+          >
+            <div className="flex max-w-96 flex-col gap-2 p-2">
+              <div className="flex items-center justify-between gap-2">
+                <span className="truncate font-medium ui-text-sm text-foreground">
+                  {blameLine.author}
+                </span>
+                <div className="flex shrink-0 items-center gap-1 text-muted-foreground ui-text-xs">
+                  <Clock />
+                  <span>{formatRelativeTime(blameLine.time)}</span>
+                </div>
+              </div>
+
+              <pre className="whitespace-pre-wrap break-words text-muted-foreground ui-text-xs leading-relaxed">
+                {blameLine.commit.trim()}
+              </pre>
+
+              <div className="flex items-center gap-1.5 text-muted-foreground ui-text-xs">
+                <Button
+                  type="button"
+                  variant="ghost"
+                  className="gap-1.5 px-1.5"
+                  onClick={handleViewCommit}
+                  tooltip="View commit details"
+                  compact
+                >
+                  <GitCommit />
+                  <span className="ui-font text-foreground">{blameLine.commit_hash.substring(0, 7)}</span>
+                </Button>
+                <Button
+                  type="button"
+                  variant="ghost"
+                  className="ml-auto text-muted-foreground hover:text-foreground"
+                  onClick={handleCopyCommitHash}
+                  tooltip="Copy commit hash"
+                  compact
+                >
+                  {isCopied ? <Check className="text-green-500" /> : <Copy />}
+                </Button>
+              </div>
+            </div>
+          </div>,
+          document.body,
+        )}
+    </div>
+  );
+};
+
+export default InlineGitBlame;

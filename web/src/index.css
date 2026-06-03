@@ -1,1 +1,50 @@
 @import "tailwindcss";
+@import "tw-animate-css";
+@import "./styles/theme.css";
+@import "./styles/editor-theme.css";
+
+@custom-variant dark (&:is(.dark *));
+
+@layer base {
+  * {
+    @apply border-border outline-ring/50;
+  }
+  body {
+    @apply bg-chrome-bg text-foreground;
+  }
+  html {
+    @apply font-sans;
+  }
+}
+
+@utility ui-font {
+  font-family: var(--app-font-family, var(--font-sans));
+}
+
+@utility ui-text-xs {
+  font-size: var(--ui-text-xs);
+}
+
+@utility ui-text-sm {
+  font-size: var(--ui-text-sm);
+}
+
+@utility ui-text-base {
+  font-size: var(--ui-text-base);
+}
+
+@layer utilities {
+  .scrollbar-hidden {
+    scrollbar-width: none;
+  }
+  .scrollbar-hidden::-webkit-scrollbar {
+    display: none;
+  }
+
+  .tab-scrollbar {
+    scrollbar-width: none;
+  }
+  .tab-scrollbar::-webkit-scrollbar {
+    display: none;
+  }
+}

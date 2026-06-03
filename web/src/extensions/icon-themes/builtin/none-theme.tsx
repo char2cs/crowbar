@@ -1,0 +1,15 @@
+import { File, Folder, FolderOpen } from "@phosphor-icons/react"
+import type { IconThemeDefinition } from "../types"
+
+export const noneIconTheme: IconThemeDefinition = {
+  id: "none",
+  name: "None",
+  description: "No file type icons — basic file and folder icons only",
+  getFileIcon: (_fileName: string, isDir: boolean, isExpanded = false, _isSymlink = false) => {
+    if (isDir) {
+      const Icon = isExpanded ? FolderOpen : Folder
+      return { component: <Icon /> }
+    }
+    return { component: <File /> }
+  },
+}

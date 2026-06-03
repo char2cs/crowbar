@@ -1,18 +1,21 @@
 package sqlite
 
 import (
-	"github.com/glebarez/sqlite"
+	"database/sql"
+
 	"github.com/char2cs/crowbar/api/internal/domain"
+	glebsqlite "github.com/glebarez/sqlite"
 	"gorm.io/gorm"
 	"gorm.io/gorm/logger"
 )
 
 type Store struct {
-	db *gorm.DB
+	db    *gorm.DB
+	sqlDB *sql.DB
 }
 
 func New(path string) (*Store, error) {
-	db, err := gorm.Open(sqlite.Open(path), &gorm.Config{
+	db, err := gorm.Open(glebsqlite.Open(path), &gorm.Config{
 		Logger: logger.Default.LogMode(logger.Silent),
 	})
 	if err != nil {
@@ -21,20 +24,16 @@ func New(path string) (*Store, error) {
 
 	if err := db.AutoMigrate(
 		&domain.Project{},
-		&domain.Workspace{},
 	); err != nil {
 		return nil, err
 	}
 
-	return &Store{db: db}, nil
+	sqlDB, _ := db.DB()
+	return &Store{db: db, sqlDB: sqlDB}, nil
 }
 
 func (s *Store) DB() *gorm.DB { return s.db }
 
 func (s *Store) Close() error {
-	sql, err := s.db.DB()
-	if err != nil {
-		return err
-	}
-	return sql.Close()
+	return s.sqlDB.Close()
 }

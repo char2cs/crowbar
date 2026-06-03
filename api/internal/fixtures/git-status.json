@@ -1,0 +1,36 @@
+{
+  "branch": "enhancement/design-language",
+  "staged": [
+    { "path": "web/src/components/layout/IDEShell.tsx",          "status": "modified" },
+    { "path": "web/src/components/layout/workspace-branch-icon.tsx", "status": "modified" },
+    { "path": "web/src/components/layout/workspace-inline-input.tsx","status": "modified" },
+    { "path": "web/src/components/layout/workspace-tree-footer.tsx", "status": "modified" },
+    { "path": "web/src/features/editor/components/monaco-editor.tsx","status": "modified" },
+    { "path": "web/src/features/panes/components/pane-resize-handle.tsx","status": "modified" },
+    { "path": "web/src/lib/persistence/idb.ts",                  "status": "modified" },
+    { "path": "web/src/lib/persistence/schemas.ts",              "status": "modified" },
+    { "path": "api/internal/fixtures/types.go",                  "status": "added" },
+    { "path": "api/internal/fixtures/store.go",                  "status": "added" },
+    { "path": "api/internal/api/middleware/chaos.go",            "status": "added" },
+    { "path": "web/src/mocks/browser.ts",                        "status": "added" },
+    { "path": "web/src/lib/ws/manager.ts",                       "status": "added" },
+    { "path": "web/src/lib/ws/types.ts",                         "status": "added" }
+  ],
+  "unstaged": [
+    { "path": "web/src/lib/api.ts",                              "status": "modified" },
+    { "path": "web/src/lib/queries.ts",                          "status": "modified" },
+    { "path": "web/src/main.tsx",                                "status": "modified" },
+    { "path": "web/vite.config.ts",                              "status": "modified" },
+    { "path": "web/src/components/dev/chaos-panel.tsx",          "status": "added" },
+    { "path": "docs/superpowers/specs/2026-05-30-api-layer-ws-channels-query-cache-design.md", "status": "added" },
+    { "path": "old-feature.ts",                                  "status": "deleted" },
+    { "path": "src/legacy/payment.ts",                           "status": "deleted" },
+    { "path": "src/auth/session.ts",                             "status": "modified" },
+    { "path": "src/auth/middleware.ts",                          "status": "renamed" },
+    { "path": "api/go.mod",                                      "status": "modified" },
+    { "path": "api/go.sum",                                      "status": "modified" },
+    { "path": "README.md",                                       "status": "modified" },
+    { "path": "package.json",                                    "status": "modified" },
+    { "path": "web/package-lock.json",                           "status": "modified" }
+  ]
+}

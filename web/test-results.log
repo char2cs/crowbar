@@ -1,0 +1,746 @@
+
+ RUN  v3.2.4 /Users/char2cs/.superconductor/worktrees/crowbar/sc-flux-phonon-3588/web
+
+ ❯ src/__tests__/lib/queries-ide.test.ts (6 tests | 1 failed) 8ms
+   ✓ IDE query options > fileTreeQueryOptions has correct queryKey 2ms
+   ✓ IDE query options > fileTreeQueryOptions queryFn returns non-empty array 0ms
+   ✓ IDE query options > gitStatusQueryOptions has correct queryKey 0ms
+   × IDE query options > gitStatusQueryOptions queryFn returns status object 4ms
+     → expected { branch: 'feature/app-design', …(3) } to have property "staged"
+   ✓ IDE query options > gitHistoryQueryOptions queryFn returns commits array 1ms
+   ✓ IDE query options > gitBranchesQueryOptions queryFn returns branches array 0ms
+ ❯ src/__tests__/features/editor/editor-revert-file.test.ts (1 test | 1 failed) 19ms
+   × editor revert file command > reloads the active local editor buffer from disk and clears dirty state 18ms
+     → expected "spy" to be called with arguments: [ '/workspace/revert.ts' ][90m
+
+Number of calls: [1m0[22m
+[39m
+ ✓ src/__tests__/components/workspace/WorkspaceCreationForm.test.tsx (4 tests) 158ms
+stderr | src/__tests__/features/editor/editor-api.test.ts > editor API model operations > does not write undo content into a textarea that does not own the full content
+[Editor][Editor] No active buffer for undo
+
+ ❯ src/__tests__/features/editor/editor-api.test.ts (17 tests | 14 failed) 220ms
+   × editor API model operations > inserts text through the editor model when no textarea owns the content 198ms
+     → expected "spy" to be called with arguments: [ 'alpha\nbeXta', 'alpha\nbeta', …(2) ][90m
+
+Received: 
+
+[1m  1st spy call:
+
+[22m[33m@@ -1,10 +1,8 @@[90m
+[2m  [[22m
+[32m-   "alpha[90m
+[32m- beXta",[90m
+[32m-   "alpha[90m
+[32m- beta",[90m
+[31m+   "X",[90m
+[31m+   "",[90m
+[2m    {[22m
+[2m      "column": 2,[22m
+[2m      "line": 1,[22m
+[2m      "offset": 8,[22m
+[2m    },[22m
+[39m[90m
+
+Number of calls: [1m1[22m
+[39m
+   ✓ editor API model operations > delegates text edits to the active editor adapter 2ms
+   × editor API model operations > clears only the matching active editor adapter 1ms
+     → expected "spy" to be called with arguments: [ 'alpha\nbeYta', 'alpha\nbeta', …(2) ][90m
+
+Received: 
+
+[1m  1st spy call:
+
+[22m[33m@@ -1,10 +1,8 @@[90m
+[2m  [[22m
+[32m-   "alpha[90m
+[32m- beYta",[90m
+[32m-   "alpha[90m
+[32m- beta",[90m
+[31m+   "Y",[90m
+[31m+   "",[90m
+[2m    {[22m
+[2m      "column": 2,[22m
+[2m      "line": 1,[22m
+[2m      "offset": 8,[22m
+[2m    },[22m
+[39m[90m
+
+Number of calls: [1m1[22m
+[39m
+   × editor API model operations > selects the full model content without relying on a native textarea selection 1ms
+     → expected undefined to deeply equal { start: { line: +0, …(2) }, …(1) }
+   ✓ editor API model operations > reads cursor and selection from the editor model store 0ms
+   × editor API model operations > toggles comments through the model path 1ms
+     → expected "spy" to be called with arguments: [ '// alpha\nbeta', …(3) ][90m
+
+Number of calls: [1m0[22m
+[39m
+   × editor API model operations > jumps between brackets through the model cursor 1ms
+     → expected { start: { line: +0, …(2) }, …(1) } to be undefined
+   × editor API model operations > selects to the nearest bracket pair through the model cursor 1ms
+     → expected undefined to deeply equal { start: { line: +0, …(2) }, …(1) }
+   × editor API model operations > removes the nearest bracket pair through the model edit path 1ms
+     → expected "spy" to be called with arguments: [ 'var x = (3 + 5-7);', …(3) ][90m
+
+Number of calls: [1m0[22m
+[39m
+   × editor API model operations > expands and shrinks smart selection ranges through the model cursor 1ms
+     → expected undefined to deeply equal { start: { line: +0, …(2) }, …(1) }
+   × editor API model operations > adds vertical cursors through the model API without stealing the primary cursor 1ms
+     → expected undefined to deeply equal [ …(2) ]
+   × editor API model operations > adds cursors to selected line ends through the model API 1ms
+     → expected [ Array(1) ] to deeply equal [ …(3) ]
+   × editor API model operations > replaces the selected range through the model path 0ms
+     → expected "spy" to be called with arguments: [ 'alpha\nBa', 'alpha\nbeta', …(2) ][90m
+
+Received: 
+
+[1m  1st spy call:
+
+[22m[33m@@ -1,10 +1,8 @@[90m
+[2m  [[22m
+[32m-   "alpha[90m
+[32m- Ba",[90m
+[32m-   "alpha[90m
+[32m- beta",[90m
+[31m+   "B",[90m
+[31m+   "",[90m
+[2m    {[22m
+[2m      "column": 2,[22m
+[2m      "line": 1,[22m
+[2m      "offset": 8,[22m
+[2m    },[22m
+[39m[90m
+
+Number of calls: [1m1[22m
+[39m
+   × editor API model operations > reads individual lines from sparse large-file view state 5ms
+     → expected 1 to be 50001 // Object.is equality
+   ✓ editor API model operations > reports the active editor theme from editor settings 1ms
+   × editor API model operations > does not sync cursor offsets into a textarea that does not own the full content 3ms
+     → expected 10 to be +0 // Object.is equality
+   × editor API model operations > does not write undo content into a textarea that does not own the full content 3ms
+     → expected { id: 'buffer_editor_api_test', …(12) } to match object { content: 'alpha' }
+(12 matching properties omitted from actual)
+ ❯ src/__tests__/components/ui/sidebar.test.tsx (4 tests | 1 failed) 29ms
+   × SidebarHeader > keeps backdrop-blur-sm for the frosted glass effect 25ms
+     → expected 'flex flex-col gap-2 p-2' to contain 'backdrop-blur-sm'
+   ✓ SidebarHeader > does not set its own background (inherits from body) 1ms
+   ✓ SidebarFooter > does not set its own background in default mode (inherits from body) 2ms
+   ✓ SidebarFooter > does not include bg-primary-bg in default mode 1ms
+ ✓ src/__tests__/components/projects/ImportProjectModal.test.tsx (4 tests) 302ms
+ ✓ src/__tests__/components/ui/button.test.tsx (12 tests) 506ms
+ ✓ src/__tests__/features/markdown-chat/components/turn-markdown.test.tsx (3 tests) 80ms
+ ✓ src/__tests__/lib/mutations/optimistic.test.ts (2 tests) 133ms
+ ✓ src/__tests__/features/editor/large-file.test.ts (20 tests) 130ms
+ ✓ src/__tests__/components/layout/WorkspaceStepTabs.test.tsx (3 tests) 126ms
+ ✓ src/__tests__/features/markdown-chat/components/markdown-chat-view.test.tsx (3 tests) 191ms
+ ✓ src/__tests__/features/tabs/components/tab-bar-item.test.tsx (6 tests) 116ms
+ ✓ src/__tests__/components/layout/workspace-inline-input.test.tsx (8 tests) 96ms
+ ✓ src/__tests__/features/branch-review/merge-button.test.tsx (4 tests) 168ms
+[tanstack-router] These exports from "/Users/char2cs/.superconductor/worktrees/crowbar/sc-flux-phonon-3588/web/src/routes/workspaces/new.tsx" will not be code-split and will increase your bundle size:
+- NewWorkspacePage
+For the best optimization, these items should either have their export statements removed, or be imported from another location that is not a route file.
+ ✓ src/__tests__/components/layout/IDEShell.test.tsx (5 tests) 64ms
+ ✓ src/__tests__/components/layout/sidebar-tabs.test.tsx (4 tests) 104ms
+ ✓ src/__tests__/features/editor/context-menu/context-menu.test.tsx (6 tests) 89ms
+stderr | src/__tests__/routes/workspaces/new.test.tsx
+[tanstack-router] These exports from "/Users/char2cs/.superconductor/worktrees/crowbar/sc-flux-phonon-3588/web/src/routes/workspaces/new.tsx" will not be code-split and will increase your bundle size:
+- NewWorkspacePage
+For the best optimization, these items should either have their export statements removed, or be imported from another location that is not a route file.
+
+ ✓ src/__tests__/routes/workspaces/new.test.tsx (1 test) 114ms
+ ✓ src/__tests__/lib/persistence/workspace-hierarchy.test.ts (5 tests) 13ms
+ ✓ src/__tests__/features/editor/stores/settings-store.test.ts (1 test) 49ms
+ ✓ src/__tests__/components/layout/sidebar-nav-icons.test.tsx (5 tests) 209ms
+ ✓ src/__tests__/lib/store/sidebar.test.ts (15 tests) 74ms
+ ✓ src/__tests__/lib/persistence/hydrate.test.ts (9 tests) 37ms
+ ✓ src/__tests__/components/hydration-gate.test.tsx (2 tests) 31ms
+[tanstack-router] These exports from "/Users/char2cs/.superconductor/worktrees/crowbar/sc-flux-phonon-3588/web/src/routes/chat/$chatId.tsx" will not be code-split and will increase your bundle size:
+- ChatPage
+For the best optimization, these items should either have their export statements removed, or be imported from another location that is not a route file.
+ ✓ src/__tests__/features/markdown-chat/components/markdown-chat-input.test.tsx (2 tests) 28ms
+stderr | src/__tests__/routes/chat/chatId.test.tsx
+[tanstack-router] These exports from "/Users/char2cs/.superconductor/worktrees/crowbar/sc-flux-phonon-3588/web/src/routes/chat/$chatId.tsx" will not be code-split and will increase your bundle size:
+- ChatPage
+For the best optimization, these items should either have their export statements removed, or be imported from another location that is not a route file.
+
+ ✓ src/__tests__/routes/chat/chatId.test.tsx (1 test) 14ms
+ ✓ src/__tests__/features/editor/editor-session-state.test.ts (2 tests) 32ms
+ ✓ src/__tests__/features/markdown-chat/stores/conversation-store.test.ts (7 tests) 2ms
+ ✓ src/__tests__/features/editor/go-to-line.test.ts (2 tests) 19ms
+ ✓ src/__tests__/lib/api/workspace.test.ts (5 tests) 14ms
+ ✓ src/__tests__/components/layout/SidebarRow.test.tsx (2 tests) 61ms
+ ✓ src/__tests__/features/workspace/stores/hooks/use-active-workspace-state.test.ts (5 tests) 101ms
+ ✓ src/__tests__/lib/crowbar-bridge.test.ts (10 tests) 3ms
+ ✓ src/__tests__/lib/persistence/sidebar-ui.test.ts (4 tests) 14ms
+ ✓ src/__tests__/features/panes/pane-command-actions.test.ts (7 tests) 35ms
+ ✓ src/__tests__/components/review/DiffView.test.tsx (1 test) 25ms
+ ✓ src/__tests__/features/panes/pane-drop-actions.test.ts (3 tests) 25ms
+ ✓ src/__tests__/features/editor/view-layout.test.ts (11 tests) 13ms
+ ✓ src/__tests__/features/editor/search-replace.test.ts (6 tests) 35ms
+ ✓ src/__tests__/components/ui/context-menu.test.tsx (3 tests) 50ms
+ ✓ src/__tests__/features/workspace/stores/hooks/use-workspace-effects.test.ts (2 tests) 35ms
+ ✓ src/__tests__/hooks/useModelPreference.test.ts (5 tests) 16ms
+ ✓ src/__tests__/lib/mock/files.test.ts (5 tests) 5ms
+ ✓ src/__tests__/features/editor/text-operations.test.ts (7 tests) 6ms
+ ✓ src/__tests__/lib/persistence/branch-review-persistence.test.ts (4 tests) 13ms
+ ✓ src/__tests__/features/editor/view-store-large-file.test.ts (3 tests) 33ms
+ ✓ src/__tests__/lib/persistence/ui-preferences.test.ts (2 tests) 21ms
+ ✓ src/__tests__/lib/ws/manager.test.ts (3 tests) 5ms
+ ✓ src/__tests__/features/workspace/stores/slices/recent-files-slice.test.ts (6 tests) 25ms
+ ✓ src/__tests__/features/panes/pane-store.test.ts (9 tests) 17ms
+ ✓ src/__tests__/features/workspace/stores/buffer-slice-eviction.test.ts (4 tests) 10ms
+ ✓ src/__tests__/features/panes/pane-routing.test.ts (4 tests) 3ms
+ ✓ src/__tests__/features/editor/search.test.ts (6 tests) 12ms
+ ✓ src/__tests__/features/workspace/stores/slices/pane-slice.test.ts (14 tests) 7ms
+ ✓ src/__tests__/features/panes/pane-buffer-actions.test.ts (3 tests) 14ms
+ ✓ src/__tests__/lib/persistence/workspace-layout.test.ts (2 tests) 31ms
+ ✓ src/__tests__/features/workspace/stores/slices/buffer-slice.test.ts (10 tests) 21ms
+ ✓ src/__tests__/features/markdown-chat/extensions/live-preview.test.ts (3 tests) 19ms
+ ✓ src/__tests__/features/editor/select-next-occurrence.test.ts (14 tests) 7ms
+ ✓ src/__tests__/lib/mock/chats.test.ts (1 test) 1ms
+ ✓ src/__tests__/features/editor/bracket-matching.test.ts (16 tests) 6ms
+stderr | src/__tests__/features/git/git-worktrees-api.test.ts > git worktrees api (stub behaviour) > returns false when removeWorktree stub is not implemented
+Failed to remove worktree: Error: Not implemented: git_remove_worktree
+    at tauriInvoke [90m(/Users/char2cs/.superconductor/worktrees/crowbar/sc-flux-phonon-3588/web/[39msrc/features/git/api/git-worktrees-api.ts:2:85[90m)[39m
+    at removeWorktree [90m(/Users/char2cs/.superconductor/worktrees/crowbar/sc-flux-phonon-3588/web/[39msrc/features/git/api/git-worktrees-api.ts:35:11[90m)[39m
+    at [90m/Users/char2cs/.superconductor/worktrees/crowbar/sc-flux-phonon-3588/web/[39msrc/__tests__/features/git/git-worktrees-api.test.ts:8:18
+    at [90mfile:///Users/char2cs/.superconductor/worktrees/crowbar/sc-flux-phonon-3588/web/[39mnode_modules/[4m@vitest/runner[24m/dist/chunk-hooks.js:155:11
+    at [90mfile:///Users/char2cs/.superconductor/worktrees/crowbar/sc-flux-phonon-3588/web/[39mnode_modules/[4m@vitest/runner[24m/dist/chunk-hooks.js:752:26
+    at [90mfile:///Users/char2cs/.superconductor/worktrees/crowbar/sc-flux-phonon-3588/web/[39mnode_modules/[4m@vitest/runner[24m/dist/chunk-hooks.js:1897:20
+    at new Promise (<anonymous>)
+    at runWithTimeout [90m(file:///Users/char2cs/.superconductor/worktrees/crowbar/sc-flux-phonon-3588/web/[39mnode_modules/[4m@vitest/runner[24m/dist/chunk-hooks.js:1863:10[90m)[39m
+    at runTest [90m(file:///Users/char2cs/.superconductor/worktrees/crowbar/sc-flux-phonon-3588/web/[39mnode_modules/[4m@vitest/runner[24m/dist/chunk-hooks.js:1574:12[90m)[39m
+[90m    at processTicksAndRejections (node:internal/process/task_queues:103:5)[39m
+
+stderr | src/__tests__/features/git/git-worktrees-api.test.ts > git worktrees api (stub behaviour) > returns false with force=true when stub is not implemented
+Failed to remove worktree: Error: Not implemented: git_remove_worktree
+    at tauriInvoke [90m(/Users/char2cs/.superconductor/worktrees/crowbar/sc-flux-phonon-3588/web/[39msrc/features/git/api/git-worktrees-api.ts:2:85[90m)[39m
+    at removeWorktree [90m(/Users/char2cs/.superconductor/worktrees/crowbar/sc-flux-phonon-3588/web/[39msrc/features/git/api/git-worktrees-api.ts:35:11[90m)[39m
+    at [90m/Users/char2cs/.superconductor/worktrees/crowbar/sc-flux-phonon-3588/web/[39msrc/__tests__/features/git/git-worktrees-api.test.ts:12:18
+    at [90mfile:///Users/char2cs/.superconductor/worktrees/crowbar/sc-flux-phonon-3588/web/[39mnode_modules/[4m@vitest/runner[24m/dist/chunk-hooks.js:155:11
+    at [90mfile:///Users/char2cs/.superconductor/worktrees/crowbar/sc-flux-phonon-3588/web/[39mnode_modules/[4m@vitest/runner[24m/dist/chunk-hooks.js:752:26
+    at [90mfile:///Users/char2cs/.superconductor/worktrees/crowbar/sc-flux-phonon-3588/web/[39mnode_modules/[4m@vitest/runner[24m/dist/chunk-hooks.js:1897:20
+    at new Promise (<anonymous>)
+    at runWithTimeout [90m(file:///Users/char2cs/.superconductor/worktrees/crowbar/sc-flux-phonon-3588/web/[39mnode_modules/[4m@vitest/runner[24m/dist/chunk-hooks.js:1863:10[90m)[39m
+    at runTest [90m(file:///Users/char2cs/.superconductor/worktrees/crowbar/sc-flux-phonon-3588/web/[39mnode_modules/[4m@vitest/runner[24m/dist/chunk-hooks.js:1574:12[90m)[39m
+[90m    at processTicksAndRejections (node:internal/process/task_queues:103:5)[39m
+
+ ✓ src/__tests__/features/git/git-worktrees-api.test.ts (2 tests) 7ms
+ ✓ src/__tests__/features/terminal/terminal-slots-store.test.ts (3 tests) 4ms
+ ✓ src/__tests__/features/panes/pane-tree.test.ts (7 tests) 3ms
+ ✓ src/__tests__/features/file-explorer/file-tree-gitignore.test.ts (8 tests) 5ms
+ ✓ src/__tests__/features/editor/components/code-editor.test.ts (3 tests) 78ms
+ ✓ src/__tests__/features/panes/utils/pane-layout.test.ts (19 tests) 4ms
+ ✓ src/__tests__/lib/mock/git-data.test.ts (7 tests) 10ms
+ ✓ src/__tests__/features/editor/use-tokenizer.test.ts (8 tests) 4ms
+ ✓ src/__tests__/features/editor/html-preview-document.test.ts (6 tests) 9ms
+ ✓ src/__tests__/features/editor/history-store.test.ts (3 tests) 4ms
+ ✓ src/__tests__/features/editor/hover-content.test.ts (3 tests) 3ms
+ ✓ src/__tests__/features/editor/stores/tree-cache-store.test.ts (1 test) 3ms
+ ✓ src/__tests__/features/editor/extension-assets.test.ts (4 tests) 2ms
+ ✓ src/__tests__/lib/transport/polyfill.test.ts (5 tests) 5ms
+ ✓ src/__tests__/features/git/diff-viewer-scale.test.ts (4 tests) 5ms
+ ✓ src/__tests__/features/settings/settings-normalization.test.ts (14 tests) 2ms
+ ✓ src/__tests__/features/panes/utils/pane-border.test.ts (12 tests) 4ms
+ ✓ src/__tests__/features/panes/pane-split-actions.test.ts (2 tests) 10ms
+ ✓ src/__tests__/lib/mock/simulate-stream.test.ts (3 tests) 6ms
+ ✓ src/__tests__/features/editor/workspace-session-save-queue.test.ts (3 tests) 6ms
+ ✓ src/__tests__/lib/events/connect.test.ts (4 tests) 3ms
+ ✓ src/__tests__/features/editor/buffer-preview-pane.test.ts (4 tests) 11ms
+ ✓ src/__tests__/features/editor/lsp-completion-keys.test.ts (5 tests) 4ms
+ ✓ src/__tests__/features/git/git-worktree-open.test.ts (4 tests) 3ms
+ ✓ src/__tests__/features/branch-review/branch-review-slice.test.ts (7 tests) 6ms
+ ✓ src/__tests__/features/git/git-diff-parser.test.ts (6 tests) 2ms
+ ✓ src/__tests__/features/editor/undo-grouping.test.ts (7 tests) 2ms
+ ✓ src/__tests__/lib/mock/projects.test.ts (4 tests) 2ms
+ ✓ src/__tests__/features/file-explorer/visible-file-tree-rows.test.ts (12 tests) 5ms
+ ✓ src/__tests__/features/settings/update-preferences.test.ts (3 tests) 3ms
+ ✓ src/__tests__/features/terminal/terminal-session-storage.test.ts (4 tests) 4ms
+ ✓ src/__tests__/features/editor/fold-store.test.ts (4 tests) 4ms
+ ✓ src/__tests__/features/editor/lsp/lsp-store.test.ts (3 tests) 9ms
+ ✓ src/__tests__/features/workspace/stores/workspace-store-ref.test.ts (3 tests) 6ms
+ ✓ src/__tests__/features/workspace/stores/slices/file-watcher-slice.test.ts (4 tests) 2ms
+ ✓ src/__tests__/features/editor/undo-group-tracker.test.ts (3 tests) 3ms
+ ✓ src/__tests__/features/window/stores/ui-state-store.test.ts (4 tests) 2ms
+ ✓ src/__tests__/features/markdown-chat/lib/parse-block-info.test.ts (6 tests) 2ms
+ ✓ src/__tests__/features/terminal/terminal-file-drop.test.ts (2 tests) 2ms
+ ✓ src/__tests__/features/git/working-tree-multi-diff.test.ts (3 tests) 5ms
+ ✓ src/__tests__/features/editor/line-operations.test.ts (8 tests) 4ms
+ ✓ src/__tests__/features/git/git-actions-menu-position.test.ts (4 tests) 3ms
+ ✓ src/__tests__/features/settings/collaboration-settings-gating.test.ts (3 tests) 3ms
+ ✓ src/__tests__/features/editor/comment-toggle.test.ts (5 tests) 2ms
+ ✓ src/__tests__/features/panes/pane-drop-zones.test.ts (2 tests) 2ms
+ ✓ src/__tests__/features/terminal/resolve-font.test.ts (2 tests) 4ms
+ ✓ src/__tests__/features/settings/font-family-resolution.test.ts (6 tests) 3ms
+ ✓ src/__tests__/features/settings/ui-font-size.test.ts (5 tests) 1ms
+ ✓ src/__tests__/features/settings/settings-import-export.test.ts (3 tests) 4ms
+ ✓ src/__tests__/features/window/ui-state-store.test.ts (2 tests) 4ms
+ ✓ src/__tests__/features/editor/word-navigation.test.ts (3 tests) 4ms
+ ✓ src/__tests__/features/editor/multi-cursor.test.ts (7 tests) 2ms
+ ✓ src/__tests__/features/file-explorer/env-template.test.ts (3 tests) 3ms
+ ✓ src/__tests__/features/workspace/stores/slices/lsp-slice.test.ts (5 tests) 5ms
+ ✓ src/__tests__/lib/mock/terminal.test.ts (2 tests) 1ms
+ ✓ src/__tests__/lib/mock/workspaces.test.ts (2 tests) 3ms
+ ✓ src/__tests__/features/file-explorer/clipboard-paste-mapping.test.ts (4 tests) 3ms
+ ✓ src/__tests__/features/editor/selection-ranges.test.ts (6 tests) 2ms
+ ✓ src/__tests__/features/git/use-git-diff-data.test.ts (3 tests) 4ms
+ ✓ src/__tests__/features/workspace/stores/workspace-store-registry.test.ts (4 tests) 5ms
+ ✓ src/__tests__/lib/queries/client.test.ts (4 tests) 4ms
+ ✓ src/__tests__/features/workspace/stores/slices/workflow-slice.test.ts (4 tests) 5ms
+ ✓ src/__tests__/features/editor/position.test.ts (6 tests) 5ms
+ ✓ src/__tests__/features/editor/editor-context-menu-items.test.tsx (3 tests) 3ms
+ ✓ src/__tests__/features/editor/workspace-edit.test.ts (6 tests) 5ms
+ ✓ src/__tests__/features/settings/whats-new.test.ts (2 tests) 3ms
+ ✓ src/__tests__/features/editor/html-utils.test.ts (4 tests) 2ms
+ ✓ src/__tests__/features/workspace/stores/slices/terminal-slice.test.ts (5 tests) 6ms
+ ✓ src/__tests__/features/file-explorer/file-tree-git-status.test.ts (5 tests) 4ms
+ ✓ src/__tests__/features/command-palette/git-actions.test.tsx (1 test) 4ms
+ ✓ src/__tests__/lib/queries/keys.test.ts (8 tests) 4ms
+ ✓ src/__tests__/features/editor/use-buffer-switch.test.ts (4 tests) 3ms
+ ✓ src/__tests__/features/branch-review/review-types.test.ts (4 tests) 3ms
+ ✓ src/__tests__/features/editor/angular-template.test.ts (2 tests) 4ms
+ ✓ src/__tests__/features/workspace/stores/workspace-persistence.test.ts (4 tests) 2ms
+ ✓ src/__tests__/features/file-explorer/file-explorer-tree-utils.test.ts (4 tests) 3ms
+ ✓ src/__tests__/features/editor/editor-scroll.test.ts (2 tests) 3ms
+ ✓ src/__tests__/features/editor/fold-transformer.test.ts (3 tests) 4ms
+ ✓ src/__tests__/features/editor/language-injections.test.ts (3 tests) 2ms
+ ✓ src/__tests__/features/markdown-chat/lib/block-registry.test.ts (2 tests) 1ms
+ ✓ src/__tests__/features/branch-review/tab-bar-uncloseable.test.ts (2 tests) 1ms
+ ✓ src/__tests__/lib/store/projects.test.ts (3 tests) 4ms
+ ✓ src/__tests__/features/editor/stores/view-store.test.ts (2 tests) 1ms
+ ✓ src/__tests__/components/layout/workspace-tree.test.ts (6 tests) 2ms
+
+⎯⎯⎯⎯⎯⎯ Failed Tests 17 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  src/__tests__/lib/queries-ide.test.ts > IDE query options > gitStatusQueryOptions queryFn returns status object
+AssertionError: expected { branch: 'feature/app-design', …(3) } to have property "staged"
+ ❯ src/__tests__/lib/queries-ide.test.ts:46:20
+     44|     // eslint-disable-next-line @typescript-eslint/no-explicit-any
+     45|     const result = await (opts.queryFn as any)!()
+     46|     expect(result).toHaveProperty('staged')
+       |                    ^
+     47|     expect(result).toHaveProperty('unstaged')
+     48|     expect(result).toHaveProperty('branch')
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/17]⎯
+
+ FAIL  src/__tests__/features/editor/editor-api.test.ts > editor API model operations > inserts text through the editor model when no textarea owns the content
+AssertionError: expected "spy" to be called with arguments: [ 'alpha\nbeXta', 'alpha\nbeta', …(2) ][90m
+
+Received: 
+
+[1m  1st spy call:
+
+[22m[33m@@ -1,10 +1,8 @@[90m
+[2m  [[22m
+[32m-   "alpha[90m
+[32m- beXta",[90m
+[32m-   "alpha[90m
+[32m- beta",[90m
+[31m+   "X",[90m
+[31m+   "",[90m
+[2m    {[22m
+[2m      "column": 2,[22m
+[2m      "line": 1,[22m
+[2m      "offset": 8,[22m
+[2m    },[22m
+[39m[90m
+
+Number of calls: [1m1[22m
+[39m
+ ❯ src/__tests__/features/editor/editor-api.test.ts:150:22
+    148|     editorAPI.insertText("X");
+    149| 
+    150|     expect(onChange).toHaveBeenCalledWith(
+       |                      ^
+    151|       "alpha\nbeXta",
+    152|       "alpha\nbeta",
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[2/17]⎯
+
+ FAIL  src/__tests__/features/editor/editor-api.test.ts > editor API model operations > clears only the matching active editor adapter
+AssertionError: expected "spy" to be called with arguments: [ 'alpha\nbeYta', 'alpha\nbeta', …(2) ][90m
+
+Received: 
+
+[1m  1st spy call:
+
+[22m[33m@@ -1,10 +1,8 @@[90m
+[2m  [[22m
+[32m-   "alpha[90m
+[32m- beYta",[90m
+[32m-   "alpha[90m
+[32m- beta",[90m
+[31m+   "Y",[90m
+[31m+   "",[90m
+[2m    {[22m
+[2m      "column": 2,[22m
+[2m      "line": 1,[22m
+[2m      "offset": 8,[22m
+[2m    },[22m
+[39m[90m
+
+Number of calls: [1m1[22m
+[39m
+ ❯ src/__tests__/features/editor/editor-api.test.ts:228:22
+    226|     editorAPI.clearActiveEditorAdapter("second");
+    227|     editorAPI.insertText("Y");
+    228|     expect(onChange).toHaveBeenCalledWith(
+       |                      ^
+    229|       "alpha\nbeYta",
+    230|       "alpha\nbeta",
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[3/17]⎯
+
+ FAIL  src/__tests__/features/editor/editor-api.test.ts > editor API model operations > selects the full model content without relying on a native textarea selection
+AssertionError: expected undefined to deeply equal { start: { line: +0, …(2) }, …(1) }
+
+[32m- Expected:[39m 
+{
+  "end": {
+    "column": 4,
+    "line": 1,
+    "offset": 10,
+  },
+  "start": {
+    "column": 0,
+    "line": 0,
+    "offset": 0,
+  },
+}
+
+[31m+ Received:[39m 
+undefined
+
+ ❯ src/__tests__/features/editor/editor-api.test.ts:239:54
+    237|     editorAPI.selectAll();
+    238| 
+    239|     expect(useEditorStateStore.getState().selection).toEqual({
+       |                                                      ^
+    240|       start: { line: 0, column: 0, offset: 0 },
+    241|       end: { line: 1, column: 4, offset: "alpha\nbeta".length },
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[4/17]⎯
+
+ FAIL  src/__tests__/features/editor/editor-api.test.ts > editor API model operations > toggles comments through the model path
+AssertionError: expected "spy" to be called with arguments: [ '// alpha\nbeta', …(3) ][90m
+
+Number of calls: [1m0[22m
+[39m
+ ❯ src/__tests__/features/editor/editor-api.test.ts:267:22
+    265|     editorAPI.toggleComment();
+    266| 
+    267|     expect(onChange).toHaveBeenCalledWith(
+       |                      ^
+    268|       "// alpha\nbeta",
+    269|       "alpha\nbeta",
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[5/17]⎯
+
+ FAIL  src/__tests__/features/editor/editor-api.test.ts > editor API model operations > jumps between brackets through the model cursor
+AssertionError: expected { start: { line: +0, …(2) }, …(1) } to be undefined
+
+[32m- Expected:[39m 
+undefined
+
+[31m+ Received:[39m 
+{
+  "end": {
+    "column": 2,
+    "line": 0,
+    "offset": 2,
+  },
+  "start": {
+    "column": 0,
+    "line": 0,
+    "offset": 0,
+  },
+}
+
+ ❯ src/__tests__/features/editor/editor-api.test.ts:288:54
+    286|     editorAPI.goToMatchingBracket();
+    287| 
+    288|     expect(useEditorStateStore.getState().selection).toBeUndefined();
+       |                                                      ^
+    289|     expect(useEditorStateStore.getState().cursorPosition).toEqual(
+    290|       calculateCursorPositionFromContent("fn call(value".length, conte…
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[6/17]⎯
+
+ FAIL  src/__tests__/features/editor/editor-api.test.ts > editor API model operations > selects to the nearest bracket pair through the model cursor
+AssertionError: expected undefined to deeply equal { start: { line: +0, …(2) }, …(1) }
+
+[32m- Expected:[39m 
+{
+  "end": {
+    "column": 13,
+    "line": 0,
+    "offset": 13,
+  },
+  "start": {
+    "column": 8,
+    "line": 0,
+    "offset": 8,
+  },
+}
+
+[31m+ Received:[39m 
+undefined
+
+ ❯ src/__tests__/features/editor/editor-api.test.ts:310:54
+    308|     editorAPI.selectToBracket(false);
+    309| 
+    310|     expect(useEditorStateStore.getState().selection).toEqual({
+       |                                                      ^
+    311|       start: calculateCursorPositionFromContent("fn call(".length, con…
+    312|       end: calculateCursorPositionFromContent("fn call(value".length, …
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[7/17]⎯
+
+ FAIL  src/__tests__/features/editor/editor-api.test.ts > editor API model operations > removes the nearest bracket pair through the model edit path
+AssertionError: expected "spy" to be called with arguments: [ 'var x = (3 + 5-7);', …(3) ][90m
+
+Number of calls: [1m0[22m
+[39m
+ ❯ src/__tests__/features/editor/editor-api.test.ts:331:22
+    329|     editorAPI.removeBrackets();
+    330| 
+    331|     expect(onChange).toHaveBeenCalledWith(nextContent, content, cursor…
+       |                      ^
+    332|     expect(useEditorStateStore.getState().selection).toBeUndefined();
+    333|     expect(useEditorStateStore.getState().cursorPosition).toEqual(
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[8/17]⎯
+
+ FAIL  src/__tests__/features/editor/editor-api.test.ts > editor API model operations > expands and shrinks smart selection ranges through the model cursor
+AssertionError: expected undefined to deeply equal { start: { line: +0, …(2) }, …(1) }
+
+[32m- Expected:[39m 
+{
+  "end": {
+    "column": 24,
+    "line": 0,
+    "offset": 24,
+  },
+  "start": {
+    "column": 19,
+    "line": 0,
+    "offset": 19,
+  },
+}
+
+[31m+ Received:[39m 
+undefined
+
+ ❯ src/__tests__/features/editor/editor-api.test.ts:348:54
+    346|     editorAPI.expandSelection();
+    347| 
+    348|     expect(useEditorStateStore.getState().selection).toEqual({
+       |                                                      ^
+    349|       start: calculateCursorPositionFromContent("const value = call(".…
+    350|       end: calculateCursorPositionFromContent("const value = call(alph…
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[9/17]⎯
+
+ FAIL  src/__tests__/features/editor/editor-api.test.ts > editor API model operations > adds vertical cursors through the model API without stealing the primary cursor
+AssertionError: expected undefined to deeply equal [ …(2) ]
+
+[32m- Expected:[39m 
+[
+  {
+    "column": 4,
+    "line": 1,
+    "offset": 8,
+  },
+  {
+    "column": 1,
+    "line": 2,
+    "offset": 12,
+  },
+]
+
+[31m+ Received:[39m 
+undefined
+
+ ❯ src/__tests__/features/editor/editor-api.test.ts:380:72
+    378| 
+    379|     const multiCursorState = useEditorStateStore.getState().multiCurso…
+    380|     expect(multiCursorState?.cursors.map((cursor) => cursor.position))…
+       |                                                                        ^
+    381|       calculateCursorPositionFromContent("one\nlong".length, content),
+    382|       calculateCursorPositionFromContent("one\nlonger\nx".length, cont…
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[10/17]⎯
+
+ FAIL  src/__tests__/features/editor/editor-api.test.ts > editor API model operations > adds cursors to selected line ends through the model API
+AssertionError: expected [ Array(1) ] to deeply equal [ …(3) ]
+
+[32m- Expected[39m
+[31m+ Received[39m
+
+[2m  [[22m
+[2m    {[22m
+[32m-     "column": 3,[39m
+[31m+     "column": 0,[39m
+[2m      "line": 0,[22m
+[32m-     "offset": 3,[39m
+[32m-   },[39m
+[32m-   {[39m
+[32m-     "column": 3,[39m
+[32m-     "line": 1,[39m
+[32m-     "offset": 7,[39m
+[32m-   },[39m
+[32m-   {[39m
+[32m-     "column": 2,[39m
+[32m-     "line": 2,[39m
+[32m-     "offset": 10,[39m
+[31m+     "offset": 0,[39m
+[2m    },[22m
+[2m  ][22m
+
+ ❯ src/__tests__/features/editor/editor-api.test.ts:410:7
+    408|     expect(
+    409|       useEditorStateStore.getState().multiCursorState?.cursors.map((cu…
+    410|     ).toEqual([
+       |       ^
+    411|       calculateCursorPositionFromContent("one".length, content),
+    412|       calculateCursorPositionFromContent("one\ntwo".length, content),
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[11/17]⎯
+
+ FAIL  src/__tests__/features/editor/editor-api.test.ts > editor API model operations > replaces the selected range through the model path
+AssertionError: expected "spy" to be called with arguments: [ 'alpha\nBa', 'alpha\nbeta', …(2) ][90m
+
+Received: 
+
+[1m  1st spy call:
+
+[22m[33m@@ -1,10 +1,8 @@[90m
+[2m  [[22m
+[32m-   "alpha[90m
+[32m- Ba",[90m
+[32m-   "alpha[90m
+[32m- beta",[90m
+[31m+   "B",[90m
+[31m+   "",[90m
+[2m    {[22m
+[2m      "column": 2,[22m
+[2m      "line": 1,[22m
+[2m      "offset": 8,[22m
+[2m    },[22m
+[39m[90m
+
+Number of calls: [1m1[22m
+[39m
+ ❯ src/__tests__/features/editor/editor-api.test.ts:423:22
+    421|     editorAPI.replaceRange({ start, end }, "B");
+    422| 
+    423|     expect(onChange).toHaveBeenCalledWith(
+       |                      ^
+    424|       "alpha\nBa",
+    425|       "alpha\nbeta",
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[12/17]⎯
+
+ FAIL  src/__tests__/features/editor/editor-api.test.ts > editor API model operations > reads individual lines from sparse large-file view state
+AssertionError: expected 1 to be 50001 // Object.is equality
+
+[32m- Expected[39m
+[31m+ Received[39m
+
+[32m- 50001[39m
+[31m+ 1[39m
+
+ ❯ src/__tests__/features/editor/editor-api.test.ts:438:38
+    436|     setWorkspaceBuffer(wsStore, makeBuffer(largeContent, "txt"));
+    437| 
+    438|     expect(editorAPI.getLineCount()).toBe(50_001);
+       |                                      ^
+    439|     expect(editorAPI.getLines()).toHaveLength(50_001);
+    440|     expect(Object.keys(editorAPI.getLines())).toHaveLength(0);
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[13/17]⎯
+
+ FAIL  src/__tests__/features/editor/editor-api.test.ts > editor API model operations > does not sync cursor offsets into a textarea that does not own the full content
+AssertionError: expected 10 to be +0 // Object.is equality
+
+[32m- Expected[39m
+[31m+ Received[39m
+
+[32m- 0[39m
+[31m+ 10[39m
+
+ ❯ src/__tests__/features/editor/editor-api.test.ts:463:37
+    461|     editorAPI.setCursorPosition({ line: 1, column: 4, offset: "alpha\n…
+    462| 
+    463|     expect(textarea.selectionStart).toBe(0);
+       |                                     ^
+    464|     expect(textarea.selectionEnd).toBe(0);
+    465| 
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[14/17]⎯
+
+ FAIL  src/__tests__/features/editor/editor-api.test.ts > editor API model operations > does not write undo content into a textarea that does not own the full content
+AssertionError: expected { id: 'buffer_editor_api_test', …(12) } to match object { content: 'alpha' }
+(12 matching properties omitted from actual)
+
+[32m- Expected[39m
+[31m+ Received[39m
+
+[2m  {[22m
+[32m-   "content": "alpha",[39m
+[31m+   "content": "alpha[39m
+[31m+ beta",[39m
+[2m  }[22m
+
+ ❯ src/__tests__/features/editor/editor-api.test.ts:494:26
+    492|       (b) => b.id === "buffer_editor_api_test",
+    493|     );
+    494|     expect(activeBuffer).toMatchObject({ content: "alpha" });
+       |                          ^
+    495|     expect(textarea.value).toBe("");
+    496|   });
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[15/17]⎯
+
+ FAIL  src/__tests__/features/editor/editor-revert-file.test.ts > editor revert file command > reloads the active local editor buffer from disk and clears dirty state
+AssertionError: expected "spy" to be called with arguments: [ '/workspace/revert.ts' ][90m
+
+Number of calls: [1m0[22m
+[39m
+ ❯ src/__tests__/features/editor/editor-revert-file.test.ts:111:35
+    109|     await revertActiveFile();
+    110| 
+    111|     expect(mocks.readFileContent).toHaveBeenCalledWith("/workspace/rev…
+       |                                   ^
+    112|     const buffer = wsStore.getState().buffers[0];
+    113|     expect(buffer).toMatchObject({
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[16/17]⎯
+
+ FAIL  src/__tests__/components/ui/sidebar.test.tsx > SidebarHeader > keeps backdrop-blur-sm for the frosted glass effect
+AssertionError: expected 'flex flex-col gap-2 p-2' to contain 'backdrop-blur-sm'
+
+Expected: [32m"backdrop-blur-sm"[39m
+Received: [31m"flex flex-col gap-2 p-2"[39m
+
+ ❯ src/__tests__/components/ui/sidebar.test.tsx:9:26
+      7|     const { container } = render(<SidebarHeader>test</SidebarHeader>)
+      8|     const el = container.firstChild as HTMLElement
+      9|     expect(el.className).toContain('backdrop-blur-sm')
+       |                          ^
+     10|   })
+     11| 
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[17/17]⎯
+
+
+ Test Files  4 failed | 142 passed (146)
+      Tests  17 failed | 704 passed (721)
+   Start at  00:56:35
+   Duration  12.63s (transform 2.43s, setup 9.91s, collect 21.03s, tests 4.24s, environment 48.28s, prepare 7.02s)
+
