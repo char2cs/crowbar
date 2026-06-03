@@ -71,11 +71,15 @@ CRUD**.
 
 | Aggregate | Why Asynx |
 |-----------|-----------|
-| `Workspace`    | Status state machine (new → pr-merged) + live overlays |
+| `Workspace`    | Status state machine (new → pr-merged) + live overlays; also holds provider-synced PR state |
 | `AgentRun`     | Lifecycle (pending → running → done/error/interrupted) + crash recovery |
 | `ReviewThread` | open ↔ resolved transitions |
-| `PullRequest`  | open → merged/closed |
 | `Chat`         | idle ↔ agent-running; projections drive the sidebar for free |
+
+> **Revision (provider engine):** `PullRequest` is **not** a standalone
+> aggregate. Crowbar only *reads* PR state from the git provider (`gh`/`glab`),
+> never creates PRs. PR state is synced onto the **Workspace** aggregate by the
+> Git Provider engine (`08-git-provider-engine.md`). See §5.3 and §6.4.
 
 One SQLite event-store file per aggregate type, under
 `~/.crowbar/state/events/{aggregate}.db`, configured with 8 shards / queue depth
@@ -132,26 +136,36 @@ Repository {
 
 ### 5.3 Workspace (Asynx)
 
-A workspace is a checkout of a git branch inside a repo. Workspaces nest under
-repos and can be children of other workspaces (branch-off-branch).
+A workspace is a **`git worktree` (its own directory on disk) checked out to a
+branch** inside a repo. Workspaces nest under repos and can be children of other
+workspaces (branch-off-branch). Full hierarchy mechanics — worktree creation,
+local child→parent merge, re-parenting — are in
+`07-workspace-worktree-hierarchy.md`.
 
 ```
 Workspace {
   id           uuid
   repoId       uuid
   branch       string
+  worktreePath string      // the git worktree directory on disk
   parentId     uuid?       // nested (fork-of-fork) workspaces
   status       WorkspaceStatus
-  locked       bool        // base/protected branch — cannot be deleted
+  locked       bool        // provider-protected branch — chat-only, cannot delete/merge-into
   hasConflicts bool        // overlay flag
   added        int         // +N lines vs parent (live, from git subsystem)
   deleted      int         // -N lines  (live, from git subsystem)
+  // provider-synced PR state (Git Provider engine — 08); empty when no provider access
+  prUrl          string?
+  prTitle        string?
+  prTargetBranch string?
   createdAt    time.Time
 }
 ```
 
 `age` (the relative-time string the UI renders) is derived from `createdAt` /
-last activity, not stored.
+last activity, not stored. `locked` is resolved at creation via the Git Provider
+engine (protected-branch detection, falling back to a config list when no
+provider access).
 
 ### 5.4 Chat (Asynx) — see `01-chat-lifecycle.md`
 
@@ -232,15 +246,16 @@ preload aggregate, send a fail command).
 open ──► resolved ──► open      (re-openable)
 ```
 
-### 6.4 PullRequest
+### 6.4 Pull-Request State (provider-synced, not an aggregate)
 
-```
-open ──► merged
-    └──► closed
-```
-
-PR transitions drive the workspace status (`pr-open` / `pr-merged` /
-`pr-closed`) via hub projection.
+PR state is **read-only, sourced from the git provider** (`gh`/`glab`) by the Git
+Provider engine (`08-git-provider-engine.md`). Crowbar never creates or mutates
+PRs. The engine polls (on-view + a slow background sweep of open-PR workspaces),
+and on change issues a `SyncProviderState` command to the **Workspace**
+aggregate, which updates `status` (`pr-open` / `pr-merged` / `pr-closed`) and the
+`prUrl` / `prTitle` / `prTargetBranch` fields. The update then rides the normal
+Workspace → hub → Workspaces-broadcaster path. There is no separate PR
+aggregate and no PR-create endpoint.
 
 ---
 

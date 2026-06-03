@@ -45,11 +45,17 @@ GET    /v0/repos/:id                        repo detail + workspace tree
 
 ### 2.2 Workspaces — UX §2, §3.2, §22 (worktrees)
 
+See `07-workspace-worktree-hierarchy.md` for worktree mechanics, local merge,
+and re-parenting.
+
 ```
 GET    /v0/workspaces            (dual)     list (?repoId=) — flat, tree built client-side
 GET    /v0/workspaces/:id        (dual)     WorkspacePayload { id, repoId, branch }
 POST   /v0/workspaces                       create { repoId, branch, parentId? } → status:new
+                                            (locked resolved via provider engine)
 DELETE /v0/workspaces/:id                   delete (cascades to children, skips locked)
+POST   /v0/workspaces/:childId/merge-into-parent  { strategy }   local child→parent merge
+POST   /v0/workspaces/:childId/reparent           { newParentId } rebase --onto migration
 ```
 
 ### 2.3 Chats (lifecycle only) — UX §4
@@ -134,7 +140,9 @@ GET    /v0/workspaces/:wsId/git/conflicts          conflicting files + ConflictH
 POST   /v0/workspaces/:wsId/git/conflicts/resolve  { path, hunkId, resolution, resolvedContent? }
 ```
 
-### 2.9 Branch Review & Pull Requests — UX §11, §23
+### 2.9 Branch Review — UX §11
+
+See `09-branch-review.md`.
 
 ```
 GET    /v0/workspaces/:wsId/review                    BranchReview { description, mergeStrategy, diff, threads, conversations }
@@ -142,10 +150,19 @@ PATCH  /v0/workspaces/:wsId/review                    set merge strategy { merge
 POST   /v0/workspaces/:wsId/review/threads            post comment { filePath, lineNumber, side, body }
 POST   /v0/workspaces/:wsId/review/threads/:id/reply  reply { body }
 PATCH  /v0/workspaces/:wsId/review/threads/:id        resolve/reopen { isResolved }
-POST   /v0/workspaces/:wsId/pr                        open PR { title, description, sourceBranch, targetBranch, mergeStrategy }
-GET    /v0/workspaces/:wsId/pr                        current PR state
-POST   /v0/workspaces/:wsId/pr/merge                  merge → status:pr-merged
-POST   /v0/workspaces/:wsId/pr/close                  close → status:pr-closed
+```
+
+> **No PR-create endpoint.** Crowbar never creates PRs on the provider — the
+> user or an agent does (e.g. `gh pr create`). Crowbar only *reads* PR state.
+
+### 2.9b Git Provider (read-only) — UX §2, §23
+
+See `08-git-provider-engine.md`. Live PR/protection updates ride the Workspaces
+WS; these REST routes are on-demand reads.
+
+```
+GET    /v0/workspaces/:wsId/provider       current PRInfo + protected flag
+GET    /v0/repos/:id/protected-branches    protected-branch list for the repo
 ```
 
 ### 2.10 Global Search — UX §25
