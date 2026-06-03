@@ -6,6 +6,9 @@ use tauri::webview::WebviewBuilder;
 
 const NAV_SCRIPT_TEMPLATE: &str = r#"
 (function() {
+  // Stub for the MCP dev-bridge ping that only exists in the main window.
+  if (!window.__crowbarPushEvent) { window.__crowbarPushEvent = function() {}; }
+
   var B = '__CROWBAR_BID__';
   var sess = sessionStorage;
   var idx = parseInt(sess.getItem('__ci_' + B) || '0');
