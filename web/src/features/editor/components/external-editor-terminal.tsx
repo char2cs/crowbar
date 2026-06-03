@@ -10,7 +10,7 @@ import { WebLinksAddon } from "@xterm/addon-web-links";
 import { Terminal } from "@xterm/xterm";
 import { useCallback, useEffect, useRef } from "react";
 import { useEditorSettingsStore } from "@/features/editor/stores/settings-store";
-import { useBufferStore } from "@/features/editor/stores/buffer-store";
+import { useWorkspaceStore } from "@/features/workspace/stores/workspace-context";
 import { useSettingsStore } from "@/features/settings/store";
 import { useTerminalTheme } from "@/features/terminal/hooks/use-terminal-theme";
 import { useProjectStore } from "@/features/window/stores/project-store";
@@ -56,9 +56,11 @@ export const ExternalEditorTerminal = ({
   const themeRefreshTimeoutRef = useRef<NodeJS.Timeout | null>(null);
   const resizeRafRef = useRef<number | null>(null);
 
-  const { fontSize: editorFontSize, fontFamily: editorFontFamily } = useEditorSettingsStore();
-  const { rootFolderPath } = useProjectStore();
-  const { settings } = useSettingsStore();
+  const workspaceStore = useWorkspaceStore();
+  const editorFontSize = useEditorSettingsStore((s) => s.fontSize);
+  const editorFontFamily = useEditorSettingsStore((s) => s.fontFamily);
+  const rootFolderPath = useProjectStore((s) => s.rootFolderPath);
+  const settings = useSettingsStore((s) => s.settings);
   const { getTerminalTheme } = useTerminalTheme();
 
   const updateExternalEditorBufferTitle = useCallback(
@@ -66,7 +68,7 @@ export const ExternalEditorTerminal = ({
       const trimmed = title.trim();
       if (!trimmed || trimmed === "Default Terminal") return;
 
-      const buffers = useBufferStore.getState().buffers;
+      const buffers = workspaceStore.getState().buffers;
       const buffer = buffers.find(
         (item) =>
           item.type === "externalEditor" && item.terminalConnectionId === terminalConnectionId,
@@ -74,10 +76,13 @@ export const ExternalEditorTerminal = ({
 
       if (!buffer || buffer.name === trimmed) return;
 
-      useBufferStore.getState().actions.updateBuffer({
-        ...buffer,
-        name: trimmed,
-      });
+      workspaceStore.setState((state) => ({
+        buffers: state.buffers.map((b) =>
+          b.type === "externalEditor" && b.terminalConnectionId === terminalConnectionId
+            ? { ...b, name: trimmed }
+            : b,
+        ),
+      }));
     },
     [terminalConnectionId],
   );

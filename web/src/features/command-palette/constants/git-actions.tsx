@@ -17,8 +17,6 @@ import type { Action } from "../models/action.types";
 interface GitActionsParams {
   rootFolderPath: string | null | undefined;
   activeRepoPath?: string | null;
-  setIsSidebarVisible: (v: boolean) => void;
-  setActiveView: (view: "files" | "git" | "github-prs") => void;
   showToast: (params: { message: string; type: "success" | "error" | "info" }) => void;
   gitStore: {
     actions: {
@@ -41,8 +39,6 @@ export const createGitActions = (params: GitActionsParams): Action[] => {
   const {
     rootFolderPath,
     activeRepoPath,
-    setIsSidebarVisible,
-    setActiveView,
     showToast,
     gitStore,
     gitOperations,
@@ -51,15 +47,6 @@ export const createGitActions = (params: GitActionsParams): Action[] => {
   const repoPath = activeRepoPath ?? rootFolderPath;
 
   const openGitAction = (detail: unknown) => {
-    setIsSidebarVisible(true);
-    setActiveView("git");
-    onClose();
-    window.setTimeout(() => {
-      window.dispatchEvent(new CustomEvent("athas:git-palette-action", { detail }));
-    }, 0);
-  };
-
-  const openGitCommandSurface = (detail: unknown) => {
     onClose();
     window.setTimeout(() => {
       window.dispatchEvent(new CustomEvent("athas:git-palette-action", { detail }));
@@ -74,8 +61,6 @@ export const createGitActions = (params: GitActionsParams): Action[] => {
       icon: <GitBranch />,
       category: "Git",
       action: () => {
-        setIsSidebarVisible(true);
-        setActiveView("git");
         onClose();
         window.setTimeout(() => {
           window.dispatchEvent(new Event("athas:open-branch-manager"));
@@ -137,7 +122,7 @@ export const createGitActions = (params: GitActionsParams): Action[] => {
       description: "Open stash list",
       icon: <Archive />,
       category: "Git",
-      action: () => openGitCommandSurface({ type: "view-stashes" }),
+      action: () => openGitAction({ type: "view-stashes" }),
     },
     {
       id: "git-stage-all",

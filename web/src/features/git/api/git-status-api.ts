@@ -1,20 +1,13 @@
-// Crowbar stub — FUTURE: replace with Go API calls
-const tauriInvoke = async <T>(_cmd: string, _args?: unknown): Promise<T> => { throw new Error(`Not implemented: ${_cmd}`) }
+import { apiFetch } from '@/lib/api'
 import type { GitHunk, GitStatus } from "../types/git-types";
-import { isNotGitRepositoryError, resolveRepositoryPath } from "./git-repo-api";
+
+// Crowbar stub — write operations not yet implemented in web mode
+const tauriInvoke = async <T>(_cmd: string, _args?: unknown): Promise<T> => { throw new Error(`Not implemented: ${_cmd}`) }
 
 export const getGitStatus = async (repoPath: string): Promise<GitStatus | null> => {
   try {
-    const resolvedRepoPath = await resolveRepositoryPath(repoPath);
-    if (!resolvedRepoPath) {
-      return null;
-    }
-    const status = await tauriInvoke<GitStatus>("git_status", { repoPath: resolvedRepoPath });
-    return status;
-  } catch (error) {
-    if (!isNotGitRepositoryError(error)) {
-      console.error("Failed to get git status:", error);
-    }
+    return await apiFetch<GitStatus>(`/api/v0/git/status?repo=${encodeURIComponent(repoPath)}`)
+  } catch {
     return null;
   }
 };

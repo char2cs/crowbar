@@ -1,21 +1,30 @@
-import { beforeEach, expect, test } from 'vitest'
+import { describe, it, expect, beforeEach } from 'vitest'
 import { useProjectStore } from '@/lib/store/projects'
+import type { Project } from '@/lib/types'
+
+const mockProject: Project = {
+  id: 'p1', name: 'my-app', path: '/repos/my-app', lastActivity: new Date(),
+}
 
 beforeEach(() => {
-  useProjectStore.setState(useProjectStore.getInitialState())
+  useProjectStore.setState({ projects: [], activeProjectId: '' })
 })
 
-test('active project defaults to rabbyte', () => {
-  expect(useProjectStore.getState().activeProjectId).toBe('rabbyte')
-})
+describe('useProjectStore', () => {
+  it('starts with empty projects', () => {
+    expect(useProjectStore.getState().projects).toHaveLength(0)
+  })
 
-test('setActiveProject changes active project', () => {
-  useProjectStore.getState().setActiveProject('personal')
-  expect(useProjectStore.getState().activeProjectId).toBe('personal')
-})
+  it('setProjects replaces the full list', () => {
+    useProjectStore.getState().setProjects([mockProject])
+    expect(useProjectStore.getState().projects).toHaveLength(1)
+    expect(useProjectStore.getState().projects[0].id).toBe('p1')
+  })
 
-test('addProject appends a project', () => {
-  const before = useProjectStore.getState().projects.length
-  useProjectStore.getState().addProject({ id: 'x', name: 'X', path: '/tmp/x', lastActivity: new Date() })
-  expect(useProjectStore.getState().projects).toHaveLength(before + 1)
+  it('addProject appends to the list', () => {
+    useProjectStore.getState().setProjects([mockProject])
+    const second: Project = { ...mockProject, id: 'p2', name: 'other' }
+    useProjectStore.getState().addProject(second)
+    expect(useProjectStore.getState().projects).toHaveLength(2)
+  })
 })

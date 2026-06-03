@@ -1,29 +1,27 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest'
 import { initTreeCacheSubscription, useTreeCacheStore, _resetTreeCacheSubscriptionForTesting } from '@/features/editor/stores/tree-cache-store'
-import { useBufferStore } from '@/features/editor/stores/buffer-store'
+import { createWorkspaceStore } from '@/features/workspace/stores/workspace-store'
+import { setActiveWorkspaceStoreRef } from '@/features/workspace/stores/workspace-store-ref'
 
 describe('initTreeCacheSubscription', () => {
   beforeEach(() => {
     _resetTreeCacheSubscriptionForTesting()
-    // Reset stores between tests
+    setActiveWorkspaceStoreRef(null)
     useTreeCacheStore.setState({ trees: new Map() })
-    useBufferStore.setState({ buffers: [] })
   })
 
   it('clears the tree cache entry when a buffer is closed', async () => {
+    const store = createWorkspaceStore('test-ws')
+    setActiveWorkspaceStoreRef(store)
     initTreeCacheSubscription()
 
-    // Allow the dynamic import inside initTreeCacheSubscription to resolve and
-    // register its useBufferStore.subscribe() listener before we mutate state.
-    await new Promise((r) => setTimeout(r, 0))
-
-    // Plant a fake tree in the cache
     const bufferId = 'test-buffer-1'
 
-    // Also plant a fake buffer in the buffer store so removal is detectable
-    useBufferStore.setState({
+    // Plant a fake buffer via workspace store buffers field directly
+    store.setState((state) => ({
+      ...state,
       buffers: [{ id: bufferId, type: 'editor', path: '/test.ts', name: 'test.ts' } as any],
-    })
+    }))
 
     useTreeCacheStore.setState((state) => {
       const newMap = new Map(state.trees)
@@ -37,11 +35,11 @@ describe('initTreeCacheSubscription', () => {
     })
     expect(useTreeCacheStore.getState().trees.has(bufferId)).toBe(true)
 
-    // Close the buffer by removing it from buffer store
-    const prevBuffers = useBufferStore.getState().buffers
-    useBufferStore.setState({
-      buffers: prevBuffers.filter((b) => b.id !== bufferId),
-    })
+    // Close the buffer by removing it from the workspace store
+    store.setState((state) => ({
+      ...state,
+      buffers: state.buffers.filter((b) => b.id !== bufferId),
+    }))
 
     expect(useTreeCacheStore.getState().trees.has(bufferId)).toBe(false)
   })

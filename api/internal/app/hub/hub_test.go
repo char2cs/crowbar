@@ -5,7 +5,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/rabbytesoftware/crowbar/api/internal/app/hub"
+	"github.com/char2cs/crowbar/api/internal/app/hub"
 )
 
 func TestHubBroadcast(t *testing.T) {

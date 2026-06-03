@@ -3,7 +3,12 @@ import { vi, expect, test } from 'vitest'
 
 vi.mock('@/lib/api', async (importOriginal) => {
   const actual = await importOriginal<typeof import('@/lib/api')>()
-  return { ...actual, postProject: vi.fn(actual.postProject) }
+  return {
+    ...actual,
+    postProject: vi.fn((_name: string, _path: string) =>
+      Promise.resolve({ id: 'mock-id', name: _name, path: _path }),
+    ),
+  }
 })
 
 import * as api from '@/lib/api'

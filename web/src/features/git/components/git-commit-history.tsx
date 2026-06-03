@@ -1,6 +1,5 @@
 import { memo, useCallback, useEffect, useRef, useState } from "react";
-import { writeSidebarResourceDragData } from "@/features/sidebar-drag/sidebar-resource-drag";
-import { LoadingSpinner } from "@/components/ui/spinner";
+import { LoadingSpinner } from "@/components/ui/loading-spinner";
 import { cn } from "@/utils/cn";
 import { formatRelativeDate } from "@/utils/date";
 import type { GitCommit } from "../types/git-types";
@@ -35,18 +34,6 @@ const CommitItem = memo(({ commit, onViewCommitDiff, isSelected, repoPath }: Com
         isSelected && "bg-muted",
       )}
       draggable={!!repoPath}
-      onDragStart={(event) => {
-        if (!repoPath) return;
-        writeSidebarResourceDragData(event.dataTransfer, {
-          type: "git-commit",
-          repoPath,
-          commitHash: commit.hash,
-          message: commit.message,
-          author: commit.author,
-          date: commit.date,
-          name: `Commit ${commit.hash.substring(0, 7)}`,
-        });
-      }}
     >
       <div className="truncate text-inherit text-foreground leading-tight">{commit.message}</div>
       <div className="ui-text-sm mt-1 flex items-center gap-2 text-muted-foreground">
@@ -64,7 +51,10 @@ const GitCommitHistory = ({
   repoPath,
   showHeader = true,
 }: GitCommitHistoryProps) => {
-  const { commits, hasMoreCommits, isLoadingMoreCommits, actions } = useGitStore();
+  const commits = useGitStore((s) => s.commits);
+  const hasMoreCommits = useGitStore((s) => s.hasMoreCommits);
+  const isLoadingMoreCommits = useGitStore((s) => s.isLoadingMoreCommits);
+  const actions = useGitStore((s) => s.actions);
   const scrollContainerRef = useRef<HTMLDivElement>(null);
   const lastScrollTop = useRef(0);
   const scrollSetupTimeoutRef = useRef<NodeJS.Timeout | null>(null);

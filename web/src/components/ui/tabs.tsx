@@ -1,76 +1,92 @@
-"use client"
+"use client";
 
-import * as React from "react"
-import * as TabsPrimitive from "@radix-ui/react-tabs"
+import { Tabs as TabsPrimitive } from "@base-ui/react/tabs";
+import * as React from "react";
+import { cn } from "@/lib/utils";
 
-import { cn } from "@/lib/utils"
+export type TabsVariant = "default" | "underline" | "segmented";
 
-const Tabs = TabsPrimitive.Root
-
-export interface TabsListProps extends React.ComponentPropsWithoutRef<typeof TabsPrimitive.List> {
-  /** Visual variant (Athas compatibility) */
-  variant?: string
+export function Tabs({
+  className,
+  ...props
+}: TabsPrimitive.Root.Props): React.ReactElement {
+  return (
+    <TabsPrimitive.Root
+      className={cn(
+        "flex flex-col gap-2 data-[orientation=vertical]:flex-row",
+        className,
+      )}
+      data-slot="tabs"
+      {...props}
+    />
+  );
 }
 
-const TabsList = React.forwardRef<
-  React.ElementRef<typeof TabsPrimitive.List>,
-  TabsListProps
->(({ className, variant: _variant, ...props }, ref) => (
-  <TabsPrimitive.List
-    ref={ref}
-    className={cn(
-      "inline-flex h-10 items-center justify-center rounded-md bg-muted p-1 text-muted-foreground",
-      className
-    )}
-    {...props}
-  />
-))
-TabsList.displayName = TabsPrimitive.List.displayName
-
-export interface TabsTriggerProps extends React.ComponentPropsWithoutRef<typeof TabsPrimitive.Trigger> {
-  /** Whether this tab is active (Athas compatibility) */
-  isActive?: boolean
-  /** Whether this tab is being dragged (Athas compatibility) */
-  isDragged?: boolean
-  /** Action element rendered inside the tab (Athas compatibility) */
-  action?: React.ReactNode
-  /** Visual variant (Athas compatibility) */
-  variant?: string
-  /** Size variant (Athas compatibility) */
-  size?: "xs" | "sm" | "md" | "lg"
+export function TabsList({
+  variant = "default",
+  className,
+  children,
+  ...props
+}: TabsPrimitive.List.Props & {
+  variant?: TabsVariant;
+}): React.ReactElement {
+  return (
+    <TabsPrimitive.List
+      className={cn(
+        "relative z-0 flex w-fit items-center justify-center gap-x-0.5 text-muted-foreground",
+        "data-[orientation=vertical]:flex-col",
+        variant === "default"
+          ? "rounded-lg bg-muted p-0.5 text-muted-foreground/72"
+          : "data-[orientation=vertical]:px-1 data-[orientation=horizontal]:py-1 *:data-[slot=tabs-tab]:hover:bg-accent",
+        className,
+      )}
+      data-slot="tabs-list"
+      {...props}
+    >
+      {children}
+      <TabsPrimitive.Indicator
+        className={cn(
+          "absolute bottom-0 left-0 h-(--active-tab-height) w-(--active-tab-width) translate-x-(--active-tab-left) -translate-y-(--active-tab-bottom) transition-[width,translate] duration-200 ease-in-out",
+          variant === "underline"
+            ? "z-10 bg-primary data-[orientation=horizontal]:h-0.5 data-[orientation=vertical]:w-0.5 data-[orientation=vertical]:-translate-x-px data-[orientation=horizontal]:translate-y-px"
+            : "-z-1 rounded-md bg-background shadow-sm/5 dark:bg-input",
+        )}
+        data-slot="tab-indicator"
+      />
+    </TabsPrimitive.List>
+  );
 }
 
-const TabsTrigger = React.forwardRef<
-  React.ElementRef<typeof TabsPrimitive.Trigger>,
-  TabsTriggerProps
->(({ className, isActive: _isActive, isDragged: _isDragged, action: _action, variant: _variant, size: _size, ...props }, ref) => (
-  <TabsPrimitive.Trigger
-    ref={ref}
-    className={cn(
-      "inline-flex items-center justify-center whitespace-nowrap rounded-sm px-3 py-1.5 text-sm font-medium ring-offset-background transition-all focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:pointer-events-none disabled:opacity-50 data-[state=active]:bg-background data-[state=active]:text-foreground data-[state=active]:shadow-sm",
-      className
-    )}
-    {...props}
-  />
-))
-TabsTrigger.displayName = TabsPrimitive.Trigger.displayName
+export function TabsTab({
+  className,
+  ...props
+}: TabsPrimitive.Tab.Props): React.ReactElement {
+  return (
+    <TabsPrimitive.Tab
+      className={cn(
+        "relative flex h-9 shrink-0 grow cursor-pointer items-center justify-center gap-1.5 whitespace-nowrap rounded-md border border-transparent px-[calc(--spacing(2.5)-1px)] font-medium text-base outline-none transition-[color,background-color,box-shadow] hover:text-muted-foreground focus-visible:ring-2 focus-visible:ring-ring data-disabled:pointer-events-none data-[orientation=vertical]:w-full data-[orientation=vertical]:justify-start data-active:text-foreground data-disabled:opacity-64 sm:h-8 sm:text-sm [&_svg:not([class*='size-'])]:size-4.5 sm:[&_svg:not([class*='size-'])]:size-4 [&_svg]:pointer-events-none [&_svg]:-mx-0.5 [&_svg]:shrink-0",
+        className,
+      )}
+      data-slot="tabs-tab"
+      {...props}
+    />
+  );
+}
 
-const TabsContent = React.forwardRef<
-  React.ElementRef<typeof TabsPrimitive.Content>,
-  React.ComponentPropsWithoutRef<typeof TabsPrimitive.Content>
->(({ className, ...props }, ref) => (
-  <TabsPrimitive.Content
-    ref={ref}
-    className={cn(
-      "mt-2 ring-offset-background focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2",
-      className
-    )}
-    {...props}
-  />
-))
-TabsContent.displayName = TabsPrimitive.Content.displayName
+export function TabsPanel({
+  className,
+  ...props
+}: TabsPrimitive.Panel.Props): React.ReactElement {
+  return (
+    <TabsPrimitive.Panel
+      className={cn("flex-1 outline-none", className)}
+      data-slot="tabs-content"
+      {...props}
+    />
+  );
+}
 
-/** Standalone tab button used by Athas feature modules (does not require Radix value prop) */
+/** Standalone tab button used by Crowbar feature modules (does not require a tabs value context) */
 export interface TabProps extends React.ButtonHTMLAttributes<HTMLButtonElement> {
   isActive?: boolean
   isDragged?: boolean
@@ -85,7 +101,7 @@ const Tab = React.forwardRef<HTMLButtonElement, TabProps>(
   (
     {
       className,
-      isActive: _isActive,
+      isActive,
       isDragged: _isDragged,
       action,
       variant: _variant,
@@ -100,7 +116,12 @@ const Tab = React.forwardRef<HTMLButtonElement, TabProps>(
     <button
       ref={ref}
       className={cn(
-        "group/tab relative inline-flex items-center whitespace-nowrap rounded-sm text-sm font-medium transition-all focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:pointer-events-none disabled:opacity-50",
+        "relative inline-flex shrink-0 cursor-pointer items-center whitespace-nowrap rounded-full border font-medium text-sm outline-none transition-colors",
+        "focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-1 focus-visible:ring-offset-background",
+        "disabled:pointer-events-none disabled:opacity-64",
+        isActive
+          ? "rounded-full border-background bg-background text-foreground shadow-xs shadow-black/10 not-disabled:inset-shadow-[0_1px_--theme(--color-white/16%)] active:inset-shadow-[0_1px_--theme(--color-black/8%)] active:shadow-none"
+          : "border-transparent text-muted-foreground hover:bg-accent hover:text-foreground",
         className,
       )}
       {...props}
@@ -112,7 +133,7 @@ const Tab = React.forwardRef<HTMLButtonElement, TabProps>(
 )
 Tab.displayName = "Tab"
 
-/** Athas tab item descriptor */
+/** Crowbar tab item descriptor */
 export interface TabsItem {
   id: string
   icon?: React.ReactNode
@@ -132,4 +153,6 @@ export interface TabsItem {
   }
 }
 
-export { Tabs, TabsList, TabsTrigger, TabsContent, Tab }
+export { Tab }
+
+export { TabsPrimitive, TabsTab as TabsTrigger, TabsPanel as TabsContent };

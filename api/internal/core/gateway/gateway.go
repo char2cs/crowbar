@@ -5,7 +5,7 @@ import (
 	"net"
 	"strings"
 
-	"github.com/rabbytesoftware/crowbar/api/internal/core/gateway/transports"
+	"github.com/char2cs/crowbar/api/internal/core/gateway/transports"
 )
 
 func New(host string) (net.Listener, error) {

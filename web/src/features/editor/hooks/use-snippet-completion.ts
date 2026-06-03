@@ -9,7 +9,8 @@ import {
   previousTabStop,
 } from "@/features/editor/snippets/snippet-expander";
 import type { SnippetSession } from "@/features/editor/snippets/types";
-import { useBufferStore } from "@/features/editor/stores/buffer-store";
+import { useWorkspaceStore } from "@/features/workspace/stores/workspace-context";
+import { getActiveWorkspaceStoreRef } from "@/features/workspace/stores/workspace-store-ref";
 import { useEditorStateStore } from "@/features/editor/stores/state-store";
 import type { Position } from "@/features/editor/types/editor";
 import { calculateCursorPositionFromContent } from "@/features/editor/utils/position";
@@ -21,6 +22,7 @@ import { logger } from "@/features/editor/utils/logger";
  * Provides snippet completions and handles expansion/navigation
  */
 export function useSnippetCompletion(filePath: string | undefined) {
+  const workspaceStore = useWorkspaceStore();
   const [activeSession, setActiveSession] = useState<SnippetSession | null>(null);
   const sessionRef = useRef<SnippetSession | null>(null);
 
@@ -66,11 +68,12 @@ export function useSnippetCompletion(filePath: string | undefined) {
    * Expand a snippet at the current cursor position
    */
   const expandSnippetAtCursor = useCallback((completion: CompletionItem) => {
-    const { activeBufferId } = useBufferStore.getState();
+    const wsState = workspaceStore.getState();
+    const activeBufferId = wsState.panes[wsState.activePaneId]?.activeBufferId ?? null;
     if (!activeBufferId || !completion.data?.isSnippet) return false;
 
     const cursorPosition = useEditorStateStore.getState().cursorPosition;
-    const buffer = useBufferStore.getState().buffers.find((b) => b.id === activeBufferId);
+    const buffer = wsState.buffers.find((b) => b.id === activeBufferId);
     if (!buffer || !isEditorContent(buffer)) return false;
 
     const snippet = completion.data.snippet;
@@ -87,8 +90,6 @@ export function useSnippetCompletion(filePath: string | undefined) {
         },
       );
 
-      // Insert expanded snippet
-      const { updateBufferContent } = useBufferStore.getState().actions;
       const content = buffer.content;
 
       // Remove the trigger prefix
@@ -102,7 +103,13 @@ export function useSnippetCompletion(filePath: string | undefined) {
         session.parsedSnippet.expandedBody +
         afterCursor;
 
-      updateBufferContent(activeBufferId, newContent, true);
+      workspaceStore.setState((state) => ({
+        buffers: state.buffers.map((b) =>
+          b.id === activeBufferId && b.type === "editor"
+            ? { ...b, content: newContent, isDirty: true }
+            : b,
+        ),
+      }));
 
       // If snippet has tab stops, activate session
       if (session.parsedSnippet.hasTabStops) {
@@ -151,9 +158,9 @@ export function useSnippetCompletion(filePath: string | undefined) {
     // Calculate absolute position for this tab stop
     const session = sessionRef.current;
     const newOffset = session.insertPosition.offset + tabStop.offset;
-    const buffer = useBufferStore
-      .getState()
-      .buffers.find((b) => b.id === useBufferStore.getState().activeBufferId);
+    const wsStateNext = workspaceStore.getState();
+    const nextActiveId = wsStateNext.panes[wsStateNext.activePaneId]?.activeBufferId ?? null;
+    const buffer = nextActiveId ? wsStateNext.buffers.find((b) => b.id === nextActiveId) : undefined;
 
     if (buffer && isEditorContent(buffer)) {
       const newPosition = calculatePosition(buffer.content, newOffset);
@@ -184,9 +191,9 @@ export function useSnippetCompletion(filePath: string | undefined) {
     // Calculate absolute position for this tab stop
     const session = sessionRef.current;
     const newOffset = session.insertPosition.offset + tabStop.offset;
-    const buffer = useBufferStore
-      .getState()
-      .buffers.find((b) => b.id === useBufferStore.getState().activeBufferId);
+    const wsStatePrev = workspaceStore.getState();
+    const prevActiveId = wsStatePrev.panes[wsStatePrev.activePaneId]?.activeBufferId ?? null;
+    const buffer = prevActiveId ? wsStatePrev.buffers.find((b) => b.id === prevActiveId) : undefined;
 
     if (buffer && isEditorContent(buffer)) {
       const newPosition = calculatePosition(buffer.content, newOffset);
@@ -235,7 +242,11 @@ function calculatePosition(content: string, offset: number): Position {
  * Select a range in the textarea
  */
 function selectRange(start: number, end: number) {
-  const activeBuffer = useBufferStore.getState().actions.getActiveBuffer();
+  const store = getActiveWorkspaceStoreRef();
+  if (!store) return;
+  const state = store.getState();
+  const activeBufferId = state.panes[state.activePaneId]?.activeBufferId ?? null;
+  const activeBuffer = activeBufferId ? state.buffers.find((b) => b.id === activeBufferId) : null;
   if (!activeBuffer || !isEditorContent(activeBuffer)) return;
 
   editorAPI.setSelection({

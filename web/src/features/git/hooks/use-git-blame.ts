@@ -2,12 +2,13 @@ import { useCallback, useEffect } from "react";
 import { useFileSystemStore } from "@/features/file-system/controllers/store";
 import { useGitBlameStore } from "../stores/git-blame-store";
 import type { GitBlameLine } from "../types/git-types";
+import { dataOf } from "@/lib/loadable";
 
 export function useGitBlame(filePath: string | undefined) {
   const rootFolderPath = useFileSystemStore((state) => state.rootFolderPath);
   const loadBlameForFile = useGitBlameStore((state) => state.loadBlameForFile);
   const blameData = useGitBlameStore((state) =>
-    filePath ? state.blameData.get(filePath) : undefined,
+    filePath ? dataOf(state.blame.get(filePath)) : undefined,
   );
 
   useEffect(() => {

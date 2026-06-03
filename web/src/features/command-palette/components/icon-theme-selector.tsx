@@ -5,7 +5,7 @@ import { iconThemeRegistry } from "@/extensions/icon-themes/icon-theme-registry"
 import type { IconThemeDefinition } from "@/extensions/icon-themes/types";
 import { Button } from "@/components/ui/button";
 import { CommandEmpty, CommandHeader, CommandInput, CommandItem, CommandList } from "@/components/ui/command";
-import Badge from "@/components/ui/badge";
+import { Badge } from "@/components/ui/badge";
 import { matchesSearchQuery } from "@/utils/search-match";
 
 interface IconThemeInfo {

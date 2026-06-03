@@ -150,49 +150,12 @@ export function cacheFontSettings(
   cacheFontsForBootstrap(settings.fontFamily, settings.uiFontFamily, settings.uiFontSize);
 }
 
-export function syncOllamaBaseUrl(baseUrl: string) {
-  if (!baseUrl) {
-    return;
-  }
-
-  void import("@/features/ai/services/providers/ai-provider-registry").then(
-    ({ setOllamaBaseUrl }) => {
-      setOllamaBaseUrl(baseUrl);
-    },
-  );
-}
-
-export function syncCustomProviderBaseUrl(baseUrl: string) {
-  void import("@/features/ai/services/providers/ai-provider-registry").then(
-    ({ setCustomProviderBaseUrl }) => {
-      setCustomProviderBaseUrl(baseUrl);
-    },
-  );
-}
-
-/**
- * Pushes the Ollama API key (stored in Tauri's secure storage) into the
- * singleton provider instance so `getModels`, connection checks, and other
- * non-streaming calls can authenticate with Ollama Cloud.
- */
-export async function syncOllamaApiKey() {
-  const [{ setOllamaApiKey }, { getProviderApiToken }] = await Promise.all([
-    import("@/features/ai/services/providers/ai-provider-registry"),
-    import("@/features/ai/services/ai-token-service"),
-  ]);
-  const token = await getProviderApiToken("ollama");
-  setOllamaApiKey(token ?? "");
-}
-
 export function applySettingsSideEffects(settings: Settings) {
   cacheFontSettings(settings);
   applyWindowTransparency(settings.windowTransparency);
   applyThemeMode(settings.themeMode);
   void applyTheme(settings.theme);
   syncThemeWithSystem(settings.themeMode, () => void applyTheme(settings.theme));
-  syncOllamaBaseUrl(settings.ollamaBaseUrl);
-  syncCustomProviderBaseUrl(settings.aiCustomBaseUrl);
-  void syncOllamaApiKey();
 }
 
 export function applySettingSideEffect<K extends keyof Settings>(
@@ -212,14 +175,6 @@ export function applySettingSideEffect<K extends keyof Settings>(
     syncThemeWithSystem(settings.themeMode, () => void applyTheme(settings.theme));
     // Re-apply the theme's color palette for the new light/dark mode
     void applyTheme(settings.theme);
-  }
-
-  if (key === "ollamaBaseUrl") {
-    syncOllamaBaseUrl(value as string);
-  }
-
-  if (key === "aiCustomBaseUrl") {
-    syncCustomProviderBaseUrl(value as string);
   }
 
   if (key === "fontFamily" || key === "uiFontFamily" || key === "uiFontSize") {

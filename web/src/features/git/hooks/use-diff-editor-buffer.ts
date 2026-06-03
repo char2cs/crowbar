@@ -1,7 +1,7 @@
 import { useEffect, useMemo } from "react";
 import { detectLanguageFromPath } from "@/features/editor/utils/language-detection";
 import type { EditorContent } from "@/features/panes/types/pane-content";
-import { useBufferStore } from "@/features/editor/stores/buffer-store";
+import { useWorkspaceStore } from "@/features/workspace/stores/workspace-context";
 import type { TokenEntry } from "@/features/panes/types/pane-content";
 import { createDiffTokensForEditorContent, getDiffEditorPath } from "../utils/diff-editor-content";
 
@@ -24,6 +24,7 @@ export function useDiffEditorBuffer({
   languageOverride,
   tokens,
 }: UseDiffEditorBufferOptions): string {
+  const workspaceStore = useWorkspaceStore();
   const bufferId = useMemo(
     () => `diff_editor_${cacheKey.replace(/[^a-zA-Z0-9_]/g, "_")}`,
     [cacheKey],
@@ -52,7 +53,7 @@ export function useDiffEditorBuffer({
         tokens ?? (languageOverride === "diff" ? createDiffTokensForEditorContent(content) : []),
     };
 
-    useBufferStore.setState((state) => {
+    workspaceStore.setState((state) => {
       const existingIndex = state.buffers.findIndex((buffer) => buffer.id === bufferId);
       if (existingIndex === -1) {
         return {
@@ -74,12 +75,12 @@ export function useDiffEditorBuffer({
     });
 
     return () => {
-      useBufferStore.setState((state) => ({
+      workspaceStore.setState((state) => ({
         ...state,
         buffers: state.buffers.filter((buffer) => buffer.id !== bufferId),
       }));
     };
-  }, [bufferId, bufferPath, content, languageOverride, name, sourcePath, tokens]);
+  }, [workspaceStore, bufferId, bufferPath, content, languageOverride, name, sourcePath, tokens]);
 
   return bufferId;
 }

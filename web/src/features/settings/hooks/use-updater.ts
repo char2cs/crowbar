@@ -12,7 +12,6 @@ const check = async (): Promise<Update | null> => null
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import { prepareProjectTransitionWithUnsavedBuffers } from "@/features/file-system/controllers/workspace-project-transition";
-import telemetry from "@/features/telemetry/services/telemetry";
 import {
   clearUpdatePreferencesForNewVersion,
   notifyUpdateDismissed,
@@ -22,14 +21,6 @@ import {
 } from "../lib/update-preferences";
 import { useWhatsNewStore } from "../stores/whats-new-store";
 
-function recordUpdateCheckTelemetry(params: {
-  status: string
-  availableVersion: string | null
-  currentVersion: string
-  error?: string
-}): void {
-  telemetry.track("update_check", params)
-}
 
 export interface UpdateInfo {
   version: string;
@@ -78,8 +69,6 @@ export const useUpdater = (checkOnMount = true) => {
 
       const update = await check();
       updateRef.current = update;
-      const currentVersion = update?.currentVersion ?? "";
-
       if (update?.available) {
         const updateInfo = {
           version: update.version,
@@ -99,11 +88,6 @@ export const useUpdater = (checkOnMount = true) => {
             checking: false,
             updateInfo: null,
           }));
-          recordUpdateCheckTelemetry({
-            status: "available",
-            availableVersion: update.version,
-            currentVersion,
-          });
           return false;
         }
 
@@ -114,11 +98,6 @@ export const useUpdater = (checkOnMount = true) => {
           checking: false,
           updateInfo,
         }));
-        recordUpdateCheckTelemetry({
-          status: "available",
-          availableVersion: update.version,
-          currentVersion,
-        });
         return true;
       }
 
@@ -129,27 +108,15 @@ export const useUpdater = (checkOnMount = true) => {
         checking: false,
         updateInfo: null,
       }));
-      recordUpdateCheckTelemetry({
-        status: "up_to_date",
-        availableVersion: null,
-        currentVersion,
-      });
       return false;
     } catch (error) {
       const message = error instanceof Error ? error.message : "Failed to check for updates";
-      const failedCurrentVersion = updateInfoRef.current?.currentVersion ?? "";
       updateInfoRef.current = null;
       setState((prev) => ({
         ...prev,
         checking: false,
         error: message,
       }));
-      recordUpdateCheckTelemetry({
-        status: "failed",
-        availableVersion: null,
-        currentVersion: failedCurrentVersion,
-        error: message,
-      });
       return false;
     }
   }, []);

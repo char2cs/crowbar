@@ -103,6 +103,36 @@ function pushLine(
   actualLines.push(actualLine);
 }
 
+export function buildMonacoDiffContent(
+  diff: GitDiff,
+): { original: string; modified: string } {
+  const originalLines: string[] = [];
+  const modifiedLines: string[] = [];
+
+  for (const line of diff.lines) {
+    switch (line.line_type) {
+      case "header":
+        // Headers are not included in either side
+        break;
+      case "context":
+        originalLines.push(line.content);
+        modifiedLines.push(line.content);
+        break;
+      case "removed":
+        originalLines.push(line.content);
+        break;
+      case "added":
+        modifiedLines.push(line.content);
+        break;
+    }
+  }
+
+  return {
+    original: originalLines.join("\n"),
+    modified: modifiedLines.join("\n"),
+  };
+}
+
 export function serializeGitDiffSourceForEditor(diff: GitDiff): SerializedEditorDiffContent {
   const lines: string[] = [];
   const lineKinds: DiffEditorLineKind[] = [];

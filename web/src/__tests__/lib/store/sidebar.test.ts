@@ -1,8 +1,39 @@
 import { beforeEach, expect, test } from 'vitest'
 import { useSidebarStore } from '@/lib/store/sidebar'
+import type { Repo } from '@/lib/store/sidebar'
+
+const FIXTURE_REPOS: Repo[] = [
+  {
+    id: 'crowbar', name: 'crowbar', avatarLabel: 'C', avatarColor: 'bg-indigo-700',
+    workspaces: [
+      { id: 'ws-develop', branch: 'develop', status: 'locked', age: '—' },
+      { id: 'ws3', branch: 'feature/app-design', parentId: 'ws-develop', status: 'pr-open', added: 5672, age: '16h ago' },
+      { id: 'ws1', branch: 'enhancement/scaffold', parentId: 'ws3', status: 'agent-running', added: 22892, age: '3d ago' },
+      { id: 'ws-fix', branch: 'fix/toolbar-crash', parentId: 'ws3', status: 'new', age: 'just now' },
+      { id: 'ws2', branch: 'feature/api-backend', parentId: 'ws-develop', status: 'pr-merged', added: 27347, deleted: 455, age: '1d ago' },
+      { id: 'ws4', branch: 'feature/ws-channels', parentId: 'ws-develop', status: 'pr-open', added: 8841, deleted: 203, age: '2d ago' },
+      { id: 'ws5', branch: 'refactor/query-layer', parentId: 'ws-develop', status: 'agent-running', added: 103482, deleted: 88910, age: '5d ago', hasConflicts: true },
+      { id: 'ws6', branch: 'chore/bump-deps', parentId: 'ws-develop', status: 'pr-closed', added: 312, deleted: 298, age: '6d ago' },
+    ],
+  },
+  {
+    id: 'quiver-core', name: 'quiver.core', avatarLabel: 'Q', avatarColor: 'bg-emerald-700',
+    workspaces: [
+      { id: 'qc-develop', branch: 'develop', status: 'locked', age: '—' },
+      { id: 'qc1', branch: 'feature/old-auth', parentId: 'qc-develop', status: 'pr-closed', age: '3d ago' },
+      { id: 'qc2', branch: 'feature/oauth2', parentId: 'qc-develop', status: 'pr-open', added: 4521, deleted: 89, age: '1d ago' },
+    ],
+  },
+]
 
 beforeEach(() => {
-  useSidebarStore.setState(useSidebarStore.getInitialState())
+  useSidebarStore.setState({
+    chats: [],
+    repos: FIXTURE_REPOS.map(r => ({ ...r, workspaces: [...r.workspaces] })),
+    collapsedRepos: new Set<string>(),
+    collapsedWorkspaces: new Set<string>(),
+    activeTab: 'workspaces',
+  })
 })
 
 test('addWorkspace appends to the correct repo', () => {
@@ -24,7 +55,7 @@ test('deleteWorkspace removes from repo', () => {
 })
 
 test('addChat appends a new chat entry', () => {
-  useSidebarStore.getState().addChat({ id: 'c-test', title: 'New', age: 'just now' })
+  useSidebarStore.getState().addChat({ id: 'c-test', wsId: 'ws1', title: 'New', age: 'just now', status: 'idle', type: 'chat' })
   const chats = useSidebarStore.getState().chats
   expect(chats.some(c => c.id === 'c-test')).toBe(true)
 })
@@ -34,4 +65,99 @@ test('toggleRepo flips collapsed state', () => {
   expect(useSidebarStore.getState().collapsedRepos.has('crowbar')).toBe(true)
   useSidebarStore.getState().toggleRepo('crowbar')
   expect(useSidebarStore.getState().collapsedRepos.has('crowbar')).toBe(false)
+})
+
+test('addWorkspace stores parentId when provided', () => {
+  useSidebarStore.getState().addWorkspace('crowbar', 'ws-child', 'feature/child', 'ws-develop')
+  const ws = useSidebarStore.getState().repos
+    .find(r => r.id === 'crowbar')!.workspaces
+    .find(w => w.id === 'ws-child')!
+  expect(ws.parentId).toBe('ws-develop')
+})
+
+test('addWorkspace stores no parentId when omitted', () => {
+  useSidebarStore.getState().addWorkspace('crowbar', 'ws-root', 'feature/root')
+  const ws = useSidebarStore.getState().repos
+    .find(r => r.id === 'crowbar')!.workspaces
+    .find(w => w.id === 'ws-root')!
+  expect(ws.parentId).toBeUndefined()
+})
+
+test('renameWorkspace updates branch on matching workspace', () => {
+  useSidebarStore.getState().renameWorkspace('ws3', 'feature/renamed')
+  const ws = useSidebarStore.getState().repos
+    .flatMap(r => r.workspaces).find(w => w.id === 'ws3')!
+  expect(ws.branch).toBe('feature/renamed')
+})
+
+test('renameWorkspace leaves other workspaces unchanged', () => {
+  useSidebarStore.getState().renameWorkspace('ws3', 'feature/renamed')
+  const ws = useSidebarStore.getState().repos
+    .flatMap(r => r.workspaces).find(w => w.id === 'ws1')!
+  expect(ws.branch).toBe('enhancement/scaffold')
+})
+
+test('reparentWorkspace changes parentId', () => {
+  useSidebarStore.getState().reparentWorkspace('ws2', 'ws3')
+  const ws = useSidebarStore.getState().repos
+    .flatMap(r => r.workspaces).find(w => w.id === 'ws2')!
+  expect(ws.parentId).toBe('ws3')
+})
+
+test('reparentWorkspace to undefined makes workspace a repo root', () => {
+  useSidebarStore.getState().reparentWorkspace('ws3', undefined)
+  const ws = useSidebarStore.getState().repos
+    .flatMap(r => r.workspaces).find(w => w.id === 'ws3')!
+  expect(ws.parentId).toBeUndefined()
+})
+
+test('reparentWorkspace rejects cycles: descendant cannot become ancestor', () => {
+  // ws3 is a child of ws-develop; making ws-develop a child of ws3 would cycle
+  useSidebarStore.getState().reparentWorkspace('ws-develop', 'ws3')
+  const ws = useSidebarStore.getState().repos
+    .flatMap(r => r.workspaces).find(w => w.id === 'ws-develop')!
+  expect(ws.parentId).toBeUndefined() // unchanged
+})
+
+test('reparentWorkspace rejects cross-repo moves', () => {
+  // qc1 is in quiver-core; ws3 is in crowbar
+  useSidebarStore.getState().reparentWorkspace('ws3', 'qc1')
+  const ws = useSidebarStore.getState().repos
+    .flatMap(r => r.workspaces).find(w => w.id === 'ws3')!
+  expect(ws.parentId).toBe('ws-develop') // unchanged
+})
+
+import { loadSidebarUI } from '@/lib/persistence/sidebar-ui'
+import { IDBFactory } from 'fake-indexeddb'
+import { resetDB } from '@/lib/persistence/idb'
+import { describe } from 'vitest'
+
+describe('toggleRepo persistence', () => {
+  beforeEach(() => {
+    resetDB()
+    globalThis.indexedDB = new IDBFactory()
+    useSidebarStore.setState({
+      chats: [],
+      repos: [],
+      collapsedRepos: new Set<string>(),
+      collapsedWorkspaces: new Set<string>(),
+      activeTab: 'workspaces',
+    })
+  })
+
+  test('writes collapsed state to IDB after toggling on', async () => {
+    useSidebarStore.getState().toggleRepo('crowbar')
+    await new Promise(r => setTimeout(r, 20))
+    const saved = await loadSidebarUI()
+    expect(saved?.collapsedRepos).toContain('crowbar')
+  })
+
+  test('removes repo from IDB after toggling off', async () => {
+    useSidebarStore.getState().toggleRepo('crowbar')
+    await new Promise(r => setTimeout(r, 20))
+    useSidebarStore.getState().toggleRepo('crowbar')
+    await new Promise(r => setTimeout(r, 20))
+    const saved = await loadSidebarUI()
+    expect(saved?.collapsedRepos).not.toContain('crowbar')
+  })
 })

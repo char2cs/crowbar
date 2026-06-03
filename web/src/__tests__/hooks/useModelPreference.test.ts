@@ -1,6 +1,6 @@
 import { renderHook, act } from '@testing-library/react'
 import { useModelPreference } from '@/hooks/useModelPreference'
-import { beforeEach, expect, test } from 'vitest'
+import { beforeEach, describe, expect, it, test, vi, afterEach } from 'vitest'
 
 beforeEach(() => localStorage.clear())
 
@@ -24,4 +24,19 @@ test('reads from localStorage on mount', () => {
 test('returns all three model options', () => {
   const { result } = renderHook(() => useModelPreference())
   expect(result.current.models).toHaveLength(3)
+})
+
+describe('useModelPreference — storage unavailable', () => {
+  afterEach(() => {
+    vi.restoreAllMocks()
+  })
+
+  it('returns default model when localStorage throws on read', () => {
+    vi.spyOn(Storage.prototype, 'getItem').mockImplementation(() => {
+      throw new Error('SecurityError')
+    })
+
+    const { result } = renderHook(() => useModelPreference())
+    expect(result.current.model).toBe('claude-sonnet-4-6')
+  })
 })

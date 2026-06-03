@@ -1,91 +1,46 @@
 import {
   DndContext,
   DragOverlay,
-  PointerSensor,
   closestCenter,
   useSensor,
   useSensors,
-  type DragEndEvent,
-  type DragMoveEvent,
-  type DragStartEvent,
 } from "@dnd-kit/core";
-
-/**
- * Custom PointerSensor that skips drag activation when the pointer event
- * originates on a `[data-no-dnd]` element (e.g. the tab close button).
- * Without this, DndKit captures the pointer on the close button's pointerdown,
- * which fires handleDragStart → handleTabSelect before the close button's
- * onClick can run, causing the tab to be activated instead of closed.
- */
-class NoDndPointerSensor extends PointerSensor {
-  static activators = [
-    {
-      eventName: 'onPointerDown' as const,
-      handler: ({ nativeEvent: event }: { nativeEvent: PointerEvent }): boolean => {
-        if (!event.isPrimary || event.button !== 0) return false;
-        const target = event.target as HTMLElement | null;
-        if (target?.closest('[data-no-dnd]')) return false;
-        return true;
-      },
-    },
-  ];
-}
-import { SortableContext, horizontalListSortingStrategy, useSortable } from "@dnd-kit/sortable";
-import { CSS } from "@dnd-kit/utilities";
-import {
-  ArrowLeft,
-  ArrowRight,
-  GlobeHemisphereWest as Globe,
-  Plus,
-  SidebarSimple as PanelLeftClose,
-  TerminalWindow as Terminal,
-} from "@phosphor-icons/react";
-import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuTrigger,
-} from "@/components/ui/dropdown-menu";
-// Use browser clipboard API instead of Tauri clipboard plugin
-const writeText = (text: string) => navigator.clipboard.writeText(text);
-import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
-import { useBufferStore } from "@/features/editor/stores/buffer-store";
-import { useJumpListStore } from "@/features/editor/stores/jump-list-store";
+import { SortableContext, horizontalListSortingStrategy } from "@dnd-kit/sortable";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { nanoid } from "nanoid";
 import { useEditorStateStore } from "@/features/editor/stores/state-store";
-import { navigateToJumpEntry } from "@/features/editor/utils/jump-navigation";
 import { useFileSystemStore } from "@/features/file-system/controllers/store";
-import { formatDiffBufferLabel } from "@/features/git/utils/diff-buffer-label";
 import { BOTTOM_PANE_ID } from "@/features/panes/constants/pane";
 import {
-  usePaneRoot,
-  useBottomRoot,
+  usePaneById,
   usePaneActions,
 } from "@/features/workspace/stores/hooks/use-pane-store";
-import { useBuffers, useBufferActions } from "@/features/workspace/stores/hooks/use-buffer-store";
-import { useWorkspaceStoreContext } from "@/features/workspace/stores/workspace-context";
-import { activateBufferInPaneAndSync } from "@/features/panes/utils/pane-activation";
+import { useBuffers, useBuffersByIds, useBufferActions } from "@/features/workspace/stores/hooks/use-buffer-store";
+import { useWorkspaceStore, useWorkspaceStoreContext } from "@/features/workspace/stores/workspace-context";
 import { splitEditorGroup } from "@/features/panes/utils/pane-command-actions";
-import { getPaneSplitDropOptions } from "@/features/panes/utils/pane-drop-zones";
-import { findPaneGroup } from "@/features/panes/utils/pane-tree";
 import { useSettingsStore } from "@/features/settings/store";
 import type { PaneContent } from "@/features/panes/types/pane-content";
 import { useEditorAppStore } from "@/features/editor/stores/editor-app-store";
 import { useSidebarStore } from "@/features/layout/stores/sidebar-store";
-import { useTerminalStore } from "@/features/terminal/stores/terminal-store";
 import { useWebViewerNavigationStore } from "@/features/web-viewer/stores/web-viewer-navigation-store";
 import UnsavedChangesDialog from "@/features/window/components/unsaved-changes-dialog";
-import { useUIState } from "@/features/window/stores/ui-state-store";
-import { Button } from "@/components/ui/button";
+import { useSidebar } from "@/components/ui/sidebar";
 import { getRelativePath } from "@/utils/path-helpers";
-import { calculateDisplayNames } from "../utils/path-shortener";
-import {
-  clearInternalTabDragData,
-  resolveDropTarget,
-  setInternalTabDragHover,
-  setInternalTabDragData,
-} from "../utils/internal-tab-drag";
+import { cn } from "@/utils/cn";
+import { IS_MAC } from "@/utils/platform";
 import TabBarItem from "./tab-bar-item";
 import TabContextMenu from "./tab-context-menu";
+import TabNavigationButtons from "./tab-navigation-buttons";
+import TabNewButton from "./tab-new-button";
+import SortableEditorTab from "./sortable-editor-tab";
+import { useBufferDisplayName } from "../hooks/use-buffer-display-name";
+import { useTabKeyboardNav } from "../hooks/use-tab-keyboard-nav";
+import { useJumpNavigation } from "../hooks/use-jump-navigation";
+import { useTabDrag } from "../hooks/use-tab-drag";
+import { useTabBarScroll } from "../hooks/use-tab-bar-scroll";
+import { NoDndPointerSensor } from "../lib/no-dnd-pointer-sensor";
+
+const writeText = (text: string) => navigator.clipboard.writeText(text);
 
 interface TabBarProps {
   paneId?: string;
@@ -98,60 +53,91 @@ const TabBar = ({
   onTabClick: externalTabClick,
   disablePaneActions = false,
 }: TabBarProps) => {
-  // Get everything from stores
-  const allBuffers = useBuffers();
   const globalActiveBufferId = useWorkspaceStoreContext(s => s.paneActions.getActivePane()?.activeBufferId ?? null);
-  const pendingClose = null as ({ bufferId: string } | null);  // workspace buffer slice tracks pending close via local state
-  const paneRoot = usePaneRoot();
-  const bottomRoot = useBottomRoot();
-  const { closePane, setActivePane, activatePaneBuffer, removeBufferFromPane, splitPane, moveBufferToPane } = usePaneActions();
-  const { closeBuffer, openContent, promotePreview: promotePreviewBuffer } = useBufferActions();
-
-  // Filter buffers by paneId if provided
-  const pane = paneId
-    ? paneId === BOTTOM_PANE_ID
-      ? findPaneGroup(bottomRoot, BOTTOM_PANE_ID)
-      : findPaneGroup(paneRoot, paneId)
-    : null;
-  const buffers = (
-    pane ? allBuffers.filter((b) => pane.bufferIds.includes(b.id)) : allBuffers
-  ).filter((buffer) => buffer.type !== "newTab");
+  const pendingClose = useWorkspaceStoreContext((s) => s.pendingClose);
+  const pane = usePaneById(paneId ?? '');
+  const { closePane, setActivePane, activatePaneBuffer, removeBufferFromPane, splitPane, moveBufferToPane, reorderPaneBuffers } = usePaneActions();
+  const { closeBuffer, openContent, promotePreview: promotePreviewBuffer, setPinned, confirmPendingClose, setPendingClose } = useBufferActions();
+  const workspaceStore = useWorkspaceStore();
+  const allBuffers = useBuffers();
+  const paneBufferIds = pane?.bufferIds ?? [];
+  const paneSpecificBuffers = useBuffersByIds(paneBufferIds);
+  const buffers = useMemo(
+    () =>
+      (pane ? paneSpecificBuffers : allBuffers).filter((buffer) => buffer.type !== "newTab"),
+    [pane, paneSpecificBuffers, allBuffers],
+  );
   const activeBufferCandidate = pane ? pane.activeBufferId : globalActiveBufferId;
   const activeBufferId =
     activeBufferCandidate && buffers.some((buffer) => buffer.id === activeBufferCandidate)
       ? activeBufferCandidate
       : null;
-  const {
-    handleTabPin,
-    handleCloseOtherTabs,
-    handleCloseAllTabs,
-    handleCloseTabsToRight,
-    reorderBuffers,
-    confirmCloseWithoutSaving,
-    cancelPendingClose,
-    convertPreviewToDefinite,
-  } = useBufferStore.use.actions();
 
-  // Workspace-aware tab interactions
-  function handleTabClick(bufferId: string) {
-    if (paneId) {
-      activatePaneBuffer(paneId, bufferId);
-      setActivePane(paneId);
-    }
-    externalTabClick?.(bufferId);
+  function handleTabPin(bufferId: string) {
+    const buf = workspaceStore.getState().buffers.find((b) => b.id === bufferId);
+    if (buf) setPinned(bufferId, !buf.isPinned);
   }
-  function handleTabClose(bufferId: string, _event?: React.MouseEvent) {
-    if (paneId) {
-      removeBufferFromPane(paneId, bufferId);
-    }
-    closeBuffer(bufferId);
+  function handleCloseOtherTabs(keepBufferId: string) {
+    const { buffers: allBufs } = workspaceStore.getState();
+    const toClose = allBufs.filter((b) => b.id !== keepBufferId && !b.isPinned);
+    toClose.forEach((b) => {
+      if (paneId) removeBufferFromPane(paneId, b.id);
+      closeBuffer(b.id);
+    });
   }
+  function handleCloseAllTabs() {
+    const { buffers: allBufs } = workspaceStore.getState();
+    const toClose = allBufs.filter((b) => !b.isPinned);
+    toClose.forEach((b) => {
+      if (paneId) removeBufferFromPane(paneId, b.id);
+      closeBuffer(b.id);
+    });
+  }
+  function handleCloseTabsToRight(bufferId: string) {
+    const { buffers: allBufs } = workspaceStore.getState();
+    const idx = allBufs.findIndex((b) => b.id === bufferId);
+    if (idx === -1) return;
+    const toClose = allBufs.slice(idx + 1).filter((b) => !b.isPinned);
+    toClose.forEach((b) => {
+      if (paneId) removeBufferFromPane(paneId, b.id);
+      closeBuffer(b.id);
+    });
+  }
+  const reorderBuffers = useCallback(
+    (startIndex: number, endIndex: number) => {
+      if (paneId) reorderPaneBuffers(paneId, startIndex, endIndex);
+    },
+    [paneId, reorderPaneBuffers],
+  );
+  const confirmCloseWithoutSaving = confirmPendingClose;
+  const cancelPendingClose = () => setPendingClose(null);
+  const convertPreviewToDefinite = promotePreviewBuffer;
+
+  const handleTabClick = useCallback(
+    (bufferId: string) => {
+      if (paneId) {
+        activatePaneBuffer(paneId, bufferId);
+        setActivePane(paneId);
+      }
+      externalTabClick?.(bufferId);
+    },
+    [activatePaneBuffer, externalTabClick, paneId, setActivePane],
+  );
+
+  const handleTabClose = useCallback(
+    (bufferId: string) => {
+      if (paneId) removeBufferFromPane(paneId, bufferId);
+      closeBuffer(bufferId);
+    },
+    [closeBuffer, paneId, removeBufferFromPane],
+  );
+
   const { handleSave } = useEditorAppStore.use.actions();
-  const horizontalTabScroll = useSettingsStore((state) => state.settings.horizontalTabScroll);
   const maxOpenTabs = useSettingsStore((state) => state.settings.maxOpenTabs);
-  const { updateActivePath } = useSidebarStore();
+  const updateActivePath = useSidebarStore((s) => s.updateActivePath);
+  const sidebarPosition = useSettingsStore((s) => s.settings.sidebarPosition);
+  const { open: sidebarOpen, toggleSidebar } = useSidebar();
   const rootFolderPath = useFileSystemStore.use.rootFolderPath?.() || undefined;
-  const jumpListActions = useJumpListStore.use.actions();
   const activeBuffer = useMemo(
     () => buffers.find((buffer) => buffer.id === activeBufferId) ?? null,
     [activeBufferId, buffers],
@@ -160,16 +146,14 @@ const TabBar = ({
     activeBuffer?.type === "webViewer" ? state.navigationByBufferId[activeBuffer.id] : undefined,
   );
   const usesWebViewerNavigation = activeBuffer?.type === "webViewer";
-  const canGoBack = usesWebViewerNavigation
-    ? Boolean(activeWebViewerNavigation?.canGoBack)
-    : jumpListActions.canGoBack();
-  const canGoForward = usesWebViewerNavigation
-    ? Boolean(activeWebViewerNavigation?.canGoForward)
-    : jumpListActions.canGoForward();
-  const isInSplit = paneRoot.type === "split";
+  const { canGoBack, canGoForward, handleJumpBack, handleJumpForward } = useJumpNavigation({
+    usesWebViewerNavigation,
+    activeWebViewerNavigation,
+  });
+  const allPanes = useWorkspaceStoreContext(s => s.panes)
+  const mainPaneCount = Object.keys(allPanes).filter(id => id !== BOTTOM_PANE_ID).length
+  const isInSplit = pane !== null && paneId !== null && mainPaneCount > 1
   const isBottomPane = paneId === BOTTOM_PANE_ID;
-
-  const [draggedBufferId, setDraggedBufferId] = useState<string | null>(null);
 
   const [contextMenu, setContextMenu] = useState<{
     isOpen: boolean;
@@ -179,131 +163,15 @@ const TabBar = ({
 
   const [srAnnouncement, setSrAnnouncement] = useState<string>("");
 
-  const tabBarRef = useRef<HTMLDivElement>(null);
   const tabRefs = useRef<(HTMLDivElement | null)[]>([]);
-  const dragPointRef = useRef<{ x: number; y: number } | null>(null);
-  const pointerPointRef = useRef<{ x: number; y: number } | null>(null);
+
   const handleRevealInFolder = useFileSystemStore.use.handleRevealInFolder?.();
   const { clearPositionCache } = useEditorStateStore.getState().actions;
-  const terminalSessions = useTerminalStore((state) => state.sessions);
+
   const sensors = useSensors(
     useSensor(NoDndPointerSensor, {
-      activationConstraint: {
-        distance: 6,
-      },
+      activationConstraint: { distance: 6 },
     }),
-  );
-
-  const getDirectoryLabel = useCallback((directory?: string) => {
-    if (!directory) return "";
-    const normalized = directory.replace(/[\\/]+$/, "");
-    return normalized.split(/[\\/]/).pop() || directory;
-  }, []);
-
-  const getCommandLabel = useCallback((command?: string) => {
-    if (!command) return "";
-    const firstSegment = command.trim().split(/\s+/)[0];
-    return firstSegment?.split(/[\\/]/).pop() || "";
-  }, []);
-
-  const isUsefulTerminalTitle = useCallback((title?: string) => {
-    if (!title) return false;
-    const trimmed = title.trim();
-    if (!trimmed || trimmed === "Default Terminal") return false;
-    if (trimmed.length > 28) return false;
-    if (trimmed.includes("@")) return false;
-    if (trimmed.includes("/") || trimmed.includes("\\")) return false;
-
-    for (const char of trimmed) {
-      const code = char.charCodeAt(0);
-      if ((code >= 0 && code <= 31) || code === 127 || code === 155) {
-        return false;
-      }
-    }
-
-    return true;
-  }, []);
-
-  const handleJumpBack = useCallback(async () => {
-    if (usesWebViewerNavigation) {
-      activeWebViewerNavigation?.goBack?.();
-      return;
-    }
-
-    const bufferStore = useBufferStore.getState();
-    const editorState = useEditorStateStore.getState();
-    const currentActiveBufferId = bufferStore.activeBufferId;
-    const currentActiveBuffer = bufferStore.buffers.find((b) => b.id === currentActiveBufferId);
-
-    const currentPosition =
-      currentActiveBufferId && currentActiveBuffer?.path
-        ? {
-            bufferId: currentActiveBufferId,
-            filePath: currentActiveBuffer.path,
-            line: editorState.cursorPosition.line,
-            column: editorState.cursorPosition.column,
-            offset: editorState.cursorPosition.offset,
-            scrollTop: editorState.scrollTop,
-            scrollLeft: editorState.scrollLeft,
-          }
-        : undefined;
-
-    const entry = jumpListActions.goBack(currentPosition);
-    if (entry) {
-      await navigateToJumpEntry(entry);
-    }
-  }, [activeWebViewerNavigation, jumpListActions, usesWebViewerNavigation]);
-
-  const handleJumpForward = useCallback(async () => {
-    if (usesWebViewerNavigation) {
-      activeWebViewerNavigation?.goForward?.();
-      return;
-    }
-
-    const entry = jumpListActions.goForward();
-    if (entry) {
-      await navigateToJumpEntry(entry);
-    }
-  }, [activeWebViewerNavigation, jumpListActions, usesWebViewerNavigation]);
-
-  const canScrollTabsHorizontally = useCallback(() => {
-    const container = tabBarRef.current;
-    if (!container) return false;
-
-    return container.scrollWidth > container.clientWidth + 1;
-  }, []);
-
-  // Optional wheel-to-horizontal scrolling for overflowing tab strips.
-  const handleWheel = useCallback(
-    (e: React.WheelEvent<HTMLDivElement>) => {
-      const container = tabBarRef.current;
-      if (!container) return;
-      if (!horizontalTabScroll) return;
-      if (draggedBufferId) return;
-      if (e.ctrlKey || e.metaKey) return;
-      if (!canScrollTabsHorizontally()) return;
-
-      const hasHorizontalIntent = Math.abs(e.deltaX) > 0;
-      const hasShiftedVerticalIntent = e.shiftKey && Math.abs(e.deltaY) > 0;
-      const hasVerticalFallback = Math.abs(e.deltaX) === 0 && Math.abs(e.deltaY) > 0;
-
-      if (!hasHorizontalIntent && !hasShiftedVerticalIntent && !hasVerticalFallback) {
-        return;
-      }
-
-      const delta = hasHorizontalIntent ? e.deltaX : e.deltaY;
-      if (delta === 0) return;
-
-      const maxScrollLeft = container.scrollWidth - container.clientWidth;
-      if (maxScrollLeft <= 0) return;
-
-      const nextScrollLeft = Math.max(0, Math.min(container.scrollLeft + delta, maxScrollLeft));
-      if (nextScrollLeft === container.scrollLeft) return;
-
-      e.preventDefault();
-      container.scrollLeft = nextScrollLeft;
-    },
-    [canScrollTabsHorizontally, draggedBufferId, horizontalTabScroll],
   );
 
   const sortedBuffers = useMemo(() => {
@@ -314,47 +182,44 @@ const TabBar = ({
     });
   }, [buffers]);
   const sortedBufferIds = useMemo(() => sortedBuffers.map((buffer) => buffer.id), [sortedBuffers]);
-  const draggedBuffer = useMemo(
-    () => sortedBuffers.find((buffer) => buffer.id === draggedBufferId) ?? null,
-    [draggedBufferId, sortedBuffers],
-  );
 
-  // Calculate display names for tabs with minimal distinguishing paths
-  const displayNames = useMemo(() => {
-    return calculateDisplayNames(buffers, rootFolderPath);
-  }, [buffers, rootFolderPath]);
-
-  const getBufferDisplayName = useCallback(
+  const handleTabSelect = useCallback(
     (buffer: PaneContent) => {
-      if (buffer.type === "terminal") {
-        const session = terminalSessions.get(buffer.sessionId);
-        if (session?.customName) {
-          return session.name?.trim() || buffer.name;
-        }
-
-        const title = session?.title?.trim();
-        if (isUsefulTerminalTitle(title)) return title!;
-
-        const commandLabel = getCommandLabel(buffer.initialCommand);
-        if (commandLabel) return commandLabel;
-
-        const dirLabel = getDirectoryLabel(session?.currentDirectory || buffer.workingDirectory);
-        if (dirLabel) return dirLabel;
+      if (externalTabClick) {
+        externalTabClick(buffer.id);
+      } else {
+        handleTabClick(buffer.id);
       }
-
-      if (buffer.type === "diff") {
-        return formatDiffBufferLabel(displayNames.get(buffer.id) || buffer.name, buffer.path);
-      }
-
-      return displayNames.get(buffer.id) ?? buffer.name;
+      updateActivePath(buffer.path);
+      setSrAnnouncement(
+        `Switched to ${buffer.name}${buffer.type === "editor" && buffer.isDirty ? ", unsaved changes" : ""}`,
+      );
     },
-    [displayNames, getCommandLabel, getDirectoryLabel, isUsefulTerminalTitle, terminalSessions],
+    [externalTabClick, handleTabClick, updateActivePath],
   );
+
+  const { draggedBufferId, draggedBuffer, handleDragStart, handleDragMove, handleDragEnd, resetDrag } = useTabDrag({
+    paneId,
+    sortedBuffers,
+    onTabSelect: handleTabSelect,
+    onTabClick: handleTabClick,
+    onReorderBuffers: reorderBuffers,
+    onMoveBufferToPane: moveBufferToPane,
+    onActivatePaneBuffer: activatePaneBuffer,
+    onSplitPane: (targetPaneId, direction, bufferId, placement) =>
+      splitPane(targetPaneId, direction, bufferId, placement) ?? undefined,
+  });
+
+  const { tabBarRef, isAtLeftEdge, handleWheel } = useTabBarScroll({
+    sidebarPosition,
+    draggedBufferId,
+  });
+
+  const getBufferDisplayName = useBufferDisplayName({ buffers, rootFolderPath });
 
   useEffect(() => {
-    if (maxOpenTabs > 0 && buffers.length > maxOpenTabs && handleTabClose) {
+    if (maxOpenTabs > 0 && buffers.length > maxOpenTabs) {
       const closableBuffers = buffers.filter((b) => !b.isPinned && b.id !== activeBufferId);
-
       let tabsToClose = buffers.length - maxOpenTabs;
       for (let i = 0; i < closableBuffers.length && tabsToClose > 0; i++) {
         handleTabClose(closableBuffers[i].id);
@@ -369,32 +234,29 @@ const TabBar = ({
     if (activeIndex !== -1 && tabRefs.current[activeIndex] && tabBarRef.current) {
       const activeTab = tabRefs.current[activeIndex];
       const container = tabBarRef.current;
-
       if (activeTab) {
         const tabRect = activeTab.getBoundingClientRect();
         const containerRect = container.getBoundingClientRect();
-
-        // Check if tab is out of view
         if (tabRect.left < containerRect.left || tabRect.right > containerRect.right) {
-          activeTab.scrollIntoView({
-            behavior: "smooth",
-            block: "nearest",
-            inline: "center",
-          });
+          activeTab.scrollIntoView({ behavior: "smooth", block: "nearest", inline: "center" });
         }
       }
     }
-  }, [activeBufferId, sortedBuffers]);
+  }, [activeBufferId, sortedBuffers, tabBarRef]);
+
+  useEffect(() => {
+    tabRefs.current = tabRefs.current.slice(0, sortedBuffers.length);
+  }, [sortedBuffers.length]);
 
   const handleDoubleClick = useCallback(
     (e: React.MouseEvent, index: number) => {
       e.preventDefault();
       e.stopPropagation();
       const buffer = sortedBuffers[index];
-      // Convert preview tab to definite on double-click — update both stores
+      if (!buffer) return;
       if (buffer.isPreview) {
-        convertPreviewToDefinite(buffer.id);    // legacy store
-        promotePreviewBuffer(buffer.id);        // workspace store (also clears pane pointer)
+        convertPreviewToDefinite(buffer.id);
+        promotePreviewBuffer(buffer.id);
       }
     },
     [sortedBuffers, convertPreviewToDefinite, promotePreviewBuffer],
@@ -402,58 +264,36 @@ const TabBar = ({
 
   const handleContextMenu = useCallback((e: React.MouseEvent, buffer: PaneContent) => {
     e.preventDefault();
-
-    // Get the tab element that was right-clicked
     const target = e.currentTarget as HTMLElement;
     const rect = target.getBoundingClientRect();
-
-    // Position the menu relative to the tab element
-    // This approach is zoom-independent because getBoundingClientRect()
-    // already accounts for zoom scaling
-    const x = rect.left + rect.width * 0.5; // Center horizontally on the tab
-    const y = rect.bottom + 4; // Position just below the tab with small offset
-
     setContextMenu({
       isOpen: true,
-      position: { x, y },
+      position: { x: rect.left + rect.width * 0.5, y: rect.bottom + 4 },
       buffer,
     });
   }, []);
 
-  const handleCopyPath = useCallback(
-    async (path: string) => {
+  const handleCopyPath = useCallback(async (path: string) => {
+    await writeText(path);
+  }, []);
+
+  const handleCopyRelativePath = useCallback(async (path: string) => {
+    if (!rootFolderPath) {
       await writeText(path);
-    },
-    [writeText],
-  );
+      return;
+    }
+    await writeText(getRelativePath(path, rootFolderPath));
+  }, [rootFolderPath]);
 
-  const handleCopyRelativePath = useCallback(
-    async (path: string) => {
-      if (!rootFolderPath) {
-        // If no project is open, copy the full path
-        await writeText(path);
-        return;
-      }
-
-      await writeText(getRelativePath(path, rootFolderPath));
-    },
-    [rootFolderPath, writeText],
-  );
-
-  const closeContextMenu = () => {
+  const closeContextMenu = useCallback(() => {
     setContextMenu({ isOpen: false, position: { x: 0, y: 0 }, buffer: null });
-  };
+  }, []);
 
   const handleSaveAndClose = useCallback(async () => {
     if (!pendingClose) return;
-
     const buffer = buffers.find((b) => b.id === pendingClose.bufferId);
     if (!buffer) return;
-
-    // Save the file
     await handleSave();
-
-    // Then proceed with closing
     confirmCloseWithoutSaving();
   }, [pendingClose, buffers, handleSave, confirmCloseWithoutSaving]);
 
@@ -473,236 +313,63 @@ const TabBar = ({
     [clearPositionCache, handleTabClose],
   );
 
-  const handleTabSelect = useCallback(
-    (buffer: PaneContent) => {
-      if (externalTabClick) {
-        externalTabClick(buffer.id);
-      } else {
-        handleTabClick(buffer.id);
-      }
-      updateActivePath(buffer.path);
-      setSrAnnouncement(
-        `Switched to ${buffer.name}${buffer.type === "editor" && buffer.isDirty ? ", unsaved changes" : ""}`,
-      );
-    },
-    [externalTabClick, handleTabClick, updateActivePath],
-  );
-
-  const getClientPoint = (event: Event) => {
-    const candidate = event as Partial<MouseEvent>;
-    if (typeof candidate.clientX === "number" && typeof candidate.clientY === "number") {
-      return { x: candidate.clientX, y: candidate.clientY };
-    }
-    return null;
-  };
-
-  const getDragPoint = (event: DragMoveEvent | DragEndEvent) => {
-    if (pointerPointRef.current) return pointerPointRef.current;
-
-    const rect = event.active.rect.current.translated ?? event.active.rect.current.initial;
-    if (!rect) return dragPointRef.current;
-    return {
-      x: rect.left + rect.width / 2,
-      y: rect.top + rect.height / 2,
-    };
-  };
-
-  const isPointOutsideTabBar = (point: { x: number; y: number }) => {
-    const rect = tabBarRef.current?.getBoundingClientRect();
-    if (!rect) return false;
-
-    const horizontalSlop = 24;
-    const verticalSlop = 64;
-    return (
-      point.x < rect.left - horizontalSlop ||
-      point.x > rect.right + horizontalSlop ||
-      point.y < rect.top - verticalSlop ||
-      point.y > rect.bottom + verticalSlop
-    );
-  };
-
-  const handleDragStart = useCallback(
-    (event: DragStartEvent) => {
-      const buffer = sortedBuffers.find((item) => item.id === String(event.active.id));
-      if (!buffer) return;
-
-      setDraggedBufferId(buffer.id);
-      pointerPointRef.current = getClientPoint(event.activatorEvent);
-      setInternalTabDragData({
-        source: "pane",
-        bufferId: buffer.id,
-        paneId,
-      });
-      handleTabSelect(buffer);
-    },
-    [handleTabSelect, paneId, sortedBuffers],
-  );
-
-  const handleDragMove = useCallback((event: DragMoveEvent) => {
-    const point = getDragPoint(event);
-    if (!point) return;
-
-    dragPointRef.current = point;
-    if (isPointOutsideTabBar(point)) {
-      setInternalTabDragHover(point);
-    }
-  }, []);
-
-  const resetDrag = useCallback(() => {
-    setDraggedBufferId(null);
-    dragPointRef.current = null;
-    pointerPointRef.current = null;
-    clearInternalTabDragData();
-  }, []);
-
-  useEffect(() => {
-    if (!draggedBufferId) return;
-
-    const updatePointerPoint = (event: PointerEvent) => {
-      pointerPointRef.current = { x: event.clientX, y: event.clientY };
-    };
-
-    window.addEventListener("pointermove", updatePointerPoint, true);
-    return () => window.removeEventListener("pointermove", updatePointerPoint, true);
-  }, [draggedBufferId]);
-
-  const handleDragEnd = useCallback(
-    (event: DragEndEvent) => {
-      const activeId = String(event.active.id);
-      const dragged = sortedBuffers.find((buffer) => buffer.id === activeId);
-      const point = getDragPoint(event);
-      const target = point ? resolveDropTarget(point) : { paneId: null, zone: null };
-      const isOutsideTabBar = point ? isPointOutsideTabBar(point) : false;
-
-      if (
-        dragged &&
-        paneId &&
-        isOutsideTabBar &&
-        target.paneId &&
-        (target.paneId !== paneId || (target.zone && target.zone !== "center"))
-      ) {
-        const splitOptions = target.zone ? getPaneSplitDropOptions(target.zone) : null;
-        let destinationPaneId: string | null;
-        if (splitOptions && target.paneId) {
-          destinationPaneId = splitPane(target.paneId, splitOptions.direction, undefined, splitOptions.placement) ?? null;
-        } else {
-          destinationPaneId = target.paneId ?? null;
-        }
-        if (!destinationPaneId) {
-          resetDrag();
-          return;
-        }
-        if (paneId) moveBufferToPane(dragged.id, paneId, destinationPaneId);
-        activatePaneBuffer(destinationPaneId, dragged.id);
-        activateBufferInPaneAndSync(destinationPaneId, dragged.id);
-        if (destinationPaneId === BOTTOM_PANE_ID) {
-          useUIState.getState().setBottomPaneActiveTab("buffers");
-          useUIState.getState().setIsBottomPaneVisible(true);
-        }
-      } else if (event.over && reorderBuffers) {
-        const oldIndex = sortedBuffers.findIndex((buffer) => buffer.id === activeId);
-        const newIndex = sortedBuffers.findIndex((buffer) => buffer.id === String(event.over?.id));
-        if (oldIndex !== -1 && newIndex !== -1 && oldIndex !== newIndex) {
-          reorderBuffers(oldIndex, newIndex);
-          if (dragged) {
-            handleTabClick(dragged.id);
-          }
-        }
-      }
-
-      resetDrag();
-    },
-    [activatePaneBuffer, handleTabClick, moveBufferToPane, paneId, reorderBuffers, resetDrag, sortedBuffers, splitPane],
-  );
-
-  useEffect(() => {
-    tabRefs.current = tabRefs.current.slice(0, sortedBuffers.length);
-  }, [sortedBuffers.length]);
-
-  const handleKeyDown = useCallback(
-    (e: React.KeyboardEvent, index: number) => {
-      const buffer = sortedBuffers[index];
-
-      switch (e.key) {
-        case "ArrowLeft":
-          e.preventDefault();
-          if (index > 0) {
-            const prevBuffer = sortedBuffers[index - 1];
-            handleTabClick(prevBuffer.id);
-            updateActivePath(prevBuffer.path);
-            setSrAnnouncement(
-              `Switched to ${prevBuffer.name}${prevBuffer.type === "editor" && prevBuffer.isDirty ? ", unsaved changes" : ""}`,
-            );
-            tabRefs.current[index - 1]?.focus();
-          }
-          break;
-
-        case "ArrowRight":
-          e.preventDefault();
-          if (index < sortedBuffers.length - 1) {
-            const nextBuffer = sortedBuffers[index + 1];
-            handleTabClick(nextBuffer.id);
-            updateActivePath(nextBuffer.path);
-            setSrAnnouncement(
-              `Switched to ${nextBuffer.name}${nextBuffer.type === "editor" && nextBuffer.isDirty ? ", unsaved changes" : ""}`,
-            );
-            tabRefs.current[index + 1]?.focus();
-          }
-          break;
-
-        case "Home":
-          e.preventDefault();
-          if (sortedBuffers.length > 0) {
-            const firstBuffer = sortedBuffers[0];
-            handleTabClick(firstBuffer.id);
-            updateActivePath(firstBuffer.path);
-            setSrAnnouncement(
-              `Switched to ${firstBuffer.name}${firstBuffer.type === "editor" && firstBuffer.isDirty ? ", unsaved changes" : ""}`,
-            );
-            tabRefs.current[0]?.focus();
-          }
-          break;
-
-        case "End":
-          e.preventDefault();
-          if (sortedBuffers.length > 0) {
-            const lastIndex = sortedBuffers.length - 1;
-            const lastBuffer = sortedBuffers[lastIndex];
-            handleTabClick(lastBuffer.id);
-            updateActivePath(lastBuffer.path);
-            setSrAnnouncement(
-              `Switched to ${lastBuffer.name}${lastBuffer.type === "editor" && lastBuffer.isDirty ? ", unsaved changes" : ""}`,
-            );
-            tabRefs.current[lastIndex]?.focus();
-          }
-          break;
-
-        case "Delete":
-        case "Backspace":
-          if (!buffer.isPinned) {
-            e.preventDefault();
-            setSrAnnouncement(`Closed ${buffer.name}`);
-            closeTab(buffer.id);
-          } else {
-            setSrAnnouncement(`Cannot close pinned tab ${buffer.name}`);
-          }
-          break;
-
-        case "Enter":
-        case " ":
-          e.preventDefault();
-          handleTabClick(buffer.id);
-          updateActivePath(buffer.path);
-          setSrAnnouncement(
-            `Activated ${buffer.name}${buffer.type === "editor" && buffer.isDirty ? ", unsaved changes" : ""}`,
-          );
-          break;
-      }
-    },
-    [sortedBuffers, handleTabClick, updateActivePath, closeTab],
-  );
+  const handleKeyDown = useTabKeyboardNav({
+    sortedBuffers,
+    tabRefs,
+    onTabClick: handleTabClick,
+    onUpdateActivePath: updateActivePath,
+    onAnnounce: setSrAnnouncement,
+    onCloseTab: closeTab,
+  });
 
   const MemoizedTabContextMenu = useMemo(() => TabContextMenu, []);
+
+  const handleContextMenuCloseTab = useCallback(
+    (bufferId: string) => {
+      const buf = buffers.find((b) => b.id === bufferId);
+      if (buf) closeTab(bufferId);
+    },
+    [buffers, closeTab],
+  );
+
+  const handleReloadTab = useCallback(
+    (bufferId: string) => {
+      const buf = buffers.find((b) => b.id === bufferId);
+      if (buf && buf.path !== "extensions://marketplace") {
+        if (paneId) removeBufferFromPane(paneId, bufferId);
+        closeBuffer(bufferId);
+        setTimeout(async () => {
+          try {
+            const content = buf.type === "editor" || buf.type === "diff" ? buf.content : "";
+            const spec =
+              buf.type === "diff"
+                ? ({ type: "diff", path: buf.path, name: buf.name, content } as const)
+                : ({ type: "editor", path: buf.path, name: buf.name, content } as const);
+            openContent(spec);
+          } catch (error) {
+            console.error("Failed to reload buffer:", error);
+          }
+        }, 100);
+      }
+    },
+    [buffers, closeBuffer, openContent, paneId, removeBufferFromPane],
+  );
+
+  const handleSplitRight = useMemo(
+    () =>
+      paneId
+        ? (targetPaneId: string, bufferId: string) => splitEditorGroup(targetPaneId, "horizontal", bufferId)
+        : undefined,
+    [paneId],
+  );
+
+  const handleSplitDown = useMemo(
+    () =>
+      paneId
+        ? (targetPaneId: string, bufferId: string) => splitEditorGroup(targetPaneId, "vertical", bufferId)
+        : undefined,
+    [paneId],
+  );
 
   return (
     <>
@@ -717,51 +384,34 @@ const TabBar = ({
         <div
           ref={tabBarRef}
           data-tab-bar-pane-id={paneId ?? ""}
-          className="relative flex h-7 shrink-0 items-center gap-1 overflow-hidden bg-background px-1.5 py-0.5"
+          className={cn(
+            'relative flex shrink-0 items-center gap-1.5 overflow-hidden px-2 py-1',
+            IS_MAC ? 'h-[44px]' : 'h-[34px]',
+            IS_MAC && !isBottomPane && isAtLeftEdge && 'pl-[80px]',
+          )}
           role="tablist"
           aria-label="Open files"
+          data-tauri-drag-region
           onWheel={handleWheel}
         >
-          <div className="flex shrink-0 items-center gap-0.5">
-            <Button
-              type="button"
-              onClick={handleJumpBack}
-              disabled={!canGoBack}
-              variant="ghost"
-              className="h-5 min-w-5 shrink-0 rounded-md px-1 text-muted-foreground"
-              tooltip="Go Back"
-              tooltipSide="bottom"
-              commandId="navigation.goBack"
-              aria-label="Go back to previous location"
-              compact
-            >
-              <ArrowLeft />
-            </Button>
-            <Button
-              type="button"
-              onClick={handleJumpForward}
-              disabled={!canGoForward}
-              variant="ghost"
-              className="h-5 min-w-5 shrink-0 rounded-md px-1 text-muted-foreground"
-              tooltip="Go Forward"
-              tooltipSide="bottom"
-              commandId="navigation.goForward"
-              aria-label="Go forward to next location"
-              compact
-            >
-              <ArrowRight />
-            </Button>
-          </div>
+          <TabNavigationButtons
+            isBottomPane={isBottomPane}
+            sidebarOpen={sidebarOpen}
+            sidebarPosition={sidebarPosition}
+            canGoBack={canGoBack}
+            canGoForward={canGoForward}
+            onToggleSidebar={toggleSidebar}
+            onJumpBack={handleJumpBack}
+            onJumpForward={handleJumpForward}
+          />
 
           <SortableContext items={sortedBufferIds} strategy={horizontalListSortingStrategy}>
-            <div className="scrollbar-hidden flex min-w-0 flex-1 gap-1 overflow-x-auto overflow-y-hidden [overscroll-behavior-x:contain]">
+            <div className="tab-scrollbar flex min-w-0 flex-1 items-center gap-1.5 overflow-x-auto overflow-y-hidden [overscroll-behavior-x:contain]">
               {sortedBuffers.map((buffer, index) => (
                 <SortableEditorTab
                   key={buffer.id}
                   id={buffer.id}
-                  tabRef={(el) => {
-                    tabRefs.current[index] = el;
-                  }}
+                  tabRef={(el) => { tabRefs.current[index] = el; }}
                 >
                   <TabBarItem
                     buffer={buffer}
@@ -781,45 +431,28 @@ const TabBar = ({
             </div>
           </SortableContext>
 
-          <div className="flex shrink-0 items-center gap-1 pl-0.5">
-            {paneId && !isBottomPane && (
-              <DropdownMenu>
-                <DropdownMenuTrigger className="flex h-5 min-w-5 shrink-0 items-center justify-center rounded-md px-1 text-muted-foreground hover:bg-muted hover:text-foreground focus:outline-none" aria-label="New tab">
-                  <Plus weight="bold" size={12} />
-                </DropdownMenuTrigger>
-                <DropdownMenuContent side="bottom" align="start" className="min-w-[140px]">
-                  <DropdownMenuItem onClick={() => { if (paneId) setActivePane(paneId); openContent({ type: 'terminal' }); }}>
-                    <Terminal className="text-muted-foreground" />
-                    New Terminal
-                  </DropdownMenuItem>
-                  <DropdownMenuItem onClick={() => { if (paneId) setActivePane(paneId); openContent({ type: 'webViewer', url: 'https://' }); }}>
-                    <Globe className="text-muted-foreground" />
-                    Open URL
-                  </DropdownMenuItem>
-                </DropdownMenuContent>
-              </DropdownMenu>
-            )}
-            {paneId && !disablePaneActions && !isBottomPane && isInSplit && (
-              <Button
-                type="button"
-                onClick={() => closePane(paneId)}
-                variant="ghost"
-                compact
-                className="h-5 min-w-5 shrink-0 rounded-md px-1 text-muted-foreground"
-                tooltip="Close Split"
-                tooltipSide="bottom"
-                aria-label="Close split pane"
-              >
-                <PanelLeftClose />
-              </Button>
-            )}
-          </div>
+          {paneId && (
+            <TabNewButton
+              isBottomPane={isBottomPane}
+              disablePaneActions={disablePaneActions}
+              isInSplit={isInSplit}
+              onNewConversation={() => { setActivePane(paneId); openContent({ type: 'crowbarChat', wsId: nanoid(), name: 'New Conversation' }); }}
+              onNewTerminal={() => { setActivePane(paneId); openContent({ type: 'terminal' }); }}
+              onOpenUrl={() => { setActivePane(paneId); openContent({ type: 'webViewer', url: 'https://' }); }}
+              onClosePane={() => closePane(paneId)}
+            />
+          )}
         </div>
 
         <DragOverlay dropAnimation={null}>
           {draggedBuffer ? (
             <div className="tab-drag-preview ui-font flex items-center gap-1.5 rounded-lg border border-border/70 bg-background/95 px-2 py-1 ui-text-xs opacity-95 shadow-sm">
-              <span className="max-w-[200px] truncate text-foreground">{draggedBuffer.name}</span>
+              <span className="max-w-[200px] truncate text-foreground">
+                {draggedBuffer.name}
+                {draggedBuffer.type === "editor" && draggedBuffer.isDirty && (
+                  <span className="ml-1 text-muted-foreground">•</span>
+                )}
+              </span>
             </div>
           ) : null}
         </DragOverlay>
@@ -832,55 +465,16 @@ const TabBar = ({
         paneId={paneId}
         onClose={closeContextMenu}
         onPin={handleTabPin}
-        onCloseTab={(bufferId) => {
-          const buffer = buffers.find((b) => b.id === bufferId);
-          if (buffer) {
-            closeTab(bufferId);
-          }
-        }}
+        onCloseTab={handleContextMenuCloseTab}
         onCloseOthers={handleCloseOtherTabs}
         onCloseAll={handleCloseAllTabs}
         onCloseToRight={handleCloseTabsToRight}
         onCopyPath={handleCopyPath}
         onCopyRelativePath={handleCopyRelativePath}
-        onReload={(bufferId: string) => {
-          const buffer = buffers.find((b) => b.id === bufferId);
-          if (buffer && buffer.path !== "extensions://marketplace") {
-            const { closeBuffer, openBuffer } = useBufferStore.getState().actions;
-            closeBuffer(bufferId);
-            setTimeout(async () => {
-              try {
-                const content =
-                  buffer.type === "editor" || buffer.type === "diff" ? buffer.content : "";
-                openBuffer(
-                  buffer.path,
-                  buffer.name,
-                  content,
-                  buffer.type === "image",
-                  undefined, // databaseType
-                  buffer.type === "diff",
-                );
-              } catch (error) {
-                console.error("Failed to reload buffer:", error);
-              }
-            }, 100);
-          }
-        }}
+        onReload={handleReloadTab}
         onRevealInFinder={handleRevealInFolder ?? undefined}
-        onSplitRight={
-          paneId
-            ? (targetPaneId, bufferId) => {
-                splitEditorGroup(targetPaneId, "horizontal", bufferId);
-              }
-            : undefined
-        }
-        onSplitDown={
-          paneId
-            ? (targetPaneId, bufferId) => {
-                splitEditorGroup(targetPaneId, "vertical", bufferId);
-              }
-            : undefined
-        }
+        onSplitRight={handleSplitRight}
+        onSplitDown={handleSplitDown}
       />
 
       {pendingClose && (
@@ -892,42 +486,11 @@ const TabBar = ({
         />
       )}
 
-      {/* Screen reader live region for announcements */}
       <div role="status" aria-live="polite" aria-atomic="true" className="sr-only">
         {srAnnouncement}
       </div>
     </>
   );
 };
-
-interface SortableEditorTabProps {
-  id: string;
-  children: ReactNode;
-  tabRef: (element: HTMLDivElement | null) => void;
-}
-
-function SortableEditorTab({ id, children, tabRef }: SortableEditorTabProps) {
-  const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({
-    id,
-  });
-
-  return (
-    <div
-      ref={(element) => {
-        setNodeRef(element);
-        tabRef(element);
-      }}
-      style={{
-        transform: CSS.Transform.toString(transform),
-        transition,
-      }}
-      className={isDragging ? "relative z-10 opacity-40" : "relative"}
-      {...attributes}
-      {...listeners}
-    >
-      {children}
-    </div>
-  );
-}
 
 export default TabBar;

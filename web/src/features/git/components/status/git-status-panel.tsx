@@ -11,10 +11,9 @@ import {
 import type React from "react";
 import { Fragment, useEffect, useMemo, useState } from "react";
 import { FileExplorerIcon } from "@/features/file-explorer/components/file-explorer-icon";
-import { writeSidebarResourceDragData } from "@/features/sidebar-drag/sidebar-resource-drag";
 import { useSettingsStore } from "@/features/settings/store";
 import { Button } from "@/components/ui/button";
-import Checkbox from "@/components/ui/checkbox";
+import { Checkbox } from "@/components/ui/checkbox";
 import { ContextMenu, useContextMenu } from "@/components/ui/context-menu";
 import { primitiveConfirm } from "@/components/ui/primitive-dialog-service";
 import { SidebarEmptyActionState } from "@/components/ui/sidebar";
@@ -431,15 +430,6 @@ const GitStatusPanel = ({
               onClick={() => toggleFolderCollapsed(section, folderNode.fullPath)}
               className="min-w-0 leading-[1.35]"
               draggable={!!repoPath}
-              onDragStart={(event) => {
-                if (!repoPath) return;
-                writeSidebarResourceDragData(event.dataTransfer, {
-                  type: "file",
-                  path: `${repoPath}/${folderNode.fullPath}`,
-                  name: folderNode.name,
-                  isDir: true,
-                });
-              }}
             >
               <FileExplorerIcon
                 fileName={folderNode.name}

@@ -8,7 +8,6 @@ import {
   Info,
   Translate as Languages,
   Lightbulb,
-  ChatCircleText as MessageSquare,
   Palette,
   FloppyDisk as Save,
   MagnifyingGlass as Search,
@@ -35,7 +34,6 @@ interface SettingsActionsParams {
   handleFileOpen: ((path: string, revealOrIsDir?: boolean) => Promise<void>) | null | undefined;
   getAppDataDir: () => Promise<string>;
   openWhatsNew: () => void | Promise<void>;
-  openOnboarding: () => void | Promise<void>;
   onClose: () => void;
 }
 
@@ -44,7 +42,6 @@ const settingsTabLabels: Record<SettingsTab, string> = {
   editor: "Editor",
   git: "Git",
   appearance: "Appearance",
-  databases: "Database",
   extensions: "Extensions",
   ai: "AI",
   language: "Editor",
@@ -54,6 +51,7 @@ const settingsTabLabels: Record<SettingsTab, string> = {
   advanced: "Advanced",
   terminal: "Terminal",
   "file-explorer": "Files",
+  developer: "Developer",
 };
 
 const settingsTabCommands = (Object.entries(settingsTabLabels) as Array<[SettingsTab, string]>)
@@ -98,7 +96,6 @@ export const createSettingsActions = (params: SettingsActionsParams): Action[] =
     handleFileOpen,
     getAppDataDir,
     openWhatsNew,
-    openOnboarding,
     onClose,
   } = params;
 
@@ -170,17 +167,6 @@ export const createSettingsActions = (params: SettingsActionsParams): Action[] =
       action: () => {
         onClose();
         void openWhatsNew();
-      },
-    },
-    {
-      id: "open-onboarding",
-      label: "Help: Open Onboarding",
-      description: "Open the onboarding flow again",
-      icon: <Sparkles />,
-      category: "Settings",
-      action: () => {
-        onClose();
-        void openOnboarding();
       },
     },
     {
@@ -319,19 +305,6 @@ export const createSettingsActions = (params: SettingsActionsParams): Action[] =
       },
     },
     {
-      id: "toggle-ai-completion",
-      label: settings.aiCompletion ? "AI: Disable AI Completion" : "AI: Enable AI Completion",
-      description: settings.aiCompletion
-        ? "Disable AI-powered code completion"
-        : "Enable AI-powered code completion",
-      icon: <Sparkles />,
-      category: "AI",
-      action: () => {
-        updateSetting("aiCompletion", !settings.aiCompletion);
-        onClose();
-      },
-    },
-    {
       id: "toggle-show-minimap",
       label: settings.showMinimap ? "Editor: Hide Minimap" : "Editor: Show Minimap",
       description: settings.showMinimap
@@ -437,22 +410,6 @@ export const createSettingsActions = (params: SettingsActionsParams): Action[] =
         updateSetting("coreFeatures", {
           ...settings.coreFeatures,
           terminal: !settings.coreFeatures.terminal,
-        });
-        onClose();
-      },
-    },
-    {
-      id: "toggle-ai-chat-feature",
-      label: settings.coreFeatures.aiChat
-        ? "Features: Disable AI Chat"
-        : "Features: Enable AI Chat",
-      description: settings.coreFeatures.aiChat ? "Disable AI chat panel" : "Enable AI chat panel",
-      icon: <MessageSquare />,
-      category: "Features",
-      action: () => {
-        updateSetting("coreFeatures", {
-          ...settings.coreFeatures,
-          aiChat: !settings.coreFeatures.aiChat,
         });
         onClose();
       },

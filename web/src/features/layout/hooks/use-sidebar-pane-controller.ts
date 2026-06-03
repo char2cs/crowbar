@@ -15,19 +15,16 @@ interface OpenSidebarViewOptions {
 }
 
 export function useSidebarPaneController() {
-  const {
-    isSidebarVisible,
-    isRightSidebarVisible,
-    isGitViewActive,
-    isGitHubPRsViewActive,
-    activeSidebarView,
-    activeRightSidebarView,
-    setActiveView,
-    setActiveRightSidebarView,
-    setIsSidebarVisible,
-    setIsRightSidebarVisible,
-  } = useUIState();
-  const { settings, updateSetting } = useSettingsStore();
+  const isSidebarVisible = useUIState((s) => s.isSidebarVisible);
+  const isRightSidebarVisible = useUIState((s) => s.isRightSidebarVisible);
+  const activeSidebarView = useUIState((s) => s.activeSidebarView);
+  const activeRightSidebarView = useUIState((s) => s.activeRightSidebarView);
+  const setActiveView = useUIState((s) => s.setActiveView);
+  const setActiveRightSidebarView = useUIState((s) => s.setActiveRightSidebarView);
+  const setIsSidebarVisible = useUIState((s) => s.setIsSidebarVisible);
+  const setIsRightSidebarVisible = useUIState((s) => s.setIsRightSidebarVisible);
+  const settings = useSettingsStore((s) => s.settings);
+  const updateSetting = useSettingsStore((s) => s.updateSetting);
 
   const openSidebarView = useCallback(
     (view: SidebarView, options: OpenSidebarViewOptions = {}) => {
@@ -42,8 +39,6 @@ export function useSidebarPaneController() {
       const { nextIsSidebarVisible, nextView, nextPosition } = resolveSidebarPaneTrigger(
         {
           isSidebarVisible,
-          isGitViewActive,
-          isGitHubPRsViewActive,
           activeSidebarView: activeSidebarView ?? undefined,
         },
         view,
@@ -63,8 +58,6 @@ export function useSidebarPaneController() {
     [
       activeSidebarView,
       activeRightSidebarView,
-      isGitHubPRsViewActive,
-      isGitViewActive,
       isRightSidebarVisible,
       isSidebarVisible,
       setActiveView,

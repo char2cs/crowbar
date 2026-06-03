@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { Button } from "@/components/ui/button";
-import Input from "@/components/ui/input";
+import { Input } from "@/components/ui/input";
 
 interface TypedConfirmActionProps {
   actionLabel: string;
@@ -8,7 +8,7 @@ interface TypedConfirmActionProps {
   busyLabel?: string;
   isBusy?: boolean;
   onConfirm: () => void | Promise<void>;
-  variant?: "default" | "danger";
+  variant?: "default" | "destructive";
   tooltip?: string;
 }
 
@@ -50,7 +50,7 @@ export function TypedConfirmAction({
           value={value}
           onChange={(event) => setValue(event.target.value)}
           placeholder={`Type '${confirmWord}'`}
-          size="xs"
+          size="sm"
           variant="default"
           className="w-28"
           onKeyDown={(event) => {

@@ -15,7 +15,6 @@ import { Route as WorkspacesNewRouteImport } from './routes/workspaces/new'
 import { Route as WorkspacesWsIdRouteImport } from './routes/workspaces/$wsId'
 import { Route as ChatChatIdRouteImport } from './routes/chat/$chatId'
 import { Route as WorkspacesWsIdIndexRouteImport } from './routes/workspaces/$wsId/index'
-import { Route as WorkspacesWsIdStepRouteImport } from './routes/workspaces/$wsId/$step'
 
 const IndexRoute = IndexRouteImport.update({
   id: '/',
@@ -47,11 +46,6 @@ const WorkspacesWsIdIndexRoute = WorkspacesWsIdIndexRouteImport.update({
   path: '/',
   getParentRoute: () => WorkspacesWsIdRoute,
 } as any)
-const WorkspacesWsIdStepRoute = WorkspacesWsIdStepRouteImport.update({
-  id: '/$step',
-  path: '/$step',
-  getParentRoute: () => WorkspacesWsIdRoute,
-} as any)
 
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
@@ -59,7 +53,6 @@ export interface FileRoutesByFullPath {
   '/workspaces/$wsId': typeof WorkspacesWsIdRouteWithChildren
   '/workspaces/new': typeof WorkspacesNewRoute
   '/projects/': typeof ProjectsIndexRoute
-  '/workspaces/$wsId/$step': typeof WorkspacesWsIdStepRoute
   '/workspaces/$wsId/': typeof WorkspacesWsIdIndexRoute
 }
 export interface FileRoutesByTo {
@@ -67,7 +60,6 @@ export interface FileRoutesByTo {
   '/chat/$chatId': typeof ChatChatIdRoute
   '/workspaces/new': typeof WorkspacesNewRoute
   '/projects': typeof ProjectsIndexRoute
-  '/workspaces/$wsId/$step': typeof WorkspacesWsIdStepRoute
   '/workspaces/$wsId': typeof WorkspacesWsIdIndexRoute
 }
 export interface FileRoutesById {
@@ -77,7 +69,6 @@ export interface FileRoutesById {
   '/workspaces/$wsId': typeof WorkspacesWsIdRouteWithChildren
   '/workspaces/new': typeof WorkspacesNewRoute
   '/projects/': typeof ProjectsIndexRoute
-  '/workspaces/$wsId/$step': typeof WorkspacesWsIdStepRoute
   '/workspaces/$wsId/': typeof WorkspacesWsIdIndexRoute
 }
 export interface FileRouteTypes {
@@ -88,7 +79,6 @@ export interface FileRouteTypes {
     | '/workspaces/$wsId'
     | '/workspaces/new'
     | '/projects/'
-    | '/workspaces/$wsId/$step'
     | '/workspaces/$wsId/'
   fileRoutesByTo: FileRoutesByTo
   to:
@@ -96,7 +86,6 @@ export interface FileRouteTypes {
     | '/chat/$chatId'
     | '/workspaces/new'
     | '/projects'
-    | '/workspaces/$wsId/$step'
     | '/workspaces/$wsId'
   id:
     | '__root__'
@@ -105,7 +94,6 @@ export interface FileRouteTypes {
     | '/workspaces/$wsId'
     | '/workspaces/new'
     | '/projects/'
-    | '/workspaces/$wsId/$step'
     | '/workspaces/$wsId/'
   fileRoutesById: FileRoutesById
 }
@@ -161,23 +149,14 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof WorkspacesWsIdIndexRouteImport
       parentRoute: typeof WorkspacesWsIdRoute
     }
-    '/workspaces/$wsId/$step': {
-      id: '/workspaces/$wsId/$step'
-      path: '/$step'
-      fullPath: '/workspaces/$wsId/$step'
-      preLoaderRoute: typeof WorkspacesWsIdStepRouteImport
-      parentRoute: typeof WorkspacesWsIdRoute
-    }
   }
 }
 
 interface WorkspacesWsIdRouteChildren {
-  WorkspacesWsIdStepRoute: typeof WorkspacesWsIdStepRoute
   WorkspacesWsIdIndexRoute: typeof WorkspacesWsIdIndexRoute
 }
 
 const WorkspacesWsIdRouteChildren: WorkspacesWsIdRouteChildren = {
-  WorkspacesWsIdStepRoute: WorkspacesWsIdStepRoute,
   WorkspacesWsIdIndexRoute: WorkspacesWsIdIndexRoute,
 }
 

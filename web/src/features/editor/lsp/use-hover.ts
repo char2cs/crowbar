@@ -1,11 +1,6 @@
 import { useCallback, useEffect, useRef } from "react";
 import type { Hover } from "vscode-languageserver-types";
-import { useDiagnosticsStore } from "@/features/diagnostics/stores/diagnostics-store";
 import { EDITOR_CONSTANTS } from "@/features/editor/config/constants";
-import {
-  formatDiagnosticMessage,
-  getDiagnosticAtPosition,
-} from "@/features/editor/decorations/diagnostic-decorations";
 import { useEditorUIStore } from "../stores/ui-store";
 import { logger } from "../utils/logger";
 import type { EditorCoordinateResolver } from "../view-model/view-layout";
@@ -100,42 +95,6 @@ export const useHover = ({
         const clampedCharacter = Math.max(0, Math.min(character, lineLength));
 
         if (clampedLine >= 0 && clampedCharacter >= 0) {
-          const diagnostics = useDiagnosticsStore.getState().diagnosticsByFile.get(filePath) ?? [];
-          const diagnostic =
-            diagnostics.length > 0
-              ? getDiagnosticAtPosition(
-                  diagnostics,
-                  textContent.split("\n"),
-                  clampedLine,
-                  clampedCharacter,
-                )
-              : null;
-          if (diagnostic) {
-            const tooltipWidth = EDITOR_CONSTANTS.DROPDOWN_MAX_WIDTH;
-            const margin = EDITOR_CONSTANTS.HOVER_TOOLTIP_MARGIN;
-            const gap = 6;
-            const lineTop =
-              rect.top +
-              (resolvedPosition?.top ?? paddingTop + clampedLine * lineHeight) -
-              scrollTop;
-            const spaceAbove = lineTop - margin;
-            const spaceBelow = window.innerHeight - (lineTop + lineHeight) - margin;
-            const opensUpward =
-              spaceAbove >= Math.min(EDITOR_CONSTANTS.HOVER_TOOLTIP_HEIGHT, spaceBelow);
-            const tooltipY = opensUpward ? lineTop - gap : lineTop + lineHeight + gap;
-            const tooltipX = Math.max(
-              margin,
-              Math.min(clientX, window.innerWidth - tooltipWidth - margin),
-            );
-
-            actions.setHoverInfo({
-              content: formatDiagnosticMessage(diagnostic),
-              position: { top: Math.max(margin, tooltipY), left: tooltipX },
-              opensUpward,
-            });
-            return;
-          }
-
           try {
             logger.debug(
               "Editor",

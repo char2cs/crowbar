@@ -1,11 +1,11 @@
+import '@/lib/transport/polyfill'
 import { StrictMode } from 'react'
 import { createRoot } from 'react-dom/client'
 import { enableMapSet } from 'immer'
 import { RouterProvider, createRouter, createHashHistory } from '@tanstack/react-router'
-import { QueryClientProvider } from '@tanstack/react-query'
 import { TooltipProvider } from '@/components/ui/tooltip'
 import { routeTree } from './routeTree.gen'
-import { queryClient } from './lib/query'
+import { connectDaemonEvents } from '@/lib/events/connect'
 import { initializeSettingsStore } from '@/features/settings/store'
 import { ensureStartupAppearanceApplied } from '@/features/settings/lib/appearance-bootstrap'
 import { initializeIconThemes } from '@/extensions/icon-themes/icon-theme-initializer'
@@ -15,6 +15,13 @@ import './index.css'
 
 // Required for Zustand stores that use immer middleware with Set/Map state
 enableMapSet()
+
+// Wire up daemon event listeners for cache invalidation.
+// Cleanup is registered with Vite HMR so hot-reloading doesn't leak listeners.
+const disconnectDaemonEvents = connectDaemonEvents()
+if (import.meta.hot) {
+  import.meta.hot.dispose(() => disconnectDaemonEvents())
+}
 
 // Apply the cached theme immediately (synchronous) so the correct dark/light
 // class is set before React renders anything — prevents a flash of light mode.
@@ -35,12 +42,24 @@ initViewStoreSubscription()
 
 const router = createRouter({ routeTree, history: createHashHistory() })
 
-createRoot(document.getElementById('root')!).render(
-  <StrictMode>
-    <QueryClientProvider client={queryClient}>
+function renderApp() {
+  createRoot(document.getElementById('root')!).render(
+    <StrictMode>
       <TooltipProvider>
         <RouterProvider router={router} />
       </TooltipProvider>
-    </QueryClientProvider>
-  </StrictMode>,
-)
+    </StrictMode>,
+  )
+}
+
+// In mock mode, wait for MSW to register its service worker before rendering
+// so that all API calls from keepMounted components are intercepted.
+// Use finally so a failed MSW startup still renders the app.
+if (import.meta.env.VITE_USE_MOCK === 'true') {
+  import('./mocks/browser')
+    .then(({ worker }) => worker.start({ onUnhandledRequest: 'warn' }))
+    .catch(console.error)
+    .finally(renderApp)
+} else {
+  renderApp()
+}

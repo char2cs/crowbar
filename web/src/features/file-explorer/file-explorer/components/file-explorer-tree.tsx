@@ -5,7 +5,6 @@ import {
   Funnel,
   GitBranch,
   MagnifyingGlass as Search,
-  Warning as AlertTriangle,
 } from "@phosphor-icons/react";
 import type React from "react";
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
@@ -24,24 +23,15 @@ import {
   type FileTreeGitStatusDecoration,
   type FileTreeGitStatusLookup,
 } from "@/features/file-explorer/lib/file-tree-git-status";
-import {
-  collectGitIgnoreFileReferences,
-  createFileTreeGitIgnoreRules,
-  isPathGitIgnoredByFileTreeRules,
-  type FileTreeGitIgnoreRules,
-  type GitIgnoreFileContent,
-} from "@/features/file-explorer/lib/file-tree-gitignore";
+import { collectGitIgnoreFileReferences } from "@/features/file-explorer/lib/file-tree-gitignore";
 import { FILE_TREE_DENSITY_CONFIG } from "@/features/file-explorer/lib/file-tree-density";
 import { fileOpenBenchmark } from "@/features/editor/utils/file-open-benchmark";
 import { findFileInTree } from "@/features/file-system/controllers/file-tree-utils";
-import { readDirectory, readFile } from "@/features/file-system/controllers/platform";
+import { readDirectory } from "@/features/file-system/controllers/platform";
 import { useFileSystemStore } from "@/features/file-system/controllers/store";
 import type { FileEntry } from "@/features/file-system/types/app";
-import { useFffSearch } from "@/features/global-search/hooks/use-fff-search";
 import { useGitStore } from "@/features/git/stores/git-store";
 import { useSettingsStore } from "@/features/settings/store";
-import { Button } from "@/components/ui/button";
-import Dialog from "@/components/ui/dialog";
 import { Dropdown, type MenuItem } from "@/components/ui/dropdown";
 import {
   SidebarEmptyActionState,
@@ -51,17 +41,14 @@ import {
 } from "@/components/ui/sidebar";
 import { cn } from "@/utils/cn";
 import { frontendTrace } from "@/utils/frontend-trace";
-import {
-  getDirName,
-  getRelativePath,
-  joinPath,
-  pathStartsWithRoot,
-  stripTrailingPathSeparators,
-} from "@/utils/path-helpers";
+import { getRelativePath, pathStartsWithRoot } from "@/utils/path-helpers";
 import { useFileExplorerContextMenu } from "../hooks/use-file-explorer-context-menu";
 import { useFileExplorerDragDrop } from "../hooks/use-file-explorer-drag-drop";
+import { useFileExplorerGitignore } from "../hooks/use-file-explorer-gitignore";
+import { useFileExplorerInlineEditing } from "../hooks/use-file-explorer-inline-editing";
 import { useFileExplorerSync } from "../hooks/use-file-explorer-sync";
 import { useFileExplorerVisibleRows } from "../hooks/use-file-explorer-visible-rows";
+import { FileExplorerDialogs } from "./file-explorer-dialogs";
 import { FILE_TREE_BASE_INDENT, FileExplorerTreeItem } from "./file-explorer-tree-item";
 import type { FileTreeGuideTarget } from "./file-explorer-tree-item";
 import { FileExplorerIcon } from "./file-explorer-icon";
@@ -102,6 +89,7 @@ interface FileExplorerTreeProps {
   onRevealInFinder?: (path: string) => void;
   onUploadFile?: (directoryPath: string) => void;
   onFileMove?: (oldPath: string, newPath: string) => void;
+  filter?: 'all' | 'changed';
 }
 
 interface FileExplorerAlertDialogState {
@@ -116,7 +104,6 @@ interface OpenAllFilesDialogState {
 const FILE_TREE_CONTAINER_INSET = 4;
 const FILE_TREE_HEADER_HEIGHT = 32;
 const FILE_TREE_SEARCH_DEBOUNCE_DELAY = 80;
-const FILE_TREE_SEARCH_RESULT_LIMIT = 500;
 const getFileTreeRowId = (path: string) => `file-tree-row-${path.replace(/[^a-zA-Z0-9_-]/g, "_")}`;
 
 function FileExplorerTreeComponent({
@@ -137,6 +124,7 @@ function FileExplorerTreeComponent({
   onRevealInFinder,
   onUploadFile,
   onFileMove,
+  filter = 'all' as const,
 }: FileExplorerTreeProps) {
   const [deleteCandidate, setDeleteCandidate] = useState<{
     path: string;
@@ -148,7 +136,6 @@ function FileExplorerTreeComponent({
   );
   const [isDeletingPath, setIsDeletingPath] = useState(false);
   const [isOpeningAllFiles, setIsOpeningAllFiles] = useState(false);
-  const [editingValue, setEditingValue] = useState("");
   const [focusedPath, setFocusedPath] = useState<string | undefined>(activePath);
   const [hasTreeFocus, setHasTreeFocus] = useState(false);
   const [treeSearchOpen, setTreeSearchOpen] = useState(false);
@@ -160,12 +147,12 @@ function FileExplorerTreeComponent({
   const filterButtonRef = useRef<HTMLButtonElement>(null);
   const documentRef = useRef<Document>(document);
 
-  const [gitIgnoreRules, setGitIgnoreRules] = useState<FileTreeGitIgnoreRules | null>(null);
   const workspaceGitStatus = useGitStore((state) => state.workspaceGitStatus);
   const currentWorkspaceRepoPath = useGitStore((state) => state.currentWorkspaceRepoPath);
   // sticky handled purely by CSS; no JS scanning
 
-  const { settings, updateSetting } = useSettingsStore();
+  const settings = useSettingsStore((s) => s.settings);
+  const updateSetting = useSettingsStore((s) => s.updateSetting);
   const fileTreeDensity = settings.fileTreeDensity;
   const handleOpenFolder = useFileSystemStore((state) => state.handleOpenFolder);
   const addFolderToWorkspace = useFileSystemStore((state) => state.addFolderToWorkspace);
@@ -246,59 +233,16 @@ function FileExplorerTreeComponent({
     [files, rootFolderPath],
   );
 
-  useEffect(() => {
-    let cancelled = false;
-
-    const loadGitignore = async () => {
-      if (!rootFolderPath) {
-        setGitIgnoreRules(null);
-        return;
-      }
-
-      const ignoreFiles = await Promise.all(
-        gitIgnoreFileReferences.map(async (file): Promise<GitIgnoreFileContent | null> => {
-          try {
-            return {
-              ...file,
-              content: await readFile(file.path),
-            };
-          } catch {
-            return null;
-          }
-        }),
-      );
-
-      if (!cancelled) {
-        setGitIgnoreRules(
-          createFileTreeGitIgnoreRules(
-            rootFolderPath,
-            ignoreFiles.filter((file): file is GitIgnoreFileContent => file !== null),
-          ),
-        );
-      }
-    };
-
-    loadGitignore();
-
-    return () => {
-      cancelled = true;
-    };
-  }, [gitIgnoreFileReferences, rootFolderPath]);
+  const { isGitIgnored } = useFileExplorerGitignore(
+    rootFolderPath,
+    gitIgnoreFileReferences,
+    getWorkspaceRootForPath,
+  );
 
   const gitStatus =
     currentWorkspaceRepoPath && currentWorkspaceRepoPath === rootFolderPath
       ? workspaceGitStatus
       : null;
-
-  const isGitIgnored = useCallback(
-    (fullPath: string, isDir: boolean): boolean => {
-      if (!gitIgnoreRules || !rootFolderPath) return false;
-      if (getWorkspaceRootForPath(fullPath) !== rootFolderPath) return false;
-
-      return isPathGitIgnoredByFileTreeRules(gitIgnoreRules, fullPath, isDir);
-    },
-    [getWorkspaceRootForPath, gitIgnoreRules, rootFolderPath],
-  );
 
   const gitStatusDecorationLookup = useMemo(() => {
     const startedAt = performance.now();
@@ -373,20 +317,12 @@ function FileExplorerTreeComponent({
   });
 
   const isTreeSearchActive = treeSearchQuery.trim().length > 0;
-  const isDebouncedTreeSearchActive = debouncedTreeSearchQuery.trim().length > 0;
-  const { hits: treeSearchHits, isSearching: isFffTreeSearchSearching } = useFffSearch(
-    debouncedTreeSearchQuery,
-    isDebouncedTreeSearchActive,
-    rootFolderPath,
-    FILE_TREE_SEARCH_RESULT_LIMIT,
-  );
   const isTreeSearchSettling =
     isTreeSearchActive && treeSearchQuery.trim() !== debouncedTreeSearchQuery.trim();
-  const isTreeSearchSearching =
-    isTreeSearchActive && (isTreeSearchSettling || isFffTreeSearchSearching);
+  const isTreeSearchSearching = isTreeSearchActive && isTreeSearchSettling;
   const treeSearchResult = useMemo(
-    () => filterFileTreeForFffHits(filteredFiles, treeSearchHits),
-    [filteredFiles, treeSearchHits],
+    () => filterFileTreeForFffHits(filteredFiles, []),
+    [filteredFiles],
   );
   const displayedFiles =
     isTreeSearchActive && !isTreeSearchSearching
@@ -445,12 +381,30 @@ function FileExplorerTreeComponent({
     ],
   );
 
+  const changedFilteredFiles = useMemo(() => {
+    if (filter !== 'changed') return displayedFiles;
+
+    const pruneTree = (items: FileEntry[]): FileEntry[] =>
+      items.flatMap((item) => {
+        if (!item.isDir) {
+          return getGitStatusDecoration(item) !== null ? [item] : [];
+        }
+        const prunedChildren = pruneTree(item.children ?? []);
+        const dirDecoration = getGitStatusDecoration(item);
+        if (prunedChildren.length === 0 && dirDecoration === null) return [];
+        return [{ ...item, children: prunedChildren }];
+      });
+
+    return pruneTree(displayedFiles);
+  }, [filter, displayedFiles, getGitStatusDecoration]);
+
   const { visibleRows, rowVirtualizer } = useFileExplorerVisibleRows({
-    files: displayedFiles,
+    files: changedFilteredFiles,
     activePath,
     containerRef,
     expandedPathsOverride: displayedExpandedPaths,
   });
+
   const keyboardPath = focusedPath || activePath;
   const highlightedPath = hasTreeFocus ? keyboardPath : activePath;
 
@@ -543,116 +497,16 @@ function FileExplorerTreeComponent({
 
   // No sticky overlays or global guides
 
-  const startInlineEditing = (parentPath: string, isFolder: boolean) => {
-    if (!onUpdateFiles) return;
-
-    const newItem: FileEntry = {
-      name: "",
-      path: `${parentPath}/`,
-      isDir: isFolder,
-      isEditing: true,
-      isNewItem: true,
-    };
-
-    const addNewItemToTree = (items: FileEntry[], targetPath: string): FileEntry[] => {
-      return items.map((item) => {
-        if (item.path === targetPath && item.isDir) {
-          return { ...item, children: [...(item.children || []), newItem] };
-        }
-        if (item.children) {
-          return {
-            ...item,
-            children: addNewItemToTree(item.children, targetPath),
-          };
-        }
-        return item;
-      });
-    };
-
-    if (parentPath === getDirName(files[0]?.path ?? "") || !parentPath) {
-      onUpdateFiles([...files, newItem]);
-    } else {
-      onUpdateFiles(addNewItemToTree(files, parentPath));
-    }
-
-    // Ensure the target folder is expanded in UI
-    try {
-      const current = useFileTreeStore.getState().getExpandedPaths();
-      const next = new Set(current);
-      next.add(parentPath);
-      useFileTreeStore.getState().setExpandedPaths(next);
-    } catch {}
-
-    setEditingValue("");
-  };
-
-  const finishInlineEditing = (item: FileEntry, newName: string) => {
-    if (!onUpdateFiles) return;
-
-    if (newName.trim()) {
-      let parentPath = stripTrailingPathSeparators(item.path);
-      if (!parentPath && rootFolderPath) parentPath = rootFolderPath;
-
-      if (!parentPath) {
-        showAlertDialog("Cannot Create File", "Cannot determine where to create the file.");
-        return;
-      }
-
-      if (item.isRenaming) {
-        onRenamePath?.(item.path, newName.trim());
-        return;
-      }
-
-      if (item.isDir) {
-        const folder = findFileInTree(files, joinPath(parentPath, newName.trim()));
-        if (folder) {
-          showAlertDialog("Folder Already Exists", "A folder with this name already exists.");
-          return;
-        }
-        onCreateNewFolderInDirectory?.(parentPath, newName.trim());
-      } else {
-        const file = findFileInTree(files, joinPath(parentPath, newName.trim()));
-        if (file) {
-          showAlertDialog("File Already Exists", "A file with this name already exists.");
-          return;
-        }
-        onCreateNewFileInDirectory(parentPath, newName.trim());
-      }
-    }
-
-    const removeNewItemFromTree = (items: FileEntry[]): FileEntry[] => {
-      return items
-        .filter((i) => !(i.isNewItem && i.isEditing))
-        .map((i) => ({
-          ...i,
-          children: i.children ? removeNewItemFromTree(i.children) : undefined,
-        }));
-    };
-
-    onUpdateFiles(removeNewItemFromTree(files));
-    setEditingValue("");
-  };
-
-  const cancelInlineEditing = (file: FileEntry) => {
-    if (!onUpdateFiles) return;
-
-    if (file.isRenaming) {
-      onRenamePath?.(file.path);
-      return;
-    }
-
-    const removeNewItemFromTree = (items: FileEntry[]): FileEntry[] => {
-      return items
-        .filter((i) => !(i.isNewItem && i.isEditing))
-        .map((i) => ({
-          ...i,
-          children: i.children ? removeNewItemFromTree(i.children) : undefined,
-        }));
-    };
-
-    onUpdateFiles(removeNewItemFromTree(files));
-    setEditingValue("");
-  };
+  const { editingValue, setEditingValue, startInlineEditing, handleKeyDown, handleBlur } =
+    useFileExplorerInlineEditing({
+      files,
+      rootFolderPath,
+      onUpdateFiles,
+      onRenamePath,
+      onCreateNewFileInDirectory,
+      onCreateNewFolderInDirectory,
+      showAlertDialog,
+    });
 
   const openPathInTab = useCallback(
     async (path: string) => {
@@ -915,29 +769,6 @@ function FileExplorerTreeComponent({
       }
     },
     [handleContextMenu, pathToFile, rootFolderPath],
-  );
-
-  const handleKeyDown = useCallback(
-    (e: React.KeyboardEvent, file: FileEntry) => {
-      if (e.key === "Enter") {
-        e.preventDefault();
-        e.stopPropagation();
-        finishInlineEditing(file, editingValue);
-      } else if (e.key === "Escape") {
-        e.preventDefault();
-        e.stopPropagation();
-        cancelInlineEditing(file);
-      }
-    },
-    [editingValue],
-  );
-
-  const handleBlur = useCallback(
-    (file: FileEntry) => {
-      if (editingValue.trim()) finishInlineEditing(file, editingValue);
-      else cancelInlineEditing(file);
-    },
-    [editingValue],
   );
 
   const handleContainerMouseDown = useCallback(
@@ -1384,86 +1215,19 @@ function FileExplorerTreeComponent({
         closeOnSelect={false}
         className="w-fit min-w-fit"
       />
-      {alertDialog && (
-        <Dialog
-          title={alertDialog.title}
-          icon={AlertTriangle}
-          onClose={() => setAlertDialog(null)}
-          footer={
-            <Button onClick={() => setAlertDialog(null)} variant="accent" compact>
-              OK
-            </Button>
-          }
-        >
-          <p className="text-foreground ui-text-xs">{alertDialog.message}</p>
-        </Dialog>
-      )}
-      {openAllFilesDialog && (
-        <Dialog
-          title="Open All Files"
-          icon={AlertTriangle}
-          onClose={() => {
-            if (!isOpeningAllFiles) setOpenAllFilesDialog(null);
-          }}
-          footer={
-            <>
-              <Button
-                onClick={() => setOpenAllFilesDialog(null)}
-                disabled={isOpeningAllFiles}
-                variant="default"
-              >
-                Cancel
-              </Button>
-              <Button
-                onClick={() => void handleOpenAllFilesConfirm()}
-                disabled={isOpeningAllFiles}
-                variant="accent"
-              >
-                {isOpeningAllFiles ? "Opening..." : "Open"}
-              </Button>
-            </>
-          }
-        >
-          <p className="text-foreground ui-text-xs">
-            {openAllFilesDialog.filePaths.length} files will be opened in tabs. Continue?
-          </p>
-        </Dialog>
-      )}
-      {deleteCandidate && (
-        <Dialog
-          title={deleteCandidate.isDir ? "Delete Folder" : "Delete File"}
-          icon={AlertTriangle}
-          onClose={() => {
-            if (!isDeletingPath) setDeleteCandidate(null);
-          }}
-          footer={
-            <>
-              <Button
-                onClick={() => setDeleteCandidate(null)}
-                disabled={isDeletingPath}
-                variant="default"
-                className="disabled:cursor-not-allowed disabled:opacity-50"
-              >
-                Cancel
-              </Button>
-              <Button
-                onClick={() => void handleDeleteConfirm()}
-                disabled={isDeletingPath}
-                variant="danger"
-                className="disabled:cursor-not-allowed disabled:opacity-50"
-              >
-                {isDeletingPath ? "Deleting..." : "Delete"}
-              </Button>
-            </>
-          }
-        >
-          <p className="text-foreground ui-text-xs">
-            {deleteCandidate.isDir
-              ? `Are you sure you want to delete the folder "${getPathBaseName(deleteCandidate.path)}" and all its contents? This action cannot be undone.`
-              : `Are you sure you want to delete the file "${getPathBaseName(deleteCandidate.path)}"? This action cannot be undone.`}
-          </p>
-        </Dialog>
-      )}
+      <FileExplorerDialogs
+        alertDialog={alertDialog}
+        onCloseAlertDialog={() => setAlertDialog(null)}
+        openAllFilesDialog={openAllFilesDialog}
+        isOpeningAllFiles={isOpeningAllFiles}
+        onCloseOpenAllFilesDialog={() => setOpenAllFilesDialog(null)}
+        onConfirmOpenAllFiles={() => void handleOpenAllFilesConfirm()}
+        deleteCandidate={deleteCandidate}
+        isDeletingPath={isDeletingPath}
+        onCloseDeleteDialog={() => setDeleteCandidate(null)}
+        onConfirmDelete={() => void handleDeleteConfirm()}
+        getPathBaseName={getPathBaseName}
+      />
     </div>
   );
 }

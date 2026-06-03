@@ -1,7 +1,7 @@
 import type React from "react";
 import { useEffect, useRef } from "react";
 import { useShallow } from "zustand/react/shallow";
-import { useBufferStore } from "@/features/editor/stores/buffer-store";
+import { useWorkspaceStore } from "@/features/workspace/stores/workspace-context";
 import { useEditorStateStore } from "@/features/editor/stores/state-store";
 import { useEditorUIStore } from "@/features/editor/stores/ui-store";
 import { hasTextContent } from "@/features/panes/types/pane-content";
@@ -14,6 +14,7 @@ import {
 } from "@/components/ui/search";
 
 const FindBar = () => {
+  const workspaceStore = useWorkspaceStore();
   const { isFindVisible, setIsFindVisible } = useUIState(
     useShallow((state) => ({
       isFindVisible: state.isFindVisible,
@@ -88,7 +89,8 @@ const FindBar = () => {
         return textarea.value;
       }
 
-      const { activeBufferId, buffers } = useBufferStore.getState();
+      const { panes, activePaneId, buffers } = workspaceStore.getState();
+      const activeBufferId = panes[activePaneId]?.activeBufferId ?? null;
       const activeBuffer = activeBufferId
         ? buffers.find((candidate) => candidate.id === activeBufferId)
         : null;

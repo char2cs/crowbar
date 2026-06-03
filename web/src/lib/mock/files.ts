@@ -6,71 +6,211 @@ export type GitStatus = 'modified' | 'added' | 'deleted' | 'renamed' | 'untracke
 /** Public shape used by tests and consumers. */
 export type FileNode = FileEntry
 
-export function getMockFileTree(_rootPath: string): FileEntry[] {
-  return [
-    {
-      name: 'cmd',
-      path: 'cmd',
-      isDir: true,
-      children: [
-        {
-          name: 'server',
-          path: 'cmd/server',
-          isDir: true,
-          children: [
-            { name: 'main.go', path: 'cmd/server/main.go', isDir: false },
-          ],
-        },
-      ],
-    },
-    {
-      name: 'internal',
-      path: 'internal',
-      isDir: true,
-      children: [
-        {
-          name: 'auth',
-          path: 'internal/auth',
-          isDir: true,
-          children: [
-            { name: 'service.go', path: 'internal/auth/service.go', isDir: false, gitStatus: 'modified' },
-            { name: 'middleware.go', path: 'internal/auth/middleware.go', isDir: false },
-          ],
-        },
-        {
-          name: 'payment',
-          path: 'internal/payment',
-          isDir: true,
-          children: [
-            { name: 'service.go', path: 'internal/payment/service.go', isDir: false, gitStatus: 'added' },
-            { name: 'webhook.go', path: 'internal/payment/webhook.go', isDir: false, gitStatus: 'modified' },
-          ],
-        },
-        {
-          name: 'db',
-          path: 'internal/db',
-          isDir: true,
-          children: [
-            { name: 'db.go', path: 'internal/db/db.go', isDir: false },
-            { name: 'models.go', path: 'internal/db/models.go', isDir: false },
-          ],
-        },
-        {
-          name: 'config',
-          path: 'internal/config',
-          isDir: true,
-          children: [
-            { name: 'config.go', path: 'internal/config/config.go', isDir: false },
-          ],
-        },
-      ],
-    },
-    { name: 'go.mod', path: 'go.mod', isDir: false },
-    { name: 'go.sum', path: 'go.sum', isDir: false },
-    { name: 'Makefile', path: 'Makefile', isDir: false },
+function repoIdFromPath(rootPath: string): string {
+  return rootPath.split('/').filter(Boolean).pop() ?? 'default'
+}
+
+function prefixPaths(root: string, nodes: FileEntry[]): FileEntry[] {
+  return nodes.map(node => ({
+    ...node,
+    path: root ? `${root}/${node.path}` : node.path,
+    children: node.children ? prefixPaths(root, node.children) : undefined,
+  }))
+}
+
+const TREES: Record<string, FileEntry[]> = {
+  crowbar: [
+    { name: 'api', path: 'api', isDir: true, children: [
+      { name: 'cmd', path: 'api/cmd', isDir: true, children: [
+        { name: 'crowbar', path: 'api/cmd/crowbar', isDir: true, children: [
+          { name: 'main.go', path: 'api/cmd/crowbar/main.go', isDir: false },
+        ]},
+      ]},
+      { name: 'internal', path: 'api/internal', isDir: true, children: [
+        { name: 'api', path: 'api/internal/api', isDir: true, children: [
+          { name: 'v0', path: 'api/internal/api/v0', isDir: true, children: [
+            { name: 'router.go', path: 'api/internal/api/v0/router.go', isDir: false, gitStatus: 'modified' },
+            { name: 'workspaces_handler.go', path: 'api/internal/api/v0/workspaces_handler.go', isDir: false },
+            { name: 'git_handler.go', path: 'api/internal/api/v0/git_handler.go', isDir: false, gitStatus: 'added' },
+            { name: 'ws_git_handler.go', path: 'api/internal/api/v0/ws_git_handler.go', isDir: false, gitStatus: 'added' },
+          ]},
+          { name: 'middleware', path: 'api/internal/api/middleware', isDir: true, children: [
+            { name: 'chaos.go', path: 'api/internal/api/middleware/chaos.go', isDir: false, gitStatus: 'added' },
+          ]},
+        ]},
+        { name: 'fixtures', path: 'api/internal/fixtures', isDir: true, children: [
+          { name: 'types.go', path: 'api/internal/fixtures/types.go', isDir: false },
+          { name: 'store.go', path: 'api/internal/fixtures/store.go', isDir: false },
+          { name: 'loader.go', path: 'api/internal/fixtures/loader.go', isDir: false },
+          { name: 'workspaces.json', path: 'api/internal/fixtures/workspaces.json', isDir: false },
+          { name: 'git-log.json', path: 'api/internal/fixtures/git-log.json', isDir: false, gitStatus: 'added' },
+        ]},
+      ]},
+      { name: 'go.mod', path: 'api/go.mod', isDir: false },
+    ]},
+    { name: 'web', path: 'web', isDir: true, children: [
+      { name: 'src', path: 'web/src', isDir: true, children: [
+        { name: 'features', path: 'web/src/features', isDir: true, children: [
+          { name: 'git', path: 'web/src/features/git', isDir: true, children: [
+            { name: 'components', path: 'web/src/features/git/components', isDir: true, children: [
+              { name: 'git-tab.tsx', path: 'web/src/features/branch-review/components/git-tab.tsx', isDir: false, gitStatus: 'modified' },
+            ]},
+            { name: 'api', path: 'web/src/features/git/api', isDir: true, children: [
+              { name: 'git-commits-api.ts', path: 'web/src/features/git/api/git-commits-api.ts', isDir: false, gitStatus: 'modified' },
+              { name: 'git-status-api.ts', path: 'web/src/features/git/api/git-status-api.ts', isDir: false, gitStatus: 'modified' },
+              { name: 'git-branches-api.ts', path: 'web/src/features/git/api/git-branches-api.ts', isDir: false, gitStatus: 'modified' },
+            ]},
+          ]},
+          { name: 'settings', path: 'web/src/features/settings', isDir: true, children: [
+            { name: 'components', path: 'web/src/features/settings/components', isDir: true, children: [
+              { name: 'tabs', path: 'web/src/features/settings/components/tabs', isDir: true, children: [
+                { name: 'developer-settings.tsx', path: 'web/src/features/settings/components/tabs/developer-settings.tsx', isDir: false, gitStatus: 'added' },
+              ]},
+            ]},
+          ]},
+        ]},
+        { name: 'mocks', path: 'web/src/mocks', isDir: true, children: [
+          { name: 'handlers', path: 'web/src/mocks/handlers', isDir: true, children: [
+            { name: 'git.ts', path: 'web/src/mocks/handlers/git.ts', isDir: false, gitStatus: 'modified' },
+            { name: 'workspaces.ts', path: 'web/src/mocks/handlers/workspaces.ts', isDir: false, gitStatus: 'modified' },
+          ]},
+          { name: 'browser.ts', path: 'web/src/mocks/browser.ts', isDir: false },
+        ]},
+      ]},
+      { name: 'package.json', path: 'web/package.json', isDir: false },
+      { name: 'vite.config.ts', path: 'web/vite.config.ts', isDir: false },
+    ]},
     { name: 'README.md', path: 'README.md', isDir: false },
+    { name: '.github', path: '.github', isDir: true, children: [
+      { name: 'workflows', path: '.github/workflows', isDir: true, children: [
+        { name: 'ci.yml', path: '.github/workflows/ci.yml', isDir: false },
+      ]},
+    ]},
+  ],
+
+  'quiver-core': [
+    { name: 'src', path: 'src', isDir: true, children: [
+      { name: 'auth', path: 'src/auth', isDir: true, children: [
+        { name: 'oauth2.ts', path: 'src/auth/oauth2.ts', isDir: false, gitStatus: 'added' },
+        { name: 'jwt.ts', path: 'src/auth/jwt.ts', isDir: false, gitStatus: 'modified' },
+        { name: 'middleware.ts', path: 'src/auth/middleware.ts', isDir: false },
+        { name: 'types.ts', path: 'src/auth/types.ts', isDir: false },
+      ]},
+      { name: 'api', path: 'src/api', isDir: true, children: [
+        { name: 'routes.ts', path: 'src/api/routes.ts', isDir: false, gitStatus: 'modified' },
+        { name: 'handlers', path: 'src/api/handlers', isDir: true, children: [
+          { name: 'users.ts', path: 'src/api/handlers/users.ts', isDir: false },
+          { name: 'projects.ts', path: 'src/api/handlers/projects.ts', isDir: false },
+          { name: 'billing.ts', path: 'src/api/handlers/billing.ts', isDir: false },
+        ]},
+      ]},
+      { name: 'db', path: 'src/db', isDir: true, children: [
+        { name: 'schema.ts', path: 'src/db/schema.ts', isDir: false },
+        { name: 'migrations', path: 'src/db/migrations', isDir: true, children: [
+          { name: '001_initial.sql', path: 'src/db/migrations/001_initial.sql', isDir: false },
+          { name: '002_add_oauth.sql', path: 'src/db/migrations/002_add_oauth.sql', isDir: false, gitStatus: 'added' },
+        ]},
+      ]},
+      { name: 'lib', path: 'src/lib', isDir: true, children: [
+        { name: 'redis.ts', path: 'src/lib/redis.ts', isDir: false, gitStatus: 'added' },
+        { name: 'email.ts', path: 'src/lib/email.ts', isDir: false },
+        { name: 'logger.ts', path: 'src/lib/logger.ts', isDir: false },
+      ]},
+      { name: 'index.ts', path: 'src/index.ts', isDir: false },
+    ]},
+    { name: 'tests', path: 'tests', isDir: true, children: [
+      { name: 'auth.test.ts', path: 'tests/auth.test.ts', isDir: false, gitStatus: 'modified' },
+      { name: 'api.test.ts', path: 'tests/api.test.ts', isDir: false },
+    ]},
+    { name: 'package.json', path: 'package.json', isDir: false },
+    { name: 'tsconfig.json', path: 'tsconfig.json', isDir: false },
+    { name: 'docker-compose.yml', path: 'docker-compose.yml', isDir: false },
     { name: '.env.example', path: '.env.example', isDir: false, gitStatus: 'untracked' },
-  ]
+  ],
+
+  'quiver-desktop': [
+    { name: 'src-tauri', path: 'src-tauri', isDir: true, children: [
+      { name: 'src', path: 'src-tauri/src', isDir: true, children: [
+        { name: 'main.rs', path: 'src-tauri/src/main.rs', isDir: false },
+        { name: 'shell', path: 'src-tauri/src/shell', isDir: true, children: [
+          { name: 'mod.rs', path: 'src-tauri/src/shell/mod.rs', isDir: false, gitStatus: 'added' },
+          { name: 'pty.rs', path: 'src-tauri/src/shell/pty.rs', isDir: false, gitStatus: 'added' },
+        ]},
+        { name: 'fs', path: 'src-tauri/src/fs', isDir: true, children: [
+          { name: 'mod.rs', path: 'src-tauri/src/fs/mod.rs', isDir: false },
+          { name: 'watcher.rs', path: 'src-tauri/src/fs/watcher.rs', isDir: false, gitStatus: 'modified' },
+        ]},
+      ]},
+      { name: 'Cargo.toml', path: 'src-tauri/Cargo.toml', isDir: false, gitStatus: 'modified' },
+      { name: 'tauri.conf.json', path: 'src-tauri/tauri.conf.json', isDir: false },
+    ]},
+    { name: 'src', path: 'src', isDir: true, children: [
+      { name: 'app', path: 'src/app', isDir: true, children: [
+        { name: 'App.tsx', path: 'src/app/App.tsx', isDir: false },
+        { name: 'shell', path: 'src/app/shell', isDir: true, children: [
+          { name: 'ShellWindow.tsx', path: 'src/app/shell/ShellWindow.tsx', isDir: false, gitStatus: 'added' },
+          { name: 'TerminalPane.tsx', path: 'src/app/shell/TerminalPane.tsx', isDir: false, gitStatus: 'added' },
+        ]},
+      ]},
+      { name: 'bridge', path: 'src/bridge', isDir: true, children: [
+        { name: 'shell.ts', path: 'src/bridge/shell.ts', isDir: false, gitStatus: 'added' },
+        { name: 'fs.ts', path: 'src/bridge/fs.ts', isDir: false },
+      ]},
+    ]},
+    { name: 'package.json', path: 'package.json', isDir: false },
+    { name: 'vite.config.ts', path: 'vite.config.ts', isDir: false },
+  ],
+
+  'quiver-cloud': [
+    { name: 'terraform', path: 'terraform', isDir: true, children: [
+      { name: 'modules', path: 'terraform/modules', isDir: true, children: [
+        { name: 'vpc', path: 'terraform/modules/vpc', isDir: true, children: [
+          { name: 'main.tf', path: 'terraform/modules/vpc/main.tf', isDir: false },
+          { name: 'variables.tf', path: 'terraform/modules/vpc/variables.tf', isDir: false },
+        ]},
+        { name: 'eks', path: 'terraform/modules/eks', isDir: true, children: [
+          { name: 'main.tf', path: 'terraform/modules/eks/main.tf', isDir: false, gitStatus: 'modified' },
+          { name: 'node_groups.tf', path: 'terraform/modules/eks/node_groups.tf', isDir: false, gitStatus: 'added' },
+        ]},
+      ]},
+      { name: 'environments', path: 'terraform/environments', isDir: true, children: [
+        { name: 'prod', path: 'terraform/environments/prod', isDir: true, children: [
+          { name: 'main.tf', path: 'terraform/environments/prod/main.tf', isDir: false },
+        ]},
+        { name: 'staging', path: 'terraform/environments/staging', isDir: true, children: [
+          { name: 'main.tf', path: 'terraform/environments/staging/main.tf', isDir: false, gitStatus: 'modified' },
+        ]},
+      ]},
+    ]},
+    { name: 'k8s', path: 'k8s', isDir: true, children: [
+      { name: 'apps', path: 'k8s/apps', isDir: true, children: [
+        { name: 'api.yaml', path: 'k8s/apps/api.yaml', isDir: false },
+        { name: 'worker.yaml', path: 'k8s/apps/worker.yaml', isDir: false },
+        { name: 'multi-tenant.yaml', path: 'k8s/apps/multi-tenant.yaml', isDir: false, gitStatus: 'added' },
+      ]},
+      { name: 'base', path: 'k8s/base', isDir: true, children: [
+        { name: 'namespace.yaml', path: 'k8s/base/namespace.yaml', isDir: false },
+        { name: 'rbac.yaml', path: 'k8s/base/rbac.yaml', isDir: false, gitStatus: 'modified' },
+      ]},
+    ]},
+    { name: 'scripts', path: 'scripts', isDir: true, children: [
+      { name: 'deploy.sh', path: 'scripts/deploy.sh', isDir: false },
+      { name: 'rollback.sh', path: 'scripts/rollback.sh', isDir: false },
+    ]},
+    { name: '.github', path: '.github', isDir: true, children: [
+      { name: 'workflows', path: '.github/workflows', isDir: true, children: [
+        { name: 'deploy.yml', path: '.github/workflows/deploy.yml', isDir: false, gitStatus: 'modified' },
+      ]},
+    ]},
+  ],
+}
+
+export function getMockFileTree(rootPath: string): FileEntry[] {
+  const repoId = repoIdFromPath(rootPath)
+  const tree = TREES[repoId] ?? TREES['crowbar']
+  // Prefix all paths with rootPath so getWorkspaceRootForPath can match them
+  // against the absolute rootFolderPath in file-explorer-tree.tsx
+  return rootPath ? prefixPaths(rootPath, tree) : tree
 }
 
 /** Realistic mock content for each file in the mock tree.

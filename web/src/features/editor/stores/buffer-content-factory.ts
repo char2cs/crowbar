@@ -37,15 +37,6 @@ export const createPaneContent = (id: string, spec: OpenContentSpec): PaneConten
         remoteConnectionId: spec.remoteConnectionId,
       };
     }
-    case "agent":
-      return {
-        ...base,
-        type: "agent",
-        path: `agent://${spec.sessionId ?? id}`,
-        name: "Agent",
-        isPreview: false,
-        sessionId: spec.sessionId ?? id.replace("buffer_", ""),
-      };
     case "webViewer":
       return {
         ...base,
@@ -77,75 +68,6 @@ export const createPaneContent = (id: string, spec: OpenContentSpec): PaneConten
         content: spec.content,
         savedContent: spec.content,
         diffData: spec.diffData,
-      };
-    case "image":
-      return {
-        ...base,
-        type: "image",
-        path: spec.path,
-        name: spec.name,
-        isPreview: false,
-      };
-    case "pdf":
-      return {
-        ...base,
-        type: "pdf",
-        path: spec.path,
-        name: spec.name,
-        isPreview: false,
-      };
-    case "binary":
-      return {
-        ...base,
-        type: "binary",
-        path: spec.path,
-        name: spec.name,
-        isPreview: false,
-      };
-    case "database":
-      return {
-        ...base,
-        type: "database",
-        path: spec.path,
-        name: spec.name,
-        isPreview: false,
-        databaseType: spec.databaseType,
-        connectionId: spec.connectionId,
-      };
-    case "pullRequest":
-      return {
-        ...base,
-        type: "pullRequest",
-        path: spec.selectedFilePath
-          ? `pr://${spec.prNumber}?file=${encodeURIComponent(spec.selectedFilePath)}`
-          : `pr://${spec.prNumber}`,
-        name: spec.name ?? "Pull Request",
-        isPreview: false,
-        prNumber: spec.prNumber,
-        authorAvatarUrl: spec.authorAvatarUrl,
-      };
-    case "githubIssue":
-      return {
-        ...base,
-        type: "githubIssue",
-        path: spec.url ?? `github-issue://${spec.issueNumber}`,
-        name: spec.name ?? "Issue",
-        isPreview: false,
-        repoPath: spec.repoPath,
-        issueNumber: spec.issueNumber,
-        authorAvatarUrl: spec.authorAvatarUrl,
-        url: spec.url,
-      };
-    case "githubAction":
-      return {
-        ...base,
-        type: "githubAction",
-        path: spec.url ?? `github-action://${spec.runId}`,
-        name: spec.name ?? "Action",
-        isPreview: false,
-        repoPath: spec.repoPath,
-        runId: spec.runId,
-        url: spec.url,
       };
     case "markdownPreview":
       return {
@@ -185,41 +107,6 @@ export const createPaneContent = (id: string, spec: OpenContentSpec): PaneConten
         name: spec.name,
         isPreview: false,
         terminalConnectionId: spec.terminalConnectionId,
-      };
-    case "globalSearch":
-      return {
-        ...base,
-        type: "globalSearch",
-        path: "search://global",
-        name: "Search",
-        isPreview: false,
-      };
-    case "diagnostics":
-      return {
-        ...base,
-        type: "diagnostics",
-        path: "diagnostics://problems",
-        name: "Diagnostics",
-        isPreview: false,
-      };
-    case "references":
-      return {
-        ...base,
-        type: "references",
-        path: "references://results",
-        name: "References",
-        isPreview: false,
-      };
-    case "onboarding":
-      return {
-        ...base,
-        type: "onboarding",
-        path: `onboarding://${spec.context.mode}/${spec.context.currentVersion}`,
-        name: "Welcome",
-        isPreview: false,
-        mode: spec.context.mode,
-        currentVersion: spec.context.currentVersion ?? '',
-        previousVersion: spec.context.previousVersion,
       };
     case "crowbarChat":
       return {

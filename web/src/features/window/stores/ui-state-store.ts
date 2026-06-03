@@ -1,6 +1,14 @@
-// Stub: window/ui-state feature is out of scope for this session.
 import { create } from 'zustand'
 import type { SidebarView } from "@/features/layout/utils/sidebar-pane-utils"
+
+// Module-level registry — not Zustand state (functions aren't serializable)
+const _terminalFocusRegistry = new Map<string, () => void>()
+const _registrationOrder: string[] = [] // tracks insertion order for recency
+
+export function _resetTerminalFocusRegistryForTests(): void {
+  _terminalFocusRegistry.clear()
+  _registrationOrder.length = 0
+}
 
 export type SettingsTab =
   | "editor"
@@ -14,9 +22,9 @@ export type SettingsTab =
   | "advanced"
   | "collaboration"
   | "enterprise"
-  | "databases"
   | "file-explorer"
   | "language"
+  | "developer"
 
 export type BottomPaneTab = "terminal" | "buffers"
 export type SidebarActivityItem = "file-explorer" | "git" | "search" | "extensions"
@@ -24,14 +32,13 @@ export type SidebarActivityItem = "file-explorer" | "git" | "search" | "extensio
 export interface UIState {
   sidebarWidth: number
   bottomPaneHeight: number
+  setBottomPaneHeight: (h: number) => void
   isSidebarVisible: boolean
   setIsSidebarVisible: (v: boolean) => void
   isBottomPaneVisible: boolean
   setIsBottomPaneVisible: (v: boolean) => void
   activeSidebarView: SidebarView | null
   setActiveSidebarView: (view: SidebarView | null) => void
-  isGitViewActive: boolean
-  isGitHubPRsViewActive: boolean
   settingsInitialTab: SettingsTab
   setSettingsInitialTab: (tab: SettingsTab) => void
   isSettingsOpen: boolean
@@ -69,21 +76,18 @@ export interface UIState {
   setIsGlobalSearchVisible: (v: boolean) => void
   isProjectPickerVisible: boolean
   setIsProjectPickerVisible: (v: boolean) => void
-  isDatabaseConnectionVisible: boolean
-  setIsDatabaseConnectionVisible: (v: boolean) => void
 }
 
 export const useUIState = create<UIState>((set) => ({
   sidebarWidth: 260,
   bottomPaneHeight: 240,
+  setBottomPaneHeight: (h: number) => set({ bottomPaneHeight: h }),
   isSidebarVisible: true,
   setIsSidebarVisible: (v) => set({ isSidebarVisible: v }),
   isBottomPaneVisible: false,
   setIsBottomPaneVisible: (v) => set({ isBottomPaneVisible: v }),
   activeSidebarView: null,
   setActiveSidebarView: (view) => set({ activeSidebarView: view }),
-  isGitViewActive: false,
-  isGitHubPRsViewActive: false,
   settingsInitialTab: "appearance" as SettingsTab,
   setSettingsInitialTab: (tab) => set({ settingsInitialTab: tab }),
   isSettingsOpen: false,
@@ -94,9 +98,22 @@ export const useUIState = create<UIState>((set) => ({
   setActiveBottomTab: (tab) => set({ activeBottomTab: tab, bottomPaneActiveTab: tab }),
   bottomPaneActiveTab: "terminal" as BottomPaneTab,
   setBottomPaneActiveTab: (tab) => set({ bottomPaneActiveTab: tab, activeBottomTab: tab }),
-  requestTerminalFocus: () => {},
-  registerTerminalFocus: () => {},
-  clearTerminalFocus: () => {},
+  registerTerminalFocus: (id: string, fn: () => void) => {
+    _terminalFocusRegistry.set(id, fn)
+    // remove existing entry (if re-registering) then push to end
+    const idx = _registrationOrder.indexOf(id)
+    if (idx !== -1) _registrationOrder.splice(idx, 1)
+    _registrationOrder.push(id)
+  },
+  clearTerminalFocus: (id: string) => {
+    _terminalFocusRegistry.delete(id)
+    const idx = _registrationOrder.indexOf(id)
+    if (idx !== -1) _registrationOrder.splice(idx, 1)
+  },
+  requestTerminalFocus: () => {
+    const lastId = _registrationOrder.at(-1)
+    if (lastId) _terminalFocusRegistry.get(lastId)?.()
+  },
   sidebarActivityItem: null,
   setSidebarActivityItem: (item) => set({ sidebarActivityItem: item }),
   openSettingsDialog: (tab) => set({ isSettingsOpen: true, settingsInitialTab: tab ?? "appearance" }),
@@ -121,6 +138,4 @@ export const useUIState = create<UIState>((set) => ({
   setIsGlobalSearchVisible: (v) => set({ isGlobalSearchVisible: v }),
   isProjectPickerVisible: false,
   setIsProjectPickerVisible: (v) => set({ isProjectPickerVisible: v }),
-  isDatabaseConnectionVisible: false,
-  setIsDatabaseConnectionVisible: (v) => set({ isDatabaseConnectionVisible: v }),
 }))

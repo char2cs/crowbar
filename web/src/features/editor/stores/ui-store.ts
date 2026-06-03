@@ -1,9 +1,8 @@
 import type { CompletionItem } from "vscode-languageserver-protocol";
 import { create } from "zustand";
-import { useBufferStore } from "@/features/editor/stores/buffer-store";
+import { getActiveWorkspaceStoreRef } from "@/features/workspace/stores/workspace-store-ref";
 import { useEditorStateStore } from "@/features/editor/stores/state-store";
 import { hasTextContent } from "@/features/panes/types/pane-content";
-import { useSettingsStore } from "@/features/settings/store";
 import type { FilteredCompletion } from "@/utils/fuzzy-matcher";
 import { createSelectors } from "@/utils/zustand-selectors";
 import { replaceAllSearchMatches, replaceSearchMatch } from "../utils/search-replace";
@@ -18,11 +17,6 @@ type HoverInfo = {
 type CompletionPosition = {
   top: number;
   left: number;
-};
-
-type AutocompleteCompletion = {
-  text: string;
-  cursorOffset: number;
 };
 
 type SearchMatch = {
@@ -44,9 +38,11 @@ type DefinitionLinkRange = {
 };
 
 function getActiveTextContent(): string {
-  const { activeBufferId, buffers } = useBufferStore.getState();
+  const wsStore = getActiveWorkspaceStoreRef()?.getState();
+  if (!wsStore) return "";
+  const activeBufferId = wsStore.panes[wsStore.activePaneId]?.activeBufferId ?? null;
   const activeBuffer = activeBufferId
-    ? buffers.find((buffer) => buffer.id === activeBufferId)
+    ? wsStore.buffers.find((buffer) => buffer.id === activeBufferId)
     : null;
   return activeBuffer && hasTextContent(activeBuffer) ? activeBuffer.content : "";
 }
@@ -77,8 +73,6 @@ interface EditorUIState {
   hoverInfo: HoverInfo | null;
   isHovering: boolean;
   isApplyingCompletion: boolean;
-  aiCompletion: boolean;
-  autocompleteCompletion: AutocompleteCompletion | null;
   lastInputTimestamp: number;
 
   // Search state
@@ -108,8 +102,6 @@ interface EditorUIActions {
   setHoverInfo: (info: HoverInfo | null) => void;
   setIsHovering: (hovering: boolean) => void;
   setIsApplyingCompletion: (applying: boolean) => void;
-  setAiCompletion: (enabled: boolean) => void;
-  setAutocompleteCompletion: (completion: AutocompleteCompletion | null) => void;
   setLastInputTimestamp: (timestamp: number) => void;
   clearTypingTransientState: () => void;
 
@@ -150,8 +142,6 @@ export const useEditorUIStore = createSelectors(
     hoverInfo: null,
     isHovering: false,
     isApplyingCompletion: false,
-    aiCompletion: false,
-    autocompleteCompletion: null,
     lastInputTimestamp: 0,
 
     // Search state
@@ -220,24 +210,6 @@ export const useEditorUIStore = createSelectors(
           set({ isApplyingCompletion: applying });
         }
       },
-      setAiCompletion: (enabled) => {
-        if (get().aiCompletion !== enabled) {
-          set({ aiCompletion: enabled });
-        }
-      },
-      setAutocompleteCompletion: (completion) => {
-        const current = get().autocompleteCompletion;
-        if (
-          current === completion ||
-          (current &&
-            completion &&
-            current.text === completion.text &&
-            current.cursorOffset === completion.cursorOffset)
-        ) {
-          return;
-        }
-        set({ autocompleteCompletion: completion });
-      },
       setLastInputTimestamp: (timestamp) => {
         if (get().lastInputTimestamp !== timestamp) {
           set({ lastInputTimestamp: timestamp });
@@ -245,18 +217,13 @@ export const useEditorUIStore = createSelectors(
       },
       clearTypingTransientState: () => {
         const state = get();
-        if (
-          state.hoverInfo === null &&
-          !state.isHovering &&
-          state.autocompleteCompletion === null
-        ) {
+        if (state.hoverInfo === null && !state.isHovering) {
           return;
         }
 
         set({
           hoverInfo: null,
           isHovering: false,
-          autocompleteCompletion: null,
         });
       },
 
@@ -402,7 +369,6 @@ export const useEditorUIStore = createSelectors(
           hoverInfo: null,
           isHovering: false,
           isApplyingCompletion: false,
-          autocompleteCompletion: null,
           searchMatches: [],
           searchResultsLimited: false,
           currentMatchIndex: -1,
@@ -412,8 +378,3 @@ export const useEditorUIStore = createSelectors(
   })),
 );
 
-// Subscribe to settings store and sync AI completion setting
-useSettingsStore.subscribe((state) => {
-  const { aiCompletion } = state.settings;
-  useEditorUIStore.getState().actions.setAiCompletion(aiCompletion);
-});

@@ -8,16 +8,15 @@ describe('workspace-persistence', () => {
   })
 
   it('saveToLocalStorage writes a JSON string to localStorage', () => {
-    saveToLocalStorage('ws-1', { currentStepId: 'brainstorm' })
+    saveToLocalStorage('ws-1', { recentFiles: [] })
     const raw = localStorage.getItem('workspace:ws-1:state')
     expect(raw).not.toBeNull()
-    expect(JSON.parse(raw!).currentStepId).toBe('brainstorm')
+    expect(JSON.parse(raw!).recentFiles).toEqual([])
   })
 
   it('loadFromLocalStorage returns the saved snapshot', () => {
-    saveToLocalStorage('ws-2', { currentStepId: 'spec', recentFiles: [] })
+    saveToLocalStorage('ws-2', { recentFiles: [] })
     const snap = loadFromLocalStorage('ws-2')
-    expect(snap?.currentStepId).toBe('spec')
     expect(snap?.recentFiles).toEqual([])
   })
 

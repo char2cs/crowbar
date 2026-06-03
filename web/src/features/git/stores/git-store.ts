@@ -2,7 +2,11 @@ import { create } from "zustand";
 import { frontendTrace } from "@/utils/frontend-trace";
 import { getGitLog } from "../api/git-commits-api";
 import { getGitStatus } from "../api/git-status-api";
+import { getBranches } from "../api/git-branches-api";
+import { getStashes } from "../api/git-stash-api";
 import type { GitCommit, GitStash, GitStatus } from "../types/git-types";
+import { createLoadableSlice } from "@/lib/store/loadable-slice";
+import type { Loadable } from "@/lib/loadable";
 
 const MAX_WORKSPACE_GIT_STATUS_FILES = 200;
 
@@ -25,7 +29,29 @@ function toWorkspaceGitStatus(status: GitStatus | null): GitStatus | null {
   };
 }
 
+export interface GitData {
+  status: GitStatus | null;
+  commits: GitCommit[];
+  branches: string[];
+  stashes: GitStash[];
+}
+
+async function fetchAllGitData(repoPath: string): Promise<GitData> {
+  const [status, commits, branches, stashes] = await Promise.all([
+    getGitStatus(repoPath),
+    getGitLog(repoPath, 50, 0),
+    getBranches(repoPath),
+    getStashes(repoPath),
+  ]);
+  return { status, commits, branches, stashes };
+}
+
 interface GitState {
+  gitData: Loadable<GitData>;
+  fetchGitData: (repoPath: string) => Promise<void>;
+  startGitSync: (repoPath: string) => () => void;
+  applyGitDelta: (event: unknown, repoPath: string) => Promise<void>;
+  optimisticWriteGitData: (optimistic: GitData, commit: () => Promise<GitData | void>) => Promise<void>;
   gitStatus: GitStatus | null;
   workspaceGitStatus: GitStatus | null;
   commits: GitCommit[];
@@ -67,6 +93,40 @@ interface GitState {
 const COMMITS_PER_PAGE = 50;
 
 export const useGitStore = create<GitState>((set, get) => ({
+  ...(() => {
+    const slice = createLoadableSlice<GitData>({
+      store: "git-data",
+      fetcher: fetchAllGitData,
+      wsEndpoint: (repoPath: string) => `/api/v0/ws/git?repo=${encodeURIComponent(repoPath)}`,
+    })(
+      // setter: remap the slice's { data } writes onto the host's gitData field.
+      // The slice only ever calls set({ data: ... }) (verified in loadable-slice.ts);
+      // the `'data' in partial` guard makes that assumption explicit.
+      (partial) => {
+        if (partial && "data" in partial) {
+          set({ gitData: (partial as { data: Loadable<GitData> }).data } as Partial<GitState>);
+        }
+      },
+      // getter: expose host fields under the slice's expected shape so the slice's
+      // internal get().fetch / get().applyDelta resolve to the host methods.
+      // `as never` bridges the host's renamed fields to the slice's flat LoadableSlice shape.
+      () =>
+        ({
+          data: get().gitData,
+          fetch: get().fetchGitData,
+          startSync: get().startGitSync,
+          applyDelta: get().applyGitDelta,
+          optimisticWrite: get().optimisticWriteGitData,
+        }) as never,
+    );
+    return {
+      gitData: slice.data,
+      fetchGitData: slice.fetch,
+      startGitSync: slice.startSync,
+      applyGitDelta: slice.applyDelta,
+      optimisticWriteGitData: slice.optimisticWrite,
+    };
+  })(),
   gitStatus: null,
   workspaceGitStatus: null,
   commits: [],
@@ -83,6 +143,10 @@ export const useGitStore = create<GitState>((set, get) => ({
     loadFreshGitData: ({ gitStatus, commits, branches, stashes, repoPath }) => {
       set({
         gitStatus,
+        // Also drive file-explorer git decorations — file-explorer-tree reads
+        // workspaceGitStatus + currentWorkspaceRepoPath from this store
+        workspaceGitStatus: toWorkspaceGitStatus(gitStatus),
+        currentWorkspaceRepoPath: repoPath,
         commits,
         branches,
         stashes,
@@ -95,7 +159,7 @@ export const useGitStore = create<GitState>((set, get) => ({
       const { currentRepoPath, commits: existingCommits } = get();
 
       if (currentRepoPath !== repoPath || existingCommits.length === 0) {
-        set({ gitStatus, branches });
+        set({ gitStatus, workspaceGitStatus: toWorkspaceGitStatus(gitStatus), currentWorkspaceRepoPath: repoPath, branches });
         return;
       }
 

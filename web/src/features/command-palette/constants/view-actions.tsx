@@ -1,9 +1,7 @@
 import {
-  WarningCircle as AlertCircle,
   ArrowsLeftRight as ArrowLeftRight,
   GlobeHemisphereWest as Globe,
   List as Menu,
-  ChatCircleText as MessageSquare,
   SidebarSimple as PanelBottom,
   SidebarSimple as PanelLeft,
   ArrowCounterClockwise as RotateCcw,
@@ -12,8 +10,6 @@ import {
   MagnifyingGlassPlus as ZoomIn,
   MagnifyingGlassMinus as ZoomOut,
 } from "@phosphor-icons/react";
-import { useBufferStore } from "@/features/editor/stores/buffer-store";
-import { useSettingsStore } from "@/features/settings/store";
 import type { BottomPaneTab } from "@/features/window/stores/ui-state/types";
 import { primitivePrompt } from "@/components/ui/primitive-dialog-service";
 import { IS_MAC, IS_WINDOWS } from "@/utils/platform";
@@ -29,7 +25,6 @@ interface ViewActionsParams {
   isFindVisible: boolean;
   setIsFindVisible: (v: boolean) => void;
   settings: {
-    isAIChatVisible: boolean;
     sidebarPosition: "left" | "right";
     nativeMenuBar: boolean;
     compactMenuBar: boolean;
@@ -103,30 +98,6 @@ export const createViewActions = (params: ViewActionsParams): Action[] => {
           setIsBottomPaneVisible(true);
           window.dispatchEvent(new CustomEvent("terminal-ensure-session"));
         }
-        onClose();
-      },
-    },
-    {
-      id: "toggle-diagnostics-panel",
-      label: "View: Show Diagnostics",
-      description: "Open diagnostics",
-      icon: <AlertCircle />,
-      category: "View",
-      commandId: "workbench.toggleDiagnostics",
-      action: () => {
-        useBufferStore.getState().actions.openDiagnosticsBuffer();
-        onClose();
-      },
-    },
-    {
-      id: "toggle-ai-chat-view",
-      label: settings.isAIChatVisible ? "View: Hide AI Chat" : "View: Show AI Chat",
-      description: settings.isAIChatVisible ? "Hide AI chat panel" : "Show AI chat panel",
-      icon: <MessageSquare />,
-      category: "View",
-      commandId: "workbench.toggleAIChat",
-      action: () => {
-        useSettingsStore.getState().toggleAIChatVisible();
         onClose();
       },
     },

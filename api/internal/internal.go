@@ -7,11 +7,11 @@ import (
 	"net/http"
 	"time"
 
-	"github.com/rabbytesoftware/crowbar/api/internal/adapter"
-	crowbarapi "github.com/rabbytesoftware/crowbar/api/internal/api"
-	"github.com/rabbytesoftware/crowbar/api/internal/app"
-	"github.com/rabbytesoftware/crowbar/api/internal/core/gateway"
-	"github.com/rabbytesoftware/crowbar/api/internal/engine"
+	"github.com/char2cs/crowbar/api/internal/adapter"
+	crowbarapi "github.com/char2cs/crowbar/api/internal/api"
+	"github.com/char2cs/crowbar/api/internal/app"
+	"github.com/char2cs/crowbar/api/internal/core/gateway"
+	"github.com/char2cs/crowbar/api/internal/engine"
 )
 
 type Container struct {

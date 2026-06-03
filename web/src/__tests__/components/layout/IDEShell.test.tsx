@@ -4,21 +4,28 @@ import { describe, it, expect, vi } from 'vitest'
 import React from 'react'
 import { IDEShell } from '@/components/layout/IDEShell'
 
-// Mock heavy features — just verify composition
+vi.mock('@/utils/platform', () => ({
+  IS_MAC: true,
+  IS_WINDOWS: false,
+  IS_LINUX: false,
+}))
 vi.mock('@/features/workspace/components/WorkspaceView', () => ({
   WorkspaceView: () => <div data-testid="workspace-view" />,
 }))
-vi.mock('@/components/layout/SidebarTabs', () => ({
-  SidebarTabs: () => <div data-testid="sidebar-tabs" />,
+vi.mock('@/components/layout/sidebar-tab-bar', () => ({
+  SidebarTabBar: () => <div data-testid="sidebar-tab-bar" />,
 }))
-vi.mock('@/components/layout/SidebarHeader', () => ({
-  SidebarHeader: () => <div data-testid="sidebar-header" />,
+vi.mock('@/components/layout/sidebar-carousel', () => ({
+  SidebarCarousel: () => <div data-testid="sidebar-carousel" />,
+}))
+vi.mock('@/components/layout/sidebar-project-header', () => ({
+  SidebarProjectHeader: () => <div data-testid="sidebar-project-header" />,
 }))
 vi.mock('@/features/settings/components/settings-dialog', () => ({
   default: () => null,
 }))
-vi.mock('@/lib/store/sidebar', () => ({
-  useSidebarStore: () => ({
+vi.mock('@/lib/store/sidebar', () => {
+  const state = {
     chats: [],
     repos: [],
     collapsedRepos: new Set(),
@@ -26,17 +33,22 @@ vi.mock('@/lib/store/sidebar', () => ({
     deleteChat: vi.fn(),
     deleteWorkspace: vi.fn(),
     toggleRepo: vi.fn(),
-  }),
-}))
+  }
+  return {
+    useSidebarStore: (selector?: (s: typeof state) => unknown) =>
+      selector ? selector(state) : state,
+  }
+})
 vi.mock('@tanstack/react-router', () => ({
   useNavigate: () => vi.fn(),
   useRouterState: () => ({ location: { pathname: '/' } }),
   Outlet: () => <div data-testid="outlet" />,
 }))
-vi.mock('@/components/ui/resizable', () => ({
-  ResizablePanelGroup: ({ children }: { children: React.ReactNode }) => <div>{children}</div>,
-  ResizablePanel: ({ children }: { children: React.ReactNode }) => <div>{children}</div>,
-  ResizableHandle: () => null,
+vi.mock('@/components/ui/sidebar', () => ({
+  SidebarProvider: ({ children }: { children: React.ReactNode }) => <div data-testid="sidebar-provider">{children}</div>,
+  Sidebar: ({ children }: { children: React.ReactNode }) => <div data-testid="sidebar">{children}</div>,
+  SidebarInset: ({ children }: { children: React.ReactNode }) => <div data-testid="sidebar-inset">{children}</div>,
+
 }))
 vi.mock('@/components/ErrorBoundary', () => ({
   ErrorBoundary: ({ children }: { children: React.ReactNode }) => <>{children}</>,
@@ -47,20 +59,33 @@ vi.mock('@/components/ui/sonner', () => ({
 vi.mock('@/features/settings/components/font-style-injector', () => ({
   FontStyleInjector: () => null,
 }))
+vi.mock('@/features/terminal/components/terminal-host', () => ({
+  TerminalHost: () => null,
+}))
 
 describe('IDEShell', () => {
-  it('renders sidebar header', () => {
+  it('renders project header', () => {
     render(<IDEShell />)
-    expect(screen.getByTestId('sidebar-header')).toBeInTheDocument()
+    expect(screen.getByTestId('sidebar-project-header')).toBeInTheDocument()
   })
 
-  it('renders SidebarTabs', () => {
+  it('renders SidebarTabBar', () => {
     render(<IDEShell />)
-    expect(screen.getByTestId('sidebar-tabs')).toBeInTheDocument()
+    expect(screen.getByTestId('sidebar-tab-bar')).toBeInTheDocument()
+  })
+
+  it('renders SidebarCarousel', () => {
+    render(<IDEShell />)
+    expect(screen.getByTestId('sidebar-carousel')).toBeInTheDocument()
   })
 
   it('renders Outlet when no workspace or chat is active', () => {
     render(<IDEShell />)
     expect(screen.getByTestId('outlet')).toBeInTheDocument()
+  })
+
+  it('renders a resize handle inside the sidebar', () => {
+    render(<IDEShell />)
+    expect(screen.getByTestId('sidebar-resize-handle')).toBeInTheDocument()
   })
 })

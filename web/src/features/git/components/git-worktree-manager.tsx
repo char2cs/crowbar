@@ -10,11 +10,11 @@ import {
 } from "@phosphor-icons/react";
 import { useEffect, useState } from "react";
 import { Button } from "@/components/ui/button";
-import Checkbox from "@/components/ui/checkbox";
+import { Checkbox } from "@/components/ui/checkbox";
 import { ContextMenu, useContextMenu, type ContextMenuItem } from "@/components/ui/context-menu";
-import Dialog from "@/components/ui/dialog";
-import Input from "@/components/ui/input";
-import { LoadingSpinner } from "@/components/ui/spinner";
+import { AppDialog as Dialog } from "@/components/ui/dialog";
+import { Input } from "@/components/ui/input";
+import { LoadingSpinner } from "@/components/ui/loading-spinner";
 import { primitiveConfirm } from "@/components/ui/primitive-dialog-service";
 import { SidebarListItem } from "@/components/ui/sidebar";
 import { cn } from "@/utils/cn";
@@ -26,7 +26,6 @@ import {
   removeWorktree,
 } from "../api/git-worktrees-api";
 import type { GitWorktree } from "../types/git-types";
-import { writeSidebarResourceDragData } from "@/features/sidebar-drag/sidebar-resource-drag";
 import GitSidebarSectionHeader, {
   gitSidebarSectionActionButtonClassName,
 } from "./git-sidebar-section-header";
@@ -348,14 +347,6 @@ const GitWorktreeManager = ({
                   contextMenu.open(e, { path: worktree.path, isCurrent: worktree.is_current })
                 }
                 draggable
-                onDragStart={(event) => {
-                  writeSidebarResourceDragData(event.dataTransfer, {
-                    type: "git-worktree",
-                    path: worktree.path,
-                    branch: worktree.branch,
-                    name: worktreeName,
-                  });
-                }}
                 className={cn(
                   "mb-px items-start rounded-md border border-transparent px-2 py-2 transition-[transform,background-color,border-color,opacity]",
                   worktree.is_current && "border-border/60",

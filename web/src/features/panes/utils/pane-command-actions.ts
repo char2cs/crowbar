@@ -1,17 +1,15 @@
-import { useBufferStore } from "@/features/editor/stores/buffer-store";
+import { getActiveWorkspaceStoreRef } from "@/features/workspace/stores/workspace-store-ref";
 import { BOTTOM_PANE_ID } from "../constants/pane";
-import { usePaneStore } from "../stores/pane-store";
-import type { PaneNode } from "../types/pane";
+import type { LayoutNode } from "../types/pane";
+import { getAllLeafIds } from "./pane-layout";
 import { getPaneScopeForPaneId } from "./pane-routing";
 import { createPaneBeside } from "./pane-split-actions";
-import { getAllPaneGroups } from "./pane-tree";
 
 export const getShareableSplitBufferId = (bufferId: string | null | undefined) => {
   if (!bufferId) return undefined;
-  const activeBuffer = useBufferStore.getState().buffers.find((buffer) => buffer.id === bufferId);
+  const activeBuffer = getActiveWorkspaceStoreRef()?.getState().buffers.find((buffer) => buffer.id === bufferId);
   if (
     activeBuffer?.type === "terminal" ||
-    activeBuffer?.type === "agent" ||
     activeBuffer?.type === "webViewer"
   ) {
     return undefined;
@@ -25,12 +23,15 @@ function isEditorPaneId(paneId: string): boolean {
     return false;
   }
 
-  return getAllPaneGroups(usePaneStore.getState().root).some((pane) => pane.id === paneId);
+  const state = getActiveWorkspaceStoreRef()?.getState();
+  if (!state) return false;
+  return getAllLeafIds(state.rootLayout).includes(paneId);
 }
 
 function getActiveEditorPane() {
-  const paneStore = usePaneStore.getState();
-  const activePane = paneStore.actions.getActivePane();
+  const state = getActiveWorkspaceStoreRef()?.getState();
+  if (!state) return null;
+  const activePane = state.paneActions.getActivePane();
   if (!activePane || !isEditorPaneId(activePane.id)) {
     return null;
   }
@@ -39,13 +40,14 @@ function getActiveEditorPane() {
 }
 
 export function toggleActiveEditorGroupLock(): boolean {
-  const paneStore = usePaneStore.getState();
+  const state = getActiveWorkspaceStoreRef()?.getState();
+  if (!state) return false;
   const activePane = getActiveEditorPane();
   if (!activePane) {
     return false;
   }
 
-  paneStore.actions.setPaneLocked(activePane.id, !activePane.locked);
+  state.paneActions.setPaneLocked(activePane.id, !activePane.locked);
   return true;
 }
 
@@ -71,73 +73,77 @@ export function splitEditorGroup(
 }
 
 export function closeActiveEditorGroup(): boolean {
-  const paneStore = usePaneStore.getState();
+  const state = getActiveWorkspaceStoreRef()?.getState();
+  if (!state) return false;
   const activePane = getActiveEditorPane();
   if (!activePane) {
     return false;
   }
 
-  const paneGroups = getPaneScopeForPaneId(paneStore.root, paneStore.bottomRoot, activePane.id);
+  const paneGroups = getPaneScopeForPaneId(state.rootLayout, state.bottomLayout, state.panes, activePane.id);
   if (paneGroups.length <= 1) {
     return false;
   }
 
-  paneStore.actions.closePane(activePane.id);
+  state.paneActions.closePane(activePane.id);
   return true;
 }
 
 export function closeOtherEditorGroups(): boolean {
-  const paneStore = usePaneStore.getState();
+  const state = getActiveWorkspaceStoreRef()?.getState();
+  if (!state) return false;
   const activePane = getActiveEditorPane();
   if (!activePane) {
     return false;
   }
 
-  const editorGroups = getAllPaneGroups(paneStore.root);
+  const editorGroups = getAllLeafIds(state.rootLayout).map(id => state.panes[id]).filter(Boolean);
   if (!editorGroups.some((pane) => pane.id === activePane.id) || editorGroups.length <= 1) {
     return false;
   }
 
-  paneStore.actions.setActivePane(activePane.id);
+  state.paneActions.setActivePane(activePane.id);
   for (const pane of editorGroups) {
     if (pane.id !== activePane.id) {
-      paneStore.actions.closePane(pane.id);
+      state.paneActions.closePane(pane.id);
     }
   }
 
   return true;
 }
 
-function collectSplitIds(node: PaneNode): string[] {
-  if (node.type === "group") {
+function collectSplitIds(node: LayoutNode): string[] {
+  if (node.type === "pane") {
     return [];
   }
 
-  return [node.id, ...collectSplitIds(node.children[0]), ...collectSplitIds(node.children[1])];
+  return [node.id, ...collectSplitIds(node.first), ...collectSplitIds(node.second)];
 }
 
 export function resetEditorGroupSizes(): boolean {
-  const paneStore = usePaneStore.getState();
-  const splitIds = collectSplitIds(paneStore.root);
+  const state = getActiveWorkspaceStoreRef()?.getState();
+  if (!state) return false;
+  const splitIds = collectSplitIds(state.rootLayout);
   if (splitIds.length === 0) {
     return false;
   }
 
   for (const splitId of splitIds) {
-    paneStore.actions.distributePaneSplit(splitId);
+    state.paneActions.distributePaneSplit(splitId);
   }
 
   return true;
 }
 
 export function moveActiveEditorToAdjacentGroup(direction: "next" | "previous"): boolean {
-  const paneStore = usePaneStore.getState();
+  const state = getActiveWorkspaceStoreRef()?.getState();
+  if (!state) return false;
   const activePane = getActiveEditorPane();
   if (!activePane || !activePane.activeBufferId) {
     return false;
   }
 
-  const paneGroups = getPaneScopeForPaneId(paneStore.root, paneStore.bottomRoot, activePane.id);
+  const paneGroups = getPaneScopeForPaneId(state.rootLayout, state.bottomLayout, state.panes, activePane.id);
   if (paneGroups.length <= 1) {
     return false;
   }
@@ -154,6 +160,6 @@ export function moveActiveEditorToAdjacentGroup(direction: "next" | "previous"):
     return false;
   }
 
-  paneStore.actions.moveBufferToPane(activePane.activeBufferId, activePane.id, targetPane.id);
+  state.paneActions.moveBufferToPane(activePane.activeBufferId, activePane.id, targetPane.id);
   return true;
 }

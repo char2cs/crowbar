@@ -1,90 +1,139 @@
-import { Button as ButtonPrimitive } from "@base-ui/react/button"
-import { cva, type VariantProps } from "class-variance-authority"
+"use client";
 
-import { cn } from "@/lib/utils"
+import * as TooltipPrimitive from "@radix-ui/react-tooltip";
+import { mergeProps } from "@base-ui/react/merge-props";
+import { useRender } from "@base-ui/react/use-render";
+import { cva, type VariantProps } from "class-variance-authority";
+import type * as React from "react";
+import { cn } from "@/lib/utils";
+import Keybinding from "@/components/ui/keybinding";
+import { Spinner } from "@/components/ui/spinner";
+import { tooltipContentBase } from "@/components/ui/tooltip";
 
-const buttonVariants = cva(
-  "group/button inline-flex shrink-0 items-center justify-center rounded-lg border border-transparent bg-clip-padding text-sm font-medium whitespace-nowrap transition-all outline-none select-none focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50 active:not-aria-[haspopup]:translate-y-px disabled:pointer-events-none disabled:opacity-50 aria-invalid:border-destructive aria-invalid:ring-3 aria-invalid:ring-destructive/20 dark:aria-invalid:border-destructive/50 dark:aria-invalid:ring-destructive/40 [&_svg]:pointer-events-none [&_svg]:shrink-0 [&_svg:not([class*='size-'])]:size-4",
+export const buttonVariants = cva(
+  "relative inline-flex shrink-0 cursor-pointer items-center justify-center gap-2 whitespace-nowrap rounded-lg border font-medium text-base outline-none transition-shadow before:pointer-events-none before:absolute before:inset-0 before:rounded-[calc(var(--radius-lg)-1px)] pointer-coarse:after:absolute pointer-coarse:after:size-full pointer-coarse:after:min-h-11 pointer-coarse:after:min-w-11 focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-1 focus-visible:ring-offset-background disabled:pointer-events-none disabled:opacity-64 data-loading:select-none data-loading:text-transparent sm:text-sm [&_svg:not([class*='opacity-'])]:opacity-80 [&_svg:not([class*='size-'])]:size-4.5 sm:[&_svg:not([class*='size-'])]:size-4 [&_svg]:pointer-events-none [&_svg]:-mx-0.5 [&_svg]:shrink-0",
   {
-    variants: {
-      variant: {
-        default: "bg-primary text-primary-foreground [a]:hover:bg-primary/80",
-        outline:
-          "border-border bg-background hover:bg-muted hover:text-foreground aria-expanded:bg-muted aria-expanded:text-foreground dark:border-input dark:bg-input/30 dark:hover:bg-input/50",
-        secondary:
-          "bg-secondary text-secondary-foreground hover:bg-secondary/80 aria-expanded:bg-secondary aria-expanded:text-secondary-foreground",
-        ghost:
-          "hover:bg-muted hover:text-foreground aria-expanded:bg-muted aria-expanded:text-foreground dark:hover:bg-muted/50",
-        destructive:
-          "bg-destructive/10 text-destructive hover:bg-destructive/20 focus-visible:border-destructive/40 focus-visible:ring-destructive/20 dark:bg-destructive/20 dark:hover:bg-destructive/30 dark:focus-visible:ring-destructive/40",
-        link: "text-primary underline-offset-4 hover:underline",
-        /** Athas variant aliases */
-        accent: "bg-primary text-primary-foreground hover:bg-primary/90",
-        muted: "bg-transparent hover:bg-accent hover:text-accent-foreground",
-        danger: "bg-destructive text-destructive-foreground hover:bg-destructive/90",
-      },
-      size: {
-        default:
-          "h-8 gap-1.5 px-2.5 has-data-[icon=inline-end]:pr-2 has-data-[icon=inline-start]:pl-2",
-        xs: "h-6 gap-1 rounded-[min(var(--radius-md),10px)] px-2 text-xs in-data-[slot=button-group]:rounded-lg has-data-[icon=inline-end]:pr-1.5 has-data-[icon=inline-start]:pl-1.5 [&_svg:not([class*='size-'])]:size-3",
-        sm: "h-7 gap-1 rounded-[min(var(--radius-md),12px)] px-2.5 text-[0.8rem] in-data-[slot=button-group]:rounded-lg has-data-[icon=inline-end]:pr-1.5 has-data-[icon=inline-start]:pl-1.5 [&_svg:not([class*='size-'])]:size-3.5",
-        lg: "h-9 gap-1.5 px-2.5 has-data-[icon=inline-end]:pr-2 has-data-[icon=inline-start]:pl-2",
-        icon: "size-8",
-        "icon-xs":
-          "size-6 rounded-[min(var(--radius-md),10px)] in-data-[slot=button-group]:rounded-lg [&_svg:not([class*='size-'])]:size-3",
-        "icon-sm":
-          "size-7 rounded-[min(var(--radius-md),12px)] in-data-[slot=button-group]:rounded-lg",
-        "icon-lg": "size-9",
-      },
-      /** Athas compact variant - maps to no extra classes */
-      compact: {
-        true: "",
-        false: "",
-      },
-    },
     defaultVariants: {
-      variant: "default",
       size: "default",
+      variant: "default",
     },
-  }
-)
+    variants: {
+      size: {
+        default: "h-9 px-[calc(--spacing(3)-1px)] sm:h-8",
+        icon: "size-9 sm:size-8",
+        "icon-lg": "size-10 sm:size-9",
+        "icon-sm": "size-8 sm:size-7",
+        "icon-xl":
+          "size-11 sm:size-10 [&_svg:not([class*='size-'])]:size-5 sm:[&_svg:not([class*='size-'])]:size-4.5",
+        "icon-xs":
+          "size-7 rounded-md before:rounded-[calc(var(--radius-md)-1px)] sm:size-6 not-in-data-[slot=input-group]:[&_svg:not([class*='size-'])]:size-4 sm:not-in-data-[slot=input-group]:[&_svg:not([class*='size-'])]:size-3.5",
+        lg: "h-10 px-[calc(--spacing(3.5)-1px)] sm:h-9",
+        sm: "h-8 gap-1.5 px-[calc(--spacing(2.5)-1px)] sm:h-7",
+        xl: "h-11 px-[calc(--spacing(4)-1px)] text-lg sm:h-10 sm:text-base [&_svg:not([class*='size-'])]:size-5 sm:[&_svg:not([class*='size-'])]:size-4.5",
+        xs: "h-7 gap-1 rounded-md px-[calc(--spacing(2)-1px)] text-sm before:rounded-[calc(var(--radius-md)-1px)] sm:h-6 sm:text-xs [&_svg:not([class*='size-'])]:size-4 sm:[&_svg:not([class*='size-'])]:size-3.5",
+      },
+      variant: {
+        default:
+          "not-disabled:inset-shadow-[0_1px_--theme(--color-white/16%)] border-primary bg-primary text-primary-foreground shadow-primary/24 shadow-xs hover:bg-primary/90 data-pressed:bg-primary/90 *:data-[slot=button-loading-indicator]:text-primary-foreground [:active,[data-pressed]]:inset-shadow-[0_1px_--theme(--color-black/8%)] [:disabled,:active,[data-pressed]]:shadow-none",
+        destructive:
+          "not-disabled:inset-shadow-[0_1px_--theme(--color-white/16%)] border-destructive bg-destructive text-white shadow-destructive/24 shadow-xs hover:bg-destructive/90 data-pressed:bg-destructive/90 *:data-[slot=button-loading-indicator]:text-white [:active,[data-pressed]]:inset-shadow-[0_1px_--theme(--color-black/8%)] [:disabled,:active,[data-pressed]]:shadow-none",
+        "destructive-outline":
+          "border-input bg-popover not-dark:bg-clip-padding text-destructive-foreground shadow-xs/5 not-disabled:not-active:not-data-pressed:before:shadow-[0_1px_--theme(--color-black/4%)] hover:border-destructive/32 hover:bg-destructive/4 data-pressed:border-destructive/32 data-pressed:bg-destructive/4 *:data-[slot=button-loading-indicator]:text-foreground dark:bg-input/32 dark:not-disabled:before:shadow-[0_-1px_--theme(--color-white/2%)] dark:not-disabled:not-active:not-data-pressed:before:shadow-[0_-1px_--theme(--color-white/6%)] [:disabled,:active,[data-pressed]]:shadow-none",
+        ghost:
+          "border-transparent text-foreground hover:bg-accent data-pressed:bg-accent *:data-[slot=button-loading-indicator]:text-foreground",
+        link: "border-transparent text-foreground underline-offset-4 hover:underline data-pressed:underline *:data-[slot=button-loading-indicator]:text-foreground",
+        outline:
+          "border-input bg-popover not-dark:bg-clip-padding text-foreground shadow-xs/5 not-disabled:not-active:not-data-pressed:before:shadow-[0_1px_--theme(--color-black/4%)] hover:bg-accent/50 data-pressed:bg-accent/50 *:data-[slot=button-loading-indicator]:text-foreground dark:bg-input/32 dark:data-pressed:bg-input/64 dark:hover:bg-input/64 dark:not-disabled:before:shadow-[0_-1px_--theme(--color-white/2%)] dark:not-disabled:not-active:not-data-pressed:before:shadow-[0_-1px_--theme(--color-white/6%)] [:disabled,:active,[data-pressed]]:shadow-none",
+        secondary:
+          "border-transparent bg-secondary text-secondary-foreground hover:bg-secondary/90 data-pressed:bg-secondary/90 *:data-[slot=button-loading-indicator]:text-secondary-foreground [:active,[data-pressed]]:bg-secondary/80",
+      },
+    },
+  },
+);
 
-export interface ButtonProps
-  extends ButtonPrimitive.Props,
-    VariantProps<typeof buttonVariants> {
-  /** Compact height variant used by Athas feature modules */
-  compact?: boolean
-  /** Tooltip text displayed on hover (Athas compatibility) */
-  tooltip?: string
-  /** Keyboard shortcut hint (Athas compatibility) */
-  shortcut?: string
-  /** Tooltip side preference (Athas compatibility) */
-  tooltipSide?: "top" | "right" | "bottom" | "left"
-  /** Command ID for keybinding hints (Athas compatibility) */
-  commandId?: string
-  /** Active state — adds bg-accent/20 highlight when true (Athas compatibility) */
-  active?: boolean
+
+export interface ButtonProps extends useRender.ComponentProps<"button"> {
+  variant?: VariantProps<typeof buttonVariants>["variant"];
+  size?: VariantProps<typeof buttonVariants>["size"];
+  loading?: boolean;
+  /** Active state — adds bg-accent/20 highlight when true */
+  active?: boolean;
+  /** Compact mode (compat, no visual effect) */
+  compact?: boolean;
+  /** Tooltip text — renders a real tooltip on hover */
+  tooltip?: string;
+  /** Keyboard shortcut shown in the tooltip */
+  shortcut?: string;
+  /** Tooltip side preference */
+  tooltipSide?: "top" | "right" | "bottom" | "left";
+  /** Command ID for keybinding hints (compat, not rendered) */
+  commandId?: string;
 }
 
-function Button({
+export function Button({
   className,
-  variant = "default",
-  size = "default",
-  compact: _compact,
-  tooltip: _tooltip,
-  shortcut: _shortcut,
-  tooltipSide: _tooltipSide,
-  commandId: _commandId,
+  variant,
+  size,
+  render,
+  children,
+  loading = false,
+  disabled: disabledProp,
   active,
+  compact: _compact,
+  tooltip,
+  shortcut,
+  tooltipSide = "top",
+  commandId: _commandId,
   ...props
-}: ButtonProps) {
-  return (
-    <ButtonPrimitive
-      data-slot="button"
-      className={cn(buttonVariants({ variant, size, className }), active && "bg-accent/20")}
-      {...props}
-    />
-  )
-}
+}: ButtonProps): React.ReactElement {
+  const isDisabled: boolean = Boolean(loading || disabledProp);
+  const typeValue: React.ButtonHTMLAttributes<HTMLButtonElement>["type"] =
+    render ? undefined : "button";
 
-export { Button, buttonVariants }
+  const defaultProps = {
+    children: (
+      <>
+        {children}
+        {loading && (
+          <Spinner
+            className="pointer-events-none absolute"
+            data-slot="button-loading-indicator"
+          />
+        )}
+      </>
+    ),
+    className: cn(buttonVariants({ className, size, variant }), active && "bg-accent/20"),
+    "aria-disabled": loading || undefined,
+    "data-loading": loading ? "" : undefined,
+    "data-slot": "button",
+    disabled: isDisabled,
+    type: typeValue,
+  };
+
+  const buttonEl = useRender({
+    defaultTagName: "button",
+    props: mergeProps<"button">(defaultProps, props),
+    render,
+  });
+
+  if (!tooltip) return buttonEl;
+
+  return (
+    <TooltipPrimitive.Provider delayDuration={150} skipDelayDuration={100} disableHoverableContent>
+      <TooltipPrimitive.Root>
+        <TooltipPrimitive.Trigger asChild>{buttonEl}</TooltipPrimitive.Trigger>
+        <TooltipPrimitive.Portal>
+          <TooltipPrimitive.Content
+            side={tooltipSide}
+            sideOffset={6}
+            collisionPadding={8}
+            className={cn(tooltipContentBase, shortcut && "flex items-center gap-2")}
+          >
+            {tooltip}
+            {shortcut && <Keybinding binding={shortcut} />}
+          </TooltipPrimitive.Content>
+        </TooltipPrimitive.Portal>
+      </TooltipPrimitive.Root>
+    </TooltipPrimitive.Provider>
+  );
+}

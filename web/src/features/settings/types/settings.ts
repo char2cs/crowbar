@@ -1,5 +1,4 @@
 import type { CoreFeaturesState } from "./feature";
-import type { AIChatSkill } from "@/features/ai/types/skills";
 import type {
   FooterLeadingItemId,
   FooterTrailingItemId,
@@ -60,26 +59,8 @@ export interface Settings {
   footerLeadingItemsOrder: FooterLeadingItemId[];
   footerTrailingItemsOrder: FooterTrailingItemId[];
   openFoldersInNewWindow: boolean;
-  // AI
-  aiProviderId: string;
-  aiModelId: string;
-  aiCustomBaseUrl: string;
-  aiCustomModelId: string;
-  aiChatWidth: number;
-  isAIChatVisible: boolean;
-  aiCompletion: boolean;
-  aiAutocompleteProvider: "openrouter" | "custom";
-  aiAutocompleteModelId: string;
-  aiAutocompleteCustomBaseUrl: string;
-  aiAutocompleteCustomModelId: string;
-  aiDefaultSessionMode: string;
-  aiSkills: AIChatSkill[];
-  ollamaBaseUrl: string;
   // Layout
   sidebarWidth: number;
-  showGitHubPullRequests: boolean;
-  showGitHubIssues: boolean;
-  showGitHubActions: boolean;
   // Keyboard
   keybindingPreset:
     | "none"
@@ -119,7 +100,6 @@ export interface Settings {
     | "skill"
     | "agent";
   maxOpenTabs: number;
-  horizontalTabScroll: boolean;
   //// File tree
   fileTreeIndentSize: number;
   compactFoldersInFileTree: boolean;
@@ -141,7 +121,6 @@ export interface Settings {
   rememberLastGitPanelMode: boolean;
   gitLastPanelMode: "changes" | "history" | "worktrees";
   gitSidebarTabOrder: Array<"changes" | "history" | "worktrees">;
-  githubSidebarSectionOrder: Array<"pull-requests" | "issues" | "actions">;
   enableInlineGitBlame: boolean;
   enableGitGutter: boolean;
   // Telemetry

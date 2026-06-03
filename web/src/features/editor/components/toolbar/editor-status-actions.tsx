@@ -14,8 +14,8 @@ import { setSyntaxHighlightingFilePath } from "@/features/editor/extensions/buil
 import { LspClient } from "@/features/editor/lsp/lsp-client";
 import { LSP_ERROR_TOAST_KEY, type LspStatus, useLspStore } from "@/features/editor/lsp/lsp-store";
 import type { Position } from "@/features/editor/types/editor";
-import { LoadingSpinner } from "@/components/ui/spinner";
-import { useBufferStore } from "@/features/editor/stores/buffer-store";
+import { LoadingSpinner } from "@/components/ui/loading-spinner";
+import { useWorkspaceStoreContext, useWorkspaceStore } from "@/features/workspace/stores/workspace-context";
 import { useEditorStateStore } from "@/features/editor/stores/state-store";
 import {
   getAllLanguages,
@@ -32,7 +32,7 @@ import { cn } from "@/utils/cn";
 import { getFilenameFromPath } from "@/features/file-system/controllers/file-utils";
 
 const actionButtonClass = cn(
-  buttonVariants({ variant: "ghost", compact: true }),
+  buttonVariants({ variant: "ghost" }),
   "rounded text-muted-foreground",
 );
 
@@ -40,7 +40,7 @@ const statusChipClass =
   "ui-font inline-flex h-5 items-center self-center rounded-md border border-transparent px-1.5 ui-text-xs leading-none text-muted-foreground transition-colors hover:bg-muted hover:text-foreground";
 
 const menuTriggerClass = cn(
-  buttonVariants({ variant: "ghost", compact: true }),
+  buttonVariants({ variant: "ghost" }),
   "rounded text-muted-foreground",
 );
 
@@ -78,9 +78,13 @@ function CursorPositionChip({ editorViewKey }: { editorViewKey?: string | null }
 }
 
 export function EditorStatusActions({ bufferId, editorViewKey }: EditorStatusActionsProps = {}) {
-  const { rootFolderPath } = useFileSystemStore();
-  const resolvedBufferId = useBufferStore((state) => bufferId ?? state.activeBufferId);
-  const { settings, updateSetting } = useSettingsStore();
+  const workspaceStore = useWorkspaceStore();
+  const rootFolderPath = useFileSystemStore((s) => s.rootFolderPath);
+  const resolvedBufferId = useWorkspaceStoreContext(
+    (state) => bufferId ?? state.panes[state.activePaneId]?.activeBufferId ?? null,
+  );
+  const settings = useSettingsStore((s) => s.settings);
+  const updateSetting = useSettingsStore((s) => s.updateSetting);
   const minimapShortcut = useCommandShortcut("workbench.toggleMinimap");
   const lspStatus = useLspStore.use.lspStatus();
   const [isLspOpen, setIsLspOpen] = useState(false);
@@ -128,7 +132,7 @@ export function EditorStatusActions({ bufferId, editorViewKey }: EditorStatusAct
   const activeServers = lspStatus.supportedLanguages || [];
   const hasActiveServers = lspStatus.status === "connected" && activeServers.length > 0;
   const projectName = rootFolderPath ? getFilenameFromPath(rootFolderPath) : "No Project";
-  const activeBuffer = useBufferStore(
+  const activeBuffer = useWorkspaceStoreContext(
     useShallow((state) => {
       const buffer = resolvedBufferId
         ? state.buffers.find((candidate) => candidate.id === resolvedBufferId)
@@ -216,7 +220,7 @@ export function EditorStatusActions({ bufferId, editorViewKey }: EditorStatusAct
         throw new Error("Language server did not start.");
       }
       const fullActiveBuffer = resolvedBufferId
-        ? useBufferStore.getState().buffers.find((buffer) => buffer.id === resolvedBufferId)
+        ? workspaceStore.getState().buffers.find((buffer) => buffer.id === resolvedBufferId)
         : null;
       const bufferContent =
         fullActiveBuffer && hasTextContent(fullActiveBuffer) ? fullActiveBuffer.content : "";
@@ -247,7 +251,13 @@ export function EditorStatusActions({ bufferId, editorViewKey }: EditorStatusAct
         return;
       }
 
-      useBufferStore.getState().actions.updateBufferLanguage(resolvedBufferId, languageId);
+      workspaceStore.setState((state) => ({
+        buffers: state.buffers.map((b) =>
+          b.id === resolvedBufferId && b.type === "editor"
+            ? { ...b, languageOverride: languageId }
+            : b,
+        ),
+      }));
 
       if (activeBuffer.path) {
         await setSyntaxHighlightingFilePath(activeBuffer.path);
@@ -262,7 +272,7 @@ export function EditorStatusActions({ bufferId, editorViewKey }: EditorStatusAct
           if (!started) {
             throw new Error("Language server did not start.");
           }
-          const fullActiveBuffer = useBufferStore
+          const fullActiveBuffer = workspaceStore
             .getState()
             .buffers.find((buffer) => buffer.id === resolvedBufferId);
           const bufferContent =

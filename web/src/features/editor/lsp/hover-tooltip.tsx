@@ -10,7 +10,8 @@ export const HoverTooltip = memo(() => {
   const fontSize = useEditorSettingsStore((state) => state.fontSize);
   const lineHeight = useEditorSettingsStore((state) => state.lineHeight);
   const fontFamily = useEditorSettingsStore((state) => state.fontFamily);
-  const { hoverInfo, actions } = useEditorUIStore();
+  const hoverInfo = useEditorUIStore((s) => s.hoverInfo);
+  const actions = useEditorUIStore((s) => s.actions);
   const containerRef = useRef<HTMLDivElement>(null);
   const [highlightedHtml, setHighlightedHtml] = useState<string | null>(null);
   const [resolvedPosition, setResolvedPosition] = useState<{ top: number; left: number } | null>(

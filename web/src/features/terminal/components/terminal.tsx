@@ -60,7 +60,8 @@ export const XtermTerminal: React.FC<XtermTerminalProps> = ({
   const [searchResults, setSearchResults] = useState({ current: 0, total: 0 });
   const isInitializingRef = useRef(false);
 
-  const { updateSession, getSession } = useTerminalStore();
+  const updateSession = useTerminalStore((s) => s.updateSession);
+  const getSession = useTerminalStore((s) => s.getSession);
   const session = getSession(sessionId);
   const connectionId = session?.connectionId;
   const hadExistingConnectionOnMountRef = useRef(Boolean(session?.connectionId));
@@ -77,7 +78,7 @@ export const XtermTerminal: React.FC<XtermTerminalProps> = ({
     terminalCursorWidth,
   } = useSettingsStore((state) => state.settings);
   const zoomLevel = useZoomStore.use.terminalZoomLevel();
-  const { rootFolderPath } = useProjectStore();
+  const rootFolderPath = useProjectStore((s) => s.rootFolderPath);
   const { getTerminalTheme } = useTerminalTheme();
   const effectiveTerminalFontSize = Math.round(terminalFontSize * zoomLevel * 10) / 10;
   const effectiveTerminalLetterSpacing = terminalLetterSpacing * zoomLevel;

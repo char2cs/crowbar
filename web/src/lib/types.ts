@@ -1,25 +1,8 @@
 // web/src/lib/types.ts
-export type UIMode = 'chat' | 'diff'
-
-export interface FlowStateDefinition {
-  name: string    // machine name: 'brainstorming', 'ai_review'
-  label: string   // display name: 'Brainstorm', 'AI Review'
-  ui: UIMode
-}
-
-export interface FlowDefinition {
-  name: string
-  description: string
-  states: FlowStateDefinition[]
-}
-
 export interface WorkspacePayload {
   id: string
   repoId: string
   branch: string
-  flowName: string
-  currentState: string
-  flow: FlowDefinition
 }
 
 export interface ChatMessage {

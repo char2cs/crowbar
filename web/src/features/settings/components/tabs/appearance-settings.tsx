@@ -29,7 +29,8 @@ const SIDEBAR_POSITION_OPTIONS: { value: "left" | "right"; label: string }[] = [
 ]
 
 export const AppearanceSettings = () => {
-  const { settings, updateSetting } = useSettingsStore();
+  const settings = useSettingsStore((s) => s.settings);
+  const updateSetting = useSettingsStore((s) => s.updateSetting);
   const [themeOptions, setThemeOptions] = useState<{ value: string; label: string }[]>([]);
   const [iconThemeOptions, setIconThemeOptions] = useState<{ value: string; label: string }[]>([]);
 

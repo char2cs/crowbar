@@ -1,12 +1,12 @@
 const appDataDir = async (): Promise<string> => '/tmp/crowbar-data' // stub for web mode
 import { ClockCounterClockwise as History } from "@phosphor-icons/react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useStore } from "zustand";
 import { IconThemeSelectorContent } from "@/features/command-palette/components/icon-theme-selector";
 import { ThemeSelectorContent } from "@/features/command-palette/components/theme-selector";
-import { QuickQuestionCommandContent } from "@/features/ai/components/quick-question-command";
 import { useLspStore } from "@/features/editor/lsp/lsp-store";
-import { useBufferStore } from "@/features/editor/stores/buffer-store";
 import { useFileSystemStore } from "@/features/file-system/controllers/store";
+import { useWorkspaceStore } from "@/features/workspace/stores/workspace-context";
 import { commitChanges } from "@/features/git/api/git-commits-api";
 import { fetchChanges, pullChanges, pushChanges } from "@/features/git/api/git-remotes-api";
 import {
@@ -16,16 +16,14 @@ import {
 } from "@/features/git/api/git-status-api";
 import { useGitStore } from "@/features/git/stores/git-store";
 import { useRepositoryStore } from "@/features/git/stores/git-repository-store";
-import { useGitHubStore } from "@/features/github/stores/github-store";
 import { useToast } from "@/features/layout/contexts/toast-context";
-import { useOnboardingStore } from "@/features/onboarding/store";
 import { useSettingsStore } from "@/features/settings/store";
 import { useWhatsNewStore } from "@/features/settings/stores/whats-new-store";
-import { useEditorAppStore } from "@/features/editor/stores/editor-app-store";
 import { useUIState } from "@/features/window/stores/ui-state-store";
 import { useZoomStore } from "@/features/window/stores/zoom-store";
 import { keymapRegistry } from "@/features/keymaps/utils/registry";
-import Command, {
+import {
+  Command,
   CommandEmpty,
   CommandHeader,
   CommandInput,
@@ -35,10 +33,8 @@ import Command, {
 import Keybinding from "@/components/ui/keybinding";
 import { matchesSearchQuery } from "@/utils/search-match";
 import { createAdvancedActions } from "../constants/advanced-actions";
-import { createDatabaseActions } from "../constants/database-actions";
 import { createFileActions } from "../constants/file-actions";
 import { createGitActions } from "../constants/git-actions";
-import { createGitHubActions } from "../constants/github-actions";
 import { createMarkdownActions } from "../constants/markdown-actions";
 import { createNavigationActions } from "../constants/navigation-actions";
 import { createPaneActions } from "../constants/pane-actions";
@@ -51,26 +47,21 @@ import { useActionsStore } from "../store";
 
 const CommandPalette = () => {
   // Get data from stores
-  const {
-    isCommandPaletteVisible,
-    commandPaletteInitialView,
-    setIsCommandPaletteVisible,
-    setIsSettingsDialogVisible,
-    isSidebarVisible,
-    setIsSidebarVisible,
-    isBottomPaneVisible,
-    setIsBottomPaneVisible,
-    bottomPaneActiveTab,
-    setBottomPaneActiveTab,
-    isFindVisible,
-    setIsFindVisible,
-    setActiveView,
-    setActiveRightSidebarView,
-    setIsQuickOpenVisible,
-    setIsRightSidebarVisible,
-    openSettingsDialog,
-  } = useUIState();
-  const { openQuickEdit } = useEditorAppStore.use.actions();
+  const isCommandPaletteVisible = useUIState((s) => s.isCommandPaletteVisible);
+  const commandPaletteInitialView = useUIState((s) => s.commandPaletteInitialView);
+  const setIsCommandPaletteVisible = useUIState((s) => s.setIsCommandPaletteVisible);
+  const setIsSettingsDialogVisible = useUIState((s) => s.setIsSettingsDialogVisible);
+  const isSidebarVisible = useUIState((s) => s.isSidebarVisible);
+  const setIsSidebarVisible = useUIState((s) => s.setIsSidebarVisible);
+  const isBottomPaneVisible = useUIState((s) => s.isBottomPaneVisible);
+  const setIsBottomPaneVisible = useUIState((s) => s.setIsBottomPaneVisible);
+  const bottomPaneActiveTab = useUIState((s) => s.bottomPaneActiveTab);
+  const setBottomPaneActiveTab = useUIState((s) => s.setBottomPaneActiveTab);
+  const isFindVisible = useUIState((s) => s.isFindVisible);
+  const setIsFindVisible = useUIState((s) => s.setIsFindVisible);
+  const setActiveView = useUIState((s) => s.setActiveView);
+  const setIsQuickOpenVisible = useUIState((s) => s.setIsQuickOpenVisible);
+  const openSettingsDialog = useUIState((s) => s.openSettingsDialog);
   const handleFileOpen = useFileSystemStore.use.handleFileOpen?.();
   const isVisible = isCommandPaletteVisible;
   const onClose = () => {
@@ -108,29 +99,54 @@ const CommandPalette = () => {
 
   const lastEnteredActions = useActionsStore.use.lastEnteredActionsStack();
   const pushAction = useActionsStore.use.pushAction();
-  const { settings } = useSettingsStore();
+  const settings = useSettingsStore((s) => s.settings);
   const lspStatus = useLspStore.use.lspStatus();
   const { clearLspError, updateLspStatus } = useLspStore.use.actions();
-  const { rootFolderPath } = useFileSystemStore();
+  const rootFolderPath = useFileSystemStore((s) => s.rootFolderPath);
   const activeRepoPath = useRepositoryStore.use.activeRepoPath();
-  const gitStore = useGitStore();
-  const { checkAuth: checkGitHubAuth } = useGitHubStore().actions;
+  const gitStoreActions = useGitStore((s) => s.actions);
   const { showToast } = useToast();
   const openWhatsNew = useWhatsNewStore((state) => state.open);
-  const openOnboarding = useOnboardingStore((state) => state.openPreview);
-  const buffers = useBufferStore.use.buffers();
-  const activeBufferId = useBufferStore.use.activeBufferId();
+  const workspaceStore = useWorkspaceStore();
+  const buffers = useStore(workspaceStore, (s) => s.buffers);
+  const activePaneId = useStore(workspaceStore, (s) => s.activePaneId);
+  const activeBufferId = useStore(workspaceStore, (s) => s.paneActions.getActivePane()?.activeBufferId ?? null);
   const activeBuffer = buffers.find((b) => b.id === activeBufferId) || null;
-  const {
-    closeBuffer,
-    setActiveBuffer,
-    switchToNextBuffer,
-    switchToPreviousBuffer,
-    reopenClosedTab,
-    openWebViewerBuffer,
-  } = useBufferStore.use.actions();
+  const closeBuffer = (id: string) => workspaceStore.getState().bufferActions.closeBuffer(id);
+  const setActiveBuffer = (id: string) => workspaceStore.getState().paneActions.activatePaneBuffer(activePaneId, id);
+  const switchToNextBuffer = () => workspaceStore.getState().paneActions.switchToNextBufferInPane();
+  const switchToPreviousBuffer = () => workspaceStore.getState().paneActions.switchToPreviousBufferInPane();
+  const reopenClosedTab = async () => { workspaceStore.getState().bufferActions.reopenLastClosedBuffer(); };
+  const openWebViewerBuffer = (url: string) => workspaceStore.getState().bufferActions.openContent({ type: 'webViewer', url });
   const { zoomIn, zoomOut, resetZoom } = useZoomStore.use.actions();
-  const { openBuffer } = useBufferStore.use.actions();
+  const openBuffer = (
+    path: string,
+    name: string,
+    content: string,
+    _isImage?: boolean,
+    _databaseType?: any,
+    _isDiff?: boolean,
+    _isVirtual?: boolean,
+    diffData?: any,
+    isMarkdownPreview?: boolean,
+    isHtmlPreview?: boolean,
+    isCsvPreview?: boolean,
+    sourceFilePath?: string,
+  ) => {
+    if (isMarkdownPreview) {
+      return workspaceStore.getState().bufferActions.openContent({ type: 'markdownPreview', path, name, content, sourceFilePath: sourceFilePath ?? path });
+    }
+    if (isHtmlPreview) {
+      return workspaceStore.getState().bufferActions.openContent({ type: 'htmlPreview', path, name, content, sourceFilePath: sourceFilePath ?? path });
+    }
+    if (isCsvPreview) {
+      return workspaceStore.getState().bufferActions.openContent({ type: 'csvPreview', path, name, content, sourceFilePath: sourceFilePath ?? path });
+    }
+    if (diffData) {
+      return workspaceStore.getState().bufferActions.openContent({ type: 'diff', path, name, content, diffData });
+    }
+    return workspaceStore.getState().bufferActions.openContent({ type: 'editor', path, name, content });
+  };
 
   // Helper function to check if the active buffer is a markdown file
   const isMarkdownFile = () => {
@@ -157,7 +173,6 @@ const CommandPalette = () => {
       isFindVisible,
       setIsFindVisible,
       settings: {
-        isAIChatVisible: settings.isAIChatVisible,
         sidebarPosition: settings.sidebarPosition,
         nativeMenuBar: settings.nativeMenuBar,
         compactMenuBar: settings.compactMenuBar,
@@ -186,7 +201,6 @@ const CommandPalette = () => {
       handleFileOpen,
       getAppDataDir: appDataDir,
       openWhatsNew,
-      openOnboarding,
       onClose,
     }),
     ...createNavigationActions({
@@ -215,10 +229,8 @@ const CommandPalette = () => {
     ...createGitActions({
       rootFolderPath,
       activeRepoPath,
-      setIsSidebarVisible,
-      setActiveView,
       showToast,
-      gitStore,
+      gitStore: { actions: gitStoreActions },
       gitOperations: {
         stageAllFiles,
         unstageAllFiles,
@@ -230,29 +242,6 @@ const CommandPalette = () => {
       },
       onClose,
     }),
-    ...createGitHubActions({
-      setIsSidebarVisible,
-      setActiveView,
-      settings: {
-        showGitHubPullRequests: settings.showGitHubPullRequests,
-        showGitHubIssues: settings.showGitHubIssues,
-        showGitHubActions: settings.showGitHubActions,
-      },
-      updateSetting: useSettingsStore.getState().updateSetting as (
-        key: string,
-        value: any,
-      ) => void | Promise<void>,
-      checkAuth: checkGitHubAuth,
-      showToast,
-      onClose,
-    }),
-    ...createDatabaseActions({
-      onClose,
-      openDatabaseSidebar: () => {
-        setActiveRightSidebarView("databases");
-        setIsRightSidebarVisible(true);
-      },
-    }),
     ...createAdvancedActions({
       lspStatus,
       updateLspStatus: updateLspStatus as (
@@ -262,7 +251,6 @@ const CommandPalette = () => {
       ) => void,
       clearLspError,
       rootFolderPath,
-      openQuickEdit,
       pushPaletteView: pushView,
       showToast,
       onClose,
@@ -358,16 +346,7 @@ const CommandPalette = () => {
 
   return (
     <Command isVisible={isVisible} onClose={onClose}>
-      {currentView === "quick-question" ? (
-        <QuickQuestionCommandContent
-          isActive={currentView === "quick-question"}
-          onBack={popView}
-          onClose={onClose}
-          activeBuffer={activeBuffer}
-          buffers={buffers}
-          projectRoot={rootFolderPath}
-        />
-      ) : currentView === "color-theme" ? (
+      {currentView === "color-theme" ? (
         <ThemeSelectorContent
           isActive={currentView === "color-theme"}
           onBack={popView}

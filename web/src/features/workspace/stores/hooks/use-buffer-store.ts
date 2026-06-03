@@ -1,3 +1,4 @@
+import { useShallow } from 'zustand/react/shallow'
 import { useWorkspaceStoreContext } from '../workspace-context'
 import type { BufferActions } from '../slices/buffer-slice'
 import type { PaneContent } from '@/features/panes/types/pane-content'
@@ -10,3 +11,6 @@ export const useBufferActions = (): BufferActions =>
 
 export const useBufferById = (id: string): PaneContent | undefined =>
   useWorkspaceStoreContext(s => s.buffers.find(b => b.id === id))
+
+export const useBuffersByIds = (ids: string[]): PaneContent[] =>
+  useWorkspaceStoreContext(useShallow(s => s.buffers.filter(b => ids.includes(b.id))))

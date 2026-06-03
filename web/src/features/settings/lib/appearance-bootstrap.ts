@@ -6,7 +6,7 @@ import {
 import { normalizeConfiguredFontFamily } from "./font-family-resolution";
 import { getUiFontScale, normalizeUiFontSize, UI_FONT_SIZE_DEFAULT } from "./ui-font-size";
 
-export const APPEARANCE_BOOTSTRAP_CACHE_KEY = "crowbar.bootstrap.appearance.v1";
+export const APPEARANCE_BOOTSTRAP_CACHE_KEY = "crowbar.bootstrap.appearance.v2";
 
 const DEFAULT_MONO_FALLBACK =
   '"JetBrains Mono Variable", ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, "Liberation Mono", monospace';
@@ -24,11 +24,11 @@ const CROWBAR_DARK_COLORS: Record<string, string> = {
   text: "#faf9f5",
   "text-light": "#d7d3c6",
   "text-lighter": "#b0aea5",
-  border: "#2f2d29",
+  border: "oklch(1 0 0 / 6%)",
   hover: "#252320",
   selected: "#2c2925",
   "selection-bg": "rgba(106, 155, 204, 0.30)",
-  accent: "#215CAC",
+  primary: "#215CAC",
   cursor: "#faf9f5",
   "cursor-vim-normal": "rgba(106, 155, 204, 0.65)",
   "cursor-vim-insert": "#788c5d",
@@ -91,7 +91,7 @@ const CROWBAR_LIGHT_COLORS: Record<string, string> = {
   hover: "#eef1f5",
   selected: "#e7ebf0",
   "selection-bg": "rgba(106, 155, 204, 0.25)",
-  accent: "#215CAC",
+  primary: "#215CAC",
   cursor: "#141413",
   "cursor-vim-normal": "rgba(106, 155, 204, 0.65)",
   "cursor-vim-insert": "#788c5d",
@@ -319,13 +319,28 @@ export function ensureStartupAppearanceApplied(): void {
   applyBootstrapAppearance(cache);
 }
 
+/**
+ * Converts typed ThemeTokens fields to a CSS variable map.
+ * Add a line here for each new typed token.
+ */
+export function themeTokensToCssVars(tokens: ThemeDefinition["tokens"]): Record<string, string> {
+  if (!tokens) return {};
+  const vars: Record<string, string> = {};
+  if (tokens.chromeBg != null) vars["--chrome-bg"] = tokens.chromeBg;
+  return vars;
+}
+
 export function cacheThemeForBootstrap(theme: ThemeDefinition): void {
   const existing = readAppearanceBootstrapCache() || DEFAULT_APPEARANCE_BOOTSTRAP_CACHE;
+  const cssVariables = {
+    ...sanitizeVarMap(theme.cssVariables),
+    ...themeTokensToCssVars(theme.tokens),
+  };
   const next: AppearanceBootstrapCache = {
     version: 1,
     themeId: theme.id,
     themeType: theme.isDark ? "dark" : "light",
-    cssVariables: sanitizeVarMap(theme.cssVariables),
+    cssVariables,
     syntaxTokens: sanitizeVarMap(theme.syntaxTokens),
     editorFontFamily: existing.editorFontFamily,
     uiFontFamily: existing.uiFontFamily,

@@ -76,6 +76,14 @@ export async function clipboardClear(): Promise<void> {
   // FUTURE: DELETE /api/fs/clipboard
 }
 
+// ── Native Dialogs ────────────────────────────────────────────────────────────
+// FUTURE: Tauri plugin-dialog when crowbar desktop wrapper exposes it
+
+export async function openDirectory(): Promise<string | null> {
+  // FUTURE: @tauri-apps/plugin-dialog open({ directory: true, multiple: false })
+  return null;
+}
+
 // ── Window Management ─────────────────────────────────────────────────────────
 // FUTURE: Tauri plugin calls when Crowbar's desktop wrapper exposes them
 
@@ -92,4 +100,63 @@ export async function setMacOSWindowAppearance(
 
 export async function toggleMenuBar(_toggle: boolean): Promise<void> {
   // FUTURE: invoke Tauri menu bar plugin
+}
+
+// ── Browser Pane (native child webview) ──────────────────────────────────────
+
+export function isTauri(): boolean {
+  return typeof window !== 'undefined' && '__TAURI_INTERNALS__' in window
+}
+
+async function tauriInvoke(cmd: string, args?: Record<string, unknown>): Promise<void> {
+  if (!isTauri()) throw new Error(`tauriInvoke called outside Tauri: ${cmd}`)
+  // Use the global injected by Tauri before any JS runs — no npm import needed
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  await (window as any).__TAURI_INTERNALS__.invoke(cmd, args)
+}
+
+export async function browserPaneSync(
+  bufferId: string,
+  rect: { x: number; y: number; width: number; height: number },
+  visible: boolean,
+  // Used only on the first call (webview creation). Eliminates the race
+  // between sync creating the pane and a separate navigate call on mount.
+  initialUrl?: string,
+): Promise<void> {
+  if (!isTauri()) return
+  // Tauri command expects flat args, not a nested rect object
+  await tauriInvoke('browser_pane_sync', {
+    bufferId,
+    x: rect.x,
+    y: rect.y,
+    width: rect.width,
+    height: rect.height,
+    visible,
+    initialUrl,
+  })
+}
+
+export async function browserPaneNavigate(bufferId: string, url: string): Promise<void> {
+  if (!isTauri()) return
+  await tauriInvoke('browser_pane_navigate', { bufferId, url })
+}
+
+export async function browserPaneGoBack(bufferId: string): Promise<void> {
+  if (!isTauri()) return
+  await tauriInvoke('browser_pane_go_back', { bufferId })
+}
+
+export async function browserPaneGoForward(bufferId: string): Promise<void> {
+  if (!isTauri()) return
+  await tauriInvoke('browser_pane_go_forward', { bufferId })
+}
+
+export async function browserPaneReload(bufferId: string): Promise<void> {
+  if (!isTauri()) return
+  await tauriInvoke('browser_pane_reload', { bufferId })
+}
+
+export async function browserPaneClose(bufferId: string): Promise<void> {
+  if (!isTauri()) return
+  await tauriInvoke('browser_pane_close', { bufferId })
 }

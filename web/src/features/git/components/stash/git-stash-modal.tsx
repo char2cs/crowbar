@@ -3,7 +3,7 @@ import { type RefObject, useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { useOnClickOutside } from "usehooks-ts";
 import { Button } from "@/components/ui/button";
-import Input from "@/components/ui/input";
+import { Input } from "@/components/ui/input";
 import { cn } from "@/utils/cn";
 
 interface StashMessageModalProps {
@@ -88,7 +88,7 @@ export const StashMessageModal = ({
           <Button
             onClick={handleConfirm}
             disabled={isLoading}
-            variant="accent"
+            variant="secondary"
             className="ui-text-xs disabled:opacity-50"
             compact
           >

@@ -21,7 +21,7 @@ import {
   Warning,
 } from "@phosphor-icons/react";
 import { useCallback, useMemo, useState } from "react";
-import { useBufferStore } from "@/features/editor/stores/buffer-store";
+import { getActiveWorkspaceStoreRef } from "@/features/workspace/stores/workspace-store-ref";
 import { readFile as readTextFile, writeFile } from "@/features/file-system/controllers/platform";
 import {
   buildEnvTemplateContent,
@@ -33,7 +33,7 @@ import { useFileTreeStore } from "@/features/file-explorer/stores/file-explorer-
 import type { ContextMenuState } from "@/features/file-system/types/app";
 import { Button } from "@/components/ui/button";
 import { ContextMenu, type ContextMenuItem } from "@/components/ui/context-menu";
-import Dialog from "@/components/ui/dialog";
+import { AppDialog as Dialog } from "@/components/ui/dialog";
 import { toast } from "@/components/ui/toast";
 import { getBaseName, getDirName, getRelativePath, joinPath } from "@/utils/path-helpers";
 
@@ -149,10 +149,20 @@ export function useFileExplorerContextMenu({
 
         await writeFile(createdPath, templateContent);
 
-        const bufferStore = useBufferStore.getState();
-        const createdBuffer = bufferStore.buffers.find((buffer) => buffer.path === createdPath);
-        if (createdBuffer) {
-          bufferStore.actions.updateBufferContent(createdBuffer.id, templateContent, false);
+        const wsStore = getActiveWorkspaceStoreRef();
+        if (wsStore) {
+          const wsState = wsStore.getState();
+          const createdBuffer = wsState.buffers.find((buffer) => buffer.path === createdPath);
+          if (createdBuffer) {
+            wsStore.setState((state) => ({
+              ...state,
+              buffers: state.buffers.map((b) =>
+                b.id === createdBuffer.id && 'content' in b
+                  ? { ...b, content: templateContent }
+                  : b,
+              ),
+            }));
+          }
         }
 
         onRefreshDirectory?.(directoryPath);
@@ -257,8 +267,8 @@ export function useFileExplorerContextMenu({
           icon: <Terminal />,
           onClick: () => {
             const folderName = getBaseName(contextMenu.path, "terminal");
-            const { openTerminalBuffer } = useBufferStore.getState().actions;
-            openTerminalBuffer({
+            getActiveWorkspaceStoreRef()?.getState().bufferActions.openContent({
+              type: 'terminal',
               name: folderName,
               workingDirectory: contextMenu.path,
             });
@@ -494,7 +504,7 @@ export function useFileExplorerContextMenu({
                 <Button variant="ghost" onClick={() => setEnvOverwriteDialog(null)}>
                   Cancel
                 </Button>
-                <Button variant="danger" onClick={handleEnvOverwriteConfirm} compact>
+                <Button variant="destructive" onClick={handleEnvOverwriteConfirm} compact>
                   Overwrite
                 </Button>
               </>

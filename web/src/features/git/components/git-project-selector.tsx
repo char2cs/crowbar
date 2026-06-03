@@ -1,10 +1,10 @@
-const open = async (_opts: unknown): Promise<string | null> => null
 import { Check, FolderOpen, ArrowClockwise as RefreshCw } from "@phosphor-icons/react";
 import { type KeyboardEvent, useCallback, useEffect, useMemo, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { CommandEmpty, CommandFooter, CommandItem, CommandList } from "@/components/ui/command";
 import { cn } from "@/utils/cn";
 import { getFolderName, getRelativePath } from "@/utils/path-helpers";
+import { openDirectory } from "@/lib/crowbar-bridge";
 import { resolveRepositoryPath } from "../api/git-repo-api";
 import { useRepositoryStore } from "../stores/git-repository-store";
 import GitCommandSurface from "./git-command-surface";
@@ -100,7 +100,7 @@ const GitProjectSelector = ({
     setSelectionError(null);
 
     try {
-      const selected = await open({ directory: true, multiple: false });
+      const selected = await openDirectory();
       if (!selected || Array.isArray(selected)) return;
 
       const resolvedRepoPath = await resolveRepositoryPath(selected);

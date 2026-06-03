@@ -7,7 +7,7 @@ import { EDITOR_CONSTANTS } from "@/features/editor/config/constants";
 import { useOverlayManager } from "@/features/editor/hooks/use-overlay-manager";
 import { useThrottledCallback } from "@/features/editor/hooks/use-performance";
 import { useSelectionScope } from "@/features/editor/hooks/use-selection-scope";
-import { useBufferStore } from "@/features/editor/stores/buffer-store";
+import { getActiveWorkspaceStoreRef } from "@/features/workspace/stores/workspace-store-ref";
 import { useEditorStateStore } from "@/features/editor/stores/state-store";
 import { useSettingsStore } from "@/features/settings/store";
 import { Button } from "@/components/ui/button";
@@ -41,7 +41,7 @@ export const InlineGitBlame = ({
   const hideTimeoutRef = useRef<NodeJS.Timeout | null>(null);
   const showTimeoutRef = useRef<NodeJS.Timeout | null>(null);
   const documentRef = useRef(document);
-  const { settings } = useSettingsStore();
+  const settings = useSettingsStore((s) => s.settings);
   const effectiveFontSize = fontSize ?? settings.fontSize;
   const effectiveLineHeight =
     lineHeight ?? settings.fontSize * EDITOR_CONSTANTS.LINE_HEIGHT_MULTIPLIER;
@@ -155,18 +155,15 @@ export const InlineGitBlame = ({
         const virtualPath = `diff://commit/${blameLine.commit_hash}/all-files`;
         const displayName = `Commit ${blameLine.commit_hash.substring(0, 7)} (${diffs.length} files)`;
 
-        useBufferStore
-          .getState()
-          .actions.openBuffer(
-            virtualPath,
-            displayName,
-            "",
-            false,
-            undefined,
-            true,
-            true,
-            multiDiff,
-          );
+        getActiveWorkspaceStoreRef()
+          ?.getState()
+          .bufferActions.openContent({
+            type: "diff",
+            path: virtualPath,
+            name: displayName,
+            content: "",
+            diffData: multiDiff,
+          });
       }
     } catch (error) {
       console.error("Error getting commit diff:", error);

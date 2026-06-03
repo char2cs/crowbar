@@ -88,24 +88,6 @@ describe("settings normalization", () => {
     expect(normalized.editorEngine).toBe("helix");
   });
 
-  it("preserves custom AI provider settings and mirrors the custom model into chat model", () => {
-    const normalized = normalizeSettings({
-      ...getDefaultSettingsSnapshot(),
-      aiProviderId: "custom",
-      aiModelId: " old-model ",
-      aiCustomBaseUrl: " http://localhost:11434/v1/ ",
-      aiCustomModelId: " qwen2.5-coder:7b ",
-    });
-
-    expect(normalized.aiProviderId).toBe("custom");
-    expect(normalized.aiCustomBaseUrl).toBe("http://localhost:11434/v1");
-    expect(normalized.aiCustomModelId).toBe("qwen2.5-coder:7b");
-    expect(normalized.aiModelId).toBe("qwen2.5-coder:7b");
-    expect(normalizeSettingValue("aiCustomBaseUrl", " https://example.test/v1/ ")).toBe(
-      "https://example.test/v1",
-    );
-  });
-
   describe("themeMode migration", () => {
     it("sets themeMode to system when syncSystemTheme was true", () => {
       const result = normalizeSettings({
@@ -138,43 +120,4 @@ describe("settings normalization", () => {
     });
   });
 
-  it("preserves supported marketplace skill metadata", () => {
-    const now = new Date().toISOString();
-    const normalized = normalizeSettingValue("aiSkills", [
-      {
-        id: " skill-one ",
-        title: " Review Skill ",
-        description: " ".repeat(2) + "Helpful review instructions",
-        content: "Review this diff",
-        author: "Athas",
-        source: "marketplace",
-        sourceId: "athas.review",
-        version: "1.0.0",
-        tags: ["review", " code "],
-        localOverride: true,
-        upstreamTitle: " Review ",
-        upstreamDescription: " Marketplace description ",
-        upstreamContent: "Marketplace content",
-        upstreamUpdatedAt: "2026-04-01T00:00:00.000Z",
-        createdAt: now,
-        updatedAt: now,
-      },
-    ]);
-
-    expect(normalized[0]).toMatchObject({
-      id: "skill-one",
-      title: "Review Skill",
-      description: "Helpful review instructions",
-      author: "Athas",
-      source: "marketplace",
-      sourceId: "athas.review",
-      version: "1.0.0",
-      tags: ["review", "code"],
-      localOverride: true,
-      upstreamTitle: "Review",
-      upstreamDescription: "Marketplace description",
-      upstreamContent: "Marketplace content",
-      upstreamUpdatedAt: "2026-04-01T00:00:00.000Z",
-    });
-  });
 });

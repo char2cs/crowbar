@@ -24,11 +24,6 @@ interface AdvancedActionsParams {
   ) => void;
   clearLspError: () => void;
   rootFolderPath: string | null | undefined;
-  openQuickEdit: (params: {
-    text: string;
-    cursorPosition: { x: number; y: number };
-    selectionRange: { start: number; end: number };
-  }) => void;
   pushPaletteView: (view: CommandPaletteViewId) => void;
   showToast: (params: { message: string; type: "success" | "error" | "info" }) => void;
   onClose: () => void;
@@ -40,7 +35,6 @@ export const createAdvancedActions = (params: AdvancedActionsParams): Action[] =
     updateLspStatus,
     clearLspError,
     rootFolderPath,
-    openQuickEdit,
     pushPaletteView,
     showToast,
     onClose,
@@ -66,24 +60,6 @@ export const createAdvancedActions = (params: AdvancedActionsParams): Action[] =
       commandId: "workbench.agentLauncher",
       action: () => {
         useUIState.getState().setIsAgentLauncherVisible(true);
-        onClose();
-      },
-    },
-    {
-      id: "ai-quick-edit",
-      label: "AI: Quick Edit Selection",
-      description: "Edit selected text using AI inline",
-      icon: <Sparkles />,
-      category: "AI",
-      action: () => {
-        const selection = window.getSelection();
-        if (selection?.toString()) {
-          openQuickEdit({
-            text: selection.toString(),
-            cursorPosition: { x: 0, y: 0 },
-            selectionRange: { start: 0, end: selection.toString().length },
-          });
-        }
         onClose();
       },
     },

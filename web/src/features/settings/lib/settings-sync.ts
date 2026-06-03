@@ -54,24 +54,7 @@ type SyncableSettingsKey =
   | "footerLeadingItemsOrder"
   | "footerTrailingItemsOrder"
   | "openFoldersInNewWindow"
-  | "aiProviderId"
-  | "aiModelId"
-  | "aiCustomBaseUrl"
-  | "aiCustomModelId"
-  | "aiChatWidth"
-  | "isAIChatVisible"
-  | "aiCompletion"
-  | "aiAutocompleteProvider"
-  | "aiAutocompleteModelId"
-  | "aiAutocompleteCustomBaseUrl"
-  | "aiAutocompleteCustomModelId"
-  | "aiDefaultSessionMode"
-  | "aiSkills"
-  | "ollamaBaseUrl"
   | "sidebarWidth"
-  | "showGitHubPullRequests"
-  | "showGitHubIssues"
-  | "showGitHubActions"
   | "keybindingPreset"
   | "defaultLanguage"
   | "autoDetectLanguage"
@@ -84,7 +67,6 @@ type SyncableSettingsKey =
   | "coreFeatures"
   | "extensionsActiveTab"
   | "maxOpenTabs"
-  | "horizontalTabScroll"
   | "hiddenFilePatterns"
   | "hiddenDirectoryPatterns"
   | "gitChangesFolderView"
@@ -100,7 +82,6 @@ type SyncableSettingsKey =
   | "rememberLastGitPanelMode"
   | "gitLastPanelMode"
   | "gitSidebarTabOrder"
-  | "githubSidebarSectionOrder"
   | "enableInlineGitBlame"
   | "enableGitGutter"
   | "telemetry";
@@ -144,24 +125,7 @@ const SYNCABLE_SETTINGS_KEYS: SyncableSettingsKey[] = [
   "footerLeadingItemsOrder",
   "footerTrailingItemsOrder",
   "openFoldersInNewWindow",
-  "aiProviderId",
-  "aiModelId",
-  "aiCustomBaseUrl",
-  "aiCustomModelId",
-  "aiChatWidth",
-  "isAIChatVisible",
-  "aiCompletion",
-  "aiAutocompleteProvider",
-  "aiAutocompleteModelId",
-  "aiAutocompleteCustomBaseUrl",
-  "aiAutocompleteCustomModelId",
-  "aiDefaultSessionMode",
-  "aiSkills",
-  "ollamaBaseUrl",
   "sidebarWidth",
-  "showGitHubPullRequests",
-  "showGitHubIssues",
-  "showGitHubActions",
   "keybindingPreset",
   "defaultLanguage",
   "autoDetectLanguage",
@@ -174,7 +138,6 @@ const SYNCABLE_SETTINGS_KEYS: SyncableSettingsKey[] = [
   "coreFeatures",
   "extensionsActiveTab",
   "maxOpenTabs",
-  "horizontalTabScroll",
   "hiddenFilePatterns",
   "hiddenDirectoryPatterns",
   "gitChangesFolderView",
@@ -190,7 +153,6 @@ const SYNCABLE_SETTINGS_KEYS: SyncableSettingsKey[] = [
   "rememberLastGitPanelMode",
   "gitLastPanelMode",
   "gitSidebarTabOrder",
-  "githubSidebarSectionOrder",
   "enableInlineGitBlame",
   "enableGitGutter",
   "telemetry",

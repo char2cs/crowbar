@@ -1,0 +1,2892 @@
+{
+  "name": "crowbar",
+  "path": "crowbar",
+  "type": "directory",
+  "children": [
+    {
+      "name": "features-0",
+      "path": "crowbar/features-0",
+      "type": "directory",
+      "children": [
+        {
+          "name": "docs-0",
+          "path": "crowbar/features-0/docs-0",
+          "type": "directory",
+          "children": [
+            {
+              "name": "components-0",
+              "path": "crowbar/features-0/docs-0/components-0",
+              "type": "directory",
+              "children": [
+                {
+                  "name": "file-0.yaml",
+                  "path": "crowbar/features-0/docs-0/components-0/file-0.yaml",
+                  "type": "file",
+                  "size": 21415
+                },
+                {
+                  "name": "file-1.yaml",
+                  "path": "crowbar/features-0/docs-0/components-0/file-1.yaml",
+                  "type": "file",
+                  "size": 49438
+                }
+              ]
+            },
+            {
+              "name": "file-1.yaml",
+              "path": "crowbar/features-0/docs-0/file-1.yaml",
+              "type": "file",
+              "size": 127411
+            },
+            {
+              "name": "file-2.go",
+              "path": "crowbar/features-0/docs-0/file-2.go",
+              "type": "file",
+              "size": 105955
+            },
+            {
+              "name": "store-3",
+              "path": "crowbar/features-0/docs-0/store-3",
+              "type": "directory",
+              "children": [
+                {
+                  "name": "file-0.tsx",
+                  "path": "crowbar/features-0/docs-0/store-3/file-0.tsx",
+                  "type": "file",
+                  "size": 96462
+                },
+                {
+                  "name": "models-1",
+                  "path": "crowbar/features-0/docs-0/store-3/models-1",
+                  "type": "directory",
+                  "children": [
+                    {
+                      "name": "file-0.css",
+                      "path": "crowbar/features-0/docs-0/store-3/models-1/file-0.css",
+                      "type": "file",
+                      "size": 83500
+                    },
+                    {
+                      "name": "file-1.go",
+                      "path": "crowbar/features-0/docs-0/store-3/models-1/file-1.go",
+                      "type": "file",
+                      "size": 59713
+                    },
+                    {
+                      "name": "file-2.go",
+                      "path": "crowbar/features-0/docs-0/store-3/models-1/file-2.go",
+                      "type": "file",
+                      "size": 50443
+                    },
+                    {
+                      "name": "api-3",
+                      "path": "crowbar/features-0/docs-0/store-3/models-1/api-3",
+                      "type": "directory",
+                      "children": [
+                        {
+                          "name": "types-0",
+                          "path": "crowbar/features-0/docs-0/store-3/models-1/api-3/types-0",
+                          "type": "directory",
+                          "children": [
+                            {
+                              "name": "file-0.css",
+                              "path": "crowbar/features-0/docs-0/store-3/models-1/api-3/types-0/file-0.css",
+                              "type": "file",
+                              "size": 179043
+                            },
+                            {
+                              "name": "file-1.tsx",
+                              "path": "crowbar/features-0/docs-0/store-3/models-1/api-3/types-0/file-1.tsx",
+                              "type": "file",
+                              "size": 175829
+                            }
+                          ]
+                        },
+                        {
+                          "name": "file-1.md",
+                          "path": "crowbar/features-0/docs-0/store-3/models-1/api-3/file-1.md",
+                          "type": "file",
+                          "size": 57096
+                        },
+                        {
+                          "name": "file-2.yaml",
+                          "path": "crowbar/features-0/docs-0/store-3/models-1/api-3/file-2.yaml",
+                          "type": "file",
+                          "size": 113356
+                        },
+                        {
+                          "name": "file-3.ts",
+                          "path": "crowbar/features-0/docs-0/store-3/models-1/api-3/file-3.ts",
+                          "type": "file",
+                          "size": 85299
+                        },
+                        {
+                          "name": "tests-4",
+                          "path": "crowbar/features-0/docs-0/store-3/models-1/api-3/tests-4",
+                          "type": "directory",
+                          "children": [
+                            {
+                              "name": "file-0.css",
+                              "path": "crowbar/features-0/docs-0/store-3/models-1/api-3/tests-4/file-0.css",
+                              "type": "file",
+                              "size": 5663
+                            },
+                            {
+                              "name": "file-1.ts",
+                              "path": "crowbar/features-0/docs-0/store-3/models-1/api-3/tests-4/file-1.ts",
+                              "type": "file",
+                              "size": 112540
+                            },
+                            {
+                              "name": "file-2.go",
+                              "path": "crowbar/features-0/docs-0/store-3/models-1/api-3/tests-4/file-2.go",
+                              "type": "file",
+                              "size": 100840
+                            },
+                            {
+                              "name": "file-3.md",
+                              "path": "crowbar/features-0/docs-0/store-3/models-1/api-3/tests-4/file-3.md",
+                              "type": "file",
+                              "size": 177173
+                            }
+                          ]
+                        }
+                      ]
+                    },
+                    {
+                      "name": "file-4.json",
+                      "path": "crowbar/features-0/docs-0/store-3/models-1/file-4.json",
+                      "type": "file",
+                      "size": 25075
+                    }
+                  ]
+                },
+                {
+                  "name": "services-2",
+                  "path": "crowbar/features-0/docs-0/store-3/services-2",
+                  "type": "directory",
+                  "children": [
+                    {
+                      "name": "tests-0",
+                      "path": "crowbar/features-0/docs-0/store-3/services-2/tests-0",
+                      "type": "directory",
+                      "children": [
+                        {
+                          "name": "file-0.md",
+                          "path": "crowbar/features-0/docs-0/store-3/services-2/tests-0/file-0.md",
+                          "type": "file",
+                          "size": 49012
+                        },
+                        {
+                          "name": "tests-1",
+                          "path": "crowbar/features-0/docs-0/store-3/services-2/tests-0/tests-1",
+                          "type": "directory",
+                          "children": [
+                            {
+                              "name": "file-0.md",
+                              "path": "crowbar/features-0/docs-0/store-3/services-2/tests-0/tests-1/file-0.md",
+                              "type": "file",
+                              "size": 85349
+                            },
+                            {
+                              "name": "file-1.md",
+                              "path": "crowbar/features-0/docs-0/store-3/services-2/tests-0/tests-1/file-1.md",
+                              "type": "file",
+                              "size": 68606
+                            },
+                            {
+                              "name": "file-2.test.ts",
+                              "path": "crowbar/features-0/docs-0/store-3/services-2/tests-0/tests-1/file-2.test.ts",
+                              "type": "file",
+                              "size": 98724
+                            },
+                            {
+                              "name": "file-3.css",
+                              "path": "crowbar/features-0/docs-0/store-3/services-2/tests-0/tests-1/file-3.css",
+                              "type": "file",
+                              "size": 108539
+                            },
+                            {
+                              "name": "file-4.json",
+                              "path": "crowbar/features-0/docs-0/store-3/services-2/tests-0/tests-1/file-4.json",
+                              "type": "file",
+                              "size": 162365
+                            },
+                            {
+                              "name": "file-5.md",
+                              "path": "crowbar/features-0/docs-0/store-3/services-2/tests-0/tests-1/file-5.md",
+                              "type": "file",
+                              "size": 4681
+                            },
+                            {
+                              "name": "file-6.yaml",
+                              "path": "crowbar/features-0/docs-0/store-3/services-2/tests-0/tests-1/file-6.yaml",
+                              "type": "file",
+                              "size": 147529
+                            }
+                          ]
+                        },
+                        {
+                          "name": "file-2.test.ts",
+                          "path": "crowbar/features-0/docs-0/store-3/services-2/tests-0/file-2.test.ts",
+                          "type": "file",
+                          "size": 81022
+                        }
+                      ]
+                    },
+                    {
+                      "name": "file-1.tsx",
+                      "path": "crowbar/features-0/docs-0/store-3/services-2/file-1.tsx",
+                      "type": "file",
+                      "size": 136164
+                    },
+                    {
+                      "name": "hooks-2",
+                      "path": "crowbar/features-0/docs-0/store-3/services-2/hooks-2",
+                      "type": "directory",
+                      "children": [
+                        {
+                          "name": "api-0",
+                          "path": "crowbar/features-0/docs-0/store-3/services-2/hooks-2/api-0",
+                          "type": "directory",
+                          "children": [
+                            {
+                              "name": "file-0.tsx",
+                              "path": "crowbar/features-0/docs-0/store-3/services-2/hooks-2/api-0/file-0.tsx",
+                              "type": "file",
+                              "size": 35417
+                            },
+                            {
+                              "name": "file-1.md",
+                              "path": "crowbar/features-0/docs-0/store-3/services-2/hooks-2/api-0/file-1.md",
+                              "type": "file",
+                              "size": 49354
+                            },
+                            {
+                              "name": "file-2.json",
+                              "path": "crowbar/features-0/docs-0/store-3/services-2/hooks-2/api-0/file-2.json",
+                              "type": "file",
+                              "size": 164957
+                            },
+                            {
+                              "name": "file-3.json",
+                              "path": "crowbar/features-0/docs-0/store-3/services-2/hooks-2/api-0/file-3.json",
+                              "type": "file",
+                              "size": 186061
+                            },
+                            {
+                              "name": "file-4.yaml",
+                              "path": "crowbar/features-0/docs-0/store-3/services-2/hooks-2/api-0/file-4.yaml",
+                              "type": "file",
+                              "size": 30072
+                            }
+                          ]
+                        },
+                        {
+                          "name": "file-1.tsx",
+                          "path": "crowbar/features-0/docs-0/store-3/services-2/hooks-2/file-1.tsx",
+                          "type": "file",
+                          "size": 162291
+                        },
+                        {
+                          "name": "services-2",
+                          "path": "crowbar/features-0/docs-0/store-3/services-2/hooks-2/services-2",
+                          "type": "directory",
+                          "children": [
+                            {
+                              "name": "file-0.md",
+                              "path": "crowbar/features-0/docs-0/store-3/services-2/hooks-2/services-2/file-0.md",
+                              "type": "file",
+                              "size": 150007
+                            },
+                            {
+                              "name": "file-1.md",
+                              "path": "crowbar/features-0/docs-0/store-3/services-2/hooks-2/services-2/file-1.md",
+                              "type": "file",
+                              "size": 78702
+                            },
+                            {
+                              "name": "file-2.go",
+                              "path": "crowbar/features-0/docs-0/store-3/services-2/hooks-2/services-2/file-2.go",
+                              "type": "file",
+                              "size": 81228
+                            }
+                          ]
+                        },
+                        {
+                          "name": "file-3.ts",
+                          "path": "crowbar/features-0/docs-0/store-3/services-2/hooks-2/file-3.ts",
+                          "type": "file",
+                          "size": 145213
+                        },
+                        {
+                          "name": "file-4.css",
+                          "path": "crowbar/features-0/docs-0/store-3/services-2/hooks-2/file-4.css",
+                          "type": "file",
+                          "size": 50259
+                        }
+                      ]
+                    },
+                    {
+                      "name": "file-3.md",
+                      "path": "crowbar/features-0/docs-0/store-3/services-2/file-3.md",
+                      "type": "file",
+                      "size": 9810
+                    },
+                    {
+                      "name": "file-4.css",
+                      "path": "crowbar/features-0/docs-0/store-3/services-2/file-4.css",
+                      "type": "file",
+                      "size": 3702
+                    },
+                    {
+                      "name": "utils-5",
+                      "path": "crowbar/features-0/docs-0/store-3/services-2/utils-5",
+                      "type": "directory",
+                      "children": [
+                        {
+                          "name": "features-0",
+                          "path": "crowbar/features-0/docs-0/store-3/services-2/utils-5/features-0",
+                          "type": "directory",
+                          "children": [
+                            {
+                              "name": "file-0.json",
+                              "path": "crowbar/features-0/docs-0/store-3/services-2/utils-5/features-0/file-0.json",
+                              "type": "file",
+                              "size": 59432
+                            },
+                            {
+                              "name": "file-1.test.ts",
+                              "path": "crowbar/features-0/docs-0/store-3/services-2/utils-5/features-0/file-1.test.ts",
+                              "type": "file",
+                              "size": 153520
+                            }
+                          ]
+                        },
+                        {
+                          "name": "file-1.go",
+                          "path": "crowbar/features-0/docs-0/store-3/services-2/utils-5/file-1.go",
+                          "type": "file",
+                          "size": 117243
+                        },
+                        {
+                          "name": "file-2.yaml",
+                          "path": "crowbar/features-0/docs-0/store-3/services-2/utils-5/file-2.yaml",
+                          "type": "file",
+                          "size": 200028
+                        },
+                        {
+                          "name": "utils-3",
+                          "path": "crowbar/features-0/docs-0/store-3/services-2/utils-5/utils-3",
+                          "type": "directory",
+                          "children": [
+                            {
+                              "name": "file-0.tsx",
+                              "path": "crowbar/features-0/docs-0/store-3/services-2/utils-5/utils-3/file-0.tsx",
+                              "type": "file",
+                              "size": 94010
+                            },
+                            {
+                              "name": "file-1.yaml",
+                              "path": "crowbar/features-0/docs-0/store-3/services-2/utils-5/utils-3/file-1.yaml",
+                              "type": "file",
+                              "size": 119409
+                            },
+                            {
+                              "name": "file-2.ts",
+                              "path": "crowbar/features-0/docs-0/store-3/services-2/utils-5/utils-3/file-2.ts",
+                              "type": "file",
+                              "size": 178505
+                            },
+                            {
+                              "name": "file-3.test.ts",
+                              "path": "crowbar/features-0/docs-0/store-3/services-2/utils-5/utils-3/file-3.test.ts",
+                              "type": "file",
+                              "size": 102641
+                            },
+                            {
+                              "name": "file-4.md",
+                              "path": "crowbar/features-0/docs-0/store-3/services-2/utils-5/utils-3/file-4.md",
+                              "type": "file",
+                              "size": 103878
+                            }
+                          ]
+                        },
+                        {
+                          "name": "file-4.css",
+                          "path": "crowbar/features-0/docs-0/store-3/services-2/utils-5/file-4.css",
+                          "type": "file",
+                          "size": 13055
+                        },
+                        {
+                          "name": "file-5.go",
+                          "path": "crowbar/features-0/docs-0/store-3/services-2/utils-5/file-5.go",
+                          "type": "file",
+                          "size": 197831
+                        }
+                      ]
+                    },
+                    {
+                      "name": "utils-6",
+                      "path": "crowbar/features-0/docs-0/store-3/services-2/utils-6",
+                      "type": "directory",
+                      "children": [
+                        {
+                          "name": "tests-0",
+                          "path": "crowbar/features-0/docs-0/store-3/services-2/utils-6/tests-0",
+                          "type": "directory",
+                          "children": [
+                            {
+                              "name": "file-0.md",
+                              "path": "crowbar/features-0/docs-0/store-3/services-2/utils-6/tests-0/file-0.md",
+                              "type": "file",
+                              "size": 51283
+                            },
+                            {
+                              "name": "file-1.ts",
+                              "path": "crowbar/features-0/docs-0/store-3/services-2/utils-6/tests-0/file-1.ts",
+                              "type": "file",
+                              "size": 161646
+                            },
+                            {
+                              "name": "file-2.tsx",
+                              "path": "crowbar/features-0/docs-0/store-3/services-2/utils-6/tests-0/file-2.tsx",
+                              "type": "file",
+                              "size": 190037
+                            },
+                            {
+                              "name": "file-3.test.ts",
+                              "path": "crowbar/features-0/docs-0/store-3/services-2/utils-6/tests-0/file-3.test.ts",
+                              "type": "file",
+                              "size": 141157
+                            },
+                            {
+                              "name": "file-4.tsx",
+                              "path": "crowbar/features-0/docs-0/store-3/services-2/utils-6/tests-0/file-4.tsx",
+                              "type": "file",
+                              "size": 198761
+                            }
+                          ]
+                        },
+                        {
+                          "name": "file-1.test.ts",
+                          "path": "crowbar/features-0/docs-0/store-3/services-2/utils-6/file-1.test.ts",
+                          "type": "file",
+                          "size": 192885
+                        },
+                        {
+                          "name": "file-2.ts",
+                          "path": "crowbar/features-0/docs-0/store-3/services-2/utils-6/file-2.ts",
+                          "type": "file",
+                          "size": 183732
+                        },
+                        {
+                          "name": "file-3.css",
+                          "path": "crowbar/features-0/docs-0/store-3/services-2/utils-6/file-3.css",
+                          "type": "file",
+                          "size": 10233
+                        },
+                        {
+                          "name": "file-4.ts",
+                          "path": "crowbar/features-0/docs-0/store-3/services-2/utils-6/file-4.ts",
+                          "type": "file",
+                          "size": 9031
+                        },
+                        {
+                          "name": "file-5.tsx",
+                          "path": "crowbar/features-0/docs-0/store-3/services-2/utils-6/file-5.tsx",
+                          "type": "file",
+                          "size": 151616
+                        },
+                        {
+                          "name": "file-6.css",
+                          "path": "crowbar/features-0/docs-0/store-3/services-2/utils-6/file-6.css",
+                          "type": "file",
+                          "size": 129535
+                        }
+                      ]
+                    }
+                  ]
+                },
+                {
+                  "name": "types-3",
+                  "path": "crowbar/features-0/docs-0/store-3/types-3",
+                  "type": "directory",
+                  "children": [
+                    {
+                      "name": "file-0.ts",
+                      "path": "crowbar/features-0/docs-0/store-3/types-3/file-0.ts",
+                      "type": "file",
+                      "size": 106244
+                    },
+                    {
+                      "name": "file-1.json",
+                      "path": "crowbar/features-0/docs-0/store-3/types-3/file-1.json",
+                      "type": "file",
+                      "size": 106110
+                    },
+                    {
+                      "name": "tests-2",
+                      "path": "crowbar/features-0/docs-0/store-3/types-3/tests-2",
+                      "type": "directory",
+                      "children": [
+                        {
+                          "name": "models-0",
+                          "path": "crowbar/features-0/docs-0/store-3/types-3/tests-2/models-0",
+                          "type": "directory",
+                          "children": [
+                            {
+                              "name": "file-0.json",
+                              "path": "crowbar/features-0/docs-0/store-3/types-3/tests-2/models-0/file-0.json",
+                              "type": "file",
+                              "size": 162802
+                            },
+                            {
+                              "name": "file-1.test.ts",
+                              "path": "crowbar/features-0/docs-0/store-3/types-3/tests-2/models-0/file-1.test.ts",
+                              "type": "file",
+                              "size": 198938
+                            },
+                            {
+                              "name": "file-2.json",
+                              "path": "crowbar/features-0/docs-0/store-3/types-3/tests-2/models-0/file-2.json",
+                              "type": "file",
+                              "size": 40583
+                            }
+                          ]
+                        },
+                        {
+                          "name": "hooks-1",
+                          "path": "crowbar/features-0/docs-0/store-3/types-3/tests-2/hooks-1",
+                          "type": "directory",
+                          "children": [
+                            {
+                              "name": "file-0.test.ts",
+                              "path": "crowbar/features-0/docs-0/store-3/types-3/tests-2/hooks-1/file-0.test.ts",
+                              "type": "file",
+                              "size": 87501
+                            },
+                            {
+                              "name": "file-1.md",
+                              "path": "crowbar/features-0/docs-0/store-3/types-3/tests-2/hooks-1/file-1.md",
+                              "type": "file",
+                              "size": 87162
+                            },
+                            {
+                              "name": "file-2.test.ts",
+                              "path": "crowbar/features-0/docs-0/store-3/types-3/tests-2/hooks-1/file-2.test.ts",
+                              "type": "file",
+                              "size": 191188
+                            },
+                            {
+                              "name": "file-3.md",
+                              "path": "crowbar/features-0/docs-0/store-3/types-3/tests-2/hooks-1/file-3.md",
+                              "type": "file",
+                              "size": 140372
+                            },
+                            {
+                              "name": "file-4.test.ts",
+                              "path": "crowbar/features-0/docs-0/store-3/types-3/tests-2/hooks-1/file-4.test.ts",
+                              "type": "file",
+                              "size": 166886
+                            },
+                            {
+                              "name": "file-5.test.ts",
+                              "path": "crowbar/features-0/docs-0/store-3/types-3/tests-2/hooks-1/file-5.test.ts",
+                              "type": "file",
+                              "size": 86894
+                            }
+                          ]
+                        }
+                      ]
+                    },
+                    {
+                      "name": "file-3.json",
+                      "path": "crowbar/features-0/docs-0/store-3/types-3/file-3.json",
+                      "type": "file",
+                      "size": 125393
+                    }
+                  ]
+                }
+              ]
+            },
+            {
+              "name": "components-4",
+              "path": "crowbar/features-0/docs-0/components-4",
+              "type": "directory",
+              "children": [
+                {
+                  "name": "file-0.tsx",
+                  "path": "crowbar/features-0/docs-0/components-4/file-0.tsx",
+                  "type": "file",
+                  "size": 183554
+                },
+                {
+                  "name": "file-1.go",
+                  "path": "crowbar/features-0/docs-0/components-4/file-1.go",
+                  "type": "file",
+                  "size": 84959
+                },
+                {
+                  "name": "features-2",
+                  "path": "crowbar/features-0/docs-0/components-4/features-2",
+                  "type": "directory",
+                  "children": [
+                    {
+                      "name": "file-0.test.ts",
+                      "path": "crowbar/features-0/docs-0/components-4/features-2/file-0.test.ts",
+                      "type": "file",
+                      "size": 173624
+                    },
+                    {
+                      "name": "features-1",
+                      "path": "crowbar/features-0/docs-0/components-4/features-2/features-1",
+                      "type": "directory",
+                      "children": [
+                        {
+                          "name": "file-0.md",
+                          "path": "crowbar/features-0/docs-0/components-4/features-2/features-1/file-0.md",
+                          "type": "file",
+                          "size": 147589
+                        },
+                        {
+                          "name": "file-1.go",
+                          "path": "crowbar/features-0/docs-0/components-4/features-2/features-1/file-1.go",
+                          "type": "file",
+                          "size": 119005
+                        },
+                        {
+                          "name": "file-2.yaml",
+                          "path": "crowbar/features-0/docs-0/components-4/features-2/features-1/file-2.yaml",
+                          "type": "file",
+                          "size": 19634
+                        },
+                        {
+                          "name": "components-3",
+                          "path": "crowbar/features-0/docs-0/components-4/features-2/features-1/components-3",
+                          "type": "directory",
+                          "children": [
+                            {
+                              "name": "file-0.md",
+                              "path": "crowbar/features-0/docs-0/components-4/features-2/features-1/components-3/file-0.md",
+                              "type": "file",
+                              "size": 144406
+                            },
+                            {
+                              "name": "file-1.ts",
+                              "path": "crowbar/features-0/docs-0/components-4/features-2/features-1/components-3/file-1.ts",
+                              "type": "file",
+                              "size": 191701
+                            },
+                            {
+                              "name": "file-2.json",
+                              "path": "crowbar/features-0/docs-0/components-4/features-2/features-1/components-3/file-2.json",
+                              "type": "file",
+                              "size": 116173
+                            },
+                            {
+                              "name": "file-3.json",
+                              "path": "crowbar/features-0/docs-0/components-4/features-2/features-1/components-3/file-3.json",
+                              "type": "file",
+                              "size": 48336
+                            },
+                            {
+                              "name": "file-4.ts",
+                              "path": "crowbar/features-0/docs-0/components-4/features-2/features-1/components-3/file-4.ts",
+                              "type": "file",
+                              "size": 102655
+                            },
+                            {
+                              "name": "file-5.test.ts",
+                              "path": "crowbar/features-0/docs-0/components-4/features-2/features-1/components-3/file-5.test.ts",
+                              "type": "file",
+                              "size": 94262
+                            },
+                            {
+                              "name": "file-6.ts",
+                              "path": "crowbar/features-0/docs-0/components-4/features-2/features-1/components-3/file-6.ts",
+                              "type": "file",
+                              "size": 185742
+                            }
+                          ]
+                        }
+                      ]
+                    },
+                    {
+                      "name": "file-2.yaml",
+                      "path": "crowbar/features-0/docs-0/components-4/features-2/file-2.yaml",
+                      "type": "file",
+                      "size": 58159
+                    },
+                    {
+                      "name": "file-3.md",
+                      "path": "crowbar/features-0/docs-0/components-4/features-2/file-3.md",
+                      "type": "file",
+                      "size": 45453
+                    },
+                    {
+                      "name": "features-4",
+                      "path": "crowbar/features-0/docs-0/components-4/features-2/features-4",
+                      "type": "directory",
+                      "children": [
+                        {
+                          "name": "file-0.tsx",
+                          "path": "crowbar/features-0/docs-0/components-4/features-2/features-4/file-0.tsx",
+                          "type": "file",
+                          "size": 109483
+                        },
+                        {
+                          "name": "file-1.ts",
+                          "path": "crowbar/features-0/docs-0/components-4/features-2/features-4/file-1.ts",
+                          "type": "file",
+                          "size": 154190
+                        },
+                        {
+                          "name": "file-2.go",
+                          "path": "crowbar/features-0/docs-0/components-4/features-2/features-4/file-2.go",
+                          "type": "file",
+                          "size": 93158
+                        },
+                        {
+                          "name": "file-3.css",
+                          "path": "crowbar/features-0/docs-0/components-4/features-2/features-4/file-3.css",
+                          "type": "file",
+                          "size": 29817
+                        },
+                        {
+                          "name": "features-4",
+                          "path": "crowbar/features-0/docs-0/components-4/features-2/features-4/features-4",
+                          "type": "directory",
+                          "children": [
+                            {
+                              "name": "file-0.json",
+                              "path": "crowbar/features-0/docs-0/components-4/features-2/features-4/features-4/file-0.json",
+                              "type": "file",
+                              "size": 196950
+                            },
+                            {
+                              "name": "file-1.go",
+                              "path": "crowbar/features-0/docs-0/components-4/features-2/features-4/features-4/file-1.go",
+                              "type": "file",
+                              "size": 78083
+                            },
+                            {
+                              "name": "file-2.tsx",
+                              "path": "crowbar/features-0/docs-0/components-4/features-2/features-4/features-4/file-2.tsx",
+                              "type": "file",
+                              "size": 166834
+                            },
+                            {
+                              "name": "file-3.json",
+                              "path": "crowbar/features-0/docs-0/components-4/features-2/features-4/features-4/file-3.json",
+                              "type": "file",
+                              "size": 106593
+                            },
+                            {
+                              "name": "file-4.ts",
+                              "path": "crowbar/features-0/docs-0/components-4/features-2/features-4/features-4/file-4.ts",
+                              "type": "file",
+                              "size": 165033
+                            },
+                            {
+                              "name": "file-5.test.ts",
+                              "path": "crowbar/features-0/docs-0/components-4/features-2/features-4/features-4/file-5.test.ts",
+                              "type": "file",
+                              "size": 62123
+                            },
+                            {
+                              "name": "file-6.go",
+                              "path": "crowbar/features-0/docs-0/components-4/features-2/features-4/features-4/file-6.go",
+                              "type": "file",
+                              "size": 62533
+                            }
+                          ]
+                        }
+                      ]
+                    },
+                    {
+                      "name": "file-5.json",
+                      "path": "crowbar/features-0/docs-0/components-4/features-2/file-5.json",
+                      "type": "file",
+                      "size": 168619
+                    }
+                  ]
+                },
+                {
+                  "name": "file-3.json",
+                  "path": "crowbar/features-0/docs-0/components-4/file-3.json",
+                  "type": "file",
+                  "size": 65693
+                },
+                {
+                  "name": "file-4.yaml",
+                  "path": "crowbar/features-0/docs-0/components-4/file-4.yaml",
+                  "type": "file",
+                  "size": 155941
+                },
+                {
+                  "name": "tests-5",
+                  "path": "crowbar/features-0/docs-0/components-4/tests-5",
+                  "type": "directory",
+                  "children": [
+                    {
+                      "name": "file-0.json",
+                      "path": "crowbar/features-0/docs-0/components-4/tests-5/file-0.json",
+                      "type": "file",
+                      "size": 40356
+                    },
+                    {
+                      "name": "file-1.css",
+                      "path": "crowbar/features-0/docs-0/components-4/tests-5/file-1.css",
+                      "type": "file",
+                      "size": 104737
+                    },
+                    {
+                      "name": "file-2.md",
+                      "path": "crowbar/features-0/docs-0/components-4/tests-5/file-2.md",
+                      "type": "file",
+                      "size": 22739
+                    },
+                    {
+                      "name": "file-3.test.ts",
+                      "path": "crowbar/features-0/docs-0/components-4/tests-5/file-3.test.ts",
+                      "type": "file",
+                      "size": 30680
+                    },
+                    {
+                      "name": "file-4.md",
+                      "path": "crowbar/features-0/docs-0/components-4/tests-5/file-4.md",
+                      "type": "file",
+                      "size": 70922
+                    },
+                    {
+                      "name": "file-5.md",
+                      "path": "crowbar/features-0/docs-0/components-4/tests-5/file-5.md",
+                      "type": "file",
+                      "size": 17829
+                    },
+                    {
+                      "name": "file-6.yaml",
+                      "path": "crowbar/features-0/docs-0/components-4/tests-5/file-6.yaml",
+                      "type": "file",
+                      "size": 193453
+                    }
+                  ]
+                }
+              ]
+            },
+            {
+              "name": "file-5.yaml",
+              "path": "crowbar/features-0/docs-0/file-5.yaml",
+              "type": "file",
+              "size": 76558
+            },
+            {
+              "name": "file-6.md",
+              "path": "crowbar/features-0/docs-0/file-6.md",
+              "type": "file",
+              "size": 122447
+            }
+          ]
+        },
+        {
+          "name": "file-1.yaml",
+          "path": "crowbar/features-0/file-1.yaml",
+          "type": "file",
+          "size": 114348
+        },
+        {
+          "name": "file-2.yaml",
+          "path": "crowbar/features-0/file-2.yaml",
+          "type": "file",
+          "size": 46944
+        },
+        {
+          "name": "file-3.md",
+          "path": "crowbar/features-0/file-3.md",
+          "type": "file",
+          "size": 90923
+        },
+        {
+          "name": "hooks-4",
+          "path": "crowbar/features-0/hooks-4",
+          "type": "directory",
+          "children": [
+            {
+              "name": "file-0.tsx",
+              "path": "crowbar/features-0/hooks-4/file-0.tsx",
+              "type": "file",
+              "size": 85478
+            },
+            {
+              "name": "file-1.tsx",
+              "path": "crowbar/features-0/hooks-4/file-1.tsx",
+              "type": "file",
+              "size": 83444
+            },
+            {
+              "name": "file-2.go",
+              "path": "crowbar/features-0/hooks-4/file-2.go",
+              "type": "file",
+              "size": 13744
+            },
+            {
+              "name": "tests-3",
+              "path": "crowbar/features-0/hooks-4/tests-3",
+              "type": "directory",
+              "children": [
+                {
+                  "name": "file-0.css",
+                  "path": "crowbar/features-0/hooks-4/tests-3/file-0.css",
+                  "type": "file",
+                  "size": 153510
+                },
+                {
+                  "name": "lib-1",
+                  "path": "crowbar/features-0/hooks-4/tests-3/lib-1",
+                  "type": "directory",
+                  "children": [
+                    {
+                      "name": "file-0.md",
+                      "path": "crowbar/features-0/hooks-4/tests-3/lib-1/file-0.md",
+                      "type": "file",
+                      "size": 85808
+                    },
+                    {
+                      "name": "file-1.css",
+                      "path": "crowbar/features-0/hooks-4/tests-3/lib-1/file-1.css",
+                      "type": "file",
+                      "size": 166736
+                    },
+                    {
+                      "name": "file-2.ts",
+                      "path": "crowbar/features-0/hooks-4/tests-3/lib-1/file-2.ts",
+                      "type": "file",
+                      "size": 78784
+                    }
+                  ]
+                },
+                {
+                  "name": "file-2.go",
+                  "path": "crowbar/features-0/hooks-4/tests-3/file-2.go",
+                  "type": "file",
+                  "size": 111814
+                },
+                {
+                  "name": "store-3",
+                  "path": "crowbar/features-0/hooks-4/tests-3/store-3",
+                  "type": "directory",
+                  "children": [
+                    {
+                      "name": "api-0",
+                      "path": "crowbar/features-0/hooks-4/tests-3/store-3/api-0",
+                      "type": "directory",
+                      "children": [
+                        {
+                          "name": "file-0.yaml",
+                          "path": "crowbar/features-0/hooks-4/tests-3/store-3/api-0/file-0.yaml",
+                          "type": "file",
+                          "size": 51071
+                        },
+                        {
+                          "name": "features-1",
+                          "path": "crowbar/features-0/hooks-4/tests-3/store-3/api-0/features-1",
+                          "type": "directory",
+                          "children": [
+                            {
+                              "name": "file-0.yaml",
+                              "path": "crowbar/features-0/hooks-4/tests-3/store-3/api-0/features-1/file-0.yaml",
+                              "type": "file",
+                              "size": 89352
+                            },
+                            {
+                              "name": "file-1.json",
+                              "path": "crowbar/features-0/hooks-4/tests-3/store-3/api-0/features-1/file-1.json",
+                              "type": "file",
+                              "size": 169874
+                            },
+                            {
+                              "name": "file-2.test.ts",
+                              "path": "crowbar/features-0/hooks-4/tests-3/store-3/api-0/features-1/file-2.test.ts",
+                              "type": "file",
+                              "size": 185678
+                            }
+                          ]
+                        },
+                        {
+                          "name": "file-2.json",
+                          "path": "crowbar/features-0/hooks-4/tests-3/store-3/api-0/file-2.json",
+                          "type": "file",
+                          "size": 174539
+                        },
+                        {
+                          "name": "file-3.go",
+                          "path": "crowbar/features-0/hooks-4/tests-3/store-3/api-0/file-3.go",
+                          "type": "file",
+                          "size": 130012
+                        },
+                        {
+                          "name": "file-4.yaml",
+                          "path": "crowbar/features-0/hooks-4/tests-3/store-3/api-0/file-4.yaml",
+                          "type": "file",
+                          "size": 136186
+                        }
+                      ]
+                    },
+                    {
+                      "name": "file-1.css",
+                      "path": "crowbar/features-0/hooks-4/tests-3/store-3/file-1.css",
+                      "type": "file",
+                      "size": 194339
+                    },
+                    {
+                      "name": "components-2",
+                      "path": "crowbar/features-0/hooks-4/tests-3/store-3/components-2",
+                      "type": "directory",
+                      "children": [
+                        {
+                          "name": "file-0.test.ts",
+                          "path": "crowbar/features-0/hooks-4/tests-3/store-3/components-2/file-0.test.ts",
+                          "type": "file",
+                          "size": 158980
+                        },
+                        {
+                          "name": "file-1.json",
+                          "path": "crowbar/features-0/hooks-4/tests-3/store-3/components-2/file-1.json",
+                          "type": "file",
+                          "size": 176407
+                        },
+                        {
+                          "name": "file-2.tsx",
+                          "path": "crowbar/features-0/hooks-4/tests-3/store-3/components-2/file-2.tsx",
+                          "type": "file",
+                          "size": 134606
+                        },
+                        {
+                          "name": "file-3.tsx",
+                          "path": "crowbar/features-0/hooks-4/tests-3/store-3/components-2/file-3.tsx",
+                          "type": "file",
+                          "size": 72736
+                        },
+                        {
+                          "name": "file-4.json",
+                          "path": "crowbar/features-0/hooks-4/tests-3/store-3/components-2/file-4.json",
+                          "type": "file",
+                          "size": 101148
+                        },
+                        {
+                          "name": "file-5.css",
+                          "path": "crowbar/features-0/hooks-4/tests-3/store-3/components-2/file-5.css",
+                          "type": "file",
+                          "size": 30979
+                        }
+                      ]
+                    },
+                    {
+                      "name": "file-3.css",
+                      "path": "crowbar/features-0/hooks-4/tests-3/store-3/file-3.css",
+                      "type": "file",
+                      "size": 191690
+                    },
+                    {
+                      "name": "file-4.yaml",
+                      "path": "crowbar/features-0/hooks-4/tests-3/store-3/file-4.yaml",
+                      "type": "file",
+                      "size": 118446
+                    }
+                  ]
+                },
+                {
+                  "name": "file-4.go",
+                  "path": "crowbar/features-0/hooks-4/tests-3/file-4.go",
+                  "type": "file",
+                  "size": 97056
+                }
+              ]
+            },
+            {
+              "name": "models-4",
+              "path": "crowbar/features-0/hooks-4/models-4",
+              "type": "directory",
+              "children": [
+                {
+                  "name": "file-0.test.ts",
+                  "path": "crowbar/features-0/hooks-4/models-4/file-0.test.ts",
+                  "type": "file",
+                  "size": 177889
+                },
+                {
+                  "name": "services-1",
+                  "path": "crowbar/features-0/hooks-4/models-4/services-1",
+                  "type": "directory",
+                  "children": [
+                    {
+                      "name": "features-0",
+                      "path": "crowbar/features-0/hooks-4/models-4/services-1/features-0",
+                      "type": "directory",
+                      "children": [
+                        {
+                          "name": "file-0.json",
+                          "path": "crowbar/features-0/hooks-4/models-4/services-1/features-0/file-0.json",
+                          "type": "file",
+                          "size": 80046
+                        },
+                        {
+                          "name": "file-1.css",
+                          "path": "crowbar/features-0/hooks-4/models-4/services-1/features-0/file-1.css",
+                          "type": "file",
+                          "size": 145692
+                        },
+                        {
+                          "name": "types-2",
+                          "path": "crowbar/features-0/hooks-4/models-4/services-1/features-0/types-2",
+                          "type": "directory",
+                          "children": [
+                            {
+                              "name": "file-0.css",
+                              "path": "crowbar/features-0/hooks-4/models-4/services-1/features-0/types-2/file-0.css",
+                              "type": "file",
+                              "size": 43359
+                            },
+                            {
+                              "name": "file-1.go",
+                              "path": "crowbar/features-0/hooks-4/models-4/services-1/features-0/types-2/file-1.go",
+                              "type": "file",
+                              "size": 21312
+                            },
+                            {
+                              "name": "file-2.md",
+                              "path": "crowbar/features-0/hooks-4/models-4/services-1/features-0/types-2/file-2.md",
+                              "type": "file",
+                              "size": 126004
+                            },
+                            {
+                              "name": "file-3.css",
+                              "path": "crowbar/features-0/hooks-4/models-4/services-1/features-0/types-2/file-3.css",
+                              "type": "file",
+                              "size": 124040
+                            }
+                          ]
+                        },
+                        {
+                          "name": "services-3",
+                          "path": "crowbar/features-0/hooks-4/models-4/services-1/features-0/services-3",
+                          "type": "directory",
+                          "children": [
+                            {
+                              "name": "file-0.go",
+                              "path": "crowbar/features-0/hooks-4/models-4/services-1/features-0/services-3/file-0.go",
+                              "type": "file",
+                              "size": 70703
+                            },
+                            {
+                              "name": "file-1.json",
+                              "path": "crowbar/features-0/hooks-4/models-4/services-1/features-0/services-3/file-1.json",
+                              "type": "file",
+                              "size": 6334
+                            },
+                            {
+                              "name": "file-2.css",
+                              "path": "crowbar/features-0/hooks-4/models-4/services-1/features-0/services-3/file-2.css",
+                              "type": "file",
+                              "size": 195238
+                            }
+                          ]
+                        },
+                        {
+                          "name": "file-4.md",
+                          "path": "crowbar/features-0/hooks-4/models-4/services-1/features-0/file-4.md",
+                          "type": "file",
+                          "size": 63458
+                        },
+                        {
+                          "name": "utils-5",
+                          "path": "crowbar/features-0/hooks-4/models-4/services-1/features-0/utils-5",
+                          "type": "directory",
+                          "children": [
+                            {
+                              "name": "file-0.tsx",
+                              "path": "crowbar/features-0/hooks-4/models-4/services-1/features-0/utils-5/file-0.tsx",
+                              "type": "file",
+                              "size": 53451
+                            },
+                            {
+                              "name": "file-1.md",
+                              "path": "crowbar/features-0/hooks-4/models-4/services-1/features-0/utils-5/file-1.md",
+                              "type": "file",
+                              "size": 90536
+                            },
+                            {
+                              "name": "file-2.css",
+                              "path": "crowbar/features-0/hooks-4/models-4/services-1/features-0/utils-5/file-2.css",
+                              "type": "file",
+                              "size": 44856
+                            },
+                            {
+                              "name": "file-3.test.ts",
+                              "path": "crowbar/features-0/hooks-4/models-4/services-1/features-0/utils-5/file-3.test.ts",
+                              "type": "file",
+                              "size": 138327
+                            },
+                            {
+                              "name": "file-4.go",
+                              "path": "crowbar/features-0/hooks-4/models-4/services-1/features-0/utils-5/file-4.go",
+                              "type": "file",
+                              "size": 57334
+                            },
+                            {
+                              "name": "file-5.tsx",
+                              "path": "crowbar/features-0/hooks-4/models-4/services-1/features-0/utils-5/file-5.tsx",
+                              "type": "file",
+                              "size": 176537
+                            },
+                            {
+                              "name": "file-6.go",
+                              "path": "crowbar/features-0/hooks-4/models-4/services-1/features-0/utils-5/file-6.go",
+                              "type": "file",
+                              "size": 181800
+                            }
+                          ]
+                        }
+                      ]
+                    },
+                    {
+                      "name": "models-1",
+                      "path": "crowbar/features-0/hooks-4/models-4/services-1/models-1",
+                      "type": "directory",
+                      "children": [
+                        {
+                          "name": "file-0.md",
+                          "path": "crowbar/features-0/hooks-4/models-4/services-1/models-1/file-0.md",
+                          "type": "file",
+                          "size": 76052
+                        },
+                        {
+                          "name": "utils-1",
+                          "path": "crowbar/features-0/hooks-4/models-4/services-1/models-1/utils-1",
+                          "type": "directory",
+                          "children": [
+                            {
+                              "name": "file-0.md",
+                              "path": "crowbar/features-0/hooks-4/models-4/services-1/models-1/utils-1/file-0.md",
+                              "type": "file",
+                              "size": 49816
+                            },
+                            {
+                              "name": "file-1.md",
+                              "path": "crowbar/features-0/hooks-4/models-4/services-1/models-1/utils-1/file-1.md",
+                              "type": "file",
+                              "size": 66634
+                            }
+                          ]
+                        },
+                        {
+                          "name": "file-2.tsx",
+                          "path": "crowbar/features-0/hooks-4/models-4/services-1/models-1/file-2.tsx",
+                          "type": "file",
+                          "size": 106034
+                        },
+                        {
+                          "name": "file-3.css",
+                          "path": "crowbar/features-0/hooks-4/models-4/services-1/models-1/file-3.css",
+                          "type": "file",
+                          "size": 61167
+                        },
+                        {
+                          "name": "file-4.css",
+                          "path": "crowbar/features-0/hooks-4/models-4/services-1/models-1/file-4.css",
+                          "type": "file",
+                          "size": 55094
+                        },
+                        {
+                          "name": "file-5.md",
+                          "path": "crowbar/features-0/hooks-4/models-4/services-1/models-1/file-5.md",
+                          "type": "file",
+                          "size": 170477
+                        }
+                      ]
+                    }
+                  ]
+                },
+                {
+                  "name": "tests-2",
+                  "path": "crowbar/features-0/hooks-4/models-4/tests-2",
+                  "type": "directory",
+                  "children": [
+                    {
+                      "name": "types-0",
+                      "path": "crowbar/features-0/hooks-4/models-4/tests-2/types-0",
+                      "type": "directory",
+                      "children": [
+                        {
+                          "name": "file-0.go",
+                          "path": "crowbar/features-0/hooks-4/models-4/tests-2/types-0/file-0.go",
+                          "type": "file",
+                          "size": 147278
+                        },
+                        {
+                          "name": "file-1.go",
+                          "path": "crowbar/features-0/hooks-4/models-4/tests-2/types-0/file-1.go",
+                          "type": "file",
+                          "size": 127346
+                        },
+                        {
+                          "name": "file-2.css",
+                          "path": "crowbar/features-0/hooks-4/models-4/tests-2/types-0/file-2.css",
+                          "type": "file",
+                          "size": 47659
+                        }
+                      ]
+                    },
+                    {
+                      "name": "file-1.json",
+                      "path": "crowbar/features-0/hooks-4/models-4/tests-2/file-1.json",
+                      "type": "file",
+                      "size": 177938
+                    },
+                    {
+                      "name": "file-2.css",
+                      "path": "crowbar/features-0/hooks-4/models-4/tests-2/file-2.css",
+                      "type": "file",
+                      "size": 158828
+                    },
+                    {
+                      "name": "file-3.css",
+                      "path": "crowbar/features-0/hooks-4/models-4/tests-2/file-3.css",
+                      "type": "file",
+                      "size": 191905
+                    },
+                    {
+                      "name": "file-4.go",
+                      "path": "crowbar/features-0/hooks-4/models-4/tests-2/file-4.go",
+                      "type": "file",
+                      "size": 73347
+                    }
+                  ]
+                }
+              ]
+            },
+            {
+              "name": "file-5.tsx",
+              "path": "crowbar/features-0/hooks-4/file-5.tsx",
+              "type": "file",
+              "size": 13172
+            },
+            {
+              "name": "file-6.json",
+              "path": "crowbar/features-0/hooks-4/file-6.json",
+              "type": "file",
+              "size": 60866
+            }
+          ]
+        },
+        {
+          "name": "file-5.json",
+          "path": "crowbar/features-0/file-5.json",
+          "type": "file",
+          "size": 154282
+        }
+      ]
+    },
+    {
+      "name": "file-1.test.ts",
+      "path": "crowbar/file-1.test.ts",
+      "type": "file",
+      "size": 165036
+    },
+    {
+      "name": "file-2.json",
+      "path": "crowbar/file-2.json",
+      "type": "file",
+      "size": 79848
+    },
+    {
+      "name": "components-3",
+      "path": "crowbar/components-3",
+      "type": "directory",
+      "children": [
+        {
+          "name": "file-0.json",
+          "path": "crowbar/components-3/file-0.json",
+          "type": "file",
+          "size": 126926
+        },
+        {
+          "name": "file-1.json",
+          "path": "crowbar/components-3/file-1.json",
+          "type": "file",
+          "size": 30378
+        },
+        {
+          "name": "api-2",
+          "path": "crowbar/components-3/api-2",
+          "type": "directory",
+          "children": [
+            {
+              "name": "file-0.css",
+              "path": "crowbar/components-3/api-2/file-0.css",
+              "type": "file",
+              "size": 126586
+            },
+            {
+              "name": "tests-1",
+              "path": "crowbar/components-3/api-2/tests-1",
+              "type": "directory",
+              "children": [
+                {
+                  "name": "tests-0",
+                  "path": "crowbar/components-3/api-2/tests-1/tests-0",
+                  "type": "directory",
+                  "children": [
+                    {
+                      "name": "file-0.go",
+                      "path": "crowbar/components-3/api-2/tests-1/tests-0/file-0.go",
+                      "type": "file",
+                      "size": 55613
+                    },
+                    {
+                      "name": "tests-1",
+                      "path": "crowbar/components-3/api-2/tests-1/tests-0/tests-1",
+                      "type": "directory",
+                      "children": [
+                        {
+                          "name": "file-0.json",
+                          "path": "crowbar/components-3/api-2/tests-1/tests-0/tests-1/file-0.json",
+                          "type": "file",
+                          "size": 28298
+                        },
+                        {
+                          "name": "docs-1",
+                          "path": "crowbar/components-3/api-2/tests-1/tests-0/tests-1/docs-1",
+                          "type": "directory",
+                          "children": [
+                            {
+                              "name": "file-0.go",
+                              "path": "crowbar/components-3/api-2/tests-1/tests-0/tests-1/docs-1/file-0.go",
+                              "type": "file",
+                              "size": 130989
+                            },
+                            {
+                              "name": "file-1.tsx",
+                              "path": "crowbar/components-3/api-2/tests-1/tests-0/tests-1/docs-1/file-1.tsx",
+                              "type": "file",
+                              "size": 131106
+                            },
+                            {
+                              "name": "file-2.yaml",
+                              "path": "crowbar/components-3/api-2/tests-1/tests-0/tests-1/docs-1/file-2.yaml",
+                              "type": "file",
+                              "size": 148173
+                            },
+                            {
+                              "name": "file-3.css",
+                              "path": "crowbar/components-3/api-2/tests-1/tests-0/tests-1/docs-1/file-3.css",
+                              "type": "file",
+                              "size": 10510
+                            },
+                            {
+                              "name": "file-4.tsx",
+                              "path": "crowbar/components-3/api-2/tests-1/tests-0/tests-1/docs-1/file-4.tsx",
+                              "type": "file",
+                              "size": 55229
+                            },
+                            {
+                              "name": "file-5.css",
+                              "path": "crowbar/components-3/api-2/tests-1/tests-0/tests-1/docs-1/file-5.css",
+                              "type": "file",
+                              "size": 127688
+                            }
+                          ]
+                        },
+                        {
+                          "name": "hooks-2",
+                          "path": "crowbar/components-3/api-2/tests-1/tests-0/tests-1/hooks-2",
+                          "type": "directory",
+                          "children": [
+                            {
+                              "name": "file-0.go",
+                              "path": "crowbar/components-3/api-2/tests-1/tests-0/tests-1/hooks-2/file-0.go",
+                              "type": "file",
+                              "size": 138119
+                            },
+                            {
+                              "name": "file-1.md",
+                              "path": "crowbar/components-3/api-2/tests-1/tests-0/tests-1/hooks-2/file-1.md",
+                              "type": "file",
+                              "size": 109966
+                            },
+                            {
+                              "name": "file-2.ts",
+                              "path": "crowbar/components-3/api-2/tests-1/tests-0/tests-1/hooks-2/file-2.ts",
+                              "type": "file",
+                              "size": 122628
+                            }
+                          ]
+                        },
+                        {
+                          "name": "file-3.yaml",
+                          "path": "crowbar/components-3/api-2/tests-1/tests-0/tests-1/file-3.yaml",
+                          "type": "file",
+                          "size": 105344
+                        },
+                        {
+                          "name": "file-4.ts",
+                          "path": "crowbar/components-3/api-2/tests-1/tests-0/tests-1/file-4.ts",
+                          "type": "file",
+                          "size": 22158
+                        },
+                        {
+                          "name": "file-5.ts",
+                          "path": "crowbar/components-3/api-2/tests-1/tests-0/tests-1/file-5.ts",
+                          "type": "file",
+                          "size": 61168
+                        },
+                        {
+                          "name": "docs-6",
+                          "path": "crowbar/components-3/api-2/tests-1/tests-0/tests-1/docs-6",
+                          "type": "directory",
+                          "children": [
+                            {
+                              "name": "file-0.ts",
+                              "path": "crowbar/components-3/api-2/tests-1/tests-0/tests-1/docs-6/file-0.ts",
+                              "type": "file",
+                              "size": 65275
+                            },
+                            {
+                              "name": "file-1.test.ts",
+                              "path": "crowbar/components-3/api-2/tests-1/tests-0/tests-1/docs-6/file-1.test.ts",
+                              "type": "file",
+                              "size": 55799
+                            },
+                            {
+                              "name": "file-2.tsx",
+                              "path": "crowbar/components-3/api-2/tests-1/tests-0/tests-1/docs-6/file-2.tsx",
+                              "type": "file",
+                              "size": 187059
+                            },
+                            {
+                              "name": "file-3.test.ts",
+                              "path": "crowbar/components-3/api-2/tests-1/tests-0/tests-1/docs-6/file-3.test.ts",
+                              "type": "file",
+                              "size": 100872
+                            },
+                            {
+                              "name": "file-4.md",
+                              "path": "crowbar/components-3/api-2/tests-1/tests-0/tests-1/docs-6/file-4.md",
+                              "type": "file",
+                              "size": 180949
+                            },
+                            {
+                              "name": "file-5.go",
+                              "path": "crowbar/components-3/api-2/tests-1/tests-0/tests-1/docs-6/file-5.go",
+                              "type": "file",
+                              "size": 29464
+                            }
+                          ]
+                        }
+                      ]
+                    },
+                    {
+                      "name": "file-2.md",
+                      "path": "crowbar/components-3/api-2/tests-1/tests-0/file-2.md",
+                      "type": "file",
+                      "size": 48562
+                    },
+                    {
+                      "name": "file-3.css",
+                      "path": "crowbar/components-3/api-2/tests-1/tests-0/file-3.css",
+                      "type": "file",
+                      "size": 58035
+                    },
+                    {
+                      "name": "file-4.yaml",
+                      "path": "crowbar/components-3/api-2/tests-1/tests-0/file-4.yaml",
+                      "type": "file",
+                      "size": 159427
+                    },
+                    {
+                      "name": "services-5",
+                      "path": "crowbar/components-3/api-2/tests-1/tests-0/services-5",
+                      "type": "directory",
+                      "children": [
+                        {
+                          "name": "file-0.css",
+                          "path": "crowbar/components-3/api-2/tests-1/tests-0/services-5/file-0.css",
+                          "type": "file",
+                          "size": 17185
+                        },
+                        {
+                          "name": "file-1.yaml",
+                          "path": "crowbar/components-3/api-2/tests-1/tests-0/services-5/file-1.yaml",
+                          "type": "file",
+                          "size": 167105
+                        },
+                        {
+                          "name": "file-2.yaml",
+                          "path": "crowbar/components-3/api-2/tests-1/tests-0/services-5/file-2.yaml",
+                          "type": "file",
+                          "size": 85714
+                        },
+                        {
+                          "name": "file-3.test.ts",
+                          "path": "crowbar/components-3/api-2/tests-1/tests-0/services-5/file-3.test.ts",
+                          "type": "file",
+                          "size": 144018
+                        },
+                        {
+                          "name": "file-4.md",
+                          "path": "crowbar/components-3/api-2/tests-1/tests-0/services-5/file-4.md",
+                          "type": "file",
+                          "size": 119519
+                        },
+                        {
+                          "name": "types-5",
+                          "path": "crowbar/components-3/api-2/tests-1/tests-0/services-5/types-5",
+                          "type": "directory",
+                          "children": [
+                            {
+                              "name": "file-0.json",
+                              "path": "crowbar/components-3/api-2/tests-1/tests-0/services-5/types-5/file-0.json",
+                              "type": "file",
+                              "size": 44305
+                            },
+                            {
+                              "name": "file-1.css",
+                              "path": "crowbar/components-3/api-2/tests-1/tests-0/services-5/types-5/file-1.css",
+                              "type": "file",
+                              "size": 144305
+                            },
+                            {
+                              "name": "file-2.json",
+                              "path": "crowbar/components-3/api-2/tests-1/tests-0/services-5/types-5/file-2.json",
+                              "type": "file",
+                              "size": 156134
+                            },
+                            {
+                              "name": "file-3.css",
+                              "path": "crowbar/components-3/api-2/tests-1/tests-0/services-5/types-5/file-3.css",
+                              "type": "file",
+                              "size": 99441
+                            },
+                            {
+                              "name": "file-4.md",
+                              "path": "crowbar/components-3/api-2/tests-1/tests-0/services-5/types-5/file-4.md",
+                              "type": "file",
+                              "size": 112132
+                            },
+                            {
+                              "name": "file-5.tsx",
+                              "path": "crowbar/components-3/api-2/tests-1/tests-0/services-5/types-5/file-5.tsx",
+                              "type": "file",
+                              "size": 15916
+                            }
+                          ]
+                        }
+                      ]
+                    }
+                  ]
+                },
+                {
+                  "name": "file-1.test.ts",
+                  "path": "crowbar/components-3/api-2/tests-1/file-1.test.ts",
+                  "type": "file",
+                  "size": 183521
+                },
+                {
+                  "name": "file-2.test.ts",
+                  "path": "crowbar/components-3/api-2/tests-1/file-2.test.ts",
+                  "type": "file",
+                  "size": 156276
+                },
+                {
+                  "name": "file-3.go",
+                  "path": "crowbar/components-3/api-2/tests-1/file-3.go",
+                  "type": "file",
+                  "size": 58765
+                },
+                {
+                  "name": "file-4.md",
+                  "path": "crowbar/components-3/api-2/tests-1/file-4.md",
+                  "type": "file",
+                  "size": 76844
+                },
+                {
+                  "name": "file-5.yaml",
+                  "path": "crowbar/components-3/api-2/tests-1/file-5.yaml",
+                  "type": "file",
+                  "size": 158178
+                }
+              ]
+            },
+            {
+              "name": "file-2.json",
+              "path": "crowbar/components-3/api-2/file-2.json",
+              "type": "file",
+              "size": 85492
+            },
+            {
+              "name": "components-3",
+              "path": "crowbar/components-3/api-2/components-3",
+              "type": "directory",
+              "children": [
+                {
+                  "name": "file-0.css",
+                  "path": "crowbar/components-3/api-2/components-3/file-0.css",
+                  "type": "file",
+                  "size": 191054
+                },
+                {
+                  "name": "file-1.md",
+                  "path": "crowbar/components-3/api-2/components-3/file-1.md",
+                  "type": "file",
+                  "size": 150949
+                }
+              ]
+            },
+            {
+              "name": "file-4.md",
+              "path": "crowbar/components-3/api-2/file-4.md",
+              "type": "file",
+              "size": 74691
+            },
+            {
+              "name": "models-5",
+              "path": "crowbar/components-3/api-2/models-5",
+              "type": "directory",
+              "children": [
+                {
+                  "name": "docs-0",
+                  "path": "crowbar/components-3/api-2/models-5/docs-0",
+                  "type": "directory",
+                  "children": [
+                    {
+                      "name": "file-0.test.ts",
+                      "path": "crowbar/components-3/api-2/models-5/docs-0/file-0.test.ts",
+                      "type": "file",
+                      "size": 161268
+                    },
+                    {
+                      "name": "file-1.json",
+                      "path": "crowbar/components-3/api-2/models-5/docs-0/file-1.json",
+                      "type": "file",
+                      "size": 114486
+                    },
+                    {
+                      "name": "hooks-2",
+                      "path": "crowbar/components-3/api-2/models-5/docs-0/hooks-2",
+                      "type": "directory",
+                      "children": [
+                        {
+                          "name": "lib-0",
+                          "path": "crowbar/components-3/api-2/models-5/docs-0/hooks-2/lib-0",
+                          "type": "directory",
+                          "children": [
+                            {
+                              "name": "file-0.go",
+                              "path": "crowbar/components-3/api-2/models-5/docs-0/hooks-2/lib-0/file-0.go",
+                              "type": "file",
+                              "size": 115260
+                            },
+                            {
+                              "name": "file-1.tsx",
+                              "path": "crowbar/components-3/api-2/models-5/docs-0/hooks-2/lib-0/file-1.tsx",
+                              "type": "file",
+                              "size": 52017
+                            },
+                            {
+                              "name": "file-2.md",
+                              "path": "crowbar/components-3/api-2/models-5/docs-0/hooks-2/lib-0/file-2.md",
+                              "type": "file",
+                              "size": 132694
+                            },
+                            {
+                              "name": "file-3.ts",
+                              "path": "crowbar/components-3/api-2/models-5/docs-0/hooks-2/lib-0/file-3.ts",
+                              "type": "file",
+                              "size": 80605
+                            },
+                            {
+                              "name": "file-4.css",
+                              "path": "crowbar/components-3/api-2/models-5/docs-0/hooks-2/lib-0/file-4.css",
+                              "type": "file",
+                              "size": 87372
+                            },
+                            {
+                              "name": "file-5.go",
+                              "path": "crowbar/components-3/api-2/models-5/docs-0/hooks-2/lib-0/file-5.go",
+                              "type": "file",
+                              "size": 24296
+                            }
+                          ]
+                        },
+                        {
+                          "name": "file-1.css",
+                          "path": "crowbar/components-3/api-2/models-5/docs-0/hooks-2/file-1.css",
+                          "type": "file",
+                          "size": 28344
+                        },
+                        {
+                          "name": "store-2",
+                          "path": "crowbar/components-3/api-2/models-5/docs-0/hooks-2/store-2",
+                          "type": "directory",
+                          "children": [
+                            {
+                              "name": "file-0.json",
+                              "path": "crowbar/components-3/api-2/models-5/docs-0/hooks-2/store-2/file-0.json",
+                              "type": "file",
+                              "size": 174269
+                            },
+                            {
+                              "name": "file-1.tsx",
+                              "path": "crowbar/components-3/api-2/models-5/docs-0/hooks-2/store-2/file-1.tsx",
+                              "type": "file",
+                              "size": 51541
+                            }
+                          ]
+                        },
+                        {
+                          "name": "file-3.md",
+                          "path": "crowbar/components-3/api-2/models-5/docs-0/hooks-2/file-3.md",
+                          "type": "file",
+                          "size": 66320
+                        },
+                        {
+                          "name": "file-4.ts",
+                          "path": "crowbar/components-3/api-2/models-5/docs-0/hooks-2/file-4.ts",
+                          "type": "file",
+                          "size": 129103
+                        }
+                      ]
+                    },
+                    {
+                      "name": "file-3.css",
+                      "path": "crowbar/components-3/api-2/models-5/docs-0/file-3.css",
+                      "type": "file",
+                      "size": 125686
+                    },
+                    {
+                      "name": "file-4.tsx",
+                      "path": "crowbar/components-3/api-2/models-5/docs-0/file-4.tsx",
+                      "type": "file",
+                      "size": 114654
+                    },
+                    {
+                      "name": "file-5.go",
+                      "path": "crowbar/components-3/api-2/models-5/docs-0/file-5.go",
+                      "type": "file",
+                      "size": 93410
+                    },
+                    {
+                      "name": "file-6.go",
+                      "path": "crowbar/components-3/api-2/models-5/docs-0/file-6.go",
+                      "type": "file",
+                      "size": 87841
+                    }
+                  ]
+                },
+                {
+                  "name": "docs-1",
+                  "path": "crowbar/components-3/api-2/models-5/docs-1",
+                  "type": "directory",
+                  "children": [
+                    {
+                      "name": "file-0.ts",
+                      "path": "crowbar/components-3/api-2/models-5/docs-1/file-0.ts",
+                      "type": "file",
+                      "size": 180952
+                    },
+                    {
+                      "name": "file-1.test.ts",
+                      "path": "crowbar/components-3/api-2/models-5/docs-1/file-1.test.ts",
+                      "type": "file",
+                      "size": 163103
+                    },
+                    {
+                      "name": "file-2.yaml",
+                      "path": "crowbar/components-3/api-2/models-5/docs-1/file-2.yaml",
+                      "type": "file",
+                      "size": 169962
+                    },
+                    {
+                      "name": "file-3.ts",
+                      "path": "crowbar/components-3/api-2/models-5/docs-1/file-3.ts",
+                      "type": "file",
+                      "size": 64506
+                    },
+                    {
+                      "name": "file-4.yaml",
+                      "path": "crowbar/components-3/api-2/models-5/docs-1/file-4.yaml",
+                      "type": "file",
+                      "size": 86257
+                    }
+                  ]
+                },
+                {
+                  "name": "features-2",
+                  "path": "crowbar/components-3/api-2/models-5/features-2",
+                  "type": "directory",
+                  "children": [
+                    {
+                      "name": "features-0",
+                      "path": "crowbar/components-3/api-2/models-5/features-2/features-0",
+                      "type": "directory",
+                      "children": [
+                        {
+                          "name": "features-0",
+                          "path": "crowbar/components-3/api-2/models-5/features-2/features-0/features-0",
+                          "type": "directory",
+                          "children": [
+                            {
+                              "name": "file-0.json",
+                              "path": "crowbar/components-3/api-2/models-5/features-2/features-0/features-0/file-0.json",
+                              "type": "file",
+                              "size": 144984
+                            },
+                            {
+                              "name": "file-1.css",
+                              "path": "crowbar/components-3/api-2/models-5/features-2/features-0/features-0/file-1.css",
+                              "type": "file",
+                              "size": 124158
+                            },
+                            {
+                              "name": "file-2.json",
+                              "path": "crowbar/components-3/api-2/models-5/features-2/features-0/features-0/file-2.json",
+                              "type": "file",
+                              "size": 172028
+                            },
+                            {
+                              "name": "file-3.css",
+                              "path": "crowbar/components-3/api-2/models-5/features-2/features-0/features-0/file-3.css",
+                              "type": "file",
+                              "size": 156168
+                            },
+                            {
+                              "name": "file-4.tsx",
+                              "path": "crowbar/components-3/api-2/models-5/features-2/features-0/features-0/file-4.tsx",
+                              "type": "file",
+                              "size": 185758
+                            }
+                          ]
+                        },
+                        {
+                          "name": "file-1.go",
+                          "path": "crowbar/components-3/api-2/models-5/features-2/features-0/file-1.go",
+                          "type": "file",
+                          "size": 99514
+                        },
+                        {
+                          "name": "api-2",
+                          "path": "crowbar/components-3/api-2/models-5/features-2/features-0/api-2",
+                          "type": "directory",
+                          "children": [
+                            {
+                              "name": "file-0.test.ts",
+                              "path": "crowbar/components-3/api-2/models-5/features-2/features-0/api-2/file-0.test.ts",
+                              "type": "file",
+                              "size": 132191
+                            },
+                            {
+                              "name": "file-1.tsx",
+                              "path": "crowbar/components-3/api-2/models-5/features-2/features-0/api-2/file-1.tsx",
+                              "type": "file",
+                              "size": 1345
+                            },
+                            {
+                              "name": "file-2.css",
+                              "path": "crowbar/components-3/api-2/models-5/features-2/features-0/api-2/file-2.css",
+                              "type": "file",
+                              "size": 181559
+                            },
+                            {
+                              "name": "file-3.json",
+                              "path": "crowbar/components-3/api-2/models-5/features-2/features-0/api-2/file-3.json",
+                              "type": "file",
+                              "size": 164579
+                            },
+                            {
+                              "name": "file-4.yaml",
+                              "path": "crowbar/components-3/api-2/models-5/features-2/features-0/api-2/file-4.yaml",
+                              "type": "file",
+                              "size": 153412
+                            },
+                            {
+                              "name": "file-5.json",
+                              "path": "crowbar/components-3/api-2/models-5/features-2/features-0/api-2/file-5.json",
+                              "type": "file",
+                              "size": 29656
+                            }
+                          ]
+                        },
+                        {
+                          "name": "utils-3",
+                          "path": "crowbar/components-3/api-2/models-5/features-2/features-0/utils-3",
+                          "type": "directory",
+                          "children": [
+                            {
+                              "name": "file-0.md",
+                              "path": "crowbar/components-3/api-2/models-5/features-2/features-0/utils-3/file-0.md",
+                              "type": "file",
+                              "size": 3453
+                            },
+                            {
+                              "name": "file-1.css",
+                              "path": "crowbar/components-3/api-2/models-5/features-2/features-0/utils-3/file-1.css",
+                              "type": "file",
+                              "size": 57951
+                            },
+                            {
+                              "name": "file-2.test.ts",
+                              "path": "crowbar/components-3/api-2/models-5/features-2/features-0/utils-3/file-2.test.ts",
+                              "type": "file",
+                              "size": 179864
+                            },
+                            {
+                              "name": "file-3.css",
+                              "path": "crowbar/components-3/api-2/models-5/features-2/features-0/utils-3/file-3.css",
+                              "type": "file",
+                              "size": 68761
+                            }
+                          ]
+                        },
+                        {
+                          "name": "hooks-4",
+                          "path": "crowbar/components-3/api-2/models-5/features-2/features-0/hooks-4",
+                          "type": "directory",
+                          "children": [
+                            {
+                              "name": "file-0.ts",
+                              "path": "crowbar/components-3/api-2/models-5/features-2/features-0/hooks-4/file-0.ts",
+                              "type": "file",
+                              "size": 103317
+                            },
+                            {
+                              "name": "file-1.css",
+                              "path": "crowbar/components-3/api-2/models-5/features-2/features-0/hooks-4/file-1.css",
+                              "type": "file",
+                              "size": 181936
+                            },
+                            {
+                              "name": "file-2.css",
+                              "path": "crowbar/components-3/api-2/models-5/features-2/features-0/hooks-4/file-2.css",
+                              "type": "file",
+                              "size": 7229
+                            },
+                            {
+                              "name": "file-3.md",
+                              "path": "crowbar/components-3/api-2/models-5/features-2/features-0/hooks-4/file-3.md",
+                              "type": "file",
+                              "size": 127665
+                            },
+                            {
+                              "name": "file-4.json",
+                              "path": "crowbar/components-3/api-2/models-5/features-2/features-0/hooks-4/file-4.json",
+                              "type": "file",
+                              "size": 168522
+                            }
+                          ]
+                        },
+                        {
+                          "name": "file-5.go",
+                          "path": "crowbar/components-3/api-2/models-5/features-2/features-0/file-5.go",
+                          "type": "file",
+                          "size": 2222
+                        },
+                        {
+                          "name": "file-6.json",
+                          "path": "crowbar/components-3/api-2/models-5/features-2/features-0/file-6.json",
+                          "type": "file",
+                          "size": 77856
+                        }
+                      ]
+                    },
+                    {
+                      "name": "file-1.go",
+                      "path": "crowbar/components-3/api-2/models-5/features-2/file-1.go",
+                      "type": "file",
+                      "size": 26447
+                    }
+                  ]
+                }
+              ]
+            },
+            {
+              "name": "hooks-6",
+              "path": "crowbar/components-3/api-2/hooks-6",
+              "type": "directory",
+              "children": [
+                {
+                  "name": "file-0.ts",
+                  "path": "crowbar/components-3/api-2/hooks-6/file-0.ts",
+                  "type": "file",
+                  "size": 152776
+                },
+                {
+                  "name": "models-1",
+                  "path": "crowbar/components-3/api-2/hooks-6/models-1",
+                  "type": "directory",
+                  "children": [
+                    {
+                      "name": "file-0.yaml",
+                      "path": "crowbar/components-3/api-2/hooks-6/models-1/file-0.yaml",
+                      "type": "file",
+                      "size": 45985
+                    },
+                    {
+                      "name": "file-1.yaml",
+                      "path": "crowbar/components-3/api-2/hooks-6/models-1/file-1.yaml",
+                      "type": "file",
+                      "size": 6906
+                    },
+                    {
+                      "name": "file-2.test.ts",
+                      "path": "crowbar/components-3/api-2/hooks-6/models-1/file-2.test.ts",
+                      "type": "file",
+                      "size": 53747
+                    },
+                    {
+                      "name": "features-3",
+                      "path": "crowbar/components-3/api-2/hooks-6/models-1/features-3",
+                      "type": "directory",
+                      "children": [
+                        {
+                          "name": "file-0.test.ts",
+                          "path": "crowbar/components-3/api-2/hooks-6/models-1/features-3/file-0.test.ts",
+                          "type": "file",
+                          "size": 148249
+                        },
+                        {
+                          "name": "api-1",
+                          "path": "crowbar/components-3/api-2/hooks-6/models-1/features-3/api-1",
+                          "type": "directory",
+                          "children": [
+                            {
+                              "name": "file-0.yaml",
+                              "path": "crowbar/components-3/api-2/hooks-6/models-1/features-3/api-1/file-0.yaml",
+                              "type": "file",
+                              "size": 42829
+                            },
+                            {
+                              "name": "file-1.yaml",
+                              "path": "crowbar/components-3/api-2/hooks-6/models-1/features-3/api-1/file-1.yaml",
+                              "type": "file",
+                              "size": 184097
+                            },
+                            {
+                              "name": "file-2.test.ts",
+                              "path": "crowbar/components-3/api-2/hooks-6/models-1/features-3/api-1/file-2.test.ts",
+                              "type": "file",
+                              "size": 44031
+                            },
+                            {
+                              "name": "file-3.md",
+                              "path": "crowbar/components-3/api-2/hooks-6/models-1/features-3/api-1/file-3.md",
+                              "type": "file",
+                              "size": 65511
+                            },
+                            {
+                              "name": "file-4.test.ts",
+                              "path": "crowbar/components-3/api-2/hooks-6/models-1/features-3/api-1/file-4.test.ts",
+                              "type": "file",
+                              "size": 140935
+                            }
+                          ]
+                        },
+                        {
+                          "name": "file-2.ts",
+                          "path": "crowbar/components-3/api-2/hooks-6/models-1/features-3/file-2.ts",
+                          "type": "file",
+                          "size": 195650
+                        }
+                      ]
+                    },
+                    {
+                      "name": "file-4.ts",
+                      "path": "crowbar/components-3/api-2/hooks-6/models-1/file-4.ts",
+                      "type": "file",
+                      "size": 84170
+                    }
+                  ]
+                },
+                {
+                  "name": "hooks-2",
+                  "path": "crowbar/components-3/api-2/hooks-6/hooks-2",
+                  "type": "directory",
+                  "children": [
+                    {
+                      "name": "file-0.md",
+                      "path": "crowbar/components-3/api-2/hooks-6/hooks-2/file-0.md",
+                      "type": "file",
+                      "size": 140545
+                    },
+                    {
+                      "name": "file-1.json",
+                      "path": "crowbar/components-3/api-2/hooks-6/hooks-2/file-1.json",
+                      "type": "file",
+                      "size": 77903
+                    },
+                    {
+                      "name": "utils-2",
+                      "path": "crowbar/components-3/api-2/hooks-6/hooks-2/utils-2",
+                      "type": "directory",
+                      "children": [
+                        {
+                          "name": "file-0.go",
+                          "path": "crowbar/components-3/api-2/hooks-6/hooks-2/utils-2/file-0.go",
+                          "type": "file",
+                          "size": 17245
+                        },
+                        {
+                          "name": "hooks-1",
+                          "path": "crowbar/components-3/api-2/hooks-6/hooks-2/utils-2/hooks-1",
+                          "type": "directory",
+                          "children": [
+                            {
+                              "name": "file-0.yaml",
+                              "path": "crowbar/components-3/api-2/hooks-6/hooks-2/utils-2/hooks-1/file-0.yaml",
+                              "type": "file",
+                              "size": 174922
+                            },
+                            {
+                              "name": "file-1.tsx",
+                              "path": "crowbar/components-3/api-2/hooks-6/hooks-2/utils-2/hooks-1/file-1.tsx",
+                              "type": "file",
+                              "size": 151360
+                            },
+                            {
+                              "name": "file-2.tsx",
+                              "path": "crowbar/components-3/api-2/hooks-6/hooks-2/utils-2/hooks-1/file-2.tsx",
+                              "type": "file",
+                              "size": 46653
+                            },
+                            {
+                              "name": "file-3.ts",
+                              "path": "crowbar/components-3/api-2/hooks-6/hooks-2/utils-2/hooks-1/file-3.ts",
+                              "type": "file",
+                              "size": 45049
+                            },
+                            {
+                              "name": "file-4.json",
+                              "path": "crowbar/components-3/api-2/hooks-6/hooks-2/utils-2/hooks-1/file-4.json",
+                              "type": "file",
+                              "size": 78983
+                            }
+                          ]
+                        }
+                      ]
+                    },
+                    {
+                      "name": "file-3.go",
+                      "path": "crowbar/components-3/api-2/hooks-6/hooks-2/file-3.go",
+                      "type": "file",
+                      "size": 106375
+                    },
+                    {
+                      "name": "utils-4",
+                      "path": "crowbar/components-3/api-2/hooks-6/hooks-2/utils-4",
+                      "type": "directory",
+                      "children": [
+                        {
+                          "name": "file-0.md",
+                          "path": "crowbar/components-3/api-2/hooks-6/hooks-2/utils-4/file-0.md",
+                          "type": "file",
+                          "size": 194360
+                        },
+                        {
+                          "name": "file-1.yaml",
+                          "path": "crowbar/components-3/api-2/hooks-6/hooks-2/utils-4/file-1.yaml",
+                          "type": "file",
+                          "size": 20777
+                        },
+                        {
+                          "name": "utils-2",
+                          "path": "crowbar/components-3/api-2/hooks-6/hooks-2/utils-4/utils-2",
+                          "type": "directory",
+                          "children": [
+                            {
+                              "name": "file-0.test.ts",
+                              "path": "crowbar/components-3/api-2/hooks-6/hooks-2/utils-4/utils-2/file-0.test.ts",
+                              "type": "file",
+                              "size": 198671
+                            },
+                            {
+                              "name": "file-1.json",
+                              "path": "crowbar/components-3/api-2/hooks-6/hooks-2/utils-4/utils-2/file-1.json",
+                              "type": "file",
+                              "size": 188340
+                            },
+                            {
+                              "name": "file-2.css",
+                              "path": "crowbar/components-3/api-2/hooks-6/hooks-2/utils-4/utils-2/file-2.css",
+                              "type": "file",
+                              "size": 59940
+                            },
+                            {
+                              "name": "file-3.tsx",
+                              "path": "crowbar/components-3/api-2/hooks-6/hooks-2/utils-4/utils-2/file-3.tsx",
+                              "type": "file",
+                              "size": 43876
+                            },
+                            {
+                              "name": "file-4.md",
+                              "path": "crowbar/components-3/api-2/hooks-6/hooks-2/utils-4/utils-2/file-4.md",
+                              "type": "file",
+                              "size": 74694
+                            }
+                          ]
+                        },
+                        {
+                          "name": "models-3",
+                          "path": "crowbar/components-3/api-2/hooks-6/hooks-2/utils-4/models-3",
+                          "type": "directory",
+                          "children": [
+                            {
+                              "name": "file-0.go",
+                              "path": "crowbar/components-3/api-2/hooks-6/hooks-2/utils-4/models-3/file-0.go",
+                              "type": "file",
+                              "size": 170697
+                            },
+                            {
+                              "name": "file-1.ts",
+                              "path": "crowbar/components-3/api-2/hooks-6/hooks-2/utils-4/models-3/file-1.ts",
+                              "type": "file",
+                              "size": 16384
+                            },
+                            {
+                              "name": "file-2.go",
+                              "path": "crowbar/components-3/api-2/hooks-6/hooks-2/utils-4/models-3/file-2.go",
+                              "type": "file",
+                              "size": 192053
+                            },
+                            {
+                              "name": "file-3.yaml",
+                              "path": "crowbar/components-3/api-2/hooks-6/hooks-2/utils-4/models-3/file-3.yaml",
+                              "type": "file",
+                              "size": 16581
+                            },
+                            {
+                              "name": "file-4.tsx",
+                              "path": "crowbar/components-3/api-2/hooks-6/hooks-2/utils-4/models-3/file-4.tsx",
+                              "type": "file",
+                              "size": 97815
+                            }
+                          ]
+                        }
+                      ]
+                    },
+                    {
+                      "name": "file-5.test.ts",
+                      "path": "crowbar/components-3/api-2/hooks-6/hooks-2/file-5.test.ts",
+                      "type": "file",
+                      "size": 163527
+                    }
+                  ]
+                },
+                {
+                  "name": "file-3.md",
+                  "path": "crowbar/components-3/api-2/hooks-6/file-3.md",
+                  "type": "file",
+                  "size": 64990
+                },
+                {
+                  "name": "utils-4",
+                  "path": "crowbar/components-3/api-2/hooks-6/utils-4",
+                  "type": "directory",
+                  "children": [
+                    {
+                      "name": "file-0.md",
+                      "path": "crowbar/components-3/api-2/hooks-6/utils-4/file-0.md",
+                      "type": "file",
+                      "size": 42932
+                    },
+                    {
+                      "name": "file-1.tsx",
+                      "path": "crowbar/components-3/api-2/hooks-6/utils-4/file-1.tsx",
+                      "type": "file",
+                      "size": 85989
+                    },
+                    {
+                      "name": "file-2.md",
+                      "path": "crowbar/components-3/api-2/hooks-6/utils-4/file-2.md",
+                      "type": "file",
+                      "size": 73524
+                    },
+                    {
+                      "name": "file-3.yaml",
+                      "path": "crowbar/components-3/api-2/hooks-6/utils-4/file-3.yaml",
+                      "type": "file",
+                      "size": 47256
+                    },
+                    {
+                      "name": "file-4.json",
+                      "path": "crowbar/components-3/api-2/hooks-6/utils-4/file-4.json",
+                      "type": "file",
+                      "size": 100443
+                    },
+                    {
+                      "name": "features-5",
+                      "path": "crowbar/components-3/api-2/hooks-6/utils-4/features-5",
+                      "type": "directory",
+                      "children": [
+                        {
+                          "name": "file-0.test.ts",
+                          "path": "crowbar/components-3/api-2/hooks-6/utils-4/features-5/file-0.test.ts",
+                          "type": "file",
+                          "size": 100962
+                        },
+                        {
+                          "name": "utils-1",
+                          "path": "crowbar/components-3/api-2/hooks-6/utils-4/features-5/utils-1",
+                          "type": "directory",
+                          "children": [
+                            {
+                              "name": "file-0.tsx",
+                              "path": "crowbar/components-3/api-2/hooks-6/utils-4/features-5/utils-1/file-0.tsx",
+                              "type": "file",
+                              "size": 91687
+                            },
+                            {
+                              "name": "file-1.md",
+                              "path": "crowbar/components-3/api-2/hooks-6/utils-4/features-5/utils-1/file-1.md",
+                              "type": "file",
+                              "size": 157527
+                            },
+                            {
+                              "name": "file-2.go",
+                              "path": "crowbar/components-3/api-2/hooks-6/utils-4/features-5/utils-1/file-2.go",
+                              "type": "file",
+                              "size": 82795
+                            }
+                          ]
+                        },
+                        {
+                          "name": "file-2.json",
+                          "path": "crowbar/components-3/api-2/hooks-6/utils-4/features-5/file-2.json",
+                          "type": "file",
+                          "size": 177009
+                        },
+                        {
+                          "name": "file-3.css",
+                          "path": "crowbar/components-3/api-2/hooks-6/utils-4/features-5/file-3.css",
+                          "type": "file",
+                          "size": 109597
+                        },
+                        {
+                          "name": "file-4.ts",
+                          "path": "crowbar/components-3/api-2/hooks-6/utils-4/features-5/file-4.ts",
+                          "type": "file",
+                          "size": 150304
+                        },
+                        {
+                          "name": "file-5.ts",
+                          "path": "crowbar/components-3/api-2/hooks-6/utils-4/features-5/file-5.ts",
+                          "type": "file",
+                          "size": 196355
+                        }
+                      ]
+                    },
+                    {
+                      "name": "file-6.json",
+                      "path": "crowbar/components-3/api-2/hooks-6/utils-4/file-6.json",
+                      "type": "file",
+                      "size": 195965
+                    }
+                  ]
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "name": "tests-3",
+          "path": "crowbar/components-3/tests-3",
+          "type": "directory",
+          "children": [
+            {
+              "name": "file-0.yaml",
+              "path": "crowbar/components-3/tests-3/file-0.yaml",
+              "type": "file",
+              "size": 67927
+            },
+            {
+              "name": "file-1.test.ts",
+              "path": "crowbar/components-3/tests-3/file-1.test.ts",
+              "type": "file",
+              "size": 35168
+            },
+            {
+              "name": "services-2",
+              "path": "crowbar/components-3/tests-3/services-2",
+              "type": "directory",
+              "children": [
+                {
+                  "name": "file-0.yaml",
+                  "path": "crowbar/components-3/tests-3/services-2/file-0.yaml",
+                  "type": "file",
+                  "size": 76160
+                },
+                {
+                  "name": "file-1.test.ts",
+                  "path": "crowbar/components-3/tests-3/services-2/file-1.test.ts",
+                  "type": "file",
+                  "size": 12528
+                },
+                {
+                  "name": "file-2.go",
+                  "path": "crowbar/components-3/tests-3/services-2/file-2.go",
+                  "type": "file",
+                  "size": 57588
+                },
+                {
+                  "name": "docs-3",
+                  "path": "crowbar/components-3/tests-3/services-2/docs-3",
+                  "type": "directory",
+                  "children": [
+                    {
+                      "name": "docs-0",
+                      "path": "crowbar/components-3/tests-3/services-2/docs-3/docs-0",
+                      "type": "directory",
+                      "children": [
+                        {
+                          "name": "file-0.yaml",
+                          "path": "crowbar/components-3/tests-3/services-2/docs-3/docs-0/file-0.yaml",
+                          "type": "file",
+                          "size": 89525
+                        },
+                        {
+                          "name": "file-1.tsx",
+                          "path": "crowbar/components-3/tests-3/services-2/docs-3/docs-0/file-1.tsx",
+                          "type": "file",
+                          "size": 29279
+                        }
+                      ]
+                    },
+                    {
+                      "name": "store-1",
+                      "path": "crowbar/components-3/tests-3/services-2/docs-3/store-1",
+                      "type": "directory",
+                      "children": [
+                        {
+                          "name": "file-0.yaml",
+                          "path": "crowbar/components-3/tests-3/services-2/docs-3/store-1/file-0.yaml",
+                          "type": "file",
+                          "size": 48251
+                        },
+                        {
+                          "name": "file-1.yaml",
+                          "path": "crowbar/components-3/tests-3/services-2/docs-3/store-1/file-1.yaml",
+                          "type": "file",
+                          "size": 90086
+                        },
+                        {
+                          "name": "components-2",
+                          "path": "crowbar/components-3/tests-3/services-2/docs-3/store-1/components-2",
+                          "type": "directory",
+                          "children": [
+                            {
+                              "name": "file-0.test.ts",
+                              "path": "crowbar/components-3/tests-3/services-2/docs-3/store-1/components-2/file-0.test.ts",
+                              "type": "file",
+                              "size": 145133
+                            },
+                            {
+                              "name": "file-1.go",
+                              "path": "crowbar/components-3/tests-3/services-2/docs-3/store-1/components-2/file-1.go",
+                              "type": "file",
+                              "size": 2243
+                            },
+                            {
+                              "name": "file-2.json",
+                              "path": "crowbar/components-3/tests-3/services-2/docs-3/store-1/components-2/file-2.json",
+                              "type": "file",
+                              "size": 112598
+                            },
+                            {
+                              "name": "file-3.go",
+                              "path": "crowbar/components-3/tests-3/services-2/docs-3/store-1/components-2/file-3.go",
+                              "type": "file",
+                              "size": 69831
+                            },
+                            {
+                              "name": "file-4.yaml",
+                              "path": "crowbar/components-3/tests-3/services-2/docs-3/store-1/components-2/file-4.yaml",
+                              "type": "file",
+                              "size": 54135
+                            },
+                            {
+                              "name": "file-5.css",
+                              "path": "crowbar/components-3/tests-3/services-2/docs-3/store-1/components-2/file-5.css",
+                              "type": "file",
+                              "size": 147171
+                            },
+                            {
+                              "name": "file-6.md",
+                              "path": "crowbar/components-3/tests-3/services-2/docs-3/store-1/components-2/file-6.md",
+                              "type": "file",
+                              "size": 11126
+                            }
+                          ]
+                        },
+                        {
+                          "name": "types-3",
+                          "path": "crowbar/components-3/tests-3/services-2/docs-3/store-1/types-3",
+                          "type": "directory",
+                          "children": [
+                            {
+                              "name": "file-0.tsx",
+                              "path": "crowbar/components-3/tests-3/services-2/docs-3/store-1/types-3/file-0.tsx",
+                              "type": "file",
+                              "size": 190815
+                            },
+                            {
+                              "name": "file-1.yaml",
+                              "path": "crowbar/components-3/tests-3/services-2/docs-3/store-1/types-3/file-1.yaml",
+                              "type": "file",
+                              "size": 149473
+                            },
+                            {
+                              "name": "file-2.yaml",
+                              "path": "crowbar/components-3/tests-3/services-2/docs-3/store-1/types-3/file-2.yaml",
+                              "type": "file",
+                              "size": 112069
+                            },
+                            {
+                              "name": "file-3.yaml",
+                              "path": "crowbar/components-3/tests-3/services-2/docs-3/store-1/types-3/file-3.yaml",
+                              "type": "file",
+                              "size": 168752
+                            },
+                            {
+                              "name": "file-4.md",
+                              "path": "crowbar/components-3/tests-3/services-2/docs-3/store-1/types-3/file-4.md",
+                              "type": "file",
+                              "size": 163860
+                            },
+                            {
+                              "name": "file-5.yaml",
+                              "path": "crowbar/components-3/tests-3/services-2/docs-3/store-1/types-3/file-5.yaml",
+                              "type": "file",
+                              "size": 49670
+                            },
+                            {
+                              "name": "file-6.test.ts",
+                              "path": "crowbar/components-3/tests-3/services-2/docs-3/store-1/types-3/file-6.test.ts",
+                              "type": "file",
+                              "size": 19167
+                            }
+                          ]
+                        },
+                        {
+                          "name": "file-4.go",
+                          "path": "crowbar/components-3/tests-3/services-2/docs-3/store-1/file-4.go",
+                          "type": "file",
+                          "size": 72243
+                        },
+                        {
+                          "name": "file-5.css",
+                          "path": "crowbar/components-3/tests-3/services-2/docs-3/store-1/file-5.css",
+                          "type": "file",
+                          "size": 192413
+                        },
+                        {
+                          "name": "tests-6",
+                          "path": "crowbar/components-3/tests-3/services-2/docs-3/store-1/tests-6",
+                          "type": "directory",
+                          "children": [
+                            {
+                              "name": "file-0.tsx",
+                              "path": "crowbar/components-3/tests-3/services-2/docs-3/store-1/tests-6/file-0.tsx",
+                              "type": "file",
+                              "size": 143276
+                            },
+                            {
+                              "name": "file-1.css",
+                              "path": "crowbar/components-3/tests-3/services-2/docs-3/store-1/tests-6/file-1.css",
+                              "type": "file",
+                              "size": 110174
+                            },
+                            {
+                              "name": "file-2.tsx",
+                              "path": "crowbar/components-3/tests-3/services-2/docs-3/store-1/tests-6/file-2.tsx",
+                              "type": "file",
+                              "size": 99658
+                            },
+                            {
+                              "name": "file-3.css",
+                              "path": "crowbar/components-3/tests-3/services-2/docs-3/store-1/tests-6/file-3.css",
+                              "type": "file",
+                              "size": 31854
+                            },
+                            {
+                              "name": "file-4.test.ts",
+                              "path": "crowbar/components-3/tests-3/services-2/docs-3/store-1/tests-6/file-4.test.ts",
+                              "type": "file",
+                              "size": 130159
+                            }
+                          ]
+                        }
+                      ]
+                    },
+                    {
+                      "name": "file-2.go",
+                      "path": "crowbar/components-3/tests-3/services-2/docs-3/file-2.go",
+                      "type": "file",
+                      "size": 158820
+                    },
+                    {
+                      "name": "file-3.go",
+                      "path": "crowbar/components-3/tests-3/services-2/docs-3/file-3.go",
+                      "type": "file",
+                      "size": 157813
+                    },
+                    {
+                      "name": "file-4.tsx",
+                      "path": "crowbar/components-3/tests-3/services-2/docs-3/file-4.tsx",
+                      "type": "file",
+                      "size": 7242
+                    },
+                    {
+                      "name": "file-5.test.ts",
+                      "path": "crowbar/components-3/tests-3/services-2/docs-3/file-5.test.ts",
+                      "type": "file",
+                      "size": 84563
+                    },
+                    {
+                      "name": "components-6",
+                      "path": "crowbar/components-3/tests-3/services-2/docs-3/components-6",
+                      "type": "directory",
+                      "children": [
+                        {
+                          "name": "lib-0",
+                          "path": "crowbar/components-3/tests-3/services-2/docs-3/components-6/lib-0",
+                          "type": "directory",
+                          "children": [
+                            {
+                              "name": "file-0.ts",
+                              "path": "crowbar/components-3/tests-3/services-2/docs-3/components-6/lib-0/file-0.ts",
+                              "type": "file",
+                              "size": 34512
+                            },
+                            {
+                              "name": "file-1.css",
+                              "path": "crowbar/components-3/tests-3/services-2/docs-3/components-6/lib-0/file-1.css",
+                              "type": "file",
+                              "size": 182898
+                            },
+                            {
+                              "name": "file-2.json",
+                              "path": "crowbar/components-3/tests-3/services-2/docs-3/components-6/lib-0/file-2.json",
+                              "type": "file",
+                              "size": 190877
+                            },
+                            {
+                              "name": "file-3.tsx",
+                              "path": "crowbar/components-3/tests-3/services-2/docs-3/components-6/lib-0/file-3.tsx",
+                              "type": "file",
+                              "size": 107972
+                            }
+                          ]
+                        },
+                        {
+                          "name": "tests-1",
+                          "path": "crowbar/components-3/tests-3/services-2/docs-3/components-6/tests-1",
+                          "type": "directory",
+                          "children": [
+                            {
+                              "name": "file-0.test.ts",
+                              "path": "crowbar/components-3/tests-3/services-2/docs-3/components-6/tests-1/file-0.test.ts",
+                              "type": "file",
+                              "size": 57118
+                            },
+                            {
+                              "name": "file-1.ts",
+                              "path": "crowbar/components-3/tests-3/services-2/docs-3/components-6/tests-1/file-1.ts",
+                              "type": "file",
+                              "size": 119608
+                            },
+                            {
+                              "name": "file-2.json",
+                              "path": "crowbar/components-3/tests-3/services-2/docs-3/components-6/tests-1/file-2.json",
+                              "type": "file",
+                              "size": 36376
+                            },
+                            {
+                              "name": "file-3.tsx",
+                              "path": "crowbar/components-3/tests-3/services-2/docs-3/components-6/tests-1/file-3.tsx",
+                              "type": "file",
+                              "size": 95844
+                            },
+                            {
+                              "name": "file-4.json",
+                              "path": "crowbar/components-3/tests-3/services-2/docs-3/components-6/tests-1/file-4.json",
+                              "type": "file",
+                              "size": 25763
+                            },
+                            {
+                              "name": "file-5.tsx",
+                              "path": "crowbar/components-3/tests-3/services-2/docs-3/components-6/tests-1/file-5.tsx",
+                              "type": "file",
+                              "size": 161452
+                            },
+                            {
+                              "name": "file-6.test.ts",
+                              "path": "crowbar/components-3/tests-3/services-2/docs-3/components-6/tests-1/file-6.test.ts",
+                              "type": "file",
+                              "size": 35811
+                            }
+                          ]
+                        },
+                        {
+                          "name": "components-2",
+                          "path": "crowbar/components-3/tests-3/services-2/docs-3/components-6/components-2",
+                          "type": "directory",
+                          "children": [
+                            {
+                              "name": "file-0.ts",
+                              "path": "crowbar/components-3/tests-3/services-2/docs-3/components-6/components-2/file-0.ts",
+                              "type": "file",
+                              "size": 87190
+                            },
+                            {
+                              "name": "file-1.tsx",
+                              "path": "crowbar/components-3/tests-3/services-2/docs-3/components-6/components-2/file-1.tsx",
+                              "type": "file",
+                              "size": 18094
+                            },
+                            {
+                              "name": "file-2.css",
+                              "path": "crowbar/components-3/tests-3/services-2/docs-3/components-6/components-2/file-2.css",
+                              "type": "file",
+                              "size": 163012
+                            },
+                            {
+                              "name": "file-3.yaml",
+                              "path": "crowbar/components-3/tests-3/services-2/docs-3/components-6/components-2/file-3.yaml",
+                              "type": "file",
+                              "size": 24512
+                            }
+                          ]
+                        },
+                        {
+                          "name": "file-3.go",
+                          "path": "crowbar/components-3/tests-3/services-2/docs-3/components-6/file-3.go",
+                          "type": "file",
+                          "size": 72724
+                        }
+                      ]
+                    }
+                  ]
+                },
+                {
+                  "name": "file-4.css",
+                  "path": "crowbar/components-3/tests-3/services-2/file-4.css",
+                  "type": "file",
+                  "size": 24678
+                }
+              ]
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}

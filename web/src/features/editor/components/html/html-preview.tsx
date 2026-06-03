@@ -1,15 +1,16 @@
 import { useEffect, useRef, useState } from "react";
 import { useShallow } from "zustand/react/shallow";
-import { useBufferStore } from "@/features/editor/stores/buffer-store";
+import { useWorkspaceStoreContext } from "@/features/workspace/stores/workspace-context";
 import { useFileSystemStore } from "@/features/file-system/controllers/store";
 import { hasTextContent } from "@/features/panes/types/pane-content";
 import { buildHtmlPreviewDocument } from "./html-preview-document";
 
 export function HtmlPreview() {
-  const { hasSourceBuffer, sourceContent, sourcePath } = useBufferStore(
+  const { hasSourceBuffer, sourceContent, sourcePath } = useWorkspaceStoreContext(
     useShallow((state) => {
-      const activeBuffer = state.activeBufferId
-        ? state.buffers.find((buffer) => buffer.id === state.activeBufferId)
+      const activeBufferId = state.panes[state.activePaneId]?.activeBufferId ?? null;
+      const activeBuffer = activeBufferId
+        ? state.buffers.find((buffer) => buffer.id === activeBufferId)
         : null;
       const sourceBuffer =
         activeBuffer?.type === "htmlPreview"

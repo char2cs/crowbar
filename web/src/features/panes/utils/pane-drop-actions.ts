@@ -1,4 +1,4 @@
-import { usePaneStore } from "../stores/pane-store";
+import { getActiveWorkspaceStoreRef } from "@/features/workspace/stores/workspace-store-ref";
 import { ensureBufferInPane } from "./pane-buffer-actions";
 import type { PaneDropZone } from "./pane-drop-zones";
 import { getPaneSplitDropOptions } from "./pane-drop-zones";
@@ -34,15 +34,14 @@ export function moveBufferToPaneDropTarget(
   bufferId: string,
   sourcePaneId: string,
   target: PaneDropTarget,
-  preserveEmptySource: boolean = target.paneId === sourcePaneId,
 ): string | null {
   const targetPaneId = getOrCreatePaneDropTarget(target);
   if (!targetPaneId) {
     return null;
   }
 
-  usePaneStore
-    .getState()
-    .actions.moveBufferToPane(bufferId, sourcePaneId, targetPaneId, preserveEmptySource);
+  const state = getActiveWorkspaceStoreRef()?.getState();
+  if (!state) return null;
+  state.paneActions.moveBufferToPane(bufferId, sourcePaneId, targetPaneId);
   return targetPaneId;
 }

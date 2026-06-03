@@ -15,7 +15,7 @@ import { useLspStore } from "@/features/editor/lsp/lsp-store";
 import { useDefinitionLink } from "@/features/editor/lsp/use-definition-link";
 import { useGoToDefinition } from "@/features/editor/lsp/use-go-to-definition";
 import { useHover } from "@/features/editor/lsp/use-hover";
-import { useBufferStore } from "@/features/editor/stores/buffer-store";
+import { useWorkspaceStore } from "@/features/workspace/stores/workspace-context";
 import { useEditorStateStore } from "@/features/editor/stores/state-store";
 import { useEditorUIStore } from "@/features/editor/stores/ui-store";
 import { useFileSystemStore } from "@/features/file-system/controllers/store";
@@ -54,6 +54,9 @@ export const useLspIntegration = ({
 }: UseLspIntegrationOptions) => {
   // Get LSP client instance (singleton)
   const lspClient = useMemo(() => LspClient.getInstance(), []);
+
+  // Get workspace store for imperative access
+  const workspaceStore = useWorkspaceStore();
 
   // Get workspace path
   const rootFolderPath = useFileSystemStore((state) => state.rootFolderPath);
@@ -184,7 +187,7 @@ export const useLspIntegration = ({
     }
 
     const cleanupDocument = () => {
-      const isStillOpen = useBufferStore
+      const isStillOpen = workspaceStore
         .getState()
         .buffers.some((buffer) => hasTextContent(buffer) && buffer.path === filePath);
 
@@ -332,7 +335,7 @@ export const useLspIntegration = ({
       // Debounce completion trigger with fixed delay for predictable behavior
       completionTimerRef.current = setTimeout(() => {
         // Get latest value at trigger time (not from effect deps)
-        const buffer = useBufferStore.getState().buffers.find((b) => b.path === filePath);
+        const buffer = workspaceStore.getState().buffers.find((b) => b.path === filePath);
         if (!buffer || !hasTextContent(buffer)) return;
 
         const cursorOffset = cursorPositionRef.current.offset;
@@ -371,7 +374,7 @@ export const useLspIntegration = ({
         return;
       }
 
-      const buffer = useBufferStore.getState().buffers.find((b) => b.path === filePath);
+      const buffer = workspaceStore.getState().buffers.find((b) => b.path === filePath);
       if (!buffer || !hasTextContent(buffer)) return;
 
       const cursorOffset = cursorPositionRef.current.offset;

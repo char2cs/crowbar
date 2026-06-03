@@ -1,11 +1,13 @@
-import { usePaneStore } from "../stores/pane-store";
+import { getActiveWorkspaceStoreRef } from "@/features/workspace/stores/workspace-store-ref";
 
 export function ensureBufferInPane(
   paneId: string,
   bufferId: string,
   setActive = true,
 ): string | null {
-  const paneActions = usePaneStore.getState().actions;
+  const state = getActiveWorkspaceStoreRef()?.getState();
+  if (!state) return null;
+  const paneActions = state.paneActions;
   const pane = paneActions.getPaneById(paneId);
   if (!pane) {
     return null;

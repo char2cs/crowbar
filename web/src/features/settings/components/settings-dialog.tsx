@@ -4,20 +4,21 @@ import { useSettingsStore } from "@/features/settings/store";
 import { filterVisibleSettingsTabs } from "@/features/settings/lib/settings-tab-visibility";
 import { useAuthStore } from "@/features/window/stores/auth-store";
 import { type SettingsTab, useUIState } from "@/features/window/stores/ui-state-store";
-import Dialog from "@/components/ui/dialog";
+import { AppDialog as Dialog } from "@/components/ui/dialog";
 import {
   DropdownMenu,
   DropdownMenuTrigger,
   DropdownMenuContent,
   DropdownMenuItem,
 } from "@/components/ui/dropdown-menu";
-import Input from "@/components/ui/input";
+import { Input } from "@/components/ui/input";
 import { SETTINGS_TAB_ITEMS, SettingsVerticalTabs } from "./settings-vertical-tabs";
 import { AppearanceSettings } from "./tabs/appearance-settings";
 import { EditorSettings } from "./tabs/editor-settings";
 import { GitSettings } from "./tabs/git-settings";
 import { FileTreeSettings } from "./tabs/file-tree-settings";
 import { TerminalSettings } from "./tabs/terminal-settings";
+import { DeveloperSettings } from "./tabs/developer-settings";
 
 interface SettingsDialogProps {
   isOpen: boolean;
@@ -25,7 +26,8 @@ interface SettingsDialogProps {
 }
 
 const SettingsDialog = ({ isOpen, onClose }: SettingsDialogProps) => {
-  const { settingsInitialTab, setSettingsInitialTab } = useUIState();
+  const settingsInitialTab = useUIState((s) => s.settingsInitialTab);
+  const setSettingsInitialTab = useUIState((s) => s.setSettingsInitialTab);
   const [activeTab, setActiveTab] = useState<SettingsTab>("appearance");
   const subscription = useAuthStore((state) => state.subscription);
   const hasEnterpriseAccess = Boolean(subscription?.enterprise?.has_access);
@@ -84,6 +86,7 @@ const SettingsDialog = ({ isOpen, onClose }: SettingsDialogProps) => {
       case "file-explorer": return <FileTreeSettings />;
       case "git":           return <GitSettings />;
       case "terminal":      return <TerminalSettings />;
+      case "developer":     return <DeveloperSettings />;
       default:              return <AppearanceSettings />;
     }
   };

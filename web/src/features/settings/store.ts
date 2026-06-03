@@ -21,10 +21,9 @@ import { scoreSearchQuery } from "@/utils/search-match";
 import { settingsSearchIndex } from "./config/search-index";
 import type { SearchResult, SearchState } from "./types/search";
 import type { Settings } from "./types/settings";
+import { saveUIPreferences } from "@/lib/persistence/ui-preferences";
 
 export type { Settings } from "./types/settings";
-
-const AI_CHAT_TOGGLE_COOLDOWN_MS = 120;
 
 let settingsStoreInitPromise: Promise<Settings> | null = null;
 
@@ -45,7 +44,6 @@ export const useSettingsStore = create(
     combine(
       {
         settings: getDefaultSettingsSnapshot(),
-        _lastAiChatToggleAt: 0,
         search: {
           query: "",
           results: [] as SearchResult[],
@@ -53,7 +51,7 @@ export const useSettingsStore = create(
           selectedResultId: null,
         } as SearchState,
       },
-      (set, get) => ({
+      (set) => ({
         updateSettingsFromJSON: (jsonString: string): boolean => {
           try {
             const validatedSettings = parseSettingsImportJson(jsonString);
@@ -90,23 +88,6 @@ export const useSettingsStore = create(
 
           applySettingsSideEffects(nextSettings);
           await saveSettingsToStore(nextSettings);
-        },
-
-        toggleAIChatVisible: (forceValue?: boolean) => {
-          const now = Date.now();
-          const previousToggleAt = get()._lastAiChatToggleAt;
-          if (now - previousToggleAt < AI_CHAT_TOGGLE_COOLDOWN_MS) {
-            return;
-          }
-
-          const nextValue = forceValue !== undefined ? forceValue : !get().settings.isAIChatVisible;
-
-          set((state) => {
-            state.settings.isAIChatVisible = nextValue;
-            state._lastAiChatToggleAt = now;
-          });
-
-          debouncedSaveSettingsToStore({ isAIChatVisible: nextValue });
         },
 
         updateSetting: async <K extends keyof Settings>(key: K, value: Settings[K]) => {
@@ -182,3 +163,24 @@ export const useSettingsStore = create(
 );
 
 export { defaultSettings, getDefaultSetting };
+
+let _prefTimer: ReturnType<typeof setTimeout>;
+
+const unsubscribeUIPrefs = useSettingsStore.subscribe((state) => {
+  clearTimeout(_prefTimer);
+  _prefTimer = setTimeout(() => {
+    void saveUIPreferences({
+      theme: state.settings.theme,
+      fontSize: state.settings.fontSize,
+      fontFamily: state.settings.fontFamily,
+      tabSize: state.settings.tabSize,
+      wordWrap: state.settings.wordWrap,
+      minimap: state.settings.showMinimap,
+    });
+  }, 300);
+});
+
+export function teardownUIPreferencesPersistence(): void {
+  clearTimeout(_prefTimer);
+  unsubscribeUIPrefs();
+}

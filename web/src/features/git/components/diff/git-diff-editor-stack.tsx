@@ -8,12 +8,13 @@ import {
   Trash as Trash2,
 } from "@phosphor-icons/react";
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useStore } from "zustand";
 const openUrl = (url: string) => { window.open(url, "_blank") }
 import CodeEditor from "@/features/editor/components/code-editor";
 import Breadcrumb from "@/features/editor/components/toolbar/breadcrumb";
 import { EDITOR_CONSTANTS } from "@/features/editor/config/constants";
 import { FileExplorerIcon } from "@/features/file-explorer/components/file-explorer-icon";
-import { useBufferStore } from "@/features/editor/stores/buffer-store";
+import { useWorkspaceStore } from "@/features/workspace/stores/workspace-context";
 import { useEditorSettingsStore } from "@/features/editor/stores/settings-store";
 import { calculateLineHeight, splitLines } from "@/features/editor/utils/lines";
 import { useZoomStore } from "@/features/window/stores/zoom-store";
@@ -41,9 +42,10 @@ import {
   serializeGitDiffSourceForSplitEditor,
 } from "../../utils/diff-editor-content";
 import DiffLineBackgroundLayer from "./diff-line-background-layer";
+import GitDiffEditorSurface from "./git-diff-editor-surface";
 import ImageDiffViewer from "./git-diff-image";
 import TextDiffViewer from "./git-diff-text";
-import Badge from "@/components/ui/badge";
+import { Badge } from "@/components/ui/badge";
 
 function countStats(diff: GitDiff) {
   if (typeof diff.additions === "number" || typeof diff.deletions === "number") {
@@ -113,6 +115,12 @@ function buildGitHubReferenceUrl(remoteUrl: string, gitRef: string): string | nu
 }
 
 function LargeDiffSectionEditor({ diff, cacheKey }: { diff: GitDiff; cacheKey: string }) {
+  const containerStyle = {
+    height: "min(72vh, 760px)",
+    minHeight: "420px",
+  } as const;
+
+  // Hoist all hooks above any early returns (Rules of Hooks)
   const sourcePath = diff.new_path || diff.old_path || diff.file_path;
   const editorContent = useMemo(() => serializeGitDiffForEditor(diff), [diff]);
   const bufferId = useDiffEditorBuffer({
@@ -122,10 +130,19 @@ function LargeDiffSectionEditor({ diff, cacheKey }: { diff: GitDiff; cacheKey: s
     name: `${sourcePath.split("/").pop() || "Diff"}.diff`,
   });
 
+  // raw_patch diffs have no parsed lines; fall back to plain text display
+  if (diff.raw_patch && diff.lines.length === 0) {
+    return (
+      <div className="relative overflow-hidden border-border border-t bg-background" style={containerStyle}>
+        <GitDiffEditorSurface cacheKey={`${cacheKey}_raw`} diff={diff} />
+      </div>
+    );
+  }
+
   return (
     <div
       className="relative overflow-hidden border-border border-t bg-background"
-      style={{ height: "min(72vh, 760px)", minHeight: "420px" }}
+      style={containerStyle}
     >
       <CodeEditor
         bufferId={bufferId}
@@ -447,8 +464,8 @@ const DiffFileSection = memo(function DiffFileSection({
                 {additions > 0 ? <span className="text-git-added">+{additions}</span> : null}
                 {deletions > 0 ? <span className="text-git-deleted">-{deletions}</span> : null}
                 <Badge
-                  size="compact"
-                  variant="muted"
+                  size="sm"
+                  variant="secondary"
                   className={`rounded px-1.5 py-0.5 capitalize ${statusBadgeClass[status]}`}
                 >
                   {status}
@@ -497,10 +514,20 @@ const GitDiffEditorStack = memo(function GitDiffEditorStack({
 }: {
   multiDiff: MultiFileDiff;
 }) {
-  const buffers = useBufferStore.use.buffers();
-  const activeBufferId = useBufferStore.use.activeBufferId();
-  const updateBufferContent = useBufferStore.use.actions().updateBufferContent;
-  const closeBuffer = useBufferStore.use.actions().closeBuffer;
+  const workspaceStore = useWorkspaceStore();
+  const buffers = useStore(workspaceStore, (s) => s.buffers);
+  const activeBufferId = useStore(workspaceStore, (s) => s.paneActions.getActivePane()?.activeBufferId ?? null);
+  const updateBufferContent = (bufferId: string, content: string, _markDirty: boolean, diffData?: MultiFileDiff) => {
+    workspaceStore.setState((state) => ({
+      ...state,
+      buffers: state.buffers.map((b) =>
+        b.id === bufferId && b.type === 'diff'
+          ? { ...b, content, ...(diffData !== undefined ? { diffData } : {}) }
+          : b,
+      ),
+    }));
+  };
+  const closeBuffer = (id: string) => workspaceStore.getState().bufferActions.closeBuffer(id);
   const rootFolderPath = useFileSystemStore((state) => state.rootFolderPath);
   const [viewMode, setViewMode] = useState<"unified" | "split">("unified");
   const [showWhitespace, setShowWhitespace] = useState(false);
@@ -733,7 +760,7 @@ const GitDiffEditorStack = memo(function GitDiffEditorStack({
               {multiDiff.commitDate ? (
                 <span>{formatRelativeDate(multiDiff.commitDate)}</span>
               ) : null}
-              <Badge size="compact" variant="muted">
+              <Badge size="sm" variant="secondary">
                 {multiDiff.commitHash}
               </Badge>
             </div>

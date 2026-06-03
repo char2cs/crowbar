@@ -1,6 +1,8 @@
-// Crowbar stub — FUTURE: replace with Go API calls
+import { apiFetch } from '@/lib/api'
+import type { Branch } from '@/lib/mock/git-data'
+
+// Crowbar stub — write operations not yet implemented in web mode
 const tauriInvoke = async <T>(_cmd: string, _args?: unknown): Promise<T> => { throw new Error(`Not implemented: ${_cmd}`) }
-import { isNotGitRepositoryError, resolveRepositoryPath } from "./git-repo-api";
 
 interface CheckoutResult {
   success: boolean;
@@ -10,17 +12,11 @@ interface CheckoutResult {
 
 export const getBranches = async (repoPath: string): Promise<string[]> => {
   try {
-    const resolvedRepoPath = await resolveRepositoryPath(repoPath);
-    if (!resolvedRepoPath) {
-      return [];
-    }
-
-    const branches = await tauriInvoke<string[]>("git_branches", { repoPath: resolvedRepoPath });
-    return branches;
-  } catch (error) {
-    if (!isNotGitRepositoryError(error)) {
-      console.error("Failed to get branches:", error);
-    }
+    const branches = await apiFetch<Branch[]>(
+      `/api/v0/git/branches?repo=${encodeURIComponent(repoPath)}`
+    )
+    return branches.map((b) => b.name)
+  } catch {
     return [];
   }
 };

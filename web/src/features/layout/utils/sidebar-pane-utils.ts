@@ -1,17 +1,12 @@
 export type SidebarView =
   | "files"
-  | "git"
-  | "github-prs"
   | "outline"
-  | "databases"
   | "collaboration"
   | "notifications"
   | (string & {});
 
 interface SidebarPaneState {
   isSidebarVisible: boolean;
-  isGitViewActive: boolean;
-  isGitHubPRsViewActive: boolean;
   activeSidebarView?: SidebarView;
 }
 
@@ -35,7 +30,6 @@ interface SidebarPaneTriggerResult extends SidebarPaneClickResult {
 
 const EDGE_SIDEBAR_VIEWS = new Set<SidebarView>([
   "outline",
-  "databases",
   "collaboration",
   "notifications",
 ]);
@@ -46,12 +40,8 @@ export function getSidebarPaneLevel(view: SidebarView): SidebarPaneLevel {
 }
 
 export function getActiveSidebarView({
-  isGitViewActive,
-  isGitHubPRsViewActive,
   activeSidebarView,
 }: Omit<SidebarPaneState, "isSidebarVisible">): SidebarView {
-  if (isGitViewActive) return "git";
-  if (isGitHubPRsViewActive) return "github-prs";
   return activeSidebarView ?? "files";
 }
 

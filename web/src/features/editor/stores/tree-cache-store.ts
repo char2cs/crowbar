@@ -6,6 +6,7 @@
 import type { Tree } from "web-tree-sitter";
 import { create } from "zustand";
 import { createSelectors } from "@/utils/zustand-selectors";
+import { onActiveWorkspaceStoreChange } from "@/features/workspace/stores/workspace-store-ref";
 
 export interface TreeCacheEntry {
   tree: Tree;
@@ -89,32 +90,44 @@ export const useTreeCacheStore = createSelectors(
   })),
 );
 
-// Subscribe to buffer store to clean up trees when buffers are closed
-// This is done lazily to avoid circular dependency issues
-let subscribed = false;
+// Subscribe to workspace store to clean up trees when buffers are closed.
+// Uses onActiveWorkspaceStoreChange so the subscription follows the active
+// workspace through transitions (mount/unmount of WorkspaceView).
+let _stopWatchingRef: (() => void) | null = null;
 
 export function initTreeCacheSubscription() {
-  if (subscribed) return;
-  subscribed = true;
+  if (_stopWatchingRef) return;
 
-  // Dynamically import to avoid circular dependency
-  import("./buffer-store").then(({ useBufferStore }) => {
-    useBufferStore.subscribe((state, prevState) => {
-      const currentBufferIds = new Set(state.buffers.map((b) => b.id));
-      const previousBufferIds = new Set(prevState.buffers.map((b) => b.id));
+  let _wsSubscriptionUnsub: (() => void) | null = null;
 
-      // Find closed buffers
-      for (const bufferId of previousBufferIds) {
-        if (!currentBufferIds.has(bufferId)) {
-          // Buffer was closed, clean up its tree
-          useTreeCacheStore.getState().actions.clearTree(bufferId);
+  _stopWatchingRef = onActiveWorkspaceStoreChange((store) => {
+    if (_wsSubscriptionUnsub) {
+      _wsSubscriptionUnsub();
+      _wsSubscriptionUnsub = null;
+    }
+
+    if (store) {
+      _wsSubscriptionUnsub = store.subscribe((state, prevState) => {
+        if (state.buffers === prevState.buffers) return;
+
+        const currentBufferIds = new Set(state.buffers.map((b) => b.id));
+        const previousBufferIds = new Set(prevState.buffers.map((b) => b.id));
+
+        // Find closed buffers and clean up their parse trees.
+        for (const bufferId of previousBufferIds) {
+          if (!currentBufferIds.has(bufferId)) {
+            useTreeCacheStore.getState().actions.clearTree(bufferId);
+          }
         }
-      }
-    });
+      });
+    }
   });
 }
 
 /** Reset the subscription guard — only for use in tests. */
 export function _resetTreeCacheSubscriptionForTesting(): void {
-  subscribed = false;
+  if (_stopWatchingRef) {
+    _stopWatchingRef();
+    _stopWatchingRef = null;
+  }
 }

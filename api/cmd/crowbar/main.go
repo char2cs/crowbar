@@ -8,7 +8,7 @@ import (
 	"os/signal"
 	"syscall"
 
-	"github.com/rabbytesoftware/crowbar/api/internal"
+	"github.com/char2cs/crowbar/api/internal"
 	"github.com/spf13/cobra"
 )
 

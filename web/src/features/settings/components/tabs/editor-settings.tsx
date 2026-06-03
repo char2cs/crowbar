@@ -4,11 +4,12 @@ import { getDefaultSetting, useSettingsStore } from "@/features/settings/store";
 import NumberInput from "@/components/ui/number-input";
 import Section, { SETTINGS_CONTROL_WIDTHS, SettingRow } from "../settings-section";
 import { Select, SelectTrigger, SelectValue, SelectContent, SelectItem } from "@/components/ui/select";
-import Switch from "@/components/ui/switch";
+import { Switch } from "@/components/ui/switch";
 import { FontSelector } from "../font-selector";
 
 export const EditorSettings = () => {
-  const { settings, updateSetting } = useSettingsStore();
+  const settings = useSettingsStore((s) => s.settings);
+  const updateSetting = useSettingsStore((s) => s.updateSetting);
   const languageOptions = useMemo(
     () => [
       { value: "auto", label: "Auto Detect" },
@@ -195,20 +196,6 @@ export const EditorSettings = () => {
           />
         </SettingRow>
 
-        <SettingRow
-          label="Buffer Carousel"
-          description="Show open buffers as a horizontally scrollable carousel in the main view"
-          onReset={() =>
-            updateSetting("horizontalTabScroll", getDefaultSetting("horizontalTabScroll"))
-          }
-          canReset={settings.horizontalTabScroll !== getDefaultSetting("horizontalTabScroll")}
-        >
-          <Switch
-            checked={settings.horizontalTabScroll}
-            onChange={(checked) => updateSetting("horizontalTabScroll", checked)}
-            size="sm"
-          />
-        </SettingRow>
         <SettingRow
           label="Auto Save"
           description="Automatically save files when editing"

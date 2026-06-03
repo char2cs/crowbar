@@ -1,6 +1,6 @@
 const getVersion = async (): Promise<string> => '0.0.0' // stub in web mode
 import { create } from "zustand";
-import { useBufferStore } from "@/features/editor/stores/buffer-store";
+import { getActiveWorkspaceStoreRef } from "@/features/workspace/stores/workspace-store-ref";
 import type { UpdateInfo } from "../hooks/use-updater";
 import {
   buildWhatsNewMarkdown,
@@ -23,9 +23,15 @@ function openWhatsNewBuffer(info: WhatsNewInfo) {
   const name = `What's New ${info.version}.md`;
   const content = buildWhatsNewMarkdown(info);
 
-  useBufferStore
-    .getState()
-    .actions.openBuffer(path, name, content, false, undefined, false, true, undefined, true);
+  getActiveWorkspaceStoreRef()
+    ?.getState()
+    .bufferActions.openContent({
+      type: "markdownPreview",
+      path,
+      name,
+      content,
+      sourceFilePath: path,
+    });
 }
 
 export const useWhatsNewStore = create<WhatsNewState>()((set, get) => ({
