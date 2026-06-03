@@ -8,8 +8,7 @@ import {
 } from "@phosphor-icons/react";
 import * as React from "react";
 import { useSettingsStore } from "@/features/settings/store";
-import { filterVisibleSettingsTabs } from "@/features/settings/lib/settings-tab-visibility";
-import { useAuthStore } from "@/features/window/stores/auth-store";
+import { useSettingsTabsFiltered } from "@/features/settings/lib/settings-tab-visibility";
 import type { SettingsTab } from "@/features/window/stores/ui-state-store";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/utils/cn";
@@ -46,19 +45,11 @@ export const SettingsVerticalTabs = ({
 }: SettingsVerticalTabsProps) => {
   const searchQuery = useSettingsStore((state) => state.search.query);
   const searchResults = useSettingsStore((state) => state.search.results);
-  const subscription = useAuthStore((state) => state.subscription);
-  const hasEnterpriseAccess = Boolean(subscription?.enterprise?.has_access);
-  const hasTeamsAccess = Boolean(subscription?.collaboration?.enabled);
   const scrollContainerRef = React.useRef<HTMLDivElement>(null);
   const tabRefs = React.useRef<Array<HTMLButtonElement | null>>([]);
 
   const matchingTabs = searchQuery ? new Set(searchResults.map((result) => result.tab)) : null;
-
-  const visibleTabs = filterVisibleSettingsTabs(SETTINGS_TAB_ITEMS, {
-    hasEnterpriseAccess,
-    hasTeamsAccess,
-    matchingTabs,
-  });
+  const visibleTabs = useSettingsTabsFiltered(SETTINGS_TAB_ITEMS, matchingTabs);
 
   React.useEffect(() => {
     if (searchQuery && visibleTabs.length > 0) {

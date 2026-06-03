@@ -15,13 +15,10 @@ export type SettingsTab =
   | "appearance"
   | "terminal"
   | "git"
-  | "account"
-  | "ai"
+  | "advanced"
+  | "enterprise"
   | "extensions"
   | "features"
-  | "advanced"
-  | "collaboration"
-  | "enterprise"
   | "file-explorer"
   | "language"
   | "developer"
@@ -63,12 +60,8 @@ export interface UIState {
   isSettingsDialogVisible: boolean
   setIsSettingsDialogVisible: (v: boolean) => void
   setActiveView: (view: string | null) => void
-  setActiveRightSidebarView: (view: string | null) => void
-  activeRightSidebarView: string | null
-  setIsQuickOpenVisible: (v: boolean) => void
-  setIsRightSidebarVisible: (v: boolean) => void
   activeView: string | null
-  isRightSidebarVisible: boolean
+  setIsQuickOpenVisible: (v: boolean) => void
   isQuickOpenVisible: boolean
   isAgentLauncherVisible: boolean
   setIsAgentLauncherVisible: (v: boolean) => void
@@ -125,12 +118,8 @@ export const useUIState = create<UIState>((set) => ({
   isSettingsDialogVisible: false,
   setIsSettingsDialogVisible: (v) => set({ isSettingsOpen: v, isSettingsDialogVisible: v }),
   setActiveView: (view) => set({ activeView: view }),
-  setActiveRightSidebarView: (view) => set({ activeRightSidebarView: view }),
-  activeRightSidebarView: null,
-  setIsQuickOpenVisible: (v) => set({ isQuickOpenVisible: v }),
-  setIsRightSidebarVisible: (v) => set({ isRightSidebarVisible: v }),
   activeView: null,
-  isRightSidebarVisible: false,
+  setIsQuickOpenVisible: (v) => set({ isQuickOpenVisible: v }),
   isQuickOpenVisible: false,
   isAgentLauncherVisible: false,
   setIsAgentLauncherVisible: (v) => set({ isAgentLauncherVisible: v }),

@@ -32,7 +32,6 @@ async function seedDB(workspaceId: string) {
     mostRecentActivePaneIds: [ROOT_PANE_ID],
     buffers: [],
     sidebarWidth: 240,
-    rightSidebarWidth: 280,
     updatedAt: Date.now(),
   }
   const prefs: UIPreferences = {

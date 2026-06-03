@@ -38,17 +38,14 @@ interface SettingsActionsParams {
 }
 
 const settingsTabLabels: Record<SettingsTab, string> = {
-  account: "Account",
   editor: "Editor",
   git: "Git",
   appearance: "Appearance",
-  extensions: "Extensions",
-  ai: "AI",
   language: "Editor",
-  features: "Features",
-  collaboration: "Collaboration",
-  enterprise: "Enterprise",
   advanced: "Advanced",
+  enterprise: "Enterprise",
+  extensions: "Extensions",
+  features: "Features",
   terminal: "Terminal",
   "file-explorer": "Files",
   developer: "Developer",

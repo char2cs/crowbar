@@ -16,7 +16,6 @@ export const FOOTER_LEADING_ITEM_IDS: string[] = [
 ]
 
 export const FOOTER_TRAILING_ITEM_IDS: string[] = [
-  "notifications",
   "settings",
 ]
 

@@ -1,8 +1,5 @@
 export type SidebarView =
   | "files"
-  | "outline"
-  | "collaboration"
-  | "notifications"
   | (string & {});
 
 interface SidebarPaneState {
@@ -17,7 +14,7 @@ interface SidebarPaneClickResult {
 
 export type SidebarPosition = "left" | "right";
 export type SidebarTriggerSide = SidebarPosition | "current";
-export type SidebarPaneLevel = "primary" | "edge";
+export type SidebarPaneLevel = "primary";
 
 interface SidebarPaneTriggerOptions {
   currentPosition: SidebarPosition;
@@ -28,14 +25,7 @@ interface SidebarPaneTriggerResult extends SidebarPaneClickResult {
   nextPosition: SidebarPosition;
 }
 
-const EDGE_SIDEBAR_VIEWS = new Set<SidebarView>([
-  "outline",
-  "collaboration",
-  "notifications",
-]);
-
-export function getSidebarPaneLevel(view: SidebarView): SidebarPaneLevel {
-  if (EDGE_SIDEBAR_VIEWS.has(view)) return "edge";
+export function getSidebarPaneLevel(_view: SidebarView): SidebarPaneLevel {
   return "primary";
 }
 

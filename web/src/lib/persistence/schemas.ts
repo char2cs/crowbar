@@ -21,7 +21,6 @@ export interface WorkspaceLayout {
   mostRecentActivePaneIds: string[]
   buffers: PaneContent[]
   sidebarWidth: number
-  rightSidebarWidth: number
   updatedAt: number
 }
 

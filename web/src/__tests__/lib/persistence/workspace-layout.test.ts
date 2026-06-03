@@ -14,7 +14,6 @@ const mockLayout: WorkspaceLayout = {
   mostRecentActivePaneIds: [ROOT_PANE_ID],
   buffers: [],
   sidebarWidth: 260,
-  rightSidebarWidth: 300,
   updatedAt: 1000,
 }
 

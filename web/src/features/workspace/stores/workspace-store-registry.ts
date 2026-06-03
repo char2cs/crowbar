@@ -35,7 +35,6 @@ export function getOrCreateWorkspaceStore(wsId: string): WorkspaceStore {
           mostRecentActivePaneIds: state.mostRecentActivePaneIds,
           buffers: state.buffers,
           sidebarWidth: 0,
-          rightSidebarWidth: 0,
           updatedAt: Date.now(),
         })
       }, 300)
