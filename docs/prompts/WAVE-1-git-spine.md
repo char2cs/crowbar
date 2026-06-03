@@ -16,12 +16,32 @@ hub, and `Broadcaster[T]` exist.
 - `api/docs/specs/v0/00-architecture-and-domain.md` §5.3, §6.1 (the
   `SyncWorkingTreeState` command + its per-field git sources)
 
-## House rules
-- Module `github.com/char2cs/crowbar/api`. Go 1.26.2. **Invoke `go-style` first.**
-- Layered: this is the **`engine/` layer** (`engine/git/`, `engine/fs/`) consumed
-  by `app/usecases/`. Lower never imports higher.
-- **Shell out to the system `git` binary** (not a pure-Go lib). Use the user's own
-  credentials/config.
+## ⛔ Rabbyte standards — NON-NEGOTIABLE (violating ANY = task failure)
+
+These apply to every line you write. A reviewer checks each one.
+1. **Replicate quiver.core's structure** (`/Users/char2cs/Projects/Rabbyte/quiver.core`):
+   layered, with implementation hidden in `internal/` sub-packages (`exec/`,
+   `status/`, `diff/`, … under each engine).
+2. **One domain concept per file**; **one `_test.go` per source file** (except
+   struct-only files); **source files < 500 LOC** (split before the limit).
+3. **One parameter per line, ALWAYS** — signatures AND multi-arg calls; closing
+   paren on its own line.
+4. **Early returns ALWAYS** — `else` is a smell. **Max 3 indentation levels per
+   function** — level 3 must NEVER exist; abstract instead.
+5. **Coverage ≥95%** (100% is the standard). **No flaky tests.** **NO `time.Sleep`
+   in tests, EVER** — synchronize with event-driven WS watchers / condition-based
+   wait helpers (mirror quiver `tests/kit`).
+6. **Benchmarks (`*_bench_test.go`) for hot paths** — here: diff parsing, hunk-id
+   hashing, conflict parsing, the watcher fan-out. Crowbar is an IDE, be fast.
+7. **CLEAN**: guard clauses, composition, `fmt.Errorf("op: ctx: %w", err)`,
+   gofumpt + goimports. Enforced by `.golangci.yml` (funlen 100/50, gocyclo 15,
+   nestif ≤2, revive early-return). Full statement: `docs/prompts/README.md`.
+
+**Project basics:** module `github.com/char2cs/crowbar/api`; Go 1.26.2; **invoke
+`go-style` before writing Go**; this is the **`engine/` layer** (`engine/git/`,
+`engine/fs/`) consumed by `app/usecases/` — lower never imports higher.
+**Shell out to the system `git` binary** (not a pure-Go lib); use the user's own
+credentials/config.
 
 ## Build — `engine/git/` (per `04`)
 - `internal/exec/` (run git in a workdir, capture stdout/stderr/exit), `status/`,

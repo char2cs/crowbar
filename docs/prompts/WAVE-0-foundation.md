@@ -13,12 +13,40 @@ so do **not** rush past the gate.
   — read `internal/internal.go`, `internal/{engine,adapter,app,api}/container.go`,
   `internal/app/container.go` (Asynx wiring), `internal/api/ws/broadcaster.go`.
 
-## House rules
-- Module `github.com/char2cs/crowbar/api`; fix any `rabbytesoftware/*` imports to
-  `char2cs/*`. Go 1.26.2. **Invoke the `go-style` skill before writing Go.**
-- Layered: `engine → adapter → app → api`; lower never imports higher.
-- This is a rewrite — delete/replace the scaffold's `Task`/`KanbanItem`/`Flow`
-  domain and the fixture-backed handlers where they don't match the specs.
+## ⛔ Rabbyte standards — NON-NEGOTIABLE (violating ANY = task failure)
+
+These apply to every line you write. A reviewer checks each one.
+1. **Replicate quiver.core's structure** (`/Users/char2cs/Projects/Rabbyte/quiver.core`):
+   layered `internal/{engine,adapter,app,api,domain,core}`; implementation hidden in
+   `internal/` sub-packages (`commands/`, `store/`, `projections/`, `mocks/`).
+2. **One domain concept per file**; **one `_test.go` per source file** (except
+   struct-only files); **source files < 500 LOC** (split before the limit).
+3. **One parameter per line, ALWAYS** — signatures AND multi-arg calls; closing
+   paren on its own line.
+4. **Early returns ALWAYS** — `else` is a smell. **Max 3 indentation levels per
+   function** — level 3 must NEVER exist; abstract instead.
+5. **Coverage ≥95%** (100% is the standard). **No flaky tests.** **NO `time.Sleep`
+   in tests, EVER** — synchronize with event-driven WS watchers / condition-based
+   wait helpers (mirror quiver `tests/kit`: `WaitForState`, `WaitForCount`, …).
+6. **Benchmarks (`*_bench_test.go`) for performance-critical algorithms** — Crowbar
+   is an IDE, it must be fast.
+7. **CLEAN**: guard clauses, composition over nesting, `fmt.Errorf("op: ctx: %w",
+   err)`, gofumpt + goimports. Enforced by `.golangci.yml` (funlen 100/50, gocyclo
+   15, nestif ≤2, revive early-return). Full statement: `docs/prompts/README.md`.
+
+**Project basics:** module `github.com/char2cs/crowbar/api` (fix any
+`rabbytesoftware/*` → `char2cs/*`); Go 1.26.2; **invoke the `go-style` skill before
+writing Go**; layered `engine → adapter → app → api` (lower never imports higher);
+this is a **rewrite** to match `api/docs/specs/v0/`.
+
+## Step 0 — Demolish the old scaffold (do this first)
+Delete/replace what does not match the specs: the `Task`/`KanbanItem`/`Flow`
+domain, `engine/flow/`, `engine/agent/`, the MCP repository, the fixture-backed
+handlers + `internal/fixtures/`, and the SSE `events.go`. Fix **all** imports
+`rabbytesoftware/*` → `char2cs/crowbar/api/*`. Stand up `.golangci.yml` (mirror
+quiver's) and the `Makefile` targets (`test`, `test-integration`, `bench`,
+`test-coverage`, `lint`, `pr-checks`, `missing-tests`) **before** writing new code,
+so the standards are enforced from line one.
 
 ## Build
 1. **`core/`** — `config/` (loads `~/.crowbar/config.yaml` over embedded defaults;
@@ -50,7 +78,9 @@ The concrete engines (git/fs/terminal/…), the concrete broadcasters, and any
 real subsystem logic. Just the skeleton + contracts.
 
 ## GATE 0 — Definition of done (must demonstrate)
-- `go build ./...` and `go vet ./...` clean.
+- `go build ./...`, `go vet ./...`, and `make lint` clean; **≥95% coverage** on
+  new packages; one `_test.go` per source file; **zero `time.Sleep` in tests**.
+- Old scaffold demolished; no `rabbytesoftware/*` imports remain.
 - Containers boot from `cmd/crowbar`.
 - A unit/integration test shows **one Asynx aggregate round-tripping** (send a
   command → event persisted → reload reconstructs state).

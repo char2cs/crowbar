@@ -5,12 +5,34 @@ concurrently. Each owns its own package(s) and **must not touch another agent's
 code** or the foundation. They all consume the Wave 0 contracts and (for some)
 the Wave 1 git engine.
 
-Shared house rules for all four:
-- Module `github.com/char2cs/crowbar/api`. Go 1.26.2. **Invoke `go-style` first.**
-- Layered `engine → adapter → app → api`; lower never imports higher.
-- Reference `quiver.core` patterns + `api/ARCHITECTURE.md`.
-- Done = `go build ./...` + `go vet ./...` clean, unit tests pass, an integration
-  test (`//go:build integration`) demonstrates the engine's core behavior.
+## ⛔ Rabbyte standards — NON-NEGOTIABLE for all four agents (violating ANY = task failure)
+
+A reviewer checks each one on every agent's output.
+1. **Replicate quiver.core's structure** (`/Users/char2cs/Projects/Rabbyte/quiver.core`):
+   layered, implementation hidden in `internal/` sub-packages.
+2. **One domain concept per file**; **one `_test.go` per source file** (except
+   struct-only files); **source files < 500 LOC** (split before the limit).
+3. **One parameter per line, ALWAYS** — signatures AND multi-arg calls; closing
+   paren on its own line.
+4. **Early returns ALWAYS** — `else` is a smell. **Max 3 indentation levels per
+   function** — level 3 must NEVER exist; abstract instead.
+5. **Coverage ≥95%** (100% is the standard). **No flaky tests.** **NO `time.Sleep`
+   in tests, EVER** — event-driven WS watchers / condition-based wait helpers
+   (mirror quiver `tests/kit`).
+6. **Benchmarks (`*_bench_test.go`) for hot paths** (per-agent: hierarchy diff,
+   PTY fan-out, search match/walk, provider parse) — Crowbar is an IDE, be fast.
+7. **CLEAN**: guard clauses, composition, `fmt.Errorf("op: ctx: %w", err)`,
+   gofumpt + goimports. Enforced by `.golangci.yml` (funlen 100/50, gocyclo 15,
+   nestif ≤2, revive early-return). Full statement: `docs/prompts/README.md`.
+
+**Project basics:** module `github.com/char2cs/crowbar/api`; Go 1.26.2; **invoke
+`go-style` before writing Go**; layered `engine → adapter → app → api` (lower never
+imports higher); reference `quiver.core` + `api/ARCHITECTURE.md`.
+
+**Done (each agent)** = `go build ./...` + `go vet ./...` + `make lint` clean,
+unit tests pass at **≥95% coverage**, benchmarks for the hot paths, and an
+integration test (`//go:build integration`) demonstrates the engine's core
+behavior with **no `time.Sleep`**.
 
 ---
 
