@@ -16,7 +16,7 @@ test:
 	go test -race ./...
 
 test-integration:
-	go test -tags integration -race ./tests/...
+	@if [ -d tests ]; then go test -tags integration -race ./tests/...; else echo "no tests/ directory yet (integration suite lands in a later wave)"; fi
 
 bench:
 	go test -run=^$$ -bench=. -benchmem ./...
@@ -37,7 +37,7 @@ pr-checks: lint test test-coverage
 missing-tests:
 	@for f in $$(find internal cmd -name '*.go' ! -name '*_test.go'); do \
 		t=$${f%.go}_test.go; \
-		if [ ! -f "$$t" ] && ! grep -qL 'type .* struct' "$$f" 2>/dev/null; then \
+		if [ ! -f "$$t" ] && grep -q '^func ' "$$f"; then \
 			echo "missing test: $$f"; \
 		fi; \
 	done
