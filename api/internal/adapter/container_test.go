@@ -27,3 +27,11 @@ func TestClose_Idempotentish(t *testing.T) {
 	require.NoError(t, err)
 	assert.NoError(t, c.Close())
 }
+
+func TestNew_DefaultDirs_UsesHome(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+	c, err := adapter.New()
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = c.Close() })
+	assert.NotNil(t, c.WorkspaceES)
+}

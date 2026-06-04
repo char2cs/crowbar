@@ -47,3 +47,42 @@ func TestEnsure_RejectsUncreatablePath(t *testing.T) {
 	_, err := ensure("/dev/null/cannot")
 	assert.Error(t, err)
 }
+
+// Tests for the non-At variants using HOME isolation.
+
+func TestEvents_CreatesDir(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+	got, err := Events()
+	require.NoError(t, err)
+	assert.NotEmpty(t, got)
+	info, statErr := os.Stat(got)
+	require.NoError(t, statErr)
+	assert.True(t, info.IsDir())
+}
+
+func TestStore_CreatesDir(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+	got, err := Store()
+	require.NoError(t, err)
+	assert.NotEmpty(t, got)
+	_, statErr := os.Stat(got)
+	require.NoError(t, statErr)
+}
+
+func TestRuns_CreatesDir(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+	got, err := Runs()
+	require.NoError(t, err)
+	assert.NotEmpty(t, got)
+	_, statErr := os.Stat(got)
+	require.NoError(t, statErr)
+}
+
+func TestLogs_CreatesDir(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+	got, err := Logs()
+	require.NoError(t, err)
+	assert.NotEmpty(t, got)
+	_, statErr := os.Stat(got)
+	require.NoError(t, statErr)
+}

@@ -88,6 +88,23 @@ func TestEventStore_Delete_RemovesAggregate(t *testing.T) {
 	assert.Empty(t, blobs)
 }
 
+func TestEventStore_Delete_ContextCancelled(t *testing.T) {
+	s := newTestEventStore(t)
+	err := s.Delete(cancelledCtx(), "agg-1")
+	assert.Error(t, err)
+}
+
+func TestEventStore_Close_Success(t *testing.T) {
+	s, err := NewEventStore(":memory:")
+	require.NoError(t, err)
+	type closer interface {
+		Close() error
+	}
+	cl, ok := s.(closer)
+	require.True(t, ok, "expected eventStore to implement io.Closer")
+	assert.NoError(t, cl.Close())
+}
+
 func TestEventStore_Append_ContextCancelled(t *testing.T) {
 	s := newTestEventStore(t)
 	err := s.Append(cancelledCtx(), "agg-1", 1, []byte("d"))

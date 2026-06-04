@@ -59,3 +59,26 @@ func TestNew_InvalidPath_ReturnsError(t *testing.T) {
 	_, err := sqlite.New[domain.Project, string]("/nonexistent-dir-crowbar/x.db")
 	assert.Error(t, err)
 }
+
+func TestGormStore_FindAll_Empty(t *testing.T) {
+	ctx, s := newProjectStore(t)
+	all, err := s.FindAll(ctx)
+	require.NoError(t, err)
+	assert.Empty(t, all)
+}
+
+func TestGormStore_FindAll_ContextCancelled(t *testing.T) {
+	_, s := newProjectStore(t)
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	_, err := s.FindAll(ctx)
+	assert.Error(t, err)
+}
+
+func TestGormStore_FindByKey_ContextCancelled(t *testing.T) {
+	_, s := newProjectStore(t)
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	_, err := s.FindByKey(ctx, "p1")
+	assert.Error(t, err)
+}

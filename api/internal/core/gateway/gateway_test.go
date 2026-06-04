@@ -2,7 +2,11 @@ package gateway_test
 
 import (
 	"net"
+	"path/filepath"
 	"testing"
+
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 
 	"github.com/char2cs/crowbar/api/internal/core/gateway"
 )
@@ -23,4 +27,20 @@ func TestGatewayUnknownScheme(t *testing.T) {
 	if err == nil {
 		t.Fatal("expected error for unknown scheme, got nil")
 	}
+}
+
+func TestGatewayUnix_ExplicitPath(t *testing.T) {
+	sockPath := filepath.Join(t.TempDir(), "test.sock")
+	l, err := gateway.New("unix://" + sockPath)
+	require.NoError(t, err)
+	t.Cleanup(func() { l.Close() })
+	assert.NotNil(t, l)
+}
+
+func TestGatewayUnix_DefaultPath(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+	l, err := gateway.New("unix://")
+	require.NoError(t, err)
+	t.Cleanup(func() { l.Close() })
+	assert.NotNil(t, l)
 }

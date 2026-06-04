@@ -37,6 +37,18 @@ func TestNew_InvalidHomeDir_ReturnsAdapterError(t *testing.T) {
 	assert.Error(t, err)
 }
 
+func TestNew_DefaultDirs_UsesHome(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+	c, err := internal.New(
+		context.Background(),
+		"tcp://127.0.0.1:0",
+		nil,
+	)
+	require.NoError(t, err)
+	t.Cleanup(c.Close)
+	assert.NotNil(t, c)
+}
+
 func TestRun_CancelledContext_Returns(t *testing.T) {
 	c, err := internal.New(
 		context.Background(),
