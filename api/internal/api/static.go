@@ -14,7 +14,7 @@ func RegisterStatic(router *gin.Engine, staticFS fs.FS) {
 	router.NoRoute(func(c *gin.Context) {
 		path := c.Request.URL.Path
 
-		if strings.HasPrefix(path, "/api/") {
+		if strings.HasPrefix(path, "/api/") || strings.HasPrefix(path, "/v0/") {
 			c.JSON(http.StatusNotFound, gin.H{"error": "not found"})
 			return
 		}

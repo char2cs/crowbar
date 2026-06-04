@@ -5,23 +5,31 @@ import (
 	"net/http"
 
 	"github.com/gin-gonic/gin"
+
 	"github.com/char2cs/crowbar/api/internal/api/middleware"
 	v0 "github.com/char2cs/crowbar/api/internal/api/v0"
 	"github.com/char2cs/crowbar/api/internal/app"
 )
 
+// Container owns the configured gin engine.
 type Container struct {
 	router *gin.Engine
 }
 
-func New(appContainer *app.Container, staticFS fs.FS) (*Container, error) {
+// New builds the HTTP layer: middleware, the v0 surface (mounted at /v0 and
+// registered as a hub subscriber), and optional embedded static assets.
+func New(
+	appContainer *app.Container,
+	staticFS fs.FS,
+) (*Container, error) {
 	gin.SetMode(gin.ReleaseMode)
 	router := gin.New()
+	router.UseRawPath = true
+	router.UnescapePathValues = true
 	router.Use(middleware.Logger(), middleware.Recovery())
 
-	apiV0 := router.Group("/api/v0")
-	apiV0.Use(middleware.Chaos())
-	v0.Register(apiV0, appContainer)
+	v0Container := v0.New(appContainer)
+	v0Container.Register(router.Group("/v0"))
 
 	if staticFS != nil {
 		RegisterStatic(router, staticFS)
@@ -30,4 +38,7 @@ func New(appContainer *app.Container, staticFS fs.FS) (*Container, error) {
 	return &Container{router: router}, nil
 }
 
-func (c *Container) Handler() http.Handler { return c.router }
+// Handler returns the underlying http.Handler.
+func (c *Container) Handler() http.Handler {
+	return c.router
+}
