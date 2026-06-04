@@ -1,19 +1,15 @@
-package engine_test
+package engine
 
 import (
 	"context"
 	"testing"
 
-	"github.com/char2cs/crowbar/api/internal/engine"
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
-func TestEngineContainerNew(t *testing.T) {
-	ctx := context.Background()
-	c, err := engine.New(ctx)
-	if err != nil {
-		t.Fatalf("expected no error, got: %v", err)
-	}
-	if c == nil {
-		t.Fatal("expected non-nil container")
-	}
+func TestNew_ReturnsContainer(t *testing.T) {
+	c, err := New(context.Background(), WithHomeDir("/tmp/x"))
+	require.NoError(t, err)
+	assert.NotNil(t, c)
 }
