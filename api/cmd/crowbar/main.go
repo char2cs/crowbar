@@ -8,8 +8,10 @@ import (
 	"os/signal"
 	"syscall"
 
-	"github.com/char2cs/crowbar/api/internal"
 	"github.com/spf13/cobra"
+
+	"github.com/char2cs/crowbar/api/internal"
+	"github.com/char2cs/crowbar/api/internal/core/metadata"
 )
 
 var host string
@@ -29,7 +31,7 @@ var versionCmd = &cobra.Command{
 	Use:   "version",
 	Short: "Print version",
 	Run: func(cmd *cobra.Command, args []string) {
-		fmt.Println("crowbar dev")
+		fmt.Println("crowbar " + metadata.GetVersion())
 	},
 }
 
