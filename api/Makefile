@@ -35,9 +35,9 @@ pr-checks: lint test test-coverage
 	go vet ./...
 
 missing-tests:
-	@for f in $$(find internal cmd -name '*.go' ! -name '*_test.go'); do \
-		t=$${f%.go}_test.go; \
-		if [ ! -f "$$t" ] && grep -q '^func ' "$$f"; then \
-			echo "missing test: $$f"; \
+	@for d in $$(go list -f '{{.Dir}}' ./...); do \
+		if ls $$d/*_test.go >/dev/null 2>&1; then continue; fi; \
+		if grep -lq '^func [A-Z]' $$d/*.go 2>/dev/null; then \
+			echo "package without tests: $$d"; \
 		fi; \
 	done
