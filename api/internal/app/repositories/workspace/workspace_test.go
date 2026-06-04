@@ -69,3 +69,46 @@ func TestWorkspace_SyncClearsNewStatus(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, domain.WorkspaceStatus(""), reloaded.Status)
 }
+
+func TestWorkspace_Create_RoundTrips_Timestamps(t *testing.T) {
+	ctx, repo := newRepo(t)
+	now := time.Unix(1000, 0).UTC()
+
+	_, err := repo.Create(ctx, workspace.CreateInput{
+		ID:        "w2",
+		RepoID:    "r1",
+		ProjectID: "p1",
+		Branch:    "feature/ts",
+	}, now)
+	require.NoError(t, err)
+
+	reloaded, err := repo.Get(ctx, "w2")
+	require.NoError(t, err)
+	assert.Equal(t, now, reloaded.CreatedAt)
+	assert.Equal(t, now, reloaded.LastActivity)
+}
+
+func TestWorkspace_Create_ErrorOnDuplicate(t *testing.T) {
+	ctx, repo := newRepo(t)
+	now := time.Unix(1000, 0).UTC()
+	in := workspace.CreateInput{ID: "w3", RepoID: "r1", ProjectID: "p1"}
+
+	_, err := repo.Create(ctx, in, now)
+	require.NoError(t, err)
+
+	_, err = repo.Create(ctx, in, now)
+	assert.Error(t, err)
+}
+
+func TestWorkspace_Get_ErrorOnMissing(t *testing.T) {
+	ctx, repo := newRepo(t)
+	_, err := repo.Get(ctx, "does-not-exist")
+	assert.Error(t, err)
+}
+
+func TestWorkspace_Sync_ErrorOnMissing(t *testing.T) {
+	ctx, repo := newRepo(t)
+	now := time.Unix(1000, 0).UTC()
+	_, err := repo.SyncWorkingTreeState(ctx, workspace.SyncInput{ID: "does-not-exist"}, now)
+	assert.Error(t, err)
+}

@@ -35,3 +35,30 @@ func TestResetIdle_Validate_RejectsMissing(t *testing.T) {
 	err := ResetChatIdle{ID: "c1"}.Validate(nil)
 	assert.True(t, errors.Is(err, asynxModels.ErrValidation))
 }
+
+func TestChat_AllMetadata(t *testing.T) {
+	create := CreateChat{ID: "c1"}
+	assert.Equal(t, "c1", create.AggregateID())
+	assert.Contains(t, create.EventName(), "chat.created")
+	assert.False(t, create.ShouldSnapshot())
+
+	reset := ResetChatIdle{ID: "c1"}
+	assert.Equal(t, "c1", reset.AggregateID())
+	assert.Contains(t, reset.EventName(), "idle_reset")
+	assert.False(t, reset.ShouldSnapshot())
+}
+
+func TestCreateChat_Validate_RejectsMissingIDs(t *testing.T) {
+	err := CreateChat{ID: "c1"}.Validate(nil)
+	assert.True(t, errors.Is(err, asynxModels.ErrValidation))
+}
+
+func TestCreateChat_Validate_AcceptsValidNew(t *testing.T) {
+	err := CreateChat{ID: "c1", WsID: "w1"}.Validate(nil)
+	assert.NoError(t, err)
+}
+
+func TestResetIdle_Validate_AcceptsExisting(t *testing.T) {
+	err := ResetChatIdle{ID: "c1"}.Validate(&domain.Chat{ID: "c1"})
+	assert.NoError(t, err)
+}

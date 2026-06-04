@@ -67,3 +67,29 @@ func TestCommands_Metadata(t *testing.T) {
 	assert.Contains(t, s.EventName(), "working_tree_synced")
 	assert.True(t, s.ShouldSnapshot())
 }
+
+func TestCreateWorkspace_Validate_AcceptsValidNew(t *testing.T) {
+	cmd := CreateWorkspace{ID: "w1", RepoID: "r1", ProjectID: "p1"}
+	err := cmd.Validate(nil)
+	assert.NoError(t, err)
+}
+
+func TestSyncWorkingTreeState_Validate_AcceptsExisting(t *testing.T) {
+	cmd := SyncWorkingTreeState{ID: "w1"}
+	err := cmd.Validate(&domain.Workspace{ID: "w1"})
+	assert.NoError(t, err)
+}
+
+func TestCreateWorkspace_EmitEvent_UsesProvidedStrategy(t *testing.T) {
+	now := time.Unix(2000, 0)
+	cmd := CreateWorkspace{
+		ID:            "w1",
+		RepoID:        "r1",
+		ProjectID:     "p1",
+		MergeStrategy: domain.MergeStrategySquash,
+		Now:           now,
+	}
+	ws := cmd.EmitEvent(nil)
+	assert.Equal(t, domain.MergeStrategySquash, ws.MergeStrategy)
+	assert.Equal(t, now, ws.LastActivity)
+}

@@ -60,3 +60,39 @@ func TestAgentRun_MarkRunning_RejectedFromDone(t *testing.T) {
 	_, err = repo.MarkRunning(ctx, "a1")
 	assert.Error(t, err)
 }
+
+func TestAgentRun_Create_ErrorOnDuplicate(t *testing.T) {
+	ctx, repo := newRepo(t)
+	_, err := repo.Create(ctx, "a2", "w1", "c1", time.Unix(1, 0))
+	require.NoError(t, err)
+	_, err = repo.Create(ctx, "a2", "w1", "c1", time.Unix(1, 0))
+	assert.Error(t, err)
+}
+
+func TestAgentRun_Get_ErrorOnMissing(t *testing.T) {
+	ctx, repo := newRepo(t)
+	_, err := repo.Get(ctx, "does-not-exist")
+	assert.Error(t, err)
+}
+
+func TestAgentRun_Complete_ErrorOnMissing(t *testing.T) {
+	ctx, repo := newRepo(t)
+	_, err := repo.Complete(ctx, "does-not-exist")
+	assert.Error(t, err)
+}
+
+func TestAgentRun_Fail_ErrorOnMissing(t *testing.T) {
+	ctx, repo := newRepo(t)
+	_, err := repo.Fail(ctx, "does-not-exist")
+	assert.Error(t, err)
+}
+
+func TestAgentRun_Get_ReturnsCreated(t *testing.T) {
+	ctx, repo := newRepo(t)
+	_, err := repo.Create(ctx, "a3", "w1", "c1", time.Unix(1, 0))
+	require.NoError(t, err)
+	got, err := repo.Get(ctx, "a3")
+	require.NoError(t, err)
+	assert.Equal(t, domain.AgentRunStatusPending, got.Status)
+	assert.Equal(t, "w1", got.WsID)
+}
