@@ -78,3 +78,18 @@ func TestChat_Get_ReturnsCreated(t *testing.T) {
 	assert.Equal(t, "w2", got.WsID)
 	assert.Equal(t, domain.ChatStatusIdle, got.Status)
 }
+
+func TestChat_SetAgentRunning_RoundTrips(t *testing.T) {
+	ctx, repo := newRepo(t)
+	_, err := repo.Create(ctx, "c1", "w1", time.Unix(1, 0))
+	require.NoError(t, err)
+	running, err := repo.SetAgentRunning(ctx, "c1")
+	require.NoError(t, err)
+	assert.Equal(t, domain.ChatStatusAgentRunning, running.Status)
+}
+
+func TestChat_SetAgentRunning_ErrorOnMissing(t *testing.T) {
+	ctx, repo := newRepo(t)
+	_, err := repo.SetAgentRunning(ctx, "does-not-exist")
+	assert.Error(t, err)
+}

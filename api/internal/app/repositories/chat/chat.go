@@ -23,6 +23,10 @@ type Chat interface {
 		ctx context.Context,
 		id string,
 	) (domain.Chat, error)
+	SetAgentRunning(
+		ctx context.Context,
+		id string,
+	) (domain.Chat, error)
 	Get(
 		ctx context.Context,
 		id string,
@@ -60,6 +64,17 @@ func (c *chat) ResetIdle(
 	evt, err := c.ax.SendWait(ctx, commands.ResetChatIdle{ID: id})
 	if err != nil {
 		return domain.Chat{}, fmt.Errorf("chat: reset idle: %w", err)
+	}
+	return evt.Aggregate, nil
+}
+
+func (c *chat) SetAgentRunning(
+	ctx context.Context,
+	id string,
+) (domain.Chat, error) {
+	evt, err := c.ax.SendWait(ctx, commands.SetChatAgentRunning{ID: id})
+	if err != nil {
+		return domain.Chat{}, fmt.Errorf("chat: set agent running: %w", err)
 	}
 	return evt.Aggregate, nil
 }

@@ -62,3 +62,25 @@ func TestResetIdle_Validate_AcceptsExisting(t *testing.T) {
 	err := ResetChatIdle{ID: "c1"}.Validate(&domain.Chat{ID: "c1"})
 	assert.NoError(t, err)
 }
+
+func TestSetAgentRunning_FromIdle(t *testing.T) {
+	chat := SetChatAgentRunning{ID: "c1"}.EmitEvent(&domain.Chat{Status: domain.ChatStatusIdle})
+	assert.Equal(t, domain.ChatStatusAgentRunning, chat.Status)
+}
+
+func TestSetAgentRunning_Validate_RejectsMissing(t *testing.T) {
+	err := SetChatAgentRunning{ID: "c1"}.Validate(nil)
+	assert.True(t, errors.Is(err, asynxModels.ErrValidation))
+}
+
+func TestSetAgentRunning_Validate_AcceptsExisting(t *testing.T) {
+	err := SetChatAgentRunning{ID: "c1"}.Validate(&domain.Chat{ID: "c1"})
+	assert.NoError(t, err)
+}
+
+func TestSetAgentRunning_AllMetadata(t *testing.T) {
+	cmd := SetChatAgentRunning{ID: "c1"}
+	assert.Equal(t, "c1", cmd.AggregateID())
+	assert.Contains(t, cmd.EventName(), "agent_running")
+	assert.False(t, cmd.ShouldSnapshot())
+}
