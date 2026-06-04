@@ -1,0 +1,5 @@
+config:
+  intelligence:
+    light: "claude-haiku-4-5"
+    medium: "claude-sonnet-4-6"
+    heavy: "claude-opus-4-8"
