@@ -129,3 +129,16 @@ func TestStorage_NewStorageStore_BadDB(t *testing.T) {
 	_, err = newStorageStore(db)
 	require.Error(t, err)
 }
+
+func TestNew_StorageError(t *testing.T) {
+	db, err := storesqlite.OpenDB(":memory:")
+	require.NoError(t, err)
+	sqlDB, err := db.DB()
+	require.NoError(t, err)
+	require.NoError(t, sqlDB.Close())
+
+	// New should surface the storage init error.
+	_, err = New(db, nil, func(domain.Workspace) {})
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "workspace store")
+}

@@ -6,8 +6,10 @@ import (
 	"time"
 
 	"github.com/char2cs/asynx"
+	gormdb "gorm.io/gorm"
 
 	"github.com/char2cs/crowbar/api/internal/app/repositories/workspace/internal/commands"
+	"github.com/char2cs/crowbar/api/internal/app/repositories/workspace/internal/store"
 	"github.com/char2cs/crowbar/api/internal/domain"
 	gitdomain "github.com/char2cs/crowbar/api/internal/domain/git"
 )
@@ -102,17 +104,28 @@ type Workspace interface {
 		ctx context.Context,
 		id string,
 	) error
+	List(
+		ctx context.Context,
+	) ([]domain.Workspace, error)
 }
 
 type workspace struct {
-	ax asynx.Asynx[domain.Workspace]
+	ax    asynx.Asynx[domain.Workspace]
+	store store.Store
 }
 
-// New builds a Workspace repository over the given asynx instance.
+// New builds a Workspace repository over the asynx instance and a GORM DB. The
+// broadcast func is the hub fan-out for projected rows (03 §2).
 func New(
 	ax asynx.Asynx[domain.Workspace],
-) Workspace {
-	return &workspace{ax: ax}
+	db *gormdb.DB,
+	broadcast store.BroadcastFunc,
+) (Workspace, error) {
+	st, err := store.New(db, ax, broadcast)
+	if err != nil {
+		return nil, fmt.Errorf("workspace: store: %w", err)
+	}
+	return &workspace{ax: ax, store: st}, nil
 }
 
 func (w *workspace) Create(
@@ -280,4 +293,15 @@ func (w *workspace) Delete(
 		return fmt.Errorf("workspace: delete: %w", err)
 	}
 	return nil
+}
+
+// List returns all workspace rows from the read-model projection.
+func (w *workspace) List(
+	ctx context.Context,
+) ([]domain.Workspace, error) {
+	rows, err := w.store.List(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("workspace: list: %w", err)
+	}
+	return rows, nil
 }

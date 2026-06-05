@@ -10,6 +10,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	eventsqlite "github.com/char2cs/crowbar/api/internal/adapter/eventstore/sqlite"
+	storesqlite "github.com/char2cs/crowbar/api/internal/adapter/store/sqlite"
 	"github.com/char2cs/crowbar/api/internal/app/repositories/workspace"
 	"github.com/char2cs/crowbar/api/internal/domain"
 	gitdomain "github.com/char2cs/crowbar/api/internal/domain/git"
@@ -27,7 +28,11 @@ func newRepo(
 		Build()
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = ax.Shutdown(context.Background()) })
-	return context.Background(), workspace.New(ax)
+	db, err := storesqlite.OpenDB(":memory:")
+	require.NoError(t, err)
+	repo, err := workspace.New(ax, db, func(domain.Workspace) {})
+	require.NoError(t, err)
+	return context.Background(), repo
 }
 
 func TestWorkspace_Create_RoundTrips(t *testing.T) {
@@ -223,4 +228,16 @@ func TestWorkspace_Delete_ErrorOnMissing(t *testing.T) {
 	ctx, repo := newRepo(t)
 	err := repo.Delete(ctx, "no-such")
 	assert.Error(t, err)
+}
+
+func TestWorkspace_List(t *testing.T) {
+	ctx, repo := newRepo(t)
+	now := time.Unix(1000, 0).UTC()
+	_, err := repo.Create(ctx, workspace.CreateInput{ID: "w1", RepoID: "r1", ProjectID: "p1"}, now)
+	require.NoError(t, err)
+	_, err = repo.Create(ctx, workspace.CreateInput{ID: "w2", RepoID: "r1", ProjectID: "p1"}, now)
+	require.NoError(t, err)
+	all, err := repo.List(ctx)
+	require.NoError(t, err)
+	assert.Len(t, all, 2)
 }
