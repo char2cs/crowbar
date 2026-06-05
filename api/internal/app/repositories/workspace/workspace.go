@@ -34,6 +34,17 @@ type SyncInput struct {
 	HasCommits   bool
 }
 
+// ProviderInput carries a provider poll result (08 §5).
+type ProviderInput struct {
+	ID             string
+	Protected      bool
+	HasPR          bool
+	PRStatus       string
+	PRUrl          string
+	PRTitle        string
+	PRTargetBranch string
+}
+
 // Workspace is the workspace aggregate repository.
 type Workspace interface {
 	Create(
@@ -50,6 +61,47 @@ type Workspace interface {
 		ctx context.Context,
 		id string,
 	) (domain.Workspace, error)
+	SyncProviderState(
+		ctx context.Context,
+		in ProviderInput,
+		now time.Time,
+	) (domain.Workspace, error)
+	SetMergeStrategy(
+		ctx context.Context,
+		id string,
+		strategy gitdomain.MergeStrategy,
+	) (domain.Workspace, error)
+	TouchActivity(
+		ctx context.Context,
+		id string,
+		now time.Time,
+	) (domain.Workspace, error)
+	Reparent(
+		ctx context.Context,
+		id string,
+		parentID string,
+		forkPointSha string,
+		now time.Time,
+	) (domain.Workspace, error)
+	UpdateForkPoint(
+		ctx context.Context,
+		id string,
+		forkPointSha string,
+	) (domain.Workspace, error)
+	SetPendingMerge(
+		ctx context.Context,
+		id string,
+		strategy gitdomain.MergeStrategy,
+		targetParentID string,
+	) (domain.Workspace, error)
+	ClearPendingMerge(
+		ctx context.Context,
+		id string,
+	) (domain.Workspace, error)
+	Delete(
+		ctx context.Context,
+		id string,
+	) error
 }
 
 type workspace struct {
@@ -114,4 +166,118 @@ func (w *workspace) Get(
 		return domain.Workspace{}, fmt.Errorf("workspace: get: %w", err)
 	}
 	return got, nil
+}
+
+func (w *workspace) SyncProviderState(
+	ctx context.Context,
+	in ProviderInput,
+	now time.Time,
+) (domain.Workspace, error) {
+	evt, err := w.ax.SendWait(ctx, commands.SyncProviderState{
+		ID:             in.ID,
+		Protected:      in.Protected,
+		HasPR:          in.HasPR,
+		PRStatus:       in.PRStatus,
+		PRUrl:          in.PRUrl,
+		PRTitle:        in.PRTitle,
+		PRTargetBranch: in.PRTargetBranch,
+		Now:            now,
+	})
+	if err != nil {
+		return domain.Workspace{}, fmt.Errorf("workspace: sync provider: %w", err)
+	}
+	return evt.Aggregate, nil
+}
+
+func (w *workspace) SetMergeStrategy(
+	ctx context.Context,
+	id string,
+	strategy gitdomain.MergeStrategy,
+) (domain.Workspace, error) {
+	evt, err := w.ax.SendWait(ctx, commands.SetMergeStrategy{ID: id, Strategy: strategy})
+	if err != nil {
+		return domain.Workspace{}, fmt.Errorf("workspace: set merge strategy: %w", err)
+	}
+	return evt.Aggregate, nil
+}
+
+func (w *workspace) TouchActivity(
+	ctx context.Context,
+	id string,
+	now time.Time,
+) (domain.Workspace, error) {
+	evt, err := w.ax.SendWait(ctx, commands.TouchActivity{ID: id, Now: now})
+	if err != nil {
+		return domain.Workspace{}, fmt.Errorf("workspace: touch activity: %w", err)
+	}
+	return evt.Aggregate, nil
+}
+
+func (w *workspace) Reparent(
+	ctx context.Context,
+	id string,
+	parentID string,
+	forkPointSha string,
+	now time.Time,
+) (domain.Workspace, error) {
+	evt, err := w.ax.SendWait(ctx, commands.Reparent{
+		ID:           id,
+		ParentID:     parentID,
+		ForkPointSha: forkPointSha,
+		Now:          now,
+	})
+	if err != nil {
+		return domain.Workspace{}, fmt.Errorf("workspace: reparent: %w", err)
+	}
+	return evt.Aggregate, nil
+}
+
+func (w *workspace) UpdateForkPoint(
+	ctx context.Context,
+	id string,
+	forkPointSha string,
+) (domain.Workspace, error) {
+	evt, err := w.ax.SendWait(ctx, commands.UpdateForkPoint{ID: id, ForkPointSha: forkPointSha})
+	if err != nil {
+		return domain.Workspace{}, fmt.Errorf("workspace: update fork point: %w", err)
+	}
+	return evt.Aggregate, nil
+}
+
+func (w *workspace) SetPendingMerge(
+	ctx context.Context,
+	id string,
+	strategy gitdomain.MergeStrategy,
+	targetParentID string,
+) (domain.Workspace, error) {
+	evt, err := w.ax.SendWait(ctx, commands.SetPendingMerge{
+		ID:             id,
+		Strategy:       strategy,
+		TargetParentID: targetParentID,
+	})
+	if err != nil {
+		return domain.Workspace{}, fmt.Errorf("workspace: set pending merge: %w", err)
+	}
+	return evt.Aggregate, nil
+}
+
+func (w *workspace) ClearPendingMerge(
+	ctx context.Context,
+	id string,
+) (domain.Workspace, error) {
+	evt, err := w.ax.SendWait(ctx, commands.ClearPendingMerge{ID: id})
+	if err != nil {
+		return domain.Workspace{}, fmt.Errorf("workspace: clear pending merge: %w", err)
+	}
+	return evt.Aggregate, nil
+}
+
+func (w *workspace) Delete(
+	ctx context.Context,
+	id string,
+) error {
+	if err := w.ax.Forget(ctx, id); err != nil {
+		return fmt.Errorf("workspace: delete: %w", err)
+	}
+	return nil
 }

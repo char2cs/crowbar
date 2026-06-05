@@ -12,6 +12,7 @@ import (
 	eventsqlite "github.com/char2cs/crowbar/api/internal/adapter/eventstore/sqlite"
 	"github.com/char2cs/crowbar/api/internal/app/repositories/workspace"
 	"github.com/char2cs/crowbar/api/internal/domain"
+	gitdomain "github.com/char2cs/crowbar/api/internal/domain/git"
 )
 
 func newRepo(
@@ -110,5 +111,116 @@ func TestWorkspace_Sync_ErrorOnMissing(t *testing.T) {
 	ctx, repo := newRepo(t)
 	now := time.Unix(1000, 0).UTC()
 	_, err := repo.SyncWorkingTreeState(ctx, workspace.SyncInput{ID: "does-not-exist"}, now)
+	assert.Error(t, err)
+}
+
+func TestWorkspace_SyncProviderState_SetsPR(t *testing.T) {
+	ctx, repo := newRepo(t)
+	now := time.Unix(1000, 0).UTC()
+	_, err := repo.Create(ctx, workspace.CreateInput{ID: "w1", RepoID: "r1", ProjectID: "p1"}, now)
+	require.NoError(t, err)
+
+	got, err := repo.SyncProviderState(ctx, workspace.ProviderInput{
+		ID:        "w1",
+		Protected: true,
+		HasPR:     true,
+		PRStatus:  "open",
+		PRUrl:     "u",
+	}, now)
+	require.NoError(t, err)
+	assert.Equal(t, domain.WorkspaceStatusPROpen, got.Status)
+	assert.True(t, got.Locked)
+}
+
+func TestWorkspace_SetMergeStrategy(t *testing.T) {
+	ctx, repo := newRepo(t)
+	now := time.Unix(1000, 0).UTC()
+	_, err := repo.Create(ctx, workspace.CreateInput{ID: "w1", RepoID: "r1", ProjectID: "p1"}, now)
+	require.NoError(t, err)
+	got, err := repo.SetMergeStrategy(ctx, "w1", gitdomain.MergeStrategySquash)
+	require.NoError(t, err)
+	assert.Equal(t, gitdomain.MergeStrategySquash, got.MergeStrategy)
+}
+
+func TestWorkspace_Reparent_TouchActivity_ForkPoint_Pending(t *testing.T) {
+	ctx, repo := newRepo(t)
+	now := time.Unix(1000, 0).UTC()
+	_, err := repo.Create(ctx, workspace.CreateInput{ID: "w1", RepoID: "r1", ProjectID: "p1"}, now)
+	require.NoError(t, err)
+
+	_, err = repo.TouchActivity(ctx, "w1", now)
+	require.NoError(t, err)
+	rp, err := repo.Reparent(ctx, "w1", "p2", "sha2", now)
+	require.NoError(t, err)
+	assert.Equal(t, "p2", rp.ParentID)
+	fp, err := repo.UpdateForkPoint(ctx, "w1", "sha3")
+	require.NoError(t, err)
+	assert.Equal(t, "sha3", fp.ForkPointSha)
+	pm, err := repo.SetPendingMerge(ctx, "w1", gitdomain.MergeStrategyMerge, "p2")
+	require.NoError(t, err)
+	require.NotNil(t, pm.PendingMerge)
+	cl, err := repo.ClearPendingMerge(ctx, "w1")
+	require.NoError(t, err)
+	assert.Nil(t, cl.PendingMerge)
+}
+
+func TestWorkspace_Delete_Forgets(t *testing.T) {
+	ctx, repo := newRepo(t)
+	now := time.Unix(1000, 0).UTC()
+	_, err := repo.Create(ctx, workspace.CreateInput{ID: "w1", RepoID: "r1", ProjectID: "p1"}, now)
+	require.NoError(t, err)
+	require.NoError(t, repo.Delete(ctx, "w1"))
+	_, err = repo.Get(ctx, "w1")
+	assert.Error(t, err)
+}
+
+func TestWorkspace_SyncProviderState_ErrorOnMissing(t *testing.T) {
+	ctx, repo := newRepo(t)
+	now := time.Unix(1000, 0).UTC()
+	_, err := repo.SyncProviderState(ctx, workspace.ProviderInput{ID: "no-such"}, now)
+	assert.Error(t, err)
+}
+
+func TestWorkspace_SetMergeStrategy_ErrorOnMissing(t *testing.T) {
+	ctx, repo := newRepo(t)
+	_, err := repo.SetMergeStrategy(ctx, "no-such", gitdomain.MergeStrategyMerge)
+	assert.Error(t, err)
+}
+
+func TestWorkspace_TouchActivity_ErrorOnMissing(t *testing.T) {
+	ctx, repo := newRepo(t)
+	now := time.Unix(1000, 0).UTC()
+	_, err := repo.TouchActivity(ctx, "no-such", now)
+	assert.Error(t, err)
+}
+
+func TestWorkspace_Reparent_ErrorOnMissing(t *testing.T) {
+	ctx, repo := newRepo(t)
+	now := time.Unix(1000, 0).UTC()
+	_, err := repo.Reparent(ctx, "no-such", "p", "sha", now)
+	assert.Error(t, err)
+}
+
+func TestWorkspace_UpdateForkPoint_ErrorOnMissing(t *testing.T) {
+	ctx, repo := newRepo(t)
+	_, err := repo.UpdateForkPoint(ctx, "no-such", "sha")
+	assert.Error(t, err)
+}
+
+func TestWorkspace_SetPendingMerge_ErrorOnMissing(t *testing.T) {
+	ctx, repo := newRepo(t)
+	_, err := repo.SetPendingMerge(ctx, "no-such", gitdomain.MergeStrategyMerge, "p")
+	assert.Error(t, err)
+}
+
+func TestWorkspace_ClearPendingMerge_ErrorOnMissing(t *testing.T) {
+	ctx, repo := newRepo(t)
+	_, err := repo.ClearPendingMerge(ctx, "no-such")
+	assert.Error(t, err)
+}
+
+func TestWorkspace_Delete_ErrorOnMissing(t *testing.T) {
+	ctx, repo := newRepo(t)
+	err := repo.Delete(ctx, "no-such")
 	assert.Error(t, err)
 }
