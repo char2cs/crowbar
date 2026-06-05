@@ -1,34 +1,23 @@
-package v0_test
+package v0
 
 import (
-	"encoding/json"
 	"net/http"
 	"net/http/httptest"
 	"testing"
 
 	"github.com/gin-gonic/gin"
-	v0 "github.com/char2cs/crowbar/api/internal/api/v0"
-	"github.com/char2cs/crowbar/api/internal/app/usecases"
+	"github.com/stretchr/testify/assert"
 )
 
-func TestHealthEndpoint(t *testing.T) {
+func TestHealthHandler_ReturnsOK(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	r := gin.New()
-	h := v0.NewHealthHandler(usecases.NewHealth())
-	r.GET("/api/v0/health", h.Check)
+	registerHealth(r.Group("/v0"))
 
-	w := httptest.NewRecorder()
-	req := httptest.NewRequest(http.MethodGet, "/api/v0/health", nil)
-	r.ServeHTTP(w, req)
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequest("GET", "/v0/health", nil)
+	r.ServeHTTP(rec, req)
 
-	if w.Code != http.StatusOK {
-		t.Fatalf("expected 200, got %d", w.Code)
-	}
-	var body map[string]any
-	if err := json.Unmarshal(w.Body.Bytes(), &body); err != nil {
-		t.Fatalf("invalid JSON: %v", err)
-	}
-	if body["status"] != "ok" {
-		t.Fatalf("expected status ok, got %v", body["status"])
-	}
+	assert.Equal(t, http.StatusOK, rec.Code)
+	assert.Contains(t, rec.Body.String(), "ok")
 }

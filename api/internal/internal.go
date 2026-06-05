@@ -2,6 +2,7 @@ package internal
 
 import (
 	"context"
+	"fmt"
 	"io/fs"
 	"net"
 	"net/http"
@@ -14,48 +15,87 @@ import (
 	"github.com/char2cs/crowbar/api/internal/engine"
 )
 
+// Container is the root container owning the HTTP server, its listener, and the
+// adapter layer (closed on shutdown).
 type Container struct {
 	server   *http.Server
 	listener net.Listener
 	adapter  *adapter.Container
 }
 
-func New(ctx context.Context, host string, staticFS fs.FS) (*Container, error) {
+type rootOpts struct {
+	homeDir string
+}
+
+// Option configures internal.New.
+type Option func(*rootOpts)
+
+// WithHomeDir roots all on-disk state under dir (test isolation).
+func WithHomeDir(
+	dir string,
+) Option {
+	return func(o *rootOpts) {
+		o.homeDir = dir
+	}
+}
+
+// New wires engine → adapter → app → api in order and returns the root container.
+func New(
+	ctx context.Context,
+	host string,
+	staticFS fs.FS,
+	options ...Option,
+) (*Container, error) {
+	cfg := rootOpts{}
+	for _, o := range options {
+		o(&cfg)
+	}
+
 	listener, err := gateway.New(host)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("internal: gateway: %w", err)
 	}
 
-	engines, err := engine.New(ctx)
+	engines, err := engine.New(ctx, engine.WithHomeDir(cfg.homeDir))
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("internal: engine: %w", err)
 	}
 
-	adapters, err := adapter.New()
+	adapters, err := adapter.New(adapterOptions(cfg.homeDir)...)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("internal: adapter: %w", err)
 	}
 
-	appContainer, err := app.New()
+	appContainer, err := app.New(ctx, engines, adapters)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("internal: app: %w", err)
 	}
-
-	go appContainer.Hub.Run(ctx)
 
 	apiContainer, err := crowbarapi.New(appContainer, staticFS)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("internal: api: %w", err)
 	}
 
-	_ = engines // engines unused at scaffold stage; used in future phases
-
-	srv := &http.Server{Handler: apiContainer.Handler()}
-
-	return &Container{server: srv, listener: listener, adapter: adapters}, nil
+	return &Container{
+		server:   &http.Server{Handler: apiContainer.Handler(), ReadHeaderTimeout: 30 * time.Second},
+		listener: listener,
+		adapter:  adapters,
+	}, nil
 }
 
-func (c *Container) Run(ctx context.Context) error {
+func adapterOptions(
+	homeDir string,
+) []adapter.Option {
+	if homeDir == "" {
+		return nil
+	}
+	return []adapter.Option{adapter.WithHomeDir(homeDir)}
+}
+
+// Run serves until ctx is cancelled, then gracefully shuts down.
+func (c *Container) Run(
+	ctx context.Context,
+) error {
 	go c.server.Serve(c.listener) //nolint:errcheck
 	<-ctx.Done()
 	shutdownCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
@@ -63,6 +103,8 @@ func (c *Container) Run(ctx context.Context) error {
 	return c.server.Shutdown(shutdownCtx)
 }
 
+// Close releases the adapter layer and the listener.
 func (c *Container) Close() {
-	c.adapter.Close()
+	_ = c.adapter.Close()
+	_ = c.listener.Close()
 }

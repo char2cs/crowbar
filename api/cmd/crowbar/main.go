@@ -8,49 +8,53 @@ import (
 	"os/signal"
 	"syscall"
 
-	"github.com/char2cs/crowbar/api/internal"
 	"github.com/spf13/cobra"
+
+	"github.com/char2cs/crowbar/api/internal"
+	"github.com/char2cs/crowbar/api/internal/core/metadata"
 )
 
-var host string
-
-var rootCmd = &cobra.Command{
-	Use:   "crowbar",
-	Short: "Crowbar — self-improving agentic development platform",
+func newRootCmd() *cobra.Command {
+	root := &cobra.Command{
+		Use:   "crowbar",
+		Short: "Crowbar — self-improving agentic development platform",
+	}
+	root.AddCommand(newServeCmd(), newVersionCmd())
+	return root
 }
 
-var serveCmd = &cobra.Command{
-	Use:   "serve",
-	Short: "Start the Crowbar daemon",
-	RunE:  runServe,
+func newServeCmd() *cobra.Command {
+	var host string
+	cmd := &cobra.Command{
+		Use:   "serve",
+		Short: "Start the Crowbar daemon",
+		RunE: func(_ *cobra.Command, _ []string) error {
+			return runServe(host)
+		},
+	}
+	cmd.Flags().StringVar(&host, "host", "unix://", "listen address (unix:// or tcp://0.0.0.0:3737)")
+	return cmd
 }
 
-var versionCmd = &cobra.Command{
-	Use:   "version",
-	Short: "Print version",
-	Run: func(cmd *cobra.Command, args []string) {
-		fmt.Println("crowbar dev")
-	},
+func newVersionCmd() *cobra.Command {
+	return &cobra.Command{
+		Use:   "version",
+		Short: "Print version",
+		Run: func(_ *cobra.Command, _ []string) {
+			fmt.Println("crowbar " + metadata.GetVersion())
+		},
+	}
 }
 
-func init() {
-	serveCmd.Flags().StringVar(&host, "host", "unix://", "listen address (unix:// or tcp://0.0.0.0:3737)")
-	rootCmd.AddCommand(serveCmd, versionCmd)
-}
-
-func runServe(cmd *cobra.Command, args []string) error {
+func runServe(
+	host string,
+) error {
 	ctx, cancel := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer cancel()
 
-	// embeddedWeb is a zero-value embed.FS when built with -tags noEmbed (dev mode).
-	// In that case we skip static serving; the Vite dev server handles the frontend.
-	var staticFS fs.FS
-	if _, err := embeddedWeb.Open("."); err == nil {
-		sub, err := fs.Sub(embeddedWeb, "web/dist")
-		if err != nil {
-			return fmt.Errorf("embedded web assets: %w", err)
-		}
-		staticFS = sub
+	staticFS, err := embeddedStaticFS()
+	if err != nil {
+		return err
 	}
 
 	container, err := internal.New(ctx, host, staticFS)
@@ -63,8 +67,19 @@ func runServe(cmd *cobra.Command, args []string) error {
 	return container.Run(ctx)
 }
 
+func embeddedStaticFS() (fs.FS, error) {
+	if _, err := embeddedWeb.Open("."); err != nil {
+		return nil, nil
+	}
+	sub, err := fs.Sub(embeddedWeb, "web/dist")
+	if err != nil {
+		return nil, fmt.Errorf("embedded web assets: %w", err)
+	}
+	return sub, nil
+}
+
 func main() {
-	if err := rootCmd.Execute(); err != nil {
+	if err := newRootCmd().Execute(); err != nil {
 		os.Exit(1)
 	}
 }

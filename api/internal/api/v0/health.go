@@ -4,17 +4,21 @@ import (
 	"net/http"
 
 	"github.com/gin-gonic/gin"
-	"github.com/char2cs/crowbar/api/internal/app/usecases"
+
+	"github.com/char2cs/crowbar/api/internal/core/metadata"
 )
 
-type HealthHandler struct {
-	usecase *usecases.HealthUsecase
+func registerHealth(
+	rg *gin.RouterGroup,
+) {
+	rg.GET("/health", healthHandler)
 }
 
-func NewHealthHandler(uc *usecases.HealthUsecase) *HealthHandler {
-	return &HealthHandler{usecase: uc}
-}
-
-func (h *HealthHandler) Check(c *gin.Context) {
-	c.JSON(http.StatusOK, h.usecase.Check())
+func healthHandler(
+	c *gin.Context,
+) {
+	c.JSON(http.StatusOK, gin.H{
+		"status":  "ok",
+		"version": metadata.GetVersion(),
+	})
 }

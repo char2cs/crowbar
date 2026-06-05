@@ -1,0 +1,22 @@
+version:
+  number: 0.1.0
+  codename: "Crowbar"
+
+metadata:
+  name: Crowbar
+  description: Local, single-user agentic development platform.
+  author: char2cs
+  url: https://char2cs.net
+  license: proprietary
+  copyright: Copyright 2026 char2cs.net
+
+paths:
+  home:
+    default: "~/.crowbar"
+    os:
+      windows: 'C:\Users\{{USER}}\Documents\.crowbar'
+  events: "{{home}}/state/events"
+  store: "{{home}}/state/store"
+  runs: "{{home}}/runs"
+  config: "{{home}}/config.yaml"
+  logs: "{{home}}/logs"

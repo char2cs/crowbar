@@ -1,64 +1,52 @@
 package hub
 
-import "context"
+import (
+	"sync"
 
-type Event struct {
-	ID   string `json:"id,omitempty"`
-	Type string `json:"type"`
-	Data any    `json:"data"`
-}
+	"github.com/char2cs/crowbar/api/internal/domain"
+)
 
+// Hub fans out domain broadcasts to all registered Subscribers. It implements
+// WebSocketHub so the app layer can broadcast through it.
 type Hub struct {
-	broadcast  chan Event
-	register   chan chan Event
-	unregister chan chan Event
-	clients    map[chan Event]struct{}
+	mu          sync.RWMutex
+	subscribers []Subscriber
 }
 
-func New() *Hub {
-	return &Hub{
-		broadcast:  make(chan Event, 256),
-		register:   make(chan chan Event),
-		unregister: make(chan chan Event),
-		clients:    make(map[chan Event]struct{}),
+// NewHub constructs an empty Hub.
+func NewHub() *Hub {
+	return &Hub{}
+}
+
+// Register adds a Subscriber to the fan-out set.
+func (h *Hub) Register(
+	s Subscriber,
+) {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	h.subscribers = append(h.subscribers, s)
+}
+
+// BroadcastWorkspace fans a Workspace row out to every subscriber.
+func (h *Hub) BroadcastWorkspace(
+	ws domain.Workspace,
+) {
+	h.mu.RLock()
+	defer h.mu.RUnlock()
+	for _, s := range h.subscribers {
+		s.PushWorkspace(ws)
 	}
 }
 
-func (h *Hub) Run(ctx context.Context) {
-	for {
-		select {
-		case client := <-h.register:
-			h.clients[client] = struct{}{}
-		case client := <-h.unregister:
-			if _, ok := h.clients[client]; ok {
-				delete(h.clients, client)
-				close(client)
-			}
-		case event := <-h.broadcast:
-			for client := range h.clients {
-				select {
-				case client <- event:
-				default:
-					delete(h.clients, client)
-					close(client)
-				}
-			}
-		case <-ctx.Done():
-			return
-		}
+// BroadcastChat fans a ChatStatusEvent out to every subscriber.
+func (h *Hub) BroadcastChat(
+	evt ChatStatusEvent,
+) {
+	h.mu.RLock()
+	defer h.mu.RUnlock()
+	for _, s := range h.subscribers {
+		s.PushChat(evt)
 	}
 }
 
-func (h *Hub) Register() chan Event {
-	ch := make(chan Event, 10)
-	h.register <- ch
-	return ch
-}
-
-func (h *Hub) Unregister(ch chan Event) {
-	h.unregister <- ch
-}
-
-func (h *Hub) Broadcast(e Event) {
-	h.broadcast <- e
-}
+var _ WebSocketHub = (*Hub)(nil)
