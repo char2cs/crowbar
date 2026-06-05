@@ -10,4 +10,11 @@ type Subscriber interface {
 	PushChat(
 		evt ChatStatusEvent,
 	)
+	PushGit(
+		wsID string,
+		status domain.GitStatus,
+	)
+	PushFile(
+		evt domain.FileChangeEvent,
+	)
 }

@@ -16,6 +16,8 @@ import (
 type Container struct {
 	workspaces *ws.Broadcaster[domain.Workspace]
 	chats      *ws.Broadcaster[hub.ChatStatusEvent]
+	git        *ws.Broadcaster[domain.GitStatus]
+	files      *ws.Broadcaster[domain.FileChangeEvent]
 }
 
 // New builds the v0 container and registers it as a hub subscriber.
@@ -25,6 +27,8 @@ func New(
 	c := &Container{
 		workspaces: ws.NewBroadcaster(workspacesDef()),
 		chats:      ws.NewBroadcaster(chatsDef()),
+		git:        ws.NewBroadcaster(gitDef()),
+		files:      ws.NewBroadcaster(filesDef()),
 	}
 	appContainer.Hub.Register(c)
 	return c
@@ -37,6 +41,8 @@ func (c *Container) Register(
 	registerHealth(rg)
 	rg.GET("/ws/workspaces", c.workspaces.Handle)
 	rg.GET("/ws/chats", c.chats.Handle)
+	rg.GET("/ws/git", c.git.Handle)
+	rg.GET("/ws/files", c.files.Handle)
 }
 
 // PushWorkspace implements hub.Subscriber.
@@ -51,6 +57,21 @@ func (c *Container) PushChat(
 	evt hub.ChatStatusEvent,
 ) {
 	c.chats.Push(evt)
+}
+
+// PushGit implements hub.Subscriber.
+func (c *Container) PushGit(
+	wsID string,
+	status domain.GitStatus,
+) {
+	c.git.Push(status)
+}
+
+// PushFile implements hub.Subscriber.
+func (c *Container) PushFile(
+	evt domain.FileChangeEvent,
+) {
+	c.files.Push(evt)
 }
 
 // WaitWorkspacesRegistered blocks until a workspaces client registers. Test-only.
@@ -80,6 +101,23 @@ func chatsDef() ws.StreamDef[hub.ChatStatusEvent] {
 		Serialize: func(e hub.ChatStatusEvent) ([]byte, error) { return json.Marshal(e) },
 		Filters: []ws.FilterDef[hub.ChatStatusEvent]{
 			{Param: "wsId", Extract: func(e hub.ChatStatusEvent) string { return e.WsID }, Match: ws.ExactMatch},
+		},
+	}
+}
+
+func gitDef() ws.StreamDef[domain.GitStatus] {
+	return ws.StreamDef[domain.GitStatus]{
+		Namespace: func(_ domain.GitStatus) string { return "" },
+		Serialize: func(s domain.GitStatus) ([]byte, error) { return json.Marshal(s) },
+	}
+}
+
+func filesDef() ws.StreamDef[domain.FileChangeEvent] {
+	return ws.StreamDef[domain.FileChangeEvent]{
+		Namespace: func(e domain.FileChangeEvent) string { return e.WsID },
+		Serialize: func(e domain.FileChangeEvent) ([]byte, error) { return json.Marshal(e) },
+		Filters: []ws.FilterDef[domain.FileChangeEvent]{
+			{Param: "wsId", Extract: func(e domain.FileChangeEvent) string { return e.WsID }, Match: ws.ExactMatch},
 		},
 	}
 }

@@ -49,4 +49,27 @@ func (h *Hub) BroadcastChat(
 	}
 }
 
+// BroadcastGit fans a GitStatus out to every subscriber (Class B, 03 §2).
+func (h *Hub) BroadcastGit(
+	wsID string,
+	status domain.GitStatus,
+) {
+	h.mu.RLock()
+	defer h.mu.RUnlock()
+	for _, s := range h.subscribers {
+		s.PushGit(wsID, status)
+	}
+}
+
+// BroadcastFile fans a FileChangeEvent out to every subscriber (Class B, 03 §2).
+func (h *Hub) BroadcastFile(
+	evt domain.FileChangeEvent,
+) {
+	h.mu.RLock()
+	defer h.mu.RUnlock()
+	for _, s := range h.subscribers {
+		s.PushFile(evt)
+	}
+}
+
 var _ WebSocketHub = (*Hub)(nil)
