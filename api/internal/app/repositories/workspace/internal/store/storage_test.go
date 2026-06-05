@@ -2,6 +2,7 @@ package store
 
 import (
 	"context"
+	"errors"
 	"testing"
 	"time"
 
@@ -11,6 +12,29 @@ import (
 	storesqlite "github.com/char2cs/crowbar/api/internal/adapter/store/sqlite"
 	"github.com/char2cs/crowbar/api/internal/domain"
 )
+
+// errInner is a fake inner store that always errors.
+type errInner struct{ err error }
+
+func (e *errInner) Save(_ context.Context, _ workspaceRow) error { return e.err }
+func (e *errInner) Delete(_ context.Context, _ string) error     { return e.err }
+func (e *errInner) FindByKey(_ context.Context, _ string) (*workspaceRow, error) {
+	return nil, e.err
+}
+func (e *errInner) FindAll(_ context.Context) ([]workspaceRow, error) { return nil, e.err }
+
+// badDataInner returns a row with corrupt JSON data.
+type badDataInner struct{}
+
+func (b *badDataInner) Save(_ context.Context, _ workspaceRow) error { return nil }
+func (b *badDataInner) Delete(_ context.Context, _ string) error     { return nil }
+func (b *badDataInner) FindByKey(_ context.Context, _ string) (*workspaceRow, error) {
+	return &workspaceRow{ID: "x", Data: []byte("not-json")}, nil
+}
+
+func (b *badDataInner) FindAll(_ context.Context) ([]workspaceRow, error) {
+	return []workspaceRow{{ID: "x", Data: []byte("not-json")}}, nil
+}
 
 func newStorage(
 	t *testing.T,
@@ -48,4 +72,60 @@ func TestStorage_FindByKey_MissingReturnsNil(t *testing.T) {
 	got, err := st.FindByKey(ctx, "nope")
 	require.NoError(t, err)
 	assert.Nil(t, got)
+}
+
+func TestStorage_FindByKey_InnerError(t *testing.T) {
+	ctx := context.Background()
+	st := &storageStore{inner: &errInner{err: errors.New("db down")}}
+	_, err := st.FindByKey(ctx, "w1")
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "workspace storage: find")
+}
+
+func TestStorage_FindByKey_BadData(t *testing.T) {
+	ctx := context.Background()
+	st := &storageStore{inner: &badDataInner{}}
+	_, err := st.FindByKey(ctx, "x")
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "workspace storage: unmarshal")
+}
+
+func TestStorage_FindAll_InnerError(t *testing.T) {
+	ctx := context.Background()
+	st := &storageStore{inner: &errInner{err: errors.New("db down")}}
+	_, err := st.FindAll(ctx)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "workspace storage: find all")
+}
+
+func TestStorage_FindAll_BadData(t *testing.T) {
+	ctx := context.Background()
+	st := &storageStore{inner: &badDataInner{}}
+	_, err := st.FindAll(ctx)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "workspace storage: unmarshal")
+}
+
+func TestStorage_Save_InnerError(t *testing.T) {
+	ctx := context.Background()
+	st := &storageStore{inner: &errInner{err: errors.New("db down")}}
+	err := st.Save(ctx, domain.Workspace{ID: "w1"})
+	require.Error(t, err)
+}
+
+func TestUnmarshalWorkspace_BadJSON(t *testing.T) {
+	_, err := unmarshalWorkspace([]byte("not-json"))
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "workspace storage: unmarshal")
+}
+
+func TestStorage_NewStorageStore_BadDB(t *testing.T) {
+	db, err := storesqlite.OpenDB(":memory:")
+	require.NoError(t, err)
+	// Close the underlying connection so AutoMigrate fails.
+	sqlDB, err := db.DB()
+	require.NoError(t, err)
+	require.NoError(t, sqlDB.Close())
+	_, err = newStorageStore(db)
+	require.Error(t, err)
 }
