@@ -94,3 +94,69 @@ func TestCreateWorkspace_EmitEvent_UsesProvidedStrategy(t *testing.T) {
 	assert.Equal(t, gitdomain.MergeStrategySquash, ws.MergeStrategy)
 	assert.Equal(t, now, ws.LastActivity)
 }
+
+func TestSyncProviderState_SetsPROpenAndLocked(t *testing.T) {
+	cur := &domain.Workspace{ID: "w1", Status: domain.WorkspaceStatusNew}
+	cmd := SyncProviderState{
+		ID:             "w1",
+		Protected:      true,
+		HasPR:          true,
+		PRStatus:       "open",
+		PRUrl:          "https://x/pr/1",
+		PRTitle:        "t",
+		PRTargetBranch: "main",
+		Now:            time.Unix(3000, 0),
+	}
+	ws := cmd.EmitEvent(cur)
+	assert.Equal(t, domain.WorkspaceStatusPROpen, ws.Status)
+	assert.True(t, ws.Locked)
+	assert.Equal(t, "https://x/pr/1", ws.PRUrl)
+	assert.Equal(t, "main", ws.PRTargetBranch)
+}
+
+func TestSyncProviderState_NoPRLeavesStatusButSetsLocked(t *testing.T) {
+	cur := &domain.Workspace{ID: "w1", Status: ""}
+	cmd := SyncProviderState{ID: "w1", Protected: true, HasPR: false}
+	ws := cmd.EmitEvent(cur)
+	assert.Equal(t, domain.WorkspaceStatus(""), ws.Status)
+	assert.True(t, ws.Locked)
+	assert.Empty(t, ws.PRUrl)
+}
+
+func TestSyncProviderState_PRClosedToOpenAllowed(t *testing.T) {
+	cur := &domain.Workspace{ID: "w1", Status: domain.WorkspaceStatusPRClosed}
+	cmd := SyncProviderState{ID: "w1", HasPR: true, PRStatus: "open"}
+	ws := cmd.EmitEvent(cur)
+	assert.Equal(t, domain.WorkspaceStatusPROpen, ws.Status)
+}
+
+func TestSyncProviderState_Validate_RejectsMissing(t *testing.T) {
+	err := SyncProviderState{ID: "w1"}.Validate(nil)
+	assert.True(t, errors.Is(err, asynxModels.ErrValidation))
+}
+
+func TestSyncProviderState_PRMergedStatus(t *testing.T) {
+	cur := &domain.Workspace{ID: "w1", Status: domain.WorkspaceStatusPROpen}
+	cmd := SyncProviderState{ID: "w1", HasPR: true, PRStatus: "merged"}
+	ws := cmd.EmitEvent(cur)
+	assert.Equal(t, domain.WorkspaceStatusPRMerged, ws.Status)
+}
+
+func TestSyncProviderState_PRClosedStatus(t *testing.T) {
+	cur := &domain.Workspace{ID: "w1", Status: domain.WorkspaceStatusPROpen}
+	cmd := SyncProviderState{ID: "w1", HasPR: true, PRStatus: "closed"}
+	ws := cmd.EmitEvent(cur)
+	assert.Equal(t, domain.WorkspaceStatusPRClosed, ws.Status)
+}
+
+func TestSyncProviderState_PRUnknownStatusDefaultsToOpen(t *testing.T) {
+	cur := &domain.Workspace{ID: "w1", Status: domain.WorkspaceStatusNew}
+	cmd := SyncProviderState{ID: "w1", HasPR: true, PRStatus: "unknown-future-status"}
+	ws := cmd.EmitEvent(cur)
+	assert.Equal(t, domain.WorkspaceStatusPROpen, ws.Status)
+}
+
+func TestSyncProviderState_Validate_AcceptsExisting(t *testing.T) {
+	err := SyncProviderState{ID: "w1"}.Validate(&domain.Workspace{ID: "w1"})
+	assert.NoError(t, err)
+}
