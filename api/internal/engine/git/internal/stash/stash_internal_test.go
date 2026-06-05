@@ -66,7 +66,7 @@ func TestCountChangedFiles_RequireSuccessError(
 	_ = exec.Git(ctx, dir, "config", "user.name", "T")
 
 	fp := filepath.Join(dir, "f.txt")
-	require.NoError(t, os.WriteFile(fp, []byte("hello\n"), 0600))
+	require.NoError(t, os.WriteFile(fp, []byte("hello\n"), 0o600))
 	_ = exec.Git(ctx, dir, "add", "f.txt")
 	rr := exec.Git(ctx, dir, "commit", "-m", "init")
 	require.Equal(t, 0, rr.ExitCode, rr.Stderr)

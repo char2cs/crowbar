@@ -17,10 +17,10 @@ import (
 
 // pipeConn is a pipe-based WSConn for testing without network I/O or time.Sleep.
 type pipeConn struct {
-	mu       sync.Mutex
-	inbox    chan []byte // messages sent by the server to this "client"
-	outbox   chan []byte // messages sent by the "client" to the server
-	closed   chan struct{}
+	mu        sync.Mutex
+	inbox     chan []byte // messages sent by the server to this "client"
+	outbox    chan []byte // messages sent by the "client" to the server
+	closed    chan struct{}
 	closeOnce sync.Once
 }
 

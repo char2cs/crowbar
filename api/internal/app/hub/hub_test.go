@@ -11,8 +11,8 @@ import (
 )
 
 type fakeSubscriber struct {
-	workspaces []domain.Workspace
-	chats      []hub.ChatStatusEvent
+	workspaces  []domain.Workspace
+	chats       []hub.ChatStatusEvent
 	gitStatuses []gitdomain.GitStatus
 	fileEvents  []domain.FileChangeEvent
 }

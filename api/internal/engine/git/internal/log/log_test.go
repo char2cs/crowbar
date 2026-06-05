@@ -40,7 +40,7 @@ func addCommit(
 	ctx := context.Background()
 
 	path := filepath.Join(dir, filename)
-	require.NoError(t, os.WriteFile(path, []byte(content), 0600))
+	require.NoError(t, os.WriteFile(path, []byte(content), 0o600))
 
 	_ = exec.Git(ctx, dir, "add", filename)
 
@@ -146,7 +146,7 @@ func TestList_CommitWithDescription(t *testing.T) {
 	ctx := context.Background()
 
 	path := filepath.Join(dir, "file.txt")
-	require.NoError(t, os.WriteFile(path, []byte("hello\n"), 0600))
+	require.NoError(t, os.WriteFile(path, []byte("hello\n"), 0o600))
 	_ = exec.Git(ctx, dir, "add", "file.txt")
 
 	r := exec.Git(ctx, dir, "commit", "-m", "subject line\n\nThis is the body.\nMore details here.")

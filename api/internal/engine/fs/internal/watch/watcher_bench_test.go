@@ -33,9 +33,9 @@ func (p *benchGitProvider) ComputeWorkingTreeSummary(
 // benchDispatcher is a no-op Dispatcher for benchmarks.
 type benchDispatcher struct{}
 
-func (d *benchDispatcher) OnFileChange(_ context.Context, _ domain.FileChangeEvent)      {}
-func (d *benchDispatcher) OnGitStatus(_ context.Context, _ string, _ gitdomain.GitStatus)   {}
-func (d *benchDispatcher) OnSyncWorkingTreeState(_ context.Context, _ watch.SyncInput)   {}
+func (d *benchDispatcher) OnFileChange(_ context.Context, _ domain.FileChangeEvent)       {}
+func (d *benchDispatcher) OnGitStatus(_ context.Context, _ string, _ gitdomain.GitStatus) {}
+func (d *benchDispatcher) OnSyncWorkingTreeState(_ context.Context, _ watch.SyncInput)    {}
 
 func BenchmarkFanOut(b *testing.B) {
 	dir := b.TempDir()
@@ -64,6 +64,6 @@ func BenchmarkFanOut(b *testing.B) {
 
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
-		os.WriteFile(benchFile, []byte("x"), 0600) //nolint:errcheck
+		os.WriteFile(benchFile, []byte("x"), 0o600) //nolint:errcheck
 	}
 }

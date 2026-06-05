@@ -45,9 +45,9 @@ func TestList_Root(
 	t *testing.T,
 ) {
 	dir := t.TempDir()
-	require.NoError(t, os.WriteFile(filepath.Join(dir, "a.txt"), nil, 0600))
-	require.NoError(t, os.WriteFile(filepath.Join(dir, "b.txt"), nil, 0600))
-	require.NoError(t, os.MkdirAll(filepath.Join(dir, "subdir"), 0700))
+	require.NoError(t, os.WriteFile(filepath.Join(dir, "a.txt"), nil, 0o600))
+	require.NoError(t, os.WriteFile(filepath.Join(dir, "b.txt"), nil, 0o600))
+	require.NoError(t, os.MkdirAll(filepath.Join(dir, "subdir"), 0o700))
 
 	nodes, err := tree.List(dir, "", &noopProvider{})
 	require.NoError(t, err)
@@ -61,8 +61,8 @@ func TestList_SkipsGitDir(
 	t *testing.T,
 ) {
 	dir := t.TempDir()
-	require.NoError(t, os.MkdirAll(filepath.Join(dir, ".git"), 0700))
-	require.NoError(t, os.WriteFile(filepath.Join(dir, "file.txt"), nil, 0600))
+	require.NoError(t, os.MkdirAll(filepath.Join(dir, ".git"), 0o700))
+	require.NoError(t, os.WriteFile(filepath.Join(dir, "file.txt"), nil, 0o600))
 
 	nodes, err := tree.List(dir, "", &noopProvider{})
 	require.NoError(t, err)
@@ -76,7 +76,7 @@ func TestList_GitDecoration(
 	t *testing.T,
 ) {
 	dir := t.TempDir()
-	require.NoError(t, os.WriteFile(filepath.Join(dir, "modified.txt"), nil, 0600))
+	require.NoError(t, os.WriteFile(filepath.Join(dir, "modified.txt"), nil, 0o600))
 
 	fp := &fakeProvider{files: []gitdomain.GitFile{
 		{Path: "modified.txt", Status: gitdomain.GitFileStatusModified, Staged: false},
@@ -93,7 +93,7 @@ func TestList_ConflictedCollapsesToModified(
 	t *testing.T,
 ) {
 	dir := t.TempDir()
-	require.NoError(t, os.WriteFile(filepath.Join(dir, "conflict.txt"), nil, 0600))
+	require.NoError(t, os.WriteFile(filepath.Join(dir, "conflict.txt"), nil, 0o600))
 
 	fp := &fakeProvider{files: []gitdomain.GitFile{
 		{Path: "conflict.txt", Status: gitdomain.GitFileStatusConflicted},
@@ -109,8 +109,8 @@ func TestList_Subdir(
 	t *testing.T,
 ) {
 	dir := t.TempDir()
-	require.NoError(t, os.MkdirAll(filepath.Join(dir, "sub"), 0700))
-	require.NoError(t, os.WriteFile(filepath.Join(dir, "sub/deep.txt"), nil, 0600))
+	require.NoError(t, os.MkdirAll(filepath.Join(dir, "sub"), 0o700))
+	require.NoError(t, os.WriteFile(filepath.Join(dir, "sub/deep.txt"), nil, 0o600))
 
 	nodes, err := tree.List(dir, "sub", &noopProvider{})
 	require.NoError(t, err)
@@ -122,7 +122,7 @@ func TestList_NilProvider(
 	t *testing.T,
 ) {
 	dir := t.TempDir()
-	require.NoError(t, os.WriteFile(filepath.Join(dir, "f.txt"), nil, 0600))
+	require.NoError(t, os.WriteFile(filepath.Join(dir, "f.txt"), nil, 0o600))
 
 	nodes, err := tree.List(dir, "", nil)
 	require.NoError(t, err)
@@ -144,7 +144,7 @@ func TestList_ProviderError(
 	t *testing.T,
 ) {
 	dir := t.TempDir()
-	require.NoError(t, os.WriteFile(filepath.Join(dir, "f.txt"), nil, 0600))
+	require.NoError(t, os.WriteFile(filepath.Join(dir, "f.txt"), nil, 0o600))
 
 	nodes, err := tree.List(dir, "", &errorProvider{})
 	require.NoError(t, err)
@@ -158,10 +158,10 @@ func TestList_DirsBeforeFiles(
 	t *testing.T,
 ) {
 	dir := t.TempDir()
-	require.NoError(t, os.WriteFile(filepath.Join(dir, "z.txt"), nil, 0600))
-	require.NoError(t, os.WriteFile(filepath.Join(dir, "a.txt"), nil, 0600))
-	require.NoError(t, os.MkdirAll(filepath.Join(dir, "m-dir"), 0700))
-	require.NoError(t, os.MkdirAll(filepath.Join(dir, "a-dir"), 0700))
+	require.NoError(t, os.WriteFile(filepath.Join(dir, "z.txt"), nil, 0o600))
+	require.NoError(t, os.WriteFile(filepath.Join(dir, "a.txt"), nil, 0o600))
+	require.NoError(t, os.MkdirAll(filepath.Join(dir, "m-dir"), 0o700))
+	require.NoError(t, os.MkdirAll(filepath.Join(dir, "a-dir"), 0o700))
 
 	nodes, err := tree.List(dir, "", &noopProvider{})
 	require.NoError(t, err)
@@ -185,9 +185,9 @@ func TestList_AllGitDecorations(
 	dir := t.TempDir()
 
 	files := []struct {
-		name           string
-		status         gitdomain.GitFileStatus
-		expectedDec    domain.FileNodeGitStatus
+		name        string
+		status      gitdomain.GitFileStatus
+		expectedDec domain.FileNodeGitStatus
 	}{
 		{"added.txt", gitdomain.GitFileStatusAdded, domain.FileNodeGitStatusAdded},
 		{"deleted.txt", gitdomain.GitFileStatusDeleted, domain.FileNodeGitStatusDeleted},
@@ -197,7 +197,7 @@ func TestList_AllGitDecorations(
 
 	gitFiles := make([]gitdomain.GitFile, 0, len(files))
 	for _, f := range files {
-		require.NoError(t, os.WriteFile(filepath.Join(dir, f.name), nil, 0600))
+		require.NoError(t, os.WriteFile(filepath.Join(dir, f.name), nil, 0o600))
 		gitFiles = append(gitFiles, gitdomain.GitFile{Path: f.name, Status: f.status})
 	}
 
@@ -225,8 +225,8 @@ func TestList_NestedSubdirs(
 	t *testing.T,
 ) {
 	dir := t.TempDir()
-	require.NoError(t, os.MkdirAll(filepath.Join(dir, "parent/child/grandchild"), 0700))
-	require.NoError(t, os.WriteFile(filepath.Join(dir, "parent/file.txt"), nil, 0600))
+	require.NoError(t, os.MkdirAll(filepath.Join(dir, "parent/child/grandchild"), 0o700))
+	require.NoError(t, os.WriteFile(filepath.Join(dir, "parent/file.txt"), nil, 0o600))
 
 	nodes, err := tree.List(dir, "parent", &noopProvider{})
 	require.NoError(t, err)

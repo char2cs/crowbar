@@ -36,7 +36,7 @@ func makeInitialCommit(
 	t.Helper()
 	ctx := context.Background()
 	path := filepath.Join(dir, filename)
-	require.NoError(t, os.WriteFile(path, []byte(content), 0600))
+	require.NoError(t, os.WriteFile(path, []byte(content), 0o600))
 	_ = exec.Git(ctx, dir, "add", filename)
 	r := exec.Git(ctx, dir, "commit", "-m", "initial commit")
 	require.Equal(t, 0, r.ExitCode, r.Stderr)
@@ -64,7 +64,7 @@ func TestParse_UntrackedFile(
 	ctx := context.Background()
 
 	path := filepath.Join(dir, "newfile.txt")
-	require.NoError(t, os.WriteFile(path, []byte("hello\n"), 0600))
+	require.NoError(t, os.WriteFile(path, []byte("hello\n"), 0o600))
 
 	s, err := status.Parse(ctx, dir)
 
@@ -82,7 +82,7 @@ func TestParse_StagedNewFile(
 	ctx := context.Background()
 
 	path := filepath.Join(dir, "staged.txt")
-	require.NoError(t, os.WriteFile(path, []byte("staged\n"), 0600))
+	require.NoError(t, os.WriteFile(path, []byte("staged\n"), 0o600))
 	_ = exec.Git(ctx, dir, "add", "staged.txt")
 
 	s, err := status.Parse(ctx, dir)
@@ -103,9 +103,9 @@ func TestParse_ModifiedStagedAndUnstaged(
 	makeInitialCommit(t, dir, "file.txt", "v1\n")
 
 	path := filepath.Join(dir, "file.txt")
-	require.NoError(t, os.WriteFile(path, []byte("v2\n"), 0600))
+	require.NoError(t, os.WriteFile(path, []byte("v2\n"), 0o600))
 	_ = exec.Git(ctx, dir, "add", "file.txt")
-	require.NoError(t, os.WriteFile(path, []byte("v3\n"), 0600))
+	require.NoError(t, os.WriteFile(path, []byte("v3\n"), 0o600))
 
 	s, err := status.Parse(ctx, dir)
 
@@ -163,13 +163,13 @@ func TestParse_ConflictedFile(
 
 	r := exec.Git(ctx, dir, "checkout", "-b", "branch-a")
 	require.Equal(t, 0, r.ExitCode, r.Stderr)
-	require.NoError(t, os.WriteFile(filepath.Join(dir, "conflict.txt"), []byte("branch-a change\n"), 0600))
+	require.NoError(t, os.WriteFile(filepath.Join(dir, "conflict.txt"), []byte("branch-a change\n"), 0o600))
 	_ = exec.Git(ctx, dir, "add", "conflict.txt")
 	r = exec.Git(ctx, dir, "commit", "-m", "branch-a change")
 	require.Equal(t, 0, r.ExitCode, r.Stderr)
 
 	_ = exec.Git(ctx, dir, "checkout", "main")
-	require.NoError(t, os.WriteFile(filepath.Join(dir, "conflict.txt"), []byte("main change\n"), 0600))
+	require.NoError(t, os.WriteFile(filepath.Join(dir, "conflict.txt"), []byte("main change\n"), 0o600))
 	_ = exec.Git(ctx, dir, "add", "conflict.txt")
 	r = exec.Git(ctx, dir, "commit", "-m", "main change")
 	require.Equal(t, 0, r.ExitCode, r.Stderr)
@@ -258,7 +258,7 @@ func TestParse_BehindOnly(
 	_ = exec.Git(ctx, cloneDir, "config", "user.email", "test@test.com")
 	_ = exec.Git(ctx, cloneDir, "config", "user.name", "Test")
 	clonePath := filepath.Join(cloneDir, "remote.txt")
-	require.NoError(t, os.WriteFile(clonePath, []byte("remote\n"), 0600))
+	require.NoError(t, os.WriteFile(clonePath, []byte("remote\n"), 0o600))
 	_ = exec.Git(ctx, cloneDir, "add", "remote.txt")
 	r = exec.Git(ctx, cloneDir, "commit", "-m", "remote commit")
 	require.Equal(t, 0, r.ExitCode, r.Stderr)
@@ -348,7 +348,7 @@ func TestParse_RenamedEntryUnstagedCopy(
 		if e != nil {
 			return e
 		}
-		return os.WriteFile(filepath.Join(dir, "dst.txt"), data, 0600)
+		return os.WriteFile(filepath.Join(dir, "dst.txt"), data, 0o600)
 	}())
 	_ = exec.Git(ctx, dir, "add", "dst.txt")
 
@@ -407,20 +407,20 @@ func TestParse_ConflictBothAdded(
 
 	// Start with an empty initial commit so both branches can add the same file.
 	emptyPath := filepath.Join(dir, ".gitkeep")
-	require.NoError(t, os.WriteFile(emptyPath, []byte(""), 0600))
+	require.NoError(t, os.WriteFile(emptyPath, []byte(""), 0o600))
 	_ = exec.Git(ctx, dir, "add", ".gitkeep")
 	r := exec.Git(ctx, dir, "commit", "-m", "empty root")
 	require.Equal(t, 0, r.ExitCode, r.Stderr)
 
 	r = exec.Git(ctx, dir, "checkout", "-b", "branch-c")
 	require.Equal(t, 0, r.ExitCode, r.Stderr)
-	require.NoError(t, os.WriteFile(filepath.Join(dir, "newfile.txt"), []byte("from branch-c\n"), 0600))
+	require.NoError(t, os.WriteFile(filepath.Join(dir, "newfile.txt"), []byte("from branch-c\n"), 0o600))
 	_ = exec.Git(ctx, dir, "add", "newfile.txt")
 	r = exec.Git(ctx, dir, "commit", "-m", "add on branch-c")
 	require.Equal(t, 0, r.ExitCode, r.Stderr)
 
 	_ = exec.Git(ctx, dir, "checkout", "main")
-	require.NoError(t, os.WriteFile(filepath.Join(dir, "newfile.txt"), []byte("from main\n"), 0600))
+	require.NoError(t, os.WriteFile(filepath.Join(dir, "newfile.txt"), []byte("from main\n"), 0o600))
 	_ = exec.Git(ctx, dir, "add", "newfile.txt")
 	r = exec.Git(ctx, dir, "commit", "-m", "add on main")
 	require.Equal(t, 0, r.ExitCode, r.Stderr)
@@ -455,13 +455,13 @@ func TestParse_ConflictUWithOther(
 
 	r := exec.Git(ctx, dir, "checkout", "-b", "branch-d")
 	require.Equal(t, 0, r.ExitCode, r.Stderr)
-	require.NoError(t, os.WriteFile(filepath.Join(dir, "file.txt"), []byte("branch-d\n"), 0600))
+	require.NoError(t, os.WriteFile(filepath.Join(dir, "file.txt"), []byte("branch-d\n"), 0o600))
 	_ = exec.Git(ctx, dir, "add", "file.txt")
 	r = exec.Git(ctx, dir, "commit", "-m", "branch-d change")
 	require.Equal(t, 0, r.ExitCode, r.Stderr)
 
 	_ = exec.Git(ctx, dir, "checkout", "main")
-	require.NoError(t, os.WriteFile(filepath.Join(dir, "file.txt"), []byte("main change\n"), 0600))
+	require.NoError(t, os.WriteFile(filepath.Join(dir, "file.txt"), []byte("main change\n"), 0o600))
 	_ = exec.Git(ctx, dir, "add", "file.txt")
 	r = exec.Git(ctx, dir, "commit", "-m", "main change")
 	require.Equal(t, 0, r.ExitCode, r.Stderr)

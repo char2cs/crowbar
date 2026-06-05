@@ -300,7 +300,6 @@ func conflictHunkID(filePath string, oursRaw string, theirsRaw string) string {
 	return hex.EncodeToString(h.Sum(nil))[:12]
 }
 
-
 func findBlock(
 	blocks []conflictBlock,
 	id string,

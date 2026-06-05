@@ -46,7 +46,7 @@ func TestDiscardUntracked_ExecError(t *testing.T) {
 	ctx := context.Background()
 	dir := initRepo(t)
 	makeCommit(t, dir, "base.txt", "base\n", "init")
-	require.NoError(t, os.WriteFile(filepath.Join(dir, "new.txt"), []byte("new\n"), 0600))
+	require.NoError(t, os.WriteFile(filepath.Join(dir, "new.txt"), []byte("new\n"), 0o600))
 
 	err := errEngine().Discard(ctx, dir, "new.txt")
 	require.Error(t, err)
@@ -148,7 +148,7 @@ func TestMergeFFOnly_ExecError(t *testing.T) {
 
 func TestOperationContinue_RebaseExecError(t *testing.T) {
 	dir := initRepo(t)
-	require.NoError(t, os.Mkdir(filepath.Join(dir, ".git", "rebase-merge"), 0700))
+	require.NoError(t, os.Mkdir(filepath.Join(dir, ".git", "rebase-merge"), 0o700))
 
 	err := errEngine().OperationContinue(context.Background(), dir)
 	require.Error(t, err)
@@ -157,7 +157,7 @@ func TestOperationContinue_RebaseExecError(t *testing.T) {
 
 func TestOperationContinue_MergeExecError(t *testing.T) {
 	dir := initRepo(t)
-	require.NoError(t, os.WriteFile(filepath.Join(dir, ".git", "MERGE_HEAD"), []byte("abc123"), 0600))
+	require.NoError(t, os.WriteFile(filepath.Join(dir, ".git", "MERGE_HEAD"), []byte("abc123"), 0o600))
 
 	err := errEngine().OperationContinue(context.Background(), dir)
 	require.Error(t, err)
@@ -166,7 +166,7 @@ func TestOperationContinue_MergeExecError(t *testing.T) {
 
 func TestOperationAbort_RebaseExecError(t *testing.T) {
 	dir := initRepo(t)
-	require.NoError(t, os.Mkdir(filepath.Join(dir, ".git", "rebase-merge"), 0700))
+	require.NoError(t, os.Mkdir(filepath.Join(dir, ".git", "rebase-merge"), 0o700))
 
 	err := errEngine().OperationAbort(context.Background(), dir)
 	require.Error(t, err)
@@ -175,7 +175,7 @@ func TestOperationAbort_RebaseExecError(t *testing.T) {
 
 func TestOperationAbort_MergeExecError(t *testing.T) {
 	dir := initRepo(t)
-	require.NoError(t, os.WriteFile(filepath.Join(dir, ".git", "MERGE_HEAD"), []byte("abc123"), 0600))
+	require.NoError(t, os.WriteFile(filepath.Join(dir, ".git", "MERGE_HEAD"), []byte("abc123"), 0o600))
 
 	err := errEngine().OperationAbort(context.Background(), dir)
 	require.Error(t, err)
@@ -184,7 +184,7 @@ func TestOperationAbort_MergeExecError(t *testing.T) {
 
 func TestOperationAbort_SquashExecError(t *testing.T) {
 	dir := initRepo(t)
-	require.NoError(t, os.WriteFile(filepath.Join(dir, ".git", "SQUASH_HEAD"), []byte("abc123"), 0600))
+	require.NoError(t, os.WriteFile(filepath.Join(dir, ".git", "SQUASH_HEAD"), []byte("abc123"), 0o600))
 
 	err := errEngine().OperationAbort(context.Background(), dir)
 	require.Error(t, err)
@@ -273,7 +273,7 @@ func TestApplyHunk_ExecStdinError(t *testing.T) {
 	ctx := context.Background()
 	dir := initRepo(t)
 	makeCommit(t, dir, "hello.go", "package main\n\nfunc hello() {}\n", "init")
-	require.NoError(t, os.WriteFile(filepath.Join(dir, "hello.go"), []byte("package main\n\nfunc hello() { return }\n"), 0600))
+	require.NoError(t, os.WriteFile(filepath.Join(dir, "hello.go"), []byte("package main\n\nfunc hello() { return }\n"), 0o600))
 
 	files, err := git.New().Diff(ctx, dir, false)
 	require.NoError(t, err)

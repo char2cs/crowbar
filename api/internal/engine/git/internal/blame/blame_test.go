@@ -40,7 +40,7 @@ func commitFile(
 	ctx := context.Background()
 
 	path := filepath.Join(dir, filename)
-	require.NoError(t, os.WriteFile(path, []byte(content), 0600))
+	require.NoError(t, os.WriteFile(path, []byte(content), 0o600))
 
 	_ = exec.Git(ctx, dir, "add", filename)
 
@@ -89,7 +89,7 @@ func TestFile_MultipleCommits_SeparateAuthorship(t *testing.T) {
 	commitFile(t, dir, "file.txt", "first line\n", "first commit")
 
 	path := filepath.Join(dir, "file.txt")
-	require.NoError(t, os.WriteFile(path, []byte("first line\nsecond line\n"), 0600))
+	require.NoError(t, os.WriteFile(path, []byte("first line\nsecond line\n"), 0o600))
 	_ = exec.Git(ctx, dir, "add", "file.txt")
 	r := exec.Git(ctx, dir, "commit", "-m", "second commit")
 	require.Equal(t, 0, r.ExitCode, r.Stderr)

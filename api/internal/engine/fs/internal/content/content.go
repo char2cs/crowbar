@@ -40,10 +40,10 @@ func Write(
 	content string,
 ) error {
 	full := filepath.Join(repoPath, filePath)
-	if err := os.MkdirAll(filepath.Dir(full), 0700); err != nil {
+	if err := os.MkdirAll(filepath.Dir(full), 0o700); err != nil {
 		return fmt.Errorf("content: mkdirall %s: %w", filePath, err)
 	}
-	if err := os.WriteFile(full, []byte(content), 0600); err != nil {
+	if err := os.WriteFile(full, []byte(content), 0o600); err != nil {
 		return fmt.Errorf("content: write %s: %w", filePath, err)
 	}
 	return nil

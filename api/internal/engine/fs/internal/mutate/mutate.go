@@ -14,10 +14,10 @@ func CreateFile(
 	filePath string,
 ) error {
 	full := filepath.Join(repoPath, filePath)
-	if err := os.MkdirAll(filepath.Dir(full), 0700); err != nil {
+	if err := os.MkdirAll(filepath.Dir(full), 0o700); err != nil {
 		return fmt.Errorf("mutate: mkdir %s: %w", filePath, err)
 	}
-	f, err := os.OpenFile(full, os.O_CREATE|os.O_EXCL, 0600)
+	f, err := os.OpenFile(full, os.O_CREATE|os.O_EXCL, 0o600)
 	if err != nil {
 		return fmt.Errorf("mutate: create %s: %w", filePath, err)
 	}
@@ -30,7 +30,7 @@ func CreateDir(
 	dirPath string,
 ) error {
 	full := filepath.Join(repoPath, dirPath)
-	if err := os.MkdirAll(full, 0700); err != nil {
+	if err := os.MkdirAll(full, 0o700); err != nil {
 		return fmt.Errorf("mutate: mkdir %s: %w", dirPath, err)
 	}
 	return nil
@@ -45,7 +45,7 @@ func Rename(
 ) error {
 	oldFull := filepath.Join(repoPath, oldPath)
 	newFull := filepath.Join(repoPath, newPath)
-	if err := os.MkdirAll(filepath.Dir(newFull), 0700); err != nil {
+	if err := os.MkdirAll(filepath.Dir(newFull), 0o700); err != nil {
 		return fmt.Errorf("mutate: rename mkdirall %s: %w", newPath, err)
 	}
 	if err := os.Rename(oldFull, newFull); err != nil {

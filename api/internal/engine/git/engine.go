@@ -17,8 +17,10 @@ import (
 	"github.com/char2cs/crowbar/api/internal/engine/git/internal/status"
 )
 
-type execFn func(ctx context.Context, dir string, args ...string) gitexec.Result
-type execStdinFn func(ctx context.Context, dir string, stdin string, args ...string) gitexec.Result
+type (
+	execFn      func(ctx context.Context, dir string, args ...string) gitexec.Result
+	execStdinFn func(ctx context.Context, dir string, stdin string, args ...string) gitexec.Result
+)
 
 type engine struct {
 	exec      execFn

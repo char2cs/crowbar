@@ -4,8 +4,8 @@ package git
 import (
 	"context"
 
-	gitexec "github.com/char2cs/crowbar/api/internal/engine/git/internal/exec"
 	gitdomain "github.com/char2cs/crowbar/api/internal/domain/git"
+	gitexec "github.com/char2cs/crowbar/api/internal/engine/git/internal/exec"
 )
 
 // ExportedComputeStatus calls ComputeStatus on the engine returned by New().

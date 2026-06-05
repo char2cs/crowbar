@@ -128,7 +128,7 @@ func TestDetectInProgressOp_MergeHead(
 	dir := initRepo(t)
 	gitDir := filepath.Join(dir, ".git")
 
-	require.NoError(t, os.WriteFile(filepath.Join(gitDir, "MERGE_HEAD"), []byte("abc123"), 0600))
+	require.NoError(t, os.WriteFile(filepath.Join(gitDir, "MERGE_HEAD"), []byte("abc123"), 0o600))
 
 	op := git.ExportedDetectInProgressOp(dir)
 	assert.Equal(t, "merge", op)
@@ -140,7 +140,7 @@ func TestDetectInProgressOp_RebaseMerge(
 	dir := initRepo(t)
 	gitDir := filepath.Join(dir, ".git")
 
-	require.NoError(t, os.Mkdir(filepath.Join(gitDir, "rebase-merge"), 0700))
+	require.NoError(t, os.Mkdir(filepath.Join(gitDir, "rebase-merge"), 0o700))
 
 	op := git.ExportedDetectInProgressOp(dir)
 	assert.Equal(t, "rebase", op)
@@ -152,7 +152,7 @@ func TestDetectInProgressOp_RebaseApply(
 	dir := initRepo(t)
 	gitDir := filepath.Join(dir, ".git")
 
-	require.NoError(t, os.Mkdir(filepath.Join(gitDir, "rebase-apply"), 0700))
+	require.NoError(t, os.Mkdir(filepath.Join(gitDir, "rebase-apply"), 0o700))
 
 	op := git.ExportedDetectInProgressOp(dir)
 	assert.Equal(t, "rebase", op)
