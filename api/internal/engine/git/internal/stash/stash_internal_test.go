@@ -60,21 +60,19 @@ func TestCountChangedFiles_RequireSuccessError(
 ) {
 	dir := t.TempDir()
 	ctx := context.Background()
-	r, err := exec.Git(ctx, dir, "init", "-b", "main")
-	require.NoError(t, err)
+	r := exec.Git(ctx, dir, "init", "-b", "main")
 	require.Equal(t, 0, r.ExitCode, r.Stderr)
-	_, _ = exec.Git(ctx, dir, "config", "user.email", "t@t.com")
-	_, _ = exec.Git(ctx, dir, "config", "user.name", "T")
+	_ = exec.Git(ctx, dir, "config", "user.email", "t@t.com")
+	_ = exec.Git(ctx, dir, "config", "user.name", "T")
 
 	fp := filepath.Join(dir, "f.txt")
 	require.NoError(t, os.WriteFile(fp, []byte("hello\n"), 0600))
-	_, _ = exec.Git(ctx, dir, "add", "f.txt")
-	rr, err := exec.Git(ctx, dir, "commit", "-m", "init")
-	require.NoError(t, err)
+	_ = exec.Git(ctx, dir, "add", "f.txt")
+	rr := exec.Git(ctx, dir, "commit", "-m", "init")
 	require.Equal(t, 0, rr.ExitCode, rr.Stderr)
 
 	// stash show on a nonexistent ref exits non-zero.
-	_, err = countChangedFiles(ctx, dir, "stash@{99}")
+	_, err := countChangedFiles(ctx, dir, "stash@{99}")
 	require.Error(t, err)
 }
 

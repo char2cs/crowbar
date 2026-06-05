@@ -29,11 +29,7 @@ func File(
 	repoPath string,
 	filePath string,
 ) ([]domain.BlameEntry, error) {
-	r, err := gitRunner(ctx, repoPath, "blame", "--porcelain", filePath)
-	if err != nil {
-		return nil, fmt.Errorf("blame: file: %w", err)
-	}
-
+	r := gitRunner(ctx, repoPath, "blame", "--porcelain", filePath)
 	if r.ExitCode != 0 {
 		return nil, fmt.Errorf("blame: file: exit %d: %s", r.ExitCode, strings.TrimSpace(r.Stderr))
 	}

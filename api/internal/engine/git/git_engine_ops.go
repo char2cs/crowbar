@@ -14,7 +14,7 @@ import (
 // git worktree the .git entry is a file, not a directory; we ask git itself so
 // in-progress marker files (MERGE_HEAD, rebase-merge/, …) are always found.
 func resolveGitDir(repoPath string) string {
-	r, _ := gitexec.Git(
+	r := gitexec.Git(
 		context.Background(),
 		repoPath,
 		"rev-parse",
@@ -63,16 +63,10 @@ func (e *engine) operationContinue(
 	op := detectInProgressOp(repoPath)
 	switch op {
 	case "rebase":
-		r, err := e.exec(ctx, repoPath, "rebase", "--continue")
-		if err != nil {
-			return fmt.Errorf("git: rebase --continue: %w", err)
-		}
+		r := e.exec(ctx, repoPath, "rebase", "--continue")
 		return gitexec.RequireSuccess("rebase --continue", r)
 	case "merge", "squash", "pull-merge":
-		r, err := e.exec(ctx, repoPath, "commit", "--no-edit")
-		if err != nil {
-			return fmt.Errorf("git: commit (continue): %w", err)
-		}
+		r := e.exec(ctx, repoPath, "commit", "--no-edit")
 		return gitexec.RequireSuccess("commit --no-edit", r)
 	}
 	return fmt.Errorf("git: operation continue: no in-progress operation detected")
@@ -85,22 +79,13 @@ func (e *engine) operationAbort(
 	op := detectInProgressOp(repoPath)
 	switch op {
 	case "rebase":
-		r, err := e.exec(ctx, repoPath, "rebase", "--abort")
-		if err != nil {
-			return fmt.Errorf("git: rebase --abort: %w", err)
-		}
+		r := e.exec(ctx, repoPath, "rebase", "--abort")
 		return gitexec.RequireSuccess("rebase --abort", r)
 	case "merge", "pull-merge":
-		r, err := e.exec(ctx, repoPath, "merge", "--abort")
-		if err != nil {
-			return fmt.Errorf("git: merge --abort: %w", err)
-		}
+		r := e.exec(ctx, repoPath, "merge", "--abort")
 		return gitexec.RequireSuccess("merge --abort", r)
 	case "squash":
-		r, err := e.exec(ctx, repoPath, "reset", "--merge")
-		if err != nil {
-			return fmt.Errorf("git: reset --merge (squash abort): %w", err)
-		}
+		r := e.exec(ctx, repoPath, "reset", "--merge")
 		return gitexec.RequireSuccess("reset --merge", r)
 	}
 	return fmt.Errorf("git: operation abort: no in-progress operation detected")

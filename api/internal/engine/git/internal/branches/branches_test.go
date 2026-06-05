@@ -20,11 +20,10 @@ func initRepo(
 	t.Helper()
 	dir := t.TempDir()
 	ctx := context.Background()
-	r, err := exec.Git(ctx, dir, "init", "-b", "main")
-	require.NoError(t, err)
+	r := exec.Git(ctx, dir, "init", "-b", "main")
 	require.Equal(t, 0, r.ExitCode, r.Stderr)
-	_, _ = exec.Git(ctx, dir, "config", "user.email", "test@test.com")
-	_, _ = exec.Git(ctx, dir, "config", "user.name", "Test")
+	_ = exec.Git(ctx, dir, "config", "user.email", "test@test.com")
+	_ = exec.Git(ctx, dir, "config", "user.name", "Test")
 	return dir
 }
 
@@ -39,9 +38,8 @@ func makeCommit(
 	ctx := context.Background()
 	path := filepath.Join(dir, filename)
 	require.NoError(t, os.WriteFile(path, []byte(content), 0600))
-	_, _ = exec.Git(ctx, dir, "add", filename)
-	r, err := exec.Git(ctx, dir, "commit", "-m", message)
-	require.NoError(t, err)
+	_ = exec.Git(ctx, dir, "add", filename)
+	r := exec.Git(ctx, dir, "commit", "-m", message)
 	require.Equal(t, 0, r.ExitCode, r.Stderr)
 }
 
@@ -126,16 +124,13 @@ func TestList_RemoteBranch(
 	makeCommit(t, dir, "file.txt", "hello\n", "initial")
 
 	remoteDir := t.TempDir()
-	r, err := exec.Git(ctx, remoteDir, "init", "--bare", "-b", "main")
-	require.NoError(t, err)
+	r := exec.Git(ctx, remoteDir, "init", "--bare", "-b", "main")
 	require.Equal(t, 0, r.ExitCode, r.Stderr)
 
-	r, err = exec.Git(ctx, dir, "remote", "add", "origin", remoteDir)
-	require.NoError(t, err)
+	r = exec.Git(ctx, dir, "remote", "add", "origin", remoteDir)
 	require.Equal(t, 0, r.ExitCode, r.Stderr)
 
-	r, err = exec.Git(ctx, dir, "push", "-u", "origin", "main")
-	require.NoError(t, err)
+	r = exec.Git(ctx, dir, "push", "-u", "origin", "main")
 	require.Equal(t, 0, r.ExitCode, r.Stderr)
 
 	bs, err := branches.List(ctx, dir)
@@ -160,16 +155,13 @@ func TestList_AheadBehind(
 	makeCommit(t, dir, "file.txt", "hello\n", "initial")
 
 	remoteDir := t.TempDir()
-	r, err := exec.Git(ctx, remoteDir, "init", "--bare", "-b", "main")
-	require.NoError(t, err)
+	r := exec.Git(ctx, remoteDir, "init", "--bare", "-b", "main")
 	require.Equal(t, 0, r.ExitCode, r.Stderr)
 
-	r, err = exec.Git(ctx, dir, "remote", "add", "origin", remoteDir)
-	require.NoError(t, err)
+	r = exec.Git(ctx, dir, "remote", "add", "origin", remoteDir)
 	require.Equal(t, 0, r.ExitCode, r.Stderr)
 
-	r, err = exec.Git(ctx, dir, "push", "-u", "origin", "main")
-	require.NoError(t, err)
+	r = exec.Git(ctx, dir, "push", "-u", "origin", "main")
 	require.Equal(t, 0, r.ExitCode, r.Stderr)
 
 	makeCommit(t, dir, "extra.txt", "extra\n", "local commit")
@@ -285,8 +277,7 @@ func TestForceDelete(
 	require.NoError(t, err)
 	makeCommit(t, dir, "extra.txt", "extra\n", "unmerged commit")
 
-	r, err := exec.Git(ctx, dir, "checkout", "main")
-	require.NoError(t, err)
+	r := exec.Git(ctx, dir, "checkout", "main")
 	require.Equal(t, 0, r.ExitCode, r.Stderr)
 
 	err = branches.ForceDelete(ctx, dir, "unmerged")
@@ -436,39 +427,33 @@ func TestList_AheadAndBehind(
 	makeCommit(t, dir, "base.txt", "base\n", "base commit")
 
 	remoteDir := t.TempDir()
-	r, err := exec.Git(ctx, remoteDir, "init", "--bare", "-b", "main")
-	require.NoError(t, err)
+	r := exec.Git(ctx, remoteDir, "init", "--bare", "-b", "main")
 	require.Equal(t, 0, r.ExitCode, r.Stderr)
 
-	r, err = exec.Git(ctx, dir, "remote", "add", "origin", remoteDir)
-	require.NoError(t, err)
+	r = exec.Git(ctx, dir, "remote", "add", "origin", remoteDir)
 	require.Equal(t, 0, r.ExitCode, r.Stderr)
 
-	r, err = exec.Git(ctx, dir, "push", "-u", "origin", "main")
-	require.NoError(t, err)
+	r = exec.Git(ctx, dir, "push", "-u", "origin", "main")
 	require.Equal(t, 0, r.ExitCode, r.Stderr)
 
 	// Push a commit to remote via a clone so the remote is ahead of local.
 	cloneDir := t.TempDir()
-	r, err = exec.Git(ctx, cloneDir, "clone", remoteDir, ".")
-	require.NoError(t, err)
+	r = exec.Git(ctx, cloneDir, "clone", remoteDir, ".")
 	require.Equal(t, 0, r.ExitCode, r.Stderr)
-	_, _ = exec.Git(ctx, cloneDir, "config", "user.email", "test@test.com")
-	_, _ = exec.Git(ctx, cloneDir, "config", "user.name", "Test")
+	_ = exec.Git(ctx, cloneDir, "config", "user.email", "test@test.com")
+	_ = exec.Git(ctx, cloneDir, "config", "user.name", "Test")
 
 	clonePath := filepath.Join(cloneDir, "remote.txt")
 	require.NoError(t, os.WriteFile(clonePath, []byte("remote\n"), 0600))
-	_, _ = exec.Git(ctx, cloneDir, "add", "remote.txt")
-	r, err = exec.Git(ctx, cloneDir, "commit", "-m", "remote commit")
-	require.NoError(t, err)
+	_ = exec.Git(ctx, cloneDir, "add", "remote.txt")
+	r = exec.Git(ctx, cloneDir, "commit", "-m", "remote commit")
 	require.Equal(t, 0, r.ExitCode, r.Stderr)
-	r, err = exec.Git(ctx, cloneDir, "push", "origin", "main")
-	require.NoError(t, err)
+	r = exec.Git(ctx, cloneDir, "push", "origin", "main")
 	require.Equal(t, 0, r.ExitCode, r.Stderr)
 
 	// Local adds its own commit (ahead) and fetches so it knows it is also behind.
 	makeCommit(t, dir, "local.txt", "local\n", "local commit")
-	_, _ = exec.Git(ctx, dir, "fetch", "origin")
+	_ = exec.Git(ctx, dir, "fetch", "origin")
 
 	bs, err := branches.List(ctx, dir)
 	require.NoError(t, err)
@@ -489,38 +474,32 @@ func TestList_BehindOnly(
 	makeCommit(t, dir, "base.txt", "base\n", "base commit")
 
 	remoteDir := t.TempDir()
-	r, err := exec.Git(ctx, remoteDir, "init", "--bare", "-b", "main")
-	require.NoError(t, err)
+	r := exec.Git(ctx, remoteDir, "init", "--bare", "-b", "main")
 	require.Equal(t, 0, r.ExitCode, r.Stderr)
 
-	r, err = exec.Git(ctx, dir, "remote", "add", "origin", remoteDir)
-	require.NoError(t, err)
+	r = exec.Git(ctx, dir, "remote", "add", "origin", remoteDir)
 	require.Equal(t, 0, r.ExitCode, r.Stderr)
 
-	r, err = exec.Git(ctx, dir, "push", "-u", "origin", "main")
-	require.NoError(t, err)
+	r = exec.Git(ctx, dir, "push", "-u", "origin", "main")
 	require.Equal(t, 0, r.ExitCode, r.Stderr)
 
 	// Push a commit to remote via a clone.
 	cloneDir := t.TempDir()
-	r, err = exec.Git(ctx, cloneDir, "clone", remoteDir, ".")
-	require.NoError(t, err)
+	r = exec.Git(ctx, cloneDir, "clone", remoteDir, ".")
 	require.Equal(t, 0, r.ExitCode, r.Stderr)
-	_, _ = exec.Git(ctx, cloneDir, "config", "user.email", "test@test.com")
-	_, _ = exec.Git(ctx, cloneDir, "config", "user.name", "Test")
+	_ = exec.Git(ctx, cloneDir, "config", "user.email", "test@test.com")
+	_ = exec.Git(ctx, cloneDir, "config", "user.name", "Test")
 
 	clonePath := filepath.Join(cloneDir, "remote.txt")
 	require.NoError(t, os.WriteFile(clonePath, []byte("remote\n"), 0600))
-	_, _ = exec.Git(ctx, cloneDir, "add", "remote.txt")
-	r, err = exec.Git(ctx, cloneDir, "commit", "-m", "remote commit")
-	require.NoError(t, err)
+	_ = exec.Git(ctx, cloneDir, "add", "remote.txt")
+	r = exec.Git(ctx, cloneDir, "commit", "-m", "remote commit")
 	require.Equal(t, 0, r.ExitCode, r.Stderr)
-	r, err = exec.Git(ctx, cloneDir, "push", "origin", "main")
-	require.NoError(t, err)
+	r = exec.Git(ctx, cloneDir, "push", "origin", "main")
 	require.Equal(t, 0, r.ExitCode, r.Stderr)
 
 	// Fetch only — local has no new commits, so it is purely behind.
-	_, _ = exec.Git(ctx, dir, "fetch", "origin")
+	_ = exec.Git(ctx, dir, "fetch", "origin")
 
 	bs, err := branches.List(ctx, dir)
 	require.NoError(t, err)

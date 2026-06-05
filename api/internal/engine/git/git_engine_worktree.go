@@ -2,7 +2,6 @@ package git
 
 import (
 	"context"
-	"fmt"
 	"strings"
 
 	gitexec "github.com/char2cs/crowbar/api/internal/engine/git/internal/exec"
@@ -15,10 +14,7 @@ func (e *engine) WorktreeAdd(
 	branch string,
 ) error {
 	defer e.lockRepo(repoPath)()
-	r, err := e.exec(ctx, repoPath, "worktree", "add", worktreePath, branch)
-	if err != nil {
-		return fmt.Errorf("git: worktree add: %w", err)
-	}
+	r := e.exec(ctx, repoPath, "worktree", "add", worktreePath, branch)
 	return gitexec.RequireSuccess("worktree add", r)
 }
 
@@ -28,10 +24,7 @@ func (e *engine) WorktreeRemove(
 	worktreePath string,
 ) error {
 	defer e.lockRepo(repoPath)()
-	r, err := e.exec(ctx, repoPath, "worktree", "remove", "--force", worktreePath)
-	if err != nil {
-		return fmt.Errorf("git: worktree remove: %w", err)
-	}
+	r := e.exec(ctx, repoPath, "worktree", "remove", "--force", worktreePath)
 	return gitexec.RequireSuccess("worktree remove", r)
 }
 
@@ -39,10 +32,7 @@ func (e *engine) WorktreeList(
 	ctx context.Context,
 	repoPath string,
 ) ([]WorktreeEntry, error) {
-	r, err := e.exec(ctx, repoPath, "worktree", "list", "--porcelain")
-	if err != nil {
-		return nil, fmt.Errorf("git: worktree list: %w", err)
-	}
+	r := e.exec(ctx, repoPath, "worktree", "list", "--porcelain")
 	if err := gitexec.RequireSuccess("worktree list", r); err != nil {
 		return nil, err
 	}
@@ -57,10 +47,7 @@ func (e *engine) RebaseOnto(
 	branch string,
 ) error {
 	defer e.lockRepo(repoPath)()
-	r, err := e.exec(ctx, repoPath, "rebase", "--onto", newTip, forkPoint, branch)
-	if err != nil {
-		return fmt.Errorf("git: rebase --onto: %w", err)
-	}
+	r := e.exec(ctx, repoPath, "rebase", "--onto", newTip, forkPoint, branch)
 	return classifyGitError("rebase --onto", r)
 }
 
@@ -70,10 +57,7 @@ func (e *engine) MergeFFOnly(
 	branch string,
 ) error {
 	defer e.lockRepo(repoPath)()
-	r, err := e.exec(ctx, repoPath, "merge", "--ff-only", branch)
-	if err != nil {
-		return fmt.Errorf("git: merge --ff-only: %w", err)
-	}
+	r := e.exec(ctx, repoPath, "merge", "--ff-only", branch)
 	return classifyGitError("merge --ff-only", r)
 }
 

@@ -3,7 +3,6 @@ package blame
 
 import (
 	"context"
-	"errors"
 	"time"
 
 	"github.com/char2cs/crowbar/api/internal/domain"
@@ -35,8 +34,8 @@ func errRunner(
 	_ context.Context,
 	_ string,
 	_ ...string,
-) (exec.Result, error) {
-	return exec.Result{}, errors.New("injected runner error")
+) exec.Result {
+	return exec.Result{ExitCode: 1, Stderr: "injected runner error"}
 }
 
 // SetErrorRunner replaces gitRunner with a failing stub for the duration of a test.

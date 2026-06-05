@@ -17,8 +17,8 @@ import (
 	"github.com/char2cs/crowbar/api/internal/engine/git/internal/status"
 )
 
-type execFn func(ctx context.Context, dir string, args ...string) (gitexec.Result, error)
-type execStdinFn func(ctx context.Context, dir string, stdin string, args ...string) (gitexec.Result, error)
+type execFn func(ctx context.Context, dir string, args ...string) gitexec.Result
+type execStdinFn func(ctx context.Context, dir string, stdin string, args ...string) gitexec.Result
 
 type engine struct {
 	exec      execFn
@@ -132,10 +132,7 @@ func (e *engine) StageFile(
 	filePath string,
 ) error {
 	defer e.lockRepo(repoPath)()
-	r, err := e.exec(ctx, repoPath, "add", filePath)
-	if err != nil {
-		return fmt.Errorf("git: stage file: %w", err)
-	}
+	r := e.exec(ctx, repoPath, "add", filePath)
 	return gitexec.RequireSuccess("stage file", r)
 }
 
@@ -155,10 +152,7 @@ func (e *engine) UnstageFile(
 	filePath string,
 ) error {
 	defer e.lockRepo(repoPath)()
-	r, err := e.exec(ctx, repoPath, "restore", "--staged", filePath)
-	if err != nil {
-		return fmt.Errorf("git: unstage file: %w", err)
-	}
+	r := e.exec(ctx, repoPath, "restore", "--staged", filePath)
 	return gitexec.RequireSuccess("unstage file", r)
 }
 
@@ -199,10 +193,7 @@ func (e *engine) discardTracked(
 	repoPath string,
 	filePath string,
 ) error {
-	r, err := e.exec(ctx, repoPath, "restore", filePath)
-	if err != nil {
-		return fmt.Errorf("git: restore %s: %w", filePath, err)
-	}
+	r := e.exec(ctx, repoPath, "restore", filePath)
 	return gitexec.RequireSuccess("restore", r)
 }
 
@@ -211,10 +202,7 @@ func (e *engine) discardUntracked(
 	repoPath string,
 	filePath string,
 ) error {
-	r, err := e.exec(ctx, repoPath, "clean", "-f", filePath)
-	if err != nil {
-		return fmt.Errorf("git: clean %s: %w", filePath, err)
-	}
+	r := e.exec(ctx, repoPath, "clean", "-f", filePath)
 	return gitexec.RequireSuccess("clean", r)
 }
 
@@ -229,10 +217,7 @@ func (e *engine) Commit(
 	if body != "" {
 		args = append(args, "-m", body)
 	}
-	r, err := e.exec(ctx, repoPath, args...)
-	if err != nil {
-		return fmt.Errorf("git: commit: %w", err)
-	}
+	r := e.exec(ctx, repoPath, args...)
 	return classifyGitError("commit", r)
 }
 
@@ -241,10 +226,7 @@ func (e *engine) Push(
 	repoPath string,
 ) error {
 	defer e.lockRepo(repoPath)()
-	r, err := e.exec(ctx, repoPath, "push")
-	if err != nil {
-		return fmt.Errorf("git: push: %w", err)
-	}
+	r := e.exec(ctx, repoPath, "push")
 	return classifyGitError("push", r)
 }
 
@@ -253,10 +235,7 @@ func (e *engine) Fetch(
 	repoPath string,
 ) error {
 	defer e.lockRepo(repoPath)()
-	r, err := e.exec(ctx, repoPath, "fetch")
-	if err != nil {
-		return fmt.Errorf("git: fetch: %w", err)
-	}
+	r := e.exec(ctx, repoPath, "fetch")
 	return gitexec.RequireSuccess("fetch", r)
 }
 
@@ -270,10 +249,7 @@ func (e *engine) Pull(
 	if mode == "rebase" {
 		flag = "--rebase"
 	}
-	r, err := e.exec(ctx, repoPath, "pull", flag)
-	if err != nil {
-		return fmt.Errorf("git: pull: %w", err)
-	}
+	r := e.exec(ctx, repoPath, "pull", flag)
 	return classifyGitError("pull", r)
 }
 
@@ -360,10 +336,7 @@ func (e *engine) Reset(
 ) error {
 	defer e.lockRepo(repoPath)()
 	flag := "--" + mode
-	r, err := e.exec(ctx, repoPath, "reset", flag, commit)
-	if err != nil {
-		return fmt.Errorf("git: reset: %w", err)
-	}
+	r := e.exec(ctx, repoPath, "reset", flag, commit)
 	return classifyGitError("reset", r)
 }
 
@@ -373,10 +346,7 @@ func (e *engine) Merge(
 	branch string,
 ) error {
 	defer e.lockRepo(repoPath)()
-	r, err := e.exec(ctx, repoPath, "merge", branch)
-	if err != nil {
-		return fmt.Errorf("git: merge: %w", err)
-	}
+	r := e.exec(ctx, repoPath, "merge", branch)
 	return classifyGitError("merge", r)
 }
 
@@ -386,10 +356,7 @@ func (e *engine) Rebase(
 	onto string,
 ) error {
 	defer e.lockRepo(repoPath)()
-	r, err := e.exec(ctx, repoPath, "rebase", onto)
-	if err != nil {
-		return fmt.Errorf("git: rebase: %w", err)
-	}
+	r := e.exec(ctx, repoPath, "rebase", onto)
 	return classifyGitError("rebase", r)
 }
 
@@ -475,9 +442,6 @@ func (e *engine) applyHunk(
 	if reverse {
 		args = append(args, "-R")
 	}
-	r, err := e.execStdin(ctx, repoPath, patch, args...)
-	if err != nil {
-		return fmt.Errorf("git: apply hunk: %w", err)
-	}
+	r := e.execStdin(ctx, repoPath, patch, args...)
 	return gitexec.RequireSuccess("apply hunk", r)
 }

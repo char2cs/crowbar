@@ -31,8 +31,7 @@ func mustGit(
 	args ...string,
 ) {
 	t.Helper()
-	r, err := exec.Git(context.Background(), dir, args...)
-	require.NoError(t, err)
+	r := exec.Git(context.Background(), dir, args...)
 	require.Equal(t, 0, r.ExitCode, "git %v failed: %s", args, r.Stderr)
 }
 
@@ -55,8 +54,7 @@ func headSHA(
 	dir string,
 ) string {
 	t.Helper()
-	r, err := exec.Git(context.Background(), dir, "rev-parse", "HEAD")
-	require.NoError(t, err)
+	r := exec.Git(context.Background(), dir, "rev-parse", "HEAD")
 	return strings.TrimSpace(r.Stdout)
 }
 

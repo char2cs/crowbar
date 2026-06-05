@@ -32,10 +32,7 @@ func ConflictedFiles(
 	ctx context.Context,
 	repoPath string,
 ) ([]string, error) {
-	r, err := gitRunner(ctx, repoPath, "diff", "--name-only", "--diff-filter=U")
-	if err != nil {
-		return nil, fmt.Errorf("conflicts: conflicted files: %w", err)
-	}
+	r := gitRunner(ctx, repoPath, "diff", "--name-only", "--diff-filter=U")
 	if err := exec.RequireSuccess("conflicts: conflicted files", r); err != nil {
 		return nil, fmt.Errorf("conflicts: conflicted files: %w", err)
 	}
@@ -61,10 +58,7 @@ func HasConflicts(
 	ctx context.Context,
 	repoPath string,
 ) (bool, error) {
-	r, err := gitRunner(ctx, repoPath, "diff", "--name-only", "--diff-filter=U")
-	if err != nil {
-		return false, fmt.Errorf("conflicts: has conflicts: %w", err)
-	}
+	r := gitRunner(ctx, repoPath, "diff", "--name-only", "--diff-filter=U")
 	if err := exec.RequireSuccess("conflicts: has conflicts", r); err != nil {
 		return false, fmt.Errorf("conflicts: has conflicts: %w", err)
 	}
@@ -168,10 +162,7 @@ func ResolveHunk(
 		return nil
 	}
 
-	r, err := gitRunner(ctx, repoPath, "add", filePath)
-	if err != nil {
-		return fmt.Errorf("conflicts: resolve hunk: stage: %w", err)
-	}
+	r := gitRunner(ctx, repoPath, "add", filePath)
 	return exec.RequireSuccess("conflicts: resolve hunk: stage", r)
 }
 
@@ -270,10 +261,7 @@ func fetchBase(
 	repoPath string,
 	filePath string,
 ) (string, error) {
-	baseResult, err := exec.Git(ctx, repoPath, "show", fmt.Sprintf(":1:%s", filePath))
-	if err != nil {
-		return "", fmt.Errorf("conflicts: fetch base: %w", err)
-	}
+	baseResult := exec.Git(ctx, repoPath, "show", fmt.Sprintf(":1:%s", filePath))
 	if baseResult.ExitCode != 0 {
 		return "", nil
 	}

@@ -17,26 +17,23 @@ func initRepo(
 	t.Helper()
 	dir := t.TempDir()
 	ctx := context.Background()
-	r, err := exec.Git(ctx, dir, "init", "-b", "main")
-	require.NoError(t, err)
+	r := exec.Git(ctx, dir, "init", "-b", "main")
 	require.Equal(t, 0, r.ExitCode)
-	_, _ = exec.Git(ctx, dir, "config", "user.email", "test@test.com")
-	_, _ = exec.Git(ctx, dir, "config", "user.name", "Test")
+	_ = exec.Git(ctx, dir, "config", "user.email", "test@test.com")
+	_ = exec.Git(ctx, dir, "config", "user.name", "Test")
 	return dir
 }
 
 func TestGit_Success(t *testing.T) {
 	dir := initRepo(t)
-	r, err := exec.Git(context.Background(), dir, "status")
-	require.NoError(t, err)
+	r := exec.Git(context.Background(), dir, "status")
 	assert.Equal(t, 0, r.ExitCode)
 	assert.Contains(t, r.Stdout, "branch")
 }
 
 func TestGit_NonZeroExit(t *testing.T) {
 	dir := t.TempDir()
-	r, err := exec.Git(context.Background(), dir, "log")
-	require.NoError(t, err)
+	r := exec.Git(context.Background(), dir, "log")
 	assert.NotEqual(t, 0, r.ExitCode)
 	assert.NotEmpty(t, r.Stderr)
 }
@@ -46,18 +43,16 @@ func TestGitWithStdin_AppliesPatch(t *testing.T) {
 	ctx := context.Background()
 	path := dir + "/hello.txt"
 	require.NoError(t, os.WriteFile(path, []byte("hello\n"), 0600))
-	_, _ = exec.Git(ctx, dir, "add", "hello.txt")
-	_, _ = exec.Git(ctx, dir, "commit", "-m", "init")
+	_ = exec.Git(ctx, dir, "add", "hello.txt")
+	_ = exec.Git(ctx, dir, "commit", "-m", "init")
 
 	require.NoError(t, os.WriteFile(path, []byte("hello world\n"), 0600))
 
-	diff, err := exec.Git(ctx, dir, "diff")
-	require.NoError(t, err)
+	diff := exec.Git(ctx, dir, "diff")
 	require.Equal(t, 0, diff.ExitCode)
 	require.NotEmpty(t, diff.Stdout)
 
-	r, err := exec.GitWithStdin(ctx, dir, diff.Stdout, "apply", "--cached")
-	require.NoError(t, err)
+	r := exec.GitWithStdin(ctx, dir, diff.Stdout, "apply", "--cached")
 	assert.Equal(t, 0, r.ExitCode, r.Stderr)
 }
 
@@ -87,7 +82,6 @@ func TestGit_ProcessCantStart_ExitCodeOne(
 	t *testing.T,
 ) {
 	ctx := context.Background()
-	r, err := exec.Git(ctx, "/nonexistent/dir/path/xyz", "status")
-	require.NoError(t, err)
+	r := exec.Git(ctx, "/nonexistent/dir/path/xyz", "status")
 	assert.Equal(t, 1, r.ExitCode)
 }

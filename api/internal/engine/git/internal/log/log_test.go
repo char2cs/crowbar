@@ -20,12 +20,11 @@ func initRepo(
 	dir := t.TempDir()
 	ctx := context.Background()
 
-	r, err := exec.Git(ctx, dir, "init", "-b", "main")
-	require.NoError(t, err)
+	r := exec.Git(ctx, dir, "init", "-b", "main")
 	require.Equal(t, 0, r.ExitCode)
 
-	_, _ = exec.Git(ctx, dir, "config", "user.email", "test@test.com")
-	_, _ = exec.Git(ctx, dir, "config", "user.name", "Test User")
+	_ = exec.Git(ctx, dir, "config", "user.email", "test@test.com")
+	_ = exec.Git(ctx, dir, "config", "user.name", "Test User")
 
 	return dir
 }
@@ -43,11 +42,9 @@ func addCommit(
 	path := filepath.Join(dir, filename)
 	require.NoError(t, os.WriteFile(path, []byte(content), 0600))
 
-	_, err := exec.Git(ctx, dir, "add", filename)
-	require.NoError(t, err)
+	_ = exec.Git(ctx, dir, "add", filename)
 
-	r, err := exec.Git(ctx, dir, "commit", "-m", message)
-	require.NoError(t, err)
+	r := exec.Git(ctx, dir, "commit", "-m", message)
 	require.Equal(t, 0, r.ExitCode, r.Stderr)
 }
 
@@ -150,10 +147,9 @@ func TestList_CommitWithDescription(t *testing.T) {
 
 	path := filepath.Join(dir, "file.txt")
 	require.NoError(t, os.WriteFile(path, []byte("hello\n"), 0600))
-	_, _ = exec.Git(ctx, dir, "add", "file.txt")
+	_ = exec.Git(ctx, dir, "add", "file.txt")
 
-	r, err := exec.Git(ctx, dir, "commit", "-m", "subject line\n\nThis is the body.\nMore details here.")
-	require.NoError(t, err)
+	r := exec.Git(ctx, dir, "commit", "-m", "subject line\n\nThis is the body.\nMore details here.")
 	require.Equal(t, 0, r.ExitCode, r.Stderr)
 
 	commits, err := log.List(context.Background(), dir, 50, 0)

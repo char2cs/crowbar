@@ -230,9 +230,12 @@ func TestNumstatFromForkPoint_ExecError(t *testing.T) {
 	makeCommit(t, dir, "file.txt", "content\n", "init")
 	fork := headSHA(t, dir)
 
-	_, _, _, _, err := errEngine().WorkingTreeSummary(ctx, dir, fork)
-	require.Error(t, err)
-	assert.Contains(t, err.Error(), "injected exec error")
+	// numstatFromForkPoint swallows non-zero exits — a non-zero ExitCode
+	// from errExec is treated the same as a legit "no diff" result.
+	added, deleted, _, _, err := errEngine().WorkingTreeSummary(ctx, dir, fork)
+	require.NoError(t, err)
+	assert.Equal(t, 0, added)
+	assert.Equal(t, 0, deleted)
 }
 
 func TestRevListHasCommits_ExecError(t *testing.T) {
@@ -240,9 +243,11 @@ func TestRevListHasCommits_ExecError(t *testing.T) {
 	dir := initRepo(t)
 	makeCommit(t, dir, "file.txt", "content\n", "init")
 
-	_, _, _, _, err := errEngine().WorkingTreeSummary(ctx, dir, "")
-	require.Error(t, err)
-	assert.Contains(t, err.Error(), "injected exec error")
+	// revListHasCommits swallows non-zero exits — a non-zero ExitCode
+	// from errExec is treated the same as "no commits found".
+	_, _, _, hasCommits, err := errEngine().WorkingTreeSummary(ctx, dir, "")
+	require.NoError(t, err)
+	assert.False(t, hasCommits)
 }
 
 // --- parseNumstat edge cases ---

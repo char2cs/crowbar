@@ -72,7 +72,7 @@ func fetchBlob(
 	repoPath string,
 	sha string,
 ) (string, error) {
-	r, _ := exec.Git(ctx, repoPath, "show", sha)
+	r := exec.Git(ctx, repoPath, "show", sha)
 	if err := exec.RequireSuccess("diff: fetch blob", r); err != nil {
 		return "", err
 	}

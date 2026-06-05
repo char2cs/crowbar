@@ -3,7 +3,6 @@ package git
 
 import (
 	"context"
-	"errors"
 
 	gitexec "github.com/char2cs/crowbar/api/internal/engine/git/internal/exec"
 	"github.com/char2cs/crowbar/api/internal/domain"
@@ -49,12 +48,12 @@ func ExportedDetectInProgressOp(
 	return detectInProgressOp(repoPath)
 }
 
-func errExec(_ context.Context, _ string, _ ...string) (gitexec.Result, error) {
-	return gitexec.Result{}, errors.New("injected exec error")
+func errExec(_ context.Context, _ string, _ ...string) gitexec.Result {
+	return gitexec.Result{ExitCode: 1, Stderr: "injected exec error"}
 }
 
-func errExecStdin(_ context.Context, _ string, _ string, _ ...string) (gitexec.Result, error) {
-	return gitexec.Result{}, errors.New("injected exec stdin error")
+func errExecStdin(_ context.Context, _ string, _ string, _ ...string) gitexec.Result {
+	return gitexec.Result{ExitCode: 1, Stderr: "injected exec stdin error"}
 }
 
 // NewWithErrorExec returns an engine whose exec always returns an error.

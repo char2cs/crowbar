@@ -31,7 +31,7 @@ func List(
 	}
 
 	format := recordSep + formatFields
-	r, err := exec.Git(
+	r := exec.Git(
 		ctx,
 		repoPath,
 		"log",
@@ -39,10 +39,6 @@ func List(
 		fmt.Sprintf("--max-count=%d", limit),
 		"--format="+format,
 	)
-	if err != nil {
-		return nil, fmt.Errorf("log: list: %w", err)
-	}
-
 	if r.ExitCode != 0 {
 		if isEmptyRepo(r.Stderr) {
 			return nil, nil

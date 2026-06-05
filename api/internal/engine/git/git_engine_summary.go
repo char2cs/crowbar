@@ -39,10 +39,7 @@ func (e *engine) numstatFromForkPoint(
 	repoPath string,
 	forkPointSha string,
 ) (int, int, error) {
-	r, err := e.exec(ctx, repoPath, "diff", "--numstat", forkPointSha)
-	if err != nil {
-		return 0, 0, err
-	}
+	r := e.exec(ctx, repoPath, "diff", "--numstat", forkPointSha)
 	if r.ExitCode != 0 {
 		return 0, 0, nil
 	}
@@ -84,10 +81,7 @@ func (e *engine) revListHasCommits(
 	if forkPointSha == "" {
 		ref = "HEAD"
 	}
-	r, err := e.exec(ctx, repoPath, "rev-list", "--count", ref)
-	if err != nil {
-		return false, err
-	}
+	r := e.exec(ctx, repoPath, "rev-list", "--count", ref)
 	if r.ExitCode != 0 {
 		return false, nil
 	}

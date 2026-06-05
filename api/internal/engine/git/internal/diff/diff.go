@@ -20,7 +20,7 @@ func WorkingTree(
 	if staged {
 		args = append(args, "--cached")
 	}
-	r, _ := exec.Git(ctx, repoPath, args...)
+	r := exec.Git(ctx, repoPath, args...)
 	if err := exec.RequireSuccess("diff: working tree", r); err != nil {
 		return nil, err
 	}
@@ -57,7 +57,7 @@ func fetchCommitMeta(
 	repoPath string,
 	sha string,
 ) (domain.MultiFileDiff, error) {
-	r, _ := exec.Git(ctx, repoPath, "show", "--no-patch", "--format=%H%x00%s%x00%b%x00%an%x00%aI", sha)
+	r := exec.Git(ctx, repoPath, "show", "--no-patch", "--format=%H%x00%s%x00%b%x00%an%x00%aI", sha)
 	if err := exec.RequireSuccess("diff: commit meta", r); err != nil {
 		return domain.MultiFileDiff{}, err
 	}
@@ -94,13 +94,13 @@ func fetchCommitDiff(
 ) (string, error) {
 	isRoot := isRootCommit(ctx, repoPath, sha)
 	if isRoot {
-		r, _ := exec.Git(ctx, repoPath, "show", "--format=", sha)
+		r := exec.Git(ctx, repoPath, "show", "--format=", sha)
 		if err := exec.RequireSuccess("diff: commit diff (root)", r); err != nil {
 			return "", err
 		}
 		return r.Stdout, nil
 	}
-	r, _ := exec.Git(ctx, repoPath, "diff", "-M", sha+"^", sha)
+	r := exec.Git(ctx, repoPath, "diff", "-M", sha+"^", sha)
 	if err := exec.RequireSuccess("diff: commit diff", r); err != nil {
 		return "", err
 	}
@@ -112,7 +112,7 @@ func isRootCommit(
 	repoPath string,
 	sha string,
 ) bool {
-	r, _ := exec.Git(ctx, repoPath, "rev-parse", sha+"^")
+	r := exec.Git(ctx, repoPath, "rev-parse", sha+"^")
 	return r.ExitCode != 0
 }
 

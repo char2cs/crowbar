@@ -19,11 +19,10 @@ func initRepo(
 	t.Helper()
 	dir := t.TempDir()
 	ctx := context.Background()
-	r, err := exec.Git(ctx, dir, "init", "-b", "main")
-	require.NoError(t, err)
+	r := exec.Git(ctx, dir, "init", "-b", "main")
 	require.Equal(t, 0, r.ExitCode, r.Stderr)
-	_, _ = exec.Git(ctx, dir, "config", "user.email", "test@test.com")
-	_, _ = exec.Git(ctx, dir, "config", "user.name", "Test")
+	_ = exec.Git(ctx, dir, "config", "user.email", "test@test.com")
+	_ = exec.Git(ctx, dir, "config", "user.name", "Test")
 	return dir
 }
 
@@ -38,9 +37,8 @@ func makeCommit(
 	ctx := context.Background()
 	path := filepath.Join(dir, filename)
 	require.NoError(t, os.WriteFile(path, []byte(content), 0600))
-	_, _ = exec.Git(ctx, dir, "add", filename)
-	r, err := exec.Git(ctx, dir, "commit", "-m", message)
-	require.NoError(t, err)
+	_ = exec.Git(ctx, dir, "add", filename)
+	r := exec.Git(ctx, dir, "commit", "-m", message)
 	require.Equal(t, 0, r.ExitCode, r.Stderr)
 }
 
@@ -268,7 +266,7 @@ func TestPush_RequireSuccessError(
 	ctx := context.Background()
 	// Write a file but do NOT make any commit, then stage it.
 	require.NoError(t, os.WriteFile(filepath.Join(dir, "file.txt"), []byte("x"), 0600))
-	_, _ = exec.Git(ctx, dir, "add", "file.txt")
+	_ = exec.Git(ctx, dir, "add", "file.txt")
 
 	err := stash.Push(ctx, dir, "test")
 	require.Error(t, err)

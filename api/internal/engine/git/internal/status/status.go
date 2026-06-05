@@ -16,10 +16,7 @@ func Parse(
 	ctx context.Context,
 	repoPath string,
 ) (domain.GitStatus, error) {
-	r, err := exec.Git(ctx, repoPath, "status", "--porcelain=v2", "--branch")
-	if err != nil {
-		return domain.GitStatus{}, fmt.Errorf("status: parse: %w", err)
-	}
+	r := exec.Git(ctx, repoPath, "status", "--porcelain=v2", "--branch")
 	if r.ExitCode != 0 {
 		return domain.GitStatus{}, fmt.Errorf("status: parse: exit %d: %s", r.ExitCode, strings.TrimSpace(r.Stderr))
 	}

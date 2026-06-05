@@ -3,7 +3,6 @@ package conflicts
 
 import (
 	"context"
-	"errors"
 
 	"github.com/char2cs/crowbar/api/internal/engine/git/internal/exec"
 )
@@ -12,8 +11,8 @@ func errRunner(
 	_ context.Context,
 	_ string,
 	_ ...string,
-) (exec.Result, error) {
-	return exec.Result{}, errors.New("injected runner error")
+) exec.Result {
+	return exec.Result{ExitCode: 1, Stderr: "injected runner error"}
 }
 
 // SetErrorRunner replaces gitRunner with a failing stub for the duration of a test.

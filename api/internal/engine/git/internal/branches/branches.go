@@ -24,10 +24,7 @@ func List(
 	repoPath string,
 ) ([]domain.Branch, error) {
 	format := "%(refname:short)%0a%(HEAD)%0a%(upstream:track,nobracket)%0a%(committerdate:iso-strict)%0a%(refname)%0a" + recordSep
-	r, err := gitRunner(ctx, repoPath, "branch", "-a", "--format="+format)
-	if err != nil {
-		return nil, fmt.Errorf("branches: list: %w", err)
-	}
+	r := gitRunner(ctx, repoPath, "branch", "-a", "--format="+format)
 	if err := exec.RequireSuccess("branches: list", r); err != nil {
 		return nil, fmt.Errorf("branches: list: %w", err)
 	}
@@ -48,20 +45,14 @@ func Create(
 		if source != "" {
 			args = append(args, source)
 		}
-		r, err := gitRunner(ctx, repoPath, args...)
-		if err != nil {
-			return fmt.Errorf("branches: create: %w", err)
-		}
+		r := gitRunner(ctx, repoPath, args...)
 		return exec.RequireSuccess("branches: create", r)
 	}
 	args := []string{"branch", name}
 	if source != "" {
 		args = append(args, source)
 	}
-	r, err := gitRunner(ctx, repoPath, args...)
-	if err != nil {
-		return fmt.Errorf("branches: create: %w", err)
-	}
+	r := gitRunner(ctx, repoPath, args...)
 	return exec.RequireSuccess("branches: create", r)
 }
 
@@ -72,10 +63,7 @@ func Rename(
 	oldName string,
 	newName string,
 ) error {
-	r, err := gitRunner(ctx, repoPath, "branch", "-m", oldName, newName)
-	if err != nil {
-		return fmt.Errorf("branches: rename: %w", err)
-	}
+	r := gitRunner(ctx, repoPath, "branch", "-m", oldName, newName)
 	return exec.RequireSuccess("branches: rename", r)
 }
 
@@ -86,10 +74,7 @@ func Delete(
 	repoPath string,
 	name string,
 ) error {
-	r, err := gitRunner(ctx, repoPath, "branch", "-d", name)
-	if err != nil {
-		return fmt.Errorf("branches: delete: %w", err)
-	}
+	r := gitRunner(ctx, repoPath, "branch", "-d", name)
 	return exec.RequireSuccess("branches: delete", r)
 }
 
@@ -100,10 +85,7 @@ func ForceDelete(
 	repoPath string,
 	name string,
 ) error {
-	r, err := gitRunner(ctx, repoPath, "branch", "-D", name)
-	if err != nil {
-		return fmt.Errorf("branches: force-delete: %w", err)
-	}
+	r := gitRunner(ctx, repoPath, "branch", "-D", name)
 	return exec.RequireSuccess("branches: force-delete", r)
 }
 
@@ -113,10 +95,7 @@ func Switch(
 	repoPath string,
 	name string,
 ) error {
-	r, err := gitRunner(ctx, repoPath, "checkout", name)
-	if err != nil {
-		return fmt.Errorf("branches: switch: %w", err)
-	}
+	r := gitRunner(ctx, repoPath, "checkout", name)
 	return exec.RequireSuccess("branches: switch", r)
 }
 

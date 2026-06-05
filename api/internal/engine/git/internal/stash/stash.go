@@ -21,10 +21,7 @@ func List(
 	ctx context.Context,
 	repoPath string,
 ) ([]domain.Stash, error) {
-	r, err := gitRunner(ctx, repoPath, "stash", "list", "--format=%gd%x00%s%x00%ci%x00")
-	if err != nil {
-		return nil, fmt.Errorf("stash: list: %w", err)
-	}
+	r := gitRunner(ctx, repoPath, "stash", "list", "--format=%gd%x00%s%x00%ci%x00")
 	if err := exec.RequireSuccess("stash: list", r); err != nil {
 		return nil, fmt.Errorf("stash: list: %w", err)
 	}
@@ -61,10 +58,7 @@ func Push(
 	if message != "" {
 		args = append(args, "-m", message)
 	}
-	r, err := gitRunner(ctx, repoPath, args...)
-	if err != nil {
-		return fmt.Errorf("stash: push: %w", err)
-	}
+	r := gitRunner(ctx, repoPath, args...)
 	return exec.RequireSuccess("stash: push", r)
 }
 
@@ -74,10 +68,7 @@ func Apply(
 	repoPath string,
 	id string,
 ) error {
-	r, err := gitRunner(ctx, repoPath, "stash", "apply", id)
-	if err != nil {
-		return fmt.Errorf("stash: apply: %w", err)
-	}
+	r := gitRunner(ctx, repoPath, "stash", "apply", id)
 	return exec.RequireSuccess("stash: apply", r)
 }
 
@@ -87,10 +78,7 @@ func Pop(
 	repoPath string,
 	id string,
 ) error {
-	r, err := gitRunner(ctx, repoPath, "stash", "pop", id)
-	if err != nil {
-		return fmt.Errorf("stash: pop: %w", err)
-	}
+	r := gitRunner(ctx, repoPath, "stash", "pop", id)
 	return exec.RequireSuccess("stash: pop", r)
 }
 
@@ -100,10 +88,7 @@ func Drop(
 	repoPath string,
 	id string,
 ) error {
-	r, err := gitRunner(ctx, repoPath, "stash", "drop", id)
-	if err != nil {
-		return fmt.Errorf("stash: drop: %w", err)
-	}
+	r := gitRunner(ctx, repoPath, "stash", "drop", id)
 	return exec.RequireSuccess("stash: drop", r)
 }
 
@@ -137,10 +122,7 @@ func countChangedFiles(
 	repoPath string,
 	id string,
 ) (int, error) {
-	r, err := gitRunner(ctx, repoPath, "stash", "show", "--stat", id)
-	if err != nil {
-		return 0, fmt.Errorf("stash: count files: %w", err)
-	}
+	r := gitRunner(ctx, repoPath, "stash", "show", "--stat", id)
 	if err := exec.RequireSuccess("stash: count files", r); err != nil {
 		return 0, fmt.Errorf("stash: count files: %w", err)
 	}

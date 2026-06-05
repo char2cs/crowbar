@@ -33,7 +33,7 @@ func Git(
 	ctx context.Context,
 	dir string,
 	args ...string,
-) (Result, error) {
+) Result {
 	cmd := exec.CommandContext(ctx, "git", args...)
 	cmd.Dir = dir
 
@@ -43,12 +43,11 @@ func Git(
 
 	runErr := cmd.Run()
 
-	result := Result{
+	return Result{
 		Stdout:   stdout.String(),
 		Stderr:   stderr.String(),
 		ExitCode: exitCode(cmd, runErr),
 	}
-	return result, nil
 }
 
 // GitWithStdin runs a git command with data piped to stdin.
@@ -57,7 +56,7 @@ func GitWithStdin(
 	dir string,
 	stdin string,
 	args ...string,
-) (Result, error) {
+) Result {
 	cmd := exec.CommandContext(ctx, "git", args...)
 	cmd.Dir = dir
 	cmd.Stdin = strings.NewReader(stdin)
@@ -68,12 +67,11 @@ func GitWithStdin(
 
 	runErr := cmd.Run()
 
-	result := Result{
+	return Result{
 		Stdout:   stdout.String(),
 		Stderr:   stderr.String(),
 		ExitCode: exitCode(cmd, runErr),
 	}
-	return result, nil
 }
 
 // RequireSuccess returns an error if the result has a non-zero exit code.
