@@ -269,3 +269,23 @@ func TestClearPendingMerge_Validate_AcceptsExisting(t *testing.T) {
 	err := ClearPendingMerge{ID: "w1"}.Validate(&domain.Workspace{ID: "w1"})
 	assert.NoError(t, err)
 }
+
+func TestReparent_Validate_RejectsMissingForkPoint(t *testing.T) {
+	err := Reparent{ID: "w1", ParentID: "p"}.Validate(&domain.Workspace{ID: "w1"})
+	assert.True(t, errors.Is(err, asynxModels.ErrValidation))
+}
+
+func TestReparent_Validate_AcceptsValid(t *testing.T) {
+	err := Reparent{ID: "w1", ParentID: "p", ForkPointSha: "s"}.Validate(&domain.Workspace{ID: "w1"})
+	assert.NoError(t, err)
+}
+
+func TestUpdateForkPoint_Validate_AcceptsValid(t *testing.T) {
+	err := UpdateForkPoint{ID: "w1", ForkPointSha: "s"}.Validate(&domain.Workspace{ID: "w1"})
+	assert.NoError(t, err)
+}
+
+func TestSetPendingMerge_Validate_AcceptsValid(t *testing.T) {
+	err := SetPendingMerge{ID: "w1", TargetParentID: "p"}.Validate(&domain.Workspace{ID: "w1"})
+	assert.NoError(t, err)
+}
