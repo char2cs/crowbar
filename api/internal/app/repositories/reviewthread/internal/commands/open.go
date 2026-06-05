@@ -9,11 +9,19 @@ import (
 	"github.com/char2cs/crowbar/api/internal/domain"
 )
 
-// OpenReviewThread creates a ReviewThread aggregate in the open state.
+// OpenReviewThread creates a ReviewThread anchored to a diff line, with its first
+// message (09 §3).
 type OpenReviewThread struct {
-	ID   string
-	WsID string
-	Now  time.Time
+	ID         string
+	WsID       string
+	FilePath   string
+	LineNumber int
+	Side       domain.ReviewSide
+	MessageID  string
+	Author     string
+	IsAgent    bool
+	Body       string
+	Now        time.Time
 }
 
 func (c OpenReviewThread) AggregateID() string {
@@ -34,7 +42,7 @@ func (c OpenReviewThread) Validate(
 	if current != nil {
 		return fmt.Errorf("open review thread: %w", asynxModels.ErrValidation)
 	}
-	if c.ID == "" || c.WsID == "" {
+	if c.ID == "" || c.WsID == "" || c.MessageID == "" {
 		return fmt.Errorf("open review thread: missing ids: %w", asynxModels.ErrValidation)
 	}
 	return nil
@@ -44,9 +52,19 @@ func (c OpenReviewThread) EmitEvent(
 	_ *domain.ReviewThread,
 ) domain.ReviewThread {
 	return domain.ReviewThread{
-		ID:        c.ID,
-		WsID:      c.WsID,
-		Status:    domain.ReviewThreadStatusOpen,
+		ID:         c.ID,
+		WsID:       c.WsID,
+		FilePath:   c.FilePath,
+		LineNumber: c.LineNumber,
+		Side:       c.Side,
+		Status:     domain.ReviewThreadStatusOpen,
+		Messages: []domain.ReviewMessage{{
+			ID:        c.MessageID,
+			Author:    c.Author,
+			IsAgent:   c.IsAgent,
+			Body:      c.Body,
+			CreatedAt: c.Now,
+		}},
 		CreatedAt: c.Now,
 	}
 }
