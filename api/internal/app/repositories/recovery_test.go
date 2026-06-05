@@ -11,6 +11,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	eventsqlite "github.com/char2cs/crowbar/api/internal/adapter/eventstore/sqlite"
+	storesqlite "github.com/char2cs/crowbar/api/internal/adapter/store/sqlite"
 	"github.com/char2cs/crowbar/api/internal/app/repositories"
 	"github.com/char2cs/crowbar/api/internal/app/repositories/agentrun"
 	"github.com/char2cs/crowbar/api/internal/app/repositories/chat"
@@ -19,47 +20,142 @@ import (
 
 var errFake = errors.New("fake error")
 
-type fakeAgentRunRepo struct {
+type listErrAgentRunRepo struct {
 	agentrun.AgentRun
-	getResult domain.AgentRun
-	failErr   error
 }
 
-func (f *fakeAgentRunRepo) Get(
+func (listErrAgentRunRepo) ListRunning(
 	_ context.Context,
-	_ string,
-) (domain.AgentRun, error) {
-	return f.getResult, nil
+) ([]domain.AgentRun, error) {
+	return nil, errFake
 }
 
-func (f *fakeAgentRunRepo) Fail(
-	_ context.Context,
-	_ string,
-) (domain.AgentRun, error) {
-	return domain.AgentRun{}, f.failErr
-}
-
-type fakeChatRepo struct {
+type listErrChatRepo struct {
 	chat.Chat
-	getResult    domain.Chat
-	resetIdleErr error
 }
 
-func (f *fakeChatRepo) Get(
+func (listErrChatRepo) List(
+	_ context.Context,
+) ([]domain.Chat, error) {
+	return nil, errFake
+}
+
+type stubRunRepo struct {
+	agentrun.AgentRun
+	running   []domain.AgentRun
+	getErr    error
+	failErr   error
+	getStatus domain.AgentRunStatus
+}
+
+func (s stubRunRepo) ListRunning(
+	_ context.Context,
+) ([]domain.AgentRun, error) {
+	return s.running, nil
+}
+
+func (s stubRunRepo) Get(
+	_ context.Context,
+	_ string,
+) (domain.AgentRun, error) {
+	if s.getErr != nil {
+		return domain.AgentRun{}, s.getErr
+	}
+	status := s.getStatus
+	if status == "" {
+		status = domain.AgentRunStatusRunning
+	}
+	return domain.AgentRun{ID: "a1", Status: status}, nil
+}
+
+func (s stubRunRepo) Fail(
+	_ context.Context,
+	_ string,
+) (domain.AgentRun, error) {
+	return domain.AgentRun{}, s.failErr
+}
+
+type stubChatRepo struct {
+	chat.Chat
+	list      []domain.Chat
+	getErr    error
+	getStatus domain.ChatStatus
+}
+
+func (s stubChatRepo) List(
+	_ context.Context,
+) ([]domain.Chat, error) {
+	return s.list, nil
+}
+
+func (s stubChatRepo) Get(
 	_ context.Context,
 	_ string,
 ) (domain.Chat, error) {
-	return f.getResult, nil
+	return domain.Chat{Status: s.getStatus}, s.getErr
 }
 
-func (f *fakeChatRepo) ResetIdle(
+func (s stubChatRepo) ResetIdle(
 	_ context.Context,
 	_ string,
 ) (domain.Chat, error) {
-	return domain.Chat{}, f.resetIdleErr
+	return domain.Chat{}, errFake
 }
 
-func newAgentRunRepo(t *testing.T) agentrun.AgentRun {
+func TestReconcileChats_ResetIdleErrorLogsAndContinues(t *testing.T) {
+	chats := stubChatRepo{
+		list:      []domain.Chat{{ID: "c1"}},
+		getStatus: domain.ChatStatusAgentRunning,
+	}
+	assert.NotPanics(t, func() {
+		repositories.ReconcileChats(context.Background(), chats, newAgentRunRepo(t))
+	})
+}
+
+func TestRecoverAgentRuns_GetErrorLogsAndContinues(t *testing.T) {
+	runs := stubRunRepo{running: []domain.AgentRun{{ID: "a1"}}, getErr: errFake}
+	assert.NotPanics(t, func() {
+		repositories.RecoverAgentRuns(context.Background(), runs)
+	})
+}
+
+func TestRecoverAgentRuns_FailErrorLogsAndContinues(t *testing.T) {
+	runs := stubRunRepo{running: []domain.AgentRun{{ID: "a1"}}, failErr: errFake}
+	assert.NotPanics(t, func() {
+		repositories.RecoverAgentRuns(context.Background(), runs)
+	})
+}
+
+func TestReconcileChats_GetErrorLogsAndContinues(t *testing.T) {
+	chats := stubChatRepo{list: []domain.Chat{{ID: "c1"}}, getErr: errFake}
+	assert.NotPanics(t, func() {
+		repositories.ReconcileChats(context.Background(), chats, newAgentRunRepo(t))
+	})
+}
+
+func TestRecoverAgentRuns_NonRunningEnumeratedIsSkipped(t *testing.T) {
+	runs := stubRunRepo{
+		running:   []domain.AgentRun{{ID: "a1"}},
+		getStatus: domain.AgentRunStatusDone,
+	}
+	assert.NotPanics(t, func() {
+		repositories.RecoverAgentRuns(context.Background(), runs)
+	})
+}
+
+func TestReconcileChats_NonAgentRunningEnumeratedIsSkipped(t *testing.T) {
+	chats := stubChatRepo{
+		list:      []domain.Chat{{ID: "c1"}},
+		getStatus: domain.ChatStatusIdle,
+	}
+	assert.NotPanics(t, func() {
+		repositories.ReconcileChats(context.Background(), chats, newAgentRunRepo(t))
+	})
+}
+
+func newAgentRunRepo(
+	t *testing.T,
+) agentrun.AgentRun {
 	t.Helper()
 	es, err := eventsqlite.NewEventStore(":memory:")
 	require.NoError(t, err)
@@ -67,10 +163,16 @@ func newAgentRunRepo(t *testing.T) agentrun.AgentRun {
 		WithShardingOpts(asynx.ShardingOpts{Shards: 8, QueueDepth: 1000}).Build()
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = ax.Shutdown(context.Background()) })
-	return agentrun.New(ax)
+	db, err := storesqlite.OpenDB(":memory:")
+	require.NoError(t, err)
+	runs, err := agentrun.New(ax, db, func(domain.AgentRun) {})
+	require.NoError(t, err)
+	return runs
 }
 
-func newChatRepo(t *testing.T) chat.Chat {
+func newChatRepo(
+	t *testing.T,
+) chat.Chat {
 	t.Helper()
 	es, err := eventsqlite.NewEventStore(":memory:")
 	require.NoError(t, err)
@@ -78,7 +180,22 @@ func newChatRepo(t *testing.T) chat.Chat {
 		WithShardingOpts(asynx.ShardingOpts{Shards: 8, QueueDepth: 1000}).Build()
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = ax.Shutdown(context.Background()) })
-	return chat.New(ax)
+	db, err := storesqlite.OpenDB(":memory:")
+	require.NoError(t, err)
+	chats, err := chat.New(ax, db, func(domain.Chat) {})
+	require.NoError(t, err)
+	return chats
+}
+
+func eventuallyRunningEmpty(
+	t *testing.T,
+	runs agentrun.AgentRun,
+) {
+	t.Helper()
+	require.Eventually(t, func() bool {
+		running, err := runs.ListRunning(context.Background())
+		return err == nil && len(running) == 0
+	}, time.Second, 5*time.Millisecond)
 }
 
 func TestRecoverAgentRuns_RunningBecomesError(t *testing.T) {
@@ -88,36 +205,52 @@ func TestRecoverAgentRuns_RunningBecomesError(t *testing.T) {
 	require.NoError(t, err)
 	_, err = runs.MarkRunning(ctx, "a1")
 	require.NoError(t, err)
+	require.Eventually(t, func() bool {
+		running, listErr := runs.ListRunning(ctx)
+		return listErr == nil && len(running) == 1
+	}, time.Second, 5*time.Millisecond)
 
-	repositories.RecoverAgentRuns(ctx, []string{"a1"}, runs)
+	repositories.RecoverAgentRuns(ctx, runs)
 
 	got, err := runs.Get(ctx, "a1")
 	require.NoError(t, err)
 	assert.Equal(t, domain.AgentRunStatusError, got.Status)
+	eventuallyRunningEmpty(t, runs)
 }
 
-func TestRecoverAgentRuns_NonRunningUntouched(t *testing.T) {
+func TestRecoverAgentRuns_NoRunningIsNoOp(t *testing.T) {
 	ctx := context.Background()
 	runs := newAgentRunRepo(t)
 	_, err := runs.Create(ctx, "a1", "w1", "c1", time.Unix(1, 0))
 	require.NoError(t, err)
 
-	repositories.RecoverAgentRuns(ctx, []string{"a1"}, runs)
+	repositories.RecoverAgentRuns(ctx, runs)
 
 	got, err := runs.Get(ctx, "a1")
 	require.NoError(t, err)
 	assert.Equal(t, domain.AgentRunStatusPending, got.Status)
 }
 
+func TestRecoverAgentRuns_ListErrorLogsAndReturns(t *testing.T) {
+	assert.NotPanics(t, func() {
+		repositories.RecoverAgentRuns(context.Background(), listErrAgentRunRepo{})
+	})
+}
+
 func TestReconcileChats_AgentRunningWithNoLiveRun_ResetToIdle(t *testing.T) {
 	ctx := context.Background()
 	chats := newChatRepo(t)
-	_, err := chats.Create(ctx, "c1", "w1", time.Unix(1, 0))
+	runs := newAgentRunRepo(t)
+	_, err := chats.Create(ctx, "c1", "w1", "t", time.Unix(1, 0))
 	require.NoError(t, err)
 	_, err = chats.SetAgentRunning(ctx, "c1")
 	require.NoError(t, err)
+	require.Eventually(t, func() bool {
+		got, getErr := chats.Get(ctx, "c1")
+		return getErr == nil && got.Status == domain.ChatStatusAgentRunning
+	}, time.Second, 5*time.Millisecond)
 
-	repositories.ReconcileChats(ctx, []string{"c1"}, func(string) bool { return false }, chats)
+	repositories.ReconcileChats(ctx, chats, runs)
 
 	got, err := chats.Get(ctx, "c1")
 	require.NoError(t, err)
@@ -127,12 +260,21 @@ func TestReconcileChats_AgentRunningWithNoLiveRun_ResetToIdle(t *testing.T) {
 func TestReconcileChats_LiveRunKeepsAgentRunning(t *testing.T) {
 	ctx := context.Background()
 	chats := newChatRepo(t)
-	_, err := chats.Create(ctx, "c1", "w1", time.Unix(1, 0))
+	runs := newAgentRunRepo(t)
+	_, err := chats.Create(ctx, "c1", "w1", "t", time.Unix(1, 0))
 	require.NoError(t, err)
 	_, err = chats.SetAgentRunning(ctx, "c1")
 	require.NoError(t, err)
+	_, err = runs.Create(ctx, "a1", "w1", "c1", time.Unix(1, 0))
+	require.NoError(t, err)
+	_, err = runs.MarkRunning(ctx, "a1")
+	require.NoError(t, err)
+	require.Eventually(t, func() bool {
+		running, listErr := runs.ListRunning(ctx)
+		return listErr == nil && len(running) == 1
+	}, time.Second, 5*time.Millisecond)
 
-	repositories.ReconcileChats(ctx, []string{"c1"}, func(string) bool { return true }, chats)
+	repositories.ReconcileChats(ctx, chats, runs)
 
 	got, err := chats.Get(ctx, "c1")
 	require.NoError(t, err)
@@ -142,53 +284,45 @@ func TestReconcileChats_LiveRunKeepsAgentRunning(t *testing.T) {
 func TestReconcileChats_SecondPassIsIdempotent(t *testing.T) {
 	ctx := context.Background()
 	chats := newChatRepo(t)
-	_, err := chats.Create(ctx, "c1", "w1", time.Unix(1, 0))
+	runs := newAgentRunRepo(t)
+	_, err := chats.Create(ctx, "c1", "w1", "t", time.Unix(1, 0))
 	require.NoError(t, err)
 	_, err = chats.SetAgentRunning(ctx, "c1")
 	require.NoError(t, err)
+	require.Eventually(t, func() bool {
+		got, getErr := chats.Get(ctx, "c1")
+		return getErr == nil && got.Status == domain.ChatStatusAgentRunning
+	}, time.Second, 5*time.Millisecond)
 
-	repositories.ReconcileChats(ctx, []string{"c1"}, func(string) bool { return false }, chats)
-	repositories.ReconcileChats(ctx, []string{"c1"}, func(string) bool { return false }, chats)
+	repositories.ReconcileChats(ctx, chats, runs)
+	repositories.ReconcileChats(ctx, chats, runs)
 
 	got, err := chats.Get(ctx, "c1")
 	require.NoError(t, err)
 	assert.Equal(t, domain.ChatStatusIdle, got.Status)
 }
 
-func TestRecoverAgentRuns_GetErrorLogsAndContinues(t *testing.T) {
-	ctx := context.Background()
-	runs := newAgentRunRepo(t)
+func TestReconcileChats_ListChatsErrorLogsAndReturns(t *testing.T) {
 	assert.NotPanics(t, func() {
-		repositories.RecoverAgentRuns(ctx, []string{"does-not-exist"}, runs)
+		repositories.ReconcileChats(context.Background(), listErrChatRepo{}, newAgentRunRepo(t))
 	})
 }
 
-func TestRecoverAgentRuns_FailErrorLogsAndContinues(t *testing.T) {
-	ctx := context.Background()
-	fake := &fakeAgentRunRepo{
-		getResult: domain.AgentRun{Status: domain.AgentRunStatusRunning},
-		failErr:   errFake,
-	}
-	assert.NotPanics(t, func() {
-		repositories.RecoverAgentRuns(ctx, []string{"a1"}, fake)
-	})
-}
-
-func TestReconcileChats_GetErrorLogsAndContinues(t *testing.T) {
+func TestReconcileChats_LiveSetListErrorStillReconciles(t *testing.T) {
 	ctx := context.Background()
 	chats := newChatRepo(t)
-	assert.NotPanics(t, func() {
-		repositories.ReconcileChats(ctx, []string{"does-not-exist"}, func(string) bool { return false }, chats)
-	})
-}
+	_, err := chats.Create(ctx, "c1", "w1", "t", time.Unix(1, 0))
+	require.NoError(t, err)
+	_, err = chats.SetAgentRunning(ctx, "c1")
+	require.NoError(t, err)
+	require.Eventually(t, func() bool {
+		got, getErr := chats.Get(ctx, "c1")
+		return getErr == nil && got.Status == domain.ChatStatusAgentRunning
+	}, time.Second, 5*time.Millisecond)
 
-func TestReconcileChats_ResetIdleErrorLogsAndContinues(t *testing.T) {
-	ctx := context.Background()
-	fake := &fakeChatRepo{
-		getResult:    domain.Chat{Status: domain.ChatStatusAgentRunning},
-		resetIdleErr: errFake,
-	}
-	assert.NotPanics(t, func() {
-		repositories.ReconcileChats(ctx, []string{"c1"}, func(string) bool { return false }, fake)
-	})
+	repositories.ReconcileChats(ctx, chats, listErrAgentRunRepo{})
+
+	got, err := chats.Get(ctx, "c1")
+	require.NoError(t, err)
+	assert.Equal(t, domain.ChatStatusIdle, got.Status)
 }

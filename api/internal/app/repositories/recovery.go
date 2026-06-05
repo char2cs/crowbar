@@ -9,15 +9,19 @@ import (
 	"github.com/char2cs/crowbar/api/internal/domain"
 )
 
-// RecoverAgentRuns drives any candidate AgentRun still in running to error. Uses
-// SendWait so all recovery events drain before the caller proceeds (00 §6.2).
+// RecoverAgentRuns drives every read-model AgentRun still in running to error,
+// using SendWait so recovery events drain before the caller proceeds (00 §6.2).
 func RecoverAgentRuns(
 	ctx context.Context,
-	candidateIDs []string,
 	runs agentrun.AgentRun,
 ) {
-	for _, id := range candidateIDs {
-		recoverOneRun(ctx, id, runs)
+	running, err := runs.ListRunning(ctx)
+	if err != nil {
+		slog.WarnContext(ctx, "crash recovery: list running runs", "err", err)
+		return
+	}
+	for _, run := range running {
+		recoverOneRun(ctx, run.ID, runs)
 	}
 }
 
@@ -39,18 +43,38 @@ func recoverOneRun(
 	}
 }
 
-// ReconcileChats resets any candidate Chat stuck in agent-running with no live run
-// back to idle. ResetIdle is idempotent, so this is safe to run after AgentRun
-// recovery regardless of which pass clears a given chat first (00 §6.2).
+// ReconcileChats resets every chat stuck in agent-running with no live run back to
+// idle. ResetIdle is idempotent, so it is safe after AgentRun recovery (00 §6.2).
 func ReconcileChats(
 	ctx context.Context,
-	candidateIDs []string,
-	hasLiveRun func(chatID string) bool,
 	chats chat.Chat,
+	runs agentrun.AgentRun,
 ) {
-	for _, id := range candidateIDs {
-		reconcileOneChat(ctx, id, hasLiveRun, chats)
+	stuck, err := chats.List(ctx)
+	if err != nil {
+		slog.WarnContext(ctx, "crash recovery: list chats", "err", err)
+		return
 	}
+	live := liveChatSet(ctx, runs)
+	for _, c := range stuck {
+		reconcileOneChat(ctx, c.ID, func(id string) bool { return live[id] }, chats)
+	}
+}
+
+func liveChatSet(
+	ctx context.Context,
+	runs agentrun.AgentRun,
+) map[string]bool {
+	live := map[string]bool{}
+	running, err := runs.ListRunning(ctx)
+	if err != nil {
+		slog.WarnContext(ctx, "crash recovery: live set", "err", err)
+		return live
+	}
+	for _, run := range running {
+		live[run.ChatID] = true
+	}
+	return live
 }
 
 func reconcileOneChat(
