@@ -9,6 +9,7 @@ import (
 	"github.com/char2cs/crowbar/api/internal/api/middleware"
 	v0 "github.com/char2cs/crowbar/api/internal/api/v0"
 	"github.com/char2cs/crowbar/api/internal/app"
+	"github.com/char2cs/crowbar/api/internal/engine"
 )
 
 // Container owns the configured gin engine.
@@ -20,6 +21,7 @@ type Container struct {
 // registered as a hub subscriber), and optional embedded static assets.
 func New(
 	appContainer *app.Container,
+	engContainer *engine.Container,
 	staticFS fs.FS,
 ) (*Container, error) {
 	gin.SetMode(gin.ReleaseMode)
@@ -28,7 +30,7 @@ func New(
 	router.UnescapePathValues = true
 	router.Use(middleware.Logger(), middleware.Recovery())
 
-	v0Container := v0.New(appContainer)
+	v0Container := v0.New(appContainer, engContainer)
 	v0Container.Register(router.Group("/v0"))
 
 	if staticFS != nil {

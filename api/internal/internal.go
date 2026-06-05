@@ -71,7 +71,7 @@ func New(
 		return nil, fmt.Errorf("internal: app: %w", err)
 	}
 
-	apiContainer, err := crowbarapi.New(appContainer, staticFS)
+	apiContainer, err := crowbarapi.New(appContainer, engines, staticFS)
 	if err != nil {
 		return nil, fmt.Errorf("internal: api: %w", err)
 	}

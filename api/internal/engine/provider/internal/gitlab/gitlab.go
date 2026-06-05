@@ -1,0 +1,241 @@
+// Package gitlab implements the GitProvider interface via the glab CLI.
+package gitlab
+
+import (
+	"bytes"
+	"context"
+	"encoding/json"
+	"fmt"
+	"os/exec"
+	"strings"
+
+	providertypes "github.com/char2cs/crowbar/api/internal/engine/provider/internal/types"
+)
+
+// ExecFn matches exec.CommandContext so callers can inject a test stub.
+type ExecFn func(ctx context.Context, name string, args ...string) *exec.Cmd
+
+// GitProvider is the read-only interface this package exposes.
+type GitProvider interface {
+	ProtectedBranches(
+		ctx context.Context,
+		repoPath string,
+	) ([]string, error)
+
+	PullRequestForBranch(
+		ctx context.Context,
+		repoPath string,
+		branch string,
+	) (*providertypes.PRInfo, error)
+}
+
+type glabProvider struct {
+	execFn ExecFn
+}
+
+// New returns a GitProvider backed by the glab CLI.
+func New() GitProvider {
+	return &glabProvider{execFn: exec.CommandContext}
+}
+
+// NewWithExec returns a GitProvider that uses execFn for subprocess invocation.
+// Intended for tests.
+func NewWithExec(
+	execFn ExecFn,
+) GitProvider {
+	return &glabProvider{execFn: execFn}
+}
+
+// ProtectedBranches returns the list of protected branch names for the repo.
+// It calls the GitLab API via glab and parses the JSON output.
+func (g *glabProvider) ProtectedBranches(
+	ctx context.Context,
+	repoPath string,
+) ([]string, error) {
+	out, err := g.runGlab(
+		ctx,
+		repoPath,
+		"api", "projects/:id/protected_branches",
+		"--jq", ".[].name",
+	)
+	if err != nil {
+		return nil, fmt.Errorf("gitlab: protected-branches: %w", err)
+	}
+
+	return parseLines(out), nil
+}
+
+// mrJSON is the structure returned by glab mr list --output json.
+type mrJSON struct {
+	IID          int    `json:"iid"`
+	State        string `json:"state"`
+	WebURL       string `json:"web_url"`
+	Title        string `json:"title"`
+	TargetBranch string `json:"target_branch"`
+}
+
+// PullRequestForBranch returns the most relevant MR for branch, or nil if none.
+// Returns nil without calling the provider if branch has no upstream remote.
+func (g *glabProvider) PullRequestForBranch(
+	ctx context.Context,
+	repoPath string,
+	branch string,
+) (*providertypes.PRInfo, error) {
+	hasUpstream, err := g.branchHasUpstream(ctx, repoPath, branch)
+	if err != nil {
+		return nil, fmt.Errorf("gitlab: mr-for-branch: upstream check: %w", err)
+	}
+	if !hasUpstream {
+		return nil, nil
+	}
+
+	out, err := g.runGlab(
+		ctx,
+		repoPath,
+		"mr", "list",
+		"--source-branch", branch,
+		"--state", "all",
+		"--output", "json",
+	)
+	if err != nil {
+		return nil, fmt.Errorf("gitlab: list-mrs: %w", err)
+	}
+
+	mrs, err := parseMRList([]byte(out))
+	if err != nil {
+		return nil, fmt.Errorf("gitlab: list-mrs: parse: %w", err)
+	}
+
+	best := selectBestMR(mrs)
+	if best == nil {
+		return nil, nil
+	}
+
+	return &providertypes.PRInfo{
+		Number:       best.IID,
+		Status:       mapState(best.State),
+		URL:          best.WebURL,
+		Title:        best.Title,
+		TargetBranch: best.TargetBranch,
+	}, nil
+}
+
+// parseMRList parses the JSON array returned by glab mr list.
+func parseMRList(
+	data []byte,
+) ([]mrJSON, error) {
+	var mrs []mrJSON
+	if err := json.Unmarshal(data, &mrs); err != nil {
+		return nil, fmt.Errorf("unmarshal: %w", err)
+	}
+	return mrs, nil
+}
+
+// selectBestMR picks the most relevant MR from the list.
+// Open MRs take priority; within the same state, higher IID wins.
+func selectBestMR(
+	mrs []mrJSON,
+) *mrJSON {
+	if len(mrs) == 0 {
+		return nil
+	}
+
+	var best *mrJSON
+	for i := range mrs {
+		mr := &mrs[i]
+		if best == nil {
+			best = mr
+			continue
+		}
+		best = betterMR(best, mr)
+	}
+	return best
+}
+
+// betterMR returns the more relevant of two MRs.
+func betterMR(
+	a *mrJSON,
+	b *mrJSON,
+) *mrJSON {
+	aOpen := strings.EqualFold(a.State, "opened")
+	bOpen := strings.EqualFold(b.State, "opened")
+
+	if aOpen && !bOpen {
+		return a
+	}
+	if bOpen && !aOpen {
+		return b
+	}
+	if b.IID > a.IID {
+		return b
+	}
+	return a
+}
+
+// mapState maps glab CLI state strings to canonical status values.
+func mapState(
+	state string,
+) string {
+	switch strings.ToLower(state) {
+	case "opened":
+		return "open"
+	case "merged":
+		return "merged"
+	default:
+		return "closed"
+	}
+}
+
+// branchHasUpstream checks whether branch exists on the remote.
+func (g *glabProvider) branchHasUpstream(
+	ctx context.Context,
+	repoPath string,
+	branch string,
+) (bool, error) {
+	ref := "refs/heads/" + branch
+	cmd := g.execFn(ctx, "git", "ls-remote", "origin", ref)
+	cmd.Dir = repoPath
+
+	var out, errBuf bytes.Buffer
+	cmd.Stdout = &out
+	cmd.Stderr = &errBuf
+
+	if err := cmd.Run(); err != nil {
+		return false, fmt.Errorf("ls-remote: stderr=%q: %w", strings.TrimSpace(errBuf.String()), err)
+	}
+	return strings.TrimSpace(out.String()) != "", nil
+}
+
+// runGlab executes a glab command in repoPath and returns stdout.
+func (g *glabProvider) runGlab(
+	ctx context.Context,
+	repoPath string,
+	args ...string,
+) (string, error) {
+	cmd := g.execFn(ctx, "glab", args...)
+	cmd.Dir = repoPath
+
+	var out, errBuf bytes.Buffer
+	cmd.Stdout = &out
+	cmd.Stderr = &errBuf
+
+	if err := cmd.Run(); err != nil {
+		return "", fmt.Errorf("glab %s: stderr=%q: %w", args[0], strings.TrimSpace(errBuf.String()), err)
+	}
+	return out.String(), nil
+}
+
+// parseLines splits newline-delimited output into non-empty strings.
+func parseLines(
+	s string,
+) []string {
+	raw := strings.Split(strings.TrimSpace(s), "\n")
+	out := make([]string, 0, len(raw))
+	for _, line := range raw {
+		line = strings.TrimSpace(line)
+		if line != "" {
+			out = append(out, line)
+		}
+	}
+	return out
+}
