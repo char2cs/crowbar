@@ -9,41 +9,26 @@ import (
 	"os/exec"
 	"strings"
 
-	"github.com/char2cs/crowbar/api/internal/engine/provider/internal/remote"
-	providertypes "github.com/char2cs/crowbar/api/internal/engine/provider/internal/types"
+	providertypes "github.com/char2cs/crowbar/api/internal/engine/provider/types"
 )
 
-// ExecFn is an alias for remote.ExecCommandFn so callers can inject a test stub.
-type ExecFn = remote.ExecCommandFn
-
-// GitProvider is the read-only interface this package exposes.
-type GitProvider interface {
-	ProtectedBranches(
-		ctx context.Context,
-		repoPath string,
-	) ([]string, error)
-
-	PullRequestForBranch(
-		ctx context.Context,
-		repoPath string,
-		branch string,
-	) (*providertypes.PRInfo, error)
-}
+// ExecFn matches exec.CommandContext so callers can inject a test stub.
+type ExecFn func(ctx context.Context, name string, args ...string) *exec.Cmd
 
 type ghProvider struct {
 	execFn ExecFn
 }
 
-// New returns a GitProvider backed by the gh CLI.
-func New() GitProvider {
+// New returns a ghProvider backed by the gh CLI.
+func New() *ghProvider {
 	return &ghProvider{execFn: exec.CommandContext}
 }
 
-// NewWithExec returns a GitProvider that uses execFn for subprocess invocation.
+// NewWithExec returns a ghProvider that uses execFn for subprocess invocation.
 // Intended for tests.
 func NewWithExec(
 	execFn ExecFn,
-) GitProvider {
+) *ghProvider {
 	return &ghProvider{execFn: execFn}
 }
 
@@ -53,12 +38,12 @@ func (g *ghProvider) ProtectedBranches(
 	ctx context.Context,
 	repoPath string,
 ) ([]string, error) {
-	slug, err := remote.Slug(ctx, repoPath, g.execFn)
+	s, err := slug(ctx, repoPath, g.execFn)
 	if err != nil {
 		return nil, fmt.Errorf("github: protected-branches: %w", err)
 	}
 
-	path := fmt.Sprintf("repos/%s/branches", slug)
+	path := fmt.Sprintf("repos/%s/branches", s)
 	out, err := g.runGH(
 		ctx,
 		repoPath,

@@ -6,45 +6,44 @@ import (
 	"os"
 	"strings"
 
-	"github.com/char2cs/crowbar/api/internal/engine/provider/internal/detect"
-	"github.com/char2cs/crowbar/api/internal/engine/provider/internal/github"
-	"github.com/char2cs/crowbar/api/internal/engine/provider/internal/gitlab"
-	"github.com/char2cs/crowbar/api/internal/engine/provider/internal/poll"
-	providertypes "github.com/char2cs/crowbar/api/internal/engine/provider/internal/types"
+	"github.com/char2cs/crowbar/api/internal/engine/provider/poll"
+	"github.com/char2cs/crowbar/api/internal/engine/provider/providers/github"
+	"github.com/char2cs/crowbar/api/internal/engine/provider/providers/gitlab"
+	providertypes "github.com/char2cs/crowbar/api/internal/engine/provider/types"
 )
 
 type providerEngine struct {
-	detectFn    func(ctx context.Context, repoPath string) (detect.Result, error)
+	detectFn    func(ctx context.Context, repoPath string) (DetectResult, error)
 	providerFac func(kind string) GitProvider // injectable for tests; nil = production default
 }
 
 func newEngine() *providerEngine {
 	return &providerEngine{
-		detectFn: detect.Detect,
+		detectFn: Detect,
 	}
 }
 
 var _ Engine = (*providerEngine)(nil)
 
 // ProtectedBranches returns protected branch names for repoPath.
-// Falls back to detect.DefaultProtectedBranches when the CLI is unavailable.
+// Falls back to DefaultProtectedBranches when the CLI is unavailable.
 func (e *providerEngine) ProtectedBranches(
 	ctx context.Context,
 	repoPath string,
 ) ([]string, error) {
 	res, err := e.detectFn(ctx, repoPath)
 	if err != nil || !res.Enabled {
-		return detect.FallbackProtectedBranches(), nil
+		return FallbackProtectedBranches(), nil
 	}
 
 	prov := e.providerFor(res.Kind)
 	if prov == nil {
-		return detect.FallbackProtectedBranches(), nil
+		return FallbackProtectedBranches(), nil
 	}
 
 	branches, err := prov.ProtectedBranches(ctx, repoPath)
 	if err != nil {
-		return detect.FallbackProtectedBranches(), nil
+		return FallbackProtectedBranches(), nil
 	}
 	return branches, nil
 }

@@ -1,4 +1,4 @@
-package detect
+package provider
 
 import (
 	"context"
@@ -11,13 +11,12 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// TestHelperProcess is the subprocess entry point used by fakeCmd.
+// TestHelperProcess is the subprocess entry point used by detectFakeCmd.
 func TestHelperProcess(t *testing.T) {
 	if os.Getenv("GO_WANT_HELPER_PROCESS") != "1" {
 		return
 	}
 	args := os.Args
-	// Second-to-last arg is the output to print; last arg is exit code.
 	fmt.Fprint(os.Stdout, args[len(args)-2])
 	if args[len(args)-1] != "0" {
 		os.Exit(1)
@@ -25,10 +24,8 @@ func TestHelperProcess(t *testing.T) {
 	os.Exit(0)
 }
 
-// fakeCmd creates a cmd that prints output and exits with code.
-// The returned cmd will have Dir set by the caller (production code) — that
-// dir must exist. Use t.TempDir() as the repoPath in tests.
-func fakeCmd(
+// detectFakeCmd creates a cmd that prints output and exits with code.
+func detectFakeCmd(
 	output string,
 	exitCode int,
 ) func(ctx context.Context, name string, args ...string) *exec.Cmd {
@@ -53,9 +50,8 @@ type detectFakeResponse struct {
 	code   int
 }
 
-// sequentialFake sequences fakeCmd responses, one per call.
-// It panics if called more times than there are responses.
-func sequentialFake(
+// detectSequentialFake sequences detectFakeCmd responses, one per call.
+func detectSequentialFake(
 	responses []detectFakeResponse,
 ) func(ctx context.Context, name string, args ...string) *exec.Cmd {
 	i := 0
@@ -65,17 +61,17 @@ func sequentialFake(
 		args ...string,
 	) *exec.Cmd {
 		if i >= len(responses) {
-			panic(fmt.Sprintf("sequentialFake: unexpected extra call %d", i+1))
+			panic(fmt.Sprintf("detectSequentialFake: unexpected extra call %d", i+1))
 		}
 		resp := responses[i]
 		i++
-		return fakeCmd(resp.output, resp.code)(ctx, name, args...)
+		return detectFakeCmd(resp.output, resp.code)(ctx, name, args...)
 	}
 }
 
 func TestDetect_GitHub(t *testing.T) {
 	dir := t.TempDir()
-	execFn := sequentialFake([]detectFakeResponse{
+	execFn := detectSequentialFake([]detectFakeResponse{
 		{output: "https://github.com/owner/repo.git", code: 0},
 		{output: "", code: 0},
 	})
@@ -88,7 +84,7 @@ func TestDetect_GitHub(t *testing.T) {
 
 func TestDetect_GitLab(t *testing.T) {
 	dir := t.TempDir()
-	execFn := sequentialFake([]detectFakeResponse{
+	execFn := detectSequentialFake([]detectFakeResponse{
 		{output: "https://gitlab.com/owner/repo.git", code: 0},
 		{output: "", code: 0},
 	})
@@ -101,7 +97,7 @@ func TestDetect_GitLab(t *testing.T) {
 
 func TestDetect_Unknown(t *testing.T) {
 	dir := t.TempDir()
-	execFn := fakeCmd("https://bitbucket.org/owner/repo.git", 0)
+	execFn := detectFakeCmd("https://bitbucket.org/owner/repo.git", 0)
 
 	res, err := DetectWithExec(context.Background(), dir, execFn)
 	require.NoError(t, err)
@@ -111,7 +107,7 @@ func TestDetect_Unknown(t *testing.T) {
 
 func TestDetect_GitError(t *testing.T) {
 	dir := t.TempDir()
-	execFn := fakeCmd("", 1)
+	execFn := detectFakeCmd("", 1)
 
 	res, err := DetectWithExec(context.Background(), dir, execFn)
 	require.NoError(t, err) // graceful degradation
@@ -121,7 +117,7 @@ func TestDetect_GitError(t *testing.T) {
 
 func TestDetect_CLINotAuthed(t *testing.T) {
 	dir := t.TempDir()
-	execFn := sequentialFake([]detectFakeResponse{
+	execFn := detectSequentialFake([]detectFakeResponse{
 		{output: "https://github.com/owner/repo.git", code: 0},
 		{output: "not logged in", code: 1},
 	})
@@ -152,9 +148,6 @@ func TestKindFromURL(t *testing.T) {
 }
 
 func TestDetect_DegradedInNonGitDir(t *testing.T) {
-	// Detect() is the public wrapper around DetectWithExec.
-	// In a directory with no git remote the real git command fails,
-	// so Detect degrades gracefully to kind="none"/enabled=false.
 	res, err := Detect(context.Background(), t.TempDir())
 	require.NoError(t, err)
 	assert.Equal(t, "none", res.Kind)

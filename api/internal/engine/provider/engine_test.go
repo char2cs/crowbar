@@ -9,8 +9,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/char2cs/crowbar/api/internal/engine/provider/internal/detect"
-	"github.com/char2cs/crowbar/api/internal/engine/provider/internal/poll"
+	"github.com/char2cs/crowbar/api/internal/engine/provider/poll"
 )
 
 func makeEngine(
@@ -22,8 +21,8 @@ func makeEngine(
 		detectFn: func(
 			_ context.Context,
 			_ string,
-		) (detect.Result, error) {
-			return detect.Result{Kind: kind, Enabled: enabled}, detectErr
+		) (DetectResult, error) {
+			return DetectResult{Kind: kind, Enabled: enabled}, detectErr
 		},
 	}
 }
@@ -38,8 +37,8 @@ func makeEngineWithProvider(
 		detectFn: func(
 			_ context.Context,
 			_ string,
-		) (detect.Result, error) {
-			return detect.Result{Kind: kind, Enabled: enabled}, nil
+		) (DetectResult, error) {
+			return DetectResult{Kind: kind, Enabled: enabled}, nil
 		},
 		providerFac: func(_ string) GitProvider {
 			return mp

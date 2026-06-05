@@ -1,66 +1,30 @@
-package remote
+package github
 
 import (
 	"context"
-	"fmt"
-	"os"
-	"os/exec"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
 
-// TestHelperProcess is the subprocess used by fakeExecFn.
-func TestHelperProcess(t *testing.T) {
-	if os.Getenv("GO_WANT_HELPER_PROCESS") != "1" {
-		return
-	}
-	args := os.Args
-	fmt.Fprint(os.Stdout, args[len(args)-2])
-	if args[len(args)-1] != "0" {
-		os.Exit(1)
-	}
-	os.Exit(0)
-}
-
-func fakeExecFn(
-	output string,
-	exitCode int,
-) ExecCommandFn {
-	return func(
-		ctx context.Context,
-		name string,
-		args ...string,
-	) *exec.Cmd {
-		exitStr := "0"
-		if exitCode != 0 {
-			exitStr = fmt.Sprintf("%d", exitCode)
-		}
-		cs := []string{"-test.run=TestHelperProcess", "--", output, exitStr}
-		cmd := exec.CommandContext(ctx, os.Args[0], cs...)
-		cmd.Env = []string{"GO_WANT_HELPER_PROCESS=1"}
-		return cmd
-	}
-}
-
 func TestSlug_Success(t *testing.T) {
 	dir := t.TempDir()
-	slug, err := Slug(
+	s, err := slug(
 		context.Background(),
 		dir,
-		fakeExecFn("https://github.com/owner/repo.git", 0),
+		fakeCmd("https://github.com/owner/repo.git", 0),
 	)
 	require.NoError(t, err)
-	assert.Equal(t, "owner/repo", slug)
+	assert.Equal(t, "owner/repo", s)
 }
 
 func TestSlug_CommandError(t *testing.T) {
 	dir := t.TempDir()
-	_, err := Slug(
+	_, err := slug(
 		context.Background(),
 		dir,
-		fakeExecFn("", 1),
+		fakeCmd("", 1),
 	)
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "remote: get-url")
@@ -68,10 +32,10 @@ func TestSlug_CommandError(t *testing.T) {
 
 func TestSlug_InvalidURL(t *testing.T) {
 	dir := t.TempDir()
-	_, err := Slug(
+	_, err := slug(
 		context.Background(),
 		dir,
-		fakeExecFn("totally-invalid-url", 0),
+		fakeCmd("totally-invalid-url", 0),
 	)
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "remote: slug")

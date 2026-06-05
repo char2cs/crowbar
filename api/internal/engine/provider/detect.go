@@ -1,6 +1,4 @@
-// Package detect identifies the Git provider for a repository and checks
-// whether the corresponding CLI tool is authenticated and available.
-package detect
+package provider
 
 import (
 	"bytes"
@@ -10,11 +8,11 @@ import (
 	"strings"
 )
 
-// ExecFn matches exec.CommandContext so callers can inject a test stub.
-type ExecFn func(ctx context.Context, name string, args ...string) *exec.Cmd
+// DetectExecFn matches exec.CommandContext so callers can inject a test stub.
+type DetectExecFn func(ctx context.Context, name string, args ...string) *exec.Cmd
 
-// Result carries the detected provider kind and CLI availability.
-type Result struct {
+// DetectResult carries the detected provider kind and CLI availability.
+type DetectResult struct {
 	Kind    string // "github" | "gitlab" | "none"
 	Enabled bool   // true if CLI present and authenticated
 }
@@ -36,7 +34,7 @@ func FallbackProtectedBranches() []string {
 func Detect(
 	ctx context.Context,
 	repoPath string,
-) (Result, error) {
+) (DetectResult, error) {
 	return DetectWithExec(ctx, repoPath, exec.CommandContext)
 }
 
@@ -45,27 +43,27 @@ func Detect(
 func DetectWithExec(
 	ctx context.Context,
 	repoPath string,
-	execFn ExecFn,
-) (Result, error) {
-	origin, err := remoteOrigin(ctx, repoPath, execFn)
+	execFn DetectExecFn,
+) (DetectResult, error) {
+	origin, err := detectRemoteOrigin(ctx, repoPath, execFn)
 	if err != nil {
-		return Result{Kind: "none"}, nil
+		return DetectResult{Kind: "none"}, nil
 	}
 
 	kind := kindFromURL(origin)
 	if kind == "none" {
-		return Result{Kind: "none"}, nil
+		return DetectResult{Kind: "none"}, nil
 	}
 
 	enabled := cliAuthed(ctx, kind, execFn)
-	return Result{Kind: kind, Enabled: enabled}, nil
+	return DetectResult{Kind: kind, Enabled: enabled}, nil
 }
 
-// remoteOrigin returns the URL of the "origin" remote for repoPath.
-func remoteOrigin(
+// detectRemoteOrigin returns the URL of the "origin" remote for repoPath.
+func detectRemoteOrigin(
 	ctx context.Context,
 	repoPath string,
-	execFn ExecFn,
+	execFn DetectExecFn,
 ) (string, error) {
 	cmd := execFn(ctx, "git", "remote", "get-url", "origin")
 	cmd.Dir = repoPath
@@ -98,7 +96,7 @@ func kindFromURL(
 func cliAuthed(
 	ctx context.Context,
 	kind string,
-	execFn ExecFn,
+	execFn DetectExecFn,
 ) bool {
 	var cli string
 	switch kind {

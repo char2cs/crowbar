@@ -6,8 +6,8 @@ package provider
 import (
 	"context"
 
-	"github.com/char2cs/crowbar/api/internal/engine/provider/internal/poll"
-	providertypes "github.com/char2cs/crowbar/api/internal/engine/provider/internal/types"
+	"github.com/char2cs/crowbar/api/internal/engine/provider/poll"
+	providertypes "github.com/char2cs/crowbar/api/internal/engine/provider/types"
 )
 
 // PRInfo is the resolved pull-request state for a branch.

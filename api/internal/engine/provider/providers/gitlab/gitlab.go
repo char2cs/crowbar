@@ -9,40 +9,26 @@ import (
 	"os/exec"
 	"strings"
 
-	providertypes "github.com/char2cs/crowbar/api/internal/engine/provider/internal/types"
+	providertypes "github.com/char2cs/crowbar/api/internal/engine/provider/types"
 )
 
 // ExecFn matches exec.CommandContext so callers can inject a test stub.
 type ExecFn func(ctx context.Context, name string, args ...string) *exec.Cmd
 
-// GitProvider is the read-only interface this package exposes.
-type GitProvider interface {
-	ProtectedBranches(
-		ctx context.Context,
-		repoPath string,
-	) ([]string, error)
-
-	PullRequestForBranch(
-		ctx context.Context,
-		repoPath string,
-		branch string,
-	) (*providertypes.PRInfo, error)
-}
-
 type glabProvider struct {
 	execFn ExecFn
 }
 
-// New returns a GitProvider backed by the glab CLI.
-func New() GitProvider {
+// New returns a glabProvider backed by the glab CLI.
+func New() *glabProvider {
 	return &glabProvider{execFn: exec.CommandContext}
 }
 
-// NewWithExec returns a GitProvider that uses execFn for subprocess invocation.
+// NewWithExec returns a glabProvider that uses execFn for subprocess invocation.
 // Intended for tests.
 func NewWithExec(
 	execFn ExecFn,
-) GitProvider {
+) *glabProvider {
 	return &glabProvider{execFn: execFn}
 }
 

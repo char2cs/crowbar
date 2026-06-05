@@ -12,7 +12,6 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/char2cs/crowbar/api/internal/engine/provider"
-	"github.com/char2cs/crowbar/api/internal/engine/provider/internal/detect"
 )
 
 // TestIntegration_WithGH exercises the engine with the real gh CLI if present.
@@ -26,7 +25,7 @@ func TestIntegration_WithGH(t *testing.T) {
 	mustRun(t, dir, "git", "remote", "add", "origin", "https://github.com/char2cs/crowbar")
 
 	ctx := context.Background()
-	res, err := detect.Detect(ctx, dir)
+	res, err := provider.Detect(ctx, dir)
 	require.NoError(t, err)
 	assert.Equal(t, "github", res.Kind)
 

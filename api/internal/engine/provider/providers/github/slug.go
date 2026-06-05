@@ -1,23 +1,17 @@
-// Package remote provides utilities for parsing Git remote URLs.
-package remote
+package github
 
 import (
 	"bytes"
 	"context"
 	"fmt"
-	"os/exec"
 	"strings"
 )
 
-// ExecCommandFn matches exec.CommandContext so callers can pass their stub.
-type ExecCommandFn func(ctx context.Context, name string, args ...string) *exec.Cmd
-
-// Slug extracts the "owner/repo" slug from the git remote origin URL.
-// The execFn parameter allows callers to inject a test stub.
-func Slug(
+// slug extracts the "owner/repo" slug from the git remote origin URL.
+func slug(
 	ctx context.Context,
 	repoPath string,
-	execFn ExecCommandFn,
+	execFn ExecFn,
 ) (string, error) {
 	cmd := execFn(ctx, "git", "remote", "get-url", "origin")
 	cmd.Dir = repoPath
@@ -30,11 +24,11 @@ func Slug(
 	}
 
 	url := strings.TrimSpace(out.String())
-	slug, err := slugFromURL(url)
+	s, err := slugFromURL(url)
 	if err != nil {
 		return "", fmt.Errorf("remote: slug: %w", err)
 	}
-	return slug, nil
+	return s, nil
 }
 
 // slugFromURL parses HTTPS and SSH remote URLs into "owner/repo".

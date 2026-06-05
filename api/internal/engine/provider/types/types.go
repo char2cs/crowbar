@@ -1,6 +1,6 @@
 // Package types holds the shared domain types for the provider engine.
-// Placed in an internal sub-package to avoid import cycles between the
-// top-level provider package and its github/gitlab sub-packages.
+// Placed in a sub-package to avoid import cycles between the top-level
+// provider package and its provider implementations.
 package types
 
 // PRInfo is the resolved pull-request state for a branch.
