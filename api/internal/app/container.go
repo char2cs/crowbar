@@ -50,8 +50,11 @@ func New(
 	}
 
 	h := hub.NewHub()
-	repos := repositories.New(axWorkspace, axChat, axAgentRun, axReviewThread)
-	if err := repos.RegisterHubProjections(h); err != nil {
+	repos, err := repositories.New(adapters.DB, h, axWorkspace, axChat, axAgentRun, axReviewThread)
+	if err != nil {
+		return nil, fmt.Errorf("app: repositories: %w", err)
+	}
+	if err := repos.RegisterHubProjections(axAgentRun); err != nil {
 		return nil, fmt.Errorf("app: hub projections: %w", err)
 	}
 	repos.RecoverOrphans(ctx)
