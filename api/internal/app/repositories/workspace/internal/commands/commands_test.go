@@ -67,6 +67,41 @@ func TestCommands_Metadata(t *testing.T) {
 	assert.Equal(t, "w1", s.AggregateID())
 	assert.Contains(t, s.EventName(), "working_tree_synced")
 	assert.True(t, s.ShouldSnapshot())
+
+	sp := SyncProviderState{ID: "w1"}
+	assert.Equal(t, "w1", sp.AggregateID())
+	assert.Contains(t, sp.EventName(), "provider_synced")
+	assert.True(t, sp.ShouldSnapshot())
+
+	ms := SetMergeStrategy{ID: "w1"}
+	assert.Equal(t, "w1", ms.AggregateID())
+	assert.Contains(t, ms.EventName(), "merge_strategy_set")
+	assert.False(t, ms.ShouldSnapshot())
+
+	ta := TouchActivity{ID: "w1"}
+	assert.Equal(t, "w1", ta.AggregateID())
+	assert.Contains(t, ta.EventName(), "activity_touched")
+	assert.False(t, ta.ShouldSnapshot())
+
+	rp := Reparent{ID: "w1"}
+	assert.Equal(t, "w1", rp.AggregateID())
+	assert.Contains(t, rp.EventName(), "reparented")
+	assert.True(t, rp.ShouldSnapshot())
+
+	ufp := UpdateForkPoint{ID: "w1"}
+	assert.Equal(t, "w1", ufp.AggregateID())
+	assert.Contains(t, ufp.EventName(), "fork_point_updated")
+	assert.False(t, ufp.ShouldSnapshot())
+
+	spm := SetPendingMerge{ID: "w1"}
+	assert.Equal(t, "w1", spm.AggregateID())
+	assert.Contains(t, spm.EventName(), "pending_merge_set")
+	assert.False(t, spm.ShouldSnapshot())
+
+	cpm := ClearPendingMerge{ID: "w1"}
+	assert.Equal(t, "w1", cpm.AggregateID())
+	assert.Contains(t, cpm.EventName(), "pending_merge_cleared")
+	assert.False(t, cpm.ShouldSnapshot())
 }
 
 func TestCreateWorkspace_Validate_AcceptsValidNew(t *testing.T) {
