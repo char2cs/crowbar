@@ -1,4 +1,4 @@
-package domain
+package git
 
 // GitStatus is the full working-tree status for a workspace (04 §3).
 // Pushed directly on the Git topic (Class B) by the file watcher and git write

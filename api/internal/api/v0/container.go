@@ -9,6 +9,7 @@ import (
 	"github.com/char2cs/crowbar/api/internal/app"
 	"github.com/char2cs/crowbar/api/internal/app/hub"
 	"github.com/char2cs/crowbar/api/internal/domain"
+	gitdomain "github.com/char2cs/crowbar/api/internal/domain/git"
 )
 
 // Container is the v0 delivery surface: the Class-A broadcasters plus REST routes.
@@ -16,7 +17,7 @@ import (
 type Container struct {
 	workspaces *ws.Broadcaster[domain.Workspace]
 	chats      *ws.Broadcaster[hub.ChatStatusEvent]
-	git        *ws.Broadcaster[domain.GitStatus]
+	git        *ws.Broadcaster[gitdomain.GitStatus]
 	files      *ws.Broadcaster[domain.FileChangeEvent]
 }
 
@@ -62,7 +63,7 @@ func (c *Container) PushChat(
 // PushGit implements hub.Subscriber.
 func (c *Container) PushGit(
 	wsID string,
-	status domain.GitStatus,
+	status gitdomain.GitStatus,
 ) {
 	c.git.Push(status)
 }
@@ -105,10 +106,10 @@ func chatsDef() ws.StreamDef[hub.ChatStatusEvent] {
 	}
 }
 
-func gitDef() ws.StreamDef[domain.GitStatus] {
-	return ws.StreamDef[domain.GitStatus]{
-		Namespace: func(_ domain.GitStatus) string { return "" },
-		Serialize: func(s domain.GitStatus) ([]byte, error) { return json.Marshal(s) },
+func gitDef() ws.StreamDef[gitdomain.GitStatus] {
+	return ws.StreamDef[gitdomain.GitStatus]{
+		Namespace: func(_ gitdomain.GitStatus) string { return "" },
+		Serialize: func(s gitdomain.GitStatus) ([]byte, error) { return json.Marshal(s) },
 	}
 }
 

@@ -5,7 +5,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/char2cs/crowbar/api/internal/domain"
+	gitdomain "github.com/char2cs/crowbar/api/internal/domain/git"
 	"github.com/char2cs/crowbar/api/internal/engine/git/internal/exec"
 )
 
@@ -15,7 +15,7 @@ func WorkingTree(
 	ctx context.Context,
 	repoPath string,
 	staged bool,
-) ([]domain.FileDiff, error) {
+) ([]gitdomain.FileDiff, error) {
 	args := []string{"diff", "-M"}
 	if staged {
 		args = append(args, "--cached")
@@ -34,14 +34,14 @@ func Commit(
 	ctx context.Context,
 	repoPath string,
 	sha string,
-) (domain.MultiFileDiff, error) {
+) (gitdomain.MultiFileDiff, error) {
 	meta, err := fetchCommitMeta(ctx, repoPath, sha)
 	if err != nil {
-		return domain.MultiFileDiff{}, err
+		return gitdomain.MultiFileDiff{}, err
 	}
 	diffText, err := fetchCommitDiff(ctx, repoPath, sha)
 	if err != nil {
-		return domain.MultiFileDiff{}, err
+		return gitdomain.MultiFileDiff{}, err
 	}
 	files := parseFiles(ctx, repoPath, diffText)
 	totalAdd, totalDel := totals(files)
@@ -56,18 +56,18 @@ func fetchCommitMeta(
 	ctx context.Context,
 	repoPath string,
 	sha string,
-) (domain.MultiFileDiff, error) {
+) (gitdomain.MultiFileDiff, error) {
 	r := exec.Git(ctx, repoPath, "show", "--no-patch", "--format=%H%x00%s%x00%b%x00%an%x00%aI", sha)
 	if err := exec.RequireSuccess("diff: commit meta", r); err != nil {
-		return domain.MultiFileDiff{}, err
+		return gitdomain.MultiFileDiff{}, err
 	}
 	return parseCommitMeta(r.Stdout), nil
 }
 
 func parseCommitMeta(
 	output string,
-) domain.MultiFileDiff {
-	var d domain.MultiFileDiff
+) gitdomain.MultiFileDiff {
+	var d gitdomain.MultiFileDiff
 	// Format is: hash NUL subject NUL body NUL author NUL date
 	parts := strings.SplitN(strings.TrimRight(output, "\n"), "\x00", 5)
 	if len(parts) < 5 {
@@ -117,7 +117,7 @@ func isRootCommit(
 }
 
 func totals(
-	files []domain.FileDiff,
+	files []gitdomain.FileDiff,
 ) (int, int) {
 	var add, del int
 	for _, f := range files {
@@ -131,12 +131,12 @@ func parseFiles(
 	ctx context.Context,
 	repoPath string,
 	text string,
-) []domain.FileDiff {
+) []gitdomain.FileDiff {
 	if strings.TrimSpace(text) == "" {
 		return nil
 	}
 	sections := splitFileSections(text)
-	var result []domain.FileDiff
+	var result []gitdomain.FileDiff
 	for _, section := range sections {
 		f := parseFileSection(ctx, repoPath, section)
 		if f.FilePath != "" {
@@ -170,9 +170,9 @@ func parseFileSection(
 	ctx context.Context,
 	repoPath string,
 	section string,
-) domain.FileDiff {
+) gitdomain.FileDiff {
 	lines := strings.Split(section, "\n")
-	var f domain.FileDiff
+	var f gitdomain.FileDiff
 	var oldBlobSHA, newBlobSHA string
 	var hunkLines []string
 	inHunk := false
@@ -250,7 +250,7 @@ func parseDiffGitPath(
 	return bPath
 }
 
-func applyOldPath(f *domain.FileDiff, raw string) {
+func applyOldPath(f *gitdomain.FileDiff, raw string) {
 	old := stripABPrefix(raw)
 	f.IsNew = old == "/dev/null"
 	if !f.IsNew && !f.IsRenamed {
@@ -258,7 +258,7 @@ func applyOldPath(f *domain.FileDiff, raw string) {
 	}
 }
 
-func applyNewPath(f *domain.FileDiff, raw string) {
+func applyNewPath(f *gitdomain.FileDiff, raw string) {
 	new_ := stripABPrefix(raw)
 	f.IsDeleted = new_ == "/dev/null"
 	if !f.IsDeleted && !f.IsRenamed {
@@ -297,15 +297,15 @@ func parseIndexLine(
 }
 
 func finalizeFileDiff(
-	f domain.FileDiff,
-) domain.FileDiff {
+	f gitdomain.FileDiff,
+) gitdomain.FileDiff {
 	f.IsImage = isImagePath(f.FilePath)
 	f.Hunks = buildHunks(f.Lines)
 	for _, line := range f.Lines {
 		switch line.LineType {
-		case domain.DiffLineAdded:
+		case gitdomain.DiffLineAdded:
 			f.Additions++
-		case domain.DiffLineRemoved:
+		case gitdomain.DiffLineRemoved:
 			f.Deletions++
 		}
 	}

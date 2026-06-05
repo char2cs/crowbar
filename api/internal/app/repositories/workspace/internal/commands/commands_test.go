@@ -10,6 +10,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/char2cs/crowbar/api/internal/domain"
+	gitdomain "github.com/char2cs/crowbar/api/internal/domain/git"
 )
 
 func TestCreateWorkspace_Validate_RejectsExisting(t *testing.T) {
@@ -29,7 +30,7 @@ func TestCreateWorkspace_EmitEvent_SeedsNewStatusAndDefaultStrategy(t *testing.T
 	cmd := CreateWorkspace{ID: "w1", RepoID: "r1", ProjectID: "p1", Now: now}
 	ws := cmd.EmitEvent(nil)
 	assert.Equal(t, domain.WorkspaceStatusNew, ws.Status)
-	assert.Equal(t, domain.MergeStrategyMerge, ws.MergeStrategy)
+	assert.Equal(t, gitdomain.MergeStrategyMerge, ws.MergeStrategy)
 	assert.Equal(t, now, ws.CreatedAt)
 }
 
@@ -86,10 +87,10 @@ func TestCreateWorkspace_EmitEvent_UsesProvidedStrategy(t *testing.T) {
 		ID:            "w1",
 		RepoID:        "r1",
 		ProjectID:     "p1",
-		MergeStrategy: domain.MergeStrategySquash,
+		MergeStrategy: gitdomain.MergeStrategySquash,
 		Now:           now,
 	}
 	ws := cmd.EmitEvent(nil)
-	assert.Equal(t, domain.MergeStrategySquash, ws.MergeStrategy)
+	assert.Equal(t, gitdomain.MergeStrategySquash, ws.MergeStrategy)
 	assert.Equal(t, now, ws.LastActivity)
 }

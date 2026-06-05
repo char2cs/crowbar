@@ -8,7 +8,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/char2cs/crowbar/api/internal/domain"
+	gitdomain "github.com/char2cs/crowbar/api/internal/domain/git"
 	"github.com/char2cs/crowbar/api/internal/engine/git/internal/exec"
 )
 
@@ -28,7 +28,7 @@ func File(
 	ctx context.Context,
 	repoPath string,
 	filePath string,
-) ([]domain.BlameEntry, error) {
+) ([]gitdomain.BlameEntry, error) {
 	r := gitRunner(ctx, repoPath, "blame", "--porcelain", filePath)
 	if r.ExitCode != 0 {
 		return nil, fmt.Errorf("blame: file: exit %d: %s", r.ExitCode, strings.TrimSpace(r.Stderr))
@@ -61,10 +61,10 @@ func parseCommitHeader(
 
 func parsePorcelain(
 	output string,
-) ([]domain.BlameEntry, error) {
+) ([]gitdomain.BlameEntry, error) {
 	lines := strings.Split(output, "\n")
 	cache := make(map[string]commitMeta)
-	var entries []domain.BlameEntry
+	var entries []gitdomain.BlameEntry
 
 	var currentSHA string
 	var finalLine int
@@ -85,7 +85,7 @@ func parsePorcelain(
 				cache[currentSHA] = meta
 			}
 
-			entries = append(entries, domain.BlameEntry{
+			entries = append(entries, gitdomain.BlameEntry{
 				LineNumber:    finalLine,
 				CommitHash:    currentSHA,
 				Author:        meta.author,

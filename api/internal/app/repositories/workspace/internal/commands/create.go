@@ -7,6 +7,7 @@ import (
 	asynxModels "github.com/char2cs/asynx/models"
 
 	"github.com/char2cs/crowbar/api/internal/domain"
+	gitdomain "github.com/char2cs/crowbar/api/internal/domain/git"
 )
 
 // CreateWorkspace creates a new workspace aggregate seeded to status "new".
@@ -19,7 +20,7 @@ type CreateWorkspace struct {
 	ForkPointSha  string
 	ParentID      string
 	Locked        bool
-	MergeStrategy domain.MergeStrategy
+	MergeStrategy gitdomain.MergeStrategy
 	Now           time.Time
 }
 
@@ -52,7 +53,7 @@ func (c CreateWorkspace) EmitEvent(
 ) domain.Workspace {
 	strategy := c.MergeStrategy
 	if strategy == "" {
-		strategy = domain.MergeStrategyMerge
+		strategy = gitdomain.MergeStrategyMerge
 	}
 	return domain.Workspace{
 		ID:            c.ID,

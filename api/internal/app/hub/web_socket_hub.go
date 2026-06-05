@@ -1,6 +1,9 @@
 package hub
 
-import "github.com/char2cs/crowbar/api/internal/domain"
+import (
+	"github.com/char2cs/crowbar/api/internal/domain"
+	gitdomain "github.com/char2cs/crowbar/api/internal/domain/git"
+)
 
 // WebSocketHub is the version-agnostic broadcast interface domain producers call.
 type WebSocketHub interface {
@@ -12,7 +15,7 @@ type WebSocketHub interface {
 	)
 	BroadcastGit(
 		wsID string,
-		status domain.GitStatus,
+		status gitdomain.GitStatus,
 	)
 	BroadcastFile(
 		evt domain.FileChangeEvent,

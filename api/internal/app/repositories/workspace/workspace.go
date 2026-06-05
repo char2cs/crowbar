@@ -9,6 +9,7 @@ import (
 
 	"github.com/char2cs/crowbar/api/internal/app/repositories/workspace/internal/commands"
 	"github.com/char2cs/crowbar/api/internal/domain"
+	gitdomain "github.com/char2cs/crowbar/api/internal/domain/git"
 )
 
 // CreateInput carries the fields needed to create a workspace.
@@ -21,7 +22,7 @@ type CreateInput struct {
 	ForkPointSha  string
 	ParentID      string
 	Locked        bool
-	MergeStrategy domain.MergeStrategy
+	MergeStrategy gitdomain.MergeStrategy
 }
 
 // SyncInput carries a recomputed working-tree summary.

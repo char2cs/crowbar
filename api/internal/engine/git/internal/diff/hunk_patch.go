@@ -6,7 +6,7 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/char2cs/crowbar/api/internal/domain"
+	gitdomain "github.com/char2cs/crowbar/api/internal/domain/git"
 )
 
 // ErrStaleHunk is returned when hunkID no longer matches any current diff hunk.
@@ -44,9 +44,9 @@ func HunkPatch(
 }
 
 func findFileInDiff(
-	files []domain.FileDiff,
+	files []gitdomain.FileDiff,
 	filePath string,
-) *domain.FileDiff {
+) *gitdomain.FileDiff {
 	for i := range files {
 		if files[i].FilePath == filePath {
 			return &files[i]
@@ -56,9 +56,9 @@ func findFileInDiff(
 }
 
 func findHunkByID(
-	hunks []domain.Hunk,
+	hunks []gitdomain.Hunk,
 	hunkID string,
-) *domain.Hunk {
+) *gitdomain.Hunk {
 	for i := range hunks {
 		if hunks[i].HunkID == hunkID {
 			return &hunks[i]
@@ -68,9 +68,9 @@ func findHunkByID(
 }
 
 func buildPatch(
-	f *domain.FileDiff,
-	hunk *domain.Hunk,
-	lines []domain.DiffLine,
+	f *gitdomain.FileDiff,
+	hunk *gitdomain.Hunk,
+	lines []gitdomain.DiffLine,
 ) string {
 	var sb strings.Builder
 
@@ -102,13 +102,13 @@ func buildPatch(
 	sb.WriteString("\n")
 
 	for _, line := range hunkLines {
-		if line.LineType == domain.DiffLineHeader {
+		if line.LineType == gitdomain.DiffLineHeader {
 			continue
 		}
 		switch line.LineType {
-		case domain.DiffLineAdded:
+		case gitdomain.DiffLineAdded:
 			fmt.Fprintf(&sb, "+%s\n", line.Content)
-		case domain.DiffLineRemoved:
+		case gitdomain.DiffLineRemoved:
 			fmt.Fprintf(&sb, "-%s\n", line.Content)
 		default:
 			fmt.Fprintf(&sb, " %s\n", line.Content)
@@ -119,11 +119,11 @@ func buildPatch(
 }
 
 func hunkHeader(
-	lines []domain.DiffLine,
+	lines []gitdomain.DiffLine,
 	fallback string,
 ) string {
 	for _, line := range lines {
-		if line.LineType == domain.DiffLineHeader {
+		if line.LineType == gitdomain.DiffLineHeader {
 			return line.Content
 		}
 	}

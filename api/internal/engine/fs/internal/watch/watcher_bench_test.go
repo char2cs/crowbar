@@ -8,6 +8,7 @@ import (
 	"testing"
 
 	"github.com/char2cs/crowbar/api/internal/domain"
+	gitdomain "github.com/char2cs/crowbar/api/internal/domain/git"
 	"github.com/char2cs/crowbar/api/internal/engine/fs/internal/watch"
 )
 
@@ -17,8 +18,8 @@ type benchGitProvider struct{}
 func (p *benchGitProvider) ComputeStatus(
 	_ context.Context,
 	_ string,
-) (domain.GitStatus, error) {
-	return domain.GitStatus{Branch: "main"}, nil
+) (gitdomain.GitStatus, error) {
+	return gitdomain.GitStatus{Branch: "main"}, nil
 }
 
 func (p *benchGitProvider) ComputeWorkingTreeSummary(
@@ -33,7 +34,7 @@ func (p *benchGitProvider) ComputeWorkingTreeSummary(
 type benchDispatcher struct{}
 
 func (d *benchDispatcher) OnFileChange(_ context.Context, _ domain.FileChangeEvent)      {}
-func (d *benchDispatcher) OnGitStatus(_ context.Context, _ string, _ domain.GitStatus)   {}
+func (d *benchDispatcher) OnGitStatus(_ context.Context, _ string, _ gitdomain.GitStatus)   {}
 func (d *benchDispatcher) OnSyncWorkingTreeState(_ context.Context, _ watch.SyncInput)   {}
 
 func BenchmarkFanOut(b *testing.B) {

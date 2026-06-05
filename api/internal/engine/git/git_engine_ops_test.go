@@ -10,7 +10,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/char2cs/crowbar/api/internal/domain"
+	gitdomain "github.com/char2cs/crowbar/api/internal/domain/git"
 	"github.com/char2cs/crowbar/api/internal/engine/git"
 )
 
@@ -322,7 +322,7 @@ func TestConflictHunks_WithConflict(
 	hunks, err := e.ConflictHunks(ctx, dir, "conflict.txt")
 	require.NoError(t, err)
 	require.NotEmpty(t, hunks)
-	assert.Equal(t, domain.ConflictResolutionUnresolved, hunks[0].Resolution)
+	assert.Equal(t, gitdomain.ConflictResolutionUnresolved, hunks[0].Resolution)
 }
 
 func TestResolveHunk_Ours(
@@ -351,7 +351,7 @@ func TestResolveHunk_Ours(
 	require.NoError(t, err)
 	require.NotEmpty(t, hunks)
 
-	err = e.ResolveHunk(ctx, dir, "conflict.txt", hunks[0].ID, domain.ConflictResolutionOurs, "")
+	err = e.ResolveHunk(ctx, dir, "conflict.txt", hunks[0].ID, gitdomain.ConflictResolutionOurs, "")
 	require.NoError(t, err)
 }
 
@@ -403,7 +403,7 @@ func TestOperationContinue_AfterMergeConflictResolved(
 	require.NoError(t, err)
 	require.NotEmpty(t, hunks)
 
-	err = e.ResolveHunk(ctx, dir, "conflict.txt", hunks[0].ID, domain.ConflictResolutionOurs, "")
+	err = e.ResolveHunk(ctx, dir, "conflict.txt", hunks[0].ID, gitdomain.ConflictResolutionOurs, "")
 	require.NoError(t, err)
 
 	err = e.OperationContinue(ctx, dir)

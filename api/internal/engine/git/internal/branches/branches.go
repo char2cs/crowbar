@@ -8,7 +8,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/char2cs/crowbar/api/internal/domain"
+	gitdomain "github.com/char2cs/crowbar/api/internal/domain/git"
 	"github.com/char2cs/crowbar/api/internal/engine/git/internal/exec"
 )
 
@@ -22,7 +22,7 @@ var gitRunner = exec.Git
 func List(
 	ctx context.Context,
 	repoPath string,
-) ([]domain.Branch, error) {
+) ([]gitdomain.Branch, error) {
 	format := "%(refname:short)%0a%(HEAD)%0a%(upstream:track,nobracket)%0a%(committerdate:iso-strict)%0a%(refname)%0a" + recordSep
 	r := gitRunner(ctx, repoPath, "branch", "-a", "--format="+format)
 	if err := exec.RequireSuccess("branches: list", r); err != nil {
@@ -101,9 +101,9 @@ func Switch(
 
 func parseList(
 	output string,
-) []domain.Branch {
+) []gitdomain.Branch {
 	records := strings.Split(output, recordSep+"\n")
-	var branches []domain.Branch
+	var branches []gitdomain.Branch
 	for _, rec := range records {
 		rec = strings.TrimSpace(rec)
 		if rec == "" {
@@ -120,21 +120,21 @@ func parseList(
 
 func parseRecord(
 	rec string,
-) (domain.Branch, bool) {
+) (gitdomain.Branch, bool) {
 	lines := strings.Split(rec, "\n")
 	if len(lines) < 5 {
-		return domain.Branch{}, false
+		return gitdomain.Branch{}, false
 	}
 	refname := strings.TrimSpace(lines[0])
 	if refname == "" {
-		return domain.Branch{}, false
+		return gitdomain.Branch{}, false
 	}
 	head := strings.TrimSpace(lines[1])
 	track := strings.TrimSpace(lines[2])
 	dateStr := strings.TrimSpace(lines[3])
 	fullRef := strings.TrimSpace(lines[4])
 
-	var b domain.Branch
+	var b gitdomain.Branch
 	b.IsCurrent = head == "*"
 
 	b.Name = refname
@@ -156,7 +156,7 @@ func parseRecord(
 
 func parseTrack(
 	track string,
-	b *domain.Branch,
+	b *gitdomain.Branch,
 ) {
 	if track == "" {
 		return
@@ -172,7 +172,7 @@ func parseTrack(
 
 func parseTrackSegment(
 	seg string,
-	b *domain.Branch,
+	b *gitdomain.Branch,
 ) {
 	if strings.HasPrefix(seg, "ahead ") {
 		n, err := strconv.Atoi(strings.TrimPrefix(seg, "ahead "))

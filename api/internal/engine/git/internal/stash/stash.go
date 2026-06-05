@@ -7,7 +7,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/char2cs/crowbar/api/internal/domain"
+	gitdomain "github.com/char2cs/crowbar/api/internal/domain/git"
 	"github.com/char2cs/crowbar/api/internal/engine/git/internal/exec"
 )
 
@@ -20,7 +20,7 @@ var gitRunner = exec.Git
 func List(
 	ctx context.Context,
 	repoPath string,
-) ([]domain.Stash, error) {
+) ([]gitdomain.Stash, error) {
 	r := gitRunner(ctx, repoPath, "stash", "list", "--format=%gd%x00%s%x00%ci%x00")
 	if err := exec.RequireSuccess("stash: list", r); err != nil {
 		return nil, fmt.Errorf("stash: list: %w", err)
@@ -30,7 +30,7 @@ func List(
 		return nil, nil
 	}
 	lines := strings.Split(raw, "\n")
-	stashes := make([]domain.Stash, 0, len(lines))
+	stashes := make([]gitdomain.Stash, 0, len(lines))
 	for _, line := range lines {
 		if line == "" {
 			continue
@@ -94,23 +94,23 @@ func Drop(
 
 func parseLine(
 	line string,
-) (domain.Stash, bool) {
+) (gitdomain.Stash, bool) {
 	parts := strings.SplitN(line, "\x00", 4)
 	if len(parts) < 3 {
-		return domain.Stash{}, false
+		return gitdomain.Stash{}, false
 	}
 	id := strings.TrimSpace(parts[0])
 	message := strings.TrimSpace(parts[1])
 	dateStr := strings.TrimSpace(parts[2])
 
 	if id == "" {
-		return domain.Stash{}, false
+		return gitdomain.Stash{}, false
 	}
 	t, err := time.Parse(stashDateFormat, dateStr)
 	if err != nil {
-		return domain.Stash{}, false
+		return gitdomain.Stash{}, false
 	}
-	return domain.Stash{
+	return gitdomain.Stash{
 		ID:      id,
 		Message: message,
 		Date:    t,

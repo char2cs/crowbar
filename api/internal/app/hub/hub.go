@@ -4,6 +4,7 @@ import (
 	"sync"
 
 	"github.com/char2cs/crowbar/api/internal/domain"
+	gitdomain "github.com/char2cs/crowbar/api/internal/domain/git"
 )
 
 // Hub fans out domain broadcasts to all registered Subscribers. It implements
@@ -52,7 +53,7 @@ func (h *Hub) BroadcastChat(
 // BroadcastGit fans a GitStatus out to every subscriber (Class B, 03 §2).
 func (h *Hub) BroadcastGit(
 	wsID string,
-	status domain.GitStatus,
+	status gitdomain.GitStatus,
 ) {
 	h.mu.RLock()
 	defer h.mu.RUnlock()

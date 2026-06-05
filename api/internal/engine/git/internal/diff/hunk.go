@@ -4,13 +4,13 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/char2cs/crowbar/api/internal/domain"
+	gitdomain "github.com/char2cs/crowbar/api/internal/domain/git"
 )
 
 func buildHunkLines(
 	rawLines []string,
 	filePath string,
-) []domain.DiffLine {
+) []gitdomain.DiffLine {
 	if len(rawLines) == 0 {
 		return nil
 	}
@@ -22,10 +22,10 @@ func buildHunkLines(
 	bodyText := buildHunkBody(bodyLines)
 	hunkID := HunkID(filePath, bodyText)
 
-	var result []domain.DiffLine
+	var result []gitdomain.DiffLine
 
-	headerLine := domain.DiffLine{
-		LineType: domain.DiffLineHeader,
+	headerLine := gitdomain.DiffLine{
+		LineType: gitdomain.DiffLineHeader,
 		Content:  header,
 	}
 	result = append(result, headerLine)
@@ -62,9 +62,9 @@ func buildDiffLine(
 	hunkID string,
 	oldLine *int,
 	newLine *int,
-) domain.DiffLine {
+) gitdomain.DiffLine {
 	if len(raw) == 0 {
-		return domain.DiffLine{}
+		return gitdomain.DiffLine{}
 	}
 	ch := raw[0]
 	content := raw[1:]
@@ -73,8 +73,8 @@ func buildDiffLine(
 	case '+':
 		n := *newLine
 		*newLine++
-		return domain.DiffLine{
-			LineType:      domain.DiffLineAdded,
+		return gitdomain.DiffLine{
+			LineType:      gitdomain.DiffLineAdded,
 			Content:       content,
 			NewLineNumber: &n,
 			HunkID:        hunkID,
@@ -82,8 +82,8 @@ func buildDiffLine(
 	case '-':
 		o := *oldLine
 		*oldLine++
-		return domain.DiffLine{
-			LineType:      domain.DiffLineRemoved,
+		return gitdomain.DiffLine{
+			LineType:      gitdomain.DiffLineRemoved,
 			Content:       content,
 			OldLineNumber: &o,
 			HunkID:        hunkID,
@@ -93,15 +93,15 @@ func buildDiffLine(
 		n := *newLine
 		*oldLine++
 		*newLine++
-		return domain.DiffLine{
-			LineType:      domain.DiffLineContext,
+		return gitdomain.DiffLine{
+			LineType:      gitdomain.DiffLineContext,
 			Content:       content,
 			OldLineNumber: &o,
 			NewLineNumber: &n,
 		}
 	}
-	return domain.DiffLine{
-		LineType: domain.DiffLineContext,
+	return gitdomain.DiffLine{
+		LineType: gitdomain.DiffLineContext,
 		Content:  raw,
 	}
 }
@@ -135,14 +135,14 @@ func parseHunkHeader(
 }
 
 func buildHunks(
-	lines []domain.DiffLine,
-) []domain.Hunk {
-	var hunks []domain.Hunk
+	lines []gitdomain.DiffLine,
+) []gitdomain.Hunk {
+	var hunks []gitdomain.Hunk
 	var currentHunkID string
 	currentStart := -1
 
 	for i, line := range lines {
-		if line.LineType == domain.DiffLineHeader {
+		if line.LineType == gitdomain.DiffLineHeader {
 			if currentHunkID != "" {
 				hunks[len(hunks)-1].EndLine = i - 1
 			}
@@ -155,7 +155,7 @@ func buildHunks(
 		// just passed a header and haven't started a hunk yet).
 		if line.HunkID != "" && (line.HunkID != currentHunkID || currentHunkID == "") {
 			currentHunkID = line.HunkID
-			hunks = append(hunks, domain.Hunk{
+			hunks = append(hunks, gitdomain.Hunk{
 				HunkID:    currentHunkID,
 				Header:    headerForHunk(lines, currentStart),
 				StartLine: currentStart,
@@ -171,13 +171,13 @@ func buildHunks(
 }
 
 func headerForHunk(
-	lines []domain.DiffLine,
+	lines []gitdomain.DiffLine,
 	headerIdx int,
 ) string {
 	if headerIdx < 0 || headerIdx >= len(lines) {
 		return ""
 	}
-	if lines[headerIdx].LineType == domain.DiffLineHeader {
+	if lines[headerIdx].LineType == gitdomain.DiffLineHeader {
 		return lines[headerIdx].Content
 	}
 	return ""

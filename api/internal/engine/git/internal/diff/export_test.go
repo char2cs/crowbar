@@ -3,10 +3,10 @@ package diff
 import (
 	"context"
 
-	"github.com/char2cs/crowbar/api/internal/domain"
+	gitdomain "github.com/char2cs/crowbar/api/internal/domain/git"
 )
 
 // ParseFilesFromText is an export shim for benchmarks and white-box tests.
-func ParseFilesFromText(ctx context.Context, repoPath string, text string) []domain.FileDiff {
+func ParseFilesFromText(ctx context.Context, repoPath string, text string) []gitdomain.FileDiff {
 	return parseFiles(ctx, repoPath, text)
 }

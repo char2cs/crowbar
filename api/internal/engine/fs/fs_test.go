@@ -8,7 +8,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/char2cs/crowbar/api/internal/domain"
+	gitdomain "github.com/char2cs/crowbar/api/internal/domain/git"
 	"github.com/char2cs/crowbar/api/internal/engine/fs"
 	"github.com/char2cs/crowbar/api/internal/engine/fs/internal/tree"
 )
@@ -26,8 +26,8 @@ func writeFile(t *testing.T, dir, name, content string) {
 // nullProvider satisfies tree.StatusProvider returning an empty GitStatus.
 type nullProvider struct{}
 
-func (nullProvider) GitStatus(_ string) (domain.GitStatus, error) {
-	return domain.GitStatus{}, nil
+func (nullProvider) GitStatus(_ string) (gitdomain.GitStatus, error) {
+	return gitdomain.GitStatus{}, nil
 }
 
 func TestTree_ListsFiles(t *testing.T) {

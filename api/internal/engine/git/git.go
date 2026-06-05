@@ -5,7 +5,7 @@ package git
 import (
 	"context"
 
-	"github.com/char2cs/crowbar/api/internal/domain"
+	gitdomain "github.com/char2cs/crowbar/api/internal/domain/git"
 )
 
 // Engine is the full git operation surface (04 §2).
@@ -14,7 +14,7 @@ type Engine interface {
 	Status(
 		ctx context.Context,
 		repoPath string,
-	) (domain.GitStatus, error)
+	) (gitdomain.GitStatus, error)
 
 	// Diff returns the working-tree diff for a workspace (04 §3).
 	// If staged is true, returns the staged diff (--cached).
@@ -22,14 +22,14 @@ type Engine interface {
 		ctx context.Context,
 		repoPath string,
 		staged bool,
-	) ([]domain.FileDiff, error)
+	) ([]gitdomain.FileDiff, error)
 
 	// CommitDiff returns the diff for a single commit (04 §3).
 	CommitDiff(
 		ctx context.Context,
 		repoPath string,
 		sha string,
-	) (domain.MultiFileDiff, error)
+	) (gitdomain.MultiFileDiff, error)
 
 	// Log returns paginated git log from HEAD (04 §3).
 	Log(
@@ -37,26 +37,26 @@ type Engine interface {
 		repoPath string,
 		limit int,
 		skip int,
-	) ([]domain.Commit, error)
+	) ([]gitdomain.Commit, error)
 
 	// Blame annotates each line of filePath with its last-changing commit (04 §3).
 	Blame(
 		ctx context.Context,
 		repoPath string,
 		filePath string,
-	) ([]domain.BlameEntry, error)
+	) ([]gitdomain.BlameEntry, error)
 
 	// Branches returns all branches (local + remote) (04 §3).
 	Branches(
 		ctx context.Context,
 		repoPath string,
-	) ([]domain.Branch, error)
+	) ([]gitdomain.Branch, error)
 
 	// Stashes returns all stash entries (04 §3).
 	Stashes(
 		ctx context.Context,
 		repoPath string,
-	) ([]domain.Stash, error)
+	) ([]gitdomain.Stash, error)
 
 	// StageFile stages a file (04 §5).
 	StageFile(
@@ -223,7 +223,7 @@ type Engine interface {
 		ctx context.Context,
 		repoPath string,
 		filePath string,
-	) ([]domain.ConflictHunk, error)
+	) ([]gitdomain.ConflictHunk, error)
 
 	// ResolveHunk resolves a single conflict hunk (04 §6).
 	ResolveHunk(
@@ -231,7 +231,7 @@ type Engine interface {
 		repoPath string,
 		filePath string,
 		hunkID string,
-		resolution domain.ConflictResolution,
+		resolution gitdomain.ConflictResolution,
 		resolvedContent string,
 	) error
 

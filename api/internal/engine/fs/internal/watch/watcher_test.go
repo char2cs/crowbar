@@ -12,6 +12,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/char2cs/crowbar/api/internal/domain"
+	gitdomain "github.com/char2cs/crowbar/api/internal/domain/git"
 	"github.com/char2cs/crowbar/api/internal/engine/fs/internal/watch"
 )
 
@@ -20,8 +21,8 @@ type fakeGit struct{}
 func (f *fakeGit) ComputeStatus(
 	_ context.Context,
 	_ string,
-) (domain.GitStatus, error) {
-	return domain.GitStatus{}, nil
+) (gitdomain.GitStatus, error) {
+	return gitdomain.GitStatus{}, nil
 }
 
 func (f *fakeGit) ComputeWorkingTreeSummary(
@@ -49,7 +50,7 @@ func (f *fakeDispatcher) OnFileChange(
 func (f *fakeDispatcher) OnGitStatus(
 	_ context.Context,
 	_ string,
-	_ domain.GitStatus,
+	_ gitdomain.GitStatus,
 ) {}
 
 func (f *fakeDispatcher) OnSyncWorkingTreeState(

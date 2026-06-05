@@ -11,7 +11,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/char2cs/crowbar/api/internal/domain"
+	gitdomain "github.com/char2cs/crowbar/api/internal/domain/git"
 	"github.com/char2cs/crowbar/api/internal/engine/git/internal/conflicts"
 )
 
@@ -143,7 +143,7 @@ func TestParseFile(
 	assert.NotEmpty(t, h.ID)
 	assert.Greater(t, h.StartLine, 0)
 	assert.GreaterOrEqual(t, h.EndLine, h.StartLine)
-	assert.Equal(t, domain.ConflictResolutionUnresolved, h.Resolution)
+	assert.Equal(t, gitdomain.ConflictResolutionUnresolved, h.Resolution)
 
 	assert.True(t, strings.Contains(h.Ours, "theirs change") || strings.Contains(h.Theirs, "theirs change"),
 		"expected 'theirs change' in ours or theirs, got ours=%q theirs=%q", h.Ours, h.Theirs)
@@ -190,7 +190,7 @@ func TestResolveHunk_Ours(
 		repoPath,
 		conflictFile,
 		hunks[0].ID,
-		domain.ConflictResolutionOurs,
+		gitdomain.ConflictResolutionOurs,
 		"",
 	)
 	require.NoError(t, err)
@@ -219,7 +219,7 @@ func TestResolveHunk_StagesWhenLastConflictResolved(
 		repoPath,
 		conflictFile,
 		hunks[0].ID,
-		domain.ConflictResolutionOurs,
+		gitdomain.ConflictResolutionOurs,
 		"",
 	)
 	require.NoError(t, err)
@@ -244,7 +244,7 @@ func TestResolveHunk_Theirs(
 		repoPath,
 		conflictFile,
 		hunks[0].ID,
-		domain.ConflictResolutionTheirs,
+		gitdomain.ConflictResolutionTheirs,
 		"",
 	)
 	require.NoError(t, err)
@@ -271,7 +271,7 @@ func TestResolveHunk_Custom(
 		repoPath,
 		conflictFile,
 		hunks[0].ID,
-		domain.ConflictResolutionCustom,
+		gitdomain.ConflictResolutionCustom,
 		"custom resolution line",
 	)
 	require.NoError(t, err)
@@ -299,7 +299,7 @@ func TestResolveHunk_Both(
 		repoPath,
 		conflictFile,
 		hunks[0].ID,
-		domain.ConflictResolutionBoth,
+		gitdomain.ConflictResolutionBoth,
 		"",
 	)
 	require.NoError(t, err)
@@ -323,7 +323,7 @@ func TestResolveHunk_HunkNotFound(
 		repoPath,
 		conflictFile,
 		"000000000000", // valid-length but non-existent hunk ID
-		domain.ConflictResolutionOurs,
+		gitdomain.ConflictResolutionOurs,
 		"",
 	)
 	require.Error(t, err)
@@ -342,7 +342,7 @@ func TestResolveHunk_MissingFile(
 		repoPath,
 		"does_not_exist.txt",
 		"abc123",
-		domain.ConflictResolutionOurs,
+		gitdomain.ConflictResolutionOurs,
 		"",
 	)
 	require.Error(t, err)
@@ -370,7 +370,7 @@ func TestResolveHunk_WriteError(
 		repoPath,
 		conflictFile,
 		hunks[0].ID,
-		domain.ConflictResolutionOurs,
+		gitdomain.ConflictResolutionOurs,
 		"",
 	)
 	require.Error(t, err)
@@ -462,7 +462,7 @@ func TestResolveHunk_HasMarkersReturnsTrue(
 		repoPath,
 		conflictFile,
 		hunks[0].ID,
-		domain.ConflictResolutionOurs,
+		gitdomain.ConflictResolutionOurs,
 		"",
 	)
 	require.NoError(t, err)
@@ -538,7 +538,7 @@ func TestResolveHunk_InjectedExecError_Stage(
 		repoPath,
 		conflictFile,
 		hunks[0].ID,
-		domain.ConflictResolutionOurs,
+		gitdomain.ConflictResolutionOurs,
 		"",
 	)
 	require.Error(t, err)

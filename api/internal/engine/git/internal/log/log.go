@@ -7,7 +7,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/char2cs/crowbar/api/internal/domain"
+	gitdomain "github.com/char2cs/crowbar/api/internal/domain/git"
 	"github.com/char2cs/crowbar/api/internal/engine/git/internal/exec"
 )
 
@@ -25,7 +25,7 @@ func List(
 	repoPath string,
 	limit int,
 	skip int,
-) ([]domain.Commit, error) {
+) ([]gitdomain.Commit, error) {
 	if limit <= 0 {
 		limit = defaultLimit
 	}
@@ -57,14 +57,14 @@ func isEmptyRepo(
 
 func parseRecords(
 	output string,
-) ([]domain.Commit, error) {
+) ([]gitdomain.Commit, error) {
 	raw := strings.TrimLeft(output, recordSep)
 	if raw == "" {
 		return nil, nil
 	}
 
 	records := strings.Split(raw, recordSep)
-	commits := make([]domain.Commit, 0, len(records))
+	commits := make([]gitdomain.Commit, 0, len(records))
 
 	for _, rec := range records {
 		rec = strings.TrimSpace(rec)
@@ -85,10 +85,10 @@ func parseRecords(
 
 func parseRecord(
 	rec string,
-) (domain.Commit, error) {
+) (gitdomain.Commit, error) {
 	parts := strings.SplitN(rec, "\x1f", 2)
 	if len(parts) != 2 {
-		return domain.Commit{}, fmt.Errorf("log: malformed record: missing field separator")
+		return gitdomain.Commit{}, fmt.Errorf("log: malformed record: missing field separator")
 	}
 
 	bodySection := strings.TrimRight(parts[0], "\n")
@@ -96,7 +96,7 @@ func parseRecord(
 
 	bodyLines := strings.Split(bodySection, "\n")
 	if len(bodyLines) < 3 {
-		return domain.Commit{}, fmt.Errorf("log: malformed record: too few body lines")
+		return gitdomain.Commit{}, fmt.Errorf("log: malformed record: too few body lines")
 	}
 
 	fullHash := bodyLines[0]
@@ -110,7 +110,7 @@ func parseRecord(
 
 	metaLines := strings.Split(metaSection, "\n")
 	if len(metaLines) < 3 {
-		return domain.Commit{}, fmt.Errorf("log: malformed record: too few meta lines")
+		return gitdomain.Commit{}, fmt.Errorf("log: malformed record: too few meta lines")
 	}
 
 	author := metaLines[0]
@@ -119,10 +119,10 @@ func parseRecord(
 
 	date, err := time.Parse(time.RFC3339, dateStr)
 	if err != nil {
-		return domain.Commit{}, fmt.Errorf("log: parse date %q: %w", dateStr, err)
+		return gitdomain.Commit{}, fmt.Errorf("log: parse date %q: %w", dateStr, err)
 	}
 
-	return domain.Commit{
+	return gitdomain.Commit{
 		Hash:        fullHash,
 		ShortHash:   shortHash,
 		Message:     subject,

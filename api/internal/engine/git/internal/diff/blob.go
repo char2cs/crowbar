@@ -5,7 +5,7 @@ import (
 	"encoding/base64"
 	"strings"
 
-	"github.com/char2cs/crowbar/api/internal/domain"
+	gitdomain "github.com/char2cs/crowbar/api/internal/domain/git"
 	"github.com/char2cs/crowbar/api/internal/engine/git/internal/exec"
 )
 
@@ -34,10 +34,10 @@ func isImagePath(
 func populateBlobData(
 	ctx context.Context,
 	repoPath string,
-	f domain.FileDiff,
+	f gitdomain.FileDiff,
 	oldSHA string,
 	newSHA string,
-) domain.FileDiff {
+) gitdomain.FileDiff {
 	if !f.IsBinary && !f.IsImage {
 		return f
 	}

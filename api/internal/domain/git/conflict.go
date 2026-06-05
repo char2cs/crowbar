@@ -1,4 +1,4 @@
-package domain
+package git
 
 // ConflictHunk is a three-way conflict block within a conflicting file (04 §6).
 type ConflictHunk struct {
@@ -11,3 +11,14 @@ type ConflictHunk struct {
 	Resolution      ConflictResolution `json:"resolution"`
 	ResolvedContent string             `json:"resolvedContent,omitempty"`
 }
+
+// ConflictResolution describes how a conflict hunk is resolved (04 §6).
+type ConflictResolution string
+
+const (
+	ConflictResolutionOurs       ConflictResolution = "ours"
+	ConflictResolutionTheirs     ConflictResolution = "theirs"
+	ConflictResolutionBoth       ConflictResolution = "both"
+	ConflictResolutionCustom     ConflictResolution = "custom"
+	ConflictResolutionUnresolved ConflictResolution = "unresolved"
+)

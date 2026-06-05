@@ -9,7 +9,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/char2cs/crowbar/api/internal/domain"
+	gitdomain "github.com/char2cs/crowbar/api/internal/domain/git"
 	"github.com/char2cs/crowbar/api/internal/engine/git/internal/exec"
 	"github.com/char2cs/crowbar/api/internal/engine/git/internal/status"
 )
@@ -71,7 +71,7 @@ func TestParse_UntrackedFile(
 	require.NoError(t, err)
 	require.Len(t, s.Files, 1)
 	assert.Equal(t, "newfile.txt", s.Files[0].Path)
-	assert.Equal(t, domain.GitFileStatusUntracked, s.Files[0].Status)
+	assert.Equal(t, gitdomain.GitFileStatusUntracked, s.Files[0].Status)
 	assert.False(t, s.Files[0].Staged)
 }
 
@@ -90,7 +90,7 @@ func TestParse_StagedNewFile(
 	require.NoError(t, err)
 	require.Len(t, s.Files, 1)
 	assert.Equal(t, "staged.txt", s.Files[0].Path)
-	assert.Equal(t, domain.GitFileStatusAdded, s.Files[0].Status)
+	assert.Equal(t, gitdomain.GitFileStatusAdded, s.Files[0].Status)
 	assert.True(t, s.Files[0].Staged)
 }
 
@@ -111,7 +111,7 @@ func TestParse_ModifiedStagedAndUnstaged(
 
 	require.NoError(t, err)
 
-	var stagedFile, unstagedFile *domain.GitFile
+	var stagedFile, unstagedFile *gitdomain.GitFile
 	for i := range s.Files {
 		f := &s.Files[i]
 		if f.Path == "file.txt" && f.Staged {
@@ -123,8 +123,8 @@ func TestParse_ModifiedStagedAndUnstaged(
 	}
 	require.NotNil(t, stagedFile, "expected a staged entry for file.txt")
 	require.NotNil(t, unstagedFile, "expected an unstaged entry for file.txt")
-	assert.Equal(t, domain.GitFileStatusModified, stagedFile.Status)
-	assert.Equal(t, domain.GitFileStatusModified, unstagedFile.Status)
+	assert.Equal(t, gitdomain.GitFileStatusModified, stagedFile.Status)
+	assert.Equal(t, gitdomain.GitFileStatusModified, unstagedFile.Status)
 }
 
 func TestParse_RenamedFile(
@@ -144,7 +144,7 @@ func TestParse_RenamedFile(
 
 	var found bool
 	for _, f := range s.Files {
-		if f.Status == domain.GitFileStatusRenamed {
+		if f.Status == gitdomain.GitFileStatusRenamed {
 			found = true
 			assert.Equal(t, "new.txt", f.Path)
 			assert.True(t, f.Staged)
@@ -182,7 +182,7 @@ func TestParse_ConflictedFile(
 
 	var found bool
 	for _, f := range s.Files {
-		if f.Status == domain.GitFileStatusConflicted {
+		if f.Status == gitdomain.GitFileStatusConflicted {
 			found = true
 			assert.Equal(t, "conflict.txt", f.Path)
 			assert.False(t, f.Staged)
@@ -294,7 +294,7 @@ func TestParse_StagedDeletedFile(
 	for _, f := range s.Files {
 		if f.Path == "todelete.txt" && f.Staged {
 			found = true
-			assert.Equal(t, domain.GitFileStatusDeleted, f.Status)
+			assert.Equal(t, gitdomain.GitFileStatusDeleted, f.Status)
 		}
 	}
 	assert.True(t, found, "expected a staged deleted entry for todelete.txt")
@@ -320,7 +320,7 @@ func TestParse_UnstagedDeletedFile(
 	for _, f := range s.Files {
 		if f.Path == "todelete.txt" && !f.Staged {
 			found = true
-			assert.Equal(t, domain.GitFileStatusDeleted, f.Status)
+			assert.Equal(t, gitdomain.GitFileStatusDeleted, f.Status)
 		}
 	}
 	assert.True(t, found, "expected an unstaged deleted entry for todelete.txt")
@@ -433,7 +433,7 @@ func TestParse_ConflictBothAdded(
 
 	var found bool
 	for _, f := range s.Files {
-		if f.Path == "newfile.txt" && f.Status == domain.GitFileStatusConflicted {
+		if f.Path == "newfile.txt" && f.Status == gitdomain.GitFileStatusConflicted {
 			found = true
 		}
 	}
@@ -474,7 +474,7 @@ func TestParse_ConflictUWithOther(
 
 	var found bool
 	for _, f := range s.Files {
-		if f.Status == domain.GitFileStatusConflicted {
+		if f.Status == gitdomain.GitFileStatusConflicted {
 			found = true
 		}
 	}
@@ -512,7 +512,7 @@ func TestParseOrdinaryEntries_ConflictXY(
 	// xy = "UU" triggers isConflict → returns a single conflicted entry.
 	files := status.ExportedParseOrdinaryEntries("1 UU N... 100644 100644 100644 abc def conflict.txt")
 	require.Len(t, files, 1)
-	assert.Equal(t, domain.GitFileStatusConflicted, files[0].Status)
+	assert.Equal(t, gitdomain.GitFileStatusConflicted, files[0].Status)
 	assert.Equal(t, "conflict.txt", files[0].Path)
 	assert.False(t, files[0].Staged)
 }
@@ -523,7 +523,7 @@ func TestParseOrdinaryEntries_StagedDeleted(
 	// xy = "D." → staged deletion, no unstaged change.
 	files := status.ExportedParseOrdinaryEntries("1 D. N... 100644 000000 000000 abc def deleted.txt")
 	require.Len(t, files, 1)
-	assert.Equal(t, domain.GitFileStatusDeleted, files[0].Status)
+	assert.Equal(t, gitdomain.GitFileStatusDeleted, files[0].Status)
 	assert.True(t, files[0].Staged)
 }
 
@@ -533,7 +533,7 @@ func TestParseOrdinaryEntries_UnstagedDeleted(
 	// xy = ".D" → unstaged deletion.
 	files := status.ExportedParseOrdinaryEntries("1 .D N... 100644 100644 000000 abc def missing.txt")
 	require.Len(t, files, 1)
-	assert.Equal(t, domain.GitFileStatusDeleted, files[0].Status)
+	assert.Equal(t, gitdomain.GitFileStatusDeleted, files[0].Status)
 	assert.False(t, files[0].Staged)
 }
 
@@ -543,7 +543,7 @@ func TestParseOrdinaryEntries_StagedAdded(
 	// xy = "A." → staged new file.
 	files := status.ExportedParseOrdinaryEntries("1 A. N... 000000 100644 000000 abc def newfile.txt")
 	require.Len(t, files, 1)
-	assert.Equal(t, domain.GitFileStatusAdded, files[0].Status)
+	assert.Equal(t, gitdomain.GitFileStatusAdded, files[0].Status)
 	assert.True(t, files[0].Staged)
 }
 
@@ -553,7 +553,7 @@ func TestParseOrdinaryEntries_StagedRenamed(
 	// xy = "R." → staged rename.
 	files := status.ExportedParseOrdinaryEntries("1 R. N... 100644 100644 100644 abc def renamed.txt")
 	require.Len(t, files, 1)
-	assert.Equal(t, domain.GitFileStatusRenamed, files[0].Status)
+	assert.Equal(t, gitdomain.GitFileStatusRenamed, files[0].Status)
 	assert.True(t, files[0].Staged)
 }
 
@@ -561,14 +561,14 @@ func TestParseRenamedEntry_TooFewParts(
 	t *testing.T,
 ) {
 	f := status.ExportedParseRenamedEntry("2 R. N... 100644 100644")
-	assert.Equal(t, domain.GitFile{}, f)
+	assert.Equal(t, gitdomain.GitFile{}, f)
 }
 
 func TestParseRenamedEntry_ShortXY(
 	t *testing.T,
 ) {
 	f := status.ExportedParseRenamedEntry("2 X N... 100644 100644 100644 100 abc def ghi new.txt\told.txt")
-	assert.Equal(t, domain.GitFile{}, f)
+	assert.Equal(t, gitdomain.GitFile{}, f)
 }
 
 func TestParseRenamedEntry_NotROrC(
@@ -577,7 +577,7 @@ func TestParseRenamedEntry_NotROrC(
 	// xy = ".R" → staged=false (x != 'R' && x != 'C').
 	f := status.ExportedParseRenamedEntry("2 .R N... 100644 100644 100644 abc def R100 new.txt")
 	assert.Equal(t, "new.txt", f.Path)
-	assert.Equal(t, domain.GitFileStatusRenamed, f.Status)
+	assert.Equal(t, gitdomain.GitFileStatusRenamed, f.Status)
 	assert.False(t, f.Staged)
 }
 
@@ -585,7 +585,7 @@ func TestParseUnmergedEntry_TooFewParts(
 	t *testing.T,
 ) {
 	f := status.ExportedParseUnmergedEntry("u UU N... 1 2 3")
-	assert.Equal(t, domain.GitFile{}, f)
+	assert.Equal(t, gitdomain.GitFile{}, f)
 }
 
 func TestIsConflict_ShortXY(
@@ -630,12 +630,12 @@ func TestIsConflict_NotConflict(
 func TestCharToStatus_R(
 	t *testing.T,
 ) {
-	assert.Equal(t, domain.GitFileStatusRenamed, status.ExportedCharToStatus('R'))
+	assert.Equal(t, gitdomain.GitFileStatusRenamed, status.ExportedCharToStatus('R'))
 }
 
 func TestCharToStatus_Default(
 	t *testing.T,
 ) {
 	// Unknown char → Modified.
-	assert.Equal(t, domain.GitFileStatusModified, status.ExportedCharToStatus('X'))
+	assert.Equal(t, gitdomain.GitFileStatusModified, status.ExportedCharToStatus('X'))
 }

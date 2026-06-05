@@ -5,14 +5,14 @@ import (
 	"context"
 
 	gitexec "github.com/char2cs/crowbar/api/internal/engine/git/internal/exec"
-	"github.com/char2cs/crowbar/api/internal/domain"
+	gitdomain "github.com/char2cs/crowbar/api/internal/domain/git"
 )
 
 // ExportedComputeStatus calls ComputeStatus on the engine returned by New().
 func ExportedComputeStatus(
 	ctx context.Context,
 	repoPath string,
-) (domain.GitStatus, error) {
+) (gitdomain.GitStatus, error) {
 	e := New().(*engine)
 	return e.ComputeStatus(ctx, repoPath)
 }

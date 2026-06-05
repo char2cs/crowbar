@@ -8,6 +8,7 @@ import (
 	"sort"
 
 	"github.com/char2cs/crowbar/api/internal/domain"
+	gitdomain "github.com/char2cs/crowbar/api/internal/domain/git"
 )
 
 // StatusProvider resolves git status for a repo path. Implemented by the git
@@ -15,7 +16,7 @@ import (
 type StatusProvider interface {
 	GitStatus(
 		repoPath string,
-	) (domain.GitStatus, error)
+	) (gitdomain.GitStatus, error)
 }
 
 // List returns one level of the file tree rooted at dirPath, with git
@@ -55,7 +56,7 @@ func List(
 func buildStatusMap(
 	repoPath string,
 	provider StatusProvider,
-) map[string]domain.GitFileStatus {
+) map[string]gitdomain.GitFileStatus {
 	if provider == nil {
 		return nil
 	}
@@ -63,7 +64,7 @@ func buildStatusMap(
 	if err != nil {
 		return nil
 	}
-	m := make(map[string]domain.GitFileStatus, len(status.Files))
+	m := make(map[string]gitdomain.GitFileStatus, len(status.Files))
 	for _, f := range status.Files {
 		m[f.Path] = f.Status
 	}
@@ -74,7 +75,7 @@ func buildNode(
 	repoPath string,
 	dirPath string,
 	e os.DirEntry,
-	gitFiles map[string]domain.GitFileStatus,
+	gitFiles map[string]gitdomain.GitFileStatus,
 ) domain.FileNode {
 	relPath := filepath.Join(dirPath, e.Name())
 	nodeType := domain.FileNodeTypeFile
@@ -96,20 +97,20 @@ func buildNode(
 }
 
 func gitDecoration(
-	status domain.GitFileStatus,
+	status gitdomain.GitFileStatus,
 ) domain.FileNodeGitStatus {
 	switch status {
-	case domain.GitFileStatusModified:
+	case gitdomain.GitFileStatusModified:
 		return domain.FileNodeGitStatusModified
-	case domain.GitFileStatusAdded:
+	case gitdomain.GitFileStatusAdded:
 		return domain.FileNodeGitStatusAdded
-	case domain.GitFileStatusDeleted:
+	case gitdomain.GitFileStatusDeleted:
 		return domain.FileNodeGitStatusDeleted
-	case domain.GitFileStatusUntracked:
+	case gitdomain.GitFileStatusUntracked:
 		return domain.FileNodeGitStatusUntracked
-	case domain.GitFileStatusRenamed:
+	case gitdomain.GitFileStatusRenamed:
 		return domain.FileNodeGitStatusRenamed
-	case domain.GitFileStatusConflicted:
+	case gitdomain.GitFileStatusConflicted:
 		return domain.FileNodeGitStatusModified
 	}
 	return ""

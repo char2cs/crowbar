@@ -7,7 +7,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/char2cs/crowbar/api/internal/domain"
+	gitdomain "github.com/char2cs/crowbar/api/internal/domain/git"
 	"github.com/char2cs/crowbar/api/internal/engine/git/internal/diff"
 	"github.com/char2cs/crowbar/api/internal/engine/git/internal/exec"
 	"github.com/stretchr/testify/assert"
@@ -59,7 +59,7 @@ func headSHA(
 }
 
 func collectHunkIDs(
-	f domain.FileDiff,
+	f gitdomain.FileDiff,
 ) map[string]bool {
 	ids := make(map[string]bool)
 	for _, h := range f.Hunks {
@@ -173,7 +173,7 @@ func TestWorkingTree_RenamedFile(t *testing.T) {
 	require.NoError(t, err)
 	require.NotEmpty(t, files)
 
-	var renamed *domain.FileDiff
+	var renamed *gitdomain.FileDiff
 	for i := range files {
 		if files[i].IsRenamed {
 			renamed = &files[i]
@@ -202,7 +202,7 @@ func TestWorkingTree_BinaryFile(t *testing.T) {
 	require.NoError(t, err)
 	require.NotEmpty(t, files)
 
-	var binFile *domain.FileDiff
+	var binFile *gitdomain.FileDiff
 	for i := range files {
 		if files[i].FilePath == "doc.bin" {
 			binFile = &files[i]
@@ -321,11 +321,11 @@ func TestWorkingTree_LineNumbers(t *testing.T) {
 
 	for _, line := range files[0].Lines {
 		switch line.LineType {
-		case domain.DiffLineAdded:
+		case gitdomain.DiffLineAdded:
 			require.NotNil(t, line.NewLineNumber)
-		case domain.DiffLineRemoved:
+		case gitdomain.DiffLineRemoved:
 			require.NotNil(t, line.OldLineNumber)
-		case domain.DiffLineContext:
+		case gitdomain.DiffLineContext:
 			require.NotNil(t, line.OldLineNumber)
 			require.NotNil(t, line.NewLineNumber)
 		}

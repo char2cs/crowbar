@@ -4,6 +4,7 @@ import (
 	"context"
 
 	"github.com/char2cs/crowbar/api/internal/domain"
+	gitdomain "github.com/char2cs/crowbar/api/internal/domain/git"
 )
 
 // Dispatcher receives the fan-out callbacks from the file watcher (05 §5, 03 §5).
@@ -19,7 +20,7 @@ type Dispatcher interface {
 	OnGitStatus(
 		ctx context.Context,
 		wsID string,
-		status domain.GitStatus,
+		status gitdomain.GitStatus,
 	)
 	// OnSyncWorkingTreeState is called when the derived workspace summary
 	// (added/deleted/hasConflicts/hasCommits) has changed and the Workspace
@@ -46,7 +47,7 @@ type GitStatusProvider interface {
 	ComputeStatus(
 		ctx context.Context,
 		repoPath string,
-	) (domain.GitStatus, error)
+	) (gitdomain.GitStatus, error)
 	ComputeWorkingTreeSummary(
 		ctx context.Context,
 		repoPath string,

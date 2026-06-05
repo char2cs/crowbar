@@ -7,7 +7,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/char2cs/crowbar/api/internal/domain"
+	gitdomain "github.com/char2cs/crowbar/api/internal/domain/git"
 )
 
 // ---------------------------------------------------------------------------
@@ -118,7 +118,7 @@ func TestResolvedText_Ours(
 	t *testing.T,
 ) {
 	b := &conflictBlock{oursRaw: "ours", theirsRaw: "theirs"}
-	got, err := resolvedText(b, domain.ConflictResolutionOurs, "")
+	got, err := resolvedText(b, gitdomain.ConflictResolutionOurs, "")
 	require.NoError(t, err)
 	assert.Equal(t, "ours", got)
 }
@@ -127,7 +127,7 @@ func TestResolvedText_Theirs(
 	t *testing.T,
 ) {
 	b := &conflictBlock{oursRaw: "ours", theirsRaw: "theirs"}
-	got, err := resolvedText(b, domain.ConflictResolutionTheirs, "")
+	got, err := resolvedText(b, gitdomain.ConflictResolutionTheirs, "")
 	require.NoError(t, err)
 	assert.Equal(t, "theirs", got)
 }
@@ -136,7 +136,7 @@ func TestResolvedText_Both(
 	t *testing.T,
 ) {
 	b := &conflictBlock{oursRaw: "ours", theirsRaw: "theirs"}
-	got, err := resolvedText(b, domain.ConflictResolutionBoth, "")
+	got, err := resolvedText(b, gitdomain.ConflictResolutionBoth, "")
 	require.NoError(t, err)
 	assert.Equal(t, "ours\ntheirs", got)
 }
@@ -145,7 +145,7 @@ func TestResolvedText_Custom(
 	t *testing.T,
 ) {
 	b := &conflictBlock{oursRaw: "ours", theirsRaw: "theirs"}
-	got, err := resolvedText(b, domain.ConflictResolutionCustom, "custom text")
+	got, err := resolvedText(b, gitdomain.ConflictResolutionCustom, "custom text")
 	require.NoError(t, err)
 	assert.Equal(t, "custom text", got)
 }
@@ -155,7 +155,7 @@ func TestResolvedText_Default(
 ) {
 	b := &conflictBlock{oursRaw: "ours"}
 	// Unknown resolution now returns an error.
-	_, err := resolvedText(b, domain.ConflictResolution("unknown"), "")
+	_, err := resolvedText(b, gitdomain.ConflictResolution("unknown"), "")
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "unknown resolution")
 }

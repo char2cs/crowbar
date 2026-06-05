@@ -4,27 +4,27 @@ package branches
 import (
 	"context"
 
-	"github.com/char2cs/crowbar/api/internal/domain"
+	gitdomain "github.com/char2cs/crowbar/api/internal/domain/git"
 	"github.com/char2cs/crowbar/api/internal/engine/git/internal/exec"
 )
 
 // ExportedParseRecord wraps parseRecord for use in _test packages.
-func ExportedParseRecord(rec string) (domain.Branch, bool) {
+func ExportedParseRecord(rec string) (gitdomain.Branch, bool) {
 	return parseRecord(rec)
 }
 
 // ExportedParseList wraps parseList for use in _test packages.
-func ExportedParseList(output string) []domain.Branch {
+func ExportedParseList(output string) []gitdomain.Branch {
 	return parseList(output)
 }
 
 // ExportedParseTrack wraps parseTrack for use in _test packages.
-func ExportedParseTrack(track string, b *domain.Branch) {
+func ExportedParseTrack(track string, b *gitdomain.Branch) {
 	parseTrack(track, b)
 }
 
 // ExportedParseTrackSegment wraps parseTrackSegment for use in _test packages.
-func ExportedParseTrackSegment(seg string, b *domain.Branch) {
+func ExportedParseTrackSegment(seg string, b *gitdomain.Branch) {
 	parseTrackSegment(seg, b)
 }
 

@@ -9,7 +9,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/char2cs/crowbar/api/internal/domain"
+	gitdomain "github.com/char2cs/crowbar/api/internal/domain/git"
 	"github.com/char2cs/crowbar/api/internal/engine/git/internal/branches"
 	"github.com/char2cs/crowbar/api/internal/engine/git/internal/exec"
 )
@@ -44,9 +44,9 @@ func makeCommit(
 }
 
 func findBranch(
-	bs []domain.Branch,
+	bs []gitdomain.Branch,
 	name string,
-) *domain.Branch {
+) *gitdomain.Branch {
 	for i := range bs {
 		if bs[i].Name == name {
 			return &bs[i]
@@ -56,7 +56,7 @@ func findBranch(
 }
 
 func currentBranch(
-	bs []domain.Branch,
+	bs []gitdomain.Branch,
 ) string {
 	for _, b := range bs {
 		if b.IsCurrent {

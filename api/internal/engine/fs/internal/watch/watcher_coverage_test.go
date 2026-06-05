@@ -13,6 +13,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/char2cs/crowbar/api/internal/domain"
+	gitdomain "github.com/char2cs/crowbar/api/internal/domain/git"
 	"github.com/char2cs/crowbar/api/internal/engine/fs/internal/watch"
 )
 
@@ -36,7 +37,7 @@ func (c *captureDispatcher) OnFileChange(
 func (c *captureDispatcher) OnGitStatus(
 	_ context.Context,
 	_ string,
-	_ domain.GitStatus,
+	_ gitdomain.GitStatus,
 ) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
@@ -160,8 +161,8 @@ type changingGit struct {
 func (g *changingGit) ComputeStatus(
 	_ context.Context,
 	_ string,
-) (domain.GitStatus, error) {
-	return domain.GitStatus{}, nil
+) (gitdomain.GitStatus, error) {
+	return gitdomain.GitStatus{}, nil
 }
 
 func (g *changingGit) ComputeWorkingTreeSummary(
@@ -325,8 +326,8 @@ type commitTogglingGit struct {
 func (g *commitTogglingGit) ComputeStatus(
 	_ context.Context,
 	_ string,
-) (domain.GitStatus, error) {
-	return domain.GitStatus{}, nil
+) (gitdomain.GitStatus, error) {
+	return gitdomain.GitStatus{}, nil
 }
 
 func (g *commitTogglingGit) ComputeWorkingTreeSummary(
@@ -369,8 +370,8 @@ type conflictTogglingGit struct {
 func (g *conflictTogglingGit) ComputeStatus(
 	_ context.Context,
 	_ string,
-) (domain.GitStatus, error) {
-	return domain.GitStatus{}, nil
+) (gitdomain.GitStatus, error) {
+	return gitdomain.GitStatus{}, nil
 }
 
 func (g *conflictTogglingGit) ComputeWorkingTreeSummary(
@@ -413,8 +414,8 @@ type deletedChangeGit struct {
 func (g *deletedChangeGit) ComputeStatus(
 	_ context.Context,
 	_ string,
-) (domain.GitStatus, error) {
-	return domain.GitStatus{}, nil
+) (gitdomain.GitStatus, error) {
+	return gitdomain.GitStatus{}, nil
 }
 
 func (g *deletedChangeGit) ComputeWorkingTreeSummary(
@@ -454,8 +455,8 @@ type summaryErrorGit struct{}
 func (g *summaryErrorGit) ComputeStatus(
 	_ context.Context,
 	_ string,
-) (domain.GitStatus, error) {
-	return domain.GitStatus{}, nil
+) (gitdomain.GitStatus, error) {
+	return gitdomain.GitStatus{}, nil
 }
 
 func (g *summaryErrorGit) ComputeWorkingTreeSummary(
@@ -484,8 +485,8 @@ type statusErrorGit struct{}
 func (g *statusErrorGit) ComputeStatus(
 	_ context.Context,
 	_ string,
-) (domain.GitStatus, error) {
-	return domain.GitStatus{}, assert.AnError
+) (gitdomain.GitStatus, error) {
+	return gitdomain.GitStatus{}, assert.AnError
 }
 
 func (g *statusErrorGit) ComputeWorkingTreeSummary(

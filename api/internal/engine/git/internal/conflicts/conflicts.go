@@ -12,7 +12,7 @@ import (
 	"strings"
 	"sync"
 
-	"github.com/char2cs/crowbar/api/internal/domain"
+	gitdomain "github.com/char2cs/crowbar/api/internal/domain/git"
 	"github.com/char2cs/crowbar/api/internal/engine/git/internal/exec"
 )
 
@@ -71,7 +71,7 @@ func ParseFile(
 	ctx context.Context,
 	repoPath string,
 	filePath string,
-) ([]domain.ConflictHunk, error) {
+) ([]gitdomain.ConflictHunk, error) {
 	absPath := filepath.Join(repoPath, filePath)
 	data, err := os.ReadFile(absPath)
 	if err != nil {
@@ -93,17 +93,17 @@ func ParseFile(
 		return nil, fmt.Errorf("conflicts: parse file: fetch base: %w", fetchErr)
 	}
 
-	hunks := make([]domain.ConflictHunk, 0, len(blocks))
+	hunks := make([]gitdomain.ConflictHunk, 0, len(blocks))
 	for _, b := range blocks {
 		id := conflictHunkID(filePath, b.oursRaw, b.theirsRaw)
-		hunks = append(hunks, domain.ConflictHunk{
+		hunks = append(hunks, gitdomain.ConflictHunk{
 			ID:         id,
 			StartLine:  b.startLine,
 			EndLine:    b.endLine,
 			Ours:       b.oursRaw,
 			Theirs:     b.theirsRaw,
 			Base:       baseContent,
-			Resolution: domain.ConflictResolutionUnresolved,
+			Resolution: gitdomain.ConflictResolutionUnresolved,
 		})
 	}
 	return hunks, nil
@@ -117,7 +117,7 @@ func ResolveHunk(
 	repoPath string,
 	filePath string,
 	hunkID string,
-	resolution domain.ConflictResolution,
+	resolution gitdomain.ConflictResolution,
 	resolvedContent string,
 ) error {
 	absPath := filepath.Join(repoPath, filePath)
@@ -316,17 +316,17 @@ func findBlock(
 
 func resolvedText(
 	b *conflictBlock,
-	resolution domain.ConflictResolution,
+	resolution gitdomain.ConflictResolution,
 	custom string,
 ) (string, error) {
 	switch resolution {
-	case domain.ConflictResolutionOurs:
+	case gitdomain.ConflictResolutionOurs:
 		return b.oursRaw, nil
-	case domain.ConflictResolutionTheirs:
+	case gitdomain.ConflictResolutionTheirs:
 		return b.theirsRaw, nil
-	case domain.ConflictResolutionBoth:
+	case gitdomain.ConflictResolutionBoth:
 		return b.oursRaw + "\n" + b.theirsRaw, nil
-	case domain.ConflictResolutionCustom:
+	case gitdomain.ConflictResolutionCustom:
 		return custom, nil
 	default:
 		return "", fmt.Errorf("conflicts: unknown resolution %q", resolution)

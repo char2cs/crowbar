@@ -15,13 +15,14 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/char2cs/crowbar/api/internal/domain"
+	gitdomain "github.com/char2cs/crowbar/api/internal/domain/git"
 )
 
 // minimalGit is a zero-value stub for GitStatusProvider.
 type minimalGit struct{}
 
-func (g *minimalGit) ComputeStatus(_ context.Context, _ string) (domain.GitStatus, error) {
-	return domain.GitStatus{}, nil
+func (g *minimalGit) ComputeStatus(_ context.Context, _ string) (gitdomain.GitStatus, error) {
+	return gitdomain.GitStatus{}, nil
 }
 
 func (g *minimalGit) ComputeWorkingTreeSummary(
@@ -40,7 +41,7 @@ type recordingDispatcher struct {
 
 func (r *recordingDispatcher) OnFileChange(_ context.Context, _ domain.FileChangeEvent) {}
 
-func (r *recordingDispatcher) OnGitStatus(_ context.Context, _ string, _ domain.GitStatus) {
+func (r *recordingDispatcher) OnGitStatus(_ context.Context, _ string, _ gitdomain.GitStatus) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	r.gitCount++

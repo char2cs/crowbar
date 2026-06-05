@@ -16,6 +16,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/char2cs/crowbar/api/internal/domain"
+	gitdomain "github.com/char2cs/crowbar/api/internal/domain/git"
 	enginegit "github.com/char2cs/crowbar/api/internal/engine/git"
 	"github.com/char2cs/crowbar/api/internal/engine/fs/internal/watch"
 )
@@ -101,7 +102,7 @@ func TestGate1_StatusDiffCommitHunkStage(
 	status, err = git.Status(ctx, dir)
 	require.NoError(t, err)
 	require.NotEmpty(t, status.Files)
-	assert.Equal(t, domain.GitFileStatusModified, status.Files[0].Status)
+	assert.Equal(t, gitdomain.GitFileStatusModified, status.Files[0].Status)
 	assert.False(t, status.Files[0].Staged)
 
 	files, err := git.Diff(ctx, dir, false)
@@ -197,7 +198,7 @@ func TestGate1_GitStatusPushOnMutation(
 	status, err := git.Status(ctx, dir)
 	require.NoError(t, err)
 	require.Len(t, status.Files, 1)
-	assert.Equal(t, domain.GitFileStatusUntracked, status.Files[0].Status)
+	assert.Equal(t, gitdomain.GitFileStatusUntracked, status.Files[0].Status)
 
 	err = git.StageFile(ctx, dir, "modified.txt")
 	require.NoError(t, err)
@@ -205,7 +206,7 @@ func TestGate1_GitStatusPushOnMutation(
 	status, err = git.Status(ctx, dir)
 	require.NoError(t, err)
 	require.Len(t, status.Files, 1)
-	assert.Equal(t, domain.GitFileStatusAdded, status.Files[0].Status)
+	assert.Equal(t, gitdomain.GitFileStatusAdded, status.Files[0].Status)
 	assert.True(t, status.Files[0].Staged)
 }
 
@@ -240,9 +241,9 @@ func TestGate1_ConflictResolutionLifecycle(
 	hunks, err := git.ConflictHunks(ctx, dir, "conflict.txt")
 	require.NoError(t, err)
 	require.NotEmpty(t, hunks)
-	assert.Equal(t, domain.ConflictResolutionUnresolved, hunks[0].Resolution)
+	assert.Equal(t, gitdomain.ConflictResolutionUnresolved, hunks[0].Resolution)
 
-	err = git.ResolveHunk(ctx, dir, "conflict.txt", hunks[0].ID, domain.ConflictResolutionOurs, "")
+	err = git.ResolveHunk(ctx, dir, "conflict.txt", hunks[0].ID, gitdomain.ConflictResolutionOurs, "")
 	require.NoError(t, err)
 
 	data, err := os.ReadFile(filepath.Join(dir, "conflict.txt"))
@@ -255,7 +256,7 @@ func TestGate1_ConflictResolutionLifecycle(
 	status, err := git.Status(ctx, dir)
 	require.NoError(t, err)
 	for _, f := range status.Files {
-		assert.NotEqual(t, domain.GitFileStatusConflicted, f.Status)
+		assert.NotEqual(t, gitdomain.GitFileStatusConflicted, f.Status)
 	}
 }
 
@@ -276,7 +277,7 @@ func (d *captureDispatcher) OnFileChange(
 func (d *captureDispatcher) OnGitStatus(
 	_ context.Context,
 	_ string,
-	_ domain.GitStatus,
+	_ gitdomain.GitStatus,
 ) {}
 
 func (d *captureDispatcher) OnSyncWorkingTreeState(
@@ -295,7 +296,7 @@ type gitProvider struct {
 func (g *gitProvider) ComputeStatus(
 	ctx context.Context,
 	repoPath string,
-) (domain.GitStatus, error) {
+) (gitdomain.GitStatus, error) {
 	return g.engine.Status(ctx, repoPath)
 }
 

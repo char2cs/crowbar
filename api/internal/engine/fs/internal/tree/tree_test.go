@@ -10,6 +10,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/char2cs/crowbar/api/internal/domain"
+	gitdomain "github.com/char2cs/crowbar/api/internal/domain/git"
 	"github.com/char2cs/crowbar/api/internal/engine/fs/internal/tree"
 )
 
@@ -17,18 +18,18 @@ type noopProvider struct{}
 
 func (n *noopProvider) GitStatus(
 	_ string,
-) (domain.GitStatus, error) {
-	return domain.GitStatus{}, nil
+) (gitdomain.GitStatus, error) {
+	return gitdomain.GitStatus{}, nil
 }
 
 type fakeProvider struct {
-	files []domain.GitFile
+	files []gitdomain.GitFile
 }
 
 func (f *fakeProvider) GitStatus(
 	_ string,
-) (domain.GitStatus, error) {
-	return domain.GitStatus{Files: f.files}, nil
+) (gitdomain.GitStatus, error) {
+	return gitdomain.GitStatus{Files: f.files}, nil
 }
 
 // errorProvider simulates a StatusProvider that always returns an error.
@@ -36,8 +37,8 @@ type errorProvider struct{}
 
 func (e *errorProvider) GitStatus(
 	_ string,
-) (domain.GitStatus, error) {
-	return domain.GitStatus{}, errors.New("git status unavailable")
+) (gitdomain.GitStatus, error) {
+	return gitdomain.GitStatus{}, errors.New("git status unavailable")
 }
 
 func TestList_Root(
@@ -77,8 +78,8 @@ func TestList_GitDecoration(
 	dir := t.TempDir()
 	require.NoError(t, os.WriteFile(filepath.Join(dir, "modified.txt"), nil, 0600))
 
-	fp := &fakeProvider{files: []domain.GitFile{
-		{Path: "modified.txt", Status: domain.GitFileStatusModified, Staged: false},
+	fp := &fakeProvider{files: []gitdomain.GitFile{
+		{Path: "modified.txt", Status: gitdomain.GitFileStatusModified, Staged: false},
 	}}
 
 	nodes, err := tree.List(dir, "", fp)
@@ -94,8 +95,8 @@ func TestList_ConflictedCollapsesToModified(
 	dir := t.TempDir()
 	require.NoError(t, os.WriteFile(filepath.Join(dir, "conflict.txt"), nil, 0600))
 
-	fp := &fakeProvider{files: []domain.GitFile{
-		{Path: "conflict.txt", Status: domain.GitFileStatusConflicted},
+	fp := &fakeProvider{files: []gitdomain.GitFile{
+		{Path: "conflict.txt", Status: gitdomain.GitFileStatusConflicted},
 	}}
 
 	nodes, err := tree.List(dir, "", fp)
@@ -185,19 +186,19 @@ func TestList_AllGitDecorations(
 
 	files := []struct {
 		name           string
-		status         domain.GitFileStatus
+		status         gitdomain.GitFileStatus
 		expectedDec    domain.FileNodeGitStatus
 	}{
-		{"added.txt", domain.GitFileStatusAdded, domain.FileNodeGitStatusAdded},
-		{"deleted.txt", domain.GitFileStatusDeleted, domain.FileNodeGitStatusDeleted},
-		{"untracked.txt", domain.GitFileStatusUntracked, domain.FileNodeGitStatusUntracked},
-		{"renamed.txt", domain.GitFileStatusRenamed, domain.FileNodeGitStatusRenamed},
+		{"added.txt", gitdomain.GitFileStatusAdded, domain.FileNodeGitStatusAdded},
+		{"deleted.txt", gitdomain.GitFileStatusDeleted, domain.FileNodeGitStatusDeleted},
+		{"untracked.txt", gitdomain.GitFileStatusUntracked, domain.FileNodeGitStatusUntracked},
+		{"renamed.txt", gitdomain.GitFileStatusRenamed, domain.FileNodeGitStatusRenamed},
 	}
 
-	gitFiles := make([]domain.GitFile, 0, len(files))
+	gitFiles := make([]gitdomain.GitFile, 0, len(files))
 	for _, f := range files {
 		require.NoError(t, os.WriteFile(filepath.Join(dir, f.name), nil, 0600))
-		gitFiles = append(gitFiles, domain.GitFile{Path: f.name, Status: f.status})
+		gitFiles = append(gitFiles, gitdomain.GitFile{Path: f.name, Status: f.status})
 	}
 
 	fp := &fakeProvider{files: gitFiles}

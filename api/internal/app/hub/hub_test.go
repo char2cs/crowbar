@@ -7,12 +7,13 @@ import (
 
 	"github.com/char2cs/crowbar/api/internal/app/hub"
 	"github.com/char2cs/crowbar/api/internal/domain"
+	gitdomain "github.com/char2cs/crowbar/api/internal/domain/git"
 )
 
 type fakeSubscriber struct {
 	workspaces []domain.Workspace
 	chats      []hub.ChatStatusEvent
-	gitStatuses []domain.GitStatus
+	gitStatuses []gitdomain.GitStatus
 	fileEvents  []domain.FileChangeEvent
 }
 
@@ -30,7 +31,7 @@ func (f *fakeSubscriber) PushChat(
 
 func (f *fakeSubscriber) PushGit(
 	_ string,
-	status domain.GitStatus,
+	status gitdomain.GitStatus,
 ) {
 	f.gitStatuses = append(f.gitStatuses, status)
 }

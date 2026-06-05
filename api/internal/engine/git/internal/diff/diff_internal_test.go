@@ -6,7 +6,7 @@ import (
 	"context"
 	"testing"
 
-	"github.com/char2cs/crowbar/api/internal/domain"
+	gitdomain "github.com/char2cs/crowbar/api/internal/domain/git"
 	"github.com/stretchr/testify/assert"
 )
 
@@ -71,20 +71,20 @@ func TestParseHunkHeader_EndNoSpace(t *testing.T) {
 // --- headerForHunk: out-of-bounds and non-header type ---
 
 func TestHeaderForHunk_NegativeIndex(t *testing.T) {
-	lines := []domain.DiffLine{{LineType: domain.DiffLineContext, Content: "ctx"}}
+	lines := []gitdomain.DiffLine{{LineType: gitdomain.DiffLineContext, Content: "ctx"}}
 	result := headerForHunk(lines, -1)
 	assert.Equal(t, "", result)
 }
 
 func TestHeaderForHunk_IndexTooLarge(t *testing.T) {
-	lines := []domain.DiffLine{{LineType: domain.DiffLineHeader, Content: "@@ -1 +1 @@"}}
+	lines := []gitdomain.DiffLine{{LineType: gitdomain.DiffLineHeader, Content: "@@ -1 +1 @@"}}
 	result := headerForHunk(lines, 5)
 	assert.Equal(t, "", result)
 }
 
 func TestHeaderForHunk_NonHeaderAtIndex(t *testing.T) {
-	lines := []domain.DiffLine{
-		{LineType: domain.DiffLineContext, Content: "context line"},
+	lines := []gitdomain.DiffLine{
+		{LineType: gitdomain.DiffLineContext, Content: "context line"},
 	}
 	result := headerForHunk(lines, 0)
 	assert.Equal(t, "", result)
@@ -102,22 +102,22 @@ func TestBuildHunkLines_Empty(t *testing.T) {
 func TestBuildDiffLine_EmptyRaw(t *testing.T) {
 	old, new_ := 1, 1
 	result := buildDiffLine("", "hunkID", &old, &new_)
-	assert.Equal(t, domain.DiffLine{}, result)
+	assert.Equal(t, gitdomain.DiffLine{}, result)
 }
 
 func TestBuildDiffLine_UnknownPrefix(t *testing.T) {
 	old, new_ := 1, 1
 	result := buildDiffLine("\\no newline", "hunkID", &old, &new_)
-	assert.Equal(t, domain.DiffLineContext, result.LineType)
+	assert.Equal(t, gitdomain.DiffLineContext, result.LineType)
 	assert.Equal(t, "\\no newline", result.Content)
 }
 
 // --- hunkHeader: no DiffLineHeader in slice ---
 
 func TestHunkHeader_NoHeaderLine_ReturnsFallback(t *testing.T) {
-	lines := []domain.DiffLine{
-		{LineType: domain.DiffLineContext, Content: " context"},
-		{LineType: domain.DiffLineAdded, Content: "+added"},
+	lines := []gitdomain.DiffLine{
+		{LineType: gitdomain.DiffLineContext, Content: " context"},
+		{LineType: gitdomain.DiffLineAdded, Content: "+added"},
 	}
 	result := hunkHeader(lines, "fallback-header")
 	assert.Equal(t, "fallback-header", result)
@@ -199,19 +199,19 @@ func TestApplyNewPath_FilePath_FallbackFromNewPath(t *testing.T) {
 // --- buildPatch: deleted file branch ---
 
 func TestBuildPatch_DeletedFile(t *testing.T) {
-	f := &domain.FileDiff{
+	f := &gitdomain.FileDiff{
 		FilePath:  "gone.go",
 		OldPath:   "gone.go",
 		IsDeleted: true,
 	}
-	hunk := &domain.Hunk{
+	hunk := &gitdomain.Hunk{
 		HunkID:    "testhunk",
 		Header:    "@@ -1 +0,0 @@",
 		StartLine: 0,
 		EndLine:   0,
 	}
-	lines := []domain.DiffLine{
-		{LineType: domain.DiffLineHeader, Content: "@@ -1 +0,0 @@", HunkID: "testhunk"},
+	lines := []gitdomain.DiffLine{
+		{LineType: gitdomain.DiffLineHeader, Content: "@@ -1 +0,0 @@", HunkID: "testhunk"},
 	}
 	patch := buildPatch(f, hunk, lines)
 	assert.Contains(t, patch, "deleted file mode 100644")

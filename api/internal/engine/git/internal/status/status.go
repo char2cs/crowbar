@@ -7,7 +7,7 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/char2cs/crowbar/api/internal/domain"
+	gitdomain "github.com/char2cs/crowbar/api/internal/domain/git"
 	"github.com/char2cs/crowbar/api/internal/engine/git/internal/exec"
 )
 
@@ -15,18 +15,18 @@ import (
 func Parse(
 	ctx context.Context,
 	repoPath string,
-) (domain.GitStatus, error) {
+) (gitdomain.GitStatus, error) {
 	r := exec.Git(ctx, repoPath, "status", "--porcelain=v2", "--branch")
 	if r.ExitCode != 0 {
-		return domain.GitStatus{}, fmt.Errorf("status: parse: exit %d: %s", r.ExitCode, strings.TrimSpace(r.Stderr))
+		return gitdomain.GitStatus{}, fmt.Errorf("status: parse: exit %d: %s", r.ExitCode, strings.TrimSpace(r.Stderr))
 	}
 	return parseOutput(r.Stdout), nil
 }
 
 func parseOutput(
 	output string,
-) domain.GitStatus {
-	var s domain.GitStatus
+) gitdomain.GitStatus {
+	var s gitdomain.GitStatus
 	lines := strings.Split(output, "\n")
 	for _, line := range lines {
 		if line == "" {
@@ -64,7 +64,7 @@ func parseAheadBehind(
 
 func parseOrdinaryEntries(
 	line string,
-) []domain.GitFile {
+) []gitdomain.GitFile {
 	parts := strings.Fields(line)
 	if len(parts) < 9 {
 		return nil
@@ -78,21 +78,21 @@ func parseOrdinaryEntries(
 	path := parts[8]
 
 	if isConflict(xy) {
-		return []domain.GitFile{
-			{Path: path, Status: domain.GitFileStatusConflicted, Staged: false},
+		return []gitdomain.GitFile{
+			{Path: path, Status: gitdomain.GitFileStatusConflicted, Staged: false},
 		}
 	}
 
-	var files []domain.GitFile
+	var files []gitdomain.GitFile
 	if x != '.' {
-		files = append(files, domain.GitFile{
+		files = append(files, gitdomain.GitFile{
 			Path:   path,
 			Status: charToStatus(x),
 			Staged: true,
 		})
 	}
 	if y != '.' {
-		files = append(files, domain.GitFile{
+		files = append(files, gitdomain.GitFile{
 			Path:   path,
 			Status: charToStatus(y),
 			Staged: false,
@@ -103,47 +103,47 @@ func parseOrdinaryEntries(
 
 func parseRenamedEntry(
 	line string,
-) domain.GitFile {
+) gitdomain.GitFile {
 	parts := strings.Fields(line)
 	if len(parts) < 10 {
-		return domain.GitFile{}
+		return gitdomain.GitFile{}
 	}
 	xy := parts[1]
 	if len(xy) < 2 {
-		return domain.GitFile{}
+		return gitdomain.GitFile{}
 	}
 	x := rune(xy[0])
 	path := parts[9]
 	staged := x == 'R' || x == 'C'
-	return domain.GitFile{
+	return gitdomain.GitFile{
 		Path:   path,
-		Status: domain.GitFileStatusRenamed,
+		Status: gitdomain.GitFileStatusRenamed,
 		Staged: staged,
 	}
 }
 
 func parseUnmergedEntry(
 	line string,
-) domain.GitFile {
+) gitdomain.GitFile {
 	parts := strings.Fields(line)
 	if len(parts) < 11 {
-		return domain.GitFile{}
+		return gitdomain.GitFile{}
 	}
 	path := parts[10]
-	return domain.GitFile{
+	return gitdomain.GitFile{
 		Path:   path,
-		Status: domain.GitFileStatusConflicted,
+		Status: gitdomain.GitFileStatusConflicted,
 		Staged: false,
 	}
 }
 
 func parseUntrackedEntry(
 	line string,
-) domain.GitFile {
+) gitdomain.GitFile {
 	path := strings.TrimPrefix(line, "? ")
-	return domain.GitFile{
+	return gitdomain.GitFile{
 		Path:   path,
-		Status: domain.GitFileStatusUntracked,
+		Status: gitdomain.GitFileStatusUntracked,
 		Staged: false,
 	}
 }
@@ -167,17 +167,17 @@ func isConflict(
 
 func charToStatus(
 	c rune,
-) domain.GitFileStatus {
+) gitdomain.GitFileStatus {
 	switch c {
 	case 'M':
-		return domain.GitFileStatusModified
+		return gitdomain.GitFileStatusModified
 	case 'A':
-		return domain.GitFileStatusAdded
+		return gitdomain.GitFileStatusAdded
 	case 'D':
-		return domain.GitFileStatusDeleted
+		return gitdomain.GitFileStatusDeleted
 	case 'R':
-		return domain.GitFileStatusRenamed
+		return gitdomain.GitFileStatusRenamed
 	default:
-		return domain.GitFileStatusModified
+		return gitdomain.GitFileStatusModified
 	}
 }

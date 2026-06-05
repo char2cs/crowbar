@@ -6,7 +6,7 @@ import (
 	"strings"
 	"sync"
 
-	"github.com/char2cs/crowbar/api/internal/domain"
+	gitdomain "github.com/char2cs/crowbar/api/internal/domain/git"
 	"github.com/char2cs/crowbar/api/internal/engine/git/internal/blame"
 	"github.com/char2cs/crowbar/api/internal/engine/git/internal/branches"
 	"github.com/char2cs/crowbar/api/internal/engine/git/internal/conflicts"
@@ -75,7 +75,7 @@ func classifyGitError(op string, r gitexec.Result) error {
 func (e *engine) Status(
 	ctx context.Context,
 	repoPath string,
-) (domain.GitStatus, error) {
+) (gitdomain.GitStatus, error) {
 	return status.Parse(ctx, repoPath)
 }
 
@@ -83,7 +83,7 @@ func (e *engine) Diff(
 	ctx context.Context,
 	repoPath string,
 	staged bool,
-) ([]domain.FileDiff, error) {
+) ([]gitdomain.FileDiff, error) {
 	return diff.WorkingTree(ctx, repoPath, staged)
 }
 
@@ -91,7 +91,7 @@ func (e *engine) CommitDiff(
 	ctx context.Context,
 	repoPath string,
 	sha string,
-) (domain.MultiFileDiff, error) {
+) (gitdomain.MultiFileDiff, error) {
 	return diff.Commit(ctx, repoPath, sha)
 }
 
@@ -100,7 +100,7 @@ func (e *engine) Log(
 	repoPath string,
 	limit int,
 	skip int,
-) ([]domain.Commit, error) {
+) ([]gitdomain.Commit, error) {
 	return gitlog.List(ctx, repoPath, limit, skip)
 }
 
@@ -108,21 +108,21 @@ func (e *engine) Blame(
 	ctx context.Context,
 	repoPath string,
 	filePath string,
-) ([]domain.BlameEntry, error) {
+) ([]gitdomain.BlameEntry, error) {
 	return blame.File(ctx, repoPath, filePath)
 }
 
 func (e *engine) Branches(
 	ctx context.Context,
 	repoPath string,
-) ([]domain.Branch, error) {
+) ([]gitdomain.Branch, error) {
 	return branches.List(ctx, repoPath)
 }
 
 func (e *engine) Stashes(
 	ctx context.Context,
 	repoPath string,
-) ([]domain.Stash, error) {
+) ([]gitdomain.Stash, error) {
 	return stash.List(ctx, repoPath)
 }
 
@@ -180,7 +180,7 @@ func (e *engine) Discard(
 		if f.Path != filePath {
 			continue
 		}
-		if f.Status == domain.GitFileStatusUntracked {
+		if f.Status == gitdomain.GitFileStatusUntracked {
 			return e.discardUntracked(ctx, repoPath, filePath)
 		}
 		return e.discardTracked(ctx, repoPath, filePath)
@@ -371,7 +371,7 @@ func (e *engine) ConflictHunks(
 	ctx context.Context,
 	repoPath string,
 	filePath string,
-) ([]domain.ConflictHunk, error) {
+) ([]gitdomain.ConflictHunk, error) {
 	return conflicts.ParseFile(ctx, repoPath, filePath)
 }
 
@@ -380,7 +380,7 @@ func (e *engine) ResolveHunk(
 	repoPath string,
 	filePath string,
 	hunkID string,
-	resolution domain.ConflictResolution,
+	resolution gitdomain.ConflictResolution,
 	resolvedContent string,
 ) error {
 	return conflicts.ResolveHunk(ctx, repoPath, filePath, hunkID, resolution, resolvedContent)
@@ -414,7 +414,7 @@ func (e *engine) WorkingTreeSummary(
 func (e *engine) ComputeStatus(
 	ctx context.Context,
 	repoPath string,
-) (domain.GitStatus, error) {
+) (gitdomain.GitStatus, error) {
 	return e.Status(ctx, repoPath)
 }
 
