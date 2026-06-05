@@ -57,6 +57,17 @@ func TestExtractConflictBlocks_MultipleHunks(
 	assert.Len(t, blocks, 2)
 }
 
+// TestExtractConflictBlocks_UnclosedMarker exercises the error path when a
+// <<<<<<< has no matching >>>>>>>.
+func TestExtractConflictBlocks_UnclosedMarker(
+	t *testing.T,
+) {
+	content := "line1\n<<<<<<< HEAD\nours\n=======\ntheirs\n"
+	_, err := extractConflictBlocks(content)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "unclosed conflict marker")
+}
+
 // ---------------------------------------------------------------------------
 // extractLines
 // ---------------------------------------------------------------------------
@@ -107,38 +118,46 @@ func TestResolvedText_Ours(
 	t *testing.T,
 ) {
 	b := &conflictBlock{oursRaw: "ours", theirsRaw: "theirs"}
-	assert.Equal(t, "ours", resolvedText(b, domain.ConflictResolutionOurs, ""))
+	got, err := resolvedText(b, domain.ConflictResolutionOurs, "")
+	require.NoError(t, err)
+	assert.Equal(t, "ours", got)
 }
 
 func TestResolvedText_Theirs(
 	t *testing.T,
 ) {
 	b := &conflictBlock{oursRaw: "ours", theirsRaw: "theirs"}
-	assert.Equal(t, "theirs", resolvedText(b, domain.ConflictResolutionTheirs, ""))
+	got, err := resolvedText(b, domain.ConflictResolutionTheirs, "")
+	require.NoError(t, err)
+	assert.Equal(t, "theirs", got)
 }
 
 func TestResolvedText_Both(
 	t *testing.T,
 ) {
 	b := &conflictBlock{oursRaw: "ours", theirsRaw: "theirs"}
-	result := resolvedText(b, domain.ConflictResolutionBoth, "")
-	assert.Equal(t, "ours\ntheirs", result)
+	got, err := resolvedText(b, domain.ConflictResolutionBoth, "")
+	require.NoError(t, err)
+	assert.Equal(t, "ours\ntheirs", got)
 }
 
 func TestResolvedText_Custom(
 	t *testing.T,
 ) {
 	b := &conflictBlock{oursRaw: "ours", theirsRaw: "theirs"}
-	assert.Equal(t, "custom text", resolvedText(b, domain.ConflictResolutionCustom, "custom text"))
+	got, err := resolvedText(b, domain.ConflictResolutionCustom, "custom text")
+	require.NoError(t, err)
+	assert.Equal(t, "custom text", got)
 }
 
 func TestResolvedText_Default(
 	t *testing.T,
 ) {
 	b := &conflictBlock{oursRaw: "ours"}
-	// Unknown resolution falls through to default → returns oursRaw.
-	result := resolvedText(b, domain.ConflictResolution("unknown"), "")
-	assert.Equal(t, "ours", result)
+	// Unknown resolution now returns an error.
+	_, err := resolvedText(b, domain.ConflictResolution("unknown"), "")
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "unknown resolution")
 }
 
 // ---------------------------------------------------------------------------
@@ -192,4 +211,28 @@ func TestHasMarkers_False(
 ) {
 	content := "clean file\nno conflicts\n"
 	assert.False(t, hasMarkers(content))
+}
+
+// ---------------------------------------------------------------------------
+// conflictHunkID
+// ---------------------------------------------------------------------------
+
+// TestConflictHunkID_StableAcrossLineShift verifies that the content-based ID
+// does not change when the line number changes (unlike the old position-based
+// hunkID).
+func TestConflictHunkID_StableAcrossLineShift(
+	t *testing.T,
+) {
+	id1 := conflictHunkID("file.go", "ours content", "theirs content")
+	id2 := conflictHunkID("file.go", "ours content", "theirs content")
+	assert.Equal(t, id1, id2)
+	assert.Len(t, id1, 12)
+}
+
+func TestConflictHunkID_DifferentContent(
+	t *testing.T,
+) {
+	id1 := conflictHunkID("file.go", "ours A", "theirs A")
+	id2 := conflictHunkID("file.go", "ours B", "theirs B")
+	assert.NotEqual(t, id1, id2)
 }

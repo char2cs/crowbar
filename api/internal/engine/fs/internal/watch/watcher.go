@@ -4,7 +4,9 @@ package watch
 
 import (
 	"context"
+	"fmt"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"sync"
@@ -62,7 +64,7 @@ func (w *Watcher) Start(
 ) error {
 	fsw, err := fsnotify.NewWatcher()
 	if err != nil {
-		return err
+		return fmt.Errorf("watch: start: new fsnotify watcher: %w", err)
 	}
 	w.mu.Lock()
 	w.fsw = fsw
@@ -70,7 +72,22 @@ func (w *Watcher) Start(
 
 	if err := w.addRecursive(w.repoPath); err != nil {
 		fsw.Close()
-		return err
+		return fmt.Errorf("watch: start: add recursive %s: %w", w.repoPath, err)
+	}
+
+	// Fix 1: explicitly watch .git/HEAD and .git/refs/* so branch switches
+	// and remote fetches are detected. addRecursive skips .git entirely to
+	// avoid flooding inotify with objects/logs; these four paths are the
+	// only git-internal paths the spec requires (05 §5).
+	gitDir := filepath.Join(w.repoPath, ".git")
+	for _, p := range []string{
+		filepath.Join(gitDir, "HEAD"),
+		filepath.Join(gitDir, "refs"),
+		filepath.Join(gitDir, "refs", "heads"),
+		filepath.Join(gitDir, "refs", "remotes"),
+	} {
+		// ignore errors — paths may not exist (shallow clone, no remotes, etc.)
+		_ = w.fsw.Add(p)
 	}
 
 	go w.loop(ctx)
@@ -91,6 +108,8 @@ func (w *Watcher) Stop() {
 	}
 }
 
+// loop is the main event loop. It debounces events and calls handleBurst.
+// The select is kept at exactly one level of nesting via processEvent.
 func (w *Watcher) loop(
 	ctx context.Context,
 ) {
@@ -103,11 +122,9 @@ func (w *Watcher) loop(
 	for {
 		select {
 		case evt, ok := <-w.fsw.Events:
-			if !ok {
+			if !w.processEvent(evt, ok, &pending, timer) {
 				return
 			}
-			pending = append(pending, evt)
-			timer.Reset(debounceDuration)
 		case <-w.fsw.Errors:
 			// swallow individual watch errors
 		case <-timer.C:
@@ -121,6 +138,24 @@ func (w *Watcher) loop(
 	}
 }
 
+// processEvent appends an event to pending and resets the debounce timer.
+// Returns false when the events channel is closed (loop should exit).
+func (w *Watcher) processEvent(
+	evt fsnotify.Event,
+	ok bool,
+	pending *[]fsnotify.Event,
+	debounce *time.Timer,
+) bool {
+	if !ok {
+		return false
+	}
+	*pending = append(*pending, evt)
+	debounce.Reset(debounceDuration)
+	return true
+}
+
+// handleBurst processes all events from a single debounce window.
+// Fix 2: fanOutGit is called exactly once per burst, not once per event.
 func (w *Watcher) handleBurst(
 	ctx context.Context,
 	events []fsnotify.Event,
@@ -128,6 +163,7 @@ func (w *Watcher) handleBurst(
 	for _, evt := range events {
 		w.handleOne(ctx, evt)
 	}
+	w.fanOutGit(ctx)
 }
 
 func (w *Watcher) handleOne(
@@ -153,8 +189,8 @@ func (w *Watcher) handleOne(
 	if evt.Op&fsnotify.Remove != 0 {
 		_ = w.fsw.Remove(evt.Name)
 	}
-
-	w.fanOutGit(ctx)
+	// fanOutGit is intentionally NOT called here; handleBurst calls it once
+	// for the whole burst (Fix 2).
 }
 
 func (w *Watcher) maybeHandleGitRef(
@@ -225,21 +261,48 @@ func (w *Watcher) isRewriteInProgress() bool {
 	return false
 }
 
+// walkFn is the filepath.Walk callback used by addRecursive.
+// Fix 7: extracted from an anonymous closure to a named method.
+func (w *Watcher) walkFn(
+	path string,
+	info os.FileInfo,
+	err error,
+) error {
+	if err != nil {
+		return nil
+	}
+	if !info.IsDir() {
+		return nil
+	}
+	if w.shouldIgnoreDir(path) {
+		return filepath.SkipDir
+	}
+	// Fix 3: skip gitignored directories to avoid inotify exhaustion on
+	// large projects with node_modules/, dist/, etc.
+	if w.isIgnored(path) {
+		return filepath.SkipDir
+	}
+	return w.fsw.Add(path)
+}
+
+// addRecursive watches root and all non-ignored subdirectories.
 func (w *Watcher) addRecursive(
 	root string,
 ) error {
-	return filepath.Walk(root, func(path string, info os.FileInfo, err error) error {
-		if err != nil {
-			return nil
-		}
-		if !info.IsDir() {
-			return nil
-		}
-		if w.shouldIgnoreDir(path) {
-			return filepath.SkipDir
-		}
-		return w.fsw.Add(path)
-	})
+	return filepath.Walk(root, w.walkFn)
+}
+
+// isIgnored reports whether path is ignored by git (via git check-ignore).
+// Fix 3: exit 0 = ignored, exit 1 = not ignored, exit 128 = no git repo.
+func (w *Watcher) isIgnored(path string) bool {
+	cmd := exec.Command(
+		"git",
+		"-C", w.repoPath,
+		"check-ignore",
+		"-q",
+		path,
+	)
+	return cmd.Run() == nil
 }
 
 func (w *Watcher) shouldIgnoreDir(

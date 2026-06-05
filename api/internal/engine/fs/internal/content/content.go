@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"unicode/utf8"
 
 	"github.com/char2cs/crowbar/api/internal/domain"
 )
@@ -49,6 +50,8 @@ func Write(
 }
 
 // isBinary returns true if data contains a null byte or is not valid UTF-8.
+// Fix 4: added UTF-8 validity check so Latin-1 / invalid-UTF-8 files are
+// base64-encoded rather than returned as corrupted string content.
 // Checks only the first 8 KiB for performance.
 func isBinary(
 	data []byte,
@@ -57,10 +60,11 @@ func isBinary(
 	if limit > 8192 {
 		limit = 8192
 	}
-	for _, b := range data[:limit] {
+	sample := data[:limit]
+	for _, b := range sample {
 		if b == 0 {
 			return true
 		}
 	}
-	return false
+	return !utf8.Valid(sample)
 }

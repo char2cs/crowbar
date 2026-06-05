@@ -29,7 +29,7 @@ func List(
 		return nil, fmt.Errorf("branches: list: %w", err)
 	}
 	if err := exec.RequireSuccess("branches: list", r); err != nil {
-		return nil, err
+		return nil, fmt.Errorf("branches: list: %w", err)
 	}
 	return parseList(r.Stdout), nil
 }
@@ -158,11 +158,9 @@ func parseRecord(
 	var b domain.Branch
 	b.IsCurrent = head == "*"
 
+	b.Name = refname
 	if strings.HasPrefix(fullRef, "refs/remotes/") {
 		b.IsRemote = true
-		b.Name = refname
-	} else {
-		b.Name = refname
 	}
 
 	parseTrack(track, &b)

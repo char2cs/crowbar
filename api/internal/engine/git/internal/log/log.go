@@ -78,7 +78,7 @@ func parseRecords(
 
 		c, err := parseRecord(rec)
 		if err != nil {
-			return nil, err
+			return nil, fmt.Errorf("log: parse records: %w", err)
 		}
 
 		commits = append(commits, c)

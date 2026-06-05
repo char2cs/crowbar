@@ -3,10 +3,8 @@ package git
 import (
 	"context"
 	"fmt"
-	"os"
-	"path/filepath"
-	"strconv"
 	"strings"
+	"sync"
 
 	"github.com/char2cs/crowbar/api/internal/domain"
 	"github.com/char2cs/crowbar/api/internal/engine/git/internal/blame"
@@ -25,6 +23,20 @@ type execStdinFn func(ctx context.Context, dir string, stdin string, args ...str
 type engine struct {
 	exec      execFn
 	execStdin execStdinFn
+	mu        sync.Map // map[string]*sync.Mutex — keyed by canonical repoPath
+}
+
+// repoMutex returns (or creates) the per-repo mutex for repoPath.
+func (e *engine) repoMutex(repoPath string) *sync.Mutex {
+	actual, _ := e.mu.LoadOrStore(repoPath, &sync.Mutex{})
+	return actual.(*sync.Mutex)
+}
+
+// lockRepo acquires the per-repo mutex and returns an unlock func for use with defer.
+func (e *engine) lockRepo(repoPath string) func() {
+	mu := e.repoMutex(repoPath)
+	mu.Lock()
+	return mu.Unlock
 }
 
 // New returns a new Engine that shells out to the system git binary.
@@ -36,6 +48,29 @@ func New() Engine {
 }
 
 var _ Engine = (*engine)(nil)
+
+// classifyGitError inspects git output and wraps the appropriate sentinel error.
+func classifyGitError(op string, r gitexec.Result) error {
+	stderr := strings.ToLower(r.Stderr + r.Stdout)
+	base := gitexec.RequireSuccess(op, r)
+	if base == nil {
+		return nil
+	}
+	switch {
+	case strings.Contains(stderr, "conflict") || strings.Contains(stderr, "merge conflict"):
+		return fmt.Errorf("%w: %s", ErrConflict, base)
+	case strings.Contains(stderr, "rejected") && strings.Contains(stderr, "non-fast-forward"):
+		return fmt.Errorf("%w: %s", ErrRejectedNonFastForward, base)
+	case strings.Contains(stderr, "nothing to commit"):
+		return fmt.Errorf("%w: %s", ErrNothingToCommit, base)
+	case strings.Contains(stderr, "error: your local changes") || strings.Contains(stderr, "please commit or stash"):
+		return fmt.Errorf("%w: %s", ErrDirtyTree, base)
+	case strings.Contains(stderr, "authentication failed") || strings.Contains(stderr, "could not read username"):
+		return fmt.Errorf("%w: %s", ErrAuthFailed, base)
+	default:
+		return base
+	}
+}
 
 func (e *engine) Status(
 	ctx context.Context,
@@ -96,6 +131,7 @@ func (e *engine) StageFile(
 	repoPath string,
 	filePath string,
 ) error {
+	defer e.lockRepo(repoPath)()
 	r, err := e.exec(ctx, repoPath, "add", filePath)
 	if err != nil {
 		return fmt.Errorf("git: stage file: %w", err)
@@ -109,6 +145,7 @@ func (e *engine) StageHunk(
 	filePath string,
 	hunkID string,
 ) error {
+	defer e.lockRepo(repoPath)()
 	return e.applyHunk(ctx, repoPath, filePath, hunkID, false)
 }
 
@@ -117,6 +154,7 @@ func (e *engine) UnstageFile(
 	repoPath string,
 	filePath string,
 ) error {
+	defer e.lockRepo(repoPath)()
 	r, err := e.exec(ctx, repoPath, "restore", "--staged", filePath)
 	if err != nil {
 		return fmt.Errorf("git: unstage file: %w", err)
@@ -130,6 +168,7 @@ func (e *engine) UnstageHunk(
 	filePath string,
 	hunkID string,
 ) error {
+	defer e.lockRepo(repoPath)()
 	return e.applyHunk(ctx, repoPath, filePath, hunkID, true)
 }
 
@@ -138,11 +177,12 @@ func (e *engine) Discard(
 	repoPath string,
 	filePath string,
 ) error {
-	status, err := e.Status(ctx, repoPath)
+	defer e.lockRepo(repoPath)()
+	st, err := e.Status(ctx, repoPath)
 	if err != nil {
 		return fmt.Errorf("git: discard: status: %w", err)
 	}
-	for _, f := range status.Files {
+	for _, f := range st.Files {
 		if f.Path != filePath {
 			continue
 		}
@@ -184,6 +224,7 @@ func (e *engine) Commit(
 	subject string,
 	body string,
 ) error {
+	defer e.lockRepo(repoPath)()
 	args := []string{"commit", "-m", subject}
 	if body != "" {
 		args = append(args, "-m", body)
@@ -192,24 +233,26 @@ func (e *engine) Commit(
 	if err != nil {
 		return fmt.Errorf("git: commit: %w", err)
 	}
-	return gitexec.RequireSuccess("commit", r)
+	return classifyGitError("commit", r)
 }
 
 func (e *engine) Push(
 	ctx context.Context,
 	repoPath string,
 ) error {
+	defer e.lockRepo(repoPath)()
 	r, err := e.exec(ctx, repoPath, "push")
 	if err != nil {
 		return fmt.Errorf("git: push: %w", err)
 	}
-	return gitexec.RequireSuccess("push", r)
+	return classifyGitError("push", r)
 }
 
 func (e *engine) Fetch(
 	ctx context.Context,
 	repoPath string,
 ) error {
+	defer e.lockRepo(repoPath)()
 	r, err := e.exec(ctx, repoPath, "fetch")
 	if err != nil {
 		return fmt.Errorf("git: fetch: %w", err)
@@ -222,6 +265,7 @@ func (e *engine) Pull(
 	repoPath string,
 	mode string,
 ) error {
+	defer e.lockRepo(repoPath)()
 	flag := "--no-rebase"
 	if mode == "rebase" {
 		flag = "--rebase"
@@ -230,7 +274,7 @@ func (e *engine) Pull(
 	if err != nil {
 		return fmt.Errorf("git: pull: %w", err)
 	}
-	return gitexec.RequireSuccess("pull", r)
+	return classifyGitError("pull", r)
 }
 
 func (e *engine) CreateBranch(
@@ -314,12 +358,13 @@ func (e *engine) Reset(
 	mode string,
 	commit string,
 ) error {
+	defer e.lockRepo(repoPath)()
 	flag := "--" + mode
 	r, err := e.exec(ctx, repoPath, "reset", flag, commit)
 	if err != nil {
 		return fmt.Errorf("git: reset: %w", err)
 	}
-	return gitexec.RequireSuccess("reset", r)
+	return classifyGitError("reset", r)
 }
 
 func (e *engine) Merge(
@@ -327,11 +372,12 @@ func (e *engine) Merge(
 	repoPath string,
 	branch string,
 ) error {
+	defer e.lockRepo(repoPath)()
 	r, err := e.exec(ctx, repoPath, "merge", branch)
 	if err != nil {
 		return fmt.Errorf("git: merge: %w", err)
 	}
-	return gitexec.RequireSuccess("merge", r)
+	return classifyGitError("merge", r)
 }
 
 func (e *engine) Rebase(
@@ -339,11 +385,12 @@ func (e *engine) Rebase(
 	repoPath string,
 	onto string,
 ) error {
+	defer e.lockRepo(repoPath)()
 	r, err := e.exec(ctx, repoPath, "rebase", onto)
 	if err != nil {
 		return fmt.Errorf("git: rebase: %w", err)
 	}
-	return gitexec.RequireSuccess("rebase", r)
+	return classifyGitError("rebase", r)
 }
 
 func (e *engine) ConflictedFiles(
@@ -376,6 +423,7 @@ func (e *engine) OperationContinue(
 	ctx context.Context,
 	repoPath string,
 ) error {
+	defer e.lockRepo(repoPath)()
 	return e.operationContinue(ctx, repoPath)
 }
 
@@ -383,72 +431,8 @@ func (e *engine) OperationAbort(
 	ctx context.Context,
 	repoPath string,
 ) error {
+	defer e.lockRepo(repoPath)()
 	return e.operationAbort(ctx, repoPath)
-}
-
-func (e *engine) WorktreeAdd(
-	ctx context.Context,
-	repoPath string,
-	worktreePath string,
-	branch string,
-) error {
-	r, err := e.exec(ctx, repoPath, "worktree", "add", worktreePath, branch)
-	if err != nil {
-		return fmt.Errorf("git: worktree add: %w", err)
-	}
-	return gitexec.RequireSuccess("worktree add", r)
-}
-
-func (e *engine) WorktreeRemove(
-	ctx context.Context,
-	repoPath string,
-	worktreePath string,
-) error {
-	r, err := e.exec(ctx, repoPath, "worktree", "remove", "--force", worktreePath)
-	if err != nil {
-		return fmt.Errorf("git: worktree remove: %w", err)
-	}
-	return gitexec.RequireSuccess("worktree remove", r)
-}
-
-func (e *engine) WorktreeList(
-	ctx context.Context,
-	repoPath string,
-) ([]WorktreeEntry, error) {
-	r, err := e.exec(ctx, repoPath, "worktree", "list", "--porcelain")
-	if err != nil {
-		return nil, fmt.Errorf("git: worktree list: %w", err)
-	}
-	if err := gitexec.RequireSuccess("worktree list", r); err != nil {
-		return nil, err
-	}
-	return parseWorktreeList(r.Stdout), nil
-}
-
-func (e *engine) RebaseOnto(
-	ctx context.Context,
-	repoPath string,
-	newTip string,
-	forkPoint string,
-	branch string,
-) error {
-	r, err := e.exec(ctx, repoPath, "rebase", "--onto", newTip, forkPoint, branch)
-	if err != nil {
-		return fmt.Errorf("git: rebase --onto: %w", err)
-	}
-	return gitexec.RequireSuccess("rebase --onto", r)
-}
-
-func (e *engine) MergeFFOnly(
-	ctx context.Context,
-	repoPath string,
-	branch string,
-) error {
-	r, err := e.exec(ctx, repoPath, "merge", "--ff-only", branch)
-	if err != nil {
-		return fmt.Errorf("git: merge --ff-only: %w", err)
-	}
-	return gitexec.RequireSuccess("merge --ff-only", r)
 }
 
 func (e *engine) WorkingTreeSummary(
@@ -476,168 +460,6 @@ func (e *engine) ComputeWorkingTreeSummary(
 	return e.WorkingTreeSummary(ctx, repoPath, forkPointSha)
 }
 
-func (e *engine) computeWorkingTreeSummary(
-	ctx context.Context,
-	repoPath string,
-	forkPointSha string,
-) (added int, deleted int, hasConflicts bool, hasCommits bool, err error) {
-	hasConflicts, err = conflicts.HasConflicts(ctx, repoPath)
-	if err != nil {
-		return 0, 0, false, false, fmt.Errorf("git: summary: conflicts: %w", err)
-	}
-
-	if forkPointSha != "" {
-		added, deleted, err = e.numstatFromForkPoint(ctx, repoPath, forkPointSha)
-		if err != nil {
-			return 0, 0, hasConflicts, false, fmt.Errorf("git: summary: numstat: %w", err)
-		}
-	}
-
-	hasCommits, err = e.revListHasCommits(ctx, repoPath, forkPointSha)
-	if err != nil {
-		return added, deleted, hasConflicts, false, fmt.Errorf("git: summary: revlist: %w", err)
-	}
-
-	return added, deleted, hasConflicts, hasCommits, nil
-}
-
-func (e *engine) numstatFromForkPoint(
-	ctx context.Context,
-	repoPath string,
-	forkPointSha string,
-) (int, int, error) {
-	r, err := e.exec(ctx, repoPath, "diff", "--numstat", forkPointSha)
-	if err != nil {
-		return 0, 0, err
-	}
-	if r.ExitCode != 0 {
-		return 0, 0, nil
-	}
-	return parseNumstat(r.Stdout)
-}
-
-func parseNumstat(
-	output string,
-) (int, int, error) {
-	var totalAdded, totalDeleted int
-	for _, line := range strings.Split(strings.TrimSpace(output), "\n") {
-		if line == "" {
-			continue
-		}
-		fields := strings.Fields(line)
-		if len(fields) < 2 {
-			continue
-		}
-		a, _ := strconv.Atoi(fields[0])
-		d, _ := strconv.Atoi(fields[1])
-		if a < 0 {
-			a = 0
-		}
-		if d < 0 {
-			d = 0
-		}
-		totalAdded += a
-		totalDeleted += d
-	}
-	return totalAdded, totalDeleted, nil
-}
-
-func (e *engine) revListHasCommits(
-	ctx context.Context,
-	repoPath string,
-	forkPointSha string,
-) (bool, error) {
-	ref := forkPointSha + "..HEAD"
-	if forkPointSha == "" {
-		ref = "HEAD"
-	}
-	r, err := e.exec(ctx, repoPath, "rev-list", "--count", ref)
-	if err != nil {
-		return false, err
-	}
-	if r.ExitCode != 0 {
-		return false, nil
-	}
-	count, _ := strconv.Atoi(strings.TrimSpace(r.Stdout))
-	return count > 0, nil
-}
-
-func (e *engine) operationContinue(
-	ctx context.Context,
-	repoPath string,
-) error {
-	op := detectInProgressOp(repoPath)
-	switch op {
-	case "rebase":
-		r, err := e.exec(ctx, repoPath, "rebase", "--continue")
-		if err != nil {
-			return fmt.Errorf("git: rebase --continue: %w", err)
-		}
-		return gitexec.RequireSuccess("rebase --continue", r)
-	case "merge", "squash", "pull-merge":
-		r, err := e.exec(ctx, repoPath, "commit", "--no-edit")
-		if err != nil {
-			return fmt.Errorf("git: commit (continue): %w", err)
-		}
-		return gitexec.RequireSuccess("commit --no-edit", r)
-	}
-	return fmt.Errorf("git: operation continue: no in-progress operation detected")
-}
-
-func (e *engine) operationAbort(
-	ctx context.Context,
-	repoPath string,
-) error {
-	op := detectInProgressOp(repoPath)
-	switch op {
-	case "rebase":
-		r, err := e.exec(ctx, repoPath, "rebase", "--abort")
-		if err != nil {
-			return fmt.Errorf("git: rebase --abort: %w", err)
-		}
-		return gitexec.RequireSuccess("rebase --abort", r)
-	case "merge", "pull-merge":
-		r, err := e.exec(ctx, repoPath, "merge", "--abort")
-		if err != nil {
-			return fmt.Errorf("git: merge --abort: %w", err)
-		}
-		return gitexec.RequireSuccess("merge --abort", r)
-	case "squash":
-		r, err := e.exec(ctx, repoPath, "reset", "--merge")
-		if err != nil {
-			return fmt.Errorf("git: reset --merge (squash abort): %w", err)
-		}
-		return gitexec.RequireSuccess("reset --merge", r)
-	}
-	return fmt.Errorf("git: operation abort: no in-progress operation detected")
-}
-
-func detectInProgressOp(
-	repoPath string,
-) string {
-	gitDir := filepath.Join(repoPath, ".git")
-	if fileExists(filepath.Join(gitDir, "rebase-merge")) {
-		return "rebase"
-	}
-	if fileExists(filepath.Join(gitDir, "rebase-apply")) {
-		return "rebase"
-	}
-	if fileExists(filepath.Join(gitDir, "SQUASH_HEAD")) {
-		return "squash"
-	}
-	if fileExists(filepath.Join(gitDir, "MERGE_HEAD")) {
-		return "merge"
-	}
-	return ""
-}
-
-func fileExists(
-	path string,
-) bool {
-	_, err := os.Stat(path)
-	return err == nil
-}
-
 func (e *engine) applyHunk(
 	ctx context.Context,
 	repoPath string,
@@ -658,36 +480,4 @@ func (e *engine) applyHunk(
 		return fmt.Errorf("git: apply hunk: %w", err)
 	}
 	return gitexec.RequireSuccess("apply hunk", r)
-}
-
-func parseWorktreeList(
-	output string,
-) []WorktreeEntry {
-	var entries []WorktreeEntry
-	var current WorktreeEntry
-	for _, line := range strings.Split(strings.TrimSpace(output), "\n") {
-		line = strings.TrimSpace(line)
-		if line == "" {
-			if current.Path != "" {
-				entries = append(entries, current)
-				current = WorktreeEntry{}
-			}
-			continue
-		}
-		if strings.HasPrefix(line, "worktree ") {
-			current.Path = strings.TrimPrefix(line, "worktree ")
-			continue
-		}
-		if strings.HasPrefix(line, "HEAD ") {
-			current.Head = strings.TrimPrefix(line, "HEAD ")
-			continue
-		}
-		if strings.HasPrefix(line, "branch refs/heads/") {
-			current.Branch = strings.TrimPrefix(line, "branch refs/heads/")
-		}
-	}
-	if current.Path != "" {
-		entries = append(entries, current)
-	}
-	return entries
 }

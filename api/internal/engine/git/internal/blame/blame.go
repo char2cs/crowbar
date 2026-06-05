@@ -41,6 +41,28 @@ func File(
 	return parsePorcelain(r.Stdout)
 }
 
+// parseCommitHeader extracts the SHA and result line number from a porcelain
+// commit-header line ("SHA origLine resultLine count"), consulting cache for
+// previously seen commit metadata.
+func parseCommitHeader(
+	line string,
+	cache map[string]commitMeta,
+) (sha string, lineNo int, meta commitMeta) {
+	fields := strings.Fields(line)
+	sha = fields[0]
+	if len(fields) >= 3 {
+		n, err := strconv.Atoi(fields[2])
+		if err == nil {
+			lineNo = n
+		}
+	}
+	meta = commitMeta{}
+	if existing, ok := cache[sha]; ok {
+		meta = existing
+	}
+	return sha, lineNo, meta
+}
+
 func parsePorcelain(
 	output string,
 ) ([]domain.BlameEntry, error) {
@@ -58,21 +80,7 @@ func parsePorcelain(
 		}
 
 		if isCommitHeader(line) {
-			fields := strings.Fields(line)
-			currentSHA = fields[0]
-			if len(fields) >= 3 {
-				n, err := strconv.Atoi(fields[2])
-				if err == nil {
-					finalLine = n
-				}
-			}
-
-			if existing, ok := cache[currentSHA]; ok {
-				meta = existing
-			} else {
-				meta = commitMeta{}
-			}
-
+			currentSHA, finalLine, meta = parseCommitHeader(line, cache)
 			continue
 		}
 

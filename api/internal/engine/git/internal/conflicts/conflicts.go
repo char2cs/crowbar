@@ -5,10 +5,12 @@ package conflicts
 import (
 	"context"
 	"crypto/sha256"
+	"encoding/hex"
 	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 
 	"github.com/char2cs/crowbar/api/internal/domain"
 	"github.com/char2cs/crowbar/api/internal/engine/git/internal/exec"
@@ -16,6 +18,14 @@ import (
 
 // gitRunner is the function used to run git commands; overridable in tests.
 var gitRunner = exec.Git
+
+// fileMu is a per-file mutex registry keyed by absolute file path.
+var fileMu sync.Map // map[string]*sync.Mutex
+
+func getFileMutex(absPath string) *sync.Mutex {
+	actual, _ := fileMu.LoadOrStore(absPath, &sync.Mutex{})
+	return actual.(*sync.Mutex)
+}
 
 // ConflictedFiles returns the paths of files that have merge conflicts (04 §6).
 func ConflictedFiles(
@@ -27,7 +37,7 @@ func ConflictedFiles(
 		return nil, fmt.Errorf("conflicts: conflicted files: %w", err)
 	}
 	if err := exec.RequireSuccess("conflicts: conflicted files", r); err != nil {
-		return nil, err
+		return nil, fmt.Errorf("conflicts: conflicted files: %w", err)
 	}
 
 	raw := strings.TrimSpace(r.Stdout)
@@ -56,13 +66,13 @@ func HasConflicts(
 		return false, fmt.Errorf("conflicts: has conflicts: %w", err)
 	}
 	if err := exec.RequireSuccess("conflicts: has conflicts", r); err != nil {
-		return false, err
+		return false, fmt.Errorf("conflicts: has conflicts: %w", err)
 	}
 	return strings.TrimSpace(r.Stdout) != "", nil
 }
 
-// ParseFile parses conflict markers in a file and fetches three-way content
-// from the git object store (git show :1:/:2:/:3:) (04 §6).
+// ParseFile parses conflict markers in a file and fetches the common ancestor
+// (base) content from the git object store (:1:<path>) (04 §6).
 func ParseFile(
 	ctx context.Context,
 	repoPath string,
@@ -79,21 +89,26 @@ func ParseFile(
 		return nil, fmt.Errorf("conflicts: parse file: %w", err)
 	}
 
+	if len(blocks) == 0 {
+		return nil, nil
+	}
+
+	// Fetch the base (ancestor) content once per file — not once per block.
+	baseContent, fetchErr := fetchBase(ctx, repoPath, filePath)
+	if fetchErr != nil {
+		return nil, fmt.Errorf("conflicts: parse file: fetch base: %w", fetchErr)
+	}
+
 	hunks := make([]domain.ConflictHunk, 0, len(blocks))
 	for _, b := range blocks {
-		base, ourText, theirText, fetchErr := fetchThreeWay(ctx, repoPath, filePath, b)
-		if fetchErr != nil {
-			return nil, fmt.Errorf("conflicts: parse file: fetch: %w", fetchErr)
-		}
-
-		id := hunkID(filePath, b.startLine)
+		id := conflictHunkID(filePath, b.oursRaw, b.theirsRaw)
 		hunks = append(hunks, domain.ConflictHunk{
 			ID:         id,
 			StartLine:  b.startLine,
 			EndLine:    b.endLine,
-			Ours:       ourText,
-			Theirs:     theirText,
-			Base:       base,
+			Ours:       b.oursRaw,
+			Theirs:     b.theirsRaw,
+			Base:       baseContent,
 			Resolution: domain.ConflictResolutionUnresolved,
 		})
 	}
@@ -112,6 +127,18 @@ func ResolveHunk(
 	resolvedContent string,
 ) error {
 	absPath := filepath.Join(repoPath, filePath)
+
+	mu := getFileMutex(absPath)
+	mu.Lock()
+	defer mu.Unlock()
+
+	// Stat the file first to preserve its permissions.
+	info, err := os.Stat(absPath)
+	if err != nil {
+		return fmt.Errorf("conflicts: stat %s: %w", filePath, err)
+	}
+	mode := info.Mode()
+
 	data, err := os.ReadFile(absPath)
 	if err != nil {
 		return fmt.Errorf("conflicts: resolve hunk: read: %w", err)
@@ -127,10 +154,13 @@ func ResolveHunk(
 		return fmt.Errorf("conflicts: resolve hunk: hunk %q not found", hunkID)
 	}
 
-	replacement := resolvedText(target, resolution, resolvedContent)
+	replacement, err := resolvedText(target, resolution, resolvedContent)
+	if err != nil {
+		return fmt.Errorf("conflicts: resolve hunk: %w", err)
+	}
 	updated := replaceBlock(string(data), target, replacement)
 
-	if err := os.WriteFile(absPath, []byte(updated), 0o644); err != nil {
+	if err := os.WriteFile(absPath, []byte(updated), mode); err != nil {
 		return fmt.Errorf("conflicts: resolve hunk: write: %w", err)
 	}
 
@@ -153,113 +183,101 @@ type conflictBlock struct {
 	theirsRaw string
 }
 
-func extractConflictBlocks(
-	content string,
-) ([]conflictBlock, error) {
-	lines := strings.Split(content, "\n")
-	var blocks []conflictBlock
+// blockParser holds parsing state for extractConflictBlocks.
+type blockParser struct {
+	lines []string
+}
 
-	i := 0
+// parseBlock processes lines starting at startIdx (the <<<<<<< line) until
+// the matching >>>>>>> is found. It returns the completed block, the index of
+// the line after >>>>>>>, and any error.
+func (bp *blockParser) parseBlock(startIdx int) (conflictBlock, int, error) {
+	lines := bp.lines
+	startLine := startIdx + 1 // 1-based
+	var ourLines, baseLines, theirLines []string
+	section := "ours"
+	i := startIdx + 1
+
 	for i < len(lines) {
-		if !strings.HasPrefix(lines[i], "<<<<<<<") {
+		line := lines[i]
+
+		if strings.HasPrefix(line, ">>>>>>>") {
+			endLine := i + 1 // 1-based
+			b := conflictBlock{
+				startLine: startLine,
+				endLine:   endLine,
+				oursRaw:   strings.Join(ourLines, "\n"),
+				baseRaw:   strings.Join(baseLines, "\n"),
+				theirsRaw: strings.Join(theirLines, "\n"),
+			}
+			return b, i + 1, nil
+		}
+
+		if strings.HasPrefix(line, "|||||||") {
+			section = "base"
 			i++
 			continue
 		}
 
-		startLine := i + 1
-		var ourLines, baseLines, theirLines []string
-		section := "ours"
-		i++
-
-		for i < len(lines) {
-			line := lines[i]
-
-			if strings.HasPrefix(line, ">>>>>>>") {
-				endLine := i + 1
-				blocks = append(blocks, conflictBlock{
-					startLine: startLine,
-					endLine:   endLine,
-					oursRaw:   strings.Join(ourLines, "\n"),
-					baseRaw:   strings.Join(baseLines, "\n"),
-					theirsRaw: strings.Join(theirLines, "\n"),
-				})
-				i++
-				break
-			}
-
-			if strings.HasPrefix(line, "|||||||") {
-				section = "base"
-				i++
-				continue
-			}
-
-			if strings.HasPrefix(line, "=======") {
-				section = "theirs"
-				i++
-				continue
-			}
-
-			switch section {
-			case "ours":
-				ourLines = append(ourLines, line)
-			case "base":
-				baseLines = append(baseLines, line)
-			case "theirs":
-				theirLines = append(theirLines, line)
-			}
+		if strings.HasPrefix(line, "=======") {
+			section = "theirs"
 			i++
+			continue
 		}
+
+		switch section {
+		case "ours":
+			ourLines = append(ourLines, line)
+		case "base":
+			baseLines = append(baseLines, line)
+		case "theirs":
+			theirLines = append(theirLines, line)
+		}
+		i++
+	}
+
+	// Exhausted lines without finding >>>>>>>.
+	return conflictBlock{}, i, fmt.Errorf("conflicts: unclosed conflict marker starting at line %d in file", startLine)
+}
+
+func extractConflictBlocks(
+	content string,
+) ([]conflictBlock, error) {
+	lines := strings.Split(content, "\n")
+	bp := &blockParser{lines: lines}
+	var blocks []conflictBlock
+
+	for i := 0; i < len(lines); i++ {
+		if !strings.HasPrefix(lines[i], "<<<<<<<") {
+			continue
+		}
+		block, nextIdx, err := bp.parseBlock(i)
+		if err != nil {
+			return nil, fmt.Errorf("conflicts: extract blocks: %w", err)
+		}
+		blocks = append(blocks, block)
+		i = nextIdx - 1 // -1 because the loop will i++
 	}
 
 	return blocks, nil
 }
 
-func fetchThreeWay(
+// fetchBase fetches the common ancestor content (:1:<path>) from the git
+// object store. Returns empty string if the file has no base stage (e.g. an
+// add/add conflict).
+func fetchBase(
 	ctx context.Context,
 	repoPath string,
 	filePath string,
-	b conflictBlock,
-) (base, ours, theirs string, err error) {
+) (string, error) {
 	baseResult, err := exec.Git(ctx, repoPath, "show", fmt.Sprintf(":1:%s", filePath))
 	if err != nil {
-		return "", "", "", err
+		return "", fmt.Errorf("conflicts: fetch base: %w", err)
 	}
-
-	oursResult, err := exec.Git(ctx, repoPath, "show", fmt.Sprintf(":2:%s", filePath))
-	if err != nil {
-		return "", "", "", err
+	if baseResult.ExitCode != 0 {
+		return "", nil
 	}
-
-	theirsResult, err := exec.Git(ctx, repoPath, "show", fmt.Sprintf(":3:%s", filePath))
-	if err != nil {
-		return "", "", "", err
-	}
-
-	baseContent := ""
-	if baseResult.ExitCode == 0 {
-		baseContent = extractLines(baseResult.Stdout, b.startLine, b.endLine)
-		if baseContent == "" {
-			baseContent = b.baseRaw
-		}
-	}
-
-	oursContent := b.oursRaw
-	if oursResult.ExitCode == 0 {
-		extracted := extractLines(oursResult.Stdout, b.startLine, b.endLine)
-		if extracted != "" {
-			oursContent = extracted
-		}
-	}
-
-	theirsContent := b.theirsRaw
-	if theirsResult.ExitCode == 0 {
-		extracted := extractLines(theirsResult.Stdout, b.startLine, b.endLine)
-		if extracted != "" {
-			theirsContent = extracted
-		}
-	}
-
-	return baseContent, oursContent, theirsContent, nil
+	return baseResult.Stdout, nil
 }
 
 func extractLines(
@@ -283,14 +301,17 @@ func extractLines(
 	return strings.Join(lines[start:end], "\n")
 }
 
-func hunkID(
-	filePath string,
-	startLine int,
-) string {
+// conflictHunkID generates a stable ID based on the content of the conflict
+// block rather than its line position, so that edits above the block do not
+// invalidate the ID.
+func conflictHunkID(filePath string, oursRaw string, theirsRaw string) string {
 	h := sha256.New()
-	fmt.Fprintf(h, "%s%d", filePath, startLine)
-	return fmt.Sprintf("%x", h.Sum(nil))[:12]
+	h.Write([]byte(filePath))
+	h.Write([]byte(oursRaw))
+	h.Write([]byte(theirsRaw))
+	return hex.EncodeToString(h.Sum(nil))[:12]
 }
+
 
 func findBlock(
 	blocks []conflictBlock,
@@ -298,7 +319,7 @@ func findBlock(
 	filePath string,
 ) *conflictBlock {
 	for i := range blocks {
-		if hunkID(filePath, blocks[i].startLine) == id {
+		if conflictHunkID(filePath, blocks[i].oursRaw, blocks[i].theirsRaw) == id {
 			return &blocks[i]
 		}
 	}
@@ -309,18 +330,18 @@ func resolvedText(
 	b *conflictBlock,
 	resolution domain.ConflictResolution,
 	custom string,
-) string {
+) (string, error) {
 	switch resolution {
 	case domain.ConflictResolutionOurs:
-		return b.oursRaw
+		return b.oursRaw, nil
 	case domain.ConflictResolutionTheirs:
-		return b.theirsRaw
+		return b.theirsRaw, nil
 	case domain.ConflictResolutionBoth:
-		return b.oursRaw + "\n" + b.theirsRaw
+		return b.oursRaw + "\n" + b.theirsRaw, nil
 	case domain.ConflictResolutionCustom:
-		return custom
+		return custom, nil
 	default:
-		return b.oursRaw
+		return "", fmt.Errorf("conflicts: unknown resolution %q", resolution)
 	}
 }
 

@@ -3,6 +3,7 @@
 package diff
 
 import (
+	"context"
 	"testing"
 
 	"github.com/char2cs/crowbar/api/internal/domain"
@@ -19,6 +20,11 @@ func TestParseDiffGitPath_ShortLine(t *testing.T) {
 func TestParseDiffGitPath_ExactlyFourFields(t *testing.T) {
 	result := parseDiffGitPath("diff --git a/foo b/foo")
 	assert.Equal(t, "foo", result)
+}
+
+func TestParseDiffGitPath_PathWithSpaces(t *testing.T) {
+	result := parseDiffGitPath("diff --git a/my file.go b/my file.go")
+	assert.Equal(t, "my file.go", result)
 }
 
 // --- parseIndexLine: malformed input ---
@@ -87,7 +93,7 @@ func TestHeaderForHunk_NonHeaderAtIndex(t *testing.T) {
 // --- buildHunkLines: empty rawLines ---
 
 func TestBuildHunkLines_Empty(t *testing.T) {
-	result := buildHunkLines(nil, "file.go", 0)
+	result := buildHunkLines(nil, "file.go")
 	assert.Nil(t, result)
 }
 
@@ -146,7 +152,7 @@ func TestIsZeroSHA_NonZero(t *testing.T) {
 	assert.False(t, isZeroSHA("0000001"))
 }
 
-// --- parseCommitMeta: missing separators ---
+// --- parseCommitMeta: NUL-delimited format ---
 
 func TestParseCommitMeta_MissingSeparators(t *testing.T) {
 	result := parseCommitMeta("some output without separators")
@@ -155,10 +161,78 @@ func TestParseCommitMeta_MissingSeparators(t *testing.T) {
 }
 
 func TestParseCommitMeta_ValidOutput(t *testing.T) {
-	output := "abc123\nsubject\nbody\n---author---\nJohn Doe\n---date---\n2024-01-01T12:00:00Z\n"
+	// Format: hash NUL subject NUL body NUL author NUL date
+	output := "abc123\x00subject\x00body\x00John Doe\x002024-01-01T12:00:00Z\n"
 	result := parseCommitMeta(output)
 	assert.Equal(t, "abc123", result.CommitHash)
 	assert.Equal(t, "subject", result.CommitMessage)
 	assert.Equal(t, "John Doe", result.CommitAuthor)
 	assert.NotNil(t, result.CommitDate)
+}
+
+// --- parseHunkHeader: no space/comma after old or new start number ---
+
+func TestParseHunkHeader_EndNoSpaceOrComma_OldSide(t *testing.T) {
+	// "-5" at end of string — IndexAny returns -1 so end = len(rest)
+	old, new_ := parseHunkHeader("@@ -5")
+	assert.Equal(t, 5, old)
+	assert.Equal(t, 1, new_)
+}
+
+func TestParseHunkHeader_EndNoSpaceOrComma_NewSide(t *testing.T) {
+	// "+9" at end of string — IndexAny returns -1 so end2 = len(rest2)
+	old, new_ := parseHunkHeader("@@ -1,3 +9")
+	assert.Equal(t, 1, old)
+	assert.Equal(t, 9, new_)
+}
+
+// --- applyNewPath: FilePath fallback when parseDiffGitPath returns "" ---
+
+func TestApplyNewPath_FilePath_FallbackFromNewPath(t *testing.T) {
+	// Simulate a diff section where the "diff --git" line is malformed,
+	// so parseDiffGitPath returns "". The "+++ b/" line must fill FilePath.
+	section := "diff --git malformed\n--- a/foo.go\n+++ b/foo.go\n@@ -1 +1 @@\n+package main\n"
+	f := parseFileSection(context.Background(), "", section)
+	assert.Equal(t, "foo.go", f.FilePath)
+}
+
+// --- buildPatch: deleted file branch ---
+
+func TestBuildPatch_DeletedFile(t *testing.T) {
+	f := &domain.FileDiff{
+		FilePath:  "gone.go",
+		OldPath:   "gone.go",
+		IsDeleted: true,
+	}
+	hunk := &domain.Hunk{
+		HunkID:    "testhunk",
+		Header:    "@@ -1 +0,0 @@",
+		StartLine: 0,
+		EndLine:   0,
+	}
+	lines := []domain.DiffLine{
+		{LineType: domain.DiffLineHeader, Content: "@@ -1 +0,0 @@", HunkID: "testhunk"},
+	}
+	patch := buildPatch(f, hunk, lines)
+	assert.Contains(t, patch, "deleted file mode 100644")
+	assert.Contains(t, patch, "--- a/gone.go")
+	assert.Contains(t, patch, "+++ /dev/null")
+}
+
+// --- OldPath/NewPath should not be /dev/null ---
+
+func TestParseFileSection_NewFile_NoDevNullInOldPath(t *testing.T) {
+	section := "diff --git a/new.go b/new.go\nnew file mode 100644\nindex 0000000..abc1234\n--- /dev/null\n+++ b/new.go\n@@ -0,0 +1 @@\n+package main\n"
+	f := parseFileSection(context.Background(), "", section)
+	assert.True(t, f.IsNew)
+	assert.Equal(t, "", f.OldPath, "OldPath must not be set to /dev/null")
+	assert.Equal(t, "new.go", f.NewPath)
+}
+
+func TestParseFileSection_DeletedFile_NoDevNullInNewPath(t *testing.T) {
+	section := "diff --git a/old.go b/old.go\ndeleted file mode 100644\nindex abc1234..0000000\n--- a/old.go\n+++ /dev/null\n@@ -1 +0,0 @@\n-package main\n"
+	f := parseFileSection(context.Background(), "", section)
+	assert.True(t, f.IsDeleted)
+	assert.Equal(t, "", f.NewPath, "NewPath must not be set to /dev/null")
+	assert.Equal(t, "old.go", f.OldPath)
 }

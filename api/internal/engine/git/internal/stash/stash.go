@@ -26,7 +26,7 @@ func List(
 		return nil, fmt.Errorf("stash: list: %w", err)
 	}
 	if err := exec.RequireSuccess("stash: list", r); err != nil {
-		return nil, err
+		return nil, fmt.Errorf("stash: list: %w", err)
 	}
 	raw := strings.TrimRight(r.Stdout, "\n")
 	if raw == "" {
@@ -142,7 +142,7 @@ func countChangedFiles(
 		return 0, fmt.Errorf("stash: count files: %w", err)
 	}
 	if err := exec.RequireSuccess("stash: count files", r); err != nil {
-		return 0, err
+		return 0, fmt.Errorf("stash: count files: %w", err)
 	}
 	lines := strings.Split(strings.TrimRight(r.Stdout, "\n"), "\n")
 	count := 0

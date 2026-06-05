@@ -2,6 +2,7 @@ package diff
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"strings"
 
@@ -10,7 +11,7 @@ import (
 
 // ErrStaleHunk is returned when hunkID no longer matches any current diff hunk.
 // The frontend re-fetches the diff and retries (04 §4).
-var ErrStaleHunk = fmt.Errorf("diff: stale_hunk: hunk not found in current diff")
+var ErrStaleHunk = errors.New("diff: stale_hunk: hunk not found in current diff")
 
 // HunkPatch returns a minimal patch containing only the hunk identified by
 // hunkID, suitable for piping to `git apply --cached` (04 §4).
@@ -83,8 +84,18 @@ func buildPatch(
 	}
 
 	fmt.Fprintf(&sb, "diff --git a/%s b/%s\n", oldPath, newPath)
-	fmt.Fprintf(&sb, "--- a/%s\n", oldPath)
-	fmt.Fprintf(&sb, "+++ b/%s\n", newPath)
+	if f.IsNew {
+		sb.WriteString("new file mode 100644\n")
+		fmt.Fprintf(&sb, "--- /dev/null\n")
+		fmt.Fprintf(&sb, "+++ b/%s\n", newPath)
+	} else if f.IsDeleted {
+		sb.WriteString("deleted file mode 100644\n")
+		fmt.Fprintf(&sb, "--- a/%s\n", oldPath)
+		sb.WriteString("+++ /dev/null\n")
+	} else {
+		fmt.Fprintf(&sb, "--- a/%s\n", oldPath)
+		fmt.Fprintf(&sb, "+++ b/%s\n", newPath)
+	}
 
 	hunkLines := lines[hunk.StartLine : hunk.EndLine+1]
 	sb.WriteString(hunkHeader(hunkLines, hunk.Header))

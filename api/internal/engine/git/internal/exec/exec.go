@@ -9,6 +9,17 @@ import (
 	"strings"
 )
 
+// GitError carries structured exit information for errors.Is / errors.As matching.
+type GitError struct {
+	Op       string
+	ExitCode int
+	Message  string
+}
+
+func (e *GitError) Error() string {
+	return fmt.Sprintf("%s: exit %d: %s", e.Op, e.ExitCode, e.Message)
+}
+
 // Result holds the captured output of a git invocation.
 type Result struct {
 	Stdout   string
@@ -77,7 +88,7 @@ func RequireSuccess(
 	if msg == "" {
 		msg = strings.TrimSpace(r.Stdout)
 	}
-	return fmt.Errorf("%s: exit %d: %s", op, r.ExitCode, msg)
+	return &GitError{Op: op, ExitCode: r.ExitCode, Message: msg}
 }
 
 func exitCode(
