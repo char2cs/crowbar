@@ -155,13 +155,23 @@ func (w *Watcher) processEvent(
 }
 
 // handleBurst processes all events from a single debounce window.
-// Fix 2: fanOutGit is called exactly once per burst, not once per event.
+// Events for the same path are merged (OR of ops) so that CREATE+WRITE
+// on Linux inotify is reported as a single "created" event, not "modified".
+// fanOutGit is called exactly once per burst, not once per event.
 func (w *Watcher) handleBurst(
 	ctx context.Context,
 	events []fsnotify.Event,
 ) {
+	merged := make(map[string]fsnotify.Op, len(events))
+	order := make([]string, 0, len(events))
 	for _, evt := range events {
-		w.handleOne(ctx, evt)
+		if _, seen := merged[evt.Name]; !seen {
+			order = append(order, evt.Name)
+		}
+		merged[evt.Name] |= evt.Op
+	}
+	for _, name := range order {
+		w.handleOne(ctx, fsnotify.Event{Name: name, Op: merged[name]})
 	}
 	w.fanOutGit(ctx)
 }
