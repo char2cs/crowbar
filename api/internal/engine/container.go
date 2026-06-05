@@ -1,10 +1,18 @@
 package engine
 
-import "context"
+import (
+	"context"
+
+	enginefs "github.com/char2cs/crowbar/api/internal/engine/fs"
+	enginegit "github.com/char2cs/crowbar/api/internal/engine/git"
+)
 
 // Container holds engine-layer dependencies. The AI Bridge engine and addon
 // registry are added in later waves.
-type Container struct{}
+type Container struct {
+	Git enginegit.Engine
+	FS  enginefs.Engine
+}
 
 type engineOpts struct {
 	homeDir string
@@ -32,5 +40,8 @@ func New(
 		o(&cfg)
 	}
 	_ = cfg
-	return &Container{}, nil
+	return &Container{
+		Git: enginegit.New(),
+		FS:  enginefs.New(),
+	}, nil
 }

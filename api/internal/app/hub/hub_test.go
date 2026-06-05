@@ -12,6 +12,8 @@ import (
 type fakeSubscriber struct {
 	workspaces []domain.Workspace
 	chats      []hub.ChatStatusEvent
+	gitStatuses []domain.GitStatus
+	fileEvents  []domain.FileChangeEvent
 }
 
 func (f *fakeSubscriber) PushWorkspace(
@@ -24,6 +26,19 @@ func (f *fakeSubscriber) PushChat(
 	evt hub.ChatStatusEvent,
 ) {
 	f.chats = append(f.chats, evt)
+}
+
+func (f *fakeSubscriber) PushGit(
+	_ string,
+	status domain.GitStatus,
+) {
+	f.gitStatuses = append(f.gitStatuses, status)
+}
+
+func (f *fakeSubscriber) PushFile(
+	evt domain.FileChangeEvent,
+) {
+	f.fileEvents = append(f.fileEvents, evt)
 }
 
 func TestHub_BroadcastWorkspace_ReachesSubscribers(t *testing.T) {
