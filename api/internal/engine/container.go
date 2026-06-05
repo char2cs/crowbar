@@ -5,13 +5,19 @@ import (
 
 	enginefs "github.com/char2cs/crowbar/api/internal/engine/fs"
 	enginegit "github.com/char2cs/crowbar/api/internal/engine/git"
+	engineprovider "github.com/char2cs/crowbar/api/internal/engine/provider"
+	enginesearch "github.com/char2cs/crowbar/api/internal/engine/search"
+	engineterminal "github.com/char2cs/crowbar/api/internal/engine/terminal"
 )
 
 // Container holds engine-layer dependencies. The AI Bridge engine and addon
 // registry are added in later waves.
 type Container struct {
-	Git enginegit.Engine
-	FS  enginefs.Engine
+	Git      enginegit.Engine
+	FS       enginefs.Engine
+	Provider engineprovider.Engine
+	Search   enginesearch.SearchEngine
+	Terminal engineterminal.Engine
 }
 
 type engineOpts struct {
@@ -41,7 +47,10 @@ func New(
 	}
 	_ = cfg
 	return &Container{
-		Git: enginegit.New(),
-		FS:  enginefs.New(),
+		Git:      enginegit.New(),
+		FS:       enginefs.New(),
+		Provider: engineprovider.New(),
+		Search:   enginesearch.New(),
+		Terminal: engineterminal.New(),
 	}, nil
 }

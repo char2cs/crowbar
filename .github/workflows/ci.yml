@@ -62,15 +62,15 @@ jobs:
       - uses: actions/checkout@v4
       - uses: actions/setup-go@v5
         with:
-          go-version: '1.25'
+          go-version: '1.26.2'
           cache-dependency-path: api/go.sum
       - name: Go vet
-        run: cd api && go vet ./...
+        run: cd api && go vet -tags noEmbed ./...
       - name: Race-detected tests
-        run: cd api && go test -race ./...
+        run: cd api && go test -tags noEmbed -race ./...
       - name: Test coverage (≥90%)
         run: |
-          cd api && go test -coverprofile=coverage.out ./...
+          cd api && go test -tags noEmbed -coverprofile=coverage.out ./...
           go tool cover -func=coverage.out | tail -1 | awk '{
             pct = $3+0
             if (pct < 90) { print "❌ Coverage " pct "% < 90%"; exit 1 }

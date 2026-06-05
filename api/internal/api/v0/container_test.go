@@ -20,7 +20,12 @@ import (
 	"github.com/char2cs/crowbar/api/internal/engine"
 )
 
-func newApp(t *testing.T) *app.Container {
+type testContainers struct {
+	app *app.Container
+	eng *engine.Container
+}
+
+func newApp(t *testing.T) testContainers {
 	t.Helper()
 	ctx := context.Background()
 	eng, err := engine.New(ctx)
@@ -30,7 +35,7 @@ func newApp(t *testing.T) *app.Container {
 	t.Cleanup(func() { _ = adapters.Close() })
 	a, err := app.New(ctx, eng, adapters)
 	require.NoError(t, err)
-	return a
+	return testContainers{app: a, eng: eng}
 }
 
 func workspaceFixture() domain.Workspace {
@@ -39,20 +44,23 @@ func workspaceFixture() domain.Workspace {
 
 func TestV0_HubBroadcastReachesWSClient(t *testing.T) {
 	gin.SetMode(gin.TestMode)
-	a := newApp(t)
-	c := v0.New(a)
+	tc := newApp(t)
+	c := v0.New(tc.app, tc.eng)
 	r := gin.New()
 	c.Register(r.Group("/v0"))
 	srv := httptest.NewServer(r)
 	t.Cleanup(srv.Close)
 
 	url := "ws" + srv.URL[len("http"):] + "/v0/ws/workspaces"
-	conn, _, err := websocket.DefaultDialer.Dial(url, nil)
+	conn, resp, err := websocket.DefaultDialer.Dial(url, nil)
+	if resp != nil {
+		_ = resp.Body.Close()
+	}
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = conn.Close() })
 	c.WaitWorkspacesRegistered()
 
-	a.Hub.BroadcastWorkspace(workspaceFixture())
+	tc.app.Hub.BroadcastWorkspace(workspaceFixture())
 
 	_ = conn.SetReadDeadline(time.Now().Add(2 * time.Second))
 	_, msg, err := conn.ReadMessage()
@@ -64,20 +72,23 @@ func TestV0_HubBroadcastReachesWSClient(t *testing.T) {
 
 func TestV0_PushChat_ReachesWSClient(t *testing.T) {
 	gin.SetMode(gin.TestMode)
-	a := newApp(t)
-	c := v0.New(a)
+	tc := newApp(t)
+	c := v0.New(tc.app, tc.eng)
 	r := gin.New()
 	c.Register(r.Group("/v0"))
 	srv := httptest.NewServer(r)
 	t.Cleanup(srv.Close)
 
 	url := "ws" + srv.URL[len("http"):] + "/v0/ws/chats"
-	conn, _, err := websocket.DefaultDialer.Dial(url, nil)
+	conn, resp, err := websocket.DefaultDialer.Dial(url, nil)
+	if resp != nil {
+		_ = resp.Body.Close()
+	}
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = conn.Close() })
 	c.WaitChatsRegistered()
 
-	a.Hub.BroadcastChat(hub.ChatStatusEvent{
+	tc.app.Hub.BroadcastChat(hub.ChatStatusEvent{
 		ChatID: "c1",
 		WsID:   "w1",
 		Status: domain.ChatStatusIdle,
@@ -93,21 +104,24 @@ func TestV0_PushChat_ReachesWSClient(t *testing.T) {
 
 func TestV0_WorkspacesFilter_ProjectId(t *testing.T) {
 	gin.SetMode(gin.TestMode)
-	a := newApp(t)
-	c := v0.New(a)
+	tc := newApp(t)
+	c := v0.New(tc.app, tc.eng)
 	r := gin.New()
 	c.Register(r.Group("/v0"))
 	srv := httptest.NewServer(r)
 	t.Cleanup(srv.Close)
 
 	url := "ws" + srv.URL[len("http"):] + "/v0/ws/workspaces?projectId=p1"
-	conn, _, err := websocket.DefaultDialer.Dial(url, nil)
+	conn, resp, err := websocket.DefaultDialer.Dial(url, nil)
+	if resp != nil {
+		_ = resp.Body.Close()
+	}
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = conn.Close() })
 	c.WaitWorkspacesRegistered()
 
 	// This workspace has projectId=p1 so it should pass the filter.
-	a.Hub.BroadcastWorkspace(workspaceFixture())
+	tc.app.Hub.BroadcastWorkspace(workspaceFixture())
 
 	_ = conn.SetReadDeadline(time.Now().Add(2 * time.Second))
 	_, msg, err := conn.ReadMessage()
@@ -119,20 +133,23 @@ func TestV0_WorkspacesFilter_ProjectId(t *testing.T) {
 
 func TestV0_WorkspacesFilter_RepoId(t *testing.T) {
 	gin.SetMode(gin.TestMode)
-	a := newApp(t)
-	c := v0.New(a)
+	tc := newApp(t)
+	c := v0.New(tc.app, tc.eng)
 	r := gin.New()
 	c.Register(r.Group("/v0"))
 	srv := httptest.NewServer(r)
 	t.Cleanup(srv.Close)
 
 	url := "ws" + srv.URL[len("http"):] + "/v0/ws/workspaces?repoId=r1"
-	conn, _, err := websocket.DefaultDialer.Dial(url, nil)
+	conn, resp, err := websocket.DefaultDialer.Dial(url, nil)
+	if resp != nil {
+		_ = resp.Body.Close()
+	}
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = conn.Close() })
 	c.WaitWorkspacesRegistered()
 
-	a.Hub.BroadcastWorkspace(workspaceFixture())
+	tc.app.Hub.BroadcastWorkspace(workspaceFixture())
 
 	_ = conn.SetReadDeadline(time.Now().Add(2 * time.Second))
 	_, msg, err := conn.ReadMessage()
@@ -144,20 +161,23 @@ func TestV0_WorkspacesFilter_RepoId(t *testing.T) {
 
 func TestV0_ChatsFilter_WsId(t *testing.T) {
 	gin.SetMode(gin.TestMode)
-	a := newApp(t)
-	c := v0.New(a)
+	tc := newApp(t)
+	c := v0.New(tc.app, tc.eng)
 	r := gin.New()
 	c.Register(r.Group("/v0"))
 	srv := httptest.NewServer(r)
 	t.Cleanup(srv.Close)
 
 	url := "ws" + srv.URL[len("http"):] + "/v0/ws/chats?wsId=w1"
-	conn, _, err := websocket.DefaultDialer.Dial(url, nil)
+	conn, resp, err := websocket.DefaultDialer.Dial(url, nil)
+	if resp != nil {
+		_ = resp.Body.Close()
+	}
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = conn.Close() })
 	c.WaitChatsRegistered()
 
-	a.Hub.BroadcastChat(hub.ChatStatusEvent{
+	tc.app.Hub.BroadcastChat(hub.ChatStatusEvent{
 		ChatID: "c1",
 		WsID:   "w1",
 		Status: domain.ChatStatusIdle,

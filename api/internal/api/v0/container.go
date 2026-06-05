@@ -10,6 +10,7 @@ import (
 	"github.com/char2cs/crowbar/api/internal/app/hub"
 	"github.com/char2cs/crowbar/api/internal/domain"
 	gitdomain "github.com/char2cs/crowbar/api/internal/domain/git"
+	"github.com/char2cs/crowbar/api/internal/engine"
 )
 
 // Container is the v0 delivery surface: the Class-A broadcasters plus REST routes.
@@ -19,17 +20,22 @@ type Container struct {
 	chats      *ws.Broadcaster[hub.ChatStatusEvent]
 	git        *ws.Broadcaster[gitdomain.GitStatus]
 	files      *ws.Broadcaster[domain.FileChangeEvent]
+	app        *app.Container
+	eng        *engine.Container
 }
 
 // New builds the v0 container and registers it as a hub subscriber.
 func New(
 	appContainer *app.Container,
+	engContainer *engine.Container,
 ) *Container {
 	c := &Container{
 		workspaces: ws.NewBroadcaster(workspacesDef()),
 		chats:      ws.NewBroadcaster(chatsDef()),
 		git:        ws.NewBroadcaster(gitDef()),
 		files:      ws.NewBroadcaster(filesDef()),
+		app:        appContainer,
+		eng:        engContainer,
 	}
 	appContainer.Hub.Register(c)
 	return c
@@ -44,6 +50,9 @@ func (c *Container) Register(
 	rg.GET("/ws/chats", c.chats.Handle)
 	rg.GET("/ws/git", c.git.Handle)
 	rg.GET("/ws/files", c.files.Handle)
+	registerTerminalHandlers(rg, c)
+	registerSearchHandlers(rg, c)
+	registerProviderHandlers(rg, c)
 }
 
 // PushWorkspace implements hub.Subscriber.

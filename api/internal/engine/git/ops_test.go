@@ -508,6 +508,9 @@ func TestWorktreeList_RequireSuccessError(
 func TestOperationContinue_RebaseInProgress(
 	t *testing.T,
 ) {
+	// GIT_EDITOR=true prevents git from opening an interactive editor for
+	// the rebase commit message when EDITOR is unset (e.g. in CI).
+	t.Setenv("GIT_EDITOR", "true")
 	ctx := context.Background()
 	dir := initRepo(t)
 

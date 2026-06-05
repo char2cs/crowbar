@@ -5,6 +5,7 @@ import (
 	"bytes"
 	"context"
 	"fmt"
+	"os"
 	"os/exec"
 	"strings"
 )
@@ -36,6 +37,31 @@ func Git(
 ) Result {
 	cmd := exec.CommandContext(ctx, "git", args...)
 	cmd.Dir = dir
+
+	var stdout, stderr bytes.Buffer
+	cmd.Stdout = &stdout
+	cmd.Stderr = &stderr
+
+	runErr := cmd.Run()
+
+	return Result{
+		Stdout:   stdout.String(),
+		Stderr:   stderr.String(),
+		ExitCode: exitCode(cmd, runErr),
+	}
+}
+
+// GitWithEnv runs a git command in dir with extra environment variables appended
+// to the current process environment.
+func GitWithEnv(
+	ctx context.Context,
+	dir string,
+	extraEnv []string,
+	args ...string,
+) Result {
+	cmd := exec.CommandContext(ctx, "git", args...)
+	cmd.Dir = dir
+	cmd.Env = append(os.Environ(), extraEnv...)
 
 	var stdout, stderr bytes.Buffer
 	cmd.Stdout = &stdout

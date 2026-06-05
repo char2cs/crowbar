@@ -25,7 +25,7 @@ func TestAPI_New_HealthRoute(t *testing.T) {
 	a, err := app.New(ctx, eng, adapters)
 	require.NoError(t, err)
 
-	c, err := crowbarapi.New(a, nil)
+	c, err := crowbarapi.New(a, eng, nil)
 	require.NoError(t, err)
 
 	rec := httptest.NewRecorder()
