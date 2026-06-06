@@ -53,6 +53,7 @@ func New(
 		repos.Chat,
 		repos.Workspace,
 		project,
+		nowFunc,
 	)
 	file := NewFileUsecase(
 		newFsEngineAdapter(engines.FS),

@@ -26,7 +26,7 @@ func newChatUsecase(
 	chat := mocks.NewChatRepo()
 	ws := mocks.NewChatWorkspaceRepo()
 	roll := mocks.NewProjectRollup()
-	uc := usecases.NewChatUsecase(chat, ws, roll)
+	uc := usecases.NewChatUsecase(chat, ws, roll, func() time.Time { return time.Unix(1000, 0) })
 	return chat, ws, roll, uc
 }
 
@@ -117,12 +117,19 @@ func TestChatUsecase_ForkChat_ForkError(t *testing.T) {
 }
 
 func TestChatUsecase_RenameChat(t *testing.T) {
-	_, _, _, uc := newChatUsecase(t)
+	chat, ws, roll, uc := newChatUsecase(t)
 	ctx := context.Background()
+
+	chat.RenameWsID = "w1"
+	ws.GetFn = func(_ context.Context, id string) (domain.Workspace, error) {
+		return domain.Workspace{ID: id, RepoID: "r1"}, nil
+	}
 
 	got, err := uc.RenameChat(ctx, "c1", "New")
 	require.NoError(t, err)
 	assert.Equal(t, "New", got.Title)
+	assert.Equal(t, "w1", ws.TouchedID, "rename rolls up workspace activity")
+	assert.Equal(t, "r1", roll.TouchedRepoID, "rename rolls up project activity")
 }
 
 func TestChatUsecase_RenameChat_Error(t *testing.T) {
@@ -135,12 +142,15 @@ func TestChatUsecase_RenameChat_Error(t *testing.T) {
 }
 
 func TestChatUsecase_DeleteChat_CascadesToChildren(t *testing.T) {
-	chat, _, _, uc := newChatUsecase(t)
+	chat, ws, roll, uc := newChatUsecase(t)
 	ctx := context.Background()
 	now := time.Unix(1000, 0)
 
 	chat.GetFn = func(_ context.Context, id string) (domain.Chat, error) {
 		return domain.Chat{ID: id, WsID: "w1"}, nil
+	}
+	ws.GetFn = func(_ context.Context, id string) (domain.Workspace, error) {
+		return domain.Workspace{ID: id, RepoID: "r1"}, nil
 	}
 	chat.ListByWorkspaceFn = func(_ context.Context, _ string) ([]domain.Chat, error) {
 		return []domain.Chat{
@@ -159,6 +169,8 @@ func TestChatUsecase_DeleteChat_CascadesToChildren(t *testing.T) {
 		[]string{"grand1", "child1", "child2", "c1"},
 		chat.Deleted,
 	)
+	assert.Equal(t, "w1", ws.TouchedID, "delete rolls up workspace activity")
+	assert.Equal(t, "r1", roll.TouchedRepoID, "delete rolls up project activity")
 }
 
 func TestChatUsecase_DeleteChat_NoChildren(t *testing.T) {

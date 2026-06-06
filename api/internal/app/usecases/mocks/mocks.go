@@ -4,6 +4,7 @@ package mocks
 
 import (
 	"context"
+	"errors"
 	"time"
 
 	"github.com/char2cs/crowbar/api/internal/app/repositories/workspace"
@@ -367,6 +368,10 @@ type ChatRepo struct {
 	RenameErr error
 	DeleteErr error
 
+	// RenameWsID is the WsID carried by the aggregate returned from Rename,
+	// mirroring the real repo which returns the full chat (with its workspace).
+	RenameWsID string
+
 	GetFn func(ctx context.Context, id string) (domain.Chat, error)
 
 	ListByWorkspaceFn func(ctx context.Context, wsID string) ([]domain.Chat, error)
@@ -415,7 +420,7 @@ func (r *ChatRepo) Rename(
 	if r.RenameErr != nil {
 		return domain.Chat{}, r.RenameErr
 	}
-	return domain.Chat{ID: id, Title: title}, nil
+	return domain.Chat{ID: id, WsID: r.RenameWsID, Title: title}, nil
 }
 
 func (r *ChatRepo) Delete(
@@ -459,6 +464,9 @@ func (r *ChatWorkspaceRepo) Get(
 	ctx context.Context,
 	id string,
 ) (domain.Workspace, error) {
+	if r.GetFn == nil {
+		return domain.Workspace{}, errors.New("mocks: ChatWorkspaceRepo.GetFn not set")
+	}
 	return r.GetFn(ctx, id)
 }
 

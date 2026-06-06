@@ -99,19 +99,23 @@ type chatUsecase struct {
 	chats      ChatLifecycleRepo
 	workspaces ChatWorkspaceRepo
 	rollup     ProjectActivityRollup
+	now        func() time.Time
 }
 
 // NewChatUsecase builds a ChatUsecase from the chat repo, workspace repo, and
-// project roll-up usecase.
+// project roll-up usecase. now supplies the timestamp for activity roll-ups on
+// the lifecycle methods that do not receive one (rename).
 func NewChatUsecase(
 	chats ChatLifecycleRepo,
 	workspaces ChatWorkspaceRepo,
 	rollup ProjectActivityRollup,
+	now func() time.Time,
 ) ChatUsecase {
 	return &chatUsecase{
 		chats:      chats,
 		workspaces: workspaces,
 		rollup:     rollup,
+		now:        now,
 	}
 }
 
@@ -149,7 +153,8 @@ func (u *chatUsecase) ForkChat(
 	return forked, nil
 }
 
-// RenameChat renames a chat.
+// RenameChat renames a chat and rolls up activity on its workspace and project,
+// symmetric with create/fork (renaming a chat is workspace activity).
 func (u *chatUsecase) RenameChat(
 	ctx context.Context,
 	id string,
@@ -159,11 +164,13 @@ func (u *chatUsecase) RenameChat(
 	if err != nil {
 		return domain.Chat{}, fmt.Errorf("chat: rename: %w", err)
 	}
+	u.rollupActivity(ctx, renamed.WsID, u.now())
 	return renamed, nil
 }
 
 // DeleteChat deletes a chat and cascades to its descendants. Delete is
-// idempotent so replay is safe.
+// idempotent so replay is safe. It rolls up workspace/project activity,
+// symmetric with create/fork.
 func (u *chatUsecase) DeleteChat(
 	ctx context.Context,
 	id string,
@@ -177,7 +184,11 @@ func (u *chatUsecase) DeleteChat(
 	if err != nil {
 		return fmt.Errorf("chat: delete: list: %w", err)
 	}
-	return u.deleteSubtree(ctx, id, siblings, now)
+	if err := u.deleteSubtree(ctx, id, siblings, now); err != nil {
+		return err
+	}
+	u.rollupActivity(ctx, root.WsID, now)
+	return nil
 }
 
 func (u *chatUsecase) deleteSubtree(
