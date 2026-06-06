@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"log/slog"
 	"time"
 
 	"github.com/google/uuid"
@@ -236,10 +237,10 @@ func (u *worktreeUsecase) finalizeMerge(
 		return MergeResult{}, fmt.Errorf("merge: update fork point: %w", err)
 	}
 	if err := u.resyncSummary(ctx, parent.ID, parent.WorktreePath, parent.ForkPointSha); err != nil {
-		return MergeResult{}, err
+		slog.WarnContext(ctx, "merge: parent summary resync failed; read-model will self-correct", "workspace_id", parent.ID, "err", err)
 	}
 	if err := u.resyncSummary(ctx, child.ID, child.WorktreePath, tip); err != nil {
-		return MergeResult{}, err
+		slog.WarnContext(ctx, "merge: child summary resync failed; read-model will self-correct", "workspace_id", child.ID, "err", err)
 	}
 	return MergeResult{ParentTipSha: tip}, nil
 }

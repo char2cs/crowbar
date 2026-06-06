@@ -489,17 +489,26 @@ func TestMergeIntoParent_ResyncsParentAndChildSummaries(t *testing.T) {
 	assert.Equal(t, []string{"/cw", "ptip"}, g.calls[3].args, "child summary uses new tip")
 }
 
+// TestMergeIntoParent_ResyncSummaryError verifies that a WorkingTreeSummary
+// failure during finalize does NOT fail MergeIntoParent — the git merge already
+// committed durably and the read-model self-corrects on the next watcher event.
+// UpdateForkPoint must still have been called (it is correctness-critical).
 func TestMergeIntoParent_ResyncSummaryError(t *testing.T) {
 	child := domain.Workspace{ID: "c", ParentID: "p", Branch: "feat", WorktreePath: "/cw"}
 	parent := domain.Workspace{ID: "p", WorktreePath: "/pw", Branch: "develop"}
 	g := &fakeGit{revParseSha: "ptip", summaryErr: errBoom}
 	ws := mergeWS(child, parent, nil)
-	ws.UpdateForkPointFn = func(_ context.Context, _, _ string) (domain.Workspace, error) {
+	var forkUpdated bool
+	ws.UpdateForkPointFn = func(_ context.Context, id, sha string) (domain.Workspace, error) {
+		forkUpdated = true
 		return domain.Workspace{}, nil
 	}
 	uc := usecases.NewWorktreeUsecase(ws, g, &fakeProvider{}, &fakeRepoStore{}, newNow())
-	_, err := uc.MergeIntoParent(context.Background(), "c", gitdomain.MergeStrategyMerge)
-	require.ErrorIs(t, err, errBoom)
+	res, err := uc.MergeIntoParent(context.Background(), "c", gitdomain.MergeStrategyMerge)
+	require.NoError(t, err, "summary resync failure must not fail a durable merge")
+	assert.Equal(t, "ptip", res.ParentTipSha)
+	assert.False(t, res.ConflictsPending)
+	assert.True(t, forkUpdated, "UpdateForkPoint must still be called")
 }
 
 func TestMergeIntoParent_SquashStrategy_RunsInParent(t *testing.T) {
