@@ -290,7 +290,7 @@ type Engine interface {
 		ctx context.Context,
 		repoPath string,
 		forkPointSha string,
-	) (added int, deleted int, hasConflicts bool, hasCommits bool, err error)
+	) (added, deleted int, hasConflicts, hasCommits bool, err error)
 
 	// MergeBase returns the best common ancestor of commits a and b, used to seed
 	// the forkPointSha of adopted worktrees on project import (00 §5.7).

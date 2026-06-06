@@ -17,7 +17,7 @@ import (
 
 func newConflictRepo(
 	t *testing.T,
-) (repoPath string, conflictFile string) {
+) (repoPath, conflictFile string) {
 	t.Helper()
 
 	dir := t.TempDir()
@@ -394,7 +394,7 @@ func TestHasMarkers_FalseViaParseFile(
 // newMultiConflictRepo creates a repo with two conflicting hunks in one file.
 func newMultiConflictRepo(
 	t *testing.T,
-) (repoPath string, conflictFile string) {
+) (repoPath, conflictFile string) {
 	t.Helper()
 
 	dir := t.TempDir()

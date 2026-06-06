@@ -19,7 +19,7 @@ import (
 
 type (
 	execFn      func(ctx context.Context, dir string, args ...string) gitexec.Result
-	execStdinFn func(ctx context.Context, dir string, stdin string, args ...string) gitexec.Result
+	execStdinFn func(ctx context.Context, dir, stdin string, args ...string) gitexec.Result
 )
 
 type engine struct {

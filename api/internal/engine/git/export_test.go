@@ -52,7 +52,7 @@ func errExec(_ context.Context, _ string, _ ...string) gitexec.Result {
 	return gitexec.Result{ExitCode: 1, Stderr: "injected exec error"}
 }
 
-func errExecStdin(_ context.Context, _ string, _ string, _ ...string) gitexec.Result {
+func errExecStdin(_ context.Context, _, _ string, _ ...string) gitexec.Result {
 	return gitexec.Result{ExitCode: 1, Stderr: "injected exec stdin error"}
 }
 

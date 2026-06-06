@@ -52,5 +52,5 @@ type GitStatusProvider interface {
 		ctx context.Context,
 		repoPath string,
 		forkPointSha string,
-	) (added int, deleted int, hasConflicts bool, hasCommits bool, err error)
+	) (added, deleted int, hasConflicts, hasCommits bool, err error)
 }
