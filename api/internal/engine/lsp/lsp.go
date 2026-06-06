@@ -22,6 +22,7 @@ import (
 	"errors"
 	"fmt"
 	"sync"
+	"time"
 
 	domlsp "github.com/char2cs/crowbar/api/internal/domain/lsp"
 	"github.com/char2cs/crowbar/api/internal/engine/lsp/internal/convert"
@@ -141,12 +142,18 @@ type Engine interface {
 	)
 }
 
+// DefaultRequestTimeout bounds each synchronous LSP feature request and each
+// document-sync notification. A wedged language server degrades to a timeout
+// error instead of hanging the handler goroutine forever (10 §5).
+const DefaultRequestTimeout = 10 * time.Second
+
 type engine struct {
-	reg    registry.Registry
-	mgr    manager.Manager
-	mu     sync.Mutex
-	snap   map[string][]domlsp.Diagnostic
-	userCB func(domlsp.DiagnosticsEvent)
+	reg        registry.Registry
+	mgr        manager.Manager
+	reqTimeout time.Duration
+	mu         sync.Mutex
+	snap       map[string][]domlsp.Diagnostic
+	userCB     func(domlsp.DiagnosticsEvent)
 }
 
 // New returns an Engine backed by a registry seeded with overrides and a
@@ -164,9 +171,10 @@ func newWithManager(
 	mgr manager.Manager,
 ) *engine {
 	e := &engine{
-		reg:  reg,
-		mgr:  mgr,
-		snap: make(map[string][]domlsp.Diagnostic),
+		reg:        reg,
+		mgr:        mgr,
+		reqTimeout: DefaultRequestTimeout,
+		snap:       make(map[string][]domlsp.Diagnostic),
 	}
 	e.mgr.OnDiagnostics(e.onDiagnostics)
 	e.mgr.OnReleaseEmpty(e.evictSnapshot)
@@ -312,7 +320,11 @@ func (e *engine) request(
 	if err != nil {
 		return nil, false, fmt.Errorf("lsp: %s: %w", method, err)
 	}
-	raw, err := srv.Request(ctx, method, params)
+
+	reqCtx, cancel := context.WithTimeout(ctx, e.reqTimeout)
+	defer cancel()
+
+	raw, err := srv.Request(reqCtx, method, params)
 	if err != nil {
 		return nil, false, fmt.Errorf("lsp: %s: %w", method, err)
 	}
@@ -382,7 +394,11 @@ func (e *engine) notify(
 	if err != nil {
 		return fmt.Errorf("lsp: %s: %w", method, err)
 	}
-	if err := srv.Notify(ctx, method, params); err != nil {
+
+	notifyCtx, cancel := context.WithTimeout(ctx, e.reqTimeout)
+	defer cancel()
+
+	if err := srv.Notify(notifyCtx, method, params); err != nil {
 		return fmt.Errorf("lsp: %s: %w", method, err)
 	}
 	return nil

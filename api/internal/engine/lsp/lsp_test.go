@@ -7,6 +7,7 @@ import (
 	"os/exec"
 	"sync"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -499,6 +500,44 @@ func TestSpawnProcess_BadCommandErrors(t *testing.T) {
 	)
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "lsp: spawn")
+}
+
+// blockingServer is a server.Server whose Request never answers on its own; it
+// returns only when the passed ctx is cancelled, modelling a wedged gopls.
+type blockingServer struct {
+	*fakeServer
+}
+
+func (b *blockingServer) Request(
+	ctx context.Context,
+	_ string,
+	_ any,
+) (json.RawMessage, error) {
+	<-ctx.Done()
+	return nil, ctx.Err()
+}
+
+func TestRequest_TimesOutOnWedgedServer(t *testing.T) {
+	fake := &blockingServer{fakeServer: newFakeServer(nil)}
+	reg := registry.New(nil)
+	spawn := func(
+		_ context.Context,
+		_ registry.ServerSpec,
+		_ string,
+	) (server.Server, error) {
+		return fake, nil
+	}
+	e := newWithManager(reg, manager.New(reg, spawn, foundLookPath()))
+	e.reqTimeout = time.Millisecond
+
+	_, err := e.Completion(context.Background(), ws, tree, goF, pos())
+	require.Error(t, err)
+	assert.ErrorIs(t, err, context.DeadlineExceeded)
+}
+
+func TestEngine_DefaultRequestTimeoutIsApplied(t *testing.T) {
+	e := New(nil).(*engine)
+	assert.Equal(t, DefaultRequestTimeout, e.reqTimeout)
 }
 
 func TestNew_ReturnsEngine(t *testing.T) {
