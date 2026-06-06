@@ -219,3 +219,72 @@ func TestFileUsecase_WriteContent_ResyncError(t *testing.T) {
 	err := uc.WriteContent(ctx, "w1", "a.go", "d", time.Now())
 	assert.Error(t, err)
 }
+
+// The cases below cover each method's fs-engine error branch (the workspace
+// resolves but the underlying filesystem op fails); a mutation must not resync.
+
+func okWorkspace(
+	syncer *mocks.WorkspaceSyncer,
+) {
+	syncer.GetFn = func(_ context.Context, id string) (domain.Workspace, error) {
+		return domain.Workspace{ID: id, WorktreePath: "/repo/x"}, nil
+	}
+}
+
+func TestFileUsecase_Tree_FsError(t *testing.T) {
+	fs, syncer, uc := newFileUsecase(t)
+	okWorkspace(syncer)
+	fs.TreeFn = func(_, _ string, _ file.FileStatusProvider) ([]domain.FileNode, error) {
+		return nil, errors.New("boom")
+	}
+
+	_, err := uc.Tree(context.Background(), "w1", "", statusProviderStub{})
+	assert.Error(t, err)
+}
+
+func TestFileUsecase_ReadContent_FsError(t *testing.T) {
+	fs, syncer, uc := newFileUsecase(t)
+	okWorkspace(syncer)
+	fs.ReadContentFn = func(_, _ string) (domain.FileContent, error) {
+		return domain.FileContent{}, errors.New("boom")
+	}
+
+	_, err := uc.ReadContent(context.Background(), "w1", "a.go")
+	assert.Error(t, err)
+}
+
+func TestFileUsecase_CreateFile_FsError(t *testing.T) {
+	fs, syncer, uc := newFileUsecase(t)
+	okWorkspace(syncer)
+	fs.CreateFileFn = func(_, _ string) error { return errors.New("boom") }
+
+	assert.Error(t, uc.CreateFile(context.Background(), "w1", "a.go", time.Now()))
+	assert.False(t, syncer.Synced)
+}
+
+func TestFileUsecase_CreateDir_FsError(t *testing.T) {
+	fs, syncer, uc := newFileUsecase(t)
+	okWorkspace(syncer)
+	fs.CreateDirFn = func(_, _ string) error { return errors.New("boom") }
+
+	assert.Error(t, uc.CreateDir(context.Background(), "w1", "sub", time.Now()))
+	assert.False(t, syncer.Synced)
+}
+
+func TestFileUsecase_Rename_FsError(t *testing.T) {
+	fs, syncer, uc := newFileUsecase(t)
+	okWorkspace(syncer)
+	fs.RenameFn = func(_, _, _ string) error { return errors.New("boom") }
+
+	assert.Error(t, uc.Rename(context.Background(), "w1", "a.go", "b.go", time.Now()))
+	assert.False(t, syncer.Synced)
+}
+
+func TestFileUsecase_Delete_FsError(t *testing.T) {
+	fs, syncer, uc := newFileUsecase(t)
+	okWorkspace(syncer)
+	fs.DeleteFn = func(_, _ string) error { return errors.New("boom") }
+
+	assert.Error(t, uc.Delete(context.Background(), "w1", "a.go", time.Now()))
+	assert.False(t, syncer.Synced)
+}

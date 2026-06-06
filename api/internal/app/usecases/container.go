@@ -65,7 +65,7 @@ func New(
 		nowFunc,
 	)
 	fileUsecase := file.New(
-		file.NewEngineAdapter(engines.FS),
+		newFsEngineAdapter(engines.FS),
 		workspaceUsecase,
 	)
 	gitUsecase := git.New(
