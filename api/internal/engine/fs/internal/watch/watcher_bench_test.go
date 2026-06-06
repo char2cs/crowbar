@@ -64,6 +64,6 @@ func BenchmarkFanOut(b *testing.B) {
 
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
-		os.WriteFile(benchFile, []byte("x"), 0o600) //nolint:errcheck
+		os.WriteFile(benchFile, []byte("x"), 0o600)
 	}
 }

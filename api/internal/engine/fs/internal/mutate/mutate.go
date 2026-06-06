@@ -17,7 +17,7 @@ func CreateFile(
 	if err := os.MkdirAll(filepath.Dir(full), 0o700); err != nil {
 		return fmt.Errorf("mutate: mkdir %s: %w", filePath, err)
 	}
-	f, err := os.OpenFile(full, os.O_CREATE|os.O_EXCL, 0o600)
+	f, err := os.OpenFile(full, os.O_CREATE|os.O_EXCL, 0o600) //nolint:gosec // workspace-relative path under the user's own repo (local single-user IDE)
 	if err != nil {
 		return fmt.Errorf("mutate: create %s: %w", filePath, err)
 	}
