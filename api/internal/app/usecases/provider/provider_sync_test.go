@@ -1,4 +1,4 @@
-package usecases_test
+package provider_test
 
 import (
 	"context"
@@ -10,10 +10,10 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/char2cs/crowbar/api/internal/app/repositories/workspace"
-	"github.com/char2cs/crowbar/api/internal/app/usecases"
 	"github.com/char2cs/crowbar/api/internal/app/usecases/mocks"
+	"github.com/char2cs/crowbar/api/internal/app/usecases/provider"
 	"github.com/char2cs/crowbar/api/internal/domain"
-	provider "github.com/char2cs/crowbar/api/internal/engine/provider"
+	engineprovider "github.com/char2cs/crowbar/api/internal/engine/provider"
 	providertypes "github.com/char2cs/crowbar/api/internal/engine/provider/types"
 )
 
@@ -24,12 +24,12 @@ func newProviderSyncUsecase(
 ) (
 	*mocks.ProviderSyncWorkspaceRepo,
 	*mocks.ProviderSyncEngine,
-	usecases.ProviderSyncUsecase,
+	provider.Usecase,
 ) {
 	t.Helper()
 	wsRepo := mocks.NewProviderSyncWorkspaceRepo()
 	eng := mocks.NewProviderSyncEngine()
-	uc := usecases.NewProviderSyncUsecase(wsRepo, eng)
+	uc := provider.New(wsRepo, eng)
 	return wsRepo, eng, uc
 }
 
@@ -54,7 +54,7 @@ func TestProviderSync_SyncFromState_NilPR(t *testing.T) {
 		return domain.Workspace{ID: in.ID}, nil
 	}
 
-	state := provider.ProviderState{Protected: true, PR: nil}
+	state := engineprovider.ProviderState{Protected: true, PR: nil}
 	err := uc.SyncFromState(ctx, "w1", state, now)
 	require.NoError(t, err)
 }
@@ -81,7 +81,7 @@ func TestProviderSync_SyncFromState_WithPR(t *testing.T) {
 		return domain.Workspace{ID: in.ID}, nil
 	}
 
-	state := provider.ProviderState{
+	state := engineprovider.ProviderState{
 		Protected: false,
 		PR: &providertypes.PRInfo{
 			Status:       "open",
@@ -110,7 +110,7 @@ func TestProviderSync_SyncFromState_SyncProviderError_Propagates(t *testing.T) {
 		return domain.Workspace{}, errors.New("asynx error")
 	}
 
-	err := uc.SyncFromState(ctx, "w1", provider.ProviderState{}, now)
+	err := uc.SyncFromState(ctx, "w1", engineprovider.ProviderState{}, now)
 	assert.Error(t, err)
 }
 
@@ -132,8 +132,8 @@ func TestProviderSync_PollWorkspace_HappyPath(t *testing.T) {
 		_ string,
 		_ string,
 		_ string,
-	) (provider.ProviderState, error) {
-		return provider.ProviderState{
+	) (engineprovider.ProviderState, error) {
+		return engineprovider.ProviderState{
 			Protected: true,
 			PR: &providertypes.PRInfo{
 				Status: "open",
@@ -180,8 +180,8 @@ func TestProviderSync_PollWorkspace_PollError_Propagates(t *testing.T) {
 		_ string,
 		_ string,
 		_ string,
-	) (provider.ProviderState, error) {
-		return provider.ProviderState{}, errors.New("poll failed")
+	) (engineprovider.ProviderState, error) {
+		return engineprovider.ProviderState{}, errors.New("poll failed")
 	}
 
 	err := uc.PollWorkspace(ctx, "w1")

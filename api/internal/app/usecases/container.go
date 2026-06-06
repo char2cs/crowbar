@@ -4,6 +4,7 @@ import (
 	"github.com/char2cs/crowbar/api/internal/adapter/store"
 	"github.com/char2cs/crowbar/api/internal/app/repositories"
 	"github.com/char2cs/crowbar/api/internal/app/usecases/internal/discover"
+	"github.com/char2cs/crowbar/api/internal/app/usecases/provider"
 	"github.com/char2cs/crowbar/api/internal/app/usecases/terminal"
 	"github.com/char2cs/crowbar/api/internal/domain"
 	"github.com/char2cs/crowbar/api/internal/engine"
@@ -28,7 +29,7 @@ type Container struct {
 	File          FileUsecase
 	Git           GitUsecase
 	Terminal      terminal.Usecase
-	ProviderSync  ProviderSyncUsecase
+	ProviderSync  provider.Usecase
 	Worktree      WorktreeUsecase
 	BranchReview  BranchReviewUsecase
 }
@@ -69,7 +70,7 @@ func New(
 		gormStores.TerminalProfiles,
 		repos.Workspace,
 	)
-	providerSync := NewProviderSyncUsecase(
+	providerSync := provider.New(
 		repos.Workspace,
 		engines.Provider,
 	)

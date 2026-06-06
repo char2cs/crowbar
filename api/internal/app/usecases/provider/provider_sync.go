@@ -1,4 +1,4 @@
-package usecases
+package provider
 
 import (
 	"context"
@@ -7,11 +7,11 @@ import (
 
 	"github.com/char2cs/crowbar/api/internal/app/repositories/workspace"
 	"github.com/char2cs/crowbar/api/internal/domain"
-	provider "github.com/char2cs/crowbar/api/internal/engine/provider"
+	engineprovider "github.com/char2cs/crowbar/api/internal/engine/provider"
 )
 
-// ProviderSyncWorkspaceRepo is the workspace surface ProviderSyncUsecase needs.
-type ProviderSyncWorkspaceRepo interface {
+// WorkspaceRepo is the workspace surface Usecase needs.
+type WorkspaceRepo interface {
 	Get(
 		ctx context.Context,
 		id string,
@@ -23,20 +23,20 @@ type ProviderSyncWorkspaceRepo interface {
 	) (domain.Workspace, error)
 }
 
-// ProviderSyncEngine is the provider-engine surface ProviderSyncUsecase needs.
-type ProviderSyncEngine interface {
+// Engine is the provider-engine surface Usecase needs.
+type Engine interface {
 	PollOnView(
 		ctx context.Context,
 		wsID string,
 		repoPath string,
 		branch string,
-	) (provider.ProviderState, error)
+	) (engineprovider.ProviderState, error)
 }
 
-// ProviderSyncUsecase polls the provider for a workspace and applies the result
+// Usecase polls the provider for a workspace and applies the result
 // via SyncProviderState. PollWorkspace is the on-view trigger; SyncFromState is
 // the background-sweep callback (08 §5).
-type ProviderSyncUsecase interface {
+type Usecase interface {
 	// PollWorkspace loads the workspace, calls PollOnView, and applies the result.
 	PollWorkspace(
 		ctx context.Context,
@@ -49,22 +49,21 @@ type ProviderSyncUsecase interface {
 	SyncFromState(
 		ctx context.Context,
 		wsID string,
-		state provider.ProviderState,
+		state engineprovider.ProviderState,
 		now time.Time,
 	) error
 }
 
 type providerSyncUsecase struct {
-	workspaces ProviderSyncWorkspaceRepo
-	engine     ProviderSyncEngine
+	workspaces WorkspaceRepo
+	engine     Engine
 }
 
-// NewProviderSyncUsecase builds a ProviderSyncUsecase from the workspace repo
-// and provider engine.
-func NewProviderSyncUsecase(
-	workspaces ProviderSyncWorkspaceRepo,
-	engine ProviderSyncEngine,
-) ProviderSyncUsecase {
+// New builds a Usecase from the workspace repo and provider engine.
+func New(
+	workspaces WorkspaceRepo,
+	engine Engine,
+) Usecase {
 	return &providerSyncUsecase{
 		workspaces: workspaces,
 		engine:     engine,
@@ -93,7 +92,7 @@ func (u *providerSyncUsecase) PollWorkspace(
 func (u *providerSyncUsecase) SyncFromState(
 	ctx context.Context,
 	wsID string,
-	state provider.ProviderState,
+	state engineprovider.ProviderState,
 	now time.Time,
 ) error {
 	in := workspace.ProviderInput{
