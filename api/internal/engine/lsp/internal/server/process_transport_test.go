@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"os"
+	"os/exec"
 	"testing"
 	"time"
 
@@ -37,6 +38,20 @@ func TestHelperProcess(t *testing.T) {
 	out, _ := json.Marshal(resp)
 	_ = protocol.WriteMessage(os.Stdout, out)
 	os.Exit(0)
+}
+
+func TestProcessTransport_CloseReapsProcess(t *testing.T) {
+	t.Setenv("CROWBAR_LSP_HELPER", "1")
+
+	cmd := exec.Command(os.Args[0], "-test.run=TestHelperProcess")
+	tr, err := newProcessTransport(cmd)
+	require.NoError(t, err)
+
+	require.NoError(t, tr.Close())
+	require.NotNil(t, cmd.ProcessState, "process must be reaped (Wait called) after Close")
+
+	// Close is idempotent and must not panic on an already-reaped process.
+	require.NoError(t, tr.Close())
 }
 
 func TestServer_NewSpawnsRealProcess(t *testing.T) {

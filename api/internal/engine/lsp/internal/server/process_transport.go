@@ -51,8 +51,13 @@ func (t *processTransport) Write(
 func (t *processTransport) Close() error {
 	_ = t.stdin.Close()
 	_ = t.stdout.Close()
-	if t.cmd.Process != nil {
-		_ = t.cmd.Process.Kill()
+	if t.cmd.Process == nil {
+		return nil
 	}
+	if t.cmd.ProcessState != nil {
+		return nil
+	}
+	_ = t.cmd.Process.Kill()
+	_ = t.cmd.Wait()
 	return nil
 }
