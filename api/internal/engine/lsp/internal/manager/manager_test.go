@@ -319,6 +319,78 @@ func TestOnDiagnostics_FanIn(
 	assert.Len(t, received, 2, "both events must reach the manager-level callback")
 }
 
+// TestOnDiagnostics_StampsWsID verifies that an event emitted by a server with
+// an empty WsID is stamped with the wsID the server was spawned under before it
+// reaches the manager-level callback.
+func TestOnDiagnostics_StampsWsID(
+	t *testing.T,
+) {
+	var mu sync.Mutex
+	var fakes []*fakeServer
+
+	spawn := func(
+		_ context.Context,
+		_ registry.ServerSpec,
+		_ string,
+	) (server.Server, error) {
+		fs := &fakeServer{}
+		mu.Lock()
+		fakes = append(fakes, fs)
+		mu.Unlock()
+		return fs, nil
+	}
+
+	reg := registry.New(nil)
+	m := New(reg, spawn)
+
+	var received []domlsp.DiagnosticsEvent
+	var diagMu sync.Mutex
+	m.OnDiagnostics(func(
+		e domlsp.DiagnosticsEvent,
+	) {
+		diagMu.Lock()
+		received = append(received, e)
+		diagMu.Unlock()
+	})
+
+	ctx := context.Background()
+	_, err := m.ServerForFile(ctx, "ws-go", "/repo", "main.go")
+	require.NoError(t, err)
+
+	_, err = m.ServerForFile(ctx, "ws-ts", "/repo", "app.ts")
+	require.NoError(t, err)
+
+	mu.Lock()
+	localFakes := append([]*fakeServer(nil), fakes...)
+	mu.Unlock()
+	require.Len(t, localFakes, 2)
+
+	localFakes[0].mu.Lock()
+	fn0 := localFakes[0].diagFn
+	localFakes[0].mu.Unlock()
+	require.NotNil(t, fn0)
+
+	localFakes[1].mu.Lock()
+	fn1 := localFakes[1].diagFn
+	localFakes[1].mu.Unlock()
+	require.NotNil(t, fn1)
+
+	// Servers emit events with an empty WsID; the manager must stamp them.
+	fn0(domlsp.DiagnosticsEvent{Diagnostics: []domlsp.Diagnostic{{Message: "go"}}})
+	fn1(domlsp.DiagnosticsEvent{Diagnostics: []domlsp.Diagnostic{{Message: "ts"}}})
+
+	diagMu.Lock()
+	defer diagMu.Unlock()
+	require.Len(t, received, 2)
+	byWs := map[string]string{}
+	for _, e := range received {
+		require.Len(t, e.Diagnostics, 1)
+		byWs[e.WsID] = e.Diagnostics[0].Message
+	}
+	assert.Equal(t, "go", byWs["ws-go"])
+	assert.Equal(t, "ts", byWs["ws-ts"])
+}
+
 // TestRace_ConcurrentAcquireRelease stress-tests the map + refcount under the
 // race detector.
 func TestRace_ConcurrentAcquireRelease(

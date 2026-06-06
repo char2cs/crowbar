@@ -128,7 +128,7 @@ func (m *manager) getOrSpawn(
 	}
 	m.mu.Unlock()
 
-	srv, err := m.spawnAndWire(ctx, spec, worktreePath)
+	srv, err := m.spawnAndWire(ctx, wsID, spec, worktreePath)
 	if err != nil {
 		return nil, err
 	}
@@ -149,6 +149,7 @@ func (m *manager) getOrSpawn(
 
 func (m *manager) spawnAndWire(
 	ctx context.Context,
+	wsID string,
 	spec registry.ServerSpec,
 	worktreePath string,
 ) (server.Server, error) {
@@ -162,9 +163,21 @@ func (m *manager) spawnAndWire(
 	m.mu.Unlock()
 
 	if cb != nil {
-		srv.OnDiagnostics(cb)
+		srv.OnDiagnostics(stampWsID(wsID, cb))
 	}
 	return srv, nil
+}
+
+func stampWsID(
+	wsID string,
+	cb func(domlsp.DiagnosticsEvent),
+) func(domlsp.DiagnosticsEvent) {
+	return func(
+		event domlsp.DiagnosticsEvent,
+	) {
+		event.WsID = wsID
+		cb(event)
+	}
 }
 
 func (m *manager) Acquire(
