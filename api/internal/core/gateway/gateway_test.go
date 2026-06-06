@@ -2,6 +2,7 @@ package gateway_test
 
 import (
 	"net"
+	"os"
 	"path/filepath"
 	"testing"
 
@@ -38,7 +39,10 @@ func TestGatewayUnix_ExplicitPath(t *testing.T) {
 }
 
 func TestGatewayUnix_DefaultPath(t *testing.T) {
-	t.Setenv("HOME", t.TempDir())
+	home, err := os.MkdirTemp("/tmp", "cb")
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = os.RemoveAll(home) })
+	t.Setenv("HOME", home)
 	l, err := gateway.New("unix://")
 	require.NoError(t, err)
 	t.Cleanup(func() { l.Close() })

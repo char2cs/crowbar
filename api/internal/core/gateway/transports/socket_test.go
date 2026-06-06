@@ -1,6 +1,7 @@
 package transports
 
 import (
+	"os"
 	"path/filepath"
 	"testing"
 
@@ -17,7 +18,10 @@ func TestNewSocket_ExplicitPath(t *testing.T) {
 }
 
 func TestNewSocket_DefaultPath_UsesHome(t *testing.T) {
-	t.Setenv("HOME", t.TempDir())
+	home, err := os.MkdirTemp("/tmp", "cb")
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = os.RemoveAll(home) })
+	t.Setenv("HOME", home)
 	l, err := NewSocket("unix://")
 	require.NoError(t, err)
 	t.Cleanup(func() { l.Close() })
