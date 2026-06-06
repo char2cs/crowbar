@@ -29,6 +29,7 @@ type Container struct {
 	Terminal      TerminalUsecase
 	ProviderSync  ProviderSyncUsecase
 	Worktree      WorktreeUsecase
+	BranchReview  BranchReviewUsecase
 }
 
 // New builds the usecases container. It takes the aggregate repositories, the
@@ -87,6 +88,14 @@ func New(
 		gormStores.Repositories,
 		nowFunc,
 	)
+	branchReview := NewBranchReviewUsecase(
+		repos.Workspace,
+		repos.ReviewThread,
+		repos.Chat,
+		gormStores.Repositories,
+		engines.Git,
+		nowFunc,
+	)
 	return &Container{
 		Project:       project,
 		ProjectImport: projectImport,
@@ -97,5 +106,6 @@ func New(
 		Terminal:      terminal,
 		ProviderSync:  providerSync,
 		Worktree:      worktree,
+		BranchReview:  branchReview,
 	}, nil
 }
