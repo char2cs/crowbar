@@ -3,6 +3,7 @@ package usecases
 import (
 	"context"
 	"fmt"
+	"log/slog"
 	"path/filepath"
 	"time"
 
@@ -147,7 +148,11 @@ func (u *projectImport) importRepos(
 	}
 	for _, repoPath := range repoPaths {
 		if err := u.importOneRepo(ctx, project, repoPath); err != nil {
-			return err
+			slog.WarnContext(
+				ctx, "project import: skipping repo after partial failure",
+				"repo_path", repoPath,
+				"error", err,
+			)
 		}
 	}
 	return nil

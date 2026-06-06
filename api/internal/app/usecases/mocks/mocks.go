@@ -149,6 +149,10 @@ type GitEngine struct {
 	WorktreeListErr error
 	MergeBaseSha    string
 	MergeBaseErr    error
+
+	// WorktreeListFn, when non-nil, overrides Worktrees/WorktreeListErr for
+	// per-repo control in tests.
+	WorktreeListFn func(repoPath string) ([]gitengine.WorktreeEntry, error)
 }
 
 // NewGitEngine returns an empty GitEngine.
@@ -160,6 +164,9 @@ func (g *GitEngine) WorktreeList(
 	ctx context.Context,
 	repoPath string,
 ) ([]gitengine.WorktreeEntry, error) {
+	if g.WorktreeListFn != nil {
+		return g.WorktreeListFn(repoPath)
+	}
 	if g.WorktreeListErr != nil {
 		return nil, g.WorktreeListErr
 	}

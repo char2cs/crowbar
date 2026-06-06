@@ -134,35 +134,52 @@ func TestImport_DiscoverError(
 	assert.Error(t, err)
 }
 
-func TestImport_RepoSaveError(
+func TestImport_RepoSaveError_IsTolerated(
 	t *testing.T,
 ) {
-	_, repos, _, _, _, uc := newImport(t)
+	// A repo-save failure is inside importOneRepo — best-effort: the project
+	// is still returned with no error and zero repos persisted.
+	projects, repos, _, _, _, uc := newImport(t)
 	repos.SaveErr = errors.New("repo boom")
 
-	_, err := uc.Import(context.Background(), "P", "/root")
-	assert.Error(t, err)
+	project, err := uc.Import(context.Background(), "P", "/root")
+	require.NoError(t, err)
+	assert.Equal(t, "P", project.Name)
+	assert.Len(t, projects.Saved, 1)
+	assert.Empty(t, repos.Saved)
 }
 
-func TestImport_WorktreeListError(
+func TestImport_WorktreeListError_IsTolerated(
 	t *testing.T,
 ) {
-	_, _, _, git, _, uc := newImport(t)
+	// A worktree-list failure is inside importOneRepo — best-effort: the
+	// project and the repo row are returned; no workspaces are adopted.
+	projects, repos, ws, git, _, uc := newImport(t)
 	git.WorktreeListErr = errors.New("wt boom")
 
-	_, err := uc.Import(context.Background(), "P", "/root")
-	assert.Error(t, err)
+	project, err := uc.Import(context.Background(), "P", "/root")
+	require.NoError(t, err)
+	assert.Equal(t, "P", project.Name)
+	assert.Len(t, projects.Saved, 1)
+	assert.Len(t, repos.Saved, 1)
+	assert.Empty(t, ws.Created)
 }
 
-func TestImport_ProtectedBranchesError(
+func TestImport_ProtectedBranchesError_IsTolerated(
 	t *testing.T,
 ) {
-	_, _, _, git, prov, uc := newImport(t)
+	// A protected-branches failure is inside importOneRepo — best-effort:
+	// the project and repo row are returned; no workspaces are adopted.
+	projects, repos, ws, git, prov, uc := newImport(t)
 	git.Worktrees = []gitengine.WorktreeEntry{{Path: "/repoA", Branch: "main", Head: "h1"}}
 	prov.ProtectedErr = errors.New("prov boom")
 
-	_, err := uc.Import(context.Background(), "P", "/root")
-	assert.Error(t, err)
+	project, err := uc.Import(context.Background(), "P", "/root")
+	require.NoError(t, err)
+	assert.Equal(t, "P", project.Name)
+	assert.Len(t, projects.Saved, 1)
+	assert.Len(t, repos.Saved, 1)
+	assert.Empty(t, ws.Created)
 }
 
 func TestImport_MergeBaseErrorIsTolerated(
@@ -194,13 +211,81 @@ func TestImport_DetachedWorktreeSkipped(
 	assert.Equal(t, "feature", ws.Created[0].Branch)
 }
 
-func TestImport_WorkspaceCreateError(
+func TestImport_WorkspaceCreateError_IsTolerated(
 	t *testing.T,
 ) {
-	_, _, ws, git, _, uc := newImport(t)
+	// A workspace-create failure is inside importOneRepo — best-effort: the
+	// project and repo row are returned; no workspaces are adopted.
+	projects, repos, ws, git, _, uc := newImport(t)
 	git.Worktrees = []gitengine.WorktreeEntry{{Path: "/repoA", Branch: "main", Head: "h1"}}
 	ws.CreateErr = errors.New("ws boom")
 
-	_, err := uc.Import(context.Background(), "P", "/root")
-	assert.Error(t, err)
+	project, err := uc.Import(context.Background(), "P", "/root")
+	require.NoError(t, err)
+	assert.Equal(t, "P", project.Name)
+	assert.Len(t, projects.Saved, 1)
+	assert.Len(t, repos.Saved, 1)
+	assert.Empty(t, ws.Created)
+}
+
+// TestImport_PartialRepoFailure verifies the best-effort guarantee (00 §5.1):
+// when two repos are discovered and the first fails (git engine error), Import
+// still returns the project with no error and the second repo IS fully adopted.
+func TestImport_PartialRepoFailure(
+	t *testing.T,
+) {
+	projects := mocks.NewProjectStore()
+	repos := mocks.NewRepositoryStore()
+	ws := mocks.NewWorkspaceRepo()
+	git := mocks.NewGitEngine()
+	prov := mocks.NewProviderEngine()
+
+	// repoA fails worktree listing; repoB succeeds with one worktree.
+	git.WorktreeListFn = func(repoPath string) ([]gitengine.WorktreeEntry, error) {
+		if repoPath == "/root/repoA" {
+			return nil, errors.New("git failure on repoA")
+		}
+		return []gitengine.WorktreeEntry{
+			{Path: repoPath, Branch: "main", Head: "h1"},
+		}, nil
+	}
+
+	uc := usecases.NewProjectImport(usecases.ProjectImportDeps{
+		Projects:   projects,
+		Repos:      repos,
+		Workspaces: ws,
+		Git:        git,
+		Provider:   prov,
+		Discover: func(
+			root string,
+			maxDepth int,
+		) ([]string, error) {
+			return []string{root + "/repoA", root + "/repoB"}, nil
+		},
+		RefRunner: func(
+			repoPath string,
+		) defaultbranch.RefRunner {
+			return func(args ...string) (string, bool) { return "", false }
+		},
+		Now: func() time.Time { return time.Unix(1000, 0).UTC() },
+	})
+
+	project, err := uc.Import(context.Background(), "My Project", "/root")
+
+	// The import must succeed even though repoA failed.
+	require.NoError(t, err)
+	assert.Equal(t, "My Project", project.Name)
+	assert.Len(t, projects.Saved, 1)
+
+	// Both repo rows are saved (both get past Repos.Save before WorktreeList).
+	require.Len(t, repos.Saved, 2, "both repo rows must be saved")
+	repoNames := make([]string, 0, len(repos.Saved))
+	for _, r := range repos.Saved {
+		repoNames = append(repoNames, r.Name)
+	}
+	assert.Contains(t, repoNames, "repoB")
+
+	// repoB's workspace (branch "main") must be adopted; repoA has none.
+	require.Len(t, ws.Created, 1, "repoB workspace must be adopted")
+	assert.Equal(t, "main", ws.Created[0].Branch)
 }
