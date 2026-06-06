@@ -52,7 +52,7 @@ func (s *server) deliver(
 	if !ok {
 		return
 	}
-	ch <- resp
+	ch <- waiterResult{resp: resp}
 }
 
 func (s *server) handleDiagnostics(

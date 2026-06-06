@@ -27,8 +27,20 @@ var ErrClosed = errors.New("server: closed")
 // closure (a test transport with no respawn support).
 var ErrNoSpawn = errors.New("server: no spawn closure")
 
+// ErrReplaced is delivered to in-flight requests when the transport is swapped
+// out by Replay: the old process is gone, so the pending response can never
+// arrive and the waiter is failed instead of blocking until its ctx cancels.
+var ErrReplaced = errors.New("server: transport replaced")
+
 // spawnFunc establishes a fresh transport to a (re)spawned language server.
 type spawnFunc func(ctx context.Context) (io.ReadWriteCloser, error)
+
+// waiterResult carries either a correlated JSON-RPC response or a terminal
+// error (server closed, transport replaced) to a blocked Request.
+type waiterResult struct {
+	resp protocol.Response
+	err  error
+}
 
 // Server is one running language-server process proxied over JSON-RPC.
 type Server interface {
@@ -65,13 +77,14 @@ type Server interface {
 type server struct {
 	spawn spawnFunc
 
-	mu        sync.Mutex
-	transport io.ReadWriteCloser
-	reader    *bufio.Reader
-	nextID    int
-	waiters   map[int]chan protocol.Response
-	onDiag    func(lsp.DiagnosticsEvent)
-	closed    bool
+	mu         sync.Mutex
+	transport  io.ReadWriteCloser
+	reader     *bufio.Reader
+	nextID     int
+	waiters    map[int]chan waiterResult
+	onDiag     func(lsp.DiagnosticsEvent)
+	closed     bool
+	openParams map[string]json.RawMessage
 
 	writeMu sync.Mutex
 	docs    *OpenDocs
@@ -82,11 +95,12 @@ func newOverTransport(
 	spawn spawnFunc,
 ) Server {
 	s := &server{
-		spawn:     spawn,
-		transport: transport,
-		reader:    bufio.NewReader(transport),
-		waiters:   make(map[int]chan protocol.Response),
-		docs:      NewOpenDocs(),
+		spawn:      spawn,
+		transport:  transport,
+		reader:     bufio.NewReader(transport),
+		waiters:    make(map[int]chan waiterResult),
+		openParams: make(map[string]json.RawMessage),
+		docs:       NewOpenDocs(),
 	}
 	go s.readLoop(s.transport, s.reader)
 	return s
@@ -105,11 +119,12 @@ func New(
 		return nil, err
 	}
 	s := &server{
-		spawn:     spawn,
-		transport: transport,
-		reader:    bufio.NewReader(transport),
-		waiters:   make(map[int]chan protocol.Response),
-		docs:      NewOpenDocs(),
+		spawn:      spawn,
+		transport:  transport,
+		reader:     bufio.NewReader(transport),
+		waiters:    make(map[int]chan waiterResult),
+		openParams: make(map[string]json.RawMessage),
+		docs:       NewOpenDocs(),
 	}
 	go s.readLoop(s.transport, s.reader)
 	return s, nil
@@ -174,19 +189,22 @@ func (s *server) Request(
 
 func (s *server) await(
 	ctx context.Context,
-	ch chan protocol.Response,
+	ch chan waiterResult,
 ) (json.RawMessage, error) {
 	select {
 	case <-ctx.Done():
 		return nil, fmt.Errorf("request: ctx: %w", ctx.Err())
-	case resp, ok := <-ch:
+	case res, ok := <-ch:
 		if !ok {
 			return nil, ErrClosed
 		}
-		if resp.Error != nil {
-			return nil, fmt.Errorf("request: rpc error %d: %s", resp.Error.Code, resp.Error.Message)
+		if res.err != nil {
+			return nil, res.err
 		}
-		return resp.Result, nil
+		if res.resp.Error != nil {
+			return nil, fmt.Errorf("request: rpc error %d: %s", res.resp.Error.Code, res.resp.Error.Message)
+		}
+		return res.resp.Result, nil
 	}
 }
 
@@ -225,14 +243,23 @@ func (s *server) Replay(
 	s.swapTransport(transport)
 
 	for _, uri := range s.docs.List() {
-		params := map[string]any{
-			"textDocument": map[string]any{"uri": uri},
+		params := s.didOpenParams(uri)
+		if params == nil {
+			continue
 		}
 		if err := s.Notify(ctx, "textDocument/didOpen", params); err != nil {
 			return fmt.Errorf("replay: didOpen %s: %w", uri, err)
 		}
 	}
 	return nil
+}
+
+func (s *server) didOpenParams(
+	uri string,
+) json.RawMessage {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.openParams[uri]
 }
 
 func (s *server) Close() error {
@@ -244,18 +271,26 @@ func (s *server) Close() error {
 	s.closed = true
 	transport := s.transport
 	waiters := s.waiters
-	s.waiters = make(map[int]chan protocol.Response)
+	s.waiters = make(map[int]chan waiterResult)
 	s.mu.Unlock()
 
+	failWaiters(waiters, ErrClosed)
+	return transport.Close()
+}
+
+func failWaiters(
+	waiters map[int]chan waiterResult,
+	err error,
+) {
 	for _, ch := range waiters {
+		ch <- waiterResult{err: err}
 		close(ch)
 	}
-	return transport.Close()
 }
 
 func (s *server) register() (
 	int,
-	chan protocol.Response,
+	chan waiterResult,
 	error,
 ) {
 	s.mu.Lock()
@@ -265,7 +300,7 @@ func (s *server) register() (
 	}
 	s.nextID++
 	id := s.nextID
-	ch := make(chan protocol.Response, 1)
+	ch := make(chan waiterResult, 1)
 	s.waiters[id] = ch
 	return id, ch, nil
 }
@@ -311,8 +346,11 @@ func (s *server) swapTransport(
 	old := s.transport
 	s.transport = transport
 	s.reader = reader
+	waiters := s.waiters
+	s.waiters = make(map[int]chan waiterResult)
 	s.mu.Unlock()
 
+	failWaiters(waiters, ErrReplaced)
 	if old != nil {
 		_ = old.Close()
 	}
@@ -339,9 +377,15 @@ func (s *server) trackDoc(
 	}
 	if method == "textDocument/didOpen" {
 		s.docs.Add(p.TextDocument.URI)
+		s.mu.Lock()
+		s.openParams[p.TextDocument.URI] = params
+		s.mu.Unlock()
 		return
 	}
 	s.docs.Remove(p.TextDocument.URI)
+	s.mu.Lock()
+	delete(s.openParams, p.TextDocument.URI)
+	s.mu.Unlock()
 }
 
 func marshalParams(

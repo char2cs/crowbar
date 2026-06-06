@@ -269,6 +269,98 @@ func TestServer_ReplayReopensTrackedDocs(t *testing.T) {
 	assert.Equal(t, 1, fake2.notifCount("textDocument/didOpen"))
 }
 
+func (f *fakeServer) lastNotif(
+	method string,
+) (protocol.Notification, bool) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	for i := len(f.notifs) - 1; i >= 0; i-- {
+		if f.notifs[i].Method == method {
+			return f.notifs[i], true
+		}
+	}
+	return protocol.Notification{}, false
+}
+
+// TestServer_ReplayResendsWellFormedDidOpen asserts that Replay re-sends the
+// exact, well-formed didOpen params (languageId/version/text) that were
+// originally forwarded — not a bare {textDocument:{uri}} synthesized one.
+func TestServer_ReplayResendsWellFormedDidOpen(t *testing.T) {
+	clientConn, serverConn := net.Pipe()
+	fake1 := newFakeServer(serverConn)
+
+	var mu sync.Mutex
+	fakes := []*fakeServer{fake1}
+	spawn := func(
+		_ context.Context,
+	) (io.ReadWriteCloser, error) {
+		c, s := net.Pipe()
+		mu.Lock()
+		fakes = append(fakes, newFakeServer(s))
+		mu.Unlock()
+		return c, nil
+	}
+
+	srv := newOverTransport(clientConn, spawn)
+	t.Cleanup(func() { _ = srv.Close() })
+
+	original := map[string]any{
+		"textDocument": map[string]any{
+			"uri":        "file:///main.go",
+			"languageId": "go",
+			"version":    1,
+			"text":       "package main",
+		},
+	}
+	require.NoError(t, srv.Notify(context.Background(), "textDocument/didOpen", original))
+	<-fake1.gotNotif
+
+	require.NoError(t, srv.Replay(context.Background()))
+
+	mu.Lock()
+	fake2 := fakes[1]
+	mu.Unlock()
+	<-fake2.gotNotif
+
+	got, ok := fake2.lastNotif("textDocument/didOpen")
+	require.True(t, ok)
+
+	want, _ := json.Marshal(original)
+	assert.JSONEq(t, string(want), string(got.Params))
+}
+
+// TestServer_ReplayFailsInFlightRequest asserts that a Request blocked when
+// Replay swaps the transport returns promptly with ErrReplaced instead of
+// hanging until its ctx cancels.
+func TestServer_ReplayFailsInFlightRequest(t *testing.T) {
+	clientConn, serverConn := net.Pipe()
+	fake1 := newFakeServer(serverConn)
+
+	spawn := func(
+		_ context.Context,
+	) (io.ReadWriteCloser, error) {
+		c, s := net.Pipe()
+		newFakeServer(s)
+		return c, nil
+	}
+
+	srv := newOverTransport(clientConn, spawn)
+	t.Cleanup(func() { _ = srv.Close() })
+
+	done := make(chan error, 1)
+	go func() {
+		_, err := srv.Request(context.Background(), "slow", nil)
+		done <- err
+	}()
+	<-fake1.gotReq // ensure the waiter is registered before replay
+
+	require.NoError(t, srv.Replay(context.Background()))
+
+	err := <-done
+	require.Error(t, err)
+	assert.ErrorIs(t, err, ErrReplaced)
+}
+
 func TestServer_CloseThenRequestErrors(t *testing.T) {
 	srv, _ := newTestServer(t)
 
