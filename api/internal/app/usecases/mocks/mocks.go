@@ -8,6 +8,7 @@ import (
 
 	"github.com/char2cs/crowbar/api/internal/app/repositories/workspace"
 	"github.com/char2cs/crowbar/api/internal/domain"
+	gitdomain "github.com/char2cs/crowbar/api/internal/domain/git"
 	gitengine "github.com/char2cs/crowbar/api/internal/engine/git"
 	provider "github.com/char2cs/crowbar/api/internal/engine/provider"
 )
@@ -242,4 +243,99 @@ func (e *ProviderSyncEngine) PollOnView(
 	branch string,
 ) (provider.ProviderState, error) {
 	return e.PollOnViewFn(ctx, wsID, repoPath, branch)
+}
+
+// WorkspaceLifecycleRepo is a fake of the workspace repo surface used by the
+// workspace, file, and git usecases.
+type WorkspaceLifecycleRepo struct {
+	ListFn func(ctx context.Context) ([]domain.Workspace, error)
+	GetFn  func(ctx context.Context, id string) (domain.Workspace, error)
+
+	SetMergeStrategyFn func(
+		ctx context.Context,
+		id string,
+		strategy gitdomain.MergeStrategy,
+	) (domain.Workspace, error)
+	SyncWorkingTreeFn func(
+		ctx context.Context,
+		in workspace.SyncInput,
+		now time.Time,
+	) (domain.Workspace, error)
+}
+
+// NewWorkspaceLifecycleRepo returns an empty WorkspaceLifecycleRepo.
+func NewWorkspaceLifecycleRepo() *WorkspaceLifecycleRepo {
+	return &WorkspaceLifecycleRepo{}
+}
+
+func (r *WorkspaceLifecycleRepo) List(
+	ctx context.Context,
+) ([]domain.Workspace, error) {
+	return r.ListFn(ctx)
+}
+
+func (r *WorkspaceLifecycleRepo) Get(
+	ctx context.Context,
+	id string,
+) (domain.Workspace, error) {
+	return r.GetFn(ctx, id)
+}
+
+func (r *WorkspaceLifecycleRepo) SetMergeStrategy(
+	ctx context.Context,
+	id string,
+	strategy gitdomain.MergeStrategy,
+) (domain.Workspace, error) {
+	return r.SetMergeStrategyFn(ctx, id, strategy)
+}
+
+func (r *WorkspaceLifecycleRepo) SyncWorkingTreeState(
+	ctx context.Context,
+	in workspace.SyncInput,
+	now time.Time,
+) (domain.Workspace, error) {
+	return r.SyncWorkingTreeFn(ctx, in, now)
+}
+
+// WorkingTreeGitEngine is a fake of the git WorkingTreeSummary surface.
+type WorkingTreeGitEngine struct {
+	WorkingTreeSummaryFn func(
+		ctx context.Context,
+		repoPath string,
+		forkPointSha string,
+	) (int, int, bool, bool, error)
+}
+
+// NewWorkingTreeGitEngine returns an empty WorkingTreeGitEngine.
+func NewWorkingTreeGitEngine() *WorkingTreeGitEngine {
+	return &WorkingTreeGitEngine{}
+}
+
+func (g *WorkingTreeGitEngine) WorkingTreeSummary(
+	ctx context.Context,
+	repoPath string,
+	forkPointSha string,
+) (int, int, bool, bool, error) {
+	return g.WorkingTreeSummaryFn(ctx, repoPath, forkPointSha)
+}
+
+// ProjectRollup is a fake of the project lastActivity roll-up surface. It
+// records the last repoID it was asked to touch.
+type ProjectRollup struct {
+	TouchedRepoID string
+	Touched       bool
+}
+
+// NewProjectRollup returns an empty ProjectRollup.
+func NewProjectRollup() *ProjectRollup {
+	return &ProjectRollup{}
+}
+
+func (r *ProjectRollup) TouchProjectActivity(
+	ctx context.Context,
+	repoID string,
+	now time.Time,
+) {
+	r.TouchedRepoID = repoID
+	r.Touched = true
 }
