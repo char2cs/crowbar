@@ -154,7 +154,8 @@ func TestChatUsecase_DeleteChat_CascadesToChildren(t *testing.T) {
 
 	err := uc.DeleteChat(ctx, "c1", now)
 	require.NoError(t, err)
-	assert.ElementsMatch(t,
+	assert.ElementsMatch(
+		t,
 		[]string{"grand1", "child1", "child2", "c1"},
 		chat.Deleted,
 	)
@@ -174,6 +175,25 @@ func TestChatUsecase_DeleteChat_NoChildren(t *testing.T) {
 	err := uc.DeleteChat(ctx, "c1", time.Now())
 	require.NoError(t, err)
 	assert.Equal(t, []string{"c1"}, chat.Deleted)
+}
+
+func TestChatUsecase_DeleteChat_ChildDeleteError(t *testing.T) {
+	chat, _, _, uc := newChatUsecase(t)
+	ctx := context.Background()
+
+	chat.GetFn = func(_ context.Context, id string) (domain.Chat, error) {
+		return domain.Chat{ID: id, WsID: "w1"}, nil
+	}
+	chat.ListByWorkspaceFn = func(_ context.Context, _ string) ([]domain.Chat, error) {
+		return []domain.Chat{
+			{ID: "c1", WsID: "w1"},
+			{ID: "child1", WsID: "w1", ParentID: "c1"},
+		}, nil
+	}
+	chat.DeleteErr = errors.New("boom")
+
+	err := uc.DeleteChat(ctx, "c1", time.Now())
+	assert.Error(t, err)
 }
 
 func TestChatUsecase_DeleteChat_GetError(t *testing.T) {

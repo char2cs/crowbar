@@ -188,3 +188,34 @@ func TestFileUsecase_Delete_WorkspaceError(t *testing.T) {
 	err := uc.Delete(ctx, "w1", "a.go", time.Now())
 	assert.Error(t, err)
 }
+
+func TestFileUsecase_AllOps_WorkspaceError(t *testing.T) {
+	_, syncer, uc := newFileUsecase(t)
+	ctx := context.Background()
+	now := time.Now()
+	syncer.GetFn = func(_ context.Context, _ string) (domain.Workspace, error) {
+		return domain.Workspace{}, errors.New("boom")
+	}
+
+	_, err := uc.ReadContent(ctx, "w1", "a.go")
+	assert.Error(t, err)
+	assert.Error(t, uc.WriteContent(ctx, "w1", "a.go", "d", now))
+	assert.Error(t, uc.CreateFile(ctx, "w1", "a.go", now))
+	assert.Error(t, uc.CreateDir(ctx, "w1", "d", now))
+	assert.Error(t, uc.Rename(ctx, "w1", "a.go", "b.go", now))
+}
+
+func TestFileUsecase_WriteContent_ResyncError(t *testing.T) {
+	fs, syncer, uc := newFileUsecase(t)
+	ctx := context.Background()
+	syncer.GetFn = func(_ context.Context, id string) (domain.Workspace, error) {
+		return domain.Workspace{ID: id, WorktreePath: "/repo/x"}, nil
+	}
+	syncer.SyncFn = func(_ context.Context, _ string, _ time.Time) (domain.Workspace, error) {
+		return domain.Workspace{}, errors.New("boom")
+	}
+	fs.WriteContentFn = func(_, _, _ string) error { return nil }
+
+	err := uc.WriteContent(ctx, "w1", "a.go", "d", time.Now())
+	assert.Error(t, err)
+}
