@@ -275,6 +275,31 @@ func TestIntegration_MergeStrategyAdvancesParent(t *testing.T) {
 	assert.Equal(t, parentTip, reloaded.ForkPointSha)
 }
 
+// TestIntegration_MergeResyncsParentReadModel proves FIX 3: after a merge the
+// PARENT worktree gains commits, so its read-model diff summary must be resynced
+// rather than going stale. The parent here is itself a child (so it has a real
+// fork point against the root), making the +N diff stats observable.
+func TestIntegration_MergeResyncsParentReadModel(t *testing.T) {
+	h := newRealUsecase(t)
+	ctx := context.Background()
+
+	mid := h.createChild(t, "feature/mid", h.parentID, h.baseBranch)
+	leaf := h.createChild(t, "feature/leaf", mid.ID, mid.Branch)
+	commitInWorktree(t, leaf.WorktreePath, "leaf.txt", "leaf change\nsecond\n", "leaf work")
+
+	midBefore, err := h.workspaces.Get(ctx, mid.ID)
+	require.NoError(t, err)
+	require.Equal(t, 0, midBefore.Added, "parent has no diff before the merge")
+
+	res, err := h.uc.MergeIntoParent(ctx, leaf.ID, gitdomain.MergeStrategyMerge)
+	require.NoError(t, err)
+	require.False(t, res.ConflictsPending)
+
+	midAfter, err := h.workspaces.Get(ctx, mid.ID)
+	require.NoError(t, err)
+	assert.Greater(t, midAfter.Added, 0, "parent read-model diff stats reflect the merged commit")
+}
+
 func TestIntegration_SquashStrategyAdvancesParent(t *testing.T) {
 	h := newRealUsecase(t)
 	ctx := context.Background()

@@ -31,6 +31,7 @@ type fakeWorkspace struct {
 	UpdateForkPointFn func(ctx context.Context, id, forkPointSha string) (domain.Workspace, error)
 	SetPendingMergeFn func(ctx context.Context, id string, s gitdomain.MergeStrategy, target string) (domain.Workspace, error)
 	DeleteFn          func(ctx context.Context, id string) error
+	SyncFn            func(ctx context.Context, in workspace.SyncInput, now time.Time) (domain.Workspace, error)
 }
 
 func (f *fakeWorkspace) Create(
@@ -89,10 +90,13 @@ func (f *fakeWorkspace) Delete(
 }
 
 func (f *fakeWorkspace) SyncWorkingTreeState(
-	_ context.Context,
-	_ workspace.SyncInput,
-	_ time.Time,
+	ctx context.Context,
+	in workspace.SyncInput,
+	now time.Time,
 ) (domain.Workspace, error) {
+	if f.SyncFn != nil {
+		return f.SyncFn(ctx, in, now)
+	}
 	return domain.Workspace{}, nil
 }
 
@@ -151,6 +155,11 @@ type fakeGit struct {
 	rebaseOnto  error
 	removeErr   error
 	deleteErr   error
+
+	summaryAdded      int
+	summaryDeleted    int
+	summaryHasCommits bool
+	summaryErr        error
 }
 
 func (f *fakeGit) record(
@@ -245,6 +254,15 @@ func (f *fakeGit) RebaseOnto(
 ) error {
 	f.record("RebaseOnto", repoPath, newTip, forkPoint, branch)
 	return f.rebaseOnto
+}
+
+func (f *fakeGit) WorkingTreeSummary(
+	_ context.Context,
+	repoPath string,
+	forkPointSha string,
+) (int, int, bool, bool, error) {
+	f.record("WorkingTreeSummary", repoPath, forkPointSha)
+	return f.summaryAdded, f.summaryDeleted, false, f.summaryHasCommits, f.summaryErr
 }
 
 func (f *fakeGit) WorktreeRemove(
@@ -435,11 +453,53 @@ func TestMergeIntoParent_MergeStrategy_RunsInParentThenUpdatesForkPoint(t *testi
 	require.NoError(t, err)
 	assert.Equal(t, "ptip", res.ParentTipSha)
 	assert.False(t, res.ConflictsPending)
-	assert.Equal(t, []string{"Merge", "RevParse"}, g.ops())
+	assert.Equal(t, []string{"Merge", "RevParse", "WorkingTreeSummary", "WorkingTreeSummary"}, g.ops())
 	assert.Equal(t, []string{"/pw", "feat"}, g.calls[0].args)
 	assert.Equal(t, []string{"/pw", "HEAD"}, g.calls[1].args)
 	assert.Equal(t, "c", updatedID)
 	assert.Equal(t, "ptip", updatedSha)
+}
+
+func TestMergeIntoParent_ResyncsParentAndChildSummaries(t *testing.T) {
+	child := domain.Workspace{ID: "c", ParentID: "p", Branch: "feat", WorktreePath: "/cw", ForkPointSha: "cfork"}
+	parent := domain.Workspace{ID: "p", WorktreePath: "/pw", Branch: "develop", ForkPointSha: "pfork"}
+	g := &fakeGit{revParseSha: "ptip", summaryAdded: 3, summaryDeleted: 1, summaryHasCommits: true}
+	ws := mergeWS(child, parent, nil)
+	ws.UpdateForkPointFn = func(_ context.Context, _, _ string) (domain.Workspace, error) {
+		return domain.Workspace{}, nil
+	}
+	var synced []workspace.SyncInput
+	ws.SyncFn = func(_ context.Context, in workspace.SyncInput, _ time.Time) (domain.Workspace, error) {
+		synced = append(synced, in)
+		return domain.Workspace{}, nil
+	}
+	uc := usecases.NewWorktreeUsecase(ws, g, &fakeProvider{}, &fakeRepoStore{}, newNow())
+
+	_, err := uc.MergeIntoParent(context.Background(), "c", gitdomain.MergeStrategyMerge)
+	require.NoError(t, err)
+
+	// Parent resyncs from its own fork point; child resyncs from the new tip.
+	require.Len(t, synced, 2)
+	assert.Equal(t, "p", synced[0].ID)
+	assert.Equal(t, 3, synced[0].Added)
+	assert.Equal(t, 1, synced[0].Deleted)
+	assert.True(t, synced[0].HasCommits)
+	assert.Equal(t, "c", synced[1].ID)
+	assert.Equal(t, []string{"/pw", "pfork"}, g.calls[2].args, "parent summary uses parent fork point")
+	assert.Equal(t, []string{"/cw", "ptip"}, g.calls[3].args, "child summary uses new tip")
+}
+
+func TestMergeIntoParent_ResyncSummaryError(t *testing.T) {
+	child := domain.Workspace{ID: "c", ParentID: "p", Branch: "feat", WorktreePath: "/cw"}
+	parent := domain.Workspace{ID: "p", WorktreePath: "/pw", Branch: "develop"}
+	g := &fakeGit{revParseSha: "ptip", summaryErr: errBoom}
+	ws := mergeWS(child, parent, nil)
+	ws.UpdateForkPointFn = func(_ context.Context, _, _ string) (domain.Workspace, error) {
+		return domain.Workspace{}, nil
+	}
+	uc := usecases.NewWorktreeUsecase(ws, g, &fakeProvider{}, &fakeRepoStore{}, newNow())
+	_, err := uc.MergeIntoParent(context.Background(), "c", gitdomain.MergeStrategyMerge)
+	require.ErrorIs(t, err, errBoom)
 }
 
 func TestMergeIntoParent_SquashStrategy_RunsInParent(t *testing.T) {
@@ -454,7 +514,7 @@ func TestMergeIntoParent_SquashStrategy_RunsInParent(t *testing.T) {
 
 	_, err := uc.MergeIntoParent(context.Background(), "c", gitdomain.MergeStrategySquash)
 	require.NoError(t, err)
-	assert.Equal(t, []string{"MergeSquash", "RevParse"}, g.ops())
+	assert.Equal(t, []string{"MergeSquash", "RevParse", "WorkingTreeSummary", "WorkingTreeSummary"}, g.ops())
 	assert.Equal(t, "/pw", g.calls[0].args[0])
 	assert.Equal(t, "feat", g.calls[0].args[1])
 }
@@ -471,7 +531,7 @@ func TestMergeIntoParent_RebaseStrategy_RebasesChildThenFFMerges(t *testing.T) {
 
 	_, err := uc.MergeIntoParent(context.Background(), "c", gitdomain.MergeStrategyRebase)
 	require.NoError(t, err)
-	assert.Equal(t, []string{"RebaseThenFFMerge", "RevParse"}, g.ops())
+	assert.Equal(t, []string{"RebaseThenFFMerge", "RevParse", "WorkingTreeSummary", "WorkingTreeSummary"}, g.ops())
 	assert.Equal(t, []string{"/cw", "develop", "/pw", "feat"}, g.calls[0].args)
 }
 

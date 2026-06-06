@@ -235,7 +235,39 @@ func (u *worktreeUsecase) finalizeMerge(
 	if _, err := u.workspaces.UpdateForkPoint(ctx, child.ID, tip); err != nil {
 		return MergeResult{}, fmt.Errorf("merge: update fork point: %w", err)
 	}
+	if err := u.resyncSummary(ctx, parent.ID, parent.WorktreePath, parent.ForkPointSha); err != nil {
+		return MergeResult{}, err
+	}
+	if err := u.resyncSummary(ctx, child.ID, child.WorktreePath, tip); err != nil {
+		return MergeResult{}, err
+	}
 	return MergeResult{ParentTipSha: tip}, nil
+}
+
+// resyncSummary recomputes a workspace's working-tree summary from git and
+// pushes it into the read model so Added/Deleted/HasCommits/HasConflicts reflect
+// the post-merge state of both the parent and the kept child.
+func (u *worktreeUsecase) resyncSummary(
+	ctx context.Context,
+	id string,
+	worktreePath string,
+	forkPointSha string,
+) error {
+	added, deleted, hasConflicts, hasCommits, err := u.git.WorkingTreeSummary(ctx, worktreePath, forkPointSha)
+	if err != nil {
+		return fmt.Errorf("merge: resync summary: %w", err)
+	}
+	_, err = u.workspaces.SyncWorkingTreeState(ctx, workspace.SyncInput{
+		ID:           id,
+		Added:        added,
+		Deleted:      deleted,
+		HasConflicts: hasConflicts,
+		HasCommits:   hasCommits,
+	}, u.now())
+	if err != nil {
+		return fmt.Errorf("merge: resync summary: sync: %w", err)
+	}
+	return nil
 }
 
 func (u *worktreeUsecase) Reparent(
