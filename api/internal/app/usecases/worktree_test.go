@@ -147,6 +147,7 @@ type fakeGit struct {
 	squashErr   error
 	rebaseErr   error
 	ffErr       error
+	rebaseFFErr error
 	rebaseOnto  error
 	removeErr   error
 	deleteErr   error
@@ -222,6 +223,17 @@ func (f *fakeGit) MergeFFOnly(
 ) error {
 	f.record("MergeFFOnly", repoPath, branch)
 	return f.ffErr
+}
+
+func (f *fakeGit) RebaseThenFFMerge(
+	_ context.Context,
+	childWorktree string,
+	parentBranch string,
+	parentWorktree string,
+	childBranch string,
+) error {
+	f.record("RebaseThenFFMerge", childWorktree, parentBranch, parentWorktree, childBranch)
+	return f.rebaseFFErr
 }
 
 func (f *fakeGit) RebaseOnto(
@@ -455,9 +467,8 @@ func TestMergeIntoParent_RebaseStrategy_RebasesChildThenFFMerges(t *testing.T) {
 
 	_, err := uc.MergeIntoParent(context.Background(), "c", gitdomain.MergeStrategyRebase)
 	require.NoError(t, err)
-	assert.Equal(t, []string{"Rebase", "MergeFFOnly", "RevParse"}, g.ops())
-	assert.Equal(t, []string{"/cw", "develop"}, g.calls[0].args)
-	assert.Equal(t, []string{"/pw", "feat"}, g.calls[1].args)
+	assert.Equal(t, []string{"RebaseThenFFMerge", "RevParse"}, g.ops())
+	assert.Equal(t, []string{"/cw", "develop", "/pw", "feat"}, g.calls[0].args)
 }
 
 func TestMergeIntoParent_Conflict_SetsPendingMerge(t *testing.T) {
@@ -486,7 +497,7 @@ func TestMergeIntoParent_Conflict_SetsPendingMerge(t *testing.T) {
 func TestMergeIntoParent_RebaseConflict_SetsPendingMerge(t *testing.T) {
 	child := domain.Workspace{ID: "c", ParentID: "p", Branch: "feat", WorktreePath: "/cw"}
 	parent := domain.Workspace{ID: "p", WorktreePath: "/pw", Branch: "develop"}
-	g := &fakeGit{rebaseErr: enginegit.ErrConflict}
+	g := &fakeGit{rebaseFFErr: enginegit.ErrConflict}
 	ws := mergeWS(child, parent, nil)
 	ws.SetPendingMergeFn = func(_ context.Context, _ string, _ gitdomain.MergeStrategy, _ string) (domain.Workspace, error) {
 		return domain.Workspace{}, nil
@@ -495,7 +506,7 @@ func TestMergeIntoParent_RebaseConflict_SetsPendingMerge(t *testing.T) {
 	res, err := uc.MergeIntoParent(context.Background(), "c", gitdomain.MergeStrategyRebase)
 	require.NoError(t, err)
 	assert.True(t, res.ConflictsPending)
-	assert.Equal(t, []string{"Rebase"}, g.ops())
+	assert.Equal(t, []string{"RebaseThenFFMerge"}, g.ops())
 }
 
 func TestMergeIntoParent_NonConflictError_Propagates(t *testing.T) {

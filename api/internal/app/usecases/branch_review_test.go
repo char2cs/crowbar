@@ -277,6 +277,13 @@ func (g *mockGitEngine) RebaseOnto(ctx context.Context, repoPath, newTip, forkPo
 
 func (g *mockGitEngine) MergeFFOnly(ctx context.Context, repoPath, branch string) error { return nil }
 
+func (g *mockGitEngine) RebaseThenFFMerge(
+	ctx context.Context,
+	childWorktree, parentBranch, parentWorktree, childBranch string,
+) error {
+	return nil
+}
+
 func (g *mockGitEngine) WorkingTreeSummary(ctx context.Context, repoPath, forkPointSha string) (int, int, bool, bool, error) {
 	return 0, 0, false, false, nil
 }

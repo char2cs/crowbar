@@ -8,6 +8,24 @@ import (
 	gitexec "github.com/char2cs/crowbar/api/internal/engine/git/internal/exec"
 )
 
+// SameRepoMutex reports whether two repo paths resolve to the same per-repo
+// mutex (i.e. share a git common directory) for the engine returned by New().
+func SameRepoMutex(
+	a string,
+	b string,
+) bool {
+	e := New().(*engine)
+	return e.repoMutex(a) == e.repoMutex(b)
+}
+
+// ExportedResolveCommonDir returns the lock key the engine derives for repoPath.
+func ExportedResolveCommonDir(
+	repoPath string,
+) string {
+	e := New().(*engine)
+	return e.resolveCommonDir(repoPath)
+}
+
 // ExportedComputeStatus calls ComputeStatus on the engine returned by New().
 func ExportedComputeStatus(
 	ctx context.Context,

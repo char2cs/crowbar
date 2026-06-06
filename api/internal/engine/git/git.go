@@ -328,6 +328,17 @@ type Engine interface {
 		subject string,
 	) error
 
+	// RebaseThenFFMerge replays childWorktree onto parentBranch then fast-forwards
+	// parentWorktree to childBranch as one locked unit, so the parent cannot advance
+	// between the two steps and break the --ff-only (07 §3.1).
+	RebaseThenFFMerge(
+		ctx context.Context,
+		childWorktree string,
+		parentBranch string,
+		parentWorktree string,
+		childBranch string,
+	) error
+
 	// RangeDiff returns the three-dot diff between base and branch (09 §2).
 	// Uses `git diff -M <base>...<branch>` to show commits reachable from
 	// branch but not from base. Commit metadata fields are always zero-value.

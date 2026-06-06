@@ -198,10 +198,13 @@ func (u *worktreeUsecase) runRebaseMerge(
 	child domain.Workspace,
 	parent domain.Workspace,
 ) error {
-	if err := u.git.Rebase(ctx, child.WorktreePath, parent.Branch); err != nil {
-		return err
-	}
-	return u.git.MergeFFOnly(ctx, parent.WorktreePath, child.Branch)
+	return u.git.RebaseThenFFMerge(
+		ctx,
+		child.WorktreePath,
+		parent.Branch,
+		parent.WorktreePath,
+		child.Branch,
+	)
 }
 
 func (u *worktreeUsecase) handleMergeError(

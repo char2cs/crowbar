@@ -3,6 +3,7 @@ package git
 import (
 	"context"
 	"fmt"
+	"path/filepath"
 	"strings"
 	"sync"
 
@@ -25,13 +26,47 @@ type (
 type engine struct {
 	exec      execFn
 	execStdin execStdinFn
-	mu        sync.Map // map[string]*sync.Mutex — keyed by canonical repoPath
+	mu        sync.Map
+	commonDir sync.Map
 }
 
-// repoMutex returns (or creates) the per-repo mutex for repoPath.
+// repoMutex returns (or creates) the per-repo mutex for repoPath. The mutex is
+// keyed by the git common directory, so every worktree of a single clone shares
+// one lock and their git operations serialize (07 §3.1). Resolution runs once
+// per input path before the lock is taken (no reentrancy), and falls back to the
+// raw path when repoPath is not inside a git repo.
 func (e *engine) repoMutex(repoPath string) *sync.Mutex {
-	actual, _ := e.mu.LoadOrStore(repoPath, &sync.Mutex{})
+	key := e.resolveCommonDir(repoPath)
+	actual, _ := e.mu.LoadOrStore(key, &sync.Mutex{})
 	return actual.(*sync.Mutex)
+}
+
+func (e *engine) resolveCommonDir(repoPath string) string {
+	if cached, ok := e.commonDir.Load(repoPath); ok {
+		return cached.(string)
+	}
+	key := e.computeCommonDir(repoPath)
+	e.commonDir.Store(repoPath, key)
+	return key
+}
+
+func (e *engine) computeCommonDir(repoPath string) string {
+	r := e.exec(context.Background(), repoPath, "rev-parse", "--git-common-dir")
+	if gitexec.RequireSuccess("rev-parse --git-common-dir", r) != nil {
+		return repoPath
+	}
+	dir := strings.TrimSpace(r.Stdout)
+	if !filepath.IsAbs(dir) {
+		dir = filepath.Join(repoPath, dir)
+	}
+	abs, err := filepath.Abs(dir)
+	if err != nil {
+		return repoPath
+	}
+	if canonical, evalErr := filepath.EvalSymlinks(abs); evalErr == nil {
+		return canonical
+	}
+	return filepath.Clean(abs)
 }
 
 // lockRepo acquires the per-repo mutex and returns an unlock func for use with defer.
