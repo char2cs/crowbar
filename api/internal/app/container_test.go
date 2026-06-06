@@ -6,6 +6,7 @@ import (
 	"errors"
 	"sync"
 	"testing"
+	"time"
 
 	asynxModels "github.com/char2cs/asynx/models"
 	glebarez "github.com/glebarez/sqlite"
@@ -17,6 +18,7 @@ import (
 	"github.com/char2cs/crowbar/api/internal/adapter"
 	eventsqlite "github.com/char2cs/crowbar/api/internal/adapter/eventstore/sqlite"
 	"github.com/char2cs/crowbar/api/internal/app"
+	"github.com/char2cs/crowbar/api/internal/app/repositories/workspace"
 	"github.com/char2cs/crowbar/api/internal/engine"
 )
 
@@ -97,6 +99,30 @@ func TestApp_New_BootsFullLayer(t *testing.T) {
 	assert.NotNil(t, c.Repositories)
 	assert.NotNil(t, c.GORM)
 	assert.NotNil(t, c.Repositories.Workspace)
+	assert.NotNil(t, c.Usecases)
+	assert.NotNil(t, c.Usecases.Workspace)
+}
+
+func TestApp_New_UsecasesWorkspaceListEndToEnd(t *testing.T) {
+	ctx := context.Background()
+	adapters, err := adapter.New(adapter.WithHomeDir(t.TempDir()))
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = adapters.Close() })
+
+	c, err := app.New(ctx, newEng(t), adapters)
+	require.NoError(t, err)
+
+	_, err = c.Repositories.Workspace.Create(
+		ctx,
+		workspace.CreateInput{ID: "w1", RepoID: "r1", ProjectID: "p1", Branch: "b"},
+		time.Unix(1, 0).UTC(),
+	)
+	require.NoError(t, err)
+
+	rows, err := c.Usecases.Workspace.List(ctx)
+	require.NoError(t, err)
+	require.Len(t, rows, 1)
+	assert.Equal(t, "w1", rows[0].ID)
 }
 
 func TestApp_New_NilWorkspaceES_ReturnsError(t *testing.T) {

@@ -19,6 +19,8 @@ func newRefRunner(
 		args ...string,
 	) (string, bool) {
 		full := append([]string{"-C", repoPath}, args...)
+		// #nosec G204 -- the binary is the constant "git"; only sub-command
+		// arguments vary, all internally constructed by defaultbranch.Resolve.
 		out, err := exec.Command("git", full...).Output()
 		if err != nil {
 			return "", false
