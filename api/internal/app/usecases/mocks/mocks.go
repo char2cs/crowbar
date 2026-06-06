@@ -9,6 +9,7 @@ import (
 	"github.com/char2cs/crowbar/api/internal/app/repositories/workspace"
 	"github.com/char2cs/crowbar/api/internal/domain"
 	gitengine "github.com/char2cs/crowbar/api/internal/engine/git"
+	provider "github.com/char2cs/crowbar/api/internal/engine/provider"
 )
 
 // ProjectStore is a fake store.Store[domain.Project, string].
@@ -194,4 +195,51 @@ func (p *ProviderEngine) ProtectedBranches(
 		return nil, p.ProtectedErr
 	}
 	return p.Protected, nil
+}
+
+// ProviderSyncWorkspaceRepo is a fake of the workspace.Workspace surface used
+// by ProviderSyncUsecase.
+type ProviderSyncWorkspaceRepo struct {
+	GetFn          func(ctx context.Context, id string) (domain.Workspace, error)
+	SyncProviderFn func(ctx context.Context, in workspace.ProviderInput, now time.Time) (domain.Workspace, error)
+}
+
+// NewProviderSyncWorkspaceRepo returns an empty ProviderSyncWorkspaceRepo.
+func NewProviderSyncWorkspaceRepo() *ProviderSyncWorkspaceRepo {
+	return &ProviderSyncWorkspaceRepo{}
+}
+
+func (r *ProviderSyncWorkspaceRepo) Get(
+	ctx context.Context,
+	id string,
+) (domain.Workspace, error) {
+	return r.GetFn(ctx, id)
+}
+
+func (r *ProviderSyncWorkspaceRepo) SyncProviderState(
+	ctx context.Context,
+	in workspace.ProviderInput,
+	now time.Time,
+) (domain.Workspace, error) {
+	return r.SyncProviderFn(ctx, in, now)
+}
+
+// ProviderSyncEngine is a fake of the provider.Engine surface used by
+// ProviderSyncUsecase.
+type ProviderSyncEngine struct {
+	PollOnViewFn func(ctx context.Context, wsID, repoPath, branch string) (provider.ProviderState, error)
+}
+
+// NewProviderSyncEngine returns an empty ProviderSyncEngine.
+func NewProviderSyncEngine() *ProviderSyncEngine {
+	return &ProviderSyncEngine{}
+}
+
+func (e *ProviderSyncEngine) PollOnView(
+	ctx context.Context,
+	wsID string,
+	repoPath string,
+	branch string,
+) (provider.ProviderState, error) {
+	return e.PollOnViewFn(ctx, wsID, repoPath, branch)
 }
