@@ -66,7 +66,7 @@ func broadcastChat(
 func (c *Container) RegisterHubProjections(
 	axAgentRun asynx.Asynx[domain.AgentRun],
 ) error {
-	return RegisterAgentRunProjection(axAgentRun, c.Chat, c.refreshWorkspace)
+	return RegisterAgentRunProjection(axAgentRun, c.Chat, c.AgentRun, c.refreshWorkspace)
 }
 
 func (c *Container) refreshWorkspace(

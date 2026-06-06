@@ -8,6 +8,7 @@ import (
 	"github.com/char2cs/asynx"
 	asynxModels "github.com/char2cs/asynx/models"
 
+	"github.com/char2cs/crowbar/api/internal/app/repositories/agentrun"
 	"github.com/char2cs/crowbar/api/internal/app/repositories/chat"
 	"github.com/char2cs/crowbar/api/internal/domain"
 )
@@ -24,9 +25,10 @@ type RefreshWorkspaceFunc func(
 func RegisterAgentRunProjection(
 	ax asynx.Asynx[domain.AgentRun],
 	chats chat.Chat,
+	runs agentrun.AgentRun,
 	refresh RefreshWorkspaceFunc,
 ) error {
-	p := &agentRunProjector{chats: chats, refresh: refresh}
+	p := &agentRunProjector{chats: chats, runs: runs, refresh: refresh}
 	if _, err := ax.Subscribe(asynx.Topic("agent_run.*"), p.onEvent); err != nil {
 		return fmt.Errorf("agent run projection: subscribe: %w", err)
 	}
@@ -35,6 +37,7 @@ func RegisterAgentRunProjection(
 
 type agentRunProjector struct {
 	chats   chat.Chat
+	runs    agentrun.AgentRun
 	refresh RefreshWorkspaceFunc
 }
 
@@ -56,11 +59,32 @@ func (p *agentRunProjector) applyChatStatus(
 		}
 		return
 	}
-	if isTerminal(run.Status) {
-		if _, err := p.chats.ResetIdle(ctx, run.ChatID); err != nil {
-			slog.ErrorContext(ctx, "agent run projection: reset idle", "chat", run.ChatID, "err", err)
+	if !isTerminal(run.Status) {
+		return
+	}
+	if p.hasOtherLiveRun(ctx, run) {
+		return
+	}
+	if _, err := p.chats.ResetIdle(ctx, run.ChatID); err != nil {
+		slog.ErrorContext(ctx, "agent run projection: reset idle", "chat", run.ChatID, "err", err)
+	}
+}
+
+func (p *agentRunProjector) hasOtherLiveRun(
+	ctx context.Context,
+	run domain.AgentRun,
+) bool {
+	siblings, err := p.runs.ListByChat(ctx, run.ChatID)
+	if err != nil {
+		slog.ErrorContext(ctx, "agent run projection: list by chat", "chat", run.ChatID, "err", err)
+		return false
+	}
+	for _, o := range siblings {
+		if o.ID != run.ID && o.Status == domain.AgentRunStatusRunning {
+			return true
 		}
 	}
+	return false
 }
 
 func isTerminal(
