@@ -19,3 +19,13 @@ type ReviewThread struct {
 func (t ReviewThread) IsResolved() bool {
 	return t.Status == ReviewThreadStatusResolved
 }
+
+// NormalizedMessages returns the thread with a non-nil Messages slice so the
+// wire contract serializes "messages": [] rather than null when a thread has no
+// messages, matching how the rest of the API normalizes empty slices.
+func (t ReviewThread) NormalizedMessages() ReviewThread {
+	if t.Messages == nil {
+		t.Messages = []ReviewMessage{}
+	}
+	return t
+}

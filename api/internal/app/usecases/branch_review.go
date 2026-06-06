@@ -142,6 +142,9 @@ func (u *branchReviewUsecase) assemble(
 	if err != nil {
 		return domain.BranchReview{}, fmt.Errorf("branch review: threads: %w", err)
 	}
+	for i := range threads {
+		threads[i] = threads[i].NormalizedMessages()
+	}
 	chats, err := u.chats.ListByWorkspace(ctx, ws.ID)
 	if err != nil {
 		return domain.BranchReview{}, fmt.Errorf("branch review: chats: %w", err)
@@ -182,7 +185,7 @@ func (u *branchReviewUsecase) OpenThread(
 	if err != nil {
 		return domain.ReviewThread{}, fmt.Errorf("branch review: open thread: %w", err)
 	}
-	return thread, nil
+	return thread.NormalizedMessages(), nil
 }
 
 func (u *branchReviewUsecase) Reply(
@@ -194,7 +197,7 @@ func (u *branchReviewUsecase) Reply(
 	if err != nil {
 		return domain.ReviewThread{}, fmt.Errorf("branch review: reply: %w", asNotFound(err))
 	}
-	return thread, nil
+	return thread.NormalizedMessages(), nil
 }
 
 func (u *branchReviewUsecase) SetThreadResolved(
@@ -216,7 +219,7 @@ func (u *branchReviewUsecase) resolveThread(
 	if err != nil {
 		return domain.ReviewThread{}, fmt.Errorf("branch review: resolve: %w", asNotFound(err))
 	}
-	return thread, nil
+	return thread.NormalizedMessages(), nil
 }
 
 func (u *branchReviewUsecase) reopenThread(
@@ -227,5 +230,5 @@ func (u *branchReviewUsecase) reopenThread(
 	if err != nil {
 		return domain.ReviewThread{}, fmt.Errorf("branch review: reopen: %w", asNotFound(err))
 	}
-	return thread, nil
+	return thread.NormalizedMessages(), nil
 }
