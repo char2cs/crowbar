@@ -52,3 +52,20 @@ func TestFor_RootedUnderCrowbarWorktreesSiblingDir(t *testing.T) {
 	crowbarDir := filepath.Base(filepath.Dir(parent))
 	assert.Equal(t, ".crowbar-worktrees", crowbarDir)
 }
+
+// TestFor_InjectiveOnSanitisationCollision verifies that two branch names which
+// are identical after unsafe-character replacement still map to distinct paths.
+func TestFor_InjectiveOnSanitisationCollision(t *testing.T) {
+	slash := For("/repo", "feature/foo")
+	hyphen := For("/repo", "feature-foo")
+	assert.NotEqual(t, slash, hyphen,
+		"feature/foo and feature-foo must not share a worktree directory")
+}
+
+// TestFor_StableAcrossCalls verifies that the same inputs always produce the
+// same path — a basic idempotency check for the hash suffix.
+func TestFor_StableAcrossCalls(t *testing.T) {
+	first := For("/home/u/proj/repo", "feature/foo")
+	second := For("/home/u/proj/repo", "feature/foo")
+	assert.Equal(t, first, second, "For must be deterministic")
+}
