@@ -95,6 +95,25 @@ func index(
 	return -1
 }
 
+func TestPlan_SelfCycleTerminatesYieldingNodeOnce(t *testing.T) {
+	// A corrupt self-loop (node is its own parent) must not stack-overflow; the
+	// node is processed at most once.
+	all := []Node{{ID: "root", Parent: "root"}}
+	order := Plan("root", all)
+	assert.Equal(t, []string{"root"}, order)
+}
+
+func TestPlan_TwoNodeCycleTerminates(t *testing.T) {
+	// a -> b -> a corrupt 2-cycle. Walk terminates and yields each node once.
+	all := []Node{
+		{ID: "a", Parent: "b"},
+		{ID: "b", Parent: "a"},
+	}
+	order := Plan("a", all)
+	assert.ElementsMatch(t, []string{"a", "b"}, order)
+	assert.Len(t, order, 2)
+}
+
 func TestPlan_UnlockedDescendantUnderLockedAncestor(t *testing.T) {
 	// locked middle node; its unlocked child still included
 	all := []Node{

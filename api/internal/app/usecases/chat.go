@@ -184,7 +184,7 @@ func (u *chatUsecase) DeleteChat(
 	if err != nil {
 		return fmt.Errorf("chat: delete: list: %w", err)
 	}
-	if err := u.deleteSubtree(ctx, id, siblings, now); err != nil {
+	if err := u.deleteSubtree(ctx, id, siblings, now, map[string]bool{}); err != nil {
 		return err
 	}
 	u.rollupActivity(ctx, root.WsID, now)
@@ -196,12 +196,17 @@ func (u *chatUsecase) deleteSubtree(
 	id string,
 	all []domain.Chat,
 	now time.Time,
+	visited map[string]bool,
 ) error {
+	if visited[id] {
+		return nil
+	}
+	visited[id] = true
 	for _, child := range all {
 		if child.ParentID != id {
 			continue
 		}
-		if err := u.deleteSubtree(ctx, child.ID, all, now); err != nil {
+		if err := u.deleteSubtree(ctx, child.ID, all, now, visited); err != nil {
 			return err
 		}
 	}

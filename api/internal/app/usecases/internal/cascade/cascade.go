@@ -25,7 +25,7 @@ func Plan(
 	if _, ok := index[rootID]; !ok {
 		return nil
 	}
-	p := planner{children: buildChildren(all)}
+	p := planner{children: buildChildren(all), visited: map[string]bool{}}
 	p.dfs(rootID, index)
 	return p.order
 }
@@ -33,12 +33,17 @@ func Plan(
 type planner struct {
 	children map[string][]string
 	order    []string
+	visited  map[string]bool
 }
 
 func (p *planner) dfs(
 	id string,
 	index map[string]Node,
 ) {
+	if p.visited[id] {
+		return
+	}
+	p.visited[id] = true
 	for _, childID := range p.children[id] {
 		p.dfs(childID, index)
 	}

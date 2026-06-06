@@ -173,6 +173,32 @@ func TestChatUsecase_DeleteChat_CascadesToChildren(t *testing.T) {
 	assert.Equal(t, "r1", roll.TouchedRepoID, "delete rolls up project activity")
 }
 
+func TestChatUsecase_DeleteChat_CyclicParentTerminates(t *testing.T) {
+	chat, ws, _, uc := newChatUsecase(t)
+	ctx := context.Background()
+	now := time.Unix(1000, 0)
+
+	chat.GetFn = func(_ context.Context, id string) (domain.Chat, error) {
+		return domain.Chat{ID: id, WsID: "w1"}, nil
+	}
+	ws.GetFn = func(_ context.Context, id string) (domain.Workspace, error) {
+		return domain.Workspace{ID: id, RepoID: "r1"}, nil
+	}
+	// Corrupt 2-cycle: c1 <-> c2. The walk must terminate (no stack overflow)
+	// and delete each node at most once.
+	chat.ListByWorkspaceFn = func(_ context.Context, _ string) ([]domain.Chat, error) {
+		return []domain.Chat{
+			{ID: "c1", WsID: "w1", ParentID: "c2"},
+			{ID: "c2", WsID: "w1", ParentID: "c1"},
+		}, nil
+	}
+
+	err := uc.DeleteChat(ctx, "c1", now)
+	require.NoError(t, err)
+	assert.ElementsMatch(t, []string{"c1", "c2"}, chat.Deleted)
+	assert.Len(t, chat.Deleted, 2, "each node deleted at most once")
+}
+
 func TestChatUsecase_DeleteChat_NoChildren(t *testing.T) {
 	chat, _, _, uc := newChatUsecase(t)
 	ctx := context.Background()
