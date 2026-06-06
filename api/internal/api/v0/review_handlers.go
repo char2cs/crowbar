@@ -1,14 +1,28 @@
 package v0
 
 import (
+	"errors"
 	"net/http"
 
 	"github.com/gin-gonic/gin"
 
+	"github.com/char2cs/crowbar/api/internal/app/apperr"
 	"github.com/char2cs/crowbar/api/internal/app/usecases"
 	"github.com/char2cs/crowbar/api/internal/domain"
 	gitdomain "github.com/char2cs/crowbar/api/internal/domain/git"
 )
+
+// reviewErrorStatus maps a usecase error to an HTTP status: a genuine
+// not-found entity yields 404, every other (internal) failure yields 500, so a
+// real git/subprocess error is never masked as a 404.
+func reviewErrorStatus(
+	err error,
+) int {
+	if errors.Is(err, apperr.ErrNotFound) {
+		return http.StatusNotFound
+	}
+	return http.StatusInternalServerError
+}
 
 // registerReviewHandlers mounts the branch-review REST routes on rg (02 §2.9, 09).
 func registerReviewHandlers(
@@ -28,7 +42,7 @@ func (c *Container) handleGetReview(
 ) {
 	review, err := c.app.Usecases.BranchReview.Get(ctx.Request.Context(), ctx.Param("wsId"))
 	if err != nil {
-		ctx.JSON(http.StatusNotFound, gin.H{"error": err.Error()})
+		ctx.JSON(reviewErrorStatus(err), gin.H{"error": err.Error()})
 		return
 	}
 	ctx.JSON(http.StatusOK, review)
@@ -46,7 +60,7 @@ func (c *Container) handleSetMergeStrategy(
 		return
 	}
 	if err := c.app.Usecases.BranchReview.SetMergeStrategy(ctx.Request.Context(), ctx.Param("wsId"), body.MergeStrategy); err != nil {
-		ctx.JSON(http.StatusNotFound, gin.H{"error": err.Error()})
+		ctx.JSON(reviewErrorStatus(err), gin.H{"error": err.Error()})
 		return
 	}
 	ctx.JSON(http.StatusOK, gin.H{"mergeStrategy": body.MergeStrategy})
@@ -93,7 +107,7 @@ func (c *Container) handleReplyThread(
 	}
 	thread, err := c.app.Usecases.BranchReview.Reply(ctx.Request.Context(), ctx.Param("id"), body.Body)
 	if err != nil {
-		ctx.JSON(http.StatusNotFound, gin.H{"error": err.Error()})
+		ctx.JSON(reviewErrorStatus(err), gin.H{"error": err.Error()})
 		return
 	}
 	ctx.JSON(http.StatusOK, thread)
@@ -112,7 +126,7 @@ func (c *Container) handleSetThreadResolved(
 	}
 	thread, err := c.app.Usecases.BranchReview.SetThreadResolved(ctx.Request.Context(), ctx.Param("id"), body.IsResolved)
 	if err != nil {
-		ctx.JSON(http.StatusNotFound, gin.H{"error": err.Error()})
+		ctx.JSON(reviewErrorStatus(err), gin.H{"error": err.Error()})
 		return
 	}
 	ctx.JSON(http.StatusOK, thread)

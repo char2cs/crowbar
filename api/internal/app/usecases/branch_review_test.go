@@ -6,10 +6,12 @@ import (
 	"testing"
 	"time"
 
+	asynxModels "github.com/char2cs/asynx/models"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
 	"github.com/char2cs/crowbar/api/internal/adapter/store"
+	"github.com/char2cs/crowbar/api/internal/app/apperr"
 	"github.com/char2cs/crowbar/api/internal/app/repositories/reviewthread"
 	"github.com/char2cs/crowbar/api/internal/app/repositories/workspace"
 	"github.com/char2cs/crowbar/api/internal/app/usecases"
@@ -18,6 +20,41 @@ import (
 	gitdomain "github.com/char2cs/crowbar/api/internal/domain/git"
 	gitengine "github.com/char2cs/crowbar/api/internal/engine/git"
 )
+
+func TestBranchReview_Get_MissingWorkspace_IsNotFound(t *testing.T) {
+	ctx := context.Background()
+
+	wsMock := &mockWorkspace{
+		GetFn: func(_ context.Context, _ string) (domain.Workspace, error) {
+			return domain.Workspace{}, asynxModels.ErrNotFound
+		},
+	}
+	uc := newTestUsecase(wsMock, &mockReviewThread{}, &mockChat{}, mocks.NewRepositoryStore(), &mockGitEngine{})
+
+	_, err := uc.Get(ctx, "nope")
+	require.ErrorIs(t, err, apperr.ErrNotFound)
+}
+
+func TestBranchReview_Get_InternalGitError_IsNotNotFound(t *testing.T) {
+	ctx := context.Background()
+
+	ws := domain.Workspace{ID: "ws1", RepoID: "repo1", Branch: "feature", WorktreePath: "/wt"}
+	wsMock := &mockWorkspace{
+		GetFn: func(_ context.Context, _ string) (domain.Workspace, error) { return ws, nil },
+	}
+	repoStore := mocks.NewRepositoryStore()
+	_ = repoStore.Save(ctx, domain.Repository{ID: "repo1", DefaultBranch: "main"})
+	gitEng := &mockGitEngine{
+		RangeDiffFn: func(_ context.Context, _, _, _ string) (gitdomain.MultiFileDiff, error) {
+			return gitdomain.MultiFileDiff{}, errors.New("git: not a repository")
+		},
+	}
+	uc := newTestUsecase(wsMock, &mockReviewThread{}, &mockChat{}, repoStore, gitEng)
+
+	_, err := uc.Get(ctx, "ws1")
+	require.Error(t, err)
+	assert.NotErrorIs(t, err, apperr.ErrNotFound)
+}
 
 // --- local workspace mock ---
 

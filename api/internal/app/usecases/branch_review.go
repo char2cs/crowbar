@@ -2,12 +2,15 @@ package usecases
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"time"
 
+	asynxModels "github.com/char2cs/asynx/models"
 	"github.com/google/uuid"
 
 	"github.com/char2cs/crowbar/api/internal/adapter/store"
+	"github.com/char2cs/crowbar/api/internal/app/apperr"
 	"github.com/char2cs/crowbar/api/internal/app/repositories/chat"
 	"github.com/char2cs/crowbar/api/internal/app/repositories/reviewthread"
 	"github.com/char2cs/crowbar/api/internal/app/repositories/workspace"
@@ -16,6 +19,19 @@ import (
 	gitdomain "github.com/char2cs/crowbar/api/internal/domain/git"
 	enginegit "github.com/char2cs/crowbar/api/internal/engine/git"
 )
+
+// asNotFound maps an engine-level not-found signal (asynx Get on a missing
+// aggregate, or a command rejected because the target aggregate does not exist)
+// to the shared apperr.ErrNotFound sentinel, leaving genuine internal failures
+// untouched so handlers map them to 500 rather than 404.
+func asNotFound(
+	err error,
+) error {
+	if errors.Is(err, asynxModels.ErrNotFound) || errors.Is(err, asynxModels.ErrValidation) {
+		return fmt.Errorf("%w: %w", apperr.ErrNotFound, err)
+	}
+	return err
+}
 
 // BranchReviewUsecase assembles and mutates the branch-review surface (09).
 type BranchReviewUsecase interface {
@@ -83,7 +99,7 @@ func (u *branchReviewUsecase) Get(
 ) (domain.BranchReview, error) {
 	ws, err := u.workspaces.Get(ctx, wsID)
 	if err != nil {
-		return domain.BranchReview{}, fmt.Errorf("branch review: get workspace: %w", err)
+		return domain.BranchReview{}, fmt.Errorf("branch review: get workspace: %w", asNotFound(err))
 	}
 	base, err := u.resolveBase(ctx, ws)
 	if err != nil {
@@ -103,7 +119,7 @@ func (u *branchReviewUsecase) resolveBase(
 	if ws.ParentID != "" {
 		parent, err := u.workspaces.Get(ctx, ws.ParentID)
 		if err != nil {
-			return "", err
+			return "", asNotFound(err)
 		}
 		return parent.Branch, nil
 	}
@@ -112,7 +128,7 @@ func (u *branchReviewUsecase) resolveBase(
 		return "", err
 	}
 	if repo == nil {
-		return "", fmt.Errorf("branch review: repo %s not found", ws.RepoID)
+		return "", fmt.Errorf("branch review: repo %s not found: %w", ws.RepoID, apperr.ErrNotFound)
 	}
 	return repo.DefaultBranch, nil
 }
@@ -145,7 +161,7 @@ func (u *branchReviewUsecase) SetMergeStrategy(
 	strategy gitdomain.MergeStrategy,
 ) error {
 	if _, err := u.workspaces.SetMergeStrategy(ctx, wsID, strategy); err != nil {
-		return fmt.Errorf("branch review: set merge strategy: %w", err)
+		return fmt.Errorf("branch review: set merge strategy: %w", asNotFound(err))
 	}
 	return nil
 }
@@ -176,7 +192,7 @@ func (u *branchReviewUsecase) Reply(
 ) (domain.ReviewThread, error) {
 	thread, err := u.threads.Reply(ctx, threadID, uuid.NewString(), body, u.now())
 	if err != nil {
-		return domain.ReviewThread{}, fmt.Errorf("branch review: reply: %w", err)
+		return domain.ReviewThread{}, fmt.Errorf("branch review: reply: %w", asNotFound(err))
 	}
 	return thread, nil
 }
@@ -198,7 +214,7 @@ func (u *branchReviewUsecase) resolveThread(
 ) (domain.ReviewThread, error) {
 	thread, err := u.threads.Resolve(ctx, threadID)
 	if err != nil {
-		return domain.ReviewThread{}, fmt.Errorf("branch review: resolve: %w", err)
+		return domain.ReviewThread{}, fmt.Errorf("branch review: resolve: %w", asNotFound(err))
 	}
 	return thread, nil
 }
@@ -209,7 +225,7 @@ func (u *branchReviewUsecase) reopenThread(
 ) (domain.ReviewThread, error) {
 	thread, err := u.threads.Reopen(ctx, threadID)
 	if err != nil {
-		return domain.ReviewThread{}, fmt.Errorf("branch review: reopen: %w", err)
+		return domain.ReviewThread{}, fmt.Errorf("branch review: reopen: %w", asNotFound(err))
 	}
 	return thread, nil
 }

@@ -130,6 +130,33 @@ func TestReview_Get_UnknownWorkspace_404(t *testing.T) {
 	assert.Equal(t, http.StatusNotFound, w.Code)
 }
 
+func TestReview_Get_InternalGitFailure_500(t *testing.T) {
+	tc := newApp(t)
+
+	// Seed a workspace whose WorktreePath is a plain (non-git) directory so the
+	// real RangeDiff subprocess fails. This is an internal failure, not a missing
+	// entity, so the handler must surface 500 — never a misleading 404.
+	dir := t.TempDir()
+	ctx := context.Background()
+	require.NoError(t, tc.app.GORM.Repositories.Save(ctx, domain.Repository{
+		ID:            "repo1",
+		ProjectID:     "proj1",
+		DefaultBranch: "main",
+	}))
+	_, err := tc.app.Repositories.Workspace.Create(ctx, workspace.CreateInput{
+		ID:           "ws1",
+		RepoID:       "repo1",
+		ProjectID:    "proj1",
+		Branch:       "feature",
+		WorktreePath: dir,
+	}, time.Now())
+	require.NoError(t, err)
+
+	r := reviewRouter(t, tc)
+	w := doJSON(t, r, http.MethodGet, "/v0/workspaces/ws1/review", nil)
+	assert.Equal(t, http.StatusInternalServerError, w.Code)
+}
+
 func TestReview_SetMergeStrategy_ThenGetShowsSquash(t *testing.T) {
 	tc := newApp(t)
 	seedReviewWorkspace(t, tc)
