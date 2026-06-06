@@ -6,13 +6,21 @@ package manager
 
 import (
 	"context"
+	"errors"
 	"fmt"
+	"os/exec"
 	"sync"
 
 	domlsp "github.com/char2cs/crowbar/api/internal/domain/lsp"
 	"github.com/char2cs/crowbar/api/internal/engine/lsp/internal/registry"
 	"github.com/char2cs/crowbar/api/internal/engine/lsp/internal/server"
 )
+
+// lookPathFunc resolves a command name to an absolute path, mirroring
+// exec.LookPath. Tests inject a fake to simulate a missing binary.
+type lookPathFunc func(
+	command string,
+) (string, error)
 
 // SpawnFunc creates a running language-server process for the given spec in the
 // given worktree directory. Tests inject a fake to avoid real binaries.
@@ -64,24 +72,51 @@ type entry struct {
 }
 
 type manager struct {
-	reg    registry.Registry
-	spawn  SpawnFunc
-	mu     sync.Mutex
-	pool   map[string]*entry
-	onDiag func(domlsp.DiagnosticsEvent)
+	reg      registry.Registry
+	spawn    SpawnFunc
+	lookPath lookPathFunc
+	mu       sync.Mutex
+	pool     map[string]*entry
+	onDiag   func(domlsp.DiagnosticsEvent)
+}
+
+// Option customizes a Manager at construction. Options are an internal seam:
+// production code passes none and gets exec.LookPath binary resolution; tests
+// inject a fake LookPath to simulate present or missing server binaries.
+type Option func(
+	m *manager,
+)
+
+// WithLookPath overrides the exec.LookPath used to verify a server binary is
+// installed before spawning. Intended for tests.
+func WithLookPath(
+	lookPath func(command string) (string, error),
+) Option {
+	return func(
+		m *manager,
+	) {
+		m.lookPath = lookPath
+	}
 }
 
 // New returns a Manager backed by reg and spawn. Pass a nil SpawnFunc only in
-// tests that never call ServerForFile.
+// tests that never call ServerForFile. The server binary is resolved on PATH
+// via exec.LookPath before spawning; a missing binary yields ErrNoServer.
 func New(
 	reg registry.Registry,
 	spawn SpawnFunc,
+	opts ...Option,
 ) Manager {
-	return &manager{
-		reg:   reg,
-		spawn: spawn,
-		pool:  make(map[string]*entry),
+	m := &manager{
+		reg:      reg,
+		spawn:    spawn,
+		lookPath: exec.LookPath,
+		pool:     make(map[string]*entry),
 	}
+	for _, opt := range opts {
+		opt(m)
+	}
+	return m
 }
 
 func poolKey(
@@ -128,6 +163,10 @@ func (m *manager) getOrSpawn(
 	}
 	m.mu.Unlock()
 
+	if _, err := m.lookPath(spec.Command); err != nil {
+		return nil, fmt.Errorf("lsp manager: %s not installed: %w", spec.Command, ErrNoServer)
+	}
+
 	srv, err := m.spawnAndWire(ctx, wsID, spec, worktreePath)
 	if err != nil {
 		return nil, err
@@ -154,6 +193,9 @@ func (m *manager) spawnAndWire(
 	worktreePath string,
 ) (server.Server, error) {
 	srv, err := m.spawn(ctx, spec, worktreePath)
+	if errors.Is(err, exec.ErrNotFound) {
+		return nil, fmt.Errorf("lsp manager: %s not installed: %w", spec.Command, ErrNoServer)
+	}
 	if err != nil {
 		return nil, fmt.Errorf("lsp manager: spawn %s: %w", spec.Command, err)
 	}

@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"os/exec"
 	"sync"
 	"sync/atomic"
 	"testing"
@@ -15,6 +16,14 @@ import (
 	"github.com/char2cs/crowbar/api/internal/engine/lsp/internal/registry"
 	"github.com/char2cs/crowbar/api/internal/engine/lsp/internal/server"
 )
+
+// foundLookPath is a WithLookPath stub that reports every command as installed,
+// so tests exercise the spawn path without depending on real binaries on PATH.
+func foundLookPath() Option {
+	return WithLookPath(func(command string) (string, error) {
+		return "/usr/bin/" + command, nil
+	})
+}
 
 // fakeServer is a minimal server.Server stub that tracks calls for assertions.
 type fakeServer struct {
@@ -95,7 +104,7 @@ func buildManager(
 	}
 
 	reg := registry.New(nil)
-	m := New(reg, spawn)
+	m := New(reg, spawn, foundLookPath())
 
 	getLastFake := func() *fakeServer {
 		mu.Lock()
@@ -207,6 +216,52 @@ func TestNoRegistrySpec_ReturnsErrNoServer(
 	assert.Equal(t, int32(0), count.Load(), "must not spawn for unknown extension")
 }
 
+// TestServerForFile_BinaryNotInstalled verifies that a registered language
+// whose server binary is absent from PATH yields ErrNoServer (graceful
+// absence) and never spawns.
+func TestServerForFile_BinaryNotInstalled(
+	t *testing.T,
+) {
+	var count atomic.Int32
+	spawn := func(
+		_ context.Context,
+		_ registry.ServerSpec,
+		_ string,
+	) (server.Server, error) {
+		count.Add(1)
+		return &fakeServer{}, nil
+	}
+	reg := registry.New(nil)
+	m := New(reg, spawn, WithLookPath(func(string) (string, error) {
+		return "", exec.ErrNotFound
+	}))
+
+	_, err := m.ServerForFile(context.Background(), "ws1", "/repo", "main.go")
+	require.Error(t, err)
+	assert.ErrorIs(t, err, ErrNoServer)
+	assert.Equal(t, int32(0), count.Load(), "must not spawn when binary is absent")
+}
+
+// TestSpawnExecNotFound_MapsToErrNoServer verifies that a spawn returning
+// exec.ErrNotFound (e.g. a half-checked binary) is mapped to ErrNoServer.
+func TestSpawnExecNotFound_MapsToErrNoServer(
+	t *testing.T,
+) {
+	spawn := func(
+		_ context.Context,
+		_ registry.ServerSpec,
+		_ string,
+	) (server.Server, error) {
+		return nil, exec.ErrNotFound
+	}
+	reg := registry.New(nil)
+	m := New(reg, spawn, foundLookPath())
+
+	_, err := m.ServerForFile(context.Background(), "ws1", "/repo", "main.go")
+	require.Error(t, err)
+	assert.ErrorIs(t, err, ErrNoServer)
+}
+
 // TestShutdown_ClosesAllServers verifies that Shutdown closes every live server.
 func TestShutdown_ClosesAllServers(
 	t *testing.T,
@@ -229,7 +284,7 @@ func TestShutdown_ClosesAllServers(
 	}
 
 	reg := registry.New(nil)
-	m := New(reg, spawn)
+	m := New(reg, spawn, foundLookPath())
 	ctx := context.Background()
 
 	_, err := m.ServerForFile(ctx, "ws1", "/repo", "main.go")
@@ -273,7 +328,7 @@ func TestOnDiagnostics_FanIn(
 	}
 
 	reg := registry.New(nil)
-	m := New(reg, spawn)
+	m := New(reg, spawn, foundLookPath())
 
 	var received []domlsp.DiagnosticsEvent
 	var diagMu sync.Mutex
@@ -341,7 +396,7 @@ func TestOnDiagnostics_StampsWsID(
 	}
 
 	reg := registry.New(nil)
-	m := New(reg, spawn)
+	m := New(reg, spawn, foundLookPath())
 
 	var received []domlsp.DiagnosticsEvent
 	var diagMu sync.Mutex
@@ -468,7 +523,7 @@ func TestSpawnError(
 		return nil, spawnErr
 	}
 	reg := registry.New(nil)
-	m := New(reg, spawn)
+	m := New(reg, spawn, foundLookPath())
 	ctx := context.Background()
 
 	_, err := m.ServerForFile(ctx, "ws1", "/repo", "main.go")
@@ -500,7 +555,7 @@ func TestOnDiagnostics_WiredBeforeSpawn(
 	}
 
 	reg := registry.New(nil)
-	m := New(reg, spawn)
+	m := New(reg, spawn, foundLookPath())
 
 	var received []domlsp.DiagnosticsEvent
 	var diagMu sync.Mutex
@@ -560,7 +615,7 @@ func TestGetOrSpawn_RaceGap(
 	}
 
 	reg := registry.New(nil)
-	m := New(reg, spawn)
+	m := New(reg, spawn, foundLookPath())
 	ctx := context.Background()
 
 	var wg sync.WaitGroup
@@ -620,7 +675,7 @@ func TestGetOrSpawn_RaceGapForced(
 			return loser, nil
 		}
 		return winner, nil
-	})
+	}, foundLookPath())
 
 	// Pre-seed: cause the first ServerForFile to block inside spawn while we
 	// manually insert the winning entry to force the re-check path.

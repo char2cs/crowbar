@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"os/exec"
 	"sync"
 	"testing"
 
@@ -129,7 +130,15 @@ func buildEngine(
 	) (server.Server, error) {
 		return fake, nil
 	}
-	return newWithManager(reg, manager.New(reg, spawn))
+	return newWithManager(reg, manager.New(reg, spawn, foundLookPath()))
+}
+
+// foundLookPath reports every server binary as installed so engine tests
+// exercise the spawn path without depending on real binaries on PATH.
+func foundLookPath() manager.Option {
+	return manager.WithLookPath(func(command string) (string, error) {
+		return "/usr/bin/" + command, nil
+	})
 }
 
 const (
@@ -301,6 +310,43 @@ func TestGracefulAbsence_FeaturesReturnEmptyNilError(t *testing.T) {
 	assert.Empty(t, fake.requests(), "no server should have been spawned")
 }
 
+// buildAbsentBinaryEngine returns an engine whose registry has a spec for .go
+// but whose LookPath reports the binary missing, so ServerForFile returns
+// ErrNoServer (binary-not-installed graceful absence, 10 §5).
+func buildAbsentBinaryEngine(
+	t *testing.T,
+) *engine {
+	t.Helper()
+	reg := registry.New(nil)
+	spawn := func(
+		_ context.Context,
+		_ registry.ServerSpec,
+		_ string,
+	) (server.Server, error) {
+		t.Fatal("spawn must not be called when the binary is absent")
+		return nil, nil
+	}
+	mgr := manager.New(reg, spawn, manager.WithLookPath(func(string) (string, error) {
+		return "", exec.ErrNotFound
+	}))
+	return newWithManager(reg, mgr)
+}
+
+func TestGracefulAbsence_MissingBinaryReturnsEmptyNilError(t *testing.T) {
+	e := buildAbsentBinaryEngine(t)
+	ctx := context.Background()
+
+	comp, err := e.Completion(ctx, ws, tree, goF, pos())
+	require.NoError(t, err)
+	assert.Nil(t, comp)
+
+	def, err := e.Definition(ctx, ws, tree, goF, pos())
+	require.NoError(t, err)
+	assert.Empty(t, def)
+
+	require.NoError(t, e.DidOpen(ctx, ws, tree, goF, "go", "package main"))
+}
+
 func TestGracefulAbsence_SyncIsNoOp(t *testing.T) {
 	fake := newFakeServer(nil)
 	e := buildEngine(t, fake)
@@ -408,7 +454,7 @@ func buildFailingEngine(
 	) (server.Server, error) {
 		return nil, errors.New("spawn failed")
 	}
-	return newWithManager(reg, manager.New(reg, spawn))
+	return newWithManager(reg, manager.New(reg, spawn, foundLookPath()))
 }
 
 func TestRequest_SpawnErrorPropagates(t *testing.T) {
