@@ -10,6 +10,8 @@
 package libs
 
 import (
+	"net/http"
+
 	"github.com/gin-gonic/gin"
 )
 
@@ -38,7 +40,7 @@ func WriteQueryOK(
 ) {
 	WriteQueryWithStatus(
 		c,
-		200,
+		http.StatusOK,
 		data,
 	)
 }
