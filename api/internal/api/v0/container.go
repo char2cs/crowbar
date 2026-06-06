@@ -3,8 +3,6 @@ package v0
 import (
 	"encoding/json"
 
-	"github.com/gin-gonic/gin"
-
 	ws "github.com/char2cs/crowbar/api/internal/api/v0/ws"
 	"github.com/char2cs/crowbar/api/internal/app"
 	"github.com/char2cs/crowbar/api/internal/app/hub"
@@ -45,23 +43,6 @@ func New(
 	}
 	appContainer.Hub.Register(c)
 	return c
-}
-
-// Register mounts the v0 REST and WebSocket routes.
-func (c *Container) Register(
-	rg *gin.RouterGroup,
-) {
-	registerHealth(rg)
-	rg.GET("/ws/workspaces", c.workspaces.Handle)
-	rg.GET("/ws/chats", c.chats.Handle)
-	rg.GET("/ws/git", c.git.Handle)
-	rg.GET("/ws/files", c.files.Handle)
-	rg.GET("/ws/lsp", c.lsp.Handle)
-	registerTerminalHandlers(rg, c)
-	registerSearchHandlers(rg, c)
-	registerProviderHandlers(rg, c)
-	registerReviewHandlers(rg, c)
-	registerLSPHandlers(rg, c)
 }
 
 // PushWorkspace implements hub.Subscriber.
