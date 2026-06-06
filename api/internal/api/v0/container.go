@@ -53,6 +53,7 @@ func (c *Container) Register(
 	registerTerminalHandlers(rg, c)
 	registerSearchHandlers(rg, c)
 	registerProviderHandlers(rg, c)
+	registerReviewHandlers(rg, c)
 }
 
 // PushWorkspace implements hub.Subscriber.
