@@ -1,4 +1,4 @@
-package usecases_test
+package chat_test
 
 import (
 	"context"
@@ -9,7 +9,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/char2cs/crowbar/api/internal/app/usecases"
+	chatuc "github.com/char2cs/crowbar/api/internal/app/usecases/chat"
 	"github.com/char2cs/crowbar/api/internal/app/usecases/mocks"
 	"github.com/char2cs/crowbar/api/internal/domain"
 )
@@ -20,13 +20,13 @@ func newChatUsecase(
 	*mocks.ChatRepo,
 	*mocks.ChatWorkspaceRepo,
 	*mocks.ProjectRollup,
-	usecases.ChatUsecase,
+	chatuc.Usecase,
 ) {
 	t.Helper()
 	chat := mocks.NewChatRepo()
 	ws := mocks.NewChatWorkspaceRepo()
 	roll := mocks.NewProjectRollup()
-	uc := usecases.NewChatUsecase(chat, ws, roll, func() time.Time { return time.Unix(1000, 0) })
+	uc := chatuc.New(chat, ws, roll, func() time.Time { return time.Unix(1000, 0) })
 	return chat, ws, roll, uc
 }
 

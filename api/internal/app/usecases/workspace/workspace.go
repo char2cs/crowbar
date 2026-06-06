@@ -1,11 +1,11 @@
-package usecases
+package workspace
 
 import (
 	"context"
 	"fmt"
 	"time"
 
-	"github.com/char2cs/crowbar/api/internal/app/repositories/workspace"
+	wsrepo "github.com/char2cs/crowbar/api/internal/app/repositories/workspace"
 	"github.com/char2cs/crowbar/api/internal/domain"
 	gitdomain "github.com/char2cs/crowbar/api/internal/domain/git"
 )
@@ -26,7 +26,7 @@ type WorkspaceLifecycleRepo interface {
 	) (domain.Workspace, error)
 	SyncWorkingTreeState(
 		ctx context.Context,
-		in workspace.SyncInput,
+		in wsrepo.SyncInput,
 		now time.Time,
 	) (domain.Workspace, error)
 }
@@ -49,10 +49,10 @@ type ProjectActivityRollup interface {
 	)
 }
 
-// WorkspaceUsecase is the lifecycle/read surface over the workspace aggregate.
+// Usecase is the lifecycle/read surface over the workspace aggregate.
 // SyncWorkingTreeState is the shared wrapper the watcher, file, and git usecases
 // call to recompute and persist the working-tree summary (00 §5.3).
-type WorkspaceUsecase interface {
+type Usecase interface {
 	// List returns every workspace row from the read model.
 	List(
 		ctx context.Context,
@@ -86,13 +86,13 @@ type workspaceUsecase struct {
 	rollup ProjectActivityRollup
 }
 
-// NewWorkspaceUsecase builds a WorkspaceUsecase from the workspace repo, the git
-// engine summary surface, and the project roll-up usecase.
-func NewWorkspaceUsecase(
+// New builds a Usecase from the workspace repo, the git engine summary surface,
+// and the project roll-up usecase.
+func New(
 	repo WorkspaceLifecycleRepo,
 	git WorkingTreeGitEngine,
 	rollup ProjectActivityRollup,
-) WorkspaceUsecase {
+) Usecase {
 	return &workspaceUsecase{
 		repo:   repo,
 		git:    git,
@@ -162,16 +162,16 @@ func (u *workspaceUsecase) SyncWorkingTreeState(
 func (u *workspaceUsecase) summarize(
 	ctx context.Context,
 	ws domain.Workspace,
-) (workspace.SyncInput, error) {
+) (wsrepo.SyncInput, error) {
 	added, deleted, hasConflicts, hasCommits, err := u.git.WorkingTreeSummary(
 		ctx,
 		ws.WorktreePath,
 		ws.ForkPointSha,
 	)
 	if err != nil {
-		return workspace.SyncInput{}, fmt.Errorf("workspace: sync working tree: summary: %w", err)
+		return wsrepo.SyncInput{}, fmt.Errorf("workspace: sync working tree: summary: %w", err)
 	}
-	return workspace.SyncInput{
+	return wsrepo.SyncInput{
 		ID:           ws.ID,
 		Added:        added,
 		Deleted:      deleted,

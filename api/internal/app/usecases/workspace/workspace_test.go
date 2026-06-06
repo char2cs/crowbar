@@ -1,4 +1,4 @@
-package usecases_test
+package workspace_test
 
 import (
 	"context"
@@ -9,9 +9,9 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/char2cs/crowbar/api/internal/app/repositories/workspace"
-	"github.com/char2cs/crowbar/api/internal/app/usecases"
+	wsrepo "github.com/char2cs/crowbar/api/internal/app/repositories/workspace"
 	"github.com/char2cs/crowbar/api/internal/app/usecases/mocks"
+	"github.com/char2cs/crowbar/api/internal/app/usecases/workspace"
 	"github.com/char2cs/crowbar/api/internal/domain"
 	gitdomain "github.com/char2cs/crowbar/api/internal/domain/git"
 )
@@ -22,13 +22,13 @@ func newWorkspaceUsecase(
 	*mocks.WorkspaceLifecycleRepo,
 	*mocks.WorkingTreeGitEngine,
 	*mocks.ProjectRollup,
-	usecases.WorkspaceUsecase,
+	workspace.Usecase,
 ) {
 	t.Helper()
 	repo := mocks.NewWorkspaceLifecycleRepo()
 	git := mocks.NewWorkingTreeGitEngine()
 	roll := mocks.NewProjectRollup()
-	uc := usecases.NewWorkspaceUsecase(repo, git, roll)
+	uc := workspace.New(repo, git, roll)
 	return repo, git, roll, uc
 }
 
@@ -141,10 +141,10 @@ func TestWorkspaceUsecase_SyncWorkingTreeState_RecomputesAndRollsUp(t *testing.T
 		summaryFork = forkPointSha
 		return 3, 1, true, true, nil
 	}
-	var captured workspace.SyncInput
+	var captured wsrepo.SyncInput
 	repo.SyncWorkingTreeFn = func(
 		_ context.Context,
-		in workspace.SyncInput,
+		in wsrepo.SyncInput,
 		_ time.Time,
 	) (domain.Workspace, error) {
 		captured = in
@@ -211,7 +211,7 @@ func TestWorkspaceUsecase_SyncWorkingTreeState_SyncError(t *testing.T) {
 	}
 	repo.SyncWorkingTreeFn = func(
 		_ context.Context,
-		_ workspace.SyncInput,
+		_ wsrepo.SyncInput,
 		_ time.Time,
 	) (domain.Workspace, error) {
 		return domain.Workspace{}, errors.New("boom")

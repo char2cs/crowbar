@@ -4,10 +4,12 @@ import (
 	"github.com/char2cs/crowbar/api/internal/adapter/store"
 	"github.com/char2cs/crowbar/api/internal/app/repositories"
 	"github.com/char2cs/crowbar/api/internal/app/usecases/branchreview"
+	"github.com/char2cs/crowbar/api/internal/app/usecases/chat"
 	"github.com/char2cs/crowbar/api/internal/app/usecases/internal/discover"
 	"github.com/char2cs/crowbar/api/internal/app/usecases/project"
 	"github.com/char2cs/crowbar/api/internal/app/usecases/provider"
 	"github.com/char2cs/crowbar/api/internal/app/usecases/terminal"
+	"github.com/char2cs/crowbar/api/internal/app/usecases/workspace"
 	"github.com/char2cs/crowbar/api/internal/app/usecases/worktree"
 	"github.com/char2cs/crowbar/api/internal/domain"
 	"github.com/char2cs/crowbar/api/internal/engine"
@@ -27,8 +29,8 @@ type GORMStores struct {
 type Container struct {
 	Project       project.Usecase
 	ProjectImport project.ImportUsecase
-	Workspace     WorkspaceUsecase
-	Chat          ChatUsecase
+	Workspace     workspace.Usecase
+	Chat          chat.Usecase
 	File          FileUsecase
 	Git           GitUsecase
 	Terminal      terminal.Usecase
@@ -49,12 +51,12 @@ func New(
 		gormStores.Projects,
 		gormStores.Repositories,
 	)
-	workspaceUsecase := NewWorkspaceUsecase(
+	workspaceUsecase := workspace.New(
 		repos.Workspace,
 		engines.Git,
 		projectUsecase,
 	)
-	chatUsecase := NewChatUsecase(
+	chatUsecase := chat.New(
 		repos.Chat,
 		repos.Workspace,
 		projectUsecase,

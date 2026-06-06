@@ -1,4 +1,4 @@
-package usecases
+package chat
 
 import (
 	"context"
@@ -10,8 +10,19 @@ import (
 	"github.com/char2cs/crowbar/api/internal/domain"
 )
 
-// ChatLifecycleRepo is the chat repository surface the usecase needs.
-type ChatLifecycleRepo interface {
+// ProjectActivityRollup is the best-effort project lastActivity roll-up surface.
+// The chat package keeps its own narrow copy so it never imports the project
+// usecase; the container passes the concrete project usecase, which satisfies it.
+type ProjectActivityRollup interface {
+	TouchProjectActivity(
+		ctx context.Context,
+		repoID string,
+		now time.Time,
+	)
+}
+
+// LifecycleRepo is the chat repository surface the usecase needs.
+type LifecycleRepo interface {
 	Create(
 		ctx context.Context,
 		id string,
@@ -47,9 +58,9 @@ type ChatLifecycleRepo interface {
 	) ([]domain.Chat, error)
 }
 
-// ChatWorkspaceRepo is the workspace surface the chat usecase needs to roll up
+// WorkspaceRepo is the workspace surface the chat usecase needs to roll up
 // activity onto the parent workspace and its project.
-type ChatWorkspaceRepo interface {
+type WorkspaceRepo interface {
 	Get(
 		ctx context.Context,
 		id string,
@@ -61,8 +72,8 @@ type ChatWorkspaceRepo interface {
 	) (domain.Workspace, error)
 }
 
-// ChatUsecase is the chat lifecycle surface: create/fork/rename/cascade-delete.
-type ChatUsecase interface {
+// Usecase is the chat lifecycle surface: create/fork/rename/cascade-delete.
+type Usecase interface {
 	// CreateChat mints an id, issues the create command, and rolls up activity on
 	// the workspace and its project.
 	CreateChat(
@@ -96,21 +107,21 @@ type ChatUsecase interface {
 }
 
 type chatUsecase struct {
-	chats      ChatLifecycleRepo
-	workspaces ChatWorkspaceRepo
+	chats      LifecycleRepo
+	workspaces WorkspaceRepo
 	rollup     ProjectActivityRollup
 	now        func() time.Time
 }
 
-// NewChatUsecase builds a ChatUsecase from the chat repo, workspace repo, and
-// project roll-up usecase. now supplies the timestamp for activity roll-ups on
-// the lifecycle methods that do not receive one (rename).
-func NewChatUsecase(
-	chats ChatLifecycleRepo,
-	workspaces ChatWorkspaceRepo,
+// New builds a Usecase from the chat repo, workspace repo, and project roll-up
+// usecase. now supplies the timestamp for activity roll-ups on the lifecycle
+// methods that do not receive one (rename).
+func New(
+	chats LifecycleRepo,
+	workspaces WorkspaceRepo,
 	rollup ProjectActivityRollup,
 	now func() time.Time,
-) ChatUsecase {
+) Usecase {
 	return &chatUsecase{
 		chats:      chats,
 		workspaces: workspaces,
