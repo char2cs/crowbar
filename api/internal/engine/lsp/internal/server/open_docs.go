@@ -5,17 +5,21 @@ import (
 	"sync"
 )
 
-type openDocs struct {
+// OpenDocs is the content-free set of currently open document URIs for a
+// language server. Add/Remove/List are safe for concurrent use. The server
+// replays didOpen for every tracked URI on respawn (10 §3).
+type OpenDocs struct {
 	mu   sync.Mutex
 	uris map[string]struct{}
 }
 
-func newOpenDocs() *openDocs {
-	return &openDocs{uris: make(map[string]struct{})}
+// NewOpenDocs returns an empty OpenDocs set.
+func NewOpenDocs() *OpenDocs {
+	return &OpenDocs{uris: make(map[string]struct{})}
 }
 
 // Add records uri as open. Adding an already-tracked uri is a no-op.
-func (d *openDocs) Add(
+func (d *OpenDocs) Add(
 	uri string,
 ) {
 	d.mu.Lock()
@@ -24,7 +28,7 @@ func (d *openDocs) Add(
 }
 
 // Remove drops uri from the open set. Removing an absent uri is a no-op.
-func (d *openDocs) Remove(
+func (d *OpenDocs) Remove(
 	uri string,
 ) {
 	d.mu.Lock()
@@ -34,7 +38,7 @@ func (d *openDocs) Remove(
 
 // List returns the tracked URIs sorted lexicographically for deterministic
 // replay order.
-func (d *openDocs) List() []string {
+func (d *OpenDocs) List() []string {
 	d.mu.Lock()
 	defer d.mu.Unlock()
 

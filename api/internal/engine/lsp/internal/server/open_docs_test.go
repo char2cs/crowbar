@@ -9,7 +9,7 @@ import (
 )
 
 func TestOpenDocs_AddAndList(t *testing.T) {
-	d := newOpenDocs()
+	d := NewOpenDocs()
 	d.Add("file:///b.go")
 	d.Add("file:///a.go")
 	d.Add("file:///c.go")
@@ -18,7 +18,7 @@ func TestOpenDocs_AddAndList(t *testing.T) {
 }
 
 func TestOpenDocs_AddIdempotent(t *testing.T) {
-	d := newOpenDocs()
+	d := NewOpenDocs()
 	d.Add("file:///a.go")
 	d.Add("file:///a.go")
 
@@ -26,7 +26,7 @@ func TestOpenDocs_AddIdempotent(t *testing.T) {
 }
 
 func TestOpenDocs_Remove(t *testing.T) {
-	d := newOpenDocs()
+	d := NewOpenDocs()
 	d.Add("file:///a.go")
 	d.Add("file:///b.go")
 	d.Remove("file:///a.go")
@@ -35,7 +35,7 @@ func TestOpenDocs_Remove(t *testing.T) {
 }
 
 func TestOpenDocs_RemoveMissingIsNoop(t *testing.T) {
-	d := newOpenDocs()
+	d := NewOpenDocs()
 	d.Add("file:///a.go")
 	d.Remove("file:///missing.go")
 
@@ -43,12 +43,12 @@ func TestOpenDocs_RemoveMissingIsNoop(t *testing.T) {
 }
 
 func TestOpenDocs_ListEmpty(t *testing.T) {
-	d := newOpenDocs()
+	d := NewOpenDocs()
 	assert.Empty(t, d.List())
 }
 
 func TestOpenDocs_ConcurrentAddList(t *testing.T) {
-	d := newOpenDocs()
+	d := NewOpenDocs()
 	var wg sync.WaitGroup
 
 	for i := range 100 {

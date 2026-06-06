@@ -52,7 +52,7 @@ type Server interface {
 		fn func(lsp.DiagnosticsEvent),
 	)
 	// OpenDocs returns the content-free set of currently open document URIs.
-	OpenDocs() *openDocs
+	OpenDocs() *OpenDocs
 	// Replay respawns the underlying process and re-sends didOpen for every
 	// tracked URI.
 	Replay(
@@ -74,7 +74,7 @@ type server struct {
 	closed    bool
 
 	writeMu sync.Mutex
-	docs    *openDocs
+	docs    *OpenDocs
 }
 
 func newOverTransport(
@@ -86,7 +86,7 @@ func newOverTransport(
 		transport: transport,
 		reader:    bufio.NewReader(transport),
 		waiters:   make(map[int]chan protocol.Response),
-		docs:      newOpenDocs(),
+		docs:      NewOpenDocs(),
 	}
 	go s.readLoop(s.transport, s.reader)
 	return s
@@ -109,7 +109,7 @@ func New(
 		transport: transport,
 		reader:    bufio.NewReader(transport),
 		waiters:   make(map[int]chan protocol.Response),
-		docs:      newOpenDocs(),
+		docs:      NewOpenDocs(),
 	}
 	go s.readLoop(s.transport, s.reader)
 	return s, nil
@@ -132,7 +132,7 @@ func commandSpawn(
 	}
 }
 
-func (s *server) OpenDocs() *openDocs {
+func (s *server) OpenDocs() *OpenDocs {
 	return s.docs
 }
 
