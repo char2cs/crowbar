@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/char2cs/crowbar/api/internal/app/repositories/workspace"
+	"github.com/char2cs/crowbar/api/internal/app/usecases"
 	"github.com/char2cs/crowbar/api/internal/domain"
 	gitdomain "github.com/char2cs/crowbar/api/internal/domain/git"
 	gitengine "github.com/char2cs/crowbar/api/internal/engine/git"
@@ -461,4 +462,108 @@ func (r *ChatWorkspaceRepo) TouchActivity(
 ) (domain.Workspace, error) {
 	r.TouchedID = id
 	return domain.Workspace{ID: id}, nil
+}
+
+// WorkspaceSyncer is a fake of the workspace syncer surface used by the file and
+// git usecases.
+type WorkspaceSyncer struct {
+	Synced   bool
+	SyncedID string
+
+	GetFn  func(ctx context.Context, id string) (domain.Workspace, error)
+	SyncFn func(ctx context.Context, id string, now time.Time) (domain.Workspace, error)
+}
+
+// NewWorkspaceSyncer returns an empty WorkspaceSyncer.
+func NewWorkspaceSyncer() *WorkspaceSyncer {
+	return &WorkspaceSyncer{}
+}
+
+func (s *WorkspaceSyncer) Get(
+	ctx context.Context,
+	id string,
+) (domain.Workspace, error) {
+	return s.GetFn(ctx, id)
+}
+
+func (s *WorkspaceSyncer) SyncWorkingTreeState(
+	ctx context.Context,
+	id string,
+	now time.Time,
+) (domain.Workspace, error) {
+	s.Synced = true
+	s.SyncedID = id
+	if s.SyncFn != nil {
+		return s.SyncFn(ctx, id, now)
+	}
+	return domain.Workspace{ID: id}, nil
+}
+
+// FsEngine is a fake of the filesystem-engine surface used by the file usecase.
+type FsEngine struct {
+	TreeFn func(repoPath, dirPath string, provider usecases.FileStatusProvider) ([]domain.FileNode, error)
+
+	ReadContentFn  func(repoPath, filePath string) (domain.FileContent, error)
+	WriteContentFn func(repoPath, filePath, content string) error
+	CreateFileFn   func(repoPath, filePath string) error
+	CreateDirFn    func(repoPath, dirPath string) error
+	RenameFn       func(repoPath, oldPath, newPath string) error
+	DeleteFn       func(repoPath, filePath string) error
+}
+
+// NewFsEngine returns an empty FsEngine.
+func NewFsEngine() *FsEngine {
+	return &FsEngine{}
+}
+
+func (e *FsEngine) Tree(
+	repoPath string,
+	dirPath string,
+	provider usecases.FileStatusProvider,
+) ([]domain.FileNode, error) {
+	return e.TreeFn(repoPath, dirPath, provider)
+}
+
+func (e *FsEngine) ReadContent(
+	repoPath string,
+	filePath string,
+) (domain.FileContent, error) {
+	return e.ReadContentFn(repoPath, filePath)
+}
+
+func (e *FsEngine) WriteContent(
+	repoPath string,
+	filePath string,
+	content string,
+) error {
+	return e.WriteContentFn(repoPath, filePath, content)
+}
+
+func (e *FsEngine) CreateFile(
+	repoPath string,
+	filePath string,
+) error {
+	return e.CreateFileFn(repoPath, filePath)
+}
+
+func (e *FsEngine) CreateDir(
+	repoPath string,
+	dirPath string,
+) error {
+	return e.CreateDirFn(repoPath, dirPath)
+}
+
+func (e *FsEngine) Rename(
+	repoPath string,
+	oldPath string,
+	newPath string,
+) error {
+	return e.RenameFn(repoPath, oldPath, newPath)
+}
+
+func (e *FsEngine) Delete(
+	repoPath string,
+	filePath string,
+) error {
+	return e.DeleteFn(repoPath, filePath)
 }
