@@ -291,6 +291,15 @@ type Engine interface {
 		repoPath string,
 		forkPointSha string,
 	) (added int, deleted int, hasConflicts bool, hasCommits bool, err error)
+
+	// MergeBase returns the best common ancestor of commits a and b, used to seed
+	// the forkPointSha of adopted worktrees on project import (00 §5.7).
+	MergeBase(
+		ctx context.Context,
+		repoPath string,
+		a string,
+		b string,
+	) (string, error)
 }
 
 // WorktreeEntry is a single worktree from `git worktree list`.
