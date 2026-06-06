@@ -335,6 +335,9 @@ func (u *worktreeUsecase) repoPathFor(
 	if err != nil {
 		return "", fmt.Errorf("repo path: %w", err)
 	}
+	if repo == nil {
+		return "", fmt.Errorf("worktree: repo %s not found", ws.RepoID)
+	}
 	return repo.Path, nil
 }
 

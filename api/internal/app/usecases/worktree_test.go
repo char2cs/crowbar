@@ -280,8 +280,9 @@ func (f *fakeProvider) ProtectedBranches(
 
 type fakeRepoStore struct {
 	store.Store[domain.Repository, string]
-	path string
-	err  error
+	path    string
+	err     error
+	missing bool
 }
 
 func (f *fakeRepoStore) FindByKey(
@@ -290,6 +291,9 @@ func (f *fakeRepoStore) FindByKey(
 ) (*domain.Repository, error) {
 	if f.err != nil {
 		return nil, f.err
+	}
+	if f.missing {
+		return nil, nil
 	}
 	return &domain.Repository{Path: f.path}, nil
 }
@@ -693,6 +697,19 @@ func TestDeleteCascade_RepoPathError(t *testing.T) {
 	}
 	uc := usecases.NewWorktreeUsecase(ws, &fakeGit{}, &fakeProvider{}, &fakeRepoStore{err: errBoom}, newNow())
 	require.ErrorIs(t, uc.DeleteCascade(context.Background(), "root"), errBoom)
+}
+
+func TestDeleteCascade_MissingRepoRow_ErrorsNoPanic(t *testing.T) {
+	all := []domain.Workspace{{ID: "root", RepoID: "r", WorktreePath: "/wt", Branch: "b"}}
+	ws := &fakeWorkspace{
+		ListFn: func(_ context.Context) ([]domain.Workspace, error) { return all, nil },
+	}
+	// FindByKey returns (nil, nil) for a missing repo row; dereferencing it
+	// previously panicked. The usecase must surface a plain error instead.
+	uc := usecases.NewWorktreeUsecase(ws, &fakeGit{}, &fakeProvider{}, &fakeRepoStore{missing: true}, newNow())
+	err := uc.DeleteCascade(context.Background(), "root")
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "repo r not found")
 }
 
 func TestDeleteCascade_WorktreeRemoveError(t *testing.T) {
