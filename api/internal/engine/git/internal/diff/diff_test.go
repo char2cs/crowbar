@@ -25,6 +25,16 @@ func initRepo(
 	return dir
 }
 
+func currentBranch(
+	t *testing.T,
+	dir string,
+) string {
+	t.Helper()
+	r := exec.Git(context.Background(), dir, "rev-parse", "--abbrev-ref", "HEAD")
+	require.Equal(t, 0, r.ExitCode, "rev-parse HEAD failed: %s", r.Stderr)
+	return strings.TrimSpace(r.Stdout)
+}
+
 func mustGit(
 	t *testing.T,
 	dir string,

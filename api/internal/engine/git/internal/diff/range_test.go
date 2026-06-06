@@ -13,10 +13,12 @@ import (
 func TestRange_HappyPath(t *testing.T) {
 	dir := initRepo(t)
 
-	// base branch: one commit
+	// base branch: one commit. Capture its name — git's default branch differs
+	// across environments (main vs master per init.defaultBranch).
 	writeFile(t, dir, "base.go", "package main\n")
 	mustGit(t, dir, "add", "base.go")
 	mustGit(t, dir, "commit", "-m", "base commit")
+	base := currentBranch(t, dir)
 
 	// feature branch: add a new file
 	mustGit(t, dir, "checkout", "-b", "feature")
@@ -25,7 +27,7 @@ func TestRange_HappyPath(t *testing.T) {
 	mustGit(t, dir, "commit", "-m", "add feature file")
 
 	ctx := context.Background()
-	result, err := diff.Range(ctx, dir, "main", "feature")
+	result, err := diff.Range(ctx, dir, base, "feature")
 	require.NoError(t, err)
 
 	require.Len(t, result.Files, 1)
