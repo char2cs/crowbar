@@ -300,6 +300,33 @@ type Engine interface {
 		a string,
 		b string,
 	) (string, error)
+
+	// WorktreeAddBranch creates a new git worktree at worktreePath on a freshly
+	// created branch starting at startPoint, returning the resolved start SHA so
+	// callers can record it as forkPointSha (07 §1).
+	WorktreeAddBranch(
+		ctx context.Context,
+		repoPath string,
+		worktreePath string,
+		branch string,
+		startPoint string,
+	) (string, error)
+
+	// RevParse resolves rev to a full commit SHA (07 §1 / §3.1).
+	RevParse(
+		ctx context.Context,
+		repoPath string,
+		rev string,
+	) (string, error)
+
+	// MergeSquash runs `git merge --squash branch` then `git commit -m subject`
+	// inside the repo lock (07 §3.1). Returns ErrConflict on conflicts.
+	MergeSquash(
+		ctx context.Context,
+		repoPath string,
+		branch string,
+		subject string,
+	) error
 }
 
 // WorktreeEntry is a single worktree from `git worktree list`.
