@@ -6,6 +6,7 @@ import (
 	"github.com/char2cs/crowbar/api/internal/api/v0/endpoints/health"
 	"github.com/char2cs/crowbar/api/internal/api/v0/endpoints/projects"
 	"github.com/char2cs/crowbar/api/internal/api/v0/endpoints/repos"
+	"github.com/char2cs/crowbar/api/internal/api/v0/endpoints/workspaces"
 )
 
 // Register mounts the v0 REST and WebSocket routes.
@@ -21,6 +22,14 @@ func (c *Container) Register(
 	repos.Register(
 		rg,
 		c.app.GORM.Repositories,
+	)
+	workspaces.Register(
+		rg,
+		c.app.Usecases.Workspace,
+		c.app.Usecases.Worktree,
+		c.app.GORM.Repositories,
+		c.workspaces.Handle,
+		dualServe,
 	)
 	rg.GET("/ws/workspaces", c.workspaces.Handle)
 	rg.GET("/ws/chats", c.chats.Handle)
