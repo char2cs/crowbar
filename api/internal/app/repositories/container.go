@@ -33,7 +33,10 @@ func New(
 	axAgentRun asynx.Asynx[domain.AgentRun],
 	axReviewThread asynx.Asynx[domain.ReviewThread],
 ) (*Container, error) {
-	ws, err := workspace.New(axWorkspace, db, h.BroadcastWorkspace)
+	c := &Container{hub: h}
+	ws, err := workspace.New(axWorkspace, db, func(w domain.Workspace) {
+		c.broadcastWorkspace(context.Background(), w)
+	})
 	if err != nil {
 		return nil, err
 	}
@@ -49,7 +52,11 @@ func New(
 	if err != nil {
 		return nil, err
 	}
-	return &Container{Workspace: ws, Chat: ch, AgentRun: ar, ReviewThread: rt, hub: h}, nil
+	c.Workspace = ws
+	c.Chat = ch
+	c.AgentRun = ar
+	c.ReviewThread = rt
+	return c, nil
 }
 
 func broadcastChat(
@@ -77,7 +84,34 @@ func (c *Container) refreshWorkspace(
 	if err != nil {
 		return
 	}
+	c.broadcastWorkspace(ctx, ws)
+}
+
+func (c *Container) broadcastWorkspace(
+	ctx context.Context,
+	ws domain.Workspace,
+) {
+	ws.AgentRunning = c.hasLiveAgentRun(ctx, ws.ID)
 	c.hub.BroadcastWorkspace(ws)
+}
+
+func (c *Container) hasLiveAgentRun(
+	ctx context.Context,
+	wsID string,
+) bool {
+	if c.AgentRun == nil {
+		return false
+	}
+	running, err := c.AgentRun.ListRunning(ctx)
+	if err != nil {
+		return false
+	}
+	for _, run := range running {
+		if run.WsID == wsID {
+			return true
+		}
+	}
+	return false
 }
 
 // RecoverOrphans runs AgentRun crash recovery (running→error) then the idempotent

@@ -15,6 +15,7 @@ import (
 	storesqlite "github.com/char2cs/crowbar/api/internal/adapter/store/sqlite"
 	"github.com/char2cs/crowbar/api/internal/app/hub"
 	"github.com/char2cs/crowbar/api/internal/app/repositories"
+	"github.com/char2cs/crowbar/api/internal/app/repositories/agentrun"
 	"github.com/char2cs/crowbar/api/internal/app/repositories/workspace"
 	"github.com/char2cs/crowbar/api/internal/domain"
 )
@@ -64,6 +65,19 @@ func (h *captureHub) count() int {
 	h.mu.Lock()
 	defer h.mu.Unlock()
 	return len(h.workspaces)
+}
+
+func (h *captureHub) lastAgentRunning(
+	wsID string,
+) (bool, bool) {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	for i := len(h.workspaces) - 1; i >= 0; i-- {
+		if h.workspaces[i].ID == wsID {
+			return h.workspaces[i].AgentRunning, true
+		}
+	}
+	return false, false
 }
 
 func newContainer(
@@ -182,6 +196,75 @@ func TestContainer_RegisterHubProjections_RefreshesWorkspaceOnRun(t *testing.T) 
 	require.NoError(t, err)
 
 	require.Eventually(t, func() bool { return h.count() > before }, time.Second, 5*time.Millisecond)
+}
+
+func TestContainer_BroadcastWorkspace_CarriesAgentRunningOverlay(t *testing.T) {
+	ctx := context.Background()
+	h := &captureHub{}
+	axRun := ax[domain.AgentRun](t)
+	c, err := repositories.New(
+		newDB(t),
+		h,
+		ax[domain.Workspace](t),
+		ax[domain.Chat](t),
+		axRun,
+		ax[domain.ReviewThread](t),
+	)
+	require.NoError(t, err)
+	require.NoError(t, c.RegisterHubProjections(axRun))
+
+	_, err = c.Workspace.Create(ctx, workspace.CreateInput{
+		ID: "w1", RepoID: "r1", ProjectID: "p1", Branch: "b",
+	}, time.Unix(1, 0).UTC())
+	require.NoError(t, err)
+	require.Eventually(t, func() bool {
+		running, ok := h.lastAgentRunning("w1")
+		return ok && !running
+	}, time.Second, 5*time.Millisecond)
+
+	_, err = c.Chat.Create(ctx, "c1", "w1", "t", time.Unix(1, 0).UTC())
+	require.NoError(t, err)
+	_, err = c.AgentRun.Create(ctx, "a1", "w1", "c1", time.Unix(1, 0).UTC())
+	require.NoError(t, err)
+	_, err = c.AgentRun.MarkRunning(ctx, "a1")
+	require.NoError(t, err)
+	require.Eventually(t, func() bool {
+		running, ok := h.lastAgentRunning("w1")
+		return ok && running
+	}, time.Second, 5*time.Millisecond)
+
+	_, err = c.AgentRun.Complete(ctx, "a1")
+	require.NoError(t, err)
+	require.Eventually(t, func() bool {
+		running, ok := h.lastAgentRunning("w1")
+		return ok && !running
+	}, time.Second, 5*time.Millisecond)
+}
+
+type listRunningErrRepo struct {
+	agentrun.AgentRun
+}
+
+func (listRunningErrRepo) ListRunning(
+	_ context.Context,
+) ([]domain.AgentRun, error) {
+	return nil, errFake
+}
+
+func TestContainer_BroadcastWorkspace_ListRunningErrorOverlayFalse(t *testing.T) {
+	ctx := context.Background()
+	h := &captureHub{}
+	c := newContainer(t, h)
+	c.AgentRun = listRunningErrRepo{}
+
+	_, err := c.Workspace.Create(ctx, workspace.CreateInput{
+		ID: "w1", RepoID: "r1", ProjectID: "p1", Branch: "b",
+	}, time.Unix(1, 0).UTC())
+	require.NoError(t, err)
+	require.Eventually(t, func() bool {
+		running, ok := h.lastAgentRunning("w1")
+		return ok && !running
+	}, time.Second, 5*time.Millisecond)
 }
 
 func TestContainer_RecoverOrphans_FlipsRunningToError(t *testing.T) {
