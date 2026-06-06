@@ -1,4 +1,4 @@
-package usecases
+package file
 
 import (
 	"github.com/char2cs/crowbar/api/internal/domain"
@@ -9,7 +9,10 @@ type fsEngineAdapter struct {
 	enginefs.Engine
 }
 
-func newFsEngineAdapter(
+// NewEngineAdapter wraps the filesystem engine so its Tree method accepts the
+// file package's FileStatusProvider, satisfying the FsEngine surface the file
+// usecase consumes.
+func NewEngineAdapter(
 	engine enginefs.Engine,
 ) FsEngine {
 	return &fsEngineAdapter{Engine: engine}

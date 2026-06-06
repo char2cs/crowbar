@@ -1,4 +1,4 @@
-package usecases_test
+package file_test
 
 import (
 	"context"
@@ -9,7 +9,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/char2cs/crowbar/api/internal/app/usecases"
+	"github.com/char2cs/crowbar/api/internal/app/usecases/file"
 	"github.com/char2cs/crowbar/api/internal/app/usecases/mocks"
 	"github.com/char2cs/crowbar/api/internal/domain"
 	gitdomain "github.com/char2cs/crowbar/api/internal/domain/git"
@@ -28,12 +28,12 @@ func newFileUsecase(
 ) (
 	*mocks.FsEngine,
 	*mocks.WorkspaceSyncer,
-	usecases.FileUsecase,
+	file.Usecase,
 ) {
 	t.Helper()
 	fs := mocks.NewFsEngine()
 	syncer := mocks.NewWorkspaceSyncer()
-	uc := usecases.NewFileUsecase(fs, syncer)
+	uc := file.New(fs, syncer)
 	return fs, syncer, uc
 }
 
@@ -45,7 +45,7 @@ func TestFileUsecase_Tree_PassesThrough(t *testing.T) {
 		return domain.Workspace{ID: id, WorktreePath: "/repo/x"}, nil
 	}
 	var gotPath string
-	fs.TreeFn = func(repoPath, _ string, _ usecases.FileStatusProvider) ([]domain.FileNode, error) {
+	fs.TreeFn = func(repoPath, _ string, _ file.FileStatusProvider) ([]domain.FileNode, error) {
 		gotPath = repoPath
 		return []domain.FileNode{{Name: "a.go"}}, nil
 	}

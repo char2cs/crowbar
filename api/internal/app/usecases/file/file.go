@@ -1,4 +1,4 @@
-package usecases
+package file
 
 import (
 	"context"
@@ -66,9 +66,9 @@ type FsEngine interface {
 	) error
 }
 
-// FileUsecase is a thin pass-through to the filesystem engine. Reads resolve the
+// Usecase is a thin pass-through to the filesystem engine. Reads resolve the
 // worktree path; mutations additionally trigger a working-tree resync.
-type FileUsecase interface {
+type Usecase interface {
 	// Tree returns one level of the file tree for a workspace.
 	Tree(
 		ctx context.Context,
@@ -132,11 +132,11 @@ type fileUsecase struct {
 	syncer WorkspaceSyncer
 }
 
-// NewFileUsecase builds a FileUsecase from the fs engine and the workspace syncer.
-func NewFileUsecase(
+// New builds a Usecase from the fs engine and the workspace syncer.
+func New(
 	fs FsEngine,
 	syncer WorkspaceSyncer,
-) FileUsecase {
+) Usecase {
 	return &fileUsecase{
 		fs:     fs,
 		syncer: syncer,

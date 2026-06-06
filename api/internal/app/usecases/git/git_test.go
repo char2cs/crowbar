@@ -1,4 +1,4 @@
-package usecases_test
+package git_test
 
 import (
 	"context"
@@ -9,7 +9,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/char2cs/crowbar/api/internal/app/usecases"
+	gituc "github.com/char2cs/crowbar/api/internal/app/usecases/git"
 	"github.com/char2cs/crowbar/api/internal/app/usecases/mocks"
 	"github.com/char2cs/crowbar/api/internal/domain"
 	gitdomain "github.com/char2cs/crowbar/api/internal/domain/git"
@@ -20,7 +20,7 @@ func newGitUsecase(
 ) (
 	*mocks.GitOpsEngine,
 	*mocks.WorkspaceSyncer,
-	usecases.GitUsecase,
+	gituc.Usecase,
 ) {
 	t.Helper()
 	git := mocks.NewGitOpsEngine()
@@ -28,7 +28,7 @@ func newGitUsecase(
 	syncer.GetFn = func(_ context.Context, id string) (domain.Workspace, error) {
 		return domain.Workspace{ID: id, WorktreePath: "/repo/x"}, nil
 	}
-	uc := usecases.NewGitUsecase(git, syncer)
+	uc := gituc.New(git, syncer)
 	return git, syncer, uc
 }
 

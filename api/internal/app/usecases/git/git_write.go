@@ -1,4 +1,4 @@
-package usecases
+package git
 
 import (
 	"context"
@@ -8,8 +8,8 @@ import (
 	gitdomain "github.com/char2cs/crowbar/api/internal/domain/git"
 )
 
-// GitWriteEngine is the mutating surface the git usecase passes through to.
-type GitWriteEngine interface {
+// WriteEngine is the mutating surface the git usecase passes through to.
+type WriteEngine interface {
 	StageFile(
 		ctx context.Context,
 		repoPath string,
@@ -133,10 +133,10 @@ type GitWriteEngine interface {
 	) error
 }
 
-// GitOpsEngine is the full git operation surface the git usecase consumes.
-type GitOpsEngine interface {
-	GitReadEngine
-	GitWriteEngine
+// OpsEngine is the full git operation surface the git usecase consumes.
+type OpsEngine interface {
+	ReadEngine
+	WriteEngine
 }
 
 func (u *gitUsecase) mutate(

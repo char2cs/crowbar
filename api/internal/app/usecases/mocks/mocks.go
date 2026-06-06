@@ -8,7 +8,7 @@ import (
 	"time"
 
 	"github.com/char2cs/crowbar/api/internal/app/repositories/workspace"
-	"github.com/char2cs/crowbar/api/internal/app/usecases"
+	"github.com/char2cs/crowbar/api/internal/app/usecases/file"
 	"github.com/char2cs/crowbar/api/internal/domain"
 	gitdomain "github.com/char2cs/crowbar/api/internal/domain/git"
 	gitengine "github.com/char2cs/crowbar/api/internal/engine/git"
@@ -516,7 +516,7 @@ func (s *WorkspaceSyncer) SyncWorkingTreeState(
 
 // FsEngine is a fake of the filesystem-engine surface used by the file usecase.
 type FsEngine struct {
-	TreeFn func(repoPath, dirPath string, provider usecases.FileStatusProvider) ([]domain.FileNode, error)
+	TreeFn func(repoPath, dirPath string, provider file.FileStatusProvider) ([]domain.FileNode, error)
 
 	ReadContentFn  func(repoPath, filePath string) (domain.FileContent, error)
 	WriteContentFn func(repoPath, filePath, content string) error
@@ -534,7 +534,7 @@ func NewFsEngine() *FsEngine {
 func (e *FsEngine) Tree(
 	repoPath string,
 	dirPath string,
-	provider usecases.FileStatusProvider,
+	provider file.FileStatusProvider,
 ) ([]domain.FileNode, error) {
 	return e.TreeFn(repoPath, dirPath, provider)
 }

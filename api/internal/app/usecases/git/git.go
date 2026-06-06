@@ -1,15 +1,32 @@
-package usecases
+package git
 
 import (
 	"context"
 	"fmt"
 	"time"
 
+	"github.com/char2cs/crowbar/api/internal/domain"
 	gitdomain "github.com/char2cs/crowbar/api/internal/domain/git"
 )
 
-// GitReadEngine is the read surface the git usecase passes through to.
-type GitReadEngine interface {
+// WorkspaceSyncer is the workspace surface the git usecase uses to resolve a
+// worktree path and trigger a working-tree resync after a mutation. The git
+// package keeps its own narrow copy so it never imports the file or workspace
+// usecase; the container passes the concrete workspace usecase, which satisfies it.
+type WorkspaceSyncer interface {
+	Get(
+		ctx context.Context,
+		id string,
+	) (domain.Workspace, error)
+	SyncWorkingTreeState(
+		ctx context.Context,
+		id string,
+		now time.Time,
+	) (domain.Workspace, error)
+}
+
+// ReadEngine is the read surface the git usecase passes through to.
+type ReadEngine interface {
 	Status(
 		ctx context.Context,
 		repoPath string,
@@ -54,10 +71,10 @@ type GitReadEngine interface {
 	) ([]gitdomain.ConflictHunk, error)
 }
 
-// GitUsecase is the lifecycle/read git surface over a workspace's worktree.
+// Usecase is the lifecycle/read git surface over a workspace's worktree.
 // Read methods pass through; mutating methods additionally trigger a working-tree
 // resync (00 §5.3).
-type GitUsecase interface {
+type Usecase interface {
 	Status(
 		ctx context.Context,
 		wsID string,
@@ -101,11 +118,11 @@ type GitUsecase interface {
 		filePath string,
 	) ([]gitdomain.ConflictHunk, error)
 
-	GitWriteUsecase
+	WriteUsecase
 }
 
-// GitWriteUsecase is the mutating git surface; every method resyncs after the op.
-type GitWriteUsecase interface {
+// WriteUsecase is the mutating git surface; every method resyncs after the op.
+type WriteUsecase interface {
 	StageFile(
 		ctx context.Context,
 		wsID string,
@@ -253,15 +270,15 @@ type GitWriteUsecase interface {
 }
 
 type gitUsecase struct {
-	git    GitOpsEngine
+	git    OpsEngine
 	syncer WorkspaceSyncer
 }
 
-// NewGitUsecase builds a GitUsecase from the git engine and the workspace syncer.
-func NewGitUsecase(
-	git GitOpsEngine,
+// New builds a Usecase from the git engine and the workspace syncer.
+func New(
+	git OpsEngine,
 	syncer WorkspaceSyncer,
-) GitUsecase {
+) Usecase {
 	return &gitUsecase{
 		git:    git,
 		syncer: syncer,

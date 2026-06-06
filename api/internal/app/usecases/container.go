@@ -5,6 +5,8 @@ import (
 	"github.com/char2cs/crowbar/api/internal/app/repositories"
 	"github.com/char2cs/crowbar/api/internal/app/usecases/branchreview"
 	"github.com/char2cs/crowbar/api/internal/app/usecases/chat"
+	"github.com/char2cs/crowbar/api/internal/app/usecases/file"
+	"github.com/char2cs/crowbar/api/internal/app/usecases/git"
 	"github.com/char2cs/crowbar/api/internal/app/usecases/internal/discover"
 	"github.com/char2cs/crowbar/api/internal/app/usecases/project"
 	"github.com/char2cs/crowbar/api/internal/app/usecases/provider"
@@ -31,8 +33,8 @@ type Container struct {
 	ProjectImport project.ImportUsecase
 	Workspace     workspace.Usecase
 	Chat          chat.Usecase
-	File          FileUsecase
-	Git           GitUsecase
+	File          file.Usecase
+	Git           git.Usecase
 	Terminal      terminal.Usecase
 	ProviderSync  provider.Usecase
 	Worktree      worktree.Usecase
@@ -62,11 +64,11 @@ func New(
 		projectUsecase,
 		nowFunc,
 	)
-	fileUsecase := NewFileUsecase(
-		newFsEngineAdapter(engines.FS),
+	fileUsecase := file.New(
+		file.NewEngineAdapter(engines.FS),
 		workspaceUsecase,
 	)
-	gitUsecase := NewGitUsecase(
+	gitUsecase := git.New(
 		engines.Git,
 		workspaceUsecase,
 	)
