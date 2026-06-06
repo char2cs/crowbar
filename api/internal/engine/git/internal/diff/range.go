@@ -17,7 +17,7 @@ func Range(
 	base string,
 	branch string,
 ) (gitdomain.MultiFileDiff, error) {
-	r := exec.Git(ctx, repoPath, "diff", "-M", base+"..."+branch)
+	r := exec.Git(ctx, repoPath, "diff", "-M", base+"..."+branch, "--")
 	if err := exec.RequireSuccess("diff: range", r); err != nil {
 		return gitdomain.MultiFileDiff{}, err
 	}
