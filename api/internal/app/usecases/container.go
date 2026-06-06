@@ -4,6 +4,7 @@ import (
 	"github.com/char2cs/crowbar/api/internal/adapter/store"
 	"github.com/char2cs/crowbar/api/internal/app/repositories"
 	"github.com/char2cs/crowbar/api/internal/app/usecases/internal/discover"
+	"github.com/char2cs/crowbar/api/internal/app/usecases/terminal"
 	"github.com/char2cs/crowbar/api/internal/domain"
 	"github.com/char2cs/crowbar/api/internal/engine"
 )
@@ -26,7 +27,7 @@ type Container struct {
 	Chat          ChatUsecase
 	File          FileUsecase
 	Git           GitUsecase
-	Terminal      TerminalUsecase
+	Terminal      terminal.Usecase
 	ProviderSync  ProviderSyncUsecase
 	Worktree      WorktreeUsecase
 	BranchReview  BranchReviewUsecase
@@ -63,7 +64,7 @@ func New(
 		engines.Git,
 		workspace,
 	)
-	terminal := NewTerminalUsecase(
+	terminalUsecase := terminal.New(
 		engines.Terminal,
 		gormStores.TerminalProfiles,
 		repos.Workspace,
@@ -104,7 +105,7 @@ func New(
 		Chat:          chat,
 		File:          file,
 		Git:           git,
-		Terminal:      terminal,
+		Terminal:      terminalUsecase,
 		ProviderSync:  providerSync,
 		Worktree:      worktree,
 		BranchReview:  branchReview,

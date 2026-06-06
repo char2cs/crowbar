@@ -1,4 +1,4 @@
-package usecases
+package terminal
 
 import (
 	"context"
@@ -10,8 +10,8 @@ import (
 	"github.com/char2cs/crowbar/api/internal/domain"
 )
 
-// TerminalEngine is the PTY-session surface the terminal usecase passes through to.
-type TerminalEngine interface {
+// Engine is the PTY-session surface the terminal usecase passes through to.
+type Engine interface {
 	Create(
 		ctx context.Context,
 		workspaceID string,
@@ -24,17 +24,17 @@ type TerminalEngine interface {
 	) error
 }
 
-// TerminalWorkspaceRepo is the workspace surface used to resolve a session's
+// WorkspaceRepo is the workspace surface used to resolve a session's
 // working directory.
-type TerminalWorkspaceRepo interface {
+type WorkspaceRepo interface {
 	Get(
 		ctx context.Context,
 		id string,
 	) (domain.Workspace, error)
 }
 
-// TerminalUsecase is the terminal session lifecycle + profile CRUD surface.
-type TerminalUsecase interface {
+// Usecase is the terminal session lifecycle + profile CRUD surface.
+type Usecase interface {
 	// CreateSession spawns a PTY session in the workspace's worktree directory.
 	CreateSession(
 		ctx context.Context,
@@ -73,18 +73,18 @@ type TerminalUsecase interface {
 }
 
 type terminalUsecase struct {
-	engine     TerminalEngine
+	engine     Engine
 	profiles   store.Store[domain.TerminalProfile, string]
-	workspaces TerminalWorkspaceRepo
+	workspaces WorkspaceRepo
 }
 
-// NewTerminalUsecase builds a TerminalUsecase from the terminal engine, the
-// profile store, and the workspace repo.
-func NewTerminalUsecase(
-	engine TerminalEngine,
+// New builds a Usecase from the terminal engine, the profile store, and the
+// workspace repo.
+func New(
+	engine Engine,
 	profiles store.Store[domain.TerminalProfile, string],
-	workspaces TerminalWorkspaceRepo,
-) TerminalUsecase {
+	workspaces WorkspaceRepo,
+) Usecase {
 	return &terminalUsecase{
 		engine:     engine,
 		profiles:   profiles,

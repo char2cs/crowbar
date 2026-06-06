@@ -1,4 +1,4 @@
-package usecases_test
+package terminal_test
 
 import (
 	"context"
@@ -8,8 +8,8 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/char2cs/crowbar/api/internal/app/usecases"
 	"github.com/char2cs/crowbar/api/internal/app/usecases/mocks"
+	"github.com/char2cs/crowbar/api/internal/app/usecases/terminal"
 	"github.com/char2cs/crowbar/api/internal/domain"
 )
 
@@ -19,7 +19,7 @@ func newTerminalUsecase(
 	*mocks.TerminalEngine,
 	*mocks.TerminalProfileStore,
 	*mocks.WorkspaceSyncer,
-	usecases.TerminalUsecase,
+	terminal.Usecase,
 ) {
 	t.Helper()
 	eng := mocks.NewTerminalEngine()
@@ -28,7 +28,7 @@ func newTerminalUsecase(
 	syncer.GetFn = func(_ context.Context, id string) (domain.Workspace, error) {
 		return domain.Workspace{ID: id, WorktreePath: "/repo/x"}, nil
 	}
-	uc := usecases.NewTerminalUsecase(eng, profiles, syncer)
+	uc := terminal.New(eng, profiles, syncer)
 	return eng, profiles, syncer, uc
 }
 
