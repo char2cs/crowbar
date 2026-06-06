@@ -102,6 +102,61 @@ func (s stubChatRepo) ResetIdle(
 	return domain.Chat{}, errFake
 }
 
+type recordResetChatRepo struct {
+	chat.Chat
+	list     []domain.Chat
+	resetIDs []string
+}
+
+func (s *recordResetChatRepo) List(
+	_ context.Context,
+) ([]domain.Chat, error) {
+	return s.list, nil
+}
+
+func (s *recordResetChatRepo) Get(
+	_ context.Context,
+	id string,
+) (domain.Chat, error) {
+	for _, c := range s.list {
+		if c.ID == id {
+			return c, nil
+		}
+	}
+	return domain.Chat{}, errFake
+}
+
+func (s *recordResetChatRepo) ResetIdle(
+	_ context.Context,
+	id string,
+) (domain.Chat, error) {
+	s.resetIDs = append(s.resetIDs, id)
+	return domain.Chat{}, nil
+}
+
+func TestReconcileChats_SoftDeletedChatIsSkipped(t *testing.T) {
+	deletedAt := time.Unix(2, 0)
+	chats := &recordResetChatRepo{
+		list: []domain.Chat{
+			{ID: "c1", Status: domain.ChatStatusAgentRunning, DeletedAt: &deletedAt},
+		},
+	}
+	repositories.ReconcileChats(context.Background(), chats, newAgentRunRepo(t))
+	assert.Empty(t, chats.resetIDs, "soft-deleted chat must not be reset")
+}
+
+func TestReconcileChats_LiveChatStillReconciledAlongsideTombstone(t *testing.T) {
+	deletedAt := time.Unix(2, 0)
+	chats := &recordResetChatRepo{
+		list: []domain.Chat{
+			{ID: "dead", Status: domain.ChatStatusAgentRunning, DeletedAt: &deletedAt},
+			{ID: "live", Status: domain.ChatStatusAgentRunning},
+		},
+	}
+	repositories.ReconcileChats(context.Background(), chats, newAgentRunRepo(t))
+	assert.Equal(t, []string{"live"}, chats.resetIDs)
+}
+
 func TestReconcileChats_ResetIdleErrorLogsAndContinues(t *testing.T) {
 	chats := stubChatRepo{
 		list:      []domain.Chat{{ID: "c1"}},

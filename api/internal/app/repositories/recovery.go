@@ -57,6 +57,9 @@ func ReconcileChats(
 	}
 	live := liveChatSet(ctx, runs)
 	for _, c := range stuck {
+		if c.DeletedAt != nil {
+			continue
+		}
 		reconcileOneChat(ctx, c.ID, func(id string) bool { return live[id] }, chats)
 	}
 }
