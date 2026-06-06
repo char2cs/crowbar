@@ -7,6 +7,9 @@ import (
 	"unicode"
 )
 
+// paletteSize is the number of entries in palette(); must equal len(palette()).
+const paletteSize = 8
+
 func palette() []string {
 	return []string{
 		"avatar-rose",
@@ -45,5 +48,5 @@ func Color(
 	p := palette()
 	h := fnv.New32a()
 	_, _ = h.Write([]byte(name))
-	return p[h.Sum32()%uint32(len(p))]
+	return p[h.Sum32()%paletteSize]
 }

@@ -6,6 +6,10 @@ import (
 	"github.com/stretchr/testify/assert"
 )
 
+func TestPaletteSizeMatchesConst(t *testing.T) {
+	assert.Len(t, Palette(), paletteSize)
+}
+
 func TestLabel_FirstAlnumUppercased(t *testing.T) {
 	assert.Equal(t, "C", Label("crowbar"))
 	assert.Equal(t, "9", Label("9front"))
