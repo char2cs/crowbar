@@ -1,4 +1,4 @@
-package usecases
+package project
 
 import (
 	"context"
@@ -10,8 +10,8 @@ import (
 	"github.com/char2cs/crowbar/api/internal/domain"
 )
 
-// ProjectUsecase is the read + roll-up surface for the Project entity.
-type ProjectUsecase interface {
+// Usecase is the read + roll-up surface for the Project entity.
+type Usecase interface {
 	// List returns every project stored in the GORM table.
 	List(
 		ctx context.Context,
@@ -38,11 +38,11 @@ type projectUsecase struct {
 	repos    store.Store[domain.Repository, string]
 }
 
-// NewProjectUsecase builds a ProjectUsecase from the project and repository GORM stores.
-func NewProjectUsecase(
+// New builds a Usecase from the project and repository GORM stores.
+func New(
 	projects store.Store[domain.Project, string],
 	repos store.Store[domain.Repository, string],
-) ProjectUsecase {
+) Usecase {
 	return &projectUsecase{
 		projects: projects,
 		repos:    repos,

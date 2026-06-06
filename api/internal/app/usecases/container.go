@@ -5,6 +5,7 @@ import (
 	"github.com/char2cs/crowbar/api/internal/app/repositories"
 	"github.com/char2cs/crowbar/api/internal/app/usecases/branchreview"
 	"github.com/char2cs/crowbar/api/internal/app/usecases/internal/discover"
+	"github.com/char2cs/crowbar/api/internal/app/usecases/project"
 	"github.com/char2cs/crowbar/api/internal/app/usecases/provider"
 	"github.com/char2cs/crowbar/api/internal/app/usecases/terminal"
 	"github.com/char2cs/crowbar/api/internal/app/usecases/worktree"
@@ -24,8 +25,8 @@ type GORMStores struct {
 // Container holds every application usecase, composing the aggregate
 // repositories, the GORM CRUD stores, and the engines.
 type Container struct {
-	Project       ProjectUsecase
-	ProjectImport ProjectImportUsecase
+	Project       project.Usecase
+	ProjectImport project.ImportUsecase
 	Workspace     WorkspaceUsecase
 	Chat          ChatUsecase
 	File          FileUsecase
@@ -44,28 +45,28 @@ func New(
 	gormStores GORMStores,
 	engines *engine.Container,
 ) (*Container, error) {
-	project := NewProjectUsecase(
+	projectUsecase := project.New(
 		gormStores.Projects,
 		gormStores.Repositories,
 	)
-	workspace := NewWorkspaceUsecase(
+	workspaceUsecase := NewWorkspaceUsecase(
 		repos.Workspace,
 		engines.Git,
-		project,
+		projectUsecase,
 	)
-	chat := NewChatUsecase(
+	chatUsecase := NewChatUsecase(
 		repos.Chat,
 		repos.Workspace,
-		project,
+		projectUsecase,
 		nowFunc,
 	)
-	file := NewFileUsecase(
+	fileUsecase := NewFileUsecase(
 		newFsEngineAdapter(engines.FS),
-		workspace,
+		workspaceUsecase,
 	)
-	git := NewGitUsecase(
+	gitUsecase := NewGitUsecase(
 		engines.Git,
-		workspace,
+		workspaceUsecase,
 	)
 	terminalUsecase := terminal.New(
 		engines.Terminal,
@@ -76,7 +77,7 @@ func New(
 		repos.Workspace,
 		engines.Provider,
 	)
-	projectImport := NewProjectImport(ProjectImportDeps{
+	projectImport := project.NewImport(project.ImportDeps{
 		Projects:   gormStores.Projects,
 		Repos:      gormStores.Repositories,
 		Workspaces: repos.Workspace,
@@ -102,12 +103,12 @@ func New(
 		nowFunc,
 	)
 	return &Container{
-		Project:       project,
+		Project:       projectUsecase,
 		ProjectImport: projectImport,
-		Workspace:     workspace,
-		Chat:          chat,
-		File:          file,
-		Git:           git,
+		Workspace:     workspaceUsecase,
+		Chat:          chatUsecase,
+		File:          fileUsecase,
+		Git:           gitUsecase,
 		Terminal:      terminalUsecase,
 		ProviderSync:  providerSync,
 		Worktree:      worktreeUsecase,

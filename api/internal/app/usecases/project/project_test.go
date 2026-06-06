@@ -1,4 +1,4 @@
-package usecases_test
+package project_test
 
 import (
 	"context"
@@ -9,8 +9,8 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/char2cs/crowbar/api/internal/app/usecases"
 	"github.com/char2cs/crowbar/api/internal/app/usecases/mocks"
+	"github.com/char2cs/crowbar/api/internal/app/usecases/project"
 	"github.com/char2cs/crowbar/api/internal/domain"
 )
 
@@ -19,12 +19,12 @@ func newProjectUsecase(
 ) (
 	*mocks.ProjectStore,
 	*mocks.RepositoryStore,
-	usecases.ProjectUsecase,
+	project.Usecase,
 ) {
 	t.Helper()
 	projects := mocks.NewProjectStore()
 	repos := mocks.NewRepositoryStore()
-	uc := usecases.NewProjectUsecase(projects, repos)
+	uc := project.New(projects, repos)
 	return projects, repos, uc
 }
 

@@ -1,4 +1,4 @@
-package usecases
+package project
 
 import (
 	"context"
@@ -25,8 +25,8 @@ const importMaxDepth = 3
 // repo HEAD cannot resolve a default branch (00 §5.2).
 var defaultBranchCandidates = []string{"main", "develop", "master"}
 
-// ProjectStore is the project persistence surface the import usecase needs.
-type ProjectStore interface {
+// Store is the project persistence surface the import usecase needs.
+type Store interface {
 	Save(
 		ctx context.Context,
 		item domain.Project,
@@ -83,9 +83,9 @@ type RefRunnerFactory func(
 	repoPath string,
 ) defaultbranch.RefRunner
 
-// ProjectImportDeps wires the import usecase's collaborators.
-type ProjectImportDeps struct {
-	Projects   ProjectStore
+// ImportDeps wires the import usecase's collaborators.
+type ImportDeps struct {
+	Projects   Store
 	Repos      RepositoryStore
 	Workspaces WorkspaceCreator
 	Git        ImportGitEngine
@@ -95,10 +95,10 @@ type ProjectImportDeps struct {
 	Now        func() time.Time
 }
 
-// ProjectImportUsecase imports a directory tree as a Project: it creates the
+// ImportUsecase imports a directory tree as a Project: it creates the
 // Project row, discovers repos, persists a Repository per repo, and adopts each
 // existing git worktree as a Workspace row (00 §5.7).
-type ProjectImportUsecase interface {
+type ImportUsecase interface {
 	Import(
 		ctx context.Context,
 		name string,
@@ -107,13 +107,13 @@ type ProjectImportUsecase interface {
 }
 
 type projectImport struct {
-	deps ProjectImportDeps
+	deps ImportDeps
 }
 
-// NewProjectImport builds a ProjectImportUsecase from its dependencies.
-func NewProjectImport(
-	deps ProjectImportDeps,
-) ProjectImportUsecase {
+// NewImport builds an ImportUsecase from its dependencies.
+func NewImport(
+	deps ImportDeps,
+) ImportUsecase {
 	return &projectImport{deps: deps}
 }
 

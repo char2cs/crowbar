@@ -1,4 +1,4 @@
-package usecases_test
+package project_test
 
 import (
 	"context"
@@ -9,9 +9,9 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/char2cs/crowbar/api/internal/app/usecases"
 	"github.com/char2cs/crowbar/api/internal/app/usecases/internal/defaultbranch"
 	"github.com/char2cs/crowbar/api/internal/app/usecases/mocks"
+	"github.com/char2cs/crowbar/api/internal/app/usecases/project"
 	gitengine "github.com/char2cs/crowbar/api/internal/engine/git"
 )
 
@@ -23,7 +23,7 @@ func newImport(
 	*mocks.WorkspaceRepo,
 	*mocks.GitEngine,
 	*mocks.ProviderEngine,
-	usecases.ProjectImportUsecase,
+	project.ImportUsecase,
 ) {
 	t.Helper()
 	projects := mocks.NewProjectStore()
@@ -31,7 +31,7 @@ func newImport(
 	ws := mocks.NewWorkspaceRepo()
 	git := mocks.NewGitEngine()
 	prov := mocks.NewProviderEngine()
-	uc := usecases.NewProjectImport(usecases.ProjectImportDeps{
+	uc := project.NewImport(project.ImportDeps{
 		Projects:   projects,
 		Repos:      repos,
 		Workspaces: ws,
@@ -110,7 +110,7 @@ func TestImport_ProjectSaveError(
 func TestImport_DiscoverError(
 	t *testing.T,
 ) {
-	uc := usecases.NewProjectImport(usecases.ProjectImportDeps{
+	uc := project.NewImport(project.ImportDeps{
 		Projects:   mocks.NewProjectStore(),
 		Repos:      mocks.NewRepositoryStore(),
 		Workspaces: mocks.NewWorkspaceRepo(),
@@ -250,7 +250,7 @@ func TestImport_PartialRepoFailure(
 		}, nil
 	}
 
-	uc := usecases.NewProjectImport(usecases.ProjectImportDeps{
+	uc := project.NewImport(project.ImportDeps{
 		Projects:   projects,
 		Repos:      repos,
 		Workspaces: ws,
