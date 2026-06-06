@@ -1,4 +1,4 @@
-package usecases_test
+package worktree_test
 
 import (
 	"context"
@@ -12,7 +12,7 @@ import (
 
 	"github.com/char2cs/crowbar/api/internal/adapter/store"
 	"github.com/char2cs/crowbar/api/internal/app/repositories/workspace"
-	"github.com/char2cs/crowbar/api/internal/app/usecases"
+	"github.com/char2cs/crowbar/api/internal/app/usecases/worktree"
 	"github.com/char2cs/crowbar/api/internal/domain"
 	gitdomain "github.com/char2cs/crowbar/api/internal/domain/git"
 	enginegit "github.com/char2cs/crowbar/api/internal/engine/git"
@@ -335,9 +335,9 @@ func TestCreateChild_RecordsForkPointAndLocked(t *testing.T) {
 			return domain.Workspace{ID: in.ID}, nil
 		},
 	}
-	uc := usecases.NewWorktreeUsecase(ws, g, &fakeProvider{protected: []string{"main"}}, &fakeRepoStore{}, newNow())
+	uc := worktree.New(ws, g, &fakeProvider{protected: []string{"main"}}, &fakeRepoStore{}, newNow())
 
-	out, err := uc.CreateChild(context.Background(), usecases.CreateChildInput{
+	out, err := uc.CreateChild(context.Background(), worktree.CreateChildInput{
 		RepoID:       "r1",
 		ProjectID:    "p1",
 		RepoPath:     "/repo",
@@ -367,9 +367,9 @@ func TestCreateChild_LocksProtectedBranch(t *testing.T) {
 			return domain.Workspace{ID: in.ID}, nil
 		},
 	}
-	uc := usecases.NewWorktreeUsecase(ws, g, &fakeProvider{protected: []string{"feature/x"}}, &fakeRepoStore{}, newNow())
+	uc := worktree.New(ws, g, &fakeProvider{protected: []string{"feature/x"}}, &fakeRepoStore{}, newNow())
 
-	_, err := uc.CreateChild(context.Background(), usecases.CreateChildInput{
+	_, err := uc.CreateChild(context.Background(), worktree.CreateChildInput{
 		RepoPath: "/repo", Branch: "feature/x", ParentBranch: "develop",
 	})
 	require.NoError(t, err)
@@ -379,16 +379,16 @@ func TestCreateChild_LocksProtectedBranch(t *testing.T) {
 func TestCreateChild_WorktreeAddError(t *testing.T) {
 	g := &fakeGit{addErr: errBoom}
 	ws := &fakeWorkspace{}
-	uc := usecases.NewWorktreeUsecase(ws, g, &fakeProvider{}, &fakeRepoStore{}, newNow())
-	_, err := uc.CreateChild(context.Background(), usecases.CreateChildInput{RepoPath: "/r", Branch: "b"})
+	uc := worktree.New(ws, g, &fakeProvider{}, &fakeRepoStore{}, newNow())
+	_, err := uc.CreateChild(context.Background(), worktree.CreateChildInput{RepoPath: "/r", Branch: "b"})
 	require.ErrorIs(t, err, errBoom)
 }
 
 func TestCreateChild_ProviderError(t *testing.T) {
 	g := &fakeGit{addStartSha: "s"}
 	ws := &fakeWorkspace{}
-	uc := usecases.NewWorktreeUsecase(ws, g, &fakeProvider{err: errBoom}, &fakeRepoStore{}, newNow())
-	_, err := uc.CreateChild(context.Background(), usecases.CreateChildInput{RepoPath: "/r", Branch: "b"})
+	uc := worktree.New(ws, g, &fakeProvider{err: errBoom}, &fakeRepoStore{}, newNow())
+	_, err := uc.CreateChild(context.Background(), worktree.CreateChildInput{RepoPath: "/r", Branch: "b"})
 	require.ErrorIs(t, err, errBoom)
 }
 
@@ -420,9 +420,9 @@ func TestMergeIntoParent_RejectsLockedParent(t *testing.T) {
 	child := domain.Workspace{ID: "c", ParentID: "p", Branch: "feat"}
 	parent := domain.Workspace{ID: "p", Locked: true, WorktreePath: "/pw"}
 	g := &fakeGit{}
-	uc := usecases.NewWorktreeUsecase(mergeWS(child, parent, nil), g, &fakeProvider{}, &fakeRepoStore{}, newNow())
+	uc := worktree.New(mergeWS(child, parent, nil), g, &fakeProvider{}, &fakeRepoStore{}, newNow())
 	_, err := uc.MergeIntoParent(context.Background(), "c", gitdomain.MergeStrategyMerge)
-	require.ErrorIs(t, err, usecases.ErrParentLocked)
+	require.ErrorIs(t, err, worktree.ErrParentLocked)
 	assert.Empty(t, g.calls)
 }
 
@@ -431,9 +431,9 @@ func TestMergeIntoParent_RejectsRebaseForNonLeafChild(t *testing.T) {
 	parent := domain.Workspace{ID: "p", WorktreePath: "/pw", Branch: "develop"}
 	grandchild := domain.Workspace{ID: "gc", ParentID: "c"}
 	g := &fakeGit{}
-	uc := usecases.NewWorktreeUsecase(mergeWS(child, parent, []domain.Workspace{grandchild}), g, &fakeProvider{}, &fakeRepoStore{}, newNow())
+	uc := worktree.New(mergeWS(child, parent, []domain.Workspace{grandchild}), g, &fakeProvider{}, &fakeRepoStore{}, newNow())
 	_, err := uc.MergeIntoParent(context.Background(), "c", gitdomain.MergeStrategyRebase)
-	require.ErrorIs(t, err, usecases.ErrRebaseNonLeaf)
+	require.ErrorIs(t, err, worktree.ErrRebaseNonLeaf)
 	assert.Empty(t, g.calls)
 }
 
@@ -447,7 +447,7 @@ func TestMergeIntoParent_MergeStrategy_RunsInParentThenUpdatesForkPoint(t *testi
 		updatedID, updatedSha = id, sha
 		return domain.Workspace{}, nil
 	}
-	uc := usecases.NewWorktreeUsecase(ws, g, &fakeProvider{}, &fakeRepoStore{}, newNow())
+	uc := worktree.New(ws, g, &fakeProvider{}, &fakeRepoStore{}, newNow())
 
 	res, err := uc.MergeIntoParent(context.Background(), "c", gitdomain.MergeStrategyMerge)
 	require.NoError(t, err)
@@ -473,7 +473,7 @@ func TestMergeIntoParent_ResyncsParentAndChildSummaries(t *testing.T) {
 		synced = append(synced, in)
 		return domain.Workspace{}, nil
 	}
-	uc := usecases.NewWorktreeUsecase(ws, g, &fakeProvider{}, &fakeRepoStore{}, newNow())
+	uc := worktree.New(ws, g, &fakeProvider{}, &fakeRepoStore{}, newNow())
 
 	_, err := uc.MergeIntoParent(context.Background(), "c", gitdomain.MergeStrategyMerge)
 	require.NoError(t, err)
@@ -503,7 +503,7 @@ func TestMergeIntoParent_ResyncSummaryError(t *testing.T) {
 		forkUpdated = true
 		return domain.Workspace{}, nil
 	}
-	uc := usecases.NewWorktreeUsecase(ws, g, &fakeProvider{}, &fakeRepoStore{}, newNow())
+	uc := worktree.New(ws, g, &fakeProvider{}, &fakeRepoStore{}, newNow())
 	res, err := uc.MergeIntoParent(context.Background(), "c", gitdomain.MergeStrategyMerge)
 	require.NoError(t, err, "summary resync failure must not fail a durable merge")
 	assert.Equal(t, "ptip", res.ParentTipSha)
@@ -519,7 +519,7 @@ func TestMergeIntoParent_SquashStrategy_RunsInParent(t *testing.T) {
 	ws.UpdateForkPointFn = func(_ context.Context, _, _ string) (domain.Workspace, error) {
 		return domain.Workspace{}, nil
 	}
-	uc := usecases.NewWorktreeUsecase(ws, g, &fakeProvider{}, &fakeRepoStore{}, newNow())
+	uc := worktree.New(ws, g, &fakeProvider{}, &fakeRepoStore{}, newNow())
 
 	_, err := uc.MergeIntoParent(context.Background(), "c", gitdomain.MergeStrategySquash)
 	require.NoError(t, err)
@@ -536,7 +536,7 @@ func TestMergeIntoParent_RebaseStrategy_RebasesChildThenFFMerges(t *testing.T) {
 	ws.UpdateForkPointFn = func(_ context.Context, _, _ string) (domain.Workspace, error) {
 		return domain.Workspace{}, nil
 	}
-	uc := usecases.NewWorktreeUsecase(ws, g, &fakeProvider{}, &fakeRepoStore{}, newNow())
+	uc := worktree.New(ws, g, &fakeProvider{}, &fakeRepoStore{}, newNow())
 
 	_, err := uc.MergeIntoParent(context.Background(), "c", gitdomain.MergeStrategyRebase)
 	require.NoError(t, err)
@@ -555,7 +555,7 @@ func TestMergeIntoParent_Conflict_SetsPendingMerge(t *testing.T) {
 		pendID, pendStrat, pendTarget = id, s, target
 		return domain.Workspace{}, nil
 	}
-	uc := usecases.NewWorktreeUsecase(ws, g, &fakeProvider{}, &fakeRepoStore{}, newNow())
+	uc := worktree.New(ws, g, &fakeProvider{}, &fakeRepoStore{}, newNow())
 
 	res, err := uc.MergeIntoParent(context.Background(), "c", gitdomain.MergeStrategyMerge)
 	require.NoError(t, err)
@@ -575,7 +575,7 @@ func TestMergeIntoParent_RebaseConflict_SetsPendingMerge(t *testing.T) {
 	ws.SetPendingMergeFn = func(_ context.Context, _ string, _ gitdomain.MergeStrategy, _ string) (domain.Workspace, error) {
 		return domain.Workspace{}, nil
 	}
-	uc := usecases.NewWorktreeUsecase(ws, g, &fakeProvider{}, &fakeRepoStore{}, newNow())
+	uc := worktree.New(ws, g, &fakeProvider{}, &fakeRepoStore{}, newNow())
 	res, err := uc.MergeIntoParent(context.Background(), "c", gitdomain.MergeStrategyRebase)
 	require.NoError(t, err)
 	assert.True(t, res.ConflictsPending)
@@ -586,7 +586,7 @@ func TestMergeIntoParent_NonConflictError_Propagates(t *testing.T) {
 	child := domain.Workspace{ID: "c", ParentID: "p", Branch: "feat"}
 	parent := domain.Workspace{ID: "p", WorktreePath: "/pw", Branch: "develop"}
 	g := &fakeGit{mergeErr: errBoom}
-	uc := usecases.NewWorktreeUsecase(mergeWS(child, parent, nil), g, &fakeProvider{}, &fakeRepoStore{}, newNow())
+	uc := worktree.New(mergeWS(child, parent, nil), g, &fakeProvider{}, &fakeRepoStore{}, newNow())
 	_, err := uc.MergeIntoParent(context.Background(), "c", gitdomain.MergeStrategyMerge)
 	require.ErrorIs(t, err, errBoom)
 }
@@ -597,7 +597,7 @@ func TestMergeIntoParent_GetChildError(t *testing.T) {
 			return domain.Workspace{}, errBoom
 		},
 	}
-	uc := usecases.NewWorktreeUsecase(ws, &fakeGit{}, &fakeProvider{}, &fakeRepoStore{}, newNow())
+	uc := worktree.New(ws, &fakeGit{}, &fakeProvider{}, &fakeRepoStore{}, newNow())
 	_, err := uc.MergeIntoParent(context.Background(), "c", gitdomain.MergeStrategyMerge)
 	require.ErrorIs(t, err, errBoom)
 }
@@ -611,7 +611,7 @@ func TestMergeIntoParent_GetParentError(t *testing.T) {
 			return domain.Workspace{}, errBoom
 		},
 	}
-	uc := usecases.NewWorktreeUsecase(ws, &fakeGit{}, &fakeProvider{}, &fakeRepoStore{}, newNow())
+	uc := worktree.New(ws, &fakeGit{}, &fakeProvider{}, &fakeRepoStore{}, newNow())
 	_, err := uc.MergeIntoParent(context.Background(), "c", gitdomain.MergeStrategyMerge)
 	require.ErrorIs(t, err, errBoom)
 }
@@ -624,9 +624,9 @@ func TestReparent_RejectsNonLeafChild(t *testing.T) {
 	grandchild := domain.Workspace{ID: "gc", ParentID: "c"}
 	ws := reparentWS(child, newParent, []domain.Workspace{grandchild})
 	g := &fakeGit{}
-	uc := usecases.NewWorktreeUsecase(ws, g, &fakeProvider{}, &fakeRepoStore{}, newNow())
+	uc := worktree.New(ws, g, &fakeProvider{}, &fakeRepoStore{}, newNow())
 	_, err := uc.Reparent(context.Background(), "c", "np")
-	require.ErrorIs(t, err, usecases.ErrChildHasChildren)
+	require.ErrorIs(t, err, worktree.ErrChildHasChildren)
 	assert.Empty(t, g.calls)
 }
 
@@ -635,9 +635,9 @@ func TestReparent_RejectsLockedNewParent(t *testing.T) {
 	newParent := domain.Workspace{ID: "np", Locked: true}
 	ws := reparentWS(child, newParent, nil)
 	g := &fakeGit{}
-	uc := usecases.NewWorktreeUsecase(ws, g, &fakeProvider{}, &fakeRepoStore{}, newNow())
+	uc := worktree.New(ws, g, &fakeProvider{}, &fakeRepoStore{}, newNow())
 	_, err := uc.Reparent(context.Background(), "c", "np")
-	require.ErrorIs(t, err, usecases.ErrNewParentLocked)
+	require.ErrorIs(t, err, worktree.ErrNewParentLocked)
 	assert.Empty(t, g.calls)
 }
 
@@ -651,7 +651,7 @@ func TestReparent_RebasesOntoNewTipAndUpdatesAggregate(t *testing.T) {
 		return domain.Workspace{ID: id}, nil
 	}
 	g := &fakeGit{revParseSha: "ntip"}
-	uc := usecases.NewWorktreeUsecase(ws, g, &fakeProvider{}, &fakeRepoStore{}, newNow())
+	uc := worktree.New(ws, g, &fakeProvider{}, &fakeRepoStore{}, newNow())
 
 	_, err := uc.Reparent(context.Background(), "c", "np")
 	require.NoError(t, err)
@@ -668,7 +668,7 @@ func TestReparent_RebaseOntoError(t *testing.T) {
 	newParent := domain.Workspace{ID: "np", WorktreePath: "/np"}
 	ws := reparentWS(child, newParent, nil)
 	g := &fakeGit{revParseSha: "ntip", rebaseOnto: errBoom}
-	uc := usecases.NewWorktreeUsecase(ws, g, &fakeProvider{}, &fakeRepoStore{}, newNow())
+	uc := worktree.New(ws, g, &fakeProvider{}, &fakeRepoStore{}, newNow())
 	_, err := uc.Reparent(context.Background(), "c", "np")
 	require.ErrorIs(t, err, errBoom)
 }
@@ -679,7 +679,7 @@ func TestReparent_GetChildError(t *testing.T) {
 			return domain.Workspace{}, errBoom
 		},
 	}
-	uc := usecases.NewWorktreeUsecase(ws, &fakeGit{}, &fakeProvider{}, &fakeRepoStore{}, newNow())
+	uc := worktree.New(ws, &fakeGit{}, &fakeProvider{}, &fakeRepoStore{}, newNow())
 	_, err := uc.Reparent(context.Background(), "c", "np")
 	require.ErrorIs(t, err, errBoom)
 }
@@ -693,7 +693,7 @@ func TestReparent_GetNewParentError(t *testing.T) {
 			return domain.Workspace{}, errBoom
 		},
 	}
-	uc := usecases.NewWorktreeUsecase(ws, &fakeGit{}, &fakeProvider{}, &fakeRepoStore{}, newNow())
+	uc := worktree.New(ws, &fakeGit{}, &fakeProvider{}, &fakeRepoStore{}, newNow())
 	_, err := uc.Reparent(context.Background(), "c", "np")
 	require.ErrorIs(t, err, errBoom)
 }
@@ -738,7 +738,7 @@ func TestDeleteCascade_DeepestFirstSkippingLocked(t *testing.T) {
 			return nil
 		},
 	}
-	uc := usecases.NewWorktreeUsecase(ws, g, &fakeProvider{}, &fakeRepoStore{path: "/repo"}, newNow())
+	uc := worktree.New(ws, g, &fakeProvider{}, &fakeRepoStore{path: "/repo"}, newNow())
 
 	require.NoError(t, uc.DeleteCascade(context.Background(), "root"))
 	assert.Equal(t, []string{"c", "a", "root"}, deleted)
@@ -755,7 +755,7 @@ func TestDeleteCascade_ListError(t *testing.T) {
 	ws := &fakeWorkspace{
 		ListFn: func(_ context.Context) ([]domain.Workspace, error) { return nil, errBoom },
 	}
-	uc := usecases.NewWorktreeUsecase(ws, &fakeGit{}, &fakeProvider{}, &fakeRepoStore{}, newNow())
+	uc := worktree.New(ws, &fakeGit{}, &fakeProvider{}, &fakeRepoStore{}, newNow())
 	require.ErrorIs(t, uc.DeleteCascade(context.Background(), "root"), errBoom)
 }
 
@@ -764,7 +764,7 @@ func TestDeleteCascade_RepoPathError(t *testing.T) {
 	ws := &fakeWorkspace{
 		ListFn: func(_ context.Context) ([]domain.Workspace, error) { return all, nil },
 	}
-	uc := usecases.NewWorktreeUsecase(ws, &fakeGit{}, &fakeProvider{}, &fakeRepoStore{err: errBoom}, newNow())
+	uc := worktree.New(ws, &fakeGit{}, &fakeProvider{}, &fakeRepoStore{err: errBoom}, newNow())
 	require.ErrorIs(t, uc.DeleteCascade(context.Background(), "root"), errBoom)
 }
 
@@ -775,7 +775,7 @@ func TestDeleteCascade_MissingRepoRow_ErrorsNoPanic(t *testing.T) {
 	}
 	// FindByKey returns (nil, nil) for a missing repo row; dereferencing it
 	// previously panicked. The usecase must surface a plain error instead.
-	uc := usecases.NewWorktreeUsecase(ws, &fakeGit{}, &fakeProvider{}, &fakeRepoStore{missing: true}, newNow())
+	uc := worktree.New(ws, &fakeGit{}, &fakeProvider{}, &fakeRepoStore{missing: true}, newNow())
 	err := uc.DeleteCascade(context.Background(), "root")
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "repo r not found")
@@ -787,7 +787,7 @@ func TestDeleteCascade_WorktreeRemoveError(t *testing.T) {
 		ListFn: func(_ context.Context) ([]domain.Workspace, error) { return all, nil },
 	}
 	g := &fakeGit{removeErr: errBoom}
-	uc := usecases.NewWorktreeUsecase(ws, g, &fakeProvider{}, &fakeRepoStore{path: "/repo"}, newNow())
+	uc := worktree.New(ws, g, &fakeProvider{}, &fakeRepoStore{path: "/repo"}, newNow())
 	require.ErrorIs(t, uc.DeleteCascade(context.Background(), "root"), errBoom)
 }
 
@@ -797,7 +797,7 @@ func TestDeleteCascade_BranchDeleteError(t *testing.T) {
 		ListFn: func(_ context.Context) ([]domain.Workspace, error) { return all, nil },
 	}
 	g := &fakeGit{deleteErr: errBoom}
-	uc := usecases.NewWorktreeUsecase(ws, g, &fakeProvider{}, &fakeRepoStore{path: "/repo"}, newNow())
+	uc := worktree.New(ws, g, &fakeProvider{}, &fakeRepoStore{path: "/repo"}, newNow())
 	require.ErrorIs(t, uc.DeleteCascade(context.Background(), "root"), errBoom)
 }
 
@@ -809,7 +809,7 @@ func TestMergeIntoParent_SetPendingMergeError(t *testing.T) {
 	ws.SetPendingMergeFn = func(_ context.Context, _ string, _ gitdomain.MergeStrategy, _ string) (domain.Workspace, error) {
 		return domain.Workspace{}, errBoom
 	}
-	uc := usecases.NewWorktreeUsecase(ws, g, &fakeProvider{}, &fakeRepoStore{}, newNow())
+	uc := worktree.New(ws, g, &fakeProvider{}, &fakeRepoStore{}, newNow())
 	_, err := uc.MergeIntoParent(context.Background(), "c", gitdomain.MergeStrategyMerge)
 	require.ErrorIs(t, err, errBoom)
 }
@@ -822,7 +822,7 @@ func TestMergeIntoParent_UpdateForkPointError(t *testing.T) {
 	ws.UpdateForkPointFn = func(_ context.Context, _, _ string) (domain.Workspace, error) {
 		return domain.Workspace{}, errBoom
 	}
-	uc := usecases.NewWorktreeUsecase(ws, g, &fakeProvider{}, &fakeRepoStore{}, newNow())
+	uc := worktree.New(ws, g, &fakeProvider{}, &fakeRepoStore{}, newNow())
 	_, err := uc.MergeIntoParent(context.Background(), "c", gitdomain.MergeStrategyMerge)
 	require.ErrorIs(t, err, errBoom)
 }
@@ -839,7 +839,7 @@ func TestMergeIntoParent_GuardListError(t *testing.T) {
 		},
 		ListFn: func(_ context.Context) ([]domain.Workspace, error) { return nil, errBoom },
 	}
-	uc := usecases.NewWorktreeUsecase(ws, &fakeGit{}, &fakeProvider{}, &fakeRepoStore{}, newNow())
+	uc := worktree.New(ws, &fakeGit{}, &fakeProvider{}, &fakeRepoStore{}, newNow())
 	_, err := uc.MergeIntoParent(context.Background(), "c", gitdomain.MergeStrategyRebase)
 	require.ErrorIs(t, err, errBoom)
 }
@@ -856,7 +856,7 @@ func TestReparent_GuardListError(t *testing.T) {
 		},
 		ListFn: func(_ context.Context) ([]domain.Workspace, error) { return nil, errBoom },
 	}
-	uc := usecases.NewWorktreeUsecase(ws, &fakeGit{}, &fakeProvider{}, &fakeRepoStore{}, newNow())
+	uc := worktree.New(ws, &fakeGit{}, &fakeProvider{}, &fakeRepoStore{}, newNow())
 	_, err := uc.Reparent(context.Background(), "c", "np")
 	require.ErrorIs(t, err, errBoom)
 }
@@ -865,7 +865,7 @@ func TestMergeIntoParent_RevParseError(t *testing.T) {
 	child := domain.Workspace{ID: "c", ParentID: "p", Branch: "feat"}
 	parent := domain.Workspace{ID: "p", WorktreePath: "/pw", Branch: "develop"}
 	g := &fakeGit{revParseErr: errBoom}
-	uc := usecases.NewWorktreeUsecase(mergeWS(child, parent, nil), g, &fakeProvider{}, &fakeRepoStore{}, newNow())
+	uc := worktree.New(mergeWS(child, parent, nil), g, &fakeProvider{}, &fakeRepoStore{}, newNow())
 	_, err := uc.MergeIntoParent(context.Background(), "c", gitdomain.MergeStrategyMerge)
 	require.ErrorIs(t, err, errBoom)
 }
@@ -874,7 +874,7 @@ func TestReparent_RevParseError(t *testing.T) {
 	child := domain.Workspace{ID: "c", Branch: "feat", WorktreePath: "/cw"}
 	newParent := domain.Workspace{ID: "np", WorktreePath: "/np"}
 	g := &fakeGit{revParseErr: errBoom}
-	uc := usecases.NewWorktreeUsecase(reparentWS(child, newParent, nil), g, &fakeProvider{}, &fakeRepoStore{}, newNow())
+	uc := worktree.New(reparentWS(child, newParent, nil), g, &fakeProvider{}, &fakeRepoStore{}, newNow())
 	_, err := uc.Reparent(context.Background(), "c", "np")
 	require.ErrorIs(t, err, errBoom)
 }

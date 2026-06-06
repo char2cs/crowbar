@@ -6,6 +6,7 @@ import (
 	"github.com/char2cs/crowbar/api/internal/app/usecases/internal/discover"
 	"github.com/char2cs/crowbar/api/internal/app/usecases/provider"
 	"github.com/char2cs/crowbar/api/internal/app/usecases/terminal"
+	"github.com/char2cs/crowbar/api/internal/app/usecases/worktree"
 	"github.com/char2cs/crowbar/api/internal/domain"
 	"github.com/char2cs/crowbar/api/internal/engine"
 )
@@ -30,7 +31,7 @@ type Container struct {
 	Git           GitUsecase
 	Terminal      terminal.Usecase
 	ProviderSync  provider.Usecase
-	Worktree      WorktreeUsecase
+	Worktree      worktree.Usecase
 	BranchReview  BranchReviewUsecase
 }
 
@@ -84,7 +85,7 @@ func New(
 		RefRunner:  newRefRunner,
 		Now:        nowFunc,
 	})
-	worktree := NewWorktreeUsecase(
+	worktreeUsecase := worktree.New(
 		repos.Workspace,
 		engines.Git,
 		engines.Provider,
@@ -108,7 +109,7 @@ func New(
 		Git:           git,
 		Terminal:      terminalUsecase,
 		ProviderSync:  providerSync,
-		Worktree:      worktree,
+		Worktree:      worktreeUsecase,
 		BranchReview:  branchReview,
 	}, nil
 }

@@ -1,4 +1,4 @@
-package usecases
+package worktree
 
 import (
 	"context"
@@ -29,11 +29,11 @@ type CreateChildInput struct {
 	ParentBranch string
 }
 
-// WorktreeUsecase orchestrates the worktree hierarchy (07): worktree-backed
+// Usecase orchestrates the worktree hierarchy (07): worktree-backed
 // create, local child→parent merge (all three strategies), re-parenting, and
 // cascade delete. It composes the git-engine primitives with 3A's Workspace
 // Asynx commands; it forks neither. All hierarchy guards live here.
-type WorktreeUsecase interface {
+type Usecase interface {
 	CreateChild(
 		ctx context.Context,
 		in CreateChildInput,
@@ -62,16 +62,16 @@ type worktreeUsecase struct {
 	now        func() time.Time
 }
 
-// NewWorktreeUsecase builds the hierarchy usecase. repos resolves a workspace's
-// repository main path (via RepoID) so worktree removal and branch deletion run
-// against the repo, never against a child's own worktree (07 §5).
-func NewWorktreeUsecase(
+// New builds the hierarchy usecase. repos resolves a workspace's repository main
+// path (via RepoID) so worktree removal and branch deletion run against the repo,
+// never against a child's own worktree (07 §5).
+func New(
 	workspaces workspace.Workspace,
 	git enginegit.Engine,
 	provider engineprovider.Engine,
 	repos store.Store[domain.Repository, string],
 	now func() time.Time,
-) WorktreeUsecase {
+) Usecase {
 	return &worktreeUsecase{
 		workspaces: workspaces,
 		git:        git,
