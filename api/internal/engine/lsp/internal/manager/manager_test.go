@@ -262,6 +262,40 @@ func TestSpawnExecNotFound_MapsToErrNoServer(
 	assert.ErrorIs(t, err, ErrNoServer)
 }
 
+// TestOnReleaseEmpty_FiresOnLastServerForWorkspace verifies the callback fires
+// exactly when a workspace's last server is released, and not while another
+// language server for the same workspace is still alive.
+func TestOnReleaseEmpty_FiresOnLastServerForWorkspace(
+	t *testing.T,
+) {
+	var count atomic.Int32
+	m, _ := buildManager(t, &count)
+	ctx := context.Background()
+
+	var released []string
+	var mu sync.Mutex
+	m.OnReleaseEmpty(func(wsID string) {
+		mu.Lock()
+		released = append(released, wsID)
+		mu.Unlock()
+	})
+
+	_, err := m.ServerForFile(ctx, "ws1", "/repo", "main.go")
+	require.NoError(t, err)
+	_, err = m.ServerForFile(ctx, "ws1", "/repo", "app.ts")
+	require.NoError(t, err)
+
+	m.Release(ctx, "ws1", "go")
+	mu.Lock()
+	assert.Empty(t, released, "must not fire while ts server is still alive")
+	mu.Unlock()
+
+	m.Release(ctx, "ws1", "typescript")
+	mu.Lock()
+	assert.Equal(t, []string{"ws1"}, released, "must fire when last server released")
+	mu.Unlock()
+}
+
 // TestShutdown_ClosesAllServers verifies that Shutdown closes every live server.
 func TestShutdown_ClosesAllServers(
 	t *testing.T,

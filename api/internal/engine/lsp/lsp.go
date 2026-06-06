@@ -169,7 +169,16 @@ func newWithManager(
 		snap: make(map[string][]domlsp.Diagnostic),
 	}
 	e.mgr.OnDiagnostics(e.onDiagnostics)
+	e.mgr.OnReleaseEmpty(e.evictSnapshot)
 	return e
+}
+
+func (e *engine) evictSnapshot(
+	wsID string,
+) {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	delete(e.snap, wsID)
 }
 
 func spawnProcess(

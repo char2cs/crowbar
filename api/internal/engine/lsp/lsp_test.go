@@ -413,6 +413,26 @@ func TestRelease_ClosesServerOnLastRelease(t *testing.T) {
 	assert.Equal(t, 1, fake.closeCount())
 }
 
+func TestRelease_EvictsDiagnosticsSnapshot(t *testing.T) {
+	fake := newFakeServer(nil)
+	e := buildEngine(t, fake)
+	ctx := context.Background()
+
+	_, err := e.Completion(ctx, ws, tree, goF, pos())
+	require.NoError(t, err)
+
+	cb := fake.diagCallback()
+	require.NotNil(t, cb)
+	cb(domlsp.DiagnosticsEvent{WsID: ws, Diagnostics: []domlsp.Diagnostic{{Message: "boom"}}})
+	require.Len(t, e.DiagnosticsSnapshot(ws), 1)
+
+	e.Release(ctx, ws, goF)
+
+	assert.Empty(t, e.DiagnosticsSnapshot(ws))
+	_, held := e.snap[ws]
+	assert.False(t, held, "snapshot map must no longer hold the wsID key")
+}
+
 func TestRelease_NoSpecIsNoOp(t *testing.T) {
 	fake := newFakeServer(nil)
 	e := buildEngine(t, fake)

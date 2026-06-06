@@ -9,6 +9,7 @@ import (
 	"errors"
 	"fmt"
 	"os/exec"
+	"strings"
 	"sync"
 
 	domlsp "github.com/char2cs/crowbar/api/internal/domain/lsp"
@@ -60,6 +61,11 @@ type Manager interface {
 	OnDiagnostics(
 		fn func(domlsp.DiagnosticsEvent),
 	)
+	// OnReleaseEmpty registers the callback invoked when a Release drops the last
+	// running server for a workspace, so callers can evict per-workspace state.
+	OnReleaseEmpty(
+		fn func(wsID string),
+	)
 	// Shutdown closes all running servers regardless of refcount.
 	Shutdown(
 		ctx context.Context,
@@ -72,12 +78,13 @@ type entry struct {
 }
 
 type manager struct {
-	reg      registry.Registry
-	spawn    SpawnFunc
-	lookPath lookPathFunc
-	mu       sync.Mutex
-	pool     map[string]*entry
-	onDiag   func(domlsp.DiagnosticsEvent)
+	reg        registry.Registry
+	spawn      SpawnFunc
+	lookPath   lookPathFunc
+	mu         sync.Mutex
+	pool       map[string]*entry
+	onDiag     func(domlsp.DiagnosticsEvent)
+	onRelEmpty func(wsID string)
 }
 
 // Option customizes a Manager at construction. Options are an internal seam:
@@ -132,6 +139,14 @@ func (m *manager) OnDiagnostics(
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	m.onDiag = fn
+}
+
+func (m *manager) OnReleaseEmpty(
+	fn func(wsID string),
+) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.onRelEmpty = fn
 }
 
 func (m *manager) ServerForFile(
@@ -256,9 +271,26 @@ func (m *manager) Release(
 	}
 	delete(m.pool, key)
 	srv := e.srv
+	empty := !m.hasWorkspace(wsID)
+	cb := m.onRelEmpty
 	m.mu.Unlock()
 
 	_ = srv.Close()
+	if empty && cb != nil {
+		cb(wsID)
+	}
+}
+
+func (m *manager) hasWorkspace(
+	wsID string,
+) bool {
+	prefix := wsID + "|"
+	for key := range m.pool {
+		if strings.HasPrefix(key, prefix) {
+			return true
+		}
+	}
+	return false
 }
 
 func (m *manager) Shutdown(
