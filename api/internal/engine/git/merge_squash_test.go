@@ -79,3 +79,22 @@ func TestMergeSquash_Conflict_ReturnsErrConflict(
 	require.Error(t, err)
 	assert.ErrorIs(t, err, git.ErrConflict)
 }
+
+func TestMergeSquash_NoNetChange_ReturnsNil(
+	t *testing.T,
+) {
+	repo := initRepo(t)
+	makeCommit(t, repo, "base.txt", "base\n", "base commit")
+
+	// branch from main with no new commits: squash stages nothing.
+	gitRun(t, repo, "branch", "feature/empty")
+	parentTipBefore := headSHA(t, repo)
+
+	e := git.New()
+	ctx := context.Background()
+
+	err := e.MergeSquash(ctx, repo, "feature/empty", "noop squash")
+
+	require.NoError(t, err)
+	assert.Equal(t, parentTipBefore, headSHA(t, repo), "parent must be unchanged")
+}
