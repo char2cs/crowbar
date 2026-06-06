@@ -201,6 +201,47 @@ func TestRefcount_ServerClosedOnLastRelease(
 	assert.Equal(t, 1, fake.closeCount(), "server must be closed on last release")
 }
 
+// TestRunningServerForFile_ReturnsWithoutTouchingRefcount verifies the
+// non-incrementing lookup: it returns the live server without spawning, and
+// does not change the refcount (a single Release after it still tears down).
+func TestRunningServerForFile_ReturnsWithoutTouchingRefcount(
+	t *testing.T,
+) {
+	var count atomic.Int32
+	m, getLastFake := buildManager(t, &count)
+	ctx := context.Background()
+
+	srv, err := m.ServerForFile(ctx, "ws1", "/repo", "main.go")
+	require.NoError(t, err)
+
+	got, err := m.RunningServerForFile("ws1", "main.go")
+	require.NoError(t, err)
+	assert.Same(t, srv, got, "must return the already-running server")
+	assert.Equal(t, int32(1), count.Load(), "lookup must not spawn")
+
+	fake := getLastFake()
+	require.NotNil(t, fake)
+	m.Release(ctx, "ws1", "go")
+	assert.Equal(t, 1, fake.closeCount(), "lookup did not add a ref, so one Release tears down")
+}
+
+// TestRunningServerForFile_NoSpecOrServerErrNoServer verifies the lookup
+// returns ErrNoServer both for an unknown extension and for a known language
+// with no running server.
+func TestRunningServerForFile_NoSpecOrServerErrNoServer(
+	t *testing.T,
+) {
+	var count atomic.Int32
+	m, _ := buildManager(t, &count)
+
+	_, err := m.RunningServerForFile("ws1", "file.unknownext")
+	require.ErrorIs(t, err, ErrNoServer)
+
+	_, err = m.RunningServerForFile("ws1", "main.go")
+	require.ErrorIs(t, err, ErrNoServer)
+	assert.Equal(t, int32(0), count.Load(), "lookup must never spawn")
+}
+
 // TestNoRegistrySpec_ReturnsErrNoServer verifies that an unknown extension
 // returns ErrNoServer and does not spawn.
 func TestNoRegistrySpec_ReturnsErrNoServer(

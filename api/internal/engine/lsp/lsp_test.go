@@ -134,6 +134,44 @@ func buildEngine(
 	return newWithManager(reg, manager.New(reg, spawn, foundLookPath()))
 }
 
+// spawnCounter counts how many times the manager asked to spawn a fresh server
+// process. Combined with the fake's closeCount it makes server teardown
+// observable: a balanced session has spawns == closes and a pool that drains
+// back to empty (the manager fires OnReleaseEmpty, evicting the snapshot).
+type spawnCounter struct {
+	mu sync.Mutex
+	n  int
+}
+
+func (s *spawnCounter) count() int {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.n
+}
+
+// buildCountingEngine returns an engine whose spawn always yields fake while
+// counting spawns. fake.closeCount() reports teardowns, so ref-balance tests can
+// assert spawn/teardown symmetry without reaching into manager internals.
+func buildCountingEngine(
+	t *testing.T,
+	fake *fakeServer,
+) (*engine, *spawnCounter) {
+	t.Helper()
+	sc := &spawnCounter{}
+	reg := registry.New(nil)
+	spawn := func(
+		_ context.Context,
+		_ registry.ServerSpec,
+		_ string,
+	) (server.Server, error) {
+		sc.mu.Lock()
+		sc.n++
+		sc.mu.Unlock()
+		return fake, nil
+	}
+	return newWithManager(reg, manager.New(reg, spawn, foundLookPath())), sc
+}
+
 // foundLookPath reports every server binary as installed so engine tests
 // exercise the spawn path without depending on real binaries on PATH.
 func foundLookPath() manager.Option {
@@ -267,10 +305,24 @@ func TestDidChange_Forwards(t *testing.T) {
 func TestDidClose_Forwards(t *testing.T) {
 	fake := newFakeServer(nil)
 	e := buildEngine(t, fake)
+	ctx := context.Background()
 
-	err := e.DidClose(context.Background(), ws, tree, goF)
-	require.NoError(t, err)
-	assert.Equal(t, "textDocument/didClose", fake.notifies()[0].method)
+	require.NoError(t, e.DidOpen(ctx, ws, tree, goF, "go", "package main"))
+	require.NoError(t, e.DidClose(ctx, ws, tree, goF))
+
+	nots := fake.notifies()
+	require.Len(t, nots, 2)
+	assert.Equal(t, "textDocument/didOpen", nots[0].method)
+	assert.Equal(t, "textDocument/didClose", nots[1].method)
+}
+
+func TestDidClose_WithoutOpenIsNoOp(t *testing.T) {
+	fake := newFakeServer(nil)
+	e := buildEngine(t, fake)
+
+	require.NoError(t, e.DidClose(context.Background(), ws, tree, goF))
+	assert.Empty(t, fake.notifies(), "didClose with no open document forwards nothing")
+	assert.Equal(t, 0, fake.closeCount())
 }
 
 // --- Graceful absence ---
@@ -402,36 +454,18 @@ func TestOnDiagnostics_UserCallbackAlsoInvoked(t *testing.T) {
 
 // --- Release ---
 
-func TestRelease_ClosesServerOnLastRelease(t *testing.T) {
+func TestRelease_ClosesServerHeldByOpenDoc(t *testing.T) {
 	fake := newFakeServer(nil)
 	e := buildEngine(t, fake)
 	ctx := context.Background()
 
-	_, err := e.Completion(ctx, ws, tree, goF, pos())
-	require.NoError(t, err)
+	// DidOpen holds a ref; the explicit Release drops it and tears the server
+	// down. (Release is the public seam the WS layer uses on subscription drop.)
+	require.NoError(t, e.DidOpen(ctx, ws, tree, goF, "go", "package main"))
+	assert.Equal(t, 0, fake.closeCount(), "open document must keep the server warm")
 
 	e.Release(ctx, ws, goF)
 	assert.Equal(t, 1, fake.closeCount())
-}
-
-func TestRelease_EvictsDiagnosticsSnapshot(t *testing.T) {
-	fake := newFakeServer(nil)
-	e := buildEngine(t, fake)
-	ctx := context.Background()
-
-	_, err := e.Completion(ctx, ws, tree, goF, pos())
-	require.NoError(t, err)
-
-	cb := fake.diagCallback()
-	require.NotNil(t, cb)
-	cb(domlsp.DiagnosticsEvent{WsID: ws, Diagnostics: []domlsp.Diagnostic{{Message: "boom"}}})
-	require.Len(t, e.DiagnosticsSnapshot(ws), 1)
-
-	e.Release(ctx, ws, goF)
-
-	assert.Empty(t, e.DiagnosticsSnapshot(ws))
-	_, held := e.snap[ws]
-	assert.False(t, held, "snapshot map must no longer hold the wsID key")
 }
 
 func TestRelease_NoSpecIsNoOp(t *testing.T) {
@@ -439,6 +473,85 @@ func TestRelease_NoSpecIsNoOp(t *testing.T) {
 	e := buildEngine(t, fake)
 	e.Release(context.Background(), ws, noF)
 	assert.Equal(t, 0, fake.closeCount())
+}
+
+// --- Refcount balance (the leak the fix closes) ---
+
+// TestEngine_FeatureRequestsAreRefNeutral proves a feature request with NO open
+// document is net-zero: each request spawns the server, serves, and tears it
+// down. Before the fix the refcount grew by one per request and the server was
+// never closed.
+func TestEngine_FeatureRequestsAreRefNeutral(t *testing.T) {
+	fake := newFakeServer(json.RawMessage(`{"items":[]}`))
+	e, sc := buildCountingEngine(t, fake)
+	ctx := context.Background()
+
+	const n = 4
+	for i := 0; i < n; i++ {
+		_, err := e.Completion(ctx, ws, tree, goF, pos())
+		require.NoError(t, err)
+	}
+
+	// No open doc: each request must balance — spawn then teardown — so the
+	// counts grow together and the pool never retains a leaked ref.
+	assert.Equal(t, n, sc.count(), "each request spawns a fresh warm server")
+	assert.Equal(t, n, fake.closeCount(), "each request tears the server down again")
+}
+
+// TestEngine_OpenKeepsServerWarm_CloseTearsDown proves the document-lifetime
+// model: DidOpen holds a ref that survives requests, and DidClose drops it,
+// tearing the server down exactly once and firing OnReleaseEmpty (snapshot
+// evicted).
+func TestEngine_OpenKeepsServerWarm_CloseTearsDown(t *testing.T) {
+	fake := newFakeServer(json.RawMessage(`{"items":[]}`))
+	e, sc := buildCountingEngine(t, fake)
+	ctx := context.Background()
+
+	require.NoError(t, e.DidOpen(ctx, ws, tree, goF, "go", "package main"))
+
+	cb := fake.diagCallback()
+	require.NotNil(t, cb)
+	cb(domlsp.DiagnosticsEvent{WsID: ws, Diagnostics: []domlsp.Diagnostic{{Message: "boom"}}})
+	require.Len(t, e.DiagnosticsSnapshot(ws), 1)
+
+	for i := 0; i < 3; i++ {
+		_, err := e.Completion(ctx, ws, tree, goF, pos())
+		require.NoError(t, err)
+	}
+
+	// Across the whole open session exactly one server was spawned and it stayed
+	// alive: the open-doc ref kept it warm, so requests reused it.
+	assert.Equal(t, 1, sc.count(), "the open document keeps a single server warm")
+	assert.Equal(t, 0, fake.closeCount(), "server must not be torn down while the doc is open")
+
+	require.NoError(t, e.DidClose(ctx, ws, tree, goF))
+
+	assert.Equal(t, 1, sc.count(), "close spawns nothing new")
+	assert.Equal(t, 1, fake.closeCount(), "close drops the last ref and tears the server down")
+	assert.Empty(t, e.DiagnosticsSnapshot(ws), "OnReleaseEmpty evicts the snapshot")
+	_, held := e.snap[ws]
+	assert.False(t, held, "snapshot map must no longer hold the wsID key")
+}
+
+// TestEngine_DidChangeIsRefNeutral proves didChange does not permanently change
+// the refcount: with an open document the server stays warm (one spawn, no
+// teardown) until DidClose, and the change itself neither spawns nor closes.
+func TestEngine_DidChangeIsRefNeutral(t *testing.T) {
+	fake := newFakeServer(nil)
+	e, sc := buildCountingEngine(t, fake)
+	ctx := context.Background()
+
+	require.NoError(t, e.DidOpen(ctx, ws, tree, goF, "go", "package main"))
+
+	for i := 0; i < 3; i++ {
+		require.NoError(t, e.DidChange(ctx, ws, tree, goF, "package main // edit"))
+	}
+
+	assert.Equal(t, 1, sc.count(), "didChange reuses the warm server")
+	assert.Equal(t, 0, fake.closeCount(), "didChange must not tear the server down")
+
+	require.NoError(t, e.DidClose(ctx, ws, tree, goF))
+	assert.Equal(t, 1, fake.closeCount(), "only the matching close tears the server down")
 }
 
 // --- Error propagation ---

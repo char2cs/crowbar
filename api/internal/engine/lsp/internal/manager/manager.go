@@ -43,6 +43,16 @@ type Manager interface {
 		worktreePath string,
 		filePath string,
 	) (server.Server, error)
+	// RunningServerForFile returns the already-running server for filePath's
+	// language WITHOUT spawning and WITHOUT touching the refcount. It returns
+	// ErrNoServer when the registry has no spec for the file or no server is
+	// currently running for (wsID, languageID). The transient document-close path
+	// uses this to forward textDocument/didClose on the ref it already holds from
+	// the matching didOpen, so closing does not itself acquire a new ref.
+	RunningServerForFile(
+		wsID string,
+		filePath string,
+	) (server.Server, error)
 	// Acquire increments the refcount for the (wsID, languageID) entry without
 	// spawning. It is a no-op when no entry exists.
 	Acquire(
@@ -160,6 +170,25 @@ func (m *manager) ServerForFile(
 		return nil, fmt.Errorf("lsp manager: no server for file: %w", ErrNoServer)
 	}
 	return m.getOrSpawn(ctx, wsID, worktreePath, spec)
+}
+
+func (m *manager) RunningServerForFile(
+	wsID string,
+	filePath string,
+) (server.Server, error) {
+	spec, ok := m.reg.ForFile(filePath)
+	if !ok {
+		return nil, fmt.Errorf("lsp manager: no server for file: %w", ErrNoServer)
+	}
+	key := poolKey(wsID, spec.LanguageID)
+
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	e, ok := m.pool[key]
+	if !ok {
+		return nil, fmt.Errorf("lsp manager: no running server: %w", ErrNoServer)
+	}
+	return e.srv, nil
 }
 
 func (m *manager) getOrSpawn(

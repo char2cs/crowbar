@@ -305,6 +305,12 @@ func (e *engine) rawRequest(
 	return raw, nil
 }
 
+// request issues a synchronous feature request. ServerForFile acquires a ref
+// (spawning if needed) that keeps the server warm for the duration; the
+// deferred releaseFile drops it. The acquire/release pair is net-zero, so a
+// feature request never permanently inflates the refcount: with an open
+// document the matching didOpen ref keeps the server warm across requests; with
+// no open document the request spawns, serves, then tears the server down.
 func (e *engine) request(
 	ctx context.Context,
 	wsID string,
@@ -320,6 +326,7 @@ func (e *engine) request(
 	if err != nil {
 		return nil, false, fmt.Errorf("lsp: %s: %w", method, err)
 	}
+	defer e.releaseFile(ctx, wsID, filePath)
 
 	reqCtx, cancel := context.WithTimeout(ctx, e.reqTimeout)
 	defer cancel()
@@ -329,6 +336,22 @@ func (e *engine) request(
 		return nil, false, fmt.Errorf("lsp: %s: %w", method, err)
 	}
 	return raw, true, nil
+}
+
+// releaseFile drops one refcount for the file's language server, resolving the
+// languageID from the registry. It mirrors the public Release accounting and is
+// the release half of the net-zero acquire/release pairs in request, DidChange,
+// and DidClose.
+func (e *engine) releaseFile(
+	ctx context.Context,
+	wsID string,
+	filePath string,
+) {
+	spec, ok := e.reg.ForFile(filePath)
+	if !ok {
+		return
+	}
+	e.mgr.Release(ctx, wsID, spec.LanguageID)
 }
 
 func (e *engine) DidOpen(
@@ -347,6 +370,11 @@ func (e *engine) DidOpen(
 			"text":       text,
 		},
 	}
+	// ServerForFile acquires a ref that is HELD for the lifetime of the open
+	// document; it is released only in the matching DidClose. This is what keeps
+	// the server warm across the feature requests issued while the document is
+	// open. On the graceful-absence / spawn-error path notify acquires nothing,
+	// so there is no ref to release later.
 	return e.notify(ctx, wsID, worktreePath, filePath, "textDocument/didOpen", params)
 }
 
@@ -364,7 +392,10 @@ func (e *engine) DidChange(
 		},
 		"contentChanges": []any{map[string]any{"text": text}},
 	}
-	return e.notify(ctx, wsID, worktreePath, filePath, "textDocument/didChange", params)
+	// didChange is net-zero: notifyAndRelease acquires for the forward and
+	// releases immediately after, so it never permanently changes the refcount.
+	// The server stays warm only because of the ref held by the matching DidOpen.
+	return e.notifyAndRelease(ctx, wsID, worktreePath, filePath, "textDocument/didChange", params)
 }
 
 func (e *engine) DidClose(
@@ -376,9 +407,33 @@ func (e *engine) DidClose(
 	params := map[string]any{
 		"textDocument": map[string]any{"uri": convert.URIFromPath(filePath)},
 	}
-	return e.notify(ctx, wsID, worktreePath, filePath, "textDocument/didClose", params)
+	// DidClose forwards on the ref the matching DidOpen already holds, then drops
+	// that ref. RunningServerForFile does NOT acquire, so the single releaseFile
+	// below returns the refcount to its pre-open baseline (open→…→close is
+	// net-zero). When this drops the last ref the server is torn down. A close
+	// with no live server (graceful absence, or close without a prior open) is a
+	// no-op: ErrNoServer yields a nil notify and releaseFile is a no-op on an
+	// absent entry.
+	srv, err := e.mgr.RunningServerForFile(wsID, filePath)
+	if errors.Is(err, manager.ErrNoServer) {
+		return nil
+	}
+	if err != nil {
+		return fmt.Errorf("lsp: textDocument/didClose: %w", err)
+	}
+	defer e.releaseFile(ctx, wsID, filePath)
+
+	notifyCtx, cancel := context.WithTimeout(ctx, e.reqTimeout)
+	defer cancel()
+
+	if err := srv.Notify(notifyCtx, "textDocument/didClose", params); err != nil {
+		return fmt.Errorf("lsp: textDocument/didClose: %w", err)
+	}
+	return nil
 }
 
+// notify forwards a notification and HOLDS the ref acquired by ServerForFile.
+// It is the acquiring half used by DidOpen, whose ref lives until DidClose.
 func (e *engine) notify(
 	ctx context.Context,
 	wsID string,
@@ -394,6 +449,35 @@ func (e *engine) notify(
 	if err != nil {
 		return fmt.Errorf("lsp: %s: %w", method, err)
 	}
+
+	notifyCtx, cancel := context.WithTimeout(ctx, e.reqTimeout)
+	defer cancel()
+
+	if err := srv.Notify(notifyCtx, method, params); err != nil {
+		return fmt.Errorf("lsp: %s: %w", method, err)
+	}
+	return nil
+}
+
+// notifyAndRelease forwards a notification and RELEASES the ref it acquired,
+// making the call net-zero. It is used by DidChange, which must not change the
+// refcount: the server stays warm only on the ref held by DidOpen.
+func (e *engine) notifyAndRelease(
+	ctx context.Context,
+	wsID string,
+	worktreePath string,
+	filePath string,
+	method string,
+	params any,
+) error {
+	srv, err := e.mgr.ServerForFile(ctx, wsID, worktreePath, filePath)
+	if errors.Is(err, manager.ErrNoServer) {
+		return nil
+	}
+	if err != nil {
+		return fmt.Errorf("lsp: %s: %w", method, err)
+	}
+	defer e.releaseFile(ctx, wsID, filePath)
 
 	notifyCtx, cancel := context.WithTimeout(ctx, e.reqTimeout)
 	defer cancel()
@@ -441,9 +525,5 @@ func (e *engine) Release(
 	wsID string,
 	filePath string,
 ) {
-	spec, ok := e.reg.ForFile(filePath)
-	if !ok {
-		return
-	}
-	e.mgr.Release(ctx, wsID, spec.LanguageID)
+	e.releaseFile(ctx, wsID, filePath)
 }
