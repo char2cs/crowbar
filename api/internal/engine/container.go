@@ -5,6 +5,7 @@ import (
 
 	enginefs "github.com/char2cs/crowbar/api/internal/engine/fs"
 	enginegit "github.com/char2cs/crowbar/api/internal/engine/git"
+	enginelsp "github.com/char2cs/crowbar/api/internal/engine/lsp"
 	engineprovider "github.com/char2cs/crowbar/api/internal/engine/provider"
 	enginesearch "github.com/char2cs/crowbar/api/internal/engine/search"
 	engineterminal "github.com/char2cs/crowbar/api/internal/engine/terminal"
@@ -18,6 +19,10 @@ type Container struct {
 	Provider engineprovider.Engine
 	Search   enginesearch.SearchEngine
 	Terminal engineterminal.Engine
+	// LSP is the LSP host facade. It is always non-nil; graceful absence (no
+	// server installed for a language) is signalled by empty results rather than
+	// errors (10 §5).
+	LSP enginelsp.Engine
 }
 
 type engineOpts struct {
@@ -52,5 +57,6 @@ func New(
 		Provider: engineprovider.New(),
 		Search:   enginesearch.New(),
 		Terminal: engineterminal.New(),
+		LSP:      enginelsp.New(nil),
 	}, nil
 }
