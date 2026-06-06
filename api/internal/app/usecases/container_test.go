@@ -92,6 +92,7 @@ func TestContainer_New_BuildsEveryUsecase(t *testing.T) {
 	assert.NotNil(t, c.Git)
 	assert.NotNil(t, c.Terminal)
 	assert.NotNil(t, c.ProviderSync)
+	assert.NotNil(t, c.Worktree)
 }
 
 func TestContainer_FileTree_DelegatesToRealFsEngine(t *testing.T) {
