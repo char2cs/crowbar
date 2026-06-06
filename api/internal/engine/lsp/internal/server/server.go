@@ -12,6 +12,7 @@ import (
 	"fmt"
 	"io"
 	"os/exec"
+	"sort"
 	"sync"
 
 	"github.com/char2cs/crowbar/api/internal/domain/lsp"
@@ -242,16 +243,24 @@ func (s *server) Replay(
 	}
 	s.swapTransport(transport)
 
-	for _, uri := range s.docs.List() {
+	for _, uri := range s.openURIs() {
 		params := s.didOpenParams(uri)
-		if params == nil {
-			continue
-		}
 		if err := s.Notify(ctx, "textDocument/didOpen", params); err != nil {
 			return fmt.Errorf("replay: didOpen %s: %w", uri, err)
 		}
 	}
 	return nil
+}
+
+func (s *server) openURIs() []string {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	uris := make([]string, 0, len(s.openParams))
+	for uri := range s.openParams {
+		uris = append(uris, uri)
+	}
+	sort.Strings(uris)
+	return uris
 }
 
 func (s *server) didOpenParams(
