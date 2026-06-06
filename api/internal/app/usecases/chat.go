@@ -1,0 +1,214 @@
+package usecases
+
+import (
+	"context"
+	"fmt"
+	"time"
+
+	"github.com/google/uuid"
+
+	"github.com/char2cs/crowbar/api/internal/domain"
+)
+
+// ChatLifecycleRepo is the chat repository surface the usecase needs.
+type ChatLifecycleRepo interface {
+	Create(
+		ctx context.Context,
+		id string,
+		wsID string,
+		title string,
+		now time.Time,
+	) (domain.Chat, error)
+	Fork(
+		ctx context.Context,
+		id string,
+		wsID string,
+		parentID string,
+		title string,
+		now time.Time,
+	) (domain.Chat, error)
+	Rename(
+		ctx context.Context,
+		id string,
+		title string,
+	) (domain.Chat, error)
+	Delete(
+		ctx context.Context,
+		id string,
+		now time.Time,
+	) (domain.Chat, error)
+	Get(
+		ctx context.Context,
+		id string,
+	) (domain.Chat, error)
+	ListByWorkspace(
+		ctx context.Context,
+		wsID string,
+	) ([]domain.Chat, error)
+}
+
+// ChatWorkspaceRepo is the workspace surface the chat usecase needs to roll up
+// activity onto the parent workspace and its project.
+type ChatWorkspaceRepo interface {
+	Get(
+		ctx context.Context,
+		id string,
+	) (domain.Workspace, error)
+	TouchActivity(
+		ctx context.Context,
+		id string,
+		now time.Time,
+	) (domain.Workspace, error)
+}
+
+// ChatUsecase is the chat lifecycle surface: create/fork/rename/cascade-delete.
+type ChatUsecase interface {
+	// CreateChat mints an id, issues the create command, and rolls up activity on
+	// the workspace and its project.
+	CreateChat(
+		ctx context.Context,
+		wsID string,
+		title string,
+		now time.Time,
+	) (domain.Chat, error)
+
+	// ForkChat loads the parent chat for its workspace and title, then forks.
+	ForkChat(
+		ctx context.Context,
+		parentID string,
+		now time.Time,
+	) (domain.Chat, error)
+
+	// RenameChat renames a chat.
+	RenameChat(
+		ctx context.Context,
+		id string,
+		title string,
+	) (domain.Chat, error)
+
+	// DeleteChat deletes a chat and cascades to its descendants. Delete is
+	// idempotent so replay is safe.
+	DeleteChat(
+		ctx context.Context,
+		id string,
+		now time.Time,
+	) error
+}
+
+type chatUsecase struct {
+	chats      ChatLifecycleRepo
+	workspaces ChatWorkspaceRepo
+	rollup     ProjectActivityRollup
+}
+
+// NewChatUsecase builds a ChatUsecase from the chat repo, workspace repo, and
+// project roll-up usecase.
+func NewChatUsecase(
+	chats ChatLifecycleRepo,
+	workspaces ChatWorkspaceRepo,
+	rollup ProjectActivityRollup,
+) ChatUsecase {
+	return &chatUsecase{
+		chats:      chats,
+		workspaces: workspaces,
+		rollup:     rollup,
+	}
+}
+
+// CreateChat mints an id, issues the create command, and rolls up activity on
+// the workspace and its project.
+func (u *chatUsecase) CreateChat(
+	ctx context.Context,
+	wsID string,
+	title string,
+	now time.Time,
+) (domain.Chat, error) {
+	created, err := u.chats.Create(ctx, uuid.NewString(), wsID, title, now)
+	if err != nil {
+		return domain.Chat{}, fmt.Errorf("chat: create: %w", err)
+	}
+	u.rollupActivity(ctx, wsID, now)
+	return created, nil
+}
+
+// ForkChat loads the parent chat for its workspace and title, then forks.
+func (u *chatUsecase) ForkChat(
+	ctx context.Context,
+	parentID string,
+	now time.Time,
+) (domain.Chat, error) {
+	parent, err := u.chats.Get(ctx, parentID)
+	if err != nil {
+		return domain.Chat{}, fmt.Errorf("chat: fork: load parent: %w", err)
+	}
+	forked, err := u.chats.Fork(ctx, uuid.NewString(), parent.WsID, parentID, parent.Title, now)
+	if err != nil {
+		return domain.Chat{}, fmt.Errorf("chat: fork: %w", err)
+	}
+	u.rollupActivity(ctx, parent.WsID, now)
+	return forked, nil
+}
+
+// RenameChat renames a chat.
+func (u *chatUsecase) RenameChat(
+	ctx context.Context,
+	id string,
+	title string,
+) (domain.Chat, error) {
+	renamed, err := u.chats.Rename(ctx, id, title)
+	if err != nil {
+		return domain.Chat{}, fmt.Errorf("chat: rename: %w", err)
+	}
+	return renamed, nil
+}
+
+// DeleteChat deletes a chat and cascades to its descendants. Delete is
+// idempotent so replay is safe.
+func (u *chatUsecase) DeleteChat(
+	ctx context.Context,
+	id string,
+	now time.Time,
+) error {
+	root, err := u.chats.Get(ctx, id)
+	if err != nil {
+		return fmt.Errorf("chat: delete: load: %w", err)
+	}
+	siblings, err := u.chats.ListByWorkspace(ctx, root.WsID)
+	if err != nil {
+		return fmt.Errorf("chat: delete: list: %w", err)
+	}
+	return u.deleteSubtree(ctx, id, siblings, now)
+}
+
+func (u *chatUsecase) deleteSubtree(
+	ctx context.Context,
+	id string,
+	all []domain.Chat,
+	now time.Time,
+) error {
+	for _, child := range all {
+		if child.ParentID != id {
+			continue
+		}
+		if err := u.deleteSubtree(ctx, child.ID, all, now); err != nil {
+			return err
+		}
+	}
+	if _, err := u.chats.Delete(ctx, id, now); err != nil {
+		return fmt.Errorf("chat: delete: %w", err)
+	}
+	return nil
+}
+
+func (u *chatUsecase) rollupActivity(
+	ctx context.Context,
+	wsID string,
+	now time.Time,
+) {
+	ws, err := u.workspaces.Get(ctx, wsID)
+	if err != nil {
+		return
+	}
+	_, _ = u.workspaces.TouchActivity(ctx, wsID, now)
+	u.rollup.TouchProjectActivity(ctx, ws.RepoID, now)
+}

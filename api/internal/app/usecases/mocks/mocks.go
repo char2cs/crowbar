@@ -339,3 +339,126 @@ func (r *ProjectRollup) TouchProjectActivity(
 	r.TouchedRepoID = repoID
 	r.Touched = true
 }
+
+// ChatForkArgs records the arguments passed to a Fork call.
+type ChatForkArgs struct {
+	ID       string
+	WsID     string
+	ParentID string
+	Title    string
+}
+
+// ChatRepo is a fake of the chat repo surface used by the chat usecase.
+type ChatRepo struct {
+	Created []domain.Chat
+	Forked  []ChatForkArgs
+	Deleted []string
+
+	CreateErr error
+	ForkErr   error
+	RenameErr error
+	DeleteErr error
+
+	GetFn func(ctx context.Context, id string) (domain.Chat, error)
+
+	ListByWorkspaceFn func(ctx context.Context, wsID string) ([]domain.Chat, error)
+}
+
+// NewChatRepo returns an empty ChatRepo.
+func NewChatRepo() *ChatRepo {
+	return &ChatRepo{}
+}
+
+func (r *ChatRepo) Create(
+	ctx context.Context,
+	id string,
+	wsID string,
+	title string,
+	now time.Time,
+) (domain.Chat, error) {
+	if r.CreateErr != nil {
+		return domain.Chat{}, r.CreateErr
+	}
+	c := domain.Chat{ID: id, WsID: wsID, Title: title, CreatedAt: now}
+	r.Created = append(r.Created, c)
+	return c, nil
+}
+
+func (r *ChatRepo) Fork(
+	ctx context.Context,
+	id string,
+	wsID string,
+	parentID string,
+	title string,
+	now time.Time,
+) (domain.Chat, error) {
+	if r.ForkErr != nil {
+		return domain.Chat{}, r.ForkErr
+	}
+	r.Forked = append(r.Forked, ChatForkArgs{ID: id, WsID: wsID, ParentID: parentID, Title: title})
+	return domain.Chat{ID: id, WsID: wsID, ParentID: parentID, Title: title, CreatedAt: now}, nil
+}
+
+func (r *ChatRepo) Rename(
+	ctx context.Context,
+	id string,
+	title string,
+) (domain.Chat, error) {
+	if r.RenameErr != nil {
+		return domain.Chat{}, r.RenameErr
+	}
+	return domain.Chat{ID: id, Title: title}, nil
+}
+
+func (r *ChatRepo) Delete(
+	ctx context.Context,
+	id string,
+	now time.Time,
+) (domain.Chat, error) {
+	if r.DeleteErr != nil {
+		return domain.Chat{}, r.DeleteErr
+	}
+	r.Deleted = append(r.Deleted, id)
+	return domain.Chat{ID: id}, nil
+}
+
+func (r *ChatRepo) Get(
+	ctx context.Context,
+	id string,
+) (domain.Chat, error) {
+	return r.GetFn(ctx, id)
+}
+
+func (r *ChatRepo) ListByWorkspace(
+	ctx context.Context,
+	wsID string,
+) ([]domain.Chat, error) {
+	return r.ListByWorkspaceFn(ctx, wsID)
+}
+
+// ChatWorkspaceRepo is a fake of the workspace surface used by the chat usecase.
+type ChatWorkspaceRepo struct {
+	TouchedID string
+	GetFn     func(ctx context.Context, id string) (domain.Workspace, error)
+}
+
+// NewChatWorkspaceRepo returns an empty ChatWorkspaceRepo.
+func NewChatWorkspaceRepo() *ChatWorkspaceRepo {
+	return &ChatWorkspaceRepo{}
+}
+
+func (r *ChatWorkspaceRepo) Get(
+	ctx context.Context,
+	id string,
+) (domain.Workspace, error) {
+	return r.GetFn(ctx, id)
+}
+
+func (r *ChatWorkspaceRepo) TouchActivity(
+	ctx context.Context,
+	id string,
+	now time.Time,
+) (domain.Workspace, error) {
+	r.TouchedID = id
+	return domain.Workspace{ID: id}, nil
+}
