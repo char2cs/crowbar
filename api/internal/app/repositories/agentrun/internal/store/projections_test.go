@@ -153,6 +153,48 @@ func TestProjection_OnForget_DeleteError_DoesNotPanic(t *testing.T) {
 	p.onForget(ctx, asynxModels.Event[domain.AgentRun]{Aggregate: domain.AgentRun{ID: "a1"}})
 }
 
+type flakyStorage struct {
+	storage
+	failCount int
+	calls     int
+	err       error
+}
+
+func (f *flakyStorage) Save(
+	_ context.Context,
+	_ domain.AgentRun,
+) error {
+	f.calls++
+	if f.calls <= f.failCount {
+		return f.err
+	}
+	return nil
+}
+
+func TestSaveWithRetry_RetriesTransientThenSucceeds(t *testing.T) {
+	st := &flakyStorage{failCount: 2, err: errors.New("disk I/O error")}
+	p := &projector{store: st, broadcast: func(_ domain.AgentRun) {}}
+	err := p.saveWithRetry(context.Background(), domain.AgentRun{ID: "a1"})
+	require.NoError(t, err)
+	assert.Equal(t, 3, st.calls)
+}
+
+func TestSaveWithRetry_PersistentTransientGivesUp(t *testing.T) {
+	st := &flakyStorage{failCount: 5, err: errors.New("disk I/O error")}
+	p := &projector{store: st, broadcast: func(_ domain.AgentRun) {}}
+	err := p.saveWithRetry(context.Background(), domain.AgentRun{ID: "a1"})
+	require.Error(t, err)
+	assert.Equal(t, 3, st.calls)
+}
+
+func TestSaveWithRetry_NonTransientNotRetried(t *testing.T) {
+	st := &flakyStorage{failCount: 5, err: errors.New("constraint violation")}
+	p := &projector{store: st, broadcast: func(_ domain.AgentRun) {}}
+	err := p.saveWithRetry(context.Background(), domain.AgentRun{ID: "a1"})
+	require.Error(t, err)
+	assert.Equal(t, 1, st.calls)
+}
+
 func TestNew_ProjectionsError(t *testing.T) {
 	db, err := storesqlite.OpenDB(":memory:")
 	require.NoError(t, err)
