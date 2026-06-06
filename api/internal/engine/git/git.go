@@ -327,6 +327,16 @@ type Engine interface {
 		branch string,
 		subject string,
 	) error
+
+	// RangeDiff returns the three-dot diff between base and branch (09 §2).
+	// Uses `git diff -M <base>...<branch>` to show commits reachable from
+	// branch but not from base. Commit metadata fields are always zero-value.
+	RangeDiff(
+		ctx context.Context,
+		repoPath string,
+		base string,
+		branch string,
+	) (gitdomain.MultiFileDiff, error)
 }
 
 // WorktreeEntry is a single worktree from `git worktree list`.
