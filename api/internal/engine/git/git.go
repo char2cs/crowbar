@@ -290,7 +290,64 @@ type Engine interface {
 		ctx context.Context,
 		repoPath string,
 		forkPointSha string,
-	) (added int, deleted int, hasConflicts bool, hasCommits bool, err error)
+	) (added, deleted int, hasConflicts, hasCommits bool, err error)
+
+	// MergeBase returns the best common ancestor of commits a and b, used to seed
+	// the forkPointSha of adopted worktrees on project import (00 §5.7).
+	MergeBase(
+		ctx context.Context,
+		repoPath string,
+		a string,
+		b string,
+	) (string, error)
+
+	// WorktreeAddBranch creates a new git worktree at worktreePath on a freshly
+	// created branch starting at startPoint, returning the resolved start SHA so
+	// callers can record it as forkPointSha (07 §1).
+	WorktreeAddBranch(
+		ctx context.Context,
+		repoPath string,
+		worktreePath string,
+		branch string,
+		startPoint string,
+	) (string, error)
+
+	// RevParse resolves rev to a full commit SHA (07 §1 / §3.1).
+	RevParse(
+		ctx context.Context,
+		repoPath string,
+		rev string,
+	) (string, error)
+
+	// MergeSquash runs `git merge --squash branch` then `git commit -m subject`
+	// inside the repo lock (07 §3.1). Returns ErrConflict on conflicts.
+	MergeSquash(
+		ctx context.Context,
+		repoPath string,
+		branch string,
+		subject string,
+	) error
+
+	// RebaseThenFFMerge replays childWorktree onto parentBranch then fast-forwards
+	// parentWorktree to childBranch as one locked unit, so the parent cannot advance
+	// between the two steps and break the --ff-only (07 §3.1).
+	RebaseThenFFMerge(
+		ctx context.Context,
+		childWorktree string,
+		parentBranch string,
+		parentWorktree string,
+		childBranch string,
+	) error
+
+	// RangeDiff returns the three-dot diff between base and branch (09 §2).
+	// Uses `git diff -M <base>...<branch>` to show commits reachable from
+	// branch but not from base. Commit metadata fields are always zero-value.
+	RangeDiff(
+		ctx context.Context,
+		repoPath string,
+		base string,
+		branch string,
+	) (gitdomain.MultiFileDiff, error)
 }
 
 // WorktreeEntry is a single worktree from `git worktree list`.

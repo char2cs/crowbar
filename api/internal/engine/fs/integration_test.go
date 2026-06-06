@@ -17,8 +17,8 @@ import (
 
 	"github.com/char2cs/crowbar/api/internal/domain"
 	gitdomain "github.com/char2cs/crowbar/api/internal/domain/git"
-	enginegit "github.com/char2cs/crowbar/api/internal/engine/git"
 	"github.com/char2cs/crowbar/api/internal/engine/fs/internal/watch"
+	enginegit "github.com/char2cs/crowbar/api/internal/engine/git"
 )
 
 func gitRun(
@@ -66,7 +66,7 @@ func makeCommit(
 ) {
 	t.Helper()
 	path := filepath.Join(dir, filename)
-	require.NoError(t, os.WriteFile(path, []byte(content), 0600))
+	require.NoError(t, os.WriteFile(path, []byte(content), 0o600))
 	gitRun(t, dir, "add", filename)
 	gitRun(t, dir, "commit", "-m", message)
 }
@@ -97,7 +97,7 @@ func TestGate1_StatusDiffCommitHunkStage(
 	modPath := filepath.Join(dir, "hello.go")
 	require.NoError(t, os.WriteFile(modPath, []byte(
 		"package main\n\nfunc Hello() string {\n\treturn \"hello world\"\n}\n\nfunc Bye() string {\n\treturn \"bye\"\n}\n",
-	), 0600))
+	), 0o600))
 
 	status, err = git.Status(ctx, dir)
 	require.NoError(t, err)
@@ -164,7 +164,7 @@ func TestGate1_WatcherFiresFanOut(
 	t.Cleanup(w.Stop)
 	time.Sleep(50 * time.Millisecond)
 
-	require.NoError(t, os.WriteFile(filepath.Join(dir, "newfile.txt"), []byte("new content\n"), 0600))
+	require.NoError(t, os.WriteFile(filepath.Join(dir, "newfile.txt"), []byte("new content\n"), 0o600))
 
 	deadline := time.Now().Add(3 * time.Second)
 	for time.Now().Before(deadline) {
@@ -193,7 +193,7 @@ func TestGate1_GitStatusPushOnMutation(
 
 	makeCommit(t, dir, "base.txt", "base\n", "base")
 
-	require.NoError(t, os.WriteFile(filepath.Join(dir, "modified.txt"), []byte("content\n"), 0600))
+	require.NoError(t, os.WriteFile(filepath.Join(dir, "modified.txt"), []byte("content\n"), 0o600))
 
 	status, err := git.Status(ctx, dir)
 	require.NoError(t, err)
@@ -221,12 +221,12 @@ func TestGate1_ConflictResolutionLifecycle(
 	makeCommit(t, dir, "conflict.txt", "line1\nline2\nline3\n", "base commit")
 
 	gitRun(t, dir, "checkout", "-b", "feature")
-	require.NoError(t, os.WriteFile(filepath.Join(dir, "conflict.txt"), []byte("line1\nFEATURE\nline3\n"), 0600))
+	require.NoError(t, os.WriteFile(filepath.Join(dir, "conflict.txt"), []byte("line1\nFEATURE\nline3\n"), 0o600))
 	gitRun(t, dir, "add", "conflict.txt")
 	gitRun(t, dir, "commit", "-m", "feature change")
 
 	gitRun(t, dir, "checkout", "main")
-	require.NoError(t, os.WriteFile(filepath.Join(dir, "conflict.txt"), []byte("line1\nMAIN\nline3\n"), 0600))
+	require.NoError(t, os.WriteFile(filepath.Join(dir, "conflict.txt"), []byte("line1\nMAIN\nline3\n"), 0o600))
 	gitRun(t, dir, "add", "conflict.txt")
 	gitRun(t, dir, "commit", "-m", "main change")
 
@@ -278,7 +278,8 @@ func (d *captureDispatcher) OnGitStatus(
 	_ context.Context,
 	_ string,
 	_ gitdomain.GitStatus,
-) {}
+) {
+}
 
 func (d *captureDispatcher) OnSyncWorkingTreeState(
 	_ context.Context,

@@ -42,11 +42,11 @@ func TestGitWithStdin_AppliesPatch(t *testing.T) {
 	dir := initRepo(t)
 	ctx := context.Background()
 	path := dir + "/hello.txt"
-	require.NoError(t, os.WriteFile(path, []byte("hello\n"), 0600))
+	require.NoError(t, os.WriteFile(path, []byte("hello\n"), 0o600))
 	_ = exec.Git(ctx, dir, "add", "hello.txt")
 	_ = exec.Git(ctx, dir, "commit", "-m", "init")
 
-	require.NoError(t, os.WriteFile(path, []byte("hello world\n"), 0600))
+	require.NoError(t, os.WriteFile(path, []byte("hello world\n"), 0o600))
 
 	diff := exec.Git(ctx, dir, "diff")
 	require.Equal(t, 0, diff.ExitCode)

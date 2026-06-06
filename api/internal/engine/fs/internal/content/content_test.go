@@ -17,7 +17,7 @@ func TestRead_TextFile(
 	t *testing.T,
 ) {
 	dir := t.TempDir()
-	require.NoError(t, os.WriteFile(filepath.Join(dir, "hello.txt"), []byte("hello world"), 0600))
+	require.NoError(t, os.WriteFile(filepath.Join(dir, "hello.txt"), []byte("hello world"), 0o600))
 
 	fc, err := content.Read(dir, "hello.txt")
 	require.NoError(t, err)
@@ -30,7 +30,7 @@ func TestRead_BinaryFile(
 ) {
 	dir := t.TempDir()
 	data := []byte{0x00, 0x01, 0x02, 0x03, 0xFF}
-	require.NoError(t, os.WriteFile(filepath.Join(dir, "bin.dat"), data, 0600))
+	require.NoError(t, os.WriteFile(filepath.Join(dir, "bin.dat"), data, 0o600))
 
 	fc, err := content.Read(dir, "bin.dat")
 	require.NoError(t, err)
@@ -55,7 +55,7 @@ func TestRead_LargeBinaryFile(
 	// Build 10 KiB of data with a null byte at position 100.
 	data := bytes.Repeat([]byte("a"), 10240)
 	data[100] = 0x00
-	require.NoError(t, os.WriteFile(filepath.Join(dir, "large.bin"), data, 0600))
+	require.NoError(t, os.WriteFile(filepath.Join(dir, "large.bin"), data, 0o600))
 
 	fc, err := content.Read(dir, "large.bin")
 	require.NoError(t, err)
@@ -71,7 +71,7 @@ func TestRead_LargeTextFile(
 	// 10 KiB of plain ASCII — null byte only beyond the 8192-byte window.
 	data := bytes.Repeat([]byte("x"), 8193)
 	data[8192] = 0x00 // beyond the 8192-byte check window
-	require.NoError(t, os.WriteFile(filepath.Join(dir, "large.txt"), data, 0600))
+	require.NoError(t, os.WriteFile(filepath.Join(dir, "large.txt"), data, 0o600))
 
 	fc, err := content.Read(dir, "large.txt")
 	require.NoError(t, err)
@@ -124,7 +124,7 @@ func TestWrite_MkdirError(
 	}
 	dir := t.TempDir()
 	// "parent" exists as a file — MkdirAll cannot use it as a directory.
-	require.NoError(t, os.WriteFile(filepath.Join(dir, "parent"), []byte("x"), 0600))
+	require.NoError(t, os.WriteFile(filepath.Join(dir, "parent"), []byte("x"), 0o600))
 
 	err := content.Write(dir, "parent/child.txt", "hello")
 	require.Error(t, err)
@@ -140,7 +140,7 @@ func TestWrite_WriteFileError(
 	}
 	dir := t.TempDir()
 	roDir := filepath.Join(dir, "readonly")
-	require.NoError(t, os.MkdirAll(roDir, 0700))
+	require.NoError(t, os.MkdirAll(roDir, 0o700))
 	require.NoError(t, os.Chmod(roDir, 0o555))
 	t.Cleanup(func() { _ = os.Chmod(roDir, 0o755) })
 

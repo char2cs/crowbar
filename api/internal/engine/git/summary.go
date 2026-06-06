@@ -13,7 +13,7 @@ func (e *engine) computeWorkingTreeSummary(
 	ctx context.Context,
 	repoPath string,
 	forkPointSha string,
-) (added int, deleted int, hasConflicts bool, hasCommits bool, err error) {
+) (added, deleted int, hasConflicts, hasCommits bool, err error) {
 	hasConflicts, err = conflicts.HasConflicts(ctx, repoPath)
 	if err != nil {
 		return 0, 0, false, false, fmt.Errorf("git: summary: conflicts: %w", err)

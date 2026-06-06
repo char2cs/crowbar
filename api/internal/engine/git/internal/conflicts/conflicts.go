@@ -292,14 +292,13 @@ func extractLines(
 // conflictHunkID generates a stable ID based on the content of the conflict
 // block rather than its line position, so that edits above the block do not
 // invalidate the ID.
-func conflictHunkID(filePath string, oursRaw string, theirsRaw string) string {
+func conflictHunkID(filePath, oursRaw, theirsRaw string) string {
 	h := sha256.New()
 	h.Write([]byte(filePath))
 	h.Write([]byte(oursRaw))
 	h.Write([]byte(theirsRaw))
 	return hex.EncodeToString(h.Sum(nil))[:12]
 }
-
 
 func findBlock(
 	blocks []conflictBlock,

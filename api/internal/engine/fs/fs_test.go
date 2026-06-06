@@ -20,7 +20,7 @@ func initDir(t *testing.T) string {
 
 func writeFile(t *testing.T, dir, name, content string) {
 	t.Helper()
-	require.NoError(t, os.WriteFile(filepath.Join(dir, name), []byte(content), 0600))
+	require.NoError(t, os.WriteFile(filepath.Join(dir, name), []byte(content), 0o600))
 }
 
 // nullProvider satisfies tree.StatusProvider returning an empty GitStatus.
@@ -116,7 +116,7 @@ func TestCreateDir_CreatesDirectory(t *testing.T) {
 
 func TestCreateDir_AlreadyExists_IsIdempotent(t *testing.T) {
 	dir := initDir(t)
-	require.NoError(t, os.Mkdir(filepath.Join(dir, "existing"), 0755))
+	require.NoError(t, os.Mkdir(filepath.Join(dir, "existing"), 0o755))
 
 	// CreateDir uses MkdirAll — existing directory is not an error.
 	require.NoError(t, fs.New().CreateDir(dir, "existing"))

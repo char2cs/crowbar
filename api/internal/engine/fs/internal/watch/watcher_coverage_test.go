@@ -187,11 +187,11 @@ func TestWatcher_FanOutGit_SyncCalledWhenSummaryChanges(t *testing.T) {
 	_, d := newCapturingWatcher(t, dir, git)
 
 	// First write: changingGit returns 0,0,false,false → no sync (matches initial state)
-	require.NoError(t, os.WriteFile(filepath.Join(dir, "a.txt"), []byte("a"), 0600))
+	require.NoError(t, os.WriteFile(filepath.Join(dir, "a.txt"), []byte("a"), 0o600))
 	time.Sleep(300 * time.Millisecond)
 
 	// Second write: changingGit now returns 1,0,false,false → triggers sync
-	require.NoError(t, os.WriteFile(filepath.Join(dir, "b.txt"), []byte("b"), 0600))
+	require.NoError(t, os.WriteFile(filepath.Join(dir, "b.txt"), []byte("b"), 0o600))
 
 	inp := d.waitForSyncCall(t)
 	assert.Equal(t, 1, inp.Added)
@@ -207,17 +207,17 @@ func TestWatcher_FanOutGit_MergeHeadSuppressesSync(t *testing.T) {
 	git := &changingGit{}
 
 	gitDir := filepath.Join(dir, ".git")
-	require.NoError(t, os.MkdirAll(gitDir, 0700))
+	require.NoError(t, os.MkdirAll(gitDir, 0o700))
 	require.NoError(t, os.WriteFile(
 		filepath.Join(gitDir, "MERGE_HEAD"),
 		[]byte("deadbeef\n"),
-		0600,
+		0o600,
 	))
 
 	_, d := newCapturingWatcher(t, dir, git)
 
-	require.NoError(t, os.WriteFile(filepath.Join(dir, "x.txt"), []byte("x"), 0600))
-	require.NoError(t, os.WriteFile(filepath.Join(dir, "y.txt"), []byte("y"), 0600))
+	require.NoError(t, os.WriteFile(filepath.Join(dir, "x.txt"), []byte("x"), 0o600))
+	require.NoError(t, os.WriteFile(filepath.Join(dir, "y.txt"), []byte("y"), 0o600))
 
 	d.noSyncCallWithin(t, 400*time.Millisecond)
 }
@@ -231,7 +231,7 @@ func TestWatcher_RelPath_NormalPathIsRelative(t *testing.T) {
 	_, d := newCapturingWatcher(t, dir, &fakeGit{})
 
 	filePath := filepath.Join(dir, "rel_test.txt")
-	require.NoError(t, os.WriteFile(filePath, []byte("data"), 0600))
+	require.NoError(t, os.WriteFile(filePath, []byte("data"), 0o600))
 
 	deadline := time.Now().Add(3 * time.Second)
 	var found bool
@@ -259,7 +259,7 @@ func TestWatcher_ClassifyChange_Rename(t *testing.T) {
 	dir := t.TempDir()
 	src := filepath.Join(dir, "old.txt")
 	dst := filepath.Join(dir, "new.txt")
-	require.NoError(t, os.WriteFile(src, []byte("data"), 0600))
+	require.NoError(t, os.WriteFile(src, []byte("data"), 0o600))
 
 	_, d := newCapturingWatcher(t, dir, &fakeGit{})
 
@@ -290,11 +290,11 @@ func TestWatcher_ClassifyChange_Rename(t *testing.T) {
 func TestWatcher_ClassifyChange_Modify(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "mod.txt")
-	require.NoError(t, os.WriteFile(path, []byte("v1"), 0600))
+	require.NoError(t, os.WriteFile(path, []byte("v1"), 0o600))
 
 	_, d := newCapturingWatcher(t, dir, &fakeGit{})
 
-	require.NoError(t, os.WriteFile(path, []byte("v2"), 0600))
+	require.NoError(t, os.WriteFile(path, []byte("v2"), 0o600))
 
 	deadline := time.Now().Add(3 * time.Second)
 	var found bool
@@ -349,10 +349,10 @@ func TestWatcher_FanOutGit_HasCommitsChange(t *testing.T) {
 	git := &commitTogglingGit{}
 	_, d := newCapturingWatcher(t, dir, git)
 
-	require.NoError(t, os.WriteFile(filepath.Join(dir, "prime.txt"), []byte("p"), 0600))
+	require.NoError(t, os.WriteFile(filepath.Join(dir, "prime.txt"), []byte("p"), 0o600))
 	time.Sleep(300 * time.Millisecond)
 
-	require.NoError(t, os.WriteFile(filepath.Join(dir, "commit_trigger.txt"), []byte("c"), 0600))
+	require.NoError(t, os.WriteFile(filepath.Join(dir, "commit_trigger.txt"), []byte("c"), 0o600))
 
 	inp := d.waitForSyncCall(t)
 	assert.True(t, inp.HasCommits)
@@ -393,10 +393,10 @@ func TestWatcher_FanOutGit_HasConflictsChange(t *testing.T) {
 	git := &conflictTogglingGit{}
 	_, d := newCapturingWatcher(t, dir, git)
 
-	require.NoError(t, os.WriteFile(filepath.Join(dir, "p.txt"), []byte("p"), 0600))
+	require.NoError(t, os.WriteFile(filepath.Join(dir, "p.txt"), []byte("p"), 0o600))
 	time.Sleep(300 * time.Millisecond)
 
-	require.NoError(t, os.WriteFile(filepath.Join(dir, "q.txt"), []byte("q"), 0600))
+	require.NoError(t, os.WriteFile(filepath.Join(dir, "q.txt"), []byte("q"), 0o600))
 
 	inp := d.waitForSyncCall(t)
 	assert.True(t, inp.HasConflicts)
@@ -437,10 +437,10 @@ func TestWatcher_FanOutGit_DeletedCountChange(t *testing.T) {
 	git := &deletedChangeGit{}
 	_, d := newCapturingWatcher(t, dir, git)
 
-	require.NoError(t, os.WriteFile(filepath.Join(dir, "prime2.txt"), []byte("p"), 0600))
+	require.NoError(t, os.WriteFile(filepath.Join(dir, "prime2.txt"), []byte("p"), 0o600))
 	time.Sleep(300 * time.Millisecond)
 
-	require.NoError(t, os.WriteFile(filepath.Join(dir, "del_trigger.txt"), []byte("d"), 0600))
+	require.NoError(t, os.WriteFile(filepath.Join(dir, "del_trigger.txt"), []byte("d"), 0o600))
 
 	inp := d.waitForSyncCall(t)
 	assert.Equal(t, 3, inp.Deleted)
@@ -471,7 +471,7 @@ func TestWatcher_FanOutGit_SummaryErrorNoSync(t *testing.T) {
 	dir := t.TempDir()
 	_, d := newCapturingWatcher(t, dir, &summaryErrorGit{})
 
-	require.NoError(t, os.WriteFile(filepath.Join(dir, "err_test.txt"), []byte("e"), 0600))
+	require.NoError(t, os.WriteFile(filepath.Join(dir, "err_test.txt"), []byte("e"), 0o600))
 
 	d.noSyncCallWithin(t, 400*time.Millisecond)
 }
@@ -507,7 +507,7 @@ func TestWatcher_FanOutGit_StatusErrorNoGitCall(t *testing.T) {
 	require.NoError(t, w.Start(ctx))
 	time.Sleep(60 * time.Millisecond)
 
-	require.NoError(t, os.WriteFile(filepath.Join(dir, "stat_err.txt"), []byte("s"), 0600))
+	require.NoError(t, os.WriteFile(filepath.Join(dir, "stat_err.txt"), []byte("s"), 0o600))
 
 	time.Sleep(400 * time.Millisecond)
 	d.mu.Lock()
@@ -524,13 +524,13 @@ func TestWatcher_FanOutGit_RebaseMergeSuppressesSync(t *testing.T) {
 	git := &changingGit{}
 
 	gitDir := filepath.Join(dir, ".git")
-	require.NoError(t, os.MkdirAll(gitDir, 0700))
-	require.NoError(t, os.MkdirAll(filepath.Join(gitDir, "rebase-merge"), 0700))
+	require.NoError(t, os.MkdirAll(gitDir, 0o700))
+	require.NoError(t, os.MkdirAll(filepath.Join(gitDir, "rebase-merge"), 0o700))
 
 	_, d := newCapturingWatcher(t, dir, git)
 
-	require.NoError(t, os.WriteFile(filepath.Join(dir, "rb.txt"), []byte("r"), 0600))
-	require.NoError(t, os.WriteFile(filepath.Join(dir, "rb2.txt"), []byte("r2"), 0600))
+	require.NoError(t, os.WriteFile(filepath.Join(dir, "rb.txt"), []byte("r"), 0o600))
+	require.NoError(t, os.WriteFile(filepath.Join(dir, "rb2.txt"), []byte("r2"), 0o600))
 
 	d.noSyncCallWithin(t, 400*time.Millisecond)
 }
@@ -540,13 +540,13 @@ func TestWatcher_FanOutGit_RebaseApplySuppressesSync(t *testing.T) {
 	git := &changingGit{}
 
 	gitDir := filepath.Join(dir, ".git")
-	require.NoError(t, os.MkdirAll(gitDir, 0700))
-	require.NoError(t, os.MkdirAll(filepath.Join(gitDir, "rebase-apply"), 0700))
+	require.NoError(t, os.MkdirAll(gitDir, 0o700))
+	require.NoError(t, os.MkdirAll(filepath.Join(gitDir, "rebase-apply"), 0o700))
 
 	_, d := newCapturingWatcher(t, dir, git)
 
-	require.NoError(t, os.WriteFile(filepath.Join(dir, "ra.txt"), []byte("r"), 0600))
-	require.NoError(t, os.WriteFile(filepath.Join(dir, "ra2.txt"), []byte("r2"), 0600))
+	require.NoError(t, os.WriteFile(filepath.Join(dir, "ra.txt"), []byte("r"), 0o600))
+	require.NoError(t, os.WriteFile(filepath.Join(dir, "ra2.txt"), []byte("r2"), 0o600))
 
 	d.noSyncCallWithin(t, 400*time.Millisecond)
 }

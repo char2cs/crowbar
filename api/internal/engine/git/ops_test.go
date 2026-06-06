@@ -27,7 +27,7 @@ func TestDiff_ModifiedFile(
 	dir := initRepo(t)
 	makeCommit(t, dir, "file.go", "package main\n", "init")
 
-	require.NoError(t, os.WriteFile(filepath.Join(dir, "file.go"), []byte("package main\n\nfunc main() {}\n"), 0600))
+	require.NoError(t, os.WriteFile(filepath.Join(dir, "file.go"), []byte("package main\n\nfunc main() {}\n"), 0o600))
 
 	e := git.New()
 	files, err := e.Diff(ctx, dir, false)
@@ -61,7 +61,7 @@ func TestStageHunk_Basic(
 	dir := initRepo(t)
 	makeCommit(t, dir, "file.go", "package main\n\nfunc A() {}\n", "init")
 
-	require.NoError(t, os.WriteFile(filepath.Join(dir, "file.go"), []byte("package main\n\nfunc A() { return }\n"), 0600))
+	require.NoError(t, os.WriteFile(filepath.Join(dir, "file.go"), []byte("package main\n\nfunc A() { return }\n"), 0o600))
 
 	e := git.New()
 	files, err := e.Diff(ctx, dir, false)
@@ -91,7 +91,7 @@ func TestUnstageHunk_Basic(
 	dir := initRepo(t)
 	makeCommit(t, dir, "file.go", "package main\n\nfunc A() {}\n", "init")
 
-	require.NoError(t, os.WriteFile(filepath.Join(dir, "file.go"), []byte("package main\n\nfunc A() { return }\n"), 0600))
+	require.NoError(t, os.WriteFile(filepath.Join(dir, "file.go"), []byte("package main\n\nfunc A() { return }\n"), 0o600))
 
 	e := git.New()
 	err := e.StageFile(ctx, dir, "file.go")
@@ -183,7 +183,7 @@ func TestStashApply(
 	dir := initRepo(t)
 	makeCommit(t, dir, "file.txt", "content\n", "init")
 
-	require.NoError(t, os.WriteFile(filepath.Join(dir, "file.txt"), []byte("modified\n"), 0600))
+	require.NoError(t, os.WriteFile(filepath.Join(dir, "file.txt"), []byte("modified\n"), 0o600))
 	gitRun(t, dir, "stash")
 
 	e := git.New()
@@ -202,7 +202,7 @@ func TestStashPop(
 	dir := initRepo(t)
 	makeCommit(t, dir, "file.txt", "content\n", "init")
 
-	require.NoError(t, os.WriteFile(filepath.Join(dir, "file.txt"), []byte("modified\n"), 0600))
+	require.NoError(t, os.WriteFile(filepath.Join(dir, "file.txt"), []byte("modified\n"), 0o600))
 	gitRun(t, dir, "stash")
 
 	e := git.New()
@@ -221,7 +221,7 @@ func TestStashDrop(
 	dir := initRepo(t)
 	makeCommit(t, dir, "file.txt", "content\n", "init")
 
-	require.NoError(t, os.WriteFile(filepath.Join(dir, "file.txt"), []byte("modified\n"), 0600))
+	require.NoError(t, os.WriteFile(filepath.Join(dir, "file.txt"), []byte("modified\n"), 0o600))
 	gitRun(t, dir, "stash")
 
 	e := git.New()
@@ -305,12 +305,12 @@ func TestConflictHunks_WithConflict(
 	makeCommit(t, dir, "conflict.txt", "line1\nshared\nline3\n", "base")
 
 	gitRun(t, dir, "checkout", "-b", "feature")
-	require.NoError(t, os.WriteFile(filepath.Join(dir, "conflict.txt"), []byte("line1\nFEATURE\nline3\n"), 0600))
+	require.NoError(t, os.WriteFile(filepath.Join(dir, "conflict.txt"), []byte("line1\nFEATURE\nline3\n"), 0o600))
 	gitRun(t, dir, "add", "conflict.txt")
 	gitRun(t, dir, "commit", "-m", "feature")
 
 	gitRun(t, dir, "checkout", "main")
-	require.NoError(t, os.WriteFile(filepath.Join(dir, "conflict.txt"), []byte("line1\nMAIN\nline3\n"), 0600))
+	require.NoError(t, os.WriteFile(filepath.Join(dir, "conflict.txt"), []byte("line1\nMAIN\nline3\n"), 0o600))
 	gitRun(t, dir, "add", "conflict.txt")
 	gitRun(t, dir, "commit", "-m", "main change")
 
@@ -333,12 +333,12 @@ func TestResolveHunk_Ours(
 	makeCommit(t, dir, "conflict.txt", "line1\nshared\nline3\n", "base")
 
 	gitRun(t, dir, "checkout", "-b", "feature")
-	require.NoError(t, os.WriteFile(filepath.Join(dir, "conflict.txt"), []byte("line1\nFEATURE\nline3\n"), 0600))
+	require.NoError(t, os.WriteFile(filepath.Join(dir, "conflict.txt"), []byte("line1\nFEATURE\nline3\n"), 0o600))
 	gitRun(t, dir, "add", "conflict.txt")
 	gitRun(t, dir, "commit", "-m", "feature")
 
 	gitRun(t, dir, "checkout", "main")
-	require.NoError(t, os.WriteFile(filepath.Join(dir, "conflict.txt"), []byte("line1\nMAIN\nline3\n"), 0600))
+	require.NoError(t, os.WriteFile(filepath.Join(dir, "conflict.txt"), []byte("line1\nMAIN\nline3\n"), 0o600))
 	gitRun(t, dir, "add", "conflict.txt")
 	gitRun(t, dir, "commit", "-m", "main change")
 
@@ -385,12 +385,12 @@ func TestOperationContinue_AfterMergeConflictResolved(
 	makeCommit(t, dir, "conflict.txt", "line1\nshared\nline3\n", "base")
 
 	gitRun(t, dir, "checkout", "-b", "feature")
-	require.NoError(t, os.WriteFile(filepath.Join(dir, "conflict.txt"), []byte("line1\nFEATURE\nline3\n"), 0600))
+	require.NoError(t, os.WriteFile(filepath.Join(dir, "conflict.txt"), []byte("line1\nFEATURE\nline3\n"), 0o600))
 	gitRun(t, dir, "add", "conflict.txt")
 	gitRun(t, dir, "commit", "-m", "feature")
 
 	gitRun(t, dir, "checkout", "main")
-	require.NoError(t, os.WriteFile(filepath.Join(dir, "conflict.txt"), []byte("line1\nMAIN\nline3\n"), 0600))
+	require.NoError(t, os.WriteFile(filepath.Join(dir, "conflict.txt"), []byte("line1\nMAIN\nline3\n"), 0o600))
 	gitRun(t, dir, "add", "conflict.txt")
 	gitRun(t, dir, "commit", "-m", "main change")
 
@@ -529,7 +529,7 @@ func TestOperationContinue_RebaseInProgress(
 		t.Skip("rebase did not leave in-progress state")
 	}
 
-	require.NoError(t, os.WriteFile(filepath.Join(dir, "conflict.txt"), []byte("line1\nRESOLVED\nline3\n"), 0600))
+	require.NoError(t, os.WriteFile(filepath.Join(dir, "conflict.txt"), []byte("line1\nRESOLVED\nline3\n"), 0o600))
 	gitRun(t, dir, "add", "conflict.txt")
 
 	e := git.New()

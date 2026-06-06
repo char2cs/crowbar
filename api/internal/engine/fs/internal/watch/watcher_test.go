@@ -51,12 +51,14 @@ func (f *fakeDispatcher) OnGitStatus(
 	_ context.Context,
 	_ string,
 	_ gitdomain.GitStatus,
-) {}
+) {
+}
 
 func (f *fakeDispatcher) OnSyncWorkingTreeState(
 	_ context.Context,
 	_ watch.SyncInput,
-) {}
+) {
+}
 
 func (f *fakeDispatcher) waitForChange(
 	t *testing.T,
@@ -101,7 +103,7 @@ func TestWatcher_DetectsFileCreate(
 	dir := t.TempDir()
 	_, d := newWatcher(t, dir, "ws1")
 
-	require.NoError(t, os.WriteFile(filepath.Join(dir, "new.txt"), []byte("x"), 0600))
+	require.NoError(t, os.WriteFile(filepath.Join(dir, "new.txt"), []byte("x"), 0o600))
 
 	evt := d.waitForChange(t)
 	assert.Equal(t, domain.FileChangeCreated, evt.Type)
@@ -114,11 +116,11 @@ func TestWatcher_DetectsFileModify(
 ) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "existing.txt")
-	require.NoError(t, os.WriteFile(path, []byte("original"), 0600))
+	require.NoError(t, os.WriteFile(path, []byte("original"), 0o600))
 
 	_, d := newWatcher(t, dir, "ws2")
 
-	require.NoError(t, os.WriteFile(path, []byte("modified"), 0600))
+	require.NoError(t, os.WriteFile(path, []byte("modified"), 0o600))
 
 	_ = d.waitForChange(t)
 }
@@ -128,7 +130,7 @@ func TestWatcher_DetectsFileDelete(
 ) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "todelete.txt")
-	require.NoError(t, os.WriteFile(path, []byte("data"), 0600))
+	require.NoError(t, os.WriteFile(path, []byte("data"), 0o600))
 
 	_, d := newWatcher(t, dir, "ws3")
 
@@ -143,11 +145,11 @@ func TestWatcher_IgnoresDotGitContent(
 ) {
 	dir := t.TempDir()
 	gitDir := filepath.Join(dir, ".git")
-	require.NoError(t, os.MkdirAll(gitDir, 0700))
+	require.NoError(t, os.MkdirAll(gitDir, 0o700))
 
 	_, d := newWatcher(t, dir, "ws4")
 
-	require.NoError(t, os.WriteFile(filepath.Join(gitDir, "COMMIT_EDITMSG"), []byte("msg"), 0600))
+	require.NoError(t, os.WriteFile(filepath.Join(gitDir, "COMMIT_EDITMSG"), []byte("msg"), 0o600))
 
 	time.Sleep(250 * time.Millisecond)
 
@@ -175,9 +177,9 @@ func TestWatcher_SubdirCreatedAndWatched(
 	_, d := newWatcher(t, dir, "ws6")
 
 	subdir := filepath.Join(dir, "subdir")
-	require.NoError(t, os.MkdirAll(subdir, 0700))
+	require.NoError(t, os.MkdirAll(subdir, 0o700))
 	time.Sleep(150 * time.Millisecond)
-	require.NoError(t, os.WriteFile(filepath.Join(subdir, "file.txt"), []byte("x"), 0600))
+	require.NoError(t, os.WriteFile(filepath.Join(subdir, "file.txt"), []byte("x"), 0o600))
 
 	_ = d.waitForChange(t)
 }

@@ -36,7 +36,7 @@ func makeCommit(
 	t.Helper()
 	ctx := context.Background()
 	path := filepath.Join(dir, filename)
-	require.NoError(t, os.WriteFile(path, []byte(content), 0600))
+	require.NoError(t, os.WriteFile(path, []byte(content), 0o600))
 	_ = exec.Git(ctx, dir, "add", filename)
 	r := exec.Git(ctx, dir, "commit", "-m", message)
 	require.Equal(t, 0, r.ExitCode, r.Stderr)
@@ -50,7 +50,7 @@ func dirtyFile(
 ) {
 	t.Helper()
 	path := filepath.Join(dir, filename)
-	require.NoError(t, os.WriteFile(path, []byte(content), 0600))
+	require.NoError(t, os.WriteFile(path, []byte(content), 0o600))
 }
 
 func TestList_Empty(
@@ -265,7 +265,7 @@ func TestPush_RequireSuccessError(
 	dir := initRepo(t)
 	ctx := context.Background()
 	// Write a file but do NOT make any commit, then stage it.
-	require.NoError(t, os.WriteFile(filepath.Join(dir, "file.txt"), []byte("x"), 0600))
+	require.NoError(t, os.WriteFile(filepath.Join(dir, "file.txt"), []byte("x"), 0o600))
 	_ = exec.Git(ctx, dir, "add", "file.txt")
 
 	err := stash.Push(ctx, dir, "test")

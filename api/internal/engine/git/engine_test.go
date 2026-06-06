@@ -46,7 +46,7 @@ func makeCommit(
 ) {
 	t.Helper()
 	path := filepath.Join(dir, filename)
-	require.NoError(t, os.WriteFile(path, []byte(content), 0600))
+	require.NoError(t, os.WriteFile(path, []byte(content), 0o600))
 	gitRun(t, dir, "add", filename)
 	gitRun(t, dir, "commit", "-m", message)
 }
@@ -168,12 +168,12 @@ func TestOperationAbort_MergeConflict(
 
 	makeCommit(t, dir, "conflict.txt", "line1\nline2\nline3\n", "base")
 	gitRun(t, dir, "checkout", "-b", "feature")
-	require.NoError(t, os.WriteFile(filepath.Join(dir, "conflict.txt"), []byte("line1\nFEATURE\nline3\n"), 0600))
+	require.NoError(t, os.WriteFile(filepath.Join(dir, "conflict.txt"), []byte("line1\nFEATURE\nline3\n"), 0o600))
 	gitRun(t, dir, "add", "conflict.txt")
 	gitRun(t, dir, "commit", "-m", "feature")
 
 	gitRun(t, dir, "checkout", "main")
-	require.NoError(t, os.WriteFile(filepath.Join(dir, "conflict.txt"), []byte("line1\nMAIN\nline3\n"), 0600))
+	require.NoError(t, os.WriteFile(filepath.Join(dir, "conflict.txt"), []byte("line1\nMAIN\nline3\n"), 0o600))
 	gitRun(t, dir, "add", "conflict.txt")
 	gitRun(t, dir, "commit", "-m", "main change")
 
@@ -193,7 +193,7 @@ func TestStageFile_ThenUnstage(
 	dir := initRepo(t)
 	makeCommit(t, dir, "base.txt", "base\n", "init")
 
-	require.NoError(t, os.WriteFile(filepath.Join(dir, "new.txt"), []byte("new\n"), 0600))
+	require.NoError(t, os.WriteFile(filepath.Join(dir, "new.txt"), []byte("new\n"), 0o600))
 
 	e := git.New()
 	err := e.StageFile(ctx, dir, "new.txt")
@@ -221,7 +221,7 @@ func TestDiscard_UntrackedFile(
 	makeCommit(t, dir, "base.txt", "base\n", "init")
 
 	newPath := filepath.Join(dir, "untracked.txt")
-	require.NoError(t, os.WriteFile(newPath, []byte("untracked\n"), 0600))
+	require.NoError(t, os.WriteFile(newPath, []byte("untracked\n"), 0o600))
 
 	e := git.New()
 	err := e.Discard(ctx, dir, "untracked.txt")
@@ -238,7 +238,7 @@ func TestDiscard_TrackedFile(
 	dir := initRepo(t)
 	makeCommit(t, dir, "tracked.txt", "original\n", "init")
 
-	require.NoError(t, os.WriteFile(filepath.Join(dir, "tracked.txt"), []byte("modified\n"), 0600))
+	require.NoError(t, os.WriteFile(filepath.Join(dir, "tracked.txt"), []byte("modified\n"), 0o600))
 
 	e := git.New()
 	err := e.Discard(ctx, dir, "tracked.txt")
@@ -328,7 +328,7 @@ func TestCommit_WithBody(
 	dir := initRepo(t)
 	makeCommit(t, dir, "init.txt", "init\n", "init")
 
-	require.NoError(t, os.WriteFile(filepath.Join(dir, "change.txt"), []byte("change\n"), 0600))
+	require.NoError(t, os.WriteFile(filepath.Join(dir, "change.txt"), []byte("change\n"), 0o600))
 	gitRun(t, dir, "add", "change.txt")
 
 	e := git.New()
@@ -364,7 +364,7 @@ func TestStashes_PushAndList(
 	dir := initRepo(t)
 	makeCommit(t, dir, "file.txt", "content\n", "init")
 
-	require.NoError(t, os.WriteFile(filepath.Join(dir, "file.txt"), []byte("modified\n"), 0600))
+	require.NoError(t, os.WriteFile(filepath.Join(dir, "file.txt"), []byte("modified\n"), 0o600))
 
 	e := git.New()
 	err := e.StashPush(ctx, dir, "my stash")

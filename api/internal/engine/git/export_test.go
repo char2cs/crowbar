@@ -4,9 +4,27 @@ package git
 import (
 	"context"
 
-	gitexec "github.com/char2cs/crowbar/api/internal/engine/git/internal/exec"
 	gitdomain "github.com/char2cs/crowbar/api/internal/domain/git"
+	gitexec "github.com/char2cs/crowbar/api/internal/engine/git/internal/exec"
 )
+
+// SameRepoMutex reports whether two repo paths resolve to the same per-repo
+// mutex (i.e. share a git common directory) for the engine returned by New().
+func SameRepoMutex(
+	a string,
+	b string,
+) bool {
+	e := New().(*engine)
+	return e.repoMutex(a) == e.repoMutex(b)
+}
+
+// ExportedResolveCommonDir returns the lock key the engine derives for repoPath.
+func ExportedResolveCommonDir(
+	repoPath string,
+) string {
+	e := New().(*engine)
+	return e.resolveCommonDir(repoPath)
+}
 
 // ExportedComputeStatus calls ComputeStatus on the engine returned by New().
 func ExportedComputeStatus(
@@ -52,7 +70,7 @@ func errExec(_ context.Context, _ string, _ ...string) gitexec.Result {
 	return gitexec.Result{ExitCode: 1, Stderr: "injected exec error"}
 }
 
-func errExecStdin(_ context.Context, _ string, _ string, _ ...string) gitexec.Result {
+func errExecStdin(_ context.Context, _, _ string, _ ...string) gitexec.Result {
 	return gitexec.Result{ExitCode: 1, Stderr: "injected exec stdin error"}
 }
 

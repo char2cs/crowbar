@@ -39,7 +39,7 @@ func TestCreateFile_ErrorsOnExisting(
 	t *testing.T,
 ) {
 	dir := t.TempDir()
-	require.NoError(t, os.WriteFile(filepath.Join(dir, "exists.txt"), nil, 0600))
+	require.NoError(t, os.WriteFile(filepath.Join(dir, "exists.txt"), nil, 0o600))
 	err := mutate.CreateFile(dir, "exists.txt")
 	require.Error(t, err)
 }
@@ -54,7 +54,7 @@ func TestCreateFile_MkdirError(
 	}
 	dir := t.TempDir()
 	// Create a regular file at "parent" so MkdirAll cannot create a dir there.
-	require.NoError(t, os.WriteFile(filepath.Join(dir, "parent"), []byte("x"), 0600))
+	require.NoError(t, os.WriteFile(filepath.Join(dir, "parent"), []byte("x"), 0o600))
 
 	err := mutate.CreateFile(dir, "parent/child.txt")
 	require.Error(t, err)
@@ -76,7 +76,7 @@ func TestCreateDir_AlreadyExists(
 	t *testing.T,
 ) {
 	dir := t.TempDir()
-	require.NoError(t, os.MkdirAll(filepath.Join(dir, "existing"), 0700))
+	require.NoError(t, os.MkdirAll(filepath.Join(dir, "existing"), 0o700))
 
 	err := mutate.CreateDir(dir, "existing")
 	require.NoError(t, err)
@@ -86,7 +86,7 @@ func TestRename_File(
 	t *testing.T,
 ) {
 	dir := t.TempDir()
-	require.NoError(t, os.WriteFile(filepath.Join(dir, "old.txt"), []byte("data"), 0600))
+	require.NoError(t, os.WriteFile(filepath.Join(dir, "old.txt"), []byte("data"), 0o600))
 
 	err := mutate.Rename(dir, "old.txt", "new.txt")
 	require.NoError(t, err)
@@ -103,7 +103,7 @@ func TestRename_MovesToSubdir(
 	t *testing.T,
 ) {
 	dir := t.TempDir()
-	require.NoError(t, os.WriteFile(filepath.Join(dir, "file.txt"), []byte("x"), 0600))
+	require.NoError(t, os.WriteFile(filepath.Join(dir, "file.txt"), []byte("x"), 0o600))
 
 	err := mutate.Rename(dir, "file.txt", "subdir/file.txt")
 	require.NoError(t, err)
@@ -130,8 +130,8 @@ func TestRename_CrossDir(
 	t *testing.T,
 ) {
 	dir := t.TempDir()
-	require.NoError(t, os.MkdirAll(filepath.Join(dir, "src"), 0700))
-	require.NoError(t, os.WriteFile(filepath.Join(dir, "src/file.txt"), []byte("hello"), 0600))
+	require.NoError(t, os.MkdirAll(filepath.Join(dir, "src"), 0o700))
+	require.NoError(t, os.WriteFile(filepath.Join(dir, "src/file.txt"), []byte("hello"), 0o600))
 
 	err := mutate.Rename(dir, "src/file.txt", "dst/deep/file.txt")
 	require.NoError(t, err)
@@ -145,7 +145,7 @@ func TestDelete_File(
 	t *testing.T,
 ) {
 	dir := t.TempDir()
-	require.NoError(t, os.WriteFile(filepath.Join(dir, "del.txt"), nil, 0600))
+	require.NoError(t, os.WriteFile(filepath.Join(dir, "del.txt"), nil, 0o600))
 
 	err := mutate.Delete(dir, "del.txt")
 	require.NoError(t, err)
@@ -158,8 +158,8 @@ func TestDelete_Dir(
 	t *testing.T,
 ) {
 	dir := t.TempDir()
-	require.NoError(t, os.MkdirAll(filepath.Join(dir, "sub/nested"), 0700))
-	require.NoError(t, os.WriteFile(filepath.Join(dir, "sub/nested/f.txt"), nil, 0600))
+	require.NoError(t, os.MkdirAll(filepath.Join(dir, "sub/nested"), 0o700))
+	require.NoError(t, os.WriteFile(filepath.Join(dir, "sub/nested/f.txt"), nil, 0o600))
 
 	err := mutate.Delete(dir, "sub")
 	require.NoError(t, err)
@@ -186,7 +186,7 @@ func TestCreateDir_MkdirError(
 	}
 	dir := t.TempDir()
 	// Create a regular file at "blocker"; MkdirAll can't use it as a dir.
-	require.NoError(t, os.WriteFile(filepath.Join(dir, "blocker"), []byte("x"), 0600))
+	require.NoError(t, os.WriteFile(filepath.Join(dir, "blocker"), []byte("x"), 0o600))
 
 	err := mutate.CreateDir(dir, "blocker/child")
 	require.Error(t, err)
@@ -201,9 +201,9 @@ func TestRename_MkdirError(
 		t.Skip("chmod restrictions differ on windows")
 	}
 	dir := t.TempDir()
-	require.NoError(t, os.WriteFile(filepath.Join(dir, "src.txt"), []byte("data"), 0600))
+	require.NoError(t, os.WriteFile(filepath.Join(dir, "src.txt"), []byte("data"), 0o600))
 	// "blocker" is a regular file so MkdirAll("blocker/subdir") fails.
-	require.NoError(t, os.WriteFile(filepath.Join(dir, "blocker"), []byte("x"), 0600))
+	require.NoError(t, os.WriteFile(filepath.Join(dir, "blocker"), []byte("x"), 0o600))
 
 	err := mutate.Rename(dir, "src.txt", "blocker/subdir/dst.txt")
 	require.Error(t, err)

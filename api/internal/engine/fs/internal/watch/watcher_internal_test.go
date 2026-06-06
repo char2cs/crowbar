@@ -211,19 +211,19 @@ func TestShouldIgnore_DotGitContent(t *testing.T) {
 func TestIsRewriteInProgress_MergeHead(t *testing.T) {
 	dir := t.TempDir()
 	gitDir := filepath.Join(dir, ".git")
-	require.NoError(t, os.MkdirAll(gitDir, 0700))
+	require.NoError(t, os.MkdirAll(gitDir, 0o700))
 
 	w := newBareWatcher(dir, &recordingDispatcher{})
 	assert.False(t, w.isRewriteInProgress(), "should be false before creating MERGE_HEAD")
 
-	require.NoError(t, os.WriteFile(filepath.Join(gitDir, "MERGE_HEAD"), []byte("abc\n"), 0600))
+	require.NoError(t, os.WriteFile(filepath.Join(gitDir, "MERGE_HEAD"), []byte("abc\n"), 0o600))
 	assert.True(t, w.isRewriteInProgress(), "should be true with MERGE_HEAD present")
 }
 
 func TestIsRewriteInProgress_RebaseMerge(t *testing.T) {
 	dir := t.TempDir()
 	gitDir := filepath.Join(dir, ".git")
-	require.NoError(t, os.MkdirAll(filepath.Join(gitDir, "rebase-merge"), 0700))
+	require.NoError(t, os.MkdirAll(filepath.Join(gitDir, "rebase-merge"), 0o700))
 
 	w := newBareWatcher(dir, &recordingDispatcher{})
 	assert.True(t, w.isRewriteInProgress())
@@ -232,7 +232,7 @@ func TestIsRewriteInProgress_RebaseMerge(t *testing.T) {
 func TestIsRewriteInProgress_RebaseApply(t *testing.T) {
 	dir := t.TempDir()
 	gitDir := filepath.Join(dir, ".git")
-	require.NoError(t, os.MkdirAll(filepath.Join(gitDir, "rebase-apply"), 0700))
+	require.NoError(t, os.MkdirAll(filepath.Join(gitDir, "rebase-apply"), 0o700))
 
 	w := newBareWatcher(dir, &recordingDispatcher{})
 	assert.True(t, w.isRewriteInProgress())
@@ -401,7 +401,7 @@ func TestAddRecursive_WalkErrCallbackReturnsNil(t *testing.T) {
 	dir := t.TempDir()
 	// Create a subdirectory, then remove it so Walk will hit an error for it.
 	subdir := filepath.Join(dir, "sub")
-	require.NoError(t, os.MkdirAll(subdir, 0700))
+	require.NoError(t, os.MkdirAll(subdir, 0o700))
 
 	w := NewWatcher("ws-walk", dir, "", &minimalGit{}, &recordingDispatcher{})
 	ctx, cancel := context.WithCancel(context.Background())
@@ -415,7 +415,7 @@ func TestAddRecursive_WalkErrCallbackReturnsNil(t *testing.T) {
 
 	// Create another subdir to trigger addRecursive via handleOne Create event.
 	newSub := filepath.Join(dir, "newsub")
-	require.NoError(t, os.MkdirAll(newSub, 0700))
+	require.NoError(t, os.MkdirAll(newSub, 0o700))
 
 	// Give the watcher time to process. No assertion needed — just verify no panic.
 	time.Sleep(300 * time.Millisecond)
@@ -432,9 +432,9 @@ func TestAddRecursive_PermissionDeniedSwallowed(t *testing.T) {
 	dir := t.TempDir()
 	// Create a directory with no permissions so Walk's callback receives an error for it.
 	noPermDir := filepath.Join(dir, "noperm")
-	require.NoError(t, os.MkdirAll(noPermDir, 0700))
-	require.NoError(t, os.Chmod(noPermDir, 0000))
-	t.Cleanup(func() { os.Chmod(noPermDir, 0700) })
+	require.NoError(t, os.MkdirAll(noPermDir, 0o700))
+	require.NoError(t, os.Chmod(noPermDir, 0o000))
+	t.Cleanup(func() { os.Chmod(noPermDir, 0o700) })
 
 	w := NewWatcher("ws-perm", dir, "", &minimalGit{}, &recordingDispatcher{})
 	ctx, cancel := context.WithCancel(context.Background())
@@ -518,7 +518,7 @@ func TestLoop_TimerDrainPath(t *testing.T) {
 	}()
 
 	// Write a file to generate an event (exercises the pending/timer.Reset path).
-	require.NoError(t, os.WriteFile(filepath.Join(dir, "loop_test.txt"), []byte("data"), 0600))
+	require.NoError(t, os.WriteFile(filepath.Join(dir, "loop_test.txt"), []byte("data"), 0o600))
 
 	<-done // wait for loop to exit via ctx.Done()
 }

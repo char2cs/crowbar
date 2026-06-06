@@ -10,6 +10,7 @@ import (
 	"github.com/char2cs/crowbar/api/internal/app/hub"
 	"github.com/char2cs/crowbar/api/internal/domain"
 	gitdomain "github.com/char2cs/crowbar/api/internal/domain/git"
+	lspdomain "github.com/char2cs/crowbar/api/internal/domain/lsp"
 	"github.com/char2cs/crowbar/api/internal/engine"
 )
 
@@ -20,6 +21,7 @@ type Container struct {
 	chats      *ws.Broadcaster[hub.ChatStatusEvent]
 	git        *ws.Broadcaster[gitdomain.GitStatus]
 	files      *ws.Broadcaster[domain.FileChangeEvent]
+	lsp        *ws.Broadcaster[lspdomain.DiagnosticsEvent]
 	app        *app.Container
 	eng        *engine.Container
 }
@@ -34,8 +36,12 @@ func New(
 		chats:      ws.NewBroadcaster(chatsDef()),
 		git:        ws.NewBroadcaster(gitDef()),
 		files:      ws.NewBroadcaster(filesDef()),
+		lsp:        ws.NewBroadcaster(lspDef()),
 		app:        appContainer,
 		eng:        engContainer,
+	}
+	if engContainer != nil && engContainer.LSP != nil {
+		engContainer.LSP.OnDiagnostics(c.lsp.Push)
 	}
 	appContainer.Hub.Register(c)
 	return c
@@ -50,9 +56,12 @@ func (c *Container) Register(
 	rg.GET("/ws/chats", c.chats.Handle)
 	rg.GET("/ws/git", c.git.Handle)
 	rg.GET("/ws/files", c.files.Handle)
+	rg.GET("/ws/lsp", c.lsp.Handle)
 	registerTerminalHandlers(rg, c)
 	registerSearchHandlers(rg, c)
 	registerProviderHandlers(rg, c)
+	registerReviewHandlers(rg, c)
+	registerLSPHandlers(rg, c)
 }
 
 // PushWorkspace implements hub.Subscriber.
@@ -94,6 +103,18 @@ func (c *Container) WaitChatsRegistered() {
 	c.chats.WaitRegistered()
 }
 
+// WaitLSPRegistered blocks until an LSP diagnostics client registers. Test-only.
+func (c *Container) WaitLSPRegistered() {
+	c.lsp.WaitRegistered()
+}
+
+// PushLSP fans a diagnostics event out to subscribed clients. Test-only.
+func (c *Container) PushLSP(
+	evt lspdomain.DiagnosticsEvent,
+) {
+	c.lsp.Push(evt)
+}
+
 func workspacesDef() ws.StreamDef[domain.Workspace] {
 	return ws.StreamDef[domain.Workspace]{
 		Namespace: func(w domain.Workspace) string { return w.ID },
@@ -128,6 +149,16 @@ func filesDef() ws.StreamDef[domain.FileChangeEvent] {
 		Serialize: func(e domain.FileChangeEvent) ([]byte, error) { return json.Marshal(e) },
 		Filters: []ws.FilterDef[domain.FileChangeEvent]{
 			{Param: "wsId", Extract: func(e domain.FileChangeEvent) string { return e.WsID }, Match: ws.ExactMatch},
+		},
+	}
+}
+
+func lspDef() ws.StreamDef[lspdomain.DiagnosticsEvent] {
+	return ws.StreamDef[lspdomain.DiagnosticsEvent]{
+		Namespace: func(e lspdomain.DiagnosticsEvent) string { return e.WsID },
+		Serialize: func(e lspdomain.DiagnosticsEvent) ([]byte, error) { return json.Marshal(e) },
+		Filters: []ws.FilterDef[lspdomain.DiagnosticsEvent]{
+			{Param: "wsId", Extract: func(e lspdomain.DiagnosticsEvent) string { return e.WsID }, Match: ws.ExactMatch},
 		},
 	}
 }

@@ -37,7 +37,7 @@ func makeCommit(
 	t.Helper()
 	ctx := context.Background()
 	path := filepath.Join(dir, filename)
-	require.NoError(t, os.WriteFile(path, []byte(content), 0600))
+	require.NoError(t, os.WriteFile(path, []byte(content), 0o600))
 	_ = exec.Git(ctx, dir, "add", filename)
 	r := exec.Git(ctx, dir, "commit", "-m", message)
 	require.Equal(t, 0, r.ExitCode, r.Stderr)
@@ -444,7 +444,7 @@ func TestList_AheadAndBehind(
 	_ = exec.Git(ctx, cloneDir, "config", "user.name", "Test")
 
 	clonePath := filepath.Join(cloneDir, "remote.txt")
-	require.NoError(t, os.WriteFile(clonePath, []byte("remote\n"), 0600))
+	require.NoError(t, os.WriteFile(clonePath, []byte("remote\n"), 0o600))
 	_ = exec.Git(ctx, cloneDir, "add", "remote.txt")
 	r = exec.Git(ctx, cloneDir, "commit", "-m", "remote commit")
 	require.Equal(t, 0, r.ExitCode, r.Stderr)
@@ -491,7 +491,7 @@ func TestList_BehindOnly(
 	_ = exec.Git(ctx, cloneDir, "config", "user.name", "Test")
 
 	clonePath := filepath.Join(cloneDir, "remote.txt")
-	require.NoError(t, os.WriteFile(clonePath, []byte("remote\n"), 0600))
+	require.NoError(t, os.WriteFile(clonePath, []byte("remote\n"), 0o600))
 	_ = exec.Git(ctx, cloneDir, "add", "remote.txt")
 	r = exec.Git(ctx, cloneDir, "commit", "-m", "remote commit")
 	require.Equal(t, 0, r.ExitCode, r.Stderr)

@@ -17,6 +17,7 @@ import (
 	"github.com/char2cs/crowbar/api/internal/app"
 	"github.com/char2cs/crowbar/api/internal/app/hub"
 	"github.com/char2cs/crowbar/api/internal/domain"
+	lspdomain "github.com/char2cs/crowbar/api/internal/domain/lsp"
 	"github.com/char2cs/crowbar/api/internal/engine"
 )
 
@@ -157,6 +158,39 @@ func TestV0_WorkspacesFilter_RepoId(t *testing.T) {
 	var got map[string]any
 	require.NoError(t, json.Unmarshal(msg, &got))
 	assert.Equal(t, "w1", got["id"])
+}
+
+func TestV0_PushLSP_ReachesFilteredClient(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	tc := newApp(t)
+	c := v0.New(tc.app, tc.eng)
+	r := gin.New()
+	c.Register(r.Group("/v0"))
+	srv := httptest.NewServer(r)
+	t.Cleanup(srv.Close)
+
+	url := "ws" + srv.URL[len("http"):] + "/v0/ws/lsp?wsId=w1"
+	conn, resp, err := websocket.DefaultDialer.Dial(url, nil)
+	if resp != nil {
+		_ = resp.Body.Close()
+	}
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = conn.Close() })
+	c.WaitLSPRegistered()
+
+	// An event for a different workspace must be filtered out; the matching one
+	// must arrive.
+	c.PushLSP(lspdomain.DiagnosticsEvent{WsID: "other", Diagnostics: []lspdomain.Diagnostic{{Message: "skip"}}})
+	c.PushLSP(lspdomain.DiagnosticsEvent{WsID: "w1", Diagnostics: []lspdomain.Diagnostic{{Message: "boom"}}})
+
+	_ = conn.SetReadDeadline(time.Now().Add(2 * time.Second))
+	_, msg, err := conn.ReadMessage()
+	require.NoError(t, err)
+	var got map[string]any
+	require.NoError(t, json.Unmarshal(msg, &got))
+	assert.Equal(t, "w1", got["wsId"])
+	diags, _ := got["diagnostics"].([]any)
+	require.Len(t, diags, 1)
 }
 
 func TestV0_ChatsFilter_WsId(t *testing.T) {
