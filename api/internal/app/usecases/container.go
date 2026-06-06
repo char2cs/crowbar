@@ -3,6 +3,7 @@ package usecases
 import (
 	"github.com/char2cs/crowbar/api/internal/adapter/store"
 	"github.com/char2cs/crowbar/api/internal/app/repositories"
+	"github.com/char2cs/crowbar/api/internal/app/usecases/branchreview"
 	"github.com/char2cs/crowbar/api/internal/app/usecases/internal/discover"
 	"github.com/char2cs/crowbar/api/internal/app/usecases/provider"
 	"github.com/char2cs/crowbar/api/internal/app/usecases/terminal"
@@ -32,7 +33,7 @@ type Container struct {
 	Terminal      terminal.Usecase
 	ProviderSync  provider.Usecase
 	Worktree      worktree.Usecase
-	BranchReview  BranchReviewUsecase
+	BranchReview  branchreview.Usecase
 }
 
 // New builds the usecases container. It takes the aggregate repositories, the
@@ -92,7 +93,7 @@ func New(
 		gormStores.Repositories,
 		nowFunc,
 	)
-	branchReview := NewBranchReviewUsecase(
+	branchReview := branchreview.New(
 		repos.Workspace,
 		repos.ReviewThread,
 		repos.Chat,

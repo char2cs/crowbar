@@ -7,7 +7,7 @@ import (
 	"github.com/gin-gonic/gin"
 
 	"github.com/char2cs/crowbar/api/internal/app/apperr"
-	"github.com/char2cs/crowbar/api/internal/app/usecases"
+	"github.com/char2cs/crowbar/api/internal/app/usecases/branchreview"
 	"github.com/char2cs/crowbar/api/internal/domain"
 	gitdomain "github.com/char2cs/crowbar/api/internal/domain/git"
 )
@@ -80,7 +80,7 @@ func (c *Container) handleOpenThread(
 		ctx.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
 	}
-	thread, err := c.app.Usecases.BranchReview.OpenThread(ctx.Request.Context(), usecases.OpenThreadInput{
+	thread, err := c.app.Usecases.BranchReview.OpenThread(ctx.Request.Context(), branchreview.OpenThreadInput{
 		WsID:       ctx.Param("wsId"),
 		FilePath:   body.FilePath,
 		LineNumber: body.LineNumber,

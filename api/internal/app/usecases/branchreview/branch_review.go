@@ -1,4 +1,4 @@
-package usecases
+package branchreview
 
 import (
 	"context"
@@ -33,8 +33,8 @@ func asNotFound(
 	return err
 }
 
-// BranchReviewUsecase assembles and mutates the branch-review surface (09).
-type BranchReviewUsecase interface {
+// Usecase assembles and mutates the branch-review surface (09).
+type Usecase interface {
 	// Get assembles the composite branch-review read model for a workspace (09 §2).
 	Get(
 		ctx context.Context,
@@ -74,15 +74,15 @@ type branchReviewUsecase struct {
 	now        func() time.Time
 }
 
-// NewBranchReviewUsecase builds the branch-review usecase wiring all collaborators.
-func NewBranchReviewUsecase(
+// New builds the branch-review usecase wiring all collaborators.
+func New(
 	workspaces workspace.Workspace,
 	threads reviewthread.ReviewThread,
 	chats chat.Chat,
 	repos store.Store[domain.Repository, string],
 	git enginegit.Engine,
 	now func() time.Time,
-) BranchReviewUsecase {
+) Usecase {
 	return &branchReviewUsecase{
 		workspaces: workspaces,
 		threads:    threads,

@@ -1,4 +1,4 @@
-package usecases_test
+package branchreview_test
 
 import (
 	"context"
@@ -14,14 +14,14 @@ import (
 	"github.com/char2cs/crowbar/api/internal/app/repositories/chat"
 	"github.com/char2cs/crowbar/api/internal/app/repositories/reviewthread"
 	"github.com/char2cs/crowbar/api/internal/app/repositories/workspace"
-	"github.com/char2cs/crowbar/api/internal/app/usecases"
+	"github.com/char2cs/crowbar/api/internal/app/usecases/branchreview"
 	"github.com/char2cs/crowbar/api/internal/domain"
 	enginegit "github.com/char2cs/crowbar/api/internal/engine/git"
 )
 
 // benchReviewHarness holds the real stack needed for BenchmarkBranchReview_Get.
 type benchReviewHarness struct {
-	uc          usecases.BranchReviewUsecase
+	uc          branchreview.Usecase
 	wsID        string
 	featurePath string
 }
@@ -126,7 +126,7 @@ func newBenchReviewHarness(
 	_, err = chats.Create(ctx, "chat-bench-1", wsID, "bench chat", fixedNow)
 	require.NoError(b, err)
 
-	uc := usecases.NewBranchReviewUsecase(
+	uc := branchreview.New(
 		workspaces,
 		threads,
 		chats,

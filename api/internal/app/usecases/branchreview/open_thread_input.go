@@ -1,4 +1,4 @@
-package usecases
+package branchreview
 
 import "github.com/char2cs/crowbar/api/internal/domain"
 

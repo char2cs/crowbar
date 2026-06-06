@@ -1,4 +1,4 @@
-package usecases_test
+package branchreview_test
 
 import (
 	"context"
@@ -14,7 +14,7 @@ import (
 	"github.com/char2cs/crowbar/api/internal/app/apperr"
 	"github.com/char2cs/crowbar/api/internal/app/repositories/reviewthread"
 	"github.com/char2cs/crowbar/api/internal/app/repositories/workspace"
-	"github.com/char2cs/crowbar/api/internal/app/usecases"
+	"github.com/char2cs/crowbar/api/internal/app/usecases/branchreview"
 	"github.com/char2cs/crowbar/api/internal/app/usecases/mocks"
 	"github.com/char2cs/crowbar/api/internal/domain"
 	gitdomain "github.com/char2cs/crowbar/api/internal/domain/git"
@@ -355,8 +355,8 @@ func newTestUsecase(
 	chats *mockChat,
 	repoStore store.Store[domain.Repository, string],
 	gitEng *mockGitEngine,
-) usecases.BranchReviewUsecase {
-	return usecases.NewBranchReviewUsecase(
+) branchreview.Usecase {
+	return branchreview.New(
 		ws,
 		threads,
 		chats,
@@ -683,7 +683,7 @@ func TestBranchReview_OpenThread_MintsIDsAndOpens(t *testing.T) {
 
 	uc := newTestUsecase(&mockWorkspace{}, threads, &mockChat{}, mocks.NewRepositoryStore(), &mockGitEngine{})
 
-	in := usecases.OpenThreadInput{
+	in := branchreview.OpenThreadInput{
 		WsID:       "ws1",
 		FilePath:   "pkg/foo.go",
 		LineNumber: 42,
@@ -714,7 +714,7 @@ func TestBranchReview_OpenThread_Error(t *testing.T) {
 
 	uc := newTestUsecase(&mockWorkspace{}, threads, &mockChat{}, mocks.NewRepositoryStore(), &mockGitEngine{})
 
-	_, err := uc.OpenThread(ctx, usecases.OpenThreadInput{WsID: "ws1", Body: "x"})
+	_, err := uc.OpenThread(ctx, branchreview.OpenThreadInput{WsID: "ws1", Body: "x"})
 
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "branch review: open thread")
