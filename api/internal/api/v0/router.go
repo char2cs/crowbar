@@ -10,6 +10,7 @@ import (
 	"github.com/char2cs/crowbar/api/internal/api/v0/endpoints/health"
 	"github.com/char2cs/crowbar/api/internal/api/v0/endpoints/projects"
 	"github.com/char2cs/crowbar/api/internal/api/v0/endpoints/repos"
+	"github.com/char2cs/crowbar/api/internal/api/v0/endpoints/review"
 	"github.com/char2cs/crowbar/api/internal/api/v0/endpoints/workspaces"
 )
 
@@ -63,5 +64,8 @@ func (c *Container) Register(
 	registerTerminalHandlers(rg, c)
 	registerSearchHandlers(rg, c)
 	registerProviderHandlers(rg, c)
-	registerReviewHandlers(rg, c)
+	review.Register(
+		rg,
+		c.app.Usecases.BranchReview,
+	)
 }
