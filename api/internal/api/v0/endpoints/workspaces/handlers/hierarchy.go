@@ -10,7 +10,7 @@ import (
 	gitdomain "github.com/char2cs/crowbar/api/internal/domain/git"
 )
 
-// mergeRequest is the POST /v0/workspaces/:childId/merge-into-parent body: the
+// mergeRequest is the POST /v0/workspaces/:wsId/merge-into-parent body: the
 // merge strategy to apply when folding the child branch into its parent.
 type mergeRequest struct {
 	Strategy gitdomain.MergeStrategy `json:"strategy"`
@@ -24,13 +24,13 @@ type mergeResponse struct {
 	ParentTipSha     string `json:"parentTipSha,omitempty"`
 }
 
-// reparentRequest is the POST /v0/workspaces/:childId/reparent body: the id of
+// reparentRequest is the POST /v0/workspaces/:wsId/reparent body: the id of
 // the new parent the leaf child is rebased onto.
 type reparentRequest struct {
 	NewParentID string `json:"newParentId"`
 }
 
-// MergeIntoParent handles POST /v0/workspaces/:childId/merge-into-parent,
+// MergeIntoParent handles POST /v0/workspaces/:wsId/merge-into-parent,
 // running a local child→parent merge with the requested strategy.
 func (h *Handlers) MergeIntoParent(
 	c *gin.Context,
@@ -60,7 +60,7 @@ func (h *Handlers) MergeIntoParent(
 	})
 }
 
-// Reparent handles POST /v0/workspaces/:childId/reparent, rebasing a leaf child
+// Reparent handles POST /v0/workspaces/:wsId/reparent, rebasing a leaf child
 // onto a new parent and returning the updated WorkspaceDTO.
 func (h *Handlers) Reparent(
 	c *gin.Context,

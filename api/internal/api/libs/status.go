@@ -4,6 +4,8 @@ import (
 	"errors"
 	"net/http"
 
+	asynxmodels "github.com/char2cs/asynx/models"
+
 	"github.com/char2cs/crowbar/api/internal/app/apperr"
 	"github.com/char2cs/crowbar/api/internal/app/usecases/worktree"
 	enginesearch "github.com/char2cs/crowbar/api/internal/engine/search"
@@ -17,7 +19,9 @@ import (
 // The mapping is open for extension: new categories are added by appending
 // guard clauses. The categories are:
 //
-//   - 404 Not Found      — apperr.ErrNotFound, engineterminal.ErrSessionNotFound.
+//   - 404 Not Found      — apperr.ErrNotFound, engineterminal.ErrSessionNotFound,
+//     asynxmodels.ErrNotFound (the asynx aggregate-not-found sentinel surfaced
+//     by the aggregate usecases).
 //   - 400 Bad Request    — enginesearch.ErrBadPattern,
 //     enginesearch.ErrPathOutsideWorkspace.
 //   - 409 Conflict        — enginesearch.ErrLocked and the worktree lock /
@@ -36,7 +40,8 @@ func StatusAndMessage(
 	}
 
 	if errors.Is(err, apperr.ErrNotFound) ||
-		errors.Is(err, engineterminal.ErrSessionNotFound) {
+		errors.Is(err, engineterminal.ErrSessionNotFound) ||
+		errors.Is(err, asynxmodels.ErrNotFound) {
 		return http.StatusNotFound, err.Error()
 	}
 

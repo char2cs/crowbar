@@ -28,7 +28,7 @@ func (h *Handlers) List(
 	libs.WriteQueryOK(c, dto.WorkspaceDTOList(filtered))
 }
 
-// Detail handles GET /v0/workspaces/:id, returning a single WorkspaceDTO.
+// Detail handles GET /v0/workspaces/:wsId, returning a single WorkspaceDTO.
 func (h *Handlers) Detail(
 	c *gin.Context,
 ) {

@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"testing"
 
+	asynxmodels "github.com/char2cs/asynx/models"
 	"github.com/stretchr/testify/assert"
 
 	"github.com/char2cs/crowbar/api/internal/api/libs"
@@ -45,6 +46,11 @@ func TestStatusAndMessageMapping(t *testing.T) {
 		{
 			name:   "session not found",
 			err:    engineterminal.ErrSessionNotFound,
+			status: http.StatusNotFound,
+		},
+		{
+			name:   "asynx aggregate not found",
+			err:    asynxmodels.ErrNotFound,
 			status: http.StatusNotFound,
 		},
 		{
@@ -97,6 +103,18 @@ func TestStatusAndMessageWrapped(t *testing.T) {
 	wrapped := fmt.Errorf(
 		"usecase: load: %w",
 		apperr.ErrNotFound,
+	)
+
+	status, msg := libs.StatusAndMessage(wrapped)
+
+	assert.Equal(t, http.StatusNotFound, status)
+	assert.Equal(t, wrapped.Error(), msg)
+}
+
+func TestStatusAndMessageWrappedAsynxNotFound(t *testing.T) {
+	wrapped := fmt.Errorf(
+		"workspace: get: %w",
+		asynxmodels.ErrNotFound,
 	)
 
 	status, msg := libs.StatusAndMessage(wrapped)

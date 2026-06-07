@@ -93,7 +93,7 @@ func (h *Handlers) resolveParentBranch(
 	return parent.Branch, nil
 }
 
-// Delete handles DELETE /v0/workspaces/:id, cascade-deleting the workspace and
+// Delete handles DELETE /v0/workspaces/:wsId, cascade-deleting the workspace and
 // its descendants (locked rows are skipped by the usecase) and returning the
 // requested id.
 func (h *Handlers) Delete(
