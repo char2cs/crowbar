@@ -145,6 +145,58 @@ func TestWatcherManager_FactoryErrorDoesNotRegister(t *testing.T) {
 	require.NotPanics(t, func() { m.Release("w1") })
 }
 
+func TestWatcherManager_StopAllStopsLiveWatchers(t *testing.T) {
+	procs := make(chan *fakeWatcherProc, 4)
+	factory, _ := countingFactory(t, procs)
+	m := NewWatcherManager(context.Background(), factory)
+
+	m.Acquire("w1")
+	p1 := <-procs
+	<-p1.started
+	m.Acquire("w2")
+	p2 := <-procs
+	<-p2.started
+
+	m.StopAll()
+	<-p1.stopped
+	<-p2.stopped
+
+	m.mu.Lock()
+	remaining := len(m.handles)
+	m.mu.Unlock()
+	assert.Equal(t, 0, remaining)
+}
+
+func TestWatcherManager_StopAllIdempotentAndEmptyNoop(t *testing.T) {
+	procs := make(chan *fakeWatcherProc, 4)
+	factory, _ := countingFactory(t, procs)
+	m := NewWatcherManager(context.Background(), factory)
+
+	require.NotPanics(t, m.StopAll) // no live watcher: no-op
+
+	m.Acquire("w1")
+	p := <-procs
+	<-p.started
+
+	m.StopAll()
+	<-p.stopped
+	require.NotPanics(t, m.StopAll) // second call is safe
+}
+
+func TestWatcherManager_ReleaseAfterStopAllIsNoop(t *testing.T) {
+	procs := make(chan *fakeWatcherProc, 4)
+	factory, _ := countingFactory(t, procs)
+	m := NewWatcherManager(context.Background(), factory)
+
+	m.Acquire("w1")
+	p := <-procs
+	<-p.started
+
+	m.StopAll()
+	<-p.stopped
+	require.NotPanics(t, func() { m.Release("w1") })
+}
+
 func TestWatcherManager_FlappingDoesNotLeak(t *testing.T) {
 	procs := make(chan *fakeWatcherProc, 8)
 	factory, _ := countingFactory(t, procs)

@@ -60,6 +60,7 @@ func newHarness(
 
 	srv := httptest.NewServer(apiContainer.Handler())
 	t.Cleanup(srv.Close)
+	t.Cleanup(apiContainer.Close)
 
 	return &harness{
 		t:      t,

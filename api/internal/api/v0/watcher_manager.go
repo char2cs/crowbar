@@ -94,3 +94,19 @@ func (m *WatcherManager) Release(
 	h.cancel()
 	h.proc.Stop()
 }
+
+// StopAll cancels and stops every live watcher and clears the handle map. It is
+// idempotent and safe to call when no watcher is running: a manager holding
+// nothing is a no-op. It runs on graceful shutdown so inotify file descriptors
+// are closed promptly rather than waiting on process exit.
+func (m *WatcherManager) StopAll() {
+	m.mu.Lock()
+	handles := m.handles
+	m.handles = make(map[string]*watcherHandle)
+	m.mu.Unlock()
+
+	for _, h := range handles {
+		h.cancel()
+		h.proc.Stop()
+	}
+}

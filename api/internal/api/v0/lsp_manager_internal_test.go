@@ -69,6 +69,44 @@ func TestLSPManager_PerWorkspaceIndependent(t *testing.T) {
 	assert.Equal(t, []string{"w1"}, rec.shutdown)
 }
 
+func (r *recordingLifecycle) shutdownCount() int {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	return len(r.shutdown)
+}
+
+func TestLSPManager_StopAllShutsEveryHeldWorkspace(t *testing.T) {
+	rec := &recordingLifecycle{}
+	m := NewLSPManager(context.Background(), rec)
+
+	m.Acquire("w1")
+	m.Acquire("w2")
+
+	m.StopAll()
+
+	assert.Equal(t, 2, rec.shutdownCount())
+
+	m.mu.Lock()
+	remaining := len(m.refs)
+	m.mu.Unlock()
+	assert.Equal(t, 0, remaining)
+}
+
+func TestLSPManager_StopAllIdempotentAndEmptyNoop(t *testing.T) {
+	rec := &recordingLifecycle{}
+	m := NewLSPManager(context.Background(), rec)
+
+	m.StopAll() // nothing held: no-op
+	assert.Equal(t, 0, rec.shutdownCount())
+
+	m.Acquire("w1")
+	m.StopAll()
+	assert.Equal(t, 1, rec.shutdownCount())
+
+	m.StopAll() // second call shuts nothing further
+	assert.Equal(t, 1, rec.shutdownCount())
+}
+
 func TestNoopLSPLifecycle_DoesNothing(t *testing.T) {
 	lc := noopLSPLifecycle{}
 	lc.Ensure(context.Background(), "w1")

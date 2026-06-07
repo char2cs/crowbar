@@ -73,3 +73,21 @@ func (m *LSPManager) Release(
 	}
 	m.lifecycle.Shutdown(m.root, wsID)
 }
+
+// StopAll runs Shutdown for every workspace the manager currently holds and
+// clears the refcount map. It is idempotent and safe to call when nothing is
+// held: a manager holding nothing is a no-op. It runs on graceful shutdown so
+// LSP host processes are torn down promptly rather than waiting on process exit.
+func (m *LSPManager) StopAll() {
+	m.mu.Lock()
+	wsIDs := make([]string, 0, len(m.refs))
+	for wsID := range m.refs {
+		wsIDs = append(wsIDs, wsID)
+	}
+	m.refs = make(map[string]int)
+	m.mu.Unlock()
+
+	for _, wsID := range wsIDs {
+		m.lifecycle.Shutdown(m.root, wsID)
+	}
+}

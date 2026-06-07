@@ -3,6 +3,7 @@ package v0
 import (
 	"context"
 	"encoding/json"
+	"sync"
 	"time"
 
 	"github.com/gin-gonic/gin"
@@ -37,21 +38,26 @@ type Container struct {
 	eng        *engine.Container
 	watchers   *WatcherManager
 	lsps       *LSPManager
+	cancelRoot context.CancelFunc
+	closeOnce  sync.Once
 }
 
 // New builds the v0 container and registers it as a hub subscriber.
 //
 // The lazy WS resource lifecycles (03 §6) are wired here: a WatcherManager
 // refcounted across the Files∪Git topics drives per-workspace file watchers,
-// and an independent LSPManager drives the per-workspace LSP host. Both use
-// context.Background() as the root for their per-workspace goroutines because
-// New must not block and the call site (api.New) threads no lifecycle context;
-// the managers stop a resource on its last unsubscribe regardless.
+// and an independent LSPManager drives the per-workspace LSP host. Both root
+// their per-workspace goroutines on a cancelable context owned by the Container
+// (not context.Background()) so Close can tear every live resource down on
+// graceful shutdown; New still must not block, so the context is created here
+// and its cancel func is stored on the Container. The managers stop a resource
+// on its last unsubscribe; Close stops everything still held.
 func New(
 	appContainer *app.Container,
 	engContainer *engine.Container,
 ) *Container {
-	watchers, lsps := newManagers(appContainer, engContainer)
+	root, cancel := context.WithCancel(context.Background())
+	watchers, lsps := newManagers(root, appContainer, engContainer)
 	c := &Container{
 		workspaces: ws.NewBroadcaster(workspacesDef(appContainer)),
 		chats:      ws.NewBroadcaster(chatsDef(appContainer)),
@@ -63,6 +69,7 @@ func New(
 		eng:        engContainer,
 		watchers:   watchers,
 		lsps:       lsps,
+		cancelRoot: cancel,
 	}
 	if engContainer != nil && engContainer.LSP != nil {
 		engContainer.LSP.OnDiagnostics(c.lsp.Push)
@@ -71,14 +78,27 @@ func New(
 	return c
 }
 
+// Close tears down the lazy WS resource lifecycles on graceful shutdown. It
+// cancels the root context shared by every watcher goroutine, then stops and
+// clears every watcher and LSP host still held by the managers so fsnotify file
+// descriptors and LSP subprocesses are released promptly. It is idempotent and
+// safe to call when no watcher or LSP host was ever started.
+func (c *Container) Close() {
+	c.closeOnce.Do(func() {
+		c.cancelRoot()
+		c.watchers.StopAll()
+		c.lsps.StopAll()
+	})
+}
+
 // newManagers builds the WatcherManager and LSPManager from the app and engine
-// containers. The watcher refcount spans Files∪Git; the LSP refcount is
-// independent.
+// containers, rooting their per-workspace goroutines on root. The watcher
+// refcount spans Files∪Git; the LSP refcount is independent.
 func newManagers(
+	root context.Context,
 	appContainer *app.Container,
 	engContainer *engine.Container,
 ) (*WatcherManager, *LSPManager) {
-	root := context.Background()
 	workspace := appContainer.Repositories.Workspace
 	dispatcher := newWatcherDispatcher(appContainer.Hub, workspace, time.Now)
 	provider := &gitStatusProvider{engine: engContainer.Git}
