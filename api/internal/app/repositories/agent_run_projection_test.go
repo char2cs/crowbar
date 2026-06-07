@@ -94,14 +94,7 @@ func TestAgentRunProjection_DrivesChatStatus(t *testing.T) {
 	ctx := context.Background()
 	ax, runs := newAgentRunAsynx(t)
 	fakeChat := &captureChatRepo{}
-	var refreshed []string
-	var mu sync.Mutex
-	refresh := func(_ context.Context, wsID string) {
-		mu.Lock()
-		defer mu.Unlock()
-		refreshed = append(refreshed, wsID)
-	}
-	require.NoError(t, repositories.RegisterAgentRunProjection(ax, fakeChat, runs, refresh))
+	require.NoError(t, repositories.RegisterAgentRunProjection(ax, fakeChat, runs))
 
 	_, err := runs.Create(ctx, "a1", "w1", "c1", time.Unix(1, 0))
 	require.NoError(t, err)
@@ -112,19 +105,13 @@ func TestAgentRunProjection_DrivesChatStatus(t *testing.T) {
 	_, err = runs.Complete(ctx, "a1")
 	require.NoError(t, err)
 	require.Eventually(t, func() bool { return fakeChat.reset("c1") }, time.Second, 5*time.Millisecond)
-
-	require.Eventually(t, func() bool {
-		mu.Lock()
-		defer mu.Unlock()
-		return len(refreshed) >= 1
-	}, time.Second, 5*time.Millisecond)
 }
 
 func TestAgentRunProjection_ConcurrentRuns_ResetsOnlyWhenLastEnds(t *testing.T) {
 	ctx := context.Background()
 	ax, runs := newAgentRunAsynx(t)
 	fakeChat := &captureChatRepo{}
-	require.NoError(t, repositories.RegisterAgentRunProjection(ax, fakeChat, runs, func(context.Context, string) {}))
+	require.NoError(t, repositories.RegisterAgentRunProjection(ax, fakeChat, runs))
 
 	_, err := runs.Create(ctx, "a1", "w1", "c1", time.Unix(1, 0))
 	require.NoError(t, err)
@@ -179,7 +166,7 @@ func TestAgentRunProjection_ListByChatErrorResetsAnyway(t *testing.T) {
 	ctx := context.Background()
 	ax, runs := newAgentRunAsynx(t)
 	fakeChat := &captureChatRepo{}
-	require.NoError(t, repositories.RegisterAgentRunProjection(ax, fakeChat, listByChatErrRunRepo{}, func(context.Context, string) {}))
+	require.NoError(t, repositories.RegisterAgentRunProjection(ax, fakeChat, listByChatErrRunRepo{}))
 
 	_, err := runs.Create(ctx, "a1", "w1", "c1", time.Unix(1, 0))
 	require.NoError(t, err)
@@ -194,7 +181,7 @@ func TestAgentRunProjection_TerminalErrorAndInterrupted(t *testing.T) {
 	ctx := context.Background()
 	ax, runs := newAgentRunAsynx(t)
 	fakeChat := &captureChatRepo{}
-	require.NoError(t, repositories.RegisterAgentRunProjection(ax, fakeChat, runs, func(context.Context, string) {}))
+	require.NoError(t, repositories.RegisterAgentRunProjection(ax, fakeChat, runs))
 
 	_, err := runs.Create(ctx, "a1", "w1", "c1", time.Unix(1, 0))
 	require.NoError(t, err)
@@ -209,7 +196,7 @@ func TestAgentRunProjection_SetRunningErrorLogged(t *testing.T) {
 	ctx := context.Background()
 	ax, runs := newAgentRunAsynx(t)
 	fakeChat := &captureChatRepo{runningErr: errFake}
-	require.NoError(t, repositories.RegisterAgentRunProjection(ax, fakeChat, runs, func(context.Context, string) {}))
+	require.NoError(t, repositories.RegisterAgentRunProjection(ax, fakeChat, runs))
 
 	_, err := runs.Create(ctx, "a1", "w1", "c1", time.Unix(1, 0))
 	require.NoError(t, err)
@@ -222,7 +209,7 @@ func TestAgentRunProjection_ResetIdleErrorLogged(t *testing.T) {
 	ctx := context.Background()
 	ax, runs := newAgentRunAsynx(t)
 	fakeChat := &captureChatRepo{resetErr: errFake}
-	require.NoError(t, repositories.RegisterAgentRunProjection(ax, fakeChat, runs, func(context.Context, string) {}))
+	require.NoError(t, repositories.RegisterAgentRunProjection(ax, fakeChat, runs))
 
 	_, err := runs.Create(ctx, "a1", "w1", "c1", time.Unix(1, 0))
 	require.NoError(t, err)
@@ -241,7 +228,7 @@ func TestAgentRunProjection_SubscribeErrorReturned(t *testing.T) {
 	require.NoError(t, err)
 	require.NoError(t, ax.Shutdown(context.Background()))
 
-	err = repositories.RegisterAgentRunProjection(ax, &captureChatRepo{}, nil, func(context.Context, string) {})
+	err = repositories.RegisterAgentRunProjection(ax, &captureChatRepo{}, nil)
 	assert.Error(t, err)
 }
 
@@ -249,21 +236,13 @@ func TestAgentRunProjection_PendingDoesNothing(t *testing.T) {
 	ctx := context.Background()
 	ax, runs := newAgentRunAsynx(t)
 	fakeChat := &captureChatRepo{}
-	var refreshCount int
-	var mu sync.Mutex
-	refresh := func(context.Context, string) {
-		mu.Lock()
-		defer mu.Unlock()
-		refreshCount++
-	}
-	require.NoError(t, repositories.RegisterAgentRunProjection(ax, fakeChat, runs, refresh))
+	require.NoError(t, repositories.RegisterAgentRunProjection(ax, fakeChat, runs))
 
 	_, err := runs.Create(ctx, "a1", "w1", "c1", time.Unix(1, 0))
 	require.NoError(t, err)
 	require.Eventually(t, func() bool {
-		mu.Lock()
-		defer mu.Unlock()
-		return refreshCount >= 1
+		got, getErr := runs.Get(ctx, "a1")
+		return getErr == nil && got.ID == "a1"
 	}, time.Second, 5*time.Millisecond)
 	assert.False(t, fakeChat.running("c1"))
 	assert.False(t, fakeChat.reset("c1"))

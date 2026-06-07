@@ -45,7 +45,9 @@ func New(
 	if err != nil {
 		return nil, err
 	}
-	ar, err := agentrun.New(axAgentRun, db, func(domain.AgentRun) {})
+	ar, err := agentrun.New(axAgentRun, db, func(run domain.AgentRun) {
+		c.refreshWorkspace(context.Background(), run.WsID)
+	})
 	if err != nil {
 		return nil, err
 	}
@@ -69,12 +71,14 @@ func broadcastChat(
 }
 
 // RegisterHubProjections wires the AgentRun subscription that drives Chat status
-// and the Workspace agent-running overlay (03 §7). Workspace and Chat broadcast
-// directly from their read-model projections (built in New).
+// (03 §7). Workspace and Chat broadcast directly from their read-model
+// projections (built in New). The Workspace agent-running overlay is refreshed
+// from inside the AgentRun store projection (in New) after the read model is
+// saved, so its ListRunning view is always current when the overlay recomputes.
 func (c *Container) RegisterHubProjections(
 	axAgentRun asynx.Asynx[domain.AgentRun],
 ) error {
-	return RegisterAgentRunProjection(axAgentRun, c.Chat, c.AgentRun, c.refreshWorkspace)
+	return RegisterAgentRunProjection(axAgentRun, c.Chat, c.AgentRun)
 }
 
 func (c *Container) refreshWorkspace(
