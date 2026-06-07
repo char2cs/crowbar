@@ -9,6 +9,7 @@ import (
 	"github.com/char2cs/crowbar/api/internal/api/v0/endpoints/git"
 	"github.com/char2cs/crowbar/api/internal/api/v0/endpoints/health"
 	"github.com/char2cs/crowbar/api/internal/api/v0/endpoints/projects"
+	"github.com/char2cs/crowbar/api/internal/api/v0/endpoints/provider"
 	"github.com/char2cs/crowbar/api/internal/api/v0/endpoints/repos"
 	"github.com/char2cs/crowbar/api/internal/api/v0/endpoints/review"
 	"github.com/char2cs/crowbar/api/internal/api/v0/endpoints/workspaces"
@@ -63,7 +64,11 @@ func (c *Container) Register(
 	rg.GET("/ws/lsp", c.lsp.Handle)
 	registerTerminalHandlers(rg, c)
 	registerSearchHandlers(rg, c)
-	registerProviderHandlers(rg, c)
+	provider.Register(
+		rg,
+		c.eng.Provider,
+		c.app.Repositories.Workspace,
+	)
 	review.Register(
 		rg,
 		c.app.Usecases.BranchReview,
