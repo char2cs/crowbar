@@ -85,3 +85,38 @@ func TestMatchesAll_EmptyActive_ReturnsTrue(t *testing.T) {
 	result := matchesAll([]activeFilter[row]{}, row{name: "x", kind: "y"})
 	assert.True(t, result)
 }
+
+func ctxWithParam(
+	query string,
+	key string,
+	value string,
+) *gin.Context {
+	c, _ := gin.CreateTestContext(httptest.NewRecorder())
+	c.Request = httptest.NewRequest("GET", "/x?"+query, nil)
+	c.Params = gin.Params{{Key: key, Value: value}}
+	return c
+}
+
+func TestBuildPredicate_FilterFromQueryParam(t *testing.T) {
+	p := BuildPredicate(ctxWith("kind=fruit", ""), def())
+	assert.True(t, p(row{name: "apple", kind: "fruit"}))
+	assert.False(t, p(row{name: "carrot", kind: "veg"}))
+}
+
+func TestBuildPredicate_FilterFromPathParam(t *testing.T) {
+	p := BuildPredicate(ctxWithParam("", "kind", "fruit"), def())
+	assert.True(t, p(row{name: "apple", kind: "fruit"}))
+	assert.False(t, p(row{name: "carrot", kind: "veg"}))
+}
+
+func TestBuildPredicate_PathParamWinsOverQuery(t *testing.T) {
+	p := BuildPredicate(ctxWithParam("kind=veg", "kind", "fruit"), def())
+	assert.True(t, p(row{name: "apple", kind: "fruit"}))
+	assert.False(t, p(row{name: "carrot", kind: "veg"}))
+}
+
+func TestBuildPredicate_FallsBackToQueryWhenPathEmpty(t *testing.T) {
+	p := BuildPredicate(ctxWithParam("kind=fruit", "other", "x"), def())
+	assert.True(t, p(row{name: "apple", kind: "fruit"}))
+	assert.False(t, p(row{name: "carrot", kind: "veg"}))
+}

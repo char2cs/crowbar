@@ -12,14 +12,23 @@ import (
 	"github.com/char2cs/crowbar/api/internal/engine"
 )
 
-// Container is the v0 delivery surface: the Class-A broadcasters plus REST routes.
-// It implements hub.Subscriber so app-layer broadcasts reach connected clients.
+// Container is the v0 delivery surface: the seven realtime topics plus REST
+// routes. It implements hub.Subscriber so app-layer broadcasts reach connected
+// clients.
+//
+// Six of the seven topics (03 §3) are push-only Broadcaster[T] instances held
+// here: workspaces, chats, git, files, lsp, and chatStream. The seventh topic,
+// Terminal, is intentionally NOT a Broadcaster[T]: PTY streams are
+// bidirectional, so the Terminal topic is served by the engine.Attach WebSocket
+// handler (endpoints/terminal/handlers/ws.go), whose ring-buffer replay is its
+// snapshot-on-subscribe (03 §1a). It is wired separately in router.go.
 type Container struct {
 	workspaces *ws.Broadcaster[domain.Workspace]
 	chats      *ws.Broadcaster[hub.ChatStatusEvent]
-	git        *ws.Broadcaster[gitdomain.GitStatus]
+	git        *ws.Broadcaster[gitdomain.GitStatusEvent]
 	files      *ws.Broadcaster[domain.FileChangeEvent]
 	lsp        *ws.Broadcaster[lspdomain.DiagnosticsEvent]
+	chatStream *ws.Broadcaster[ChatFrame]
 	app        *app.Container
 	eng        *engine.Container
 }
@@ -35,6 +44,7 @@ func New(
 		git:        ws.NewBroadcaster(gitDef()),
 		files:      ws.NewBroadcaster(filesDef()),
 		lsp:        ws.NewBroadcaster(lspDef()),
+		chatStream: ws.NewBroadcaster(chatStreamDef()),
 		app:        appContainer,
 		eng:        engContainer,
 	}
@@ -59,12 +69,13 @@ func (c *Container) PushChat(
 	c.chats.Push(evt)
 }
 
-// PushGit implements hub.Subscriber.
+// PushGit implements hub.Subscriber. It wraps the status in a wsId-carrying
+// event so the Git broadcaster can scope the fan-out to a single workspace.
 func (c *Container) PushGit(
 	wsID string,
 	status gitdomain.GitStatus,
 ) {
-	c.git.Push(status)
+	c.git.Push(gitdomain.GitStatusEvent{WsID: wsID, Status: status})
 }
 
 // PushFile implements hub.Subscriber.
@@ -87,6 +98,16 @@ func (c *Container) WaitChatsRegistered() {
 // WaitLSPRegistered blocks until an LSP diagnostics client registers. Test-only.
 func (c *Container) WaitLSPRegistered() {
 	c.lsp.WaitRegistered()
+}
+
+// WaitGitRegistered blocks until a git status client registers. Test-only.
+func (c *Container) WaitGitRegistered() {
+	c.git.WaitRegistered()
+}
+
+// WaitFilesRegistered blocks until a files client registers. Test-only.
+func (c *Container) WaitFilesRegistered() {
+	c.files.WaitRegistered()
 }
 
 // PushLSP fans a diagnostics event out to subscribed clients. Test-only.
@@ -117,10 +138,19 @@ func chatsDef() ws.StreamDef[hub.ChatStatusEvent] {
 	}
 }
 
-func gitDef() ws.StreamDef[gitdomain.GitStatus] {
-	return ws.StreamDef[gitdomain.GitStatus]{
-		Namespace: func(_ gitdomain.GitStatus) string { return "" },
-		Serialize: func(s gitdomain.GitStatus) ([]byte, error) { return json.Marshal(s) },
+// gitDef scopes the Git topic to a single workspace by wsId. The wsId resolves
+// from the PATH param on the dual-served /v0/workspaces/:wsId/git/status route
+// and from the QUERY param on the dedicated /v0/ws/git?wsId= route. The wire
+// payload is a bare GitStatus (the embedded Status), matching the REST snapshot
+// of the dual-serve route; only the WsID is used for filtering, never serialized
+// onto the Git stream.
+func gitDef() ws.StreamDef[gitdomain.GitStatusEvent] {
+	return ws.StreamDef[gitdomain.GitStatusEvent]{
+		Namespace: func(e gitdomain.GitStatusEvent) string { return e.WsID },
+		Serialize: func(e gitdomain.GitStatusEvent) ([]byte, error) { return json.Marshal(e.Status) },
+		Filters: []ws.FilterDef[gitdomain.GitStatusEvent]{
+			{Param: "wsId", Extract: func(e gitdomain.GitStatusEvent) string { return e.WsID }, Match: ws.ExactMatch},
+		},
 	}
 }
 
@@ -140,6 +170,19 @@ func lspDef() ws.StreamDef[lspdomain.DiagnosticsEvent] {
 		Serialize: func(e lspdomain.DiagnosticsEvent) ([]byte, error) { return json.Marshal(e) },
 		Filters: []ws.FilterDef[lspdomain.DiagnosticsEvent]{
 			{Param: "wsId", Extract: func(e lspdomain.DiagnosticsEvent) string { return e.WsID }, Match: ws.ExactMatch},
+		},
+	}
+}
+
+// chatStreamDef scopes the post-spike ChatStream topic per chat by chatId
+// (03 §4.3). The topic and its route exist so the topology is complete, but no
+// producer ever pushes a ChatFrame to it yet (03 §8) — it is a placeholder.
+func chatStreamDef() ws.StreamDef[ChatFrame] {
+	return ws.StreamDef[ChatFrame]{
+		Namespace: func(f ChatFrame) string { return f.ChatID },
+		Serialize: func(f ChatFrame) ([]byte, error) { return json.Marshal(f) },
+		Filters: []ws.FilterDef[ChatFrame]{
+			{Param: "chatId", Extract: func(f ChatFrame) string { return f.ChatID }, Match: ws.ExactMatch},
 		},
 	}
 }

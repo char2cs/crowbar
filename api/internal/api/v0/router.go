@@ -65,6 +65,10 @@ func (c *Container) Register(
 	rg.GET("/ws/git", c.git.Handle)
 	rg.GET("/ws/files", c.files.Handle)
 	rg.GET("/ws/lsp", c.lsp.Handle)
+	// Post-spike ChatStream placeholder (03 §8): the topic is registered and the
+	// route is mounted, but no producer pushes frames yet. Distinct path from the
+	// /ws/chats status route, so the two never collide.
+	rg.GET("/ws/chats/:chatId/stream", c.chatStream.Handle)
 	terminal.Register(
 		rg,
 		c.eng.Terminal,
