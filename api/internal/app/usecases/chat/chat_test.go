@@ -276,3 +276,30 @@ func TestChatUsecase_DeleteChat_DeleteError(t *testing.T) {
 	err := uc.DeleteChat(ctx, "c1", time.Now())
 	assert.Error(t, err)
 }
+
+func TestChatUsecase_ListChatsByWorkspace_ReturnsRows(t *testing.T) {
+	chat, _, _, uc := newChatUsecase(t)
+	ctx := context.Background()
+
+	chat.ListByWorkspaceFn = func(_ context.Context, wsID string) ([]domain.Chat, error) {
+		return []domain.Chat{{ID: "c1", WsID: wsID}}, nil
+	}
+
+	got, err := uc.ListChatsByWorkspace(ctx, "w1")
+	require.NoError(t, err)
+	require.Len(t, got, 1)
+	assert.Equal(t, "c1", got[0].ID)
+	assert.Equal(t, "w1", got[0].WsID)
+}
+
+func TestChatUsecase_ListChatsByWorkspace_Error(t *testing.T) {
+	chat, _, _, uc := newChatUsecase(t)
+	ctx := context.Background()
+
+	chat.ListByWorkspaceFn = func(_ context.Context, _ string) ([]domain.Chat, error) {
+		return nil, errors.New("boom")
+	}
+
+	_, err := uc.ListChatsByWorkspace(ctx, "w1")
+	assert.Error(t, err)
+}
