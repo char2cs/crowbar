@@ -39,11 +39,11 @@ func New(
 	engContainer *engine.Container,
 ) *Container {
 	c := &Container{
-		workspaces: ws.NewBroadcaster(workspacesDef()),
-		chats:      ws.NewBroadcaster(chatsDef()),
-		git:        ws.NewBroadcaster(gitDef()),
+		workspaces: ws.NewBroadcaster(workspacesDef(appContainer)),
+		chats:      ws.NewBroadcaster(chatsDef(appContainer)),
+		git:        ws.NewBroadcaster(gitDef(appContainer)),
 		files:      ws.NewBroadcaster(filesDef()),
-		lsp:        ws.NewBroadcaster(lspDef()),
+		lsp:        ws.NewBroadcaster(lspDef(appContainer, engContainer)),
 		chatStream: ws.NewBroadcaster(chatStreamDef()),
 		app:        appContainer,
 		eng:        engContainer,
@@ -117,10 +117,13 @@ func (c *Container) PushLSP(
 	c.lsp.Push(evt)
 }
 
-func workspacesDef() ws.StreamDef[domain.Workspace] {
+func workspacesDef(
+	appContainer *app.Container,
+) ws.StreamDef[domain.Workspace] {
 	return ws.StreamDef[domain.Workspace]{
 		Namespace: func(w domain.Workspace) string { return w.ID },
 		Serialize: func(w domain.Workspace) ([]byte, error) { return json.Marshal(w) },
+		Snapshot:  workspacesSnapshot(appContainer),
 		Filters: []ws.FilterDef[domain.Workspace]{
 			{Param: "projectId", Extract: func(w domain.Workspace) string { return w.ProjectID }, Match: ws.ExactMatch},
 			{Param: "repoId", Extract: func(w domain.Workspace) string { return w.RepoID }, Match: ws.ExactMatch},
@@ -128,10 +131,13 @@ func workspacesDef() ws.StreamDef[domain.Workspace] {
 	}
 }
 
-func chatsDef() ws.StreamDef[hub.ChatStatusEvent] {
+func chatsDef(
+	appContainer *app.Container,
+) ws.StreamDef[hub.ChatStatusEvent] {
 	return ws.StreamDef[hub.ChatStatusEvent]{
 		Namespace: func(e hub.ChatStatusEvent) string { return e.ChatID },
 		Serialize: func(e hub.ChatStatusEvent) ([]byte, error) { return json.Marshal(e) },
+		Snapshot:  chatsSnapshot(appContainer),
 		Filters: []ws.FilterDef[hub.ChatStatusEvent]{
 			{Param: "wsId", Extract: func(e hub.ChatStatusEvent) string { return e.WsID }, Match: ws.ExactMatch},
 		},
@@ -144,10 +150,13 @@ func chatsDef() ws.StreamDef[hub.ChatStatusEvent] {
 // payload is a bare GitStatus (the embedded Status), matching the REST snapshot
 // of the dual-serve route; only the WsID is used for filtering, never serialized
 // onto the Git stream.
-func gitDef() ws.StreamDef[gitdomain.GitStatusEvent] {
+func gitDef(
+	appContainer *app.Container,
+) ws.StreamDef[gitdomain.GitStatusEvent] {
 	return ws.StreamDef[gitdomain.GitStatusEvent]{
 		Namespace: func(e gitdomain.GitStatusEvent) string { return e.WsID },
 		Serialize: func(e gitdomain.GitStatusEvent) ([]byte, error) { return json.Marshal(e.Status) },
+		Snapshot:  gitSnapshot(appContainer),
 		Filters: []ws.FilterDef[gitdomain.GitStatusEvent]{
 			{Param: "wsId", Extract: func(e gitdomain.GitStatusEvent) string { return e.WsID }, Match: ws.ExactMatch},
 		},
@@ -164,10 +173,14 @@ func filesDef() ws.StreamDef[domain.FileChangeEvent] {
 	}
 }
 
-func lspDef() ws.StreamDef[lspdomain.DiagnosticsEvent] {
+func lspDef(
+	appContainer *app.Container,
+	engContainer *engine.Container,
+) ws.StreamDef[lspdomain.DiagnosticsEvent] {
 	return ws.StreamDef[lspdomain.DiagnosticsEvent]{
 		Namespace: func(e lspdomain.DiagnosticsEvent) string { return e.WsID },
 		Serialize: func(e lspdomain.DiagnosticsEvent) ([]byte, error) { return json.Marshal(e) },
+		Snapshot:  lspSnapshot(appContainer, engContainer),
 		Filters: []ws.FilterDef[lspdomain.DiagnosticsEvent]{
 			{Param: "wsId", Extract: func(e lspdomain.DiagnosticsEvent) string { return e.WsID }, Match: ws.ExactMatch},
 		},

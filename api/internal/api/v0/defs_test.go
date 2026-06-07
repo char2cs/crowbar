@@ -13,7 +13,7 @@ import (
 )
 
 func TestWorkspacesDef_Lambdas(t *testing.T) {
-	def := workspacesDef()
+	def := workspacesDef(nil)
 	ws := domain.Workspace{ID: "w1", ProjectID: "p1", RepoID: "r1"}
 
 	assert.Equal(t, "w1", def.Namespace(ws))
@@ -28,7 +28,7 @@ func TestWorkspacesDef_Lambdas(t *testing.T) {
 }
 
 func TestChatsDef_Lambdas(t *testing.T) {
-	def := chatsDef()
+	def := chatsDef(nil)
 	evt := hub.ChatStatusEvent{ChatID: "c1", WsID: "w1", Status: domain.ChatStatusIdle}
 
 	assert.Equal(t, "c1", def.Namespace(evt))
@@ -42,7 +42,7 @@ func TestChatsDef_Lambdas(t *testing.T) {
 }
 
 func TestGitDef_Lambdas(t *testing.T) {
-	def := gitDef()
+	def := gitDef(nil)
 	evt := gitdomain.GitStatusEvent{
 		WsID:   "w1",
 		Status: gitdomain.GitStatus{Branch: "main"},
@@ -74,7 +74,7 @@ func TestFilesDef_Lambdas(t *testing.T) {
 }
 
 func TestLSPDef_Lambdas(t *testing.T) {
-	def := lspDef()
+	def := lspDef(nil, nil)
 	evt := lspdomain.DiagnosticsEvent{WsID: "w1"}
 
 	assert.Equal(t, "w1", def.Namespace(evt))

@@ -267,6 +267,91 @@ func TestContainer_BroadcastWorkspace_ListRunningErrorOverlayFalse(t *testing.T)
 	}, time.Second, 5*time.Millisecond)
 }
 
+type listErrWorkspaceRepo struct {
+	workspace.Workspace
+}
+
+func (listErrWorkspaceRepo) List(
+	_ context.Context,
+) ([]domain.Workspace, error) {
+	return nil, errFake
+}
+
+func TestContainer_ListWorkspacesWithOverlay_CarriesAgentRunning(t *testing.T) {
+	ctx := context.Background()
+	c := newContainer(t, &captureHub{})
+
+	_, err := c.Workspace.Create(ctx, workspace.CreateInput{
+		ID: "w1", RepoID: "r1", ProjectID: "p1", Branch: "b",
+	}, time.Unix(1, 0).UTC())
+	require.NoError(t, err)
+	_, err = c.Workspace.Create(ctx, workspace.CreateInput{
+		ID: "w2", RepoID: "r2", ProjectID: "p1", Branch: "b",
+	}, time.Unix(1, 0).UTC())
+	require.NoError(t, err)
+	_, err = c.Chat.Create(ctx, "c1", "w1", "t", time.Unix(1, 0).UTC())
+	require.NoError(t, err)
+	_, err = c.AgentRun.Create(ctx, "a1", "w1", "c1", time.Unix(1, 0).UTC())
+	require.NoError(t, err)
+	_, err = c.AgentRun.MarkRunning(ctx, "a1")
+	require.NoError(t, err)
+	require.Eventually(t, func() bool {
+		running, listErr := c.AgentRun.ListRunning(ctx)
+		return listErr == nil && len(running) == 1
+	}, time.Second, 5*time.Millisecond)
+
+	rows, err := c.ListWorkspacesWithOverlay(ctx)
+	require.NoError(t, err)
+	require.Len(t, rows, 2)
+	overlay := map[string]bool{}
+	for _, row := range rows {
+		overlay[row.ID] = row.AgentRunning
+	}
+	assert.True(t, overlay["w1"])
+	assert.False(t, overlay["w2"])
+}
+
+func TestContainer_ListWorkspacesWithOverlay_ListRunningErrorOverlayFalse(t *testing.T) {
+	ctx := context.Background()
+	c := newContainer(t, &captureHub{})
+
+	_, err := c.Workspace.Create(ctx, workspace.CreateInput{
+		ID: "w1", RepoID: "r1", ProjectID: "p1", Branch: "b",
+	}, time.Unix(1, 0).UTC())
+	require.NoError(t, err)
+	c.AgentRun = listRunningErrRepo{}
+
+	rows, err := c.ListWorkspacesWithOverlay(ctx)
+	require.NoError(t, err)
+	require.Len(t, rows, 1)
+	assert.False(t, rows[0].AgentRunning)
+}
+
+func TestContainer_ListWorkspacesWithOverlay_NilAgentRunOverlayFalse(t *testing.T) {
+	ctx := context.Background()
+	c := newContainer(t, &captureHub{})
+
+	_, err := c.Workspace.Create(ctx, workspace.CreateInput{
+		ID: "w1", RepoID: "r1", ProjectID: "p1", Branch: "b",
+	}, time.Unix(1, 0).UTC())
+	require.NoError(t, err)
+	c.AgentRun = nil
+
+	rows, err := c.ListWorkspacesWithOverlay(ctx)
+	require.NoError(t, err)
+	require.Len(t, rows, 1)
+	assert.False(t, rows[0].AgentRunning)
+}
+
+func TestContainer_ListWorkspacesWithOverlay_ListErrorPropagates(t *testing.T) {
+	c := newContainer(t, &captureHub{})
+	c.Workspace = listErrWorkspaceRepo{}
+
+	rows, err := c.ListWorkspacesWithOverlay(context.Background())
+	require.Error(t, err)
+	assert.Nil(t, rows)
+}
+
 func TestContainer_RecoverOrphans_FlipsRunningToError(t *testing.T) {
 	ctx := context.Background()
 	c := newContainer(t, hub.NewHub())
