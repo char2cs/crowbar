@@ -6,6 +6,7 @@ import (
 	"github.com/char2cs/crowbar/api/internal/api/v0/endpoints/chats"
 	"github.com/char2cs/crowbar/api/internal/api/v0/endpoints/editor"
 	"github.com/char2cs/crowbar/api/internal/api/v0/endpoints/files"
+	"github.com/char2cs/crowbar/api/internal/api/v0/endpoints/git"
 	"github.com/char2cs/crowbar/api/internal/api/v0/endpoints/health"
 	"github.com/char2cs/crowbar/api/internal/api/v0/endpoints/projects"
 	"github.com/char2cs/crowbar/api/internal/api/v0/endpoints/repos"
@@ -47,6 +48,12 @@ func (c *Container) Register(
 		c.eng.LSP,
 		c.eng.Git,
 		c.app.Repositories.Workspace,
+	)
+	git.Register(
+		rg,
+		c.app.Usecases.Git,
+		c.git.Handle,
+		dualServe,
 	)
 	rg.GET("/ws/workspaces", c.workspaces.Handle)
 	rg.GET("/ws/chats", c.chats.Handle)
