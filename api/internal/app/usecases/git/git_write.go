@@ -145,7 +145,7 @@ func (u *gitUsecase) mutate(
 	now time.Time,
 	op func(repoPath string) error,
 ) error {
-	repoPath, err := u.repoPath(ctx, wsID)
+	repoPath, err := u.writePath(ctx, wsID)
 	if err != nil {
 		return err
 	}

@@ -7,6 +7,7 @@ import (
 	"time"
 
 	store "github.com/char2cs/crowbar/api/internal/adapter/store"
+	"github.com/char2cs/crowbar/api/internal/app/apperr"
 	"github.com/char2cs/crowbar/api/internal/domain"
 )
 
@@ -70,7 +71,7 @@ func (u *projectUsecase) Get(
 		return domain.Project{}, fmt.Errorf("project: get: %w", err)
 	}
 	if p == nil {
-		return domain.Project{}, fmt.Errorf("project: get: id %s not found", id)
+		return domain.Project{}, fmt.Errorf("project: get: id %s: %w", id, apperr.ErrNotFound)
 	}
 	return *p, nil
 }

@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/char2cs/crowbar/api/internal/app/apperr"
 	"github.com/char2cs/crowbar/api/internal/domain"
 	gitdomain "github.com/char2cs/crowbar/api/internal/domain/git"
 )
@@ -292,6 +293,20 @@ func (u *gitUsecase) repoPath(
 	ws, err := u.syncer.Get(ctx, wsID)
 	if err != nil {
 		return "", fmt.Errorf("git: load workspace: %w", err)
+	}
+	return ws.WorktreePath, nil
+}
+
+func (u *gitUsecase) writePath(
+	ctx context.Context,
+	wsID string,
+) (string, error) {
+	ws, err := u.syncer.Get(ctx, wsID)
+	if err != nil {
+		return "", fmt.Errorf("git: load workspace: %w", err)
+	}
+	if ws.Locked {
+		return "", fmt.Errorf("git: mutate: workspace locked: %w", apperr.ErrLocked)
 	}
 	return ws.WorktreePath, nil
 }

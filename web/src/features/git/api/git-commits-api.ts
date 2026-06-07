@@ -9,7 +9,7 @@ export const commitChanges = async (_repoPath: string, _message: string): Promis
 export const getGitLog = async (repoPath: string, limit = 50, skip = 0): Promise<GitCommit[]> => {
   try {
     return await apiFetch<GitCommit[]>(
-      `/api/v0/git/log?repo=${encodeURIComponent(repoPath)}&limit=${limit}&skip=${skip}`
+      `/v0/git/log?repo=${encodeURIComponent(repoPath)}&limit=${limit}&skip=${skip}`
     )
   } catch {
     return []

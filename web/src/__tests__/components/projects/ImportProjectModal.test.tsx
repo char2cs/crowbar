@@ -1,12 +1,17 @@
 import { render, screen, fireEvent, waitFor } from '@testing-library/react'
 import { vi, expect, test } from 'vitest'
 
+// The real mutation returns only { id }; the modal then re-fetches the full
+// project via fetchProject(id). Mocks mirror that contract.
 vi.mock('@/lib/api', async (importOriginal) => {
   const actual = await importOriginal<typeof import('@/lib/api')>()
   return {
     ...actual,
     postProject: vi.fn((_name: string, _path: string) =>
-      Promise.resolve({ id: 'mock-id', name: _name, path: _path }),
+      Promise.resolve({ id: 'mock-id' }),
+    ),
+    fetchProject: vi.fn((id: string) =>
+      Promise.resolve({ id, name: 'test-proj', path: 'test-proj', lastActivity: new Date() }),
     ),
   }
 })

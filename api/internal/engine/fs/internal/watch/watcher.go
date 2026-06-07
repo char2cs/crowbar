@@ -4,6 +4,7 @@ package watch
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"os/exec"
@@ -19,6 +20,12 @@ import (
 
 const debounceDuration = 100 * time.Millisecond
 
+// ErrAlreadyStarted is returned by Start when the watcher has already been
+// started (or stopped). A Watcher's lifecycle is single-use: the caller owns
+// exactly one Start. Re-Starting would leak the first fsnotify FD and its loop
+// goroutine, so it is rejected instead.
+var ErrAlreadyStarted = errors.New("watch: already started")
+
 // Watcher watches a workspace's repo root and fans out every debounced event
 // to a Dispatcher. It self-manages recursive watching for subdirectories.
 type Watcher struct {
@@ -28,10 +35,12 @@ type Watcher struct {
 	git          GitStatusProvider
 	dispatcher   Dispatcher
 
-	fsw     *fsnotify.Watcher
-	mu      sync.Mutex
-	stopCh  chan struct{}
-	stopped bool
+	fsw          *fsnotify.Watcher
+	mu           sync.Mutex
+	stopCh       chan struct{}
+	started      bool
+	stopped      bool
+	fswCloseOnce sync.Once
 
 	prevAdded    int
 	prevDeleted  int
@@ -58,20 +67,46 @@ func NewWatcher(
 }
 
 // Start begins watching the repo root recursively. It blocks until ctx is
-// cancelled or Stop is called.
+// cancelled or Stop is called. Every *fsnotify.Watcher Start creates is closed
+// exactly once regardless of cancel/stop ordering: if ctx is already cancelled
+// or Stop already ran before registration, the freshly created watcher is closed
+// immediately and Start returns without leaking an inotify FD or a loop goroutine.
+//
+// A Watcher is single-use: calling Start a second time (after a prior Start, or
+// after Stop) returns ErrAlreadyStarted and closes the freshly created watcher
+// in place rather than overwriting w.fsw and leaking the first FD and loop
+// goroutine.
 func (w *Watcher) Start(
 	ctx context.Context,
 ) error {
+	select {
+	case <-ctx.Done():
+		return ctx.Err()
+	default:
+	}
+
 	fsw, err := fsnotify.NewWatcher()
 	if err != nil {
 		return fmt.Errorf("watch: start: new fsnotify watcher: %w", err)
 	}
+
 	w.mu.Lock()
+	if w.started {
+		w.mu.Unlock()
+		_ = fsw.Close()
+		return ErrAlreadyStarted
+	}
+	if w.stopped {
+		w.mu.Unlock()
+		_ = fsw.Close()
+		return context.Canceled
+	}
+	w.started = true
 	w.fsw = fsw
 	w.mu.Unlock()
 
 	if err := w.addRecursive(w.repoPath); err != nil {
-		fsw.Close()
+		w.closeFSW()
 		return fmt.Errorf("watch: start: add recursive %s: %w", w.repoPath, err)
 	}
 
@@ -85,6 +120,7 @@ func (w *Watcher) Start(
 		filepath.Join(gitDir, "refs"),
 		filepath.Join(gitDir, "refs", "heads"),
 		filepath.Join(gitDir, "refs", "remotes"),
+		filepath.Join(gitDir, "packed-refs"),
 	} {
 		// ignore errors — paths may not exist (shallow clone, no remotes, etc.)
 		_ = w.fsw.Add(p)
@@ -94,18 +130,33 @@ func (w *Watcher) Start(
 	return nil
 }
 
-// Stop tears down the watcher.
+// closeFSW closes the fsnotify watcher exactly once. It is safe to call from
+// Start's early-return paths, from loop on exit, and from Stop concurrently.
+func (w *Watcher) closeFSW() {
+	w.fswCloseOnce.Do(func() {
+		w.mu.Lock()
+		fsw := w.fsw
+		w.mu.Unlock()
+		if fsw != nil {
+			_ = fsw.Close()
+		}
+	})
+}
+
+// Stop tears down the watcher. It is idempotent and safe to call before, during,
+// or after Start. Calling Stop before Start makes the next Start observe stopped
+// and close its watcher immediately rather than entering the loop.
 func (w *Watcher) Stop() {
 	w.mu.Lock()
-	defer w.mu.Unlock()
 	if w.stopped {
+		w.mu.Unlock()
 		return
 	}
 	w.stopped = true
 	close(w.stopCh)
-	if w.fsw != nil {
-		w.fsw.Close()
-	}
+	w.mu.Unlock()
+
+	w.closeFSW()
 }
 
 // loop is the main event loop. It debounces events and calls handleBurst.
@@ -113,6 +164,8 @@ func (w *Watcher) Stop() {
 func (w *Watcher) loop(
 	ctx context.Context,
 ) {
+	defer w.closeFSW()
+
 	timer := time.NewTimer(0)
 	if !timer.Stop() {
 		<-timer.C
@@ -210,7 +263,8 @@ func (w *Watcher) maybeHandleGitRef(
 	name := evt.Name
 	isHead := strings.HasSuffix(name, filepath.Join(".git", "HEAD"))
 	isRef := strings.Contains(name, filepath.Join(".git", "refs"))
-	if !isHead && !isRef {
+	isPackedRefs := strings.HasSuffix(name, filepath.Join(".git", "packed-refs"))
+	if !isHead && !isRef && !isPackedRefs {
 		return
 	}
 	w.fanOutGit(ctx)
@@ -334,7 +388,8 @@ func (w *Watcher) shouldIgnore(
 	}
 	isHead := rel == filepath.Join(".git", "HEAD")
 	isRefs := strings.HasPrefix(rel, filepath.Join(".git", "refs"))
-	return !isHead && !isRefs
+	isPackedRefs := rel == filepath.Join(".git", "packed-refs")
+	return !isHead && !isRefs && !isPackedRefs
 }
 
 func (w *Watcher) relPath(

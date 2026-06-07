@@ -1,6 +1,6 @@
 import { ws } from 'msw'
 
-export const gitWsHandler = ws.link('/api/v0/ws/git').addEventListener('connection', ({ client }) => {
+export const gitWsHandler = ws.link('/v0/ws/git').addEventListener('connection', ({ client }) => {
   client.send(JSON.stringify({ repo: 'mock', changed: false }))
 
   const interval = setInterval(() => {

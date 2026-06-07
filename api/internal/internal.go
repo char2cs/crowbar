@@ -21,6 +21,8 @@ type Container struct {
 	server   *http.Server
 	listener net.Listener
 	adapter  *adapter.Container
+	app      *app.Container
+	api      *crowbarapi.Container
 }
 
 type rootOpts struct {
@@ -80,6 +82,8 @@ func New(
 		server:   &http.Server{Handler: apiContainer.Handler(), ReadHeaderTimeout: 30 * time.Second},
 		listener: listener,
 		adapter:  adapters,
+		app:      appContainer,
+		api:      apiContainer,
 	}, nil
 }
 
@@ -103,8 +107,13 @@ func (c *Container) Run(
 	return c.server.Shutdown(shutdownCtx)
 }
 
-// Close releases the adapter layer and the listener.
+// Close tears the backend down in dependency order: the HTTP server has already
+// stopped accepting connections (Run shuts it down before Close runs), so it
+// first closes the app layer's lazy realtime resource lifecycles (file watchers
+// and LSP hosts, which http.Server.Shutdown leaves running on hijacked WebSocket
+// connections), then releases the adapter layer and the listener.
 func (c *Container) Close() {
+	c.app.Close()
 	_ = c.adapter.Close()
 	_ = c.listener.Close()
 }

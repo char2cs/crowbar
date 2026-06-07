@@ -53,15 +53,30 @@ func collectFilters[T any](
 ) []activeFilter[T] {
 	var active []activeFilter[T]
 	for _, f := range def.Filters {
-		v := c.Query(f.Param)
-		if v == "" {
-			v = f.Default
-		}
+		v := resolveFilterValue(c, f)
 		if v != "" {
 			active = append(active, activeFilter[T]{param: v, fd: f})
 		}
 	}
 	return active
+}
+
+// resolveFilterValue reads a filter Param from the PATH param first, falling
+// back to the QUERY param, then the FilterDef Default. The path-first order lets
+// a single FilterDef scope both the dual-served path route
+// (/v0/workspaces/:wsId/git/status) and the dedicated query route
+// (/v0/ws/git?wsId=).
+func resolveFilterValue[T any](
+	c *gin.Context,
+	f FilterDef[T],
+) string {
+	if v := c.Param(f.Param); v != "" {
+		return v
+	}
+	if v := c.Query(f.Param); v != "" {
+		return v
+	}
+	return f.Default
 }
 
 func matchesAll[T any](

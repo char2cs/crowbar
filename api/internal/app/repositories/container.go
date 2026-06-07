@@ -2,6 +2,7 @@ package repositories
 
 import (
 	"context"
+	"fmt"
 
 	"github.com/char2cs/asynx"
 	gormdb "gorm.io/gorm"
@@ -44,7 +45,9 @@ func New(
 	if err != nil {
 		return nil, err
 	}
-	ar, err := agentrun.New(axAgentRun, db, func(domain.AgentRun) {})
+	ar, err := agentrun.New(axAgentRun, db, func(run domain.AgentRun) {
+		c.refreshWorkspace(context.Background(), run.WsID)
+	})
 	if err != nil {
 		return nil, err
 	}
@@ -68,12 +71,14 @@ func broadcastChat(
 }
 
 // RegisterHubProjections wires the AgentRun subscription that drives Chat status
-// and the Workspace agent-running overlay (03 §7). Workspace and Chat broadcast
-// directly from their read-model projections (built in New).
+// (03 §7). Workspace and Chat broadcast directly from their read-model
+// projections (built in New). The Workspace agent-running overlay is refreshed
+// from inside the AgentRun store projection (in New) after the read model is
+// saved, so its ListRunning view is always current when the overlay recomputes.
 func (c *Container) RegisterHubProjections(
 	axAgentRun asynx.Asynx[domain.AgentRun],
 ) error {
-	return RegisterAgentRunProjection(axAgentRun, c.Chat, c.AgentRun, c.refreshWorkspace)
+	return RegisterAgentRunProjection(axAgentRun, c.Chat, c.AgentRun)
 }
 
 func (c *Container) refreshWorkspace(
@@ -95,23 +100,47 @@ func (c *Container) broadcastWorkspace(
 	c.hub.BroadcastWorkspace(ws)
 }
 
+// ListWorkspacesWithOverlay returns every workspace row with the derived
+// agent-running overlay computed at call time, matching the live broadcast path
+// (00 §6.1, 03 §1a). The persisted HasConflicts field is left as stored. It backs
+// the Workspaces snapshot-on-subscribe so a client connecting mid-agent-run sees
+// the spinner immediately.
+func (c *Container) ListWorkspacesWithOverlay(
+	ctx context.Context,
+) ([]domain.Workspace, error) {
+	rows, err := c.Workspace.List(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("repositories: list workspaces with overlay: %w", err)
+	}
+	running := c.runningWorkspaceIDs(ctx)
+	for i := range rows {
+		rows[i].AgentRunning = running[rows[i].ID]
+	}
+	return rows, nil
+}
+
 func (c *Container) hasLiveAgentRun(
 	ctx context.Context,
 	wsID string,
 ) bool {
+	return c.runningWorkspaceIDs(ctx)[wsID]
+}
+
+func (c *Container) runningWorkspaceIDs(
+	ctx context.Context,
+) map[string]bool {
+	ids := map[string]bool{}
 	if c.AgentRun == nil {
-		return false
+		return ids
 	}
 	running, err := c.AgentRun.ListRunning(ctx)
 	if err != nil {
-		return false
+		return ids
 	}
 	for _, run := range running {
-		if run.WsID == wsID {
-			return true
-		}
+		ids[run.WsID] = true
 	}
-	return false
+	return ids
 }
 
 // RecoverOrphans runs AgentRun crash recovery (running→error) then the idempotent

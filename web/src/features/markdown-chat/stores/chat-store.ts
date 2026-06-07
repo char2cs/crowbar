@@ -7,7 +7,7 @@ export const useChatStore = create<LoadableSlice<MarkdownTurn[], [string, string
   createLoadableSlice<MarkdownTurn[], [string, string]>({
     store: 'chat-history',
     fetcher: (wsId: string, stepId: string) =>
-      apiFetch<MarkdownTurn[]>(`/api/v0/markdown-chat/${wsId}/${stepId}`),
+      apiFetch<MarkdownTurn[]>(`/v0/markdown-chat/${wsId}/${stepId}`),
     cacheKey: (wsId: string, stepId: string) => `${wsId}:${stepId}`,
   })(set, get),
 )

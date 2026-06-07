@@ -23,7 +23,7 @@ export async function openFileContent(
 ): Promise<void> {
   const name = path.split('/').pop() ?? path
   try {
-    const content = await apiFetch<string>(`/api/v0/fs/file?path=${encodeURIComponent(path)}`)
+    const content = await apiFetch<string>(`/v0/fs/file?path=${encodeURIComponent(path)}`)
     bufferActions.openContent({ type: 'editor', path, name, content, isPreview: opts.preview })
   } catch {
     toast.error('Failed to open file', name)

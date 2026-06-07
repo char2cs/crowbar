@@ -13,22 +13,16 @@ import (
 	"github.com/char2cs/crowbar/api/internal/domain"
 )
 
-// RefreshWorkspaceFunc re-broadcasts a workspace row so its derived agent-running
-// overlay refreshes after an AgentRun transition (00 §6.1).
-type RefreshWorkspaceFunc func(
-	ctx context.Context,
-	wsID string,
-)
-
-// RegisterAgentRunProjection drives Chat status from AgentRun lifecycle (01 §5)
-// and refreshes the owning workspace's overlay.
+// RegisterAgentRunProjection drives Chat status from AgentRun lifecycle (01 §5).
+// The owning workspace's agent-running overlay is refreshed separately, from
+// inside the AgentRun store projection after its read model is saved, so the
+// overlay never recomputes against a stale ListRunning view.
 func RegisterAgentRunProjection(
 	ax asynx.Asynx[domain.AgentRun],
 	chats chat.Chat,
 	runs agentrun.AgentRun,
-	refresh RefreshWorkspaceFunc,
 ) error {
-	p := &agentRunProjector{chats: chats, runs: runs, refresh: refresh}
+	p := &agentRunProjector{chats: chats, runs: runs}
 	if _, err := ax.Subscribe(asynx.Topic("agent_run.*"), p.onEvent); err != nil {
 		return fmt.Errorf("agent run projection: subscribe: %w", err)
 	}
@@ -36,9 +30,8 @@ func RegisterAgentRunProjection(
 }
 
 type agentRunProjector struct {
-	chats   chat.Chat
-	runs    agentrun.AgentRun
-	refresh RefreshWorkspaceFunc
+	chats chat.Chat
+	runs  agentrun.AgentRun
 }
 
 func (p *agentRunProjector) onEvent(
@@ -46,7 +39,6 @@ func (p *agentRunProjector) onEvent(
 	evt asynxModels.Event[domain.AgentRun],
 ) {
 	p.applyChatStatus(ctx, evt.Aggregate)
-	p.refresh(ctx, evt.Aggregate.WsID)
 }
 
 func (p *agentRunProjector) applyChatStatus(

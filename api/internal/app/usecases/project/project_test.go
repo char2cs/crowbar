@@ -9,6 +9,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/char2cs/crowbar/api/internal/app/apperr"
 	"github.com/char2cs/crowbar/api/internal/app/usecases/mocks"
 	"github.com/char2cs/crowbar/api/internal/app/usecases/project"
 	"github.com/char2cs/crowbar/api/internal/domain"
@@ -58,6 +59,7 @@ func TestProjectUsecase_Get_NotFound(t *testing.T) {
 
 	_, err := uc.Get(ctx, "missing")
 	assert.Error(t, err)
+	assert.ErrorIs(t, err, apperr.ErrNotFound)
 }
 
 func TestProjectUsecase_TouchProjectActivity_HappyPath(t *testing.T) {

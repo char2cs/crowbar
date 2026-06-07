@@ -37,8 +37,10 @@ func (b *Broadcaster[T]) WaitRegistered() {
 	<-b.registered
 }
 
-// Handle upgrades the request to a WebSocket, registers the client (delivering
-// the snapshot atomically under the registration lock), then streams live events.
+// Handle upgrades the request to a WebSocket, registers the client, computes its
+// snapshot OUTSIDE the broadcaster lock, then streams live events. The snapshot
+// is delivered ahead of live frames via a non-dropping path so it is never
+// truncated, and no live event is ever missed (see register/snapshotFor).
 func (b *Broadcaster[T]) Handle(
 	c *gin.Context,
 ) {
@@ -50,19 +52,57 @@ func (b *Broadcaster[T]) Handle(
 	predicate := BuildPredicate(c, b.def)
 	cl := &filteredClient[T]{client: newClient(), predicate: predicate}
 
+	scope := b.scopeKey(c)
+
 	b.register(cl)
-	go writePump(conn, cl.client)
+	snapshot := b.snapshotFor(cl)
+	b.onSubscribe(scope)
+	go writePump(conn, cl.client, snapshot)
 	readPump(conn)
 	b.remove(cl)
+	b.onUnsubscribe(scope)
 }
 
+func (b *Broadcaster[T]) scopeKey(
+	c *gin.Context,
+) string {
+	if b.def.ScopeKey == nil {
+		return ""
+	}
+	return b.def.ScopeKey(c)
+}
+
+func (b *Broadcaster[T]) onSubscribe(
+	scope string,
+) {
+	if b.def.OnSubscribe == nil {
+		return
+	}
+	b.def.OnSubscribe(scope)
+}
+
+func (b *Broadcaster[T]) onUnsubscribe(
+	scope string,
+) {
+	if b.def.OnUnsubscribe == nil {
+		return
+	}
+	b.def.OnUnsubscribe(scope)
+}
+
+// register adds cl to the clients map and signals registration. It runs entirely
+// under b.mu but does NOT compute the snapshot: from this point cl receives every
+// live frame into cl.send. The snapshot is computed afterwards in snapshotFor,
+// outside the lock, so any live event between registration and snapshot is queued
+// into cl.send AND captured by the snapshot — double-delivery is harmless because
+// every snapshot topic is an idempotent full-state replace, and no live event is
+// ever missed (no gap).
 func (b *Broadcaster[T]) register(
 	cl *filteredClient[T],
 ) {
 	b.mu.Lock()
 	defer b.mu.Unlock()
 	b.clients[cl] = struct{}{}
-	b.pushSnapshot(cl)
 	b.once.Do(func() { close(b.registered) })
 }
 
@@ -75,26 +115,30 @@ func (b *Broadcaster[T]) remove(
 	close(cl.done)
 }
 
-func (b *Broadcaster[T]) pushSnapshot(
+// snapshotFor computes cl's snapshot OUTSIDE the broadcaster lock (b.def.Snapshot
+// performs git/DB reads, so holding b.mu here would block every live Push for the
+// duration of one client's connect). It returns the matching, serialized frames as
+// an unbounded slice so the snapshot is never truncated by the bounded cl.send
+// buffer; writePump flushes these ahead of any live frame.
+func (b *Broadcaster[T]) snapshotFor(
 	cl *filteredClient[T],
-) {
+) [][]byte {
 	if b.def.Snapshot == nil {
-		return
+		return nil
 	}
-	for _, item := range b.def.Snapshot() {
-		b.serializeAndSend(cl, item)
+	items := b.def.Snapshot()
+	frames := make([][]byte, 0, len(items))
+	for _, item := range items {
+		if !cl.predicate(item) {
+			continue
+		}
+		data, err := b.def.Serialize(item)
+		if err != nil {
+			continue
+		}
+		frames = append(frames, data)
 	}
-}
-
-func (b *Broadcaster[T]) serializeAndSend(
-	cl *filteredClient[T],
-	item T,
-) {
-	data, err := b.def.Serialize(item)
-	if err != nil {
-		return
-	}
-	sendIfMatch(cl, item, data)
+	return frames
 }
 
 // Push serializes the event once and delivers it to every matching client.

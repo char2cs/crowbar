@@ -6,7 +6,7 @@ const tauriInvoke = async <T>(_cmd: string, _args?: unknown): Promise<T> => { th
 
 export const getGitStatus = async (repoPath: string): Promise<GitStatus | null> => {
   try {
-    return await apiFetch<GitStatus>(`/api/v0/git/status?repo=${encodeURIComponent(repoPath)}`)
+    return await apiFetch<GitStatus>(`/v0/git/status?repo=${encodeURIComponent(repoPath)}`)
   } catch {
     return null;
   }

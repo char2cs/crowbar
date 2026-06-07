@@ -7,6 +7,7 @@ import (
 
 	"github.com/char2cs/crowbar/api/internal/adapter"
 	"github.com/char2cs/crowbar/api/internal/app/hub"
+	"github.com/char2cs/crowbar/api/internal/app/realtime"
 	"github.com/char2cs/crowbar/api/internal/app/repositories"
 	"github.com/char2cs/crowbar/api/internal/app/repositories/workspace"
 	"github.com/char2cs/crowbar/api/internal/app/usecases"
@@ -17,12 +18,14 @@ import (
 )
 
 // Container is the application layer: the hub, the aggregate repositories, the
-// GORM CRUD stores, and the composed usecases.
+// GORM CRUD stores, the composed usecases, and the realtime service owning the
+// lazy file-watcher and LSP lifecycles.
 type Container struct {
 	Hub          *hub.Hub
 	Repositories *repositories.Container
 	GORM         *GORMStores
 	Usecases     *usecases.Container
+	Realtime     *realtime.Service
 }
 
 // New constructs the application layer from the engine and adapter containers,
@@ -72,12 +75,31 @@ func New(
 
 	startProviderSweep(ctx, engines, repos, ucs)
 
+	rt := realtime.New(
+		ctx,
+		h,
+		repos.Workspace,
+		engines.Git,
+		engines.FS,
+		realtime.NoopLSPLifecycle(),
+		time.Now,
+	)
+
 	return &Container{
 		Hub:          h,
 		Repositories: repos,
 		GORM:         gormStores,
 		Usecases:     ucs,
+		Realtime:     rt,
 	}, nil
+}
+
+// Close tears down the application layer's live realtime resources: it stops
+// every file watcher and LSP host the service still holds. It is idempotent and
+// runs on graceful shutdown so fsnotify file descriptors and LSP subprocesses
+// are released promptly.
+func (c *Container) Close() {
+	c.Realtime.Close()
 }
 
 func toUsecaseStores(

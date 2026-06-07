@@ -44,20 +44,50 @@ func readPump(
 	}
 }
 
+// writePump writes the snapshot frames first, in order and without dropping, then
+// enters the live select loop draining cl.send and emitting pings. Flushing the
+// snapshot ahead of the loop preserves the snapshot-before-live wire ordering and
+// guarantees the snapshot is never truncated by the bounded cl.send buffer.
 func writePump(
 	conn *websocket.Conn,
 	cl *client,
+	snapshot [][]byte,
 ) {
 	ticker := time.NewTicker(pingInterval)
 	defer func() {
 		ticker.Stop()
 		_ = conn.Close()
 	}()
+	if !flushSnapshot(conn, cl, snapshot) {
+		return
+	}
 	for {
 		if !writeNext(conn, cl, ticker) {
 			return
 		}
 	}
+}
+
+// flushSnapshot writes every snapshot frame to the conn in order, blocking on
+// each write. It returns false if a write fails or the client is torn down, so
+// writePump can abort before entering the live loop.
+func flushSnapshot(
+	conn *websocket.Conn,
+	cl *client,
+	snapshot [][]byte,
+) bool {
+	for _, msg := range snapshot {
+		select {
+		case <-cl.done:
+			return false
+		default:
+		}
+		_ = conn.SetWriteDeadline(time.Now().Add(writeTimeout))
+		if conn.WriteMessage(websocket.TextMessage, msg) != nil {
+			return false
+		}
+	}
+	return true
 }
 
 func writeNext(

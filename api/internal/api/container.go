@@ -12,9 +12,12 @@ import (
 	"github.com/char2cs/crowbar/api/internal/engine"
 )
 
-// Container owns the configured gin engine.
+// Container owns the configured gin engine and the v0 surface. The lazy WS
+// resource lifecycles are owned by the app layer and torn down via
+// app.Container.Close, not here.
 type Container struct {
 	router *gin.Engine
+	v0     *v0.Container
 }
 
 // New builds the HTTP layer: middleware, the v0 surface (mounted at /v0 and
@@ -37,7 +40,7 @@ func New(
 		RegisterStatic(router, staticFS)
 	}
 
-	return &Container{router: router}, nil
+	return &Container{router: router, v0: v0Container}, nil
 }
 
 // Handler returns the underlying http.Handler.

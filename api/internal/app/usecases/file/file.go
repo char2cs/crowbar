@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/char2cs/crowbar/api/internal/app/apperr"
 	"github.com/char2cs/crowbar/api/internal/domain"
 	gitdomain "github.com/char2cs/crowbar/api/internal/domain/git"
 )
@@ -186,7 +187,7 @@ func (u *fileUsecase) WriteContent(
 	content string,
 	now time.Time,
 ) error {
-	repoPath, err := u.repoPath(ctx, wsID)
+	repoPath, err := u.writePath(ctx, wsID)
 	if err != nil {
 		return err
 	}
@@ -203,7 +204,7 @@ func (u *fileUsecase) CreateFile(
 	filePath string,
 	now time.Time,
 ) error {
-	repoPath, err := u.repoPath(ctx, wsID)
+	repoPath, err := u.writePath(ctx, wsID)
 	if err != nil {
 		return err
 	}
@@ -220,7 +221,7 @@ func (u *fileUsecase) CreateDir(
 	dirPath string,
 	now time.Time,
 ) error {
-	repoPath, err := u.repoPath(ctx, wsID)
+	repoPath, err := u.writePath(ctx, wsID)
 	if err != nil {
 		return err
 	}
@@ -238,7 +239,7 @@ func (u *fileUsecase) Rename(
 	newPath string,
 	now time.Time,
 ) error {
-	repoPath, err := u.repoPath(ctx, wsID)
+	repoPath, err := u.writePath(ctx, wsID)
 	if err != nil {
 		return err
 	}
@@ -255,7 +256,7 @@ func (u *fileUsecase) Delete(
 	filePath string,
 	now time.Time,
 ) error {
-	repoPath, err := u.repoPath(ctx, wsID)
+	repoPath, err := u.writePath(ctx, wsID)
 	if err != nil {
 		return err
 	}
@@ -272,6 +273,20 @@ func (u *fileUsecase) repoPath(
 	ws, err := u.syncer.Get(ctx, wsID)
 	if err != nil {
 		return "", fmt.Errorf("file: load workspace: %w", err)
+	}
+	return ws.WorktreePath, nil
+}
+
+func (u *fileUsecase) writePath(
+	ctx context.Context,
+	wsID string,
+) (string, error) {
+	ws, err := u.syncer.Get(ctx, wsID)
+	if err != nil {
+		return "", fmt.Errorf("file: load workspace: %w", err)
+	}
+	if ws.Locked {
+		return "", fmt.Errorf("file: write: workspace locked: %w", apperr.ErrLocked)
 	}
 	return ws.WorktreePath, nil
 }

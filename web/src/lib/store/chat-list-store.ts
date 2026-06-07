@@ -6,7 +6,7 @@ import type { ProjectChat } from '@/lib/store/sidebar'
 export const useChatListStore = create<LoadableSlice<ProjectChat[], [string]>>()((set, get) =>
   createLoadableSlice<ProjectChat[], [string]>({
     store: 'chats-data',
-    fetcher: (wsId: string) => apiFetch<ProjectChat[]>(`/api/v0/chats?wsId=${wsId}`),
+    fetcher: (wsId: string) => apiFetch<ProjectChat[]>(`/v0/chats?wsId=${wsId}`),
     cacheKey: (wsId: string) => wsId,
   })(set, get),
 )

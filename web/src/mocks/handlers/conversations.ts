@@ -1,8 +1,9 @@
-import { http, HttpResponse } from 'msw'
+import { http } from 'msw'
 import { getMockConversation } from '@/lib/mock/conversations'
+import { ok } from './envelope'
 
 export const conversationHandlers = [
-  http.get('/api/v0/conversations/:wsId/:step', ({ params }) =>
-    HttpResponse.json({ messages: getMockConversation(params.wsId as string, params.step as string) })
+  http.get('/v0/conversations/:wsId/:step', ({ params }) =>
+    ok({ messages: getMockConversation(params.wsId as string, params.step as string) })
   ),
 ]

@@ -72,8 +72,15 @@ type WorkspaceRepo interface {
 	) (domain.Workspace, error)
 }
 
-// Usecase is the chat lifecycle surface: create/fork/rename/cascade-delete.
+// Usecase is the chat lifecycle surface: create/fork/rename/cascade-delete,
+// plus the flat per-workspace read that backs the chat sidebar.
 type Usecase interface {
+	// ListChatsByWorkspace returns the flat list of chats for a workspace.
+	ListChatsByWorkspace(
+		ctx context.Context,
+		wsID string,
+	) ([]domain.Chat, error)
+
 	// CreateChat mints an id, issues the create command, and rolls up activity on
 	// the workspace and its project.
 	CreateChat(
@@ -128,6 +135,18 @@ func New(
 		rollup:     rollup,
 		now:        now,
 	}
+}
+
+// ListChatsByWorkspace returns the flat list of chats for a workspace.
+func (u *chatUsecase) ListChatsByWorkspace(
+	ctx context.Context,
+	wsID string,
+) ([]domain.Chat, error) {
+	chats, err := u.chats.ListByWorkspace(ctx, wsID)
+	if err != nil {
+		return nil, fmt.Errorf("chat: list by workspace: %w", err)
+	}
+	return chats, nil
 }
 
 // CreateChat mints an id, issues the create command, and rolls up activity on
