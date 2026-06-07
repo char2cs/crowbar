@@ -1,8 +1,14 @@
-package v0
+package lifecycle
 
 import (
 	"context"
 	"sync"
+	"time"
+
+	"github.com/char2cs/crowbar/api/internal/app/hub"
+	workspacerepo "github.com/char2cs/crowbar/api/internal/app/repositories/workspace"
+	enginefs "github.com/char2cs/crowbar/api/internal/engine/fs"
+	enginegit "github.com/char2cs/crowbar/api/internal/engine/git"
 )
 
 // watcherHandle tracks one workspace's running watcher: its subscriber
@@ -28,9 +34,31 @@ type WatcherManager struct {
 	closed  bool
 }
 
-// NewWatcherManager builds a WatcherManager. root is the parent context for
-// every watcher goroutine; cancelling it stops all watchers.
+// NewWatcherManager builds the production WatcherManager from its dependencies.
+// It wires the dispatcher (hub fan-out plus the SyncWorkingTreeState command on
+// the workspace repository), the git status provider (adapting the git engine),
+// and the watcher factory (resolving worktree paths via the workspace repository
+// and constructing fs watchers). root is the parent context for every watcher
+// goroutine; cancelling it stops all watchers. now is the clock threaded into
+// the SyncWorkingTreeState command.
 func NewWatcherManager(
+	root context.Context,
+	h *hub.Hub,
+	workspace workspacerepo.Workspace,
+	gitEngine enginegit.Engine,
+	fsEngine enginefs.Engine,
+	now func() time.Time,
+) *WatcherManager {
+	dispatcher := newWatcherDispatcher(h, workspace, now)
+	provider := &gitStatusProvider{engine: gitEngine}
+	factory := newWatcherFactory(fsEngine, provider, workspace, dispatcher)
+	return newWatcherManager(root, factory)
+}
+
+// newWatcherManager builds a WatcherManager over an injected factory. root is
+// the parent context for every watcher goroutine; cancelling it stops all
+// watchers.
+func newWatcherManager(
 	root context.Context,
 	factory watcherFactory,
 ) *WatcherManager {

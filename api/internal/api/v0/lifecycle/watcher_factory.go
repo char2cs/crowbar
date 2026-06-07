@@ -1,4 +1,4 @@
-package v0
+package lifecycle
 
 import (
 	"context"
@@ -24,7 +24,7 @@ func newWatcherFactory(
 	) (watcherProc, error) {
 		ws, err := workspace.Get(ctx, wsID)
 		if err != nil {
-			return nil, fmt.Errorf("v0: watcher factory: get workspace %s: %w", wsID, err)
+			return nil, fmt.Errorf("lifecycle: watcher factory: get workspace %s: %w", wsID, err)
 		}
 		w := fsEngine.NewWatcher(
 			ctx,

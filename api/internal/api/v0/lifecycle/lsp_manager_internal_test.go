@@ -1,4 +1,4 @@
-package v0
+package lifecycle
 
 import (
 	"context"
@@ -127,7 +127,7 @@ func TestLSPManager_AcquireAfterStopAllIsNoop(t *testing.T) {
 }
 
 func TestNoopLSPLifecycle_DoesNothing(t *testing.T) {
-	lc := noopLSPLifecycle{}
+	lc := NoopLSPLifecycle()
 	lc.Ensure(context.Background(), "w1")
 	lc.Shutdown(context.Background(), "w1")
 }

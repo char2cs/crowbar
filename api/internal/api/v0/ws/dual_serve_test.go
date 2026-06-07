@@ -1,4 +1,4 @@
-package v0
+package ws_test
 
 import (
 	"net/http"
@@ -7,12 +7,14 @@ import (
 
 	"github.com/gin-gonic/gin"
 	"github.com/stretchr/testify/assert"
+
+	"github.com/char2cs/crowbar/api/internal/api/v0/ws"
 )
 
 func TestDualServeRoutesPlainGETToREST(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	var restHit, wsHit bool
-	h := dualServe(
+	h := ws.DualServe(
 		func(_ *gin.Context) { restHit = true },
 		func(_ *gin.Context) { wsHit = true },
 	)
@@ -28,7 +30,7 @@ func TestDualServeRoutesPlainGETToREST(t *testing.T) {
 func TestDualServeRoutesUpgradeToWS(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	var restHit, wsHit bool
-	h := dualServe(
+	h := ws.DualServe(
 		func(_ *gin.Context) { restHit = true },
 		func(_ *gin.Context) { wsHit = true },
 	)

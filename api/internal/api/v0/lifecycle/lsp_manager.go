@@ -1,4 +1,4 @@
-package v0
+package lifecycle
 
 import (
 	"context"
@@ -13,7 +13,7 @@ import (
 // managers share no state, which is what enforces that independence.
 type LSPManager struct {
 	root      context.Context
-	lifecycle lspLifecycle
+	lifecycle LSPLifecycle
 	mu        sync.Mutex
 	refs      map[string]int
 	closed    bool
@@ -23,7 +23,7 @@ type LSPManager struct {
 // context passed to Ensure/Shutdown.
 func NewLSPManager(
 	root context.Context,
-	lifecycle lspLifecycle,
+	lifecycle LSPLifecycle,
 ) *LSPManager {
 	return &LSPManager{
 		root:      root,

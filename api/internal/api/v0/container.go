@@ -8,6 +8,7 @@ import (
 
 	"github.com/gin-gonic/gin"
 
+	"github.com/char2cs/crowbar/api/internal/api/v0/lifecycle"
 	ws "github.com/char2cs/crowbar/api/internal/api/v0/ws"
 	"github.com/char2cs/crowbar/api/internal/app"
 	"github.com/char2cs/crowbar/api/internal/app/hub"
@@ -36,8 +37,8 @@ type Container struct {
 	chatStream *ws.Broadcaster[ChatFrame]
 	app        *app.Container
 	eng        *engine.Container
-	watchers   *WatcherManager
-	lsps       *LSPManager
+	watchers   *lifecycle.WatcherManager
+	lsps       *lifecycle.LSPManager
 	cancelRoot context.CancelFunc
 	closeOnce  sync.Once
 }
@@ -98,19 +99,24 @@ func newManagers(
 	root context.Context,
 	appContainer *app.Container,
 	engContainer *engine.Container,
-) (*WatcherManager, *LSPManager) {
-	workspace := appContainer.Repositories.Workspace
-	dispatcher := newWatcherDispatcher(appContainer.Hub, workspace, time.Now)
-	provider := &gitStatusProvider{engine: engContainer.Git}
-	factory := newWatcherFactory(engContainer.FS, provider, workspace, dispatcher)
-	return NewWatcherManager(root, factory), NewLSPManager(root, noopLSPLifecycle{})
+) (*lifecycle.WatcherManager, *lifecycle.LSPManager) {
+	watchers := lifecycle.NewWatcherManager(
+		root,
+		appContainer.Hub,
+		appContainer.Repositories.Workspace,
+		engContainer.Git,
+		engContainer.FS,
+		time.Now,
+	)
+	lsps := lifecycle.NewLSPManager(root, lifecycle.NoopLSPLifecycle())
+	return watchers, lsps
 }
 
 // withWatcherLifecycle attaches the Files∪Git watcher lifecycle hooks to a
 // StreamDef, scoping the refcount by wsId resolved from the path or query.
 func withWatcherLifecycle[T any](
 	def ws.StreamDef[T],
-	m *WatcherManager,
+	m *lifecycle.WatcherManager,
 ) ws.StreamDef[T] {
 	def.ScopeKey = scopeWsID
 	def.OnSubscribe = m.Acquire
@@ -122,7 +128,7 @@ func withWatcherLifecycle[T any](
 // scoping the refcount by wsId resolved from the path or query.
 func withLSPLifecycle[T any](
 	def ws.StreamDef[T],
-	m *LSPManager,
+	m *lifecycle.LSPManager,
 ) ws.StreamDef[T] {
 	def.ScopeKey = scopeWsID
 	def.OnSubscribe = m.Acquire

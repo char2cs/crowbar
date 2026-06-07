@@ -1,4 +1,4 @@
-package v0
+package lifecycle
 
 import (
 	"context"
@@ -59,7 +59,7 @@ func countingFactory(
 func TestWatcherManager_LazyStartStop(t *testing.T) {
 	procs := make(chan *fakeWatcherProc, 4)
 	factory, _ := countingFactory(t, procs)
-	m := NewWatcherManager(context.Background(), factory)
+	m := newWatcherManager(context.Background(), factory)
 
 	m.Acquire("w1")
 	p := <-procs
@@ -72,7 +72,7 @@ func TestWatcherManager_LazyStartStop(t *testing.T) {
 func TestWatcherManager_RefcountNoDoubleStart(t *testing.T) {
 	procs := make(chan *fakeWatcherProc, 4)
 	factory, calls := countingFactory(t, procs)
-	m := NewWatcherManager(context.Background(), factory)
+	m := newWatcherManager(context.Background(), factory)
 
 	m.Acquire("w1")
 	p := <-procs
@@ -95,7 +95,7 @@ func TestWatcherManager_RefcountNoDoubleStart(t *testing.T) {
 func TestWatcherManager_GitOnlyKeepsWatcherAlive(t *testing.T) {
 	procs := make(chan *fakeWatcherProc, 4)
 	factory, calls := countingFactory(t, procs)
-	m := NewWatcherManager(context.Background(), factory)
+	m := newWatcherManager(context.Background(), factory)
 
 	m.Acquire("w1") // files subscriber starts it
 	p := <-procs
@@ -117,7 +117,7 @@ func TestWatcherManager_GitOnlyKeepsWatcherAlive(t *testing.T) {
 func TestWatcherManager_BlankWsIDIgnored(t *testing.T) {
 	procs := make(chan *fakeWatcherProc, 1)
 	factory, calls := countingFactory(t, procs)
-	m := NewWatcherManager(context.Background(), factory)
+	m := newWatcherManager(context.Background(), factory)
 
 	m.Acquire("")
 	m.Release("")
@@ -127,7 +127,7 @@ func TestWatcherManager_BlankWsIDIgnored(t *testing.T) {
 func TestWatcherManager_ReleaseUnknownIsNoop(t *testing.T) {
 	procs := make(chan *fakeWatcherProc, 1)
 	factory, _ := countingFactory(t, procs)
-	m := NewWatcherManager(context.Background(), factory)
+	m := newWatcherManager(context.Background(), factory)
 
 	m.Release("ghost") // must not panic
 }
@@ -139,7 +139,7 @@ func TestWatcherManager_FactoryErrorDoesNotRegister(t *testing.T) {
 	) (watcherProc, error) {
 		return nil, errors.New("boom")
 	}
-	m := NewWatcherManager(context.Background(), factory)
+	m := newWatcherManager(context.Background(), factory)
 
 	m.Acquire("w1")
 	require.NotPanics(t, func() { m.Release("w1") })
@@ -148,7 +148,7 @@ func TestWatcherManager_FactoryErrorDoesNotRegister(t *testing.T) {
 func TestWatcherManager_StopAllStopsLiveWatchers(t *testing.T) {
 	procs := make(chan *fakeWatcherProc, 4)
 	factory, _ := countingFactory(t, procs)
-	m := NewWatcherManager(context.Background(), factory)
+	m := newWatcherManager(context.Background(), factory)
 
 	m.Acquire("w1")
 	p1 := <-procs
@@ -170,7 +170,7 @@ func TestWatcherManager_StopAllStopsLiveWatchers(t *testing.T) {
 func TestWatcherManager_StopAllIdempotentAndEmptyNoop(t *testing.T) {
 	procs := make(chan *fakeWatcherProc, 4)
 	factory, _ := countingFactory(t, procs)
-	m := NewWatcherManager(context.Background(), factory)
+	m := newWatcherManager(context.Background(), factory)
 
 	m.Acquire("w1")
 	p := <-procs
@@ -184,7 +184,7 @@ func TestWatcherManager_StopAllIdempotentAndEmptyNoop(t *testing.T) {
 func TestWatcherManager_StopAllOnEmptyIsNoop(t *testing.T) {
 	procs := make(chan *fakeWatcherProc, 4)
 	factory, _ := countingFactory(t, procs)
-	m := NewWatcherManager(context.Background(), factory)
+	m := newWatcherManager(context.Background(), factory)
 
 	require.NotPanics(t, m.StopAll) // no live watcher: no-op
 }
@@ -192,7 +192,7 @@ func TestWatcherManager_StopAllOnEmptyIsNoop(t *testing.T) {
 func TestWatcherManager_ReleaseAfterStopAllIsNoop(t *testing.T) {
 	procs := make(chan *fakeWatcherProc, 4)
 	factory, _ := countingFactory(t, procs)
-	m := NewWatcherManager(context.Background(), factory)
+	m := newWatcherManager(context.Background(), factory)
 
 	m.Acquire("w1")
 	p := <-procs
@@ -206,7 +206,7 @@ func TestWatcherManager_ReleaseAfterStopAllIsNoop(t *testing.T) {
 func TestWatcherManager_AcquireAfterStopAllIsNoop(t *testing.T) {
 	procs := make(chan *fakeWatcherProc, 4)
 	factory, calls := countingFactory(t, procs)
-	m := NewWatcherManager(context.Background(), factory)
+	m := newWatcherManager(context.Background(), factory)
 
 	m.StopAll()
 	m.Acquire("w1") // late subscribe after shutdown: no handle, nothing started
@@ -227,7 +227,7 @@ func TestWatcherManager_AcquireAfterStopAllIsNoop(t *testing.T) {
 func TestWatcherManager_FlappingDoesNotLeak(t *testing.T) {
 	procs := make(chan *fakeWatcherProc, 8)
 	factory, _ := countingFactory(t, procs)
-	m := NewWatcherManager(context.Background(), factory)
+	m := newWatcherManager(context.Background(), factory)
 
 	for i := 0; i < 4; i++ {
 		m.Acquire("w1")
