@@ -4,6 +4,7 @@ import (
 	"github.com/gin-gonic/gin"
 
 	"github.com/char2cs/crowbar/api/internal/api/v0/endpoints/chats"
+	"github.com/char2cs/crowbar/api/internal/api/v0/endpoints/editor"
 	"github.com/char2cs/crowbar/api/internal/api/v0/endpoints/files"
 	"github.com/char2cs/crowbar/api/internal/api/v0/endpoints/health"
 	"github.com/char2cs/crowbar/api/internal/api/v0/endpoints/projects"
@@ -41,6 +42,12 @@ func (c *Container) Register(
 		rg,
 		c.app.Usecases.File,
 	)
+	editor.Register(
+		rg,
+		c.eng.LSP,
+		c.eng.Git,
+		c.app.Repositories.Workspace,
+	)
 	rg.GET("/ws/workspaces", c.workspaces.Handle)
 	rg.GET("/ws/chats", c.chats.Handle)
 	rg.GET("/ws/git", c.git.Handle)
@@ -50,5 +57,4 @@ func (c *Container) Register(
 	registerSearchHandlers(rg, c)
 	registerProviderHandlers(rg, c)
 	registerReviewHandlers(rg, c)
-	registerLSPHandlers(rg, c)
 }
