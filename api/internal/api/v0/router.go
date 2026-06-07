@@ -13,6 +13,8 @@ import (
 	"github.com/char2cs/crowbar/api/internal/api/v0/endpoints/repos"
 	"github.com/char2cs/crowbar/api/internal/api/v0/endpoints/review"
 	"github.com/char2cs/crowbar/api/internal/api/v0/endpoints/search"
+	"github.com/char2cs/crowbar/api/internal/api/v0/endpoints/terminal"
+	terminalhandlers "github.com/char2cs/crowbar/api/internal/api/v0/endpoints/terminal/handlers"
 	"github.com/char2cs/crowbar/api/internal/api/v0/endpoints/workspaces"
 )
 
@@ -63,7 +65,13 @@ func (c *Container) Register(
 	rg.GET("/ws/git", c.git.Handle)
 	rg.GET("/ws/files", c.files.Handle)
 	rg.GET("/ws/lsp", c.lsp.Handle)
-	registerTerminalHandlers(rg, c)
+	terminal.Register(
+		rg,
+		c.eng.Terminal,
+		c.app.GORM.TerminalProfiles,
+		c.app.Repositories.Workspace,
+		terminalhandlers.NewWS(c.eng.Terminal),
+	)
 	search.Register(
 		rg,
 		c.eng.Search,
