@@ -8,6 +8,7 @@ import (
 	"github.com/gin-gonic/gin"
 	"github.com/gorilla/websocket"
 
+	"github.com/char2cs/crowbar/api/internal/api/libs"
 	engineterminal "github.com/char2cs/crowbar/api/internal/engine/terminal"
 )
 
@@ -41,18 +42,20 @@ func serveWS(
 	c *gin.Context,
 ) {
 	if eng == nil {
-		c.JSON(
+		libs.WriteErr(
+			c,
 			http.StatusServiceUnavailable,
-			gin.H{"error": "terminal engine not available"},
+			"terminal engine not available",
 		)
 		return
 	}
 
 	sid := c.Param("sessionId")
 	if !eng.SessionExists(c.Request.Context(), sid) {
-		c.JSON(
+		libs.WriteErr(
+			c,
 			http.StatusNotFound,
-			gin.H{"error": "session not found"},
+			"session not found",
 		)
 		return
 	}

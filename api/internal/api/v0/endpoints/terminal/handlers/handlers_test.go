@@ -15,6 +15,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	terminalhandlers "github.com/char2cs/crowbar/api/internal/api/v0/endpoints/terminal/handlers"
+	"github.com/char2cs/crowbar/api/internal/app/apperr"
 	"github.com/char2cs/crowbar/api/internal/domain"
 )
 
@@ -81,18 +82,24 @@ func (s *stubProfiles) FindAll(
 }
 
 // stubWorkspace is a WorkspaceReader returning a fixed worktree path, or an error
-// when fail is set so the 404 path is exercised.
+// when fail is set so the error path is exercised. By default fail returns
+// apperr.ErrNotFound (the 404 path); set err to override with a generic error
+// (the 500 path).
 type stubWorkspace struct {
 	path string
 	fail bool
+	err  error
 }
 
 func (s stubWorkspace) Get(
 	_ context.Context,
 	_ string,
 ) (domain.Workspace, error) {
+	if s.err != nil {
+		return domain.Workspace{}, s.err
+	}
 	if s.fail {
-		return domain.Workspace{}, errors.New("not found")
+		return domain.Workspace{}, apperr.ErrNotFound
 	}
 	return domain.Workspace{WorktreePath: s.path}, nil
 }

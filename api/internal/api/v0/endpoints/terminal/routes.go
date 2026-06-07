@@ -35,6 +35,6 @@ func Register(
 	rg.GET("/settings/terminal/profiles", h.ListProfiles)
 	rg.GET("/settings/terminal/profiles/:id", h.GetProfile)
 	rg.POST("/settings/terminal/profiles", h.CreateProfile)
-	rg.PUT("/settings/terminal/profiles/:id", h.UpdateProfile)
+	rg.PATCH("/settings/terminal/profiles/:id", h.UpdateProfile)
 	rg.DELETE("/settings/terminal/profiles/:id", h.DeleteProfile)
 }

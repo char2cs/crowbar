@@ -28,7 +28,7 @@ func TestDiagnostics_200Snapshot(t *testing.T) {
 }
 
 func TestDiagnostics_UnknownWorkspace_404(t *testing.T) {
-	r := newRouter(&fakeLSP{}, &fakeGit{}, &fakeWSReader{err: errBoom})
+	r := newRouter(&fakeLSP{}, &fakeGit{}, &fakeWSReader{err: errNotFound})
 
 	rec := do(t, r, http.MethodGet, "/v0/workspaces/ghost/lsp/diagnostics", nil)
 	assert.Equal(t, http.StatusNotFound, rec.Code)

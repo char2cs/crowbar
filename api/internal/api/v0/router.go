@@ -85,6 +85,7 @@ func (c *Container) Register(
 		rg,
 		c.eng.Provider,
 		c.app.Repositories.Workspace,
+		c.app.GORM.Repositories,
 	)
 	review.Register(
 		rg,

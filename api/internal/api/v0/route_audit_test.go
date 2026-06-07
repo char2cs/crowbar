@@ -111,7 +111,7 @@ func specRoutes() []string {
 		// §2.11 Terminal (+profiles)
 		"GET /v0/settings/terminal/profiles",
 		"POST /v0/settings/terminal/profiles",
-		"PUT /v0/settings/terminal/profiles/:id",
+		"PATCH /v0/settings/terminal/profiles/:id",
 		"DELETE /v0/settings/terminal/profiles/:id",
 		"POST /v0/workspaces/:wsId/terminals",
 		"DELETE /v0/terminals/:sessionId",
@@ -130,8 +130,6 @@ func specRoutes() []string {
 
 // extraRoutes is the documented superset registered beyond 02 §2: the LSP
 // document-sync notifications (04 §3, 10) and the single-profile detail read.
-// Profile update is PUT here while §2.11 says PATCH — tracked separately, not
-// changed by T18.
 func extraRoutes() []string {
 	return []string{
 		"POST /v0/workspaces/:wsId/lsp/didOpen",

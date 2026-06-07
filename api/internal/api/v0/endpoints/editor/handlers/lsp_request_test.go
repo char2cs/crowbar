@@ -136,7 +136,7 @@ func TestLSPRequest_BadBody_400(t *testing.T) {
 }
 
 func TestLSPRequest_UnknownWorkspace_404(t *testing.T) {
-	r := newRouter(&fakeLSP{}, &fakeGit{}, &fakeWSReader{err: errBoom})
+	r := newRouter(&fakeLSP{}, &fakeGit{}, &fakeWSReader{err: errNotFound})
 
 	for route, body := range lspRequestRoutes() {
 		rec := do(t, r, http.MethodPost, "/v0/workspaces/ghost/lsp/"+route, body)

@@ -46,22 +46,37 @@ type WorkspaceReader interface {
 	) (domain.Workspace, error)
 }
 
-// Handlers serves the /v0 provider routes from the provider engine and the
-// workspace reader. A nil provider engine surfaces as a 503 on every route.
+// RepoReader resolves a repo id to its persisted row, supplying the repo root
+// path the provider engine resolves protected branches against. It mirrors the
+// generic repository store's FindByKey method, returning a nil row (and nil
+// error) when the id is unknown.
+type RepoReader interface {
+	FindByKey(
+		ctx context.Context,
+		id string,
+	) (*domain.Repository, error)
+}
+
+// Handlers serves the /v0 provider routes from the provider engine, the
+// workspace reader, and the repo reader. A nil provider engine surfaces as a 503
+// on every route.
 type Handlers struct {
 	provider ProviderEngine
 	wsReader WorkspaceReader
+	repos    RepoReader
 }
 
-// New builds the provider Handlers from the provider engine and the workspace
-// reader.
+// New builds the provider Handlers from the provider engine, the workspace
+// reader, and the repo reader.
 func New(
 	provider ProviderEngine,
 	wsReader WorkspaceReader,
+	repos RepoReader,
 ) *Handlers {
 	return &Handlers{
 		provider: provider,
 		wsReader: wsReader,
+		repos:    repos,
 	}
 }
 
@@ -88,11 +103,8 @@ func (h *Handlers) workspace(
 		c.Param(idParam),
 	)
 	if err != nil {
-		libs.WriteErr(
-			c,
-			http.StatusNotFound,
-			"workspace not found",
-		)
+		status, msg := libs.StatusAndMessage(err)
+		libs.WriteErr(c, status, msg)
 		return domain.Workspace{}, false
 	}
 	return row, true

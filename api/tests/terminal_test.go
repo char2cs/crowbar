@@ -40,7 +40,11 @@ func TestTerminal_CreateStreamKill(t *testing.T) {
 
 	assert.True(t, readTerminalUntil(t, conn, "crowbar-e2e"), "PTY output must arrive over the WS")
 
-	h.del("/v0/terminals/"+session.SessionID, nil, http.StatusNoContent, nil)
+	var killed struct {
+		ID string `json:"id"`
+	}
+	h.del("/v0/terminals/"+session.SessionID, nil, http.StatusOK, &killed)
+	assert.Equal(t, session.SessionID, killed.ID)
 }
 
 // readTerminalUntil loop-reads PTY frames under a deadline until the decoded data

@@ -182,11 +182,8 @@ func (h *Handlers) worktreePath(
 		c.Param("wsId"),
 	)
 	if err != nil {
-		libs.WriteErr(
-			c,
-			http.StatusNotFound,
-			"workspace not found",
-		)
+		status, msg := libs.StatusAndMessage(err)
+		libs.WriteErr(c, status, msg)
 		return "", false
 	}
 	return row.WorktreePath, true

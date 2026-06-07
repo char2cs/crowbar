@@ -103,6 +103,42 @@ func TestDiffCommit(
 	assert.NotNil(t, body.Data.Files[0].Lines)
 }
 
+func TestDiffCommitFiltersByPath(
+	t *testing.T,
+) {
+	git := &fakeGit{
+		commitDiff: gitdomain.MultiFileDiff{
+			CommitHash: "deadbeef",
+			Files: []gitdomain.FileDiff{
+				{FilePath: "a.go", Additions: 3, Deletions: 1},
+				{FilePath: "b.go", Additions: 5, Deletions: 2},
+			},
+			TotalFiles:     2,
+			TotalAdditions: 8,
+			TotalDeletions: 3,
+		},
+	}
+	rec := do(newRouter(git), "/v0/workspaces/w1/git/diff?commit=deadbeef&path=b.go")
+
+	assert.Equal(t, http.StatusOK, rec.Code)
+	var body struct {
+		Data struct {
+			TotalFiles     int `json:"totalFiles"`
+			TotalAdditions int `json:"totalAdditions"`
+			TotalDeletions int `json:"totalDeletions"`
+			Files          []struct {
+				FilePath string `json:"file_path"`
+			} `json:"files"`
+		} `json:"data"`
+	}
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &body))
+	require.Len(t, body.Data.Files, 1)
+	assert.Equal(t, "b.go", body.Data.Files[0].FilePath)
+	assert.Equal(t, 1, body.Data.TotalFiles)
+	assert.Equal(t, 5, body.Data.TotalAdditions)
+	assert.Equal(t, 2, body.Data.TotalDeletions)
+}
+
 func TestDiffBadStaged(
 	t *testing.T,
 ) {

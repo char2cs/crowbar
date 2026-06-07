@@ -26,10 +26,11 @@ func TestMain(
 var errBoom = errors.New("boom")
 
 type fakeProvider struct {
-	state     providertypes.ProviderState
-	branches  []string
-	pollErr   error
-	branchErr error
+	state        providertypes.ProviderState
+	branches     []string
+	pollErr      error
+	branchErr    error
+	lastRepoPath string
 }
 
 func (f *fakeProvider) PollOnView(
@@ -43,8 +44,9 @@ func (f *fakeProvider) PollOnView(
 
 func (f *fakeProvider) ProtectedBranches(
 	_ context.Context,
-	_ string,
+	repoPath string,
 ) ([]string, error) {
+	f.lastRepoPath = repoPath
 	return f.branches, f.branchErr
 }
 
@@ -67,6 +69,23 @@ func (f *fakeWSReader) Get(
 
 var _ providerhandlers.WorkspaceReader = (*fakeWSReader)(nil)
 
+type fakeRepoReader struct {
+	repo *domain.Repository
+	err  error
+}
+
+func (f *fakeRepoReader) FindByKey(
+	_ context.Context,
+	_ string,
+) (*domain.Repository, error) {
+	if f.err != nil {
+		return nil, f.err
+	}
+	return f.repo, nil
+}
+
+var _ providerhandlers.RepoReader = (*fakeRepoReader)(nil)
+
 func okWSReader() *fakeWSReader {
 	return &fakeWSReader{
 		ws: domain.Workspace{
@@ -77,12 +96,29 @@ func okWSReader() *fakeWSReader {
 	}
 }
 
+func okRepoReader() *fakeRepoReader {
+	return &fakeRepoReader{
+		repo: &domain.Repository{
+			ID:   "r1",
+			Path: "/repo-root",
+		},
+	}
+}
+
 func newRouter(
 	prov providerhandlers.ProviderEngine,
 	wsReader providerhandlers.WorkspaceReader,
 ) *gin.Engine {
+	return newRouterWithRepos(prov, wsReader, okRepoReader())
+}
+
+func newRouterWithRepos(
+	prov providerhandlers.ProviderEngine,
+	wsReader providerhandlers.WorkspaceReader,
+	repos providerhandlers.RepoReader,
+) *gin.Engine {
 	r := gin.New()
-	h := providerhandlers.New(prov, wsReader)
+	h := providerhandlers.New(prov, wsReader, repos)
 	rg := r.Group("/v0")
 	rg.GET("/workspaces/:wsId/provider", h.ProviderState)
 	rg.GET("/repos/:id/protected-branches", h.ProtectedBranches)

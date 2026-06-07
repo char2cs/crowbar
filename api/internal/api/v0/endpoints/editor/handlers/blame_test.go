@@ -61,14 +61,22 @@ func TestBlame_MissingPath_400(t *testing.T) {
 }
 
 func TestBlame_UnknownWorkspace_404(t *testing.T) {
-	r := newRouter(&fakeLSP{}, &fakeGit{}, &fakeWSReader{err: errBoom})
+	r := newRouter(&fakeLSP{}, &fakeGit{}, &fakeWSReader{err: errNotFound})
 
 	rec := do(t, r, http.MethodGet, "/v0/workspaces/ghost/blame?path=main.go", nil)
 	require.Equal(t, http.StatusNotFound, rec.Code)
 
 	env := decode(t, rec)
 	assert.False(t, env.Success)
-	assert.Equal(t, "workspace not found", env.Error)
+	assert.Contains(t, env.Error, "not found")
+}
+
+func TestBlame_WorkspaceReaderError_500(t *testing.T) {
+	r := newRouter(&fakeLSP{}, &fakeGit{}, &fakeWSReader{err: errBoom})
+
+	rec := do(t, r, http.MethodGet, "/v0/workspaces/ws1/blame?path=main.go", nil)
+	require.Equal(t, http.StatusInternalServerError, rec.Code)
+	assert.False(t, decode(t, rec).Success)
 }
 
 func TestBlame_EngineError_500(t *testing.T) {

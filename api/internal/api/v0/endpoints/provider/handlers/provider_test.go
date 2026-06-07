@@ -9,6 +9,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/char2cs/crowbar/api/internal/api/v0/dto"
+	"github.com/char2cs/crowbar/api/internal/app/apperr"
 	providertypes "github.com/char2cs/crowbar/api/internal/engine/provider/types"
 )
 
@@ -54,14 +55,22 @@ func TestProviderState_200_NoPR(t *testing.T) {
 }
 
 func TestProviderState_WorkspaceNotFound_404(t *testing.T) {
-	r := newRouter(&fakeProvider{}, &fakeWSReader{err: errBoom})
+	r := newRouter(&fakeProvider{}, &fakeWSReader{err: apperr.ErrNotFound})
 
 	rec := do(t, r, "/v0/workspaces/ghost/provider")
 	require.Equal(t, http.StatusNotFound, rec.Code)
 
 	env := decode(t, rec)
 	assert.False(t, env.Success)
-	assert.Equal(t, "workspace not found", env.Error)
+	assert.Contains(t, env.Error, "not found")
+}
+
+func TestProviderState_WorkspaceReaderError_500(t *testing.T) {
+	r := newRouter(&fakeProvider{}, &fakeWSReader{err: errBoom})
+
+	rec := do(t, r, "/v0/workspaces/ws1/provider")
+	require.Equal(t, http.StatusInternalServerError, rec.Code)
+	assert.False(t, decode(t, rec).Success)
 }
 
 func TestProviderState_PollError_500(t *testing.T) {

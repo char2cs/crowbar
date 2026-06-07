@@ -42,6 +42,15 @@ func (stubWSReader) Get(
 	return domain.Workspace{WorktreePath: "/repo"}, nil
 }
 
+type stubRepoReader struct{}
+
+func (stubRepoReader) FindByKey(
+	_ context.Context,
+	_ string,
+) (*domain.Repository, error) {
+	return &domain.Repository{ID: "r1", Path: "/repo-root"}, nil
+}
+
 func TestRegister_MountsAllRoutes(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	r := gin.New()
@@ -49,6 +58,7 @@ func TestRegister_MountsAllRoutes(t *testing.T) {
 		r.Group("/v0"),
 		stubProvider{},
 		stubWSReader{},
+		stubRepoReader{},
 	)
 
 	rec := httptest.NewRecorder()

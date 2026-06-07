@@ -32,7 +32,11 @@ func TestWS_NilEngine503(t *testing.T) {
 	req := httptest.NewRequest(http.MethodGet, "/v0/ws/terminals/s1", nil)
 	w := httptest.NewRecorder()
 	r.ServeHTTP(w, req)
-	assert.Equal(t, http.StatusServiceUnavailable, w.Code)
+	require.Equal(t, http.StatusServiceUnavailable, w.Code)
+
+	env := decodeEnvelope(t, w.Body)
+	assert.False(t, env.Success)
+	assert.Equal(t, "terminal engine not available", env.Error)
 }
 
 func TestWS_SessionNotFound(t *testing.T) {
@@ -42,7 +46,11 @@ func TestWS_SessionNotFound(t *testing.T) {
 	req := httptest.NewRequest(http.MethodGet, "/v0/ws/terminals/ghost", nil)
 	w := httptest.NewRecorder()
 	r.ServeHTTP(w, req)
-	assert.Equal(t, http.StatusNotFound, w.Code)
+	require.Equal(t, http.StatusNotFound, w.Code)
+
+	env := decodeEnvelope(t, w.Body)
+	assert.False(t, env.Success)
+	assert.Equal(t, "session not found", env.Error)
 }
 
 func TestWS_UpgradeFailsForPlainRequest(t *testing.T) {

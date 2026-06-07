@@ -90,8 +90,9 @@ func (h *Handlers) CreateProfile(
 	)
 }
 
-// UpdateProfile handles PUT /v0/settings/terminal/profiles/:id. It rejects an
-// unknown id with 404, then persists the body under that id and returns it.
+// UpdateProfile handles PATCH /v0/settings/terminal/profiles/:id. It rejects an
+// unknown id with 404, then persists the body under that id (a full replace by
+// id) and returns it.
 func (h *Handlers) UpdateProfile(
 	c *gin.Context,
 ) {
@@ -138,7 +139,8 @@ func (h *Handlers) UpdateProfile(
 }
 
 // DeleteProfile handles DELETE /v0/settings/terminal/profiles/:id. It rejects an
-// unknown id with 404, then removes the profile and returns 204.
+// unknown id with 404, then removes the profile and returns the enveloped
+// profile id.
 func (h *Handlers) DeleteProfile(
 	c *gin.Context,
 ) {
@@ -170,5 +172,5 @@ func (h *Handlers) DeleteProfile(
 		return
 	}
 
-	c.Status(http.StatusNoContent)
+	libs.WriteMutationOK(c, http.StatusOK, id)
 }

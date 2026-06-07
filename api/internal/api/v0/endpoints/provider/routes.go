@@ -12,14 +12,16 @@ import (
 )
 
 // Register mounts the provider-state and protected-branches routes on the
-// supplied router group, backed by the provider engine and the workspace
-// reader.
+// supplied router group, backed by the provider engine, the workspace reader,
+// and the repo reader. The protected-branches route resolves its :id as a repo
+// id against the repo reader, not a workspace id.
 func Register(
 	rg *gin.RouterGroup,
 	providerEng providerhandlers.ProviderEngine,
 	wsReader providerhandlers.WorkspaceReader,
+	repos providerhandlers.RepoReader,
 ) {
-	h := providerhandlers.New(providerEng, wsReader)
+	h := providerhandlers.New(providerEng, wsReader, repos)
 	rg.GET("/workspaces/:wsId/provider", h.ProviderState)
 	rg.GET("/repos/:id/protected-branches", h.ProtectedBranches)
 }

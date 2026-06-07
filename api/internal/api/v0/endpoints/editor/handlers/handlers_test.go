@@ -13,6 +13,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	editorhandlers "github.com/char2cs/crowbar/api/internal/api/v0/endpoints/editor/handlers"
+	"github.com/char2cs/crowbar/api/internal/app/apperr"
 	"github.com/char2cs/crowbar/api/internal/domain"
 	gitdomain "github.com/char2cs/crowbar/api/internal/domain/git"
 	domlsp "github.com/char2cs/crowbar/api/internal/domain/lsp"
@@ -25,7 +26,10 @@ func TestMain(
 	m.Run()
 }
 
-var errBoom = errors.New("boom")
+var (
+	errBoom     = errors.New("boom")
+	errNotFound = apperr.ErrNotFound
+)
 
 type fakeLSP struct {
 	completion     json.RawMessage

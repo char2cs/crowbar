@@ -78,7 +78,7 @@ func TestRegister_MountsAllRoutes(t *testing.T) {
 	assert.True(t, mounted["GET /v0/settings/terminal/profiles"])
 	assert.True(t, mounted["GET /v0/settings/terminal/profiles/:id"])
 	assert.True(t, mounted["POST /v0/settings/terminal/profiles"])
-	assert.True(t, mounted["PUT /v0/settings/terminal/profiles/:id"])
+	assert.True(t, mounted["PATCH /v0/settings/terminal/profiles/:id"])
 	assert.True(t, mounted["DELETE /v0/settings/terminal/profiles/:id"])
 }
 

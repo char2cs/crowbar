@@ -113,7 +113,7 @@ func TestUpdateProfile_HappyPath(t *testing.T) {
 	store := newStubProfiles()
 	require.NoError(t, store.Save(context.Background(), terminalProfile("p1")))
 	h := newHandlers(stubEngine{}, store, stubWorkspace{})
-	w := doReq(t, h.UpdateProfile, http.MethodPut, "/v0/settings/terminal/profiles/p1", gin.Params{{Key: "id", Value: "p1"}}, `{"name":"updated","shell":"/bin/fish"}`)
+	w := doReq(t, h.UpdateProfile, http.MethodPatch, "/v0/settings/terminal/profiles/p1", gin.Params{{Key: "id", Value: "p1"}}, `{"name":"updated","shell":"/bin/fish"}`)
 	require.Equal(t, http.StatusOK, w.Code)
 
 	env := decodeEnvelope(t, w.Body)
@@ -125,7 +125,7 @@ func TestUpdateProfile_HappyPath(t *testing.T) {
 
 func TestUpdateProfile_NotFound(t *testing.T) {
 	h := newHandlers(stubEngine{}, newStubProfiles(), stubWorkspace{})
-	w := doReq(t, h.UpdateProfile, http.MethodPut, "/v0/settings/terminal/profiles/ghost", gin.Params{{Key: "id", Value: "ghost"}}, `{"name":"x"}`)
+	w := doReq(t, h.UpdateProfile, http.MethodPatch, "/v0/settings/terminal/profiles/ghost", gin.Params{{Key: "id", Value: "ghost"}}, `{"name":"x"}`)
 	assert.Equal(t, http.StatusNotFound, w.Code)
 }
 
@@ -133,7 +133,7 @@ func TestUpdateProfile_LookupError(t *testing.T) {
 	store := newStubProfiles()
 	store.failAll = true
 	h := newHandlers(stubEngine{}, store, stubWorkspace{})
-	w := doReq(t, h.UpdateProfile, http.MethodPut, "/v0/settings/terminal/profiles/p1", gin.Params{{Key: "id", Value: "p1"}}, `{"name":"x"}`)
+	w := doReq(t, h.UpdateProfile, http.MethodPatch, "/v0/settings/terminal/profiles/p1", gin.Params{{Key: "id", Value: "p1"}}, `{"name":"x"}`)
 	assert.Equal(t, http.StatusInternalServerError, w.Code)
 }
 
@@ -141,7 +141,7 @@ func TestUpdateProfile_BadBody(t *testing.T) {
 	store := newStubProfiles()
 	require.NoError(t, store.Save(context.Background(), terminalProfile("p1")))
 	h := newHandlers(stubEngine{}, store, stubWorkspace{})
-	w := doReq(t, h.UpdateProfile, http.MethodPut, "/v0/settings/terminal/profiles/p1", gin.Params{{Key: "id", Value: "p1"}}, `{`)
+	w := doReq(t, h.UpdateProfile, http.MethodPatch, "/v0/settings/terminal/profiles/p1", gin.Params{{Key: "id", Value: "p1"}}, `{`)
 	assert.Equal(t, http.StatusBadRequest, w.Code)
 }
 
@@ -149,7 +149,7 @@ func TestUpdateProfile_SaveError(t *testing.T) {
 	store := &saveFailStore{stubProfiles: newStubProfiles()}
 	require.NoError(t, store.stubProfiles.Save(context.Background(), terminalProfile("p1")))
 	h := newHandlers(stubEngine{}, store, stubWorkspace{})
-	w := doReq(t, h.UpdateProfile, http.MethodPut, "/v0/settings/terminal/profiles/p1", gin.Params{{Key: "id", Value: "p1"}}, `{"name":"x"}`)
+	w := doReq(t, h.UpdateProfile, http.MethodPatch, "/v0/settings/terminal/profiles/p1", gin.Params{{Key: "id", Value: "p1"}}, `{"name":"x"}`)
 	assert.Equal(t, http.StatusInternalServerError, w.Code)
 }
 
@@ -158,7 +158,16 @@ func TestDeleteProfile_HappyPath(t *testing.T) {
 	require.NoError(t, store.Save(context.Background(), terminalProfile("p1")))
 	h := newHandlers(stubEngine{}, store, stubWorkspace{})
 	w := doReq(t, h.DeleteProfile, http.MethodDelete, "/v0/settings/terminal/profiles/p1", gin.Params{{Key: "id", Value: "p1"}}, "")
-	assert.Equal(t, http.StatusNoContent, w.Code)
+	require.Equal(t, http.StatusOK, w.Code)
+
+	env := decodeEnvelope(t, w.Body)
+	assert.True(t, env.Success)
+	var data struct {
+		ID string `json:"id"`
+	}
+	require.NoError(t, json.Unmarshal(env.Data, &data))
+	assert.Equal(t, "p1", data.ID)
+
 	_, ok := store.items["p1"]
 	assert.False(t, ok)
 }

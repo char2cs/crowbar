@@ -15,8 +15,8 @@ import (
 // it returns that commit's MultiFileDiff; otherwise it returns the working-tree
 // diff as a FileDiffDTO list. The staged query parameter (default false)
 // selects the staged diff over the unstaged one, and an optional path parameter
-// scopes the working-tree diff to a single file. A non-boolean staged value is
-// rejected with 400.
+// scopes either diff to a single file. A non-boolean staged value is rejected
+// with 400.
 func (h *Handlers) Diff(
 	c *gin.Context,
 ) {
@@ -38,7 +38,8 @@ func (h *Handlers) commitDiff(
 		libs.WriteErr(c, code, msg)
 		return
 	}
-	libs.WriteQueryOK(c, dto.MultiFileDiffDTOFrom(diff))
+	scoped := scopeMultiFileDiff(diff, c.Query("path"))
+	libs.WriteQueryOK(c, dto.MultiFileDiffDTOFrom(scoped))
 }
 
 func (h *Handlers) workingTreeDiff(
@@ -86,4 +87,26 @@ func filterByPath(
 		}
 	}
 	return out
+}
+
+// scopeMultiFileDiff narrows a commit's MultiFileDiff to the single file at path
+// and recomputes the aggregate totals so they stay consistent with the retained
+// file. An empty path returns the diff unchanged.
+func scopeMultiFileDiff(
+	diff gitdomain.MultiFileDiff,
+	path string,
+) gitdomain.MultiFileDiff {
+	if path == "" {
+		return diff
+	}
+	files := filterByPath(diff.Files, path)
+	diff.Files = files
+	diff.TotalFiles = len(files)
+	diff.TotalAdditions = 0
+	diff.TotalDeletions = 0
+	for _, f := range files {
+		diff.TotalAdditions += f.Additions
+		diff.TotalDeletions += f.Deletions
+	}
+	return diff
 }

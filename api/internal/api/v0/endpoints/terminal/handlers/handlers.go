@@ -105,15 +105,21 @@ func (h *Handlers) requireEngine(
 }
 
 func (h *Handlers) resolveProfile(
-	ctx context.Context,
+	c *gin.Context,
 	profileID string,
-) *domain.TerminalProfile {
+) (*domain.TerminalProfile, bool) {
 	if profileID == "" {
-		return nil
+		return nil, true
 	}
-	prof, err := h.profiles.FindByKey(ctx, profileID)
+	prof, err := h.profiles.FindByKey(c.Request.Context(), profileID)
 	if err != nil {
-		return nil
+		status, msg := libs.StatusAndMessage(err)
+		libs.WriteErr(c, status, msg)
+		return nil, false
 	}
-	return prof
+	if prof == nil {
+		libs.WriteErr(c, http.StatusNotFound, "profile not found")
+		return nil, false
+	}
+	return prof, true
 }

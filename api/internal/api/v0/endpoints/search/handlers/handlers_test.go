@@ -16,6 +16,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	searchhandlers "github.com/char2cs/crowbar/api/internal/api/v0/endpoints/search/handlers"
+	"github.com/char2cs/crowbar/api/internal/app/apperr"
 	"github.com/char2cs/crowbar/api/internal/domain"
 	enginesearch "github.com/char2cs/crowbar/api/internal/engine/search"
 )
@@ -129,7 +130,7 @@ func TestSearch_WorkspaceNotFound_404(t *testing.T) {
 	r := newRouter(
 		t,
 		enginesearch.New(),
-		stubReader{err: errors.New("no row")},
+		stubReader{err: apperr.ErrNotFound},
 	)
 
 	w := doPost(t, r, "/v0/workspaces/missing/search", `{"query":"hello"}`)
@@ -138,11 +139,24 @@ func TestSearch_WorkspaceNotFound_404(t *testing.T) {
 	assert.False(t, decodeEnvelope(t, w).Success)
 }
 
+func TestSearch_WorkspaceReaderError_500(t *testing.T) {
+	r := newRouter(
+		t,
+		enginesearch.New(),
+		stubReader{err: errors.New("db down")},
+	)
+
+	w := doPost(t, r, "/v0/workspaces/ws1/search", `{"query":"hello"}`)
+
+	assert.Equal(t, http.StatusInternalServerError, w.Code)
+	assert.False(t, decodeEnvelope(t, w).Success)
+}
+
 func TestReplace_WorkspaceNotFound_404(t *testing.T) {
 	r := newRouter(
 		t,
 		enginesearch.New(),
-		stubReader{err: errors.New("no row")},
+		stubReader{err: apperr.ErrNotFound},
 	)
 
 	w := doPost(
@@ -153,5 +167,23 @@ func TestReplace_WorkspaceNotFound_404(t *testing.T) {
 	)
 
 	assert.Equal(t, http.StatusNotFound, w.Code)
+	assert.False(t, decodeEnvelope(t, w).Success)
+}
+
+func TestReplace_WorkspaceReaderError_500(t *testing.T) {
+	r := newRouter(
+		t,
+		enginesearch.New(),
+		stubReader{err: errors.New("db down")},
+	)
+
+	w := doPost(
+		t,
+		r,
+		"/v0/workspaces/ws1/search/replace",
+		`{"query":"hello","replacement":"bye","scope":"all"}`,
+	)
+
+	assert.Equal(t, http.StatusInternalServerError, w.Code)
 	assert.False(t, decodeEnvelope(t, w).Success)
 }

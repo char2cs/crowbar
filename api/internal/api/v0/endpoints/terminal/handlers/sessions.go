@@ -9,7 +9,7 @@ import (
 
 	"github.com/char2cs/crowbar/api/internal/api/libs"
 	"github.com/char2cs/crowbar/api/internal/api/v0/dto"
-	engineterminal "github.com/char2cs/crowbar/api/internal/engine/terminal"
+	"github.com/char2cs/crowbar/api/internal/domain"
 )
 
 // createSessionBody is the optional request body for a session create: the id of
@@ -21,7 +21,8 @@ type createSessionBody struct {
 
 // CreateSession handles POST /v0/workspaces/:wsId/terminals. It resolves the
 // workspace to its worktree path, optionally loads the requested profile, spawns
-// a PTY session, and returns its id under data: { sessionId }.
+// a PTY session, and returns its id under data: { sessionId }. An unknown
+// profileId yields 404; a profile-store error yields 500.
 func (h *Handlers) CreateSession(
 	c *gin.Context,
 ) {
@@ -29,14 +30,8 @@ func (h *Handlers) CreateSession(
 		return
 	}
 
-	wsID := c.Param("wsId")
-	ws, err := h.wsReader.Get(c.Request.Context(), wsID)
-	if err != nil {
-		libs.WriteErr(
-			c,
-			http.StatusNotFound,
-			"workspace not found",
-		)
+	ws, ok := h.workspace(c)
+	if !ok {
 		return
 	}
 
@@ -50,11 +45,14 @@ func (h *Handlers) CreateSession(
 		return
 	}
 
-	prof := h.resolveProfile(c.Request.Context(), body.ProfileID)
+	prof, ok := h.resolveProfile(c, body.ProfileID)
+	if !ok {
+		return
+	}
 
 	sid, err := h.eng.Create(
 		c.Request.Context(),
-		wsID,
+		ws.ID,
 		ws.WorktreePath,
 		prof,
 	)
@@ -77,7 +75,8 @@ func (h *Handlers) CreateSession(
 }
 
 // KillSession handles DELETE /v0/terminals/:sessionId. It terminates the PTY
-// session and returns 204, or 404 when the session is unknown.
+// session and returns the enveloped session id, or 404 when the session is
+// unknown.
 func (h *Handlers) KillSession(
 	c *gin.Context,
 ) {
@@ -87,22 +86,26 @@ func (h *Handlers) KillSession(
 
 	sid := c.Param("sessionId")
 	err := h.eng.Kill(c.Request.Context(), sid)
-	if errors.Is(err, engineterminal.ErrSessionNotFound) {
-		libs.WriteErr(
-			c,
-			http.StatusNotFound,
-			err.Error(),
-		)
-		return
-	}
 	if err != nil {
-		libs.WriteErr(
-			c,
-			http.StatusInternalServerError,
-			err.Error(),
-		)
+		status, msg := libs.StatusAndMessage(err)
+		libs.WriteErr(c, status, msg)
 		return
 	}
 
-	c.Status(http.StatusNoContent)
+	libs.WriteMutationOK(c, http.StatusOK, sid)
+}
+
+func (h *Handlers) workspace(
+	c *gin.Context,
+) (domain.Workspace, bool) {
+	ws, err := h.wsReader.Get(
+		c.Request.Context(),
+		c.Param("wsId"),
+	)
+	if err != nil {
+		status, msg := libs.StatusAndMessage(err)
+		libs.WriteErr(c, status, msg)
+		return domain.Workspace{}, false
+	}
+	return ws, true
 }
