@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -121,6 +122,175 @@ func TestBroadcaster_SnapshotOnSubscribe(t *testing.T) {
 	var got item
 	read(t, conn, &got)
 	assert.Equal(t, "seed", got.Name)
+}
+
+// readItem reads one frame with a deadline and decodes it, returning false on
+// any read error so callers can loop until an expected count is reached without
+// a fixed sleep.
+func readItem(
+	t *testing.T,
+	conn *websocket.Conn,
+) (item, bool) {
+	t.Helper()
+	_ = conn.SetReadDeadline(time.Now().Add(2 * time.Second))
+	_, msg, err := conn.ReadMessage()
+	if err != nil {
+		return item{}, false
+	}
+	var got item
+	require.NoError(t, json.Unmarshal(msg, &got))
+	return got, true
+}
+
+// A snapshot larger than the cl.send buffer (64) must be delivered in full: the
+// non-dropping snapshot path must not truncate past the buffer size.
+func TestBroadcaster_Snapshot_LargerThanBuffer_NoTruncation(t *testing.T) {
+	const total = 200
+	def := itemDef()
+	def.Snapshot = func() []item {
+		out := make([]item, total)
+		for i := range out {
+			out[i] = item{Name: fmt.Sprintf("s%d", i), Kind: "fruit"}
+		}
+		return out
+	}
+	b, srv := setup(t, def)
+	conn := dial(t, srv, "/items?kind=fruit")
+	b.WaitRegistered()
+
+	seen := make(map[string]struct{}, total)
+	for len(seen) < total {
+		got, ok := readItem(t, conn)
+		require.Truef(t, ok, "stopped after %d/%d snapshot frames (truncation)", len(seen), total)
+		seen[got.Name] = struct{}{}
+	}
+	assert.Len(t, seen, total)
+}
+
+// Frames that do not match the client's predicate are excluded from the snapshot
+// (the snapshot is filtered, like live Push).
+func TestBroadcaster_Snapshot_FilteredByPredicate(t *testing.T) {
+	def := itemDef()
+	def.Snapshot = func() []item {
+		return []item{
+			{Name: "veg1", Kind: "veg"},
+			{Name: "fruit1", Kind: "fruit"},
+		}
+	}
+	b, srv := setup(t, def)
+	conn := dial(t, srv, "/items?kind=fruit")
+	b.WaitRegistered()
+
+	got, ok := readItem(t, conn)
+	require.True(t, ok)
+	assert.Equal(t, "fruit1", got.Name, "only matching snapshot frames should arrive")
+}
+
+// A snapshot item that fails to serialize is skipped; the remaining items are
+// still delivered in full (serialize error must not abort the snapshot).
+func TestBroadcaster_Snapshot_SerializeErrorSkipped(t *testing.T) {
+	def := ws.StreamDef[item]{
+		Namespace: func(i item) string { return i.Name },
+		Serialize: func(i item) ([]byte, error) {
+			if i.Name == "bad" {
+				return nil, fmt.Errorf("boom")
+			}
+			return json.Marshal(i)
+		},
+		Filters: []ws.FilterDef[item]{
+			{Param: "kind", Extract: func(i item) string { return i.Kind }, Match: ws.ExactMatch},
+		},
+		Snapshot: func() []item {
+			return []item{
+				{Name: "bad", Kind: "fruit"},
+				{Name: "good", Kind: "fruit"},
+			}
+		},
+	}
+	b, srv := setup(t, def)
+	conn := dial(t, srv, "/items?kind=fruit")
+	b.WaitRegistered()
+
+	got, ok := readItem(t, conn)
+	require.True(t, ok)
+	assert.Equal(t, "good", got.Name, "non-failing snapshot frames must still arrive")
+}
+
+// The snapshot frames must precede live frames on the wire even when the snapshot
+// is large (ordering preserved by flushSnapshot-before-loop).
+func TestBroadcaster_Snapshot_PrecedesLive(t *testing.T) {
+	const total = 100
+	def := itemDef()
+	def.Snapshot = func() []item {
+		out := make([]item, total)
+		for i := range out {
+			out[i] = item{Name: fmt.Sprintf("snap%d", i), Kind: "fruit"}
+		}
+		return out
+	}
+	b, srv := setup(t, def)
+	conn := dial(t, srv, "/items?kind=fruit")
+	b.WaitRegistered()
+
+	b.Push(item{Name: "live", Kind: "fruit"})
+
+	for i := 0; i < total; i++ {
+		got, ok := readItem(t, conn)
+		require.Truef(t, ok, "missing snapshot frame %d before live", i)
+		require.NotEqual(t, "live", got.Name, "live frame arrived before snapshot completed")
+	}
+	got, ok := readItem(t, conn)
+	require.True(t, ok)
+	assert.Equal(t, "live", got.Name, "live frame must follow all snapshot frames")
+}
+
+// A live Push to a DIFFERENT client must not be blocked while a client with a
+// slow/large snapshot connects: the broadcaster lock is not held during snapshot
+// compute. Timing-free: the snapshot func signals it is running and blocks until
+// released; meanwhile a Push to an already-connected client must complete.
+func TestBroadcaster_Snapshot_DoesNotBlockConcurrentPush(t *testing.T) {
+	running := make(chan struct{})
+	release := make(chan struct{})
+	var armed atomic.Bool
+
+	def := itemDef()
+	def.Snapshot = func() []item {
+		if !armed.Load() {
+			return nil
+		}
+		close(running)
+		<-release
+		return []item{{Name: "snap", Kind: "fruit"}}
+	}
+	b, srv := setup(t, def)
+
+	// First client connects with snapshot disarmed (empty snapshot).
+	first := dial(t, srv, "/items?kind=fruit")
+	b.WaitRegistered()
+
+	// Arm the snapshot, then connect a second client whose snapshot blocks.
+	armed.Store(true)
+	go func() { _ = dial(t, srv, "/items?kind=fruit") }()
+	<-running // second client is inside Snapshot(), NOT holding b.mu
+
+	// Push to the first client must succeed while the second is mid-snapshot.
+	pushed := make(chan struct{})
+	go func() {
+		b.Push(item{Name: "concurrent", Kind: "fruit"})
+		close(pushed)
+	}()
+
+	select {
+	case <-pushed:
+	case <-time.After(2 * time.Second):
+		t.Fatal("Push blocked while another client computed its snapshot under lock")
+	}
+
+	got, ok := readItem(t, first)
+	require.True(t, ok)
+	assert.Equal(t, "concurrent", got.Name)
+
+	close(release)
 }
 
 func TestBroadcaster_UpgradeRejectsNonWS(t *testing.T) {

@@ -6,6 +6,7 @@ import (
 	"context"
 	"os"
 	"path/filepath"
+	"runtime"
 	"sync"
 	"testing"
 	"time"
@@ -365,6 +366,84 @@ func TestStart_AddRecursiveErrorPropagated(t *testing.T) {
 	t.Cleanup(cancel)
 	t.Cleanup(w.Stop)
 	require.NoError(t, w.Start(ctx))
+}
+
+// ---------------------------------------------------------------------------
+// Start/Stop ordering — every created fsnotify.Watcher is closed exactly once,
+// no inotify FD or loop goroutine leak, regardless of cancel/stop ordering.
+// ---------------------------------------------------------------------------
+
+// fswClosed reports whether the watcher's underlying fsnotify watcher is closed.
+// A closed fsnotify watcher rejects Add with an error; an open one accepts it.
+func fswClosed(
+	t *testing.T,
+	w *Watcher,
+) bool {
+	t.Helper()
+	w.mu.Lock()
+	fsw := w.fsw
+	w.mu.Unlock()
+	require.NotNil(t, fsw, "Start must have created an fsnotify watcher")
+	return fsw.Add(t.TempDir()) != nil
+}
+
+// Start on an already-cancelled ctx must return ctx.Err() and never create a
+// watcher or a loop goroutine (the FD is never allocated).
+func TestStart_AlreadyCancelledCtx_NoAllocation(t *testing.T) {
+	dir := t.TempDir()
+	w := NewWatcher("ws-cancelled", dir, "", &minimalGit{}, &recordingDispatcher{})
+
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+
+	err := w.Start(ctx)
+	require.ErrorIs(t, err, context.Canceled)
+
+	w.mu.Lock()
+	fsw := w.fsw
+	w.mu.Unlock()
+	assert.Nil(t, fsw, "no fsnotify watcher should be created for a cancelled ctx")
+}
+
+// Stop before Start: the next Start observes stopped, closes the watcher it just
+// created in place, and returns without registering it or entering the loop. The
+// created fsnotify watcher is closed (FD freed) and no loop goroutine is spawned.
+func TestStart_StopBeforeStart_ClosesCreatedWatcher(t *testing.T) {
+	dir := t.TempDir()
+	w := NewWatcher("ws-stop-first", dir, "", &minimalGit{}, &recordingDispatcher{})
+
+	w.Stop()
+
+	err := w.Start(context.Background())
+	require.ErrorIs(t, err, context.Canceled)
+
+	w.mu.Lock()
+	fsw := w.fsw
+	w.mu.Unlock()
+	assert.Nil(t, fsw, "stopped Start must not register the watcher it closed")
+}
+
+// The flap race: Start succeeds and enters the loop, then Stop cancels. The
+// loop's defer closes the fsnotify watcher exactly once and the goroutine exits.
+func TestStartThenStop_ClosesWatcherAndDrainsGoroutine(t *testing.T) {
+	dir := t.TempDir()
+	rd := &recordingDispatcher{}
+	w := NewWatcher("ws-flap", dir, "", &minimalGit{}, rd)
+
+	before := runtime.NumGoroutine()
+	require.NoError(t, w.Start(context.Background()))
+
+	w.Stop()
+	w.Stop() // idempotent: must not panic or double-close
+
+	deadline := time.Now().Add(2 * time.Second)
+	for runtime.NumGoroutine() > before {
+		if time.Now().After(deadline) {
+			t.Fatal("loop goroutine did not exit after Stop")
+		}
+		runtime.Gosched()
+	}
+	assert.True(t, fswClosed(t, w), "fsnotify watcher must be closed after Stop")
 }
 
 // ---------------------------------------------------------------------------

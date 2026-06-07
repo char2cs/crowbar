@@ -28,10 +28,11 @@ type Watcher struct {
 	git          GitStatusProvider
 	dispatcher   Dispatcher
 
-	fsw     *fsnotify.Watcher
-	mu      sync.Mutex
-	stopCh  chan struct{}
-	stopped bool
+	fsw          *fsnotify.Watcher
+	mu           sync.Mutex
+	stopCh       chan struct{}
+	stopped      bool
+	fswCloseOnce sync.Once
 
 	prevAdded    int
 	prevDeleted  int
@@ -58,20 +59,35 @@ func NewWatcher(
 }
 
 // Start begins watching the repo root recursively. It blocks until ctx is
-// cancelled or Stop is called.
+// cancelled or Stop is called. Every *fsnotify.Watcher Start creates is closed
+// exactly once regardless of cancel/stop ordering: if ctx is already cancelled
+// or Stop already ran before registration, the freshly created watcher is closed
+// immediately and Start returns without leaking an inotify FD or a loop goroutine.
 func (w *Watcher) Start(
 	ctx context.Context,
 ) error {
+	select {
+	case <-ctx.Done():
+		return ctx.Err()
+	default:
+	}
+
 	fsw, err := fsnotify.NewWatcher()
 	if err != nil {
 		return fmt.Errorf("watch: start: new fsnotify watcher: %w", err)
 	}
+
 	w.mu.Lock()
+	if w.stopped {
+		w.mu.Unlock()
+		_ = fsw.Close()
+		return context.Canceled
+	}
 	w.fsw = fsw
 	w.mu.Unlock()
 
 	if err := w.addRecursive(w.repoPath); err != nil {
-		fsw.Close()
+		w.closeFSW()
 		return fmt.Errorf("watch: start: add recursive %s: %w", w.repoPath, err)
 	}
 
@@ -94,18 +110,33 @@ func (w *Watcher) Start(
 	return nil
 }
 
-// Stop tears down the watcher.
+// closeFSW closes the fsnotify watcher exactly once. It is safe to call from
+// Start's early-return paths, from loop on exit, and from Stop concurrently.
+func (w *Watcher) closeFSW() {
+	w.fswCloseOnce.Do(func() {
+		w.mu.Lock()
+		fsw := w.fsw
+		w.mu.Unlock()
+		if fsw != nil {
+			_ = fsw.Close()
+		}
+	})
+}
+
+// Stop tears down the watcher. It is idempotent and safe to call before, during,
+// or after Start. Calling Stop before Start makes the next Start observe stopped
+// and close its watcher immediately rather than entering the loop.
 func (w *Watcher) Stop() {
 	w.mu.Lock()
-	defer w.mu.Unlock()
 	if w.stopped {
+		w.mu.Unlock()
 		return
 	}
 	w.stopped = true
 	close(w.stopCh)
-	if w.fsw != nil {
-		w.fsw.Close()
-	}
+	w.mu.Unlock()
+
+	w.closeFSW()
 }
 
 // loop is the main event loop. It debounces events and calls handleBurst.
@@ -113,6 +144,8 @@ func (w *Watcher) Stop() {
 func (w *Watcher) loop(
 	ctx context.Context,
 ) {
+	defer w.closeFSW()
+
 	timer := time.NewTimer(0)
 	if !timer.Stop() {
 		<-timer.C
