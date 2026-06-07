@@ -4,6 +4,7 @@ import (
 	"github.com/gin-gonic/gin"
 
 	"github.com/char2cs/crowbar/api/internal/api/v0/endpoints/chats"
+	"github.com/char2cs/crowbar/api/internal/api/v0/endpoints/files"
 	"github.com/char2cs/crowbar/api/internal/api/v0/endpoints/health"
 	"github.com/char2cs/crowbar/api/internal/api/v0/endpoints/projects"
 	"github.com/char2cs/crowbar/api/internal/api/v0/endpoints/repos"
@@ -35,6 +36,10 @@ func (c *Container) Register(
 	chats.Register(
 		rg,
 		c.app.Usecases.Chat,
+	)
+	files.Register(
+		rg,
+		c.app.Usecases.File,
 	)
 	rg.GET("/ws/workspaces", c.workspaces.Handle)
 	rg.GET("/ws/chats", c.chats.Handle)
