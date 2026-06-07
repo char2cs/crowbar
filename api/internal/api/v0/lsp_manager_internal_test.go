@@ -96,15 +96,34 @@ func TestLSPManager_StopAllIdempotentAndEmptyNoop(t *testing.T) {
 	rec := &recordingLifecycle{}
 	m := NewLSPManager(context.Background(), rec)
 
-	m.StopAll() // nothing held: no-op
-	assert.Equal(t, 0, rec.shutdownCount())
-
 	m.Acquire("w1")
 	m.StopAll()
 	assert.Equal(t, 1, rec.shutdownCount())
 
 	m.StopAll() // second call shuts nothing further
 	assert.Equal(t, 1, rec.shutdownCount())
+}
+
+func TestLSPManager_StopAllOnEmptyIsNoop(t *testing.T) {
+	rec := &recordingLifecycle{}
+	m := NewLSPManager(context.Background(), rec)
+
+	m.StopAll() // nothing held: no-op
+	assert.Equal(t, 0, rec.shutdownCount())
+}
+
+func TestLSPManager_AcquireAfterStopAllIsNoop(t *testing.T) {
+	rec := &recordingLifecycle{}
+	m := NewLSPManager(context.Background(), rec)
+
+	m.StopAll()
+	m.Acquire("w1") // late subscribe after shutdown: no Ensure, no ref
+
+	assert.Empty(t, rec.ensures)
+	m.mu.Lock()
+	remaining := len(m.refs)
+	m.mu.Unlock()
+	assert.Equal(t, 0, remaining)
 }
 
 func TestNoopLSPLifecycle_DoesNothing(t *testing.T) {

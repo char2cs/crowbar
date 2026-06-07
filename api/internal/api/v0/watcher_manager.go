@@ -25,6 +25,7 @@ type WatcherManager struct {
 	factory watcherFactory
 	mu      sync.Mutex
 	handles map[string]*watcherHandle
+	closed  bool
 }
 
 // NewWatcherManager builds a WatcherManager. root is the parent context for
@@ -42,7 +43,9 @@ func NewWatcherManager(
 
 // Acquire records one subscriber for wsID. On the 0→1 transition it builds and
 // starts the watcher in a goroutine under a cancelable context. A blank wsID is
-// ignored so a misrouted subscribe can never start an unscoped watcher.
+// ignored so a misrouted subscribe can never start an unscoped watcher. After
+// StopAll has run it is a no-op, so a late subscribe from a not-yet-closed
+// hijacked WS connection cannot start a watcher under the cancelled root.
 func (m *WatcherManager) Acquire(
 	wsID string,
 ) {
@@ -50,6 +53,10 @@ func (m *WatcherManager) Acquire(
 		return
 	}
 	m.mu.Lock()
+	if m.closed {
+		m.mu.Unlock()
+		return
+	}
 	if h, ok := m.handles[wsID]; ok {
 		h.refs++
 		m.mu.Unlock()
@@ -101,6 +108,7 @@ func (m *WatcherManager) Release(
 // are closed promptly rather than waiting on process exit.
 func (m *WatcherManager) StopAll() {
 	m.mu.Lock()
+	m.closed = true
 	handles := m.handles
 	m.handles = make(map[string]*watcherHandle)
 	m.mu.Unlock()

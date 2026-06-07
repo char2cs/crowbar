@@ -172,8 +172,6 @@ func TestWatcherManager_StopAllIdempotentAndEmptyNoop(t *testing.T) {
 	factory, _ := countingFactory(t, procs)
 	m := NewWatcherManager(context.Background(), factory)
 
-	require.NotPanics(t, m.StopAll) // no live watcher: no-op
-
 	m.Acquire("w1")
 	p := <-procs
 	<-p.started
@@ -181,6 +179,14 @@ func TestWatcherManager_StopAllIdempotentAndEmptyNoop(t *testing.T) {
 	m.StopAll()
 	<-p.stopped
 	require.NotPanics(t, m.StopAll) // second call is safe
+}
+
+func TestWatcherManager_StopAllOnEmptyIsNoop(t *testing.T) {
+	procs := make(chan *fakeWatcherProc, 4)
+	factory, _ := countingFactory(t, procs)
+	m := NewWatcherManager(context.Background(), factory)
+
+	require.NotPanics(t, m.StopAll) // no live watcher: no-op
 }
 
 func TestWatcherManager_ReleaseAfterStopAllIsNoop(t *testing.T) {
@@ -195,6 +201,27 @@ func TestWatcherManager_ReleaseAfterStopAllIsNoop(t *testing.T) {
 	m.StopAll()
 	<-p.stopped
 	require.NotPanics(t, func() { m.Release("w1") })
+}
+
+func TestWatcherManager_AcquireAfterStopAllIsNoop(t *testing.T) {
+	procs := make(chan *fakeWatcherProc, 4)
+	factory, calls := countingFactory(t, procs)
+	m := NewWatcherManager(context.Background(), factory)
+
+	m.StopAll()
+	m.Acquire("w1") // late subscribe after shutdown: no handle, nothing started
+
+	assert.EqualValues(t, 0, *calls)
+	m.mu.Lock()
+	remaining := len(m.handles)
+	m.mu.Unlock()
+	assert.Equal(t, 0, remaining)
+
+	select {
+	case <-procs:
+		t.Fatal("a watcher was started after StopAll")
+	default:
+	}
 }
 
 func TestWatcherManager_FlappingDoesNotLeak(t *testing.T) {

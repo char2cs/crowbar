@@ -5,6 +5,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"testing"
+	"testing/fstest"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -34,4 +35,31 @@ func TestAPI_New_HealthRoute(t *testing.T) {
 
 	assert.Equal(t, http.StatusOK, rec.Code)
 	assert.Contains(t, rec.Body.String(), "ok")
+}
+
+func TestAPI_New_StaticFSAndClose(t *testing.T) {
+	ctx := context.Background()
+	eng, err := engine.New(ctx)
+	require.NoError(t, err)
+	adapters, err := adapter.New(adapter.WithHomeDir(t.TempDir()))
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = adapters.Close() })
+	a, err := app.New(ctx, eng, adapters)
+	require.NoError(t, err)
+
+	staticFS := fstest.MapFS{
+		"index.html": {Data: []byte("<html>app</html>")},
+		"app.js":     {Data: []byte("console.log('ok')")},
+	}
+	c, err := crowbarapi.New(a, eng, staticFS)
+	require.NoError(t, err)
+
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequest("GET", "/app.js", nil)
+	c.Handler().ServeHTTP(rec, req)
+
+	assert.Equal(t, http.StatusOK, rec.Code)
+	assert.Contains(t, rec.Body.String(), "console.log")
+
+	require.NotPanics(t, c.Close)
 }

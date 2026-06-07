@@ -16,6 +16,7 @@ type LSPManager struct {
 	lifecycle lspLifecycle
 	mu        sync.Mutex
 	refs      map[string]int
+	closed    bool
 }
 
 // NewLSPManager builds an LSPManager over the given lifecycle and a root
@@ -32,6 +33,8 @@ func NewLSPManager(
 }
 
 // Acquire records one LSP subscriber for wsID, running Ensure on the 0→1 edge.
+// After StopAll has run it is a no-op, so a late subscribe from a not-yet-closed
+// hijacked WS connection cannot start an LSP host under the cancelled root.
 func (m *LSPManager) Acquire(
 	wsID string,
 ) {
@@ -39,6 +42,10 @@ func (m *LSPManager) Acquire(
 		return
 	}
 	m.mu.Lock()
+	if m.closed {
+		m.mu.Unlock()
+		return
+	}
 	m.refs[wsID]++
 	first := m.refs[wsID] == 1
 	m.mu.Unlock()
@@ -80,6 +87,7 @@ func (m *LSPManager) Release(
 // LSP host processes are torn down promptly rather than waiting on process exit.
 func (m *LSPManager) StopAll() {
 	m.mu.Lock()
+	m.closed = true
 	wsIDs := make([]string, 0, len(m.refs))
 	for wsID := range m.refs {
 		wsIDs = append(wsIDs, wsID)
