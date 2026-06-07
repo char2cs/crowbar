@@ -1,14 +1,10 @@
 package v0
 
 import (
-	"context"
 	"encoding/json"
-	"sync"
-	"time"
 
 	"github.com/gin-gonic/gin"
 
-	"github.com/char2cs/crowbar/api/internal/api/v0/lifecycle"
 	ws "github.com/char2cs/crowbar/api/internal/api/v0/ws"
 	"github.com/char2cs/crowbar/api/internal/app"
 	"github.com/char2cs/crowbar/api/internal/app/hub"
@@ -37,40 +33,30 @@ type Container struct {
 	chatStream *ws.Broadcaster[ChatFrame]
 	app        *app.Container
 	eng        *engine.Container
-	watchers   *lifecycle.WatcherManager
-	lsps       *lifecycle.LSPManager
-	cancelRoot context.CancelFunc
-	closeOnce  sync.Once
 }
 
 // New builds the v0 container and registers it as a hub subscriber.
 //
-// The lazy WS resource lifecycles (03 §6) are wired here: a WatcherManager
-// refcounted across the Files∪Git topics drives per-workspace file watchers,
-// and an independent LSPManager drives the per-workspace LSP host. Both root
-// their per-workspace goroutines on a cancelable context owned by the Container
-// (not context.Background()) so Close can tear every live resource down on
-// graceful shutdown; New still must not block, so the context is created here
-// and its cancel func is stored on the Container. The managers stop a resource
-// on its last unsubscribe; Close stops everything still held.
+// The lazy WS resource lifecycles (03 §6) are owned by the app-layer realtime
+// service: the Files∪Git topics' OnSubscribe/OnUnsubscribe hooks drive the
+// per-workspace file watcher via AcquireWatcher/ReleaseWatcher, and the LSP
+// topic's hooks drive the per-workspace LSP host via AcquireLSP/ReleaseLSP. This
+// container only wires the subscription triggers (transport); the watcher and
+// LSP goroutines, the working-tree sync command, and the hub fan-out all live
+// in app, and app.Container.Close tears every live resource down on shutdown.
 func New(
 	appContainer *app.Container,
 	engContainer *engine.Container,
 ) *Container {
-	root, cancel := context.WithCancel(context.Background())
-	watchers, lsps := newManagers(root, appContainer, engContainer)
 	c := &Container{
 		workspaces: ws.NewBroadcaster(workspacesDef(appContainer)),
 		chats:      ws.NewBroadcaster(chatsDef(appContainer)),
-		git:        ws.NewBroadcaster(withWatcherLifecycle(gitDef(appContainer), watchers)),
-		files:      ws.NewBroadcaster(withWatcherLifecycle(filesDef(), watchers)),
-		lsp:        ws.NewBroadcaster(withLSPLifecycle(lspDef(appContainer, engContainer), lsps)),
+		git:        ws.NewBroadcaster(withWatcherLifecycle(gitDef(appContainer), appContainer)),
+		files:      ws.NewBroadcaster(withWatcherLifecycle(filesDef(), appContainer)),
+		lsp:        ws.NewBroadcaster(withLSPLifecycle(lspDef(appContainer, engContainer), appContainer)),
 		chatStream: ws.NewBroadcaster(chatStreamDef()),
 		app:        appContainer,
 		eng:        engContainer,
-		watchers:   watchers,
-		lsps:       lsps,
-		cancelRoot: cancel,
 	}
 	if engContainer != nil && engContainer.LSP != nil {
 		engContainer.LSP.OnDiagnostics(c.lsp.Push)
@@ -79,60 +65,29 @@ func New(
 	return c
 }
 
-// Close tears down the lazy WS resource lifecycles on graceful shutdown. It
-// cancels the root context shared by every watcher goroutine, then stops and
-// clears every watcher and LSP host still held by the managers so fsnotify file
-// descriptors and LSP subprocesses are released promptly. It is idempotent and
-// safe to call when no watcher or LSP host was ever started.
-func (c *Container) Close() {
-	c.closeOnce.Do(func() {
-		c.cancelRoot()
-		c.watchers.StopAll()
-		c.lsps.StopAll()
-	})
-}
-
-// newManagers builds the WatcherManager and LSPManager from the app and engine
-// containers, rooting their per-workspace goroutines on root. The watcher
-// refcount spans Files∪Git; the LSP refcount is independent.
-func newManagers(
-	root context.Context,
-	appContainer *app.Container,
-	engContainer *engine.Container,
-) (*lifecycle.WatcherManager, *lifecycle.LSPManager) {
-	watchers := lifecycle.NewWatcherManager(
-		root,
-		appContainer.Hub,
-		appContainer.Repositories.Workspace,
-		engContainer.Git,
-		engContainer.FS,
-		time.Now,
-	)
-	lsps := lifecycle.NewLSPManager(root, lifecycle.NoopLSPLifecycle())
-	return watchers, lsps
-}
-
-// withWatcherLifecycle attaches the Files∪Git watcher lifecycle hooks to a
-// StreamDef, scoping the refcount by wsId resolved from the path or query.
+// withWatcherLifecycle attaches the Files∪Git watcher subscription triggers to a
+// StreamDef, scoping the refcount by wsId resolved from the path or query and
+// delegating to the app-layer realtime service.
 func withWatcherLifecycle[T any](
 	def ws.StreamDef[T],
-	m *lifecycle.WatcherManager,
+	appContainer *app.Container,
 ) ws.StreamDef[T] {
 	def.ScopeKey = scopeWsID
-	def.OnSubscribe = m.Acquire
-	def.OnUnsubscribe = m.Release
+	def.OnSubscribe = appContainer.Realtime.AcquireWatcher
+	def.OnUnsubscribe = appContainer.Realtime.ReleaseWatcher
 	return def
 }
 
-// withLSPLifecycle attaches the independent LSP lifecycle hooks to a StreamDef,
-// scoping the refcount by wsId resolved from the path or query.
+// withLSPLifecycle attaches the independent LSP subscription triggers to a
+// StreamDef, scoping the refcount by wsId resolved from the path or query and
+// delegating to the app-layer realtime service.
 func withLSPLifecycle[T any](
 	def ws.StreamDef[T],
-	m *lifecycle.LSPManager,
+	appContainer *app.Container,
 ) ws.StreamDef[T] {
 	def.ScopeKey = scopeWsID
-	def.OnSubscribe = m.Acquire
-	def.OnUnsubscribe = m.Release
+	def.OnSubscribe = appContainer.Realtime.AcquireLSP
+	def.OnUnsubscribe = appContainer.Realtime.ReleaseLSP
 	return def
 }
 

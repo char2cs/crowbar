@@ -37,7 +37,7 @@ func TestAPI_New_HealthRoute(t *testing.T) {
 	assert.Contains(t, rec.Body.String(), "ok")
 }
 
-func TestAPI_New_StaticFSAndClose(t *testing.T) {
+func TestAPI_New_StaticFSServesAndAppCloses(t *testing.T) {
 	ctx := context.Background()
 	eng, err := engine.New(ctx)
 	require.NoError(t, err)
@@ -61,5 +61,5 @@ func TestAPI_New_StaticFSAndClose(t *testing.T) {
 	assert.Equal(t, http.StatusOK, rec.Code)
 	assert.Contains(t, rec.Body.String(), "console.log")
 
-	require.NotPanics(t, c.Close)
+	require.NotPanics(t, a.Close)
 }

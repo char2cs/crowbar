@@ -14,7 +14,7 @@ import (
 	"github.com/char2cs/crowbar/api/internal/app/repositories/workspace"
 )
 
-func TestContainer_CloseStopsLiveWatcher(t *testing.T) {
+func TestAppClose_StopsLiveWatcher(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	tc := newApp(t)
 	repoPath := gitRepo(t)
@@ -36,14 +36,14 @@ func TestContainer_CloseStopsLiveWatcher(t *testing.T) {
 	c.WaitFilesRegistered()
 	t.Cleanup(func() { _ = conn.Close() })
 
-	require.NotPanics(t, c.Close) // tears down the live watcher and LSP host
+	require.NotPanics(t, tc.app.Close) // tears down the live watcher and LSP host
 }
 
-func TestContainer_CloseIdempotentAndEmpty(t *testing.T) {
+func TestAppClose_IdempotentAndEmpty(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	tc := newApp(t)
-	c := v0.New(tc.app, tc.eng)
+	v0.New(tc.app, tc.eng)
 
-	require.NotPanics(t, c.Close) // no live resources: no-op
-	assert.NotPanics(t, c.Close)  // second call is safe
+	require.NotPanics(t, tc.app.Close) // no live resources: no-op
+	assert.NotPanics(t, tc.app.Close)  // second call is safe
 }
