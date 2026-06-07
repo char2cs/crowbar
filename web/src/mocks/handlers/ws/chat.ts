@@ -8,7 +8,7 @@ const MOCK_RESPONSE =
   '3. **Maintainability** — the code is hard to follow\n\n' +
   'My recommendation is to refactor the core loop first.'
 
-export const chatWsHandler = ws.link('/v0/ws/chat/:chatId').addEventListener('connection', ({ client }) => {
+export const chatWsHandler = ws.link('/v0/ws/chats/:chatId/stream').addEventListener('connection', ({ client }) => {
   client.addEventListener('message', () => {
     // Stream response word-by-word on receiving any message
     const words = MOCK_RESPONSE.split(' ')

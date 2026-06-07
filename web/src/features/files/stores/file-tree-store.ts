@@ -8,7 +8,7 @@ export const useFileTreeStore = create<LoadableSlice<FileNode>>()((set, get) =>
     store: 'file-tree-data',
     fetcher: (rootPath: string) =>
       apiFetch<FileNode>(`/v0/fs/tree?root=${encodeURIComponent(rootPath)}`),
-    wsEndpoint: (rootPath: string) =>
-      `/v0/ws/files?workspaceId=${encodeURIComponent(rootPath)}`,
+    wsEndpoint: (wsId: string) =>
+      `/v0/ws/files?wsId=${encodeURIComponent(wsId)}`,
   })(set, get),
 )

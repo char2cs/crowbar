@@ -6,7 +6,7 @@ import {
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { toast } from 'sonner'
-import { postProject } from '@/lib/api'
+import { postProject, fetchProject } from '@/lib/api'
 import type { Project } from '@/lib/types'
 
 interface ImportProjectModalProps {
@@ -34,7 +34,10 @@ export function ImportProjectModal({ open, onOpenChange, onImport }: ImportProje
     if (!selectedPath) return
     setLoading(true)
     try {
-      const project = await postProject(projectName || selectedPath, selectedPath)
+      // The mutation returns only { id }; re-fetch the full project so the
+      // sidebar gets a complete entity (name/path) rather than undefined fields.
+      const { id } = await postProject(projectName || selectedPath, selectedPath)
+      const project = await fetchProject(id)
       onImport(project)
       setSelectedPath('')
       setProjectName('')

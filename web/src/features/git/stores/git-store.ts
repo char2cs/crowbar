@@ -97,7 +97,7 @@ export const useGitStore = create<GitState>((set, get) => ({
     const slice = createLoadableSlice<GitData>({
       store: "git-data",
       fetcher: fetchAllGitData,
-      wsEndpoint: (repoPath: string) => `/v0/ws/git?repo=${encodeURIComponent(repoPath)}`,
+      wsEndpoint: (wsId: string) => `/v0/ws/git?wsId=${encodeURIComponent(wsId)}`,
     })(
       // setter: remap the slice's { data } writes onto the host's gitData field.
       // The slice only ever calls set({ data: ... }) (verified in loadable-slice.ts);

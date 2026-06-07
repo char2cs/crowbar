@@ -96,7 +96,9 @@ export function MarkdownChatView({ workspaceId, stepId }: MarkdownChatViewProps)
         streaming: true,
       })
 
-      const endpoint = `/v0/ws/chat/${workspaceId}`
+      // Per-chat content stream (content/done frames). stepId identifies the
+      // chat. Real route: /v0/ws/chats/:chatId/stream.
+      const endpoint = `/v0/ws/chats/${stepId}/stream`
       setIsStreaming(true)
       const unsubscribe = wsManager.subscribe(endpoint, (msg: unknown) => {
         const m = msg as { content: string; done: boolean }
