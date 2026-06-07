@@ -1,7 +1,11 @@
 package v0
 
 import (
+	"context"
 	"encoding/json"
+	"time"
+
+	"github.com/gin-gonic/gin"
 
 	ws "github.com/char2cs/crowbar/api/internal/api/v0/ws"
 	"github.com/char2cs/crowbar/api/internal/app"
@@ -31,28 +35,90 @@ type Container struct {
 	chatStream *ws.Broadcaster[ChatFrame]
 	app        *app.Container
 	eng        *engine.Container
+	watchers   *WatcherManager
+	lsps       *LSPManager
 }
 
 // New builds the v0 container and registers it as a hub subscriber.
+//
+// The lazy WS resource lifecycles (03 §6) are wired here: a WatcherManager
+// refcounted across the Files∪Git topics drives per-workspace file watchers,
+// and an independent LSPManager drives the per-workspace LSP host. Both use
+// context.Background() as the root for their per-workspace goroutines because
+// New must not block and the call site (api.New) threads no lifecycle context;
+// the managers stop a resource on its last unsubscribe regardless.
 func New(
 	appContainer *app.Container,
 	engContainer *engine.Container,
 ) *Container {
+	watchers, lsps := newManagers(appContainer, engContainer)
 	c := &Container{
 		workspaces: ws.NewBroadcaster(workspacesDef(appContainer)),
 		chats:      ws.NewBroadcaster(chatsDef(appContainer)),
-		git:        ws.NewBroadcaster(gitDef(appContainer)),
-		files:      ws.NewBroadcaster(filesDef()),
-		lsp:        ws.NewBroadcaster(lspDef(appContainer, engContainer)),
+		git:        ws.NewBroadcaster(withWatcherLifecycle(gitDef(appContainer), watchers)),
+		files:      ws.NewBroadcaster(withWatcherLifecycle(filesDef(), watchers)),
+		lsp:        ws.NewBroadcaster(withLSPLifecycle(lspDef(appContainer, engContainer), lsps)),
 		chatStream: ws.NewBroadcaster(chatStreamDef()),
 		app:        appContainer,
 		eng:        engContainer,
+		watchers:   watchers,
+		lsps:       lsps,
 	}
 	if engContainer != nil && engContainer.LSP != nil {
 		engContainer.LSP.OnDiagnostics(c.lsp.Push)
 	}
 	appContainer.Hub.Register(c)
 	return c
+}
+
+// newManagers builds the WatcherManager and LSPManager from the app and engine
+// containers. The watcher refcount spans Files∪Git; the LSP refcount is
+// independent.
+func newManagers(
+	appContainer *app.Container,
+	engContainer *engine.Container,
+) (*WatcherManager, *LSPManager) {
+	root := context.Background()
+	workspace := appContainer.Repositories.Workspace
+	dispatcher := newWatcherDispatcher(appContainer.Hub, workspace, time.Now)
+	provider := &gitStatusProvider{engine: engContainer.Git}
+	factory := newWatcherFactory(engContainer.FS, provider, workspace, dispatcher)
+	return NewWatcherManager(root, factory), NewLSPManager(root, noopLSPLifecycle{})
+}
+
+// withWatcherLifecycle attaches the Files∪Git watcher lifecycle hooks to a
+// StreamDef, scoping the refcount by wsId resolved from the path or query.
+func withWatcherLifecycle[T any](
+	def ws.StreamDef[T],
+	m *WatcherManager,
+) ws.StreamDef[T] {
+	def.ScopeKey = scopeWsID
+	def.OnSubscribe = m.Acquire
+	def.OnUnsubscribe = m.Release
+	return def
+}
+
+// withLSPLifecycle attaches the independent LSP lifecycle hooks to a StreamDef,
+// scoping the refcount by wsId resolved from the path or query.
+func withLSPLifecycle[T any](
+	def ws.StreamDef[T],
+	m *LSPManager,
+) ws.StreamDef[T] {
+	def.ScopeKey = scopeWsID
+	def.OnSubscribe = m.Acquire
+	def.OnUnsubscribe = m.Release
+	return def
+}
+
+// scopeWsID resolves the workspace id from the path param, falling back to the
+// query param, mirroring the dual-served Git/Files/LSP routes (T15).
+func scopeWsID(
+	c *gin.Context,
+) string {
+	if id := c.Param("wsId"); id != "" {
+		return id
+	}
+	return c.Query("wsId")
 }
 
 // PushWorkspace implements hub.Subscriber.

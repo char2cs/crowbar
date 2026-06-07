@@ -50,10 +50,41 @@ func (b *Broadcaster[T]) Handle(
 	predicate := BuildPredicate(c, b.def)
 	cl := &filteredClient[T]{client: newClient(), predicate: predicate}
 
+	scope := b.scopeKey(c)
+
 	b.register(cl)
+	b.onSubscribe(scope)
 	go writePump(conn, cl.client)
 	readPump(conn)
 	b.remove(cl)
+	b.onUnsubscribe(scope)
+}
+
+func (b *Broadcaster[T]) scopeKey(
+	c *gin.Context,
+) string {
+	if b.def.ScopeKey == nil {
+		return ""
+	}
+	return b.def.ScopeKey(c)
+}
+
+func (b *Broadcaster[T]) onSubscribe(
+	scope string,
+) {
+	if b.def.OnSubscribe == nil {
+		return
+	}
+	b.def.OnSubscribe(scope)
+}
+
+func (b *Broadcaster[T]) onUnsubscribe(
+	scope string,
+) {
+	if b.def.OnUnsubscribe == nil {
+		return
+	}
+	b.def.OnUnsubscribe(scope)
 }
 
 func (b *Broadcaster[T]) register(
