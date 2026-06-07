@@ -255,6 +255,49 @@ func (stubGit) Rebase(
 	return nil
 }
 
+func (stubGit) ConflictedFiles(
+	_ context.Context,
+	_ string,
+) ([]string, error) {
+	return nil, nil
+}
+
+func (stubGit) ConflictHunks(
+	_ context.Context,
+	_ string,
+	_ string,
+) ([]gitdomain.ConflictHunk, error) {
+	return nil, nil
+}
+
+func (stubGit) ResolveHunk(
+	_ context.Context,
+	_ string,
+	_ string,
+	_ string,
+	_ gitdomain.ConflictResolution,
+	_ string,
+	_ time.Time,
+) error {
+	return nil
+}
+
+func (stubGit) OperationContinue(
+	_ context.Context,
+	_ string,
+	_ time.Time,
+) error {
+	return nil
+}
+
+func (stubGit) OperationAbort(
+	_ context.Context,
+	_ string,
+	_ time.Time,
+) error {
+	return nil
+}
+
 func dualServe(
 	rest gin.HandlerFunc,
 	ws gin.HandlerFunc,
@@ -328,6 +371,10 @@ func TestRegisterMountsWriteRoutes(
 		{http.MethodPost, "/v0/workspaces/abc/git/reset"},
 		{http.MethodPost, "/v0/workspaces/abc/git/merge"},
 		{http.MethodPost, "/v0/workspaces/abc/git/rebase"},
+		{http.MethodGet, "/v0/workspaces/abc/git/conflicts"},
+		{http.MethodPost, "/v0/workspaces/abc/git/conflicts/resolve"},
+		{http.MethodPost, "/v0/workspaces/abc/git/operation/continue"},
+		{http.MethodPost, "/v0/workspaces/abc/git/operation/abort"},
 	}
 	for _, rt := range routes {
 		rec := httptest.NewRecorder()

@@ -29,24 +29,38 @@ type writeCall struct {
 }
 
 type fakeGit struct {
-	status      gitdomain.GitStatus
-	statusErr   error
-	diff        []gitdomain.FileDiff
-	diffStaged  bool
-	diffErr     error
-	commitDiff  gitdomain.MultiFileDiff
-	gotCommit   string
-	commitErr   error
-	commits     []gitdomain.Commit
-	gotLimit    int
-	gotSkip     int
-	logErr      error
-	branches    []gitdomain.Branch
-	branchesErr error
-	stashes     []gitdomain.Stash
-	stashesErr  error
-	calls       []writeCall
-	writeErr    error
+	status        gitdomain.GitStatus
+	statusErr     error
+	diff          []gitdomain.FileDiff
+	diffStaged    bool
+	diffErr       error
+	commitDiff    gitdomain.MultiFileDiff
+	gotCommit     string
+	commitErr     error
+	commits       []gitdomain.Commit
+	gotLimit      int
+	gotSkip       int
+	logErr        error
+	branches      []gitdomain.Branch
+	branchesErr   error
+	stashes       []gitdomain.Stash
+	stashesErr    error
+	conflictFiles []string
+	conflictErr   error
+	hunks         []gitdomain.ConflictHunk
+	hunksErr      error
+	hunksForPath  []string
+	resolveCall   resolveArgs
+	calls         []writeCall
+	writeErr      error
+}
+
+type resolveArgs struct {
+	wsID       string
+	path       string
+	hunkID     string
+	resolution gitdomain.ConflictResolution
+	content    string
 }
 
 func (f *fakeGit) record(
@@ -299,6 +313,57 @@ func (f *fakeGit) Stashes(
 	return f.stashes, f.stashesErr
 }
 
+func (f *fakeGit) ConflictedFiles(
+	_ context.Context,
+	_ string,
+) ([]string, error) {
+	return f.conflictFiles, f.conflictErr
+}
+
+func (f *fakeGit) ConflictHunks(
+	_ context.Context,
+	_ string,
+	filePath string,
+) ([]gitdomain.ConflictHunk, error) {
+	f.hunksForPath = append(f.hunksForPath, filePath)
+	return f.hunks, f.hunksErr
+}
+
+func (f *fakeGit) ResolveHunk(
+	_ context.Context,
+	wsID string,
+	filePath string,
+	hunkID string,
+	resolution gitdomain.ConflictResolution,
+	resolvedContent string,
+	_ time.Time,
+) error {
+	f.resolveCall = resolveArgs{
+		wsID:       wsID,
+		path:       filePath,
+		hunkID:     hunkID,
+		resolution: resolution,
+		content:    resolvedContent,
+	}
+	return f.writeErr
+}
+
+func (f *fakeGit) OperationContinue(
+	_ context.Context,
+	wsID string,
+	_ time.Time,
+) error {
+	return f.record("OperationContinue", wsID)
+}
+
+func (f *fakeGit) OperationAbort(
+	_ context.Context,
+	wsID string,
+	_ time.Time,
+) error {
+	return f.record("OperationAbort", wsID)
+}
+
 func newRouter(
 	git githandlers.Git,
 ) *gin.Engine {
@@ -329,6 +394,10 @@ func newRouter(
 	rg.POST("/workspaces/:wsId/git/reset", h.Reset)
 	rg.POST("/workspaces/:wsId/git/merge", h.Merge)
 	rg.POST("/workspaces/:wsId/git/rebase", h.Rebase)
+	rg.GET("/workspaces/:wsId/git/conflicts", h.Conflicts)
+	rg.POST("/workspaces/:wsId/git/conflicts/resolve", h.ResolveConflict)
+	rg.POST("/workspaces/:wsId/git/operation/continue", h.OperationContinue)
+	rg.POST("/workspaces/:wsId/git/operation/abort", h.OperationAbort)
 	return r
 }
 

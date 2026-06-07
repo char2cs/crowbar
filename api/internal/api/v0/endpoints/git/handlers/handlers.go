@@ -2,10 +2,9 @@
 // routes (working-tree status dual-served with the live git stream, the
 // paginated log, the working-tree or commit diff, the branch list, and the
 // stash list — 02 §2.6) and the write routes (staging, commit, sync, branch,
-// stash, and reset/merge/rebase mutations — 02 §2.7).
-//
-// Git conflict and operation routes are served by a separate later task; this
-// package covers reads and writes only.
+// stash, and reset/merge/rebase mutations — 02 §2.7), plus the conflict and
+// in-progress operation routes (the conflicting-file listing, hunk resolution,
+// and operation continue/abort — 02 §2.8).
 package handlers
 
 import (
@@ -48,6 +47,15 @@ type Git interface {
 		ctx context.Context,
 		wsID string,
 	) ([]gitdomain.Stash, error)
+	ConflictedFiles(
+		ctx context.Context,
+		wsID string,
+	) ([]string, error)
+	ConflictHunks(
+		ctx context.Context,
+		wsID string,
+		filePath string,
+	) ([]gitdomain.ConflictHunk, error)
 	GitWrite
 }
 
@@ -179,6 +187,25 @@ type GitWrite interface {
 		ctx context.Context,
 		wsID string,
 		onto string,
+		now time.Time,
+	) error
+	ResolveHunk(
+		ctx context.Context,
+		wsID string,
+		filePath string,
+		hunkID string,
+		resolution gitdomain.ConflictResolution,
+		resolvedContent string,
+		now time.Time,
+	) error
+	OperationContinue(
+		ctx context.Context,
+		wsID string,
+		now time.Time,
+	) error
+	OperationAbort(
+		ctx context.Context,
+		wsID string,
 		now time.Time,
 	) error
 }

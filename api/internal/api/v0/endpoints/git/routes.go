@@ -2,7 +2,9 @@
 // working-tree status dual-served with the live git WebSocket stream, the
 // paginated log, the working-tree or commit diff, the branch list, and the
 // stash list — 02 §2.6) and the write routes (staging, commit, sync, branch,
-// stash, and reset/merge/rebase mutations — 02 §2.7).
+// stash, and reset/merge/rebase mutations — 02 §2.7), plus the conflict and
+// in-progress operation routes (conflicting-file listing, hunk resolution, and
+// operation continue/abort — 02 §2.8).
 //
 // Every write route returns the uniform mutation envelope keyed by the affected
 // entity — the workspace — via libs.WriteMutationOK: status 200 for in-place
@@ -35,6 +37,24 @@ func Register(
 	rg.GET("/workspaces/:wsId/git/branches", h.Branches)
 	rg.GET("/workspaces/:wsId/git/stashes", h.Stashes)
 	registerWrites(rg, h)
+	registerConflicts(rg, h)
+	registerOperation(rg, h)
+}
+
+func registerConflicts(
+	rg *gin.RouterGroup,
+	h *githandlers.Handlers,
+) {
+	rg.GET("/workspaces/:wsId/git/conflicts", h.Conflicts)
+	rg.POST("/workspaces/:wsId/git/conflicts/resolve", h.ResolveConflict)
+}
+
+func registerOperation(
+	rg *gin.RouterGroup,
+	h *githandlers.Handlers,
+) {
+	rg.POST("/workspaces/:wsId/git/operation/continue", h.OperationContinue)
+	rg.POST("/workspaces/:wsId/git/operation/abort", h.OperationAbort)
 }
 
 func registerWrites(
