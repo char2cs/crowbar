@@ -96,7 +96,7 @@ export function MarkdownChatView({ workspaceId, stepId }: MarkdownChatViewProps)
         streaming: true,
       })
 
-      const endpoint = `/api/v0/ws/chat/${workspaceId}`
+      const endpoint = `/v0/ws/chat/${workspaceId}`
       setIsStreaming(true)
       const unsubscribe = wsManager.subscribe(endpoint, (msg: unknown) => {
         const m = msg as { content: string; done: boolean }

@@ -6,8 +6,8 @@ import type { Repo } from '@/lib/store/sidebar'
 export const useWorkspaceListStore = create<LoadableSlice<Repo[], []>>()((set, get) =>
   createLoadableSlice<Repo[], []>({
     store: 'workspaces-data',
-    fetcher: () => apiFetch<Repo[]>('/api/v0/workspaces'),
+    fetcher: () => apiFetch<Repo[]>('/v0/workspaces'),
     cacheKey: () => 'workspaces',
-    wsEndpoint: () => '/api/v0/ws/workspaces',
+    wsEndpoint: () => '/v0/ws/workspaces',
   })(set, get),
 )

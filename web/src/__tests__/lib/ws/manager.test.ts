@@ -25,8 +25,8 @@ describe('WSManager', () => {
     const mgr = createWSManager()
     const cb1 = vi.fn()
     const cb2 = vi.fn()
-    mgr.subscribe('/api/v0/ws/git', cb1)
-    mgr.subscribe('/api/v0/ws/git', cb2)
+    mgr.subscribe('/v0/ws/git', cb1)
+    mgr.subscribe('/v0/ws/git', cb2)
     expect(MockWebSocket.instances).toHaveLength(1)
   })
 
@@ -34,8 +34,8 @@ describe('WSManager', () => {
     const mgr = createWSManager()
     const cb1 = vi.fn()
     const cb2 = vi.fn()
-    mgr.subscribe('/api/v0/ws/git', cb1)
-    mgr.subscribe('/api/v0/ws/git', cb2)
+    mgr.subscribe('/v0/ws/git', cb1)
+    mgr.subscribe('/v0/ws/git', cb2)
     MockWebSocket.instances[0].simulateMessage('{"changed":true}')
     expect(cb1).toHaveBeenCalledWith({ changed: true })
     expect(cb2).toHaveBeenCalledWith({ changed: true })
@@ -43,8 +43,8 @@ describe('WSManager', () => {
 
   it('closes socket when last subscriber unsubscribes', () => {
     const mgr = createWSManager()
-    const unsub1 = mgr.subscribe('/api/v0/ws/git', vi.fn())
-    const unsub2 = mgr.subscribe('/api/v0/ws/git', vi.fn())
+    const unsub1 = mgr.subscribe('/v0/ws/git', vi.fn())
+    const unsub2 = mgr.subscribe('/v0/ws/git', vi.fn())
     unsub1()
     expect(MockWebSocket.instances[0].close).not.toHaveBeenCalled()
     unsub2()

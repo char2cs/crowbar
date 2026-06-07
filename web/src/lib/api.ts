@@ -22,16 +22,19 @@ export async function apiFetch<T>(path: string, init?: RequestInit): Promise<T> 
     ...init,
     headers: { ...init?.headers, ...chaosHeaders },
   })
-  if (!res.ok) throw new Error(`${res.status} ${res.statusText}`)
-  return res.json() as Promise<T>
+  const body = await res.json().catch(() => null)
+  if (!res.ok || !body?.success) {
+    throw new Error(body?.error ?? `${res.status} ${res.statusText}`)
+  }
+  return body.data as T
 }
 
 export function fetchWorkspace(wsId: string): Promise<WorkspacePayload> {
-  return apiFetch(`/api/v0/workspaces/${wsId}`)
+  return apiFetch(`/v0/workspaces/${wsId}`)
 }
 
 export function postWorkspace(repoId: string, branch: string): Promise<WorkspacePayload> {
-  return apiFetch('/api/v0/workspaces', {
+  return apiFetch('/v0/workspaces', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ repoId, branch }),
@@ -40,11 +43,11 @@ export function postWorkspace(repoId: string, branch: string): Promise<Workspace
 
 
 export function fetchProjects(): Promise<Project[]> {
-  return apiFetch('/api/v0/projects')
+  return apiFetch('/v0/projects')
 }
 
 export function postProject(name: string, path: string): Promise<Project> {
-  return apiFetch('/api/v0/projects', {
+  return apiFetch('/v0/projects', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ name, path }),

@@ -1,18 +1,18 @@
-import { http, HttpResponse } from 'msw'
+import { http } from 'msw'
 import { shouldFault } from '@/lib/mock/fault'
 import { getDataForScenario } from '@/lib/mock/scenarios'
 import { createMockProject } from '@/lib/mock/projects'
+import { ok, fail } from './envelope'
 
 export const projectHandlers = [
-  http.get('/api/v0/projects', ({ request }) => {
-    if (shouldFault(request, 'projects'))
-      return HttpResponse.json({ error: 'simulated failure' }, { status: 500 })
+  http.get('/v0/projects', ({ request }) => {
+    if (shouldFault(request, 'projects')) return fail('simulated failure', 500)
     const data = getDataForScenario(request.headers.get('X-Crowbar-Scenario') ?? 'normal')
-    return HttpResponse.json(data.projects())
+    return ok(data.projects())
   }),
 
-  http.post('/api/v0/projects', async ({ request }) => {
+  http.post('/v0/projects', async ({ request }) => {
     const body = await request.json() as { name: string; path: string }
-    return HttpResponse.json(createMockProject(body), { status: 201 })
+    return ok(createMockProject(body), 201)
   }),
 ]

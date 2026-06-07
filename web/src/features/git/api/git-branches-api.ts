@@ -13,7 +13,7 @@ interface CheckoutResult {
 export const getBranches = async (repoPath: string): Promise<string[]> => {
   try {
     const branches = await apiFetch<Branch[]>(
-      `/api/v0/git/branches?repo=${encodeURIComponent(repoPath)}`
+      `/v0/git/branches?repo=${encodeURIComponent(repoPath)}`
     )
     return branches.map((b) => b.name)
   } catch {
