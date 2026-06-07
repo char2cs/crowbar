@@ -95,6 +95,22 @@ func TestMaybeHandleGitRef_RefsPath(t *testing.T) {
 	assert.Equal(t, 1, rd.count(), "OnGitStatus should have been called for .git/refs/ event")
 }
 
+// A change to .git/packed-refs (where refs land after git gc / pack-refs) must
+// trigger the same GitStatus + SyncWorkingTreeState recompute as .git/HEAD.
+func TestMaybeHandleGitRef_PackedRefs(t *testing.T) {
+	dir := t.TempDir()
+	rd := &recordingDispatcher{}
+	w := newBareWatcher(dir, rd)
+
+	evt := fsnotify.Event{
+		Name: filepath.Join(dir, ".git", "packed-refs"),
+		Op:   fsnotify.Write,
+	}
+	w.maybeHandleGitRef(context.Background(), evt)
+
+	assert.Equal(t, 1, rd.count(), "OnGitStatus should have been called for .git/packed-refs event")
+}
+
 func TestMaybeHandleGitRef_UnrelatedGitFile_NoFanOut(t *testing.T) {
 	dir := t.TempDir()
 	rd := &recordingDispatcher{}
@@ -184,6 +200,11 @@ func TestShouldIgnore_DotGitContent(t *testing.T) {
 		{
 			name:    "refs/heads/main not ignored",
 			path:    filepath.Join(dir, ".git", "refs", "heads", "main"),
+			ignored: false,
+		},
+		{
+			name:    "packed-refs not ignored",
+			path:    filepath.Join(dir, ".git", "packed-refs"),
 			ignored: false,
 		},
 		{
@@ -444,6 +465,53 @@ func TestStartThenStop_ClosesWatcherAndDrainsGoroutine(t *testing.T) {
 		runtime.Gosched()
 	}
 	assert.True(t, fswClosed(t, w), "fsnotify watcher must be closed after Stop")
+}
+
+// A second Start on a running watcher returns ErrAlreadyStarted, does NOT
+// overwrite w.fsw (no leaked FD), and does NOT spawn a second loop goroutine.
+func TestStart_SecondStartRejected_NoLeak(t *testing.T) {
+	dir := t.TempDir()
+	w := NewWatcher("ws-restart", dir, "", &minimalGit{}, &recordingDispatcher{})
+	ctx, cancel := context.WithCancel(context.Background())
+	t.Cleanup(cancel)
+	t.Cleanup(w.Stop)
+
+	require.NoError(t, w.Start(ctx))
+
+	w.mu.Lock()
+	firstFSW := w.fsw
+	w.mu.Unlock()
+
+	goroutinesAfterFirst := runtime.NumGoroutine()
+
+	err := w.Start(ctx)
+	require.ErrorIs(t, err, ErrAlreadyStarted)
+
+	w.mu.Lock()
+	secondFSW := w.fsw
+	w.mu.Unlock()
+
+	assert.Same(t, firstFSW, secondFSW, "second Start must not overwrite the first fsnotify watcher")
+
+	deadline := time.Now().Add(2 * time.Second)
+	for runtime.NumGoroutine() > goroutinesAfterFirst {
+		if time.Now().After(deadline) {
+			t.Fatal("second Start spawned a goroutine that did not exit")
+		}
+		runtime.Gosched()
+	}
+}
+
+// Start after Stop returns ErrAlreadyStarted (started was set during the first
+// Start) and does not register a new watcher.
+func TestStart_AfterStop_Rejected(t *testing.T) {
+	dir := t.TempDir()
+	w := NewWatcher("ws-restart-stopped", dir, "", &minimalGit{}, &recordingDispatcher{})
+	require.NoError(t, w.Start(context.Background()))
+	w.Stop()
+
+	err := w.Start(context.Background())
+	require.ErrorIs(t, err, ErrAlreadyStarted)
 }
 
 // ---------------------------------------------------------------------------

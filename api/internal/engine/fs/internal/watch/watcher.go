@@ -4,6 +4,7 @@ package watch
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"os/exec"
@@ -19,6 +20,12 @@ import (
 
 const debounceDuration = 100 * time.Millisecond
 
+// ErrAlreadyStarted is returned by Start when the watcher has already been
+// started (or stopped). A Watcher's lifecycle is single-use: the caller owns
+// exactly one Start. Re-Starting would leak the first fsnotify FD and its loop
+// goroutine, so it is rejected instead.
+var ErrAlreadyStarted = errors.New("watch: already started")
+
 // Watcher watches a workspace's repo root and fans out every debounced event
 // to a Dispatcher. It self-manages recursive watching for subdirectories.
 type Watcher struct {
@@ -31,6 +38,7 @@ type Watcher struct {
 	fsw          *fsnotify.Watcher
 	mu           sync.Mutex
 	stopCh       chan struct{}
+	started      bool
 	stopped      bool
 	fswCloseOnce sync.Once
 
@@ -63,6 +71,11 @@ func NewWatcher(
 // exactly once regardless of cancel/stop ordering: if ctx is already cancelled
 // or Stop already ran before registration, the freshly created watcher is closed
 // immediately and Start returns without leaking an inotify FD or a loop goroutine.
+//
+// A Watcher is single-use: calling Start a second time (after a prior Start, or
+// after Stop) returns ErrAlreadyStarted and closes the freshly created watcher
+// in place rather than overwriting w.fsw and leaking the first FD and loop
+// goroutine.
 func (w *Watcher) Start(
 	ctx context.Context,
 ) error {
@@ -78,11 +91,17 @@ func (w *Watcher) Start(
 	}
 
 	w.mu.Lock()
+	if w.started {
+		w.mu.Unlock()
+		_ = fsw.Close()
+		return ErrAlreadyStarted
+	}
 	if w.stopped {
 		w.mu.Unlock()
 		_ = fsw.Close()
 		return context.Canceled
 	}
+	w.started = true
 	w.fsw = fsw
 	w.mu.Unlock()
 
@@ -101,6 +120,7 @@ func (w *Watcher) Start(
 		filepath.Join(gitDir, "refs"),
 		filepath.Join(gitDir, "refs", "heads"),
 		filepath.Join(gitDir, "refs", "remotes"),
+		filepath.Join(gitDir, "packed-refs"),
 	} {
 		// ignore errors — paths may not exist (shallow clone, no remotes, etc.)
 		_ = w.fsw.Add(p)
@@ -243,7 +263,8 @@ func (w *Watcher) maybeHandleGitRef(
 	name := evt.Name
 	isHead := strings.HasSuffix(name, filepath.Join(".git", "HEAD"))
 	isRef := strings.Contains(name, filepath.Join(".git", "refs"))
-	if !isHead && !isRef {
+	isPackedRefs := strings.HasSuffix(name, filepath.Join(".git", "packed-refs"))
+	if !isHead && !isRef && !isPackedRefs {
 		return
 	}
 	w.fanOutGit(ctx)
@@ -367,7 +388,8 @@ func (w *Watcher) shouldIgnore(
 	}
 	isHead := rel == filepath.Join(".git", "HEAD")
 	isRefs := strings.HasPrefix(rel, filepath.Join(".git", "refs"))
-	return !isHead && !isRefs
+	isPackedRefs := rel == filepath.Join(".git", "packed-refs")
+	return !isHead && !isRefs && !isPackedRefs
 }
 
 func (w *Watcher) relPath(
