@@ -12,6 +12,7 @@ import (
 	"github.com/char2cs/crowbar/api/internal/api/v0/endpoints/provider"
 	"github.com/char2cs/crowbar/api/internal/api/v0/endpoints/repos"
 	"github.com/char2cs/crowbar/api/internal/api/v0/endpoints/review"
+	"github.com/char2cs/crowbar/api/internal/api/v0/endpoints/search"
 	"github.com/char2cs/crowbar/api/internal/api/v0/endpoints/workspaces"
 )
 
@@ -63,7 +64,11 @@ func (c *Container) Register(
 	rg.GET("/ws/files", c.files.Handle)
 	rg.GET("/ws/lsp", c.lsp.Handle)
 	registerTerminalHandlers(rg, c)
-	registerSearchHandlers(rg, c)
+	search.Register(
+		rg,
+		c.eng.Search,
+		c.app.Repositories.Workspace,
+	)
 	provider.Register(
 		rg,
 		c.eng.Provider,
