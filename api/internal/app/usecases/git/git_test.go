@@ -9,6 +9,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/char2cs/crowbar/api/internal/app/apperr"
 	gituc "github.com/char2cs/crowbar/api/internal/app/usecases/git"
 	"github.com/char2cs/crowbar/api/internal/app/usecases/mocks"
 	"github.com/char2cs/crowbar/api/internal/domain"
@@ -253,6 +254,37 @@ func TestGitUsecase_AllWriteOps_TriggerSync(t *testing.T) {
 		require.NoError(t, op(), "op %d", i)
 		assert.True(t, syncer.Synced, "op %d did not sync", i)
 	}
+}
+
+func TestGitUsecase_Writes_RejectLockedWorkspace(t *testing.T) {
+	git, syncer, uc := newGitUsecase(t)
+	ctx := context.Background()
+	now := time.Now()
+	syncer.GetFn = func(_ context.Context, id string) (domain.Workspace, error) {
+		return domain.Workspace{ID: id, WorktreePath: "/repo/x", Locked: true}, nil
+	}
+	git.AnyWriteOK()
+
+	require.ErrorIs(t, uc.Commit(ctx, "w1", "m", "b", now), apperr.ErrLocked)
+	require.ErrorIs(t, uc.StageFile(ctx, "w1", "f", now), apperr.ErrLocked)
+	require.ErrorIs(t, uc.Merge(ctx, "w1", "b", now), apperr.ErrLocked)
+	assert.False(t, syncer.Synced, "locked rejection must not mutate or resync")
+}
+
+func TestGitUsecase_Reads_AllowLockedWorkspace(t *testing.T) {
+	git, syncer, uc := newGitUsecase(t)
+	ctx := context.Background()
+	syncer.GetFn = func(_ context.Context, id string) (domain.Workspace, error) {
+		return domain.Workspace{ID: id, WorktreePath: "/repo/x", Locked: true}, nil
+	}
+	git.StatusFn = func(_ context.Context, _ string) (gitdomain.GitStatus, error) {
+		return gitdomain.GitStatus{Branch: "main"}, nil
+	}
+
+	st, err := uc.Status(ctx, "w1")
+	require.NoError(t, err)
+	assert.Equal(t, "main", st.Branch)
+	assert.False(t, syncer.Synced)
 }
 
 func TestGitUsecase_WriteOp_EngineError(t *testing.T) {

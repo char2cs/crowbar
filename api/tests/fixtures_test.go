@@ -49,6 +49,34 @@ func importProject(
 	}
 }
 
+// importWritableWorkspace imports a project and then creates a child workspace
+// on a fresh, non-protected branch. The adopted main worktree is locked because
+// "main" is a default protected branch (04 §5, 05 §3/§4), so every file/git
+// write against it now rejects with 409; write flows must target an unlocked
+// workspace. The returned id points at that unlocked child; projectID/repoID
+// carry over from the import.
+func importWritableWorkspace(
+	t *testing.T,
+	h *harness,
+) importedRepo {
+	t.Helper()
+	imported := importProject(t, h)
+
+	var created struct {
+		ID string `json:"id"`
+	}
+	h.post(
+		"/v0/workspaces",
+		map[string]string{"repoId": imported.repoID, "branch": "feature/write"},
+		201,
+		&created,
+	)
+	require.NotEmpty(t, created.ID, "child workspace create must yield an id")
+
+	imported.workspaceID = created.ID
+	return imported
+}
+
 type repoDTO struct {
 	ID        string `json:"id"`
 	ProjectID string `json:"projectId"`
@@ -72,6 +100,7 @@ type workspaceDTO struct {
 	ProjectID string `json:"projectId"`
 	Branch    string `json:"branch"`
 	Status    string `json:"status"`
+	Locked    bool   `json:"locked"`
 	Added     int    `json:"added"`
 	Deleted   int    `json:"deleted"`
 }

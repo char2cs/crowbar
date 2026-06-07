@@ -23,14 +23,17 @@ type gitStatusDTO struct {
 // working tree, and the post-commit status reflects a clean branch.
 func TestGit_StatusDiffStageCommit(t *testing.T) {
 	h := newHarness(t)
-	imported := importProject(t, h)
+	imported := importWritableWorkspace(t, h)
 	base := "/v0/workspaces/" + imported.workspaceID
 
-	require.NoError(t, writeFile(imported.repoPath, "README.md", "hello\nworld\n"))
+	var saved struct {
+		ID string `json:"id"`
+	}
+	h.put(base+"/files/content", map[string]string{"path": "README.md", "content": "hello\nworld\n"}, &saved)
 
 	var status gitStatusDTO
 	h.get(base+"/git/status", &status)
-	assert.Equal(t, "main", status.Branch)
+	assert.Equal(t, "feature/write", status.Branch)
 	require.NotEmpty(t, status.Files, "the edit must appear in git status")
 
 	var diffs []map[string]any
@@ -51,6 +54,26 @@ func TestGit_StatusDiffStageCommit(t *testing.T) {
 	var after gitStatusDTO
 	h.get(base+"/git/status", &after)
 	assert.Empty(t, after.Files, "working tree must be clean after commit")
+}
+
+// TestGit_LockedWorkspaceRejectsWrite proves the locked-workspace guard: the
+// adopted "main" workspace is locked (a default protected branch), so reads
+// still succeed (200) while a git mutation is rejected with 409 (04 §5, 05 §3).
+func TestGit_LockedWorkspaceRejectsWrite(t *testing.T) {
+	h := newHarness(t)
+	imported := importProject(t, h)
+	base := "/v0/workspaces/" + imported.workspaceID
+
+	var detail workspaceDTO
+	h.get("/v0/workspaces/"+imported.workspaceID, &detail)
+	require.True(t, detail.Locked, "adopted main worktree must be locked")
+
+	var status gitStatusDTO
+	h.get(base+"/git/status", &status)
+	assert.Equal(t, "main", status.Branch)
+
+	h.postError(base+"/git/commit", map[string]string{"subject": "blocked"}, http.StatusConflict)
+	h.postError(base+"/git/stage", map[string]any{"paths": []string{"README.md"}}, http.StatusConflict)
 }
 
 // TestGit_StatusDualServeWS proves the /git/status route dual-serves: a WebSocket

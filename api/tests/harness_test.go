@@ -122,6 +122,27 @@ func (h *harness) del(
 	h.do(http.MethodDelete, path, body, wantStatus, out)
 }
 
+// postError issues POST path with a JSON body, asserts the HTTP status, and
+// requires the error envelope (success=false with a non-empty message). It is
+// the counterpart to post for the rejection paths (e.g. a locked-workspace 409).
+func (h *harness) postError(
+	path string,
+	body any,
+	wantStatus int,
+) {
+	h.t.Helper()
+	resp := h.raw(http.MethodPost, path, body, wantStatus)
+	defer func() { _ = resp.Body.Close() }()
+
+	var env struct {
+		Success bool   `json:"success"`
+		Error   string `json:"error"`
+	}
+	require.NoError(h.t, json.NewDecoder(resp.Body).Decode(&env))
+	require.False(h.t, env.Success, "expected error envelope for POST %s", path)
+	require.NotEmpty(h.t, env.Error, "error envelope must carry a message")
+}
+
 func (h *harness) do(
 	method string,
 	path string,

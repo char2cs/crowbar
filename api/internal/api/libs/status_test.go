@@ -13,6 +13,7 @@ import (
 	"github.com/char2cs/crowbar/api/internal/api/libs"
 	"github.com/char2cs/crowbar/api/internal/app/apperr"
 	"github.com/char2cs/crowbar/api/internal/app/usecases/worktree"
+	enginegit "github.com/char2cs/crowbar/api/internal/engine/git"
 	enginesearch "github.com/char2cs/crowbar/api/internal/engine/search"
 	engineterminal "github.com/char2cs/crowbar/api/internal/engine/terminal"
 )
@@ -89,6 +90,46 @@ func TestStatusAndMessageMapping(t *testing.T) {
 			err:    worktree.ErrChildHasChildren,
 			status: http.StatusConflict,
 		},
+		{
+			name:   "app workspace locked",
+			err:    apperr.ErrLocked,
+			status: http.StatusConflict,
+		},
+		{
+			name:   "git conflict",
+			err:    enginegit.ErrConflict,
+			status: http.StatusConflict,
+		},
+		{
+			name:   "git dirty tree",
+			err:    enginegit.ErrDirtyTree,
+			status: http.StatusConflict,
+		},
+		{
+			name:   "git rejected non fast forward",
+			err:    enginegit.ErrRejectedNonFastForward,
+			status: http.StatusConflict,
+		},
+		{
+			name:   "git nothing to commit",
+			err:    enginegit.ErrNothingToCommit,
+			status: http.StatusConflict,
+		},
+		{
+			name:   "git stale hunk",
+			err:    enginegit.ErrStaleHunk,
+			status: http.StatusConflict,
+		},
+		{
+			name:   "git has children",
+			err:    enginegit.ErrHasChildren,
+			status: http.StatusConflict,
+		},
+		{
+			name:   "git auth failed",
+			err:    enginegit.ErrAuthFailed,
+			status: http.StatusForbidden,
+		},
 	}
 
 	for _, tc := range cases {
@@ -109,6 +150,42 @@ func TestStatusAndMessageWrapped(t *testing.T) {
 	status, msg := libs.StatusAndMessage(wrapped)
 
 	assert.Equal(t, http.StatusNotFound, status)
+	assert.Equal(t, wrapped.Error(), msg)
+}
+
+func TestStatusAndMessageWrappedLocked(t *testing.T) {
+	wrapped := fmt.Errorf(
+		"git: mutate: workspace locked: %w",
+		apperr.ErrLocked,
+	)
+
+	status, msg := libs.StatusAndMessage(wrapped)
+
+	assert.Equal(t, http.StatusConflict, status)
+	assert.Equal(t, wrapped.Error(), msg)
+}
+
+func TestStatusAndMessageWrappedGitConflict(t *testing.T) {
+	wrapped := fmt.Errorf(
+		"git: mutate: %w",
+		enginegit.ErrConflict,
+	)
+
+	status, msg := libs.StatusAndMessage(wrapped)
+
+	assert.Equal(t, http.StatusConflict, status)
+	assert.Equal(t, wrapped.Error(), msg)
+}
+
+func TestStatusAndMessageWrappedGitAuthFailed(t *testing.T) {
+	wrapped := fmt.Errorf(
+		"git: mutate: %w",
+		enginegit.ErrAuthFailed,
+	)
+
+	status, msg := libs.StatusAndMessage(wrapped)
+
+	assert.Equal(t, http.StatusForbidden, status)
 	assert.Equal(t, wrapped.Error(), msg)
 }
 

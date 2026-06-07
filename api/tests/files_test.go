@@ -15,7 +15,7 @@ import (
 // subsequent read returns exactly what was written.
 func TestFiles_TreeSaveReadBack(t *testing.T) {
 	h := newHarness(t)
-	imported := importProject(t, h)
+	imported := importWritableWorkspace(t, h)
 	base := "/v0/workspaces/" + imported.workspaceID
 
 	var tree []map[string]any
@@ -40,7 +40,7 @@ func TestFiles_TreeSaveReadBack(t *testing.T) {
 // rename it, then delete it — each step echoing its path through the envelope.
 func TestFiles_CreateRenameDelete(t *testing.T) {
 	h := newHarness(t)
-	imported := importProject(t, h)
+	imported := importWritableWorkspace(t, h)
 	base := "/v0/workspaces/" + imported.workspaceID
 
 	var created struct {
@@ -60,4 +60,26 @@ func TestFiles_CreateRenameDelete(t *testing.T) {
 	}
 	h.del(base+"/files", map[string]string{"path": "b.txt"}, http.StatusOK, &deleted)
 	assert.Equal(t, "b.txt", deleted.ID)
+}
+
+// TestFiles_LockedWorkspaceRejectsWrite proves the locked-workspace guard on the
+// file write path: the adopted "main" workspace is locked (a default protected
+// branch), so reads still succeed (200) while a file create is rejected with 409
+// (04 §5, 05 §3/§4).
+func TestFiles_LockedWorkspaceRejectsWrite(t *testing.T) {
+	h := newHarness(t)
+	imported := importProject(t, h)
+	base := "/v0/workspaces/" + imported.workspaceID
+
+	var tree []map[string]any
+	h.get(base+"/files/tree", &tree)
+	require.NotEmpty(t, tree, "reads must still succeed on a locked workspace")
+
+	var read struct {
+		Content string `json:"content"`
+	}
+	h.get(base+"/files/content?path=README.md", &read)
+	assert.Equal(t, "hello\n", read.Content)
+
+	h.postError(base+"/files", map[string]string{"path": "a.txt", "type": "file"}, http.StatusConflict)
 }

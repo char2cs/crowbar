@@ -9,6 +9,7 @@ import (
 
 	"github.com/char2cs/crowbar/api/internal/app/apperr"
 	"github.com/char2cs/crowbar/api/internal/app/usecases/worktree"
+	enginegit "github.com/char2cs/crowbar/api/internal/engine/git"
 	enginesearch "github.com/char2cs/crowbar/api/internal/engine/search"
 	engineterminal "github.com/char2cs/crowbar/api/internal/engine/terminal"
 )
@@ -26,9 +27,16 @@ import (
 //     not-found error wrapped up from the fs engine).
 //   - 400 Bad Request    — enginesearch.ErrBadPattern,
 //     enginesearch.ErrPathOutsideWorkspace.
-//   - 409 Conflict        — enginesearch.ErrLocked and the worktree lock /
-//     non-leaf sentinels (ErrParentLocked, ErrNewParentLocked,
-//     ErrRebaseNonLeaf, ErrChildHasChildren).
+//   - 403 Forbidden       — enginegit.ErrAuthFailed (remote rejected the
+//     supplied credentials on push/pull/fetch; a forbidden-style auth failure,
+//     not a transport outage).
+//   - 409 Conflict        — apperr.ErrLocked (a write against a locked,
+//     provider-protected workspace; 04 §5, 05 §3/§4), enginesearch.ErrLocked,
+//     the worktree lock / non-leaf sentinels (ErrParentLocked,
+//     ErrNewParentLocked, ErrRebaseNonLeaf, ErrChildHasChildren), and the git
+//     engine's classified conflict sentinels (ErrConflict, ErrDirtyTree,
+//     ErrRejectedNonFastForward, ErrNothingToCommit, ErrStaleHunk,
+//     ErrHasChildren).
 //   - 500 Internal Error  — any other (or nil) error.
 //
 // A 503 "engine unavailable" category is intentionally absent: the v0 handlers
@@ -53,6 +61,10 @@ func StatusAndMessage(
 		return http.StatusBadRequest, err.Error()
 	}
 
+	if errors.Is(err, enginegit.ErrAuthFailed) {
+		return http.StatusForbidden, err.Error()
+	}
+
 	if isConflict(err) {
 		return http.StatusConflict, err.Error()
 	}
@@ -65,7 +77,8 @@ func StatusAndMessage(
 func isConflict(
 	err error,
 ) bool {
-	if errors.Is(err, enginesearch.ErrLocked) ||
+	if errors.Is(err, apperr.ErrLocked) ||
+		errors.Is(err, enginesearch.ErrLocked) ||
 		errors.Is(err, worktree.ErrParentLocked) ||
 		errors.Is(err, worktree.ErrNewParentLocked) {
 		return true
@@ -73,6 +86,26 @@ func isConflict(
 
 	if errors.Is(err, worktree.ErrRebaseNonLeaf) ||
 		errors.Is(err, worktree.ErrChildHasChildren) {
+		return true
+	}
+
+	return isGitConflict(err)
+}
+
+// isGitConflict reports whether err is one of the git engine's classified
+// conflict sentinels that map to HTTP 409.
+func isGitConflict(
+	err error,
+) bool {
+	if errors.Is(err, enginegit.ErrConflict) ||
+		errors.Is(err, enginegit.ErrDirtyTree) ||
+		errors.Is(err, enginegit.ErrRejectedNonFastForward) {
+		return true
+	}
+
+	if errors.Is(err, enginegit.ErrNothingToCommit) ||
+		errors.Is(err, enginegit.ErrStaleHunk) ||
+		errors.Is(err, enginegit.ErrHasChildren) {
 		return true
 	}
 

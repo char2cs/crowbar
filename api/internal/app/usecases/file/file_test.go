@@ -9,6 +9,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/char2cs/crowbar/api/internal/app/apperr"
 	"github.com/char2cs/crowbar/api/internal/app/usecases/file"
 	"github.com/char2cs/crowbar/api/internal/app/usecases/mocks"
 	"github.com/char2cs/crowbar/api/internal/domain"
@@ -218,6 +219,52 @@ func TestFileUsecase_WriteContent_ResyncError(t *testing.T) {
 
 	err := uc.WriteContent(ctx, "w1", "a.go", "d", time.Now())
 	assert.Error(t, err)
+}
+
+func lockedWorkspace(
+	syncer *mocks.WorkspaceSyncer,
+) {
+	syncer.GetFn = func(_ context.Context, id string) (domain.Workspace, error) {
+		return domain.Workspace{ID: id, WorktreePath: "/repo/x", Locked: true}, nil
+	}
+}
+
+func TestFileUsecase_Writes_RejectLockedWorkspace(t *testing.T) {
+	fs, syncer, uc := newFileUsecase(t)
+	ctx := context.Background()
+	now := time.Now()
+	lockedWorkspace(syncer)
+	fs.WriteContentFn = func(_, _, _ string) error { return nil }
+	fs.CreateFileFn = func(_, _ string) error { return nil }
+	fs.CreateDirFn = func(_, _ string) error { return nil }
+	fs.RenameFn = func(_, _, _ string) error { return nil }
+	fs.DeleteFn = func(_, _ string) error { return nil }
+
+	require.ErrorIs(t, uc.WriteContent(ctx, "w1", "a.go", "d", now), apperr.ErrLocked)
+	require.ErrorIs(t, uc.CreateFile(ctx, "w1", "a.go", now), apperr.ErrLocked)
+	require.ErrorIs(t, uc.CreateDir(ctx, "w1", "sub", now), apperr.ErrLocked)
+	require.ErrorIs(t, uc.Rename(ctx, "w1", "a.go", "b.go", now), apperr.ErrLocked)
+	require.ErrorIs(t, uc.Delete(ctx, "w1", "a.go", now), apperr.ErrLocked)
+	assert.False(t, syncer.Synced, "locked rejection must not mutate or resync")
+}
+
+func TestFileUsecase_Reads_AllowLockedWorkspace(t *testing.T) {
+	fs, syncer, uc := newFileUsecase(t)
+	ctx := context.Background()
+	lockedWorkspace(syncer)
+	fs.TreeFn = func(_, _ string, _ file.FileStatusProvider) ([]domain.FileNode, error) {
+		return []domain.FileNode{{Name: "a.go"}}, nil
+	}
+	fs.ReadContentFn = func(_, _ string) (domain.FileContent, error) {
+		return domain.FileContent{Content: "hi"}, nil
+	}
+
+	nodes, err := uc.Tree(ctx, "w1", "", statusProviderStub{})
+	require.NoError(t, err)
+	assert.Len(t, nodes, 1)
+	got, err := uc.ReadContent(ctx, "w1", "a.go")
+	require.NoError(t, err)
+	assert.Equal(t, "hi", got.Content)
 }
 
 // The cases below cover each method's fs-engine error branch (the workspace
