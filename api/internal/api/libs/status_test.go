@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"os"
 	"testing"
 
 	asynxmodels "github.com/char2cs/asynx/models"
@@ -103,6 +104,18 @@ func TestStatusAndMessageWrapped(t *testing.T) {
 	wrapped := fmt.Errorf(
 		"usecase: load: %w",
 		apperr.ErrNotFound,
+	)
+
+	status, msg := libs.StatusAndMessage(wrapped)
+
+	assert.Equal(t, http.StatusNotFound, status)
+	assert.Equal(t, wrapped.Error(), msg)
+}
+
+func TestStatusAndMessageWrappedFSNotExist(t *testing.T) {
+	wrapped := fmt.Errorf(
+		"read: %w",
+		os.ErrNotExist,
 	)
 
 	status, msg := libs.StatusAndMessage(wrapped)

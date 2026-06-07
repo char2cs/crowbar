@@ -2,6 +2,7 @@ package libs
 
 import (
 	"errors"
+	"io/fs"
 	"net/http"
 
 	asynxmodels "github.com/char2cs/asynx/models"
@@ -21,7 +22,8 @@ import (
 //
 //   - 404 Not Found      — apperr.ErrNotFound, engineterminal.ErrSessionNotFound,
 //     asynxmodels.ErrNotFound (the asynx aggregate-not-found sentinel surfaced
-//     by the aggregate usecases).
+//     by the aggregate usecases), and fs.ErrNotExist (the raw filesystem
+//     not-found error wrapped up from the fs engine).
 //   - 400 Bad Request    — enginesearch.ErrBadPattern,
 //     enginesearch.ErrPathOutsideWorkspace.
 //   - 409 Conflict        — enginesearch.ErrLocked and the worktree lock /
@@ -41,7 +43,8 @@ func StatusAndMessage(
 
 	if errors.Is(err, apperr.ErrNotFound) ||
 		errors.Is(err, engineterminal.ErrSessionNotFound) ||
-		errors.Is(err, asynxmodels.ErrNotFound) {
+		errors.Is(err, asynxmodels.ErrNotFound) ||
+		errors.Is(err, fs.ErrNotExist) {
 		return http.StatusNotFound, err.Error()
 	}
 
