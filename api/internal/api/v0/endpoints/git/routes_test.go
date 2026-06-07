@@ -5,6 +5,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"testing"
+	"time"
 
 	"github.com/gin-gonic/gin"
 	"github.com/gorilla/websocket"
@@ -69,6 +70,191 @@ func (stubGit) Stashes(
 	return nil, nil
 }
 
+func (stubGit) StageFile(
+	_ context.Context,
+	_ string,
+	_ string,
+	_ time.Time,
+) error {
+	return nil
+}
+
+func (stubGit) StageHunk(
+	_ context.Context,
+	_ string,
+	_ string,
+	_ string,
+	_ time.Time,
+) error {
+	return nil
+}
+
+func (stubGit) UnstageFile(
+	_ context.Context,
+	_ string,
+	_ string,
+	_ time.Time,
+) error {
+	return nil
+}
+
+func (stubGit) UnstageHunk(
+	_ context.Context,
+	_ string,
+	_ string,
+	_ string,
+	_ time.Time,
+) error {
+	return nil
+}
+
+func (stubGit) Discard(
+	_ context.Context,
+	_ string,
+	_ string,
+	_ time.Time,
+) error {
+	return nil
+}
+
+func (stubGit) Commit(
+	_ context.Context,
+	_ string,
+	_ string,
+	_ string,
+	_ time.Time,
+) error {
+	return nil
+}
+
+func (stubGit) Push(
+	_ context.Context,
+	_ string,
+	_ time.Time,
+) error {
+	return nil
+}
+
+func (stubGit) Fetch(
+	_ context.Context,
+	_ string,
+	_ time.Time,
+) error {
+	return nil
+}
+
+func (stubGit) Pull(
+	_ context.Context,
+	_ string,
+	_ string,
+	_ time.Time,
+) error {
+	return nil
+}
+
+func (stubGit) CreateBranch(
+	_ context.Context,
+	_ string,
+	_ string,
+	_ string,
+	_ bool,
+	_ time.Time,
+) error {
+	return nil
+}
+
+func (stubGit) RenameBranch(
+	_ context.Context,
+	_ string,
+	_ string,
+	_ string,
+	_ time.Time,
+) error {
+	return nil
+}
+
+func (stubGit) DeleteBranch(
+	_ context.Context,
+	_ string,
+	_ string,
+	_ time.Time,
+) error {
+	return nil
+}
+
+func (stubGit) SwitchBranch(
+	_ context.Context,
+	_ string,
+	_ string,
+	_ time.Time,
+) error {
+	return nil
+}
+
+func (stubGit) StashPush(
+	_ context.Context,
+	_ string,
+	_ string,
+	_ time.Time,
+) error {
+	return nil
+}
+
+func (stubGit) StashApply(
+	_ context.Context,
+	_ string,
+	_ string,
+	_ time.Time,
+) error {
+	return nil
+}
+
+func (stubGit) StashPop(
+	_ context.Context,
+	_ string,
+	_ string,
+	_ time.Time,
+) error {
+	return nil
+}
+
+func (stubGit) StashDrop(
+	_ context.Context,
+	_ string,
+	_ string,
+	_ time.Time,
+) error {
+	return nil
+}
+
+func (stubGit) Reset(
+	_ context.Context,
+	_ string,
+	_ string,
+	_ string,
+	_ time.Time,
+) error {
+	return nil
+}
+
+func (stubGit) Merge(
+	_ context.Context,
+	_ string,
+	_ string,
+	_ time.Time,
+) error {
+	return nil
+}
+
+func (stubGit) Rebase(
+	_ context.Context,
+	_ string,
+	_ string,
+	_ time.Time,
+) error {
+	return nil
+}
+
 func dualServe(
 	rest gin.HandlerFunc,
 	ws gin.HandlerFunc,
@@ -108,6 +294,47 @@ func TestRegisterMountsRoutes(
 		assert.NotEqual(t, http.StatusNotFound, rec.Code, p)
 	}
 	assert.False(t, wsHit)
+}
+
+func TestRegisterMountsWriteRoutes(
+	t *testing.T,
+) {
+	r := gin.New()
+	git.Register(
+		r.Group("/v0"),
+		stubGit{},
+		func(_ *gin.Context) {},
+		dualServe,
+	)
+
+	routes := []struct {
+		method string
+		path   string
+	}{
+		{http.MethodPost, "/v0/workspaces/abc/git/stage"},
+		{http.MethodPost, "/v0/workspaces/abc/git/unstage"},
+		{http.MethodPost, "/v0/workspaces/abc/git/discard"},
+		{http.MethodPost, "/v0/workspaces/abc/git/commit"},
+		{http.MethodPost, "/v0/workspaces/abc/git/push"},
+		{http.MethodPost, "/v0/workspaces/abc/git/pull"},
+		{http.MethodPost, "/v0/workspaces/abc/git/fetch"},
+		{http.MethodPost, "/v0/workspaces/abc/git/branches"},
+		{http.MethodPatch, "/v0/workspaces/abc/git/branches/main"},
+		{http.MethodDelete, "/v0/workspaces/abc/git/branches/main"},
+		{http.MethodPost, "/v0/workspaces/abc/git/checkout"},
+		{http.MethodPost, "/v0/workspaces/abc/git/stash"},
+		{http.MethodPost, "/v0/workspaces/abc/git/stash/0"},
+		{http.MethodDelete, "/v0/workspaces/abc/git/stash/0"},
+		{http.MethodPost, "/v0/workspaces/abc/git/reset"},
+		{http.MethodPost, "/v0/workspaces/abc/git/merge"},
+		{http.MethodPost, "/v0/workspaces/abc/git/rebase"},
+	}
+	for _, rt := range routes {
+		rec := httptest.NewRecorder()
+		req := httptest.NewRequest(rt.method, rt.path, http.NoBody)
+		r.ServeHTTP(rec, req)
+		assert.NotEqual(t, http.StatusNotFound, rec.Code, rt.path)
+	}
 }
 
 func TestStatusPlainGETServesREST(
