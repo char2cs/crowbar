@@ -218,7 +218,7 @@ WS  /v0/ws/chats?wsId=               (wsId)       chat list status (idle ↔ age
 WS  /v0/ws/git?wsId=                 (wsId)       live GitStatus on every disk change
 WS  /v0/ws/files?wsId=               (wsId)       FileChangeEvent (created/modified/deleted/renamed)
 WS  /v0/ws/lsp?wsId=                 (wsId)       Diagnostic[] pushes
-WS  /v0/ws/terminals/:sessionId      (sessionId)  bidirectional PTY stream
+WS  /v0/ws/terminals/:sessionId      (sessionId)  bidirectional PTY stream — JSON text frames (see §06-terminal-pty §3)
 WS  /v0/ws/chats/:chatId/stream      (chatId)     agent response stream — POST-SPIKE
 ```
 

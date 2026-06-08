@@ -21,17 +21,11 @@ func TestMain(
 	m.Run()
 }
 
-type stubLifecycle struct{}
+type stubUsecase struct{}
 
-func (stubLifecycle) ListChatsByWorkspace(
+func (stubUsecase) CreateChat(
 	_ context.Context,
 	_ string,
-) ([]domain.Chat, error) {
-	return nil, nil
-}
-
-func (stubLifecycle) CreateChat(
-	_ context.Context,
 	_ string,
 	_ string,
 	_ time.Time,
@@ -39,7 +33,7 @@ func (stubLifecycle) CreateChat(
 	return domain.Chat{}, nil
 }
 
-func (stubLifecycle) ForkChat(
+func (stubUsecase) ForkChat(
 	_ context.Context,
 	_ string,
 	_ time.Time,
@@ -47,7 +41,7 @@ func (stubLifecycle) ForkChat(
 	return domain.Chat{}, nil
 }
 
-func (stubLifecycle) RenameChat(
+func (stubUsecase) RenameChat(
 	_ context.Context,
 	_ string,
 	_ string,
@@ -55,7 +49,7 @@ func (stubLifecycle) RenameChat(
 	return domain.Chat{}, nil
 }
 
-func (stubLifecycle) DeleteChat(
+func (stubUsecase) DeleteChat(
 	_ context.Context,
 	_ string,
 	_ time.Time,
@@ -63,18 +57,33 @@ func (stubLifecycle) DeleteChat(
 	return nil
 }
 
+type stubRepo struct{}
+
+func (stubRepo) ListByWorkspace(
+	_ context.Context,
+	_ string,
+) ([]domain.Chat, error) {
+	return nil, nil
+}
+
 func TestRegisterMountsRoutes(
 	t *testing.T,
 ) {
 	r := gin.New()
-	chats.Register(r.Group("/v0"), stubLifecycle{})
+	chats.Register(
+		r.Group("/v0"),
+		stubUsecase{},
+		stubRepo{},
+		func(_ *gin.Context) {},
+		func(_ *gin.Context) {},
+	)
 
 	cases := []struct {
 		method string
 		path   string
 	}{
-		{http.MethodGet, "/v0/workspaces/w1/chats"},
-		{http.MethodPost, "/v0/workspaces/w1/chats"},
+		{http.MethodPost, "/v0/workspaces/ws1/chats"},
+		{http.MethodGet, "/v0/workspaces/ws1/chats"},
 		{http.MethodPost, "/v0/chats/c1/fork"},
 		{http.MethodPatch, "/v0/chats/c1"},
 		{http.MethodDelete, "/v0/chats/c1"},

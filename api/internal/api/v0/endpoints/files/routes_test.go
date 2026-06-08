@@ -11,8 +11,8 @@ import (
 	"github.com/stretchr/testify/assert"
 
 	"github.com/char2cs/crowbar/api/internal/api/v0/endpoints/files"
-	"github.com/char2cs/crowbar/api/internal/app/usecases/file"
 	"github.com/char2cs/crowbar/api/internal/domain"
+	fileusecase "github.com/char2cs/crowbar/api/internal/app/usecases/file"
 )
 
 func TestMain(
@@ -28,7 +28,7 @@ func (stubFiles) Tree(
 	_ context.Context,
 	_ string,
 	_ string,
-	_ file.FileStatusProvider,
+	_ fileusecase.FileStatusProvider,
 ) ([]domain.FileNode, error) {
 	return nil, nil
 }
@@ -92,18 +92,18 @@ func TestRegisterMountsRoutes(
 	t *testing.T,
 ) {
 	r := gin.New()
-	files.Register(r.Group("/v0"), stubFiles{})
+	files.Register(r.Group("/v0"), stubFiles{}, func(_ *gin.Context) {})
 
 	cases := []struct {
 		method string
 		path   string
 	}{
-		{http.MethodGet, "/v0/workspaces/w1/files/tree"},
-		{http.MethodGet, "/v0/workspaces/w1/files/content?path=a"},
-		{http.MethodPut, "/v0/workspaces/w1/files/content"},
-		{http.MethodPost, "/v0/workspaces/w1/files"},
-		{http.MethodPatch, "/v0/workspaces/w1/files"},
-		{http.MethodDelete, "/v0/workspaces/w1/files"},
+		{http.MethodGet, "/v0/workspaces/ws1/files"},
+		{http.MethodGet, "/v0/workspaces/ws1/files/content"},
+		{http.MethodPut, "/v0/workspaces/ws1/files/content"},
+		{http.MethodPost, "/v0/workspaces/ws1/files"},
+		{http.MethodPatch, "/v0/workspaces/ws1/files"},
+		{http.MethodDelete, "/v0/workspaces/ws1/files"},
 	}
 	for _, tc := range cases {
 		rec := httptest.NewRecorder()

@@ -6,6 +6,6 @@ package worktree
 // is empty. On a clean merge ParentTipSha holds the parent's post-merge HEAD,
 // to which the kept child's fork point has been advanced.
 type MergeResult struct {
-	ConflictsPending bool
-	ParentTipSha     string
+	ConflictsPending bool   `json:"conflictsPending"`
+	ParentTipSha     string `json:"parentTipSha"`
 }

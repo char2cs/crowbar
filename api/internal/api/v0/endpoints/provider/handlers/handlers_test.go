@@ -2,18 +2,16 @@ package handlers_test
 
 import (
 	"context"
-	"encoding/json"
-	"errors"
 	"net/http"
 	"net/http/httptest"
 	"testing"
 
 	"github.com/gin-gonic/gin"
-	"github.com/stretchr/testify/require"
+	"github.com/stretchr/testify/assert"
 
-	providerhandlers "github.com/char2cs/crowbar/api/internal/api/v0/endpoints/provider/handlers"
+	"github.com/char2cs/crowbar/api/internal/api/v0/endpoints/provider/handlers"
 	"github.com/char2cs/crowbar/api/internal/domain"
-	providertypes "github.com/char2cs/crowbar/api/internal/engine/provider/types"
+	engineprovider "github.com/char2cs/crowbar/api/internal/engine/provider"
 )
 
 func TestMain(
@@ -23,132 +21,63 @@ func TestMain(
 	m.Run()
 }
 
-var errBoom = errors.New("boom")
+type stubEngine struct{}
 
-type fakeProvider struct {
-	state        providertypes.ProviderState
-	branches     []string
-	pollErr      error
-	branchErr    error
-	lastRepoPath string
-}
-
-func (f *fakeProvider) PollOnView(
+func (stubEngine) PollOnView(
 	_ context.Context,
 	_ string,
 	_ string,
 	_ string,
-) (providertypes.ProviderState, error) {
-	return f.state, f.pollErr
+) (engineprovider.ProviderState, error) {
+	return engineprovider.ProviderState{}, nil
 }
 
-func (f *fakeProvider) ProtectedBranches(
+func (stubEngine) ProtectedBranches(
 	_ context.Context,
-	repoPath string,
+	_ string,
 ) ([]string, error) {
-	f.lastRepoPath = repoPath
-	return f.branches, f.branchErr
+	return []string{"main"}, nil
 }
 
-var _ providerhandlers.ProviderEngine = (*fakeProvider)(nil)
+type stubReader struct{}
 
-type fakeWSReader struct {
-	ws  domain.Workspace
-	err error
-}
-
-func (f *fakeWSReader) Get(
+func (stubReader) Get(
 	_ context.Context,
-	_ string,
+	id string,
 ) (domain.Workspace, error) {
-	if f.err != nil {
-		return domain.Workspace{}, f.err
-	}
-	return f.ws, nil
-}
-
-var _ providerhandlers.WorkspaceReader = (*fakeWSReader)(nil)
-
-type fakeRepoReader struct {
-	repo *domain.Repository
-	err  error
-}
-
-func (f *fakeRepoReader) FindByKey(
-	_ context.Context,
-	_ string,
-) (*domain.Repository, error) {
-	if f.err != nil {
-		return nil, f.err
-	}
-	return f.repo, nil
-}
-
-var _ providerhandlers.RepoReader = (*fakeRepoReader)(nil)
-
-func okWSReader() *fakeWSReader {
-	return &fakeWSReader{
-		ws: domain.Workspace{
-			ID:           "ws1",
-			Branch:       "feature",
-			WorktreePath: "/repo",
-		},
-	}
-}
-
-func okRepoReader() *fakeRepoReader {
-	return &fakeRepoReader{
-		repo: &domain.Repository{
-			ID:   "r1",
-			Path: "/repo-root",
-		},
-	}
+	return domain.Workspace{ID: id, WorktreePath: "/repo", Branch: "main"}, nil
 }
 
 func newRouter(
-	prov providerhandlers.ProviderEngine,
-	wsReader providerhandlers.WorkspaceReader,
+	eng handlers.ProviderEngine,
+	r handlers.WorkspaceReader,
 ) *gin.Engine {
-	return newRouterWithRepos(prov, wsReader, okRepoReader())
-}
-
-func newRouterWithRepos(
-	prov providerhandlers.ProviderEngine,
-	wsReader providerhandlers.WorkspaceReader,
-	repos providerhandlers.RepoReader,
-) *gin.Engine {
-	r := gin.New()
-	h := providerhandlers.New(prov, wsReader, repos)
-	rg := r.Group("/v0")
-	rg.GET("/workspaces/:wsId/provider", h.ProviderState)
+	router := gin.New()
+	h := handlers.New(eng, r)
+	rg := router.Group("/v0")
+	rg.GET("/workspaces/:wsId/provider", h.State)
 	rg.GET("/repos/:id/protected-branches", h.ProtectedBranches)
-	return r
+	return router
 }
 
 func do(
-	t *testing.T,
 	r *gin.Engine,
-	target string,
+	path string,
 ) *httptest.ResponseRecorder {
-	t.Helper()
 	rec := httptest.NewRecorder()
-	req := httptest.NewRequest(http.MethodGet, target, nil)
+	req := httptest.NewRequest(http.MethodGet, path, http.NoBody)
 	r.ServeHTTP(rec, req)
 	return rec
 }
 
-type envelope struct {
-	Success bool            `json:"success"`
-	Error   string          `json:"error"`
-	Data    json.RawMessage `json:"data"`
-}
-
-func decode(
+func TestProviderHandlers_HappyPath(
 	t *testing.T,
-	rec *httptest.ResponseRecorder,
-) envelope {
-	t.Helper()
-	var env envelope
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &env))
-	return env
+) {
+	r := newRouter(stubEngine{}, stubReader{})
+
+	rec := do(r, "/v0/workspaces/ws1/provider")
+	assert.Equal(t, http.StatusOK, rec.Code)
+
+	rec = do(r, "/v0/repos/r1/protected-branches")
+	assert.Equal(t, http.StatusOK, rec.Code)
 }

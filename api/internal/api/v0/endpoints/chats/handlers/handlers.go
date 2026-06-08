@@ -1,6 +1,4 @@
-// Package handlers holds the gin handlers backing the chats endpoint: the flat
-// per-workspace list and the lifecycle mutations (create root, fork from tip,
-// rename, and cascade delete).
+// Package handlers holds the gin handlers backing the chats endpoint.
 package handlers
 
 import (
@@ -10,29 +8,28 @@ import (
 	"github.com/char2cs/crowbar/api/internal/domain"
 )
 
-// Lifecycle is the chat usecase surface the handlers need: the flat
-// per-workspace read plus the create/fork/rename/cascade-delete mutations.
-type Lifecycle interface {
-	ListChatsByWorkspace(
-		ctx context.Context,
-		wsID string,
-	) ([]domain.Chat, error)
+// ChatUsecase is the chat lifecycle surface the handlers need.
+type ChatUsecase interface {
 	CreateChat(
 		ctx context.Context,
+		id string,
 		wsID string,
 		title string,
 		now time.Time,
 	) (domain.Chat, error)
+
 	ForkChat(
 		ctx context.Context,
 		parentID string,
 		now time.Time,
 	) (domain.Chat, error)
+
 	RenameChat(
 		ctx context.Context,
 		id string,
 		title string,
 	) (domain.Chat, error)
+
 	DeleteChat(
 		ctx context.Context,
 		id string,
@@ -40,20 +37,27 @@ type Lifecycle interface {
 	) error
 }
 
-// Handlers serves the /v0 chat routes from the chat lifecycle usecase. now
-// supplies the timestamp for the create, fork, and delete activity roll-ups.
-type Handlers struct {
-	chats Lifecycle
-	now   func() time.Time
+// ChatRepo is the chat read surface the handlers need.
+type ChatRepo interface {
+	ListByWorkspace(
+		ctx context.Context,
+		wsID string,
+	) ([]domain.Chat, error)
 }
 
-// New builds the chats Handlers from the chat lifecycle usecase and a clock.
+// Handlers serves the /v0/chats routes from the chat usecase and repo.
+type Handlers struct {
+	chatUsecase ChatUsecase
+	chatRepo    ChatRepo
+}
+
+// New builds the chats Handlers from the chat usecase and repo.
 func New(
-	chats Lifecycle,
-	now func() time.Time,
+	chatUsecase ChatUsecase,
+	chatRepo ChatRepo,
 ) *Handlers {
 	return &Handlers{
-		chats: chats,
-		now:   now,
+		chatUsecase: chatUsecase,
+		chatRepo:    chatRepo,
 	}
 }

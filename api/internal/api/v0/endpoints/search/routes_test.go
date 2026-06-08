@@ -1,63 +1,71 @@
 package search_test
 
 import (
-	"bytes"
 	"context"
 	"net/http"
 	"net/http/httptest"
-	"os"
-	"path/filepath"
 	"testing"
 
 	"github.com/gin-gonic/gin"
 	"github.com/stretchr/testify/assert"
-	"github.com/stretchr/testify/require"
 
 	"github.com/char2cs/crowbar/api/internal/api/v0/endpoints/search"
 	"github.com/char2cs/crowbar/api/internal/domain"
 	enginesearch "github.com/char2cs/crowbar/api/internal/engine/search"
 )
 
-type stubReader struct {
-	path string
+func TestMain(
+	m *testing.M,
+) {
+	gin.SetMode(gin.TestMode)
+	m.Run()
 }
 
-func (s stubReader) Get(
+type stubEngine struct{}
+
+func (stubEngine) Search(
+	_ context.Context,
+	_ string,
+	_ enginesearch.SearchRequest,
+) (enginesearch.SearchResponse, error) {
+	return enginesearch.SearchResponse{}, nil
+}
+
+func (stubEngine) Replace(
+	_ context.Context,
+	_ string,
+	_ enginesearch.ReplaceRequest,
+	_ bool,
+) error {
+	return nil
+}
+
+type stubReader struct{}
+
+func (stubReader) Get(
 	_ context.Context,
 	_ string,
 ) (domain.Workspace, error) {
-	return domain.Workspace{WorktreePath: s.path}, nil
+	return domain.Workspace{}, nil
 }
 
-func TestRegister_MountsBothRoutes(t *testing.T) {
-	gin.SetMode(gin.TestMode)
-	root := t.TempDir()
-	require.NoError(t, os.WriteFile(
-		filepath.Join(root, "main.go"),
-		[]byte("hello\n"),
-		0o600,
-	))
+func TestRegisterMountsRoutes(
+	t *testing.T,
+) {
 	r := gin.New()
-	search.Register(
-		r.Group("/v0"),
-		enginesearch.New(),
-		stubReader{path: root},
-	)
+	search.Register(r.Group("/v0"), stubEngine{}, stubReader{})
 
-	mounted := make(map[string]bool)
-	for _, route := range r.Routes() {
-		mounted[route.Path] = true
+	cases := []struct {
+		method string
+		path   string
+	}{
+		{http.MethodPost, "/v0/workspaces/ws1/search"},
+		{http.MethodPost, "/v0/workspaces/ws1/search/replace"},
 	}
-	assert.True(t, mounted["/v0/workspaces/:wsId/search"])
-	assert.True(t, mounted["/v0/workspaces/:wsId/search/replace"])
-
-	req := httptest.NewRequest(
-		http.MethodPost,
-		"/v0/workspaces/ws1/search",
-		bytes.NewBufferString(`{"query":"hello","caseSensitive":true}`),
-	)
-	req.Header.Set("Content-Type", "application/json")
-	w := httptest.NewRecorder()
-	r.ServeHTTP(w, req)
-	require.Equal(t, http.StatusOK, w.Code)
+	for _, tc := range cases {
+		rec := httptest.NewRecorder()
+		req := httptest.NewRequest(tc.method, tc.path, http.NoBody)
+		r.ServeHTTP(rec, req)
+		assert.NotEqual(t, http.StatusNotFound, rec.Code, tc.path)
+	}
 }

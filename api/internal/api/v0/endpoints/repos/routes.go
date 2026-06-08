@@ -14,6 +14,7 @@ func Register(
 	store repohandlers.Store,
 ) {
 	h := repohandlers.New(store)
+	rg.POST("/repos", h.Create)
 	rg.GET("/repos", h.List)
 	rg.GET("/repos/:id", h.Detail)
 }

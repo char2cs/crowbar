@@ -1,63 +1,126 @@
 package handlers
 
 import (
+	"errors"
 	"net/http"
 
 	"github.com/gin-gonic/gin"
 
-	"github.com/char2cs/crowbar/api/internal/api/libs"
-	"github.com/char2cs/crowbar/api/internal/api/v0/dto"
+	"github.com/char2cs/crowbar/api/internal/app/apperr"
+	"github.com/char2cs/crowbar/api/internal/app/usecases/branchreview"
+	"github.com/char2cs/crowbar/api/internal/domain"
 	gitdomain "github.com/char2cs/crowbar/api/internal/domain/git"
 )
 
-// Get handles GET /v0/workspaces/:wsId/review, assembling the composite
-// branch-review read model (description, merge strategy, range diff, comment
-// threads, and read-only chat conversations) for the workspace. The data field
-// carries the BranchReviewDTO.
-func (h *Handlers) Get(
-	c *gin.Context,
-) {
-	review, err := h.review.Get(
-		c.Request.Context(),
-		c.Param("wsId"),
-	)
-	if err != nil {
-		status, msg := libs.StatusAndMessage(err)
-		libs.WriteErr(c, status, msg)
-		return
+// reviewErrorStatus maps a usecase error to an HTTP status: a genuine
+// not-found entity yields 404, every other (internal) failure yields 500, so a
+// real git/subprocess error is never masked as a 404.
+func reviewErrorStatus(
+	err error,
+) int {
+	if errors.Is(err, apperr.ErrNotFound) {
+		return http.StatusNotFound
 	}
-	libs.WriteQueryOK(c, dto.BranchReviewDTOFrom(review))
+	return http.StatusInternalServerError
 }
 
-// setMergeStrategyBody is the JSON body of the merge-strategy PATCH: the merge
-// strategy to apply to the workspace.
-type setMergeStrategyBody struct {
-	MergeStrategy *gitdomain.MergeStrategy `json:"mergeStrategy"`
+// Get handles GET /v0/workspaces/:wsId/review, returning the composite
+// branch-review read model for the workspace.
+func (h *Handlers) Get(
+	ctx *gin.Context,
+) {
+	review, err := h.reviewUsecase.Get(ctx.Request.Context(), ctx.Param("wsId"))
+	if err != nil {
+		ctx.JSON(reviewErrorStatus(err), gin.H{"error": err.Error()})
+		return
+	}
+	ctx.JSON(http.StatusOK, review)
 }
 
 // SetMergeStrategy handles PATCH /v0/workspaces/:wsId/review, updating the
-// workspace's merge strategy. The data field echoes the applied strategy under
-// { "mergeStrategy": <strategy> }.
+// merge strategy for the workspace.
 func (h *Handlers) SetMergeStrategy(
-	c *gin.Context,
+	ctx *gin.Context,
 ) {
-	var body setMergeStrategyBody
-	if err := c.ShouldBindJSON(&body); err != nil {
-		libs.WriteErr(c, http.StatusBadRequest, err.Error())
+	var body struct {
+		MergeStrategy gitdomain.MergeStrategy `json:"mergeStrategy"`
+	}
+	if err := ctx.ShouldBindJSON(&body); err != nil {
+		ctx.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
 	}
-	if body.MergeStrategy == nil {
-		libs.WriteErr(c, http.StatusBadRequest, "mergeStrategy is required")
+	if err := h.reviewUsecase.SetMergeStrategy(ctx.Request.Context(), ctx.Param("wsId"), body.MergeStrategy); err != nil {
+		ctx.JSON(reviewErrorStatus(err), gin.H{"error": err.Error()})
 		return
 	}
-	if err := h.review.SetMergeStrategy(
-		c.Request.Context(),
-		c.Param("wsId"),
-		*body.MergeStrategy,
-	); err != nil {
-		status, msg := libs.StatusAndMessage(err)
-		libs.WriteErr(c, status, msg)
+	ctx.JSON(http.StatusOK, gin.H{"mergeStrategy": body.MergeStrategy})
+}
+
+// OpenThread handles POST /v0/workspaces/:wsId/review/threads, opening a new
+// review thread anchored to a file location.
+func (h *Handlers) OpenThread(
+	ctx *gin.Context,
+) {
+	var body struct {
+		FilePath   string            `json:"filePath"`
+		LineNumber int               `json:"lineNumber"`
+		Side       domain.ReviewSide `json:"side"`
+		Body       string            `json:"body"`
+	}
+	if err := ctx.ShouldBindJSON(&body); err != nil {
+		ctx.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
 	}
-	libs.WriteQueryOK(c, gin.H{"mergeStrategy": *body.MergeStrategy})
+	thread, err := h.reviewUsecase.OpenThread(ctx.Request.Context(), branchreview.OpenThreadInput{
+		WsID:       ctx.Param("wsId"),
+		FilePath:   body.FilePath,
+		LineNumber: body.LineNumber,
+		Side:       body.Side,
+		Body:       body.Body,
+	})
+	if err != nil {
+		ctx.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+	ctx.JSON(http.StatusCreated, thread)
+}
+
+// Reply handles POST /v0/workspaces/:wsId/review/threads/:id/reply, appending
+// a reply message to an existing review thread.
+func (h *Handlers) Reply(
+	ctx *gin.Context,
+) {
+	var body struct {
+		Body string `json:"body"`
+	}
+	if err := ctx.ShouldBindJSON(&body); err != nil {
+		ctx.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+	thread, err := h.reviewUsecase.Reply(ctx.Request.Context(), ctx.Param("id"), body.Body)
+	if err != nil {
+		ctx.JSON(reviewErrorStatus(err), gin.H{"error": err.Error()})
+		return
+	}
+	ctx.JSON(http.StatusOK, thread)
+}
+
+// SetThreadResolved handles PATCH /v0/workspaces/:wsId/review/threads/:id,
+// marking a review thread resolved or reopening it.
+func (h *Handlers) SetThreadResolved(
+	ctx *gin.Context,
+) {
+	var body struct {
+		IsResolved bool `json:"isResolved"`
+	}
+	if err := ctx.ShouldBindJSON(&body); err != nil {
+		ctx.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+	thread, err := h.reviewUsecase.SetThreadResolved(ctx.Request.Context(), ctx.Param("id"), body.IsResolved)
+	if err != nil {
+		ctx.JSON(reviewErrorStatus(err), gin.H{"error": err.Error()})
+		return
+	}
+	ctx.JSON(http.StatusOK, thread)
 }

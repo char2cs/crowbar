@@ -5,6 +5,7 @@ package handlers
 
 import (
 	"context"
+	"time"
 
 	"github.com/char2cs/crowbar/api/internal/app/usecases/worktree"
 	"github.com/char2cs/crowbar/api/internal/domain"
@@ -12,7 +13,8 @@ import (
 )
 
 // Reader is the workspace read surface the handlers need: list every workspace
-// row from the read model and fetch one by id.
+// row from the read model, fetch one by id, and sync the working-tree state on
+// demand.
 type Reader interface {
 	List(
 		ctx context.Context,
@@ -20,6 +22,11 @@ type Reader interface {
 	Get(
 		ctx context.Context,
 		id string,
+	) (domain.Workspace, error)
+	SyncWorkingTreeState(
+		ctx context.Context,
+		id string,
+		now time.Time,
 	) (domain.Workspace, error)
 }
 

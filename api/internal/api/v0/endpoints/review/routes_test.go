@@ -8,7 +8,6 @@ import (
 
 	"github.com/gin-gonic/gin"
 	"github.com/stretchr/testify/assert"
-	"github.com/stretchr/testify/require"
 
 	"github.com/char2cs/crowbar/api/internal/api/v0/endpoints/review"
 	"github.com/char2cs/crowbar/api/internal/app/usecases/branchreview"
@@ -16,16 +15,23 @@ import (
 	gitdomain "github.com/char2cs/crowbar/api/internal/domain/git"
 )
 
-type stubReview struct{}
+func TestMain(
+	m *testing.M,
+) {
+	gin.SetMode(gin.TestMode)
+	m.Run()
+}
 
-func (stubReview) Get(
+type stubUsecase struct{}
+
+func (stubUsecase) Get(
 	_ context.Context,
 	_ string,
 ) (domain.BranchReview, error) {
 	return domain.BranchReview{}, nil
 }
 
-func (stubReview) SetMergeStrategy(
+func (stubUsecase) SetMergeStrategy(
 	_ context.Context,
 	_ string,
 	_ gitdomain.MergeStrategy,
@@ -33,14 +39,14 @@ func (stubReview) SetMergeStrategy(
 	return nil
 }
 
-func (stubReview) OpenThread(
+func (stubUsecase) OpenThread(
 	_ context.Context,
 	_ branchreview.OpenThreadInput,
 ) (domain.ReviewThread, error) {
 	return domain.ReviewThread{}, nil
 }
 
-func (stubReview) Reply(
+func (stubUsecase) Reply(
 	_ context.Context,
 	_ string,
 	_ string,
@@ -48,7 +54,7 @@ func (stubReview) Reply(
 	return domain.ReviewThread{}, nil
 }
 
-func (stubReview) SetThreadResolved(
+func (stubUsecase) SetThreadResolved(
 	_ context.Context,
 	_ string,
 	_ bool,
@@ -56,31 +62,26 @@ func (stubReview) SetThreadResolved(
 	return domain.ReviewThread{}, nil
 }
 
-func TestRegister_MountsAllRoutes(t *testing.T) {
-	gin.SetMode(gin.TestMode)
+func TestRegisterMountsRoutes(
+	t *testing.T,
+) {
 	r := gin.New()
-	review.Register(
-		r.Group("/v0"),
-		stubReview{},
-	)
+	review.Register(r.Group("/v0"), stubUsecase{})
 
-	rec := httptest.NewRecorder()
-	req := httptest.NewRequest(http.MethodGet, "/v0/workspaces/ws1/review", nil)
-	r.ServeHTTP(rec, req)
-	require.Equal(t, http.StatusOK, rec.Code)
-
-	want := map[string]string{
-		"GET /v0/workspaces/:wsId/review":                    "",
-		"PATCH /v0/workspaces/:wsId/review":                  "",
-		"POST /v0/workspaces/:wsId/review/threads":           "",
-		"POST /v0/workspaces/:wsId/review/threads/:id/reply": "",
-		"PATCH /v0/workspaces/:wsId/review/threads/:id":      "",
+	cases := []struct {
+		method string
+		path   string
+	}{
+		{http.MethodGet, "/v0/workspaces/ws1/review"},
+		{http.MethodPatch, "/v0/workspaces/ws1/review"},
+		{http.MethodPost, "/v0/workspaces/ws1/review/threads"},
+		{http.MethodPost, "/v0/workspaces/ws1/review/threads/t1/reply"},
+		{http.MethodPatch, "/v0/workspaces/ws1/review/threads/t1"},
 	}
-	mounted := make(map[string]bool)
-	for _, route := range r.Routes() {
-		mounted[route.Method+" "+route.Path] = true
-	}
-	for key := range want {
-		assert.True(t, mounted[key], "route %s not mounted", key)
+	for _, tc := range cases {
+		rec := httptest.NewRecorder()
+		req := httptest.NewRequest(tc.method, tc.path, http.NoBody)
+		r.ServeHTTP(rec, req)
+		assert.NotEqual(t, http.StatusNotFound, rec.Code, tc.path)
 	}
 }

@@ -3,6 +3,7 @@ package v0
 import (
 	"github.com/gin-gonic/gin"
 
+	"github.com/char2cs/crowbar/api/internal/api/v0/endpoints/agentrun"
 	"github.com/char2cs/crowbar/api/internal/api/v0/endpoints/chats"
 	"github.com/char2cs/crowbar/api/internal/api/v0/endpoints/editor"
 	"github.com/char2cs/crowbar/api/internal/api/v0/endpoints/files"
@@ -14,9 +15,8 @@ import (
 	"github.com/char2cs/crowbar/api/internal/api/v0/endpoints/review"
 	"github.com/char2cs/crowbar/api/internal/api/v0/endpoints/search"
 	"github.com/char2cs/crowbar/api/internal/api/v0/endpoints/terminal"
-	terminalhandlers "github.com/char2cs/crowbar/api/internal/api/v0/endpoints/terminal/handlers"
 	"github.com/char2cs/crowbar/api/internal/api/v0/endpoints/workspaces"
-	ws "github.com/char2cs/crowbar/api/internal/api/v0/ws"
+	"github.com/char2cs/crowbar/api/internal/api/v0/ws"
 )
 
 // Register mounts the v0 REST and WebSocket routes.
@@ -44,16 +44,14 @@ func (c *Container) Register(
 	chats.Register(
 		rg,
 		c.app.Usecases.Chat,
+		c.app.Repositories.Chat,
+		c.chats.Handle,
+		c.chatStream.Handle,
 	)
 	files.Register(
 		rg,
 		c.app.Usecases.File,
-	)
-	editor.Register(
-		rg,
-		c.eng.LSP,
-		c.eng.Git,
-		c.app.Repositories.Workspace,
+		c.files.Handle,
 	)
 	git.Register(
 		rg,
@@ -61,21 +59,11 @@ func (c *Container) Register(
 		c.git.Handle,
 		ws.DualServe,
 	)
-	rg.GET("/ws/workspaces", c.workspaces.Handle)
-	rg.GET("/ws/chats", c.chats.Handle)
-	rg.GET("/ws/git", c.git.Handle)
-	rg.GET("/ws/files", c.files.Handle)
-	rg.GET("/ws/lsp", c.lsp.Handle)
-	// Post-spike ChatStream placeholder (03 §8): the topic is registered and the
-	// route is mounted, but no producer pushes frames yet. Distinct path from the
-	// /ws/chats status route, so the two never collide.
-	rg.GET("/ws/chats/:chatId/stream", c.chatStream.Handle)
 	terminal.Register(
 		rg,
 		c.eng.Terminal,
 		c.app.GORM.TerminalProfiles,
 		c.app.Repositories.Workspace,
-		terminalhandlers.NewWS(c.eng.Terminal),
 	)
 	search.Register(
 		rg,
@@ -86,10 +74,20 @@ func (c *Container) Register(
 		rg,
 		c.eng.Provider,
 		c.app.Repositories.Workspace,
-		c.app.GORM.Repositories,
 	)
 	review.Register(
 		rg,
 		c.app.Usecases.BranchReview,
+	)
+	editor.Register(
+		rg,
+		c.eng.LSP,
+		c.eng.Git,
+		c.app.Repositories.Workspace,
+		c.lsp.Handle,
+	)
+	agentrun.Register(
+		rg,
+		c.app.Repositories.AgentRun,
 	)
 }

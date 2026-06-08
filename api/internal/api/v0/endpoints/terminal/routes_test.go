@@ -8,15 +8,66 @@ import (
 
 	"github.com/gin-gonic/gin"
 	"github.com/stretchr/testify/assert"
-	"github.com/stretchr/testify/require"
 
 	"github.com/char2cs/crowbar/api/internal/api/v0/endpoints/terminal"
-	terminalhandlers "github.com/char2cs/crowbar/api/internal/api/v0/endpoints/terminal/handlers"
 	"github.com/char2cs/crowbar/api/internal/domain"
 	engineterminal "github.com/char2cs/crowbar/api/internal/engine/terminal"
 )
 
+func TestMain(
+	m *testing.M,
+) {
+	gin.SetMode(gin.TestMode)
+	m.Run()
+}
+
+type stubEngine struct{}
+
+func (stubEngine) Create(
+	_ context.Context,
+	_ string,
+	_ string,
+	_ *domain.TerminalProfile,
+) (string, error) {
+	return "sess1", nil
+}
+
+func (stubEngine) Kill(
+	_ context.Context,
+	_ string,
+) error {
+	return nil
+}
+
+func (stubEngine) SessionExists(
+	_ context.Context,
+	_ string,
+) bool {
+	return false
+}
+
+func (stubEngine) Attach(
+	_ context.Context,
+	_ string,
+	_ engineterminal.WSConn,
+) error {
+	return nil
+}
+
 type stubProfiles struct{}
+
+func (stubProfiles) FindAll(
+	_ context.Context,
+) ([]domain.TerminalProfile, error) {
+	return nil, nil
+}
+
+func (stubProfiles) FindByKey(
+	_ context.Context,
+	id string,
+) (*domain.TerminalProfile, error) {
+	return &domain.TerminalProfile{ID: id}, nil
+}
 
 func (stubProfiles) Save(
 	_ context.Context,
@@ -32,74 +83,37 @@ func (stubProfiles) Delete(
 	return nil
 }
 
-func (stubProfiles) FindByKey(
-	_ context.Context,
-	_ string,
-) (*domain.TerminalProfile, error) {
-	return nil, nil
-}
+type stubReader struct{}
 
-func (stubProfiles) FindAll(
-	_ context.Context,
-) ([]domain.TerminalProfile, error) {
-	return nil, nil
-}
-
-type stubWorkspace struct{}
-
-func (stubWorkspace) Get(
+func (stubReader) Get(
 	_ context.Context,
 	_ string,
 ) (domain.Workspace, error) {
 	return domain.Workspace{}, nil
 }
 
-func TestRegister_MountsAllRoutes(t *testing.T) {
-	gin.SetMode(gin.TestMode)
-	eng := engineterminal.New()
-	t.Cleanup(eng.Shutdown)
-
+func TestRegisterMountsRoutes(
+	t *testing.T,
+) {
 	r := gin.New()
-	terminal.Register(
-		r.Group("/v0"),
-		eng,
-		stubProfiles{},
-		stubWorkspace{},
-		terminalhandlers.NewWS(eng),
-	)
+	terminal.Register(r.Group("/v0"), stubEngine{}, stubProfiles{}, stubReader{})
 
-	mounted := make(map[string]bool)
-	for _, route := range r.Routes() {
-		mounted[route.Method+" "+route.Path] = true
+	cases := []struct {
+		method string
+		path   string
+	}{
+		{http.MethodPost, "/v0/workspaces/ws1/terminals"},
+		{http.MethodDelete, "/v0/terminals/sess1"},
+		{http.MethodGet, "/v0/settings/terminal/profiles"},
+		{http.MethodGet, "/v0/settings/terminal/profiles/p1"},
+		{http.MethodPost, "/v0/settings/terminal/profiles"},
+		{http.MethodPut, "/v0/settings/terminal/profiles/p1"},
+		{http.MethodDelete, "/v0/settings/terminal/profiles/p1"},
 	}
-	assert.True(t, mounted["POST /v0/workspaces/:wsId/terminals"])
-	assert.True(t, mounted["DELETE /v0/terminals/:sessionId"])
-	assert.True(t, mounted["GET /v0/ws/terminals/:sessionId"])
-	assert.True(t, mounted["GET /v0/settings/terminal/profiles"])
-	assert.True(t, mounted["GET /v0/settings/terminal/profiles/:id"])
-	assert.True(t, mounted["POST /v0/settings/terminal/profiles"])
-	assert.True(t, mounted["PATCH /v0/settings/terminal/profiles/:id"])
-	assert.True(t, mounted["DELETE /v0/settings/terminal/profiles/:id"])
-}
-
-func TestRegister_ListProfilesEnvelope(t *testing.T) {
-	gin.SetMode(gin.TestMode)
-	eng := engineterminal.New()
-	t.Cleanup(eng.Shutdown)
-
-	r := gin.New()
-	terminal.Register(
-		r.Group("/v0"),
-		eng,
-		stubProfiles{},
-		stubWorkspace{},
-		terminalhandlers.NewWS(eng),
-	)
-
-	req := httptest.NewRequest(http.MethodGet, "/v0/settings/terminal/profiles", nil)
-	w := httptest.NewRecorder()
-	r.ServeHTTP(w, req)
-	require.Equal(t, http.StatusOK, w.Code)
-	assert.Contains(t, w.Body.String(), `"success":true`)
-	assert.Contains(t, w.Body.String(), `"data":[]`)
+	for _, tc := range cases {
+		rec := httptest.NewRecorder()
+		req := httptest.NewRequest(tc.method, tc.path, http.NoBody)
+		r.ServeHTTP(rec, req)
+		assert.NotEqual(t, http.StatusNotFound, rec.Code, tc.path)
+	}
 }

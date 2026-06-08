@@ -25,7 +25,8 @@ type eventStore struct {
 }
 
 // NewEventStore returns a GORM-backed asynx event store at path. Pins to a single
-// connection (serialized writes) and checkpoints the WAL on Close.
+// connection (serialized writes), enables WAL journal mode with a 5-second
+// busy timeout so concurrent openers don't deadlock, and checkpoints the WAL on Close.
 func NewEventStore(
 	path string,
 ) (models.Store, error) {
@@ -41,6 +42,13 @@ func NewEventStore(
 		return nil, fmt.Errorf("eventstore: db: %w", err)
 	}
 	sqlDB.SetMaxOpenConns(1)
+
+	if err := db.Exec("PRAGMA journal_mode=WAL").Error; err != nil {
+		return nil, fmt.Errorf("eventstore: journal_mode: %w", err)
+	}
+	if err := db.Exec("PRAGMA busy_timeout=5000").Error; err != nil {
+		return nil, fmt.Errorf("eventstore: busy_timeout: %w", err)
+	}
 
 	if err := db.AutoMigrate(&eventEntry{}); err != nil {
 		return nil, fmt.Errorf("eventstore: migrate: %w", err)

@@ -129,12 +129,20 @@ func openEventStores(
 	return stores, closers, nil
 }
 
-// Close checkpoints and closes every event store.
+// Close checkpoints and closes every event store and the shared GORM database.
 func (c *Container) Close() error {
 	var errs []error
 	for _, cl := range c.closers {
 		if err := cl.Close(); err != nil {
 			errs = append(errs, err)
+		}
+	}
+	if c.DB != nil {
+		sqlDB, err := c.DB.DB()
+		if err != nil {
+			errs = append(errs, fmt.Errorf("adapter: close db handle: %w", err))
+		} else if err := sqlDB.Close(); err != nil {
+			errs = append(errs, fmt.Errorf("adapter: close db: %w", err))
 		}
 	}
 	return errors.Join(errs...)

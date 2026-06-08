@@ -5,7 +5,7 @@ import (
 
 	"github.com/gin-gonic/gin"
 
-	ws "github.com/char2cs/crowbar/api/internal/api/v0/ws"
+	"github.com/char2cs/crowbar/api/internal/api/v0/ws"
 	"github.com/char2cs/crowbar/api/internal/app"
 	"github.com/char2cs/crowbar/api/internal/app/hub"
 	"github.com/char2cs/crowbar/api/internal/domain"
@@ -35,6 +35,8 @@ type Container struct {
 	eng        *engine.Container
 }
 
+var _ hub.Subscriber = (*Container)(nil)
+
 // New builds the v0 container and registers it as a hub subscriber.
 //
 // The lazy WS resource lifecycles (03 §6) are owned by the app-layer realtime
@@ -48,6 +50,9 @@ func New(
 	appContainer *app.Container,
 	engContainer *engine.Container,
 ) *Container {
+	if appContainer == nil {
+		panic("v0: appContainer is required")
+	}
 	c := &Container{
 		workspaces: ws.NewBroadcaster(workspacesDef(appContainer)),
 		chats:      ws.NewBroadcaster(chatsDef(appContainer)),
@@ -130,38 +135,6 @@ func (c *Container) PushFile(
 	evt domain.FileChangeEvent,
 ) {
 	c.files.Push(evt)
-}
-
-// WaitWorkspacesRegistered blocks until a workspaces client registers. Test-only.
-func (c *Container) WaitWorkspacesRegistered() {
-	c.workspaces.WaitRegistered()
-}
-
-// WaitChatsRegistered blocks until a chats client registers. Test-only.
-func (c *Container) WaitChatsRegistered() {
-	c.chats.WaitRegistered()
-}
-
-// WaitLSPRegistered blocks until an LSP diagnostics client registers. Test-only.
-func (c *Container) WaitLSPRegistered() {
-	c.lsp.WaitRegistered()
-}
-
-// WaitGitRegistered blocks until a git status client registers. Test-only.
-func (c *Container) WaitGitRegistered() {
-	c.git.WaitRegistered()
-}
-
-// WaitFilesRegistered blocks until a files client registers. Test-only.
-func (c *Container) WaitFilesRegistered() {
-	c.files.WaitRegistered()
-}
-
-// PushLSP fans a diagnostics event out to subscribed clients. Test-only.
-func (c *Container) PushLSP(
-	evt lspdomain.DiagnosticsEvent,
-) {
-	c.lsp.Push(evt)
 }
 
 func workspacesDef(

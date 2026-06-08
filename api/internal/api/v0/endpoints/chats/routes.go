@@ -1,28 +1,28 @@
-// Package chats mounts the v0 chat lifecycle REST routes: the flat per-workspace
-// list and the create/fork/rename/delete mutations (02 §2.3). Message-send and
-// the agent stream are deferred to the Agentic Bridge spike.
+// Package chats mounts the v0 chat lifecycle REST and WebSocket routes.
 package chats
 
 import (
-	"time"
-
 	"github.com/gin-gonic/gin"
 
 	chathandlers "github.com/char2cs/crowbar/api/internal/api/v0/endpoints/chats/handlers"
 )
 
-// Register mounts the chat list, create, fork, rename, and delete routes on the
-// supplied router group, backed by the chat lifecycle usecase. The list and
-// create routes hang off /workspaces/:wsId/chats while fork, rename, and delete
-// address a chat directly under /chats/:id.
+// Register mounts the chat lifecycle REST routes and WebSocket upgrade routes
+// on the supplied router group.
 func Register(
 	rg *gin.RouterGroup,
-	chats chathandlers.Lifecycle,
+	chatUsecase chathandlers.ChatUsecase,
+	chatRepo chathandlers.ChatRepo,
+	chatsWS gin.HandlerFunc,
+	chatStreamWS gin.HandlerFunc,
 ) {
-	h := chathandlers.New(chats, time.Now)
-	rg.GET("/workspaces/:wsId/chats", h.List)
+	h := chathandlers.New(chatUsecase, chatRepo)
+
 	rg.POST("/workspaces/:wsId/chats", h.Create)
+	rg.GET("/workspaces/:wsId/chats", h.List)
 	rg.POST("/chats/:id/fork", h.Fork)
 	rg.PATCH("/chats/:id", h.Rename)
 	rg.DELETE("/chats/:id", h.Delete)
+	rg.GET("/ws/chats", chatsWS)
+	rg.GET("/ws/chats/:chatId/stream", chatStreamWS)
 }

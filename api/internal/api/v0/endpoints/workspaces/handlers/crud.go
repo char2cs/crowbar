@@ -12,13 +12,15 @@ import (
 )
 
 // createRequest is the POST /v0/workspaces body: the repository to fork, the new
-// branch name, and an optional parent workspace id. When parentId is empty the
-// new workspace forks from the repository's default branch; otherwise it forks
-// from the parent workspace's branch.
+// branch name, an optional parent workspace id, and an optional locked flag.
+// When parentId is empty the new workspace forks from the repository's default
+// branch; otherwise it forks from the parent workspace's branch. When locked is
+// true the workspace is created in the locked state (skipped by cascade-delete).
 type createRequest struct {
 	RepoID   string `json:"repoId"`
 	Branch   string `json:"branch"`
 	ParentID string `json:"parentId"`
+	Locked   bool   `json:"locked"`
 }
 
 // Create handles POST /v0/workspaces, creating a worktree-backed workspace and
@@ -39,7 +41,7 @@ func (h *Handlers) Create(
 		libs.WriteErr(c, http.StatusBadRequest, "branch is required")
 		return
 	}
-	in, err := h.buildCreateInput(c.Request.Context(), body)
+	in, err := h.buildCreateInput(c.Request.Context(), body, body.Locked)
 	if err != nil {
 		status, msg := libs.StatusAndMessage(err)
 		libs.WriteErr(c, status, msg)
@@ -57,6 +59,7 @@ func (h *Handlers) Create(
 func (h *Handlers) buildCreateInput(
 	ctx context.Context,
 	body createRequest,
+	locked bool,
 ) (worktree.CreateChildInput, error) {
 	repo, err := h.repos.FindByKey(ctx, body.RepoID)
 	if err != nil {
@@ -79,6 +82,7 @@ func (h *Handlers) buildCreateInput(
 		Branch:       body.Branch,
 		ParentID:     body.ParentID,
 		ParentBranch: parentBranch,
+		ForceLocked:  locked,
 	}, nil
 }
 

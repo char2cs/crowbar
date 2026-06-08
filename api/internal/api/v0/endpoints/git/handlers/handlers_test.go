@@ -3,14 +3,16 @@ package handlers_test
 import (
 	"bytes"
 	"context"
+	"encoding/json"
 	"net/http"
 	"net/http/httptest"
 	"testing"
 	"time"
 
 	"github.com/gin-gonic/gin"
+	"github.com/stretchr/testify/assert"
 
-	githandlers "github.com/char2cs/crowbar/api/internal/api/v0/endpoints/git/handlers"
+	"github.com/char2cs/crowbar/api/internal/api/v0/endpoints/git/handlers"
 	gitdomain "github.com/char2cs/crowbar/api/internal/domain/git"
 )
 
@@ -21,405 +23,215 @@ func TestMain(
 	m.Run()
 }
 
-type writeCall struct {
-	method  string
-	wsID    string
-	args    []string
-	boolArg bool
-}
+type stubGit struct{}
 
-type fakeGit struct {
-	status        gitdomain.GitStatus
-	statusErr     error
-	diff          []gitdomain.FileDiff
-	diffStaged    bool
-	diffErr       error
-	commitDiff    gitdomain.MultiFileDiff
-	gotCommit     string
-	commitErr     error
-	commits       []gitdomain.Commit
-	gotLimit      int
-	gotSkip       int
-	logErr        error
-	branches      []gitdomain.Branch
-	branchesErr   error
-	stashes       []gitdomain.Stash
-	stashesErr    error
-	conflictFiles []string
-	conflictErr   error
-	hunks         []gitdomain.ConflictHunk
-	hunksErr      error
-	hunksForPath  []string
-	resolveCall   resolveArgs
-	calls         []writeCall
-	writeErr      error
+func (stubGit) Status(_ context.Context, _ string) (gitdomain.GitStatus, error) {
+	return gitdomain.GitStatus{}, nil
 }
-
-type resolveArgs struct {
-	wsID       string
-	path       string
-	hunkID     string
-	resolution gitdomain.ConflictResolution
-	content    string
+func (stubGit) Diff(_ context.Context, _ string, _ bool) ([]gitdomain.FileDiff, error) {
+	return nil, nil
 }
-
-func (f *fakeGit) record(
-	method string,
-	wsID string,
-	args ...string,
-) error {
-	f.calls = append(f.calls, writeCall{method: method, wsID: wsID, args: args})
-	return f.writeErr
+func (stubGit) Log(_ context.Context, _ string, _ int, _ int) ([]gitdomain.Commit, error) {
+	return nil, nil
 }
-
-func (f *fakeGit) StageFile(
-	_ context.Context,
-	wsID string,
-	filePath string,
-	_ time.Time,
-) error {
-	return f.record("StageFile", wsID, filePath)
+func (stubGit) Blame(_ context.Context, _ string, _ string) ([]gitdomain.BlameEntry, error) {
+	return nil, nil
 }
-
-func (f *fakeGit) StageHunk(
-	_ context.Context,
-	wsID string,
-	filePath string,
-	hunkID string,
-	_ time.Time,
-) error {
-	return f.record("StageHunk", wsID, filePath, hunkID)
+func (stubGit) Branches(_ context.Context, _ string) ([]gitdomain.Branch, error) {
+	return nil, nil
 }
-
-func (f *fakeGit) UnstageFile(
-	_ context.Context,
-	wsID string,
-	filePath string,
-	_ time.Time,
-) error {
-	return f.record("UnstageFile", wsID, filePath)
+func (stubGit) Stashes(_ context.Context, _ string) ([]gitdomain.Stash, error) {
+	return nil, nil
 }
-
-func (f *fakeGit) UnstageHunk(
-	_ context.Context,
-	wsID string,
-	filePath string,
-	hunkID string,
-	_ time.Time,
-) error {
-	return f.record("UnstageHunk", wsID, filePath, hunkID)
+func (stubGit) ConflictedFiles(_ context.Context, _ string) ([]string, error) {
+	return nil, nil
 }
-
-func (f *fakeGit) Discard(
-	_ context.Context,
-	wsID string,
-	filePath string,
-	_ time.Time,
-) error {
-	return f.record("Discard", wsID, filePath)
+func (stubGit) ConflictHunks(_ context.Context, _ string, _ string) ([]gitdomain.ConflictHunk, error) {
+	return nil, nil
 }
-
-func (f *fakeGit) Commit(
-	_ context.Context,
-	wsID string,
-	subject string,
-	body string,
-	_ time.Time,
-) error {
-	return f.record("Commit", wsID, subject, body)
+func (stubGit) CommitDiff(_ context.Context, _ string, _ string) (gitdomain.MultiFileDiff, error) {
+	return gitdomain.MultiFileDiff{}, nil
 }
-
-func (f *fakeGit) Push(
-	_ context.Context,
-	wsID string,
-	_ time.Time,
-) error {
-	return f.record("Push", wsID)
+func (stubGit) StageFile(_ context.Context, _ string, _ string, _ time.Time) error {
+	return nil
 }
-
-func (f *fakeGit) Fetch(
-	_ context.Context,
-	wsID string,
-	_ time.Time,
-) error {
-	return f.record("Fetch", wsID)
+func (stubGit) StageHunk(_ context.Context, _ string, _ string, _ string, _ time.Time) error {
+	return nil
 }
-
-func (f *fakeGit) Pull(
-	_ context.Context,
-	wsID string,
-	mode string,
-	_ time.Time,
-) error {
-	return f.record("Pull", wsID, mode)
+func (stubGit) UnstageFile(_ context.Context, _ string, _ string, _ time.Time) error {
+	return nil
 }
-
-func (f *fakeGit) CreateBranch(
-	_ context.Context,
-	wsID string,
-	name string,
-	source string,
-	switchTo bool,
-	_ time.Time,
-) error {
-	f.calls = append(f.calls, writeCall{
-		method:  "CreateBranch",
-		wsID:    wsID,
-		args:    []string{name, source},
-		boolArg: switchTo,
-	})
-	return f.writeErr
+func (stubGit) UnstageHunk(_ context.Context, _ string, _ string, _ string, _ time.Time) error {
+	return nil
 }
-
-func (f *fakeGit) RenameBranch(
-	_ context.Context,
-	wsID string,
-	oldName string,
-	newName string,
-	_ time.Time,
-) error {
-	return f.record("RenameBranch", wsID, oldName, newName)
+func (stubGit) Discard(_ context.Context, _ string, _ string, _ time.Time) error {
+	return nil
 }
-
-func (f *fakeGit) DeleteBranch(
-	_ context.Context,
-	wsID string,
-	name string,
-	_ time.Time,
-) error {
-	return f.record("DeleteBranch", wsID, name)
+func (stubGit) Commit(_ context.Context, _ string, _ string, _ string, _ time.Time) error {
+	return nil
 }
-
-func (f *fakeGit) SwitchBranch(
-	_ context.Context,
-	wsID string,
-	name string,
-	_ time.Time,
-) error {
-	return f.record("SwitchBranch", wsID, name)
+func (stubGit) Push(_ context.Context, _ string, _ time.Time) error    { return nil }
+func (stubGit) Fetch(_ context.Context, _ string, _ time.Time) error   { return nil }
+func (stubGit) Pull(_ context.Context, _ string, _ string, _ time.Time) error { return nil }
+func (stubGit) CreateBranch(_ context.Context, _ string, _ string, _ string, _ bool, _ time.Time) error {
+	return nil
 }
-
-func (f *fakeGit) StashPush(
-	_ context.Context,
-	wsID string,
-	message string,
-	_ time.Time,
-) error {
-	return f.record("StashPush", wsID, message)
+func (stubGit) RenameBranch(_ context.Context, _ string, _ string, _ string, _ time.Time) error {
+	return nil
 }
-
-func (f *fakeGit) StashApply(
-	_ context.Context,
-	wsID string,
-	id string,
-	_ time.Time,
-) error {
-	return f.record("StashApply", wsID, id)
+func (stubGit) DeleteBranch(_ context.Context, _ string, _ string, _ time.Time) error { return nil }
+func (stubGit) SwitchBranch(_ context.Context, _ string, _ string, _ time.Time) error { return nil }
+func (stubGit) StashPush(_ context.Context, _ string, _ string, _ time.Time) error    { return nil }
+func (stubGit) StashApply(_ context.Context, _ string, _ string, _ time.Time) error   { return nil }
+func (stubGit) StashPop(_ context.Context, _ string, _ string, _ time.Time) error     { return nil }
+func (stubGit) StashDrop(_ context.Context, _ string, _ string, _ time.Time) error    { return nil }
+func (stubGit) Reset(_ context.Context, _ string, _ string, _ string, _ time.Time) error {
+	return nil
 }
-
-func (f *fakeGit) StashPop(
-	_ context.Context,
-	wsID string,
-	id string,
-	_ time.Time,
-) error {
-	return f.record("StashPop", wsID, id)
-}
-
-func (f *fakeGit) StashDrop(
-	_ context.Context,
-	wsID string,
-	id string,
-	_ time.Time,
-) error {
-	return f.record("StashDrop", wsID, id)
-}
-
-func (f *fakeGit) Reset(
-	_ context.Context,
-	wsID string,
-	mode string,
-	commit string,
-	_ time.Time,
-) error {
-	return f.record("Reset", wsID, mode, commit)
-}
-
-func (f *fakeGit) Merge(
-	_ context.Context,
-	wsID string,
-	branch string,
-	_ time.Time,
-) error {
-	return f.record("Merge", wsID, branch)
-}
-
-func (f *fakeGit) Rebase(
-	_ context.Context,
-	wsID string,
-	onto string,
-	_ time.Time,
-) error {
-	return f.record("Rebase", wsID, onto)
-}
-
-func (f *fakeGit) Status(
+func (stubGit) Merge(_ context.Context, _ string, _ string, _ time.Time) error  { return nil }
+func (stubGit) Rebase(_ context.Context, _ string, _ string, _ time.Time) error { return nil }
+func (stubGit) ResolveHunk(
 	_ context.Context,
 	_ string,
-) (gitdomain.GitStatus, error) {
-	return f.status, f.statusErr
-}
-
-func (f *fakeGit) Diff(
-	_ context.Context,
 	_ string,
-	staged bool,
-) ([]gitdomain.FileDiff, error) {
-	f.diffStaged = staged
-	return f.diff, f.diffErr
-}
-
-func (f *fakeGit) CommitDiff(
-	_ context.Context,
 	_ string,
-	sha string,
-) (gitdomain.MultiFileDiff, error) {
-	f.gotCommit = sha
-	return f.commitDiff, f.commitErr
-}
-
-func (f *fakeGit) Log(
-	_ context.Context,
+	_ gitdomain.ConflictResolution,
 	_ string,
-	limit int,
-	skip int,
-) ([]gitdomain.Commit, error) {
-	f.gotLimit = limit
-	f.gotSkip = skip
-	return f.commits, f.logErr
-}
-
-func (f *fakeGit) Branches(
-	_ context.Context,
-	_ string,
-) ([]gitdomain.Branch, error) {
-	return f.branches, f.branchesErr
-}
-
-func (f *fakeGit) Stashes(
-	_ context.Context,
-	_ string,
-) ([]gitdomain.Stash, error) {
-	return f.stashes, f.stashesErr
-}
-
-func (f *fakeGit) ConflictedFiles(
-	_ context.Context,
-	_ string,
-) ([]string, error) {
-	return f.conflictFiles, f.conflictErr
-}
-
-func (f *fakeGit) ConflictHunks(
-	_ context.Context,
-	_ string,
-	filePath string,
-) ([]gitdomain.ConflictHunk, error) {
-	f.hunksForPath = append(f.hunksForPath, filePath)
-	return f.hunks, f.hunksErr
-}
-
-func (f *fakeGit) ResolveHunk(
-	_ context.Context,
-	wsID string,
-	filePath string,
-	hunkID string,
-	resolution gitdomain.ConflictResolution,
-	resolvedContent string,
 	_ time.Time,
 ) error {
-	f.resolveCall = resolveArgs{
-		wsID:       wsID,
-		path:       filePath,
-		hunkID:     hunkID,
-		resolution: resolution,
-		content:    resolvedContent,
-	}
-	return f.writeErr
+	return nil
+}
+func (stubGit) OperationContinue(_ context.Context, _ string, _ time.Time) error { return nil }
+func (stubGit) OperationAbort(_ context.Context, _ string, _ time.Time) error    { return nil }
+
+func newRouter() *gin.Engine {
+	return newRouterWith(stubGit{})
 }
 
-func (f *fakeGit) OperationContinue(
-	_ context.Context,
-	wsID string,
-	_ time.Time,
-) error {
-	return f.record("OperationContinue", wsID)
-}
-
-func (f *fakeGit) OperationAbort(
-	_ context.Context,
-	wsID string,
-	_ time.Time,
-) error {
-	return f.record("OperationAbort", wsID)
-}
-
-func newRouter(
-	git githandlers.Git,
-) *gin.Engine {
+func newRouterWith(g handlers.Git) *gin.Engine {
 	r := gin.New()
-	r.UseRawPath = true
-	r.UnescapePathValues = true
-	h := githandlers.New(git, func() time.Time { return time.Unix(0, 0).UTC() })
-	rg := r.Group("/v0")
-	rg.GET("/workspaces/:wsId/git/status", h.Status)
-	rg.GET("/workspaces/:wsId/git/log", h.Log)
-	rg.GET("/workspaces/:wsId/git/diff", h.Diff)
-	rg.GET("/workspaces/:wsId/git/branches", h.Branches)
-	rg.GET("/workspaces/:wsId/git/stashes", h.Stashes)
-	rg.POST("/workspaces/:wsId/git/stage", h.Stage)
-	rg.POST("/workspaces/:wsId/git/unstage", h.Unstage)
-	rg.POST("/workspaces/:wsId/git/discard", h.Discard)
-	rg.POST("/workspaces/:wsId/git/commit", h.Commit)
-	rg.POST("/workspaces/:wsId/git/push", h.Push)
-	rg.POST("/workspaces/:wsId/git/pull", h.Pull)
-	rg.POST("/workspaces/:wsId/git/fetch", h.Fetch)
-	rg.POST("/workspaces/:wsId/git/branches", h.CreateBranch)
-	rg.PATCH("/workspaces/:wsId/git/branches/:branch", h.RenameBranch)
-	rg.DELETE("/workspaces/:wsId/git/branches/:branch", h.DeleteBranch)
-	rg.POST("/workspaces/:wsId/git/checkout", h.Checkout)
-	rg.POST("/workspaces/:wsId/git/stash", h.StashPush)
-	rg.POST("/workspaces/:wsId/git/stash/:id", h.StashRestore)
-	rg.DELETE("/workspaces/:wsId/git/stash/:id", h.StashDrop)
-	rg.POST("/workspaces/:wsId/git/reset", h.Reset)
-	rg.POST("/workspaces/:wsId/git/merge", h.Merge)
-	rg.POST("/workspaces/:wsId/git/rebase", h.Rebase)
-	rg.GET("/workspaces/:wsId/git/conflicts", h.Conflicts)
-	rg.POST("/workspaces/:wsId/git/conflicts/resolve", h.ResolveConflict)
-	rg.POST("/workspaces/:wsId/git/operation/continue", h.OperationContinue)
-	rg.POST("/workspaces/:wsId/git/operation/abort", h.OperationAbort)
+	h := handlers.New(g)
+	rg := r.Group("/v0/workspaces/:wsId/git")
+	rg.GET("/status", h.Status)
+	rg.GET("/diff", h.Diff)
+	rg.GET("/log", h.Log)
+	rg.GET("/blame", h.Blame)
+	rg.GET("/branches", h.Branches)
+	rg.GET("/stashes", h.Stashes)
+	rg.GET("/conflicts", h.Conflicts)
+	rg.GET("/conflict-hunks", h.ConflictHunks)
+	rg.GET("/commit-diff", h.CommitDiff)
+	rg.POST("/stage", h.Stage)
+	rg.POST("/stage-hunk", h.StageHunk)
+	rg.POST("/unstage", h.Unstage)
+	rg.POST("/unstage-hunk", h.UnstageHunk)
+	rg.POST("/discard", h.Discard)
+	rg.POST("/commit", h.Commit)
+	rg.POST("/push", h.Push)
+	rg.POST("/fetch", h.Fetch)
+	rg.POST("/pull", h.Pull)
+	rg.POST("/branches", h.CreateBranch)
+	rg.PATCH("/branches", h.RenameBranch)
+	rg.DELETE("/branches", h.DeleteBranch)
+	rg.POST("/switch", h.Switch)
+	rg.POST("/stash", h.StashPush)
+	rg.POST("/stash-apply", h.StashApply)
+	rg.POST("/stash-pop", h.StashPop)
+	rg.DELETE("/stash", h.StashDrop)
+	rg.POST("/reset", h.Reset)
+	rg.POST("/merge", h.Merge)
+	rg.POST("/rebase", h.Rebase)
+	rg.POST("/resolve-hunk", h.ResolveHunk)
+	rg.POST("/operation/continue", h.OperationContinue)
+	rg.POST("/operation/abort", h.OperationAbort)
 	return r
 }
 
 func do(
 	r *gin.Engine,
-	target string,
+	method, path string,
+	body any,
 ) *httptest.ResponseRecorder {
+	var b []byte
+	if body != nil {
+		b, _ = json.Marshal(body)
+	}
 	rec := httptest.NewRecorder()
-	req := httptest.NewRequest(http.MethodGet, target, http.NoBody)
+	req := httptest.NewRequest(method, path, bytes.NewReader(b))
+	req.Header.Set("Content-Type", "application/json")
 	r.ServeHTTP(rec, req)
 	return rec
 }
 
-func send(
-	r *gin.Engine,
-	method string,
-	target string,
-	body string,
-) *httptest.ResponseRecorder {
-	rec := httptest.NewRecorder()
-	req := httptest.NewRequest(method, target, bytes.NewBufferString(body))
-	req.Header.Set("Content-Type", "application/json")
-	r.ServeHTTP(rec, req)
-	return rec
+const ws = "/v0/workspaces/ws1/git"
+
+func TestGitReadHandlers(
+	t *testing.T,
+) {
+	r := newRouter()
+
+	assert.Equal(t, http.StatusOK, do(r, http.MethodGet, ws+"/status", nil).Code)
+	assert.Equal(t, http.StatusOK, do(r, http.MethodGet, ws+"/diff", nil).Code)
+	assert.Equal(t, http.StatusOK, do(r, http.MethodGet, ws+"/log", nil).Code)
+	assert.Equal(t, http.StatusOK, do(r, http.MethodGet, ws+"/blame?path=main.go", nil).Code)
+	assert.Equal(t, http.StatusOK, do(r, http.MethodGet, ws+"/branches", nil).Code)
+	assert.Equal(t, http.StatusOK, do(r, http.MethodGet, ws+"/stashes", nil).Code)
+	assert.Equal(t, http.StatusOK, do(r, http.MethodGet, ws+"/conflicts", nil).Code)
+	assert.Equal(t, http.StatusOK, do(r, http.MethodGet, ws+"/conflict-hunks?path=main.go", nil).Code)
+	assert.Equal(t, http.StatusOK, do(r, http.MethodGet, ws+"/commit-diff?sha=abc123", nil).Code)
+}
+
+func TestGitReadHandlers_MissingParams(
+	t *testing.T,
+) {
+	r := newRouter()
+
+	assert.Equal(t, http.StatusBadRequest, do(r, http.MethodGet, ws+"/blame", nil).Code)
+	assert.Equal(t, http.StatusBadRequest, do(r, http.MethodGet, ws+"/conflict-hunks", nil).Code)
+	assert.Equal(t, http.StatusBadRequest, do(r, http.MethodGet, ws+"/commit-diff", nil).Code)
+}
+
+func TestGitWriteHandlers(
+	t *testing.T,
+) {
+	r := newRouter()
+
+	assert.Equal(t, http.StatusOK, do(r, http.MethodPost, ws+"/stage",
+		map[string]any{"path": "a.go"}).Code)
+	assert.Equal(t, http.StatusOK, do(r, http.MethodPost, ws+"/stage-hunk",
+		map[string]any{"path": "a.go", "hunkId": "h1"}).Code)
+	assert.Equal(t, http.StatusOK, do(r, http.MethodPost, ws+"/unstage",
+		map[string]any{"path": "a.go"}).Code)
+	assert.Equal(t, http.StatusOK, do(r, http.MethodPost, ws+"/unstage-hunk",
+		map[string]any{"path": "a.go", "hunkId": "h1"}).Code)
+	assert.Equal(t, http.StatusOK, do(r, http.MethodPost, ws+"/discard",
+		map[string]any{"path": "a.go"}).Code)
+	assert.Equal(t, http.StatusOK, do(r, http.MethodPost, ws+"/commit",
+		map[string]any{"message": "feat: add"}).Code)
+	assert.Equal(t, http.StatusOK, do(r, http.MethodPost, ws+"/push", nil).Code)
+	assert.Equal(t, http.StatusOK, do(r, http.MethodPost, ws+"/fetch", nil).Code)
+	assert.Equal(t, http.StatusOK, do(r, http.MethodPost, ws+"/pull", nil).Code)
+	assert.Equal(t, http.StatusCreated, do(r, http.MethodPost, ws+"/branches",
+		map[string]any{"name": "feat/x"}).Code)
+	assert.Equal(t, http.StatusOK, do(r, http.MethodPatch, ws+"/branches",
+		map[string]any{"from": "old", "to": "new"}).Code)
+	assert.Equal(t, http.StatusNoContent, do(r, http.MethodDelete, ws+"/branches?name=feat/x", nil).Code)
+	assert.Equal(t, http.StatusOK, do(r, http.MethodPost, ws+"/switch",
+		map[string]any{"branch": "main"}).Code)
+	assert.Equal(t, http.StatusOK, do(r, http.MethodPost, ws+"/stash", nil).Code)
+	assert.Equal(t, http.StatusOK, do(r, http.MethodPost, ws+"/stash-apply",
+		map[string]any{"index": 0}).Code)
+	assert.Equal(t, http.StatusOK, do(r, http.MethodPost, ws+"/stash-pop",
+		map[string]any{"index": 0}).Code)
+	assert.Equal(t, http.StatusNoContent, do(r, http.MethodDelete, ws+"/stash?index=0", nil).Code)
+	assert.Equal(t, http.StatusOK, do(r, http.MethodPost, ws+"/reset",
+		map[string]any{"mode": "soft"}).Code)
+	assert.Equal(t, http.StatusOK, do(r, http.MethodPost, ws+"/merge",
+		map[string]any{"branch": "main"}).Code)
+	assert.Equal(t, http.StatusOK, do(r, http.MethodPost, ws+"/rebase",
+		map[string]any{"branch": "main"}).Code)
+	assert.Equal(t, http.StatusOK, do(r, http.MethodPost, ws+"/resolve-hunk",
+		map[string]any{"path": "a.go", "hunkIndex": 0, "choice": "ours"}).Code)
+	assert.Equal(t, http.StatusOK, do(r, http.MethodPost, ws+"/operation/continue", nil).Code)
+	assert.Equal(t, http.StatusOK, do(r, http.MethodPost, ws+"/operation/abort", nil).Code)
 }

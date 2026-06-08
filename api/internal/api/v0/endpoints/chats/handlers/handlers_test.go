@@ -1,17 +1,18 @@
 package handlers_test
 
 import (
+	"bytes"
 	"context"
+	"encoding/json"
 	"net/http"
 	"net/http/httptest"
-	"strings"
 	"testing"
 	"time"
 
 	"github.com/gin-gonic/gin"
 	"github.com/stretchr/testify/assert"
 
-	chathandlers "github.com/char2cs/crowbar/api/internal/api/v0/endpoints/chats/handlers"
+	"github.com/char2cs/crowbar/api/internal/api/v0/endpoints/chats/handlers"
 	"github.com/char2cs/crowbar/api/internal/domain"
 )
 
@@ -22,84 +23,34 @@ func TestMain(
 	m.Run()
 }
 
-type fakeLifecycle struct {
-	listChats []domain.Chat
-	listErr   error
-	gotListWs string
+type stubUsecase struct{}
 
-	created      domain.Chat
-	createErr    error
-	gotCreateWs  string
-	gotCreateTit string
-
-	forked    domain.Chat
-	forkErr   error
-	gotForkID string
-
-	renamed      domain.Chat
-	renameErr    error
-	gotRenameID  string
-	gotRenameTit string
-
-	deleteErr   error
-	gotDeleteID string
+func (stubUsecase) CreateChat(_ context.Context, id, wsID, title string, _ time.Time) (domain.Chat, error) {
+	return domain.Chat{ID: id, WsID: wsID, Title: title}, nil
 }
-
-func (f *fakeLifecycle) ListChatsByWorkspace(
-	_ context.Context,
-	wsID string,
-) ([]domain.Chat, error) {
-	f.gotListWs = wsID
-	return f.listChats, f.listErr
+func (stubUsecase) ForkChat(_ context.Context, parentID string, _ time.Time) (domain.Chat, error) {
+	return domain.Chat{ID: "fork-" + parentID}, nil
 }
-
-func (f *fakeLifecycle) CreateChat(
-	_ context.Context,
-	wsID string,
-	title string,
-	_ time.Time,
-) (domain.Chat, error) {
-	f.gotCreateWs = wsID
-	f.gotCreateTit = title
-	return f.created, f.createErr
+func (stubUsecase) RenameChat(_ context.Context, id, title string) (domain.Chat, error) {
+	return domain.Chat{ID: id, Title: title}, nil
 }
+func (stubUsecase) DeleteChat(_ context.Context, _ string, _ time.Time) error { return nil }
 
-func (f *fakeLifecycle) ForkChat(
-	_ context.Context,
-	parentID string,
-	_ time.Time,
-) (domain.Chat, error) {
-	f.gotForkID = parentID
-	return f.forked, f.forkErr
-}
+type stubRepo struct{}
 
-func (f *fakeLifecycle) RenameChat(
-	_ context.Context,
-	id string,
-	title string,
-) (domain.Chat, error) {
-	f.gotRenameID = id
-	f.gotRenameTit = title
-	return f.renamed, f.renameErr
-}
-
-func (f *fakeLifecycle) DeleteChat(
-	_ context.Context,
-	id string,
-	_ time.Time,
-) error {
-	f.gotDeleteID = id
-	return f.deleteErr
+func (stubRepo) ListByWorkspace(_ context.Context, wsID string) ([]domain.Chat, error) {
+	return []domain.Chat{{ID: "c1", WsID: wsID}}, nil
 }
 
 func newRouter(
-	chats chathandlers.Lifecycle,
+	uc handlers.ChatUsecase,
+	repo handlers.ChatRepo,
 ) *gin.Engine {
 	r := gin.New()
-	h := chathandlers.New(chats, func() time.Time { return time.Unix(1000, 0) })
+	h := handlers.New(uc, repo)
 	rg := r.Group("/v0")
-	rg.GET("/workspaces/:wsId/chats", h.List)
 	rg.POST("/workspaces/:wsId/chats", h.Create)
+	rg.GET("/workspaces/:wsId/chats", h.List)
 	rg.POST("/chats/:id/fork", h.Fork)
 	rg.PATCH("/chats/:id", h.Rename)
 	rg.DELETE("/chats/:id", h.Delete)
@@ -108,23 +59,37 @@ func newRouter(
 
 func do(
 	r *gin.Engine,
-	method string,
-	target string,
-	body string,
+	method, path string,
+	body any,
 ) *httptest.ResponseRecorder {
-	rec := httptest.NewRecorder()
-	var req *http.Request
-	if body != "" {
-		req = httptest.NewRequest(method, target, strings.NewReader(body))
-	} else {
-		req = httptest.NewRequest(method, target, nil)
+	var b []byte
+	if body != nil {
+		b, _ = json.Marshal(body)
 	}
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequest(method, path, bytes.NewReader(b))
+	req.Header.Set("Content-Type", "application/json")
 	r.ServeHTTP(rec, req)
 	return rec
 }
 
-func TestNew(
+func TestChatHandlers_HappyPath(
 	t *testing.T,
 ) {
-	assert.NotNil(t, chathandlers.New(&fakeLifecycle{}, time.Now))
+	r := newRouter(stubUsecase{}, stubRepo{})
+
+	rec := do(r, http.MethodPost, "/v0/workspaces/ws1/chats", map[string]any{"title": "chat"})
+	assert.Equal(t, http.StatusCreated, rec.Code)
+
+	rec = do(r, http.MethodGet, "/v0/workspaces/ws1/chats", nil)
+	assert.Equal(t, http.StatusOK, rec.Code)
+
+	rec = do(r, http.MethodPost, "/v0/chats/c1/fork", nil)
+	assert.Equal(t, http.StatusCreated, rec.Code)
+
+	rec = do(r, http.MethodPatch, "/v0/chats/c1", map[string]any{"title": "new"})
+	assert.Equal(t, http.StatusOK, rec.Code)
+
+	rec = do(r, http.MethodDelete, "/v0/chats/c1", nil)
+	assert.Equal(t, http.StatusNoContent, rec.Code)
 }

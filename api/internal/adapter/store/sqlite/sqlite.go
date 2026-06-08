@@ -31,6 +31,8 @@ func New[T any, K comparable](
 }
 
 // OpenDB opens (or creates) a single-connection SQLite database at path.
+// WAL journal mode and a 5-second busy timeout are enabled so that a second
+// opener (e.g. in crash-recovery tests) does not get SQLITE_BUSY on DDL.
 func OpenDB(
 	path string,
 ) (*gorm.DB, error) {
@@ -45,6 +47,12 @@ func OpenDB(
 		return nil, fmt.Errorf("sqlite: db: %w", err)
 	}
 	sqlDB.SetMaxOpenConns(1)
+	if err := db.Exec("PRAGMA journal_mode=WAL").Error; err != nil {
+		return nil, fmt.Errorf("sqlite: journal_mode: %w", err)
+	}
+	if err := db.Exec("PRAGMA busy_timeout=5000").Error; err != nil {
+		return nil, fmt.Errorf("sqlite: busy_timeout: %w", err)
+	}
 	return db, nil
 }
 

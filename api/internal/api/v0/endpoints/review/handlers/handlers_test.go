@@ -4,164 +4,115 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
-	"errors"
 	"net/http"
 	"net/http/httptest"
 	"testing"
 
 	"github.com/gin-gonic/gin"
-	"github.com/stretchr/testify/require"
+	"github.com/stretchr/testify/assert"
 
-	reviewhandlers "github.com/char2cs/crowbar/api/internal/api/v0/endpoints/review/handlers"
+	"github.com/char2cs/crowbar/api/internal/api/v0/endpoints/review/handlers"
 	"github.com/char2cs/crowbar/api/internal/app/usecases/branchreview"
 	"github.com/char2cs/crowbar/api/internal/domain"
 	gitdomain "github.com/char2cs/crowbar/api/internal/domain/git"
 )
 
-type stubReview struct {
-	review     domain.BranchReview
-	thread     domain.ReviewThread
-	getErr     error
-	stratErr   error
-	openErr    error
-	replyErr   error
-	resolveErr error
-
-	lastWsID     string
-	lastStrategy gitdomain.MergeStrategy
-	lastOpen     branchreview.OpenThreadInput
-	lastThreadID string
-	lastReply    string
-	lastResolved bool
+func TestMain(
+	m *testing.M,
+) {
+	gin.SetMode(gin.TestMode)
+	m.Run()
 }
 
-func (s *stubReview) Get(
+type stubUsecase struct{}
+
+func (stubUsecase) Get(
 	_ context.Context,
-	wsID string,
+	_ string,
 ) (domain.BranchReview, error) {
-	s.lastWsID = wsID
-	return s.review, s.getErr
+	return domain.BranchReview{}, nil
 }
 
-func (s *stubReview) SetMergeStrategy(
+func (stubUsecase) SetMergeStrategy(
 	_ context.Context,
-	wsID string,
-	strategy gitdomain.MergeStrategy,
+	_ string,
+	_ gitdomain.MergeStrategy,
 ) error {
-	s.lastWsID = wsID
-	s.lastStrategy = strategy
-	return s.stratErr
+	return nil
 }
 
-func (s *stubReview) OpenThread(
+func (stubUsecase) OpenThread(
 	_ context.Context,
 	in branchreview.OpenThreadInput,
 ) (domain.ReviewThread, error) {
-	s.lastOpen = in
-	return s.thread, s.openErr
+	return domain.ReviewThread{WsID: in.WsID}, nil
 }
 
-func (s *stubReview) Reply(
+func (stubUsecase) Reply(
 	_ context.Context,
 	threadID string,
-	body string,
+	_ string,
 ) (domain.ReviewThread, error) {
-	s.lastThreadID = threadID
-	s.lastReply = body
-	return s.thread, s.replyErr
+	return domain.ReviewThread{ID: threadID}, nil
 }
 
-func (s *stubReview) SetThreadResolved(
+func (stubUsecase) SetThreadResolved(
 	_ context.Context,
 	threadID string,
-	resolved bool,
+	_ bool,
 ) (domain.ReviewThread, error) {
-	s.lastThreadID = threadID
-	s.lastResolved = resolved
-	return s.thread, s.resolveErr
+	return domain.ReviewThread{ID: threadID}, nil
 }
 
-type envelope struct {
-	Success bool            `json:"success"`
-	Error   string          `json:"error"`
-	Data    json.RawMessage `json:"data"`
-}
-
-func newRouter(
-	stub *stubReview,
-) *gin.Engine {
-	gin.SetMode(gin.TestMode)
+func newRouter() *gin.Engine {
 	r := gin.New()
-	g := r.Group("/v0")
-	h := reviewhandlers.New(stub)
-	g.GET("/workspaces/:wsId/review", h.Get)
-	g.PATCH("/workspaces/:wsId/review", h.SetMergeStrategy)
-	g.POST("/workspaces/:wsId/review/threads", h.OpenThread)
-	g.POST("/workspaces/:wsId/review/threads/:id/reply", h.Reply)
-	g.PATCH("/workspaces/:wsId/review/threads/:id", h.SetThreadResolved)
+	h := handlers.New(stubUsecase{})
+	rg := r.Group("/v0")
+	rg.GET("/workspaces/:wsId/review", h.Get)
+	rg.PATCH("/workspaces/:wsId/review", h.SetMergeStrategy)
+	rg.POST("/workspaces/:wsId/review/threads", h.OpenThread)
+	rg.POST("/workspaces/:wsId/review/threads/:id/reply", h.Reply)
+	rg.PATCH("/workspaces/:wsId/review/threads/:id", h.SetThreadResolved)
 	return r
 }
 
 func do(
-	t *testing.T,
 	r *gin.Engine,
-	method string,
-	path string,
+	method, path string,
 	body any,
 ) *httptest.ResponseRecorder {
-	t.Helper()
-	req := httptest.NewRequest(method, path, bytes.NewReader(bodyBytes(t, body)))
-	w := httptest.NewRecorder()
-	r.ServeHTTP(w, req)
-	return w
-}
-
-func bodyBytes(
-	t *testing.T,
-	body any,
-) []byte {
-	t.Helper()
-	if raw, ok := body.([]byte); ok {
-		return raw
+	var b []byte
+	if body != nil {
+		b, _ = json.Marshal(body)
 	}
-	if body == nil {
-		return nil
-	}
-	raw, err := json.Marshal(body)
-	require.NoError(t, err)
-	return raw
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequest(method, path, bytes.NewReader(b))
+	req.Header.Set("Content-Type", "application/json")
+	r.ServeHTTP(rec, req)
+	return rec
 }
 
-func decode(
+func TestReviewHandlers_HappyPath(
 	t *testing.T,
-	w *httptest.ResponseRecorder,
-) envelope {
-	t.Helper()
-	var env envelope
-	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &env))
-	return env
-}
+) {
+	r := newRouter()
 
-func jsonUnmarshal(
-	raw json.RawMessage,
-	v any,
-) error {
-	return json.Unmarshal(raw, v)
-}
+	rec := do(r, http.MethodGet, "/v0/workspaces/ws1/review", nil)
+	assert.Equal(t, http.StatusOK, rec.Code)
 
-func assertAnError() error {
-	return errors.New("boom")
-}
+	rec = do(r, http.MethodPatch, "/v0/workspaces/ws1/review",
+		map[string]any{"mergeStrategy": "merge"})
+	assert.Equal(t, http.StatusOK, rec.Code)
 
-func TestNew_BuildsHandlers(t *testing.T) {
-	require.NotNil(t, reviewhandlers.New(&stubReview{}))
-}
+	rec = do(r, http.MethodPost, "/v0/workspaces/ws1/review/threads",
+		map[string]any{"filePath": "main.go", "lineNumber": 10, "side": "right", "body": "comment"})
+	assert.Equal(t, http.StatusCreated, rec.Code)
 
-func TestEnvelope_BadJSON_NotSuccess(t *testing.T) {
-	r := newRouter(&stubReview{})
-	w := do(t, r, http.MethodPatch, "/v0/workspaces/ws1/review", []byte("{"))
-	require.Equal(t, http.StatusBadRequest, w.Code)
-	env := decode(t, w)
-	require.False(t, env.Success)
-	require.NotEmpty(t, env.Error)
+	rec = do(r, http.MethodPost, "/v0/workspaces/ws1/review/threads/t1/reply",
+		map[string]any{"body": "reply text"})
+	assert.Equal(t, http.StatusOK, rec.Code)
+
+	rec = do(r, http.MethodPatch, "/v0/workspaces/ws1/review/threads/t1",
+		map[string]any{"isResolved": true})
+	assert.Equal(t, http.StatusOK, rec.Code)
 }

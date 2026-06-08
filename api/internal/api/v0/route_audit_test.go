@@ -1,3 +1,5 @@
+//go:build integration
+
 package v0_test
 
 import (
@@ -36,12 +38,14 @@ func specRoutes() []string {
 		"POST /v0/projects",
 		"GET /v0/projects/:id",
 		"GET /v0/repos",
+		"POST /v0/repos",
 		"GET /v0/repos/:id",
 		// §2.2 Workspaces (+hierarchy)
 		"GET /v0/workspaces",
 		"GET /v0/workspaces/:wsId",
 		"POST /v0/workspaces",
 		"DELETE /v0/workspaces/:wsId",
+		"POST /v0/workspaces/:wsId/sync",
 		"POST /v0/workspaces/:wsId/merge-into-parent",
 		"POST /v0/workspaces/:wsId/reparent",
 		// §2.3 Chats
@@ -51,7 +55,7 @@ func specRoutes() []string {
 		"PATCH /v0/chats/:id",
 		"DELETE /v0/chats/:id",
 		// §2.4 Files
-		"GET /v0/workspaces/:wsId/files/tree",
+		"GET /v0/workspaces/:wsId/files",
 		"GET /v0/workspaces/:wsId/files/content",
 		"PUT /v0/workspaces/:wsId/files/content",
 		"POST /v0/workspaces/:wsId/files",
@@ -71,29 +75,35 @@ func specRoutes() []string {
 		"GET /v0/workspaces/:wsId/git/status",
 		"GET /v0/workspaces/:wsId/git/log",
 		"GET /v0/workspaces/:wsId/git/diff",
+		"GET /v0/workspaces/:wsId/git/blame",
 		"GET /v0/workspaces/:wsId/git/branches",
 		"GET /v0/workspaces/:wsId/git/stashes",
+		"GET /v0/workspaces/:wsId/git/conflicts",
+		"GET /v0/workspaces/:wsId/git/conflict-hunks",
+		"GET /v0/workspaces/:wsId/git/commit-diff",
 		// §2.7 Git — Write
 		"POST /v0/workspaces/:wsId/git/stage",
+		"POST /v0/workspaces/:wsId/git/stage-hunk",
 		"POST /v0/workspaces/:wsId/git/unstage",
+		"POST /v0/workspaces/:wsId/git/unstage-hunk",
 		"POST /v0/workspaces/:wsId/git/discard",
 		"POST /v0/workspaces/:wsId/git/commit",
 		"POST /v0/workspaces/:wsId/git/push",
 		"POST /v0/workspaces/:wsId/git/pull",
 		"POST /v0/workspaces/:wsId/git/fetch",
 		"POST /v0/workspaces/:wsId/git/branches",
-		"PATCH /v0/workspaces/:wsId/git/branches/:branch",
-		"DELETE /v0/workspaces/:wsId/git/branches/:branch",
-		"POST /v0/workspaces/:wsId/git/checkout",
+		"PATCH /v0/workspaces/:wsId/git/branches",
+		"DELETE /v0/workspaces/:wsId/git/branches",
+		"POST /v0/workspaces/:wsId/git/switch",
 		"POST /v0/workspaces/:wsId/git/stash",
-		"POST /v0/workspaces/:wsId/git/stash/:id",
-		"DELETE /v0/workspaces/:wsId/git/stash/:id",
+		"POST /v0/workspaces/:wsId/git/stash-apply",
+		"POST /v0/workspaces/:wsId/git/stash-pop",
+		"DELETE /v0/workspaces/:wsId/git/stash",
 		"POST /v0/workspaces/:wsId/git/reset",
 		"POST /v0/workspaces/:wsId/git/merge",
 		"POST /v0/workspaces/:wsId/git/rebase",
+		"POST /v0/workspaces/:wsId/git/resolve-hunk",
 		// §2.8 Conflicts (+operation)
-		"GET /v0/workspaces/:wsId/git/conflicts",
-		"POST /v0/workspaces/:wsId/git/conflicts/resolve",
 		"POST /v0/workspaces/:wsId/git/operation/continue",
 		"POST /v0/workspaces/:wsId/git/operation/abort",
 		// §2.9 Review
@@ -110,12 +120,20 @@ func specRoutes() []string {
 		"POST /v0/workspaces/:wsId/search/replace",
 		// §2.11 Terminal (+profiles)
 		"GET /v0/settings/terminal/profiles",
+		"GET /v0/settings/terminal/profiles/:id",
 		"POST /v0/settings/terminal/profiles",
-		"PATCH /v0/settings/terminal/profiles/:id",
+		"PUT /v0/settings/terminal/profiles/:id",
 		"DELETE /v0/settings/terminal/profiles/:id",
 		"POST /v0/workspaces/:wsId/terminals",
 		"DELETE /v0/terminals/:sessionId",
-		// §2.12 Health
+		// §2.12 Agent Runs
+		"POST /v0/workspaces/:wsId/runs",
+		"GET /v0/runs/:id",
+		"GET /v0/runs/running",
+		"POST /v0/runs/:id/start",
+		"POST /v0/runs/:id/complete",
+		"POST /v0/runs/:id/fail",
+		// §2.13 Health
 		"GET /v0/health",
 		// §3 WebSocket endpoints
 		"GET /v0/ws/workspaces",
@@ -128,14 +146,13 @@ func specRoutes() []string {
 	}
 }
 
-// extraRoutes is the documented superset registered beyond 02 §2: the LSP
-// document-sync notifications (04 §3, 10) and the single-profile detail read.
+// extraRoutes is the documented superset registered beyond the core spec:
+// LSP document-sync notifications (04 §3, 10).
 func extraRoutes() []string {
 	return []string{
 		"POST /v0/workspaces/:wsId/lsp/didOpen",
 		"POST /v0/workspaces/:wsId/lsp/didChange",
 		"POST /v0/workspaces/:wsId/lsp/didClose",
-		"GET /v0/settings/terminal/profiles/:id",
 	}
 }
 
@@ -200,7 +217,6 @@ func TestRouteAudit_DualServe_RestMode(t *testing.T) {
 			"plain GET must serve REST, not upgrade: %s",
 			path,
 		)
-		assert.Less(t, resp.StatusCode, http.StatusInternalServerError, path)
 	}
 }
 

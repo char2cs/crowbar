@@ -19,6 +19,9 @@ type Broadcaster[T any] struct {
 	clients    map[*filteredClient[T]]struct{}
 	registered chan struct{}
 	once       sync.Once
+	// regCount is a buffered semaphore channel: one token is sent per registration.
+	// Test helpers drain exactly n tokens to confirm n clients are registered.
+	regCount chan struct{}
 }
 
 // NewBroadcaster builds a Broadcaster from a StreamDef.
@@ -29,12 +32,24 @@ func NewBroadcaster[T any](
 		def:        def,
 		clients:    make(map[*filteredClient[T]]struct{}),
 		registered: make(chan struct{}),
+		regCount:   make(chan struct{}, 1024),
 	}
 }
 
 // WaitRegistered blocks until at least one client has registered. Test-only.
 func (b *Broadcaster[T]) WaitRegistered() {
 	<-b.registered
+}
+
+// WaitNRegistered blocks until n clients have registered. Test-only.
+// Unlike WaitRegistered (sync.Once), this counts every registration individually,
+// so it is safe to call after multiple Dial calls on the same Env.
+func (b *Broadcaster[T]) WaitNRegistered(
+	n int,
+) {
+	for i := 0; i < n; i++ {
+		<-b.regCount
+	}
 }
 
 // Handle upgrades the request to a WebSocket, registers the client, computes its
@@ -104,6 +119,11 @@ func (b *Broadcaster[T]) register(
 	defer b.mu.Unlock()
 	b.clients[cl] = struct{}{}
 	b.once.Do(func() { close(b.registered) })
+	// Non-blocking send: regCount is buffered (1024). WaitNRegistered drains tokens.
+	select {
+	case b.regCount <- struct{}{}:
+	default:
+	}
 }
 
 func (b *Broadcaster[T]) remove(

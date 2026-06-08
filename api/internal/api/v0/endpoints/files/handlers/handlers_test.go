@@ -1,17 +1,18 @@
 package handlers_test
 
 import (
+	"bytes"
 	"context"
+	"encoding/json"
 	"net/http"
 	"net/http/httptest"
-	"strings"
 	"testing"
 	"time"
 
 	"github.com/gin-gonic/gin"
 	"github.com/stretchr/testify/assert"
 
-	filehandlers "github.com/char2cs/crowbar/api/internal/api/v0/endpoints/files/handlers"
+	"github.com/char2cs/crowbar/api/internal/api/v0/endpoints/files/handlers"
 	"github.com/char2cs/crowbar/api/internal/app/usecases/file"
 	"github.com/char2cs/crowbar/api/internal/domain"
 )
@@ -23,141 +24,27 @@ func TestMain(
 	m.Run()
 }
 
-type fakeFiles struct {
-	tree    []domain.FileNode
-	treeErr error
-	gotTree struct {
-		ws   string
-		path string
-	}
+type stubFiles struct{}
 
-	content    domain.FileContent
-	contentErr error
-	gotRead    struct {
-		ws   string
-		path string
-	}
-
-	writeErr error
-	gotWrite struct {
-		ws      string
-		path    string
-		content string
-	}
-
-	createFileErr error
-	gotCreateFile struct {
-		ws   string
-		path string
-	}
-
-	createDirErr error
-	gotCreateDir struct {
-		ws   string
-		path string
-	}
-
-	renameErr error
-	gotRename struct {
-		ws      string
-		oldPath string
-		newPath string
-	}
-
-	deleteErr error
-	gotDelete struct {
-		ws   string
-		path string
-	}
+func (stubFiles) Tree(_ context.Context, _, _ string, _ file.FileStatusProvider) ([]domain.FileNode, error) {
+	return []domain.FileNode{{Path: "a.go"}}, nil
 }
-
-func (f *fakeFiles) Tree(
-	_ context.Context,
-	wsID string,
-	dirPath string,
-	_ file.FileStatusProvider,
-) ([]domain.FileNode, error) {
-	f.gotTree.ws = wsID
-	f.gotTree.path = dirPath
-	return f.tree, f.treeErr
+func (stubFiles) ReadContent(_ context.Context, _, _ string) (domain.FileContent, error) {
+	return domain.FileContent{Content: "hello"}, nil
 }
-
-func (f *fakeFiles) ReadContent(
-	_ context.Context,
-	wsID string,
-	filePath string,
-) (domain.FileContent, error) {
-	f.gotRead.ws = wsID
-	f.gotRead.path = filePath
-	return f.content, f.contentErr
-}
-
-func (f *fakeFiles) WriteContent(
-	_ context.Context,
-	wsID string,
-	filePath string,
-	content string,
-	_ time.Time,
-) error {
-	f.gotWrite.ws = wsID
-	f.gotWrite.path = filePath
-	f.gotWrite.content = content
-	return f.writeErr
-}
-
-func (f *fakeFiles) CreateFile(
-	_ context.Context,
-	wsID string,
-	filePath string,
-	_ time.Time,
-) error {
-	f.gotCreateFile.ws = wsID
-	f.gotCreateFile.path = filePath
-	return f.createFileErr
-}
-
-func (f *fakeFiles) CreateDir(
-	_ context.Context,
-	wsID string,
-	dirPath string,
-	_ time.Time,
-) error {
-	f.gotCreateDir.ws = wsID
-	f.gotCreateDir.path = dirPath
-	return f.createDirErr
-}
-
-func (f *fakeFiles) Rename(
-	_ context.Context,
-	wsID string,
-	oldPath string,
-	newPath string,
-	_ time.Time,
-) error {
-	f.gotRename.ws = wsID
-	f.gotRename.oldPath = oldPath
-	f.gotRename.newPath = newPath
-	return f.renameErr
-}
-
-func (f *fakeFiles) Delete(
-	_ context.Context,
-	wsID string,
-	filePath string,
-	_ time.Time,
-) error {
-	f.gotDelete.ws = wsID
-	f.gotDelete.path = filePath
-	return f.deleteErr
-}
+func (stubFiles) WriteContent(_ context.Context, _, _, _ string, _ time.Time) error { return nil }
+func (stubFiles) CreateFile(_ context.Context, _, _ string, _ time.Time) error      { return nil }
+func (stubFiles) CreateDir(_ context.Context, _, _ string, _ time.Time) error       { return nil }
+func (stubFiles) Rename(_ context.Context, _, _, _ string, _ time.Time) error       { return nil }
+func (stubFiles) Delete(_ context.Context, _, _ string, _ time.Time) error          { return nil }
 
 func newRouter(
-	files filehandlers.Files,
+	f handlers.Files,
 ) *gin.Engine {
 	r := gin.New()
-	h := filehandlers.New(files, func() time.Time { return time.Unix(1000, 0) })
+	h := handlers.New(f)
 	rg := r.Group("/v0")
-	rg.GET("/workspaces/:wsId/files/tree", h.Tree)
+	rg.GET("/workspaces/:wsId/files", h.Tree)
 	rg.GET("/workspaces/:wsId/files/content", h.ReadContent)
 	rg.PUT("/workspaces/:wsId/files/content", h.SaveContent)
 	rg.POST("/workspaces/:wsId/files", h.Create)
@@ -168,23 +55,51 @@ func newRouter(
 
 func do(
 	r *gin.Engine,
-	method string,
-	target string,
-	body string,
+	method, path string,
+	body any,
 ) *httptest.ResponseRecorder {
-	rec := httptest.NewRecorder()
-	var req *http.Request
-	if body != "" {
-		req = httptest.NewRequest(method, target, strings.NewReader(body))
-	} else {
-		req = httptest.NewRequest(method, target, nil)
+	var b []byte
+	if body != nil {
+		b, _ = json.Marshal(body)
 	}
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequest(method, path, bytes.NewReader(b))
+	req.Header.Set("Content-Type", "application/json")
 	r.ServeHTTP(rec, req)
 	return rec
 }
 
-func TestNew(
+func TestFileHandlers_HappyPath(
 	t *testing.T,
 ) {
-	assert.NotNil(t, filehandlers.New(&fakeFiles{}, time.Now))
+	r := newRouter(stubFiles{})
+
+	rec := do(r, http.MethodGet, "/v0/workspaces/ws1/files", nil)
+	assert.Equal(t, http.StatusOK, rec.Code)
+
+	rec = do(r, http.MethodGet, "/v0/workspaces/ws1/files/content?path=a.go", nil)
+	assert.Equal(t, http.StatusOK, rec.Code)
+
+	rec = do(r, http.MethodPut, "/v0/workspaces/ws1/files/content",
+		map[string]any{"path": "a.go", "content": "hi"})
+	assert.Equal(t, http.StatusNoContent, rec.Code)
+
+	rec = do(r, http.MethodPost, "/v0/workspaces/ws1/files",
+		map[string]any{"path": "new.go", "type": "file"})
+	assert.Equal(t, http.StatusCreated, rec.Code)
+
+	rec = do(r, http.MethodPatch, "/v0/workspaces/ws1/files",
+		map[string]any{"from": "a.go", "to": "b.go"})
+	assert.Equal(t, http.StatusOK, rec.Code)
+
+	rec = do(r, http.MethodDelete, "/v0/workspaces/ws1/files?path=b.go", nil)
+	assert.Equal(t, http.StatusNoContent, rec.Code)
+}
+
+func TestFileHandlers_ReadContent_MissingPath(
+	t *testing.T,
+) {
+	r := newRouter(stubFiles{})
+	rec := do(r, http.MethodGet, "/v0/workspaces/ws1/files/content", nil)
+	assert.Equal(t, http.StatusBadRequest, rec.Code)
 }

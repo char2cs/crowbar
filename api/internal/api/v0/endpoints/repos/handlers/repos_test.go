@@ -43,6 +43,13 @@ func (f *fakeStore) FindByKey(
 	return f.byKey, f.byKeErr
 }
 
+func (f *fakeStore) Save(
+	_ context.Context,
+	_ domain.Repository,
+) error {
+	return nil
+}
+
 func newRouter(
 	store repohandlers.Store,
 ) *gin.Engine {

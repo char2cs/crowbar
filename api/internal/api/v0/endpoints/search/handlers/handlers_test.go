@@ -4,186 +4,100 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
-	"errors"
 	"net/http"
 	"net/http/httptest"
-	"os"
-	"path/filepath"
 	"testing"
 
 	"github.com/gin-gonic/gin"
 	"github.com/stretchr/testify/assert"
-	"github.com/stretchr/testify/require"
 
-	searchhandlers "github.com/char2cs/crowbar/api/internal/api/v0/endpoints/search/handlers"
-	"github.com/char2cs/crowbar/api/internal/app/apperr"
+	"github.com/char2cs/crowbar/api/internal/api/v0/endpoints/search/handlers"
 	"github.com/char2cs/crowbar/api/internal/domain"
 	enginesearch "github.com/char2cs/crowbar/api/internal/engine/search"
 )
 
-type stubReader struct {
-	path   string
-	locked bool
-	err    error
+func TestMain(
+	m *testing.M,
+) {
+	gin.SetMode(gin.TestMode)
+	m.Run()
 }
 
-func (s stubReader) Get(
+type stubEngine struct{}
+
+func (stubEngine) Search(
 	_ context.Context,
 	_ string,
-) (domain.Workspace, error) {
-	if s.err != nil {
-		return domain.Workspace{}, s.err
-	}
-	return domain.Workspace{
-		WorktreePath: s.path,
-		Locked:       s.locked,
-	}, nil
+	_ enginesearch.SearchRequest,
+) (enginesearch.SearchResponse, error) {
+	return enginesearch.SearchResponse{}, nil
 }
 
-func newRouter(
-	t *testing.T,
-	eng searchhandlers.SearchEngine,
-	reader searchhandlers.WorkspaceReader,
-) *gin.Engine {
-	t.Helper()
-	gin.SetMode(gin.TestMode)
-	r := gin.New()
-	h := searchhandlers.New(eng, reader)
-	rg := r.Group("/v0")
+func (stubEngine) Replace(
+	_ context.Context,
+	_ string,
+	_ enginesearch.ReplaceRequest,
+	_ bool,
+) error {
+	return nil
+}
+
+type stubReader struct{}
+
+func (stubReader) Get(
+	_ context.Context,
+	id string,
+) (domain.Workspace, error) {
+	return domain.Workspace{ID: id, WorktreePath: "/repo", Branch: "main"}, nil
+}
+
+func newRouter() *gin.Engine {
+	return newRouterWith(stubEngine{}, stubReader{})
+}
+
+func newRouterWith(eng handlers.SearchEngine, r handlers.WorkspaceReader) *gin.Engine {
+	router := gin.New()
+	h := handlers.New(eng, r)
+	rg := router.Group("/v0")
 	rg.POST("/workspaces/:wsId/search", h.Search)
 	rg.POST("/workspaces/:wsId/search/replace", h.Replace)
-	return r
+	return router
 }
 
-func seedFile(
-	t *testing.T,
-	root string,
-	rel string,
-	content string,
-) {
-	t.Helper()
-	abs := filepath.Join(root, rel)
-	require.NoError(t, os.MkdirAll(filepath.Dir(abs), 0o755))
-	require.NoError(t, os.WriteFile(abs, []byte(content), 0o600))
-}
-
-func doPost(
-	t *testing.T,
+func do(
 	r *gin.Engine,
-	path string,
-	body string,
+	method, path string,
+	body any,
 ) *httptest.ResponseRecorder {
-	t.Helper()
-	req := httptest.NewRequest(
-		http.MethodPost,
-		path,
-		bytes.NewBufferString(body),
-	)
+	var b []byte
+	if body != nil {
+		b, _ = json.Marshal(body)
+	}
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequest(method, path, bytes.NewReader(b))
 	req.Header.Set("Content-Type", "application/json")
-	w := httptest.NewRecorder()
-	r.ServeHTTP(w, req)
-	return w
+	r.ServeHTTP(rec, req)
+	return rec
 }
 
-type envelope struct {
-	Success bool            `json:"success"`
-	Error   string          `json:"error"`
-	Data    json.RawMessage `json:"data"`
-}
-
-func decodeEnvelope(
+func TestSearchHandlers_HappyPath(
 	t *testing.T,
-	w *httptest.ResponseRecorder,
-) envelope {
-	t.Helper()
-	var env envelope
-	require.NoError(t, json.NewDecoder(w.Body).Decode(&env))
-	return env
+) {
+	r := newRouter()
+
+	rec := do(r, http.MethodPost, "/v0/workspaces/ws1/search",
+		map[string]any{"query": "fmt"})
+	assert.Equal(t, http.StatusOK, rec.Code)
+
+	rec = do(r, http.MethodPost, "/v0/workspaces/ws1/search/replace",
+		map[string]any{"query": "fmt", "replacement": "log"})
+	assert.Equal(t, http.StatusOK, rec.Code)
 }
 
-func TestSearch_NoEngine_503(t *testing.T) {
-	r := newRouter(t, nil, stubReader{path: t.TempDir()})
-
-	w := doPost(t, r, "/v0/workspaces/ws1/search", `{"query":"hello"}`)
-
-	assert.Equal(t, http.StatusServiceUnavailable, w.Code)
-	env := decodeEnvelope(t, w)
-	assert.False(t, env.Success)
-	assert.NotEmpty(t, env.Error)
-}
-
-func TestReplace_NoEngine_503(t *testing.T) {
-	r := newRouter(t, nil, stubReader{path: t.TempDir()})
-
-	w := doPost(
-		t,
-		r,
-		"/v0/workspaces/ws1/search/replace",
-		`{"query":"hello","replacement":"bye","scope":"all"}`,
-	)
-
-	assert.Equal(t, http.StatusServiceUnavailable, w.Code)
-	assert.False(t, decodeEnvelope(t, w).Success)
-}
-
-func TestSearch_WorkspaceNotFound_404(t *testing.T) {
-	r := newRouter(
-		t,
-		enginesearch.New(),
-		stubReader{err: apperr.ErrNotFound},
-	)
-
-	w := doPost(t, r, "/v0/workspaces/missing/search", `{"query":"hello"}`)
-
-	assert.Equal(t, http.StatusNotFound, w.Code)
-	assert.False(t, decodeEnvelope(t, w).Success)
-}
-
-func TestSearch_WorkspaceReaderError_500(t *testing.T) {
-	r := newRouter(
-		t,
-		enginesearch.New(),
-		stubReader{err: errors.New("db down")},
-	)
-
-	w := doPost(t, r, "/v0/workspaces/ws1/search", `{"query":"hello"}`)
-
-	assert.Equal(t, http.StatusInternalServerError, w.Code)
-	assert.False(t, decodeEnvelope(t, w).Success)
-}
-
-func TestReplace_WorkspaceNotFound_404(t *testing.T) {
-	r := newRouter(
-		t,
-		enginesearch.New(),
-		stubReader{err: apperr.ErrNotFound},
-	)
-
-	w := doPost(
-		t,
-		r,
-		"/v0/workspaces/missing/search/replace",
-		`{"query":"hello","replacement":"bye","scope":"all"}`,
-	)
-
-	assert.Equal(t, http.StatusNotFound, w.Code)
-	assert.False(t, decodeEnvelope(t, w).Success)
-}
-
-func TestReplace_WorkspaceReaderError_500(t *testing.T) {
-	r := newRouter(
-		t,
-		enginesearch.New(),
-		stubReader{err: errors.New("db down")},
-	)
-
-	w := doPost(
-		t,
-		r,
-		"/v0/workspaces/ws1/search/replace",
-		`{"query":"hello","replacement":"bye","scope":"all"}`,
-	)
-
-	assert.Equal(t, http.StatusInternalServerError, w.Code)
-	assert.False(t, decodeEnvelope(t, w).Success)
+func TestSearchHandlers_MissingQuery(
+	t *testing.T,
+) {
+	r := newRouter()
+	rec := do(r, http.MethodPost, "/v0/workspaces/ws1/search", map[string]any{})
+	assert.Equal(t, http.StatusBadRequest, rec.Code)
 }

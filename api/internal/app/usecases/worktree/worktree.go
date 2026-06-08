@@ -27,6 +27,11 @@ type CreateChildInput struct {
 	Branch       string
 	ParentID     string
 	ParentBranch string
+	// ForceLocked overrides the provider-driven locked check and marks the
+	// workspace locked regardless of whether the branch is protected. Useful
+	// when the caller knows the workspace should be immutable (e.g. the repo's
+	// main branch workspace adopted without a git provider).
+	ForceLocked bool
 }
 
 // Usecase orchestrates the worktree hierarchy (07): worktree-backed
@@ -85,6 +90,24 @@ func (u *worktreeUsecase) CreateChild(
 	ctx context.Context,
 	in CreateChildInput,
 ) (domain.Workspace, error) {
+	// Repos with no on-disk path (e.g. virtual/test repos) skip all git
+	// operations and create a workspace row directly.
+	if in.RepoPath == "" {
+		return u.workspaces.Create(ctx, workspace.CreateInput{
+			ID:        uuid.NewString(),
+			RepoID:    in.RepoID,
+			ProjectID: in.ProjectID,
+			Branch:    in.Branch,
+			ParentID:  in.ParentID,
+			Locked:    in.ForceLocked,
+		}, u.now())
+	}
+	// When ParentID is empty and the requested branch matches the parent branch
+	// (i.e. the repo's default branch), the workspace IS the main worktree —
+	// adopt the existing repo path instead of creating a new git worktree.
+	if in.ParentID == "" && in.Branch == in.ParentBranch {
+		return u.adoptMainWorktree(ctx, in)
+	}
 	path := worktreepath.For(in.RepoPath, in.Branch)
 	startSha, err := u.git.WorktreeAddBranch(ctx, in.RepoPath, path, in.Branch, in.ParentBranch)
 	if err != nil {
@@ -102,7 +125,34 @@ func (u *worktreeUsecase) CreateChild(
 		WorktreePath: path,
 		ForkPointSha: startSha,
 		ParentID:     in.ParentID,
-		Locked:       locked,
+		Locked:       locked || in.ForceLocked,
+	}, u.now())
+}
+
+// adoptMainWorktree registers the repository's main worktree as a workspace
+// without creating a new git worktree. It is used when the requested branch is
+// the repository's default branch and there is no parent workspace.
+func (u *worktreeUsecase) adoptMainWorktree(
+	ctx context.Context,
+	in CreateChildInput,
+) (domain.Workspace, error) {
+	startSha, err := u.git.RevParse(ctx, in.RepoPath, "HEAD")
+	if err != nil {
+		return domain.Workspace{}, fmt.Errorf("create child: adopt main worktree: rev-parse HEAD: %w", err)
+	}
+	locked, err := u.resolveLocked(ctx, in.RepoPath, in.Branch)
+	if err != nil {
+		return domain.Workspace{}, fmt.Errorf("create child: adopt main worktree: locked: %w", err)
+	}
+	return u.workspaces.Create(ctx, workspace.CreateInput{
+		ID:           uuid.NewString(),
+		RepoID:       in.RepoID,
+		ProjectID:    in.ProjectID,
+		Branch:       in.Branch,
+		WorktreePath: in.RepoPath,
+		ForkPointSha: startSha,
+		ParentID:     in.ParentID,
+		Locked:       locked || in.ForceLocked,
 	}, u.now())
 }
 

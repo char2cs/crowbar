@@ -1,3 +1,5 @@
+//go:build integration
+
 package v0_test
 
 import (
@@ -64,7 +66,7 @@ func TestV0_HubBroadcastReachesWSClient(t *testing.T) {
 
 	tc.app.Hub.BroadcastWorkspace(workspaceFixture())
 
-	_ = conn.SetReadDeadline(time.Now().Add(2 * time.Second))
+	require.NoError(t, conn.SetReadDeadline(time.Now().Add(2*time.Second)))
 	_, msg, err := conn.ReadMessage()
 	require.NoError(t, err)
 	var got map[string]any
@@ -96,7 +98,7 @@ func TestV0_PushChat_ReachesWSClient(t *testing.T) {
 		Status: domain.ChatStatusIdle,
 	})
 
-	_ = conn.SetReadDeadline(time.Now().Add(2 * time.Second))
+	require.NoError(t, conn.SetReadDeadline(time.Now().Add(2*time.Second)))
 	_, msg, err := conn.ReadMessage()
 	require.NoError(t, err)
 	var got map[string]any
@@ -125,7 +127,7 @@ func TestV0_WorkspacesFilter_ProjectId(t *testing.T) {
 	// This workspace has projectId=p1 so it should pass the filter.
 	tc.app.Hub.BroadcastWorkspace(workspaceFixture())
 
-	_ = conn.SetReadDeadline(time.Now().Add(2 * time.Second))
+	require.NoError(t, conn.SetReadDeadline(time.Now().Add(2*time.Second)))
 	_, msg, err := conn.ReadMessage()
 	require.NoError(t, err)
 	var got map[string]any
@@ -153,7 +155,7 @@ func TestV0_WorkspacesFilter_RepoId(t *testing.T) {
 
 	tc.app.Hub.BroadcastWorkspace(workspaceFixture())
 
-	_ = conn.SetReadDeadline(time.Now().Add(2 * time.Second))
+	require.NoError(t, conn.SetReadDeadline(time.Now().Add(2*time.Second)))
 	_, msg, err := conn.ReadMessage()
 	require.NoError(t, err)
 	var got map[string]any
@@ -184,7 +186,7 @@ func TestV0_PushLSP_ReachesFilteredClient(t *testing.T) {
 	c.PushLSP(lspdomain.DiagnosticsEvent{WsID: "other", Diagnostics: []lspdomain.Diagnostic{{Message: "skip"}}})
 	c.PushLSP(lspdomain.DiagnosticsEvent{WsID: "w1", Diagnostics: []lspdomain.Diagnostic{{Message: "boom"}}})
 
-	_ = conn.SetReadDeadline(time.Now().Add(2 * time.Second))
+	require.NoError(t, conn.SetReadDeadline(time.Now().Add(2*time.Second)))
 	_, msg, err := conn.ReadMessage()
 	require.NoError(t, err)
 	var got map[string]any
@@ -331,7 +333,7 @@ func TestV0_ChatsFilter_WsId(t *testing.T) {
 		Status: domain.ChatStatusIdle,
 	})
 
-	_ = conn.SetReadDeadline(time.Now().Add(2 * time.Second))
+	require.NoError(t, conn.SetReadDeadline(time.Now().Add(2*time.Second)))
 	_, msg, err := conn.ReadMessage()
 	require.NoError(t, err)
 	var got map[string]any
