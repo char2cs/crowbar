@@ -1,4 +1,4 @@
-package v0
+package handlers
 
 import (
 	"net/http"
@@ -10,21 +10,8 @@ import (
 	"github.com/char2cs/crowbar/api/internal/domain"
 )
 
-// registerFileHandlers mounts the file REST routes on rg.
-func registerFileHandlers(
-	rg *gin.RouterGroup,
-	c *Container,
-) {
-	rg.GET("/workspaces/:wsId/files/content", c.handleFileRead)
-	rg.GET("/workspaces/:wsId/files", c.handleFileTree)
-	rg.PUT("/workspaces/:wsId/files/content", c.handleFileWrite)
-	rg.POST("/workspaces/:wsId/files", c.handleFileCreate)
-	rg.PATCH("/workspaces/:wsId/files", c.handleFileRename)
-	rg.DELETE("/workspaces/:wsId/files", c.handleFileDelete)
-}
-
-// handleFileTree GET /v0/workspaces/:wsId/files
-func (c *Container) handleFileTree(
+// Tree handles GET /v0/workspaces/:wsId/files
+func (h *Handlers) Tree(
 	ctx *gin.Context,
 ) {
 	rctx := ctx.Request.Context()
@@ -32,7 +19,7 @@ func (c *Container) handleFileTree(
 	wsID := ctx.Param("wsId")
 	dirPath := ctx.DefaultQuery("path", ".")
 
-	nodes, err := c.app.Usecases.File.Tree(rctx, wsID, dirPath, nil)
+	nodes, err := h.files.Tree(rctx, wsID, dirPath, nil)
 	if err != nil {
 		fileError(ctx, err)
 		return
@@ -45,8 +32,8 @@ func (c *Container) handleFileTree(
 	ctx.JSON(http.StatusOK, nodes)
 }
 
-// handleFileRead GET /v0/workspaces/:wsId/files/content
-func (c *Container) handleFileRead(
+// ReadContent handles GET /v0/workspaces/:wsId/files/content
+func (h *Handlers) ReadContent(
 	ctx *gin.Context,
 ) {
 	rctx := ctx.Request.Context()
@@ -59,7 +46,7 @@ func (c *Container) handleFileRead(
 		return
 	}
 
-	content, err := c.app.Usecases.File.ReadContent(rctx, wsID, filePath)
+	content, err := h.files.ReadContent(rctx, wsID, filePath)
 	if err != nil {
 		fileError(ctx, err)
 		return
@@ -68,8 +55,8 @@ func (c *Container) handleFileRead(
 	ctx.JSON(http.StatusOK, content)
 }
 
-// handleFileWrite PUT /v0/workspaces/:wsId/files/content
-func (c *Container) handleFileWrite(
+// SaveContent handles PUT /v0/workspaces/:wsId/files/content
+func (h *Handlers) SaveContent(
 	ctx *gin.Context,
 ) {
 	rctx := ctx.Request.Context()
@@ -90,7 +77,7 @@ func (c *Container) handleFileWrite(
 		return
 	}
 
-	if err := c.app.Usecases.File.WriteContent(rctx, wsID, body.Path, body.Content, time.Now()); err != nil {
+	if err := h.files.WriteContent(rctx, wsID, body.Path, body.Content, time.Now()); err != nil {
 		fileError(ctx, err)
 		return
 	}
@@ -98,8 +85,8 @@ func (c *Container) handleFileWrite(
 	ctx.Status(http.StatusNoContent)
 }
 
-// handleFileCreate POST /v0/workspaces/:wsId/files
-func (c *Container) handleFileCreate(
+// Create handles POST /v0/workspaces/:wsId/files
+func (h *Handlers) Create(
 	ctx *gin.Context,
 ) {
 	rctx := ctx.Request.Context()
@@ -124,12 +111,12 @@ func (c *Container) handleFileCreate(
 
 	switch body.Type {
 	case "dir":
-		if err := c.app.Usecases.File.CreateDir(rctx, wsID, body.Path, now); err != nil {
+		if err := h.files.CreateDir(rctx, wsID, body.Path, now); err != nil {
 			fileError(ctx, err)
 			return
 		}
 	default:
-		if err := c.app.Usecases.File.CreateFile(rctx, wsID, body.Path, now); err != nil {
+		if err := h.files.CreateFile(rctx, wsID, body.Path, now); err != nil {
 			fileError(ctx, err)
 			return
 		}
@@ -138,8 +125,8 @@ func (c *Container) handleFileCreate(
 	ctx.Status(http.StatusCreated)
 }
 
-// handleFileRename PATCH /v0/workspaces/:wsId/files
-func (c *Container) handleFileRename(
+// Rename handles PATCH /v0/workspaces/:wsId/files
+func (h *Handlers) Rename(
 	ctx *gin.Context,
 ) {
 	rctx := ctx.Request.Context()
@@ -160,7 +147,7 @@ func (c *Container) handleFileRename(
 		return
 	}
 
-	if err := c.app.Usecases.File.Rename(rctx, wsID, body.From, body.To, time.Now()); err != nil {
+	if err := h.files.Rename(rctx, wsID, body.From, body.To, time.Now()); err != nil {
 		fileError(ctx, err)
 		return
 	}
@@ -168,8 +155,8 @@ func (c *Container) handleFileRename(
 	ctx.Status(http.StatusOK)
 }
 
-// handleFileDelete DELETE /v0/workspaces/:wsId/files
-func (c *Container) handleFileDelete(
+// Delete handles DELETE /v0/workspaces/:wsId/files
+func (h *Handlers) Delete(
 	ctx *gin.Context,
 ) {
 	rctx := ctx.Request.Context()
@@ -182,7 +169,7 @@ func (c *Container) handleFileDelete(
 		return
 	}
 
-	if err := c.app.Usecases.File.Delete(rctx, wsID, filePath, time.Now()); err != nil {
+	if err := h.files.Delete(rctx, wsID, filePath, time.Now()); err != nil {
 		fileError(ctx, err)
 		return
 	}

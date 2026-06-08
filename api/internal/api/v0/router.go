@@ -3,10 +3,18 @@ package v0
 import (
 	"github.com/gin-gonic/gin"
 
+	"github.com/char2cs/crowbar/api/internal/api/v0/endpoints/agentrun"
+	"github.com/char2cs/crowbar/api/internal/api/v0/endpoints/chats"
 	"github.com/char2cs/crowbar/api/internal/api/v0/endpoints/editor"
+	"github.com/char2cs/crowbar/api/internal/api/v0/endpoints/files"
+	"github.com/char2cs/crowbar/api/internal/api/v0/endpoints/git"
 	"github.com/char2cs/crowbar/api/internal/api/v0/endpoints/health"
 	"github.com/char2cs/crowbar/api/internal/api/v0/endpoints/projects"
+	"github.com/char2cs/crowbar/api/internal/api/v0/endpoints/provider"
 	"github.com/char2cs/crowbar/api/internal/api/v0/endpoints/repos"
+	"github.com/char2cs/crowbar/api/internal/api/v0/endpoints/review"
+	"github.com/char2cs/crowbar/api/internal/api/v0/endpoints/search"
+	"github.com/char2cs/crowbar/api/internal/api/v0/endpoints/terminal"
 	"github.com/char2cs/crowbar/api/internal/api/v0/endpoints/workspaces"
 	"github.com/char2cs/crowbar/api/internal/api/v0/ws"
 )
@@ -21,14 +29,10 @@ func (c *Container) Register(
 		c.app.Usecases.Project,
 		c.app.Usecases.ProjectImport,
 	)
-	// Repo read routes (GET /repos, GET /repos/:id) via Wave 4 endpoint.
-	// POST /repos is provided by our handler which does not require repo pre-existence.
 	repos.Register(
 		rg,
 		c.app.GORM.Repositories,
 	)
-	rg.POST("/repos", c.handleRepoCreate)
-	// Workspace, worktree hierarchy, and sync routes via Wave 4 endpoint.
 	workspaces.Register(
 		rg,
 		c.app.Usecases.Workspace,
@@ -37,29 +41,53 @@ func (c *Container) Register(
 		c.workspaces.Handle,
 		ws.DualServe,
 	)
-	registerChatHandlers(rg, c)
-	registerFileHandlers(rg, c)
-	registerGitReadHandlers(rg, c)
-	registerGitWriteHandlers(rg, c)
-	// Terminal, search, provider, review, and LSP routes via our handlers.
-	registerTerminalHandlers(rg, c)
-	registerSearchHandlers(rg, c)
-	registerProviderHandlers(rg, c)
-	registerReviewHandlers(rg, c)
-	// Editor (LSP) routes from Wave 4.
+	chats.Register(
+		rg,
+		c.app.Usecases.Chat,
+		c.app.Repositories.Chat,
+		c.chats.Handle,
+		c.chatStream.Handle,
+	)
+	files.Register(
+		rg,
+		c.app.Usecases.File,
+		c.files.Handle,
+	)
+	git.Register(
+		rg,
+		c.app.Usecases.Git,
+		c.git.Handle,
+		ws.DualServe,
+	)
+	terminal.Register(
+		rg,
+		c.eng.Terminal,
+		c.app.GORM.TerminalProfiles,
+		c.app.Repositories.Workspace,
+	)
+	search.Register(
+		rg,
+		c.eng.Search,
+		c.app.Repositories.Workspace,
+	)
+	provider.Register(
+		rg,
+		c.eng.Provider,
+		c.app.Repositories.Workspace,
+	)
+	review.Register(
+		rg,
+		c.app.Usecases.BranchReview,
+	)
 	editor.Register(
 		rg,
 		c.eng.LSP,
 		c.eng.Git,
 		c.app.Repositories.Workspace,
+		c.lsp.Handle,
 	)
-	// WebSocket topic routes.
-	rg.GET("/ws/workspaces", c.workspaces.Handle)
-	rg.GET("/ws/chats", c.chats.Handle)
-	rg.GET("/ws/git", c.git.Handle)
-	rg.GET("/ws/files", c.files.Handle)
-	rg.GET("/ws/lsp", c.lsp.Handle)
-	rg.GET("/ws/chats/:chatId/stream", c.chatStream.Handle)
-	// AgentRun routes.
-	registerAgentRunHandlers(rg, c)
+	agentrun.Register(
+		rg,
+		c.app.Repositories.AgentRun,
+	)
 }

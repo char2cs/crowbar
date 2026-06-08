@@ -1,4 +1,4 @@
-package v0
+package handlers
 
 import (
 	"net/http"
@@ -7,30 +7,14 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
-// registerGitReadHandlers mounts the read-only git REST routes on rg.
-func registerGitReadHandlers(
-	rg *gin.RouterGroup,
-	c *Container,
-) {
-	rg.GET("/workspaces/:wsId/git/status", c.handleGitStatus)
-	rg.GET("/workspaces/:wsId/git/diff", c.handleGitDiff)
-	rg.GET("/workspaces/:wsId/git/log", c.handleGitLog)
-	rg.GET("/workspaces/:wsId/git/blame", c.handleGitBlame)
-	rg.GET("/workspaces/:wsId/git/branches", c.handleGitBranches)
-	rg.GET("/workspaces/:wsId/git/stashes", c.handleGitStashes)
-	rg.GET("/workspaces/:wsId/git/conflicts", c.handleGitConflicts)
-	rg.GET("/workspaces/:wsId/git/conflict-hunks", c.handleGitConflictHunks)
-	rg.GET("/workspaces/:wsId/git/commit-diff", c.handleGitCommitDiff)
-}
-
-// handleGitStatus GET /v0/workspaces/:wsId/git/status
-func (c *Container) handleGitStatus(
+// Status GET /v0/workspaces/:wsId/git/status
+func (h *Handlers) Status(
 	ctx *gin.Context,
 ) {
 	rctx := ctx.Request.Context()
 	id := ctx.Param("wsId")
 
-	status, err := c.app.Usecases.Git.Status(rctx, id)
+	status, err := h.git.Status(rctx, id)
 	if err != nil {
 		ctx.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
@@ -39,8 +23,8 @@ func (c *Container) handleGitStatus(
 	ctx.JSON(http.StatusOK, status)
 }
 
-// handleGitDiff GET /v0/workspaces/:wsId/git/diff?staged=true|false
-func (c *Container) handleGitDiff(
+// Diff GET /v0/workspaces/:wsId/git/diff?staged=true|false
+func (h *Handlers) Diff(
 	ctx *gin.Context,
 ) {
 	rctx := ctx.Request.Context()
@@ -53,7 +37,7 @@ func (c *Container) handleGitDiff(
 		return
 	}
 
-	diffs, err := c.app.Usecases.Git.Diff(rctx, id, staged)
+	diffs, err := h.git.Diff(rctx, id, staged)
 	if err != nil {
 		ctx.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
@@ -62,8 +46,8 @@ func (c *Container) handleGitDiff(
 	ctx.JSON(http.StatusOK, diffs)
 }
 
-// handleGitLog GET /v0/workspaces/:wsId/git/log?limit=50&skip=0
-func (c *Container) handleGitLog(
+// Log GET /v0/workspaces/:wsId/git/log?limit=50&skip=0
+func (h *Handlers) Log(
 	ctx *gin.Context,
 ) {
 	rctx := ctx.Request.Context()
@@ -84,7 +68,7 @@ func (c *Container) handleGitLog(
 		return
 	}
 
-	commits, err := c.app.Usecases.Git.Log(rctx, id, limit, skip)
+	commits, err := h.git.Log(rctx, id, limit, skip)
 	if err != nil {
 		ctx.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
@@ -93,8 +77,8 @@ func (c *Container) handleGitLog(
 	ctx.JSON(http.StatusOK, commits)
 }
 
-// handleGitBlame GET /v0/workspaces/:wsId/git/blame?path=<filePath>
-func (c *Container) handleGitBlame(
+// Blame GET /v0/workspaces/:wsId/git/blame?path=<filePath>
+func (h *Handlers) Blame(
 	ctx *gin.Context,
 ) {
 	rctx := ctx.Request.Context()
@@ -106,7 +90,7 @@ func (c *Container) handleGitBlame(
 		return
 	}
 
-	entries, err := c.app.Usecases.Git.Blame(rctx, id, filePath)
+	entries, err := h.git.Blame(rctx, id, filePath)
 	if err != nil {
 		ctx.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
@@ -115,14 +99,14 @@ func (c *Container) handleGitBlame(
 	ctx.JSON(http.StatusOK, entries)
 }
 
-// handleGitBranches GET /v0/workspaces/:wsId/git/branches
-func (c *Container) handleGitBranches(
+// Branches GET /v0/workspaces/:wsId/git/branches
+func (h *Handlers) Branches(
 	ctx *gin.Context,
 ) {
 	rctx := ctx.Request.Context()
 	id := ctx.Param("wsId")
 
-	branches, err := c.app.Usecases.Git.Branches(rctx, id)
+	branches, err := h.git.Branches(rctx, id)
 	if err != nil {
 		ctx.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
@@ -131,14 +115,14 @@ func (c *Container) handleGitBranches(
 	ctx.JSON(http.StatusOK, branches)
 }
 
-// handleGitStashes GET /v0/workspaces/:wsId/git/stashes
-func (c *Container) handleGitStashes(
+// Stashes GET /v0/workspaces/:wsId/git/stashes
+func (h *Handlers) Stashes(
 	ctx *gin.Context,
 ) {
 	rctx := ctx.Request.Context()
 	id := ctx.Param("wsId")
 
-	stashes, err := c.app.Usecases.Git.Stashes(rctx, id)
+	stashes, err := h.git.Stashes(rctx, id)
 	if err != nil {
 		ctx.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
@@ -147,14 +131,14 @@ func (c *Container) handleGitStashes(
 	ctx.JSON(http.StatusOK, stashes)
 }
 
-// handleGitConflicts GET /v0/workspaces/:wsId/git/conflicts
-func (c *Container) handleGitConflicts(
+// Conflicts GET /v0/workspaces/:wsId/git/conflicts
+func (h *Handlers) Conflicts(
 	ctx *gin.Context,
 ) {
 	rctx := ctx.Request.Context()
 	id := ctx.Param("wsId")
 
-	files, err := c.app.Usecases.Git.ConflictedFiles(rctx, id)
+	files, err := h.git.ConflictedFiles(rctx, id)
 	if err != nil {
 		ctx.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
@@ -163,8 +147,8 @@ func (c *Container) handleGitConflicts(
 	ctx.JSON(http.StatusOK, files)
 }
 
-// handleGitConflictHunks GET /v0/workspaces/:wsId/git/conflict-hunks?path=<filePath>
-func (c *Container) handleGitConflictHunks(
+// ConflictHunks GET /v0/workspaces/:wsId/git/conflict-hunks?path=<filePath>
+func (h *Handlers) ConflictHunks(
 	ctx *gin.Context,
 ) {
 	rctx := ctx.Request.Context()
@@ -176,7 +160,7 @@ func (c *Container) handleGitConflictHunks(
 		return
 	}
 
-	hunks, err := c.app.Usecases.Git.ConflictHunks(rctx, id, filePath)
+	hunks, err := h.git.ConflictHunks(rctx, id, filePath)
 	if err != nil {
 		ctx.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
@@ -185,8 +169,8 @@ func (c *Container) handleGitConflictHunks(
 	ctx.JSON(http.StatusOK, hunks)
 }
 
-// handleGitCommitDiff GET /v0/workspaces/:wsId/git/commit-diff?sha=<sha>
-func (c *Container) handleGitCommitDiff(
+// CommitDiff GET /v0/workspaces/:wsId/git/commit-diff?sha=<sha>
+func (h *Handlers) CommitDiff(
 	ctx *gin.Context,
 ) {
 	rctx := ctx.Request.Context()
@@ -198,7 +182,7 @@ func (c *Container) handleGitCommitDiff(
 		return
 	}
 
-	diff, err := c.app.Usecases.Git.CommitDiff(rctx, id, sha)
+	diff, err := h.git.CommitDiff(rctx, id, sha)
 	if err != nil {
 		ctx.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return

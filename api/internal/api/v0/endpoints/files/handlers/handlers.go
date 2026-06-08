@@ -1,39 +1,33 @@
-// Package handlers holds the gin handlers backing the files endpoint: the lazy
-// file tree, the read/save file-content pair, and the create/rename/delete
-// filesystem mutations (02 §2.4).
-//
-// File mutations are keyed by their workspace-relative path rather than a UUID,
-// so every mutation response echoes the affected path under the envelope's
-// mutation id shape (data: { "id": "<path>" }) via libs.WriteMutationOK.
-//
-// The tree handler passes a nil git-status provider: tree decorations are an
-// optional concern carried by the file-status WebSocket stream, and the fs
-// engine's tree walker tolerates a nil provider by emitting undecorated nodes.
+// Package handlers holds the gin handlers backing the files endpoint: tree
+// listing, content read/write, create, rename, and delete.
 package handlers
 
 import (
 	"context"
 	"time"
 
-	"github.com/char2cs/crowbar/api/internal/app/usecases/file"
 	"github.com/char2cs/crowbar/api/internal/domain"
+	fileusecase "github.com/char2cs/crowbar/api/internal/app/usecases/file"
 )
 
-// Files is the file usecase surface the handlers need: the lazy tree read, the
-// read/write content pair, and the create-file, create-dir, rename, and delete
-// mutations. It mirrors file.Usecase so the live usecase satisfies it directly.
+// Files is the file usecase surface the handlers need.
 type Files interface {
+	// Tree returns one level of the file tree for a workspace.
 	Tree(
 		ctx context.Context,
 		wsID string,
 		dirPath string,
-		provider file.FileStatusProvider,
+		provider fileusecase.FileStatusProvider,
 	) ([]domain.FileNode, error)
+
+	// ReadContent reads a file in a workspace.
 	ReadContent(
 		ctx context.Context,
 		wsID string,
 		filePath string,
 	) (domain.FileContent, error)
+
+	// WriteContent writes a file and resyncs the working tree.
 	WriteContent(
 		ctx context.Context,
 		wsID string,
@@ -41,18 +35,24 @@ type Files interface {
 		content string,
 		now time.Time,
 	) error
+
+	// CreateFile creates a file and resyncs the working tree.
 	CreateFile(
 		ctx context.Context,
 		wsID string,
 		filePath string,
 		now time.Time,
 	) error
+
+	// CreateDir creates a directory and resyncs the working tree.
 	CreateDir(
 		ctx context.Context,
 		wsID string,
 		dirPath string,
 		now time.Time,
 	) error
+
+	// Rename renames a path and resyncs the working tree.
 	Rename(
 		ctx context.Context,
 		wsID string,
@@ -60,6 +60,8 @@ type Files interface {
 		newPath string,
 		now time.Time,
 	) error
+
+	// Delete removes a path and resyncs the working tree.
 	Delete(
 		ctx context.Context,
 		wsID string,
@@ -68,20 +70,12 @@ type Files interface {
 	) error
 }
 
-// Handlers serves the /v0 file routes from the file usecase. now supplies the
-// timestamp for the working-tree resync that follows each mutation.
+// Handlers serves the /v0/workspaces/:wsId/files routes from the file usecase.
 type Handlers struct {
 	files Files
-	now   func() time.Time
 }
 
-// New builds the files Handlers from the file usecase and a clock.
-func New(
-	files Files,
-	now func() time.Time,
-) *Handlers {
-	return &Handlers{
-		files: files,
-		now:   now,
-	}
+// New builds the files Handlers from the file usecase.
+func New(files Files) *Handlers {
+	return &Handlers{files: files}
 }

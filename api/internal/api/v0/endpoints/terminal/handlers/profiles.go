@@ -6,171 +6,103 @@ import (
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
 
-	"github.com/char2cs/crowbar/api/internal/api/libs"
-	"github.com/char2cs/crowbar/api/internal/api/v0/dto"
 	"github.com/char2cs/crowbar/api/internal/domain"
 )
 
-// ListProfiles handles GET /v0/settings/terminal/profiles. It returns every
-// stored profile under data as a non-nil list.
-func (h *Handlers) ListProfiles(
-	c *gin.Context,
-) {
-	profiles, err := h.profiles.FindAll(c.Request.Context())
+// ListProfiles handles GET /v0/settings/terminal/profiles.
+func (h *Handlers) ListProfiles(ctx *gin.Context) {
+	profiles, err := h.profileStore.FindAll(ctx.Request.Context())
 	if err != nil {
-		libs.WriteErr(
-			c,
-			http.StatusInternalServerError,
-			err.Error(),
-		)
+		ctx.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
 	}
 
-	libs.WriteQueryOK(c, dto.TerminalProfileDTOList(profiles))
+	ctx.JSON(http.StatusOK, profiles)
 }
 
-// GetProfile handles GET /v0/settings/terminal/profiles/:id. It returns the
-// stored profile under data, or 404 when the id is unknown.
-func (h *Handlers) GetProfile(
-	c *gin.Context,
-) {
-	prof, err := h.profiles.FindByKey(c.Request.Context(), c.Param("id"))
+// GetProfile handles GET /v0/settings/terminal/profiles/:id.
+func (h *Handlers) GetProfile(ctx *gin.Context) {
+	id := ctx.Param("id")
+	p, err := h.profileStore.FindByKey(ctx.Request.Context(), id)
 	if err != nil {
-		libs.WriteErr(
-			c,
-			http.StatusInternalServerError,
-			err.Error(),
-		)
+		ctx.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
 	}
-	if prof == nil {
-		libs.WriteErr(
-			c,
-			http.StatusNotFound,
-			"profile not found",
-		)
+	if p == nil {
+		ctx.JSON(http.StatusNotFound, gin.H{"error": "profile not found"})
 		return
 	}
 
-	libs.WriteQueryOK(c, dto.TerminalProfileDTOFrom(*prof))
+	ctx.JSON(http.StatusOK, p)
 }
 
-// CreateProfile handles POST /v0/settings/terminal/profiles. It assigns an id
-// when the body omits one, persists the profile, and returns it under data.
-func (h *Handlers) CreateProfile(
-	c *gin.Context,
-) {
-	var prof domain.TerminalProfile
-	if err := c.ShouldBindJSON(&prof); err != nil {
-		libs.WriteErr(
-			c,
-			http.StatusBadRequest,
-			err.Error(),
-		)
+// CreateProfile handles POST /v0/settings/terminal/profiles.
+func (h *Handlers) CreateProfile(ctx *gin.Context) {
+	var p domain.TerminalProfile
+	if err := ctx.ShouldBindJSON(&p); err != nil {
+		ctx.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
 	}
 
-	if prof.ID == "" {
-		prof.ID = uuid.NewString()
+	if p.ID == "" {
+		p.ID = uuid.NewString()
 	}
 
-	if err := h.profiles.Save(c.Request.Context(), prof); err != nil {
-		libs.WriteErr(
-			c,
-			http.StatusInternalServerError,
-			err.Error(),
-		)
+	if err := h.profileStore.Save(ctx.Request.Context(), p); err != nil {
+		ctx.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
 	}
 
-	libs.WriteQueryWithStatus(
-		c,
-		http.StatusCreated,
-		dto.TerminalProfileDTOFrom(prof),
-	)
+	ctx.JSON(http.StatusCreated, p)
 }
 
-// UpdateProfile handles PATCH /v0/settings/terminal/profiles/:id. It rejects an
-// unknown id with 404, then persists the body under that id (a full replace by
-// id) and returns it.
-func (h *Handlers) UpdateProfile(
-	c *gin.Context,
-) {
-	id := c.Param("id")
-	existing, err := h.profiles.FindByKey(c.Request.Context(), id)
+// UpdateProfile handles PUT /v0/settings/terminal/profiles/:id.
+func (h *Handlers) UpdateProfile(ctx *gin.Context) {
+	id := ctx.Param("id")
+
+	existing, err := h.profileStore.FindByKey(ctx.Request.Context(), id)
 	if err != nil {
-		libs.WriteErr(
-			c,
-			http.StatusInternalServerError,
-			err.Error(),
-		)
+		ctx.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
 	}
 	if existing == nil {
-		libs.WriteErr(
-			c,
-			http.StatusNotFound,
-			"profile not found",
-		)
+		ctx.JSON(http.StatusNotFound, gin.H{"error": "profile not found"})
 		return
 	}
 
-	var prof domain.TerminalProfile
-	if bindErr := c.ShouldBindJSON(&prof); bindErr != nil {
-		libs.WriteErr(
-			c,
-			http.StatusBadRequest,
-			bindErr.Error(),
-		)
+	var p domain.TerminalProfile
+	if err := ctx.ShouldBindJSON(&p); err != nil {
+		ctx.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
 	}
-	prof.ID = id
+	p.ID = id
 
-	if saveErr := h.profiles.Save(c.Request.Context(), prof); saveErr != nil {
-		libs.WriteErr(
-			c,
-			http.StatusInternalServerError,
-			saveErr.Error(),
-		)
+	if err := h.profileStore.Save(ctx.Request.Context(), p); err != nil {
+		ctx.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
 	}
 
-	libs.WriteQueryOK(c, dto.TerminalProfileDTOFrom(prof))
+	ctx.JSON(http.StatusOK, p)
 }
 
-// DeleteProfile handles DELETE /v0/settings/terminal/profiles/:id. It rejects an
-// unknown id with 404, then removes the profile and returns the enveloped
-// profile id.
-func (h *Handlers) DeleteProfile(
-	c *gin.Context,
-) {
-	id := c.Param("id")
-	existing, err := h.profiles.FindByKey(c.Request.Context(), id)
+// DeleteProfile handles DELETE /v0/settings/terminal/profiles/:id.
+func (h *Handlers) DeleteProfile(ctx *gin.Context) {
+	id := ctx.Param("id")
+
+	existing, err := h.profileStore.FindByKey(ctx.Request.Context(), id)
 	if err != nil {
-		libs.WriteErr(
-			c,
-			http.StatusInternalServerError,
-			err.Error(),
-		)
+		ctx.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
 	}
 	if existing == nil {
-		libs.WriteErr(
-			c,
-			http.StatusNotFound,
-			"profile not found",
-		)
+		ctx.JSON(http.StatusNotFound, gin.H{"error": "profile not found"})
 		return
 	}
 
-	if delErr := h.profiles.Delete(c.Request.Context(), id); delErr != nil {
-		libs.WriteErr(
-			c,
-			http.StatusInternalServerError,
-			delErr.Error(),
-		)
+	if err := h.profileStore.Delete(ctx.Request.Context(), id); err != nil {
+		ctx.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
 	}
 
-	libs.WriteMutationOK(c, http.StatusOK, id)
+	ctx.Status(http.StatusNoContent)
 }

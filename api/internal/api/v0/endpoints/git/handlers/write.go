@@ -1,4 +1,4 @@
-package v0
+package handlers
 
 import (
 	"net/http"
@@ -10,38 +10,8 @@ import (
 	gitdomain "github.com/char2cs/crowbar/api/internal/domain/git"
 )
 
-// registerGitWriteHandlers mounts all mutating git REST routes on rg.
-func registerGitWriteHandlers(
-	rg *gin.RouterGroup,
-	c *Container,
-) {
-	rg.POST("/workspaces/:wsId/git/stage", c.handleGitStage)
-	rg.POST("/workspaces/:wsId/git/stage-hunk", c.handleGitStageHunk)
-	rg.POST("/workspaces/:wsId/git/unstage", c.handleGitUnstage)
-	rg.POST("/workspaces/:wsId/git/unstage-hunk", c.handleGitUnstageHunk)
-	rg.POST("/workspaces/:wsId/git/discard", c.handleGitDiscard)
-	rg.POST("/workspaces/:wsId/git/commit", c.handleGitCommit)
-	rg.POST("/workspaces/:wsId/git/push", c.handleGitPush)
-	rg.POST("/workspaces/:wsId/git/fetch", c.handleGitFetch)
-	rg.POST("/workspaces/:wsId/git/pull", c.handleGitPull)
-	rg.POST("/workspaces/:wsId/git/branches", c.handleGitCreateBranch)
-	rg.PATCH("/workspaces/:wsId/git/branches", c.handleGitRenameBranch)
-	rg.DELETE("/workspaces/:wsId/git/branches", c.handleGitDeleteBranch)
-	rg.POST("/workspaces/:wsId/git/switch", c.handleGitSwitch)
-	rg.POST("/workspaces/:wsId/git/stash", c.handleGitStashPush)
-	rg.POST("/workspaces/:wsId/git/stash-apply", c.handleGitStashApply)
-	rg.POST("/workspaces/:wsId/git/stash-pop", c.handleGitStashPop)
-	rg.DELETE("/workspaces/:wsId/git/stash", c.handleGitStashDrop)
-	rg.POST("/workspaces/:wsId/git/reset", c.handleGitReset)
-	rg.POST("/workspaces/:wsId/git/merge", c.handleGitMerge)
-	rg.POST("/workspaces/:wsId/git/rebase", c.handleGitRebase)
-	rg.POST("/workspaces/:wsId/git/resolve-hunk", c.handleGitResolveHunk)
-	rg.POST("/workspaces/:wsId/git/operation/continue", c.handleGitOperationContinue)
-	rg.POST("/workspaces/:wsId/git/operation/abort", c.handleGitOperationAbort)
-}
-
-// handleGitStage POST /workspaces/:wsId/git/stage
-func (c *Container) handleGitStage(
+// Stage POST /workspaces/:wsId/git/stage
+func (h *Handlers) Stage(
 	ctx *gin.Context,
 ) {
 	reqCtx := ctx.Request.Context()
@@ -59,7 +29,7 @@ func (c *Container) handleGitStage(
 		return
 	}
 
-	if err := c.app.Usecases.Git.StageFile(reqCtx, wsID, body.Path, time.Now()); err != nil {
+	if err := h.git.StageFile(reqCtx, wsID, body.Path, time.Now()); err != nil {
 		ctx.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
 	}
@@ -67,8 +37,8 @@ func (c *Container) handleGitStage(
 	ctx.Status(http.StatusOK)
 }
 
-// handleGitStageHunk POST /workspaces/:wsId/git/stage-hunk
-func (c *Container) handleGitStageHunk(
+// StageHunk POST /workspaces/:wsId/git/stage-hunk
+func (h *Handlers) StageHunk(
 	ctx *gin.Context,
 ) {
 	reqCtx := ctx.Request.Context()
@@ -91,7 +61,7 @@ func (c *Container) handleGitStageHunk(
 		return
 	}
 
-	if err := c.app.Usecases.Git.StageHunk(reqCtx, wsID, body.Path, body.HunkID, time.Now()); err != nil {
+	if err := h.git.StageHunk(reqCtx, wsID, body.Path, body.HunkID, time.Now()); err != nil {
 		ctx.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
 	}
@@ -99,8 +69,8 @@ func (c *Container) handleGitStageHunk(
 	ctx.Status(http.StatusOK)
 }
 
-// handleGitUnstage POST /workspaces/:wsId/git/unstage
-func (c *Container) handleGitUnstage(
+// Unstage POST /workspaces/:wsId/git/unstage
+func (h *Handlers) Unstage(
 	ctx *gin.Context,
 ) {
 	reqCtx := ctx.Request.Context()
@@ -118,7 +88,7 @@ func (c *Container) handleGitUnstage(
 		return
 	}
 
-	if err := c.app.Usecases.Git.UnstageFile(reqCtx, wsID, body.Path, time.Now()); err != nil {
+	if err := h.git.UnstageFile(reqCtx, wsID, body.Path, time.Now()); err != nil {
 		ctx.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
 	}
@@ -126,8 +96,8 @@ func (c *Container) handleGitUnstage(
 	ctx.Status(http.StatusOK)
 }
 
-// handleGitUnstageHunk POST /workspaces/:wsId/git/unstage-hunk
-func (c *Container) handleGitUnstageHunk(
+// UnstageHunk POST /workspaces/:wsId/git/unstage-hunk
+func (h *Handlers) UnstageHunk(
 	ctx *gin.Context,
 ) {
 	reqCtx := ctx.Request.Context()
@@ -150,7 +120,7 @@ func (c *Container) handleGitUnstageHunk(
 		return
 	}
 
-	if err := c.app.Usecases.Git.UnstageHunk(reqCtx, wsID, body.Path, body.HunkID, time.Now()); err != nil {
+	if err := h.git.UnstageHunk(reqCtx, wsID, body.Path, body.HunkID, time.Now()); err != nil {
 		ctx.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
 	}
@@ -158,8 +128,8 @@ func (c *Container) handleGitUnstageHunk(
 	ctx.Status(http.StatusOK)
 }
 
-// handleGitDiscard POST /workspaces/:wsId/git/discard
-func (c *Container) handleGitDiscard(
+// Discard POST /workspaces/:wsId/git/discard
+func (h *Handlers) Discard(
 	ctx *gin.Context,
 ) {
 	reqCtx := ctx.Request.Context()
@@ -177,7 +147,7 @@ func (c *Container) handleGitDiscard(
 		return
 	}
 
-	if err := c.app.Usecases.Git.Discard(reqCtx, wsID, body.Path, time.Now()); err != nil {
+	if err := h.git.Discard(reqCtx, wsID, body.Path, time.Now()); err != nil {
 		ctx.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
 	}
@@ -185,8 +155,8 @@ func (c *Container) handleGitDiscard(
 	ctx.Status(http.StatusOK)
 }
 
-// handleGitCommit POST /workspaces/:wsId/git/commit
-func (c *Container) handleGitCommit(
+// Commit POST /workspaces/:wsId/git/commit
+func (h *Handlers) Commit(
 	ctx *gin.Context,
 ) {
 	reqCtx := ctx.Request.Context()
@@ -205,7 +175,7 @@ func (c *Container) handleGitCommit(
 		return
 	}
 
-	if err := c.app.Usecases.Git.Commit(reqCtx, wsID, body.Message, body.Author, time.Now()); err != nil {
+	if err := h.git.Commit(reqCtx, wsID, body.Message, body.Author, time.Now()); err != nil {
 		ctx.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
 	}
@@ -213,14 +183,14 @@ func (c *Container) handleGitCommit(
 	ctx.Status(http.StatusOK)
 }
 
-// handleGitPush POST /workspaces/:wsId/git/push
-func (c *Container) handleGitPush(
+// Push POST /workspaces/:wsId/git/push
+func (h *Handlers) Push(
 	ctx *gin.Context,
 ) {
 	reqCtx := ctx.Request.Context()
 	wsID := ctx.Param("wsId")
 
-	if err := c.app.Usecases.Git.Push(reqCtx, wsID, time.Now()); err != nil {
+	if err := h.git.Push(reqCtx, wsID, time.Now()); err != nil {
 		ctx.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
 	}
@@ -228,14 +198,14 @@ func (c *Container) handleGitPush(
 	ctx.Status(http.StatusOK)
 }
 
-// handleGitFetch POST /workspaces/:wsId/git/fetch
-func (c *Container) handleGitFetch(
+// Fetch POST /workspaces/:wsId/git/fetch
+func (h *Handlers) Fetch(
 	ctx *gin.Context,
 ) {
 	reqCtx := ctx.Request.Context()
 	wsID := ctx.Param("wsId")
 
-	if err := c.app.Usecases.Git.Fetch(reqCtx, wsID, time.Now()); err != nil {
+	if err := h.git.Fetch(reqCtx, wsID, time.Now()); err != nil {
 		ctx.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
 	}
@@ -243,14 +213,14 @@ func (c *Container) handleGitFetch(
 	ctx.Status(http.StatusOK)
 }
 
-// handleGitPull POST /workspaces/:wsId/git/pull
-func (c *Container) handleGitPull(
+// Pull POST /workspaces/:wsId/git/pull
+func (h *Handlers) Pull(
 	ctx *gin.Context,
 ) {
 	reqCtx := ctx.Request.Context()
 	wsID := ctx.Param("wsId")
 
-	if err := c.app.Usecases.Git.Pull(reqCtx, wsID, "", time.Now()); err != nil {
+	if err := h.git.Pull(reqCtx, wsID, "", time.Now()); err != nil {
 		ctx.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
 	}
@@ -258,8 +228,8 @@ func (c *Container) handleGitPull(
 	ctx.Status(http.StatusOK)
 }
 
-// handleGitCreateBranch POST /workspaces/:wsId/git/branches
-func (c *Container) handleGitCreateBranch(
+// CreateBranch POST /workspaces/:wsId/git/branches
+func (h *Handlers) CreateBranch(
 	ctx *gin.Context,
 ) {
 	reqCtx := ctx.Request.Context()
@@ -277,7 +247,7 @@ func (c *Container) handleGitCreateBranch(
 		return
 	}
 
-	if err := c.app.Usecases.Git.CreateBranch(reqCtx, wsID, body.Name, "", false, time.Now()); err != nil {
+	if err := h.git.CreateBranch(reqCtx, wsID, body.Name, "", false, time.Now()); err != nil {
 		ctx.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
 	}
@@ -285,8 +255,8 @@ func (c *Container) handleGitCreateBranch(
 	ctx.Status(http.StatusCreated)
 }
 
-// handleGitRenameBranch PATCH /workspaces/:wsId/git/branches
-func (c *Container) handleGitRenameBranch(
+// RenameBranch PATCH /workspaces/:wsId/git/branches
+func (h *Handlers) RenameBranch(
 	ctx *gin.Context,
 ) {
 	reqCtx := ctx.Request.Context()
@@ -309,7 +279,7 @@ func (c *Container) handleGitRenameBranch(
 		return
 	}
 
-	if err := c.app.Usecases.Git.RenameBranch(reqCtx, wsID, body.From, body.To, time.Now()); err != nil {
+	if err := h.git.RenameBranch(reqCtx, wsID, body.From, body.To, time.Now()); err != nil {
 		ctx.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
 	}
@@ -317,8 +287,8 @@ func (c *Container) handleGitRenameBranch(
 	ctx.Status(http.StatusOK)
 }
 
-// handleGitDeleteBranch DELETE /workspaces/:wsId/git/branches
-func (c *Container) handleGitDeleteBranch(
+// DeleteBranch DELETE /workspaces/:wsId/git/branches
+func (h *Handlers) DeleteBranch(
 	ctx *gin.Context,
 ) {
 	reqCtx := ctx.Request.Context()
@@ -335,7 +305,7 @@ func (c *Container) handleGitDeleteBranch(
 		return
 	}
 
-	if err := c.app.Usecases.Git.DeleteBranch(reqCtx, wsID, body.Name, time.Now()); err != nil {
+	if err := h.git.DeleteBranch(reqCtx, wsID, body.Name, time.Now()); err != nil {
 		ctx.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
 	}
@@ -343,8 +313,8 @@ func (c *Container) handleGitDeleteBranch(
 	ctx.Status(http.StatusNoContent)
 }
 
-// handleGitSwitch POST /workspaces/:wsId/git/switch
-func (c *Container) handleGitSwitch(
+// Switch POST /workspaces/:wsId/git/switch
+func (h *Handlers) Switch(
 	ctx *gin.Context,
 ) {
 	reqCtx := ctx.Request.Context()
@@ -362,7 +332,7 @@ func (c *Container) handleGitSwitch(
 		return
 	}
 
-	if err := c.app.Usecases.Git.SwitchBranch(reqCtx, wsID, body.Branch, time.Now()); err != nil {
+	if err := h.git.SwitchBranch(reqCtx, wsID, body.Branch, time.Now()); err != nil {
 		ctx.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
 	}
@@ -370,8 +340,8 @@ func (c *Container) handleGitSwitch(
 	ctx.Status(http.StatusOK)
 }
 
-// handleGitStashPush POST /workspaces/:wsId/git/stash
-func (c *Container) handleGitStashPush(
+// StashPush POST /workspaces/:wsId/git/stash
+func (h *Handlers) StashPush(
 	ctx *gin.Context,
 ) {
 	reqCtx := ctx.Request.Context()
@@ -383,7 +353,7 @@ func (c *Container) handleGitStashPush(
 	// message is optional — ignore bind error
 	_ = ctx.ShouldBindJSON(&body)
 
-	if err := c.app.Usecases.Git.StashPush(reqCtx, wsID, body.Message, time.Now()); err != nil {
+	if err := h.git.StashPush(reqCtx, wsID, body.Message, time.Now()); err != nil {
 		ctx.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
 	}
@@ -391,8 +361,8 @@ func (c *Container) handleGitStashPush(
 	ctx.Status(http.StatusOK)
 }
 
-// handleGitStashApply POST /workspaces/:wsId/git/stash-apply
-func (c *Container) handleGitStashApply(
+// StashApply POST /workspaces/:wsId/git/stash-apply
+func (h *Handlers) StashApply(
 	ctx *gin.Context,
 ) {
 	reqCtx := ctx.Request.Context()
@@ -407,7 +377,7 @@ func (c *Container) handleGitStashApply(
 	}
 
 	stashID := strconv.Itoa(body.Index)
-	if err := c.app.Usecases.Git.StashApply(reqCtx, wsID, stashID, time.Now()); err != nil {
+	if err := h.git.StashApply(reqCtx, wsID, stashID, time.Now()); err != nil {
 		ctx.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
 	}
@@ -415,8 +385,8 @@ func (c *Container) handleGitStashApply(
 	ctx.Status(http.StatusOK)
 }
 
-// handleGitStashPop POST /workspaces/:wsId/git/stash-pop
-func (c *Container) handleGitStashPop(
+// StashPop POST /workspaces/:wsId/git/stash-pop
+func (h *Handlers) StashPop(
 	ctx *gin.Context,
 ) {
 	reqCtx := ctx.Request.Context()
@@ -431,7 +401,7 @@ func (c *Container) handleGitStashPop(
 	}
 
 	stashID := strconv.Itoa(body.Index)
-	if err := c.app.Usecases.Git.StashPop(reqCtx, wsID, stashID, time.Now()); err != nil {
+	if err := h.git.StashPop(reqCtx, wsID, stashID, time.Now()); err != nil {
 		ctx.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
 	}
@@ -439,8 +409,8 @@ func (c *Container) handleGitStashPop(
 	ctx.Status(http.StatusOK)
 }
 
-// handleGitStashDrop DELETE /workspaces/:wsId/git/stash
-func (c *Container) handleGitStashDrop(
+// StashDrop DELETE /workspaces/:wsId/git/stash
+func (h *Handlers) StashDrop(
 	ctx *gin.Context,
 ) {
 	reqCtx := ctx.Request.Context()
@@ -465,7 +435,7 @@ func (c *Container) handleGitStashDrop(
 	}
 
 	stashID := strconv.Itoa(*body.Index)
-	if err := c.app.Usecases.Git.StashDrop(reqCtx, wsID, stashID, time.Now()); err != nil {
+	if err := h.git.StashDrop(reqCtx, wsID, stashID, time.Now()); err != nil {
 		ctx.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
 	}
@@ -473,8 +443,8 @@ func (c *Container) handleGitStashDrop(
 	ctx.Status(http.StatusNoContent)
 }
 
-// handleGitReset POST /workspaces/:wsId/git/reset
-func (c *Container) handleGitReset(
+// Reset POST /workspaces/:wsId/git/reset
+func (h *Handlers) Reset(
 	ctx *gin.Context,
 ) {
 	reqCtx := ctx.Request.Context()
@@ -492,7 +462,7 @@ func (c *Container) handleGitReset(
 		return
 	}
 
-	if err := c.app.Usecases.Git.Reset(reqCtx, wsID, body.Mode, "", time.Now()); err != nil {
+	if err := h.git.Reset(reqCtx, wsID, body.Mode, "", time.Now()); err != nil {
 		ctx.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
 	}
@@ -500,8 +470,8 @@ func (c *Container) handleGitReset(
 	ctx.Status(http.StatusOK)
 }
 
-// handleGitMerge POST /workspaces/:wsId/git/merge
-func (c *Container) handleGitMerge(
+// Merge POST /workspaces/:wsId/git/merge
+func (h *Handlers) Merge(
 	ctx *gin.Context,
 ) {
 	reqCtx := ctx.Request.Context()
@@ -519,7 +489,7 @@ func (c *Container) handleGitMerge(
 		return
 	}
 
-	if err := c.app.Usecases.Git.Merge(reqCtx, wsID, body.Branch, time.Now()); err != nil {
+	if err := h.git.Merge(reqCtx, wsID, body.Branch, time.Now()); err != nil {
 		ctx.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
 	}
@@ -527,8 +497,8 @@ func (c *Container) handleGitMerge(
 	ctx.Status(http.StatusOK)
 }
 
-// handleGitRebase POST /workspaces/:wsId/git/rebase
-func (c *Container) handleGitRebase(
+// Rebase POST /workspaces/:wsId/git/rebase
+func (h *Handlers) Rebase(
 	ctx *gin.Context,
 ) {
 	reqCtx := ctx.Request.Context()
@@ -546,7 +516,7 @@ func (c *Container) handleGitRebase(
 		return
 	}
 
-	if err := c.app.Usecases.Git.Rebase(reqCtx, wsID, body.Branch, time.Now()); err != nil {
+	if err := h.git.Rebase(reqCtx, wsID, body.Branch, time.Now()); err != nil {
 		ctx.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
 	}
@@ -554,8 +524,8 @@ func (c *Container) handleGitRebase(
 	ctx.Status(http.StatusOK)
 }
 
-// handleGitResolveHunk POST /workspaces/:wsId/git/resolve-hunk
-func (c *Container) handleGitResolveHunk(
+// ResolveHunk POST /workspaces/:wsId/git/resolve-hunk
+func (h *Handlers) ResolveHunk(
 	ctx *gin.Context,
 ) {
 	reqCtx := ctx.Request.Context()
@@ -582,7 +552,7 @@ func (c *Container) handleGitResolveHunk(
 
 	hunkID := strconv.Itoa(body.HunkIndex)
 	resolution := gitdomain.ConflictResolution(body.Choice)
-	if err := c.app.Usecases.Git.ResolveHunk(
+	if err := h.git.ResolveHunk(
 		reqCtx,
 		wsID,
 		body.Path,
@@ -598,14 +568,14 @@ func (c *Container) handleGitResolveHunk(
 	ctx.Status(http.StatusOK)
 }
 
-// handleGitOperationContinue POST /workspaces/:wsId/git/operation/continue
-func (c *Container) handleGitOperationContinue(
+// OperationContinue POST /workspaces/:wsId/git/operation/continue
+func (h *Handlers) OperationContinue(
 	ctx *gin.Context,
 ) {
 	reqCtx := ctx.Request.Context()
 	wsID := ctx.Param("wsId")
 
-	if err := c.app.Usecases.Git.OperationContinue(reqCtx, wsID, time.Now()); err != nil {
+	if err := h.git.OperationContinue(reqCtx, wsID, time.Now()); err != nil {
 		ctx.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
 	}
@@ -613,14 +583,14 @@ func (c *Container) handleGitOperationContinue(
 	ctx.Status(http.StatusOK)
 }
 
-// handleGitOperationAbort POST /workspaces/:wsId/git/operation/abort
-func (c *Container) handleGitOperationAbort(
+// OperationAbort POST /workspaces/:wsId/git/operation/abort
+func (h *Handlers) OperationAbort(
 	ctx *gin.Context,
 ) {
 	reqCtx := ctx.Request.Context()
 	wsID := ctx.Param("wsId")
 
-	if err := c.app.Usecases.Git.OperationAbort(reqCtx, wsID, time.Now()); err != nil {
+	if err := h.git.OperationAbort(reqCtx, wsID, time.Now()); err != nil {
 		ctx.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
 	}

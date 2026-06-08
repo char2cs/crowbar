@@ -2,46 +2,68 @@ package handlers
 
 import (
 	"context"
+	"fmt"
+	"net/http"
+	"os"
 	"time"
 
 	"github.com/gin-gonic/gin"
-
-	"github.com/char2cs/crowbar/api/internal/api/libs"
-	"github.com/char2cs/crowbar/api/internal/api/v0/dto"
 )
 
-const pollTimeout = 10 * time.Second
-
-// ProviderState handles GET /v0/workspaces/:wsId/provider, running an immediate
-// poll for the workspace and returning its provider state: the protected flag
-// and the current pull request, nil when the branch has none. A disabled
-// capability still yields a 200 envelope carrying { protected: false }. The
-// poll is bounded by a 10s timeout.
-func (h *Handlers) ProviderState(
-	c *gin.Context,
+// State handles GET /v0/workspaces/:wsId/provider.
+// Runs PollOnView for the workspace and returns its ProviderState JSON.
+// When capability is disabled, returns ProviderState{Protected: false, PR: nil}.
+func (h *Handlers) State(
+	ctx *gin.Context,
 ) {
-	if !h.requireProvider(c) {
+	wsID := ctx.Param("wsId")
+	ws, err := h.wsReader.Get(ctx.Request.Context(), wsID)
+	if err != nil {
+		ctx.JSON(http.StatusNotFound, gin.H{"error": "workspace not found"})
 		return
 	}
-	ws, ok := h.workspace(c, "wsId")
-	if !ok {
-		return
-	}
-	pollCtx, cancel := context.WithTimeout(
-		c.Request.Context(),
-		pollTimeout,
-	)
+
+	pollCtx, cancel := context.WithTimeout(ctx.Request.Context(), 10*time.Second)
 	defer cancel()
-	state, err := h.provider.PollOnView(
+
+	state, err := h.eng.PollOnView(
 		pollCtx,
-		ws.ID,
+		wsID,
 		ws.WorktreePath,
 		ws.Branch,
 	)
 	if err != nil {
-		status, msg := libs.StatusAndMessage(err)
-		libs.WriteErr(c, status, msg)
+		_, _ = fmt.Fprintf(os.Stderr, "provider: poll error for ws %s: %v\n", wsID, err)
+		ctx.JSON(http.StatusInternalServerError, gin.H{"error": "provider poll failed"})
 		return
 	}
-	libs.WriteQueryOK(c, dto.ProviderStateDTOFrom(state))
+
+	ctx.JSON(http.StatusOK, state)
+}
+
+// ProtectedBranches handles GET /v0/repos/:id/protected-branches.
+// Looks up any workspace for this repo to obtain the WorktreePath, then
+// returns the list of protected branch names. When capability is disabled,
+// returns the DefaultProtectedBranches fallback.
+// The :id parameter is the workspace ID whose worktree path is used as the
+// repo root (Wave 3 will wire the proper repo aggregate; for now we reuse
+// the workspace lookup that is already wired).
+func (h *Handlers) ProtectedBranches(
+	ctx *gin.Context,
+) {
+	wsID := ctx.Param("id")
+	ws, err := h.wsReader.Get(ctx.Request.Context(), wsID)
+	if err != nil {
+		ctx.JSON(http.StatusNotFound, gin.H{"error": "workspace not found"})
+		return
+	}
+
+	branches, err := h.eng.ProtectedBranches(ctx.Request.Context(), ws.WorktreePath)
+	if err != nil {
+		_, _ = fmt.Fprintf(os.Stderr, "provider: protected-branches error for ws %s: %v\n", wsID, err)
+		ctx.JSON(http.StatusInternalServerError, gin.H{"error": "provider poll failed"})
+		return
+	}
+
+	ctx.JSON(http.StatusOK, branches)
 }

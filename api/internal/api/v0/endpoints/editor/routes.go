@@ -12,14 +12,16 @@ import (
 	editorhandlers "github.com/char2cs/crowbar/api/internal/api/v0/endpoints/editor/handlers"
 )
 
-// Register mounts the blame, LSP feature, document-sync, and diagnostics routes
-// on the supplied router group, backed by the LSP host, the git engine, and the
-// workspace reader.
+// Register mounts the blame, LSP feature, document-sync, diagnostics routes,
+// and the /ws/lsp WebSocket upgrade on the supplied router group, backed by the
+// LSP host, the git engine, and the workspace reader. lspWSHandle is the
+// pre-built broadcaster handle for the live diagnostics stream.
 func Register(
 	rg *gin.RouterGroup,
 	lsp editorhandlers.LSPEngine,
 	git editorhandlers.GitEngine,
 	wsReader editorhandlers.WorkspaceReader,
+	lspWSHandle gin.HandlerFunc,
 ) {
 	h := editorhandlers.New(lsp, git, wsReader)
 	rg.GET("/workspaces/:wsId/blame", h.Blame)
@@ -34,4 +36,5 @@ func Register(
 	rg.POST("/workspaces/:wsId/lsp/didOpen", h.DidOpen)
 	rg.POST("/workspaces/:wsId/lsp/didChange", h.DidChange)
 	rg.POST("/workspaces/:wsId/lsp/didClose", h.DidClose)
+	rg.GET("/ws/lsp", lspWSHandle)
 }

@@ -3,6 +3,9 @@ package handlers
 
 import (
 	"context"
+	"net/http"
+	"os/exec"
+	"strings"
 
 	"github.com/gin-gonic/gin"
 
@@ -12,8 +15,8 @@ import (
 	"github.com/char2cs/crowbar/api/internal/domain"
 )
 
-// Store is the read surface the repos handlers need over the repository GORM
-// table: list every repo and fetch one by id.
+// Store is the full surface the repos handlers need over the repository GORM
+// table: list every repo, fetch one by id, and persist a new one.
 type Store interface {
 	FindAll(
 		ctx context.Context,
@@ -22,6 +25,10 @@ type Store interface {
 		ctx context.Context,
 		id string,
 	) (*domain.Repository, error)
+	Save(
+		ctx context.Context,
+		repo domain.Repository,
+	) error
 }
 
 // Handlers serves the /v0/repos routes from the repository GORM store.
@@ -69,6 +76,54 @@ func (h *Handlers) Detail(
 		return
 	}
 	libs.WriteQueryOK(c, dto.RepoDTOFrom(*repo))
+}
+
+// Create handles POST /v0/repos, persisting a new repository record. The
+// defaultBranch field is optional: when omitted the handler derives it from the
+// local git repository at path via symbolic-ref HEAD.
+func (h *Handlers) Create(
+	c *gin.Context,
+) {
+	var body struct {
+		ID            string `json:"id"`
+		ProjectID     string `json:"projectId"`
+		Name          string `json:"name"`
+		Path          string `json:"path"`
+		DefaultBranch string `json:"defaultBranch"`
+	}
+	if err := c.ShouldBindJSON(&body); err != nil {
+		libs.WriteErr(c, http.StatusBadRequest, err.Error())
+		return
+	}
+	defaultBranch := body.DefaultBranch
+	if defaultBranch == "" && body.Path != "" {
+		defaultBranch = gitDefaultBranch(body.Path)
+	}
+	repo := domain.Repository{
+		ID:            body.ID,
+		ProjectID:     body.ProjectID,
+		Name:          body.Name,
+		Path:          body.Path,
+		DefaultBranch: defaultBranch,
+	}
+	if err := h.store.Save(c.Request.Context(), repo); err != nil {
+		status, msg := libs.StatusAndMessage(err)
+		libs.WriteErr(c, status, msg)
+		return
+	}
+	libs.WriteMutationOK(c, http.StatusCreated, repo.ID)
+}
+
+// gitDefaultBranch reads the current branch from a git repository at path.
+// Returns "" if path is not a git repo or the command fails.
+func gitDefaultBranch(
+	path string,
+) string {
+	out, err := exec.Command("git", "-C", path, "symbolic-ref", "HEAD", "--short").Output()
+	if err != nil {
+		return ""
+	}
+	return strings.TrimSpace(string(out))
 }
 
 // filterByProject keeps only the repos whose ProjectID matches projectID; an
