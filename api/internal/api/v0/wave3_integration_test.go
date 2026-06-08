@@ -15,7 +15,6 @@ import (
 	"github.com/stretchr/testify/require"
 
 	v0 "github.com/char2cs/crowbar/api/internal/api/v0"
-	"github.com/char2cs/crowbar/api/internal/api/v0/v0test"
 	"github.com/char2cs/crowbar/api/internal/app/repositories/workspace"
 )
 
@@ -50,7 +49,6 @@ func TestWave3_WorkspaceCommand_ReachesWSClient(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	tc := newApp(t)
 	c := v0.New(tc.app, tc.eng)
-	cw := v0test.Wrap(c)
 	r := gin.New()
 	c.Register(r.Group("/v0"))
 	srv := httptest.NewServer(r)
@@ -63,7 +61,7 @@ func TestWave3_WorkspaceCommand_ReachesWSClient(t *testing.T) {
 	}
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = conn.Close() })
-	cw.WaitWorkspacesRegistered()
+	c.WaitWorkspacesRegistered()
 
 	ctx := context.Background()
 	now := time.Unix(1, 0).UTC()
@@ -117,7 +115,6 @@ func TestWave3_AgentRunProjection_DrivesChatStatusOverWS(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	tc := newApp(t)
 	c := v0.New(tc.app, tc.eng)
-	cw := v0test.Wrap(c)
 	r := gin.New()
 	c.Register(r.Group("/v0"))
 	srv := httptest.NewServer(r)
@@ -130,7 +127,7 @@ func TestWave3_AgentRunProjection_DrivesChatStatusOverWS(t *testing.T) {
 	}
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = conn.Close() })
-	cw.WaitChatsRegistered()
+	c.WaitChatsRegistered()
 
 	ctx := context.Background()
 	now := time.Unix(1, 0).UTC()

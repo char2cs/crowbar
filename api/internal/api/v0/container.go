@@ -137,38 +137,6 @@ func (c *Container) PushFile(
 	c.files.Push(evt)
 }
 
-// WaitWorkspacesRegistered blocks until a workspaces client registers. Test-only.
-func (c *Container) WaitWorkspacesRegistered() {
-	c.workspaces.WaitRegistered()
-}
-
-// WaitChatsRegistered blocks until a chats client registers. Test-only.
-func (c *Container) WaitChatsRegistered() {
-	c.chats.WaitRegistered()
-}
-
-// WaitLSPRegistered blocks until an LSP diagnostics client registers. Test-only.
-func (c *Container) WaitLSPRegistered() {
-	c.lsp.WaitRegistered()
-}
-
-// WaitGitRegistered blocks until a git status client registers. Test-only.
-func (c *Container) WaitGitRegistered() {
-	c.git.WaitRegistered()
-}
-
-// WaitFilesRegistered blocks until a files client registers. Test-only.
-func (c *Container) WaitFilesRegistered() {
-	c.files.WaitRegistered()
-}
-
-// PushLSP fans a diagnostics event out to subscribed clients. Test-only.
-func (c *Container) PushLSP(
-	evt lspdomain.DiagnosticsEvent,
-) {
-	c.lsp.Push(evt)
-}
-
 func workspacesDef(
 	appContainer *app.Container,
 ) ws.StreamDef[domain.Workspace] {

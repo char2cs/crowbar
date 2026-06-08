@@ -152,6 +152,7 @@ func TestRegister_MountsAllRoutes(t *testing.T) {
 		stubLSP{},
 		stubGit{},
 		stubWSReader{},
+		func(_ *gin.Context) {},
 	)
 
 	rec := httptest.NewRecorder()

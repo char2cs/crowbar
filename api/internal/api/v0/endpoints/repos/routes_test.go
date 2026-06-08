@@ -35,6 +35,13 @@ func (stubStore) FindByKey(
 	return &domain.Repository{ID: "r1"}, nil
 }
 
+func (stubStore) Save(
+	_ context.Context,
+	_ domain.Repository,
+) error {
+	return nil
+}
+
 func TestRegisterMountsRoutes(
 	t *testing.T,
 ) {

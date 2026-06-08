@@ -5,6 +5,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"testing"
+	"time"
 
 	"github.com/gin-gonic/gin"
 	"github.com/stretchr/testify/assert"
@@ -33,6 +34,14 @@ func (stubReader) List(
 func (stubReader) Get(
 	_ context.Context,
 	_ string,
+) (domain.Workspace, error) {
+	return domain.Workspace{}, nil
+}
+
+func (stubReader) SyncWorkingTreeState(
+	_ context.Context,
+	_ string,
+	_ time.Time,
 ) (domain.Workspace, error) {
 	return domain.Workspace{}, nil
 }

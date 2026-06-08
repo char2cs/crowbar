@@ -19,7 +19,6 @@ import (
 
 	"github.com/char2cs/crowbar/api/internal/adapter"
 	v0 "github.com/char2cs/crowbar/api/internal/api/v0"
-	"github.com/char2cs/crowbar/api/internal/api/v0/v0test"
 	"github.com/char2cs/crowbar/api/internal/app"
 	"github.com/char2cs/crowbar/api/internal/domain"
 	gitdomain "github.com/char2cs/crowbar/api/internal/domain/git"
@@ -44,8 +43,8 @@ type Env struct {
 	app *app.Container
 	// engine exposes the engine layer for direct engine calls.
 	engine *engine.Container
-	// v0 exposes test helpers for the v0 API container (WaitRegistered / PushLSP).
-	v0       *v0test.Wrapper
+	// v0c exposes test helpers for the v0 API container (WaitRegistered / PushLSP).
+	v0c      *v0.Container
 	homeDir  string
 	adapters *adapter.Container
 }
@@ -99,11 +98,11 @@ func BuildEnvAt(
 	)
 
 	router := gin.New()
-	v0c := v0.New(
+	apiContainer := v0.New(
 		appContainer,
 		eng,
 	)
-	v0c.Register(router.Group("/v0"))
+	apiContainer.Register(router.Group("/v0"))
 
 	srv := httptest.NewServer(router)
 	t.Cleanup(srv.Close)
@@ -112,7 +111,7 @@ func BuildEnvAt(
 		URL:      srv.URL,
 		app:      appContainer,
 		engine:   eng,
-		v0:       v0test.Wrap(v0c),
+		v0c:      apiContainer,
 		homeDir:  homeDir,
 		adapters: adapters,
 	}
@@ -148,7 +147,7 @@ func (e *Env) PushLSP(
 	for i, d := range diags {
 		out[i] = lspdomain.Diagnostic{Message: d.Message}
 	}
-	e.v0.PushLSP(lspdomain.DiagnosticsEvent{
+	e.v0c.PushLSP(lspdomain.DiagnosticsEvent{
 		WsID:        wsID,
 		Diagnostics: out,
 	})
@@ -169,7 +168,7 @@ type FileEvent struct {
 func (e *Env) PushFile(
 	evt FileEvent,
 ) {
-	e.v0.PushFile(domain.FileChangeEvent{
+	e.v0c.PushFile(domain.FileChangeEvent{
 		WsID:    evt.WsID,
 		Type:    domain.FileChangeType(evt.Type),
 		Path:    evt.Path,
@@ -207,7 +206,7 @@ func (e *Env) PushGit(
 			Staged: f.Staged,
 		}
 	}
-	e.v0.PushGit(evt.WsID, gitdomain.GitStatus{
+	e.v0c.PushGit(evt.WsID, gitdomain.GitStatus{
 		WsID:   evt.WsID,
 		Branch: evt.Branch,
 		Files:  files,
@@ -233,7 +232,7 @@ func (e *Env) DialWorkspaces(
 		t,
 		url,
 	)
-	e.v0.WaitNWorkspacesRegistered(1)
+	e.v0c.WaitNWorkspacesRegistered(1)
 	return w
 }
 
@@ -256,7 +255,7 @@ func (e *Env) DialChats(
 		t,
 		url,
 	)
-	e.v0.WaitNChatsRegistered(1)
+	e.v0c.WaitNChatsRegistered(1)
 	return w
 }
 
@@ -279,7 +278,7 @@ func (e *Env) DialGit(
 		t,
 		url,
 	)
-	e.v0.WaitNGitRegistered(1)
+	e.v0c.WaitNGitRegistered(1)
 	return w
 }
 
@@ -302,7 +301,7 @@ func (e *Env) DialFiles(
 		t,
 		url,
 	)
-	e.v0.WaitNFilesRegistered(1)
+	e.v0c.WaitNFilesRegistered(1)
 	return w
 }
 
@@ -325,7 +324,7 @@ func (e *Env) DialLSP(
 		t,
 		url,
 	)
-	e.v0.WaitNLSPRegistered(1)
+	e.v0c.WaitNLSPRegistered(1)
 	return w
 }
 
