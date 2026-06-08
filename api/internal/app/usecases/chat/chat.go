@@ -81,10 +81,12 @@ type Usecase interface {
 		wsID string,
 	) ([]domain.Chat, error)
 
-	// CreateChat mints an id, issues the create command, and rolls up activity on
-	// the workspace and its project.
+	// CreateChat creates a chat with the given id (or mints a UUID if id is
+	// empty), issues the create command, and rolls up activity on the workspace
+	// and its project.
 	CreateChat(
 		ctx context.Context,
+		id string,
 		wsID string,
 		title string,
 		now time.Time,
@@ -149,15 +151,20 @@ func (u *chatUsecase) ListChatsByWorkspace(
 	return chats, nil
 }
 
-// CreateChat mints an id, issues the create command, and rolls up activity on
-// the workspace and its project.
+// CreateChat creates a chat with the given id (or mints a UUID if id is
+// empty), issues the create command, and rolls up activity on the workspace
+// and its project.
 func (u *chatUsecase) CreateChat(
 	ctx context.Context,
+	id string,
 	wsID string,
 	title string,
 	now time.Time,
 ) (domain.Chat, error) {
-	created, err := u.chats.Create(ctx, uuid.NewString(), wsID, title, now)
+	if id == "" {
+		id = uuid.NewString()
+	}
+	created, err := u.chats.Create(ctx, id, wsID, title, now)
 	if err != nil {
 		return domain.Chat{}, fmt.Errorf("chat: create: %w", err)
 	}

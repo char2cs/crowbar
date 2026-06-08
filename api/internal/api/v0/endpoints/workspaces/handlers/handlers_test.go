@@ -6,6 +6,7 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/gin-gonic/gin"
 
@@ -28,6 +29,9 @@ type fakeReader struct {
 	get     domain.Workspace
 	getErr  error
 	gotID   string
+	synced  domain.Workspace
+	syncErr error
+	gotSync string
 }
 
 func (f *fakeReader) List(
@@ -42,6 +46,15 @@ func (f *fakeReader) Get(
 ) (domain.Workspace, error) {
 	f.gotID = id
 	return f.get, f.getErr
+}
+
+func (f *fakeReader) SyncWorkingTreeState(
+	_ context.Context,
+	id string,
+	_ time.Time,
+) (domain.Workspace, error) {
+	f.gotSync = id
+	return f.synced, f.syncErr
 }
 
 type fakeHierarchy struct {
@@ -120,6 +133,7 @@ func newRouter(
 	rg.GET("/workspaces/:wsId", h.Detail)
 	rg.POST("/workspaces", h.Create)
 	rg.DELETE("/workspaces/:wsId", h.Delete)
+	rg.POST("/workspaces/:wsId/sync", h.Sync)
 	rg.POST("/workspaces/:wsId/merge-into-parent", h.MergeIntoParent)
 	rg.POST("/workspaces/:wsId/reparent", h.Reparent)
 	return r

@@ -39,7 +39,7 @@ func TestChatUsecase_CreateChat_TouchesActivityAndRollsUp(t *testing.T) {
 		return domain.Workspace{ID: id, RepoID: "r1"}, nil
 	}
 
-	got, err := uc.CreateChat(ctx, "w1", "My Chat", now)
+	got, err := uc.CreateChat(ctx, "", "w1", "My Chat", now)
 	require.NoError(t, err)
 	assert.NotEmpty(t, got.ID)
 	assert.Equal(t, "My Chat", chat.Created[0].Title)
@@ -53,7 +53,7 @@ func TestChatUsecase_CreateChat_CreateError(t *testing.T) {
 	ctx := context.Background()
 
 	chat.CreateErr = errors.New("boom")
-	_, err := uc.CreateChat(ctx, "w1", "t", time.Now())
+	_, err := uc.CreateChat(ctx, "", "w1", "t", time.Now())
 	assert.Error(t, err)
 }
 
@@ -65,7 +65,7 @@ func TestChatUsecase_CreateChat_RollupSkippedWhenWorkspaceMissing(t *testing.T) 
 		return domain.Workspace{}, errors.New("missing")
 	}
 
-	_, err := uc.CreateChat(ctx, "w1", "t", time.Now())
+	_, err := uc.CreateChat(ctx, "", "w1", "t", time.Now())
 	require.NoError(t, err)
 	assert.NotEmpty(t, chat.Created)
 	assert.False(t, roll.Touched)

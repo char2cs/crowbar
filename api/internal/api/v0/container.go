@@ -5,7 +5,7 @@ import (
 
 	"github.com/gin-gonic/gin"
 
-	ws "github.com/char2cs/crowbar/api/internal/api/v0/ws"
+	"github.com/char2cs/crowbar/api/internal/api/v0/ws"
 	"github.com/char2cs/crowbar/api/internal/app"
 	"github.com/char2cs/crowbar/api/internal/app/hub"
 	"github.com/char2cs/crowbar/api/internal/domain"
@@ -35,6 +35,8 @@ type Container struct {
 	eng        *engine.Container
 }
 
+var _ hub.Subscriber = (*Container)(nil)
+
 // New builds the v0 container and registers it as a hub subscriber.
 //
 // The lazy WS resource lifecycles (03 §6) are owned by the app-layer realtime
@@ -48,6 +50,9 @@ func New(
 	appContainer *app.Container,
 	engContainer *engine.Container,
 ) *Container {
+	if appContainer == nil {
+		panic("v0: appContainer is required")
+	}
 	c := &Container{
 		workspaces: ws.NewBroadcaster(workspacesDef(appContainer)),
 		chats:      ws.NewBroadcaster(chatsDef(appContainer)),

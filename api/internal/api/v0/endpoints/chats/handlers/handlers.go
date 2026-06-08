@@ -19,6 +19,7 @@ type Lifecycle interface {
 	) ([]domain.Chat, error)
 	CreateChat(
 		ctx context.Context,
+		id string,
 		wsID string,
 		title string,
 		now time.Time,

@@ -33,6 +33,7 @@ func (h *Handlers) Create(
 	}
 	created, err := h.chats.CreateChat(
 		c.Request.Context(),
+		"",
 		c.Param("wsId"),
 		body.Title,
 		h.now(),

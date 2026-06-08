@@ -34,6 +34,7 @@ func (stubLifecycle) CreateChat(
 	_ context.Context,
 	_ string,
 	_ string,
+	_ string,
 	_ time.Time,
 ) (domain.Chat, error) {
 	return domain.Chat{}, nil

@@ -4,6 +4,7 @@ package git
 // Pushed directly on the Git topic (Class B) by the file watcher and git write
 // usecases.
 type GitStatus struct {
+	WsID   string    `json:"-"`
 	Branch string    `json:"branch"`
 	Ahead  int       `json:"ahead"`
 	Behind int       `json:"behind"`

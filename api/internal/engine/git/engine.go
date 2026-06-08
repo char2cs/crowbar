@@ -373,7 +373,11 @@ func (e *engine) Reset(
 ) error {
 	defer e.lockRepo(repoPath)()
 	flag := "--" + mode
-	r := e.exec(ctx, repoPath, "reset", flag, commit)
+	args := []string{"reset", flag}
+	if commit != "" {
+		args = append(args, commit)
+	}
+	r := e.exec(ctx, repoPath, args...)
 	return classifyGitError("reset", r)
 }
 

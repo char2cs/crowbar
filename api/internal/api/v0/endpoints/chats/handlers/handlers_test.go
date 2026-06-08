@@ -55,6 +55,7 @@ func (f *fakeLifecycle) ListChatsByWorkspace(
 
 func (f *fakeLifecycle) CreateChat(
 	_ context.Context,
+	_ string,
 	wsID string,
 	title string,
 	_ time.Time,

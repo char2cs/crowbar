@@ -1,3 +1,5 @@
+//go:build integration
+
 package v0_test
 
 import (
@@ -14,6 +16,7 @@ import (
 
 	"github.com/char2cs/crowbar/api/internal/adapter"
 	v0 "github.com/char2cs/crowbar/api/internal/api/v0"
+	"github.com/char2cs/crowbar/api/internal/api/v0/v0test"
 	"github.com/char2cs/crowbar/api/internal/app"
 	"github.com/char2cs/crowbar/api/internal/app/hub"
 	"github.com/char2cs/crowbar/api/internal/domain"
@@ -48,6 +51,7 @@ func TestV0_HubBroadcastReachesWSClient(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	tc := newApp(t)
 	c := v0.New(tc.app, tc.eng)
+	cw := v0test.Wrap(c)
 	r := gin.New()
 	c.Register(r.Group("/v0"))
 	srv := httptest.NewServer(r)
@@ -60,11 +64,11 @@ func TestV0_HubBroadcastReachesWSClient(t *testing.T) {
 	}
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = conn.Close() })
-	c.WaitWorkspacesRegistered()
+	cw.WaitWorkspacesRegistered()
 
 	tc.app.Hub.BroadcastWorkspace(workspaceFixture())
 
-	_ = conn.SetReadDeadline(time.Now().Add(2 * time.Second))
+	require.NoError(t, conn.SetReadDeadline(time.Now().Add(2*time.Second)))
 	_, msg, err := conn.ReadMessage()
 	require.NoError(t, err)
 	var got map[string]any
@@ -76,6 +80,7 @@ func TestV0_PushChat_ReachesWSClient(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	tc := newApp(t)
 	c := v0.New(tc.app, tc.eng)
+	cw := v0test.Wrap(c)
 	r := gin.New()
 	c.Register(r.Group("/v0"))
 	srv := httptest.NewServer(r)
@@ -88,7 +93,7 @@ func TestV0_PushChat_ReachesWSClient(t *testing.T) {
 	}
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = conn.Close() })
-	c.WaitChatsRegistered()
+	cw.WaitChatsRegistered()
 
 	tc.app.Hub.BroadcastChat(hub.ChatStatusEvent{
 		ChatID: "c1",
@@ -96,7 +101,7 @@ func TestV0_PushChat_ReachesWSClient(t *testing.T) {
 		Status: domain.ChatStatusIdle,
 	})
 
-	_ = conn.SetReadDeadline(time.Now().Add(2 * time.Second))
+	require.NoError(t, conn.SetReadDeadline(time.Now().Add(2*time.Second)))
 	_, msg, err := conn.ReadMessage()
 	require.NoError(t, err)
 	var got map[string]any
@@ -108,6 +113,7 @@ func TestV0_WorkspacesFilter_ProjectId(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	tc := newApp(t)
 	c := v0.New(tc.app, tc.eng)
+	cw := v0test.Wrap(c)
 	r := gin.New()
 	c.Register(r.Group("/v0"))
 	srv := httptest.NewServer(r)
@@ -120,12 +126,12 @@ func TestV0_WorkspacesFilter_ProjectId(t *testing.T) {
 	}
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = conn.Close() })
-	c.WaitWorkspacesRegistered()
+	cw.WaitWorkspacesRegistered()
 
 	// This workspace has projectId=p1 so it should pass the filter.
 	tc.app.Hub.BroadcastWorkspace(workspaceFixture())
 
-	_ = conn.SetReadDeadline(time.Now().Add(2 * time.Second))
+	require.NoError(t, conn.SetReadDeadline(time.Now().Add(2*time.Second)))
 	_, msg, err := conn.ReadMessage()
 	require.NoError(t, err)
 	var got map[string]any
@@ -137,6 +143,7 @@ func TestV0_WorkspacesFilter_RepoId(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	tc := newApp(t)
 	c := v0.New(tc.app, tc.eng)
+	cw := v0test.Wrap(c)
 	r := gin.New()
 	c.Register(r.Group("/v0"))
 	srv := httptest.NewServer(r)
@@ -149,11 +156,11 @@ func TestV0_WorkspacesFilter_RepoId(t *testing.T) {
 	}
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = conn.Close() })
-	c.WaitWorkspacesRegistered()
+	cw.WaitWorkspacesRegistered()
 
 	tc.app.Hub.BroadcastWorkspace(workspaceFixture())
 
-	_ = conn.SetReadDeadline(time.Now().Add(2 * time.Second))
+	require.NoError(t, conn.SetReadDeadline(time.Now().Add(2*time.Second)))
 	_, msg, err := conn.ReadMessage()
 	require.NoError(t, err)
 	var got map[string]any
@@ -165,6 +172,7 @@ func TestV0_PushLSP_ReachesFilteredClient(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	tc := newApp(t)
 	c := v0.New(tc.app, tc.eng)
+	cw := v0test.Wrap(c)
 	r := gin.New()
 	c.Register(r.Group("/v0"))
 	srv := httptest.NewServer(r)
@@ -177,14 +185,14 @@ func TestV0_PushLSP_ReachesFilteredClient(t *testing.T) {
 	}
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = conn.Close() })
-	c.WaitLSPRegistered()
+	cw.WaitLSPRegistered()
 
 	// An event for a different workspace must be filtered out; the matching one
 	// must arrive.
-	c.PushLSP(lspdomain.DiagnosticsEvent{WsID: "other", Diagnostics: []lspdomain.Diagnostic{{Message: "skip"}}})
-	c.PushLSP(lspdomain.DiagnosticsEvent{WsID: "w1", Diagnostics: []lspdomain.Diagnostic{{Message: "boom"}}})
+	cw.PushLSP(lspdomain.DiagnosticsEvent{WsID: "other", Diagnostics: []lspdomain.Diagnostic{{Message: "skip"}}})
+	cw.PushLSP(lspdomain.DiagnosticsEvent{WsID: "w1", Diagnostics: []lspdomain.Diagnostic{{Message: "boom"}}})
 
-	_ = conn.SetReadDeadline(time.Now().Add(2 * time.Second))
+	require.NoError(t, conn.SetReadDeadline(time.Now().Add(2*time.Second)))
 	_, msg, err := conn.ReadMessage()
 	require.NoError(t, err)
 	var got map[string]any
@@ -311,6 +319,7 @@ func TestV0_ChatsFilter_WsId(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	tc := newApp(t)
 	c := v0.New(tc.app, tc.eng)
+	cw := v0test.Wrap(c)
 	r := gin.New()
 	c.Register(r.Group("/v0"))
 	srv := httptest.NewServer(r)
@@ -323,7 +332,7 @@ func TestV0_ChatsFilter_WsId(t *testing.T) {
 	}
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = conn.Close() })
-	c.WaitChatsRegistered()
+	cw.WaitChatsRegistered()
 
 	tc.app.Hub.BroadcastChat(hub.ChatStatusEvent{
 		ChatID: "c1",
@@ -331,7 +340,7 @@ func TestV0_ChatsFilter_WsId(t *testing.T) {
 		Status: domain.ChatStatusIdle,
 	})
 
-	_ = conn.SetReadDeadline(time.Now().Add(2 * time.Second))
+	require.NoError(t, conn.SetReadDeadline(time.Now().Add(2*time.Second)))
 	_, msg, err := conn.ReadMessage()
 	require.NoError(t, err)
 	var got map[string]any
