@@ -75,3 +75,32 @@ func TestRepos_IgnoresRegularFiles(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, []string{filepath.Join(root, "repo")}, got)
 }
+
+func TestRepos_FindsGitFileWorktree(t *testing.T) {
+	// A git worktree (and submodule) records its real git dir via a `.git`
+	// FILE, not a directory. Such checkouts must still be discovered.
+	root := buildTree(t, []string{"wt"})
+	require.NoError(
+		t,
+		os.WriteFile(filepath.Join(root, "wt", ".git"), []byte("gitdir: /elsewhere\n"), 0o644),
+	)
+
+	got, err := Repos(root, 2)
+	require.NoError(t, err)
+	assert.Equal(t, []string{filepath.Join(root, "wt")}, got)
+}
+
+func TestRepos_GitFileStopsDescent(t *testing.T) {
+	// A repo marked by a `.git` file must not have its subdirectories scanned
+	// for further repos.
+	root := buildTree(t, []string{"wt/nested"})
+	require.NoError(
+		t,
+		os.WriteFile(filepath.Join(root, "wt", ".git"), []byte("gitdir: /elsewhere\n"), 0o644),
+	)
+	require.NoError(t, os.MkdirAll(filepath.Join(root, "wt", "nested", ".git"), 0o755))
+
+	got, err := Repos(root, 5)
+	require.NoError(t, err)
+	assert.Equal(t, []string{filepath.Join(root, "wt")}, got)
+}

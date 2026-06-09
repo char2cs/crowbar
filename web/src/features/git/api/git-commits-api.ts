@@ -1,15 +1,27 @@
 import { apiFetch } from '@/lib/api'
 import type { GitCommit } from "../types/git-types";
 
-export const commitChanges = async (_repoPath: string, _message: string): Promise<boolean> => {
-  // Write operations not yet implemented in web mode
-  return false;
+// Commit the staged changes. The first line is the subject; anything after a
+// blank line is the body, matching the backend's {subject, body} contract.
+export const commitChanges = async (wsId: string, message: string): Promise<boolean> => {
+  const [subject, ...rest] = message.split('\n\n')
+  try {
+    await apiFetch(`/v0/workspaces/${encodeURIComponent(wsId)}/git/commit`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ subject: subject.trim(), body: rest.join('\n\n').trim() }),
+    })
+    return true
+  } catch (error) {
+    console.error('git commit failed:', error)
+    return false
+  }
 };
 
-export const getGitLog = async (repoPath: string, limit = 50, skip = 0): Promise<GitCommit[]> => {
+export const getGitLog = async (wsId: string, limit = 50, skip = 0): Promise<GitCommit[]> => {
   try {
     return await apiFetch<GitCommit[]>(
-      `/v0/git/log?repo=${encodeURIComponent(repoPath)}&limit=${limit}&skip=${skip}`
+      `/v0/workspaces/${encodeURIComponent(wsId)}/git/log?limit=${limit}&skip=${skip}`,
     )
   } catch {
     return []

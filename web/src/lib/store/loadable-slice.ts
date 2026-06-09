@@ -17,6 +17,8 @@ interface LoadableConfig<T, K extends unknown[]> {
   wsEndpoint?: (...args: K) => string
 }
 
+const DELTA_DEBOUNCE_MS = 120
+
 // Shim types to satisfy Zustand's StateCreator while keeping generic K flexible
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 type Setter<T> = (partial: Partial<LoadableSlice<T, any>>) => void
@@ -29,7 +31,12 @@ export function createLoadableSlice<T, K extends unknown[] = [string]>(
   const keyOf = (...args: K): string =>
     cfg.cacheKey ? cfg.cacheKey(...args) : (args[0] as string)
 
-  return (set: Setter<T>, get: Getter<T>): LoadableSlice<T, K> => ({
+  return (set: Setter<T>, get: Getter<T>): LoadableSlice<T, K> => {
+  // Snapshot-on-subscribe delivers one WS event per entity; debouncing the
+  // refetch collapses that burst (and rapid mutations) into a single request.
+  const deltaTimers = new Map<string, ReturnType<typeof setTimeout>>()
+
+  return {
     data: idle() as Loadable<T>,
 
     fetch: async (...args: K) => {
@@ -54,7 +61,16 @@ export function createLoadableSlice<T, K extends unknown[] = [string]>(
     },
 
     applyDelta: async (_event: unknown, ...args: K) => {
-      await get().fetch(...args)
+      const key = keyOf(...args)
+      const pending = deltaTimers.get(key)
+      if (pending) clearTimeout(pending)
+      deltaTimers.set(
+        key,
+        setTimeout(() => {
+          deltaTimers.delete(key)
+          void get().fetch(...args)
+        }, DELTA_DEBOUNCE_MS),
+      )
     },
 
     optimisticWrite: async (optimistic: T, commit: () => Promise<T | void>) => {
@@ -68,5 +84,6 @@ export function createLoadableSlice<T, K extends unknown[] = [string]>(
         throw err
       }
     },
-  })
+  }
+  }
 }

@@ -22,7 +22,7 @@ import {
   pushChanges,
   type GitRemoteActionResult,
 } from "../api/git-remotes-api";
-import { discardAllChanges, initRepository } from "../api/git-status-api";
+import { discardAllChanges } from "../api/git-status-api";
 import { useGitStore } from "../stores/git-store";
 import { type GitActionsMenuAnchorRect } from "../utils/git-actions-menu-position";
 
@@ -153,7 +153,7 @@ const GitActionsMenu = ({
       return;
     }
 
-    handleAction(() => initRepository(repoPath!), "Initialize repository");
+    handleAction(() => Promise.resolve(false), "Initialize repository");
   };
 
   const handleRefresh = async () => {

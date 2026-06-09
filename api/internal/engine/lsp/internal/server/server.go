@@ -11,11 +11,13 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"os"
 	"os/exec"
 	"sort"
 	"sync"
 
 	"github.com/char2cs/crowbar/api/internal/domain/lsp"
+	"github.com/char2cs/crowbar/api/internal/engine/lsp/internal/convert"
 	"github.com/char2cs/crowbar/api/internal/engine/lsp/internal/protocol"
 )
 
@@ -58,6 +60,13 @@ type Server interface {
 		ctx context.Context,
 		method string,
 		params any,
+	) error
+	// Initialize performs the LSP initialize/initialized handshake, rooting the
+	// server at rootDir. It must be called once after spawn and before any
+	// feature request, or the language server ignores every message.
+	Initialize(
+		ctx context.Context,
+		rootDir string,
 	) error
 	// OnDiagnostics registers the callback invoked for every publishDiagnostics
 	// notification.
@@ -150,6 +159,31 @@ func commandSpawn(
 
 func (s *server) OpenDocs() *OpenDocs {
 	return s.docs
+}
+
+func (s *server) Initialize(
+	ctx context.Context,
+	rootDir string,
+) error {
+	rootURI := convert.URIFromPath(rootDir)
+	params := map[string]any{
+		"processId": os.Getpid(),
+		"rootUri":   rootURI,
+		"capabilities": map[string]any{
+			"textDocument": map[string]any{
+				"synchronization":    map[string]any{"didSave": true},
+				"publishDiagnostics": map[string]any{"relatedInformation": true},
+			},
+			"workspace": map[string]any{"workspaceFolders": true},
+		},
+		"workspaceFolders": []any{
+			map[string]any{"uri": rootURI, "name": "root"},
+		},
+	}
+	if _, err := s.Request(ctx, "initialize", params); err != nil {
+		return fmt.Errorf("initialize: %w", err)
+	}
+	return s.Notify(ctx, "initialized", map[string]any{})
 }
 
 func (s *server) OnDiagnostics(

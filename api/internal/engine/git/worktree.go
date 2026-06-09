@@ -85,6 +85,10 @@ func parseWorktreeList(
 		}
 		if strings.HasPrefix(line, "branch refs/heads/") {
 			current.Branch = strings.TrimPrefix(line, "branch refs/heads/")
+			continue
+		}
+		if line == "prunable" || strings.HasPrefix(line, "prunable ") {
+			current.Prunable = true
 		}
 	}
 	if current.Path != "" {

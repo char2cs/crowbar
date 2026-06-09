@@ -21,6 +21,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"path/filepath"
 	"sync"
 	"time"
 
@@ -354,6 +355,19 @@ func (e *engine) releaseFile(
 	e.mgr.Release(ctx, wsID, spec.LanguageID)
 }
 
+// absFilePath resolves a workspace-relative file path against the worktree so
+// the language server receives an absolute file URI it can match to its rooted
+// workspace. An already-absolute path is returned unchanged.
+func absFilePath(
+	worktreePath string,
+	filePath string,
+) string {
+	if filepath.IsAbs(filePath) {
+		return filePath
+	}
+	return filepath.Join(worktreePath, filePath)
+}
+
 func (e *engine) DidOpen(
 	ctx context.Context,
 	wsID string,
@@ -364,7 +378,7 @@ func (e *engine) DidOpen(
 ) error {
 	params := map[string]any{
 		"textDocument": map[string]any{
-			"uri":        convert.URIFromPath(filePath),
+			"uri":        convert.URIFromPath(absFilePath(worktreePath, filePath)),
 			"languageId": languageID,
 			"version":    1,
 			"text":       text,
@@ -387,7 +401,7 @@ func (e *engine) DidChange(
 ) error {
 	params := map[string]any{
 		"textDocument": map[string]any{
-			"uri":     convert.URIFromPath(filePath),
+			"uri":     convert.URIFromPath(absFilePath(worktreePath, filePath)),
 			"version": 2,
 		},
 		"contentChanges": []any{map[string]any{"text": text}},
@@ -405,7 +419,7 @@ func (e *engine) DidClose(
 	filePath string,
 ) error {
 	params := map[string]any{
-		"textDocument": map[string]any{"uri": convert.URIFromPath(filePath)},
+		"textDocument": map[string]any{"uri": convert.URIFromPath(absFilePath(worktreePath, filePath))},
 	}
 	// DidClose forwards on the ref the matching DidOpen already holds, then drops
 	// that ref. RunningServerForFile does NOT acquire, so the single releaseFile

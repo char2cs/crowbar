@@ -88,6 +88,20 @@ func TestParseWorktreeList_EmptyOutput(
 	assert.Empty(t, entries)
 }
 
+func TestParseWorktreeList_Prunable(
+	t *testing.T,
+) {
+	output := "worktree /repo\nHEAD abc1\nbranch refs/heads/main\n\n" +
+		"worktree /gone\nHEAD def2\nbranch refs/heads/dead\nprunable gitdir file points to non-existent location\n\n"
+
+	entries := git.ExportedParseWorktreeList(output)
+
+	require.Len(t, entries, 2)
+	assert.False(t, entries[0].Prunable)
+	assert.True(t, entries[1].Prunable)
+	assert.Equal(t, "dead", entries[1].Branch)
+}
+
 func TestParseNumstat_Basic(
 	t *testing.T,
 ) {

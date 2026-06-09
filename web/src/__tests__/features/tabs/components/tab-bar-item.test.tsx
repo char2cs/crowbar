@@ -34,18 +34,18 @@ const shared = {
 }
 
 describe('TabBarItem pill restyle', () => {
-  it('active tab has rounded-lg, bg-background and border-border', () => {
+  it('active tab is a filled rounded-full pill', () => {
     render(<TabBarItem buffer={editorBuffer} isActive={true} {...shared} />)
     const tab = screen.getByRole('tab')
-    expect(tab).toHaveClass('rounded-lg')
+    expect(tab).toHaveClass('rounded-full')
     expect(tab).toHaveClass('bg-background')
-    expect(tab).toHaveClass('border-border')
+    expect(tab).toHaveClass('border-background')
   })
 
   it('inactive tab has ghost variant classes', () => {
     render(<TabBarItem buffer={editorBuffer} isActive={false} {...shared} />)
     const tab = screen.getByRole('tab')
-    expect(tab).toHaveClass('rounded-lg')
+    expect(tab).toHaveClass('rounded-full')
     expect(tab).toHaveClass('border-transparent')
   })
 
@@ -55,14 +55,14 @@ describe('TabBarItem pill restyle', () => {
     expect(tab).not.toHaveClass('bg-foreground/85')
   })
 
-  it('close button has rounded-full class', () => {
+  it('close button is a small rounded-md control', () => {
     const { container } = render(
       <TabBarItem buffer={editorBuffer} isActive={true} {...shared} />
     )
     // The Tab <button> (role=tab) is buttons[0]; the close Button sibling is buttons[1]
     const closeBtn = container.querySelectorAll('button')[1] as HTMLElement
     expect(closeBtn).toBeDefined()
-    expect(closeBtn).toHaveClass('rounded-full')
+    expect(closeBtn).toHaveClass('!rounded-md')
   })
 
   it('close button has hover:bg-accent class regardless of active state', () => {

@@ -59,14 +59,16 @@ function setWorkspaceBuffer(store: WorkspaceStore, buffer: EditorContent): void 
     ...state,
     buffers: [buffer],
     activePaneId: ROOT_PANE_ID,
-    paneRoot: {
-      type: "group",
-      id: ROOT_PANE_ID,
-      bufferIds: [buffer.id],
-      activeBufferId: buffer.id,
-      locked: false,
-      previewBufferId: null,
-      pinnedBufferIds: [],
+    panes: {
+      [ROOT_PANE_ID]: {
+        type: "group",
+        id: ROOT_PANE_ID,
+        bufferIds: [buffer.id],
+        activeBufferId: buffer.id,
+        locked: false,
+        previewBufferId: null,
+        pinnedBufferIds: [],
+      },
     },
   }));
 }

@@ -210,6 +210,12 @@ func (u *projectImport) adoptOneWorktree(
 	if wt.Branch == "" {
 		return nil
 	}
+	// A prunable worktree points at a checkout that no longer exists on disk
+	// (e.g. a deleted temp dir). Adopting it would create a workspace whose
+	// file tree and git status fail every read, so skip it.
+	if wt.Prunable {
+		return nil
+	}
 	in := workspace.CreateInput{
 		ID:           uuid.NewString(),
 		RepoID:       repo.ID,

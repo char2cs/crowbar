@@ -14,8 +14,20 @@ import { useSettingsStore } from "@/features/settings/store";
 import { createSelectors } from "@/utils/zustand-selectors";
 import { writeFile } from "@/features/file-system/controllers/platform";
 import { getActiveWorkspaceStoreRef } from "@/features/workspace/stores/workspace-store-ref";
+import { toast } from "@/components/ui/toast";
 import type { Position, Range } from "../types/editor";
 import { trackBufferHistoryChange } from "./buffer-history-tracking";
+
+// Surface save failures the user would otherwise never see. A locked workspace
+// (protected/default branch) rejects writes with 409 — explain how to fix it.
+function reportSaveError(error: unknown): void {
+  const message = error instanceof Error ? error.message : String(error);
+  if (/locked/i.test(message)) {
+    toast.error("Workspace is read-only", "Create or switch to a child workspace to edit files.");
+    return;
+  }
+  toast.error("Failed to save file", message);
+}
 
 async function saveEditorBufferById(bufferId: string): Promise<boolean> {
   const wsRef = getActiveWorkspaceStoreRef();
@@ -144,6 +156,7 @@ async function saveEditorBufferById(bufferId: string): Promise<boolean> {
   } catch (error) {
     console.error("Error saving local file:", error);
     markBufferDirty(activeBuffer.id, true);
+    reportSaveError(error);
     return false;
   }
 }
@@ -260,6 +273,7 @@ export const useEditorAppStore = createSelectors(
                   }
                 } catch (error) {
                   console.error("Error saving file:", error);
+                  reportSaveError(error);
                   wsRef?.setState((state) => ({
                     buffers: state.buffers.map((b) =>
                       b.id === activeBuffer.id && isEditorContent(b)

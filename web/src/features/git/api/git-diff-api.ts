@@ -1,22 +1,23 @@
-// Crowbar stub — FUTURE: replace with Go API calls
-const tauriInvoke = async <T>(_cmd: string, _args?: unknown): Promise<T> => { throw new Error(`Not implemented: ${_cmd}`) }
+import { apiFetch } from "@/lib/api";
 import type { GitDiff } from "../types/git-types";
 import { gitDiffCache } from "../utils/git-diff-cache";
-import {
-  isNotGitRepositoryError,
-  resolveRepositoryForFile,
-  resolveRepositoryPath,
-} from "./git-repo-api";
+
+// All diff reads go through the workspace-scoped backend route
+// GET /v0/workspaces/:wsId/git/diff (?path= / ?staged= / ?commit=). The first
+// argument is the workspace id (the app threads rootFolderPath, which is the
+// wsId, as the "repo" handle).
 
 interface MultiFileDiffCacheEntry {
   diffs: GitDiff[];
   timestamp: number;
 }
 
+interface CommitDiffResponse {
+  files: GitDiff[];
+}
+
 const MULTI_FILE_DIFF_CACHE_TTL = 30_000;
 const commitDiffCache = new Map<string, MultiFileDiffCacheEntry>();
-const stashDiffCache = new Map<string, MultiFileDiffCacheEntry>();
-const refDiffCache = new Map<string, MultiFileDiffCacheEntry>();
 
 const getMultiFileDiffCacheEntry = (
   cache: Map<string, MultiFileDiffCacheEntry>,
@@ -36,203 +37,83 @@ const setMultiFileDiffCacheEntry = (
   key: string,
   diffs: GitDiff[],
 ): void => {
-  cache.set(key, {
-    diffs,
-    timestamp: Date.now(),
-  });
+  cache.set(key, { diffs, timestamp: Date.now() });
 };
 
-const getErrorMessage = (error: unknown): string => {
-  if (error instanceof Error) {
-    return error.message;
-  }
+function diffBase(
+  wsId: string,
+): string {
+  return `/v0/workspaces/${encodeURIComponent(wsId)}/git/diff`;
+}
 
-  if (typeof error === "string") {
-    return error;
-  }
-
-  if (
-    typeof error === "object" &&
-    error !== null &&
-    "message" in error &&
-    typeof error.message === "string"
-  ) {
-    return error.message;
-  }
-
-  return "";
-};
-
-const isNoDiffFoundError = (error: unknown): boolean => {
-  return getErrorMessage(error).includes("No changes found for file:");
-};
-
+// Working-tree diff for a single file. Returns the one matching file diff (the
+// backend filters by ?path), or null when the file has no changes.
 export const getFileDiff = async (
-  repoPath: string,
+  wsId: string,
   filePath: string,
   staged: boolean = false,
   content?: string,
 ): Promise<GitDiff | null> => {
+  const cached = gitDiffCache.get(wsId, filePath, staged, content);
+  if (cached) return cached;
+
   try {
-    const resolved = await resolveRepositoryForFile(repoPath, filePath);
-    if (!resolved) {
-      return null;
-    }
-
-    const cached = gitDiffCache.get(resolved.repoPath, resolved.filePath, staged, content);
-    if (cached) {
-      return cached;
-    }
-
-    const diff = await tauriInvoke<GitDiff>("git_diff_file", {
-      repoPath: resolved.repoPath,
-      filePath: resolved.filePath,
-      staged,
-    });
-
-    if (diff) {
-      gitDiffCache.set(resolved.repoPath, resolved.filePath, staged, diff, content);
-    }
-
+    const query = `?path=${encodeURIComponent(filePath)}&staged=${staged}`;
+    const diffs = await apiFetch<GitDiff[]>(`${diffBase(wsId)}${query}`);
+    const diff = diffs.find((d) => d.file_path === filePath) ?? diffs[0] ?? null;
+    if (diff) gitDiffCache.set(wsId, filePath, staged, diff, content);
     return diff;
   } catch (error) {
-    if (!isNotGitRepositoryError(error) && !isNoDiffFoundError(error)) {
-      console.error("Failed to get file diff:", error);
-    }
+    console.error("Failed to get file diff:", error);
     return null;
   }
 };
 
+// The backend has no content-vs-working diff; fall back to the on-disk diff
+// (staged or working tree) so the diff view still renders.
 export const getFileDiffAgainstContent = async (
-  repoPath: string,
+  wsId: string,
   filePath: string,
-  content: string,
+  _content: string,
   base: "head" | "index" = "head",
 ): Promise<GitDiff | null> => {
-  try {
-    const resolved = await resolveRepositoryForFile(repoPath, filePath);
-    if (!resolved) {
-      return null;
-    }
-
-    const cached = gitDiffCache.get(
-      resolved.repoPath,
-      resolved.filePath,
-      base === "index",
-      content,
-    );
-    if (cached) {
-      return cached;
-    }
-
-    const diff = await tauriInvoke<GitDiff>("git_diff_file_with_content", {
-      repoPath: resolved.repoPath,
-      filePath: resolved.filePath,
-      content,
-      base,
-    });
-
-    if (diff) {
-      gitDiffCache.set(resolved.repoPath, resolved.filePath, base === "index", diff, content);
-    }
-
-    return diff;
-  } catch (error) {
-    if (!isNotGitRepositoryError(error) && !isNoDiffFoundError(error)) {
-      console.error("Failed to get file diff against content:", error);
-    }
-    return null;
-  }
+  return getFileDiff(wsId, filePath, base === "index");
 };
 
 export const getCommitDiff = async (
-  repoPath: string,
+  wsId: string,
   commitHash: string,
 ): Promise<GitDiff[] | null> => {
+  const cacheKey = `${wsId}:${commitHash}`;
+  const cached = getMultiFileDiffCacheEntry(commitDiffCache, cacheKey);
+  if (cached) return cached;
+
   try {
-    const resolvedRepoPath = await resolveRepositoryPath(repoPath);
-    if (!resolvedRepoPath) {
-      return null;
-    }
-
-    const cacheKey = `${resolvedRepoPath}:${commitHash}`;
-    const cached = getMultiFileDiffCacheEntry(commitDiffCache, cacheKey);
-    if (cached) {
-      return cached;
-    }
-
-    const diffs = await tauriInvoke<GitDiff[]>("git_commit_diff", {
-      repoPath: resolvedRepoPath,
-      commitHash,
-    });
+    const res = await apiFetch<CommitDiffResponse>(
+      `${diffBase(wsId)}?commit=${encodeURIComponent(commitHash)}`,
+    );
+    const diffs = res.files ?? [];
     setMultiFileDiffCacheEntry(commitDiffCache, cacheKey, diffs);
     return diffs;
   } catch (error) {
-    if (!isNotGitRepositoryError(error)) {
-      console.error("Failed to get commit diff:", error);
-    }
+    console.error("Failed to get commit diff:", error);
     return null;
   }
 };
 
+// Ref-range and stash diffs are not yet exposed by the backend; return null so
+// callers degrade gracefully rather than throw.
 export const getRefDiff = async (
-  repoPath: string,
-  baseRef: string,
-  targetRef: string,
+  _wsId: string,
+  _baseRef: string,
+  _targetRef: string,
 ): Promise<GitDiff[] | null> => {
-  try {
-    const resolvedRepoPath = await resolveRepositoryPath(repoPath);
-    if (!resolvedRepoPath) {
-      return null;
-    }
-
-    const cacheKey = `${resolvedRepoPath}:${baseRef}:${targetRef}`;
-    const cached = getMultiFileDiffCacheEntry(refDiffCache, cacheKey);
-    if (cached) {
-      return cached;
-    }
-
-    const diffs = await tauriInvoke<GitDiff[]>("git_ref_diff", {
-      repoPath: resolvedRepoPath,
-      baseRef,
-      targetRef,
-    });
-    setMultiFileDiffCacheEntry(refDiffCache, cacheKey, diffs);
-    return diffs;
-  } catch (error) {
-    if (!isNotGitRepositoryError(error)) {
-      console.error("Failed to get ref diff:", error);
-    }
-    return null;
-  }
+  return null;
 };
 
 export const getStashDiff = async (
-  repoPath: string,
-  stashIndex: number,
+  _wsId: string,
+  _stashIndex: number,
 ): Promise<GitDiff[] | null> => {
-  try {
-    const resolvedRepoPath = await resolveRepositoryPath(repoPath);
-    if (!resolvedRepoPath) {
-      return null;
-    }
-
-    const cacheKey = `${resolvedRepoPath}:${stashIndex}`;
-    const cached = getMultiFileDiffCacheEntry(stashDiffCache, cacheKey);
-    if (cached) {
-      return cached;
-    }
-
-    const diffs = await tauriInvoke<GitDiff[]>("git_stash_diff", {
-      repoPath: resolvedRepoPath,
-      stashIndex,
-    });
-    setMultiFileDiffCacheEntry(stashDiffCache, cacheKey, diffs);
-    return diffs;
-  } catch (error) {
-    if (!isNotGitRepositoryError(error)) {
-      console.error("Failed to get stash diff:", error);
-    }
-    return null;
-  }
+  return null;
 };
