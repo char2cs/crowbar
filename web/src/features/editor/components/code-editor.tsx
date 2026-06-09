@@ -185,8 +185,7 @@ const CodeEditor = ({
     [isPreview, onPromote, onChange],
   )
 
-  const isPreviewBuffer = activeBuffer?.isPreview ?? false;
-  const enableInteractiveServices = isActiveSurface && !isPreviewBuffer && !readOnly;
+  const enableInteractiveServices = isActiveSurface && !readOnly;
   const enableRichEditorServices = enableInteractiveServices;
 
   const showMarkdownPreview = activeBuffer?.type === "markdownPreview";
@@ -575,7 +574,7 @@ const CodeEditor = ({
                 bufferId={activeBufferId ?? undefined}
                 viewStateKey={editorViewKey ?? undefined}
                 isActiveSurface={isActiveSurface}
-                isPreviewMode={isPreviewBuffer}
+                isPreviewMode={false}
                 readOnly={readOnly}
                 scrollable={scrollable}
                 backgroundLayer={backgroundLayer}

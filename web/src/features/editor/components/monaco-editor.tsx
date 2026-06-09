@@ -401,6 +401,50 @@ export function MonacoBackedEditor({
     [lineNumberMap, lineNumberStart],
   );
 
+  // Refs for values used inside the creation effect that should NOT trigger remounts.
+  // Settings changes are handled by the updateOptions effect below.
+  const latestOnScrollOffsetChangeRef = useRef(onScrollOffsetChange);
+  latestOnScrollOffsetChangeRef.current = onScrollOffsetChange;
+
+  const latestEditorSettingsRef = useRef({
+    fontFamily,
+    fontSize,
+    lineHeight,
+    tabSize,
+    wordWrap,
+    lineNumbers,
+    lineNumberFormatter,
+    renderWhitespace,
+    renderIndentGuides,
+    highlightOccurrences,
+    minimapEnabled,
+    autoCompletion,
+    parameterHints,
+    settingsTheme,
+    theme,
+    scrollable,
+    monacoLanguageId,
+  });
+  latestEditorSettingsRef.current = {
+    fontFamily,
+    fontSize,
+    lineHeight,
+    tabSize,
+    wordWrap,
+    lineNumbers,
+    lineNumberFormatter,
+    renderWhitespace,
+    renderIndentGuides,
+    highlightOccurrences,
+    minimapEnabled,
+    autoCompletion,
+    parameterHints,
+    settingsTheme,
+    theme,
+    scrollable,
+    monacoLanguageId,
+  };
+
   const updateVisibleLineRange = useCallback(
     (editor: Monaco.editor.IStandaloneCodeEditor) => {
       const visibleRanges = editor.getVisibleRanges();
@@ -433,43 +477,47 @@ export function MonacoBackedEditor({
     const container = containerRef.current;
     if (!container || !buffer) return;
 
-    const model = monacoEditor.createModel(content, monacoLanguageId, modelUri);
+    // Read all settings from the ref so this effect never remounts due to settings changes.
+    // Settings-only changes are handled by the updateOptions effect below.
+    const s = latestEditorSettingsRef.current;
+
+    const model = monacoEditor.createModel(content, s.monacoLanguageId, modelUri);
     // Apply tab settings on the model directly (model-level options)
-    model.updateOptions({ tabSize, insertSpaces: true });
+    model.updateOptions({ tabSize: s.tabSize, insertSpaces: true });
     const editor = monacoEditor.create(container, {
       model,
       automaticLayout: false,
-      fontFamily,
-      fontSize,
-      lineHeight,
-      tabSize,
+      fontFamily: s.fontFamily,
+      fontSize: s.fontSize,
+      lineHeight: s.lineHeight,
+      tabSize: s.tabSize,
       insertSpaces: true,
       detectIndentation: false,
       readOnly: readOnly || isPreviewMode,
       domReadOnly: readOnly || isPreviewMode,
-      minimap: { enabled: minimapEnabled },
+      minimap: { enabled: s.minimapEnabled },
       scrollBeyondLastLine: false,
-      lineNumbers: lineNumbers ? lineNumberFormatter : "off",
-      renderWhitespace: renderWhitespace === "none" ? "none" : renderWhitespace,
-      wordWrap: wordWrap ? "on" : "off",
+      lineNumbers: s.lineNumbers ? s.lineNumberFormatter : "off",
+      renderWhitespace: s.renderWhitespace === "none" ? "none" : (s.renderWhitespace as Monaco.editor.IEditorOptions["renderWhitespace"]),
+      wordWrap: s.wordWrap ? "on" : "off",
       guides: {
-        indentation: renderIndentGuides,
-        highlightActiveIndentation: renderIndentGuides,
+        indentation: s.renderIndentGuides,
+        highlightActiveIndentation: s.renderIndentGuides,
       },
-      occurrencesHighlight: highlightOccurrences ? "singleFile" : "off",
-      selectionHighlight: highlightOccurrences,
-      quickSuggestions: autoCompletion,
-      suggestOnTriggerCharacters: autoCompletion,
-      parameterHints: { enabled: parameterHints },
-      theme: defineMonacoTheme(settingsTheme || theme),
+      occurrencesHighlight: s.highlightOccurrences ? "singleFile" : "off",
+      selectionHighlight: s.highlightOccurrences,
+      quickSuggestions: s.autoCompletion,
+      suggestOnTriggerCharacters: s.autoCompletion,
+      parameterHints: { enabled: s.parameterHints },
+      theme: defineMonacoTheme(s.settingsTheme || s.theme),
       cursorStyle: "line",
       cursorBlinking: "blink",
       contextmenu: false,
       overviewRulerLanes: 0,
       fixedOverflowWidgets: true,
       scrollbar: {
-        vertical: scrollable ? "auto" : "hidden",
-        horizontal: scrollable ? "auto" : "hidden",
+        vertical: s.scrollable ? "auto" : "hidden",
+        horizontal: s.scrollable ? "auto" : "hidden",
       },
     });
 
@@ -588,7 +636,7 @@ export function MonacoBackedEditor({
       editor.onDidScrollChange((event) => {
         const viewKey = viewStateKey ?? activeBufferId ?? null;
         setScrollForBuffer(viewKey, event.scrollTop, event.scrollLeft);
-        onScrollOffsetChange?.(event.scrollTop, event.scrollLeft);
+        latestOnScrollOffsetChangeRef.current?.(event.scrollTop, event.scrollLeft);
         updateVisibleLineRange(editor);
       }),
       editor.onDidLayoutChange((info) => {
@@ -656,36 +704,23 @@ export function MonacoBackedEditor({
       editorAPI.setViewportRef(null);
       editorAPI.clearActiveEditorAdapter(adapterOwnerId);
     };
+  // Intentionally narrow deps: settings (fontFamily, fontSize, theme, wordWrap, etc.) are
+  // intentionally excluded — they are handled by the updateOptions effect below. Including them
+  // here would remount the entire editor on every settings change, causing model URI collisions
+  // and making files non-editable. Only structural deps that require a new editor/model go here.
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [
     activeBufferId,
-    autoCompletion,
     filePath,
-    fontFamily,
-    fontSize,
-    highlightOccurrences,
     isActiveSurface,
     isPreviewMode,
-    lineHeight,
-    lineNumbers,
-    lineNumberFormatter,
-    minimapEnabled,
     modelUri,
-    monacoLanguageId,
-    onScrollOffsetChange,
-    parameterHints,
     readOnly,
-    renderIndentGuides,
-    renderWhitespace,
-    scrollable,
     setScrollForBuffer,
     setViewportHeight,
-    settingsTheme,
     syncCursorAndSelection,
-    tabSize,
-    theme,
     updateVisibleLineRange,
     viewStateKey,
-    wordWrap,
   ]);
 
   useEffect(() => {
