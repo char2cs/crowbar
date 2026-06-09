@@ -40,22 +40,24 @@ func (w *walker) visit(
 	if err != nil {
 		return err
 	}
-	if !d.IsDir() {
-		return nil
-	}
 
-	depth := w.depthOf(path)
-
-	if w.isKnownRepo(path) {
-		return filepath.SkipDir
-	}
-
+	// A .git entry marks a repo whether it is a directory (normal checkout) or
+	// a file (worktree / submodule pointer). Check it before the directory
+	// guard so file-based markers are not skipped.
 	if d.Name() == ".git" {
 		w.found = append(w.found, filepath.Dir(path))
 		return filepath.SkipDir
 	}
 
-	if depth > w.maxDepth {
+	if !d.IsDir() {
+		return nil
+	}
+
+	if w.isKnownRepo(path) {
+		return filepath.SkipDir
+	}
+
+	if w.depthOf(path) > w.maxDepth {
 		return filepath.SkipDir
 	}
 

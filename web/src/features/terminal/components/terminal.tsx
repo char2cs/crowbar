@@ -1,6 +1,11 @@
-// Tauri terminal creation is replaced with no-op stubs — FUTURE: wire to Go backend
-const createTerminal = async (_config: Record<string, unknown>): Promise<string> => {
-  return `crowbar-terminal-${Date.now()}`
+import { terminalCreate } from "@/lib/crowbar-bridge";
+import { getActiveWorkspaceId } from "@/features/workspace/stores/workspace-store-registry";
+
+// Create a PTY session against the active workspace on the Go daemon.
+const createTerminal = async (config: Record<string, unknown>): Promise<string> => {
+  const wsId = getActiveWorkspaceId();
+  if (!wsId) throw new Error("no active workspace for terminal");
+  return terminalCreate(wsId, config.profileId as string | undefined);
 };
 import type { ISearchOptions } from "@xterm/addon-search";
 import { Terminal } from "@xterm/xterm";

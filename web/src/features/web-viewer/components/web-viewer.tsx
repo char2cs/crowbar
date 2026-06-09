@@ -52,8 +52,7 @@ export function WebViewer({
   // Register this buffer in the nav store; initial URL drives the address bar
   useEffect(() => {
     if (!bufferId) return
-    const { registerBuffer, removeBuffer } = useWebViewerNavigationStore.getState()
-    registerBuffer(bufferId, normalizedInitialUrl)
+    useWebViewerNavigationStore.getState().registerBuffer(bufferId, normalizedInitialUrl)
     return () => {
       useWebViewerNavigationStore.getState().removeBuffer(bufferId)
     }

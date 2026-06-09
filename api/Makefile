@@ -7,7 +7,7 @@ embed-web:
 	cp -r ../web/dist cmd/crowbar/web/dist
 
 dev:
-	go run -tags noEmbed ./cmd/crowbar serve
+	go run -tags noEmbed ./cmd/crowbar serve --host tcp://127.0.0.1:3737
 
 build: embed-web
 	go build -o bin/crowbar ./cmd/crowbar

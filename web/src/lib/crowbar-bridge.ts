@@ -1,34 +1,108 @@
-// Crowbar system operations — mock implementations for this session.
-// FUTURE: replace each function body with the real Crowbar Go API or Tauri plugin call.
+// Crowbar system operations backed by the Go daemon's /v0 API.
+
+import { apiFetch } from '@/lib/api'
+import { wsUrl } from '@/lib/ws/url'
 
 // ── Terminal PTY ──────────────────────────────────────────────────────────────
-// FUTURE: WebSocket to Go PTY handler at ws://localhost/api/terminal/:id
+// Each session is a WebSocket to the daemon's PTY handler. The wire protocol is
+// JSON: server→client {sessionId, data}; client→server {data} for input and
+// {type:'resize', cols, rows} for SIGWINCH.
+
+interface TerminalConnection {
+  ws: WebSocket
+  listener: ((data: string) => void) | null
+  outputBuffer: string[]
+  inputQueue: string[]
+  open: boolean
+}
+
+const terminals = new Map<string, TerminalConnection>()
+
+// Create a PTY session in the workspace and open its stream. Returns the
+// sessionId, which the terminal hooks use as the connection id.
+export async function terminalCreate(
+  wsId: string,
+  profileId?: string,
+): Promise<string> {
+  const { sessionId } = await apiFetch<{ sessionId: string }>(
+    `/v0/workspaces/${encodeURIComponent(wsId)}/terminals`,
+    {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(profileId ? { profileId } : {}),
+    },
+  )
+
+  const ws = new WebSocket(wsUrl(`/v0/ws/terminals/${encodeURIComponent(sessionId)}`))
+  const conn: TerminalConnection = { ws, listener: null, outputBuffer: [], inputQueue: [], open: false }
+
+  ws.onopen = () => {
+    conn.open = true
+    for (const data of conn.inputQueue) ws.send(JSON.stringify({ data }))
+    conn.inputQueue = []
+  }
+  ws.onmessage = (event) => {
+    let data: string | undefined
+    try {
+      data = (JSON.parse(event.data as string) as { data?: string }).data
+    } catch {
+      return
+    }
+    if (typeof data !== 'string') return
+    if (conn.listener) conn.listener(data)
+    else conn.outputBuffer.push(data)
+  }
+
+  terminals.set(sessionId, conn)
+  return sessionId
+}
 
 export async function terminalWrite(
-  _id: string,
-  _data: string,
+  id: string,
+  data: string,
 ): Promise<void> {
-  // FUTURE: ws.send(JSON.stringify({ type: 'write', id: _id, data: _data }))
+  const conn = terminals.get(id)
+  if (!conn) return
+  if (conn.open) conn.ws.send(JSON.stringify({ data }))
+  else conn.inputQueue.push(data)
 }
 
 export async function terminalResize(
-  _id: string,
-  _rows: number,
-  _cols: number,
+  id: string,
+  rows: number,
+  cols: number,
 ): Promise<void> {
-  // FUTURE: ws.send(JSON.stringify({ type: 'resize', id: _id, rows: _rows, cols: _cols }))
+  const conn = terminals.get(id)
+  if (conn?.open) conn.ws.send(JSON.stringify({ type: 'resize', cols, rows }))
 }
 
-export async function terminalClose(_id: string): Promise<void> {
-  // FUTURE: ws.send(JSON.stringify({ type: 'close', id: _id }))
+export async function terminalClose(
+  id: string,
+): Promise<void> {
+  const conn = terminals.get(id)
+  if (conn) {
+    conn.ws.close()
+    terminals.delete(id)
+  }
+  await apiFetch(`/v0/terminals/${encodeURIComponent(id)}`, { method: 'DELETE' }).catch(() => {})
 }
 
+// Register the output sink for a session, flushing any frames that arrived
+// before the listener attached (e.g. the shell's first prompt).
 export function terminalListen(
-  _id: string,
-  _onData: (data: string) => void,
+  id: string,
+  onData: (data: string) => void,
 ): () => void {
-  // FUTURE: subscribe to WebSocket messages for terminal output
-  return () => {} // no-op unlisten
+  const conn = terminals.get(id)
+  if (!conn) return () => {}
+  conn.listener = onData
+  if (conn.outputBuffer.length > 0) {
+    for (const chunk of conn.outputBuffer) onData(chunk)
+    conn.outputBuffer = []
+  }
+  return () => {
+    if (conn.listener === onData) conn.listener = null
+  }
 }
 
 // ── File Clipboard ────────────────────────────────────────────────────────────

@@ -65,6 +65,13 @@ func (f *fakeServer) Notify(
 	return f.notErr
 }
 
+func (f *fakeServer) Initialize(
+	_ context.Context,
+	_ string,
+) error {
+	return nil
+}
+
 func (f *fakeServer) OnDiagnostics(
 	fn func(domlsp.DiagnosticsEvent),
 ) {
@@ -280,6 +287,12 @@ func TestDocumentSymbol_Forwards(t *testing.T) {
 }
 
 // --- Document sync ---
+
+func TestAbsFilePath(t *testing.T) {
+	assert.Equal(t, "/tree/main.go", absFilePath("/tree", "main.go"))
+	assert.Equal(t, "/tree/pkg/util.go", absFilePath("/tree", "pkg/util.go"))
+	assert.Equal(t, "/already/abs.go", absFilePath("/tree", "/already/abs.go"))
+}
 
 func TestDidOpen_ForwardsAndTracksURI(t *testing.T) {
 	fake := newFakeServer(nil)

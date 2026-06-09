@@ -16,6 +16,10 @@ export function getActiveWorkspaceStore(): WorkspaceStore | null {
   return registry.get(_activeWorkspaceId) ?? null
 }
 
+export function getActiveWorkspaceId(): string | null {
+  return _activeWorkspaceId
+}
+
 export function getOrCreateWorkspaceStore(wsId: string): WorkspaceStore {
   if (!registry.has(wsId)) {
     const snapshot = loadFromLocalStorage(wsId)

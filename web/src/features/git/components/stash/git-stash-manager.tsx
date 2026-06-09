@@ -51,7 +51,6 @@ const GitStashManager = ({ isOpen, onClose, repoPath, onRefresh }: GitStashManag
       const success = await createStash(
         repoPath,
         newStashMessage.trim() || undefined,
-        includeUntracked,
       );
       if (success) {
         setNewStashMessage("");

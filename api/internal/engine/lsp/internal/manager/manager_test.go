@@ -48,6 +48,13 @@ func (f *fakeServer) Notify(
 	return nil
 }
 
+func (f *fakeServer) Initialize(
+	_ context.Context,
+	_ string,
+) error {
+	return nil
+}
+
 func (f *fakeServer) OnDiagnostics(
 	fn func(domlsp.DiagnosticsEvent),
 ) {

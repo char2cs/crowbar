@@ -1,12 +1,12 @@
-use std::path::PathBuf;
+use std::net::TcpListener;
 use std::sync::Mutex;
 use std::time::Duration;
 
 use bytes::Bytes;
 use http_body_util::Empty;
+use hyper_util::client::legacy::connect::HttpConnector;
 use hyper_util::client::legacy::Client;
 use hyper_util::rt::TokioExecutor;
-use hyperlocal::{UnixConnector, Uri as UnixUri};
 use tauri::{AppHandle, Manager, Runtime};
 use tauri_plugin_shell::{process::CommandChild, ShellExt};
 
@@ -24,18 +24,26 @@ impl SidecarHandle {
     }
 }
 
-pub fn socket_path() -> PathBuf {
-    let home = dirs::home_dir().expect("no home directory");
-    home.join(".crowbar").join("crowbar.sock")
+/// Reserve a free localhost TCP port by binding to port 0 and reading back the
+/// assigned port. The listener is dropped immediately so the sidecar can bind
+/// it; the brief gap is acceptable for a single desktop launch.
+pub fn pick_free_port() -> u16 {
+    TcpListener::bind("127.0.0.1:0")
+        .expect("failed to reserve a local port")
+        .local_addr()
+        .expect("failed to read reserved port")
+        .port()
 }
 
 pub async fn spawn<R: Runtime>(
     app: &AppHandle<R>,
+    port: u16,
 ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+    let host = format!("tcp://127.0.0.1:{port}");
     let sidecar = app
         .shell()
         .sidecar("crowbar-api")?
-        .args(["serve", "--host", "unix://"]);
+        .args(["serve", "--host", &host]);
 
     let (_rx, child) = sidecar.spawn()?;
 
@@ -46,18 +54,19 @@ pub async fn spawn<R: Runtime>(
         .unwrap()
         .replace(child);
 
-    wait_for_health(30).await?;
-    log::info!("crowbar daemon is ready");
+    wait_for_health(port, 30).await?;
+    log::info!("crowbar daemon is ready on 127.0.0.1:{port}");
     Ok(())
 }
 
 async fn wait_for_health(
+    port: u16,
     attempts: u32,
 ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     for i in 0..attempts {
         tokio::time::sleep(Duration::from_millis(200)).await;
 
-        if check_health().await.is_ok() {
+        if check_health(port).await.is_ok() {
             return Ok(());
         }
 
@@ -68,15 +77,12 @@ async fn wait_for_health(
     Ok(())
 }
 
-async fn check_health() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
-    let socket = socket_path();
-    if !socket.exists() {
-        return Err("socket not found".into());
-    }
-
-    let url: hyper::Uri = UnixUri::new(&socket, "/api/v0/health").into();
-    let client: Client<UnixConnector, Empty<Bytes>> =
-        Client::builder(TokioExecutor::new()).build(UnixConnector);
+async fn check_health(
+    port: u16,
+) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+    let url: hyper::Uri = format!("http://127.0.0.1:{port}/v0/health").parse()?;
+    let client: Client<HttpConnector, Empty<Bytes>> =
+        Client::builder(TokioExecutor::new()).build(HttpConnector::new());
 
     let resp = client.get(url).await?;
     if resp.status().is_success() {
@@ -88,15 +94,11 @@ async fn check_health() -> Result<(), Box<dyn std::error::Error + Send + Sync>> 
 
 #[cfg(test)]
 mod tests {
-    use super::socket_path;
+    use super::pick_free_port;
 
     #[test]
-    fn socket_path_ends_with_sock() {
-        let p = socket_path();
-        assert!(
-            p.ends_with("crowbar.sock"),
-            "expected crowbar.sock, got {:?}",
-            p
-        );
+    fn pick_free_port_returns_nonzero() {
+        let p = pick_free_port();
+        assert!(p > 0, "expected a nonzero port, got {p}");
     }
 }

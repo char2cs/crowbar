@@ -6,7 +6,7 @@
 import type { Tree } from "web-tree-sitter";
 import { logger } from "../../utils/logger";
 import { getLanguageAssetConfig } from "./extension-assets";
-import { wasmParserLoader } from "./loader";
+import { TreeSitterUnavailableError, wasmParserLoader } from "./loader";
 import { getLanguageOverlayTokens } from "./language-overlays";
 import { dedupeHighlightTokens, isIgnoredCapture, mapCaptureToClass } from "./capture-map";
 import {
@@ -176,6 +176,11 @@ export async function tokenizeCodeWithTree(
     // (e.g. @tag.builtin overrides @variable). Keep the last capture per range.
     return { tokens: dedupeHighlightTokens(tokens), tree };
   } catch (error) {
+    // Tree-sitter assets are not provisioned — degrade to no tokens (plain,
+    // unhighlighted text) silently instead of throwing/logging per file.
+    if (error instanceof TreeSitterUnavailableError) {
+      return { tokens: [], tree: null as unknown as TokenizeResult["tree"] };
+    }
     logger.error("WasmTokenizer", `Failed to tokenize code for ${languageId}`, error);
     throw error;
   }

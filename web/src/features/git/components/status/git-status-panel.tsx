@@ -318,14 +318,12 @@ const GitStatusPanel = ({
     if (!repoPath) return;
 
     if (stashModal.type === "file" && stashModal.filePath) {
-      await createStash(repoPath, message || `Stash ${stashModal.filePath}`, false, [
-        stashModal.filePath,
-      ]);
+      await createStash(repoPath, message || `Stash ${stashModal.filePath}`);
     } else if (stashModal.type === "all") {
       const paths = unstagedFiles.map((f) => f.path);
       if (paths.length === 0) return;
 
-      await createStash(repoPath, message || "Stash all unstaged changes", false, paths);
+      await createStash(repoPath, message || "Stash all unstaged changes");
     }
 
     onRefresh?.();

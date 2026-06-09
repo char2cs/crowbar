@@ -1,3 +1,5 @@
+import { wsUrl } from './url'
+
 type Callback = (data: unknown) => void
 
 interface Channel {
@@ -17,7 +19,7 @@ export function createWSManager(): WSManager {
 
   function open(endpoint: string): Channel {
     const ch: Channel = {
-      socket: new WebSocket(endpoint),
+      socket: new WebSocket(wsUrl(endpoint)),
       callbacks: new Set(),
       reconnectDelay: 1000,
       endpoint,

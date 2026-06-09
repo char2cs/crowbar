@@ -3,7 +3,7 @@ import "../monaco/language-contributions";
 import "monaco-editor/min/vs/editor/editor.main.css";
 import "../styles/monaco-editor.css";
 
-import { editor as monacoEditor, KeyCode, KeyMod, Range as MonacoRange, Uri } from "monaco-editor";
+import { editor as monacoEditor, KeyCode, KeyMod, MarkerSeverity, Range as MonacoRange, Uri } from "monaco-editor";
 import type * as Monaco from "monaco-editor";
 import {
   useCallback,
@@ -25,6 +25,7 @@ import type { Position, Range } from "../types/editor";
 import { getLanguageIdFromPath } from "../utils/language-id";
 import { calculateLineHeight } from "../utils/lines";
 import { editorAPI } from "../extensions/api";
+import { LspClient, type LspDiagnostic } from "../lsp/lsp-client";
 import type {
   EditorCoordinateResolver,
   EditorModelPositionResolver,
@@ -118,6 +119,40 @@ function toMonacoRange(model: Monaco.editor.ITextModel, range: Range): Monaco.Ra
   }
 
   return new MonacoRange(start.lineNumber, start.column, end.lineNumber, end.column);
+}
+
+function severityToMonaco(severity: string): Monaco.MarkerSeverity {
+  switch (severity.toLowerCase()) {
+    case "error":
+      return MarkerSeverity.Error;
+    case "warning":
+      return MarkerSeverity.Warning;
+    case "hint":
+      return MarkerSeverity.Hint;
+    default:
+      return MarkerSeverity.Info;
+  }
+}
+
+// Backend diagnostics use 0-based line/character; Monaco markers are 1-based.
+function toMonacoMarker(diagnostic: LspDiagnostic): Monaco.editor.IMarkerData {
+  return {
+    severity: severityToMonaco(diagnostic.severity),
+    message: diagnostic.message,
+    source: diagnostic.source,
+    code: diagnostic.code,
+    startLineNumber: diagnostic.range.start.line + 1,
+    startColumn: diagnostic.range.start.character + 1,
+    endLineNumber: diagnostic.range.end.line + 1,
+    endColumn: diagnostic.range.end.character + 1,
+  };
+}
+
+// Diagnostic paths and buffer paths are both workspace-relative, but tolerate a
+// leading-slash or absolute mismatch by comparing suffixes.
+function pathsMatch(a: string, b: string): boolean {
+  if (a === b) return true;
+  return a.endsWith(b) || b.endsWith(a);
 }
 
 function createModelUri(bufferId: string | undefined, filePath: string): Monaco.Uri {
@@ -864,6 +899,40 @@ export function MonacoBackedEditor({
       if (cached.selection) editor.setSelection(toMonacoRange(model, cached.selection));
     }
   }, [activeBufferId, isActiveSurface, viewStateKey]);
+
+  // LSP diagnostics: open the document so the server analyzes it, then paint
+  // its diagnostics as Monaco markers (squiggles) for this file.
+  useEffect(() => {
+    const model = modelRef.current;
+    if (!model || !filePath) return;
+
+    const client = LspClient.getInstance();
+    void client.documentOpen(filePath, model.getValue(), languageId ?? "plaintext");
+
+    const applyMarkers = (fp: string, diagnostics: LspDiagnostic[]) => {
+      if (!pathsMatch(fp, filePath)) return;
+      const current = modelRef.current;
+      if (!current) return;
+      monacoEditor.setModelMarkers(current, "crowbar-lsp", diagnostics.map(toMonacoMarker));
+    };
+    const unsubscribe = client.onDiagnosticsUpdate(applyMarkers);
+
+    return () => {
+      unsubscribe();
+      void client.documentClose(filePath);
+      const current = modelRef.current;
+      if (current) monacoEditor.setModelMarkers(current, "crowbar-lsp", []);
+    };
+  }, [filePath, languageId]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Re-analyze on edits (debounced — the server wants the full buffer text).
+  useEffect(() => {
+    if (!filePath) return;
+    const timer = setTimeout(() => {
+      void LspClient.getInstance().documentChange(filePath, content);
+    }, 400);
+    return () => clearTimeout(timer);
+  }, [content, filePath]);
 
   if (!buffer) return null;
 

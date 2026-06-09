@@ -144,7 +144,6 @@ const GitBranchManager = ({
                 const stashSuccess = await createStash(
                   repoPath,
                   `Switching to ${branchName}`,
-                  true,
                 );
                 if (stashSuccess) {
                   const retryResult = await checkoutBranch(repoPath, branchName);

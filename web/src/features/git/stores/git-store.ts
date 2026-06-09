@@ -6,7 +6,7 @@ import { getBranches } from "../api/git-branches-api";
 import { getStashes } from "../api/git-stash-api";
 import type { GitCommit, GitStash, GitStatus } from "../types/git-types";
 import { createLoadableSlice } from "@/lib/store/loadable-slice";
-import type { Loadable } from "@/lib/loadable";
+import { success, type Loadable } from "@/lib/loadable";
 
 const MAX_WORKSPACE_GIT_STATUS_FILES = 200;
 
@@ -36,12 +36,12 @@ export interface GitData {
   stashes: GitStash[];
 }
 
-async function fetchAllGitData(repoPath: string): Promise<GitData> {
+export async function fetchAllGitData(wsId: string): Promise<GitData> {
   const [status, commits, branches, stashes] = await Promise.all([
-    getGitStatus(repoPath),
-    getGitLog(repoPath, 50, 0),
-    getBranches(repoPath),
-    getStashes(repoPath),
+    getGitStatus(wsId),
+    getGitLog(wsId, 50, 0),
+    getBranches(wsId),
+    getStashes(wsId),
   ]);
   return { status, commits, branches, stashes };
 }
@@ -78,6 +78,8 @@ interface GitState {
       repoPath: string;
     }) => Promise<void>;
     refreshWorkspaceGitStatus: (repoPath: string) => Promise<void>;
+    reload: (wsId: string) => Promise<void>;
+    reloadStatus: (wsId: string) => Promise<void>;
     loadMoreCommits: (repoPath: string) => Promise<void>;
     setGitStatus: (status: GitStatus | null) => void;
     setWorkspaceGitStatus: (status: GitStatus | null, repoPath: string | null) => void;
@@ -142,6 +144,7 @@ export const useGitStore = create<GitState>((set, get) => ({
   actions: {
     loadFreshGitData: ({ gitStatus, commits, branches, stashes, repoPath }) => {
       set({
+        gitData: success({ status: gitStatus, commits, branches, stashes }),
         gitStatus,
         // Also drive file-explorer git decorations — file-explorer-tree reads
         // workspaceGitStatus + currentWorkspaceRepoPath from this store
@@ -192,6 +195,26 @@ export const useGitStore = create<GitState>((set, get) => ({
 
       set({
         workspaceGitStatus: toWorkspaceGitStatus(status),
+      });
+    },
+
+    reload: async (wsId) => {
+      const data = await fetchAllGitData(wsId);
+      get().actions.loadFreshGitData({
+        gitStatus: data.status,
+        commits: data.commits,
+        branches: data.branches,
+        stashes: data.stashes,
+        repoPath: wsId,
+      });
+    },
+
+    reloadStatus: async (wsId) => {
+      const status = await getGitStatus(wsId);
+      set({
+        gitStatus: status,
+        workspaceGitStatus: toWorkspaceGitStatus(status),
+        currentWorkspaceRepoPath: wsId,
       });
     },
 

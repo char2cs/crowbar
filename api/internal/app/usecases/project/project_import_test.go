@@ -211,6 +211,24 @@ func TestImport_DetachedWorktreeSkipped(
 	assert.Equal(t, "feature", ws.Created[0].Branch)
 }
 
+func TestImport_PrunableWorktreeSkipped(
+	t *testing.T,
+) {
+	// A prunable worktree points at a checkout that no longer exists on disk
+	// (e.g. a deleted temp dir from a test run). Adopting it would create a
+	// workspace whose every file/git read fails, so it must be skipped.
+	_, _, ws, git, _, uc := newImport(t)
+	git.Worktrees = []gitengine.WorktreeEntry{
+		{Path: "/repoA", Branch: "main", Head: "h1"},
+		{Path: "/gone/wt", Branch: "dead", Head: "h2", Prunable: true},
+	}
+
+	_, err := uc.Import(context.Background(), "P", "/root")
+	require.NoError(t, err)
+	require.Len(t, ws.Created, 1)
+	assert.Equal(t, "main", ws.Created[0].Branch)
+}
+
 func TestImport_WorkspaceCreateError_IsTolerated(
 	t *testing.T,
 ) {

@@ -1,35 +1,168 @@
-import { useEffect } from 'react'
+import { useEffect, useRef } from 'react'
 import { useFileSystemStore } from '@/features/file-system/controllers/store'
 import { useBufferActions } from './use-buffer-store'
-import { useFileTreeStore } from '@/features/files/stores/file-tree-store'
-import { dataOf } from '@/lib/loadable'
+import { useFileTreeStore } from '@/features/file-explorer/stores/file-explorer-tree-store'
+import {
+  fetchFileTree,
+  filesWsEndpoint,
+  findNode,
+  mergeChildren,
+} from '@/features/files/lib/file-tree-api'
+import { wsManager } from '@/lib/ws/manager'
 import { openFileContent } from '@/features/workspace/lib/open-file-content'
+import { fetchAllGitData, useGitStore } from '@/features/git/stores/git-store'
 import type { AppFile } from '@/features/file-system/types/app'
+
+const GIT_REFRESH_DEBOUNCE_MS = 400
+
+function parentDir(
+  path: string,
+): string {
+  const idx = path.lastIndexOf('/')
+  return idx === -1 ? '' : path.slice(0, idx)
+}
+
+// Carry already-loaded children across a level refresh so a live file change
+// does not collapse expanded subtrees that are still present.
+function preserveLoadedChildren(
+  current: AppFile[],
+  fresh: AppFile[],
+): AppFile[] {
+  return fresh.map((node) => {
+    if (!node.isDir) return node
+    const existing = findNode(current, node.path)
+    if (existing?.children) return { ...node, children: existing.children }
+    return node
+  })
+}
+
+interface FileChangeEvent {
+  type?: string
+  path?: string
+  newPath?: string
+}
+
+// A plain content edit ("modified") never changes the tree's shape, so it must
+// not trigger a directory refetch — that was the per-keystroke churn that made
+// editing feel slow. Only structural events touch the tree.
+function isStructuralChange(
+  type: string | undefined,
+): boolean {
+  return type === 'created' || type === 'deleted' || type === 'renamed'
+}
 
 export function useWorkspaceEffects(wsId: string) {
   const bufferActions = useBufferActions()
-  const repoPath = `/repos/${wsId}`
+  const expandedPaths = useFileTreeStore((state) => state.expandedPaths)
+  const loadingDirs = useRef<Set<string>>(new Set())
 
-  // Seed file system from API
+  // Seed the root file tree and wire the workspace-scoped file handlers. The
+  // `cancelled` guard ensures a slow fetch from a previous workspace cannot
+  // overwrite the global file-system store after the user has switched away.
   useEffect(() => {
+    let cancelled = false
+    loadingDirs.current.clear()
+    // Reset the shared tree synchronously on switch so the user never sees the
+    // previous workspace's files while the new tree loads.
+    if (useFileSystemStore.getState().rootFolderPath !== wsId) {
+      useFileSystemStore.setState({ rootFolderPath: wsId, files: [], fileTree: [] })
+    }
     void (async () => {
-      await useFileTreeStore.getState().fetch(repoPath)
-      const files = dataOf(useFileTreeStore.getState().data)
-      // Guard: the mock returns FileEntry[] but the real backend may return a
-      // tree object or error body — only set if we got a real array.
-      if (!Array.isArray(files)) return
+      const root = await fetchFileTree(wsId).catch(() => null)
+      if (cancelled || !Array.isArray(root)) return
       useFileSystemStore.setState({
-        rootFolderPath: repoPath,
-        files: files as unknown as AppFile[],
+        rootFolderPath: wsId,
+        files: root,
+        fileTree: root,
         handleFileOpen: async (path: string, revealOrIsDir?: boolean) => {
           if (revealOrIsDir === true) return
-          await openFileContent(path, bufferActions, { preview: false })
+          await openFileContent(wsId, path, bufferActions, { preview: false })
         },
         handleFileSelect: (path: string, isDir?: boolean) => {
           if (isDir) return
-          void openFileContent(path, bufferActions, { preview: true })
+          void openFileContent(wsId, path, bufferActions, { preview: true })
         },
       })
     })()
-  }, [repoPath]) // eslint-disable-line react-hooks/exhaustive-deps
+    return () => {
+      cancelled = true
+    }
+  }, [wsId]) // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Lazily fetch a directory's children the first time it is expanded.
+  useEffect(() => {
+    let cancelled = false
+    for (const path of expandedPaths) {
+      const node = findNode(useFileSystemStore.getState().files, path)
+      if (!node?.isDir || node.children !== undefined) continue
+      if (loadingDirs.current.has(path)) continue
+      loadingDirs.current.add(path)
+      void fetchFileTree(wsId, path)
+        .then((children) => {
+          if (cancelled) return
+          const merged = mergeChildren(useFileSystemStore.getState().files, path, children)
+          useFileSystemStore.getState().setFiles(merged)
+        })
+        .catch(() => {})
+        .finally(() => loadingDirs.current.delete(path))
+    }
+    return () => {
+      cancelled = true
+    }
+  }, [wsId, expandedPaths])
+
+  // Apply live file-change events: refresh the affected directory level(s) in
+  // place, preserving any expanded subtrees that still exist. Content-only
+  // edits are ignored (the tree shape is unchanged).
+  useEffect(() => {
+    let cancelled = false
+    const refreshDir = async (dir: string) => {
+      const fresh = await fetchFileTree(wsId, dir || undefined).catch(() => null)
+      if (cancelled || !Array.isArray(fresh)) return
+      const current = useFileSystemStore.getState().files
+      const reconciled = preserveLoadedChildren(current, fresh)
+      const next = dir === '' ? reconciled : mergeChildren(current, dir, reconciled)
+      useFileSystemStore.getState().setFiles(next)
+    }
+    const unsubscribe = wsManager.subscribe(filesWsEndpoint(wsId), (raw) => {
+      const evt = raw as FileChangeEvent
+      if (!evt?.path || !isStructuralChange(evt.type)) return
+      void refreshDir(parentDir(evt.path))
+      if (evt.newPath) void refreshDir(parentDir(evt.newPath))
+    })
+    return () => {
+      cancelled = true
+      unsubscribe()
+    }
+  }, [wsId])
+
+  // Load full git data once, then keep status live on the git topic. A live
+  // event only refreshes status (one request), not the rarely-changing
+  // commits/branches/stashes — those reload on explicit git actions.
+  useEffect(() => {
+    let cancelled = false
+    void (async () => {
+      const data = await fetchAllGitData(wsId).catch(() => null)
+      if (cancelled || !data) return
+      useGitStore.getState().actions.loadFreshGitData({
+        gitStatus: data.status,
+        commits: data.commits,
+        branches: data.branches,
+        stashes: data.stashes,
+        repoPath: wsId,
+      })
+    })()
+    let timer: ReturnType<typeof setTimeout> | null = null
+    const unsubscribe = wsManager.subscribe(`/v0/ws/git?wsId=${encodeURIComponent(wsId)}`, () => {
+      if (timer) clearTimeout(timer)
+      timer = setTimeout(() => {
+        if (!cancelled) void useGitStore.getState().actions.reloadStatus(wsId)
+      }, GIT_REFRESH_DEBOUNCE_MS)
+    })
+    return () => {
+      cancelled = true
+      if (timer) clearTimeout(timer)
+      unsubscribe()
+    }
+  }, [wsId])
 }

@@ -145,6 +145,29 @@ func newTestServer(
 	return srv, fake
 }
 
+func TestServer_InitializeHandshake(t *testing.T) {
+	srv, fake := newTestServer(t)
+
+	done := make(chan error, 1)
+	go func() {
+		done <- srv.Initialize(context.Background(), "/tmp/proj")
+	}()
+
+	req := <-fake.gotReq
+	assert.Equal(t, "initialize", req.Method)
+
+	var params map[string]any
+	require.NoError(t, json.Unmarshal(req.Params, &params))
+	assert.Equal(t, "file:///tmp/proj", params["rootUri"])
+
+	fake.respond(req.ID, map[string]any{"capabilities": map[string]any{}})
+
+	notif := <-fake.gotNotif
+	assert.Equal(t, "initialized", notif.Method)
+
+	require.NoError(t, <-done)
+}
+
 func TestServer_RequestCorrelatesResult(t *testing.T) {
 	srv, fake := newTestServer(t)
 

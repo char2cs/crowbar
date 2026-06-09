@@ -9,9 +9,22 @@ import { indexedDBParserCache } from "./cache-indexeddb";
 import { fetchHighlightQuery } from "./extension-assets";
 import type { LoadedParser, ParserConfig } from "./types";
 
+// Thrown when the tree-sitter runtime/grammars are not provisioned under
+// `/tree-sitter`. It is a benign, expected condition (the optional tree-sitter
+// highlighting layer is simply absent — Monaco's built-in highlighting still
+// works), so callers treat it as "no tokens" rather than logging it as a
+// failure. Distinct type so it can be caught without swallowing real errors.
+export class TreeSitterUnavailableError extends Error {
+  constructor() {
+    super("Tree-sitter assets are not provisioned under /tree-sitter");
+    this.name = "TreeSitterUnavailableError";
+  }
+}
+
 class WasmParserLoader {
   private static instance: WasmParserLoader;
   private initialized = false;
+  private unavailable = false;
   private parsers: Map<string, LoadedParser> = new Map();
   private loadingParsers: Map<string, Promise<LoadedParser>> = new Map();
 
@@ -30,6 +43,9 @@ class WasmParserLoader {
    */
   async initialize(): Promise<void> {
     if (this.initialized) return;
+    // Already determined to be unavailable — short-circuit without re-logging
+    // so a per-file tokenize attempt does not spam the console.
+    if (this.unavailable) throw new TreeSitterUnavailableError();
 
     try {
       await Parser.init({
@@ -44,8 +60,16 @@ class WasmParserLoader {
       this.initialized = true;
       logger.debug("WasmParser", "Tree-sitter WASM initialized");
     } catch (error) {
-      logger.error("WasmParser", "Failed to initialize Tree-sitter WASM", error);
-      throw error;
+      // The runtime wasm is absent (the dev/prod server returns the SPA HTML
+      // for the .wasm URL). Disable the layer once, with a single warning.
+      this.unavailable = true;
+      logger.warn(
+        "WasmParser",
+        "Tree-sitter assets not provisioned under /tree-sitter — tree-sitter " +
+          "highlighting disabled. Monaco's built-in highlighting is unaffected.",
+        error,
+      );
+      throw new TreeSitterUnavailableError();
     }
   }
 
@@ -61,6 +85,7 @@ class WasmParserLoader {
    * Returns cached parser if already loaded
    */
   async loadParser(config: ParserConfig): Promise<LoadedParser> {
+    if (this.unavailable) throw new TreeSitterUnavailableError();
     const { languageId, highlightQuery } = config;
 
     // Check if parser is already cached
@@ -750,6 +775,7 @@ class WasmParserLoader {
         languageId,
       };
     } catch (error) {
+      if (error instanceof TreeSitterUnavailableError) throw error;
       logger.error("WasmParser", `Failed to load parser for ${languageId}`, error);
       throw new Error(`Failed to load parser for ${languageId}: ${error}`);
     }

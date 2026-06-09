@@ -57,6 +57,18 @@ export function fetchProject(id: string): Promise<Project> {
   return apiFetch(`/v0/projects/${id}`)
 }
 
+// Pick a real workspace to land on at app start. Prefer the first unlocked
+// (editable) workspace so editing works out of the box; fall back to the first
+// workspace of any kind, or null when the backend has none yet (→ projects).
+export async function fetchLandingWorkspaceId(): Promise<string | null> {
+  const workspaces = await apiFetch<Array<{ id: string; locked: boolean }>>(
+    '/v0/workspaces',
+  )
+  if (workspaces.length === 0) return null
+  const editable = workspaces.find((ws) => !ws.locked)
+  return (editable ?? workspaces[0]).id
+}
+
 // The backend's WriteMutationOK returns only `{ id }`, not the full entity.
 export function postProject(name: string, path: string): Promise<{ id: string }> {
   return apiFetch('/v0/projects', {

@@ -11,11 +11,16 @@ import (
 	"os/exec"
 	"strings"
 	"sync"
+	"time"
 
 	domlsp "github.com/char2cs/crowbar/api/internal/domain/lsp"
 	"github.com/char2cs/crowbar/api/internal/engine/lsp/internal/registry"
 	"github.com/char2cs/crowbar/api/internal/engine/lsp/internal/server"
 )
+
+// initializeTimeout bounds the LSP initialize handshake, which can be slow on a
+// language server's cold start (module loading, indexing).
+const initializeTimeout = 30 * time.Second
 
 // lookPathFunc resolves a command name to an absolute path, mirroring
 // exec.LookPath. Tests inject a fake to simulate a missing binary.
@@ -250,6 +255,16 @@ func (m *manager) spawnAndWire(
 
 	if cb != nil {
 		srv.OnDiagnostics(stampWsID(wsID, cb))
+	}
+
+	// The LSP handshake must complete before any document sync, and gopls cold
+	// starts can take several seconds, so give it its own timeout rather than
+	// inheriting a short request deadline.
+	initCtx, cancel := context.WithTimeout(context.Background(), initializeTimeout)
+	defer cancel()
+	if err := srv.Initialize(initCtx, worktreePath); err != nil {
+		_ = srv.Close()
+		return nil, fmt.Errorf("lsp manager: initialize %s: %w", spec.Command, err)
 	}
 	return srv, nil
 }

@@ -350,9 +350,12 @@ type Engine interface {
 	) (gitdomain.MultiFileDiff, error)
 }
 
-// WorktreeEntry is a single worktree from `git worktree list`.
+// WorktreeEntry is a single worktree from `git worktree list`. Prunable is true
+// when git reports the worktree's working directory as missing (a dangling
+// registration left by a deleted checkout); such entries are not usable.
 type WorktreeEntry struct {
-	Path   string
-	Branch string
-	Head   string
+	Path     string
+	Branch   string
+	Head     string
+	Prunable bool
 }

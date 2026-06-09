@@ -31,7 +31,7 @@ func New(
 	router := gin.New()
 	router.UseRawPath = true
 	router.UnescapePathValues = true
-	router.Use(middleware.Logger(), middleware.Recovery())
+	router.Use(middleware.Logger(), middleware.Recovery(), middleware.CORS())
 
 	v0Container := v0.New(appContainer, engContainer)
 	v0Container.Register(router.Group("/v0"))

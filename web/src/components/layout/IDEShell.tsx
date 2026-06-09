@@ -39,7 +39,7 @@ export function IDEShell() {
   const activeWorkspaceId = pathname.match(/\/workspaces\/([^/]+)/)?.[1]
   const activeChatId = pathname.match(/\/chat\/([^/]+)/)?.[1]
 
-  const activeRepo = repos.find(r => r.workspaces.some(ws => ws.id === activeWorkspaceId))
+  const activeRepo = repos.find(r => r.workspaces?.some(ws => ws.id === activeWorkspaceId))
 
   const activeWorkspaceRepoPath = activeRepo ? `/repos/${activeRepo.id}` : '/repos/default'
   const chatTabLabel = chats.find(c => c.id === activeChatId)?.title ?? 'Chat'
