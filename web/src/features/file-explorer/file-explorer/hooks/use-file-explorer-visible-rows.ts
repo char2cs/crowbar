@@ -39,6 +39,34 @@ export function useFileExplorerVisibleRows({
     estimateSize: () => rowHeight,
     getScrollElement: () => containerRef.current,
     overscan: 8,
+    // Suppress ResizeObserver callbacks during sidebar/pane drag to prevent 120fps re-renders.
+    // On drag end, pane-resize-end event flushes the last deferred measurement.
+    observeElementRect: (instance, cb) => {
+      const element = instance.scrollElement
+      if (!element) return
+      let pending: { width: number; height: number } | null = null
+      const ro = new ResizeObserver(([entry]) => {
+        const { width, height } = entry.contentRect
+        const rect = { width: Math.round(width), height: Math.round(height) }
+        if (document.documentElement.hasAttribute('data-pane-resizing')) {
+          pending = rect
+          return
+        }
+        cb(rect)
+        pending = null
+      })
+      ro.observe(element)
+      const r = element.getBoundingClientRect()
+      cb({ width: Math.round(r.width), height: Math.round(r.height) })
+      const flush = () => {
+        if (pending) { cb(pending); pending = null }
+      }
+      window.addEventListener('pane-resize-end', flush)
+      return () => {
+        ro.disconnect()
+        window.removeEventListener('pane-resize-end', flush)
+      }
+    },
   });
 
   useEffect(() => {

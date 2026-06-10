@@ -18,8 +18,8 @@ interface ScrollMetrics {
   lastUpdate: number;
 }
 
-export function ScrollDebugOverlay() {
-  const [enabled, setEnabled] = useState(false);
+// Only mounts when enabled — keeps store subscriptions out of the hot path.
+function ScrollDebugOverlayInner() {
   const [metrics, setMetrics] = useState<ScrollMetrics>({
     scrollTop: 0,
     scrollLeft: 0,
@@ -37,26 +37,6 @@ export function ScrollDebugOverlay() {
   const editorLineHeight = useEditorSettingsStore.use.lineHeight();
 
   useEffect(() => {
-    const checkDebugMode = () => {
-      const debugEnabled = localStorage.getItem("debug-scroll") === "true";
-      setEnabled(debugEnabled);
-    };
-
-    checkDebugMode();
-
-    const handleStorage = (e: StorageEvent) => {
-      if (e.key === "debug-scroll") {
-        checkDebugMode();
-      }
-    };
-
-    window.addEventListener("storage", handleStorage);
-    return () => window.removeEventListener("storage", handleStorage);
-  }, []);
-
-  useEffect(() => {
-    if (!enabled) return;
-
     const lineHeight = getLineHeight(fontSize, editorLineHeight);
     const now = Date.now();
     const timeDelta = now - metrics.lastUpdate;
@@ -71,17 +51,7 @@ export function ScrollDebugOverlay() {
       fps,
       lastUpdate: now,
     });
-  }, [
-    enabled,
-    scrollTop,
-    scrollLeft,
-    viewportHeight,
-    fontSize,
-    editorLineHeight,
-    metrics.lastUpdate,
-  ]);
-
-  if (!enabled) return null;
+  }, [scrollTop, scrollLeft, viewportHeight, fontSize, editorLineHeight]); // eslint-disable-line react-hooks/exhaustive-deps
 
   return (
     <div
@@ -118,4 +88,21 @@ export function ScrollDebugOverlay() {
       </div>
     </div>
   );
+}
+
+export function ScrollDebugOverlay() {
+  const [enabled, setEnabled] = useState(() => localStorage.getItem("debug-scroll") === "true");
+
+  useEffect(() => {
+    const handleStorage = (e: StorageEvent) => {
+      if (e.key === "debug-scroll") {
+        setEnabled(localStorage.getItem("debug-scroll") === "true");
+      }
+    };
+    window.addEventListener("storage", handleStorage);
+    return () => window.removeEventListener("storage", handleStorage);
+  }, []);
+
+  if (!enabled) return null;
+  return <ScrollDebugOverlayInner />;
 }

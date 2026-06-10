@@ -27,6 +27,20 @@ export function SidebarCarousel({ activeWorkspaceRepoPath }: SidebarCarouselProp
   const containerRef = useRef<HTMLDivElement>(null)
   const isScrollingProgrammatically = useRef(false)
 
+  // Re-align scroll when the container is resized (sidebar panel drag via react-resizable-panels).
+  // Each carousel panel is min-w-full, so scrollLeft must stay at tabIndex * containerWidth.
+  useEffect(() => {
+    const el = containerRef.current
+    if (!el || typeof ResizeObserver === 'undefined') return
+    const ro = new ResizeObserver(() => {
+      const index = TABS.indexOf(useSidebarStore.getState().activeTab)
+      if (index === -1) return
+      el.scrollLeft = index * el.clientWidth
+    })
+    ro.observe(el)
+    return () => ro.disconnect()
+  }, [])
+
   // Scroll to the correct panel when activeTab changes (e.g. tab bar click)
   useEffect(() => {
     const el = containerRef.current
@@ -63,6 +77,7 @@ export function SidebarCarousel({ activeWorkspaceRepoPath }: SidebarCarouselProp
     <div
       ref={containerRef}
       onScroll={handleScroll}
+      data-sidebar-carousel=""
       className="flex flex-1 overflow-x-scroll overflow-y-hidden [scroll-snap-type:x_mandatory] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
     >
       {/* Workspaces panel */}

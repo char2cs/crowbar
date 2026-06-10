@@ -1,6 +1,8 @@
 import { useState, useRef, useEffect } from 'react'
 import { Outlet, useNavigate, useRouterState } from '@tanstack/react-router'
-import { SidebarProvider, Sidebar, SidebarInset } from '@/components/ui/sidebar'
+import { SidebarProvider } from '@/components/ui/sidebar'
+import { ResizableHandle, ResizablePanel, ResizablePanelGroup } from '@/components/ui/resizable'
+import type { PanelImperativeHandle, PanelSize } from 'react-resizable-panels'
 import { SidebarProjectHeader } from './sidebar-project-header'
 import { SidebarTabBar } from './sidebar-tab-bar'
 import { SidebarCarousel } from './sidebar-carousel'
@@ -16,6 +18,18 @@ import { useUIState } from '@/features/window/stores/ui-state-store'
 import { FontStyleInjector } from '@/features/settings/components/font-style-injector'
 import { Toaster } from '@/components/ui/sonner'
 
+const SIDEBAR_MIN_PX = 250
+const SIDEBAR_MAX_PX = 640
+
+function loadSidebarWidth(): number {
+  try {
+    const stored = parseInt(localStorage.getItem('sidebar-width') ?? '', 10)
+    return Number.isFinite(stored) ? Math.max(SIDEBAR_MIN_PX, stored) : 294
+  } catch {
+    return 294
+  }
+}
+
 export function IDEShell() {
   const navigate = useNavigate()
   const routerState = useRouterState()
@@ -23,151 +37,136 @@ export function IDEShell() {
   const chats = useSidebarStore((s) => s.chats)
   const repos = useSidebarStore((s) => s.repos)
   const isSettingsOpen = useUIState(s => s.isSettingsOpen)
-  const [sidebarWidth, setSidebarWidth] = useState(() => {
-    try {
-      const stored = parseInt(localStorage.getItem('sidebar-width') ?? '', 10)
-      return Number.isFinite(stored) ? Math.max(294, stored) : 294
-    } catch {
-      return 294
-    }
-  })
   const sidebarPosition = useSettingsStore((state) => state.settings.sidebarPosition)
-
-  const cleanupDragRef = useRef<(() => void) | null>(null)
-  useEffect(() => () => { cleanupDragRef.current?.() }, [])
+  const [sidebarOpen, setSidebarOpen] = useState(true)
+  const sidebarPanelRef = useRef<PanelImperativeHandle | null>(null)
 
   const activeWorkspaceId = pathname.match(/\/workspaces\/([^/]+)/)?.[1]
   const activeChatId = pathname.match(/\/chat\/([^/]+)/)?.[1]
-
   const activeRepo = repos.find(r => r.workspaces?.some(ws => ws.id === activeWorkspaceId))
-
   const activeWorkspaceRepoPath = activeRepo ? `/repos/${activeRepo.id}` : '/repos/default'
   const chatTabLabel = chats.find(c => c.id === activeChatId)?.title ?? 'Chat'
 
-  function handleResizeDragStart(e: React.MouseEvent) {
-    e.preventDefault()
-    const startX = e.clientX
-    const startWidth = sidebarWidth
-    const position = sidebarPosition
-
-    // Target only the two elements that actually change width — bypasses CSS var cascade
-    const gapEl = document.querySelector<HTMLElement>('[data-slot="sidebar-gap"]')
-    const containerEl = document.querySelector<HTMLElement>('[data-slot="sidebar-container"]')
-    // Freeze the content area so Monaco never gets resize events during drag.
-    // Without this, SidebarInset (flex-1) refluxes on every mousemove, triggering
-    // Monaco's ResizeObserver and editor.layout() — 2-10ms per editor per frame.
-    const insetEl = document.querySelector<HTMLElement>('[data-slot="sidebar-inset"]')
-    const insetWidth = insetEl?.getBoundingClientRect().width ?? 0
-
-    // Disable transitions so they don't fight the rapid updates during drag
-    if (gapEl) gapEl.style.transition = 'none'
-    if (containerEl) containerEl.style.transition = 'none'
-    if (insetEl && insetWidth) {
-      insetEl.style.flex = 'none'
-      insetEl.style.width = `${insetWidth}px`
+  // Drive panel collapse/expand from sidebarOpen state (set by SidebarProvider's toggleSidebar)
+  useEffect(() => {
+    const panel = sidebarPanelRef.current
+    if (!panel) return
+    if (sidebarOpen) {
+      panel.expand()
+    } else {
+      panel.collapse()
     }
+  }, [sidebarOpen])
 
-    let currentWidth = startWidth
-    let latestX = startX
-    let rafId: number | null = null
-
-    function onMouseMove(e: MouseEvent) {
-      latestX = e.clientX
-      if (rafId !== null) return
-      rafId = requestAnimationFrame(() => {
-        const delta = position === 'left' ? latestX - startX : startX - latestX
-        currentWidth = Math.min(640, Math.max(250, startWidth + delta))
-        if (gapEl) gapEl.style.width = `${currentWidth}px`
-        if (containerEl) containerEl.style.width = `${currentWidth}px`
-        rafId = null
-      })
-    }
-
-    function onMouseUp() {
-      cleanupDragRef.current?.()
-      // Update CSS var to match, then clear inline overrides so toggle animation still works
-      if (gapEl) { gapEl.style.transition = ''; gapEl.style.width = '' }
-      if (containerEl) { containerEl.style.transition = ''; containerEl.style.width = '' }
-      // Unfreeze content area — Monaco ResizeObserver fires once here, layout() called once
-      if (insetEl) { insetEl.style.flex = ''; insetEl.style.width = '' }
+  function handleSidebarResize(size: PanelSize) {
+    const isCollapsed = size.asPercentage === 0
+    setSidebarOpen(prev => (!isCollapsed !== prev ? !isCollapsed : prev))
+    if (size.inPixels > 0) {
       try {
-        localStorage.setItem('sidebar-width', String(currentWidth))
+        localStorage.setItem('sidebar-width', String(Math.round(size.inPixels)))
       } catch {
-        // storage unavailable — width not persisted
+        // storage unavailable
       }
-      setSidebarWidth(currentWidth)
-    }
-
-    document.addEventListener('mousemove', onMouseMove)
-    document.addEventListener('mouseup', onMouseUp)
-    cleanupDragRef.current = () => {
-      document.removeEventListener('mousemove', onMouseMove)
-      document.removeEventListener('mouseup', onMouseUp)
-      if (rafId !== null) cancelAnimationFrame(rafId)
-      cleanupDragRef.current = null
     }
   }
 
-  const sidebarEl = (
-    <Sidebar side={sidebarPosition} collapsible="offcanvas" className="[&>[data-slot=sidebar-inner]]:bg-transparent !border-0">
-      <div className="relative flex h-full flex-col overflow-hidden select-none">
-        <div
-          data-testid="sidebar-resize-handle"
-          className={cn(
-            'absolute inset-y-0 z-50 w-1 cursor-col-resize opacity-0 transition-opacity hover:opacity-100 hover:bg-border',
-            sidebarPosition === 'right' ? 'left-0' : 'right-0',
-          )}
-          onMouseDown={handleResizeDragStart}
-        />
-        <SidebarProjectHeader
-          onProjectsClick={() => void navigate({ to: '/projects' })}
-          onProjectSelect={() => void navigate({ to: '/' })}
-        />
-        <SidebarTabBar />
-        <ErrorBoundary>
-          <SidebarCarousel activeWorkspaceRepoPath={activeWorkspaceRepoPath} />
-        </ErrorBoundary>
-      </div>
-    </Sidebar>
+  const sidebarContent = (
+    <div className="flex h-full flex-col overflow-hidden bg-transparent select-none">
+      <SidebarProjectHeader
+        onProjectsClick={() => void navigate({ to: '/projects' })}
+        onProjectSelect={() => void navigate({ to: '/' })}
+      />
+      <SidebarTabBar />
+      <ErrorBoundary>
+        <SidebarCarousel activeWorkspaceRepoPath={activeWorkspaceRepoPath} />
+      </ErrorBoundary>
+    </div>
   )
 
   const contentEl = (
-    <SidebarInset className="min-w-0 overflow-hidden bg-transparent">
-      <div className="flex h-full flex-col overflow-hidden">
-        <ErrorBoundary>
-          {activeWorkspaceId ? (
-            <WorkspaceView wsId={activeWorkspaceId} />
-          ) : activeChatId ? (
-            <div className="flex h-full flex-col overflow-hidden">
-              <div
-                className={cn(
-                  'flex flex-shrink-0 items-center border-b border-border px-3 font-medium',
-                  IS_MAC ? 'h-[44px] text-[13px]' : 'h-[34px] text-xs',
-                )}
-                data-tauri-drag-region
-              >
-                {chatTabLabel}
-              </div>
-              <div className="flex min-h-0 flex-1 overflow-hidden bg-background">
-                <Outlet />
-              </div>
+    <div className="flex h-full min-w-0 flex-col overflow-hidden bg-transparent">
+      <ErrorBoundary>
+        {activeWorkspaceId ? (
+          <WorkspaceView wsId={activeWorkspaceId} />
+        ) : activeChatId ? (
+          <div className="flex h-full flex-col overflow-hidden">
+            <div
+              className={cn(
+                'flex flex-shrink-0 items-center border-b border-border px-3 font-medium',
+                IS_MAC ? 'h-[44px] text-[13px]' : 'h-[34px] text-xs',
+              )}
+              data-tauri-drag-region
+            >
+              {chatTabLabel}
             </div>
-          ) : (
-            <div className="flex h-full flex-col overflow-hidden bg-background">
+            <div className="flex min-h-0 flex-1 overflow-hidden bg-background">
               <Outlet />
             </div>
-          )}
-        </ErrorBoundary>
-      </div>
-    </SidebarInset>
+          </div>
+        ) : (
+          <div className="flex h-full flex-col overflow-hidden bg-background">
+            <Outlet />
+          </div>
+        )}
+      </ErrorBoundary>
+    </div>
   )
 
   return (
     <SidebarProvider
       className="h-screen overflow-hidden bg-transparent text-foreground"
-      style={{ '--sidebar-width': `${sidebarWidth}px` } as React.CSSProperties}
+      open={sidebarOpen}
+      onOpenChange={setSidebarOpen}
     >
-      {sidebarPosition === 'right' ? <>{contentEl}{sidebarEl}</> : <>{sidebarEl}{contentEl}</>}
+      <ResizablePanelGroup
+        orientation="horizontal"
+        className="h-full w-full"
+        onLayoutChange={() => {
+          document.documentElement.setAttribute('data-pane-resizing', '1')
+        }}
+        onLayoutChanged={() => {
+          document.documentElement.removeAttribute('data-pane-resizing')
+          window.dispatchEvent(new CustomEvent('pane-resize-end'))
+        }}
+      >
+        {sidebarPosition === 'right' ? (
+          <>
+            <ResizablePanel minSize="20%" className="min-w-0">
+              {contentEl}
+            </ResizablePanel>
+            <ResizableHandle data-testid="sidebar-resize-handle" />
+            <ResizablePanel
+              ref={sidebarPanelRef}
+              collapsible
+              defaultSize={loadSidebarWidth()}
+              minSize={SIDEBAR_MIN_PX}
+              maxSize={SIDEBAR_MAX_PX}
+              collapsedSize={0}
+              onResize={handleSidebarResize}
+            >
+              {sidebarContent}
+            </ResizablePanel>
+          </>
+        ) : (
+          <>
+            <ResizablePanel
+              ref={sidebarPanelRef}
+              collapsible
+              defaultSize={loadSidebarWidth()}
+              minSize={SIDEBAR_MIN_PX}
+              maxSize={SIDEBAR_MAX_PX}
+              collapsedSize={0}
+              onResize={handleSidebarResize}
+            >
+              {sidebarContent}
+            </ResizablePanel>
+            <ResizableHandle data-testid="sidebar-resize-handle" />
+            <ResizablePanel minSize="20%" className="min-w-0">
+              {contentEl}
+            </ResizablePanel>
+          </>
+        )}
+      </ResizablePanelGroup>
       <SettingsDialog
         isOpen={isSettingsOpen}
         onClose={() => useUIState.getState().setIsSettingsDialogVisible(false)}

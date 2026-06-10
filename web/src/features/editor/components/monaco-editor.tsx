@@ -675,10 +675,16 @@ export function MonacoBackedEditor({
       setTimeout(() => editor.focus(), 0);
     }
 
-    // rAF-debounced ResizeObserver — fires editor.layout() only once per resize burst,
-    // so continuous drag does not call layout() every frame (same pattern as terminal.tsx).
+    // rAF-debounced ResizeObserver — fires editor.layout() only once per resize burst.
+    // During a pane or sidebar drag (data-pane-resizing attribute), layout is suppressed;
+    // a single layout runs when pane-resize-end fires. Eliminates per-frame editor.layout() cost.
     let layoutRafId: number | null = null;
+    let needsLayoutAfterResize = false;
     const resizeObserver = new ResizeObserver(() => {
+      if (document.documentElement.hasAttribute('data-pane-resizing')) {
+        needsLayoutAfterResize = true;
+        return;
+      }
       if (layoutRafId !== null) cancelAnimationFrame(layoutRafId);
       layoutRafId = requestAnimationFrame(() => {
         layoutRafId = null;
@@ -687,9 +693,21 @@ export function MonacoBackedEditor({
     });
     resizeObserver.observe(container);
 
+    const handlePaneResizeEnd = () => {
+      if (!needsLayoutAfterResize) return;
+      needsLayoutAfterResize = false;
+      if (layoutRafId !== null) cancelAnimationFrame(layoutRafId);
+      layoutRafId = requestAnimationFrame(() => {
+        layoutRafId = null;
+        editor.layout();
+      });
+    };
+    window.addEventListener('pane-resize-end', handlePaneResizeEnd);
+
     return () => {
       resizeObserver.disconnect();
       if (layoutRafId !== null) cancelAnimationFrame(layoutRafId);
+      window.removeEventListener('pane-resize-end', handlePaneResizeEnd);
       onCoordinateResolverChange?.(null);
       onModelPositionResolverChange?.(null);
       unsubscribeCursor();

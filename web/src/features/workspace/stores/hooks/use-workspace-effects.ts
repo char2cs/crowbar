@@ -65,15 +65,22 @@ export function useWorkspaceEffects(wsId: string) {
     // Reset the shared tree synchronously on switch so the user never sees the
     // previous workspace's files while the new tree loads.
     if (useFileSystemStore.getState().rootFolderPath !== wsId) {
-      useFileSystemStore.setState({ rootFolderPath: wsId, files: [], fileTree: [] })
+      useFileSystemStore.setState({ rootFolderPath: wsId, files: [], fileTree: [], isFileTreeLoading: true })
+    } else {
+      useFileSystemStore.setState({ isFileTreeLoading: true })
     }
     void (async () => {
       const root = await fetchFileTree(wsId).catch(() => null)
-      if (cancelled || !Array.isArray(root)) return
+      if (cancelled) return
+      if (!Array.isArray(root)) {
+        useFileSystemStore.setState({ isFileTreeLoading: false })
+        return
+      }
       useFileSystemStore.setState({
         rootFolderPath: wsId,
         files: root,
         fileTree: root,
+        isFileTreeLoading: false,
         handleFileOpen: async (path: string, revealOrIsDir?: boolean) => {
           if (revealOrIsDir === true) return
           await openFileContent(wsId, path, bufferActions, { preview: false })
