@@ -14,6 +14,7 @@ export interface WorkspaceDTO {
   id: string
   repoId: string
   projectId: string
+  parentId?: string
   branch: string
   status: WorkspaceStatus
   locked: boolean
@@ -38,6 +39,7 @@ function toSidebarWorkspace(
   return {
     id: ws.id,
     branch: ws.branch,
+    ...(ws.parentId !== undefined && { parentId: ws.parentId }),
     status: toSidebarStatus(ws),
     added: ws.added,
     deleted: ws.deleted,

@@ -1,4 +1,5 @@
 import { wsUrl } from './url'
+import { reportChannelState, reportChannelGone } from './connection-store'
 
 type Callback = (data: unknown) => void
 
@@ -17,12 +18,19 @@ export interface WSManager {
 export function createWSManager(): WSManager {
   const channels = new Map<string, Channel>()
 
-  function open(endpoint: string): Channel {
+  function open(endpoint: string, reconnectDelay = 1000): Channel {
     const ch: Channel = {
       socket: new WebSocket(wsUrl(endpoint)),
       callbacks: new Set(),
-      reconnectDelay: 1000,
+      reconnectDelay,
       endpoint,
+    }
+
+    // A successful connection resets the backoff so the next outage starts
+    // from the base delay again.
+    ch.socket.onopen = () => {
+      ch.reconnectDelay = 1000
+      if (channels.get(endpoint) === ch) reportChannelState(endpoint, true)
     }
 
     ch.socket.onmessage = (e) => {
@@ -32,14 +40,29 @@ export function createWSManager(): WSManager {
     }
 
     ch.socket.onclose = () => {
+      // Only the live channel for this endpoint reports state — a stale socket
+      // closing after a reconnect must not flag the endpoint as down.
+      if (channels.get(endpoint) === ch) reportChannelState(endpoint, false)
       if (ch.callbacks.size === 0) return
       setTimeout(() => {
-        const fresh = open(endpoint)
+        // All subscribers may have left while we waited — do not resurrect a
+        // socket nobody listens to.
+        if (ch.callbacks.size === 0) {
+          if (channels.get(endpoint) === ch) {
+            channels.delete(endpoint)
+            reportChannelGone(endpoint)
+          }
+          return
+        }
+        // Carry the (doubled) backoff into the new channel so repeated
+        // failures actually back off instead of restarting at the base delay.
+        const fresh = open(endpoint, Math.min(ch.reconnectDelay * 2, 30_000))
         fresh.callbacks = ch.callbacks
         channels.set(endpoint, fresh)
+        // Tell subscribers the stream was interrupted so they can refetch
+        // whatever pushes they may have missed during the outage.
         ch.callbacks.forEach(cb => cb({ reconnected: true }))
       }, ch.reconnectDelay)
-      ch.reconnectDelay = Math.min(ch.reconnectDelay * 2, 30_000)
     }
 
     channels.set(endpoint, ch)
@@ -53,8 +76,16 @@ export function createWSManager(): WSManager {
       return () => {
         ch.callbacks.delete(cb)
         if (ch.callbacks.size === 0) {
-          ch.socket.close()
-          channels.delete(endpoint)
+          // The channel may have been replaced by a reconnect since this
+          // subscription was created; close the live socket, not the stale one.
+          const current = channels.get(endpoint)
+          if (current && current.callbacks === ch.callbacks) {
+            current.socket.close()
+            channels.delete(endpoint)
+            reportChannelGone(endpoint)
+          } else {
+            ch.socket.close()
+          }
         }
       }
     },

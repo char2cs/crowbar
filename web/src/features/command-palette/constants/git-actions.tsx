@@ -11,6 +11,7 @@ import {
   ArrowClockwise as RefreshCw,
 } from "@phosphor-icons/react";
 import type { GitRemoteActionResult } from "@/features/git/api/git-remotes-api";
+import { useGitStore } from "@/features/git/stores/git-store";
 import { primitiveConfirm, primitivePrompt } from "@/components/ui/primitive-dialog-service";
 import type { Action } from "../models/action.types";
 
@@ -200,6 +201,9 @@ export const createGitActions = (params: GitActionsParams): Action[] => {
           const success = await gitOperations.commitChanges(repoPath, message);
           if (success) {
             showToast({ message: "Changes committed successfully", type: "success" });
+            // A commit changes history, so reload commits/branches/status —
+            // nothing listens to the legacy "refresh-git-data" event.
+            void useGitStore.getState().actions.reload(repoPath);
             window.dispatchEvent(new Event("refresh-git-data"));
           } else {
             showToast({ message: "Failed to commit changes", type: "error" });

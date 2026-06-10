@@ -40,12 +40,17 @@ export function fetchWorkspace(wsId: string): Promise<WorkspacePayload> {
 }
 
 // The backend's WriteMutationOK returns only `{ id }`, not the full entity.
-export function postWorkspace(repoId: string, branch: string): Promise<{ id: string }> {
+// parentId omitted/empty = fork from the repo's default branch.
+export function postWorkspace(repoId: string, branch: string, parentId?: string): Promise<{ id: string }> {
   return apiFetch('/v0/workspaces', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ repoId, branch }),
+    body: JSON.stringify({ repoId, branch, ...(parentId ? { parentId } : {}) }),
   })
+}
+
+export function deleteWorkspace(wsId: string): Promise<void> {
+  return apiFetch(`/v0/workspaces/${wsId}`, { method: 'DELETE' })
 }
 
 

@@ -44,6 +44,12 @@ export interface EditorContent extends PaneContentBase {
   content: string;
   savedContent: string;
   isDirty: boolean;
+  /**
+   * The file changed on disk (externally) while the buffer had unsaved edits.
+   * The user's edits are kept; saving will overwrite the on-disk version.
+   * Cleared on the next successful save or external reload.
+   */
+  hasExternalChange?: boolean;
   isVirtual: boolean;
   language?: string;
   languageOverride?: string;

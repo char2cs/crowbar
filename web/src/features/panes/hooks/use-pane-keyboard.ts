@@ -26,6 +26,13 @@ export function usePaneKeyboard() {
         return;
       }
 
+      // Cmd+Shift+T or Ctrl+Shift+T - Reopen last closed tab
+      if (e.shiftKey && (e.key === "t" || e.key === "T")) {
+        e.preventDefault();
+        workspaceStore.getState().bufferActions.reopenLastClosedBuffer();
+        return;
+      }
+
       // Cmd+Option+Arrow or Ctrl+Alt+Arrow - Navigate between panes
       if (e.altKey && ["ArrowLeft", "ArrowRight", "ArrowUp", "ArrowDown"].includes(e.key)) {
         e.preventDefault();

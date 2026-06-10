@@ -11,7 +11,7 @@ vi.mock('@/lib/api', async (importOriginal) => {
       Promise.resolve({ id: 'mock-id' }),
     ),
     fetchProject: vi.fn((id: string) =>
-      Promise.resolve({ id, name: 'test-proj', path: 'test-proj', lastActivity: new Date() }),
+      Promise.resolve({ id, name: 'test-proj', path: '/tmp/test-proj', lastActivity: new Date() }),
     ),
   }
 })
@@ -19,35 +19,38 @@ vi.mock('@/lib/api', async (importOriginal) => {
 import * as api from '@/lib/api'
 import { ImportProjectModal } from '@/components/projects/ImportProjectModal'
 
-test('Import button is disabled when no folder is selected', () => {
+const pathInput = () => screen.getByPlaceholderText('/absolute/path/to/project')
+
+test('Import button is disabled when the path is empty', () => {
   render(<ImportProjectModal open={true} onOpenChange={() => {}} onImport={() => {}} />)
   expect(screen.getByRole('button', { name: /import/i })).toBeDisabled()
 })
 
-test('shows selected folder name after pick', () => {
+test('Import stays disabled for a relative path and shows a hint', () => {
   render(<ImportProjectModal open={true} onOpenChange={() => {}} onImport={() => {}} />)
-  // Simulate file selection via the hidden input
-  const fileInput = document.querySelector('input[type="file"]') as HTMLInputElement
-  const file = new File([''], 'my-project', { type: '' })
-  Object.defineProperty(file, 'webkitRelativePath', { value: 'my-project/', configurable: true })
-  Object.defineProperty(fileInput, 'files', { value: [file], configurable: true })
-  fireEvent.change(fileInput)
-  // Get the readonly input (Project folder) which shows the selected path
-  const readOnlyInputs = screen.getAllByDisplayValue('my-project')
-  expect(readOnlyInputs.some(input => (input as HTMLInputElement).readOnly)).toBe(true)
+  fireEvent.change(pathInput(), { target: { value: 'my-project' } })
+  expect(screen.getByRole('button', { name: /import/i })).toBeDisabled()
+  expect(screen.getByText(/absolute path/i)).toBeInTheDocument()
 })
 
-test('calls onImport with name and path on submit', async () => {
+test('posts the absolute path with the folder name as fallback project name', async () => {
   const onImport = vi.fn()
   render(<ImportProjectModal open={true} onOpenChange={() => {}} onImport={onImport} />)
-  const fileInput = document.querySelector('input[type="file"]') as HTMLInputElement
-  const file = new File([''], 'test-proj', { type: '' })
-  Object.defineProperty(file, 'webkitRelativePath', { value: 'test-proj/', configurable: true })
-  Object.defineProperty(fileInput, 'files', { value: [file], configurable: true })
-  fireEvent.change(fileInput)
+  fireEvent.change(pathInput(), { target: { value: '/tmp/test-proj' } })
   fireEvent.click(screen.getByRole('button', { name: /import/i }))
   await waitFor(() => {
+    expect(api.postProject).toHaveBeenCalledWith('test-proj', '/tmp/test-proj')
     expect(onImport).toHaveBeenCalledWith(expect.objectContaining({ name: 'test-proj' }))
+  })
+})
+
+test('uses the typed project name over the path fallback', async () => {
+  render(<ImportProjectModal open={true} onOpenChange={() => {}} onImport={() => {}} />)
+  fireEvent.change(pathInput(), { target: { value: '/tmp/test-proj' } })
+  fireEvent.change(screen.getByPlaceholderText('My project'), { target: { value: 'Nice Name' } })
+  fireEvent.click(screen.getByRole('button', { name: /import/i }))
+  await waitFor(() => {
+    expect(api.postProject).toHaveBeenCalledWith('Nice Name', '/tmp/test-proj')
   })
 })
 
@@ -55,13 +58,7 @@ test('resets loading and re-enables Import button when postProject rejects', asy
   vi.mocked(api.postProject).mockRejectedValueOnce(new Error('disk full'))
 
   render(<ImportProjectModal open={true} onOpenChange={() => {}} onImport={() => {}} />)
-
-  const fileInput = document.querySelector('input[type="file"]') as HTMLInputElement
-  const file = new File([''], 'my-project', { type: '' })
-  Object.defineProperty(file, 'webkitRelativePath', { value: 'my-project/', configurable: true })
-  Object.defineProperty(fileInput, 'files', { value: [file], configurable: true })
-  fireEvent.change(fileInput)
-
+  fireEvent.change(pathInput(), { target: { value: '/tmp/my-project' } })
   fireEvent.click(screen.getByRole('button', { name: /import/i }))
 
   await waitFor(() => {

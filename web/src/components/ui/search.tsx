@@ -29,6 +29,8 @@ interface SearchPopoverProps {
   onKeyDown?: (event: React.KeyboardEvent<HTMLInputElement>) => void;
   onClose: () => void;
   placeholder: string;
+  /** Stable `name` for the search input (a11y: form fields need an id or name). */
+  inputName?: string;
   inputRef?: RefObject<HTMLInputElement | null>;
   matchLabel?: string | null;
   matchTone?: "default" | "warning";
@@ -97,6 +99,7 @@ export function SearchPopover({
   onKeyDown,
   onClose,
   placeholder,
+  inputName,
   inputRef,
   matchLabel,
   matchTone = "default",
@@ -119,6 +122,7 @@ export function SearchPopover({
           <Input
             ref={inputRef}
             type="text"
+            name={inputName}
             value={value}
             onChange={(event) => onChange(event.target.value)}
             onKeyDown={onKeyDown}

@@ -6,6 +6,8 @@ import { hydrateWorkspace } from '@/lib/persistence/hydrate'
 import { WorkspaceLayoutRoot } from './WorkspaceLayoutRoot'
 import { useWorkspaceEffects } from '../stores/hooks/use-workspace-effects'
 import { BrowserPaneEventListener } from '@/features/web-viewer/components/browser-pane-event-listener'
+import { useSaveKeyboard } from '@/features/keymaps/hooks/use-save-keyboard'
+import { usePaneKeyboard } from '@/features/panes/hooks/use-pane-keyboard'
 
 interface WorkspaceViewProps {
   wsId: string
@@ -43,6 +45,8 @@ export function WorkspaceView({ wsId }: WorkspaceViewProps) {
 
 function WorkspaceViewInner({ wsId }: Pick<WorkspaceViewProps, 'wsId'>) {
   useWorkspaceEffects(wsId)
+  useSaveKeyboard()
+  usePaneKeyboard()
   return (
     <>
       <BrowserPaneEventListener />

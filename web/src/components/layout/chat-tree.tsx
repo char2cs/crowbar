@@ -1,15 +1,17 @@
 import { useEffect, useMemo } from 'react'
 import { useRouterState } from '@tanstack/react-router'
-import { getActiveWorkspaceStore } from '@/features/workspace/stores/workspace-store-registry'
+import { getActiveWorkspaceStore, getOrCreateWorkspaceStore } from '@/features/workspace/stores/workspace-store-registry'
 import { Plus } from '@phosphor-icons/react'
 import { ScrollArea } from '@/components/ui/scroll-area'
 import { cn } from '@/lib/utils'
 import { ROW_BASE } from './workspace-row-base'
 import { ChatTreeItem, type ChatTreeNode } from './chat-tree-item'
-import { ChatTreeProvider, useChatTreeContext } from './chat-tree-context'
+import { ChatTreeProvider, useChatTreeContext, performCreateChat } from './chat-tree-context'
 import { useSidebarStore, type ProjectChat } from '@/lib/store/sidebar'
 import { useChatListStore } from '@/lib/store/chat-list-store'
+import { chatDtoToProjectChat } from '@/lib/api/chat'
 import { dataOf } from '@/lib/loadable'
+import { toast } from '@/components/ui/toast'
 
 function buildChatTree(chats: ProjectChat[]): ChatTreeNode[] {
   const nodeMap = new Map<string, ChatTreeNode>()
@@ -47,12 +49,13 @@ function ChatTreeInner({ wsId }: ChatTreeProps) {
   const pathname = useRouterState({ select: s => s.location.pathname })
   const activeChatId = pathname.match(/\/chat\/([^/]+)/)?.[1] ?? ''
   const allChats = useSidebarStore(s => s.chats)
-  const addChat = useSidebarStore(s => s.addChat)
   const chats = useMemo(() => allChats.filter(c => c.wsId === wsId), [allChats, wsId])
   const { draggingChat, dragPos, hoverTrash } = useChatTreeContext()
 
-  // Fetch via LoadableSlice (IDB-cached, stale-while-revalidate)
+  // Fetch via LoadableSlice (IDB-cached, stale-while-revalidate).
+  // No fetch without a workspace — an empty wsId would hit /v0/workspaces//chats.
   useEffect(() => {
+    if (!wsId) return
     void useChatListStore.getState().fetch(wsId)
   }, [wsId])
 
@@ -64,7 +67,7 @@ function ChatTreeInner({ wsId }: ChatTreeProps) {
       const existing = new Set(useSidebarStore.getState().chats.map(c => c.id))
       const fresh = fetched.filter(c => !existing.has(c.id))
       if (fresh.length > 0) {
-        fresh.forEach(c => useSidebarStore.getState().addChat(c))
+        fresh.forEach(c => useSidebarStore.getState().addChat(chatDtoToProjectChat(c)))
       }
     })
   }, [])
@@ -73,8 +76,15 @@ function ChatTreeInner({ wsId }: ChatTreeProps) {
 
   function handleChatClick(chatId: string) {
     const chat = useSidebarStore.getState().chats.find(c => c.id === chatId)
-    const store = getActiveWorkspaceStore()
-    if (!store || !chat) return
+    if (!chat) return
+    // Fall back to the registry store for the workspace in the URL — the
+    // active-id pointer is set in a WorkspaceView effect and can lag the
+    // first paint of the sidebar.
+    const store = getActiveWorkspaceStore() ?? (wsId ? getOrCreateWorkspaceStore(wsId) : null)
+    if (!store) {
+      toast.error('Open a workspace to view this chat')
+      return
+    }
     store.getState().bufferActions.openContent({
       type: 'crowbarChat',
       wsId: chatId,
@@ -83,14 +93,11 @@ function ChatTreeInner({ wsId }: ChatTreeProps) {
   }
 
   function handleNew() {
-    addChat({
-      id: crypto.randomUUID(),
-      wsId,
-      title: 'New chat',
-      age: 'just now',
-      status: 'idle',
-      type: 'chat',
-    })
+    if (!wsId) {
+      toast.error('Open a workspace to create a chat')
+      return
+    }
+    void performCreateChat(wsId, 'New chat')
   }
 
   return (
@@ -158,7 +165,7 @@ function ChatTreeInner({ wsId }: ChatTreeProps) {
 
 export function ChatTree({ wsId }: ChatTreeProps) {
   return (
-    <ChatTreeProvider wsId={wsId}>
+    <ChatTreeProvider>
       <ChatTreeInner wsId={wsId} />
     </ChatTreeProvider>
   )

@@ -132,6 +132,8 @@ const SettingsDialog = ({ isOpen, onClose }: SettingsDialogProps) => {
         headerActions={
           <Input
             type="text"
+            id="settings-search"
+            name="settings-search"
             placeholder="Search settings..."
             value={searchQuery}
             onChange={(e) => setSearchQuery(e.target.value)}

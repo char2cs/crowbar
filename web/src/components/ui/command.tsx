@@ -131,7 +131,6 @@ export function Command({
 export function CommandInput({
   className,
   placeholder = undefined,
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
   onChange,
   ...props
 }: Omit<React.ComponentProps<typeof AutocompleteInput>, "onChange"> & {

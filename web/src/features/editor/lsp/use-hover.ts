@@ -119,7 +119,7 @@ export const useHover = ({
                   scrollTop;
                 const spaceAbove = lineTop - margin;
                 const spaceBelow = window.innerHeight - (lineTop + lineHeight) - margin;
-                let opensUpward = spaceAbove >= Math.min(maxTooltipHeight, spaceBelow);
+                const opensUpward = spaceAbove >= Math.min(maxTooltipHeight, spaceBelow);
 
                 let tooltipY: number;
                 if (opensUpward) {

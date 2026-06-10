@@ -1,8 +1,9 @@
-import { render, screen } from '@testing-library/react'
+import { render, screen, waitFor } from '@testing-library/react'
 import { describe, it, expect, beforeEach, vi } from 'vitest'
 import { ChatTree } from '@/components/layout/chat-tree'
 import { useSidebarStore } from '@/lib/store/sidebar'
 import type { ProjectChat } from '@/lib/store/sidebar'
+import { apiFetch } from '@/lib/api'
 
 vi.mock('@/lib/api', () => ({
   apiFetch: vi.fn().mockResolvedValue([]),
@@ -26,6 +27,7 @@ vi.mock('@/components/layout/chat-tree-context', () => ({
   useChatTreeContext: () => ({
     draggingChat: null, dragPos: null, hoverTrash: false,
   }),
+  performCreateChat: vi.fn(),
 }))
 
 const CHATS: ProjectChat[] = [
@@ -61,5 +63,20 @@ describe('ChatTree', () => {
   it('renders a New chat button', () => {
     render(<ChatTree wsId="ws1" />)
     expect(screen.getByRole('button', { name: /new chat/i })).toBeInTheDocument()
+  })
+
+  it('fetches the chat list for the workspace', async () => {
+    vi.mocked(apiFetch).mockClear()
+    render(<ChatTree wsId="ws1" />)
+    await waitFor(() => {
+      expect(apiFetch).toHaveBeenCalledWith('/v0/workspaces/ws1/chats')
+    })
+  })
+
+  it('does not fetch when wsId is empty (no /v0/workspaces//chats)', async () => {
+    vi.mocked(apiFetch).mockClear()
+    render(<ChatTree wsId="" />)
+    await new Promise(resolve => setTimeout(resolve, 50))
+    expect(apiFetch).not.toHaveBeenCalled()
   })
 })

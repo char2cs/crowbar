@@ -1,12 +1,11 @@
-// web/src/routes/chat/$chatId.tsx
 import { createFileRoute } from '@tanstack/react-router'
-import { MarkdownChatView } from '@/features/markdown-chat/components/markdown-chat-view'
+import { ChatPage } from '@/features/markdown-chat/components/chat-page'
 
 export const Route = createFileRoute('/chat/$chatId')({
-  component: ChatPage,
+  component: ChatRouteComponent,
 })
 
-export function ChatPage() {
+function ChatRouteComponent() {
   const { chatId } = Route.useParams()
-  return <MarkdownChatView workspaceId={chatId} stepId="chat" />
+  return <ChatPage chatId={chatId} />
 }

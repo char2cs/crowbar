@@ -274,11 +274,29 @@ export const createBufferSlice: StateCreator<
       const entry = get().closedBuffersHistory[0]
       if (!entry) return
       set(state => { state.closedBuffersHistory.shift() })
-      get().bufferActions.openContent({
+      const id = get().bufferActions.openContent({
         type: 'editor',
         path: entry.path,
         name: entry.name,
         content: '',
+      })
+      // The history entry carries no content; load it from disk and fill the
+      // buffer in place. Dynamic import avoids a slice → platform-controller
+      // cycle. Skip the fill if the user already typed into the empty buffer.
+      void import('@/features/file-system/controllers/platform').then(async ({ readFile }) => {
+        try {
+          const content = await readFile(entry.path)
+          set(state => {
+            const buf = state.buffers.find(b => b.id === id)
+            if (buf && buf.type === 'editor' && buf.content === '') {
+              buf.content = content
+              buf.savedContent = content
+              buf.isDirty = false
+            }
+          })
+        } catch {
+          // File no longer exists — leave the empty buffer; saving will recreate it.
+        }
       })
     },
 

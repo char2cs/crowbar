@@ -54,4 +54,104 @@ describe('useWorkspaceEffects', () => {
     renderHook(() => useWorkspaceEffects('ws-test'))
     expect(subscribe).toHaveBeenCalledWith('/v0/ws/files?wsId=ws-test', expect.any(Function))
   })
+
+  it('subscribes to the git WS topic for the workspace', () => {
+    renderHook(() => useWorkspaceEffects('ws-test'))
+    expect(subscribe).toHaveBeenCalledWith('/v0/ws/git?wsId=ws-test', expect.any(Function))
+  })
+
+  // Regression: an editor save dispatches "git-status-updated" but the git
+  // store only refreshed on the backend watcher's WS event, so the Changes
+  // panel went stale when that event was missed. The effect must also reload
+  // status (debounced) on the local event.
+  it('reloads git status when an editor save dispatches git-status-updated', async () => {
+    vi.useFakeTimers()
+    try {
+      const { useGitStore } = await import('@/features/git/stores/git-store')
+      const reloadStatus = vi.fn(() => Promise.resolve())
+      const original = useGitStore.getState().actions
+      useGitStore.setState({ actions: { ...original, reloadStatus } })
+
+      renderHook(() => useWorkspaceEffects('ws-test'))
+      window.dispatchEvent(new CustomEvent('git-status-updated', { detail: { filePath: 'a.ts' } }))
+      await vi.advanceTimersByTimeAsync(500)
+
+      expect(reloadStatus).toHaveBeenCalledWith('ws-test')
+      useGitStore.setState({ actions: original })
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  // Regression: the backend streams identical git frames more often than the
+  // debounce window (~165ms apart, indefinitely). A resetting debounce starved
+  // forever — neither the WS push nor the editor-save event ever produced a
+  // refetch. The timer must coalesce (fire from the first trigger) and
+  // identical consecutive frames must not retrigger it.
+  it('reloads status despite a continuous stream of git frames', async () => {
+    vi.useFakeTimers()
+    try {
+      const { useGitStore } = await import('@/features/git/stores/git-store')
+      const reloadStatus = vi.fn(() => Promise.resolve())
+      const original = useGitStore.getState().actions
+      useGitStore.setState({ actions: { ...original, reloadStatus } })
+
+      renderHook(() => useWorkspaceEffects('ws-test'))
+      const calls = subscribe.mock.calls as unknown as [string, (frame: unknown) => void][]
+      const gitCall = calls.find(([ep]) => ep.startsWith('/v0/ws/git'))
+      expect(gitCall).toBeDefined()
+      const onGitFrame = gitCall![1]
+
+      // Stream identical frames every 150ms for 1.5s — faster than the 400ms window.
+      for (let i = 0; i < 10; i++) {
+        onGitFrame({ branch: 'main', files: [] })
+        await vi.advanceTimersByTimeAsync(150)
+      }
+      // The first frame's coalesced timer must have fired exactly once;
+      // identical repeats neither reset nor re-arm it.
+      expect(reloadStatus).toHaveBeenCalledTimes(1)
+      expect(reloadStatus).toHaveBeenCalledWith('ws-test')
+
+      // A frame whose payload differs re-arms the reload.
+      onGitFrame({ branch: 'main', files: [{ path: 'a.ts' }] })
+      await vi.advanceTimersByTimeAsync(500)
+      expect(reloadStatus).toHaveBeenCalledTimes(2)
+
+      useGitStore.setState({ actions: original })
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it('editor-save event reloads status even while identical WS frames stream', async () => {
+    vi.useFakeTimers()
+    try {
+      const { useGitStore } = await import('@/features/git/stores/git-store')
+      const reloadStatus = vi.fn(() => Promise.resolve())
+      const original = useGitStore.getState().actions
+      useGitStore.setState({ actions: { ...original, reloadStatus } })
+
+      renderHook(() => useWorkspaceEffects('ws-test'))
+      const calls = subscribe.mock.calls as unknown as [string, (frame: unknown) => void][]
+      const gitCall = calls.find(([ep]) => ep.startsWith('/v0/ws/git'))
+      const onGitFrame = gitCall![1]
+
+      // Settle the initial frame's reload first.
+      onGitFrame({ branch: 'main', files: [] })
+      await vi.advanceTimersByTimeAsync(500)
+      reloadStatus.mockClear()
+
+      // Save dispatches the event while the identical-frame spam continues.
+      window.dispatchEvent(new CustomEvent('git-status-updated', { detail: { filePath: 'a.ts' } }))
+      for (let i = 0; i < 4; i++) {
+        onGitFrame({ branch: 'main', files: [] })
+        await vi.advanceTimersByTimeAsync(150)
+      }
+      expect(reloadStatus).toHaveBeenCalledWith('ws-test')
+
+      useGitStore.setState({ actions: original })
+    } finally {
+      vi.useRealTimers()
+    }
+  })
 })

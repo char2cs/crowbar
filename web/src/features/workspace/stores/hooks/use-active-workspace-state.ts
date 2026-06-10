@@ -53,7 +53,7 @@ export function useActiveWorkspaceState<T>(
       unsub()
       storeUnsub?.()
     }
-  }, []) // eslint-disable-line react-hooks/exhaustive-deps
+  }, [])
 
   return value
 }

@@ -89,6 +89,7 @@ export const TerminalSearch: React.FC<TerminalSearchProps> = ({
         onKeyDown={handleKeyDown}
         onClose={onClose}
         placeholder="Find in terminal..."
+        inputName="terminal-search"
         inputRef={inputRef}
         matchLabel={
           searchTerm ? (totalMatches > 0 ? `${currentMatch}/${totalMatches}` : "0/0") : null

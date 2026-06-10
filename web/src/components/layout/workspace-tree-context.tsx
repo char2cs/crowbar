@@ -1,6 +1,44 @@
 import { createContext, useCallback, useContext, useEffect, useRef, useState, type ReactNode } from 'react'
 import { useSidebarStore } from '@/lib/store/sidebar'
 import { reparentWorkspace } from '@/lib/api/workspace'
+import { postWorkspace, deleteWorkspace as apiDeleteWorkspace } from '@/lib/api'
+import { toast } from '@/components/ui/toast'
+
+/**
+ * Creates the workspace on the backend, then mirrors it into the sidebar
+ * store using the real id the backend returned. On failure no phantom node
+ * is added — the error is surfaced via toast.
+ */
+export async function performCreateWorkspace(
+  repoId: string, branch: string, parentId?: string,
+): Promise<void> {
+  try {
+    const { id } = await postWorkspace(repoId, branch, parentId)
+    useSidebarStore.getState().addWorkspace(repoId, id, branch, parentId)
+  } catch (err) {
+    console.error('Failed to create workspace:', err)
+    toast.error('Failed to create workspace', err instanceof Error ? err.message : undefined)
+  }
+}
+
+/**
+ * Deletes the workspace on the backend, then removes it from the sidebar
+ * store. Locked workspaces are never deleted. On failure the local store is
+ * left untouched and the error is surfaced via toast.
+ */
+export async function performDeleteWorkspace(wsId: string): Promise<void> {
+  const ws = useSidebarStore.getState().repos
+    .flatMap(r => r.workspaces)
+    .find(w => w.id === wsId)
+  if (!ws || ws.status === 'locked') return
+  try {
+    await apiDeleteWorkspace(wsId)
+    useSidebarStore.getState().deleteWorkspace(wsId)
+  } catch (err) {
+    console.error('Failed to delete workspace:', err)
+    toast.error('Failed to delete workspace', err instanceof Error ? err.message : undefined)
+  }
+}
 
 interface CreatingState {
   repoId: string
@@ -75,9 +113,7 @@ export function WorkspaceTreeProvider({ children }: { children: ReactNode }) {
 
   const confirmCreate = useCallback((branch: string) => {
     if (!creatingChildOf) return
-    useSidebarStore.getState().addWorkspace(
-      creatingChildOf.repoId, crypto.randomUUID(), branch, creatingChildOf.parentId,
-    )
+    void performCreateWorkspace(creatingChildOf.repoId, branch, creatingChildOf.parentId)
     setCreatingChildOf(null)
   }, [creatingChildOf])
 
@@ -134,7 +170,7 @@ export function WorkspaceTreeProvider({ children }: { children: ReactNode }) {
       const target = findDropTarget(e.clientX, e.clientY, ws.id)
 
       if (target === 'trash') {
-        useSidebarStore.getState().deleteWorkspace(ws.id)
+        void performDeleteWorkspace(ws.id)
       } else if (target?.startsWith('ws:')) {
         const targetWsId = target.slice(3)
         if (targetWsId !== ws.id) {

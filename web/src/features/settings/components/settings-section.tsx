@@ -1,8 +1,19 @@
 import { ArrowCounterClockwise as RotateCcw } from "@phosphor-icons/react";
 import React from "react";
+import { settingRowMatchesQuery } from "@/features/settings/lib/settings-row-search";
+import { useSettingsStore } from "@/features/settings/store";
 import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
 import { cn } from "@/utils/cn";
+
+/**
+ * Lets SettingRows report whether they match the active settings search, so a
+ * Section can hide its heading once every row inside it is filtered out.
+ * `visible: null` unregisters a row (unmount).
+ */
+const SectionRowVisibilityContext = React.createContext<
+  ((rowId: string, visible: boolean | null) => void) | null
+>(null);
 
 interface SectionProps {
   title: string;
@@ -23,17 +34,42 @@ export const SETTINGS_CONTROL_WIDTHS = {
 } as const;
 
 export default function Section({ title, description, children, className }: SectionProps) {
+  const isSearchActive = useSettingsStore((state) => state.search.query.trim().length > 0);
+  const rowVisibilityRef = React.useRef(new Map<string, boolean>());
+  const [visibleRowCount, setVisibleRowCount] = React.useState(0);
+
+  const reportRowVisibility = React.useCallback((rowId: string, visible: boolean | null) => {
+    if (visible === null) {
+      rowVisibilityRef.current.delete(rowId);
+    } else {
+      rowVisibilityRef.current.set(rowId, visible);
+    }
+    let count = 0;
+    rowVisibilityRef.current.forEach((isVisible) => {
+      if (isVisible) count += 1;
+    });
+    setVisibleRowCount(count);
+  }, []);
+
+  // While searching, hide the whole section (heading included) once every row
+  // inside it has been filtered out. Rows stay mounted (they render null), so
+  // the `hidden` attribute is used instead of unmounting the subtree.
+  const isHiddenBySearch = isSearchActive && visibleRowCount === 0;
+
   return (
-    <section
-      className={cn("px-1 py-0.5 first:[&>.settings-section-header]:hidden", className)}
-      data-settings-section={title}
-    >
-      <div className="settings-section-header mb-2 px-1 py-1.5">
-        <Label className="ui-font ui-text-base font-medium text-foreground">{title}</Label>
-        {description && <p className="ui-font ui-text-sm text-muted-foreground">{description}</p>}
-      </div>
-      <div className="space-y-2">{children}</div>
-    </section>
+    <SectionRowVisibilityContext.Provider value={reportRowVisibility}>
+      <section
+        hidden={isHiddenBySearch}
+        className={cn("px-1 py-0.5 first:[&>.settings-section-header]:hidden", className)}
+        data-settings-section={title}
+      >
+        <div className="settings-section-header mb-2 px-1 py-1.5">
+          <Label className="ui-font ui-text-base font-medium text-foreground">{title}</Label>
+          {description && <p className="ui-font ui-text-sm text-muted-foreground">{description}</p>}
+        </div>
+        <div className="space-y-2">{children}</div>
+      </section>
+    </SectionRowVisibilityContext.Provider>
   );
 }
 
@@ -62,6 +98,16 @@ export function SettingRow({
   const rowId = React.useId();
   const labelId = `${rowId}-label`;
   const descriptionId = `${rowId}-description`;
+
+  const searchQuery = useSettingsStore((state) => state.search.query);
+  const matchesSearch = settingRowMatchesQuery(searchQuery, label, description);
+  const reportRowVisibility = React.useContext(SectionRowVisibilityContext);
+
+  React.useEffect(() => {
+    if (!reportRowVisibility) return;
+    reportRowVisibility(rowId, matchesSearch);
+    return () => reportRowVisibility(rowId, null);
+  }, [reportRowVisibility, rowId, matchesSearch]);
 
   const interactiveSelector =
     "button:not(:disabled), input:not(:disabled), select:not(:disabled), textarea:not(:disabled), [role='button'], [role='switch'], [tabindex]:not([tabindex='-1'])";
@@ -152,6 +198,10 @@ export function SettingRow({
     firstInteractive.focus();
     firstInteractive.click();
   };
+
+  // Row-level search filtering: while a settings search query is active, only
+  // rows whose label/description match it render. Placed after all hooks.
+  if (!matchesSearch) return null;
 
   return (
     <div

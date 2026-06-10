@@ -146,6 +146,8 @@ const GitCommitPanel = ({
 
         <Textarea
           ref={commitTextareaRef}
+          id="git-commit-message"
+          name="git-commit-message"
           value={commitMessage}
           onChange={(e) => setCommitMessage(e.target.value)}
           onKeyDown={handleKeyDown}

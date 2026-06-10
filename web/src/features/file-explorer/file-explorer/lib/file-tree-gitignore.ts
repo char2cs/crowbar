@@ -3,7 +3,6 @@ import type { FileEntry } from "@/features/file-system/types/app";
 import {
   getDirName,
   getRelativePath,
-  joinPath,
   normalizePath,
   pathStartsWithRoot,
   stripTrailingPathSeparators,
@@ -61,8 +60,14 @@ export function collectGitIgnoreFileReferences(
   if (!rootFolderPath) return [];
 
   const references = new Map<string, GitIgnoreFileReference>();
+  // Backend file paths are workspace-relative; rootFolderPath is a synthetic
+  // display prefix. Accept relative paths as in-root — only absolute paths
+  // from another root are filtered. (The old prefix check rejected every real
+  // tree entry, and the synthetic root reference 404'd against the backend.)
+  const isInRoot = (path: string) =>
+    !path.startsWith("/") || pathStartsWithRoot(path, rootFolderPath);
   const addReference = (path: string) => {
-    if (!pathStartsWithRoot(path, rootFolderPath)) return;
+    if (!isInRoot(path)) return;
 
     const normalizedPath = normalizePath(stripTrailingPathSeparators(path));
     references.set(normalizedPath, {
@@ -70,8 +75,6 @@ export function collectGitIgnoreFileReferences(
       directoryPath: getDirName(path),
     });
   };
-
-  addReference(joinPath(rootFolderPath, GITIGNORE_FILE_NAME));
 
   const walk = (entries: FileEntry[]) => {
     for (const entry of entries) {
@@ -87,6 +90,12 @@ export function collectGitIgnoreFileReferences(
 
   walk(files);
 
+  // Fall back to the conventional root .gitignore only when the loaded tree
+  // didn't surface one (e.g. tree not yet expanded).
+  if (references.size === 0) {
+    addReference(GITIGNORE_FILE_NAME);
+  }
+
   return [...references.values()].sort(compareIgnoreReferences);
 }
 
@@ -97,7 +106,8 @@ export function createFileTreeGitIgnoreRules(
   if (!rootFolderPath || ignoreFiles.length === 0) return null;
 
   const ruleSets = ignoreFiles
-    .filter((file) => pathStartsWithRoot(file.directoryPath, rootFolderPath))
+    .filter((file) =>
+      !file.directoryPath.startsWith("/") || pathStartsWithRoot(file.directoryPath, rootFolderPath))
     .sort(compareIgnoreReferences)
     .map((file) => {
       const matcher = ignore({ allowRelativePaths: true });

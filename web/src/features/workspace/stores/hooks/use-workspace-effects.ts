@@ -10,6 +10,8 @@ import {
 } from '@/features/files/lib/file-tree-api'
 import { wsManager } from '@/lib/ws/manager'
 import { openFileContent } from '@/features/workspace/lib/open-file-content'
+import { syncBufferWithDisk } from '@/features/workspace/lib/external-buffer-sync'
+import { getOrCreateWorkspaceStore } from '@/features/workspace/stores/workspace-store-registry'
 import { fetchAllGitData, useGitStore } from '@/features/git/stores/git-store'
 import type { AppFile } from '@/features/file-system/types/app'
 
@@ -133,7 +135,15 @@ export function useWorkspaceEffects(wsId: string) {
     }
     const unsubscribe = wsManager.subscribe(filesWsEndpoint(wsId), (raw) => {
       const evt = raw as FileChangeEvent
-      if (!evt?.path || !isStructuralChange(evt.type)) return
+      if (!evt?.path) return
+      // An external write to a file with an open buffer must reconcile the
+      // buffer (silent reload when clean, conflict flag when dirty) so a
+      // later save cannot resurrect content that was discarded on disk.
+      // Own-save echoes are filtered inside via the pending-save markers.
+      if (evt.type === 'modified' || evt.type === 'created') {
+        void syncBufferWithDisk(getOrCreateWorkspaceStore(wsId), evt.path)
+      }
+      if (!isStructuralChange(evt.type)) return
       void refreshDir(parentDir(evt.path))
       if (evt.newPath) void refreshDir(parentDir(evt.newPath))
     })
@@ -159,16 +169,40 @@ export function useWorkspaceEffects(wsId: string) {
         repoPath: wsId,
       })
     })()
+    // Coalescing (non-resetting) timer. The backend can stream git frames more
+    // often than the debounce window (observed ~165ms apart, indefinitely); a
+    // resetting debounce starves forever under that load and the Changes panel
+    // never refreshes. Coalescing guarantees a reload fires within the window
+    // of the FIRST trigger, no matter how many more arrive meanwhile.
     let timer: ReturnType<typeof setTimeout> | null = null
-    const unsubscribe = wsManager.subscribe(`/v0/ws/git?wsId=${encodeURIComponent(wsId)}`, () => {
-      if (timer) clearTimeout(timer)
+    const scheduleStatusReload = () => {
+      if (timer) return
       timer = setTimeout(() => {
+        timer = null
         if (!cancelled) void useGitStore.getState().actions.reloadStatus(wsId)
       }, GIT_REFRESH_DEBOUNCE_MS)
-    })
+    }
+    // The push stream repeats identical status frames; only a frame that
+    // actually differs from the previous one warrants a refetch.
+    let lastFrame: string | null = null
+    const unsubscribe = wsManager.subscribe(
+      `/v0/ws/git?wsId=${encodeURIComponent(wsId)}`,
+      (frame) => {
+        let key: string
+        try { key = JSON.stringify(frame) } catch { key = String(frame) }
+        if (key === lastFrame) return
+        lastFrame = key
+        scheduleStatusReload()
+      },
+    )
+    // Editor saves dispatch "git-status-updated" after a successful write.
+    // Refresh on it directly so the Changes panel updates deterministically,
+    // without depending on the backend watcher's git event arriving.
+    window.addEventListener('git-status-updated', scheduleStatusReload)
     return () => {
       cancelled = true
       if (timer) clearTimeout(timer)
+      window.removeEventListener('git-status-updated', scheduleStatusReload)
       unsubscribe()
     }
   }, [wsId])

@@ -60,7 +60,6 @@ export function MarkdownChatView({ workspaceId, stepId }: MarkdownChatViewProps)
   // Cleanup streaming on unmount/workspace change
   useEffect(() => {
     return () => { cancelStreamRef.current?.() }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [workspaceId, stepId])
 
   // Store-driven: the React history (MarkdownHistory) renders reactively from the

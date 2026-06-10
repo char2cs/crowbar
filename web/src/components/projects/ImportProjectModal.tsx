@@ -1,5 +1,5 @@
 // web/src/components/projects/ImportProjectModal.tsx
-import { useRef, useState } from 'react'
+import { useState } from 'react'
 import {
   Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter,
 } from '@/components/ui/dialog'
@@ -15,28 +15,26 @@ interface ImportProjectModalProps {
   onImport: (project: Project) => void
 }
 
+// The backend imports a project from an absolute path on its own filesystem,
+// so the dialog takes the path as text. A browser folder picker cannot supply
+// one (webkitdirectory yields only the folder *name*), which used to send
+// garbage paths like "my-repo" to the import endpoint.
 export function ImportProjectModal({ open, onOpenChange, onImport }: ImportProjectModalProps) {
-  const fileInputRef = useRef<HTMLInputElement>(null)
   const [selectedPath, setSelectedPath] = useState('')
   const [projectName, setProjectName] = useState('')
   const [loading, setLoading] = useState(false)
 
-  const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0]
-    if (!file) return
-    // webkitRelativePath is "folderName/..." — take the first segment
-    const folderName = file.webkitRelativePath.split('/')[0] || file.name
-    setSelectedPath(folderName)
-    setProjectName(prev => prev || folderName)
-  }
+  const trimmedPath = selectedPath.trim()
+  const pathLooksAbsolute = trimmedPath.startsWith('/') || /^[A-Za-z]:[\\/]/.test(trimmedPath)
 
   const handleImport = async () => {
-    if (!selectedPath) return
+    if (!pathLooksAbsolute) return
     setLoading(true)
     try {
       // The mutation returns only { id }; re-fetch the full project so the
       // sidebar gets a complete entity (name/path) rather than undefined fields.
-      const { id } = await postProject(projectName || selectedPath, selectedPath)
+      const fallbackName = trimmedPath.replace(/[\\/]+$/, '').split(/[\\/]/).pop() ?? trimmedPath
+      const { id } = await postProject(projectName.trim() || fallbackName, trimmedPath)
       const project = await fetchProject(id)
       onImport(project)
       setSelectedPath('')
@@ -56,34 +54,17 @@ export function ImportProjectModal({ open, onOpenChange, onImport }: ImportProje
         </DialogHeader>
 
         <div className="space-y-4 py-2">
-          {/* Hidden OS folder picker */}
-          <input
-            ref={fileInputRef}
-            type="file"
-            // @ts-ignore — webkitdirectory is not in React types
-            webkitdirectory=""
-            className="hidden"
-            onChange={handleFileChange}
-          />
-
           <div className="space-y-1.5">
             <label className="text-sm font-medium text-foreground">Project folder</label>
-            <div className="flex gap-2">
-              <Input
-                readOnly
-                value={selectedPath}
-                placeholder="No folder selected"
-                className="flex-1 font-mono text-[12px]"
-              />
-              <Button
-                variant="outline"
-                size="sm"
-                type="button"
-                onClick={() => fileInputRef.current?.click()}
-              >
-                Choose…
-              </Button>
-            </div>
+            <Input
+              value={selectedPath}
+              onChange={e => setSelectedPath(e.target.value)}
+              placeholder="/absolute/path/to/project"
+              className="font-mono text-[12px]"
+            />
+            {trimmedPath !== '' && !pathLooksAbsolute && (
+              <p className="text-[12px] text-destructive">Enter an absolute path (e.g. /Users/you/code/my-repo)</p>
+            )}
           </div>
 
           <div className="space-y-1.5">
@@ -98,7 +79,7 @@ export function ImportProjectModal({ open, onOpenChange, onImport }: ImportProje
 
         <DialogFooter>
           <Button variant="ghost" onClick={() => onOpenChange(false)}>Cancel</Button>
-          <Button onClick={handleImport} disabled={!selectedPath || loading}>
+          <Button onClick={handleImport} disabled={!pathLooksAbsolute || loading}>
             {loading ? 'Importing…' : 'Import'}
           </Button>
         </DialogFooter>

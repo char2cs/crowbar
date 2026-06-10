@@ -1041,6 +1041,7 @@ function FileExplorerTreeComponent({
           onChange={setTreeSearchQuery}
           leftIcon={Search}
           placeholder="Search"
+          name="file-tree-filter"
           aria-label="Filter files in tree"
           aria-controls="file-tree-results"
           autoCapitalize="none"

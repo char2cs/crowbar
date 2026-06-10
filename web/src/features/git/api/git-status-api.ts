@@ -1,4 +1,5 @@
 import { apiFetch } from '@/lib/api'
+import { toast } from '@/components/ui/toast'
 import type { GitHunk, GitStatus } from "../types/git-types";
 
 async function gitPost(
@@ -15,6 +16,7 @@ async function gitPost(
     return true
   } catch (error) {
     console.error(`git ${action} failed:`, error)
+    toast.error(`git ${action} failed`, error instanceof Error ? error.message : undefined)
     return false
   }
 }
@@ -28,7 +30,10 @@ function hunkIdOf(
 
 export const getGitStatus = async (wsId: string): Promise<GitStatus | null> => {
   try {
-    return await apiFetch<GitStatus>(`/v0/workspaces/${encodeURIComponent(wsId)}/git/status`)
+    const status = await apiFetch<GitStatus>(`/v0/workspaces/${encodeURIComponent(wsId)}/git/status`)
+    // The backend serialises a clean working tree as `files: null`; normalise
+    // here so downstream consumers can rely on `files` being an array.
+    return { ...status, files: status.files ?? [] };
   } catch {
     return null;
   }
@@ -51,14 +56,14 @@ export const unstageAllFiles = (wsId: string): Promise<boolean> =>
 export const stageHunk = (wsId: string, hunk: GitHunk): Promise<boolean> => {
   const hunkId = hunkIdOf(hunk)
   return hunkId
-    ? gitPost(wsId, 'stage', { path: hunk.file_path, hunkId })
+    ? gitPost(wsId, 'stage-hunk', { path: hunk.file_path, hunkId })
     : gitPost(wsId, 'stage', { paths: [hunk.file_path] });
 };
 
 export const unstageHunk = (wsId: string, hunk: GitHunk): Promise<boolean> => {
   const hunkId = hunkIdOf(hunk)
   return hunkId
-    ? gitPost(wsId, 'unstage', { path: hunk.file_path, hunkId })
+    ? gitPost(wsId, 'unstage-hunk', { path: hunk.file_path, hunkId })
     : gitPost(wsId, 'unstage', { paths: [hunk.file_path] });
 };
 

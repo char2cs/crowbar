@@ -58,7 +58,6 @@ export function FileExplorerIcon({
       <span
         className={className}
         style={iconSpanStyle}
-        // eslint-disable-next-line react/no-danger
         dangerouslySetInnerHTML={{ __html: sanitizedSvg }}
       />
     )

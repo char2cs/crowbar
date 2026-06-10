@@ -976,7 +976,7 @@ export function MonacoBackedEditor({
       const current = modelRef.current;
       if (current) monacoEditor.setModelMarkers(current, "crowbar-lsp", []);
     };
-  }, [filePath, languageId]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [filePath, languageId]);
 
   // Re-analyze on edits (debounced — the server wants the full buffer text).
   useEffect(() => {

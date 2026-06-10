@@ -29,6 +29,22 @@ export function GitStashCommandSurface({
   const [searchQuery, setSearchQuery] = useState("");
   const [actionLoading, setActionLoading] = useState<Set<number>>(new Set());
 
+  // Hooks below must run unconditionally; the empty-repoPath bail-out happens
+  // after them (was an early return above useMemo — a rules-of-hooks violation
+  // that crashed the surface when repoPath toggled between renders).
+  const filteredStashes = useMemo(() => {
+    const query = searchQuery.trim().toLowerCase();
+    if (!query) return stashes;
+    return stashes.filter((stash) =>
+      matchesSearchQuery(query, [
+        getStashDisplayTitle(stash.message),
+        getStashPositionLabel(stash.index),
+        `stash ${stash.index + 1}`,
+        `stash@{${stash.index}}`,
+      ]),
+    );
+  }, [searchQuery, stashes]);
+
   if (!repoPath) return null;
 
   const handleClose = () => {
@@ -63,19 +79,6 @@ export function GitStashCommandSurface({
       });
     }
   };
-
-  const filteredStashes = useMemo(() => {
-    const query = searchQuery.trim().toLowerCase();
-    if (!query) return stashes;
-    return stashes.filter((stash) =>
-      matchesSearchQuery(query, [
-        getStashDisplayTitle(stash.message),
-        getStashPositionLabel(stash.index),
-        `stash ${stash.index + 1}`,
-        `stash@{${stash.index}}`,
-      ]),
-    );
-  }, [searchQuery, stashes]);
 
   return (
     <GitCommandSurface

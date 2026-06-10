@@ -43,7 +43,7 @@ async function saveEditorBufferById(bufferId: string): Promise<boolean> {
     wsRef?.setState((state) => ({
       buffers: state.buffers.map((b) =>
         b.id === id && isEditorContent(b)
-          ? { ...b, isDirty, ...(isDirty ? {} : { savedContent: b.content }) }
+          ? { ...b, isDirty, ...(isDirty ? {} : { savedContent: b.content, hasExternalChange: false }) }
           : b,
       ),
     }));
@@ -255,7 +255,7 @@ export const useEditorAppStore = createSelectors(
                   wsRef?.setState((state) => ({
                     buffers: state.buffers.map((b) =>
                       b.id === activeBuffer.id && isEditorContent(b)
-                        ? { ...b, isDirty: false, savedContent: content }
+                        ? { ...b, isDirty: false, savedContent: content, hasExternalChange: false }
                         : b,
                     ),
                   }));
