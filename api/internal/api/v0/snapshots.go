@@ -76,6 +76,11 @@ func appendGitStatus(
 	if err != nil {
 		return events
 	}
+	// A clean tree carries a nil Files slice; normalise so the snapshot frame
+	// serialises with files: [] (never null), matching the REST DTO.
+	if status.Files == nil {
+		status.Files = []gitdomain.GitFile{}
+	}
 	return append(events, gitdomain.GitStatusEvent{WsID: wsID, Status: status})
 }
 

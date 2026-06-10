@@ -5,6 +5,9 @@ import (
 	"strconv"
 
 	"github.com/gin-gonic/gin"
+
+	"github.com/char2cs/crowbar/api/internal/api/libs"
+	"github.com/char2cs/crowbar/api/internal/api/v0/dto"
 )
 
 // Status GET /v0/workspaces/:wsId/git/status
@@ -16,11 +19,12 @@ func (h *Handlers) Status(
 
 	status, err := h.git.Status(rctx, id)
 	if err != nil {
-		ctx.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		libs.WriteErr(ctx, http.StatusInternalServerError, err.Error())
 		return
 	}
 
-	ctx.JSON(http.StatusOK, status)
+	// Serialise through the DTO so a clean tree yields files: [] (never null).
+	libs.WriteQueryOK(ctx, dto.GitStatusDTOFrom(status))
 }
 
 // Diff GET /v0/workspaces/:wsId/git/diff?staged=true|false
@@ -33,17 +37,17 @@ func (h *Handlers) Diff(
 	stagedStr := ctx.DefaultQuery("staged", "false")
 	staged, err := strconv.ParseBool(stagedStr)
 	if err != nil {
-		ctx.JSON(http.StatusBadRequest, gin.H{"error": "staged must be true or false"})
+		libs.WriteErr(ctx, http.StatusBadRequest, "staged must be true or false")
 		return
 	}
 
 	diffs, err := h.git.Diff(rctx, id, staged)
 	if err != nil {
-		ctx.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		libs.WriteErr(ctx, http.StatusInternalServerError, err.Error())
 		return
 	}
 
-	ctx.JSON(http.StatusOK, diffs)
+	libs.WriteQueryOK(ctx, diffs)
 }
 
 // Log GET /v0/workspaces/:wsId/git/log?limit=50&skip=0
@@ -58,23 +62,23 @@ func (h *Handlers) Log(
 
 	limit, err := strconv.Atoi(limitStr)
 	if err != nil {
-		ctx.JSON(http.StatusBadRequest, gin.H{"error": "limit must be an integer"})
+		libs.WriteErr(ctx, http.StatusBadRequest, "limit must be an integer")
 		return
 	}
 
 	skip, err := strconv.Atoi(skipStr)
 	if err != nil {
-		ctx.JSON(http.StatusBadRequest, gin.H{"error": "skip must be an integer"})
+		libs.WriteErr(ctx, http.StatusBadRequest, "skip must be an integer")
 		return
 	}
 
 	commits, err := h.git.Log(rctx, id, limit, skip)
 	if err != nil {
-		ctx.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		libs.WriteErr(ctx, http.StatusInternalServerError, err.Error())
 		return
 	}
 
-	ctx.JSON(http.StatusOK, commits)
+	libs.WriteQueryOK(ctx, commits)
 }
 
 // Blame GET /v0/workspaces/:wsId/git/blame?path=<filePath>
@@ -86,17 +90,17 @@ func (h *Handlers) Blame(
 
 	filePath := ctx.Query("path")
 	if filePath == "" {
-		ctx.JSON(http.StatusBadRequest, gin.H{"error": "path query parameter is required"})
+		libs.WriteErr(ctx, http.StatusBadRequest, "path query parameter is required")
 		return
 	}
 
 	entries, err := h.git.Blame(rctx, id, filePath)
 	if err != nil {
-		ctx.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		libs.WriteErr(ctx, http.StatusInternalServerError, err.Error())
 		return
 	}
 
-	ctx.JSON(http.StatusOK, entries)
+	libs.WriteQueryOK(ctx, entries)
 }
 
 // Branches GET /v0/workspaces/:wsId/git/branches
@@ -108,11 +112,11 @@ func (h *Handlers) Branches(
 
 	branches, err := h.git.Branches(rctx, id)
 	if err != nil {
-		ctx.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		libs.WriteErr(ctx, http.StatusInternalServerError, err.Error())
 		return
 	}
 
-	ctx.JSON(http.StatusOK, branches)
+	libs.WriteQueryOK(ctx, branches)
 }
 
 // Stashes GET /v0/workspaces/:wsId/git/stashes
@@ -124,11 +128,11 @@ func (h *Handlers) Stashes(
 
 	stashes, err := h.git.Stashes(rctx, id)
 	if err != nil {
-		ctx.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		libs.WriteErr(ctx, http.StatusInternalServerError, err.Error())
 		return
 	}
 
-	ctx.JSON(http.StatusOK, stashes)
+	libs.WriteQueryOK(ctx, stashes)
 }
 
 // Conflicts GET /v0/workspaces/:wsId/git/conflicts
@@ -140,11 +144,11 @@ func (h *Handlers) Conflicts(
 
 	files, err := h.git.ConflictedFiles(rctx, id)
 	if err != nil {
-		ctx.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		libs.WriteErr(ctx, http.StatusInternalServerError, err.Error())
 		return
 	}
 
-	ctx.JSON(http.StatusOK, files)
+	libs.WriteQueryOK(ctx, files)
 }
 
 // ConflictHunks GET /v0/workspaces/:wsId/git/conflict-hunks?path=<filePath>
@@ -156,17 +160,17 @@ func (h *Handlers) ConflictHunks(
 
 	filePath := ctx.Query("path")
 	if filePath == "" {
-		ctx.JSON(http.StatusBadRequest, gin.H{"error": "path query parameter is required"})
+		libs.WriteErr(ctx, http.StatusBadRequest, "path query parameter is required")
 		return
 	}
 
 	hunks, err := h.git.ConflictHunks(rctx, id, filePath)
 	if err != nil {
-		ctx.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		libs.WriteErr(ctx, http.StatusInternalServerError, err.Error())
 		return
 	}
 
-	ctx.JSON(http.StatusOK, hunks)
+	libs.WriteQueryOK(ctx, hunks)
 }
 
 // CommitDiff GET /v0/workspaces/:wsId/git/commit-diff?sha=<sha>
@@ -178,15 +182,15 @@ func (h *Handlers) CommitDiff(
 
 	sha := ctx.Query("sha")
 	if sha == "" {
-		ctx.JSON(http.StatusBadRequest, gin.H{"error": "sha query parameter is required"})
+		libs.WriteErr(ctx, http.StatusBadRequest, "sha query parameter is required")
 		return
 	}
 
 	diff, err := h.git.CommitDiff(rctx, id, sha)
 	if err != nil {
-		ctx.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		libs.WriteErr(ctx, http.StatusInternalServerError, err.Error())
 		return
 	}
 
-	ctx.JSON(http.StatusOK, diff)
+	libs.WriteQueryOK(ctx, diff)
 }

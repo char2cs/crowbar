@@ -68,7 +68,7 @@ func (s *ProviderSuite) TestProvider_pollReturnsCapabilityDisabledForLocalRepo()
 	)
 
 	var state map[string]any
-	kit.DecodeJSON(
+	kit.DecodeEnvData(
 		s.T(),
 		resp,
 		&state,
@@ -113,7 +113,7 @@ func (s *ProviderSuite) TestProvider_protectedBranchesForLocalRepoReturnsDefault
 	)
 
 	var branches []any
-	kit.DecodeJSON(
+	kit.DecodeEnvData(
 		s.T(),
 		resp,
 		&branches,

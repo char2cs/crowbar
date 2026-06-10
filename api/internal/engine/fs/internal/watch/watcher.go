@@ -16,6 +16,7 @@ import (
 	"github.com/fsnotify/fsnotify"
 
 	"github.com/char2cs/crowbar/api/internal/domain"
+	gitdomain "github.com/char2cs/crowbar/api/internal/domain/git"
 )
 
 const debounceDuration = 100 * time.Millisecond
@@ -46,6 +47,29 @@ type Watcher struct {
 	prevDeleted  int
 	prevConflict bool
 	prevCommits  bool
+
+	prevStatus    gitdomain.GitStatus
+	prevStatusSet bool
+}
+
+// gitStatusEqual reports whether two statuses carry the same broadcastable
+// state (branch, ahead/behind, and the exact file list in order).
+func gitStatusEqual(
+	a gitdomain.GitStatus,
+	b gitdomain.GitStatus,
+) bool {
+	if a.Branch != b.Branch || a.Ahead != b.Ahead || a.Behind != b.Behind {
+		return false
+	}
+	if len(a.Files) != len(b.Files) {
+		return false
+	}
+	for i := range a.Files {
+		if a.Files[i] != b.Files[i] {
+			return false
+		}
+	}
+	return true
 }
 
 // NewWatcher builds a Watcher but does not start it. Call Start to begin.
@@ -281,7 +305,14 @@ func (w *Watcher) fanOutGit(
 	if err != nil {
 		return
 	}
-	w.dispatcher.OnGitStatus(ctx, w.wsID, status)
+	// Workspaces sharing a .git (linked worktrees) all see each other's ref
+	// events; without this guard every such event re-broadcasts an unchanged
+	// status to every subscriber (observed as a ~6Hz identical-frame storm).
+	if !w.prevStatusSet || !gitStatusEqual(w.prevStatus, status) {
+		w.prevStatus = status
+		w.prevStatusSet = true
+		w.dispatcher.OnGitStatus(ctx, w.wsID, status)
+	}
 
 	added, deleted, hasConflicts, hasCommits, err := w.git.ComputeWorkingTreeSummary(
 		ctx,

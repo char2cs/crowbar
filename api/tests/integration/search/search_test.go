@@ -83,7 +83,7 @@ func (s *SearchSuite) TestSearch_BasicQueryReturnsMatches() {
 	)
 
 	var result map[string]any
-	kit.DecodeJSON(
+	kit.DecodeEnvData(
 		t,
 		resp,
 		&result,
@@ -115,7 +115,7 @@ func (s *SearchSuite) TestSearch_CaseSensitiveToggle() {
 	)
 
 	var sensitiveResult map[string]any
-	kit.DecodeJSON(
+	kit.DecodeEnvData(
 		t,
 		resp,
 		&sensitiveResult,
@@ -136,7 +136,7 @@ func (s *SearchSuite) TestSearch_CaseSensitiveToggle() {
 		http.StatusOK,
 	)
 	var insensitiveResult map[string]any
-	kit.DecodeJSON(
+	kit.DecodeEnvData(
 		t,
 		resp2,
 		&insensitiveResult,
@@ -170,7 +170,7 @@ func (s *SearchSuite) TestSearch_RegexMode() {
 	)
 
 	var result map[string]any
-	kit.DecodeJSON(
+	kit.DecodeEnvData(
 		t,
 		resp,
 		&result,
@@ -271,7 +271,7 @@ func (s *SearchSuite) TestSearch_GitignoreRespectedByDefault() {
 	)
 
 	var result map[string]any
-	kit.DecodeJSON(
+	kit.DecodeEnvData(
 		t,
 		resp,
 		&result,

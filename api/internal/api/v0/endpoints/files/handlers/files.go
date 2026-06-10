@@ -7,10 +7,12 @@ import (
 
 	"github.com/gin-gonic/gin"
 
+	"github.com/char2cs/crowbar/api/internal/api/libs"
+
 	"github.com/char2cs/crowbar/api/internal/domain"
 )
 
-// Tree handles GET /v0/workspaces/:wsId/files
+// Tree handles GET /v0/workspaces/:wsId/files/tree
 func (h *Handlers) Tree(
 	ctx *gin.Context,
 ) {
@@ -29,7 +31,7 @@ func (h *Handlers) Tree(
 		nodes = []domain.FileNode{}
 	}
 
-	ctx.JSON(http.StatusOK, nodes)
+	libs.WriteQueryOK(ctx, nodes)
 }
 
 // ReadContent handles GET /v0/workspaces/:wsId/files/content
@@ -42,7 +44,7 @@ func (h *Handlers) ReadContent(
 	filePath := ctx.Query("path")
 
 	if filePath == "" {
-		ctx.JSON(http.StatusBadRequest, gin.H{"error": "path is required"})
+		libs.WriteErr(ctx, http.StatusBadRequest, "path is required")
 		return
 	}
 
@@ -52,7 +54,7 @@ func (h *Handlers) ReadContent(
 		return
 	}
 
-	ctx.JSON(http.StatusOK, content)
+	libs.WriteQueryOK(ctx, content)
 }
 
 // SaveContent handles PUT /v0/workspaces/:wsId/files/content
@@ -68,12 +70,12 @@ func (h *Handlers) SaveContent(
 		Content string `json:"content"`
 	}
 	if err := ctx.ShouldBindJSON(&body); err != nil {
-		ctx.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		libs.WriteErr(ctx, http.StatusBadRequest, err.Error())
 		return
 	}
 
 	if body.Path == "" {
-		ctx.JSON(http.StatusBadRequest, gin.H{"error": "path is required"})
+		libs.WriteErr(ctx, http.StatusBadRequest, "path is required")
 		return
 	}
 
@@ -82,7 +84,7 @@ func (h *Handlers) SaveContent(
 		return
 	}
 
-	ctx.Status(http.StatusNoContent)
+	libs.WriteMutationOK(ctx, http.StatusOK, body.Path)
 }
 
 // Create handles POST /v0/workspaces/:wsId/files
@@ -98,19 +100,19 @@ func (h *Handlers) Create(
 		Type string `json:"type"`
 	}
 	if err := ctx.ShouldBindJSON(&body); err != nil {
-		ctx.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		libs.WriteErr(ctx, http.StatusBadRequest, err.Error())
 		return
 	}
 
 	if body.Path == "" {
-		ctx.JSON(http.StatusBadRequest, gin.H{"error": "path is required"})
+		libs.WriteErr(ctx, http.StatusBadRequest, "path is required")
 		return
 	}
 
 	now := time.Now()
 
 	switch body.Type {
-	case "dir":
+	case "dir", "directory":
 		if err := h.files.CreateDir(rctx, wsID, body.Path, now); err != nil {
 			fileError(ctx, err)
 			return
@@ -122,7 +124,7 @@ func (h *Handlers) Create(
 		}
 	}
 
-	ctx.Status(http.StatusCreated)
+	libs.WriteMutationOK(ctx, http.StatusCreated, body.Path)
 }
 
 // Rename handles PATCH /v0/workspaces/:wsId/files
@@ -134,25 +136,25 @@ func (h *Handlers) Rename(
 	wsID := ctx.Param("wsId")
 
 	var body struct {
-		From string `json:"from"`
-		To   string `json:"to"`
+		Path    string `json:"path"`
+		NewPath string `json:"newPath"`
 	}
 	if err := ctx.ShouldBindJSON(&body); err != nil {
-		ctx.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		libs.WriteErr(ctx, http.StatusBadRequest, err.Error())
 		return
 	}
 
-	if body.From == "" || body.To == "" {
-		ctx.JSON(http.StatusBadRequest, gin.H{"error": "from and to are required"})
+	if body.Path == "" || body.NewPath == "" {
+		libs.WriteErr(ctx, http.StatusBadRequest, "path and newPath are required")
 		return
 	}
 
-	if err := h.files.Rename(rctx, wsID, body.From, body.To, time.Now()); err != nil {
+	if err := h.files.Rename(rctx, wsID, body.Path, body.NewPath, time.Now()); err != nil {
 		fileError(ctx, err)
 		return
 	}
 
-	ctx.Status(http.StatusOK)
+	libs.WriteMutationOK(ctx, http.StatusOK, body.NewPath)
 }
 
 // Delete handles DELETE /v0/workspaces/:wsId/files
@@ -162,30 +164,39 @@ func (h *Handlers) Delete(
 	rctx := ctx.Request.Context()
 
 	wsID := ctx.Param("wsId")
-	filePath := ctx.Query("path")
 
-	if filePath == "" {
-		ctx.JSON(http.StatusBadRequest, gin.H{"error": "path is required"})
+	var body struct {
+		Path string `json:"path"`
+	}
+	if err := ctx.ShouldBindJSON(&body); err != nil || body.Path == "" {
+		body.Path = ctx.Query("path")
+	}
+
+	if body.Path == "" {
+		libs.WriteErr(ctx, http.StatusBadRequest, "path is required")
 		return
 	}
 
-	if err := h.files.Delete(rctx, wsID, filePath, time.Now()); err != nil {
+	if err := h.files.Delete(rctx, wsID, body.Path, time.Now()); err != nil {
 		fileError(ctx, err)
 		return
 	}
 
-	ctx.Status(http.StatusNoContent)
+	libs.WriteMutationOK(ctx, http.StatusOK, body.Path)
 }
 
-// fileError maps file usecase errors to HTTP responses.
+// fileError maps file usecase errors to HTTP responses. Typed sentinels (e.g.
+// apperr.ErrLocked -> 409, fs.ErrNotExist -> 404) go through the shared
+// libs.StatusAndMessage mapping; untyped not-found errors fall back to a
+// message sniff for 404.
 func fileError(
 	ctx *gin.Context,
 	err error,
 ) {
-	msg := err.Error()
-	if strings.Contains(msg, "not found") || strings.Contains(msg, "no such file") {
-		ctx.JSON(http.StatusNotFound, gin.H{"error": msg})
-		return
+	status, msg := libs.StatusAndMessage(err)
+	if status == http.StatusInternalServerError &&
+		(strings.Contains(msg, "not found") || strings.Contains(msg, "no such file")) {
+		status = http.StatusNotFound
 	}
-	ctx.JSON(http.StatusInternalServerError, gin.H{"error": msg})
+	libs.WriteErr(ctx, status, msg)
 }

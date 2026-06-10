@@ -127,6 +127,11 @@ func (c *Container) PushGit(
 	wsID string,
 	status gitdomain.GitStatus,
 ) {
+	// A clean tree carries a nil Files slice; normalise so the frame
+	// serialises with files: [] (never null), matching the REST DTO.
+	if status.Files == nil {
+		status.Files = []gitdomain.GitFile{}
+	}
 	c.git.Push(gitdomain.GitStatusEvent{WsID: wsID, Status: status})
 }
 

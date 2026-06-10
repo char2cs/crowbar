@@ -5,6 +5,8 @@ import (
 	"time"
 
 	"github.com/gin-gonic/gin"
+
+	"github.com/char2cs/crowbar/api/internal/api/libs"
 	"github.com/gorilla/websocket"
 )
 
@@ -31,7 +33,7 @@ func (h *Handlers) WS(ctx *gin.Context) {
 
 	sid := ctx.Param("sessionId")
 	if !eng.SessionExists(ctx.Request.Context(), sid) {
-		ctx.JSON(http.StatusNotFound, gin.H{"error": "session not found"})
+		libs.WriteErr(ctx, http.StatusNotFound, "session not found")
 		return
 	}
 

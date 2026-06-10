@@ -8,6 +8,8 @@ import (
 	"time"
 
 	"github.com/gin-gonic/gin"
+
+	"github.com/char2cs/crowbar/api/internal/api/libs"
 )
 
 // State handles GET /v0/workspaces/:wsId/provider.
@@ -19,7 +21,7 @@ func (h *Handlers) State(
 	wsID := ctx.Param("wsId")
 	ws, err := h.wsReader.Get(ctx.Request.Context(), wsID)
 	if err != nil {
-		ctx.JSON(http.StatusNotFound, gin.H{"error": "workspace not found"})
+		libs.WriteErr(ctx, http.StatusNotFound, "workspace not found")
 		return
 	}
 
@@ -34,11 +36,11 @@ func (h *Handlers) State(
 	)
 	if err != nil {
 		_, _ = fmt.Fprintf(os.Stderr, "provider: poll error for ws %s: %v\n", wsID, err)
-		ctx.JSON(http.StatusInternalServerError, gin.H{"error": "provider poll failed"})
+		libs.WriteErr(ctx, http.StatusInternalServerError, "provider poll failed")
 		return
 	}
 
-	ctx.JSON(http.StatusOK, state)
+	libs.WriteQueryOK(ctx, state)
 }
 
 // ProtectedBranches handles GET /v0/repos/:id/protected-branches.
@@ -54,16 +56,16 @@ func (h *Handlers) ProtectedBranches(
 	wsID := ctx.Param("id")
 	ws, err := h.wsReader.Get(ctx.Request.Context(), wsID)
 	if err != nil {
-		ctx.JSON(http.StatusNotFound, gin.H{"error": "workspace not found"})
+		libs.WriteErr(ctx, http.StatusNotFound, "workspace not found")
 		return
 	}
 
 	branches, err := h.eng.ProtectedBranches(ctx.Request.Context(), ws.WorktreePath)
 	if err != nil {
 		_, _ = fmt.Fprintf(os.Stderr, "provider: protected-branches error for ws %s: %v\n", wsID, err)
-		ctx.JSON(http.StatusInternalServerError, gin.H{"error": "provider poll failed"})
+		libs.WriteErr(ctx, http.StatusInternalServerError, "provider poll failed")
 		return
 	}
 
-	ctx.JSON(http.StatusOK, branches)
+	libs.WriteQueryOK(ctx, branches)
 }

@@ -166,7 +166,7 @@ func (s *ConflictsSuite) TestConflicts_conflictedFilesListsFile() {
 	kit.RequireStatus(s.T(), conflictsResp, 200)
 
 	var files []string
-	kit.DecodeJSON(s.T(), conflictsResp, &files)
+	kit.DecodeEnvData(s.T(), conflictsResp, &files)
 
 	s.Require().NotEmpty(files)
 	s.Assert().Contains(files, "shared.txt")
@@ -192,7 +192,7 @@ func (s *ConflictsSuite) TestConflicts_conflictHunksParsesThreeWayView() {
 	kit.RequireStatus(s.T(), hunksResp, 200)
 
 	var hunks []map[string]any
-	kit.DecodeJSON(s.T(), hunksResp, &hunks)
+	kit.DecodeEnvData(s.T(), hunksResp, &hunks)
 
 	s.Require().NotEmpty(hunks)
 	s.Assert().NotEmpty(hunks[0]["ours"])
@@ -223,7 +223,7 @@ func (s *ConflictsSuite) TestConflicts_operationAbortRestoresCleanParent() {
 	kit.RequireStatus(s.T(), statusResp, 200)
 
 	var status map[string]any
-	kit.DecodeJSON(s.T(), statusResp, &status)
+	kit.DecodeEnvData(s.T(), statusResp, &status)
 
 	files, _ := status["files"].([]any)
 	s.Assert().Empty(files, "parent must be clean after merge abort")

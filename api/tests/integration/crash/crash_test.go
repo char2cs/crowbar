@@ -87,7 +87,7 @@ func (s *CrashSuite) TestCrash_AgentRunRecoveryMarksOrphansError() {
 	})
 	kit.RequireStatus(t, chatResp, http.StatusCreated)
 	var chatDTO map[string]any
-	kit.DecodeJSON(t, chatResp, &chatDTO)
+	kit.DecodeEnvData(t, chatResp, &chatDTO)
 	chatID = chatDTO["id"].(string)
 
 	// Create a run (agentrun handler accepts explicit id).
@@ -105,7 +105,7 @@ func (s *CrashSuite) TestCrash_AgentRunRecoveryMarksOrphansError() {
 	runningResp := env1.GET(t, "/v0/runs/running")
 	kit.RequireStatus(t, runningResp, http.StatusOK)
 	var runningList []map[string]any
-	kit.DecodeJSON(t, runningResp, &runningList)
+	kit.DecodeEnvData(t, runningResp, &runningList)
 	found := false
 	for _, r := range runningList {
 		if r["id"] == runID {
@@ -133,7 +133,7 @@ func (s *CrashSuite) TestCrash_AgentRunRecoveryMarksOrphansError() {
 	runningAfterResp := env2.GET(t, "/v0/runs/running")
 	kit.RequireStatus(t, runningAfterResp, http.StatusOK)
 	var runningAfter []map[string]any
-	kit.DecodeJSON(t, runningAfterResp, &runningAfter)
+	kit.DecodeEnvData(t, runningAfterResp, &runningAfter)
 	s.Assert().Empty(
 		runningAfter,
 		"RecoverOrphans must drain all running runs on restart",
@@ -143,7 +143,7 @@ func (s *CrashSuite) TestCrash_AgentRunRecoveryMarksOrphansError() {
 	recoveredResp := env2.GET(t, "/v0/runs/"+runID)
 	kit.RequireStatus(t, recoveredResp, http.StatusOK)
 	var recoveredRun map[string]any
-	kit.DecodeJSON(t, recoveredResp, &recoveredRun)
+	kit.DecodeEnvData(t, recoveredResp, &recoveredRun)
 	s.Assert().Equal(
 		"error",
 		recoveredRun["status"],
@@ -154,7 +154,7 @@ func (s *CrashSuite) TestCrash_AgentRunRecoveryMarksOrphansError() {
 	chatGetResp := env2.GET(t, "/v0/workspaces/"+wsID+"/chats")
 	kit.RequireStatus(t, chatGetResp, http.StatusOK)
 	var chats []map[string]any
-	kit.DecodeJSON(t, chatGetResp, &chats)
+	kit.DecodeEnvData(t, chatGetResp, &chats)
 	var chatStatus string
 	for _, c := range chats {
 		if c["id"] == chatID {
@@ -219,7 +219,7 @@ func (s *CrashSuite) TestCrash_FailedRunNoLongerInRunningList() {
 	})
 	kit.RequireStatus(t, chatResp, http.StatusCreated)
 	var chatDTO map[string]any
-	kit.DecodeJSON(t, chatResp, &chatDTO)
+	kit.DecodeEnvData(t, chatResp, &chatDTO)
 	chatID = chatDTO["id"].(string)
 
 	// Create a run (agentrun handler accepts explicit id).
@@ -237,7 +237,7 @@ func (s *CrashSuite) TestCrash_FailedRunNoLongerInRunningList() {
 	runningResp := env.GET(t, "/v0/runs/running")
 	kit.RequireStatus(t, runningResp, http.StatusOK)
 	var runningList []map[string]any
-	kit.DecodeJSON(t, runningResp, &runningList)
+	kit.DecodeEnvData(t, runningResp, &runningList)
 	runningIDs := map[string]bool{}
 	for _, r := range runningList {
 		if id, ok := r["id"].(string); ok {
@@ -260,7 +260,7 @@ func (s *CrashSuite) TestCrash_FailedRunNoLongerInRunningList() {
 	runningAfterResp := env.GET(t, "/v0/runs/running")
 	kit.RequireStatus(t, runningAfterResp, http.StatusOK)
 	var runningAfter []map[string]any
-	kit.DecodeJSON(t, runningAfterResp, &runningAfter)
+	kit.DecodeEnvData(t, runningAfterResp, &runningAfter)
 	runningAfterIDs := map[string]bool{}
 	for _, r := range runningAfter {
 		if id, ok := r["id"].(string); ok {
@@ -286,7 +286,7 @@ func (s *CrashSuite) TestCrash_NewEnvStartsClean() {
 	runningResp := env.GET(t, "/v0/runs/running")
 	kit.RequireStatus(t, runningResp, http.StatusOK)
 	var running []map[string]any
-	kit.DecodeJSON(t, runningResp, &running)
+	kit.DecodeEnvData(t, runningResp, &running)
 	s.Assert().Empty(
 		running,
 		"fresh environment must start with no running agent runs",

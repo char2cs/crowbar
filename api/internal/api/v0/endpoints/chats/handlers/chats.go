@@ -5,6 +5,8 @@ import (
 	"time"
 
 	"github.com/gin-gonic/gin"
+
+	"github.com/char2cs/crowbar/api/internal/api/libs"
 )
 
 // Create handles POST /v0/workspaces/:wsId/chats.
@@ -19,17 +21,17 @@ func (h *Handlers) Create(
 		Title string `json:"title"`
 	}
 	if err := ctx.ShouldBindJSON(&body); err != nil {
-		ctx.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		libs.WriteErr(ctx, http.StatusBadRequest, err.Error())
 		return
 	}
 
 	chat, err := h.chatUsecase.CreateChat(rctx, body.ID, wsID, body.Title, time.Now())
 	if err != nil {
-		ctx.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		libs.WriteErr(ctx, http.StatusInternalServerError, err.Error())
 		return
 	}
 
-	ctx.JSON(http.StatusCreated, chat)
+	libs.WriteQueryWithStatus(ctx, http.StatusCreated, chat)
 }
 
 // List handles GET /v0/workspaces/:wsId/chats.
@@ -41,11 +43,11 @@ func (h *Handlers) List(
 
 	chats, err := h.chatRepo.ListByWorkspace(rctx, wsID)
 	if err != nil {
-		ctx.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		libs.WriteErr(ctx, http.StatusInternalServerError, err.Error())
 		return
 	}
 
-	ctx.JSON(http.StatusOK, chats)
+	libs.WriteQueryOK(ctx, chats)
 }
 
 // Fork handles POST /v0/chats/:id/fork.
@@ -57,11 +59,11 @@ func (h *Handlers) Fork(
 
 	chat, err := h.chatUsecase.ForkChat(rctx, id, time.Now())
 	if err != nil {
-		ctx.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		libs.WriteErr(ctx, http.StatusInternalServerError, err.Error())
 		return
 	}
 
-	ctx.JSON(http.StatusCreated, chat)
+	libs.WriteQueryWithStatus(ctx, http.StatusCreated, chat)
 }
 
 // Rename handles PATCH /v0/chats/:id.
@@ -75,17 +77,17 @@ func (h *Handlers) Rename(
 		Title string `json:"title"`
 	}
 	if err := ctx.ShouldBindJSON(&body); err != nil {
-		ctx.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		libs.WriteErr(ctx, http.StatusBadRequest, err.Error())
 		return
 	}
 
 	chat, err := h.chatUsecase.RenameChat(rctx, id, body.Title)
 	if err != nil {
-		ctx.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		libs.WriteErr(ctx, http.StatusInternalServerError, err.Error())
 		return
 	}
 
-	ctx.JSON(http.StatusOK, chat)
+	libs.WriteQueryOK(ctx, chat)
 }
 
 // Delete handles DELETE /v0/chats/:id.
@@ -96,7 +98,7 @@ func (h *Handlers) Delete(
 	id := ctx.Param("id")
 
 	if err := h.chatUsecase.DeleteChat(rctx, id, time.Now()); err != nil {
-		ctx.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		libs.WriteErr(ctx, http.StatusInternalServerError, err.Error())
 		return
 	}
 

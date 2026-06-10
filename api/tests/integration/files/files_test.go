@@ -88,12 +88,12 @@ func nodeNames(
 func (s *FilesSuite) TestFiles_treeReturnsRootEntries() {
 	resp := s.Env.GET(
 		s.T(),
-		"/v0/workspaces/"+s.wsID+"/files?path=.",
+		"/v0/workspaces/"+s.wsID+"/files/tree?path=.",
 	)
 	kit.RequireStatus(s.T(), resp, 200)
 
 	var nodes []map[string]any
-	kit.DecodeJSON(s.T(), resp, &nodes)
+	kit.DecodeEnvData(s.T(), resp, &nodes)
 
 	s.Assert().Contains(
 		nodeNames(nodes),
@@ -111,7 +111,7 @@ func (s *FilesSuite) TestFiles_readContentReturnsFileBytes() {
 	kit.RequireStatus(s.T(), resp, 200)
 
 	var content map[string]any
-	kit.DecodeJSON(s.T(), resp, &content)
+	kit.DecodeEnvData(s.T(), resp, &content)
 
 	s.Assert().Equal(
 		"hello world\n",
@@ -130,7 +130,7 @@ func (s *FilesSuite) TestFiles_writeContentMutatesAndResyncs() {
 			"content": "updated content\n",
 		},
 	)
-	kit.RequireStatus(s.T(), resp, 204)
+	kit.RequireStatus(s.T(), resp, 200)
 	resp.Body.Close()
 
 	resp = s.Env.GET(
@@ -140,7 +140,7 @@ func (s *FilesSuite) TestFiles_writeContentMutatesAndResyncs() {
 	kit.RequireStatus(s.T(), resp, 200)
 
 	var content map[string]any
-	kit.DecodeJSON(s.T(), resp, &content)
+	kit.DecodeEnvData(s.T(), resp, &content)
 
 	s.Assert().Equal(
 		"updated content\n",
@@ -164,12 +164,12 @@ func (s *FilesSuite) TestFiles_createFileAppearsInTree() {
 
 	resp = s.Env.GET(
 		s.T(),
-		"/v0/workspaces/"+s.wsID+"/files?path=.",
+		"/v0/workspaces/"+s.wsID+"/files/tree?path=.",
 	)
 	kit.RequireStatus(s.T(), resp, 200)
 
 	var nodes []map[string]any
-	kit.DecodeJSON(s.T(), resp, &nodes)
+	kit.DecodeEnvData(s.T(), resp, &nodes)
 
 	s.Assert().Contains(
 		nodeNames(nodes),
@@ -193,12 +193,12 @@ func (s *FilesSuite) TestFiles_createDirAppearsInTree() {
 
 	resp = s.Env.GET(
 		s.T(),
-		"/v0/workspaces/"+s.wsID+"/files?path=.",
+		"/v0/workspaces/"+s.wsID+"/files/tree?path=.",
 	)
 	kit.RequireStatus(s.T(), resp, 200)
 
 	var nodes []map[string]any
-	kit.DecodeJSON(s.T(), resp, &nodes)
+	kit.DecodeEnvData(s.T(), resp, &nodes)
 
 	s.Assert().Contains(
 		nodeNames(nodes),
@@ -213,8 +213,8 @@ func (s *FilesSuite) TestFiles_renameMovesPath() {
 		s.T(),
 		"/v0/workspaces/"+s.wsID+"/files",
 		map[string]any{
-			"from": "hello.txt",
-			"to":   "renamed.txt",
+			"path":    "hello.txt",
+			"newPath": "renamed.txt",
 		},
 	)
 	kit.RequireStatus(s.T(), resp, 200)
@@ -222,12 +222,12 @@ func (s *FilesSuite) TestFiles_renameMovesPath() {
 
 	resp = s.Env.GET(
 		s.T(),
-		"/v0/workspaces/"+s.wsID+"/files?path=.",
+		"/v0/workspaces/"+s.wsID+"/files/tree?path=.",
 	)
 	kit.RequireStatus(s.T(), resp, 200)
 
 	var nodes []map[string]any
-	kit.DecodeJSON(s.T(), resp, &nodes)
+	kit.DecodeEnvData(s.T(), resp, &nodes)
 
 	names := nodeNames(nodes)
 	s.Assert().Contains(
@@ -247,17 +247,17 @@ func (s *FilesSuite) TestFiles_deleteRemovesFromTree() {
 		s.T(),
 		"/v0/workspaces/"+s.wsID+"/files?path=hello.txt",
 	)
-	kit.RequireStatus(s.T(), resp, 204)
+	kit.RequireStatus(s.T(), resp, 200)
 	resp.Body.Close()
 
 	resp = s.Env.GET(
 		s.T(),
-		"/v0/workspaces/"+s.wsID+"/files?path=.",
+		"/v0/workspaces/"+s.wsID+"/files/tree?path=.",
 	)
 	kit.RequireStatus(s.T(), resp, 200)
 
 	var nodes []map[string]any
-	kit.DecodeJSON(s.T(), resp, &nodes)
+	kit.DecodeEnvData(s.T(), resp, &nodes)
 
 	s.Assert().NotContains(
 		nodeNames(nodes),
