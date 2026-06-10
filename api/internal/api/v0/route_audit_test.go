@@ -55,7 +55,7 @@ func specRoutes() []string {
 		"PATCH /v0/chats/:id",
 		"DELETE /v0/chats/:id",
 		// §2.4 Files
-		"GET /v0/workspaces/:wsId/files",
+		"GET /v0/workspaces/:wsId/files/tree",
 		"GET /v0/workspaces/:wsId/files/content",
 		"PUT /v0/workspaces/:wsId/files/content",
 		"POST /v0/workspaces/:wsId/files",
