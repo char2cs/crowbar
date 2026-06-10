@@ -45,11 +45,20 @@ func (stubImporter) Import(
 	return domain.Project{}, nil
 }
 
+type stubDeleter struct{}
+
+func (stubDeleter) Delete(
+	_ context.Context,
+	_ string,
+) error {
+	return nil
+}
+
 func TestRegisterMountsRoutes(
 	t *testing.T,
 ) {
 	r := gin.New()
-	projects.Register(r.Group("/v0"), stubReader{}, stubImporter{})
+	projects.Register(r.Group("/v0"), stubReader{}, stubImporter{}, stubDeleter{})
 
 	cases := []struct {
 		method string
@@ -58,6 +67,7 @@ func TestRegisterMountsRoutes(
 		{http.MethodGet, "/v0/projects"},
 		{http.MethodPost, "/v0/projects"},
 		{http.MethodGet, "/v0/projects/abc"},
+		{http.MethodDelete, "/v0/projects/abc"},
 	}
 	for _, tc := range cases {
 		rec := httptest.NewRecorder()

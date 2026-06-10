@@ -15,6 +15,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	projecthandlers "github.com/char2cs/crowbar/api/internal/api/v0/endpoints/projects/handlers"
+	"github.com/char2cs/crowbar/api/internal/app/apperr"
 	"github.com/char2cs/crowbar/api/internal/domain"
 )
 
@@ -62,16 +63,38 @@ func (f *fakeImporter) Import(
 	return f.project, f.err
 }
 
+type fakeDeleter struct {
+	err   error
+	gotID string
+}
+
+func (f *fakeDeleter) Delete(
+	_ context.Context,
+	id string,
+) error {
+	f.gotID = id
+	return f.err
+}
+
 func newRouter(
 	reader projecthandlers.ListGetter,
 	importer projecthandlers.Importer,
 ) *gin.Engine {
+	return newRouterWithDeleter(reader, importer, &fakeDeleter{})
+}
+
+func newRouterWithDeleter(
+	reader projecthandlers.ListGetter,
+	importer projecthandlers.Importer,
+	deleter projecthandlers.Deleter,
+) *gin.Engine {
 	r := gin.New()
-	h := projecthandlers.New(reader, importer)
+	h := projecthandlers.New(reader, importer, deleter)
 	rg := r.Group("/v0")
 	rg.GET("/projects", h.List)
 	rg.POST("/projects", h.Import)
 	rg.GET("/projects/:id", h.Detail)
+	rg.DELETE("/projects/:id", h.Delete)
 	return r
 }
 
@@ -223,6 +246,64 @@ func TestImportMissingPath(
 		`{"name":"gamma"}`,
 	)
 	assert.Equal(t, http.StatusBadRequest, rec.Code)
+}
+
+func TestDeleteSuccess(
+	t *testing.T,
+) {
+	deleter := &fakeDeleter{}
+	rec := do(
+		newRouterWithDeleter(&fakeReader{}, &fakeImporter{}, deleter),
+		http.MethodDelete,
+		"/v0/projects/p1",
+		"",
+	)
+
+	assert.Equal(t, http.StatusOK, rec.Code)
+	var body struct {
+		Success bool `json:"success"`
+		Data    struct {
+			ID string `json:"id"`
+		} `json:"data"`
+	}
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &body))
+	assert.True(t, body.Success)
+	assert.Equal(t, "p1", body.Data.ID)
+	assert.Equal(t, "p1", deleter.gotID)
+}
+
+func TestDeleteNotFound(
+	t *testing.T,
+) {
+	deleter := &fakeDeleter{err: apperr.ErrNotFound}
+	rec := do(
+		newRouterWithDeleter(&fakeReader{}, &fakeImporter{}, deleter),
+		http.MethodDelete,
+		"/v0/projects/nope",
+		"",
+	)
+
+	assert.Equal(t, http.StatusNotFound, rec.Code)
+	var body struct {
+		Success bool   `json:"success"`
+		Error   string `json:"error"`
+	}
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &body))
+	assert.False(t, body.Success)
+	assert.NotEmpty(t, body.Error)
+}
+
+func TestDeleteUsecaseError(
+	t *testing.T,
+) {
+	deleter := &fakeDeleter{err: errors.New("boom")}
+	rec := do(
+		newRouterWithDeleter(&fakeReader{}, &fakeImporter{}, deleter),
+		http.MethodDelete,
+		"/v0/projects/p1",
+		"",
+	)
+	assert.Equal(t, http.StatusInternalServerError, rec.Code)
 }
 
 func TestImportUsecaseError(

@@ -31,6 +31,7 @@ type GORMStores struct {
 type Container struct {
 	Project       project.Usecase
 	ProjectImport project.ImportUsecase
+	ProjectDelete project.DeleteUsecase
 	Workspace     workspace.Usecase
 	Chat          chat.Usecase
 	File          file.Usecase
@@ -91,6 +92,12 @@ func New(
 		RefRunner:  newRefRunner,
 		Now:        nowFunc,
 	})
+	projectDelete := project.NewDelete(project.DeleteDeps{
+		Projects:   gormStores.Projects,
+		Repos:      gormStores.Repositories,
+		Workspaces: repos.Workspace,
+		Git:        engines.Git,
+	})
 	worktreeUsecase := worktree.New(
 		repos.Workspace,
 		engines.Git,
@@ -109,6 +116,7 @@ func New(
 	return &Container{
 		Project:       projectUsecase,
 		ProjectImport: projectImport,
+		ProjectDelete: projectDelete,
 		Workspace:     workspaceUsecase,
 		Chat:          chatUsecase,
 		File:          fileUsecase,

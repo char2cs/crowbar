@@ -28,6 +28,7 @@ func (c *Container) Register(
 		rg,
 		c.app.Usecases.Project,
 		c.app.Usecases.ProjectImport,
+		c.app.Usecases.ProjectDelete,
 	)
 	repos.Register(
 		rg,

@@ -147,9 +147,11 @@ func specRoutes() []string {
 }
 
 // extraRoutes is the documented superset registered beyond the core spec:
-// LSP document-sync notifications (04 §3, 10).
+// project deletion (record-only cascade) and LSP document-sync notifications
+// (04 §3, 10).
 func extraRoutes() []string {
 	return []string{
+		"DELETE /v0/projects/:id",
 		"POST /v0/workspaces/:wsId/lsp/didOpen",
 		"POST /v0/workspaces/:wsId/lsp/didChange",
 		"POST /v0/workspaces/:wsId/lsp/didClose",
