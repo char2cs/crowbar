@@ -3,6 +3,7 @@ package project_test
 import (
 	"context"
 	"errors"
+	"os"
 	"testing"
 	"time"
 
@@ -56,8 +57,17 @@ func newImport(
 		Now: func() time.Time {
 			return time.Unix(1000, 0).UTC()
 		},
+		Stat: statExists,
 	})
 	return projects, repos, ws, git, prov, uc
+}
+
+// statExists stubs ImportDeps.Stat so the fake "/root" import path passes the
+// existence check without touching the real filesystem.
+func statExists(
+	_ string,
+) (os.FileInfo, error) {
+	return nil, nil
 }
 
 func TestImport_CreatesProjectReposAndAdoptsWorktrees(
@@ -127,11 +137,47 @@ func TestImport_DiscoverError(
 		) defaultbranch.RefRunner {
 			return func(args ...string) (string, bool) { return "", false }
 		},
-		Now: time.Now,
+		Now:  time.Now,
+		Stat: statExists,
 	})
 
 	_, err := uc.Import(context.Background(), "P", "/root")
 	assert.Error(t, err)
+}
+
+func TestImport_FolderNotExist_PersistsNothing(
+	t *testing.T,
+) {
+	// BUG-006/BUG-005: importing a nonexistent path must fail with the clean
+	// ErrFolderNotFound sentinel BEFORE the project row is persisted, so a
+	// failed import leaves no project behind.
+	projects, repos, ws, _, _, _ := newImport(t)
+	uc := project.NewImport(project.ImportDeps{
+		Projects:   projects,
+		Repos:      repos,
+		Workspaces: ws,
+		Git:        mocks.NewGitEngine(),
+		Provider:   mocks.NewProviderEngine(),
+		Discover: func(
+			root string,
+			maxDepth int,
+		) ([]string, error) {
+			return nil, nil
+		},
+		RefRunner: func(
+			repoPath string,
+		) defaultbranch.RefRunner {
+			return func(args ...string) (string, bool) { return "", false }
+		},
+		Now: time.Now,
+	})
+
+	_, err := uc.Import(context.Background(), "P", "/nonexistent/path/x")
+	require.ErrorIs(t, err, project.ErrFolderNotFound)
+	assert.Equal(t, "folder does not exist", err.Error())
+	assert.Empty(t, projects.Saved, "failed import must not persist the project")
+	assert.Empty(t, repos.Saved)
+	assert.Empty(t, ws.Created)
 }
 
 func TestImport_RepoSaveError_IsTolerated(
@@ -285,7 +331,8 @@ func TestImport_PartialRepoFailure(
 		) defaultbranch.RefRunner {
 			return func(args ...string) (string, bool) { return "", false }
 		},
-		Now: func() time.Time { return time.Unix(1000, 0).UTC() },
+		Now:  func() time.Time { return time.Unix(1000, 0).UTC() },
+		Stat: statExists,
 	})
 
 	project, err := uc.Import(context.Background(), "My Project", "/root")

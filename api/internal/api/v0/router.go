@@ -52,6 +52,7 @@ func (c *Container) Register(
 		rg,
 		c.app.Usecases.Chat,
 		c.app.Repositories.Chat,
+		c.app.Repositories.Workspace,
 		c.chats.Handle,
 		c.chatStream.Handle,
 	)

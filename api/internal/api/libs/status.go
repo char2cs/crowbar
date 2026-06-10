@@ -8,6 +8,7 @@ import (
 	asynxmodels "github.com/char2cs/asynx/models"
 
 	"github.com/char2cs/crowbar/api/internal/app/apperr"
+	"github.com/char2cs/crowbar/api/internal/app/usecases/project"
 	"github.com/char2cs/crowbar/api/internal/app/usecases/worktree"
 	enginegit "github.com/char2cs/crowbar/api/internal/engine/git"
 	enginesearch "github.com/char2cs/crowbar/api/internal/engine/search"
@@ -23,8 +24,10 @@ import (
 //
 //   - 404 Not Found      — apperr.ErrNotFound, engineterminal.ErrSessionNotFound,
 //     asynxmodels.ErrNotFound (the asynx aggregate-not-found sentinel surfaced
-//     by the aggregate usecases), and fs.ErrNotExist (the raw filesystem
-//     not-found error wrapped up from the fs engine).
+//     by the aggregate usecases), fs.ErrNotExist (the raw filesystem
+//     not-found error wrapped up from the fs engine), and
+//     project.ErrFolderNotFound (a project import targeting a path that does
+//     not exist on disk).
 //   - 400 Bad Request    — enginesearch.ErrBadPattern,
 //     enginesearch.ErrPathOutsideWorkspace.
 //   - 403 Forbidden       — enginegit.ErrAuthFailed (remote rejected the
@@ -33,7 +36,8 @@ import (
 //   - 409 Conflict        — apperr.ErrLocked (a write against a locked,
 //     provider-protected workspace; 04 §5, 05 §3/§4), enginesearch.ErrLocked,
 //     the worktree lock / non-leaf sentinels (ErrParentLocked,
-//     ErrNewParentLocked, ErrRebaseNonLeaf, ErrChildHasChildren), and the git
+//     ErrNewParentLocked, ErrWorkspaceLocked, ErrRebaseNonLeaf,
+//     ErrChildHasChildren), and the git
 //     engine's classified conflict sentinels (ErrConflict, ErrDirtyTree,
 //     ErrRejectedNonFastForward, ErrNothingToCommit, ErrStaleHunk,
 //     ErrHasChildren).
@@ -52,7 +56,8 @@ func StatusAndMessage(
 	if errors.Is(err, apperr.ErrNotFound) ||
 		errors.Is(err, engineterminal.ErrSessionNotFound) ||
 		errors.Is(err, asynxmodels.ErrNotFound) ||
-		errors.Is(err, fs.ErrNotExist) {
+		errors.Is(err, fs.ErrNotExist) ||
+		errors.Is(err, project.ErrFolderNotFound) {
 		return http.StatusNotFound, err.Error()
 	}
 
@@ -80,7 +85,8 @@ func isConflict(
 	if errors.Is(err, apperr.ErrLocked) ||
 		errors.Is(err, enginesearch.ErrLocked) ||
 		errors.Is(err, worktree.ErrParentLocked) ||
-		errors.Is(err, worktree.ErrNewParentLocked) {
+		errors.Is(err, worktree.ErrNewParentLocked) ||
+		errors.Is(err, worktree.ErrWorkspaceLocked) {
 		return true
 	}
 

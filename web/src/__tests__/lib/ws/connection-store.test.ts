@@ -1,14 +1,21 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 
 class MockWebSocket {
+  // vi.stubGlobal replaces the real WebSocket, so the mock must carry the
+  // standard readyState constants — production code compares against them.
+  static CONNECTING = 0
+  static OPEN = 1
+  static CLOSING = 2
+  static CLOSED = 3
   static instances: MockWebSocket[] = []
   onmessage: ((e: MessageEvent) => void) | null = null
   onclose: (() => void) | null = null
   onopen: (() => void) | null = null
   onerror: (() => void) | null = null
-  readyState: number = WebSocket.OPEN
+  readyState: number = MockWebSocket.OPEN
   send = vi.fn()
   close = vi.fn()
+  addEventListener = vi.fn()
   constructor(public url: string) {
     MockWebSocket.instances.push(this)
   }
@@ -16,7 +23,7 @@ class MockWebSocket {
     this.onopen?.()
   }
   simulateClose() {
-    this.readyState = WebSocket.CLOSED
+    this.readyState = MockWebSocket.CLOSED
     this.onclose?.()
   }
 }

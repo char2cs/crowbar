@@ -18,3 +18,9 @@ var ErrChildHasChildren = errors.New("usecases: child has children")
 // ErrNewParentLocked is returned when a re-parent targets a locked new parent
 // workspace (07 §4).
 var ErrNewParentLocked = errors.New("usecases: new parent is locked")
+
+// ErrWorkspaceLocked is returned when a cascade delete targets a locked root
+// workspace. The guard runs before any destructive side effect (worktree
+// removal, branch delete), so a locked workspace is rejected cleanly instead
+// of failing midway with a raw git error. Handlers map it to HTTP 409.
+var ErrWorkspaceLocked = errors.New("workspace is locked")

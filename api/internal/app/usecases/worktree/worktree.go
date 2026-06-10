@@ -10,6 +10,7 @@ import (
 	"github.com/google/uuid"
 
 	"github.com/char2cs/crowbar/api/internal/adapter/store"
+	"github.com/char2cs/crowbar/api/internal/app/apperr"
 	"github.com/char2cs/crowbar/api/internal/app/repositories/workspace"
 	"github.com/char2cs/crowbar/api/internal/app/usecases/internal/cascade"
 	"github.com/char2cs/crowbar/api/internal/app/usecases/internal/worktreepath"
@@ -383,8 +384,15 @@ func (u *worktreeUsecase) DeleteCascade(
 	if err != nil {
 		return fmt.Errorf("delete cascade: list: %w", err)
 	}
-	order := cascade.Plan(rootID, nodesFrom(all))
 	index := indexByID(all)
+	root, ok := index[rootID]
+	if !ok {
+		return fmt.Errorf("delete cascade: workspace %s: %w", rootID, apperr.ErrNotFound)
+	}
+	if root.Locked {
+		return ErrWorkspaceLocked
+	}
+	order := cascade.Plan(rootID, nodesFrom(all))
 	for _, id := range order {
 		if removeErr := u.removeOne(ctx, index[id]); removeErr != nil {
 			return fmt.Errorf("delete cascade: remove %s: %w", id, removeErr)

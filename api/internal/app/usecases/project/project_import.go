@@ -2,8 +2,11 @@ package project
 
 import (
 	"context"
+	"errors"
 	"fmt"
+	"io/fs"
 	"log/slog"
+	"os"
 	"path/filepath"
 	"time"
 
@@ -93,6 +96,10 @@ type ImportDeps struct {
 	Discover   DiscoverFunc
 	RefRunner  RefRunnerFactory
 	Now        func() time.Time
+	// Stat probes the import path before anything is persisted, so a failed
+	// import leaves no project behind. Defaults to os.Stat when nil; tests
+	// stub it to avoid touching the real filesystem.
+	Stat func(name string) (os.FileInfo, error)
 }
 
 // ImportUsecase imports a directory tree as a Project: it creates the
@@ -114,6 +121,9 @@ type projectImport struct {
 func NewImport(
 	deps ImportDeps,
 ) ImportUsecase {
+	if deps.Stat == nil {
+		deps.Stat = os.Stat
+	}
 	return &projectImport{deps: deps}
 }
 
@@ -122,6 +132,9 @@ func (u *projectImport) Import(
 	name string,
 	path string,
 ) (domain.Project, error) {
+	if err := u.validateImportPath(path); err != nil {
+		return domain.Project{}, err
+	}
 	project := domain.Project{
 		ID:           uuid.NewString(),
 		Name:         name,
@@ -244,6 +257,19 @@ func (u *projectImport) forkPoint(
 		return ""
 	}
 	return sha
+}
+
+func (u *projectImport) validateImportPath(
+	path string,
+) error {
+	_, err := u.deps.Stat(path)
+	if errors.Is(err, fs.ErrNotExist) {
+		return ErrFolderNotFound
+	}
+	if err != nil {
+		return fmt.Errorf("project import: stat path: %w", err)
+	}
+	return nil
 }
 
 func toSet(

@@ -50,9 +50,21 @@ function toSidebarWorkspace(ws: WorkspaceDTO): Workspace {
 export function buildRepoTree(repos: RepoDTO[], workspaces: WorkspaceDTO[]): Repo[] {
   return repos.map((repo) => ({
     id: repo.id,
+    projectId: repo.projectId,
     name: repo.name,
     avatarLabel: repo.avatarLabel,
     avatarColor: repo.avatarColor,
     workspaces: workspaces.filter((ws) => ws.repoId === repo.id).map(toSidebarWorkspace),
   }))
+}
+
+// countReposByProject derives the per-project repo count the project cards
+// show, from the same repo list the sidebar already fetched.
+export function countReposByProject(repos: Array<{ projectId?: string }>): Map<string, number> {
+  const counts = new Map<string, number>()
+  for (const repo of repos) {
+    if (!repo.projectId) continue
+    counts.set(repo.projectId, (counts.get(repo.projectId) ?? 0) + 1)
+  }
+  return counts
 }

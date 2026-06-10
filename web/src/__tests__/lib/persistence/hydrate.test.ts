@@ -20,6 +20,7 @@ vi.mock('@/components/ui/toast', async (importOriginal) => {
 })
 
 import { hydrateWorkspace, hydratePreferences, hydrateSidebar } from '@/lib/persistence/hydrate'
+import { ApiError } from '@/lib/api'
 import { getDB, resetDB } from '@/lib/persistence/idb'
 import type { WorkspaceLayout, UIPreferences, EditorState } from '@/lib/persistence/schemas'
 import {
@@ -260,6 +261,53 @@ describe('hydrateWorkspace — restored buffer reconciliation (BUG-026/BUG-013)'
     expect(readFileMock).not.toHaveBeenCalled()
     expect(getRestoredBuffer().content).toBe('saved content')
     expect(toastWarning).not.toHaveBeenCalled()
+  })
+
+  // BUG-001: a restored tab for a file that no longer exists must become a
+  // terminal "file not found" state — flagged once, never re-fetched.
+  it('flags the buffer fileMissing when the content load 404s', async () => {
+    await seedLayoutWithBuffers([makeEditorBuffer()])
+    readFileMock.mockRejectedValue(new ApiError('file not found', 404))
+
+    await hydrateWorkspace(WS)
+
+    const buf = getRestoredBuffer()
+    expect(readFileMock).toHaveBeenCalledTimes(1)
+    expect(buf.fileMissing).toBe(true)
+    // Content untouched — closing the tab or restoring the file is the way out.
+    expect(buf.content).toBe('saved content')
+  })
+
+  it('keeps the editor (no fileMissing) for a dirty buffer whose file 404s', async () => {
+    await seedLayoutWithBuffers([
+      makeEditorBuffer({ content: 'unsaved user edits', isDirty: true }),
+    ])
+    readFileMock.mockRejectedValue(new ApiError('file not found', 404))
+
+    await hydrateWorkspace(WS)
+
+    const buf = getRestoredBuffer()
+    // The unsaved edits are the only copy left; saving recreates the file.
+    expect(buf.fileMissing).toBeUndefined()
+    expect(buf.content).toBe('unsaved user edits')
+  })
+
+  it('does not flag fileMissing on non-404 errors (transient failures)', async () => {
+    await seedLayoutWithBuffers([makeEditorBuffer()])
+    readFileMock.mockRejectedValue(new ApiError('backend exploded', 500))
+
+    await hydrateWorkspace(WS)
+
+    expect(getRestoredBuffer().fileMissing).toBeUndefined()
+  })
+
+  it('clears a persisted fileMissing flag when the file is back on disk', async () => {
+    await seedLayoutWithBuffers([makeEditorBuffer({ fileMissing: true })])
+    readFileMock.mockResolvedValue('saved content')
+
+    await hydrateWorkspace(WS)
+
+    expect(getRestoredBuffer().fileMissing).toBe(false)
   })
 })
 

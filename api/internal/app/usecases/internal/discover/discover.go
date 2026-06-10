@@ -9,7 +9,9 @@ import (
 )
 
 // Repos returns the absolute paths of every directory at or shallower than
-// maxDepth (measured from root) that contains a direct .git child. Descent
+// maxDepth (measured from root) that contains a direct .git directory.
+// A directory whose .git is a file (a gitdir pointer, i.e. a linked worktree
+// or submodule checkout) is not a repo of its own and is skipped. Descent
 // stops at any found repo so nested repos are never returned. maxDepth=1
 // means only direct children of root are scanned.
 func Repos(
@@ -41,11 +43,16 @@ func (w *walker) visit(
 		return err
 	}
 
-	// A .git entry marks a repo whether it is a directory (normal checkout) or
-	// a file (worktree / submodule pointer). Check it before the directory
-	// guard so file-based markers are not skipped.
+	// Only a .git DIRECTORY marks a repo (normal checkout). A .git FILE is a
+	// gitdir pointer (linked worktree / submodule): the checkout belongs to
+	// another repo, so it must not be discovered as a repo of its own —
+	// otherwise importing a repo that contains linked worktrees registers each
+	// worktree as a separate repo and adopts every worktree once per "repo".
+	// Either way the containing directory is not descended further.
 	if d.Name() == ".git" {
-		w.found = append(w.found, filepath.Dir(path))
+		if d.IsDir() {
+			w.found = append(w.found, filepath.Dir(path))
+		}
 		return filepath.SkipDir
 	}
 

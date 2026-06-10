@@ -7,7 +7,8 @@ import {
   useState,
   type ReactNode,
 } from 'react'
-import { useSidebarStore } from '@/lib/store/sidebar'
+import { useNavigate, useRouter } from '@tanstack/react-router'
+import { getPostDeleteNavigationTarget, useSidebarStore } from '@/lib/store/sidebar'
 import { reparentWorkspace } from '@/lib/api/workspace'
 import { postWorkspace, deleteWorkspace as apiDeleteWorkspace } from '@/lib/api'
 import { toast } from '@/components/ui/toast'
@@ -106,6 +107,20 @@ export function useWorkspaceTreeContext() {
   return ctx
 }
 
+// A completed drag still produces a click on the captured row (pointerdown +
+// pointerup on the same element), which would select/navigate into the
+// dragged workspace. Swallow that one click in the capture phase.
+function suppressNextClick(): void {
+  const swallow = (e: MouseEvent) => {
+    e.stopPropagation()
+    e.preventDefault()
+  }
+  window.addEventListener('click', swallow, { capture: true, once: true })
+  // The click (if any) fires synchronously after pointerup; drop the trap
+  // right after so a later real click is never swallowed.
+  setTimeout(() => window.removeEventListener('click', swallow, { capture: true }), 0)
+}
+
 // Skips the dragging workspace itself to prevent self-drop flicker
 function findDropTarget(x: number, y: number, draggingId: string | null): string | null {
   const els = document.elementsFromPoint(x, y)
@@ -121,6 +136,8 @@ function findDropTarget(x: number, y: number, draggingId: string | null): string
 }
 
 export function WorkspaceTreeProvider({ children }: { children: ReactNode }) {
+  const navigate = useNavigate()
+  const router = useRouter()
   const [creatingChildOf, setCreatingChildOf] = useState<CreatingState | null>(null)
   const [renamingId, setRenamingId] = useState<string | null>(null)
   const [draggingWs, setDraggingWs] = useState<DraggingState | null>(null)
@@ -214,10 +231,32 @@ export function WorkspaceTreeProvider({ children }: { children: ReactNode }) {
       const ws = draggingRef.current
       if (!ws) return
 
+      // The browser fires a click for this pointerup on the captured row;
+      // a drop must never double as a row click (selection/navigation).
+      suppressNextClick()
+
       const target = findDropTarget(e.clientX, e.clientY, ws.id)
 
       if (target === 'trash') {
-        void performDeleteWorkspace(ws.id)
+        // Resolve the fallback before deletion mutates the store.
+        const fallbackWsId = getPostDeleteNavigationTarget(useSidebarStore.getState().repos, ws.id)
+        void performDeleteWorkspace(ws.id).then(() => {
+          // If the active workspace no longer exists (it was the dragged one
+          // or a deleted descendant), leave the dead route: go to the parent
+          // / repo base workspace, or the projects page as last resort.
+          const pathname = router.state.location.pathname
+          const activeId = pathname.match(/\/workspaces\/([^/]+)/)?.[1]
+          if (!activeId) return
+          const stillExists = useSidebarStore
+            .getState()
+            .repos.some((r) => r.workspaces.some((w) => w.id === activeId))
+          if (stillExists) return
+          if (fallbackWsId) {
+            void navigate({ to: '/workspaces/$wsId', params: { wsId: fallbackWsId } })
+          } else {
+            void navigate({ to: '/projects' })
+          }
+        })
       } else if (target?.startsWith('ws:')) {
         const targetWsId = target.slice(3)
         if (targetWsId !== ws.id) {
@@ -258,7 +297,7 @@ export function WorkspaceTreeProvider({ children }: { children: ReactNode }) {
       window.removeEventListener('pointerup', onPointerUp)
       window.removeEventListener('pointercancel', onPointerCancel)
     }
-  }, [])
+  }, [navigate, router])
 
   return (
     <WorkspaceTreeContext.Provider

@@ -4,6 +4,21 @@ import { useChaosStore } from '@/lib/store/chaos'
 const crowbar = (window as unknown as { __CROWBAR__?: { api?: string } }).__CROWBAR__
 export const API_BASE: string = crowbar?.api ?? import.meta.env.VITE_API_URL ?? ''
 
+/** Error thrown by apiFetch carrying the HTTP status, so callers can make
+ *  status-specific decisions (e.g. a 404 is terminal — never retried). */
+export class ApiError extends Error {
+  readonly status: number
+  constructor(message: string, status: number) {
+    super(message)
+    this.name = 'ApiError'
+    this.status = status
+  }
+}
+
+export function isNotFoundError(err: unknown): boolean {
+  return err instanceof ApiError && err.status === 404
+}
+
 export async function apiFetch<T>(path: string, init?: RequestInit): Promise<T> {
   const { latency, errorRate, scenario, faults } = useChaosStore.getState()
   const chaosHeaders: Record<string, string> = {}
@@ -30,7 +45,7 @@ export async function apiFetch<T>(path: string, init?: RequestInit): Promise<T> 
     return undefined as T
   }
   if (!res.ok || !body?.success) {
-    throw new Error(body?.error ?? `${res.status} ${res.statusText}`)
+    throw new ApiError(body?.error ?? `${res.status} ${res.statusText}`, res.status)
   }
   return body.data as T
 }

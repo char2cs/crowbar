@@ -54,7 +54,14 @@ export async function syncBufferWithDisk(wsStore: WorkspaceStore, path: string):
   wsStore.setState((state) => ({
     buffers: state.buffers.map((b) =>
       isEditorContent(b) && !b.isVirtual && b.path === path && !b.isDirty
-        ? { ...b, content, savedContent: content, isDirty: false, hasExternalChange: false }
+        ? {
+            ...b,
+            content,
+            savedContent: content,
+            isDirty: false,
+            hasExternalChange: false,
+            fileMissing: false,
+          }
         : b,
     ),
   }))

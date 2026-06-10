@@ -35,6 +35,8 @@ export interface Workspace {
 
 export interface Repo {
   id: string
+  /** Owning project — used to derive the active project from a workspace route. */
+  projectId?: string
   name: string
   avatarLabel: string
   avatarColor: string
@@ -63,6 +65,53 @@ interface SidebarState {
   toggleWorkspace: (wsId: string) => void
   setActiveTab: (tab: SidebarTab) => void
   setRepos: (repos: Repo[]) => void
+  /**
+   * Merge freshly fetched repos into the tree without clobbering local state:
+   * unknown repos are appended, and unknown workspaces are appended to repos
+   * that already exist. Existing entries (with their hierarchy overlays and
+   * optimistic edits) are left untouched.
+   */
+  mergeRepos: (repos: Repo[]) => void
+}
+
+/**
+ * Collect the workspace ids that deleting `wsId` removes: the target plus all
+ * descendants, skipping locked subtrees — mirrors `deleteWorkspace` above.
+ */
+function collectDeletedIds(allWorkspaces: Workspace[], wsId: string): Set<string> {
+  const toDelete = new Set<string>()
+  const queue = [wsId]
+  while (queue.length > 0) {
+    const id = queue.shift()!
+    if (toDelete.has(id)) continue
+    const ws = allWorkspaces.find((w) => w.id === id)
+    if (ws?.status === 'locked') continue
+    toDelete.add(id)
+    for (const child of allWorkspaces.filter((w) => w.parentId === id)) {
+      queue.push(child.id)
+    }
+  }
+  return toDelete
+}
+
+/**
+ * Where to navigate after deleting `wsId` while it (or one of its
+ * descendants) is the active workspace: its parent if it survives, else the
+ * repo's base (locked) workspace, else any surviving workspace in the repo,
+ * else null (→ caller falls back to the projects page).
+ */
+export function getPostDeleteNavigationTarget(repos: Repo[], wsId: string): string | null {
+  const repo = repos.find((r) => r.workspaces.some((w) => w.id === wsId))
+  if (!repo) return null
+  const ws = repo.workspaces.find((w) => w.id === wsId)!
+  const deleted = collectDeletedIds(
+    repos.flatMap((r) => r.workspaces),
+    wsId,
+  )
+  if (ws.parentId && !deleted.has(ws.parentId)) return ws.parentId
+  const survivors = repo.workspaces.filter((w) => !deleted.has(w.id))
+  const base = survivors.find((w) => w.status === 'locked')
+  return (base ?? survivors[0])?.id ?? null
 }
 
 export function getInitialState() {
@@ -196,6 +245,30 @@ export const useSidebarStore = create<SidebarState>()((set) => ({
   setActiveTab: (tab) => set({ activeTab: tab }),
 
   setRepos: (repos) => set({ repos }),
+
+  mergeRepos: (incoming) =>
+    set((s) => {
+      let changed = false
+      const next = [...s.repos]
+      const byId = new Map(next.map((r, i) => [r.id, i]))
+      for (const repo of incoming) {
+        const idx = byId.get(repo.id)
+        if (idx === undefined) {
+          byId.set(repo.id, next.length)
+          next.push(repo)
+          changed = true
+          continue
+        }
+        const existing = next[idx]
+        const known = new Set(existing.workspaces.map((w) => w.id))
+        const added = repo.workspaces.filter((w) => !known.has(w.id))
+        if (added.length > 0) {
+          next[idx] = { ...existing, workspaces: [...existing.workspaces, ...added] }
+          changed = true
+        }
+      }
+      return changed ? { repos: next } : s
+    }),
 }))
 
 // Expose for test reset

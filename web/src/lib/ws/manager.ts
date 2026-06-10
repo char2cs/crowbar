@@ -15,6 +15,19 @@ export interface WSManager {
   send(endpoint: string, data: unknown): void
 }
 
+// Closing a socket that is still CONNECTING makes the browser log
+// "WebSocket is closed before the connection is established" (StrictMode
+// mounts tear channels down before the handshake finishes). Defer the close
+// until the socket opens so the console stays clean; a socket that errors
+// while CONNECTING closes itself and needs no action.
+function closeSocketQuietly(socket: WebSocket): void {
+  if (socket.readyState === WebSocket.CONNECTING) {
+    socket.addEventListener('open', () => socket.close(), { once: true })
+  } else if (socket.readyState === WebSocket.OPEN) {
+    socket.close()
+  }
+}
+
 export function createWSManager(): WSManager {
   const channels = new Map<string, Channel>()
 
@@ -84,11 +97,11 @@ export function createWSManager(): WSManager {
           // subscription was created; close the live socket, not the stale one.
           const current = channels.get(endpoint)
           if (current && current.callbacks === ch.callbacks) {
-            current.socket.close()
+            closeSocketQuietly(current.socket)
             channels.delete(endpoint)
             reportChannelGone(endpoint)
           } else {
-            ch.socket.close()
+            closeSocketQuietly(ch.socket)
           }
         }
       }

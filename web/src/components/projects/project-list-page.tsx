@@ -3,8 +3,12 @@ import { Button } from '@/components/ui/button'
 import { ProjectCard } from './project-card'
 import { ImportProjectModal } from './import-project-modal'
 import { useProjectStore, useProjectDataStore } from '@/lib/store/projects'
+import { useWorkspaceListStore } from '@/lib/store/workspace-list'
+import { useSidebarStore } from '@/lib/store/sidebar'
+import { countReposByProject } from '@/lib/store/build-repo-tree'
 import { useRetry } from '@/lib/store/use-retry'
 import { DataState } from '@/components/ui/data-state'
+import { dataOf } from '@/lib/loadable'
 import type { Project } from '@/lib/types'
 
 interface ProjectListPageProps {
@@ -13,6 +17,8 @@ interface ProjectListPageProps {
 
 export function ProjectListPage({ onSelect }: ProjectListPageProps) {
   const projectsLoadable = useProjectDataStore((s) => s.data)
+  const reposLoadable = useWorkspaceListStore((s) => s.data)
+  const repoCounts = countReposByProject(dataOf(reposLoadable) ?? [])
   const retry = useRetry(useProjectDataStore)
   const activeProjectId = useProjectStore((s) => s.activeProjectId)
   const setActiveProject = useProjectStore((s) => s.setActiveProject)
@@ -27,6 +33,16 @@ export function ProjectListPage({ onSelect }: ProjectListPageProps) {
     addProject(project)
     setImportOpen(false)
     void useProjectDataStore.getState().fetch()
+    // Importing a project also creates its repos + base workspaces on the
+    // backend; refetch the workspace list and merge the result into the
+    // sidebar tree so it populates without a manual reload (BUG-013).
+    void useWorkspaceListStore
+      .getState()
+      .fetch()
+      .then(() => {
+        const repos = dataOf(useWorkspaceListStore.getState().data)
+        if (repos) useSidebarStore.getState().mergeRepos(repos)
+      })
   }
 
   return (
@@ -55,7 +71,7 @@ export function ProjectListPage({ onSelect }: ProjectListPageProps) {
                   key={project.id}
                   project={project}
                   active={project.id === activeProjectId}
-                  repoCount={3}
+                  repoCount={repoCounts.get(project.id) ?? 0}
                   onClick={() => handleSelect(project.id)}
                 />
               ))}

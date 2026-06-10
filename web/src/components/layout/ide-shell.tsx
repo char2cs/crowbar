@@ -8,6 +8,7 @@ import { SidebarTabBar } from './sidebar-tab-bar'
 import { SidebarCarousel } from './sidebar-carousel'
 import { IS_MAC } from '@/utils/platform'
 import { useSidebarStore } from '@/lib/store/sidebar'
+import { useProjectStore } from '@/lib/store/projects'
 import { WorkspaceView } from '@/features/workspace/components/workspace-view'
 import SettingsDialog from '@/features/settings/components/settings-dialog'
 import { TerminalHost } from '@/features/terminal/components/terminal-host'
@@ -54,6 +55,17 @@ export function IDEShell() {
   const activeWorkspaceRepoPath = activeRepo ? `/repos/${activeRepo.id}` : '/repos/default'
   const chatTabLabel = chats.find((c) => c.id === activeChatId)?.title ?? 'Chat'
 
+  // BUG-003: when landing directly on a workspace route, the header project
+  // button showed "Select project" — the active project was never derived from
+  // the workspace being viewed. Keep it in sync with the owning repo's project.
+  const workspaceProjectId = activeRepo?.projectId
+  useEffect(() => {
+    if (!workspaceProjectId) return
+    if (useProjectStore.getState().activeProjectId !== workspaceProjectId) {
+      useProjectStore.getState().setActiveProject(workspaceProjectId)
+    }
+  }, [workspaceProjectId])
+
   // Drive panel collapse/expand from sidebarOpen state (set by SidebarProvider's toggleSidebar)
   useEffect(() => {
     const panel = sidebarPanelRef.current
@@ -94,7 +106,12 @@ export function IDEShell() {
     <div className="flex h-full min-w-0 flex-col overflow-hidden bg-transparent">
       <ErrorBoundary>
         {activeWorkspaceId ? (
-          <WorkspaceView wsId={activeWorkspaceId} />
+          <>
+            <WorkspaceView wsId={activeWorkspaceId} />
+            {/* Route components render null UI but carry route-level guards
+                (e.g. unknown-workspace redirect); they must stay mounted. */}
+            <Outlet />
+          </>
         ) : activeChatId ? (
           <div className="flex h-full flex-col overflow-hidden">
             <div

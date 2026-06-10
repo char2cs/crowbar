@@ -377,6 +377,132 @@ func fileStaged(
 	return false
 }
 
+// BUG-005/BUG-006: importing a nonexistent path must fail with a clean 404
+// error envelope and leave NO project behind. The import once persisted the
+// project row before probing the path, so a typo'd import left a ghost,
+// repo-less project in the sidebar.
+func TestRegression_ImportNonexistentPathLeavesNoProject(t *testing.T) {
+	h := newHarness(t)
+
+	bogus := filepath.Join(t.TempDir(), "does-not-exist")
+	h.postError("/v0/projects", map[string]string{"name": "ghost", "path": bogus},
+		http.StatusNotFound)
+
+	var projects []struct {
+		ID string `json:"id"`
+	}
+	h.get("/v0/projects", &projects)
+	require.Empty(t, projects,
+		"a failed import must not leave a project behind")
+}
+
+// BUG-011: a project root containing a repo AND one of its linked worktrees
+// (git worktree add) must import as exactly ONE repo. Discovery once treated
+// the worktree's .git FILE (gitdir pointer) as a repo marker, registering the
+// worktree as a second repo and adopting every worktree once per "repo" —
+// duplicate workspaces all over the tree.
+func TestRegression_LinkedWorktreeImportsAsOneRepo(t *testing.T) {
+	h := newHarness(t)
+
+	root := t.TempDir()
+	repoPath := filepath.Join(root, "repo")
+	require.NoError(t, os.Mkdir(repoPath, 0o755))
+	runGit(t, repoPath, "init")
+	runGit(t, repoPath, "config", "user.email", "t@t.dev")
+	runGit(t, repoPath, "config", "user.name", "t")
+	runGit(t, repoPath, "checkout", "-b", "main")
+	require.NoError(t, writeFile(repoPath, "README.md", "hello\n"))
+	runGit(t, repoPath, "add", "README.md")
+	runGit(t, repoPath, "commit", "-m", "initial")
+	runGit(t, repoPath, "worktree", "add", "-b", "feature/linked",
+		filepath.Join(root, "wt"))
+
+	var created struct {
+		ID string `json:"id"`
+	}
+	h.post("/v0/projects", map[string]string{"name": "wt-demo", "path": root},
+		http.StatusCreated, &created)
+
+	repos := listRepos(t, h, created.ID)
+	require.Len(t, repos, 1,
+		"a repo plus its linked worktree must discover as ONE repo")
+
+	var workspaces []workspaceDTO
+	h.get("/v0/workspaces?repoId="+repos[0].ID, &workspaces)
+	require.Len(t, workspaces, 2,
+		"both worktrees (main + linked) must each be adopted exactly once")
+
+	branches := map[string]int{}
+	for _, ws := range workspaces {
+		branches[ws.Branch]++
+	}
+	require.Equal(t, map[string]int{"main": 1, "feature/linked": 1}, branches,
+		"each worktree must register as exactly one workspace")
+}
+
+// BUG-008: reads scoped to a workspace id that does not exist must 404 with an
+// error envelope. git/status and files/tree once 500'd on the not-found
+// sentinel, and chats answered 200 with an empty list — the frontend rendered
+// an empty-but-healthy panel for a deleted workspace.
+func TestRegression_BogusWorkspaceReadsAre404(t *testing.T) {
+	h := newHarness(t)
+
+	base := "/v0/workspaces/no-such-workspace"
+	for _, path := range []string{
+		base + "/git/status",
+		base + "/files/tree",
+		base + "/chats",
+	} {
+		resp := h.raw(http.MethodGet, path, nil, http.StatusNotFound)
+
+		var env struct {
+			Success bool   `json:"success"`
+			Error   string `json:"error"`
+		}
+		require.NoError(t, json.NewDecoder(resp.Body).Decode(&env), "GET %s", path)
+		_ = resp.Body.Close()
+
+		require.False(t, env.Success, "GET %s must carry an error envelope", path)
+		require.NotEmpty(t, env.Error, "GET %s error envelope must carry a message", path)
+	}
+}
+
+// BUG-009: deleting a locked (provider-protected) workspace must reject with a
+// 409 error envelope and leave the workspace in place. DeleteCascade once
+// silently skipped locked rows and answered 200, so the UI removed the row
+// while the backend kept it — and an unknown id likewise "succeeded" instead
+// of 404ing.
+func TestRegression_DeleteLockedWorkspaceRejected(t *testing.T) {
+	h := newHarness(t)
+	imported := importProject(t, h)
+
+	// The adopted main worktree is locked: "main" is a default protected branch.
+	var ws workspaceDTO
+	h.get("/v0/workspaces/"+imported.workspaceID, &ws)
+	require.True(t, ws.Locked, "adopted main worktree must be locked")
+
+	resp := h.raw(http.MethodDelete, "/v0/workspaces/"+imported.workspaceID, nil,
+		http.StatusConflict)
+	var env struct {
+		Success bool   `json:"success"`
+		Error   string `json:"error"`
+	}
+	require.NoError(t, json.NewDecoder(resp.Body).Decode(&env))
+	_ = resp.Body.Close()
+	require.False(t, env.Success, "locked delete must carry an error envelope")
+	require.NotEmpty(t, env.Error)
+
+	// The workspace must still exist after the rejected delete.
+	h.get("/v0/workspaces/"+imported.workspaceID, &ws)
+	require.Equal(t, imported.workspaceID, ws.ID,
+		"rejected delete must leave the workspace in place")
+
+	// And an unknown id must 404, never report a successful cascade.
+	resp = h.raw(http.MethodDelete, "/v0/workspaces/no-such-workspace", nil,
+		http.StatusNotFound)
+	_ = resp.Body.Close()
+}
+
 // Empty path params: gin's radix tree matches /v0/workspaces//chats against
 // /v0/workspaces/:wsId/chats with wsId == "" — the backend once answered such
 // requests with 200 and data scoped to a nonexistent workspace. Every v0 route

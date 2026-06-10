@@ -50,6 +50,12 @@ export interface EditorContent extends PaneContentBase {
    * Cleared on the next successful save or external reload.
    */
   hasExternalChange?: boolean
+  /**
+   * The file backing this buffer no longer exists on disk (the content load
+   * 404'd at session restore). Terminal until the file reappears — the pane
+   * renders a "file not found" placeholder and no further loads are retried.
+   */
+  fileMissing?: boolean
   isVirtual: boolean
   language?: string
   languageOverride?: string
