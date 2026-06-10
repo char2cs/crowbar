@@ -3,10 +3,16 @@
 package tests
 
 import (
+	"bytes"
+	"encoding/json"
+	"fmt"
 	"io"
 	"net/http"
 	"os"
+	"os/exec"
 	"path/filepath"
+	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -170,6 +176,152 @@ func TestRegression_GitTopicQuietWhenIdle(t *testing.T) {
 		require.LessOrEqual(t, extra, 1,
 			"idle workspace must not stream repeated git status frames")
 	}
+}
+
+// P1 (UX QA 2026-06-10): git mutations once 500'd intermittently with
+// "Unable to create '<repo>/.git/worktrees/<wt>/index.lock': File exists"
+// because the fs watcher's `git status` reads opportunistically took the index
+// lock on every shared-.git ref event and raced user mutations for it. Reads
+// now run with GIT_OPTIONAL_LOCKS=0 and mutations retry briefly on a held
+// lock. This test hammers stage/unstage/discard from many goroutines, dirtying
+// files between calls so the live watcher keeps recomputing status, and
+// asserts no request ever surfaces the index.lock failure.
+func TestRegression_GitMutationsSurviveLockContention(t *testing.T) {
+	h := newHarness(t)
+	imported := importWritableWorkspace(t, h)
+	base := "/v0/workspaces/" + imported.workspaceID
+	worktree := workspaceWorktreePath(t, h, imported.workspaceID)
+
+	// Subscribing to the git topic keeps the workspace watcher live so its
+	// status reads contend with the mutations below. Drain frames so the
+	// broadcaster never stalls on this connection.
+	conn := h.dial("/v0/ws/git?wsId=" + imported.workspaceID)
+	go func() {
+		for {
+			if _, _, err := conn.ReadMessage(); err != nil {
+				return
+			}
+		}
+	}()
+
+	const (
+		workers    = 10
+		iterations = 5
+	)
+	var (
+		wg   sync.WaitGroup
+		mu   sync.Mutex
+		errs []string
+	)
+	report := func(format string, args ...any) {
+		mu.Lock()
+		defer mu.Unlock()
+		errs = append(errs, fmt.Sprintf(format, args...))
+	}
+	for worker := 0; worker < workers; worker++ {
+		wg.Add(1)
+		go func(id int) {
+			defer wg.Done()
+			name := fmt.Sprintf("contend-%d.txt", id)
+			for i := 0; i < iterations; i++ {
+				content := fmt.Sprintf("worker %d iteration %d\n", id, i)
+				if err := writeFile(worktree, name, content); err != nil {
+					report("worker %d: write: %v", id, err)
+					return
+				}
+				body := map[string]any{"paths": []string{name}}
+				for _, action := range []string{"stage", "unstage", "discard"} {
+					status, respBody := postJSONStatus(t, h, base+"/git/"+action, body)
+					if status == http.StatusOK {
+						continue
+					}
+					report("worker %d iter %d: %s -> %d: %s", id, i, action, status, respBody)
+					return
+				}
+			}
+		}(worker)
+	}
+	wg.Wait()
+	require.Empty(t, errs, "git mutations must survive watcher lock contention:\n%s",
+		strings.Join(errs, "\n"))
+}
+
+// P1 companion: a stale index.lock left behind by a killed backend (or killed
+// git child) once wedged every mutation until it was removed by hand. A lock
+// older than the engine's staleness threshold must now be cleared
+// automatically and the mutation succeed.
+func TestRegression_GitDiscardRecoversFromStaleIndexLock(t *testing.T) {
+	h := newHarness(t)
+	imported := importWritableWorkspace(t, h)
+	base := "/v0/workspaces/" + imported.workspaceID
+	worktree := workspaceWorktreePath(t, h, imported.workspaceID)
+
+	dirtyWorkspaceFile(t, h, imported.workspaceID, "README.md")
+
+	lock := filepath.Join(worktreeGitDir(t, worktree), "index.lock")
+	require.NoError(t, os.WriteFile(lock, nil, 0o600))
+	old := time.Now().Add(-time.Minute)
+	require.NoError(t, os.Chtimes(lock, old, old))
+
+	h.post(base+"/git/discard", map[string]any{"paths": []string{"README.md"}}, http.StatusOK, nil)
+	require.Empty(t, gitStatusFiles(t, h, base),
+		"discard must succeed despite a stale index.lock")
+	require.NoFileExists(t, lock, "the stale lock must have been cleared")
+}
+
+// workspaceWorktreePath resolves the on-disk worktree of a workspace via the API.
+func workspaceWorktreePath(
+	t *testing.T,
+	h *harness,
+	workspaceID string,
+) string {
+	t.Helper()
+	var ws struct {
+		WorktreePath string `json:"worktreePath"`
+	}
+	h.get("/v0/workspaces/"+workspaceID, &ws)
+	require.NotEmpty(t, ws.WorktreePath)
+	return ws.WorktreePath
+}
+
+// worktreeGitDir resolves the private git dir of a (possibly linked) worktree,
+// i.e. where its index.lock lives.
+func worktreeGitDir(
+	t *testing.T,
+	worktree string,
+) string {
+	t.Helper()
+	cmd := exec.Command("git", "-C", worktree, "rev-parse", "--absolute-git-dir")
+	out, err := cmd.CombinedOutput()
+	require.NoError(t, err, "rev-parse --absolute-git-dir: %s", out)
+	return strings.TrimSpace(string(out))
+}
+
+// postJSONStatus is a goroutine-safe POST helper: unlike harness.post it never
+// calls require, so concurrent workers can report failures themselves.
+func postJSONStatus(
+	t *testing.T,
+	h *harness,
+	path string,
+	body any,
+) (int, string) {
+	t.Helper()
+	encoded, err := json.Marshal(body)
+	if err != nil {
+		return 0, err.Error()
+	}
+	req, err := http.NewRequest(http.MethodPost, h.url+path, bytes.NewReader(encoded))
+	if err != nil {
+		return 0, err.Error()
+	}
+	req.Header.Set("Content-Type", "application/json")
+	resp, err := h.server.Client().Do(req)
+	if err != nil {
+		return 0, err.Error()
+	}
+	defer func() { _ = resp.Body.Close() }()
+	raw, _ := io.ReadAll(resp.Body)
+	return resp.StatusCode, string(raw)
 }
 
 // dirtyWorkspaceFile appends to a tracked file in the workspace's worktree on
