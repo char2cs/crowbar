@@ -51,6 +51,24 @@ export async function performDeleteWorkspace(wsId: string): Promise<void> {
   }
 }
 
+/**
+ * Reparents the workspace on the backend, then mirrors the change into the
+ * sidebar store. On failure the local store is left untouched and the error
+ * is surfaced via toast.
+ */
+export async function performReparentWorkspace(
+  wsId: string,
+  newParentId: string | undefined,
+  repoId: string,
+): Promise<void> {
+  try {
+    await reparentWorkspace(wsId, newParentId, repoId)
+  } catch (err) {
+    console.error('Failed to reparent workspace:', err)
+    toast.error('Failed to reparent workspace', err instanceof Error ? err.message : undefined)
+  }
+}
+
 interface CreatingState {
   repoId: string
   parentId: string
@@ -206,13 +224,13 @@ export function WorkspaceTreeProvider({ children }: { children: ReactNode }) {
           const repos = useSidebarStore.getState().repos
           const targetRepo = repos.find((r) => r.workspaces.some((w) => w.id === targetWsId))
           if (targetRepo?.id === ws.repoId) {
-            void reparentWorkspace(ws.id, targetWsId, ws.repoId)
+            void performReparentWorkspace(ws.id, targetWsId, ws.repoId)
           }
         }
       } else if (target?.startsWith('repo:')) {
         const targetRepoId = target.slice(5)
         if (targetRepoId === ws.repoId) {
-          void reparentWorkspace(ws.id, undefined, ws.repoId)
+          void performReparentWorkspace(ws.id, undefined, ws.repoId)
         }
       }
 

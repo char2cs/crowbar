@@ -1,5 +1,5 @@
 import { render, screen } from '@testing-library/react'
-import { ChatRow, NewRow } from '@/components/layout/SidebarRow'
+import { ChatRow, NewRow } from '@/components/layout/sidebar-row'
 
 test('ChatRow renders title and age', () => {
   render(<ChatRow title="Architecture decisions" age="2h" active />)

@@ -15,7 +15,7 @@ vi.mock('@/lib/api', async (importOriginal) => {
 })
 
 import * as api from '@/lib/api'
-import { ImportProjectModal } from '@/components/projects/ImportProjectModal'
+import { ImportProjectModal } from '@/components/projects/import-project-modal'
 
 const pathInput = () => screen.getByPlaceholderText('/absolute/path/to/project')
 

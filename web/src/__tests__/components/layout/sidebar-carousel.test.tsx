@@ -27,7 +27,7 @@ vi.mock('@/features/file-explorer/components/file-explorer-tree', () => ({
 vi.mock('@/features/git/components/git-panel', () => ({
   GitPanel: () => <div data-testid="panel-git" />,
 }))
-vi.mock('@/components/ErrorBoundary', () => ({
+vi.mock('@/components/error-boundary', () => ({
   ErrorBoundary: ({ children }: { children: React.ReactNode }) => <>{children}</>,
 }))
 vi.mock('@/features/file-system/controllers/store', () => ({

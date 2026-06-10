@@ -1,5 +1,5 @@
 import CodeEditor from '@/features/editor/components/code-editor'
-import { ErrorBoundary } from '@/components/ErrorBoundary'
+import { ErrorBoundary } from '@/components/error-boundary'
 
 interface EditorPaneProps {
   paneId: string

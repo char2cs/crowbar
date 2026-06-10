@@ -8,10 +8,10 @@ import { SidebarTabBar } from './sidebar-tab-bar'
 import { SidebarCarousel } from './sidebar-carousel'
 import { IS_MAC } from '@/utils/platform'
 import { useSidebarStore } from '@/lib/store/sidebar'
-import { WorkspaceView } from '@/features/workspace/components/WorkspaceView'
+import { WorkspaceView } from '@/features/workspace/components/workspace-view'
 import SettingsDialog from '@/features/settings/components/settings-dialog'
 import { TerminalHost } from '@/features/terminal/components/terminal-host'
-import { ErrorBoundary } from '@/components/ErrorBoundary'
+import { ErrorBoundary } from '@/components/error-boundary'
 import { cn } from '@/utils/cn'
 import { useSettingsStore } from '@/features/settings/store'
 import { useUIState } from '@/features/window/stores/ui-state-store'
@@ -45,6 +45,12 @@ export function IDEShell() {
   const activeWorkspaceId = pathname.match(/\/workspaces\/([^/]+)/)?.[1]
   const activeChatId = pathname.match(/\/chat\/([^/]+)/)?.[1]
   const activeRepo = repos.find((r) => r.workspaces?.some((ws) => ws.id === activeWorkspaceId))
+  // TODO(workspace-paths): `/repos/<repoId>` is a synthetic mock-era root prefix.
+  // Backend paths are workspace-relative, and this fiction already caused a 404
+  // bug. It threads through rootFolderPath into 40+ files (sidebar-carousel →
+  // file-explorer, path-helpers root checks, gitignore root rules), so removing
+  // it is not a contained change — replace with workspace-relative roots in a
+  // dedicated pass.
   const activeWorkspaceRepoPath = activeRepo ? `/repos/${activeRepo.id}` : '/repos/default'
   const chatTabLabel = chats.find((c) => c.id === activeChatId)?.title ?? 'Chat'
 

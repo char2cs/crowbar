@@ -1,5 +1,5 @@
 import { render, screen, fireEvent } from '@testing-library/react'
-import { WorkspaceCreationForm } from '@/components/workspace/WorkspaceCreationForm'
+import { WorkspaceCreationForm } from '@/components/workspace/workspace-creation-form'
 import { vi } from 'vitest'
 
 const REPOS = [

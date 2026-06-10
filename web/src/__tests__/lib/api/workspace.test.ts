@@ -64,15 +64,56 @@ describe('handleWorkspaceReparented', () => {
 })
 
 describe('reparentWorkspace', () => {
-  it('resolves without throwing', async () => {
-    await expect(reparentWorkspace('ws3', 'ws-develop', 'crowbar')).resolves.toBeUndefined()
+  let fetchMock: ReturnType<typeof vi.fn>
+
+  beforeEach(() => {
+    fetchMock = vi.fn().mockResolvedValue(
+      new Response(JSON.stringify({ success: true, data: { id: 'ws3' } }), {
+        status: 200,
+        headers: { 'Content-Type': 'application/json' },
+      }),
+    )
+    vi.stubGlobal('fetch', fetchMock)
   })
 
-  it('updates store and IDB (delegates to handler)', async () => {
+  afterEach(() => {
+    vi.unstubAllGlobals()
+  })
+
+  it('POSTs to /v0/workspaces/:wsId/reparent with the new parent id', async () => {
+    await reparentWorkspace('ws3', 'ws-develop', 'crowbar')
+    expect(fetchMock).toHaveBeenCalledTimes(1)
+    const [url, init] = fetchMock.mock.calls[0] as [string, RequestInit]
+    expect(url).toBe('/v0/workspaces/ws3/reparent')
+    expect(init.method).toBe('POST')
+    expect(JSON.parse(init.body as string)).toEqual({ newParentId: 'ws-develop' })
+  })
+
+  it('updates store and IDB after a successful backend call', async () => {
     await reparentWorkspace('ws3', 'ws-develop', 'crowbar')
     const repo = useSidebarStore.getState().repos.find((r) => r.id === 'crowbar')!
     expect(repo.workspaces.find((w) => w.id === 'ws3')?.parentId).toBe('ws-develop')
     const hierarchy = await loadWorkspaceHierarchy('crowbar')
     expect(hierarchy?.entries.find((e) => e.wsId === 'ws3')?.parentId).toBe('ws-develop')
+  })
+
+  it('does not touch the local store when the backend call fails', async () => {
+    fetchMock.mockResolvedValue(
+      new Response(JSON.stringify({ success: false, error: 'has children' }), {
+        status: 409,
+        headers: { 'Content-Type': 'application/json' },
+      }),
+    )
+    await expect(reparentWorkspace('ws3', 'ws-other', 'crowbar')).rejects.toThrow('has children')
+    const repo = useSidebarStore.getState().repos.find((r) => r.id === 'crowbar')!
+    // ws3 keeps its original parent — the local handler must not run on failure.
+    expect(repo.workspaces.find((w) => w.id === 'ws3')?.parentId).toBe('ws-develop')
+  })
+
+  it('skips the backend call when moving to the repo root (newParentId undefined)', async () => {
+    await reparentWorkspace('ws3', undefined, 'crowbar')
+    expect(fetchMock).not.toHaveBeenCalled()
+    const repo = useSidebarStore.getState().repos.find((r) => r.id === 'crowbar')!
+    expect(repo.workspaces.find((w) => w.id === 'ws3')?.parentId).toBeUndefined()
   })
 })

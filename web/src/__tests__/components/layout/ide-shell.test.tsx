@@ -2,14 +2,14 @@
 import { render, screen } from '@testing-library/react'
 import { describe, it, expect, vi } from 'vitest'
 import React from 'react'
-import { IDEShell } from '@/components/layout/IDEShell'
+import { IDEShell } from '@/components/layout/ide-shell'
 
 vi.mock('@/utils/platform', () => ({
   IS_MAC: true,
   IS_WINDOWS: false,
   IS_LINUX: false,
 }))
-vi.mock('@/features/workspace/components/WorkspaceView', () => ({
+vi.mock('@/features/workspace/components/workspace-view', () => ({
   WorkspaceView: () => <div data-testid="workspace-view" />,
 }))
 vi.mock('@/components/layout/sidebar-tab-bar', () => ({
@@ -54,7 +54,7 @@ vi.mock('@/components/ui/resizable', () => ({
   ResizablePanel: ({ children }: { children: React.ReactNode }) => <div>{children}</div>,
   ResizableHandle: (props: React.HTMLAttributes<HTMLDivElement>) => <div {...props} />,
 }))
-vi.mock('@/components/ErrorBoundary', () => ({
+vi.mock('@/components/error-boundary', () => ({
   ErrorBoundary: ({ children }: { children: React.ReactNode }) => <>{children}</>,
 }))
 vi.mock('@/components/ui/sonner', () => ({

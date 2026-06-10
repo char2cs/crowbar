@@ -2,7 +2,7 @@ import { describe, it, expect, beforeEach } from 'vitest'
 import { render, screen } from '@testing-library/react'
 import { failed, success, idle } from '@/lib/loadable'
 import { useProjectDataStore } from '@/lib/store/projects'
-import { ProjectListPage } from '@/components/projects/ProjectListPage'
+import { ProjectListPage } from '@/components/projects/project-list-page'
 
 beforeEach(() => {
   useProjectDataStore.setState({ data: success([]) })

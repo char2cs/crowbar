@@ -1,3 +1,6 @@
+// TODO(branch-review): unwired — entry point pending. This is the planned
+// multi-file diff view for branch review; keep it even though nothing imports
+// it yet.
 import { useVirtualizer } from '@tanstack/react-virtual'
 import {
   CaretDown as ChevronDown,

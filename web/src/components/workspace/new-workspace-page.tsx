@@ -2,7 +2,7 @@ import { useState } from 'react'
 import { useNavigate } from '@tanstack/react-router'
 import { toast } from 'sonner'
 import { postWorkspace } from '@/lib/api'
-import { WorkspaceCreationForm } from '@/components/workspace/WorkspaceCreationForm'
+import { WorkspaceCreationForm } from '@/components/workspace/workspace-creation-form'
 import { useSidebarStore } from '@/lib/store/sidebar'
 
 const REPOS = [
