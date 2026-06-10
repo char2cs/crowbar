@@ -102,6 +102,8 @@ const CommandPalette = () => {
   const lastEnteredActions = useActionsStore.use.lastEnteredActionsStack()
   const pushAction = useActionsStore.use.pushAction()
   const settings = useSettingsStore((s) => s.settings)
+  const updateSetting = useSettingsStore((s) => s.updateSetting)
+  const setSettingsSearchQuery = useSettingsStore((s) => s.setSearchQuery)
   const lspStatus = useLspStore.use.lspStatus()
   const { clearLspError, updateLspStatus } = useLspStore.use.actions()
   const rootFolderPath = useFileSystemStore((s) => s.rootFolderPath)
@@ -209,10 +211,7 @@ const CommandPalette = () => {
         nativeMenuBar: settings.nativeMenuBar,
         compactMenuBar: settings.compactMenuBar,
       },
-      updateSetting: useSettingsStore.getState().updateSetting as (
-        key: string,
-        value: unknown,
-      ) => void | Promise<void>,
+      updateSetting: updateSetting as (key: string, value: unknown) => void | Promise<void>,
       zoomIn,
       zoomOut,
       resetZoom,
@@ -224,12 +223,9 @@ const CommandPalette = () => {
       settings,
       setIsSettingsDialogVisible,
       openSettingsDialog,
-      setSettingsSearchQuery: useSettingsStore.getState().setSearchQuery,
+      setSettingsSearchQuery,
       pushPaletteView: pushView,
-      updateSetting: useSettingsStore.getState().updateSetting as (
-        key: string,
-        value: unknown,
-      ) => void | Promise<void>,
+      updateSetting: updateSetting as (key: string, value: unknown) => void | Promise<void>,
       handleFileOpen,
       getAppDataDir: appDataDir,
       openWhatsNew,

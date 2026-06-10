@@ -112,7 +112,7 @@ export function useFileExplorerContextMenu({
   const [contextMenu, setContextMenu] = useState<ContextMenuState | null>(null)
   const [envOverwriteDialog, setEnvOverwriteDialog] = useState<EnvOverwriteDialogState | null>(null)
   const [propertiesDialog, setPropertiesDialog] = useState<PropertiesDialogState | null>(null)
-  const clipboardActions = useFileClipboardStore.getState().actions
+  const clipboardActions = useFileClipboardStore((state) => state.actions)
   const clipboard = useFileClipboardStore((state) => state.clipboard)
 
   const createEnvTemplateFile = useCallback(

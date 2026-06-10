@@ -1,5 +1,5 @@
 import { apiFetch } from '@/lib/api'
-import { toast } from '@/components/ui/toast'
+import { toast } from '@/features/window/stores/toast-store'
 import type { GitHunk, GitStatus } from '../types/git-types'
 
 async function gitPost(

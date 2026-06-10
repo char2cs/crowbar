@@ -14,7 +14,7 @@ import { useSettingsStore } from '@/features/settings/store'
 import { createSelectors } from '@/utils/zustand-selectors'
 import { writeFile } from '@/features/file-system/controllers/platform'
 import { getActiveWorkspaceStoreRef } from '@/features/workspace/stores/workspace-store-ref'
-import { toast } from '@/components/ui/toast'
+import { toast } from '@/features/window/stores/toast-store'
 import type { Position, Range } from '../types/editor'
 import { trackBufferHistoryChange } from './buffer-history-tracking'
 

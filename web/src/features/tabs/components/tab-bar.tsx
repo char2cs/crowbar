@@ -185,7 +185,7 @@ const TabBar = ({
   const tabRefs = useRef<(HTMLDivElement | null)[]>([])
 
   const handleRevealInFolder = useFileSystemStore.use.handleRevealInFolder?.()
-  const { clearPositionCache } = useEditorStateStore.getState().actions
+  const { clearPositionCache } = useEditorStateStore.use.actions()
 
   const sensors = useSensors(
     useSensor(NoDndPointerSensor, {
