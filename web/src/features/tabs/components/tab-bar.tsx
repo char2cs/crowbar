@@ -126,10 +126,15 @@ const TabBar = ({
 
   const handleTabClose = useCallback(
     (bufferId: string) => {
+      const buf = workspaceStore.getState().buffers.find((b) => b.id === bufferId);
+      if (buf && buf.type === 'editor' && buf.isDirty) {
+        setPendingClose({ type: 'single', bufferId });
+        return;
+      }
       if (paneId) removeBufferFromPane(paneId, bufferId);
       closeBuffer(bufferId);
     },
-    [closeBuffer, paneId, removeBufferFromPane],
+    [closeBuffer, paneId, removeBufferFromPane, setPendingClose, workspaceStore],
   );
 
   const { handleSave } = useEditorAppStore.use.actions();
@@ -294,12 +299,15 @@ const TabBar = ({
     const buffer = buffers.find((b) => b.id === pendingClose.bufferId);
     if (!buffer) return;
     await handleSave();
+    if (paneId) removeBufferFromPane(paneId, pendingClose.bufferId);
     confirmCloseWithoutSaving();
-  }, [pendingClose, buffers, handleSave, confirmCloseWithoutSaving]);
+  }, [pendingClose, buffers, handleSave, confirmCloseWithoutSaving, paneId, removeBufferFromPane]);
 
   const handleDiscardAndClose = useCallback(() => {
+    if (!pendingClose) return;
+    if (paneId) removeBufferFromPane(paneId, pendingClose.bufferId);
     confirmCloseWithoutSaving();
-  }, [confirmCloseWithoutSaving]);
+  }, [confirmCloseWithoutSaving, pendingClose, paneId, removeBufferFromPane]);
 
   const handleCancelClose = useCallback(() => {
     cancelPendingClose();

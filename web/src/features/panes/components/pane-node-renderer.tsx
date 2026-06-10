@@ -1,10 +1,11 @@
-import { memo, useCallback, useMemo, useRef } from 'react'
+import { memo, useCallback, useRef } from 'react'
+import type { PanelSize } from 'react-resizable-panels'
+import { ResizableHandle, ResizablePanel, ResizablePanelGroup } from '@/components/ui/resizable'
 import { usePaneActions, usePanes } from '@/features/workspace/stores/hooks/use-pane-store'
 import type { LayoutNode, PanePosition } from '../types/pane'
 import { ROOT_PANE_POSITION } from '../types/pane'
-import { flattenForRender, type FlatLayoutEntry } from '../utils/pane-layout'
+import { MIN_PANE_SIZE } from '../constants/pane'
 import { PaneContainer } from './pane-container'
-import { PaneResizeHandle } from './pane-resize-handle'
 import { PaneBoundary } from './pane-boundary'
 
 interface PaneNodeRendererProps {
@@ -13,52 +14,16 @@ interface PaneNodeRendererProps {
   position?: PanePosition
 }
 
-interface FlatResizeHandleProps {
-  direction: 'horizontal' | 'vertical'
-  index: number
-  entries: FlatLayoutEntry[]
-  splitContainerRef: React.RefObject<HTMLElement | null>
-  onReset: () => void
-  onResize: (index: number, sizes: [number, number]) => void
-}
-
-const FlatResizeHandle = memo(function FlatResizeHandle({
-  direction,
-  index,
-  entries,
-  splitContainerRef,
-  onReset,
-  onResize,
-}: FlatResizeHandleProps) {
-  const handleResize = useCallback(
-    (sizes: [number, number]) => onResize(index, sizes),
-    [index, onResize],
-  )
-  return (
-    <PaneResizeHandle
-      direction={direction}
-      index={index}
-      initialSizes={[entries[index].size, entries[index + 1].size]}
-      splitContainerRef={splitContainerRef}
-      onResize={handleResize}
-      onReset={onReset}
-    />
-  )
-})
-
-function childPosition(
+function binaryPosition(
   parent: PanePosition,
-  index: number,
-  total: number,
+  isFirst: boolean,
   direction: 'horizontal' | 'vertical',
 ): PanePosition {
-  const isFirst = index === 0
-  const isLast = index === total - 1
   if (direction === 'horizontal') {
     return {
       atLeft: isFirst && parent.atLeft,
       atTop: parent.atTop,
-      atRight: isLast && parent.atRight,
+      atRight: !isFirst && parent.atRight,
       atBottom: parent.atBottom,
     }
   }
@@ -66,39 +31,47 @@ function childPosition(
     atLeft: parent.atLeft,
     atTop: isFirst && parent.atTop,
     atRight: parent.atRight,
-    atBottom: isLast && parent.atBottom,
+    atBottom: !isFirst && parent.atBottom,
   }
 }
 
-export function PaneNodeRenderer({
+export const PaneNodeRenderer = memo(function PaneNodeRenderer({
   node,
   hiddenPaneId = null,
   position = ROOT_PANE_POSITION,
 }: PaneNodeRendererProps) {
   const panes = usePanes()
-  const { distributePaneSplit, resizePaneSplit } = usePaneActions()
-  const splitContainerRef = useRef<HTMLElement | null>(null)
+  const { resizePaneSplit } = usePaneActions()
+  const firstSizeRef = useRef(node.type === 'split' ? node.sizes[0] : 50)
+  const secondSizeRef = useRef(node.type === 'split' ? node.sizes[1] : 50)
+  const isDraggingRef = useRef(false)
 
-  const flatEntries = useMemo(() => {
-    if (node.type !== 'split') return null
-    return flattenForRender(node)
-  }, [node])
+  const handleFirstResize = useCallback((size: PanelSize) => {
+    firstSizeRef.current = size.asPercentage
+  }, [])
 
-  const handleFlatResize = useCallback(
-    (index: number, sizes: [number, number]) => {
-      if (node.type !== 'split') return
-      resizePaneSplit(node.id, index, sizes)
-    },
-    [node, resizePaneSplit],
-  )
+  const handleSecondResize = useCallback((size: PanelSize) => {
+    secondSizeRef.current = size.asPercentage
+  }, [])
 
-  const handleFlatReset = useCallback(() => {
-    if (node.type !== 'split') return
-    distributePaneSplit(node.id)
-  }, [distributePaneSplit, node])
+  const handleLayoutChange = useCallback(() => {
+    if (!isDraggingRef.current) {
+      isDraggingRef.current = true
+      document.documentElement.setAttribute('data-pane-resizing', '1')
+    }
+  }, [])
+
+  const handleLayoutChanged = useCallback(() => {
+    isDraggingRef.current = false
+    document.documentElement.removeAttribute('data-pane-resizing')
+    window.dispatchEvent(new CustomEvent('pane-resize-end'))
+    if (node.type === 'split') {
+      resizePaneSplit(node.id, 0, [firstSizeRef.current, secondSizeRef.current])
+    }
+  }, [node, resizePaneSplit])
 
   if (node.type === 'pane') {
-    if (hiddenPaneId && node.id === hiddenPaneId) {
+    if (hiddenPaneId === node.id) {
       return <div className="h-full w-full bg-background" aria-hidden="true" />
     }
     const pane = panes[node.id]
@@ -110,65 +83,36 @@ export function PaneNodeRenderer({
     )
   }
 
-  if (!flatEntries || flatEntries.length === 0) return null
-
-  const isHorizontal = node.direction === 'horizontal'
-  const totalSize = flatEntries.reduce((sum, e) => sum + e.size, 0)
-  const handleWidth = 4
-  const handleCount = flatEntries.length - 1
-
-  const cssVars = Object.fromEntries(
-    flatEntries.map((_, i) => [`--pane-${i}-size`, String((flatEntries[i].size / totalSize) * 100)])
-  )
+  const firstPos = binaryPosition(position, true, node.direction)
+  const secondPos = binaryPosition(position, false, node.direction)
+  const minPct = `${MIN_PANE_SIZE}%`
 
   return (
-    <div
-      ref={splitContainerRef as React.RefObject<HTMLDivElement>}
-      className={`flex h-full w-full ${isHorizontal ? 'flex-row' : 'flex-col'}`}
-      style={cssVars as React.CSSProperties}
+    <ResizablePanelGroup
+      orientation={node.direction}
+      onLayoutChange={handleLayoutChange}
+      onLayoutChanged={handleLayoutChanged}
+      className="h-full w-full"
     >
-      {flatEntries.map((entry, index) => {
-        const handleDeduction = `${(handleWidth * handleCount) / flatEntries.length}px`
-        const entryPosition = childPosition(position, index, flatEntries.length, node.direction)
-        const leafNode = entry.node.type === 'pane' ? entry.node : null
-        const pane = leafNode ? panes[leafNode.id] : null
-
-        return (
-          <div key={entry.node.id} className="contents">
-            <div
-              className="min-h-0 min-w-0 overflow-hidden"
-              style={{
-                [isHorizontal ? 'width' : 'height']:
-                  `calc(var(--pane-${index}-size) * 1% - ${handleDeduction})`,
-              }}
-            >
-              {entry.node.type === 'split' ? (
-                <PaneNodeRenderer
-                  node={entry.node}
-                  hiddenPaneId={hiddenPaneId}
-                  position={entryPosition}
-                />
-              ) : entry.node.id === hiddenPaneId ? (
-                <div className="h-full w-full bg-background" aria-hidden="true" />
-              ) : pane ? (
-                <PaneBoundary paneId={entry.node.id}>
-                  <PaneContainer pane={pane} position={entryPosition} />
-                </PaneBoundary>
-              ) : null}
-            </div>
-            {index < flatEntries.length - 1 && (
-              <FlatResizeHandle
-                direction={node.direction}
-                index={index}
-                entries={flatEntries}
-                splitContainerRef={splitContainerRef}
-                onReset={handleFlatReset}
-                onResize={handleFlatResize}
-              />
-            )}
-          </div>
-        )
-      })}
-    </div>
+      <ResizablePanel
+        defaultSize={`${node.sizes[0]}%`}
+        minSize={minPct}
+        onResize={handleFirstResize}
+      >
+        <div className="h-full w-full overflow-hidden">
+          <PaneNodeRenderer node={node.first} hiddenPaneId={hiddenPaneId} position={firstPos} />
+        </div>
+      </ResizablePanel>
+      <ResizableHandle />
+      <ResizablePanel
+        defaultSize={`${node.sizes[1]}%`}
+        minSize={minPct}
+        onResize={handleSecondResize}
+      >
+        <div className="h-full w-full overflow-hidden">
+          <PaneNodeRenderer node={node.second} hiddenPaneId={hiddenPaneId} position={secondPos} />
+        </div>
+      </ResizablePanel>
+    </ResizablePanelGroup>
   )
-}
+})

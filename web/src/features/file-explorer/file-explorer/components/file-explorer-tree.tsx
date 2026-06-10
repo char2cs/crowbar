@@ -158,6 +158,7 @@ function FileExplorerTreeComponent({
   const addFolderToWorkspace = useFileSystemStore((state) => state.addFolderToWorkspace);
   const removeFolderFromWorkspace = useFileSystemStore((state) => state.removeFolderFromWorkspace);
   const revealPathInTree = useFileSystemStore((state) => state.revealPathInTree);
+  const isFileTreeLoading = useFileSystemStore((state) => state.isFileTreeLoading);
 
   const handleAutoExpandDirectory = useCallback(
     (path: string) => {
@@ -404,6 +405,28 @@ function FileExplorerTreeComponent({
     containerRef,
     expandedPathsOverride: displayedExpandedPaths,
   });
+
+  // Pre-compute guide targets for all rows when the row structure changes.
+  // Calling getGuideAncestorRows per-row inside the render loop is O(N×depth) on
+  // every scroll-triggered re-render; this memo moves that work to structural changes only.
+  const guideTargetsByIndex = useMemo(() => {
+    return visibleRows.map((_, i) =>
+      getGuideAncestorRows(visibleRows, i).map((ancestor) =>
+        ancestor
+          ? {
+              path: ancestor.file.path,
+              name: ancestor.displayName ?? ancestor.file.name,
+              isDir: ancestor.file.isDir ?? false,
+              isActive: activePath
+                ? activePath === ancestor.file.path ||
+                  activePath.startsWith(`${ancestor.file.path}/`) ||
+                  activePath.startsWith(`${ancestor.file.path}\\`)
+                : false,
+            }
+          : null,
+      ),
+    );
+  }, [visibleRows, activePath]);
 
   const keyboardPath = focusedPath || activePath;
   const highlightedPath = hasTreeFocus ? keyboardPath : activePath;
@@ -1066,7 +1089,9 @@ function FileExplorerTreeComponent({
                 ? "Searching files"
                 : isTreeSearchActive
                   ? "No matching files"
-                  : "Folder is empty"
+                  : isFileTreeLoading
+                    ? "Loading files…"
+                    : "Folder is empty"
             }
           />
         </div>
@@ -1154,23 +1179,7 @@ function FileExplorerTreeComponent({
                   const row = visibleRows[vi.index];
                   const previousRow = visibleRows[vi.index - 1];
                   const nextRow = visibleRows[vi.index + 1];
-                  const guideTargets: Array<FileTreeGuideTarget | null> = getGuideAncestorRows(
-                    visibleRows,
-                    vi.index,
-                  ).map((ancestor) =>
-                    ancestor
-                      ? {
-                          path: ancestor.file.path,
-                          name: ancestor.displayName ?? ancestor.file.name,
-                          isDir: ancestor.file.isDir ?? false,
-                          isActive: activePath
-                            ? activePath === ancestor.file.path ||
-                              activePath.startsWith(`${ancestor.file.path}/`) ||
-                              activePath.startsWith(`${ancestor.file.path}\\`)
-                            : false,
-                        }
-                      : null,
-                  );
+                  const guideTargets: Array<FileTreeGuideTarget | null> = guideTargetsByIndex[vi.index] ?? [];
                   return (
                     <FileExplorerTreeItem
                       key={row.file.path}
