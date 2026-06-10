@@ -376,3 +376,32 @@ func fileStaged(
 	}
 	return false
 }
+
+// Empty path params: gin's radix tree matches /v0/workspaces//chats against
+// /v0/workspaces/:wsId/chats with wsId == "" — the backend once answered such
+// requests with 200 and data scoped to a nonexistent workspace. Every v0 route
+// must reject an empty :wsId / :id segment with a 400 error envelope (enforced
+// by the rejectEmptyPathParams middleware on the v0 group).
+func TestRegression_EmptyPathParamsRejected(t *testing.T) {
+	h := newHarness(t)
+
+	paths := []string{
+		"/v0/workspaces//chats",
+		"/v0/workspaces//git/status",
+	}
+	for _, path := range paths {
+		resp := h.raw(http.MethodGet, path, nil, http.StatusBadRequest)
+
+		var env struct {
+			Success bool            `json:"success"`
+			Error   string          `json:"error"`
+			Data    json.RawMessage `json:"data"`
+		}
+		require.NoError(t, json.NewDecoder(resp.Body).Decode(&env), "GET %s", path)
+		_ = resp.Body.Close()
+
+		require.False(t, env.Success, "GET %s must carry an error envelope", path)
+		require.NotEmpty(t, env.Error, "GET %s error envelope must carry a message", path)
+		require.Empty(t, env.Data, "GET %s error envelope must not carry data", path)
+	}
+}

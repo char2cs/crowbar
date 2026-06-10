@@ -62,6 +62,13 @@ func newBareWatcher(repoPath string, d Dispatcher) *Watcher {
 	return NewWatcher("ws-internal", repoPath, "", &minimalGit{}, d)
 }
 
+// gitRecomputePending reports whether a debounced git recompute is scheduled.
+func gitRecomputePending(w *Watcher) bool {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	return w.gitPending
+}
+
 // ---------------------------------------------------------------------------
 // maybeHandleGitRef — direct invocation
 // ---------------------------------------------------------------------------
@@ -78,7 +85,9 @@ func TestMaybeHandleGitRef_HeadSuffix(t *testing.T) {
 	}
 	w.maybeHandleGitRef(context.Background(), evt)
 
-	assert.Equal(t, 1, rd.count(), "OnGitStatus should have been called for .git/HEAD event")
+	// The recompute is debounced: it is scheduled, never run synchronously.
+	assert.True(t, gitRecomputePending(w), "git recompute should be scheduled for .git/HEAD event")
+	assert.Equal(t, 0, rd.count(), "fanOutGit must not run synchronously (debounced)")
 }
 
 func TestMaybeHandleGitRef_RefsPath(t *testing.T) {
@@ -92,7 +101,8 @@ func TestMaybeHandleGitRef_RefsPath(t *testing.T) {
 	}
 	w.maybeHandleGitRef(context.Background(), evt)
 
-	assert.Equal(t, 1, rd.count(), "OnGitStatus should have been called for .git/refs/ event")
+	assert.True(t, gitRecomputePending(w), "git recompute should be scheduled for .git/refs/ event")
+	assert.Equal(t, 0, rd.count(), "fanOutGit must not run synchronously (debounced)")
 }
 
 // A change to .git/packed-refs (where refs land after git gc / pack-refs) must
@@ -108,7 +118,8 @@ func TestMaybeHandleGitRef_PackedRefs(t *testing.T) {
 	}
 	w.maybeHandleGitRef(context.Background(), evt)
 
-	assert.Equal(t, 1, rd.count(), "OnGitStatus should have been called for .git/packed-refs event")
+	assert.True(t, gitRecomputePending(w), "git recompute should be scheduled for .git/packed-refs event")
+	assert.Equal(t, 0, rd.count(), "fanOutGit must not run synchronously (debounced)")
 }
 
 func TestMaybeHandleGitRef_UnrelatedGitFile_NoFanOut(t *testing.T) {
@@ -122,6 +133,7 @@ func TestMaybeHandleGitRef_UnrelatedGitFile_NoFanOut(t *testing.T) {
 	}
 	w.maybeHandleGitRef(context.Background(), evt)
 
+	assert.False(t, gitRecomputePending(w), "no git recompute should be scheduled for unrelated .git files")
 	assert.Equal(t, 0, rd.count(), "OnGitStatus must NOT be called for unrelated .git files")
 }
 

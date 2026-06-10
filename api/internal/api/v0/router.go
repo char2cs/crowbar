@@ -23,6 +23,12 @@ import (
 func (c *Container) Register(
 	rg *gin.RouterGroup,
 ) {
+	// Must be installed before any route registration so every v0 handler
+	// chain includes it: requests whose :wsId/:id/etc. matched an empty
+	// path segment are rejected with a 400 envelope instead of leaking ""
+	// into usecases.
+	rg.Use(rejectEmptyPathParams())
+
 	health.Register(rg)
 	projects.Register(
 		rg,
