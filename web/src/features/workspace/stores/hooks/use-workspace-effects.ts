@@ -17,19 +17,14 @@ import type { AppFile } from '@/features/file-system/types/app'
 
 const GIT_REFRESH_DEBOUNCE_MS = 400
 
-function parentDir(
-  path: string,
-): string {
+function parentDir(path: string): string {
   const idx = path.lastIndexOf('/')
   return idx === -1 ? '' : path.slice(0, idx)
 }
 
 // Carry already-loaded children across a level refresh so a live file change
 // does not collapse expanded subtrees that are still present.
-function preserveLoadedChildren(
-  current: AppFile[],
-  fresh: AppFile[],
-): AppFile[] {
+function preserveLoadedChildren(current: AppFile[], fresh: AppFile[]): AppFile[] {
   return fresh.map((node) => {
     if (!node.isDir) return node
     const existing = findNode(current, node.path)
@@ -47,9 +42,7 @@ interface FileChangeEvent {
 // A plain content edit ("modified") never changes the tree's shape, so it must
 // not trigger a directory refetch — that was the per-keystroke churn that made
 // editing feel slow. Only structural events touch the tree.
-function isStructuralChange(
-  type: string | undefined,
-): boolean {
+function isStructuralChange(type: string | undefined): boolean {
   return type === 'created' || type === 'deleted' || type === 'renamed'
 }
 
@@ -67,7 +60,12 @@ export function useWorkspaceEffects(wsId: string) {
     // Reset the shared tree synchronously on switch so the user never sees the
     // previous workspace's files while the new tree loads.
     if (useFileSystemStore.getState().rootFolderPath !== wsId) {
-      useFileSystemStore.setState({ rootFolderPath: wsId, files: [], fileTree: [], isFileTreeLoading: true })
+      useFileSystemStore.setState({
+        rootFolderPath: wsId,
+        files: [],
+        fileTree: [],
+        isFileTreeLoading: true,
+      })
     } else {
       useFileSystemStore.setState({ isFileTreeLoading: true })
     }
@@ -189,7 +187,11 @@ export function useWorkspaceEffects(wsId: string) {
       `/v0/ws/git?wsId=${encodeURIComponent(wsId)}`,
       (frame) => {
         let key: string
-        try { key = JSON.stringify(frame) } catch { key = String(frame) }
+        try {
+          key = JSON.stringify(frame)
+        } catch {
+          key = String(frame)
+        }
         if (key === lastFrame) return
         lastFrame = key
         scheduleStatusReload()

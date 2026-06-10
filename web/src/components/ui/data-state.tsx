@@ -14,7 +14,12 @@ interface DataStateProps<T> {
 }
 
 export function DataState<T>({
-  loadable, onRetry, children, loadingLabel, emptyMessage, isEmpty,
+  loadable,
+  onRetry,
+  children,
+  loadingLabel,
+  emptyMessage,
+  isEmpty,
 }: DataStateProps<T>) {
   const stale = dataOf(loadable)
 

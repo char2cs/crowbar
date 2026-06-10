@@ -6,9 +6,7 @@ const crowbar = (window as unknown as { __CROWBAR__?: { api?: string } }).__CROW
 // the contract tests) and the manager resolves them here at connect time.
 // Precedence mirrors API_BASE: the Tauri bridge, then VITE_API_URL, then the
 // page origin.
-export function wsUrl(
-  path: string,
-): string {
+export function wsUrl(path: string): string {
   if (/^wss?:\/\//i.test(path)) return path
 
   const base = crowbar?.api || import.meta.env.VITE_API_URL || window.location.origin

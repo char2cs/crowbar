@@ -5,7 +5,9 @@ import { saveCache } from '@/lib/persistence/cache-store'
 import { createLoadableSlice, type LoadableSlice } from '@/lib/store/loadable-slice'
 import { dataOf } from '@/lib/loadable'
 
-beforeEach(() => { resetDB() })
+beforeEach(() => {
+  resetDB()
+})
 
 function makeStore(fetcher: (key: string) => Promise<number[]>) {
   return create<LoadableSlice<number[]>>()((set, get) =>
@@ -28,7 +30,9 @@ describe('createLoadableSlice', () => {
 
   it('fetch failure preserves stale data from IDB', async () => {
     await saveCache('projects-data', 'projects', [9, 9], 100)
-    const store = makeStore(async () => { throw new Error('boom') })
+    const store = makeStore(async () => {
+      throw new Error('boom')
+    })
     await store.getState().fetch('projects')
     expect(store.getState().data.status).toBe('error')
     expect(dataOf(store.getState().data)).toEqual([9, 9])
@@ -44,7 +48,9 @@ describe('createLoadableSlice', () => {
     const store = makeStore(async () => [1])
     await store.getState().fetch('projects')
     await expect(
-      store.getState().optimisticWrite([7], async () => { throw new Error('no') }),
+      store.getState().optimisticWrite([7], async () => {
+        throw new Error('no')
+      }),
     ).rejects.toThrow('no')
     expect(dataOf(store.getState().data)).toEqual([1])
   })

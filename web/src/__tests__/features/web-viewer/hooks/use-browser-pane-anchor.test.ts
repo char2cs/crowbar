@@ -14,16 +14,23 @@ import { useBrowserPaneAnchor } from '@/features/web-viewer/hooks/use-browser-pa
 // Minimal ResizeObserver mock
 let resizeCallback: ResizeObserverCallback | null = null
 class MockResizeObserver {
-  constructor(cb: ResizeObserverCallback) { resizeCallback = cb }
+  constructor(cb: ResizeObserverCallback) {
+    resizeCallback = cb
+  }
   observe() {}
-  disconnect() { resizeCallback = null }
+  disconnect() {
+    resizeCallback = null
+  }
 }
 
 beforeEach(() => {
   vi.stubGlobal('ResizeObserver', MockResizeObserver)
   vi.clearAllMocks()
   // Mock requestAnimationFrame to run synchronously
-  vi.stubGlobal('requestAnimationFrame', (cb: FrameRequestCallback) => { cb(0); return 0 })
+  vi.stubGlobal('requestAnimationFrame', (cb: FrameRequestCallback) => {
+    cb(0)
+    return 0
+  })
   vi.stubGlobal('cancelAnimationFrame', vi.fn())
 })
 
@@ -58,12 +65,9 @@ describe('useBrowserPaneAnchor — Tauri env', () => {
 
   it('calls browserPaneSync on mount with visible=true', () => {
     const div = document.createElement('div')
-    div.getBoundingClientRect = () =>
-      ({ x: 10, y: 20, width: 400, height: 300 } as DOMRect)
+    div.getBoundingClientRect = () => ({ x: 10, y: 20, width: 400, height: 300 }) as DOMRect
     const ref = { current: div }
-    renderHook(() =>
-      useBrowserPaneAnchor({ bufferId: 'b1', isVisible: true, anchorRef: ref }),
-    )
+    renderHook(() => useBrowserPaneAnchor({ bufferId: 'b1', isVisible: true, anchorRef: ref }))
     expect(browserPaneSync).toHaveBeenCalledWith(
       'b1',
       { x: 10, y: 20, width: 400, height: 300 },
@@ -74,8 +78,7 @@ describe('useBrowserPaneAnchor — Tauri env', () => {
 
   it('does not call browserPaneSync when only isVisible changes (sync happens on next resize)', () => {
     const div = document.createElement('div')
-    div.getBoundingClientRect = () =>
-      ({ x: 0, y: 0, width: 100, height: 100 } as DOMRect)
+    div.getBoundingClientRect = () => ({ x: 0, y: 0, width: 100, height: 100 }) as DOMRect
     const ref = { current: div }
     const { rerender } = renderHook(
       ({ visible }: { visible: boolean }) =>
@@ -99,7 +102,7 @@ describe('useBrowserPaneAnchor — Tauri env', () => {
 
   it('uses the current isVisible value when ResizeObserver fires after visibility changes', () => {
     const div = document.createElement('div')
-    div.getBoundingClientRect = () => ({ x: 0, y: 0, width: 100, height: 100 } as DOMRect)
+    div.getBoundingClientRect = () => ({ x: 0, y: 0, width: 100, height: 100 }) as DOMRect
     const ref = { current: div }
     const { rerender } = renderHook(
       ({ visible }: { visible: boolean }) =>

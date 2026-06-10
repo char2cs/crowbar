@@ -6,15 +6,15 @@ import {
   Rows as Rows3,
   Trash as Trash2,
   X,
-} from "@phosphor-icons/react";
-import { memo } from "react";
-import { useStore } from "zustand";
-import Breadcrumb from "@/features/editor/components/toolbar/breadcrumb";
-import { useWorkspaceStore } from "@/features/workspace/stores/workspace-context";
-import { Button } from "@/components/ui/button";
-import { cn } from "@/utils/cn";
-import type { DiffHeaderProps } from "../../types/git-diff-types";
-import { getFileStatus } from "../../utils/git-diff-helpers";
+} from '@phosphor-icons/react'
+import { memo } from 'react'
+import { useStore } from 'zustand'
+import Breadcrumb from '@/features/editor/components/toolbar/breadcrumb'
+import { useWorkspaceStore } from '@/features/workspace/stores/workspace-context'
+import { Button } from '@/components/ui/button'
+import { cn } from '@/utils/cn'
+import type { DiffHeaderProps } from '../../types/git-diff-types'
+import { getFileStatus } from '../../utils/git-diff-helpers'
 
 const DiffHeader = memo(
   ({
@@ -31,30 +31,33 @@ const DiffHeader = memo(
     onClose,
     showDisplayControls = true,
   }: DiffHeaderProps) => {
-    const workspaceStore = useWorkspaceStore();
-    const activeBufferId = useStore(workspaceStore, (s) => s.paneActions.getActivePane()?.activeBufferId ?? null);
-    const closeBuffer = (id: string) => workspaceStore.getState().bufferActions.closeBuffer(id);
+    const workspaceStore = useWorkspaceStore()
+    const activeBufferId = useStore(
+      workspaceStore,
+      (s) => s.paneActions.getActivePane()?.activeBufferId ?? null,
+    )
+    const closeBuffer = (id: string) => workspaceStore.getState().bufferActions.closeBuffer(id)
     const iconButtonClass =
-      "flex size-5 items-center justify-center rounded text-muted-foreground transition-colors hover:bg-muted hover:text-foreground";
+      'flex size-5 items-center justify-center rounded text-muted-foreground transition-colors hover:bg-muted hover:text-foreground'
     const segmentedButtonClass =
-      "flex size-5 items-center justify-center rounded text-muted-foreground transition-colors hover:bg-muted hover:text-foreground";
+      'flex size-5 items-center justify-center rounded text-muted-foreground transition-colors hover:bg-muted hover:text-foreground'
 
     const handleClose = () => {
       if (onClose) {
-        onClose();
+        onClose()
       } else if (activeBufferId) {
-        closeBuffer(activeBufferId);
+        closeBuffer(activeBufferId)
       }
-    };
+    }
 
     const renderStats = () => {
-      if (!diff) return null;
+      if (!diff) return null
 
-      let additions = 0;
-      let deletions = 0;
+      let additions = 0
+      let deletions = 0
       for (const l of diff.lines) {
-        if (l.line_type === "added") additions++;
-        else if (l.line_type === "removed") deletions++;
+        if (l.line_type === 'added') additions++
+        else if (l.line_type === 'removed') deletions++
       }
 
       return (
@@ -62,46 +65,46 @@ const DiffHeader = memo(
           {additions > 0 && <span className="text-git-added">+{additions}</span>}
           {deletions > 0 && <span className="text-git-deleted">-{deletions}</span>}
         </>
-      );
-    };
+      )
+    }
 
     const renderFileStatus = () => {
-      if (!diff) return null;
+      if (!diff) return null
 
-      const status = getFileStatus(diff);
+      const status = getFileStatus(diff)
       const statusColors: Record<string, string> = {
-        added: "bg-git-added/20 text-git-added",
-        deleted: "bg-git-deleted/20 text-git-deleted",
-        modified: "bg-git-modified/20 text-git-modified",
-        renamed: "bg-git-renamed/20 text-git-renamed",
-      };
+        added: 'bg-git-added/20 text-git-added',
+        deleted: 'bg-git-deleted/20 text-git-deleted',
+        modified: 'bg-git-modified/20 text-git-modified',
+        renamed: 'bg-git-renamed/20 text-git-renamed',
+      }
 
       return (
         <span
           className={cn(
-            "rounded px-1.5 py-0.5 font-medium ui-text-xs capitalize leading-none",
+            'rounded px-1.5 py-0.5 font-medium ui-text-xs capitalize leading-none',
             statusColors[status],
           )}
         >
           {status}
         </span>
-      );
-    };
+      )
+    }
 
-    const isMultiFileView = !!totalFiles;
-    const fullPath = diff?.file_path || fileName || "";
+    const isMultiFileView = !!totalFiles
+    const fullPath = diff?.file_path || fileName || ''
 
     return (
       <div className="sticky top-0 z-10 border-border border-b">
         <Breadcrumb
-          filePathOverride={isMultiFileView ? title || "Uncommitted Changes" : fullPath}
+          filePathOverride={isMultiFileView ? title || 'Uncommitted Changes' : fullPath}
           interactive={!isMultiFileView}
           showPath={!isMultiFileView}
           showDefaultActions={false}
           extraLeftContent={
             isMultiFileView ? (
               <span className="text-muted-foreground">
-                {totalFiles} file{totalFiles !== 1 ? "s" : ""}
+                {totalFiles} file{totalFiles !== 1 ? 's' : ''}
               </span>
             ) : (
               <>
@@ -145,11 +148,11 @@ const DiffHeader = memo(
                     variant="ghost"
                     compact
                     className={cn(
-                      "flex h-5 items-center gap-1 rounded px-1.5 transition-colors hover:bg-muted hover:text-foreground",
-                      showWhitespace ? "bg-muted text-foreground" : "text-muted-foreground",
+                      'flex h-5 items-center gap-1 rounded px-1.5 transition-colors hover:bg-muted hover:text-foreground',
+                      showWhitespace ? 'bg-muted text-foreground' : 'text-muted-foreground',
                     )}
-                    tooltip={showWhitespace ? "Hide whitespace" : "Show whitespace"}
-                    aria-label={showWhitespace ? "Hide whitespace" : "Show whitespace"}
+                    tooltip={showWhitespace ? 'Hide whitespace' : 'Show whitespace'}
+                    aria-label={showWhitespace ? 'Hide whitespace' : 'Show whitespace'}
                   >
                     <Trash2 />
                     {showWhitespace && <Check />}
@@ -158,12 +161,12 @@ const DiffHeader = memo(
                   {onViewModeChange && (
                     <div className="flex items-center gap-0.5">
                       <Button
-                        onClick={() => onViewModeChange("unified")}
+                        onClick={() => onViewModeChange('unified')}
                         variant="ghost"
                         compact
                         className={cn(
                           segmentedButtonClass,
-                          viewMode === "unified" && "bg-muted text-foreground",
+                          viewMode === 'unified' && 'bg-muted text-foreground',
                         )}
                         tooltip="Unified view"
                         aria-label="Unified diff view"
@@ -171,12 +174,12 @@ const DiffHeader = memo(
                         <Rows3 />
                       </Button>
                       <Button
-                        onClick={() => onViewModeChange("split")}
+                        onClick={() => onViewModeChange('split')}
                         variant="ghost"
                         compact
                         className={cn(
                           segmentedButtonClass,
-                          viewMode === "split" && "bg-muted text-foreground",
+                          viewMode === 'split' && 'bg-muted text-foreground',
                         )}
                         tooltip="Split view"
                         aria-label="Split diff view"
@@ -205,10 +208,10 @@ const DiffHeader = memo(
           }
         />
       </div>
-    );
+    )
   },
-);
+)
 
-DiffHeader.displayName = "DiffHeader";
+DiffHeader.displayName = 'DiffHeader'
 
-export default DiffHeader;
+export default DiffHeader

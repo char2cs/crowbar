@@ -23,12 +23,19 @@ export function ChatTreeItem({ node, depth, activeChatId, onChatClick }: ChatTre
   const { chat, children } = node
   const isActive = chat.id === activeChatId
   const hasChildren = children.length > 0
-  const isCollapsed = useSidebarStore(s => s.collapsedChats.has(chat.id))
+  const isCollapsed = useSidebarStore((s) => s.collapsedChats.has(chat.id))
 
   const {
-    creatingChildOf, startCreating, confirmCreate, cancelCreate,
-    renamingId, startRenaming, confirmRename, cancelRename,
-    draggingChat, onPointerDownDrag,
+    creatingChildOf,
+    startCreating,
+    confirmCreate,
+    cancelCreate,
+    renamingId,
+    startRenaming,
+    confirmRename,
+    cancelRename,
+    draggingChat,
+    onPointerDownDrag,
   } = useChatTreeContext()
 
   const isCreatingChild = creatingChildOf?.parentId === chat.id
@@ -57,10 +64,11 @@ export function ChatTreeItem({ node, depth, activeChatId, onChatClick }: ChatTre
           onPointerDown={!isRenaming ? (e) => onPointerDownDrag(chat.id, chat.title, e) : undefined}
         >
           <span className="size-4 shrink-0 flex items-center justify-center">
-            {chat.status === 'agent-running'
-              ? <WorkspaceAgentSpinner />
-              : <Chat aria-hidden="true" className="size-4 text-foreground" weight="fill" />
-            }
+            {chat.status === 'agent-running' ? (
+              <WorkspaceAgentSpinner />
+            ) : (
+              <Chat aria-hidden="true" className="size-4 text-foreground" weight="fill" />
+            )}
           </span>
 
           {isRenaming ? (
@@ -73,7 +81,10 @@ export function ChatTreeItem({ node, depth, activeChatId, onChatClick }: ChatTre
           ) : (
             <span
               className="min-w-0 flex-1 truncate text-left text-[13px]"
-              onDoubleClick={(e) => { e.stopPropagation(); startRenaming(chat.id) }}
+              onDoubleClick={(e) => {
+                e.stopPropagation()
+                startRenaming(chat.id)
+              }}
             >
               {chat.title}
             </span>
@@ -83,47 +94,60 @@ export function ChatTreeItem({ node, depth, activeChatId, onChatClick }: ChatTre
             <span className="shrink-0 font-mono text-[11px] text-muted-foreground">{chat.age}</span>
           )}
 
-          {!isRenaming && (hasChildren ? (
-            <button
-              type="button"
-              className="shrink-0 rounded-md p-1 text-foreground/30 hover:text-foreground/60 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
-              onClick={(e) => { e.stopPropagation(); useSidebarStore.getState().toggleChat(chat.id) }}
-              onPointerDown={(e) => e.stopPropagation()}
-              aria-label={isCollapsed ? 'Expand' : 'Collapse'}
-            >
-              <svg
-                aria-hidden="true"
-                className={cn('size-3 transition-transform', !isCollapsed && 'rotate-90')}
-                viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"
+          {!isRenaming &&
+            (hasChildren ? (
+              <button
+                type="button"
+                className="shrink-0 rounded-md p-1 text-foreground/30 hover:text-foreground/60 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
+                onClick={(e) => {
+                  e.stopPropagation()
+                  useSidebarStore.getState().toggleChat(chat.id)
+                }}
+                onPointerDown={(e) => e.stopPropagation()}
+                aria-label={isCollapsed ? 'Expand' : 'Collapse'}
               >
-                <path d="M6 3l5 5-5 5" />
-              </svg>
-            </button>
-          ) : !isCreatingChild ? (
-            <button
-              type="button"
-              className="shrink-0 rounded-md p-1 text-foreground/30 hover:text-foreground/60 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
-              onClick={(e) => { e.stopPropagation(); startCreating(chat.id) }}
-              onPointerDown={(e) => e.stopPropagation()}
-              aria-label="Fork chat"
-            >
-              <Plus aria-hidden="true" className="size-3" />
-            </button>
-          ) : null)}
+                <svg
+                  aria-hidden="true"
+                  className={cn('size-3 transition-transform', !isCollapsed && 'rotate-90')}
+                  viewBox="0 0 16 16"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth="2"
+                  strokeLinecap="round"
+                >
+                  <path d="M6 3l5 5-5 5" />
+                </svg>
+              </button>
+            ) : !isCreatingChild ? (
+              <button
+                type="button"
+                className="shrink-0 rounded-md p-1 text-foreground/30 hover:text-foreground/60 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
+                onClick={(e) => {
+                  e.stopPropagation()
+                  startCreating(chat.id)
+                }}
+                onPointerDown={(e) => e.stopPropagation()}
+                aria-label="Fork chat"
+              >
+                <Plus aria-hidden="true" className="size-3" />
+              </button>
+            ) : null)}
         </div>
       </div>
 
       {showChildren && (
         <div>
-          {hasChildren && !isCollapsed && children.map(child => (
-            <ChatTreeItem
-              key={child.chat.id}
-              node={child}
-              depth={depth + 1}
-              activeChatId={activeChatId}
-              onChatClick={onChatClick}
-            />
-          ))}
+          {hasChildren &&
+            !isCollapsed &&
+            children.map((child) => (
+              <ChatTreeItem
+                key={child.chat.id}
+                node={child}
+                depth={depth + 1}
+                activeChatId={activeChatId}
+                onChatClick={onChatClick}
+              />
+            ))}
           <div style={{ paddingLeft: (depth + 1) * 14 }}>
             {isCreatingChild ? (
               <div className={cn(ROW_BASE, 'border-transparent text-foreground')}>
@@ -138,10 +162,16 @@ export function ChatTreeItem({ node, depth, activeChatId, onChatClick }: ChatTre
               <div
                 role="button"
                 tabIndex={0}
-                className={cn(ROW_BASE, 'border-transparent text-muted-foreground/40 hover:bg-accent hover:text-muted-foreground/60')}
+                className={cn(
+                  ROW_BASE,
+                  'border-transparent text-muted-foreground/40 hover:bg-accent hover:text-muted-foreground/60',
+                )}
                 onClick={() => startCreating(chat.id)}
                 onKeyDown={(e) => {
-                  if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); startCreating(chat.id) }
+                  if (e.key === 'Enter' || e.key === ' ') {
+                    e.preventDefault()
+                    startCreating(chat.id)
+                  }
                 }}
               >
                 <Plus aria-hidden="true" className="size-4 shrink-0" />

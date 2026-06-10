@@ -1,17 +1,17 @@
 export interface PointerPosition {
-  x: number;
-  y: number;
+  x: number
+  y: number
 }
 
 export interface HorizontalTabPosition {
-  index: number;
-  left: number;
-  right: number;
-  width: number;
-  center: number;
+  index: number
+  left: number
+  right: number
+  width: number
+  center: number
 }
 
-export const HORIZONTAL_TAB_DRAG_THRESHOLD = 5;
+export const HORIZONTAL_TAB_DRAG_THRESHOLD = 5
 
 export function constrainHorizontalTabDrag(
   pointer: PointerPosition,
@@ -20,13 +20,13 @@ export function constrainHorizontalTabDrag(
   slop = 80,
 ): { position: PointerPosition; isOutsideRail: boolean } {
   const isOutsideRail =
-    pointer.y < containerRect.top - slop || pointer.y > containerRect.bottom + slop;
+    pointer.y < containerRect.top - slop || pointer.y > containerRect.bottom + slop
 
   if (isOutsideRail) {
     return {
       position: pointer,
       isOutsideRail: true,
-    };
+    }
   }
 
   return {
@@ -35,7 +35,7 @@ export function constrainHorizontalTabDrag(
       y: startY,
     },
     isOutsideRail: false,
-  };
+  }
 }
 
 export function calculateHorizontalTabDropTarget(
@@ -44,45 +44,45 @@ export function calculateHorizontalTabDropTarget(
   draggedIndex: number,
   tabPositions: HorizontalTabPosition[],
   currentDropTarget: number | null = null,
-): { dropTarget: number; direction: "left" | "right" } {
+): { dropTarget: number; direction: 'left' | 'right' } {
   if (tabPositions.length === 0) {
-    return { dropTarget: draggedIndex, direction: "right" };
+    return { dropTarget: draggedIndex, direction: 'right' }
   }
 
-  const relativeX = pointerX - containerRect.left;
-  let dropTarget = draggedIndex;
+  const relativeX = pointerX - containerRect.left
+  let dropTarget = draggedIndex
 
   if (relativeX < tabPositions[0].left) {
-    dropTarget = 0;
+    dropTarget = 0
   } else if (relativeX > tabPositions[tabPositions.length - 1].right) {
-    dropTarget = tabPositions.length;
+    dropTarget = tabPositions.length
   } else {
     for (let index = 0; index < tabPositions.length; index += 1) {
-      const position = tabPositions[index];
+      const position = tabPositions[index]
       if (relativeX < position.left || relativeX > position.right) {
-        continue;
+        continue
       }
 
-      const relativePositionInTab = (relativeX - position.left) / position.width;
+      const relativePositionInTab = (relativeX - position.left) / position.width
       if (currentDropTarget !== null && Math.abs(currentDropTarget - index) <= 1) {
-        const hysteresisThreshold = 0.25;
+        const hysteresisThreshold = 0.25
         if (relativePositionInTab < 0.5 - hysteresisThreshold) {
-          dropTarget = index;
+          dropTarget = index
         } else if (relativePositionInTab > 0.5 + hysteresisThreshold) {
-          dropTarget = index + 1;
+          dropTarget = index + 1
         } else {
-          dropTarget = currentDropTarget;
+          dropTarget = currentDropTarget
         }
       } else {
-        dropTarget = relativePositionInTab < 0.5 ? index : index + 1;
+        dropTarget = relativePositionInTab < 0.5 ? index : index + 1
       }
 
-      break;
+      break
     }
   }
 
   return {
     dropTarget,
-    direction: relativeX > (tabPositions[draggedIndex]?.center ?? 0) ? "right" : "left",
-  };
+    direction: relativeX > (tabPositions[draggedIndex]?.center ?? 0) ? 'right' : 'left',
+  }
 }

@@ -44,13 +44,13 @@ export const createTerminalSlice: StateCreator<
 
   terminalActions: {
     registerSession(sessionId) {
-      set(state => {
+      set((state) => {
         state.terminalSessionIds.add(sessionId)
       })
     },
 
     unregisterSession(sessionId) {
-      set(state => {
+      set((state) => {
         state.terminalSessionIds.delete(sessionId)
       })
     },
@@ -60,19 +60,27 @@ export const createTerminalSlice: StateCreator<
     },
 
     setWidthMode(mode) {
-      set(state => { state.terminalLayout.widthMode = mode })
+      set((state) => {
+        state.terminalLayout.widthMode = mode
+      })
     },
 
     setTabLayout(layout) {
-      set(state => { state.terminalLayout.tabLayout = layout })
+      set((state) => {
+        state.terminalLayout.tabLayout = layout
+      })
     },
 
     setTabSidebarWidth(width) {
-      set(state => { state.terminalLayout.tabSidebarWidth = width })
+      set((state) => {
+        state.terminalLayout.tabSidebarWidth = width
+      })
     },
 
     setTabSidebarPosition(pos) {
-      set(state => { state.terminalLayout.tabSidebarPosition = pos })
+      set((state) => {
+        state.terminalLayout.tabSidebarPosition = pos
+      })
     },
   },
 })

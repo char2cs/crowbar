@@ -7,9 +7,7 @@ vi.mock('@/lib/api', async (importOriginal) => {
   const actual = await importOriginal<typeof import('@/lib/api')>()
   return {
     ...actual,
-    postProject: vi.fn((_name: string, _path: string) =>
-      Promise.resolve({ id: 'mock-id' }),
-    ),
+    postProject: vi.fn((_name: string, _path: string) => Promise.resolve({ id: 'mock-id' })),
     fetchProject: vi.fn((id: string) =>
       Promise.resolve({ id, name: 'test-proj', path: '/tmp/test-proj', lastActivity: new Date() }),
     ),

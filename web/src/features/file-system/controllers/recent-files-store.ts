@@ -1,5 +1,5 @@
 // Stub
-import { create } from "zustand"
+import { create } from 'zustand'
 export const useRecentFilesStore = create(() => ({
   recentFiles: [] as string[],
   addRecentFile: (_path: string) => {},

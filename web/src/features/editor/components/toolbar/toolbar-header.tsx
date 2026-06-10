@@ -1,8 +1,8 @@
-import type { ReactNode } from "react";
+import type { ReactNode } from 'react'
 
 interface ToolbarHeaderProps {
-  left: ReactNode;
-  right?: ReactNode;
+  left: ReactNode
+  right?: ReactNode
 }
 
 export function ToolbarHeader({ left, right }: ToolbarHeaderProps) {
@@ -13,5 +13,5 @@ export function ToolbarHeader({ left, right }: ToolbarHeaderProps) {
       </div>
       {right ? <div className="flex items-center gap-1">{right}</div> : null}
     </div>
-  );
+  )
 }

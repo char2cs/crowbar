@@ -1,81 +1,72 @@
-export type SidebarView =
-  | "files"
-  | "outline"
-  | "collaboration"
-  | "notifications"
-  | (string & {});
+export type SidebarView = 'files' | 'outline' | 'collaboration' | 'notifications' | (string & {})
 
 interface SidebarPaneState {
-  isSidebarVisible: boolean;
-  activeSidebarView?: SidebarView;
+  isSidebarVisible: boolean
+  activeSidebarView?: SidebarView
 }
 
 interface SidebarPaneClickResult {
-  nextIsSidebarVisible: boolean;
-  nextView: SidebarView;
+  nextIsSidebarVisible: boolean
+  nextView: SidebarView
 }
 
-export type SidebarPosition = "left" | "right";
-export type SidebarTriggerSide = SidebarPosition | "current";
-export type SidebarPaneLevel = "primary" | "edge";
+export type SidebarPosition = 'left' | 'right'
+export type SidebarTriggerSide = SidebarPosition | 'current'
+export type SidebarPaneLevel = 'primary' | 'edge'
 
 interface SidebarPaneTriggerOptions {
-  currentPosition: SidebarPosition;
-  triggerSide?: SidebarTriggerSide;
+  currentPosition: SidebarPosition
+  triggerSide?: SidebarTriggerSide
 }
 
 interface SidebarPaneTriggerResult extends SidebarPaneClickResult {
-  nextPosition: SidebarPosition;
+  nextPosition: SidebarPosition
 }
 
-const EDGE_SIDEBAR_VIEWS = new Set<SidebarView>([
-  "outline",
-  "collaboration",
-  "notifications",
-]);
+const EDGE_SIDEBAR_VIEWS = new Set<SidebarView>(['outline', 'collaboration', 'notifications'])
 
 export function getSidebarPaneLevel(view: SidebarView): SidebarPaneLevel {
-  if (EDGE_SIDEBAR_VIEWS.has(view)) return "edge";
-  return "primary";
+  if (EDGE_SIDEBAR_VIEWS.has(view)) return 'edge'
+  return 'primary'
 }
 
 export function getActiveSidebarView({
   activeSidebarView,
-}: Omit<SidebarPaneState, "isSidebarVisible">): SidebarView {
-  return activeSidebarView ?? "files";
+}: Omit<SidebarPaneState, 'isSidebarVisible'>): SidebarView {
+  return activeSidebarView ?? 'files'
 }
 
 export function resolveSidebarPaneClick(
   state: SidebarPaneState,
   clickedView: SidebarView,
 ): SidebarPaneClickResult {
-  const activeView = getActiveSidebarView(state);
+  const activeView = getActiveSidebarView(state)
 
   if (!state.isSidebarVisible) {
     return {
       nextIsSidebarVisible: true,
       nextView: clickedView,
-    };
+    }
   }
 
   if (activeView === clickedView) {
     return {
       nextIsSidebarVisible: false,
       nextView: activeView,
-    };
+    }
   }
 
   return {
     nextIsSidebarVisible: true,
     nextView: clickedView,
-  };
+  }
 }
 
 export function getSidebarPositionForTrigger(
   currentPosition: SidebarPosition,
-  triggerSide: SidebarTriggerSide = "current",
+  triggerSide: SidebarTriggerSide = 'current',
 ): SidebarPosition {
-  return triggerSide === "current" ? currentPosition : triggerSide;
+  return triggerSide === 'current' ? currentPosition : triggerSide
 }
 
 export function resolveSidebarPaneTrigger(
@@ -83,22 +74,22 @@ export function resolveSidebarPaneTrigger(
   clickedView: SidebarView,
   options: SidebarPaneTriggerOptions,
 ): SidebarPaneTriggerResult {
-  const nextPosition = getSidebarPositionForTrigger(options.currentPosition, options.triggerSide);
-  const isMovingVisibleSidebar = state.isSidebarVisible && nextPosition !== options.currentPosition;
+  const nextPosition = getSidebarPositionForTrigger(options.currentPosition, options.triggerSide)
+  const isMovingVisibleSidebar = state.isSidebarVisible && nextPosition !== options.currentPosition
 
   if (isMovingVisibleSidebar) {
     return {
       nextIsSidebarVisible: true,
       nextView: clickedView,
       nextPosition,
-    };
+    }
   }
 
-  const { nextIsSidebarVisible, nextView } = resolveSidebarPaneClick(state, clickedView);
+  const { nextIsSidebarVisible, nextView } = resolveSidebarPaneClick(state, clickedView)
 
   return {
     nextIsSidebarVisible,
     nextView,
     nextPosition,
-  };
+  }
 }

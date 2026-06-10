@@ -11,7 +11,7 @@ describe('ContextMenu keyboard dismiss', () => {
         position={{ x: 100, y: 100 }}
         items={[{ id: 'item-1', label: 'Item', onClick: vi.fn() }]}
         onClose={onClose}
-      />
+      />,
     )
     fireEvent.keyDown(document, { key: 'Escape' })
     expect(onClose).toHaveBeenCalledOnce()
@@ -25,7 +25,7 @@ describe('ContextMenu keyboard dismiss', () => {
         position={{ x: 100, y: 100 }}
         items={[{ id: 'item-1', label: 'Item', onClick: vi.fn() }]}
         onClose={onClose}
-      />
+      />,
     )
     fireEvent.keyDown(document, { key: 'Enter' })
     expect(onClose).not.toHaveBeenCalled()
@@ -39,7 +39,7 @@ describe('ContextMenu keyboard dismiss', () => {
         position={{ x: 100, y: 100 }}
         items={[{ id: 'item-1', label: 'Item', onClick: vi.fn() }]}
         onClose={onClose}
-      />
+      />,
     )
     fireEvent.keyDown(document, { key: 'Escape' })
     expect(onClose).not.toHaveBeenCalled()

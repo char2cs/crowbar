@@ -1,33 +1,33 @@
-import { getActiveWorkspaceStoreRef } from "@/features/workspace/stores/workspace-store-ref";
-import { ensureBufferInPane } from "./pane-buffer-actions";
-import type { PaneDropZone } from "./pane-drop-zones";
-import { getPaneSplitDropOptions } from "./pane-drop-zones";
-import { createPaneBeside } from "./pane-split-actions";
+import { getActiveWorkspaceStoreRef } from '@/features/workspace/stores/workspace-store-ref'
+import { ensureBufferInPane } from './pane-buffer-actions'
+import type { PaneDropZone } from './pane-drop-zones'
+import { getPaneSplitDropOptions } from './pane-drop-zones'
+import { createPaneBeside } from './pane-split-actions'
 
 export interface PaneDropTarget {
-  paneId: string;
-  zone: PaneDropZone;
+  paneId: string
+  zone: PaneDropZone
 }
 
 export function getOrCreatePaneDropTarget(target: PaneDropTarget): string | null {
-  const splitOptions = getPaneSplitDropOptions(target.zone);
+  const splitOptions = getPaneSplitDropOptions(target.zone)
   if (!splitOptions) {
-    return target.paneId;
+    return target.paneId
   }
 
-  return createPaneBeside(target.paneId, splitOptions.direction, splitOptions.placement);
+  return createPaneBeside(target.paneId, splitOptions.direction, splitOptions.placement)
 }
 
 export function ensureBufferInPaneDropTarget(
   bufferId: string,
   target: PaneDropTarget,
 ): string | null {
-  const targetPaneId = getOrCreatePaneDropTarget(target);
+  const targetPaneId = getOrCreatePaneDropTarget(target)
   if (!targetPaneId) {
-    return null;
+    return null
   }
 
-  return ensureBufferInPane(targetPaneId, bufferId, true);
+  return ensureBufferInPane(targetPaneId, bufferId, true)
 }
 
 export function moveBufferToPaneDropTarget(
@@ -35,13 +35,13 @@ export function moveBufferToPaneDropTarget(
   sourcePaneId: string,
   target: PaneDropTarget,
 ): string | null {
-  const targetPaneId = getOrCreatePaneDropTarget(target);
+  const targetPaneId = getOrCreatePaneDropTarget(target)
   if (!targetPaneId) {
-    return null;
+    return null
   }
 
-  const state = getActiveWorkspaceStoreRef()?.getState();
-  if (!state) return null;
-  state.paneActions.moveBufferToPane(bufferId, sourcePaneId, targetPaneId);
-  return targetPaneId;
+  const state = getActiveWorkspaceStoreRef()?.getState()
+  if (!state) return null
+  state.paneActions.moveBufferToPane(bufferId, sourcePaneId, targetPaneId)
+  return targetPaneId
 }

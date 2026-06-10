@@ -1,7 +1,15 @@
 import { describe, it, expect } from 'vitest'
 import {
-  createLeaf, createSplit, splitLayout, closeLayout, findLeaf, findSplit,
-  getAllLeafIds, flattenForRender, resizeFlattenedLayout, getAdjacentLeafId,
+  createLeaf,
+  createSplit,
+  splitLayout,
+  closeLayout,
+  findLeaf,
+  findSplit,
+  getAllLeafIds,
+  flattenForRender,
+  resizeFlattenedLayout,
+  getAdjacentLeafId,
 } from '@/features/panes/utils/pane-layout'
 
 describe('createLeaf', () => {
@@ -28,7 +36,8 @@ describe('findLeaf', () => {
     expect(findLeaf(a, 'a')).toBe(a)
   })
   it('finds nested leaf', () => {
-    const a = createLeaf('a'); const b = createLeaf('b')
+    const a = createLeaf('a')
+    const b = createLeaf('b')
     expect(findLeaf(createSplit('horizontal', a, b), 'b')?.id).toBe('b')
   })
   it('returns null for unknown id', () => {
@@ -38,8 +47,11 @@ describe('findLeaf', () => {
 
 describe('getAllLeafIds', () => {
   it('returns all leaf ids in order', () => {
-    const tree = createSplit('horizontal', createLeaf('a'),
-      createSplit('horizontal', createLeaf('b'), createLeaf('c')))
+    const tree = createSplit(
+      'horizontal',
+      createLeaf('a'),
+      createSplit('horizontal', createLeaf('b'), createLeaf('c')),
+    )
     expect(getAllLeafIds(tree)).toEqual(['a', 'b', 'c'])
   })
 })
@@ -81,7 +93,7 @@ describe('flattenForRender', () => {
     const outer = createSplit('horizontal', createLeaf('a'), inner, [50, 50])
     const entries = flattenForRender(outer)
     expect(entries).toHaveLength(3)
-    expect(entries.map(e => (e.node as any).id)).toEqual(['a', 'b', 'c'])
+    expect(entries.map((e) => (e.node as any).id)).toEqual(['a', 'b', 'c'])
   })
   it('does not flatten cross-direction splits', () => {
     const inner = createSplit('vertical', createLeaf('b'), createLeaf('c'))
@@ -94,7 +106,8 @@ describe('flattenForRender', () => {
 
 describe('resizeFlattenedLayout', () => {
   it('updates sizes on resize', () => {
-    const a = createLeaf('a'); const b = createLeaf('b')
+    const a = createLeaf('a')
+    const b = createLeaf('b')
     const split = createSplit('horizontal', a, b, [50, 50])
     const result = resizeFlattenedLayout(split, split.id, 0, [70, 30])
     const updated = findSplit(result, split.id)!

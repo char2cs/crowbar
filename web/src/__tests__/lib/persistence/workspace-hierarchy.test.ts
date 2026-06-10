@@ -18,10 +18,7 @@ describe('workspace-hierarchy persistence', () => {
   })
 
   it('saves and loads entries round-trip', async () => {
-    const entries = [
-      { wsId: 'ws1', parentId: 'ws-develop' },
-      { wsId: 'ws2' },
-    ]
+    const entries = [{ wsId: 'ws1', parentId: 'ws-develop' }, { wsId: 'ws2' }]
     await saveWorkspaceHierarchy('crowbar', entries)
     const result = await loadWorkspaceHierarchy('crowbar')
     expect(result?.repoId).toBe('crowbar')
@@ -40,7 +37,7 @@ describe('workspace-hierarchy persistence', () => {
     await saveWorkspaceHierarchy('quiver-core', [{ wsId: 'qc1', parentId: 'qc-develop' }])
     const all = await loadAllWorkspaceHierarchies()
     expect(all).toHaveLength(2)
-    const repoIds = all.map(h => h.repoId)
+    const repoIds = all.map((h) => h.repoId)
     expect(repoIds).toContain('crowbar')
     expect(repoIds).toContain('quiver-core')
   })

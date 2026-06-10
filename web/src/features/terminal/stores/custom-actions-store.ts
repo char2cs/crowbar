@@ -1,25 +1,25 @@
-import { create } from "zustand";
-import { persist } from "zustand/middleware";
-import { createSelectors } from "@/utils/zustand-selectors";
+import { create } from 'zustand'
+import { persist } from 'zustand/middleware'
+import { createSelectors } from '@/utils/zustand-selectors'
 
 export interface CustomTerminalAction {
-  id: string;
-  name: string;
-  command: string;
-  icon?: string;
-  workspacePath?: string;
+  id: string
+  name: string
+  command: string
+  icon?: string
+  workspacePath?: string
 }
 
 interface CustomActionsState {
-  actions: CustomTerminalAction[];
+  actions: CustomTerminalAction[]
   storeActions: {
-    addAction: (action: Omit<CustomTerminalAction, "id">) => void;
-    updateAction: (id: string, updates: Partial<CustomTerminalAction>) => void;
-    deleteAction: (id: string) => void;
-    getAction: (id: string) => CustomTerminalAction | undefined;
-    getActionsForWorkspace: (workspacePath?: string) => CustomTerminalAction[];
-    reorderActions: (startIndex: number, endIndex: number) => void;
-  };
+    addAction: (action: Omit<CustomTerminalAction, 'id'>) => void
+    updateAction: (id: string, updates: Partial<CustomTerminalAction>) => void
+    deleteAction: (id: string) => void
+    getAction: (id: string) => CustomTerminalAction | undefined
+    getActionsForWorkspace: (workspacePath?: string) => CustomTerminalAction[]
+    reorderActions: (startIndex: number, endIndex: number) => void
+  }
 }
 
 const useCustomActionsStoreBase = create<CustomActionsState>()(
@@ -28,46 +28,46 @@ const useCustomActionsStoreBase = create<CustomActionsState>()(
       actions: [],
       storeActions: {
         addAction: (action) => {
-          const id = `action_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+          const id = `action_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`
           set((state) => ({
             actions: [...state.actions, { ...action, id }],
-          }));
+          }))
         },
         updateAction: (id, updates) => {
           set((state) => ({
             actions: state.actions.map((a) => (a.id === id ? { ...a, ...updates } : a)),
-          }));
+          }))
         },
         deleteAction: (id) => {
           set((state) => ({
             actions: state.actions.filter((a) => a.id !== id),
-          }));
+          }))
         },
         getAction: (id) => {
-          return get().actions.find((a) => a.id === id);
+          return get().actions.find((a) => a.id === id)
         },
         getActionsForWorkspace: (workspacePath) => {
-          const actions = get().actions;
+          const actions = get().actions
           if (!workspacePath) {
-            return actions.filter((action) => !action.workspacePath);
+            return actions.filter((action) => !action.workspacePath)
           }
 
-          const scopedActions = actions.filter((action) => action.workspacePath === workspacePath);
-          const sharedActions = actions.filter((action) => !action.workspacePath);
-          return [...scopedActions, ...sharedActions];
+          const scopedActions = actions.filter((action) => action.workspacePath === workspacePath)
+          const sharedActions = actions.filter((action) => !action.workspacePath)
+          return [...scopedActions, ...sharedActions]
         },
         reorderActions: (startIndex, endIndex) => {
           set((state) => {
-            const result = Array.from(state.actions);
-            const [removed] = result.splice(startIndex, 1);
-            result.splice(endIndex, 0, removed);
-            return { actions: result };
-          });
+            const result = Array.from(state.actions)
+            const [removed] = result.splice(startIndex, 1)
+            result.splice(endIndex, 0, removed)
+            return { actions: result }
+          })
         },
       },
     }),
     {
-      name: "terminal-custom-actions",
+      name: 'terminal-custom-actions',
       partialize: (state) => ({ actions: state.actions }),
       merge: (persistedState, currentState) => ({
         ...currentState,
@@ -76,6 +76,6 @@ const useCustomActionsStoreBase = create<CustomActionsState>()(
       }),
     },
   ),
-);
+)
 
-export const useCustomActionsStore = createSelectors(useCustomActionsStoreBase);
+export const useCustomActionsStore = createSelectors(useCustomActionsStoreBase)

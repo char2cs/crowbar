@@ -2,8 +2,8 @@ export type TurnRole = 'user' | 'agent'
 
 export interface WidgetData {
   id: string
-  type: string      // frontend registry key: 'excalidraw' | 'mermaid'
-  payload: unknown  // opaque — backend never inspects
+  type: string // frontend registry key: 'excalidraw' | 'mermaid'
+  payload: unknown // opaque — backend never inspects
 }
 
 export interface ToolCallData {
@@ -16,12 +16,12 @@ export interface ToolCallData {
 export interface MarkdownTurn {
   id: string
   role: TurnRole
-  content: string        // raw markdown; fenced blocks reference widget IDs
-  timestamp: string      // ISO 8601
+  content: string // raw markdown; fenced blocks reference widget IDs
+  timestamp: string // ISO 8601
   authorName: string
-  model?: string         // model that produced an agent turn (e.g. "Opus 4.8")
+  model?: string // model that produced an agent turn (e.g. "Opus 4.8")
   widgets: WidgetData[]
-  streaming?: boolean    // true while agent is actively writing
+  streaming?: boolean // true while agent is actively writing
 }
 
 // Turn boundary marker embedded in CM6 document text:

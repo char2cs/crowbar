@@ -35,8 +35,12 @@ export function createWSManager(): WSManager {
 
     ch.socket.onmessage = (e) => {
       let parsed: unknown
-      try { parsed = JSON.parse(e.data as string) } catch { parsed = e.data }
-      ch.callbacks.forEach(cb => cb(parsed))
+      try {
+        parsed = JSON.parse(e.data as string)
+      } catch {
+        parsed = e.data
+      }
+      ch.callbacks.forEach((cb) => cb(parsed))
     }
 
     ch.socket.onclose = () => {
@@ -61,7 +65,7 @@ export function createWSManager(): WSManager {
         channels.set(endpoint, fresh)
         // Tell subscribers the stream was interrupted so they can refetch
         // whatever pushes they may have missed during the outage.
-        ch.callbacks.forEach(cb => cb({ reconnected: true }))
+        ch.callbacks.forEach((cb) => cb({ reconnected: true }))
       }, ch.reconnectDelay)
     }
 

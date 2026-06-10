@@ -1,11 +1,11 @@
-import { describe, expect, test } from "vitest";
-import { resolveGitActionsMenuPosition } from "@/features/git/utils/git-actions-menu-position";
+import { describe, expect, test } from 'vitest'
+import { resolveGitActionsMenuPosition } from '@/features/git/utils/git-actions-menu-position'
 
-describe("resolveGitActionsMenuPosition", () => {
-  const viewport = { width: 320, height: 240 };
-  const menuSize = { width: 200, height: 160 };
+describe('resolveGitActionsMenuPosition', () => {
+  const viewport = { width: 320, height: 240 }
+  const menuSize = { width: 200, height: 160 }
 
-  test("right-aligns the menu to the trigger when there is room", () => {
+  test('right-aligns the menu to the trigger when there is room', () => {
     expect(
       resolveGitActionsMenuPosition({
         anchorRect: {
@@ -22,11 +22,11 @@ describe("resolveGitActionsMenuPosition", () => {
     ).toEqual({
       left: 8,
       top: 66,
-      direction: "down",
-    });
-  });
+      direction: 'down',
+    })
+  })
 
-  test("clamps the menu inside the viewport near the right edge", () => {
+  test('clamps the menu inside the viewport near the right edge', () => {
     expect(
       resolveGitActionsMenuPosition({
         anchorRect: {
@@ -43,11 +43,11 @@ describe("resolveGitActionsMenuPosition", () => {
     ).toEqual({
       left: 112,
       top: 66,
-      direction: "down",
-    });
-  });
+      direction: 'down',
+    })
+  })
 
-  test("opens upward when there is not enough room below", () => {
+  test('opens upward when there is not enough room below', () => {
     expect(
       resolveGitActionsMenuPosition({
         anchorRect: {
@@ -64,11 +64,11 @@ describe("resolveGitActionsMenuPosition", () => {
     ).toEqual({
       left: 112,
       top: 44,
-      direction: "up",
-    });
-  });
+      direction: 'up',
+    })
+  })
 
-  test("clamps upward-opening menus inside the top margin when needed", () => {
+  test('clamps upward-opening menus inside the top margin when needed', () => {
     expect(
       resolveGitActionsMenuPosition({
         anchorRect: {
@@ -85,7 +85,7 @@ describe("resolveGitActionsMenuPosition", () => {
     ).toEqual({
       left: 8,
       top: 8,
-      direction: "down",
-    });
-  });
-});
+      direction: 'down',
+    })
+  })
+})

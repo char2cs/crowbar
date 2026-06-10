@@ -1,25 +1,28 @@
-import type { ReactNode } from "react";
-import { Eye, MagnifyingGlass as Search } from "@phosphor-icons/react";
-import { useShallow } from "zustand/react/shallow";
-import { EditorStatusActions } from "@/features/editor/components/toolbar/editor-status-actions";
-import { useWorkspaceStoreContext, useWorkspaceStore } from "@/features/workspace/stores/workspace-context";
-import { hasTextContent } from "@/features/panes/types/pane-content";
-import { useUIState } from "@/features/window/stores/ui-state-store";
-import { useExtensionActions } from "@/extensions/ui/hooks/use-extension-actions";
-import { ExtensionToolbarAction } from "@/extensions/ui/components/extension-toolbar-action";
-import { useSettingsStore } from "@/features/settings/store";
-import { Button } from "@/components/ui/button";
-import { FilePathBreadcrumb } from "./file-path-breadcrumb";
+import type { ReactNode } from 'react'
+import { Eye, MagnifyingGlass as Search } from '@phosphor-icons/react'
+import { useShallow } from 'zustand/react/shallow'
+import { EditorStatusActions } from '@/features/editor/components/toolbar/editor-status-actions'
+import {
+  useWorkspaceStoreContext,
+  useWorkspaceStore,
+} from '@/features/workspace/stores/workspace-context'
+import { hasTextContent } from '@/features/panes/types/pane-content'
+import { useUIState } from '@/features/window/stores/ui-state-store'
+import { useExtensionActions } from '@/extensions/ui/hooks/use-extension-actions'
+import { ExtensionToolbarAction } from '@/extensions/ui/components/extension-toolbar-action'
+import { useSettingsStore } from '@/features/settings/store'
+import { Button } from '@/components/ui/button'
+import { FilePathBreadcrumb } from './file-path-breadcrumb'
 
 export interface BreadcrumbProps {
-  bufferId?: string;
-  editorViewKey?: string | null;
-  filePathOverride?: string;
-  rightContent?: ReactNode;
-  extraLeftContent?: ReactNode;
-  showDefaultActions?: boolean;
-  interactive?: boolean;
-  showPath?: boolean;
+  bufferId?: string
+  editorViewKey?: string | null
+  filePathOverride?: string
+  rightContent?: ReactNode
+  extraLeftContent?: ReactNode
+  showDefaultActions?: boolean
+  interactive?: boolean
+  showPath?: boolean
 }
 
 export default function Breadcrumb({
@@ -32,15 +35,15 @@ export default function Breadcrumb({
   interactive = true,
   showPath = true,
 }: BreadcrumbProps = {}) {
-  const workspaceStore = useWorkspaceStore();
+  const workspaceStore = useWorkspaceStore()
   const resolvedBufferId = useWorkspaceStoreContext(
     (state) => bufferId ?? state.panes[state.activePaneId]?.activeBufferId ?? null,
-  );
+  )
   const activeBuffer = useWorkspaceStoreContext(
     useShallow((state) => {
       const buffer = resolvedBufferId
         ? state.buffers.find((candidate) => candidate.id === resolvedBufferId)
-        : null;
+        : null
       return buffer
         ? {
             id: buffer.id,
@@ -48,99 +51,99 @@ export default function Breadcrumb({
             name: buffer.name,
             type: buffer.type,
           }
-        : null;
+        : null
     }),
-  );
-  const showBreadcrumbPath = useSettingsStore((state) => state.settings.coreFeatures.breadcrumbs);
+  )
+  const showBreadcrumbPath = useSettingsStore((state) => state.settings.coreFeatures.breadcrumbs)
   const { isFindVisible, setIsFindVisible } = useUIState(
     useShallow((state) => ({
       isFindVisible: state.isFindVisible,
       setIsFindVisible: state.setIsFindVisible,
     })),
-  );
-  const extensionActions = useExtensionActions();
+  )
+  const extensionActions = useExtensionActions()
 
   const handleSearchClick = () => {
-    setIsFindVisible(!isFindVisible);
-  };
+    setIsFindVisible(!isFindVisible)
+  }
 
   const isMarkdownFile = () => {
-    if (!activeBuffer) return false;
-    const extension = activeBuffer.path.split(".").pop()?.toLowerCase();
-    return extension === "md" || extension === "markdown";
-  };
+    if (!activeBuffer) return false
+    const extension = activeBuffer.path.split('.').pop()?.toLowerCase()
+    return extension === 'md' || extension === 'markdown'
+  }
 
   const isHtmlFile = () => {
-    if (!activeBuffer) return false;
-    const extension = activeBuffer.path.split(".").pop()?.toLowerCase();
-    return extension === "html" || extension === "htm";
-  };
+    if (!activeBuffer) return false
+    const extension = activeBuffer.path.split('.').pop()?.toLowerCase()
+    return extension === 'html' || extension === 'htm'
+  }
 
   const isCsvFile = () => {
-    if (!activeBuffer) return false;
-    const extension = activeBuffer.path.split(".").pop()?.toLowerCase();
-    return extension === "csv";
-  };
+    if (!activeBuffer) return false
+    const extension = activeBuffer.path.split('.').pop()?.toLowerCase()
+    return extension === 'csv'
+  }
 
   const handlePreviewClick = () => {
     const fullActiveBuffer = resolvedBufferId
       ? workspaceStore.getState().buffers.find((buffer) => buffer.id === resolvedBufferId)
-      : null;
+      : null
     if (
       !fullActiveBuffer ||
-      fullActiveBuffer.type === "markdownPreview" ||
-      fullActiveBuffer.type === "htmlPreview" ||
-      fullActiveBuffer.type === "csvPreview"
+      fullActiveBuffer.type === 'markdownPreview' ||
+      fullActiveBuffer.type === 'htmlPreview' ||
+      fullActiveBuffer.type === 'csvPreview'
     )
-      return;
+      return
 
-    const previewPath = `${fullActiveBuffer.path}:preview`;
-    const previewName = `${fullActiveBuffer.name} (Preview)`;
+    const previewPath = `${fullActiveBuffer.path}:preview`
+    const previewName = `${fullActiveBuffer.name} (Preview)`
 
-    const isMarkdown = isMarkdownFile();
-    const isHtml = isHtmlFile();
-    const isCsv = isCsvFile();
+    const isMarkdown = isMarkdownFile()
+    const isHtml = isHtmlFile()
+    const isCsv = isCsvFile()
 
-    const bufferContent = hasTextContent(fullActiveBuffer) ? fullActiveBuffer.content : "";
+    const bufferContent = hasTextContent(fullActiveBuffer) ? fullActiveBuffer.content : ''
 
     if (isMarkdown) {
       workspaceStore.getState().bufferActions.openContent({
-        type: "markdownPreview",
+        type: 'markdownPreview',
         path: previewPath,
         name: previewName,
         content: bufferContent,
         sourceFilePath: fullActiveBuffer.path,
-      });
+      })
     } else if (isHtml) {
       workspaceStore.getState().bufferActions.openContent({
-        type: "htmlPreview",
+        type: 'htmlPreview',
         path: previewPath,
         name: previewName,
         content: bufferContent,
         sourceFilePath: fullActiveBuffer.path,
-      });
+      })
     } else if (isCsv) {
       workspaceStore.getState().bufferActions.openContent({
-        type: "csvPreview",
+        type: 'csvPreview',
         path: previewPath,
         name: previewName,
         content: bufferContent,
         sourceFilePath: fullActiveBuffer.path,
-      });
+      })
     }
-  };
+  }
 
-  const filePath = filePathOverride ?? activeBuffer?.path ?? "";
-  const onSearchClick = handleSearchClick;
-  if (!filePath) return null;
-  const isLocalHistorySnapshot = filePath.startsWith("local-history://");
+  const filePath = filePathOverride ?? activeBuffer?.path ?? ''
+  const onSearchClick = handleSearchClick
+  if (!filePath) return null
+  const isLocalHistorySnapshot = filePath.startsWith('local-history://')
 
   const defaultActions =
     showDefaultActions && activeBuffer ? (
       <>
-        {((isMarkdownFile() && activeBuffer.type !== "markdownPreview") ||
-          (isHtmlFile() && activeBuffer.type !== "htmlPreview") ||
-          (isCsvFile() && activeBuffer.type !== "csvPreview")) && (
+        {((isMarkdownFile() && activeBuffer.type !== 'markdownPreview') ||
+          (isHtmlFile() && activeBuffer.type !== 'htmlPreview') ||
+          (isCsvFile() && activeBuffer.type !== 'csvPreview')) && (
           <Button
             onClick={handlePreviewClick}
             variant="ghost"
@@ -169,7 +172,7 @@ export default function Breadcrumb({
           editorViewKey={editorViewKey}
         />
       </>
-    ) : null;
+    ) : null
 
   return (
     <>
@@ -196,5 +199,5 @@ export default function Breadcrumb({
         </div>
       </div>
     </>
-  );
+  )
 }

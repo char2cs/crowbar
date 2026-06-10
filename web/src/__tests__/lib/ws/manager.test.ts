@@ -9,13 +9,24 @@ class MockWebSocket {
   readyState: number = WebSocket.OPEN
   send = vi.fn()
   close = vi.fn()
-  constructor(public url: string) { MockWebSocket.instances.push(this) }
-  simulateMessage(data: string) { this.onmessage?.({ data } as MessageEvent) }
-  simulateOpen() { this.onopen?.() }
-  simulateClose() { this.readyState = WebSocket.CLOSED; this.onclose?.() }
+  constructor(public url: string) {
+    MockWebSocket.instances.push(this)
+  }
+  simulateMessage(data: string) {
+    this.onmessage?.({ data } as MessageEvent)
+  }
+  simulateOpen() {
+    this.onopen?.()
+  }
+  simulateClose() {
+    this.readyState = WebSocket.CLOSED
+    this.onclose?.()
+  }
 }
 
-beforeEach(() => { MockWebSocket.instances = [] })
+beforeEach(() => {
+  MockWebSocket.instances = []
+})
 
 vi.stubGlobal('WebSocket', MockWebSocket)
 

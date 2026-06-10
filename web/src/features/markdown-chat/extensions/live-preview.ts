@@ -2,11 +2,7 @@ import { EditorState, StateField, RangeSetBuilder } from '@codemirror/state'
 import { Decoration, DecorationSet, EditorView } from '@codemirror/view'
 import { syntaxTree } from '@codemirror/language'
 
-export function hasLivePreviewDecoration(
-  state: EditorState,
-  pos: number,
-  cls: string,
-): boolean {
+export function hasLivePreviewDecoration(state: EditorState, pos: number, cls: string): boolean {
   const deco = state.field(livePreviewField, false)
   if (!deco) return false
   let found = false
@@ -83,7 +79,11 @@ function buildLivePreviewDecorations(state: EditorState): DecorationSet {
         }
 
         if (contentFrom < contentTo) {
-          pending.push({ from: contentFrom, to: contentTo, deco: Decoration.mark({ class: 'cm-live-bold' }) })
+          pending.push({
+            from: contentFrom,
+            to: contentTo,
+            deco: Decoration.mark({ class: 'cm-live-bold' }),
+          })
         }
         return false
       }
@@ -105,14 +105,22 @@ function buildLivePreviewDecorations(state: EditorState): DecorationSet {
         }
 
         if (contentFrom < contentTo) {
-          pending.push({ from: contentFrom, to: contentTo, deco: Decoration.mark({ class: 'cm-live-italic' }) })
+          pending.push({
+            from: contentFrom,
+            to: contentTo,
+            deco: Decoration.mark({ class: 'cm-live-italic' }),
+          })
         }
         return false
       }
 
       case 'InlineCode': {
         if (state.doc.lineAt(node.from).number !== activeLine) {
-          pending.push({ from: node.from, to: node.to, deco: Decoration.mark({ class: 'cm-live-inline-code' }) })
+          pending.push({
+            from: node.from,
+            to: node.to,
+            deco: Decoration.mark({ class: 'cm-live-inline-code' }),
+          })
         }
         return false
       }
@@ -120,7 +128,7 @@ function buildLivePreviewDecorations(state: EditorState): DecorationSet {
   })
 
   // Sort by from (RangeSetBuilder requires strictly ascending from values)
-  pending.sort((a, b) => a.from !== b.from ? a.from - b.from : a.to - b.to)
+  pending.sort((a, b) => (a.from !== b.from ? a.from - b.from : a.to - b.to))
 
   const builder = new RangeSetBuilder<Decoration>()
   for (const { from, to, deco } of pending) {

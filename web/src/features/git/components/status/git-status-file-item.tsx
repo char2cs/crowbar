@@ -1,27 +1,27 @@
-import type { MouseEvent } from "react";
-import { FileExplorerIcon } from "@/features/file-explorer/components/file-explorer-icon";
-import { useSettingsStore } from "@/features/settings/store";
-import { Checkbox } from "@/components/ui/checkbox";
-import { SIDEBAR_TREE_ICON_SIZE, SidebarTreeRow } from "@/components/ui/sidebar-tree";
-import { cn } from "@/utils/cn";
-import type { GitFile } from "../../types/git-types";
+import type { MouseEvent } from 'react'
+import { FileExplorerIcon } from '@/features/file-explorer/components/file-explorer-icon'
+import { useSettingsStore } from '@/features/settings/store'
+import { Checkbox } from '@/components/ui/checkbox'
+import { SIDEBAR_TREE_ICON_SIZE, SidebarTreeRow } from '@/components/ui/sidebar-tree'
+import { cn } from '@/utils/cn'
+import type { GitFile } from '../../types/git-types'
 
 interface GitFileItemProps {
-  file: GitFile;
+  file: GitFile
   diffStats?: {
-    additions: number;
-    deletions: number;
-  };
-  onClick?: () => void;
-  onContextMenu?: (e: MouseEvent) => void;
-  onStage?: () => void;
-  onUnstage?: () => void;
-  disabled?: boolean;
-  showDirectory?: boolean;
-  showFileIcon?: boolean;
-  indentLevel?: number;
-  className?: string;
-  repoPath?: string;
+    additions: number
+    deletions: number
+  }
+  onClick?: () => void
+  onContextMenu?: (e: MouseEvent) => void
+  onStage?: () => void
+  onUnstage?: () => void
+  disabled?: boolean
+  showDirectory?: boolean
+  showFileIcon?: boolean
+  indentLevel?: number
+  className?: string
+  repoPath?: string
 }
 
 export const GitFileItem = ({
@@ -38,16 +38,16 @@ export const GitFileItem = ({
   className,
   repoPath,
 }: GitFileItemProps) => {
-  const compactGitStatusBadges = useSettingsStore((state) => state.settings.compactGitStatusBadges);
-  const pathParts = file.path.split("/");
-  const fileName = pathParts.pop() || file.path;
-  const directory = pathParts.join("/");
-  const hasDiffStats = !!diffStats && (diffStats.additions > 0 || diffStats.deletions > 0);
+  const compactGitStatusBadges = useSettingsStore((state) => state.settings.compactGitStatusBadges)
+  const pathParts = file.path.split('/')
+  const fileName = pathParts.pop() || file.path
+  const directory = pathParts.join('/')
+  const hasDiffStats = !!diffStats && (diffStats.additions > 0 || diffStats.deletions > 0)
 
   return (
     <SidebarTreeRow
       depth={indentLevel}
-      className={cn("group min-w-0 leading-[1.35]", className)}
+      className={cn('group min-w-0 leading-[1.35]', className)}
       onClick={onClick}
       onContextMenu={onContextMenu}
       draggable={!!repoPath}
@@ -66,9 +66,9 @@ export const GitFileItem = ({
       >
         <span
           className={cn(
-            "min-w-0 truncate leading-[1.35]",
-            showDirectory ? "shrink-0 basis-auto max-w-[45%]" : "flex-1",
-            "text-foreground",
+            'min-w-0 truncate leading-[1.35]',
+            showDirectory ? 'shrink-0 basis-auto max-w-[45%]' : 'flex-1',
+            'text-foreground',
           )}
         >
           {fileName}
@@ -83,8 +83,8 @@ export const GitFileItem = ({
         {hasDiffStats && (
           <div
             className={cn(
-              "flex items-center leading-[1.35]",
-              compactGitStatusBadges ? "ui-text-sm gap-0.5" : "ui-text-sm gap-1",
+              'flex items-center leading-[1.35]',
+              compactGitStatusBadges ? 'ui-text-sm gap-0.5' : 'ui-text-sm gap-1',
             )}
           >
             {diffStats.additions > 0 && (
@@ -104,10 +104,10 @@ export const GitFileItem = ({
             checked={file.staged}
             onChange={(checked: boolean) => {
               if (checked) {
-                onStage?.();
-                return;
+                onStage?.()
+                return
               }
-              onUnstage?.();
+              onUnstage?.()
             }}
             disabled={disabled}
             ariaLabel={file.staged ? `Unstage ${fileName}` : `Stage ${fileName}`}
@@ -115,5 +115,5 @@ export const GitFileItem = ({
         </div>
       </div>
     </SidebarTreeRow>
-  );
-};
+  )
+}

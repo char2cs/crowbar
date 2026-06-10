@@ -13,11 +13,17 @@ vi.mock('@tanstack/react-router', () => ({
   useNavigate: vi.fn().mockReturnValue(vi.fn()),
 }))
 vi.mock('@/components/layout/chat-tree-item', () => ({
-  ChatTreeItem: ({ node }: { node: { chat: ProjectChat; children: { chat: ProjectChat; children: unknown[] }[] } }) => (
+  ChatTreeItem: ({
+    node,
+  }: {
+    node: { chat: ProjectChat; children: { chat: ProjectChat; children: unknown[] }[] }
+  }) => (
     <div>
       <div data-testid={`chat-${node.chat.id}`}>{node.chat.title}</div>
       {node.children.map((child) => (
-        <div key={child.chat.id} data-testid={`chat-${child.chat.id}`}>{child.chat.title}</div>
+        <div key={child.chat.id} data-testid={`chat-${child.chat.id}`}>
+          {child.chat.title}
+        </div>
       ))}
     </div>
   ),
@@ -25,14 +31,24 @@ vi.mock('@/components/layout/chat-tree-item', () => ({
 vi.mock('@/components/layout/chat-tree-context', () => ({
   ChatTreeProvider: ({ children }: { children: React.ReactNode }) => <>{children}</>,
   useChatTreeContext: () => ({
-    draggingChat: null, dragPos: null, hoverTrash: false,
+    draggingChat: null,
+    dragPos: null,
+    hoverTrash: false,
   }),
   performCreateChat: vi.fn(),
 }))
 
 const CHATS: ProjectChat[] = [
   { id: 'c1', wsId: 'ws1', title: 'First chat', age: '5m', status: 'idle', type: 'chat' },
-  { id: 'c2', wsId: 'ws1', title: 'Forked chat', age: '2h', parentId: 'c1', status: 'idle', type: 'chat' },
+  {
+    id: 'c2',
+    wsId: 'ws1',
+    title: 'Forked chat',
+    age: '2h',
+    parentId: 'c1',
+    status: 'idle',
+    type: 'chat',
+  },
   { id: 'c3', wsId: 'ws1', title: 'Root chat 2', age: '1d', status: 'agent-running', type: 'chat' },
 ]
 
@@ -53,7 +69,14 @@ describe('ChatTree', () => {
     useSidebarStore.setState({
       chats: [
         ...CHATS,
-        { id: 'c4', wsId: 'other-ws', title: 'Other workspace chat', age: '3d', status: 'idle', type: 'chat' },
+        {
+          id: 'c4',
+          wsId: 'other-ws',
+          title: 'Other workspace chat',
+          age: '3d',
+          status: 'idle',
+          type: 'chat',
+        },
       ],
     })
     render(<ChatTree wsId="ws1" />)
@@ -76,7 +99,7 @@ describe('ChatTree', () => {
   it('does not fetch when wsId is empty (no /v0/workspaces//chats)', async () => {
     vi.mocked(apiFetch).mockClear()
     render(<ChatTree wsId="" />)
-    await new Promise(resolve => setTimeout(resolve, 50))
+    await new Promise((resolve) => setTimeout(resolve, 50))
     expect(apiFetch).not.toHaveBeenCalled()
   })
 })

@@ -44,16 +44,12 @@ describe('mutation responses are { id } only', () => {
 
 describe('apiFetch empty/204 success handling', () => {
   test('treats a 204 No Content success as undefined, not an error', async () => {
-    server.use(
-      http.post('/v0/things/delete', () => new HttpResponse(null, { status: 204 })),
-    )
+    server.use(http.post('/v0/things/delete', () => new HttpResponse(null, { status: 204 })))
     await expect(apiFetch('/v0/things/delete', { method: 'POST' })).resolves.toBeUndefined()
   })
 
   test('treats an empty-body 200 success as undefined', async () => {
-    server.use(
-      http.post('/v0/things/noop', () => new HttpResponse(null, { status: 200 })),
-    )
+    server.use(http.post('/v0/things/noop', () => new HttpResponse(null, { status: 200 })))
     await expect(apiFetch('/v0/things/noop', { method: 'POST' })).resolves.toBeUndefined()
   })
 

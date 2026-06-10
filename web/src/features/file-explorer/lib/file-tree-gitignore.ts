@@ -1,1 +1,1 @@
-export * from "../file-explorer/lib/file-tree-gitignore"
+export * from '../file-explorer/lib/file-tree-gitignore'

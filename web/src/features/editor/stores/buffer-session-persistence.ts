@@ -1,32 +1,32 @@
-import { useProjectStore } from "@/features/window/stores/project-store";
-import type { BufferSession } from "@/features/window/stores/session-store";
-import { useSessionStore } from "@/features/window/stores/session-store";
-import { getEditorWorkspaceScope } from "@/features/file-system/controllers/workspace-session";
-import { createWorkspaceSessionSaveQueue } from "./workspace-session-save-queue";
-import type { PaneContent } from "@/features/panes/types/pane-content";
-import { buildPersistedEditorViewState } from "./editor-session-state";
+import { useProjectStore } from '@/features/window/stores/project-store'
+import type { BufferSession } from '@/features/window/stores/session-store'
+import { useSessionStore } from '@/features/window/stores/session-store'
+import { getEditorWorkspaceScope } from '@/features/file-system/controllers/workspace-session'
+import { createWorkspaceSessionSaveQueue } from './workspace-session-save-queue'
+import type { PaneContent } from '@/features/panes/types/pane-content'
+import { buildPersistedEditorViewState } from './editor-session-state'
 
-const SAVE_SESSION_DEBOUNCE_MS = 300;
+const SAVE_SESSION_DEBOUNCE_MS = 300
 
 const serializeBufferForSession = (
   buffer: PaneContent,
   _workspaceRootPath: string | undefined,
 ): BufferSession | null => {
-  if (buffer.type === "editor" && !buffer.isVirtual) {
+  if (buffer.type === 'editor' && !buffer.isVirtual) {
     return {
-      type: "editor",
+      type: 'editor',
       path: buffer.path,
       name: buffer.name,
       isPinned: buffer.isPinned,
       isPreview: buffer.isPreview,
       workspaceScope: getEditorWorkspaceScope(),
       editorState: buildPersistedEditorViewState(buffer),
-    };
+    }
   }
 
-  if (buffer.type === "terminal") {
+  if (buffer.type === 'terminal') {
     return {
-      type: "terminal",
+      type: 'terminal',
       path: buffer.path,
       name: buffer.name,
       isPinned: buffer.isPinned,
@@ -34,12 +34,12 @@ const serializeBufferForSession = (
       initialCommand: buffer.initialCommand,
       workingDirectory: buffer.workingDirectory,
       remoteConnectionId: buffer.remoteConnectionId,
-    };
+    }
   }
 
-  if (buffer.type === "webViewer") {
+  if (buffer.type === 'webViewer') {
     return {
-      type: "webViewer",
+      type: 'webViewer',
       path: buffer.path,
       name: buffer.name,
       isPinned: buffer.isPinned,
@@ -48,11 +48,11 @@ const serializeBufferForSession = (
       profileKey: buffer.profileKey,
       history: buffer.history,
       historyIndex: buffer.historyIndex,
-    };
+    }
   }
 
-  return null;
-};
+  return null
+}
 
 const saveSessionToStoreImmediate = (
   projectPath: string,
@@ -61,38 +61,38 @@ const saveSessionToStoreImmediate = (
 ) => {
   const persistableBuffers = buffers
     .map((buffer) => serializeBufferForSession(buffer, projectPath))
-    .filter((buffer): buffer is BufferSession => buffer !== null);
+    .filter((buffer): buffer is BufferSession => buffer !== null)
 
-  const activeBuffer = buffers.find((buffer) => buffer.id === activeBufferId);
+  const activeBuffer = buffers.find((buffer) => buffer.id === activeBufferId)
   const activeBufferPath =
     activeBuffer &&
-    ((activeBuffer.type === "editor" && !activeBuffer.isVirtual) ||
-      activeBuffer.type === "terminal" ||
-      activeBuffer.type === "webViewer")
+    ((activeBuffer.type === 'editor' && !activeBuffer.isVirtual) ||
+      activeBuffer.type === 'terminal' ||
+      activeBuffer.type === 'webViewer')
       ? activeBuffer.path
-      : null;
+      : null
 
-  useSessionStore.getState().saveSession(projectPath, persistableBuffers, activeBufferPath);
-};
+  useSessionStore.getState().saveSession(projectPath, persistableBuffers, activeBufferPath)
+}
 
 const sessionSaveQueue = createWorkspaceSessionSaveQueue(
   (projectPath: string, payload: { buffers: PaneContent[]; activeBufferId: string | null }) => {
-    saveSessionToStoreImmediate(projectPath, payload.buffers, payload.activeBufferId);
+    saveSessionToStoreImmediate(projectPath, payload.buffers, payload.activeBufferId)
   },
   SAVE_SESSION_DEBOUNCE_MS,
-);
+)
 
 export const saveSessionToStore = (buffers: PaneContent[], activeBufferId: string | null) => {
-  const rootFolderPath = useProjectStore.getState().rootFolderPath;
+  const rootFolderPath = useProjectStore.getState().rootFolderPath
 
-  if (!rootFolderPath) return;
+  if (!rootFolderPath) return
 
   sessionSaveQueue.schedule(rootFolderPath, {
     buffers,
     activeBufferId,
-  });
-};
+  })
+}
 
 export const clearQueuedWorkspaceSessionSave = (projectPath: string) => {
-  sessionSaveQueue.clear(projectPath);
-};
+  sessionSaveQueue.clear(projectPath)
+}

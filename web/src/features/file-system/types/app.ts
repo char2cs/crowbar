@@ -20,7 +20,7 @@ export interface AppFile {
 }
 /** Alias used by Athas file-explorer */
 export type FileEntry = AppFile
-export type AppFileType = "file" | "directory" | "symlink"
+export type AppFileType = 'file' | 'directory' | 'symlink'
 export interface ContextMenuState<T = unknown> {
   /** Horizontal position */
   x?: number

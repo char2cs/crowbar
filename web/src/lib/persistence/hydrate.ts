@@ -17,7 +17,7 @@ export interface WorkspaceHydrationResult {
 
 export async function hydratePreferences(): Promise<UIPreferences | null> {
   const db = await getDB()
-  const prefs = await db.get('ui-preferences', 'global').then(r => r ?? null)
+  const prefs = await db.get('ui-preferences', 'global').then((r) => r ?? null)
 
   if (prefs) {
     useSettingsStore.setState((state) => ({
@@ -40,7 +40,7 @@ export async function hydrateWorkspace(workspaceId: string): Promise<WorkspaceHy
   const db = await getDB()
 
   const [layout, editorStates] = await Promise.all([
-    db.get('workspace-layout', workspaceId).then(r => r ?? null),
+    db.get('workspace-layout', workspaceId).then((r) => r ?? null),
     db.getAllFromIndex('editor-state', 'workspaceId', workspaceId),
   ])
 
@@ -117,17 +117,15 @@ export async function hydrateSidebar(): Promise<void> {
   }
 
   if (hierarchies.length > 0) {
-    useSidebarStore.setState(s => ({
-      repos: s.repos.map(repo => {
-        const hierarchy = hierarchies.find(h => h.repoId === repo.id)
+    useSidebarStore.setState((s) => ({
+      repos: s.repos.map((repo) => {
+        const hierarchy = hierarchies.find((h) => h.repoId === repo.id)
         if (!hierarchy) return repo
-        const entryMap = new Map(hierarchy.entries.map(e => [e.wsId, e.parentId]))
+        const entryMap = new Map(hierarchy.entries.map((e) => [e.wsId, e.parentId]))
         return {
           ...repo,
-          workspaces: repo.workspaces.map(ws =>
-            entryMap.has(ws.id)
-              ? { ...ws, parentId: entryMap.get(ws.id) }
-              : ws,
+          workspaces: repo.workspaces.map((ws) =>
+            entryMap.has(ws.id) ? { ...ws, parentId: entryMap.get(ws.id) } : ws,
           ),
         }
       }),

@@ -1,4 +1,7 @@
-import { getOrCreateConversationStore, destroyConversationStore } from '@/features/markdown-chat/stores/conversation-store'
+import {
+  getOrCreateConversationStore,
+  destroyConversationStore,
+} from '@/features/markdown-chat/stores/conversation-store'
 
 const TURN = {
   id: 't1',
@@ -49,7 +52,9 @@ test('updateWidgetPayload updates widget in turn', () => {
 
 test('updateWidgetPayload is a no-op when turnId does not match', () => {
   const store = getOrCreateConversationStore('ws1')
-  store.getState().appendTurn({ ...TURN, widgets: [{ id: 'w1', type: 'excalidraw', payload: null }] })
+  store
+    .getState()
+    .appendTurn({ ...TURN, widgets: [{ id: 'w1', type: 'excalidraw', payload: null }] })
   const before = store.getState().turns
   store.getState().updateWidgetPayload('nonexistent', 'w1', { elements: [] })
   expect(store.getState().turns).toEqual(before)

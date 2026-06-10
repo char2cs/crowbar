@@ -3,28 +3,28 @@ import {
   Plus,
   MagnifyingGlassPlus as ZoomIn,
   MagnifyingGlassMinus as ZoomOut,
-} from "@phosphor-icons/react";
-import { memo, useCallback, useState } from "react";
-import { Button } from "@/components/ui/button";
-import { cn } from "@/utils/cn";
-import type { ImageContainerProps, ImageDiffViewerProps } from "../../types/git-diff-types";
-import { getFileStatus, getImgSrc } from "../../utils/git-diff-helpers";
-import DiffHeader from "./git-diff-header";
+} from '@phosphor-icons/react'
+import { memo, useCallback, useState } from 'react'
+import { Button } from '@/components/ui/button'
+import { cn } from '@/utils/cn'
+import type { ImageContainerProps, ImageDiffViewerProps } from '../../types/git-diff-types'
+import { getFileStatus, getImgSrc } from '../../utils/git-diff-helpers'
+import DiffHeader from './git-diff-header'
 
-const ZOOM_STEP = 0.25;
-const MIN_ZOOM = 0.25;
-const MAX_ZOOM = 4;
+const ZOOM_STEP = 0.25
+const MIN_ZOOM = 0.25
+const MAX_ZOOM = 4
 
 const ImageContainer = memo(({ label, labelColor, base64, alt, zoom }: ImageContainerProps) => (
   <div className="flex flex-1 flex-col">
     <div
       className={cn(
-        "flex items-center justify-center gap-1 py-1 ui-text-xs",
-        "border-border border-b font-medium",
+        'flex items-center justify-center gap-1 py-1 ui-text-xs',
+        'border-border border-b font-medium',
         labelColor,
       )}
     >
-      {label === "Removed" ? <Minus /> : <Plus />}
+      {label === 'Removed' ? <Minus /> : <Plus />}
       {label}
     </div>
     <div className="flex flex-1 items-center justify-center overflow-auto bg-[length:16px_16px] bg-[repeating-conic-gradient(#1a1a1a_0%_25%,#252525_0%_50%)] p-4">
@@ -33,31 +33,31 @@ const ImageContainer = memo(({ label, labelColor, base64, alt, zoom }: ImageCont
           src={getImgSrc(base64)}
           alt={alt}
           className="max-h-full max-w-full object-contain"
-          style={{ transform: `scale(${zoom})`, transformOrigin: "center" }}
+          style={{ transform: `scale(${zoom})`, transformOrigin: 'center' }}
         />
       ) : (
         <div className="text-muted-foreground ui-text-xs italic">No image</div>
       )}
     </div>
   </div>
-));
+))
 
-ImageContainer.displayName = "ImageContainer";
+ImageContainer.displayName = 'ImageContainer'
 
 const ImageDiffViewer = memo(({ diff, fileName, onClose, commitHash }: ImageDiffViewerProps) => {
-  const [zoom, setZoom] = useState(1);
+  const [zoom, setZoom] = useState(1)
 
   const handleZoomIn = useCallback(() => {
-    setZoom((prev) => Math.min(prev + ZOOM_STEP, MAX_ZOOM));
-  }, []);
+    setZoom((prev) => Math.min(prev + ZOOM_STEP, MAX_ZOOM))
+  }, [])
 
   const handleZoomOut = useCallback(() => {
-    setZoom((prev) => Math.max(prev - ZOOM_STEP, MIN_ZOOM));
-  }, []);
+    setZoom((prev) => Math.max(prev - ZOOM_STEP, MIN_ZOOM))
+  }, [])
 
-  const status = getFileStatus(diff);
-  const hasOldImage = !!diff.old_blob_base64;
-  const hasNewImage = !!diff.new_blob_base64;
+  const status = getFileStatus(diff)
+  const hasOldImage = !!diff.old_blob_base64
+  const hasNewImage = !!diff.new_blob_base64
 
   return (
     <div className="flex h-full flex-col overflow-hidden bg-background">
@@ -99,7 +99,7 @@ const ImageDiffViewer = memo(({ diff, fileName, onClose, commitHash }: ImageDiff
       </div>
 
       <div className="flex flex-1 overflow-hidden">
-        {status === "added" ? (
+        {status === 'added' ? (
           <div className="flex flex-1 flex-col">
             <div className="flex items-center justify-center gap-1 border-border border-b bg-git-added/20 py-1 font-medium ui-text-xs text-git-added">
               <Plus />
@@ -110,11 +110,11 @@ const ImageDiffViewer = memo(({ diff, fileName, onClose, commitHash }: ImageDiff
                 src={getImgSrc(diff.new_blob_base64)}
                 alt={fileName}
                 className="max-h-full max-w-full object-contain"
-                style={{ transform: `scale(${zoom})`, transformOrigin: "center" }}
+                style={{ transform: `scale(${zoom})`, transformOrigin: 'center' }}
               />
             </div>
           </div>
-        ) : status === "deleted" ? (
+        ) : status === 'deleted' ? (
           <div className="flex flex-1 flex-col">
             <div className="flex items-center justify-center gap-1 border-border border-b bg-git-deleted/20 py-1 font-medium ui-text-xs text-git-deleted">
               <Minus />
@@ -125,7 +125,7 @@ const ImageDiffViewer = memo(({ diff, fileName, onClose, commitHash }: ImageDiff
                 src={getImgSrc(diff.old_blob_base64)}
                 alt={fileName}
                 className="max-h-full max-w-full object-contain"
-                style={{ transform: `scale(${zoom})`, transformOrigin: "center" }}
+                style={{ transform: `scale(${zoom})`, transformOrigin: 'center' }}
               />
             </div>
           </div>
@@ -154,9 +154,9 @@ const ImageDiffViewer = memo(({ diff, fileName, onClose, commitHash }: ImageDiff
         )}
       </div>
     </div>
-  );
-});
+  )
+})
 
-ImageDiffViewer.displayName = "ImageDiffViewer";
+ImageDiffViewer.displayName = 'ImageDiffViewer'
 
-export default ImageDiffViewer;
+export default ImageDiffViewer

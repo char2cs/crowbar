@@ -4,13 +4,23 @@ export interface Keybinding {
   key: string
   when?: string
   enabled?: boolean
-  source?: "user" | "default" | "extension" | "preset"
+  source?: 'user' | 'default' | 'extension' | 'preset'
   args?: unknown
 }
 export interface KeymapContext {
   [key: string]: boolean | string | undefined
 }
-export type KeybindingPreset = "default" | "vim" | "emacs" | "none" | "vscode" | "jetbrains" | "sublime" | "xcode" | "atom" | "zed"
+export type KeybindingPreset =
+  | 'default'
+  | 'vim'
+  | 'emacs'
+  | 'none'
+  | 'vscode'
+  | 'jetbrains'
+  | 'sublime'
+  | 'xcode'
+  | 'atom'
+  | 'zed'
 export interface Command {
   id: string
   title: string

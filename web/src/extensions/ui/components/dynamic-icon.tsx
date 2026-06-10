@@ -4,4 +4,6 @@ interface DynamicIconProps {
   name?: string
   className?: string
 }
-export function DynamicIcon({ className }: DynamicIconProps) { return <Square className={className} /> }
+export function DynamicIcon({ className }: DynamicIconProps) {
+  return <Square className={className} />
+}

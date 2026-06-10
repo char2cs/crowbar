@@ -18,21 +18,27 @@ import {
 } from '@/components/layout/workspace-tree-context'
 
 const repo = (workspaces: Repo['workspaces']): Repo => ({
-  id: 'r1', name: 'repo', avatarLabel: 'R', avatarColor: '#fff', workspaces,
+  id: 'r1',
+  name: 'repo',
+  avatarLabel: 'R',
+  avatarColor: '#fff',
+  workspaces,
 })
 
 function workspaceIds(): string[] {
-  return useSidebarStore.getState().repos.flatMap(r => r.workspaces.map(w => w.id))
+  return useSidebarStore.getState().repos.flatMap((r) => r.workspaces.map((w) => w.id))
 }
 
 beforeEach(() => {
   vi.clearAllMocks()
   vi.spyOn(console, 'error').mockImplementation(() => {})
   useSidebarStore.setState({
-    repos: [repo([
-      { id: 'ws-parent', branch: 'main', age: 'now' },
-      { id: 'ws-locked', branch: 'master', status: 'locked', age: 'now' },
-    ])],
+    repos: [
+      repo([
+        { id: 'ws-parent', branch: 'main', age: 'now' },
+        { id: 'ws-locked', branch: 'master', status: 'locked', age: 'now' },
+      ]),
+    ],
   })
 })
 
@@ -43,8 +49,9 @@ describe('performCreateWorkspace', () => {
     await performCreateWorkspace('r1', 'feat/x', 'ws-parent')
 
     expect(postWorkspace).toHaveBeenCalledWith('r1', 'feat/x', 'ws-parent')
-    const created = useSidebarStore.getState().repos[0].workspaces
-      .find(w => w.id === 'real-backend-id')
+    const created = useSidebarStore
+      .getState()
+      .repos[0].workspaces.find((w) => w.id === 'real-backend-id')
     expect(created).toBeDefined()
     expect(created?.branch).toBe('feat/x')
     expect(created?.parentId).toBe('ws-parent')

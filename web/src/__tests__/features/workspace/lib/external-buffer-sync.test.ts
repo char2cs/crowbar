@@ -19,7 +19,8 @@ vi.mock('@/components/ui/toast', () => ({
 }))
 
 const { syncBufferWithDisk } = await import('@/features/workspace/lib/external-buffer-sync')
-const { useFileWatcherStore } = await import('@/features/file-system/controllers/file-watcher-store')
+const { useFileWatcherStore } =
+  await import('@/features/file-system/controllers/file-watcher-store')
 
 function makeBuffer(overrides: Partial<EditorContent> = {}): EditorContent {
   return {
@@ -68,9 +69,7 @@ describe('syncBufferWithDisk', () => {
   })
 
   it('keeps a dirty buffer intact, flags the conflict and toasts once', async () => {
-    const store = makeWorkspaceStore([
-      makeBuffer({ content: 'user edits', isDirty: true }),
-    ])
+    const store = makeWorkspaceStore([makeBuffer({ content: 'user edits', isDirty: true })])
 
     await syncBufferWithDisk(store, 'README.md')
 
@@ -115,7 +114,11 @@ describe('syncBufferWithDisk', () => {
   it('does not clobber edits made while the disk read was in flight', async () => {
     const store = makeWorkspaceStore([makeBuffer()])
     let resolveRead: (v: string) => void = () => {}
-    readFileMock.mockReturnValue(new Promise<string>((r) => { resolveRead = r }))
+    readFileMock.mockReturnValue(
+      new Promise<string>((r) => {
+        resolveRead = r
+      }),
+    )
 
     const sync = syncBufferWithDisk(store, 'README.md')
     // User types while the read is pending.

@@ -6,33 +6,33 @@ import {
   PushPin as Pin,
   TerminalWindow as Terminal,
   X,
-} from "@phosphor-icons/react";
-import { memo, useCallback, useEffect, useState } from "react";
-import type { RefCallback } from "react";
-import { FileExplorerIcon } from "@/features/file-explorer/components/file-explorer-icon";
-import type { PaneContent } from "@/features/panes/types/pane-content";
-import { Button } from "@/components/ui/button";
-import { Tab } from "@/components/ui/tabs";
-import { getBaseName } from "@/utils/path-helpers";
-import { cn } from "@/utils/cn";
-import type { MultiFileDiff } from "@/features/git/types/git-diff-types";
-import type { GitDiff } from "@/features/git/types/git-types";
+} from '@phosphor-icons/react'
+import { memo, useCallback, useEffect, useState } from 'react'
+import type { RefCallback } from 'react'
+import { FileExplorerIcon } from '@/features/file-explorer/components/file-explorer-icon'
+import type { PaneContent } from '@/features/panes/types/pane-content'
+import { Button } from '@/components/ui/button'
+import { Tab } from '@/components/ui/tabs'
+import { getBaseName } from '@/utils/path-helpers'
+import { cn } from '@/utils/cn'
+import type { MultiFileDiff } from '@/features/git/types/git-diff-types'
+import type { GitDiff } from '@/features/git/types/git-types'
 
 interface TabBarItemProps {
-  buffer: PaneContent;
-  displayName: string;
-  index: number;
-  isActive: boolean;
-  isDraggedTab: boolean;
-  showDropIndicatorBefore?: boolean;
-  tabRef?: RefCallback<HTMLDivElement>;
-  onClick?: () => void;
-  onMouseDown?: (e: React.MouseEvent) => void;
-  onDoubleClick: (e: React.MouseEvent) => void;
-  onContextMenu: (e: React.MouseEvent) => void;
-  onKeyDown: (e: React.KeyboardEvent) => void;
-  handleTabClose: (id: string) => void;
-  handleTabPin: (id: string) => void;
+  buffer: PaneContent
+  displayName: string
+  index: number
+  isActive: boolean
+  isDraggedTab: boolean
+  showDropIndicatorBefore?: boolean
+  tabRef?: RefCallback<HTMLDivElement>
+  onClick?: () => void
+  onMouseDown?: (e: React.MouseEvent) => void
+  onDoubleClick: (e: React.MouseEvent) => void
+  onContextMenu: (e: React.MouseEvent) => void
+  onKeyDown: (e: React.KeyboardEvent) => void
+  handleTabClose: (id: string) => void
+  handleTabPin: (id: string) => void
 }
 
 const TabBarItem = memo(function TabBarItem({
@@ -50,34 +50,34 @@ const TabBarItem = memo(function TabBarItem({
   handleTabClose,
   handleTabPin,
 }: TabBarItemProps) {
-  const [faviconError, setFaviconError] = useState(false);
+  const [faviconError, setFaviconError] = useState(false)
 
   const getDiffIconName = () => {
-    if (buffer.type !== "diff") return buffer.name;
-    if (buffer.path === "diff://working-tree/all-files") return null;
+    if (buffer.type !== 'diff') return buffer.name
+    if (buffer.path === 'diff://working-tree/all-files') return null
 
-    const diffData = buffer.diffData;
-    if (diffData && !("files" in diffData)) {
-      return getDiffFileName(diffData);
+    const diffData = buffer.diffData
+    if (diffData && !('files' in diffData)) {
+      return getDiffFileName(diffData)
     }
 
-    return displayName;
-  };
+    return displayName
+  }
 
   // Reset favicon error when favicon URL changes
   useEffect(() => {
-    setFaviconError(false);
-  }, [buffer.type === "webViewer" ? buffer.favicon : undefined]);
+    setFaviconError(false)
+  }, [buffer.type === 'webViewer' ? buffer.favicon : undefined])
 
   const handleAuxClick = useCallback(
     (e: React.MouseEvent) => {
       // Only handle middle click here
-      if (e.button !== 1) return;
+      if (e.button !== 1) return
 
-      handleTabClose(buffer.id);
+      handleTabClose(buffer.id)
     },
     [handleTabClose, buffer.id],
-  );
+  )
 
   return (
     /*
@@ -98,14 +98,11 @@ const TabBarItem = memo(function TabBarItem({
       <Tab
         role="tab"
         aria-selected={isActive}
-        aria-label={`${buffer.name}${buffer.type === "editor" && buffer.isDirty ? " (unsaved)" : ""}${buffer.isPinned ? " (pinned)" : ""}${buffer.isPreview ? " (preview)" : ""}`}
+        aria-label={`${buffer.name}${buffer.type === 'editor' && buffer.isDirty ? ' (unsaved)' : ''}${buffer.isPinned ? ' (pinned)' : ''}${buffer.isPreview ? ' (preview)' : ''}`}
         tabIndex={isActive ? 0 : -1}
         isActive={isActive}
         isDragged={isDraggedTab}
-        className={cn(
-          "h-8",
-          "gap-1.5 pl-2.5 pr-8",
-        )}
+        className={cn('h-8', 'gap-1.5 pl-2.5 pr-8')}
         onClick={onClick}
         onMouseDown={onMouseDown}
         onDoubleClick={onDoubleClick}
@@ -114,15 +111,15 @@ const TabBarItem = memo(function TabBarItem({
         onAuxClick={handleAuxClick}
       >
         <div className="grid size-3.5 shrink-0 place-content-center">
-          {buffer.type === "crowbarChat" ? (
+          {buffer.type === 'crowbarChat' ? (
             <Chat className="text-muted-foreground" />
-          ) : buffer.path === "extensions://marketplace" ? (
+          ) : buffer.path === 'extensions://marketplace' ? (
             <Package className="text-muted-foreground" />
-          ) : buffer.type === "diff" && isMultiFileDiff(buffer.diffData) ? (
+          ) : buffer.type === 'diff' && isMultiFileDiff(buffer.diffData) ? (
             <GitBranch className="text-muted-foreground" />
-          ) : buffer.type === "terminal" ? (
+          ) : buffer.type === 'terminal' ? (
             <Terminal className="text-muted-foreground" />
-          ) : buffer.type === "webViewer" ? (
+          ) : buffer.type === 'webViewer' ? (
             buffer.favicon && !faviconError ? (
               <img
                 src={buffer.favicon}
@@ -143,16 +140,16 @@ const TabBarItem = memo(function TabBarItem({
           )}
         </div>
         <span
-            className={cn(
-              "ui-font text-[13px] min-w-0 flex-1 overflow-hidden text-ellipsis whitespace-nowrap",
-              !isActive && "text-muted-foreground",
-              buffer.isPreview && "italic",
-            )}
-            title={buffer.path}
-          >
-            {displayName}
-          </span>
-        {buffer.type === "editor" && buffer.isDirty && (
+          className={cn(
+            'ui-font text-[13px] min-w-0 flex-1 overflow-hidden text-ellipsis whitespace-nowrap',
+            !isActive && 'text-muted-foreground',
+            buffer.isPreview && 'italic',
+          )}
+          title={buffer.path}
+        >
+          {displayName}
+        </span>
+        {buffer.type === 'editor' && buffer.isDirty && (
           <div
             className="size-2 shrink-0 rounded-full bg-accent"
             title="Unsaved changes"
@@ -169,20 +166,20 @@ const TabBarItem = memo(function TabBarItem({
           variant="ghost"
           data-no-dnd
           onClick={(e) => {
-            e.stopPropagation();
+            e.stopPropagation()
             if (buffer.isPinned) {
-              handleTabPin(buffer.id);
+              handleTabPin(buffer.id)
             } else {
-              handleTabClose(buffer.id);
+              handleTabClose(buffer.id)
             }
           }}
           className={cn(
-            "absolute inset-y-0 my-auto right-1.5 !size-5 !min-h-0 !min-w-0 grid place-items-center cursor-pointer select-none !rounded-md !p-0 text-muted-foreground transition-opacity",
-            buffer.isPinned || isActive ? "opacity-60" : "opacity-0 group-hover/tab:opacity-60",
+            'absolute inset-y-0 my-auto right-1.5 !size-5 !min-h-0 !min-w-0 grid place-items-center cursor-pointer select-none !rounded-md !p-0 text-muted-foreground transition-opacity',
+            buffer.isPinned || isActive ? 'opacity-60' : 'opacity-0 group-hover/tab:opacity-60',
           )}
-          tooltip={buffer.isPinned ? "Unpin tab" : "Close"}
+          tooltip={buffer.isPinned ? 'Unpin tab' : 'Close'}
           tooltipSide="bottom"
-          shortcut={buffer.isPinned ? undefined : "mod+w"}
+          shortcut={buffer.isPinned ? undefined : 'mod+w'}
           tabIndex={-1}
           draggable={false}
         >
@@ -194,16 +191,16 @@ const TabBarItem = memo(function TabBarItem({
         </Button>
       )}
     </div>
-  );
-});
+  )
+})
 
 function isMultiFileDiff(diffData: GitDiff | MultiFileDiff | undefined): diffData is MultiFileDiff {
-  return Boolean(diffData && "files" in diffData);
+  return Boolean(diffData && 'files' in diffData)
 }
 
 function getDiffFileName(diff: GitDiff): string {
-  const filePath = diff.new_path || diff.old_path || diff.file_path || "";
-  return getBaseName(filePath, filePath || "diff");
+  const filePath = diff.new_path || diff.old_path || diff.file_path || ''
+  return getBaseName(filePath, filePath || 'diff')
 }
 
-export default TabBarItem;
+export default TabBarItem

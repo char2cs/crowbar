@@ -27,8 +27,8 @@ export const useProjectStore = create<ProjectState>()(
       activeProjectId: '',
       setActiveProject: (id) => set({ activeProjectId: id }),
       setProjects: (projects) => set({ projects }),
-      addProject: (project) => set(s => ({ projects: [...s.projects, project] })),
+      addProject: (project) => set((s) => ({ projects: [...s.projects, project] })),
     }),
-    { name: 'crowbar.activeProject', partialize: s => ({ activeProjectId: s.activeProjectId }) },
+    { name: 'crowbar.activeProject', partialize: (s) => ({ activeProjectId: s.activeProjectId }) },
   ),
 )

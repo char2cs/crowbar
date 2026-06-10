@@ -1,1 +1,1 @@
-export * from "../file-explorer/lib/file-tree-git-status"
+export * from '../file-explorer/lib/file-tree-git-status'

@@ -9,7 +9,12 @@ interface UnsavedChangesDialogProps {
   onCancel?: () => void
 }
 
-export function UnsavedChangesDialog({ fileName, onSave, onDiscard, onCancel }: UnsavedChangesDialogProps) {
+export function UnsavedChangesDialog({
+  fileName,
+  onSave,
+  onDiscard,
+  onCancel,
+}: UnsavedChangesDialogProps) {
   return (
     <AppDialog
       title="Unsaved Changes"
@@ -31,10 +36,14 @@ export function UnsavedChangesDialog({ fileName, onSave, onDiscard, onCancel }: 
       }
     >
       <p className="text-sm text-foreground">
-        {fileName
-          ? <><span className="font-medium">{fileName}</span> has unsaved changes.</>
-          : 'This file has unsaved changes.'}
-        {' '}Do you want to save before closing?
+        {fileName ? (
+          <>
+            <span className="font-medium">{fileName}</span> has unsaved changes.
+          </>
+        ) : (
+          'This file has unsaved changes.'
+        )}{' '}
+        Do you want to save before closing?
       </p>
     </AppDialog>
   )

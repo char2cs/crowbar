@@ -1,18 +1,18 @@
-import { useEditorSettingsStore } from "@/features/editor/stores/settings-store";
-import { useSelectionScope } from "@/features/editor/hooks/use-selection-scope";
-import { calculateLineHeight } from "@/features/editor/utils/lines";
-import { memo, useCallback, useMemo, useRef, useState } from "react";
-import { useZoomStore } from "@/features/window/stores/zoom-store";
-import { useDiffHighlighting } from "../../hooks/use-git-diff-highlight";
-import type { ParsedHunk, TextDiffViewerProps } from "../../types/git-diff-types";
-import { groupLinesIntoHunks } from "../../utils/git-diff-helpers";
-import DiffHunkHeader from "./git-diff-hunk-header";
+import { useEditorSettingsStore } from '@/features/editor/stores/settings-store'
+import { useSelectionScope } from '@/features/editor/hooks/use-selection-scope'
+import { calculateLineHeight } from '@/features/editor/utils/lines'
+import { memo, useCallback, useMemo, useRef, useState } from 'react'
+import { useZoomStore } from '@/features/window/stores/zoom-store'
+import { useDiffHighlighting } from '../../hooks/use-git-diff-highlight'
+import type { ParsedHunk, TextDiffViewerProps } from '../../types/git-diff-types'
+import { groupLinesIntoHunks } from '../../utils/git-diff-helpers'
+import DiffHunkHeader from './git-diff-hunk-header'
 import DiffLine, {
   getContentColor,
   getLineBackground,
   getSplitLineMeta,
   renderDiffLineContent,
-} from "./git-diff-line";
+} from './git-diff-line'
 
 function SplitDiffCodePanel({
   side,
@@ -23,28 +23,28 @@ function SplitDiffCodePanel({
   lineHeight,
   tabSize,
 }: {
-  side: "left" | "right";
-  lines: ParsedHunk["lines"];
-  tokenMap: ReturnType<typeof useDiffHighlighting>;
-  showWhitespace: boolean;
-  fontSize: number;
-  lineHeight: number;
-  tabSize: number;
+  side: 'left' | 'right'
+  lines: ParsedHunk['lines']
+  tokenMap: ReturnType<typeof useDiffHighlighting>
+  showWhitespace: boolean
+  fontSize: number
+  lineHeight: number
+  tabSize: number
 }) {
   const contentStyle = {
     fontSize: `${fontSize}px`,
     lineHeight: `${lineHeight}px`,
     tabSize,
-    whiteSpace: "pre" as const,
-    overflowWrap: "normal" as const,
-    wordBreak: "normal" as const,
-  };
+    whiteSpace: 'pre' as const,
+    overflowWrap: 'normal' as const,
+    wordBreak: 'normal' as const,
+  }
 
   return (
     <div className="flex min-w-0 flex-1">
       <div className="w-11 shrink-0 border-border border-r bg-background">
         {lines.map((line, index) => {
-          const meta = getSplitLineMeta(line, side);
+          const meta = getSplitLineMeta(line, side)
           return (
             <div
               key={`${side}-gutter-${index}`}
@@ -54,17 +54,17 @@ function SplitDiffCodePanel({
                 lineHeight: `${lineHeight}px`,
               }}
             >
-              {meta.isVisible ? meta.gutterNumber : ""}
+              {meta.isVisible ? meta.gutterNumber : ''}
             </div>
-          );
+          )
         })}
       </div>
 
       <div className="min-w-0 flex-1 overflow-x-auto overflow-y-hidden">
         <div className="min-w-max">
           {lines.map((line, index) => {
-            const meta = getSplitLineMeta(line, side);
-            const tokens = tokenMap.get(line.diffIndex);
+            const meta = getSplitLineMeta(line, side)
+            const tokens = tokenMap.get(line.diffIndex)
             return (
               <div
                 key={`${side}-code-${index}`}
@@ -74,15 +74,15 @@ function SplitDiffCodePanel({
                 <span className={meta.isVisible ? getContentColor(meta.diffType) : undefined}>
                   {meta.isVisible
                     ? renderDiffLineContent(line.content, tokens, showWhitespace)
-                    : ""}
+                    : ''}
                 </span>
               </div>
-            );
+            )
           })}
         </div>
       </div>
     </div>
-  );
+  )
 }
 
 const TextDiffViewer = memo(
@@ -96,43 +96,43 @@ const TextDiffViewer = memo(
     isInMultiFileView = false,
     isEmbeddedInScrollView = false,
   }: TextDiffViewerProps) => {
-    const selectionScopeRef = useRef<HTMLDivElement>(null);
-    const editorFontSize = useEditorSettingsStore.use.fontSize();
-    const editorFontFamily = useEditorSettingsStore.use.fontFamily();
-    const editorTabSize = useEditorSettingsStore.use.tabSize();
-    const wordWrap = useEditorSettingsStore.use.wordWrap();
-    const zoomLevel = useZoomStore.use.editorZoomLevel();
-    const fontSize = editorFontSize * zoomLevel;
-    const lineHeight = Math.max(calculateLineHeight(fontSize), Math.ceil(fontSize * 1.6), 22);
-    const tabSize = editorTabSize;
+    const selectionScopeRef = useRef<HTMLDivElement>(null)
+    const editorFontSize = useEditorSettingsStore.use.fontSize()
+    const editorFontFamily = useEditorSettingsStore.use.fontFamily()
+    const editorTabSize = useEditorSettingsStore.use.tabSize()
+    const wordWrap = useEditorSettingsStore.use.wordWrap()
+    const zoomLevel = useZoomStore.use.editorZoomLevel()
+    const fontSize = editorFontSize * zoomLevel
+    const lineHeight = Math.max(calculateLineHeight(fontSize), Math.ceil(fontSize * 1.6), 22)
+    const tabSize = editorTabSize
 
-    const hunks = useMemo(() => groupLinesIntoHunks(diff.lines), [diff.lines]);
-    const tokenMap = useDiffHighlighting(diff.lines, diff.file_path);
+    const hunks = useMemo(() => groupLinesIntoHunks(diff.lines), [diff.lines])
+    const tokenMap = useDiffHighlighting(diff.lines, diff.file_path)
 
-    const [collapsedHunks, setCollapsedHunks] = useState<Set<number>>(new Set());
-    useSelectionScope(selectionScopeRef);
+    const [collapsedHunks, setCollapsedHunks] = useState<Set<number>>(new Set())
+    useSelectionScope(selectionScopeRef)
 
     const toggleHunkCollapse = useCallback((hunkId: number) => {
       setCollapsedHunks((prev) => {
-        const newSet = new Set(prev);
+        const newSet = new Set(prev)
         if (newSet.has(hunkId)) {
-          newSet.delete(hunkId);
+          newSet.delete(hunkId)
         } else {
-          newSet.add(hunkId);
+          newSet.add(hunkId)
         }
-        return newSet;
-      });
-    }, []);
+        return newSet
+      })
+    }, [])
 
     if (diff.lines.length === 0) {
       return (
         <div className="flex items-center justify-center py-8 text-muted-foreground ui-text-xs">
           No changes in this file
         </div>
-      );
+      )
     }
 
-    if (viewMode === "split" && !wordWrap) {
+    if (viewMode === 'split' && !wordWrap) {
       return (
         <div
           ref={selectionScopeRef}
@@ -145,7 +145,7 @@ const TextDiffViewer = memo(
           }}
         >
           {hunks.map((hunk) => {
-            const isCollapsed = collapsedHunks.has(hunk.id);
+            const isCollapsed = collapsedHunks.has(hunk.id)
             return (
               <div key={`split-${hunk.id}`}>
                 <DiffHunkHeader
@@ -185,10 +185,10 @@ const TextDiffViewer = memo(
                   </div>
                 )}
               </div>
-            );
+            )
           })}
         </div>
-      );
+      )
     }
 
     return (
@@ -196,17 +196,17 @@ const TextDiffViewer = memo(
         ref={selectionScopeRef}
         className={
           isEmbeddedInScrollView
-            ? "min-w-0 overflow-x-auto overflow-y-hidden"
-            : viewMode === "split"
-              ? "min-w-0 overflow-x-hidden overflow-y-hidden"
-              : "min-w-0 overflow-x-auto overflow-y-hidden"
+            ? 'min-w-0 overflow-x-auto overflow-y-hidden'
+            : viewMode === 'split'
+              ? 'min-w-0 overflow-x-hidden overflow-y-hidden'
+              : 'min-w-0 overflow-x-auto overflow-y-hidden'
         }
       >
         <div
           className={
-            viewMode === "split"
-              ? "editor-font code-editor-font-override min-w-0 w-full"
-              : "editor-font code-editor-font-override min-w-full w-fit"
+            viewMode === 'split'
+              ? 'editor-font code-editor-font-override min-w-0 w-full'
+              : 'editor-font code-editor-font-override min-w-full w-fit'
           }
           style={{
             fontSize: `${fontSize}px`,
@@ -216,7 +216,7 @@ const TextDiffViewer = memo(
           }}
         >
           {hunks.map((hunk) => {
-            const isCollapsed = collapsedHunks.has(hunk.id);
+            const isCollapsed = collapsedHunks.has(hunk.id)
             return (
               <div key={hunk.id}>
                 <DiffHunkHeader
@@ -244,14 +244,14 @@ const TextDiffViewer = memo(
                     />
                   ))}
               </div>
-            );
+            )
           })}
         </div>
       </div>
-    );
+    )
   },
-);
+)
 
-TextDiffViewer.displayName = "TextDiffViewer";
+TextDiffViewer.displayName = 'TextDiffViewer'
 
-export default TextDiffViewer;
+export default TextDiffViewer

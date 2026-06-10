@@ -23,8 +23,12 @@ export function ProjectCard({ project, active, repoCount = 0, onClick }: Project
       <CardContent className="space-y-1">
         <p className="truncate font-mono text-[11px] text-muted-foreground">{project.path}</p>
         <div className="flex items-center gap-2">
-          <Badge variant="outline" className="text-[10px]">{repoCount} repos</Badge>
-          <span className="text-[11px] text-muted-foreground/60">{formatRelativeDate(project.lastActivity)}</span>
+          <Badge variant="outline" className="text-[10px]">
+            {repoCount} repos
+          </Badge>
+          <span className="text-[11px] text-muted-foreground/60">
+            {formatRelativeDate(project.lastActivity)}
+          </span>
         </div>
       </CardContent>
     </Card>

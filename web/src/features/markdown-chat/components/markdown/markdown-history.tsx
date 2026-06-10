@@ -66,53 +66,50 @@ export function MarkdownHistory({ turns, onWidgetChange }: MarkdownHistoryProps)
   return (
     <div className="pt-10">
       {turns.map((turn) => (
-          <article
-            key={turn.id}
+        <article
+          key={turn.id}
+          style={{
+            ...articleStyle,
+            // Same tint as the input/composer (markdown-chat-view).
+            background:
+              turn.role === 'user'
+                ? 'color-mix(in srgb, var(--primary) 10%, transparent)'
+                : undefined,
+          }}
+        >
+          {/* Full-height column rails (span the tint and touch the adjacent
+                turn's rails); colored by role. */}
+          <div
+            aria-hidden
+            className="pointer-events-none absolute inset-y-0 w-px"
+            style={{ left: COLUMN_EDGE, background: railColor(turn.role) }}
+          />
+          <div
+            aria-hidden
+            className="pointer-events-none absolute inset-y-0 w-px"
+            style={{ right: COLUMN_EDGE, background: railColor(turn.role) }}
+          />
+          {/* Hidden when the pane is too narrow to hold the label in the margin. */}
+          <header className="text-muted-foreground @max-[880px]:hidden" style={metaStyle}>
+            {metaLabel(turn)}
+          </header>
+          <div
             style={{
-              ...articleStyle,
-              // Same tint as the input/composer (markdown-chat-view).
-              background:
-                turn.role === 'user'
-                  ? 'color-mix(in srgb, var(--primary) 10%, transparent)'
-                  : undefined,
+              gridColumn: 2,
+              minWidth: 0,
+              paddingLeft: '24px',
+              paddingRight: '24px',
             }}
           >
-            {/* Full-height column rails (span the tint and touch the adjacent
-                turn's rails); colored by role. */}
-            <div
-              aria-hidden
-              className="pointer-events-none absolute inset-y-0 w-px"
-              style={{ left: COLUMN_EDGE, background: railColor(turn.role) }}
+            <TurnMarkdown
+              content={turn.content}
+              widgets={turn.widgets}
+              streaming={turn.streaming}
+              onWidgetChange={onWidgetChange}
             />
-            <div
-              aria-hidden
-              className="pointer-events-none absolute inset-y-0 w-px"
-              style={{ right: COLUMN_EDGE, background: railColor(turn.role) }}
-            />
-            {/* Hidden when the pane is too narrow to hold the label in the margin. */}
-            <header
-              className="text-muted-foreground @max-[880px]:hidden"
-              style={metaStyle}
-            >
-              {metaLabel(turn)}
-            </header>
-            <div
-              style={{
-                gridColumn: 2,
-                minWidth: 0,
-                paddingLeft: '24px',
-                paddingRight: '24px',
-              }}
-            >
-              <TurnMarkdown
-                content={turn.content}
-                widgets={turn.widgets}
-                streaming={turn.streaming}
-                onWidgetChange={onWidgetChange}
-              />
-            </div>
-          </article>
-        ))}
+          </div>
+        </article>
+      ))}
     </div>
   )
 }

@@ -7,7 +7,12 @@ interface ConversationState {
   sessions: Map<SessionKey, ChatMessage[]>
   getMessages: (wsId: string, step: string) => ChatMessage[]
   appendMessage: (wsId: string, step: string, message: ChatMessage) => void
-  pushStreamChunk: (wsId: string, step: string, chunk: string, meta: Omit<ChatMessage, 'id' | 'content'>) => void
+  pushStreamChunk: (
+    wsId: string,
+    step: string,
+    chunk: string,
+    meta: Omit<ChatMessage, 'id' | 'content'>,
+  ) => void
   finalizeStream: (wsId: string, step: string, finalId: string) => void
 }
 
@@ -24,7 +29,7 @@ export const useConversationStore = create<ConversationState>()((set, get) => ({
     if (existing !== undefined) return existing
     // Cold start — cache an empty array and return the same reference
     const empty: ChatMessage[] = []
-    set(s => {
+    set((s) => {
       const next = new Map(s.sessions)
       next.set(k, empty)
       return { sessions: next }
@@ -33,7 +38,7 @@ export const useConversationStore = create<ConversationState>()((set, get) => ({
   },
 
   appendMessage(wsId, step, message) {
-    set(s => {
+    set((s) => {
       const k = sessionKey(wsId, step)
       const current = s.sessions.get(k) ?? []
       const next = new Map(s.sessions)
@@ -43,7 +48,7 @@ export const useConversationStore = create<ConversationState>()((set, get) => ({
   },
 
   pushStreamChunk(wsId, step, chunk, meta) {
-    set(s => {
+    set((s) => {
       const k = sessionKey(wsId, step)
       const current = s.sessions.get(k) ?? []
       const last = current[current.length - 1]
@@ -60,11 +65,14 @@ export const useConversationStore = create<ConversationState>()((set, get) => ({
   },
 
   finalizeStream(wsId, step, finalId) {
-    set(s => {
+    set((s) => {
       const k = sessionKey(wsId, step)
       const current = s.sessions.get(k) ?? []
       const next = new Map(s.sessions)
-      next.set(k, current.map(m => (m.id === 'streaming' ? { ...m, id: finalId } : m)))
+      next.set(
+        k,
+        current.map((m) => (m.id === 'streaming' ? { ...m, id: finalId } : m)),
+      )
       return { sessions: next }
     })
   },

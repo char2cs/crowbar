@@ -15,10 +15,7 @@ import type { WorkspaceStore } from '@/features/workspace/stores/workspace-store
  * - A dirty buffer is never clobbered: it is flagged with hasExternalChange
  *   and a toast tells the user the file changed underneath them.
  */
-export async function syncBufferWithDisk(
-  wsStore: WorkspaceStore,
-  path: string,
-): Promise<void> {
+export async function syncBufferWithDisk(wsStore: WorkspaceStore, path: string): Promise<void> {
   const { pendingSaves, clearPendingSave } = useFileWatcherStore.getState()
   if (pendingSaves.has(path)) {
     // Echo of our own write — consume the marker, nothing to reconcile.
@@ -35,9 +32,7 @@ export async function syncBufferWithDisk(
     if (buffer.hasExternalChange) return // already flagged, don't re-toast
     wsStore.setState((state) => ({
       buffers: state.buffers.map((b) =>
-        isEditorContent(b) && b.path === path && b.isDirty
-          ? { ...b, hasExternalChange: true }
-          : b,
+        isEditorContent(b) && b.path === path && b.isDirty ? { ...b, hasExternalChange: true } : b,
       ),
     }))
     toast.warning(

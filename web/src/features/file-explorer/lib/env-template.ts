@@ -1,1 +1,1 @@
-export * from "../file-explorer/lib/env-template"
+export * from '../file-explorer/lib/env-template'

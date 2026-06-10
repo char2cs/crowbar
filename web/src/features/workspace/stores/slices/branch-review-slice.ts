@@ -75,7 +75,11 @@ export interface OptimisticOp {
  * whether the commit succeeded so the caller can surface a toast on failure
  * (stores never import components).
  */
-export async function addThreadOptimistic({ apply, rollback, commit }: OptimisticOp): Promise<boolean> {
+export async function addThreadOptimistic({
+  apply,
+  rollback,
+  commit,
+}: OptimisticOp): Promise<boolean> {
   apply()
   try {
     await commit()
@@ -95,41 +99,60 @@ export const createBranchReviewSlice: StateCreator<
   branchReview: { ...INITIAL_BRANCH_REVIEW_STATE },
 
   setBranchReviewDescription: (description) =>
-    set(s => { s.branchReview.description = description }),
+    set((s) => {
+      s.branchReview.description = description
+    }),
 
   setBranchReviewMergeStrategy: (strategy) =>
-    set(s => { s.branchReview.mergeStrategy = strategy }),
+    set((s) => {
+      s.branchReview.mergeStrategy = strategy
+    }),
 
   setBranchReviewSubtab: (tab) =>
-    set(s => { s.branchReview.activeSubtab = tab }),
+    set((s) => {
+      s.branchReview.activeSubtab = tab
+    }),
 
   setBranchReviewDiff: (diff) =>
-    set(s => { s.branchReview.diffCache = diff; s.branchReview.diffStatus = 'loaded' }),
+    set((s) => {
+      s.branchReview.diffCache = diff
+      s.branchReview.diffStatus = 'loaded'
+    }),
 
   setBranchReviewDiffStatus: (status) =>
-    set(s => { s.branchReview.diffStatus = status }),
+    set((s) => {
+      s.branchReview.diffStatus = status
+    }),
 
   addReviewThread: (thread) =>
-    set(s => { s.branchReview.threads.push(thread) }),
+    set((s) => {
+      s.branchReview.threads.push(thread)
+    }),
 
   removeReviewThread: (threadId) =>
-    set(s => { s.branchReview.threads = s.branchReview.threads.filter(t => t.id !== threadId) }),
+    set((s) => {
+      s.branchReview.threads = s.branchReview.threads.filter((t) => t.id !== threadId)
+    }),
 
   addReviewMessage: (threadId, message) =>
-    set(s => {
-      const t = s.branchReview.threads.find(t => t.id === threadId)
+    set((s) => {
+      const t = s.branchReview.threads.find((t) => t.id === threadId)
       if (t) t.messages.push(message)
     }),
 
   resolveReviewThread: (threadId) =>
-    set(s => {
-      const t = s.branchReview.threads.find(t => t.id === threadId)
+    set((s) => {
+      const t = s.branchReview.threads.find((t) => t.id === threadId)
       if (t) t.isResolved = true
     }),
 
   setBranchReviewConversations: (conversations) =>
-    set(s => { s.branchReview.conversations = conversations }),
+    set((s) => {
+      s.branchReview.conversations = conversations
+    }),
 
   addReviewConversation: (conversation) =>
-    set(s => { s.branchReview.conversations.unshift(conversation) }),
+    set((s) => {
+      s.branchReview.conversations.unshift(conversation)
+    }),
 })

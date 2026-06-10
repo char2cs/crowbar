@@ -56,9 +56,7 @@ describe('TabBarItem pill restyle', () => {
   })
 
   it('close button is a small rounded-md control', () => {
-    const { container } = render(
-      <TabBarItem buffer={editorBuffer} isActive={true} {...shared} />
-    )
+    const { container } = render(<TabBarItem buffer={editorBuffer} isActive={true} {...shared} />)
     // The Tab <button> (role=tab) is buttons[0]; the close Button sibling is buttons[1]
     const closeBtn = container.querySelectorAll('button')[1] as HTMLElement
     expect(closeBtn).toBeDefined()
@@ -66,9 +64,7 @@ describe('TabBarItem pill restyle', () => {
   })
 
   it('close button has hover:bg-accent class regardless of active state', () => {
-    const { container } = render(
-      <TabBarItem buffer={editorBuffer} isActive={false} {...shared} />
-    )
+    const { container } = render(<TabBarItem buffer={editorBuffer} isActive={false} {...shared} />)
     const closeBtn = container.querySelectorAll('button')[1] as HTMLElement
     expect(closeBtn).toBeDefined()
     expect(closeBtn).toHaveClass('hover:bg-accent')

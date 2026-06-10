@@ -1,8 +1,4 @@
-import {
-  HighlightStyle,
-  syntaxHighlighting,
-  syntaxTree,
-} from '@codemirror/language'
+import { HighlightStyle, syntaxHighlighting, syntaxTree } from '@codemirror/language'
 import { tags as t } from '@lezer/highlight'
 import { Decoration, type DecorationSet, EditorView } from '@codemirror/view'
 import { type EditorState, RangeSetBuilder, StateField } from '@codemirror/state'
@@ -72,7 +68,12 @@ function buildCodeBlockDecorations(state: EditorState): DecorationSet {
       const lastContent = state.doc.line(contentLast)
 
       // Hide opening "```lang\n" (merges into the first content line) …
-      entries.push({ from: startLine.from, to: firstContent.from, order: 1, deco: Decoration.replace({}) })
+      entries.push({
+        from: startLine.from,
+        to: firstContent.from,
+        order: 1,
+        deco: Decoration.replace({}),
+      })
       // … and the closing "\n```" (keeps the fence line's trailing newline so
       // following text stays on its own line).
       entries.push({ from: lastContent.to, to: endLine.to, order: 1, deco: Decoration.replace({}) })
@@ -106,12 +107,30 @@ const codeBlockField = StateField.define<DecorationSet>({
 // text keeps its plain look — only nested code-block tokens get coloured.
 const codeHighlightStyle = HighlightStyle.define([
   { tag: t.keyword, color: 'var(--syntax-keyword)' },
-  { tag: [t.name, t.deleted, t.character, t.propertyName, t.macroName], color: 'var(--syntax-variable)' },
+  {
+    tag: [t.name, t.deleted, t.character, t.propertyName, t.macroName],
+    color: 'var(--syntax-variable)',
+  },
   { tag: [t.function(t.variableName), t.labelName], color: 'var(--syntax-function)' },
   { tag: [t.color, t.constant(t.name), t.standard(t.name)], color: 'var(--syntax-constant)' },
   { tag: [t.definition(t.name), t.separator], color: 'var(--syntax-variable)' },
-  { tag: [t.typeName, t.className, t.number, t.changed, t.annotation, t.modifier, t.self, t.namespace], color: 'var(--syntax-type)' },
-  { tag: [t.operator, t.operatorKeyword, t.url, t.escape, t.regexp, t.special(t.string)], color: 'var(--syntax-operator)' },
+  {
+    tag: [
+      t.typeName,
+      t.className,
+      t.number,
+      t.changed,
+      t.annotation,
+      t.modifier,
+      t.self,
+      t.namespace,
+    ],
+    color: 'var(--syntax-type)',
+  },
+  {
+    tag: [t.operator, t.operatorKeyword, t.url, t.escape, t.regexp, t.special(t.string)],
+    color: 'var(--syntax-operator)',
+  },
   { tag: [t.meta, t.comment], color: 'var(--syntax-comment)', fontStyle: 'italic' },
   { tag: [t.atom, t.bool, t.special(t.variableName)], color: 'var(--syntax-constant)' },
   { tag: [t.processingInstruction, t.string, t.inserted], color: 'var(--syntax-string)' },

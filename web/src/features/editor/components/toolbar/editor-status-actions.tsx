@@ -1,389 +1,386 @@
-import { extensionRegistry } from "@/extensions/registry/extension-registry";
+import { extensionRegistry } from '@/extensions/registry/extension-registry'
 import {
   Check,
   SlidersHorizontal,
   Square,
   Lightning as Zap,
   LightningSlash as ZapOff,
-} from "@phosphor-icons/react";
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { useShallow } from "zustand/react/shallow";
-import { useFileSystemStore } from "@/features/file-system/controllers/store";
-import { useCommandShortcut } from "@/features/keymaps/hooks/use-command-shortcut";
-import { setSyntaxHighlightingFilePath } from "@/features/editor/extensions/builtin/syntax-highlighting";
-import { LspClient } from "@/features/editor/lsp/lsp-client";
-import { LSP_ERROR_TOAST_KEY, type LspStatus, useLspStore } from "@/features/editor/lsp/lsp-store";
-import type { Position } from "@/features/editor/types/editor";
-import { LoadingSpinner } from "@/components/ui/loading-spinner";
-import { useWorkspaceStoreContext, useWorkspaceStore } from "@/features/workspace/stores/workspace-context";
-import { useEditorStateStore } from "@/features/editor/stores/state-store";
+} from '@phosphor-icons/react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { useShallow } from 'zustand/react/shallow'
+import { useFileSystemStore } from '@/features/file-system/controllers/store'
+import { useCommandShortcut } from '@/features/keymaps/hooks/use-command-shortcut'
+import { setSyntaxHighlightingFilePath } from '@/features/editor/extensions/builtin/syntax-highlighting'
+import { LspClient } from '@/features/editor/lsp/lsp-client'
+import { LSP_ERROR_TOAST_KEY, type LspStatus, useLspStore } from '@/features/editor/lsp/lsp-store'
+import type { Position } from '@/features/editor/types/editor'
+import { LoadingSpinner } from '@/components/ui/loading-spinner'
+import {
+  useWorkspaceStoreContext,
+  useWorkspaceStore,
+} from '@/features/workspace/stores/workspace-context'
+import { useEditorStateStore } from '@/features/editor/stores/state-store'
 import {
   getAllLanguages,
   getLanguageDisplayName,
   getLanguageIdFromPath,
-} from "@/features/editor/utils/language-id";
-import { hasTextContent } from "@/features/panes/types/pane-content";
-import { useSettingsStore } from "@/features/settings/store";
-import { Button, buttonVariants } from "@/components/ui/button";
-import { Dropdown, dropdownItemClassName } from "@/components/ui/dropdown";
-import Keybinding from "@/components/ui/keybinding";
-import { toast } from "@/components/ui/toast";
-import { cn } from "@/utils/cn";
-import { getFilenameFromPath } from "@/features/file-system/controllers/file-utils";
+} from '@/features/editor/utils/language-id'
+import { hasTextContent } from '@/features/panes/types/pane-content'
+import { useSettingsStore } from '@/features/settings/store'
+import { Button, buttonVariants } from '@/components/ui/button'
+import { Dropdown, dropdownItemClassName } from '@/components/ui/dropdown'
+import Keybinding from '@/components/ui/keybinding'
+import { toast } from '@/components/ui/toast'
+import { cn } from '@/utils/cn'
+import { getFilenameFromPath } from '@/features/file-system/controllers/file-utils'
 
-const actionButtonClass = cn(
-  buttonVariants({ variant: "ghost" }),
-  "rounded text-muted-foreground",
-);
+const actionButtonClass = cn(buttonVariants({ variant: 'ghost' }), 'rounded text-muted-foreground')
 
 const statusChipClass =
-  "ui-font inline-flex h-5 items-center self-center rounded-md border border-transparent px-1.5 ui-text-xs leading-none text-muted-foreground transition-colors hover:bg-muted hover:text-foreground";
+  'ui-font inline-flex h-5 items-center self-center rounded-md border border-transparent px-1.5 ui-text-xs leading-none text-muted-foreground transition-colors hover:bg-muted hover:text-foreground'
 
-const menuTriggerClass = cn(
-  buttonVariants({ variant: "ghost" }),
-  "rounded text-muted-foreground",
-);
+const menuTriggerClass = cn(buttonVariants({ variant: 'ghost' }), 'rounded text-muted-foreground')
 
 const menuItemClass =
-  "ui-font flex w-full items-center justify-between gap-3 rounded-lg px-2.5 py-1.5 text-left ui-text-xs text-foreground transition-colors hover:bg-muted";
+  'ui-font flex w-full items-center justify-between gap-3 rounded-lg px-2.5 py-1.5 text-left ui-text-xs text-foreground transition-colors hover:bg-muted'
 
-const menuItemDisabledClass = "cursor-not-allowed opacity-50 hover:bg-transparent";
+const menuItemDisabledClass = 'cursor-not-allowed opacity-50 hover:bg-transparent'
 function getLanguageDisplayNameOrNull(languageId: string | null) {
-  if (!languageId) return null;
-  return getLanguageDisplayName(languageId);
+  if (!languageId) return null
+  return getLanguageDisplayName(languageId)
 }
 
 interface EditorStatusActionsProps {
-  bufferId?: string;
-  editorViewKey?: string | null;
+  bufferId?: string
+  editorViewKey?: string | null
 }
 
 function CursorPositionChip({ editorViewKey }: { editorViewKey?: string | null }) {
-  const activeEditorViewKey = useEditorStateStore.use.activeEditorViewKey();
-  const cursorPosition = useEditorStateStore.use.cursorPosition();
+  const activeEditorViewKey = useEditorStateStore.use.activeEditorViewKey()
+  const cursorPosition = useEditorStateStore.use.cursorPosition()
   const displayedCursorPosition = useMemo<Position>(() => {
     if (!editorViewKey || activeEditorViewKey === editorViewKey) {
-      return cursorPosition;
+      return cursorPosition
     }
 
-    const cachedCursor = useEditorStateStore.getState().actions.getCachedPosition(editorViewKey);
-    return cachedCursor ?? { line: 0, column: 0, offset: 0 };
-  }, [activeEditorViewKey, cursorPosition, editorViewKey]);
+    const cachedCursor = useEditorStateStore.getState().actions.getCachedPosition(editorViewKey)
+    return cachedCursor ?? { line: 0, column: 0, offset: 0 }
+  }, [activeEditorViewKey, cursorPosition, editorViewKey])
 
   return (
     <span className={statusChipClass}>
       {displayedCursorPosition.line + 1}:{displayedCursorPosition.column + 1}
     </span>
-  );
+  )
 }
 
 export function EditorStatusActions({ bufferId, editorViewKey }: EditorStatusActionsProps = {}) {
-  const workspaceStore = useWorkspaceStore();
-  const rootFolderPath = useFileSystemStore((s) => s.rootFolderPath);
+  const workspaceStore = useWorkspaceStore()
+  const rootFolderPath = useFileSystemStore((s) => s.rootFolderPath)
   const resolvedBufferId = useWorkspaceStoreContext(
     (state) => bufferId ?? state.panes[state.activePaneId]?.activeBufferId ?? null,
-  );
-  const settings = useSettingsStore((s) => s.settings);
-  const updateSetting = useSettingsStore((s) => s.updateSetting);
-  const minimapShortcut = useCommandShortcut("workbench.toggleMinimap");
-  const lspStatus = useLspStore.use.lspStatus();
-  const [isLspOpen, setIsLspOpen] = useState(false);
-  const [isViewMenuOpen, setIsViewMenuOpen] = useState(false);
-  const [isLanguageOpen, setIsLanguageOpen] = useState(false);
-  const [languageSearch, setLanguageSearch] = useState("");
-  const [isCurrentFileLspAvailable, setIsCurrentFileLspAvailable] = useState(false);
-  const [isRestartingCurrent, setIsRestartingCurrent] = useState(false);
-  const [busyServerKey, setBusyServerKey] = useState<string | null>(null);
-  const buttonRef = useRef<HTMLButtonElement>(null);
-  const viewButtonRef = useRef<HTMLButtonElement>(null);
-  const languageButtonRef = useRef<HTMLButtonElement>(null);
-  const languageSearchRef = useRef<HTMLInputElement>(null);
+  )
+  const settings = useSettingsStore((s) => s.settings)
+  const updateSetting = useSettingsStore((s) => s.updateSetting)
+  const minimapShortcut = useCommandShortcut('workbench.toggleMinimap')
+  const lspStatus = useLspStore.use.lspStatus()
+  const [isLspOpen, setIsLspOpen] = useState(false)
+  const [isViewMenuOpen, setIsViewMenuOpen] = useState(false)
+  const [isLanguageOpen, setIsLanguageOpen] = useState(false)
+  const [languageSearch, setLanguageSearch] = useState('')
+  const [isCurrentFileLspAvailable, setIsCurrentFileLspAvailable] = useState(false)
+  const [isRestartingCurrent, setIsRestartingCurrent] = useState(false)
+  const [busyServerKey, setBusyServerKey] = useState<string | null>(null)
+  const buttonRef = useRef<HTMLButtonElement>(null)
+  const viewButtonRef = useRef<HTMLButtonElement>(null)
+  const languageButtonRef = useRef<HTMLButtonElement>(null)
+  const languageSearchRef = useRef<HTMLInputElement>(null)
 
   const getStatusConfig = (status: LspStatus) => {
     switch (status) {
-      case "connected":
+      case 'connected':
         return {
           icon: <Zap />,
-          color: "text-green-400",
-          title: "Language Servers Active",
-        };
-      case "connecting":
+          color: 'text-green-400',
+          title: 'Language Servers Active',
+        }
+      case 'connecting':
         return {
           icon: <LoadingSpinner label="Connecting" compact />,
-          color: "text-yellow-400",
-          title: "Connecting to Language Server...",
-        };
-      case "error":
+          color: 'text-yellow-400',
+          title: 'Connecting to Language Server...',
+        }
+      case 'error':
         return {
           icon: <ZapOff />,
-          color: "text-red-400",
-          title: "Language server issue",
-        };
+          color: 'text-red-400',
+          title: 'Language server issue',
+        }
       default:
         return {
           icon: <ZapOff />,
-          color: "text-muted-foreground opacity-50",
-          title: "No active language servers",
-        };
+          color: 'text-muted-foreground opacity-50',
+          title: 'No active language servers',
+        }
     }
-  };
+  }
 
-  const config = getStatusConfig(lspStatus.status);
-  const activeServers = lspStatus.supportedLanguages || [];
-  const hasActiveServers = lspStatus.status === "connected" && activeServers.length > 0;
-  const projectName = rootFolderPath ? getFilenameFromPath(rootFolderPath) : "No Project";
+  const config = getStatusConfig(lspStatus.status)
+  const activeServers = lspStatus.supportedLanguages || []
+  const hasActiveServers = lspStatus.status === 'connected' && activeServers.length > 0
+  const projectName = rootFolderPath ? getFilenameFromPath(rootFolderPath) : 'No Project'
   const activeBuffer = useWorkspaceStoreContext(
     useShallow((state) => {
       const buffer = resolvedBufferId
         ? state.buffers.find((candidate) => candidate.id === resolvedBufferId)
-        : null;
+        : null
       return buffer
         ? {
             id: buffer.id,
             path: buffer.path,
             type: buffer.type,
-            languageOverride: buffer.type === "editor" ? buffer.languageOverride : undefined,
+            languageOverride: buffer.type === 'editor' ? buffer.languageOverride : undefined,
           }
-        : null;
+        : null
     }),
-  );
-  const lspClient = LspClient.getInstance();
-  const activeServerEntries = lspClient.getActiveServerEntries();
+  )
+  const lspClient = LspClient.getInstance()
+  const activeServerEntries = lspClient.getActiveServerEntries()
   const currentFileLanguageId =
-    activeBuffer?.type === "editor" && activeBuffer.languageOverride
+    activeBuffer?.type === 'editor' && activeBuffer.languageOverride
       ? activeBuffer.languageOverride
       : activeBuffer?.path
         ? getLanguageIdFromPath(activeBuffer.path) ||
           extensionRegistry.getLanguageId(activeBuffer.path)
-        : null;
+        : null
   const currentServerEntry = activeBuffer?.path
     ? lspClient.getActiveServerEntryForFile(activeBuffer.path, currentFileLanguageId || undefined)
-    : null;
-  const currentFileDisplayName = getLanguageDisplayNameOrNull(currentFileLanguageId);
+    : null
+  const currentFileDisplayName = getLanguageDisplayNameOrNull(currentFileLanguageId)
 
   useEffect(() => {
     if (!activeBuffer?.path || currentServerEntry) {
-      setIsCurrentFileLspAvailable(false);
-      return;
+      setIsCurrentFileLspAvailable(false)
+      return
     }
 
-    setIsCurrentFileLspAvailable(Boolean(extensionRegistry.getLspServerPath(activeBuffer.path)));
-  }, [activeBuffer?.path, currentServerEntry]);
+    setIsCurrentFileLspAvailable(Boolean(extensionRegistry.getLspServerPath(activeBuffer.path)))
+  }, [activeBuffer?.path, currentServerEntry])
 
   // Show/dismiss LSP error toast reactively.
   // The store sets lastError; this component surfaces it as a notification.
-  const lspLastError = useLspStore((state) => state.lspStatus.lastError);
+  const lspLastError = useLspStore((state) => state.lspStatus.lastError)
 
   useEffect(() => {
     if (lspLastError) {
       toast.show({
         key: LSP_ERROR_TOAST_KEY,
-        type: "error",
+        type: 'error',
         message: lspLastError,
         duration: 8000,
-      });
+      })
     } else {
-      toast.dismissByKey(LSP_ERROR_TOAST_KEY);
+      toast.dismissByKey(LSP_ERROR_TOAST_KEY)
     }
-  }, [lspLastError]);
+  }, [lspLastError])
 
   const handleRestartServer = async (serverKey: string) => {
-    setBusyServerKey(serverKey);
+    setBusyServerKey(serverKey)
     try {
-      await lspClient.restartTrackedServer(serverKey);
+      await lspClient.restartTrackedServer(serverKey)
     } catch (error) {
-      toast.error(error instanceof Error ? error.message : "Failed to restart language server");
+      toast.error(error instanceof Error ? error.message : 'Failed to restart language server')
     } finally {
-      setBusyServerKey(null);
+      setBusyServerKey(null)
     }
-  };
+  }
 
   const handleStopServer = async (serverKey: string) => {
-    setBusyServerKey(serverKey);
+    setBusyServerKey(serverKey)
     try {
-      await lspClient.stopTrackedServer(serverKey);
+      await lspClient.stopTrackedServer(serverKey)
     } catch (error) {
-      toast.error(error instanceof Error ? error.message : "Failed to stop language server");
+      toast.error(error instanceof Error ? error.message : 'Failed to stop language server')
     } finally {
-      setBusyServerKey(null);
+      setBusyServerKey(null)
     }
-  };
+  }
 
   const handleStartCurrent = async () => {
-    if (!activeBuffer?.path || !rootFolderPath) return;
-    setIsRestartingCurrent(true);
+    if (!activeBuffer?.path || !rootFolderPath) return
+    setIsRestartingCurrent(true)
     try {
       const started = await lspClient.startForFile(activeBuffer.path, rootFolderPath, {
         forceRetry: true,
-      });
+      })
       if (!started) {
-        throw new Error("Language server did not start.");
+        throw new Error('Language server did not start.')
       }
       const fullActiveBuffer = resolvedBufferId
         ? workspaceStore.getState().buffers.find((buffer) => buffer.id === resolvedBufferId)
-        : null;
+        : null
       const bufferContent =
-        fullActiveBuffer && hasTextContent(fullActiveBuffer) ? fullActiveBuffer.content : "";
-      await lspClient.notifyDocumentOpen(activeBuffer.path, bufferContent);
+        fullActiveBuffer && hasTextContent(fullActiveBuffer) ? fullActiveBuffer.content : ''
+      await lspClient.notifyDocumentOpen(activeBuffer.path, bufferContent)
     } catch (error) {
-      toast.error(error instanceof Error ? error.message : "Failed to start language server");
+      toast.error(error instanceof Error ? error.message : 'Failed to start language server')
     } finally {
-      setIsRestartingCurrent(false);
+      setIsRestartingCurrent(false)
     }
-  };
+  }
 
-  const allLanguages = useMemo(() => getAllLanguages(), []);
+  const allLanguages = useMemo(() => getAllLanguages(), [])
 
   const filteredLanguages = useMemo(() => {
-    if (!languageSearch) return allLanguages;
-    const query = languageSearch.toLowerCase();
+    if (!languageSearch) return allLanguages
+    const query = languageSearch.toLowerCase()
     return allLanguages.filter(
       (lang) =>
         lang.displayName.toLowerCase().includes(query) || lang.id.toLowerCase().includes(query),
-    );
-  }, [allLanguages, languageSearch]);
+    )
+  }, [allLanguages, languageSearch])
 
   const handleLanguageChange = useCallback(
     async (languageId: string) => {
-      if (!activeBuffer || !resolvedBufferId || activeBuffer.type !== "editor") return;
+      if (!activeBuffer || !resolvedBufferId || activeBuffer.type !== 'editor') return
       if (languageId === currentFileLanguageId) {
-        setIsLanguageOpen(false);
-        return;
+        setIsLanguageOpen(false)
+        return
       }
 
       workspaceStore.setState((state) => ({
         buffers: state.buffers.map((b) =>
-          b.id === resolvedBufferId && b.type === "editor"
+          b.id === resolvedBufferId && b.type === 'editor'
             ? { ...b, languageOverride: languageId }
             : b,
         ),
-      }));
+      }))
 
       if (activeBuffer.path) {
-        await setSyntaxHighlightingFilePath(activeBuffer.path);
+        await setSyntaxHighlightingFilePath(activeBuffer.path)
       }
 
       if (rootFolderPath && activeBuffer.path) {
         try {
-          await lspClient.notifyDocumentClose(activeBuffer.path);
+          await lspClient.notifyDocumentClose(activeBuffer.path)
           const started = await lspClient.startForFile(activeBuffer.path, rootFolderPath, {
             forceRetry: true,
-          });
+          })
           if (!started) {
-            throw new Error("Language server did not start.");
+            throw new Error('Language server did not start.')
           }
           const fullActiveBuffer = workspaceStore
             .getState()
-            .buffers.find((buffer) => buffer.id === resolvedBufferId);
+            .buffers.find((buffer) => buffer.id === resolvedBufferId)
           const bufferContent =
-            fullActiveBuffer && hasTextContent(fullActiveBuffer) ? fullActiveBuffer.content : "";
-          await lspClient.notifyDocumentOpen(activeBuffer.path, bufferContent);
+            fullActiveBuffer && hasTextContent(fullActiveBuffer) ? fullActiveBuffer.content : ''
+          await lspClient.notifyDocumentOpen(activeBuffer.path, bufferContent)
         } catch {
           // LSP restart is best-effort
         }
       }
 
-      setIsLanguageOpen(false);
-      setLanguageSearch("");
+      setIsLanguageOpen(false)
+      setLanguageSearch('')
     },
     [activeBuffer, resolvedBufferId, currentFileLanguageId, rootFolderPath, lspClient],
-  );
+  )
 
   const displayOptions = [
     {
-      id: "breadcrumbs",
-      label: "Breadcrumbs",
+      id: 'breadcrumbs',
+      label: 'Breadcrumbs',
       checked: settings.coreFeatures.breadcrumbs,
       shortcut: null,
       onToggle: () =>
-        updateSetting("coreFeatures", {
+        updateSetting('coreFeatures', {
           ...settings.coreFeatures,
           breadcrumbs: !settings.coreFeatures.breadcrumbs,
         }),
     },
     {
-      id: "minimap",
-      label: "Minimap",
+      id: 'minimap',
+      label: 'Minimap',
       checked: settings.showMinimap,
       shortcut: minimapShortcut,
-      onToggle: () => updateSetting("showMinimap", !settings.showMinimap),
+      onToggle: () => updateSetting('showMinimap', !settings.showMinimap),
     },
     {
-      id: "line-numbers",
-      label: "Line Numbers",
+      id: 'line-numbers',
+      label: 'Line Numbers',
       checked: settings.lineNumbers,
       shortcut: null,
-      onToggle: () => updateSetting("lineNumbers", !settings.lineNumbers),
+      onToggle: () => updateSetting('lineNumbers', !settings.lineNumbers),
       disabled: false,
     },
     {
-      id: "word-wrap",
-      label: "Word Wrap",
+      id: 'word-wrap',
+      label: 'Word Wrap',
       checked: settings.wordWrap,
       shortcut: null,
-      onToggle: () => updateSetting("wordWrap", !settings.wordWrap),
+      onToggle: () => updateSetting('wordWrap', !settings.wordWrap),
       disabled: false,
     },
     {
-      id: "parameter-hints",
-      label: "Parameter Hints",
+      id: 'parameter-hints',
+      label: 'Parameter Hints',
       checked: settings.parameterHints,
       shortcut: null,
-      onToggle: () => updateSetting("parameterHints", !settings.parameterHints),
+      onToggle: () => updateSetting('parameterHints', !settings.parameterHints),
       disabled: false,
     },
     {
-      id: "auto-completion",
-      label: "Auto Completion",
+      id: 'auto-completion',
+      label: 'Auto Completion',
       checked: settings.autoCompletion,
       shortcut: null,
-      onToggle: () => updateSetting("autoCompletion", !settings.autoCompletion),
+      onToggle: () => updateSetting('autoCompletion', !settings.autoCompletion),
       disabled: false,
     },
     {
-      id: "git-gutter",
-      label: "Git Gutter",
+      id: 'git-gutter',
+      label: 'Git Gutter',
       checked: settings.enableGitGutter,
       shortcut: null,
-      onToggle: () => updateSetting("enableGitGutter", !settings.enableGitGutter),
+      onToggle: () => updateSetting('enableGitGutter', !settings.enableGitGutter),
       disabled: false,
     },
     {
-      id: "inline-git-blame",
-      label: "Inline Git Blame",
+      id: 'inline-git-blame',
+      label: 'Inline Git Blame',
       checked: settings.enableInlineGitBlame,
       shortcut: null,
-      onToggle: () => updateSetting("enableInlineGitBlame", !settings.enableInlineGitBlame),
+      onToggle: () => updateSetting('enableInlineGitBlame', !settings.enableInlineGitBlame),
       disabled: false,
     },
-  ];
+  ]
 
   return (
     <>
       <CursorPositionChip editorViewKey={editorViewKey} />
 
-      {activeBuffer?.type === "editor" && (
+      {activeBuffer?.type === 'editor' && (
         <div className="relative flex h-5 items-center self-center">
           <Button
             ref={languageButtonRef}
             type="button"
             onClick={() => {
-              setIsLanguageOpen((open) => !open);
-              setLanguageSearch("");
+              setIsLanguageOpen((open) => !open)
+              setLanguageSearch('')
             }}
             variant="ghost"
             compact
             className={cn(
               statusChipClass,
-              "min-w-0 cursor-pointer",
-              isLanguageOpen && "bg-muted text-foreground",
+              'min-w-0 cursor-pointer',
+              isLanguageOpen && 'bg-muted text-foreground',
             )}
             aria-expanded={isLanguageOpen}
             aria-haspopup="listbox"
             tooltip="Select language mode"
             tooltipSide="bottom"
           >
-            {currentFileDisplayName || "Plain Text"}
+            {currentFileDisplayName || 'Plain Text'}
           </Button>
           <Dropdown
             isOpen={isLanguageOpen}
@@ -391,8 +388,8 @@ export function EditorStatusActions({ bufferId, editorViewKey }: EditorStatusAct
             anchorSide="bottom"
             anchorAlign="end"
             onClose={() => {
-              setIsLanguageOpen(false);
-              setLanguageSearch("");
+              setIsLanguageOpen(false)
+              setLanguageSearch('')
             }}
             className="w-[220px] overflow-hidden rounded-lg p-1.5"
           >
@@ -403,9 +400,9 @@ export function EditorStatusActions({ bufferId, editorViewKey }: EditorStatusAct
                 value={languageSearch}
                 onChange={(e) => setLanguageSearch(e.target.value)}
                 onKeyDown={(e) => {
-                  if (e.key === "Escape") {
-                    setIsLanguageOpen(false);
-                    setLanguageSearch("");
+                  if (e.key === 'Escape') {
+                    setIsLanguageOpen(false)
+                    setLanguageSearch('')
                   }
                 }}
                 placeholder="Search languages..."
@@ -423,7 +420,7 @@ export function EditorStatusActions({ bufferId, editorViewKey }: EditorStatusAct
                   variant="ghost"
                   compact
                   className={dropdownItemClassName(
-                    cn("justify-between", lang.id === currentFileLanguageId && "text-accent"),
+                    cn('justify-between', lang.id === currentFileLanguageId && 'text-accent'),
                   )}
                   role="option"
                   aria-selected={lang.id === currentFileLanguageId}
@@ -449,7 +446,7 @@ export function EditorStatusActions({ bufferId, editorViewKey }: EditorStatusAct
           onClick={() => setIsLspOpen((open) => !open)}
           variant="ghost"
           compact
-          className={cn(actionButtonClass, config.color, isLspOpen && "bg-muted text-foreground")}
+          className={cn(actionButtonClass, config.color, isLspOpen && 'bg-muted text-foreground')}
           aria-label="Language server status"
           tooltip={config.title}
           tooltipSide="bottom"
@@ -471,7 +468,7 @@ export function EditorStatusActions({ bufferId, editorViewKey }: EditorStatusAct
             {hasActiveServers || isCurrentFileLspAvailable ? (
               <div className="space-y-1">
                 {activeServerEntries.map((entry) => {
-                  const isBusy = busyServerKey === entry.key;
+                  const isBusy = busyServerKey === entry.key
                   return (
                     <div
                       key={entry.key}
@@ -479,7 +476,9 @@ export function EditorStatusActions({ bufferId, editorViewKey }: EditorStatusAct
                     >
                       <div className="flex min-w-0 items-center gap-2">
                         <Zap className="shrink-0 text-green-400" />
-                        <span className="truncate text-foreground ui-text-xs">{entry.displayName}</span>
+                        <span className="truncate text-foreground ui-text-xs">
+                          {entry.displayName}
+                        </span>
                       </div>
                       <div className="flex items-center gap-1 opacity-0 transition-opacity group-hover:opacity-100">
                         <Button
@@ -490,7 +489,7 @@ export function EditorStatusActions({ bufferId, editorViewKey }: EditorStatusAct
                           compact
                           className="rounded-md px-2 ui-text-xs text-muted-foreground"
                         >
-                          {isBusy ? "..." : "Restart"}
+                          {isBusy ? '...' : 'Restart'}
                         </Button>
                         <Button
                           type="button"
@@ -504,7 +503,7 @@ export function EditorStatusActions({ bufferId, editorViewKey }: EditorStatusAct
                         </Button>
                       </div>
                     </div>
-                  );
+                  )
                 })}
                 {!currentServerEntry && isCurrentFileLspAvailable && currentFileDisplayName && (
                   <div className="group flex items-center justify-between gap-2 rounded-lg px-2 py-1.5 hover:bg-muted">
@@ -523,17 +522,17 @@ export function EditorStatusActions({ bufferId, editorViewKey }: EditorStatusAct
                         compact
                         className="rounded-md px-2 ui-text-xs text-muted-foreground"
                       >
-                        {isRestartingCurrent ? "Starting..." : "Start"}
+                        {isRestartingCurrent ? 'Starting...' : 'Start'}
                       </Button>
                     </div>
                   </div>
                 )}
               </div>
-            ) : lspStatus.status === "connecting" ? (
+            ) : lspStatus.status === 'connecting' ? (
               <div className="flex items-center gap-2 rounded-lg px-2 py-2 text-muted-foreground">
                 <LoadingSpinner label="Connecting" showLabel compact />
               </div>
-            ) : lspStatus.status === "error" ? (
+            ) : lspStatus.status === 'error' ? (
               <div className="space-y-2 px-1 py-1">
                 <div className="flex items-center gap-2 text-red-400">
                   <ZapOff />
@@ -563,7 +562,7 @@ export function EditorStatusActions({ bufferId, editorViewKey }: EditorStatusAct
           compact
           className={cn(
             menuTriggerClass,
-            isViewMenuOpen && "border-border/60 bg-muted/80 text-foreground",
+            isViewMenuOpen && 'border-border/60 bg-muted/80 text-foreground',
           )}
           tooltip="Editor preferences"
           tooltipSide="bottom"
@@ -640,5 +639,5 @@ export function EditorStatusActions({ bufferId, editorViewKey }: EditorStatusAct
         </Dropdown>
       </div>
     </>
-  );
+  )
 }

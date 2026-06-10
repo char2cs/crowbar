@@ -3,11 +3,11 @@
  * Handles loading and initializing Tree-sitter WASM parsers
  */
 
-import { Language, Parser, Query } from "web-tree-sitter";
-import { logger } from "../../utils/logger";
-import { indexedDBParserCache } from "./cache-indexeddb";
-import { fetchHighlightQuery } from "./extension-assets";
-import type { LoadedParser, ParserConfig } from "./types";
+import { Language, Parser, Query } from 'web-tree-sitter'
+import { logger } from '../../utils/logger'
+import { indexedDBParserCache } from './cache-indexeddb'
+import { fetchHighlightQuery } from './extension-assets'
+import type { LoadedParser, ParserConfig } from './types'
 
 // Thrown when the tree-sitter runtime/grammars are not provisioned under
 // `/tree-sitter`. It is a benign, expected condition (the optional tree-sitter
@@ -16,25 +16,25 @@ import type { LoadedParser, ParserConfig } from "./types";
 // failure. Distinct type so it can be caught without swallowing real errors.
 export class TreeSitterUnavailableError extends Error {
   constructor() {
-    super("Tree-sitter assets are not provisioned under /tree-sitter");
-    this.name = "TreeSitterUnavailableError";
+    super('Tree-sitter assets are not provisioned under /tree-sitter')
+    this.name = 'TreeSitterUnavailableError'
   }
 }
 
 class WasmParserLoader {
-  private static instance: WasmParserLoader;
-  private initialized = false;
-  private unavailable = false;
-  private parsers: Map<string, LoadedParser> = new Map();
-  private loadingParsers: Map<string, Promise<LoadedParser>> = new Map();
+  private static instance: WasmParserLoader
+  private initialized = false
+  private unavailable = false
+  private parsers: Map<string, LoadedParser> = new Map()
+  private loadingParsers: Map<string, Promise<LoadedParser>> = new Map()
 
   private constructor() {}
 
   static getInstance(): WasmParserLoader {
     if (!WasmParserLoader.instance) {
-      WasmParserLoader.instance = new WasmParserLoader();
+      WasmParserLoader.instance = new WasmParserLoader()
     }
-    return WasmParserLoader.instance;
+    return WasmParserLoader.instance
   }
 
   /**
@@ -42,34 +42,34 @@ class WasmParserLoader {
    * Must be called once before loading any parsers
    */
   async initialize(): Promise<void> {
-    if (this.initialized) return;
+    if (this.initialized) return
     // Already determined to be unavailable — short-circuit without re-logging
     // so a per-file tokenize attempt does not spam the console.
-    if (this.unavailable) throw new TreeSitterUnavailableError();
+    if (this.unavailable) throw new TreeSitterUnavailableError()
 
     try {
       await Parser.init({
         locateFile(scriptName: string) {
           const baseOrigin =
-            typeof globalThis !== "undefined" && globalThis.location?.origin
+            typeof globalThis !== 'undefined' && globalThis.location?.origin
               ? `${globalThis.location.origin}/`
-              : "/";
-          return new URL(`tree-sitter/${scriptName}`, baseOrigin).toString();
+              : '/'
+          return new URL(`tree-sitter/${scriptName}`, baseOrigin).toString()
         },
-      });
-      this.initialized = true;
-      logger.debug("WasmParser", "Tree-sitter WASM initialized");
+      })
+      this.initialized = true
+      logger.debug('WasmParser', 'Tree-sitter WASM initialized')
     } catch (error) {
       // The runtime wasm is absent (the dev/prod server returns the SPA HTML
       // for the .wasm URL). Disable the layer once, with a single warning.
-      this.unavailable = true;
+      this.unavailable = true
       logger.warn(
-        "WasmParser",
-        "Tree-sitter assets not provisioned under /tree-sitter — tree-sitter " +
+        'WasmParser',
+        'Tree-sitter assets not provisioned under /tree-sitter — tree-sitter ' +
           "highlighting disabled. Monaco's built-in highlighting is unaffected.",
         error,
-      );
-      throw new TreeSitterUnavailableError();
+      )
+      throw new TreeSitterUnavailableError()
     }
   }
 
@@ -77,7 +77,7 @@ class WasmParserLoader {
    * Check if WASM is initialized and ready to use
    */
   isInitialized(): boolean {
-    return this.initialized;
+    return this.initialized
   }
 
   /**
@@ -85,29 +85,29 @@ class WasmParserLoader {
    * Returns cached parser if already loaded
    */
   async loadParser(config: ParserConfig): Promise<LoadedParser> {
-    if (this.unavailable) throw new TreeSitterUnavailableError();
-    const { languageId, highlightQuery } = config;
+    if (this.unavailable) throw new TreeSitterUnavailableError()
+    const { languageId, highlightQuery } = config
 
     // Check if parser is already cached
     if (this.parsers.has(languageId)) {
-      const cached = this.parsers.get(languageId)!;
+      const cached = this.parsers.get(languageId)!
 
       // Update highlight query if a new one is provided and differs from the cached one
       if (highlightQuery && highlightQuery !== cached.highlightQueryText) {
-        logger.debug("WasmParser", `Updating highlight query for ${languageId}`);
+        logger.debug('WasmParser', `Updating highlight query for ${languageId}`)
 
         try {
           const { query, queryText: compiledQueryText } = this.compileHighlightQuery(
             cached.language,
             languageId,
             highlightQuery,
-          );
+          )
           const updatedParser: LoadedParser = {
             ...cached,
             highlightQuery: query,
             highlightQueryText: compiledQueryText,
-          };
-          this.parsers.set(languageId, updatedParser);
+          }
+          this.parsers.set(languageId, updatedParser)
 
           // Also update IndexedDB cache with the highlight query
           indexedDBParserCache
@@ -117,32 +117,32 @@ class WasmParserLoader {
                 indexedDBParserCache.set({
                   ...cachedEntry,
                   highlightQuery: compiledQueryText,
-                });
+                })
               }
             })
-            .catch(() => {});
+            .catch(() => {})
 
-          return updatedParser;
+          return updatedParser
         } catch (error) {
           // Try to fetch local highlight query as fallback before surfacing an error.
           const localQuery = await this.fetchHighlightQueryText(
             languageId,
             config.wasmPath,
             config.highlightQueryUrl,
-          );
+          )
           if (localQuery) {
             try {
               const { query, queryText: compiledQueryText } = this.compileHighlightQuery(
                 cached.language,
                 languageId,
                 localQuery,
-              );
+              )
               const updatedParser: LoadedParser = {
                 ...cached,
                 highlightQuery: query,
                 highlightQueryText: compiledQueryText,
-              };
-              this.parsers.set(languageId, updatedParser);
+              }
+              this.parsers.set(languageId, updatedParser)
 
               // Update IndexedDB cache with the correct local query
               indexedDBParserCache
@@ -152,55 +152,51 @@ class WasmParserLoader {
                     indexedDBParserCache.set({
                       ...cachedEntry,
                       highlightQuery: compiledQueryText,
-                    });
+                    })
                   }
                 })
-                .catch(() => {});
+                .catch(() => {})
 
-              logger.debug("WasmParser", `Using refreshed highlight query for ${languageId}`);
-              return updatedParser;
+              logger.debug('WasmParser', `Using refreshed highlight query for ${languageId}`)
+              return updatedParser
             } catch (localError) {
               logger.error(
-                "WasmParser",
+                'WasmParser',
                 `Failed to create highlight query for ${languageId}:`,
                 error,
-              );
+              )
               logger.error(
-                "WasmParser",
+                'WasmParser',
                 `Local highlight query also failed for ${languageId}:`,
                 localError,
-              );
+              )
             }
           } else {
-            logger.error(
-              "WasmParser",
-              `Failed to create highlight query for ${languageId}:`,
-              error,
-            );
+            logger.error('WasmParser', `Failed to create highlight query for ${languageId}:`, error)
           }
         }
       }
 
-      return cached;
+      return cached
     }
 
     // Return ongoing loading promise if exists
     if (this.loadingParsers.has(languageId)) {
-      return this.loadingParsers.get(languageId)!;
+      return this.loadingParsers.get(languageId)!
     }
 
     // Start loading parser
-    const loadPromise = this._loadParserInternal(config);
-    this.loadingParsers.set(languageId, loadPromise);
+    const loadPromise = this._loadParserInternal(config)
+    this.loadingParsers.set(languageId, loadPromise)
 
     try {
-      const loadedParser = await loadPromise;
-      this.parsers.set(languageId, loadedParser);
-      this.loadingParsers.delete(languageId);
-      return loadedParser;
+      const loadedParser = await loadPromise
+      this.parsers.set(languageId, loadedParser)
+      this.loadingParsers.delete(languageId)
+      return loadedParser
     } catch (error) {
-      this.loadingParsers.delete(languageId);
-      throw error;
+      this.loadingParsers.delete(languageId)
+      throw error
     }
   }
 
@@ -215,18 +211,18 @@ class WasmParserLoader {
     const { query, sourceUrl } = await fetchHighlightQuery(languageId, {
       wasmUrl: wasmPath,
       queryUrl,
-      cacheMode: "no-store",
-    });
+      cacheMode: 'no-store',
+    })
     if (!query) {
-      logger.debug("WasmParser", `No highlight query source found for ${languageId}`);
-      return null;
+      logger.debug('WasmParser', `No highlight query source found for ${languageId}`)
+      return null
     }
 
     logger.debug(
-      "WasmParser",
-      `Resolved highlight query for ${languageId} from ${sourceUrl || "fallback source"}`,
-    );
-    return query;
+      'WasmParser',
+      `Resolved highlight query for ${languageId} from ${sourceUrl || 'fallback source'}`,
+    )
+    return query
   }
 
   private ensureValidWasmBytes(languageId: string, wasmPath: string, wasmBytes: Uint8Array): void {
@@ -235,15 +231,13 @@ class WasmParserLoader {
       wasmBytes[0] === 0x00 &&
       wasmBytes[1] === 0x61 &&
       wasmBytes[2] === 0x73 &&
-      wasmBytes[3] === 0x6d;
+      wasmBytes[3] === 0x6d
 
     if (hasWasmHeader) {
-      return;
+      return
     }
 
-    throw new Error(
-      `Invalid WASM payload for ${languageId} from ${wasmPath} (missing wasm header)`,
-    );
+    throw new Error(`Invalid WASM payload for ${languageId} from ${wasmPath} (missing wasm header)`)
   }
 
   /**
@@ -258,11 +252,11 @@ class WasmParserLoader {
       return {
         query: new Query(language, queryText),
         queryText,
-      };
+      }
     } catch (error) {
-      const recovered = this.tryRecoverHighlightQuery(language, languageId, queryText, error);
-      if (recovered) return recovered;
-      throw error;
+      const recovered = this.tryRecoverHighlightQuery(language, languageId, queryText, error)
+      if (recovered) return recovered
+      throw error
     }
   }
 
@@ -275,91 +269,91 @@ class WasmParserLoader {
     queryText: string,
     error: unknown,
   ): { query: Query; queryText: string } | null {
-    let rewrittenQuery = queryText;
-    let currentError = error;
-    const seenNodes = new Set<string>();
-    const seenPredicates = new Set<string>();
+    let rewrittenQuery = queryText
+    let currentError = error
+    const seenNodes = new Set<string>()
+    const seenPredicates = new Set<string>()
 
     for (let attempts = 0; attempts < 12; attempts++) {
-      const badNode = this.extractBadNodeName(currentError);
+      const badNode = this.extractBadNodeName(currentError)
       if (badNode && !seenNodes.has(badNode)) {
-        seenNodes.add(badNode);
+        seenNodes.add(badNode)
 
         const nextQuery = this.rewriteIncompatibleHighlightQuery(
           languageId,
           rewrittenQuery,
           badNode,
-        );
+        )
         if (nextQuery !== rewrittenQuery) {
-          rewrittenQuery = nextQuery;
+          rewrittenQuery = nextQuery
 
           logger.warn(
-            "WasmParser",
+            'WasmParser',
             `Applied ${languageId} highlight compatibility rewrite for missing node '${badNode}'`,
-          );
+          )
 
           try {
             return {
               query: new Query(language, rewrittenQuery),
               queryText: rewrittenQuery,
-            };
+            }
           } catch (rewriteError) {
-            currentError = rewriteError;
-            continue;
+            currentError = rewriteError
+            continue
           }
         }
       }
 
-      const badPredicate = this.extractBadPredicateName(currentError);
+      const badPredicate = this.extractBadPredicateName(currentError)
       if (badPredicate && !seenPredicates.has(badPredicate)) {
-        seenPredicates.add(badPredicate);
+        seenPredicates.add(badPredicate)
 
         const nextQuery = this.rewriteIncompatiblePredicateQuery(
           languageId,
           rewrittenQuery,
           badPredicate,
-        );
+        )
         if (nextQuery !== rewrittenQuery) {
-          rewrittenQuery = nextQuery;
+          rewrittenQuery = nextQuery
 
           logger.warn(
-            "WasmParser",
+            'WasmParser',
             `Applied ${languageId} highlight compatibility rewrite for unsupported predicate '${badPredicate}'`,
-          );
+          )
 
           try {
             return {
               query: new Query(language, rewrittenQuery),
               queryText: rewrittenQuery,
-            };
+            }
           } catch (rewriteError) {
-            currentError = rewriteError;
-            continue;
+            currentError = rewriteError
+            continue
           }
         }
       }
 
-      break;
+      break
     }
 
-    logger.error("WasmParser", `Highlight query rewrite failed for ${languageId}:`, currentError);
-    return null;
+    logger.error('WasmParser', `Highlight query rewrite failed for ${languageId}:`, currentError)
+    return null
   }
 
   private extractBadNodeName(error: unknown): string | null {
     const message =
-      error instanceof Error ? error.message : typeof error === "string" ? error : String(error);
-    const match = message.match(/Bad node name '([^']+)'/);
-    return match?.[1] ?? null;
+      error instanceof Error ? error.message : typeof error === 'string' ? error : String(error)
+    const match = message.match(/Bad node name '([^']+)'/)
+    return match?.[1] ?? null
   }
 
   private extractBadPredicateName(error: unknown): string | null {
     const message =
-      error instanceof Error ? error.message : typeof error === "string" ? error : String(error);
-    const backtickMatch = message.match(/`([^`]+)` predicate/);
-    if (backtickMatch?.[1]) return backtickMatch[1];
-    const quoteMatch = message.match(/predicate ['"]([^'"]+)['"]/);
-    return quoteMatch?.[1] ?? null;
+      error instanceof Error ? error.message : typeof error === 'string' ? error : String(error)
+    const backtickMatch = message.match(/`([^`]+)` predicate/)
+    if (backtickMatch?.[1]) return backtickMatch[1]
+    const quoteMatch = message.match(/predicate ['"]([^'"]+)['"]/)
+    return quoteMatch?.[1] ?? null
   }
 
   /**
@@ -370,7 +364,7 @@ class WasmParserLoader {
     queryText: string,
     badNodeName: string,
   ): string {
-    return this.stripNodeExpressions(queryText, badNodeName);
+    return this.stripNodeExpressions(queryText, badNodeName)
   }
 
   /**
@@ -381,245 +375,245 @@ class WasmParserLoader {
     queryText: string,
     predicateName: string,
   ): string {
-    return this.stripPredicateCalls(queryText, predicateName);
+    return this.stripPredicateCalls(queryText, predicateName)
   }
 
   private stripNodeExpressions(queryText: string, badNodeName: string): string {
     const nodeRegex = new RegExp(
-      `\\(${badNodeName.replace(/[.*+?^${}()|[\\]\\\\]/g, "\\$&")}(?=[\\s)])`,
-    );
-    const lines = queryText.split("\n");
-    const output: string[] = [];
-    let expressionLines: string[] = [];
-    let depth = 0;
-    let inExpression = false;
+      `\\(${badNodeName.replace(/[.*+?^${}()|[\\]\\\\]/g, '\\$&')}(?=[\\s)])`,
+    )
+    const lines = queryText.split('\n')
+    const output: string[] = []
+    let expressionLines: string[] = []
+    let depth = 0
+    let inExpression = false
 
     const flushExpression = () => {
-      if (expressionLines.length === 0) return;
-      const expressionText = expressionLines.join("\n");
+      if (expressionLines.length === 0) return
+      const expressionText = expressionLines.join('\n')
       if (!nodeRegex.test(expressionText)) {
-        output.push(expressionText);
+        output.push(expressionText)
       }
-      expressionLines = [];
-    };
+      expressionLines = []
+    }
 
     for (const line of lines) {
       if (!inExpression) {
-        if (line.trimStart().startsWith("(")) {
-          inExpression = true;
-          expressionLines = [line];
-          depth = (line.match(/\(/g) || []).length - (line.match(/\)/g) || []).length;
+        if (line.trimStart().startsWith('(')) {
+          inExpression = true
+          expressionLines = [line]
+          depth = (line.match(/\(/g) || []).length - (line.match(/\)/g) || []).length
           if (depth <= 0) {
-            flushExpression();
-            inExpression = false;
-            depth = 0;
+            flushExpression()
+            inExpression = false
+            depth = 0
           }
         } else {
-          output.push(line);
+          output.push(line)
         }
-        continue;
+        continue
       }
 
-      expressionLines.push(line);
-      depth += (line.match(/\(/g) || []).length - (line.match(/\)/g) || []).length;
+      expressionLines.push(line)
+      depth += (line.match(/\(/g) || []).length - (line.match(/\)/g) || []).length
       if (depth <= 0) {
-        flushExpression();
-        inExpression = false;
-        depth = 0;
+        flushExpression()
+        inExpression = false
+        depth = 0
       }
     }
 
     if (inExpression) {
-      flushExpression();
+      flushExpression()
     }
 
     return `${output
-      .join("\n")
-      .replace(/\n{3,}/g, "\n\n")
-      .trimEnd()}\n`;
+      .join('\n')
+      .replace(/\n{3,}/g, '\n\n')
+      .trimEnd()}\n`
   }
 
   private stripPredicateCalls(queryText: string, predicateName: string): string {
-    const escapedPredicate = predicateName.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-    const predicateRegex = new RegExp(`\\(${escapedPredicate}(?=[\\s)])`, "g");
-    const output: string[] = [];
-    let cursor = 0;
-    let changed = false;
-    let match = predicateRegex.exec(queryText);
+    const escapedPredicate = predicateName.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+    const predicateRegex = new RegExp(`\\(${escapedPredicate}(?=[\\s)])`, 'g')
+    const output: string[] = []
+    let cursor = 0
+    let changed = false
+    let match = predicateRegex.exec(queryText)
     while (match !== null) {
-      const start = match.index;
-      const end = this.findMatchingParenIndex(queryText, start);
+      const start = match.index
+      const end = this.findMatchingParenIndex(queryText, start)
       if (end === -1) {
-        return queryText;
+        return queryText
       }
 
-      output.push(queryText.slice(cursor, start));
-      cursor = end + 1;
-      changed = true;
-      match = predicateRegex.exec(queryText);
+      output.push(queryText.slice(cursor, start))
+      cursor = end + 1
+      changed = true
+      match = predicateRegex.exec(queryText)
     }
 
-    if (!changed) return queryText;
+    if (!changed) return queryText
 
-    output.push(queryText.slice(cursor));
+    output.push(queryText.slice(cursor))
 
     return `${output
-      .join("")
-      .replace(/[ \t]+\n/g, "\n")
-      .replace(/\n{3,}/g, "\n\n")
-      .trimEnd()}\n`;
+      .join('')
+      .replace(/[ \t]+\n/g, '\n')
+      .replace(/\n{3,}/g, '\n\n')
+      .trimEnd()}\n`
   }
 
   private findMatchingParenIndex(text: string, startIndex: number): number {
-    if (startIndex < 0 || startIndex >= text.length || text[startIndex] !== "(") {
-      return -1;
+    if (startIndex < 0 || startIndex >= text.length || text[startIndex] !== '(') {
+      return -1
     }
 
-    let depth = 0;
-    let inString = false;
-    let escapeNext = false;
-    let inComment = false;
+    let depth = 0
+    let inString = false
+    let escapeNext = false
+    let inComment = false
 
     for (let index = startIndex; index < text.length; index++) {
-      const char = text[index];
+      const char = text[index]
 
       if (inComment) {
-        if (char === "\n") {
-          inComment = false;
+        if (char === '\n') {
+          inComment = false
         }
-        continue;
+        continue
       }
 
       if (inString) {
         if (escapeNext) {
-          escapeNext = false;
-          continue;
+          escapeNext = false
+          continue
         }
-        if (char === "\\") {
-          escapeNext = true;
-          continue;
+        if (char === '\\') {
+          escapeNext = true
+          continue
         }
         if (char === '"') {
-          inString = false;
+          inString = false
         }
-        continue;
+        continue
       }
 
-      if (char === ";") {
-        inComment = true;
-        continue;
+      if (char === ';') {
+        inComment = true
+        continue
       }
 
       if (char === '"') {
-        inString = true;
-        continue;
+        inString = true
+        continue
       }
 
-      if (char === "(") {
-        depth += 1;
-        continue;
+      if (char === '(') {
+        depth += 1
+        continue
       }
 
-      if (char === ")") {
-        depth -= 1;
+      if (char === ')') {
+        depth -= 1
         if (depth === 0) {
-          return index;
+          return index
         }
         if (depth < 0) {
-          return -1;
+          return -1
         }
       }
     }
 
-    return -1;
+    return -1
   }
 
   private async readCachedParser(
     languageId: string,
   ): Promise<{ wasmBytes: Uint8Array; queryText?: string } | null> {
-    const cached = await indexedDBParserCache.get(languageId);
-    if (!cached) return null;
+    const cached = await indexedDBParserCache.get(languageId)
+    if (!cached) return null
 
-    let wasmBytes: Uint8Array;
+    let wasmBytes: Uint8Array
     if (cached.wasmData) {
-      wasmBytes = new Uint8Array(cached.wasmData);
-      logger.debug("WasmParser", `Using cached ArrayBuffer for ${languageId}`);
+      wasmBytes = new Uint8Array(cached.wasmData)
+      logger.debug('WasmParser', `Using cached ArrayBuffer for ${languageId}`)
     } else if (cached.wasmBlob) {
       try {
-        const arrayBuffer = await cached.wasmBlob.arrayBuffer();
-        wasmBytes = new Uint8Array(arrayBuffer);
-        logger.debug("WasmParser", `Using cached Blob for ${languageId}`);
+        const arrayBuffer = await cached.wasmBlob.arrayBuffer()
+        wasmBytes = new Uint8Array(arrayBuffer)
+        logger.debug('WasmParser', `Using cached Blob for ${languageId}`)
       } catch (blobError) {
         logger.error(
-          "WasmParser",
+          'WasmParser',
           `Failed to read cached Blob for ${languageId}, clearing cache entry`,
           blobError,
-        );
-        await indexedDBParserCache.delete(languageId);
-        throw new Error(`Cached parser corrupted, please reinstall ${languageId}`);
+        )
+        await indexedDBParserCache.delete(languageId)
+        throw new Error(`Cached parser corrupted, please reinstall ${languageId}`)
       }
     } else {
-      throw new Error(`Cache entry for ${languageId} has no WASM data`);
+      throw new Error(`Cache entry for ${languageId} has no WASM data`)
     }
 
     return {
       wasmBytes,
       queryText: cached.highlightQuery?.trim() ? cached.highlightQuery : undefined,
-    };
+    }
   }
 
   private async _loadParserInternal(config: ParserConfig): Promise<LoadedParser> {
-    const { languageId, wasmPath, highlightQuery, highlightQueryUrl } = config;
+    const { languageId, wasmPath, highlightQuery, highlightQueryUrl } = config
 
     try {
       // Ensure Tree-sitter is initialized
       if (!this.initialized) {
-        await this.initialize();
+        await this.initialize()
       }
 
       // Check if this is a local/bundled parser (not a remote URL)
       // Local parsers should always use the local file, not IndexedDB cache
-      const isLocalParser = wasmPath.startsWith("/tree-sitter/");
+      const isLocalParser = wasmPath.startsWith('/tree-sitter/')
 
       // Try to load from IndexedDB cache first (skip for local parsers)
-      const cached = isLocalParser ? null : await this.readCachedParser(languageId);
+      const cached = isLocalParser ? null : await this.readCachedParser(languageId)
 
-      let wasmBytes: Uint8Array;
-      let queryText = highlightQuery;
+      let wasmBytes: Uint8Array
+      let queryText = highlightQuery
 
       if (cached) {
-        logger.debug("WasmParser", `Loading ${languageId} from IndexedDB cache`);
-        wasmBytes = cached.wasmBytes;
+        logger.debug('WasmParser', `Loading ${languageId} from IndexedDB cache`)
+        wasmBytes = cached.wasmBytes
 
         // Use cached highlight query if available and not empty
         // Prefer cached query over passed parameter if cached is non-empty
         if (cached.queryText) {
-          queryText = cached.queryText;
-          logger.debug("WasmParser", `Using cached highlight query for ${languageId}`);
+          queryText = cached.queryText
+          logger.debug('WasmParser', `Using cached highlight query for ${languageId}`)
         } else if (!queryText) {
           logger.warn(
-            "WasmParser",
+            'WasmParser',
             `No highlight query available for ${languageId} - syntax highlighting will be disabled`,
-          );
+          )
         }
       } else {
-        logger.debug("WasmParser", `Loading parser for ${languageId} from ${wasmPath}`);
+        logger.debug('WasmParser', `Loading parser for ${languageId} from ${wasmPath}`)
 
         // Check if wasmPath is a URL (starts with http:// or https://)
-        const isRemoteUrl = wasmPath.startsWith("http://") || wasmPath.startsWith("https://");
+        const isRemoteUrl = wasmPath.startsWith('http://') || wasmPath.startsWith('https://')
 
         if (isRemoteUrl) {
           // Download from remote URL
-          logger.debug("WasmParser", `Downloading ${languageId} from remote: ${wasmPath}`);
+          logger.debug('WasmParser', `Downloading ${languageId} from remote: ${wasmPath}`)
 
-          const response = await fetch(wasmPath);
+          const response = await fetch(wasmPath)
           if (!response.ok) {
-            throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+            throw new Error(`HTTP ${response.status}: ${response.statusText}`)
           }
 
-          const arrayBuffer = await response.arrayBuffer();
-          wasmBytes = new Uint8Array(arrayBuffer);
-          this.ensureValidWasmBytes(languageId, wasmPath, wasmBytes);
+          const arrayBuffer = await response.arrayBuffer()
+          wasmBytes = new Uint8Array(arrayBuffer)
+          this.ensureValidWasmBytes(languageId, wasmPath, wasmBytes)
 
           // Cache for future use
           try {
@@ -627,41 +621,41 @@ class WasmParserLoader {
               languageId,
               wasmBlob: new Blob([wasmBytes as BlobPart]), // Legacy compatibility
               wasmData: wasmBytes.buffer as ArrayBuffer, // Preferred: ArrayBuffer
-              highlightQuery: queryText || "",
-              version: "1.0.0", // TODO: Get version from manifest
-              checksum: "", // TODO: Calculate checksum
+              highlightQuery: queryText || '',
+              version: '1.0.0', // TODO: Get version from manifest
+              checksum: '', // TODO: Calculate checksum
               downloadedAt: Date.now(),
               lastUsedAt: Date.now(),
               size: wasmBytes.byteLength,
               sourceUrl: wasmPath,
-            });
-            logger.debug("WasmParser", `Cached ${languageId} to IndexedDB`);
+            })
+            logger.debug('WasmParser', `Cached ${languageId} to IndexedDB`)
           } catch (cacheError) {
-            logger.warn("WasmParser", `Failed to cache ${languageId}:`, cacheError);
+            logger.warn('WasmParser', `Failed to cache ${languageId}:`, cacheError)
             // Continue even if caching fails
           }
         } else {
           // Load from local path
-          logger.debug("WasmParser", `Loading ${languageId} from local path: ${wasmPath}`);
+          logger.debug('WasmParser', `Loading ${languageId} from local path: ${wasmPath}`)
 
           try {
-            const response = await fetch(wasmPath);
+            const response = await fetch(wasmPath)
             if (!response.ok) {
-              throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+              throw new Error(`HTTP ${response.status}: ${response.statusText}`)
             }
 
-            const arrayBuffer = await response.arrayBuffer();
-            wasmBytes = new Uint8Array(arrayBuffer);
-            this.ensureValidWasmBytes(languageId, wasmPath, wasmBytes);
+            const arrayBuffer = await response.arrayBuffer()
+            wasmBytes = new Uint8Array(arrayBuffer)
+            this.ensureValidWasmBytes(languageId, wasmPath, wasmBytes)
           } catch (localError) {
-            const cachedFallback = await this.readCachedParser(languageId);
+            const cachedFallback = await this.readCachedParser(languageId)
             if (!cachedFallback) {
-              throw localError;
+              throw localError
             }
 
-            logger.debug("WasmParser", `Falling back to installed parser cache for ${languageId}`);
-            wasmBytes = cachedFallback.wasmBytes;
-            queryText = cachedFallback.queryText || queryText;
+            logger.debug('WasmParser', `Falling back to installed parser cache for ${languageId}`)
+            wasmBytes = cachedFallback.wasmBytes
+            queryText = cachedFallback.queryText || queryText
           }
 
           // Also fetch highlight query from local path if not provided
@@ -670,10 +664,10 @@ class WasmParserLoader {
               languageId,
               wasmPath,
               highlightQueryUrl,
-            );
+            )
             if (localQuery) {
-              queryText = localQuery;
-              logger.debug("WasmParser", `Loaded highlight query for ${languageId}`);
+              queryText = localQuery
+              logger.debug('WasmParser', `Loaded highlight query for ${languageId}`)
             }
           }
 
@@ -683,36 +677,36 @@ class WasmParserLoader {
               languageId,
               wasmBlob: new Blob([wasmBytes as BlobPart]),
               wasmData: wasmBytes.buffer as ArrayBuffer,
-              highlightQuery: queryText || "",
-              version: "1.0.0",
-              checksum: "",
+              highlightQuery: queryText || '',
+              version: '1.0.0',
+              checksum: '',
               downloadedAt: Date.now(),
               lastUsedAt: Date.now(),
               size: wasmBytes.byteLength,
               sourceUrl: wasmPath,
-            });
-            logger.debug("WasmParser", `Cached ${languageId} to IndexedDB (from local path)`);
+            })
+            logger.debug('WasmParser', `Cached ${languageId} to IndexedDB (from local path)`)
           } catch (cacheError) {
-            logger.warn("WasmParser", `Failed to cache ${languageId}:`, cacheError);
+            logger.warn('WasmParser', `Failed to cache ${languageId}:`, cacheError)
           }
         }
       }
 
       // Create parser instance
-      const parser = new Parser();
+      const parser = new Parser()
 
       // Load language from WASM bytes
-      const language = await Language.load(wasmBytes);
-      parser.setLanguage(language);
+      const language = await Language.load(wasmBytes)
+      parser.setLanguage(language)
 
       // Compile highlight query if provided
-      let query: Query | undefined;
+      let query: Query | undefined
       if (queryText) {
-        const sourceQueryText = queryText;
+        const sourceQueryText = queryText
         try {
-          const compiled = this.compileHighlightQuery(language, languageId, queryText);
-          query = compiled.query;
-          queryText = compiled.queryText;
+          const compiled = this.compileHighlightQuery(language, languageId, queryText)
+          query = compiled.query
+          queryText = compiled.queryText
 
           if (queryText !== sourceQueryText) {
             indexedDBParserCache
@@ -721,27 +715,27 @@ class WasmParserLoader {
                 if (cachedEntry) {
                   indexedDBParserCache.set({
                     ...cachedEntry,
-                    highlightQuery: queryText || "",
-                  });
+                    highlightQuery: queryText || '',
+                  })
                 }
               })
-              .catch(() => {});
+              .catch(() => {})
           }
         } catch (error) {
-          logger.warn("WasmParser", `Failed to compile highlight query for ${languageId}`, error);
+          logger.warn('WasmParser', `Failed to compile highlight query for ${languageId}`, error)
           // Try to fetch local highlight query as fallback
           const localQuery = await this.fetchHighlightQueryText(
             languageId,
             wasmPath,
             highlightQueryUrl,
-          );
+          )
           if (localQuery && localQuery !== queryText) {
             try {
-              const compiled = this.compileHighlightQuery(language, languageId, localQuery);
-              query = compiled.query;
-              queryText = compiled.queryText;
-              const resolvedQueryText = compiled.queryText;
-              logger.debug("WasmParser", `Using highlight query fallback for ${languageId}`);
+              const compiled = this.compileHighlightQuery(language, languageId, localQuery)
+              query = compiled.query
+              queryText = compiled.queryText
+              const resolvedQueryText = compiled.queryText
+              logger.debug('WasmParser', `Using highlight query fallback for ${languageId}`)
               // Update IndexedDB cache with the correct local query
               indexedDBParserCache
                 .get(languageId)
@@ -750,22 +744,22 @@ class WasmParserLoader {
                     indexedDBParserCache.set({
                       ...cachedEntry,
                       highlightQuery: resolvedQueryText,
-                    });
+                    })
                   }
                 })
-                .catch(() => {});
+                .catch(() => {})
             } catch (localError) {
               logger.error(
-                "WasmParser",
+                'WasmParser',
                 `Local highlight query also failed for ${languageId}:`,
                 localError,
-              );
+              )
             }
           }
         }
       }
 
-      logger.debug("WasmParser", `Successfully loaded parser for ${languageId}`);
+      logger.debug('WasmParser', `Successfully loaded parser for ${languageId}`)
 
       return {
         parser,
@@ -773,11 +767,11 @@ class WasmParserLoader {
         highlightQuery: query,
         highlightQueryText: queryText || undefined,
         languageId,
-      };
+      }
     } catch (error) {
-      if (error instanceof TreeSitterUnavailableError) throw error;
-      logger.error("WasmParser", `Failed to load parser for ${languageId}`, error);
-      throw new Error(`Failed to load parser for ${languageId}: ${error}`);
+      if (error instanceof TreeSitterUnavailableError) throw error
+      logger.error('WasmParser', `Failed to load parser for ${languageId}`, error)
+      throw new Error(`Failed to load parser for ${languageId}: ${error}`)
     }
   }
 
@@ -785,29 +779,29 @@ class WasmParserLoader {
    * Check if a parser is loaded
    */
   isLoaded(languageId: string): boolean {
-    return this.parsers.has(languageId);
+    return this.parsers.has(languageId)
   }
 
   /**
    * Get a loaded parser (throws if not loaded)
    */
   getParser(languageId: string): LoadedParser {
-    const parser = this.parsers.get(languageId);
+    const parser = this.parsers.get(languageId)
     if (!parser) {
-      throw new Error(`Parser for ${languageId} is not loaded`);
+      throw new Error(`Parser for ${languageId} is not loaded`)
     }
-    return parser;
+    return parser
   }
 
   /**
    * Unload a parser to free memory
    */
   unloadParser(languageId: string): void {
-    const parser = this.parsers.get(languageId);
+    const parser = this.parsers.get(languageId)
     if (parser) {
-      parser.parser.delete();
-      this.parsers.delete(languageId);
-      logger.debug("WasmParser", `Unloaded parser for ${languageId}`);
+      parser.parser.delete()
+      this.parsers.delete(languageId)
+      logger.debug('WasmParser', `Unloaded parser for ${languageId}`)
     }
   }
 
@@ -816,19 +810,19 @@ class WasmParserLoader {
    */
   clear(): void {
     for (const [languageId, parser] of this.parsers) {
-      parser.parser.delete();
-      logger.debug("WasmParser", `Unloaded parser for ${languageId}`);
+      parser.parser.delete()
+      logger.debug('WasmParser', `Unloaded parser for ${languageId}`)
     }
-    this.parsers.clear();
-    this.loadingParsers.clear();
+    this.parsers.clear()
+    this.loadingParsers.clear()
   }
 
   /**
    * Get list of loaded parser language IDs
    */
   getLoadedLanguages(): string[] {
-    return Array.from(this.parsers.keys());
+    return Array.from(this.parsers.keys())
   }
 }
 
-export const wasmParserLoader = WasmParserLoader.getInstance();
+export const wasmParserLoader = WasmParserLoader.getInstance()

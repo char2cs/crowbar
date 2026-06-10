@@ -76,10 +76,10 @@ export interface ThemeTokens {
 export interface ThemeDefinition {
   id: string
   name: string
-  type?: "light" | "dark"
+  type?: 'light' | 'dark'
   isDark: boolean
   description?: string
-  category?: "System" | "Light" | "Dark" | "Colorful"
+  category?: 'System' | 'Light' | 'Dark' | 'Colorful'
   icon?: React.ReactNode
   colors?: Record<string, string>
   variables?: Record<string, string>

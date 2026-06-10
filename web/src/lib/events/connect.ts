@@ -20,11 +20,13 @@ export function connectDaemonEvents(): () => void {
 
   unlisteners.push(
     window.__CROWBAR__.on<EventOf<'file:changed'>>('file:changed', (p) => {
-      window.dispatchEvent(new CustomEvent('file-external-change', { detail: { event_type: 'modify', path: p.path } }))
+      window.dispatchEvent(
+        new CustomEvent('file-external-change', { detail: { event_type: 'modify', path: p.path } }),
+      )
     }),
   )
 
   // chat:message — live chat updates arrive via the chat WebSocket stream; no refetch needed.
 
-  return () => unlisteners.forEach(u => u())
+  return () => unlisteners.forEach((u) => u())
 }

@@ -31,11 +31,15 @@ export const createFileWatcherSlice: StateCreator<
 
   fileWatcherActions: {
     watchPath(path) {
-      set(state => { state.watchedPaths.add(path) })
+      set((state) => {
+        state.watchedPaths.add(path)
+      })
     },
 
     unwatchPath(path) {
-      set(state => { state.watchedPaths.delete(path) })
+      set((state) => {
+        state.watchedPaths.delete(path)
+      })
     },
 
     getWatchedPaths() {
@@ -43,11 +47,15 @@ export const createFileWatcherSlice: StateCreator<
     },
 
     markPendingSave(path) {
-      set(state => { state.pendingSaves.add(path) })
+      set((state) => {
+        state.pendingSaves.add(path)
+      })
     },
 
     clearPendingSave(path) {
-      set(state => { state.pendingSaves.delete(path) })
+      set((state) => {
+        state.pendingSaves.delete(path)
+      })
     },
 
     isPendingSave(path) {

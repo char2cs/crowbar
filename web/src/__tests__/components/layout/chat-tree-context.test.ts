@@ -15,7 +15,13 @@ vi.mock('@/components/ui/toast', () => ({
   toast: { error: vi.fn() },
 }))
 
-import { postChat, forkChat, patchChat, deleteChat as apiDeleteChat, type ChatDto } from '@/lib/api/chat'
+import {
+  postChat,
+  forkChat,
+  patchChat,
+  deleteChat as apiDeleteChat,
+  type ChatDto,
+} from '@/lib/api/chat'
 import { toast } from '@/components/ui/toast'
 import { useSidebarStore, type ProjectChat } from '@/lib/store/sidebar'
 import {
@@ -40,7 +46,7 @@ const seeded: ProjectChat[] = [
 ]
 
 function chatIds(): string[] {
-  return useSidebarStore.getState().chats.map(c => c.id)
+  return useSidebarStore.getState().chats.map((c) => c.id)
 }
 
 beforeEach(() => {
@@ -56,7 +62,7 @@ describe('performCreateChat', () => {
     await performCreateChat('ws1', 'New chat')
 
     expect(postChat).toHaveBeenCalledWith('ws1', 'New chat')
-    const created = useSidebarStore.getState().chats.find(c => c.id === 'real-backend-id')
+    const created = useSidebarStore.getState().chats.find((c) => c.id === 'real-backend-id')
     expect(created).toBeDefined()
     expect(created?.title).toBe('New chat')
     expect(created?.wsId).toBe('ws1')
@@ -87,7 +93,7 @@ describe('performForkChat', () => {
 
     expect(forkChat).toHaveBeenCalledWith('c1')
     expect(patchChat).not.toHaveBeenCalled() // same title — no rename needed
-    const fork = useSidebarStore.getState().chats.find(c => c.id === 'fork-id')
+    const fork = useSidebarStore.getState().chats.find((c) => c.id === 'fork-id')
     expect(fork?.parentId).toBe('c1')
   })
 
@@ -98,7 +104,7 @@ describe('performForkChat', () => {
     await performForkChat('c1', 'My fork')
 
     expect(patchChat).toHaveBeenCalledWith('fork-id', 'My fork')
-    const fork = useSidebarStore.getState().chats.find(c => c.id === 'fork-id')
+    const fork = useSidebarStore.getState().chats.find((c) => c.id === 'fork-id')
     expect(fork?.title).toBe('My fork')
   })
 

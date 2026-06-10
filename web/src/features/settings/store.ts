@@ -1,42 +1,42 @@
-import { create } from "zustand";
-import { combine } from "zustand/middleware";
-import { immer } from "zustand/middleware/immer";
+import { create } from 'zustand'
+import { combine } from 'zustand/middleware'
+import { immer } from 'zustand/middleware/immer'
 import {
   defaultSettings,
   getDefaultSetting,
   getDefaultSettingsSnapshot,
-} from "@/features/settings/config/default-settings";
+} from '@/features/settings/config/default-settings'
 import {
   applySettingSideEffect,
   applySettingsSideEffects,
-} from "@/features/settings/lib/settings-effects";
-import { initializeSettingsState } from "@/features/settings/lib/settings-bootstrap";
-import { normalizeSettingValue } from "@/features/settings/lib/settings-normalization";
+} from '@/features/settings/lib/settings-effects'
+import { initializeSettingsState } from '@/features/settings/lib/settings-bootstrap'
+import { normalizeSettingValue } from '@/features/settings/lib/settings-normalization'
 import {
   debouncedSaveSettingsToStore,
   saveSettingsToStore,
-} from "@/features/settings/lib/settings-persistence";
-import { parseSettingsImportJson } from "@/features/settings/lib/settings-import-export";
-import { scoreSearchQuery } from "@/utils/search-match";
-import { settingsSearchIndex } from "./config/search-index";
-import type { SearchResult, SearchState } from "./types/search";
-import type { Settings } from "./types/settings";
-import { saveUIPreferences } from "@/lib/persistence/ui-preferences";
+} from '@/features/settings/lib/settings-persistence'
+import { parseSettingsImportJson } from '@/features/settings/lib/settings-import-export'
+import { scoreSearchQuery } from '@/utils/search-match'
+import { settingsSearchIndex } from './config/search-index'
+import type { SearchResult, SearchState } from './types/search'
+import type { Settings } from './types/settings'
+import { saveUIPreferences } from '@/lib/persistence/ui-preferences'
 
-export type { Settings } from "./types/settings";
+export type { Settings } from './types/settings'
 
-let settingsStoreInitPromise: Promise<Settings> | null = null;
+let settingsStoreInitPromise: Promise<Settings> | null = null
 
 export function initializeSettingsStore(): Promise<Settings> {
   if (settingsStoreInitPromise) {
-    return settingsStoreInitPromise;
+    return settingsStoreInitPromise
   }
 
   settingsStoreInitPromise = initializeSettingsState((loadedSettings) => {
-    useSettingsStore.getState().initializeSettings(loadedSettings);
-  });
+    useSettingsStore.getState().initializeSettings(loadedSettings)
+  })
 
-  return settingsStoreInitPromise;
+  return settingsStoreInitPromise
 }
 
 export const useSettingsStore = create(
@@ -45,7 +45,7 @@ export const useSettingsStore = create(
       {
         settings: getDefaultSettingsSnapshot(),
         search: {
-          query: "",
+          query: '',
           results: [] as SearchResult[],
           isSearching: false,
           selectedResultId: null,
@@ -54,74 +54,74 @@ export const useSettingsStore = create(
       (set) => ({
         updateSettingsFromJSON: (jsonString: string): boolean => {
           try {
-            const validatedSettings = parseSettingsImportJson(jsonString);
+            const validatedSettings = parseSettingsImportJson(jsonString)
 
             if (!validatedSettings) {
-              return false;
+              return false
             }
 
             set((state) => {
-              state.settings = validatedSettings;
-            });
+              state.settings = validatedSettings
+            })
 
-            applySettingsSideEffects(validatedSettings);
-            void saveSettingsToStore(validatedSettings);
-            return true;
+            applySettingsSideEffects(validatedSettings)
+            void saveSettingsToStore(validatedSettings)
+            return true
           } catch (error) {
-            console.error("Error parsing settings JSON:", error);
-            return false;
+            console.error('Error parsing settings JSON:', error)
+            return false
           }
         },
 
         initializeSettings: (loadedSettings: Settings) => {
           set((state) => {
-            state.settings = loadedSettings;
-          });
+            state.settings = loadedSettings
+          })
         },
 
         resetToDefaults: async () => {
-          const nextSettings = getDefaultSettingsSnapshot();
+          const nextSettings = getDefaultSettingsSnapshot()
 
           set((state) => {
-            state.settings = nextSettings;
-          });
+            state.settings = nextSettings
+          })
 
-          applySettingsSideEffects(nextSettings);
-          await saveSettingsToStore(nextSettings);
+          applySettingsSideEffects(nextSettings)
+          await saveSettingsToStore(nextSettings)
         },
 
         updateSetting: async <K extends keyof Settings>(key: K, value: Settings[K]) => {
-          const normalizedValue = normalizeSettingValue(key, value);
+          const normalizedValue = normalizeSettingValue(key, value)
 
           set((state) => {
-            state.settings[key] = normalizedValue;
-          });
+            state.settings[key] = normalizedValue
+          })
 
-          applySettingSideEffect(key, normalizedValue, () => useSettingsStore.getState().settings);
-          debouncedSaveSettingsToStore({ [key]: normalizedValue });
+          applySettingSideEffect(key, normalizedValue, () => useSettingsStore.getState().settings)
+          debouncedSaveSettingsToStore({ [key]: normalizedValue })
         },
 
         setSearchQuery: (query: string) => {
           set((state) => {
-            state.search.query = query;
-          });
-          useSettingsStore.getState().runSearch();
+            state.search.query = query
+          })
+          useSettingsStore.getState().runSearch()
         },
 
         runSearch: () => {
-          const query = useSettingsStore.getState().search.query.trim().toLowerCase();
+          const query = useSettingsStore.getState().search.query.trim().toLowerCase()
 
           if (!query) {
             set((state) => {
-              state.search.results = [];
-              state.search.isSearching = false;
-            });
-            return;
+              state.search.results = []
+              state.search.isSearching = false
+            })
+            return
           }
 
           set((state) => {
-            state.search.isSearching = true;
-          });
+            state.search.isSearching = true
+          })
 
           const results: SearchResult[] = settingsSearchIndex
             .map((record) => {
@@ -130,44 +130,44 @@ export const useSettingsStore = create(
                 { value: record.description, weight: 1 },
                 { value: record.section, weight: 1 },
                 ...(record.keywords || []).map((keyword) => ({ value: keyword, weight: 6 })),
-              ]);
+              ])
 
-              return { ...record, score };
+              return { ...record, score }
             })
             .filter((result) => result.score > 0)
-            .sort((a, b) => b.score - a.score);
+            .sort((a, b) => b.score - a.score)
 
           set((state) => {
-            state.search.results = results;
-            state.search.isSearching = false;
-          });
+            state.search.results = results
+            state.search.isSearching = false
+          })
         },
 
         clearSearch: () => {
           set((state) => {
-            state.search.query = "";
-            state.search.results = [];
-            state.search.isSearching = false;
-            state.search.selectedResultId = null;
-          });
+            state.search.query = ''
+            state.search.results = []
+            state.search.isSearching = false
+            state.search.selectedResultId = null
+          })
         },
 
         selectSearchResult: (resultId: string) => {
           set((state) => {
-            state.search.selectedResultId = resultId;
-          });
+            state.search.selectedResultId = resultId
+          })
         },
       }),
     ),
   ),
-);
+)
 
-export { defaultSettings, getDefaultSetting };
+export { defaultSettings, getDefaultSetting }
 
-let _prefTimer: ReturnType<typeof setTimeout>;
+let _prefTimer: ReturnType<typeof setTimeout>
 
 const unsubscribeUIPrefs = useSettingsStore.subscribe((state) => {
-  clearTimeout(_prefTimer);
+  clearTimeout(_prefTimer)
   _prefTimer = setTimeout(() => {
     void saveUIPreferences({
       theme: state.settings.theme,
@@ -176,11 +176,11 @@ const unsubscribeUIPrefs = useSettingsStore.subscribe((state) => {
       tabSize: state.settings.tabSize,
       wordWrap: state.settings.wordWrap,
       minimap: state.settings.showMinimap,
-    });
-  }, 300);
-});
+    })
+  }, 300)
+})
 
 export function teardownUIPreferencesPersistence(): void {
-  clearTimeout(_prefTimer);
-  unsubscribeUIPrefs();
+  clearTimeout(_prefTimer)
+  unsubscribeUIPrefs()
 }

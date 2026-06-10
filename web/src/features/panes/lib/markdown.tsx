@@ -15,8 +15,12 @@ export const transparentMarkdownTheme = EditorView.theme({
   '.cm-gutters': { backgroundColor: 'transparent !important', border: 'none' },
   '.cm-activeLine': { backgroundColor: 'transparent !important' },
   '.cm-activeLineGutter': { backgroundColor: 'transparent !important' },
-  '.cm-selectionBackground': { backgroundColor: 'color-mix(in srgb, var(--primary) 20%, transparent) !important' },
-  '&.cm-focused .cm-selectionBackground': { backgroundColor: 'color-mix(in srgb, var(--primary) 30%, transparent) !important' },
+  '.cm-selectionBackground': {
+    backgroundColor: 'color-mix(in srgb, var(--primary) 20%, transparent) !important',
+  },
+  '&.cm-focused .cm-selectionBackground': {
+    backgroundColor: 'color-mix(in srgb, var(--primary) 30%, transparent) !important',
+  },
 })
 
 /** Shared prose styling for rendered markdown across the branch-review feature. */

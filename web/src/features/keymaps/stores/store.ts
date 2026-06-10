@@ -1,7 +1,7 @@
 // Stub
-import { create } from "zustand"
-import { createSelectors } from "@/utils/zustand-selectors"
-import type { Keybinding, KeybindingPreset } from "@/features/keymaps/types"
+import { create } from 'zustand'
+import { createSelectors } from '@/utils/zustand-selectors'
+import type { Keybinding, KeybindingPreset } from '@/features/keymaps/types'
 
 interface KeymapStoreState {
   keybindings: Keybinding[]
@@ -21,7 +21,7 @@ interface KeymapStoreState {
 
 const useKeymapStoreBase = create<KeymapStoreState>((set) => ({
   keybindings: [],
-  preset: "default",
+  preset: 'default',
   contexts: {},
   setPreset: (preset) => set({ preset }),
   executeCommand: async () => {},

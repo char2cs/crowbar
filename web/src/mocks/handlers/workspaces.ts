@@ -18,7 +18,7 @@ export const workspaceHandlers = [
   }),
 
   http.post('/v0/workspaces', async ({ request }) => {
-    const body = await request.json() as { repoId: string; branch: string }
+    const body = (await request.json()) as { repoId: string; branch: string }
     const data = getDataForScenario(request.headers.get('X-Crowbar-Scenario') ?? 'normal')
     const ws = data.createWorkspace(body.repoId, body.branch)
     // Matches the backend's WriteMutationOK: returns only { id }, not the entity.

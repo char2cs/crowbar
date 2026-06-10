@@ -1,9 +1,5 @@
 import { create } from 'zustand'
-import {
-  browserPaneGoBack,
-  browserPaneGoForward,
-  browserPaneReload,
-} from '@/lib/crowbar-bridge'
+import { browserPaneGoBack, browserPaneGoForward, browserPaneReload } from '@/lib/crowbar-bridge'
 
 export interface WebViewerNavEntry {
   url: string
@@ -28,7 +24,7 @@ export const useWebViewerNavigationStore = create<WebViewerNavState>((set) => ({
   navigationByBufferId: {},
 
   registerBuffer(bufferId, initialUrl) {
-    set(state => ({
+    set((state) => ({
       navigationByBufferId: {
         ...state.navigationByBufferId,
         [bufferId]: {
@@ -46,7 +42,7 @@ export const useWebViewerNavigationStore = create<WebViewerNavState>((set) => ({
   // Also handles the case where a Tauri nav event arrives before registerBuffer
   // (race at mount): creates the entry with fallback bridge-calling functions.
   updateNavState(bufferId, { url, canGoBack, canGoForward }) {
-    set(state => {
+    set((state) => {
       const existing = state.navigationByBufferId[bufferId]
       return {
         navigationByBufferId: {
@@ -65,7 +61,7 @@ export const useWebViewerNavigationStore = create<WebViewerNavState>((set) => ({
   },
 
   removeBuffer(bufferId) {
-    set(state => {
+    set((state) => {
       const next = { ...state.navigationByBufferId }
       delete next[bufferId]
       return { navigationByBufferId: next }

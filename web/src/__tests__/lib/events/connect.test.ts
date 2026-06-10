@@ -7,7 +7,7 @@ const mockFetch = vi.fn().mockResolvedValue(undefined)
 vi.mock('@/lib/store/workspace-list', () => ({
   useWorkspaceListStore: {
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    getState: () => ({ fetch: mockFetch } as any),
+    getState: () => ({ fetch: mockFetch }) as any,
   },
 }))
 

@@ -1,13 +1,13 @@
-import { iconThemeRegistry } from "./icon-theme-registry"
-import type { IconThemeSource } from "./types"
-import { classicIconTheme } from "./builtin/classic-theme"
-import { materialIconTheme } from "./builtin/material-theme"
-import { colorfulMaterialIconTheme } from "./builtin/colorful-material-theme"
-import { compactIconTheme } from "./builtin/compact-theme"
-import { minimalIconTheme } from "./builtin/minimal-theme"
-import { noneIconTheme } from "./builtin/none-theme"
+import { iconThemeRegistry } from './icon-theme-registry'
+import type { IconThemeSource } from './types'
+import { classicIconTheme } from './builtin/classic-theme'
+import { materialIconTheme } from './builtin/material-theme'
+import { colorfulMaterialIconTheme } from './builtin/colorful-material-theme'
+import { compactIconTheme } from './builtin/compact-theme'
+import { minimalIconTheme } from './builtin/minimal-theme'
+import { noneIconTheme } from './builtin/none-theme'
 
-const BUILTIN_SOURCE: IconThemeSource = { extensionId: "builtin", isBundled: true }
+const BUILTIN_SOURCE: IconThemeSource = { extensionId: 'builtin', isBundled: true }
 
 export function initializeIconThemes() {
   iconThemeRegistry.registerTheme(classicIconTheme, BUILTIN_SOURCE)

@@ -17,11 +17,11 @@ interface SidebarCarouselProps {
 }
 
 export function SidebarCarousel({ activeWorkspaceRepoPath }: SidebarCarouselProps) {
-  const pathname = useRouterState({ select: s => s.location.pathname })
+  const pathname = useRouterState({ select: (s) => s.location.pathname })
   const activeWorkspaceId = pathname.match(/\/workspaces\/([^/]+)/)?.[1] ?? ''
-  const activeTab = useSidebarStore(s => s.activeTab)
-  const setActiveTab = useSidebarStore(s => s.setActiveTab)
-  const files = useFileSystemStore(s => s.files)
+  const activeTab = useSidebarStore((s) => s.activeTab)
+  const setActiveTab = useSidebarStore((s) => s.setActiveTab)
+  const files = useFileSystemStore((s) => s.files)
   const handleFileOpen = useFileSystemStore.use.handleFileOpen?.()
   const handleFileSelect = useFileSystemStore.use.handleFileSelect?.()
   const containerRef = useRef<HTMLDivElement>(null)
@@ -104,9 +104,13 @@ export function SidebarCarousel({ activeWorkspaceRepoPath }: SidebarCarouselProp
                   handleFileSelect?.(path, false)
                 }
               }}
-              onFileOpen={handleFileOpen ? (path: string, isDir: boolean) => {
-                if (!isDir) void handleFileOpen(path, false)
-              } : undefined}
+              onFileOpen={
+                handleFileOpen
+                  ? (path: string, isDir: boolean) => {
+                      if (!isDir) void handleFileOpen(path, false)
+                    }
+                  : undefined
+              }
               onCreateNewFileInDirectory={() => {}}
             />
           </Suspense>

@@ -14,7 +14,7 @@ const REPOS = [
 export function NewWorkspacePage() {
   const navigate = useNavigate()
   const [loading, setLoading] = useState(false)
-  const addWorkspace = useSidebarStore(s => s.addWorkspace)
+  const addWorkspace = useSidebarStore((s) => s.addWorkspace)
 
   const handleSubmit = async (data: { repoId: string; branch: string }) => {
     setLoading(true)
@@ -33,11 +33,7 @@ export function NewWorkspacePage() {
     <div className="flex flex-1 items-center justify-center">
       <div className="w-full max-w-sm">
         <h1 className="mb-6 text-lg font-semibold text-foreground">New workspace</h1>
-        <WorkspaceCreationForm
-          repos={REPOS}
-          onSubmit={handleSubmit}
-          loading={loading}
-        />
+        <WorkspaceCreationForm repos={REPOS} onSubmit={handleSubmit} loading={loading} />
       </div>
     </div>
   )

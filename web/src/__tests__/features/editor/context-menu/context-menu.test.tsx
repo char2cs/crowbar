@@ -46,7 +46,7 @@ describe('EditorContextMenu', () => {
         onPaste={vi.fn()}
         onDelete={vi.fn()}
         onSelectAll={vi.fn()}
-      />
+      />,
     )
     expect(container.firstChild).toBeNull()
   })
@@ -62,7 +62,7 @@ describe('EditorContextMenu', () => {
         onPaste={vi.fn()}
         onDelete={vi.fn()}
         onSelectAll={vi.fn()}
-      />
+      />,
     )
     expect(getByTestId('context-menu')).toBeVisible()
   })
@@ -80,7 +80,7 @@ describe('EditorContextMenu', () => {
         onPaste={vi.fn()}
         onDelete={vi.fn()}
         onSelectAll={vi.fn()}
-      />
+      />,
     )
 
     // Menu should be rendered with hasSelection=false
@@ -105,7 +105,7 @@ describe('EditorContextMenu', () => {
         onPaste={vi.fn()}
         onDelete={vi.fn()}
         onSelectAll={vi.fn()}
-      />
+      />,
     )
 
     // Verify initial render with no selection
@@ -131,7 +131,7 @@ describe('EditorContextMenu', () => {
         onPaste={vi.fn()}
         onDelete={vi.fn()}
         onSelectAll={vi.fn()}
-      />
+      />,
     )
 
     // After the fix, the component should use the hook to get the latest selection
@@ -161,7 +161,7 @@ describe('EditorContextMenu', () => {
         onPaste={vi.fn()}
         onDelete={vi.fn()}
         onSelectAll={vi.fn()}
-      />
+      />,
     )
 
     expect(screen.getByTestId('context-menu')).toBeVisible()
@@ -185,7 +185,7 @@ describe('EditorContextMenu', () => {
         onPaste={vi.fn()}
         onDelete={vi.fn()}
         onSelectAll={vi.fn()}
-      />
+      />,
     )
 
     // The menu items should have been built - if hasSelection was properly

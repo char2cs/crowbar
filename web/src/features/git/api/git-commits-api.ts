@@ -1,5 +1,5 @@
 import { apiFetch } from '@/lib/api'
-import type { GitCommit } from "../types/git-types";
+import type { GitCommit } from '../types/git-types'
 
 // Commit the staged changes. The first line is the subject; anything after a
 // blank line is the body, matching the backend's {subject, body} contract.
@@ -16,7 +16,7 @@ export const commitChanges = async (wsId: string, message: string): Promise<bool
     console.error('git commit failed:', error)
     return false
   }
-};
+}
 
 export const getGitLog = async (wsId: string, limit = 50, skip = 0): Promise<GitCommit[]> => {
   try {
@@ -26,4 +26,4 @@ export const getGitLog = async (wsId: string, limit = 50, skip = 0): Promise<Git
   } catch {
     return []
   }
-};
+}

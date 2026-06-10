@@ -1,4 +1,12 @@
-import { createContext, useCallback, useContext, useEffect, useRef, useState, type ReactNode } from 'react'
+import {
+  createContext,
+  useCallback,
+  useContext,
+  useEffect,
+  useRef,
+  useState,
+  type ReactNode,
+} from 'react'
 import { useSidebarStore } from '@/lib/store/sidebar'
 import {
   postChat,
@@ -74,7 +82,7 @@ export async function performRenameChat(chatId: string, title: string): Promise<
  * On failure the local store is left untouched.
  */
 export async function performDeleteChat(chatId: string): Promise<void> {
-  const chat = useSidebarStore.getState().chats.find(c => c.id === chatId)
+  const chat = useSidebarStore.getState().chats.find((c) => c.id === chatId)
   if (!chat) return
   try {
     await apiDeleteChat(chatId)
@@ -119,7 +127,7 @@ export function useChatTreeContext() {
 
 function isOverTrash(x: number, y: number): boolean {
   const els = document.elementsFromPoint(x, y)
-  return els.some(el => el instanceof Element && el.getAttribute('data-trash-drop') !== null)
+  return els.some((el) => el instanceof Element && el.getAttribute('data-trash-drop') !== null)
 }
 
 export function ChatTreeProvider({ children }: { children: ReactNode }) {
@@ -130,9 +138,12 @@ export function ChatTreeProvider({ children }: { children: ReactNode }) {
   const [hoverTrash, setHoverTrash] = useState(false)
 
   const pendingRef = useRef<{
-    chatId: string; label: string
-    startX: number; startY: number
-    target: HTMLElement; pointerId: number
+    chatId: string
+    label: string
+    startX: number
+    startY: number
+    target: HTMLElement
+    pointerId: number
   } | null>(null)
   const draggingRef = useRef<DraggingState | null>(null)
 
@@ -140,21 +151,27 @@ export function ChatTreeProvider({ children }: { children: ReactNode }) {
     setCreatingChildOf({ parentId })
   }, [])
 
-  const confirmCreate = useCallback((title: string) => {
-    if (!creatingChildOf || !title.trim()) return
-    void performForkChat(creatingChildOf.parentId, title)
-    setCreatingChildOf(null)
-  }, [creatingChildOf])
+  const confirmCreate = useCallback(
+    (title: string) => {
+      if (!creatingChildOf || !title.trim()) return
+      void performForkChat(creatingChildOf.parentId, title)
+      setCreatingChildOf(null)
+    },
+    [creatingChildOf],
+  )
 
   const cancelCreate = useCallback(() => setCreatingChildOf(null), [])
   const startRenaming = useCallback((chatId: string) => setRenamingId(chatId), [])
 
-  const confirmRename = useCallback((title: string) => {
-    if (renamingId && title.trim()) {
-      void performRenameChat(renamingId, title)
-    }
-    setRenamingId(null)
-  }, [renamingId])
+  const confirmRename = useCallback(
+    (title: string) => {
+      if (renamingId && title.trim()) {
+        void performRenameChat(renamingId, title)
+      }
+      setRenamingId(null)
+    },
+    [renamingId],
+  )
 
   const cancelRename = useCallback(() => setRenamingId(null), [])
 
@@ -162,8 +179,12 @@ export function ChatTreeProvider({ children }: { children: ReactNode }) {
     if (e.button !== 0) return
     if (draggingRef.current) return
     pendingRef.current = {
-      chatId, label, startX: e.clientX, startY: e.clientY,
-      target: e.currentTarget as HTMLElement, pointerId: e.pointerId,
+      chatId,
+      label,
+      startX: e.clientX,
+      startY: e.clientY,
+      target: e.currentTarget as HTMLElement,
+      pointerId: e.pointerId,
     }
   }, [])
 
@@ -221,11 +242,22 @@ export function ChatTreeProvider({ children }: { children: ReactNode }) {
   }, [])
 
   return (
-    <ChatTreeContext.Provider value={{
-      creatingChildOf, startCreating, confirmCreate, cancelCreate,
-      renamingId, startRenaming, confirmRename, cancelRename,
-      draggingChat, dragPos, hoverTrash, onPointerDownDrag,
-    }}>
+    <ChatTreeContext.Provider
+      value={{
+        creatingChildOf,
+        startCreating,
+        confirmCreate,
+        cancelCreate,
+        renamingId,
+        startRenaming,
+        confirmRename,
+        cancelRename,
+        draggingChat,
+        dragPos,
+        hoverTrash,
+        onPointerDownDrag,
+      }}
+    >
       {children}
     </ChatTreeContext.Provider>
   )

@@ -1,19 +1,19 @@
-import { useCallback } from "react";
-import { useJumpListStore } from "@/features/editor/stores/jump-list-store";
-import { useEditorStateStore } from "@/features/editor/stores/state-store";
-import { navigateToJumpEntry } from "@/features/editor/utils/jump-navigation";
-import { useWorkspaceStore } from "@/features/workspace/stores/workspace-context";
+import { useCallback } from 'react'
+import { useJumpListStore } from '@/features/editor/stores/jump-list-store'
+import { useEditorStateStore } from '@/features/editor/stores/state-store'
+import { navigateToJumpEntry } from '@/features/editor/utils/jump-navigation'
+import { useWorkspaceStore } from '@/features/workspace/stores/workspace-context'
 
 interface WebViewerNavigation {
-  canGoBack?: boolean;
-  canGoForward?: boolean;
-  goBack?: () => void;
-  goForward?: () => void;
+  canGoBack?: boolean
+  canGoForward?: boolean
+  goBack?: () => void
+  goForward?: () => void
 }
 
 interface UseJumpNavigationOptions {
-  usesWebViewerNavigation: boolean;
-  activeWebViewerNavigation: WebViewerNavigation | undefined;
+  usesWebViewerNavigation: boolean
+  activeWebViewerNavigation: WebViewerNavigation | undefined
 }
 
 /**
@@ -24,29 +24,29 @@ export function useJumpNavigation({
   usesWebViewerNavigation,
   activeWebViewerNavigation,
 }: UseJumpNavigationOptions) {
-  const jumpListActions = useJumpListStore.use.actions();
-  const workspaceStore = useWorkspaceStore();
+  const jumpListActions = useJumpListStore.use.actions()
+  const workspaceStore = useWorkspaceStore()
 
   const canGoBack = usesWebViewerNavigation
     ? Boolean(activeWebViewerNavigation?.canGoBack)
-    : jumpListActions.canGoBack();
+    : jumpListActions.canGoBack()
 
   const canGoForward = usesWebViewerNavigation
     ? Boolean(activeWebViewerNavigation?.canGoForward)
-    : jumpListActions.canGoForward();
+    : jumpListActions.canGoForward()
 
   const handleJumpBack = useCallback(async () => {
     if (usesWebViewerNavigation) {
-      activeWebViewerNavigation?.goBack?.();
-      return;
+      activeWebViewerNavigation?.goBack?.()
+      return
     }
 
-    const wsState = workspaceStore.getState();
-    const editorState = useEditorStateStore.getState();
-    const currentActiveBufferId = wsState.panes[wsState.activePaneId]?.activeBufferId ?? null;
+    const wsState = workspaceStore.getState()
+    const editorState = useEditorStateStore.getState()
+    const currentActiveBufferId = wsState.panes[wsState.activePaneId]?.activeBufferId ?? null
     const currentActiveBuffer = currentActiveBufferId
       ? wsState.buffers.find((b) => b.id === currentActiveBufferId)
-      : undefined;
+      : undefined
 
     const currentPosition =
       currentActiveBufferId && currentActiveBuffer?.path
@@ -59,25 +59,25 @@ export function useJumpNavigation({
             scrollTop: editorState.scrollTop,
             scrollLeft: editorState.scrollLeft,
           }
-        : undefined;
+        : undefined
 
-    const entry = jumpListActions.goBack(currentPosition);
+    const entry = jumpListActions.goBack(currentPosition)
     if (entry) {
-      await navigateToJumpEntry(entry);
+      await navigateToJumpEntry(entry)
     }
-  }, [activeWebViewerNavigation, jumpListActions, usesWebViewerNavigation, workspaceStore]);
+  }, [activeWebViewerNavigation, jumpListActions, usesWebViewerNavigation, workspaceStore])
 
   const handleJumpForward = useCallback(async () => {
     if (usesWebViewerNavigation) {
-      activeWebViewerNavigation?.goForward?.();
-      return;
+      activeWebViewerNavigation?.goForward?.()
+      return
     }
 
-    const entry = jumpListActions.goForward();
+    const entry = jumpListActions.goForward()
     if (entry) {
-      await navigateToJumpEntry(entry);
+      await navigateToJumpEntry(entry)
     }
-  }, [activeWebViewerNavigation, jumpListActions, usesWebViewerNavigation]);
+  }, [activeWebViewerNavigation, jumpListActions, usesWebViewerNavigation])
 
-  return { canGoBack, canGoForward, handleJumpBack, handleJumpForward };
+  return { canGoBack, canGoForward, handleJumpBack, handleJumpForward }
 }

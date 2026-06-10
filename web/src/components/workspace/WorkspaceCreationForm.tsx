@@ -24,10 +24,14 @@ export function WorkspaceCreationForm({ repos, onSubmit, loading }: Props) {
         <select
           aria-label="Repo"
           value={repoId}
-          onChange={e => setRepoId(e.target.value)}
+          onChange={(e) => setRepoId(e.target.value)}
           className="rounded-md border border-border bg-background px-3 py-2 text-foreground"
         >
-          {repos.map(r => <option key={r.id} value={r.id}>{r.name}</option>)}
+          {repos.map((r) => (
+            <option key={r.id} value={r.id}>
+              {r.name}
+            </option>
+          ))}
         </select>
       </label>
 
@@ -37,7 +41,7 @@ export function WorkspaceCreationForm({ repos, onSubmit, loading }: Props) {
           aria-label="Branch"
           type="text"
           value={branch}
-          onChange={e => setBranch(e.target.value)}
+          onChange={(e) => setBranch(e.target.value)}
           placeholder="feature/my-feature"
           className="rounded-md border border-border bg-background px-3 py-2 text-foreground placeholder:text-muted-foreground"
         />

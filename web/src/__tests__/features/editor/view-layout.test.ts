@@ -1,23 +1,23 @@
-import { describe, expect, it } from "vitest";
-import { EDITOR_CONSTANTS } from "@/features/editor/config/constants";
-import { buildEditorViewLayout } from "@/features/editor/view-model/view-layout";
+import { describe, expect, it } from 'vitest'
+import { EDITOR_CONSTANTS } from '@/features/editor/config/constants'
+import { buildEditorViewLayout } from '@/features/editor/view-model/view-layout'
 
-const measureText = (text: string) => text.length * 10;
+const measureText = (text: string) => text.length * 10
 const contentWidthForColumns = (columns: number) =>
-  EDITOR_CONSTANTS.EDITOR_PADDING_LEFT + EDITOR_CONSTANTS.EDITOR_PADDING_RIGHT + columns * 10;
+  EDITOR_CONSTANTS.EDITOR_PADDING_LEFT + EDITOR_CONSTANTS.EDITOR_PADDING_RIGHT + columns * 10
 
-describe("buildEditorViewLayout", () => {
-  it("keeps one view line per model line when word wrap is off", () => {
+describe('buildEditorViewLayout', () => {
+  it('keeps one view line per model line when word wrap is off', () => {
     const layout = buildEditorViewLayout({
-      lines: ["abcdef", "gh"],
+      lines: ['abcdef', 'gh'],
       lineHeight: 20,
       wordWrap: false,
       contentWidth: contentWidthForColumns(3),
       measureText,
-    });
+    })
 
-    expect(layout.totalViewLines).toBe(2);
-    expect(layout.modelLineViewLineCounts).toEqual([1, 1]);
+    expect(layout.totalViewLines).toBe(2)
+    expect(layout.modelLineViewLineCounts).toEqual([1, 1])
     expect(
       layout.segments.map(({ modelLine, startColumn, endColumn }) => ({
         modelLine,
@@ -27,49 +27,49 @@ describe("buildEditorViewLayout", () => {
     ).toEqual([
       { modelLine: 0, startColumn: 0, endColumn: 6 },
       { modelLine: 1, startColumn: 0, endColumn: 2 },
-    ]);
-  });
+    ])
+  })
 
-  it("uses sparse segment lookups in compact non-wrapped layouts", () => {
+  it('uses sparse segment lookups in compact non-wrapped layouts', () => {
     const layout = buildEditorViewLayout({
-      lines: ["alpha", "beta", "gamma"],
+      lines: ['alpha', 'beta', 'gamma'],
       lineHeight: 20,
       wordWrap: false,
       contentWidth: contentWidthForColumns(10),
       measureText,
       compact: true,
-    });
+    })
 
-    expect(layout.segments).toEqual([]);
-    expect(layout.totalViewLines).toBe(3);
-    expect(layout.totalHeight).toBe(60);
+    expect(layout.segments).toEqual([])
+    expect(layout.totalViewLines).toBe(3)
+    expect(layout.totalHeight).toBe(60)
     expect(layout.getSegmentForModelPosition(2, 2)).toMatchObject({
       viewLine: 2,
       modelLine: 2,
       startColumn: 0,
       endColumn: 5,
       top: 48,
-    });
+    })
     expect(layout.modelPositionToViewPosition(1, 3)).toMatchObject({
       viewLine: 1,
       modelLine: 1,
       column: 3,
       left: EDITOR_CONSTANTS.EDITOR_PADDING_LEFT + 30,
-    });
-  });
+    })
+  })
 
-  it("projects a wrapped model line into multiple view lines", () => {
+  it('projects a wrapped model line into multiple view lines', () => {
     const layout = buildEditorViewLayout({
-      lines: ["abcdefg", "hi"],
+      lines: ['abcdefg', 'hi'],
       lineHeight: 20,
       wordWrap: true,
       contentWidth: contentWidthForColumns(3),
       measureText,
-    });
+    })
 
-    expect(layout.totalViewLines).toBe(4);
-    expect(layout.modelLineStartViewLines).toEqual([0, 3]);
-    expect(layout.modelLineViewLineCounts).toEqual([3, 1]);
+    expect(layout.totalViewLines).toBe(4)
+    expect(layout.modelLineStartViewLines).toEqual([0, 3])
+    expect(layout.modelLineViewLineCounts).toEqual([3, 1])
     expect(
       layout.segments.map(({ viewLine, modelLine, startColumn, endColumn }) => ({
         viewLine,
@@ -82,17 +82,17 @@ describe("buildEditorViewLayout", () => {
       { viewLine: 1, modelLine: 0, startColumn: 3, endColumn: 6 },
       { viewLine: 2, modelLine: 0, startColumn: 6, endColumn: 7 },
       { viewLine: 3, modelLine: 1, startColumn: 0, endColumn: 2 },
-    ]);
-  });
+    ])
+  })
 
-  it("prefers soft wraps at whitespace before character wraps", () => {
+  it('prefers soft wraps at whitespace before character wraps', () => {
     const layout = buildEditorViewLayout({
-      lines: ["abc def"],
+      lines: ['abc def'],
       lineHeight: 20,
       wordWrap: true,
       contentWidth: contentWidthForColumns(5),
       measureText,
-    });
+    })
 
     expect(
       layout.segments.map(({ startColumn, endColumn }) => ({
@@ -102,148 +102,148 @@ describe("buildEditorViewLayout", () => {
     ).toEqual([
       { startColumn: 0, endColumn: 4 },
       { startColumn: 4, endColumn: 7 },
-    ]);
-  });
+    ])
+  })
 
-  it("converts model positions to wrapped view positions", () => {
+  it('converts model positions to wrapped view positions', () => {
     const layout = buildEditorViewLayout({
-      lines: ["abcdefg"],
+      lines: ['abcdefg'],
       lineHeight: 20,
       wordWrap: true,
       contentWidth: contentWidthForColumns(3),
       measureText,
-    });
+    })
 
-    const position = layout.modelPositionToViewPosition(0, 4);
+    const position = layout.modelPositionToViewPosition(0, 4)
 
-    expect(position.viewLine).toBe(1);
-    expect(position.segment).toMatchObject({ startColumn: 3, endColumn: 6 });
-    expect(position.left).toBe(EDITOR_CONSTANTS.EDITOR_PADDING_LEFT + 10);
-    expect(position.top).toBe(EDITOR_CONSTANTS.EDITOR_PADDING_TOP + 20);
-  });
+    expect(position.viewLine).toBe(1)
+    expect(position.segment).toMatchObject({ startColumn: 3, endColumn: 6 })
+    expect(position.left).toBe(EDITOR_CONSTANTS.EDITOR_PADDING_LEFT + 10)
+    expect(position.top).toBe(EDITOR_CONSTANTS.EDITOR_PADDING_TOP + 20)
+  })
 
-  it("converts editor points on wrapped view lines back to model positions", () => {
+  it('converts editor points on wrapped view lines back to model positions', () => {
     const layout = buildEditorViewLayout({
-      lines: ["abcdefg"],
+      lines: ['abcdefg'],
       lineHeight: 20,
       wordWrap: true,
       contentWidth: contentWidthForColumns(3),
       measureText,
-    });
+    })
 
     const position = layout.editorPointToModelPosition(
       EDITOR_CONSTANTS.EDITOR_PADDING_LEFT + 11,
       EDITOR_CONSTANTS.EDITOR_PADDING_TOP + 21,
-    );
+    )
 
-    expect(position.viewLine).toBe(1);
-    expect(position.modelLine).toBe(0);
-    expect(position.column).toBe(4);
-    expect(position.left).toBe(EDITOR_CONSTANTS.EDITOR_PADDING_LEFT + 10);
-  });
+    expect(position.viewLine).toBe(1)
+    expect(position.modelLine).toBe(0)
+    expect(position.column).toBe(4)
+    expect(position.left).toBe(EDITOR_CONSTANTS.EDITOR_PADDING_LEFT + 10)
+  })
 
-  it("hit-tests long unwrapped lines without scanning every column", () => {
-    let measureCallCount = 0;
+  it('hit-tests long unwrapped lines without scanning every column', () => {
+    let measureCallCount = 0
     const measuredText = (text: string) => {
-      measureCallCount++;
-      return text.length * 10;
-    };
+      measureCallCount++
+      return text.length * 10
+    }
     const layout = buildEditorViewLayout({
-      lines: ["a".repeat(1024)],
+      lines: ['a'.repeat(1024)],
       lineHeight: 20,
       wordWrap: false,
       contentWidth: contentWidthForColumns(2000),
       measureText: measuredText,
-    });
+    })
 
-    measureCallCount = 0;
+    measureCallCount = 0
     const position = layout.editorPointToModelPosition(
       EDITOR_CONSTANTS.EDITOR_PADDING_LEFT + 5050,
       EDITOR_CONSTANTS.EDITOR_PADDING_TOP,
-    );
+    )
 
-    expect(position.column).toBe(505);
-    expect(measureCallCount).toBeLessThan(30);
-  });
+    expect(position.column).toBe(505)
+    expect(measureCallCount).toBeLessThan(30)
+  })
 
-  it("keeps empty model lines addressable", () => {
+  it('keeps empty model lines addressable', () => {
     const layout = buildEditorViewLayout({
-      lines: [""],
+      lines: [''],
       lineHeight: 20,
       wordWrap: true,
       contentWidth: contentWidthForColumns(3),
       measureText,
-    });
+    })
 
-    expect(layout.totalViewLines).toBe(1);
+    expect(layout.totalViewLines).toBe(1)
     expect(layout.modelPositionToViewPosition(0, 0)).toMatchObject({
       viewLine: 0,
       left: EDITOR_CONSTANTS.EDITOR_PADDING_LEFT,
-    });
-  });
+    })
+  })
 
-  it("reserves vertical space for view zones after model lines", () => {
+  it('reserves vertical space for view zones after model lines', () => {
     const layout = buildEditorViewLayout({
-      lines: ["first", "second"],
+      lines: ['first', 'second'],
       lineHeight: 20,
       wordWrap: false,
       contentWidth: contentWidthForColumns(10),
       measureText,
-      zones: [{ id: "inline-diff", afterLine: 0, height: 48 }],
-    });
+      zones: [{ id: 'inline-diff', afterLine: 0, height: 48 }],
+    })
 
-    expect(layout.totalZoneHeight).toBe(48);
-    expect(layout.totalHeight).toBe(88);
+    expect(layout.totalZoneHeight).toBe(48)
+    expect(layout.totalHeight).toBe(88)
     expect(layout.zones[0]).toMatchObject({
-      id: "inline-diff",
+      id: 'inline-diff',
       afterLine: 0,
       top: EDITOR_CONSTANTS.EDITOR_PADDING_TOP + 20,
       height: 48,
-    });
+    })
     expect(layout.modelPositionToViewPosition(1, 0).top).toBe(
       EDITOR_CONSTANTS.EDITOR_PADDING_TOP + 20 + 48,
-    );
-  });
+    )
+  })
 
-  it("stacks multiple view zones deterministically after the same model line", () => {
+  it('stacks multiple view zones deterministically after the same model line', () => {
     const layout = buildEditorViewLayout({
-      lines: ["first", "second"],
+      lines: ['first', 'second'],
       lineHeight: 20,
       wordWrap: false,
       contentWidth: contentWidthForColumns(10),
       measureText,
       zones: [
-        { id: "inline-edit", afterLine: 0, height: 96 },
-        { id: "inline-diff", afterLine: 0, height: 42 },
+        { id: 'inline-edit', afterLine: 0, height: 96 },
+        { id: 'inline-diff', afterLine: 0, height: 42 },
       ],
-    });
+    })
 
-    expect(layout.totalZoneHeight).toBe(138);
-    expect(layout.zones.map((zone) => zone.id)).toEqual(["inline-diff", "inline-edit"]);
+    expect(layout.totalZoneHeight).toBe(138)
+    expect(layout.zones.map((zone) => zone.id)).toEqual(['inline-diff', 'inline-edit'])
     expect(layout.zones.map((zone) => zone.top)).toEqual([
       EDITOR_CONSTANTS.EDITOR_PADDING_TOP + 20,
       EDITOR_CONSTANTS.EDITOR_PADDING_TOP + 20 + 42,
-    ]);
+    ])
     expect(layout.modelPositionToViewPosition(1, 0).top).toBe(
       EDITOR_CONSTANTS.EDITOR_PADDING_TOP + 20 + 138,
-    );
-  });
+    )
+  })
 
-  it("hit-tests editor points after a view zone against shifted model lines", () => {
+  it('hit-tests editor points after a view zone against shifted model lines', () => {
     const layout = buildEditorViewLayout({
-      lines: ["first", "second"],
+      lines: ['first', 'second'],
       lineHeight: 20,
       wordWrap: false,
       contentWidth: contentWidthForColumns(10),
       measureText,
-      zones: [{ id: "inline-diff", afterLine: 0, height: 48 }],
-    });
+      zones: [{ id: 'inline-diff', afterLine: 0, height: 48 }],
+    })
 
     const position = layout.editorPointToModelPosition(
       EDITOR_CONSTANTS.EDITOR_PADDING_LEFT,
       EDITOR_CONSTANTS.EDITOR_PADDING_TOP + 20 + 48 + 1,
-    );
+    )
 
-    expect(position.modelLine).toBe(1);
-  });
-});
+    expect(position.modelLine).toBe(1)
+  })
+})

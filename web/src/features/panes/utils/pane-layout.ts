@@ -179,7 +179,10 @@ function writeFlatSizesToLayout(entries: FlatLayoutEntry[], root: LayoutNode): L
   for (const [splitId, totals] of splitTotals) {
     const sum = totals.first + totals.second
     if (sum <= 0) continue
-    next = updateSplitSizes(next, splitId, [(totals.first / sum) * 100, (totals.second / sum) * 100])
+    next = updateSplitSizes(next, splitId, [
+      (totals.first / sum) * 100,
+      (totals.second / sum) * 100,
+    ])
   }
   return next
 }

@@ -23,7 +23,9 @@ import { nanoid } from 'nanoid'
 // ── Constants ────────────────────────────────────────────────────────
 
 const AUTO_EVICTION_PROTECTED = new Set<PaneContent['type']>([
-  'externalEditor', 'terminal', 'webViewer',
+  'externalEditor',
+  'terminal',
+  'webViewer',
 ])
 
 // ── Actions ──────────────────────────────────────────────────────────
@@ -66,37 +68,37 @@ export const createBufferSlice: StateCreator<
       // Deduplicate: return existing buffer id if already open
       const existing = (() => {
         if (spec.type === 'editor') {
-          return get().buffers.find(b => b.type === 'editor' && b.path === spec.path)
+          return get().buffers.find((b) => b.type === 'editor' && b.path === spec.path)
         }
         if (spec.type === 'crowbarChat') {
           return get().buffers.find(
-            b => b.type === 'crowbarChat' && (b as CrowbarChatContent).wsId === spec.wsId,
+            (b) => b.type === 'crowbarChat' && (b as CrowbarChatContent).wsId === spec.wsId,
           )
         }
         if (spec.type === 'diff') {
-          return get().buffers.find(b => b.type === 'diff' && b.path === spec.path)
+          return get().buffers.find((b) => b.type === 'diff' && b.path === spec.path)
         }
         if (spec.type === 'terminal' && spec.sessionId) {
           return get().buffers.find(
-            b => b.type === 'terminal' && (b as TerminalContent).sessionId === spec.sessionId,
+            (b) => b.type === 'terminal' && (b as TerminalContent).sessionId === spec.sessionId,
           )
         }
         if (spec.type === 'webViewer') {
           return get().buffers.find(
-            b => b.type === 'webViewer' && (b as WebViewerContent).url === spec.url,
+            (b) => b.type === 'webViewer' && (b as WebViewerContent).url === spec.url,
           )
         }
         if (spec.type === 'markdownPreview') {
-          return get().buffers.find(b => b.type === 'markdownPreview' && b.path === spec.path)
+          return get().buffers.find((b) => b.type === 'markdownPreview' && b.path === spec.path)
         }
         if (spec.type === 'htmlPreview') {
-          return get().buffers.find(b => b.type === 'htmlPreview' && b.path === spec.path)
+          return get().buffers.find((b) => b.type === 'htmlPreview' && b.path === spec.path)
         }
         if (spec.type === 'csvPreview') {
-          return get().buffers.find(b => b.type === 'csvPreview' && b.path === spec.path)
+          return get().buffers.find((b) => b.type === 'csvPreview' && b.path === spec.path)
         }
         if (spec.type === 'externalEditor') {
-          return get().buffers.find(b => b.type === 'externalEditor' && b.path === spec.path)
+          return get().buffers.find((b) => b.type === 'externalEditor' && b.path === spec.path)
         }
         return undefined
       })()
@@ -108,7 +110,9 @@ export const createBufferSlice: StateCreator<
 
       // Auto-evict when at max tabs (before creating a new buffer)
       if (get().buffers.length >= get().maxOpenTabs) {
-        const evictee = get().buffers.find(b => !b.isPinned && !AUTO_EVICTION_PROTECTED.has(b.type))
+        const evictee = get().buffers.find(
+          (b) => !b.isPinned && !AUTO_EVICTION_PROTECTED.has(b.type),
+        )
         if (evictee) {
           const allPanes = Object.values(get().panes)
           for (const pane of allPanes) {
@@ -116,7 +120,9 @@ export const createBufferSlice: StateCreator<
               get().paneActions.removeBufferFromPane(pane.id, evictee.id, true)
             }
           }
-          set(state => { state.buffers = state.buffers.filter(b => b.id !== evictee.id) })
+          set((state) => {
+            state.buffers = state.buffers.filter((b) => b.id !== evictee.id)
+          })
         }
       }
 
@@ -128,49 +134,72 @@ export const createBufferSlice: StateCreator<
       if (spec.type === 'editor') {
         const isPreview = spec.isPreview ?? false
         buf = {
-          id, type: 'editor',
-          path: spec.path, name: spec.name,
-          content: spec.content, savedContent: spec.content,
+          id,
+          type: 'editor',
+          path: spec.path,
+          name: spec.name,
+          content: spec.content,
+          savedContent: spec.content,
           isDirty: false,
           isVirtual: spec.isVirtual ?? false,
           language: spec.language,
           tokens: [],
-          isPinned: false, isPreview, isActive: false,
+          isPinned: false,
+          isPreview,
+          isActive: false,
         } satisfies EditorContent
       } else if (spec.type === 'crowbarChat') {
         buf = {
-          id, type: 'crowbarChat',
-          wsId: spec.wsId, name: spec.name,
-          path: '', isPinned: false, isPreview: false, isActive: false,
+          id,
+          type: 'crowbarChat',
+          wsId: spec.wsId,
+          name: spec.name,
+          path: '',
+          isPinned: false,
+          isPreview: false,
+          isActive: false,
         } satisfies CrowbarChatContent
       } else if (spec.type === 'diff') {
         buf = {
-          id, type: 'diff',
-          path: spec.path, name: spec.name,
-          content: spec.content, savedContent: spec.content,
+          id,
+          type: 'diff',
+          path: spec.path,
+          name: spec.name,
+          content: spec.content,
+          savedContent: spec.content,
           diffData: spec.diffData,
-          isPinned: false, isPreview: false, isActive: false,
+          isPinned: false,
+          isPreview: false,
+          isActive: false,
         } satisfies DiffContent
       } else if (spec.type === 'terminal') {
-        const terminalCount = get().buffers.filter(b => b.type === 'terminal').length
+        const terminalCount = get().buffers.filter((b) => b.type === 'terminal').length
         const sessionId = spec.sessionId ?? `terminal-tab-${Date.now()}`
         buf = {
-          id, type: 'terminal',
+          id,
+          type: 'terminal',
           sessionId,
           path: spec.path ?? `terminal://${sessionId}`,
           name: spec.name ?? `Terminal ${terminalCount + 1}`,
           initialCommand: spec.command,
           workingDirectory: spec.workingDirectory,
           remoteConnectionId: spec.remoteConnectionId,
-          isPinned: false, isPreview: false, isActive: false,
+          isPinned: false,
+          isPreview: false,
+          isActive: false,
         } satisfies TerminalContent
       } else if (spec.type === 'webViewer') {
         let displayName = 'Web Viewer'
         if (spec.url && spec.url !== 'about:blank') {
-          try { displayName = new URL(spec.url).hostname || displayName } catch { /* invalid url */ }
+          try {
+            displayName = new URL(spec.url).hostname || displayName
+          } catch {
+            /* invalid url */
+          }
         }
         buf = {
-          id, type: 'webViewer',
+          id,
+          type: 'webViewer',
           url: spec.url,
           path: `web-viewer://${spec.url}`,
           name: displayName,
@@ -178,49 +207,73 @@ export const createBufferSlice: StateCreator<
           profileKey: spec.profileKey,
           history: spec.history,
           historyIndex: spec.historyIndex,
-          isPinned: false, isPreview: false, isActive: false,
+          isPinned: false,
+          isPreview: false,
+          isActive: false,
         } satisfies WebViewerContent
       } else if (spec.type === 'newTab') {
         buf = {
-          id, type: 'newTab',
-          path: '', name: 'New Tab',
-          isPinned: false, isPreview: false, isActive: false,
+          id,
+          type: 'newTab',
+          path: '',
+          name: 'New Tab',
+          isPinned: false,
+          isPreview: false,
+          isActive: false,
         } satisfies NewTabContent
       } else if (spec.type === 'markdownPreview') {
         buf = {
-          id, type: 'markdownPreview',
-          path: spec.path, name: spec.name,
+          id,
+          type: 'markdownPreview',
+          path: spec.path,
+          name: spec.name,
           content: spec.content,
           sourceFilePath: spec.sourceFilePath,
-          isPinned: false, isPreview: false, isActive: false,
+          isPinned: false,
+          isPreview: false,
+          isActive: false,
         } satisfies MarkdownPreviewContent
       } else if (spec.type === 'htmlPreview') {
         buf = {
-          id, type: 'htmlPreview',
-          path: spec.path, name: spec.name,
+          id,
+          type: 'htmlPreview',
+          path: spec.path,
+          name: spec.name,
           content: spec.content,
           sourceFilePath: spec.sourceFilePath,
-          isPinned: false, isPreview: false, isActive: false,
+          isPinned: false,
+          isPreview: false,
+          isActive: false,
         } satisfies HtmlPreviewContent
       } else if (spec.type === 'csvPreview') {
         buf = {
-          id, type: 'csvPreview',
-          path: spec.path, name: spec.name,
+          id,
+          type: 'csvPreview',
+          path: spec.path,
+          name: spec.name,
           content: spec.content,
           sourceFilePath: spec.sourceFilePath,
-          isPinned: false, isPreview: false, isActive: false,
+          isPinned: false,
+          isPreview: false,
+          isActive: false,
         } satisfies CsvPreviewContent
       } else {
         // spec.type === 'externalEditor'
         buf = {
-          id, type: 'externalEditor',
-          path: spec.path, name: spec.name,
+          id,
+          type: 'externalEditor',
+          path: spec.path,
+          name: spec.name,
           terminalConnectionId: spec.terminalConnectionId,
-          isPinned: false, isPreview: false, isActive: false,
+          isPinned: false,
+          isPreview: false,
+          isActive: false,
         } satisfies ExternalEditorContent
       }
 
-      set(state => { state.buffers.push(buf) })
+      set((state) => {
+        state.buffers.push(buf)
+      })
       get().paneActions.addBufferToPane(get().activePaneId, id, true)
       if (spec.type === 'editor' && spec.isPreview) {
         get().paneActions.setPanePreviewBuffer(get().activePaneId, id)
@@ -230,9 +283,9 @@ export const createBufferSlice: StateCreator<
     },
 
     closeBuffer(id) {
-      const buf = get().buffers.find(b => b.id === id)
+      const buf = get().buffers.find((b) => b.id === id)
       if (buf && shouldStartLsp(buf)) {
-        set(state => {
+        set((state) => {
           const entry: ClosedBuffer = { path: buf.path, name: buf.name, isPinned: buf.isPinned }
           state.closedBuffersHistory.unshift(entry)
           if (state.closedBuffersHistory.length > EDITOR_CONSTANTS.MAX_CLOSED_BUFFERS_HISTORY) {
@@ -240,40 +293,47 @@ export const createBufferSlice: StateCreator<
           }
         })
       }
-      set(state => { state.buffers = state.buffers.filter(b => b.id !== id) })
+      set((state) => {
+        state.buffers = state.buffers.filter((b) => b.id !== id)
+      })
     },
 
     setPinned(id, pinned) {
-      set(state => {
-        const buf = state.buffers.find(b => b.id === id)
+      set((state) => {
+        const buf = state.buffers.find((b) => b.id === id)
         if (buf) buf.isPinned = pinned
       })
     },
 
     setPreview(id, preview) {
-      set(state => {
-        const buf = state.buffers.find(b => b.id === id)
+      set((state) => {
+        const buf = state.buffers.find((b) => b.id === id)
         if (buf) buf.isPreview = preview
       })
     },
 
     promotePreview(id) {
       let found = false
-      set(state => {
-        const buf = state.buffers.find(b => b.id === id)
-        if (buf) { buf.isPreview = false; found = true }
+      set((state) => {
+        const buf = state.buffers.find((b) => b.id === id)
+        if (buf) {
+          buf.isPreview = false
+          found = true
+        }
       })
       if (found) get().paneActions.clearPreviewBufferEverywhere(id)
     },
 
     getBufferById(id) {
-      return get().buffers.find(b => b.id === id)
+      return get().buffers.find((b) => b.id === id)
     },
 
     reopenLastClosedBuffer() {
       const entry = get().closedBuffersHistory[0]
       if (!entry) return
-      set(state => { state.closedBuffersHistory.shift() })
+      set((state) => {
+        state.closedBuffersHistory.shift()
+      })
       const id = get().bufferActions.openContent({
         type: 'editor',
         path: entry.path,
@@ -286,8 +346,8 @@ export const createBufferSlice: StateCreator<
       void import('@/features/file-system/controllers/platform').then(async ({ readFile }) => {
         try {
           const content = await readFile(entry.path)
-          set(state => {
-            const buf = state.buffers.find(b => b.id === id)
+          set((state) => {
+            const buf = state.buffers.find((b) => b.id === id)
             if (buf && buf.type === 'editor' && buf.content === '') {
               buf.content = content
               buf.savedContent = content
@@ -301,13 +361,17 @@ export const createBufferSlice: StateCreator<
     },
 
     setPendingClose(pc) {
-      set(state => { state.pendingClose = pc })
+      set((state) => {
+        state.pendingClose = pc
+      })
     },
 
     confirmPendingClose() {
       const pc = get().pendingClose
       if (!pc) return
-      set(state => { state.pendingClose = null })
+      set((state) => {
+        state.pendingClose = null
+      })
       if (pc.type === 'single') {
         get().bufferActions.closeBuffer(pc.bufferId)
       }

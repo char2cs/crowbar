@@ -1,8 +1,4 @@
-import {
-  LanguageDescription,
-  LanguageSupport,
-  StreamLanguage,
-} from '@codemirror/language'
+import { LanguageDescription, LanguageSupport, StreamLanguage } from '@codemirror/language'
 import { javascript } from '@codemirror/lang-javascript'
 import { python } from '@codemirror/lang-python'
 import { go } from '@codemirror/lang-go'

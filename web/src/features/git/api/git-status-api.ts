@@ -1,6 +1,6 @@
 import { apiFetch } from '@/lib/api'
 import { toast } from '@/components/ui/toast'
-import type { GitHunk, GitStatus } from "../types/git-types";
+import type { GitHunk, GitStatus } from '../types/git-types'
 
 async function gitPost(
   wsId: string,
@@ -21,35 +21,35 @@ async function gitPost(
   }
 }
 
-function hunkIdOf(
-  hunk: GitHunk,
-): string | undefined {
+function hunkIdOf(hunk: GitHunk): string | undefined {
   const h = hunk as GitHunk & { hunkId?: string; id?: string }
   return h.hunkId ?? h.id
 }
 
 export const getGitStatus = async (wsId: string): Promise<GitStatus | null> => {
   try {
-    const status = await apiFetch<GitStatus>(`/v0/workspaces/${encodeURIComponent(wsId)}/git/status`)
+    const status = await apiFetch<GitStatus>(
+      `/v0/workspaces/${encodeURIComponent(wsId)}/git/status`,
+    )
     // The backend serialises a clean working tree as `files: null`; normalise
     // here so downstream consumers can rely on `files` being an array.
-    return { ...status, files: status.files ?? [] };
+    return { ...status, files: status.files ?? [] }
   } catch {
-    return null;
+    return null
   }
-};
+}
 
 export const stageFile = (wsId: string, filePath: string): Promise<boolean> =>
-  gitPost(wsId, 'stage', { paths: [filePath] });
+  gitPost(wsId, 'stage', { paths: [filePath] })
 
 export const unstageFile = (wsId: string, filePath: string): Promise<boolean> =>
-  gitPost(wsId, 'unstage', { paths: [filePath] });
+  gitPost(wsId, 'unstage', { paths: [filePath] })
 
 export const stageAllFiles = (wsId: string): Promise<boolean> =>
-  gitPost(wsId, 'stage', { paths: ['.'] });
+  gitPost(wsId, 'stage', { paths: ['.'] })
 
 export const unstageAllFiles = (wsId: string): Promise<boolean> =>
-  gitPost(wsId, 'unstage', { paths: ['.'] });
+  gitPost(wsId, 'unstage', { paths: ['.'] })
 
 // Hunk-level staging when the diff carries a hunkId; otherwise fall back to
 // staging the whole file so the action still has an effect.
@@ -57,18 +57,18 @@ export const stageHunk = (wsId: string, hunk: GitHunk): Promise<boolean> => {
   const hunkId = hunkIdOf(hunk)
   return hunkId
     ? gitPost(wsId, 'stage-hunk', { path: hunk.file_path, hunkId })
-    : gitPost(wsId, 'stage', { paths: [hunk.file_path] });
-};
+    : gitPost(wsId, 'stage', { paths: [hunk.file_path] })
+}
 
 export const unstageHunk = (wsId: string, hunk: GitHunk): Promise<boolean> => {
   const hunkId = hunkIdOf(hunk)
   return hunkId
     ? gitPost(wsId, 'unstage-hunk', { path: hunk.file_path, hunkId })
-    : gitPost(wsId, 'unstage', { paths: [hunk.file_path] });
-};
+    : gitPost(wsId, 'unstage', { paths: [hunk.file_path] })
+}
 
 export const discardAllChanges = (wsId: string): Promise<boolean> =>
-  gitPost(wsId, 'discard', { paths: ['.'] });
+  gitPost(wsId, 'discard', { paths: ['.'] })
 
 export const discardFileChanges = (wsId: string, filePath: string): Promise<boolean> =>
-  gitPost(wsId, 'discard', { paths: [filePath] });
+  gitPost(wsId, 'discard', { paths: [filePath] })

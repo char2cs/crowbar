@@ -41,8 +41,8 @@ describe('auto-promote wrapper logic', () => {
 
     // Build the wrapper the same way the component does — parameters typed as the component
     // receives them, so TypeScript cannot narrow onPromote to `never` via const-folding.
-    const buildWrapper = (isPreview: boolean, onPromote: (() => void) | undefined) =>
-      (content: string) => {
+    const buildWrapper =
+      (isPreview: boolean, onPromote: (() => void) | undefined) => (content: string) => {
         if (isPreview) onPromote?.()
         onChange(content)
       }

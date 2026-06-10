@@ -1,20 +1,20 @@
-import { Archive, Download, Trash as Trash2, Upload } from "@phosphor-icons/react";
-import { useMemo, useState } from "react";
-import { Button } from "@/components/ui/button";
-import { CommandEmpty, CommandList } from "@/components/ui/command";
-import { formatRelativeDate } from "@/utils/date";
-import { matchesSearchQuery } from "@/utils/search-match";
-import { applyStash, dropStash, getStashes, popStash } from "../api/git-stash-api";
-import { useGitStore } from "../stores/git-store";
-import { getStashDisplayTitle, getStashPositionLabel } from "../utils/git-stash-format";
-import GitCommandSurface from "./git-command-surface";
+import { Archive, Download, Trash as Trash2, Upload } from '@phosphor-icons/react'
+import { useMemo, useState } from 'react'
+import { Button } from '@/components/ui/button'
+import { CommandEmpty, CommandList } from '@/components/ui/command'
+import { formatRelativeDate } from '@/utils/date'
+import { matchesSearchQuery } from '@/utils/search-match'
+import { applyStash, dropStash, getStashes, popStash } from '../api/git-stash-api'
+import { useGitStore } from '../stores/git-store'
+import { getStashDisplayTitle, getStashPositionLabel } from '../utils/git-stash-format'
+import GitCommandSurface from './git-command-surface'
 
 interface GitStashCommandSurfaceProps {
-  isOpen: boolean;
-  onClose: () => void;
-  repoPath: string | null;
-  onRefresh?: () => Promise<void> | void;
-  onViewStashDiff: (stashIndex: number) => Promise<void>;
+  isOpen: boolean
+  onClose: () => void
+  repoPath: string | null
+  onRefresh?: () => Promise<void> | void
+  onViewStashDiff: (stashIndex: number) => Promise<void>
 }
 
 export function GitStashCommandSurface({
@@ -24,17 +24,17 @@ export function GitStashCommandSurface({
   onRefresh,
   onViewStashDiff,
 }: GitStashCommandSurfaceProps) {
-  const stashes = useGitStore((s) => s.stashes);
-  const setStashes = useGitStore((s) => s.actions.setStashes);
-  const [searchQuery, setSearchQuery] = useState("");
-  const [actionLoading, setActionLoading] = useState<Set<number>>(new Set());
+  const stashes = useGitStore((s) => s.stashes)
+  const setStashes = useGitStore((s) => s.actions.setStashes)
+  const [searchQuery, setSearchQuery] = useState('')
+  const [actionLoading, setActionLoading] = useState<Set<number>>(new Set())
 
   // Hooks below must run unconditionally; the empty-repoPath bail-out happens
   // after them (was an early return above useMemo — a rules-of-hooks violation
   // that crashed the surface when repoPath toggled between renders).
   const filteredStashes = useMemo(() => {
-    const query = searchQuery.trim().toLowerCase();
-    if (!query) return stashes;
+    const query = searchQuery.trim().toLowerCase()
+    if (!query) return stashes
     return stashes.filter((stash) =>
       matchesSearchQuery(query, [
         getStashDisplayTitle(stash.message),
@@ -42,43 +42,43 @@ export function GitStashCommandSurface({
         `stash ${stash.index + 1}`,
         `stash@{${stash.index}}`,
       ]),
-    );
-  }, [searchQuery, stashes]);
+    )
+  }, [searchQuery, stashes])
 
-  if (!repoPath) return null;
+  if (!repoPath) return null
 
   const handleClose = () => {
-    onClose();
-    setSearchQuery("");
-  };
+    onClose()
+    setSearchQuery('')
+  }
 
   const handleStashAction = async (
     action: () => Promise<boolean>,
     stashIndex: number,
     actionName: string,
   ) => {
-    setActionLoading((prev) => new Set(prev).add(stashIndex));
+    setActionLoading((prev) => new Set(prev).add(stashIndex))
     try {
-      const success = await action();
+      const success = await action()
       if (success) {
         if (onRefresh) {
-          await onRefresh();
+          await onRefresh()
         } else if (repoPath) {
-          setStashes(await getStashes(repoPath));
+          setStashes(await getStashes(repoPath))
         }
       } else {
-        console.error(`${actionName} failed`);
+        console.error(`${actionName} failed`)
       }
     } catch (error) {
-      console.error(`${actionName} error:`, error);
+      console.error(`${actionName} error:`, error)
     } finally {
       setActionLoading((prev) => {
-        const next = new Set(prev);
-        next.delete(stashIndex);
-        return next;
-      });
+        const next = new Set(prev)
+        next.delete(stashIndex)
+        return next
+      })
     }
-  };
+  }
 
   return (
     <GitCommandSurface
@@ -87,15 +87,15 @@ export function GitStashCommandSurface({
       query={searchQuery}
       onQueryChange={setSearchQuery}
       placeholder="Search stashes..."
-      meta={`${stashes.length} stash${stashes.length === 1 ? "" : "es"}`}
+      meta={`${stashes.length} stash${stashes.length === 1 ? '' : 'es'}`}
     >
       <CommandList>
         {filteredStashes.length === 0 ? (
-          <CommandEmpty>{searchQuery.trim() ? "No matching stashes" : "No stashes"}</CommandEmpty>
+          <CommandEmpty>{searchQuery.trim() ? 'No matching stashes' : 'No stashes'}</CommandEmpty>
         ) : (
           filteredStashes.map((stash) => {
-            const displayTitle = getStashDisplayTitle(stash.message);
-            const isActionLoading = actionLoading.has(stash.index);
+            const displayTitle = getStashDisplayTitle(stash.message)
+            const isActionLoading = actionLoading.has(stash.index)
 
             return (
               <div
@@ -104,15 +104,15 @@ export function GitStashCommandSurface({
                 tabIndex={0}
                 className="group/stash ui-font relative mb-1 flex min-h-12 w-full cursor-pointer items-center gap-2 rounded-lg px-2.5 py-2 text-left transition-colors hover:bg-muted focus:bg-muted focus:outline-none"
                 onClick={() => {
-                  void onViewStashDiff(stash.index);
-                  handleClose();
+                  void onViewStashDiff(stash.index)
+                  handleClose()
                 }}
                 onKeyDown={(event) => {
-                  if (event.target !== event.currentTarget) return;
-                  if (event.key !== "Enter" && event.key !== " ") return;
-                  event.preventDefault();
-                  void onViewStashDiff(stash.index);
-                  handleClose();
+                  if (event.target !== event.currentTarget) return
+                  if (event.key !== 'Enter' && event.key !== ' ') return
+                  event.preventDefault()
+                  void onViewStashDiff(stash.index)
+                  handleClose()
                 }}
               >
                 <div className="flex size-7 shrink-0 items-center justify-center rounded-md border border-border/50 bg-card/70 text-muted-foreground">
@@ -133,12 +133,12 @@ export function GitStashCommandSurface({
                   <Button
                     type="button"
                     onClick={(event) => {
-                      event.stopPropagation();
+                      event.stopPropagation()
                       void handleStashAction(
                         () => applyStash(repoPath, stash.index),
                         stash.index,
-                        "Apply stash",
-                      );
+                        'Apply stash',
+                      )
                     }}
                     disabled={isActionLoading}
                     variant="ghost"
@@ -151,12 +151,12 @@ export function GitStashCommandSurface({
                   <Button
                     type="button"
                     onClick={(event) => {
-                      event.stopPropagation();
+                      event.stopPropagation()
                       void handleStashAction(
                         () => popStash(repoPath, stash.index),
                         stash.index,
-                        "Pop stash",
-                      );
+                        'Pop stash',
+                      )
                     }}
                     disabled={isActionLoading}
                     variant="ghost"
@@ -169,12 +169,12 @@ export function GitStashCommandSurface({
                   <Button
                     type="button"
                     onClick={(event) => {
-                      event.stopPropagation();
+                      event.stopPropagation()
                       void handleStashAction(
                         () => dropStash(repoPath, stash.index),
                         stash.index,
-                        "Drop stash",
-                      );
+                        'Drop stash',
+                      )
                     }}
                     disabled={isActionLoading}
                     variant="ghost"
@@ -186,10 +186,10 @@ export function GitStashCommandSurface({
                   </Button>
                 </div>
               </div>
-            );
+            )
           })
         )}
       </CommandList>
     </GitCommandSurface>
-  );
+  )
 }

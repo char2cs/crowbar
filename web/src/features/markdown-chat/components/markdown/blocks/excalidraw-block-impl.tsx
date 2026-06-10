@@ -52,9 +52,7 @@ export function ExcalidrawEditor(props: BlockViewProps) {
     <div className="relative h-80 w-full overflow-hidden rounded border border-border">
       <Excalidraw
         initialData={
-          payload
-            ? { elements: payload.elements, appState: payload.appState }
-            : undefined
+          payload ? { elements: payload.elements, appState: payload.appState } : undefined
         }
         onChange={handleChange}
         UIOptions={{ canvasActions: { export: false, loadScene: false } }}

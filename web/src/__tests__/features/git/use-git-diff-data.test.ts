@@ -1,16 +1,16 @@
-import { describe, expect, test } from "vitest";
-import { getDiffBufferFilePath } from "@/features/git/utils/diff-buffer-path";
+import { describe, expect, test } from 'vitest'
+import { getDiffBufferFilePath } from '@/features/git/utils/diff-buffer-path'
 
-describe("getDiffBufferFilePath", () => {
-  test("resolves virtual working-tree diff paths", () => {
-    expect(getDiffBufferFilePath("diff://unstaged/src%2Fapp.ts")).toBe("src/app.ts");
-  });
+describe('getDiffBufferFilePath', () => {
+  test('resolves virtual working-tree diff paths', () => {
+    expect(getDiffBufferFilePath('diff://unstaged/src%2Fapp.ts')).toBe('src/app.ts')
+  })
 
-  test("uses real diff buffer paths for opened .patch files", () => {
-    expect(getDiffBufferFilePath("/repo/fix.patch")).toBe("/repo/fix.patch");
-  });
+  test('uses real diff buffer paths for opened .patch files', () => {
+    expect(getDiffBufferFilePath('/repo/fix.patch')).toBe('/repo/fix.patch')
+  })
 
-  test("keeps aggregate virtual diff buffers without a single file path", () => {
-    expect(getDiffBufferFilePath("diff://commit/abc123/all-files")).toBeNull();
-  });
-});
+  test('keeps aggregate virtual diff buffers without a single file path', () => {
+    expect(getDiffBufferFilePath('diff://commit/abc123/all-files')).toBeNull()
+  })
+})

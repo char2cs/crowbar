@@ -1,8 +1,5 @@
 import { useState, useRef, useCallback, useEffect } from 'react'
-import {
-  ArrowClockwise as RotateCw,
-  GlobeHemisphereWest as Globe,
-} from '@phosphor-icons/react'
+import { ArrowClockwise as RotateCw, GlobeHemisphereWest as Globe } from '@phosphor-icons/react'
 import { cn } from '@/utils/cn'
 import { browserPaneNavigate, browserPaneReload } from '@/lib/crowbar-bridge'
 import { useBrowserPaneAnchor } from '@/features/web-viewer/hooks/use-browser-pane-anchor'
@@ -45,7 +42,7 @@ export function WebViewer({
     initialUrl: normalizedInitialUrl !== 'about:blank' ? normalizedInitialUrl : undefined,
   })
 
-  const navEntry = useWebViewerNavigationStore(state =>
+  const navEntry = useWebViewerNavigationStore((state) =>
     bufferId ? state.navigationByBufferId[bufferId] : undefined,
   )
 
@@ -99,8 +96,8 @@ export function WebViewer({
           <input
             type="text"
             value={inputValue}
-            onChange={e => setInputValue(e.target.value)}
-            onFocus={e => e.target.select()}
+            onChange={(e) => setInputValue(e.target.value)}
+            onFocus={(e) => e.target.select()}
             placeholder="Enter URL or search…"
             className="min-w-0 flex-1 bg-transparent text-xs text-foreground outline-none placeholder:text-muted-foreground"
             spellCheck={false}
@@ -116,11 +113,7 @@ export function WebViewer({
           This feature requires the desktop app
         </div>
       ) : (
-        <div
-          ref={anchorRef}
-          data-browser-anchor
-          className="min-h-0 flex-1"
-        />
+        <div ref={anchorRef} data-browser-anchor className="min-h-0 flex-1" />
       )}
     </div>
   )

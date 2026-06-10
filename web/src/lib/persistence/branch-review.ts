@@ -1,6 +1,9 @@
 import { getDB } from './idb'
 import type { BranchReviewPersistedState } from './schemas'
-import type { ReviewThread, MergeStrategy } from '@/features/workspace/stores/slices/branch-review-slice'
+import type {
+  ReviewThread,
+  MergeStrategy,
+} from '@/features/workspace/stores/slices/branch-review-slice'
 
 interface SavePayload {
   description: string
@@ -23,7 +26,9 @@ export async function saveBranchReview(wsId: string, payload: SavePayload): Prom
   }
 }
 
-export async function loadBranchReview(wsId: string): Promise<Omit<BranchReviewPersistedState, 'wsId' | 'updatedAt'> | null> {
+export async function loadBranchReview(
+  wsId: string,
+): Promise<Omit<BranchReviewPersistedState, 'wsId' | 'updatedAt'> | null> {
   try {
     const db = await getDB()
     const record = await db.get('branch-review', wsId)

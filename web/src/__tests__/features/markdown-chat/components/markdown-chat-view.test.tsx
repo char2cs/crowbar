@@ -2,7 +2,10 @@ import { render, screen, waitFor } from '@testing-library/react'
 import { vi, beforeEach, afterEach, beforeAll, afterAll } from 'vitest'
 import { setupServer } from 'msw/node'
 import { markdownChatHandlers } from '@/mocks/handlers/markdown-chat'
-import { destroyConversationStore, getOrCreateConversationStore } from '@/features/markdown-chat/stores/conversation-store'
+import {
+  destroyConversationStore,
+  getOrCreateConversationStore,
+} from '@/features/markdown-chat/stores/conversation-store'
 
 const server = setupServer(...markdownChatHandlers)
 beforeAll(() => server.listen())
@@ -94,9 +97,7 @@ afterEach(() => {
 })
 
 test('renders without crashing', async () => {
-  const { container } = render(
-    <MarkdownChatView workspaceId={WS_ID} stepId={STEP_ID} />
-  )
+  const { container } = render(<MarkdownChatView workspaceId={WS_ID} stepId={STEP_ID} />)
   // Either the loading state or the editor mounted
   await waitFor(() => {
     const hasEditor = container.querySelector('.cm-editor') !== null
@@ -106,9 +107,7 @@ test('renders without crashing', async () => {
 })
 
 test('starts empty (no pre-generated greeting) for an unknown workspace', async () => {
-  const { container } = render(
-    <MarkdownChatView workspaceId={WS_ID} stepId={STEP_ID} />
-  )
+  const { container } = render(<MarkdownChatView workspaceId={WS_ID} stepId={STEP_ID} />)
   // The editable input mounts and fills the canvas...
   await waitFor(() => {
     expect(container.querySelector('.cm-editor')).not.toBeNull()
@@ -120,9 +119,7 @@ test('starts empty (no pre-generated greeting) for an unknown workspace', async 
 
 test('seeds mock turns for ws3 brainstorm step', async () => {
   destroyConversationStore('ws3')
-  render(
-    <MarkdownChatView workspaceId="ws3" stepId="brainstorm" />
-  )
+  render(<MarkdownChatView workspaceId="ws3" stepId="brainstorm" />)
   await waitFor(() => {
     const store = getOrCreateConversationStore('ws3')
     const { turns } = store.getState()

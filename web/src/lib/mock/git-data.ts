@@ -31,20 +31,30 @@ export interface Branch {
 const REPO_GIT_STATUS: Record<string, GitStatus> = {
   crowbar: {
     branch: 'feature/app-design',
-    ahead: 3, behind: 0,
+    ahead: 3,
+    behind: 0,
     files: [
-      { path: 'web/src/features/branch-review/components/git-tab.tsx', status: 'modified', staged: true },
+      {
+        path: 'web/src/features/branch-review/components/git-tab.tsx',
+        status: 'modified',
+        staged: true,
+      },
       { path: 'web/src/lib/mock/git-data.ts', status: 'modified', staged: true },
       { path: 'api/internal/fixtures/git-log.json', status: 'added', staged: true },
       { path: 'web/src/features/git/api/git-commits-api.ts', status: 'modified', staged: false },
       { path: 'web/src/features/git/api/git-status-api.ts', status: 'modified', staged: false },
-      { path: 'web/src/features/settings/components/tabs/developer-settings.tsx', status: 'added', staged: false },
+      {
+        path: 'web/src/features/settings/components/tabs/developer-settings.tsx',
+        status: 'added',
+        staged: false,
+      },
       { path: 'web/src/mocks/handlers/git.ts', status: 'modified', staged: false },
     ],
   },
   'quiver-core': {
     branch: 'feature/oauth2',
-    ahead: 5, behind: 1,
+    ahead: 5,
+    behind: 1,
     files: [
       { path: 'src/auth/oauth2.ts', status: 'added', staged: true },
       { path: 'src/auth/jwt.ts', status: 'modified', staged: true },
@@ -56,7 +66,8 @@ const REPO_GIT_STATUS: Record<string, GitStatus> = {
   },
   'quiver-desktop': {
     branch: 'feature/quiver-shell',
-    ahead: 8, behind: 0,
+    ahead: 8,
+    behind: 0,
     files: [
       { path: 'src-tauri/src/shell/mod.rs', status: 'added', staged: true },
       { path: 'src-tauri/src/shell/pty.rs', status: 'added', staged: true },
@@ -69,7 +80,8 @@ const REPO_GIT_STATUS: Record<string, GitStatus> = {
   },
   'quiver-cloud': {
     branch: 'feature/multi-tenant',
-    ahead: 2, behind: 3,
+    ahead: 2,
+    behind: 3,
     files: [
       { path: 'k8s/apps/multi-tenant.yaml', status: 'added', staged: true },
       { path: 'terraform/modules/eks/node_groups.tf', status: 'added', staged: true },
@@ -148,11 +160,12 @@ export function getMockCommitHistory(_repoPath: string): Commit[] {
     const hash = generateHash(i + 1)
     const hoursAgo = i * 4
     const daysAgo = Math.floor(hoursAgo / 24)
-    const date = daysAgo === 0
-      ? `${hoursAgo % 24 || 1} hours ago`
-      : daysAgo === 1
-        ? '1 day ago'
-        : `${daysAgo} days ago`
+    const date =
+      daysAgo === 0
+        ? `${hoursAgo % 24 || 1} hours ago`
+        : daysAgo === 1
+          ? '1 day ago'
+          : `${daysAgo} days ago`
     return {
       hash,
       shortHash: hash.slice(0, 7),
@@ -165,9 +178,21 @@ export function getMockCommitHistory(_repoPath: string): Commit[] {
 
 const BRANCH_PREFIXES = ['feature/', 'fix/', 'chore/', 'refactor/', 'hotfix/', 'release/']
 const BRANCH_TOPICS = [
-  'payment-flow', 'user-auth', 'data-migration', 'api-v2', 'dashboard-redesign',
-  'ci-pipeline', 'test-coverage', 'performance', 'security-patch', 'mobile-app',
-  'websocket-hub', 'file-explorer', 'git-integration', 'settings-panel', 'dark-mode',
+  'payment-flow',
+  'user-auth',
+  'data-migration',
+  'api-v2',
+  'dashboard-redesign',
+  'ci-pipeline',
+  'test-coverage',
+  'performance',
+  'security-patch',
+  'mobile-app',
+  'websocket-hub',
+  'file-explorer',
+  'git-integration',
+  'settings-panel',
+  'dark-mode',
 ]
 
 const REPO_CURRENT_BRANCH: Record<string, string> = {

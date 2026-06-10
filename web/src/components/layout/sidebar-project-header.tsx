@@ -1,4 +1,10 @@
-import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuTrigger } from '@/components/ui/dropdown-menu'
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from '@/components/ui/dropdown-menu'
 import { useProjectStore } from '@/lib/store/projects'
 import { useSettingsStore } from '@/features/settings/store'
 import { useUIState } from '@/features/window/stores/ui-state-store'
@@ -12,12 +18,15 @@ interface SidebarProjectHeaderProps {
   onProjectSelect?: (projectId: string) => void
 }
 
-export function SidebarProjectHeader({ onProjectsClick, onProjectSelect }: SidebarProjectHeaderProps) {
-  const projects = useProjectStore(s => s.projects)
-  const activeProjectId = useProjectStore(s => s.activeProjectId)
-  const sidebarPosition = useSettingsStore(s => s.settings.sidebarPosition)
+export function SidebarProjectHeader({
+  onProjectsClick,
+  onProjectSelect,
+}: SidebarProjectHeaderProps) {
+  const projects = useProjectStore((s) => s.projects)
+  const activeProjectId = useProjectStore((s) => s.activeProjectId)
+  const sidebarPosition = useSettingsStore((s) => s.settings.sidebarPosition)
 
-  const activeProject = projects.find(p => p.id === activeProjectId)
+  const activeProject = projects.find((p) => p.id === activeProjectId)
   const isRight = sidebarPosition === 'right'
 
   const handleSelect = (id: string) => {
@@ -46,7 +55,7 @@ export function SidebarProjectHeader({ onProjectsClick, onProjectSelect }: Sideb
           <ChevronDown className="h-3 w-3 text-muted-foreground" />
         </DropdownMenuTrigger>
         <DropdownMenuContent align={isRight ? 'start' : 'end'} style={{ minWidth: '160px' }}>
-          {projects.map(p => (
+          {projects.map((p) => (
             <DropdownMenuItem
               key={p.id}
               onClick={() => handleSelect(p.id)}

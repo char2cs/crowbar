@@ -1,10 +1,10 @@
 export interface BufferSwitchTransitionInput {
-  hasInitialized: boolean;
-  previousBufferId: string | null;
-  previousViewKey: string | null;
-  nextBufferId: string;
-  nextViewKey: string;
-  hasCachedViewState: boolean;
+  hasInitialized: boolean
+  previousBufferId: string | null
+  previousViewKey: string | null
+  nextBufferId: string
+  nextViewKey: string
+  hasCachedViewState: boolean
 }
 
 export function shouldRestoreBufferSwitchState({
@@ -16,8 +16,8 @@ export function shouldRestoreBufferSwitchState({
   hasCachedViewState,
 }: BufferSwitchTransitionInput): boolean {
   if (!hasInitialized) {
-    return hasCachedViewState;
+    return hasCachedViewState
   }
 
-  return previousBufferId !== nextBufferId || previousViewKey !== nextViewKey;
+  return previousBufferId !== nextBufferId || previousViewKey !== nextViewKey
 }

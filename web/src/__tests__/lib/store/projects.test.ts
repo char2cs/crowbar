@@ -3,7 +3,10 @@ import { useProjectStore } from '@/lib/store/projects'
 import type { Project } from '@/lib/types'
 
 const mockProject: Project = {
-  id: 'p1', name: 'my-app', path: '/repos/my-app', lastActivity: new Date(),
+  id: 'p1',
+  name: 'my-app',
+  path: '/repos/my-app',
+  lastActivity: new Date(),
 }
 
 beforeEach(() => {

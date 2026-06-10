@@ -1,15 +1,32 @@
 import type { StateCreator } from 'zustand'
 import type { WorkspaceState } from '../workspace-store.types'
 import { ROOT_PANE_ID, BOTTOM_PANE_ID } from '@/features/panes/constants/pane'
-import type { PaneGroup, LayoutNode, SplitDirection, SplitPlacement } from '@/features/panes/types/pane'
+import type {
+  PaneGroup,
+  LayoutNode,
+  SplitDirection,
+  SplitPlacement,
+} from '@/features/panes/types/pane'
 import {
-  createLeaf, splitLayout, closeLayout, findLeaf, findSplit,
-  getAllLeafIds, distributeSplit,
-  resizeFlattenedLayout, normalizeLayout, getAdjacentLeafId,
+  createLeaf,
+  splitLayout,
+  closeLayout,
+  findLeaf,
+  findSplit,
+  getAllLeafIds,
+  distributeSplit,
+  resizeFlattenedLayout,
+  normalizeLayout,
+  getAdjacentLeafId,
 } from '@/features/panes/utils/pane-layout'
 
 export interface PaneActions {
-  splitPane(paneId: string, direction: SplitDirection, bufferId?: string, placement?: SplitPlacement): string | null
+  splitPane(
+    paneId: string,
+    direction: SplitDirection,
+    bufferId?: string,
+    placement?: SplitPlacement,
+  ): string | null
   closePane(paneId: string): void
   setActivePane(paneId: string): void
   activatePaneBuffer(paneId: string, bufferId: string | null): void
@@ -81,14 +98,15 @@ export const createPaneSlice: StateCreator<
   paneActions: {
     splitPane(paneId, direction, bufferId?, placement = 'after') {
       let newPaneId: string | null = null
-      set(state => {
+      set((state) => {
         const key = getLayoutKey(state, paneId)
         const result = splitLayout(state[key], paneId, direction, placement)
         if (!result) return
         state[key] = result.layout
         newPaneId = result.newPaneId
         state.panes[newPaneId] = {
-          id: newPaneId, type: 'group',
+          id: newPaneId,
+          type: 'group',
           bufferIds: bufferId ? [bufferId] : [],
           activeBufferId: bufferId ?? null,
         }
@@ -99,14 +117,15 @@ export const createPaneSlice: StateCreator<
     },
 
     closePane(paneId) {
-      set(state => {
+      set((state) => {
         const key = getLayoutKey(state, paneId)
         const closingPane = state.panes[paneId]
         const result = closeLayout(state[key], paneId)
         if (result !== null) {
           state[key] = normalizeLayout(result)
           const remainingIds = getAllLeafIds(state[key])
-          const fallbackId = remainingIds[0] ?? (key === 'rootLayout' ? ROOT_PANE_ID : BOTTOM_PANE_ID)
+          const fallbackId =
+            remainingIds[0] ?? (key === 'rootLayout' ? ROOT_PANE_ID : BOTTOM_PANE_ID)
           if (closingPane) {
             for (const bufferId of closingPane.bufferIds) {
               const fp = state.panes[fallbackId]
@@ -125,30 +144,36 @@ export const createPaneSlice: StateCreator<
           if (state.activePaneId === paneId) state.activePaneId = ROOT_PANE_ID
         }
         delete state.panes[paneId]
-        state.mostRecentActivePaneIds = state.mostRecentActivePaneIds.filter(id => id !== paneId)
+        state.mostRecentActivePaneIds = state.mostRecentActivePaneIds.filter((id) => id !== paneId)
         if (state.fullscreenPaneId === paneId) state.fullscreenPaneId = null
       })
     },
 
     setActivePane(paneId) {
-      set(state => {
+      set((state) => {
         state.activePaneId = paneId
-        state.mostRecentActivePaneIds = [paneId, ...state.mostRecentActivePaneIds.filter(id => id !== paneId)]
+        state.mostRecentActivePaneIds = [
+          paneId,
+          ...state.mostRecentActivePaneIds.filter((id) => id !== paneId),
+        ]
       })
     },
 
     activatePaneBuffer(paneId, bufferId) {
-      set(state => {
+      set((state) => {
         const pane = state.panes[paneId]
         if (!pane) return
         pane.activeBufferId = bufferId
         state.activePaneId = paneId
-        state.mostRecentActivePaneIds = [paneId, ...state.mostRecentActivePaneIds.filter(id => id !== paneId)]
+        state.mostRecentActivePaneIds = [
+          paneId,
+          ...state.mostRecentActivePaneIds.filter((id) => id !== paneId),
+        ]
       })
     },
 
     addBufferToPane(paneId, bufferId, setActive = true) {
-      set(state => {
+      set((state) => {
         const pane = state.panes[paneId]
         if (!pane) return
         if (!pane.bufferIds.includes(bufferId)) pane.bufferIds.push(bufferId)
@@ -157,13 +182,18 @@ export const createPaneSlice: StateCreator<
     },
 
     removeBufferFromPane(paneId, bufferId, preserveEmptyPane = false) {
-      set(state => {
+      set((state) => {
         const pane = state.panes[paneId]
         if (!pane) return
-        pane.bufferIds = pane.bufferIds.filter(id => id !== bufferId)
+        pane.bufferIds = pane.bufferIds.filter((id) => id !== bufferId)
         if (pane.activeBufferId === bufferId) pane.activeBufferId = pane.bufferIds[0] ?? null
         if (pane.previewBufferId === bufferId) pane.previewBufferId = null
-        if (!preserveEmptyPane && pane.bufferIds.length === 0 && paneId !== ROOT_PANE_ID && paneId !== BOTTOM_PANE_ID) {
+        if (
+          !preserveEmptyPane &&
+          pane.bufferIds.length === 0 &&
+          paneId !== ROOT_PANE_ID &&
+          paneId !== BOTTOM_PANE_ID
+        ) {
           const key = getLayoutKey(state, paneId)
           const result = closeLayout(state[key], paneId)
           if (result !== null) {
@@ -171,58 +201,74 @@ export const createPaneSlice: StateCreator<
             const remaining = getAllLeafIds(state[key])
             if (state.activePaneId === paneId) state.activePaneId = remaining[0] ?? ROOT_PANE_ID
             delete state.panes[paneId]
-            state.mostRecentActivePaneIds = state.mostRecentActivePaneIds.filter(id => id !== paneId)
+            state.mostRecentActivePaneIds = state.mostRecentActivePaneIds.filter(
+              (id) => id !== paneId,
+            )
           }
         }
       })
     },
 
     moveBufferToPane(bufferId, fromPaneId, toPaneId) {
-      set(state => {
+      set((state) => {
         const fromPane = state.panes[fromPaneId]
         const toPane = state.panes[toPaneId]
         if (!fromPane || !toPane) return
-        fromPane.bufferIds = fromPane.bufferIds.filter(id => id !== bufferId)
-        if (fromPane.activeBufferId === bufferId) fromPane.activeBufferId = fromPane.bufferIds[0] ?? null
+        fromPane.bufferIds = fromPane.bufferIds.filter((id) => id !== bufferId)
+        if (fromPane.activeBufferId === bufferId)
+          fromPane.activeBufferId = fromPane.bufferIds[0] ?? null
         if (!toPane.bufferIds.includes(bufferId)) toPane.bufferIds.push(bufferId)
         toPane.activeBufferId = bufferId
         state.activePaneId = toPaneId
-        state.mostRecentActivePaneIds = [toPaneId, ...state.mostRecentActivePaneIds.filter(id => id !== toPaneId)]
-        if (fromPane.bufferIds.length === 0 && fromPaneId !== ROOT_PANE_ID && fromPaneId !== BOTTOM_PANE_ID) {
+        state.mostRecentActivePaneIds = [
+          toPaneId,
+          ...state.mostRecentActivePaneIds.filter((id) => id !== toPaneId),
+        ]
+        if (
+          fromPane.bufferIds.length === 0 &&
+          fromPaneId !== ROOT_PANE_ID &&
+          fromPaneId !== BOTTOM_PANE_ID
+        ) {
           const key = getLayoutKey(state, fromPaneId)
           const result = closeLayout(state[key], fromPaneId)
           if (result !== null) {
             state[key] = normalizeLayout(result)
             delete state.panes[fromPaneId]
-            state.mostRecentActivePaneIds = state.mostRecentActivePaneIds.filter(id => id !== fromPaneId)
+            state.mostRecentActivePaneIds = state.mostRecentActivePaneIds.filter(
+              (id) => id !== fromPaneId,
+            )
           }
         }
       })
     },
 
     setPanePreviewBuffer(paneId, bufferId) {
-      set(state => { const p = state.panes[paneId]; if (p) p.previewBufferId = bufferId })
+      set((state) => {
+        const p = state.panes[paneId]
+        if (p) p.previewBufferId = bufferId
+      })
     },
 
     setPaneBufferPinned(paneId, bufferId, pinned) {
-      set(state => {
+      set((state) => {
         const pane = state.panes[paneId]
         if (!pane) return
         if (!pane.pinnedBufferIds) pane.pinnedBufferIds = []
-        if (pinned) { if (!pane.pinnedBufferIds.includes(bufferId)) pane.pinnedBufferIds.push(bufferId) }
-        else pane.pinnedBufferIds = pane.pinnedBufferIds.filter(id => id !== bufferId)
+        if (pinned) {
+          if (!pane.pinnedBufferIds.includes(bufferId)) pane.pinnedBufferIds.push(bufferId)
+        } else pane.pinnedBufferIds = pane.pinnedBufferIds.filter((id) => id !== bufferId)
       })
     },
 
     setPaneLocked(paneId, locked) {
-      set(state => {
+      set((state) => {
         const pane = state.panes[paneId]
         if (pane) pane.locked = locked
       })
     },
 
     reorderPaneBuffers(paneId, startIndex, endIndex) {
-      set(state => {
+      set((state) => {
         const pane = state.panes[paneId]
         if (!pane) return
         const ids = [...pane.bufferIds]
@@ -233,7 +279,7 @@ export const createPaneSlice: StateCreator<
     },
 
     resizePaneSplit(splitId, index, sizes) {
-      set(state => {
+      set((state) => {
         if (findSplit(state.rootLayout, splitId)) {
           state.rootLayout = resizeFlattenedLayout(state.rootLayout, splitId, index, sizes)
         } else if (findSplit(state.bottomLayout, splitId)) {
@@ -243,7 +289,7 @@ export const createPaneSlice: StateCreator<
     },
 
     distributePaneSplit(splitId) {
-      set(state => {
+      set((state) => {
         if (findSplit(state.rootLayout, splitId)) {
           state.rootLayout = distributeSplit(state.rootLayout, splitId)
         } else {
@@ -253,22 +299,32 @@ export const createPaneSlice: StateCreator<
     },
 
     togglePaneFullscreen(paneId) {
-      set(state => { state.fullscreenPaneId = state.fullscreenPaneId === paneId ? null : paneId })
+      set((state) => {
+        state.fullscreenPaneId = state.fullscreenPaneId === paneId ? null : paneId
+      })
     },
 
     exitPaneFullscreen() {
-      set(state => { state.fullscreenPaneId = null })
+      set((state) => {
+        state.fullscreenPaneId = null
+      })
     },
 
-    getAllPaneGroups() { return Object.values(get().panes) },
-    getPaneById(paneId) { return get().panes[paneId] ?? null },
-    getPaneByBufferId(bufferId) {
-      return Object.values(get().panes).find(p => p.bufferIds.includes(bufferId)) ?? null
+    getAllPaneGroups() {
+      return Object.values(get().panes)
     },
-    getActivePane() { return get().panes[get().activePaneId] ?? null },
+    getPaneById(paneId) {
+      return get().panes[paneId] ?? null
+    },
+    getPaneByBufferId(bufferId) {
+      return Object.values(get().panes).find((p) => p.bufferIds.includes(bufferId)) ?? null
+    },
+    getActivePane() {
+      return get().panes[get().activePaneId] ?? null
+    },
 
     clearPreviewBufferEverywhere(bufferId) {
-      set(state => {
+      set((state) => {
         for (const pane of Object.values(state.panes)) {
           if (pane.previewBufferId === bufferId) pane.previewBufferId = null
         }
@@ -280,7 +336,10 @@ export const createPaneSlice: StateCreator<
       const pane = state.panes[state.activePaneId]
       if (!pane || pane.bufferIds.length <= 1) return
       const curr = pane.activeBufferId ? pane.bufferIds.indexOf(pane.activeBufferId) : -1
-      get().paneActions.activatePaneBuffer(pane.id, pane.bufferIds[(curr + 1) % pane.bufferIds.length])
+      get().paneActions.activatePaneBuffer(
+        pane.id,
+        pane.bufferIds[(curr + 1) % pane.bufferIds.length],
+      )
     },
 
     switchToPreviousBufferInPane() {
@@ -288,7 +347,10 @@ export const createPaneSlice: StateCreator<
       const pane = state.panes[state.activePaneId]
       if (!pane || pane.bufferIds.length <= 1) return
       const curr = pane.activeBufferId ? pane.bufferIds.indexOf(pane.activeBufferId) : 0
-      get().paneActions.activatePaneBuffer(pane.id, pane.bufferIds[(curr - 1 + pane.bufferIds.length) % pane.bufferIds.length])
+      get().paneActions.activatePaneBuffer(
+        pane.id,
+        pane.bufferIds[(curr - 1 + pane.bufferIds.length) % pane.bufferIds.length],
+      )
     },
 
     navigateToPane(direction) {
@@ -296,9 +358,12 @@ export const createPaneSlice: StateCreator<
       for (const layout of [state.rootLayout, state.bottomLayout]) {
         const adj = getAdjacentLeafId(layout, state.activePaneId, direction)
         if (adj && state.panes[adj]) {
-          set(s => {
+          set((s) => {
             s.activePaneId = adj
-            s.mostRecentActivePaneIds = [adj, ...s.mostRecentActivePaneIds.filter(id => id !== adj)]
+            s.mostRecentActivePaneIds = [
+              adj,
+              ...s.mostRecentActivePaneIds.filter((id) => id !== adj),
+            ]
           })
           return
         }

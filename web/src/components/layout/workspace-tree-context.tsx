@@ -1,4 +1,12 @@
-import { createContext, useCallback, useContext, useEffect, useRef, useState, type ReactNode } from 'react'
+import {
+  createContext,
+  useCallback,
+  useContext,
+  useEffect,
+  useRef,
+  useState,
+  type ReactNode,
+} from 'react'
 import { useSidebarStore } from '@/lib/store/sidebar'
 import { reparentWorkspace } from '@/lib/api/workspace'
 import { postWorkspace, deleteWorkspace as apiDeleteWorkspace } from '@/lib/api'
@@ -10,7 +18,9 @@ import { toast } from '@/components/ui/toast'
  * is added — the error is surfaced via toast.
  */
 export async function performCreateWorkspace(
-  repoId: string, branch: string, parentId?: string,
+  repoId: string,
+  branch: string,
+  parentId?: string,
 ): Promise<void> {
   try {
     const { id } = await postWorkspace(repoId, branch, parentId)
@@ -27,9 +37,10 @@ export async function performCreateWorkspace(
  * left untouched and the error is surfaced via toast.
  */
 export async function performDeleteWorkspace(wsId: string): Promise<void> {
-  const ws = useSidebarStore.getState().repos
-    .flatMap(r => r.workspaces)
-    .find(w => w.id === wsId)
+  const ws = useSidebarStore
+    .getState()
+    .repos.flatMap((r) => r.workspaces)
+    .find((w) => w.id === wsId)
   if (!ws || ws.status === 'locked') return
   try {
     await apiDeleteWorkspace(wsId)
@@ -99,9 +110,13 @@ export function WorkspaceTreeProvider({ children }: { children: ReactNode }) {
   const [hoverTargetId, setHoverTargetId] = useState<string | null>(null)
 
   const pendingRef = useRef<{
-    wsId: string; repoId: string; label: string
-    startX: number; startY: number
-    target: HTMLElement; pointerId: number
+    wsId: string
+    repoId: string
+    label: string
+    startX: number
+    startY: number
+    target: HTMLElement
+    pointerId: number
   } | null>(null)
   // Mirrors draggingWs for use inside window event handlers without stale closures.
   // Set synchronously at the point of change, not via useEffect, to avoid one-render lag.
@@ -111,34 +126,48 @@ export function WorkspaceTreeProvider({ children }: { children: ReactNode }) {
     setCreatingChildOf({ repoId, parentId })
   }, [])
 
-  const confirmCreate = useCallback((branch: string) => {
-    if (!creatingChildOf) return
-    void performCreateWorkspace(creatingChildOf.repoId, branch, creatingChildOf.parentId)
-    setCreatingChildOf(null)
-  }, [creatingChildOf])
+  const confirmCreate = useCallback(
+    (branch: string) => {
+      if (!creatingChildOf) return
+      void performCreateWorkspace(creatingChildOf.repoId, branch, creatingChildOf.parentId)
+      setCreatingChildOf(null)
+    },
+    [creatingChildOf],
+  )
 
   const cancelCreate = useCallback(() => setCreatingChildOf(null), [])
   const startRenaming = useCallback((wsId: string) => setRenamingId(wsId), [])
 
-  const confirmRename = useCallback((branch: string) => {
-    if (renamingId && branch.trim()) {
-      useSidebarStore.getState().renameWorkspace(renamingId, branch.trim())
-    }
-    setRenamingId(null)
-  }, [renamingId])
+  const confirmRename = useCallback(
+    (branch: string) => {
+      if (renamingId && branch.trim()) {
+        useSidebarStore.getState().renameWorkspace(renamingId, branch.trim())
+      }
+      setRenamingId(null)
+    },
+    [renamingId],
+  )
 
   const cancelRename = useCallback(() => setRenamingId(null), [])
 
-  const onPointerDownDrag = useCallback((wsId: string, repoId: string, label: string, e: React.PointerEvent) => {
-    if (e.button !== 0) return
-    if (draggingRef.current) return  // ignore second pointer mid-drag
-    // Don't capture here — deferring setPointerCapture to the pointermove threshold
-    // prevents it from swallowing the dblclick event used for rename.
-    pendingRef.current = {
-      wsId, repoId, label, startX: e.clientX, startY: e.clientY,
-      target: e.currentTarget as HTMLElement, pointerId: e.pointerId,
-    }
-  }, [])
+  const onPointerDownDrag = useCallback(
+    (wsId: string, repoId: string, label: string, e: React.PointerEvent) => {
+      if (e.button !== 0) return
+      if (draggingRef.current) return // ignore second pointer mid-drag
+      // Don't capture here — deferring setPointerCapture to the pointermove threshold
+      // prevents it from swallowing the dblclick event used for rename.
+      pendingRef.current = {
+        wsId,
+        repoId,
+        label,
+        startX: e.clientX,
+        startY: e.clientY,
+        target: e.currentTarget as HTMLElement,
+        pointerId: e.pointerId,
+      }
+    },
+    [],
+  )
 
   useEffect(() => {
     function onPointerMove(e: PointerEvent) {
@@ -175,7 +204,7 @@ export function WorkspaceTreeProvider({ children }: { children: ReactNode }) {
         const targetWsId = target.slice(3)
         if (targetWsId !== ws.id) {
           const repos = useSidebarStore.getState().repos
-          const targetRepo = repos.find(r => r.workspaces.some(w => w.id === targetWsId))
+          const targetRepo = repos.find((r) => r.workspaces.some((w) => w.id === targetWsId))
           if (targetRepo?.id === ws.repoId) {
             void reparentWorkspace(ws.id, targetWsId, ws.repoId)
           }
@@ -214,11 +243,22 @@ export function WorkspaceTreeProvider({ children }: { children: ReactNode }) {
   }, [])
 
   return (
-    <WorkspaceTreeContext.Provider value={{
-      creatingChildOf, startCreating, confirmCreate, cancelCreate,
-      renamingId, startRenaming, confirmRename, cancelRename,
-      draggingWs, dragPos, hoverTargetId, onPointerDownDrag,
-    }}>
+    <WorkspaceTreeContext.Provider
+      value={{
+        creatingChildOf,
+        startCreating,
+        confirmCreate,
+        cancelCreate,
+        renamingId,
+        startRenaming,
+        confirmRename,
+        cancelRename,
+        draggingWs,
+        dragPos,
+        hoverTargetId,
+        onPointerDownDrag,
+      }}
+    >
       {children}
     </WorkspaceTreeContext.Provider>
   )

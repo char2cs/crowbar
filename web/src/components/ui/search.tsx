@@ -1,4 +1,4 @@
-import { cva } from "class-variance-authority";
+import { cva } from 'class-variance-authority'
 import {
   TextAa as CaseSensitive,
   CaretDown as ChevronDown,
@@ -9,89 +9,89 @@ import {
   MagnifyingGlass as Search,
   TextT as WholeWord,
   X,
-} from "@phosphor-icons/react";
-import type { ReactNode, RefObject } from "react";
-import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
-import { cn } from "@/utils/cn";
+} from '@phosphor-icons/react'
+import type { ReactNode, RefObject } from 'react'
+import { Button } from '@/components/ui/button'
+import { Input } from '@/components/ui/input'
+import { cn } from '@/utils/cn'
 
 export interface SearchToggleOption {
-  id: string;
-  label: string;
-  icon: ReactNode;
-  active: boolean;
-  onToggle: () => void;
+  id: string
+  label: string
+  icon: ReactNode
+  active: boolean
+  onToggle: () => void
 }
 
 interface SearchPopoverProps {
-  value: string;
-  onChange: (value: string) => void;
-  onKeyDown?: (event: React.KeyboardEvent<HTMLInputElement>) => void;
-  onClose: () => void;
-  placeholder: string;
+  value: string
+  onChange: (value: string) => void
+  onKeyDown?: (event: React.KeyboardEvent<HTMLInputElement>) => void
+  onClose: () => void
+  placeholder: string
   /** Stable `name` for the search input (a11y: form fields need an id or name). */
-  inputName?: string;
-  inputRef?: RefObject<HTMLInputElement | null>;
-  matchLabel?: string | null;
-  matchTone?: "default" | "warning";
-  onNext?: () => void;
-  onPrevious?: () => void;
-  canNavigate?: boolean;
-  options?: SearchToggleOption[];
-  leadingControl?: ReactNode;
-  extraActions?: ReactNode;
-  secondaryRow?: ReactNode;
-  className?: string;
+  inputName?: string
+  inputRef?: RefObject<HTMLInputElement | null>
+  matchLabel?: string | null
+  matchTone?: 'default' | 'warning'
+  onNext?: () => void
+  onPrevious?: () => void
+  canNavigate?: boolean
+  options?: SearchToggleOption[]
+  leadingControl?: ReactNode
+  extraActions?: ReactNode
+  secondaryRow?: ReactNode
+  className?: string
 }
 
 const searchSurfaceVariants = cva(
-  "w-[320px] rounded-xl border border-border/70 bg-background/95 p-1.5 shadow-[0_16px_36px_-28px_rgba(0,0,0,0.55)] backdrop-blur-sm",
-);
+  'w-[320px] rounded-xl border border-border/70 bg-background/95 p-1.5 shadow-[0_16px_36px_-28px_rgba(0,0,0,0.55)] backdrop-blur-sm',
+)
 
 const searchIconButtonVariants = cva(
-  "flex size-6 items-center justify-center rounded-lg border border-transparent text-muted-foreground transition-colors hover:border-border/70 hover:bg-muted hover:text-foreground",
+  'flex size-6 items-center justify-center rounded-lg border border-transparent text-muted-foreground transition-colors hover:border-border/70 hover:bg-muted hover:text-foreground',
   {
     variants: {
       disabled: {
-        true: "cursor-not-allowed opacity-50",
-        false: "",
+        true: 'cursor-not-allowed opacity-50',
+        false: '',
       },
     },
     defaultVariants: {
       disabled: false,
     },
   },
-);
+)
 
 const searchToggleButtonVariants = cva(
-  "flex size-6 items-center justify-center rounded-lg border border-transparent transition-colors hover:border-border/70 hover:bg-muted",
+  'flex size-6 items-center justify-center rounded-lg border border-transparent transition-colors hover:border-border/70 hover:bg-muted',
   {
     variants: {
       active: {
-        true: "border-border/70 bg-muted text-foreground",
-        false: "text-muted-foreground",
+        true: 'border-border/70 bg-muted text-foreground',
+        false: 'text-muted-foreground',
       },
     },
     defaultVariants: {
       active: false,
     },
   },
-);
+)
 
 const searchActionButtonVariants = cva(
-  "ui-font ui-text-sm flex h-8 items-center justify-center rounded-lg border border-transparent px-2.5 text-muted-foreground transition-colors hover:border-border/70 hover:bg-muted hover:text-foreground",
+  'ui-font ui-text-sm flex h-8 items-center justify-center rounded-lg border border-transparent px-2.5 text-muted-foreground transition-colors hover:border-border/70 hover:bg-muted hover:text-foreground',
   {
     variants: {
       disabled: {
-        true: "cursor-not-allowed opacity-50",
-        false: "",
+        true: 'cursor-not-allowed opacity-50',
+        false: '',
       },
     },
     defaultVariants: {
       disabled: false,
     },
   },
-);
+)
 
 export function SearchPopover({
   value,
@@ -102,7 +102,7 @@ export function SearchPopover({
   inputName,
   inputRef,
   matchLabel,
-  matchTone = "default",
+  matchTone = 'default',
   onNext,
   onPrevious,
   canNavigate = true,
@@ -132,7 +132,7 @@ export function SearchPopover({
           {value && (
             <Button
               type="button"
-              onClick={() => onChange("")}
+              onClick={() => onChange('')}
               variant="ghost"
               compact
               className="-translate-y-1/2 absolute top-1/2 right-1"
@@ -146,8 +146,8 @@ export function SearchPopover({
         {matchLabel && (
           <span
             className={cn(
-              "ui-font ui-text-sm shrink-0",
-              matchTone === "warning" ? "text-amber-400" : "text-muted-foreground",
+              'ui-font ui-text-sm shrink-0',
+              matchTone === 'warning' ? 'text-amber-400' : 'text-muted-foreground',
             )}
           >
             {matchLabel}
@@ -229,21 +229,21 @@ export function SearchPopover({
 
       {secondaryRow && <div className="mt-1.5">{secondaryRow}</div>}
     </div>
-  );
+  )
 }
 
 export function SearchReplaceToggle({
   isExpanded,
   onToggle,
-  expandedLabel = "Hide replace",
-  collapsedLabel = "Show replace",
+  expandedLabel = 'Hide replace',
+  collapsedLabel = 'Show replace',
 }: {
-  isExpanded: boolean;
-  onToggle: () => void;
-  expandedLabel?: string;
-  collapsedLabel?: string;
+  isExpanded: boolean
+  onToggle: () => void
+  expandedLabel?: string
+  collapsedLabel?: string
 }) {
-  const label = isExpanded ? expandedLabel : collapsedLabel;
+  const label = isExpanded ? expandedLabel : collapsedLabel
 
   return (
     <Button
@@ -255,9 +255,9 @@ export function SearchReplaceToggle({
       aria-label={label}
       compact
     >
-      <ChevronRight className={cn("transition-transform", isExpanded && "rotate-90")} />
+      <ChevronRight className={cn('transition-transform', isExpanded && 'rotate-90')} />
     </Button>
-  );
+  )
 }
 
 export function SearchReplaceRow({
@@ -271,15 +271,15 @@ export function SearchReplaceRow({
   canReplaceAll = canReplace,
   replaceAllTooltip,
 }: {
-  value: string;
-  onChange: (value: string) => void;
-  onKeyDown?: (event: React.KeyboardEvent<HTMLInputElement>) => void;
-  inputRef?: RefObject<HTMLInputElement | null>;
-  onReplace: () => void;
-  onReplaceAll: () => void;
-  canReplace: boolean;
-  canReplaceAll?: boolean;
-  replaceAllTooltip?: string;
+  value: string
+  onChange: (value: string) => void
+  onKeyDown?: (event: React.KeyboardEvent<HTMLInputElement>) => void
+  inputRef?: RefObject<HTMLInputElement | null>
+  onReplace: () => void
+  onReplaceAll: () => void
+  canReplace: boolean
+  canReplaceAll?: boolean
+  replaceAllTooltip?: string
 }) {
   return (
     <div className="flex items-center gap-1.5 border-border/60 border-t pt-1.5">
@@ -319,19 +319,19 @@ export function SearchReplaceRow({
         All
       </Button>
     </div>
-  );
+  )
 }
 
 interface SearchInputProps {
-  value: string;
-  onChange: (value: string) => void;
-  onKeyDown?: (event: React.KeyboardEvent<HTMLInputElement>) => void;
-  placeholder: string;
-  inputRef?: RefObject<HTMLInputElement | null>;
-  matchLabel?: string | null;
-  options?: SearchToggleOption[];
-  extraActions?: ReactNode;
-  className?: string;
+  value: string
+  onChange: (value: string) => void
+  onKeyDown?: (event: React.KeyboardEvent<HTMLInputElement>) => void
+  placeholder: string
+  inputRef?: RefObject<HTMLInputElement | null>
+  matchLabel?: string | null
+  options?: SearchToggleOption[]
+  extraActions?: ReactNode
+  className?: string
 }
 
 export function SearchInput({
@@ -346,7 +346,7 @@ export function SearchInput({
   className,
 }: SearchInputProps) {
   return (
-    <div className={cn("flex min-w-0 flex-1 items-center gap-1.5", className)}>
+    <div className={cn('flex min-w-0 flex-1 items-center gap-1.5', className)}>
       <div className="relative min-w-0 flex-1">
         <Search className="-translate-y-1/2 pointer-events-none absolute top-1/2 left-2.5 text-muted-foreground" />
         <Input
@@ -361,7 +361,7 @@ export function SearchInput({
         {value && (
           <Button
             type="button"
-            onClick={() => onChange("")}
+            onClick={() => onChange('')}
             variant="ghost"
             compact
             className="-translate-y-1/2 absolute top-1/2 right-1"
@@ -400,7 +400,7 @@ export function SearchInput({
 
       {extraActions}
     </div>
-  );
+  )
 }
 
 export const SEARCH_TOGGLE_ICONS = {
@@ -408,4 +408,4 @@ export const SEARCH_TOGGLE_ICONS = {
   wholeWord: <WholeWord />,
   regex: <Regex />,
   preserveCase: <span className="ui-font ui-text-xs font-semibold">Aa</span>,
-};
+}

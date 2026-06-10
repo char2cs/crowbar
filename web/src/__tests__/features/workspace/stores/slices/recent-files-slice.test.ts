@@ -1,15 +1,22 @@
 import { describe, it, expect, beforeEach } from 'vitest'
 import { createStore } from 'zustand'
 import { immer } from 'zustand/middleware/immer'
-import { createRecentFilesSlice, type RecentFilesSlice } from '@/features/workspace/stores/slices/recent-files-slice'
+import {
+  createRecentFilesSlice,
+  type RecentFilesSlice,
+} from '@/features/workspace/stores/slices/recent-files-slice'
 
 function makeStore() {
-  return createStore<RecentFilesSlice>()(immer((set, get) => createRecentFilesSlice(set as any, get as any, {} as any)))
+  return createStore<RecentFilesSlice>()(
+    immer((set, get) => createRecentFilesSlice(set as any, get as any, {} as any)),
+  )
 }
 
 describe('recent-files-slice', () => {
   let store: ReturnType<typeof makeStore>
-  beforeEach(() => { store = makeStore() })
+  beforeEach(() => {
+    store = makeStore()
+  })
 
   it('starts with no recent files', () => {
     expect(store.getState().recentFilesActions.getRecentFiles()).toHaveLength(0)

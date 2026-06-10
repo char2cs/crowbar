@@ -12,19 +12,25 @@ import {
   Trash as Trash2,
   Upload,
   X,
-} from "@phosphor-icons/react";
-import { useEffect, useMemo, useState } from "react";
-import { Badge } from "@/components/ui/badge";
-import { Button } from "@/components/ui/button";
-import { Checkbox } from "@/components/ui/checkbox";
-import { CommandEmpty, CommandList } from "@/components/ui/command";
-import { Input } from "@/components/ui/input";
-import { primitiveConfirm } from "@/components/ui/primitive-dialog-service";
-import { Select, SelectTrigger, SelectValue, SelectContent, SelectItem } from "@/components/ui/select";
-import { toast } from "@/components/ui/toast";
-import { formatShortDate } from "@/utils/date";
-import { matchesSearchQuery } from "@/utils/search-match";
-import { getRemotes } from "../api/git-remotes-api";
+} from '@phosphor-icons/react'
+import { useEffect, useMemo, useState } from 'react'
+import { Badge } from '@/components/ui/badge'
+import { Button } from '@/components/ui/button'
+import { Checkbox } from '@/components/ui/checkbox'
+import { CommandEmpty, CommandList } from '@/components/ui/command'
+import { Input } from '@/components/ui/input'
+import { primitiveConfirm } from '@/components/ui/primitive-dialog-service'
+import {
+  Select,
+  SelectTrigger,
+  SelectValue,
+  SelectContent,
+  SelectItem,
+} from '@/components/ui/select'
+import { toast } from '@/components/ui/toast'
+import { formatShortDate } from '@/utils/date'
+import { matchesSearchQuery } from '@/utils/search-match'
+import { getRemotes } from '../api/git-remotes-api'
 import {
   checkoutTag,
   createTag,
@@ -32,16 +38,16 @@ import {
   deleteTag,
   getTags,
   pushTag,
-} from "../api/git-tags-api";
-import type { GitRemote, GitTag } from "../types/git-types";
-import GitCommandSurface from "./git-command-surface";
+} from '../api/git-tags-api'
+import type { GitRemote, GitTag } from '../types/git-types'
+import GitCommandSurface from './git-command-surface'
 
 interface GitTagManagerProps {
-  isOpen: boolean;
-  onClose: () => void;
-  repoPath?: string;
-  onRefresh?: () => void;
-  onViewTagComparison?: (baseRef: string, targetRef: string, title: string) => void;
+  isOpen: boolean
+  onClose: () => void
+  repoPath?: string
+  onRefresh?: () => void
+  onViewTagComparison?: (baseRef: string, targetRef: string, title: string) => void
 }
 
 const GitTagManager = ({
@@ -51,65 +57,65 @@ const GitTagManager = ({
   onRefresh,
   onViewTagComparison,
 }: GitTagManagerProps) => {
-  const [query, setQuery] = useState("");
-  const [tags, setTags] = useState<GitTag[]>([]);
-  const [remotes, setRemotes] = useState<GitRemote[]>([]);
-  const [isLoading, setIsLoading] = useState(false);
-  const [isCreateOpen, setIsCreateOpen] = useState(false);
-  const [newTagName, setNewTagName] = useState("");
-  const [newTagMessage, setNewTagMessage] = useState("");
-  const [newTagCommit, setNewTagCommit] = useState("");
-  const [newTagSigned, setNewTagSigned] = useState(false);
-  const [selectedRemote, setSelectedRemote] = useState("origin");
-  const [expandedTagName, setExpandedTagName] = useState<string | null>(null);
-  const [actionLoading, setActionLoading] = useState<Set<string>>(new Set());
+  const [query, setQuery] = useState('')
+  const [tags, setTags] = useState<GitTag[]>([])
+  const [remotes, setRemotes] = useState<GitRemote[]>([])
+  const [isLoading, setIsLoading] = useState(false)
+  const [isCreateOpen, setIsCreateOpen] = useState(false)
+  const [newTagName, setNewTagName] = useState('')
+  const [newTagMessage, setNewTagMessage] = useState('')
+  const [newTagCommit, setNewTagCommit] = useState('')
+  const [newTagSigned, setNewTagSigned] = useState(false)
+  const [selectedRemote, setSelectedRemote] = useState('origin')
+  const [expandedTagName, setExpandedTagName] = useState<string | null>(null)
+  const [actionLoading, setActionLoading] = useState<Set<string>>(new Set())
 
   useEffect(() => {
-    if (!isOpen) return;
-    setQuery("");
-    setIsCreateOpen(false);
-    setExpandedTagName(null);
-    void loadTags();
-    void loadRemotes();
-  }, [isOpen, repoPath]);
+    if (!isOpen) return
+    setQuery('')
+    setIsCreateOpen(false)
+    setExpandedTagName(null)
+    void loadTags()
+    void loadRemotes()
+  }, [isOpen, repoPath])
 
   const filteredTags = useMemo(() => {
-    if (!query.trim()) return tags;
+    if (!query.trim()) return tags
     return tags.filter((tag) =>
       matchesSearchQuery(query, [
         tag.name,
         tag.commit,
-        tag.message ?? "",
-        tag.is_annotated ? "annotated" : "lightweight",
+        tag.message ?? '',
+        tag.is_annotated ? 'annotated' : 'lightweight',
       ]),
-    );
-  }, [query, tags]);
+    )
+  }, [query, tags])
 
   const loadTags = async () => {
-    if (!repoPath) return;
+    if (!repoPath) return
 
-    setIsLoading(true);
+    setIsLoading(true)
     try {
-      setTags(await getTags(repoPath));
+      setTags(await getTags(repoPath))
     } finally {
-      setIsLoading(false);
+      setIsLoading(false)
     }
-  };
+  }
 
   const loadRemotes = async () => {
-    if (!repoPath) return;
+    if (!repoPath) return
 
-    const remoteList = await getRemotes(repoPath);
-    setRemotes(remoteList);
+    const remoteList = await getRemotes(repoPath)
+    setRemotes(remoteList)
     if (remoteList.length > 0 && !remoteList.some((remote) => remote.name === selectedRemote)) {
-      setSelectedRemote(remoteList[0].name);
+      setSelectedRemote(remoteList[0].name)
     }
-  };
+  }
 
   const handleCreateTag = async () => {
-    if (!repoPath || !newTagName.trim()) return;
+    if (!repoPath || !newTagName.trim()) return
 
-    setIsLoading(true);
+    setIsLoading(true)
     try {
       const success = await createTag(
         repoPath,
@@ -117,104 +123,104 @@ const GitTagManager = ({
         newTagMessage.trim() || undefined,
         newTagCommit.trim() || undefined,
         newTagSigned,
-      );
-      if (!success) return;
-      setNewTagName("");
-      setNewTagMessage("");
-      setNewTagCommit("");
-      setNewTagSigned(false);
-      setIsCreateOpen(false);
-      await loadTags();
-      onRefresh?.();
+      )
+      if (!success) return
+      setNewTagName('')
+      setNewTagMessage('')
+      setNewTagCommit('')
+      setNewTagSigned(false)
+      setIsCreateOpen(false)
+      await loadTags()
+      onRefresh?.()
     } finally {
-      setIsLoading(false);
+      setIsLoading(false)
     }
-  };
+  }
 
   const handleTagRemoteAction = async (
     tagName: string,
     actionName: string,
     action: () => Promise<{ success: boolean; error?: string }>,
   ) => {
-    if (!repoPath) return;
+    if (!repoPath) return
 
-    const actionKey = `${actionName}:${tagName}`;
-    setActionLoading((prev) => new Set(prev).add(actionKey));
+    const actionKey = `${actionName}:${tagName}`
+    setActionLoading((prev) => new Set(prev).add(actionKey))
     try {
-      const result = await action();
+      const result = await action()
       if (result.success) {
-        toast.success(`${actionName} completed`);
-        onRefresh?.();
+        toast.success(`${actionName} completed`)
+        onRefresh?.()
       } else {
-        toast.error(result.error || `${actionName} failed`);
+        toast.error(result.error || `${actionName} failed`)
       }
     } finally {
       setActionLoading((prev) => {
-        const next = new Set(prev);
-        next.delete(actionKey);
-        return next;
-      });
+        const next = new Set(prev)
+        next.delete(actionKey)
+        return next
+      })
     }
-  };
+  }
 
   const handleCheckoutTag = async (tagName: string) => {
-    if (!repoPath) return;
+    if (!repoPath) return
     if (
       !(await primitiveConfirm(`Checkout ${tagName} in detached HEAD?`, {
-        title: "Checkout Tag",
-        confirmLabel: "Checkout",
+        title: 'Checkout Tag',
+        confirmLabel: 'Checkout',
       }))
     ) {
-      return;
+      return
     }
 
-    const actionKey = `checkout:${tagName}`;
-    setActionLoading((prev) => new Set(prev).add(actionKey));
+    const actionKey = `checkout:${tagName}`
+    setActionLoading((prev) => new Set(prev).add(actionKey))
     try {
-      const result = await checkoutTag(repoPath, tagName);
+      const result = await checkoutTag(repoPath, tagName)
       if (result.success) {
-        toast.success(result.message);
-        onRefresh?.();
-        onClose();
+        toast.success(result.message)
+        onRefresh?.()
+        onClose()
       } else {
-        toast.error(result.message);
+        toast.error(result.message)
       }
     } finally {
       setActionLoading((prev) => {
-        const next = new Set(prev);
-        next.delete(actionKey);
-        return next;
-      });
+        const next = new Set(prev)
+        next.delete(actionKey)
+        return next
+      })
     }
-  };
+  }
 
   const handleDeleteTag = async (tagName: string) => {
-    if (!repoPath) return;
+    if (!repoPath) return
 
-    setActionLoading((prev) => new Set(prev).add(tagName));
+    setActionLoading((prev) => new Set(prev).add(tagName))
     try {
-      const success = await deleteTag(repoPath, tagName);
-      if (!success) return;
-      await loadTags();
-      onRefresh?.();
+      const success = await deleteTag(repoPath, tagName)
+      if (!success) return
+      await loadTags()
+      onRefresh?.()
     } finally {
       setActionLoading((prev) => {
-        const next = new Set(prev);
-        next.delete(tagName);
-        return next;
-      });
+        const next = new Set(prev)
+        next.delete(tagName)
+        return next
+      })
     }
-  };
+  }
 
   const handleCopy = async (value: string, label: string) => {
     try {
-      await writeText(value);
-      toast.success(`${label} copied`);
+      await writeText(value)
+      toast.success(`${label} copied`)
     } catch (error) {
-      console.error(`Failed to copy ${label.toLowerCase()}:`, error);
-      toast.error(`Failed to copy ${label.toLowerCase()}`);
+      console.error(`Failed to copy ${label.toLowerCase()}:`, error)
+      toast.error(`Failed to copy ${label.toLowerCase()}`)
     }
-  };
+  }
 
   return (
     <GitCommandSurface
@@ -223,7 +229,7 @@ const GitTagManager = ({
       query={query}
       onQueryChange={setQuery}
       placeholder="Search tags..."
-      meta={`${tags.length} tag${tags.length === 1 ? "" : "s"}`}
+      meta={`${tags.length} tag${tags.length === 1 ? '' : 's'}`}
     >
       <div className="border-border/70 border-b px-3 py-2">
         {!isCreateOpen ? (
@@ -261,8 +267,8 @@ const GitTagManager = ({
                 size="sm"
                 className="w-full"
                 onKeyDown={(e) => {
-                  if (e.key === "Enter") {
-                    void handleCreateTag();
+                  if (e.key === 'Enter') {
+                    void handleCreateTag()
                   }
                 }}
               />
@@ -274,8 +280,8 @@ const GitTagManager = ({
                 size="sm"
                 className="col-span-2 w-full"
                 onKeyDown={(e) => {
-                  if (e.key === "Enter") {
-                    void handleCreateTag();
+                  if (e.key === 'Enter') {
+                    void handleCreateTag()
                   }
                 }}
               />
@@ -291,7 +297,7 @@ const GitTagManager = ({
                 compact
                 variant="default"
               >
-                {isLoading ? "Creating..." : "Create"}
+                {isLoading ? 'Creating...' : 'Create'}
               </Button>
               <Button
                 type="button"
@@ -312,19 +318,19 @@ const GitTagManager = ({
         {isLoading && tags.length === 0 ? (
           <CommandEmpty>Loading tags...</CommandEmpty>
         ) : filteredTags.length === 0 ? (
-          <CommandEmpty>{query.trim() ? "No matching tags" : "No tags found"}</CommandEmpty>
+          <CommandEmpty>{query.trim() ? 'No matching tags' : 'No tags found'}</CommandEmpty>
         ) : (
           filteredTags.map((tag) => {
-            const isActionLoading = actionLoading.has(tag.name);
-            const shortCommit = tag.commit.substring(0, 7);
-            const tagIndex = tags.findIndex((candidate) => candidate.name === tag.name);
-            const previousTag = tagIndex >= 0 ? tags[tagIndex + 1] : undefined;
-            const isExpanded = expandedTagName === tag.name;
+            const isActionLoading = actionLoading.has(tag.name)
+            const shortCommit = tag.commit.substring(0, 7)
+            const tagIndex = tags.findIndex((candidate) => candidate.name === tag.name)
+            const previousTag = tagIndex >= 0 ? tags[tagIndex + 1] : undefined
+            const isExpanded = expandedTagName === tag.name
             const selectedRemoteName = remotes.some((remote) => remote.name === selectedRemote)
               ? selectedRemote
-              : remotes[0]?.name;
+              : remotes[0]?.name
             const toggleTagDetails = () =>
-              setExpandedTagName((current) => (current === tag.name ? null : tag.name));
+              setExpandedTagName((current) => (current === tag.name ? null : tag.name))
 
             return (
               <div
@@ -336,10 +342,10 @@ const GitTagManager = ({
                   tabIndex={0}
                   onClick={toggleTagDetails}
                   onKeyDown={(event) => {
-                    if (event.target !== event.currentTarget) return;
-                    if (event.key !== "Enter" && event.key !== " ") return;
-                    event.preventDefault();
-                    toggleTagDetails();
+                    if (event.target !== event.currentTarget) return
+                    if (event.key !== 'Enter' && event.key !== ' ') return
+                    event.preventDefault()
+                    toggleTagDetails()
                   }}
                   className="flex min-h-12 w-full cursor-pointer items-center gap-2 px-2.5 py-2 outline-none"
                   aria-expanded={isExpanded}
@@ -384,8 +390,8 @@ const GitTagManager = ({
                   <Button
                     type="button"
                     onClick={(event) => {
-                      event.stopPropagation();
-                      void handleCopy(tag.name, "Tag name");
+                      event.stopPropagation()
+                      void handleCopy(tag.name, 'Tag name')
                     }}
                     variant="ghost"
                     compact
@@ -398,8 +404,8 @@ const GitTagManager = ({
                   <Button
                     type="button"
                     onClick={(event) => {
-                      event.stopPropagation();
-                      void handleCopy(tag.commit, "Commit SHA");
+                      event.stopPropagation()
+                      void handleCopy(tag.commit, 'Commit SHA')
                     }}
                     variant="ghost"
                     compact
@@ -412,14 +418,14 @@ const GitTagManager = ({
                   <Button
                     type="button"
                     onClick={(event) => {
-                      event.stopPropagation();
-                      if (!previousTag) return;
+                      event.stopPropagation()
+                      if (!previousTag) return
                       onViewTagComparison?.(
                         previousTag.name,
                         tag.name,
                         `${previousTag.name}..${tag.name}`,
-                      );
-                      onClose();
+                      )
+                      onClose()
                     }}
                     disabled={!previousTag}
                     variant="ghost"
@@ -433,9 +439,9 @@ const GitTagManager = ({
                   <Button
                     type="button"
                     onClick={(event) => {
-                      event.stopPropagation();
-                      onViewTagComparison?.("HEAD", tag.name, `HEAD..${tag.name}`);
-                      onClose();
+                      event.stopPropagation()
+                      onViewTagComparison?.('HEAD', tag.name, `HEAD..${tag.name}`)
+                      onClose()
                     }}
                     variant="ghost"
                     compact
@@ -448,8 +454,8 @@ const GitTagManager = ({
                   <Button
                     type="button"
                     onClick={(event) => {
-                      event.stopPropagation();
-                      void handleCheckoutTag(tag.name);
+                      event.stopPropagation()
+                      void handleCheckoutTag(tag.name)
                     }}
                     disabled={actionLoading.has(`checkout:${tag.name}`)}
                     variant="ghost"
@@ -463,17 +469,17 @@ const GitTagManager = ({
                   <Button
                     type="button"
                     onClick={(event) => {
-                      event.stopPropagation();
-                      if (!repoPath || !selectedRemoteName) return;
-                      void handleTagRemoteAction(tag.name, "Push tag", () =>
+                      event.stopPropagation()
+                      if (!repoPath || !selectedRemoteName) return
+                      void handleTagRemoteAction(tag.name, 'Push tag', () =>
                         pushTag(repoPath, tag.name, selectedRemoteName),
-                      );
+                      )
                     }}
                     disabled={!selectedRemoteName || actionLoading.has(`Push tag:${tag.name}`)}
                     variant="ghost"
                     compact
                     className="text-muted-foreground disabled:opacity-50"
-                    tooltip={selectedRemoteName ? `Push tag to ${selectedRemoteName}` : "No remote"}
+                    tooltip={selectedRemoteName ? `Push tag to ${selectedRemoteName}` : 'No remote'}
                     aria-label={`Push ${tag.name}`}
                   >
                     <Upload />
@@ -481,17 +487,17 @@ const GitTagManager = ({
                   <Button
                     type="button"
                     onClick={(event) => {
-                      event.stopPropagation();
-                      if (!repoPath || !selectedRemoteName) return;
+                      event.stopPropagation()
+                      if (!repoPath || !selectedRemoteName) return
                       void primitiveConfirm(`Delete ${tag.name} from ${selectedRemoteName}?`, {
-                        title: "Delete Remote Tag",
-                        confirmLabel: "Delete",
+                        title: 'Delete Remote Tag',
+                        confirmLabel: 'Delete',
                       }).then((confirmed) => {
-                        if (!confirmed) return;
-                        void handleTagRemoteAction(tag.name, "Delete remote tag", () =>
+                        if (!confirmed) return
+                        void handleTagRemoteAction(tag.name, 'Delete remote tag', () =>
                           deleteRemoteTag(repoPath, tag.name, selectedRemoteName),
-                        );
-                      });
+                        )
+                      })
                     }}
                     disabled={
                       !selectedRemoteName || actionLoading.has(`Delete remote tag:${tag.name}`)
@@ -500,7 +506,7 @@ const GitTagManager = ({
                     compact
                     className="text-red-400 hover:bg-red-500/10 hover:text-red-300 disabled:opacity-50"
                     tooltip={
-                      selectedRemoteName ? `Delete tag from ${selectedRemoteName}` : "No remote"
+                      selectedRemoteName ? `Delete tag from ${selectedRemoteName}` : 'No remote'
                     }
                     aria-label={`Delete ${tag.name} from remote`}
                   >
@@ -509,8 +515,8 @@ const GitTagManager = ({
                   <Button
                     type="button"
                     onClick={(event) => {
-                      event.stopPropagation();
-                      void handleDeleteTag(tag.name);
+                      event.stopPropagation()
+                      void handleDeleteTag(tag.name)
                     }}
                     disabled={isActionLoading}
                     variant="ghost"
@@ -526,12 +532,14 @@ const GitTagManager = ({
                   <div className="border-border/50 border-t px-2.5 py-2">
                     <div className="grid gap-1.5 pl-9">
                       <div className="flex min-w-0 items-center gap-2">
-                        <span className="ui-text-xs w-14 shrink-0 text-muted-foreground">Commit</span>
+                        <span className="ui-text-xs w-14 shrink-0 text-muted-foreground">
+                          Commit
+                        </span>
                         <button
                           type="button"
                           onClick={(event) => {
-                            event.stopPropagation();
-                            void handleCopy(tag.commit, "Commit SHA");
+                            event.stopPropagation()
+                            void handleCopy(tag.commit, 'Commit SHA')
                           }}
                           className="ui-font ui-text-xs min-w-0 truncate text-foreground hover:text-accent"
                           title={tag.commit}
@@ -541,7 +549,9 @@ const GitTagManager = ({
                       </div>
                       {tag.date ? (
                         <div className="flex min-w-0 items-center gap-2">
-                          <span className="ui-text-xs w-14 shrink-0 text-muted-foreground">Date</span>
+                          <span className="ui-text-xs w-14 shrink-0 text-muted-foreground">
+                            Date
+                          </span>
                           <span className="ui-text-xs truncate text-foreground">
                             {formatShortDate(tag.date)}
                           </span>
@@ -550,7 +560,7 @@ const GitTagManager = ({
                       <div className="flex min-w-0 items-center gap-2">
                         <span className="ui-text-xs w-14 shrink-0 text-muted-foreground">Type</span>
                         <Badge variant="secondary" size="sm" className="ui-text-xs">
-                          {tag.is_annotated ? "Annotated" : "Lightweight"}
+                          {tag.is_annotated ? 'Annotated' : 'Lightweight'}
                         </Badge>
                       </div>
                       {tag.message ? (
@@ -567,13 +577,18 @@ const GitTagManager = ({
                   </div>
                 ) : null}
               </div>
-            );
+            )
           })
         )}
       </CommandList>
       {remotes.length > 0 ? (
         <div className="border-border/70 border-t px-3 py-2">
-          <Select value={selectedRemote} onValueChange={(val) => { if (val) setSelectedRemote(val) }}>
+          <Select
+            value={selectedRemote}
+            onValueChange={(val) => {
+              if (val) setSelectedRemote(val)
+            }}
+          >
             <SelectTrigger size="sm" aria-label="Tag remote">
               <SelectValue />
             </SelectTrigger>
@@ -588,7 +603,7 @@ const GitTagManager = ({
         </div>
       ) : null}
     </GitCommandSurface>
-  );
-};
+  )
+}
 
-export default GitTagManager;
+export default GitTagManager

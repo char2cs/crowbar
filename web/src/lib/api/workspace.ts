@@ -24,10 +24,10 @@ export async function handleWorkspaceReparented(
 ): Promise<void> {
   useSidebarStore.getState().reparentWorkspace(wsId, newParentId)
 
-  const repo = useSidebarStore.getState().repos.find(r => r.id === repoId)
+  const repo = useSidebarStore.getState().repos.find((r) => r.id === repoId)
   if (!repo) return
 
-  const entries = repo.workspaces.map(w => ({
+  const entries = repo.workspaces.map((w) => ({
     wsId: w.id,
     ...(w.parentId !== undefined && { parentId: w.parentId }),
   }))

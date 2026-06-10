@@ -1,15 +1,15 @@
-import { create } from "zustand";
-import { persist } from "zustand/middleware";
-import { createSelectors } from "@/utils/zustand-selectors";
+import { create } from 'zustand'
+import { persist } from 'zustand/middleware'
+import { createSelectors } from '@/utils/zustand-selectors'
 
 interface MinimapState {
-  scale: number;
-  width: number;
+  scale: number
+  width: number
 
   actions: {
-    setScale: (scale: number) => void;
-    setWidth: (width: number) => void;
-  };
+    setScale: (scale: number) => void
+    setWidth: (width: number) => void
+  }
 }
 
 export const useMinimapStore = createSelectors(
@@ -25,7 +25,7 @@ export const useMinimapStore = createSelectors(
         },
       }),
       {
-        name: "editor-minimap",
+        name: 'editor-minimap',
         partialize: (state) => ({
           scale: state.scale,
           width: state.width,
@@ -33,4 +33,4 @@ export const useMinimapStore = createSelectors(
       },
     ),
   ),
-);
+)

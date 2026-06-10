@@ -1,43 +1,43 @@
-import * as TooltipPrimitive from "@radix-ui/react-tooltip";
-import { cva } from "class-variance-authority";
-import type React from "react";
-import Keybinding from "@/components/ui/keybinding";
-import { cn } from "@/utils/cn";
+import * as TooltipPrimitive from '@radix-ui/react-tooltip'
+import { cva } from 'class-variance-authority'
+import type React from 'react'
+import Keybinding from '@/components/ui/keybinding'
+import { cn } from '@/utils/cn'
 
 interface TooltipProps {
-  content: string;
-  children: React.ReactNode;
-  side?: "top" | "bottom" | "left" | "right";
-  shortcut?: string;
-  className?: string;
-  triggerClassName?: string;
+  content: string
+  children: React.ReactNode
+  side?: 'top' | 'bottom' | 'left' | 'right'
+  shortcut?: string
+  className?: string
+  triggerClassName?: string
 }
 
 export const tooltipContentBase =
-  "ui-text-sm pointer-events-none z-[99999] whitespace-nowrap rounded-lg border border-border/70 bg-card/95 px-2.5 py-1.5 text-foreground shadow-lg backdrop-blur-sm animate-in fade-in-0 zoom-in-95 data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=closed]:zoom-out-95 data-[side=bottom]:slide-in-from-top-1 data-[side=left]:slide-in-from-right-1 data-[side=right]:slide-in-from-left-1 data-[side=top]:slide-in-from-bottom-1";
+  'ui-text-sm pointer-events-none z-[99999] whitespace-nowrap rounded-lg border border-border/70 bg-card/95 px-2.5 py-1.5 text-foreground shadow-lg backdrop-blur-sm animate-in fade-in-0 zoom-in-95 data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=closed]:zoom-out-95 data-[side=bottom]:slide-in-from-top-1 data-[side=left]:slide-in-from-right-1 data-[side=right]:slide-in-from-left-1 data-[side=top]:slide-in-from-bottom-1'
 
-const tooltipContentVariants = cva(tooltipContentBase);
+const tooltipContentVariants = cva(tooltipContentBase)
 
 export function TooltipProvider({ children }: { children: React.ReactNode }) {
   return (
     <TooltipPrimitive.Provider delayDuration={150} skipDelayDuration={100} disableHoverableContent>
       {children}
     </TooltipPrimitive.Provider>
-  );
+  )
 }
 
-export const Tooltip = TooltipPrimitive.Root;
-export const TooltipTrigger = TooltipPrimitive.Trigger;
-export const TooltipContent = TooltipPrimitive.Content;
-export const TooltipPortal = TooltipPrimitive.Portal;
+export const Tooltip = TooltipPrimitive.Root
+export const TooltipTrigger = TooltipPrimitive.Trigger
+export const TooltipContent = TooltipPrimitive.Content
+export const TooltipPortal = TooltipPrimitive.Portal
 
 // Alias so sidebar.tsx (which imports TooltipPopup) keeps working
-export const TooltipPopup = TooltipPrimitive.Content;
+export const TooltipPopup = TooltipPrimitive.Content
 
 export default function TooltipCompound({
   content,
   children,
-  side = "top",
+  side = 'top',
   shortcut,
   className,
   triggerClassName,
@@ -45,19 +45,19 @@ export default function TooltipCompound({
   return (
     <TooltipPrimitive.Root>
       <TooltipPrimitive.Trigger asChild>
-        <span className={cn("inline-flex items-center", triggerClassName)}>{children}</span>
+        <span className={cn('inline-flex items-center', triggerClassName)}>{children}</span>
       </TooltipPrimitive.Trigger>
       <TooltipPrimitive.Portal>
         <TooltipPrimitive.Content
           side={side}
           sideOffset={6}
           collisionPadding={8}
-          className={cn(tooltipContentVariants(), shortcut && "flex items-center gap-2", className)}
+          className={cn(tooltipContentVariants(), shortcut && 'flex items-center gap-2', className)}
         >
           {content}
           {shortcut && <Keybinding binding={shortcut} />}
         </TooltipPrimitive.Content>
       </TooltipPrimitive.Portal>
     </TooltipPrimitive.Root>
-  );
+  )
 }

@@ -1,7 +1,10 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest'
 import { createStore } from 'zustand'
 import { immer } from 'zustand/middleware/immer'
-import { createBufferSlice, type BufferSlice } from '@/features/workspace/stores/slices/buffer-slice'
+import {
+  createBufferSlice,
+  type BufferSlice,
+} from '@/features/workspace/stores/slices/buffer-slice'
 
 const makePaneActions = () => ({
   addBufferToPane: vi.fn(),
@@ -25,7 +28,9 @@ function makeStore(paneActions: PaneActions = makePaneActions()) {
 
 describe('buffer-slice', () => {
   let store: ReturnType<typeof makeStore>['store']
-  beforeEach(() => { store = makeStore().store })
+  beforeEach(() => {
+    store = makeStore().store
+  })
 
   it('starts empty', () => {
     expect(store.getState().buffers).toHaveLength(0)
@@ -33,7 +38,10 @@ describe('buffer-slice', () => {
 
   it('openContent creates an editor buffer and returns its id', () => {
     const id = store.getState().bufferActions.openContent({
-      type: 'editor', path: '/src/index.ts', name: 'index.ts', content: 'const x = 1',
+      type: 'editor',
+      path: '/src/index.ts',
+      name: 'index.ts',
+      content: 'const x = 1',
     })
     expect(id).toBeTruthy()
     expect(store.getState().buffers).toHaveLength(1)
@@ -53,7 +61,9 @@ describe('buffer-slice', () => {
 
   it('openContent creates a crowbarChat buffer', () => {
     const id = store.getState().bufferActions.openContent({
-      type: 'crowbarChat', wsId: 'ws-1', name: 'Chat',
+      type: 'crowbarChat',
+      wsId: 'ws-1',
+      name: 'Chat',
     })
     expect(id).toBeTruthy()
     const buf = store.getState().bufferActions.getBufferById(id)
@@ -62,7 +72,10 @@ describe('buffer-slice', () => {
 
   it('closeBuffer removes it from the list', () => {
     const id = store.getState().bufferActions.openContent({
-      type: 'editor', path: '/a.ts', name: 'a.ts', content: '',
+      type: 'editor',
+      path: '/a.ts',
+      name: 'a.ts',
+      content: '',
     })
     store.getState().bufferActions.closeBuffer(id)
     expect(store.getState().buffers).toHaveLength(0)
@@ -70,7 +83,11 @@ describe('buffer-slice', () => {
 
   it('preview flag is set when isPreview is true', () => {
     const id = store.getState().bufferActions.openContent({
-      type: 'editor', path: '/b.ts', name: 'b.ts', content: '', isPreview: true,
+      type: 'editor',
+      path: '/b.ts',
+      name: 'b.ts',
+      content: '',
+      isPreview: true,
     })
     const buf = store.getState().bufferActions.getBufferById(id)
     expect(buf?.isPreview).toBe(true)
@@ -78,7 +95,10 @@ describe('buffer-slice', () => {
 
   it('pin toggles isPinned on the buffer', () => {
     const id = store.getState().bufferActions.openContent({
-      type: 'editor', path: '/c.ts', name: 'c.ts', content: '',
+      type: 'editor',
+      path: '/c.ts',
+      name: 'c.ts',
+      content: '',
     })
     store.getState().bufferActions.setPinned(id, true)
     expect(store.getState().bufferActions.getBufferById(id)?.isPinned).toBe(true)
@@ -90,7 +110,11 @@ describe('buffer-slice', () => {
     it('sets isPreview to false', () => {
       const { store: storeInst } = makeStore()
       const id = storeInst.getState().bufferActions.openContent({
-        type: 'editor', path: '/src/a.ts', name: 'a.ts', content: '', isPreview: true,
+        type: 'editor',
+        path: '/src/a.ts',
+        name: 'a.ts',
+        content: '',
+        isPreview: true,
       })
       storeInst.getState().bufferActions.promotePreview(id)
       expect(storeInst.getState().bufferActions.getBufferById(id)?.isPreview).toBe(false)
@@ -100,7 +124,11 @@ describe('buffer-slice', () => {
       const paneActions = makePaneActions()
       const { store: storeInst } = makeStore(paneActions)
       const id = storeInst.getState().bufferActions.openContent({
-        type: 'editor', path: '/src/a.ts', name: 'a.ts', content: '', isPreview: true,
+        type: 'editor',
+        path: '/src/a.ts',
+        name: 'a.ts',
+        content: '',
+        isPreview: true,
       })
       storeInst.getState().bufferActions.promotePreview(id)
       expect(paneActions.clearPreviewBufferEverywhere).toHaveBeenCalledWith(id)

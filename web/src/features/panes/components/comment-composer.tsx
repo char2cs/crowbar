@@ -36,8 +36,20 @@ export function CommentComposer({
 
   // Esc cancels, Cmd/Ctrl+Enter submits.
   const submitKeymap = keymap.of([
-    { key: 'Mod-Enter', run: () => { submit(); return true } },
-    { key: 'Escape', run: () => { onCancel(); return true } },
+    {
+      key: 'Mod-Enter',
+      run: () => {
+        submit()
+        return true
+      },
+    },
+    {
+      key: 'Escape',
+      run: () => {
+        onCancel()
+        return true
+      },
+    },
   ])
 
   return (
@@ -49,7 +61,7 @@ export function CommentComposer({
       )}
 
       <div className="flex items-center gap-1 border-b border-border/60 px-2 pt-1.5">
-        {(['write', 'preview'] as const).map(m => (
+        {(['write', 'preview'] as const).map((m) => (
           <button
             key={m}
             type="button"
@@ -74,7 +86,13 @@ export function CommentComposer({
             placeholder={placeholder}
             extensions={[markdown(), transparentMarkdownTheme, submitKeymap]}
             onChange={setValue}
-            basicSetup={{ lineNumbers: false, foldGutter: false, dropCursor: false, allowMultipleSelections: false, indentOnInput: true }}
+            basicSetup={{
+              lineNumbers: false,
+              foldGutter: false,
+              dropCursor: false,
+              allowMultipleSelections: false,
+              indentOnInput: true,
+            }}
             className="min-h-[72px] text-sm"
           />
         ) : value.trim() ? (
@@ -88,7 +106,13 @@ export function CommentComposer({
         <Button type="button" variant="outline" size="sm" onClick={onCancel}>
           Cancel
         </Button>
-        <Button type="button" size="sm" disabled={!canSubmit} onClick={submit} className="text-foreground">
+        <Button
+          type="button"
+          size="sm"
+          disabled={!canSubmit}
+          onClick={submit}
+          className="text-foreground"
+        >
           {submitLabel}
         </Button>
       </div>

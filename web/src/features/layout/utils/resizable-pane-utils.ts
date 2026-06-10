@@ -1,9 +1,9 @@
 interface CollapseRequestArgs {
-  collapsible: boolean;
-  rawWidth: number;
-  startWidth: number;
-  minWidth: number;
-  collapseThreshold: number;
+  collapsible: boolean
+  rawWidth: number
+  startWidth: number
+  minWidth: number
+  collapseThreshold: number
 }
 
 export function shouldRequestPaneCollapse({
@@ -13,10 +13,10 @@ export function shouldRequestPaneCollapse({
   minWidth,
   collapseThreshold,
 }: CollapseRequestArgs): boolean {
-  if (!collapsible) return false;
+  if (!collapsible) return false
 
-  const isClosingDrag = rawWidth < startWidth;
-  const pushedPastMin = rawWidth <= minWidth - collapseThreshold;
+  const isClosingDrag = rawWidth < startWidth
+  const pushedPastMin = rawWidth <= minWidth - collapseThreshold
 
-  return isClosingDrag && pushedPastMin;
+  return isClosingDrag && pushedPastMin
 }

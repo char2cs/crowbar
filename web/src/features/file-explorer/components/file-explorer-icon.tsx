@@ -1,8 +1,8 @@
-import DOMPurify from "dompurify"
-import { FileText } from "@phosphor-icons/react"
-import { useMemo } from "react"
-import { iconThemeRegistry } from "@/extensions/icon-themes/icon-theme-registry"
-import { useSettingsStore } from "@/features/settings/store"
+import DOMPurify from 'dompurify'
+import { FileText } from '@phosphor-icons/react'
+import { useMemo } from 'react'
+import { iconThemeRegistry } from '@/extensions/icon-themes/icon-theme-registry'
+import { useSettingsStore } from '@/features/settings/store'
 
 export interface FileExplorerIconProps {
   fileName?: string
@@ -16,7 +16,7 @@ export interface FileExplorerIconProps {
 }
 
 export function FileExplorerIcon({
-  fileName = "",
+  fileName = '',
   isDirectory,
   isDir,
   isExpanded = false,
@@ -35,7 +35,13 @@ export function FileExplorerIcon({
     }
   }, [iconThemeId, fileName, isDirectory, isDir, isExpanded])
 
-  const iconSpanStyle = { display: "inline-flex", alignItems: "center", width: size, height: size, flexShrink: 0 } as const
+  const iconSpanStyle = {
+    display: 'inline-flex',
+    alignItems: 'center',
+    width: size,
+    height: size,
+    flexShrink: 0,
+  } as const
 
   if (!iconResult) {
     return <FileText className={className} size={size} />
@@ -43,17 +49,16 @@ export function FileExplorerIcon({
 
   if (iconResult.component) {
     return (
-      <span
-        className={className}
-        style={iconSpanStyle}
-      >
+      <span className={className} style={iconSpanStyle}>
         {iconResult.component}
       </span>
     )
   }
 
   if (iconResult.svg) {
-    const sanitizedSvg = DOMPurify.sanitize(iconResult.svg, { USE_PROFILES: { svg: true, svgFilters: true } })
+    const sanitizedSvg = DOMPurify.sanitize(iconResult.svg, {
+      USE_PROFILES: { svg: true, svgFilters: true },
+    })
     return (
       <span
         className={className}

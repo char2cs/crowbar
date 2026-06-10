@@ -1,26 +1,32 @@
-import { CaretLeft, Palette } from "@phosphor-icons/react";
-import type React from "react";
-import { useCallback, useEffect, useRef, useState } from "react";
-import { iconThemeRegistry } from "@/extensions/icon-themes/icon-theme-registry";
-import type { IconThemeDefinition } from "@/extensions/icon-themes/types";
-import { Button } from "@/components/ui/button";
-import { CommandEmpty, CommandHeader, CommandInput, CommandItem, CommandList } from "@/components/ui/command";
-import { Badge } from "@/components/ui/badge";
-import { matchesSearchQuery } from "@/utils/search-match";
+import { CaretLeft, Palette } from '@phosphor-icons/react'
+import type React from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
+import { iconThemeRegistry } from '@/extensions/icon-themes/icon-theme-registry'
+import type { IconThemeDefinition } from '@/extensions/icon-themes/types'
+import { Button } from '@/components/ui/button'
+import {
+  CommandEmpty,
+  CommandHeader,
+  CommandInput,
+  CommandItem,
+  CommandList,
+} from '@/components/ui/command'
+import { Badge } from '@/components/ui/badge'
+import { matchesSearchQuery } from '@/utils/search-match'
 
 interface IconThemeInfo {
-  id: string;
-  name: string;
-  description: string;
-  icon?: React.ReactNode;
+  id: string
+  name: string
+  description: string
+  icon?: React.ReactNode
 }
 
 interface IconThemeSelectorContentProps {
-  isActive: boolean;
-  onBack: () => void;
-  onClose: () => void;
-  onThemeChange: (theme: string) => void;
-  currentTheme?: string;
+  isActive: boolean
+  onBack: () => void
+  onClose: () => void
+  onThemeChange: (theme: string) => void
+  currentTheme?: string
 }
 
 export const IconThemeSelectorContent = ({
@@ -30,149 +36,149 @@ export const IconThemeSelectorContent = ({
   onThemeChange,
   currentTheme,
 }: IconThemeSelectorContentProps) => {
-  const [query, setQuery] = useState("");
-  const [selectedIndex, setSelectedIndex] = useState(0);
-  const [initialTheme, setInitialTheme] = useState(currentTheme);
-  const [previewTheme, setPreviewTheme] = useState<string | null>(null);
-  const [themes, setThemes] = useState<IconThemeInfo[]>([]);
-  const inputRef = useRef<HTMLInputElement>(null);
-  const resultsRef = useRef<HTMLDivElement>(null);
-  const activeThemeSnapshotRef = useRef<string | undefined>(undefined);
-  const didCommitRef = useRef(false);
+  const [query, setQuery] = useState('')
+  const [selectedIndex, setSelectedIndex] = useState(0)
+  const [initialTheme, setInitialTheme] = useState(currentTheme)
+  const [previewTheme, setPreviewTheme] = useState<string | null>(null)
+  const [themes, setThemes] = useState<IconThemeInfo[]>([])
+  const inputRef = useRef<HTMLInputElement>(null)
+  const resultsRef = useRef<HTMLDivElement>(null)
+  const activeThemeSnapshotRef = useRef<string | undefined>(undefined)
+  const didCommitRef = useRef(false)
 
   // Load icon themes from icon theme registry
   useEffect(() => {
     const loadThemes = () => {
-      const registryThemes = iconThemeRegistry.getAllThemes();
+      const registryThemes = iconThemeRegistry.getAllThemes()
       const themeInfos: IconThemeInfo[] = registryThemes.map(
         (theme: IconThemeDefinition): IconThemeInfo => ({
           id: theme.id,
           name: theme.name,
-          description: theme.description ?? "",
+          description: theme.description ?? '',
           icon: <Palette />,
         }),
-      );
-      setThemes(themeInfos);
-    };
+      )
+      setThemes(themeInfos)
+    }
 
-    loadThemes();
+    loadThemes()
 
     // Listen for icon theme registry changes
-    const unsubscribe = iconThemeRegistry.onRegistryChange(loadThemes);
-    return unsubscribe;
-  }, []);
+    const unsubscribe = iconThemeRegistry.onRegistryChange(loadThemes)
+    return unsubscribe
+  }, [])
 
   // Filter themes based on query
   const filteredThemes = themes.filter(
-    (theme) => !query.trim() || matchesSearchQuery(query, [theme.name, theme.description ?? ""]),
-  );
+    (theme) => !query.trim() || matchesSearchQuery(query, [theme.name, theme.description ?? '']),
+  )
 
   // Handle keyboard navigation
   useEffect(() => {
     if (!isActive) {
       if (activeThemeSnapshotRef.current && !didCommitRef.current) {
-        onThemeChange(activeThemeSnapshotRef.current);
+        onThemeChange(activeThemeSnapshotRef.current)
       }
-      activeThemeSnapshotRef.current = undefined;
-      return;
+      activeThemeSnapshotRef.current = undefined
+      return
     }
 
-    if (activeThemeSnapshotRef.current !== undefined) return;
+    if (activeThemeSnapshotRef.current !== undefined) return
 
-    const snapshotTheme = currentTheme;
-    activeThemeSnapshotRef.current = snapshotTheme;
-    didCommitRef.current = false;
-    setInitialTheme(snapshotTheme);
-    setQuery("");
-    setPreviewTheme(null);
+    const snapshotTheme = currentTheme
+    activeThemeSnapshotRef.current = snapshotTheme
+    didCommitRef.current = false
+    setInitialTheme(snapshotTheme)
+    setQuery('')
+    setPreviewTheme(null)
 
-    const initialIndex = themes.findIndex((t) => t.id === snapshotTheme);
-    setSelectedIndex(initialIndex >= 0 ? initialIndex : 0);
+    const initialIndex = themes.findIndex((t) => t.id === snapshotTheme)
+    setSelectedIndex(initialIndex >= 0 ? initialIndex : 0)
 
-    requestAnimationFrame(() => inputRef.current?.focus());
-  }, [isActive, themes, currentTheme, onThemeChange]);
+    requestAnimationFrame(() => inputRef.current?.focus())
+  }, [isActive, themes, currentTheme, onThemeChange])
 
   useEffect(() => {
     return () => {
       if (activeThemeSnapshotRef.current && !didCommitRef.current) {
-        onThemeChange(activeThemeSnapshotRef.current);
+        onThemeChange(activeThemeSnapshotRef.current)
       }
-    };
-  }, [onThemeChange]);
+    }
+  }, [onThemeChange])
 
   const handleKeyDown = useCallback(
     (e: KeyboardEvent) => {
-      if (!filteredThemes.length) return;
+      if (!filteredThemes.length) return
 
-      let nextIndex = selectedIndex;
-      if (e.key === "ArrowDown") {
-        e.preventDefault();
-        nextIndex = (selectedIndex + 1) % filteredThemes.length;
-      } else if (e.key === "ArrowUp") {
-        e.preventDefault();
-        nextIndex = (selectedIndex - 1 + filteredThemes.length) % filteredThemes.length;
-      } else if (e.key === "Enter") {
-        e.preventDefault();
-        didCommitRef.current = true;
-        onThemeChange(filteredThemes[selectedIndex].id);
-        onClose();
-        return;
-      } else if (e.key === "Escape") {
-        e.preventDefault();
+      let nextIndex = selectedIndex
+      if (e.key === 'ArrowDown') {
+        e.preventDefault()
+        nextIndex = (selectedIndex + 1) % filteredThemes.length
+      } else if (e.key === 'ArrowUp') {
+        e.preventDefault()
+        nextIndex = (selectedIndex - 1 + filteredThemes.length) % filteredThemes.length
+      } else if (e.key === 'Enter') {
+        e.preventDefault()
+        didCommitRef.current = true
+        onThemeChange(filteredThemes[selectedIndex].id)
+        onClose()
+        return
+      } else if (e.key === 'Escape') {
+        e.preventDefault()
         if (initialTheme) {
-          onThemeChange(initialTheme);
+          onThemeChange(initialTheme)
         }
-        onClose();
-        return;
+        onClose()
+        return
       }
 
       if (nextIndex !== selectedIndex) {
-        setSelectedIndex(nextIndex);
+        setSelectedIndex(nextIndex)
         // Preview theme when navigating with keyboard
-        const theme = filteredThemes[nextIndex];
+        const theme = filteredThemes[nextIndex]
         if (theme) {
-          setPreviewTheme(theme.id);
-          onThemeChange(theme.id);
+          setPreviewTheme(theme.id)
+          onThemeChange(theme.id)
         }
       }
     },
     [selectedIndex, filteredThemes, onThemeChange, onClose, initialTheme],
-  );
+  )
 
   // Reset state when visibility changes
   useEffect(() => {
     if (isActive) {
-      document.addEventListener("keydown", handleKeyDown);
-      return () => document.removeEventListener("keydown", handleKeyDown);
+      document.addEventListener('keydown', handleKeyDown)
+      return () => document.removeEventListener('keydown', handleKeyDown)
     }
-  }, [isActive, handleKeyDown]);
+  }, [isActive, handleKeyDown])
 
   // Update selected index when query changes
   useEffect(() => {
-    setSelectedIndex(0);
-  }, [query]);
+    setSelectedIndex(0)
+  }, [query])
 
   // Scroll selected item into view
   useEffect(() => {
-    const selectedElement = resultsRef.current?.querySelector(`[data-index="${selectedIndex}"]`);
-    selectedElement?.scrollIntoView({ block: "nearest", behavior: "smooth" });
-  }, [selectedIndex]);
+    const selectedElement = resultsRef.current?.querySelector(`[data-index="${selectedIndex}"]`)
+    selectedElement?.scrollIntoView({ block: 'nearest', behavior: 'smooth' })
+  }, [selectedIndex])
 
   const handleClose = useCallback(() => {
-    didCommitRef.current = false;
+    didCommitRef.current = false
     if (initialTheme) {
-      onThemeChange(initialTheme);
+      onThemeChange(initialTheme)
     }
-    onClose();
-  }, [initialTheme, onThemeChange, onClose]);
+    onClose()
+  }, [initialTheme, onThemeChange, onClose])
 
   const handleBack = useCallback(() => {
-    didCommitRef.current = false;
+    didCommitRef.current = false
     if (initialTheme) {
-      onThemeChange(initialTheme);
+      onThemeChange(initialTheme)
     }
-    onBack();
-  }, [initialTheme, onBack, onThemeChange]);
+    onBack()
+  }, [initialTheme, onBack, onThemeChange])
 
   return (
     <>
@@ -203,29 +209,29 @@ export const IconThemeSelectorContent = ({
           <CommandEmpty>No icon themes found</CommandEmpty>
         ) : (
           filteredThemes.map((theme, index) => {
-            const isSelected = index === selectedIndex;
-            const isCurrent = theme.id === currentTheme;
-            const isPreviewing = previewTheme !== null;
+            const isSelected = index === selectedIndex
+            const isCurrent = theme.id === currentTheme
+            const isPreviewing = previewTheme !== null
 
             return (
               <CommandItem
                 key={theme.id}
                 data-index={index}
                 onClick={() => {
-                  didCommitRef.current = true;
-                  onThemeChange(theme.id);
-                  onClose();
+                  didCommitRef.current = true
+                  onThemeChange(theme.id)
+                  onClose()
                 }}
                 onMouseEnter={() => {
-                  setSelectedIndex(index);
-                  setPreviewTheme(theme.id);
-                  onThemeChange(theme.id);
+                  setSelectedIndex(index)
+                  setPreviewTheme(theme.id)
+                  onThemeChange(theme.id)
                 }}
                 onMouseLeave={() => {
                   if (previewTheme === theme.id) {
-                    setPreviewTheme(null);
+                    setPreviewTheme(null)
                     if (initialTheme) {
-                      onThemeChange(initialTheme);
+                      onThemeChange(initialTheme)
                     }
                   }
                 }}
@@ -244,14 +250,14 @@ export const IconThemeSelectorContent = ({
                   </div>
                 </div>
               </CommandItem>
-            );
+            )
           })
         )}
       </CommandList>
     </>
-  );
-};
+  )
+}
 
-IconThemeSelectorContent.displayName = "IconThemeSelectorContent";
+IconThemeSelectorContent.displayName = 'IconThemeSelectorContent'
 
-export default IconThemeSelectorContent;
+export default IconThemeSelectorContent

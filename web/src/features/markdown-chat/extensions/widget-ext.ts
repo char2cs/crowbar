@@ -117,24 +117,26 @@ function buildWidgetDecorations(
   }
 
   // Fenced blocks carrying a widget-id → editable block widget
-  syntaxTree(state).cursor().iterate((node) => {
-    if (node.name !== 'FencedCode') return
-    const infoLine = state.doc.lineAt(node.from).text
-    const widgetIdMatch = infoLine.match(WIDGET_ID_RE)
-    if (!widgetIdMatch) return
+  syntaxTree(state)
+    .cursor()
+    .iterate((node) => {
+      if (node.name !== 'FencedCode') return
+      const infoLine = state.doc.lineAt(node.from).text
+      const widgetIdMatch = infoLine.match(WIDGET_ID_RE)
+      if (!widgetIdMatch) return
 
-    const widgetId = widgetIdMatch[1]
-    const info = infoLine.replace(/^```/, '').trim()
+      const widgetId = widgetIdMatch[1]
+      const info = infoLine.replace(/^```/, '').trim()
 
-    pending.push({
-      from: node.from,
-      to: node.to,
-      deco: Decoration.replace({
-        widget: new FencedWidget(widgetId, info, getTurns, onWidgetChange),
-        inclusive: true,
-      }),
+      pending.push({
+        from: node.from,
+        to: node.to,
+        deco: Decoration.replace({
+          widget: new FencedWidget(widgetId, info, getTurns, onWidgetChange),
+          inclusive: true,
+        }),
+      })
     })
-  })
 
   // CM6 RangeSetBuilder requires strictly ascending `from`.
   pending.sort((a, b) => a.from - b.from)

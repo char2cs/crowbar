@@ -48,17 +48,13 @@ export function MarkdownBlock({
 
   const widgetId = parsed.params['widget-id']
   const widget =
-    ext.storage === 'referenced' && widgetId
-      ? widgets?.find((w) => w.id === widgetId)
-      : undefined
+    ext.storage === 'referenced' && widgetId ? widgets?.find((w) => w.id === widgetId) : undefined
 
   const Comp = editable && ext.Editor ? ext.Editor : ext.View
   return (
     <BlockErrorBoundary label={ext.type}>
       <Suspense
-        fallback={
-          <div className="my-1 h-16 animate-pulse rounded border border-border bg-muted" />
-        }
+        fallback={<div className="my-1 h-16 animate-pulse rounded border border-border bg-muted" />}
       >
         <Comp
           type={parsed.type}
@@ -66,9 +62,7 @@ export function MarkdownBlock({
           source={source}
           widget={widget}
           streaming={streaming}
-          onChange={
-            widgetId && onChange ? (p) => onChange(widgetId, p) : undefined
-          }
+          onChange={widgetId && onChange ? (p) => onChange(widgetId, p) : undefined}
         />
       </Suspense>
     </BlockErrorBoundary>

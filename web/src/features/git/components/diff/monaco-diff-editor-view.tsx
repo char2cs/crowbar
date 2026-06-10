@@ -1,15 +1,15 @@
-import { memo, useEffect, useMemo, useRef } from "react";
-import { editor as monacoEditor, Uri } from "monaco-editor";
-import { detectLanguageFromPath } from "@/features/editor/utils/language-detection";
+import { memo, useEffect, useMemo, useRef } from 'react'
+import { editor as monacoEditor, Uri } from 'monaco-editor'
+import { detectLanguageFromPath } from '@/features/editor/utils/language-detection'
 
 interface MonacoDiffEditorViewProps {
-  originalContent: string;
-  modifiedContent: string;
-  filePath: string;
-  renderSideBySide: boolean;
-  height: number | string;
-  cacheKey: string;
-  scrollable?: boolean;
+  originalContent: string
+  modifiedContent: string
+  filePath: string
+  renderSideBySide: boolean
+  height: number | string
+  cacheKey: string
+  scrollable?: boolean
 }
 
 function MonacoDiffEditorViewComponent({
@@ -21,25 +21,25 @@ function MonacoDiffEditorViewComponent({
   cacheKey,
   scrollable = false,
 }: MonacoDiffEditorViewProps) {
-  const containerRef = useRef<HTMLDivElement>(null);
-  const editorRef = useRef<monacoEditor.IStandaloneDiffEditor | null>(null);
-  const language = useMemo(() => detectLanguageFromPath(filePath), [filePath]);
+  const containerRef = useRef<HTMLDivElement>(null)
+  const editorRef = useRef<monacoEditor.IStandaloneDiffEditor | null>(null)
+  const language = useMemo(() => detectLanguageFromPath(filePath), [filePath])
 
   // Create the diff editor once per cacheKey; dispose on unmount or cacheKey change.
   // language and initial content are captured at mount time — cacheKey drives identity.
   useEffect(() => {
-    if (!containerRef.current) return;
+    if (!containerRef.current) return
 
     const originalModel = monacoEditor.createModel(
       originalContent,
       language,
       Uri.parse(`diff-original://${cacheKey}`),
-    );
+    )
     const modifiedModel = monacoEditor.createModel(
       modifiedContent,
       language,
       Uri.parse(`diff-modified://${cacheKey}`),
-    );
+    )
 
     const diffEditor = monacoEditor.createDiffEditor(containerRef.current, {
       readOnly: true,
@@ -48,55 +48,55 @@ function MonacoDiffEditorViewComponent({
       minimap: { enabled: false },
       renderOverviewRuler: false,
       scrollbar: {
-        vertical: scrollable ? "auto" : "hidden",
-        horizontal: "auto",
+        vertical: scrollable ? 'auto' : 'hidden',
+        horizontal: 'auto',
         alwaysConsumeMouseWheel: scrollable,
       },
-      lineNumbers: "on",
-    });
+      lineNumbers: 'on',
+    })
 
-    diffEditor.setModel({ original: originalModel, modified: modifiedModel });
-    editorRef.current = diffEditor;
+    diffEditor.setModel({ original: originalModel, modified: modifiedModel })
+    editorRef.current = diffEditor
 
     return () => {
-      editorRef.current = null;
-      diffEditor.dispose();
-      originalModel.dispose();
-      modifiedModel.dispose();
-    };
+      editorRef.current = null
+      diffEditor.dispose()
+      originalModel.dispose()
+      modifiedModel.dispose()
+    }
     // cacheKey alone drives editor identity. language and initial content are captured at mount;
     // content/renderSideBySide changes are handled by the separate effects below.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [cacheKey]);
+  }, [cacheKey])
 
   // Update model content without recreating the editor.
   useEffect(() => {
-    const editor = editorRef.current;
-    if (!editor) return;
-    const models = editor.getModel();
-    if (!models) return;
+    const editor = editorRef.current
+    if (!editor) return
+    const models = editor.getModel()
+    if (!models) return
     if (models.original.getValue() !== originalContent) {
-      models.original.setValue(originalContent);
+      models.original.setValue(originalContent)
     }
     if (models.modified.getValue() !== modifiedContent) {
-      models.modified.setValue(modifiedContent);
+      models.modified.setValue(modifiedContent)
     }
-  }, [originalContent, modifiedContent]);
+  }, [originalContent, modifiedContent])
 
   // Toggle unified/split without a remount.
   useEffect(() => {
-    editorRef.current?.updateOptions({ renderSideBySide });
-  }, [renderSideBySide]);
+    editorRef.current?.updateOptions({ renderSideBySide })
+  }, [renderSideBySide])
 
   return (
     <div
       ref={containerRef}
       className="overflow-hidden"
-      style={{ height: typeof height === "number" ? `${height}px` : height }}
+      style={{ height: typeof height === 'number' ? `${height}px` : height }}
     />
-  );
+  )
 }
 
-MonacoDiffEditorViewComponent.displayName = "MonacoDiffEditorView";
+MonacoDiffEditorViewComponent.displayName = 'MonacoDiffEditorView'
 
-export default memo(MonacoDiffEditorViewComponent);
+export default memo(MonacoDiffEditorViewComponent)

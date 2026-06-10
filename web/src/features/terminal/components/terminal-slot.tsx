@@ -1,8 +1,8 @@
-import { useEffect, useRef } from "react";
-import { type TerminalSlotProps, useTerminalSlotsStore } from "../stores/terminal-slots-store";
+import { useEffect, useRef } from 'react'
+import { type TerminalSlotProps, useTerminalSlotsStore } from '../stores/terminal-slots-store'
 
-interface Props extends Omit<TerminalSlotProps, "el"> {
-  sessionId: string;
+interface Props extends Omit<TerminalSlotProps, 'el'> {
+  sessionId: string
 }
 
 // Mounts a stable DOM target for a terminal session. The actual XtermTerminal
@@ -21,12 +21,12 @@ export function TerminalSlot({
   onReady,
   onActivate,
 }: Props) {
-  const ref = useRef<HTMLDivElement>(null);
+  const ref = useRef<HTMLDivElement>(null)
 
   useEffect(() => {
-    const el = ref.current;
-    if (!el) return;
-    const { register, unregister } = useTerminalSlotsStore.getState();
+    const el = ref.current
+    if (!el) return
+    const { register, unregister } = useTerminalSlotsStore.getState()
     register(sessionId, {
       el,
       isActive,
@@ -38,11 +38,11 @@ export function TerminalSlot({
       onTerminalRef,
       onReady,
       onActivate,
-    });
-    return () => unregister(sessionId, el);
+    })
+    return () => unregister(sessionId, el)
     // Mount/unmount only — prop updates handled below.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [sessionId]);
+  }, [sessionId])
 
   useEffect(() => {
     useTerminalSlotsStore.getState().update(sessionId, {
@@ -55,7 +55,7 @@ export function TerminalSlot({
       onTerminalRef,
       onReady,
       onActivate,
-    });
+    })
   }, [
     sessionId,
     isActive,
@@ -67,18 +67,18 @@ export function TerminalSlot({
     onTerminalRef,
     onReady,
     onActivate,
-  ]);
+  ])
 
   // Native DOM listener: portaled xterm clicks don't bubble through the React
   // tree, so a React handler here would never fire. Native bubbling does
   // reach this div.
   useEffect(() => {
-    const el = ref.current;
-    if (!el) return;
-    const handler = () => onActivate?.();
-    el.addEventListener("mousedown", handler, true);
-    return () => el.removeEventListener("mousedown", handler, true);
-  }, [onActivate]);
+    const el = ref.current
+    if (!el) return
+    const handler = () => onActivate?.()
+    el.addEventListener('mousedown', handler, true)
+    return () => el.removeEventListener('mousedown', handler, true)
+  }, [onActivate])
 
-  return <div ref={ref} data-terminal-slot={sessionId} className="flex h-full w-full flex-col" />;
+  return <div ref={ref} data-terminal-slot={sessionId} className="flex h-full w-full flex-col" />
 }

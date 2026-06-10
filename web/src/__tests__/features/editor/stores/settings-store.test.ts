@@ -14,10 +14,7 @@ describe('editor settings sync debounce', () => {
     const { useSettingsStore } = await import('@/features/settings/store')
     const { useEditorSettingsStore } = await import('@/features/editor/stores/settings-store')
 
-    const setFontSize = vi.spyOn(
-      useEditorSettingsStore.getState().actions,
-      'setFontSize'
-    )
+    const setFontSize = vi.spyOn(useEditorSettingsStore.getState().actions, 'setFontSize')
 
     // Trigger 5 rapid settings changes
     for (let i = 0; i < 5; i++) {

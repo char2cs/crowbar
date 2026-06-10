@@ -31,7 +31,9 @@ test('calls onCancel when Enter pressed with blank value', () => {
 })
 
 test('pre-fills input with defaultValue', () => {
-  render(<WorkspaceInlineInput defaultValue="feat/existing" onConfirm={vi.fn()} onCancel={vi.fn()} />)
+  render(
+    <WorkspaceInlineInput defaultValue="feat/existing" onConfirm={vi.fn()} onCancel={vi.fn()} />,
+  )
   expect(screen.getByRole('textbox')).toHaveValue('feat/existing')
 })
 

@@ -1,53 +1,53 @@
-import { useEffect } from "react";
-import { IS_MAC } from "@/utils/platform";
-import { splitActiveEditorGroup } from "../utils/pane-command-actions";
-import { useWorkspaceStore } from "@/features/workspace/stores/workspace-context";
+import { useEffect } from 'react'
+import { IS_MAC } from '@/utils/platform'
+import { splitActiveEditorGroup } from '../utils/pane-command-actions'
+import { useWorkspaceStore } from '@/features/workspace/stores/workspace-context'
 
 export function usePaneKeyboard() {
-  const workspaceStore = useWorkspaceStore();
+  const workspaceStore = useWorkspaceStore()
 
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
-      const modKey = IS_MAC ? e.metaKey : e.ctrlKey;
+      const modKey = IS_MAC ? e.metaKey : e.ctrlKey
 
-      if (!modKey) return;
+      if (!modKey) return
 
       // Cmd+\ or Ctrl+\ - Split right
-      if (e.key === "\\" && !e.shiftKey) {
-        e.preventDefault();
-        splitActiveEditorGroup("horizontal");
-        return;
+      if (e.key === '\\' && !e.shiftKey) {
+        e.preventDefault()
+        splitActiveEditorGroup('horizontal')
+        return
       }
 
       // Cmd+Shift+\ or Ctrl+Shift+\ - Split down
-      if (e.key === "\\" && e.shiftKey) {
-        e.preventDefault();
-        splitActiveEditorGroup("vertical");
-        return;
+      if (e.key === '\\' && e.shiftKey) {
+        e.preventDefault()
+        splitActiveEditorGroup('vertical')
+        return
       }
 
       // Cmd+Shift+T or Ctrl+Shift+T - Reopen last closed tab
-      if (e.shiftKey && (e.key === "t" || e.key === "T")) {
-        e.preventDefault();
-        workspaceStore.getState().bufferActions.reopenLastClosedBuffer();
-        return;
+      if (e.shiftKey && (e.key === 't' || e.key === 'T')) {
+        e.preventDefault()
+        workspaceStore.getState().bufferActions.reopenLastClosedBuffer()
+        return
       }
 
       // Cmd+Option+Arrow or Ctrl+Alt+Arrow - Navigate between panes
-      if (e.altKey && ["ArrowLeft", "ArrowRight", "ArrowUp", "ArrowDown"].includes(e.key)) {
-        e.preventDefault();
-        const directionMap: Record<string, "left" | "right" | "up" | "down"> = {
-          ArrowLeft: "left",
-          ArrowRight: "right",
-          ArrowUp: "up",
-          ArrowDown: "down",
-        };
-        workspaceStore.getState().paneActions.navigateToPane(directionMap[e.key]);
-        return;
+      if (e.altKey && ['ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown'].includes(e.key)) {
+        e.preventDefault()
+        const directionMap: Record<string, 'left' | 'right' | 'up' | 'down'> = {
+          ArrowLeft: 'left',
+          ArrowRight: 'right',
+          ArrowUp: 'up',
+          ArrowDown: 'down',
+        }
+        workspaceStore.getState().paneActions.navigateToPane(directionMap[e.key])
+        return
       }
-    };
+    }
 
-    window.addEventListener("keydown", handleKeyDown);
-    return () => window.removeEventListener("keydown", handleKeyDown);
-  }, [workspaceStore]);
+    window.addEventListener('keydown', handleKeyDown)
+    return () => window.removeEventListener('keydown', handleKeyDown)
+  }, [workspaceStore])
 }

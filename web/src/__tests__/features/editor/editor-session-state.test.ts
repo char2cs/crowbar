@@ -1,68 +1,69 @@
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import type { EditorContent } from "@/features/panes/types/pane-content";
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import type { EditorContent } from '@/features/panes/types/pane-content'
 
 const createEditorBuffer = (overrides: Partial<EditorContent> = {}): EditorContent => ({
-  id: "editor-1",
-  type: "editor",
-  path: "/workspace/src/app.ts",
-  name: "app.ts",
+  id: 'editor-1',
+  type: 'editor',
+  path: '/workspace/src/app.ts',
+  name: 'app.ts',
   isPinned: false,
   isPreview: false,
   isActive: true,
-  content: "const value = 1;\nconsole.log(value);\n",
-  savedContent: "const value = 1;\nconsole.log(value);\n",
+  content: 'const value = 1;\nconsole.log(value);\n',
+  savedContent: 'const value = 1;\nconsole.log(value);\n',
   isDirty: false,
   isVirtual: false,
   tokens: [],
   ...overrides,
-});
+})
 
 const createMockStorage = () => {
-  const storage = new Map<string, string>();
+  const storage = new Map<string, string>()
 
   return {
     getItem: (key: string) => storage.get(key) ?? null,
     setItem: (key: string, value: string) => {
-      storage.set(key, value);
+      storage.set(key, value)
     },
     removeItem: (key: string) => {
-      storage.delete(key);
+      storage.delete(key)
     },
     clear: () => {
-      storage.clear();
+      storage.clear()
     },
     key: (index: number) => Array.from(storage.keys())[index] ?? null,
     get length() {
-      return storage.size;
+      return storage.size
     },
-  };
-};
+  }
+}
 
-describe("editor session state", () => {
+describe('editor session state', () => {
   beforeEach(() => {
-    vi.stubGlobal("localStorage", createMockStorage());
-    vi.stubGlobal("window", {
+    vi.stubGlobal('localStorage', createMockStorage())
+    vi.stubGlobal('window', {
       __TAURI_INTERNALS__: {
         metadata: {
-          currentWindow: { label: "main" },
-          currentWebview: { label: "main" },
+          currentWindow: { label: 'main' },
+          currentWebview: { label: 'main' },
         },
       },
       addEventListener: vi.fn(),
       removeEventListener: vi.fn(),
       dispatchEvent: vi.fn(),
-    });
-  });
+    })
+  })
 
   afterEach(() => {
-    vi.unstubAllGlobals();
-  });
+    vi.unstubAllGlobals()
+  })
 
-  it("builds a persisted editor view snapshot from cached view and fold state", async () => {
-    const { buildPersistedEditorViewState } = await import("@/features/editor/stores/editor-session-state");
-    const { useFoldStore } = await import("@/features/editor/stores/fold-store");
-    const { useEditorStateStore } = await import("@/features/editor/stores/state-store");
-    const buffer = createEditorBuffer({ id: "editor-build", path: "/workspace/src/build.ts" });
+  it('builds a persisted editor view snapshot from cached view and fold state', async () => {
+    const { buildPersistedEditorViewState } =
+      await import('@/features/editor/stores/editor-session-state')
+    const { useFoldStore } = await import('@/features/editor/stores/fold-store')
+    const { useEditorStateStore } = await import('@/features/editor/stores/state-store')
+    const buffer = createEditorBuffer({ id: 'editor-build', path: '/workspace/src/build.ts' })
 
     useEditorStateStore.getState().actions.cacheViewStateForBuffer(buffer.id, {
       cursor: { line: 1, column: 4, offset: 20 },
@@ -72,8 +73,8 @@ describe("editor session state", () => {
       },
       scrollTop: 120,
       scrollLeft: 8,
-    });
-    useFoldStore.getState().actions.setCollapsedLines(buffer.path, [2, 4]);
+    })
+    useFoldStore.getState().actions.setCollapsedLines(buffer.path, [2, 4])
 
     expect(buildPersistedEditorViewState(buffer)).toEqual({
       cursor: { line: 1, column: 4, offset: 20 },
@@ -84,30 +85,31 @@ describe("editor session state", () => {
       scrollTop: 120,
       scrollLeft: 8,
       collapsedFoldLines: [2, 4],
-    });
-  });
+    })
+  })
 
-  it("restores persisted view state for the new buffer id used after session restore", async () => {
-    const { restorePersistedEditorViewState } = await import("@/features/editor/stores/editor-session-state");
-    const { useFoldStore } = await import("@/features/editor/stores/fold-store");
-    const { useEditorStateStore } = await import("@/features/editor/stores/state-store");
-    const buffer = createEditorBuffer({ id: "editor-restore", path: "/workspace/src/restore.ts" });
+  it('restores persisted view state for the new buffer id used after session restore', async () => {
+    const { restorePersistedEditorViewState } =
+      await import('@/features/editor/stores/editor-session-state')
+    const { useFoldStore } = await import('@/features/editor/stores/fold-store')
+    const { useEditorStateStore } = await import('@/features/editor/stores/state-store')
+    const buffer = createEditorBuffer({ id: 'editor-restore', path: '/workspace/src/restore.ts' })
 
     restorePersistedEditorViewState(buffer, {
       cursor: { line: 3, column: 2, offset: 42 },
       scrollTop: 300,
       scrollLeft: 12,
       collapsedFoldLines: [1],
-    });
+    })
 
     expect(
-      useEditorStateStore.getState().actions.getCachedViewState("pane-a:editor-restore"),
+      useEditorStateStore.getState().actions.getCachedViewState('pane-a:editor-restore'),
     ).toEqual({
       cursor: { line: 3, column: 2, offset: 42 },
       selection: undefined,
       scrollTop: 300,
       scrollLeft: 12,
-    });
-    expect(useFoldStore.getState().actions.getCollapsedLines(buffer.path)).toEqual([1]);
-  });
-});
+    })
+    expect(useFoldStore.getState().actions.getCollapsedLines(buffer.path)).toEqual([1])
+  })
+})

@@ -2,9 +2,13 @@ import { describe, it, expect, beforeEach, vi } from 'vitest'
 import { resetDB } from '@/lib/persistence/idb'
 import { dataOf } from '@/lib/loadable'
 
-vi.mock('@/lib/api', () => ({ apiFetch: vi.fn(async () => [{ id: 't1', role: 'user', content: 'hi' }]) }))
+vi.mock('@/lib/api', () => ({
+  apiFetch: vi.fn(async () => [{ id: 't1', role: 'user', content: 'hi' }]),
+}))
 
-beforeEach(() => { resetDB() })
+beforeEach(() => {
+  resetDB()
+})
 
 describe('useChatStore', () => {
   it('fetch loads chat turns keyed by (wsId, stepId)', async () => {

@@ -1,10 +1,10 @@
-import { FileText, Folder, FolderOpen } from "@phosphor-icons/react"
-import type { IconThemeDefinition } from "../types"
+import { FileText, Folder, FolderOpen } from '@phosphor-icons/react'
+import type { IconThemeDefinition } from '../types'
 
 export const classicIconTheme: IconThemeDefinition = {
-  id: "classic",
-  name: "Classic",
-  description: "Traditional file manager style icons",
+  id: 'classic',
+  name: 'Classic',
+  description: 'Traditional file manager style icons',
   getFileIcon: (_fileName: string, isDir: boolean, isExpanded = false, _isSymlink = false) => {
     if (isDir) {
       const Icon = isExpanded ? FolderOpen : Folder

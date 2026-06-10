@@ -1,53 +1,53 @@
-import { motion } from "framer-motion";
-import { type RefObject, useEffect, useRef, useState } from "react";
-import { createPortal } from "react-dom";
-import { useOnClickOutside } from "usehooks-ts";
-import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
-import { cn } from "@/utils/cn";
+import { motion } from 'framer-motion'
+import { type RefObject, useEffect, useRef, useState } from 'react'
+import { createPortal } from 'react-dom'
+import { useOnClickOutside } from 'usehooks-ts'
+import { Button } from '@/components/ui/button'
+import { Input } from '@/components/ui/input'
+import { cn } from '@/utils/cn'
 
 interface StashMessageModalProps {
-  isOpen: boolean;
-  onClose: () => void;
-  onConfirm: (message: string) => Promise<void>;
-  title?: string;
-  placeholder?: string;
+  isOpen: boolean
+  onClose: () => void
+  onConfirm: (message: string) => Promise<void>
+  title?: string
+  placeholder?: string
 }
 
 export const StashMessageModal = ({
   isOpen,
   onClose,
   onConfirm,
-  title = "Create Stash",
-  placeholder = "Stash message...",
+  title = 'Create Stash',
+  placeholder = 'Stash message...',
 }: StashMessageModalProps) => {
-  const [message, setMessage] = useState("");
-  const [isLoading, setIsLoading] = useState(false);
-  const inputRef = useRef<HTMLInputElement>(null);
-  const modalRef = useRef<HTMLDivElement>(null);
+  const [message, setMessage] = useState('')
+  const [isLoading, setIsLoading] = useState(false)
+  const inputRef = useRef<HTMLInputElement>(null)
+  const modalRef = useRef<HTMLDivElement>(null)
 
-  useOnClickOutside(modalRef as RefObject<HTMLElement>, onClose);
+  useOnClickOutside(modalRef as RefObject<HTMLElement>, onClose)
 
   useEffect(() => {
     if (isOpen) {
-      setMessage("");
-      setTimeout(() => inputRef.current?.focus(), 50);
+      setMessage('')
+      setTimeout(() => inputRef.current?.focus(), 50)
     }
-  }, [isOpen]);
+  }, [isOpen])
 
   const handleConfirm = async () => {
-    setIsLoading(true);
+    setIsLoading(true)
     try {
-      await onConfirm(message);
-      onClose();
+      await onConfirm(message)
+      onClose()
     } catch (error) {
-      console.error("Failed to create stash:", error);
+      console.error('Failed to create stash:', error)
     } finally {
-      setIsLoading(false);
+      setIsLoading(false)
     }
-  };
+  }
 
-  if (!isOpen) return null;
+  if (!isOpen) return null
 
   return createPortal(
     <motion.div
@@ -60,7 +60,7 @@ export const StashMessageModal = ({
         ref={modalRef}
         initial={{ opacity: 0, scale: 0.95 }}
         animate={{ opacity: 1, scale: 1 }}
-        transition={{ duration: 0.15, ease: "easeOut" }}
+        transition={{ duration: 0.15, ease: 'easeOut' }}
         className="w-80 rounded-lg border border-border bg-card p-4"
       >
         <h3 className="mb-3 font-medium ui-text-sm text-foreground">{title}</h3>
@@ -70,10 +70,10 @@ export const StashMessageModal = ({
           value={message}
           onChange={(e) => setMessage(e.target.value)}
           placeholder={placeholder}
-          className={cn("mb-4 w-full bg-background ui-text-sm")}
+          className={cn('mb-4 w-full bg-background ui-text-sm')}
           onKeyDown={(e) => {
-            if (e.key === "Enter") handleConfirm();
-            if (e.key === "Escape") onClose();
+            if (e.key === 'Enter') handleConfirm()
+            if (e.key === 'Escape') onClose()
           }}
         />
         <div className="flex justify-end gap-2">
@@ -92,11 +92,11 @@ export const StashMessageModal = ({
             className="ui-text-xs disabled:opacity-50"
             compact
           >
-            {isLoading ? "Stashing..." : "Stash"}
+            {isLoading ? 'Stashing...' : 'Stash'}
           </Button>
         </div>
       </motion.div>
     </motion.div>,
     document.body,
-  );
-};
+  )
+}

@@ -19,7 +19,9 @@ export function WorkspaceView({ wsId }: WorkspaceViewProps) {
 
   useLayoutEffect(() => {
     setActiveWorkspaceStoreRef(store)
-    return () => { setActiveWorkspaceStoreRef(null) }
+    return () => {
+      setActiveWorkspaceStoreRef(null)
+    }
   }, [store])
 
   useEffect(() => {
@@ -29,9 +31,15 @@ export function WorkspaceView({ wsId }: WorkspaceViewProps) {
   useEffect(() => {
     let cancelled = false
     hydrateWorkspace(wsId)
-      .then(() => { if (!cancelled) setHydratedWsId(wsId) })
-      .catch(() => { if (!cancelled) setHydratedWsId(wsId) })
-    return () => { cancelled = true }
+      .then(() => {
+        if (!cancelled) setHydratedWsId(wsId)
+      })
+      .catch(() => {
+        if (!cancelled) setHydratedWsId(wsId)
+      })
+    return () => {
+      cancelled = true
+    }
   }, [wsId])
 
   if (hydratedWsId !== wsId) return null

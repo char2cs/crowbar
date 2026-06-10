@@ -47,7 +47,7 @@ export function WorkspaceInlineInput({
       ref={ref}
       type="text"
       value={value}
-      onChange={e => setValue(e.target.value)}
+      onChange={(e) => setValue(e.target.value)}
       onKeyDown={handleKeyDown}
       onBlur={handleBlur}
       placeholder={placeholder}

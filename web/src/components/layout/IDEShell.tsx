@@ -37,16 +37,16 @@ export function IDEShell() {
   const pathname = routerState.location.pathname
   const chats = useSidebarStore((s) => s.chats)
   const repos = useSidebarStore((s) => s.repos)
-  const isSettingsOpen = useUIState(s => s.isSettingsOpen)
+  const isSettingsOpen = useUIState((s) => s.isSettingsOpen)
   const sidebarPosition = useSettingsStore((state) => state.settings.sidebarPosition)
   const [sidebarOpen, setSidebarOpen] = useState(true)
   const sidebarPanelRef = useRef<PanelImperativeHandle | null>(null)
 
   const activeWorkspaceId = pathname.match(/\/workspaces\/([^/]+)/)?.[1]
   const activeChatId = pathname.match(/\/chat\/([^/]+)/)?.[1]
-  const activeRepo = repos.find(r => r.workspaces?.some(ws => ws.id === activeWorkspaceId))
+  const activeRepo = repos.find((r) => r.workspaces?.some((ws) => ws.id === activeWorkspaceId))
   const activeWorkspaceRepoPath = activeRepo ? `/repos/${activeRepo.id}` : '/repos/default'
-  const chatTabLabel = chats.find(c => c.id === activeChatId)?.title ?? 'Chat'
+  const chatTabLabel = chats.find((c) => c.id === activeChatId)?.title ?? 'Chat'
 
   // Drive panel collapse/expand from sidebarOpen state (set by SidebarProvider's toggleSidebar)
   useEffect(() => {
@@ -61,7 +61,7 @@ export function IDEShell() {
 
   function handleSidebarResize(size: PanelSize) {
     const isCollapsed = size.asPercentage === 0
-    setSidebarOpen(prev => (!isCollapsed !== prev ? !isCollapsed : prev))
+    setSidebarOpen((prev) => (!isCollapsed !== prev ? !isCollapsed : prev))
     if (size.inPixels > 0) {
       try {
         localStorage.setItem('sidebar-width', String(Math.round(size.inPixels)))

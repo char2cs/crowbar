@@ -9,34 +9,34 @@ import {
   Rows as Rows2,
   TerminalWindow as Terminal,
   X,
-} from "@phosphor-icons/react";
-import type { PaneContent } from "@/features/panes/types/pane-content";
-import { isVirtualContent } from "@/features/panes/types/pane-content";
-import { useTerminalStore } from "@/features/terminal/stores/terminal-store";
-import { useWorkspaceStore } from "@/features/workspace/stores/workspace-context";
-import { ContextMenu, type ContextMenuItem } from "@/components/ui/context-menu";
-import { primitivePrompt } from "@/components/ui/primitive-dialog-service";
-import { getBaseName, getDirName } from "@/utils/path-helpers";
-import Keybinding from "@/components/ui/keybinding";
-import { IS_MAC } from "@/utils/platform";
+} from '@phosphor-icons/react'
+import type { PaneContent } from '@/features/panes/types/pane-content'
+import { isVirtualContent } from '@/features/panes/types/pane-content'
+import { useTerminalStore } from '@/features/terminal/stores/terminal-store'
+import { useWorkspaceStore } from '@/features/workspace/stores/workspace-context'
+import { ContextMenu, type ContextMenuItem } from '@/components/ui/context-menu'
+import { primitivePrompt } from '@/components/ui/primitive-dialog-service'
+import { getBaseName, getDirName } from '@/utils/path-helpers'
+import Keybinding from '@/components/ui/keybinding'
+import { IS_MAC } from '@/utils/platform'
 
 interface TabContextMenuProps {
-  isOpen: boolean;
-  position: { x: number; y: number };
-  buffer: PaneContent | null;
-  paneId?: string;
-  onClose: () => void;
-  onPin: (bufferId: string) => void;
-  onCloseTab: (bufferId: string) => void;
-  onCloseOthers: (bufferId: string) => void;
-  onCloseAll: () => void;
-  onCloseToRight: (bufferId: string) => void;
-  onCopyPath?: (path: string) => void;
-  onCopyRelativePath?: (path: string) => void;
-  onReload?: (bufferId: string) => void;
-  onRevealInFinder?: (path: string) => void;
-  onSplitRight?: (paneId: string, bufferId: string) => void;
-  onSplitDown?: (paneId: string, bufferId: string) => void;
+  isOpen: boolean
+  position: { x: number; y: number }
+  buffer: PaneContent | null
+  paneId?: string
+  onClose: () => void
+  onPin: (bufferId: string) => void
+  onCloseTab: (bufferId: string) => void
+  onCloseOthers: (bufferId: string) => void
+  onCloseAll: () => void
+  onCloseToRight: (bufferId: string) => void
+  onCopyPath?: (path: string) => void
+  onCopyRelativePath?: (path: string) => void
+  onReload?: (bufferId: string) => void
+  onRevealInFinder?: (path: string) => void
+  onSplitRight?: (paneId: string, bufferId: string) => void
+  onSplitDown?: (paneId: string, bufferId: string) => void
 }
 
 const TabContextMenu = ({
@@ -57,55 +57,55 @@ const TabContextMenu = ({
   onSplitRight,
   onSplitDown,
 }: TabContextMenuProps) => {
-  const workspaceStore = useWorkspaceStore();
+  const workspaceStore = useWorkspaceStore()
 
-  if (!isOpen || !buffer) return null;
+  if (!isOpen || !buffer) return null
 
-  const closeKeys = [IS_MAC ? "Cmd" : "Ctrl", "W"];
+  const closeKeys = [IS_MAC ? 'Cmd' : 'Ctrl', 'W']
   const items: ContextMenuItem[] = [
     {
-      id: "pin",
-      label: buffer.isPinned ? "Unpin Tab" : "Pin Tab",
+      id: 'pin',
+      label: buffer.isPinned ? 'Unpin Tab' : 'Pin Tab',
       icon: buffer.isPinned ? <PinOff /> : <Pin />,
       onClick: () => onPin(buffer.id),
     },
-    ...(buffer.type === "terminal"
+    ...(buffer.type === 'terminal'
       ? [
           {
-            id: "rename-terminal",
-            label: "Rename",
+            id: 'rename-terminal',
+            label: 'Rename',
             icon: <PencilSimpleLine />,
             onClick: async () => {
               const nextName = (
-                await primitivePrompt("Enter a terminal name:", {
-                  title: "Rename Terminal",
+                await primitivePrompt('Enter a terminal name:', {
+                  title: 'Rename Terminal',
                   defaultValue: buffer.name,
-                  placeholder: "Terminal name",
-                  confirmLabel: "Rename",
+                  placeholder: 'Terminal name',
+                  confirmLabel: 'Rename',
                 })
-              )?.trim();
+              )?.trim()
 
-              if (!nextName) return;
+              if (!nextName) return
 
               useTerminalStore.getState().updateSession(buffer.sessionId, {
                 name: nextName,
                 customName: true,
-              });
+              })
               workspaceStore.setState((state) => ({
                 buffers: state.buffers.map((b) =>
                   b.id === buffer.id ? { ...b, name: nextName } : b,
                 ),
-              }));
+              }))
             },
           },
         ]
       : []),
-    { id: "sep-1", label: "", separator: true, onClick: () => {} },
+    { id: 'sep-1', label: '', separator: true, onClick: () => {} },
     ...(paneId && onSplitRight
       ? [
           {
-            id: "split-right",
-            label: "Split Right",
+            id: 'split-right',
+            label: 'Split Right',
             icon: <Columns2 />,
             onClick: () => onSplitRight(paneId, buffer.id),
           },
@@ -114,99 +114,99 @@ const TabContextMenu = ({
     ...(paneId && onSplitDown
       ? [
           {
-            id: "split-down",
-            label: "Split Down",
+            id: 'split-down',
+            label: 'Split Down',
             icon: <Rows2 />,
             onClick: () => onSplitDown(paneId, buffer.id),
           },
         ]
       : []),
     ...(paneId && (onSplitRight || onSplitDown)
-      ? [{ id: "sep-2", label: "", separator: true, onClick: () => {} }]
+      ? [{ id: 'sep-2', label: '', separator: true, onClick: () => {} }]
       : []),
     {
-      id: "copy-path",
-      label: "Copy Path",
+      id: 'copy-path',
+      label: 'Copy Path',
       icon: <Copy />,
       onClick: async () => {
         if (onCopyPath) {
-          onCopyPath(buffer.path);
-          return;
+          onCopyPath(buffer.path)
+          return
         }
 
         try {
-          await navigator.clipboard.writeText(buffer.path);
+          await navigator.clipboard.writeText(buffer.path)
         } catch (error) {
-          console.error("Failed to copy path:", error);
+          console.error('Failed to copy path:', error)
         }
       },
     },
     {
-      id: "copy-relative-path",
-      label: "Copy Relative Path",
+      id: 'copy-relative-path',
+      label: 'Copy Relative Path',
       icon: <Copy />,
       onClick: () => onCopyRelativePath?.(buffer.path),
     },
     {
-      id: "reveal",
-      label: "Reveal in Finder",
+      id: 'reveal',
+      label: 'Reveal in Finder',
       icon: <FolderOpen />,
       onClick: () => onRevealInFinder?.(buffer.path),
     },
-    ...(!isVirtualContent(buffer) && !buffer.path.includes("://")
+    ...(!isVirtualContent(buffer) && !buffer.path.includes('://')
       ? [
           {
-            id: "terminal",
-            label: "Open in Terminal",
+            id: 'terminal',
+            label: 'Open in Terminal',
             icon: <Terminal />,
             onClick: () => {
-              const dirPath = getDirName(buffer.path);
-              const dirName = getBaseName(dirPath, "terminal");
+              const dirPath = getDirName(buffer.path)
+              const dirName = getBaseName(dirPath, 'terminal')
               workspaceStore.getState().bufferActions.openContent({
                 type: 'terminal',
                 name: dirName,
                 workingDirectory: dirPath,
-              });
+              })
             },
           },
         ]
       : []),
-    ...(buffer.path !== "extensions://marketplace"
+    ...(buffer.path !== 'extensions://marketplace'
       ? [
           {
-            id: "reload",
-            label: "Reload",
+            id: 'reload',
+            label: 'Reload',
             icon: <RotateCcw />,
             onClick: () => onReload?.(buffer.id),
           },
         ]
       : []),
-    { id: "sep-3", label: "", separator: true, onClick: () => {} },
+    { id: 'sep-3', label: '', separator: true, onClick: () => {} },
     {
-      id: "close",
-      label: "Close",
+      id: 'close',
+      label: 'Close',
       icon: <X />,
       keybinding: <Keybinding keys={closeKeys} className="opacity-60" />,
       onClick: () => onCloseTab(buffer.id),
     },
     {
-      id: "close-others",
-      label: "Close Others",
+      id: 'close-others',
+      label: 'Close Others',
       onClick: () => onCloseOthers(buffer.id),
     },
     {
-      id: "close-right",
-      label: "Close to Right",
+      id: 'close-right',
+      label: 'Close to Right',
       onClick: () => onCloseToRight(buffer.id),
     },
     {
-      id: "close-all",
-      label: "Close All",
+      id: 'close-all',
+      label: 'Close All',
       onClick: onCloseAll,
     },
-  ];
+  ]
 
-  return <ContextMenu isOpen={isOpen} position={position} items={items} onClose={onClose} />;
-};
+  return <ContextMenu isOpen={isOpen} position={position} items={items} onClose={onClose} />
+}
 
-export default TabContextMenu;
+export default TabContextMenu

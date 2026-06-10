@@ -1,23 +1,23 @@
-import { Check, FolderOpen, ArrowClockwise as RefreshCw } from "@phosphor-icons/react";
-import { type KeyboardEvent, useCallback, useEffect, useMemo, useState } from "react";
-import { Button } from "@/components/ui/button";
-import { CommandEmpty, CommandFooter, CommandItem, CommandList } from "@/components/ui/command";
-import { cn } from "@/utils/cn";
-import { getFolderName, getRelativePath } from "@/utils/path-helpers";
-import { openDirectory } from "@/lib/crowbar-bridge";
-import { resolveRepositoryPath } from "../api/git-repo-api";
-import { useRepositoryStore } from "../stores/git-repository-store";
-import GitCommandSurface from "./git-command-surface";
+import { Check, FolderOpen, ArrowClockwise as RefreshCw } from '@phosphor-icons/react'
+import { type KeyboardEvent, useCallback, useEffect, useMemo, useState } from 'react'
+import { Button } from '@/components/ui/button'
+import { CommandEmpty, CommandFooter, CommandItem, CommandList } from '@/components/ui/command'
+import { cn } from '@/utils/cn'
+import { getFolderName, getRelativePath } from '@/utils/path-helpers'
+import { openDirectory } from '@/lib/crowbar-bridge'
+import { resolveRepositoryPath } from '../api/git-repo-api'
+import { useRepositoryStore } from '../stores/git-repository-store'
+import GitCommandSurface from './git-command-surface'
 
 interface GitProjectSelectorProps {
-  placement?: "up" | "down";
-  className?: string;
-  inputClassName?: string;
-  onRepositoryChange?: (repoPath: string | null) => void;
+  placement?: 'up' | 'down'
+  className?: string
+  inputClassName?: string
+  onRepositoryChange?: (repoPath: string | null) => void
 }
 
 function getRepositoryLabel(repoPath: string | null) {
-  return repoPath ? getFolderName(repoPath) : "Select repo";
+  return repoPath ? getFolderName(repoPath) : 'Select repo'
 }
 
 function getFilteredRepositoryPaths(
@@ -26,128 +26,128 @@ function getFilteredRepositoryPaths(
   query: string,
 ) {
   const sorted = [...repoPaths].sort((a, b) => {
-    if (a === activeRepoPath) return -1;
-    if (b === activeRepoPath) return 1;
-    return getFolderName(a).localeCompare(getFolderName(b));
-  });
+    if (a === activeRepoPath) return -1
+    if (b === activeRepoPath) return 1
+    return getFolderName(a).localeCompare(getFolderName(b))
+  })
 
-  const normalizedQuery = query.trim().toLowerCase();
-  if (!normalizedQuery) return sorted;
+  const normalizedQuery = query.trim().toLowerCase()
+  if (!normalizedQuery) return sorted
 
   return sorted.filter((repoPath) => {
-    const searchable = `${getFolderName(repoPath)} ${repoPath}`.toLowerCase();
-    return searchable.includes(normalizedQuery);
-  });
+    const searchable = `${getFolderName(repoPath)} ${repoPath}`.toLowerCase()
+    return searchable.includes(normalizedQuery)
+  })
 }
 
 const GitProjectSelector = ({
-  placement = "down",
+  placement = 'down',
   className,
   inputClassName,
   onRepositoryChange,
 }: GitProjectSelectorProps) => {
-  const activeRepoPath = useRepositoryStore.use.activeRepoPath();
-  const workspaceRootPath = useRepositoryStore.use.workspaceRootPath();
-  const availableRepoPaths = useRepositoryStore.use.availableRepoPaths();
-  const manualRepoPath = useRepositoryStore.use.manualRepoPath();
-  const isDiscovering = useRepositoryStore.use.isDiscovering();
+  const activeRepoPath = useRepositoryStore.use.activeRepoPath()
+  const workspaceRootPath = useRepositoryStore.use.workspaceRootPath()
+  const availableRepoPaths = useRepositoryStore.use.availableRepoPaths()
+  const manualRepoPath = useRepositoryStore.use.manualRepoPath()
+  const isDiscovering = useRepositoryStore.use.isDiscovering()
   const {
     selectRepository,
     setManualRepository,
     clearManualRepository,
     refreshWorkspaceRepositories,
-  } = useRepositoryStore.use.actions();
-  const [query, setQuery] = useState("");
-  const [selectedIndex, setSelectedIndex] = useState(0);
-  const [isOpen, setIsOpen] = useState(false);
-  const [isSelectingRepo, setIsSelectingRepo] = useState(false);
-  const [selectionError, setSelectionError] = useState<string | null>(null);
+  } = useRepositoryStore.use.actions()
+  const [query, setQuery] = useState('')
+  const [selectedIndex, setSelectedIndex] = useState(0)
+  const [isOpen, setIsOpen] = useState(false)
+  const [isSelectingRepo, setIsSelectingRepo] = useState(false)
+  const [selectionError, setSelectionError] = useState<string | null>(null)
 
-  const triggerText = getRepositoryLabel(activeRepoPath);
-  const triggerTextWidthCh = Math.min(Math.max(triggerText.length + 1, 8), 38);
+  const triggerText = getRepositoryLabel(activeRepoPath)
+  const triggerTextWidthCh = Math.min(Math.max(triggerText.length + 1, 8), 38)
   const filteredRepoPaths = useMemo(
     () => getFilteredRepositoryPaths(availableRepoPaths, activeRepoPath, query),
     [activeRepoPath, availableRepoPaths, query],
-  );
+  )
 
   useEffect(() => {
     if (!isOpen) {
-      setQuery("");
-      setSelectedIndex(0);
-      setSelectionError(null);
+      setQuery('')
+      setSelectedIndex(0)
+      setSelectionError(null)
     }
-  }, [isOpen]);
+  }, [isOpen])
 
   useEffect(() => {
-    setSelectedIndex(0);
-  }, [query]);
+    setSelectedIndex(0)
+  }, [query])
 
   const handleOpenDropdown = async () => {
-    if (isOpen) return;
-    setIsOpen(true);
-    await refreshWorkspaceRepositories();
-  };
+    if (isOpen) return
+    setIsOpen(true)
+    await refreshWorkspaceRepositories()
+  }
 
   const handleSelectRepositoryPath = (repoPath: string) => {
-    selectRepository(repoPath);
-    setSelectionError(null);
-    setIsOpen(false);
-    onRepositoryChange?.(repoPath);
-  };
+    selectRepository(repoPath)
+    setSelectionError(null)
+    setIsOpen(false)
+    onRepositoryChange?.(repoPath)
+  }
 
   const handleBrowseRepository = useCallback(async () => {
-    setIsSelectingRepo(true);
-    setSelectionError(null);
+    setIsSelectingRepo(true)
+    setSelectionError(null)
 
     try {
-      const selected = await openDirectory();
-      if (!selected || Array.isArray(selected)) return;
+      const selected = await openDirectory()
+      if (!selected || Array.isArray(selected)) return
 
-      const resolvedRepoPath = await resolveRepositoryPath(selected);
+      const resolvedRepoPath = await resolveRepositoryPath(selected)
       if (!resolvedRepoPath) {
-        setSelectionError("Selected folder is not inside a Git repository.");
-        return;
+        setSelectionError('Selected folder is not inside a Git repository.')
+        return
       }
 
-      setManualRepository(resolvedRepoPath);
-      setIsOpen(false);
-      onRepositoryChange?.(resolvedRepoPath);
+      setManualRepository(resolvedRepoPath)
+      setIsOpen(false)
+      onRepositoryChange?.(resolvedRepoPath)
     } catch (error) {
-      console.error("Failed to select repository:", error);
-      setSelectionError(error instanceof Error ? error.message : "Failed to select repository.");
+      console.error('Failed to select repository:', error)
+      setSelectionError(error instanceof Error ? error.message : 'Failed to select repository.')
     } finally {
-      setIsSelectingRepo(false);
+      setIsSelectingRepo(false)
     }
-  }, [onRepositoryChange, setManualRepository]);
+  }, [onRepositoryChange, setManualRepository])
 
   const handleUseWorkspaceRepositories = () => {
-    clearManualRepository();
-    setSelectionError(null);
-    setIsOpen(false);
-    onRepositoryChange?.(useRepositoryStore.getState().activeRepoPath);
-  };
+    clearManualRepository()
+    setSelectionError(null)
+    setIsOpen(false)
+    onRepositoryChange?.(useRepositoryStore.getState().activeRepoPath)
+  }
 
   const handleCommandKeyDown = (event: KeyboardEvent<HTMLInputElement>) => {
-    if (event.key === "ArrowDown") {
-      event.preventDefault();
-      setSelectedIndex((index) => Math.min(index + 1, Math.max(filteredRepoPaths.length - 1, 0)));
-      return;
+    if (event.key === 'ArrowDown') {
+      event.preventDefault()
+      setSelectedIndex((index) => Math.min(index + 1, Math.max(filteredRepoPaths.length - 1, 0)))
+      return
     }
 
-    if (event.key === "ArrowUp") {
-      event.preventDefault();
-      setSelectedIndex((index) => Math.max(index - 1, 0));
-      return;
+    if (event.key === 'ArrowUp') {
+      event.preventDefault()
+      setSelectedIndex((index) => Math.max(index - 1, 0))
+      return
     }
 
-    if (event.key === "Enter") {
-      event.preventDefault();
-      const selectedRepoPath = filteredRepoPaths[selectedIndex];
+    if (event.key === 'Enter') {
+      event.preventDefault()
+      const selectedRepoPath = filteredRepoPaths[selectedIndex]
       if (selectedRepoPath) {
-        handleSelectRepositoryPath(selectedRepoPath);
+        handleSelectRepositoryPath(selectedRepoPath)
       }
     }
-  };
+  }
 
   return (
     <>
@@ -156,15 +156,15 @@ const GitProjectSelector = ({
         disabled={isSelectingRepo}
         variant="ghost"
         className={cn(
-          "inline-flex max-w-full shrink overflow-hidden px-2 text-muted-foreground hover:bg-muted/80 sm:max-w-[360px]",
-          isOpen ? "bg-muted/80" : "cursor-pointer",
+          'inline-flex max-w-full shrink overflow-hidden px-2 text-muted-foreground hover:bg-muted/80 sm:max-w-[360px]',
+          isOpen ? 'bg-muted/80' : 'cursor-pointer',
           className,
         )}
         aria-label="Search repositories"
       >
         <FolderOpen className="shrink-0" />
         <span
-          className={cn("ui-text-sm min-w-0 truncate font-normal", inputClassName)}
+          className={cn('ui-text-sm min-w-0 truncate font-normal', inputClassName)}
           style={{ maxWidth: `${triggerTextWidthCh}ch` }}
         >
           {triggerText}
@@ -178,13 +178,13 @@ const GitProjectSelector = ({
         onQueryChange={setQuery}
         onInputKeyDown={handleCommandKeyDown}
         placeholder="Search repositories..."
-        meta={`${availableRepoPaths.length} repo${availableRepoPaths.length === 1 ? "" : "s"}`}
-        placement={placement === "up" ? "bottom" : "top"}
+        meta={`${availableRepoPaths.length} repo${availableRepoPaths.length === 1 ? '' : 's'}`}
+        placement={placement === 'up' ? 'bottom' : 'top'}
       >
         <CommandList>
           {filteredRepoPaths.length === 0 ? (
             <CommandEmpty>
-              {isDiscovering ? "Detecting repositories..." : "No repositories found"}
+              {isDiscovering ? 'Detecting repositories...' : 'No repositories found'}
             </CommandEmpty>
           ) : null}
           {filteredRepoPaths.length > 0 ? (
@@ -214,7 +214,7 @@ const GitProjectSelector = ({
             className="h-7 justify-start px-2 text-muted-foreground"
           >
             <FolderOpen />
-            {isSelectingRepo ? "Selecting..." : "Browse"}
+            {isSelectingRepo ? 'Selecting...' : 'Browse'}
           </Button>
           {manualRepoPath ? (
             <Button
@@ -236,8 +236,8 @@ const GitProjectSelector = ({
         </CommandFooter>
       </GitCommandSurface>
     </>
-  );
-};
+  )
+}
 
 function RepositoryRow({
   repoPath,
@@ -247,21 +247,24 @@ function RepositoryRow({
   onMouseEnter,
   onSelect,
 }: {
-  repoPath: string;
-  workspaceRootPath: string | null;
-  isCurrent: boolean;
-  isSelected: boolean;
-  onMouseEnter: () => void;
-  onSelect: () => void;
+  repoPath: string
+  workspaceRootPath: string | null
+  isCurrent: boolean
+  isSelected: boolean
+  onMouseEnter: () => void
+  onSelect: () => void
 }) {
-  const relativePath = workspaceRootPath ? getRelativePath(repoPath, workspaceRootPath) : repoPath;
+  const relativePath = workspaceRootPath ? getRelativePath(repoPath, workspaceRootPath) : repoPath
 
   return (
     <CommandItem
       isSelected={isSelected}
       onMouseEnter={onMouseEnter}
       onClick={onSelect}
-      className={cn("group ui-font", isCurrent ? "text-foreground" : "text-muted-foreground hover:text-foreground")}
+      className={cn(
+        'group ui-font',
+        isCurrent ? 'text-foreground' : 'text-muted-foreground hover:text-foreground',
+      )}
     >
       {isCurrent ? (
         <Check size={14} className="shrink-0 text-success" />
@@ -271,12 +274,12 @@ function RepositoryRow({
       <span className="min-w-0 flex-1 truncate">
         <span className="ui-text-xs text-foreground">{getFolderName(repoPath)}</span>
         <span className="ui-text-xs ml-2 text-muted-foreground/80">
-          {relativePath === "." ? repoPath : relativePath}
+          {relativePath === '.' ? repoPath : relativePath}
         </span>
       </span>
       {isCurrent ? <span className="ui-text-xs ml-auto shrink-0 text-success">current</span> : null}
     </CommandItem>
-  );
+  )
 }
 
-export default GitProjectSelector;
+export default GitProjectSelector

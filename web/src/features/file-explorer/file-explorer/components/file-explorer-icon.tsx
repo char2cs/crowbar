@@ -1,16 +1,16 @@
-import DOMPurify from "dompurify";
-import { cloneElement, isValidElement } from "react";
-import { File, Folder, FolderOpen } from "@phosphor-icons/react";
-import { iconThemeRegistry } from "@/extensions/icon-themes/icon-theme-registry";
-import { useSettingsStore } from "@/features/settings/store";
+import DOMPurify from 'dompurify'
+import { cloneElement, isValidElement } from 'react'
+import { File, Folder, FolderOpen } from '@phosphor-icons/react'
+import { iconThemeRegistry } from '@/extensions/icon-themes/icon-theme-registry'
+import { useSettingsStore } from '@/features/settings/store'
 
 interface FileExplorerIconProps {
-  fileName: string;
-  isDir: boolean;
-  isExpanded?: boolean;
-  isSymlink?: boolean;
-  size?: number;
-  className?: string;
+  fileName: string
+  isDir: boolean
+  isExpanded?: boolean
+  isSymlink?: boolean
+  size?: number
+  className?: string
 }
 
 export function FileExplorerIcon({
@@ -19,26 +19,32 @@ export function FileExplorerIcon({
   isExpanded = false,
   isSymlink = false,
   size = 14,
-  className = "text-muted-foreground",
+  className = 'text-muted-foreground',
 }: FileExplorerIconProps) {
-  const iconThemeValue = useSettingsStore((s) => s.settings.iconTheme);
-  const iconTheme = iconThemeRegistry.getTheme(iconThemeValue);
+  const iconThemeValue = useSettingsStore((s) => s.settings.iconTheme)
+  const iconTheme = iconThemeRegistry.getTheme(iconThemeValue)
 
   // When no icon theme is registered, use Phosphor Icons as built-in fallback
   if (!iconTheme) {
-    const iconProps = { size, className, weight: "duotone" } as const;
+    const iconProps = { size, className, weight: 'duotone' } as const
     if (isDir) {
-      const FolderIcon = isExpanded ? FolderOpen : Folder;
-      const folderNode = <FolderIcon {...iconProps} />;
-      if (!isSymlink) return folderNode;
+      const FolderIcon = isExpanded ? FolderOpen : Folder
+      const folderNode = <FolderIcon {...iconProps} />
+      if (!isSymlink) return folderNode
     } else {
-      const fileNode = <File {...iconProps} />;
-      if (!isSymlink) return fileNode;
+      const fileNode = <File {...iconProps} />
+      if (!isSymlink) return fileNode
     }
     // Symlink: wrap with badge
-    const baseIcon = isDir
-      ? (isExpanded ? <FolderOpen {...iconProps} /> : <Folder {...iconProps} />)
-      : <File {...iconProps} />;
+    const baseIcon = isDir ? (
+      isExpanded ? (
+        <FolderOpen {...iconProps} />
+      ) : (
+        <Folder {...iconProps} />
+      )
+    ) : (
+      <File {...iconProps} />
+    )
     return (
       <span className="relative inline-block">
         {baseIcon}
@@ -61,24 +67,24 @@ export function FileExplorerIcon({
           />
         </svg>
       </span>
-    );
+    )
   }
 
-  const iconResult = iconTheme.getFileIcon(fileName, isDir, isExpanded, isSymlink);
+  const iconResult = iconTheme.getFileIcon(fileName, isDir, isExpanded, isSymlink)
   const sanitizedSvg = iconResult.svg
     ? DOMPurify.sanitize(iconResult.svg, {
         USE_PROFILES: { svg: true, svgFilters: true },
       })
-    : null;
+    : null
 
   const renderIcon = () => {
     if (iconResult.component) {
       if (isValidElement(iconResult.component)) {
         return cloneElement(iconResult.component, { className } as React.Attributes & {
-          className: string;
-        });
+          className: string
+        })
       }
-      return <span className={className}>{iconResult.component}</span>;
+      return <span className={className}>{iconResult.component}</span>
     }
 
     if (sanitizedSvg) {
@@ -88,21 +94,21 @@ export function FileExplorerIcon({
           style={{
             width: `${size}px`,
             height: `${size}px`,
-            display: "inline-block",
+            display: 'inline-block',
             lineHeight: 0,
           }}
           dangerouslySetInnerHTML={{ __html: sanitizedSvg }}
         />
-      );
+      )
     }
 
     // Final fallback: Phosphor icon
     if (isDir) {
-      const FolderIcon = isExpanded ? FolderOpen : Folder;
-      return <FolderIcon size={size} className={className} weight="duotone" />;
+      const FolderIcon = isExpanded ? FolderOpen : Folder
+      return <FolderIcon size={size} className={className} weight="duotone" />
     }
-    return <File size={size} className={className} weight="duotone" />;
-  };
+    return <File size={size} className={className} weight="duotone" />
+  }
 
   if (isSymlink) {
     return (
@@ -127,8 +133,8 @@ export function FileExplorerIcon({
           />
         </svg>
       </span>
-    );
+    )
   }
 
-  return renderIcon();
+  return renderIcon()
 }

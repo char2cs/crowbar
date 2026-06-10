@@ -22,6 +22,9 @@ describe('git-blame-store loadable', () => {
   it('getBlameForLine returns the line via dataOf', async () => {
     const { useGitBlameStore } = await import('@/features/git/stores/git-blame-store')
     await useGitBlameStore.getState().loadBlameForFile('/repo', 'a.ts')
-    expect(useGitBlameStore.getState().getBlameForLine('a.ts', 1)).toEqual({ line_number: 1, total_lines: 1 })
+    expect(useGitBlameStore.getState().getBlameForLine('a.ts', 1)).toEqual({
+      line_number: 1,
+      total_lines: 1,
+    })
   })
 })

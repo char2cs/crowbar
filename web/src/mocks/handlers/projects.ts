@@ -19,7 +19,7 @@ export const projectHandlers = [
 
   // Matches the backend's WriteMutationOK: returns only { id }, not the entity.
   http.post('/v0/projects', async ({ request }) => {
-    const body = await request.json() as { name: string; path: string }
+    const body = (await request.json()) as { name: string; path: string }
     const project = createMockProject(body)
     return ok({ id: project.id }, 201)
   }),

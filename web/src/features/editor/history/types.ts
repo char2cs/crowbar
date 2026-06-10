@@ -1,18 +1,18 @@
-import type { Position, Range } from "@/features/editor/types/editor";
+import type { Position, Range } from '@/features/editor/types/editor'
 
 export interface HistoryEntry {
-  content: string;
-  cursorPosition?: Position;
-  selection?: Range;
-  timestamp: number;
+  content: string
+  cursorPosition?: Position
+  selection?: Range
+  timestamp: number
 }
 
 export interface HistoryState {
-  past: HistoryEntry[];
-  future: HistoryEntry[];
-  maxHistorySize: number;
+  past: HistoryEntry[]
+  future: HistoryEntry[]
+  maxHistorySize: number
 }
 
 export interface BufferHistory {
-  [bufferId: string]: HistoryState;
+  [bufferId: string]: HistoryState
 }

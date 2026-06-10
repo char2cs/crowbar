@@ -47,12 +47,22 @@ export class ExtensionRegistry {
 
   registerExtension(_extension: unknown): void {}
 
-  isLspSupported(_filePath: string): boolean { return false }
-  isLspSupportedForLanguage(_languageId: string): boolean { return false }
+  isLspSupported(_filePath: string): boolean {
+    return false
+  }
+  isLspSupportedForLanguage(_languageId: string): boolean {
+    return false
+  }
 
-  getSnippetsForLanguage(_languageId: string): SnippetDefinition[] { return [] }
-  getAllSnippets(): SnippetDefinition[] { return [] }
-  getLspServerPath(_languageId: string): string | null { return null }
+  getSnippetsForLanguage(_languageId: string): SnippetDefinition[] {
+    return []
+  }
+  getAllSnippets(): SnippetDefinition[] {
+    return []
+  }
+  getLspServerPath(_languageId: string): string | null {
+    return null
+  }
 
   onThemeChange(_handler: () => void): () => void {
     return () => {}

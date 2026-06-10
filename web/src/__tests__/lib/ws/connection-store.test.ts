@@ -9,9 +9,16 @@ class MockWebSocket {
   readyState: number = WebSocket.OPEN
   send = vi.fn()
   close = vi.fn()
-  constructor(public url: string) { MockWebSocket.instances.push(this) }
-  simulateOpen() { this.onopen?.() }
-  simulateClose() { this.readyState = WebSocket.CLOSED; this.onclose?.() }
+  constructor(public url: string) {
+    MockWebSocket.instances.push(this)
+  }
+  simulateOpen() {
+    this.onopen?.()
+  }
+  simulateClose() {
+    this.readyState = WebSocket.CLOSED
+    this.onclose?.()
+  }
 }
 
 vi.stubGlobal('WebSocket', MockWebSocket)

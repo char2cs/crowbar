@@ -1,40 +1,40 @@
-import type { CompletionItem } from "vscode-languageserver-protocol";
-import type { FilteredCompletion } from "@/utils/fuzzy-matcher";
+import type { CompletionItem } from 'vscode-languageserver-protocol'
+import type { FilteredCompletion } from '@/utils/fuzzy-matcher'
 
-const COMPLETION_PAGE_SIZE = 5;
+const COMPLETION_PAGE_SIZE = 5
 
 export interface CompletionKeyState {
-  key: string;
-  metaKey?: boolean;
-  ctrlKey?: boolean;
-  altKey?: boolean;
+  key: string
+  metaKey?: boolean
+  ctrlKey?: boolean
+  altKey?: boolean
 }
 
 export type LspCompletionKeyAction =
   | {
-      type: "select";
-      selectedIndex: number;
+      type: 'select'
+      selectedIndex: number
     }
   | {
-      type: "apply";
-      completion: CompletionItem;
-      selectedIndex: number;
+      type: 'apply'
+      completion: CompletionItem
+      selectedIndex: number
     }
   | {
-      type: "hide";
-    };
+      type: 'hide'
+    }
 
 function normalizeCompletionIndex(index: number, length: number): number {
-  if (length <= 0) return 0;
-  if (index < 0 || index >= length) return 0;
-  return index;
+  if (length <= 0) return 0
+  if (index < 0 || index >= length) return 0
+  return index
 }
 
 function wrapCompletionIndex(index: number, length: number): number {
-  if (length <= 0) return 0;
-  if (index < 0) return length - 1;
-  if (index >= length) return 0;
-  return index;
+  if (length <= 0) return 0
+  if (index < 0) return length - 1
+  if (index >= length) return 0
+  return index
 }
 
 export function resolveLspCompletionKeyAction({
@@ -43,77 +43,77 @@ export function resolveLspCompletionKeyAction({
   filteredCompletions,
   selectedIndex,
 }: {
-  keyState: CompletionKeyState;
-  isVisible: boolean;
-  filteredCompletions: FilteredCompletion[];
-  selectedIndex: number;
+  keyState: CompletionKeyState
+  isVisible: boolean
+  filteredCompletions: FilteredCompletion[]
+  selectedIndex: number
 }): LspCompletionKeyAction | null {
-  if (!isVisible) return null;
+  if (!isVisible) return null
 
-  const hasCommandModifier = !!keyState.metaKey || !!keyState.ctrlKey || !!keyState.altKey;
-  if (hasCommandModifier) return null;
+  const hasCommandModifier = !!keyState.metaKey || !!keyState.ctrlKey || !!keyState.altKey
+  if (hasCommandModifier) return null
 
-  if (keyState.key === "Escape") {
-    return { type: "hide" };
+  if (keyState.key === 'Escape') {
+    return { type: 'hide' }
   }
 
-  const completionCount = filteredCompletions.length;
-  if (completionCount === 0) return null;
+  const completionCount = filteredCompletions.length
+  if (completionCount === 0) return null
 
-  const normalizedIndex = normalizeCompletionIndex(selectedIndex, completionCount);
+  const normalizedIndex = normalizeCompletionIndex(selectedIndex, completionCount)
 
-  if (keyState.key === "ArrowDown") {
+  if (keyState.key === 'ArrowDown') {
     return {
-      type: "select",
+      type: 'select',
       selectedIndex: wrapCompletionIndex(normalizedIndex + 1, completionCount),
-    };
+    }
   }
 
-  if (keyState.key === "ArrowUp") {
+  if (keyState.key === 'ArrowUp') {
     return {
-      type: "select",
+      type: 'select',
       selectedIndex: wrapCompletionIndex(normalizedIndex - 1, completionCount),
-    };
+    }
   }
 
-  if (keyState.key === "PageDown") {
+  if (keyState.key === 'PageDown') {
     return {
-      type: "select",
+      type: 'select',
       selectedIndex: Math.min(completionCount - 1, normalizedIndex + COMPLETION_PAGE_SIZE),
-    };
+    }
   }
 
-  if (keyState.key === "PageUp") {
+  if (keyState.key === 'PageUp') {
     return {
-      type: "select",
+      type: 'select',
       selectedIndex: Math.max(0, normalizedIndex - COMPLETION_PAGE_SIZE),
-    };
+    }
   }
 
-  if (keyState.key === "Home") {
+  if (keyState.key === 'Home') {
     return {
-      type: "select",
+      type: 'select',
       selectedIndex: 0,
-    };
+    }
   }
 
-  if (keyState.key === "End") {
+  if (keyState.key === 'End') {
     return {
-      type: "select",
+      type: 'select',
       selectedIndex: completionCount - 1,
-    };
+    }
   }
 
-  if (keyState.key === "Enter" || keyState.key === "Tab") {
-    const completion = filteredCompletions[normalizedIndex]?.item;
-    if (!completion) return null;
+  if (keyState.key === 'Enter' || keyState.key === 'Tab') {
+    const completion = filteredCompletions[normalizedIndex]?.item
+    if (!completion) return null
 
     return {
-      type: "apply",
+      type: 'apply',
       completion,
       selectedIndex: normalizedIndex,
-    };
+    }
   }
 
-  return null;
+  return null
 }

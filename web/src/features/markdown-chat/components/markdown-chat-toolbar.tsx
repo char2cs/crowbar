@@ -1,12 +1,7 @@
 import type { EditorView } from '@codemirror/view'
 import { nanoid } from 'nanoid'
 import { SendHorizontal, Square, Pencil, Code2, ChartNetwork } from 'lucide-react'
-import {
-  Toolbar,
-  ToolbarButton,
-  ToolbarGroup,
-  ToolbarSeparator,
-} from '@/components/ui/toolbar'
+import { Toolbar, ToolbarButton, ToolbarGroup, ToolbarSeparator } from '@/components/ui/toolbar'
 import { Button } from '@/components/ui/button'
 import {
   DropdownMenu,
@@ -22,7 +17,13 @@ import {
 const COLUMN_PAD = 'max(48px, calc((100% - 680px) / 2))'
 
 const CODE_LANGUAGES = [
-  'typescript', 'javascript', 'python', 'go', 'shell', 'json', 'plain',
+  'typescript',
+  'javascript',
+  'python',
+  'go',
+  'shell',
+  'json',
+  'plain',
 ] as const
 
 type CodeLanguage = (typeof CODE_LANGUAGES)[number]
@@ -120,14 +121,17 @@ function InsertDropdown({
   )
 }
 
-export function MarkdownChatToolbar({ editorView, onInsertWidget, onSubmit, isStreaming, onStop }: ToolbarProps) {
+export function MarkdownChatToolbar({
+  editorView,
+  onInsertWidget,
+  onSubmit,
+  isStreaming,
+  onStop,
+}: ToolbarProps) {
   const v = editorView
 
   return (
-    <div
-      className="py-2"
-      style={{ paddingLeft: COLUMN_PAD, paddingRight: COLUMN_PAD }}
-    >
+    <div className="py-2" style={{ paddingLeft: COLUMN_PAD, paddingRight: COLUMN_PAD }}>
       {/* CrossUI Toolbar. The Send/Stop primary action is a registered composite
           item via `render={<Button/>}` so its click activates inside the
           roving-focus toolbar (a plain <Button> child wouldn't). */}
@@ -152,7 +156,7 @@ export function MarkdownChatToolbar({ editorView, onInsertWidget, onSubmit, isSt
             onClick={() => v && wrapSelection(v, '`')}
             className="flex h-8 min-w-8 items-center justify-center rounded px-2 font-mono text-xs text-muted-foreground hover:bg-muted hover:text-foreground"
           >
-            {"`x`"}
+            {'`x`'}
           </ToolbarButton>
         </ToolbarGroup>
 

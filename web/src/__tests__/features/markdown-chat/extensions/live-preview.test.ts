@@ -1,6 +1,9 @@
 import { EditorState } from '@codemirror/state'
 import { markdown } from '@codemirror/lang-markdown'
-import { livePreview, hasLivePreviewDecoration } from '@/features/markdown-chat/extensions/live-preview'
+import {
+  livePreview,
+  hasLivePreviewDecoration,
+} from '@/features/markdown-chat/extensions/live-preview'
 
 function makeState(content: string) {
   return EditorState.create({

@@ -1,20 +1,20 @@
-import { lazy, Suspense } from "react";
+import { lazy, Suspense } from 'react'
 
 const TerminalTab = lazy(() =>
-  import("@/features/terminal/components/terminal-tab").then((m) => ({
+  import('@/features/terminal/components/terminal-tab').then((m) => ({
     default: m.TerminalTab,
   })),
-);
+)
 
 interface TerminalPaneProps {
-  sessionId: string | undefined;
-  bufferId: string;
-  paneId: string;
-  initialCommand?: string;
-  workingDirectory?: string;
-  remoteConnectionId?: string;
-  isActive: boolean;
-  isVisible?: boolean;
+  sessionId: string | undefined
+  bufferId: string
+  paneId: string
+  initialCommand?: string
+  workingDirectory?: string
+  remoteConnectionId?: string
+  isActive: boolean
+  isVisible?: boolean
 }
 
 export function TerminalPane({
@@ -27,7 +27,7 @@ export function TerminalPane({
   isActive,
   isVisible,
 }: TerminalPaneProps) {
-  if (!sessionId) return null;
+  if (!sessionId) return null
   return (
     <Suspense fallback={null}>
       <TerminalTab
@@ -41,5 +41,5 @@ export function TerminalPane({
         isVisible={isVisible}
       />
     </Suspense>
-  );
+  )
 }

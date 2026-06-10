@@ -1,48 +1,48 @@
-import { clipboardSet, clipboardPaste, clipboardGet, clipboardClear } from '@/lib/crowbar-bridge';
-import { create } from "zustand";
-import { createSelectors } from "@/utils/zustand-selectors";
+import { clipboardSet, clipboardPaste, clipboardGet, clipboardClear } from '@/lib/crowbar-bridge'
+import { create } from 'zustand'
+import { createSelectors } from '@/utils/zustand-selectors'
 
 export interface ClipboardEntry {
-  path: string;
-  is_dir: boolean;
+  path: string
+  is_dir: boolean
 }
 
 export interface FileClipboardState {
-  entries: ClipboardEntry[];
-  operation: "copy" | "cut";
+  entries: ClipboardEntry[]
+  operation: 'copy' | 'cut'
 }
 
 export interface PastedEntry {
-  source_path: string;
-  destination_path: string;
-  is_dir: boolean;
-  success: boolean;
+  source_path: string
+  destination_path: string
+  is_dir: boolean
+  success: boolean
 }
 
 interface FileClipboardStore {
-  clipboard: FileClipboardState | null;
+  clipboard: FileClipboardState | null
   actions: {
-    copy: (entries: ClipboardEntry[]) => Promise<void>;
-    cut: (entries: ClipboardEntry[]) => Promise<void>;
-    paste: (targetDirectory: string) => Promise<PastedEntry[]>;
-    clear: () => Promise<void>;
-    setClipboard: (state: FileClipboardState | null) => void;
-  };
+    copy: (entries: ClipboardEntry[]) => Promise<void>
+    cut: (entries: ClipboardEntry[]) => Promise<void>
+    paste: (targetDirectory: string) => Promise<PastedEntry[]>
+    clear: () => Promise<void>
+    setClipboard: (state: FileClipboardState | null) => void
+  }
 }
 
 const useFileClipboardStoreBase = create<FileClipboardStore>()((set) => ({
   clipboard: null,
   actions: {
     copy: async (entries: ClipboardEntry[]) => {
-      await clipboardSet(entries, "copy");
-      set({ clipboard: { entries, operation: "copy" } });
+      await clipboardSet(entries, 'copy')
+      set({ clipboard: { entries, operation: 'copy' } })
     },
     cut: async (entries: ClipboardEntry[]) => {
-      await clipboardSet(entries, "cut");
-      set({ clipboard: { entries, operation: "cut" } });
+      await clipboardSet(entries, 'cut')
+      set({ clipboard: { entries, operation: 'cut' } })
     },
     paste: async (targetDirectory: string) => {
-      const bridgeResult = await clipboardPaste(targetDirectory);
+      const bridgeResult = await clipboardPaste(targetDirectory)
       // Map crowbar-bridge PastedEntry to local PastedEntry type
       const result: PastedEntry[] = bridgeResult.map((r) => ({
         source_path: r.path,
@@ -50,22 +50,22 @@ const useFileClipboardStoreBase = create<FileClipboardStore>()((set) => ({
         // TODO: bridge does not return is_dir — add when real backend is wired
         is_dir: false,
         success: r.success,
-      }));
-      const bridgeClipboard = await clipboardGet();
+      }))
+      const bridgeClipboard = await clipboardGet()
       const clipboard: FileClipboardState | null = bridgeClipboard
         ? { entries: bridgeClipboard.entries, operation: bridgeClipboard.operation }
-        : null;
-      set({ clipboard });
-      return result;
+        : null
+      set({ clipboard })
+      return result
     },
     clear: async () => {
-      await clipboardClear();
-      set({ clipboard: null });
+      await clipboardClear()
+      set({ clipboard: null })
     },
     setClipboard: (state: FileClipboardState | null) => {
-      set({ clipboard: state });
+      set({ clipboard: state })
     },
   },
-}));
+}))
 
-export const useFileClipboardStore = createSelectors(useFileClipboardStoreBase);
+export const useFileClipboardStore = createSelectors(useFileClipboardStoreBase)

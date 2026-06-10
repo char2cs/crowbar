@@ -1,34 +1,34 @@
 export interface LspPosition {
-  line: number;
-  character: number;
+  line: number
+  character: number
 }
 
 export interface LspTextEdit {
   range: {
-    start: LspPosition;
-    end: LspPosition;
-  };
-  newText: string;
+    start: LspPosition
+    end: LspPosition
+  }
+  newText: string
 }
 
 interface TextDocumentEdit {
   textDocument: {
-    uri: string;
-  };
-  edits: LspTextEdit[];
+    uri: string
+  }
+  edits: LspTextEdit[]
 }
 
 export interface WorkspaceEdit {
-  changes?: Record<string, LspTextEdit[]>;
-  documentChanges?: Array<TextDocumentEdit | unknown>;
+  changes?: Record<string, LspTextEdit[]>
+  documentChanges?: Array<TextDocumentEdit | unknown>
 }
 
 export interface WorkspaceEditApplyResult {
-  editedFiles: number;
+  editedFiles: number
 }
 
 function isObject(value: unknown): value is Record<string, unknown> {
-  return typeof value === "object" && value !== null;
+  return typeof value === 'object' && value !== null
 }
 
 function isTextEdit(value: unknown): value is LspTextEdit {
@@ -36,58 +36,58 @@ function isTextEdit(value: unknown): value is LspTextEdit {
     isObject(value) &&
     isObject(value.range) &&
     isObject(value.range.start) &&
-    typeof value.range.start.line === "number" &&
-    typeof value.range.start.character === "number" &&
+    typeof value.range.start.line === 'number' &&
+    typeof value.range.start.character === 'number' &&
     isObject(value.range.end) &&
-    typeof value.range.end.line === "number" &&
-    typeof value.range.end.character === "number" &&
-    typeof value.newText === "string"
-  );
+    typeof value.range.end.line === 'number' &&
+    typeof value.range.end.character === 'number' &&
+    typeof value.newText === 'string'
+  )
 }
 
 function isTextDocumentEdit(value: unknown): value is TextDocumentEdit {
   return (
     isObject(value) &&
     isObject(value.textDocument) &&
-    typeof value.textDocument.uri === "string" &&
+    typeof value.textDocument.uri === 'string' &&
     Array.isArray(value.edits) &&
     value.edits.every(isTextEdit)
-  );
+  )
 }
 
 export function isWorkspaceEdit(value: unknown): value is WorkspaceEdit {
-  if (!isObject(value)) return false;
+  if (!isObject(value)) return false
 
   const hasChanges =
     isObject(value.changes) &&
-    Object.values(value.changes).every((edits) => Array.isArray(edits) && edits.every(isTextEdit));
+    Object.values(value.changes).every((edits) => Array.isArray(edits) && edits.every(isTextEdit))
   const hasDocumentChanges =
-    Array.isArray(value.documentChanges) && value.documentChanges.some(isTextDocumentEdit);
+    Array.isArray(value.documentChanges) && value.documentChanges.some(isTextDocumentEdit)
 
-  return hasChanges || hasDocumentChanges;
+  return hasChanges || hasDocumentChanges
 }
 
 export function filePathFromUri(uri: string): string {
-  if (!uri.startsWith("file://")) return uri;
+  if (!uri.startsWith('file://')) return uri
 
   try {
-    const url = new URL(uri);
-    return decodeURIComponent(url.pathname);
+    const url = new URL(uri)
+    return decodeURIComponent(url.pathname)
   } catch {
-    return decodeURIComponent(uri.replace(/^file:\/\//, ""));
+    return decodeURIComponent(uri.replace(/^file:\/\//, ''))
   }
 }
 
 function buildLineStartOffsets(content: string): number[] {
-  const offsets = [0];
+  const offsets = [0]
 
   for (let index = 0; index < content.length; index++) {
     if (content.charCodeAt(index) === 10) {
-      offsets.push(index + 1);
+      offsets.push(index + 1)
     }
   }
 
-  return offsets;
+  return offsets
 }
 
 function offsetFromPositionWithLineStarts(
@@ -95,106 +95,105 @@ function offsetFromPositionWithLineStarts(
   position: LspPosition,
   lineStarts: number[],
 ): number {
-  const targetLine = Math.max(0, Math.trunc(position.line));
+  const targetLine = Math.max(0, Math.trunc(position.line))
   if (targetLine >= lineStarts.length) {
-    return content.length;
+    return content.length
   }
 
-  const lineStart = lineStarts[targetLine] ?? 0;
-  const nextLineStart = lineStarts[targetLine + 1];
+  const lineStart = lineStarts[targetLine] ?? 0
+  const nextLineStart = lineStarts[targetLine + 1]
   const lineEnd =
-    nextLineStart === undefined ? content.length : Math.max(lineStart, nextLineStart - 1);
-  const character = Math.max(0, Math.trunc(position.character));
+    nextLineStart === undefined ? content.length : Math.max(lineStart, nextLineStart - 1)
+  const character = Math.max(0, Math.trunc(position.character))
 
-  return Math.max(
-    0,
-    Math.min(content.length, lineStart + Math.min(character, lineEnd - lineStart)),
-  );
+  return Math.max(0, Math.min(content.length, lineStart + Math.min(character, lineEnd - lineStart)))
 }
 
 export function offsetFromPosition(content: string, position: LspPosition): number {
-  return offsetFromPositionWithLineStarts(content, position, buildLineStartOffsets(content));
+  return offsetFromPositionWithLineStarts(content, position, buildLineStartOffsets(content))
 }
 
 export function applyTextEditsToContent(content: string, edits: LspTextEdit[]): string {
-  const lineStarts = buildLineStartOffsets(content);
+  const lineStarts = buildLineStartOffsets(content)
   const sortedEdits = edits
     .map((edit) => ({
       edit,
       startOffset: offsetFromPositionWithLineStarts(content, edit.range.start, lineStarts),
       endOffset: offsetFromPositionWithLineStarts(content, edit.range.end, lineStarts),
     }))
-    .sort((a, b) => b.startOffset - a.startOffset || b.endOffset - a.endOffset);
+    .sort((a, b) => b.startOffset - a.startOffset || b.endOffset - a.endOffset)
 
   return sortedEdits.reduce((nextContent, { edit, startOffset, endOffset }) => {
-    return nextContent.slice(0, startOffset) + edit.newText + nextContent.slice(endOffset);
-  }, content);
+    return nextContent.slice(0, startOffset) + edit.newText + nextContent.slice(endOffset)
+  }, content)
 }
 
 export function collectWorkspaceTextEdits(edit: WorkspaceEdit): Map<string, LspTextEdit[]> {
-  const editsByFile = new Map<string, LspTextEdit[]>();
+  const editsByFile = new Map<string, LspTextEdit[]>()
 
   for (const [uri, edits] of Object.entries(edit.changes ?? {})) {
-    editsByFile.set(filePathFromUri(uri), [...edits]);
+    editsByFile.set(filePathFromUri(uri), [...edits])
   }
 
   for (const documentChange of edit.documentChanges ?? []) {
-    if (!isTextDocumentEdit(documentChange)) continue;
+    if (!isTextDocumentEdit(documentChange)) continue
 
-    const filePath = filePathFromUri(documentChange.textDocument.uri);
-    const existing = editsByFile.get(filePath) ?? [];
-    editsByFile.set(filePath, [...existing, ...documentChange.edits]);
+    const filePath = filePathFromUri(documentChange.textDocument.uri)
+    const existing = editsByFile.get(filePath) ?? []
+    editsByFile.set(filePath, [...existing, ...documentChange.edits])
   }
 
-  return editsByFile;
+  return editsByFile
 }
 
 async function readEditableSource(
   filePath: string,
 ): Promise<{ bufferId: string | null; content: string }> {
-  const { getActiveWorkspaceStoreRef } = await import("@/features/workspace/stores/workspace-store-ref");
-  const { readFile } = await import("@/features/file-system/controllers/platform");
-  const wsStore = getActiveWorkspaceStoreRef()?.getState();
-  const buffers = wsStore?.buffers ?? [];
+  const { getActiveWorkspaceStoreRef } =
+    await import('@/features/workspace/stores/workspace-store-ref')
+  const { readFile } = await import('@/features/file-system/controllers/platform')
+  const wsStore = getActiveWorkspaceStoreRef()?.getState()
+  const buffers = wsStore?.buffers ?? []
   const openBuffer = buffers.find(
-    (buffer) => buffer.type === "editor" && !buffer.isVirtual && buffer.path === filePath,
-  );
+    (buffer) => buffer.type === 'editor' && !buffer.isVirtual && buffer.path === filePath,
+  )
 
-  if (openBuffer?.type === "editor") {
-    return { bufferId: openBuffer.id, content: openBuffer.content };
+  if (openBuffer?.type === 'editor') {
+    return { bufferId: openBuffer.id, content: openBuffer.content }
   }
 
-  return { bufferId: null, content: await readFile(filePath) };
+  return { bufferId: null, content: await readFile(filePath) }
 }
 
 async function writeEditableSource(filePath: string, bufferId: string | null, content: string) {
-  const { getActiveWorkspaceStoreRef } = await import("@/features/workspace/stores/workspace-store-ref");
-  const { isEditorContent } = await import("@/features/panes/types/pane-content");
-  const { writeFile } = await import("@/features/file-system/controllers/platform");
+  const { getActiveWorkspaceStoreRef } =
+    await import('@/features/workspace/stores/workspace-store-ref')
+  const { isEditorContent } = await import('@/features/panes/types/pane-content')
+  const { writeFile } = await import('@/features/file-system/controllers/platform')
 
   if (bufferId) {
-    const wsRef = getActiveWorkspaceStoreRef();
+    const wsRef = getActiveWorkspaceStoreRef()
     wsRef?.setState((state) => ({
       buffers: state.buffers.map((b) =>
         b.id === bufferId && isEditorContent(b)
           ? { ...b, content, isDirty: content !== b.savedContent }
           : b,
       ),
-    }));
-    return;
+    }))
+    return
   }
 
-  await writeFile(filePath, content);
+  await writeFile(filePath, content)
 }
 
 export async function applyWorkspaceEdit(edit: WorkspaceEdit): Promise<WorkspaceEditApplyResult> {
-  const editsByFile = collectWorkspaceTextEdits(edit);
+  const editsByFile = collectWorkspaceTextEdits(edit)
 
   for (const [filePath, edits] of editsByFile) {
-    const source = await readEditableSource(filePath);
-    const nextContent = applyTextEditsToContent(source.content, edits);
-    await writeEditableSource(filePath, source.bufferId, nextContent);
+    const source = await readEditableSource(filePath)
+    const nextContent = applyTextEditsToContent(source.content, edits)
+    await writeEditableSource(filePath, source.bufferId, nextContent)
   }
 
-  return { editedFiles: editsByFile.size };
+  return { editedFiles: editsByFile.size }
 }

@@ -1,34 +1,34 @@
-import { useFileSystemStore } from "@/features/file-system/controllers/store";
-import { useRepositoryStore } from "@/features/git/stores/git-repository-store";
-import { createAppWindow } from "@/features/window/utils/create-app-window";
+import { useFileSystemStore } from '@/features/file-system/controllers/store'
+import { useRepositoryStore } from '@/features/git/stores/git-repository-store'
+import { createAppWindow } from '@/features/window/utils/create-app-window'
 
-type GitWorktreeOpenTarget = "current-window" | "new-window";
+type GitWorktreeOpenTarget = 'current-window' | 'new-window'
 
 interface OpenGitWorktreeOptions {
-  target?: GitWorktreeOpenTarget;
+  target?: GitWorktreeOpenTarget
 }
 
 export async function openGitWorktreeWorkspace(
   worktreePath: string,
   options: OpenGitWorktreeOptions = {},
 ): Promise<boolean> {
-  const path = worktreePath.trim();
-  if (!path) return false;
+  const path = worktreePath.trim()
+  if (!path) return false
 
-  if (options.target === "new-window") {
+  if (options.target === 'new-window') {
     await createAppWindow({
       path,
       isDirectory: true,
-    });
-    return true;
+    })
+    return true
   }
 
-  const { handleOpenFolderByPath } = useFileSystemStore.getState();
-  if (!handleOpenFolderByPath) return false;
+  const { handleOpenFolderByPath } = useFileSystemStore.getState()
+  if (!handleOpenFolderByPath) return false
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const result = await (handleOpenFolderByPath as (path: string) => Promise<any>)(path);
-  if (result === false) return false;
+  const result = await (handleOpenFolderByPath as (path: string) => Promise<any>)(path)
+  if (result === false) return false
 
-  useRepositoryStore.getState().actions.selectRepository(path);
-  return true;
+  useRepositoryStore.getState().actions.selectRepository(path)
+  return true
 }

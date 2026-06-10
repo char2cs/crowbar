@@ -5,22 +5,22 @@ export const GUTTER_CONFIG = {
   LINE_NUMBER_PADDING: 10,
   CHAR_WIDTH: 8,
   MIN_LINE_NUMBER_WIDTH: 34,
-} as const;
+} as const
 
 export function calculateLineNumberWidth(totalLines: number): number {
-  const digitCount = `${totalLines}`.length;
+  const digitCount = `${totalLines}`.length
   return Math.max(
     GUTTER_CONFIG.MIN_LINE_NUMBER_WIDTH,
     digitCount * GUTTER_CONFIG.CHAR_WIDTH + GUTTER_CONFIG.LINE_NUMBER_PADDING,
-  );
+  )
 }
 
 export function calculateTotalGutterWidth(totalLines: number): number {
-  const lineNumberWidth = calculateLineNumberWidth(totalLines);
+  const lineNumberWidth = calculateLineNumberWidth(totalLines)
   return (
     GUTTER_CONFIG.DEBUG_LANE_WIDTH +
     GUTTER_CONFIG.GIT_LANE_WIDTH +
     lineNumberWidth +
     GUTTER_CONFIG.FOLD_LANE_WIDTH
-  );
+  )
 }

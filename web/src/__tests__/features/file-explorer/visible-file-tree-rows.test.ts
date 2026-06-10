@@ -1,36 +1,36 @@
-import { describe, expect, test } from "vitest";
+import { describe, expect, test } from 'vitest'
 import {
   buildVisibleFileTreeRows,
   filterFileTreeForFffHits,
   getGuideAncestorRows,
   getStickyAncestorRow,
   getStickyAncestorRows,
-} from "@/features/file-explorer/file-explorer/lib/visible-file-tree-rows";
+} from '@/features/file-explorer/file-explorer/lib/visible-file-tree-rows'
 
 const tree = [
   {
-    name: "root",
-    path: "/root",
+    name: 'root',
+    path: '/root',
     isDir: true,
     children: [
       {
-        name: "src",
-        path: "/root/src",
+        name: 'src',
+        path: '/root/src',
         isDir: true,
         children: [
           {
-            name: "features",
-            path: "/root/src/features",
+            name: 'features',
+            path: '/root/src/features',
             isDir: true,
             children: [
               {
-                name: "file-explorer",
-                path: "/root/src/features/file-explorer",
+                name: 'file-explorer',
+                path: '/root/src/features/file-explorer',
                 isDir: true,
                 children: [
                   {
-                    name: "file-tree.tsx",
-                    path: "/root/src/features/file-explorer/file-tree.tsx",
+                    name: 'file-tree.tsx',
+                    path: '/root/src/features/file-explorer/file-tree.tsx',
                     isDir: false,
                   },
                 ],
@@ -41,151 +41,151 @@ const tree = [
       },
     ],
   },
-];
+]
 
-describe("buildVisibleFileTreeRows", () => {
-  test("shows only the expanded root branch", () => {
-    const rows = buildVisibleFileTreeRows(tree, new Set(["/root"]));
+describe('buildVisibleFileTreeRows', () => {
+  test('shows only the expanded root branch', () => {
+    const rows = buildVisibleFileTreeRows(tree, new Set(['/root']))
 
-    expect(rows.map((row) => row.file.path)).toEqual(["/root", "/root/src"]);
-    expect(rows.map((row) => row.depth)).toEqual([0, 1]);
-  });
+    expect(rows.map((row) => row.file.path)).toEqual(['/root', '/root/src'])
+    expect(rows.map((row) => row.depth)).toEqual([0, 1])
+  })
 
-  test("shows third-level rows when parent folders are expanded", () => {
+  test('shows third-level rows when parent folders are expanded', () => {
     const rows = buildVisibleFileTreeRows(
       tree,
-      new Set(["/root", "/root/src", "/root/src/features"]),
-    );
+      new Set(['/root', '/root/src', '/root/src/features']),
+    )
 
     expect(rows.map((row) => row.file.path)).toEqual([
-      "/root",
-      "/root/src",
-      "/root/src/features",
-      "/root/src/features/file-explorer",
-    ]);
-    expect(rows.map((row) => row.depth)).toEqual([0, 1, 2, 3]);
-  });
+      '/root',
+      '/root/src',
+      '/root/src/features',
+      '/root/src/features/file-explorer',
+    ])
+    expect(rows.map((row) => row.depth)).toEqual([0, 1, 2, 3])
+  })
 
-  test("shows deeper descendants once every ancestor is expanded", () => {
+  test('shows deeper descendants once every ancestor is expanded', () => {
     const rows = buildVisibleFileTreeRows(
       tree,
-      new Set(["/root", "/root/src", "/root/src/features", "/root/src/features/file-explorer"]),
-    );
+      new Set(['/root', '/root/src', '/root/src/features', '/root/src/features/file-explorer']),
+    )
 
     expect(rows.map((row) => row.file.path)).toEqual([
-      "/root",
-      "/root/src",
-      "/root/src/features",
-      "/root/src/features/file-explorer",
-      "/root/src/features/file-explorer/file-tree.tsx",
-    ]);
-    expect(rows.map((row) => row.depth)).toEqual([0, 1, 2, 3, 4]);
-  });
+      '/root',
+      '/root/src',
+      '/root/src/features',
+      '/root/src/features/file-explorer',
+      '/root/src/features/file-explorer/file-tree.tsx',
+    ])
+    expect(rows.map((row) => row.depth)).toEqual([0, 1, 2, 3, 4])
+  })
 
-  test("hides nested descendants when a middle folder collapses", () => {
-    const rows = buildVisibleFileTreeRows(tree, new Set(["/root", "/root/src"]));
+  test('hides nested descendants when a middle folder collapses', () => {
+    const rows = buildVisibleFileTreeRows(tree, new Set(['/root', '/root/src']))
 
-    expect(rows.map((row) => row.file.path)).toEqual(["/root", "/root/src", "/root/src/features"]);
-    expect(rows.map((row) => row.depth)).toEqual([0, 1, 2]);
-  });
+    expect(rows.map((row) => row.file.path)).toEqual(['/root', '/root/src', '/root/src/features'])
+    expect(rows.map((row) => row.depth)).toEqual([0, 1, 2])
+  })
 
-  test("compacts expanded single-child folder chains", () => {
+  test('compacts expanded single-child folder chains', () => {
     const rows = buildVisibleFileTreeRows(
       tree,
-      new Set(["/root", "/root/src", "/root/src/features"]),
+      new Set(['/root', '/root/src', '/root/src/features']),
       { compactFolders: true },
-    );
+    )
 
-    expect(rows.map((row) => row.file.path)).toEqual(["/root/src/features/file-explorer"]);
-    expect(rows.map((row) => row.displayName)).toEqual(["root/src/features/file-explorer"]);
-    expect(rows.map((row) => row.depth)).toEqual([0]);
-  });
+    expect(rows.map((row) => row.file.path)).toEqual(['/root/src/features/file-explorer'])
+    expect(rows.map((row) => row.displayName)).toEqual(['root/src/features/file-explorer'])
+    expect(rows.map((row) => row.depth)).toEqual([0])
+  })
 
-  test("stops compacting at the collapsed folder", () => {
-    const rows = buildVisibleFileTreeRows(tree, new Set(["/root", "/root/src"]), {
+  test('stops compacting at the collapsed folder', () => {
+    const rows = buildVisibleFileTreeRows(tree, new Set(['/root', '/root/src']), {
       compactFolders: true,
-    });
+    })
 
-    expect(rows.map((row) => row.file.path)).toEqual(["/root/src/features"]);
-    expect(rows.map((row) => row.displayName)).toEqual(["root/src/features"]);
-    expect(rows.map((row) => row.isExpanded)).toEqual([false]);
-  });
+    expect(rows.map((row) => row.file.path)).toEqual(['/root/src/features'])
+    expect(rows.map((row) => row.displayName)).toEqual(['root/src/features'])
+    expect(rows.map((row) => row.isExpanded)).toEqual([false])
+  })
 
-  test("finds the nearest sticky ancestor for a visible descendant", () => {
+  test('finds the nearest sticky ancestor for a visible descendant', () => {
     const rows = buildVisibleFileTreeRows(
       tree,
-      new Set(["/root", "/root/src", "/root/src/features", "/root/src/features/file-explorer"]),
-    );
+      new Set(['/root', '/root/src', '/root/src/features', '/root/src/features/file-explorer']),
+    )
 
-    expect(getStickyAncestorRow(rows, 4)?.file.path).toBe("/root/src/features/file-explorer");
-    expect(getStickyAncestorRow(rows, 2)?.file.path).toBe("/root/src");
-    expect(getStickyAncestorRow(rows, 0)).toBeNull();
-  });
+    expect(getStickyAncestorRow(rows, 4)?.file.path).toBe('/root/src/features/file-explorer')
+    expect(getStickyAncestorRow(rows, 2)?.file.path).toBe('/root/src')
+    expect(getStickyAncestorRow(rows, 0)).toBeNull()
+  })
 
-  test("finds the full sticky ancestor stack for a visible descendant", () => {
+  test('finds the full sticky ancestor stack for a visible descendant', () => {
     const rows = buildVisibleFileTreeRows(
       tree,
-      new Set(["/root", "/root/src", "/root/src/features", "/root/src/features/file-explorer"]),
-    );
+      new Set(['/root', '/root/src', '/root/src/features', '/root/src/features/file-explorer']),
+    )
 
     expect(getStickyAncestorRows(rows, 4).map((row) => row.file.path)).toEqual([
-      "/root",
-      "/root/src",
-      "/root/src/features",
-      "/root/src/features/file-explorer",
-    ]);
-    expect(getStickyAncestorRows(rows, 0)).toEqual([]);
-  });
+      '/root',
+      '/root/src',
+      '/root/src/features',
+      '/root/src/features/file-explorer',
+    ])
+    expect(getStickyAncestorRows(rows, 0)).toEqual([])
+  })
 
-  test("finds guide ancestors for each visible depth level", () => {
+  test('finds guide ancestors for each visible depth level', () => {
     const rows = buildVisibleFileTreeRows(
       tree,
-      new Set(["/root", "/root/src", "/root/src/features", "/root/src/features/file-explorer"]),
-    );
+      new Set(['/root', '/root/src', '/root/src/features', '/root/src/features/file-explorer']),
+    )
 
     expect(getGuideAncestorRows(rows, 4).map((row) => row?.file.path)).toEqual([
-      "/root",
-      "/root/src",
-      "/root/src/features",
-      "/root/src/features/file-explorer",
-    ]);
-  });
-});
+      '/root',
+      '/root/src',
+      '/root/src/features',
+      '/root/src/features/file-explorer',
+    ])
+  })
+})
 
-describe("filterFileTreeForFffHits", () => {
-  test("keeps matching files with their ancestors expanded", () => {
+describe('filterFileTreeForFffHits', () => {
+  test('keeps matching files with their ancestors expanded', () => {
     const result = filterFileTreeForFffHits(tree, [
-      { path: "/root/src/features/file-explorer/file-tree.tsx" },
-    ]);
-    const rows = buildVisibleFileTreeRows(result.files, result.expandedPaths);
+      { path: '/root/src/features/file-explorer/file-tree.tsx' },
+    ])
+    const rows = buildVisibleFileTreeRows(result.files, result.expandedPaths)
 
     expect(rows.map((row) => row.file.path)).toEqual([
-      "/root",
-      "/root/src",
-      "/root/src/features",
-      "/root/src/features/file-explorer",
-      "/root/src/features/file-explorer/file-tree.tsx",
-    ]);
+      '/root',
+      '/root/src',
+      '/root/src/features',
+      '/root/src/features/file-explorer',
+      '/root/src/features/file-explorer/file-tree.tsx',
+    ])
     expect(Array.from(result.matchedPaths)).toEqual([
-      "/root/src/features/file-explorer/file-tree.tsx",
-    ]);
-    expect(result.orderedMatchedPaths).toEqual(["/root/src/features/file-explorer/file-tree.tsx"]);
-    expect(result.matchCount).toBe(1);
-  });
+      '/root/src/features/file-explorer/file-tree.tsx',
+    ])
+    expect(result.orderedMatchedPaths).toEqual(['/root/src/features/file-explorer/file-tree.tsx'])
+    expect(result.matchCount).toBe(1)
+  })
 
-  test("keeps a matched folder without expanding unmatched descendants", () => {
-    const result = filterFileTreeForFffHits(tree, [{ path: "/root/src/features" }]);
-    const rows = buildVisibleFileTreeRows(result.files, result.expandedPaths);
+  test('keeps a matched folder without expanding unmatched descendants', () => {
+    const result = filterFileTreeForFffHits(tree, [{ path: '/root/src/features' }])
+    const rows = buildVisibleFileTreeRows(result.files, result.expandedPaths)
 
-    expect(rows.map((row) => row.file.path)).toEqual(["/root", "/root/src", "/root/src/features"]);
-    expect(Array.from(result.matchedPaths)).toEqual(["/root/src/features"]);
-  });
+    expect(rows.map((row) => row.file.path)).toEqual(['/root', '/root/src', '/root/src/features'])
+    expect(Array.from(result.matchedPaths)).toEqual(['/root/src/features'])
+  })
 
-  test("returns an empty tree for empty fff results", () => {
-    const result = filterFileTreeForFffHits(tree, []);
+  test('returns an empty tree for empty fff results', () => {
+    const result = filterFileTreeForFffHits(tree, [])
 
-    expect(result.files).toEqual([]);
-    expect(result.matchCount).toBe(0);
-    expect(result.expandedPaths.size).toBe(0);
-  });
-});
+    expect(result.files).toEqual([])
+    expect(result.matchCount).toBe(0)
+    expect(result.expandedPaths.size).toBe(0)
+  })
+})

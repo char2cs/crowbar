@@ -1,29 +1,29 @@
-import type React from "react";
-import { Component, type ReactNode } from "react";
-import { Button } from "@/components/ui/button";
+import type React from 'react'
+import { Component, type ReactNode } from 'react'
+import { Button } from '@/components/ui/button'
 
 interface Props {
-  children: ReactNode;
-  fallback?: ReactNode;
+  children: ReactNode
+  fallback?: ReactNode
 }
 
 interface State {
-  hasError: boolean;
-  error?: Error;
+  hasError: boolean
+  error?: Error
 }
 
 export class TerminalErrorBoundary extends Component<Props, State> {
   constructor(props: Props) {
-    super(props);
-    this.state = { hasError: false };
+    super(props)
+    this.state = { hasError: false }
   }
 
   static getDerivedStateFromError(error: Error): State {
-    return { hasError: true, error };
+    return { hasError: true, error }
   }
 
   componentDidCatch(error: Error, errorInfo: React.ErrorInfo) {
-    console.error("Terminal Error:", error, errorInfo);
+    console.error('Terminal Error:', error, errorInfo)
   }
 
   render() {
@@ -34,7 +34,7 @@ export class TerminalErrorBoundary extends Component<Props, State> {
             <div className="text-center">
               <p className="mb-2 text-error ui-text-sm">Terminal Error</p>
               <p className="text-muted-foreground ui-text-xs">
-                {this.state.error?.message || "Failed to initialize terminal"}
+                {this.state.error?.message || 'Failed to initialize terminal'}
               </p>
               <Button
                 type="button"
@@ -47,9 +47,9 @@ export class TerminalErrorBoundary extends Component<Props, State> {
             </div>
           </div>
         )
-      );
+      )
     }
 
-    return this.props.children;
+    return this.props.children
   }
 }

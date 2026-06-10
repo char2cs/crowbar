@@ -8,9 +8,7 @@ registerBlock({
   type: 'excalidraw',
   storage: 'referenced',
   match: (info) => info.type === 'excalidraw',
-  View: lazy(() =>
-    import('./excalidraw-block-impl').then((m) => ({ default: m.ExcalidrawView })),
-  ),
+  View: lazy(() => import('./excalidraw-block-impl').then((m) => ({ default: m.ExcalidrawView }))),
   Editor: lazy(() =>
     import('./excalidraw-block-impl').then((m) => ({ default: m.ExcalidrawEditor })),
   ),

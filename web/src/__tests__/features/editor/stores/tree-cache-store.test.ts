@@ -1,5 +1,9 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest'
-import { initTreeCacheSubscription, useTreeCacheStore, _resetTreeCacheSubscriptionForTesting } from '@/features/editor/stores/tree-cache-store'
+import {
+  initTreeCacheSubscription,
+  useTreeCacheStore,
+  _resetTreeCacheSubscriptionForTesting,
+} from '@/features/editor/stores/tree-cache-store'
 import { createWorkspaceStore } from '@/features/workspace/stores/workspace-store'
 import { setActiveWorkspaceStoreRef } from '@/features/workspace/stores/workspace-store-ref'
 

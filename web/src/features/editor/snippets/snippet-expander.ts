@@ -1,6 +1,6 @@
-import type { Position } from "@/features/editor/types/editor";
-import { parseSnippet, replaceVariables } from "./snippet-parser";
-import type { SnippetSession, TabStop } from "./types";
+import type { Position } from '@/features/editor/types/editor'
+import { parseSnippet, replaceVariables } from './snippet-parser'
+import type { SnippetSession, TabStop } from './types'
 
 /**
  * Expand a snippet and create a snippet session
@@ -9,19 +9,19 @@ export function expandSnippet(
   snippet: { body: string | string[]; prefix: string },
   insertPosition: Position,
   context?: {
-    fileName?: string;
-    filePath?: string;
-    selectedText?: string;
+    fileName?: string
+    filePath?: string
+    selectedText?: string
   },
 ): SnippetSession {
   // Parse the snippet
-  let parsedSnippet = parseSnippet(snippet.body);
+  let parsedSnippet = parseSnippet(snippet.body)
 
   // Replace variables in the expanded body
   parsedSnippet = {
     ...parsedSnippet,
     expandedBody: replaceVariables(parsedSnippet.expandedBody, context),
-  };
+  }
 
   // Create snippet session
   const session: SnippetSession = {
@@ -30,9 +30,9 @@ export function expandSnippet(
     currentTabStopIndex: 0,
     insertPosition,
     isActive: parsedSnippet.hasTabStops,
-  };
+  }
 
-  return session;
+  return session
 }
 
 /**
@@ -40,16 +40,16 @@ export function expandSnippet(
  */
 export function getCurrentTabStop(session: SnippetSession): TabStop | null {
   if (!session.isActive || session.parsedSnippet.tabStops.length === 0) {
-    return null;
+    return null
   }
 
-  const currentIndex = session.currentTabStopIndex;
-  const tabStops = session.parsedSnippet.tabStops;
+  const currentIndex = session.currentTabStopIndex
+  const tabStops = session.parsedSnippet.tabStops
 
   // Find the tab stop with the current index
-  const tabStop = tabStops.find((ts) => ts.index === currentIndex);
+  const tabStop = tabStops.find((ts) => ts.index === currentIndex)
 
-  return tabStop || null;
+  return tabStop || null
 }
 
 /**
@@ -58,24 +58,24 @@ export function getCurrentTabStop(session: SnippetSession): TabStop | null {
  */
 export function nextTabStop(session: SnippetSession): TabStop | null {
   if (!session.isActive) {
-    return null;
+    return null
   }
 
-  const tabStops = session.parsedSnippet.tabStops;
-  const uniqueIndices = Array.from(new Set(tabStops.map((ts) => ts.index))).sort((a, b) => a - b);
+  const tabStops = session.parsedSnippet.tabStops
+  const uniqueIndices = Array.from(new Set(tabStops.map((ts) => ts.index))).sort((a, b) => a - b)
 
-  const currentIndexPosition = uniqueIndices.indexOf(session.currentTabStopIndex);
+  const currentIndexPosition = uniqueIndices.indexOf(session.currentTabStopIndex)
 
   // If we're at the last tab stop or final tab stop (0), end the session
   if (currentIndexPosition === uniqueIndices.length - 1 || session.currentTabStopIndex === 0) {
-    session.isActive = false;
-    return null;
+    session.isActive = false
+    return null
   }
 
   // Move to next index
-  session.currentTabStopIndex = uniqueIndices[currentIndexPosition + 1];
+  session.currentTabStopIndex = uniqueIndices[currentIndexPosition + 1]
 
-  return getCurrentTabStop(session);
+  return getCurrentTabStop(session)
 }
 
 /**
@@ -84,21 +84,21 @@ export function nextTabStop(session: SnippetSession): TabStop | null {
  */
 export function previousTabStop(session: SnippetSession): TabStop | null {
   if (!session.isActive) {
-    return null;
+    return null
   }
 
-  const tabStops = session.parsedSnippet.tabStops;
-  const uniqueIndices = Array.from(new Set(tabStops.map((ts) => ts.index))).sort((a, b) => a - b);
+  const tabStops = session.parsedSnippet.tabStops
+  const uniqueIndices = Array.from(new Set(tabStops.map((ts) => ts.index))).sort((a, b) => a - b)
 
-  const currentIndexPosition = uniqueIndices.indexOf(session.currentTabStopIndex);
+  const currentIndexPosition = uniqueIndices.indexOf(session.currentTabStopIndex)
 
   // If we're at the first tab stop, can't go back
   if (currentIndexPosition <= 0) {
-    return null;
+    return null
   }
 
   // Move to previous index
-  session.currentTabStopIndex = uniqueIndices[currentIndexPosition - 1];
+  session.currentTabStopIndex = uniqueIndices[currentIndexPosition - 1]
 
-  return getCurrentTabStop(session);
+  return getCurrentTabStop(session)
 }

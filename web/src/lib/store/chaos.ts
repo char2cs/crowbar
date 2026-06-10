@@ -5,25 +5,39 @@ import { getDB } from '@/lib/persistence/idb'
 export type Scenario = 'extreme' | 'normal' | 'empty'
 
 export type FaultKey =
-  | 'workspaces' | 'projects'
-  | 'file-tree' | 'file-content'
-  | 'branch-diff' | 'branch-threads' | 'branch-description' | 'branch-chats'
-  | 'git-commits' | 'git-status' | 'git-branches'
+  | 'workspaces'
+  | 'projects'
+  | 'file-tree'
+  | 'file-content'
+  | 'branch-diff'
+  | 'branch-threads'
+  | 'branch-description'
+  | 'branch-chats'
+  | 'git-commits'
+  | 'git-status'
+  | 'git-branches'
   | 'markdown-chat'
   | 'chats'
 
 export const FAULT_KEYS: FaultKey[] = [
-  'workspaces', 'projects',
-  'file-tree', 'file-content',
-  'branch-diff', 'branch-threads', 'branch-description', 'branch-chats',
-  'git-commits', 'git-status', 'git-branches',
+  'workspaces',
+  'projects',
+  'file-tree',
+  'file-content',
+  'branch-diff',
+  'branch-threads',
+  'branch-description',
+  'branch-chats',
+  'git-commits',
+  'git-status',
+  'git-branches',
   'markdown-chat',
   'chats',
 ]
 
 export const FAULT_LABELS: Record<FaultKey, string> = {
-  'workspaces': 'Workspaces',
-  'projects': 'Projects',
+  workspaces: 'Workspaces',
+  projects: 'Projects',
   'file-tree': 'File tree',
   'file-content': 'File content',
   'branch-diff': 'Branch diff',
@@ -34,16 +48,23 @@ export const FAULT_LABELS: Record<FaultKey, string> = {
   'git-status': 'Git status',
   'git-branches': 'Git branches',
   'markdown-chat': 'Chat history',
-  'chats': 'Chats',
+  chats: 'Chats',
 }
 
 const DEFAULT_FAULTS: Record<FaultKey, number> = {
-  'workspaces': 0, 'projects': 0,
-  'file-tree': 0, 'file-content': 0,
-  'branch-diff': 0, 'branch-threads': 0, 'branch-description': 0, 'branch-chats': 0,
-  'git-commits': 0, 'git-status': 0, 'git-branches': 0,
+  workspaces: 0,
+  projects: 0,
+  'file-tree': 0,
+  'file-content': 0,
+  'branch-diff': 0,
+  'branch-threads': 0,
+  'branch-description': 0,
+  'branch-chats': 0,
+  'git-commits': 0,
+  'git-status': 0,
+  'git-branches': 0,
   'markdown-chat': 0,
-  'chats': 0,
+  chats: 0,
 }
 
 interface ChaosState {
@@ -70,7 +91,7 @@ export const useChaosStore = create<ChaosState>()(
       setLatency: (latency) => set({ latency }),
       setErrorRate: (errorRate) => set({ errorRate }),
       setScenario: (scenario) => set({ scenario }),
-      setFault: (key, pct) => set(s => ({ faults: { ...s.faults, [key]: pct } })),
+      setFault: (key, pct) => set((s) => ({ faults: { ...s.faults, [key]: pct } })),
       reset: () => set({ latency: 0, errorRate: 0 }),
       resetFaults: () => set({ faults: { ...DEFAULT_FAULTS } }),
       applyScenario: async (newScenario) => {
@@ -88,7 +109,9 @@ export const useChaosStore = create<ChaosState>()(
             db.clear('chat-history'),
             db.clear('projects-data'),
           ])
-        } catch { /* best effort */ }
+        } catch {
+          /* best effort */
+        }
         window.location.reload()
       },
     }),

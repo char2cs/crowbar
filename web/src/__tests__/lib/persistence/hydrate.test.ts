@@ -2,7 +2,8 @@ import { vi } from 'vitest'
 
 const readFileMock = vi.fn<(path: string) => Promise<string>>()
 vi.mock('@/features/file-system/controllers/platform', async (importOriginal) => {
-  const actual = await importOriginal<typeof import('@/features/file-system/controllers/platform')>()
+  const actual =
+    await importOriginal<typeof import('@/features/file-system/controllers/platform')>()
   return { ...actual, readFile: (path: string) => readFileMock(path) }
 })
 
@@ -21,7 +22,10 @@ vi.mock('@/components/ui/toast', async (importOriginal) => {
 import { hydrateWorkspace, hydratePreferences, hydrateSidebar } from '@/lib/persistence/hydrate'
 import { getDB, resetDB } from '@/lib/persistence/idb'
 import type { WorkspaceLayout, UIPreferences, EditorState } from '@/lib/persistence/schemas'
-import { destroyWorkspaceStore, getOrCreateWorkspaceStore } from '@/features/workspace/stores/workspace-store-registry'
+import {
+  destroyWorkspaceStore,
+  getOrCreateWorkspaceStore,
+} from '@/features/workspace/stores/workspace-store-registry'
 import type { EditorContent } from '@/features/panes/types/pane-content'
 import { IDBFactory } from 'fake-indexeddb'
 import { ROOT_PANE_ID } from '@/features/panes/constants/pane'
@@ -33,11 +37,26 @@ import type { Repo } from '@/lib/store/sidebar'
 
 const HYDRATE_TEST_REPOS: Repo[] = [
   {
-    id: 'crowbar', name: 'crowbar', avatarLabel: 'C', avatarColor: 'bg-indigo-700',
+    id: 'crowbar',
+    name: 'crowbar',
+    avatarLabel: 'C',
+    avatarColor: 'bg-indigo-700',
     workspaces: [
       { id: 'ws-develop', branch: 'develop', status: 'locked', age: '—' },
-      { id: 'ws3', branch: 'feature/app-design', parentId: 'ws-develop', status: 'pr-open', age: '16h ago' },
-      { id: 'ws1', branch: 'enhancement/scaffold', parentId: 'ws3', status: 'agent-running', age: '3d ago' },
+      {
+        id: 'ws3',
+        branch: 'feature/app-design',
+        parentId: 'ws-develop',
+        status: 'pr-open',
+        age: '16h ago',
+      },
+      {
+        id: 'ws1',
+        branch: 'enhancement/scaffold',
+        parentId: 'ws3',
+        status: 'agent-running',
+        age: '3d ago',
+      },
     ],
   },
 ]
@@ -46,7 +65,9 @@ async function seedDB(workspaceId: string) {
   const db = await getDB()
   const layout: WorkspaceLayout = {
     workspaceId,
-    panes: { [ROOT_PANE_ID]: { id: ROOT_PANE_ID, type: 'group', bufferIds: [], activeBufferId: null } },
+    panes: {
+      [ROOT_PANE_ID]: { id: ROOT_PANE_ID, type: 'group', bufferIds: [], activeBufferId: null },
+    },
     rootLayout: createLeaf(ROOT_PANE_ID),
     bottomLayout: createLeaf('bottom-pane'),
     activePaneId: ROOT_PANE_ID,
@@ -132,7 +153,14 @@ describe('hydrateWorkspace — restored buffer reconciliation (BUG-026/BUG-013)'
     const db = await getDB()
     const layout: WorkspaceLayout = {
       workspaceId: WS,
-      panes: { [ROOT_PANE_ID]: { id: ROOT_PANE_ID, type: 'group', bufferIds: buffers.map(b => b.id), activeBufferId: buffers[0]?.id ?? null } },
+      panes: {
+        [ROOT_PANE_ID]: {
+          id: ROOT_PANE_ID,
+          type: 'group',
+          bufferIds: buffers.map((b) => b.id),
+          activeBufferId: buffers[0]?.id ?? null,
+        },
+      },
       rootLayout: createLeaf(ROOT_PANE_ID),
       bottomLayout: createLeaf('bottom-pane'),
       activePaneId: ROOT_PANE_ID,
@@ -257,7 +285,7 @@ describe('hydrateSidebar', () => {
     globalThis.indexedDB = new IDBFactory()
     useSidebarStore.setState({
       chats: [],
-      repos: HYDRATE_TEST_REPOS.map(r => ({ ...r, workspaces: [...r.workspaces] })),
+      repos: HYDRATE_TEST_REPOS.map((r) => ({ ...r, workspaces: [...r.workspaces] })),
       collapsedRepos: new Set<string>(),
       collapsedWorkspaces: new Set<string>(),
       activeTab: 'workspaces',
@@ -283,18 +311,16 @@ describe('hydrateSidebar', () => {
       { wsId: 'ws1', parentId: 'ws3' },
     ])
     await hydrateSidebar()
-    const repo = useSidebarStore.getState().repos.find(r => r.id === 'crowbar')!
-    expect(repo.workspaces.find(w => w.id === 'ws3')?.parentId).toBe('ws-develop')
-    expect(repo.workspaces.find(w => w.id === 'ws1')?.parentId).toBe('ws3')
+    const repo = useSidebarStore.getState().repos.find((r) => r.id === 'crowbar')!
+    expect(repo.workspaces.find((w) => w.id === 'ws3')?.parentId).toBe('ws-develop')
+    expect(repo.workspaces.find((w) => w.id === 'ws1')?.parentId).toBe('ws3')
   })
 
   it('clears parentId for workspaces not in hierarchy entries', async () => {
-    await saveWorkspaceHierarchy('crowbar', [
-      { wsId: 'ws1' },
-    ])
+    await saveWorkspaceHierarchy('crowbar', [{ wsId: 'ws1' }])
     await hydrateSidebar()
-    const repo = useSidebarStore.getState().repos.find(r => r.id === 'crowbar')!
-    expect(repo.workspaces.find(w => w.id === 'ws1')?.parentId).toBeUndefined()
+    const repo = useSidebarStore.getState().repos.find((r) => r.id === 'crowbar')!
+    expect(repo.workspaces.find((w) => w.id === 'ws1')?.parentId).toBeUndefined()
   })
 
   it('restores collapsedWorkspaces from IDB', async () => {

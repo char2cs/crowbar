@@ -26,14 +26,10 @@
   padding: 3px 8px;
   border: 1px solid var(--border);
   border-radius: 6px;
-  background: color-mix(
-    in srgb,
-    var(--card) 92%,
-    transparent
-  );
+  background: color-mix(in srgb, var(--card) 92%, transparent);
   color: var(--foreground);
   display: none !important;
-  font: 12px/1.45 var(--font-mono, "JetBrains Mono Variable", monospace);
+  font: 12px/1.45 var(--font-mono, 'JetBrains Mono Variable', monospace);
   pointer-events: none;
 }
 

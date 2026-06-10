@@ -1,33 +1,33 @@
-import { Warning as AlertTriangle } from "@phosphor-icons/react";
-import { Button } from "@/components/ui/button";
-import { AppDialog as Dialog } from "@/components/ui/dialog";
+import { Warning as AlertTriangle } from '@phosphor-icons/react'
+import { Button } from '@/components/ui/button'
+import { AppDialog as Dialog } from '@/components/ui/dialog'
 
 interface AlertDialogState {
-  title: string;
-  message: string;
+  title: string
+  message: string
 }
 
 interface OpenAllFilesDialogState {
-  filePaths: string[];
+  filePaths: string[]
 }
 
 interface DeleteCandidateState {
-  path: string;
-  isDir: boolean;
+  path: string
+  isDir: boolean
 }
 
 interface FileExplorerDialogsProps {
-  alertDialog: AlertDialogState | null;
-  onCloseAlertDialog: () => void;
-  openAllFilesDialog: OpenAllFilesDialogState | null;
-  isOpeningAllFiles: boolean;
-  onCloseOpenAllFilesDialog: () => void;
-  onConfirmOpenAllFiles: () => void;
-  deleteCandidate: DeleteCandidateState | null;
-  isDeletingPath: boolean;
-  onCloseDeleteDialog: () => void;
-  onConfirmDelete: () => void;
-  getPathBaseName: (path: string) => string;
+  alertDialog: AlertDialogState | null
+  onCloseAlertDialog: () => void
+  openAllFilesDialog: OpenAllFilesDialogState | null
+  isOpeningAllFiles: boolean
+  onCloseOpenAllFilesDialog: () => void
+  onConfirmOpenAllFiles: () => void
+  deleteCandidate: DeleteCandidateState | null
+  isDeletingPath: boolean
+  onCloseDeleteDialog: () => void
+  onConfirmDelete: () => void
+  getPathBaseName: (path: string) => string
 }
 
 export function FileExplorerDialogs({
@@ -64,7 +64,7 @@ export function FileExplorerDialogs({
           title="Open All Files"
           icon={AlertTriangle}
           onClose={() => {
-            if (!isOpeningAllFiles) onCloseOpenAllFilesDialog();
+            if (!isOpeningAllFiles) onCloseOpenAllFilesDialog()
           }}
           footer={
             <>
@@ -80,7 +80,7 @@ export function FileExplorerDialogs({
                 disabled={isOpeningAllFiles}
                 variant="secondary"
               >
-                {isOpeningAllFiles ? "Opening..." : "Open"}
+                {isOpeningAllFiles ? 'Opening...' : 'Open'}
               </Button>
             </>
           }
@@ -92,10 +92,10 @@ export function FileExplorerDialogs({
       )}
       {deleteCandidate && (
         <Dialog
-          title={deleteCandidate.isDir ? "Delete Folder" : "Delete File"}
+          title={deleteCandidate.isDir ? 'Delete Folder' : 'Delete File'}
           icon={AlertTriangle}
           onClose={() => {
-            if (!isDeletingPath) onCloseDeleteDialog();
+            if (!isDeletingPath) onCloseDeleteDialog()
           }}
           footer={
             <>
@@ -113,7 +113,7 @@ export function FileExplorerDialogs({
                 variant="destructive"
                 className="disabled:cursor-not-allowed disabled:opacity-50"
               >
-                {isDeletingPath ? "Deleting..." : "Delete"}
+                {isDeletingPath ? 'Deleting...' : 'Delete'}
               </Button>
             </>
           }
@@ -126,5 +126,5 @@ export function FileExplorerDialogs({
         </Dialog>
       )}
     </>
-  );
+  )
 }

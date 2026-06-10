@@ -58,10 +58,8 @@ function buildComponents(props: TurnMarkdownProps): Components {
     // own container, and dispatch the <code> to the block registry.
     pre: ({ children }: any) => <>{children}</>,
     code: ({ node, className, children }: any) => {
-      const dataLang =
-        node?.properties?.dataLang ?? node?.properties?.['data-lang']
-      const dataMeta =
-        node?.properties?.dataMeta ?? node?.properties?.['data-meta']
+      const dataLang = node?.properties?.dataLang ?? node?.properties?.['data-lang']
+      const dataMeta = node?.properties?.dataMeta ?? node?.properties?.['data-meta']
       const langFromClass = /language-(\w+)/.exec(className || '')?.[1] ?? ''
       const isFenced = dataLang !== undefined || langFromClass !== ''
 
@@ -79,9 +77,7 @@ function buildComponents(props: TurnMarkdownProps): Components {
         )
       }
 
-      const info = [dataLang || langFromClass, dataMeta]
-        .filter(Boolean)
-        .join(' ')
+      const info = [dataLang || langFromClass, dataMeta].filter(Boolean).join(' ')
       const source = String(children ?? '').replace(/\n$/, '')
       return (
         <MarkdownBlock

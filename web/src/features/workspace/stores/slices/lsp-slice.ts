@@ -49,26 +49,34 @@ export const createLspSlice: StateCreator<
 
   lspActions: {
     setWorkspaceRoot(root) {
-      set(state => { state.workspaceRoot = root })
+      set((state) => {
+        state.workspaceRoot = root
+      })
     },
 
     setCompletionHandlers({ getCompletions, isLanguageSupported }) {
-      set(state => {
+      set((state) => {
         if (getCompletions) state.getCompletions = getCompletions
         if (isLanguageSupported) state.isLanguageSupported = isLanguageSupported
       })
     },
 
     updateLspStatus(info) {
-      set(state => { Object.assign(state.lspStatus, info) })
+      set((state) => {
+        Object.assign(state.lspStatus, info)
+      })
     },
 
     updateCompletionCache(key, items) {
-      set(state => { state.completionCache[key] = items })
+      set((state) => {
+        state.completionCache[key] = items
+      })
     },
 
     clearCompletionCache() {
-      set(state => { state.completionCache = {} })
+      set((state) => {
+        state.completionCache = {}
+      })
     },
   },
 })

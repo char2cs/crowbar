@@ -1,4 +1,4 @@
-import type { IconThemeDefinition, IconThemeSource } from "./types"
+import type { IconThemeDefinition, IconThemeSource } from './types'
 
 class IconThemeRegistry {
   private themes: Map<string, IconThemeDefinition> = new Map()
@@ -54,7 +54,7 @@ class IconThemeRegistry {
   markBundledTheme(id: string) {
     const theme = this.themes.get(id)
     if (!theme) return
-    this.themeSources.set(id, { extensionId: "builtin", isBundled: true })
+    this.themeSources.set(id, { extensionId: 'builtin', isBundled: true })
     this.notifyListeners()
   }
 

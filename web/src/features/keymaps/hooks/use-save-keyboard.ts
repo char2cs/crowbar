@@ -1,6 +1,6 @@
-import { useEffect } from "react";
-import { IS_MAC } from "@/utils/platform";
-import { useEditorAppStore } from "@/features/editor/stores/editor-app-store";
+import { useEffect } from 'react'
+import { IS_MAC } from '@/utils/platform'
+import { useEditorAppStore } from '@/features/editor/stores/editor-app-store'
 
 /**
  * Registers global save shortcuts:
@@ -10,22 +10,22 @@ import { useEditorAppStore } from "@/features/editor/stores/editor-app-store";
 export function useSaveKeyboard() {
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
-      const modKey = IS_MAC ? e.metaKey : e.ctrlKey;
+      const modKey = IS_MAC ? e.metaKey : e.ctrlKey
 
-      if (!modKey || e.repeat) return;
-      if (e.key !== "s" && e.key !== "S") return;
-      if (e.altKey) return;
+      if (!modKey || e.repeat) return
+      if (e.key !== 's' && e.key !== 'S') return
+      if (e.altKey) return
 
-      e.preventDefault();
-      const { actions } = useEditorAppStore.getState();
+      e.preventDefault()
+      const { actions } = useEditorAppStore.getState()
       if (e.shiftKey) {
-        void actions.handleSaveAll();
+        void actions.handleSaveAll()
       } else {
-        void actions.handleSave();
+        void actions.handleSave()
       }
-    };
+    }
 
-    window.addEventListener("keydown", handleKeyDown);
-    return () => window.removeEventListener("keydown", handleKeyDown);
-  }, []);
+    window.addEventListener('keydown', handleKeyDown)
+    return () => window.removeEventListener('keydown', handleKeyDown)
+  }, [])
 }

@@ -33,7 +33,11 @@ export async function readFile(path: string): Promise<string> {
   return payload.content
 }
 
-export async function readDirectory(_path: string): Promise<Array<{ name: string; path: string; isDirectory: boolean; is_dir: boolean; isFile: boolean }>> {
+export async function readDirectory(
+  _path: string,
+): Promise<
+  Array<{ name: string; path: string; isDirectory: boolean; is_dir: boolean; isFile: boolean }>
+> {
   return []
 }
 
@@ -42,11 +46,11 @@ export async function exists(_path: string): Promise<boolean> {
 }
 
 export function getHomePath(): string {
-  return "/home"
+  return '/home'
 }
 
 export function getSeparator(): string {
-  return "/"
+  return '/'
 }
 
 export async function moveFile(src: string, dest: string): Promise<void> {

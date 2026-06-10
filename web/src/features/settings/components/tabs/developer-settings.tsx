@@ -5,12 +5,26 @@ import Section, { SETTINGS_CONTROL_WIDTHS, SettingRow } from '../settings-sectio
 import NumberInput from '@/components/ui/number-input'
 import { Button } from '@/components/ui/button'
 import { Slider } from '@/components/ui/slider'
-import { Select, SelectTrigger, SelectValue, SelectContent, SelectItem } from '@/components/ui/select'
+import {
+  Select,
+  SelectTrigger,
+  SelectValue,
+  SelectContent,
+  SelectItem,
+} from '@/components/ui/select'
 import { cn } from '@/utils/cn'
 
 const SCENARIO_OPTIONS: { value: Scenario; label: string; description: string }[] = [
-  { value: 'extreme', label: 'Extreme', description: '4 repos · 50+ workspaces · 1M-line diffs · 28 threads/PR' },
-  { value: 'normal', label: 'Normal — Rabbyte', description: '1 repo · 3 workspaces · realistic daily usage' },
+  {
+    value: 'extreme',
+    label: 'Extreme',
+    description: '4 repos · 50+ workspaces · 1M-line diffs · 28 threads/PR',
+  },
+  {
+    value: 'normal',
+    label: 'Normal — Rabbyte',
+    description: '1 repo · 3 workspaces · realistic daily usage',
+  },
   { value: 'empty', label: 'Empty', description: 'New user — no repos, no workspaces' },
 ]
 
@@ -35,11 +49,14 @@ export function DeveloperSettings() {
     // page reloads — this line never executes
   }
 
-  const anyFaultActive = FAULT_KEYS.some(k => faults[k] > 0)
+  const anyFaultActive = FAULT_KEYS.some((k) => faults[k] > 0)
 
   return (
     <div className="space-y-4">
-      <Section title="Network Chaos" description="Simulate poor network conditions against the Go API server.">
+      <Section
+        title="Network Chaos"
+        description="Simulate poor network conditions against the Go API server."
+      >
         <SettingRow
           label="Latency"
           description="Extra delay added to every API request via X-Crowbar-Latency header"
@@ -99,15 +116,18 @@ export function DeveloperSettings() {
           >
             <SettingRow
               label="Scenario"
-              description={SCENARIO_OPTIONS.find(o => o.value === selectedScenario)?.description}
+              description={SCENARIO_OPTIONS.find((o) => o.value === selectedScenario)?.description}
             >
               <div className="flex items-center gap-2">
-                <Select value={selectedScenario} onValueChange={(v) => setSelectedScenario(v as Scenario)}>
+                <Select
+                  value={selectedScenario}
+                  onValueChange={(v) => setSelectedScenario(v as Scenario)}
+                >
                   <SelectTrigger className={SETTINGS_CONTROL_WIDTHS.wide} size="sm">
                     <SelectValue />
                   </SelectTrigger>
                   <SelectContent>
-                    {SCENARIO_OPTIONS.map(opt => (
+                    {SCENARIO_OPTIONS.map((opt) => (
                       <SelectItem key={opt.value} value={opt.value}>
                         {opt.label}
                       </SelectItem>
@@ -127,9 +147,14 @@ export function DeveloperSettings() {
             </SettingRow>
             {scenario !== selectedScenario && (
               <p className="px-1 text-xs text-muted-foreground">
-                Current: <span className="font-medium">{SCENARIO_OPTIONS.find(o => o.value === scenario)?.label}</span>
+                Current:{' '}
+                <span className="font-medium">
+                  {SCENARIO_OPTIONS.find((o) => o.value === scenario)?.label}
+                </span>
                 {' → pending: '}
-                <span className="font-medium text-foreground">{SCENARIO_OPTIONS.find(o => o.value === selectedScenario)?.label}</span>
+                <span className="font-medium text-foreground">
+                  {SCENARIO_OPTIONS.find((o) => o.value === selectedScenario)?.label}
+                </span>
               </p>
             )}
           </Section>
@@ -143,7 +168,7 @@ export function DeveloperSettings() {
                 right gutter (pr-2) so it never clips against the panel edge at any
                 dialog width. */}
             <div className="flex flex-col gap-0.5 pr-2">
-              {FAULT_KEYS.map(key => (
+              {FAULT_KEYS.map((key) => (
                 <div
                   key={key}
                   className="flex items-center gap-4 rounded-lg px-1 py-1.5 transition-colors hover:bg-muted/50"
@@ -153,17 +178,21 @@ export function DeveloperSettings() {
                   </span>
                   <Slider
                     value={faults[key]}
-                    onValueChange={(values) => setFault(key, Array.isArray(values) ? (values[0] ?? 0) : values)}
+                    onValueChange={(values) =>
+                      setFault(key, Array.isArray(values) ? (values[0] ?? 0) : values)
+                    }
                     min={0}
                     max={100}
                     step={5}
                     className="min-w-0 flex-1"
                     aria-label={`${FAULT_LABELS[key]} fault rate`}
                   />
-                  <span className={cn(
-                    'w-9 shrink-0 text-right text-xs tabular-nums',
-                    faults[key] > 0 ? 'text-destructive font-medium' : 'text-muted-foreground',
-                  )}>
+                  <span
+                    className={cn(
+                      'w-9 shrink-0 text-right text-xs tabular-nums',
+                      faults[key] > 0 ? 'text-destructive font-medium' : 'text-muted-foreground',
+                    )}
+                  >
                     {faults[key]}%
                   </span>
                 </div>

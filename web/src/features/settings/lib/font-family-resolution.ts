@@ -1,18 +1,18 @@
 export function getPrimaryFontFamily(fontFamily: string): string {
   return fontFamily
-    .split(",")[0]
+    .split(',')[0]
     ?.trim()
-    .replace(/^['"]+|['"]+$/g, "");
+    .replace(/^['"]+|['"]+$/g, '')
 }
 
 export function normalizeConfiguredFontFamily(fontFamily: string, fallback: string): string {
-  const primaryFontFamily = getPrimaryFontFamily(fontFamily);
+  const primaryFontFamily = getPrimaryFontFamily(fontFamily)
 
   if (!primaryFontFamily) {
-    return fallback;
+    return fallback
   }
 
-  return fontFamily;
+  return fontFamily
 }
 
 export function resolveAvailableFontFamily(
@@ -21,20 +21,20 @@ export function resolveAvailableFontFamily(
   availableFonts: Iterable<string>,
   alwaysAvailableFonts: Iterable<string> = [],
 ): string {
-  const normalizedFontFamily = normalizeConfiguredFontFamily(fontFamily, fallback);
-  const primaryFontFamily = getPrimaryFontFamily(normalizedFontFamily);
+  const normalizedFontFamily = normalizeConfiguredFontFamily(fontFamily, fallback)
+  const primaryFontFamily = getPrimaryFontFamily(normalizedFontFamily)
 
   if (!primaryFontFamily) {
-    return fallback;
+    return fallback
   }
 
   const available = new Set(
     [...availableFonts, ...alwaysAvailableFonts].map((family) => family.trim().toLowerCase()),
-  );
+  )
 
   if (available.has(primaryFontFamily.toLowerCase())) {
-    return normalizedFontFamily;
+    return normalizedFontFamily
   }
 
-  return fallback;
+  return fallback
 }

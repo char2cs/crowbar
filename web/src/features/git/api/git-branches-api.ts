@@ -24,12 +24,9 @@ export const getBranches = async (wsId: string): Promise<string[]> => {
   } catch {
     return []
   }
-};
+}
 
-export const checkoutBranch = async (
-  wsId: string,
-  branchName: string,
-): Promise<CheckoutResult> => {
+export const checkoutBranch = async (wsId: string, branchName: string): Promise<CheckoutResult> => {
   try {
     await apiFetch(`/v0/workspaces/${encodeURIComponent(wsId)}/git/checkout`, {
       method: 'POST',
@@ -40,7 +37,7 @@ export const checkoutBranch = async (
   } catch (error) {
     return { success: false, hasChanges: false, message: String(error) }
   }
-};
+}
 
 export const createBranch = async (
   wsId: string,
@@ -58,7 +55,7 @@ export const createBranch = async (
     console.error('git create branch failed:', error)
     return false
   }
-};
+}
 
 export const deleteBranch = async (wsId: string, branchName: string): Promise<boolean> => {
   try {
@@ -71,4 +68,4 @@ export const deleteBranch = async (wsId: string, branchName: string): Promise<bo
     console.error('git delete branch failed:', error)
     return false
   }
-};
+}

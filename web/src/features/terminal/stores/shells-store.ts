@@ -1,15 +1,15 @@
 // Tauri invoke replaced — shell listing returns empty in web mode
-import { create } from "zustand";
-import { createSelectors } from "@/utils/zustand-selectors";
-import type { Shell } from "../types/terminal";
+import { create } from 'zustand'
+import { createSelectors } from '@/utils/zustand-selectors'
+import type { Shell } from '../types/terminal'
 
 interface TerminalShellsState {
-  shells: Shell[];
-  isLoading: boolean;
-  hasLoaded: boolean;
+  shells: Shell[]
+  isLoading: boolean
+  hasLoaded: boolean
   actions: {
-    loadShells: () => Promise<void>;
-  };
+    loadShells: () => Promise<void>
+  }
 }
 
 const useTerminalShellsStoreBase = create<TerminalShellsState>()((set, get) => ({
@@ -18,27 +18,27 @@ const useTerminalShellsStoreBase = create<TerminalShellsState>()((set, get) => (
   hasLoaded: false,
   actions: {
     loadShells: async () => {
-      const { isLoading, hasLoaded } = get();
-      if (isLoading || hasLoaded) return;
+      const { isLoading, hasLoaded } = get()
+      if (isLoading || hasLoaded) return
 
-      set({ isLoading: true });
+      set({ isLoading: true })
 
       try {
-        const shells: Shell[] = []; // FUTURE: GET /api/terminal/shells
+        const shells: Shell[] = [] // FUTURE: GET /api/terminal/shells
         set({
           shells,
           isLoading: false,
           hasLoaded: true,
-        });
+        })
       } catch (error) {
-        console.error("Failed to load terminal shells:", error);
+        console.error('Failed to load terminal shells:', error)
         set({
           isLoading: false,
           hasLoaded: false,
-        });
+        })
       }
     },
   },
-}));
+}))
 
-export const useTerminalShellsStore = createSelectors(useTerminalShellsStoreBase);
+export const useTerminalShellsStore = createSelectors(useTerminalShellsStoreBase)

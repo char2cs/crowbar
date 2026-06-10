@@ -3,24 +3,24 @@
  * Provides tokenization API using Tree-sitter WASM parsers
  */
 
-import type { Tree } from "web-tree-sitter";
-import { logger } from "../../utils/logger";
-import { getLanguageAssetConfig } from "./extension-assets";
-import { TreeSitterUnavailableError, wasmParserLoader } from "./loader";
-import { getLanguageOverlayTokens } from "./language-overlays";
-import { dedupeHighlightTokens, isIgnoredCapture, mapCaptureToClass } from "./capture-map";
+import type { Tree } from 'web-tree-sitter'
+import { logger } from '../../utils/logger'
+import { getLanguageAssetConfig } from './extension-assets'
+import { TreeSitterUnavailableError, wasmParserLoader } from './loader'
+import { getLanguageOverlayTokens } from './language-overlays'
+import { dedupeHighlightTokens, isIgnoredCapture, mapCaptureToClass } from './capture-map'
 import {
   findInjectionNodes,
   getInjectionRules,
   resolveInjectedLanguage,
-} from "./language-injections";
+} from './language-injections'
 import type {
   HighlightToken,
   IncrementalParseOptions,
   LoadedParser,
   ParserConfig,
   TokenizeResult,
-} from "./types";
+} from './types'
 
 /**
  * Tokenize code using a WASM parser with optional incremental parsing support.
@@ -34,74 +34,74 @@ export async function tokenizeCodeWithTree(
 ): Promise<TokenizeResult> {
   try {
     // Load parser if not already loaded
-    let loadedParser: LoadedParser;
+    let loadedParser: LoadedParser
     if (config) {
-      loadedParser = await wasmParserLoader.loadParser(config);
+      loadedParser = await wasmParserLoader.loadParser(config)
     } else if (wasmParserLoader.isLoaded(languageId)) {
       // Use already loaded parser
-      loadedParser = wasmParserLoader.getParser(languageId);
+      loadedParser = wasmParserLoader.getParser(languageId)
     } else {
-      const assets = getLanguageAssetConfig(languageId);
+      const assets = getLanguageAssetConfig(languageId)
       loadedParser = await wasmParserLoader.loadParser({
         languageId,
         wasmPath: assets.wasmPath,
         highlightQueryUrl: assets.highlightQueryUrl,
-      });
+      })
     }
 
-    const { parser, highlightQuery } = loadedParser;
+    const { parser, highlightQuery } = loadedParser
 
-    let tree: Tree | null;
+    let tree: Tree | null
 
     // Use incremental parsing if previous tree and edit are provided
     if (incrementalOptions?.previousTree && incrementalOptions?.edit) {
       try {
         // Copy the tree before editing to avoid mutating the cached tree
-        const treeCopy = incrementalOptions.previousTree.copy();
+        const treeCopy = incrementalOptions.previousTree.copy()
         // Apply the edit to the copy
-        treeCopy.edit(incrementalOptions.edit);
+        treeCopy.edit(incrementalOptions.edit)
         // Parse incrementally using the edited copy
-        tree = parser.parse(content, treeCopy);
+        tree = parser.parse(content, treeCopy)
         // Clean up the copy (the new tree is independent)
-        treeCopy.delete();
+        treeCopy.delete()
       } catch (error) {
         // Fall back to full parse if incremental fails
-        logger.warn("WasmTokenizer", "Incremental parse failed, falling back to full parse", error);
-        tree = parser.parse(content);
+        logger.warn('WasmTokenizer', 'Incremental parse failed, falling back to full parse', error)
+        tree = parser.parse(content)
       }
     } else {
       // Full parse
-      tree = parser.parse(content);
+      tree = parser.parse(content)
     }
 
     // Check if parse was successful
     if (!tree) {
-      logger.error("WasmTokenizer", `Failed to parse code for ${languageId}`);
-      return { tokens: [], tree: null as unknown as TokenizeResult["tree"] };
+      logger.error('WasmTokenizer', `Failed to parse code for ${languageId}`)
+      return { tokens: [], tree: null as unknown as TokenizeResult['tree'] }
     }
 
     // If no highlight query, return empty tokens but keep tree
     if (!highlightQuery) {
       logger.warn(
-        "WasmTokenizer",
+        'WasmTokenizer',
         `No highlight query for ${languageId} - syntax highlighting disabled. ` +
           `Ensure the highlight query was downloaded with the extension.`,
-      );
-      return { tokens: [], tree };
+      )
+      return { tokens: [], tree }
     }
 
     // Get highlights
-    const captures = highlightQuery.captures(tree.rootNode);
+    const captures = highlightQuery.captures(tree.rootNode)
 
     // Convert captures to tokens, filtering out Neovim-specific metadata
     // captures that don't correspond to visual highlighting
-    const tokens: HighlightToken[] = [];
+    const tokens: HighlightToken[] = []
     for (const capture of captures) {
-      const { name } = capture;
+      const { name } = capture
       if (isIgnoredCapture(name)) {
-        continue;
+        continue
       }
-      const { node } = capture;
+      const { node } = capture
       tokens.push({
         type: mapCaptureToClass(name),
         startIndex: node.startIndex,
@@ -114,18 +114,18 @@ export async function tokenizeCodeWithTree(
           row: node.endPosition.row,
           column: node.endPosition.column,
         },
-      });
+      })
     }
 
     // Process language injections (e.g. JS inside HTML <script>)
-    const injectionRules = getInjectionRules(languageId);
+    const injectionRules = getInjectionRules(languageId)
     if (injectionRules) {
-      const injectionNodes = findInjectionNodes(tree.rootNode, injectionRules);
+      const injectionNodes = findInjectionNodes(tree.rootNode, injectionRules)
 
       for (const { rule, node, parentNode } of injectionNodes) {
         try {
-          const embeddedContent = content.substring(node.startIndex, node.endIndex);
-          if (!embeddedContent.trim()) continue;
+          const embeddedContent = content.substring(node.startIndex, node.endIndex)
+          if (!embeddedContent.trim()) continue
 
           const embeddedLanguageId = resolveInjectedLanguage(
             content,
@@ -133,56 +133,56 @@ export async function tokenizeCodeWithTree(
             rule,
             node,
             parentNode,
-          );
-          const assets = getLanguageAssetConfig(embeddedLanguageId);
+          )
+          const assets = getLanguageAssetConfig(embeddedLanguageId)
           const subTokens = await tokenizeCode(embeddedContent, embeddedLanguageId, {
             languageId: embeddedLanguageId,
             wasmPath: assets.wasmPath,
             highlightQueryUrl: assets.highlightQueryUrl,
-          });
+          })
 
-          const startOffset = node.startIndex;
-          const startRow = node.startPosition.row;
-          const startCol = node.startPosition.column;
+          const startOffset = node.startIndex
+          const startRow = node.startPosition.row
+          const startCol = node.startPosition.column
 
           for (const token of subTokens) {
             if (token.startPosition.row === 0) {
-              token.startPosition.column += startCol;
+              token.startPosition.column += startCol
             }
             if (token.endPosition.row === 0) {
-              token.endPosition.column += startCol;
+              token.endPosition.column += startCol
             }
-            token.startPosition.row += startRow;
-            token.endPosition.row += startRow;
-            token.startIndex += startOffset;
-            token.endIndex += startOffset;
+            token.startPosition.row += startRow
+            token.endPosition.row += startRow
+            token.startIndex += startOffset
+            token.endIndex += startOffset
           }
 
-          tokens.push(...subTokens);
+          tokens.push(...subTokens)
         } catch (error) {
           logger.warn(
-            "WasmTokenizer",
+            'WasmTokenizer',
             `Failed to tokenize embedded ${rule.language} in ${languageId}`,
             error,
-          );
+          )
         }
       }
     }
 
-    tokens.push(...getLanguageOverlayTokens(languageId, content));
+    tokens.push(...getLanguageOverlayTokens(languageId, content))
 
     // Deduplicate tokens at the same range. Tree-sitter returns captures in
     // pattern order for same-position nodes; later patterns are more specific
     // (e.g. @tag.builtin overrides @variable). Keep the last capture per range.
-    return { tokens: dedupeHighlightTokens(tokens), tree };
+    return { tokens: dedupeHighlightTokens(tokens), tree }
   } catch (error) {
     // Tree-sitter assets are not provisioned — degrade to no tokens (plain,
     // unhighlighted text) silently instead of throwing/logging per file.
     if (error instanceof TreeSitterUnavailableError) {
-      return { tokens: [], tree: null as unknown as TokenizeResult["tree"] };
+      return { tokens: [], tree: null as unknown as TokenizeResult['tree'] }
     }
-    logger.error("WasmTokenizer", `Failed to tokenize code for ${languageId}`, error);
-    throw error;
+    logger.error('WasmTokenizer', `Failed to tokenize code for ${languageId}`, error)
+    throw error
   }
 }
 
@@ -194,16 +194,16 @@ export async function tokenizeCode(
   languageId: string,
   config?: ParserConfig,
 ): Promise<HighlightToken[]> {
-  const result = await tokenizeCodeWithTree(content, languageId, config);
+  const result = await tokenizeCodeWithTree(content, languageId, config)
   // Delete the tree since caller doesn't need it
   if (result.tree) {
     try {
-      result.tree.delete();
+      result.tree.delete()
     } catch {
       // Tree may already be deleted
     }
   }
-  return result.tokens;
+  return result.tokens
 }
 
 /**
@@ -218,12 +218,12 @@ export async function tokenizeRange(
 ): Promise<HighlightToken[]> {
   // For WASM, we parse the full document and filter tokens
   // Tree-sitter doesn't support partial parsing easily
-  const allTokens = await tokenizeCode(content, languageId, config);
+  const allTokens = await tokenizeCode(content, languageId, config)
 
   // Filter tokens within the line range
   return allTokens.filter((token) => {
-    return token.startPosition.row >= startLine && token.endPosition.row <= endLine;
-  });
+    return token.startPosition.row >= startLine && token.endPosition.row <= endLine
+  })
 }
 
 /**
@@ -235,26 +235,26 @@ export async function tokenizeByLine(
   languageId: string,
   config?: ParserConfig,
 ): Promise<Map<number, HighlightToken[]>> {
-  const allTokens = await tokenizeCode(content, languageId, config);
-  const tokensByLine = new Map<number, HighlightToken[]>();
+  const allTokens = await tokenizeCode(content, languageId, config)
+  const tokensByLine = new Map<number, HighlightToken[]>()
 
   for (const token of allTokens) {
     // A token might span multiple lines
     for (let line = token.startPosition.row; line <= token.endPosition.row; line++) {
       if (!tokensByLine.has(line)) {
-        tokensByLine.set(line, []);
+        tokensByLine.set(line, [])
       }
-      tokensByLine.get(line)!.push(token);
+      tokensByLine.get(line)!.push(token)
     }
   }
 
-  return tokensByLine;
+  return tokensByLine
 }
 
 /**
  * Initialize the WASM tokenizer
  */
 export async function initializeWasmTokenizer(): Promise<void> {
-  await wasmParserLoader.initialize();
-  logger.info("WasmTokenizer", "WASM tokenizer initialized");
+  await wasmParserLoader.initialize()
+  logger.info('WasmTokenizer', 'WASM tokenizer initialized')
 }

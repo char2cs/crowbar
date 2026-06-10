@@ -16,9 +16,7 @@ interface FileContentPayload {
   encoding?: string
 }
 
-function decode(
-  payload: FileContentPayload,
-): string {
+function decode(payload: FileContentPayload): string {
   if (payload.encoding === 'base64') return atob(payload.content)
   return payload.content
 }

@@ -1,4 +1,4 @@
-import { ArrowLeft, ArrowRight, Columns, Lock, Rows, X } from "@phosphor-icons/react";
+import { ArrowLeft, ArrowRight, Columns, Lock, Rows, X } from '@phosphor-icons/react'
 import {
   closeActiveEditorGroup,
   closeOtherEditorGroups,
@@ -6,108 +6,108 @@ import {
   resetEditorGroupSizes,
   splitActiveEditorGroup,
   toggleActiveEditorGroupLock,
-} from "@/features/panes/utils/pane-command-actions";
-import type { Action } from "../models/action.types";
+} from '@/features/panes/utils/pane-command-actions'
+import type { Action } from '../models/action.types'
 
 interface PaneActionsParams {
-  onClose: () => void;
+  onClose: () => void
 }
 
 export const createPaneActions = ({ onClose }: PaneActionsParams): Action[] => [
   {
-    id: "pane-split-editor-right",
-    label: "View: Split Editor Right",
-    description: "Split the active editor group to the right",
+    id: 'pane-split-editor-right',
+    label: 'View: Split Editor Right',
+    description: 'Split the active editor group to the right',
     icon: <Columns />,
-    category: "View",
-    commandId: "workbench.splitEditorRight",
+    category: 'View',
+    commandId: 'workbench.splitEditorRight',
     action: () => {
-      onClose();
-      splitActiveEditorGroup("horizontal");
+      onClose()
+      splitActiveEditorGroup('horizontal')
     },
   },
   {
-    id: "pane-split-editor-down",
-    label: "View: Split Editor Down",
-    description: "Split the active editor group downward",
+    id: 'pane-split-editor-down',
+    label: 'View: Split Editor Down',
+    description: 'Split the active editor group downward',
     icon: <Rows />,
-    category: "View",
-    commandId: "workbench.splitEditorDown",
+    category: 'View',
+    commandId: 'workbench.splitEditorDown',
     action: () => {
-      onClose();
-      splitActiveEditorGroup("vertical");
+      onClose()
+      splitActiveEditorGroup('vertical')
     },
   },
   {
-    id: "pane-close-editor-group",
-    label: "View: Close Editor Group",
-    description: "Close the active editor group and move its editors to a nearby group",
+    id: 'pane-close-editor-group',
+    label: 'View: Close Editor Group',
+    description: 'Close the active editor group and move its editors to a nearby group',
     icon: <X />,
-    category: "View",
-    commandId: "workbench.closeEditorGroup",
+    category: 'View',
+    commandId: 'workbench.closeEditorGroup',
     action: () => {
-      onClose();
-      closeActiveEditorGroup();
+      onClose()
+      closeActiveEditorGroup()
     },
   },
   {
-    id: "pane-close-other-editor-groups",
-    label: "View: Close Other Editor Groups",
-    description: "Close every editor group except the active group",
+    id: 'pane-close-other-editor-groups',
+    label: 'View: Close Other Editor Groups',
+    description: 'Close every editor group except the active group',
     icon: <X />,
-    category: "View",
-    commandId: "workbench.closeOtherEditorGroups",
+    category: 'View',
+    commandId: 'workbench.closeOtherEditorGroups',
     action: () => {
-      onClose();
-      closeOtherEditorGroups();
+      onClose()
+      closeOtherEditorGroups()
     },
   },
   {
-    id: "pane-move-editor-next-group",
-    label: "View: Move Editor Into Next Group",
-    description: "Move the active editor into the next editor group",
+    id: 'pane-move-editor-next-group',
+    label: 'View: Move Editor Into Next Group',
+    description: 'Move the active editor into the next editor group',
     icon: <ArrowRight />,
-    category: "View",
-    commandId: "workbench.moveEditorToNextGroup",
+    category: 'View',
+    commandId: 'workbench.moveEditorToNextGroup',
     action: () => {
-      onClose();
-      moveActiveEditorToAdjacentGroup("next");
+      onClose()
+      moveActiveEditorToAdjacentGroup('next')
     },
   },
   {
-    id: "pane-move-editor-previous-group",
-    label: "View: Move Editor Into Previous Group",
-    description: "Move the active editor into the previous editor group",
+    id: 'pane-move-editor-previous-group',
+    label: 'View: Move Editor Into Previous Group',
+    description: 'Move the active editor into the previous editor group',
     icon: <ArrowLeft />,
-    category: "View",
-    commandId: "workbench.moveEditorToPreviousGroup",
+    category: 'View',
+    commandId: 'workbench.moveEditorToPreviousGroup',
     action: () => {
-      onClose();
-      moveActiveEditorToAdjacentGroup("previous");
+      onClose()
+      moveActiveEditorToAdjacentGroup('previous')
     },
   },
   {
-    id: "pane-reset-editor-group-sizes",
-    label: "View: Reset Editor Group Sizes",
-    description: "Reset editor groups to equal sizes",
+    id: 'pane-reset-editor-group-sizes',
+    label: 'View: Reset Editor Group Sizes',
+    description: 'Reset editor groups to equal sizes',
     icon: <Columns />,
-    category: "View",
-    commandId: "workbench.resetEditorGroupSizes",
+    category: 'View',
+    commandId: 'workbench.resetEditorGroupSizes',
     action: () => {
-      onClose();
-      resetEditorGroupSizes();
+      onClose()
+      resetEditorGroupSizes()
     },
   },
   {
-    id: "pane-toggle-editor-group-lock",
-    label: "View: Toggle Editor Group Lock",
-    description: "Keep the active editor group from receiving newly opened buffers",
+    id: 'pane-toggle-editor-group-lock',
+    label: 'View: Toggle Editor Group Lock',
+    description: 'Keep the active editor group from receiving newly opened buffers',
     icon: <Lock />,
-    category: "View",
-    commandId: "workbench.toggleEditorGroupLock",
+    category: 'View',
+    commandId: 'workbench.toggleEditorGroupLock',
     action: () => {
-      onClose();
-      toggleActiveEditorGroupLock();
+      onClose()
+      toggleActiveEditorGroupLock()
     },
   },
-];
+]
