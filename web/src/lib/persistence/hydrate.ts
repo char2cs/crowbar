@@ -4,7 +4,7 @@ import { getOrCreateWorkspaceStore } from '@/features/workspace/stores/workspace
 import type { WorkspaceStore } from '@/features/workspace/stores/workspace-store'
 import { isPersistableContent, type PaneContent } from '@/features/panes/types/pane-content'
 import { syncBufferWithDisk } from '@/features/workspace/lib/external-buffer-sync'
-import { readFile } from '@/features/file-system/controllers/platform'
+import { readWorkspaceFile } from '@/features/file-system/controllers/platform'
 import { useSettingsStore } from '@/features/settings/store'
 import { loadSidebarUI } from './sidebar-ui'
 import { loadAllWorkspaceHierarchies } from './workspace-hierarchy'
@@ -95,7 +95,12 @@ async function reconcileRestoredBuffers(
   if (realFileBuffers.length === 0) return
   await Promise.allSettled(
     realFileBuffers.map(async (buffer) => {
-      const diskContent = await readFile(buffer.path).catch(() => null)
+      // Read from the hydrating workspace explicitly: hydration can still be
+      // in flight when the user switches workspaces, and the active-workspace
+      // readFile would then load the sibling worktree's file into this store.
+      const diskContent = await readWorkspaceFile(store.getState().workspaceId, buffer.path).catch(
+        () => null,
+      )
       if (diskContent === null || diskContent === buffer.savedContent) return
       await syncBufferWithDisk(store, buffer.path)
     }),

@@ -3,9 +3,9 @@ import { createStore } from 'zustand'
 import type { EditorContent } from '@/features/panes/types/pane-content'
 import type { WorkspaceStore } from '@/features/workspace/stores/workspace-store'
 
-const readFileMock = vi.fn<(path: string) => Promise<string>>()
+const readWorkspaceFileMock = vi.fn<(wsId: string, path: string) => Promise<string>>()
 vi.mock('@/features/file-system/controllers/platform', () => ({
-  readFile: (path: string) => readFileMock(path),
+  readWorkspaceFile: (wsId: string, path: string) => readWorkspaceFileMock(wsId, path),
 }))
 
 const toastWarning = vi.fn()
@@ -41,13 +41,14 @@ function makeBuffer(overrides: Partial<EditorContent> = {}): EditorContent {
 }
 
 function makeWorkspaceStore(buffers: EditorContent[]): WorkspaceStore {
-  return createStore<{ buffers: EditorContent[] }>(() => ({
+  return createStore<{ workspaceId: string; buffers: EditorContent[] }>(() => ({
+    workspaceId: 'ws-1',
     buffers,
   })) as unknown as WorkspaceStore
 }
 
 beforeEach(() => {
-  readFileMock.mockReset()
+  readWorkspaceFileMock.mockReset()
   toastWarning.mockReset()
   useFileWatcherStore.setState({ pendingSaves: new Set() })
 })
@@ -55,12 +56,15 @@ beforeEach(() => {
 describe('syncBufferWithDisk', () => {
   it('reloads a clean buffer from disk (content and savedContent)', async () => {
     const store = makeWorkspaceStore([makeBuffer()])
-    readFileMock.mockResolvedValue('restored content')
+    readWorkspaceFileMock.mockResolvedValue('restored content')
 
     await syncBufferWithDisk(store, 'README.md')
 
     const buf = store.getState().buffers[0] as EditorContent
-    expect(readFileMock).toHaveBeenCalledWith('README.md')
+    // The read targets the buffer's own workspace, never the active one —
+    // an active-workspace read would load a sibling worktree's file after a
+    // mid-flight workspace switch.
+    expect(readWorkspaceFileMock).toHaveBeenCalledWith('ws-1', 'README.md')
     expect(buf.content).toBe('restored content')
     expect(buf.savedContent).toBe('restored content')
     expect(buf.isDirty).toBe(false)
@@ -74,7 +78,7 @@ describe('syncBufferWithDisk', () => {
     await syncBufferWithDisk(store, 'README.md')
 
     const buf = store.getState().buffers[0] as EditorContent
-    expect(readFileMock).not.toHaveBeenCalled()
+    expect(readWorkspaceFileMock).not.toHaveBeenCalled()
     expect(buf.content).toBe('user edits')
     expect(buf.isDirty).toBe(true)
     expect(buf.hasExternalChange).toBe(true)
@@ -92,12 +96,12 @@ describe('syncBufferWithDisk', () => {
 
     await syncBufferWithDisk(store, 'README.md')
 
-    expect(readFileMock).not.toHaveBeenCalled()
+    expect(readWorkspaceFileMock).not.toHaveBeenCalled()
     expect((store.getState().buffers[0] as EditorContent).content).toBe('old content')
     expect(useFileWatcherStore.getState().pendingSaves.has('README.md')).toBe(false)
 
     // The next external event for the same path is no longer suppressed.
-    readFileMock.mockResolvedValue('external write')
+    readWorkspaceFileMock.mockResolvedValue('external write')
     await syncBufferWithDisk(store, 'README.md')
     expect((store.getState().buffers[0] as EditorContent).content).toBe('external write')
   })
@@ -107,14 +111,14 @@ describe('syncBufferWithDisk', () => {
 
     await syncBufferWithDisk(store, 'README.md')
 
-    expect(readFileMock).not.toHaveBeenCalled()
+    expect(readWorkspaceFileMock).not.toHaveBeenCalled()
     expect(toastWarning).not.toHaveBeenCalled()
   })
 
   it('does not clobber edits made while the disk read was in flight', async () => {
     const store = makeWorkspaceStore([makeBuffer()])
     let resolveRead: (v: string) => void = () => {}
-    readFileMock.mockReturnValue(
+    readWorkspaceFileMock.mockReturnValue(
       new Promise<string>((r) => {
         resolveRead = r
       }),
@@ -133,7 +137,7 @@ describe('syncBufferWithDisk', () => {
 
   it('survives a failed disk read without touching the buffer', async () => {
     const store = makeWorkspaceStore([makeBuffer()])
-    readFileMock.mockRejectedValue(new Error('boom'))
+    readWorkspaceFileMock.mockRejectedValue(new Error('boom'))
 
     await syncBufferWithDisk(store, 'README.md')
 

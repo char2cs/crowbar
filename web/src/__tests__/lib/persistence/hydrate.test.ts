@@ -1,10 +1,10 @@
 import { vi } from 'vitest'
 
-const readFileMock = vi.fn<(path: string) => Promise<string>>()
+const readFileMock = vi.fn<(wsId: string, path: string) => Promise<string>>()
 vi.mock('@/features/file-system/controllers/platform', async (importOriginal) => {
   const actual =
     await importOriginal<typeof import('@/features/file-system/controllers/platform')>()
-  return { ...actual, readFile: (path: string) => readFileMock(path) }
+  return { ...actual, readWorkspaceFile: (wsId: string, path: string) => readFileMock(wsId, path) }
 })
 
 const toastWarning = vi.fn()
@@ -197,6 +197,8 @@ describe('hydrateWorkspace — restored buffer reconciliation (BUG-026/BUG-013)'
     await hydrateWorkspace(WS)
 
     const buf = getRestoredBuffer()
+    // Reads must target the hydrating workspace explicitly, not the active one.
+    expect(readFileMock).toHaveBeenCalledWith(WS, '/repo/README.md')
     expect(buf.content).toBe('disk content changed while closed')
     expect(buf.savedContent).toBe('disk content changed while closed')
     expect(buf.isDirty).toBe(false)

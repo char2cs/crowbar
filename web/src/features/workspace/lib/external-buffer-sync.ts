@@ -1,4 +1,4 @@
-import { readFile } from '@/features/file-system/controllers/platform'
+import { readWorkspaceFile } from '@/features/file-system/controllers/platform'
 import { useFileWatcherStore } from '@/features/file-system/controllers/file-watcher-store'
 import { isEditorContent } from '@/features/panes/types/pane-content'
 import { toast } from '@/components/ui/toast'
@@ -42,7 +42,11 @@ export async function syncBufferWithDisk(wsStore: WorkspaceStore, path: string):
     return
   }
 
-  const content = await readFile(path).catch(() => null)
+  // Read from the buffer's own workspace, not the active one: this runs from
+  // async flows (FS events, restore reconciliation) that can complete after
+  // the user switched workspaces, and the same relative path in a sibling
+  // worktree holds different content.
+  const content = await readWorkspaceFile(wsStore.getState().workspaceId, path).catch(() => null)
   if (content === null) return
 
   // Re-check at apply time: the user may have started editing (or closed the

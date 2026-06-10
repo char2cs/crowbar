@@ -343,21 +343,26 @@ export const createBufferSlice: StateCreator<
       // The history entry carries no content; load it from disk and fill the
       // buffer in place. Dynamic import avoids a slice → platform-controller
       // cycle. Skip the fill if the user already typed into the empty buffer.
-      void import('@/features/file-system/controllers/platform').then(async ({ readFile }) => {
-        try {
-          const content = await readFile(entry.path)
-          set((state) => {
-            const buf = state.buffers.find((b) => b.id === id)
-            if (buf && buf.type === 'editor' && buf.content === '') {
-              buf.content = content
-              buf.savedContent = content
-              buf.isDirty = false
-            }
-          })
-        } catch {
-          // File no longer exists — leave the empty buffer; saving will recreate it.
-        }
-      })
+      // Read from this store's own workspace: the active workspace can change
+      // while the read is in flight, and the same relative path in a sibling
+      // worktree holds different content.
+      void import('@/features/file-system/controllers/platform').then(
+        async ({ readWorkspaceFile }) => {
+          try {
+            const content = await readWorkspaceFile(get().workspaceId, entry.path)
+            set((state) => {
+              const buf = state.buffers.find((b) => b.id === id)
+              if (buf && buf.type === 'editor' && buf.content === '') {
+                buf.content = content
+                buf.savedContent = content
+                buf.isDirty = false
+              }
+            })
+          } catch {
+            // File no longer exists — leave the empty buffer; saving will recreate it.
+          }
+        },
+      )
     },
 
     setPendingClose(pc) {
