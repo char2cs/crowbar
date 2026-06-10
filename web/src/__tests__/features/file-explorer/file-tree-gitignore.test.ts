@@ -148,6 +148,119 @@ describe('file tree gitignore rules', () => {
     expect(isPathGitIgnoredByFileTreeRules(rules, '/other/valid.out', false)).toBe(false)
   })
 
+  describe('workspace-relative paths (synthetic root)', () => {
+    const rootFolderPath = '/repos/repo-1'
+
+    it('collects workspace-relative .gitignore files under a synthetic root', () => {
+      const references = collectGitIgnoreFileReferences(
+        [
+          file('.gitignore', '.gitignore'),
+          dir('web', 'web', [file('.gitignore', 'web/.gitignore')]),
+          file('.gitignore', '/other/.gitignore'),
+        ],
+        rootFolderPath,
+      )
+
+      expect(references.map((reference) => reference.path)).toEqual([
+        '.gitignore',
+        'web/.gitignore',
+      ])
+      expect(references[0]?.directoryPath).toBe('')
+    })
+
+    it.each(['', '.'])(
+      'matches relative tree paths against a root .gitignore with directoryPath %j',
+      (directoryPath) => {
+        const rules = createFileTreeGitIgnoreRules(rootFolderPath, [
+          {
+            path: '.gitignore',
+            directoryPath,
+            content: 'node_modules\n',
+          },
+        ])
+
+        expect(isPathGitIgnoredByFileTreeRules(rules, 'node_modules', true)).toBe(true)
+        expect(isPathGitIgnoredByFileTreeRules(rules, 'node_modules/x', false)).toBe(true)
+        expect(isPathGitIgnoredByFileTreeRules(rules, 'web', true)).toBe(false)
+        expect(isPathGitIgnoredByFileTreeRules(rules, 'web/src/x.ts', false)).toBe(false)
+      },
+    )
+
+    it('keeps relative paths ignored when an ignored ancestor directory contains them', () => {
+      const rules = createFileTreeGitIgnoreRules(rootFolderPath, [
+        {
+          path: '.gitignore',
+          directoryPath: '',
+          content: 'dist/\n',
+        },
+        {
+          path: 'dist/.gitignore',
+          directoryPath: 'dist',
+          content: '!keep.txt\n',
+        },
+      ])
+
+      expect(isPathGitIgnoredByFileTreeRules(rules, 'dist', true)).toBe(true)
+      expect(isPathGitIgnoredByFileTreeRules(rules, 'dist/keep.txt', false)).toBe(true)
+    })
+
+    it('applies nested workspace-relative .gitignore files to their own directory', () => {
+      const rules = createFileTreeGitIgnoreRules(rootFolderPath, [
+        {
+          path: 'web/.gitignore',
+          directoryPath: 'web',
+          content: '*.gen.ts\n',
+        },
+      ])
+
+      expect(isPathGitIgnoredByFileTreeRules(rules, 'web/client.gen.ts', false)).toBe(true)
+      expect(isPathGitIgnoredByFileTreeRules(rules, 'api/client.gen.ts', false)).toBe(false)
+    })
+
+    it('lets nested relative .gitignore files unignore parent rules', () => {
+      const rules = createFileTreeGitIgnoreRules(rootFolderPath, [
+        {
+          path: '.gitignore',
+          directoryPath: '',
+          content: '*.log\n',
+        },
+        {
+          path: 'logs/.gitignore',
+          directoryPath: 'logs',
+          content: '!keep.log\n',
+        },
+      ])
+
+      expect(isPathGitIgnoredByFileTreeRules(rules, 'logs/error.log', false)).toBe(true)
+      expect(isPathGitIgnoredByFileTreeRules(rules, 'logs/keep.log', false)).toBe(false)
+    })
+
+    it('does not treat the relative .git directory as ignored', () => {
+      const rules = createFileTreeGitIgnoreRules(rootFolderPath, [
+        {
+          path: '.gitignore',
+          directoryPath: '',
+          content: '.git\n*\n',
+        },
+      ])
+
+      expect(isPathGitIgnoredByFileTreeRules(rules, '.git', true)).toBe(false)
+      expect(isPathGitIgnoredByFileTreeRules(rules, 'file.txt', false)).toBe(true)
+    })
+
+    it('does not match absolute paths against a root-relative rule set', () => {
+      const rules = createFileTreeGitIgnoreRules(rootFolderPath, [
+        {
+          path: '.gitignore',
+          directoryPath: '',
+          content: 'node_modules\n',
+        },
+      ])
+
+      expect(isPathGitIgnoredByFileTreeRules(rules, '/other/node_modules', true)).toBe(false)
+    })
+  })
+
   it('does not treat the repository root or .git directory as ignored', () => {
     const rules = createFileTreeGitIgnoreRules('/repo', [
       {

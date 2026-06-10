@@ -3,6 +3,7 @@ import { readFile } from '@/features/file-system/controllers/platform'
 import {
   createFileTreeGitIgnoreRules,
   isPathGitIgnoredByFileTreeRules,
+  isWorkspaceRelativePath,
   type FileTreeGitIgnoreRules,
   type GitIgnoreFileContent,
   type GitIgnoreFileReference,
@@ -61,7 +62,14 @@ export function useFileExplorerGitignore(
   const isGitIgnored = useCallback(
     (fullPath: string, isDir: boolean): boolean => {
       if (!gitIgnoreRules || !rootFolderPath) return false
-      if (getWorkspaceRootForPath(fullPath) !== rootFolderPath) return false
+      // Workspace-relative backend paths always belong to the active root; the
+      // multi-root workspace lookup only applies to absolute desktop paths.
+      if (
+        !isWorkspaceRelativePath(fullPath) &&
+        getWorkspaceRootForPath(fullPath) !== rootFolderPath
+      ) {
+        return false
+      }
       return isPathGitIgnoredByFileTreeRules(gitIgnoreRules, fullPath, isDir)
     },
     [gitIgnoreRules, rootFolderPath, getWorkspaceRootForPath],

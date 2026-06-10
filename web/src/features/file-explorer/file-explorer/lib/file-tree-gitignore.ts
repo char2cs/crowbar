@@ -31,6 +31,23 @@ export interface FileTreeGitIgnoreRules {
   ruleSets: GitIgnoreRuleSet[]
 }
 
+/**
+ * Backend file paths are workspace-relative ('web/src/x.ts'); only the
+ * explorer's rootFolderPath (and desktop-heritage trees) use absolute paths.
+ * Workspace-relative paths always belong to the active root.
+ */
+export const isWorkspaceRelativePath = (path: string): boolean =>
+  !path.startsWith('/') && !path.startsWith('\\') && !/^[A-Za-z]:[\\/]/.test(path)
+
+/** The owning directory of a root-level .gitignore in a relative tree is '' (or '.'). */
+const isRootDirectoryPath = (directoryPath: string): boolean => {
+  const normalized = normalizePath(stripTrailingPathSeparators(directoryPath))
+  return normalized === '' || normalized === '.'
+}
+
+const isPathInRootScope = (path: string, rootFolderPath: string): boolean =>
+  isWorkspaceRelativePath(path) || pathStartsWithRoot(path, rootFolderPath)
+
 const pathDepth = (path: string): number =>
   normalizePath(stripTrailingPathSeparators(path)).split('/').filter(Boolean).length
 
@@ -131,9 +148,19 @@ export function createFileTreeGitIgnoreRules(
 }
 
 function toMatcherPath(fullPath: string, directoryPath: string, isDir: boolean): string | null {
-  if (!pathStartsWithRoot(fullPath, directoryPath)) return null
+  let relative: string
 
-  let relative = getRelativePath(fullPath, directoryPath)
+  if (isRootDirectoryPath(directoryPath)) {
+    // Root .gitignore over a workspace-relative tree: the entry path already
+    // is the matcher path. Absolute paths cannot be relativized against ''.
+    if (!isWorkspaceRelativePath(fullPath)) return null
+    relative = fullPath
+  } else if (pathStartsWithRoot(fullPath, directoryPath)) {
+    relative = getRelativePath(fullPath, directoryPath)
+  } else {
+    return null
+  }
+
   if (!relative || relative.trim() === '') return null
 
   relative = normalizePath(relative)
@@ -149,9 +176,11 @@ function isPathIgnoredByOwnRules(
   fullPath: string,
   isDir: boolean,
 ): boolean {
-  if (!rules || !pathStartsWithRoot(fullPath, rules.rootFolderPath)) return false
+  if (!rules || !isPathInRootScope(fullPath, rules.rootFolderPath)) return false
 
-  let rootRelative = getRelativePath(fullPath, rules.rootFolderPath)
+  let rootRelative = isWorkspaceRelativePath(fullPath)
+    ? fullPath
+    : getRelativePath(fullPath, rules.rootFolderPath)
   if (!rootRelative || rootRelative.trim() === '') return false
   rootRelative = normalizePath(rootRelative)
   if (rootRelative === '.git' || rootRelative === '.git/') return false
@@ -178,7 +207,7 @@ function getAncestorDirectoryPaths(fullPath: string, rootFolderPath: string): st
   const normalizedRootPath = normalizePath(stripTrailingPathSeparators(rootFolderPath))
   let currentPath = getDirName(fullPath)
 
-  while (currentPath && pathStartsWithRoot(currentPath, rootFolderPath)) {
+  while (currentPath && isPathInRootScope(currentPath, rootFolderPath)) {
     if (normalizePath(stripTrailingPathSeparators(currentPath)) === normalizedRootPath) {
       break
     }
@@ -195,7 +224,7 @@ export function isPathGitIgnoredByFileTreeRules(
   fullPath: string,
   isDir: boolean,
 ): boolean {
-  if (!rules || !pathStartsWithRoot(fullPath, rules.rootFolderPath)) return false
+  if (!rules || !isPathInRootScope(fullPath, rules.rootFolderPath)) return false
 
   for (const ancestorPath of getAncestorDirectoryPaths(fullPath, rules.rootFolderPath)) {
     if (isPathIgnoredByOwnRules(rules, ancestorPath, true)) {
