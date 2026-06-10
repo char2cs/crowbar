@@ -2,6 +2,7 @@ import { Button } from '@/components/ui/button'
 import { ScrollArea } from '@/components/ui/scroll-area'
 import { useFileSystemStore } from '@/features/file-system/controllers/store'
 import { useGitStore } from '@/features/git/stores/git-store'
+import { useSettingsStore } from '@/features/settings/store'
 import { getActiveWorkspaceId } from '@/features/workspace/stores/workspace-store-registry'
 import {
   discardFileChanges,
@@ -71,6 +72,7 @@ function FileRow({ file, actionLabel, onAction, onOpenDiff, onDiscard }: FileRow
 export function GitChangesPanel() {
   const status = useGitStore((s) => s.gitStatus)
   const reload = useGitStore((s) => s.actions.reload)
+  const openDiffOnClick = useSettingsStore((s) => s.settings.openDiffOnClick)
 
   const files = status?.files ?? []
   const staged = files.filter((f) => f.staged)
@@ -86,6 +88,16 @@ export function GitChangesPanel() {
       void useFileSystemStore.getState().handleFileOpen?.(rel, false)
     },
   })
+
+  // "Open Diff On Click": open the diff buffer when enabled (default); open
+  // the file directly in an editor when the user turned the setting off.
+  const openChangedFile = (file: GitFile, staged: boolean) => {
+    if (openDiffOnClick) {
+      void handleViewFileDiff(file.path, staged)
+    } else {
+      void useFileSystemStore.getState().handleFileOpen?.(file.path, false)
+    }
+  }
 
   const run = async (op: (id: string) => Promise<unknown>) => {
     if (!wsId) return
@@ -122,7 +134,7 @@ export function GitChangesPanel() {
                   file={file}
                   actionLabel="−"
                   onAction={() => void run((id) => unstageFile(id, file.path))}
-                  onOpenDiff={() => void handleViewFileDiff(file.path, true)}
+                  onOpenDiff={() => openChangedFile(file, true)}
                 />
               ))}
             </section>
@@ -149,7 +161,7 @@ export function GitChangesPanel() {
                   file={file}
                   actionLabel="+"
                   onAction={() => void run((id) => stageFile(id, file.path))}
-                  onOpenDiff={() => void handleViewFileDiff(file.path, false)}
+                  onOpenDiff={() => openChangedFile(file, false)}
                   onDiscard={() => void run((id) => discardFileChanges(id, file.path))}
                 />
               ))}
