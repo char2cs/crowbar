@@ -1,5 +1,6 @@
 import { nanoid } from 'nanoid'
 import type { ScenarioDataset } from './index'
+import type { FileNode } from '@/lib/mock/files'
 import type { ProjectChat } from '@/lib/store/sidebar'
 
 export const emptyDataset: ScenarioDataset = {
@@ -7,7 +8,7 @@ export const emptyDataset: ScenarioDataset = {
   projects: () => [],
   workspace: () => undefined,
   createWorkspace: (repoId, branch) => ({ id: nanoid(), repoId, branch }),
-  fileTree: () => ({ name: '', path: '', isDir: true }) as any,
+  fileTree: () => ({ name: '', path: '', isDir: true }) as unknown as FileNode,
   fileContent: () => '',
   branchDiff: () => ({
     commitHash: '0000000000000000000000000000000000000000',

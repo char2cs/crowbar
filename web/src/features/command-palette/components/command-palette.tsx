@@ -8,6 +8,8 @@ import { useLspStore } from '@/features/editor/lsp/lsp-store'
 import { useFileSystemStore } from '@/features/file-system/controllers/store'
 import { useWorkspaceStore } from '@/features/workspace/stores/workspace-context'
 import { commitChanges } from '@/features/git/api/git-commits-api'
+import type { MultiFileDiff } from '@/features/git/types/git-diff-types'
+import type { GitDiff } from '@/features/git/types/git-types'
 import { fetchChanges, pullChanges, pushChanges } from '@/features/git/api/git-remotes-api'
 import {
   discardAllChanges,
@@ -132,10 +134,10 @@ const CommandPalette = () => {
     name: string,
     content: string,
     _isImage?: boolean,
-    _databaseType?: any,
+    _databaseType?: string,
     _isDiff?: boolean,
     _isVirtual?: boolean,
-    diffData?: any,
+    diffData?: GitDiff | MultiFileDiff,
     isMarkdownPreview?: boolean,
     isHtmlPreview?: boolean,
     isCsvPreview?: boolean,
@@ -209,7 +211,7 @@ const CommandPalette = () => {
       },
       updateSetting: useSettingsStore.getState().updateSetting as (
         key: string,
-        value: any,
+        value: unknown,
       ) => void | Promise<void>,
       zoomIn,
       zoomOut,
@@ -226,7 +228,7 @@ const CommandPalette = () => {
       pushPaletteView: pushView,
       updateSetting: useSettingsStore.getState().updateSetting as (
         key: string,
-        value: any,
+        value: unknown,
       ) => void | Promise<void>,
       handleFileOpen,
       getAppDataDir: appDataDir,

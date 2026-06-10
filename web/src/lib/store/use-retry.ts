@@ -9,7 +9,6 @@ export function useRetry<S extends HasFetch<K>, K extends unknown[]>(
   useStore: UseBoundStore<StoreApi<S>>,
   ...args: K
 ): () => void {
-  // eslint-disable-next-line react-hooks/exhaustive-deps
   return useCallback(() => {
     void useStore.getState().fetch(...args)
   }, [useStore, ...args])

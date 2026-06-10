@@ -1,4 +1,6 @@
 import { Eye } from '@phosphor-icons/react'
+import type { MultiFileDiff } from '@/features/git/types/git-diff-types'
+import type { GitDiff } from '@/features/git/types/git-types'
 import type { PaneContent } from '@/features/panes/types/pane-content'
 import type { Action } from '../models/action.types'
 
@@ -10,10 +12,10 @@ interface MarkdownActionsParams {
     name: string,
     content: string,
     isImage?: boolean,
-    databaseType?: any,
+    databaseType?: string,
     isDiff?: boolean,
     isVirtual?: boolean,
-    diffData?: any,
+    diffData?: GitDiff | MultiFileDiff,
     isMarkdownPreview?: boolean,
     isHtmlPreview?: boolean,
     isCsvPreview?: boolean,

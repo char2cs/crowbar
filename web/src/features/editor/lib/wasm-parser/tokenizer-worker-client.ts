@@ -6,7 +6,7 @@ import type {
 } from './worker-protocol'
 
 interface PendingRequest {
-  resolve: (value: any) => void
+  resolve: (value: TokenizerWorkerResponse) => void
   reject: (reason?: unknown) => void
 }
 
@@ -50,7 +50,10 @@ class TokenizerWorkerClient {
     const worker = this.ensureWorker()
 
     return new Promise<T>((resolve, reject) => {
-      this.pending.set(request.id, { resolve, reject })
+      this.pending.set(request.id, {
+        resolve: resolve as (value: TokenizerWorkerResponse) => void,
+        reject,
+      })
       worker.postMessage(request)
     })
   }

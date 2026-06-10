@@ -11,7 +11,7 @@ const makePaneActions = () => ({
   setPanePreviewBuffer: vi.fn(),
   removeBufferFromPane: vi.fn(),
   clearPreviewBufferEverywhere: vi.fn(),
-  getPaneById: vi.fn(() => null as any),
+  getPaneById: vi.fn(() => null),
 })
 
 type PaneActions = ReturnType<typeof makePaneActions>
@@ -19,7 +19,7 @@ type PaneActions = ReturnType<typeof makePaneActions>
 function makeStore(paneActions: PaneActions = makePaneActions()) {
   const store = createStore<BufferSlice & { paneActions: PaneActions }>()(
     immer((set, get) => ({
-      ...createBufferSlice(set as any, get as any, {} as any),
+      ...createBufferSlice(...([set, get, {}] as unknown as Parameters<typeof createBufferSlice>)),
       paneActions,
     })),
   )

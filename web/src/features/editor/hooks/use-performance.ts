@@ -84,6 +84,7 @@ export function usePerformanceMonitor(componentName: string) {
   }
 }
 
+// eslint-disable-next-line @typescript-eslint/no-explicit-any -- generic callback wrapper; `any` is required for parameter inference
 export function useThrottledCallback<T extends (...args: any[]) => any>(
   callback: T,
   delay: number,

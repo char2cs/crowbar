@@ -5,7 +5,9 @@ import { createLspSlice, type LspSlice } from '@/features/workspace/stores/slice
 
 function makeStore() {
   return createStore<LspSlice>()(
-    immer((set, get) => createLspSlice(set as any, get as any, {} as any)),
+    immer((set, get) =>
+      createLspSlice(...([set, get, {}] as unknown as Parameters<typeof createLspSlice>)),
+    ),
   )
 }
 
@@ -40,7 +42,7 @@ describe('lsp-slice', () => {
   })
 
   it('clearCompletionCache empties the cache', () => {
-    store.getState().lspActions.updateCompletionCache('key-1', [{ label: 'foo' } as any])
+    store.getState().lspActions.updateCompletionCache('key-1', [{ label: 'foo' }])
     store.getState().lspActions.clearCompletionCache()
     expect(Object.keys(store.getState().completionCache)).toHaveLength(0)
   })

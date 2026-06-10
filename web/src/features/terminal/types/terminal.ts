@@ -1,3 +1,5 @@
+import type { Ref } from 'react'
+
 export interface Terminal {
   id: string
   name: string
@@ -13,7 +15,8 @@ export interface Terminal {
   selection?: string
   title?: string
   customName?: boolean
-  ref?: any
+  // Imperative handle ref attached by the terminal component (see terminal.tsx).
+  ref?: Ref<unknown>
   splitMode?: boolean
   splitWithId?: string // ID of the terminal to split with
   remoteConnectionId?: string

@@ -131,7 +131,9 @@ export async function fetchHighlightQuery(
       }
 
       return { query, sourceUrl: candidate }
-    } catch {}
+    } catch {
+      /* intentionally ignored */
+    }
   }
 
   return { query: '', sourceUrl: null }

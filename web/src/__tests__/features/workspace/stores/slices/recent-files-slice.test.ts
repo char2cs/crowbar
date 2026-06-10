@@ -8,7 +8,11 @@ import {
 
 function makeStore() {
   return createStore<RecentFilesSlice>()(
-    immer((set, get) => createRecentFilesSlice(set as any, get as any, {} as any)),
+    immer((set, get) =>
+      createRecentFilesSlice(
+        ...([set, get, {}] as unknown as Parameters<typeof createRecentFilesSlice>),
+      ),
+    ),
   )
 }
 

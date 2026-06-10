@@ -1,7 +1,7 @@
 import { render, screen, waitFor } from '@testing-library/react'
 import { describe, it, expect, beforeEach, vi } from 'vitest'
 import { ChatTree } from '@/components/layout/chat-tree'
-import { useSidebarStore } from '@/lib/store/sidebar'
+import { getInitialState, useSidebarStore } from '@/lib/store/sidebar'
 import type { ProjectChat } from '@/lib/store/sidebar'
 import { apiFetch } from '@/lib/api'
 
@@ -54,7 +54,7 @@ const CHATS: ProjectChat[] = [
 
 describe('ChatTree', () => {
   beforeEach(() => {
-    useSidebarStore.setState((useSidebarStore as any).getInitialState())
+    useSidebarStore.setState(getInitialState())
   })
 
   it('renders chats for the active workspace from store', () => {

@@ -132,5 +132,5 @@ export const scrollLogger = new ScrollLogger()
 
 // Make it available globally for debugging
 if (typeof window !== 'undefined') {
-  ;(window as any).scrollLogger = scrollLogger
+  ;(window as unknown as { scrollLogger: ScrollLogger }).scrollLogger = scrollLogger
 }

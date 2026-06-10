@@ -9,7 +9,9 @@ import type { BranchReviewChat } from '@/lib/mock/branch-diff'
 import type { Commit, GitStatus } from '@/lib/mock/git-data'
 import { generateLargeFileDiff } from '@/lib/mock/branch-diff'
 import { getMockFileTree, getMockFileContent } from '@/lib/mock/files'
+import type { FileNode } from '@/lib/mock/files'
 import type { GitDiffLine } from '@/features/git/types/git-types'
+import type { MultiFileDiff } from '@/features/git/types/git-diff-types'
 import type { MarkdownTurn } from '@/features/markdown-chat/types'
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
@@ -955,11 +957,11 @@ export const extremeDataset: ScenarioDataset = {
     wsStore.set(id, ws)
     return ws
   },
-  fileTree: (repoPath) => getMockFileTree(repoPath) as any,
+  fileTree: (repoPath) => getMockFileTree(repoPath) as unknown as FileNode,
   fileContent: (path) => getMockFileContent(path),
   branchDiff: (wsId) => {
     const seed = Array.from(wsId).reduce((s, c) => s + c.charCodeAt(0), 0)
-    return makeMassiveDiff(wsId, seed) as any
+    return makeMassiveDiff(wsId, seed) as unknown as MultiFileDiff
   },
   branchThreads: (wsId) => genThreads(wsId, 28),
   branchDescription: (wsId) =>

@@ -174,7 +174,8 @@ export const TreeNode = ({
   parentPath = [],
   children,
   className,
-  onClick,
+  // Intentionally extracted so it is not spread onto the DOM element.
+  onClick: _onClick,
   ...props
 }: TreeNodeProps) => {
   const generatedId = useId()

@@ -18,6 +18,18 @@ export default tseslint.config(
     files: ['**/*.{ts,tsx}'],
     rules: {
       'no-restricted-imports': ['error', { patterns: ['@tauri-apps/*'] }],
+      '@typescript-eslint/no-unused-vars': [
+        'error',
+        {
+          argsIgnorePattern: '^_',
+          varsIgnorePattern: '^_',
+          caughtErrors: 'none',
+        },
+      ],
+      '@typescript-eslint/no-unused-expressions': [
+        'error',
+        { allowShortCircuit: true, allowTernary: true },
+      ],
     },
   },
 )

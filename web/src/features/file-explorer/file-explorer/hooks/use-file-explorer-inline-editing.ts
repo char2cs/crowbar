@@ -62,7 +62,9 @@ export function useFileExplorerInlineEditing({
         const next = new Set(current)
         next.add(parentPath)
         useFileTreeStore.getState().setExpandedPaths(next)
-      } catch {}
+      } catch {
+        /* intentionally ignored */
+      }
 
       setEditingValue('')
     },

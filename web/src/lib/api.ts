@@ -1,7 +1,7 @@
 import type { WorkspacePayload, Project } from './types'
 import { useChaosStore } from '@/lib/store/chaos'
 
-const crowbar = (window as any).__CROWBAR__
+const crowbar = (window as unknown as { __CROWBAR__?: { api?: string } }).__CROWBAR__
 export const API_BASE: string = crowbar?.api ?? import.meta.env.VITE_API_URL ?? ''
 
 export async function apiFetch<T>(path: string, init?: RequestInit): Promise<T> {

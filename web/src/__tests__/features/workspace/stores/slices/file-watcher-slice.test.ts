@@ -8,7 +8,11 @@ import {
 
 function makeStore() {
   return createStore<FileWatcherSlice>()(
-    immer((set, get) => createFileWatcherSlice(set as any, get as any, {} as any)),
+    immer((set, get) =>
+      createFileWatcherSlice(
+        ...([set, get, {}] as unknown as Parameters<typeof createFileWatcherSlice>),
+      ),
+    ),
   )
 }
 

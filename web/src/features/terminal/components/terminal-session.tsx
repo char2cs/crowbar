@@ -1,7 +1,15 @@
+import type { Terminal as XtermInstance } from '@xterm/xterm'
 import { useCallback, useEffect, useRef } from 'react'
 import type { Terminal as TerminalType } from '@/features/terminal/types/terminal'
 import { TerminalErrorBoundary } from './terminal-error-boundary'
 import { TerminalSlot } from './terminal-slot'
+
+// The imperative handle XtermTerminal exposes through onTerminalRef.
+type XtermRefHandle = {
+  focus: () => void
+  showSearch: () => void
+  terminal: XtermInstance
+}
 
 interface TerminalSessionProps {
   terminal: TerminalType
@@ -24,8 +32,8 @@ const TerminalSession = ({
   onRegisterRef,
   onTerminalExit,
 }: TerminalSessionProps) => {
-  const terminalRef = useRef<any>(null)
-  const xtermInstanceRef = useRef<any>(null)
+  const terminalRef = useRef<XtermRefHandle | null>(null)
+  const xtermInstanceRef = useRef<XtermRefHandle | null>(null)
 
   const focusTerminal = useCallback(() => {
     const ref = xtermInstanceRef.current || terminalRef.current
@@ -57,7 +65,7 @@ const TerminalSession = ({
     focusTerminal()
   }, [focusTerminal])
 
-  const handleTerminalRef = useCallback((ref: any) => {
+  const handleTerminalRef = useCallback((ref: XtermRefHandle) => {
     xtermInstanceRef.current = ref
     terminalRef.current = ref
   }, [])

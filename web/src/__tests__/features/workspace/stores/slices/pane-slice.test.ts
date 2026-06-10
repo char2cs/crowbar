@@ -7,7 +7,9 @@ import { ROOT_PANE_ID, BOTTOM_PANE_ID } from '@/features/panes/constants/pane'
 
 function makeStore() {
   return createStore<PaneSlice>()(
-    immer((set, get) => createPaneSlice(set as any, get as any, {} as any)),
+    immer((set, get) =>
+      createPaneSlice(...([set, get, {}] as unknown as Parameters<typeof createPaneSlice>)),
+    ),
   )
 }
 

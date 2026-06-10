@@ -8,7 +8,7 @@ export const createSelectors = <S extends UseBoundStore<StoreApi<object>>>(_stor
   const store = _store as WithSelectors<typeof _store>
   store.use = {}
   for (const k of Object.keys(store.getState())) {
-    ;(store.use as any)[k] = () => store((s) => s[k as keyof typeof s])
+    ;(store.use as Record<string, () => unknown>)[k] = () => store((s) => s[k as keyof typeof s])
   }
 
   return store

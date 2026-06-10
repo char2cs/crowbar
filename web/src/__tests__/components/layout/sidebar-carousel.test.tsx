@@ -2,13 +2,13 @@ import React from 'react'
 import { render, screen } from '@testing-library/react'
 import { describe, it, expect, beforeEach, vi } from 'vitest'
 import { SidebarCarousel } from '@/components/layout/sidebar-carousel'
-import { useSidebarStore } from '@/lib/store/sidebar'
+import { getInitialState, useSidebarStore } from '@/lib/store/sidebar'
 
 vi.mock('@tanstack/react-router', async () => {
   const actual = await vi.importActual('@tanstack/react-router')
   return {
     ...actual,
-    useRouterState: (opts: any) => {
+    useRouterState: (opts: { select: (state: unknown) => unknown }) => {
       const select = opts.select
       return select({ location: { pathname: '/workspaces/test-ws' } })
     },
@@ -32,7 +32,8 @@ vi.mock('@/components/ErrorBoundary', () => ({
 }))
 vi.mock('@/features/file-system/controllers/store', () => ({
   useFileSystemStore: Object.assign(
-    (sel: any) => sel({ files: [], handleFileOpen: null, handleFileSelect: null }),
+    (sel: (state: unknown) => unknown) =>
+      sel({ files: [], handleFileOpen: null, handleFileSelect: null }),
     { use: { handleFileOpen: () => null, handleFileSelect: () => null } },
   ),
 }))
@@ -46,7 +47,7 @@ vi.mock('@/lib/store/sidebar', async () => {
 
 describe('SidebarCarousel', () => {
   beforeEach(() => {
-    useSidebarStore.setState((useSidebarStore as any).getInitialState())
+    useSidebarStore.setState(getInitialState())
     // jsdom does not implement scrollTo
     HTMLElement.prototype.scrollTo = vi.fn()
   })

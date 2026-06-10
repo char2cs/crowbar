@@ -2,13 +2,25 @@ import type { Decoration } from '../types/editor'
 import { logger } from '../utils/logger'
 import type {
   Command,
+  CommandArgs,
   EditorAPI,
+  EditorEventPayload,
   EditorExtension,
   Extension,
   ExtensionContext,
   LanguageExtension,
   LanguageProvider,
 } from './types'
+
+// Command handlers are registered dynamically by extensions, so their argument
+// and return types cannot be expressed statically.
+// eslint-disable-next-line @typescript-eslint/no-explicit-any -- dynamic extension command handlers
+type RegisteredCommandHandler = (...args: any[]) => any
+
+// Event handler unsubscribers are stashed on the extension object for cleanup.
+type ExtensionWithEventHandlers = EditorExtension & {
+  _eventHandlers?: Array<[string, () => void]>
+}
 
 class ExtensionManager {
   private extensions: Map<string, EditorExtension> = new Map()
@@ -17,7 +29,7 @@ class ExtensionManager {
   private languageProviders: Map<string, LanguageProvider> = new Map() // Language ID -> Provider
   private contexts: Map<string, ExtensionContext> = new Map()
   private commands: Map<string, Command> = new Map()
-  private registeredCommands: Map<string, (...args: any[]) => any> = new Map() // New command system
+  private registeredCommands: Map<string, RegisteredCommandHandler> = new Map() // New command system
   private keybindings: Map<string, string> = new Map()
   private decorationProviders: Map<string, () => Decoration[]> = new Map()
   private editor: EditorAPI | null = null
@@ -60,7 +72,7 @@ class ExtensionManager {
       editor: this.editor,
       extensionId,
       storage: this.createExtensionStorage(extensionId),
-      registerCommand: (id: string, handler: (...args: any[]) => any) => {
+      registerCommand: (id: string, handler: RegisteredCommandHandler) => {
         // Legacy support - convert to old command format
         this.commands.set(id, {
           id,
@@ -207,7 +219,7 @@ class ExtensionManager {
       editor: this.editor,
       extensionId: extension.id,
       storage: this.createExtensionStorage(extension.id),
-      registerCommand: (id: string, handler: (...args: any[]) => any) => {
+      registerCommand: (id: string, handler: RegisteredCommandHandler) => {
         this.registeredCommands.set(id, handler)
       },
       registerLanguage: (language) => {
@@ -286,7 +298,7 @@ class ExtensionManager {
     this.contexts.delete(extensionId)
   }
 
-  executeCommand(commandId: string, ...args: any[]): any {
+  executeCommand(commandId: string, ...args: unknown[]): unknown {
     const handler = this.registeredCommands.get(commandId)
     if (handler) {
       return handler(...args)
@@ -295,7 +307,7 @@ class ExtensionManager {
     // Fallback to old command system
     const command = this.commands.get(commandId)
     if (command) {
-      return command.execute(args[0])
+      return command.execute(args[0] as CommandArgs)
     }
 
     throw new Error(`Command ${commandId} not found`)
@@ -324,7 +336,7 @@ class ExtensionManager {
       editor: this.editor,
       extensionId: extension.id,
       storage: this.createExtensionStorage(extension.id),
-      registerCommand: (id: string, handler: (...args: any[]) => any) => {
+      registerCommand: (id: string, handler: RegisteredCommandHandler) => {
         this.registeredCommands.set(id, handler)
       },
       registerLanguage: (language) => {
@@ -504,9 +516,10 @@ class ExtensionManager {
     const handlers: Array<[string, () => void]> = []
 
     if (extension.onContentChange) {
-      const handler = (data: any) => {
+      const handler = (data: EditorEventPayload['contentChange']) => {
         if (data && typeof data === 'object' && 'content' in data && 'changes' in data) {
-          extension.onContentChange!(data.content, data.changes, data.affectedLines)
+          const affectedLines = (data as { affectedLines?: Set<number> }).affectedLines
+          extension.onContentChange!(data.content, data.changes, affectedLines)
         }
       }
       const unsubscribe = this.editor.on('contentChange', handler)
@@ -514,38 +527,46 @@ class ExtensionManager {
     }
 
     if (extension.onSelectionChange) {
-      const handler = (data: any) => extension.onSelectionChange!(data)
+      const handler = (data: EditorEventPayload['selectionChange']) =>
+        extension.onSelectionChange!(data)
       const unsubscribe = this.editor.on('selectionChange', handler)
       handlers.push(['selectionChange', unsubscribe])
     }
 
     if (extension.onCursorChange) {
-      const handler = (data: any) => extension.onCursorChange!(data)
+      const handler = (data: EditorEventPayload['cursorChange']) => extension.onCursorChange!(data)
       const unsubscribe = this.editor.on('cursorChange', handler)
       handlers.push(['cursorChange', unsubscribe])
     }
 
     if (extension.onSettingsChange) {
-      const handler = (data: any) => extension.onSettingsChange!(data)
+      const handler = (data: EditorEventPayload['settingsChange']) =>
+        extension.onSettingsChange!(data)
       const unsubscribe = this.editor.on('settingsChange', handler)
       handlers.push(['settingsChange', unsubscribe])
     }
 
     if (extension.onKeyDown) {
-      const handler = (data: any) => extension.onKeyDown!(data)
+      // The keydown payload carries an editor Position while onKeyDown is
+      // declared with an LSPPosition; the cast preserves the existing runtime
+      // behaviour (the payload is forwarded as-is).
+      const handler = (data: EditorEventPayload['keydown']) =>
+        extension.onKeyDown!(
+          data as unknown as Parameters<NonNullable<typeof extension.onKeyDown>>[0],
+        )
       const unsubscribe = this.editor.on('keydown', handler)
       handlers.push(['keydown', unsubscribe])
     }
 
     // Store handlers for cleanup
-    ;(extension as any)._eventHandlers = handlers
+    ;(extension as ExtensionWithEventHandlers)._eventHandlers = handlers
   }
 
   private removeEventHandlers(extensionId: string): void {
     const extension = this.extensions.get(extensionId)
     if (!extension) return
 
-    const handlers = (extension as any)._eventHandlers as Array<[string, () => void]>
+    const handlers = (extension as ExtensionWithEventHandlers)._eventHandlers
     if (handlers) {
       handlers.forEach(([_, unsubscribe]) => unsubscribe())
     }

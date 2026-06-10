@@ -1,4 +1,5 @@
 import { describe, it, expect } from 'vitest'
+import type { LayoutLeaf } from '@/features/panes/types/pane'
 import {
   createLeaf,
   createSplit,
@@ -78,7 +79,7 @@ describe('closeLayout', () => {
   })
   it('returns sibling when closing one side', () => {
     const result = closeLayout(createSplit('horizontal', createLeaf('a'), createLeaf('b')), 'a')
-    expect((result as any)?.id).toBe('b')
+    expect((result as LayoutLeaf | null)?.id).toBe('b')
   })
   it('collapses nested split', () => {
     const inner = createSplit('horizontal', createLeaf('b'), createLeaf('c'))
@@ -93,7 +94,7 @@ describe('flattenForRender', () => {
     const outer = createSplit('horizontal', createLeaf('a'), inner, [50, 50])
     const entries = flattenForRender(outer)
     expect(entries).toHaveLength(3)
-    expect(entries.map((e) => (e.node as any).id)).toEqual(['a', 'b', 'c'])
+    expect(entries.map((e) => (e.node as LayoutLeaf).id)).toEqual(['a', 'b', 'c'])
   })
   it('does not flatten cross-direction splits', () => {
     const inner = createSplit('vertical', createLeaf('b'), createLeaf('c'))

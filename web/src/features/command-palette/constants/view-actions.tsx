@@ -29,7 +29,7 @@ interface ViewActionsParams {
     nativeMenuBar: boolean
     compactMenuBar: boolean
   }
-  updateSetting: (key: string, value: any) => void | Promise<void>
+  updateSetting: (key: string, value: unknown) => void | Promise<void>
   zoomIn: (target: 'editor' | 'terminal') => void
   zoomOut: (target: 'editor' | 'terminal') => void
   resetZoom: (target: 'editor' | 'terminal') => void

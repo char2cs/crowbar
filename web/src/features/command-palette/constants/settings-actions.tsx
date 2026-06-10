@@ -30,7 +30,7 @@ interface SettingsActionsParams {
   openSettingsDialog: (tab?: SettingsTab) => void
   setSettingsSearchQuery: (query: string) => void
   pushPaletteView: (view: CommandPaletteViewId) => void
-  updateSetting: (key: string, value: any) => void | Promise<void>
+  updateSetting: (key: string, value: unknown) => void | Promise<void>
   handleFileOpen: ((path: string, revealOrIsDir?: boolean) => Promise<void>) | null | undefined
   getAppDataDir: () => Promise<string>
   openWhatsNew: () => void | Promise<void>

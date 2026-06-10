@@ -8,7 +8,9 @@ import {
 
 function makeStore() {
   return createStore<TerminalSlice>()(
-    immer((set, get) => createTerminalSlice(set as any, get as any, {} as any)),
+    immer((set, get) =>
+      createTerminalSlice(...([set, get, {}] as unknown as Parameters<typeof createTerminalSlice>)),
+    ),
   )
 }
 

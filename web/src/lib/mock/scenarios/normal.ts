@@ -7,8 +7,10 @@ import type {
 } from '@/features/workspace/stores/slices/branch-review-slice'
 import type { BranchReviewChat } from '@/lib/mock/branch-diff'
 import type { GitDiffLine } from '@/features/git/types/git-types'
+import type { MultiFileDiff } from '@/features/git/types/git-diff-types'
 import type { MarkdownTurn } from '@/features/markdown-chat/types'
 import { getMockFileTree, getMockFileContent } from '@/lib/mock/files'
+import type { FileNode } from '@/lib/mock/files'
 import { getMockMarkdownTurns } from '@/lib/mock/markdown-chat'
 
 // Fallback conversation for chats/workspaces without a specific fixture, so an
@@ -117,7 +119,7 @@ function makeLine(
   return { line_type: type, content, old_line_number: old, new_line_number: newL }
 }
 
-const DIFFS: Record<string, any> = {
+const DIFFS: Record<string, MultiFileDiff> = {
   'rb-onboarding': {
     commitHash: 'a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2',
     commitMessage: 'feat(onboarding): add multi-step onboarding flow with progress tracking',
@@ -529,7 +531,7 @@ export const normalDataset: ScenarioDataset = {
     wsStore.set(id, ws)
     return ws
   },
-  fileTree: (repoPath) => getMockFileTree(repoPath) as any,
+  fileTree: (repoPath) => getMockFileTree(repoPath) as unknown as FileNode,
   fileContent: (path) => getMockFileContent(path),
   branchDiff: (wsId) => DIFFS[wsId] ?? DIFFS['rb-fix'],
   branchThreads: (wsId) => THREADS[wsId] ?? [],

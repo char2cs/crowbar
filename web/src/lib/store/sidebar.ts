@@ -65,7 +65,7 @@ interface SidebarState {
   setRepos: (repos: Repo[]) => void
 }
 
-function getInitialState() {
+export function getInitialState() {
   return {
     chats: [],
     repos: [],
@@ -199,4 +199,5 @@ export const useSidebarStore = create<SidebarState>()((set) => ({
 }))
 
 // Expose for test reset
-;(useSidebarStore as any).getInitialState = getInitialState
+;(useSidebarStore as unknown as { getInitialState: typeof getInitialState }).getInitialState =
+  getInitialState

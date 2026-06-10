@@ -136,7 +136,9 @@ export function useFileExplorerContextMenu({
             setEnvOverwriteDialog({ sourcePath, targetFileName })
             return
           }
-        } catch {}
+        } catch {
+          /* intentionally ignored */
+        }
 
         const sourceContent = await readTextFile(sourcePath)
         const templateContent = buildEnvTemplateContent(sourceContent)
@@ -313,7 +315,9 @@ export function useFileExplorerContextMenu({
               const response = await fetch(contextMenu.path)
               const content = await response.text()
               await navigator.clipboard.writeText(content)
-            } catch {}
+            } catch {
+              /* intentionally ignored */
+            }
           },
         },
         {
@@ -345,7 +349,9 @@ export function useFileExplorerContextMenu({
             try {
               const stats = await fetch(`file://${contextMenu.path}`, { method: 'HEAD' })
               size = formatFileSize(stats.headers.get('content-length'))
-            } catch {}
+            } catch {
+              /* intentionally ignored */
+            }
 
             setPropertiesDialog({
               fileName,
@@ -370,7 +376,9 @@ export function useFileExplorerContextMenu({
         onClick: async () => {
           try {
             await navigator.clipboard.writeText(contextMenu.path)
-          } catch {}
+          } catch {
+            /* intentionally ignored */
+          }
         },
       },
       {
@@ -381,7 +389,9 @@ export function useFileExplorerContextMenu({
           try {
             const relativePath = getRelativePath(contextMenu.path, rootFolderPath)
             await navigator.clipboard.writeText(relativePath)
-          } catch {}
+          } catch {
+            /* intentionally ignored */
+          }
         },
       },
       {
