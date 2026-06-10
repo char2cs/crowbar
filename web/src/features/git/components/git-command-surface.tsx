@@ -1,17 +1,17 @@
-import type { KeyboardEventHandler, ReactNode } from "react";
-import { useEffect, useRef } from "react";
-import { Command, CommandHeader, CommandInput } from "@/components/ui/command";
+import type { KeyboardEventHandler, ReactNode } from 'react'
+import { useEffect, useRef } from 'react'
+import { Command, CommandHeader, CommandInput } from '@/components/ui/command'
 
 interface GitCommandSurfaceProps {
-  isOpen: boolean;
-  onClose: () => void;
-  query: string;
-  onQueryChange: (value: string) => void;
-  onInputKeyDown?: KeyboardEventHandler<HTMLInputElement>;
-  placeholder: string;
-  meta?: ReactNode;
-  placement?: "top" | "bottom";
-  children: ReactNode;
+  isOpen: boolean
+  onClose: () => void
+  query: string
+  onQueryChange: (value: string) => void
+  onInputKeyDown?: KeyboardEventHandler<HTMLInputElement>
+  placeholder: string
+  meta?: ReactNode
+  placement?: 'top' | 'bottom'
+  children: ReactNode
 }
 
 const GitCommandSurface = ({
@@ -22,21 +22,21 @@ const GitCommandSurface = ({
   onInputKeyDown,
   placeholder,
   meta,
-  placement = "top",
+  placement = 'top',
   children,
 }: GitCommandSurfaceProps) => {
-  const inputRef = useRef<HTMLInputElement>(null);
+  const inputRef = useRef<HTMLInputElement>(null)
 
   useEffect(() => {
-    if (!isOpen) return;
+    if (!isOpen) return
 
     const frame = requestAnimationFrame(() => {
-      inputRef.current?.focus();
-      inputRef.current?.select();
-    });
+      inputRef.current?.focus()
+      inputRef.current?.select()
+    })
 
-    return () => cancelAnimationFrame(frame);
-  }, [isOpen]);
+    return () => cancelAnimationFrame(frame)
+  }, [isOpen])
 
   return (
     <Command isVisible={isOpen} onClose={onClose} placement={placement}>
@@ -49,11 +49,13 @@ const GitCommandSurface = ({
           placeholder={placeholder}
           className="ui-font"
         />
-        {meta ? <div className="ui-font ui-text-xs shrink-0 text-muted-foreground">{meta}</div> : null}
+        {meta ? (
+          <div className="ui-font ui-text-xs shrink-0 text-muted-foreground">{meta}</div>
+        ) : null}
       </CommandHeader>
       {children}
     </Command>
-  );
-};
+  )
+}
 
-export default GitCommandSurface;
+export default GitCommandSurface

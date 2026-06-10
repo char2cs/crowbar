@@ -1,15 +1,26 @@
 import { describe, it, expect, beforeEach } from 'vitest'
 import { createStore } from 'zustand'
 import { immer } from 'zustand/middleware/immer'
-import { createFileWatcherSlice, type FileWatcherSlice } from '@/features/workspace/stores/slices/file-watcher-slice'
+import {
+  createFileWatcherSlice,
+  type FileWatcherSlice,
+} from '@/features/workspace/stores/slices/file-watcher-slice'
 
 function makeStore() {
-  return createStore<FileWatcherSlice>()(immer((set, get) => createFileWatcherSlice(set as any, get as any, {} as any)))
+  return createStore<FileWatcherSlice>()(
+    immer((set, get) =>
+      createFileWatcherSlice(
+        ...([set, get, {}] as unknown as Parameters<typeof createFileWatcherSlice>),
+      ),
+    ),
+  )
 }
 
 describe('file-watcher-slice', () => {
   let store: ReturnType<typeof makeStore>
-  beforeEach(() => { store = makeStore() })
+  beforeEach(() => {
+    store = makeStore()
+  })
 
   it('starts with no watched paths and no pending saves', () => {
     expect(store.getState().fileWatcherActions.getWatchedPaths()).toHaveLength(0)

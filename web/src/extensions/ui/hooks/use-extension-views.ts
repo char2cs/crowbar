@@ -1,5 +1,5 @@
 // Stub: extension UI views are out of scope for this session.
-import type React from "react"
+import type React from 'react'
 
 export interface ExtensionViewEntry {
   extensionId: string

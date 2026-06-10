@@ -1,4 +1,13 @@
 // Package exec runs git commands in a working directory and captures output.
+//
+// Every invocation runs with GIT_OPTIONAL_LOCKS=0 so read-only commands
+// (status, diff, log, ...) never take .git/index.lock opportunistically; the
+// fs watcher recomputes status on every shared-.git ref event, and an
+// opportunistic index refresh there races user mutations (git restore et al.)
+// for the same lock. Mutations that still hit a held index.lock — user
+// terminals and shell prompts legitimately take it for short windows — are
+// retried with a bounded backoff, and a lock left behind by a crashed git
+// process is removed once it is provably stale (see lock_retry.go).
 package exec
 
 import (
@@ -9,6 +18,8 @@ import (
 	"os/exec"
 	"strings"
 )
+
+const optionalLocksOffEnv = "GIT_OPTIONAL_LOCKS=0"
 
 // GitError carries structured exit information for errors.Is / errors.As matching.
 type GitError struct {
@@ -35,20 +46,9 @@ func Git(
 	dir string,
 	args ...string,
 ) Result {
-	cmd := exec.CommandContext(ctx, "git", args...)
-	cmd.Dir = dir
-
-	var stdout, stderr bytes.Buffer
-	cmd.Stdout = &stdout
-	cmd.Stderr = &stderr
-
-	runErr := cmd.Run()
-
-	return Result{
-		Stdout:   stdout.String(),
-		Stderr:   stderr.String(),
-		ExitCode: exitCode(cmd, runErr),
-	}
+	return runWithLockRetry(ctx, func() Result {
+		return run(ctx, dir, nil, "", false, args...)
+	})
 }
 
 // GitWithEnv runs a git command in dir with extra environment variables appended
@@ -59,21 +59,9 @@ func GitWithEnv(
 	extraEnv []string,
 	args ...string,
 ) Result {
-	cmd := exec.CommandContext(ctx, "git", args...)
-	cmd.Dir = dir
-	cmd.Env = append(os.Environ(), extraEnv...)
-
-	var stdout, stderr bytes.Buffer
-	cmd.Stdout = &stdout
-	cmd.Stderr = &stderr
-
-	runErr := cmd.Run()
-
-	return Result{
-		Stdout:   stdout.String(),
-		Stderr:   stderr.String(),
-		ExitCode: exitCode(cmd, runErr),
-	}
+	return runWithLockRetry(ctx, func() Result {
+		return run(ctx, dir, extraEnv, "", false, args...)
+	})
 }
 
 // GitWithStdin runs a git command with data piped to stdin.
@@ -83,9 +71,26 @@ func GitWithStdin(
 	stdin string,
 	args ...string,
 ) Result {
+	return runWithLockRetry(ctx, func() Result {
+		return run(ctx, dir, nil, stdin, true, args...)
+	})
+}
+
+func run(
+	ctx context.Context,
+	dir string,
+	extraEnv []string,
+	stdin string,
+	hasStdin bool,
+	args ...string,
+) Result {
 	cmd := exec.CommandContext(ctx, "git", args...)
 	cmd.Dir = dir
-	cmd.Stdin = strings.NewReader(stdin)
+	cmd.Env = append(os.Environ(), optionalLocksOffEnv)
+	cmd.Env = append(cmd.Env, extraEnv...)
+	if hasStdin {
+		cmd.Stdin = strings.NewReader(stdin)
+	}
 
 	var stdout, stderr bytes.Buffer
 	cmd.Stdout = &stdout

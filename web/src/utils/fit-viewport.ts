@@ -1,23 +1,23 @@
 export interface ElementBounds {
-  x: number;
-  y: number;
-  width: number;
-  height: number;
+  x: number
+  y: number
+  width: number
+  height: number
 }
 
 export interface ViewportBounds {
-  width: number;
-  height: number;
+  width: number
+  height: number
 }
 
-export type Side = "top" | "bottom" | "left" | "right";
+export type Side = 'top' | 'bottom' | 'left' | 'right'
 
 export interface AdjustmentOptions {
-  margin: number;
-  side?: Side;
+  margin: number
+  side?: Side
 }
 
-const MARGIN = 8;
+const MARGIN = 8
 
 export function adjustPositionToFitViewport(
   el: ElementBounds,
@@ -26,53 +26,53 @@ export function adjustPositionToFitViewport(
   const viewport = {
     width: window.innerWidth,
     height: window.innerHeight,
-  };
+  }
 
-  let adjustedX = el.x;
-  let adjustedY = el.y;
+  let adjustedX = el.x
+  let adjustedY = el.y
 
   if (adjustedX + el.width > viewport.width - margin) {
-    adjustedX = viewport.width - el.width - margin;
+    adjustedX = viewport.width - el.width - margin
   }
   if (adjustedX < margin) {
-    adjustedX = margin;
+    adjustedX = margin
   }
 
   if (adjustedY + el.height > viewport.height - margin) {
-    adjustedY = viewport.height - el.height - margin;
+    adjustedY = viewport.height - el.height - margin
   }
   if (adjustedY < margin) {
-    adjustedY = margin;
+    adjustedY = margin
   }
 
-  return { x: adjustedX, y: adjustedY };
+  return { x: adjustedX, y: adjustedY }
 }
 
 export function calculateTooltipPosition(
   triggerRect: DOMRect,
   tooltipRect: DOMRect,
-  side: Side = "top",
+  side: Side = 'top',
 ): { x: number; y: number } {
-  let x = triggerRect.left;
-  let y = triggerRect.top;
+  let x = triggerRect.left
+  let y = triggerRect.top
 
   switch (side) {
-    case "top":
-      x += (triggerRect.width - tooltipRect.width) / 2;
-      y -= tooltipRect.height + MARGIN;
-      break;
-    case "bottom":
-      x += (triggerRect.width - tooltipRect.width) / 2;
-      y += triggerRect.height + MARGIN;
-      break;
-    case "left":
-      x -= tooltipRect.width + MARGIN;
-      y += (triggerRect.height - tooltipRect.height) / 2;
-      break;
-    case "right":
-      x += triggerRect.width + MARGIN;
-      y += (triggerRect.height - tooltipRect.height) / 2;
-      break;
+    case 'top':
+      x += (triggerRect.width - tooltipRect.width) / 2
+      y -= tooltipRect.height + MARGIN
+      break
+    case 'bottom':
+      x += (triggerRect.width - tooltipRect.width) / 2
+      y += triggerRect.height + MARGIN
+      break
+    case 'left':
+      x -= tooltipRect.width + MARGIN
+      y += (triggerRect.height - tooltipRect.height) / 2
+      break
+    case 'right':
+      x += triggerRect.width + MARGIN
+      y += (triggerRect.height - tooltipRect.height) / 2
+      break
   }
 
   const bounds = {
@@ -80,7 +80,7 @@ export function calculateTooltipPosition(
     y,
     width: tooltipRect.width,
     height: tooltipRect.height,
-  };
+  }
 
-  return adjustPositionToFitViewport(bounds);
+  return adjustPositionToFitViewport(bounds)
 }

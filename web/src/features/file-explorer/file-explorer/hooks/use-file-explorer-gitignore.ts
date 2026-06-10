@@ -1,15 +1,16 @@
-import { useCallback, useEffect, useState } from "react";
-import { readFile } from "@/features/file-system/controllers/platform";
+import { useCallback, useEffect, useState } from 'react'
+import { readFile } from '@/features/file-system/controllers/platform'
 import {
   createFileTreeGitIgnoreRules,
   isPathGitIgnoredByFileTreeRules,
+  isWorkspaceRelativePath,
   type FileTreeGitIgnoreRules,
   type GitIgnoreFileContent,
   type GitIgnoreFileReference,
-} from "@/features/file-explorer/lib/file-tree-gitignore";
+} from '@/features/file-explorer/lib/file-tree-gitignore'
 
 interface UseFileExplorerGitignoreResult {
-  isGitIgnored: (fullPath: string, isDir: boolean) => boolean;
+  isGitIgnored: (fullPath: string, isDir: boolean) => boolean
 }
 
 export function useFileExplorerGitignore(
@@ -17,15 +18,15 @@ export function useFileExplorerGitignore(
   gitIgnoreFileReferences: GitIgnoreFileReference[],
   getWorkspaceRootForPath: (path: string) => string | undefined,
 ): UseFileExplorerGitignoreResult {
-  const [gitIgnoreRules, setGitIgnoreRules] = useState<FileTreeGitIgnoreRules | null>(null);
+  const [gitIgnoreRules, setGitIgnoreRules] = useState<FileTreeGitIgnoreRules | null>(null)
 
   useEffect(() => {
-    let cancelled = false;
+    let cancelled = false
 
     const loadGitignore = async () => {
       if (!rootFolderPath) {
-        setGitIgnoreRules(null);
-        return;
+        setGitIgnoreRules(null)
+        return
       }
 
       const ignoreFiles = await Promise.all(
@@ -34,12 +35,12 @@ export function useFileExplorerGitignore(
             return {
               ...file,
               content: await readFile(file.path),
-            };
+            }
           } catch {
-            return null;
+            return null
           }
         }),
-      );
+      )
 
       if (!cancelled) {
         setGitIgnoreRules(
@@ -47,25 +48,32 @@ export function useFileExplorerGitignore(
             rootFolderPath,
             ignoreFiles.filter((file): file is GitIgnoreFileContent => file !== null),
           ),
-        );
+        )
       }
-    };
+    }
 
-    void loadGitignore();
+    void loadGitignore()
 
     return () => {
-      cancelled = true;
-    };
-  }, [gitIgnoreFileReferences, rootFolderPath]);
+      cancelled = true
+    }
+  }, [gitIgnoreFileReferences, rootFolderPath])
 
   const isGitIgnored = useCallback(
     (fullPath: string, isDir: boolean): boolean => {
-      if (!gitIgnoreRules || !rootFolderPath) return false;
-      if (getWorkspaceRootForPath(fullPath) !== rootFolderPath) return false;
-      return isPathGitIgnoredByFileTreeRules(gitIgnoreRules, fullPath, isDir);
+      if (!gitIgnoreRules || !rootFolderPath) return false
+      // Workspace-relative backend paths always belong to the active root; the
+      // multi-root workspace lookup only applies to absolute desktop paths.
+      if (
+        !isWorkspaceRelativePath(fullPath) &&
+        getWorkspaceRootForPath(fullPath) !== rootFolderPath
+      ) {
+        return false
+      }
+      return isPathGitIgnoredByFileTreeRules(gitIgnoreRules, fullPath, isDir)
     },
     [gitIgnoreRules, rootFolderPath, getWorkspaceRootForPath],
-  );
+  )
 
-  return { isGitIgnored };
+  return { isGitIgnored }
 }

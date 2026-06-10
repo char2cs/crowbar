@@ -9,9 +9,12 @@ export interface EnterprisePolicy {
 
 export interface SubscriptionInfo {
   plan: string
-  status?: "free" | "pro" | "team" | "enterprise"
+  status?: 'free' | 'pro' | 'team' | 'enterprise'
   enterprise?: { has_access: boolean; policy?: EnterprisePolicy }
-  collaboration?: { enabled: boolean; channelNotes?: Array<{ channelId: string; contentMarkdown: string }> }
+  collaboration?: {
+    enabled: boolean
+    channelNotes?: Array<{ channelId: string; contentMarkdown: string }>
+  }
 }
 
 export interface AuthState {
@@ -19,7 +22,7 @@ export interface AuthState {
   isAuthenticated: boolean
   subscription: SubscriptionInfo | null
   isLoading: boolean
-  setUser: (user: AuthState["user"]) => void
+  setUser: (user: AuthState['user']) => void
   setSubscription: (subscription: SubscriptionInfo | null) => void
   setCollaborationSnapshot: (snapshot: unknown) => void
 }

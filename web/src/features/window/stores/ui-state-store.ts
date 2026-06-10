@@ -1,5 +1,5 @@
 import { create } from 'zustand'
-import type { SidebarView } from "@/features/layout/utils/sidebar-pane-utils"
+import type { SidebarView } from '@/features/layout/utils/sidebar-pane-utils'
 
 // Module-level registry — not Zustand state (functions aren't serializable)
 const _terminalFocusRegistry = new Map<string, () => void>()
@@ -11,23 +11,23 @@ export function _resetTerminalFocusRegistryForTests(): void {
 }
 
 export type SettingsTab =
-  | "editor"
-  | "appearance"
-  | "terminal"
-  | "git"
-  | "account"
-  | "ai"
-  | "extensions"
-  | "features"
-  | "advanced"
-  | "collaboration"
-  | "enterprise"
-  | "file-explorer"
-  | "language"
-  | "developer"
+  | 'editor'
+  | 'appearance'
+  | 'terminal'
+  | 'git'
+  | 'account'
+  | 'ai'
+  | 'extensions'
+  | 'features'
+  | 'advanced'
+  | 'collaboration'
+  | 'enterprise'
+  | 'file-explorer'
+  | 'language'
+  | 'developer'
 
-export type BottomPaneTab = "terminal" | "buffers"
-export type SidebarActivityItem = "file-explorer" | "git" | "search" | "extensions"
+export type BottomPaneTab = 'terminal' | 'buffers'
+export type SidebarActivityItem = 'file-explorer' | 'git' | 'search' | 'extensions'
 
 export interface UIState {
   sidebarWidth: number
@@ -88,15 +88,15 @@ export const useUIState = create<UIState>((set) => ({
   setIsBottomPaneVisible: (v) => set({ isBottomPaneVisible: v }),
   activeSidebarView: null,
   setActiveSidebarView: (view) => set({ activeSidebarView: view }),
-  settingsInitialTab: "appearance" as SettingsTab,
+  settingsInitialTab: 'appearance' as SettingsTab,
   setSettingsInitialTab: (tab) => set({ settingsInitialTab: tab }),
   isSettingsOpen: false,
   setIsSettingsOpen: (open) => set({ isSettingsOpen: open }),
   isFindVisible: false,
   setIsFindVisible: (v) => set({ isFindVisible: v }),
-  activeBottomTab: "terminal" as BottomPaneTab,
+  activeBottomTab: 'terminal' as BottomPaneTab,
   setActiveBottomTab: (tab) => set({ activeBottomTab: tab, bottomPaneActiveTab: tab }),
-  bottomPaneActiveTab: "terminal" as BottomPaneTab,
+  bottomPaneActiveTab: 'terminal' as BottomPaneTab,
   setBottomPaneActiveTab: (tab) => set({ bottomPaneActiveTab: tab, activeBottomTab: tab }),
   registerTerminalFocus: (id: string, fn: () => void) => {
     _terminalFocusRegistry.set(id, fn)
@@ -116,8 +116,10 @@ export const useUIState = create<UIState>((set) => ({
   },
   sidebarActivityItem: null,
   setSidebarActivityItem: (item) => set({ sidebarActivityItem: item }),
-  openSettingsDialog: (tab) => set({ isSettingsOpen: true, settingsInitialTab: tab ?? "appearance" }),
-  openCommandPaletteView: (view) => set({ isCommandPaletteVisible: true, commandPaletteInitialView: view ?? null }),
+  openSettingsDialog: (tab) =>
+    set({ isSettingsOpen: true, settingsInitialTab: tab ?? 'appearance' }),
+  openCommandPaletteView: (view) =>
+    set({ isCommandPaletteVisible: true, commandPaletteInitialView: view ?? null }),
   // Command palette
   isCommandPaletteVisible: false,
   commandPaletteInitialView: null,

@@ -1,218 +1,218 @@
-import DOMPurify from "dompurify";
-import { normalizeLanguage } from "./language-map";
+import DOMPurify from 'dompurify'
+import { normalizeLanguage } from './language-map'
 
 interface Footnote {
-  id: string;
-  text: string;
+  id: string
+  text: string
 }
 
 function escapeHtml(text: string): string {
-  return text.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+  return text.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
 }
 
 function processInline(text: string, footnotes: Footnote[]): string {
   return text
     .replace(/!\[([^\]]*)\]\(([^)]+)\)/g, '<img src="$2" alt="$1" />')
     .replace(/\[\^([^\]]+)\]/g, (match, id) => {
-      const footnoteIndex = footnotes.findIndex((fn) => fn.id === id);
+      const footnoteIndex = footnotes.findIndex((fn) => fn.id === id)
       if (footnoteIndex !== -1) {
-        return `<sup class="footnote-ref"><a href="#fn-${id}" id="fnref-${id}">${footnoteIndex + 1}</a></sup>`;
+        return `<sup class="footnote-ref"><a href="#fn-${id}" id="fnref-${id}">${footnoteIndex + 1}</a></sup>`
       }
-      return match;
+      return match
     })
     .replace(
       /\[([^\]]+)\]\(([^)]+)\)/g,
       '<a href="$2" target="_blank" rel="noopener noreferrer">$1</a>',
     )
-    .replace(/\*\*([^*]+)\*\*/g, "<strong>$1</strong>")
-    .replace(/__([^_]+)__/g, "<strong>$1</strong>")
-    .replace(/\*([^*]+)\*/g, "<em>$1</em>")
-    .replace(/_([^_]+)_/g, "<em>$1</em>")
-    .replace(/~~([^~]+)~~/g, "<del>$1</del>")
-    .replace(/`([^`]+)`/g, "<code>$1</code>");
+    .replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>')
+    .replace(/__([^_]+)__/g, '<strong>$1</strong>')
+    .replace(/\*([^*]+)\*/g, '<em>$1</em>')
+    .replace(/_([^_]+)_/g, '<em>$1</em>')
+    .replace(/~~([^~]+)~~/g, '<del>$1</del>')
+    .replace(/`([^`]+)`/g, '<code>$1</code>')
 }
 
 function processTable(lines: string[], footnotes: Footnote[]): string {
-  if (lines.length < 2) return lines.join("\n");
+  if (lines.length < 2) return lines.join('\n')
 
-  const tableHtml: string[] = ["<table>"];
+  const tableHtml: string[] = ['<table>']
 
   const headerCells = lines[0]
-    .split("|")
-    .filter((cell) => cell.trim() !== "")
-    .map((cell) => `<th>${processInline(cell.trim(), footnotes)}</th>`);
-  tableHtml.push(`<thead><tr>${headerCells.join("")}</tr></thead>`);
+    .split('|')
+    .filter((cell) => cell.trim() !== '')
+    .map((cell) => `<th>${processInline(cell.trim(), footnotes)}</th>`)
+  tableHtml.push(`<thead><tr>${headerCells.join('')}</tr></thead>`)
 
   if (lines.length > 2) {
-    tableHtml.push("<tbody>");
+    tableHtml.push('<tbody>')
     for (let i = 2; i < lines.length; i++) {
       const cells = lines[i]
-        .split("|")
-        .filter((cell) => cell.trim() !== "")
-        .map((cell) => `<td>${processInline(cell.trim(), footnotes)}</td>`);
-      tableHtml.push(`<tr>${cells.join("")}</tr>`);
+        .split('|')
+        .filter((cell) => cell.trim() !== '')
+        .map((cell) => `<td>${processInline(cell.trim(), footnotes)}</td>`)
+      tableHtml.push(`<tr>${cells.join('')}</tr>`)
     }
-    tableHtml.push("</tbody>");
+    tableHtml.push('</tbody>')
   }
 
-  tableHtml.push("</table>");
-  return tableHtml.join("");
+  tableHtml.push('</table>')
+  return tableHtml.join('')
 }
 
 export function parseMarkdown(content: string): string {
-  const lines = content.split("\n");
-  const processedLines: string[] = [];
-  const footnotes: Footnote[] = [];
-  let inUnorderedList = false;
-  let inOrderedList = false;
-  let inTaskList = false;
-  let inCodeBlock = false;
-  let inBlockquote = false;
-  let codeBlockContent = "";
-  let codeBlockLanguage = "";
-  const isTaskListLine = (value: string) => /^\s*[-*+]\s\[([ xX])\]\s/.test(value);
-  const isUnorderedListLine = (value: string) => /^\s*[-*+]\s/.test(value);
-  const isOrderedListLine = (value: string) => /^\s*\d+\.\s/.test(value);
-  const isBlockquoteLine = (value: string) => /^>\s/.test(value);
+  const lines = content.split('\n')
+  const processedLines: string[] = []
+  const footnotes: Footnote[] = []
+  let inUnorderedList = false
+  let inOrderedList = false
+  let inTaskList = false
+  let inCodeBlock = false
+  let inBlockquote = false
+  let codeBlockContent = ''
+  let codeBlockLanguage = ''
+  const isTaskListLine = (value: string) => /^\s*[-*+]\s\[([ xX])\]\s/.test(value)
+  const isUnorderedListLine = (value: string) => /^\s*[-*+]\s/.test(value)
+  const isOrderedListLine = (value: string) => /^\s*\d+\.\s/.test(value)
+  const isBlockquoteLine = (value: string) => /^>\s/.test(value)
 
   for (let i = 0; i < lines.length; i++) {
-    const line = lines[i];
-    const trimmedLine = line.trim();
+    const line = lines[i]
+    const trimmedLine = line.trim()
 
     if (line.match(/^```/)) {
       if (inCodeBlock) {
-        const rawLang = codeBlockLanguage || "plaintext";
-        const lang = normalizeLanguage(rawLang);
-        const escaped = escapeHtml(codeBlockContent.trim());
-        processedLines.push(`<pre><code class="language-${lang}">${escaped}</code></pre>`);
-        codeBlockContent = "";
-        codeBlockLanguage = "";
-        inCodeBlock = false;
+        const rawLang = codeBlockLanguage || 'plaintext'
+        const lang = normalizeLanguage(rawLang)
+        const escaped = escapeHtml(codeBlockContent.trim())
+        processedLines.push(`<pre><code class="language-${lang}">${escaped}</code></pre>`)
+        codeBlockContent = ''
+        codeBlockLanguage = ''
+        inCodeBlock = false
       } else {
-        codeBlockLanguage = line.replace(/^```/, "").trim();
-        inCodeBlock = true;
+        codeBlockLanguage = line.replace(/^```/, '').trim()
+        inCodeBlock = true
       }
-      continue;
+      continue
     }
 
     if (inCodeBlock) {
-      codeBlockContent += `${line}\n`;
-      continue;
+      codeBlockContent += `${line}\n`
+      continue
     }
 
-    if (inUnorderedList && trimmedLine !== "" && !isUnorderedListLine(line)) {
-      processedLines.push("</ul>");
-      inUnorderedList = false;
+    if (inUnorderedList && trimmedLine !== '' && !isUnorderedListLine(line)) {
+      processedLines.push('</ul>')
+      inUnorderedList = false
     }
-    if (inTaskList && trimmedLine !== "" && !isTaskListLine(line)) {
-      processedLines.push("</ul>");
-      inTaskList = false;
+    if (inTaskList && trimmedLine !== '' && !isTaskListLine(line)) {
+      processedLines.push('</ul>')
+      inTaskList = false
     }
-    if (inOrderedList && trimmedLine !== "" && !isOrderedListLine(line)) {
-      processedLines.push("</ol>");
-      inOrderedList = false;
+    if (inOrderedList && trimmedLine !== '' && !isOrderedListLine(line)) {
+      processedLines.push('</ol>')
+      inOrderedList = false
     }
-    if (inBlockquote && trimmedLine !== "" && !isBlockquoteLine(line)) {
-      processedLines.push("</blockquote>");
-      inBlockquote = false;
+    if (inBlockquote && trimmedLine !== '' && !isBlockquoteLine(line)) {
+      processedLines.push('</blockquote>')
+      inBlockquote = false
     }
 
     // Preserve raw HTML blocks (e.g., <details>, <summary>, <table>) as-is
-    if (trimmedLine.startsWith("<") && trimmedLine.endsWith(">")) {
-      processedLines.push(trimmedLine);
-      continue;
+    if (trimmedLine.startsWith('<') && trimmedLine.endsWith('>')) {
+      processedLines.push(trimmedLine)
+      continue
     }
 
     if (line.match(/^######\s/)) {
-      processedLines.push(`<h6>${processInline(line.replace(/^######\s/, ""), footnotes)}</h6>`);
+      processedLines.push(`<h6>${processInline(line.replace(/^######\s/, ''), footnotes)}</h6>`)
     } else if (line.match(/^#####\s/)) {
-      processedLines.push(`<h5>${processInline(line.replace(/^#####\s/, ""), footnotes)}</h5>`);
+      processedLines.push(`<h5>${processInline(line.replace(/^#####\s/, ''), footnotes)}</h5>`)
     } else if (line.match(/^####\s/)) {
-      processedLines.push(`<h4>${processInline(line.replace(/^####\s/, ""), footnotes)}</h4>`);
+      processedLines.push(`<h4>${processInline(line.replace(/^####\s/, ''), footnotes)}</h4>`)
     } else if (line.match(/^###\s/)) {
-      processedLines.push(`<h3>${processInline(line.replace(/^###\s/, ""), footnotes)}</h3>`);
+      processedLines.push(`<h3>${processInline(line.replace(/^###\s/, ''), footnotes)}</h3>`)
     } else if (line.match(/^##\s/)) {
-      processedLines.push(`<h2>${processInline(line.replace(/^##\s/, ""), footnotes)}</h2>`);
+      processedLines.push(`<h2>${processInline(line.replace(/^##\s/, ''), footnotes)}</h2>`)
     } else if (line.match(/^#\s/)) {
-      processedLines.push(`<h1>${processInline(line.replace(/^#\s/, ""), footnotes)}</h1>`);
+      processedLines.push(`<h1>${processInline(line.replace(/^#\s/, ''), footnotes)}</h1>`)
     } else if (line.match(/^(---+|___+|\*\*\*+)$/)) {
-      processedLines.push("<hr />");
+      processedLines.push('<hr />')
     } else if (isBlockquoteLine(line)) {
       if (!inBlockquote) {
-        processedLines.push("<blockquote>");
-        inBlockquote = true;
+        processedLines.push('<blockquote>')
+        inBlockquote = true
       }
-      processedLines.push(`<p>${processInline(line.replace(/^>\s/, ""), footnotes)}</p>`);
+      processedLines.push(`<p>${processInline(line.replace(/^>\s/, ''), footnotes)}</p>`)
     } else if (isTaskListLine(line)) {
       if (!inTaskList) {
-        processedLines.push('<ul class="task-list">');
-        inTaskList = true;
+        processedLines.push('<ul class="task-list">')
+        inTaskList = true
       }
-      const match = line.match(/^\s*[-*+]\s\[([ xX])\]\s(.*)$/);
+      const match = line.match(/^\s*[-*+]\s\[([ xX])\]\s(.*)$/)
       if (match) {
-        const checked = match[1].toLowerCase() === "x";
-        const taskContent = match[2];
+        const checked = match[1].toLowerCase() === 'x'
+        const taskContent = match[2]
         processedLines.push(
-          `<li class="task-list-item"><input type="checkbox" ${checked ? "checked" : ""} disabled /> ${processInline(taskContent, footnotes)}</li>`,
-        );
+          `<li class="task-list-item"><input type="checkbox" ${checked ? 'checked' : ''} disabled /> ${processInline(taskContent, footnotes)}</li>`,
+        )
       }
     } else if (isUnorderedListLine(line)) {
       if (!inUnorderedList) {
-        processedLines.push("<ul>");
-        inUnorderedList = true;
+        processedLines.push('<ul>')
+        inUnorderedList = true
       }
-      processedLines.push(`<li>${processInline(line.replace(/^\s*[-*+]\s/, ""), footnotes)}</li>`);
+      processedLines.push(`<li>${processInline(line.replace(/^\s*[-*+]\s/, ''), footnotes)}</li>`)
     } else if (isOrderedListLine(line)) {
       if (!inOrderedList) {
-        processedLines.push("<ol>");
-        inOrderedList = true;
+        processedLines.push('<ol>')
+        inOrderedList = true
       }
-      processedLines.push(`<li>${processInline(line.replace(/^\s*\d+\.\s/, ""), footnotes)}</li>`);
+      processedLines.push(`<li>${processInline(line.replace(/^\s*\d+\.\s/, ''), footnotes)}</li>`)
     } else if (line.match(/^\[\^([^\]]+)\]:\s(.+)$/)) {
-      const match = line.match(/^\[\^([^\]]+)\]:\s(.+)$/);
+      const match = line.match(/^\[\^([^\]]+)\]:\s(.+)$/)
       if (match) {
-        footnotes.push({ id: match[1], text: match[2] });
+        footnotes.push({ id: match[1], text: match[2] })
       }
     } else if (line.match(/^\|.*\|$/)) {
-      const tableLines = [line];
-      let j = i + 1;
+      const tableLines = [line]
+      let j = i + 1
       while (j < lines.length && lines[j].match(/^\|.*\|$/)) {
-        tableLines.push(lines[j]);
-        j++;
+        tableLines.push(lines[j])
+        j++
       }
-      processedLines.push(processTable(tableLines, footnotes));
-      i = j - 1;
-    } else if (trimmedLine === "") {
-      continue;
+      processedLines.push(processTable(tableLines, footnotes))
+      i = j - 1
+    } else if (trimmedLine === '') {
+      continue
     } else {
-      processedLines.push(`<p>${processInline(line, footnotes)}</p>`);
+      processedLines.push(`<p>${processInline(line, footnotes)}</p>`)
     }
   }
 
-  if (inUnorderedList) processedLines.push("</ul>");
-  if (inTaskList) processedLines.push("</ul>");
-  if (inOrderedList) processedLines.push("</ol>");
-  if (inBlockquote) processedLines.push("</blockquote>");
+  if (inUnorderedList) processedLines.push('</ul>')
+  if (inTaskList) processedLines.push('</ul>')
+  if (inOrderedList) processedLines.push('</ol>')
+  if (inBlockquote) processedLines.push('</blockquote>')
   if (inCodeBlock) {
-    const rawLang = codeBlockLanguage || "plaintext";
-    const lang = normalizeLanguage(rawLang);
-    const escaped = escapeHtml(codeBlockContent.trim());
-    processedLines.push(`<pre><code class="language-${lang}">${escaped}</code></pre>`);
+    const rawLang = codeBlockLanguage || 'plaintext'
+    const lang = normalizeLanguage(rawLang)
+    const escaped = escapeHtml(codeBlockContent.trim())
+    processedLines.push(`<pre><code class="language-${lang}">${escaped}</code></pre>`)
   }
 
   if (footnotes.length > 0) {
-    processedLines.push('<div class="footnotes">');
-    processedLines.push("<hr />");
-    processedLines.push("<ol>");
+    processedLines.push('<div class="footnotes">')
+    processedLines.push('<hr />')
+    processedLines.push('<ol>')
     for (const footnote of footnotes) {
       processedLines.push(
         `<li id="fn-${footnote.id}"><span>${processInline(footnote.text, footnotes)}</span> <a href="#fnref-${footnote.id}" class="footnote-backref">↩</a></li>`,
-      );
+      )
     }
-    processedLines.push("</ol>");
-    processedLines.push("</div>");
+    processedLines.push('</ol>')
+    processedLines.push('</div>')
   }
 
-  const rawHtml = processedLines.join("\n");
-  return DOMPurify.sanitize(rawHtml);
+  const rawHtml = processedLines.join('\n')
+  return DOMPurify.sanitize(rawHtml)
 }

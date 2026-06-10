@@ -8,15 +8,16 @@ import { SidebarTabBar } from './sidebar-tab-bar'
 import { SidebarCarousel } from './sidebar-carousel'
 import { IS_MAC } from '@/utils/platform'
 import { useSidebarStore } from '@/lib/store/sidebar'
-import { WorkspaceView } from '@/features/workspace/components/WorkspaceView'
+import { WorkspaceView } from '@/features/workspace/components/workspace-view'
 import SettingsDialog from '@/features/settings/components/settings-dialog'
 import { TerminalHost } from '@/features/terminal/components/terminal-host'
-import { ErrorBoundary } from '@/components/ErrorBoundary'
+import { ErrorBoundary } from '@/components/error-boundary'
 import { cn } from '@/utils/cn'
 import { useSettingsStore } from '@/features/settings/store'
 import { useUIState } from '@/features/window/stores/ui-state-store'
 import { FontStyleInjector } from '@/features/settings/components/font-style-injector'
 import { Toaster } from '@/components/ui/sonner'
+import { ConnectionIndicator } from './connection-indicator'
 
 const SIDEBAR_MIN_PX = 250
 const SIDEBAR_MAX_PX = 640
@@ -36,16 +37,22 @@ export function IDEShell() {
   const pathname = routerState.location.pathname
   const chats = useSidebarStore((s) => s.chats)
   const repos = useSidebarStore((s) => s.repos)
-  const isSettingsOpen = useUIState(s => s.isSettingsOpen)
+  const isSettingsOpen = useUIState((s) => s.isSettingsOpen)
   const sidebarPosition = useSettingsStore((state) => state.settings.sidebarPosition)
   const [sidebarOpen, setSidebarOpen] = useState(true)
   const sidebarPanelRef = useRef<PanelImperativeHandle | null>(null)
 
   const activeWorkspaceId = pathname.match(/\/workspaces\/([^/]+)/)?.[1]
   const activeChatId = pathname.match(/\/chat\/([^/]+)/)?.[1]
-  const activeRepo = repos.find(r => r.workspaces?.some(ws => ws.id === activeWorkspaceId))
+  const activeRepo = repos.find((r) => r.workspaces?.some((ws) => ws.id === activeWorkspaceId))
+  // TODO(workspace-paths): `/repos/<repoId>` is a synthetic mock-era root prefix.
+  // Backend paths are workspace-relative, and this fiction already caused a 404
+  // bug. It threads through rootFolderPath into 40+ files (sidebar-carousel →
+  // file-explorer, path-helpers root checks, gitignore root rules), so removing
+  // it is not a contained change — replace with workspace-relative roots in a
+  // dedicated pass.
   const activeWorkspaceRepoPath = activeRepo ? `/repos/${activeRepo.id}` : '/repos/default'
-  const chatTabLabel = chats.find(c => c.id === activeChatId)?.title ?? 'Chat'
+  const chatTabLabel = chats.find((c) => c.id === activeChatId)?.title ?? 'Chat'
 
   // Drive panel collapse/expand from sidebarOpen state (set by SidebarProvider's toggleSidebar)
   useEffect(() => {
@@ -60,7 +67,7 @@ export function IDEShell() {
 
   function handleSidebarResize(size: PanelSize) {
     const isCollapsed = size.asPercentage === 0
-    setSidebarOpen(prev => (!isCollapsed !== prev ? !isCollapsed : prev))
+    setSidebarOpen((prev) => (!isCollapsed !== prev ? !isCollapsed : prev))
     if (size.inPixels > 0) {
       try {
         localStorage.setItem('sidebar-width', String(Math.round(size.inPixels)))
@@ -173,6 +180,7 @@ export function IDEShell() {
       />
       <TerminalHost />
       <FontStyleInjector />
+      <ConnectionIndicator />
       <Toaster />
     </SidebarProvider>
   )

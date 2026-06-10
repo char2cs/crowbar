@@ -7,8 +7,40 @@ import (
 
 	"github.com/gin-gonic/gin"
 
+	"github.com/char2cs/crowbar/api/internal/api/libs"
+
 	gitdomain "github.com/char2cs/crowbar/api/internal/domain/git"
 )
+
+// pathsBody is the request body shared by the stage/unstage/discard handlers:
+// a list of repo-relative paths, where "." means "everything".
+type pathsBody struct {
+	Paths []string `json:"paths"`
+}
+
+// bindPaths binds and validates a pathsBody, writing the 400 response itself
+// when the body is malformed or empty. The bool reports whether the paths are
+// usable.
+func bindPaths(
+	ctx *gin.Context,
+) ([]string, bool) {
+	var body pathsBody
+	if err := ctx.ShouldBindJSON(&body); err != nil {
+		libs.WriteErr(ctx, http.StatusBadRequest, err.Error())
+		return nil, false
+	}
+	if len(body.Paths) == 0 {
+		libs.WriteErr(ctx, http.StatusBadRequest, "paths is required")
+		return nil, false
+	}
+	for _, p := range body.Paths {
+		if p == "" {
+			libs.WriteErr(ctx, http.StatusBadRequest, "paths must not contain empty entries")
+			return nil, false
+		}
+	}
+	return body.Paths, true
+}
 
 // Stage POST /workspaces/:wsId/git/stage
 func (h *Handlers) Stage(
@@ -17,24 +49,21 @@ func (h *Handlers) Stage(
 	reqCtx := ctx.Request.Context()
 	wsID := ctx.Param("wsId")
 
-	var body struct {
-		Path string `json:"path"`
-	}
-	if err := ctx.ShouldBindJSON(&body); err != nil {
-		ctx.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
-		return
-	}
-	if body.Path == "" {
-		ctx.JSON(http.StatusBadRequest, gin.H{"error": "path is required"})
+	paths, ok := bindPaths(ctx)
+	if !ok {
 		return
 	}
 
-	if err := h.git.StageFile(reqCtx, wsID, body.Path, time.Now()); err != nil {
-		ctx.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
-		return
+	now := time.Now()
+	for _, p := range paths {
+		if err := h.git.StageFile(reqCtx, wsID, p, now); err != nil {
+			status, msg := libs.StatusAndMessage(err)
+			libs.WriteErr(ctx, status, msg)
+			return
+		}
 	}
 
-	ctx.Status(http.StatusOK)
+	libs.WriteMutationOK(ctx, http.StatusOK, wsID)
 }
 
 // StageHunk POST /workspaces/:wsId/git/stage-hunk
@@ -49,20 +78,21 @@ func (h *Handlers) StageHunk(
 		HunkID string `json:"hunkId"`
 	}
 	if err := ctx.ShouldBindJSON(&body); err != nil {
-		ctx.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		libs.WriteErr(ctx, http.StatusBadRequest, err.Error())
 		return
 	}
 	if body.Path == "" {
-		ctx.JSON(http.StatusBadRequest, gin.H{"error": "path is required"})
+		libs.WriteErr(ctx, http.StatusBadRequest, "path is required")
 		return
 	}
 	if body.HunkID == "" {
-		ctx.JSON(http.StatusBadRequest, gin.H{"error": "hunkId is required"})
+		libs.WriteErr(ctx, http.StatusBadRequest, "hunkId is required")
 		return
 	}
 
 	if err := h.git.StageHunk(reqCtx, wsID, body.Path, body.HunkID, time.Now()); err != nil {
-		ctx.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		status, msg := libs.StatusAndMessage(err)
+		libs.WriteErr(ctx, status, msg)
 		return
 	}
 
@@ -76,24 +106,21 @@ func (h *Handlers) Unstage(
 	reqCtx := ctx.Request.Context()
 	wsID := ctx.Param("wsId")
 
-	var body struct {
-		Path string `json:"path"`
-	}
-	if err := ctx.ShouldBindJSON(&body); err != nil {
-		ctx.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
-		return
-	}
-	if body.Path == "" {
-		ctx.JSON(http.StatusBadRequest, gin.H{"error": "path is required"})
+	paths, ok := bindPaths(ctx)
+	if !ok {
 		return
 	}
 
-	if err := h.git.UnstageFile(reqCtx, wsID, body.Path, time.Now()); err != nil {
-		ctx.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
-		return
+	now := time.Now()
+	for _, p := range paths {
+		if err := h.git.UnstageFile(reqCtx, wsID, p, now); err != nil {
+			status, msg := libs.StatusAndMessage(err)
+			libs.WriteErr(ctx, status, msg)
+			return
+		}
 	}
 
-	ctx.Status(http.StatusOK)
+	libs.WriteMutationOK(ctx, http.StatusOK, wsID)
 }
 
 // UnstageHunk POST /workspaces/:wsId/git/unstage-hunk
@@ -108,20 +135,21 @@ func (h *Handlers) UnstageHunk(
 		HunkID string `json:"hunkId"`
 	}
 	if err := ctx.ShouldBindJSON(&body); err != nil {
-		ctx.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		libs.WriteErr(ctx, http.StatusBadRequest, err.Error())
 		return
 	}
 	if body.Path == "" {
-		ctx.JSON(http.StatusBadRequest, gin.H{"error": "path is required"})
+		libs.WriteErr(ctx, http.StatusBadRequest, "path is required")
 		return
 	}
 	if body.HunkID == "" {
-		ctx.JSON(http.StatusBadRequest, gin.H{"error": "hunkId is required"})
+		libs.WriteErr(ctx, http.StatusBadRequest, "hunkId is required")
 		return
 	}
 
 	if err := h.git.UnstageHunk(reqCtx, wsID, body.Path, body.HunkID, time.Now()); err != nil {
-		ctx.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		status, msg := libs.StatusAndMessage(err)
+		libs.WriteErr(ctx, status, msg)
 		return
 	}
 
@@ -135,24 +163,21 @@ func (h *Handlers) Discard(
 	reqCtx := ctx.Request.Context()
 	wsID := ctx.Param("wsId")
 
-	var body struct {
-		Path string `json:"path"`
-	}
-	if err := ctx.ShouldBindJSON(&body); err != nil {
-		ctx.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
-		return
-	}
-	if body.Path == "" {
-		ctx.JSON(http.StatusBadRequest, gin.H{"error": "path is required"})
+	paths, ok := bindPaths(ctx)
+	if !ok {
 		return
 	}
 
-	if err := h.git.Discard(reqCtx, wsID, body.Path, time.Now()); err != nil {
-		ctx.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
-		return
+	now := time.Now()
+	for _, p := range paths {
+		if err := h.git.Discard(reqCtx, wsID, p, now); err != nil {
+			status, msg := libs.StatusAndMessage(err)
+			libs.WriteErr(ctx, status, msg)
+			return
+		}
 	}
 
-	ctx.Status(http.StatusOK)
+	libs.WriteMutationOK(ctx, http.StatusOK, wsID)
 }
 
 // Commit POST /workspaces/:wsId/git/commit
@@ -163,24 +188,26 @@ func (h *Handlers) Commit(
 	wsID := ctx.Param("wsId")
 
 	var body struct {
-		Message string `json:"message"`
+		Subject string `json:"subject"`
+		Body    string `json:"body"`
 		Author  string `json:"author"`
 	}
 	if err := ctx.ShouldBindJSON(&body); err != nil {
-		ctx.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		libs.WriteErr(ctx, http.StatusBadRequest, err.Error())
 		return
 	}
-	if body.Message == "" {
-		ctx.JSON(http.StatusBadRequest, gin.H{"error": "message is required"})
-		return
-	}
-
-	if err := h.git.Commit(reqCtx, wsID, body.Message, body.Author, time.Now()); err != nil {
-		ctx.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+	if body.Subject == "" {
+		libs.WriteErr(ctx, http.StatusBadRequest, "subject is required")
 		return
 	}
 
-	ctx.Status(http.StatusOK)
+	if err := h.git.Commit(reqCtx, wsID, body.Subject, body.Body, time.Now()); err != nil {
+		status, msg := libs.StatusAndMessage(err)
+		libs.WriteErr(ctx, status, msg)
+		return
+	}
+
+	libs.WriteMutationOK(ctx, http.StatusOK, wsID)
 }
 
 // Push POST /workspaces/:wsId/git/push
@@ -191,7 +218,8 @@ func (h *Handlers) Push(
 	wsID := ctx.Param("wsId")
 
 	if err := h.git.Push(reqCtx, wsID, time.Now()); err != nil {
-		ctx.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		status, msg := libs.StatusAndMessage(err)
+		libs.WriteErr(ctx, status, msg)
 		return
 	}
 
@@ -206,7 +234,8 @@ func (h *Handlers) Fetch(
 	wsID := ctx.Param("wsId")
 
 	if err := h.git.Fetch(reqCtx, wsID, time.Now()); err != nil {
-		ctx.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		status, msg := libs.StatusAndMessage(err)
+		libs.WriteErr(ctx, status, msg)
 		return
 	}
 
@@ -221,7 +250,8 @@ func (h *Handlers) Pull(
 	wsID := ctx.Param("wsId")
 
 	if err := h.git.Pull(reqCtx, wsID, "", time.Now()); err != nil {
-		ctx.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		status, msg := libs.StatusAndMessage(err)
+		libs.WriteErr(ctx, status, msg)
 		return
 	}
 
@@ -239,16 +269,17 @@ func (h *Handlers) CreateBranch(
 		Name string `json:"name"`
 	}
 	if err := ctx.ShouldBindJSON(&body); err != nil {
-		ctx.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		libs.WriteErr(ctx, http.StatusBadRequest, err.Error())
 		return
 	}
 	if body.Name == "" {
-		ctx.JSON(http.StatusBadRequest, gin.H{"error": "name is required"})
+		libs.WriteErr(ctx, http.StatusBadRequest, "name is required")
 		return
 	}
 
 	if err := h.git.CreateBranch(reqCtx, wsID, body.Name, "", false, time.Now()); err != nil {
-		ctx.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		status, msg := libs.StatusAndMessage(err)
+		libs.WriteErr(ctx, status, msg)
 		return
 	}
 
@@ -267,20 +298,21 @@ func (h *Handlers) RenameBranch(
 		To   string `json:"to"`
 	}
 	if err := ctx.ShouldBindJSON(&body); err != nil {
-		ctx.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		libs.WriteErr(ctx, http.StatusBadRequest, err.Error())
 		return
 	}
 	if body.From == "" {
-		ctx.JSON(http.StatusBadRequest, gin.H{"error": "from is required"})
+		libs.WriteErr(ctx, http.StatusBadRequest, "from is required")
 		return
 	}
 	if body.To == "" {
-		ctx.JSON(http.StatusBadRequest, gin.H{"error": "to is required"})
+		libs.WriteErr(ctx, http.StatusBadRequest, "to is required")
 		return
 	}
 
 	if err := h.git.RenameBranch(reqCtx, wsID, body.From, body.To, time.Now()); err != nil {
-		ctx.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		status, msg := libs.StatusAndMessage(err)
+		libs.WriteErr(ctx, status, msg)
 		return
 	}
 
@@ -301,12 +333,13 @@ func (h *Handlers) DeleteBranch(
 		body.Name = ctx.Query("name")
 	}
 	if body.Name == "" {
-		ctx.JSON(http.StatusBadRequest, gin.H{"error": "name is required"})
+		libs.WriteErr(ctx, http.StatusBadRequest, "name is required")
 		return
 	}
 
 	if err := h.git.DeleteBranch(reqCtx, wsID, body.Name, time.Now()); err != nil {
-		ctx.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		status, msg := libs.StatusAndMessage(err)
+		libs.WriteErr(ctx, status, msg)
 		return
 	}
 
@@ -324,16 +357,17 @@ func (h *Handlers) Switch(
 		Branch string `json:"branch"`
 	}
 	if err := ctx.ShouldBindJSON(&body); err != nil {
-		ctx.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		libs.WriteErr(ctx, http.StatusBadRequest, err.Error())
 		return
 	}
 	if body.Branch == "" {
-		ctx.JSON(http.StatusBadRequest, gin.H{"error": "branch is required"})
+		libs.WriteErr(ctx, http.StatusBadRequest, "branch is required")
 		return
 	}
 
 	if err := h.git.SwitchBranch(reqCtx, wsID, body.Branch, time.Now()); err != nil {
-		ctx.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		status, msg := libs.StatusAndMessage(err)
+		libs.WriteErr(ctx, status, msg)
 		return
 	}
 
@@ -354,7 +388,8 @@ func (h *Handlers) StashPush(
 	_ = ctx.ShouldBindJSON(&body)
 
 	if err := h.git.StashPush(reqCtx, wsID, body.Message, time.Now()); err != nil {
-		ctx.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		status, msg := libs.StatusAndMessage(err)
+		libs.WriteErr(ctx, status, msg)
 		return
 	}
 
@@ -372,13 +407,14 @@ func (h *Handlers) StashApply(
 		Index int `json:"index"`
 	}
 	if err := ctx.ShouldBindJSON(&body); err != nil {
-		ctx.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		libs.WriteErr(ctx, http.StatusBadRequest, err.Error())
 		return
 	}
 
 	stashID := strconv.Itoa(body.Index)
 	if err := h.git.StashApply(reqCtx, wsID, stashID, time.Now()); err != nil {
-		ctx.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		status, msg := libs.StatusAndMessage(err)
+		libs.WriteErr(ctx, status, msg)
 		return
 	}
 
@@ -396,13 +432,14 @@ func (h *Handlers) StashPop(
 		Index int `json:"index"`
 	}
 	if err := ctx.ShouldBindJSON(&body); err != nil {
-		ctx.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		libs.WriteErr(ctx, http.StatusBadRequest, err.Error())
 		return
 	}
 
 	stashID := strconv.Itoa(body.Index)
 	if err := h.git.StashPop(reqCtx, wsID, stashID, time.Now()); err != nil {
-		ctx.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		status, msg := libs.StatusAndMessage(err)
+		libs.WriteErr(ctx, status, msg)
 		return
 	}
 
@@ -423,20 +460,21 @@ func (h *Handlers) StashDrop(
 		if raw := ctx.Query("index"); raw != "" {
 			idx, err := strconv.Atoi(raw)
 			if err != nil {
-				ctx.JSON(http.StatusBadRequest, gin.H{"error": "index must be an integer"})
+				libs.WriteErr(ctx, http.StatusBadRequest, "index must be an integer")
 				return
 			}
 			body.Index = &idx
 		}
 	}
 	if body.Index == nil {
-		ctx.JSON(http.StatusBadRequest, gin.H{"error": "index is required"})
+		libs.WriteErr(ctx, http.StatusBadRequest, "index is required")
 		return
 	}
 
 	stashID := strconv.Itoa(*body.Index)
 	if err := h.git.StashDrop(reqCtx, wsID, stashID, time.Now()); err != nil {
-		ctx.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		status, msg := libs.StatusAndMessage(err)
+		libs.WriteErr(ctx, status, msg)
 		return
 	}
 
@@ -454,16 +492,17 @@ func (h *Handlers) Reset(
 		Mode string `json:"mode"`
 	}
 	if err := ctx.ShouldBindJSON(&body); err != nil {
-		ctx.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		libs.WriteErr(ctx, http.StatusBadRequest, err.Error())
 		return
 	}
 	if body.Mode == "" {
-		ctx.JSON(http.StatusBadRequest, gin.H{"error": "mode is required"})
+		libs.WriteErr(ctx, http.StatusBadRequest, "mode is required")
 		return
 	}
 
 	if err := h.git.Reset(reqCtx, wsID, body.Mode, "", time.Now()); err != nil {
-		ctx.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		status, msg := libs.StatusAndMessage(err)
+		libs.WriteErr(ctx, status, msg)
 		return
 	}
 
@@ -481,16 +520,17 @@ func (h *Handlers) Merge(
 		Branch string `json:"branch"`
 	}
 	if err := ctx.ShouldBindJSON(&body); err != nil {
-		ctx.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		libs.WriteErr(ctx, http.StatusBadRequest, err.Error())
 		return
 	}
 	if body.Branch == "" {
-		ctx.JSON(http.StatusBadRequest, gin.H{"error": "branch is required"})
+		libs.WriteErr(ctx, http.StatusBadRequest, "branch is required")
 		return
 	}
 
 	if err := h.git.Merge(reqCtx, wsID, body.Branch, time.Now()); err != nil {
-		ctx.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		status, msg := libs.StatusAndMessage(err)
+		libs.WriteErr(ctx, status, msg)
 		return
 	}
 
@@ -508,16 +548,17 @@ func (h *Handlers) Rebase(
 		Branch string `json:"branch"`
 	}
 	if err := ctx.ShouldBindJSON(&body); err != nil {
-		ctx.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		libs.WriteErr(ctx, http.StatusBadRequest, err.Error())
 		return
 	}
 	if body.Branch == "" {
-		ctx.JSON(http.StatusBadRequest, gin.H{"error": "branch is required"})
+		libs.WriteErr(ctx, http.StatusBadRequest, "branch is required")
 		return
 	}
 
 	if err := h.git.Rebase(reqCtx, wsID, body.Branch, time.Now()); err != nil {
-		ctx.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		status, msg := libs.StatusAndMessage(err)
+		libs.WriteErr(ctx, status, msg)
 		return
 	}
 
@@ -538,15 +579,15 @@ func (h *Handlers) ResolveHunk(
 		ResolvedContent string `json:"resolvedContent"`
 	}
 	if err := ctx.ShouldBindJSON(&body); err != nil {
-		ctx.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		libs.WriteErr(ctx, http.StatusBadRequest, err.Error())
 		return
 	}
 	if body.Path == "" {
-		ctx.JSON(http.StatusBadRequest, gin.H{"error": "path is required"})
+		libs.WriteErr(ctx, http.StatusBadRequest, "path is required")
 		return
 	}
 	if body.Choice == "" {
-		ctx.JSON(http.StatusBadRequest, gin.H{"error": "choice is required"})
+		libs.WriteErr(ctx, http.StatusBadRequest, "choice is required")
 		return
 	}
 
@@ -561,7 +602,8 @@ func (h *Handlers) ResolveHunk(
 		body.ResolvedContent,
 		time.Now(),
 	); err != nil {
-		ctx.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		status, msg := libs.StatusAndMessage(err)
+		libs.WriteErr(ctx, status, msg)
 		return
 	}
 
@@ -576,7 +618,8 @@ func (h *Handlers) OperationContinue(
 	wsID := ctx.Param("wsId")
 
 	if err := h.git.OperationContinue(reqCtx, wsID, time.Now()); err != nil {
-		ctx.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		status, msg := libs.StatusAndMessage(err)
+		libs.WriteErr(ctx, status, msg)
 		return
 	}
 
@@ -591,7 +634,8 @@ func (h *Handlers) OperationAbort(
 	wsID := ctx.Param("wsId")
 
 	if err := h.git.OperationAbort(reqCtx, wsID, time.Now()); err != nil {
-		ctx.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		status, msg := libs.StatusAndMessage(err)
+		libs.WriteErr(ctx, status, msg)
 		return
 	}
 

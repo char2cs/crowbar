@@ -7,6 +7,10 @@ import { getActiveWorkspaceId } from '@/features/workspace/stores/workspace-stor
 function filesBase(): string {
   const wsId = getActiveWorkspaceId()
   if (!wsId) throw new Error('no active workspace for file operation')
+  return filesBaseFor(wsId)
+}
+
+function filesBaseFor(wsId: string): string {
   return `/v0/workspaces/${encodeURIComponent(wsId)}/files`
 }
 
@@ -33,7 +37,26 @@ export async function readFile(path: string): Promise<string> {
   return payload.content
 }
 
-export async function readDirectory(_path: string): Promise<Array<{ name: string; path: string; isDirectory: boolean; is_dir: boolean; isFile: boolean }>> {
+/**
+ * Read a file from an explicit workspace. Async flows that outlive the user's
+ * focus (session-restore reconciliation, external FS-event buffer sync,
+ * reopen-closed-tab) must use this instead of `readFile`: resolving the
+ * *active* workspace at call time reads the same relative path from whichever
+ * workspace the user switched to meanwhile — for linked worktrees of one repo
+ * that silently loads a sibling checkout's content into the buffer.
+ */
+export async function readWorkspaceFile(wsId: string, path: string): Promise<string> {
+  const payload = await apiFetch<{ content: string }>(
+    `${filesBaseFor(wsId)}/content?path=${encodeURIComponent(path)}`,
+  )
+  return payload.content
+}
+
+export async function readDirectory(
+  _path: string,
+): Promise<
+  Array<{ name: string; path: string; isDirectory: boolean; is_dir: boolean; isFile: boolean }>
+> {
   return []
 }
 
@@ -42,11 +65,11 @@ export async function exists(_path: string): Promise<boolean> {
 }
 
 export function getHomePath(): string {
-  return "/home"
+  return '/home'
 }
 
 export function getSeparator(): string {
-  return "/"
+  return '/'
 }
 
 export async function moveFile(src: string, dest: string): Promise<void> {

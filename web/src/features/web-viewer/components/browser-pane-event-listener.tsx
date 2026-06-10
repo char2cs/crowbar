@@ -16,17 +16,20 @@ export function BrowserPaneEventListener() {
     let cancelled = false
     let unlisten: (() => void) | null = null
 
-    import('@tauri-apps/api/event').then(({ listen }) =>
-      listen<BrowserPaneNavigatedPayload>('browser-pane-navigated', event => {
-        const { bufferId, url, canGoBack, canGoForward } = event.payload
-        useWebViewerNavigationStore
-          .getState()
-          .updateNavState(bufferId, { url, canGoBack, canGoForward })
-      }),
-    ).then(fn => {
-      if (cancelled) fn()  // already unmounted — release immediately
-      else unlisten = fn
-    })
+    import('@tauri-apps/api/event')
+      .then(({ listen }) =>
+        listen<BrowserPaneNavigatedPayload>('browser-pane-navigated', (event) => {
+          const { bufferId, url, canGoBack, canGoForward } = event.payload
+          useWebViewerNavigationStore
+            .getState()
+            .updateNavState(bufferId, { url, canGoBack, canGoForward })
+        }),
+      )
+      .then((fn) => {
+        if (cancelled)
+          fn() // already unmounted — release immediately
+        else unlisten = fn
+      })
 
     return () => {
       cancelled = true

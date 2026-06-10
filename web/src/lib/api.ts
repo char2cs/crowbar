@@ -1,7 +1,7 @@
 import type { WorkspacePayload, Project } from './types'
 import { useChaosStore } from '@/lib/store/chaos'
 
-const crowbar = (window as any).__CROWBAR__
+const crowbar = (window as unknown as { __CROWBAR__?: { api?: string } }).__CROWBAR__
 export const API_BASE: string = crowbar?.api ?? import.meta.env.VITE_API_URL ?? ''
 
 export async function apiFetch<T>(path: string, init?: RequestInit): Promise<T> {
@@ -40,14 +40,22 @@ export function fetchWorkspace(wsId: string): Promise<WorkspacePayload> {
 }
 
 // The backend's WriteMutationOK returns only `{ id }`, not the full entity.
-export function postWorkspace(repoId: string, branch: string): Promise<{ id: string }> {
+// parentId omitted/empty = fork from the repo's default branch.
+export function postWorkspace(
+  repoId: string,
+  branch: string,
+  parentId?: string,
+): Promise<{ id: string }> {
   return apiFetch('/v0/workspaces', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ repoId, branch }),
+    body: JSON.stringify({ repoId, branch, ...(parentId ? { parentId } : {}) }),
   })
 }
 
+export function deleteWorkspace(wsId: string): Promise<void> {
+  return apiFetch(`/v0/workspaces/${wsId}`, { method: 'DELETE' })
+}
 
 export function fetchProjects(): Promise<Project[]> {
   return apiFetch('/v0/projects')
@@ -61,9 +69,7 @@ export function fetchProject(id: string): Promise<Project> {
 // (editable) workspace so editing works out of the box; fall back to the first
 // workspace of any kind, or null when the backend has none yet (→ projects).
 export async function fetchLandingWorkspaceId(): Promise<string | null> {
-  const workspaces = await apiFetch<Array<{ id: string; locked: boolean }>>(
-    '/v0/workspaces',
-  )
+  const workspaces = await apiFetch<Array<{ id: string; locked: boolean }>>('/v0/workspaces')
   if (workspaces.length === 0) return null
   const editable = workspaces.find((ws) => !ws.locked)
   return (editable ?? workspaces[0]).id

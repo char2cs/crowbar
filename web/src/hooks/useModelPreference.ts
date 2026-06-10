@@ -6,7 +6,7 @@ export const MODELS = [
   { id: 'claude-opus-4-7', label: 'Opus 4.7' },
 ] as const
 
-export type ModelId = typeof MODELS[number]['id']
+export type ModelId = (typeof MODELS)[number]['id']
 
 const STORAGE_KEY = 'crowbar.model'
 const DEFAULT_MODEL: ModelId = 'claude-sonnet-4-6'
@@ -15,7 +15,7 @@ export function useModelPreference() {
   const [model, setModelState] = useState<ModelId>(() => {
     try {
       const stored = localStorage.getItem(STORAGE_KEY)
-      return (MODELS.find(m => m.id === stored)?.id ?? DEFAULT_MODEL)
+      return MODELS.find((m) => m.id === stored)?.id ?? DEFAULT_MODEL
     } catch {
       return DEFAULT_MODEL
     }
@@ -30,7 +30,7 @@ export function useModelPreference() {
     setModelState(id)
   }
 
-  const modelLabel = MODELS.find(m => m.id === model)?.label ?? 'Sonnet 4.6'
+  const modelLabel = MODELS.find((m) => m.id === model)?.label ?? 'Sonnet 4.6'
 
   return { model, setModel, modelLabel, models: MODELS }
 }

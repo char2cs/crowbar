@@ -1,6 +1,73 @@
-import { createContext, useCallback, useContext, useEffect, useRef, useState, type ReactNode } from 'react'
+import {
+  createContext,
+  useCallback,
+  useContext,
+  useEffect,
+  useRef,
+  useState,
+  type ReactNode,
+} from 'react'
 import { useSidebarStore } from '@/lib/store/sidebar'
 import { reparentWorkspace } from '@/lib/api/workspace'
+import { postWorkspace, deleteWorkspace as apiDeleteWorkspace } from '@/lib/api'
+import { toast } from '@/components/ui/toast'
+
+/**
+ * Creates the workspace on the backend, then mirrors it into the sidebar
+ * store using the real id the backend returned. On failure no phantom node
+ * is added — the error is surfaced via toast.
+ */
+export async function performCreateWorkspace(
+  repoId: string,
+  branch: string,
+  parentId?: string,
+): Promise<void> {
+  try {
+    const { id } = await postWorkspace(repoId, branch, parentId)
+    useSidebarStore.getState().addWorkspace(repoId, id, branch, parentId)
+  } catch (err) {
+    console.error('Failed to create workspace:', err)
+    toast.error('Failed to create workspace', err instanceof Error ? err.message : undefined)
+  }
+}
+
+/**
+ * Deletes the workspace on the backend, then removes it from the sidebar
+ * store. Locked workspaces are never deleted. On failure the local store is
+ * left untouched and the error is surfaced via toast.
+ */
+export async function performDeleteWorkspace(wsId: string): Promise<void> {
+  const ws = useSidebarStore
+    .getState()
+    .repos.flatMap((r) => r.workspaces)
+    .find((w) => w.id === wsId)
+  if (!ws || ws.status === 'locked') return
+  try {
+    await apiDeleteWorkspace(wsId)
+    useSidebarStore.getState().deleteWorkspace(wsId)
+  } catch (err) {
+    console.error('Failed to delete workspace:', err)
+    toast.error('Failed to delete workspace', err instanceof Error ? err.message : undefined)
+  }
+}
+
+/**
+ * Reparents the workspace on the backend, then mirrors the change into the
+ * sidebar store. On failure the local store is left untouched and the error
+ * is surfaced via toast.
+ */
+export async function performReparentWorkspace(
+  wsId: string,
+  newParentId: string | undefined,
+  repoId: string,
+): Promise<void> {
+  try {
+    await reparentWorkspace(wsId, newParentId, repoId)
+  } catch (err) {
+    console.error('Failed to reparent workspace:', err)
+    toast.error('Failed to reparent workspace', err instanceof Error ? err.message : undefined)
+  }
+}
 
 interface CreatingState {
   repoId: string
@@ -61,9 +128,13 @@ export function WorkspaceTreeProvider({ children }: { children: ReactNode }) {
   const [hoverTargetId, setHoverTargetId] = useState<string | null>(null)
 
   const pendingRef = useRef<{
-    wsId: string; repoId: string; label: string
-    startX: number; startY: number
-    target: HTMLElement; pointerId: number
+    wsId: string
+    repoId: string
+    label: string
+    startX: number
+    startY: number
+    target: HTMLElement
+    pointerId: number
   } | null>(null)
   // Mirrors draggingWs for use inside window event handlers without stale closures.
   // Set synchronously at the point of change, not via useEffect, to avoid one-render lag.
@@ -73,36 +144,48 @@ export function WorkspaceTreeProvider({ children }: { children: ReactNode }) {
     setCreatingChildOf({ repoId, parentId })
   }, [])
 
-  const confirmCreate = useCallback((branch: string) => {
-    if (!creatingChildOf) return
-    useSidebarStore.getState().addWorkspace(
-      creatingChildOf.repoId, crypto.randomUUID(), branch, creatingChildOf.parentId,
-    )
-    setCreatingChildOf(null)
-  }, [creatingChildOf])
+  const confirmCreate = useCallback(
+    (branch: string) => {
+      if (!creatingChildOf) return
+      void performCreateWorkspace(creatingChildOf.repoId, branch, creatingChildOf.parentId)
+      setCreatingChildOf(null)
+    },
+    [creatingChildOf],
+  )
 
   const cancelCreate = useCallback(() => setCreatingChildOf(null), [])
   const startRenaming = useCallback((wsId: string) => setRenamingId(wsId), [])
 
-  const confirmRename = useCallback((branch: string) => {
-    if (renamingId && branch.trim()) {
-      useSidebarStore.getState().renameWorkspace(renamingId, branch.trim())
-    }
-    setRenamingId(null)
-  }, [renamingId])
+  const confirmRename = useCallback(
+    (branch: string) => {
+      if (renamingId && branch.trim()) {
+        useSidebarStore.getState().renameWorkspace(renamingId, branch.trim())
+      }
+      setRenamingId(null)
+    },
+    [renamingId],
+  )
 
   const cancelRename = useCallback(() => setRenamingId(null), [])
 
-  const onPointerDownDrag = useCallback((wsId: string, repoId: string, label: string, e: React.PointerEvent) => {
-    if (e.button !== 0) return
-    if (draggingRef.current) return  // ignore second pointer mid-drag
-    // Don't capture here — deferring setPointerCapture to the pointermove threshold
-    // prevents it from swallowing the dblclick event used for rename.
-    pendingRef.current = {
-      wsId, repoId, label, startX: e.clientX, startY: e.clientY,
-      target: e.currentTarget as HTMLElement, pointerId: e.pointerId,
-    }
-  }, [])
+  const onPointerDownDrag = useCallback(
+    (wsId: string, repoId: string, label: string, e: React.PointerEvent) => {
+      if (e.button !== 0) return
+      if (draggingRef.current) return // ignore second pointer mid-drag
+      // Don't capture here — deferring setPointerCapture to the pointermove threshold
+      // prevents it from swallowing the dblclick event used for rename.
+      pendingRef.current = {
+        wsId,
+        repoId,
+        label,
+        startX: e.clientX,
+        startY: e.clientY,
+        target: e.currentTarget as HTMLElement,
+        pointerId: e.pointerId,
+      }
+    },
+    [],
+  )
 
   useEffect(() => {
     function onPointerMove(e: PointerEvent) {
@@ -134,20 +217,20 @@ export function WorkspaceTreeProvider({ children }: { children: ReactNode }) {
       const target = findDropTarget(e.clientX, e.clientY, ws.id)
 
       if (target === 'trash') {
-        useSidebarStore.getState().deleteWorkspace(ws.id)
+        void performDeleteWorkspace(ws.id)
       } else if (target?.startsWith('ws:')) {
         const targetWsId = target.slice(3)
         if (targetWsId !== ws.id) {
           const repos = useSidebarStore.getState().repos
-          const targetRepo = repos.find(r => r.workspaces.some(w => w.id === targetWsId))
+          const targetRepo = repos.find((r) => r.workspaces.some((w) => w.id === targetWsId))
           if (targetRepo?.id === ws.repoId) {
-            void reparentWorkspace(ws.id, targetWsId, ws.repoId)
+            void performReparentWorkspace(ws.id, targetWsId, ws.repoId)
           }
         }
       } else if (target?.startsWith('repo:')) {
         const targetRepoId = target.slice(5)
         if (targetRepoId === ws.repoId) {
-          void reparentWorkspace(ws.id, undefined, ws.repoId)
+          void performReparentWorkspace(ws.id, undefined, ws.repoId)
         }
       }
 
@@ -178,11 +261,22 @@ export function WorkspaceTreeProvider({ children }: { children: ReactNode }) {
   }, [])
 
   return (
-    <WorkspaceTreeContext.Provider value={{
-      creatingChildOf, startCreating, confirmCreate, cancelCreate,
-      renamingId, startRenaming, confirmRename, cancelRename,
-      draggingWs, dragPos, hoverTargetId, onPointerDownDrag,
-    }}>
+    <WorkspaceTreeContext.Provider
+      value={{
+        creatingChildOf,
+        startCreating,
+        confirmCreate,
+        cancelCreate,
+        renamingId,
+        startRenaming,
+        confirmRename,
+        cancelRename,
+        draggingWs,
+        dragPos,
+        hoverTargetId,
+        onPointerDownDrag,
+      }}
+    >
       {children}
     </WorkspaceTreeContext.Provider>
   )

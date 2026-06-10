@@ -12,7 +12,8 @@ export const WorkspaceStoreContext = createContext<WorkspaceStore | null>(null)
  */
 export function useWorkspaceStoreContext<T>(selector: (state: WorkspaceState) => T): T {
   const store = useContext(WorkspaceStoreContext)
-  if (!store) throw new Error('useWorkspaceStoreContext must be used inside WorkspaceStoreContext.Provider')
+  if (!store)
+    throw new Error('useWorkspaceStoreContext must be used inside WorkspaceStoreContext.Provider')
   return useStore(store, selector)
 }
 
@@ -21,6 +22,7 @@ export function useWorkspaceStoreContext<T>(selector: (state: WorkspaceState) =>
  */
 export function useWorkspaceStore(): WorkspaceStore {
   const store = useContext(WorkspaceStoreContext)
-  if (!store) throw new Error('useWorkspaceStore must be used inside WorkspaceStoreContext.Provider')
+  if (!store)
+    throw new Error('useWorkspaceStore must be used inside WorkspaceStoreContext.Provider')
   return store
 }

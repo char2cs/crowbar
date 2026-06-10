@@ -5,7 +5,12 @@ import { test, expect } from 'vitest'
 // Local PastedEntry needs: { source_path, destination_path, is_dir, success }
 
 type BridgeResult = { path: string; success: boolean }
-type LocalEntry = { source_path: string; destination_path: string; is_dir: boolean; success: boolean }
+type LocalEntry = {
+  source_path: string
+  destination_path: string
+  is_dir: boolean
+  success: boolean
+}
 
 function mapBridgeResult(r: BridgeResult): LocalEntry {
   // This is the CORRECT mapping expected after the fix

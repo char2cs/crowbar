@@ -73,7 +73,7 @@ func (s *ReviewSuite) TestReview_GetReviewReturnsPanel() {
 	)
 
 	var panel map[string]any
-	kit.DecodeJSON(
+	kit.DecodeEnvData(
 		s.T(),
 		resp,
 		&panel,
@@ -110,7 +110,7 @@ func (s *ReviewSuite) TestReview_OpenThreadCreatesThread() {
 	)
 
 	var thread map[string]any
-	kit.DecodeJSON(
+	kit.DecodeEnvData(
 		s.T(),
 		resp,
 		&thread,
@@ -157,7 +157,7 @@ func (s *ReviewSuite) TestReview_ReplyAddsMessage() {
 		http.StatusCreated,
 	)
 	var thread map[string]any
-	kit.DecodeJSON(
+	kit.DecodeEnvData(
 		s.T(),
 		createResp,
 		&thread,
@@ -178,7 +178,7 @@ func (s *ReviewSuite) TestReview_ReplyAddsMessage() {
 	)
 
 	var replied map[string]any
-	kit.DecodeJSON(
+	kit.DecodeEnvData(
 		s.T(),
 		replyResp,
 		&replied,
@@ -210,7 +210,7 @@ func (s *ReviewSuite) TestReview_SetResolvedMarksThread() {
 		http.StatusCreated,
 	)
 	var thread map[string]any
-	kit.DecodeJSON(
+	kit.DecodeEnvData(
 		s.T(),
 		createResp,
 		&thread,
@@ -230,7 +230,7 @@ func (s *ReviewSuite) TestReview_SetResolvedMarksThread() {
 		http.StatusOK,
 	)
 	var resolved map[string]any
-	kit.DecodeJSON(
+	kit.DecodeEnvData(
 		s.T(),
 		resolveResp,
 		&resolved,
@@ -253,7 +253,7 @@ func (s *ReviewSuite) TestReview_SetResolvedMarksThread() {
 		http.StatusOK,
 	)
 	var unresolved map[string]any
-	kit.DecodeJSON(
+	kit.DecodeEnvData(
 		s.T(),
 		unresolveResp,
 		&unresolved,
@@ -280,7 +280,7 @@ func (s *ReviewSuite) TestReview_SetMergeStrategy() {
 	)
 
 	var result map[string]any
-	kit.DecodeJSON(
+	kit.DecodeEnvData(
 		s.T(),
 		resp,
 		&result,

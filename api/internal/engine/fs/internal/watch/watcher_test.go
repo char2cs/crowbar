@@ -183,3 +183,73 @@ func TestWatcher_SubdirCreatedAndWatched(
 
 	_ = d.waitForChange(t)
 }
+
+// countingGit counts ComputeStatus invocations so tests can assert how many
+// times the watcher actually shelled out to git.
+type countingGit struct {
+	mu          sync.Mutex
+	statusCalls int
+}
+
+func (g *countingGit) ComputeStatus(
+	_ context.Context,
+	_ string,
+) (gitdomain.GitStatus, error) {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	g.statusCalls++
+	return gitdomain.GitStatus{}, nil
+}
+
+func (g *countingGit) ComputeWorkingTreeSummary(
+	_ context.Context,
+	_ string,
+	_ string,
+) (int, int, bool, bool, error) {
+	return 0, 0, false, false, nil
+}
+
+func (g *countingGit) calls() int {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	return g.statusCalls
+}
+
+// Git recomputes are trailing-debounced: several fs-event bursts in quick
+// succession must coalesce into a single fanOutGit run (one ComputeStatus),
+// and that final run must never be dropped once the watcher goes quiet.
+// Without the debounce, each of the four bursts below would shell out to git
+// on its own (the ~6Hz churn observed with linked worktrees sharing one .git).
+func TestWatcher_GitRecomputeDebounced_CoalescesBursts(
+	t *testing.T,
+) {
+	dir := t.TempDir()
+	git := &countingGit{}
+	d := &fakeDispatcher{}
+	w := watch.NewWatcher("ws-debounce", dir, "", git, d)
+	ctx, cancel := context.WithCancel(context.Background())
+	t.Cleanup(cancel)
+	t.Cleanup(w.Stop)
+	require.NoError(t, w.Start(ctx))
+	time.Sleep(50 * time.Millisecond)
+
+	// Four bursts spaced wider than the fs debounce (100ms) but inside the
+	// git debounce window (250ms), so each burst re-arms the git timer.
+	for i := range 4 {
+		name := filepath.Join(dir, "burst"+string(rune('a'+i))+".txt")
+		require.NoError(t, os.WriteFile(name, []byte("x"), 0o600))
+		time.Sleep(150 * time.Millisecond)
+	}
+
+	// Quiet period: the trailing recompute must run (never dropped).
+	deadline := time.Now().Add(3 * time.Second)
+	for git.calls() == 0 && time.Now().Before(deadline) {
+		time.Sleep(20 * time.Millisecond)
+	}
+	require.GreaterOrEqual(t, git.calls(), 1, "trailing git recompute must always run after the quiet period")
+
+	// Let everything settle, then assert the bursts coalesced. Allow 2 for
+	// scheduler jitter on slow CI, but four uncoalesced runs must not happen.
+	time.Sleep(400 * time.Millisecond)
+	assert.LessOrEqual(t, git.calls(), 2, "git recomputes must coalesce across bursts")
+}

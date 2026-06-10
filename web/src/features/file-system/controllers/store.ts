@@ -8,7 +8,16 @@ export interface FileSystemState {
   handleOpenFolder: () => void
   handleOpenFolderByPath: ((path: string) => Promise<void>) | null
   handleFileOpen: ((path: string, revealOrIsDir?: boolean) => Promise<void>) | null
-  handleFileSelect: ((path: string, isDir?: boolean, line?: number, column?: number, extra?: unknown, reveal?: boolean) => void) | null
+  handleFileSelect:
+    | ((
+        path: string,
+        isDir?: boolean,
+        line?: number,
+        column?: number,
+        extra?: unknown,
+        reveal?: boolean,
+      ) => void)
+    | null
   addFolderToWorkspace: (path?: string) => Promise<void>
   removeFolderFromWorkspace: (path: string) => Promise<void>
   revealPathInTree: (path: string) => void | Promise<void>
@@ -19,7 +28,9 @@ export interface FileSystemState {
   isLoading: boolean
   isFileTreeLoading: boolean
   isSwitchingProject: boolean
-  handleCreateNewFileInDirectory: ((dirPath: string, fileName?: string) => Promise<string | void>) | null
+  handleCreateNewFileInDirectory:
+    | ((dirPath: string, fileName?: string) => Promise<string | void>)
+    | null
   handleCreateNewFolderInDirectory: ((dirPath: string, folderName?: string) => Promise<void>) | null
   handleDeletePath: ((path: string, isDir?: boolean) => Promise<void>) | null
   handleRevealInFolder: ((path: string) => void) | null

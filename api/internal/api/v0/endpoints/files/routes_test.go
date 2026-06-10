@@ -98,7 +98,7 @@ func TestRegisterMountsRoutes(
 		method string
 		path   string
 	}{
-		{http.MethodGet, "/v0/workspaces/ws1/files"},
+		{http.MethodGet, "/v0/workspaces/ws1/files/tree"},
 		{http.MethodGet, "/v0/workspaces/ws1/files/content"},
 		{http.MethodPut, "/v0/workspaces/ws1/files/content"},
 		{http.MethodPost, "/v0/workspaces/ws1/files"},

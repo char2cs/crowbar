@@ -1,99 +1,99 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it } from 'vitest'
 import {
   applyTextEditsToContent,
   collectWorkspaceTextEdits,
   filePathFromUri,
   isWorkspaceEdit,
   offsetFromPosition,
-} from "@/features/editor/lsp/workspace-edit";
+} from '@/features/editor/lsp/workspace-edit'
 
-describe("workspace edit utilities", () => {
-  it("decodes file URIs into filesystem paths", () => {
-    expect(filePathFromUri("file:///tmp/hello%20world.ts")).toBe("/tmp/hello world.ts");
-  });
+describe('workspace edit utilities', () => {
+  it('decodes file URIs into filesystem paths', () => {
+    expect(filePathFromUri('file:///tmp/hello%20world.ts')).toBe('/tmp/hello world.ts')
+  })
 
-  it("converts LSP positions into string offsets", () => {
-    expect(offsetFromPosition("one\ntwo\nthree", { line: 1, character: 2 })).toBe(6);
-  });
+  it('converts LSP positions into string offsets', () => {
+    expect(offsetFromPosition('one\ntwo\nthree', { line: 1, character: 2 })).toBe(6)
+  })
 
-  it("clamps LSP positions without rebuilding line arrays", () => {
-    expect(offsetFromPosition("one\ntwo", { line: 10, character: 5 })).toBe(7);
-    expect(offsetFromPosition("one\ntwo", { line: 1, character: 50 })).toBe(7);
-    expect(offsetFromPosition("one\ntwo", { line: -1, character: -3 })).toBe(0);
-  });
+  it('clamps LSP positions without rebuilding line arrays', () => {
+    expect(offsetFromPosition('one\ntwo', { line: 10, character: 5 })).toBe(7)
+    expect(offsetFromPosition('one\ntwo', { line: 1, character: 50 })).toBe(7)
+    expect(offsetFromPosition('one\ntwo', { line: -1, character: -3 })).toBe(0)
+  })
 
-  it("applies text edits from bottom to top", () => {
+  it('applies text edits from bottom to top', () => {
     expect(
-      applyTextEditsToContent("const one = 1;\nconst two = 2;", [
+      applyTextEditsToContent('const one = 1;\nconst two = 2;', [
         {
           range: {
             start: { line: 0, character: 6 },
             end: { line: 0, character: 9 },
           },
-          newText: "first",
+          newText: 'first',
         },
         {
           range: {
             start: { line: 1, character: 6 },
             end: { line: 1, character: 9 },
           },
-          newText: "second",
+          newText: 'second',
         },
       ]),
-    ).toBe("const first = 1;\nconst second = 2;");
-  });
+    ).toBe('const first = 1;\nconst second = 2;')
+  })
 
-  it("applies same-line text edits using original document offsets", () => {
+  it('applies same-line text edits using original document offsets', () => {
     expect(
-      applyTextEditsToContent("0123456789", [
+      applyTextEditsToContent('0123456789', [
         {
           range: {
             start: { line: 0, character: 2 },
             end: { line: 0, character: 4 },
           },
-          newText: "AA",
+          newText: 'AA',
         },
         {
           range: {
             start: { line: 0, character: 6 },
             end: { line: 0, character: 8 },
           },
-          newText: "BB",
+          newText: 'BB',
         },
       ]),
-    ).toBe("01AA45BB89");
-  });
+    ).toBe('01AA45BB89')
+  })
 
-  it("collects edits from changes and documentChanges", () => {
+  it('collects edits from changes and documentChanges', () => {
     const edit = {
       changes: {
-        "file:///tmp/a.ts": [
+        'file:///tmp/a.ts': [
           {
             range: {
               start: { line: 0, character: 0 },
               end: { line: 0, character: 0 },
             },
-            newText: "a",
+            newText: 'a',
           },
         ],
       },
       documentChanges: [
         {
-          textDocument: { uri: "file:///tmp/a.ts" },
+          textDocument: { uri: 'file:///tmp/a.ts' },
           edits: [
             {
               range: {
                 start: { line: 1, character: 0 },
                 end: { line: 1, character: 0 },
               },
-              newText: "b",
+              newText: 'b',
             },
           ],
         },
       ],
-    };
+    }
 
-    expect(isWorkspaceEdit(edit)).toBe(true);
-    expect(collectWorkspaceTextEdits(edit).get("/tmp/a.ts")).toHaveLength(2);
-  });
-});
+    expect(isWorkspaceEdit(edit)).toBe(true)
+    expect(collectWorkspaceTextEdits(edit).get('/tmp/a.ts')).toHaveLength(2)
+  })
+})

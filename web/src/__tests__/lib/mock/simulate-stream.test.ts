@@ -1,14 +1,18 @@
 import { vi, test, expect, beforeEach, afterEach } from 'vitest'
 import { simulateStream } from '@/lib/mock/simulate-stream'
 
-beforeEach(() => { vi.useFakeTimers() })
-afterEach(() => { vi.useRealTimers() })
+beforeEach(() => {
+  vi.useFakeTimers()
+})
+afterEach(() => {
+  vi.useRealTimers()
+})
 
 test('delivers all chunks then calls onDone', () => {
   const chunks: string[] = []
   const onDone = vi.fn()
 
-  simulateStream('hello world foo', chunk => chunks.push(chunk), onDone)
+  simulateStream('hello world foo', (chunk) => chunks.push(chunk), onDone)
   vi.runAllTimers()
 
   expect(chunks.join('')).toBe('hello world foo')
@@ -19,10 +23,10 @@ test('cancel() stops further chunks and never calls onDone', () => {
   const chunks: string[] = []
   const onDone = vi.fn()
 
-  const cancel = simulateStream('hello world foo', chunk => chunks.push(chunk), onDone)
+  const cancel = simulateStream('hello world foo', (chunk) => chunks.push(chunk), onDone)
 
   vi.advanceTimersByTime(400) // initial delay → fires 'hello'
-  vi.advanceTimersByTime(40)  // first inter-word delay → fires 'world'
+  vi.advanceTimersByTime(40) // first inter-word delay → fires 'world'
   cancel()
 
   vi.runAllTimers() // nothing more should fire
@@ -32,6 +36,13 @@ test('cancel() stops further chunks and never calls onDone', () => {
 })
 
 test('cancel() is idempotent — calling twice does not throw', () => {
-  const cancel = simulateStream('hi', () => {}, () => {})
-  expect(() => { cancel(); cancel() }).not.toThrow()
+  const cancel = simulateStream(
+    'hi',
+    () => {},
+    () => {},
+  )
+  expect(() => {
+    cancel()
+    cancel()
+  }).not.toThrow()
 })

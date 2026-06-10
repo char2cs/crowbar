@@ -20,7 +20,7 @@ describe('HydrationGate', () => {
       render(
         <HydrationGate>
           <div>app content</div>
-        </HydrationGate>
+        </HydrationGate>,
       )
     })
 
@@ -36,7 +36,7 @@ describe('HydrationGate', () => {
     const { container } = render(
       <HydrationGate>
         <span>should not appear</span>
-      </HydrationGate>
+      </HydrationGate>,
     )
 
     expect(screen.queryByText('should not appear')).toBeNull()

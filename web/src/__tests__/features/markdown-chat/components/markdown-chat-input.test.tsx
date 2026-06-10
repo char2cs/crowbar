@@ -41,13 +41,18 @@ vi.mock('@codemirror/view', async (importOriginal) => {
     (k) => !['length', 'name', 'prototype'].includes(k),
   )
   for (const key of staticKeys) {
-    Object.defineProperty(MockEditorView, key, Object.getOwnPropertyDescriptor(RealEditorView, key)!)
+    Object.defineProperty(
+      MockEditorView,
+      key,
+      Object.getOwnPropertyDescriptor(RealEditorView, key)!,
+    )
   }
 
   return { ...actual, EditorView: MockEditorView }
 })
 
-const { MarkdownChatInput } = await import('@/features/markdown-chat/components/markdown-chat-input')
+const { MarkdownChatInput } =
+  await import('@/features/markdown-chat/components/markdown-chat-input')
 
 test('renders without crashing', () => {
   const { container } = render(
@@ -56,7 +61,7 @@ test('renders without crashing', () => {
       onSubmit={vi.fn()}
       onWidgetChange={vi.fn()}
       onEditorReady={vi.fn()}
-    />
+    />,
   )
   expect(container.firstChild).toBeTruthy()
 })
@@ -68,7 +73,7 @@ test('mounts CM6 editor into container', () => {
       onSubmit={vi.fn()}
       onWidgetChange={vi.fn()}
       onEditorReady={vi.fn()}
-    />
+    />,
   )
   expect(container.querySelector('.cm-editor')).toBeTruthy()
 })

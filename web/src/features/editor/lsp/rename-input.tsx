@@ -1,20 +1,20 @@
-import type { ForwardedRef, RefObject } from "react";
-import { forwardRef, useCallback, useState } from "react";
-import { EDITOR_CONSTANTS } from "@/features/editor/config/constants";
-import { Input } from "@/components/ui/input";
-import type { EditorModelPositionResolver } from "../view-model/view-layout";
+import type { ForwardedRef, RefObject } from 'react'
+import { forwardRef, useCallback, useState } from 'react'
+import { EDITOR_CONSTANTS } from '@/features/editor/config/constants'
+import { Input } from '@/components/ui/input'
+import type { EditorModelPositionResolver } from '../view-model/view-layout'
 
 interface RenameInputProps {
-  symbol: string;
-  line: number;
-  column: number;
-  fontSize: number;
-  lineHeight: number;
-  charWidth: number;
-  resolveModelPosition?: EditorModelPositionResolver;
-  inputRef: RefObject<HTMLInputElement | null>;
-  onSubmit: (newName: string) => void;
-  onCancel: () => void;
+  symbol: string
+  line: number
+  column: number
+  fontSize: number
+  lineHeight: number
+  charWidth: number
+  resolveModelPosition?: EditorModelPositionResolver
+  inputRef: RefObject<HTMLInputElement | null>
+  onSubmit: (newName: string) => void
+  onCancel: () => void
 }
 
 const RenameInput = forwardRef(
@@ -33,25 +33,25 @@ const RenameInput = forwardRef(
     }: RenameInputProps,
     ref: ForwardedRef<HTMLDivElement>,
   ) => {
-    const [value, setValue] = useState(symbol);
+    const [value, setValue] = useState(symbol)
 
-    const resolvedPosition = resolveModelPosition?.(line, column);
-    const top = resolvedPosition?.top ?? line * lineHeight + EDITOR_CONSTANTS.EDITOR_PADDING_TOP;
-    const left = resolvedPosition?.left ?? EDITOR_CONSTANTS.EDITOR_PADDING_LEFT;
+    const resolvedPosition = resolveModelPosition?.(line, column)
+    const top = resolvedPosition?.top ?? line * lineHeight + EDITOR_CONSTANTS.EDITOR_PADDING_TOP
+    const left = resolvedPosition?.left ?? EDITOR_CONSTANTS.EDITOR_PADDING_LEFT
 
     const handleKeyDown = useCallback(
       (e: React.KeyboardEvent) => {
-        if (e.key === "Enter") {
-          e.preventDefault();
-          onSubmit(value);
-        } else if (e.key === "Escape") {
-          e.preventDefault();
-          onCancel();
+        if (e.key === 'Enter') {
+          e.preventDefault()
+          onSubmit(value)
+        } else if (e.key === 'Escape') {
+          e.preventDefault()
+          onCancel()
         }
-        e.stopPropagation();
+        e.stopPropagation()
       },
       [value, onSubmit, onCancel],
-    );
+    )
 
     return (
       <div
@@ -83,10 +83,10 @@ const RenameInput = forwardRef(
           </div>
         </div>
       </div>
-    );
+    )
   },
-);
+)
 
-RenameInput.displayName = "RenameInput";
+RenameInput.displayName = 'RenameInput'
 
-export default RenameInput;
+export default RenameInput

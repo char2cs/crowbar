@@ -1,21 +1,21 @@
-import { useCallback } from "react";
-import { EDITOR_CONSTANTS } from "@/features/editor/config/constants";
-import { editorAPI } from "@/features/editor/extensions/api";
-import { useCenterCursor } from "@/features/editor/hooks/use-center-cursor";
-import { getActiveWorkspaceStoreRef } from "@/features/workspace/stores/workspace-store-ref";
-import { useJumpListStore } from "@/features/editor/stores/jump-list-store";
-import { useEditorStateStore } from "@/features/editor/stores/state-store";
-import { calculateOffsetFromContentPosition } from "@/features/editor/utils/position";
-import { readFileContent } from "@/features/file-system/controllers/file-operations";
-import { logger } from "../utils/logger";
-import type { EditorCoordinateResolver } from "../view-model/view-layout";
+import { useCallback } from 'react'
+import { EDITOR_CONSTANTS } from '@/features/editor/config/constants'
+import { editorAPI } from '@/features/editor/extensions/api'
+import { useCenterCursor } from '@/features/editor/hooks/use-center-cursor'
+import { getActiveWorkspaceStoreRef } from '@/features/workspace/stores/workspace-store-ref'
+import { useJumpListStore } from '@/features/editor/stores/jump-list-store'
+import { useEditorStateStore } from '@/features/editor/stores/state-store'
+import { calculateOffsetFromContentPosition } from '@/features/editor/utils/position'
+import { readFileContent } from '@/features/file-system/controllers/file-operations'
+import { logger } from '../utils/logger'
+import type { EditorCoordinateResolver } from '../view-model/view-layout'
 
 interface Definition {
-  uri: string;
+  uri: string
   range: {
-    start: { line: number; character: number };
-    end: { line: number; character: number };
-  };
+    start: { line: number; character: number }
+    end: { line: number; character: number }
+  }
 }
 
 interface UseGoToDefinitionProps {
@@ -23,12 +23,12 @@ interface UseGoToDefinitionProps {
     filePath: string,
     line: number,
     character: number,
-  ) => Promise<Definition[] | null>;
-  isLanguageSupported?: (filePath: string) => boolean;
-  filePath: string;
-  lineHeight: number;
-  charWidth: number;
-  resolveEditorPosition?: EditorCoordinateResolver;
+  ) => Promise<Definition[] | null>
+  isLanguageSupported?: (filePath: string) => boolean
+  filePath: string
+  lineHeight: number
+  charWidth: number
+  resolveEditorPosition?: EditorCoordinateResolver
 }
 
 export const useGoToDefinition = ({
@@ -39,59 +39,59 @@ export const useGoToDefinition = ({
   charWidth,
   resolveEditorPosition,
 }: UseGoToDefinitionProps) => {
-  const { centerCursorInViewport } = useCenterCursor();
+  const { centerCursorInViewport } = useCenterCursor()
 
   const handleClick = useCallback(
     async (e: React.MouseEvent<HTMLDivElement>) => {
       // Only handle Cmd+Click (Mac) or Ctrl+Click (Windows/Linux)
       if (!e.metaKey && !e.ctrlKey) {
-        return;
+        return
       }
 
-      if (!getDefinition || !isLanguageSupported?.(filePath || "")) {
-        return;
+      if (!getDefinition || !isLanguageSupported?.(filePath || '')) {
+        return
       }
 
-      e.preventDefault();
+      e.preventDefault()
 
-      const editor = e.currentTarget;
-      if (!editor) return;
+      const editor = e.currentTarget
+      if (!editor) return
 
-      const rect = editor.getBoundingClientRect();
-      const x = e.clientX - rect.left;
-      const y = e.clientY - rect.top;
+      const rect = editor.getBoundingClientRect()
+      const x = e.clientX - rect.left
+      const y = e.clientY - rect.top
 
       // Get scroll from textarea (the actual scrollable element)
-      const textarea = editor.querySelector("textarea");
-      const scrollTop = textarea?.scrollTop ?? 0;
-      const scrollLeft = textarea?.scrollLeft ?? 0;
+      const textarea = editor.querySelector('textarea')
+      const scrollTop = textarea?.scrollTop ?? 0
+      const scrollLeft = textarea?.scrollLeft ?? 0
 
       // Keep the fallback coordinate path aligned with editor content padding.
-      const contentOffsetX = EDITOR_CONSTANTS.EDITOR_PADDING_LEFT;
-      const paddingTop = EDITOR_CONSTANTS.EDITOR_PADDING_TOP;
+      const contentOffsetX = EDITOR_CONSTANTS.EDITOR_PADDING_LEFT
+      const paddingTop = EDITOR_CONSTANTS.EDITOR_PADDING_TOP
 
-      const resolvedPosition = resolveEditorPosition?.(e.clientX, e.clientY);
-      const line = resolvedPosition?.line ?? Math.floor((y - paddingTop + scrollTop) / lineHeight);
+      const resolvedPosition = resolveEditorPosition?.(e.clientX, e.clientY)
+      const line = resolvedPosition?.line ?? Math.floor((y - paddingTop + scrollTop) / lineHeight)
       const character =
-        resolvedPosition?.column ?? Math.floor((x - contentOffsetX + scrollLeft) / charWidth);
+        resolvedPosition?.column ?? Math.floor((x - contentOffsetX + scrollLeft) / charWidth)
 
       if (line >= 0 && character >= 0) {
         try {
-          logger.info("Editor", `Go to definition at ${filePath}:${line}:${character}`);
-          const definitions = await getDefinition(filePath || "", line, character);
+          logger.info('Editor', `Go to definition at ${filePath}:${line}:${character}`)
+          const definitions = await getDefinition(filePath || '', line, character)
 
           if (definitions && definitions.length > 0) {
-            const target = definitions[0];
-            const targetFilePath = target.uri.replace("file://", "");
+            const target = definitions[0]
+            const targetFilePath = target.uri.replace('file://', '')
 
-            const wsRef = getActiveWorkspaceStoreRef();
-            const wsStore = wsRef?.getState();
-            if (!wsStore) return;
+            const wsRef = getActiveWorkspaceStoreRef()
+            const wsStore = wsRef?.getState()
+            if (!wsStore) return
 
             // Push current position to jump list before navigating
-            const activeBufferId = wsStore.panes[wsStore.activePaneId]?.activeBufferId ?? null;
+            const activeBufferId = wsStore.panes[wsStore.activePaneId]?.activeBufferId ?? null
             if (activeBufferId && filePath) {
-              const editorState = useEditorStateStore.getState();
+              const editorState = useEditorStateStore.getState()
               useJumpListStore.getState().actions.pushEntry({
                 bufferId: activeBufferId,
                 filePath,
@@ -100,22 +100,22 @@ export const useGoToDefinition = ({
                 offset: editorState.cursorPosition.offset,
                 scrollTop: editorState.scrollTop,
                 scrollLeft: editorState.scrollLeft,
-              });
+              })
             }
-            const existingBuffer = wsStore.buffers.find((b) => b.path === targetFilePath);
+            const existingBuffer = wsStore.buffers.find((b) => b.path === targetFilePath)
 
             if (existingBuffer) {
-              wsStore.paneActions.activatePaneBuffer(wsStore.activePaneId, existingBuffer.id);
+              wsStore.paneActions.activatePaneBuffer(wsStore.activePaneId, existingBuffer.id)
             } else {
-              const content = await readFileContent(targetFilePath);
-              const fileName = targetFilePath.split("/").pop() || "untitled";
+              const content = await readFileContent(targetFilePath)
+              const fileName = targetFilePath.split('/').pop() || 'untitled'
               const bufferId = wsStore.bufferActions.openContent({
-                type: "editor",
+                type: 'editor',
                 path: targetFilePath,
                 name: fileName,
                 content,
-              });
-              wsStore.paneActions.activatePaneBuffer(wsStore.activePaneId, bufferId);
+              })
+              wsStore.paneActions.activatePaneBuffer(wsStore.activePaneId, bufferId)
             }
 
             // Set cursor position after buffer is ready
@@ -124,28 +124,28 @@ export const useGoToDefinition = ({
                 editorAPI.getContent(),
                 target.range.start.line,
                 target.range.start.character,
-              );
+              )
 
               editorAPI.setCursorPosition({
                 line: target.range.start.line,
                 column: target.range.start.character,
                 offset,
-              });
+              })
 
               requestAnimationFrame(() => {
-                centerCursorInViewport(target.range.start.line);
-              });
+                centerCursorInViewport(target.range.start.line)
+              })
 
               logger.info(
-                "Editor",
+                'Editor',
                 `Jumped to ${targetFilePath}:${target.range.start.line}:${target.range.start.character}`,
-              );
-            }, 100);
+              )
+            }, 100)
           } else {
-            logger.debug("Editor", "No definition found");
+            logger.debug('Editor', 'No definition found')
           }
         } catch (error) {
-          logger.error("Editor", "Go to definition error:", error);
+          logger.error('Editor', 'Go to definition error:', error)
         }
       }
     },
@@ -158,9 +158,9 @@ export const useGoToDefinition = ({
       centerCursorInViewport,
       resolveEditorPosition,
     ],
-  );
+  )
 
   return {
     handleClick,
-  };
-};
+  }
+}

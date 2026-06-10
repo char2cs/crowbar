@@ -23,7 +23,7 @@ export function loadFromLocalStorage(wsId: string): WorkspaceSnapshot | null {
     // Without this, stale buffers with isUncloseable:true show as phantom uncloseable tabs.
     if (snapshot.buffers) {
       snapshot.buffers = snapshot.buffers.filter(
-        b => !REMOVED_BUFFER_TYPES.has((b as { type: string }).type)
+        (b) => !REMOVED_BUFFER_TYPES.has((b as { type: string }).type),
       )
     }
     return snapshot

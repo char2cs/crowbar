@@ -34,8 +34,14 @@ export function buildWorkspaceTree(workspaces: Workspace[]): WorkspaceTreeNode[]
       let cycle = false
       const visited = new Set<string>()
       while (cursor) {
-        if (cursor.workspace.id === ws.id) { cycle = true; break }
-        if (visited.has(cursor.workspace.id)) { cycle = true; break }
+        if (cursor.workspace.id === ws.id) {
+          cycle = true
+          break
+        }
+        if (visited.has(cursor.workspace.id)) {
+          cycle = true
+          break
+        }
         visited.add(cursor.workspace.id)
         cursor = cursor.workspace.parentId ? nodeMap.get(cursor.workspace.parentId) : undefined
       }
@@ -48,12 +54,14 @@ export function buildWorkspaceTree(workspaces: Workspace[]): WorkspaceTreeNode[]
 
 function WorkspaceTreeInner() {
   const navigate = useNavigate()
-  const pathname = useRouterState({ select: s => s.location.pathname })
-  const repos = useSidebarStore(s => s.repos)
-  const collapsedRepos = useSidebarStore(s => s.collapsedRepos)
+  const pathname = useRouterState({ select: (s) => s.location.pathname })
+  const repos = useSidebarStore((s) => s.repos)
+  const collapsedRepos = useSidebarStore((s) => s.collapsedRepos)
   const { draggingWs, dragPos, hoverTargetId } = useWorkspaceTreeContext()
-  const wsListData = useWorkspaceListStore(s => s.data)
-  const retryWorkspaces = useCallback(() => { void useWorkspaceListStore.getState().fetch() }, [])
+  const wsListData = useWorkspaceListStore((s) => s.data)
+  const retryWorkspaces = useCallback(() => {
+    void useWorkspaceListStore.getState().fetch()
+  }, [])
 
   const activeWorkspaceId = pathname.match(/\/workspaces\/([^/]+)/)?.[1] ?? ''
 
@@ -73,7 +81,7 @@ function WorkspaceTreeInner() {
     <div className="flex flex-1 flex-col overflow-hidden">
       <ScrollArea className="flex-1">
         <div className="py-1">
-          {repos.map(repo => {
+          {repos.map((repo) => {
             const roots = buildWorkspaceTree(repo.workspaces)
             const isCollapsed = collapsedRepos.has(repo.id)
             const isRepoDragOver = hoverTargetId === `repo:${repo.id}`
@@ -89,12 +97,20 @@ function WorkspaceTreeInner() {
                   )}
                   onClick={() => useSidebarStore.getState().toggleRepo(repo.id)}
                   onKeyDown={(e) => {
-                    if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); useSidebarStore.getState().toggleRepo(repo.id) }
+                    if (e.key === 'Enter' || e.key === ' ') {
+                      e.preventDefault()
+                      useSidebarStore.getState().toggleRepo(repo.id)
+                    }
                   }}
                   aria-label={isCollapsed ? 'Expand repo' : 'Collapse repo'}
                   data-repo-drop={repo.id}
                 >
-                  <span className={cn('inline-flex h-4 w-4 shrink-0 items-center justify-center rounded px-1 text-[10px] font-bold text-primary-foreground', repo.avatarColor)}>
+                  <span
+                    className={cn(
+                      'inline-flex h-4 w-4 shrink-0 items-center justify-center rounded px-1 text-[10px] font-bold text-primary-foreground',
+                      repo.avatarColor,
+                    )}
+                  >
                     {repo.avatarLabel}
                   </span>
                   <span className="min-w-0 flex-1 truncate text-left font-mono text-muted-foreground/60">
@@ -104,7 +120,11 @@ function WorkspaceTreeInner() {
                     <svg
                       aria-hidden="true"
                       className={cn('size-3 transition-transform', !isCollapsed && 'rotate-90')}
-                      viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"
+                      viewBox="0 0 16 16"
+                      fill="none"
+                      stroke="currentColor"
+                      strokeWidth="2"
+                      strokeLinecap="round"
                     >
                       <path d="M6 3l5 5-5 5" />
                     </svg>
@@ -112,7 +132,7 @@ function WorkspaceTreeInner() {
                 </div>
                 {!isCollapsed && (
                   <div>
-                    {roots.map(node => (
+                    {roots.map((node) => (
                       <WorkspaceTreeItem
                         key={node.workspace.id}
                         node={node}

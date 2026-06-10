@@ -1,40 +1,40 @@
-import { Check, GitBranch, GitFork, Plus } from "@phosphor-icons/react";
-import { type KeyboardEvent, useCallback, useEffect, useMemo, useState } from "react";
-import { Button } from "@/components/ui/button";
-import { CommandEmpty, CommandItem, CommandList } from "@/components/ui/command";
-import { LoadingSpinner } from "@/components/ui/loading-spinner";
-import { cn } from "@/utils/cn";
-import { getFolderName } from "@/utils/path-helpers";
-import { addWorktree, getWorktrees } from "../api/git-worktrees-api";
-import type { GitWorktree } from "../types/git-types";
-import GitCommandSurface from "./git-command-surface";
+import { Check, GitBranch, GitFork, Plus } from '@phosphor-icons/react'
+import { type KeyboardEvent, useCallback, useEffect, useMemo, useState } from 'react'
+import { Button } from '@/components/ui/button'
+import { CommandEmpty, CommandItem, CommandList } from '@/components/ui/command'
+import { LoadingSpinner } from '@/components/ui/loading-spinner'
+import { cn } from '@/utils/cn'
+import { getFolderName } from '@/utils/path-helpers'
+import { addWorktree, getWorktrees } from '../api/git-worktrees-api'
+import type { GitWorktree } from '../types/git-types'
+import GitCommandSurface from './git-command-surface'
 
 interface GitWorktreeSwitcherProps {
-  repoPath?: string;
-  onWorktreeChange?: (repoPath: string) => void;
-  placement?: "up" | "down";
-  triggerIconSize?: number;
-  triggerClassName?: string;
-  triggerInputClassName?: string;
+  repoPath?: string
+  onWorktreeChange?: (repoPath: string) => void
+  placement?: 'up' | 'down'
+  triggerIconSize?: number
+  triggerClassName?: string
+  triggerInputClassName?: string
 }
 
 function getWorktreeLabel(worktree: GitWorktree | undefined, fallbackPath: string) {
-  return getFolderName(worktree?.path ?? fallbackPath);
+  return getFolderName(worktree?.path ?? fallbackPath)
 }
 
 function getBranchLabel(worktree: GitWorktree) {
-  return worktree.branch || (worktree.is_detached ? "Detached HEAD" : "No branch");
+  return worktree.branch || (worktree.is_detached ? 'Detached HEAD' : 'No branch')
 }
 
 function getFilteredWorktrees(worktrees: GitWorktree[], repoPath: string, query: string) {
   const sorted = [...worktrees].sort((a, b) => {
-    if (a.path === repoPath) return -1;
-    if (b.path === repoPath) return 1;
-    return getFolderName(a.path).localeCompare(getFolderName(b.path));
-  });
+    if (a.path === repoPath) return -1
+    if (b.path === repoPath) return 1
+    return getFolderName(a.path).localeCompare(getFolderName(b.path))
+  })
 
-  const normalizedQuery = query.trim().toLowerCase();
-  if (!normalizedQuery) return sorted;
+  const normalizedQuery = query.trim().toLowerCase()
+  if (!normalizedQuery) return sorted
 
   return sorted.filter((worktree) => {
     const searchable = [
@@ -44,142 +44,142 @@ function getFilteredWorktrees(worktrees: GitWorktree[], repoPath: string, query:
       worktree.head.slice(0, 7),
     ]
       .filter(Boolean)
-      .join(" ")
-      .toLowerCase();
+      .join(' ')
+      .toLowerCase()
 
-    return searchable.includes(normalizedQuery);
-  });
+    return searchable.includes(normalizedQuery)
+  })
 }
 
 function getCreateWorktreePath(worktrees: GitWorktree[], query: string) {
-  const trimmedQuery = query.trim();
-  if (!trimmedQuery) return null;
-  if (worktrees.some((worktree) => worktree.path === trimmedQuery)) return null;
+  const trimmedQuery = query.trim()
+  if (!trimmedQuery) return null
+  if (worktrees.some((worktree) => worktree.path === trimmedQuery)) return null
 
-  return trimmedQuery;
+  return trimmedQuery
 }
 
 const GitWorktreeSwitcher = ({
   repoPath,
   onWorktreeChange,
-  placement = "down",
+  placement = 'down',
   triggerIconSize,
   triggerClassName,
   triggerInputClassName,
 }: GitWorktreeSwitcherProps) => {
-  const [worktrees, setWorktrees] = useState<GitWorktree[]>([]);
-  const [worktreeQuery, setWorktreeQuery] = useState("");
-  const [selectedIndex, setSelectedIndex] = useState(0);
-  const [isLoading, setIsLoading] = useState(false);
-  const [isDropdownOpen, setIsDropdownOpen] = useState(false);
-  const activeRepoPath = repoPath ?? "";
-  const activeWorktree = worktrees.find((worktree) => worktree.path === activeRepoPath);
-  const triggerText = getWorktreeLabel(activeWorktree, activeRepoPath);
-  const triggerTextWidthCh = Math.min(Math.max(triggerText.length + 1, 6), 38);
+  const [worktrees, setWorktrees] = useState<GitWorktree[]>([])
+  const [worktreeQuery, setWorktreeQuery] = useState('')
+  const [selectedIndex, setSelectedIndex] = useState(0)
+  const [isLoading, setIsLoading] = useState(false)
+  const [isDropdownOpen, setIsDropdownOpen] = useState(false)
+  const activeRepoPath = repoPath ?? ''
+  const activeWorktree = worktrees.find((worktree) => worktree.path === activeRepoPath)
+  const triggerText = getWorktreeLabel(activeWorktree, activeRepoPath)
+  const triggerTextWidthCh = Math.min(Math.max(triggerText.length + 1, 6), 38)
   const filteredWorktrees = useMemo(
     () => getFilteredWorktrees(worktrees, activeRepoPath, worktreeQuery),
     [activeRepoPath, worktreeQuery, worktrees],
-  );
+  )
   const createWorktreePath = useMemo(
     () => getCreateWorktreePath(worktrees, worktreeQuery),
     [worktreeQuery, worktrees],
-  );
+  )
 
   const loadWorktrees = useCallback(async () => {
-    if (!repoPath) return;
+    if (!repoPath) return
 
-    setIsLoading(true);
+    setIsLoading(true)
     try {
-      const nextWorktrees = await getWorktrees(repoPath);
-      setWorktrees(nextWorktrees);
+      const nextWorktrees = await getWorktrees(repoPath)
+      setWorktrees(nextWorktrees)
     } finally {
-      setIsLoading(false);
+      setIsLoading(false)
     }
-  }, [repoPath]);
+  }, [repoPath])
 
   useEffect(() => {
     if (repoPath && isDropdownOpen) {
-      void loadWorktrees();
+      void loadWorktrees()
     }
-  }, [isDropdownOpen, loadWorktrees, repoPath]);
+  }, [isDropdownOpen, loadWorktrees, repoPath])
 
   useEffect(() => {
     if (!isDropdownOpen) {
-      setWorktreeQuery("");
-      setSelectedIndex(0);
+      setWorktreeQuery('')
+      setSelectedIndex(0)
     }
-  }, [isDropdownOpen]);
+  }, [isDropdownOpen])
 
   useEffect(() => {
-    setSelectedIndex(0);
-  }, [worktreeQuery]);
+    setSelectedIndex(0)
+  }, [worktreeQuery])
 
   if (!repoPath) {
-    return null;
+    return null
   }
 
   const handleOpenDropdown = async () => {
-    if (isDropdownOpen) return;
-    setIsDropdownOpen(true);
-    await loadWorktrees();
-  };
+    if (isDropdownOpen) return
+    setIsDropdownOpen(true)
+    await loadWorktrees()
+  }
 
   const handleWorktreeChange = (worktreePath: string) => {
     if (!worktreePath || worktreePath === repoPath) {
-      setIsDropdownOpen(false);
-      return;
+      setIsDropdownOpen(false)
+      return
     }
 
-    setIsDropdownOpen(false);
-    onWorktreeChange?.(worktreePath);
-  };
+    setIsDropdownOpen(false)
+    onWorktreeChange?.(worktreePath)
+  }
 
   const handleCreateWorktree = async (worktreePath: string) => {
-    if (!repoPath || !worktreePath.trim()) return;
+    if (!repoPath || !worktreePath.trim()) return
 
-    setIsLoading(true);
+    setIsLoading(true)
     try {
-      const success = await addWorktree(repoPath, worktreePath.trim());
-      if (!success) return;
+      const success = await addWorktree(repoPath, worktreePath.trim())
+      if (!success) return
 
-      await loadWorktrees();
-      setWorktreeQuery("");
-      setIsDropdownOpen(false);
-      onWorktreeChange?.(worktreePath.trim());
+      await loadWorktrees()
+      setWorktreeQuery('')
+      setIsDropdownOpen(false)
+      onWorktreeChange?.(worktreePath.trim())
     } finally {
-      setIsLoading(false);
+      setIsLoading(false)
     }
-  };
+  }
 
   const commandEntries = [
-    ...(createWorktreePath ? [{ type: "create" as const, value: createWorktreePath }] : []),
-    ...filteredWorktrees.map((worktree) => ({ type: "worktree" as const, value: worktree.path })),
-  ];
+    ...(createWorktreePath ? [{ type: 'create' as const, value: createWorktreePath }] : []),
+    ...filteredWorktrees.map((worktree) => ({ type: 'worktree' as const, value: worktree.path })),
+  ]
 
   const handleCommandKeyDown = (event: KeyboardEvent<HTMLInputElement>) => {
-    if (event.key === "ArrowDown") {
-      event.preventDefault();
-      setSelectedIndex((index) => Math.min(index + 1, Math.max(commandEntries.length - 1, 0)));
-      return;
+    if (event.key === 'ArrowDown') {
+      event.preventDefault()
+      setSelectedIndex((index) => Math.min(index + 1, Math.max(commandEntries.length - 1, 0)))
+      return
     }
 
-    if (event.key === "ArrowUp") {
-      event.preventDefault();
-      setSelectedIndex((index) => Math.max(index - 1, 0));
-      return;
+    if (event.key === 'ArrowUp') {
+      event.preventDefault()
+      setSelectedIndex((index) => Math.max(index - 1, 0))
+      return
     }
 
-    if (event.key === "Enter") {
-      event.preventDefault();
-      const selectedEntry = commandEntries[selectedIndex];
-      if (!selectedEntry) return;
-      if (selectedEntry.type === "create") {
-        void handleCreateWorktree(selectedEntry.value);
+    if (event.key === 'Enter') {
+      event.preventDefault()
+      const selectedEntry = commandEntries[selectedIndex]
+      if (!selectedEntry) return
+      if (selectedEntry.type === 'create') {
+        void handleCreateWorktree(selectedEntry.value)
       } else {
-        handleWorktreeChange(selectedEntry.value);
+        handleWorktreeChange(selectedEntry.value)
       }
     }
-  };
+  }
 
   return (
     <>
@@ -188,15 +188,15 @@ const GitWorktreeSwitcher = ({
         disabled={isLoading}
         variant="ghost"
         className={cn(
-          "inline-flex max-w-full shrink-0 overflow-hidden px-2 text-muted-foreground hover:bg-muted/80",
-          isDropdownOpen ? "bg-muted/80" : "cursor-pointer",
+          'inline-flex max-w-full shrink-0 overflow-hidden px-2 text-muted-foreground hover:bg-muted/80',
+          isDropdownOpen ? 'bg-muted/80' : 'cursor-pointer',
           triggerClassName,
         )}
         aria-label="Search worktrees"
       >
         <GitFork size={triggerIconSize} className="shrink-0" />
         <span
-          className={cn("ui-text-sm min-w-0 truncate font-normal", triggerInputClassName)}
+          className={cn('ui-text-sm min-w-0 truncate font-normal', triggerInputClassName)}
           style={{ maxWidth: `${triggerTextWidthCh}ch` }}
         >
           {triggerText}
@@ -210,8 +210,8 @@ const GitWorktreeSwitcher = ({
         onQueryChange={setWorktreeQuery}
         onInputKeyDown={handleCommandKeyDown}
         placeholder="Search worktrees..."
-        meta={`${worktrees.length} worktree${worktrees.length === 1 ? "" : "s"}`}
-        placement={placement === "up" ? "bottom" : "top"}
+        meta={`${worktrees.length} worktree${worktrees.length === 1 ? '' : 's'}`}
+        placement={placement === 'up' ? 'bottom' : 'top'}
       >
         <CommandList>
           {filteredWorktrees.length === 0 ? (
@@ -219,7 +219,7 @@ const GitWorktreeSwitcher = ({
               {isLoading ? (
                 <LoadingSpinner label="Loading worktrees" showLabel compact />
               ) : (
-                "No worktrees found"
+                'No worktrees found'
               )}
             </CommandEmpty>
           ) : null}
@@ -255,8 +255,8 @@ const GitWorktreeSwitcher = ({
         </CommandList>
       </GitCommandSurface>
     </>
-  );
-};
+  )
+}
 
 function WorktreeRow({
   worktree,
@@ -265,18 +265,21 @@ function WorktreeRow({
   onMouseEnter,
   onSelect,
 }: {
-  worktree: GitWorktree;
-  isCurrent: boolean;
-  isSelected: boolean;
-  onMouseEnter: () => void;
-  onSelect: () => void;
+  worktree: GitWorktree
+  isCurrent: boolean
+  isSelected: boolean
+  onMouseEnter: () => void
+  onSelect: () => void
 }) {
   return (
     <CommandItem
       isSelected={isSelected}
       onMouseEnter={onMouseEnter}
       onClick={onSelect}
-      className={cn("group ui-font", isCurrent ? "text-foreground" : "text-muted-foreground hover:text-foreground")}
+      className={cn(
+        'group ui-font',
+        isCurrent ? 'text-foreground' : 'text-muted-foreground hover:text-foreground',
+      )}
     >
       {isCurrent ? (
         <Check size={14} className="shrink-0 text-success" />
@@ -292,7 +295,7 @@ function WorktreeRow({
       </span>
       {isCurrent ? <span className="ui-text-xs ml-auto shrink-0 text-success">current</span> : null}
     </CommandItem>
-  );
+  )
 }
 
-export default GitWorktreeSwitcher;
+export default GitWorktreeSwitcher

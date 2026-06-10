@@ -1,48 +1,50 @@
-import { Eye } from "@phosphor-icons/react";
-import type { PaneContent } from "@/features/panes/types/pane-content";
-import type { Action } from "../models/action.types";
+import { Eye } from '@phosphor-icons/react'
+import type { MultiFileDiff } from '@/features/git/types/git-diff-types'
+import type { GitDiff } from '@/features/git/types/git-types'
+import type { PaneContent } from '@/features/panes/types/pane-content'
+import type { Action } from '../models/action.types'
 
 interface MarkdownActionsParams {
-  isMarkdownFile: boolean;
-  activeBuffer: PaneContent | null;
+  isMarkdownFile: boolean
+  activeBuffer: PaneContent | null
   openBuffer: (
     path: string,
     name: string,
     content: string,
     isImage?: boolean,
-    databaseType?: any,
+    databaseType?: string,
     isDiff?: boolean,
     isVirtual?: boolean,
-    diffData?: any,
+    diffData?: GitDiff | MultiFileDiff,
     isMarkdownPreview?: boolean,
     isHtmlPreview?: boolean,
     isCsvPreview?: boolean,
     sourceFilePath?: string,
-  ) => string;
-  onClose: () => void;
+  ) => string
+  onClose: () => void
 }
 
 export const createMarkdownActions = (params: MarkdownActionsParams): Action[] => {
-  const { isMarkdownFile, activeBuffer, openBuffer, onClose } = params;
+  const { isMarkdownFile, activeBuffer, openBuffer, onClose } = params
 
   if (!isMarkdownFile || !activeBuffer) {
-    return [];
+    return []
   }
 
   return [
     {
-      id: "markdown-preview",
-      label: "Markdown: Preview Markdown",
-      description: "Open markdown preview in a new tab",
+      id: 'markdown-preview',
+      label: 'Markdown: Preview Markdown',
+      description: 'Open markdown preview in a new tab',
       icon: <Eye />,
-      category: "Markdown",
+      category: 'Markdown',
       action: () => {
         // Create a virtual path for the preview
-        const previewPath = `${activeBuffer.path}:preview`;
-        const previewName = `${activeBuffer.name} (Preview)`;
+        const previewPath = `${activeBuffer.path}:preview`
+        const previewName = `${activeBuffer.name} (Preview)`
 
         // Open a new buffer for the preview
-        const content = activeBuffer.type === "editor" ? activeBuffer.content : "";
+        const content = activeBuffer.type === 'editor' ? activeBuffer.content : ''
         openBuffer(
           previewPath,
           previewName,
@@ -56,9 +58,9 @@ export const createMarkdownActions = (params: MarkdownActionsParams): Action[] =
           false, // isHtmlPreview
           false, // isCsvPreview
           activeBuffer.path, // sourceFilePath
-        );
-        onClose();
+        )
+        onClose()
       },
     },
-  ];
-};
+  ]
+}

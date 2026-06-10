@@ -1,16 +1,16 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from 'react'
 import {
   shouldSuppressUpdate,
   UPDATE_DISMISSED_EVENT,
   UPDATE_PREFERENCES_CHANGED_EVENT,
-} from "../lib/update-preferences";
-import { useUpdater } from "./use-updater";
+} from '../lib/update-preferences'
+import { useUpdater } from './use-updater'
 
-const UPDATE_CHECK_DELAY = 5000; // 5 seconds after app start
-const UPDATE_CHECK_INTERVAL = 4 * 60 * 60 * 1000; // 4 hours
+const UPDATE_CHECK_DELAY = 5000 // 5 seconds after app start
+const UPDATE_CHECK_INTERVAL = 4 * 60 * 60 * 1000 // 4 hours
 
 export const useAutoUpdate = () => {
-  const [showUpdateIndicator, setShowUpdateIndicator] = useState(false);
+  const [showUpdateIndicator, setShowUpdateIndicator] = useState(false)
   const {
     available,
     checking,
@@ -26,73 +26,73 @@ export const useAutoUpdate = () => {
     remindLater,
     skipVersion,
     viewReleaseNotes,
-  } = useUpdater(false); // Don't check on mount, we'll do it with a delay
+  } = useUpdater(false) // Don't check on mount, we'll do it with a delay
 
   // Check for updates after app starts (with delay)
   useEffect(() => {
     const timeoutId = setTimeout(() => {
-      checkForUpdates();
-    }, UPDATE_CHECK_DELAY);
+      checkForUpdates()
+    }, UPDATE_CHECK_DELAY)
 
     // Set up periodic check
     const intervalId = setInterval(() => {
-      checkForUpdates();
-    }, UPDATE_CHECK_INTERVAL);
+      checkForUpdates()
+    }, UPDATE_CHECK_INTERVAL)
 
     return () => {
-      clearTimeout(timeoutId);
-      clearInterval(intervalId);
-    };
-  }, [checkForUpdates]);
+      clearTimeout(timeoutId)
+      clearInterval(intervalId)
+    }
+  }, [checkForUpdates])
 
   // Show the footer update indicator when update is available
   useEffect(() => {
     if (available && updateInfo) {
-      setShowUpdateIndicator(true);
+      setShowUpdateIndicator(true)
     }
-  }, [available, updateInfo]);
+  }, [available, updateInfo])
 
   useEffect(() => {
     const hideUpdate = () => {
-      setShowUpdateIndicator(false);
-      dismissUpdate();
-    };
+      setShowUpdateIndicator(false)
+      dismissUpdate()
+    }
 
     const syncUpdatePreferences = () => {
       if (!updateInfo || !shouldSuppressUpdate(updateInfo)) {
-        return;
+        return
       }
 
-      hideUpdate();
-    };
+      hideUpdate()
+    }
 
-    window.addEventListener(UPDATE_DISMISSED_EVENT, hideUpdate);
-    window.addEventListener(UPDATE_PREFERENCES_CHANGED_EVENT, syncUpdatePreferences);
+    window.addEventListener(UPDATE_DISMISSED_EVENT, hideUpdate)
+    window.addEventListener(UPDATE_PREFERENCES_CHANGED_EVENT, syncUpdatePreferences)
 
     return () => {
-      window.removeEventListener(UPDATE_DISMISSED_EVENT, hideUpdate);
-      window.removeEventListener(UPDATE_PREFERENCES_CHANGED_EVENT, syncUpdatePreferences);
-    };
-  }, [dismissUpdate, updateInfo]);
+      window.removeEventListener(UPDATE_DISMISSED_EVENT, hideUpdate)
+      window.removeEventListener(UPDATE_PREFERENCES_CHANGED_EVENT, syncUpdatePreferences)
+    }
+  }, [dismissUpdate, updateInfo])
 
   const handleDismiss = useCallback(() => {
-    setShowUpdateIndicator(false);
-    downloadLater();
-  }, [downloadLater]);
+    setShowUpdateIndicator(false)
+    downloadLater()
+  }, [downloadLater])
 
   const handleDownload = useCallback(async () => {
-    await downloadAndInstall();
-  }, [downloadAndInstall]);
+    await downloadAndInstall()
+  }, [downloadAndInstall])
 
   const handleRemindLater = useCallback(() => {
-    setShowUpdateIndicator(false);
-    remindLater();
-  }, [remindLater]);
+    setShowUpdateIndicator(false)
+    remindLater()
+  }, [remindLater])
 
   const handleSkipVersion = useCallback(() => {
-    setShowUpdateIndicator(false);
-    skipVersion();
-  }, [skipVersion]);
+    setShowUpdateIndicator(false)
+    skipVersion()
+  }, [skipVersion])
 
   return {
     showUpdateIndicator,
@@ -108,5 +108,5 @@ export const useAutoUpdate = () => {
     onSkipVersion: handleSkipVersion,
     onViewReleaseNotes: viewReleaseNotes,
     checkForUpdates,
-  };
-};
+  }
+}

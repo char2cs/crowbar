@@ -3,8 +3,8 @@
  * This ensures diagnostics events are captured even before files are opened.
  */
 
-import { useEffect } from "react";
-import { LspClient } from "@/features/editor/lsp/lsp-client";
+import { useEffect } from 'react'
+import { LspClient } from '@/features/editor/lsp/lsp-client'
 
 /**
  * Initialize the LSP client singleton to set up diagnostics listener.
@@ -13,6 +13,6 @@ import { LspClient } from "@/features/editor/lsp/lsp-client";
 export function useLspInitialization() {
   useEffect(() => {
     // Initialize LspClient singleton - this triggers the diagnostics listener setup
-    LspClient.getInstance();
-  }, []);
+    LspClient.getInstance()
+  }, [])
 }

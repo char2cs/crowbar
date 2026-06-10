@@ -29,15 +29,26 @@ export function SlashCommandPalette({
     return commands.filter((c) => c.label.toLowerCase().includes(q))
   }, [commands, query])
 
-  useEffect(() => { setActiveIdx(0) }, [query])
+  useEffect(() => {
+    setActiveIdx(0)
+  }, [query])
 
   // Keyboard nav stays in the editor — the user keeps typing the `/query` there.
   useEffect(() => {
     const handler = (e: KeyboardEvent) => {
-      if (e.key === 'ArrowDown') { e.preventDefault(); setActiveIdx((i) => Math.min(i + 1, filtered.length - 1)) }
-      else if (e.key === 'ArrowUp') { e.preventDefault(); setActiveIdx((i) => Math.max(i - 1, 0)) }
-      else if (e.key === 'Enter') { e.preventDefault(); if (filtered[activeIdx]) onSelect(filtered[activeIdx]) }
-      else if (e.key === 'Escape') { e.preventDefault(); onClose() }
+      if (e.key === 'ArrowDown') {
+        e.preventDefault()
+        setActiveIdx((i) => Math.min(i + 1, filtered.length - 1))
+      } else if (e.key === 'ArrowUp') {
+        e.preventDefault()
+        setActiveIdx((i) => Math.max(i - 1, 0))
+      } else if (e.key === 'Enter') {
+        e.preventDefault()
+        if (filtered[activeIdx]) onSelect(filtered[activeIdx])
+      } else if (e.key === 'Escape') {
+        e.preventDefault()
+        onClose()
+      }
     }
     window.addEventListener('keydown', handler, true)
     return () => window.removeEventListener('keydown', handler, true)
@@ -63,7 +74,10 @@ export function SlashCommandPalette({
           key={cmd.id}
           type="button"
           // onMouseDown (not onClick) so the editor doesn't blur before select fires.
-          onMouseDown={(e) => { e.preventDefault(); onSelect(cmd) }}
+          onMouseDown={(e) => {
+            e.preventDefault()
+            onSelect(cmd)
+          }}
           onMouseEnter={() => setActiveIdx(i)}
           className={`flex w-full items-center rounded-md px-2 py-1.5 text-left font-mono text-sm outline-hidden transition-colors ${
             i === activeIdx ? 'bg-accent text-accent-foreground' : 'text-foreground'

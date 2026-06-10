@@ -1,75 +1,77 @@
 // FUTURE: call Go/Rust formatter service when running in desktop
-const invoke = async <T>(_cmd: string, _args?: unknown): Promise<T> => { return '' as T }
-import { extensionRegistry } from "@/extensions/registry/extension-registry";
-import { getLanguageIdFromPath } from "@/features/editor/utils/language-id";
-import { logger } from "@/features/editor/utils/logger";
-import { useFileSystemStore } from "@/features/file-system/controllers/store";
+const invoke = async <T>(_cmd: string, _args?: unknown): Promise<T> => {
+  return '' as T
+}
+import { extensionRegistry } from '@/extensions/registry/extension-registry'
+import { getLanguageIdFromPath } from '@/features/editor/utils/language-id'
+import { logger } from '@/features/editor/utils/logger'
+import { useFileSystemStore } from '@/features/file-system/controllers/store'
 
 export interface FormatOptions {
-  filePath: string;
-  content: string;
-  languageId?: string;
+  filePath: string
+  content: string
+  languageId?: string
 }
 
 export interface FormatRange {
-  start: { line: number; character: number };
-  end: { line: number; character: number };
+  start: { line: number; character: number }
+  end: { line: number; character: number }
 }
 
 export interface FormatRangeOptions extends FormatOptions {
-  range: FormatRange;
+  range: FormatRange
 }
 
 export interface FormatResult {
-  success: boolean;
-  formattedContent?: string;
-  error?: string;
+  success: boolean
+  formattedContent?: string
+  error?: string
 }
 
 /**
  * Format content using the configured formatter for the file type
  */
 export async function formatContent(options: FormatOptions): Promise<FormatResult> {
-  const { filePath, languageId } = options;
+  const { filePath, languageId } = options
 
   try {
     // Try to get formatter by file path first, then by language ID
-    let formatterConfig = extensionRegistry.getFormatterForFile(filePath);
+    let formatterConfig = extensionRegistry.getFormatterForFile(filePath)
 
     if (!formatterConfig && languageId) {
-      formatterConfig = extensionRegistry.getFormatterForLanguage(languageId);
+      formatterConfig = extensionRegistry.getFormatterForLanguage(languageId)
     }
 
     if (!formatterConfig) {
-      const lspFormatted = await formatWithLsp(filePath, options.content);
+      const lspFormatted = await formatWithLsp(filePath, options.content)
       if (lspFormatted !== null) {
         return {
           success: true,
           formattedContent: lspFormatted,
-        };
+        }
       }
 
-      logger.debug("FormatterService", `No formatter configured for ${filePath}`);
+      logger.debug('FormatterService', `No formatter configured for ${filePath}`)
       return {
         success: false,
-        error: "No formatter configured for this file type",
-      };
+        error: 'No formatter configured for this file type',
+      }
     }
 
-    logger.debug("FormatterService", `Formatting ${filePath} with ${formatterConfig.command}`);
+    logger.debug('FormatterService', `Formatting ${filePath} with ${formatterConfig.command}`)
 
-    const language = languageId || getLanguageIdFromPath(filePath) || "plaintext";
-    const formatterName = formatterConfig.name;
+    const language = languageId || getLanguageIdFromPath(filePath) || 'plaintext'
+    const formatterName = formatterConfig.name
 
     // Get workspace folder (if available)
-    const workspaceFolder = getWorkspaceFolder(filePath);
+    const workspaceFolder = getWorkspaceFolder(filePath)
 
     try {
       const response = await invoke<{
-        formatted_content: string;
-        success: boolean;
-        error?: string;
-      }>("format_code", {
+        formatted_content: string
+        success: boolean
+        error?: string
+      }>('format_code', {
         request: {
           content: options.content,
           language,
@@ -84,69 +86,69 @@ export async function formatContent(options: FormatOptions): Promise<FormatResul
           file_path: filePath,
           workspace_folder: workspaceFolder,
         },
-      });
+      })
 
       if (response.success) {
-        logger.debug("FormatterService", `Successfully formatted ${filePath}`);
+        logger.debug('FormatterService', `Successfully formatted ${filePath}`)
         return {
           success: true,
           formattedContent: response.formatted_content,
-        };
+        }
       }
 
-      logger.warn("FormatterService", `Formatting failed: ${response.error}`);
+      logger.warn('FormatterService', `Formatting failed: ${response.error}`)
       return {
         success: false,
-        error: response.error || "Formatting failed",
-      };
+        error: response.error || 'Formatting failed',
+      }
     } catch (error) {
-      logger.error("FormatterService", `Failed to invoke formatter:`, error);
-      throw error;
+      logger.error('FormatterService', `Failed to invoke formatter:`, error)
+      throw error
     }
   } catch (error) {
-    logger.error("FormatterService", `Failed to format ${filePath}:`, error);
+    logger.error('FormatterService', `Failed to format ${filePath}:`, error)
 
     return {
       success: false,
       error: error instanceof Error ? error.message : String(error),
-    };
+    }
   }
 }
 
 export async function formatRange(options: FormatRangeOptions): Promise<FormatResult> {
-  const { filePath, content, range } = options;
+  const { filePath, content, range } = options
 
   try {
-    const lspFormatted = await formatRangeWithLsp(filePath, content, range);
+    const lspFormatted = await formatRangeWithLsp(filePath, content, range)
     if (lspFormatted !== null) {
       return {
         success: true,
         formattedContent: lspFormatted,
-      };
+      }
     }
 
-    logger.debug("FormatterService", `No range formatter configured for ${filePath}`);
+    logger.debug('FormatterService', `No range formatter configured for ${filePath}`)
     return {
       success: false,
-      error: "No range formatter configured for this file type",
-    };
+      error: 'No range formatter configured for this file type',
+    }
   } catch (error) {
-    logger.error("FormatterService", `Failed to format range in ${filePath}:`, error);
+    logger.error('FormatterService', `Failed to format range in ${filePath}:`, error)
 
     return {
       success: false,
       error: error instanceof Error ? error.message : String(error),
-    };
+    }
   }
 }
 
 async function formatWithLsp(filePath: string, content: string): Promise<string | null> {
   try {
-    const { LspClient } = await import("@/features/editor/lsp/lsp-client");
-    return await LspClient.getInstance().formatDocument(filePath, content);
+    const { LspClient } = await import('@/features/editor/lsp/lsp-client')
+    return await LspClient.getInstance().formatDocument(filePath, content)
   } catch (error) {
-    logger.debug("FormatterService", `LSP formatter unavailable for ${filePath}:`, error);
-    return null;
+    logger.debug('FormatterService', `LSP formatter unavailable for ${filePath}:`, error)
+    return null
   }
 }
 
@@ -156,11 +158,11 @@ async function formatRangeWithLsp(
   range: FormatRange,
 ): Promise<string | null> {
   try {
-    const { LspClient } = await import("@/features/editor/lsp/lsp-client");
-    return await LspClient.getInstance().formatRange(filePath, content, range);
+    const { LspClient } = await import('@/features/editor/lsp/lsp-client')
+    return await LspClient.getInstance().formatRange(filePath, content, range)
   } catch (error) {
-    logger.debug("FormatterService", `LSP range formatter unavailable for ${filePath}:`, error);
-    return null;
+    logger.debug('FormatterService', `LSP range formatter unavailable for ${filePath}:`, error)
+    return null
   }
 }
 
@@ -168,30 +170,30 @@ async function formatRangeWithLsp(
  * Check if formatting is available for a file
  */
 export function isFormattingAvailable(filePath: string, languageId?: string): boolean {
-  const formatterConfig = extensionRegistry.getFormatterForFile(filePath);
-  if (formatterConfig) return true;
+  const formatterConfig = extensionRegistry.getFormatterForFile(filePath)
+  if (formatterConfig) return true
 
-  if (extensionRegistry.getLspServerPath(filePath)) return true;
+  if (extensionRegistry.getLspServerPath(filePath)) return true
 
   if (languageId) {
-    const langFormatterConfig = extensionRegistry.getFormatterForLanguage(languageId);
-    return langFormatterConfig !== null;
+    const langFormatterConfig = extensionRegistry.getFormatterForLanguage(languageId)
+    return langFormatterConfig !== null
   }
 
-  return false;
+  return false
 }
 
 /**
  * Get workspace folder from file path
  */
 function getWorkspaceFolder(filePath: string): string | undefined {
-  const rootFolderPath = useFileSystemStore.getState().rootFolderPath;
-  if (rootFolderPath) return rootFolderPath;
+  const rootFolderPath = useFileSystemStore.getState().rootFolderPath
+  if (rootFolderPath) return rootFolderPath
 
   // Fallback to file's directory if no project is open
-  const lastSlash = filePath.lastIndexOf("/");
+  const lastSlash = filePath.lastIndexOf('/')
   if (lastSlash > 0) {
-    return filePath.slice(0, lastSlash);
+    return filePath.slice(0, lastSlash)
   }
-  return undefined;
+  return undefined
 }

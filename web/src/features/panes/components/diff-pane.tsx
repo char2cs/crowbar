@@ -1,90 +1,84 @@
-import { lazy, Suspense, useCallback, useRef, useState } from "react";
-import type { GitHunk } from "@/features/git/types/git-types";
-import { CommentComposer } from "./comment-composer";
-import { ReviewThreadView } from "./review-thread";
+import { lazy, Suspense, useCallback, useRef, useState } from 'react'
+import type { GitHunk } from '@/features/git/types/git-types'
+import { CommentComposer } from './comment-composer'
+import { ReviewThreadView } from './review-thread'
 
-const DiffViewer = lazy(() => import("@/features/git/components/diff/git-diff-viewer"));
+const DiffViewer = lazy(() => import('@/features/git/components/diff/git-diff-viewer'))
 
 interface DiffPaneProps {
-  onStageHunk: (hunk: GitHunk) => Promise<void>;
-  onUnstageHunk: (hunk: GitHunk) => Promise<void>;
+  onStageHunk: (hunk: GitHunk) => Promise<void>
+  onUnstageHunk: (hunk: GitHunk) => Promise<void>
 }
 
 interface ReviewMessage {
-  id: string;
-  author: string | null;
-  isAgent: boolean;
-  body: string;
-  createdAt: string;
+  id: string
+  author: string | null
+  isAgent: boolean
+  body: string
+  createdAt: string
 }
 
 interface ReviewThread {
-  id: string;
-  filePath: string;
-  lineNumber: number;
-  side: "left" | "right";
-  messages: ReviewMessage[];
-  isResolved: boolean;
+  id: string
+  filePath: string
+  lineNumber: number
+  side: 'left' | 'right'
+  messages: ReviewMessage[]
+  isResolved: boolean
 }
 
 interface PendingComposer {
-  lineNumber: number;
-  side: "left" | "right";
-  anchorY: number;
+  lineNumber: number
+  side: 'left' | 'right'
+  anchorY: number
 }
 
-function estimateLineFromClickY(
-  containerEl: HTMLElement,
-  clickY: number,
-): number {
-  const rect = containerEl.getBoundingClientRect();
-  const relativeY = clickY - rect.top;
+function estimateLineFromClickY(containerEl: HTMLElement, clickY: number): number {
+  const rect = containerEl.getBoundingClientRect()
+  const relativeY = clickY - rect.top
   // Estimate ~20px per line (approximate default line height).
-  const estimated = Math.max(1, Math.round(relativeY / 20));
-  return estimated;
+  const estimated = Math.max(1, Math.round(relativeY / 20))
+  return estimated
 }
 
-function detectSideFromTarget(target: EventTarget | null): "left" | "right" {
-  if (!(target instanceof Element)) return "right";
+function detectSideFromTarget(target: EventTarget | null): 'left' | 'right' {
+  if (!(target instanceof Element)) return 'right'
   // In split view the left panel has border-r; check if element is inside the
   // first of two grid columns.
-  const leftPanel = target.closest(".grid-cols-2 > :first-child");
-  if (leftPanel) return "left";
-  return "right";
+  const leftPanel = target.closest('.grid-cols-2 > :first-child')
+  if (leftPanel) return 'left'
+  return 'right'
 }
 
 export function DiffPane({ onStageHunk, onUnstageHunk }: DiffPaneProps) {
-  const containerRef = useRef<HTMLDivElement>(null);
-  const [threads, setThreads] = useState<ReviewThread[]>([]);
-  const [pending, setPending] = useState<PendingComposer | null>(null);
+  const containerRef = useRef<HTMLDivElement>(null)
+  const [threads, setThreads] = useState<ReviewThread[]>([])
+  const [pending, setPending] = useState<PendingComposer | null>(null)
 
-  const handleContainerClick = useCallback(
-    (e: React.MouseEvent<HTMLDivElement>) => {
-      // Only trigger when Alt/Option key is held — avoids interfering with
-      // normal diff interaction (scrolling, code navigation, hunk actions).
-      if (!e.altKey) return;
+  const handleContainerClick = useCallback((e: React.MouseEvent<HTMLDivElement>) => {
+    // Only trigger when Alt/Option key is held — avoids interfering with
+    // normal diff interaction (scrolling, code navigation, hunk actions).
+    if (!e.altKey) return
 
-      e.preventDefault();
-      e.stopPropagation();
+    e.preventDefault()
+    e.stopPropagation()
 
-      const container = containerRef.current;
-      if (!container) return;
+    const container = containerRef.current
+    if (!container) return
 
-      const line = estimateLineFromClickY(container, e.clientY);
-      const side = detectSideFromTarget(e.target);
+    const line = estimateLineFromClickY(container, e.clientY)
+    const side = detectSideFromTarget(e.target)
 
-      setPending({ lineNumber: line, side, anchorY: e.clientY });
-    },
-    [],
-  );
+    setPending({ lineNumber: line, side, anchorY: e.clientY })
+  }, [])
 
   const handleComposerSubmit = useCallback(
     (body: string) => {
-      if (!pending) return;
+      if (!pending) return
 
       const newThread: ReviewThread = {
         id: crypto.randomUUID(),
-        filePath: "",
+        filePath: '',
         lineNumber: pending.lineNumber,
         side: pending.side,
         messages: [
@@ -97,17 +91,17 @@ export function DiffPane({ onStageHunk, onUnstageHunk }: DiffPaneProps) {
           },
         ],
         isResolved: false,
-      };
+      }
 
-      setThreads((prev) => [...prev, newThread]);
-      setPending(null);
+      setThreads((prev) => [...prev, newThread])
+      setPending(null)
     },
     [pending],
-  );
+  )
 
   const handleComposerCancel = useCallback(() => {
-    setPending(null);
-  }, []);
+    setPending(null)
+  }, [])
 
   const handleThreadReply = useCallback((threadId: string, body: string) => {
     setThreads((prev) =>
@@ -128,31 +122,23 @@ export function DiffPane({ onStageHunk, onUnstageHunk }: DiffPaneProps) {
             }
           : t,
       ),
-    );
-  }, []);
+    )
+  }, [])
 
   const handleThreadResolve = useCallback((threadId: string) => {
-    setThreads((prev) =>
-      prev.map((t) =>
-        t.id === threadId ? { ...t, isResolved: true } : t,
-      ),
-    );
-  }, []);
+    setThreads((prev) => prev.map((t) => (t.id === threadId ? { ...t, isResolved: true } : t)))
+  }, [])
 
   const handleThreadDelete = useCallback((threadId: string) => {
-    setThreads((prev) => prev.filter((t) => t.id !== threadId));
-  }, []);
+    setThreads((prev) => prev.filter((t) => t.id !== threadId))
+  }, [])
 
-  const hasThreadsOrPending = threads.length > 0 || pending !== null;
+  const hasThreadsOrPending = threads.length > 0 || pending !== null
 
   return (
     <div className="flex h-full flex-col overflow-hidden">
       {/* Diff viewer — click with Alt/Option held to open a comment composer */}
-      <div
-        ref={containerRef}
-        className="relative min-h-0 flex-1"
-        onClick={handleContainerClick}
-      >
+      <div ref={containerRef} className="relative min-h-0 flex-1" onClick={handleContainerClick}>
         <Suspense fallback={null}>
           <DiffViewer onStageHunk={onStageHunk} onUnstageHunk={onUnstageHunk} />
         </Suspense>
@@ -183,7 +169,7 @@ export function DiffPane({ onStageHunk, onUnstageHunk }: DiffPaneProps) {
 
           {pending && (
             <CommentComposer
-              title={`Add a comment on line ${pending.side === "left" ? "L" : "R"}${pending.lineNumber}`}
+              title={`Add a comment on line ${pending.side === 'left' ? 'L' : 'R'}${pending.lineNumber}`}
               onSubmit={handleComposerSubmit}
               onCancel={handleComposerCancel}
             />
@@ -191,5 +177,5 @@ export function DiffPane({ onStageHunk, onUnstageHunk }: DiffPaneProps) {
         </div>
       )}
     </div>
-  );
+  )
 }

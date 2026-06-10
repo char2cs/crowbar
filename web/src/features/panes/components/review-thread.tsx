@@ -54,19 +54,29 @@ export function ReviewThreadView({ thread, onReply, onResolve, onDelete }: Revie
     return (
       <div className="my-1 flex items-center gap-2 px-3 py-1 text-xs text-muted-foreground/40">
         <span>Thread resolved</span>
-        <button className="underline" onClick={() => setCollapsed(false)}>Show</button>
+        <button className="underline" onClick={() => setCollapsed(false)}>
+          Show
+        </button>
       </div>
     )
   }
 
   return (
-    <div className={cn('my-1 rounded-lg border border-border bg-muted/20', thread.isResolved && 'opacity-60')}>
-      {thread.messages.map(msg => (
+    <div
+      className={cn(
+        'my-1 rounded-lg border border-border bg-muted/20',
+        thread.isResolved && 'opacity-60',
+      )}
+    >
+      {thread.messages.map((msg) => (
         <div key={msg.id} className="border-b border-border/40 px-3 py-2 last:border-b-0">
           <div className="mb-1 flex items-center gap-1.5">
             <span className="text-[11px] font-semibold text-foreground">{msg.author ?? 'You'}</span>
             {msg.isAgent && (
-              <Badge variant="outline" className="h-3.5 border-primary/30 px-1 text-[9px] text-primary">
+              <Badge
+                variant="outline"
+                className="h-3.5 border-primary/30 px-1 text-[9px] text-primary"
+              >
                 agent
               </Badge>
             )}
@@ -80,7 +90,10 @@ export function ReviewThreadView({ thread, onReply, onResolve, onDelete }: Revie
           <CommentComposer
             placeholder="Reply…"
             submitLabel="Reply"
-            onSubmit={body => { onReply(body); setReplying(false) }}
+            onSubmit={(body) => {
+              onReply(body)
+              setReplying(false)
+            }}
             onCancel={() => setReplying(false)}
           />
         ) : (
@@ -92,7 +105,12 @@ export function ReviewThreadView({ thread, onReply, onResolve, onDelete }: Revie
               Reply…
             </button>
             {!thread.isResolved ? (
-              <Button size="sm" variant="ghost" className="h-7 px-2 text-[11px]" onClick={onResolve}>
+              <Button
+                size="sm"
+                variant="ghost"
+                className="h-7 px-2 text-[11px]"
+                onClick={onResolve}
+              >
                 Resolve
               </Button>
             ) : (

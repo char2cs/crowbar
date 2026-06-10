@@ -7,7 +7,9 @@ import { createLeaf } from '@/features/panes/utils/pane-layout'
 
 const mockLayout: WorkspaceLayout = {
   workspaceId: 'ws-persist-test',
-  panes: { [ROOT_PANE_ID]: { id: ROOT_PANE_ID, type: 'group', bufferIds: [], activeBufferId: null } },
+  panes: {
+    [ROOT_PANE_ID]: { id: ROOT_PANE_ID, type: 'group', bufferIds: [], activeBufferId: null },
+  },
   rootLayout: createLeaf(ROOT_PANE_ID),
   bottomLayout: createLeaf('bottom-pane'),
   activePaneId: ROOT_PANE_ID,

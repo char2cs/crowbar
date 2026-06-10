@@ -1,15 +1,24 @@
 import { describe, it, expect, beforeEach } from 'vitest'
 import { createStore } from 'zustand'
 import { immer } from 'zustand/middleware/immer'
-import { createTerminalSlice, type TerminalSlice } from '@/features/workspace/stores/slices/terminal-slice'
+import {
+  createTerminalSlice,
+  type TerminalSlice,
+} from '@/features/workspace/stores/slices/terminal-slice'
 
 function makeStore() {
-  return createStore<TerminalSlice>()(immer((set, get) => createTerminalSlice(set as any, get as any, {} as any)))
+  return createStore<TerminalSlice>()(
+    immer((set, get) =>
+      createTerminalSlice(...([set, get, {}] as unknown as Parameters<typeof createTerminalSlice>)),
+    ),
+  )
 }
 
 describe('terminal-slice', () => {
   let store: ReturnType<typeof makeStore>
-  beforeEach(() => { store = makeStore() })
+  beforeEach(() => {
+    store = makeStore()
+  })
 
   it('starts with no sessions and default layout', () => {
     expect(store.getState().terminalSessionIds.size).toBe(0)

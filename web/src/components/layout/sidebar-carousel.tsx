@@ -4,8 +4,8 @@ import { WorkspaceTree } from './workspace-tree'
 import { ChatTree } from './chat-tree'
 import { FileExplorerTree } from '@/features/file-explorer/components/file-explorer-tree'
 import { GitPanel } from '@/features/git/components/git-panel'
-import { ErrorBoundary } from '@/components/ErrorBoundary'
-import { SidebarSkeleton } from './SidebarSkeleton'
+import { ErrorBoundary } from '@/components/error-boundary'
+import { SidebarSkeleton } from './sidebar-skeleton'
 import { useFileTreeStore } from '@/features/file-explorer/stores/file-explorer-tree-store'
 import { useFileSystemStore } from '@/features/file-system/controllers/store'
 import { useSidebarStore, type SidebarTab } from '@/lib/store/sidebar'
@@ -17,11 +17,11 @@ interface SidebarCarouselProps {
 }
 
 export function SidebarCarousel({ activeWorkspaceRepoPath }: SidebarCarouselProps) {
-  const pathname = useRouterState({ select: s => s.location.pathname })
+  const pathname = useRouterState({ select: (s) => s.location.pathname })
   const activeWorkspaceId = pathname.match(/\/workspaces\/([^/]+)/)?.[1] ?? ''
-  const activeTab = useSidebarStore(s => s.activeTab)
-  const setActiveTab = useSidebarStore(s => s.setActiveTab)
-  const files = useFileSystemStore(s => s.files)
+  const activeTab = useSidebarStore((s) => s.activeTab)
+  const setActiveTab = useSidebarStore((s) => s.setActiveTab)
+  const files = useFileSystemStore((s) => s.files)
   const handleFileOpen = useFileSystemStore.use.handleFileOpen?.()
   const handleFileSelect = useFileSystemStore.use.handleFileSelect?.()
   const containerRef = useRef<HTMLDivElement>(null)
@@ -104,9 +104,13 @@ export function SidebarCarousel({ activeWorkspaceRepoPath }: SidebarCarouselProp
                   handleFileSelect?.(path, false)
                 }
               }}
-              onFileOpen={handleFileOpen ? (path: string, isDir: boolean) => {
-                if (!isDir) void handleFileOpen(path, false)
-              } : undefined}
+              onFileOpen={
+                handleFileOpen
+                  ? (path: string, isDir: boolean) => {
+                      if (!isDir) void handleFileOpen(path, false)
+                    }
+                  : undefined
+              }
               onCreateNewFileInDirectory={() => {}}
             />
           </Suspense>

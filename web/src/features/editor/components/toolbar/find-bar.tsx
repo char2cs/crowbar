@@ -1,26 +1,26 @@
-import type React from "react";
-import { useEffect, useRef } from "react";
-import { useShallow } from "zustand/react/shallow";
-import { useWorkspaceStore } from "@/features/workspace/stores/workspace-context";
-import { useEditorStateStore } from "@/features/editor/stores/state-store";
-import { useEditorUIStore } from "@/features/editor/stores/ui-store";
-import { hasTextContent } from "@/features/panes/types/pane-content";
-import { useUIState } from "@/features/window/stores/ui-state-store";
+import type React from 'react'
+import { useEffect, useRef } from 'react'
+import { useShallow } from 'zustand/react/shallow'
+import { useWorkspaceStore } from '@/features/workspace/stores/workspace-context'
+import { useEditorStateStore } from '@/features/editor/stores/state-store'
+import { useEditorUIStore } from '@/features/editor/stores/ui-store'
+import { hasTextContent } from '@/features/panes/types/pane-content'
+import { useUIState } from '@/features/window/stores/ui-state-store'
 import {
   SEARCH_TOGGLE_ICONS,
   SearchPopover,
   SearchReplaceRow,
   SearchReplaceToggle,
-} from "@/components/ui/search";
+} from '@/components/ui/search'
 
 const FindBar = () => {
-  const workspaceStore = useWorkspaceStore();
+  const workspaceStore = useWorkspaceStore()
   const { isFindVisible, setIsFindVisible } = useUIState(
     useShallow((state) => ({
       isFindVisible: state.isFindVisible,
       setIsFindVisible: state.setIsFindVisible,
     })),
-  );
+  )
   const {
     searchQuery,
     searchMatches,
@@ -39,7 +39,7 @@ const FindBar = () => {
       isReplaceVisible: state.isReplaceVisible,
       searchOptions: state.searchOptions,
     })),
-  );
+  )
   const {
     setSearchQuery,
     searchNext,
@@ -49,150 +49,150 @@ const FindBar = () => {
     setSearchOption,
     replaceNext,
     replaceAll,
-  } = useEditorUIStore.use.actions();
+  } = useEditorUIStore.use.actions()
 
-  const isVisible = isFindVisible;
+  const isVisible = isFindVisible
   const onClose = () => {
-    setIsFindVisible(false);
-    const { editorRef } = useEditorStateStore.getState();
-    const textarea = editorRef?.current?.querySelector("[data-monaco-editor-scroll] textarea");
+    setIsFindVisible(false)
+    const { editorRef } = useEditorStateStore.getState()
+    const textarea = editorRef?.current?.querySelector('[data-monaco-editor-scroll] textarea')
     if (textarea instanceof HTMLTextAreaElement) {
-      textarea.focus();
+      textarea.focus()
     }
-  };
-  const currentMatch = currentMatchIndex + 1;
-  const totalMatches = searchMatches.length;
-  const hasNoResults = Boolean(searchQuery) && totalMatches === 0;
-  const onSearch = (direction: "next" | "previous") => {
-    if (direction === "next") {
-      searchNext();
+  }
+  const currentMatch = currentMatchIndex + 1
+  const totalMatches = searchMatches.length
+  const hasNoResults = Boolean(searchQuery) && totalMatches === 0
+  const onSearch = (direction: 'next' | 'previous') => {
+    if (direction === 'next') {
+      searchNext()
     } else {
-      searchPrevious();
+      searchPrevious()
     }
-  };
-  const inputRef = useRef<HTMLInputElement>(null);
-  const replaceInputRef = useRef<HTMLInputElement>(null);
-  const wasVisibleRef = useRef(false);
+  }
+  const inputRef = useRef<HTMLInputElement>(null)
+  const replaceInputRef = useRef<HTMLInputElement>(null)
+  const wasVisibleRef = useRef(false)
 
   const getSelectedSearchText = () => {
-    const { selection, editorRef } = useEditorStateStore.getState();
-    if (!selection) return "";
+    const { selection, editorRef } = useEditorStateStore.getState()
+    if (!selection) return ''
 
-    const startOffset = Math.min(selection.start.offset, selection.end.offset);
-    const endOffset = Math.max(selection.start.offset, selection.end.offset);
+    const startOffset = Math.min(selection.start.offset, selection.end.offset)
+    const endOffset = Math.max(selection.start.offset, selection.end.offset)
 
-    if (startOffset === endOffset) return "";
+    if (startOffset === endOffset) return ''
 
-    const textarea = editorRef?.current?.querySelector("textarea");
+    const textarea = editorRef?.current?.querySelector('textarea')
     const editorContent = (() => {
       if (textarea instanceof HTMLTextAreaElement && textarea.value) {
-        return textarea.value;
+        return textarea.value
       }
 
-      const { panes, activePaneId, buffers } = workspaceStore.getState();
-      const activeBufferId = panes[activePaneId]?.activeBufferId ?? null;
+      const { panes, activePaneId, buffers } = workspaceStore.getState()
+      const activeBufferId = panes[activePaneId]?.activeBufferId ?? null
       const activeBuffer = activeBufferId
         ? buffers.find((candidate) => candidate.id === activeBufferId)
-        : null;
+        : null
 
-      return activeBuffer && hasTextContent(activeBuffer) ? activeBuffer.content : "";
-    })();
+      return activeBuffer && hasTextContent(activeBuffer) ? activeBuffer.content : ''
+    })()
 
-    const selectedText = editorContent.slice(startOffset, endOffset);
-    if (!selectedText || selectedText.includes("\n")) return "";
+    const selectedText = editorContent.slice(startOffset, endOffset)
+    if (!selectedText || selectedText.includes('\n')) return ''
 
-    return selectedText;
-  };
+    return selectedText
+  }
 
   // Focus input when find bar becomes visible
   useEffect(() => {
     if (!isVisible) {
-      wasVisibleRef.current = false;
-      return;
+      wasVisibleRef.current = false
+      return
     }
 
     if (!wasVisibleRef.current) {
-      const selectedText = getSelectedSearchText();
+      const selectedText = getSelectedSearchText()
       if (selectedText && selectedText !== searchQuery) {
-        setSearchQuery(selectedText);
+        setSearchQuery(selectedText)
       }
-      wasVisibleRef.current = true;
+      wasVisibleRef.current = true
       if (inputRef.current) {
-        inputRef.current.focus();
-        inputRef.current.select();
+        inputRef.current.focus()
+        inputRef.current.select()
       }
     }
-  }, [isVisible, searchQuery, setSearchQuery]);
+  }, [isVisible, searchQuery, setSearchQuery])
 
   // Global find navigation shortcuts while the popover is open
   useEffect(() => {
     const handleGlobalKeyDown = (e: KeyboardEvent) => {
-      if ((e.metaKey || e.ctrlKey) && e.key === "f") {
-        e.preventDefault();
-        onClose();
-        return;
+      if ((e.metaKey || e.ctrlKey) && e.key === 'f') {
+        e.preventDefault()
+        onClose()
+        return
       }
 
-      if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "g") {
-        e.preventDefault();
+      if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'g') {
+        e.preventDefault()
         if (e.shiftKey) {
-          searchPrevious();
+          searchPrevious()
         } else {
-          searchNext();
+          searchNext()
         }
       }
-    };
+    }
 
     if (isVisible) {
-      document.addEventListener("keydown", handleGlobalKeyDown);
+      document.addEventListener('keydown', handleGlobalKeyDown)
       return () => {
-        document.removeEventListener("keydown", handleGlobalKeyDown);
-      };
+        document.removeEventListener('keydown', handleGlobalKeyDown)
+      }
     }
-  }, [isVisible, onClose, searchNext, searchPrevious]);
+  }, [isVisible, onClose, searchNext, searchPrevious])
 
   const handleKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
-    if (e.key === "Enter") {
-      e.preventDefault();
+    if (e.key === 'Enter') {
+      e.preventDefault()
       if (e.shiftKey) {
-        onSearch("previous");
+        onSearch('previous')
       } else {
-        onSearch("next");
+        onSearch('next')
       }
-    } else if (e.key === "Tab" && isReplaceVisible) {
-      e.preventDefault();
-      replaceInputRef.current?.focus();
-      replaceInputRef.current?.select();
-    } else if (e.key === "Escape") {
-      e.preventDefault();
-      onClose();
+    } else if (e.key === 'Tab' && isReplaceVisible) {
+      e.preventDefault()
+      replaceInputRef.current?.focus()
+      replaceInputRef.current?.select()
+    } else if (e.key === 'Escape') {
+      e.preventDefault()
+      onClose()
     }
-  };
+  }
 
   const handleReplaceKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
-    if (e.key === "Enter") {
-      e.preventDefault();
+    if (e.key === 'Enter') {
+      e.preventDefault()
       if (e.shiftKey) {
-        replaceAll();
+        replaceAll()
       } else {
-        replaceNext();
+        replaceNext()
       }
-    } else if (e.key === "Tab" && e.shiftKey) {
-      e.preventDefault();
-      inputRef.current?.focus();
-      inputRef.current?.select();
-    } else if (e.key === "Tab") {
-      e.preventDefault();
-      inputRef.current?.focus();
-      inputRef.current?.select();
-    } else if (e.key === "Escape") {
-      e.preventDefault();
-      onClose();
+    } else if (e.key === 'Tab' && e.shiftKey) {
+      e.preventDefault()
+      inputRef.current?.focus()
+      inputRef.current?.select()
+    } else if (e.key === 'Tab') {
+      e.preventDefault()
+      inputRef.current?.focus()
+      inputRef.current?.select()
+    } else if (e.key === 'Escape') {
+      e.preventDefault()
+      onClose()
     }
-  };
+  }
 
   if (!isVisible) {
-    return null;
+    return null
   }
 
   return (
@@ -208,13 +208,13 @@ const FindBar = () => {
           matchLabel={
             searchQuery
               ? totalMatches > 0
-                ? `${currentMatch}/${totalMatches}${searchResultsLimited ? "+" : ""}`
-                : "No results"
+                ? `${currentMatch}/${totalMatches}${searchResultsLimited ? '+' : ''}`
+                : 'No results'
               : null
           }
-          matchTone={hasNoResults ? "warning" : "default"}
-          onNext={() => onSearch("next")}
-          onPrevious={() => onSearch("previous")}
+          matchTone={hasNoResults ? 'warning' : 'default'}
+          onNext={() => onSearch('next')}
+          onPrevious={() => onSearch('previous')}
           canNavigate={Boolean(searchQuery) && totalMatches > 0}
           leadingControl={
             <SearchReplaceToggle
@@ -224,34 +224,34 @@ const FindBar = () => {
           }
           options={[
             {
-              id: "case-sensitive",
-              label: "Match case",
+              id: 'case-sensitive',
+              label: 'Match case',
               icon: SEARCH_TOGGLE_ICONS.caseSensitive,
               active: searchOptions.caseSensitive,
-              onToggle: () => setSearchOption("caseSensitive", !searchOptions.caseSensitive),
+              onToggle: () => setSearchOption('caseSensitive', !searchOptions.caseSensitive),
             },
             {
-              id: "whole-word",
-              label: "Match whole word",
+              id: 'whole-word',
+              label: 'Match whole word',
               icon: SEARCH_TOGGLE_ICONS.wholeWord,
               active: searchOptions.wholeWord,
-              onToggle: () => setSearchOption("wholeWord", !searchOptions.wholeWord),
+              onToggle: () => setSearchOption('wholeWord', !searchOptions.wholeWord),
             },
             {
-              id: "regex",
-              label: "Use regular expression",
+              id: 'regex',
+              label: 'Use regular expression',
               icon: SEARCH_TOGGLE_ICONS.regex,
               active: searchOptions.useRegex,
-              onToggle: () => setSearchOption("useRegex", !searchOptions.useRegex),
+              onToggle: () => setSearchOption('useRegex', !searchOptions.useRegex),
             },
             ...(isReplaceVisible
               ? [
                   {
-                    id: "preserve-case",
-                    label: "Preserve case",
+                    id: 'preserve-case',
+                    label: 'Preserve case',
                     icon: SEARCH_TOGGLE_ICONS.preserveCase,
                     active: searchOptions.preserveCase,
-                    onToggle: () => setSearchOption("preserveCase", !searchOptions.preserveCase),
+                    onToggle: () => setSearchOption('preserveCase', !searchOptions.preserveCase),
                   },
                 ]
               : []),
@@ -268,7 +268,7 @@ const FindBar = () => {
                 canReplace={Boolean(searchQuery) && totalMatches > 0}
                 canReplaceAll={Boolean(searchQuery) && totalMatches > 0 && !searchResultsLimited}
                 replaceAllTooltip={
-                  searchResultsLimited ? "Refine search to replace all matches" : undefined
+                  searchResultsLimited ? 'Refine search to replace all matches' : undefined
                 }
               />
             ) : null
@@ -276,7 +276,7 @@ const FindBar = () => {
         />
       </div>
     </div>
-  );
-};
+  )
+}
 
-export default FindBar;
+export default FindBar

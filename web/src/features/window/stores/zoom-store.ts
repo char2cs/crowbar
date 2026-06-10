@@ -1,6 +1,6 @@
 // Stub
-import { create } from "zustand"
-import { createSelectors } from "@/utils/zustand-selectors"
+import { create } from 'zustand'
+import { createSelectors } from '@/utils/zustand-selectors'
 
 interface ZoomActions {
   zoomIn: () => void

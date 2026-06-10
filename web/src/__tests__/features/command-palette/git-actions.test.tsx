@@ -1,5 +1,5 @@
-import { describe, expect, it, vi } from "vitest";
-import { createGitActions } from "@/features/command-palette/constants/git-actions";
+import { describe, expect, it, vi } from 'vitest'
+import { createGitActions } from '@/features/command-palette/constants/git-actions'
 
 function createActions() {
   return {
@@ -21,39 +21,39 @@ function createActions() {
       fetchChanges: vi.fn(),
       discardAllChanges: vi.fn(),
     },
-  };
+  }
 }
 
-describe("createGitActions", () => {
-  it("opens the stash surface without switching the sidebar to git", () => {
-    const params = createActions();
-    const dispatchEvent = vi.fn();
-    vi.stubGlobal("window", {
+describe('createGitActions', () => {
+  it('opens the stash surface without switching the sidebar to git', () => {
+    const params = createActions()
+    const dispatchEvent = vi.fn()
+    vi.stubGlobal('window', {
       CustomEvent,
       dispatchEvent,
       setTimeout: (callback: () => void) => {
-        callback();
-        return 0;
+        callback()
+        return 0
       },
-    });
+    })
 
     const actions = createGitActions({
-      rootFolderPath: "/repo",
+      rootFolderPath: '/repo',
       activeRepoPath: null,
       ...params,
-    });
+    })
 
-    actions.find((action) => action.id === "git-view-stashes")?.action();
+    actions.find((action) => action.id === 'git-view-stashes')?.action()
 
-    expect(params.onClose).toHaveBeenCalledOnce();
-    expect(params.setIsSidebarVisible).not.toHaveBeenCalled();
-    expect(params.setActiveView).not.toHaveBeenCalled();
+    expect(params.onClose).toHaveBeenCalledOnce()
+    expect(params.setIsSidebarVisible).not.toHaveBeenCalled()
+    expect(params.setActiveView).not.toHaveBeenCalled()
     expect(dispatchEvent).toHaveBeenCalledWith(
       expect.objectContaining({
-        detail: { type: "view-stashes" },
+        detail: { type: 'view-stashes' },
       }),
-    );
+    )
 
-    vi.unstubAllGlobals();
-  });
-});
+    vi.unstubAllGlobals()
+  })
+})

@@ -29,7 +29,10 @@ export function useTabBarScroll({
     const ro = new ResizeObserver(check)
     ro.observe(el)
     window.addEventListener('resize', check)
-    return () => { ro.disconnect(); window.removeEventListener('resize', check) }
+    return () => {
+      ro.disconnect()
+      window.removeEventListener('resize', check)
+    }
   }, [sidebarPosition])
 
   const canScrollTabsHorizontally = useCallback(() => {

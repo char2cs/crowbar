@@ -98,9 +98,13 @@ jobs:
         run: cd web && bun eslint src
       - name: TypeScript
         run: cd web && bun tsc --noEmit
-      - name: Test coverage (≥70%)
+      - name: Test coverage (ratchet)
         run: cd web && bun run test:coverage
       - name: Build
+        # vite build (rollup + tsc) outgrew Node's default ~2GB heap on the
+        # runner; give it room instead of letting CI die with exit 134.
+        env:
+          NODE_OPTIONS: --max-old-space-size=6144
         run: cd web && bun run build
 
   tauri-checks:

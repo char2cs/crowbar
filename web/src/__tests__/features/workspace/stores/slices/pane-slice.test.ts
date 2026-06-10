@@ -6,7 +6,11 @@ import { createPaneSlice, type PaneSlice } from '@/features/workspace/stores/sli
 import { ROOT_PANE_ID, BOTTOM_PANE_ID } from '@/features/panes/constants/pane'
 
 function makeStore() {
-  return createStore<PaneSlice>()(immer((set, get) => createPaneSlice(set as any, get as any, {} as any)))
+  return createStore<PaneSlice>()(
+    immer((set, get) =>
+      createPaneSlice(...([set, get, {}] as unknown as Parameters<typeof createPaneSlice>)),
+    ),
+  )
 }
 
 describe('pane-slice', () => {
@@ -56,7 +60,7 @@ describe('pane-slice', () => {
     const groups = actions.getAllPaneGroups()
     // 2 from the paneRoot split + 1 from bottomRoot
     expect(groups).toHaveLength(3)
-    const ids = groups.map(g => g.id)
+    const ids = groups.map((g) => g.id)
     expect(ids).toContain(ROOT_PANE_ID)
     expect(ids).toContain(BOTTOM_PANE_ID)
   })
@@ -88,7 +92,7 @@ describe('pane-slice bottomRoot routing', () => {
 
   it('getAllPaneGroups includes groups from both paneRoot and bottomRoot', () => {
     const groups = store.getState().paneActions.getAllPaneGroups()
-    const ids = groups.map(g => g.id)
+    const ids = groups.map((g) => g.id)
     expect(ids).toContain(ROOT_PANE_ID)
     expect(ids).toContain(BOTTOM_PANE_ID)
   })

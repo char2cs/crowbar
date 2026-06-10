@@ -6,6 +6,8 @@ import (
 
 	"github.com/gin-gonic/gin"
 
+	"github.com/char2cs/crowbar/api/internal/api/libs"
+
 	enginesearch "github.com/char2cs/crowbar/api/internal/engine/search"
 )
 
@@ -14,14 +16,14 @@ func (h *Handlers) Search(
 	ctx *gin.Context,
 ) {
 	if h.searchEng == nil {
-		ctx.JSON(http.StatusServiceUnavailable, gin.H{"error": "search engine not available"})
+		libs.WriteErr(ctx, http.StatusServiceUnavailable, "search engine not available")
 		return
 	}
 
 	wsID := ctx.Param("wsId")
 	ws, err := h.wsReader.Get(ctx.Request.Context(), wsID)
 	if err != nil {
-		ctx.JSON(http.StatusNotFound, gin.H{"error": "workspace not found"})
+		libs.WriteErr(ctx, http.StatusNotFound, "workspace not found")
 		return
 	}
 
@@ -34,12 +36,12 @@ func (h *Handlers) Search(
 		Exclude       []string `json:"exclude"`
 	}
 	if err := ctx.ShouldBindJSON(&body); err != nil {
-		ctx.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		libs.WriteErr(ctx, http.StatusBadRequest, err.Error())
 		return
 	}
 
 	if body.Query == "" {
-		ctx.JSON(http.StatusBadRequest, gin.H{"error": "query is required"})
+		libs.WriteErr(ctx, http.StatusBadRequest, "query is required")
 		return
 	}
 
@@ -56,7 +58,7 @@ func (h *Handlers) Search(
 		return
 	}
 
-	ctx.JSON(http.StatusOK, resp)
+	libs.WriteQueryOK(ctx, resp)
 }
 
 // Replace handles POST /v0/workspaces/:wsId/search/replace.
@@ -64,14 +66,14 @@ func (h *Handlers) Replace(
 	ctx *gin.Context,
 ) {
 	if h.searchEng == nil {
-		ctx.JSON(http.StatusServiceUnavailable, gin.H{"error": "search engine not available"})
+		libs.WriteErr(ctx, http.StatusServiceUnavailable, "search engine not available")
 		return
 	}
 
 	wsID := ctx.Param("wsId")
 	ws, err := h.wsReader.Get(ctx.Request.Context(), wsID)
 	if err != nil {
-		ctx.JSON(http.StatusNotFound, gin.H{"error": "workspace not found"})
+		libs.WriteErr(ctx, http.StatusNotFound, "workspace not found")
 		return
 	}
 
@@ -84,7 +86,7 @@ func (h *Handlers) Replace(
 		Regex         bool   `json:"regex"`
 	}
 	if err := ctx.ShouldBindJSON(&body); err != nil {
-		ctx.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		libs.WriteErr(ctx, http.StatusBadRequest, err.Error())
 		return
 	}
 
@@ -110,10 +112,10 @@ func handleSearchError(
 	err error,
 ) {
 	if errors.Is(err, enginesearch.ErrBadPattern) {
-		ctx.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		libs.WriteErr(ctx, http.StatusBadRequest, err.Error())
 		return
 	}
-	ctx.JSON(http.StatusInternalServerError, gin.H{"error": "search failed"})
+	libs.WriteErr(ctx, http.StatusInternalServerError, "search failed")
 }
 
 // handleReplaceError maps Replace errors to appropriate HTTP responses.
@@ -123,12 +125,12 @@ func handleReplaceError(
 ) {
 	switch {
 	case errors.Is(err, enginesearch.ErrLocked):
-		ctx.JSON(http.StatusForbidden, gin.H{"error": "workspace is locked"})
+		libs.WriteErr(ctx, http.StatusForbidden, "workspace is locked")
 	case errors.Is(err, enginesearch.ErrPathOutsideWorkspace):
-		ctx.JSON(http.StatusBadRequest, gin.H{"error": "replace path is outside the workspace"})
+		libs.WriteErr(ctx, http.StatusBadRequest, "replace path is outside the workspace")
 	case errors.Is(err, enginesearch.ErrBadPattern):
-		ctx.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		libs.WriteErr(ctx, http.StatusBadRequest, err.Error())
 	default:
-		ctx.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		libs.WriteErr(ctx, http.StatusInternalServerError, err.Error())
 	}
 }

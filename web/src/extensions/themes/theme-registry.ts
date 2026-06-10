@@ -1,4 +1,4 @@
-import type { ThemeDefinition } from "./types"
+import type { ThemeDefinition } from './types'
 import {
   CROWBAR_BOOTSTRAP_DEFAULTS,
   applyBootstrapAppearance,
@@ -6,10 +6,13 @@ import {
   writeAppearanceBootstrapCache,
   sanitizeVarMap,
   DEFAULT_APPEARANCE_BOOTSTRAP_CACHE,
-} from "@/features/settings/lib/appearance-bootstrap"
+} from '@/features/settings/lib/appearance-bootstrap'
 
 // Re-export so callers can still use it from here
-export { cacheThemeForBootstrap, sanitizeVarMap } from "@/features/settings/lib/appearance-bootstrap"
+export {
+  cacheThemeForBootstrap,
+  sanitizeVarMap,
+} from '@/features/settings/lib/appearance-bootstrap'
 
 function prefixRecord(prefix: string, record: Record<string, string>): Record<string, string> {
   const result: Record<string, string> = {}
@@ -27,23 +30,23 @@ interface DualModeVariants {
 
 const CROWBAR_VARIANTS: DualModeVariants = {
   dark: {
-    cssVariables: prefixRecord("--", CROWBAR_BOOTSTRAP_DEFAULTS.dark.colors),
-    syntaxTokens: prefixRecord("--syntax-", CROWBAR_BOOTSTRAP_DEFAULTS.dark.syntax),
+    cssVariables: prefixRecord('--', CROWBAR_BOOTSTRAP_DEFAULTS.dark.colors),
+    syntaxTokens: prefixRecord('--syntax-', CROWBAR_BOOTSTRAP_DEFAULTS.dark.syntax),
   },
   light: {
-    cssVariables: prefixRecord("--", CROWBAR_BOOTSTRAP_DEFAULTS.light.colors),
-    syntaxTokens: prefixRecord("--syntax-", CROWBAR_BOOTSTRAP_DEFAULTS.light.syntax),
+    cssVariables: prefixRecord('--', CROWBAR_BOOTSTRAP_DEFAULTS.light.colors),
+    syntaxTokens: prefixRecord('--syntax-', CROWBAR_BOOTSTRAP_DEFAULTS.light.syntax),
   },
 }
 
 /** Built-in themes exposed in the UI. Each theme handles its own light/dark palette internally. */
 const BUILTIN_THEMES: ThemeDefinition[] = [
   {
-    id: "crowbar",
-    name: "Crowbar",
-    isDark: true,      // default palette is dark; actual type follows current Theme Mode
-    type: "dark",
-    category: "Dark",
+    id: 'crowbar',
+    name: 'Crowbar',
+    isDark: true, // default palette is dark; actual type follows current Theme Mode
+    type: 'dark',
+    category: 'Dark',
     // cssVariables are intentionally left unset here — applyTheme picks the right palette at runtime
     cssVariables: CROWBAR_VARIANTS.dark.cssVariables,
     syntaxTokens: CROWBAR_VARIANTS.dark.syntaxTokens,
@@ -60,7 +63,7 @@ export class ThemeRegistry {
     for (const theme of BUILTIN_THEMES) {
       this.themes.set(theme.id, theme)
     }
-    this.dualModeVariants.set("crowbar", CROWBAR_VARIANTS)
+    this.dualModeVariants.set('crowbar', CROWBAR_VARIANTS)
   }
 
   getTheme(id: string): ThemeDefinition | undefined {
@@ -90,8 +93,8 @@ export class ThemeRegistry {
     const theme = this.themes.get(themeId)
     if (!theme) {
       // Unknown theme — fall back to toggling dark class by name convention
-      if (typeof document !== "undefined") {
-        document.documentElement.classList.toggle("dark", !themeId.includes("light"))
+      if (typeof document !== 'undefined') {
+        document.documentElement.classList.toggle('dark', !themeId.includes('light'))
       }
       return
     }
@@ -100,13 +103,14 @@ export class ThemeRegistry {
 
     // Determine the active mode from the DOM (applyThemeMode runs before applyTheme)
     const isDark =
-      typeof document !== "undefined" &&
-      document.documentElement.classList.contains("dark")
+      typeof document !== 'undefined' && document.documentElement.classList.contains('dark')
 
     // Pick the right palette for dual-mode themes; fall back to theme's own cssVariables
     const variants = this.dualModeVariants.get(themeId)
     const palette = variants
-      ? isDark ? variants.dark : variants.light
+      ? isDark
+        ? variants.dark
+        : variants.light
       : { cssVariables: theme.cssVariables ?? {}, syntaxTokens: theme.syntaxTokens ?? {} }
 
     // Update the in-memory theme definition so getTheme() returns the correct isDark flag
@@ -122,7 +126,7 @@ export class ThemeRegistry {
     const next = {
       ...existing,
       themeId,
-      themeType: (isDark ? "dark" : "light") as "dark" | "light",
+      themeType: (isDark ? 'dark' : 'light') as 'dark' | 'light',
       cssVariables: sanitizeVarMap(palette.cssVariables),
       syntaxTokens: sanitizeVarMap(palette.syntaxTokens),
     }

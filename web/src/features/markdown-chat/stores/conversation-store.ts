@@ -16,19 +16,14 @@ type ConversationStore = ReturnType<typeof createConversationStore>
 function createConversationStore() {
   return createStore<ConversationState>((set) => ({
     turns: [],
-    appendTurn: (turn) =>
-      set((s) => ({ turns: [...s.turns, turn] })),
+    appendTurn: (turn) => set((s) => ({ turns: [...s.turns, turn] })),
     updateStreamingTurn: (id, delta) =>
       set((s) => ({
-        turns: s.turns.map((t) =>
-          t.id === id ? { ...t, content: t.content + delta } : t
-        ),
+        turns: s.turns.map((t) => (t.id === id ? { ...t, content: t.content + delta } : t)),
       })),
     finalizeStreamingTurn: (id) =>
       set((s) => ({
-        turns: s.turns.map((t) =>
-          t.id === id ? { ...t, streaming: false } : t
-        ),
+        turns: s.turns.map((t) => (t.id === id ? { ...t, streaming: false } : t)),
       })),
     updateWidgetPayload: (turnId, widgetId, payload) =>
       set((s) => ({
@@ -38,17 +33,15 @@ function createConversationStore() {
             : {
                 ...t,
                 widgets: t.widgets.map((w: WidgetData) =>
-                  w.id === widgetId ? { ...w, payload } : w
+                  w.id === widgetId ? { ...w, payload } : w,
                 ),
-              }
+              },
         ),
       })),
     appendWidget: (turnId, widget) =>
       set((s) => ({
         turns: s.turns.map((t) =>
-          t.id !== turnId
-            ? t
-            : { ...t, widgets: [...t.widgets, widget] }
+          t.id !== turnId ? t : { ...t, widgets: [...t.widgets, widget] },
         ),
       })),
   }))

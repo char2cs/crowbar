@@ -3,19 +3,19 @@
  * Enable by setting localStorage.setItem('debug-scroll', 'true')
  */
 
-import { useEffect, useState } from "react";
-import { useEditorSettingsStore } from "../../stores/settings-store";
-import { useEditorStateStore } from "../../stores/state-store";
-import { getLineHeight } from "../../utils/position";
+import { useEffect, useState } from 'react'
+import { useEditorSettingsStore } from '../../stores/settings-store'
+import { useEditorStateStore } from '../../stores/state-store'
+import { getLineHeight } from '../../utils/position'
 
 interface ScrollMetrics {
-  scrollTop: number;
-  scrollLeft: number;
-  viewportHeight: number;
-  visibleStartLine: number;
-  visibleEndLine: number;
-  fps: number;
-  lastUpdate: number;
+  scrollTop: number
+  scrollLeft: number
+  viewportHeight: number
+  visibleStartLine: number
+  visibleEndLine: number
+  fps: number
+  lastUpdate: number
 }
 
 // Only mounts when enabled — keeps store subscriptions out of the hot path.
@@ -28,19 +28,19 @@ function ScrollDebugOverlayInner() {
     visibleEndLine: 0,
     fps: 0,
     lastUpdate: Date.now(),
-  });
+  })
 
-  const scrollTop = useEditorStateStore.use.scrollTop();
-  const scrollLeft = useEditorStateStore.use.scrollLeft();
-  const viewportHeight = useEditorStateStore.use.viewportHeight();
-  const fontSize = useEditorSettingsStore.use.fontSize();
-  const editorLineHeight = useEditorSettingsStore.use.lineHeight();
+  const scrollTop = useEditorStateStore.use.scrollTop()
+  const scrollLeft = useEditorStateStore.use.scrollLeft()
+  const viewportHeight = useEditorStateStore.use.viewportHeight()
+  const fontSize = useEditorSettingsStore.use.fontSize()
+  const editorLineHeight = useEditorSettingsStore.use.lineHeight()
 
   useEffect(() => {
-    const lineHeight = getLineHeight(fontSize, editorLineHeight);
-    const now = Date.now();
-    const timeDelta = now - metrics.lastUpdate;
-    const fps = timeDelta > 0 ? Math.round(1000 / timeDelta) : 0;
+    const lineHeight = getLineHeight(fontSize, editorLineHeight)
+    const now = Date.now()
+    const timeDelta = now - metrics.lastUpdate
+    const fps = timeDelta > 0 ? Math.round(1000 / timeDelta) : 0
 
     setMetrics({
       scrollTop,
@@ -50,16 +50,16 @@ function ScrollDebugOverlayInner() {
       visibleEndLine: Math.floor((scrollTop + viewportHeight) / lineHeight),
       fps,
       lastUpdate: now,
-    });
-  }, [scrollTop, scrollLeft, viewportHeight, fontSize, editorLineHeight]); // eslint-disable-line react-hooks/exhaustive-deps
+    })
+  }, [scrollTop, scrollLeft, viewportHeight, fontSize, editorLineHeight]) // eslint-disable-line react-hooks/exhaustive-deps
 
   return (
     <div
       className="fixed right-4 bottom-4 rounded border border-border bg-background p-3 editor-font text-foreground ui-text-xs shadow-lg"
       style={{
         zIndex: 9999,
-        backdropFilter: "blur(8px)",
-        backgroundColor: "rgba(0, 0, 0, 0.85)",
+        backdropFilter: 'blur(8px)',
+        backgroundColor: 'rgba(0, 0, 0, 0.85)',
       }}
     >
       <div className="mb-2 font-bold text-accent">Scroll Debug</div>
@@ -74,7 +74,7 @@ function ScrollDebugOverlayInner() {
           Viewport: <span className="text-info">{metrics.viewportHeight.toFixed(0)}px</span>
         </div>
         <div>
-          Visible Lines:{" "}
+          Visible Lines:{' '}
           <span className="text-success">
             {metrics.visibleStartLine} - {metrics.visibleEndLine}
           </span>
@@ -87,22 +87,22 @@ function ScrollDebugOverlayInner() {
         Disable: localStorage.removeItem(&apos;debug-scroll&apos;)
       </div>
     </div>
-  );
+  )
 }
 
 export function ScrollDebugOverlay() {
-  const [enabled, setEnabled] = useState(() => localStorage.getItem("debug-scroll") === "true");
+  const [enabled, setEnabled] = useState(() => localStorage.getItem('debug-scroll') === 'true')
 
   useEffect(() => {
     const handleStorage = (e: StorageEvent) => {
-      if (e.key === "debug-scroll") {
-        setEnabled(localStorage.getItem("debug-scroll") === "true");
+      if (e.key === 'debug-scroll') {
+        setEnabled(localStorage.getItem('debug-scroll') === 'true')
       }
-    };
-    window.addEventListener("storage", handleStorage);
-    return () => window.removeEventListener("storage", handleStorage);
-  }, []);
+    }
+    window.addEventListener('storage', handleStorage)
+    return () => window.removeEventListener('storage', handleStorage)
+  }, [])
 
-  if (!enabled) return null;
-  return <ScrollDebugOverlayInner />;
+  if (!enabled) return null
+  return <ScrollDebugOverlayInner />
 }

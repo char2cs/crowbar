@@ -1,23 +1,23 @@
-import { type Icon as PhosphorIcon } from "@phosphor-icons/react";
-import { CaretDown as ChevronDown, CaretRight as ChevronRight } from "@phosphor-icons/react";
-import type { ReactNode } from "react";
-import { Button } from "@/components/ui/button";
+import { type Icon as PhosphorIcon } from '@phosphor-icons/react'
+import { CaretDown as ChevronDown, CaretRight as ChevronRight } from '@phosphor-icons/react'
+import type { ReactNode } from 'react'
+import { Button } from '@/components/ui/button'
 import {
   PaneGroup,
   paneHeaderClassName,
   paneIconButtonClassName,
   paneTitleClassName,
-} from "@/components/ui/pane";
-import { cn } from "@/utils/cn";
+} from '@/components/ui/pane'
+import { cn } from '@/utils/cn'
 
 interface GitSidebarSectionHeaderProps {
-  title: string;
-  actions?: ReactNode;
-  collapsible?: boolean;
-  isCollapsed?: boolean;
-  onToggle?: () => void;
-  icon?: PhosphorIcon;
-  className?: string;
+  title: string
+  actions?: ReactNode
+  collapsible?: boolean
+  isCollapsed?: boolean
+  onToggle?: () => void
+  icon?: PhosphorIcon
+  className?: string
 }
 
 const GitSidebarSectionHeader = ({
@@ -43,7 +43,7 @@ const GitSidebarSectionHeader = ({
       </PaneGroup>
       {actions ? <PaneGroup className="shrink-0">{actions}</PaneGroup> : null}
     </>
-  );
+  )
 
   if (collapsible) {
     return (
@@ -52,26 +52,26 @@ const GitSidebarSectionHeader = ({
         variant="ghost"
         onClick={onToggle}
         className={cn(
-          paneHeaderClassName("w-full shrink-0 justify-between rounded-none px-2.5 hover:bg-muted"),
+          paneHeaderClassName('w-full shrink-0 justify-between rounded-none px-2.5 hover:bg-muted'),
           className,
         )}
         compact
       >
         {content}
       </Button>
-    );
+    )
   }
 
   return (
     <div
-      className={cn(paneHeaderClassName("shrink-0 justify-between rounded-none px-2.5"), className)}
+      className={cn(paneHeaderClassName('shrink-0 justify-between rounded-none px-2.5'), className)}
     >
       {content}
     </div>
-  );
-};
+  )
+}
 
 export const gitSidebarSectionActionButtonClassName = (className?: string) =>
-  cn(paneIconButtonClassName("size-6"), className);
+  cn(paneIconButtonClassName('size-6'), className)
 
-export default GitSidebarSectionHeader;
+export default GitSidebarSectionHeader

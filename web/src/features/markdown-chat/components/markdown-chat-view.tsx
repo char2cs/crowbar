@@ -36,31 +36,37 @@ export function MarkdownChatView({ workspaceId, stepId }: MarkdownChatViewProps)
     const storeTurns = store.getState().turns
     const draft = draftWidgetsRef.current
     if (draft.length === 0) return storeTurns
-    return [...storeTurns, {
-      id: '__input_draft__',
-      role: 'user' as const,
-      content: '',
-      timestamp: '',
-      authorName: '',
-      widgets: draft,
-    }]
+    return [
+      ...storeTurns,
+      {
+        id: '__input_draft__',
+        role: 'user' as const,
+        content: '',
+        timestamp: '',
+        authorName: '',
+        widgets: draft,
+      },
+    ]
   }, [store])
 
   // Seed turns on mount from API — only when the store is empty (cold start)
-  const chatLoadable = useChatStore(s => s.data)
+  const chatLoadable = useChatStore((s) => s.data)
   const initialTurns = dataOf(chatLoadable)
-  useEffect(() => { void useChatStore.getState().fetch(workspaceId, stepId) }, [workspaceId, stepId])
+  useEffect(() => {
+    void useChatStore.getState().fetch(workspaceId, stepId)
+  }, [workspaceId, stepId])
   useEffect(() => {
     const state = store.getState()
     if (!initialTurns || state.turns.length > 0) return
-    initialTurns.forEach(t => state.appendTurn(t))
+    initialTurns.forEach((t) => state.appendTurn(t))
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [initialTurns])
 
   // Cleanup streaming on unmount/workspace change
   useEffect(() => {
-    return () => { cancelStreamRef.current?.() }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+    return () => {
+      cancelStreamRef.current?.()
+    }
   }, [workspaceId, stepId])
 
   // Store-driven: the React history (MarkdownHistory) renders reactively from the
@@ -135,15 +141,12 @@ export function MarkdownChatView({ workspaceId, stepId }: MarkdownChatViewProps)
     [store],
   )
 
-  const handleInsertWidget = useCallback(
-    (widgetType: string, widgetId: string) => {
-      draftWidgetsRef.current = [
-        ...draftWidgetsRef.current,
-        { id: widgetId, type: widgetType, payload: null },
-      ]
-    },
-    [],
-  )
+  const handleInsertWidget = useCallback((widgetType: string, widgetId: string) => {
+    draftWidgetsRef.current = [
+      ...draftWidgetsRef.current,
+      { id: widgetId, type: widgetType, payload: null },
+    ]
+  }, [])
 
   const handleSlashCommand = useCallback(
     (cmd: SlashCommand) => {
@@ -219,12 +222,18 @@ export function MarkdownChatView({ workspaceId, stepId }: MarkdownChatViewProps)
         <div
           aria-hidden
           className="pointer-events-none absolute inset-y-0 w-px"
-          style={{ left: 'max(48px, calc((100% - 680px) / 2))', background: 'color-mix(in srgb, var(--primary) 35%, transparent)' }}
+          style={{
+            left: 'max(48px, calc((100% - 680px) / 2))',
+            background: 'color-mix(in srgb, var(--primary) 35%, transparent)',
+          }}
         />
         <div
           aria-hidden
           className="pointer-events-none absolute inset-y-0 w-px"
-          style={{ right: 'max(48px, calc((100% - 680px) / 2))', background: 'color-mix(in srgb, var(--primary) 35%, transparent)' }}
+          style={{
+            right: 'max(48px, calc((100% - 680px) / 2))',
+            background: 'color-mix(in srgb, var(--primary) 35%, transparent)',
+          }}
         />
         <div className="min-h-0 flex-1">
           <MarkdownChatInput

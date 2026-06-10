@@ -88,4 +88,4 @@ export const EDITOR_CONSTANTS = {
 
   // Precision
   WIDTH_PRECISION_MULTIPLIER: 1000, // For rounding width calculations
-} as const;
+} as const

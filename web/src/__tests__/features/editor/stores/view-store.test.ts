@@ -1,5 +1,8 @@
 import { describe, it, expect, beforeEach } from 'vitest'
-import { initViewStoreSubscription, _resetViewStoreUnsubscribeForTesting } from '@/features/editor/stores/view-store'
+import {
+  initViewStoreSubscription,
+  _resetViewStoreUnsubscribeForTesting,
+} from '@/features/editor/stores/view-store'
 import { setActiveWorkspaceStoreRef } from '@/features/workspace/stores/workspace-store-ref'
 
 describe('initViewStoreSubscription', () => {

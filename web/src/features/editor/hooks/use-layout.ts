@@ -2,32 +2,32 @@
  * Editor Layout Hook - Provides dynamic layout values for positioning calculations
  */
 
-import { useMemo, useRef } from "react";
-import { useEditorSettingsStore } from "@/features/editor/stores/settings-store";
-import { useEditorViewStore } from "@/features/editor/stores/view-store";
-import { calculateTotalGutterWidth } from "@/features/editor/utils/gutter";
-import { useZoomStore } from "@/features/window/stores/zoom-store";
+import { useMemo, useRef } from 'react'
+import { useEditorSettingsStore } from '@/features/editor/stores/settings-store'
+import { useEditorViewStore } from '@/features/editor/stores/view-store'
+import { calculateTotalGutterWidth } from '@/features/editor/utils/gutter'
+import { useZoomStore } from '@/features/window/stores/zoom-store'
 
 /**
  * Measure character width using Canvas API for accurate positioning
  */
 function measureCharWidth(fontSize: number, fontFamily: string): number {
-  const canvas = document.createElement("canvas");
-  const context = canvas.getContext("2d");
+  const canvas = document.createElement('canvas')
+  const context = canvas.getContext('2d')
   if (context) {
-    context.font = `${fontSize}px ${fontFamily}`;
+    context.font = `${fontSize}px ${fontFamily}`
     // Measure a representative character (monospace fonts have uniform width)
-    return context.measureText("M").width;
+    return context.measureText('M').width
   }
   // Fallback: approximate monospace character width
-  return fontSize * 0.6;
+  return fontSize * 0.6
 }
 
 /**
  * @deprecated Use useEditorLayout instead
  */
 export function useLayout() {
-  return useEditorLayout();
+  return useEditorLayout()
 }
 
 /**
@@ -35,36 +35,36 @@ export function useLayout() {
  * Used for accurate positioning in hover, go-to-definition, completions, etc.
  */
 export function useEditorLayout() {
-  const baseFontSize = useEditorSettingsStore.use.fontSize();
-  const lineHeightMultiplier = useEditorSettingsStore.use.lineHeight();
-  const fontFamily = useEditorSettingsStore.use.fontFamily();
-  const lineCount = useEditorViewStore.use.lineCount();
-  const zoomLevel = useZoomStore.use.editorZoomLevel();
-  const fontSize = baseFontSize * zoomLevel;
+  const baseFontSize = useEditorSettingsStore.use.fontSize()
+  const lineHeightMultiplier = useEditorSettingsStore.use.lineHeight()
+  const fontFamily = useEditorSettingsStore.use.fontFamily()
+  const lineCount = useEditorViewStore.use.lineCount()
+  const zoomLevel = useZoomStore.use.editorZoomLevel()
+  const fontSize = baseFontSize * zoomLevel
 
   // Cache the canvas measurement to avoid recalculating on every render
   const charWidthCacheRef = useRef<{ fontSize: number; fontFamily: string; width: number } | null>(
     null,
-  );
+  )
 
   const charWidth = useMemo(() => {
-    const cache = charWidthCacheRef.current;
+    const cache = charWidthCacheRef.current
     if (cache && cache.fontSize === fontSize && cache.fontFamily === fontFamily) {
-      return cache.width;
+      return cache.width
     }
-    const width = measureCharWidth(fontSize, fontFamily);
-    charWidthCacheRef.current = { fontSize, fontFamily, width };
-    return width;
-  }, [fontSize, fontFamily]);
+    const width = measureCharWidth(fontSize, fontFamily)
+    charWidthCacheRef.current = { fontSize, fontFamily, width }
+    return width
+  }, [fontSize, fontFamily])
 
   const gutterWidth = useMemo(() => {
-    const totalLines = lineCount || 100;
-    return calculateTotalGutterWidth(totalLines);
-  }, [lineCount]);
+    const totalLines = lineCount || 100
+    return calculateTotalGutterWidth(totalLines)
+  }, [lineCount])
 
   const lineHeight = useMemo(() => {
-    return Math.ceil(fontSize * lineHeightMultiplier);
-  }, [fontSize, lineHeightMultiplier]);
+    return Math.ceil(fontSize * lineHeightMultiplier)
+  }, [fontSize, lineHeightMultiplier])
 
   return {
     gutterWidth,
@@ -72,5 +72,5 @@ export function useEditorLayout() {
     lineHeight,
     fontSize,
     fontFamily,
-  };
+  }
 }

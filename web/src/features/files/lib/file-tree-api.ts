@@ -13,9 +13,7 @@ export interface FileNodeDTO {
 // directory with no `children` key is "not yet loaded" — represented as
 // `children: undefined` — which the lazy loader uses as its fetch sentinel; an
 // empty loaded directory becomes `children: []`.
-export function toAppFile(
-  node: FileNodeDTO,
-): AppFile {
+export function toAppFile(node: FileNodeDTO): AppFile {
   const isDir = node.type === 'directory'
   return {
     name: node.name,
@@ -31,10 +29,7 @@ export function toAppFile(
 // fetchFileTree loads a single directory level of the workspace tree. An absent
 // `path` returns the workspace root; the backend tree is lazy (one level per
 // call), so the explorer fetches deeper levels on expand.
-export async function fetchFileTree(
-  wsId: string,
-  path?: string,
-): Promise<AppFile[]> {
+export async function fetchFileTree(wsId: string, path?: string): Promise<AppFile[]> {
   const query = path ? `?path=${encodeURIComponent(path)}` : ''
   const nodes = await apiFetch<FileNodeDTO[]>(
     `/v0/workspaces/${encodeURIComponent(wsId)}/files/tree${query}`,
@@ -42,16 +37,11 @@ export async function fetchFileTree(
   return nodes.map(toAppFile)
 }
 
-export function filesWsEndpoint(
-  wsId: string,
-): string {
+export function filesWsEndpoint(wsId: string): string {
   return `/v0/ws/files?wsId=${encodeURIComponent(wsId)}`
 }
 
-export function findNode(
-  tree: AppFile[],
-  path: string,
-): AppFile | null {
+export function findNode(tree: AppFile[], path: string): AppFile | null {
   for (const node of tree) {
     if (node.path === path) return node
     if (node.children) {
@@ -64,11 +54,7 @@ export function findNode(
 
 // mergeChildren returns a new tree with the directory at `parentPath` carrying
 // `children`. Untouched branches keep their identity so React can skip them.
-export function mergeChildren(
-  tree: AppFile[],
-  parentPath: string,
-  children: AppFile[],
-): AppFile[] {
+export function mergeChildren(tree: AppFile[], parentPath: string, children: AppFile[]): AppFile[] {
   return tree.map((node) => {
     if (node.path === parentPath) return { ...node, children }
     if (node.children) {

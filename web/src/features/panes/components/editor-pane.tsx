@@ -1,14 +1,14 @@
-import CodeEditor from "@/features/editor/components/code-editor";
-import { ErrorBoundary } from "@/components/ErrorBoundary";
+import CodeEditor from '@/features/editor/components/code-editor'
+import { ErrorBoundary } from '@/components/error-boundary'
 
 interface EditorPaneProps {
-  paneId: string;
-  bufferId: string;
-  isActiveSurface: boolean;
-  isPreview: boolean;
-  onPromote: () => void;
-  showToolbar?: boolean;
-  className?: string;
+  paneId: string
+  bufferId: string
+  isActiveSurface: boolean
+  isPreview: boolean
+  onPromote: () => void
+  showToolbar?: boolean
+  className?: string
 }
 
 export function EditorPane({
@@ -38,5 +38,5 @@ export function EditorPane({
         className={className}
       />
     </ErrorBoundary>
-  );
+  )
 }

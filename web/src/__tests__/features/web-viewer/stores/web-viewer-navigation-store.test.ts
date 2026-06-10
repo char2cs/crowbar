@@ -7,9 +7,7 @@ vi.mock('@/lib/crowbar-bridge', () => ({
   browserPaneReload: vi.fn().mockResolvedValue(undefined),
 }))
 
-import {
-  useWebViewerNavigationStore,
-} from '@/features/web-viewer/stores/web-viewer-navigation-store'
+import { useWebViewerNavigationStore } from '@/features/web-viewer/stores/web-viewer-navigation-store'
 import { browserPaneGoBack, browserPaneGoForward, browserPaneReload } from '@/lib/crowbar-bridge'
 
 beforeEach(() => {

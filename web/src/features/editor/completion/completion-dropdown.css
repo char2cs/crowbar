@@ -12,7 +12,6 @@
   color: var(--foreground);
 }
 
-
 .editor-completion-item {
   position: relative;
   border-radius: 8px;
@@ -25,7 +24,7 @@
 }
 
 .editor-completion-item-selected::before {
-  content: "";
+  content: '';
   position: absolute;
   left: 0;
   top: 3px;

@@ -14,13 +14,11 @@ vi.mock('@tanstack/react-router', async (importOriginal) => {
   const actual = await importOriginal<typeof import('@tanstack/react-router')>()
   return {
     ...actual,
-    createFileRoute: () => () => ({ component: null }),
     useNavigate: () => vi.fn(),
   }
 })
 
-
-import { NewWorkspacePage } from '@/routes/workspaces/new'
+import { NewWorkspacePage } from '@/components/workspace/new-workspace-page'
 import * as api from '@/lib/api'
 
 test('resets loading and re-enables Create button when postWorkspace rejects', async () => {

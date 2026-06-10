@@ -1,91 +1,97 @@
 // copied from Athas — no shadcn/ui equivalent
-import { useEffect, useState, type ReactNode, type ChangeEvent } from "react";
-import { Button } from "@/components/ui/button";
-import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
-import { Input } from "@/components/ui/input";
+import { useEffect, useState, type ReactNode, type ChangeEvent } from 'react'
+import { Button } from '@/components/ui/button'
+import {
+  Dialog,
+  DialogContent,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from '@/components/ui/dialog'
+import { Input } from '@/components/ui/input'
 
-type ButtonVariant = "default" | "outline" | "secondary" | "ghost" | "destructive" | "link";
+type ButtonVariant = 'default' | 'outline' | 'secondary' | 'ghost' | 'destructive' | 'link'
 
 interface PrimitiveChoiceOption {
-  value: string;
-  label: string;
-  variant?: ButtonVariant;
+  value: string
+  label: string
+  variant?: ButtonVariant
 }
 
 type PrimitiveDialogRequest =
   | {
-      id: number;
-      type: "alert";
-      title: string;
-      message: ReactNode;
-      resolve: () => void;
+      id: number
+      type: 'alert'
+      title: string
+      message: ReactNode
+      resolve: () => void
     }
   | {
-      id: number;
-      type: "confirm";
-      title: string;
-      message: ReactNode;
-      confirmLabel: string;
-      cancelLabel: string;
-      resolve: (value: boolean) => void;
+      id: number
+      type: 'confirm'
+      title: string
+      message: ReactNode
+      confirmLabel: string
+      cancelLabel: string
+      resolve: (value: boolean) => void
     }
   | {
-      id: number;
-      type: "choice";
-      title: string;
-      message: ReactNode;
-      choices: PrimitiveChoiceOption[];
-      resolve: (value: string | null) => void;
+      id: number
+      type: 'choice'
+      title: string
+      message: ReactNode
+      choices: PrimitiveChoiceOption[]
+      resolve: (value: string | null) => void
     }
   | {
-      id: number;
-      type: "prompt";
-      title: string;
-      message: ReactNode;
-      defaultValue: string;
-      placeholder?: string;
-      confirmLabel: string;
-      cancelLabel: string;
-      resolve: (value: string | null) => void;
-    };
+      id: number
+      type: 'prompt'
+      title: string
+      message: ReactNode
+      defaultValue: string
+      placeholder?: string
+      confirmLabel: string
+      cancelLabel: string
+      resolve: (value: string | null) => void
+    }
 
 interface PrimitiveConfirmOptions {
-  title?: string;
-  confirmLabel?: string;
-  cancelLabel?: string;
+  title?: string
+  confirmLabel?: string
+  cancelLabel?: string
 }
 
 interface PrimitivePromptOptions extends PrimitiveConfirmOptions {
-  defaultValue?: string;
-  placeholder?: string;
+  defaultValue?: string
+  placeholder?: string
 }
 
 interface PrimitiveChoiceOptions<T extends string> {
-  title?: string;
+  title?: string
   choices: Array<{
-    value: T;
-    label: string;
-    variant?: ButtonVariant;
-  }>;
+    value: T
+    label: string
+    variant?: ButtonVariant
+  }>
 }
 
-let nextDialogId = 1;
-let enqueueDialog: ((request: PrimitiveDialogRequest) => void) | null = null;
-const pendingDialogs: PrimitiveDialogRequest[] = [];
+let nextDialogId = 1
+let enqueueDialog: ((request: PrimitiveDialogRequest) => void) | null = null
+const pendingDialogs: PrimitiveDialogRequest[] = []
 
 function enqueue(request: PrimitiveDialogRequest) {
   if (enqueueDialog) {
-    enqueueDialog(request);
-    return;
+    enqueueDialog(request)
+    return
   }
 
-  pendingDialogs.push(request);
+  pendingDialogs.push(request)
 }
 
-export function primitiveAlert(message: ReactNode, title = "Notice"): Promise<void> {
+export function primitiveAlert(message: ReactNode, title = 'Notice'): Promise<void> {
   return new Promise((resolve) => {
-    enqueue({ id: nextDialogId++, type: "alert", title, message, resolve });
-  });
+    enqueue({ id: nextDialogId++, type: 'alert', title, message, resolve })
+  })
 }
 
 export function primitiveConfirm(
@@ -95,14 +101,14 @@ export function primitiveConfirm(
   return new Promise((resolve) => {
     enqueue({
       id: nextDialogId++,
-      type: "confirm",
-      title: options.title ?? "Confirm",
+      type: 'confirm',
+      title: options.title ?? 'Confirm',
       message,
-      confirmLabel: options.confirmLabel ?? "Confirm",
-      cancelLabel: options.cancelLabel ?? "Cancel",
+      confirmLabel: options.confirmLabel ?? 'Confirm',
+      cancelLabel: options.cancelLabel ?? 'Cancel',
       resolve,
-    });
-  });
+    })
+  })
 }
 
 export function primitiveChoice<T extends string>(
@@ -112,13 +118,13 @@ export function primitiveChoice<T extends string>(
   return new Promise((resolve) => {
     enqueue({
       id: nextDialogId++,
-      type: "choice",
-      title: options.title ?? "Choose",
+      type: 'choice',
+      title: options.title ?? 'Choose',
       message,
       choices: options.choices,
       resolve: (value) => resolve(value as T | null),
-    });
-  });
+    })
+  })
 }
 
 export function primitivePrompt(
@@ -128,38 +134,38 @@ export function primitivePrompt(
   return new Promise((resolve) => {
     enqueue({
       id: nextDialogId++,
-      type: "prompt",
-      title: options.title ?? "Input",
+      type: 'prompt',
+      title: options.title ?? 'Input',
       message,
-      defaultValue: options.defaultValue ?? "",
+      defaultValue: options.defaultValue ?? '',
       placeholder: options.placeholder,
-      confirmLabel: options.confirmLabel ?? "OK",
-      cancelLabel: options.cancelLabel ?? "Cancel",
+      confirmLabel: options.confirmLabel ?? 'OK',
+      cancelLabel: options.cancelLabel ?? 'Cancel',
       resolve,
-    });
-  });
+    })
+  })
 }
 
 export function PrimitiveDialogProvider({ children }: { children: ReactNode }) {
-  const [queue, setQueue] = useState<PrimitiveDialogRequest[]>([]);
+  const [queue, setQueue] = useState<PrimitiveDialogRequest[]>([])
 
   useEffect(() => {
-    enqueueDialog = (request) => setQueue((current) => [...current, request]);
+    enqueueDialog = (request) => setQueue((current) => [...current, request])
 
     if (pendingDialogs.length > 0) {
-      setQueue((current) => [...current, ...pendingDialogs.splice(0)]);
+      setQueue((current) => [...current, ...pendingDialogs.splice(0)])
     }
 
     return () => {
-      enqueueDialog = null;
-    };
-  }, []);
+      enqueueDialog = null
+    }
+  }, [])
 
-  const activeDialog = queue[0] ?? null;
+  const activeDialog = queue[0] ?? null
   const closeActive = (resolve: () => void) => {
-    resolve();
-    setQueue((current) => current.slice(1));
-  };
+    resolve()
+    setQueue((current) => current.slice(1))
+  }
 
   return (
     <>
@@ -168,27 +174,27 @@ export function PrimitiveDialogProvider({ children }: { children: ReactNode }) {
         <PrimitiveDialogHost key={activeDialog.id} dialog={activeDialog} onClose={closeActive} />
       )}
     </>
-  );
+  )
 }
 
 function PrimitiveDialogHost({
   dialog,
   onClose,
 }: {
-  dialog: PrimitiveDialogRequest;
-  onClose: (resolve: () => void) => void;
+  dialog: PrimitiveDialogRequest
+  onClose: (resolve: () => void) => void
 }) {
   const [promptValue, setPromptValue] = useState(
-    dialog.type === "prompt" ? dialog.defaultValue : "",
-  );
-  const [open, setOpen] = useState(true);
+    dialog.type === 'prompt' ? dialog.defaultValue : '',
+  )
+  const [open, setOpen] = useState(true)
 
   const handleClose = (resolve: () => void) => {
-    setOpen(false);
-    onClose(resolve);
-  };
+    setOpen(false)
+    onClose(resolve)
+  }
 
-  if (dialog.type === "alert") {
+  if (dialog.type === 'alert') {
     return (
       <Dialog open={open} onOpenChange={setOpen}>
         <DialogContent>
@@ -201,10 +207,10 @@ function PrimitiveDialogHost({
           </DialogFooter>
         </DialogContent>
       </Dialog>
-    );
+    )
   }
 
-  if (dialog.type === "confirm") {
+  if (dialog.type === 'confirm') {
     return (
       <Dialog open={open} onOpenChange={setOpen}>
         <DialogContent>
@@ -222,10 +228,10 @@ function PrimitiveDialogHost({
           </DialogFooter>
         </DialogContent>
       </Dialog>
-    );
+    )
   }
 
-  if (dialog.type === "choice") {
+  if (dialog.type === 'choice') {
     return (
       <Dialog open={open} onOpenChange={setOpen}>
         <DialogContent>
@@ -237,7 +243,7 @@ function PrimitiveDialogHost({
             {dialog.choices.map((choice) => (
               <Button
                 key={choice.value}
-                variant={choice.variant ?? "default"}
+                variant={choice.variant ?? 'default'}
                 onClick={() => handleClose(() => dialog.resolve(choice.value))}
               >
                 {choice.label}
@@ -246,7 +252,7 @@ function PrimitiveDialogHost({
           </DialogFooter>
         </DialogContent>
       </Dialog>
-    );
+    )
   }
 
   return (
@@ -257,8 +263,8 @@ function PrimitiveDialogHost({
         </DialogHeader>
         <form
           onSubmit={(event: ChangeEvent<HTMLFormElement> & React.FormEvent<HTMLFormElement>) => {
-            event.preventDefault();
-            handleClose(() => dialog.resolve(promptValue));
+            event.preventDefault()
+            handleClose(() => dialog.resolve(promptValue))
           }}
           className="flex flex-col gap-2"
         >
@@ -268,7 +274,9 @@ function PrimitiveDialogHost({
               autoFocus
               value={promptValue}
               placeholder={dialog.placeholder}
-              onChange={(event: ChangeEvent<HTMLInputElement>) => setPromptValue(event.target.value)}
+              onChange={(event: ChangeEvent<HTMLInputElement>) =>
+                setPromptValue(event.target.value)
+              }
             />
           </label>
         </form>
@@ -282,5 +290,5 @@ function PrimitiveDialogHost({
         </DialogFooter>
       </DialogContent>
     </Dialog>
-  );
+  )
 }

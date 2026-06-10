@@ -52,9 +52,7 @@ export default function MermaidBlockView({ source, streaming }: BlockViewProps) 
   }
 
   if (!svg) {
-    return (
-      <div className="h-16 animate-pulse rounded border border-border bg-muted" />
-    )
+    return <div className="h-16 animate-pulse rounded border border-border bg-muted" />
   }
 
   return (

@@ -8,6 +8,8 @@ import (
 
 	"github.com/gin-gonic/gin"
 
+	"github.com/char2cs/crowbar/api/internal/api/libs"
+
 	"github.com/char2cs/crowbar/api/internal/domain"
 	engineterminal "github.com/char2cs/crowbar/api/internal/engine/terminal"
 )
@@ -23,7 +25,7 @@ func (h *Handlers) CreateSession(ctx *gin.Context) {
 
 	ws, err := h.wsReader.Get(ctx.Request.Context(), wsID)
 	if err != nil {
-		ctx.JSON(http.StatusNotFound, gin.H{"error": "workspace not found"})
+		libs.WriteErr(ctx, http.StatusNotFound, "workspace not found")
 		return
 	}
 
@@ -31,7 +33,7 @@ func (h *Handlers) CreateSession(ctx *gin.Context) {
 		ProfileID string `json:"profileId"`
 	}
 	if err := ctx.ShouldBindJSON(&body); err != nil && !errors.Is(err, io.EOF) {
-		ctx.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		libs.WriteErr(ctx, http.StatusBadRequest, err.Error())
 		return
 	}
 
@@ -44,11 +46,11 @@ func (h *Handlers) CreateSession(ctx *gin.Context) {
 		prof,
 	)
 	if err != nil {
-		ctx.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		libs.WriteErr(ctx, http.StatusInternalServerError, err.Error())
 		return
 	}
 
-	ctx.JSON(http.StatusCreated, gin.H{"sessionId": sid})
+	libs.WriteQueryWithStatus(ctx, http.StatusCreated, gin.H{"sessionId": sid})
 }
 
 // KillSession handles DELETE /v0/terminals/:sessionId.
@@ -61,20 +63,20 @@ func (h *Handlers) KillSession(ctx *gin.Context) {
 	sid := ctx.Param("sessionId")
 	if err := eng.Kill(ctx.Request.Context(), sid); err != nil {
 		if errors.Is(err, engineterminal.ErrSessionNotFound) {
-			ctx.JSON(http.StatusNotFound, gin.H{"error": err.Error()})
+			libs.WriteErr(ctx, http.StatusNotFound, err.Error())
 			return
 		}
-		ctx.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		libs.WriteErr(ctx, http.StatusInternalServerError, err.Error())
 		return
 	}
 
-	ctx.Status(http.StatusNoContent)
+	libs.WriteMutationOK(ctx, http.StatusOK, sid)
 }
 
 // requireTerminalEngine returns the engine or writes a 503 and returns nil.
 func (h *Handlers) requireTerminalEngine(ctx *gin.Context) TerminalEngine {
 	if h.termEng == nil {
-		ctx.JSON(http.StatusServiceUnavailable, gin.H{"error": "terminal engine not available"})
+		libs.WriteErr(ctx, http.StatusServiceUnavailable, "terminal engine not available")
 		return nil
 	}
 	return h.termEng

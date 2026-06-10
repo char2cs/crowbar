@@ -44,7 +44,7 @@ func newRouter(
 	r := gin.New()
 	h := handlers.New(f)
 	rg := r.Group("/v0")
-	rg.GET("/workspaces/:wsId/files", h.Tree)
+	rg.GET("/workspaces/:wsId/files/tree", h.Tree)
 	rg.GET("/workspaces/:wsId/files/content", h.ReadContent)
 	rg.PUT("/workspaces/:wsId/files/content", h.SaveContent)
 	rg.POST("/workspaces/:wsId/files", h.Create)
@@ -74,7 +74,7 @@ func TestFileHandlers_HappyPath(
 ) {
 	r := newRouter(stubFiles{})
 
-	rec := do(r, http.MethodGet, "/v0/workspaces/ws1/files", nil)
+	rec := do(r, http.MethodGet, "/v0/workspaces/ws1/files/tree", nil)
 	assert.Equal(t, http.StatusOK, rec.Code)
 
 	rec = do(r, http.MethodGet, "/v0/workspaces/ws1/files/content?path=a.go", nil)
@@ -82,18 +82,22 @@ func TestFileHandlers_HappyPath(
 
 	rec = do(r, http.MethodPut, "/v0/workspaces/ws1/files/content",
 		map[string]any{"path": "a.go", "content": "hi"})
-	assert.Equal(t, http.StatusNoContent, rec.Code)
+	assert.Equal(t, http.StatusOK, rec.Code)
 
 	rec = do(r, http.MethodPost, "/v0/workspaces/ws1/files",
 		map[string]any{"path": "new.go", "type": "file"})
 	assert.Equal(t, http.StatusCreated, rec.Code)
 
 	rec = do(r, http.MethodPatch, "/v0/workspaces/ws1/files",
-		map[string]any{"from": "a.go", "to": "b.go"})
+		map[string]any{"path": "a.go", "newPath": "b.go"})
+	assert.Equal(t, http.StatusOK, rec.Code)
+
+	rec = do(r, http.MethodDelete, "/v0/workspaces/ws1/files",
+		map[string]any{"path": "b.go"})
 	assert.Equal(t, http.StatusOK, rec.Code)
 
 	rec = do(r, http.MethodDelete, "/v0/workspaces/ws1/files?path=b.go", nil)
-	assert.Equal(t, http.StatusNoContent, rec.Code)
+	assert.Equal(t, http.StatusOK, rec.Code)
 }
 
 func TestFileHandlers_ReadContent_MissingPath(

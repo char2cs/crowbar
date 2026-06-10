@@ -39,5 +39,7 @@ export function onActiveWorkspaceStoreChange(
 ): () => void {
   _listeners.add(listener)
   listener(_activeWorkspaceStore)
-  return () => { _listeners.delete(listener) }
+  return () => {
+    _listeners.delete(listener)
+  }
 }

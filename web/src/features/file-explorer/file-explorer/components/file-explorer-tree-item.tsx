@@ -1,78 +1,78 @@
-import type React from "react";
-import { memo } from "react";
+import type React from 'react'
+import { memo } from 'react'
 import {
   FILE_TREE_DENSITY_CONFIG,
   type FileTreeDensity,
-} from "@/features/file-explorer/lib/file-tree-density";
-import type { FileTreeGitStatusDecoration } from "@/features/file-explorer/lib/file-tree-git-status";
-import { useFileClipboardStore } from "@/features/file-explorer/stores/file-explorer-clipboard-store";
-import type { FileEntry } from "@/features/file-system/types/app";
-import { Input } from "@/components/ui/input";
-import { TreeRow } from "@/components/ui/tree-row";
-import { cn } from "@/utils/cn";
-import { FileExplorerIcon } from "./file-explorer-icon";
+} from '@/features/file-explorer/lib/file-tree-density'
+import type { FileTreeGitStatusDecoration } from '@/features/file-explorer/lib/file-tree-git-status'
+import { useFileClipboardStore } from '@/features/file-explorer/stores/file-explorer-clipboard-store'
+import type { FileEntry } from '@/features/file-system/types/app'
+import { Input } from '@/components/ui/input'
+import { TreeRow } from '@/components/ui/tree-row'
+import { cn } from '@/utils/cn'
+import { FileExplorerIcon } from './file-explorer-icon'
 
-export const FILE_TREE_BASE_INDENT = 10;
+export const FILE_TREE_BASE_INDENT = 10
 
 export interface FileTreeGuideTarget {
-  path: string;
-  name: string;
-  isDir: boolean;
-  isActive: boolean;
+  path: string
+  name: string
+  isDir: boolean
+  isActive: boolean
 }
 
 function areGuideTargetsEqual(
   previous: Array<FileTreeGuideTarget | null>,
   next: Array<FileTreeGuideTarget | null>,
 ): boolean {
-  if (previous.length !== next.length) return false;
+  if (previous.length !== next.length) return false
 
   return previous.every((previousTarget, index) => {
-    const nextTarget = next[index];
-    if (previousTarget === nextTarget) return true;
-    if (!previousTarget || !nextTarget) return false;
+    const nextTarget = next[index]
+    if (previousTarget === nextTarget) return true
+    if (!previousTarget || !nextTarget) return false
 
     return (
       previousTarget.path === nextTarget.path &&
       previousTarget.name === nextTarget.name &&
       previousTarget.isDir === nextTarget.isDir &&
       previousTarget.isActive === nextTarget.isActive
-    );
-  });
+    )
+  })
 }
 
 interface FileExplorerTreeItemProps {
-  file: FileEntry;
-  depth: number;
-  displayName?: string;
-  guideTargets: Array<FileTreeGuideTarget | null>;
-  previousDepth: number;
-  nextDepth: number;
-  indentSize: number;
-  density: FileTreeDensity;
-  isExpanded: boolean;
-  isActive: boolean;
-  dragOverPath: string | null;
-  isDragging: boolean;
-  editingValue: string;
-  onEditingValueChange: (value: string) => void;
-  onKeyDown: (e: React.KeyboardEvent, file: FileEntry) => void;
-  onBlur: (file: FileEntry) => void;
-  getGitStatusDecoration: (file: FileEntry) => FileTreeGitStatusDecoration | null;
-  searchQuery?: string;
-  isSearchMatch?: boolean;
-  rowId?: string;
+  file: FileEntry
+  depth: number
+  displayName?: string
+  guideTargets: Array<FileTreeGuideTarget | null>
+  previousDepth: number
+  nextDepth: number
+  indentSize: number
+  density: FileTreeDensity
+  isExpanded: boolean
+  isActive: boolean
+  dragOverPath: string | null
+  isDragging: boolean
+  editingValue: string
+  onEditingValueChange: (value: string) => void
+  onKeyDown: (e: React.KeyboardEvent, file: FileEntry) => void
+  onBlur: (file: FileEntry) => void
+  getGitStatusDecoration: (file: FileEntry) => FileTreeGitStatusDecoration | null
+  searchQuery?: string
+  isSearchMatch?: boolean
+  rowId?: string
 }
 
 function renderHighlightedLabel(label: string, query: string | undefined) {
-  const trimmedQuery = query?.trim();
-  if (!trimmedQuery) return label;
+  const trimmedQuery = query?.trim()
+  if (!trimmedQuery) return label
 
-  const labelLower = label.toLowerCase();
-  const queryLower = trimmedQuery.toLowerCase();
-  const matchIndex = labelLower.indexOf(queryLower);
+  const labelLower = label.toLowerCase()
+  const queryLower = trimmedQuery.toLowerCase()
+  const matchIndex = labelLower.indexOf(queryLower)
 
-  if (matchIndex === -1) return label;
+  if (matchIndex === -1) return label
 
   return (
     <>
@@ -82,7 +82,7 @@ function renderHighlightedLabel(label: string, query: string | undefined) {
       </mark>
       {label.slice(matchIndex + trimmedQuery.length)}
     </>
-  );
+  )
 }
 
 function FileExplorerTreeItemComponent({
@@ -109,18 +109,18 @@ function FileExplorerTreeItemComponent({
 }: FileExplorerTreeItemProps) {
   const isCut = useFileClipboardStore(
     (s) =>
-      s.clipboard?.operation === "cut" && s.clipboard.entries.some((e) => e.path === file.path),
-  );
-  const paddingLeft = FILE_TREE_BASE_INDENT + depth * indentSize;
-  const densityConfig = FILE_TREE_DENSITY_CONFIG[density];
-  const gitStatusDecoration = getGitStatusDecoration(file);
-  const guideLevels = Array.from({ length: depth }, (_, level) => level);
+      s.clipboard?.operation === 'cut' && s.clipboard.entries.some((e) => e.path === file.path),
+  )
+  const paddingLeft = FILE_TREE_BASE_INDENT + depth * indentSize
+  const densityConfig = FILE_TREE_DENSITY_CONFIG[density]
+  const gitStatusDecoration = getGitStatusDecoration(file)
+  const guideLevels = Array.from({ length: depth }, (_, level) => level)
   const renderTreeGuides = () => (
     <div className="file-tree-guides">
       {guideLevels.map((level) => {
-        const target = guideTargets[level];
-        const startsHere = previousDepth <= level;
-        const endsHere = nextDepth <= level;
+        const target = guideTargets[level]
+        const startsHere = previousDepth <= level
+        const endsHere = nextDepth <= level
         return (
           <span
             key={level}
@@ -128,20 +128,20 @@ function FileExplorerTreeItemComponent({
             data-file-path={target?.path}
             data-is-dir={target?.isDir}
             data-path={target?.path}
-            data-active={target?.isActive ? "true" : undefined}
+            data-active={target?.isActive ? 'true' : undefined}
             title={target?.name}
             style={
               {
                 left: `calc(${FILE_TREE_BASE_INDENT + level * indentSize}px + var(--file-tree-guide-icon-offset, 7px))`,
-                top: startsHere ? "4px" : "0",
-                bottom: endsHere ? "4px" : "0",
+                top: startsHere ? '4px' : '0',
+                bottom: endsHere ? '4px' : '0',
               } as React.CSSProperties
             }
           />
-        );
+        )
       })}
     </div>
-  );
+  )
 
   if (file.isEditing || file.isRenaming) {
     return (
@@ -149,7 +149,7 @@ function FileExplorerTreeItemComponent({
         {renderTreeGuides()}
         <div
           className={cn(
-            "file-tree-row flex w-full items-center rounded-md",
+            'file-tree-row flex w-full items-center rounded-md',
             densityConfig.rowClassName,
           )}
           style={{
@@ -157,7 +157,7 @@ function FileExplorerTreeItemComponent({
           }}
         >
           <FileExplorerIcon
-            fileName={file.isDir ? "folder" : "file"}
+            fileName={file.isDir ? 'folder' : 'file'}
             isDir={file.isDir ?? false}
             isExpanded={false}
             className="relative z-[1] shrink-0 text-muted-foreground"
@@ -165,12 +165,12 @@ function FileExplorerTreeItemComponent({
           <Input
             ref={(el) => {
               if (el) {
-                el.focus();
+                el.focus()
                 el.scrollIntoView({
-                  behavior: "smooth",
-                  block: "center",
-                  inline: "nearest",
-                });
+                  behavior: 'smooth',
+                  block: 'center',
+                  inline: 'nearest',
+                })
               }
             }}
             type="text"
@@ -181,7 +181,7 @@ function FileExplorerTreeItemComponent({
             value={editingValue}
             onFocus={() => {
               if (file.isRenaming) {
-                onEditingValueChange(file.name);
+                onEditingValueChange(file.name)
               }
             }}
             onChange={(e) => onEditingValueChange(e.target.value)}
@@ -189,17 +189,17 @@ function FileExplorerTreeItemComponent({
             onBlur={() => onBlur(file)}
             variant="ghost"
             className="ui-font relative z-1 flex-1 border-foreground border-b px-0 focus:border-muted-foreground"
-            placeholder={file.isDir ? "folder name" : "file name"}
+            placeholder={file.isDir ? 'folder name' : 'file name'}
           />
         </div>
       </div>
-    );
+    )
   }
 
   return (
     <div
       className="file-tree-item w-full"
-      data-active={isActive ? "true" : undefined}
+      data-active={isActive ? 'true' : undefined}
       data-depth={depth}
     >
       {renderTreeGuides()}
@@ -219,11 +219,11 @@ function FileExplorerTreeItemComponent({
         className={cn(
           densityConfig.rowClassName,
           dragOverPath === file.path &&
-            "!border-2 !border-dashed !border-accent !bg-accent !bg-opacity-20",
-          isDragging && "cursor-move",
-          file.ignored && "opacity-50",
-          isCut && "italic opacity-40",
-          isSearchMatch && "file-tree-search-match",
+            '!border-2 !border-dashed !border-accent !bg-accent !bg-opacity-20',
+          isDragging && 'cursor-move',
+          file.ignored && 'opacity-50',
+          isCut && 'italic opacity-40',
+          isSearchMatch && 'file-tree-search-match',
         )}
         active={isActive}
         baseIndent={FILE_TREE_BASE_INDENT}
@@ -239,7 +239,7 @@ function FileExplorerTreeItemComponent({
         />
         <span
           className={cn(
-            "relative z-1 select-none whitespace-nowrap",
+            'relative z-1 select-none whitespace-nowrap',
             gitStatusDecoration?.colorClassName,
           )}
         >
@@ -247,7 +247,7 @@ function FileExplorerTreeItemComponent({
         </span>
       </TreeRow>
     </div>
-  );
+  )
 }
 
 export const FileExplorerTreeItem = memo(
@@ -273,4 +273,4 @@ export const FileExplorerTreeItem = memo(
     prev.searchQuery === next.searchQuery &&
     prev.isSearchMatch === next.isSearchMatch &&
     prev.rowId === next.rowId,
-);
+)

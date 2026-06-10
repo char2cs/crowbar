@@ -1,17 +1,6 @@
 import { vi, test, expect } from 'vitest'
 import { render } from '@testing-library/react'
 
-vi.mock('@tanstack/react-router', async (importOriginal) => {
-  const actual = await importOriginal<typeof import('@tanstack/react-router')>()
-  return {
-    ...actual,
-    createFileRoute: () => () => ({
-      component: null,
-      useParams: () => ({ chatId: 'c1' }),
-    }),
-  }
-})
-
 // MarkdownChatView has complex deps — stub it out
 vi.mock('@/features/markdown-chat/components/markdown-chat-view', () => ({
   MarkdownChatView: ({ workspaceId, stepId }: { workspaceId: string; stepId: string }) => (
@@ -19,10 +8,10 @@ vi.mock('@/features/markdown-chat/components/markdown-chat-view', () => ({
   ),
 }))
 
-import { ChatPage } from '@/routes/chat/$chatId'
+import { ChatPage } from '@/features/markdown-chat/components/chat-page'
 
 test('ChatPage renders MarkdownChatView with chatId as workspaceId', () => {
-  const { getByTestId } = render(<ChatPage />)
+  const { getByTestId } = render(<ChatPage chatId="c1" />)
   const view = getByTestId('markdown-chat-view')
   expect(view).toBeTruthy()
   expect(view.getAttribute('data-workspace-id')).toBe('c1')

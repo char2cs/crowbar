@@ -57,7 +57,7 @@ func (s *AgentRunSuite) TestAgentRun_CreateStartComplete() {
 	})
 	kit.RequireStatus(t, chatResp, http.StatusCreated)
 	var chatObj map[string]any
-	kit.DecodeJSON(t, chatResp, &chatObj)
+	kit.DecodeEnvData(t, chatResp, &chatObj)
 	chatID := chatObj["id"].(string)
 	s.Require().NotEmpty(chatID)
 
@@ -69,7 +69,7 @@ func (s *AgentRunSuite) TestAgentRun_CreateStartComplete() {
 	kit.RequireStatus(t, runResp, http.StatusCreated)
 
 	var runObj map[string]any
-	kit.DecodeJSON(t, runResp, &runObj)
+	kit.DecodeEnvData(t, runResp, &runObj)
 	runID, _ := runObj["id"].(string)
 	s.Require().NotEmpty(runID)
 
@@ -92,7 +92,7 @@ func (s *AgentRunSuite) TestAgentRun_CreateStartComplete() {
 	kit.RequireStatus(t, getResp, http.StatusOK)
 
 	var getObj map[string]any
-	kit.DecodeJSON(t, getResp, &getObj)
+	kit.DecodeEnvData(t, getResp, &getObj)
 	s.Assert().Equal(runID, getObj["id"])
 	s.Assert().NotEmpty(getObj["status"])
 }
@@ -124,7 +124,7 @@ func (s *AgentRunSuite) TestAgentRun_CreateStartFail() {
 	})
 	kit.RequireStatus(t, chatResp, http.StatusCreated)
 	var chatObj map[string]any
-	kit.DecodeJSON(t, chatResp, &chatObj)
+	kit.DecodeEnvData(t, chatResp, &chatObj)
 	chatID := chatObj["id"].(string)
 	s.Require().NotEmpty(chatID)
 
@@ -136,7 +136,7 @@ func (s *AgentRunSuite) TestAgentRun_CreateStartFail() {
 	kit.RequireStatus(t, runResp, http.StatusCreated)
 
 	var runObj map[string]any
-	kit.DecodeJSON(t, runResp, &runObj)
+	kit.DecodeEnvData(t, runResp, &runObj)
 	runID, _ := runObj["id"].(string)
 	s.Require().NotEmpty(runID)
 
@@ -156,7 +156,7 @@ func (s *AgentRunSuite) TestAgentRun_CreateStartFail() {
 	kit.RequireStatus(t, getResp, http.StatusOK)
 
 	var getObj map[string]any
-	kit.DecodeJSON(t, getResp, &getObj)
+	kit.DecodeEnvData(t, getResp, &getObj)
 	s.Assert().Equal(runID, getObj["id"])
 
 	s.Assert().Equal("error", getObj["status"])
@@ -189,7 +189,7 @@ func (s *AgentRunSuite) TestAgentRun_ListRunning() {
 	})
 	kit.RequireStatus(t, chatResp, http.StatusCreated)
 	var chatObj map[string]any
-	kit.DecodeJSON(t, chatResp, &chatObj)
+	kit.DecodeEnvData(t, chatResp, &chatObj)
 	chatID := chatObj["id"].(string)
 	s.Require().NotEmpty(chatID)
 
@@ -201,7 +201,7 @@ func (s *AgentRunSuite) TestAgentRun_ListRunning() {
 	kit.RequireStatus(t, runResp, http.StatusCreated)
 
 	var runObj map[string]any
-	kit.DecodeJSON(t, runResp, &runObj)
+	kit.DecodeEnvData(t, runResp, &runObj)
 	runID, _ := runObj["id"].(string)
 	s.Require().NotEmpty(runID)
 
@@ -215,7 +215,7 @@ func (s *AgentRunSuite) TestAgentRun_ListRunning() {
 	kit.RequireStatus(t, listResp, http.StatusOK)
 
 	var runningList []map[string]any
-	kit.DecodeJSON(t, listResp, &runningList)
+	kit.DecodeEnvData(t, listResp, &runningList)
 
 	found := false
 	for _, r := range runningList {
@@ -236,7 +236,7 @@ func (s *AgentRunSuite) TestAgentRun_ListRunning() {
 	kit.RequireStatus(t, listResp2, http.StatusOK)
 
 	var runningList2 []map[string]any
-	kit.DecodeJSON(t, listResp2, &runningList2)
+	kit.DecodeEnvData(t, listResp2, &runningList2)
 
 	foundAfter := false
 	for _, r := range runningList2 {

@@ -1,45 +1,45 @@
-import { useEffect, useRef, useState } from "react";
-import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
+import { useEffect, useRef, useState } from 'react'
+import { Button } from '@/components/ui/button'
+import { Input } from '@/components/ui/input'
 
 interface TypedConfirmActionProps {
-  actionLabel: string;
-  confirmWord?: string;
-  busyLabel?: string;
-  isBusy?: boolean;
-  onConfirm: () => void | Promise<void>;
-  variant?: "default" | "destructive";
-  tooltip?: string;
+  actionLabel: string
+  confirmWord?: string
+  busyLabel?: string
+  isBusy?: boolean
+  onConfirm: () => void | Promise<void>
+  variant?: 'default' | 'destructive'
+  tooltip?: string
 }
 
 export function TypedConfirmAction({
   actionLabel,
-  confirmWord = "yes",
+  confirmWord = 'yes',
   busyLabel,
   isBusy = false,
   onConfirm,
-  variant = "default",
+  variant = 'default',
   tooltip,
 }: TypedConfirmActionProps) {
-  const [isConfirming, setIsConfirming] = useState(false);
-  const [value, setValue] = useState("");
-  const inputRef = useRef<HTMLInputElement>(null);
+  const [isConfirming, setIsConfirming] = useState(false)
+  const [value, setValue] = useState('')
+  const inputRef = useRef<HTMLInputElement>(null)
 
   useEffect(() => {
     if (!isConfirming) {
-      setValue("");
-      return;
+      setValue('')
+      return
     }
 
-    const timeoutId = window.setTimeout(() => inputRef.current?.focus(), 20);
-    return () => window.clearTimeout(timeoutId);
-  }, [isConfirming]);
+    const timeoutId = window.setTimeout(() => inputRef.current?.focus(), 20)
+    return () => window.clearTimeout(timeoutId)
+  }, [isConfirming])
 
   const handleConfirm = async () => {
-    await onConfirm();
-    setIsConfirming(false);
-    setValue("");
-  };
+    await onConfirm()
+    setIsConfirming(false)
+    setValue('')
+  }
 
   if (isConfirming) {
     return (
@@ -54,16 +54,16 @@ export function TypedConfirmAction({
           variant="default"
           className="w-28"
           onKeyDown={(event) => {
-            if (event.key === "Escape") {
-              event.preventDefault();
-              event.stopPropagation();
-              setIsConfirming(false);
-              return;
+            if (event.key === 'Escape') {
+              event.preventDefault()
+              event.stopPropagation()
+              setIsConfirming(false)
+              return
             }
 
-            if (event.key === "Enter" && value.trim().toLowerCase() === confirmWord) {
-              event.preventDefault();
-              void handleConfirm();
+            if (event.key === 'Enter' && value.trim().toLowerCase() === confirmWord) {
+              event.preventDefault()
+              void handleConfirm()
             }
           }}
         />
@@ -80,7 +80,7 @@ export function TypedConfirmAction({
           Cancel
         </Button>
       </div>
-    );
+    )
   }
 
   return (
@@ -94,5 +94,5 @@ export function TypedConfirmAction({
     >
       {isBusy ? (busyLabel ?? actionLabel) : actionLabel}
     </Button>
-  );
+  )
 }

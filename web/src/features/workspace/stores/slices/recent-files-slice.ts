@@ -31,9 +31,9 @@ export const createRecentFilesSlice: StateCreator<
 
   recentFilesActions: {
     addRecentFile(path, name) {
-      set(state => {
+      set((state) => {
         // Remove existing entry with same path (deduplication)
-        state.recentFiles = state.recentFiles.filter(f => f.path !== path)
+        state.recentFiles = state.recentFiles.filter((f) => f.path !== path)
         // Prepend new entry at front
         state.recentFiles.unshift({ path, name, lastOpenedAt: Date.now() })
         // Cap at max
@@ -44,13 +44,15 @@ export const createRecentFilesSlice: StateCreator<
     },
 
     removeRecentFile(path) {
-      set(state => {
-        state.recentFiles = state.recentFiles.filter(f => f.path !== path)
+      set((state) => {
+        state.recentFiles = state.recentFiles.filter((f) => f.path !== path)
       })
     },
 
     clearRecentFiles() {
-      set(state => { state.recentFiles = [] })
+      set((state) => {
+        state.recentFiles = []
+      })
     },
 
     getRecentFiles() {

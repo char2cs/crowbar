@@ -1,21 +1,24 @@
-import { useVirtualizer } from "@tanstack/react-virtual";
+// TODO(branch-review): unwired — entry point pending. This is the planned
+// multi-file diff view for branch review; keep it even though nothing imports
+// it yet.
+import { useVirtualizer } from '@tanstack/react-virtual'
 import {
   CaretDown as ChevronDown,
   CaretRight as ChevronRight,
   FileText,
-} from "@phosphor-icons/react";
-import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { LoadingSpinner } from "@/components/ui/loading-spinner";
-import { cn } from "@/utils/cn";
-import { formatRelativeDate } from "@/utils/date";
-import type { FileDiffSummary, MultiFileDiffViewerProps } from "../../types/git-diff-types";
-import type { GitDiff } from "../../types/git-types";
-import { getFileStatus } from "../../utils/git-diff-helpers";
-import DiffHeader from "./git-diff-header";
-import ImageDiffViewer from "./git-diff-image";
-import TextDiffViewer from "./git-diff-text";
+} from '@phosphor-icons/react'
+import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { LoadingSpinner } from '@/components/ui/loading-spinner'
+import { cn } from '@/utils/cn'
+import { formatRelativeDate } from '@/utils/date'
+import type { FileDiffSummary, MultiFileDiffViewerProps } from '../../types/git-diff-types'
+import type { GitDiff } from '../../types/git-types'
+import { getFileStatus } from '../../utils/git-diff-helpers'
+import DiffHeader from './git-diff-header'
+import ImageDiffViewer from './git-diff-image'
+import TextDiffViewer from './git-diff-text'
 
-const LARGE_DIFF_THRESHOLD = 500;
+const LARGE_DIFF_THRESHOLD = 500
 
 const FileDiffSection = memo(
   ({
@@ -27,27 +30,27 @@ const FileDiffSection = memo(
     viewMode,
     showWhitespace,
   }: {
-    diff: GitDiff;
-    summary: FileDiffSummary;
-    isExpanded: boolean;
-    onToggle: () => void;
-    commitHash: string;
-    viewMode: "unified" | "split";
-    showWhitespace: boolean;
+    diff: GitDiff
+    summary: FileDiffSummary
+    isExpanded: boolean
+    onToggle: () => void
+    commitHash: string
+    viewMode: 'unified' | 'split'
+    showWhitespace: boolean
   }) => {
     const statusColors: Record<string, string> = {
-      added: "text-git-added",
-      deleted: "text-git-deleted",
-      modified: "text-git-modified",
-      renamed: "text-git-renamed",
-    };
+      added: 'text-git-added',
+      deleted: 'text-git-deleted',
+      modified: 'text-git-modified',
+      renamed: 'text-git-renamed',
+    }
 
     return (
       <div className="border-border border-b last:border-b-0">
         <div
           className={cn(
-            "group flex cursor-pointer items-center gap-2 px-3 py-1",
-            "bg-background ui-text-sm leading-5 hover:bg-muted",
+            'group flex cursor-pointer items-center gap-2 px-3 py-1',
+            'bg-background ui-text-sm leading-5 hover:bg-muted',
           )}
           onClick={onToggle}
         >
@@ -57,12 +60,12 @@ const FileDiffSection = memo(
             <ChevronRight className="text-muted-foreground" />
           )}
 
-          <FileText className={cn("shrink-0", statusColors[summary.status])} />
+          <FileText className={cn('shrink-0', statusColors[summary.status])} />
 
           <span className="truncate font-medium text-foreground">{summary.fileName}</span>
 
           {diff.is_renamed && diff.old_path && (
-            <span className="text-muted-foreground">← {diff.old_path.split("/").pop()}</span>
+            <span className="text-muted-foreground">← {diff.old_path.split('/').pop()}</span>
           )}
 
           <div className="ui-text-sm ml-auto flex items-center gap-2 leading-none">
@@ -72,7 +75,7 @@ const FileDiffSection = memo(
             )}
             <span
               className={cn(
-                "rounded px-1 py-0.5 capitalize opacity-80",
+                'rounded px-1 py-0.5 capitalize opacity-80',
                 statusColors[summary.status],
               )}
             >
@@ -85,7 +88,7 @@ const FileDiffSection = memo(
           <div
             className="border-border border-t"
             style={{
-              contentVisibility: "auto",
+              contentVisibility: 'auto',
               containIntrinsicHeight: `${diff.lines.length * 22}px`,
             }}
           >
@@ -108,16 +111,16 @@ const FileDiffSection = memo(
           </div>
         )}
       </div>
-    );
+    )
   },
-);
+)
 
-FileDiffSection.displayName = "FileDiffSection";
+FileDiffSection.displayName = 'FileDiffSection'
 
 const CommitMetaHeader = memo(
-  ({ multiDiff }: { multiDiff: MultiFileDiffViewerProps["multiDiff"] }) => {
+  ({ multiDiff }: { multiDiff: MultiFileDiffViewerProps['multiDiff'] }) => {
     if (!multiDiff.commitMessage && !multiDiff.commitAuthor && !multiDiff.commitDate) {
-      return null;
+      return null
     }
 
     return (
@@ -136,102 +139,102 @@ const CommitMetaHeader = memo(
           <span className="editor-font">{multiDiff.commitHash.slice(0, 7)}</span>
         </div>
       </div>
-    );
+    )
   },
-);
+)
 
-CommitMetaHeader.displayName = "CommitMetaHeader";
+CommitMetaHeader.displayName = 'CommitMetaHeader'
 
 const MultiFileDiffViewer = memo(({ multiDiff, onClose }: MultiFileDiffViewerProps) => {
-  const [viewMode, setViewMode] = useState<"unified" | "split">("unified");
-  const [showWhitespace, setShowWhitespace] = useState(false);
+  const [viewMode, setViewMode] = useState<'unified' | 'split'>('unified')
+  const [showWhitespace, setShowWhitespace] = useState(false)
   const fileSummaries: FileDiffSummary[] = useMemo(() => {
     return multiDiff.files.map((diff, index) => {
-      let additions = 0;
-      let deletions = 0;
+      let additions = 0
+      let deletions = 0
       for (const line of diff.lines) {
-        if (line.line_type === "added") additions++;
-        else if (line.line_type === "removed") deletions++;
+        if (line.line_type === 'added') additions++
+        else if (line.line_type === 'removed') deletions++
       }
 
       return {
         key: multiDiff.fileKeys?.[index] ?? `${diff.file_path}:${index}`,
-        fileName: diff.file_path.split("/").pop() || diff.file_path,
+        fileName: diff.file_path.split('/').pop() || diff.file_path,
         filePath: diff.file_path,
-        status: getFileStatus(diff) as "added" | "deleted" | "modified" | "renamed",
+        status: getFileStatus(diff) as 'added' | 'deleted' | 'modified' | 'renamed',
         additions,
         deletions,
         shouldAutoCollapse: additions + deletions > LARGE_DIFF_THRESHOLD,
-      };
-    });
-  }, [multiDiff.fileKeys, multiDiff.files]);
+      }
+    })
+  }, [multiDiff.fileKeys, multiDiff.files])
 
   const [expandedFiles, setExpandedFiles] = useState<Set<string>>(() => {
-    if (multiDiff.files.length > 50) return new Set<string>();
-    const initialExpanded = new Set<string>();
+    if (multiDiff.files.length > 50) return new Set<string>()
+    const initialExpanded = new Set<string>()
     fileSummaries.forEach((summary) => {
       if (!summary.shouldAutoCollapse) {
-        initialExpanded.add(summary.key);
+        initialExpanded.add(summary.key)
       }
-    });
+    })
     if (multiDiff.initiallyExpandedFileKey) {
-      initialExpanded.add(multiDiff.initiallyExpandedFileKey);
+      initialExpanded.add(multiDiff.initiallyExpandedFileKey)
     }
-    return initialExpanded;
-  });
+    return initialExpanded
+  })
 
   useEffect(() => {
-    const nextExpanded = new Set<string>();
+    const nextExpanded = new Set<string>()
 
     if (multiDiff.files.length <= 50) {
       fileSummaries.forEach((summary) => {
         if (!summary.shouldAutoCollapse) {
-          nextExpanded.add(summary.key);
+          nextExpanded.add(summary.key)
         }
-      });
+      })
     }
 
     if (multiDiff.initiallyExpandedFileKey) {
-      nextExpanded.add(multiDiff.initiallyExpandedFileKey);
+      nextExpanded.add(multiDiff.initiallyExpandedFileKey)
     }
 
-    setExpandedFiles(nextExpanded);
-    virtualizer.measure();
-  }, [fileSummaries, multiDiff.files.length, multiDiff.initiallyExpandedFileKey]);
+    setExpandedFiles(nextExpanded)
+    virtualizer.measure()
+  }, [fileSummaries, multiDiff.files.length, multiDiff.initiallyExpandedFileKey])
 
   const toggleFile = useCallback((fileKey: string) => {
     setExpandedFiles((prev) => {
-      const newSet = new Set(prev);
+      const newSet = new Set(prev)
       if (newSet.has(fileKey)) {
-        newSet.delete(fileKey);
+        newSet.delete(fileKey)
       } else {
-        newSet.add(fileKey);
+        newSet.add(fileKey)
       }
-      return newSet;
-    });
-  }, []);
+      return newSet
+    })
+  }, [])
 
   const handleExpandAll = useCallback(() => {
-    setExpandedFiles(new Set(fileSummaries.map((s) => s.key)));
-  }, [fileSummaries]);
+    setExpandedFiles(new Set(fileSummaries.map((s) => s.key)))
+  }, [fileSummaries])
 
   const handleCollapseAll = useCallback(() => {
-    setExpandedFiles(new Set());
-  }, []);
+    setExpandedFiles(new Set())
+  }, [])
 
-  const scrollRef = useRef<HTMLDivElement>(null);
+  const scrollRef = useRef<HTMLDivElement>(null)
 
   const virtualizer = useVirtualizer({
     count: multiDiff.files.length,
     getScrollElement: () => scrollRef.current,
     estimateSize: (index) => {
-      const isExpanded = expandedFiles.has(fileSummaries[index].key);
-      if (!isExpanded) return 36;
-      const lineCount = multiDiff.files[index].lines.length;
-      return 36 + lineCount * 22;
+      const isExpanded = expandedFiles.has(fileSummaries[index].key)
+      if (!isExpanded) return 36
+      const lineCount = multiDiff.files[index].lines.length
+      return 36 + lineCount * 22
     },
     overscan: 3,
-  });
+  })
 
   return (
     <div className="flex h-full flex-col overflow-hidden bg-background">
@@ -254,22 +257,22 @@ const MultiFileDiffViewer = memo(({ multiDiff, onClose }: MultiFileDiffViewerPro
         <div
           style={{
             height: `${virtualizer.getTotalSize()}px`,
-            position: "relative",
+            position: 'relative',
           }}
         >
           {virtualizer.getVirtualItems().map((virtualItem) => {
-            const diff = multiDiff.files[virtualItem.index];
-            const summary = fileSummaries[virtualItem.index];
+            const diff = multiDiff.files[virtualItem.index]
+            const summary = fileSummaries[virtualItem.index]
             return (
               <div
                 key={summary.key}
                 ref={virtualizer.measureElement}
                 data-index={virtualItem.index}
                 style={{
-                  position: "absolute",
+                  position: 'absolute',
                   top: 0,
                   left: 0,
-                  width: "100%",
+                  width: '100%',
                   transform: `translateY(${virtualItem.start}px)`,
                 }}
               >
@@ -283,7 +286,7 @@ const MultiFileDiffViewer = memo(({ multiDiff, onClose }: MultiFileDiffViewerPro
                   showWhitespace={showWhitespace}
                 />
               </div>
-            );
+            )
           })}
         </div>
       </div>
@@ -293,7 +296,7 @@ const MultiFileDiffViewer = memo(({ multiDiff, onClose }: MultiFileDiffViewerPro
           {multiDiff.isLoading ? (
             <LoadingSpinner label="Loading remaining files" showLabel compact />
           ) : (
-            `${multiDiff.totalFiles} file${multiDiff.totalFiles !== 1 ? "s" : ""} changed`
+            `${multiDiff.totalFiles} file${multiDiff.totalFiles !== 1 ? 's' : ''} changed`
           )}
         </span>
         <div className="flex items-center gap-2">
@@ -302,9 +305,9 @@ const MultiFileDiffViewer = memo(({ multiDiff, onClose }: MultiFileDiffViewerPro
         </div>
       </div>
     </div>
-  );
-});
+  )
+})
 
-MultiFileDiffViewer.displayName = "MultiFileDiffViewer";
+MultiFileDiffViewer.displayName = 'MultiFileDiffViewer'
 
-export default MultiFileDiffViewer;
+export default MultiFileDiffViewer

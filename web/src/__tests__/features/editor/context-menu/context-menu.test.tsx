@@ -5,14 +5,19 @@ import { useEditorStateStore } from '@/features/editor/stores/state-store'
 import type { Range } from '@/features/editor/types/editor'
 
 // Mock the dependencies
-let capturedMenuItems: any[] = []
+interface MockMenuItem {
+  label?: string
+  disabled?: boolean
+}
+
+let capturedMenuItems: MockMenuItem[] = []
 
 vi.mock('@/components/ui/context-menu', () => ({
-  ContextMenu: ({ isOpen, items }: any) => {
+  ContextMenu: ({ isOpen, items }: { isOpen?: boolean; items?: MockMenuItem[] }) => {
     capturedMenuItems = items || []
     return (
       <div data-testid="context-menu" style={{ display: isOpen ? 'block' : 'none' }}>
-        {items?.map((item: any, i: number) => (
+        {items?.map((item, i) => (
           <button key={i} data-testid={`menu-item-${i}`} disabled={item.disabled}>
             {item.label}
           </button>
@@ -46,7 +51,7 @@ describe('EditorContextMenu', () => {
         onPaste={vi.fn()}
         onDelete={vi.fn()}
         onSelectAll={vi.fn()}
-      />
+      />,
     )
     expect(container.firstChild).toBeNull()
   })
@@ -62,7 +67,7 @@ describe('EditorContextMenu', () => {
         onPaste={vi.fn()}
         onDelete={vi.fn()}
         onSelectAll={vi.fn()}
-      />
+      />,
     )
     expect(getByTestId('context-menu')).toBeVisible()
   })
@@ -80,7 +85,7 @@ describe('EditorContextMenu', () => {
         onPaste={vi.fn()}
         onDelete={vi.fn()}
         onSelectAll={vi.fn()}
-      />
+      />,
     )
 
     // Menu should be rendered with hasSelection=false
@@ -105,7 +110,7 @@ describe('EditorContextMenu', () => {
         onPaste={vi.fn()}
         onDelete={vi.fn()}
         onSelectAll={vi.fn()}
-      />
+      />,
     )
 
     // Verify initial render with no selection
@@ -131,7 +136,7 @@ describe('EditorContextMenu', () => {
         onPaste={vi.fn()}
         onDelete={vi.fn()}
         onSelectAll={vi.fn()}
-      />
+      />,
     )
 
     // After the fix, the component should use the hook to get the latest selection
@@ -161,7 +166,7 @@ describe('EditorContextMenu', () => {
         onPaste={vi.fn()}
         onDelete={vi.fn()}
         onSelectAll={vi.fn()}
-      />
+      />,
     )
 
     expect(screen.getByTestId('context-menu')).toBeVisible()
@@ -185,7 +190,7 @@ describe('EditorContextMenu', () => {
         onPaste={vi.fn()}
         onDelete={vi.fn()}
         onSelectAll={vi.fn()}
-      />
+      />,
     )
 
     // The menu items should have been built - if hasSelection was properly

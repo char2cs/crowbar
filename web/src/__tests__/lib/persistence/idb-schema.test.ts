@@ -1,7 +1,9 @@
 import { describe, it, expect, beforeEach } from 'vitest'
 import { getDB, resetDB } from '@/lib/persistence/idb'
 
-beforeEach(() => { resetDB() })
+beforeEach(() => {
+  resetDB()
+})
 
 describe('idb schema v5', () => {
   it('creates the six new local-first stores', async () => {

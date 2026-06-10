@@ -165,7 +165,7 @@ func httpGitStatusClean(
 	var status struct {
 		Files []any `json:"files"`
 	}
-	kit.DecodeJSON(s.T(), resp, &status)
+	kit.DecodeEnvData(s.T(), resp, &status)
 
 	// Clean repo: no uncommitted changes expected.
 	if len(status.Files) == 0 {

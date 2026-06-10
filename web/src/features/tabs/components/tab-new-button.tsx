@@ -4,25 +4,25 @@ import {
   Plus,
   TerminalWindow as Terminal,
   X,
-} from "@phosphor-icons/react";
-import React from "react";
+} from '@phosphor-icons/react'
+import React from 'react'
 import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
   DropdownMenuSeparator,
   DropdownMenuTrigger,
-} from "@/components/ui/dropdown-menu";
-import { Button } from "@/components/ui/button";
+} from '@/components/ui/dropdown-menu'
+import { Button } from '@/components/ui/button'
 
 interface TabNewButtonProps {
-  isBottomPane: boolean;
-  disablePaneActions: boolean;
-  isInSplit: boolean;
-  onNewConversation: () => void;
-  onNewTerminal: () => void;
-  onOpenUrl: () => void;
-  onClosePane: () => void;
+  isBottomPane: boolean
+  disablePaneActions: boolean
+  isInSplit: boolean
+  onNewConversation: () => void
+  onNewTerminal: () => void
+  onOpenUrl: () => void
+  onClosePane: () => void
 }
 
 const TabNewButton = React.memo(function TabNewButton({
@@ -34,7 +34,7 @@ const TabNewButton = React.memo(function TabNewButton({
   onOpenUrl,
   onClosePane,
 }: TabNewButtonProps) {
-  if (isBottomPane) return null;
+  if (isBottomPane) return null
 
   return (
     <div className="flex shrink-0 items-center gap-1 pl-0.5">
@@ -82,7 +82,7 @@ const TabNewButton = React.memo(function TabNewButton({
         </Button>
       )}
     </div>
-  );
-});
+  )
+})
 
-export default TabNewButton;
+export default TabNewButton

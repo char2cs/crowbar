@@ -109,13 +109,13 @@ func (s *LifecycleSuite) TestLifecycle_WorkingTreeSyncUpdatesReadModelAndBroadca
 	// the workspace has at least one commit ahead of its fork point.
 	for _, f := range []string{"a.txt", "b.txt", "c.txt"} {
 		stageResp := s.Env.POST(t, "/v0/workspaces/"+wsID+"/git/stage", map[string]any{
-			"path": f,
+			"paths": []string{f},
 		})
 		kit.RequireStatus(t, stageResp, http.StatusOK)
 		stageResp.Body.Close()
 	}
 	commitResp := s.Env.POST(t, "/v0/workspaces/"+wsID+"/git/commit", map[string]any{
-		"message": "add sync test files",
+		"subject": "add sync test files",
 		"author":  "Test <t@t.com>",
 	})
 	kit.RequireStatus(t, commitResp, http.StatusOK)
@@ -166,7 +166,7 @@ func (s *LifecycleSuite) TestLifecycle_ChatAgentRunDrivesChatStatusOverWS() {
 	})
 	kit.RequireStatus(t, chatResp, http.StatusCreated)
 	var chatObj map[string]any
-	kit.DecodeJSON(t, chatResp, &chatObj)
+	kit.DecodeEnvData(t, chatResp, &chatObj)
 	chatID := chatObj["id"].(string)
 	s.Require().NotEmpty(chatID)
 
@@ -178,7 +178,7 @@ func (s *LifecycleSuite) TestLifecycle_ChatAgentRunDrivesChatStatusOverWS() {
 	kit.RequireStatus(t, runResp, http.StatusCreated)
 
 	var runObj map[string]any
-	kit.DecodeJSON(t, runResp, &runObj)
+	kit.DecodeEnvData(t, runResp, &runObj)
 	runID, _ := runObj["id"].(string)
 	s.Require().NotEmpty(runID)
 
@@ -270,7 +270,7 @@ func (s *LifecycleSuite) TestLifecycle_GitStageCommitChangesStatus() {
 	kit.RequireStatus(t, statusResp, http.StatusOK)
 
 	var statusObj map[string]any
-	kit.DecodeJSON(t, statusResp, &statusObj)
+	kit.DecodeEnvData(t, statusResp, &statusObj)
 
 	files, _ := statusObj["files"].([]any)
 	s.Assert().NotEmpty(files, "untracked file must appear in status")
@@ -285,13 +285,13 @@ func (s *LifecycleSuite) TestLifecycle_GitStageCommitChangesStatus() {
 	s.Assert().Contains(paths, "hello.txt")
 
 	stageResp := s.Env.POST(t, "/v0/workspaces/"+wsID+"/git/stage", map[string]any{
-		"path": "hello.txt",
+		"paths": []string{"hello.txt"},
 	})
 	kit.RequireStatus(t, stageResp, http.StatusOK)
 	stageResp.Body.Close()
 
 	commitResp := s.Env.POST(t, "/v0/workspaces/"+wsID+"/git/commit", map[string]any{
-		"message": "Add hello.txt",
+		"subject": "Add hello.txt",
 		"author":  "Test <t@t.com>",
 	})
 	kit.RequireStatus(t, commitResp, http.StatusOK)
@@ -301,7 +301,7 @@ func (s *LifecycleSuite) TestLifecycle_GitStageCommitChangesStatus() {
 	kit.RequireStatus(t, statusResp2, http.StatusOK)
 
 	var statusObj2 map[string]any
-	kit.DecodeJSON(t, statusResp2, &statusObj2)
+	kit.DecodeEnvData(t, statusResp2, &statusObj2)
 
 	files2, _ := statusObj2["files"].([]any)
 	s.Assert().Empty(files2, "working tree must be clean after commit")

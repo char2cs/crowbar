@@ -34,21 +34,35 @@ type Importer interface {
 	) (domain.Project, error)
 }
 
-// Handlers serves the /v0/projects routes from the project read and import
-// usecases.
+// Deleter is the delete surface the projects handlers need: cascade-remove a
+// project's records (workspaces, repos, then the project itself), tearing only
+// crowbar-created worktree directories down on disk.
+type Deleter interface {
+	Delete(
+		ctx context.Context,
+		id string,
+	) error
+}
+
+// Handlers serves the /v0/projects routes from the project read, import, and
+// delete usecases.
 type Handlers struct {
 	reader   ListGetter
 	importer Importer
+	deleter  Deleter
 }
 
-// New builds the projects Handlers from the project read and import usecases.
+// New builds the projects Handlers from the project read, import, and delete
+// usecases.
 func New(
 	reader ListGetter,
 	importer Importer,
+	deleter Deleter,
 ) *Handlers {
 	return &Handlers{
 		reader:   reader,
 		importer: importer,
+		deleter:  deleter,
 	}
 }
 
@@ -110,4 +124,20 @@ func (h *Handlers) Import(
 		return
 	}
 	libs.WriteMutationOK(c, http.StatusCreated, project.ID)
+}
+
+// Delete handles DELETE /v0/projects/:id, removing the project record together
+// with its repo and workspace records and returning the requested id. Real
+// repository directories are never deleted from disk; only crowbar-created
+// worktree directories are torn down (see project.DeleteUsecase).
+func (h *Handlers) Delete(
+	c *gin.Context,
+) {
+	id := c.Param("id")
+	if err := h.deleter.Delete(c.Request.Context(), id); err != nil {
+		status, msg := libs.StatusAndMessage(err)
+		libs.WriteErr(c, status, msg)
+		return
+	}
+	libs.WriteMutationOK(c, http.StatusOK, id)
 }

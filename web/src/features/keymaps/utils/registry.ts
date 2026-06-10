@@ -1,5 +1,5 @@
 // Stub
-import type { Command, Keybinding } from "@/features/keymaps/types"
+import type { Command, Keybinding } from '@/features/keymaps/types'
 
 export const commandRegistry = {
   register: (_cmd: unknown) => {},

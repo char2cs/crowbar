@@ -1,26 +1,26 @@
-import { memo, useMemo } from "react";
-import { useDiffData } from "../../hooks/use-git-diff-data";
-import type { DiffViewerProps, MultiFileDiff } from "../../types/git-diff-types";
-import GitDiffEditorStack from "./git-diff-editor-stack";
-import GitDiffEditorSurface from "./git-diff-editor-surface";
-import ImageDiffViewer from "./git-diff-image";
+import { memo, useMemo } from 'react'
+import { useDiffData } from '../../hooks/use-git-diff-data'
+import type { DiffViewerProps, MultiFileDiff } from '../../types/git-diff-types'
+import GitDiffEditorStack from './git-diff-editor-stack'
+import GitDiffEditorSurface from './git-diff-editor-surface'
+import ImageDiffViewer from './git-diff-image'
 
 function isMultiFileDiff(data: unknown): data is MultiFileDiff {
-  return typeof data === "object" && data !== null && "files" in data && Array.isArray(data.files);
+  return typeof data === 'object' && data !== null && 'files' in data && Array.isArray(data.files)
 }
 
 const DiffViewer = memo((_props: DiffViewerProps) => {
-  const { diff, rawDiffData, filePath, isLoading, error } = useDiffData();
+  const { diff, rawDiffData, filePath, isLoading, error } = useDiffData()
 
   const multiFileDiff = useMemo(() => {
     if (rawDiffData && isMultiFileDiff(rawDiffData)) {
-      return rawDiffData;
+      return rawDiffData
     }
-    return null;
-  }, [rawDiffData]);
+    return null
+  }, [rawDiffData])
 
   if (multiFileDiff) {
-    return <GitDiffEditorStack multiDiff={multiFileDiff} />;
+    return <GitDiffEditorStack multiDiff={multiFileDiff} />
   }
 
   if (isLoading) {
@@ -28,7 +28,7 @@ const DiffViewer = memo((_props: DiffViewerProps) => {
       <div className="flex h-full items-center justify-center bg-background">
         <div className="ui-text-sm text-muted-foreground">Loading diff...</div>
       </div>
-    );
+    )
   }
 
   if (error) {
@@ -36,7 +36,7 @@ const DiffViewer = memo((_props: DiffViewerProps) => {
       <div className="flex h-full items-center justify-center bg-background">
         <div className="text-error ui-text-sm">{error}</div>
       </div>
-    );
+    )
   }
 
   if (!diff || !filePath) {
@@ -44,13 +44,13 @@ const DiffViewer = memo((_props: DiffViewerProps) => {
       <div className="flex h-full items-center justify-center bg-background">
         <div className="ui-text-sm text-muted-foreground">No diff data available</div>
       </div>
-    );
+    )
   }
 
-  const fileName = filePath.split("/").pop() || filePath;
+  const fileName = filePath.split('/').pop() || filePath
 
   if (diff.is_image) {
-    return <ImageDiffViewer diff={diff} fileName={fileName} onClose={() => {}} />;
+    return <ImageDiffViewer diff={diff} fileName={fileName} onClose={() => {}} />
   }
 
   return (
@@ -63,9 +63,9 @@ const DiffViewer = memo((_props: DiffViewerProps) => {
         }}
       />
     </div>
-  );
-});
+  )
+})
 
-DiffViewer.displayName = "DiffViewer";
+DiffViewer.displayName = 'DiffViewer'
 
-export default DiffViewer;
+export default DiffViewer

@@ -1,10 +1,10 @@
-import { File, Folder, FolderOpen } from "@phosphor-icons/react"
-import type { IconThemeDefinition } from "../types"
+import { File, Folder, FolderOpen } from '@phosphor-icons/react'
+import type { IconThemeDefinition } from '../types'
 
 export const minimalIconTheme: IconThemeDefinition = {
-  id: "minimal",
-  name: "Minimal Icons",
-  description: "Simple monochrome file icons",
+  id: 'minimal',
+  name: 'Minimal Icons',
+  description: 'Simple monochrome file icons',
   getFileIcon: (_fileName: string, isDir: boolean, isExpanded = false, _isSymlink = false) => {
     if (isDir) {
       const Icon = isExpanded ? FolderOpen : Folder

@@ -41,8 +41,12 @@ export function MarkdownChatInput({
     anchorRect: null,
   })
 
-  useEffect(() => { onSubmitRef.current = onSubmit }, [onSubmit])
-  useEffect(() => { onSlashCommandRef.current = onSlashCommand }, [onSlashCommand])
+  useEffect(() => {
+    onSubmitRef.current = onSubmit
+  }, [onSubmit])
+  useEffect(() => {
+    onSlashCommandRef.current = onSlashCommand
+  }, [onSlashCommand])
 
   const handleSlashCommand = useCallback((cmd: SlashCommand) => {
     const view = viewRef.current

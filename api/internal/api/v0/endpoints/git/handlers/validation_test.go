@@ -13,17 +13,17 @@ func TestGitWriteHandlers_MissingFields(
 	r := newRouter()
 
 	assert.Equal(t, http.StatusBadRequest, do(r, http.MethodPost, ws+"/stage",
-		map[string]any{"path": ""}).Code)
+		map[string]any{"paths": []string{}}).Code)
 	assert.Equal(t, http.StatusBadRequest, do(r, http.MethodPost, ws+"/stage-hunk",
 		map[string]any{"path": "a.go", "hunkId": ""}).Code)
 	assert.Equal(t, http.StatusBadRequest, do(r, http.MethodPost, ws+"/unstage",
-		map[string]any{"path": ""}).Code)
+		map[string]any{"paths": []string{""}}).Code)
 	assert.Equal(t, http.StatusBadRequest, do(r, http.MethodPost, ws+"/unstage-hunk",
 		map[string]any{"path": "a.go", "hunkId": ""}).Code)
 	assert.Equal(t, http.StatusBadRequest, do(r, http.MethodPost, ws+"/discard",
-		map[string]any{"path": ""}).Code)
+		map[string]any{"paths": []string{}}).Code)
 	assert.Equal(t, http.StatusBadRequest, do(r, http.MethodPost, ws+"/commit",
-		map[string]any{"message": ""}).Code)
+		map[string]any{"subject": ""}).Code)
 	assert.Equal(t, http.StatusBadRequest, do(r, http.MethodPost, ws+"/branches",
 		map[string]any{"name": ""}).Code)
 	assert.Equal(t, http.StatusBadRequest, do(r, http.MethodPatch, ws+"/branches",

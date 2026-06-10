@@ -1,64 +1,64 @@
-import { useCallback, useEffect, useRef, useState } from "react";
-import { extensionRegistry } from "@/extensions/registry/extension-registry";
-import { useEditorUIStore } from "@/features/editor/stores/ui-store";
-import { LspClient } from "./lsp-client";
+import { useCallback, useEffect, useRef, useState } from 'react'
+import { extensionRegistry } from '@/extensions/registry/extension-registry'
+import { useEditorUIStore } from '@/features/editor/stores/ui-store'
+import { LspClient } from './lsp-client'
 
 export interface CodeLensItem {
-  line: number;
-  title: string;
-  command?: string;
-  arguments?: unknown[];
+  line: number
+  title: string
+  command?: string
+  arguments?: unknown[]
 }
 
-const DEBOUNCE_MS = 1000;
+const DEBOUNCE_MS = 1000
 
 export const useCodeLens = (filePath: string | undefined, enabled: boolean) => {
-  const [lenses, setLenses] = useState<CodeLensItem[]>([]);
-  const timerRef = useRef<NodeJS.Timeout | undefined>(undefined);
-  const requestIdRef = useRef(0);
+  const [lenses, setLenses] = useState<CodeLensItem[]>([])
+  const timerRef = useRef<NodeJS.Timeout | undefined>(undefined)
+  const requestIdRef = useRef(0)
 
   const fetchLenses = useCallback(async () => {
     if (!filePath || !enabled || !extensionRegistry.isLspSupported(filePath)) {
-      setLenses([]);
-      return;
+      setLenses([])
+      return
     }
 
-    const id = ++requestIdRef.current;
-    const lspClient = LspClient.getInstance();
-    const result = await lspClient.getCodeLens(filePath);
+    const id = ++requestIdRef.current
+    const lspClient = LspClient.getInstance()
+    const result = await lspClient.getCodeLens(filePath)
 
-    if (id !== requestIdRef.current) return;
-    setLenses(result as CodeLensItem[]);
-  }, [filePath, enabled]);
+    if (id !== requestIdRef.current) return
+    setLenses(result as CodeLensItem[])
+  }, [filePath, enabled])
 
   useEffect(() => {
-    void fetchLenses();
-  }, [fetchLenses]);
+    void fetchLenses()
+  }, [fetchLenses])
 
   useEffect(() => {
     if (!filePath || !enabled || !extensionRegistry.isLspSupported(filePath)) {
-      return;
+      return
     }
 
-    let lastInputTimestamp = useEditorUIStore.getState().lastInputTimestamp;
+    let lastInputTimestamp = useEditorUIStore.getState().lastInputTimestamp
 
     const unsubscribe = useEditorUIStore.subscribe((state) => {
       if (state.lastInputTimestamp === 0 || state.lastInputTimestamp === lastInputTimestamp) {
-        return;
+        return
       }
 
-      lastInputTimestamp = state.lastInputTimestamp;
-      if (timerRef.current) clearTimeout(timerRef.current);
+      lastInputTimestamp = state.lastInputTimestamp
+      if (timerRef.current) clearTimeout(timerRef.current)
       timerRef.current = setTimeout(() => {
-        void fetchLenses();
-      }, DEBOUNCE_MS);
-    });
+        void fetchLenses()
+      }, DEBOUNCE_MS)
+    })
 
     return () => {
-      unsubscribe();
-      if (timerRef.current) clearTimeout(timerRef.current);
-    };
-  }, [fetchLenses]);
+      unsubscribe()
+      if (timerRef.current) clearTimeout(timerRef.current)
+    }
+  }, [fetchLenses])
 
-  return lenses;
-};
+  return lenses
+}

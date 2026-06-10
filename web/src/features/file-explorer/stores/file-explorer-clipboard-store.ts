@@ -1,1 +1,1 @@
-export * from "../file-explorer/stores/file-explorer-clipboard-store"
+export * from '../file-explorer/stores/file-explorer-clipboard-store'

@@ -1,20 +1,20 @@
-import { Download, Trash as Trash2, Upload } from "@phosphor-icons/react";
-import { useState } from "react";
-import { Button } from "@/components/ui/button";
-import { cn } from "@/utils/cn";
-import { formatRelativeDate } from "@/utils/date";
-import { applyStash, dropStash, popStash } from "../../api/git-stash-api";
-import { useGitStore } from "../../stores/git-store";
-import { getStashDisplayTitle, getStashPositionLabel } from "../../utils/git-stash-format";
-import GitSidebarSectionHeader from "../git-sidebar-section-header";
+import { Download, Trash as Trash2, Upload } from '@phosphor-icons/react'
+import { useState } from 'react'
+import { Button } from '@/components/ui/button'
+import { cn } from '@/utils/cn'
+import { formatRelativeDate } from '@/utils/date'
+import { applyStash, dropStash, popStash } from '../../api/git-stash-api'
+import { useGitStore } from '../../stores/git-store'
+import { getStashDisplayTitle, getStashPositionLabel } from '../../utils/git-stash-format'
+import GitSidebarSectionHeader from '../git-sidebar-section-header'
 
 interface GitStashPanelProps {
-  isCollapsed: boolean;
-  onToggle: () => void;
-  repoPath?: string;
-  onRefresh?: () => void;
-  onViewStashDiff?: (stashIndex: number) => void;
-  showHeader?: boolean;
+  isCollapsed: boolean
+  onToggle: () => void
+  repoPath?: string
+  onRefresh?: () => void
+  onViewStashDiff?: (stashIndex: number) => void
+  showHeader?: boolean
 }
 
 const GitStashPanel = ({
@@ -25,65 +25,65 @@ const GitStashPanel = ({
   onViewStashDiff,
   showHeader = true,
 }: GitStashPanelProps) => {
-  const stashes = useGitStore((s) => s.stashes);
-  const [actionLoading, setActionLoading] = useState<Set<number>>(new Set());
+  const stashes = useGitStore((s) => s.stashes)
+  const [actionLoading, setActionLoading] = useState<Set<number>>(new Set())
 
   const handleStashAction = async (
     action: () => Promise<boolean>,
     stashIndex: number,
     actionName: string,
   ) => {
-    if (!repoPath) return;
+    if (!repoPath) return
 
-    setActionLoading((prev) => new Set(prev).add(stashIndex));
+    setActionLoading((prev) => new Set(prev).add(stashIndex))
     try {
-      const success = await action();
+      const success = await action()
       if (success) {
-        onRefresh?.();
+        onRefresh?.()
       } else {
-        console.error(`${actionName} failed`);
+        console.error(`${actionName} failed`)
       }
     } catch (error) {
-      console.error(`${actionName} error:`, error);
+      console.error(`${actionName} error:`, error)
     } finally {
       setActionLoading((prev) => {
-        const newSet = new Set(prev);
-        newSet.delete(stashIndex);
-        return newSet;
-      });
+        const newSet = new Set(prev)
+        newSet.delete(stashIndex)
+        return newSet
+      })
     }
-  };
+  }
 
   const handleApplyStash = (stashIndex: number, e: React.MouseEvent) => {
-    e.stopPropagation();
-    handleStashAction(() => applyStash(repoPath!, stashIndex), stashIndex, "Apply stash");
-  };
+    e.stopPropagation()
+    handleStashAction(() => applyStash(repoPath!, stashIndex), stashIndex, 'Apply stash')
+  }
 
   const handlePopStash = (stashIndex: number, e: React.MouseEvent) => {
-    e.stopPropagation();
-    handleStashAction(() => popStash(repoPath!, stashIndex), stashIndex, "Pop stash");
-  };
+    e.stopPropagation()
+    handleStashAction(() => popStash(repoPath!, stashIndex), stashIndex, 'Pop stash')
+  }
 
   const handleDropStash = (stashIndex: number, e: React.MouseEvent) => {
-    e.stopPropagation();
-    handleStashAction(() => dropStash(repoPath!, stashIndex), stashIndex, "Drop stash");
-  };
+    e.stopPropagation()
+    handleStashAction(() => dropStash(repoPath!, stashIndex), stashIndex, 'Drop stash')
+  }
 
   const handleStashClick = (stashIndex: number) => {
-    onViewStashDiff?.(stashIndex);
-  };
+    onViewStashDiff?.(stashIndex)
+  }
 
   return (
     <div
       className={cn(
-        "select-none",
-        isCollapsed ? "shrink-0" : "flex h-full min-h-0 flex-1 flex-col",
+        'select-none',
+        isCollapsed ? 'shrink-0' : 'flex h-full min-h-0 flex-1 flex-col',
       )}
     >
       <div
         className={cn(
-          "flex min-h-0 flex-1 flex-col overflow-hidden",
-          showHeader && "rounded-lg border border-border/60 bg-background/55",
+          'flex min-h-0 flex-1 flex-col overflow-hidden',
+          showHeader && 'rounded-lg border border-border/60 bg-background/55',
         )}
       >
         <div className="shrink-0 px-1 py-1">
@@ -102,15 +102,15 @@ const GitStashPanel = ({
         {!isCollapsed && (
           <div
             className={cn(
-              "scrollbar-none min-h-0 flex-1 overflow-y-scroll px-1 pb-1",
-              showHeader ? "bg-background/70" : "bg-transparent",
+              'scrollbar-none min-h-0 flex-1 overflow-y-scroll px-1 pb-1',
+              showHeader ? 'bg-background/70' : 'bg-transparent',
             )}
           >
             {stashes.length === 0 ? (
               <div className="ui-text-sm px-2.5 py-2 text-muted-foreground italic">No stashes</div>
             ) : (
               stashes.map((stash) => {
-                const displayTitle = getStashDisplayTitle(stash.message);
+                const displayTitle = getStashDisplayTitle(stash.message)
 
                 return (
                   <div
@@ -171,14 +171,14 @@ const GitStashPanel = ({
                       </Button>
                     </div>
                   </div>
-                );
+                )
               })
             )}
           </div>
         )}
       </div>
     </div>
-  );
-};
+  )
+}
 
-export default GitStashPanel;
+export default GitStashPanel

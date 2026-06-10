@@ -61,20 +61,20 @@ func (s *GitSuite) gitStatus() map[string]any {
 	resp := s.Env.GET(s.T(), "/v0/workspaces/"+s.wsID+"/git/status")
 	kit.RequireStatus(s.T(), resp, 200)
 	var r map[string]any
-	kit.DecodeJSON(s.T(), resp, &r)
+	kit.DecodeEnvData(s.T(), resp, &r)
 	return r
 }
 
 // stageFile calls POST /v0/workspaces/:id/git/stage for the given path.
 func (s *GitSuite) stageFile(path string) {
-	resp := s.Env.POST(s.T(), "/v0/workspaces/"+s.wsID+"/git/stage", map[string]any{"path": path})
+	resp := s.Env.POST(s.T(), "/v0/workspaces/"+s.wsID+"/git/stage", map[string]any{"paths": []string{path}})
 	kit.RequireStatus(s.T(), resp, 200)
 	resp.Body.Close()
 }
 
 // commit calls POST /v0/workspaces/:id/git/commit with the given message.
 func (s *GitSuite) commit(msg string) {
-	resp := s.Env.POST(s.T(), "/v0/workspaces/"+s.wsID+"/git/commit", map[string]any{"message": msg, "author": "Test <t@t.com>"})
+	resp := s.Env.POST(s.T(), "/v0/workspaces/"+s.wsID+"/git/commit", map[string]any{"subject": msg, "author": "Test <t@t.com>"})
 	kit.RequireStatus(s.T(), resp, 200)
 	resp.Body.Close()
 }
@@ -159,7 +159,7 @@ func (s *GitSuite) TestGit_unstageFile() {
 	)
 	s.stageFile("unstage.txt")
 
-	resp := s.Env.POST(s.T(), "/v0/workspaces/"+s.wsID+"/git/unstage", map[string]any{"path": "unstage.txt"})
+	resp := s.Env.POST(s.T(), "/v0/workspaces/"+s.wsID+"/git/unstage", map[string]any{"paths": []string{"unstage.txt"}})
 	kit.RequireStatus(s.T(), resp, 200)
 	resp.Body.Close()
 
@@ -215,7 +215,7 @@ func (s *GitSuite) TestGit_diffShowsUnstagedChanges() {
 	resp := s.Env.GET(s.T(), "/v0/workspaces/"+s.wsID+"/git/diff?staged=false")
 	kit.RequireStatus(s.T(), resp, 200)
 	var diffs []map[string]any
-	kit.DecodeJSON(s.T(), resp, &diffs)
+	kit.DecodeEnvData(s.T(), resp, &diffs)
 
 	s.Require().NotEmpty(diffs)
 	s.Assert().Equal(
@@ -241,7 +241,7 @@ func (s *GitSuite) TestGit_logShowsCommit() {
 	resp := s.Env.GET(s.T(), "/v0/workspaces/"+s.wsID+"/git/log?limit=10&skip=0")
 	kit.RequireStatus(s.T(), resp, 200)
 	var commits []map[string]any
-	kit.DecodeJSON(s.T(), resp, &commits)
+	kit.DecodeEnvData(s.T(), resp, &commits)
 
 	s.Require().NotEmpty(commits)
 	s.Assert().Equal(
@@ -275,7 +275,7 @@ func (s *GitSuite) TestGit_stashPushAndPop() {
 	resp = s.Env.GET(s.T(), "/v0/workspaces/"+s.wsID+"/git/stashes")
 	kit.RequireStatus(s.T(), resp, 200)
 	var stashes []map[string]any
-	kit.DecodeJSON(s.T(), resp, &stashes)
+	kit.DecodeEnvData(s.T(), resp, &stashes)
 	s.Require().Len(stashes, 1)
 
 	resp = s.Env.POST(s.T(), "/v0/workspaces/"+s.wsID+"/git/stash-pop", map[string]any{"index": 0})
@@ -285,7 +285,7 @@ func (s *GitSuite) TestGit_stashPushAndPop() {
 	resp = s.Env.GET(s.T(), "/v0/workspaces/"+s.wsID+"/git/stashes")
 	kit.RequireStatus(s.T(), resp, 200)
 	var stashesAfter []map[string]any
-	kit.DecodeJSON(s.T(), resp, &stashesAfter)
+	kit.DecodeEnvData(s.T(), resp, &stashesAfter)
 	s.Assert().Empty(
 		stashesAfter,
 		"stash list must be empty after pop",
@@ -317,7 +317,7 @@ func (s *GitSuite) TestGit_stashDrop() {
 	resp = s.Env.GET(s.T(), "/v0/workspaces/"+s.wsID+"/git/stashes")
 	kit.RequireStatus(s.T(), resp, 200)
 	var stashes []map[string]any
-	kit.DecodeJSON(s.T(), resp, &stashes)
+	kit.DecodeEnvData(s.T(), resp, &stashes)
 	s.Require().Len(stashes, 1)
 
 	resp = s.Env.DELETE(s.T(), "/v0/workspaces/"+s.wsID+"/git/stash?index=0")
@@ -326,7 +326,7 @@ func (s *GitSuite) TestGit_stashDrop() {
 	resp = s.Env.GET(s.T(), "/v0/workspaces/"+s.wsID+"/git/stashes")
 	kit.RequireStatus(s.T(), resp, 200)
 	var stashesAfter []map[string]any
-	kit.DecodeJSON(s.T(), resp, &stashesAfter)
+	kit.DecodeEnvData(s.T(), resp, &stashesAfter)
 	s.Assert().Empty(stashesAfter)
 }
 
@@ -342,7 +342,7 @@ func (s *GitSuite) TestGit_branchesListsCurrent() {
 	resp := s.Env.GET(s.T(), "/v0/workspaces/"+s.wsID+"/git/branches")
 	kit.RequireStatus(s.T(), resp, 200)
 	var branches []map[string]any
-	kit.DecodeJSON(s.T(), resp, &branches)
+	kit.DecodeEnvData(s.T(), resp, &branches)
 	s.Require().NotEmpty(branches)
 
 	isCurrent := branchIsCurrent(
@@ -371,7 +371,7 @@ func (s *GitSuite) TestGit_blameAnnotatesLines() {
 	resp := s.Env.GET(s.T(), "/v0/workspaces/"+s.wsID+"/git/blame?path=blame.txt")
 	kit.RequireStatus(s.T(), resp, 200)
 	var entries []map[string]any
-	kit.DecodeJSON(s.T(), resp, &entries)
+	kit.DecodeEnvData(s.T(), resp, &entries)
 
 	s.Require().GreaterOrEqual(len(entries), 3)
 	lineNum := entries[0]["lineNumber"]
@@ -403,7 +403,7 @@ func (s *GitSuite) TestGit_hunkStageAndUnstage() {
 	resp := s.Env.GET(s.T(), "/v0/workspaces/"+s.wsID+"/git/diff?staged=false")
 	kit.RequireStatus(s.T(), resp, 200)
 	var diffs []map[string]any
-	kit.DecodeJSON(s.T(), resp, &diffs)
+	kit.DecodeEnvData(s.T(), resp, &diffs)
 	s.Require().NotEmpty(diffs)
 	hunks, _ := diffs[0]["hunks"].([]any)
 	s.Require().NotEmpty(hunks)
@@ -420,7 +420,7 @@ func (s *GitSuite) TestGit_hunkStageAndUnstage() {
 	resp = s.Env.GET(s.T(), "/v0/workspaces/"+s.wsID+"/git/diff?staged=true")
 	kit.RequireStatus(s.T(), resp, 200)
 	var stagedDiffs []map[string]any
-	kit.DecodeJSON(s.T(), resp, &stagedDiffs)
+	kit.DecodeEnvData(s.T(), resp, &stagedDiffs)
 	s.Require().NotEmpty(
 		stagedDiffs,
 		"staged diff must be non-empty after hunk stage",
@@ -436,7 +436,7 @@ func (s *GitSuite) TestGit_hunkStageAndUnstage() {
 	resp = s.Env.GET(s.T(), "/v0/workspaces/"+s.wsID+"/git/diff?staged=true")
 	kit.RequireStatus(s.T(), resp, 200)
 	var stagedAfter []map[string]any
-	kit.DecodeJSON(s.T(), resp, &stagedAfter)
+	kit.DecodeEnvData(s.T(), resp, &stagedAfter)
 	s.Assert().Empty(
 		stagedAfter,
 		"staged diff must be empty after hunk unstage",
@@ -487,4 +487,3 @@ func (s *GitSuite) TestGit_resetRestoresCleanTree() {
 		"working tree must be clean after hard reset",
 	)
 }
-

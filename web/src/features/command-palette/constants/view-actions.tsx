@@ -9,32 +9,32 @@ import {
   TerminalWindow as Terminal,
   MagnifyingGlassPlus as ZoomIn,
   MagnifyingGlassMinus as ZoomOut,
-} from "@phosphor-icons/react";
-import type { BottomPaneTab } from "@/features/window/stores/ui-state/types";
-import { primitivePrompt } from "@/components/ui/primitive-dialog-service";
-import { IS_MAC, IS_WINDOWS } from "@/utils/platform";
-import type { Action } from "../models/action.types";
+} from '@phosphor-icons/react'
+import type { BottomPaneTab } from '@/features/window/stores/ui-state/types'
+import { primitivePrompt } from '@/components/ui/primitive-dialog-service'
+import { IS_MAC, IS_WINDOWS } from '@/utils/platform'
+import type { Action } from '../models/action.types'
 
 interface ViewActionsParams {
-  isSidebarVisible: boolean;
-  setIsSidebarVisible: (v: boolean) => void;
-  isBottomPaneVisible: boolean;
-  setIsBottomPaneVisible: (v: boolean) => void;
-  bottomPaneActiveTab: BottomPaneTab;
-  setBottomPaneActiveTab: (tab: BottomPaneTab) => void;
-  isFindVisible: boolean;
-  setIsFindVisible: (v: boolean) => void;
+  isSidebarVisible: boolean
+  setIsSidebarVisible: (v: boolean) => void
+  isBottomPaneVisible: boolean
+  setIsBottomPaneVisible: (v: boolean) => void
+  bottomPaneActiveTab: BottomPaneTab
+  setBottomPaneActiveTab: (tab: BottomPaneTab) => void
+  isFindVisible: boolean
+  setIsFindVisible: (v: boolean) => void
   settings: {
-    sidebarPosition: "left" | "right";
-    nativeMenuBar: boolean;
-    compactMenuBar: boolean;
-  };
-  updateSetting: (key: string, value: any) => void | Promise<void>;
-  zoomIn: (target: "editor" | "terminal") => void;
-  zoomOut: (target: "editor" | "terminal") => void;
-  resetZoom: (target: "editor" | "terminal") => void;
-  openWebViewerBuffer: (url: string) => void;
-  onClose: () => void;
+    sidebarPosition: 'left' | 'right'
+    nativeMenuBar: boolean
+    compactMenuBar: boolean
+  }
+  updateSetting: (key: string, value: unknown) => void | Promise<void>
+  zoomIn: (target: 'editor' | 'terminal') => void
+  zoomOut: (target: 'editor' | 'terminal') => void
+  resetZoom: (target: 'editor' | 'terminal') => void
+  openWebViewerBuffer: (url: string) => void
+  onClose: () => void
 }
 
 export const createViewActions = (params: ViewActionsParams): Action[] => {
@@ -54,98 +54,98 @@ export const createViewActions = (params: ViewActionsParams): Action[] => {
     resetZoom,
     openWebViewerBuffer,
     onClose,
-  } = params;
+  } = params
 
   return [
     {
-      id: "toggle-sidebar",
-      label: isSidebarVisible ? "View: Hide Sidebar" : "View: Show Sidebar",
-      description: isSidebarVisible ? "Hide the sidebar panel" : "Show the sidebar panel",
+      id: 'toggle-sidebar',
+      label: isSidebarVisible ? 'View: Hide Sidebar' : 'View: Show Sidebar',
+      description: isSidebarVisible ? 'Hide the sidebar panel' : 'Show the sidebar panel',
       icon: <PanelLeft />,
-      category: "View",
-      commandId: "workbench.toggleSidebar",
+      category: 'View',
+      commandId: 'workbench.toggleSidebar',
       action: () => {
-        setIsSidebarVisible(!isSidebarVisible);
-        onClose();
+        setIsSidebarVisible(!isSidebarVisible)
+        onClose()
       },
     },
     {
-      id: "toggle-bottom-pane",
-      label: isBottomPaneVisible ? "View: Hide Bottom Pane" : "View: Show Bottom Pane",
-      description: isBottomPaneVisible ? "Hide the bottom pane" : "Show the bottom pane",
+      id: 'toggle-bottom-pane',
+      label: isBottomPaneVisible ? 'View: Hide Bottom Pane' : 'View: Show Bottom Pane',
+      description: isBottomPaneVisible ? 'Hide the bottom pane' : 'Show the bottom pane',
       icon: <PanelBottom />,
-      category: "View",
+      category: 'View',
       action: () => {
-        setIsBottomPaneVisible(!isBottomPaneVisible);
-        onClose();
+        setIsBottomPaneVisible(!isBottomPaneVisible)
+        onClose()
       },
     },
     {
-      id: "toggle-terminal",
+      id: 'toggle-terminal',
       label:
-        isBottomPaneVisible && bottomPaneActiveTab === "terminal"
-          ? "View: Hide Terminal"
-          : "View: Show Terminal",
-      description: "Toggle integrated terminal panel",
+        isBottomPaneVisible && bottomPaneActiveTab === 'terminal'
+          ? 'View: Hide Terminal'
+          : 'View: Show Terminal',
+      description: 'Toggle integrated terminal panel',
       icon: <Terminal />,
-      category: "View",
-      commandId: "workbench.toggleTerminalAlt",
+      category: 'View',
+      commandId: 'workbench.toggleTerminalAlt',
       action: () => {
-        if (isBottomPaneVisible && bottomPaneActiveTab === "terminal") {
-          setIsBottomPaneVisible(false);
+        if (isBottomPaneVisible && bottomPaneActiveTab === 'terminal') {
+          setIsBottomPaneVisible(false)
         } else {
-          setBottomPaneActiveTab("terminal");
-          setIsBottomPaneVisible(true);
-          window.dispatchEvent(new CustomEvent("terminal-ensure-session"));
+          setBottomPaneActiveTab('terminal')
+          setIsBottomPaneVisible(true)
+          window.dispatchEvent(new CustomEvent('terminal-ensure-session'))
         }
-        onClose();
+        onClose()
       },
     },
     {
-      id: "toggle-find-view",
-      label: isFindVisible ? "View: Hide Find" : "View: Show Find",
-      description: isFindVisible ? "Hide find in file" : "Show find in file",
+      id: 'toggle-find-view',
+      label: isFindVisible ? 'View: Hide Find' : 'View: Show Find',
+      description: isFindVisible ? 'Hide find in file' : 'Show find in file',
       icon: <Search />,
-      category: "View",
-      commandId: "workbench.showFind",
+      category: 'View',
+      commandId: 'workbench.showFind',
       action: () => {
-        setIsFindVisible(!isFindVisible);
-        onClose();
+        setIsFindVisible(!isFindVisible)
+        onClose()
       },
     },
     {
-      id: "toggle-sidebar-position",
-      label: "View: Switch Sidebar Position",
+      id: 'toggle-sidebar-position',
+      label: 'View: Switch Sidebar Position',
       description:
-        settings.sidebarPosition === "left"
-          ? "Move sidebar to right side"
-          : "Move sidebar to left side",
+        settings.sidebarPosition === 'left'
+          ? 'Move sidebar to right side'
+          : 'Move sidebar to left side',
       icon: <ArrowLeftRight />,
-      category: "View",
-      commandId: "workbench.toggleSidebarPosition",
+      category: 'View',
+      commandId: 'workbench.toggleSidebarPosition',
       action: () => {
-        updateSetting("sidebarPosition", settings.sidebarPosition === "left" ? "right" : "left");
-        onClose();
+        updateSetting('sidebarPosition', settings.sidebarPosition === 'left' ? 'right' : 'left')
+        onClose()
       },
     },
     ...(!IS_MAC && !IS_WINDOWS
       ? [
           {
-            id: "toggle-native-menu-bar",
+            id: 'toggle-native-menu-bar',
             label: settings.nativeMenuBar
-              ? "View: Disable Native Menu Bar"
-              : "View: Enable Native Menu Bar",
+              ? 'View: Disable Native Menu Bar'
+              : 'View: Enable Native Menu Bar',
             description: settings.nativeMenuBar
-              ? "Use custom menu bar"
-              : "Use native operating system menu bar",
+              ? 'Use custom menu bar'
+              : 'Use native operating system menu bar',
             icon: <Menu />,
-            category: "View",
+            category: 'View',
             action: async () => {
-              const newValue = !settings.nativeMenuBar;
-              updateSetting("nativeMenuBar", newValue);
-              const { toggleMenuBar } = await import("@/lib/crowbar-bridge");
-              await toggleMenuBar(newValue);
-              onClose();
+              const newValue = !settings.nativeMenuBar
+              updateSetting('nativeMenuBar', newValue)
+              const { toggleMenuBar } = await import('@/lib/crowbar-bridge')
+              await toggleMenuBar(newValue)
+              onClose()
             },
           },
         ]
@@ -153,119 +153,119 @@ export const createViewActions = (params: ViewActionsParams): Action[] => {
     ...(!IS_MAC
       ? [
           {
-            id: "toggle-compact-menu-bar",
+            id: 'toggle-compact-menu-bar',
             label: settings.compactMenuBar
-              ? "View: Disable Compact Menu Bar"
-              : "View: Enable Compact Menu Bar",
+              ? 'View: Disable Compact Menu Bar'
+              : 'View: Enable Compact Menu Bar',
             description: settings.compactMenuBar
-              ? "Show full menu bar"
-              : "Use compact menu bar with hamburger icon",
+              ? 'Show full menu bar'
+              : 'Use compact menu bar with hamburger icon',
             icon: <Menu />,
-            category: "View",
+            category: 'View',
             action: () => {
-              updateSetting("compactMenuBar", !settings.compactMenuBar);
-              onClose();
+              updateSetting('compactMenuBar', !settings.compactMenuBar)
+              onClose()
             },
           },
         ]
       : []),
     {
-      id: "view-zoom-in",
-      label: "Editor: Zoom In",
-      description: "Increase editor zoom level",
+      id: 'view-zoom-in',
+      label: 'Editor: Zoom In',
+      description: 'Increase editor zoom level',
       icon: <ZoomIn />,
-      category: "View",
-      commandId: "workbench.zoomIn",
+      category: 'View',
+      commandId: 'workbench.zoomIn',
       action: () => {
-        zoomIn("editor");
-        onClose();
+        zoomIn('editor')
+        onClose()
       },
     },
     {
-      id: "view-zoom-out",
-      label: "Editor: Zoom Out",
-      description: "Decrease editor zoom level",
+      id: 'view-zoom-out',
+      label: 'Editor: Zoom Out',
+      description: 'Decrease editor zoom level',
       icon: <ZoomOut />,
-      category: "View",
-      commandId: "workbench.zoomOut",
+      category: 'View',
+      commandId: 'workbench.zoomOut',
       action: () => {
-        zoomOut("editor");
-        onClose();
+        zoomOut('editor')
+        onClose()
       },
     },
     {
-      id: "view-reset-zoom",
-      label: "Editor: Reset Zoom",
-      description: "Reset editor zoom to default level",
+      id: 'view-reset-zoom',
+      label: 'Editor: Reset Zoom',
+      description: 'Reset editor zoom to default level',
       icon: <RotateCcw />,
-      category: "View",
-      commandId: "workbench.zoomReset",
+      category: 'View',
+      commandId: 'workbench.zoomReset',
       action: () => {
-        resetZoom("editor");
-        onClose();
+        resetZoom('editor')
+        onClose()
       },
     },
     {
-      id: "terminal-zoom-in",
-      label: "Terminal: Zoom In",
-      description: "Increase terminal zoom level",
+      id: 'terminal-zoom-in',
+      label: 'Terminal: Zoom In',
+      description: 'Increase terminal zoom level',
       icon: <ZoomIn />,
-      category: "Terminal",
+      category: 'Terminal',
       action: () => {
-        zoomIn("terminal");
-        onClose();
+        zoomIn('terminal')
+        onClose()
       },
     },
     {
-      id: "terminal-zoom-out",
-      label: "Terminal: Zoom Out",
-      description: "Decrease terminal zoom level",
+      id: 'terminal-zoom-out',
+      label: 'Terminal: Zoom Out',
+      description: 'Decrease terminal zoom level',
       icon: <ZoomOut />,
-      category: "Terminal",
+      category: 'Terminal',
       action: () => {
-        zoomOut("terminal");
-        onClose();
+        zoomOut('terminal')
+        onClose()
       },
     },
     {
-      id: "terminal-reset-zoom",
-      label: "Terminal: Reset Zoom",
-      description: "Reset terminal zoom to default level",
+      id: 'terminal-reset-zoom',
+      label: 'Terminal: Reset Zoom',
+      description: 'Reset terminal zoom to default level',
       icon: <RotateCcw />,
-      category: "Terminal",
+      category: 'Terminal',
       action: () => {
-        resetZoom("terminal");
-        onClose();
+        resetZoom('terminal')
+        onClose()
       },
     },
     {
-      id: "open-web-viewer",
-      label: "View: Open Web Viewer",
-      description: "Open a new web viewer tab",
+      id: 'open-web-viewer',
+      label: 'View: Open Web Viewer',
+      description: 'Open a new web viewer tab',
       icon: <Globe />,
-      category: "View",
+      category: 'View',
       action: () => {
-        openWebViewerBuffer("about:blank");
-        onClose();
+        openWebViewerBuffer('about:blank')
+        onClose()
       },
     },
     {
-      id: "open-url",
-      label: "View: Open URL...",
-      description: "Open a URL in web viewer",
+      id: 'open-url',
+      label: 'View: Open URL...',
+      description: 'Open a URL in web viewer',
       icon: <Globe />,
-      category: "View",
+      category: 'View',
       action: async () => {
-        const url = await primitivePrompt("Enter URL:", {
-          title: "Open URL",
-          defaultValue: "https://",
-          placeholder: "https://",
-        });
+        const url = await primitivePrompt('Enter URL:', {
+          title: 'Open URL',
+          defaultValue: 'https://',
+          placeholder: 'https://',
+        })
         if (url?.trim()) {
-          openWebViewerBuffer(url.trim());
+          openWebViewerBuffer(url.trim())
         }
-        onClose();
+        onClose()
       },
     },
-  ];
-};
+  ]
+}

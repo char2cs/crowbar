@@ -18,16 +18,16 @@ describe('shouldFault', () => {
 
   it('returns true when key is 100%', () => {
     const results = Array.from({ length: 20 }, () =>
-      shouldFault(makeRequest('{"branch-diff":100}'), 'branch-diff')
+      shouldFault(makeRequest('{"branch-diff":100}'), 'branch-diff'),
     )
     expect(results.every(Boolean)).toBe(true)
   })
 
   it('returns false when key is 0%', () => {
     const results = Array.from({ length: 20 }, () =>
-      shouldFault(makeRequest('{"branch-diff":0}'), 'branch-diff')
+      shouldFault(makeRequest('{"branch-diff":0}'), 'branch-diff'),
     )
-    expect(results.every(r => !r)).toBe(true)
+    expect(results.every((r) => !r)).toBe(true)
   })
 
   it('returns false for invalid JSON', () => {

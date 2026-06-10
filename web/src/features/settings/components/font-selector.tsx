@@ -1,159 +1,166 @@
-import { useEffect, useState } from "react";
+import { useEffect, useState } from 'react'
 import {
   DEFAULT_MONO_FONT_FAMILY,
   DEFAULT_UI_FONT_FAMILY,
-} from "@/features/settings/config/typography-defaults";
+} from '@/features/settings/config/typography-defaults'
 import {
   getPrimaryFontFamily,
   resolveAvailableFontFamily,
-} from "@/features/settings/lib/font-family-resolution";
-import { useFontStore } from "@/features/settings/stores/font-store";
-import type { FontInfo } from "@/features/settings/stores/types/font";
-import { Skeleton } from "@/components/ui/skeleton";
-import { Select, SelectTrigger, SelectValue, SelectContent, SelectItem } from "@/components/ui/select";
-import { cn } from "@/utils/cn";
+} from '@/features/settings/lib/font-family-resolution'
+import { useFontStore } from '@/features/settings/stores/font-store'
+import type { FontInfo } from '@/features/settings/stores/types/font'
+import { Skeleton } from '@/components/ui/skeleton'
+import {
+  Select,
+  SelectTrigger,
+  SelectValue,
+  SelectContent,
+  SelectItem,
+} from '@/components/ui/select'
+import { cn } from '@/utils/cn'
 
 // Bundled fonts that are always available
 const BUNDLED_FONTS: FontInfo[] = [
   {
-    name: "IBM Plex Sans Variable",
-    family: "IBM Plex Sans Variable",
-    style: "Regular",
+    name: 'IBM Plex Sans Variable',
+    family: 'IBM Plex Sans Variable',
+    style: 'Regular',
     is_monospace: false,
   },
   {
-    name: "JetBrains Mono Variable",
-    family: "JetBrains Mono Variable",
-    style: "Regular",
+    name: 'JetBrains Mono Variable',
+    family: 'JetBrains Mono Variable',
+    style: 'Regular',
     is_monospace: true,
   },
-];
+]
 
 interface FontSelectorProps {
-  value: string;
-  onChange: (fontFamily: string) => void;
-  className?: string;
-  monospaceOnly?: boolean;
+  value: string
+  onChange: (fontFamily: string) => void
+  className?: string
+  monospaceOnly?: boolean
 }
 
 export const FontSelector = ({
   value,
   onChange,
-  className = "",
+  className = '',
   monospaceOnly = false,
 }: FontSelectorProps) => {
-  const availableFonts = useFontStore.use.availableFonts();
-  const monospaceFonts = useFontStore.use.monospaceFonts();
-  const isLoading = useFontStore.use.isLoading();
-  const error = useFontStore.use.error();
+  const availableFonts = useFontStore.use.availableFonts()
+  const monospaceFonts = useFontStore.use.monospaceFonts()
+  const isLoading = useFontStore.use.isLoading()
+  const error = useFontStore.use.error()
   const { loadAvailableFonts, loadMonospaceFonts, clearError, validateFont } =
-    useFontStore.use.actions();
+    useFontStore.use.actions()
 
-  const [selectedFont, setSelectedFont] = useState(value);
-  const [isCustomFontValid, setIsCustomFontValid] = useState(false);
+  const [selectedFont, setSelectedFont] = useState(value)
+  const [isCustomFontValid, setIsCustomFontValid] = useState(false)
 
   // Load fonts on mount
   useEffect(() => {
     if (monospaceOnly) {
-      loadMonospaceFonts(true); // Force refresh
+      loadMonospaceFonts(true) // Force refresh
     } else {
-      loadAvailableFonts(true); // Force refresh
+      loadAvailableFonts(true) // Force refresh
     }
-  }, [monospaceOnly, loadAvailableFonts, loadMonospaceFonts]);
+  }, [monospaceOnly, loadAvailableFonts, loadMonospaceFonts])
 
   // Update selected font when prop changes
   useEffect(() => {
-    setSelectedFont(value);
-  }, [value]);
+    setSelectedFont(value)
+  }, [value])
 
-  const systemFonts = monospaceOnly ? monospaceFonts : availableFonts;
-  const bundledFonts = monospaceOnly ? BUNDLED_FONTS.filter((f) => f.is_monospace) : BUNDLED_FONTS;
+  const systemFonts = monospaceOnly ? monospaceFonts : availableFonts
+  const bundledFonts = monospaceOnly ? BUNDLED_FONTS.filter((f) => f.is_monospace) : BUNDLED_FONTS
 
   // Combine bundled fonts with system fonts, avoiding duplicates
-  const systemFontFamilies = new Set(systemFonts.map((f) => f.family));
-  const uniqueBundledFonts = bundledFonts.filter((f) => !systemFontFamilies.has(f.family));
-  const fonts = [...uniqueBundledFonts, ...systemFonts];
-  const availableFontFamilies = fonts.map((font) => font.family);
-  const fallbackFontFamily = monospaceOnly ? DEFAULT_MONO_FONT_FAMILY : DEFAULT_UI_FONT_FAMILY;
-  const resolvedValue = resolveAvailableFontFamily(
-    value,
-    fallbackFontFamily,
-    availableFontFamilies,
-  );
-  const primaryValue = getPrimaryFontFamily(value);
+  const systemFontFamilies = new Set(systemFonts.map((f) => f.family))
+  const uniqueBundledFonts = bundledFonts.filter((f) => !systemFontFamilies.has(f.family))
+  const fonts = [...uniqueBundledFonts, ...systemFonts]
+  const availableFontFamilies = fonts.map((font) => font.family)
+  const fallbackFontFamily = monospaceOnly ? DEFAULT_MONO_FONT_FAMILY : DEFAULT_UI_FONT_FAMILY
+  const resolvedValue = resolveAvailableFontFamily(value, fallbackFontFamily, availableFontFamilies)
+  const primaryValue = getPrimaryFontFamily(value)
 
   // Convert fonts to dropdown options
   const fontOptions = fonts.map((font: FontInfo, index) => ({
     value: font.family,
     label: index < uniqueBundledFonts.length ? `${font.family} (bundled)` : font.family,
-  }));
+  }))
 
   // Add custom font option only for real system fonts that validate successfully.
-  const currentFontInList = fontOptions.some((option) => option.value === resolvedValue);
+  const currentFontInList = fontOptions.some((option) => option.value === resolvedValue)
   if (
     !currentFontInList &&
     isCustomFontValid &&
     primaryValue &&
     selectedFont &&
-    selectedFont.trim() !== ""
+    selectedFont.trim() !== ''
   ) {
     fontOptions.unshift({
       value: resolvedValue,
       label: `${resolvedValue} (custom)`,
-    });
+    })
   }
 
   useEffect(() => {
     if (!isLoading && value !== resolvedValue) {
-      onChange(resolvedValue);
+      onChange(resolvedValue)
     }
-  }, [isLoading, onChange, resolvedValue, value]);
+  }, [isLoading, onChange, resolvedValue, value])
 
   useEffect(() => {
     if (!primaryValue || value !== resolvedValue) {
-      setIsCustomFontValid(false);
-      return;
+      setIsCustomFontValid(false)
+      return
     }
 
     if (availableFontFamilies.some((family) => family === resolvedValue)) {
-      setIsCustomFontValid(false);
-      return;
+      setIsCustomFontValid(false)
+      return
     }
 
-    let cancelled = false;
+    let cancelled = false
 
     void (async () => {
-      const isValid = await validateFont(primaryValue);
+      const isValid = await validateFont(primaryValue)
       if (!cancelled) {
-        setIsCustomFontValid(isValid);
+        setIsCustomFontValid(isValid)
       }
-    })();
+    })()
 
     return () => {
-      cancelled = true;
-    };
-  }, [availableFontFamilies, primaryValue, resolvedValue, validateFont, value]);
+      cancelled = true
+    }
+  }, [availableFontFamilies, primaryValue, resolvedValue, validateFont, value])
 
   const handleFontChange = (fontFamily: string) => {
-    setSelectedFont(fontFamily);
-    onChange(fontFamily);
-    clearError();
-  };
+    setSelectedFont(fontFamily)
+    onChange(fontFamily)
+    clearError()
+  }
 
   if (isLoading) {
-    return <Skeleton className={cn("h-7 w-full rounded-md", className)} />;
+    return <Skeleton className={cn('h-7 w-full rounded-md', className)} />
   }
 
   if (error) {
     return (
-      <div className={cn("ui-font ui-text-sm text-error", className)}>
+      <div className={cn('ui-font ui-text-sm text-error', className)}>
         Error loading fonts: {error}
       </div>
-    );
+    )
   }
 
   return (
-    <Select value={resolvedValue} onValueChange={(val) => { if (val) handleFontChange(val) }}>
+    <Select
+      value={resolvedValue}
+      onValueChange={(val) => {
+        if (val) handleFontChange(val)
+      }}
+    >
       <SelectTrigger size="sm" className={className}>
         <SelectValue placeholder="Select font" />
       </SelectTrigger>
@@ -165,5 +172,5 @@ export const FontSelector = ({
         ))}
       </SelectContent>
     </Select>
-  );
-};
+  )
+}

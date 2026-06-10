@@ -1,66 +1,66 @@
-import { create } from "zustand";
-import type { Terminal } from "@/features/terminal/types/terminal";
+import { create } from 'zustand'
+import type { Terminal } from '@/features/terminal/types/terminal'
 
-export type TerminalWidthMode = "full" | "editor";
-export type TerminalTabLayout = "horizontal" | "vertical";
-export type TerminalTabSidebarPosition = "left" | "right";
+export type TerminalWidthMode = 'full' | 'editor'
+export type TerminalTabLayout = 'horizontal' | 'vertical'
+export type TerminalTabSidebarPosition = 'left' | 'right'
 
 interface TerminalStore {
-  sessions: Map<string, Partial<Terminal>>;
-  widthMode: TerminalWidthMode;
-  tabLayout: TerminalTabLayout;
-  tabSidebarWidth: number;
-  tabSidebarPosition: TerminalTabSidebarPosition;
-  updateSession: (sessionId: string, updates: Partial<Terminal>) => void;
-  getSession: (sessionId: string) => Partial<Terminal> | undefined;
-  removeSession: (sessionId: string) => void;
-  setWidthMode: (mode: TerminalWidthMode) => void;
-  setTabLayout: (layout: TerminalTabLayout) => void;
-  setTabSidebarWidth: (width: number) => void;
-  setTabSidebarPosition: (position: TerminalTabSidebarPosition) => void;
+  sessions: Map<string, Partial<Terminal>>
+  widthMode: TerminalWidthMode
+  tabLayout: TerminalTabLayout
+  tabSidebarWidth: number
+  tabSidebarPosition: TerminalTabSidebarPosition
+  updateSession: (sessionId: string, updates: Partial<Terminal>) => void
+  getSession: (sessionId: string) => Partial<Terminal> | undefined
+  removeSession: (sessionId: string) => void
+  setWidthMode: (mode: TerminalWidthMode) => void
+  setTabLayout: (layout: TerminalTabLayout) => void
+  setTabSidebarWidth: (width: number) => void
+  setTabSidebarPosition: (position: TerminalTabSidebarPosition) => void
 }
 
 export const useTerminalStore = create<TerminalStore>()((set, get) => ({
   sessions: new Map(),
-  widthMode: "editor",
-  tabLayout: "horizontal",
+  widthMode: 'editor',
+  tabLayout: 'horizontal',
   tabSidebarWidth: 180,
-  tabSidebarPosition: "left",
+  tabSidebarPosition: 'left',
 
   updateSession: (sessionId: string, updates: Partial<Terminal>) => {
     set((state) => {
-      const newSessions = new Map(state.sessions);
-      const currentSession = newSessions.get(sessionId) || {};
-      newSessions.set(sessionId, { ...currentSession, ...updates });
-      return { sessions: newSessions };
-    });
+      const newSessions = new Map(state.sessions)
+      const currentSession = newSessions.get(sessionId) || {}
+      newSessions.set(sessionId, { ...currentSession, ...updates })
+      return { sessions: newSessions }
+    })
   },
 
   getSession: (sessionId: string) => {
-    return get().sessions.get(sessionId);
+    return get().sessions.get(sessionId)
   },
 
   removeSession: (sessionId: string) => {
     set((state) => {
-      const newSessions = new Map(state.sessions);
-      newSessions.delete(sessionId);
-      return { sessions: newSessions };
-    });
+      const newSessions = new Map(state.sessions)
+      newSessions.delete(sessionId)
+      return { sessions: newSessions }
+    })
   },
 
   setWidthMode: (mode: TerminalWidthMode) => {
-    set({ widthMode: mode });
+    set({ widthMode: mode })
   },
 
   setTabLayout: (tabLayout: TerminalTabLayout) => {
-    set({ tabLayout });
+    set({ tabLayout })
   },
 
   setTabSidebarWidth: (tabSidebarWidth: number) => {
-    set({ tabSidebarWidth: Math.max(80, Math.min(400, tabSidebarWidth)) });
+    set({ tabSidebarWidth: Math.max(80, Math.min(400, tabSidebarWidth)) })
   },
 
   setTabSidebarPosition: (tabSidebarPosition: TerminalTabSidebarPosition) => {
-    set({ tabSidebarPosition });
+    set({ tabSidebarPosition })
   },
-}));
+}))

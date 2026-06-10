@@ -1,11 +1,11 @@
 import { render, screen, fireEvent } from '@testing-library/react'
 import { describe, it, expect, beforeEach } from 'vitest'
 import { SidebarTabBar } from '@/components/layout/sidebar-tab-bar'
-import { useSidebarStore } from '@/lib/store/sidebar'
+import { getInitialState, useSidebarStore } from '@/lib/store/sidebar'
 
 describe('SidebarTabBar', () => {
   beforeEach(() => {
-    useSidebarStore.setState((useSidebarStore as any).getInitialState())
+    useSidebarStore.setState(getInitialState())
   })
 
   it('renders all 4 tabs', () => {

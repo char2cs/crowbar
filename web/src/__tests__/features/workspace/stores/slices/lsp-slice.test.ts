@@ -4,12 +4,18 @@ import { immer } from 'zustand/middleware/immer'
 import { createLspSlice, type LspSlice } from '@/features/workspace/stores/slices/lsp-slice'
 
 function makeStore() {
-  return createStore<LspSlice>()(immer((set, get) => createLspSlice(set as any, get as any, {} as any)))
+  return createStore<LspSlice>()(
+    immer((set, get) =>
+      createLspSlice(...([set, get, {}] as unknown as Parameters<typeof createLspSlice>)),
+    ),
+  )
 }
 
 describe('lsp-slice', () => {
   let store: ReturnType<typeof makeStore>
-  beforeEach(() => { store = makeStore() })
+  beforeEach(() => {
+    store = makeStore()
+  })
 
   it('starts with empty workspace root and idle status', () => {
     expect(store.getState().workspaceRoot).toBe('')
@@ -22,7 +28,9 @@ describe('lsp-slice', () => {
   })
 
   it('updateLspStatus updates status fields', () => {
-    store.getState().lspActions.updateLspStatus({ status: 'running', supportedLanguages: ['typescript'] })
+    store
+      .getState()
+      .lspActions.updateLspStatus({ status: 'running', supportedLanguages: ['typescript'] })
     expect(store.getState().lspStatus.status).toBe('running')
     expect(store.getState().lspStatus.supportedLanguages).toEqual(['typescript'])
   })
@@ -34,7 +42,7 @@ describe('lsp-slice', () => {
   })
 
   it('clearCompletionCache empties the cache', () => {
-    store.getState().lspActions.updateCompletionCache('key-1', [{ label: 'foo' } as any])
+    store.getState().lspActions.updateCompletionCache('key-1', [{ label: 'foo' }])
     store.getState().lspActions.clearCompletionCache()
     expect(Object.keys(store.getState().completionCache)).toHaveLength(0)
   })

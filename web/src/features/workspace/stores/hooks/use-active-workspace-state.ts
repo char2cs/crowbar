@@ -1,8 +1,5 @@
 import { useState, useEffect, useRef } from 'react'
-import {
-  getActiveWorkspaceStoreRef,
-  onActiveWorkspaceStoreChange,
-} from '../workspace-store-ref'
+import { getActiveWorkspaceStoreRef, onActiveWorkspaceStoreChange } from '../workspace-store-ref'
 import type { WorkspaceStore } from '../workspace-store'
 import type { WorkspaceState } from '../workspace-store.types'
 
@@ -16,10 +13,7 @@ import type { WorkspaceState } from '../workspace-store.types'
  * Unlike useWorkspaceStoreContext, this hook always uses the latest selector
  * even if the parent re-renders with a new one — safe with inline selectors.
  */
-export function useActiveWorkspaceState<T>(
-  selector: (state: WorkspaceState) => T,
-  fallback: T,
-): T {
+export function useActiveWorkspaceState<T>(selector: (state: WorkspaceState) => T, fallback: T): T {
   // Always-current refs so the subscription closure never goes stale.
   const selectorRef = useRef(selector)
   selectorRef.current = selector
@@ -53,7 +47,7 @@ export function useActiveWorkspaceState<T>(
       unsub()
       storeUnsub?.()
     }
-  }, []) // eslint-disable-line react-hooks/exhaustive-deps
+  }, [])
 
   return value
 }

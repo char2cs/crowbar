@@ -1,21 +1,17 @@
-import {
-  ArrowLeft,
-  ArrowRight,
-  SidebarSimple as PanelLeftClose,
-} from "@phosphor-icons/react";
-import React from "react";
-import { Button } from "@/components/ui/button";
-import { cn } from "@/utils/cn";
+import { ArrowLeft, ArrowRight, SidebarSimple as PanelLeftClose } from '@phosphor-icons/react'
+import React from 'react'
+import { Button } from '@/components/ui/button'
+import { cn } from '@/utils/cn'
 
 interface TabNavigationButtonsProps {
-  isBottomPane: boolean;
-  sidebarOpen: boolean;
-  sidebarPosition: "left" | "right";
-  canGoBack: boolean;
-  canGoForward: boolean;
-  onToggleSidebar: () => void;
-  onJumpBack: () => void;
-  onJumpForward: () => void;
+  isBottomPane: boolean
+  sidebarOpen: boolean
+  sidebarPosition: 'left' | 'right'
+  canGoBack: boolean
+  canGoForward: boolean
+  onToggleSidebar: () => void
+  onJumpBack: () => void
+  onJumpForward: () => void
 }
 
 const TabNavigationButtons = React.memo(function TabNavigationButtons({
@@ -36,12 +32,12 @@ const TabNavigationButtons = React.memo(function TabNavigationButtons({
           variant="ghost"
           size="icon-xs"
           className={cn(
-            "shrink-0 text-muted-foreground",
-            sidebarPosition === "right" && "scale-x-[-1]",
+            'shrink-0 text-muted-foreground',
+            sidebarPosition === 'right' && 'scale-x-[-1]',
           )}
-          tooltip={sidebarOpen ? "Hide Sidebar" : "Show Sidebar"}
+          tooltip={sidebarOpen ? 'Hide Sidebar' : 'Show Sidebar'}
           tooltipSide="bottom"
-          aria-label={sidebarOpen ? "Hide sidebar" : "Show sidebar"}
+          aria-label={sidebarOpen ? 'Hide sidebar' : 'Show sidebar'}
         >
           <PanelLeftClose size={14} />
         </Button>
@@ -74,7 +70,7 @@ const TabNavigationButtons = React.memo(function TabNavigationButtons({
         </Button>
       </div>
     </>
-  );
-});
+  )
+})
 
-export default TabNavigationButtons;
+export default TabNavigationButtons

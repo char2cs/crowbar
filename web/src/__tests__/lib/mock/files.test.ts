@@ -24,14 +24,16 @@ describe('getMockFileTree', () => {
 
   it('returns at least one directory node', () => {
     const tree = getMockFileTree('/workspace')
-    const hasDir = tree.some(n => n.isDir || n.isDirectory)
+    const hasDir = tree.some((n) => n.isDir || n.isDirectory)
     expect(hasDir).toBe(true)
   })
 
   it('returns at least one file node', () => {
     const tree = getMockFileTree('/workspace')
     function hasFile(nodes: FileNode[]): boolean {
-      return nodes.some(n => !(n.isDir || n.isDirectory) || (n.children ? hasFile(n.children) : false))
+      return nodes.some(
+        (n) => !(n.isDir || n.isDirectory) || (n.children ? hasFile(n.children) : false),
+      )
     }
     expect(hasFile(tree)).toBe(true)
   })
@@ -39,10 +41,10 @@ describe('getMockFileTree', () => {
   it('git status field is optional but at least some nodes have it', () => {
     const tree = getMockFileTree('/workspace')
     function collectAll(nodes: FileNode[]): FileNode[] {
-      return nodes.flatMap(n => [n, ...(n.children ? collectAll(n.children) : [])])
+      return nodes.flatMap((n) => [n, ...(n.children ? collectAll(n.children) : [])])
     }
     const allNodes = collectAll(tree)
-    const withStatus = allNodes.some(n => n.gitStatus !== undefined)
+    const withStatus = allNodes.some((n) => n.gitStatus !== undefined)
     expect(withStatus).toBe(true)
   })
 })

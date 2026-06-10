@@ -1,5 +1,5 @@
 // Stub
-import { create } from "zustand"
+import { create } from 'zustand'
 
 export interface BufferSession {
   type?: string
@@ -27,7 +27,11 @@ export interface BufferSession {
 interface SessionState {
   sessionId: string | null
   isLoaded: boolean
-  saveSession: (projectPath: string, buffers: BufferSession[], activeBufferPath: string | null) => void
+  saveSession: (
+    projectPath: string,
+    buffers: BufferSession[],
+    activeBufferPath: string | null,
+  ) => void
 }
 
 export const useSessionStore = create<SessionState>(() => ({

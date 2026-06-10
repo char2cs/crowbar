@@ -21,7 +21,7 @@ describe('Button', () => {
     render(
       <TooltipProvider>
         <Button tooltip="Go Back">Click me</Button>
-      </TooltipProvider>
+      </TooltipProvider>,
     )
     await user.hover(screen.getByRole('button', { name: 'Click me' }))
     // Radix renders tooltip text twice in JSDOM — once visible, once in a hidden
@@ -33,8 +33,10 @@ describe('Button', () => {
     const user = userEvent.setup()
     render(
       <TooltipProvider>
-        <Button tooltip="Close" shortcut="mod+w">X</Button>
-      </TooltipProvider>
+        <Button tooltip="Close" shortcut="mod+w">
+          X
+        </Button>
+      </TooltipProvider>,
     )
     await user.hover(screen.getByRole('button', { name: 'X' }))
     // Radix renders tooltip text twice in JSDOM — once visible, once in a hidden
@@ -51,7 +53,11 @@ describe('Button', () => {
 
   it('still accepts compact and commandId props without error (compat)', () => {
     expect(() =>
-      render(<Button compact commandId="some.command">label</Button>)
+      render(
+        <Button compact commandId="some.command">
+          label
+        </Button>,
+      ),
     ).not.toThrow()
   })
 

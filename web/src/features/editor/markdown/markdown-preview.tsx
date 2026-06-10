@@ -1,161 +1,163 @@
-import "./styles.css";
+import './styles.css'
 // Tauri plugins replaced with browser equivalents
 const exists = async (_path: string) => false
-const open = async (url: string) => { window.open(url, '_blank') }
-import { useCallback, useEffect, useRef, useState } from "react";
-import { useShallow } from "zustand/react/shallow";
-import { useWorkspaceStoreContext } from "@/features/workspace/stores/workspace-context";
-import { useEditorSettingsStore } from "@/features/editor/stores/settings-store";
-import { useFileSystemStore } from "@/features/file-system/controllers/store";
-import { hasTextContent } from "@/features/panes/types/pane-content";
-import { useSettingsStore } from "@/features/settings/store";
-import { logger } from "../utils/logger";
-import { parseMarkdown } from "./parser";
+const open = async (url: string) => {
+  window.open(url, '_blank')
+}
+import { useCallback, useEffect, useRef, useState } from 'react'
+import { useShallow } from 'zustand/react/shallow'
+import { useWorkspaceStoreContext } from '@/features/workspace/stores/workspace-context'
+import { useEditorSettingsStore } from '@/features/editor/stores/settings-store'
+import { useFileSystemStore } from '@/features/file-system/controllers/store'
+import { hasTextContent } from '@/features/panes/types/pane-content'
+import { useSettingsStore } from '@/features/settings/store'
+import { logger } from '../utils/logger'
+import { parseMarkdown } from './parser'
 
 export function MarkdownPreview() {
   const { sourceBufferPath, sourceContent } = useWorkspaceStoreContext(
     useShallow((state) => {
-      const activeBufferId = state.panes[state.activePaneId]?.activeBufferId ?? null;
+      const activeBufferId = state.panes[state.activePaneId]?.activeBufferId ?? null
       const activeBuffer = activeBufferId
         ? state.buffers.find((buffer) => buffer.id === activeBufferId)
-        : null;
+        : null
       const sourceBuffer =
-        activeBuffer?.type === "markdownPreview"
+        activeBuffer?.type === 'markdownPreview'
           ? (state.buffers.find((buffer) => buffer.path === activeBuffer.sourceFilePath) ??
             activeBuffer)
-          : activeBuffer;
+          : activeBuffer
 
       return {
         sourceBufferPath: sourceBuffer?.path,
-        sourceContent: sourceBuffer && hasTextContent(sourceBuffer) ? sourceBuffer.content : "",
-      };
+        sourceContent: sourceBuffer && hasTextContent(sourceBuffer) ? sourceBuffer.content : '',
+      }
     }),
-  );
-  const fontSize = useEditorSettingsStore.use.fontSize();
-  const uiFontFamily = useSettingsStore((state) => state.settings.uiFontFamily);
-  const handleFileSelect = useFileSystemStore((s) => s.handleFileSelect);
-  const rootFolderPath = useFileSystemStore.use.rootFolderPath?.() || "";
-  const [html, setHtml] = useState("");
-  const containerRef = useRef<HTMLDivElement>(null);
+  )
+  const fontSize = useEditorSettingsStore.use.fontSize()
+  const uiFontFamily = useSettingsStore((state) => state.settings.uiFontFamily)
+  const handleFileSelect = useFileSystemStore((s) => s.handleFileSelect)
+  const rootFolderPath = useFileSystemStore.use.rootFolderPath?.() || ''
+  const [html, setHtml] = useState('')
+  const containerRef = useRef<HTMLDivElement>(null)
 
   useEffect(() => {
     if (!sourceContent) {
-      setHtml("");
-      return;
+      setHtml('')
+      return
     }
 
-    const parsedHtml = parseMarkdown(sourceContent);
-    setHtml(parsedHtml);
-  }, [sourceContent]);
+    const parsedHtml = parseMarkdown(sourceContent)
+    setHtml(parsedHtml)
+  }, [sourceContent])
 
   const resolvePath = useCallback(
     (href: string, currentFilePath: string): string => {
-      const hrefWithoutAnchor = href.split("#")[0];
+      const hrefWithoutAnchor = href.split('#')[0]
 
       if (!hrefWithoutAnchor) {
-        return currentFilePath;
+        return currentFilePath
       }
 
-      if (hrefWithoutAnchor.startsWith("/")) {
+      if (hrefWithoutAnchor.startsWith('/')) {
         if (rootFolderPath) {
-          return `${rootFolderPath}${hrefWithoutAnchor}`;
+          return `${rootFolderPath}${hrefWithoutAnchor}`
         }
-        return hrefWithoutAnchor;
+        return hrefWithoutAnchor
       }
 
-      const currentDir = currentFilePath.substring(0, currentFilePath.lastIndexOf("/"));
-      const combined = `${currentDir}/${hrefWithoutAnchor}`;
+      const currentDir = currentFilePath.substring(0, currentFilePath.lastIndexOf('/'))
+      const combined = `${currentDir}/${hrefWithoutAnchor}`
 
-      const parts = combined.split("/");
-      const resolved: string[] = [];
+      const parts = combined.split('/')
+      const resolved: string[] = []
 
       for (const part of parts) {
-        if (part === "..") {
-          resolved.pop();
-        } else if (part !== "." && part !== "") {
-          resolved.push(part);
+        if (part === '..') {
+          resolved.pop()
+        } else if (part !== '.' && part !== '') {
+          resolved.push(part)
         }
       }
 
-      return `/${resolved.join("/")}`;
+      return `/${resolved.join('/')}`
     },
     [rootFolderPath],
-  );
+  )
 
   const handleLinkClick = useCallback(
     async (e: React.MouseEvent<HTMLDivElement>) => {
-      const target = e.target as HTMLElement;
-      const link = target.closest("a");
+      const target = e.target as HTMLElement
+      const link = target.closest('a')
 
-      if (!link) return;
+      if (!link) return
 
-      const href = link.getAttribute("href");
-      if (!href) return;
+      const href = link.getAttribute('href')
+      if (!href) return
 
-      e.preventDefault();
-      e.stopPropagation();
+      e.preventDefault()
+      e.stopPropagation()
 
-      if (href.startsWith("#")) {
-        const elementId = href.substring(1);
-        const targetElement = containerRef.current?.querySelector(`#${CSS.escape(elementId)}`);
+      if (href.startsWith('#')) {
+        const elementId = href.substring(1)
+        const targetElement = containerRef.current?.querySelector(`#${CSS.escape(elementId)}`)
         if (targetElement) {
-          targetElement.scrollIntoView({ behavior: "smooth" });
+          targetElement.scrollIntoView({ behavior: 'smooth' })
         }
-        return;
+        return
       }
 
       const isExternalLink =
-        href.startsWith("http://") ||
-        href.startsWith("https://") ||
-        href.startsWith("mailto:") ||
-        href.startsWith("tel:") ||
-        href.startsWith("//");
+        href.startsWith('http://') ||
+        href.startsWith('https://') ||
+        href.startsWith('mailto:') ||
+        href.startsWith('tel:') ||
+        href.startsWith('//')
 
       if (isExternalLink) {
         try {
-          await open(href);
+          await open(href)
         } catch (error) {
-          logger.error("MarkdownPreview", "Failed to open external link:", error);
+          logger.error('MarkdownPreview', 'Failed to open external link:', error)
         }
-        return;
+        return
       }
 
-      if (!sourceBufferPath) return;
+      if (!sourceBufferPath) return
 
-      const targetPath = resolvePath(href, sourceBufferPath);
+      const targetPath = resolvePath(href, sourceBufferPath)
 
       try {
-        const fileExists = await exists(targetPath);
+        const fileExists = await exists(targetPath)
 
         if (fileExists) {
-          await handleFileSelect?.(targetPath, false);
+          await handleFileSelect?.(targetPath, false)
         } else {
-          const withMd = targetPath.endsWith(".md") ? targetPath : `${targetPath}.md`;
-          const mdExists = await exists(withMd);
+          const withMd = targetPath.endsWith('.md') ? targetPath : `${targetPath}.md`
+          const mdExists = await exists(withMd)
 
           if (mdExists) {
-            await handleFileSelect?.(withMd, false);
+            await handleFileSelect?.(withMd, false)
           } else {
-            logger.warn("MarkdownPreview", `File not found: ${targetPath}`);
+            logger.warn('MarkdownPreview', `File not found: ${targetPath}`)
           }
         }
       } catch (error) {
-        logger.error("MarkdownPreview", "Failed to handle link:", error);
+        logger.error('MarkdownPreview', 'Failed to handle link:', error)
       }
     },
     [sourceBufferPath, handleFileSelect, resolvePath],
-  );
+  )
 
   const handleWheelCapture = useCallback((event: React.WheelEvent<HTMLDivElement>) => {
-    const container = containerRef.current;
-    if (!container) return;
+    const container = containerRef.current
+    if (!container) return
 
-    const canScroll = container.scrollHeight > container.clientHeight;
-    if (!canScroll || event.deltaY === 0) return;
+    const canScroll = container.scrollHeight > container.clientHeight
+    if (!canScroll || event.deltaY === 0) return
 
-    container.scrollTop += event.deltaY;
-    event.preventDefault();
-  }, []);
+    container.scrollTop += event.deltaY
+    event.preventDefault()
+  }, [])
 
   return (
     <div
@@ -173,5 +175,5 @@ export function MarkdownPreview() {
         dangerouslySetInnerHTML={{ __html: html }}
       />
     </div>
-  );
+  )
 }

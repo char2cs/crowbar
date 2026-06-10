@@ -27,7 +27,7 @@ export function SplitViewRoot() {
     if (fullscreenPaneId && !fullscreenPane) exitPaneFullscreen()
   }, [exitPaneFullscreen, fullscreenPane, fullscreenPaneId])
 
-  const isBottomPaneVisible = useUIState(state => state.isBottomPaneVisible)
+  const isBottomPaneVisible = useUIState((state) => state.isBottomPaneVisible)
   const rootPosition = useMemo(
     () => ({ ...ROOT_PANE_POSITION, atBottom: !isBottomPaneVisible }),
     [isBottomPaneVisible],
@@ -39,7 +39,11 @@ export function SplitViewRoot() {
   return (
     <>
       <div className="h-full w-full overflow-hidden">
-        <PaneNodeRenderer node={rootLayout} hiddenPaneId={fullscreenPaneId} position={rootPosition} />
+        <PaneNodeRenderer
+          node={rootLayout}
+          hiddenPaneId={fullscreenPaneId}
+          position={rootPosition}
+        />
       </div>
       {fullscreenPane && (
         <div

@@ -79,7 +79,7 @@ func (s *TerminalSuite) TestTerminal_CreateAndKill() {
 	)
 
 	var body map[string]any
-	kit.DecodeJSON(
+	kit.DecodeEnvData(
 		t,
 		resp,
 		&body,
@@ -99,7 +99,7 @@ func (s *TerminalSuite) TestTerminal_CreateAndKill() {
 	kit.RequireStatus(
 		t,
 		killResp,
-		http.StatusNoContent,
+		http.StatusOK,
 	)
 }
 
@@ -153,7 +153,7 @@ func (s *TerminalSuite) TestTerminal_ProfileCRUD() {
 		http.StatusCreated,
 	)
 	var created map[string]any
-	kit.DecodeJSON(
+	kit.DecodeEnvData(
 		t,
 		createResp,
 		&created,
@@ -173,7 +173,7 @@ func (s *TerminalSuite) TestTerminal_ProfileCRUD() {
 		http.StatusOK,
 	)
 	var got map[string]any
-	kit.DecodeJSON(
+	kit.DecodeEnvData(
 		t,
 		getResp,
 		&got,
@@ -194,7 +194,7 @@ func (s *TerminalSuite) TestTerminal_ProfileCRUD() {
 		http.StatusOK,
 	)
 	var list []map[string]any
-	kit.DecodeJSON(
+	kit.DecodeEnvData(
 		t,
 		listResp,
 		&list,
@@ -259,7 +259,7 @@ func (s *TerminalSuite) TestTerminal_WSConnectionEstablishes() {
 	)
 
 	var createBody map[string]any
-	kit.DecodeJSON(
+	kit.DecodeEnvData(
 		t,
 		createResp,
 		&createBody,

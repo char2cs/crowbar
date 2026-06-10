@@ -1,10 +1,10 @@
-import { describe, expect, it } from "vitest";
-import { getLargeEditorModeInfo } from "@/features/editor/utils/large-file";
-import { resolveGoToLineTarget } from "@/features/editor/utils/go-to-line";
+import { describe, expect, it } from 'vitest'
+import { getLargeEditorModeInfo } from '@/features/editor/utils/large-file'
+import { resolveGoToLineTarget } from '@/features/editor/utils/go-to-line'
 
-describe("resolveGoToLineTarget", () => {
-  it("clamps one-based line and column requests", () => {
-    const content = "alpha\nbeta";
+describe('resolveGoToLineTarget', () => {
+  it('clamps one-based line and column requests', () => {
+    const content = 'alpha\nbeta'
 
     expect(
       resolveGoToLineTarget({
@@ -17,12 +17,12 @@ describe("resolveGoToLineTarget", () => {
       line: 1,
       column: 4,
       offset: content.length,
-    });
-  });
+    })
+  })
 
-  it("uses line offsets for large content without scanning from the start", () => {
-    const content = Array.from({ length: 80_000 }, (_, index) => `line-${index}`).join("\n");
-    const info = getLargeEditorModeInfo(content);
+  it('uses line offsets for large content without scanning from the start', () => {
+    const content = Array.from({ length: 80_000 }, (_, index) => `line-${index}`).join('\n')
+    const info = getLargeEditorModeInfo(content)
 
     expect(
       resolveGoToLineTarget({
@@ -36,6 +36,6 @@ describe("resolveGoToLineTarget", () => {
       line: 74_999,
       column: 4,
       offset: (info.lineOffsets?.[74_999] ?? 0) + 4,
-    });
-  });
-});
+    })
+  })
+})

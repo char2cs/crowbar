@@ -1,5 +1,11 @@
+import type { Tree } from 'web-tree-sitter'
 import { describe, it, expect, beforeEach, vi } from 'vitest'
-import { initTreeCacheSubscription, useTreeCacheStore, _resetTreeCacheSubscriptionForTesting } from '@/features/editor/stores/tree-cache-store'
+import type { PaneContent } from '@/features/panes/types/pane-content'
+import {
+  initTreeCacheSubscription,
+  useTreeCacheStore,
+  _resetTreeCacheSubscriptionForTesting,
+} from '@/features/editor/stores/tree-cache-store'
 import { createWorkspaceStore } from '@/features/workspace/stores/workspace-store'
 import { setActiveWorkspaceStoreRef } from '@/features/workspace/stores/workspace-store-ref'
 
@@ -20,13 +26,13 @@ describe('initTreeCacheSubscription', () => {
     // Plant a fake buffer via workspace store buffers field directly
     store.setState((state) => ({
       ...state,
-      buffers: [{ id: bufferId, type: 'editor', path: '/test.ts', name: 'test.ts' } as any],
+      buffers: [{ id: bufferId, type: 'editor', path: '/test.ts', name: 'test.ts' } as PaneContent],
     }))
 
     useTreeCacheStore.setState((state) => {
       const newMap = new Map(state.trees)
       newMap.set(bufferId, {
-        tree: { delete: vi.fn() } as any,
+        tree: { delete: vi.fn() } as unknown as Tree,
         contentLength: 100,
         languageId: 'typescript',
         lastUpdated: Date.now(),

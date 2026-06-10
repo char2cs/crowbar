@@ -9,7 +9,9 @@ interface InlineErrorProps {
 export function InlineError({ error, onRetry, title = 'Failed to load' }: InlineErrorProps) {
   return (
     <div className="flex flex-1 flex-col items-center justify-center gap-2 p-6 text-center">
-      <span className="text-lg opacity-50" aria-hidden="true">⚠</span>
+      <span className="text-lg opacity-50" aria-hidden="true">
+        ⚠
+      </span>
       <p className="text-sm font-medium text-foreground">{title}</p>
       {import.meta.env.DEV && (
         <p className="font-mono text-[11px] text-muted-foreground">{error.message}</p>

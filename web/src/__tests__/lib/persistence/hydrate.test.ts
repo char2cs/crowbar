@@ -1,7 +1,32 @@
+import { vi } from 'vitest'
+
+const readFileMock = vi.fn<(wsId: string, path: string) => Promise<string>>()
+vi.mock('@/features/file-system/controllers/platform', async (importOriginal) => {
+  const actual =
+    await importOriginal<typeof import('@/features/file-system/controllers/platform')>()
+  return { ...actual, readWorkspaceFile: (wsId: string, path: string) => readFileMock(wsId, path) }
+})
+
+const toastWarning = vi.fn()
+vi.mock('@/components/ui/toast', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@/components/ui/toast')>()
+  return {
+    ...actual,
+    toast: {
+      ...actual.toast,
+      warning: (...args: unknown[]) => toastWarning(...args),
+    },
+  }
+})
+
 import { hydrateWorkspace, hydratePreferences, hydrateSidebar } from '@/lib/persistence/hydrate'
 import { getDB, resetDB } from '@/lib/persistence/idb'
 import type { WorkspaceLayout, UIPreferences, EditorState } from '@/lib/persistence/schemas'
-import { destroyWorkspaceStore } from '@/features/workspace/stores/workspace-store-registry'
+import {
+  destroyWorkspaceStore,
+  getOrCreateWorkspaceStore,
+} from '@/features/workspace/stores/workspace-store-registry'
+import type { EditorContent } from '@/features/panes/types/pane-content'
 import { IDBFactory } from 'fake-indexeddb'
 import { ROOT_PANE_ID } from '@/features/panes/constants/pane'
 import { createLeaf } from '@/features/panes/utils/pane-layout'
@@ -12,11 +37,26 @@ import type { Repo } from '@/lib/store/sidebar'
 
 const HYDRATE_TEST_REPOS: Repo[] = [
   {
-    id: 'crowbar', name: 'crowbar', avatarLabel: 'C', avatarColor: 'bg-indigo-700',
+    id: 'crowbar',
+    name: 'crowbar',
+    avatarLabel: 'C',
+    avatarColor: 'bg-indigo-700',
     workspaces: [
       { id: 'ws-develop', branch: 'develop', status: 'locked', age: '—' },
-      { id: 'ws3', branch: 'feature/app-design', parentId: 'ws-develop', status: 'pr-open', age: '16h ago' },
-      { id: 'ws1', branch: 'enhancement/scaffold', parentId: 'ws3', status: 'agent-running', age: '3d ago' },
+      {
+        id: 'ws3',
+        branch: 'feature/app-design',
+        parentId: 'ws-develop',
+        status: 'pr-open',
+        age: '16h ago',
+      },
+      {
+        id: 'ws1',
+        branch: 'enhancement/scaffold',
+        parentId: 'ws3',
+        status: 'agent-running',
+        age: '3d ago',
+      },
     ],
   },
 ]
@@ -25,7 +65,9 @@ async function seedDB(workspaceId: string) {
   const db = await getDB()
   const layout: WorkspaceLayout = {
     workspaceId,
-    panes: { [ROOT_PANE_ID]: { id: ROOT_PANE_ID, type: 'group', bufferIds: [], activeBufferId: null } },
+    panes: {
+      [ROOT_PANE_ID]: { id: ROOT_PANE_ID, type: 'group', bufferIds: [], activeBufferId: null },
+    },
     rootLayout: createLeaf(ROOT_PANE_ID),
     bottomLayout: createLeaf('bottom-pane'),
     activePaneId: ROOT_PANE_ID,
@@ -86,6 +128,141 @@ describe('hydrateWorkspace', () => {
   })
 })
 
+describe('hydrateWorkspace — restored buffer reconciliation (BUG-026/BUG-013)', () => {
+  const WS = 'ws-restore'
+
+  function makeEditorBuffer(overrides: Partial<EditorContent> = {}): EditorContent {
+    return {
+      id: 'buf-1',
+      type: 'editor',
+      path: '/repo/README.md',
+      name: 'README.md',
+      content: 'saved content',
+      savedContent: 'saved content',
+      isDirty: false,
+      isVirtual: false,
+      isPinned: false,
+      isPreview: false,
+      isActive: true,
+      tokens: [],
+      ...overrides,
+    }
+  }
+
+  async function seedLayoutWithBuffers(buffers: EditorContent[]) {
+    const db = await getDB()
+    const layout: WorkspaceLayout = {
+      workspaceId: WS,
+      panes: {
+        [ROOT_PANE_ID]: {
+          id: ROOT_PANE_ID,
+          type: 'group',
+          bufferIds: buffers.map((b) => b.id),
+          activeBufferId: buffers[0]?.id ?? null,
+        },
+      },
+      rootLayout: createLeaf(ROOT_PANE_ID),
+      bottomLayout: createLeaf('bottom-pane'),
+      activePaneId: ROOT_PANE_ID,
+      mostRecentActivePaneIds: [ROOT_PANE_ID],
+      buffers,
+      sidebarWidth: 240,
+      rightSidebarWidth: 280,
+      updatedAt: Date.now(),
+    }
+    await db.put('workspace-layout', layout)
+  }
+
+  function getRestoredBuffer(): EditorContent {
+    const store = getOrCreateWorkspaceStore(WS)
+    return store.getState().buffers[0] as EditorContent
+  }
+
+  beforeEach(() => {
+    resetDB()
+    globalThis.indexedDB = new IDBFactory()
+    readFileMock.mockReset()
+    toastWarning.mockReset()
+    localStorage.removeItem(`workspace:${WS}:state`)
+  })
+
+  afterEach(() => {
+    destroyWorkspaceStore(WS)
+  })
+
+  it('silently reloads a restored clean buffer whose file changed on disk', async () => {
+    await seedLayoutWithBuffers([makeEditorBuffer()])
+    readFileMock.mockResolvedValue('disk content changed while closed')
+
+    await hydrateWorkspace(WS)
+
+    const buf = getRestoredBuffer()
+    // Reads must target the hydrating workspace explicitly, not the active one.
+    expect(readFileMock).toHaveBeenCalledWith(WS, '/repo/README.md')
+    expect(buf.content).toBe('disk content changed while closed')
+    expect(buf.savedContent).toBe('disk content changed while closed')
+    expect(buf.isDirty).toBe(false)
+    expect(buf.hasExternalChange).toBe(false)
+    expect(toastWarning).not.toHaveBeenCalled()
+  })
+
+  it('keeps a restored dirty buffer intact and flags the external change', async () => {
+    await seedLayoutWithBuffers([
+      makeEditorBuffer({ content: 'unsaved user edits', isDirty: true }),
+    ])
+    readFileMock.mockResolvedValue('disk content changed while closed')
+
+    await hydrateWorkspace(WS)
+
+    const buf = getRestoredBuffer()
+    expect(buf.content).toBe('unsaved user edits')
+    expect(buf.isDirty).toBe(true)
+    expect(buf.hasExternalChange).toBe(true)
+    expect(toastWarning).toHaveBeenCalledTimes(1)
+  })
+
+  it('restores the dirty marker when content diverges from savedContent even if isDirty was persisted as false', async () => {
+    await seedLayoutWithBuffers([
+      makeEditorBuffer({ content: 'unsaved user edits', isDirty: false }),
+    ])
+    // Disk matches savedContent — no external change, so no toast/reload.
+    readFileMock.mockResolvedValue('saved content')
+
+    await hydrateWorkspace(WS)
+
+    const buf = getRestoredBuffer()
+    expect(buf.content).toBe('unsaved user edits')
+    expect(buf.isDirty).toBe(true)
+    expect(toastWarning).not.toHaveBeenCalled()
+  })
+
+  it('does not reload or toast when disk matches the restored buffer', async () => {
+    await seedLayoutWithBuffers([makeEditorBuffer()])
+    readFileMock.mockResolvedValue('saved content')
+
+    await hydrateWorkspace(WS)
+
+    const buf = getRestoredBuffer()
+    expect(buf.content).toBe('saved content')
+    expect(buf.isDirty).toBe(false)
+    expect(buf.hasExternalChange).toBeUndefined()
+    expect(toastWarning).not.toHaveBeenCalled()
+  })
+
+  it('skips virtual editor buffers and survives unreadable files', async () => {
+    await seedLayoutWithBuffers([
+      makeEditorBuffer({ id: 'buf-virtual', path: 'untitled:1', isVirtual: true }),
+    ])
+    readFileMock.mockRejectedValue(new Error('ENOENT'))
+
+    await hydrateWorkspace(WS)
+
+    expect(readFileMock).not.toHaveBeenCalled()
+    expect(getRestoredBuffer().content).toBe('saved content')
+    expect(toastWarning).not.toHaveBeenCalled()
+  })
+})
+
 describe('hydratePreferences', () => {
   beforeEach(async () => {
     resetDB()
@@ -110,7 +287,7 @@ describe('hydrateSidebar', () => {
     globalThis.indexedDB = new IDBFactory()
     useSidebarStore.setState({
       chats: [],
-      repos: HYDRATE_TEST_REPOS.map(r => ({ ...r, workspaces: [...r.workspaces] })),
+      repos: HYDRATE_TEST_REPOS.map((r) => ({ ...r, workspaces: [...r.workspaces] })),
       collapsedRepos: new Set<string>(),
       collapsedWorkspaces: new Set<string>(),
       activeTab: 'workspaces',
@@ -136,18 +313,16 @@ describe('hydrateSidebar', () => {
       { wsId: 'ws1', parentId: 'ws3' },
     ])
     await hydrateSidebar()
-    const repo = useSidebarStore.getState().repos.find(r => r.id === 'crowbar')!
-    expect(repo.workspaces.find(w => w.id === 'ws3')?.parentId).toBe('ws-develop')
-    expect(repo.workspaces.find(w => w.id === 'ws1')?.parentId).toBe('ws3')
+    const repo = useSidebarStore.getState().repos.find((r) => r.id === 'crowbar')!
+    expect(repo.workspaces.find((w) => w.id === 'ws3')?.parentId).toBe('ws-develop')
+    expect(repo.workspaces.find((w) => w.id === 'ws1')?.parentId).toBe('ws3')
   })
 
   it('clears parentId for workspaces not in hierarchy entries', async () => {
-    await saveWorkspaceHierarchy('crowbar', [
-      { wsId: 'ws1' },
-    ])
+    await saveWorkspaceHierarchy('crowbar', [{ wsId: 'ws1' }])
     await hydrateSidebar()
-    const repo = useSidebarStore.getState().repos.find(r => r.id === 'crowbar')!
-    expect(repo.workspaces.find(w => w.id === 'ws1')?.parentId).toBeUndefined()
+    const repo = useSidebarStore.getState().repos.find((r) => r.id === 'crowbar')!
+    expect(repo.workspaces.find((w) => w.id === 'ws1')?.parentId).toBeUndefined()
   })
 
   it('restores collapsedWorkspaces from IDB', async () => {

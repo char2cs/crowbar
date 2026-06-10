@@ -1,18 +1,18 @@
-import { useEffect, useMemo } from "react";
-import { detectLanguageFromPath } from "@/features/editor/utils/language-detection";
-import type { EditorContent } from "@/features/panes/types/pane-content";
-import { useWorkspaceStore } from "@/features/workspace/stores/workspace-context";
-import type { TokenEntry } from "@/features/panes/types/pane-content";
-import { createDiffTokensForEditorContent, getDiffEditorPath } from "../utils/diff-editor-content";
+import { useEffect, useMemo } from 'react'
+import { detectLanguageFromPath } from '@/features/editor/utils/language-detection'
+import type { EditorContent } from '@/features/panes/types/pane-content'
+import { useWorkspaceStore } from '@/features/workspace/stores/workspace-context'
+import type { TokenEntry } from '@/features/panes/types/pane-content'
+import { createDiffTokensForEditorContent, getDiffEditorPath } from '../utils/diff-editor-content'
 
 interface UseDiffEditorBufferOptions {
-  cacheKey: string;
-  content: string;
-  sourcePath?: string;
-  name: string;
-  pathOverride?: string;
-  languageOverride?: string;
-  tokens?: TokenEntry[];
+  cacheKey: string
+  content: string
+  sourcePath?: string
+  name: string
+  pathOverride?: string
+  languageOverride?: string
+  tokens?: TokenEntry[]
 }
 
 export function useDiffEditorBuffer({
@@ -24,20 +24,20 @@ export function useDiffEditorBuffer({
   languageOverride,
   tokens,
 }: UseDiffEditorBufferOptions): string {
-  const workspaceStore = useWorkspaceStore();
+  const workspaceStore = useWorkspaceStore()
   const bufferId = useMemo(
-    () => `diff_editor_${cacheKey.replace(/[^a-zA-Z0-9_]/g, "_")}`,
+    () => `diff_editor_${cacheKey.replace(/[^a-zA-Z0-9_]/g, '_')}`,
     [cacheKey],
-  );
+  )
   const bufferPath = useMemo(
     () => pathOverride ?? getDiffEditorPath(sourcePath, cacheKey),
     [cacheKey, pathOverride, sourcePath],
-  );
+  )
 
   useEffect(() => {
     const nextBuffer: EditorContent = {
       id: bufferId,
-      type: "editor",
+      type: 'editor',
       path: bufferPath,
       name,
       content,
@@ -50,37 +50,37 @@ export function useDiffEditorBuffer({
       language: detectLanguageFromPath(bufferPath),
       languageOverride,
       tokens:
-        tokens ?? (languageOverride === "diff" ? createDiffTokensForEditorContent(content) : []),
-    };
+        tokens ?? (languageOverride === 'diff' ? createDiffTokensForEditorContent(content) : []),
+    }
 
     workspaceStore.setState((state) => {
-      const existingIndex = state.buffers.findIndex((buffer) => buffer.id === bufferId);
+      const existingIndex = state.buffers.findIndex((buffer) => buffer.id === bufferId)
       if (existingIndex === -1) {
         return {
           ...state,
           buffers: [...state.buffers, nextBuffer],
-        };
+        }
       }
 
-      const nextBuffers = [...state.buffers];
+      const nextBuffers = [...state.buffers]
       nextBuffers[existingIndex] = {
         ...nextBuffers[existingIndex],
         ...nextBuffer,
-      };
+      }
 
       return {
         ...state,
         buffers: nextBuffers,
-      };
-    });
+      }
+    })
 
     return () => {
       workspaceStore.setState((state) => ({
         ...state,
         buffers: state.buffers.filter((buffer) => buffer.id !== bufferId),
-      }));
-    };
-  }, [workspaceStore, bufferId, bufferPath, content, languageOverride, name, sourcePath, tokens]);
+      }))
+    }
+  }, [workspaceStore, bufferId, bufferPath, content, languageOverride, name, sourcePath, tokens])
 
-  return bufferId;
+  return bufferId
 }

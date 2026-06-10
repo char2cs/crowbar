@@ -11,13 +11,13 @@
  */
 export function calculateGutterWidth(lineCount: number, charWidth: number = 8.4): number {
   // Calculate how many digits we need
-  const digits = Math.max(2, String(lineCount).length);
+  const digits = Math.max(2, String(lineCount).length)
 
   // Width = (digits * charWidth) + left padding + right padding
-  const leftPadding = 8; // px
-  const rightPadding = 16; // px (more space between gutter and code)
+  const leftPadding = 8 // px
+  const rightPadding = 16 // px (more space between gutter and code)
 
-  return digits * charWidth + leftPadding + rightPadding;
+  return digits * charWidth + leftPadding + rightPadding
 }
 
 /**
@@ -28,5 +28,5 @@ export function getGutterPadding(_gutterWidth: number): { left: number; right: n
   return {
     left: 8,
     right: 16,
-  };
+  }
 }

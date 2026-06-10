@@ -1,19 +1,19 @@
-import type { PersistedTerminal, Terminal } from "@/features/terminal/types/terminal";
+import type { PersistedTerminal, Terminal } from '@/features/terminal/types/terminal'
 
-const PERSISTENCE_KEY_PREFIX = "terminal-sessions";
-const PERSISTENCE_ENABLED_KEY = "terminal-persistence-enabled";
+const PERSISTENCE_KEY_PREFIX = 'terminal-sessions'
+const PERSISTENCE_ENABLED_KEY = 'terminal-persistence-enabled'
 
 export const isTerminalPersistenceEnabled = (): boolean => {
   try {
-    const enabled = localStorage.getItem(PERSISTENCE_ENABLED_KEY);
-    return enabled === null || enabled === "true";
+    const enabled = localStorage.getItem(PERSISTENCE_ENABLED_KEY)
+    return enabled === null || enabled === 'true'
   } catch {
-    return true;
+    return true
   }
-};
+}
 
 export const getTerminalSessionStorageKey = (workspacePath: string): string =>
-  `${PERSISTENCE_KEY_PREFIX}:${workspacePath}`;
+  `${PERSISTENCE_KEY_PREFIX}:${workspacePath}`
 
 export const serializeTerminals = (terminals: Terminal[]): PersistedTerminal[] =>
   terminals.map((terminal) => ({
@@ -26,90 +26,90 @@ export const serializeTerminals = (terminals: Terminal[]): PersistedTerminal[] =
     title: terminal.title,
     customName: terminal.customName,
     remoteConnectionId: terminal.remoteConnectionId,
-  }));
+  }))
 
 export const dedupePersistedTerminals = (
   terminals: PersistedTerminal[] | null | undefined,
 ): PersistedTerminal[] => {
-  const seen = new Set<string>();
-  const deduped: PersistedTerminal[] = [];
+  const seen = new Set<string>()
+  const deduped: PersistedTerminal[] = []
 
   for (const terminal of terminals ?? []) {
     if (seen.has(terminal.id)) {
-      continue;
+      continue
     }
 
-    seen.add(terminal.id);
-    deduped.push(terminal);
+    seen.add(terminal.id)
+    deduped.push(terminal)
   }
 
-  return deduped;
-};
+  return deduped
+}
 
 export const buildTerminalRestorePayload = ({
   projectSessionTerminals,
   storageTerminals,
   preferProjectSession,
 }: {
-  projectSessionTerminals: PersistedTerminal[] | null | undefined;
-  storageTerminals: PersistedTerminal[] | null | undefined;
-  preferProjectSession: boolean;
+  projectSessionTerminals: PersistedTerminal[] | null | undefined
+  storageTerminals: PersistedTerminal[] | null | undefined
+  preferProjectSession: boolean
 }): PersistedTerminal[] => {
-  const sessionTerminals = dedupePersistedTerminals(projectSessionTerminals);
+  const sessionTerminals = dedupePersistedTerminals(projectSessionTerminals)
   if (preferProjectSession && sessionTerminals.length > 0) {
-    return sessionTerminals;
+    return sessionTerminals
   }
 
-  return dedupePersistedTerminals(storageTerminals);
-};
+  return dedupePersistedTerminals(storageTerminals)
+}
 
 export const loadWorkspaceTerminalsFromStorage = (
   workspacePath: string | null | undefined,
 ): PersistedTerminal[] => {
   if (!workspacePath || !isTerminalPersistenceEnabled()) {
-    return [];
+    return []
   }
 
   try {
-    const stored = localStorage.getItem(getTerminalSessionStorageKey(workspacePath));
+    const stored = localStorage.getItem(getTerminalSessionStorageKey(workspacePath))
     if (!stored) {
-      return [];
+      return []
     }
 
-    return JSON.parse(stored) as PersistedTerminal[];
+    return JSON.parse(stored) as PersistedTerminal[]
   } catch (error) {
-    console.error("Failed to load terminals from storage:", error);
-    return [];
+    console.error('Failed to load terminals from storage:', error)
+    return []
   }
-};
+}
 
 export const saveWorkspaceTerminalsToStorage = (
   workspacePath: string | null | undefined,
   terminals: Terminal[],
 ) => {
   if (!workspacePath || !isTerminalPersistenceEnabled()) {
-    return;
+    return
   }
 
   try {
     localStorage.setItem(
       getTerminalSessionStorageKey(workspacePath),
       JSON.stringify(serializeTerminals(terminals)),
-    );
+    )
   } catch (error) {
-    console.error("Failed to save terminals to storage:", error);
+    console.error('Failed to save terminals to storage:', error)
   }
-};
+}
 
 export const setTerminalPersistence = (enabled: boolean) => {
   try {
-    localStorage.setItem(PERSISTENCE_ENABLED_KEY, String(enabled));
+    localStorage.setItem(PERSISTENCE_ENABLED_KEY, String(enabled))
     if (!enabled) {
       Object.keys(localStorage)
         .filter((key) => key.startsWith(`${PERSISTENCE_KEY_PREFIX}:`))
-        .forEach((key) => localStorage.removeItem(key));
+        .forEach((key) => localStorage.removeItem(key))
     }
   } catch (error) {
-    console.error("Failed to update persistence setting:", error);
+    console.error('Failed to update persistence setting:', error)
   }
-};
+}

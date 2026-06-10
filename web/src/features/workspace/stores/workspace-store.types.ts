@@ -11,12 +11,11 @@ export interface WorkspaceBaseState {
   workspaceId: string
 }
 
-export type WorkspaceState =
-  & WorkspaceBaseState
-  & PaneSlice
-  & BufferSlice
-  & LspSlice
-  & TerminalSlice
-  & FileWatcherSlice
-  & RecentFilesSlice
-  & BranchReviewSlice
+export type WorkspaceState = WorkspaceBaseState &
+  PaneSlice &
+  BufferSlice &
+  LspSlice &
+  TerminalSlice &
+  FileWatcherSlice &
+  RecentFilesSlice &
+  BranchReviewSlice

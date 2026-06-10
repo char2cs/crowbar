@@ -1,19 +1,27 @@
-import { useCallback, useEffect, useRef } from "react";
-import type { Terminal as TerminalType } from "@/features/terminal/types/terminal";
-import { TerminalErrorBoundary } from "./terminal-error-boundary";
-import { TerminalSlot } from "./terminal-slot";
+import type { Terminal as XtermInstance } from '@xterm/xterm'
+import { useCallback, useEffect, useRef } from 'react'
+import type { Terminal as TerminalType } from '@/features/terminal/types/terminal'
+import { TerminalErrorBoundary } from './terminal-error-boundary'
+import { TerminalSlot } from './terminal-slot'
+
+// The imperative handle XtermTerminal exposes through onTerminalRef.
+type XtermRefHandle = {
+  focus: () => void
+  showSearch: () => void
+  terminal: XtermInstance
+}
 
 interface TerminalSessionProps {
-  terminal: TerminalType;
-  isActive: boolean;
-  isVisible?: boolean;
-  onDirectoryChange?: (terminalId: string, directory: string) => void;
-  onActivity?: (terminalId: string) => void;
+  terminal: TerminalType
+  isActive: boolean
+  isVisible?: boolean
+  onDirectoryChange?: (terminalId: string, directory: string) => void
+  onActivity?: (terminalId: string) => void
   onRegisterRef?: (
     terminalId: string,
     ref: { focus: () => void; showSearch: () => void } | null,
-  ) => void;
-  onTerminalExit?: (terminalId: string) => void;
+  ) => void
+  onTerminalExit?: (terminalId: string) => void
 }
 
 const TerminalSession = ({
@@ -24,58 +32,58 @@ const TerminalSession = ({
   onRegisterRef,
   onTerminalExit,
 }: TerminalSessionProps) => {
-  const terminalRef = useRef<any>(null);
-  const xtermInstanceRef = useRef<any>(null);
+  const terminalRef = useRef<XtermRefHandle | null>(null)
+  const xtermInstanceRef = useRef<XtermRefHandle | null>(null)
 
   const focusTerminal = useCallback(() => {
-    const ref = xtermInstanceRef.current || terminalRef.current;
-    if (!ref?.focus) return;
+    const ref = xtermInstanceRef.current || terminalRef.current
+    if (!ref?.focus) return
 
-    let attempt = 0;
+    let attempt = 0
     const tryFocus = () => {
-      if (attempt >= 6 || !ref.focus) return;
-      attempt++;
-      ref.focus();
+      if (attempt >= 6 || !ref.focus) return
+      attempt++
+      ref.focus()
 
       requestAnimationFrame(() => {
-        const textarea = ref.terminal?.textarea;
+        const textarea = ref.terminal?.textarea
         if (textarea && document.activeElement !== textarea) {
-          tryFocus();
+          tryFocus()
         }
-      });
-    };
+      })
+    }
 
-    requestAnimationFrame(() => tryFocus());
-  }, []);
+    requestAnimationFrame(() => tryFocus())
+  }, [])
 
   const showSearch = useCallback(() => {
     if (xtermInstanceRef.current?.showSearch) {
-      xtermInstanceRef.current.showSearch();
-      return;
+      xtermInstanceRef.current.showSearch()
+      return
     }
 
-    focusTerminal();
-  }, [focusTerminal]);
+    focusTerminal()
+  }, [focusTerminal])
 
-  const handleTerminalRef = useCallback((ref: any) => {
-    xtermInstanceRef.current = ref;
-    terminalRef.current = ref;
-  }, []);
+  const handleTerminalRef = useCallback((ref: XtermRefHandle) => {
+    xtermInstanceRef.current = ref
+    terminalRef.current = ref
+  }, [])
 
   useEffect(() => {
     if (onRegisterRef) {
-      onRegisterRef(terminal.id, { focus: focusTerminal, showSearch });
+      onRegisterRef(terminal.id, { focus: focusTerminal, showSearch })
       return () => {
-        onRegisterRef(terminal.id, null);
-      };
+        onRegisterRef(terminal.id, null)
+      }
     }
-  }, [terminal.id, onRegisterRef, focusTerminal, showSearch]);
+  }, [terminal.id, onRegisterRef, focusTerminal, showSearch])
 
   useEffect(() => {
     if (isActive && onActivity) {
-      onActivity(terminal.id);
+      onActivity(terminal.id)
     }
-  }, [isActive, terminal.id, onActivity]);
+  }, [isActive, terminal.id, onActivity])
 
   return (
     <div className="flex h-full min-h-0 flex-col" data-terminal-id={terminal.id}>
@@ -91,7 +99,7 @@ const TerminalSession = ({
         />
       </TerminalErrorBoundary>
     </div>
-  );
-};
+  )
+}
 
-export default TerminalSession;
+export default TerminalSession

@@ -1,79 +1,79 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState } from 'react'
 
 interface StickyDetectionResult {
-  deepestStickyFolder: string | null;
-  stickyFolderRefs: Map<string, HTMLElement>;
-  registerStickyFolder: (path: string, element: HTMLElement | null) => void;
+  deepestStickyFolder: string | null
+  stickyFolderRefs: Map<string, HTMLElement>
+  registerStickyFolder: (path: string, element: HTMLElement | null) => void
 }
 
 export function useFileExplorerStickyDetection(
   containerRef: React.RefObject<HTMLDivElement | null>,
 ): StickyDetectionResult {
-  const [deepestStickyFolder, setDeepestStickyFolder] = useState<string | null>(null);
-  const stickyFolderRefs = useRef<Map<string, HTMLElement>>(new Map());
-  const observersRef = useRef<Map<string, IntersectionObserver>>(new Map());
-  const stuckFoldersRef = useRef<Set<string>>(new Set());
+  const [deepestStickyFolder, setDeepestStickyFolder] = useState<string | null>(null)
+  const stickyFolderRefs = useRef<Map<string, HTMLElement>>(new Map())
+  const observersRef = useRef<Map<string, IntersectionObserver>>(new Map())
+  const stuckFoldersRef = useRef<Set<string>>(new Set())
 
   const registerStickyFolder = (path: string, element: HTMLElement | null) => {
     if (element) {
-      stickyFolderRefs.current.set(path, element);
+      stickyFolderRefs.current.set(path, element)
     } else {
-      stickyFolderRefs.current.delete(path);
-      observersRef.current.get(path)?.disconnect();
-      observersRef.current.delete(path);
-      stuckFoldersRef.current.delete(path);
+      stickyFolderRefs.current.delete(path)
+      observersRef.current.get(path)?.disconnect()
+      observersRef.current.delete(path)
+      stuckFoldersRef.current.delete(path)
     }
-  };
+  }
 
   useEffect(() => {
-    const container = containerRef.current;
-    if (!container) return;
+    const container = containerRef.current
+    if (!container) return
 
     const updateDeepestSticky = () => {
-      let deepest: string | null = null;
-      let maxDepth = -1;
+      let deepest: string | null = null
+      let maxDepth = -1
 
       for (const path of stuckFoldersRef.current) {
-        const element = stickyFolderRefs.current.get(path);
+        const element = stickyFolderRefs.current.get(path)
         if (element) {
-          const depth = parseInt(element.getAttribute("data-depth") || "0", 10);
+          const depth = parseInt(element.getAttribute('data-depth') || '0', 10)
           if (depth > maxDepth) {
-            maxDepth = depth;
-            deepest = path;
+            maxDepth = depth
+            deepest = path
           }
         }
       }
 
-      setDeepestStickyFolder(deepest);
-    };
+      setDeepestStickyFolder(deepest)
+    }
 
     const setupObservers = () => {
       for (const [path, element] of stickyFolderRefs.current) {
-        if (observersRef.current.has(path)) continue;
+        if (observersRef.current.has(path)) continue
 
-        const depth = parseInt(element.getAttribute("data-depth") || "0", 10);
-        const stickyOffset = depth * 22;
+        const depth = parseInt(element.getAttribute('data-depth') || '0', 10)
+        const stickyOffset = depth * 22
 
         const observer = new IntersectionObserver(
           (entries) => {
             for (const entry of entries) {
-              const folderPath = entry.target.getAttribute("data-path");
-              if (!folderPath) continue;
+              const folderPath = entry.target.getAttribute('data-path')
+              if (!folderPath) continue
 
-              const rect = entry.boundingClientRect;
-              const containerRect = container.getBoundingClientRect();
-              const stickyTop = containerRect.top + stickyOffset;
-              const isStuck = rect.top <= stickyTop + 2;
+              const rect = entry.boundingClientRect
+              const containerRect = container.getBoundingClientRect()
+              const stickyTop = containerRect.top + stickyOffset
+              const isStuck = rect.top <= stickyTop + 2
 
               if (isStuck) {
-                entry.target.classList.add("is-stuck");
-                stuckFoldersRef.current.add(folderPath);
+                entry.target.classList.add('is-stuck')
+                stuckFoldersRef.current.add(folderPath)
               } else {
-                entry.target.classList.remove("is-stuck");
-                stuckFoldersRef.current.delete(folderPath);
+                entry.target.classList.remove('is-stuck')
+                stuckFoldersRef.current.delete(folderPath)
               }
 
-              updateDeepestSticky();
+              updateDeepestSticky()
             }
           },
           {
@@ -81,38 +81,38 @@ export function useFileExplorerStickyDetection(
             threshold: [0, 0.1, 0.5, 0.9, 1],
             rootMargin: `-${stickyOffset}px 0px 0px 0px`,
           },
-        );
+        )
 
-        observer.observe(element);
-        observersRef.current.set(path, observer);
+        observer.observe(element)
+        observersRef.current.set(path, observer)
       }
-    };
+    }
 
     const resizeObserver = new ResizeObserver(() => {
-      setupObservers();
-    });
-    resizeObserver.observe(container);
+      setupObservers()
+    })
+    resizeObserver.observe(container)
 
     const mutationObserver = new MutationObserver(() => {
-      setupObservers();
-    });
-    mutationObserver.observe(container, { childList: true, subtree: true });
+      setupObservers()
+    })
+    mutationObserver.observe(container, { childList: true, subtree: true })
 
-    setupObservers();
+    setupObservers()
 
     return () => {
-      resizeObserver.disconnect();
-      mutationObserver.disconnect();
+      resizeObserver.disconnect()
+      mutationObserver.disconnect()
       for (const observer of observersRef.current.values()) {
-        observer.disconnect();
+        observer.disconnect()
       }
-      observersRef.current.clear();
-    };
-  }, [containerRef]);
+      observersRef.current.clear()
+    }
+  }, [containerRef])
 
   return {
     deepestStickyFolder,
     stickyFolderRefs: stickyFolderRefs.current,
     registerStickyFolder,
-  };
+  }
 }

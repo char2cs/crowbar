@@ -1,11 +1,11 @@
-import { Folder, FolderOpen } from "@phosphor-icons/react"
-import { getIcon } from "material-file-icons"
-import type { IconThemeDefinition } from "../types"
+import { Folder, FolderOpen } from '@phosphor-icons/react'
+import { getIcon } from 'material-file-icons'
+import type { IconThemeDefinition } from '../types'
 
 export const materialIconTheme: IconThemeDefinition = {
-  id: "material",
-  name: "Material Icons",
-  description: "Material Design file icons",
+  id: 'material',
+  name: 'Material Icons',
+  description: 'Material Design file icons',
   getFileIcon: (fileName: string, isDir: boolean, isExpanded = false, _isSymlink = false) => {
     if (isDir) {
       const Icon = isExpanded ? FolderOpen : Folder

@@ -16,9 +16,20 @@ import (
 	"github.com/fsnotify/fsnotify"
 
 	"github.com/char2cs/crowbar/api/internal/domain"
+	gitdomain "github.com/char2cs/crowbar/api/internal/domain/git"
 )
 
 const debounceDuration = 100 * time.Millisecond
+
+// gitRecomputeDebounce is the trailing debounce applied to git recomputes
+// (fanOutGit = ComputeStatus + ComputeWorkingTreeSummary, two git invocations
+// per run). Workspaces sharing one .git (linked worktrees) all observe each
+// other's ref events, so without coalescing a single ref update makes every
+// workspace's watcher shell out to git at once — measured as ~6Hz sustained
+// churn. Bursts collapse into a single recompute that always runs once the
+// watcher has been quiet for this long; the trailing recompute is never
+// dropped, only delayed.
+const gitRecomputeDebounce = 250 * time.Millisecond
 
 // ErrAlreadyStarted is returned by Start when the watcher has already been
 // started (or stopped). A Watcher's lifecycle is single-use: the caller owns
@@ -46,6 +57,36 @@ type Watcher struct {
 	prevDeleted  int
 	prevConflict bool
 	prevCommits  bool
+
+	prevStatus    gitdomain.GitStatus
+	prevStatusSet bool
+
+	// gitTimer is the trailing-debounce timer for git recomputes. It is
+	// created stopped in NewWatcher, armed by scheduleGitRecompute, and
+	// drained exclusively by loop's <-gitTimer.C case. gitPending tracks
+	// whether a recompute is scheduled but not yet run (guarded by mu).
+	gitTimer   *time.Timer
+	gitPending bool
+}
+
+// gitStatusEqual reports whether two statuses carry the same broadcastable
+// state (branch, ahead/behind, and the exact file list in order).
+func gitStatusEqual(
+	a gitdomain.GitStatus,
+	b gitdomain.GitStatus,
+) bool {
+	if a.Branch != b.Branch || a.Ahead != b.Ahead || a.Behind != b.Behind {
+		return false
+	}
+	if len(a.Files) != len(b.Files) {
+		return false
+	}
+	for i := range a.Files {
+		if a.Files[i] != b.Files[i] {
+			return false
+		}
+	}
+	return true
 }
 
 // NewWatcher builds a Watcher but does not start it. Call Start to begin.
@@ -56,6 +97,10 @@ func NewWatcher(
 	git GitStatusProvider,
 	dispatcher Dispatcher,
 ) *Watcher {
+	gitTimer := time.NewTimer(gitRecomputeDebounce)
+	if !gitTimer.Stop() {
+		<-gitTimer.C
+	}
 	return &Watcher{
 		wsID:         wsID,
 		repoPath:     repoPath,
@@ -63,6 +108,7 @@ func NewWatcher(
 		git:          git,
 		dispatcher:   dispatcher,
 		stopCh:       make(chan struct{}),
+		gitTimer:     gitTimer,
 	}
 }
 
@@ -183,6 +229,8 @@ func (w *Watcher) loop(
 		case <-timer.C:
 			w.handleBurst(ctx, pending)
 			pending = pending[:0]
+		case <-w.gitTimer.C:
+			w.runGitRecompute(ctx)
 		case <-ctx.Done():
 			return
 		case <-w.stopCh:
@@ -210,7 +258,8 @@ func (w *Watcher) processEvent(
 // handleBurst processes all events from a single debounce window.
 // Events for the same path are merged (OR of ops) so that CREATE+WRITE
 // on Linux inotify is reported as a single "created" event, not "modified".
-// fanOutGit is called exactly once per burst, not once per event.
+// The git recompute is scheduled exactly once per burst (not once per event)
+// and further coalesced across bursts by scheduleGitRecompute.
 func (w *Watcher) handleBurst(
 	ctx context.Context,
 	events []fsnotify.Event,
@@ -226,7 +275,7 @@ func (w *Watcher) handleBurst(
 	for _, name := range order {
 		w.handleOne(ctx, fsnotify.Event{Name: name, Op: merged[name]})
 	}
-	w.fanOutGit(ctx)
+	w.scheduleGitRecompute()
 }
 
 func (w *Watcher) handleOne(
@@ -252,8 +301,8 @@ func (w *Watcher) handleOne(
 	if evt.Op&fsnotify.Remove != 0 {
 		_ = w.fsw.Remove(evt.Name)
 	}
-	// fanOutGit is intentionally NOT called here; handleBurst calls it once
-	// for the whole burst (Fix 2).
+	// The git recompute is intentionally NOT scheduled here; handleBurst
+	// schedules it once for the whole burst (Fix 2).
 }
 
 func (w *Watcher) maybeHandleGitRef(
@@ -267,6 +316,29 @@ func (w *Watcher) maybeHandleGitRef(
 	if !isHead && !isRef && !isPackedRefs {
 		return
 	}
+	w.scheduleGitRecompute()
+}
+
+// scheduleGitRecompute arms (or re-arms) the trailing git-recompute debounce.
+// Back-to-back calls within gitRecomputeDebounce collapse into one fanOutGit
+// run, executed by loop once the quiet period elapses. It is called only from
+// the loop goroutine (handleBurst / maybeHandleGitRef), so resetting the timer
+// never races with loop's drain of gitTimer.C.
+func (w *Watcher) scheduleGitRecompute() {
+	w.mu.Lock()
+	w.gitPending = true
+	w.mu.Unlock()
+	w.gitTimer.Reset(gitRecomputeDebounce)
+}
+
+// runGitRecompute clears the pending flag and performs the coalesced git
+// recompute. It runs in the loop goroutine when gitTimer fires.
+func (w *Watcher) runGitRecompute(
+	ctx context.Context,
+) {
+	w.mu.Lock()
+	w.gitPending = false
+	w.mu.Unlock()
 	w.fanOutGit(ctx)
 }
 
@@ -281,7 +353,14 @@ func (w *Watcher) fanOutGit(
 	if err != nil {
 		return
 	}
-	w.dispatcher.OnGitStatus(ctx, w.wsID, status)
+	// Workspaces sharing a .git (linked worktrees) all see each other's ref
+	// events; without this guard every such event re-broadcasts an unchanged
+	// status to every subscriber (observed as a ~6Hz identical-frame storm).
+	if !w.prevStatusSet || !gitStatusEqual(w.prevStatus, status) {
+		w.prevStatus = status
+		w.prevStatusSet = true
+		w.dispatcher.OnGitStatus(ctx, w.wsID, status)
+	}
 
 	added, deleted, hasConflicts, hasCommits, err := w.git.ComputeWorkingTreeSummary(
 		ctx,

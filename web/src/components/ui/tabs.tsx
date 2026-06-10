@@ -1,43 +1,37 @@
-"use client";
+'use client'
 
-import { Tabs as TabsPrimitive } from "@base-ui/react/tabs";
-import * as React from "react";
-import { cn } from "@/lib/utils";
+import { Tabs as TabsPrimitive } from '@base-ui/react/tabs'
+import * as React from 'react'
+import { cn } from '@/lib/utils'
 
-export type TabsVariant = "default" | "underline" | "segmented";
+export type TabsVariant = 'default' | 'underline' | 'segmented'
 
-export function Tabs({
-  className,
-  ...props
-}: TabsPrimitive.Root.Props): React.ReactElement {
+export function Tabs({ className, ...props }: TabsPrimitive.Root.Props): React.ReactElement {
   return (
     <TabsPrimitive.Root
-      className={cn(
-        "flex flex-col gap-2 data-[orientation=vertical]:flex-row",
-        className,
-      )}
+      className={cn('flex flex-col gap-2 data-[orientation=vertical]:flex-row', className)}
       data-slot="tabs"
       {...props}
     />
-  );
+  )
 }
 
 export function TabsList({
-  variant = "default",
+  variant = 'default',
   className,
   children,
   ...props
 }: TabsPrimitive.List.Props & {
-  variant?: TabsVariant;
+  variant?: TabsVariant
 }): React.ReactElement {
   return (
     <TabsPrimitive.List
       className={cn(
-        "relative z-0 flex w-fit items-center justify-center gap-x-0.5 text-muted-foreground",
-        "data-[orientation=vertical]:flex-col",
-        variant === "default"
-          ? "rounded-lg bg-muted p-0.5 text-muted-foreground/72"
-          : "data-[orientation=vertical]:px-1 data-[orientation=horizontal]:py-1 *:data-[slot=tabs-tab]:hover:bg-accent",
+        'relative z-0 flex w-fit items-center justify-center gap-x-0.5 text-muted-foreground',
+        'data-[orientation=vertical]:flex-col',
+        variant === 'default'
+          ? 'rounded-lg bg-muted p-0.5 text-muted-foreground/72'
+          : 'data-[orientation=vertical]:px-1 data-[orientation=horizontal]:py-1 *:data-[slot=tabs-tab]:hover:bg-accent',
         className,
       )}
       data-slot="tabs-list"
@@ -46,21 +40,18 @@ export function TabsList({
       {children}
       <TabsPrimitive.Indicator
         className={cn(
-          "absolute bottom-0 left-0 h-(--active-tab-height) w-(--active-tab-width) translate-x-(--active-tab-left) -translate-y-(--active-tab-bottom) transition-[width,translate] duration-200 ease-in-out",
-          variant === "underline"
-            ? "z-10 bg-primary data-[orientation=horizontal]:h-0.5 data-[orientation=vertical]:w-0.5 data-[orientation=vertical]:-translate-x-px data-[orientation=horizontal]:translate-y-px"
-            : "-z-1 rounded-md bg-background shadow-sm/5 dark:bg-input",
+          'absolute bottom-0 left-0 h-(--active-tab-height) w-(--active-tab-width) translate-x-(--active-tab-left) -translate-y-(--active-tab-bottom) transition-[width,translate] duration-200 ease-in-out',
+          variant === 'underline'
+            ? 'z-10 bg-primary data-[orientation=horizontal]:h-0.5 data-[orientation=vertical]:w-0.5 data-[orientation=vertical]:-translate-x-px data-[orientation=horizontal]:translate-y-px'
+            : '-z-1 rounded-md bg-background shadow-sm/5 dark:bg-input',
         )}
         data-slot="tab-indicator"
       />
     </TabsPrimitive.List>
-  );
+  )
 }
 
-export function TabsTab({
-  className,
-  ...props
-}: TabsPrimitive.Tab.Props): React.ReactElement {
+export function TabsTab({ className, ...props }: TabsPrimitive.Tab.Props): React.ReactElement {
   return (
     <TabsPrimitive.Tab
       className={cn(
@@ -70,20 +61,17 @@ export function TabsTab({
       data-slot="tabs-tab"
       {...props}
     />
-  );
+  )
 }
 
-export function TabsPanel({
-  className,
-  ...props
-}: TabsPrimitive.Panel.Props): React.ReactElement {
+export function TabsPanel({ className, ...props }: TabsPrimitive.Panel.Props): React.ReactElement {
   return (
     <TabsPrimitive.Panel
-      className={cn("flex-1 outline-none", className)}
+      className={cn('flex-1 outline-none', className)}
       data-slot="tabs-content"
       {...props}
     />
-  );
+  )
 }
 
 /** Standalone tab button used by Crowbar feature modules (does not require a tabs value context) */
@@ -92,8 +80,8 @@ export interface TabProps extends React.ButtonHTMLAttributes<HTMLButtonElement> 
   isDragged?: boolean
   action?: React.ReactNode
   variant?: string
-  size?: "xs" | "sm" | "md" | "lg"
-  labelPosition?: "start" | "center" | "end"
+  size?: 'xs' | 'sm' | 'md' | 'lg'
+  labelPosition?: 'start' | 'center' | 'end'
   maxWidth?: number
 }
 
@@ -116,12 +104,12 @@ const Tab = React.forwardRef<HTMLButtonElement, TabProps>(
     <button
       ref={ref}
       className={cn(
-        "relative inline-flex shrink-0 cursor-pointer items-center whitespace-nowrap rounded-full border font-medium text-sm outline-none transition-colors",
-        "focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-1 focus-visible:ring-offset-background",
-        "disabled:pointer-events-none disabled:opacity-64",
+        'relative inline-flex shrink-0 cursor-pointer items-center whitespace-nowrap rounded-full border font-medium text-sm outline-none transition-colors',
+        'focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-1 focus-visible:ring-offset-background',
+        'disabled:pointer-events-none disabled:opacity-64',
         isActive
-          ? "rounded-full border-background bg-background text-foreground shadow-xs shadow-black/10 not-disabled:inset-shadow-[0_1px_--theme(--color-white/16%)] active:inset-shadow-[0_1px_--theme(--color-black/8%)] active:shadow-none"
-          : "border-transparent text-muted-foreground hover:bg-accent hover:text-foreground",
+          ? 'rounded-full border-background bg-background text-foreground shadow-xs shadow-black/10 not-disabled:inset-shadow-[0_1px_--theme(--color-white/16%)] active:inset-shadow-[0_1px_--theme(--color-black/8%)] active:shadow-none'
+          : 'border-transparent text-muted-foreground hover:bg-accent hover:text-foreground',
         className,
       )}
       {...props}
@@ -131,7 +119,7 @@ const Tab = React.forwardRef<HTMLButtonElement, TabProps>(
     </button>
   ),
 )
-Tab.displayName = "Tab"
+Tab.displayName = 'Tab'
 
 /** Crowbar tab item descriptor */
 export interface TabsItem {
@@ -148,11 +136,11 @@ export interface TabsItem {
   tooltip?: {
     content: string
     shortcut?: string
-    side?: "top" | "right" | "bottom" | "left"
+    side?: 'top' | 'right' | 'bottom' | 'left'
     className?: string
   }
 }
 
 export { Tab }
 
-export { TabsPrimitive, TabsTab as TabsTrigger, TabsPanel as TabsContent };
+export { TabsPrimitive, TabsTab as TabsTrigger, TabsPanel as TabsContent }

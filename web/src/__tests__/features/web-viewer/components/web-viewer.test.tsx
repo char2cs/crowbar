@@ -16,15 +16,12 @@ vi.mock('@/features/web-viewer/hooks/use-browser-pane-anchor', () => ({
 }))
 
 vi.mock('@/features/web-viewer/stores/web-viewer-navigation-store', () => ({
-  useWebViewerNavigationStore: Object.assign(
-    vi.fn().mockReturnValue(undefined),
-    {
-      getState: vi.fn().mockReturnValue({
-        registerBuffer: vi.fn(),
-        removeBuffer: vi.fn(),
-      }),
-    },
-  ),
+  useWebViewerNavigationStore: Object.assign(vi.fn().mockReturnValue(undefined), {
+    getState: vi.fn().mockReturnValue({
+      registerBuffer: vi.fn(),
+      removeBuffer: vi.fn(),
+    }),
+  }),
 }))
 
 import { isTauri } from '@/lib/crowbar-bridge'

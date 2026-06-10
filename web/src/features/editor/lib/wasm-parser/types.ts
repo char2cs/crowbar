@@ -2,34 +2,34 @@
  * Types for WASM-based Tree-sitter parsing
  */
 
-import type { Edit, Language, Parser, Query, Tree } from "web-tree-sitter";
+import type { Edit, Language, Parser, Query, Tree } from 'web-tree-sitter'
 
 export interface HighlightToken {
-  type: string;
-  startIndex: number;
-  endIndex: number;
-  startPosition: { row: number; column: number };
-  endPosition: { row: number; column: number };
+  type: string
+  startIndex: number
+  endIndex: number
+  startPosition: { row: number; column: number }
+  endPosition: { row: number; column: number }
 }
 
 export interface ParserConfig {
-  languageId: string;
-  wasmPath: string;
-  highlightQuery?: string;
-  highlightQueryUrl?: string;
+  languageId: string
+  wasmPath: string
+  highlightQuery?: string
+  highlightQueryUrl?: string
 }
 
 export interface LoadedParser {
-  parser: Parser;
-  language: Language;
-  highlightQuery?: Query;
-  highlightQueryText?: string;
-  languageId: string;
+  parser: Parser
+  language: Language
+  highlightQuery?: Query
+  highlightQueryText?: string
+  languageId: string
 }
 
 export interface ParseResult {
-  tokens: HighlightToken[];
-  tree: Tree;
+  tokens: HighlightToken[]
+  tree: Tree
 }
 
 /**
@@ -37,15 +37,15 @@ export interface ParseResult {
  */
 export interface IncrementalParseOptions {
   /** The previous parse tree to use for incremental parsing */
-  previousTree?: Tree;
+  previousTree?: Tree
   /** The edit that was applied to transform the old content to new content */
-  edit?: Edit;
+  edit?: Edit
 }
 
 /**
  * Result of tokenization including the parse tree for caching
  */
 export interface TokenizeResult {
-  tokens: HighlightToken[];
-  tree: Tree;
+  tokens: HighlightToken[]
+  tree: Tree
 }

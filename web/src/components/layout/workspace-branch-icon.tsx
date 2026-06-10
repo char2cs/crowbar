@@ -12,15 +12,27 @@ export function WorkspaceBranchIcon({ status }: WorkspaceBranchIconProps) {
 
   switch (status) {
     case 'locked':
-      return <Lock aria-hidden="true" className="size-4 shrink-0 text-foreground/30" weight="fill" />
+      return (
+        <Lock aria-hidden="true" className="size-4 shrink-0 text-foreground/30" weight="fill" />
+      )
     case 'new':
-      return <GitBranch aria-hidden="true" className="size-4 shrink-0 text-foreground" weight="fill" />
+      return (
+        <GitBranch aria-hidden="true" className="size-4 shrink-0 text-foreground" weight="fill" />
+      )
     case 'pr-open':
-      return <GitPullRequest aria-hidden="true" className="size-4 shrink-0 text-green-500" weight="fill" />
+      return (
+        <GitPullRequest
+          aria-hidden="true"
+          className="size-4 shrink-0 text-green-500"
+          weight="fill"
+        />
+      )
     case 'pr-closed':
       return <GitFork aria-hidden="true" className="size-4 shrink-0 text-red-500" weight="fill" />
     case 'pr-merged':
-      return <GitMerge aria-hidden="true" className="size-4 shrink-0 text-violet-500" weight="fill" />
+      return (
+        <GitMerge aria-hidden="true" className="size-4 shrink-0 text-violet-500" weight="fill" />
+      )
     default: {
       const _exhaustive: never = status
       return _exhaustive
@@ -29,9 +41,7 @@ export function WorkspaceBranchIcon({ status }: WorkspaceBranchIconProps) {
 }
 
 export function WorkspaceAgentSpinner() {
-  const [name] = useState(
-    () => spinnerNames[Math.floor(Math.random() * spinnerNames.length)]
-  )
+  const [name] = useState(() => spinnerNames[Math.floor(Math.random() * spinnerNames.length)])
   return (
     <span className="size-4 shrink-0 text-primary leading-none flex items-center justify-center">
       <Spinner name={name} color="currentColor" size="0.875rem" shape="square" />

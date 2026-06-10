@@ -103,5 +103,7 @@ export function simulateMarkdownStream(
   }
 
   setTimeout(tick, 30)
-  return () => { cancelled = true }
+  return () => {
+    cancelled = true
+  }
 }

@@ -20,10 +20,7 @@ const terminals = new Map<string, TerminalConnection>()
 
 // Create a PTY session in the workspace and open its stream. Returns the
 // sessionId, which the terminal hooks use as the connection id.
-export async function terminalCreate(
-  wsId: string,
-  profileId?: string,
-): Promise<string> {
+export async function terminalCreate(wsId: string, profileId?: string): Promise<string> {
   const { sessionId } = await apiFetch<{ sessionId: string }>(
     `/v0/workspaces/${encodeURIComponent(wsId)}/terminals`,
     {
@@ -34,7 +31,13 @@ export async function terminalCreate(
   )
 
   const ws = new WebSocket(wsUrl(`/v0/ws/terminals/${encodeURIComponent(sessionId)}`))
-  const conn: TerminalConnection = { ws, listener: null, outputBuffer: [], inputQueue: [], open: false }
+  const conn: TerminalConnection = {
+    ws,
+    listener: null,
+    outputBuffer: [],
+    inputQueue: [],
+    open: false,
+  }
 
   ws.onopen = () => {
     conn.open = true
@@ -57,28 +60,19 @@ export async function terminalCreate(
   return sessionId
 }
 
-export async function terminalWrite(
-  id: string,
-  data: string,
-): Promise<void> {
+export async function terminalWrite(id: string, data: string): Promise<void> {
   const conn = terminals.get(id)
   if (!conn) return
   if (conn.open) conn.ws.send(JSON.stringify({ data }))
   else conn.inputQueue.push(data)
 }
 
-export async function terminalResize(
-  id: string,
-  rows: number,
-  cols: number,
-): Promise<void> {
+export async function terminalResize(id: string, rows: number, cols: number): Promise<void> {
   const conn = terminals.get(id)
   if (conn?.open) conn.ws.send(JSON.stringify({ type: 'resize', cols, rows }))
 }
 
-export async function terminalClose(
-  id: string,
-): Promise<void> {
+export async function terminalClose(id: string): Promise<void> {
   const conn = terminals.get(id)
   if (conn) {
     conn.ws.close()
@@ -89,10 +83,7 @@ export async function terminalClose(
 
 // Register the output sink for a session, flushing any frames that arrived
 // before the listener attached (e.g. the shell's first prompt).
-export function terminalListen(
-  id: string,
-  onData: (data: string) => void,
-): () => void {
+export function terminalListen(id: string, onData: (data: string) => void): () => void {
   const conn = terminals.get(id)
   if (!conn) return () => {}
   conn.listener = onData
@@ -133,9 +124,7 @@ export async function clipboardSet(
   // FUTURE: POST /api/fs/clipboard/set
 }
 
-export async function clipboardPaste(
-  _targetDirectory: string,
-): Promise<PastedEntry[]> {
+export async function clipboardPaste(_targetDirectory: string): Promise<PastedEntry[]> {
   // FUTURE: POST /api/fs/clipboard/paste
   return []
 }
@@ -155,7 +144,7 @@ export async function clipboardClear(): Promise<void> {
 
 export async function openDirectory(): Promise<string | null> {
   // FUTURE: @tauri-apps/plugin-dialog open({ directory: true, multiple: false })
-  return null;
+  return null
 }
 
 // ── Window Management ─────────────────────────────────────────────────────────

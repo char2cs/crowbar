@@ -1,16 +1,16 @@
-import { useCallback } from "react";
-import { useWorkspaceStore } from "@/features/workspace/stores/workspace-context";
-import { XtermTerminal } from "./terminal";
+import { useCallback } from 'react'
+import { useWorkspaceStore } from '@/features/workspace/stores/workspace-context'
+import { XtermTerminal } from './terminal'
 
 interface TerminalTabProps {
-  sessionId: string;
-  bufferId: string;
-  paneId?: string;
-  initialCommand?: string;
-  workingDirectory?: string;
-  remoteConnectionId?: string;
-  isActive?: boolean;
-  isVisible?: boolean;
+  sessionId: string
+  bufferId: string
+  paneId?: string
+  initialCommand?: string
+  workingDirectory?: string
+  remoteConnectionId?: string
+  isActive?: boolean
+  isVisible?: boolean
 }
 
 // Renders XtermTerminal directly — no portal indirection. The TerminalHost
@@ -27,22 +27,21 @@ export function TerminalTab({
   isActive = true,
   isVisible = true,
 }: TerminalTabProps) {
-  const workspaceStore = useWorkspaceStore();
+  const workspaceStore = useWorkspaceStore()
 
   const handleTerminalExit = useCallback(() => {
-    workspaceStore.getState().bufferActions.closeBuffer(bufferId);
-  }, [bufferId, workspaceStore]);
+    workspaceStore.getState().bufferActions.closeBuffer(bufferId)
+  }, [bufferId, workspaceStore])
 
   const handleActivate = useCallback(() => {
     if (paneId) {
-      workspaceStore.getState().paneActions.addBufferToPane(paneId, bufferId, true);
-      return;
+      workspaceStore.getState().paneActions.addBufferToPane(paneId, bufferId, true)
+      return
     }
-    workspaceStore.getState().paneActions.activatePaneBuffer(
-      workspaceStore.getState().activePaneId,
-      bufferId,
-    );
-  }, [bufferId, paneId, workspaceStore]);
+    workspaceStore
+      .getState()
+      .paneActions.activatePaneBuffer(workspaceStore.getState().activePaneId, bufferId)
+  }, [bufferId, paneId, workspaceStore])
 
   return (
     // onMouseDownCapture: xterm canvas events don't bubble through React, so we
@@ -62,5 +61,5 @@ export function TerminalTab({
         remoteConnectionId={remoteConnectionId}
       />
     </div>
-  );
+  )
 }

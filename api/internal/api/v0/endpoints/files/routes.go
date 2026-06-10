@@ -17,7 +17,7 @@ func Register(
 ) {
 	h := filehandlers.New(files)
 	rg.GET("/workspaces/:wsId/files/content", h.ReadContent)
-	rg.GET("/workspaces/:wsId/files", h.Tree)
+	rg.GET("/workspaces/:wsId/files/tree", h.Tree)
 	rg.PUT("/workspaces/:wsId/files/content", h.SaveContent)
 	rg.POST("/workspaces/:wsId/files", h.Create)
 	rg.PATCH("/workspaces/:wsId/files", h.Rename)

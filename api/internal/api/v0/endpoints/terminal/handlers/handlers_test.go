@@ -133,7 +133,7 @@ func TestTerminalHandlers_HappyPath(
 	assert.Equal(t, http.StatusCreated, rec.Code)
 
 	rec = do(r, http.MethodDelete, "/v0/terminals/sess1", nil) // KillSession
-	assert.Equal(t, http.StatusNoContent, rec.Code)
+	assert.Equal(t, http.StatusOK, rec.Code)
 
 	rec = do(r, http.MethodGet, "/v0/settings/terminal/profiles", nil)
 	assert.Equal(t, http.StatusOK, rec.Code)

@@ -1,6 +1,6 @@
 // web/src/routes/projects/index.tsx
 import { createFileRoute, useNavigate } from '@tanstack/react-router'
-import { ProjectListPage } from '@/components/projects/ProjectListPage'
+import { ProjectListPage } from '@/components/projects/project-list-page'
 
 export const Route = createFileRoute('/projects/')({
   component: ProjectsPage,
@@ -8,9 +8,5 @@ export const Route = createFileRoute('/projects/')({
 
 function ProjectsPage() {
   const navigate = useNavigate()
-  return (
-    <ProjectListPage
-      onSelect={() => navigate({ to: '/' })}
-    />
-  )
+  return <ProjectListPage onSelect={() => navigate({ to: '/' })} />
 }

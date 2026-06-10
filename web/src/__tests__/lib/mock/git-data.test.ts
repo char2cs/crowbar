@@ -11,7 +11,7 @@ describe('getMockGitStatus', () => {
   })
   it('each file has path, status, and staged flag', () => {
     const status = getMockGitStatus('/repos/crowbar')
-    status.files.forEach(f => {
+    status.files.forEach((f) => {
       expect(typeof f.path).toBe('string')
       expect(typeof f.status).toBe('string')
       expect(typeof f.staged).toBe('boolean')
@@ -30,7 +30,7 @@ describe('getMockCommitHistory', () => {
     expect(commits.length).toBeGreaterThanOrEqual(3)
   })
   it('each commit has required fields', () => {
-    getMockCommitHistory('/repo').forEach(c => {
+    getMockCommitHistory('/repo').forEach((c) => {
       expect(typeof c.hash).toBe('string')
       expect(typeof c.message).toBe('string')
       expect(typeof c.author).toBe('string')
@@ -44,7 +44,7 @@ describe('getMockBranches', () => {
     expect(getMockBranches('/repo').length).toBeGreaterThan(0)
   })
   it('exactly one branch is current', () => {
-    const current = getMockBranches('/repo').filter(b => b.isCurrent)
+    const current = getMockBranches('/repo').filter((b) => b.isCurrent)
     expect(current.length).toBe(1)
   })
 })

@@ -6,7 +6,7 @@ import {
 } from '@/features/workspace/stores/workspace-store-registry'
 
 afterEach(() => {
-  getAllActiveWorkspaceIds().forEach(id => destroyWorkspaceStore(id))
+  getAllActiveWorkspaceIds().forEach((id) => destroyWorkspaceStore(id))
 })
 
 describe('workspace-store-registry', () => {

@@ -6,6 +6,8 @@ import (
 
 	"github.com/gin-gonic/gin"
 
+	"github.com/char2cs/crowbar/api/internal/api/libs"
+
 	"github.com/char2cs/crowbar/api/internal/app/apperr"
 	"github.com/char2cs/crowbar/api/internal/app/usecases/branchreview"
 	"github.com/char2cs/crowbar/api/internal/domain"
@@ -31,10 +33,10 @@ func (h *Handlers) Get(
 ) {
 	review, err := h.reviewUsecase.Get(ctx.Request.Context(), ctx.Param("wsId"))
 	if err != nil {
-		ctx.JSON(reviewErrorStatus(err), gin.H{"error": err.Error()})
+		libs.WriteErr(ctx, reviewErrorStatus(err), err.Error())
 		return
 	}
-	ctx.JSON(http.StatusOK, review)
+	libs.WriteQueryOK(ctx, review)
 }
 
 // SetMergeStrategy handles PATCH /v0/workspaces/:wsId/review, updating the
@@ -46,14 +48,14 @@ func (h *Handlers) SetMergeStrategy(
 		MergeStrategy gitdomain.MergeStrategy `json:"mergeStrategy"`
 	}
 	if err := ctx.ShouldBindJSON(&body); err != nil {
-		ctx.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		libs.WriteErr(ctx, http.StatusBadRequest, err.Error())
 		return
 	}
 	if err := h.reviewUsecase.SetMergeStrategy(ctx.Request.Context(), ctx.Param("wsId"), body.MergeStrategy); err != nil {
-		ctx.JSON(reviewErrorStatus(err), gin.H{"error": err.Error()})
+		libs.WriteErr(ctx, reviewErrorStatus(err), err.Error())
 		return
 	}
-	ctx.JSON(http.StatusOK, gin.H{"mergeStrategy": body.MergeStrategy})
+	libs.WriteQueryOK(ctx, gin.H{"mergeStrategy": body.MergeStrategy})
 }
 
 // OpenThread handles POST /v0/workspaces/:wsId/review/threads, opening a new
@@ -68,7 +70,7 @@ func (h *Handlers) OpenThread(
 		Body       string            `json:"body"`
 	}
 	if err := ctx.ShouldBindJSON(&body); err != nil {
-		ctx.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		libs.WriteErr(ctx, http.StatusBadRequest, err.Error())
 		return
 	}
 	thread, err := h.reviewUsecase.OpenThread(ctx.Request.Context(), branchreview.OpenThreadInput{
@@ -79,10 +81,10 @@ func (h *Handlers) OpenThread(
 		Body:       body.Body,
 	})
 	if err != nil {
-		ctx.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		libs.WriteErr(ctx, http.StatusBadRequest, err.Error())
 		return
 	}
-	ctx.JSON(http.StatusCreated, thread)
+	libs.WriteQueryWithStatus(ctx, http.StatusCreated, thread)
 }
 
 // Reply handles POST /v0/workspaces/:wsId/review/threads/:id/reply, appending
@@ -94,15 +96,15 @@ func (h *Handlers) Reply(
 		Body string `json:"body"`
 	}
 	if err := ctx.ShouldBindJSON(&body); err != nil {
-		ctx.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		libs.WriteErr(ctx, http.StatusBadRequest, err.Error())
 		return
 	}
 	thread, err := h.reviewUsecase.Reply(ctx.Request.Context(), ctx.Param("id"), body.Body)
 	if err != nil {
-		ctx.JSON(reviewErrorStatus(err), gin.H{"error": err.Error()})
+		libs.WriteErr(ctx, reviewErrorStatus(err), err.Error())
 		return
 	}
-	ctx.JSON(http.StatusOK, thread)
+	libs.WriteQueryOK(ctx, thread)
 }
 
 // SetThreadResolved handles PATCH /v0/workspaces/:wsId/review/threads/:id,
@@ -114,13 +116,13 @@ func (h *Handlers) SetThreadResolved(
 		IsResolved bool `json:"isResolved"`
 	}
 	if err := ctx.ShouldBindJSON(&body); err != nil {
-		ctx.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		libs.WriteErr(ctx, http.StatusBadRequest, err.Error())
 		return
 	}
 	thread, err := h.reviewUsecase.SetThreadResolved(ctx.Request.Context(), ctx.Param("id"), body.IsResolved)
 	if err != nil {
-		ctx.JSON(reviewErrorStatus(err), gin.H{"error": err.Error()})
+		libs.WriteErr(ctx, reviewErrorStatus(err), err.Error())
 		return
 	}
-	ctx.JSON(http.StatusOK, thread)
+	libs.WriteQueryOK(ctx, thread)
 }

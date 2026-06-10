@@ -3,13 +3,13 @@ import {
   CaretRight as ChevronRight,
   Minus,
   Plus,
-} from "@phosphor-icons/react";
-import { memo, useCallback } from "react";
-import { useFileSystemStore } from "@/features/file-system/controllers/store";
-import { cn } from "@/utils/cn";
-import { stageHunk, unstageHunk } from "../../api/git-status-api";
-import type { DiffHunkHeaderProps } from "../../types/git-diff-types";
-import { createGitHunk } from "../../utils/git-diff-helpers";
+} from '@phosphor-icons/react'
+import { memo, useCallback } from 'react'
+import { useFileSystemStore } from '@/features/file-system/controllers/store'
+import { cn } from '@/utils/cn'
+import { stageHunk, unstageHunk } from '../../api/git-status-api'
+import type { DiffHunkHeaderProps } from '../../types/git-diff-types'
+import { createGitHunk } from '../../utils/git-diff-helpers'
 
 const DiffHunkHeader = memo(
   ({
@@ -22,60 +22,60 @@ const DiffHunkHeader = memo(
     onUnstageHunk,
     isInMultiFileView = false,
   }: DiffHunkHeaderProps) => {
-    const rootFolderPath = useFileSystemStore((s) => s.rootFolderPath);
+    const rootFolderPath = useFileSystemStore((s) => s.rootFolderPath)
 
     const handleStageHunk = useCallback(
       async (e: React.MouseEvent) => {
-        e.stopPropagation();
-        if (!rootFolderPath || !filePath) return;
+        e.stopPropagation()
+        if (!rootFolderPath || !filePath) return
 
-        const gitHunk = createGitHunk(hunk, filePath);
+        const gitHunk = createGitHunk(hunk, filePath)
 
         if (isStaged) {
-          const success = await unstageHunk(rootFolderPath, gitHunk);
+          const success = await unstageHunk(rootFolderPath, gitHunk)
           if (success) {
-            window.dispatchEvent(new CustomEvent("git-status-changed"));
-            onUnstageHunk?.(gitHunk);
+            window.dispatchEvent(new CustomEvent('git-status-changed'))
+            onUnstageHunk?.(gitHunk)
           }
         } else {
-          const success = await stageHunk(rootFolderPath, gitHunk);
+          const success = await stageHunk(rootFolderPath, gitHunk)
           if (success) {
-            window.dispatchEvent(new CustomEvent("git-status-changed"));
-            onStageHunk?.(gitHunk);
+            window.dispatchEvent(new CustomEvent('git-status-changed'))
+            onStageHunk?.(gitHunk)
           }
         }
       },
       [rootFolderPath, filePath, hunk, isStaged, onStageHunk, onUnstageHunk],
-    );
+    )
 
-    let additions = 0;
-    let deletions = 0;
+    let additions = 0
+    let deletions = 0
     for (const l of hunk.lines) {
-      if (l.line_type === "added") additions++;
-      else if (l.line_type === "removed") deletions++;
+      if (l.line_type === 'added') additions++
+      else if (l.line_type === 'removed') deletions++
     }
 
     const parseHunkHeader = (content: string) => {
-      const match = content.match(/@@ -(\d+)(?:,(\d+))? \+(\d+)(?:,(\d+))? @@(.*)/);
-      if (!match) return { context: content };
+      const match = content.match(/@@ -(\d+)(?:,(\d+))? \+(\d+)(?:,(\d+))? @@(.*)/)
+      if (!match) return { context: content }
       return {
         oldStart: match[1],
-        oldCount: match[2] || "1",
+        oldCount: match[2] || '1',
         newStart: match[3],
-        newCount: match[4] || "1",
-        context: match[5]?.trim() || "",
-      };
-    };
+        newCount: match[4] || '1',
+        context: match[5]?.trim() || '',
+      }
+    }
 
-    const headerInfo = parseHunkHeader(hunk.header.content);
+    const headerInfo = parseHunkHeader(hunk.header.content)
 
-    const canStage = !isInMultiFileView && rootFolderPath && filePath;
+    const canStage = !isInMultiFileView && rootFolderPath && filePath
 
     return (
       <div
         className={cn(
-          "group flex cursor-pointer items-center justify-between border-border border-b",
-          "bg-background px-3 py-1 ui-text-sm leading-5 hover:bg-muted",
+          'group flex cursor-pointer items-center justify-between border-border border-b',
+          'bg-background px-3 py-1 ui-text-sm leading-5 hover:bg-muted',
         )}
         onClick={onToggleCollapse}
       >
@@ -106,24 +106,24 @@ const DiffHunkHeader = memo(
             <button
               onClick={handleStageHunk}
               className={cn(
-                "flex items-center gap-1 rounded px-1.5 py-0.5 opacity-0 group-hover:opacity-100",
+                'flex items-center gap-1 rounded px-1.5 py-0.5 opacity-0 group-hover:opacity-100',
                 isStaged
-                  ? "bg-git-deleted/20 text-git-deleted hover:bg-git-deleted/30"
-                  : "bg-git-added/20 text-git-added hover:bg-git-added/30",
+                  ? 'bg-git-deleted/20 text-git-deleted hover:bg-git-deleted/30'
+                  : 'bg-git-added/20 text-git-added hover:bg-git-added/30',
               )}
-              title={isStaged ? "Unstage hunk" : "Stage hunk"}
-              aria-label={isStaged ? "Unstage hunk" : "Stage hunk"}
+              title={isStaged ? 'Unstage hunk' : 'Stage hunk'}
+              aria-label={isStaged ? 'Unstage hunk' : 'Stage hunk'}
             >
               {isStaged ? <Minus /> : <Plus />}
-              <span className="ui-text-xs">{isStaged ? "Unstage" : "Stage"}</span>
+              <span className="ui-text-xs">{isStaged ? 'Unstage' : 'Stage'}</span>
             </button>
           )}
         </div>
       </div>
-    );
+    )
   },
-);
+)
 
-DiffHunkHeader.displayName = "DiffHunkHeader";
+DiffHunkHeader.displayName = 'DiffHunkHeader'
 
-export default DiffHunkHeader;
+export default DiffHunkHeader

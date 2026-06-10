@@ -64,5 +64,5 @@ export function EditorStylesheet() {
         }
       `}
     </style>
-  );
+  )
 }

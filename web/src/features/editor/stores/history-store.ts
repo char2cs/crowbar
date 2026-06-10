@@ -1,32 +1,32 @@
-import isEqual from "fast-deep-equal";
-import { immer } from "zustand/middleware/immer";
-import { createWithEqualityFn } from "zustand/traditional";
-import type { BufferHistory, HistoryEntry, HistoryState } from "@/features/editor/history/types";
-import { createSelectors } from "@/utils/zustand-selectors";
+import isEqual from 'fast-deep-equal'
+import { immer } from 'zustand/middleware/immer'
+import { createWithEqualityFn } from 'zustand/traditional'
+import type { BufferHistory, HistoryEntry, HistoryState } from '@/features/editor/history/types'
+import { createSelectors } from '@/utils/zustand-selectors'
 
 interface HistoryStoreState {
-  bufferHistories: BufferHistory;
-  actions: HistoryActions;
+  bufferHistories: BufferHistory
+  actions: HistoryActions
 }
 
 interface HistoryActions {
-  pushHistory: (bufferId: string, entry: HistoryEntry) => void;
-  undo: (bufferId: string, currentEntry?: HistoryEntry) => HistoryEntry | null;
-  redo: (bufferId: string, currentEntry?: HistoryEntry) => HistoryEntry | null;
-  canUndo: (bufferId: string) => boolean;
-  canRedo: (bufferId: string) => boolean;
-  clearHistory: (bufferId: string) => void;
-  clearAllHistories: () => void;
-  getHistoryState: (bufferId: string) => HistoryState | null;
+  pushHistory: (bufferId: string, entry: HistoryEntry) => void
+  undo: (bufferId: string, currentEntry?: HistoryEntry) => HistoryEntry | null
+  redo: (bufferId: string, currentEntry?: HistoryEntry) => HistoryEntry | null
+  canUndo: (bufferId: string) => boolean
+  canRedo: (bufferId: string) => boolean
+  clearHistory: (bufferId: string) => void
+  clearAllHistories: () => void
+  getHistoryState: (bufferId: string) => HistoryState | null
 }
 
-const DEFAULT_MAX_HISTORY_SIZE = 100;
+const DEFAULT_MAX_HISTORY_SIZE = 100
 
 const createDefaultHistoryState = (maxHistorySize = DEFAULT_MAX_HISTORY_SIZE): HistoryState => ({
   past: [],
   future: [],
   maxHistorySize,
-});
+})
 
 function cloneHistoryEntry(entry: HistoryEntry): HistoryEntry {
   return {
@@ -38,7 +38,7 @@ function cloneHistoryEntry(entry: HistoryEntry): HistoryEntry {
           end: { ...entry.selection.end },
         }
       : undefined,
-  };
+  }
 }
 
 export const useHistoryStore = createSelectors(
@@ -50,106 +50,106 @@ export const useHistoryStore = createSelectors(
         pushHistory: (bufferId: string, entry: HistoryEntry) => {
           set((state) => {
             if (!state.bufferHistories[bufferId]) {
-              state.bufferHistories[bufferId] = createDefaultHistoryState();
+              state.bufferHistories[bufferId] = createDefaultHistoryState()
             }
 
-            const history = state.bufferHistories[bufferId];
-            const lastEntry = history.past[history.past.length - 1];
+            const history = state.bufferHistories[bufferId]
+            const lastEntry = history.past[history.past.length - 1]
 
             if (lastEntry?.content === entry.content) {
-              return;
+              return
             }
 
             // Add to past
-            history.past.push(entry);
+            history.past.push(entry)
 
             // Clear future on new change
-            history.future = [];
+            history.future = []
 
             // Enforce max size
             if (history.past.length > history.maxHistorySize) {
-              history.past.shift();
+              history.past.shift()
             }
-          });
+          })
         },
 
         undo: (bufferId: string, currentEntry?: HistoryEntry) => {
-          const history = get().bufferHistories[bufferId];
+          const history = get().bufferHistories[bufferId]
           if (!history || history.past.length === 0) {
-            return null;
+            return null
           }
 
-          let entry: HistoryEntry | null = null;
+          let entry: HistoryEntry | null = null
 
           set((state) => {
-            const hist = state.bufferHistories[bufferId];
+            const hist = state.bufferHistories[bufferId]
             if (hist && hist.past.length > 0) {
-              const lastEntry = hist.past.pop();
+              const lastEntry = hist.past.pop()
               if (lastEntry) {
                 if (currentEntry) {
-                  hist.future.push(cloneHistoryEntry(currentEntry));
+                  hist.future.push(cloneHistoryEntry(currentEntry))
                 }
-                entry = cloneHistoryEntry(lastEntry);
+                entry = cloneHistoryEntry(lastEntry)
               }
             }
-          });
+          })
 
-          return entry;
+          return entry
         },
 
         redo: (bufferId: string, currentEntry?: HistoryEntry) => {
-          const history = get().bufferHistories[bufferId];
+          const history = get().bufferHistories[bufferId]
           if (!history || history.future.length === 0) {
-            return null;
+            return null
           }
 
-          let entry: HistoryEntry | null = null;
+          let entry: HistoryEntry | null = null
 
           set((state) => {
-            const hist = state.bufferHistories[bufferId];
+            const hist = state.bufferHistories[bufferId]
             if (hist && hist.future.length > 0) {
-              const nextEntry = hist.future.pop();
+              const nextEntry = hist.future.pop()
               if (nextEntry) {
                 if (currentEntry) {
-                  hist.past.push(cloneHistoryEntry(currentEntry));
+                  hist.past.push(cloneHistoryEntry(currentEntry))
                 }
-                entry = cloneHistoryEntry(nextEntry);
+                entry = cloneHistoryEntry(nextEntry)
               }
             }
-          });
+          })
 
-          return entry;
+          return entry
         },
 
         canUndo: (bufferId: string) => {
-          const history = get().bufferHistories[bufferId];
-          return history ? history.past.length > 0 : false;
+          const history = get().bufferHistories[bufferId]
+          return history ? history.past.length > 0 : false
         },
 
         canRedo: (bufferId: string) => {
-          const history = get().bufferHistories[bufferId];
-          return history ? history.future.length > 0 : false;
+          const history = get().bufferHistories[bufferId]
+          return history ? history.future.length > 0 : false
         },
 
         clearHistory: (bufferId: string) => {
           set((state) => {
             if (state.bufferHistories[bufferId]) {
-              state.bufferHistories[bufferId] = createDefaultHistoryState();
+              state.bufferHistories[bufferId] = createDefaultHistoryState()
             }
-          });
+          })
         },
 
         clearAllHistories: () => {
           set((state) => {
-            state.bufferHistories = {};
-          });
+            state.bufferHistories = {}
+          })
         },
 
         getHistoryState: (bufferId: string) => {
-          return get().bufferHistories[bufferId] || null;
+          return get().bufferHistories[bufferId] || null
         },
       },
     })),
     isEqual,
   ),
-);
+)

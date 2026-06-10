@@ -160,7 +160,7 @@ func (s *WebSocketSuite) TestWS_ChatsFilter_WsID() {
 	})
 	kit.RequireStatus(t, resp, http.StatusCreated)
 	var chatObj map[string]any
-	kit.DecodeJSON(t, resp, &chatObj)
+	kit.DecodeEnvData(t, resp, &chatObj)
 	chatID := chatObj["id"].(string)
 
 	msg := kit.WaitForChat(
@@ -281,7 +281,7 @@ func (s *WebSocketSuite) TestWS_GitTopic_StatusBroadcast() {
 	// Dirty the worktree and stage the new file.
 	kit.WriteRepoFile(t, repoPath, "new.txt", "new content\n")
 	resp = s.env.POST(t, "/v0/workspaces/"+wsID+"/git/stage", map[string]any{
-		"path": "new.txt",
+		"paths": []string{"new.txt"},
 	})
 	kit.RequireStatus(t, resp, http.StatusOK)
 	resp.Body.Close()

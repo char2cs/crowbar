@@ -143,17 +143,17 @@ func TestGitWriteHandlers_Errors(
 	r := newRouterWith(errGit{})
 
 	assert.Equal(t, http.StatusInternalServerError, do(r, http.MethodPost, ws+"/stage",
-		map[string]any{"path": "a.go"}).Code)
+		map[string]any{"paths": []string{"a.go"}}).Code)
 	assert.Equal(t, http.StatusInternalServerError, do(r, http.MethodPost, ws+"/stage-hunk",
 		map[string]any{"path": "a.go", "hunkId": "h1"}).Code)
 	assert.Equal(t, http.StatusInternalServerError, do(r, http.MethodPost, ws+"/unstage",
-		map[string]any{"path": "a.go"}).Code)
+		map[string]any{"paths": []string{"a.go"}}).Code)
 	assert.Equal(t, http.StatusInternalServerError, do(r, http.MethodPost, ws+"/unstage-hunk",
 		map[string]any{"path": "a.go", "hunkId": "h1"}).Code)
 	assert.Equal(t, http.StatusInternalServerError, do(r, http.MethodPost, ws+"/discard",
-		map[string]any{"path": "a.go"}).Code)
+		map[string]any{"paths": []string{"a.go"}}).Code)
 	assert.Equal(t, http.StatusInternalServerError, do(r, http.MethodPost, ws+"/commit",
-		map[string]any{"message": "feat: x"}).Code)
+		map[string]any{"subject": "feat: x"}).Code)
 	assert.Equal(t, http.StatusInternalServerError, do(r, http.MethodPost, ws+"/push", nil).Code)
 	assert.Equal(t, http.StatusInternalServerError, do(r, http.MethodPost, ws+"/fetch", nil).Code)
 	assert.Equal(t, http.StatusInternalServerError, do(r, http.MethodPost, ws+"/pull", nil).Code)

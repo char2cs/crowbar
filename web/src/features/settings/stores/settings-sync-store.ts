@@ -1,29 +1,29 @@
-import { create } from "zustand";
+import { create } from 'zustand'
 
-export type SettingsSyncSource = "cloud" | "local";
-export type SettingsSyncStatus = "disabled" | "idle" | "syncing" | "synced" | "error";
+export type SettingsSyncSource = 'cloud' | 'local'
+export type SettingsSyncStatus = 'disabled' | 'idle' | 'syncing' | 'synced' | 'error'
 
 interface SettingsSyncState {
-  enabled: boolean;
-  isHydrated: boolean;
-  isSyncing: boolean;
-  status: SettingsSyncStatus;
-  lastSyncedAt: string | null;
-  lastSyncSource: SettingsSyncSource | null;
-  error: string | null;
+  enabled: boolean
+  isHydrated: boolean
+  isSyncing: boolean
+  status: SettingsSyncStatus
+  lastSyncedAt: string | null
+  lastSyncSource: SettingsSyncSource | null
+  error: string | null
 }
 
 interface SettingsSyncActions {
   hydrate: (state: {
-    enabled: boolean;
-    lastSyncedAt: string | null;
-    lastSyncSource: SettingsSyncSource | null;
-  }) => void;
-  setEnabled: (enabled: boolean) => void;
-  startSync: () => void;
-  finishSync: (params: { updatedAt: string; source: SettingsSyncSource }) => void;
-  clearSyncState: () => void;
-  setError: (message: string) => void;
+    enabled: boolean
+    lastSyncedAt: string | null
+    lastSyncSource: SettingsSyncSource | null
+  }) => void
+  setEnabled: (enabled: boolean) => void
+  startSync: () => void
+  finishSync: (params: { updatedAt: string; source: SettingsSyncSource }) => void
+  clearSyncState: () => void
+  setError: (message: string) => void
 }
 
 export const useSettingsSyncStore = create<SettingsSyncState & { actions: SettingsSyncActions }>(
@@ -31,7 +31,7 @@ export const useSettingsSyncStore = create<SettingsSyncState & { actions: Settin
     enabled: false,
     isHydrated: false,
     isSyncing: false,
-    status: "disabled",
+    status: 'disabled',
     lastSyncedAt: null,
     lastSyncSource: null,
     error: null,
@@ -41,7 +41,7 @@ export const useSettingsSyncStore = create<SettingsSyncState & { actions: Settin
           enabled,
           isHydrated: true,
           isSyncing: false,
-          status: enabled ? "idle" : "disabled",
+          status: enabled ? 'idle' : 'disabled',
           lastSyncedAt,
           lastSyncSource,
           error: null,
@@ -49,19 +49,19 @@ export const useSettingsSyncStore = create<SettingsSyncState & { actions: Settin
       setEnabled: (enabled) =>
         set((state) => ({
           enabled,
-          status: enabled ? (state.lastSyncedAt ? "synced" : "idle") : "disabled",
+          status: enabled ? (state.lastSyncedAt ? 'synced' : 'idle') : 'disabled',
           error: null,
         })),
       startSync: () =>
         set({
           isSyncing: true,
-          status: "syncing",
+          status: 'syncing',
           error: null,
         }),
       finishSync: ({ updatedAt, source }) =>
         set({
           isSyncing: false,
-          status: "synced",
+          status: 'synced',
           lastSyncedAt: updatedAt,
           lastSyncSource: source,
           error: null,
@@ -69,15 +69,15 @@ export const useSettingsSyncStore = create<SettingsSyncState & { actions: Settin
       clearSyncState: () =>
         set((state) => ({
           isSyncing: false,
-          status: state.enabled ? "idle" : "disabled",
+          status: state.enabled ? 'idle' : 'disabled',
           error: null,
         })),
       setError: (message) =>
         set({
           isSyncing: false,
-          status: "error",
+          status: 'error',
           error: message,
         }),
     },
   }),
-);
+)

@@ -32,14 +32,14 @@ func TestFileHandlers_ErrorPaths(
 ) {
 	r := newRouter(errFiles{err: errors.New("boom")})
 
-	assert.Equal(t, http.StatusInternalServerError, do(r, http.MethodGet, "/v0/workspaces/ws1/files", nil).Code)
+	assert.Equal(t, http.StatusInternalServerError, do(r, http.MethodGet, "/v0/workspaces/ws1/files/tree", nil).Code)
 	assert.Equal(t, http.StatusInternalServerError, do(r, http.MethodGet, "/v0/workspaces/ws1/files/content?path=a.go", nil).Code)
 	assert.Equal(t, http.StatusInternalServerError, do(r, http.MethodPut, "/v0/workspaces/ws1/files/content",
 		map[string]any{"path": "a.go", "content": "hi"}).Code)
 	assert.Equal(t, http.StatusInternalServerError, do(r, http.MethodPost, "/v0/workspaces/ws1/files",
 		map[string]any{"path": "new.go", "type": "file"}).Code)
 	assert.Equal(t, http.StatusInternalServerError, do(r, http.MethodPatch, "/v0/workspaces/ws1/files",
-		map[string]any{"from": "a.go", "to": "b.go"}).Code)
+		map[string]any{"path": "a.go", "newPath": "b.go"}).Code)
 	assert.Equal(t, http.StatusInternalServerError, do(r, http.MethodDelete, "/v0/workspaces/ws1/files?path=a.go", nil).Code)
 }
 

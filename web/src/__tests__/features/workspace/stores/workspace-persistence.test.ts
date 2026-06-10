@@ -1,5 +1,8 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest'
-import { saveToLocalStorage, loadFromLocalStorage } from '@/features/workspace/stores/workspace-persistence'
+import {
+  saveToLocalStorage,
+  loadFromLocalStorage,
+} from '@/features/workspace/stores/workspace-persistence'
 
 describe('workspace-persistence', () => {
   beforeEach(() => {

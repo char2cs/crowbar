@@ -67,7 +67,12 @@ describe('browserPane functions (Tauri env)', () => {
 
   it('browserPaneSync calls invoke with flattened rect args and optional initialUrl', async () => {
     const { browserPaneSync } = await import('@/lib/crowbar-bridge')
-    await browserPaneSync('buf-1', { x: 10, y: 20, width: 800, height: 600 }, true, 'https://example.com')
+    await browserPaneSync(
+      'buf-1',
+      { x: 10, y: 20, width: 800, height: 600 },
+      true,
+      'https://example.com',
+    )
     expect(invokeMock).toHaveBeenCalledWith('browser_pane_sync', {
       bufferId: 'buf-1',
       x: 10,

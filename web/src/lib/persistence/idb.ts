@@ -34,8 +34,12 @@ export async function getDB(): Promise<IDBPDatabase<CrowbarDB>> {
           ;(db as unknown as IDBDatabase).deleteObjectStore('query-cache')
         }
         for (const name of [
-          'workspaces-data', 'git-data', 'file-tree-data',
-          'branch-review-data', 'chat-history', 'projects-data',
+          'workspaces-data',
+          'git-data',
+          'file-tree-data',
+          'branch-review-data',
+          'chat-history',
+          'projects-data',
         ] as const) {
           db.createObjectStore(name, { keyPath: 'key' })
         }

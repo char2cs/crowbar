@@ -1,119 +1,113 @@
-import { Archive, Clock, Download, Plus, Trash as Trash2, Upload, X } from "@phosphor-icons/react";
-import { useEffect, useState } from "react";
-import { Button } from "@/components/ui/button";
-import { Checkbox } from "@/components/ui/checkbox";
-import { Input } from "@/components/ui/input";
-import { LoadingSpinner } from "@/components/ui/loading-spinner";
-import { cn } from "@/utils/cn";
-import { formatRelativeDate } from "@/utils/date";
-import { applyStash, createStash, dropStash, getStashes, popStash } from "../../api/git-stash-api";
-import type { GitStash } from "../../types/git-types";
+import { Archive, Clock, Download, Plus, Trash as Trash2, Upload, X } from '@phosphor-icons/react'
+import { useEffect, useState } from 'react'
+import { Button } from '@/components/ui/button'
+import { Checkbox } from '@/components/ui/checkbox'
+import { Input } from '@/components/ui/input'
+import { LoadingSpinner } from '@/components/ui/loading-spinner'
+import { cn } from '@/utils/cn'
+import { formatRelativeDate } from '@/utils/date'
+import { applyStash, createStash, dropStash, getStashes, popStash } from '../../api/git-stash-api'
+import type { GitStash } from '../../types/git-types'
 
 interface GitStashManagerProps {
-  isOpen: boolean;
-  onClose: () => void;
-  repoPath?: string;
-  onRefresh?: () => void;
+  isOpen: boolean
+  onClose: () => void
+  repoPath?: string
+  onRefresh?: () => void
 }
 
 const GitStashManager = ({ isOpen, onClose, repoPath, onRefresh }: GitStashManagerProps) => {
-  const [stashes, setStashes] = useState<GitStash[]>([]);
-  const [isLoading, setIsLoading] = useState(false);
-  const [newStashMessage, setNewStashMessage] = useState("");
-  const [includeUntracked, setIncludeUntracked] = useState(false);
-  const [actionLoading, setActionLoading] = useState<Set<number>>(new Set());
+  const [stashes, setStashes] = useState<GitStash[]>([])
+  const [isLoading, setIsLoading] = useState(false)
+  const [newStashMessage, setNewStashMessage] = useState('')
+  const [includeUntracked, setIncludeUntracked] = useState(false)
+  const [actionLoading, setActionLoading] = useState<Set<number>>(new Set())
 
   useEffect(() => {
     if (isOpen) {
-      loadStashes();
+      loadStashes()
     }
-  }, [isOpen, repoPath]);
+  }, [isOpen, repoPath])
 
   const loadStashes = async () => {
-    if (!repoPath) return;
+    if (!repoPath) return
 
-    setIsLoading(true);
+    setIsLoading(true)
     try {
-      const stashList = await getStashes(repoPath);
-      setStashes(stashList);
+      const stashList = await getStashes(repoPath)
+      setStashes(stashList)
     } catch (error) {
-      console.error("Failed to load stashes:", error);
+      console.error('Failed to load stashes:', error)
     } finally {
-      setIsLoading(false);
+      setIsLoading(false)
     }
-  };
+  }
 
   const handleCreateStash = async () => {
-    if (!repoPath) return;
+    if (!repoPath) return
 
-    setIsLoading(true);
+    setIsLoading(true)
     try {
-      const success = await createStash(
-        repoPath,
-        newStashMessage.trim() || undefined,
-      );
+      const success = await createStash(repoPath, newStashMessage.trim() || undefined)
       if (success) {
-        setNewStashMessage("");
-        await loadStashes();
-        onRefresh?.();
+        setNewStashMessage('')
+        await loadStashes()
+        onRefresh?.()
       }
     } catch (error) {
-      console.error("Failed to create stash:", error);
+      console.error('Failed to create stash:', error)
     } finally {
-      setIsLoading(false);
+      setIsLoading(false)
     }
-  };
+  }
 
   const handleStashAction = async (
     action: () => Promise<boolean>,
     stashIndex: number,
     actionName: string,
   ) => {
-    if (!repoPath) return;
+    if (!repoPath) return
 
-    setActionLoading((prev) => new Set(prev).add(stashIndex));
+    setActionLoading((prev) => new Set(prev).add(stashIndex))
     try {
-      const success = await action();
+      const success = await action()
       if (success) {
-        await loadStashes();
-        onRefresh?.();
+        await loadStashes()
+        onRefresh?.()
       } else {
-        console.error(`${actionName} failed`);
+        console.error(`${actionName} failed`)
       }
     } catch (error) {
-      console.error(`${actionName} error:`, error);
+      console.error(`${actionName} error:`, error)
     } finally {
       setActionLoading((prev) => {
-        const newSet = new Set(prev);
-        newSet.delete(stashIndex);
-        return newSet;
-      });
+        const newSet = new Set(prev)
+        newSet.delete(stashIndex)
+        return newSet
+      })
     }
-  };
+  }
 
   const handleApplyStash = (stashIndex: number) => {
-    handleStashAction(() => applyStash(repoPath!, stashIndex), stashIndex, "Apply stash");
-  };
+    handleStashAction(() => applyStash(repoPath!, stashIndex), stashIndex, 'Apply stash')
+  }
 
   const handlePopStash = (stashIndex: number) => {
-    handleStashAction(() => popStash(repoPath!, stashIndex), stashIndex, "Pop stash");
-  };
+    handleStashAction(() => popStash(repoPath!, stashIndex), stashIndex, 'Pop stash')
+  }
 
   const handleDropStash = (stashIndex: number) => {
-    handleStashAction(() => dropStash(repoPath!, stashIndex), stashIndex, "Drop stash");
-  };
+    handleStashAction(() => dropStash(repoPath!, stashIndex), stashIndex, 'Drop stash')
+  }
 
   if (!isOpen) {
-    return null;
+    return null
   }
 
   return (
-    <div className={cn("fixed inset-0 z-50 flex items-center justify-center", "bg-opacity-50")}>
+    <div className={cn('fixed inset-0 z-50 flex items-center justify-center', 'bg-opacity-50')}>
       <div
-        className={cn(
-          "flex max-h-[80vh] w-96 flex-col rounded-lg",
-          "border border-border bg-card",
-        )}
+        className={cn('flex max-h-[80vh] w-96 flex-col rounded-lg', 'border border-border bg-card')}
       >
         <div className="flex items-center justify-between border-border border-b p-4">
           <div className="flex items-center gap-2">
@@ -137,10 +131,10 @@ const GitStashManager = ({ isOpen, onClose, repoPath, onRefresh }: GitStashManag
               placeholder="Stash message (optional)..."
               value={newStashMessage}
               onChange={(e) => setNewStashMessage(e.target.value)}
-              className={cn("w-full bg-background")}
+              className={cn('w-full bg-background')}
               onKeyDown={(e) => {
-                if (e.key === "Enter") {
-                  handleCreateStash();
+                if (e.key === 'Enter') {
+                  handleCreateStash()
                 }
               }}
             />
@@ -166,7 +160,7 @@ const GitStashManager = ({ isOpen, onClose, repoPath, onRefresh }: GitStashManag
               className="w-full"
               compact
             >
-              {isLoading ? "Creating..." : "Create Stash"}
+              {isLoading ? 'Creating...' : 'Create Stash'}
             </Button>
           </div>
         </div>
@@ -181,12 +175,12 @@ const GitStashManager = ({ isOpen, onClose, repoPath, onRefresh }: GitStashManag
           ) : (
             <div className="space-y-0">
               {stashes.map((stash) => {
-                const isActionLoading = actionLoading.has(stash.index);
+                const isActionLoading = actionLoading.has(stash.index)
 
                 return (
                   <div
                     key={stash.index}
-                    className={cn("border-border border-b p-3", "last:border-b-0 hover:bg-muted")}
+                    className={cn('border-border border-b p-3', 'last:border-b-0 hover:bg-muted')}
                   >
                     <div className="mb-2 flex items-start justify-between">
                       <div className="min-w-0 flex-1">
@@ -197,7 +191,7 @@ const GitStashManager = ({ isOpen, onClose, repoPath, onRefresh }: GitStashManag
                         </div>
 
                         <div className="mb-1 text-foreground ui-text-xs">
-                          {stash.message || "Stashed changes"}
+                          {stash.message || 'Stashed changes'}
                         </div>
 
                         <div className="flex items-center gap-1 ui-text-xs text-muted-foreground">
@@ -245,20 +239,23 @@ const GitStashManager = ({ isOpen, onClose, repoPath, onRefresh }: GitStashManag
                       </Button>
                     </div>
                   </div>
-                );
+                )
               })}
             </div>
           )}
         </div>
 
         <div
-          className={cn("border-border border-t bg-background p-3", "ui-text-xs text-muted-foreground")}
+          className={cn(
+            'border-border border-t bg-background p-3',
+            'ui-text-xs text-muted-foreground',
+          )}
         >
-          {stashes.length} stash{stashes.length !== 1 ? "es" : ""} total
+          {stashes.length} stash{stashes.length !== 1 ? 'es' : ''} total
         </div>
       </div>
     </div>
-  );
-};
+  )
+}
 
-export default GitStashManager;
+export default GitStashManager

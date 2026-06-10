@@ -1,5 +1,8 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
-import { useUIState, _resetTerminalFocusRegistryForTests } from '@/features/window/stores/ui-state-store'
+import {
+  useUIState,
+  _resetTerminalFocusRegistryForTests,
+} from '@/features/window/stores/ui-state-store'
 
 describe('ui-state-store focus registry', () => {
   beforeEach(() => {

@@ -37,6 +37,16 @@ describe('buildRepoTree', () => {
     expect(tree[1].workspaces.map((w) => w.id)).toEqual(['w3'])
   })
 
+  it('carries parentId through so the sidebar can nest children', () => {
+    const tree = buildRepoTree(
+      [repo('r1', 'alpha')],
+      [ws('w1', 'r1'), ws('w2', 'r1', { parentId: 'w1' })],
+    )
+    const [parent, child] = tree[0].workspaces
+    expect(parent.parentId).toBeUndefined()
+    expect(child.parentId).toBe('w1')
+  })
+
   it('gives a repo with no workspaces an empty array (no crash in the sidebar)', () => {
     const tree = buildRepoTree([repo('r1', 'alpha')], [])
     expect(tree[0].workspaces).toEqual([])

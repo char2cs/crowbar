@@ -8,18 +8,13 @@ interface StashDTO {
   filesChanged: number
 }
 
-function base(
-  wsId: string,
-): string {
+function base(wsId: string): string {
   return `/v0/workspaces/${encodeURIComponent(wsId)}/git`
 }
 
 // Resolve a positional stash index to the backend's stash id, which the
 // restore/drop routes key on.
-async function stashIdAt(
-  wsId: string,
-  index: number,
-): Promise<string | null> {
+async function stashIdAt(wsId: string, index: number): Promise<string | null> {
   try {
     const stashes = await apiFetch<StashDTO[]>(`${base(wsId)}/stashes`)
     return stashes[index]?.id ?? null

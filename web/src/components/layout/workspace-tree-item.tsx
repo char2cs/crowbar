@@ -15,19 +15,31 @@ interface WorkspaceTreeItemProps {
 }
 
 export function WorkspaceTreeItem({
-  node, depth, repoId, activeWorkspaceId, onWorkspaceClick,
+  node,
+  depth,
+  repoId,
+  activeWorkspaceId,
+  onWorkspaceClick,
 }: WorkspaceTreeItemProps) {
   const { workspace, children } = node
   const isActive = workspace.id === activeWorkspaceId
   const isLocked = workspace.status === 'locked'
   const hasChildren = children.length > 0
-  const isCollapsed = useSidebarStore(s => s.collapsedWorkspaces.has(workspace.id))
+  const isCollapsed = useSidebarStore((s) => s.collapsedWorkspaces.has(workspace.id))
   const expanded = !isCollapsed
 
   const {
-    creatingChildOf, startCreating, confirmCreate, cancelCreate,
-    renamingId, startRenaming, confirmRename, cancelRename,
-    draggingWs, hoverTargetId, onPointerDownDrag,
+    creatingChildOf,
+    startCreating,
+    confirmCreate,
+    cancelCreate,
+    renamingId,
+    startRenaming,
+    confirmRename,
+    cancelRename,
+    draggingWs,
+    hoverTargetId,
+    onPointerDownDrag,
   } = useWorkspaceTreeContext()
 
   const isCreatingChild = creatingChildOf?.parentId === workspace.id
@@ -62,7 +74,11 @@ export function WorkspaceTreeItem({
               onWorkspaceClick(workspace.id)
             }
           }}
-          onPointerDown={!isRenaming && !isLocked ? (e) => onPointerDownDrag(workspace.id, repoId, workspace.branch, e) : undefined}
+          onPointerDown={
+            !isRenaming && !isLocked
+              ? (e) => onPointerDownDrag(workspace.id, repoId, workspace.branch, e)
+              : undefined
+          }
         >
           <WorkspaceBranchIcon status={workspace.status ?? 'new'} />
 
@@ -75,39 +91,58 @@ export function WorkspaceTreeItem({
           ) : (
             <span
               className="min-w-0 flex-1 truncate font-mono text-left"
-              onDoubleClick={(e) => { if (isLocked) return; e.stopPropagation(); startRenaming(workspace.id) }}
+              onDoubleClick={(e) => {
+                if (isLocked) return
+                e.stopPropagation()
+                startRenaming(workspace.id)
+              }}
             >
               {workspace.branch}
             </span>
           )}
 
-          {isActive && !isRenaming && (workspace.added !== undefined || workspace.deleted !== undefined) && (
-            <span className="flex shrink-0 gap-1 font-mono">
-              {workspace.added !== undefined && workspace.added > 0 && (
-                <span className="text-green-300">
-                  +{workspace.added > 999 ? `${Math.round(workspace.added / 1000)}k` : workspace.added}
-                </span>
-              )}
-              {workspace.deleted !== undefined && workspace.deleted > 0 && (
-                <span className="text-red-300">
-                  -{workspace.deleted > 999 ? `${Math.round(workspace.deleted / 1000)}k` : workspace.deleted}
-                </span>
-              )}
-            </span>
-          )}
+          {isActive &&
+            !isRenaming &&
+            (workspace.added !== undefined || workspace.deleted !== undefined) && (
+              <span className="flex shrink-0 gap-1 font-mono">
+                {workspace.added !== undefined && workspace.added > 0 && (
+                  <span className="text-green-300">
+                    +
+                    {workspace.added > 999
+                      ? `${Math.round(workspace.added / 1000)}k`
+                      : workspace.added}
+                  </span>
+                )}
+                {workspace.deleted !== undefined && workspace.deleted > 0 && (
+                  <span className="text-red-300">
+                    -
+                    {workspace.deleted > 999
+                      ? `${Math.round(workspace.deleted / 1000)}k`
+                      : workspace.deleted}
+                  </span>
+                )}
+              </span>
+            )}
 
           {hasChildren ? (
             <button
               type="button"
               className="shrink-0 rounded-md p-1 text-foreground/30 hover:text-foreground/60 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
-              onClick={(e) => { e.stopPropagation(); useSidebarStore.getState().toggleWorkspace(workspace.id) }}
+              onClick={(e) => {
+                e.stopPropagation()
+                useSidebarStore.getState().toggleWorkspace(workspace.id)
+              }}
               onPointerDown={(e) => e.stopPropagation()}
               aria-label={expanded ? 'Collapse' : 'Expand'}
             >
               <svg
                 aria-hidden="true"
                 className={cn('size-3 transition-transform', expanded && 'rotate-90')}
-                viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"
+                viewBox="0 0 16 16"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="2"
+                strokeLinecap="round"
               >
                 <path d="M6 3l5 5-5 5" />
               </svg>
@@ -124,7 +159,15 @@ export function WorkspaceTreeItem({
               onPointerDown={(e) => e.stopPropagation()}
               aria-label="Add child workspace"
             >
-              <svg aria-hidden="true" className="size-3" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round">
+              <svg
+                aria-hidden="true"
+                className="size-3"
+                viewBox="0 0 16 16"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="2"
+                strokeLinecap="round"
+              >
                 <path d="M8 3v10M3 8h10" />
               </svg>
             </button>
@@ -134,33 +177,43 @@ export function WorkspaceTreeItem({
 
       {showChildrenSection && (
         <div>
-          {hasChildren && expanded && children.map(child => (
-            <WorkspaceTreeItem
-              key={child.workspace.id}
-              node={child}
-              depth={depth + 1}
-              repoId={repoId}
-              activeWorkspaceId={activeWorkspaceId}
-              onWorkspaceClick={onWorkspaceClick}
-            />
-          ))}
+          {hasChildren &&
+            expanded &&
+            children.map((child) => (
+              <WorkspaceTreeItem
+                key={child.workspace.id}
+                node={child}
+                depth={depth + 1}
+                repoId={repoId}
+                activeWorkspaceId={activeWorkspaceId}
+                onWorkspaceClick={onWorkspaceClick}
+              />
+            ))}
 
           <div style={{ paddingLeft: (depth + 2) * 14 }}>
             {isCreatingChild ? (
               <div className={cn(ROW_BASE, 'border-transparent text-foreground')}>
-                <svg aria-hidden="true" className="size-4 shrink-0 text-foreground/30" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round">
+                <svg
+                  aria-hidden="true"
+                  className="size-4 shrink-0 text-foreground/30"
+                  viewBox="0 0 16 16"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth="2"
+                  strokeLinecap="round"
+                >
                   <path d="M8 3v10M3 8h10" />
                 </svg>
-                <WorkspaceInlineInput
-                  onConfirm={confirmCreate}
-                  onCancel={cancelCreate}
-                />
+                <WorkspaceInlineInput onConfirm={confirmCreate} onCancel={cancelCreate} />
               </div>
             ) : (
               <div
                 role="button"
                 tabIndex={0}
-                className={cn(ROW_BASE, 'border-transparent text-muted-foreground/40 hover:bg-accent hover:text-muted-foreground/60')}
+                className={cn(
+                  ROW_BASE,
+                  'border-transparent text-muted-foreground/40 hover:bg-accent hover:text-muted-foreground/60',
+                )}
                 onClick={() => startCreating(repoId, workspace.id)}
                 onKeyDown={(e) => {
                   if (e.key === 'Enter' || e.key === ' ') {
@@ -169,7 +222,15 @@ export function WorkspaceTreeItem({
                   }
                 }}
               >
-                <svg aria-hidden="true" className="size-4 shrink-0" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round">
+                <svg
+                  aria-hidden="true"
+                  className="size-4 shrink-0"
+                  viewBox="0 0 16 16"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth="2"
+                  strokeLinecap="round"
+                >
                   <path d="M8 3v10M3 8h10" />
                 </svg>
                 <span className="font-mono text-left text-[13px]">New</span>
