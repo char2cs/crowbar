@@ -38,6 +38,15 @@ test('finalizeStreamingTurn clears streaming flag', () => {
   expect(store.getState().turns[0].streaming).toBe(false)
 })
 
+test('setTurnError stops streaming and attaches the error message', () => {
+  const store = getOrCreateConversationStore('ws1')
+  store.getState().appendTurn({ ...TURN, id: 'a1', role: 'agent', streaming: true, content: '' })
+  store.getState().setTurnError('a1', 'Agent run failed to start: boom')
+  const turn = store.getState().turns[0]
+  expect(turn.streaming).toBe(false)
+  expect(turn.error).toBe('Agent run failed to start: boom')
+})
+
 test('updateWidgetPayload updates widget in turn', () => {
   const store = getOrCreateConversationStore('ws1')
   store.getState().appendTurn({

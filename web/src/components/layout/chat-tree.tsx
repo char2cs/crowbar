@@ -106,7 +106,11 @@ function ChatTreeInner({ wsId }: ChatTreeProps) {
       toast.error('Open a workspace to create a chat')
       return
     }
-    void performCreateChat(wsId, 'New chat')
+    // Creating a chat also opens its tab — same path as clicking the row
+    // (the created chat is already in the sidebar store by then).
+    void performCreateChat(wsId, 'New chat').then((chat) => {
+      if (chat) handleChatClick(chat.id)
+    })
   }
 
   return (

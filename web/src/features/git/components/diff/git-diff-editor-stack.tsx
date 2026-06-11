@@ -537,7 +537,6 @@ const GitDiffEditorStack = memo(function GitDiffEditorStack({
       ),
     }))
   }
-  const closeBuffer = (id: string) => workspaceStore.getState().bufferActions.closeBuffer(id)
   const rootFolderPath = useFileSystemStore((state) => state.rootFolderPath)
   const [viewMode, setViewMode] = useState<'unified' | 'split'>('unified')
   const [showWhitespace, setShowWhitespace] = useState(false)
@@ -612,18 +611,14 @@ const GitDiffEditorStack = memo(function GitDiffEditorStack({
         previousFileKeys: multiDiff.fileKeys,
       })
 
-      if (nextMultiDiff.files.length === 0) {
-        closeBuffer(activeBuffer.id)
-        return
-      }
-
+      // A clean tree keeps the tab open with an explicit empty state — the
+      // committed hunks must never linger after the working tree is clean.
       updateBufferContent(activeBuffer.id, '', false, nextMultiDiff)
     } finally {
       isRefreshingRef.current = false
     }
   }, [
     activeBuffer,
-    closeBuffer,
     isWorkingTree,
     isWorkingTreeBuffer,
     multiDiff.fileKeys,
@@ -788,6 +783,11 @@ const GitDiffEditorStack = memo(function GitDiffEditorStack({
         style={{ overflowAnchor: 'none' }}
         data-diff-stack-scroll-container
       >
+        {isWorkingTree && multiDiff.files.length === 0 && !multiDiff.isLoading ? (
+          <div className="flex h-full items-center justify-center text-[13px] text-muted-foreground">
+            No uncommitted changes
+          </div>
+        ) : null}
         <div className="flex min-w-0 max-w-full flex-col gap-2 rounded-md">
           {multiDiff.files.map((diff, index) => {
             const sectionKey = multiDiff.fileKeys?.[index] ?? `${diff.file_path}:${index}`

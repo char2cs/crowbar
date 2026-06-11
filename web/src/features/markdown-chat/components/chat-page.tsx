@@ -5,5 +5,5 @@ interface ChatPageProps {
 }
 
 export function ChatPage({ chatId }: ChatPageProps) {
-  return <MarkdownChatView workspaceId={chatId} stepId="chat" />
+  return <MarkdownChatView chatId={chatId} />
 }

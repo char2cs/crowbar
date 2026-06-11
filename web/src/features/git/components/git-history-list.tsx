@@ -1,7 +1,10 @@
 import { ScrollArea } from '@/components/ui/scroll-area'
+import { useFileSystemStore } from '@/features/file-system/controllers/store'
 import { useGitStore } from '@/features/git/stores/git-store'
+import { getActiveWorkspaceId } from '@/features/workspace/stores/workspace-store-registry'
 import { dataOf } from '@/lib/loadable'
 import { formatRelativeTime } from '@/utils/date'
+import { useGitDiffHandlers } from '../hooks/use-git-diff-handlers'
 
 // commitDateLabel renders the backend's ISO commit date as a relative time
 // ("2 hours ago"); an unparseable date falls back to the raw string.
@@ -28,6 +31,19 @@ export function GitHistoryList() {
   const isLoadingMore = useGitStore((s) => s.isLoadingMoreCommits)
 
   const isLoading = gitData.status === 'idle' || (gitData.status === 'loading' && !dataOf(gitData))
+
+  const wsId = getActiveWorkspaceId() ?? ''
+  // Reuse the same diff-tab plumbing the Changes panel uses — a commit row
+  // click opens the commit's multi-file diff tab.
+  const { handleViewCommitDiff } = useGitDiffHandlers({
+    activeRepoPath: wsId || null,
+    visibleGitFiles: [],
+    onFileSelect: (path, isDir) => {
+      if (isDir) return
+      const rel = wsId && path.startsWith(`${wsId}/`) ? path.slice(wsId.length + 1) : path
+      void useFileSystemStore.getState().handleFileOpen?.(rel, false)
+    },
+  })
 
   if (isLoading) {
     return (
@@ -61,7 +77,17 @@ export function GitHistoryList() {
         {commits.map((commit) => (
           <div
             key={commit.hash}
+            role="button"
+            tabIndex={0}
+            aria-label={`View diff for commit ${commit.hash.slice(0, 7)}`}
             className="flex items-start gap-2 mx-1.5 my-0.5 px-2 py-1.5 hover:bg-accent rounded-md cursor-pointer"
+            onClick={() => void handleViewCommitDiff(commit.hash)}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter' || e.key === ' ') {
+                e.preventDefault()
+                void handleViewCommitDiff(commit.hash)
+              }
+            }}
           >
             <span className="mt-0.5 shrink-0 font-mono text-[11px] text-muted-foreground">
               {commit.hash.slice(0, 7)}

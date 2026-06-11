@@ -82,50 +82,57 @@ vi.mock('@codemirror/view', async (importOriginal) => {
   return { ...mod, EditorView: MockEditorView }
 })
 
-// After mocking EditorView, import the component under test
+// After mocking EditorView, import the components under test
 const { MarkdownChatView } = await import('@/features/markdown-chat/components/markdown-chat-view')
+const { MarkdownHistory } =
+  await import('@/features/markdown-chat/components/markdown/markdown-history')
 
-const WS_ID = 'ws-smoke-test'
-const STEP_ID = 'brainstorm'
+const CHAT_ID = 'chat-smoke-test'
 
 beforeEach(() => {
-  destroyConversationStore(WS_ID)
+  destroyConversationStore(CHAT_ID)
 })
 
 afterEach(() => {
-  destroyConversationStore(WS_ID)
+  destroyConversationStore(CHAT_ID)
 })
 
 test('renders without crashing', async () => {
-  const { container } = render(<MarkdownChatView workspaceId={WS_ID} stepId={STEP_ID} />)
-  // Either the loading state or the editor mounted
+  const { container } = render(<MarkdownChatView chatId={CHAT_ID} />)
   await waitFor(() => {
-    const hasEditor = container.querySelector('.cm-editor') !== null
-    const hasLoading = screen.queryByText('Loading conversation…') !== null
-    expect(hasEditor || hasLoading).toBe(true)
+    expect(container.querySelector('.cm-editor')).not.toBeNull()
   })
 })
 
-test('starts empty (no pre-generated greeting) for an unknown workspace', async () => {
-  const { container } = render(<MarkdownChatView workspaceId={WS_ID} stepId={STEP_ID} />)
+test('starts empty (no pre-generated greeting, no history fetch) for a fresh chat', async () => {
+  const { container } = render(<MarkdownChatView chatId={CHAT_ID} />)
   // The editable input mounts and fills the canvas...
   await waitFor(() => {
     expect(container.querySelector('.cm-editor')).not.toBeNull()
   })
   // ...with no seeded turns.
-  const { turns } = getOrCreateConversationStore(WS_ID).getState()
+  const { turns } = getOrCreateConversationStore(CHAT_ID).getState()
   expect(turns.length).toBe(0)
 })
 
-test('seeds mock turns for ws3 brainstorm step', async () => {
-  destroyConversationStore('ws3')
-  render(<MarkdownChatView workspaceId="ws3" stepId="brainstorm" />)
-  await waitFor(() => {
-    const store = getOrCreateConversationStore('ws3')
-    const { turns } = store.getState()
-    expect(turns.length).toBeGreaterThan(0)
-    // First turn is user turn from mock data
-    expect(turns[0].role).toBe('user')
-  })
-  destroyConversationStore('ws3')
+test('a failed agent turn renders an inline error alert (BUG-022)', () => {
+  render(
+    <MarkdownHistory
+      turns={[
+        {
+          id: 'a1',
+          role: 'agent',
+          content: '',
+          timestamp: '2026-06-10T00:00:00Z',
+          authorName: 'Claude',
+          widgets: [],
+          streaming: false,
+          error: 'Agent run failed to start: provider unavailable',
+        },
+      ]}
+    />,
+  )
+  expect(screen.getByRole('alert').textContent).toContain(
+    'Agent run failed to start: provider unavailable',
+  )
 })

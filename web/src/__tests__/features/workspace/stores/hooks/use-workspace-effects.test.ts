@@ -68,15 +68,15 @@ describe('useWorkspaceEffects', () => {
     vi.useFakeTimers()
     try {
       const { useGitStore } = await import('@/features/git/stores/git-store')
-      const reloadStatus = vi.fn(() => Promise.resolve())
+      const reloadStatusAndLog = vi.fn(() => Promise.resolve())
       const original = useGitStore.getState().actions
-      useGitStore.setState({ actions: { ...original, reloadStatus } })
+      useGitStore.setState({ actions: { ...original, reloadStatusAndLog } })
 
       renderHook(() => useWorkspaceEffects('ws-test'))
       window.dispatchEvent(new CustomEvent('git-status-updated', { detail: { filePath: 'a.ts' } }))
       await vi.advanceTimersByTimeAsync(500)
 
-      expect(reloadStatus).toHaveBeenCalledWith('ws-test')
+      expect(reloadStatusAndLog).toHaveBeenCalledWith('ws-test')
       useGitStore.setState({ actions: original })
     } finally {
       vi.useRealTimers()
@@ -92,9 +92,9 @@ describe('useWorkspaceEffects', () => {
     vi.useFakeTimers()
     try {
       const { useGitStore } = await import('@/features/git/stores/git-store')
-      const reloadStatus = vi.fn(() => Promise.resolve())
+      const reloadStatusAndLog = vi.fn(() => Promise.resolve())
       const original = useGitStore.getState().actions
-      useGitStore.setState({ actions: { ...original, reloadStatus } })
+      useGitStore.setState({ actions: { ...original, reloadStatusAndLog } })
 
       renderHook(() => useWorkspaceEffects('ws-test'))
       const calls = subscribe.mock.calls as unknown as [string, (frame: unknown) => void][]
@@ -109,14 +109,44 @@ describe('useWorkspaceEffects', () => {
       }
       // The first frame's coalesced timer must have fired exactly once;
       // identical repeats neither reset nor re-arm it.
-      expect(reloadStatus).toHaveBeenCalledTimes(1)
-      expect(reloadStatus).toHaveBeenCalledWith('ws-test')
+      expect(reloadStatusAndLog).toHaveBeenCalledTimes(1)
+      expect(reloadStatusAndLog).toHaveBeenCalledWith('ws-test')
 
       // A frame whose payload differs re-arms the reload.
       onGitFrame({ branch: 'main', files: [{ path: 'a.ts' }] })
       await vi.advanceTimersByTimeAsync(500)
-      expect(reloadStatus).toHaveBeenCalledTimes(2)
+      expect(reloadStatusAndLog).toHaveBeenCalledTimes(2)
 
+      useGitStore.setState({ actions: original })
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  // BUG-017: after the push-driven reload, open diff views (the "Uncommitted
+  // Changes" tab, single-file diff tabs) must be told to refetch — they listen
+  // on the window-level "git-status-changed" event.
+  it('dispatches git-status-changed after the push-driven reload completes', async () => {
+    vi.useFakeTimers()
+    try {
+      const { useGitStore } = await import('@/features/git/stores/git-store')
+      const reloadStatusAndLog = vi.fn(() => Promise.resolve())
+      const original = useGitStore.getState().actions
+      useGitStore.setState({ actions: { ...original, reloadStatusAndLog } })
+
+      const onStatusChanged = vi.fn()
+      window.addEventListener('git-status-changed', onStatusChanged)
+
+      renderHook(() => useWorkspaceEffects('ws-test'))
+      const calls = subscribe.mock.calls as unknown as [string, (frame: unknown) => void][]
+      const gitCall = calls.find(([ep]) => ep.startsWith('/v0/ws/git'))
+      gitCall![1]({ branch: 'main', files: [] })
+      await vi.advanceTimersByTimeAsync(500)
+
+      expect(reloadStatusAndLog).toHaveBeenCalledWith('ws-test')
+      expect(onStatusChanged).toHaveBeenCalledTimes(1)
+
+      window.removeEventListener('git-status-changed', onStatusChanged)
       useGitStore.setState({ actions: original })
     } finally {
       vi.useRealTimers()
@@ -127,9 +157,9 @@ describe('useWorkspaceEffects', () => {
     vi.useFakeTimers()
     try {
       const { useGitStore } = await import('@/features/git/stores/git-store')
-      const reloadStatus = vi.fn(() => Promise.resolve())
+      const reloadStatusAndLog = vi.fn(() => Promise.resolve())
       const original = useGitStore.getState().actions
-      useGitStore.setState({ actions: { ...original, reloadStatus } })
+      useGitStore.setState({ actions: { ...original, reloadStatusAndLog } })
 
       renderHook(() => useWorkspaceEffects('ws-test'))
       const calls = subscribe.mock.calls as unknown as [string, (frame: unknown) => void][]
@@ -139,7 +169,7 @@ describe('useWorkspaceEffects', () => {
       // Settle the initial frame's reload first.
       onGitFrame({ branch: 'main', files: [] })
       await vi.advanceTimersByTimeAsync(500)
-      reloadStatus.mockClear()
+      reloadStatusAndLog.mockClear()
 
       // Save dispatches the event while the identical-frame spam continues.
       window.dispatchEvent(new CustomEvent('git-status-updated', { detail: { filePath: 'a.ts' } }))
@@ -147,7 +177,7 @@ describe('useWorkspaceEffects', () => {
         onGitFrame({ branch: 'main', files: [] })
         await vi.advanceTimersByTimeAsync(150)
       }
-      expect(reloadStatus).toHaveBeenCalledWith('ws-test')
+      expect(reloadStatusAndLog).toHaveBeenCalledWith('ws-test')
 
       useGitStore.setState({ actions: original })
     } finally {

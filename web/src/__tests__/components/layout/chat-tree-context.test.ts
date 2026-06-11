@@ -83,6 +83,23 @@ describe('performCreateChat', () => {
     expect(chatIds()).toEqual(['c1'])
     expect(toast.error).toHaveBeenCalledWith('Failed to create chat', '500 boom')
   })
+
+  // BUG-021: the sidebar "New chat" button must also open the chat's tab —
+  // the caller needs the created chat back to reuse the row-click open path.
+  it('returns the created chat so callers can open its tab', async () => {
+    vi.mocked(postChat).mockResolvedValue(dto({ id: 'opened-id', title: 'New chat' }))
+
+    const chat = await performCreateChat('ws1', 'New chat')
+
+    expect(chat?.id).toBe('opened-id')
+    expect(chat?.title).toBe('New chat')
+  })
+
+  it('returns null on failure or empty wsId', async () => {
+    vi.mocked(postChat).mockRejectedValue(new Error('boom'))
+    expect(await performCreateChat('ws1', 'New chat')).toBeNull()
+    expect(await performCreateChat('', 'New chat')).toBeNull()
+  })
 })
 
 describe('performForkChat', () => {

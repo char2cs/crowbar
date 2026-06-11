@@ -107,6 +107,14 @@ export function MarkdownHistory({ turns, onWidgetChange }: MarkdownHistoryProps)
               streaming={turn.streaming}
               onWidgetChange={onWidgetChange}
             />
+            {turn.error && (
+              <div
+                role="alert"
+                className="my-2 rounded-md border border-destructive/40 bg-destructive/10 px-3 py-2 text-xs text-destructive"
+              >
+                {turn.error}
+              </div>
+            )}
           </div>
         </article>
       ))}

@@ -6,6 +6,14 @@ import {
   type BufferSlice,
 } from '@/features/workspace/stores/slices/buffer-slice'
 
+const { killTerminalSession } = vi.hoisted(() => ({
+  killTerminalSession: vi.fn(async () => {}),
+}))
+
+vi.mock('@/features/terminal/lib/kill-terminal-session', () => ({
+  killTerminalSession,
+}))
+
 const makePaneActions = () => ({
   addBufferToPane: vi.fn(),
   setPanePreviewBuffer: vi.fn(),
@@ -79,6 +87,35 @@ describe('buffer-slice', () => {
     })
     store.getState().bufferActions.closeBuffer(id)
     expect(store.getState().buffers).toHaveLength(0)
+  })
+
+  // BUG-015: closing a terminal tab is final (terminals never enter the
+  // undo-close history), so the backend PTY must be killed on close —
+  // otherwise every closed tab leaks a live shell process.
+  it('closeBuffer kills the backend PTY session of a terminal buffer', async () => {
+    killTerminalSession.mockClear()
+    const id = store.getState().bufferActions.openContent({
+      type: 'terminal',
+      sessionId: 'sess-9',
+      name: 'Terminal 1',
+    })
+    store.getState().bufferActions.closeBuffer(id)
+    expect(store.getState().buffers).toHaveLength(0)
+    // The kill goes through a dynamic import — flush microtasks.
+    await vi.waitFor(() => expect(killTerminalSession).toHaveBeenCalledWith('sess-9'))
+  })
+
+  it('closeBuffer does not kill PTYs for non-terminal buffers', async () => {
+    killTerminalSession.mockClear()
+    const id = store.getState().bufferActions.openContent({
+      type: 'editor',
+      path: '/x.ts',
+      name: 'x.ts',
+      content: '',
+    })
+    store.getState().bufferActions.closeBuffer(id)
+    await new Promise((resolve) => setTimeout(resolve, 0))
+    expect(killTerminalSession).not.toHaveBeenCalled()
   })
 
   it('preview flag is set when isPreview is true', () => {

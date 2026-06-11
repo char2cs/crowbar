@@ -7,7 +7,7 @@ import {
   useState,
   type ReactNode,
 } from 'react'
-import { useSidebarStore } from '@/lib/store/sidebar'
+import { useSidebarStore, type ProjectChat } from '@/lib/store/sidebar'
 import {
   postChat,
   forkChat as apiForkChat,
@@ -22,14 +22,17 @@ import { toast } from '@/components/ui/toast'
  * using the real id the backend returned. On failure no phantom node is
  * added — the error is surfaced via toast.
  */
-export async function performCreateChat(wsId: string, title: string): Promise<void> {
-  if (!wsId || !title.trim()) return
+export async function performCreateChat(wsId: string, title: string): Promise<ProjectChat | null> {
+  if (!wsId || !title.trim()) return null
   try {
     const chat = await postChat(wsId, title.trim())
-    useSidebarStore.getState().addChat(chatDtoToProjectChat(chat))
+    const projectChat = chatDtoToProjectChat(chat)
+    useSidebarStore.getState().addChat(projectChat)
+    return projectChat
   } catch (err) {
     console.error('Failed to create chat:', err)
     toast.error('Failed to create chat', err instanceof Error ? err.message : undefined)
+    return null
   }
 }
 

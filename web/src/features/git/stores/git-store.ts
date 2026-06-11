@@ -83,6 +83,7 @@ interface GitState {
     refreshWorkspaceGitStatus: (repoPath: string) => Promise<void>
     reload: (wsId: string) => Promise<void>
     reloadStatus: (wsId: string) => Promise<void>
+    reloadStatusAndLog: (wsId: string) => Promise<void>
     loadMoreCommits: (repoPath: string) => Promise<void>
     setGitStatus: (status: GitStatus | null) => void
     setWorkspaceGitStatus: (status: GitStatus | null, repoPath: string | null) => void
@@ -223,6 +224,26 @@ export const useGitStore = create<GitState>((set, get) => ({
         gitStatus: status,
         workspaceGitStatus: toWorkspaceGitStatus(status),
         currentWorkspaceRepoPath: wsId,
+      })
+    },
+
+    // Live git-event refresh: status AND the commit log together. A
+    // terminal-side commit (or soft reset) changes the log without any UI
+    // action, so the History tab must refetch on the same push that refreshes
+    // the Changes panel. The fresh first page REPLACES the list (a reset can
+    // remove commits, so merge-only updates would keep dead hashes).
+    reloadStatusAndLog: async (wsId) => {
+      const [status, commits] = await Promise.all([
+        getGitStatus(wsId),
+        getGitLog(wsId, COMMITS_PER_PAGE, 0),
+      ])
+      set({
+        gitStatus: status,
+        workspaceGitStatus: toWorkspaceGitStatus(status),
+        currentWorkspaceRepoPath: wsId,
+        currentRepoPath: wsId,
+        commits,
+        hasMoreCommits: commits.length >= COMMITS_PER_PAGE,
       })
     },
 

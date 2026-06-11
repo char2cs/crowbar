@@ -22,6 +22,7 @@ export interface MarkdownTurn {
   model?: string // model that produced an agent turn (e.g. "Opus 4.8")
   widgets: WidgetData[]
   streaming?: boolean // true while agent is actively writing
+  error?: string // set when the agent run failed to start or errored
 }
 
 // Turn boundary marker embedded in CM6 document text:

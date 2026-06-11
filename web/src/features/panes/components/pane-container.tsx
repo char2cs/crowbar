@@ -460,9 +460,9 @@ export function PaneContainer({ pane, position = ROOT_PANE_POSITION }: PaneConta
           )
 
         case 'crowbarChat':
-          return (
-            <MarkdownChatView workspaceId={(buffer as CrowbarChatContent).wsId} stepId="chat" />
-          )
+          // CrowbarChatContent.wsId historically holds the *chat* id — chat
+          // buffers are opened with the sidebar chat's id (see chat-tree.tsx).
+          return <MarkdownChatView chatId={(buffer as CrowbarChatContent).wsId} />
 
         default:
           return (

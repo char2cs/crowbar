@@ -151,9 +151,9 @@ export function useWorkspaceEffects(wsId: string) {
     }
   }, [wsId])
 
-  // Load full git data once, then keep status live on the git topic. A live
-  // event only refreshes status (one request), not the rarely-changing
-  // commits/branches/stashes — those reload on explicit git actions.
+  // Load full git data once, then keep status + commit log live on the git
+  // topic. Branches/stashes change rarely — those reload on explicit git
+  // actions.
   useEffect(() => {
     let cancelled = false
     void (async () => {
@@ -177,7 +177,19 @@ export function useWorkspaceEffects(wsId: string) {
       if (timer) return
       timer = setTimeout(() => {
         timer = null
-        if (!cancelled) void useGitStore.getState().actions.reloadStatus(wsId)
+        if (cancelled) return
+        // Status + commit log together: terminal-side commits/resets change
+        // the History list without any UI action (BUG-020). After the store
+        // refresh, notify open diff views ("Uncommitted Changes" tab,
+        // single-file diff tabs) so they refetch instead of showing the
+        // already-committed hunks (BUG-017).
+        void useGitStore
+          .getState()
+          .actions.reloadStatusAndLog(wsId)
+          .then(() => {
+            if (!cancelled) window.dispatchEvent(new CustomEvent('git-status-changed'))
+          })
+          .catch(() => {})
       }, GIT_REFRESH_DEBOUNCE_MS)
     }
     // The push stream repeats identical status frames; only a frame that

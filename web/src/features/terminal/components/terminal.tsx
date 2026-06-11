@@ -26,13 +26,11 @@ import { useTerminalConnection } from '../hooks/use-terminal-connection'
 import { useTerminalTheme } from '../hooks/use-terminal-theme'
 import { useTerminalStore } from '../stores/terminal-store'
 import { formatDroppedPathsForTerminal } from '../utils/terminal-file-drop'
+import { analyzeTerminalPaste } from '../utils/paste-guard'
 import { resolveTerminalFont } from '../utils/resolve-font'
 import { TerminalSearch, type TerminalSearchOptions } from './terminal-search'
 import '@xterm/xterm/css/xterm.css'
 import '../styles/terminal.css'
-
-const MULTILINE_PASTE_LINE_THRESHOLD = 5
-const LARGE_PASTE_CHAR_THRESHOLD = 1000
 
 interface XtermTerminalProps {
   sessionId: string
@@ -64,6 +62,7 @@ export const XtermTerminal: React.FC<XtermTerminalProps> = ({
   const [isSearchVisible, setIsSearchVisible] = useState(false)
   const [searchResults, setSearchResults] = useState({ current: 0, total: 0 })
   const isInitializingRef = useRef(false)
+  const pasteGuardAttachedRef = useRef(false)
 
   const updateSession = useTerminalStore((s) => s.updateSession)
   const getSession = useTerminalStore((s) => s.getSession)
@@ -225,22 +224,30 @@ export const XtermTerminal: React.FC<XtermTerminalProps> = ({
             writeBuffered(text)
           }
         })
+      }
 
-        terminal.textarea.addEventListener(
+      // Paste interception MUST be on the container in the capture phase.
+      // xterm registers its own textarea paste listener inside terminal.open()
+      // (before ours), and same-element listeners fire in registration order
+      // regardless of the capture flag — a textarea-level listener runs after
+      // xterm has already written the paste to the PTY (BUG-016). Capturing on
+      // the ancestor runs first; stopPropagation keeps xterm's handler out.
+      // The ref guard makes an init retry (e.g. PTY create failure) not stack
+      // a second listener.
+      if (!pasteGuardAttachedRef.current) {
+        pasteGuardAttachedRef.current = true
+        terminalContainerRef.current.addEventListener(
           'paste',
           (event) => {
             const text = event.clipboardData?.getData('text/plain')
             if (!text || !currentConnectionIdRef.current) return
 
-            const normalizedText = text.replace(/\r\n/g, '\n')
-            const lineCount = normalizedText.split('\n').length
-            const requiresConfirmation =
-              lineCount >= MULTILINE_PASTE_LINE_THRESHOLD ||
-              normalizedText.length >= LARGE_PASTE_CHAR_THRESHOLD
+            event.preventDefault()
+            event.stopPropagation()
+
+            const { normalizedText, lineCount, requiresConfirmation } = analyzeTerminalPaste(text)
 
             if (requiresConfirmation) {
-              event.preventDefault()
-              event.stopImmediatePropagation()
               void primitiveConfirm(
                 `Paste ${lineCount} lines into the terminal? This may execute multiple commands.`,
                 { title: 'Paste Into Terminal', confirmLabel: 'Paste' },
@@ -250,8 +257,6 @@ export const XtermTerminal: React.FC<XtermTerminalProps> = ({
               return
             }
 
-            event.preventDefault()
-            event.stopImmediatePropagation()
             writeBuffered(normalizedText)
           },
           true,
@@ -443,10 +448,10 @@ export const XtermTerminal: React.FC<XtermTerminalProps> = ({
     }
   }, [initializeTerminal, isInitialized, isVisible])
 
-  // Dispose only the xterm UI on unmount. The PTY process is owned by
-  // the buffer store and killed in closeBufferForce when the user actually
-  // closes the tab — NOT here. This prevents pane splits, tab moves, and
-  // other layout changes from killing running terminal processes.
+  // Dispose only the xterm UI on unmount. The PTY process is owned by the
+  // buffer store and killed in closeBuffer (via killTerminalSession) when the
+  // user actually closes the tab — NOT here. This prevents pane splits, tab
+  // moves, and other layout changes from killing running terminal processes.
   useEffect(() => {
     return () => {
       if (xtermRef.current) {

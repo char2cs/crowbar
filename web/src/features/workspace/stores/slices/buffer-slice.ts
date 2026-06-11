@@ -284,6 +284,15 @@ export const createBufferSlice: StateCreator<
 
     closeBuffer(id) {
       const buf = get().buffers.find((b) => b.id === id)
+      // Closing a terminal tab is final (terminals never enter the undo-close
+      // history) — terminate the backend PTY so shell processes don't leak.
+      // Dynamic import avoids a workspace-slice → terminal-feature cycle.
+      if (buf && buf.type === 'terminal') {
+        const { sessionId } = buf as TerminalContent
+        void import('@/features/terminal/lib/kill-terminal-session').then(
+          ({ killTerminalSession }) => killTerminalSession(sessionId).catch(() => {}),
+        )
+      }
       if (buf && shouldStartLsp(buf)) {
         set((state) => {
           const entry: ClosedBuffer = { path: buf.path, name: buf.name, isPinned: buf.isPinned }
