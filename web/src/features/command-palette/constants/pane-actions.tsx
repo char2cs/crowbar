@@ -1,8 +1,17 @@
-import { ArrowLeft, ArrowRight, Columns, Lock, Rows, X } from '@phosphor-icons/react'
+import {
+  ArrowLeft,
+  ArrowRight,
+  Columns,
+  GitPullRequest,
+  Lock,
+  Rows,
+  X,
+} from '@phosphor-icons/react'
 import {
   closeActiveEditorGroup,
   closeOtherEditorGroups,
   moveActiveEditorToAdjacentGroup,
+  openBranchReviewForActiveWorkspace,
   resetEditorGroupSizes,
   splitActiveEditorGroup,
   toggleActiveEditorGroupLock,
@@ -14,6 +23,18 @@ interface PaneActionsParams {
 }
 
 export const createPaneActions = ({ onClose }: PaneActionsParams): Action[] => [
+  {
+    id: 'git-open-branch-review',
+    label: 'Git: Open Branch Review',
+    description: 'Review this branch — description, diff, and threads',
+    icon: <GitPullRequest />,
+    category: 'Git',
+    commandId: 'git.openBranchReview',
+    action: () => {
+      onClose()
+      openBranchReviewForActiveWorkspace()
+    },
+  },
   {
     id: 'pane-split-editor-right',
     label: 'View: Split Editor Right',

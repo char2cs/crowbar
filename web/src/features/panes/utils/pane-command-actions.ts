@@ -1,4 +1,5 @@
 import { getActiveWorkspaceStoreRef } from '@/features/workspace/stores/workspace-store-ref'
+import { getActiveWorkspaceId } from '@/features/workspace/stores/workspace-store-registry'
 import { BOTTOM_PANE_ID } from '../constants/pane'
 import type { LayoutNode } from '../types/pane'
 import { getAllLeafIds } from './pane-layout'
@@ -48,6 +49,20 @@ export function toggleActiveEditorGroupLock(): boolean {
 
   state.paneActions.setPaneLocked(activePane.id, !activePane.locked)
   return true
+}
+
+// Opens the Branch Review surface for the active workspace as a pane tab.
+// Returns the opened buffer id, or null when there is no active workspace.
+export function openBranchReviewForActiveWorkspace(): string | null {
+  const store = getActiveWorkspaceStoreRef()
+  const wsId = getActiveWorkspaceId()
+  if (!store || !wsId) {
+    return null
+  }
+
+  return store
+    .getState()
+    .bufferActions.openContent({ type: 'branchReview', wsId, name: 'Branch Review' })
 }
 
 export function splitActiveEditorGroup(direction: 'horizontal' | 'vertical'): boolean {

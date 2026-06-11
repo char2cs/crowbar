@@ -117,5 +117,14 @@ export const createPaneContent = (id: string, spec: OpenContentSpec): PaneConten
         isPreview: false,
         wsId: spec.wsId,
       }
+    case 'branchReview':
+      return {
+        ...base,
+        type: 'branchReview',
+        path: `branch-review://${spec.wsId}`,
+        name: spec.name,
+        isPreview: false,
+        wsId: spec.wsId,
+      }
   }
 }

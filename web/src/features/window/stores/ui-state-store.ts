@@ -24,6 +24,7 @@ export type SettingsTab =
   | 'enterprise'
   | 'file-explorer'
   | 'language'
+  | 'keybindings'
   | 'developer'
 
 export type BottomPaneTab = 'terminal' | 'buffers'

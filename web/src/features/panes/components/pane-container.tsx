@@ -23,7 +23,12 @@ import { EmptyEditorState } from './empty-editor-state'
 import { BOTTOM_PANE_ID } from '../constants/pane'
 import { useActivePaneId, usePaneActions } from '@/features/workspace/stores/hooks/use-pane-store'
 import type { PaneGroup } from '../types/pane'
-import type { CrowbarChatContent, EditorContent, NewTabContent } from '../types/pane-content'
+import type {
+  BranchReviewContent,
+  CrowbarChatContent,
+  EditorContent,
+  NewTabContent,
+} from '../types/pane-content'
 import {
   ensureBufferInPaneDropTarget,
   moveBufferToPaneDropTarget,
@@ -39,6 +44,11 @@ const ExternalEditorTerminal = lazy(() =>
 const MarkdownChatView = lazy(() =>
   import('@/features/markdown-chat/components/markdown-chat-view').then((m) => ({
     default: m.MarkdownChatView,
+  })),
+)
+const BranchReviewPane = lazy(() =>
+  import('@/features/git/components/branch-review-pane').then((m) => ({
+    default: m.BranchReviewPane,
   })),
 )
 import { EditorPane } from './editor-pane'
@@ -463,6 +473,9 @@ export function PaneContainer({ pane, position = ROOT_PANE_POSITION }: PaneConta
           // CrowbarChatContent.wsId historically holds the *chat* id — chat
           // buffers are opened with the sidebar chat's id (see chat-tree.tsx).
           return <MarkdownChatView chatId={(buffer as CrowbarChatContent).wsId} />
+
+        case 'branchReview':
+          return <BranchReviewPane wsId={(buffer as BranchReviewContent).wsId} />
 
         default:
           return (

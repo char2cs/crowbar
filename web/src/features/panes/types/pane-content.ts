@@ -23,6 +23,7 @@ export type PaneContentType =
   | 'csvPreview'
   | 'externalEditor'
   | 'crowbarChat'
+  | 'branchReview'
 
 // ── Base fields shared by every content type ────────────────────────
 
@@ -120,6 +121,11 @@ export interface CrowbarChatContent extends PaneContentBase {
   wsId: string
 }
 
+export interface BranchReviewContent extends PaneContentBase {
+  type: 'branchReview'
+  wsId: string
+}
+
 // ── Discriminated union ─────────────────────────────────────────────
 
 export type PaneContent =
@@ -133,6 +139,7 @@ export type PaneContent =
   | CsvPreviewContent
   | ExternalEditorContent
   | CrowbarChatContent
+  | BranchReviewContent
 
 // ── Type guards ─────────────────────────────────────────────────────
 
@@ -160,6 +167,10 @@ export function isExternalEditorContent(c: PaneContent): c is ExternalEditorCont
   return c.type === 'externalEditor'
 }
 
+export function isBranchReviewContent(c: PaneContent): c is BranchReviewContent {
+  return c.type === 'branchReview'
+}
+
 // ── Helpers ─────────────────────────────────────────────────────────
 
 /** Content types that represent real files on disk and should be persisted to session. */
@@ -173,6 +184,7 @@ const VIRTUAL_TYPES: ReadonlySet<PaneContentType> = new Set([
   'webViewer',
   'newTab',
   'crowbarChat',
+  'branchReview',
 ])
 
 export function isVirtualContent(c: PaneContent): boolean {
@@ -275,6 +287,11 @@ export type OpenContentSpec =
     }
   | {
       type: 'crowbarChat'
+      wsId: string
+      name: string
+    }
+  | {
+      type: 'branchReview'
       wsId: string
       name: string
     }

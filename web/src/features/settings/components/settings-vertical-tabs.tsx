@@ -2,6 +2,7 @@ import {
   Bug,
   CodeBlock,
   GitBranch,
+  Keyboard,
   PaintBrush,
   TerminalWindow,
   TreeStructure,
@@ -36,6 +37,7 @@ export const SETTINGS_TAB_ITEMS: SettingsTabItem[] = [
   { id: 'file-explorer', label: 'Files', icon: TreeStructure },
   { id: 'git', label: 'Git', icon: GitBranch },
   { id: 'terminal', label: 'Terminal', icon: TerminalWindow },
+  { id: 'keybindings', label: 'Keybindings', icon: Keyboard },
   ...(import.meta.env.DEV
     ? [{ id: 'developer' as SettingsTabItem['id'], label: 'Developer', icon: Bug }]
     : []),
