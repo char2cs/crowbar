@@ -25,6 +25,18 @@ func ensure(
 	return path, nil
 }
 
+// State returns the state directory (parent of events and store), creating it if absent.
+func State() (string, error) {
+	return ensure(metadata.GetStateDirPath())
+}
+
+// StateAt returns the state directory rooted at homeDir, creating it if absent.
+func StateAt(
+	homeDir string,
+) (string, error) {
+	return ensure(metadata.GetStateDirPathAt(homeDir))
+}
+
 // Events returns the event-store directory, creating it if absent.
 func Events() (string, error) {
 	return ensure(metadata.GetEventsPath())

@@ -66,6 +66,19 @@ func GetVersion() string {
 	return Get().Version.Number
 }
 
+// GetStateDirPath returns the resolved absolute path to the state directory
+// (the parent of the events and store directories).
+func GetStateDirPath() string {
+	return filepath.Dir(GetEventsPath())
+}
+
+// GetStateDirPathAt returns the state directory path rooted at homeDir.
+func GetStateDirPathAt(
+	homeDir string,
+) string {
+	return filepath.Dir(GetEventsPathAt(homeDir))
+}
+
 // GetEventsPath returns the resolved absolute path to the events directory.
 func GetEventsPath() string {
 	return resolvePath(Get().Paths.Events, resolveHome())

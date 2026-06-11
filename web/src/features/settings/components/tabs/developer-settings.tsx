@@ -1,9 +1,13 @@
-import { useState } from 'react'
+import { useRef, useState } from 'react'
 import { useChaosStore, FAULT_KEYS, FAULT_LABELS } from '@/lib/store/chaos'
 import type { Scenario } from '@/lib/store/chaos'
 import Section, { SETTINGS_CONTROL_WIDTHS, SettingRow } from '../settings-section'
 import NumberInput from '@/components/ui/number-input'
 import { Button } from '@/components/ui/button'
+import { useSettingsStore } from '@/features/settings/store'
+import { downloadSettingsFile } from '@/features/settings/lib/settings-download'
+import { primitiveConfirm } from '@/components/ui/primitive-dialog-service'
+import { toast } from '@/features/window/stores/toast-store'
 import { Slider } from '@/components/ui/slider'
 import {
   Select,
@@ -51,8 +55,93 @@ export function DeveloperSettings() {
 
   const anyFaultActive = FAULT_KEYS.some((k) => faults[k] > 0)
 
+  const fileInputRef = useRef<HTMLInputElement>(null)
+
+  function handleExport() {
+    downloadSettingsFile(useSettingsStore.getState().settings)
+    toast.success('Settings exported', 'Saved crowbar-settings.json to your downloads.')
+  }
+
+  async function handleImportFile(event: React.ChangeEvent<HTMLInputElement>) {
+    const file = event.target.files?.[0]
+    // Allow re-selecting the same file later.
+    event.target.value = ''
+    if (!file) return
+
+    try {
+      const text = await file.text()
+      const ok = useSettingsStore.getState().updateSettingsFromJSON(text)
+      if (ok) {
+        toast.success('Settings imported', 'Your settings have been restored from the file.')
+      } else {
+        toast.error('Import failed', 'The file is not a valid Crowbar settings export.')
+      }
+    } catch {
+      toast.error('Import failed', 'Could not read the selected file.')
+    }
+  }
+
+  async function handleReset() {
+    const confirmed = await primitiveConfirm(
+      'Reset all settings to their defaults? This cannot be undone.',
+      {
+        title: 'Reset settings',
+        confirmLabel: 'Reset all',
+        cancelLabel: 'Cancel',
+      },
+    )
+    if (!confirmed) return
+
+    await useSettingsStore.getState().resetToDefaults()
+    toast.success('Settings reset', 'All settings have been restored to their defaults.')
+  }
+
   return (
     <div className="space-y-4">
+      <Section
+        title="Backup & Restore"
+        description="Export your settings to a file, import a previous export, or reset everything to defaults."
+      >
+        <SettingRow
+          label="Export settings"
+          description="Download all current settings as a versioned crowbar-settings.json file."
+        >
+          <Button type="button" variant="outline" size="sm" onClick={handleExport}>
+            Export settings
+          </Button>
+        </SettingRow>
+
+        <SettingRow
+          label="Import settings"
+          description="Restore settings from a previously exported crowbar-settings.json file."
+        >
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            onClick={() => fileInputRef.current?.click()}
+          >
+            Import settings
+          </Button>
+          <input
+            ref={fileInputRef}
+            type="file"
+            accept="application/json"
+            className="hidden"
+            onChange={handleImportFile}
+          />
+        </SettingRow>
+
+        <SettingRow
+          label="Reset all settings"
+          description="Restore every setting to its default value. This cannot be undone."
+        >
+          <Button type="button" variant="destructive" size="sm" onClick={handleReset}>
+            Reset all
+          </Button>
+        </SettingRow>
+      </Section>
+
       <Section
         title="Network Chaos"
         description="Simulate poor network conditions against the Go API server."

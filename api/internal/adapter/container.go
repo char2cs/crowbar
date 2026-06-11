@@ -23,6 +23,7 @@ type Container struct {
 	ReviewThreadES asynxModels.Store
 	DB             *gormdb.DB
 	closers        []io.Closer
+	lock           *instanceLock
 }
 
 type adapterOpts struct {
@@ -50,7 +51,29 @@ func New(
 		o(&cfg)
 	}
 
-	eventsPath, storePath, err := resolveDirs(cfg.homeDir)
+	statePath, err := resolveStateDir(cfg.homeDir)
+	if err != nil {
+		return nil, err
+	}
+
+	lock, err := acquireStateLock(statePath)
+	if err != nil {
+		return nil, err
+	}
+
+	container, err := newLocked(cfg.homeDir, lock)
+	if err != nil {
+		_ = lock.Close()
+		return nil, err
+	}
+	return container, nil
+}
+
+func newLocked(
+	homeDir string,
+	lock *instanceLock,
+) (*Container, error) {
+	eventsPath, storePath, err := resolveDirs(homeDir)
 	if err != nil {
 		return nil, err
 	}
@@ -62,6 +85,9 @@ func New(
 
 	db, err := storesqlite.OpenDB(filepath.Join(storePath, "crowbar.db"))
 	if err != nil {
+		for _, cl := range closers {
+			_ = cl.Close()
+		}
 		return nil, fmt.Errorf("adapter: open db: %w", err)
 	}
 
@@ -72,7 +98,25 @@ func New(
 		ReviewThreadES: stores[3],
 		DB:             db,
 		closers:        closers,
+		lock:           lock,
 	}, nil
+}
+
+func resolveStateDir(
+	homeDir string,
+) (string, error) {
+	if homeDir == "" {
+		statePath, err := paths.State()
+		if err != nil {
+			return "", fmt.Errorf("adapter: state dir: %w", err)
+		}
+		return statePath, nil
+	}
+	statePath, err := paths.StateAt(homeDir)
+	if err != nil {
+		return "", fmt.Errorf("adapter: state dir: %w", err)
+	}
+	return statePath, nil
 }
 
 func resolveDirs(
@@ -144,6 +188,12 @@ func (c *Container) Close() error {
 		} else if err := sqlDB.Close(); err != nil {
 			errs = append(errs, fmt.Errorf("adapter: close db: %w", err))
 		}
+	}
+	if c.lock != nil {
+		if err := c.lock.Close(); err != nil {
+			errs = append(errs, fmt.Errorf("adapter: release state lock: %w", err))
+		}
+		c.lock = nil
 	}
 	return errors.Join(errs...)
 }
