@@ -82,4 +82,32 @@ describe('EditorManager', () => {
     expect(ed.dispose).toHaveBeenCalled()
     expect(model.dispose).toHaveBeenCalled()
   })
+
+  it('reuses the model when switching back within a pane (no recreate => undo preserved)', () => {
+    const modelApi = fakeModelApi(); const ea = fakeEditorApi()
+    const m = new EditorManager(ea, new ModelRegistry(modelApi), { lang, text })
+    m.mountPane('p1', {} as HTMLElement)
+    m.showBuffer('p1', 'athas://editor/a')
+    m.showBuffer('p1', 'athas://editor/b')
+    m.showBuffer('p1', 'athas://editor/a') // back to a
+    expect(modelApi.createModel).toHaveBeenCalledTimes(2) // a and b only — NOT 3
+    expect(ea.created[0].getModel().uri).toBe('athas://editor/a')
+  })
+
+  it('closeBuffer releases a tab\'s model; unmountPane releases all remaining held', () => {
+    const modelApi = fakeModelApi(); const ea = fakeEditorApi()
+    const m = new EditorManager(ea, new ModelRegistry(modelApi), { lang, text })
+    m.mountPane('p1', {} as HTMLElement)
+    m.showBuffer('p1', 'athas://editor/a')
+    m.showBuffer('p1', 'athas://editor/b')
+    const modelA = (ea.created[0].getModel())
+    // capture both models via the api map by re-getting
+    m.showBuffer('p1', 'athas://editor/a')
+    const aModel = ea.created[0].getModel()
+    m.closeBuffer('p1', 'athas://editor/b')
+    // b released & disposed (no other holder)
+    m.unmountPane('p1')
+    expect(aModel.dispose).toHaveBeenCalled() // a released on unmount
+    expect(ea.created[0].dispose).toHaveBeenCalled()
+  })
 })

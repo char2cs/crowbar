@@ -11,9 +11,10 @@ export interface IEditorLike {
 export interface MonacoEditorApi { create(container: HTMLElement): IEditorLike }
 export interface BufferMeta { lang(uri: string): string; text(uri: string): string }
 
-interface PaneState { editor: IEditorLike; currentUri: string | null }
+interface PaneState { editor: IEditorLike; currentUri: string | null; held: Set<string> }
 
-/** Owns one retained Monaco widget per pane. Tab switch = model swap, not remount. */
+/** Owns one retained Monaco widget per pane. Tab switch = model swap (not remount);
+ *  a model stays alive while its file is OPEN in the pane (held), not just visible. */
 export class EditorManager {
   private panes = new Map<string, PaneState>()
   private viewState = new Map<string, unknown>() // key: `${paneId} ${uri}`
@@ -23,7 +24,7 @@ export class EditorManager {
 
   mountPane(paneId: string, container: HTMLElement): void {
     if (this.panes.has(paneId)) return
-    this.panes.set(paneId, { editor: this.editorApi.create(container), currentUri: null })
+    this.panes.set(paneId, { editor: this.editorApi.create(container), currentUri: null, held: new Set() })
   }
 
   showBuffer(paneId: string, uri: string): void {
@@ -32,19 +33,34 @@ export class EditorManager {
     if (pane.currentUri === uri) return
     if (pane.currentUri) {
       this.viewState.set(this.vsKey(paneId, pane.currentUri), pane.editor.saveViewState())
-      this.registry.release(pane.currentUri)
     }
-    const model = this.registry.acquire(uri, this.meta.lang(uri), this.meta.text(uri))
+    let model: IModelLike
+    if (pane.held.has(uri)) {
+      model = this.registry.get(uri) ?? this.registry.acquire(uri, this.meta.lang(uri), this.meta.text(uri))
+    } else {
+      model = this.registry.acquire(uri, this.meta.lang(uri), this.meta.text(uri))
+      pane.held.add(uri)
+    }
     pane.editor.setModel(model)
     const saved = this.viewState.get(this.vsKey(paneId, uri))
     if (saved) pane.editor.restoreViewState(saved)
     pane.currentUri = uri
   }
 
+  closeBuffer(paneId: string, uri: string): void {
+    const pane = this.panes.get(paneId)
+    if (!pane || !pane.held.has(uri)) return
+    this.registry.release(uri)
+    pane.held.delete(uri)
+    this.viewState.delete(this.vsKey(paneId, uri))
+    if (pane.currentUri === uri) pane.currentUri = null
+  }
+
   unmountPane(paneId: string): void {
     const pane = this.panes.get(paneId)
     if (!pane) return
-    if (pane.currentUri) this.registry.release(pane.currentUri)
+    for (const uri of pane.held) this.registry.release(uri)
+    pane.held.clear()
     pane.editor.dispose()
     this.panes.delete(paneId)
   }
