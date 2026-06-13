@@ -60,4 +60,26 @@ describe('ContentSink', () => {
     vi.advanceTimersByTime(150)
     expect(write).toHaveBeenCalledTimes(1)     // de-duped: 'same' already written
   })
+
+  // Mirrors the save-time handshake wired in monaco-editor.tsx: the controller
+  // effect registers a 'flush-editor-content' window listener that calls
+  // sink.flush() synchronously, and the save flow dispatches that event before
+  // reading buffer.content. This proves a pending value lands via write() the
+  // moment the event is dispatched — no timer advance, no microtask.
+  it('flushes synchronously when a flush-editor-content window event is dispatched', () => {
+    const write = vi.fn()
+    const sink = new ContentSink({ write, delayMs: 150 })
+    const handler = () => sink.flush()
+    window.addEventListener('flush-editor-content', handler)
+    try {
+      sink.push('pending-keystrokes')
+      expect(write).not.toHaveBeenCalled()         // still in the trailing window
+      window.dispatchEvent(new Event('flush-editor-content'))
+      // Synchronous: dispatch → listener → flush → write, before this line.
+      expect(write).toHaveBeenCalledTimes(1)
+      expect(write).toHaveBeenCalledWith('pending-keystrokes')
+    } finally {
+      window.removeEventListener('flush-editor-content', handler)
+    }
+  })
 })

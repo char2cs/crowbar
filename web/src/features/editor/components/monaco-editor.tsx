@@ -679,6 +679,19 @@ export function MonacoBackedEditor({
         syncCursorAndSelection()
       }),
       editor.onDidBlurEditorText(() => sink.flush()),
+      // Save (Cmd-S) reads buffer.content from the store. If the user types and
+      // saves within the throttle window WITHOUT blurring, the last keystrokes
+      // are still pending in the sink. The save flow dispatches this event
+      // synchronously before reading the store; flushing here (synchronously)
+      // pushes the pending value into the store in time. Flushing an empty sink
+      // is a no-op, so multiple mounted panes registering this is harmless.
+      {
+        dispose: (() => {
+          const handleFlushRequest = () => sink.flush()
+          window.addEventListener('flush-editor-content', handleFlushRequest)
+          return () => window.removeEventListener('flush-editor-content', handleFlushRequest)
+        })(),
+      },
       editor.onDidChangeCursorSelection(syncCursorAndSelection),
       // Managed panes rely on Monaco-native view-state (saved/restored by the
       // EditorManager on model swap), so we do NOT write scroll to the manual
