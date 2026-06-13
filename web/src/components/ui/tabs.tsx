@@ -16,6 +16,27 @@ export function Tabs({ className, ...props }: TabsPrimitive.Root.Props): React.R
   )
 }
 
+// Active-tab styling applied directly on the active tab via CSS (`data-active`),
+// not via Base UI's <Tabs.Indicator>. The Indicator measured the active tab with
+// getComputedStyle + getBoundingClientRect on every render to position a sliding
+// element; during a pane-resize drag that re-rendered every frame and caused a
+// forced-layout storm (the dominant cost of resize jank — profiled in WKWebView:
+// ~18 layout reads/frame, every frame dropped). VSCode uses the same CSS-only
+// approach. The active-tab background/border transitions smoothly via the
+// `transition-[...background-color...]` already on TabsTab.
+// NOTE: these must be written as literal class strings (no template interpolation) —
+// Tailwind's scanner only generates CSS for class names it can find verbatim in source.
+const activeTabPill = cn(
+  '[&_[data-slot=tabs-tab][data-active]]:rounded-md [&_[data-slot=tabs-tab][data-active]]:bg-background',
+  '[&_[data-slot=tabs-tab][data-active]]:shadow-sm/5 dark:[&_[data-slot=tabs-tab][data-active]]:bg-input',
+)
+const activeTabUnderline = cn(
+  "[&_[data-slot=tabs-tab][data-active]]:after:absolute [&_[data-slot=tabs-tab][data-active]]:after:inset-x-1",
+  "[&_[data-slot=tabs-tab][data-active]]:after:bottom-0 [&_[data-slot=tabs-tab][data-active]]:after:h-0.5",
+  "[&_[data-slot=tabs-tab][data-active]]:after:rounded-full [&_[data-slot=tabs-tab][data-active]]:after:bg-primary",
+  "[&_[data-slot=tabs-tab][data-active]]:after:content-['']",
+)
+
 export function TabsList({
   variant = 'default',
   className,
@@ -30,23 +51,17 @@ export function TabsList({
         'relative z-0 flex w-fit items-center justify-center gap-x-0.5 text-muted-foreground',
         'data-[orientation=vertical]:flex-col',
         variant === 'default'
-          ? 'rounded-lg bg-muted p-0.5 text-muted-foreground/72'
-          : 'data-[orientation=vertical]:px-1 data-[orientation=horizontal]:py-1 *:data-[slot=tabs-tab]:hover:bg-accent',
+          ? cn('rounded-lg bg-muted p-0.5 text-muted-foreground/72', activeTabPill)
+          : cn(
+              'data-[orientation=vertical]:px-1 data-[orientation=horizontal]:py-1 *:data-[slot=tabs-tab]:hover:bg-accent',
+              variant === 'underline' ? activeTabUnderline : activeTabPill,
+            ),
         className,
       )}
       data-slot="tabs-list"
       {...props}
     >
       {children}
-      <TabsPrimitive.Indicator
-        className={cn(
-          'absolute bottom-0 left-0 h-(--active-tab-height) w-(--active-tab-width) translate-x-(--active-tab-left) -translate-y-(--active-tab-bottom) transition-[width,translate] duration-200 ease-in-out',
-          variant === 'underline'
-            ? 'z-10 bg-primary data-[orientation=horizontal]:h-0.5 data-[orientation=vertical]:w-0.5 data-[orientation=vertical]:-translate-x-px data-[orientation=horizontal]:translate-y-px'
-            : '-z-1 rounded-md bg-background shadow-sm/5 dark:bg-input',
-        )}
-        data-slot="tab-indicator"
-      />
     </TabsPrimitive.List>
   )
 }
