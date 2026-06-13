@@ -7,7 +7,6 @@ import {
   editor as monacoEditor,
   KeyCode,
   KeyMod,
-  MarkerSeverity,
   Range as MonacoRange,
   Uri,
 } from 'monaco-editor'
@@ -21,15 +20,9 @@ import {
   type ReactNode,
 } from 'react'
 import { themeRegistry } from '@/extensions/themes/theme-registry'
-import type { ThemeDefinition } from '@/extensions/themes/types'
 import { useSettingsStore } from '@/features/settings/store'
 import { useZoomStore } from '@/features/window/stores/zoom-store'
-import {
-  useWorkspaceStore,
-  useWorkspaceStoreContext,
-} from '@/features/workspace/stores/workspace-context'
-import { fileUri } from '@/features/editor/lib/editor-uri'
-import { ContentSink } from '@/features/editor/lib/content-sink'
+import { useWorkspaceStoreContext } from '@/features/workspace/stores/workspace-context'
 import { useEditorSettingsStore } from '../stores/settings-store'
 import { useEditorStateStore } from '../stores/state-store'
 import { useEditorUIStore } from '../stores/ui-store'
@@ -43,6 +36,16 @@ import type {
   EditorModelPositionResolver,
 } from '../view-model/view-layout'
 import { toMonacoLanguageId } from '../monaco/language'
+import {
+  toEditorPosition,
+  clampMonacoPosition,
+  toClampedMonacoPosition,
+  toEditorRange,
+  toMonacoRange,
+  toMonacoMarker,
+  pathsMatch,
+} from '../monaco/editor-conversions'
+import { defineMonacoTheme } from '../monaco/define-theme'
 
 interface MonacoBackedEditorProps {
   paneId?: string
@@ -75,257 +78,13 @@ interface MonacoBackedEditorProps {
   className?: string
 }
 
-function toEditorPosition(model: Monaco.editor.ITextModel, position: Monaco.IPosition): Position {
-  return {
-    line: position.lineNumber - 1,
-    column: position.column - 1,
-    offset: model.getOffsetAt(position),
-  }
-}
-
-function toMonacoPosition(position: Position): Monaco.IPosition {
-  return {
-    lineNumber: position.line + 1,
-    column: position.column + 1,
-  }
-}
-
-function clampMonacoPosition(
-  model: Monaco.editor.ITextModel,
-  position: Monaco.IPosition,
-): Monaco.IPosition {
-  const lineNumber = Math.max(1, Math.min(model.getLineCount(), position.lineNumber))
-  const maxColumn = model.getLineMaxColumn(lineNumber)
-  const column = Math.max(1, Math.min(maxColumn, position.column))
-  return { lineNumber, column }
-}
-
-function toClampedMonacoPosition(
-  model: Monaco.editor.ITextModel,
-  position: Position,
-): Monaco.IPosition {
-  return clampMonacoPosition(model, toMonacoPosition(position))
-}
-
-function toEditorRange(
-  model: Monaco.editor.ITextModel,
-  selection: Monaco.Selection,
-): Range | undefined {
-  if (selection.isEmpty()) return undefined
-
-  const start = selection.getStartPosition()
-  const end = selection.getEndPosition()
-  return {
-    start: toEditorPosition(model, start),
-    end: toEditorPosition(model, end),
-  }
-}
-
-function toMonacoRange(model: Monaco.editor.ITextModel, range: Range): Monaco.Range {
-  let start = toClampedMonacoPosition(model, range.start)
-  let end = toClampedMonacoPosition(model, range.end)
-  if (
-    start.lineNumber > end.lineNumber ||
-    (start.lineNumber === end.lineNumber && start.column > end.column)
-  ) {
-    ;[start, end] = [end, start]
-  }
-
-  return new MonacoRange(start.lineNumber, start.column, end.lineNumber, end.column)
-}
-
-function severityToMonaco(severity: string): Monaco.MarkerSeverity {
-  switch (severity.toLowerCase()) {
-    case 'error':
-      return MarkerSeverity.Error
-    case 'warning':
-      return MarkerSeverity.Warning
-    case 'hint':
-      return MarkerSeverity.Hint
-    default:
-      return MarkerSeverity.Info
-  }
-}
-
-// Backend diagnostics use 0-based line/character; Monaco markers are 1-based.
-function toMonacoMarker(diagnostic: LspDiagnostic): Monaco.editor.IMarkerData {
-  return {
-    severity: severityToMonaco(diagnostic.severity),
-    message: diagnostic.message,
-    source: diagnostic.source,
-    code: diagnostic.code,
-    startLineNumber: diagnostic.range.start.line + 1,
-    startColumn: diagnostic.range.start.character + 1,
-    endLineNumber: diagnostic.range.end.line + 1,
-    endColumn: diagnostic.range.end.character + 1,
-  }
-}
-
-// Diagnostic paths and buffer paths are both workspace-relative, but tolerate a
-// leading-slash or absolute mismatch by comparing suffixes.
-function pathsMatch(a: string, b: string): boolean {
-  if (a === b) return true
-  return a.endsWith(b) || b.endsWith(a)
-}
-
 function createModelUri(bufferId: string | undefined, filePath: string): Monaco.Uri {
   const sanitizedPath = filePath.replace(/^\/+/, '')
   const path = sanitizedPath.length > 0 ? sanitizedPath : `${bufferId ?? 'untitled'}.txt`
   return Uri.parse(`athas://editor/${encodeURIComponent(bufferId ?? path)}/${path}`)
 }
 
-function getThemeId(theme: string): string {
-  return theme.includes('light') ? 'vs' : 'vs-dark'
-}
-
-function colorValue(theme: ThemeDefinition, name: string, fallback: string): string {
-  return (
-    theme.cssVariables?.[`--color-${name}`] ??
-    theme.cssVariables?.[`--${name}`] ??
-    (theme.syntaxTokens?.[`--color-${name}`] as string | undefined) ??
-    (theme.syntaxTokens?.[`--${name}`] as string | undefined) ??
-    fallback
-  )
-}
-
-function stripHash(value: string): string {
-  return value.startsWith('#') ? value.slice(1) : value
-}
-
-function toHexByte(value: number): string {
-  return Math.max(0, Math.min(255, Math.round(value)))
-    .toString(16)
-    .padStart(2, '0')
-}
-
-function toMonacoColor(value: string, fallback: string): string {
-  const normalized = value.trim()
-  if (/^#[0-9a-fA-F]{6}([0-9a-fA-F]{2})?$/.test(normalized)) return normalized
-  if (/^#[0-9a-fA-F]{3}$/.test(normalized)) {
-    const [, r, g, b] = normalized
-    return `#${r}${r}${g}${g}${b}${b}`
-  }
-
-  const rgbaMatch = normalized.match(
-    /^rgba?\(\s*([.\d]+)\s*,\s*([.\d]+)\s*,\s*([.\d]+)(?:\s*,\s*([.\d]+)\s*)?\)$/i,
-  )
-  if (!rgbaMatch) return fallback
-
-  const [, red, green, blue, alpha = '1'] = rgbaMatch
-  const alphaByte = toHexByte(Number(alpha) * 255)
-  return `#${toHexByte(Number(red))}${toHexByte(Number(green))}${toHexByte(Number(blue))}${alphaByte}`
-}
-
-function toMonacoThemeName(themeId: string): string {
-  return `athas-${themeId.replace(/[^a-zA-Z0-9_-]/g, '-')}`
-}
-
-function syntaxTokenColor(theme: ThemeDefinition, token: string): string | undefined {
-  return (
-    (theme.syntaxTokens?.[`--color-syntax-${token}`] as string | undefined) ??
-    (theme.syntaxTokens?.[`--syntax-${token}`] as string | undefined) ??
-    (theme.syntaxTokens?.[`--color-${token}`] as string | undefined) ??
-    (theme.syntaxTokens?.[`--${token}`] as string | undefined)
-  )
-}
-
-function defineMonacoTheme(themeId: string): string {
-  const theme = themeRegistry.getTheme(themeId)
-  if (!theme) return getThemeId(themeId)
-
-  const tokenMap: Array<[string, string]> = [
-    ['comment', 'comment'],
-    ['keyword', 'keyword'],
-    ['string', 'string'],
-    ['number', 'number'],
-    ['regexp', 'regex'],
-    ['function', 'function'],
-    ['variable', 'variable'],
-    ['constant', 'constant'],
-    ['type', 'type'],
-    ['class', 'type'],
-    ['interface', 'type'],
-    ['namespace', 'type'],
-    ['tag', 'tag'],
-    ['attribute.name', 'attribute'],
-    ['delimiter', 'punctuation'],
-    ['delimiter.bracket', 'punctuation'],
-    ['operator', 'operator'],
-    ['keyword.operator', 'operator'],
-    ['keyword.json', 'property'],
-    ['string.key.json', 'property'],
-  ]
-
-  const rules: Monaco.editor.ITokenThemeRule[] = tokenMap.flatMap(([token, syntaxName]) => {
-    const foreground = syntaxTokenColor(theme, syntaxName)
-    return foreground ? [{ token, foreground: stripHash(foreground) }] : []
-  })
-
-  const background = toMonacoColor(
-    colorValue(theme, 'primary-bg', theme.isDark ? '#141413' : '#fcfcfd'),
-    theme.isDark ? '#141413' : '#fcfcfd',
-  )
-  const foreground = toMonacoColor(
-    colorValue(theme, 'text', theme.isDark ? '#faf9f5' : '#141413'),
-    theme.isDark ? '#faf9f5' : '#141413',
-  )
-  const subtleForeground = toMonacoColor(
-    colorValue(theme, 'text-lighter', theme.isDark ? '#b0aea5' : '#787d86'),
-    theme.isDark ? '#b0aea5' : '#787d86',
-  )
-  const border = toMonacoColor(
-    colorValue(theme, 'border', theme.isDark ? '#2f2d29' : '#e4e7ec'),
-    theme.isDark ? '#2f2d29' : '#e4e7ec',
-  )
-  const selected = toMonacoColor(
-    colorValue(theme, 'selected', theme.isDark ? '#2c2925' : '#e7ebf0'),
-    theme.isDark ? '#2c2925' : '#e7ebf0',
-  )
-  const selection = toMonacoColor(
-    colorValue(theme, 'selection-bg', 'rgba(106, 155, 204, 0.30)'),
-    '#6a9bcc4d',
-  )
-  const accent = toMonacoColor(colorValue(theme, 'accent', '#4f8cff'), '#4f8cff')
-  const cursor = toMonacoColor(colorValue(theme, 'cursor', foreground), foreground)
-
-  const monacoThemeId = toMonacoThemeName(theme.id)
-  monacoEditor.defineTheme(monacoThemeId, {
-    base: theme.isDark ? 'vs-dark' : 'vs',
-    inherit: true,
-    rules,
-    colors: {
-      'editor.background': background,
-      'editor.foreground': foreground,
-      'editorCursor.foreground': cursor,
-      'editor.selectionBackground': selection,
-      'editor.inactiveSelectionBackground': selected,
-      'editor.lineHighlightBackground': selected,
-      'editorLineNumber.foreground': subtleForeground,
-      'editorLineNumber.activeForeground': foreground,
-      'editorIndentGuide.background1': border,
-      'editorIndentGuide.activeBackground1': accent,
-      'editorWhitespace.foreground': subtleForeground,
-      'editor.findMatchBackground': selection,
-      'editor.findMatchHighlightBackground': selected,
-      'editorWidget.background': background,
-      'editorWidget.foreground': foreground,
-      'editorWidget.border': border,
-      'editorSuggestWidget.background': background,
-      'editorSuggestWidget.foreground': foreground,
-      'editorSuggestWidget.border': border,
-      'editorSuggestWidget.selectedBackground': selected,
-      'input.background': background,
-      'input.foreground': foreground,
-      'input.border': border,
-      focusBorder: accent,
-    },
-  })
-
-  return monacoThemeId
-}
-
 export function MonacoBackedEditor({
-  paneId: propPaneId,
   bufferId: propBufferId,
   viewStateKey,
   isActiveSurface = true,
@@ -356,17 +115,15 @@ export function MonacoBackedEditor({
   const previousContentRef = useRef('')
   const decorationCollectionRef = useRef<Monaco.editor.IEditorDecorationsCollection | null>(null)
   const latestContentChangeRef = useRef(onContentChange)
-  const workspaceStore = useWorkspaceStore()
-  const editorManager = workspaceStore.editorManager
-  // The retained per-pane widget (owned by EditorManager) is used ONLY for real
-  // workspace panes, which always pass an explicit `paneId`. Standalone consumers
-  // of this component — notably the git diff viewer, which renders MANY read-only
-  // editors concurrently and shares source paths across split left/right surfaces —
-  // do NOT pass a paneId. Those keep the legacy create-per-instance path because
-  // (a) they would all collide on a single pane widget, and (b) the manager keys
-  // models by file path, so split editors sharing a path would share one model.
-  const useManagedWidget = !!propPaneId
-  const resolvedPaneId = propPaneId ?? ''
+  // LEGACY standalone path only. The retained per-pane widget (owned by
+  // EditorManager) for real workspace panes now lives in `editor-surface.tsx`
+  // (usePaneEditorController + usePaneEditorSatellites). This component keeps the
+  // create-per-instance path used by standalone consumers — notably the git diff
+  // viewer, which renders MANY read-only editors concurrently and shares source
+  // paths across split left/right surfaces — that do NOT pass a paneId. They keep
+  // a private editor+model because (a) they would all collide on a single pane
+  // widget, and (b) the manager keys models by file path, so split editors
+  // sharing a path would share one model.
   const activeBufferId = useWorkspaceStoreContext(
     useCallback(
       (state) => propBufferId ?? state.panes[state.activePaneId]?.activeBufferId ?? null,
@@ -510,274 +267,12 @@ export function MonacoBackedEditor({
   }
   const syncCursorAndSelection = useCallback(() => syncCursorAndSelectionRef.current(), [])
 
-  // ── Mount effect ────────────────────────────────────────────────────────
-  // Mounts the pane's RETAINED Monaco widget (owned by the EditorManager) into
-  // this container exactly once per (pane, container) lifetime. The widget is
-  // NOT created/destroyed on tab switches — those are handled as model swaps by
-  // the controller effect below. ResizeObserver + pane-resize-end drive layout
-  // through the manager (the widget runs with automaticLayout:false).
-  useEffect(() => {
-    if (!useManagedWidget) return
-    const container = containerRef.current
-    if (!container) return
-
-    editorManager.mountPane(resolvedPaneId, container)
-    editorAPI.setTextareaRef(null)
-    editorAPI.setViewportRef(container)
-
-    const raw = editorManager.getRawEditor(resolvedPaneId) as
-      | Monaco.editor.IStandaloneCodeEditor
-      | null
-
-    // Apply the active theme to the freshly-created widget. (Subsequent theme
-    // changes are handled by the theme effect below.)
-    const s = latestEditorSettingsRef.current
-    raw?.updateOptions({ theme: defineMonacoTheme(s.settingsTheme || s.theme) })
-
-    // Select-all command + Cmd/Ctrl-A keybinding. Registered once on the
-    // retained widget (addCommand returns an id, not a disposable, so it must
-    // NOT be re-registered per tab switch). Targets the widget's CURRENT model.
-    const selectEntireModel = () => {
-      const ed = editorManager.getRawEditor(resolvedPaneId) as
-        | Monaco.editor.IStandaloneCodeEditor
-        | null
-      const m = ed?.getModel()
-      if (!ed || !m) return
-      ed.setSelection(m.getFullModelRange())
-      ed.focus()
-      syncCursorAndSelection()
-    }
-    raw?.addCommand(KeyMod.CtrlCmd | KeyCode.KeyA, selectEntireModel)
-    const keyDownDisposable = raw?.onKeyDown((event) => {
-      const browserEvent = event.browserEvent
-      const isSelectAllShortcut =
-        (browserEvent.metaKey || browserEvent.ctrlKey) &&
-        !browserEvent.altKey &&
-        !browserEvent.shiftKey &&
-        browserEvent.key.toLowerCase() === 'a'
-
-      if (!isSelectAllShortcut) return
-
-      event.preventDefault()
-      event.stopPropagation()
-      selectEntireModel()
-    })
-
-    // rAF-debounced ResizeObserver — fires layout once per resize burst.
-    // During a pane or sidebar drag (data-pane-resizing attribute), layout is
-    // suppressed; a single layout runs when pane-resize-end fires.
-    let layoutRafId: number | null = null
-    let needsLayoutAfterResize = false
-    const runLayout = () => editorManager.layoutPane(resolvedPaneId)
-    const resizeObserver = new ResizeObserver(() => {
-      if (document.documentElement.hasAttribute('data-pane-resizing')) {
-        needsLayoutAfterResize = true
-        return
-      }
-      if (layoutRafId !== null) cancelAnimationFrame(layoutRafId)
-      layoutRafId = requestAnimationFrame(() => {
-        layoutRafId = null
-        runLayout()
-      })
-    })
-    resizeObserver.observe(container)
-
-    const handlePaneResizeEnd = () => {
-      if (!needsLayoutAfterResize) return
-      needsLayoutAfterResize = false
-      if (layoutRafId !== null) cancelAnimationFrame(layoutRafId)
-      layoutRafId = requestAnimationFrame(() => {
-        layoutRafId = null
-        runLayout()
-      })
-    }
-    window.addEventListener('pane-resize-end', handlePaneResizeEnd)
-
-    return () => {
-      resizeObserver.disconnect()
-      if (layoutRafId !== null) cancelAnimationFrame(layoutRafId)
-      window.removeEventListener('pane-resize-end', handlePaneResizeEnd)
-      keyDownDisposable?.dispose()
-      editorRef.current = null
-      modelRef.current = null
-      decorationCollectionRef.current = null
-      editorAPI.setViewportRef(null)
-      editorManager.unmountPane(resolvedPaneId)
-    }
-    // syncCursorAndSelection is a stable useCallback; settings/theme are read via
-    // refs so the retained widget is mounted exactly once per (pane, container).
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [useManagedWidget, editorManager, resolvedPaneId])
-
-  // ── Controller effect ───────────────────────────────────────────────────
-  // Swaps the model into the retained widget for the active editor buffer and
-  // (re)binds content/cursor/scroll listeners + the editorAPI cursor/selection
-  // subscriptions to that widget's current model. NO editor/model creation or
-  // disposal happens here — the manager owns the widget and the ModelRegistry
-  // owns the models. Re-runs on buffer change (model swap), never on settings.
-  useEffect(() => {
-    if (!useManagedWidget) return
-    if (!buffer) return
-    const container = containerRef.current
-    if (!container) return
-
-    editorManager.showBuffer(resolvedPaneId, fileUri(filePath))
-    const editor = editorManager.getRawEditor(resolvedPaneId) as
-      | Monaco.editor.IStandaloneCodeEditor
-      | null
-    const model = editor?.getModel() ?? null
-    if (!editor || !model) return
-
-    // Keep the model's tab settings in sync on swap (settings effect also runs).
-    model.updateOptions({ tabSize: latestEditorSettingsRef.current.tabSize, insertSpaces: true })
-
-    decorationCollectionRef.current = editor.createDecorationsCollection([])
-    editorRef.current = editor
-    modelRef.current = model
-    previousContentRef.current = content
-    lastAppliedContentRef.current = content
-
-    // Model-authoritative content: the Monaco model is the source of truth for
-    // text. Keystrokes are coalesced through a trailing-debounce ContentSink and
-    // written to the Zustand buffer store fire-and-forget (no synchronous
-    // store→setValue round-trip per keystroke). The sink's write is the single
-    // place that forwards to onContentChange and advances the "last value we
-    // pushed" markers so the external-change effect below can tell our own
-    // writes apart from genuine external changes.
-    const sink = new ContentSink({
-      delayMs: 150,
-      write: (value) => {
-        const previousContent = previousContentRef.current
-        const editorState = useEditorStateStore.getState()
-        previousContentRef.current = value
-        lastAppliedContentRef.current = value
-        latestContentChangeRef.current?.(
-          value,
-          previousContent,
-          editorState.cursorPosition,
-          editorState.selection,
-        )
-      },
-    })
-
-    // The FIRST edit after a (re)bind is flushed synchronously so the dirty
-    // indicator and preview-tab promote-on-first-edit fire immediately rather
-    // than after the trailing window. Sustained typing thereafter is throttled.
-    let firstEditFlushed = false
-
-    const disposables = [
-      editor.onDidChangeModelContent(() => {
-        if (applyingExternalChangeRef.current) return
-        if (editor.getModel() !== model) return
-        // Throttled, fire-and-forget write of the model text to the store.
-        sink.push(model.getValue())
-        if (!firstEditFlushed) {
-          firstEditFlushed = true
-          sink.flush()
-        }
-        // Cursor/selection drive the status bar — keep them synchronous.
-        syncCursorAndSelection()
-      }),
-      editor.onDidBlurEditorText(() => sink.flush()),
-      // Save (Cmd-S) reads buffer.content from the store. If the user types and
-      // saves within the throttle window WITHOUT blurring, the last keystrokes
-      // are still pending in the sink. The save flow dispatches this event
-      // synchronously before reading the store; flushing here (synchronously)
-      // pushes the pending value into the store in time. Flushing an empty sink
-      // is a no-op, so multiple mounted panes registering this is harmless.
-      {
-        dispose: (() => {
-          const handleFlushRequest = () => sink.flush()
-          window.addEventListener('flush-editor-content', handleFlushRequest)
-          return () => window.removeEventListener('flush-editor-content', handleFlushRequest)
-        })(),
-      },
-      editor.onDidChangeCursorSelection(syncCursorAndSelection),
-      // Managed panes rely on Monaco-native view-state (saved/restored by the
-      // EditorManager on model swap), so we do NOT write scroll to the manual
-      // view-state cache here. We still forward the offset for LSP overlay sync
-      // and recompute the visible line range.
-      editor.onDidScrollChange((event) => {
-        latestOnScrollOffsetChangeRef.current?.(event.scrollTop, event.scrollLeft)
-        updateVisibleLineRange(editor)
-      }),
-      editor.onDidLayoutChange((info) => {
-        setViewportHeight(info.height)
-        updateVisibleLineRange(editor)
-      }),
-    ]
-
-    const unsubscribeCursor = editorAPI.on('cursorChange', (position) => {
-      if (editorRef.current !== editor || editor.getModel() !== model) return
-      const monacoPosition = toClampedMonacoPosition(model, position)
-      editor.setPosition(monacoPosition)
-      editor.revealPositionInCenterIfOutsideViewport(monacoPosition)
-    })
-    const unsubscribeSelection = editorAPI.on('selectionChange', (selection) => {
-      if (editorRef.current !== editor || editor.getModel() !== model) return
-      if (selection) {
-        editor.setSelection(toMonacoRange(model, selection))
-      } else {
-        const position = editor.getPosition()
-        if (position) {
-          editor.setSelection(
-            new MonacoRange(
-              position.lineNumber,
-              position.column,
-              position.lineNumber,
-              position.column,
-            ),
-          )
-        }
-      }
-    })
-
-    updateVisibleLineRange(editor)
-
-    return () => {
-      // Persist any pending throttled edit before we tear down listeners, then
-      // drop the timer — covers switching tabs / unmounting mid-typing so the
-      // last keystrokes are never lost.
-      sink.flush()
-      sink.dispose()
-      onCoordinateResolverChange?.(null)
-      onModelPositionResolverChange?.(null)
-      unsubscribeCursor()
-      unsubscribeSelection()
-      for (const disposable of disposables) {
-        disposable.dispose()
-      }
-      if (decorationCollectionRef.current) {
-        decorationCollectionRef.current.clear()
-        decorationCollectionRef.current = null
-      }
-      // NOTE: the editor + model are owned by the EditorManager / ModelRegistry
-      // and intentionally NOT disposed here. Tab switches are model swaps.
-    }
-    // Intentionally narrow deps: settings (fontFamily, fontSize, theme, wordWrap, etc.) are
-    // handled by the updateOptions effect below — including them here would re-bind listeners
-    // on every settings change. isActiveSurface is excluded deliberately. Adapter registration
-    // and auto-focus are handled by the effects below.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [
-    useManagedWidget,
-    editorManager,
-    resolvedPaneId,
-    activeBufferId,
-    filePath,
-    isPreviewMode,
-    readOnly,
-    setViewportHeight,
-    viewStateKey,
-  ])
-
   // ── Legacy creation effect (non-managed / standalone consumers) ──────────
   // Used when no `paneId` is supplied (git diff viewer, etc.). Creates a private
   // Monaco editor + model per instance and disposes them on unmount — the exact
   // behavior that shipped before the retained-widget refactor. Pane editors use
   // the manager path above instead.
   useEffect(() => {
-    if (useManagedWidget) return
     const container = containerRef.current
     if (!container || !buffer) return
 
@@ -966,7 +461,6 @@ export function MonacoBackedEditor({
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [
-    useManagedWidget,
     activeBufferId,
     filePath,
     isPreviewMode,
@@ -1093,8 +587,8 @@ export function MonacoBackedEditor({
   // External content → model sync.
   //
   // The buffer store's `content` can change for two reasons:
-  //   (a) WE just pushed local typing through the ContentSink (managed) or the
-  //       synchronous change handler (legacy) — the model ALREADY holds it.
+  //   (a) WE just pushed local typing through the synchronous change handler —
+  //       the model ALREADY holds it.
   //   (b) A GENUINE external change: disk reload (external-buffer-sync),
   //       format-on-save, undo/redo applied to the store, etc. — the model must
   //       be updated to match.
@@ -1114,22 +608,6 @@ export function MonacoBackedEditor({
       return
     }
 
-    if (useManagedWidget) {
-      // Managed panes are model-authoritative: do NOT round-trip local typing
-      // through setValue. Genuine external changes are applied via an undo-
-      // friendly pushEditOperations edit on the held model (preserves the undo
-      // stack, unlike setValue). Guard so our own edit doesn't re-enter the
-      // change handler and bounce back to the store.
-      applyingExternalChangeRef.current = true
-      const selection = editor.getSelection()
-      editorManager.applyExternalEdit(resolvedPaneId, fileUri(filePath), content)
-      if (selection) editor.setSelection(selection)
-      previousContentRef.current = content
-      lastAppliedContentRef.current = content
-      applyingExternalChangeRef.current = false
-      return
-    }
-
     applyingExternalChangeRef.current = true
     const selection = editor.getSelection()
     model.setValue(content)
@@ -1137,7 +615,7 @@ export function MonacoBackedEditor({
     previousContentRef.current = content
     lastAppliedContentRef.current = content
     applyingExternalChangeRef.current = false
-  }, [content, useManagedWidget, editorManager, resolvedPaneId, filePath])
+  }, [content, filePath])
 
   // Effect A: theme-only — re-runs only when the active theme changes.
   // Subscribes to themeRegistry so dynamic theme updates (palette changes) are picked up.
@@ -1320,36 +798,30 @@ export function MonacoBackedEditor({
     }
   }, [lineHeight, onCoordinateResolverChange, onModelPositionResolverChange])
 
-  // Restore scroll + cursor when this surface becomes active or the buffer changes,
-  // and focus the editor when it becomes the active surface.
-  //
-  // Managed panes do NOT restore from the manual view-state cache here: the
-  // EditorManager already saves/restores Monaco-native view-state on every model
-  // swap (keyed by paneId+uri), which covers scroll and cursor/selection. Only the
-  // legacy create-per-instance path (no paneId) reads the manual cache. Focus is
-  // applied for both paths when the surface becomes active.
+  // Restore scroll + cursor when this surface becomes active or the buffer
+  // changes, and focus the editor when it becomes the active surface. This
+  // legacy create-per-instance path reads the manual view-state cache (keyed by
+  // viewStateKey/bufferId).
   useEffect(() => {
     const editor = editorRef.current
     if (!editor || !isActiveSurface) return
 
-    if (!useManagedWidget) {
-      const cached = useEditorStateStore
-        .getState()
-        .actions.getCachedViewState(viewStateKey ?? activeBufferId ?? '')
-      if (cached) {
-        editor.setScrollPosition({ scrollTop: cached.scrollTop, scrollLeft: cached.scrollLeft })
-        const model = editor.getModel()
-        if (model) {
-          editor.setPosition(toClampedMonacoPosition(model, cached.cursor))
-          if (cached.selection) editor.setSelection(toMonacoRange(model, cached.selection))
-        }
+    const cached = useEditorStateStore
+      .getState()
+      .actions.getCachedViewState(viewStateKey ?? activeBufferId ?? '')
+    if (cached) {
+      editor.setScrollPosition({ scrollTop: cached.scrollTop, scrollLeft: cached.scrollLeft })
+      const model = editor.getModel()
+      if (model) {
+        editor.setPosition(toClampedMonacoPosition(model, cached.cursor))
+        if (cached.selection) editor.setSelection(toMonacoRange(model, cached.selection))
       }
     }
 
     if (!readOnly && !isPreviewMode) {
       setTimeout(() => editorRef.current?.focus(), 0)
     }
-  }, [activeBufferId, isActiveSurface, isPreviewMode, readOnly, useManagedWidget, viewStateKey])
+  }, [activeBufferId, isActiveSurface, isPreviewMode, readOnly, viewStateKey])
 
   // LSP diagnostics: open the document so the server analyzes it, then paint
   // its diagnostics as Monaco markers (squiggles) for this file.

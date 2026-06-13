@@ -1,4 +1,4 @@
-import CodeEditor from '@/features/editor/components/code-editor'
+import { EditorSurface } from '@/features/editor/components/editor-surface'
 import { ErrorBoundary } from '@/components/error-boundary'
 import { useBufferById } from '@/features/workspace/stores/hooks/use-buffer-store'
 import { isEditorContent } from '@/features/panes/types/pane-content'
@@ -46,7 +46,10 @@ export function EditorPane({
         </div>
       }
     >
-      <CodeEditor
+      {/* Keyed by paneId so a buffer/tab switch swaps the model imperatively
+          (via usePaneEditorController) instead of remounting the shell. */}
+      <EditorSurface
+        key={paneId}
         paneId={paneId}
         bufferId={bufferId}
         isActiveSurface={isActiveSurface}
