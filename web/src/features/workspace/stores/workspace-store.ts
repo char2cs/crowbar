@@ -10,8 +10,28 @@ import { createFileWatcherSlice } from './slices/file-watcher-slice'
 import { createRecentFilesSlice } from './slices/recent-files-slice'
 import { createBranchReviewSlice } from './slices/branch-review-slice'
 import { saveSessionToStore } from '@/features/editor/stores/buffer-session-persistence'
+import { ModelRegistry } from '@/features/editor/lib/model-registry'
+import { EditorManager, type BufferMeta } from '@/features/editor/lib/editor-manager'
+import {
+  EDITOR_CREATE_OPTIONS,
+  langForUri,
+  realEditorApi,
+  realModelApi,
+} from '@/features/editor/lib/monaco-adapters'
+import { uriToFsPath } from '@/features/editor/lib/editor-uri'
 
-export type WorkspaceStore = StoreApi<WorkspaceState>
+/**
+ * Per-workspace, NON-REACTIVE editor handles attached to the store object.
+ * They are NOT part of the reactive {@link WorkspaceState} (so they never
+ * trigger subscriptions/persistence). Access via `store.editorManager` /
+ * `store.modelRegistry`; disposed in `destroyWorkspaceStore`.
+ */
+export interface WorkspaceEditorHandles {
+  readonly modelRegistry: ModelRegistry
+  readonly editorManager: EditorManager
+}
+
+export type WorkspaceStore = StoreApi<WorkspaceState> & WorkspaceEditorHandles
 
 export type WorkspaceSnapshot = Partial<
   Pick<
@@ -51,5 +71,24 @@ export function createWorkspaceStore(wsId: string, snapshot?: WorkspaceSnapshot)
     saveSessionToStore(state.buffers, activePane?.activeBufferId ?? null)
   })
 
-  return store
+  // One ModelRegistry + EditorManager per workspace (non-reactive handles).
+  // `text(uri)` reads the buffer content for the file at that uri, or '' if it
+  // isn't loaded; `lang(uri)` derives the Monaco language id from the path.
+  const registry = new ModelRegistry(realModelApi())
+  const meta: BufferMeta = {
+    lang: (uri) => langForUri(uri),
+    text: (uri) => {
+      const fsPath = uriToFsPath(uri)
+      const buf = store
+        .getState()
+        .buffers.find((b) => b.type === 'editor' && b.path === fsPath)
+      return buf && 'content' in buf ? buf.content : ''
+    },
+  }
+  const manager = new EditorManager(realEditorApi(EDITOR_CREATE_OPTIONS), registry, meta)
+
+  return Object.assign(store, {
+    modelRegistry: registry,
+    editorManager: manager,
+  })
 }

@@ -57,6 +57,7 @@ export function destroyWorkspaceStore(wsId: string): void {
     clearTimeout(existing)
     persistTimers.delete(wsId)
   }
+  registry.get(wsId)?.editorManager.disposeAll()
   registry.delete(wsId)
 }
 
