@@ -4,6 +4,7 @@ api/coverage/
 api/logs/
 
 # React / Node
+node_modules/
 web/node_modules/
 web/dist/
 web/.vite/
