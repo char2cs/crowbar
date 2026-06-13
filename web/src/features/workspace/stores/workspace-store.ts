@@ -13,6 +13,10 @@ import { saveSessionToStore } from '@/features/editor/stores/buffer-session-pers
 import { ModelRegistry } from '@/features/editor/lib/model-registry'
 import { EditorManager, type BufferMeta } from '@/features/editor/lib/editor-manager'
 import {
+  createActiveEditorRegistry,
+  type ActiveEditorRegistry,
+} from '@/features/editor/lib/active-editor-context'
+import {
   EDITOR_CREATE_OPTIONS,
   langForUri,
   realEditorApi,
@@ -29,6 +33,14 @@ import { uriToFsPath } from '@/features/editor/lib/editor-uri'
 export interface WorkspaceEditorHandles {
   readonly modelRegistry: ModelRegistry
   readonly editorManager: EditorManager
+  /**
+   * Per-workspace active-editor pub/sub registry. The per-pane editor
+   * controller publishes the current ActiveEditorContext here on each buffer
+   * swap; satellite UI (status bar, LSP overlays, etc.) subscribe by paneId
+   * without re-rendering on a tab switch. Sits next to {@link editorManager}
+   * as a NON-REACTIVE handle.
+   */
+  readonly activeEditorRegistry: ActiveEditorRegistry
 }
 
 export type WorkspaceStore = StoreApi<WorkspaceState> & WorkspaceEditorHandles
@@ -86,9 +98,11 @@ export function createWorkspaceStore(wsId: string, snapshot?: WorkspaceSnapshot)
     },
   }
   const manager = new EditorManager(realEditorApi(EDITOR_CREATE_OPTIONS), registry, meta)
+  const activeEditorRegistry = createActiveEditorRegistry()
 
   return Object.assign(store, {
     modelRegistry: registry,
     editorManager: manager,
+    activeEditorRegistry,
   })
 }
