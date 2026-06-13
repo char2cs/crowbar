@@ -63,3 +63,25 @@
   --syntax-markdown-list: oklch(0.68 0.18 310);
   --syntax-markdown-quote: oklch(0.56 0.01 255);
 }
+
+/*
+ * Pane-resize performance.
+ *
+ * While a pane/sidebar splitter is being dragged (data-pane-resizing is set on
+ * <html> by pane-node-renderer / ide-shell), promote each Monaco editor to its
+ * own GPU compositor layer. Without this, every drag frame forces WebKit
+ * (Tauri's WKWebView) to CPU re-rasterize the editor's text surface as the pane
+ * width changes — profiled at ~55-66ms/frame, every frame dropped. Promoting to
+ * a layer turns the resize into a cheap GPU clip/composite (~18ms/frame, ~0
+ * dropped — matches hiding the editor entirely).
+ *
+ * Scoped to the active drag only: `transform` establishes a containing block for
+ * position:fixed descendants (Monaco's fixedOverflowWidgets), but no overflow
+ * widgets are open mid-drag, and editor.layout() is already suppressed during the
+ * drag and flushed once on pane-resize-end. Keeping it drag-scoped also avoids
+ * leaving `will-change` set (which would pin GPU memory).
+ */
+html[data-pane-resizing] .monaco-editor {
+  will-change: transform;
+  transform: translateZ(0);
+}
