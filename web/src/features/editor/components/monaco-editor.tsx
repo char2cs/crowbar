@@ -653,9 +653,11 @@ export function MonacoBackedEditor({
         syncCursorAndSelection()
       }),
       editor.onDidChangeCursorSelection(syncCursorAndSelection),
+      // Managed panes rely on Monaco-native view-state (saved/restored by the
+      // EditorManager on model swap), so we do NOT write scroll to the manual
+      // view-state cache here. We still forward the offset for LSP overlay sync
+      // and recompute the visible line range.
       editor.onDidScrollChange((event) => {
-        const viewKey = viewStateKey ?? activeBufferId ?? null
-        setScrollForBuffer(viewKey, event.scrollTop, event.scrollLeft)
         latestOnScrollOffsetChangeRef.current?.(event.scrollTop, event.scrollLeft)
         updateVisibleLineRange(editor)
       }),
@@ -720,7 +722,6 @@ export function MonacoBackedEditor({
     filePath,
     isPreviewMode,
     readOnly,
-    setScrollForBuffer,
     setViewportHeight,
     viewStateKey,
   ])
@@ -1247,26 +1248,34 @@ export function MonacoBackedEditor({
 
   // Restore scroll + cursor when this surface becomes active or the buffer changes,
   // and focus the editor when it becomes the active surface.
+  //
+  // Managed panes do NOT restore from the manual view-state cache here: the
+  // EditorManager already saves/restores Monaco-native view-state on every model
+  // swap (keyed by paneId+uri), which covers scroll and cursor/selection. Only the
+  // legacy create-per-instance path (no paneId) reads the manual cache. Focus is
+  // applied for both paths when the surface becomes active.
   useEffect(() => {
     const editor = editorRef.current
     if (!editor || !isActiveSurface) return
 
-    const cached = useEditorStateStore
-      .getState()
-      .actions.getCachedViewState(viewStateKey ?? activeBufferId ?? '')
-    if (cached) {
-      editor.setScrollPosition({ scrollTop: cached.scrollTop, scrollLeft: cached.scrollLeft })
-      const model = editor.getModel()
-      if (model) {
-        editor.setPosition(toClampedMonacoPosition(model, cached.cursor))
-        if (cached.selection) editor.setSelection(toMonacoRange(model, cached.selection))
+    if (!useManagedWidget) {
+      const cached = useEditorStateStore
+        .getState()
+        .actions.getCachedViewState(viewStateKey ?? activeBufferId ?? '')
+      if (cached) {
+        editor.setScrollPosition({ scrollTop: cached.scrollTop, scrollLeft: cached.scrollLeft })
+        const model = editor.getModel()
+        if (model) {
+          editor.setPosition(toClampedMonacoPosition(model, cached.cursor))
+          if (cached.selection) editor.setSelection(toMonacoRange(model, cached.selection))
+        }
       }
     }
 
     if (!readOnly && !isPreviewMode) {
       setTimeout(() => editorRef.current?.focus(), 0)
     }
-  }, [activeBufferId, isActiveSurface, isPreviewMode, readOnly, viewStateKey])
+  }, [activeBufferId, isActiveSurface, isPreviewMode, readOnly, useManagedWidget, viewStateKey])
 
   // LSP diagnostics: open the document so the server analyzes it, then paint
   // its diagnostics as Monaco markers (squiggles) for this file.

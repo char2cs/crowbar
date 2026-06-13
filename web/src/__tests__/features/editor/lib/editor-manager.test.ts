@@ -61,6 +61,22 @@ describe('EditorManager', () => {
     expect(ed.restoreViewState).toHaveBeenCalled()
   })
 
+  it('round-trips view-state: state saved on leaving a buffer is restored on returning', () => {
+    const ea = fakeEditorApi(); const reg = new ModelRegistry(fakeModelApi())
+    const m = new EditorManager(ea, reg, { lang, text })
+    m.mountPane('p1', {} as HTMLElement)
+    m.showBuffer('p1', 'athas://editor/a')
+    const ed = ea.created[0]
+    // simulate a meaningful view-state for 'a' by stubbing saveViewState's return
+    const stateA = { scroll: 42 }
+    ed.saveViewState = () => stateA
+    m.showBuffer('p1', 'athas://editor/b') // leaving a -> saves stateA
+    const restored: unknown[] = []
+    ed.restoreViewState = (s: unknown) => restored.push(s)
+    m.showBuffer('p1', 'athas://editor/a') // returning to a -> restores stateA
+    expect(restored).toContain(stateA)
+  })
+
   it('two panes on the same uri share the model but keep independent view-state keys', () => {
     const modelApi = fakeModelApi(); const ea = fakeEditorApi()
     const reg = new ModelRegistry(modelApi)
