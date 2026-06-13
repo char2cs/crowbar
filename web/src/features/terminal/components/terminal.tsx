@@ -173,7 +173,12 @@ export const XtermTerminal: React.FC<XtermTerminalProps> = ({
 
     isInitializingRef.current = true
     const resolved = await resolveTerminalFont(terminalFontFamily, effectiveTerminalFontSize)
-    await new Promise((resolve) => setTimeout(resolve, 100))
+    // Skip the font-settle delay when reconnecting to an existing PTY — font is
+    // already loaded and rasterized, so the wait is pure dead time that makes
+    // the blank gap on pane splits/moves visibly long.
+    if (!hadExistingConnectionOnMountRef.current) {
+      await new Promise((resolve) => setTimeout(resolve, 100))
+    }
 
     if (!terminalContainerRef.current) {
       isInitializingRef.current = false
@@ -494,10 +499,21 @@ export const XtermTerminal: React.FC<XtermTerminalProps> = ({
   useEffect(() => {
     if (!addonsRef.current || !terminalContainerRef.current || !isInitialized) return
 
+    // Mirror Monaco's pattern: suppress fitting during pane/sidebar drags
+    // (data-pane-resizing attribute) and do one final fit on pane-resize-end.
+    // Without this, fitAddon.fit() + terminalResize() IPC fires every frame
+    // during drag — far heavier than editor.layout() and causes canvas glitches.
     let rafId: number | null = null
+    let needsFitAfterResize = false
+
     const resizeObserver = new ResizeObserver(() => {
+      if (document.documentElement.hasAttribute('data-pane-resizing')) {
+        needsFitAfterResize = true
+        return
+      }
       if (rafId) cancelAnimationFrame(rafId)
       rafId = requestAnimationFrame(() => {
+        rafId = null
         const container = terminalContainerRef.current
         if (!addonsRef.current || !container) return
 
@@ -508,12 +524,29 @@ export const XtermTerminal: React.FC<XtermTerminalProps> = ({
       })
     })
 
+    const handlePaneResizeEnd = () => {
+      if (!needsFitAfterResize) return
+      needsFitAfterResize = false
+      if (rafId !== null) cancelAnimationFrame(rafId)
+      rafId = requestAnimationFrame(() => {
+        rafId = null
+        const container = terminalContainerRef.current
+        if (!addonsRef.current || !container) return
+        const rect = container.getBoundingClientRect()
+        if (rect.width > 0 && rect.height > 0) {
+          fitTerminal(3)
+        }
+      })
+    }
+    window.addEventListener('pane-resize-end', handlePaneResizeEnd)
+
     resizeObserver.observe(terminalContainerRef.current)
     const cleanupFit = fitTerminal(12)
 
     return () => {
       resizeObserver.disconnect()
       if (rafId) cancelAnimationFrame(rafId)
+      window.removeEventListener('pane-resize-end', handlePaneResizeEnd)
       cleanupFit?.()
     }
   }, [fitTerminal, isInitialized])
