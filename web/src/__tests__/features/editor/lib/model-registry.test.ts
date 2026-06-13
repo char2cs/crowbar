@@ -6,7 +6,7 @@ function fakeApi() {
   return {
     models,
     createModel: vi.fn((value: string, _lang: string, uri: string) => {
-      const m = { uri, value, disposed: false, dispose() { this.disposed = true; models.delete(uri) } }
+      const m = { uri, value, disposed: false, dispose(this: { disposed: boolean }) { this.disposed = true; models.delete(uri) } }
       models.set(uri, m); return m
     }),
     getModel: vi.fn((uri: string) => models.get(uri) ?? null),
@@ -24,7 +24,7 @@ describe('ModelRegistry', () => {
 
   it('disposes the model only when the last holder releases', () => {
     const api = fakeApi(); const r = new ModelRegistry(api)
-    const m = r.acquire('athas://editor/x', 'ts', 'a')
+    const m = r.acquire('athas://editor/x', 'ts', 'a') as unknown as { disposed: boolean }
     r.acquire('athas://editor/x', 'ts', 'a')
     r.release('athas://editor/x')
     expect(m.disposed).toBe(false)

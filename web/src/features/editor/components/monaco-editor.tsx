@@ -24,7 +24,11 @@ import { themeRegistry } from '@/extensions/themes/theme-registry'
 import type { ThemeDefinition } from '@/extensions/themes/types'
 import { useSettingsStore } from '@/features/settings/store'
 import { useZoomStore } from '@/features/window/stores/zoom-store'
-import { useWorkspaceStoreContext } from '@/features/workspace/stores/workspace-context'
+import {
+  useWorkspaceStore,
+  useWorkspaceStoreContext,
+} from '@/features/workspace/stores/workspace-context'
+import { fileUri } from '@/features/editor/lib/editor-uri'
 import { useEditorSettingsStore } from '../stores/settings-store'
 import { useEditorStateStore } from '../stores/state-store'
 import { useEditorUIStore } from '../stores/ui-store'
@@ -40,6 +44,7 @@ import type {
 import { toMonacoLanguageId } from '../monaco/language'
 
 interface MonacoBackedEditorProps {
+  paneId?: string
   bufferId?: string
   viewStateKey?: string
   isActiveSurface?: boolean
@@ -319,6 +324,7 @@ function defineMonacoTheme(themeId: string): string {
 }
 
 export function MonacoBackedEditor({
+  paneId: propPaneId,
   bufferId: propBufferId,
   viewStateKey,
   isActiveSurface = true,
@@ -347,8 +353,19 @@ export function MonacoBackedEditor({
   const modelRef = useRef<Monaco.editor.ITextModel | null>(null)
   const applyingExternalChangeRef = useRef(false)
   const previousContentRef = useRef('')
-  const decorationsRef = useRef<string[]>([])
+  const decorationCollectionRef = useRef<Monaco.editor.IEditorDecorationsCollection | null>(null)
   const latestContentChangeRef = useRef(onContentChange)
+  const workspaceStore = useWorkspaceStore()
+  const editorManager = workspaceStore.editorManager
+  // The retained per-pane widget (owned by EditorManager) is used ONLY for real
+  // workspace panes, which always pass an explicit `paneId`. Standalone consumers
+  // of this component — notably the git diff viewer, which renders MANY read-only
+  // editors concurrently and shares source paths across split left/right surfaces —
+  // do NOT pass a paneId. Those keep the legacy create-per-instance path because
+  // (a) they would all collide on a single pane widget, and (b) the manager keys
+  // models by file path, so split editors sharing a path would share one model.
+  const useManagedWidget = !!propPaneId
+  const resolvedPaneId = propPaneId ?? ''
   const activeBufferId = useWorkspaceStoreContext(
     useCallback(
       (state) => propBufferId ?? state.panes[state.activePaneId]?.activeBufferId ?? null,
@@ -366,6 +383,7 @@ export function MonacoBackedEditor({
   )
   const buffer = activeBuffer && activeBuffer.type === 'editor' ? activeBuffer : null
   const content = buffer?.content ?? ''
+  const lastAppliedContentRef = useRef(content)
   const filePath = buffer?.path ?? ''
   const languageId = buffer?.languageOverride ?? getLanguageIdFromPath(filePath)
   const monacoLanguageId = toMonacoLanguageId(languageId)
@@ -394,6 +412,13 @@ export function MonacoBackedEditor({
   const modelUri = useMemo(
     () => createModelUri(activeBufferId ?? undefined, filePath),
     [activeBufferId, filePath],
+  )
+
+  // Stable identity for editorAPI adapter registration — changes only when the
+  // buffer or view key changes, NOT when isActiveSurface changes.
+  const adapterOwnerId = useMemo(
+    () => viewStateKey ?? activeBufferId ?? modelUri.toString(),
+    [viewStateKey, activeBufferId, modelUri],
   )
 
   latestContentChangeRef.current = onContentChange
@@ -451,6 +476,9 @@ export function MonacoBackedEditor({
     monacoLanguageId,
   }
 
+  const latestOnVisibleLineRangeChangeRef = useRef(onVisibleLineRangeChange)
+  latestOnVisibleLineRangeChangeRef.current = onVisibleLineRangeChange
+
   const updateVisibleLineRange = useCallback(
     (editor: Monaco.editor.IStandaloneCodeEditor) => {
       const visibleRanges = editor.getVisibleRanges()
@@ -458,15 +486,16 @@ export function MonacoBackedEditor({
       const lastRange = visibleRanges[visibleRanges.length - 1] ?? firstRange
       if (!firstRange || !lastRange) return
 
-      onVisibleLineRangeChange?.({
+      latestOnVisibleLineRangeChangeRef.current?.({
         startLine: Math.max(0, firstRange.startLineNumber - 1 - 30),
         endLine: Math.max(0, lastRange.endLineNumber - 1 + 30),
       })
     },
-    [onVisibleLineRangeChange],
+    [],
   )
 
-  const syncCursorAndSelection = useCallback(() => {
+  const syncCursorAndSelectionRef = useRef<() => void>(() => {})
+  syncCursorAndSelectionRef.current = () => {
     const editor = editorRef.current
     const model = modelRef.current
     if (!editor || !model) return
@@ -477,9 +506,232 @@ export function MonacoBackedEditor({
     }
     const selection = editor.getSelection()
     setSelection(selection ? toEditorRange(model, selection) : undefined)
-  }, [setCursorPosition, setSelection])
+  }
+  const syncCursorAndSelection = useCallback(() => syncCursorAndSelectionRef.current(), [])
 
+  // ── Mount effect ────────────────────────────────────────────────────────
+  // Mounts the pane's RETAINED Monaco widget (owned by the EditorManager) into
+  // this container exactly once per (pane, container) lifetime. The widget is
+  // NOT created/destroyed on tab switches — those are handled as model swaps by
+  // the controller effect below. ResizeObserver + pane-resize-end drive layout
+  // through the manager (the widget runs with automaticLayout:false).
   useEffect(() => {
+    if (!useManagedWidget) return
+    const container = containerRef.current
+    if (!container) return
+
+    editorManager.mountPane(resolvedPaneId, container)
+    editorAPI.setTextareaRef(null)
+    editorAPI.setViewportRef(container)
+
+    const raw = editorManager.getRawEditor(resolvedPaneId) as
+      | Monaco.editor.IStandaloneCodeEditor
+      | null
+
+    // Apply the active theme to the freshly-created widget. (Subsequent theme
+    // changes are handled by the theme effect below.)
+    const s = latestEditorSettingsRef.current
+    raw?.updateOptions({ theme: defineMonacoTheme(s.settingsTheme || s.theme) })
+
+    // Select-all command + Cmd/Ctrl-A keybinding. Registered once on the
+    // retained widget (addCommand returns an id, not a disposable, so it must
+    // NOT be re-registered per tab switch). Targets the widget's CURRENT model.
+    const selectEntireModel = () => {
+      const ed = editorManager.getRawEditor(resolvedPaneId) as
+        | Monaco.editor.IStandaloneCodeEditor
+        | null
+      const m = ed?.getModel()
+      if (!ed || !m) return
+      ed.setSelection(m.getFullModelRange())
+      ed.focus()
+      syncCursorAndSelection()
+    }
+    raw?.addCommand(KeyMod.CtrlCmd | KeyCode.KeyA, selectEntireModel)
+    const keyDownDisposable = raw?.onKeyDown((event) => {
+      const browserEvent = event.browserEvent
+      const isSelectAllShortcut =
+        (browserEvent.metaKey || browserEvent.ctrlKey) &&
+        !browserEvent.altKey &&
+        !browserEvent.shiftKey &&
+        browserEvent.key.toLowerCase() === 'a'
+
+      if (!isSelectAllShortcut) return
+
+      event.preventDefault()
+      event.stopPropagation()
+      selectEntireModel()
+    })
+
+    // rAF-debounced ResizeObserver — fires layout once per resize burst.
+    // During a pane or sidebar drag (data-pane-resizing attribute), layout is
+    // suppressed; a single layout runs when pane-resize-end fires.
+    let layoutRafId: number | null = null
+    let needsLayoutAfterResize = false
+    const runLayout = () => editorManager.layoutPane(resolvedPaneId)
+    const resizeObserver = new ResizeObserver(() => {
+      if (document.documentElement.hasAttribute('data-pane-resizing')) {
+        needsLayoutAfterResize = true
+        return
+      }
+      if (layoutRafId !== null) cancelAnimationFrame(layoutRafId)
+      layoutRafId = requestAnimationFrame(() => {
+        layoutRafId = null
+        runLayout()
+      })
+    })
+    resizeObserver.observe(container)
+
+    const handlePaneResizeEnd = () => {
+      if (!needsLayoutAfterResize) return
+      needsLayoutAfterResize = false
+      if (layoutRafId !== null) cancelAnimationFrame(layoutRafId)
+      layoutRafId = requestAnimationFrame(() => {
+        layoutRafId = null
+        runLayout()
+      })
+    }
+    window.addEventListener('pane-resize-end', handlePaneResizeEnd)
+
+    return () => {
+      resizeObserver.disconnect()
+      if (layoutRafId !== null) cancelAnimationFrame(layoutRafId)
+      window.removeEventListener('pane-resize-end', handlePaneResizeEnd)
+      keyDownDisposable?.dispose()
+      editorRef.current = null
+      modelRef.current = null
+      decorationCollectionRef.current = null
+      editorAPI.setViewportRef(null)
+      editorManager.unmountPane(resolvedPaneId)
+    }
+    // syncCursorAndSelection is a stable useCallback; settings/theme are read via
+    // refs so the retained widget is mounted exactly once per (pane, container).
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [useManagedWidget, editorManager, resolvedPaneId])
+
+  // ── Controller effect ───────────────────────────────────────────────────
+  // Swaps the model into the retained widget for the active editor buffer and
+  // (re)binds content/cursor/scroll listeners + the editorAPI cursor/selection
+  // subscriptions to that widget's current model. NO editor/model creation or
+  // disposal happens here — the manager owns the widget and the ModelRegistry
+  // owns the models. Re-runs on buffer change (model swap), never on settings.
+  useEffect(() => {
+    if (!useManagedWidget) return
+    if (!buffer) return
+    const container = containerRef.current
+    if (!container) return
+
+    editorManager.showBuffer(resolvedPaneId, fileUri(filePath))
+    const editor = editorManager.getRawEditor(resolvedPaneId) as
+      | Monaco.editor.IStandaloneCodeEditor
+      | null
+    const model = editor?.getModel() ?? null
+    if (!editor || !model) return
+
+    // Keep the model's tab settings in sync on swap (settings effect also runs).
+    model.updateOptions({ tabSize: latestEditorSettingsRef.current.tabSize, insertSpaces: true })
+
+    decorationCollectionRef.current = editor.createDecorationsCollection([])
+    editorRef.current = editor
+    modelRef.current = model
+    previousContentRef.current = content
+    lastAppliedContentRef.current = content
+
+    const disposables = [
+      editor.onDidChangeModelContent(() => {
+        if (applyingExternalChangeRef.current) return
+        if (editor.getModel() !== model) return
+        const nextContent = model.getValue()
+        const previousContent = previousContentRef.current
+        const editorState = useEditorStateStore.getState()
+        previousContentRef.current = nextContent
+        latestContentChangeRef.current?.(
+          nextContent,
+          previousContent,
+          editorState.cursorPosition,
+          editorState.selection,
+        )
+        syncCursorAndSelection()
+      }),
+      editor.onDidChangeCursorSelection(syncCursorAndSelection),
+      editor.onDidScrollChange((event) => {
+        const viewKey = viewStateKey ?? activeBufferId ?? null
+        setScrollForBuffer(viewKey, event.scrollTop, event.scrollLeft)
+        latestOnScrollOffsetChangeRef.current?.(event.scrollTop, event.scrollLeft)
+        updateVisibleLineRange(editor)
+      }),
+      editor.onDidLayoutChange((info) => {
+        setViewportHeight(info.height)
+        updateVisibleLineRange(editor)
+      }),
+    ]
+
+    const unsubscribeCursor = editorAPI.on('cursorChange', (position) => {
+      if (editorRef.current !== editor || editor.getModel() !== model) return
+      const monacoPosition = toClampedMonacoPosition(model, position)
+      editor.setPosition(monacoPosition)
+      editor.revealPositionInCenterIfOutsideViewport(monacoPosition)
+    })
+    const unsubscribeSelection = editorAPI.on('selectionChange', (selection) => {
+      if (editorRef.current !== editor || editor.getModel() !== model) return
+      if (selection) {
+        editor.setSelection(toMonacoRange(model, selection))
+      } else {
+        const position = editor.getPosition()
+        if (position) {
+          editor.setSelection(
+            new MonacoRange(
+              position.lineNumber,
+              position.column,
+              position.lineNumber,
+              position.column,
+            ),
+          )
+        }
+      }
+    })
+
+    updateVisibleLineRange(editor)
+
+    return () => {
+      onCoordinateResolverChange?.(null)
+      onModelPositionResolverChange?.(null)
+      unsubscribeCursor()
+      unsubscribeSelection()
+      for (const disposable of disposables) {
+        disposable.dispose()
+      }
+      if (decorationCollectionRef.current) {
+        decorationCollectionRef.current.clear()
+        decorationCollectionRef.current = null
+      }
+      // NOTE: the editor + model are owned by the EditorManager / ModelRegistry
+      // and intentionally NOT disposed here. Tab switches are model swaps.
+    }
+    // Intentionally narrow deps: settings (fontFamily, fontSize, theme, wordWrap, etc.) are
+    // handled by the updateOptions effect below — including them here would re-bind listeners
+    // on every settings change. isActiveSurface is excluded deliberately. Adapter registration
+    // and auto-focus are handled by the effects below.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [
+    useManagedWidget,
+    editorManager,
+    resolvedPaneId,
+    activeBufferId,
+    filePath,
+    isPreviewMode,
+    readOnly,
+    setScrollForBuffer,
+    setViewportHeight,
+    viewStateKey,
+  ])
+
+  // ── Legacy creation effect (non-managed / standalone consumers) ──────────
+  // Used when no `paneId` is supplied (git diff viewer, etc.). Creates a private
+  // Monaco editor + model per instance and disposes them on unmount — the exact
+  // behavior that shipped before the retained-widget refactor. Pane editors use
+  // the manager path above instead.
+  useEffect(() => {
+    if (useManagedWidget) return
     const container = containerRef.current
     if (!container || !buffer) return
 
@@ -493,6 +745,13 @@ export function MonacoBackedEditor({
     const editor = monacoEditor.create(container, {
       model,
       automaticLayout: false,
+      // Monaco 0.55 enables the experimental EditContext input mode by default on
+      // Chromium. Its post-render handler (_updateSelectionAndControlBoundsAfterRender)
+      // calls getDomNodePagePosition — a getBoundingClientRect walk up the offsetParent
+      // chain — on every selection/render. Profiling a drag-select across split panes
+      // showed this as the dominant cost (INP 564ms → 178ms, forced reflow 768ms → 391ms
+      // once disabled). Fall back to the classic hidden-textarea input path.
+      editContext: false,
       fontFamily: s.fontFamily,
       fontSize: s.fontSize,
       lineHeight: s.lineHeight,
@@ -530,84 +789,18 @@ export function MonacoBackedEditor({
       },
     })
 
+    decorationCollectionRef.current = editor.createDecorationsCollection([])
     editorRef.current = editor
     modelRef.current = model
     previousContentRef.current = content
+    lastAppliedContentRef.current = content
     editorAPI.setTextareaRef(null)
     editorAPI.setViewportRef(container)
 
-    const adapterOwnerId = viewStateKey ?? activeBufferId ?? modelUri.toString()
     const selectEntireModel = () => {
       editor.setSelection(model.getFullModelRange())
       editor.focus()
       syncCursorAndSelection()
-    }
-
-    if (isActiveSurface && !readOnly && !isPreviewMode) {
-      const executeTextEdit = (range: Monaco.Range, text: string) => {
-        const startOffset = model.getOffsetAt(range.getStartPosition())
-        editor.pushUndoStop()
-        editor.executeEdits('athas-api', [{ range, text, forceMoveMarkers: true }])
-        const nextPosition = model.getPositionAt(startOffset + text.length)
-        editor.setSelection(
-          new MonacoRange(
-            nextPosition.lineNumber,
-            nextPosition.column,
-            nextPosition.lineNumber,
-            nextPosition.column,
-          ),
-        )
-        editor.setPosition(nextPosition)
-        editor.pushUndoStop()
-        syncCursorAndSelection()
-      }
-
-      editorAPI.setActiveEditorAdapter({
-        ownerId: adapterOwnerId,
-        insertText: (text, position) => {
-          if (position) {
-            const monacoPosition = toClampedMonacoPosition(model, position)
-            executeTextEdit(
-              new MonacoRange(
-                monacoPosition.lineNumber,
-                monacoPosition.column,
-                monacoPosition.lineNumber,
-                monacoPosition.column,
-              ),
-              text,
-            )
-            return
-          }
-
-          const selection = editor.getSelection()
-          if (selection && !selection.isEmpty()) {
-            executeTextEdit(selection, text)
-            return
-          }
-
-          const currentPosition = editor.getPosition() ?? { lineNumber: 1, column: 1 }
-          executeTextEdit(
-            new MonacoRange(
-              currentPosition.lineNumber,
-              currentPosition.column,
-              currentPosition.lineNumber,
-              currentPosition.column,
-            ),
-            text,
-          )
-        },
-        deleteRange: (range) => executeTextEdit(toMonacoRange(model, range), ''),
-        replaceRange: (range, text) => executeTextEdit(toMonacoRange(model, range), text),
-        selectAll: selectEntireModel,
-        undo: () => {
-          editor.trigger('athas-api', 'undo', null)
-          syncCursorAndSelection()
-        },
-        redo: () => {
-          editor.trigger('athas-api', 'redo', null)
-          syncCursorAndSelection()
-        },
-      })
     }
 
     editor.addCommand(KeyMod.CtrlCmd | KeyCode.KeyA, selectEntireModel)
@@ -680,13 +873,7 @@ export function MonacoBackedEditor({
     })
 
     updateVisibleLineRange(editor)
-    if (isActiveSurface && !readOnly && !isPreviewMode) {
-      setTimeout(() => editor.focus(), 0)
-    }
 
-    // rAF-debounced ResizeObserver — fires editor.layout() only once per resize burst.
-    // During a pane or sidebar drag (data-pane-resizing attribute), layout is suppressed;
-    // a single layout runs when pane-resize-end fires. Eliminates per-frame editor.layout() cost.
     let layoutRafId: number | null = null
     let needsLayoutAfterResize = false
     const resizeObserver = new ResizeObserver(() => {
@@ -726,27 +913,21 @@ export function MonacoBackedEditor({
       }
       if (editorRef.current === editor) editorRef.current = null
       if (modelRef.current === model) modelRef.current = null
+      decorationCollectionRef.current = null
       editor.dispose()
       model.dispose()
       editorAPI.setViewportRef(null)
-      editorAPI.clearActiveEditorAdapter(adapterOwnerId)
     }
-    // Intentionally narrow deps: settings (fontFamily, fontSize, theme, wordWrap, etc.) are
-    // intentionally excluded — they are handled by the updateOptions effect below. Including them
-    // here would remount the entire editor on every settings change, causing model URI collisions
-    // and making files non-editable. Only structural deps that require a new editor/model go here.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [
+    useManagedWidget,
     activeBufferId,
     filePath,
-    isActiveSurface,
     isPreviewMode,
     modelUri,
     readOnly,
     setScrollForBuffer,
     setViewportHeight,
-    syncCursorAndSelection,
-    updateVisibleLineRange,
     viewStateKey,
   ])
 
@@ -758,27 +939,156 @@ export function MonacoBackedEditor({
     monacoEditor.setModelLanguage(model, monacoLanguageId)
   }, [monacoLanguageId])
 
+  // Register the editorAPI adapter only when this pane is the active surface.
+  // Kept separate from the editor-creation effect so that focusing another pane
+  // (isActiveSurface: true→false) does NOT destroy and recreate the Monaco
+  // editor instance — which was resetting scroll position and cursor line.
+  useEffect(() => {
+    if (!isActiveSurface || readOnly || isPreviewMode) {
+      editorAPI.clearActiveEditorAdapter(adapterOwnerId)
+      return
+    }
+
+    const editor = editorRef.current
+    const model = modelRef.current
+    if (!editor || !model) return
+
+    const executeTextEdit = (range: Monaco.Range, text: string) => {
+      const e = editorRef.current
+      const m = modelRef.current
+      if (!e || !m) return
+      const startOffset = m.getOffsetAt(range.getStartPosition())
+      e.pushUndoStop()
+      e.executeEdits('athas-api', [{ range, text, forceMoveMarkers: true }])
+      const nextPosition = m.getPositionAt(startOffset + text.length)
+      e.setSelection(
+        new MonacoRange(
+          nextPosition.lineNumber,
+          nextPosition.column,
+          nextPosition.lineNumber,
+          nextPosition.column,
+        ),
+      )
+      e.setPosition(nextPosition)
+      e.pushUndoStop()
+      syncCursorAndSelection()
+    }
+
+    editorAPI.setActiveEditorAdapter({
+      ownerId: adapterOwnerId,
+      insertText: (text, position) => {
+        const e = editorRef.current
+        const m = modelRef.current
+        if (!e || !m) return
+        if (position) {
+          const monacoPosition = toClampedMonacoPosition(m, position)
+          executeTextEdit(
+            new MonacoRange(
+              monacoPosition.lineNumber,
+              monacoPosition.column,
+              monacoPosition.lineNumber,
+              monacoPosition.column,
+            ),
+            text,
+          )
+          return
+        }
+        const selection = e.getSelection()
+        if (selection && !selection.isEmpty()) {
+          executeTextEdit(selection, text)
+          return
+        }
+        const currentPosition = e.getPosition() ?? { lineNumber: 1, column: 1 }
+        executeTextEdit(
+          new MonacoRange(
+            currentPosition.lineNumber,
+            currentPosition.column,
+            currentPosition.lineNumber,
+            currentPosition.column,
+          ),
+          text,
+        )
+      },
+      deleteRange: (range) => {
+        const m = modelRef.current
+        if (!m) return
+        executeTextEdit(toMonacoRange(m, range), '')
+      },
+      replaceRange: (range, text) => {
+        const m = modelRef.current
+        if (!m) return
+        executeTextEdit(toMonacoRange(m, range), text)
+      },
+      selectAll: () => {
+        const e = editorRef.current
+        if (!e) return
+        const fullRange = e.getModel()?.getFullModelRange()
+        if (fullRange) e.setSelection(fullRange)
+        e.focus()
+        syncCursorAndSelection()
+      },
+      undo: () => {
+        editorRef.current?.trigger('athas-api', 'undo', null)
+        syncCursorAndSelection()
+      },
+      redo: () => {
+        editorRef.current?.trigger('athas-api', 'redo', null)
+        syncCursorAndSelection()
+      },
+    })
+
+    return () => {
+      editorAPI.clearActiveEditorAdapter(adapterOwnerId)
+    }
+    // syncCursorAndSelection is a stable useCallback.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [adapterOwnerId, isActiveSurface, isPreviewMode, readOnly])
+
   useEffect(() => {
     const editor = editorRef.current
     const model = modelRef.current
-    if (!editor || !model || model.getValue() === content) return
+    if (!editor || !model) return
+    // Cheap ref check first — skips model.getValue() (O(n) string alloc) when content hasn't changed
+    if (lastAppliedContentRef.current === content) return
+    if (model.getValue() === content) {
+      lastAppliedContentRef.current = content
+      return
+    }
 
     applyingExternalChangeRef.current = true
     const selection = editor.getSelection()
     model.setValue(content)
     if (selection) editor.setSelection(selection)
     previousContentRef.current = content
+    lastAppliedContentRef.current = content
     applyingExternalChangeRef.current = false
   }, [content])
 
+  // Effect A: theme-only — re-runs only when the active theme changes.
+  // Subscribes to themeRegistry so dynamic theme updates (palette changes) are picked up.
+  // Kept separate so font/layout setting changes don't trigger defineMonacoTheme.
   useEffect(() => {
     const editor = editorRef.current
     if (!editor) return
 
     const applyTheme = () => monacoEditor.setTheme(defineMonacoTheme(settingsTheme || theme))
-
     applyTheme()
-    // tabSize is a model-level option — must go through the model
+
+    const unsubscribeRegistry = themeRegistry.onRegistryChange(applyTheme)
+    const unsubscribeTheme = themeRegistry.onThemeChange(applyTheme)
+
+    return () => {
+      unsubscribeRegistry()
+      unsubscribeTheme()
+    }
+  }, [settingsTheme, theme])
+
+  // Effect B: all non-theme editor options. Excludes theme so changing font/tabSize/wordWrap
+  // does not trigger defineMonacoTheme or rebuild theme registry subscriptions.
+  useEffect(() => {
+    const editor = editorRef.current
+    if (!editor) return
+
     editor.getModel()?.updateOptions({ tabSize })
     editor.updateOptions({
       fontFamily,
@@ -807,17 +1117,6 @@ export function MonacoBackedEditor({
         horizontal: scrollable ? 'auto' : 'hidden',
       },
     })
-
-    const unsubscribeRegistry = themeRegistry.onRegistryChange(applyTheme)
-    const unsubscribeTheme = themeRegistry.onThemeChange(() => {
-      applyTheme()
-    })
-    themeRegistry.onReady(applyTheme)
-
-    return () => {
-      unsubscribeRegistry()
-      unsubscribeTheme()
-    }
   }, [
     autoCompletion,
     fontFamily,
@@ -833,35 +1132,36 @@ export function MonacoBackedEditor({
     renderIndentGuides,
     renderWhitespace,
     scrollable,
-    settingsTheme,
     tabSize,
-    theme,
     wordWrap,
   ])
 
   useEffect(() => {
-    const editor = editorRef.current
+    const collection = decorationCollectionRef.current
     const model = modelRef.current
-    if (!editor || !model) return
+    if (!collection || !model) return
 
     const matches = highlightMatches ?? searchMatches
     const activeIndex = currentHighlightIndex ?? currentSearchMatchIndex
-    const decorations = matches.map((match, index) => {
+
+    const decorations = matches.flatMap((match, index) => {
       const start = model.getPositionAt(match.start)
       const end = model.getPositionAt(match.end)
-      return {
-        range: new MonacoRange(start.lineNumber, start.column, end.lineNumber, end.column),
-        options: {
-          className:
-            index === activeIndex
-              ? 'monaco-search-match monaco-search-match-current'
-              : 'monaco-search-match',
-          overviewRuler: undefined,
+      return [
+        {
+          range: new MonacoRange(start.lineNumber, start.column, end.lineNumber, end.column),
+          options: {
+            className:
+              index === activeIndex
+                ? 'monaco-search-match monaco-search-match-current'
+                : 'monaco-search-match',
+            overviewRuler: undefined,
+          },
         },
-      }
+      ]
     })
 
-    decorationsRef.current = editor.deltaDecorations(decorationsRef.current, decorations)
+    collection.set(decorations)
   }, [currentHighlightIndex, currentSearchMatchIndex, highlightMatches, searchMatches])
 
   useEffect(() => {
@@ -945,6 +1245,8 @@ export function MonacoBackedEditor({
     }
   }, [lineHeight, onCoordinateResolverChange, onModelPositionResolverChange])
 
+  // Restore scroll + cursor when this surface becomes active or the buffer changes,
+  // and focus the editor when it becomes the active surface.
   useEffect(() => {
     const editor = editorRef.current
     if (!editor || !isActiveSurface) return
@@ -955,12 +1257,16 @@ export function MonacoBackedEditor({
     if (cached) {
       editor.setScrollPosition({ scrollTop: cached.scrollTop, scrollLeft: cached.scrollLeft })
       const model = editor.getModel()
-      if (!model) return
-
-      editor.setPosition(toClampedMonacoPosition(model, cached.cursor))
-      if (cached.selection) editor.setSelection(toMonacoRange(model, cached.selection))
+      if (model) {
+        editor.setPosition(toClampedMonacoPosition(model, cached.cursor))
+        if (cached.selection) editor.setSelection(toMonacoRange(model, cached.selection))
+      }
     }
-  }, [activeBufferId, isActiveSurface, viewStateKey])
+
+    if (!readOnly && !isPreviewMode) {
+      setTimeout(() => editorRef.current?.focus(), 0)
+    }
+  }, [activeBufferId, isActiveSurface, isPreviewMode, readOnly, viewStateKey])
 
   // LSP diagnostics: open the document so the server analyzes it, then paint
   // its diagnostics as Monaco markers (squiggles) for this file.

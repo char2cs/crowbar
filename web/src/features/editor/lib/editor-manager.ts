@@ -7,6 +7,11 @@ export interface IEditorLike {
   restoreViewState(state: unknown): void
   layout(): void
   dispose(): void
+  /** The underlying standalone editor (monaco `IStandaloneCodeEditor`), exposed
+   *  as `unknown` so this module stays monaco-free. The React controller casts it
+   *  to wire `updateOptions`/listeners. `null` when no raw editor backs the adapter
+   *  (e.g. test fakes that don't model one). */
+  raw(): unknown
 }
 export interface MonacoEditorApi { create(container: HTMLElement): IEditorLike }
 export interface BufferMeta { lang(uri: string): string; text(uri: string): string }
@@ -66,6 +71,9 @@ export class EditorManager {
   }
 
   getEditor(paneId: string): IEditorLike | undefined { return this.panes.get(paneId)?.editor }
+  /** The underlying monaco standalone editor for a pane, for the React controller
+   *  to apply `updateOptions` and attach listeners. Cast at the call site. */
+  getRawEditor(paneId: string): unknown { return this.panes.get(paneId)?.editor.raw() ?? null }
   layoutPane(paneId: string): void { this.panes.get(paneId)?.editor.layout() }
   disposeAll(): void { for (const id of [...this.panes.keys()]) this.unmountPane(id); this.registry.disposeAll() }
 }

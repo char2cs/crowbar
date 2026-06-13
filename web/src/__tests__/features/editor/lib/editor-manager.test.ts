@@ -5,7 +5,7 @@ import { ModelRegistry } from '@/features/editor/lib/model-registry'
 function fakeModelApi() {
   const models = new Map<string, any>()
   return {
-    createModel: vi.fn((v: string, _l: string, uri: string) => { const m = { uri, dispose: vi.fn(() => models.delete(uri)) }; models.set(uri, m); return m }),
+    createModel: vi.fn((_v: string, _l: string, uri: string) => { const m = { uri, dispose: vi.fn(() => models.delete(uri)) }; models.set(uri, m); return m }),
     getModel: (uri: string) => models.get(uri) ?? null,
   }
 }
@@ -21,6 +21,7 @@ function fakeEditorApi() {
         saveViewState: vi.fn(() => vs ?? { for: model?.uri }),
         restoreViewState: vi.fn((s: any) => { vs = s }),
         layout: vi.fn(), dispose: vi.fn(),
+        raw: vi.fn(() => ({ id: 'raw-editor' })),
       }
       created.push(ed); return ed
     }),
@@ -100,8 +101,6 @@ describe('EditorManager', () => {
     m.mountPane('p1', {} as HTMLElement)
     m.showBuffer('p1', 'athas://editor/a')
     m.showBuffer('p1', 'athas://editor/b')
-    const modelA = (ea.created[0].getModel())
-    // capture both models via the api map by re-getting
     m.showBuffer('p1', 'athas://editor/a')
     const aModel = ea.created[0].getModel()
     m.closeBuffer('p1', 'athas://editor/b')
@@ -109,5 +108,13 @@ describe('EditorManager', () => {
     m.unmountPane('p1')
     expect(aModel.dispose).toHaveBeenCalled() // a released on unmount
     expect(ea.created[0].dispose).toHaveBeenCalled()
+  })
+
+  it('getRawEditor exposes the underlying editor for a mounted pane', () => {
+    const ea = fakeEditorApi(); const reg = new ModelRegistry(fakeModelApi())
+    const m = new EditorManager(ea, reg, { lang, text })
+    expect(m.getRawEditor('p1')).toBeNull() // not mounted yet
+    m.mountPane('p1', {} as HTMLElement)
+    expect(m.getRawEditor('p1')).toEqual({ id: 'raw-editor' })
   })
 })

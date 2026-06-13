@@ -115,6 +115,9 @@ export function realEditorApi(
         dispose() {
           editor.dispose()
         },
+        raw() {
+          return editor
+        },
       }
       return adapter
     },

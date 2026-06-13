@@ -539,6 +539,7 @@ const CodeEditor = ({
               <CsvPreview />
             ) : (
               <MonacoBackedEditor
+                paneId={paneId}
                 bufferId={activeBufferId ?? undefined}
                 viewStateKey={editorViewKey ?? undefined}
                 isActiveSurface={isActiveSurface}
