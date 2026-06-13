@@ -1,4 +1,12 @@
-export interface IModelLike { uri: string; dispose(): void }
+export interface IModelLike {
+  uri: string
+  dispose(): void
+  /** Current full text of the model. */
+  getValue(): string
+  /** Replace the full text via an undo-friendly edit op IFF it differs from the
+   *  current value. No-op (and pushes no undo stop) when text is unchanged. */
+  setValueIfChanged(text: string): void
+}
 export interface MonacoModelApi {
   createModel(value: string, languageId: string, uri: string): IModelLike
   getModel(uri: string): IModelLike | null

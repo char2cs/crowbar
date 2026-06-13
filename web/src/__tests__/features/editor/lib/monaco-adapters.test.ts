@@ -14,7 +14,19 @@ vi.mock('monaco-editor', () => {
   return {
     Uri: FakeUri,
     editor: {
-      createModel: vi.fn(() => ({ uri: FakeUri.parse('athas://editor/x'), dispose: vi.fn() })),
+      createModel: vi.fn((value: string) => {
+        let text = value
+        return {
+          uri: FakeUri.parse('athas://editor/x'),
+          dispose: vi.fn(),
+          getValue: vi.fn(() => text),
+          getFullModelRange: vi.fn(() => ({})),
+          pushEditOperations: vi.fn((_s: unknown, edits: Array<{ text: string }>) => {
+            text = edits[0].text
+            return null
+          }),
+        }
+      }),
       getModel: vi.fn(() => null),
       create: vi.fn(() => ({
         setModel: vi.fn(),
@@ -57,6 +69,16 @@ describe('monaco-adapters', () => {
     const model = realModelApi().createModel('hello', 'typescript', 'athas://editor/x')
     expect(typeof model.uri).toBe('string')
     expect(typeof model.dispose).toBe('function')
+  })
+
+  it('setValueIfChanged uses pushEditOperations (preserves undo) only when text differs', () => {
+    const model = realModelApi().createModel('hello', 'typescript', 'athas://editor/x')
+    // No-op when unchanged.
+    model.setValueIfChanged('hello')
+    expect(model.getValue()).toBe('hello')
+    // Applies via edit op when changed.
+    model.setValueIfChanged('world')
+    expect(model.getValue()).toBe('world')
   })
 
   it('langForUri derives a monaco language id from the file path', () => {

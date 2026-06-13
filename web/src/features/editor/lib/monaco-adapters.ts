@@ -61,6 +61,19 @@ function wrapModel(model: monacoEditor.ITextModel): IModelLike {
     dispose() {
       model.dispose()
     },
+    getValue() {
+      return model.getValue()
+    },
+    setValueIfChanged(text: string) {
+      if (model.getValue() === text) return
+      // pushEditOperations replaces the full range as a single undoable edit,
+      // preserving the existing undo stack (unlike setValue, which resets it).
+      model.pushEditOperations(
+        null,
+        [{ range: model.getFullModelRange(), text }],
+        () => null,
+      )
+    },
   }
 }
 

@@ -70,6 +70,24 @@ export class EditorManager {
     this.panes.delete(paneId)
   }
 
+  /** Apply a genuine EXTERNAL full-text replacement (disk reload, format-on-save)
+   *  to the model for `uri`, preserving undo history far better than recreating
+   *  the model. Targets the live model shown by the pane when it is displaying
+   *  `uri`; otherwise edits the held registry model directly. No-op when the text
+   *  is unchanged or the model is not held/known. */
+  applyExternalEdit(paneId: string, uri: string, text: string): void {
+    const pane = this.panes.get(paneId)
+    if (pane && pane.currentUri === uri) {
+      const model = pane.editor.getModel()
+      if (model) {
+        model.setValueIfChanged(text)
+        return
+      }
+    }
+    const model = this.registry.get(uri)
+    model?.setValueIfChanged(text)
+  }
+
   getEditor(paneId: string): IEditorLike | undefined { return this.panes.get(paneId)?.editor }
   /** The underlying monaco standalone editor for a pane, for the React controller
    *  to apply `updateOptions` and attach listeners. Cast at the call site. */

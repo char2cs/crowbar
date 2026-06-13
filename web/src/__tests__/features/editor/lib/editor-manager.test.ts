@@ -5,7 +5,20 @@ import { ModelRegistry } from '@/features/editor/lib/model-registry'
 function fakeModelApi() {
   const models = new Map<string, any>()
   return {
-    createModel: vi.fn((_v: string, _l: string, uri: string) => { const m = { uri, dispose: vi.fn(() => models.delete(uri)) }; models.set(uri, m); return m }),
+    createModel: vi.fn((value: string, _l: string, uri: string) => {
+      let text = value
+      const m = {
+        uri,
+        dispose: vi.fn(() => models.delete(uri)),
+        getValue: () => text,
+        setValueIfChanged: vi.fn((next: string) => {
+          if (next === text) return
+          text = next
+        }),
+      }
+      models.set(uri, m)
+      return m
+    }),
     getModel: (uri: string) => models.get(uri) ?? null,
   }
 }
@@ -124,6 +137,42 @@ describe('EditorManager', () => {
     m.unmountPane('p1')
     expect(aModel.dispose).toHaveBeenCalled() // a released on unmount
     expect(ea.created[0].dispose).toHaveBeenCalled()
+  })
+
+  it('applyExternalEdit edits the live model (not recreate) when the pane shows the uri', () => {
+    const modelApi = fakeModelApi(); const ea = fakeEditorApi()
+    const reg = new ModelRegistry(modelApi)
+    const m = new EditorManager(ea, reg, { lang, text })
+    m.mountPane('p1', {} as HTMLElement)
+    m.showBuffer('p1', 'athas://editor/a')
+    const createdCount = modelApi.createModel.mock.calls.length
+    const model = ea.created[0].getModel()
+    m.applyExternalEdit('p1', 'athas://editor/a', 'fresh from disk')
+    expect(model.setValueIfChanged).toHaveBeenCalledWith('fresh from disk')
+    expect(model.getValue()).toBe('fresh from disk')
+    // No model recreation — it edited in place (undo preserved).
+    expect(modelApi.createModel.mock.calls.length).toBe(createdCount)
+  })
+
+  it('applyExternalEdit edits the held registry model when the pane is not showing the uri', () => {
+    const modelApi = fakeModelApi(); const ea = fakeEditorApi()
+    const reg = new ModelRegistry(modelApi)
+    const m = new EditorManager(ea, reg, { lang, text })
+    m.mountPane('p1', {} as HTMLElement)
+    m.showBuffer('p1', 'athas://editor/a') // a is held
+    m.showBuffer('p1', 'athas://editor/b') // now showing b, a still held
+    const heldA = reg.get('athas://editor/a')
+    expect(heldA?.getValue()).toBe('code') // initial registry text
+    m.applyExternalEdit('p1', 'athas://editor/a', 'disk text')
+    // Edited the held model in place (not via the visible-pane branch).
+    expect(heldA?.getValue()).toBe('disk text')
+  })
+
+  it('applyExternalEdit is a no-op for an unknown uri', () => {
+    const ea = fakeEditorApi(); const reg = new ModelRegistry(fakeModelApi())
+    const m = new EditorManager(ea, reg, { lang, text })
+    m.mountPane('p1', {} as HTMLElement)
+    expect(() => m.applyExternalEdit('p1', 'athas://editor/never', 'x')).not.toThrow()
   })
 
   it('getRawEditor exposes the underlying editor for a mounted pane', () => {

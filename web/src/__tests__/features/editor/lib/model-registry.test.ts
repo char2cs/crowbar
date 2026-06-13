@@ -6,7 +6,7 @@ function fakeApi() {
   return {
     models,
     createModel: vi.fn((value: string, _lang: string, uri: string) => {
-      const m = { uri, value, disposed: false, dispose(this: { disposed: boolean }) { this.disposed = true; models.delete(uri) } }
+      const m = { uri, value, disposed: false, dispose(this: { disposed: boolean }) { this.disposed = true; models.delete(uri) }, getValue() { return value }, setValueIfChanged(next: string) { value = next } }
       models.set(uri, m); return m
     }),
     getModel: vi.fn((uri: string) => models.get(uri) ?? null),

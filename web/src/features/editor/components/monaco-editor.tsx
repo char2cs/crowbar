@@ -29,6 +29,7 @@ import {
   useWorkspaceStoreContext,
 } from '@/features/workspace/stores/workspace-context'
 import { fileUri } from '@/features/editor/lib/editor-uri'
+import { ContentSink } from '@/features/editor/lib/content-sink'
 import { useEditorSettingsStore } from '../stores/settings-store'
 import { useEditorStateStore } from '../stores/state-store'
 import { useEditorUIStore } from '../stores/ui-store'
@@ -636,22 +637,48 @@ export function MonacoBackedEditor({
     previousContentRef.current = content
     lastAppliedContentRef.current = content
 
-    const disposables = [
-      editor.onDidChangeModelContent(() => {
-        if (applyingExternalChangeRef.current) return
-        if (editor.getModel() !== model) return
-        const nextContent = model.getValue()
+    // Model-authoritative content: the Monaco model is the source of truth for
+    // text. Keystrokes are coalesced through a trailing-debounce ContentSink and
+    // written to the Zustand buffer store fire-and-forget (no synchronous
+    // store→setValue round-trip per keystroke). The sink's write is the single
+    // place that forwards to onContentChange and advances the "last value we
+    // pushed" markers so the external-change effect below can tell our own
+    // writes apart from genuine external changes.
+    const sink = new ContentSink({
+      delayMs: 150,
+      write: (value) => {
         const previousContent = previousContentRef.current
         const editorState = useEditorStateStore.getState()
-        previousContentRef.current = nextContent
+        previousContentRef.current = value
+        lastAppliedContentRef.current = value
         latestContentChangeRef.current?.(
-          nextContent,
+          value,
           previousContent,
           editorState.cursorPosition,
           editorState.selection,
         )
+      },
+    })
+
+    // The FIRST edit after a (re)bind is flushed synchronously so the dirty
+    // indicator and preview-tab promote-on-first-edit fire immediately rather
+    // than after the trailing window. Sustained typing thereafter is throttled.
+    let firstEditFlushed = false
+
+    const disposables = [
+      editor.onDidChangeModelContent(() => {
+        if (applyingExternalChangeRef.current) return
+        if (editor.getModel() !== model) return
+        // Throttled, fire-and-forget write of the model text to the store.
+        sink.push(model.getValue())
+        if (!firstEditFlushed) {
+          firstEditFlushed = true
+          sink.flush()
+        }
+        // Cursor/selection drive the status bar — keep them synchronous.
         syncCursorAndSelection()
       }),
+      editor.onDidBlurEditorText(() => sink.flush()),
       editor.onDidChangeCursorSelection(syncCursorAndSelection),
       // Managed panes rely on Monaco-native view-state (saved/restored by the
       // EditorManager on model swap), so we do NOT write scroll to the manual
@@ -695,6 +722,11 @@ export function MonacoBackedEditor({
     updateVisibleLineRange(editor)
 
     return () => {
+      // Persist any pending throttled edit before we tear down listeners, then
+      // drop the timer — covers switching tabs / unmounting mid-typing so the
+      // last keystrokes are never lost.
+      sink.flush()
+      sink.dispose()
       onCoordinateResolverChange?.(null)
       onModelPositionResolverChange?.(null)
       unsubscribeCursor()
@@ -1045,6 +1077,19 @@ export function MonacoBackedEditor({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [adapterOwnerId, isActiveSurface, isPreviewMode, readOnly])
 
+  // External content → model sync.
+  //
+  // The buffer store's `content` can change for two reasons:
+  //   (a) WE just pushed local typing through the ContentSink (managed) or the
+  //       synchronous change handler (legacy) — the model ALREADY holds it.
+  //   (b) A GENUINE external change: disk reload (external-buffer-sync),
+  //       format-on-save, undo/redo applied to the store, etc. — the model must
+  //       be updated to match.
+  //
+  // Two guards distinguish them: `lastAppliedContentRef === content` (we just
+  // wrote this exact value) and the stronger `model.getValue() === content`
+  // (the model already shows it). Only a value that survives BOTH is a genuine
+  // external change worth applying.
   useEffect(() => {
     const editor = editorRef.current
     const model = modelRef.current
@@ -1056,6 +1101,22 @@ export function MonacoBackedEditor({
       return
     }
 
+    if (useManagedWidget) {
+      // Managed panes are model-authoritative: do NOT round-trip local typing
+      // through setValue. Genuine external changes are applied via an undo-
+      // friendly pushEditOperations edit on the held model (preserves the undo
+      // stack, unlike setValue). Guard so our own edit doesn't re-enter the
+      // change handler and bounce back to the store.
+      applyingExternalChangeRef.current = true
+      const selection = editor.getSelection()
+      editorManager.applyExternalEdit(resolvedPaneId, fileUri(filePath), content)
+      if (selection) editor.setSelection(selection)
+      previousContentRef.current = content
+      lastAppliedContentRef.current = content
+      applyingExternalChangeRef.current = false
+      return
+    }
+
     applyingExternalChangeRef.current = true
     const selection = editor.getSelection()
     model.setValue(content)
@@ -1063,7 +1124,7 @@ export function MonacoBackedEditor({
     previousContentRef.current = content
     lastAppliedContentRef.current = content
     applyingExternalChangeRef.current = false
-  }, [content])
+  }, [content, useManagedWidget, editorManager, resolvedPaneId, filePath])
 
   // Effect A: theme-only — re-runs only when the active theme changes.
   // Subscribes to themeRegistry so dynamic theme updates (palette changes) are picked up.
