@@ -20,5 +20,9 @@ func Register(
 	rg.GET("/repos", h.List)
 	rg.GET("/repos/:id", h.Detail)
 	rg.GET("/repos/:id/icon", h.Icon)
+	rg.PUT("/repos/:id/icon", h.PutIcon)
+	rg.DELETE("/repos/:id/icon", h.DeleteIcon)
+	rg.PUT("/repos/:id/icon/emoji", h.PutIconEmoji)
+	rg.PUT("/repos/:id/icon/github", h.PutIconGithub)
 	rg.GET("/repos/:id/branches", h.Branches)
 }

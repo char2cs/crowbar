@@ -8,6 +8,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/gin-gonic/gin"
@@ -30,6 +31,7 @@ type fakeStore struct {
 	allErr  error
 	byKey   *domain.Repository
 	byKeErr error
+	SaveFn  func(ctx context.Context, r domain.Repository) error
 }
 
 func (f *fakeStore) FindAll(
@@ -46,9 +48,12 @@ func (f *fakeStore) FindByKey(
 }
 
 func (f *fakeStore) Save(
-	_ context.Context,
-	_ domain.Repository,
+	ctx context.Context,
+	r domain.Repository,
 ) error {
+	if f.SaveFn != nil {
+		return f.SaveFn(ctx, r)
+	}
 	return nil
 }
 
@@ -240,4 +245,63 @@ func TestBranches_AnnotatesProtectionAndWorkspace(t *testing.T) {
 	r.ServeHTTP(w, req)
 
 	assert.Equal(t, http.StatusNotFound, w.Code)
+}
+
+func TestPutIconEmoji_StoresEmojiURL(t *testing.T) {
+	var saved domain.Repository
+	store := &fakeStore{
+		byKey: &domain.Repository{ID: "r1", Path: "/repo"},
+	}
+	store.SaveFn = func(_ context.Context, r domain.Repository) error {
+		saved = r
+		return nil
+	}
+	r := gin.New()
+	h := repohandlers.New(store)
+	r.Group("/v0").PUT("/repos/:id/icon/emoji", h.PutIconEmoji)
+
+	body := strings.NewReader(`{"emoji":"🦊"}`)
+	req := httptest.NewRequest(http.MethodPut, "/v0/repos/r1/icon/emoji", body)
+	req.Header.Set("Content-Type", "application/json")
+	rec := httptest.NewRecorder()
+	r.ServeHTTP(rec, req)
+
+	assert.Equal(t, http.StatusNoContent, rec.Code)
+	assert.Equal(t, "emoji:🦊", saved.AvatarURL)
+}
+
+func TestPutIconEmoji_MissingRepo_Returns404(t *testing.T) {
+	store := &fakeStore{byKey: nil}
+	r := gin.New()
+	h := repohandlers.New(store)
+	r.Group("/v0").PUT("/repos/:id/icon/emoji", h.PutIconEmoji)
+
+	body := strings.NewReader(`{"emoji":"🦊"}`)
+	req := httptest.NewRequest(http.MethodPut, "/v0/repos/missing/icon/emoji", body)
+	req.Header.Set("Content-Type", "application/json")
+	rec := httptest.NewRecorder()
+	r.ServeHTTP(rec, req)
+
+	assert.Equal(t, http.StatusNotFound, rec.Code)
+}
+
+func TestDeleteIcon_ClearsAvatarURL(t *testing.T) {
+	var saved domain.Repository
+	store := &fakeStore{
+		byKey: &domain.Repository{ID: "r1", AvatarURL: "/some/path/icon.png"},
+	}
+	store.SaveFn = func(_ context.Context, r domain.Repository) error {
+		saved = r
+		return nil
+	}
+	r := gin.New()
+	h := repohandlers.New(store)
+	r.Group("/v0").DELETE("/repos/:id/icon", h.DeleteIcon)
+
+	req := httptest.NewRequest(http.MethodDelete, "/v0/repos/r1/icon", http.NoBody)
+	rec := httptest.NewRecorder()
+	r.ServeHTTP(rec, req)
+
+	assert.Equal(t, http.StatusNoContent, rec.Code)
+	assert.Equal(t, "", saved.AvatarURL)
 }

@@ -3,11 +3,17 @@ package handlers
 
 import (
 	"context"
+	"fmt"
+	"io"
+	"mime"
 	"net/http"
+	"net/url"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"strings"
+	"unicode"
+	"unicode/utf8"
 
 	"github.com/gin-gonic/gin"
 
@@ -266,4 +272,244 @@ func filterByProject(
 		}
 	}
 	return filtered
+}
+
+// PutIconEmoji handles PUT /v0/repos/:id/icon/emoji.
+// Body: {"emoji":"🦊"} — stores "emoji:🦊" in avatar_url.
+func (h *Handlers) PutIconEmoji(c *gin.Context) {
+	repo, err := h.store.FindByKey(c.Request.Context(), c.Param("id"))
+	if err != nil || repo == nil {
+		libs.WriteErr(c, http.StatusNotFound, "repo not found")
+		return
+	}
+	var body struct {
+		Emoji string `json:"emoji"`
+	}
+	if err := c.ShouldBindJSON(&body); err != nil || body.Emoji == "" {
+		libs.WriteErr(c, http.StatusBadRequest, "emoji required")
+		return
+	}
+	body.Emoji = strings.TrimSpace(body.Emoji)
+	if !isSingleEmoji(body.Emoji) {
+		libs.WriteErr(c, http.StatusBadRequest, "emoji must be a single character")
+		return
+	}
+	repo.AvatarURL = "emoji:" + body.Emoji
+	if err := h.store.Save(c.Request.Context(), *repo); err != nil {
+		libs.WriteErr(c, http.StatusInternalServerError, err.Error())
+		return
+	}
+	c.Status(http.StatusNoContent)
+}
+
+// DeleteIcon handles DELETE /v0/repos/:id/icon.
+// Clears avatar_url and deletes any local icon file.
+func (h *Handlers) DeleteIcon(c *gin.Context) {
+	repo, err := h.store.FindByKey(c.Request.Context(), c.Param("id"))
+	if err != nil || repo == nil {
+		libs.WriteErr(c, http.StatusNotFound, "repo not found")
+		return
+	}
+	if repo.AvatarURL != "" &&
+		!strings.HasPrefix(repo.AvatarURL, "http") &&
+		!strings.HasPrefix(repo.AvatarURL, "emoji:") {
+		_ = os.Remove(repo.AvatarURL)
+	}
+	repo.AvatarURL = ""
+	if err := h.store.Save(c.Request.Context(), *repo); err != nil {
+		libs.WriteErr(c, http.StatusInternalServerError, err.Error())
+		return
+	}
+	c.Status(http.StatusNoContent)
+}
+
+// PutIcon handles PUT /v0/repos/:id/icon (multipart/form-data, field "icon").
+// Accepts image/png, image/jpeg, image/webp; max 5 MB.
+func (h *Handlers) PutIcon(c *gin.Context) {
+	repo, err := h.store.FindByKey(c.Request.Context(), c.Param("id"))
+	if err != nil || repo == nil {
+		libs.WriteErr(c, http.StatusNotFound, "repo not found")
+		return
+	}
+	file, header, err := c.Request.FormFile("icon")
+	if err != nil {
+		libs.WriteErr(c, http.StatusBadRequest, "icon field required")
+		return
+	}
+	defer file.Close()
+
+	if header.Size > 5<<20 {
+		libs.WriteErr(c, http.StatusBadRequest, "icon must be under 5 MB")
+		return
+	}
+
+	ct := header.Header.Get("Content-Type")
+	if ct == "" {
+		ct = mime.TypeByExtension(filepath.Ext(header.Filename))
+	}
+	ext, ok := iconContentTypeExt(ct)
+	if !ok {
+		libs.WriteErr(c, http.StatusBadRequest, "icon must be png, jpeg, or webp")
+		return
+	}
+
+	iconDir, err := repoIconDir(repo.RemoteURL)
+	if err != nil {
+		libs.WriteErr(c, http.StatusInternalServerError, "could not resolve icon directory")
+		return
+	}
+	if err := os.MkdirAll(iconDir, 0o755); err != nil {
+		libs.WriteErr(c, http.StatusInternalServerError, "could not create icon directory")
+		return
+	}
+
+	for _, prevExt := range []string{".png", ".jpg", ".jpeg", ".webp"} {
+		_ = os.Remove(filepath.Join(iconDir, "icon"+prevExt))
+	}
+
+	iconPath := filepath.Join(iconDir, "icon"+ext)
+	data, err := io.ReadAll(file)
+	if err != nil {
+		libs.WriteErr(c, http.StatusInternalServerError, "read error")
+		return
+	}
+	if err := os.WriteFile(iconPath, data, 0o644); err != nil {
+		libs.WriteErr(c, http.StatusInternalServerError, "write error")
+		return
+	}
+
+	repo.AvatarURL = iconPath
+	if err := h.store.Save(c.Request.Context(), *repo); err != nil {
+		libs.WriteErr(c, http.StatusInternalServerError, err.Error())
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"avatarUrl": "/v0/repos/" + repo.ID + "/icon"})
+}
+
+// PutIconGithub handles PUT /v0/repos/:id/icon/github.
+// Re-fetches the repo owner's GitHub avatar and stores it in avatar_url.
+func (h *Handlers) PutIconGithub(c *gin.Context) {
+	repo, err := h.store.FindByKey(c.Request.Context(), c.Param("id"))
+	if err != nil || repo == nil {
+		libs.WriteErr(c, http.StatusNotFound, "repo not found")
+		return
+	}
+	if repo.Path == "" {
+		libs.WriteErr(c, http.StatusUnprocessableEntity, "repo has no local path")
+		return
+	}
+	avatarURL := fetchGithubAvatar(c.Request.Context(), repo.Path)
+	if avatarURL == "" {
+		libs.WriteErr(c, http.StatusUnprocessableEntity, "could not fetch GitHub avatar")
+		return
+	}
+	repo.AvatarURL = avatarURL
+	if err := h.store.Save(c.Request.Context(), *repo); err != nil {
+		libs.WriteErr(c, http.StatusInternalServerError, err.Error())
+		return
+	}
+	c.Status(http.StatusNoContent)
+}
+
+// repoIconDir returns the directory under ~/.crowbar/projects/... for a repo's icon.
+func repoIconDir(remoteURL string) (string, error) {
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return "", err
+	}
+	crowbarHome := filepath.Join(home, ".crowbar")
+	rel, err := repoRelPathFromURL(remoteURL)
+	if err != nil {
+		return "", err
+	}
+	return filepath.Join(crowbarHome, "projects", rel), nil
+}
+
+// repoRelPathFromURL parses a git remote URL into <host>/<owner>/<repo>.
+func repoRelPathFromURL(rawURL string) (string, error) {
+	rawURL = strings.TrimSpace(rawURL)
+	rawURL = strings.TrimSuffix(rawURL, ".git")
+	if rawURL == "" {
+		return "", fmt.Errorf("empty remote URL")
+	}
+	if strings.HasPrefix(rawURL, "git@") {
+		rest := rawURL[4:]
+		idx := strings.Index(rest, ":")
+		if idx < 0 {
+			return "", fmt.Errorf("invalid SSH URL")
+		}
+		return rest[:idx] + "/" + strings.TrimPrefix(rest[idx+1:], "/"), nil
+	}
+	u, err := url.Parse(rawURL)
+	if err != nil || u.Host == "" {
+		return "", fmt.Errorf("unrecognised URL: %q", rawURL)
+	}
+	return u.Host + "/" + strings.TrimPrefix(u.Path, "/"), nil
+}
+
+// iconContentTypeExt maps accepted content types to file extensions.
+func iconContentTypeExt(ct string) (string, bool) {
+	if idx := strings.Index(ct, ";"); idx >= 0 {
+		ct = strings.TrimSpace(ct[:idx])
+	}
+	m := map[string]string{
+		"image/png":  ".png",
+		"image/jpeg": ".jpg",
+		"image/webp": ".webp",
+	}
+	ext, ok := m[ct]
+	return ext, ok
+}
+
+// isSingleEmoji returns true when s is a non-empty string containing exactly
+// one Unicode code point that is not a plain ASCII letter/digit.
+func isSingleEmoji(s string) bool {
+	if s == "" {
+		return false
+	}
+	r, size := utf8.DecodeRuneInString(s)
+	if r == utf8.RuneError {
+		return false
+	}
+	if size != len(s) {
+		return false
+	}
+	return !unicode.IsLetter(r) || r > 127
+}
+
+// fetchGithubAvatar runs gh api to get the owner avatar URL.
+func fetchGithubAvatar(ctx context.Context, repoPath string) string {
+	raw, err := exec.CommandContext(ctx, "git", "-C", repoPath, "remote", "get-url", "origin").Output()
+	if err != nil {
+		return ""
+	}
+	remoteURL := strings.TrimSpace(string(raw))
+	slug, err := githubSlugFromURL(remoteURL)
+	if err != nil {
+		return ""
+	}
+	out, err := exec.CommandContext(ctx, "gh", "api", "repos/"+slug, "--jq", ".owner.avatar_url").Output()
+	if err != nil {
+		return ""
+	}
+	return strings.TrimSpace(string(out))
+}
+
+// githubSlugFromURL extracts "owner/repo" from a GitHub remote URL.
+func githubSlugFromURL(rawURL string) (string, error) {
+	rawURL = strings.TrimSuffix(strings.TrimSpace(rawURL), ".git")
+	if strings.HasPrefix(rawURL, "git@") {
+		parts := strings.SplitN(rawURL, ":", 2)
+		if len(parts) == 2 {
+			return parts[1], nil
+		}
+	}
+	if idx := strings.Index(rawURL, "://"); idx >= 0 {
+		path := rawURL[idx+3:]
+		slash := strings.Index(path, "/")
+		if slash >= 0 {
+			return path[slash+1:], nil
+		}
+	}
+	return "", fmt.Errorf("unrecognised URL: %q", rawURL)
 }

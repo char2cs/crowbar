@@ -19,7 +19,15 @@ type RepoDTO struct {
 
 func RepoDTOFrom(r domain.Repository) RepoDTO {
 	avatarURL := r.AvatarURL
-	if avatarURL != "" && !strings.HasPrefix(avatarURL, "http") {
+	switch {
+	case avatarURL == "":
+		// no change
+	case strings.HasPrefix(avatarURL, "emoji:"):
+		// pass through; frontend renders emoji directly
+	case strings.HasPrefix(avatarURL, "http"):
+		// pass through HTTPS URLs
+	default:
+		// local file path — rewrite to API endpoint
 		avatarURL = "/v0/repos/" + r.ID + "/icon"
 	}
 	return RepoDTO{
