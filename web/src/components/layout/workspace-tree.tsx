@@ -10,6 +10,7 @@ import { ROW_BASE } from './workspace-row-base'
 import { WorkspaceTreeFooter } from './workspace-tree-footer'
 import { WorkspaceTreeItem } from './workspace-tree-item'
 import { WorkspaceTreeProvider, useWorkspaceTreeContext } from './workspace-tree-context'
+import { RepoSettingsPanel } from './repo-settings-panel'
 import type { Workspace } from '@/lib/store/sidebar'
 
 export interface WorkspaceTreeNode {
@@ -176,6 +177,19 @@ function WorkspaceTreeInner() {
         </div>
       </ScrollArea>
       <WorkspaceTreeFooter />
+      {openSettingsRepoId != null && (() => {
+        const settingsRepo = repos.find((r) => r.id === openSettingsRepoId)
+        if (!settingsRepo) return null
+        return (
+          <RepoSettingsPanel
+            key={settingsRepo.id}
+            repoId={settingsRepo.id}
+            repoName={settingsRepo.name}
+            open={openSettingsRepoId === settingsRepo.id}
+            onOpenChange={(open) => { if (!open) setOpenSettingsRepoId(null) }}
+          />
+        )
+      })()}
       {draggingWs && dragPos && (
         <div
           className="pointer-events-none fixed z-50 rounded-md border border-border bg-secondary px-2 py-1 font-mono text-[13px] text-secondary-foreground shadow-md opacity-90"
