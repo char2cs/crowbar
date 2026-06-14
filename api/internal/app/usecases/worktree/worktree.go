@@ -25,6 +25,7 @@ type CreateChildInput struct {
 	RepoID       string
 	ProjectID    string
 	RepoPath     string
+	RemoteURL    string // git remote origin URL; required for worktree path derivation
 	Branch       string
 	ParentID     string
 	ParentBranch string
@@ -61,11 +62,12 @@ type Usecase interface {
 }
 
 type worktreeUsecase struct {
-	workspaces workspace.Workspace
-	git        enginegit.Engine
-	provider   engineprovider.Engine
-	repos      store.Store[domain.Repository, string]
-	now        func() time.Time
+	workspaces  workspace.Workspace
+	git         enginegit.Engine
+	provider    engineprovider.Engine
+	repos       store.Store[domain.Repository, string]
+	now         func() time.Time
+	crowbarHome func() (string, error)
 }
 
 // New builds the hierarchy usecase. repos resolves a workspace's repository main
@@ -77,13 +79,15 @@ func New(
 	provider engineprovider.Engine,
 	repos store.Store[domain.Repository, string],
 	now func() time.Time,
+	crowbarHome func() (string, error),
 ) Usecase {
 	return &worktreeUsecase{
-		workspaces: workspaces,
-		git:        git,
-		provider:   provider,
-		repos:      repos,
-		now:        now,
+		workspaces:  workspaces,
+		git:         git,
+		provider:    provider,
+		repos:       repos,
+		now:         now,
+		crowbarHome: crowbarHome,
 	}
 }
 
@@ -109,7 +113,15 @@ func (u *worktreeUsecase) CreateChild(
 	if in.ParentID == "" && in.Branch == in.ParentBranch {
 		return u.adoptMainWorktree(ctx, in)
 	}
-	path := worktreepath.For(in.RepoPath, in.Branch)
+	wsID := uuid.NewString()
+	home, err := u.crowbarHome()
+	if err != nil {
+		return domain.Workspace{}, fmt.Errorf("create child: crowbar home: %w", err)
+	}
+	path, err := worktreepath.For(home, in.RemoteURL, wsID)
+	if err != nil {
+		return domain.Workspace{}, fmt.Errorf("create child: worktree path: %w", err)
+	}
 	startSha, err := u.git.WorktreeAddBranch(ctx, in.RepoPath, path, in.Branch, in.ParentBranch)
 	if err != nil {
 		return domain.Workspace{}, fmt.Errorf("create child: worktree add: %w", err)
@@ -119,7 +131,7 @@ func (u *worktreeUsecase) CreateChild(
 		return domain.Workspace{}, fmt.Errorf("create child: locked: %w", err)
 	}
 	return u.workspaces.Create(ctx, workspace.CreateInput{
-		ID:           uuid.NewString(),
+		ID:           wsID,
 		RepoID:       in.RepoID,
 		ProjectID:    in.ProjectID,
 		Branch:       in.Branch,
