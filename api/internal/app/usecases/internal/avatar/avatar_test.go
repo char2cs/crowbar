@@ -1,9 +1,12 @@
 package avatar
 
 import (
+	"os"
+	"path/filepath"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 func TestPaletteSizeMatchesConst(t *testing.T) {
@@ -31,4 +34,34 @@ func TestColor_DistributesAcrossPalette(t *testing.T) {
 		seen[Color(n)] = true
 	}
 	assert.GreaterOrEqual(t, len(seen), 2)
+}
+
+func TestScanRepoIcon_FindsFaviconSVG(t *testing.T) {
+	dir := t.TempDir()
+	require.NoError(t, os.WriteFile(filepath.Join(dir, "favicon.svg"), []byte("<svg/>"), 0o644))
+	got := ScanRepoIcon(dir)
+	assert.Equal(t, filepath.Join(dir, "favicon.svg"), got)
+}
+
+func TestScanRepoIcon_PriorityOrder(t *testing.T) {
+	dir := t.TempDir()
+	require.NoError(t, os.WriteFile(filepath.Join(dir, "favicon.ico"), []byte("ico"), 0o644))
+	require.NoError(t, os.WriteFile(filepath.Join(dir, "favicon.svg"), []byte("<svg/>"), 0o644))
+	got := ScanRepoIcon(dir)
+	assert.Equal(t, filepath.Join(dir, "favicon.svg"), got) // svg wins over ico
+}
+
+func TestScanRepoIcon_PublicSubdir(t *testing.T) {
+	dir := t.TempDir()
+	pub := filepath.Join(dir, "public")
+	require.NoError(t, os.Mkdir(pub, 0o755))
+	require.NoError(t, os.WriteFile(filepath.Join(pub, "logo.png"), []byte("png"), 0o644))
+	got := ScanRepoIcon(dir)
+	assert.Equal(t, filepath.Join(pub, "logo.png"), got)
+}
+
+func TestScanRepoIcon_NoMatch_ReturnsEmpty(t *testing.T) {
+	dir := t.TempDir()
+	got := ScanRepoIcon(dir)
+	assert.Empty(t, got)
 }

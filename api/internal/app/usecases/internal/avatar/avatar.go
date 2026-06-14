@@ -4,6 +4,8 @@ package avatar
 
 import (
 	"hash/fnv"
+	"os"
+	"path/filepath"
 	"unicode"
 )
 
@@ -49,4 +51,33 @@ func Color(
 	h := fnv.New32a()
 	_, _ = h.Write([]byte(name))
 	return p[h.Sum32()%paletteSize]
+}
+
+// iconCandidates is the ordered list of relative paths checked when scanning
+// a repo root for an icon file. First match wins.
+var iconCandidates = []string{
+	"favicon.svg",
+	"favicon.ico",
+	"favicon.png",
+	"logo.svg",
+	"logo.png",
+	"public/logo.svg",
+	"public/logo.png",
+	"public/favicon.svg",
+	"public/favicon.ico",
+	"public/favicon.png",
+	"src/assets/logo.svg",
+	"src/assets/logo.png",
+}
+
+// ScanRepoIcon walks iconCandidates relative to repoPath and returns the
+// absolute path of the first file found, or "" when none match.
+func ScanRepoIcon(repoPath string) string {
+	for _, rel := range iconCandidates {
+		abs := filepath.Join(repoPath, rel)
+		if _, err := os.Stat(abs); err == nil {
+			return abs
+		}
+	}
+	return ""
 }
