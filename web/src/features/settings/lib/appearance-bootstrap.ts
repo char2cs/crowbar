@@ -30,11 +30,6 @@ export interface AppearanceBootstrapCache {
 const DEFAULT_EDITOR_FONT = DEFAULT_MONO_FONT_FAMILY
 const DEFAULT_UI_FONT = DEFAULT_UI_FONT_FAMILY
 
-export const CROWBAR_BOOTSTRAP_DEFAULTS = {
-  dark: { id: 'crowbar', type: 'dark' as const },
-  light: { id: 'crowbar', type: 'light' as const },
-}
-
 export const DEFAULT_APPEARANCE_BOOTSTRAP_CACHE: AppearanceBootstrapCache = {
   version: 1,
   themeId: 'crowbar',
@@ -63,20 +58,6 @@ function buildFontVariable(primary: string, fallback: string): string {
   }
 
   return `"${normalized}", ${fallback}`
-}
-
-export function sanitizeVarMap(value: unknown): Record<string, string> {
-  if (!value || typeof value !== 'object' || Array.isArray(value)) {
-    return {}
-  }
-
-  const result: Record<string, string> = {}
-  for (const [key, entry] of Object.entries(value)) {
-    if (typeof key !== 'string' || typeof entry !== 'string') continue
-    if (!key.startsWith('--')) continue
-    result[key] = entry
-  }
-  return result
 }
 
 function isThemeType(value: unknown): value is 'light' | 'dark' {
