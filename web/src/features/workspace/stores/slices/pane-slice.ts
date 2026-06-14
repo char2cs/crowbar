@@ -1,5 +1,8 @@
 import type { StateCreator } from 'zustand'
 import type { WorkspaceState } from '../workspace-store.types'
+import type { WorkspaceStore } from '../workspace-store'
+import { isEditorContent } from '@/features/panes/types/pane-content'
+import { fileUri } from '@/features/editor/lib/editor-uri'
 import { ROOT_PANE_ID, BOTTOM_PANE_ID } from '@/features/panes/constants/pane'
 import type {
   PaneGroup,
@@ -87,7 +90,24 @@ export const createPaneSlice: StateCreator<
   [['zustand/immer', never]],
   [],
   PaneSlice
-> = (set, get) => ({
+> = (set, get, api) => {
+  // `api` is the same object onto which `createWorkspaceStore` later attaches the
+  // non-reactive `editorManager` handle (via Object.assign). It exists by the time
+  // any action runs, so the cast is safe and keeps the editor lib decoupled from
+  // the store state (the slice never imports editor *components*).
+  const editorManagerOf = () => (api as unknown as WorkspaceStore).editorManager
+
+  /** Release the held Monaco model for `bufferId` in `paneId` (editor buffers
+   *  only). A no-op when the buffer isn't an editor or the pane didn't hold it
+   *  (the manager guards on `held`). Disposes the model when no pane still holds
+   *  it, so closing a tab frees its model and a reopen reads fresh content. */
+  const releaseBufferModel = (paneId: string, bufferId: string) => {
+    const buf = get().buffers?.find((b) => b.id === bufferId)
+    if (!buf || !isEditorContent(buf)) return
+    editorManagerOf()?.closeBuffer(paneId, fileUri(buf.path))
+  }
+
+  return ({
   panes: { [ROOT_PANE_ID]: makeRootLeaf(), [BOTTOM_PANE_ID]: makeBottomLeaf() },
   rootLayout: createLeaf(ROOT_PANE_ID),
   bottomLayout: createLeaf(BOTTOM_PANE_ID),
@@ -182,6 +202,12 @@ export const createPaneSlice: StateCreator<
     },
 
     removeBufferFromPane(paneId, bufferId, preserveEmptyPane = false) {
+      // Release this pane's held Monaco model BEFORE mutating state (reads the
+      // buffer path, which still exists). Guarded internally: a no-op if the pane
+      // never held it.
+      if (get().panes[paneId]?.bufferIds.includes(bufferId)) {
+        releaseBufferModel(paneId, bufferId)
+      }
       set((state) => {
         const pane = state.panes[paneId]
         if (!pane) return
@@ -371,3 +397,4 @@ export const createPaneSlice: StateCreator<
     },
   },
 })
+}

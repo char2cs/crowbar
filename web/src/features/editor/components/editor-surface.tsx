@@ -204,8 +204,13 @@ export function EditorSurface({
   isActiveSurfaceRef.current = isActiveSurface
   const externalApplyRef = useRef<string | null>(null)
   const { handleContentChange } = useEditorAppStore.use.actions()
-  const onContentChange = useCallback(
-    (content: string) => {
+
+  // Shared write core. `targetBufferId` (when known) pins the write to a SPECIFIC
+  // buffer so a flush during a fast tab switch attributes content to the edited
+  // buffer, not the now-active one (I3). When omitted, handleContentChange falls
+  // back to the active buffer (legacy seam behavior).
+  const writeContent = useCallback(
+    (content: string, targetBufferId?: string) => {
       if (externalApplyRef.current === content) {
         externalApplyRef.current = null
         return
@@ -214,9 +219,24 @@ export function EditorSurface({
       if (isPreviewRef.current) onPromoteRef.current?.()
       void handleContentChange(content, undefined, undefined, undefined, {
         contentAlreadyApplied: false,
+        targetBufferId,
       })
     },
     [handleContentChange],
+  )
+
+  // Legacy 5-arg seam handed to the state bridge / editorAPI (no bufferId →
+  // active buffer). Identity is stable; extra legacy args are ignored here.
+  const onContentChange = useCallback(
+    (content: string) => writeContent(content),
+    [writeContent],
+  )
+
+  // Controller seam: the imperative ContentSink flush passes the buffer it was
+  // tracking so the write targets the edited buffer (I3 fix).
+  const onControllerContentChange = useCallback(
+    (content: string, bufferId: string | null) => writeContent(content, bufferId ?? undefined),
+    [writeContent],
   )
 
   const selectActiveBuffer = useCallback(
@@ -224,7 +244,7 @@ export function EditorSurface({
       const id = state.panes[paneId]?.activeBufferId ?? null
       const buffer = id ? state.buffers.find((b) => b.id === id) : null
       if (!buffer || !hasTextContent(buffer)) return null
-      return { filePath: buffer.path }
+      return { bufferId: buffer.id, filePath: buffer.path }
     },
     [paneId],
   )
@@ -236,7 +256,7 @@ export function EditorSurface({
     registry,
     mountPane,
     unmountPane,
-    onContentChange,
+    onContentChange: onControllerContentChange,
     syncCursorAndSelection,
   })
 

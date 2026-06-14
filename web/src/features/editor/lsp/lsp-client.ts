@@ -77,6 +77,12 @@ class LspClientImpl {
   private wsId: string | null = null
   private unsubscribe: (() => void) | null = null
   private lastByFile = new Map<string, LspDiagnostic[]>()
+  // Open refcount per file (I4): the retained-editor path has TWO independent
+  // owners that each open/close the same managed file — the satellite hook
+  // (diagnostics lifecycle) and `useLspIntegration` (server start + rich
+  // services). Reference-count opens so exactly ONE `/didOpen` POST goes out
+  // (the first opener) and `/didClose` only fires when the LAST holder closes.
+  private openRefs = new Map<string, number>()
 
   isRunning(): boolean {
     return this.unsubscribe !== null
@@ -95,6 +101,9 @@ class LspClientImpl {
     this.unsubscribe?.()
     this.wsId = wsId
     this.lastByFile.clear()
+    // The new workspace's documents are not open yet; drop stale refcounts so a
+    // first open there still POSTs `/didOpen`.
+    this.openRefs.clear()
     this.unsubscribe = wsManager.subscribe(`/v0/ws/lsp?wsId=${encodeURIComponent(wsId)}`, (raw) =>
       this.dispatch(raw as DiagnosticsEvent),
     )
@@ -245,6 +254,11 @@ class LspClientImpl {
   // server to analyze it; changes re-trigger analysis.
   async documentOpen(filePath: string, content: string, languageId: string): Promise<void> {
     this.ensureSubscribed()
+    // Dedupe concurrent owners: only the FIRST opener POSTs `/didOpen`; later
+    // opens just bump the refcount so the document is opened exactly once.
+    const refs = this.openRefs.get(filePath) ?? 0
+    this.openRefs.set(filePath, refs + 1)
+    if (refs > 0) return
     const base = this.wsBase()
     if (!base) return
     await apiFetch(`${base}/didOpen`, {
@@ -267,6 +281,15 @@ class LspClientImpl {
   async documentSave(_filePath: string, _content?: string): Promise<void> {}
 
   async documentClose(filePath: string): Promise<void> {
+    // Only the LAST holder closes the document; a close for a never-opened (or
+    // already-closed) file is a no-op, matching the previous tolerant behavior.
+    const refs = this.openRefs.get(filePath) ?? 0
+    if (refs === 0) return
+    if (refs > 1) {
+      this.openRefs.set(filePath, refs - 1)
+      return
+    }
+    this.openRefs.delete(filePath)
     const base = this.wsBase()
     if (!base) return
     await apiFetch(`${base}/didClose`, {

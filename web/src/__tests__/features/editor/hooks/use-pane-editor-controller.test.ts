@@ -16,14 +16,17 @@ import { fileUri } from '@/features/editor/lib/editor-uri'
 
 interface TestState {
   activeBufferId: string | null
-  buffers: Record<string, { filePath: string }>
+  buffers: Record<string, { bufferId: string; filePath: string }>
   setActive(id: string | null): void
 }
 
 function makeStore() {
   return createStore<TestState>((set) => ({
     activeBufferId: 'a',
-    buffers: { a: { filePath: '/a.ts' }, b: { filePath: '/b.ts' } },
+    buffers: {
+      a: { bufferId: 'a', filePath: '/a.ts' },
+      b: { bufferId: 'b', filePath: '/b.ts' },
+    },
     setActive: (id) => set({ activeBufferId: id }),
   }))
 }
@@ -117,8 +120,8 @@ describe('usePaneEditorController', () => {
     const { editor, deps } = setup()
     editor.setModelValue('x')
     act(() => editor.fire('content'))
-    // First edit flushed immediately.
-    expect(deps.onContentChange).toHaveBeenCalledWith('x')
+    // First edit flushed immediately, attributed to the active buffer 'a'.
+    expect(deps.onContentChange).toHaveBeenCalledWith('x', 'a')
     expect(deps.syncCursorAndSelection).toHaveBeenCalled()
 
     ;(deps.onContentChange as ReturnType<typeof vi.fn>).mockClear()
@@ -126,7 +129,7 @@ describe('usePaneEditorController', () => {
     act(() => editor.fire('content'))
     expect(deps.onContentChange).not.toHaveBeenCalled() // throttled
     act(() => vi.advanceTimersByTime(50))
-    expect(deps.onContentChange).toHaveBeenCalledWith('xy')
+    expect(deps.onContentChange).toHaveBeenCalledWith('xy', 'a')
   })
 
   it('flushes pending edits on blur and on the flush-editor-content event', () => {
@@ -137,13 +140,13 @@ describe('usePaneEditorController', () => {
     editor.setModelValue('blurred')
     act(() => editor.fire('content')) // queued (throttled)
     act(() => editor.fire('blur'))
-    expect(deps.onContentChange).toHaveBeenCalledWith('blurred')
+    expect(deps.onContentChange).toHaveBeenCalledWith('blurred', 'a')
 
     ;(deps.onContentChange as ReturnType<typeof vi.fn>).mockClear()
     editor.setModelValue('saved')
     act(() => editor.fire('content'))
     act(() => window.dispatchEvent(new Event('flush-editor-content')))
-    expect(deps.onContentChange).toHaveBeenCalledWith('saved')
+    expect(deps.onContentChange).toHaveBeenCalledWith('saved', 'a')
   })
 
   it('flushes the outgoing buffer before swapping away', () => {
@@ -153,7 +156,31 @@ describe('usePaneEditorController', () => {
     editor.setModelValue('pending')
     act(() => editor.fire('content')) // queued, not yet written
     act(() => store.getState().setActive('b'))
-    expect(deps.onContentChange).toHaveBeenCalledWith('pending')
+    expect(deps.onContentChange).toHaveBeenCalledWith('pending', 'a')
+  })
+
+  // I3 regression: a fast tab switch must NOT misattribute the outgoing buffer's
+  // pending text to the now-active buffer. Type into A, switch to B within the
+  // throttle window; the flushed text must be written to A, never to B.
+  it('attributes pending content to the EDITED buffer on a fast switch, not the new one', () => {
+    const { store, editor, deps } = setup()
+    act(() => editor.fire('content')) // first-edit flush for 'a'
+    ;(deps.onContentChange as ReturnType<typeof vi.fn>).mockClear()
+
+    // Type into A (queued, throttled — not yet flushed).
+    editor.setModelValue('typed-into-A')
+    act(() => editor.fire('content'))
+    expect(deps.onContentChange).not.toHaveBeenCalled()
+
+    // Switch to B within the throttle window → flush of A's pending text fires.
+    act(() => store.getState().setActive('b'))
+
+    const calls = (deps.onContentChange as ReturnType<typeof vi.fn>).mock.calls
+    const aWrite = calls.find((c) => c[0] === 'typed-into-A')
+    expect(aWrite).toBeDefined()
+    expect(aWrite?.[1]).toBe('a') // attributed to A, the edited buffer
+    // It must never have been written against B.
+    expect(calls.some((c) => c[0] === 'typed-into-A' && c[1] === 'b')).toBe(false)
   })
 
   it('cleanup unmounts the pane and clears the registry', () => {

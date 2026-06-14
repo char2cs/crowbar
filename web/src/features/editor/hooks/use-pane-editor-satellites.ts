@@ -40,8 +40,9 @@ import {
   useWorkspaceStore,
   useWorkspaceStoreContext,
 } from '@/features/workspace/stores/workspace-context'
-import { hasTextContent } from '@/features/panes/types/pane-content'
+import { hasTextContent, isEditorContent } from '@/features/panes/types/pane-content'
 import { fileUri } from '@/features/editor/lib/editor-uri'
+import { shouldReconcileModelFromStore } from '@/features/editor/lib/pane-editor-controller'
 import { useEditorSettingsStore } from '../stores/settings-store'
 import { useEditorStateStore } from '../stores/state-store'
 import { useEditorUIStore } from '../stores/ui-store'
@@ -494,13 +495,29 @@ export function usePaneEditorSatellites(
       if (selection) editor.setSelection(selection)
     }
     externalSyncRef.current = applyExternal
-    // Reconcile immediately on (re)bind — e.g. a swap to a buffer whose store
-    // content already diverges from the freshly shown model.
-    applyExternal(activeContentRef.current)
+    // Reconcile on (re)bind — e.g. a swap BACK to a held model whose store content
+    // was updated (disk reload / format-on-save / undo) while it was off-screen.
+    //
+    // I2 guard: do NOT clobber a model that is AHEAD of the store with pending,
+    // un-flushed local edits. Genuine external changes only ever update the store
+    // for a CLEAN buffer (a dirty buffer is flagged, never overwritten — see
+    // external-buffer-sync); so when the buffer is dirty the MODEL is the source
+    // of truth and the older store snapshot must not be applied over it. The
+    // subscription-driven path (store content actually changed) still applies
+    // genuine external edits regardless of dirty state.
+    const reconcileBuffer = (() => {
+      const state = workspaceStore.getState()
+      const id = state.panes[paneId]?.activeBufferId ?? null
+      const buf = id ? state.buffers.find((b) => b.id === id) : null
+      return buf && isEditorContent(buf) ? buf : null
+    })()
+    if (shouldReconcileModelFromStore(reconcileBuffer)) {
+      applyExternal(activeContentRef.current)
+    }
     return () => {
       externalSyncRef.current = () => {}
     }
-  }, [editorManager, externalApplyRef, paneId, swapTick])
+  }, [editorManager, externalApplyRef, paneId, swapTick, workspaceStore])
 
   // ── Settings: theme (separate so font/layout changes don't redefine theme) ─
   // Runs on mount, when theme inputs change, AND once when the editor instance

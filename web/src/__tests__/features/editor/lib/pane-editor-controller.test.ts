@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from 'vitest'
 import {
   applyActiveBuffer,
+  shouldReconcileModelFromStore,
   type PaneSwitchManager,
 } from '@/features/editor/lib/pane-editor-controller'
 import { createActiveEditorRegistry } from '@/features/editor/lib/active-editor-context'
@@ -30,7 +31,7 @@ describe('applyActiveBuffer', () => {
     const registry = createActiveEditorRegistry()
     const setSpy = vi.spyOn(registry, 'set')
 
-    const ctx = applyActiveBuffer({ manager, registry }, 'p1', { filePath: '/a.ts' })
+    const ctx = applyActiveBuffer({ manager, registry }, 'p1', { bufferId: 'b-a', filePath: '/a.ts' })
 
     expect(manager.showBuffer).toHaveBeenCalledWith('p1', fileUri('/a.ts'))
     expect(setSpy).toHaveBeenCalledTimes(1)
@@ -59,14 +60,14 @@ describe('applyActiveBuffer', () => {
   it('switching to the SAME buffer does not re-notify subscribers', () => {
     const manager = fakeManager()
     const registry = createActiveEditorRegistry()
-    applyActiveBuffer({ manager, registry }, 'p1', { filePath: '/a.ts' })
+    applyActiveBuffer({ manager, registry }, 'p1', { bufferId: 'b-a', filePath: '/a.ts' })
 
     const cb = vi.fn()
     registry.subscribe('p1', cb) // immediate call (1)
     expect(cb).toHaveBeenCalledTimes(1)
 
     // Same path again — showBuffer is uri-deduped and registry.set is uri-deduped.
-    applyActiveBuffer({ manager, registry }, 'p1', { filePath: '/a.ts' })
+    applyActiveBuffer({ manager, registry }, 'p1', { bufferId: 'b-a', filePath: '/a.ts' })
     expect(cb).toHaveBeenCalledTimes(1) // no re-notify
   })
 
@@ -78,10 +79,30 @@ describe('applyActiveBuffer', () => {
       getRawEditor: vi.fn(() => null),
     }
 
-    const ctx = applyActiveBuffer({ manager, registry }, 'p1', { filePath: '/a.ts' })
+    const ctx = applyActiveBuffer({ manager, registry }, 'p1', { bufferId: 'b-a', filePath: '/a.ts' })
 
     expect(manager.showBuffer).toHaveBeenCalledWith('p1', fileUri('/a.ts'))
     expect(ctx).toBeUndefined()
     expect(setSpy).not.toHaveBeenCalled()
+  })
+})
+
+// I2 regression: on a swap/rebind the external-sync effect must NOT overwrite a
+// model that is AHEAD of the store with pending local edits (a DIRTY buffer);
+// it MUST still apply a genuine external change (store ahead of a stale model,
+// which lands the buffer CLEAN). The gate is `shouldReconcileModelFromStore`.
+describe('shouldReconcileModelFromStore (I2)', () => {
+  it('skips the reconcile when the buffer is dirty (model ahead — pending edits)', () => {
+    // Model has un-flushed local edits → store snapshot is older → do NOT apply.
+    expect(shouldReconcileModelFromStore({ isDirty: true })).toBe(false)
+  })
+
+  it('applies the reconcile when the buffer is clean (genuine external change)', () => {
+    // Disk reload / format-on-save / undo land the buffer clean and authoritative.
+    expect(shouldReconcileModelFromStore({ isDirty: false })).toBe(true)
+  })
+
+  it('applies (no-op-safe) when there is no editor buffer', () => {
+    expect(shouldReconcileModelFromStore(null)).toBe(true)
   })
 })

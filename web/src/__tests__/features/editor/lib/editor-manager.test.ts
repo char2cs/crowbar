@@ -139,6 +139,41 @@ describe('EditorManager', () => {
     expect(ea.created[0].dispose).toHaveBeenCalled()
   })
 
+  it('disposes the model when the LAST holder closes it (closeBuffer)', () => {
+    const modelApi = fakeModelApi(); const ea = fakeEditorApi()
+    const m = new EditorManager(ea, new ModelRegistry(modelApi), { lang, text })
+    m.mountPane('p1', {} as HTMLElement)
+    m.showBuffer('p1', 'athas://editor/a')
+    const aModel = ea.created[0].getModel()
+    expect(aModel.dispose).not.toHaveBeenCalled()
+    m.closeBuffer('p1', 'athas://editor/a') // last (only) holder closes
+    expect(aModel.dispose).toHaveBeenCalled()
+  })
+
+  it('reopening a file AFTER closing it re-acquires a fresh model (createModel called again)', () => {
+    const modelApi = fakeModelApi(); const ea = fakeEditorApi()
+    const m = new EditorManager(ea, new ModelRegistry(modelApi), { lang, text })
+    m.mountPane('p1', {} as HTMLElement)
+    m.showBuffer('p1', 'athas://editor/a')
+    expect(modelApi.createModel).toHaveBeenCalledTimes(1)
+    m.closeBuffer('p1', 'athas://editor/a') // releases + disposes (no holder)
+    m.showBuffer('p1', 'athas://editor/a') // reopen → fresh model (reads disk text)
+    expect(modelApi.createModel).toHaveBeenCalledTimes(2)
+  })
+
+  it('a shared model held by TWO panes disposes only when BOTH panes release it', () => {
+    const modelApi = fakeModelApi(); const ea = fakeEditorApi()
+    const m = new EditorManager(ea, new ModelRegistry(modelApi), { lang, text })
+    m.mountPane('p1', {} as HTMLElement); m.mountPane('p2', {} as HTMLElement)
+    m.showBuffer('p1', 'athas://editor/a')
+    m.showBuffer('p2', 'athas://editor/a') // shared model, two holders
+    const aModel = ea.created[0].getModel()
+    m.closeBuffer('p1', 'athas://editor/a') // one holder gone
+    expect(aModel.dispose).not.toHaveBeenCalled()
+    m.closeBuffer('p2', 'athas://editor/a') // last holder gone
+    expect(aModel.dispose).toHaveBeenCalled()
+  })
+
   it('applyExternalEdit edits the live model (not recreate) when the pane shows the uri', () => {
     const modelApi = fakeModelApi(); const ea = fakeEditorApi()
     const reg = new ModelRegistry(modelApi)

@@ -70,8 +70,12 @@ export interface PaneEditorControllerDeps<S> {
   /**
    * Persist a content change (model text) to the buffer store. This is the
    * single write seam; the caller folds preview-promote-on-first-edit into it.
+   * `bufferId` identifies the buffer the flushed text belongs to — passed
+   * explicitly so a flush triggered DURING a fast tab switch attributes content
+   * to the OUTGOING buffer (the one being edited), not whichever buffer happens
+   * to be active when the write lands (I3 data-loss fix).
    */
-  onContentChange(value: string): void
+  onContentChange(value: string, bufferId: string | null): void
   /** Sync cursor/selection to the editor state store (status bar). */
   syncCursorAndSelection(): void
   /** Trailing-debounce window for the ContentSink. */
@@ -107,13 +111,20 @@ export function usePaneEditorController<S>(
     // after each swap is flushed synchronously (immediate dirty + preview
     // promote); sustained typing thereafter is throttled.
     let firstEditFlushed = false
+    // The buffer the sink's pending content belongs to. Captured on push (when
+    // the edit happens) and read on flush, so even if the active buffer changes
+    // before the trailing flush fires, the write targets the edited buffer.
+    let sinkBufferId: string | null = null
     const sink = new ContentSink({
       delayMs: depsRef.current.sinkDelayMs ?? 150,
-      write: (value) => depsRef.current.onContentChange(value),
+      write: (value) => depsRef.current.onContentChange(value, sinkBufferId),
     })
 
     const flush = () => sink.flush()
     window.addEventListener('flush-editor-content', flush)
+
+    // The buffer currently bound to the retained widget (updated on each swap).
+    let currentBufferId: string | null = null
 
     const disposables: Disposable[] = []
     if (editor) {
@@ -121,6 +132,9 @@ export function usePaneEditorController<S>(
         editor.onDidChangeModelContent(() => {
           const model = editor.getModel()
           if (!model) return
+          // Attribute this (and any further coalesced) edit to the buffer that is
+          // currently bound — read at edit time, not at flush time.
+          sinkBufferId = currentBufferId
           sink.push(model.getValue())
           if (!firstEditFlushed) {
             firstEditFlushed = true
@@ -140,10 +154,13 @@ export function usePaneEditorController<S>(
       const buffer = depsRef.current.selectActiveBuffer(store.getState())
       const nextUri = buffer ? fileUri(buffer.filePath) : null
       if (nextUri === currentUri) return
-      // Flush the outgoing buffer's pending edit before swapping away.
+      // Flush the outgoing buffer's pending edit BEFORE swapping away — and
+      // before `currentBufferId` is updated — so the flush attributes to the
+      // outgoing buffer (sinkBufferId still points at it).
       sink.flush()
       applyActiveBuffer({ manager, registry }, paneId, buffer)
       currentUri = nextUri
+      currentBufferId = buffer ? buffer.bufferId : null
       firstEditFlushed = false
     }
 

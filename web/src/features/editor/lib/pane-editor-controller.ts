@@ -26,6 +26,9 @@ export interface PaneSwitchManager {
 
 /** The minimal shape of the buffer that just became active in the pane. */
 export interface ActiveBufferInfo {
+  /** Buffer id — the content-write target (so a flush attributes to the right
+   *  buffer even after the active buffer has changed on a fast switch). */
+  bufferId: string
   /** Filesystem path — the stable model key (`fileUri(filePath)`). */
   filePath: string
 }
@@ -48,6 +51,23 @@ interface EditorWithModel {
  * published, e.g. no buffer / no raw editor) so the caller can rebind listeners
  * to the new model.
  */
+/**
+ * I2 reconcile gate. On a swap/rebind the satellite external-sync effect would
+ * otherwise apply the STORE snapshot over the freshly-bound model. That is only
+ * safe when the store is the authoritative value — i.e. the buffer is NOT dirty.
+ *
+ * Genuine external changes (disk reload, format-on-save, undo applied to the
+ * store) only ever update the store content for a CLEAN buffer; a dirty buffer
+ * is flagged, never overwritten (see external-buffer-sync). So when the buffer
+ * is dirty the held model carries pending local edits the store snapshot does
+ * not, and applying it would CLOBBER those edits (lost keystrokes). Skip it.
+ *
+ * Returns true when the store snapshot may be reconciled onto the model.
+ */
+export function shouldReconcileModelFromStore(buffer: { isDirty: boolean } | null): boolean {
+  return !buffer?.isDirty
+}
+
 export function applyActiveBuffer(
   deps: { manager: PaneSwitchManager; registry: ActiveEditorRegistry },
   paneId: string,

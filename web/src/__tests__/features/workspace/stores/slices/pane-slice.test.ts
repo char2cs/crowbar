@@ -1,9 +1,10 @@
 // web/src/__tests__/features/workspace/stores/slices/pane-slice.test.ts
-import { describe, it, expect, beforeEach } from 'vitest'
+import { describe, it, expect, beforeEach, vi } from 'vitest'
 import { createStore } from 'zustand'
 import { immer } from 'zustand/middleware/immer'
 import { createPaneSlice, type PaneSlice } from '@/features/workspace/stores/slices/pane-slice'
 import { ROOT_PANE_ID, BOTTOM_PANE_ID } from '@/features/panes/constants/pane'
+import { fileUri } from '@/features/editor/lib/editor-uri'
 
 function makeStore() {
   return createStore<PaneSlice>()(
@@ -135,5 +136,44 @@ describe('pane-slice bottomRoot routing', () => {
     expect(rootPaneGroup?.bufferIds).toContain('buf-x')
     const bottomPaneGroup = store.getState().paneActions.getPaneById(BOTTOM_PANE_ID)
     expect(bottomPaneGroup?.bufferIds).not.toContain('buf-x')
+  })
+})
+
+// C1 regression: removing/closing an editor buffer must release its retained
+// Monaco model via the editorManager (keyed by FILE URI), so closing a tab frees
+// the model and a reopen reads fresh content. Wires a fake editorManager onto the
+// store object (the same place `createWorkspaceStore` Object.assign's it).
+describe('pane-slice → editorManager model release (C1)', () => {
+  function makeStoreWithManager() {
+    const closeBuffer = vi.fn()
+    // The pane slice reads `get().buffers` (path lookup) and `api.editorManager`.
+    type S = PaneSlice & { buffers: Array<{ id: string; type: string; path: string }> }
+    let api: { editorManager: { closeBuffer: typeof closeBuffer } }
+    const store = createStore<S>()(
+      immer((set, get, rawApi) => {
+        api = rawApi as unknown as typeof api
+        api.editorManager = { closeBuffer }
+        return {
+          ...createPaneSlice(
+            ...([set, get, rawApi] as unknown as Parameters<typeof createPaneSlice>),
+          ),
+          buffers: [{ id: 'buf-ed', type: 'editor', path: '/src/a.ts' }],
+        }
+      }),
+    )
+    return { store, closeBuffer }
+  }
+
+  it('removeBufferFromPane releases the model for that pane (paneId + fileUri)', () => {
+    const { store, closeBuffer } = makeStoreWithManager()
+    store.getState().paneActions.addBufferToPane(ROOT_PANE_ID, 'buf-ed', true)
+    store.getState().paneActions.removeBufferFromPane(ROOT_PANE_ID, 'buf-ed', true)
+    expect(closeBuffer).toHaveBeenCalledWith(ROOT_PANE_ID, fileUri('/src/a.ts'))
+  })
+
+  it('does not release for a pane that never held the buffer', () => {
+    const { store, closeBuffer } = makeStoreWithManager()
+    store.getState().paneActions.removeBufferFromPane(ROOT_PANE_ID, 'buf-ed', true)
+    expect(closeBuffer).not.toHaveBeenCalled()
   })
 })

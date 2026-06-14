@@ -17,8 +17,12 @@ import type {
   ClosedBuffer,
   PendingClose,
 } from '@/features/panes/types/pane-content'
-import { shouldStartLsp } from '@/features/panes/types/pane-content'
+import { shouldStartLsp, isEditorContent } from '@/features/panes/types/pane-content'
 import { EDITOR_CONSTANTS } from '@/features/editor/config/constants'
+import { fileUri } from '@/features/editor/lib/editor-uri'
+import { useHistoryStore } from '@/features/editor/stores/history-store'
+import { cleanupBufferHistoryTracking } from '@/features/editor/stores/buffer-history-tracking'
+import type { WorkspaceStore } from '../workspace-store'
 import { nanoid } from 'nanoid'
 
 // ── Constants ────────────────────────────────────────────────────────
@@ -58,7 +62,12 @@ export const createBufferSlice: StateCreator<
   [['zustand/immer', never]],
   [],
   BufferSlice
-> = (set, get) => ({
+> = (set, get, api) => {
+  // See pane-slice for why reaching `editorManager` through `api` is safe: it is
+  // the non-reactive handle Object.assign'd onto the store after slice creation.
+  const editorManagerOf = () => (api as unknown as WorkspaceStore).editorManager
+
+  return ({
   buffers: [],
   closedBuffersHistory: [],
   pendingClose: null,
@@ -319,6 +328,24 @@ export const createBufferSlice: StateCreator<
           }
         })
       }
+      // Release the held Monaco model for any pane that STILL holds this buffer.
+      // The canonical close paths call `removeBufferFromPane` first (which already
+      // released for that pane and stripped the id), so this only fires for panes
+      // that were skipped (direct closeBuffer callers) or other panes holding the
+      // same file — release exactly once per holding pane. Disposes the model when
+      // the last holder releases, so a reopen reads fresh content (no stale model).
+      if (buf && isEditorContent(buf)) {
+        const uri = fileUri(buf.path)
+        const manager = editorManagerOf()
+        for (const pane of Object.values(get().panes ?? {})) {
+          if (pane.bufferIds.includes(id)) manager?.closeBuffer(pane.id, uri)
+        }
+      }
+      // Free full-content history snapshots so closed buffers don't leak memory.
+      // clearHistory drops up to 100 HistoryEntry objects each holding a full copy
+      // of the file text — the dominant source of memory growth in long sessions.
+      cleanupBufferHistoryTracking(id)
+      useHistoryStore.getState().actions.clearHistory(id)
       set((state) => {
         state.buffers = state.buffers.filter((b) => b.id !== id)
       })
@@ -412,3 +439,4 @@ export const createBufferSlice: StateCreator<
     },
   },
 })
+}
