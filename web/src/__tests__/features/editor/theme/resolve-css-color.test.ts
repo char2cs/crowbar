@@ -25,9 +25,21 @@ describe('cssColorToHex', () => {
   it('converts a known chromatic oklch within tolerance of sRGB red', () => {
     // oklch for #ff0000 ≈ L0.6279 C0.2577 H29.23
     const hex = cssColorToHex('oklch(0.6279 0.2577 29.23)')
-    expect(hex.slice(0, 1)).toBe('#')
-    const r = Number.parseInt(hex.slice(1, 3), 16)
+    expect(hex).not.toBeNull()
+    const r = Number.parseInt((hex as string).slice(1, 3), 16)
+    const g = Number.parseInt((hex as string).slice(3, 5), 16)
+    const b = Number.parseInt((hex as string).slice(5, 7), 16)
     expect(r).toBeGreaterThan(250) // strong red channel
+    expect(g).toBeLessThan(20) // green/blue near zero
+    expect(b).toBeLessThan(20)
+  })
+
+  it('passes through 8-digit hex (rrggbbaa)', () => {
+    expect(cssColorToHex('#aabbccdd')).toBe('#aabbccdd')
+  })
+
+  it('converts space-separated rgb', () => {
+    expect(cssColorToHex('rgb(255 0 0)')).toBe('#ff0000')
   })
 
   it('returns null for unparseable input', () => {
