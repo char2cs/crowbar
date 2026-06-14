@@ -1,4 +1,4 @@
-import { wsUrl } from './url'
+import { wsUrl, isWebSocketCapable } from './url'
 import { reportChannelState, reportChannelGone } from './connection-store'
 
 type Callback = (data: unknown) => void
@@ -88,6 +88,14 @@ export function createWSManager(): WSManager {
 
   return {
     subscribe(endpoint, cb) {
+      // The active transport may not be able to carry a WebSocket (e.g. the
+      // desktop's crowbar:// unix-socket scheme). Constructing one throws and
+      // crashes startup, so skip the live channel entirely — mark it gone so
+      // the UI reflects "no live stream" rather than a perpetual "connecting".
+      if (!isWebSocketCapable()) {
+        reportChannelGone(endpoint)
+        return () => {}
+      }
       const ch = channels.get(endpoint) ?? open(endpoint)
       ch.callbacks.add(cb)
       return () => {
