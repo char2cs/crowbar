@@ -21,8 +21,9 @@ type MockWorkspace struct {
 	ReparentFn          func(ctx context.Context, id, parentID, forkPointSha string, now time.Time) (domain.Workspace, error)
 	UpdateForkPointFn   func(ctx context.Context, id, forkPointSha string) (domain.Workspace, error)
 	SetPendingMergeFn   func(ctx context.Context, id string, s gitdomain.MergeStrategy, target string) (domain.Workspace, error)
-	ClearPendingMergeFn func(ctx context.Context, id string) (domain.Workspace, error)
-	DeleteFn            func(ctx context.Context, id string) error
+	ClearPendingMergeFn  func(ctx context.Context, id string) (domain.Workspace, error)
+	SetParentFromPRFn    func(ctx context.Context, id, parentID string) (domain.Workspace, error)
+	DeleteFn             func(ctx context.Context, id string) error
 	GetFn               func(ctx context.Context, id string) (domain.Workspace, error)
 	ListFn              func(ctx context.Context) ([]domain.Workspace, error)
 }
@@ -99,6 +100,14 @@ func (m *MockWorkspace) ClearPendingMerge(
 	id string,
 ) (domain.Workspace, error) {
 	return m.ClearPendingMergeFn(ctx, id)
+}
+
+func (m *MockWorkspace) SetParentFromPR(
+	ctx context.Context,
+	id string,
+	parentID string,
+) (domain.Workspace, error) {
+	return m.SetParentFromPRFn(ctx, id, parentID)
 }
 
 func (m *MockWorkspace) Delete(

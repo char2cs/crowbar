@@ -100,6 +100,13 @@ type Workspace interface {
 		ctx context.Context,
 		id string,
 	) (domain.Workspace, error)
+	// SetParentFromPR sets ParentID from an open PR's target branch without
+	// recomputing ForkPointSha.
+	SetParentFromPR(
+		ctx context.Context,
+		id string,
+		parentID string,
+	) (domain.Workspace, error)
 	Delete(
 		ctx context.Context,
 		id string,
@@ -281,6 +288,18 @@ func (w *workspace) ClearPendingMerge(
 	evt, err := w.ax.SendWait(ctx, commands.ClearPendingMerge{ID: id})
 	if err != nil {
 		return domain.Workspace{}, fmt.Errorf("workspace: clear pending merge: %w", err)
+	}
+	return evt.Aggregate, nil
+}
+
+func (w *workspace) SetParentFromPR(
+	ctx context.Context,
+	id string,
+	parentID string,
+) (domain.Workspace, error) {
+	evt, err := w.ax.SendWait(ctx, commands.SetParentFromPR{ID: id, ParentID: parentID})
+	if err != nil {
+		return domain.Workspace{}, fmt.Errorf("workspace: set parent from pr: %w", err)
 	}
 	return evt.Aggregate, nil
 }
