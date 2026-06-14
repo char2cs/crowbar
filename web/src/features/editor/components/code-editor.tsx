@@ -34,7 +34,7 @@ import { MarkdownPreview } from '../markdown/markdown-preview'
 import type { Position, Range } from '../types/editor'
 import { ScrollDebugOverlay } from './debug/scroll-debug-overlay'
 import { HtmlPreview } from './html/html-preview'
-import { MonacoBackedEditor } from './monaco-editor'
+import { DiffMonacoEditor } from './monaco-diff-editor'
 import { EditorStylesheet } from './stylesheet'
 import Breadcrumb, { type BreadcrumbProps } from './toolbar/breadcrumb'
 import FindBar from './toolbar/find-bar'
@@ -538,7 +538,7 @@ const CodeEditor = ({
             ) : showCsvPreview ? (
               <CsvPreview />
             ) : (
-              <MonacoBackedEditor
+              <DiffMonacoEditor
                 paneId={paneId}
                 bufferId={activeBufferId ?? undefined}
                 viewStateKey={editorViewKey ?? undefined}

@@ -231,7 +231,6 @@ interface EditorStateActions {
   getCachedViewState: (bufferId: string) => EditorViewState | null
   cacheViewStateForBuffer: (bufferId: string, state: EditorViewState) => void
   clearPositionCache: (bufferId?: string) => void
-  restorePositionForFile: (bufferId: string) => EditorViewState
   resetOnBufferSwitch: () => void
 
   // Multi-cursor actions
@@ -339,23 +338,6 @@ export const useEditorStateStore = createSelectors(
           viewStateCache.set(bufferId, state)
         },
         clearPositionCache: (bufferId) => viewStateCache.clear(bufferId),
-        restorePositionForFile: (bufferId) => {
-          const cachedState = viewStateCache.get(bufferId)
-          const restoredState = cachedState ?? {
-            cursor: { line: 0, column: 0, offset: 0 },
-            scrollTop: 0,
-            scrollLeft: 0,
-          }
-
-          set({
-            cursorPosition: restoredState.cursor,
-            selection: restoredState.selection,
-            scrollTop: restoredState.scrollTop,
-            scrollLeft: restoredState.scrollLeft,
-          })
-
-          return restoredState
-        },
         resetOnBufferSwitch: () => {
           set({
             multiCursorState: null,

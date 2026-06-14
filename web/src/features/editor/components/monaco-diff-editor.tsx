@@ -47,7 +47,7 @@ import {
 } from '../monaco/editor-conversions'
 import { defineMonacoTheme } from '../monaco/define-theme'
 
-interface MonacoBackedEditorProps {
+interface DiffMonacoEditorProps {
   paneId?: string
   bufferId?: string
   viewStateKey?: string
@@ -84,7 +84,7 @@ function createModelUri(bufferId: string | undefined, filePath: string): Monaco.
   return Uri.parse(`athas://editor/${encodeURIComponent(bufferId ?? path)}/${path}`)
 }
 
-export function MonacoBackedEditor({
+export function DiffMonacoEditor({
   bufferId: propBufferId,
   viewStateKey,
   isActiveSurface = true,
@@ -107,7 +107,7 @@ export function MonacoBackedEditor({
   onMouseEnter,
   onClick,
   className,
-}: MonacoBackedEditorProps) {
+}: DiffMonacoEditorProps) {
   const containerRef = useRef<HTMLDivElement>(null)
   const editorRef = useRef<Monaco.editor.IStandaloneCodeEditor | null>(null)
   const modelRef = useRef<Monaco.editor.ITextModel | null>(null)
@@ -115,13 +115,12 @@ export function MonacoBackedEditor({
   const previousContentRef = useRef('')
   const decorationCollectionRef = useRef<Monaco.editor.IEditorDecorationsCollection | null>(null)
   const latestContentChangeRef = useRef(onContentChange)
-  // LEGACY standalone path only. The retained per-pane widget (owned by
-  // EditorManager) for real workspace panes now lives in `editor-surface.tsx`
-  // (usePaneEditorController + usePaneEditorSatellites). This component keeps the
-  // create-per-instance path used by standalone consumers — notably the git diff
-  // viewer, which renders MANY read-only editors concurrently and shares source
-  // paths across split left/right surfaces — that do NOT pass a paneId. They keep
-  // a private editor+model because (a) they would all collide on a single pane
+  // Diff-viewer editor. The retained per-pane widget (owned by EditorManager) for
+  // real workspace panes lives in `editor-surface.tsx` (usePaneEditorController +
+  // usePaneEditorSatellites). This component is the create-per-instance path used
+  // by the git diff viewer, which renders MANY read-only editors concurrently and
+  // shares source paths across split left/right surfaces. Each instance keeps a
+  // private editor+model because (a) they would all collide on a single pane
   // widget, and (b) the manager keys models by file path, so split editors
   // sharing a path would share one model.
   const activeBufferId = useWorkspaceStoreContext(
