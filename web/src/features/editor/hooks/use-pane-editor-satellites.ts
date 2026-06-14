@@ -118,23 +118,25 @@ export function usePaneEditorSatellites(
   const registry = workspaceStore.activeEditorRegistry
   const editorManager = workspaceStore.editorManager
 
-  // Narrow selectors: the active editor buffer's content + language override for
-  // THIS pane. Each returns a PRIMITIVE so the snapshot is referentially stable
-  // (returning a fresh object here would make useSyncExternalStore re-render
-  // every commit → "Maximum update depth exceeded"). Only the active buffer's
-  // text changes re-run external-sync/LSP.
-  const activeContent = useWorkspaceStoreContext(
-    useCallback(
-      (state) => {
-        const bufferId = state.panes[paneId]?.activeBufferId ?? null
-        const buffer = bufferId
-          ? state.buffers.find((candidate) => candidate.id === bufferId)
-          : null
-        return buffer && hasTextContent(buffer) ? buffer.content : ''
-      },
-      [paneId],
-    ),
-  )
+  // Active buffer CONTENT is read IMPERATIVELY (U5b) — NOT subscribed into
+  // render. A render subscription here re-rendered EditorSurface on every
+  // keystroke (content flows model → sink → store every ~150ms). Instead a
+  // vanilla `workspaceStore.subscribe` (below) watches THIS pane's active-buffer
+  // text and drives the external-sync + LSP-didChange effects off-render,
+  // reading the new content + model imperatively when it actually changes.
+  const readActiveContent = useCallback(() => {
+    const state = workspaceStore.getState()
+    const bufferId = state.panes[paneId]?.activeBufferId ?? null
+    const buffer = bufferId
+      ? state.buffers.find((candidate) => candidate.id === bufferId)
+      : null
+    return buffer && hasTextContent(buffer) ? buffer.content : ''
+  }, [workspaceStore, paneId])
+
+  // `languageOverride` changes RARELY (a manual language pick), so it stays a
+  // render subscription — it feeds `setModelLanguage` + the LSP document
+  // lifecycle, both keyed on `languageId`/`swapTick`, not on keystrokes. It
+  // returns a PRIMITIVE so the snapshot is referentially stable.
   const languageOverride = useWorkspaceStoreContext(
     useCallback(
       (state) => {
@@ -254,6 +256,33 @@ export function usePaneEditorSatellites(
     return unsubscribe
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [paneId])
+
+  // ── Imperative active-content change signal (U5b) ──────────────────────────
+  // A single vanilla store subscription watches THIS pane's active-buffer text
+  // and fans out to the two content-driven concerns (external→model sync, LSP
+  // didChange) WITHOUT re-rendering. The latest content is mirrored into
+  // `activeContentRef`; subscribers register a callback that fires only when the
+  // content actually changes. This is rebound on swap (refs/effects re-key on
+  // `swapTick`), but the subscription itself is paneId-scoped and reads the live
+  // active buffer, so it survives swaps.
+  const activeContentRef = useRef('')
+  activeContentRef.current = readActiveContent()
+  const externalSyncRef = useRef<(content: string) => void>(() => {})
+  const lspDidChangeRef = useRef<(content: string) => void>(() => {})
+  useEffect(() => {
+    let previous = readActiveContent()
+    activeContentRef.current = previous
+    // Apply any change that landed between render and this effect's commit.
+    externalSyncRef.current(previous)
+    return workspaceStore.subscribe(() => {
+      const next = readActiveContent()
+      if (next === previous) return
+      previous = next
+      activeContentRef.current = next
+      externalSyncRef.current(next)
+      lspDidChangeRef.current(next)
+    })
+  }, [workspaceStore, readActiveContent])
 
   // ── Once-per-pane: select-all command + scroll/layout/visible-range ───────
   // Bound when the editor first becomes available; reads the CURRENT model.
@@ -440,24 +469,38 @@ export function usePaneEditorSatellites(
     model.updateOptions({ tabSize, insertSpaces: true })
   }, [monacoLanguageId, tabSize, swapTick])
 
-  // ── External content → model sync ─────────────────────────────────────────
+  // ── External content → model sync (imperative, U5b) ───────────────────────
   // Managed panes are model-authoritative; only GENUINE external changes (disk
   // reload, format-on-save, undo/redo applied to the store) are pushed into the
-  // held model via the manager's undo-friendly edit.
+  // held model via the manager's undo-friendly edit. This installs the handler
+  // the content-change subscription calls (and re-keys on swap so it captures the
+  // current model/path). Local typing does NOT bounce: it flows model → sink →
+  // store, so by the time the store fires `model.getValue() === content` and the
+  // edit is skipped. The `externalApplyRef` latch additionally guards the one
+  // model-change event a genuine external edit re-fires.
   useEffect(() => {
-    const editor = editorRef.current
-    const model = modelRef.current
-    if (!editor || !model) return
-    const path = filePathRef.current
-    if (!path) return
-    if (model.getValue() === activeContent) return
-    const selection = editor.getSelection()
-    // Latch the applied text so the surface ignores the model-change event this
-    // edit re-fires (otherwise it would bounce straight back to the store).
-    if (externalApplyRef) externalApplyRef.current = activeContent
-    editorManager.applyExternalEdit(paneId, fileUri(path), activeContent)
-    if (selection) editor.setSelection(selection)
-  }, [activeContent, editorManager, externalApplyRef, paneId, swapTick])
+    const applyExternal = (content: string) => {
+      const editor = editorRef.current
+      const model = modelRef.current
+      if (!editor || !model) return
+      const path = filePathRef.current
+      if (!path) return
+      if (model.getValue() === content) return
+      const selection = editor.getSelection()
+      // Latch the applied text so the surface ignores the model-change event this
+      // edit re-fires (otherwise it would bounce straight back to the store).
+      if (externalApplyRef) externalApplyRef.current = content
+      editorManager.applyExternalEdit(paneId, fileUri(path), content)
+      if (selection) editor.setSelection(selection)
+    }
+    externalSyncRef.current = applyExternal
+    // Reconcile immediately on (re)bind — e.g. a swap to a buffer whose store
+    // content already diverges from the freshly shown model.
+    applyExternal(activeContentRef.current)
+    return () => {
+      externalSyncRef.current = () => {}
+    }
+  }, [editorManager, externalApplyRef, paneId, swapTick])
 
   // ── Settings: theme (separate so font/layout changes don't redefine theme) ─
   // Runs on mount, when theme inputs change, AND once when the editor instance
@@ -723,13 +766,29 @@ export function usePaneEditorSatellites(
     }
   }, [languageId, swapTick])
 
-  // ── LSP re-analyze on edits (debounced) ───────────────────────────────────
+  // ── LSP re-analyze on edits (debounced, imperative — U5b) ─────────────────
+  // Driven by the content-change signal, not a render dep. Each change (re)arms a
+  // trailing 400ms timer that reads the model's CURRENT text imperatively
+  // (`model.getValue()`) and sends `documentChange`. Re-keyed on swap so it
+  // targets the live model/path; the pending timer is cleared on rebind/unmount.
   useEffect(() => {
     const filePath = filePathRef.current
-    if (!filePath) return
-    const timer = setTimeout(() => {
-      void LspClient.getInstance().documentChange(filePath, activeContent)
-    }, 400)
-    return () => clearTimeout(timer)
-  }, [activeContent, swapTick])
+    if (!filePath) {
+      lspDidChangeRef.current = () => {}
+      return
+    }
+    let timer: ReturnType<typeof setTimeout> | null = null
+    lspDidChangeRef.current = () => {
+      if (timer) clearTimeout(timer)
+      timer = setTimeout(() => {
+        timer = null
+        const content = modelRef.current?.getValue() ?? activeContentRef.current
+        void LspClient.getInstance().documentChange(filePath, content)
+      }, 400)
+    }
+    return () => {
+      if (timer) clearTimeout(timer)
+      lspDidChangeRef.current = () => {}
+    }
+  }, [swapTick])
 }

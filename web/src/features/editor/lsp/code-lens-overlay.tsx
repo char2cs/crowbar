@@ -1,4 +1,4 @@
-import { type ForwardedRef, forwardRef, useEffect, useMemo, useState } from 'react'
+import { type ForwardedRef, forwardRef, memo, useEffect, useMemo, useState } from 'react'
 import { EDITOR_CONSTANTS } from '@/features/editor/config/constants'
 import type { EditorModelPositionResolver } from '../view-model/view-layout'
 import type { CodeLensItem } from './use-code-lens'
@@ -13,7 +13,7 @@ interface CodeLensOverlayProps {
   resolveModelPosition?: EditorModelPositionResolver
 }
 
-const CodeLensOverlay = forwardRef(
+const CodeLensOverlayImpl = forwardRef(
   (
     {
       lenses,
@@ -108,6 +108,14 @@ const CodeLensOverlay = forwardRef(
   },
 )
 
-CodeLensOverlay.displayName = 'CodeLensOverlay'
+CodeLensOverlayImpl.displayName = 'CodeLensOverlay'
+
+// Memoized so it re-renders ONLY when its props actually change (chiefly the
+// `lenses` set, which only changes on the debounced ~1000ms fetch). The fetch
+// reads no content directly (server-resolved via `getCodeLens(filePath)`), so a
+// keystroke neither refetches synchronously nor re-renders this overlay; props
+// like `scrollTop`/`viewportHeight` are read from the live DOM by the parent and
+// only flow in when the parent itself re-renders.
+const CodeLensOverlay = memo(CodeLensOverlayImpl)
 
 export default CodeLensOverlay
