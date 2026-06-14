@@ -73,6 +73,11 @@ type ImportProviderEngine interface {
 		ctx context.Context,
 		repoPath string,
 	) ([]string, error)
+	// OwnerAvatarURL returns the repo owner's avatar URL, or "" on failure.
+	OwnerAvatarURL(
+		ctx context.Context,
+		repoPath string,
+	) (string, error)
 }
 
 // DiscoverFunc walks root and returns the repo roots found within maxDepth.
@@ -178,6 +183,10 @@ func (u *projectImport) importOneRepo(
 ) error {
 	name := filepath.Base(repoPath)
 	runner := u.deps.RefRunner(repoPath)
+	avatarURL := avatar.ScanRepoIcon(repoPath)
+	if avatarURL == "" {
+		avatarURL, _ = u.deps.Provider.OwnerAvatarURL(ctx, repoPath)
+	}
 	repo := domain.Repository{
 		ID:            uuid.NewString(),
 		ProjectID:     project.ID,
@@ -186,6 +195,7 @@ func (u *projectImport) importOneRepo(
 		DefaultBranch: defaultbranch.Resolve(runner, defaultBranchCandidates),
 		AvatarLabel:   avatar.Label(name),
 		AvatarColor:   avatar.Color(name),
+		AvatarURL:     avatarURL,
 	}
 	if err := u.deps.Repos.Save(ctx, repo); err != nil {
 		return fmt.Errorf("project import: save repository: %w", err)

@@ -190,6 +190,8 @@ func (g *GitEngine) MergeBase(
 type ProviderEngine struct {
 	Protected    []string
 	ProtectedErr error
+	AvatarURL    string
+	AvatarURLErr error
 }
 
 // NewProviderEngine returns an empty ProviderEngine.
@@ -205,6 +207,13 @@ func (p *ProviderEngine) ProtectedBranches(
 		return nil, p.ProtectedErr
 	}
 	return p.Protected, nil
+}
+
+func (p *ProviderEngine) OwnerAvatarURL(
+	ctx context.Context,
+	repoPath string,
+) (string, error) {
+	return p.AvatarURL, p.AvatarURLErr
 }
 
 // ProviderSyncWorkspaceRepo is a fake of the workspace.Workspace surface used

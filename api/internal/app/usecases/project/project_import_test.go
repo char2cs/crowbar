@@ -292,6 +292,34 @@ func TestImport_WorkspaceCreateError_IsTolerated(
 	assert.Empty(t, ws.Created)
 }
 
+func TestImport_AvatarURL_FromProvider(t *testing.T) {
+	_, repos, _, git, prov, uc := newImport(t)
+	git.Worktrees = []gitengine.WorktreeEntry{
+		{Path: "/repoA", Branch: "main", Head: "h1"},
+	}
+	prov.Protected = []string{"main"}
+	prov.AvatarURL = "https://avatars.githubusercontent.com/u/99"
+
+	_, err := uc.Import(context.Background(), "P", "/root")
+	require.NoError(t, err)
+	require.Len(t, repos.Saved, 1)
+	assert.Equal(t, "https://avatars.githubusercontent.com/u/99", repos.Saved[0].AvatarURL)
+}
+
+func TestImport_AvatarURL_FallsBackToEmpty(t *testing.T) {
+	_, repos, _, git, prov, uc := newImport(t)
+	git.Worktrees = []gitengine.WorktreeEntry{
+		{Path: "/repoA", Branch: "main", Head: "h1"},
+	}
+	prov.Protected = []string{"main"}
+	prov.AvatarURL = "" // provider returns nothing
+
+	_, err := uc.Import(context.Background(), "P", "/root")
+	require.NoError(t, err)
+	require.Len(t, repos.Saved, 1)
+	assert.Empty(t, repos.Saved[0].AvatarURL)
+}
+
 // TestImport_PartialRepoFailure verifies the best-effort guarantee (00 §5.1):
 // when two repos are discovered and the first fails (git engine error), Import
 // still returns the project with no error and the second repo IS fully adopted.
