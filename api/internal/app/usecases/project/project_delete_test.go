@@ -9,7 +9,6 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/char2cs/crowbar/api/internal/app/apperr"
-	"github.com/char2cs/crowbar/api/internal/app/usecases/internal/worktreepath"
 	"github.com/char2cs/crowbar/api/internal/app/usecases/project"
 	"github.com/char2cs/crowbar/api/internal/domain"
 )
@@ -138,10 +137,11 @@ func newDeleteFixture(
 		git:        &fakeDeleteGit{},
 	}
 	f.uc = project.NewDelete(project.DeleteDeps{
-		Projects:   f.projects,
-		Repos:      f.repos,
-		Workspaces: f.workspaces,
-		Git:        f.git,
+		Projects:    f.projects,
+		Repos:       f.repos,
+		Workspaces:  f.workspaces,
+		Git:         f.git,
+		CrowbarHome: func() (string, error) { return "/home/u/.crowbar", nil },
 	})
 	return f
 }
@@ -167,7 +167,7 @@ func TestProjectDelete_NotFound(t *testing.T) {
 func TestProjectDelete_CascadesRecords_RemovesOnlyCrowbarWorktrees(t *testing.T) {
 	f := newDeleteFixture(t)
 	f.seedProject()
-	crowbarPath := worktreepath.For(deleteRepoPath, "feature/x")
+	crowbarPath := "/home/u/.crowbar/projects/github.com/test/repo/workspaces/w-child"
 	f.workspaces.workspaces = []domain.Workspace{
 		{ID: "w-main", RepoID: "r1", ProjectID: "p1", Branch: "main", WorktreePath: deleteRepoPath, Locked: true},
 		{ID: "w-adopted", RepoID: "r1", ProjectID: "p1", Branch: "spike", WorktreePath: "/home/u/elsewhere/spike"},
@@ -218,7 +218,7 @@ func TestProjectDelete_WorktreeRemoveFailure_StillDeletesRecords(t *testing.T) {
 	f := newDeleteFixture(t)
 	f.seedProject()
 	f.git.removeErr = errors.New("stale worktree")
-	crowbarPath := worktreepath.For(deleteRepoPath, "feature/x")
+	crowbarPath := "/home/u/.crowbar/projects/github.com/test/repo/workspaces/w-child"
 	f.workspaces.workspaces = []domain.Workspace{
 		{ID: "w-child", RepoID: "r1", ProjectID: "p1", Branch: "feature/x", WorktreePath: crowbarPath},
 	}

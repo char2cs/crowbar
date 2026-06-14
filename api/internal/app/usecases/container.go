@@ -8,6 +8,7 @@ import (
 	"github.com/char2cs/crowbar/api/internal/app/usecases/file"
 	"github.com/char2cs/crowbar/api/internal/app/usecases/git"
 	"github.com/char2cs/crowbar/api/internal/app/usecases/internal/discover"
+	"github.com/char2cs/crowbar/api/internal/app/usecases/internal/worktreepath"
 	"github.com/char2cs/crowbar/api/internal/app/usecases/project"
 	"github.com/char2cs/crowbar/api/internal/app/usecases/provider"
 	"github.com/char2cs/crowbar/api/internal/app/usecases/terminal"
@@ -93,10 +94,11 @@ func New(
 		Now:        nowFunc,
 	})
 	projectDelete := project.NewDelete(project.DeleteDeps{
-		Projects:   gormStores.Projects,
-		Repos:      gormStores.Repositories,
-		Workspaces: repos.Workspace,
-		Git:        engines.Git,
+		Projects:    gormStores.Projects,
+		Repos:       gormStores.Repositories,
+		Workspaces:  repos.Workspace,
+		Git:         engines.Git,
+		CrowbarHome: worktreepath.DefaultCrowbarHome,
 	})
 	worktreeUsecase := worktree.New(
 		repos.Workspace,
@@ -104,6 +106,7 @@ func New(
 		engines.Provider,
 		gormStores.Repositories,
 		nowFunc,
+		worktreepath.DefaultCrowbarHome,
 	)
 	branchReview := branchreview.New(
 		repos.Workspace,

@@ -62,6 +62,7 @@ func newBenchHarness(
 		ProjectID: projectID,
 		Name:      "repo",
 		Path:      repoPath,
+		RemoteURL: "https://github.com/test/bench-repo.git",
 	}))
 
 	prov := &stubProvider{}
@@ -71,6 +72,7 @@ func newBenchHarness(
 		prov,
 		repos,
 		func() time.Time { return time.Now() },
+		func() (string, error) { return b.TempDir(), nil },
 	)
 
 	parentID := "w-parent"
@@ -161,6 +163,7 @@ func (h *benchHarness) createChild(
 		RepoID:       h.repoID,
 		ProjectID:    h.projectID,
 		RepoPath:     h.repoPath,
+		RemoteURL:    "https://github.com/test/bench-repo.git",
 		Branch:       branch,
 		ParentID:     parentID,
 		ParentBranch: parentBranch,

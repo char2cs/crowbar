@@ -79,6 +79,7 @@ func (h *Handlers) buildCreateInput(
 		RepoID:       repo.ID,
 		ProjectID:    repo.ProjectID,
 		RepoPath:     repo.Path,
+		RemoteURL:    repo.RemoteURL,
 		Branch:       body.Branch,
 		ParentID:     body.ParentID,
 		ParentBranch: parentBranch,

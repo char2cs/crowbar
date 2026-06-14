@@ -151,6 +151,7 @@ func newRealUsecase(
 		ProjectID: projectID,
 		Name:      "repo",
 		Path:      repoPath,
+		RemoteURL: "https://github.com/test/integration-repo.git",
 	}))
 
 	prov := &stubProvider{}
@@ -160,6 +161,7 @@ func newRealUsecase(
 		prov,
 		repos,
 		func() time.Time { return time.Unix(1000, 0).UTC() },
+		func() (string, error) { return t.TempDir(), nil },
 	)
 
 	parentID := "w-parent"
@@ -234,6 +236,7 @@ func (h *realHarness) createChild(
 		RepoID:       h.repoID,
 		ProjectID:    h.projectID,
 		RepoPath:     h.repoPath,
+		RemoteURL:    "https://github.com/test/integration-repo.git",
 		Branch:       branch,
 		ParentID:     parentID,
 		ParentBranch: parentBranch,
