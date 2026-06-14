@@ -110,6 +110,9 @@ func (m *mockWorkspace) Delete(ctx context.Context, id string) error { return ni
 func (m *mockWorkspace) List(ctx context.Context) ([]domain.Workspace, error) {
 	return nil, nil
 }
+func (m *mockWorkspace) SetParentFromPR(ctx context.Context, id string, parentID string) (domain.Workspace, error) {
+	return domain.Workspace{}, nil
+}
 
 var _ workspace.Workspace = (*mockWorkspace)(nil)
 

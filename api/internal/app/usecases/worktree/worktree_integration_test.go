@@ -59,6 +59,10 @@ func (s *stubProvider) StartBackgroundSweep(
 ) {
 }
 
+func (s *stubProvider) OwnerAvatarURL(ctx context.Context, repoPath string) (string, error) {
+	return "", nil
+}
+
 // realHarness bundles the wired-up usecase plus the handles a scenario needs to
 // drive REAL git and inspect REAL read-model rows.
 type realHarness struct {
