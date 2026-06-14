@@ -48,6 +48,27 @@ func (e *providerEngine) ProtectedBranches(
 	return branches, nil
 }
 
+// OwnerAvatarURL returns the avatar URL of the repo owner.
+// Returns "" when the provider is unavailable or the lookup fails.
+func (e *providerEngine) OwnerAvatarURL(
+	ctx context.Context,
+	repoPath string,
+) (string, error) {
+	res, err := e.detectFn(ctx, repoPath)
+	if err != nil || !res.Enabled {
+		return "", nil
+	}
+	prov := e.providerFor(res.Kind)
+	if prov == nil {
+		return "", nil
+	}
+	avatarURL, err := prov.OwnerAvatarURL(ctx, repoPath)
+	if err != nil {
+		return "", nil
+	}
+	return avatarURL, nil
+}
+
 // Capability returns what the engine can do for a given repo.
 func (e *providerEngine) Capability(
 	ctx context.Context,
