@@ -65,6 +65,7 @@ import {
   pathsMatch,
 } from '../monaco/editor-conversions'
 import { defineMonacoTheme } from '../monaco/define-theme'
+import { scheduleIdleTask } from '../lib/idle-task'
 
 type StandaloneEditor = Monaco.editor.IStandaloneCodeEditor
 
@@ -411,14 +412,18 @@ export function usePaneEditorSatellites(
     }
   }, [isActiveSurface, readOnly, swapTick])
 
-  // ── Language id sync (per-swap; also covers languageOverride changes) ─────
+  // ── Per-swap MODEL-level options: language + tabSize ──────────────────────
+  // These are the ONLY things that legitimately must reapply on a model swap
+  // (a fresh model has default language + tab settings). The heavy, widget-level
+  // `editor.updateOptions({...})` below is deliberately NOT keyed on swapTick.
   const languageId = languageOverride ?? getLanguageIdFromPath(filePathRef.current)
   const monacoLanguageId = toMonacoLanguageId(languageId)
   useEffect(() => {
     const model = modelRef.current
     if (!model) return
     monacoEditor.setModelLanguage(model, monacoLanguageId)
-  }, [monacoLanguageId, swapTick])
+    model.updateOptions({ tabSize, insertSpaces: true })
+  }, [monacoLanguageId, tabSize, swapTick])
 
   // ── External content → model sync ─────────────────────────────────────────
   // Managed panes are model-authoritative; only GENUINE external changes (disk
@@ -440,25 +445,67 @@ export function usePaneEditorSatellites(
   }, [activeContent, editorManager, externalApplyRef, paneId, swapTick])
 
   // ── Settings: theme (separate so font/layout changes don't redefine theme) ─
+  // Runs on mount, when theme inputs change, AND once when the editor instance
+  // first becomes available — but NOT on every model swap. `themeBoundEditorRef`
+  // tracks the editor instance the theme subscriptions are bound to; we rebind
+  // only when that instance changes (editor created/replaced), so a tab switch
+  // (swapTick bump with the SAME retained editor) is a cheap no-op.
+  const themeBoundEditorRef = useRef<StandaloneEditor | null>(null)
   useEffect(() => {
     const editor = editorRef.current
     if (!editor) return
     const applyTheme = () =>
       monacoEditor.setTheme(defineMonacoTheme(settingsTheme || theme))
+    // Always reapply the theme value (cheap) when theme inputs change; rebind the
+    // registry subscriptions only when the editor instance itself changed.
     applyTheme()
+    if (themeBoundEditorRef.current === editor) return
+    themeBoundEditorRef.current = editor
     const unsubscribeRegistry = themeRegistry.onRegistryChange(applyTheme)
     const unsubscribeTheme = themeRegistry.onThemeChange(applyTheme)
     return () => {
       unsubscribeRegistry()
       unsubscribeTheme()
+      if (themeBoundEditorRef.current === editor) themeBoundEditorRef.current = null
     }
+    // swapTick is intentionally a dep so this re-evaluates when the editor first
+    // appears / is replaced, but the subscription rebind is gated by the ref.
   }, [settingsTheme, theme, swapTick])
 
-  // ── Settings: all non-theme editor options ────────────────────────────────
+  // ── Settings: all non-theme editor options (widget-level) ─────────────────
+  // Keyed on actual settings values only — NOT swapTick — so a tab switch does
+  // not re-run this ~20-option `updateOptions`. `swapTick` is still a dep purely
+  // so the effect re-evaluates when the editor instance first becomes available;
+  // the body short-circuits to a no-op once it has applied the current settings
+  // to the current editor instance (guarded by `optionsBoundStateRef`).
+  const optionsBoundStateRef = useRef<{ editor: StandaloneEditor; key: string } | null>(null)
   useEffect(() => {
     const editor = editorRef.current
     if (!editor) return
-    editor.getModel()?.updateOptions({ tabSize, insertSpaces: true })
+    // Identity of "these settings on this editor". If unchanged (e.g. a pure tab
+    // switch bumped swapTick but nothing settings-related moved), skip the work.
+    const settingsKey = JSON.stringify([
+      autoCompletion,
+      fontFamily,
+      fontSize,
+      highlightOccurrences,
+      lineHeight,
+      lineNumbers,
+      // line-number formatting inputs (formatter identity is derived from these)
+      lineNumberStart,
+      lineNumberMap,
+      minimapEnabled,
+      parameterHints,
+      readOnly,
+      renderIndentGuides,
+      renderWhitespace,
+      scrollable,
+      tabSize,
+      wordWrap,
+    ])
+    const bound = optionsBoundStateRef.current
+    if (bound && bound.editor === editor && bound.key === settingsKey) return
+    optionsBoundStateRef.current = { editor, key: settingsKey }
     editor.updateOptions({
       fontFamily,
       fontSize,
@@ -494,6 +541,8 @@ export function usePaneEditorSatellites(
     lineHeight,
     lineNumbers,
     lineNumberFormatter,
+    lineNumberMap,
+    lineNumberStart,
     minimapEnabled,
     parameterHints,
     readOnly,
@@ -618,12 +667,21 @@ export function usePaneEditorSatellites(
   }, [lineHeight, swapTick])
 
   // ── LSP diagnostics: open document + paint markers ────────────────────────
+  // The diagnostics subscription is set up synchronously (cheap) so markers paint
+  // as soon as the server reports them. The EXPENSIVE part — `documentOpen` — is
+  // deferred to an idle tick so it never blocks the content paint on open/switch.
+  //
+  // Lifecycle safety: the deferred open is cancelled if this effect cleans up
+  // (swap/unmount) before it fires, so a rapid open→open→open never leaks an open
+  // document and ends with exactly one open (the last). The previous document is
+  // closed synchronously on cleanup regardless of whether its open already fired
+  // (`documentClose` is a no-op for a document that was never opened).
   useEffect(() => {
     const model = modelRef.current
     const filePath = filePathRef.current
     if (!model || !filePath) return
     const client = LspClient.getInstance()
-    void client.documentOpen(filePath, model.getValue(), languageId ?? 'plaintext')
+
     const applyMarkers = (fp: string, diagnostics: LspDiagnostic[]) => {
       if (!pathsMatch(fp, filePath)) return
       const current = modelRef.current
@@ -631,9 +689,20 @@ export function usePaneEditorSatellites(
       monacoEditor.setModelMarkers(current, 'crowbar-lsp', diagnostics.map(toMonacoMarker))
     }
     const unsubscribe = client.onDiagnosticsUpdate(applyMarkers)
+
+    let opened = false
+    const openHandle = scheduleIdleTask(() => {
+      opened = true
+      void client.documentOpen(filePath, model.getValue(), languageId ?? 'plaintext')
+    })
+
     return () => {
+      // Cancel the pending open if it has not fired yet (prevents a leaked open
+      // for a buffer we are already switching away from).
+      openHandle.cancel()
       unsubscribe()
-      void client.documentClose(filePath)
+      // Close only if we actually opened it; harmless otherwise.
+      if (opened) void client.documentClose(filePath)
       const current = modelRef.current
       if (current) monacoEditor.setModelMarkers(current, 'crowbar-lsp', [])
     }

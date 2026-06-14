@@ -50,6 +50,7 @@ import { LspClient } from '../lsp/lsp-client'
 import RenameInput from '../lsp/rename-input'
 import { SignatureHelpTooltip } from '../lsp/signature-help-tooltip'
 import { useCodeLens } from '../lsp/use-code-lens'
+import { scheduleIdleTask } from '../lib/idle-task'
 import { useRename } from '../lsp/use-rename'
 import { CompletionDropdown } from '../completion/completion-dropdown'
 import { useEditorViewStore } from '../stores/view-store'
@@ -113,6 +114,28 @@ export function PaneLspLayer({
     return registry.subscribe(paneId, (ctx) => setFilePath(ctx?.filePath ?? ''))
   }, [registry, paneId])
 
+  // ── Deferred rich-services gate ────────────────────────────────────────────
+  // The heavy LSP work (`useLspIntegration` → documentOpen; code-lens fetch) is
+  // gated behind a short post-swap idle flag so it does NOT run on the synchronous
+  // switch/open frame — the content paints first, then these enable a beat later.
+  // The overlays themselves stay mounted (gated only by `enableRichEditorServices`);
+  // we just defer the EXPENSIVE work. On each swap the flag resets to false and
+  // re-arms; the pending idle task is cancelled on the next swap/unmount, so the
+  // LSP document lifecycle (documentOpen/Close in `useLspIntegration`, routed
+  // through its `openedDocumentsRef` guards) is never double-fired or leaked.
+  const [richServicesReady, setRichServicesReady] = useState(false)
+  useEffect(() => {
+    if (!enableRichEditorServices) {
+      setRichServicesReady(false)
+      return
+    }
+    setRichServicesReady(false)
+    const handle = scheduleIdleTask(() => setRichServicesReady(true))
+    return () => handle.cancel()
+  }, [enableRichEditorServices, filePath])
+
+  const enableDeferredRichServices = enableRichEditorServices && richServicesReady
+
   // ── Active content: narrow workspace selector (primitive → stable snapshot) ─
   const value = useWorkspaceStoreContext(
     useCallback(
@@ -142,7 +165,10 @@ export function PaneLspLayer({
 
   // ── LSP integration + overlay hooks ───────────────────────────────────────
   const { hoverHandlers, goToDefinitionHandlers, definitionLinkHandlers } = useLspIntegration({
-    enabled: enableRichEditorServices,
+    // Gate the EXPENSIVE document lifecycle behind the post-swap idle flag so the
+    // synchronous switch frame stays light. Hover/go-to-def handler IDENTITIES are
+    // still produced (they read the live value), so interactivity is unaffected.
+    enabled: enableDeferredRichServices,
     filePath,
     value,
     editorRef: overlayContainerRef,
@@ -150,8 +176,8 @@ export function PaneLspLayer({
   })
   const rename = useRename(enableRichEditorServices ? filePath : undefined)
   const codeLenses = useCodeLens(
-    enableRichEditorServices ? filePath : undefined,
-    enableRichEditorServices,
+    enableDeferredRichServices ? filePath : undefined,
+    enableDeferredRichServices,
   )
 
   const handleCodeLensExecute = useCallback(
