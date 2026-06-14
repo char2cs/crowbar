@@ -43,3 +43,19 @@ HTMLCanvasElement.prototype.getContext = function () {
     fillRect: () => {},
   } as unknown as CanvasRenderingContext2D
 } as unknown as typeof HTMLCanvasElement.prototype.getContext
+
+// jsdom does not implement the (deprecated) document.queryCommand* / execCommand
+// APIs. Monaco's clipboard contribution calls document.queryCommandSupported at
+// import time; the resulting throw prevents the ENTIRE monaco module — and any
+// test file that imports an editor module — from loading under jsdom. Stubbing
+// them lets those suites load and run (e.g. editor-api, pane-*, workspace-store).
+if (typeof document !== 'undefined') {
+  const doc = document as Document & {
+    queryCommandSupported?: (commandId: string) => boolean
+    queryCommandValue?: (commandId: string) => string
+    execCommand?: (commandId: string, showUI?: boolean, value?: string) => boolean
+  }
+  if (typeof doc.queryCommandSupported !== 'function') doc.queryCommandSupported = () => false
+  if (typeof doc.queryCommandValue !== 'function') doc.queryCommandValue = () => ''
+  if (typeof doc.execCommand !== 'function') doc.execCommand = () => false
+}
