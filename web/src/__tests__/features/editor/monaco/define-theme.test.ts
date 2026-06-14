@@ -14,6 +14,7 @@ const UI = {
   selection: '#33445566',
   border: '#2a2a2a',
   subtle: '#888888',
+  ring: '#778899',
 }
 
 describe('buildMonacoThemeData', () => {
@@ -38,5 +39,11 @@ describe('buildMonacoThemeData', () => {
     const { colors } = buildMonacoThemeData({ isDark: true, syntax: SYNTAX, ui: UI })
     expect(colors['editor.background']).toBe('#1f1f1f')
     expect(colors['editor.foreground']).toBe('#f5f5f5')
+  })
+
+  it('sets find-match and focus colors from selection/ring', () => {
+    const { colors } = buildMonacoThemeData({ isDark: true, syntax: SYNTAX, ui: UI })
+    expect(colors['editor.findMatchBackground']).toBe(UI.selection)
+    expect(colors['focusBorder']).toBe(UI.ring)
   })
 })

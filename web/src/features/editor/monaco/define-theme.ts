@@ -46,6 +46,7 @@ export interface MonacoUiTokens {
   selection: string
   border: string
   subtle: string
+  ring: string
 }
 
 export interface MonacoThemeInput {
@@ -80,6 +81,9 @@ export function buildMonacoThemeData(input: MonacoThemeInput): MonacoThemeData {
       'editorCursor.foreground': ui.foreground,
       'editor.selectionBackground': ui.selection,
       'editor.inactiveSelectionBackground': ui.border,
+      'editor.findMatchBackground': ui.selection,
+      'editor.findMatchHighlightBackground': ui.border,
+      focusBorder: ui.ring,
       'editor.lineHighlightBackground': ui.border,
       'editorLineNumber.foreground': ui.subtle,
       'editorLineNumber.activeForeground': ui.foreground,
@@ -104,9 +108,13 @@ function readUiTokens(isDark: boolean): MonacoUiTokens {
   return {
     background: resolveCssVar('--background') ?? (isDark ? '#1f1f1f' : '#ffffff'),
     foreground: resolveCssVar('--foreground') ?? (isDark ? '#f5f5f5' : '#1f1f1f'),
-    selection: resolveCssVar('--accent') ?? (isDark ? '#2a2a2a' : '#e7ebf0'),
+    selection:
+      resolveCssVar('--editor-selection') ??
+      resolveCssVar('--accent') ??
+      (isDark ? '#33445566' : '#6a9bcc4d'),
     border: resolveCssVar('--border') ?? (isDark ? '#2a2a2a' : '#e4e7ec'),
     subtle: resolveCssVar('--muted-foreground') ?? (isDark ? '#888888' : '#787d86'),
+    ring: resolveCssVar('--ring') ?? (isDark ? '#888888' : '#9aa0a6'),
   }
 }
 
