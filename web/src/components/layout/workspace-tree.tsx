@@ -11,6 +11,7 @@ import { WorkspaceTreeFooter } from './workspace-tree-footer'
 import { WorkspaceTreeItem } from './workspace-tree-item'
 import { WorkspaceTreeProvider, useWorkspaceTreeContext } from './workspace-tree-context'
 import { RepoSettingsPanel } from './repo-settings-panel'
+import { useSidebarNavStore } from '@/features/layout/stores/sidebar-nav'
 import type { Workspace } from '@/lib/store/sidebar'
 
 export interface WorkspaceTreeNode {
@@ -65,7 +66,6 @@ function WorkspaceTreeInner() {
     void useWorkspaceListStore.getState().fetch()
   }, [])
   const [hoveredRepoId, setHoveredRepoId] = useState<string | null>(null)
-  const [openSettingsRepoId, setOpenSettingsRepoId] = useState<string | null>(null)
 
   const activeWorkspaceId = pathname.match(/\/workspaces\/([^/]+)/)?.[1] ?? ''
 
@@ -111,7 +111,11 @@ function WorkspaceTreeInner() {
                   aria-label={isCollapsed ? 'Expand repo' : 'Collapse repo'}
                   data-repo-drop={repo.id}
                 >
-                  {repo.avatarURL ? (
+                  {repo.avatarURL?.startsWith('emoji:') ? (
+                    <span className="inline-flex h-4 w-4 shrink-0 items-center justify-center text-base leading-none">
+                      {repo.avatarURL.slice(6)}
+                    </span>
+                  ) : repo.avatarURL ? (
                     <img
                       src={repo.avatarURL}
                       alt={repo.name}
@@ -136,7 +140,11 @@ function WorkspaceTreeInner() {
                       className="shrink-0 rounded-md p-1 text-foreground/50 hover:text-foreground"
                       onClick={(e) => {
                         e.stopPropagation()
-                        setOpenSettingsRepoId(repo.id)
+                        useSidebarNavStore.getState().push({
+                          id: `repo-settings:${repo.id}`,
+                          title: repo.name,
+                          component: <RepoSettingsPanel repoId={repo.id} repoName={repo.name} />,
+                        })
                       }}
                     >
                       <Settings className="size-3" />
@@ -177,19 +185,6 @@ function WorkspaceTreeInner() {
         </div>
       </ScrollArea>
       <WorkspaceTreeFooter />
-      {openSettingsRepoId != null && (() => {
-        const settingsRepo = repos.find((r) => r.id === openSettingsRepoId)
-        if (!settingsRepo) return null
-        return (
-          <RepoSettingsPanel
-            key={settingsRepo.id}
-            repoId={settingsRepo.id}
-            repoName={settingsRepo.name}
-            open={openSettingsRepoId === settingsRepo.id}
-            onOpenChange={(open) => { if (!open) setOpenSettingsRepoId(null) }}
-          />
-        )
-      })()}
       {draggingWs && dragPos && (
         <div
           className="pointer-events-none fixed z-50 rounded-md border border-border bg-secondary px-2 py-1 font-mono text-[13px] text-secondary-foreground shadow-md opacity-90"
