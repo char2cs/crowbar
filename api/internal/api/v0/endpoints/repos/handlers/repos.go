@@ -4,7 +4,9 @@ package handlers
 import (
 	"context"
 	"net/http"
+	"os"
 	"os/exec"
+	"path/filepath"
 	"strings"
 
 	"github.com/gin-gonic/gin"
@@ -124,6 +126,37 @@ func gitDefaultBranch(
 		return ""
 	}
 	return strings.TrimSpace(string(out))
+}
+
+// Icon handles GET /v0/repos/:id/icon. If AvatarURL is an HTTPS URL it
+// redirects. If it is a local filesystem path it reads and serves the file.
+func (h *Handlers) Icon(c *gin.Context) {
+	repo, err := h.store.FindByKey(c.Request.Context(), c.Param("id"))
+	if err != nil || repo == nil || repo.AvatarURL == "" {
+		c.Status(http.StatusNotFound)
+		return
+	}
+	if strings.HasPrefix(repo.AvatarURL, "http") {
+		c.Redirect(http.StatusTemporaryRedirect, repo.AvatarURL)
+		return
+	}
+	data, err := os.ReadFile(repo.AvatarURL)
+	if err != nil {
+		c.Status(http.StatusNotFound)
+		return
+	}
+	contentTypes := map[string]string{
+		".svg":  "image/svg+xml",
+		".png":  "image/png",
+		".ico":  "image/x-icon",
+		".jpg":  "image/jpeg",
+		".jpeg": "image/jpeg",
+	}
+	ct := contentTypes[strings.ToLower(filepath.Ext(repo.AvatarURL))]
+	if ct == "" {
+		ct = "application/octet-stream"
+	}
+	c.Data(http.StatusOK, ct, data)
 }
 
 // filterByProject keeps only the repos whose ProjectID matches projectID; an

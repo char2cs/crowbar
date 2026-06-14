@@ -17,4 +17,5 @@ func Register(
 	rg.POST("/repos", h.Create)
 	rg.GET("/repos", h.List)
 	rg.GET("/repos/:id", h.Detail)
+	rg.GET("/repos/:id/icon", h.Icon)
 }

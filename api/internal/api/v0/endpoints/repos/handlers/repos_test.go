@@ -6,6 +6,8 @@ import (
 	"errors"
 	"net/http"
 	"net/http/httptest"
+	"os"
+	"path/filepath"
 	"testing"
 
 	"github.com/gin-gonic/gin"
@@ -161,4 +163,47 @@ func TestDetailError(
 ) {
 	rec := do(newRouter(&fakeStore{byKeErr: errors.New("boom")}), "/v0/repos/r1")
 	assert.Equal(t, http.StatusInternalServerError, rec.Code)
+}
+
+func TestIcon_LocalFile(t *testing.T) {
+	dir := t.TempDir()
+	f := filepath.Join(dir, "logo.svg")
+	require.NoError(t, os.WriteFile(f, []byte("<svg/>"), 0o644))
+
+	h := repohandlers.New(&fakeStore{byKey: &domain.Repository{ID: "r1", AvatarURL: f}})
+	r := gin.New()
+	r.GET("/v0/repos/:id/icon", h.Icon)
+
+	w := httptest.NewRecorder()
+	req, _ := http.NewRequest(http.MethodGet, "/v0/repos/r1/icon", nil)
+	r.ServeHTTP(w, req)
+
+	assert.Equal(t, http.StatusOK, w.Code)
+	assert.Equal(t, "image/svg+xml", w.Header().Get("Content-Type"))
+	assert.Equal(t, "<svg/>", w.Body.String())
+}
+
+func TestIcon_HTTPSUrl_Redirects(t *testing.T) {
+	h := repohandlers.New(&fakeStore{byKey: &domain.Repository{ID: "r1", AvatarURL: "https://example.com/avatar.png"}})
+	r := gin.New()
+	r.GET("/v0/repos/:id/icon", h.Icon)
+
+	w := httptest.NewRecorder()
+	req, _ := http.NewRequest(http.MethodGet, "/v0/repos/r1/icon", nil)
+	r.ServeHTTP(w, req)
+
+	assert.Equal(t, http.StatusTemporaryRedirect, w.Code)
+	assert.Equal(t, "https://example.com/avatar.png", w.Header().Get("Location"))
+}
+
+func TestIcon_NoAvatarURL_Returns404(t *testing.T) {
+	h := repohandlers.New(&fakeStore{byKey: &domain.Repository{ID: "r1", AvatarURL: ""}})
+	r := gin.New()
+	r.GET("/v0/repos/:id/icon", h.Icon)
+
+	w := httptest.NewRecorder()
+	req, _ := http.NewRequest(http.MethodGet, "/v0/repos/r1/icon", nil)
+	r.ServeHTTP(w, req)
+
+	assert.Equal(t, http.StatusNotFound, w.Code)
 }
