@@ -46,7 +46,7 @@ func TestRegisterMountsRoutes(
 	t *testing.T,
 ) {
 	r := gin.New()
-	repos.Register(r.Group("/v0"), stubStore{})
+	repos.Register(r.Group("/v0"), stubStore{}, nil, nil)
 
 	cases := []struct {
 		method string

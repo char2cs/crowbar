@@ -33,9 +33,28 @@ type Store interface {
 	) error
 }
 
+// BranchProviderEngine is the provider surface the Branches handler needs.
+type BranchProviderEngine interface {
+	ProtectedBranches(ctx context.Context, repoPath string) ([]string, error)
+}
+
+// WorkspaceReader is the workspace surface the Branches handler needs.
+type WorkspaceReader interface {
+	List(ctx context.Context) ([]domain.Workspace, error)
+}
+
+// BranchEntry is one item in the GET /v0/repos/:id/branches response.
+type BranchEntry struct {
+	Name         string `json:"name"`
+	IsProtected  bool   `json:"isProtected"`
+	HasWorkspace bool   `json:"hasWorkspace"`
+}
+
 // Handlers serves the /v0/repos routes from the repository GORM store.
 type Handlers struct {
-	store Store
+	store    Store
+	provider BranchProviderEngine
+	wsReader WorkspaceReader
 }
 
 // New builds the repos Handlers from the repository GORM store.
@@ -43,6 +62,12 @@ func New(
 	store Store,
 ) *Handlers {
 	return &Handlers{store: store}
+}
+
+// NewWithDeps builds Handlers with the optional provider + workspace deps
+// needed for the Branches endpoint.
+func NewWithDeps(store Store, prov BranchProviderEngine, wsReader WorkspaceReader) *Handlers {
+	return &Handlers{store: store, provider: prov, wsReader: wsReader}
 }
 
 // List handles GET /v0/repos, returning every repo as RepoDTO[]. The optional
@@ -157,6 +182,72 @@ func (h *Handlers) Icon(c *gin.Context) {
 		ct = "application/octet-stream"
 	}
 	c.Data(http.StatusOK, ct, data)
+}
+
+// Branches handles GET /v0/repos/:id/branches. Returns all remote branches
+// annotated with isProtected and hasWorkspace fields.
+func (h *Handlers) Branches(c *gin.Context) {
+	repo, err := h.store.FindByKey(c.Request.Context(), c.Param("id"))
+	if err != nil || repo == nil {
+		libs.WriteErr(c, http.StatusNotFound, "repo not found")
+		return
+	}
+
+	// List remote branches via git branch -r
+	cmd := exec.CommandContext(c.Request.Context(), "git", "-C", repo.Path, "branch", "-r", "--format=%(refname:short)")
+	out, err := cmd.Output()
+	if err != nil {
+		libs.WriteErr(c, http.StatusInternalServerError, "failed to list branches")
+		return
+	}
+	rawBranches := parseRemoteBranches(string(out))
+
+	// Annotate with protected status
+	protected := map[string]bool{}
+	if h.provider != nil {
+		list, _ := h.provider.ProtectedBranches(c.Request.Context(), repo.Path)
+		for _, b := range list {
+			protected[b] = true
+		}
+	}
+
+	// Annotate with workspace existence
+	hasWS := map[string]bool{}
+	if h.wsReader != nil {
+		all, _ := h.wsReader.List(c.Request.Context())
+		for _, ws := range all {
+			if ws.RepoID == repo.ID {
+				hasWS[ws.Branch] = true
+			}
+		}
+	}
+
+	entries := make([]BranchEntry, 0, len(rawBranches))
+	for _, b := range rawBranches {
+		entries = append(entries, BranchEntry{
+			Name:         b,
+			IsProtected:  protected[b],
+			HasWorkspace: hasWS[b],
+		})
+	}
+	libs.WriteQueryOK(c, entries)
+}
+
+// parseRemoteBranches strips the "origin/" prefix from git branch -r output
+// and skips HEAD pointer lines.
+func parseRemoteBranches(out string) []string {
+	var result []string
+	for _, line := range strings.Split(strings.TrimSpace(out), "\n") {
+		line = strings.TrimSpace(line)
+		if line == "" || strings.Contains(line, "->") {
+			continue
+		}
+		if idx := strings.Index(line, "/"); idx >= 0 {
+			line = line[idx+1:]
+		}
+		result = append(result, line)
+	}
+	return result
 }
 
 // filterByProject keeps only the repos whose ProjectID matches projectID; an

@@ -12,10 +12,13 @@ import (
 func Register(
 	rg *gin.RouterGroup,
 	store repohandlers.Store,
+	prov repohandlers.BranchProviderEngine,
+	wsReader repohandlers.WorkspaceReader,
 ) {
-	h := repohandlers.New(store)
+	h := repohandlers.NewWithDeps(store, prov, wsReader)
 	rg.POST("/repos", h.Create)
 	rg.GET("/repos", h.List)
 	rg.GET("/repos/:id", h.Detail)
 	rg.GET("/repos/:id/icon", h.Icon)
+	rg.GET("/repos/:id/branches", h.Branches)
 }

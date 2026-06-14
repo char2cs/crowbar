@@ -39,6 +39,8 @@ func (c *Container) Register(
 	repos.Register(
 		rg,
 		c.app.GORM.Repositories,
+		c.eng.Provider,
+		c.app.Repositories.Workspace,
 	)
 	workspaces.Register(
 		rg,

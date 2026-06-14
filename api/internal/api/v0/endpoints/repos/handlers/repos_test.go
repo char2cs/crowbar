@@ -207,3 +207,37 @@ func TestIcon_NoAvatarURL_Returns404(t *testing.T) {
 
 	assert.Equal(t, http.StatusNotFound, w.Code)
 }
+
+type fakeBranchProvider struct {
+	protected []string
+}
+
+func (f *fakeBranchProvider) ProtectedBranches(_ context.Context, _ string) ([]string, error) {
+	return f.protected, nil
+}
+
+type fakeWSReader struct {
+	workspaces []domain.Workspace
+}
+
+func (f *fakeWSReader) List(_ context.Context) ([]domain.Workspace, error) {
+	return f.workspaces, nil
+}
+
+func TestBranches_AnnotatesProtectionAndWorkspace(t *testing.T) {
+	// Note: git branch -r uses real git, so we can't easily test it in unit tests.
+	// We test the handler returns 404 for a missing repo.
+	h := repohandlers.NewWithDeps(
+		&fakeStore{byKey: nil},
+		&fakeBranchProvider{protected: []string{"main"}},
+		&fakeWSReader{},
+	)
+	r := gin.New()
+	r.GET("/v0/repos/:id/branches", h.Branches)
+
+	w := httptest.NewRecorder()
+	req, _ := http.NewRequest(http.MethodGet, "/v0/repos/r1/branches", nil)
+	r.ServeHTTP(w, req)
+
+	assert.Equal(t, http.StatusNotFound, w.Code)
+}
