@@ -53,11 +53,20 @@ describe('theme.css syntax tokens', () => {
     const bg = cssColorToHex(bgRaw as string)
     expect(bg).toBeTruthy()
 
-    // Only the dedicated (non-aliased) hues — bound roles inherit muted-foreground.
-    const dedicated = [
-      'keyword', 'string', 'number', 'constant', 'function', 'type', 'property',
-      'tag', 'attribute', 'boolean', 'null', 'regex', 'jsx',
-    ]
+    // Bound/aliased tokens intentionally inherit shadcn semantics (muted-foreground /
+    // destructive) and are defined only in :root, so they have no dark-block hex to test.
+    // Everything else is a dedicated hue and MUST clear AA — derive from the shared key
+    // list so a newly added hue is covered automatically (the whole point of this guard).
+    const BOUND = new Set([
+      'comment',
+      'variable',
+      'punctuation',
+      'operator',
+      'error',
+      'markdown-strikethrough',
+      'markdown-quote',
+    ])
+    const dedicated = SYNTAX_TOKEN_KEYS.filter((key) => !BOUND.has(key))
     for (const key of dedicated) {
       const raw = darkValue(`--syntax-${key}`)
       expect(raw, `--syntax-${key} missing in .dark`).toBeTruthy()
