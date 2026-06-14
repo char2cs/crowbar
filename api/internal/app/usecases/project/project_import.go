@@ -7,7 +7,9 @@ import (
 	"io/fs"
 	"log/slog"
 	"os"
+	"os/exec"
 	"path/filepath"
+	"strings"
 	"time"
 
 	"github.com/google/uuid"
@@ -196,6 +198,7 @@ func (u *projectImport) importOneRepo(
 		AvatarLabel:   avatar.Label(name),
 		AvatarColor:   avatar.Color(name),
 		AvatarURL:     avatarURL,
+		RemoteURL:     gitRemoteURL(repoPath),
 	}
 	if err := u.deps.Repos.Save(ctx, repo); err != nil {
 		return fmt.Errorf("project import: save repository: %w", err)
@@ -329,4 +332,14 @@ func toSet(
 		set[v] = true
 	}
 	return set
+}
+
+// gitRemoteURL returns the origin remote URL for the repo at path, or ""
+// on any failure so callers can fall back gracefully.
+func gitRemoteURL(repoPath string) string {
+	out, err := exec.Command("git", "-C", repoPath, "remote", "get-url", "origin").Output()
+	if err != nil {
+		return ""
+	}
+	return strings.TrimSpace(string(out))
 }
