@@ -1,4 +1,5 @@
-import { useCallback } from 'react'
+import { useCallback, useState } from 'react'
+import { Settings } from 'lucide-react'
 import { useNavigate, useRouterState } from '@tanstack/react-router'
 import { ScrollArea } from '@/components/ui/scroll-area'
 import { useSidebarStore } from '@/lib/store/sidebar'
@@ -62,6 +63,8 @@ function WorkspaceTreeInner() {
   const retryWorkspaces = useCallback(() => {
     void useWorkspaceListStore.getState().fetch()
   }, [])
+  const [hoveredRepoId, setHoveredRepoId] = useState<string | null>(null)
+  const [openSettingsRepoId, setOpenSettingsRepoId] = useState<string | null>(null)
 
   const activeWorkspaceId = pathname.match(/\/workspaces\/([^/]+)/)?.[1] ?? ''
 
@@ -102,33 +105,56 @@ function WorkspaceTreeInner() {
                       useSidebarStore.getState().toggleRepo(repo.id)
                     }
                   }}
+                  onMouseEnter={() => setHoveredRepoId(repo.id)}
+                  onMouseLeave={() => setHoveredRepoId(null)}
                   aria-label={isCollapsed ? 'Expand repo' : 'Collapse repo'}
                   data-repo-drop={repo.id}
                 >
-                  <span
-                    className={cn(
-                      'inline-flex h-4 w-4 shrink-0 items-center justify-center rounded px-1 text-[10px] font-bold text-primary-foreground',
-                      repo.avatarColor,
-                    )}
-                  >
-                    {repo.avatarLabel}
-                  </span>
-                  <span className="min-w-0 flex-1 truncate text-left font-mono text-muted-foreground/60">
+                  {repo.avatarURL ? (
+                    <img
+                      src={repo.avatarURL}
+                      alt={repo.name}
+                      className="h-4 w-4 shrink-0 rounded object-cover"
+                    />
+                  ) : (
+                    <span
+                      className={cn(
+                        'inline-flex h-4 w-4 shrink-0 items-center justify-center rounded px-1 text-[10px] font-bold text-primary-foreground',
+                        repo.avatarColor,
+                      )}
+                    >
+                      {repo.avatarLabel}
+                    </span>
+                  )}
+                  <span className="min-w-0 flex-1 truncate text-left font-mono text-foreground">
                     {repo.name}
                   </span>
-                  <span className="shrink-0 rounded-md p-1 text-foreground/30">
-                    <svg
-                      aria-hidden="true"
-                      className={cn('size-3 transition-transform', !isCollapsed && 'rotate-90')}
-                      viewBox="0 0 16 16"
-                      fill="none"
-                      stroke="currentColor"
-                      strokeWidth="2"
-                      strokeLinecap="round"
+                  {hoveredRepoId === repo.id ? (
+                    <button
+                      aria-label="Repo settings"
+                      className="shrink-0 rounded-md p-1 text-foreground/50 hover:text-foreground"
+                      onClick={(e) => {
+                        e.stopPropagation()
+                        setOpenSettingsRepoId(repo.id)
+                      }}
                     >
-                      <path d="M6 3l5 5-5 5" />
-                    </svg>
-                  </span>
+                      <Settings className="size-3" />
+                    </button>
+                  ) : (
+                    <span className="shrink-0 rounded-md p-1 text-foreground/30">
+                      <svg
+                        aria-hidden="true"
+                        className={cn('size-3 transition-transform', !isCollapsed && 'rotate-90')}
+                        viewBox="0 0 16 16"
+                        fill="none"
+                        stroke="currentColor"
+                        strokeWidth="2"
+                        strokeLinecap="round"
+                      >
+                        <path d="M6 3l5 5-5 5" />
+                      </svg>
+                    </span>
+                  )}
                 </div>
                 {!isCollapsed && (
                   <div>

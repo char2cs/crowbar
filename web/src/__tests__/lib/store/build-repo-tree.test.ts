@@ -66,4 +66,33 @@ describe('buildRepoTree', () => {
     expect(b.status).toBe('locked')
     expect(c.status).toBe('new')
   })
+
+  it('maps avatarUrl from RepoDTO to Repo.avatarURL', () => {
+    const dto: RepoDTO = {
+      id: 'r1',
+      projectId: 'p1',
+      name: 'my-repo',
+      path: '/my-repo',
+      defaultBranch: 'main',
+      avatarLabel: 'M',
+      avatarColor: 'avatar-indigo',
+      avatarUrl: 'https://example.com/avatar.png',
+    }
+    const repos = buildRepoTree([dto], [])
+    expect(repos[0].avatarURL).toBe('https://example.com/avatar.png')
+  })
+
+  it('leaves avatarURL undefined when avatarUrl is absent', () => {
+    const dto: RepoDTO = {
+      id: 'r1',
+      projectId: 'p1',
+      name: 'repo',
+      path: '/',
+      defaultBranch: 'main',
+      avatarLabel: 'R',
+      avatarColor: 'avatar-rose',
+    }
+    const repos = buildRepoTree([dto], [])
+    expect(repos[0].avatarURL).toBeUndefined()
+  })
 })

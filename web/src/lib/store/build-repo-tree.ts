@@ -8,6 +8,7 @@ export interface RepoDTO {
   defaultBranch: string
   avatarLabel: string
   avatarColor: string
+  avatarUrl?: string
 }
 
 export interface WorkspaceDTO {
@@ -54,6 +55,7 @@ export function buildRepoTree(repos: RepoDTO[], workspaces: WorkspaceDTO[]): Rep
     name: repo.name,
     avatarLabel: repo.avatarLabel,
     avatarColor: repo.avatarColor,
+    avatarURL: repo.avatarUrl ?? undefined,
     workspaces: workspaces.filter((ws) => ws.repoId === repo.id).map(toSidebarWorkspace),
   }))
 }

@@ -40,6 +40,7 @@ export interface Repo {
   name: string
   avatarLabel: string
   avatarColor: string
+  avatarURL?: string
   workspaces: Workspace[]
 }
 
