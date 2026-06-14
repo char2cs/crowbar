@@ -9,6 +9,7 @@ type Repository struct {
 	DefaultBranch string `json:"defaultBranch"`
 	AvatarLabel   string `json:"avatarLabel"`
 	AvatarColor   string `json:"avatarColor"`
+	AvatarURL     string `json:"avatarUrl,omitempty"`
 }
 
 func (Repository) TableName() string {
