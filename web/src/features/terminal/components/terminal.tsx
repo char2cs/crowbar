@@ -464,6 +464,7 @@ export const XtermTerminal: React.FC<XtermTerminalProps> = ({
         xtermRef.current = null
         addonsRef.current = null
       }
+      pasteGuardAttachedRef.current = false
     }
   }, [])
 
