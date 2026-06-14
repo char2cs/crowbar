@@ -19,6 +19,10 @@ import { toMonacoLanguageId } from '@/features/editor/monaco/language'
  */
 export const EDITOR_CREATE_OPTIONS: monacoEditor.IStandaloneEditorConstructionOptions =
   {
+    // The retained per-pane widget is laid out by the surface's ResizeObserver
+    // (rAF-debounced, suppressed during a pane-resize drag and flushed on
+    // pane-resize-end) — keeping editor.layout() off the per-frame drag path so
+    // the GPU layer-promotion (editor-theme.css) can keep resize smooth.
     automaticLayout: false,
     // Monaco 0.55 enables the experimental EditContext input mode by default on
     // Chromium. Its post-render handler (_updateSelectionAndControlBoundsAfterRender)

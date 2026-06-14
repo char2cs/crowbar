@@ -116,27 +116,37 @@ export function usePaneEditorSatellites(
   const registry = workspaceStore.activeEditorRegistry
   const editorManager = workspaceStore.editorManager
 
-  // Narrow selector: the active editor buffer's content + language override for
-  // THIS pane. Only the active buffer's text changes re-run external-sync/LSP.
-  const activeBufferInfo = useWorkspaceStoreContext(
+  // Narrow selectors: the active editor buffer's content + language override for
+  // THIS pane. Each returns a PRIMITIVE so the snapshot is referentially stable
+  // (returning a fresh object here would make useSyncExternalStore re-render
+  // every commit → "Maximum update depth exceeded"). Only the active buffer's
+  // text changes re-run external-sync/LSP.
+  const activeContent = useWorkspaceStoreContext(
     useCallback(
       (state) => {
         const bufferId = state.panes[paneId]?.activeBufferId ?? null
         const buffer = bufferId
           ? state.buffers.find((candidate) => candidate.id === bufferId)
           : null
-        if (!buffer || !hasTextContent(buffer)) return null
-        return {
-          content: buffer.content,
-          languageOverride:
-            'languageOverride' in buffer ? buffer.languageOverride : undefined,
-        }
+        return buffer && hasTextContent(buffer) ? buffer.content : ''
       },
       [paneId],
     ),
   )
-  const activeContent = activeBufferInfo?.content ?? ''
-  const languageOverride = activeBufferInfo?.languageOverride
+  const languageOverride = useWorkspaceStoreContext(
+    useCallback(
+      (state) => {
+        const bufferId = state.panes[paneId]?.activeBufferId ?? null
+        const buffer = bufferId
+          ? state.buffers.find((candidate) => candidate.id === bufferId)
+          : null
+        return buffer && hasTextContent(buffer) && 'languageOverride' in buffer
+          ? buffer.languageOverride
+          : undefined
+      },
+      [paneId],
+    ),
+  )
 
   // The retained editor + its current model, kept fresh by the registry
   // subscription below. Widget-level effects read these refs; model-dependent
