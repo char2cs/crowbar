@@ -211,6 +211,19 @@ func (g *glabProvider) runGlab(
 	return out.String(), nil
 }
 
+// OwnerAvatarURL returns the GitLab namespace avatar URL for the repo.
+// Returns ("", nil) on any soft failure so callers can fall back gracefully.
+func (g *glabProvider) OwnerAvatarURL(
+	ctx context.Context,
+	repoPath string,
+) (string, error) {
+	out, err := g.runGlab(ctx, repoPath, "api", "projects/:id", "--jq", ".namespace.avatar_url")
+	if err != nil {
+		return "", nil
+	}
+	return strings.TrimSpace(out), nil
+}
+
 // parseLines splits newline-delimited output into non-empty strings.
 func parseLines(
 	s string,
