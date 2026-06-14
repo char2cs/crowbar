@@ -1,160 +1,137 @@
 /**
- * Builds + registers a Monaco theme from a Crowbar ThemeDefinition. Extracted
- * verbatim from `monaco-editor.tsx` so both the legacy standalone path and the
- * retained per-pane satellites hook share one implementation.
+ * Builds + registers a Monaco theme from the live CSS token layer (theme.css).
+ * CSS-first: every color is resolved off <html> at call time, so the Monaco
+ * theme always matches whatever .dark / [data-theme] is currently applied.
  */
 
 import { editor as monacoEditor } from 'monaco-editor'
 import type * as Monaco from 'monaco-editor'
-import { themeRegistry } from '@/extensions/themes/theme-registry'
-import type { ThemeDefinition } from '@/extensions/themes/types'
+import {
+  readSyntaxPalette,
+  resolveCssVar,
+  type SyntaxTokenKey,
+} from '@/features/editor/theme/resolve-css-color'
 
-function getThemeId(theme: string): string {
-  return theme.includes('light') ? 'vs' : 'vs-dark'
-}
-
-function colorValue(theme: ThemeDefinition, name: string, fallback: string): string {
-  return (
-    theme.cssVariables?.[`--color-${name}`] ??
-    theme.cssVariables?.[`--${name}`] ??
-    (theme.syntaxTokens?.[`--color-${name}`] as string | undefined) ??
-    (theme.syntaxTokens?.[`--${name}`] as string | undefined) ??
-    fallback
-  )
-}
+/** Monaco token scope → our syntax palette key. */
+const TOKEN_MAP: Array<[monacoToken: string, syntaxKey: SyntaxTokenKey]> = [
+  ['comment', 'comment'],
+  ['keyword', 'keyword'],
+  ['string', 'string'],
+  ['number', 'number'],
+  ['regexp', 'regex'],
+  ['function', 'function'],
+  ['variable', 'variable'],
+  ['constant', 'constant'],
+  ['type', 'type'],
+  ['class', 'type'],
+  ['interface', 'type'],
+  ['namespace', 'type'],
+  ['tag', 'tag'],
+  ['attribute.name', 'attribute'],
+  ['delimiter', 'punctuation'],
+  ['delimiter.bracket', 'punctuation'],
+  ['operator', 'operator'],
+  ['keyword.operator', 'operator'],
+  ['keyword.json', 'property'],
+  ['string.key.json', 'property'],
+]
 
 function stripHash(value: string): string {
   return value.startsWith('#') ? value.slice(1) : value
 }
 
-function toHexByte(value: number): string {
-  return Math.max(0, Math.min(255, Math.round(value)))
-    .toString(16)
-    .padStart(2, '0')
+export interface MonacoUiTokens {
+  background: string
+  foreground: string
+  selection: string
+  border: string
+  subtle: string
 }
 
-function toMonacoColor(value: string, fallback: string): string {
-  const normalized = value.trim()
-  if (/^#[0-9a-fA-F]{6}([0-9a-fA-F]{2})?$/.test(normalized)) return normalized
-  if (/^#[0-9a-fA-F]{3}$/.test(normalized)) {
-    const [, r, g, b] = normalized
-    return `#${r}${r}${g}${g}${b}${b}`
-  }
-
-  const rgbaMatch = normalized.match(
-    /^rgba?\(\s*([.\d]+)\s*,\s*([.\d]+)\s*,\s*([.\d]+)(?:\s*,\s*([.\d]+)\s*)?\)$/i,
-  )
-  if (!rgbaMatch) return fallback
-
-  const [, red, green, blue, alpha = '1'] = rgbaMatch
-  const alphaByte = toHexByte(Number(alpha) * 255)
-  return `#${toHexByte(Number(red))}${toHexByte(Number(green))}${toHexByte(Number(blue))}${alphaByte}`
+export interface MonacoThemeInput {
+  isDark: boolean
+  syntax: Partial<Record<SyntaxTokenKey, string>>
+  ui: MonacoUiTokens
 }
 
-function toMonacoThemeName(themeId: string): string {
-  return `athas-${themeId.replace(/[^a-zA-Z0-9_-]/g, '-')}`
+export interface MonacoThemeData {
+  base: 'vs' | 'vs-dark'
+  inherit: true
+  rules: Monaco.editor.ITokenThemeRule[]
+  colors: Record<string, string>
 }
 
-function syntaxTokenColor(theme: ThemeDefinition, token: string): string | undefined {
-  return (
-    (theme.syntaxTokens?.[`--color-syntax-${token}`] as string | undefined) ??
-    (theme.syntaxTokens?.[`--syntax-${token}`] as string | undefined) ??
-    (theme.syntaxTokens?.[`--color-${token}`] as string | undefined) ??
-    (theme.syntaxTokens?.[`--${token}`] as string | undefined)
-  )
-}
+/** Pure: turn resolved palettes into Monaco theme data. Unit-tested. */
+export function buildMonacoThemeData(input: MonacoThemeInput): MonacoThemeData {
+  const { isDark, syntax, ui } = input
 
-export function defineMonacoTheme(themeId: string): string {
-  const theme = themeRegistry.getTheme(themeId)
-  if (!theme) return getThemeId(themeId)
-
-  const tokenMap: Array<[string, string]> = [
-    ['comment', 'comment'],
-    ['keyword', 'keyword'],
-    ['string', 'string'],
-    ['number', 'number'],
-    ['regexp', 'regex'],
-    ['function', 'function'],
-    ['variable', 'variable'],
-    ['constant', 'constant'],
-    ['type', 'type'],
-    ['class', 'type'],
-    ['interface', 'type'],
-    ['namespace', 'type'],
-    ['tag', 'tag'],
-    ['attribute.name', 'attribute'],
-    ['delimiter', 'punctuation'],
-    ['delimiter.bracket', 'punctuation'],
-    ['operator', 'operator'],
-    ['keyword.operator', 'operator'],
-    ['keyword.json', 'property'],
-    ['string.key.json', 'property'],
-  ]
-
-  const rules: Monaco.editor.ITokenThemeRule[] = tokenMap.flatMap(([token, syntaxName]) => {
-    const foreground = syntaxTokenColor(theme, syntaxName)
-    return foreground ? [{ token, foreground: stripHash(foreground) }] : []
+  const rules: Monaco.editor.ITokenThemeRule[] = TOKEN_MAP.flatMap(([token, key]) => {
+    const color = syntax[key]
+    return color ? [{ token, foreground: stripHash(color) }] : []
   })
 
-  const background = toMonacoColor(
-    colorValue(theme, 'primary-bg', theme.isDark ? '#141413' : '#fcfcfd'),
-    theme.isDark ? '#141413' : '#fcfcfd',
-  )
-  const foreground = toMonacoColor(
-    colorValue(theme, 'text', theme.isDark ? '#faf9f5' : '#141413'),
-    theme.isDark ? '#faf9f5' : '#141413',
-  )
-  const subtleForeground = toMonacoColor(
-    colorValue(theme, 'text-lighter', theme.isDark ? '#b0aea5' : '#787d86'),
-    theme.isDark ? '#b0aea5' : '#787d86',
-  )
-  const border = toMonacoColor(
-    colorValue(theme, 'border', theme.isDark ? '#2f2d29' : '#e4e7ec'),
-    theme.isDark ? '#2f2d29' : '#e4e7ec',
-  )
-  const selected = toMonacoColor(
-    colorValue(theme, 'selected', theme.isDark ? '#2c2925' : '#e7ebf0'),
-    theme.isDark ? '#2c2925' : '#e7ebf0',
-  )
-  const selection = toMonacoColor(
-    colorValue(theme, 'selection-bg', 'rgba(106, 155, 204, 0.30)'),
-    '#6a9bcc4d',
-  )
-  const accent = toMonacoColor(colorValue(theme, 'accent', '#4f8cff'), '#4f8cff')
-  const cursor = toMonacoColor(colorValue(theme, 'cursor', foreground), foreground)
-
-  const monacoThemeId = toMonacoThemeName(theme.id)
-  monacoEditor.defineTheme(monacoThemeId, {
-    base: theme.isDark ? 'vs-dark' : 'vs',
+  return {
+    base: isDark ? 'vs-dark' : 'vs',
     inherit: true,
     rules,
     colors: {
-      'editor.background': background,
-      'editor.foreground': foreground,
-      'editorCursor.foreground': cursor,
-      'editor.selectionBackground': selection,
-      'editor.inactiveSelectionBackground': selected,
-      'editor.lineHighlightBackground': selected,
-      'editorLineNumber.foreground': subtleForeground,
-      'editorLineNumber.activeForeground': foreground,
-      'editorIndentGuide.background1': border,
-      'editorIndentGuide.activeBackground1': accent,
-      'editorWhitespace.foreground': subtleForeground,
-      'editor.findMatchBackground': selection,
-      'editor.findMatchHighlightBackground': selected,
-      'editorWidget.background': background,
-      'editorWidget.foreground': foreground,
-      'editorWidget.border': border,
-      'editorSuggestWidget.background': background,
-      'editorSuggestWidget.foreground': foreground,
-      'editorSuggestWidget.border': border,
-      'editorSuggestWidget.selectedBackground': selected,
-      'input.background': background,
-      'input.foreground': foreground,
-      'input.border': border,
-      focusBorder: accent,
+      'editor.background': ui.background,
+      'editor.foreground': ui.foreground,
+      'editorCursor.foreground': ui.foreground,
+      'editor.selectionBackground': ui.selection,
+      'editor.inactiveSelectionBackground': ui.border,
+      'editor.lineHighlightBackground': ui.border,
+      'editorLineNumber.foreground': ui.subtle,
+      'editorLineNumber.activeForeground': ui.foreground,
+      'editorIndentGuide.background1': ui.border,
+      'editorIndentGuide.activeBackground1': ui.subtle,
+      'editorWhitespace.foreground': ui.subtle,
+      'editorWidget.background': ui.background,
+      'editorWidget.foreground': ui.foreground,
+      'editorWidget.border': ui.border,
+      'editorSuggestWidget.background': ui.background,
+      'editorSuggestWidget.foreground': ui.foreground,
+      'editorSuggestWidget.border': ui.border,
+      'editorSuggestWidget.selectedBackground': ui.border,
+      'input.background': ui.background,
+      'input.foreground': ui.foreground,
+      'input.border': ui.border,
     },
+  }
+}
+
+function readUiTokens(isDark: boolean): MonacoUiTokens {
+  return {
+    background: resolveCssVar('--background') ?? (isDark ? '#1f1f1f' : '#ffffff'),
+    foreground: resolveCssVar('--foreground') ?? (isDark ? '#f5f5f5' : '#1f1f1f'),
+    selection: resolveCssVar('--accent') ?? (isDark ? '#2a2a2a' : '#e7ebf0'),
+    border: resolveCssVar('--border') ?? (isDark ? '#2a2a2a' : '#e4e7ec'),
+    subtle: resolveCssVar('--muted-foreground') ?? (isDark ? '#888888' : '#787d86'),
+  }
+}
+
+function toMonacoThemeName(isDark: boolean): string {
+  return isDark ? 'crowbar-dark' : 'crowbar-light'
+}
+
+/**
+ * Resolve the live token layer, (re)define the Monaco theme, and return its id.
+ * Signature is unchanged from the previous implementation; `themeId` only seeds
+ * the dark/light decision as a fallback when no .dark class is present.
+ */
+export function defineMonacoTheme(themeId: string): string {
+  const isDark =
+    typeof document !== 'undefined'
+      ? document.documentElement.classList.contains('dark')
+      : !themeId.includes('light')
+
+  const data = buildMonacoThemeData({
+    isDark,
+    syntax: readSyntaxPalette(),
+    ui: readUiTokens(isDark),
   })
 
-  return monacoThemeId
+  const name = toMonacoThemeName(isDark)
+  monacoEditor.defineTheme(name, data)
+  return name
 }
