@@ -40,6 +40,31 @@ function darkValue(name: string): string | null {
   return matches[matches.length - 1][1].trim()
 }
 
+/** Pull the :root-block value of a CSS var (last definition wins before .dark). */
+function lightValue(name: string): string | null {
+  const rootBlock = css.slice(0, css.indexOf('.dark'))
+  const matches = [...rootBlock.matchAll(new RegExp(`${name}:\\s*([^;]+);`, 'g'))]
+  if (matches.length === 0) {
+    return null
+  }
+  return matches[matches.length - 1][1].trim()
+}
+
+// Bound/aliased tokens intentionally inherit shadcn semantics (muted-foreground /
+// destructive) and are defined only in :root, so they have no dark-block hex to test.
+// Everything else is a dedicated hue and MUST clear AA — derive from the shared key
+// list so a newly added hue is covered automatically (the whole point of this guard).
+const BOUND = new Set([
+  'comment',
+  'variable',
+  'punctuation',
+  'operator',
+  'error',
+  'markdown-strikethrough',
+  'markdown-quote',
+])
+const dedicated = SYNTAX_TOKEN_KEYS.filter((key) => !BOUND.has(key))
+
 describe('theme.css syntax tokens', () => {
   it('declares every syntax token the renderers reference', () => {
     for (const key of SYNTAX_TOKEN_KEYS) {
@@ -53,26 +78,25 @@ describe('theme.css syntax tokens', () => {
     const bg = cssColorToHex(bgRaw as string)
     expect(bg).toBeTruthy()
 
-    // Bound/aliased tokens intentionally inherit shadcn semantics (muted-foreground /
-    // destructive) and are defined only in :root, so they have no dark-block hex to test.
-    // Everything else is a dedicated hue and MUST clear AA — derive from the shared key
-    // list so a newly added hue is covered automatically (the whole point of this guard).
-    const BOUND = new Set([
-      'comment',
-      'variable',
-      'punctuation',
-      'operator',
-      'error',
-      'markdown-strikethrough',
-      'markdown-quote',
-    ])
-    const dedicated = SYNTAX_TOKEN_KEYS.filter((key) => !BOUND.has(key))
     for (const key of dedicated) {
       const raw = darkValue(`--syntax-${key}`)
       expect(raw, `--syntax-${key} missing in .dark`).toBeTruthy()
       const hex = cssColorToHex(raw as string)
       expect(hex, `--syntax-${key} unparseable`).toBeTruthy()
       const ratio = contrast(hex as string, bg as string)
+      expect(ratio, `--syntax-${key} contrast ${ratio.toFixed(2)} < 4.5`).toBeGreaterThanOrEqual(4.5)
+    }
+  })
+
+  it('light dedicated syntax hues clear WCAG AA against light --background', () => {
+    // --background in :root is var(--color-white) == #fff
+    const bg = '#ffffff'
+    for (const key of dedicated) {
+      const raw = lightValue(`--syntax-${key}`)
+      expect(raw, `--syntax-${key} missing in :root`).toBeTruthy()
+      const hex = cssColorToHex(raw as string)
+      expect(hex, `--syntax-${key} unparseable`).toBeTruthy()
+      const ratio = contrast(hex as string, bg)
       expect(ratio, `--syntax-${key} contrast ${ratio.toFixed(2)} < 4.5`).toBeGreaterThanOrEqual(4.5)
     }
   })

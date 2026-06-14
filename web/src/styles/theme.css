@@ -240,28 +240,28 @@
   --syntax-error: var(--destructive);
 
   /* Dedicated hues — Palette A "Refined Anthropic" (light) */
-  --syntax-keyword: #be664a;
-  --syntax-string: #5e8b46;
-  --syntax-number: #a67a35;
-  --syntax-constant: #3a8a92;
+  --syntax-keyword: #b26045;
+  --syntax-string: #578141;
+  --syntax-number: #976f30;
+  --syntax-constant: #368189;
   --syntax-function: #2f6fae;
   --syntax-type: #8257a8;
   --syntax-property: #5a564d;
   --syntax-tag: #2f6fae;
-  --syntax-attribute: #a67a35;
-  --syntax-boolean: #3a8a92;
+  --syntax-attribute: #976f30;
+  --syntax-boolean: #368189;
   --syntax-null: #8257a8;
-  --syntax-regex: #3a8a92;
+  --syntax-regex: #368189;
   --syntax-jsx: #2f6fae;
-  --syntax-jsx-attribute: #a67a35;
+  --syntax-jsx-attribute: #976f30;
   --syntax-markdown-heading: #2f6fae;
-  --syntax-markdown-bold: #a67a35;
-  --syntax-markdown-italic: #be664a;
+  --syntax-markdown-bold: #976f30;
+  --syntax-markdown-italic: #b26045;
   --syntax-markdown-strikethrough: var(--muted-foreground);
   --syntax-markdown-link: #2f6fae;
-  --syntax-markdown-link-text: #5e8b46;
-  --syntax-markdown-code: #5e8b46;
-  --syntax-markdown-list: #be664a;
+  --syntax-markdown-link-text: #578141;
+  --syntax-markdown-code: #578141;
+  --syntax-markdown-list: #b26045;
   --syntax-markdown-quote: var(--muted-foreground);
 
   /* ── Terminal ANSI-16 — pure aliases onto the unified layer ───── */
