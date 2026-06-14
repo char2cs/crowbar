@@ -15,6 +15,11 @@ import { Button } from '@/components/ui/button'
 import { FilePathBreadcrumb } from './file-path-breadcrumb'
 
 export interface BreadcrumbProps {
+  /**
+   * Resolve the active buffer for THIS pane (self-subscribing). When omitted the
+   * breadcrumb falls back to `bufferId`, then to the globally active pane.
+   */
+  paneId?: string
   bufferId?: string
   editorViewKey?: string | null
   filePathOverride?: string
@@ -26,6 +31,7 @@ export interface BreadcrumbProps {
 }
 
 export default function Breadcrumb({
+  paneId,
   bufferId,
   editorViewKey,
   filePathOverride,
@@ -37,8 +43,11 @@ export default function Breadcrumb({
 }: BreadcrumbProps = {}) {
   const workspaceStore = useWorkspaceStore()
   const resolvedBufferId = useWorkspaceStoreContext(
-    (state) => bufferId ?? state.panes[state.activePaneId]?.activeBufferId ?? null,
+    (state) =>
+      bufferId ?? state.panes[paneId ?? state.activePaneId]?.activeBufferId ?? null,
   )
+  const resolvedEditorViewKey =
+    editorViewKey ?? (paneId && resolvedBufferId ? `${paneId}:${resolvedBufferId}` : editorViewKey)
   const activeBuffer = useWorkspaceStoreContext(
     useShallow((state) => {
       const buffer = resolvedBufferId
@@ -169,7 +178,7 @@ export default function Breadcrumb({
         <div className="mx-1 h-3.5 w-px bg-border/70" />
         <EditorStatusActions
           bufferId={resolvedBufferId ?? undefined}
-          editorViewKey={editorViewKey}
+          editorViewKey={resolvedEditorViewKey}
         />
       </>
     ) : null
