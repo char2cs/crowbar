@@ -31,19 +31,42 @@ impl SidecarHandle {
     }
 }
 
-/// Compute a per-process unix-socket path under the OS temp dir. Using the PID
-/// keeps it unique per launch so a stale file from a previous run can't be
-/// mistaken for a live daemon.
+/// The daemon's unix-socket path: a fixed, well-known location under the user's
+/// home directory (`~/.crowbar/crowbar.sock`), matching the default the daemon
+/// itself resolves for `unix://`. A fixed path — rather than a per-process temp
+/// path — means the proxy always knows where to reach the daemon, and the
+/// daemon's own stale-socket handling (dial-to-detect + reclaim, unlink on
+/// clean shutdown) keeps it healthy across restarts instead of leaving a trail
+/// of dead per-PID sockets in the temp dir.
 pub fn socket_path() -> PathBuf {
-    std::env::temp_dir().join(format!("crowbar-{}.sock", std::process::id()))
+    crowbar_home()
+        .unwrap_or_else(std::env::temp_dir)
+        .join(DEFAULT_SOCKET_NAME)
+}
+
+const DEFAULT_SOCKET_NAME: &str = "crowbar.sock";
+
+/// `~/.crowbar`, resolving the home directory the same way the Go daemon does
+/// (`os.UserHomeDir`): `$HOME` on unix, `%USERPROFILE%` on Windows.
+fn crowbar_home() -> Option<PathBuf> {
+    #[cfg(windows)]
+    let home = std::env::var_os("USERPROFILE");
+    #[cfg(not(windows))]
+    let home = std::env::var_os("HOME");
+    home.map(|h| PathBuf::from(h).join(".crowbar"))
 }
 
 pub async fn spawn<R: Runtime>(
     app: &AppHandle<R>,
     socket: PathBuf,
 ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
-    // Remove any stale socket file so the daemon can bind cleanly.
-    let _ = std::fs::remove_file(&socket);
+    // Ensure the socket's parent dir (~/.crowbar) exists; the daemon binds the
+    // socket inside it. We deliberately do NOT pre-remove the socket file: the
+    // daemon's own stale-socket handling reclaims a dead socket and refuses to
+    // clobber one with a live daemon still behind it.
+    if let Some(dir) = socket.parent() {
+        let _ = std::fs::create_dir_all(dir);
+    }
 
     let host = format!("unix://{}", socket.display());
     let sidecar = app
@@ -119,10 +142,14 @@ mod tests {
     use super::socket_path;
 
     #[test]
-    fn socket_path_is_pid_scoped_sock() {
+    fn socket_path_is_fixed_crowbar_sock_under_home() {
         let p = socket_path();
         let name = p.file_name().unwrap().to_string_lossy().into_owned();
-        assert!(name.starts_with("crowbar-"), "got {name}");
-        assert!(name.ends_with(".sock"), "got {name}");
+        assert_eq!(name, "crowbar.sock", "got {name}");
+
+        // The socket lives under the fixed ~/.crowbar dir, not a per-PID temp
+        // path, so the proxy can always find it.
+        let parent = p.parent().unwrap().file_name().unwrap().to_string_lossy();
+        assert_eq!(parent, ".crowbar", "got {parent}");
     }
 }
