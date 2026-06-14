@@ -55,6 +55,8 @@ interface ActiveEditorAdapter {
   selectAll: () => void
   undo: () => void
   redo: () => void
+  canUndo: () => boolean
+  canRedo: () => boolean
 }
 
 function normalizeSelectionOffsets(selection?: Range | null): OffsetRange | null {
@@ -647,6 +649,13 @@ class EditorAPIImpl implements EditorAPI {
   }
 
   canUndo(): boolean {
+    // For the managed (Monaco) path, delegate to the adapter so the enabled
+    // state reflects Monaco's actual per-model undo stack rather than the
+    // app-level history store (which is only used by the legacy textarea path).
+    if (this.activeEditorAdapter) {
+      return this.activeEditorAdapter.canUndo()
+    }
+
     const wsStore = getActiveWorkspaceStoreRef()?.getState()
     const activeBufferId = wsStore
       ? (wsStore.panes[wsStore.activePaneId]?.activeBufferId ?? null)
@@ -657,6 +666,13 @@ class EditorAPIImpl implements EditorAPI {
   }
 
   canRedo(): boolean {
+    // For the managed (Monaco) path, delegate to the adapter so the enabled
+    // state reflects Monaco's actual per-model undo stack rather than the
+    // app-level history store (which is only used by the legacy textarea path).
+    if (this.activeEditorAdapter) {
+      return this.activeEditorAdapter.canRedo()
+    }
+
     const wsStore = getActiveWorkspaceStoreRef()?.getState()
     const activeBufferId = wsStore
       ? (wsStore.panes[wsStore.activePaneId]?.activeBufferId ?? null)

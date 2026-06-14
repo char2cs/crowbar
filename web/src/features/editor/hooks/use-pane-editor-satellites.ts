@@ -441,6 +441,12 @@ export function usePaneEditorSatellites(
         editorRef.current?.trigger('athas-api', 'redo', null)
         syncCursorAndSelection()
       },
+      // Monaco's model.canUndo()/canRedo() are not public API.  Being permissive
+      // (true whenever a model is loaded) is far less harmful than the previous
+      // behaviour of reading the app history store, which is never written for
+      // managed (Monaco) buffers and therefore always drifts from the real stack.
+      canUndo: () => modelRef.current !== null,
+      canRedo: () => modelRef.current !== null,
     })
 
     return () => editorAPI.clearActiveEditorAdapter(adapterOwnerId)

@@ -574,6 +574,8 @@ export function DiffMonacoEditor({
         editorRef.current?.trigger('athas-api', 'redo', null)
         syncCursorAndSelection()
       },
+      canUndo: () => modelRef.current !== null,
+      canRedo: () => modelRef.current !== null,
     })
 
     return () => {
