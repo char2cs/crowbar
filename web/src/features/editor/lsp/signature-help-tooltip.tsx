@@ -1,4 +1,4 @@
-import { type RefObject, useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { memo, type RefObject, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { EDITOR_CONSTANTS } from '@/features/editor/config/constants'
 import { useEditorLayout } from '@/features/editor/hooks/use-layout'
 import { useEditorStateStore } from '@/features/editor/stores/state-store'
@@ -31,7 +31,13 @@ interface SignatureHelpTooltipProps {
   resolveModelPosition?: EditorModelPositionResolver
 }
 
-export const SignatureHelpTooltip = ({
+// Memoized so a PaneLspLayer reconcile (find toggle, code-lens fetch, rename
+// state, zoom/settings, the post-swap rich-services gate) does NOT re-render this
+// tooltip when it has nothing to show. Its inputs are a stable ref object
+// (`editorRef`), a stable resolver (`resolveModelPosition`, `useCallback([])` in
+// EditorSurface), and `filePath` — which only changes on a buffer switch. It owns
+// its own visibility (cursor/typing subscriptions → `signatureHelp` state).
+const SignatureHelpTooltipImpl = ({
   editorRef,
   filePath,
   resolveModelPosition,
@@ -258,3 +264,6 @@ export const SignatureHelpTooltip = ({
     </div>
   )
 }
+
+export const SignatureHelpTooltip = memo(SignatureHelpTooltipImpl)
+SignatureHelpTooltip.displayName = 'SignatureHelpTooltip'
