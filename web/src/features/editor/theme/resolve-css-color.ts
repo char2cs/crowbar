@@ -87,3 +87,44 @@ export function cssColorToHex(value: string): string | null {
 
   return null
 }
+
+/** Syntax token keys → their CSS variable is `--syntax-<key>`. */
+export const SYNTAX_TOKEN_KEYS = [
+  'keyword', 'string', 'number', 'constant', 'comment', 'variable', 'property',
+  'type', 'function', 'operator', 'punctuation', 'tag', 'attribute', 'boolean',
+  'null', 'regex', 'jsx', 'jsx-attribute', 'error',
+  'markdown-heading', 'markdown-bold', 'markdown-italic', 'markdown-strikethrough',
+  'markdown-link', 'markdown-link-text', 'markdown-code', 'markdown-list', 'markdown-quote',
+] as const
+export type SyntaxTokenKey = (typeof SYNTAX_TOKEN_KEYS)[number]
+
+/** ANSI keys → their CSS variable is `--terminal-<key>`. */
+export const TERMINAL_ANSI_KEYS = [
+  'black', 'red', 'green', 'yellow', 'blue', 'magenta', 'cyan', 'white',
+  'bright-black', 'bright-red', 'bright-green', 'bright-yellow',
+  'bright-blue', 'bright-magenta', 'bright-cyan', 'bright-white',
+] as const
+export type TerminalAnsiKey = (typeof TERMINAL_ANSI_KEYS)[number]
+
+/** Resolve a single CSS variable on <html> to #hex, or null if unset/unparseable. */
+export function resolveCssVar(name: string, el: Element = document.documentElement): string | null {
+  const raw = getComputedStyle(el).getPropertyValue(name)
+  return cssColorToHex(raw)
+}
+
+function readPalette<K extends string>(keys: readonly K[], prefix: string): Record<K, string> {
+  const out = {} as Record<K, string>
+  for (const key of keys) {
+    const hex = resolveCssVar(`${prefix}${key}`)
+    if (hex) out[key] = hex
+  }
+  return out
+}
+
+export function readSyntaxPalette(): Partial<Record<SyntaxTokenKey, string>> {
+  return readPalette(SYNTAX_TOKEN_KEYS, '--syntax-')
+}
+
+export function readTerminalPalette(): Partial<Record<TerminalAnsiKey, string>> {
+  return readPalette(TERMINAL_ANSI_KEYS, '--terminal-')
+}

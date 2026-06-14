@@ -1,5 +1,12 @@
-import { describe, expect, it } from 'vitest'
-import { cssColorToHex } from '@/features/editor/theme/resolve-css-color'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import {
+  SYNTAX_TOKEN_KEYS,
+  TERMINAL_ANSI_KEYS,
+  cssColorToHex,
+  readSyntaxPalette,
+  readTerminalPalette,
+  resolveCssVar,
+} from '@/features/editor/theme/resolve-css-color'
 
 describe('cssColorToHex', () => {
   it('passes through and expands hex', () => {
@@ -45,5 +52,40 @@ describe('cssColorToHex', () => {
   it('returns null for unparseable input', () => {
     expect(cssColorToHex('')).toBeNull()
     expect(cssColorToHex('not-a-color')).toBeNull()
+  })
+})
+
+describe('DOM resolver', () => {
+  beforeEach(() => {
+    // Map every CSS var this suite asks for to a known oklch value.
+    vi.spyOn(window, 'getComputedStyle').mockReturnValue({
+      getPropertyValue: (name: string) => (name.startsWith('--') ? 'oklch(1 0 0)' : ''),
+    } as unknown as CSSStyleDeclaration)
+  })
+  afterEach(() => vi.restoreAllMocks())
+
+  it('resolveCssVar converts the computed value to hex', () => {
+    expect(resolveCssVar('--syntax-keyword')).toBe('#ffffff')
+  })
+
+  it('resolveCssVar returns null for an unset var', () => {
+    vi.spyOn(window, 'getComputedStyle').mockReturnValue({
+      getPropertyValue: () => '',
+    } as unknown as CSSStyleDeclaration)
+    expect(resolveCssVar('--nope')).toBeNull()
+  })
+
+  it('readSyntaxPalette returns a hex for every syntax key', () => {
+    const palette = readSyntaxPalette()
+    for (const key of SYNTAX_TOKEN_KEYS) {
+      expect(palette[key]).toBe('#ffffff')
+    }
+  })
+
+  it('readTerminalPalette returns a hex for every ANSI key', () => {
+    const palette = readTerminalPalette()
+    for (const key of TERMINAL_ANSI_KEYS) {
+      expect(palette[key]).toBe('#ffffff')
+    }
   })
 })
