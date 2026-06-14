@@ -216,7 +216,7 @@
   --code-highlight: oklch(0 0 0 / 4%);
 
   /* ── Crowbar UI-layer tokens (not in Cross/UI) ── */
-  --chrome-bg: oklch(1 0 0 / 75%);
+  --chrome-bg: oklch(0.97 0.018 50 / 0%);
 
   --app-ui-scale: 1;
   --ui-text-xs: calc(0.6875rem * var(--app-ui-scale));
@@ -228,6 +228,58 @@
   --app-scrollbar-thumb-hover: oklch(0.55 0 0 / 58%);
   --app-scrollbar-track: transparent;
   --app-scrollbar-radius: 999px;
+
+  /* ── Syntax tokens — light mode ───────────────────────────────── */
+  /* Bound to shadcn semantics (auto-track the UI theme) */
+  --syntax-comment: var(--muted-foreground);
+  --syntax-variable: var(--foreground);
+  --syntax-punctuation: var(--muted-foreground);
+  --syntax-operator: var(--muted-foreground);
+  --syntax-error: var(--destructive);
+
+  /* Dedicated hues — Palette A "Refined Anthropic" (light) */
+  --syntax-keyword: #be664a;
+  --syntax-string: #5e8b46;
+  --syntax-number: #a67a35;
+  --syntax-constant: #3a8a92;
+  --syntax-function: #2f6fae;
+  --syntax-type: #8257a8;
+  --syntax-property: #5a564d;
+  --syntax-tag: #2f6fae;
+  --syntax-attribute: #a67a35;
+  --syntax-boolean: #3a8a92;
+  --syntax-null: #8257a8;
+  --syntax-regex: #3a8a92;
+  --syntax-jsx: #2f6fae;
+  --syntax-jsx-attribute: #a67a35;
+  --syntax-markdown-heading: #2f6fae;
+  --syntax-markdown-bold: #a67a35;
+  --syntax-markdown-italic: #be664a;
+  --syntax-markdown-strikethrough: var(--muted-foreground);
+  --syntax-markdown-link: #2f6fae;
+  --syntax-markdown-link-text: #5e8b46;
+  --syntax-markdown-code: #5e8b46;
+  --syntax-markdown-list: #be664a;
+  --syntax-markdown-quote: var(--muted-foreground);
+
+  /* ── Terminal ANSI-16 — pure aliases onto the unified layer ───── */
+  /* magenta/cyan have no shadcn equivalent → reuse coordinated syntax hues */
+  --terminal-black: oklch(0.27 0 0);
+  --terminal-red: var(--destructive);
+  --terminal-green: var(--success);
+  --terminal-yellow: var(--warning);
+  --terminal-blue: var(--info);
+  --terminal-magenta: var(--syntax-type);
+  --terminal-cyan: var(--syntax-constant);
+  --terminal-white: var(--muted-foreground);
+  --terminal-bright-black: var(--muted-foreground);
+  --terminal-bright-red: var(--destructive);
+  --terminal-bright-green: var(--success);
+  --terminal-bright-yellow: var(--warning);
+  --terminal-bright-blue: var(--info);
+  --terminal-bright-magenta: var(--syntax-type);
+  --terminal-bright-cyan: var(--syntax-constant);
+  --terminal-bright-white: var(--foreground);
 }
 
 .dark {
@@ -262,7 +314,7 @@
   --chart-3: var(--color-amber-500);
   --chart-4: var(--color-purple-500);
   --chart-5: var(--color-rose-500);
-  --sidebar: oklch(0.18 0 0);
+  --sidebar: oklch(0.18 0 0 / 70%);
   --sidebar-foreground: var(--color-neutral-100);
   --sidebar-primary: var(--color-neutral-100);
   --sidebar-primary-foreground: var(--color-neutral-800);
@@ -275,5 +327,28 @@
   --code-highlight: oklch(1 0 0 / 4%);
 
   /* ── Crowbar UI-layer dark overrides ── */
-  --chrome-bg: oklch(0.2 0 0 / 90%);
+  --chrome-bg: oklch(0 0 0 / 65%);
+
+  /* ── Syntax dedicated hues — Palette A (dark) ─────────────────── */
+  --syntax-keyword: #d97757;
+  --syntax-string: #a3c585;
+  --syntax-number: #d6a95c;
+  --syntax-constant: #5fbcc4;
+  --syntax-function: #6fb0e0;
+  --syntax-type: #c4a6dd;
+  --syntax-property: #cfc9bd;
+  --syntax-tag: #6fb0e0;
+  --syntax-attribute: #d6a95c;
+  --syntax-boolean: #5fbcc4;
+  --syntax-null: #c4a6dd;
+  --syntax-regex: #7ec0cf;
+  --syntax-jsx: #6fb0e0;
+  --syntax-jsx-attribute: #d6a95c;
+  --syntax-markdown-heading: #6fb0e0;
+  --syntax-markdown-bold: #d6a95c;
+  --syntax-markdown-italic: #d97757;
+  --syntax-markdown-link: #6fb0e0;
+  --syntax-markdown-link-text: #a3c585;
+  --syntax-markdown-code: #a3c585;
+  --syntax-markdown-list: #d97757;
 }
