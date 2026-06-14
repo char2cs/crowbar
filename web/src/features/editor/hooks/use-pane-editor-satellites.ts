@@ -66,6 +66,7 @@ import {
 } from '../monaco/editor-conversions'
 import { defineMonacoTheme } from '../monaco/define-theme'
 import { scheduleIdleTask } from '../lib/idle-task'
+import { createRafCoalescer, type RafCoalescer } from '../lib/raf-coalesce'
 
 type StandaloneEditor = Monaco.editor.IStandaloneCodeEditor
 
@@ -174,7 +175,7 @@ export function usePaneEditorSatellites(
   const minimapEnabled = useSettingsStore((state) => state.settings.showMinimap)
   const autoCompletion = useSettingsStore((state) => state.settings.autoCompletion)
   const parameterHints = useSettingsStore((state) => state.settings.parameterHints)
-  const { setCursorPosition, setSelection, setViewportHeight } =
+  const { setCursorAndSelection, setViewportHeight } =
     useEditorStateStore.use.actions()
   const searchMatches = useEditorUIStore.use.searchMatches()
   const currentSearchMatchIndex = useEditorUIStore.use.currentMatchIndex()
@@ -199,20 +200,34 @@ export function usePaneEditorSatellites(
   const onModelPositionResolverChangeRef = useRef(onModelPositionResolverChange)
   onModelPositionResolverChangeRef.current = onModelPositionResolverChange
 
-  const syncCursorAndSelectionRef = useRef<() => void>(() => {})
-  syncCursorAndSelectionRef.current = () => {
+  // Cursor/selection sync is rAF-COALESCED: the editorAPI adapter actions
+  // (select-all/undo/redo/insert/…) call `syncCursorAndSelection()`, which only
+  // schedules a single trailing frame that reads the editor's CURRENT
+  // position+selection once and writes them in ONE batched store update.
+  const flushCursorSyncRef = useRef<() => void>(() => {})
+  flushCursorSyncRef.current = () => {
     const editor = editorRef.current
     const model = modelRef.current
     if (!editor || !model) return
     const position = editor.getPosition()
-    if (position) {
-      setCursorPosition(toEditorPosition(model, position), { ensureVisible: false })
-    }
+    if (!position) return
     const selection = editor.getSelection()
-    setSelection(selection ? toEditorRange(model, selection) : undefined)
+    setCursorAndSelection(
+      toEditorPosition(model, position),
+      selection ? toEditorRange(model, selection) : undefined,
+      { ensureVisible: false },
+    )
   }
+  const cursorSyncerRef = useRef<RafCoalescer | null>(null)
+  if (!cursorSyncerRef.current) {
+    cursorSyncerRef.current = createRafCoalescer(() => flushCursorSyncRef.current())
+  }
+  useEffect(() => {
+    const syncer = cursorSyncerRef.current
+    return () => syncer?.cancel()
+  }, [])
   const syncCursorAndSelection = useCallback(
-    () => syncCursorAndSelectionRef.current(),
+    () => cursorSyncerRef.current?.schedule(),
     [],
   )
 

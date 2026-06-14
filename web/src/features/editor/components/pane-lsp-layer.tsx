@@ -12,8 +12,9 @@
  *  - `filePath` from the per-pane active-editor registry (published by the
  *    controller on every swap), via a tiny `useState` leaf — so a tab switch
  *    re-renders only THIS component, not EditorSurface or the Monaco slot.
- *  - `value` from a narrow workspace selector (the active buffer's text), used
- *    by the LSP change-stream and the in-file search.
+ *  - the active buffer's text is read IMPERATIVELY (a vanilla store subscription
+ *    keeps a ref fresh; LSP reads it on demand via `getValue`, in-file search at
+ *    its debounced run) — content changes do NOT re-render this component.
  *
  * The container-level mouse handlers (hover / cmd-hover link / cmd-click) are
  * published into a parent-owned ref so {@link EditorSurface} can keep STABLE
@@ -26,10 +27,7 @@
 import type React from 'react'
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { useLspIntegration } from '@/features/editor/hooks/use-lsp-integration'
-import {
-  useWorkspaceStore,
-  useWorkspaceStoreContext,
-} from '@/features/workspace/stores/workspace-context'
+import { useWorkspaceStore } from '@/features/workspace/stores/workspace-context'
 import { useSettingsStore } from '@/features/settings/store'
 import { useZoomStore } from '@/features/window/stores/zoom-store'
 import { useEditorUIStore } from '@/features/editor/stores/ui-store'
@@ -108,7 +106,8 @@ export function PaneLspLayer({
   const enableRichEditorServices = enableInteractiveServices
 
   // ── Active file path: from the registry (re-renders only this leaf on swap) ─
-  const registry = useWorkspaceStore().activeEditorRegistry
+  const workspaceStore = useWorkspaceStore()
+  const registry = workspaceStore.activeEditorRegistry
   const [filePath, setFilePath] = useState(() => registry.get(paneId)?.filePath ?? '')
   useEffect(() => {
     return registry.subscribe(paneId, (ctx) => setFilePath(ctx?.filePath ?? ''))
@@ -136,18 +135,36 @@ export function PaneLspLayer({
 
   const enableDeferredRichServices = enableRichEditorServices && richServicesReady
 
-  // ── Active content: narrow workspace selector (primitive → stable snapshot) ─
-  const value = useWorkspaceStoreContext(
-    useCallback(
-      (state) => {
-        const bufferId = state.panes[paneId]?.activeBufferId ?? null
-        const buffer = bufferId ? state.buffers.find((b) => b.id === bufferId) : null
-        return buffer && hasTextContent(buffer) ? buffer.content : ''
-      },
-      [paneId],
-    ),
-  )
-  valueRef.current = value
+  // ── Active content: IMPERATIVE subscription (no render dependency) ──────────
+  // U5: PaneLspLayer must NOT re-render on content change. We read the active
+  // buffer's text via a vanilla store subscription that keeps `valueRef` fresh
+  // and bumps a NON-render `contentVersionRef` + re-arms the dependent debounced
+  // work (in-file search) — without subscribing content into render. LSP reads
+  // content on demand through `getValue` (passed to useLspIntegration).
+  const readActiveContent = useCallback(() => {
+    const state = workspaceStore.getState()
+    const bufferId = state.panes[paneId]?.activeBufferId ?? null
+    const buffer = bufferId ? state.buffers.find((b) => b.id === bufferId) : null
+    return buffer && hasTextContent(buffer) ? buffer.content : ''
+  }, [workspaceStore, paneId])
+  const getValue = useCallback(() => valueRef.current, [])
+  // Seed the ref synchronously on first render so the first LSP/search run has
+  // the current content even before the subscription's first emit.
+  valueRef.current = readActiveContent()
+
+  // Imperative content change signal: re-arm in-file search off-render.
+  const onContentChangeRef = useRef<(() => void) | null>(null)
+  useEffect(() => {
+    valueRef.current = readActiveContent()
+    let previous = valueRef.current
+    return workspaceStore.subscribe(() => {
+      const next = readActiveContent()
+      if (next === previous) return
+      previous = next
+      valueRef.current = next
+      onContentChangeRef.current?.()
+    })
+  }, [workspaceStore, readActiveContent])
 
   const zoomLevel = useZoomStore.use.editorZoomLevel()
   const settings = useSettingsStore((s) => s.settings)
@@ -170,7 +187,7 @@ export function PaneLspLayer({
     // still produced (they read the live value), so interactivity is unaffected.
     enabled: enableDeferredRichServices,
     filePath,
-    value,
+    getValue,
     editorRef: overlayContainerRef,
     resolveEditorPosition,
   })
@@ -281,14 +298,15 @@ export function PaneLspLayer({
   }, [filePath, isActiveSurface, overlayContainerRef])
 
   // ── In-file search ─────────────────────────────────────────────────────────
-  useEffect(() => {
+  // Reads content IMPERATIVELY (`valueRef.current`) at debounced run time, so it
+  // does not depend on `value` in render (U5). It is re-armed both when the
+  // search config changes (effect deps) and when content changes while find is
+  // visible (via `onContentChangeRef`).
+  const runSearchRef = useRef<() => void>(() => {})
+  runSearchRef.current = () => {
     if (searchTimerRef.current) clearTimeout(searchTimerRef.current)
-    if (!enableInteractiveServices || !isFindVisible) {
-      searchRunIdRef.current += 1
-      setSearchResults([], -1)
-      return
-    }
-    if (!searchQuery.trim() || !value) {
+    const content = valueRef.current
+    if (!enableInteractiveServices || !isFindVisible || !searchQuery.trim() || !content) {
       searchRunIdRef.current += 1
       setSearchResults([], -1)
       return
@@ -301,18 +319,28 @@ export function PaneLspLayer({
         setSearchResults([], -1)
         return
       }
-      void findLimitedMatchesCooperative(value, regex, MAX_FILE_SEARCH_MATCHES, {
+      void findLimitedMatchesCooperative(content, regex, MAX_FILE_SEARCH_MATCHES, {
         shouldCancel: () => searchRunIdRef.current !== searchRunId,
       }).then((result) => {
         if (!result || searchRunIdRef.current !== searchRunId) return
         setSearchResults(result.matches, result.matches.length > 0 ? 0 : -1, result.limited)
       })
     }, SEARCH_DEBOUNCE_MS)
+  }
+  useEffect(() => {
+    runSearchRef.current()
     return () => {
       searchRunIdRef.current += 1
       if (searchTimerRef.current) clearTimeout(searchTimerRef.current)
     }
-  }, [enableInteractiveServices, isFindVisible, searchQuery, searchOptions, value, setSearchResults])
+  }, [enableInteractiveServices, isFindVisible, searchQuery, searchOptions, setSearchResults])
+  // Re-run search when content changes (driven imperatively, off-render).
+  useEffect(() => {
+    onContentChangeRef.current = () => runSearchRef.current()
+    return () => {
+      onContentChangeRef.current = null
+    }
+  }, [])
 
   // ── Search navigation ──────────────────────────────────────────────────────
   useEffect(() => {

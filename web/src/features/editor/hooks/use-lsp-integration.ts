@@ -4,7 +4,7 @@
  */
 
 import type { RefObject } from 'react'
-import { useEffect, useMemo, useRef } from 'react'
+import { useCallback, useEffect, useMemo, useRef } from 'react'
 import { extensionRegistry } from '@/extensions/registry/extension-registry'
 import { useExtensionStore } from '@/extensions/registry/extension-store'
 import { EDITOR_CONSTANTS } from '@/features/editor/config/constants'
@@ -26,7 +26,18 @@ import type { EditorCoordinateResolver } from '../view-model/view-layout'
 interface UseLspIntegrationOptions {
   enabled?: boolean
   filePath: string | undefined
-  value: string
+  /**
+   * Current file content. Legacy callers (`code-editor`) pass the reactive value.
+   * The retained-editor path passes {@link UseLspIntegrationOptions.getValue}
+   * instead so it never re-renders on content change.
+   */
+  value?: string
+  /**
+   * Imperative content accessor — read on demand (document open, cmd-hover link
+   * resolution) so the consumer does NOT subscribe to content for render. Takes
+   * precedence over `value` when provided.
+   */
+  getValue?: () => string
   editorRef: RefObject<HTMLDivElement | null> | RefObject<HTMLTextAreaElement>
   resolveEditorPosition?: EditorCoordinateResolver
 }
@@ -49,9 +60,15 @@ export const useLspIntegration = ({
   enabled = true,
   filePath,
   value,
+  getValue,
   editorRef,
   resolveEditorPosition,
 }: UseLspIntegrationOptions) => {
+  // Resolve current content imperatively. The retained-editor path passes
+  // `getValue` (no content subscription); legacy callers pass `value`.
+  const getValueRef = useRef<() => string>(() => '')
+  getValueRef.current = getValue ?? (() => value ?? '')
+  const resolveValue = useCallback(() => getValueRef.current(), [])
   // Get LSP client instance (singleton)
   const lspClient = useMemo(() => LspClient.getInstance(), [])
 
@@ -90,16 +107,11 @@ export const useLspIntegration = ({
 
   // Track document versions per file path for LSP sync
   const documentVersionsRef = useRef<Map<string, number>>(new Map())
-  const latestValueRef = useRef(value)
   const cursorPositionRef = useRef(useEditorStateStore.getState().cursorPosition)
   const lastInputTimestampRef = useRef(useEditorUIStore.getState().lastInputTimestamp)
 
   // Track which documents have been opened (to avoid sending changes before open)
   const openedDocumentsRef = useRef<Set<string>>(new Set())
-
-  useEffect(() => {
-    latestValueRef.current = value
-  }, [value])
 
   useEffect(() => {
     let previousOffset = useEditorStateStore.getState().cursorPosition.offset
@@ -164,7 +176,7 @@ export const useLspIntegration = ({
   // Set up definition link highlighting (Cmd+hover)
   const definitionLinkHandlers = useDefinitionLink({
     filePath: activeFilePath || '',
-    content: enabled ? value : '',
+    getContent: useCallback(() => (enabled ? resolveValue() : ''), [enabled, resolveValue]),
     lineHeight,
     charWidth,
     isLanguageSupported: enabled && isLspSupported,
@@ -226,7 +238,7 @@ export const useLspIntegration = ({
           return
         }
         // Notify LSP about document open
-        await lspClient.notifyDocumentOpen(filePath, latestValueRef.current)
+        await lspClient.notifyDocumentOpen(filePath, resolveValue())
         // Mark document as opened so changes can be sent
         openedDocumentsRef.current.add(filePath)
         logger.debug('LspIntegration', `LSP started and document opened for ${filePath}`)
@@ -238,7 +250,7 @@ export const useLspIntegration = ({
     initLsp()
 
     return cleanupDocument
-  }, [enabled, filePath, isLspSupported, lspClient, rootFolderPath])
+  }, [enabled, filePath, isLspSupported, lspClient, rootFolderPath, resolveValue])
 
   // Handle document content changes
   useEffect(() => {
@@ -265,7 +277,7 @@ export const useLspIntegration = ({
       const newVersion = currentVersion + 1
       documentVersionsRef.current.set(filePath, newVersion)
 
-      lspClient.notifyDocumentChange(filePath, value, newVersion).catch((error) => {
+      lspClient.notifyDocumentChange(filePath, resolveValue(), newVersion).catch((error) => {
         console.error('LSP document change error:', error)
       })
     }, DOCUMENT_CHANGE_DEBOUNCE_MS)
@@ -276,7 +288,7 @@ export const useLspIntegration = ({
         documentChangeTimerRef.current = undefined
       }
     }
-  }, [enabled, value, filePath, isLspSupported, lspClient])
+  }, [enabled, value, filePath, isLspSupported, lspClient, resolveValue])
 
   useEffect(() => {
     lastHandledCompletionInputRef.current = useEditorUIStore.getState().lastInputTimestamp

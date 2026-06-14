@@ -31,6 +31,7 @@ import { usePaneEditorController } from '../hooks/use-pane-editor-controller'
 import { usePaneEditorSatellites } from '../hooks/use-pane-editor-satellites'
 import { defineMonacoTheme } from '../monaco/define-theme'
 import { toEditorPosition, toEditorRange } from '../monaco/editor-conversions'
+import { createRafCoalescer } from '../lib/raf-coalesce'
 import type * as Monaco from 'monaco-editor'
 
 export interface EditorSurfaceProps {
@@ -57,7 +58,8 @@ export interface EditorSurfaceProps {
  * those leaves instead of reconciling this whole subtree:
  *  - {@link Breadcrumb} self-resolves the active path via `paneId`.
  *  - {@link PaneLspLayer} owns LSP + in-file search + go-to-line, subscribing to
- *    the active-editor registry (`filePath`) and a narrow content selector.
+ *    the active-editor registry (`filePath`); it reads buffer CONTENT imperatively
+ *    (no render subscription) so a keystroke never re-renders it.
  *  - {@link PaneEditorStateBridge} mirrors the active buffer's identity into the
  *    shared editor-state store (status-bar view-key + legacy seam).
  */
@@ -83,26 +85,49 @@ export function EditorSurface({
   const editorManager = workspaceStore.editorManager
   const registry = workspaceStore.activeEditorRegistry
 
-  const { setRefs, setCursorPosition, setSelection } = useEditorStateStore.use.actions()
+  const { setRefs, setCursorAndSelection } = useEditorStateStore.use.actions()
 
   const zoomLevel = useZoomStore.use.editorZoomLevel()
 
   const enableInteractiveServices = isActiveSurface
 
   // ── Imperative buffer-switch controller (model swap + content seam) ───────
-  const syncCursorAndSelection = useCallback(() => {
+  // Cursor/selection sync is rAF-COALESCED off the per-cursor hot path: a burst
+  // of cursor moves / keystrokes schedules a single trailing frame that reads
+  // the editor's CURRENT position+selection once and writes them in ONE batched
+  // store update. The pending frame is cancelled on dispose.
+  const flushCursorSync = useCallback(() => {
     const editor = editorManager.getRawEditor(paneId) as
       | Monaco.editor.IStandaloneCodeEditor
       | null
     const model = editor?.getModel()
     if (!editor || !model) return
     const position = editor.getPosition()
-    if (position) {
-      setCursorPosition(toEditorPosition(model, position), { ensureVisible: false })
-    }
+    if (!position) return
     const selection = editor.getSelection()
-    setSelection(selection ? toEditorRange(model, selection) : undefined)
-  }, [editorManager, paneId, setCursorPosition, setSelection])
+    setCursorAndSelection(
+      toEditorPosition(model, position),
+      selection ? toEditorRange(model, selection) : undefined,
+      { ensureVisible: false },
+    )
+  }, [editorManager, paneId, setCursorAndSelection])
+
+  const flushCursorSyncRef = useRef(flushCursorSync)
+  flushCursorSyncRef.current = flushCursorSync
+  // One coalescer per pane mount; its closure reads the latest flush via ref so
+  // it survives buffer swaps. Cancel the pending frame on unmount.
+  const cursorSyncerRef = useRef<ReturnType<typeof createRafCoalescer> | null>(null)
+  if (!cursorSyncerRef.current) {
+    cursorSyncerRef.current = createRafCoalescer(() => flushCursorSyncRef.current())
+  }
+  useEffect(() => {
+    const syncer = cursorSyncerRef.current
+    return () => syncer?.cancel()
+  }, [])
+
+  const syncCursorAndSelection = useCallback(() => {
+    cursorSyncerRef.current?.schedule()
+  }, [])
 
   // mountPane wires the retained widget into the slot, sets the viewport ref,
   // applies the initial theme and installs the rAF-debounced ResizeObserver +
