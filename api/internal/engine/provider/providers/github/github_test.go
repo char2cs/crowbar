@@ -247,3 +247,33 @@ func TestParseLines(t *testing.T) {
 		assert.Equal(t, c.want, got)
 	}
 }
+
+func TestGHProvider_OwnerAvatarURL(t *testing.T) {
+	dir := t.TempDir()
+	g := NewWithExec(sequentialFake([]fakeResponse{
+		{output: "https://github.com/owner/repo.git", code: 0}, // git remote get-url
+		{output: "https://avatars.githubusercontent.com/u/123", code: 0}, // gh api
+	}))
+	got, err := g.OwnerAvatarURL(context.Background(), dir)
+	require.NoError(t, err)
+	assert.Equal(t, "https://avatars.githubusercontent.com/u/123", got)
+}
+
+func TestGHProvider_OwnerAvatarURL_CliError_ReturnsEmpty(t *testing.T) {
+	dir := t.TempDir()
+	g := NewWithExec(sequentialFake([]fakeResponse{
+		{output: "https://github.com/owner/repo.git", code: 0},
+		{output: "authentication error", code: 1}, // gh api fails
+	}))
+	got, err := g.OwnerAvatarURL(context.Background(), dir)
+	require.NoError(t, err) // soft failure
+	assert.Empty(t, got)
+}
+
+func TestGHProvider_OwnerAvatarURL_SlugError_ReturnsEmpty(t *testing.T) {
+	dir := t.TempDir()
+	g := NewWithExec(fakeCmd("", 1)) // git remote fails
+	got, err := g.OwnerAvatarURL(context.Background(), dir)
+	require.NoError(t, err) // soft failure
+	assert.Empty(t, got)
+}

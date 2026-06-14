@@ -218,6 +218,24 @@ func (g *ghProvider) runGH(
 	return out.String(), nil
 }
 
+// OwnerAvatarURL returns the GitHub owner's avatar URL for the repo.
+// Returns ("", nil) on any soft failure so callers can fall back gracefully.
+func (g *ghProvider) OwnerAvatarURL(
+	ctx context.Context,
+	repoPath string,
+) (string, error) {
+	s, err := slug(ctx, repoPath, g.execFn)
+	if err != nil {
+		return "", nil
+	}
+	path := fmt.Sprintf("repos/%s", s)
+	out, err := g.runGH(ctx, repoPath, "api", path, "--jq", ".owner.avatar_url")
+	if err != nil {
+		return "", nil
+	}
+	return strings.TrimSpace(out), nil
+}
+
 // parseLines splits newline-delimited output into non-empty strings.
 func parseLines(
 	s string,
