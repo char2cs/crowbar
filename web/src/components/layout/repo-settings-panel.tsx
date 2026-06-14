@@ -4,6 +4,7 @@ import { Checkbox } from '@/components/ui/checkbox'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { apiFetch } from '@/lib/api'
+import { useWorkspaceListStore } from '@/lib/store/workspace-list'
 import { Lock, GitBranch } from 'lucide-react'
 import { cn } from '@/lib/utils'
 
@@ -45,17 +46,21 @@ export function RepoSettingsPanel({ repoId, repoName, open, onOpenChange }: Repo
   async function handleImport() {
     if (selected.size === 0) return
     setImporting(true)
-    await Promise.all(
-      Array.from(selected).map((branch) =>
-        apiFetch('/v0/workspaces', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ repoId, branch }),
-        }).catch(() => {})
+    try {
+      await Promise.all(
+        Array.from(selected).map((branch) =>
+          apiFetch('/v0/workspaces', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ repoId, branch }),
+          }).catch(() => {})
+        )
       )
-    )
-    setImporting(false)
-    onOpenChange(false)
+      void useWorkspaceListStore.getState().fetch()
+    } finally {
+      setImporting(false)
+      onOpenChange(false)
+    }
   }
 
   function toggleBranch(name: string) {
