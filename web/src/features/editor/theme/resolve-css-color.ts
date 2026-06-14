@@ -112,8 +112,8 @@ export function resolveCssVar(name: string, el: Element = document.documentEleme
   return cssColorToHex(raw)
 }
 
-function readPalette<K extends string>(keys: readonly K[], prefix: string): Record<K, string> {
-  const out = {} as Record<K, string>
+function readPalette<K extends string>(keys: readonly K[], prefix: string): Partial<Record<K, string>> {
+  const out: Partial<Record<K, string>> = {}
   for (const key of keys) {
     const hex = resolveCssVar(`${prefix}${key}`)
     if (hex) out[key] = hex
