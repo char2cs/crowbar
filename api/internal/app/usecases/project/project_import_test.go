@@ -306,6 +306,42 @@ func TestImport_AvatarURL_FromProvider(t *testing.T) {
 	assert.Equal(t, "https://avatars.githubusercontent.com/u/99", repos.Saved[0].AvatarURL)
 }
 
+func TestImport_AutoImportsProtectedBranchStubs(t *testing.T) {
+	_, _, ws, git, prov, uc := newImport(t)
+
+	// Only "main" is a local worktree; "develop" is protected but not local
+	git.Worktrees = []gitengine.WorktreeEntry{
+		{Path: "/repoA", Branch: "main", Head: "h1"},
+	}
+	prov.Protected = []string{"main", "develop"}
+
+	_, err := uc.Import(context.Background(), "P", "/root")
+	require.NoError(t, err)
+
+	// Should have created 2 workspaces: main (adopted) + develop (stub)
+	require.Len(t, ws.Created, 2)
+	byBranch := map[string]bool{}
+	for _, w := range ws.Created {
+		byBranch[w.Branch] = w.Locked
+	}
+	assert.True(t, byBranch["main"])
+	assert.True(t, byBranch["develop"])
+}
+
+func TestImport_SkipsStubWhenAlreadyAdopted(t *testing.T) {
+	_, _, ws, git, prov, uc := newImport(t)
+
+	// "develop" is both local and protected — should not be created twice
+	git.Worktrees = []gitengine.WorktreeEntry{
+		{Path: "/repoA", Branch: "develop", Head: "h1"},
+	}
+	prov.Protected = []string{"develop"}
+
+	_, err := uc.Import(context.Background(), "P", "/root")
+	require.NoError(t, err)
+	assert.Len(t, ws.Created, 1)
+}
+
 func TestImport_AvatarURL_FallsBackToEmpty(t *testing.T) {
 	_, repos, _, git, prov, uc := newImport(t)
 	git.Worktrees = []gitengine.WorktreeEntry{

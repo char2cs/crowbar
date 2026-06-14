@@ -200,25 +200,64 @@ func (u *projectImport) importOneRepo(
 	if err := u.deps.Repos.Save(ctx, repo); err != nil {
 		return fmt.Errorf("project import: save repository: %w", err)
 	}
-	return u.adoptWorktrees(ctx, repo)
+	adopted, err := u.adoptWorktrees(ctx, repo)
+	if err != nil {
+		return err
+	}
+	return u.importProtectedBranchStubs(ctx, repo, adopted)
 }
 
 func (u *projectImport) adoptWorktrees(
 	ctx context.Context,
 	repo domain.Repository,
-) error {
+) (map[string]bool, error) {
 	worktrees, err := u.deps.Git.WorktreeList(ctx, repo.Path)
 	if err != nil {
-		return fmt.Errorf("project import: list worktrees: %w", err)
+		return nil, fmt.Errorf("project import: list worktrees: %w", err)
 	}
 	protected, err := u.deps.Provider.ProtectedBranches(ctx, repo.Path)
 	if err != nil {
-		return fmt.Errorf("project import: protected branches: %w", err)
+		return nil, fmt.Errorf("project import: protected branches: %w", err)
 	}
 	locked := toSet(protected)
+	adopted := make(map[string]bool)
 	for _, wt := range worktrees {
 		if err := u.adoptOneWorktree(ctx, repo, wt, locked); err != nil {
-			return err
+			return nil, err
+		}
+		if wt.Branch != "" && !wt.Prunable {
+			adopted[wt.Branch] = true
+		}
+	}
+	return adopted, nil
+}
+
+// importProtectedBranchStubs creates locked workspace records for protected
+// branches that do not already have a local worktree.
+func (u *projectImport) importProtectedBranchStubs(
+	ctx context.Context,
+	repo domain.Repository,
+	adopted map[string]bool,
+) error {
+	protected, err := u.deps.Provider.ProtectedBranches(ctx, repo.Path)
+	if err != nil {
+		return nil // soft: don't fail the entire import
+	}
+	for _, branch := range protected {
+		if adopted[branch] {
+			continue
+		}
+		in := workspace.CreateInput{
+			ID:           uuid.NewString(),
+			RepoID:       repo.ID,
+			ProjectID:    repo.ProjectID,
+			Branch:       branch,
+			WorktreePath: repo.Path,
+			Locked:       true,
+		}
+		if _, err := u.deps.Workspaces.Create(ctx, in, u.deps.Now()); err != nil {
+			slog.WarnContext(ctx, "project import: skip protected branch stub",
+				"branch", branch, "error", err)
 		}
 	}
 	return nil
