@@ -219,8 +219,10 @@ func (p *ProviderEngine) OwnerAvatarURL(
 // ProviderSyncWorkspaceRepo is a fake of the workspace.Workspace surface used
 // by ProviderSyncUsecase.
 type ProviderSyncWorkspaceRepo struct {
-	GetFn          func(ctx context.Context, id string) (domain.Workspace, error)
-	SyncProviderFn func(ctx context.Context, in workspace.ProviderInput, now time.Time) (domain.Workspace, error)
+	GetFn             func(ctx context.Context, id string) (domain.Workspace, error)
+	SyncProviderFn    func(ctx context.Context, in workspace.ProviderInput, now time.Time) (domain.Workspace, error)
+	ListFn            func(ctx context.Context) ([]domain.Workspace, error)
+	SetParentFromPRFn func(ctx context.Context, id string, parentID string) (domain.Workspace, error)
 }
 
 // NewProviderSyncWorkspaceRepo returns an empty ProviderSyncWorkspaceRepo.
@@ -241,6 +243,20 @@ func (r *ProviderSyncWorkspaceRepo) SyncProviderState(
 	now time.Time,
 ) (domain.Workspace, error) {
 	return r.SyncProviderFn(ctx, in, now)
+}
+
+func (r *ProviderSyncWorkspaceRepo) List(ctx context.Context) ([]domain.Workspace, error) {
+	if r.ListFn != nil {
+		return r.ListFn(ctx)
+	}
+	return nil, nil
+}
+
+func (r *ProviderSyncWorkspaceRepo) SetParentFromPR(ctx context.Context, id string, parentID string) (domain.Workspace, error) {
+	if r.SetParentFromPRFn != nil {
+		return r.SetParentFromPRFn(ctx, id, parentID)
+	}
+	return domain.Workspace{}, nil
 }
 
 // ProviderSyncEngine is a fake of the provider.Engine surface used by

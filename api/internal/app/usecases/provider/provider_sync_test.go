@@ -187,3 +187,75 @@ func TestProviderSync_PollWorkspace_PollError_Propagates(t *testing.T) {
 	err := uc.PollWorkspace(ctx, "w1")
 	assert.Error(t, err)
 }
+
+func TestSyncFromState_AutoReparentsWhenPRTargetMatchesWorkspace(t *testing.T) {
+	parentWsID := "parent-ws"
+	currentWsID := "current-ws"
+	repoID := "repo-1"
+
+	var reparentedID, reparentedParent string
+	wsRepo, _, uc := newProviderSyncUsecase(t)
+
+	wsRepo.GetFn = func(_ context.Context, id string) (domain.Workspace, error) {
+		return domain.Workspace{
+			ID:             currentWsID,
+			RepoID:         repoID,
+			Branch:         "feature/foo",
+			ParentID:       "", // no parent yet
+			PRTargetBranch: "develop",
+		}, nil
+	}
+	wsRepo.SyncProviderFn = func(_ context.Context, in workspace.ProviderInput, _ time.Time) (domain.Workspace, error) {
+		return domain.Workspace{ID: in.ID, PRTargetBranch: in.PRTargetBranch}, nil
+	}
+	wsRepo.ListFn = func(_ context.Context) ([]domain.Workspace, error) {
+		return []domain.Workspace{
+			{ID: parentWsID, RepoID: repoID, Branch: "develop"},
+			{ID: currentWsID, RepoID: repoID, Branch: "feature/foo"},
+		}, nil
+	}
+	wsRepo.SetParentFromPRFn = func(_ context.Context, id, parentID string) (domain.Workspace, error) {
+		reparentedID = id
+		reparentedParent = parentID
+		return domain.Workspace{}, nil
+	}
+
+	state := engineprovider.ProviderState{
+		PR: &providertypes.PRInfo{
+			Status:       "open",
+			TargetBranch: "develop",
+		},
+	}
+	err := uc.SyncFromState(context.Background(), currentWsID, state, time.Now())
+	require.NoError(t, err)
+	assert.Equal(t, currentWsID, reparentedID)
+	assert.Equal(t, parentWsID, reparentedParent)
+}
+
+func TestSyncFromState_SkipsReparentWhenParentAlreadySet(t *testing.T) {
+	called := false
+	wsRepo, _, uc := newProviderSyncUsecase(t)
+
+	wsRepo.GetFn = func(_ context.Context, id string) (domain.Workspace, error) {
+		return domain.Workspace{
+			ID:             "ws1",
+			RepoID:         "r1",
+			ParentID:       "already-set", // already has parent
+			PRTargetBranch: "develop",
+		}, nil
+	}
+	wsRepo.SyncProviderFn = func(_ context.Context, in workspace.ProviderInput, _ time.Time) (domain.Workspace, error) {
+		return domain.Workspace{}, nil
+	}
+	wsRepo.SetParentFromPRFn = func(_ context.Context, id, parentID string) (domain.Workspace, error) {
+		called = true
+		return domain.Workspace{}, nil
+	}
+
+	state := engineprovider.ProviderState{
+		PR: &providertypes.PRInfo{Status: "open", TargetBranch: "develop"},
+	}
+	err := uc.SyncFromState(context.Background(), "ws1", state, time.Now())
+	require.NoError(t, err)
+	assert.False(t, called, "SetParentFromPR must not be called when parentID is already set")
+}
