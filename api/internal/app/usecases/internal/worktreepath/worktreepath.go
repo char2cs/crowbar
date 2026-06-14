@@ -1,60 +1,79 @@
-// Package worktreepath derives a deterministic filesystem path for a
-// git worktree from a repository path and a branch name. All unsafe
-// characters in the branch name are replaced with hyphens so the
-// resulting directory is safe on every major OS. A short FNV-1a hash
-// of the original (unsanitised) branch name is appended to guarantee
-// the mapping is injective: two branches whose names differ only in
-// unsafe characters (e.g. "feature/foo" vs "feature-foo") are always
-// assigned distinct directories.
+// Package worktreepath derives deterministic filesystem paths for git
+// worktrees and per-repo directories, all rooted under ~/.crowbar.
 package worktreepath
 
 import (
 	"fmt"
-	"hash/fnv"
+	"net/url"
+	"os"
 	"path/filepath"
 	"strings"
 )
 
-// unsafeChars contains every character that is problematic in directory
-// names across Linux, macOS, and Windows.
-const unsafeChars = `/\:*?"<>|@#`
-
-// For returns the deterministic worktree directory path for the given
-// repository path and branch name. The directory is rooted at:
+// For returns the worktree directory for workspaceID under crowbarHome.
 //
-//	<repoParent>/.crowbar-worktrees/<repoBase>/<sanitized-branch>-<8hexFNV(branch)>
+// Path: <crowbarHome>/projects/<host>/<owner>/<repo>/workspaces/<workspaceID>
 //
-// Branch name sanitisation replaces every character in unsafeChars with a
-// hyphen. The eight-character hex FNV-1a suffix makes the mapping injective:
-// branches that are identical after sanitisation (e.g. "feature/foo" and
-// "feature-foo") still receive distinct directories. Same inputs always
-// produce the same output.
-func For(
-	repoPath string,
-	branch string,
-) string {
-	repoParent := filepath.Dir(repoPath)
-	repoBase := filepath.Base(repoPath)
-	dir := sanitize(branch) + "-" + hashBranch(branch)
-	return filepath.Join(repoParent, ".crowbar-worktrees", repoBase, dir)
+// remoteURL accepts HTTPS (https://github.com/owner/repo.git) and SSH
+// (git@github.com:owner/repo.git) formats. An empty or unrecognised URL
+// returns an error.
+func For(crowbarHome, remoteURL, workspaceID string) (string, error) {
+	dir, err := RepoDir(crowbarHome, remoteURL)
+	if err != nil {
+		return "", err
+	}
+	return filepath.Join(dir, "workspaces", workspaceID), nil
 }
 
-func sanitize(
-	branch string,
-) string {
-	return strings.Map(func(r rune) rune {
-		if strings.ContainsRune(unsafeChars, r) {
-			return '-'
+// RepoDir returns the per-repo directory under crowbarHome/projects/.
+//
+// Example: https://github.com/acme/foo.git →
+//
+//	<crowbarHome>/projects/github.com/acme/foo
+func RepoDir(crowbarHome, remoteURL string) (string, error) {
+	rel, err := repoRelPath(remoteURL)
+	if err != nil {
+		return "", err
+	}
+	return filepath.Join(crowbarHome, "projects", rel), nil
+}
+
+// DefaultCrowbarHome returns ~/.crowbar, the production root for all
+// Crowbar-managed state.
+func DefaultCrowbarHome() (string, error) {
+	h, err := os.UserHomeDir()
+	if err != nil {
+		return "", fmt.Errorf("crowbar home: %w", err)
+	}
+	return filepath.Join(h, ".crowbar"), nil
+}
+
+// repoRelPath parses a git remote URL into <host>/<owner>/<repo>.
+// It accepts HTTPS and SSH URL formats and strips any trailing ".git".
+func repoRelPath(rawURL string) (string, error) {
+	rawURL = strings.TrimSpace(rawURL)
+	if rawURL == "" {
+		return "", fmt.Errorf("worktreepath: empty remote URL")
+	}
+	rawURL = strings.TrimSuffix(rawURL, ".git")
+
+	// SSH: git@github.com:owner/repo
+	if strings.HasPrefix(rawURL, "git@") {
+		rest := rawURL[4:]
+		idx := strings.Index(rest, ":")
+		if idx < 0 {
+			return "", fmt.Errorf("worktreepath: invalid SSH URL: %q", rawURL)
 		}
-		return r
-	}, branch)
-}
+		host := rest[:idx]
+		path := strings.TrimPrefix(rest[idx+1:], "/")
+		return host + "/" + path, nil
+	}
 
-// hashBranch returns an 8-character lowercase hex FNV-1a digest of branch.
-func hashBranch(
-	branch string,
-) string {
-	h := fnv.New32a()
-	_, _ = h.Write([]byte(branch))
-	return fmt.Sprintf("%08x", h.Sum32())
+	// HTTPS: https://github.com/owner/repo
+	u, err := url.Parse(rawURL)
+	if err != nil || u.Host == "" {
+		return "", fmt.Errorf("worktreepath: unrecognised remote URL: %q", rawURL)
+	}
+	path := strings.TrimPrefix(u.Path, "/")
+	return u.Host + "/" + path, nil
 }
