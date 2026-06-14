@@ -1,6 +1,8 @@
 import { createWorkspaceStore, type WorkspaceStore } from './workspace-store'
 import { loadFromLocalStorage } from './workspace-persistence'
 import { saveWorkspaceLayout } from '@/lib/persistence/workspace-layout'
+import { useHistoryStore } from '@/features/editor/stores/history-store'
+import { cleanupBufferHistoryTracking } from '@/features/editor/stores/buffer-history-tracking'
 
 const registry = new Map<string, WorkspaceStore>()
 const persistTimers = new Map<string, ReturnType<typeof setTimeout>>()
@@ -57,7 +59,30 @@ export function destroyWorkspaceStore(wsId: string): void {
     clearTimeout(existing)
     persistTimers.delete(wsId)
   }
-  registry.get(wsId)?.editorManager.disposeAll()
+
+  const store = registry.get(wsId)
+  if (store) {
+    // Kill terminal PTY sessions
+    const terminalBuffers = store.getState().buffers.filter((b) => b.type === 'terminal')
+    if (terminalBuffers.length > 0) {
+      void import('@/features/terminal/lib/kill-terminal-session').then(({ killTerminalSession }) => {
+        for (const buf of terminalBuffers) {
+          void killTerminalSession((buf as { sessionId: string }).sessionId).catch(() => {})
+        }
+      })
+    }
+
+    // Cleanup undo tracker and history for each buffer
+    const { buffers } = store.getState()
+    for (const buf of buffers) {
+      cleanupBufferHistoryTracking(buf.id)
+    }
+    useHistoryStore.getState().actions.clearAllHistories()
+
+    // Dispose editor resources
+    store.editorManager.disposeAll()
+  }
+
   registry.delete(wsId)
 }
 
