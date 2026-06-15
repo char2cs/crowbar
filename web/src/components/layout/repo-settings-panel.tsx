@@ -173,31 +173,31 @@ export function RepoSettingsPanel({ repoId, repoName }: RepoSettingsPanelProps) 
             onChange={handleFileChange}
           />
           <Button
-            variant="outline"
-            size="sm"
+            variant="ghost"
+            size="xs"
             disabled={iconLoading}
             onClick={() => { setShowEmojiInput(false); fileRef.current?.click() }}
-            className="h-7 flex-1 gap-1.5 text-[11px]"
+            className="flex-1 gap-1 text-muted-foreground hover:text-foreground"
           >
             <Upload className="size-3" />
             Upload
           </Button>
           <Button
-            variant={showEmojiInput ? 'secondary' : 'outline'}
-            size="sm"
+            variant={showEmojiInput ? 'secondary' : 'ghost'}
+            size="xs"
             disabled={iconLoading}
             onClick={() => setShowEmojiInput((v) => !v)}
-            className="h-7 flex-1 gap-1.5 text-[11px]"
+            className="flex-1 gap-1 text-muted-foreground hover:text-foreground"
           >
             <Smile className="size-3" />
             Emoji
           </Button>
           <Button
-            variant="outline"
-            size="sm"
+            variant="ghost"
+            size="xs"
             disabled={iconLoading}
             onClick={() => { setShowEmojiInput(false); void handleGithubAvatar() }}
-            className="h-7 flex-1 gap-1.5 text-[11px]"
+            className="flex-1 gap-1 text-muted-foreground hover:text-foreground"
           >
             <Star className="size-3" />
             GitHub
@@ -229,12 +229,12 @@ export function RepoSettingsPanel({ repoId, repoName }: RepoSettingsPanelProps) 
         {repo?.avatarURL && (
           <Button
             variant="ghost"
-            size="sm"
+            size="xs"
             disabled={iconLoading}
             onClick={() => void handleResetIcon()}
-            className="h-7 text-[11px] text-muted-foreground hover:text-destructive"
+            className="w-full gap-1 text-muted-foreground/60 hover:text-destructive"
           >
-            <Trash2 className="mr-1.5 size-3" />
+            <Trash2 className="size-3" />
             Reset to default
           </Button>
         )}
