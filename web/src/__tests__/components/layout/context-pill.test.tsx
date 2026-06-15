@@ -8,6 +8,7 @@ let mockPathname = '/'
 vi.mock('@tanstack/react-router', () => ({
   useRouterState: ({ select }: { select: (s: { location: { pathname: string } }) => unknown }) =>
     select({ location: { pathname: mockPathname } }),
+  useNavigate: () => vi.fn(),
 }))
 
 const repos: Repo[] = [
@@ -44,11 +45,11 @@ describe('ContextPill', () => {
     expect(screen.getByText('Crowbar')).toBeInTheDocument()
   })
 
-  it('switches the sidebar to the workspaces tab on click', () => {
+  it('opens the workspace switcher on click', async () => {
     mockPathname = '/workspaces/ws1'
     render(<ContextPill />)
-    fireEvent.click(screen.getByRole('button'))
-    expect(useSidebarStore.getState().activeTab).toBe('workspaces')
+    fireEvent.click(screen.getByRole('button', { name: 'Switch workspace' }))
+    expect(await screen.findByPlaceholderText('Switch workspace…')).toBeInTheDocument()
   })
 
   it('renders nothing when nothing resolves', () => {
