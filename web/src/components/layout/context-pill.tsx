@@ -1,7 +1,7 @@
 import { useState } from 'react'
 import { useRouterState } from '@tanstack/react-router'
 import { Button } from '@/components/ui/button'
-import { Popover, PopoverTrigger, PopoverPopup } from '@/components/ui/popover'
+import { CommandDialog, CommandDialogTrigger, CommandDialogPopup } from '@/components/ui/command'
 import { useSidebarStore } from '@/lib/store/sidebar'
 import { useProjectStore } from '@/lib/store/projects'
 import { WorkspaceBranchIcon } from './workspace-branch-icon'
@@ -11,7 +11,7 @@ import { WorkspaceSwitcherMenu } from './workspace-switcher'
 /**
  * "You are here" pill above the sidebar tab bar: shows the current
  * workspace (status icon + reponame/branchname) or the active project name.
- * Clicking it opens a popover with the workspace switcher.
+ * Clicking it opens a centered command dialog with the workspace switcher.
  */
 export function ContextPill() {
   const pathname = useRouterState({ select: (s) => s.location.pathname })
@@ -27,15 +27,15 @@ export function ContextPill() {
 
   return (
     <div className="shrink-0 px-2 pt-2 pb-1">
-      <Popover open={open} onOpenChange={setOpen}>
-        <PopoverTrigger
-          render={
+      <CommandDialog open={open} onOpenChange={setOpen}>
+        <CommandDialogTrigger
+          render={(
             <Button
               variant="ghost"
               aria-label="Switch workspace"
               className="h-auto w-full justify-start gap-2 rounded-lg bg-foreground/4 px-3 py-1.5 font-mono font-normal hover:bg-foreground/8 sm:h-auto"
             />
-          }
+          )}
         >
           {model.kind === 'workspace' ? (
             <span className="flex min-w-0 items-center gap-2">
@@ -52,11 +52,11 @@ export function ContextPill() {
           ) : (
             <span className="truncate text-[13px] text-foreground">{model.projectName}</span>
           )}
-        </PopoverTrigger>
-        <PopoverPopup side="bottom" align="start" className="w-(--anchor-width) min-w-72 p-0">
+        </CommandDialogTrigger>
+        <CommandDialogPopup>
           <WorkspaceSwitcherMenu onClose={() => setOpen(false)} />
-        </PopoverPopup>
-      </Popover>
+        </CommandDialogPopup>
+      </CommandDialog>
     </div>
   )
 }
