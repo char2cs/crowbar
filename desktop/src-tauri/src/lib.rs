@@ -5,14 +5,23 @@ mod terminal;
 
 use tauri::Manager;
 
-// On ProMotion / high-refresh-rate displays, WKWebView defaults to 60fps due to
-// the `PreferPageRenderingUpdatesNear60FPSEnabled` WebKit preference (true by
-// default). Setting it to false via NSUserDefaults *before* any WKWebView is
-// created is the only reliable cross-version approach: the post-creation
-// `_features` API used by tauri-plugin-macos-fps may not be present on all
-// macOS 26 configurations (it is a private API and can disappear between betas).
+// ProMotion / high-refresh-rate: WKWebView defaults to 60fps due to the
+// `preferPageRenderingUpdatesNear60FPSEnabled` WebKit preference.
 //
-// Must be called on the main thread before `tauri::Builder` runs.
+// Two-pronged approach:
+//   1. NSUserDefaults before WKWebView creation (disable_webkit_60fps_cap_early).
+//      Works on macOS 13–15 where WebKit reads this key before creating its
+//      CADisplayLink. May be ignored on macOS 26 where the preference backend
+//      was restructured.
+//   2. KVC on WKPreferences after creation (applied in the setup closure via
+//      with_webview). wry uses the same setValue:forKey: pattern for private
+//      KVC keys in production — WKPreferences silently ignores unknown keys
+//      rather than throwing NSUndefinedKeyException.
+//
+// The post-creation plugin approach (tauri-plugin-macos-fps) uses the private
+// `_features` array API. That selector was removed in macOS 26 and calling it
+// throws "unrecognized selector" which aborts the process — avoid it.
+
 #[cfg(target_os = "macos")]
 unsafe fn disable_webkit_60fps_cap_early() {
     use objc2::runtime::{AnyClass, AnyObject, Bool};
@@ -33,7 +42,33 @@ unsafe fn disable_webkit_60fps_cap_early() {
         if nskey.is_null() { continue }
         let _: () = unsafe { msg_send![defaults, setBool: Bool::new(false), forKey: nskey] };
     }
-    log::info!("ProMotion: disabled WebKit 60fps cap via NSUserDefaults");
+    log::info!("ProMotion: NSUserDefaults 60fps keys cleared");
+}
+
+// Post-creation fix: applied via with_webview in setup().
+// Uses respondsToSelector: before every private call — the only pattern that
+// is guaranteed safe in a with_webview closure (which runs on the main thread
+// from ObjC dispatch, where panics from unrecognized selectors abort the process).
+#[cfg(target_os = "macos")]
+unsafe fn disable_webkit_60fps_cap_post(wkwebview_ptr: *mut objc2::runtime::AnyObject) {
+    use objc2::runtime::{AnyObject, Bool};
+    use objc2::msg_send;
+
+    let config: *mut AnyObject = msg_send![wkwebview_ptr, configuration];
+    if config.is_null() { return; }
+    let prefs: *mut AnyObject = msg_send![config, preferences];
+    if prefs.is_null() { return; }
+
+    // Probe for the direct setter via respondsToSelector: — this is always safe
+    // (defined on NSObject, never throws). Only call the setter if confirmed present.
+    let sel = objc2::sel!(setPreferPageRenderingUpdatesNear60FPSEnabled:);
+    let responds: Bool = msg_send![prefs, respondsToSelector: sel];
+    if responds.as_bool() {
+        let _: () = msg_send![prefs, setPreferPageRenderingUpdatesNear60FPSEnabled: Bool::new(false)];
+        log::info!("ProMotion: direct setter applied (macOS ≤25 path)");
+    } else {
+        log::warn!("ProMotion: setPreferPageRenderingUpdatesNear60FPSEnabled: absent on this macOS — 60fps cap may persist");
+    }
 }
 
 // Injected into the webview at document-start on every page load (including full
@@ -59,13 +94,14 @@ const CROWBAR_BOOTSTRAP: &str = r#"
 "#;
 
 pub fn run() {
-    // Belt + suspenders: NSUserDefaults before WKWebView creation (this call) plus
-    // the plugin's post-creation _features toggle. Either alone can fail on new
-    // macOS versions; both together are reliable across macOS 13–26.
+    // Step 1: NSUserDefaults before WKWebView creation (macOS 13-15 path).
     #[cfg(target_os = "macos")]
     unsafe { disable_webkit_60fps_cap_early() }
 
     let mut builder = tauri::Builder::default()
+        // tauri-plugin-macos-fps uses the `_features` private selector which was
+        // removed in macOS 26. Keep it for macOS 13-15 compatibility but it is a
+        // no-op (or crash-risk) on macOS 26 — our KVC fix in setup() covers that.
         .plugin(tauri_plugin_macos_fps::init())
         .plugin(tauri_plugin_log::Builder::new().build())
         .plugin(tauri_plugin_shell::init())
@@ -114,6 +150,13 @@ pub fn run() {
                 ) {
                     log::error!("failed to apply window vibrancy: {e}");
                 }
+
+                // Step 2: post-creation setter, guarded by respondsToSelector:.
+                let _ = window.with_webview(|wv| {
+                    use objc2::runtime::AnyObject;
+                    let ptr = wv.inner() as *mut AnyObject;
+                    unsafe { disable_webkit_60fps_cap_post(ptr) };
+                });
             }
 
             // Spawn the Go daemon sidecar on the unix socket.
