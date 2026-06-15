@@ -1,4 +1,5 @@
 import { cn } from '@/lib/utils'
+import { formatChangeCount } from './format-change-count'
 import { WorkspaceBranchIcon } from './workspace-branch-icon'
 import { WorkspaceInlineInput } from './workspace-inline-input'
 import { ROW_BASE } from './workspace-row-base'
@@ -106,20 +107,10 @@ export function WorkspaceTreeItem({
             (workspace.added !== undefined || workspace.deleted !== undefined) && (
               <span className="flex shrink-0 gap-1 font-mono">
                 {workspace.added !== undefined && workspace.added > 0 && (
-                  <span className="text-green-300">
-                    +
-                    {workspace.added > 999
-                      ? `${Math.round(workspace.added / 1000)}k`
-                      : workspace.added}
-                  </span>
+                  <span className="text-green-300">+{formatChangeCount(workspace.added)}</span>
                 )}
                 {workspace.deleted !== undefined && workspace.deleted > 0 && (
-                  <span className="text-red-300">
-                    -
-                    {workspace.deleted > 999
-                      ? `${Math.round(workspace.deleted / 1000)}k`
-                      : workspace.deleted}
-                  </span>
+                  <span className="text-red-300">-{formatChangeCount(workspace.deleted)}</span>
                 )}
               </span>
             )}
