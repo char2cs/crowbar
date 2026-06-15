@@ -15,6 +15,7 @@ const UI = {
   border: '#2a2a2a',
   subtle: '#888888',
   ring: '#778899',
+  error: '#e5484d',
 }
 
 describe('buildMonacoThemeData', () => {
@@ -45,5 +46,12 @@ describe('buildMonacoThemeData', () => {
     const { colors } = buildMonacoThemeData({ isDark: true, syntax: SYNTAX, ui: UI })
     expect(colors['editor.findMatchBackground']).toBe(UI.selection)
     expect(colors['focusBorder']).toBe(UI.ring)
+  })
+
+  it('calms bracket pair colorization to the muted tone, flags unexpected brackets', () => {
+    const { colors } = buildMonacoThemeData({ isDark: true, syntax: SYNTAX, ui: UI })
+    expect(colors['editorBracketHighlight.foreground1']).toBe(UI.subtle)
+    expect(colors['editorBracketHighlight.foreground6']).toBe(UI.subtle)
+    expect(colors['editorBracketHighlight.unexpectedBracket.foreground']).toBe(UI.error)
   })
 })

@@ -47,6 +47,7 @@ export interface MonacoUiTokens {
   border: string
   subtle: string
   ring: string
+  error: string
 }
 
 export interface MonacoThemeInput {
@@ -100,6 +101,17 @@ export function buildMonacoThemeData(input: MonacoThemeInput): MonacoThemeData {
       'input.background': ui.background,
       'input.foreground': ui.foreground,
       'input.border': ui.border,
+      // Bracket pair colorization is on by default in Monaco; without these it
+      // falls back to a loud stock gold/orchid/blue rainbow that fights the
+      // palette. Calm it to the muted punctuation tone so brackets read like the
+      // rest of the delimiters; only genuinely unmatched brackets get flagged.
+      'editorBracketHighlight.foreground1': ui.subtle,
+      'editorBracketHighlight.foreground2': ui.subtle,
+      'editorBracketHighlight.foreground3': ui.subtle,
+      'editorBracketHighlight.foreground4': ui.subtle,
+      'editorBracketHighlight.foreground5': ui.subtle,
+      'editorBracketHighlight.foreground6': ui.subtle,
+      'editorBracketHighlight.unexpectedBracket.foreground': ui.error,
     },
   }
 }
@@ -115,6 +127,7 @@ function readUiTokens(isDark: boolean): MonacoUiTokens {
     border: resolveCssVar('--border') ?? (isDark ? '#2a2a2a' : '#e4e7ec'),
     subtle: resolveCssVar('--muted-foreground') ?? (isDark ? '#888888' : '#787d86'),
     ring: resolveCssVar('--ring') ?? (isDark ? '#888888' : '#9aa0a6'),
+    error: resolveCssVar('--destructive') ?? (isDark ? '#e5484d' : '#c0392b'),
   }
 }
 
