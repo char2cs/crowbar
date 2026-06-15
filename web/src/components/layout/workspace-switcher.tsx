@@ -12,6 +12,7 @@ import {
 } from '@/components/ui/command'
 import { Kbd, KbdGroup } from '@/components/ui/kbd'
 import { useSidebarStore } from '@/lib/store/sidebar'
+import { fuzzyMatch } from '@/utils/search-match'
 import { WorkspaceBranchIcon } from './workspace-branch-icon'
 import { formatChangeCount } from './format-change-count'
 import { flattenWorkspaces, type WorkspaceSwitcherItem } from './workspace-switcher-model'
@@ -49,6 +50,7 @@ export function WorkspaceSwitcherMenu({ onClose }: WorkspaceSwitcherMenuProps) {
         const ws = item as WorkspaceSwitcherItem
         return `${ws.repoName} / ${ws.branch}`
       }}
+      filter={(item, query, itemToString) => fuzzyMatch(query, itemToString?.(item) ?? '')}
     >
       <CommandInput placeholder="Switch workspace…" />
       <CommandPanel className="flex min-h-0 flex-1 flex-col">

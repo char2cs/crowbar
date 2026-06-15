@@ -34,6 +34,28 @@ export function matchesSearchQuery(query: string, candidates: string[]) {
   )
 }
 
+/** True when `needle` appears in `haystack` as an (order-preserving) subsequence. */
+function isSubsequence(needle: string, haystack: string): boolean {
+  let i = 0
+  for (let j = 0; j < haystack.length && i < needle.length; j++) {
+    if (haystack[j] === needle[i]) i++
+  }
+  return i === needle.length
+}
+
+/**
+ * Fuzzy, token-based match: the query is split into whitespace tokens and every
+ * token must appear in `text` as a subsequence (after normalization). Tokens can
+ * appear in any order and across separators, so `"crowbar wave2"` and
+ * `"qvr shell"` both match. Empty/whitespace query matches everything.
+ */
+export function fuzzyMatch(query: string, text: string): boolean {
+  const tokens = normalizeSearchText(query).split(' ').filter(Boolean)
+  if (tokens.length === 0) return true
+  const haystack = normalizeSearchText(text)
+  return tokens.every((token) => isSubsequence(token, haystack))
+}
+
 export function scoreSearchQuery(query: string, fields: SearchCandidateField[]) {
   const tokens = normalizeSearchText(query).split(/\s+/).filter(Boolean)
 
