@@ -43,7 +43,7 @@ export function WorkspaceSwitcherMenu({ onClose }: WorkspaceSwitcherMenuProps) {
 
   return (
     <Command
-      className="w-full"
+      className="flex min-h-0 w-full flex-1 flex-col"
       items={items}
       itemToStringValue={(item) => {
         const ws = item as WorkspaceSwitcherItem
@@ -51,7 +51,7 @@ export function WorkspaceSwitcherMenu({ onClose }: WorkspaceSwitcherMenuProps) {
       }}
     >
       <CommandInput placeholder="Switch workspace…" />
-      <CommandPanel>
+      <CommandPanel className="flex min-h-0 flex-1 flex-col">
         <CommandEmpty>No workspaces found</CommandEmpty>
         <CommandList>
           {(item: WorkspaceSwitcherItem) => (
