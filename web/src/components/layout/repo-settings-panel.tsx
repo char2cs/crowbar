@@ -3,10 +3,11 @@ import { Checkbox } from '@/components/ui/checkbox'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { ScrollArea } from '@/components/ui/scroll-area'
+import { Avatar, AvatarImage, AvatarFallback } from '@/components/ui/avatar'
 import { apiFetch } from '@/lib/api'
 import { useWorkspaceListStore } from '@/lib/store/workspace-list'
 import { useSidebarStore } from '@/lib/store/sidebar'
-import { Lock, GitBranch, Trash2 } from 'lucide-react'
+import { Lock, GitBranch, Trash2, Upload, Star, Smile } from 'lucide-react'
 import { cn } from '@/lib/utils'
 
 interface BranchEntry {
@@ -26,6 +27,7 @@ export function RepoSettingsPanel({ repoId, repoName }: RepoSettingsPanelProps) 
   const [selected, setSelected] = useState<Set<string>>(new Set())
   const [importing, setImporting] = useState(false)
   const [emojiInput, setEmojiInput] = useState('')
+  const [showEmojiInput, setShowEmojiInput] = useState(false)
   const [iconLoading, setIconLoading] = useState(false)
   const fileRef = useRef<HTMLInputElement>(null)
 
@@ -100,6 +102,7 @@ export function RepoSettingsPanel({ repoId, repoName }: RepoSettingsPanelProps) 
         body: JSON.stringify({ emoji }),
       })
       setEmojiInput('')
+      setShowEmojiInput(false)
       void useWorkspaceListStore.getState().fetch()
     } catch {
       // ignore
@@ -133,91 +136,113 @@ export function RepoSettingsPanel({ repoId, repoName }: RepoSettingsPanelProps) 
   }
 
   const importable = selected.size
+  const isEmoji = repo?.avatarURL?.startsWith('emoji:')
+  const avatarSrc = !isEmoji && repo?.avatarURL ? repo.avatarURL : undefined
 
   return (
-    <ScrollArea className="flex-1">
-      <div className="flex flex-col gap-4 p-3">
+    <ScrollArea className="h-full flex-1">
+      <div className="flex flex-col gap-5 p-3">
 
         {/* Icon section */}
-        <div className="flex flex-col gap-2">
+        <div className="flex flex-col gap-3">
           <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
             Icon
           </p>
 
-          <div className="flex items-center gap-3 rounded-md border border-border bg-accent/30 p-2.5">
-            {repo?.avatarURL?.startsWith('emoji:') ? (
-              <span className="flex h-9 w-9 flex-shrink-0 items-center justify-center rounded-md text-2xl">
-                {repo.avatarURL.slice(6)}
-              </span>
-            ) : repo?.avatarURL ? (
-              <img
-                src={repo.avatarURL}
-                alt={repoName}
-                className="h-9 w-9 flex-shrink-0 rounded-md object-cover"
-              />
-            ) : (
-              <span
-                className={cn(
-                  'flex h-9 w-9 flex-shrink-0 items-center justify-center rounded-md text-sm font-bold text-primary-foreground',
-                  repo?.avatarColor,
-                )}
-              >
-                {repo?.avatarLabel}
-              </span>
-            )}
-            <div className="flex flex-col gap-1.5 flex-1">
-              <input
-                ref={fileRef}
-                type="file"
-                accept="image/png,image/jpeg,image/webp"
-                className="hidden"
-                onChange={handleFileChange}
-              />
-              <button
-                onClick={() => fileRef.current?.click()}
-                disabled={iconLoading}
-                className="text-left text-[10.5px] text-muted-foreground hover:text-foreground disabled:opacity-50"
-              >
-                📁 Upload image
-              </button>
-              <div className="flex items-center gap-1.5">
-                <input
-                  value={emojiInput}
-                  onChange={(e) => setEmojiInput(e.target.value)}
-                  onKeyDown={(e) => { if (e.key === 'Enter') void handleEmojiSubmit() }}
-                  placeholder="😀 Type emoji…"
-                  maxLength={4}
-                  className="h-6 w-24 rounded border border-border bg-background px-1.5 text-[10.5px] outline-none focus:border-ring"
-                />
-                {emojiInput && (
-                  <button
-                    onClick={() => void handleEmojiSubmit()}
-                    disabled={iconLoading}
-                    className="text-[10px] text-muted-foreground hover:text-foreground"
-                  >
-                    Set
-                  </button>
-                )}
-              </div>
-              <button
-                onClick={() => void handleGithubAvatar()}
-                disabled={iconLoading}
-                className="text-left text-[10.5px] text-muted-foreground hover:text-foreground disabled:opacity-50"
-              >
-                🐙 Use GitHub avatar
-              </button>
-            </div>
-            {repo?.avatarURL && (
-              <button
-                onClick={() => void handleResetIcon()}
-                disabled={iconLoading}
-                aria-label="Reset icon"
-                className="flex-shrink-0 text-muted-foreground/50 hover:text-destructive"
-              >
-                <Trash2 className="size-3" />
-              </button>
-            )}
+          {/* Avatar preview */}
+          <div className="flex justify-center">
+            <Avatar className="size-14 rounded-xl text-base">
+              {isEmoji ? (
+                <AvatarFallback className="rounded-xl bg-transparent text-2xl">
+                  {repo!.avatarURL!.slice(6)}
+                </AvatarFallback>
+              ) : avatarSrc ? (
+                <AvatarImage src={avatarSrc} alt={repoName} />
+              ) : (
+                <AvatarFallback className={cn('rounded-xl text-sm font-bold text-primary-foreground', repo?.avatarColor)}>
+                  {repo?.avatarLabel}
+                </AvatarFallback>
+              )}
+            </Avatar>
           </div>
+
+          {/* Action buttons */}
+          <div className="grid grid-cols-3 gap-1.5">
+            <input
+              ref={fileRef}
+              type="file"
+              accept="image/png,image/jpeg,image/webp"
+              className="hidden"
+              onChange={handleFileChange}
+            />
+            <Button
+              variant="outline"
+              size="sm"
+              disabled={iconLoading}
+              onClick={() => { setShowEmojiInput(false); fileRef.current?.click() }}
+              className="flex flex-col gap-1 h-auto py-2 text-[10px]"
+            >
+              <Upload className="size-3.5" />
+              Upload
+            </Button>
+            <Button
+              variant={showEmojiInput ? 'secondary' : 'outline'}
+              size="sm"
+              disabled={iconLoading}
+              onClick={() => setShowEmojiInput((v) => !v)}
+              className="flex flex-col gap-1 h-auto py-2 text-[10px]"
+            >
+              <Smile className="size-3.5" />
+              Emoji
+            </Button>
+            <Button
+              variant="outline"
+              size="sm"
+              disabled={iconLoading}
+              onClick={() => { setShowEmojiInput(false); void handleGithubAvatar() }}
+              className="flex flex-col gap-1 h-auto py-2 text-[10px]"
+            >
+              <Star className="size-3.5" />
+              GitHub
+            </Button>
+          </div>
+
+          {/* Emoji input — shown when Emoji button is toggled */}
+          {showEmojiInput && (
+            <div className="flex gap-1.5">
+              <Input
+                value={emojiInput}
+                onChange={(e) => setEmojiInput(e.target.value)}
+                onKeyDown={(e) => { if (e.key === 'Enter') void handleEmojiSubmit() }}
+                placeholder="Type an emoji…"
+                maxLength={4}
+                className="h-7 flex-1 text-center text-base"
+                autoFocus
+              />
+              <Button
+                size="sm"
+                className="h-7"
+                disabled={!emojiInput.trim() || iconLoading}
+                onClick={() => void handleEmojiSubmit()}
+              >
+                Set
+              </Button>
+            </div>
+          )}
+
+          {/* Reset — only shown when a custom icon is set */}
+          {repo?.avatarURL && (
+            <Button
+              variant="ghost"
+              size="sm"
+              disabled={iconLoading}
+              onClick={() => void handleResetIcon()}
+              className="h-7 text-[11px] text-muted-foreground hover:text-destructive"
+            >
+              <Trash2 className="mr-1.5 size-3" />
+              Reset to default
+            </Button>
+          )}
         </div>
 
         {/* Branch import section */}
