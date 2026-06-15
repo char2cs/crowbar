@@ -152,6 +152,7 @@ export function DiffMonacoEditor({
   const lineNumbers = useEditorSettingsStore.use.lineNumbers()
   const renderWhitespace = useEditorSettingsStore.use.renderWhitespace()
   const renderIndentGuides = useEditorSettingsStore.use.renderIndentGuides()
+  const semanticHighlighting = useEditorSettingsStore.use.semanticHighlighting()
   const highlightOccurrences = useEditorSettingsStore.use.highlightOccurrences()
   const theme = useEditorSettingsStore.use.theme()
   const zoomLevel = useZoomStore.use.editorZoomLevel()
@@ -204,6 +205,7 @@ export function DiffMonacoEditor({
     lineNumberFormatter,
     renderWhitespace,
     renderIndentGuides,
+    semanticHighlighting,
     highlightOccurrences,
     minimapEnabled,
     autoCompletion,
@@ -223,6 +225,7 @@ export function DiffMonacoEditor({
     lineNumberFormatter,
     renderWhitespace,
     renderIndentGuides,
+    semanticHighlighting,
     highlightOccurrences,
     minimapEnabled,
     autoCompletion,
@@ -312,6 +315,7 @@ export function DiffMonacoEditor({
         indentation: s.renderIndentGuides,
         highlightActiveIndentation: s.renderIndentGuides,
       },
+      'semanticHighlighting.enabled': s.semanticHighlighting,
       occurrencesHighlight: s.highlightOccurrences ? 'singleFile' : 'off',
       selectionHighlight: s.highlightOccurrences,
       quickSuggestions: s.autoCompletion,
@@ -659,6 +663,7 @@ export function DiffMonacoEditor({
         indentation: renderIndentGuides,
         highlightActiveIndentation: renderIndentGuides,
       },
+      'semanticHighlighting.enabled': semanticHighlighting,
       occurrencesHighlight: highlightOccurrences ? 'singleFile' : 'off',
       selectionHighlight: highlightOccurrences,
       quickSuggestions: autoCompletion,
@@ -686,6 +691,7 @@ export function DiffMonacoEditor({
     renderIndentGuides,
     renderWhitespace,
     scrollable,
+    semanticHighlighting,
     tabSize,
     wordWrap,
   ])
