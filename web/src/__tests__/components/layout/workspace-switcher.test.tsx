@@ -58,6 +58,25 @@ describe('WorkspaceSwitcherMenu', () => {
     expect(onClose).toHaveBeenCalled()
   })
 
+  it('renders formatted added/deleted counts when present', () => {
+    useSidebarStore.setState({
+      repos: [
+        {
+          id: 'r1',
+          name: 'crowbar',
+          avatarLabel: 'C',
+          avatarColor: 'bg-indigo-700',
+          workspaces: [
+            { id: 'ws1', branch: 'develop', status: 'pr-open', added: 1234, deleted: 5, age: '1d' },
+          ],
+        },
+      ],
+    })
+    render(<WorkspaceSwitcherMenu onClose={() => {}} />)
+    expect(screen.getByText('+1k')).toBeInTheDocument()
+    expect(screen.getByText('-5')).toBeInTheDocument()
+  })
+
   it('shows an empty state when nothing matches', () => {
     render(<WorkspaceSwitcherMenu onClose={() => {}} />)
     fireEvent.change(screen.getByPlaceholderText('Switch workspace…'), {
