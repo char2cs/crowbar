@@ -7,7 +7,7 @@ import { Avatar, AvatarImage, AvatarFallback } from '@/components/ui/avatar'
 import { apiFetch } from '@/lib/api'
 import { useWorkspaceListStore } from '@/lib/store/workspace-list'
 import { useSidebarStore } from '@/lib/store/sidebar'
-import { Lock, GitBranch, Trash2, Upload, Star, Smile } from 'lucide-react'
+import { Lock, Check, Trash2, Upload, Star, Smile } from 'lucide-react'
 import { cn } from '@/lib/utils'
 
 interface BranchEntry {
@@ -242,73 +242,59 @@ export function RepoSettingsPanel({ repoId, repoName }: RepoSettingsPanelProps) 
 
       {/* Branch import section — fills remaining height */}
       <div className="flex min-h-0 flex-1 flex-col gap-2 p-3">
-        <p className="flex-shrink-0 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
-          Import Workspaces
-        </p>
-
         <Input
-          placeholder="Filter branches…"
+          placeholder="Search branches…"
           value={filter}
           onChange={(e) => setFilter(e.target.value)}
           className="h-7 flex-shrink-0 text-xs"
         />
 
-        {/* Scrollable branch list fills remaining space */}
+        {/* Flat branch list — protected first, then selectable */}
         <ScrollArea className="min-h-0 flex-1">
-          <div className="flex flex-col gap-0.5">
-            {visible.some((b) => b.isProtected) && (
-              <>
-                <p className="mb-1 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
-                  Protected — auto-imported
-                </p>
-                {visible.filter((b) => b.isProtected).map((b) => (
-                  <label
+          <div className="flex flex-col">
+            {[
+              ...visible.filter((b) => b.isProtected),
+              ...visible.filter((b) => !b.isProtected),
+            ].map((b) => {
+              if (b.isProtected) {
+                return (
+                  <div
                     key={b.name}
-                    className="flex cursor-default items-center gap-2 rounded px-2 py-1.5 text-xs opacity-60"
+                    className="flex items-center gap-2 px-1 py-1.5 opacity-40"
                   >
-                    <Checkbox checked={true} disabled={true} ariaLabel={b.name} />
-                    <Lock className="size-3 shrink-0 text-muted-foreground" />
-                    <span className="min-w-0 flex-1 truncate font-mono">{b.name}</span>
-                  </label>
-                ))}
-              </>
-            )}
-
-            {visible.some((b) => !b.isProtected) && (
-              <>
-                <p className="mb-1 mt-3 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
-                  Other branches
-                </p>
-                {visible.filter((b) => !b.isProtected).map((b) => (
-                  <label
+                    <Lock className="size-3 shrink-0" />
+                    <span className="min-w-0 flex-1 truncate font-mono text-xs">{b.name}</span>
+                  </div>
+                )
+              }
+              if (b.hasWorkspace) {
+                return (
+                  <div
                     key={b.name}
-                    className={cn(
-                      'flex items-center gap-2 rounded px-2 py-1.5 text-xs hover:bg-accent',
-                      b.hasWorkspace ? 'cursor-default opacity-60' : 'cursor-pointer',
-                    )}
+                    className="flex items-center gap-2 px-1 py-1.5 opacity-40"
                   >
-                    {!b.hasWorkspace ? (
-                      <Checkbox
-                        checked={selected.has(b.name)}
-                        onChange={() => toggleBranch(b.name)}
-                        ariaLabel={b.name}
-                      />
-                    ) : (
-                      <Checkbox checked={true} disabled={true} ariaLabel={b.name} />
-                    )}
-                    <GitBranch className="size-3 shrink-0 text-muted-foreground" />
-                    <span className="min-w-0 flex-1 truncate font-mono">{b.name}</span>
-                    {b.hasWorkspace && (
-                      <span className="shrink-0 text-[10px] text-green-500">imported</span>
-                    )}
-                  </label>
-                ))}
-              </>
-            )}
+                    <Check className="size-3 shrink-0 text-green-500" />
+                    <span className="min-w-0 flex-1 truncate font-mono text-xs">{b.name}</span>
+                  </div>
+                )
+              }
+              return (
+                <label
+                  key={b.name}
+                  className="flex cursor-pointer items-center gap-2 rounded px-1 py-1.5 text-xs hover:bg-accent/60"
+                >
+                  <Checkbox
+                    checked={selected.has(b.name)}
+                    onChange={() => toggleBranch(b.name)}
+                    ariaLabel={b.name}
+                  />
+                  <span className="min-w-0 flex-1 truncate font-mono">{b.name}</span>
+                </label>
+              )
+            })}
           </div>
         </ScrollArea>
 
-        {/* Import button pinned at bottom */}
         <Button
           size="sm"
           className="flex-shrink-0"
