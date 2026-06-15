@@ -1,3 +1,4 @@
+import { useMemo } from 'react'
 import { useNavigate, useRouterState } from '@tanstack/react-router'
 import { Check } from '@phosphor-icons/react'
 import { ArrowDownIcon, ArrowUpIcon, CornerDownLeftIcon } from 'lucide-react'
@@ -35,7 +36,12 @@ export function WorkspaceSwitcherMenu({ onClose }: WorkspaceSwitcherMenuProps) {
   const repos = useSidebarStore((s) => s.repos)
 
   const activeWorkspaceId = pathname.match(/\/workspaces\/([^/]+)/)?.[1]
-  const items = flattenWorkspaces(repos, activeWorkspaceId)
+  // Stable item identities across renders — base-ui tracks keyboard navigation
+  // against item references, so recreating them each render makes the highlight jump.
+  const items = useMemo(
+    () => flattenWorkspaces(repos, activeWorkspaceId),
+    [repos, activeWorkspaceId],
+  )
 
   function select(wsId: string) {
     void navigate({ to: '/workspaces/$wsId', params: { wsId } })
