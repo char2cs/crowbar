@@ -13,7 +13,7 @@ export function NavStack({ children }: NavStackProps) {
   const hasScreen = stack.length > 0
 
   return (
-    <div className="relative flex flex-1 flex-col overflow-hidden">
+    <div className="relative flex h-full flex-col overflow-hidden">
       {/* Root layer — always mounted, pushed back when a screen is active */}
       <div
         className={cn(

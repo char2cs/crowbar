@@ -19,6 +19,7 @@ import { useUIState } from '@/features/window/stores/ui-state-store'
 import { FontStyleInjector } from '@/features/settings/components/font-style-injector'
 import { Toaster } from '@/components/ui/sonner'
 import { ConnectionIndicator } from './connection-indicator'
+import { NavStack } from './nav-stack'
 
 const SIDEBAR_MIN_PX = 250
 const SIDEBAR_MAX_PX = 640
@@ -90,16 +91,18 @@ export function IDEShell() {
   }
 
   const sidebarContent = (
-    <div className="flex h-full flex-col overflow-hidden bg-transparent select-none">
-      <SidebarProjectHeader
-        onProjectsClick={() => void navigate({ to: '/projects' })}
-        onProjectSelect={() => void navigate({ to: '/' })}
-      />
-      <SidebarTabBar />
-      <ErrorBoundary>
-        <SidebarCarousel activeWorkspaceRepoPath={activeWorkspaceRepoPath} />
-      </ErrorBoundary>
-    </div>
+    <NavStack>
+      <div className="flex h-full flex-col overflow-hidden bg-transparent select-none">
+        <SidebarProjectHeader
+          onProjectsClick={() => void navigate({ to: '/projects' })}
+          onProjectSelect={() => void navigate({ to: '/' })}
+        />
+        <SidebarTabBar />
+        <ErrorBoundary>
+          <SidebarCarousel activeWorkspaceRepoPath={activeWorkspaceRepoPath} />
+        </ErrorBoundary>
+      </div>
+    </NavStack>
   )
 
   const contentEl = (
