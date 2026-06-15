@@ -140,124 +140,121 @@ export function RepoSettingsPanel({ repoId, repoName }: RepoSettingsPanelProps) 
   const avatarSrc = !isEmoji && repo?.avatarURL ? repo.avatarURL : undefined
 
   return (
-    <ScrollArea className="h-full flex-1">
-      <div className="flex flex-col gap-5 p-3">
+    <div className="flex h-full flex-col">
 
-        {/* Icon section */}
-        <div className="flex flex-col gap-3">
-          <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
-            Icon
-          </p>
+      {/* Icon section — fixed at top */}
+      <div className="flex-shrink-0 border-b border-border p-3 flex flex-col gap-3">
+        <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
+          Icon
+        </p>
 
-          {/* Avatar preview */}
-          <div className="flex justify-center">
-            <Avatar className="size-14 rounded-xl text-base">
-              {isEmoji ? (
-                <AvatarFallback className="rounded-xl bg-transparent text-2xl">
-                  {repo!.avatarURL!.slice(6)}
-                </AvatarFallback>
-              ) : avatarSrc ? (
-                <AvatarImage src={avatarSrc} alt={repoName} />
-              ) : (
-                <AvatarFallback className={cn('rounded-xl text-sm font-bold text-primary-foreground', repo?.avatarColor)}>
-                  {repo?.avatarLabel}
-                </AvatarFallback>
-              )}
-            </Avatar>
-          </div>
-
-          {/* Action buttons */}
-          <div className="flex gap-1.5">
-            <input
-              ref={fileRef}
-              type="file"
-              accept="image/png,image/jpeg,image/webp"
-              className="hidden"
-              onChange={handleFileChange}
-            />
-            <Button
-              variant="outline"
-              size="sm"
-              disabled={iconLoading}
-              onClick={() => { setShowEmojiInput(false); fileRef.current?.click() }}
-              className="h-7 flex-1 gap-1.5 text-[11px]"
-            >
-              <Upload className="size-3" />
-              Upload
-            </Button>
-            <Button
-              variant={showEmojiInput ? 'secondary' : 'outline'}
-              size="sm"
-              disabled={iconLoading}
-              onClick={() => setShowEmojiInput((v) => !v)}
-              className="h-7 flex-1 gap-1.5 text-[11px]"
-            >
-              <Smile className="size-3" />
-              Emoji
-            </Button>
-            <Button
-              variant="outline"
-              size="sm"
-              disabled={iconLoading}
-              onClick={() => { setShowEmojiInput(false); void handleGithubAvatar() }}
-              className="h-7 flex-1 gap-1.5 text-[11px]"
-            >
-              <Star className="size-3" />
-              GitHub
-            </Button>
-          </div>
-
-          {/* Emoji input — shown when Emoji button is toggled */}
-          {showEmojiInput && (
-            <div className="flex gap-1.5">
-              <Input
-                value={emojiInput}
-                onChange={(e) => setEmojiInput(e.target.value)}
-                onKeyDown={(e) => { if (e.key === 'Enter') void handleEmojiSubmit() }}
-                placeholder="Type an emoji…"
-                maxLength={4}
-                className="h-7 flex-1 text-center text-base"
-                autoFocus
-              />
-              <Button
-                size="sm"
-                className="h-7"
-                disabled={!emojiInput.trim() || iconLoading}
-                onClick={() => void handleEmojiSubmit()}
-              >
-                Set
-              </Button>
-            </div>
-          )}
-
-          {/* Reset — only shown when a custom icon is set */}
-          {repo?.avatarURL && (
-            <Button
-              variant="ghost"
-              size="sm"
-              disabled={iconLoading}
-              onClick={() => void handleResetIcon()}
-              className="h-7 text-[11px] text-muted-foreground hover:text-destructive"
-            >
-              <Trash2 className="mr-1.5 size-3" />
-              Reset to default
-            </Button>
-          )}
+        <div className="flex justify-center">
+          <Avatar className="size-14 rounded-xl text-base">
+            {isEmoji ? (
+              <AvatarFallback className="rounded-xl bg-transparent text-2xl">
+                {repo!.avatarURL!.slice(6)}
+              </AvatarFallback>
+            ) : avatarSrc ? (
+              <AvatarImage src={avatarSrc} alt={repoName} />
+            ) : (
+              <AvatarFallback className={cn('rounded-xl text-sm font-bold text-primary-foreground', repo?.avatarColor)}>
+                {repo?.avatarLabel}
+              </AvatarFallback>
+            )}
+          </Avatar>
         </div>
 
-        {/* Branch import section */}
-        <div className="flex flex-col gap-2">
-          <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
-            Import Workspaces
-          </p>
-
-          <Input
-            placeholder="Filter branches…"
-            value={filter}
-            onChange={(e) => setFilter(e.target.value)}
-            className="h-7 text-xs"
+        <div className="flex gap-1.5">
+          <input
+            ref={fileRef}
+            type="file"
+            accept="image/png,image/jpeg,image/webp"
+            className="hidden"
+            onChange={handleFileChange}
           />
+          <Button
+            variant="outline"
+            size="sm"
+            disabled={iconLoading}
+            onClick={() => { setShowEmojiInput(false); fileRef.current?.click() }}
+            className="h-7 flex-1 gap-1.5 text-[11px]"
+          >
+            <Upload className="size-3" />
+            Upload
+          </Button>
+          <Button
+            variant={showEmojiInput ? 'secondary' : 'outline'}
+            size="sm"
+            disabled={iconLoading}
+            onClick={() => setShowEmojiInput((v) => !v)}
+            className="h-7 flex-1 gap-1.5 text-[11px]"
+          >
+            <Smile className="size-3" />
+            Emoji
+          </Button>
+          <Button
+            variant="outline"
+            size="sm"
+            disabled={iconLoading}
+            onClick={() => { setShowEmojiInput(false); void handleGithubAvatar() }}
+            className="h-7 flex-1 gap-1.5 text-[11px]"
+          >
+            <Star className="size-3" />
+            GitHub
+          </Button>
+        </div>
 
+        {showEmojiInput && (
+          <div className="flex gap-1.5">
+            <Input
+              value={emojiInput}
+              onChange={(e) => setEmojiInput(e.target.value)}
+              onKeyDown={(e) => { if (e.key === 'Enter') void handleEmojiSubmit() }}
+              placeholder="Type an emoji…"
+              maxLength={4}
+              className="h-7 flex-1 text-center text-base"
+              autoFocus
+            />
+            <Button
+              size="sm"
+              className="h-7"
+              disabled={!emojiInput.trim() || iconLoading}
+              onClick={() => void handleEmojiSubmit()}
+            >
+              Set
+            </Button>
+          </div>
+        )}
+
+        {repo?.avatarURL && (
+          <Button
+            variant="ghost"
+            size="sm"
+            disabled={iconLoading}
+            onClick={() => void handleResetIcon()}
+            className="h-7 text-[11px] text-muted-foreground hover:text-destructive"
+          >
+            <Trash2 className="mr-1.5 size-3" />
+            Reset to default
+          </Button>
+        )}
+      </div>
+
+      {/* Branch import section — fills remaining height */}
+      <div className="flex min-h-0 flex-1 flex-col gap-2 p-3">
+        <p className="flex-shrink-0 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
+          Import Workspaces
+        </p>
+
+        <Input
+          placeholder="Filter branches…"
+          value={filter}
+          onChange={(e) => setFilter(e.target.value)}
+          className="h-7 flex-shrink-0 text-xs"
+        />
+
+        {/* Scrollable branch list fills remaining space */}
+        <ScrollArea className="min-h-0 flex-1">
           <div className="flex flex-col gap-0.5">
             {visible.some((b) => b.isProtected) && (
               <>
@@ -309,21 +306,23 @@ export function RepoSettingsPanel({ repoId, repoName }: RepoSettingsPanelProps) 
               </>
             )}
           </div>
+        </ScrollArea>
 
-          <Button
-            size="sm"
-            disabled={selected.size === 0 || importing}
-            onClick={handleImport}
-          >
-            {importing
-              ? 'Importing…'
-              : importable > 0
-              ? `Import ${importable} branch${importable > 1 ? 'es' : ''}`
-              : 'Import'}
-          </Button>
-        </div>
-
+        {/* Import button pinned at bottom */}
+        <Button
+          size="sm"
+          className="flex-shrink-0"
+          disabled={selected.size === 0 || importing}
+          onClick={handleImport}
+        >
+          {importing
+            ? 'Importing…'
+            : importable > 0
+            ? `Import ${importable} branch${importable > 1 ? 'es' : ''}`
+            : 'Import'}
+        </Button>
       </div>
-    </ScrollArea>
+
+    </div>
   )
 }

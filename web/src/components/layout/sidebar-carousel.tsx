@@ -82,7 +82,7 @@ export function SidebarCarousel({ activeWorkspaceRepoPath }: SidebarCarouselProp
       className="flex flex-1 overflow-x-scroll overflow-y-hidden [scroll-snap-type:x_mandatory] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
     >
       {/* Workspaces panel */}
-      <div className="min-w-full [scroll-snap-align:start] flex flex-col overflow-hidden">
+      <div className="min-w-full [scroll-snap-align:start] flex flex-col overflow-hidden h-full">
         <NavStack>
           <WorkspaceTree />
         </NavStack>
