@@ -27,14 +27,14 @@ export function ContextPill() {
         variant="ghost"
         aria-label="Show workspaces"
         onClick={() => useSidebarStore.getState().setActiveTab('workspaces')}
-        className="h-8 w-full justify-start gap-2 rounded-[10px] bg-foreground/4 px-3 text-[13px] font-normal hover:bg-foreground/8"
+        className="h-8 w-full justify-start gap-2 rounded-[10px] bg-foreground/4 px-3 font-mono text-[13px] font-normal hover:bg-foreground/8"
       >
         {model.kind === 'workspace' ? (
           <span className="flex min-w-0 items-center gap-2">
             <WorkspaceBranchIcon status={model.status} />
             <span className="truncate">
               <span className="text-muted-foreground">{model.repoName}</span>
-              <span className="text-muted-foreground">/</span>
+              <span className="text-muted-foreground">{' / '}</span>
               <span className="font-semibold text-foreground">{model.branchName}</span>
             </span>
           </span>
