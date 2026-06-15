@@ -28,6 +28,7 @@ export const defaultSettings: Settings = {
   lineNumbers: true,
   renderWhitespace: 'none',
   renderIndentGuides: true,
+  semanticHighlighting: true,
   highlightOccurrences: true,
   showMinimap: false,
   // Terminal

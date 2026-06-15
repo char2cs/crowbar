@@ -26,6 +26,7 @@ export interface Settings {
   lineNumbers: boolean
   renderWhitespace: RenderWhitespaceMode
   renderIndentGuides: boolean
+  semanticHighlighting: boolean
   highlightOccurrences: boolean
   showMinimap: boolean
   // Terminal
