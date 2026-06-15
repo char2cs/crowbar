@@ -5,6 +5,37 @@ mod terminal;
 
 use tauri::Manager;
 
+// On ProMotion / high-refresh-rate displays, WKWebView defaults to 60fps due to
+// the `PreferPageRenderingUpdatesNear60FPSEnabled` WebKit preference (true by
+// default). Setting it to false via NSUserDefaults *before* any WKWebView is
+// created is the only reliable cross-version approach: the post-creation
+// `_features` API used by tauri-plugin-macos-fps may not be present on all
+// macOS 26 configurations (it is a private API and can disappear between betas).
+//
+// Must be called on the main thread before `tauri::Builder` runs.
+#[cfg(target_os = "macos")]
+unsafe fn disable_webkit_60fps_cap_early() {
+    use objc2::runtime::{AnyClass, AnyObject, Bool};
+    use objc2::msg_send;
+
+    let Some(defaults_cls) = AnyClass::get(c"NSUserDefaults") else { return };
+    let defaults: *mut AnyObject = unsafe { msg_send![defaults_cls, standardUserDefaults] };
+    if defaults.is_null() { return }
+
+    let Some(str_cls) = AnyClass::get(c"NSString") else { return };
+
+    for key in [
+        b"WebKitPreferPageRenderingUpdatesNear60FPSEnabled\0" as &[u8],
+        b"PreferPageRenderingUpdatesNear60FPSEnabled\0",
+    ] {
+        let nskey: *mut AnyObject =
+            unsafe { msg_send![str_cls, stringWithUTF8String: key.as_ptr()] };
+        if nskey.is_null() { continue }
+        let _: () = unsafe { msg_send![defaults, setBool: Bool::new(false), forKey: nskey] };
+    }
+    log::info!("ProMotion: disabled WebKit 60fps cap via NSUserDefaults");
+}
+
 // Injected into the webview at document-start on every page load (including full
 // reloads), before any frontend JS runs. It sets the API base the frontend
 // resolves against (`api.ts` / `ws/url.ts`). Doing this as an init script rather
@@ -28,6 +59,12 @@ const CROWBAR_BOOTSTRAP: &str = r#"
 "#;
 
 pub fn run() {
+    // Belt + suspenders: NSUserDefaults before WKWebView creation (this call) plus
+    // the plugin's post-creation _features toggle. Either alone can fail on new
+    // macOS versions; both together are reliable across macOS 13–26.
+    #[cfg(target_os = "macos")]
+    unsafe { disable_webkit_60fps_cap_early() }
+
     let mut builder = tauri::Builder::default()
         .plugin(tauri_plugin_macos_fps::init())
         .plugin(tauri_plugin_log::Builder::new().build())
