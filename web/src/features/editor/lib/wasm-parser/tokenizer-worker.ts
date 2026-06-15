@@ -207,24 +207,25 @@ async function handleTokenize(
 
   let tree: Tree | null = null
 
-  if (
-    existing &&
-    existing.languageId === message.languageId &&
-    isSimpleEdit(existing.content, normalizedContent)
-  ) {
-    const edit = calculateEdit(existing.content, normalizedContent)
-    if (edit) {
-      try {
-        const previousTreeCopy = existing.tree.copy()
-        previousTreeCopy.edit(edit)
-        tree = loadedParser.parser.parse(normalizedContent, previousTreeCopy)
-        previousTreeCopy.delete()
-      } catch (error) {
-        logger.warn(
-          'TokenizerWorker',
-          'Incremental worker parse failed, falling back to full',
-          error,
-        )
+  if (existing && existing.languageId === message.languageId) {
+    if (existing.content === normalizedContent) {
+      // Content unchanged — reuse the cached tree without re-parsing.
+      tree = existing.tree
+    } else if (isSimpleEdit(existing.content, normalizedContent)) {
+      const edit = calculateEdit(existing.content, normalizedContent)
+      if (edit) {
+        try {
+          const previousTreeCopy = existing.tree.copy()
+          previousTreeCopy.edit(edit)
+          tree = loadedParser.parser.parse(normalizedContent, previousTreeCopy)
+          previousTreeCopy.delete()
+        } catch (error) {
+          logger.warn(
+            'TokenizerWorker',
+            'Incremental worker parse failed, falling back to full',
+            error,
+          )
+        }
       }
     }
   }

@@ -40,6 +40,8 @@ void initializeSettingsStore()
 initTreeCacheSubscription()
 initViewStoreSubscription()
 
+// Native window blur is applied on the Rust side via window-vibrancy (see lib.rs).
+
 const router = createRouter({ routeTree, history: createHashHistory() })
 
 function renderApp() {

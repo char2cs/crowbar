@@ -63,12 +63,24 @@ export function heuristicTokensFromLineTokens(
 ): HighlightToken[] {
   const startRow = opts.emitStartRow ?? 0
   const endRow = opts.emitEndRow ?? Number.MAX_SAFE_INTEGER
-  const out: HighlightToken[] = []
   const lines = text.split('\n')
+  return heuristicTokensInRange(lineTokens, startRow, Math.min(endRow, lines.length - 1), (row) => lines[row] ?? '')
+}
 
-  for (let row = 0; row < lines.length; row++) {
-    if (row < startRow || row > endRow) continue
-    const line = lines[row]
+/**
+ * Range-scoped variant: processes only [startRow, endRow] using a per-row
+ * getter. Avoids full-file getValue()+split on every viewport scroll.
+ */
+export function heuristicTokensInRange(
+  lineTokens: LineToken[][],
+  startRow: number,
+  endRow: number,
+  getLine: (row: number) => string,
+): HighlightToken[] {
+  const out: HighlightToken[] = []
+
+  for (let row = startRow; row <= endRow && row < lineTokens.length; row++) {
+    const line = getLine(row)
     const toks = lineTokens[row] ?? []
 
     // Mark columns covered by skippable scopes (comments/strings/keywords/…).

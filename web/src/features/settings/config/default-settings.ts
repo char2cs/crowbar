@@ -29,7 +29,7 @@ export const defaultSettings: Settings = {
   renderWhitespace: 'none',
   renderIndentGuides: true,
   semanticHighlighting: true,
-  highlightOccurrences: true,
+  highlightOccurrences: false,
   showMinimap: false,
   // Terminal
   terminalFontFamily: DEFAULT_MONO_FONT_FAMILY,

@@ -606,7 +606,7 @@ export function usePaneEditorSatellites(
       },
       'semanticHighlighting.enabled': semanticHighlighting,
       occurrencesHighlight: highlightOccurrences ? 'singleFile' : 'off',
-      selectionHighlight: highlightOccurrences,
+      selectionHighlight: true,
       quickSuggestions: autoCompletion,
       suggestOnTriggerCharacters: autoCompletion,
       parameterHints: { enabled: parameterHints },

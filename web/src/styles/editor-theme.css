@@ -25,3 +25,4 @@ html[data-pane-resizing] .monaco-editor {
   will-change: transform;
   transform: translateZ(0);
 }
+

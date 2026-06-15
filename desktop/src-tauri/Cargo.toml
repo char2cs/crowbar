@@ -23,6 +23,8 @@ tokio = { version = "1", features = ["full"] }
 hyper = { version = "1", features = ["full"] }
 hyper-util = { version = "0.1", features = ["full"] }
 http-body-util = "0.1"
+tokio-tungstenite = "0.24"
+futures-util = "0.3"
 bytes = "1"
 log = "0.4"
 thiserror = "2"
@@ -34,6 +36,7 @@ tauri-plugin-mcp-bridge = "0.11"
 
 [target."cfg(target_os = \"macos\")".dependencies]
 cocoa = "0.26"
+objc2 = "0.6"
 
 [profile.release]
 panic = "abort"

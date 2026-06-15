@@ -35,7 +35,7 @@ export const EDITOR_CREATE_OPTIONS: monacoEditor.IStandaloneEditorConstructionOp
     detectIndentation: false,
     minimap: { enabled: false },
     scrollBeyondLastLine: false,
-    occurrencesHighlight: 'singleFile',
+    occurrencesHighlight: 'off',
     selectionHighlight: true,
     quickSuggestions: true,
     suggestOnTriggerCharacters: true,

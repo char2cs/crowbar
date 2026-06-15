@@ -1,5 +1,7 @@
 // Crowbar system operations backed by the Go daemon's /v0 API.
 
+import { Channel } from '@tauri-apps/api/core'
+
 import { apiFetch } from '@/lib/api'
 import { wsUrl } from '@/lib/ws/url'
 
@@ -7,6 +9,12 @@ import { wsUrl } from '@/lib/ws/url'
 // Each session is a WebSocket to the daemon's PTY handler. The wire protocol is
 // JSON: server→client {sessionId, data}; client→server {data} for input and
 // {type:'resize', cols, rows} for SIGWINCH.
+//
+// On the desktop app the browser WebSocket API can't reach the daemon (its only
+// endpoint is the `crowbar://` unix-socket proxy, and `new WebSocket` rejects
+// every scheme but ws/wss). There, Rust is the WebSocket client and bridges the
+// PTY to the webview over a Tauri Channel — see the `isTauri()` branches below
+// and desktop/src-tauri/src/terminal.rs. Both paths honour the same contract.
 
 interface TerminalConnection {
   ws: WebSocket
@@ -17,6 +25,15 @@ interface TerminalConnection {
 }
 
 const terminals = new Map<string, TerminalConnection>()
+
+// Desktop transport: output arrives over a Tauri Channel instead of a WebSocket.
+// Same buffer-until-listener semantics as the browser TerminalConnection.
+interface TauriTerminal {
+  listener: ((data: string) => void) | null
+  outputBuffer: string[]
+}
+
+const tauriTerminals = new Map<string, TauriTerminal>()
 
 // Create a PTY session in the workspace and open its stream. Returns the
 // sessionId, which the terminal hooks use as the connection id.
@@ -29,6 +46,20 @@ export async function terminalCreate(wsId: string, profileId?: string): Promise<
       body: JSON.stringify(profileId ? { profileId } : {}),
     },
   )
+
+  // Desktop: hand a Channel to Rust, which opens the WS over the unix socket and
+  // pumps PTY output back through it.
+  if (isTauri()) {
+    const conn: TauriTerminal = { listener: null, outputBuffer: [] }
+    const channel = new Channel<string>()
+    channel.onmessage = (data) => {
+      if (conn.listener) conn.listener(data)
+      else conn.outputBuffer.push(data)
+    }
+    tauriTerminals.set(sessionId, conn)
+    await tauriInvoke('terminal_open', { sessionId, onData: channel })
+    return sessionId
+  }
 
   const ws = new WebSocket(wsUrl(`/v0/ws/terminals/${encodeURIComponent(sessionId)}`))
   const conn: TerminalConnection = {
@@ -61,6 +92,10 @@ export async function terminalCreate(wsId: string, profileId?: string): Promise<
 }
 
 export async function terminalWrite(id: string, data: string): Promise<void> {
+  if (isTauri()) {
+    if (tauriTerminals.has(id)) await tauriInvoke('terminal_send', { sessionId: id, data })
+    return
+  }
   const conn = terminals.get(id)
   if (!conn) return
   if (conn.open) conn.ws.send(JSON.stringify({ data }))
@@ -68,11 +103,20 @@ export async function terminalWrite(id: string, data: string): Promise<void> {
 }
 
 export async function terminalResize(id: string, rows: number, cols: number): Promise<void> {
+  if (isTauri()) {
+    if (tauriTerminals.has(id)) await tauriInvoke('terminal_resize', { sessionId: id, rows, cols })
+    return
+  }
   const conn = terminals.get(id)
   if (conn?.open) conn.ws.send(JSON.stringify({ type: 'resize', cols, rows }))
 }
 
 export async function terminalClose(id: string): Promise<void> {
+  if (isTauri()) {
+    if (tauriTerminals.delete(id)) await tauriInvoke('terminal_close', { sessionId: id })
+    await apiFetch(`/v0/terminals/${encodeURIComponent(id)}`, { method: 'DELETE' }).catch(() => {})
+    return
+  }
   const conn = terminals.get(id)
   if (conn) {
     conn.ws.close()
@@ -84,6 +128,18 @@ export async function terminalClose(id: string): Promise<void> {
 // Register the output sink for a session, flushing any frames that arrived
 // before the listener attached (e.g. the shell's first prompt).
 export function terminalListen(id: string, onData: (data: string) => void): () => void {
+  if (isTauri()) {
+    const conn = tauriTerminals.get(id)
+    if (!conn) return () => {}
+    conn.listener = onData
+    if (conn.outputBuffer.length > 0) {
+      for (const chunk of conn.outputBuffer) onData(chunk)
+      conn.outputBuffer = []
+    }
+    return () => {
+      if (conn.listener === onData) conn.listener = null
+    }
+  }
   const conn = terminals.get(id)
   if (!conn) return () => {}
   conn.listener = onData
