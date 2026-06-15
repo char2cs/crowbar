@@ -24,7 +24,7 @@ export const SEMANTIC_TOKEN_TYPES = [
 export type SemanticTokenType = (typeof SEMANTIC_TOKEN_TYPES)[number]
 
 export const SEMANTIC_TOKEN_LEGEND = {
-  tokenTypes: SEMANTIC_TOKEN_TYPES as unknown as string[],
+  tokenTypes: [...SEMANTIC_TOKEN_TYPES] as string[],
   tokenModifiers: [] as string[],
 }
 
@@ -46,6 +46,9 @@ export function captureToTypeIndex(capture: string): number {
  * each relative to the previously emitted token. Monaco tokens are per-line, so a
  * token spanning rows is split into one entry per covered line.
  * `getLineLength(row)` = length (excl. EOL) of the 0-based row.
+ * @remarks Tokens MUST be ordered by position and non-overlapping (as the
+ * tokenizer worker produces them); unsorted/overlapping input yields negative
+ * deltas that corrupt the encoding.
  */
 export function encodeTokens(
   tokens: HighlightToken[],

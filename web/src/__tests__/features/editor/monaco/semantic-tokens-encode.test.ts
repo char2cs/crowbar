@@ -93,4 +93,16 @@ describe('encodeTokens', () => {
     )
     expect(data.length).toBe(0)
   })
+
+  it('deltas a following token off the last segment of a multi-line token', () => {
+    const lens = [10, 6, 20]
+    // block comment lines 0..2, then a function token on line 2 after col 4
+    const data = encodeTokens(
+      [tok('comment.block', 0, 3, 2, 4), tok('function.call', 2, 8, 2, 12)],
+      (row) => lens[row],
+    )
+    // last comment segment emitted at (line2, char0); the function is line2 char8
+    // => deltaLine 0, deltaChar 8-0=8, len 4
+    expect(Array.from(data).slice(-5)).toEqual([0, 8, 4, fIdx, 0])
+  })
 })
