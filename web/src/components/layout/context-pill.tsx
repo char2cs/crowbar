@@ -53,7 +53,7 @@ export function ContextPill() {
             <span className="truncate text-[13px] text-foreground">{model.projectName}</span>
           )}
         </CommandDialogTrigger>
-        <CommandDialogPopup>
+        <CommandDialogPopup backdropClassName="backdrop-blur-xs">
           <WorkspaceSwitcherMenu onClose={() => setOpen(false)} />
         </CommandDialogPopup>
       </CommandDialog>

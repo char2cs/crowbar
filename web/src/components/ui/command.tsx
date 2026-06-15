@@ -66,13 +66,16 @@ export function CommandDialogPopup({
   className,
   children,
   portalProps,
+  backdropClassName,
   ...props
 }: CommandDialogPrimitive.Popup.Props & {
   portalProps?: CommandDialogPrimitive.Portal.Props
+  /** Override classes on the dialog backdrop (e.g. a lighter blur). */
+  backdropClassName?: string
 }): React.ReactElement {
   return (
     <CommandDialogPortal {...portalProps}>
-      <CommandDialogBackdrop />
+      <CommandDialogBackdrop className={backdropClassName} />
       <CommandDialogViewport>
         <CommandDialogPrimitive.Popup
           className={cn(
