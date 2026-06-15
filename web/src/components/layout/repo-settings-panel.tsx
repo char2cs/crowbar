@@ -167,7 +167,7 @@ export function RepoSettingsPanel({ repoId, repoName }: RepoSettingsPanelProps) 
           </div>
 
           {/* Action buttons */}
-          <div className="grid grid-cols-3 gap-1.5">
+          <div className="flex gap-1.5">
             <input
               ref={fileRef}
               type="file"
@@ -180,9 +180,9 @@ export function RepoSettingsPanel({ repoId, repoName }: RepoSettingsPanelProps) 
               size="sm"
               disabled={iconLoading}
               onClick={() => { setShowEmojiInput(false); fileRef.current?.click() }}
-              className="flex flex-col gap-1 h-auto py-2 text-[10px]"
+              className="h-7 flex-1 gap-1.5 text-[11px]"
             >
-              <Upload className="size-3.5" />
+              <Upload className="size-3" />
               Upload
             </Button>
             <Button
@@ -190,9 +190,9 @@ export function RepoSettingsPanel({ repoId, repoName }: RepoSettingsPanelProps) 
               size="sm"
               disabled={iconLoading}
               onClick={() => setShowEmojiInput((v) => !v)}
-              className="flex flex-col gap-1 h-auto py-2 text-[10px]"
+              className="h-7 flex-1 gap-1.5 text-[11px]"
             >
-              <Smile className="size-3.5" />
+              <Smile className="size-3" />
               Emoji
             </Button>
             <Button
@@ -200,9 +200,9 @@ export function RepoSettingsPanel({ repoId, repoName }: RepoSettingsPanelProps) 
               size="sm"
               disabled={iconLoading}
               onClick={() => { setShowEmojiInput(false); void handleGithubAvatar() }}
-              className="flex flex-col gap-1 h-auto py-2 text-[10px]"
+              className="h-7 flex-1 gap-1.5 text-[11px]"
             >
-              <Star className="size-3.5" />
+              <Star className="size-3" />
               GitHub
             </Button>
           </div>

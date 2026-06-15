@@ -18,7 +18,7 @@ export function NavStack({ children }: NavStackProps) {
       <div
         className={cn(
           'absolute inset-0 flex flex-col transition-[transform,opacity] duration-[280ms] ease-[cubic-bezier(0.4,0,0.2,1)]',
-          hasScreen ? '-translate-x-1/4 opacity-40 pointer-events-none' : 'translate-x-0 opacity-100',
+          hasScreen ? '-translate-x-1/4 opacity-0 pointer-events-none' : 'translate-x-0 opacity-100',
         )}
       >
         {children}
