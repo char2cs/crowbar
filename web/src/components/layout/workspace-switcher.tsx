@@ -50,7 +50,7 @@ export function WorkspaceSwitcherMenu({ onClose }: WorkspaceSwitcherMenuProps) {
 
   return (
     <Command
-      className="flex min-h-0 w-full flex-1 flex-col"
+      className="ui-font flex min-h-0 w-full flex-1 flex-col"
       items={items}
       itemToStringValue={(item) => {
         const ws = item as WorkspaceSwitcherItem
@@ -65,7 +65,7 @@ export function WorkspaceSwitcherMenu({ onClose }: WorkspaceSwitcherMenuProps) {
           {(item: WorkspaceSwitcherItem) => (
             <CommandItem
               key={item.wsId}
-              className="flex items-center gap-2 font-mono"
+              className="flex items-center gap-2 font-editor"
               onClick={() => select(item.wsId)}
               value={item}
             >
