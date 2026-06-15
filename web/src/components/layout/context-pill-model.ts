@@ -24,11 +24,13 @@ export function deriveContextPillModel({
   activeProjectId,
 }: DeriveArgs): ContextPillModel {
   if (activeWorkspaceId) {
-    const repo = repos.find((r) => r.workspaces?.some((ws) => ws.id === activeWorkspaceId))
+    const repo = repos.find((r) => r.workspaces.some((ws) => ws.id === activeWorkspaceId))
     const workspace = repo?.workspaces.find((ws) => ws.id === activeWorkspaceId)
     if (repo && workspace) {
       return {
         kind: 'workspace',
+        // A statusless workspace is freshly created — matches the 'new' default
+        // applied on workspace creation in sidebar.ts.
         status: workspace.status ?? 'new',
         repoName: repo.name,
         branchName: workspace.branch,
