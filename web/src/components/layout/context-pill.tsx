@@ -27,7 +27,7 @@ export function ContextPill() {
         variant="ghost"
         aria-label="Show workspaces"
         onClick={() => useSidebarStore.getState().setActiveTab('workspaces')}
-        className="h-auto w-full justify-start gap-2 rounded-[10px] bg-foreground/4 px-3 py-1.5 font-mono font-normal hover:bg-foreground/8"
+        className="h-auto w-full justify-start gap-2.5 rounded-[10px] bg-foreground/4 px-3.5 py-2.5 font-mono font-normal hover:bg-foreground/8"
       >
         {model.kind === 'workspace' ? (
           <span className="flex min-w-0 items-center gap-2">
