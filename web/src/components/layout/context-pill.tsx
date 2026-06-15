@@ -31,7 +31,9 @@ export function ContextPill() {
       >
         {model.kind === 'workspace' ? (
           <span className="flex min-w-0 items-center gap-2">
-            <WorkspaceBranchIcon status={model.status} />
+            <span className="flex shrink-0 scale-110">
+              <WorkspaceBranchIcon status={model.status} />
+            </span>
             <span className="flex min-w-0 flex-col items-start gap-0.5 text-left leading-tight">
               <span className="truncate text-xs text-muted-foreground">{model.repoName}</span>
               <span className="truncate text-[13px] font-semibold text-foreground">
