@@ -39,3 +39,49 @@ export function captureToTypeIndex(capture: string): number {
   const idx = TYPE_INDEX[category]
   return idx === undefined ? -1 : idx
 }
+
+/**
+ * Encode highlight tokens to Monaco's semantic-tokens Uint32Array:
+ * 5 ints/token [deltaLine, deltaStartChar, length, typeIndex, modifierSet=0],
+ * each relative to the previously emitted token. Monaco tokens are per-line, so a
+ * token spanning rows is split into one entry per covered line.
+ * `getLineLength(row)` = length (excl. EOL) of the 0-based row.
+ */
+export function encodeTokens(
+  tokens: HighlightToken[],
+  getLineLength: (row: number) => number,
+): Uint32Array {
+  const data: number[] = []
+  let prevLine = 0
+  let prevChar = 0
+
+  const push = (line: number, char: number, length: number, typeIndex: number) => {
+    if (length <= 0) return
+    const deltaLine = line - prevLine
+    const deltaChar = deltaLine === 0 ? char - prevChar : char
+    data.push(deltaLine, deltaChar, length, typeIndex, 0)
+    prevLine = line
+    prevChar = char
+  }
+
+  for (const t of tokens) {
+    const typeIndex = captureToTypeIndex(t.type)
+    if (typeIndex < 0) continue
+
+    const { row: startRow, column: startCol } = t.startPosition
+    const { row: endRow, column: endCol } = t.endPosition
+
+    if (startRow === endRow) {
+      push(startRow, startCol, endCol - startCol, typeIndex)
+      continue
+    }
+
+    push(startRow, startCol, getLineLength(startRow) - startCol, typeIndex)
+    for (let row = startRow + 1; row < endRow; row++) {
+      push(row, 0, getLineLength(row), typeIndex)
+    }
+    push(endRow, 0, endCol, typeIndex)
+  }
+
+  return new Uint32Array(data)
+}
