@@ -77,4 +77,24 @@ describe('treeSitterSemanticTokensProvider', () => {
     expect(r2.data.length).toBe(0)
     expect(tokenizerWorkerClient.tokenize).toHaveBeenCalledOnce()
   })
+
+  it('does not cache the language when a rejected request was cancelled', async () => {
+    ;(getLanguageIdFromPath as any).mockReturnValue('cancellang')
+    ;(tokenizerWorkerClient.tokenize as any).mockRejectedValueOnce(new Error('aborted'))
+    const cancelled = { isCancellationRequested: true } as any
+    const r1 = await treeSitterSemanticTokensProvider.provideDocumentRangeSemanticTokens(
+      model('/a.cancellang'),
+      range,
+      cancelled,
+    )
+    expect(r1!.data.length).toBe(0)
+    // not cached -> a later (non-cancelled) call retries the worker
+    ;(tokenizerWorkerClient.tokenize as any).mockResolvedValueOnce({ tokens: [], normalizedText: 'x' })
+    await treeSitterSemanticTokensProvider.provideDocumentRangeSemanticTokens(
+      model('/b.cancellang'),
+      range,
+      cancel,
+    )
+    expect(tokenizerWorkerClient.tokenize).toHaveBeenCalledTimes(2)
+  })
 })

@@ -10,6 +10,7 @@ import { tokenizerWorkerClient } from '@/features/editor/lib/wasm-parser/tokeniz
 import { getLanguageIdFromPath } from '@/features/editor/utils/language-id'
 import { SEMANTIC_TOKEN_LEGEND, encodeTokens } from './semantic-tokens-encode'
 
+// Shared, reused across calls — safe only because it carries no mutable data.
 const EMPTY: languages.SemanticTokens = { data: new Uint32Array(0) }
 const unsupportedLanguages = new Set<string>()
 
@@ -37,7 +38,12 @@ export const treeSitterSemanticTokensProvider: languages.DocumentRangeSemanticTo
       if (token.isCancellationRequested) return EMPTY
       return { data: encodeTokens(result.tokens, (row) => model.getLineLength(row + 1)) }
     } catch {
-      unsupportedLanguages.add(languageId)
+      // A failure here is almost always a missing grammar (no parser.wasm for
+      // this language); cache it so we don't refetch a 404 on every viewport
+      // scroll. Trade-off: a transient worker failure also disables the language
+      // until reload. Don't poison the cache when the request was merely
+      // cancelled (the worker rejects superseded requests).
+      if (!token.isCancellationRequested) unsupportedLanguages.add(languageId)
       return EMPTY
     }
   },
