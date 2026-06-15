@@ -1,8 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import {
-  flattenWorkspaces,
-  filterWorkspaces,
-} from '@/components/layout/workspace-switcher-model'
+import { flattenWorkspaces } from '@/components/layout/workspace-switcher-model'
 import type { Repo } from '@/lib/store/sidebar'
 
 const repos: Repo[] = [
@@ -49,33 +46,5 @@ describe('flattenWorkspaces', () => {
   it('defaults a missing status to "new"', () => {
     const items = flattenWorkspaces(repos, undefined)
     expect(items.find((i) => i.wsId === 'ws2')?.status).toBe('new')
-  })
-})
-
-describe('filterWorkspaces', () => {
-  const items = flattenWorkspaces(repos, 'ws3')
-
-  it('returns all items for an empty/whitespace query', () => {
-    expect(filterWorkspaces(items, '')).toHaveLength(3)
-    expect(filterWorkspaces(items, '   ')).toHaveLength(3)
-  })
-
-  it('matches on branch name', () => {
-    const r = filterWorkspaces(items, 'quiver-shell')
-    expect(r).toHaveLength(1)
-    expect(r[0].wsId).toBe('ws3')
-  })
-
-  it('matches on repo name', () => {
-    const r = filterWorkspaces(items, 'crowbar')
-    expect(r.map((i) => i.wsId)).toEqual(['ws1', 'ws2'])
-  })
-
-  it('is case-insensitive', () => {
-    expect(filterWorkspaces(items, 'DEVELOP')).toHaveLength(1)
-  })
-
-  it('returns empty when nothing matches', () => {
-    expect(filterWorkspaces(items, 'zzzzz')).toEqual([])
   })
 })

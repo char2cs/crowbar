@@ -77,11 +77,9 @@ describe('WorkspaceSwitcherMenu', () => {
     expect(screen.getByText('-5')).toBeInTheDocument()
   })
 
-  it('shows an empty state when nothing matches', () => {
+  it('shows an empty state when there are no workspaces', () => {
+    useSidebarStore.setState({ repos: [] })
     render(<WorkspaceSwitcherMenu onClose={() => {}} />)
-    fireEvent.change(screen.getByPlaceholderText('Switch workspace…'), {
-      target: { value: 'zzzzz' },
-    })
     expect(screen.getByText(/no workspaces/i)).toBeInTheDocument()
   })
 })

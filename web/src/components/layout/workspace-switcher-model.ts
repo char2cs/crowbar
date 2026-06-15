@@ -1,5 +1,4 @@
 import type { Repo, WorkspaceStatus } from '@/lib/store/sidebar'
-import { matchesSearchQuery } from '@/utils/search-match'
 
 export interface WorkspaceSwitcherItem {
   wsId: string
@@ -27,13 +26,4 @@ export function flattenWorkspaces(
       isCurrent: ws.id === activeWorkspaceId,
     })),
   )
-}
-
-/** Filters items by a query against repo name and branch (empty query = all). */
-export function filterWorkspaces(
-  items: WorkspaceSwitcherItem[],
-  query: string,
-): WorkspaceSwitcherItem[] {
-  if (!query.trim()) return items
-  return items.filter((item) => matchesSearchQuery(query, [item.repoName, item.branch]))
 }

@@ -1,11 +1,20 @@
-import { useState } from 'react'
 import { useNavigate, useRouterState } from '@tanstack/react-router'
 import { Check } from '@phosphor-icons/react'
-import { Command, CommandEmpty, CommandInput, CommandItem, CommandList } from '@/components/ui/command'
+import { ArrowDownIcon, ArrowUpIcon, CornerDownLeftIcon } from 'lucide-react'
+import {
+  Command,
+  CommandEmpty,
+  CommandFooter,
+  CommandInput,
+  CommandItem,
+  CommandList,
+  CommandPanel,
+} from '@/components/ui/command'
+import { Kbd, KbdGroup } from '@/components/ui/kbd'
 import { useSidebarStore } from '@/lib/store/sidebar'
 import { WorkspaceBranchIcon } from './workspace-branch-icon'
 import { formatChangeCount } from './format-change-count'
-import { flattenWorkspaces, filterWorkspaces } from './workspace-switcher-model'
+import { flattenWorkspaces, type WorkspaceSwitcherItem } from './workspace-switcher-model'
 
 interface WorkspaceSwitcherMenuProps {
   /** Called after a workspace is selected (host closes the popover). */
@@ -15,15 +24,17 @@ interface WorkspaceSwitcherMenuProps {
 /**
  * Searchable command menu listing every workspace across repos. Selecting one
  * navigates the route only — the sidebar tab/content is never touched.
+ *
+ * Filtering is handled internally by the Command/Autocomplete primitive based on
+ * the typed query, matching against each item's `itemToStringValue` string.
  */
 export function WorkspaceSwitcherMenu({ onClose }: WorkspaceSwitcherMenuProps) {
   const navigate = useNavigate()
   const pathname = useRouterState({ select: (s) => s.location.pathname })
   const repos = useSidebarStore((s) => s.repos)
-  const [query, setQuery] = useState('')
 
   const activeWorkspaceId = pathname.match(/\/workspaces\/([^/]+)/)?.[1]
-  const items = filterWorkspaces(flattenWorkspaces(repos, activeWorkspaceId), query)
+  const items = flattenWorkspaces(repos, activeWorkspaceId)
 
   function select(wsId: string) {
     void navigate({ to: '/workspaces/$wsId', params: { wsId } })
@@ -31,21 +42,24 @@ export function WorkspaceSwitcherMenu({ onClose }: WorkspaceSwitcherMenuProps) {
   }
 
   return (
-    <Command className="w-full">
-      <CommandInput
-        value={query}
-        onChange={(event: React.ChangeEvent<HTMLInputElement>) => setQuery(event.target.value)}
-        placeholder="Switch workspace…"
-      />
-      <CommandList>
-        {items.length === 0 ? (
-          <CommandEmpty>No workspaces found</CommandEmpty>
-        ) : (
-          items.map((item) => (
+    <Command
+      className="w-full"
+      items={items}
+      itemToStringValue={(item) => {
+        const ws = item as WorkspaceSwitcherItem
+        return `${ws.repoName} / ${ws.branch}`
+      }}
+    >
+      <CommandInput placeholder="Switch workspace…" />
+      <CommandPanel>
+        <CommandEmpty>No workspaces found</CommandEmpty>
+        <CommandList>
+          {(item: WorkspaceSwitcherItem) => (
             <CommandItem
               key={item.wsId}
+              className="flex items-center gap-2 font-mono"
               onClick={() => select(item.wsId)}
-              className="flex items-center gap-2 px-3 py-1.5 font-mono"
+              value={item}
             >
               <WorkspaceBranchIcon status={item.status} />
               <span className="min-w-0 flex-1 truncate text-[13px]">
@@ -62,9 +76,34 @@ export function WorkspaceSwitcherMenu({ onClose }: WorkspaceSwitcherMenuProps) {
                 <Check aria-label="current" className="shrink-0 text-muted-foreground" />
               )}
             </CommandItem>
-          ))
-        )}
-      </CommandList>
+          )}
+        </CommandList>
+      </CommandPanel>
+      <CommandFooter>
+        <div className="flex items-center gap-4">
+          <div className="flex items-center gap-2">
+            <KbdGroup>
+              <Kbd>
+                <ArrowUpIcon />
+              </Kbd>
+              <Kbd>
+                <ArrowDownIcon />
+              </Kbd>
+            </KbdGroup>
+            <span>Navigate</span>
+          </div>
+          <div className="flex items-center gap-2">
+            <Kbd>
+              <CornerDownLeftIcon />
+            </Kbd>
+            <span>Open</span>
+          </div>
+        </div>
+        <div className="flex items-center gap-2">
+          <Kbd>Esc</Kbd>
+          <span>Close</span>
+        </div>
+      </CommandFooter>
     </Command>
   )
 }
