@@ -5,6 +5,7 @@ import { ResizableHandle, ResizablePanel, ResizablePanelGroup } from '@/componen
 import type { PanelImperativeHandle, PanelSize } from 'react-resizable-panels'
 import { SidebarProjectHeader } from './sidebar-project-header'
 import { SidebarTabBar } from './sidebar-tab-bar'
+import { ContextPill } from './context-pill'
 import { SidebarCarousel } from './sidebar-carousel'
 import { IS_MAC } from '@/utils/platform'
 import { useSidebarStore } from '@/lib/store/sidebar'
@@ -100,6 +101,7 @@ export function IDEShell() {
           onProjectSelect={() => void navigate({ to: '/' })}
         />
       )}
+      {!hasNavScreen && <ContextPill />}
       {!hasNavScreen && <SidebarTabBar />}
       <ErrorBoundary>
         <SidebarCarousel activeWorkspaceRepoPath={activeWorkspaceRepoPath} />
