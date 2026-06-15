@@ -17,12 +17,12 @@ export function NavStack({ children }: NavStackProps) {
   const isRight = useSettingsStore((s) => s.settings.sidebarPosition === 'right')
 
   return (
-    <div className="relative flex h-full flex-col overflow-hidden">
+    <div className="relative flex min-h-0 flex-1 flex-col overflow-hidden">
       {/* Root layer — normal flow so pointer capture works during workspace drag */}
       <div
         className={cn(
           'flex h-full flex-col transition-[transform,opacity] duration-[280ms] ease-[cubic-bezier(0.4,0,0.2,1)]',
-          hasScreen ? '-translate-x-1/4 opacity-0 pointer-events-none' : 'translate-x-0 opacity-100',
+          hasScreen && '-translate-x-1/4 opacity-0 pointer-events-none',
         )}
       >
         {children}

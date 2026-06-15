@@ -13,7 +13,7 @@ export function WorkspaceBranchIcon({ status }: WorkspaceBranchIconProps) {
   switch (status) {
     case 'locked':
       return (
-        <Lock aria-hidden="true" className="size-4 shrink-0 text-foreground/30" weight="fill" />
+        <Lock aria-hidden="true" className="size-4 shrink-0 text-foreground" weight="fill" />
       )
     case 'new':
       return (

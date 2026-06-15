@@ -19,7 +19,7 @@ import { useUIState } from '@/features/window/stores/ui-state-store'
 import { FontStyleInjector } from '@/features/settings/components/font-style-injector'
 import { Toaster } from '@/components/ui/sonner'
 import { ConnectionIndicator } from './connection-indicator'
-import { NavStack } from './nav-stack'
+import { useSidebarNavStore } from '@/features/layout/stores/sidebar-nav'
 
 const SIDEBAR_MIN_PX = 250
 const SIDEBAR_MAX_PX = 640
@@ -56,6 +56,8 @@ export function IDEShell() {
   const activeWorkspaceRepoPath = activeRepo ? `/repos/${activeRepo.id}` : '/repos/default'
   const chatTabLabel = chats.find((c) => c.id === activeChatId)?.title ?? 'Chat'
 
+  const hasNavScreen = useSidebarNavStore((s) => s.stack.length > 0)
+
   // BUG-003: when landing directly on a workspace route, the header project
   // button showed "Select project" — the active project was never derived from
   // the workspace being viewed. Keep it in sync with the owning repo's project.
@@ -91,18 +93,18 @@ export function IDEShell() {
   }
 
   const sidebarContent = (
-    <NavStack>
-      <div className="flex h-full flex-col overflow-hidden bg-transparent select-none">
+    <div className="flex h-full flex-col overflow-hidden bg-transparent select-none">
+      {!hasNavScreen && (
         <SidebarProjectHeader
           onProjectsClick={() => void navigate({ to: '/projects' })}
           onProjectSelect={() => void navigate({ to: '/' })}
         />
-        <SidebarTabBar />
-        <ErrorBoundary>
-          <SidebarCarousel activeWorkspaceRepoPath={activeWorkspaceRepoPath} />
-        </ErrorBoundary>
-      </div>
-    </NavStack>
+      )}
+      {!hasNavScreen && <SidebarTabBar />}
+      <ErrorBoundary>
+        <SidebarCarousel activeWorkspaceRepoPath={activeWorkspaceRepoPath} />
+      </ErrorBoundary>
+    </div>
   )
 
   const contentEl = (

@@ -51,7 +51,7 @@ export function WorkspaceTreeItem({
   const variant = isActive
     ? 'border-background bg-background text-foreground shadow-xs shadow-black/10 not-disabled:inset-shadow-[0_1px_--theme(--color-white/16%)] active:inset-shadow-[0_1px_--theme(--color-black/8%)] active:shadow-none'
     : isLocked
-      ? 'border-transparent text-foreground/30 hover:bg-accent'
+      ? 'border-transparent text-foreground hover:bg-accent'
       : 'border-transparent text-foreground hover:bg-accent'
 
   return (

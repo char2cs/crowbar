@@ -1,5 +1,6 @@
 import { useEffect, useRef, Suspense } from 'react'
 import { useRouterState } from '@tanstack/react-router'
+import { NavStack } from './nav-stack'
 import { WorkspaceTree } from './workspace-tree'
 import { ChatTree } from './chat-tree'
 import { FileExplorerTree } from '@/features/file-explorer/components/file-explorer-tree'
@@ -74,6 +75,7 @@ export function SidebarCarousel({ activeWorkspaceRepoPath }: SidebarCarouselProp
   }
 
   return (
+    <NavStack>
     <div
       ref={containerRef}
       onScroll={handleScroll}
@@ -122,5 +124,6 @@ export function SidebarCarousel({ activeWorkspaceRepoPath }: SidebarCarouselProp
         <GitPanel />
       </div>
     </div>
+    </NavStack>
   )
 }
