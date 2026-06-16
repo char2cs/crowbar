@@ -1,4 +1,4 @@
-import { renderHook } from '@testing-library/react'
+import { renderHook, act } from '@testing-library/react'
 import { describe, it, expect, beforeEach, vi } from 'vitest'
 
 const routerState = { wsId: 'ws1' }
@@ -56,5 +56,34 @@ describe('useActiveWorkspaceBuffer', () => {
     }
     const { result } = renderHook(() => useActiveWorkspaceBuffer())
     expect(result.current).toBeNull()
+  })
+
+  it('re-renders with the new buffer when the store notifies a change', () => {
+    const { result } = renderHook(() => useActiveWorkspaceBuffer())
+    expect(result.current).toEqual({ id: 'b1', type: 'editor' })
+
+    act(() => {
+      fakeStore.state = {
+        buffers: [{ id: 'b2', type: 'webViewer' }],
+        paneActions: {
+          getActivePane: () => ({ activeBufferId: 'b2' as string | null }),
+        },
+      }
+      fakeStore.listeners.forEach((fn) => fn())
+    })
+
+    expect(result.current).toEqual({ id: 'b2', type: 'webViewer' })
+  })
+
+  it('keeps a stable reference when an unrelated notification fires', () => {
+    const { result } = renderHook(() => useActiveWorkspaceBuffer())
+    const first = result.current
+
+    act(() => {
+      // Same state object/contents → snapshot returns the same buffer reference.
+      fakeStore.listeners.forEach((fn) => fn())
+    })
+
+    expect(result.current).toBe(first)
   })
 })
