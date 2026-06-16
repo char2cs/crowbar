@@ -40,16 +40,18 @@ describe('WebViewer', () => {
     render(<WebViewer url="https://example.com" bufferId="b1" isVisible />)
 
     await act(async () => {
-      window.dispatchEvent(
-        new MessageEvent('message', {
-          data: {
-            type: '__crowbar_browser_nav__',
-            url: 'https://example.com/about',
-            canGoBack: true,
-            canGoForward: false,
-          },
-        }),
-      )
+      const iframe = document.querySelector('iframe')
+      const event = new MessageEvent('message', {
+        data: {
+          type: '__crowbar_browser_nav__',
+          url: 'https://example.com/about',
+          canGoBack: true,
+          canGoForward: false,
+        },
+        // Set source to match the iframe so the handler accepts it
+        source: iframe?.contentWindow ?? null,
+      })
+      window.dispatchEvent(event)
     })
 
     const input = screen.getByPlaceholderText('Enter URL or search…')

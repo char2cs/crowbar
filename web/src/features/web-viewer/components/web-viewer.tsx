@@ -69,6 +69,8 @@ export function WebViewer({
   useEffect(() => {
     function handleMessage(e: MessageEvent) {
       if (!e.data || e.data.type !== '__crowbar_browser_nav__') return
+      // Only accept nav events from our own iframe (e.source is available cross-origin).
+      if (e.source !== iframeRef.current?.contentWindow) return
       const { url, canGoBack, canGoForward } = e.data as {
         url: string
         canGoBack: boolean

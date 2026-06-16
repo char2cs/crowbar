@@ -36,6 +36,12 @@ fn strip_csp_frame_ancestors(csp: &str) -> String {
         .join("; ")
 }
 
+/// Rewrite absolute https:// and http:// hrefs/actions so navigation stays
+/// inside the proxy. Relative URLs resolve correctly on their own.
+///
+/// Known limitation: JS-driven navigations (`window.location = url`, `location.replace()`)
+/// and `<meta http-equiv="refresh">` are not intercepted here — they bypass the proxy.
+/// The injected nav script catches `pushState`/`popstate` but not bare location assignments.
 fn rewrite_links(html: &str) -> String {
     html.replace("href=\"https://", "href=\"crowbar-browser://proxy/https/")
         .replace("href=\"http://",  "href=\"crowbar-browser://proxy/http/")
@@ -48,6 +54,10 @@ fn rewrite_links(html: &str) -> String {
 }
 
 fn inject_nav_script(html: &str) -> String {
+    // Known limitation: sites with `script-src 'nonce-...'` CSP will block this
+    // inline script, disabling back/forward tracking. Adding a nonce would require
+    // parsing the CSP response header and coordinating with the injected HTML —
+    // deferred until navigation tracking is a hard requirement.
     const SCRIPT: &str = r#"<script>
 (function(){
   var _hist=[location.href], _idx=0;
