@@ -5,7 +5,6 @@ import { setActiveWorkspaceStoreRef } from '../stores/workspace-store-ref'
 import { hydrateWorkspace } from '@/lib/persistence/hydrate'
 import { WorkspaceLayoutRoot } from './workspace-layout-root'
 import { useWorkspaceEffects } from '../stores/hooks/use-workspace-effects'
-import { BrowserPaneEventListener } from '@/features/web-viewer/components/browser-pane-event-listener'
 import { useSaveKeyboard } from '@/features/keymaps/hooks/use-save-keyboard'
 import { usePaneKeyboard } from '@/features/panes/hooks/use-pane-keyboard'
 
@@ -61,10 +60,5 @@ function WorkspaceViewInner({ wsId }: Pick<WorkspaceViewProps, 'wsId'>) {
   useWorkspaceEffects(wsId)
   useSaveKeyboard()
   usePaneKeyboard()
-  return (
-    <>
-      <BrowserPaneEventListener />
-      <WorkspaceLayoutRoot />
-    </>
-  )
+  return <WorkspaceLayoutRoot />
 }

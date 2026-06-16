@@ -1,5 +1,4 @@
 mod api_proxy;
-mod browser_pane;
 mod browser_proxy;
 mod sidecar;
 mod terminal;
@@ -188,7 +187,6 @@ pub fn run() {
 
     builder
         .manage(sidecar::SidecarHandle::new())
-        .manage(browser_pane::BrowserPaneManager::new())
         .manage(terminal::TerminalManager::new())
         .setup(|app| {
             let app_handle = app.handle().clone();
@@ -244,13 +242,6 @@ pub fn run() {
             }
         })
         .invoke_handler(tauri::generate_handler![
-            browser_pane::browser_pane_sync,
-            browser_pane::browser_pane_navigate,
-            browser_pane::browser_pane_go_back,
-            browser_pane::browser_pane_go_forward,
-            browser_pane::browser_pane_reload,
-            browser_pane::browser_pane_close,
-            browser_pane::browser_pane_nav_event,
             terminal::terminal_open,
             terminal::terminal_send,
             terminal::terminal_resize,
