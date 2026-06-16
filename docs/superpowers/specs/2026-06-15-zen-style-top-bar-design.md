@@ -49,12 +49,31 @@ the trailing edge, mirrored correctly when the sidebar is on the right.
 
 ## Design
 
+### 0. Cross-provider access (architectural decision)
+
+The sidebar header renders **outside** the per-workspace
+`WorkspaceStoreContext.Provider` (which only wraps `workspace-view.tsx`). The
+existing `useJumpNavigation` depends on that React context, and detecting "is the
+active buffer a webviewer" needs the per-workspace store. The global jump-list
+and webviewer-nav stores are themselves global/reactive. Chosen approach
+(production-ready, contained — no provider lift):
+
+- Add `useActiveWorkspaceBuffer` — reactively reads the active workspace's active
+  buffer via the router `wsId` + the workspace registry (`useSyncExternalStore`),
+  with no React context dependency.
+- Decouple `useJumpNavigation` from React context: replace its `useWorkspaceStore()`
+  call with the registry's `getActiveWorkspaceStore()` accessor (used in the
+  handler). The tab bar is its only current caller and stops using it, so this is
+  safe. Also subscribe to jump-list `entries`/`currentIndex` so `canGoBack`/
+  `canGoForward` stay reactive in the header.
+
 ### 1. New hook: `useActiveWebViewerNavigation`
 
 File: `web/src/features/tabs/hooks/use-active-webviewer-navigation.ts`
 
-Derives jump-nav inputs from the **globally active** pane (the header is a
-single global instance, unlike the per-pane tab bar):
+Derives jump-nav inputs from the **globally active** pane (via
+`useActiveWorkspaceBuffer`; the header is a single global instance, unlike the
+per-pane tab bar):
 
 ```ts
 export function useActiveWebViewerNavigation(): {
