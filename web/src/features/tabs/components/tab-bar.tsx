@@ -478,10 +478,6 @@ const TabBar = ({
                 setActivePane(paneId)
                 openContent({ type: 'terminal' })
               }}
-              onOpenUrl={() => {
-                setActivePane(paneId)
-                openContent({ type: 'webViewer', url: 'about:blank' })
-              }}
               onClosePane={() => closePane(paneId)}
             />
           )}

@@ -11,7 +11,7 @@ export const getShareableSplitBufferId = (bufferId: string | null | undefined) =
   const activeBuffer = getActiveWorkspaceStoreRef()
     ?.getState()
     .buffers.find((buffer) => buffer.id === bufferId)
-  if (activeBuffer?.type === 'terminal' || activeBuffer?.type === 'webViewer') {
+  if (activeBuffer?.type === 'terminal') {
     return undefined
   }
 

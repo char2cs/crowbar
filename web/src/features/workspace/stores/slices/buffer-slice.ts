@@ -8,7 +8,6 @@ import type {
   BranchReviewContent,
   DiffContent,
   TerminalContent,
-  WebViewerContent,
   NewTabContent,
   MarkdownPreviewContent,
   HtmlPreviewContent,
@@ -30,7 +29,6 @@ import { nanoid } from 'nanoid'
 const AUTO_EVICTION_PROTECTED = new Set<PaneContent['type']>([
   'externalEditor',
   'terminal',
-  'webViewer',
 ])
 
 // ── Actions ──────────────────────────────────────────────────────────
@@ -96,11 +94,6 @@ export const createBufferSlice: StateCreator<
         if (spec.type === 'terminal' && spec.sessionId) {
           return get().buffers.find(
             (b) => b.type === 'terminal' && (b as TerminalContent).sessionId === spec.sessionId,
-          )
-        }
-        if (spec.type === 'webViewer') {
-          return get().buffers.find(
-            (b) => b.type === 'webViewer' && (b as WebViewerContent).url === spec.url,
           )
         }
         if (spec.type === 'markdownPreview') {
@@ -214,29 +207,6 @@ export const createBufferSlice: StateCreator<
           isPreview: false,
           isActive: false,
         } satisfies TerminalContent
-      } else if (spec.type === 'webViewer') {
-        let displayName = 'Web Viewer'
-        if (spec.url && spec.url !== 'about:blank') {
-          try {
-            displayName = new URL(spec.url).hostname || displayName
-          } catch {
-            /* invalid url */
-          }
-        }
-        buf = {
-          id,
-          type: 'webViewer',
-          url: spec.url,
-          path: `web-viewer://${spec.url}`,
-          name: displayName,
-          zoomLevel: spec.zoomLevel,
-          profileKey: spec.profileKey,
-          history: spec.history,
-          historyIndex: spec.historyIndex,
-          isPinned: false,
-          isPreview: false,
-          isActive: false,
-        } satisfies WebViewerContent
       } else if (spec.type === 'newTab') {
         buf = {
           id,

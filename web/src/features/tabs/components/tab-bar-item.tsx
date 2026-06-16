@@ -1,13 +1,12 @@
 import {
   Chat,
   GitBranch,
-  GlobeHemisphereWest as Globe,
   Package,
   PushPin as Pin,
   TerminalWindow as Terminal,
   X,
 } from '@phosphor-icons/react'
-import { memo, useCallback, useEffect, useState } from 'react'
+import { memo, useCallback } from 'react'
 import type { RefCallback } from 'react'
 import { FileExplorerIcon } from '@/features/file-explorer/components/file-explorer-icon'
 import type { PaneContent } from '@/features/panes/types/pane-content'
@@ -50,8 +49,6 @@ const TabBarItem = memo(function TabBarItem({
   handleTabClose,
   handleTabPin,
 }: TabBarItemProps) {
-  const [faviconError, setFaviconError] = useState(false)
-
   const getDiffIconName = () => {
     if (buffer.type !== 'diff') return buffer.name
     if (buffer.path === 'diff://working-tree/all-files') return null
@@ -63,11 +60,6 @@ const TabBarItem = memo(function TabBarItem({
 
     return displayName
   }
-
-  // Reset favicon error when favicon URL changes
-  useEffect(() => {
-    setFaviconError(false)
-  }, [buffer.type === 'webViewer' ? buffer.favicon : undefined])
 
   const handleAuxClick = useCallback(
     (e: React.MouseEvent) => {
@@ -119,17 +111,6 @@ const TabBarItem = memo(function TabBarItem({
             <GitBranch className="text-muted-foreground" />
           ) : buffer.type === 'terminal' ? (
             <Terminal className="text-muted-foreground" />
-          ) : buffer.type === 'webViewer' ? (
-            buffer.favicon && !faviconError ? (
-              <img
-                src={buffer.favicon}
-                alt=""
-                className="size-3.5 object-contain"
-                onError={() => setFaviconError(true)}
-              />
-            ) : (
-              <Globe className="text-muted-foreground" />
-            )
           ) : (
             <FileExplorerIcon
               fileName={getDiffIconName() ?? buffer.name}

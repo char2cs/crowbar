@@ -1,10 +1,4 @@
-import {
-  Chat,
-  GlobeHemisphereWest as Globe,
-  Plus,
-  TerminalWindow as Terminal,
-  X,
-} from '@phosphor-icons/react'
+import { Chat, Plus, TerminalWindow as Terminal, X } from '@phosphor-icons/react'
 import React from 'react'
 import {
   DropdownMenu,
@@ -21,7 +15,6 @@ interface TabNewButtonProps {
   isInSplit: boolean
   onNewConversation: () => void
   onNewTerminal: () => void
-  onOpenUrl: () => void
   onClosePane: () => void
 }
 
@@ -31,7 +24,6 @@ const TabNewButton = React.memo(function TabNewButton({
   isInSplit,
   onNewConversation,
   onNewTerminal,
-  onOpenUrl,
   onClosePane,
 }: TabNewButtonProps) {
   if (isBottomPane) return null
@@ -60,10 +52,6 @@ const TabNewButton = React.memo(function TabNewButton({
           <DropdownMenuItem onClick={onNewTerminal}>
             <Terminal className="text-muted-foreground" />
             New Terminal
-          </DropdownMenuItem>
-          <DropdownMenuItem onClick={onOpenUrl}>
-            <Globe className="text-muted-foreground" />
-            Open URL
           </DropdownMenuItem>
         </DropdownMenuContent>
       </DropdownMenu>

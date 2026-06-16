@@ -15,7 +15,6 @@ export interface TokenEntry {
 export type PaneContentType =
   | 'editor'
   | 'terminal'
-  | 'webViewer'
   | 'newTab'
   | 'diff'
   | 'markdownPreview'
@@ -71,17 +70,6 @@ export interface TerminalContent extends PaneContentBase {
   remoteConnectionId?: string
 }
 
-export interface WebViewerContent extends PaneContentBase {
-  type: 'webViewer'
-  url: string
-  title?: string
-  favicon?: string
-  zoomLevel?: number
-  profileKey?: string
-  history?: string[]
-  historyIndex?: number
-}
-
 export interface NewTabContent extends PaneContentBase {
   type: 'newTab'
 }
@@ -131,7 +119,6 @@ export interface BranchReviewContent extends PaneContentBase {
 export type PaneContent =
   | EditorContent
   | TerminalContent
-  | WebViewerContent
   | NewTabContent
   | DiffContent
   | MarkdownPreviewContent
@@ -149,10 +136,6 @@ export function isEditorContent(c: PaneContent): c is EditorContent {
 
 export function isTerminalContent(c: PaneContent): c is TerminalContent {
   return c.type === 'terminal'
-}
-
-export function isWebViewerContent(c: PaneContent): c is WebViewerContent {
-  return c.type === 'webViewer'
 }
 
 export function isNewTabContent(c: PaneContent): c is NewTabContent {
@@ -181,7 +164,6 @@ export function isPersistableContent(c: PaneContent): c is EditorContent {
 /** Content types that are virtual (not backed by a real file on disk). */
 const VIRTUAL_TYPES: ReadonlySet<PaneContentType> = new Set([
   'terminal',
-  'webViewer',
   'newTab',
   'crowbarChat',
   'branchReview',
@@ -241,14 +223,6 @@ export type OpenContentSpec =
       remoteConnectionId?: string
       sessionId?: string
       path?: string
-    }
-  | {
-      type: 'webViewer'
-      url: string
-      zoomLevel?: number
-      profileKey?: string
-      history?: string[]
-      historyIndex?: number
     }
   | { type: 'newTab' }
   | {

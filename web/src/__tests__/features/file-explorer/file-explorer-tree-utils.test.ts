@@ -50,14 +50,14 @@ describe('getExplorerTargetPath', () => {
 
   it('ignores non-file buffers', () => {
     const buffer = {
-      id: 'web',
-      type: 'webViewer',
-      path: 'https://example.com',
-      name: 'Example',
+      id: 'term',
+      type: 'terminal',
+      path: 'terminal://t1',
+      name: 'Terminal 1',
+      sessionId: 't1',
       isPinned: false,
       isPreview: false,
       isActive: true,
-      url: 'https://example.com',
     } satisfies PaneContent
 
     expect(getExplorerTargetPath(buffer)).toBeUndefined()

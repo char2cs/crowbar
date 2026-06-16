@@ -1,5 +1,4 @@
 mod api_proxy;
-mod browser_proxy;
 mod sidecar;
 mod terminal;
 
@@ -175,8 +174,7 @@ pub fn run() {
         )
         // Route webview `crowbar://localhost/v0/...` fetches through the unix
         // socket the daemon listens on (see sidecar + api_proxy).
-        .register_asynchronous_uri_scheme_protocol("crowbar", api_proxy::handle_request)
-        .register_asynchronous_uri_scheme_protocol("crowbar-browser", browser_proxy::handle_request);
+        .register_asynchronous_uri_scheme_protocol("crowbar", api_proxy::handle_request);
 
     // Dev-only: exposes the webview to the Tauri MCP server (WebSocket :9223).
     // Gated to debug builds so it never ships in a release.

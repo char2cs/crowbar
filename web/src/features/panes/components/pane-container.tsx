@@ -53,7 +53,6 @@ const BranchReviewPane = lazy(() =>
 )
 import { EditorPane } from './editor-pane'
 import { TerminalPane } from './terminal-pane'
-import { WebViewerPane } from './web-viewer-pane'
 import { DiffPane } from './diff-pane'
 
 interface PaneContainerProps {
@@ -539,12 +538,8 @@ export function PaneContainer({ pane, position = ROOT_PANE_POSITION }: PaneConta
                 PTY sessions and embedded webview state. */}
             {paneBuffers
               .filter(
-                (
-                  b,
-                ): b is
-                  | import('../types/pane-content').TerminalContent
-                  | import('../types/pane-content').WebViewerContent =>
-                  b.type === 'terminal' || b.type === 'webViewer',
+                (b): b is import('../types/pane-content').TerminalContent =>
+                  b.type === 'terminal',
               )
               .map((b) => {
                 const isActive = b.id === activeBuffer?.id
@@ -554,33 +549,20 @@ export function PaneContainer({ pane, position = ROOT_PANE_POSITION }: PaneConta
                     className="absolute inset-0"
                     style={isActive ? undefined : { visibility: 'hidden' }}
                   >
-                    {b.type === 'terminal' ? (
-                      <TerminalPane
-                        sessionId={b.sessionId}
-                        bufferId={b.id}
-                        paneId={pane.id}
-                        initialCommand={b.initialCommand}
-                        workingDirectory={b.workingDirectory}
-                        isActive={isActive && isActivePane}
-                        isVisible={isActive}
-                      />
-                    ) : (
-                      <WebViewerPane
-                        url={b.url}
-                        bufferId={b.id}
-                        profileKey={b.profileKey}
-                        history={b.history}
-                        historyIndex={b.historyIndex}
-                        isActive={isActive && isActivePane}
-                        isVisible={isActive}
-                      />
-                    )}
+                    <TerminalPane
+                      sessionId={b.sessionId}
+                      bufferId={b.id}
+                      paneId={pane.id}
+                      initialCommand={b.initialCommand}
+                      workingDirectory={b.workingDirectory}
+                      isActive={isActive && isActivePane}
+                      isVisible={isActive}
+                    />
                   </div>
                 )
               })}
             {activeBuffer &&
               activeBuffer.type !== 'terminal' &&
-              activeBuffer.type !== 'webViewer' &&
               renderActiveBuffer(activeBuffer)}
           </>
         </Suspense>

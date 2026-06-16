@@ -37,20 +37,6 @@ const serializeBufferForSession = (
     }
   }
 
-  if (buffer.type === 'webViewer') {
-    return {
-      type: 'webViewer',
-      path: buffer.path,
-      name: buffer.name,
-      isPinned: buffer.isPinned,
-      url: buffer.url,
-      zoomLevel: buffer.zoomLevel,
-      profileKey: buffer.profileKey,
-      history: buffer.history,
-      historyIndex: buffer.historyIndex,
-    }
-  }
-
   return null
 }
 
@@ -67,8 +53,7 @@ const saveSessionToStoreImmediate = (
   const activeBufferPath =
     activeBuffer &&
     ((activeBuffer.type === 'editor' && !activeBuffer.isVirtual) ||
-      activeBuffer.type === 'terminal' ||
-      activeBuffer.type === 'webViewer')
+      activeBuffer.type === 'terminal')
       ? activeBuffer.path
       : null
 

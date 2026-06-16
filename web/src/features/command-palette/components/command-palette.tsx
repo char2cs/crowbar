@@ -128,8 +128,6 @@ const CommandPalette = () => {
   const reopenClosedTab = async () => {
     workspaceStore.getState().bufferActions.reopenLastClosedBuffer()
   }
-  const openWebViewerBuffer = (url: string) =>
-    workspaceStore.getState().bufferActions.openContent({ type: 'webViewer', url })
   const { zoomIn, zoomOut, resetZoom } = useZoomStore.use.actions()
   const openBuffer = (
     path: string,
@@ -215,7 +213,6 @@ const CommandPalette = () => {
       zoomIn,
       zoomOut,
       resetZoom,
-      openWebViewerBuffer,
       onClose,
     }),
     ...createSettingsActions({

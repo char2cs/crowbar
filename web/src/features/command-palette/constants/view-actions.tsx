@@ -1,6 +1,5 @@
 import {
   ArrowsLeftRight as ArrowLeftRight,
-  GlobeHemisphereWest as Globe,
   List as Menu,
   SidebarSimple as PanelBottom,
   SidebarSimple as PanelLeft,
@@ -11,7 +10,6 @@ import {
   MagnifyingGlassMinus as ZoomOut,
 } from '@phosphor-icons/react'
 import type { BottomPaneTab } from '@/features/window/stores/ui-state/types'
-import { primitivePrompt } from '@/components/ui/primitive-dialog-service'
 import { IS_MAC, IS_WINDOWS } from '@/utils/platform'
 import type { Action } from '../models/action.types'
 
@@ -33,7 +31,6 @@ interface ViewActionsParams {
   zoomIn: (target: 'editor' | 'terminal') => void
   zoomOut: (target: 'editor' | 'terminal') => void
   resetZoom: (target: 'editor' | 'terminal') => void
-  openWebViewerBuffer: (url: string) => void
   onClose: () => void
 }
 
@@ -52,7 +49,6 @@ export const createViewActions = (params: ViewActionsParams): Action[] => {
     zoomIn,
     zoomOut,
     resetZoom,
-    openWebViewerBuffer,
     onClose,
   } = params
 
@@ -235,35 +231,6 @@ export const createViewActions = (params: ViewActionsParams): Action[] => {
       category: 'Terminal',
       action: () => {
         resetZoom('terminal')
-        onClose()
-      },
-    },
-    {
-      id: 'open-web-viewer',
-      label: 'View: Open Web Viewer',
-      description: 'Open a new web viewer tab',
-      icon: <Globe />,
-      category: 'View',
-      action: () => {
-        openWebViewerBuffer('about:blank')
-        onClose()
-      },
-    },
-    {
-      id: 'open-url',
-      label: 'View: Open URL...',
-      description: 'Open a URL in web viewer',
-      icon: <Globe />,
-      category: 'View',
-      action: async () => {
-        const url = await primitivePrompt('Enter URL:', {
-          title: 'Open URL',
-          defaultValue: 'https://',
-          placeholder: 'https://',
-        })
-        if (url?.trim()) {
-          openWebViewerBuffer(url.trim())
-        }
         onClose()
       },
     },
