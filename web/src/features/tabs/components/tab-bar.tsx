@@ -20,7 +20,6 @@ import { useSettingsStore } from '@/features/settings/store'
 import type { PaneContent } from '@/features/panes/types/pane-content'
 import { useEditorAppStore } from '@/features/editor/stores/editor-app-store'
 import { useSidebarStore } from '@/features/layout/stores/sidebar-store'
-import { useWebViewerNavigationStore } from '@/features/web-viewer/stores/web-viewer-navigation-store'
 import UnsavedChangesDialog from '@/features/window/components/unsaved-changes-dialog'
 import { useSidebar } from '@/components/ui/sidebar'
 import { getRelativePath } from '@/utils/path-helpers'
@@ -33,7 +32,6 @@ import TabNewButton from './tab-new-button'
 import SortableEditorTab from './sortable-editor-tab'
 import { useBufferDisplayName } from '../hooks/use-buffer-display-name'
 import { useTabKeyboardNav } from '../hooks/use-tab-keyboard-nav'
-import { useJumpNavigation } from '../hooks/use-jump-navigation'
 import { useTabDrag } from '../hooks/use-tab-drag'
 import { useTabBarScroll } from '../hooks/use-tab-bar-scroll'
 import { NoDndPointerSensor } from '../lib/no-dnd-pointer-sensor'
@@ -157,18 +155,6 @@ const TabBar = ({
   const sidebarPosition = useSettingsStore((s) => s.settings.sidebarPosition)
   const { open: sidebarOpen, toggleSidebar } = useSidebar()
   const rootFolderPath = useFileSystemStore.use.rootFolderPath?.() || undefined
-  const activeBuffer = useMemo(
-    () => buffers.find((buffer) => buffer.id === activeBufferId) ?? null,
-    [activeBufferId, buffers],
-  )
-  const activeWebViewerNavigation = useWebViewerNavigationStore((state) =>
-    activeBuffer?.type === 'webViewer' ? state.navigationByBufferId[activeBuffer.id] : undefined,
-  )
-  const usesWebViewerNavigation = activeBuffer?.type === 'webViewer'
-  const { canGoBack, canGoForward, handleJumpBack, handleJumpForward } = useJumpNavigation({
-    usesWebViewerNavigation,
-    activeWebViewerNavigation,
-  })
   const allPanes = useWorkspaceStoreContext((s) => s.panes)
   const mainPaneCount = Object.keys(allPanes).filter((id) => id !== BOTTOM_PANE_ID).length
   const isInSplit = pane !== null && paneId !== null && mainPaneCount > 1
@@ -432,11 +418,7 @@ const TabBar = ({
             isBottomPane={isBottomPane}
             sidebarOpen={sidebarOpen}
             sidebarPosition={sidebarPosition}
-            canGoBack={canGoBack}
-            canGoForward={canGoForward}
             onToggleSidebar={toggleSidebar}
-            onJumpBack={handleJumpBack}
-            onJumpForward={handleJumpForward}
           />
 
           <SortableContext items={sortedBufferIds} strategy={horizontalListSortingStrategy}>
