@@ -41,25 +41,20 @@ interface NavState {
 
 type NavAction =
   | { type: 'navigate'; url: string; canGoBack: boolean; canGoForward: boolean }
-  | { type: 'setUrl'; url: string }
 
-function navReducer(state: NavState, action: NavAction): NavState {
+function navReducer(_state: NavState, action: NavAction): NavState {
   switch (action.type) {
     case 'navigate':
       return { url: action.url, canGoBack: action.canGoBack, canGoForward: action.canGoForward }
-    case 'setUrl':
-      return { ...state, url: action.url }
   }
 }
 
 export function WebViewer({
   url: initialUrl = 'about:blank',
-  bufferId = '',
   isActive,
-  isVisible = true,
 }: WebViewerProps) {
-  void bufferId
-  void isVisible
+  // initialUrl is only read on mount; subsequent navigation is driven by
+  // postMessage events from the injected script and user address-bar submits.
   const normalizedInitial = normalizeUrl(initialUrl)
   const iframeRef = useRef<HTMLIFrameElement>(null)
 
@@ -72,10 +67,6 @@ export function WebViewer({
   const [inputValue, setInputValue] = useState(normalizedInitial)
 
   useEffect(() => {
-    setInputValue(nav.url)
-  }, [nav.url])
-
-  useEffect(() => {
     function handleMessage(e: MessageEvent) {
       if (!e.data || e.data.type !== '__crowbar_browser_nav__') return
       const { url, canGoBack, canGoForward } = e.data as {
@@ -84,6 +75,7 @@ export function WebViewer({
         canGoForward: boolean
       }
       dispatch({ type: 'navigate', url, canGoBack, canGoForward })
+      setInputValue(url)
     }
     window.addEventListener('message', handleMessage)
     return () => window.removeEventListener('message', handleMessage)
@@ -94,7 +86,6 @@ export function WebViewer({
       e.preventDefault()
       const normalized = normalizeUrl(inputValue)
       setInputValue(normalized)
-      dispatch({ type: 'setUrl', url: normalized })
       if (iframeRef.current) {
         iframeRef.current.src = toProxySrc(normalized)
       }
@@ -103,6 +94,8 @@ export function WebViewer({
   )
 
   const sendCmd = useCallback((cmd: 'back' | 'forward' | 'reload') => {
+    // '*' is safe: back/forward/reload carry no sensitive data, and the iframe
+    // origin changes with navigation so it cannot be predicted at call time.
     iframeRef.current?.contentWindow?.postMessage({ type: '__crowbar_cmd__', cmd }, '*')
   }, [])
 

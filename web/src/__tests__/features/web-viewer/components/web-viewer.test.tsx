@@ -4,6 +4,7 @@ import userEvent from '@testing-library/user-event'
 
 vi.mock('@/lib/crowbar-bridge', () => ({ isTauri: vi.fn().mockReturnValue(false) }))
 
+import { isTauri } from '@/lib/crowbar-bridge'
 import { WebViewer } from '@/features/web-viewer/components/web-viewer'
 
 describe('WebViewer', () => {
@@ -11,8 +12,7 @@ describe('WebViewer', () => {
     vi.clearAllMocks()
   })
 
-  it('renders an iframe with a crowbar-browser src in Tauri mode', async () => {
-    const { isTauri } = await import('@/lib/crowbar-bridge')
+  it('renders an iframe with a crowbar-browser src in Tauri mode', () => {
     ;(isTauri as ReturnType<typeof vi.fn>).mockReturnValue(true)
 
     render(<WebViewer url="https://example.com" bufferId="b1" isVisible />)
