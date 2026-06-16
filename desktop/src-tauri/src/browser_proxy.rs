@@ -101,6 +101,17 @@ fn inject_nav_script(html: &str) -> String {
     }
 }
 
+fn shared_client() -> &'static reqwest::Client {
+    static CLIENT: std::sync::OnceLock<reqwest::Client> = std::sync::OnceLock::new();
+    CLIENT.get_or_init(|| {
+        reqwest::Client::builder()
+            .danger_accept_invalid_certs(false)
+            .redirect(reqwest::redirect::Policy::limited(10))
+            .build()
+            .expect("reqwest client init failed")
+    })
+}
+
 // ── Async scheme handler ──────────────────────────────────────────────────────
 
 pub fn handle_request<R: Runtime>(
@@ -117,7 +128,7 @@ pub fn handle_request<R: Runtime>(
                 .status(502)
                 .header(http::header::CONTENT_TYPE, "text/plain")
                 .body(format!("browser proxy error: {e}").into_bytes())
-                .unwrap(),
+                .expect("static 502 response is valid"),
         };
         responder.respond(resp);
     });
@@ -127,13 +138,12 @@ async fn fetch_and_transform(
     proxy_url: &str,
     request: &http::Request<Vec<u8>>,
 ) -> Result<http::Response<Vec<u8>>, Box<dyn std::error::Error + Send + Sync>> {
+    // SSRF note: this proxy is desktop-only (crowbar-browser:// is not network-exposed)
+    // so we accept fetching local/private addresses. Block here if ever network-exposed.
     let real_url = parse_proxy_url(proxy_url)
         .ok_or("invalid crowbar-browser URL")?;
 
-    let client = reqwest::Client::builder()
-        .danger_accept_invalid_certs(false)
-        .redirect(reqwest::redirect::Policy::limited(10))
-        .build()?;
+    let client = shared_client();
 
     let method = reqwest::Method::from_bytes(request.method().as_str().as_bytes())?;
     let mut req = client.request(method, &real_url);
