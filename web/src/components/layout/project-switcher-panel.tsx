@@ -4,10 +4,7 @@ import { cn } from '@/lib/utils'
 import { ROW_BASE } from './workspace-row-base'
 import { ImportProjectModal } from '@/components/projects/import-project-modal'
 import { useSidebarNavStore } from '@/features/layout/stores/sidebar-nav'
-import { useProjectStore, useProjectDataStore } from '@/lib/store/projects'
-import { useWorkspaceListStore } from '@/lib/store/workspace-list'
-import { useSidebarStore } from '@/lib/store/sidebar'
-import { dataOf } from '@/lib/loadable'
+import { useProjectStore, importProjectAndSync } from '@/lib/store/projects'
 import type { Project } from '@/lib/types'
 
 /**
@@ -24,19 +21,9 @@ export function ProjectSwitcherPanel() {
     useSidebarNavStore.getState().pop()
   }
 
-  // Mirror ProjectListPage.handleImport: add to the live store, refetch the
-  // projects + workspace lists, and merge the new repos into the sidebar tree.
   function handleImport(project: Project) {
-    useProjectStore.getState().addProject(project)
+    importProjectAndSync(project)
     setImportOpen(false)
-    void useProjectDataStore.getState().fetch()
-    void useWorkspaceListStore
-      .getState()
-      .fetch()
-      .then(() => {
-        const repos = dataOf(useWorkspaceListStore.getState().data)
-        if (repos) useSidebarStore.getState().mergeRepos(repos)
-      })
   }
 
   return (

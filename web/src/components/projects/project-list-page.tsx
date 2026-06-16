@@ -2,9 +2,8 @@ import { useState } from 'react'
 import { Button } from '@/components/ui/button'
 import { ProjectCard } from './project-card'
 import { ImportProjectModal } from './import-project-modal'
-import { useProjectStore, useProjectDataStore } from '@/lib/store/projects'
+import { useProjectStore, useProjectDataStore, importProjectAndSync } from '@/lib/store/projects'
 import { useWorkspaceListStore } from '@/lib/store/workspace-list'
-import { useSidebarStore } from '@/lib/store/sidebar'
 import { countReposByProject } from '@/lib/store/build-repo-tree'
 import { useRetry } from '@/lib/store/use-retry'
 import { DataState } from '@/components/ui/data-state'
@@ -22,7 +21,6 @@ export function ProjectListPage({ onSelect }: ProjectListPageProps) {
   const retry = useRetry(useProjectDataStore)
   const activeProjectId = useProjectStore((s) => s.activeProjectId)
   const setActiveProject = useProjectStore((s) => s.setActiveProject)
-  const addProject = useProjectStore((s) => s.addProject)
   const [importOpen, setImportOpen] = useState(false)
 
   const handleSelect = (id: string) => {
@@ -30,19 +28,8 @@ export function ProjectListPage({ onSelect }: ProjectListPageProps) {
     onSelect(id)
   }
   const handleImport = (project: Project) => {
-    addProject(project)
+    importProjectAndSync(project)
     setImportOpen(false)
-    void useProjectDataStore.getState().fetch()
-    // Importing a project also creates its repos + base workspaces on the
-    // backend; refetch the workspace list and merge the result into the
-    // sidebar tree so it populates without a manual reload (BUG-013).
-    void useWorkspaceListStore
-      .getState()
-      .fetch()
-      .then(() => {
-        const repos = dataOf(useWorkspaceListStore.getState().data)
-        if (repos) useSidebarStore.getState().mergeRepos(repos)
-      })
   }
 
   return (

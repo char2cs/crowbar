@@ -3,6 +3,9 @@ import { persist } from 'zustand/middleware'
 import type { Project } from '@/lib/types'
 import { createLoadableSlice, type LoadableSlice } from '@/lib/store/loadable-slice'
 import { fetchProjects } from '@/lib/api'
+import { dataOf } from '@/lib/loadable'
+import { useWorkspaceListStore } from '@/lib/store/workspace-list'
+import { useSidebarStore } from '@/lib/store/sidebar'
 
 interface ProjectState {
   projects: Project[]
@@ -32,3 +35,19 @@ export const useProjectStore = create<ProjectState>()(
     { name: 'crowbar.activeProject', partialize: (s) => ({ activeProjectId: s.activeProjectId }) },
   ),
 )
+
+/**
+ * Add an imported project to the live store, then refetch the projects +
+ * workspace lists and merge the new repos into the sidebar tree (BUG-013).
+ */
+export function importProjectAndSync(project: Project): void {
+  useProjectStore.getState().addProject(project)
+  void useProjectDataStore.getState().fetch()
+  void useWorkspaceListStore
+    .getState()
+    .fetch()
+    .then(() => {
+      const repos = dataOf(useWorkspaceListStore.getState().data)
+      if (repos) useSidebarStore.getState().mergeRepos(repos)
+    })
+}
