@@ -1,26 +1,63 @@
 mod api_proxy;
 mod browser_pane;
+mod browser_proxy;
 mod sidecar;
 mod terminal;
 
 use tauri::Manager;
 
 // ProMotion / high-refresh-rate: WKWebView defaults to 60fps due to the
-// `preferPageRenderingUpdatesNear60FPSEnabled` WebKit preference.
+// `preferPageRenderingUpdatesNear60FPSEnabled` WebKit preference, and macOS
+// ProMotion adaptively drops below 120fps when content is static.
 //
-// Two-pronged approach:
+// Three-pronged approach:
 //   1. NSUserDefaults before WKWebView creation (disable_webkit_60fps_cap_early).
 //      Works on macOS 13–15 where WebKit reads this key before creating its
 //      CADisplayLink. May be ignored on macOS 26 where the preference backend
 //      was restructured.
-//   2. KVC on WKPreferences after creation (applied in the setup closure via
-//      with_webview). wry uses the same setValue:forKey: pattern for private
-//      KVC keys in production — WKPreferences silently ignores unknown keys
-//      rather than throwing NSUndefinedKeyException.
+//   2. Direct WKPreferences setter to remove the 60fps cap.
+//      Guarded by respondsToSelector: — safe in FFI context.
+//   3. preferredFrameRateRange on the WKWebView itself (public API, macOS 13.3+).
+//      Sets minimum=80fps so ProMotion never drops to 60fps during idle periods.
 //
 // The post-creation plugin approach (tauri-plugin-macos-fps) uses the private
 // `_features` array API. That selector was removed in macOS 26 and calling it
 // throws "unrecognized selector" which aborts the process — avoid it.
+
+// CAFrameRateRange mirrors CoreAnimation's public struct (3 x f32, macOS 12+).
+// Used to set WKWebView.preferredFrameRateRange (macOS 13.3+).
+#[cfg(target_os = "macos")]
+#[repr(C)]
+#[derive(Clone, Copy)]
+struct CAFrameRateRange {
+    minimum: f32,
+    maximum: f32,
+    preferred: f32,
+}
+
+// Static field array used by the Encode impl below.
+// const { &[...] } works but a static makes the 'static lifetime explicit.
+#[cfg(target_os = "macos")]
+static CA_FRAME_RATE_RANGE_FIELDS: [objc2::encode::Encoding; 3] = [
+    objc2::encode::Encoding::Float,
+    objc2::encode::Encoding::Float,
+    objc2::encode::Encoding::Float,
+];
+
+#[cfg(target_os = "macos")]
+unsafe impl objc2::encode::Encode for CAFrameRateRange {
+    const ENCODING: objc2::encode::Encoding =
+        objc2::encode::Encoding::Struct("CAFrameRateRange", &CA_FRAME_RATE_RANGE_FIELDS);
+}
+
+#[cfg(target_os = "macos")]
+unsafe impl objc2::encode::RefEncode for CAFrameRateRange {
+    const ENCODING_REF: objc2::encode::Encoding =
+        objc2::encode::Encoding::Pointer(&objc2::encode::Encoding::Struct(
+            "CAFrameRateRange",
+            &CA_FRAME_RATE_RANGE_FIELDS,
+        ));
+}
 
 #[cfg(target_os = "macos")]
 unsafe fn disable_webkit_60fps_cap_early() {
@@ -46,28 +83,49 @@ unsafe fn disable_webkit_60fps_cap_early() {
 }
 
 // Post-creation fix: applied via with_webview in setup().
-// Uses respondsToSelector: before every private call — the only pattern that
-// is guaranteed safe in a with_webview closure (which runs on the main thread
-// from ObjC dispatch, where panics from unrecognized selectors abort the process).
+// Every call is guarded by respondsToSelector: — the only safe pattern inside
+// a with_webview closure, which runs synchronously from did_finish_launching
+// (extern "C" context where ObjC exceptions can't unwind → SIGABRT).
 #[cfg(target_os = "macos")]
 unsafe fn disable_webkit_60fps_cap_post(wkwebview_ptr: *mut objc2::runtime::AnyObject) {
     use objc2::runtime::{AnyObject, Bool};
     use objc2::msg_send;
 
+    // Step A: remove the 60fps cap from WKPreferences.
     let config: *mut AnyObject = msg_send![wkwebview_ptr, configuration];
-    if config.is_null() { return; }
-    let prefs: *mut AnyObject = msg_send![config, preferences];
-    if prefs.is_null() { return; }
+    if !config.is_null() {
+        let prefs: *mut AnyObject = msg_send![config, preferences];
+        if !prefs.is_null() {
+            let sel = objc2::sel!(setPreferPageRenderingUpdatesNear60FPSEnabled:);
+            let responds: Bool = msg_send![prefs, respondsToSelector: sel];
+            if responds.as_bool() {
+                let _: () = msg_send![prefs, setPreferPageRenderingUpdatesNear60FPSEnabled: Bool::new(false)];
+                log::info!("ProMotion: 60fps cap removed via WKPreferences setter");
+            } else {
+                log::warn!("ProMotion: setPreferPageRenderingUpdatesNear60FPSEnabled: absent — 60fps cap may persist");
+            }
+        }
+    }
 
-    // Probe for the direct setter via respondsToSelector: — this is always safe
-    // (defined on NSObject, never throws). Only call the setter if confirmed present.
-    let sel = objc2::sel!(setPreferPageRenderingUpdatesNear60FPSEnabled:);
-    let responds: Bool = msg_send![prefs, respondsToSelector: sel];
-    if responds.as_bool() {
-        let _: () = msg_send![prefs, setPreferPageRenderingUpdatesNear60FPSEnabled: Bool::new(false)];
-        log::info!("ProMotion: direct setter applied (macOS ≤25 path)");
+    // Step B: lock the ProMotion rate to exactly 120fps.
+    // preferredFrameRateRange (public API, macOS 13.3+) with minimum=120 prevents
+    // the OS from ever running below 120fps, even when idle. This only takes effect
+    // while WKWebView's internal display link is active — the persistent rAF loop
+    // injected via CROWBAR_BOOTSTRAP keeps the link alive.
+    // Falls back to the deprecated preferredFramesPerSecond: NSInteger on macOS < 13.3.
+    let sel_pfr = objc2::sel!(setPreferredFrameRateRange:);
+    let has_pfr: Bool = msg_send![wkwebview_ptr, respondsToSelector: sel_pfr];
+    if has_pfr.as_bool() {
+        let range = CAFrameRateRange { minimum: 120.0, maximum: 120.0, preferred: 120.0 };
+        let _: () = msg_send![wkwebview_ptr, setPreferredFrameRateRange: range];
+        log::info!("ProMotion: preferredFrameRateRange locked to 120fps");
     } else {
-        log::warn!("ProMotion: setPreferPageRenderingUpdatesNear60FPSEnabled: absent on this macOS — 60fps cap may persist");
+        let sel_fps = objc2::sel!(setPreferredFramesPerSecond:);
+        let has_fps: Bool = msg_send![wkwebview_ptr, respondsToSelector: sel_fps];
+        if has_fps.as_bool() {
+            let _: () = msg_send![wkwebview_ptr, setPreferredFramesPerSecond: 120i64];
+            log::info!("ProMotion: preferredFramesPerSecond set to 120 (pre-13.3 fallback)");
+        }
     }
 }
 
@@ -80,6 +138,11 @@ unsafe fn disable_webkit_60fps_cap_post(wkwebview_ptr: *mut objc2::runtime::AnyO
 // flashes the "backend unavailable — reconnecting" banner. Guarded by hostname
 // so it never leaks the global into browser-pane webviews showing external sites
 // (the app itself is served from localhost / tauri.localhost).
+//
+// ProMotion note: a rAF loop with no DOM work does NOT keep the display at 120 Hz
+// because WebKit skips GPU commits when nothing changes. The real fix is a CSS
+// transform animation in index.html (a composited CA layer that continuously
+// submits GPU frames, signalling ProMotion to hold 120 Hz).
 const CROWBAR_BOOTSTRAP: &str = r#"
 (function () {
   var h = location.hostname;

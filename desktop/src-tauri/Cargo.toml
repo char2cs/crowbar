@@ -33,6 +33,7 @@ tauri-plugin-macos-fps = "0.1.0"
 # Dev-only: lets the Tauri MCP server drive/inspect the webview. Registered
 # behind cfg(debug_assertions) in lib.rs so it is never active in release builds.
 tauri-plugin-mcp-bridge = "0.11"
+reqwest = { version = "0.12", default-features = false, features = ["native-tls"] }
 
 [target."cfg(target_os = \"macos\")".dependencies]
 cocoa = "0.26"
