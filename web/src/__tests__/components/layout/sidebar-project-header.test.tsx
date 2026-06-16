@@ -73,4 +73,13 @@ describe('SidebarProjectHeader', () => {
     await userEvent.click(screen.getByRole('button', { name: /go back/i }))
     expect(jump.handleJumpBack).toHaveBeenCalledOnce()
   })
+
+  it('mirrors the layout when the sidebar is on the right', () => {
+    sidebarPosition = 'right'
+    const { container } = render(<SidebarProjectHeader />)
+    const root = container.firstChild as HTMLElement
+    expect(root.className).toContain('flex-row-reverse')
+    // Traffic-light spacer is only reserved when the sidebar is on the left.
+    expect(container.querySelector('.w-\\[52px\\]')).toBeNull()
+  })
 })
