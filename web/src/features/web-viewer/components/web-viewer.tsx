@@ -1,16 +1,16 @@
-import { useState, useRef, useCallback, useEffect } from 'react'
-import { ArrowClockwise as RotateCw, GlobeHemisphereWest as Globe } from '@phosphor-icons/react'
+import { useCallback, useEffect, useReducer, useRef, useState } from 'react'
+import {
+  ArrowLeft,
+  ArrowRight,
+  ArrowClockwise as RotateCw,
+  GlobeHemisphereWest as Globe,
+} from '@phosphor-icons/react'
 import { cn } from '@/utils/cn'
-import { browserPaneNavigate, browserPaneReload } from '@/lib/crowbar-bridge'
-import { useBrowserPaneAnchor } from '@/features/web-viewer/hooks/use-browser-pane-anchor'
-import { useWebViewerNavigationStore } from '@/features/web-viewer/stores/web-viewer-navigation-store'
+import { isTauri } from '@/lib/crowbar-bridge'
 
 export interface WebViewerProps {
   url?: string
   bufferId?: string
-  profileKey?: string
-  history?: string[]
-  historyIndex?: number
   isActive?: boolean
   isVisible?: boolean
   [key: string]: unknown
@@ -25,67 +25,115 @@ function normalizeUrl(raw: string): string {
   return `https://www.google.com/search?q=${encodeURIComponent(trimmed)}`
 }
 
+function toProxySrc(url: string): string {
+  if (url === 'about:blank') return 'about:blank'
+  if (!isTauri()) return url
+  if (url.startsWith('https://')) return `crowbar-browser://proxy/https/${url.slice(8)}`
+  if (url.startsWith('http://')) return `crowbar-browser://proxy/http/${url.slice(7)}`
+  return url
+}
+
+interface NavState {
+  url: string
+  canGoBack: boolean
+  canGoForward: boolean
+}
+
+type NavAction =
+  | { type: 'navigate'; url: string; canGoBack: boolean; canGoForward: boolean }
+  | { type: 'setUrl'; url: string }
+
+function navReducer(state: NavState, action: NavAction): NavState {
+  switch (action.type) {
+    case 'navigate':
+      return { url: action.url, canGoBack: action.canGoBack, canGoForward: action.canGoForward }
+    case 'setUrl':
+      return { ...state, url: action.url }
+  }
+}
+
 export function WebViewer({
   url: initialUrl = 'about:blank',
   bufferId = '',
   isActive,
   isVisible = true,
 }: WebViewerProps) {
-  const normalizedInitialUrl = normalizeUrl(initialUrl)
-  const anchorRef = useRef<HTMLDivElement>(null)
-  // Pass the initial URL to the hook so it's sent with the first browserPaneSync
-  // call. This avoids a race where browserPaneNavigate fires before the webview exists.
-  const { isTauri } = useBrowserPaneAnchor({
-    bufferId,
-    isVisible,
-    anchorRef,
-    initialUrl: normalizedInitialUrl !== 'about:blank' ? normalizedInitialUrl : undefined,
+  void bufferId
+  void isVisible
+  const normalizedInitial = normalizeUrl(initialUrl)
+  const iframeRef = useRef<HTMLIFrameElement>(null)
+
+  const [nav, dispatch] = useReducer(navReducer, {
+    url: normalizedInitial,
+    canGoBack: false,
+    canGoForward: false,
   })
 
-  const navEntry = useWebViewerNavigationStore((state) =>
-    bufferId ? state.navigationByBufferId[bufferId] : undefined,
-  )
+  const [inputValue, setInputValue] = useState(normalizedInitial)
 
-  // Register this buffer in the nav store; initial URL drives the address bar
   useEffect(() => {
-    if (!bufferId) return
-    useWebViewerNavigationStore.getState().registerBuffer(bufferId, normalizedInitialUrl)
-    return () => {
-      useWebViewerNavigationStore.getState().removeBuffer(bufferId)
+    setInputValue(nav.url)
+  }, [nav.url])
+
+  useEffect(() => {
+    function handleMessage(e: MessageEvent) {
+      if (!e.data || e.data.type !== '__crowbar_browser_nav__') return
+      const { url, canGoBack, canGoForward } = e.data as {
+        url: string
+        canGoBack: boolean
+        canGoForward: boolean
+      }
+      dispatch({ type: 'navigate', url, canGoBack, canGoForward })
     }
-  }, [bufferId]) // eslint-disable-line react-hooks/exhaustive-deps
-
-  // Address bar follows the nav store url; falls back to normalized initial url
-  const [inputValue, setInputValue] = useState(() => normalizeUrl(initialUrl))
-  useEffect(() => {
-    if (navEntry?.url) setInputValue(navEntry.url)
-  }, [navEntry?.url])
+    window.addEventListener('message', handleMessage)
+    return () => window.removeEventListener('message', handleMessage)
+  }, [])
 
   const handleSubmit = useCallback(
     (e: React.FormEvent) => {
       e.preventDefault()
-      const url = normalizeUrl(inputValue)
-      setInputValue(url)
-      if (bufferId) void browserPaneNavigate(bufferId, url)
+      const normalized = normalizeUrl(inputValue)
+      setInputValue(normalized)
+      dispatch({ type: 'setUrl', url: normalized })
+      if (iframeRef.current) {
+        iframeRef.current.src = toProxySrc(normalized)
+      }
     },
-    [bufferId, inputValue],
+    [inputValue],
   )
 
-  const handleReload = useCallback(() => {
-    if (bufferId) void browserPaneReload(bufferId)
-  }, [bufferId])
+  const sendCmd = useCallback((cmd: 'back' | 'forward' | 'reload') => {
+    iframeRef.current?.contentWindow?.postMessage({ type: '__crowbar_cmd__', cmd }, '*')
+  }, [])
 
   return (
     <div className={cn('flex h-full flex-col overflow-hidden', !isActive && 'pointer-events-none')}>
-      {/* Navigation bar */}
       <form
         onSubmit={handleSubmit}
         className="flex shrink-0 items-center gap-1 border-b border-border bg-card px-2 py-1.5"
       >
         <button
           type="button"
+          title="Back"
+          disabled={!nav.canGoBack}
+          onClick={() => sendCmd('back')}
+          className="flex items-center justify-center rounded p-1 text-muted-foreground hover:bg-muted hover:text-foreground disabled:opacity-40"
+        >
+          <ArrowLeft size={14} />
+        </button>
+        <button
+          type="button"
+          title="Forward"
+          disabled={!nav.canGoForward}
+          onClick={() => sendCmd('forward')}
+          className="flex items-center justify-center rounded p-1 text-muted-foreground hover:bg-muted hover:text-foreground disabled:opacity-40"
+        >
+          <ArrowRight size={14} />
+        </button>
+        <button
+          type="button"
           title="Reload"
-          onClick={handleReload}
+          onClick={() => sendCmd('reload')}
           className="flex items-center justify-center rounded p-1 text-muted-foreground hover:bg-muted hover:text-foreground"
         >
           <RotateCw size={14} />
@@ -107,14 +155,13 @@ export function WebViewer({
         </div>
       </form>
 
-      {/* Content */}
-      {!isTauri ? (
-        <div className="flex flex-1 items-center justify-center text-muted-foreground ui-text-sm">
-          This feature requires the desktop app
-        </div>
-      ) : (
-        <div ref={anchorRef} data-browser-anchor className="min-h-0 flex-1" />
-      )}
+      <iframe
+        ref={iframeRef}
+        src={toProxySrc(normalizedInitial)}
+        className="min-h-0 flex-1 w-full border-0 bg-background"
+        title="Browser"
+        sandbox="allow-scripts allow-same-origin allow-forms allow-popups allow-downloads allow-modals"
+      />
     </div>
   )
 }

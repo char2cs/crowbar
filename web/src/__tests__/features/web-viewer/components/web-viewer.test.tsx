@@ -1,63 +1,84 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
-import { render, screen } from '@testing-library/react'
+import { render, screen, act } from '@testing-library/react'
+import userEvent from '@testing-library/user-event'
 
-vi.mock('@/lib/crowbar-bridge', () => ({
-  isTauri: vi.fn(),
-  browserPaneSync: vi.fn().mockResolvedValue(undefined),
-  browserPaneClose: vi.fn().mockResolvedValue(undefined),
-  browserPaneNavigate: vi.fn().mockResolvedValue(undefined),
-  browserPaneReload: vi.fn().mockResolvedValue(undefined),
-  browserPaneGoBack: vi.fn().mockResolvedValue(undefined),
-  browserPaneGoForward: vi.fn().mockResolvedValue(undefined),
-}))
+vi.mock('@/lib/crowbar-bridge', () => ({ isTauri: vi.fn().mockReturnValue(false) }))
 
-vi.mock('@/features/web-viewer/hooks/use-browser-pane-anchor', () => ({
-  useBrowserPaneAnchor: vi.fn().mockReturnValue({ isTauri: false }),
-}))
-
-vi.mock('@/features/web-viewer/stores/web-viewer-navigation-store', () => ({
-  useWebViewerNavigationStore: Object.assign(vi.fn().mockReturnValue(undefined), {
-    getState: vi.fn().mockReturnValue({
-      registerBuffer: vi.fn(),
-      removeBuffer: vi.fn(),
-    }),
-  }),
-}))
-
-import { isTauri } from '@/lib/crowbar-bridge'
-import { useBrowserPaneAnchor } from '@/features/web-viewer/hooks/use-browser-pane-anchor'
 import { WebViewer } from '@/features/web-viewer/components/web-viewer'
 
-beforeEach(() => {
-  vi.clearAllMocks()
-})
-
-describe('WebViewer — non-Tauri', () => {
-  it('shows the requires-desktop message', () => {
-    ;(isTauri as ReturnType<typeof vi.fn>).mockReturnValue(false)
-    ;(useBrowserPaneAnchor as ReturnType<typeof vi.fn>).mockReturnValue({ isTauri: false })
-    render(<WebViewer bufferId="b1" url="https://example.com" />)
-    expect(screen.getByText(/requires the desktop app/i)).toBeInTheDocument()
+describe('WebViewer', () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
   })
 
-  it('renders the nav bar even in non-Tauri mode', () => {
-    ;(isTauri as ReturnType<typeof vi.fn>).mockReturnValue(false)
-    ;(useBrowserPaneAnchor as ReturnType<typeof vi.fn>).mockReturnValue({ isTauri: false })
-    render(<WebViewer bufferId="b1" url="https://example.com" />)
-    expect(screen.getByRole('textbox')).toBeInTheDocument()
-  })
-})
+  it('renders an iframe with a crowbar-browser src in Tauri mode', async () => {
+    const { isTauri } = await import('@/lib/crowbar-bridge')
+    ;(isTauri as ReturnType<typeof vi.fn>).mockReturnValue(true)
 
-describe('WebViewer — Tauri', () => {
-  it('does not show the requires-desktop message', () => {
-    ;(useBrowserPaneAnchor as ReturnType<typeof vi.fn>).mockReturnValue({ isTauri: true })
-    render(<WebViewer bufferId="b1" url="https://example.com" />)
-    expect(screen.queryByText(/requires the desktop app/i)).not.toBeInTheDocument()
+    render(<WebViewer url="https://example.com" bufferId="b1" isVisible />)
+
+    const iframe = document.querySelector('iframe')
+    expect(iframe).toBeTruthy()
+    expect(iframe?.src).toContain('crowbar-browser://proxy/https/example.com')
   })
 
-  it('renders an anchor div (data-anchor attribute)', () => {
-    ;(useBrowserPaneAnchor as ReturnType<typeof vi.fn>).mockReturnValue({ isTauri: true })
-    render(<WebViewer bufferId="b1" url="https://example.com" />)
-    expect(document.querySelector('[data-browser-anchor]')).toBeInTheDocument()
+  it('renders an iframe in non-Tauri mode (dev fallback)', () => {
+    render(<WebViewer url="https://example.com" bufferId="b1" isVisible />)
+
+    const iframe = document.querySelector('iframe')
+    expect(iframe).toBeTruthy()
+    expect(iframe?.src).toContain('example.com')
+  })
+
+  it('shows the URL in the address bar', () => {
+    render(<WebViewer url="https://example.com" bufferId="b1" isVisible />)
+    const input = screen.getByPlaceholderText('Enter URL or search…')
+    expect(input).toHaveValue('https://example.com')
+  })
+
+  it('updates address bar when postMessage nav event arrives', async () => {
+    render(<WebViewer url="https://example.com" bufferId="b1" isVisible />)
+
+    await act(async () => {
+      window.dispatchEvent(
+        new MessageEvent('message', {
+          data: {
+            type: '__crowbar_browser_nav__',
+            url: 'https://example.com/about',
+            canGoBack: true,
+            canGoForward: false,
+          },
+        }),
+      )
+    })
+
+    const input = screen.getByPlaceholderText('Enter URL or search…')
+    expect(input).toHaveValue('https://example.com/about')
+  })
+
+  it('normalizes bare domain in address bar on submit', async () => {
+    const user = userEvent.setup()
+    render(<WebViewer url="about:blank" bufferId="b1" isVisible />)
+
+    const input = screen.getByPlaceholderText('Enter URL or search…')
+    await user.clear(input)
+    await user.type(input, 'github.com')
+    await user.keyboard('{Enter}')
+
+    expect(input).toHaveValue('https://github.com')
+  })
+
+  it('falls back to Google search for non-URL input', async () => {
+    const user = userEvent.setup()
+    render(<WebViewer url="about:blank" bufferId="b1" isVisible />)
+
+    const input = screen.getByPlaceholderText('Enter URL or search…')
+    await user.clear(input)
+    await user.type(input, 'how does react work')
+    await user.keyboard('{Enter}')
+
+    expect(input).toHaveValue(
+      'https://www.google.com/search?q=how%20does%20react%20work',
+    )
   })
 })

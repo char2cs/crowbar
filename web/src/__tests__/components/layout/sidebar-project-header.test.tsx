@@ -16,12 +16,6 @@ const jump = {
 vi.mock('@/features/tabs/hooks/use-jump-navigation', () => ({
   useJumpNavigation: () => jump,
 }))
-vi.mock('@/features/tabs/hooks/use-active-webviewer-navigation', () => ({
-  useActiveWebViewerNavigation: () => ({
-    usesWebViewerNavigation: false,
-    activeWebViewerNavigation: undefined,
-  }),
-}))
 
 const openSettingsDialog = vi.fn()
 vi.mock('@/features/window/stores/ui-state-store', () => ({

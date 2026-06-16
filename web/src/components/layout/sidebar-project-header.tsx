@@ -4,7 +4,6 @@ import { useSidebar } from '@/components/ui/sidebar'
 import { useSettingsStore } from '@/features/settings/store'
 import { useUIState } from '@/features/window/stores/ui-state-store'
 import { useJumpNavigation } from '@/features/tabs/hooks/use-jump-navigation'
-import { useActiveWebViewerNavigation } from '@/features/tabs/hooks/use-active-webviewer-navigation'
 import { IS_MAC } from '@/utils/platform'
 import { cn } from '@/utils/cn'
 
@@ -17,9 +16,7 @@ export function SidebarProjectHeader() {
   const sidebarPosition = useSettingsStore((s) => s.settings.sidebarPosition)
   const isRight = sidebarPosition === 'right'
   const { open: sidebarOpen, toggleSidebar } = useSidebar()
-  const { canGoBack, canGoForward, handleJumpBack, handleJumpForward } = useJumpNavigation(
-    useActiveWebViewerNavigation(),
-  )
+  const { canGoBack, canGoForward, handleJumpBack, handleJumpForward } = useJumpNavigation()
 
   const toggle = (
     <Button
