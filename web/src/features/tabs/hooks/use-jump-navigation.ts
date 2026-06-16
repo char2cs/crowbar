@@ -2,7 +2,7 @@ import { useCallback } from 'react'
 import { useJumpListStore } from '@/features/editor/stores/jump-list-store'
 import { useEditorStateStore } from '@/features/editor/stores/state-store'
 import { navigateToJumpEntry } from '@/features/editor/utils/jump-navigation'
-import { useWorkspaceStore } from '@/features/workspace/stores/workspace-context'
+import { getActiveWorkspaceStore } from '@/features/workspace/stores/workspace-store-registry'
 
 interface WebViewerNavigation {
   canGoBack?: boolean
@@ -25,7 +25,9 @@ export function useJumpNavigation({
   activeWebViewerNavigation,
 }: UseJumpNavigationOptions) {
   const jumpListActions = useJumpListStore.use.actions()
-  const workspaceStore = useWorkspaceStore()
+  // Subscribe to jump-list state so canGoBack/canGoForward stay reactive.
+  useJumpListStore.use.entries()
+  useJumpListStore.use.currentIndex()
 
   const canGoBack = usesWebViewerNavigation
     ? Boolean(activeWebViewerNavigation?.canGoBack)
@@ -41,7 +43,9 @@ export function useJumpNavigation({
       return
     }
 
-    const wsState = workspaceStore.getState()
+    const store = getActiveWorkspaceStore()
+    if (!store) return
+    const wsState = store.getState()
     const editorState = useEditorStateStore.getState()
     const currentActiveBufferId = wsState.panes[wsState.activePaneId]?.activeBufferId ?? null
     const currentActiveBuffer = currentActiveBufferId
@@ -65,7 +69,7 @@ export function useJumpNavigation({
     if (entry) {
       await navigateToJumpEntry(entry)
     }
-  }, [activeWebViewerNavigation, jumpListActions, usesWebViewerNavigation, workspaceStore])
+  }, [activeWebViewerNavigation, jumpListActions, usesWebViewerNavigation])
 
   const handleJumpForward = useCallback(async () => {
     if (usesWebViewerNavigation) {
