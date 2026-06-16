@@ -9,6 +9,7 @@ interface UseTabBarScrollOptions {
 interface UseTabBarScrollResult {
   tabBarRef: RefObject<HTMLDivElement | null>
   isAtLeftEdge: boolean
+  isAtRightEdge: boolean
   handleWheel: (e: React.WheelEvent<HTMLDivElement>) => void
 }
 
@@ -18,12 +19,15 @@ export function useTabBarScroll({
 }: UseTabBarScrollOptions): UseTabBarScrollResult {
   const tabBarRef = useRef<HTMLDivElement>(null)
   const [isAtLeftEdge, setIsAtLeftEdge] = useState(false)
+  const [isAtRightEdge, setIsAtRightEdge] = useState(false)
 
   useLayoutEffect(() => {
     const el = tabBarRef.current
     if (!el) return
     function check() {
-      setIsAtLeftEdge((el?.getBoundingClientRect().left ?? 1) < 10)
+      const rect = el?.getBoundingClientRect()
+      setIsAtLeftEdge((rect?.left ?? 1) < 10)
+      setIsAtRightEdge((rect?.right ?? 0) > window.innerWidth - 10)
     }
     check()
     const ro = new ResizeObserver(check)
@@ -70,5 +74,5 @@ export function useTabBarScroll({
     [canScrollTabsHorizontally, draggedBufferId],
   )
 
-  return { tabBarRef, isAtLeftEdge, handleWheel }
+  return { tabBarRef, isAtLeftEdge, isAtRightEdge, handleWheel }
 }

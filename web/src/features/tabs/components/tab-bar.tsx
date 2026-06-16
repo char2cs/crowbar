@@ -222,10 +222,18 @@ const TabBar = ({
       splitPane(targetPaneId, direction, bufferId, placement) ?? undefined,
   })
 
-  const { tabBarRef, isAtLeftEdge, handleWheel } = useTabBarScroll({
+  const { tabBarRef, isAtLeftEdge, isAtRightEdge, handleWheel } = useTabBarScroll({
     sidebarPosition,
     draggedBufferId,
   })
+
+  // The tab-bar sidebar-toggle is only a fallback for reopening a collapsed
+  // sidebar (when open, the sidebar header owns the toggle). It appears on the
+  // window-edge pane matching the configured sidebar side.
+  const showReopenToggleLeft =
+    !sidebarOpen && !isBottomPane && sidebarPosition === 'left' && isAtLeftEdge
+  const showReopenToggleRight =
+    !sidebarOpen && !isBottomPane && sidebarPosition === 'right' && isAtRightEdge
 
   const getBufferDisplayName = useBufferDisplayName({ buffers, rootFolderPath })
 
@@ -414,12 +422,14 @@ const TabBar = ({
           data-tauri-drag-region
           onWheel={handleWheel}
         >
-          <TabNavigationButtons
-            isBottomPane={isBottomPane}
-            sidebarOpen={sidebarOpen}
-            sidebarPosition={sidebarPosition}
-            onToggleSidebar={toggleSidebar}
-          />
+          {showReopenToggleLeft && (
+            <TabNavigationButtons
+              isBottomPane={isBottomPane}
+              sidebarOpen={sidebarOpen}
+              sidebarPosition={sidebarPosition}
+              onToggleSidebar={toggleSidebar}
+            />
+          )}
 
           <SortableContext items={sortedBufferIds} strategy={horizontalListSortingStrategy}>
             <div className="tab-scrollbar flex min-w-0 flex-1 items-center gap-1.5 overflow-x-auto overflow-y-hidden [overscroll-behavior-x:contain]">
@@ -467,6 +477,15 @@ const TabBar = ({
                 openContent({ type: 'webViewer', url: 'https://' })
               }}
               onClosePane={() => closePane(paneId)}
+            />
+          )}
+
+          {showReopenToggleRight && (
+            <TabNavigationButtons
+              isBottomPane={isBottomPane}
+              sidebarOpen={sidebarOpen}
+              sidebarPosition={sidebarPosition}
+              onToggleSidebar={toggleSidebar}
             />
           )}
         </div>
