@@ -432,7 +432,13 @@ const TabBar = ({
           )}
 
           <SortableContext items={sortedBufferIds} strategy={horizontalListSortingStrategy}>
-            <div className="tab-scrollbar flex min-w-0 flex-1 items-center gap-1.5 overflow-x-auto overflow-y-hidden [overscroll-behavior-x:contain]">
+            {/* The empty area of this scroll container is a window drag handle.
+                Tauri only drags on the exact element with the attribute, so the
+                tab children remain interactive and reorderable. */}
+            <div
+              data-tauri-drag-region
+              className="tab-scrollbar flex min-w-0 flex-1 items-center gap-1.5 overflow-x-auto overflow-y-hidden [overscroll-behavior-x:contain]"
+            >
               {sortedBuffers.map((buffer, index) => (
                 <SortableEditorTab
                   key={buffer.id}
