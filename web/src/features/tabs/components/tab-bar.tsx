@@ -480,7 +480,7 @@ const TabBar = ({
               }}
               onOpenUrl={() => {
                 setActivePane(paneId)
-                openContent({ type: 'webViewer', url: 'https://' })
+                openContent({ type: 'webViewer', url: 'about:blank' })
               }}
               onClosePane={() => closePane(paneId)}
             />

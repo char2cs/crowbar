@@ -20,7 +20,11 @@ function normalizeUrl(raw: string): string {
   const trimmed = raw.trim()
   if (!trimmed) return 'about:blank'
   if (trimmed.startsWith('about:')) return trimmed
-  if (/^https?:\/\//i.test(trimmed)) return trimmed
+  if (/^https?:\/\//i.test(trimmed)) {
+    // Reject bare scheme with no host (e.g. "https://")
+    const hasHost = /^https?:\/\/[^/\s]+/i.test(trimmed)
+    if (hasHost) return trimmed
+  }
   if (/^[^\s/]+\.[^\s/]+/.test(trimmed)) return `https://${trimmed}`
   return `https://www.google.com/search?q=${encodeURIComponent(trimmed)}`
 }
