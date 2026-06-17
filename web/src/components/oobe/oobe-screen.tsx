@@ -67,7 +67,7 @@ export function OobeScreen() {
 
       {/* Content */}
       <Empty className="relative z-10">
-        <CrowbarWordmark className="mb-2 w-[min(720px,80vw)] text-white" />
+        <CrowbarWordmark className="mb-2 w-[min(360px,40vw)] text-white" />
         <EmptyHeader>
           <EmptyTitle className="text-white">Open a project folder</EmptyTitle>
           <EmptyDescription className="text-white/70">Choose a local directory to get started.</EmptyDescription>
