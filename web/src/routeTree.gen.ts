@@ -9,6 +9,7 @@
 // Additionally, you should also exclude this file from your linter and/or formatter to prevent it from being checked or modified.
 
 import { Route as rootRouteImport } from './routes/__root'
+import { Route as OobeRouteImport } from './routes/oobe'
 import { Route as ShellRouteImport } from './routes/_shell'
 import { Route as ShellIndexRouteImport } from './routes/_shell/index'
 import { Route as ShellProjectsIndexRouteImport } from './routes/_shell/projects/index'
@@ -17,6 +18,11 @@ import { Route as ShellWorkspacesWsIdRouteImport } from './routes/_shell/workspa
 import { Route as ShellChatChatIdRouteImport } from './routes/_shell/chat/$chatId'
 import { Route as ShellWorkspacesWsIdIndexRouteImport } from './routes/_shell/workspaces/$wsId/index'
 
+const OobeRoute = OobeRouteImport.update({
+  id: '/oobe',
+  path: '/oobe',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const ShellRoute = ShellRouteImport.update({
   id: '/_shell',
   getParentRoute: () => rootRouteImport,
@@ -55,6 +61,7 @@ const ShellWorkspacesWsIdIndexRoute =
 
 export interface FileRoutesByFullPath {
   '/': typeof ShellIndexRoute
+  '/oobe': typeof OobeRoute
   '/chat/$chatId': typeof ShellChatChatIdRoute
   '/workspaces/$wsId': typeof ShellWorkspacesWsIdRouteWithChildren
   '/workspaces/new': typeof ShellWorkspacesNewRoute
@@ -62,6 +69,7 @@ export interface FileRoutesByFullPath {
   '/workspaces/$wsId/': typeof ShellWorkspacesWsIdIndexRoute
 }
 export interface FileRoutesByTo {
+  '/oobe': typeof OobeRoute
   '/': typeof ShellIndexRoute
   '/chat/$chatId': typeof ShellChatChatIdRoute
   '/workspaces/new': typeof ShellWorkspacesNewRoute
@@ -71,6 +79,7 @@ export interface FileRoutesByTo {
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
   '/_shell': typeof ShellRouteWithChildren
+  '/oobe': typeof OobeRoute
   '/_shell/': typeof ShellIndexRoute
   '/_shell/chat/$chatId': typeof ShellChatChatIdRoute
   '/_shell/workspaces/$wsId': typeof ShellWorkspacesWsIdRouteWithChildren
@@ -82,6 +91,7 @@ export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
   fullPaths:
     | '/'
+    | '/oobe'
     | '/chat/$chatId'
     | '/workspaces/$wsId'
     | '/workspaces/new'
@@ -89,6 +99,7 @@ export interface FileRouteTypes {
     | '/workspaces/$wsId/'
   fileRoutesByTo: FileRoutesByTo
   to:
+    | '/oobe'
     | '/'
     | '/chat/$chatId'
     | '/workspaces/new'
@@ -97,6 +108,7 @@ export interface FileRouteTypes {
   id:
     | '__root__'
     | '/_shell'
+    | '/oobe'
     | '/_shell/'
     | '/_shell/chat/$chatId'
     | '/_shell/workspaces/$wsId'
@@ -107,10 +119,18 @@ export interface FileRouteTypes {
 }
 export interface RootRouteChildren {
   ShellRoute: typeof ShellRouteWithChildren
+  OobeRoute: typeof OobeRoute
 }
 
 declare module '@tanstack/react-router' {
   interface FileRoutesByPath {
+    '/oobe': {
+      id: '/oobe'
+      path: '/oobe'
+      fullPath: '/oobe'
+      preLoaderRoute: typeof OobeRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/_shell': {
       id: '/_shell'
       path: ''
@@ -194,6 +214,7 @@ const ShellRouteWithChildren = ShellRoute._addFileChildren(ShellRouteChildren)
 
 const rootRouteChildren: RootRouteChildren = {
   ShellRoute: ShellRouteWithChildren,
+  OobeRoute: OobeRoute,
 }
 export const routeTree = rootRouteImport
   ._addFileChildren(rootRouteChildren)
