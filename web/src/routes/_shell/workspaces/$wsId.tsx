@@ -4,7 +4,7 @@ import { useSidebarStore } from '@/lib/store/sidebar'
 import { useWorkspaceListStore } from '@/lib/store/workspace-list'
 import { shouldRedirectUnknownWorkspace } from '@/lib/store/workspace-route-guard'
 
-export const Route = createFileRoute('/workspaces/$wsId')({
+export const Route = createFileRoute('/_shell/workspaces/$wsId')({
   // IDEShell handles rendering via WorkspaceView; this component only guards
   // against unknown workspace ids (BUG-010).
   component: WorkspaceRouteGuard,

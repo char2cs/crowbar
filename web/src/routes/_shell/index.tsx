@@ -1,7 +1,7 @@
 import { createFileRoute, redirect } from '@tanstack/react-router'
 import { fetchLandingWorkspaceId } from '@/lib/api'
 
-export const Route = createFileRoute('/')({
+export const Route = createFileRoute('/_shell/')({
   component: () => null,
   // Resolve a real workspace to land on instead of a hardcoded id. With no
   // workspaces yet, send the user to the projects view to import one. If the

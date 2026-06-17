@@ -1,6 +1,5 @@
 // web/src/routes/__root.tsx
-import { createRootRoute } from '@tanstack/react-router'
-import { IDEShell } from '@/components/layout/ide-shell'
+import { createRootRoute, Outlet } from '@tanstack/react-router'
 import { ErrorBoundary } from '@/components/error-boundary'
 import { HydrationGate } from '@/components/hydration-gate'
 import { AppSyncProvider } from '@/components/app-sync-provider'
@@ -10,7 +9,7 @@ function RootComponent() {
     <HydrationGate>
       <ErrorBoundary>
         <AppSyncProvider>
-          <IDEShell />
+          <Outlet />
         </AppSyncProvider>
       </ErrorBoundary>
     </HydrationGate>

@@ -1,7 +1,7 @@
 import { createFileRoute } from '@tanstack/react-router'
 import { ChatPage } from '@/features/markdown-chat/components/chat-page'
 
-export const Route = createFileRoute('/chat/$chatId')({
+export const Route = createFileRoute('/_shell/chat/$chatId')({
   component: ChatRouteComponent,
 })
 
