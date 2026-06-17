@@ -6,8 +6,6 @@ export function CrowbarWordmark(props: React.SVGProps<SVGSVGElement>) {
       viewBox="0 0 453 115"
       fill="currentColor"
       xmlns="http://www.w3.org/2000/svg"
-      width="1em"
-      height="1em"
       {...props}
     >
       <path d="M226.743 86.8613C226.638 86.851 226.534 86.8411 226.43 86.8291L226.365 86.8203C226.491 86.8349 226.617 86.8488 226.743 86.8613Z" />
