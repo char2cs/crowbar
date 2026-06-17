@@ -36,22 +36,30 @@ describe('ProjectListPage error vs empty', () => {
     expect(screen.queryByText(/no projects yet/i)).toBeNull()
   })
 
-  it('shows project grid header when the fetch succeeded but list is empty', () => {
+  it('shows "No projects yet" empty state when the fetch succeeded but list is empty', () => {
     useProjectDataStore.setState({ data: success([]) })
     render(<ProjectListPage onSelect={() => {}} />)
-    expect(screen.getByText('Projects')).toBeInTheDocument()
-    expect(screen.queryByText(/no projects yet/i)).toBeNull()
+    expect(screen.getByText('No projects yet')).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: /import project/i })).toBeInTheDocument()
   })
 })
 
 describe('ProjectListPage no-repos empty state', () => {
-  it('shows "No repositories yet" when projects exist but no repos', () => {
+  it('shows "No repositories yet" when projects exist, repos fetch succeeded with empty list', () => {
     useProjectDataStore.setState({ data: success([mockProject]) })
     useWorkspaceListStore.setState({ data: success([]) })
 
     render(<ProjectListPage onSelect={() => {}} />)
     expect(screen.getByText('No repositories yet')).toBeInTheDocument()
     expect(screen.getByRole('button', { name: /add repository/i })).toBeInTheDocument()
+  })
+
+  it('does NOT show "No repositories yet" while repos are still loading (idle)', () => {
+    useProjectDataStore.setState({ data: success([mockProject]) })
+    useWorkspaceListStore.setState({ data: idle() })
+
+    render(<ProjectListPage onSelect={() => {}} />)
+    expect(screen.queryByText('No repositories yet')).toBeNull()
   })
 
   it('shows project grid when projects and repos both exist', () => {

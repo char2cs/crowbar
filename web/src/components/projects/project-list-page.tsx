@@ -48,7 +48,23 @@ export function ProjectListPage({ onSelect }: ProjectListPageProps) {
         {(projects) => {
           const hasRepos = repos.length > 0
 
-          if (projects.length > 0 && !hasRepos) {
+          if (projects.length === 0) {
+            return (
+              <Empty>
+                <EmptyHeader>
+                  <EmptyTitle>No projects yet</EmptyTitle>
+                  <EmptyDescription>Import a project folder to get started.</EmptyDescription>
+                </EmptyHeader>
+                <EmptyContent>
+                  <Button className="w-full rounded-full" onClick={() => setImportOpen(true)}>
+                    Import project
+                  </Button>
+                </EmptyContent>
+              </Empty>
+            )
+          }
+
+          if (!hasRepos && reposLoadable.status === 'success') {
             return (
               <Empty>
                 <EmptyMedia variant="icon">
