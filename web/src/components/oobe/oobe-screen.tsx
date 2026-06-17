@@ -3,13 +3,12 @@ import { useNavigate } from '@tanstack/react-router'
 import { ShaderGradient, ShaderGradientCanvas } from '@shadergradient/react'
 import {
   Empty,
-  EmptyMedia,
   EmptyHeader,
   EmptyTitle,
   EmptyDescription,
   EmptyContent,
 } from '@/components/ui/empty'
-import { CrowbarIcon } from '@/components/ui/crowbar-icon'
+import { CrowbarWordmark } from '@/components/ui/crowbar-wordmark'
 import { Button } from '@/components/ui/button'
 import { ImportProjectModal } from '@/components/projects/import-project-modal'
 import { importProjectAndSync } from '@/lib/store/projects'
@@ -68,9 +67,7 @@ export function OobeScreen() {
 
       {/* Content */}
       <Empty className="relative z-10">
-        <EmptyMedia variant="icon" className="size-20">
-          <CrowbarIcon className="size-10 text-foreground" />
-        </EmptyMedia>
+        <CrowbarWordmark className="mb-2 w-48 text-white" />
         <EmptyHeader>
           <EmptyTitle className="text-white">Open a project folder</EmptyTitle>
           <EmptyDescription className="text-white/70">Choose a local directory to get started.</EmptyDescription>
