@@ -26,7 +26,7 @@ export function OobeScreen() {
   }
 
   return (
-    <div className="relative flex h-screen flex-col overflow-hidden">
+    <div className="dark relative flex h-screen flex-col overflow-hidden">
       {/* Animated gradient background */}
       <div className="pointer-events-none absolute inset-0">
         <ShaderGradientCanvas style={{ width: '100%', height: '100%' }} fov={45} pixelDensity={1}>
