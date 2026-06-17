@@ -27,8 +27,8 @@ export function OobeScreen() {
   return (
     <div className="flex h-screen flex-col bg-background">
       <Empty>
-        <EmptyMedia variant="icon">
-          <CrowbarIcon className="text-foreground" />
+        <EmptyMedia variant="icon" className="size-20">
+          <CrowbarIcon className="size-10 text-foreground" />
         </EmptyMedia>
         <EmptyHeader>
           <EmptyTitle>Open a project folder</EmptyTitle>
