@@ -26,7 +26,7 @@ export function OobeScreen() {
   }
 
   return (
-    <div className="dark relative flex h-screen flex-col overflow-hidden">
+    <div className="relative flex h-screen flex-col overflow-hidden">
       {/* Animated gradient background */}
       <div className="pointer-events-none absolute inset-0">
         <ShaderGradientCanvas style={{ width: '100%', height: '100%' }} fov={45} pixelDensity={1}>
@@ -72,11 +72,14 @@ export function OobeScreen() {
           <CrowbarIcon className="size-10 text-foreground" />
         </EmptyMedia>
         <EmptyHeader>
-          <EmptyTitle>Open a project folder</EmptyTitle>
-          <EmptyDescription>Choose a local directory to get started.</EmptyDescription>
+          <EmptyTitle className="text-white">Open a project folder</EmptyTitle>
+          <EmptyDescription className="text-white/70">Choose a local directory to get started.</EmptyDescription>
         </EmptyHeader>
         <EmptyContent>
-          <Button className="w-full rounded-full" onClick={() => setImportOpen(true)}>
+          <Button
+            className="w-full rounded-full bg-white text-black hover:bg-white/90"
+            onClick={() => setImportOpen(true)}
+          >
             Choose folder
           </Button>
         </EmptyContent>
