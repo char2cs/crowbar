@@ -94,7 +94,6 @@ interface WorkspaceTreeContextValue {
   cancelRename: () => void
   // Drag (pointer-based)
   draggingWs: DraggingState | null
-  dragPos: { x: number; y: number } | null
   hoverTargetId: string | null
   onPointerDownDrag: (wsId: string, repoId: string, label: string, e: React.PointerEvent) => void
 }
@@ -141,8 +140,17 @@ export function WorkspaceTreeProvider({ children }: { children: ReactNode }) {
   const [creatingChildOf, setCreatingChildOf] = useState<CreatingState | null>(null)
   const [renamingId, setRenamingId] = useState<string | null>(null)
   const [draggingWs, setDraggingWs] = useState<DraggingState | null>(null)
-  const [dragPos, setDragPos] = useState<{ x: number; y: number } | null>(null)
   const [hoverTargetId, setHoverTargetId] = useState<string | null>(null)
+
+  // Ghost div position is updated imperatively in pointermove — no React state,
+  // no tree re-renders on every pixel of mouse movement.
+  const ghostRef = useRef<HTMLDivElement | null>(null)
+  // Tracks the initial position for the ghost's first render (set just before
+  // setDraggingWs so the ghost mounts at the correct location).
+  const lastDragPosRef = useRef<{ x: number; y: number } | null>(null)
+  // Mirrors hoverTargetId for equality checks — avoids state writes when the
+  // drop target hasn't actually changed.
+  const hoverTargetIdRef = useRef<string | null>(null)
 
   const pendingRef = useRef<{
     wsId: string
@@ -214,16 +222,30 @@ export function WorkspaceTreeProvider({ children }: { children: ReactNode }) {
           if (target.isConnected) target.setPointerCapture(pointerId)
           const ws = { id: wsId, repoId, label }
           draggingRef.current = ws
+          // Store position before triggering the React re-render so the ghost
+          // div mounts at the correct location on its first render.
+          lastDragPosRef.current = { x: e.clientX, y: e.clientY }
           setDraggingWs(ws)
-          setDragPos({ x: e.clientX, y: e.clientY })
           // Update hover target immediately so highlight appears on the first move
-          setHoverTargetId(findDropTarget(e.clientX, e.clientY, wsId))
+          const initialTarget = findDropTarget(e.clientX, e.clientY, wsId)
+          hoverTargetIdRef.current = initialTarget
+          setHoverTargetId(initialTarget)
         }
         return
       }
       if (!draggingRef.current) return
-      setDragPos({ x: e.clientX, y: e.clientY })
-      setHoverTargetId(findDropTarget(e.clientX, e.clientY, draggingRef.current.id))
+      // Move ghost directly — no React state update, no tree re-render.
+      if (ghostRef.current) {
+        ghostRef.current.style.left = `${e.clientX + 12}px`
+        ghostRef.current.style.top = `${e.clientY - 10}px`
+      }
+      // Only trigger a React re-render when the drop target actually changes
+      // (mouse crosses a boundary), not on every pixel of movement.
+      const newTarget = findDropTarget(e.clientX, e.clientY, draggingRef.current.id)
+      if (newTarget !== hoverTargetIdRef.current) {
+        hoverTargetIdRef.current = newTarget
+        setHoverTargetId(newTarget)
+      }
     }
 
     function onPointerUp(e: PointerEvent) {
@@ -254,7 +276,7 @@ export function WorkspaceTreeProvider({ children }: { children: ReactNode }) {
           if (fallbackWsId) {
             void navigate({ to: '/workspaces/$wsId', params: { wsId: fallbackWsId } })
           } else {
-            void navigate({ to: '/projects' })
+            void navigate({ to: '/' })
           }
         })
       } else if (target?.startsWith('ws:')) {
@@ -274,8 +296,9 @@ export function WorkspaceTreeProvider({ children }: { children: ReactNode }) {
       }
 
       draggingRef.current = null
+      hoverTargetIdRef.current = null
+      lastDragPosRef.current = null
       setDraggingWs(null)
-      setDragPos(null)
       setHoverTargetId(null)
     }
 
@@ -283,8 +306,9 @@ export function WorkspaceTreeProvider({ children }: { children: ReactNode }) {
       pendingRef.current = null
       if (draggingRef.current) {
         draggingRef.current = null
+        hoverTargetIdRef.current = null
+        lastDragPosRef.current = null
         setDraggingWs(null)
-        setDragPos(null)
         setHoverTargetId(null)
       }
     }
@@ -300,23 +324,36 @@ export function WorkspaceTreeProvider({ children }: { children: ReactNode }) {
   }, [navigate, router])
 
   return (
-    <WorkspaceTreeContext.Provider
-      value={{
-        creatingChildOf,
-        startCreating,
-        confirmCreate,
-        cancelCreate,
-        renamingId,
-        startRenaming,
-        confirmRename,
-        cancelRename,
-        draggingWs,
-        dragPos,
-        hoverTargetId,
-        onPointerDownDrag,
-      }}
-    >
-      {children}
-    </WorkspaceTreeContext.Provider>
+    <>
+      <WorkspaceTreeContext.Provider
+        value={{
+          creatingChildOf,
+          startCreating,
+          confirmCreate,
+          cancelCreate,
+          renamingId,
+          startRenaming,
+          confirmRename,
+          cancelRename,
+          draggingWs,
+          hoverTargetId,
+          onPointerDownDrag,
+        }}
+      >
+        {children}
+      </WorkspaceTreeContext.Provider>
+      {draggingWs && (
+        <div
+          ref={ghostRef}
+          className="pointer-events-none fixed z-50 rounded-md border border-border bg-secondary px-2 py-1 font-mono text-[13px] text-secondary-foreground shadow-md opacity-90"
+          style={{
+            left: lastDragPosRef.current ? lastDragPosRef.current.x + 12 : 0,
+            top: lastDragPosRef.current ? lastDragPosRef.current.y - 10 : 0,
+          }}
+        >
+          {draggingWs.label}
+        </div>
+      )}
+    </>
   )
 }

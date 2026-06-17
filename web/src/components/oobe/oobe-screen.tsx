@@ -21,7 +21,7 @@ export function OobeScreen() {
   function handleImport(project: Project) {
     importProjectAndSync(project)
     setImportOpen(false)
-    void navigate({ to: '/projects' })
+    void navigate({ to: '/' })
   }
 
   return (

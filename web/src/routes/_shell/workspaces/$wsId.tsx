@@ -25,7 +25,7 @@ function WorkspaceRouteGuard() {
   const redirect = shouldRedirectUnknownWorkspace(listStatus, repos, wsId)
 
   useEffect(() => {
-    if (redirect) void navigate({ to: '/projects', replace: true })
+    if (redirect) void navigate({ to: '/', replace: true })
   }, [redirect, navigate])
 
   return null
