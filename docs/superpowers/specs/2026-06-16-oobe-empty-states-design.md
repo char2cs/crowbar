@@ -10,27 +10,55 @@
 
 A new Crowbar user hits two distinct empty states in sequence:
 
-1. **No project** — the app opens with no project folder configured. The sidebar is absent.
+1. **No project** — the app opens with no project folder configured. Full-canvas, no sidebar, no shell chrome.
 2. **Project added, no repository** — a project folder exists, the sidebar appears, but no git repo has been added yet.
 
-Both screens replace their current placeholder text blobs with the `@coss/empty` component pattern (already at `components/ui/empty.tsx`) using the `icon` variant — the app icon in a rounded card with two ghost cards rotated behind it.
+Both screens use the `@coss/empty` component pattern (already at `components/ui/empty.tsx`) with the `icon` variant — icon in a rounded card with two ghost cards rotated behind it.
 
 ---
 
-## Screen 1 — No Project (OOBE Entry)
+## Routing architecture
+
+Currently `__root.tsx` unconditionally wraps every route in `IDEShell`, which always renders the right sidebar. Screen 1 requires a completely chrome-free full-canvas view, so the shell must not mount at all.
+
+**The fix:** move `IDEShell` out of `__root.tsx` into a pathless layout route (`_shell.tsx`). The `/oobe` route becomes a sibling that bypasses the shell entirely.
+
+### Route tree (after change)
+
+```
+__root.tsx          ← providers only (HydrationGate, ErrorBoundary, AppSyncProvider)
+  _shell.tsx        ← pathless layout: mounts IDEShell, wraps all normal routes
+    /               ← redirect logic (see below)
+    /projects       ← ProjectListPage (Screen 2 empty state lives here)
+    /workspaces/$wsId
+    /workspaces/new
+    /chat/$chatId
+  /oobe             ← Screen 1, renders outside IDEShell entirely
+```
+
+### Index redirect logic
+
+`routes/index.tsx` `beforeLoad`:
+- No projects → redirect to `/oobe`
+- Has projects + resolvable workspace → redirect to `/workspaces/$wsId`
+- Has projects, no workspace → redirect to `/projects`
+
+When the user adds their first project inside `/oobe`, navigate to `/projects`.
+
+---
+
+## Screen 1 — `/oobe` (No Project)
 
 ### Layout
 
-The `ProjectListPage` currently renders a `Projects` header and an `+ Import project` button even when there are no projects. When `projects.length === 0`, both should be hidden — the entire view should be the empty state centered in a full-bleed canvas with no chrome above it.
-
-The window has no sidebar (that's already the case today). The empty state fills the full content area.
+Full-canvas, no sidebar, no titlebar chrome. The `Empty` component fills the entire window centered vertically and horizontally.
 
 ### Component structure
 
 ```tsx
 <Empty>
   <EmptyMedia variant="icon">
-    <img src={appIconUrl} width={40} height={40} style={{ borderRadius: 10 }} />
+    <img src="/icon.png" width={40} height={40} style={{ borderRadius: 10 }} />
   </EmptyMedia>
   <EmptyHeader>
     <EmptyTitle>Open a project folder</EmptyTitle>
@@ -47,34 +75,29 @@ The window has no sidebar (that's already the case today). The empty state fills
 
 ### "What's a project?" action
 
-Opens a small popover or tooltip (not a modal) that explains in 2–3 lines:
+Opens a small popover (not a modal) explaining:
 
-> A project is a local folder — the home for your repositories and cross-repo AI agents. Think of it like a workspace root: add repos inside it, then open them as workspaces to review code, run terminals, and chat with agents that understand your whole architecture.
+> A project is a local folder — the home for your repositories and cross-repo AI agents. Add repos inside it, then open them as workspaces to review code, run terminals, and chat with agents that understand your whole architecture.
 
-No separate page or route needed.
+### App icon
 
-### App icon source
+Copy `desktop/src-tauri/icons/128x128.png` to `web/public/icon.png` so it's available as a static asset.
 
-Use the Tauri app icon already bundled at `desktop/src-tauri/icons/128x128.png`. For the web layer, expose it as a static asset (copy to `web/public/` or reference via the Tauri asset protocol) so it can be used as an `<img>` src.
+### After import
+
+On successful project import, navigate to `/projects`.
 
 ---
 
-## Screen 2 — Project Added, No Repository
+## Screen 2 — `/projects` empty state (Project Added, No Repository)
 
-### When it appears
-
-After the user adds a project, the sidebar becomes visible. The main content area shows this state when no workspace (repository) has been added to the project yet.
-
-### Layout
-
-Standard IDE shell with sidebar — identical to the normal workspace view, but the right-hand content panel renders the empty state instead of a workspace.
+This renders inside the normal `IDEShell` with the sidebar visible.
 
 ### Component structure
 
 ```tsx
 <Empty>
   <EmptyMedia variant="icon">
-    {/* git branch icon, lucide GitBranch or similar */}
     <GitBranchIcon className="size-4.5 text-foreground" />
   </EmptyMedia>
   <EmptyHeader>
@@ -91,16 +114,14 @@ Standard IDE shell with sidebar — identical to the normal workspace view, but 
 
 ### Sidebar state
 
-The sidebar shows the project name and a `+ Add repository` item under the Workspaces section (dashed border, muted style) that triggers the same action as the button in the main area.
+The sidebar shows the project name with a `+ Add repository` entry under Workspaces (dashed border, muted) that triggers the same action as the main CTA.
 
 ---
 
 ## What doesn't change
 
-- The `ImportProjectModal` (triggered by "Choose folder") is unchanged.
-- The add-repository flow is unchanged.
-- Routing and state logic are unchanged — these are purely presentational replacements.
-- The `ProjectListPage` header (`Projects` + `+ Import project` button) is only hidden in the zero-projects case; it reappears normally once projects exist.
+- `ImportProjectModal` and add-repository flow are unchanged.
+- All existing workspace routes are unchanged — they move under `_shell.tsx` but their paths stay the same.
 
 ---
 
@@ -108,6 +129,10 @@ The sidebar shows the project name and a `+ Add repository` item under the Works
 
 | File | Change |
 |------|--------|
-| `web/src/components/projects/project-list-page.tsx` | Replace inline empty state with `<Empty>` pattern; hide header when `projects.length === 0` |
-| `web/src/components/layout/ide-shell.tsx` | Replace "Select project" / no-workspace placeholder with Screen 2 `<Empty>` pattern |
-| `web/public/` (or equivalent) | Add `icon.png` (128×128 app icon) as a static asset |
+| `web/src/routes/__root.tsx` | Remove `IDEShell`; keep only providers |
+| `web/src/routes/_shell.tsx` | New pathless layout route — mounts `IDEShell` |
+| `web/src/routes/oobe.tsx` | New route — Screen 1 full-canvas OOBE component |
+| `web/src/routes/index.tsx` | Update redirect: no projects → `/oobe` |
+| `web/src/components/projects/project-list-page.tsx` | Replace inline empty state with Screen 2 `<Empty>` pattern |
+| `web/src/components/layout/ide-shell.tsx` | Replace "Select project" placeholder with Screen 2 `<Empty>` pattern |
+| `web/public/icon.png` | Add 128×128 app icon as static asset |
