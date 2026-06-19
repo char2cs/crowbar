@@ -147,3 +147,56 @@ func TestPrefixMatch_EmptyMatchesAll(t *testing.T) {
 	assert.True(t, PrefixMatch("", ""))
 	assert.True(t, PrefixMatch("", "anything"))
 }
+
+// ctxWithParams builds a context carrying multiple path params, mirroring a
+// request to a route nested under /projects/:projectId/repos/:repoId.
+func ctxWithParams(
+	query string,
+	params gin.Params,
+) *gin.Context {
+	c, _ := gin.CreateTestContext(httptest.NewRecorder())
+	c.Request = httptest.NewRequest("GET", "/x?"+query, nil)
+	c.Params = params
+	return c
+}
+
+// flatDef mirrors the git/files/lsp streams: a bare wsId namespace, a wsId
+// Filter, and FlatNamespace set.
+func flatDef() StreamDef[row] {
+	return StreamDef[row]{
+		Namespace:     func(r row) string { return r.name },
+		FlatNamespace: true,
+		Filters: []FilterDef[row]{
+			{Param: "wsId", Extract: func(r row) string { return r.name }, Match: ExactMatch},
+		},
+	}
+}
+
+// TestBuildPredicate_FlatNamespace_IgnoresHierarchicalScope proves a
+// flat-namespace stream subscribed via a nested route (projectId/repoId present
+// as path params) is scoped ONLY by its wsId Filter: the structural
+// projectId/repoId would otherwise build a "p1/r1" client scope that can never
+// prefix-match the bare wsId namespace and would drop every event.
+func TestBuildPredicate_FlatNamespace_IgnoresHierarchicalScope(t *testing.T) {
+	ctx := ctxWithParams("wsId=A", gin.Params{
+		{Key: "projectId", Value: "p1"},
+		{Key: "repoId", Value: "r1"},
+	})
+	p := BuildPredicate(ctx, flatDef())
+	assert.True(t, p(row{name: "A"}), "matching wsId must pass despite the p1/r1 path")
+	assert.False(t, p(row{name: "B"}), "non-matching wsId is filtered by the Filter")
+}
+
+// TestBuildPredicate_FlatNamespace_DualServePathParam proves the dual-serve
+// route (which binds wsId as a PATH param under the nested prefix) still scopes
+// by wsId for a flat-namespace stream.
+func TestBuildPredicate_FlatNamespace_DualServePathParam(t *testing.T) {
+	ctx := ctxWithParams("", gin.Params{
+		{Key: "projectId", Value: "p1"},
+		{Key: "repoId", Value: "r1"},
+		{Key: "wsId", Value: "A"},
+	})
+	p := BuildPredicate(ctx, flatDef())
+	assert.True(t, p(row{name: "A"}))
+	assert.False(t, p(row{name: "B"}))
+}

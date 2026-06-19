@@ -99,8 +99,11 @@ func TestRegisterMountsRoutes(
 ) {
 	r := gin.New()
 	var wsHit bool
+	// workspaces.Register mounts on the repo-scoped group, so build the
+	// hierarchical prefix to mirror the production router chain.
+	repoScoped := r.Group("/v0/projects/:projectId/repos/:repoId")
 	workspaces.Register(
-		r.Group("/v0"),
+		repoScoped,
 		stubReader{},
 		stubHierarchy{},
 		stubRepos{},
@@ -112,12 +115,12 @@ func TestRegisterMountsRoutes(
 		method string
 		path   string
 	}{
-		{http.MethodGet, "/v0/workspaces"},
-		{http.MethodGet, "/v0/workspaces/abc"},
-		{http.MethodPost, "/v0/workspaces"},
-		{http.MethodDelete, "/v0/workspaces/abc"},
-		{http.MethodPost, "/v0/workspaces/abc/merge-into-parent"},
-		{http.MethodPost, "/v0/workspaces/abc/reparent"},
+		{http.MethodGet, "/v0/projects/p1/repos/r1/workspaces"},
+		{http.MethodGet, "/v0/projects/p1/repos/r1/workspaces/abc"},
+		{http.MethodPost, "/v0/projects/p1/repos/r1/workspaces"},
+		{http.MethodDelete, "/v0/projects/p1/repos/r1/workspaces/abc"},
+		{http.MethodPost, "/v0/projects/p1/repos/r1/workspaces/abc/merge-into-parent"},
+		{http.MethodPost, "/v0/projects/p1/repos/r1/workspaces/abc/reparent"},
 	}
 	for _, tc := range cases {
 		rec := httptest.NewRecorder()

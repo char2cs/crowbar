@@ -16,7 +16,7 @@ func TestSyncSuccess(
 	reader := &fakeReader{synced: domain.Workspace{ID: "ws1"}}
 	r := newRouter(reader, &fakeHierarchy{}, &fakeRepos{repo: &domain.Repository{ID: "r1"}})
 
-	rec := do(r, http.MethodPost, "/v0/workspaces/ws1/sync", "")
+	rec := do(r, http.MethodPost, "/v0/projects/p1/repos/r1/workspaces/ws1/sync", "")
 	assert.Equal(t, http.StatusOK, rec.Code)
 	assert.Equal(t, "ws1", reader.gotSync)
 }
@@ -27,6 +27,6 @@ func TestSyncError(
 	reader := &fakeReader{syncErr: errors.New("db down")}
 	r := newRouter(reader, &fakeHierarchy{}, &fakeRepos{})
 
-	rec := do(r, http.MethodPost, "/v0/workspaces/ws1/sync", "")
+	rec := do(r, http.MethodPost, "/v0/projects/p1/repos/r1/workspaces/ws1/sync", "")
 	assert.Equal(t, http.StatusInternalServerError, rec.Code)
 }

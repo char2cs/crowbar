@@ -55,7 +55,7 @@ func TestV0_HubBroadcastReachesWSClient(t *testing.T) {
 	srv := httptest.NewServer(r)
 	t.Cleanup(srv.Close)
 
-	url := "ws" + srv.URL[len("http"):] + "/v0/ws/workspaces"
+	url := "ws" + srv.URL[len("http"):] + "/v0/projects/p1/repos/r1/ws/workspaces"
 	conn, resp, err := websocket.DefaultDialer.Dial(url, nil)
 	if resp != nil {
 		_ = resp.Body.Close()
@@ -83,7 +83,9 @@ func TestV0_WorkspacesFilter_ProjectId(t *testing.T) {
 	srv := httptest.NewServer(r)
 	t.Cleanup(srv.Close)
 
-	url := "ws" + srv.URL[len("http"):] + "/v0/ws/workspaces?projectId=p1"
+	// The nested WS route binds projectId/repoId as path params, so the client
+	// scope is "p1/r1"; the p1/r1/w1 fixture prefix-matches and is delivered.
+	url := "ws" + srv.URL[len("http"):] + "/v0/projects/p1/repos/r1/ws/workspaces"
 	conn, resp, err := websocket.DefaultDialer.Dial(url, nil)
 	if resp != nil {
 		_ = resp.Body.Close()
@@ -92,7 +94,7 @@ func TestV0_WorkspacesFilter_ProjectId(t *testing.T) {
 	t.Cleanup(func() { _ = conn.Close() })
 	c.WaitWorkspacesRegistered()
 
-	// This workspace has projectId=p1 so it should pass the filter.
+	// This workspace has projectId=p1/repoId=r1 so it passes the prefix filter.
 	tc.app.Hub.BroadcastWorkspace(workspaceFixture())
 
 	require.NoError(t, conn.SetReadDeadline(time.Now().Add(2*time.Second)))
@@ -114,7 +116,7 @@ func TestV0_WorkspacesFilter_RepoId(t *testing.T) {
 
 	// Prefix scoping is hierarchical: a repo-scoped subscription supplies both
 	// projectId and repoId (the standalone repoId query is no longer a scope key).
-	url := "ws" + srv.URL[len("http"):] + "/v0/ws/workspaces?projectId=p1&repoId=r1"
+	url := "ws" + srv.URL[len("http"):] + "/v0/projects/p1/repos/r1/ws/workspaces"
 	conn, resp, err := websocket.DefaultDialer.Dial(url, nil)
 	if resp != nil {
 		_ = resp.Body.Close()
@@ -213,7 +215,7 @@ func TestV0_PushLSP_ReachesFilteredClient(t *testing.T) {
 	srv := httptest.NewServer(r)
 	t.Cleanup(srv.Close)
 
-	url := "ws" + srv.URL[len("http"):] + "/v0/ws/lsp?wsId=w1"
+	url := "ws" + srv.URL[len("http"):] + "/v0/projects/p1/repos/r1/ws/lsp?wsId=w1"
 	conn, resp, err := websocket.DefaultDialer.Dial(url, nil)
 	if resp != nil {
 		_ = resp.Body.Close()
@@ -246,7 +248,7 @@ func TestV0_PushGit_QueryScope_IsolatesWsId(t *testing.T) {
 	srv := httptest.NewServer(r)
 	t.Cleanup(srv.Close)
 
-	url := "ws" + srv.URL[len("http"):] + "/v0/ws/git?wsId=A"
+	url := "ws" + srv.URL[len("http"):] + "/v0/projects/p1/repos/r1/ws/git?wsId=A"
 	conn, resp, err := websocket.DefaultDialer.Dial(url, nil)
 	if resp != nil {
 		_ = resp.Body.Close()
@@ -277,7 +279,7 @@ func TestV0_GitDualServe_PathScope_IsolatesWsId(t *testing.T) {
 	t.Cleanup(srv.Close)
 
 	// The dual-served route scopes by the :wsId PATH param, not a query param.
-	url := "ws" + srv.URL[len("http"):] + "/v0/workspaces/A/git/status"
+	url := "ws" + srv.URL[len("http"):] + "/v0/projects/p1/repos/r1/workspaces/A/git/status"
 	conn, resp, err := websocket.DefaultDialer.Dial(url, nil)
 	if resp != nil {
 		_ = resp.Body.Close()
@@ -306,7 +308,7 @@ func TestV0_PushFile_ReachesFilteredClient(t *testing.T) {
 	srv := httptest.NewServer(r)
 	t.Cleanup(srv.Close)
 
-	url := "ws" + srv.URL[len("http"):] + "/v0/ws/files?wsId=w1"
+	url := "ws" + srv.URL[len("http"):] + "/v0/projects/p1/repos/r1/ws/files?wsId=w1"
 	conn, resp, err := websocket.DefaultDialer.Dial(url, nil)
 	if resp != nil {
 		_ = resp.Body.Close()

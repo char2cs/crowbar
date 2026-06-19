@@ -91,7 +91,7 @@ type WorkspaceReader interface {
 	List(ctx context.Context) ([]domain.Workspace, error)
 }
 
-// BranchEntry is one item in the GET /v0/repos/:id/branches response.
+// BranchEntry is one item in the GET /v0/projects/:projectId/repos/:repoId/branches response.
 type BranchEntry struct {
 	Name         string `json:"name"`
 	IsProtected  bool   `json:"isProtected"`
@@ -133,13 +133,13 @@ func (h *Handlers) List(
 	libs.WriteQueryOK(c, dto.RepoDTOList(repos))
 }
 
-// Detail handles GET /v0/repos/:id, returning a single RepoDTO. The workspace
+// Detail handles GET /v0/projects/:projectId/repos/:repoId, returning a single RepoDTO. The workspace
 // tree is not yet composed by any usecase, so detail carries the repo fields
 // only.
 func (h *Handlers) Detail(
 	c *gin.Context,
 ) {
-	repo, err := h.store.FindByKey(c.Request.Context(), c.Param("id"))
+	repo, err := h.store.FindByKey(c.Request.Context(), c.Param("repoId"))
 	if err != nil {
 		status, msg := libs.StatusAndMessage(err)
 		libs.WriteErr(c, status, msg)
@@ -218,10 +218,10 @@ func gitDefaultBranch(
 	return strings.TrimSpace(string(out))
 }
 
-// Icon handles GET /v0/repos/:id/icon. If AvatarURL is an HTTPS URL it
+// Icon handles GET /v0/projects/:projectId/repos/:repoId/icon. If AvatarURL is an HTTPS URL it
 // redirects. If it is a local filesystem path it reads and serves the file.
 func (h *Handlers) Icon(c *gin.Context) {
-	repo, err := h.store.FindByKey(c.Request.Context(), c.Param("id"))
+	repo, err := h.store.FindByKey(c.Request.Context(), c.Param("repoId"))
 	if err != nil || repo == nil || repo.AvatarURL == "" {
 		c.Status(http.StatusNotFound)
 		return
@@ -264,10 +264,10 @@ func (h *Handlers) Icon(c *gin.Context) {
 	c.Data(http.StatusOK, ct, data)
 }
 
-// Branches handles GET /v0/repos/:id/branches. Returns all remote branches
+// Branches handles GET /v0/projects/:projectId/repos/:repoId/branches. Returns all remote branches
 // annotated with isProtected and hasWorkspace fields.
 func (h *Handlers) Branches(c *gin.Context) {
-	repo, err := h.store.FindByKey(c.Request.Context(), c.Param("id"))
+	repo, err := h.store.FindByKey(c.Request.Context(), c.Param("repoId"))
 	if err != nil || repo == nil {
 		libs.WriteErr(c, http.StatusNotFound, "repo not found")
 		return
@@ -348,10 +348,10 @@ func filterByProject(
 	return filtered
 }
 
-// PutIconEmoji handles PUT /v0/repos/:id/icon/emoji.
+// PutIconEmoji handles PUT /v0/projects/:projectId/repos/:repoId/icon/emoji.
 // Body: {"emoji":"🦊"} — stores "emoji:🦊" in avatar_url.
 func (h *Handlers) PutIconEmoji(c *gin.Context) {
-	repo, err := h.store.FindByKey(c.Request.Context(), c.Param("id"))
+	repo, err := h.store.FindByKey(c.Request.Context(), c.Param("repoId"))
 	if err != nil || repo == nil {
 		libs.WriteErr(c, http.StatusNotFound, "repo not found")
 		return
@@ -376,10 +376,10 @@ func (h *Handlers) PutIconEmoji(c *gin.Context) {
 	c.Status(http.StatusNoContent)
 }
 
-// DeleteIcon handles DELETE /v0/repos/:id/icon.
+// DeleteIcon handles DELETE /v0/projects/:projectId/repos/:repoId/icon.
 // Clears avatar_url and deletes any local icon file.
 func (h *Handlers) DeleteIcon(c *gin.Context) {
-	repo, err := h.store.FindByKey(c.Request.Context(), c.Param("id"))
+	repo, err := h.store.FindByKey(c.Request.Context(), c.Param("repoId"))
 	if err != nil || repo == nil {
 		libs.WriteErr(c, http.StatusNotFound, "repo not found")
 		return
@@ -397,10 +397,10 @@ func (h *Handlers) DeleteIcon(c *gin.Context) {
 	c.Status(http.StatusNoContent)
 }
 
-// PutIcon handles PUT /v0/repos/:id/icon (multipart/form-data, field "icon").
+// PutIcon handles PUT /v0/projects/:projectId/repos/:repoId/icon (multipart/form-data, field "icon").
 // Accepts image/png, image/jpeg, image/webp; max 5 MB.
 func (h *Handlers) PutIcon(c *gin.Context) {
-	repo, err := h.store.FindByKey(c.Request.Context(), c.Param("id"))
+	repo, err := h.store.FindByKey(c.Request.Context(), c.Param("repoId"))
 	if err != nil || repo == nil {
 		libs.WriteErr(c, http.StatusNotFound, "repo not found")
 		return
@@ -460,10 +460,10 @@ func (h *Handlers) PutIcon(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"avatarUrl": "/v0/repos/" + repo.ID + "/icon"})
 }
 
-// PutIconGithub handles PUT /v0/repos/:id/icon/github.
+// PutIconGithub handles PUT /v0/projects/:projectId/repos/:repoId/icon/github.
 // Re-fetches the repo owner's GitHub avatar and stores it in avatar_url.
 func (h *Handlers) PutIconGithub(c *gin.Context) {
-	repo, err := h.store.FindByKey(c.Request.Context(), c.Param("id"))
+	repo, err := h.store.FindByKey(c.Request.Context(), c.Param("repoId"))
 	if err != nil || repo == nil {
 		libs.WriteErr(c, http.StatusNotFound, "repo not found")
 		return

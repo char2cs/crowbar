@@ -18,9 +18,10 @@ func noEligibility(
 	return workspace.MergeEligibility{}
 }
 
-// List handles GET /v0/workspaces, returning the flat WorkspaceDTO[] list. An
-// optional projectId or repoId query parameter scopes the result to a single
-// project or repository; both may be supplied and are applied conjunctively.
+// List handles
+// GET /v0/projects/:projectId/repos/:repoId/workspaces, returning the
+// repo-scoped WorkspaceDTO[] list. The scope is taken from the :projectId and
+// :repoId path params and applied conjunctively over the workspace set.
 func (h *Handlers) List(
 	c *gin.Context,
 ) {
@@ -32,13 +33,15 @@ func (h *Handlers) List(
 	}
 	filtered := filterWorkspaces(
 		rows,
-		c.Query("projectId"),
-		c.Query("repoId"),
+		c.Param("projectId"),
+		c.Param("repoId"),
 	)
 	libs.WriteQueryOK(c, dto.WorkspaceDTOList(filtered, noEligibility))
 }
 
-// Detail handles GET /v0/workspaces/:wsId, returning a single WorkspaceDTO.
+// Detail handles
+// GET /v0/projects/:projectId/repos/:repoId/workspaces/:wsId, returning a
+// single WorkspaceDTO.
 func (h *Handlers) Detail(
 	c *gin.Context,
 ) {

@@ -77,11 +77,11 @@ func New(
 // importRequest is the POST /v0/projects body: the display name and the
 // filesystem path to import.
 type importRequest struct {
-	Name  string `json:"name"`
-	Path  string `json:"path"`
+	Name string `json:"name"`
+	Path string `json:"path"`
 	// Quick skips repo discovery and workspace stub creation. Use it from the
 	// OOBE flow where repo setup is deferred to the project-level welcome screen.
-	Quick bool   `json:"quick,omitempty"`
+	Quick bool `json:"quick,omitempty"`
 }
 
 // List handles GET /v0/projects, returning every project as ProjectDTO[].
@@ -97,11 +97,11 @@ func (h *Handlers) List(
 	libs.WriteQueryOK(c, dto.ProjectDTOList(projects))
 }
 
-// Detail handles GET /v0/projects/:id, returning a single ProjectDTO.
+// Detail handles GET /v0/projects/:projectId, returning a single ProjectDTO.
 func (h *Handlers) Detail(
 	c *gin.Context,
 ) {
-	project, err := h.reader.Get(c.Request.Context(), c.Param("id"))
+	project, err := h.reader.Get(c.Request.Context(), c.Param("projectId"))
 	if err != nil {
 		status, msg := libs.StatusAndMessage(err)
 		libs.WriteErr(c, status, msg)
@@ -145,14 +145,14 @@ func (h *Handlers) Import(
 	libs.WriteMutationOK(c, http.StatusCreated, project.ID)
 }
 
-// Delete handles DELETE /v0/projects/:id, removing the project record together
+// Delete handles DELETE /v0/projects/:projectId, removing the project record together
 // with its repo and workspace records and returning the requested id. Real
 // repository directories are never deleted from disk; only crowbar-created
 // worktree directories are torn down (see project.DeleteUsecase).
 func (h *Handlers) Delete(
 	c *gin.Context,
 ) {
-	id := c.Param("id")
+	id := c.Param("projectId")
 	if err := h.deleter.Delete(c.Request.Context(), id); err != nil {
 		status, msg := libs.StatusAndMessage(err)
 		libs.WriteErr(c, status, msg)

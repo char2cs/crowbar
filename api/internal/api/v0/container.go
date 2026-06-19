@@ -248,9 +248,10 @@ func gitDef(
 	appContainer *app.Container,
 ) ws.StreamDef[gitdomain.GitStatusEvent] {
 	return ws.StreamDef[gitdomain.GitStatusEvent]{
-		Namespace: func(e gitdomain.GitStatusEvent) string { return e.WsID },
-		Serialize: func(e gitdomain.GitStatusEvent) ([]byte, error) { return json.Marshal(e.Status) },
-		Snapshot:  gitSnapshot(appContainer),
+		Namespace:     func(e gitdomain.GitStatusEvent) string { return e.WsID },
+		Serialize:     func(e gitdomain.GitStatusEvent) ([]byte, error) { return json.Marshal(e.Status) },
+		Snapshot:      gitSnapshot(appContainer),
+		FlatNamespace: true,
 		Filters: []ws.FilterDef[gitdomain.GitStatusEvent]{
 			{Param: "wsId", Extract: func(e gitdomain.GitStatusEvent) string { return e.WsID }, Match: ws.ExactMatch},
 		},
@@ -259,8 +260,9 @@ func gitDef(
 
 func filesDef() ws.StreamDef[domain.FileChangeEvent] {
 	return ws.StreamDef[domain.FileChangeEvent]{
-		Namespace: func(e domain.FileChangeEvent) string { return e.WsID },
-		Serialize: func(e domain.FileChangeEvent) ([]byte, error) { return json.Marshal(e) },
+		Namespace:     func(e domain.FileChangeEvent) string { return e.WsID },
+		Serialize:     func(e domain.FileChangeEvent) ([]byte, error) { return json.Marshal(e) },
+		FlatNamespace: true,
 		Filters: []ws.FilterDef[domain.FileChangeEvent]{
 			{Param: "wsId", Extract: func(e domain.FileChangeEvent) string { return e.WsID }, Match: ws.ExactMatch},
 		},
@@ -272,9 +274,10 @@ func lspDef(
 	engContainer *engine.Container,
 ) ws.StreamDef[lspdomain.DiagnosticsEvent] {
 	return ws.StreamDef[lspdomain.DiagnosticsEvent]{
-		Namespace: func(e lspdomain.DiagnosticsEvent) string { return e.WsID },
-		Serialize: func(e lspdomain.DiagnosticsEvent) ([]byte, error) { return json.Marshal(e) },
-		Snapshot:  lspSnapshot(appContainer, engContainer),
+		Namespace:     func(e lspdomain.DiagnosticsEvent) string { return e.WsID },
+		Serialize:     func(e lspdomain.DiagnosticsEvent) ([]byte, error) { return json.Marshal(e) },
+		Snapshot:      lspSnapshot(appContainer, engContainer),
+		FlatNamespace: true,
 		Filters: []ws.FilterDef[lspdomain.DiagnosticsEvent]{
 			{Param: "wsId", Extract: func(e lspdomain.DiagnosticsEvent) string { return e.WsID }, Match: ws.ExactMatch},
 		},

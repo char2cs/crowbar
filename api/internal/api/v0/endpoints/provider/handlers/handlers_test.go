@@ -48,6 +48,14 @@ func (stubReader) Get(
 	return domain.Workspace{ID: id, WorktreePath: "/repo", Branch: "main"}, nil
 }
 
+func (stubReader) List(
+	_ context.Context,
+) ([]domain.Workspace, error) {
+	return []domain.Workspace{
+		{ID: "ws1", RepoID: "r1", WorktreePath: "/repo", Branch: "main"},
+	}, nil
+}
+
 func newRouter(
 	eng handlers.ProviderEngine,
 	r handlers.WorkspaceReader,
@@ -56,7 +64,7 @@ func newRouter(
 	h := handlers.New(eng, r)
 	rg := router.Group("/v0")
 	rg.GET("/workspaces/:wsId/provider", h.State)
-	rg.GET("/repos/:id/protected-branches", h.ProtectedBranches)
+	rg.GET("/repos/:repoId/protected-branches", h.ProtectedBranches)
 	return router
 }
 

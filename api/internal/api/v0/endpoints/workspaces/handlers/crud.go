@@ -11,20 +11,20 @@ import (
 	"github.com/char2cs/crowbar/api/internal/app/usecases/worktree"
 )
 
-// createRequest is the POST /v0/workspaces body: the repository to fork, the new
-// branch name, an optional parent workspace id, and an optional locked flag.
-// When parentId is empty the new workspace forks from the repository's default
-// branch; otherwise it forks from the parent workspace's branch. When locked is
-// true the workspace is created in the locked state (skipped by cascade-delete).
+// createRequest is the POST .../workspaces body: the new branch name and an
+// optional parent workspace id. The repository to fork is taken from the
+// :projectId/:repoId path params, not the body. When parentId is empty the new
+// workspace forks from the repository's default branch; otherwise it forks from
+// the parent workspace's branch.
 type createRequest struct {
-	RepoID   string `json:"repoId"`
 	Branch   string `json:"branch"`
 	ParentID string `json:"parentId"`
-	Locked   bool   `json:"locked"`
 }
 
-// Create handles POST /v0/workspaces, creating a worktree-backed workspace and
-// returning the created id with status 201.
+// Create handles
+// POST /v0/projects/:projectId/repos/:repoId/workspaces, creating a
+// worktree-backed workspace and returning the created id with status 201. The
+// repo is resolved from the :repoId path param.
 func (h *Handlers) Create(
 	c *gin.Context,
 ) {
@@ -33,7 +33,8 @@ func (h *Handlers) Create(
 		libs.WriteErr(c, http.StatusBadRequest, err.Error())
 		return
 	}
-	if body.RepoID == "" {
+	repoID := c.Param("repoId")
+	if repoID == "" {
 		libs.WriteErr(c, http.StatusBadRequest, "repoId is required")
 		return
 	}
@@ -41,7 +42,7 @@ func (h *Handlers) Create(
 		libs.WriteErr(c, http.StatusBadRequest, "branch is required")
 		return
 	}
-	in, err := h.buildCreateInput(c.Request.Context(), body, body.Locked)
+	in, err := h.buildCreateInput(c.Request.Context(), repoID, body)
 	if err != nil {
 		status, msg := libs.StatusAndMessage(err)
 		libs.WriteErr(c, status, msg)
@@ -58,10 +59,10 @@ func (h *Handlers) Create(
 
 func (h *Handlers) buildCreateInput(
 	ctx context.Context,
+	repoID string,
 	body createRequest,
-	locked bool,
 ) (worktree.CreateChildInput, error) {
-	repo, err := h.repos.FindByKey(ctx, body.RepoID)
+	repo, err := h.repos.FindByKey(ctx, repoID)
 	if err != nil {
 		return worktree.CreateChildInput{}, err
 	}
@@ -83,7 +84,6 @@ func (h *Handlers) buildCreateInput(
 		Branch:       body.Branch,
 		ParentID:     body.ParentID,
 		ParentBranch: parentBranch,
-		ForceLocked:  locked,
 	}, nil
 }
 
@@ -98,7 +98,9 @@ func (h *Handlers) resolveParentBranch(
 	return parent.Branch, nil
 }
 
-// Delete handles DELETE /v0/workspaces/:wsId, cascade-deleting the workspace and
+// Delete handles
+// DELETE /v0/projects/:projectId/repos/:repoId/workspaces/:wsId,
+// cascade-deleting the workspace and
 // its descendants (locked rows are skipped by the usecase) and returning the
 // requested id.
 func (h *Handlers) Delete(

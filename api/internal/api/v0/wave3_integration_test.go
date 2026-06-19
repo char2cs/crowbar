@@ -54,7 +54,7 @@ func TestWave3_WorkspaceCommand_ReachesWSClient(t *testing.T) {
 	srv := httptest.NewServer(r)
 	t.Cleanup(srv.Close)
 
-	url := "ws" + srv.URL[len("http"):] + "/v0/ws/workspaces?projectId=p1"
+	url := "ws" + srv.URL[len("http"):] + "/v0/projects/p1/repos/r1/ws/workspaces"
 	conn, resp, err := websocket.DefaultDialer.Dial(url, nil)
 	if resp != nil {
 		_ = resp.Body.Close()

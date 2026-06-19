@@ -48,18 +48,27 @@ func (stubReader) Get(
 	return domain.Workspace{}, nil
 }
 
+func (stubReader) List(
+	_ context.Context,
+) ([]domain.Workspace, error) {
+	return []domain.Workspace{{ID: "ws1", RepoID: "r1"}}, nil
+}
+
 func TestRegisterMountsRoutes(
 	t *testing.T,
 ) {
 	r := gin.New()
-	provider.Register(r.Group("/v0"), stubEngine{}, stubReader{})
+	// provider.Register mounts on the repo-scoped group, so build the
+	// hierarchical prefix to mirror the production router chain.
+	repoScoped := r.Group("/v0/projects/:projectId/repos/:repoId")
+	provider.Register(repoScoped, stubEngine{}, stubReader{})
 
 	cases := []struct {
 		method string
 		path   string
 	}{
-		{http.MethodGet, "/v0/workspaces/ws1/provider"},
-		{http.MethodGet, "/v0/repos/r1/protected-branches"},
+		{http.MethodGet, "/v0/projects/p1/repos/r1/workspaces/ws1/provider"},
+		{http.MethodGet, "/v0/projects/p1/repos/r1/protected-branches"},
 	}
 	for _, tc := range cases {
 		rec := httptest.NewRecorder()

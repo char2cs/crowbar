@@ -34,7 +34,7 @@ func TestAppClose_StopsLiveWatcher(t *testing.T) {
 	srv := httptest.NewServer(r)
 	t.Cleanup(srv.Close)
 
-	conn := dialWS(t, srv, "/v0/ws/files?wsId=w1")
+	conn := dialWS(t, srv, "/v0/projects/p1/repos/r1/ws/files?wsId=w1")
 	c.WaitFilesRegistered()
 	t.Cleanup(func() { _ = conn.Close() })
 

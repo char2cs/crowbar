@@ -6,9 +6,11 @@ import (
 	"net/http"
 	"testing"
 
+	"github.com/gin-gonic/gin"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	workspacehandlers "github.com/char2cs/crowbar/api/internal/api/v0/endpoints/workspaces/handlers"
 	"github.com/char2cs/crowbar/api/internal/app/apperr"
 	"github.com/char2cs/crowbar/api/internal/domain"
 )
@@ -26,8 +28,8 @@ func TestCreateSuccessFromDefaultBranch(
 	rec := do(
 		newRouter(&fakeReader{}, hierarchy, repos),
 		http.MethodPost,
-		"/v0/workspaces",
-		`{"repoId":"r1","branch":"feat"}`,
+		"/v0/projects/p1/repos/r1/workspaces",
+		`{"branch":"feat"}`,
 	)
 
 	assert.Equal(t, http.StatusCreated, rec.Code)
@@ -57,8 +59,8 @@ func TestCreateSuccessFromParent(
 	rec := do(
 		newRouter(reader, hierarchy, repos),
 		http.MethodPost,
-		"/v0/workspaces",
-		`{"repoId":"r1","branch":"feat","parentId":"parent"}`,
+		"/v0/projects/p1/repos/r1/workspaces",
+		`{"branch":"feat","parentId":"parent"}`,
 	)
 
 	assert.Equal(t, http.StatusCreated, rec.Code)
@@ -73,21 +75,21 @@ func TestCreateBadJSON(
 	rec := do(
 		newRouter(&fakeReader{}, &fakeHierarchy{}, &fakeRepos{}),
 		http.MethodPost,
-		"/v0/workspaces",
+		"/v0/projects/p1/repos/r1/workspaces",
 		`{not-json`,
 	)
 	assert.Equal(t, http.StatusBadRequest, rec.Code)
 }
 
+// TestCreateMissingRepoID exercises the empty-repoId guard directly: the Create
+// handler is mounted without the :repoId path param so c.Param("repoId") is "".
 func TestCreateMissingRepoID(
 	t *testing.T,
 ) {
-	rec := do(
-		newRouter(&fakeReader{}, &fakeHierarchy{}, &fakeRepos{}),
-		http.MethodPost,
-		"/v0/workspaces",
-		`{"branch":"feat"}`,
-	)
+	h := workspacehandlers.New(&fakeReader{}, &fakeHierarchy{}, &fakeRepos{})
+	r := gin.New()
+	r.POST("/v0/workspaces", h.Create)
+	rec := do(r, http.MethodPost, "/v0/workspaces", `{"branch":"feat"}`)
 	assert.Equal(t, http.StatusBadRequest, rec.Code)
 }
 
@@ -97,8 +99,8 @@ func TestCreateMissingBranch(
 	rec := do(
 		newRouter(&fakeReader{}, &fakeHierarchy{}, &fakeRepos{}),
 		http.MethodPost,
-		"/v0/workspaces",
-		`{"repoId":"r1"}`,
+		"/v0/projects/p1/repos/r1/workspaces",
+		`{}`,
 	)
 	assert.Equal(t, http.StatusBadRequest, rec.Code)
 }
@@ -110,8 +112,8 @@ func TestCreateRepoNotFound(
 	rec := do(
 		newRouter(&fakeReader{}, &fakeHierarchy{}, repos),
 		http.MethodPost,
-		"/v0/workspaces",
-		`{"repoId":"missing","branch":"feat"}`,
+		"/v0/projects/p1/repos/missing/workspaces",
+		`{"branch":"feat"}`,
 	)
 	assert.Equal(t, http.StatusNotFound, rec.Code)
 }
@@ -123,8 +125,8 @@ func TestCreateRepoLookupError(
 	rec := do(
 		newRouter(&fakeReader{}, &fakeHierarchy{}, repos),
 		http.MethodPost,
-		"/v0/workspaces",
-		`{"repoId":"r1","branch":"feat"}`,
+		"/v0/projects/p1/repos/r1/workspaces",
+		`{"branch":"feat"}`,
 	)
 	assert.Equal(t, http.StatusInternalServerError, rec.Code)
 }
@@ -137,8 +139,8 @@ func TestCreateParentLookupNotFound(
 	rec := do(
 		newRouter(reader, &fakeHierarchy{}, repos),
 		http.MethodPost,
-		"/v0/workspaces",
-		`{"repoId":"r1","branch":"feat","parentId":"nope"}`,
+		"/v0/projects/p1/repos/r1/workspaces",
+		`{"branch":"feat","parentId":"nope"}`,
 	)
 	assert.Equal(t, http.StatusNotFound, rec.Code)
 }
@@ -151,8 +153,8 @@ func TestCreateUsecaseError(
 	rec := do(
 		newRouter(&fakeReader{}, hierarchy, repos),
 		http.MethodPost,
-		"/v0/workspaces",
-		`{"repoId":"r1","branch":"feat"}`,
+		"/v0/projects/p1/repos/r1/workspaces",
+		`{"branch":"feat"}`,
 	)
 	assert.Equal(t, http.StatusInternalServerError, rec.Code)
 }
@@ -164,7 +166,7 @@ func TestDeleteSuccess(
 	rec := do(
 		newRouter(&fakeReader{}, hierarchy, &fakeRepos{}),
 		http.MethodDelete,
-		"/v0/workspaces/w1",
+		"/v0/projects/p1/repos/r1/workspaces/w1",
 		"",
 	)
 
@@ -186,7 +188,7 @@ func TestDeleteError(
 	rec := do(
 		newRouter(&fakeReader{}, hierarchy, &fakeRepos{}),
 		http.MethodDelete,
-		"/v0/workspaces/w1",
+		"/v0/projects/p1/repos/r1/workspaces/w1",
 		"",
 	)
 	assert.Equal(t, http.StatusInternalServerError, rec.Code)

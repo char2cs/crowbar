@@ -128,7 +128,9 @@ func newRouter(
 ) *gin.Engine {
 	r := gin.New()
 	h := workspacehandlers.New(reader, hierarchy, repos)
-	rg := r.Group("/v0")
+	// Mount under the hierarchical repo-scoped prefix so the handlers read
+	// :projectId/:repoId/:wsId from the path, mirroring the production router.
+	rg := r.Group("/v0/projects/:projectId/repos/:repoId")
 	rg.GET("/workspaces", h.List)
 	rg.GET("/workspaces/:wsId", h.Detail)
 	rg.POST("/workspaces", h.Create)

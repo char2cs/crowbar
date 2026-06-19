@@ -20,7 +20,7 @@ func TestMergeIntoParentSuccess(
 	rec := do(
 		newRouter(&fakeReader{}, hierarchy, &fakeRepos{}),
 		http.MethodPost,
-		"/v0/workspaces/child/merge-into-parent",
+		"/v0/projects/p1/repos/r1/workspaces/child/merge-into-parent",
 		`{"strategy":"squash"}`,
 	)
 
@@ -47,7 +47,7 @@ func TestMergeIntoParentConflicts(
 	rec := do(
 		newRouter(&fakeReader{}, hierarchy, &fakeRepos{}),
 		http.MethodPost,
-		"/v0/workspaces/child/merge-into-parent",
+		"/v0/projects/p1/repos/r1/workspaces/child/merge-into-parent",
 		`{"strategy":"merge"}`,
 	)
 
@@ -67,7 +67,7 @@ func TestMergeIntoParentBadJSON(
 	rec := do(
 		newRouter(&fakeReader{}, &fakeHierarchy{}, &fakeRepos{}),
 		http.MethodPost,
-		"/v0/workspaces/child/merge-into-parent",
+		"/v0/projects/p1/repos/r1/workspaces/child/merge-into-parent",
 		`{not-json`,
 	)
 	assert.Equal(t, http.StatusBadRequest, rec.Code)
@@ -79,7 +79,7 @@ func TestMergeIntoParentMissingStrategy(
 	rec := do(
 		newRouter(&fakeReader{}, &fakeHierarchy{}, &fakeRepos{}),
 		http.MethodPost,
-		"/v0/workspaces/child/merge-into-parent",
+		"/v0/projects/p1/repos/r1/workspaces/child/merge-into-parent",
 		`{}`,
 	)
 	assert.Equal(t, http.StatusBadRequest, rec.Code)
@@ -92,7 +92,7 @@ func TestMergeIntoParentLocked(
 	rec := do(
 		newRouter(&fakeReader{}, hierarchy, &fakeRepos{}),
 		http.MethodPost,
-		"/v0/workspaces/child/merge-into-parent",
+		"/v0/projects/p1/repos/r1/workspaces/child/merge-into-parent",
 		`{"strategy":"merge"}`,
 	)
 	assert.Equal(t, http.StatusConflict, rec.Code)
@@ -105,7 +105,7 @@ func TestMergeIntoParentNonLeaf(
 	rec := do(
 		newRouter(&fakeReader{}, hierarchy, &fakeRepos{}),
 		http.MethodPost,
-		"/v0/workspaces/child/merge-into-parent",
+		"/v0/projects/p1/repos/r1/workspaces/child/merge-into-parent",
 		`{"strategy":"rebase"}`,
 	)
 	assert.Equal(t, http.StatusConflict, rec.Code)
@@ -118,7 +118,7 @@ func TestReparentSuccess(
 	rec := do(
 		newRouter(&fakeReader{}, hierarchy, &fakeRepos{}),
 		http.MethodPost,
-		"/v0/workspaces/child/reparent",
+		"/v0/projects/p1/repos/r1/workspaces/child/reparent",
 		`{"newParentId":"np"}`,
 	)
 
@@ -144,7 +144,7 @@ func TestReparentBadJSON(
 	rec := do(
 		newRouter(&fakeReader{}, &fakeHierarchy{}, &fakeRepos{}),
 		http.MethodPost,
-		"/v0/workspaces/child/reparent",
+		"/v0/projects/p1/repos/r1/workspaces/child/reparent",
 		`{not-json`,
 	)
 	assert.Equal(t, http.StatusBadRequest, rec.Code)
@@ -156,7 +156,7 @@ func TestReparentMissingNewParent(
 	rec := do(
 		newRouter(&fakeReader{}, &fakeHierarchy{}, &fakeRepos{}),
 		http.MethodPost,
-		"/v0/workspaces/child/reparent",
+		"/v0/projects/p1/repos/r1/workspaces/child/reparent",
 		`{}`,
 	)
 	assert.Equal(t, http.StatusBadRequest, rec.Code)
@@ -169,7 +169,7 @@ func TestReparentNonLeaf(
 	rec := do(
 		newRouter(&fakeReader{}, hierarchy, &fakeRepos{}),
 		http.MethodPost,
-		"/v0/workspaces/child/reparent",
+		"/v0/projects/p1/repos/r1/workspaces/child/reparent",
 		`{"newParentId":"np"}`,
 	)
 	assert.Equal(t, http.StatusConflict, rec.Code)
@@ -182,7 +182,7 @@ func TestReparentNewParentLocked(
 	rec := do(
 		newRouter(&fakeReader{}, hierarchy, &fakeRepos{}),
 		http.MethodPost,
-		"/v0/workspaces/child/reparent",
+		"/v0/projects/p1/repos/r1/workspaces/child/reparent",
 		`{"newParentId":"np"}`,
 	)
 	assert.Equal(t, http.StatusConflict, rec.Code)

@@ -77,7 +77,7 @@ func TestWatcherLifecycle_FilesSubscriberStartsWatcher(t *testing.T) {
 	srv := httptest.NewServer(r)
 	t.Cleanup(srv.Close)
 
-	conn := dialWS(t, srv, "/v0/ws/files?wsId=w1")
+	conn := dialWS(t, srv, "/v0/projects/p1/repos/r1/ws/files?wsId=w1")
 	c.WaitFilesRegistered()
 
 	// The watcher starts asynchronously on the subscribe hook; re-write on a
@@ -148,7 +148,7 @@ func TestWatcherLifecycle_LSPOnlySubscriberDoesNotStartWatcher(t *testing.T) {
 	srv := httptest.NewServer(r)
 	t.Cleanup(srv.Close)
 
-	_ = dialWS(t, srv, "/v0/ws/lsp?wsId=w1")
+	_ = dialWS(t, srv, "/v0/projects/p1/repos/r1/ws/lsp?wsId=w1")
 	c.WaitLSPRegistered()
 
 	require.NoError(t, os.WriteFile(filepath.Join(repoPath, "x.txt"), []byte("a"), 0o644))

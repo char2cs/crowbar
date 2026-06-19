@@ -19,6 +19,6 @@ func Register(
 	h := projecthandlers.New(reader, importer, deleter)
 	rg.GET("/projects", h.List)
 	rg.POST("/projects", h.Import)
-	rg.GET("/projects/:id", h.Detail)
-	rg.DELETE("/projects/:id", h.Delete)
+	rg.GET("/projects/:projectId", h.Detail)
+	rg.DELETE("/projects/:projectId", h.Delete)
 }

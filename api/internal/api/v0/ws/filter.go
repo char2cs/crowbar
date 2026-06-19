@@ -96,13 +96,24 @@ type activeFilter[T any] struct {
 // client receives every child workspace's events ("p/r" matches "p/r/w"). When no
 // scoping params are present, BuildPredicate falls back to the legacy ":ns" glob
 // route, so existing glob subscriptions are unchanged.
+//
+// FlatNamespace streams (git/files/lsp) opt out of the hierarchical prefix: now
+// that their routes nest under /projects/:projectId/repos/:repoId, the
+// structural projectId/repoId path params would otherwise build a "p/r" prefix
+// that can never match their bare wsId namespace and would drop every event.
+// They are scoped solely by their explicit wsId Filter.
 func BuildPredicate[T any](
 	c *gin.Context,
 	def StreamDef[T],
 ) func(T) bool {
+	active := collectFilters(c, def)
+	if def.FlatNamespace {
+		return func(event T) bool {
+			return matchesAll(active, event)
+		}
+	}
 	scope := clientScope(c)
 	nsPattern := c.Param("ns")
-	active := collectFilters(c, def)
 	return func(event T) bool {
 		if scope != "" {
 			if !PrefixMatch(scope, def.Namespace(event)) {

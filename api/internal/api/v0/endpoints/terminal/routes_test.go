@@ -96,14 +96,18 @@ func TestRegisterMountsRoutes(
 	t *testing.T,
 ) {
 	r := gin.New()
-	terminal.Register(r.Group("/v0"), stubEngine{}, stubProfiles{}, stubReader{})
+	rg := r.Group("/v0")
+	// Session lifecycle + PTY routes mount on the repo-scoped group; the
+	// profile CRUD mounts on the top-level /v0 group (mirroring the router).
+	repoScoped := rg.Group("/projects/:projectId/repos/:repoId")
+	terminal.Register(repoScoped, rg, stubEngine{}, stubProfiles{}, stubReader{})
 
 	cases := []struct {
 		method string
 		path   string
 	}{
-		{http.MethodPost, "/v0/workspaces/ws1/terminals"},
-		{http.MethodDelete, "/v0/terminals/sess1"},
+		{http.MethodPost, "/v0/projects/p1/repos/r1/workspaces/ws1/terminals"},
+		{http.MethodDelete, "/v0/projects/p1/repos/r1/terminals/sess1"},
 		{http.MethodGet, "/v0/settings/terminal/profiles"},
 		{http.MethodGet, "/v0/settings/terminal/profiles/p1"},
 		{http.MethodPost, "/v0/settings/terminal/profiles"},

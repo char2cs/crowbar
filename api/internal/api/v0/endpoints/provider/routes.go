@@ -16,5 +16,5 @@ func Register(
 ) {
 	h := provhandlers.New(provEng, wsReader)
 	rg.GET("/workspaces/:wsId/provider", h.State)
-	rg.GET("/repos/:id/protected-branches", h.ProtectedBranches)
+	rg.GET("/protected-branches", h.ProtectedBranches)
 }
