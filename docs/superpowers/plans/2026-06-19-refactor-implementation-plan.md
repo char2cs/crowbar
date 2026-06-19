@@ -695,6 +695,32 @@ All 8 steps pass live in Tauri; the real PR exists on `Rabbyte/crowbar`; full au
 
 ---
 
+## Storage Core Design (binding — supersedes W2.3/W2.4/W5.1 detail)
+
+The grounding proved the per-entity storage cannot be made purely additive (the new `WorkspaceES(p,r,w)` *method* collides with the existing `WorkspaceES` *field*; and ID-only methods like `Get(ctx,id)` can't resolve a per-entity path). This is one coherent migration, green only at its end. **Scope discipline (minimize blast radius):** ONLY the **workspace** aggregate becomes per-entity event-sourced now. chat + reviewthread keep their **global** event stores (`state/event_stream.db`-area). projects, repositories, terminal_profiles, settings stay on the **global** `state/view.db` (projects/repos migrate to per-entity view.db in W12).
+
+### Adapter Container (rewrite, `api/internal/adapter/container.go`)
+Fields: `crowbarHome string`; `chatES, reviewThreadES asynxModels.Store` (global, unchanged files); `workspaceES *Registry[asynxModels.Store]` + `workspaceView *Registry[*gorm.DB]` (per-entity, keyed `"p/r/w"`); `globalView *gorm.DB` (= `GlobalStateDir/view.db`); `lock *instanceLock`. Drop the old `WorkspaceES` field and the shared `crowbar.db`.
+Accessors: `WorkspaceES(p,r,w) (asynxModels.Store, error)` (openFn: `os.MkdirAll(worktreepath.StorageDir(home,p,r,w),0o750)` then `eventsqlite.NewEventStore(dir/event_stream.db)`); `WorkspaceView(p,r,w) (*gorm.DB, error)` (openFn: `storesqlite.OpenDB(dir/view.db)`); `GlobalView() *gorm.DB`; `ChatES()`/`ReviewThreadES()` (or keep as exported fields named `ChatES`/`ReviewThreadES` — no method collision). `Close()` closes both registries (`CloseAll`) + globalView + chat/review stores + lock. Global state files live under `GlobalStateDir(home)` = `<home>/state`.
+
+### Location index (`state/view.db`)
+`type workspaceLocation struct { ID string gorm:"primaryKey"; ProjectID string; RepoID string }` table `workspace_locations`. Lives in `globalView`. Written on Create, read to resolve `id→(p,r)`, removed on Delete. Keep a tiny store for it (own file `internal/store` of the workspace repo, or a thin gorm helper).
+
+### Workspace repository (rewrite internals; the `Workspace` **interface is UNCHANGED**)
+Construct with `New(adapters *adapter.Container, broadcast store.BroadcastFunc, asynxFactory func(asynxModels.Store)(asynx.Asynx[domain.Workspace],error), locations <locationStore>)` (the `asynxFactory` is injected by `app` to avoid an import cycle on `newAsynx`). Hold a per-entity `*Registry[*wsEntity]` where `wsEntity{ ax asynx.Asynx[domain.Workspace]; store store.Store }`.
+- `entityFor(ctx,id)`: `loc := locations.Get(id)` → `es := adapters.WorkspaceES(loc.P,loc.R,id)`; `view := adapters.WorkspaceView(loc.P,loc.R,id)`; `ax := asynxFactory(es)`; `st := store.New(view, ax, broadcast)`; cache in the registry.
+- `Create(in)`: `locations.Save({in.ID,in.ProjectID,in.RepoID})` FIRST, then `entityFor(in.ID).ax.SendWait(CreateWorkspace{...})`.
+- `Get/Sync*/SetMergeStrategy/Touch/Reparent/UpdateForkPoint/SetParentFromPR/Delete`: `entityFor(id)` → delegate (`Delete` also evicts the entity + removes the index row).
+- `List()`: read all `workspace_locations` rows → for each, `entityFor(row.ID).ax.Get(row.ID)` → append (or read its view row). Repo-scoped variants filter by `RepoID` in the index.
+
+### app / repositories rewiring
+`app.New`: build `gormStores` from `adapters.GlobalView()` (was `adapters.DB`); build chat/reviewthread global Asynx from `adapters.ChatES()/ReviewThreadES()`; pass `adapters` + a `newAsynx[domain.Workspace]` factory into `repositories.New`. `repositories.New(adapters, h, axChat, axReviewThread, asynxFactory)`: workspace repo built per the above; chat/reviewthread unchanged.
+
+### Tests
+Adapter: `TestWorkspaceES_LazyOpenCreatesEventStreamDB`, `TestWorkspaceView_LazyOpenCreatesViewDB`, `TestWorkspaceES_CachedSecondCall`, `TestClose_ClosesAllAndLock`, keep `TestRegression_StateDirSingleInstanceLock`. Workspace repo: `TestCreate_WritesLocationIndexAndPerEntityStores`, `TestGet_ResolvesViaIndex`, `TestList_AcrossEntities`, `TestDelete_RemovesIndexRow`, persistence-across-reopen (`BuildEnvAt` shared homeDir). Synchronize via Asynx `SendWait`, NO time.Sleep. The on-disk assertions (`event_stream.db`/`view.db` exist at the entity path) prove §2.
+
+---
+
 ## Appendix — Self-Review (plan vs spec)
 
 - **Spec coverage:** §1 filesystem→W1/W2/W12; §2 storage→W2/W5/W9; §3 routes→W7; §4 fail-fast/202→W8 (+12); §5 broadcasters/DTOs→W6 (+4); §6 FE virtualization→W15/W17; §7 FE routes→W14/W18; §8 worktreepath→W1; §9 adapter/LRU→W2; §10 merge eligibility→W4; §11 provider polling→W11; §12 removals→W3; §13 testing→every task + W13; §14 E2E→W19. All covered.
