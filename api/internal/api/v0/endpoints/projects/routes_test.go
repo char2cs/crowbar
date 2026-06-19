@@ -45,6 +45,14 @@ func (stubImporter) Import(
 	return domain.Project{}, nil
 }
 
+func (stubImporter) Create(
+	_ context.Context,
+	_ string,
+	_ string,
+) (domain.Project, error) {
+	return domain.Project{}, nil
+}
+
 type stubDeleter struct{}
 
 func (stubDeleter) Delete(

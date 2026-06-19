@@ -63,6 +63,16 @@ func (f *fakeImporter) Import(
 	return f.project, f.err
 }
 
+func (f *fakeImporter) Create(
+	_ context.Context,
+	name string,
+	path string,
+) (domain.Project, error) {
+	f.gotName = name
+	f.gotPath = path
+	return f.project, f.err
+}
+
 type fakeDeleter struct {
 	err   error
 	gotID string

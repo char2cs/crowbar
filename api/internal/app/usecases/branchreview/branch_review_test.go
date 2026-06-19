@@ -344,6 +344,10 @@ func (g *mockGitEngine) MergeSquash(ctx context.Context, repoPath, branch, subje
 	return nil
 }
 
+func (g *mockGitEngine) RemoteBranchExists(ctx context.Context, repoPath, branch string) (bool, error) {
+	return false, nil
+}
+
 var _ gitengine.Engine = (*mockGitEngine)(nil)
 
 // --- helpers ---
