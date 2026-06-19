@@ -255,9 +255,8 @@ func TestWorkspace_SyncProviderState_SetsPR(t *testing.T) {
 		PRUrl:     "u",
 	}, now)
 	require.NoError(t, err)
-	// Dual-write (W4-mig-1): Protected wins per D4 precedence → Status=locked.
+	// Protected wins per D4 precedence → Status=locked.
 	assert.Equal(t, domain.WorkspaceStatusLocked, got.Status)
-	assert.True(t, got.Locked)
 	assert.Equal(t, "u", got.PRUrl)
 }
 
@@ -271,7 +270,7 @@ func TestWorkspace_SetMergeStrategy(t *testing.T) {
 	assert.Equal(t, gitdomain.MergeStrategySquash, got.MergeStrategy)
 }
 
-func TestWorkspace_Reparent_TouchActivity_ForkPoint_Pending(t *testing.T) {
+func TestWorkspace_Reparent_TouchActivity_ForkPoint(t *testing.T) {
 	ctx, repo := newRepo(t)
 	now := time.Unix(1000, 0).UTC()
 	_, err := repo.Create(ctx, workspace.CreateInput{ID: "w1", RepoID: "r1", ProjectID: "p1"}, now)
@@ -285,12 +284,6 @@ func TestWorkspace_Reparent_TouchActivity_ForkPoint_Pending(t *testing.T) {
 	fp, err := repo.UpdateForkPoint(ctx, "w1", "sha3")
 	require.NoError(t, err)
 	assert.Equal(t, "sha3", fp.ForkPointSha)
-	pm, err := repo.SetPendingMerge(ctx, "w1", gitdomain.MergeStrategyMerge, "p2")
-	require.NoError(t, err)
-	require.NotNil(t, pm.PendingMerge)
-	cl, err := repo.ClearPendingMerge(ctx, "w1")
-	require.NoError(t, err)
-	assert.Nil(t, cl.PendingMerge)
 }
 
 func TestWorkspace_Delete_Forgets(t *testing.T) {
@@ -333,18 +326,6 @@ func TestWorkspace_Reparent_ErrorOnMissing(t *testing.T) {
 func TestWorkspace_UpdateForkPoint_ErrorOnMissing(t *testing.T) {
 	ctx, repo := newRepo(t)
 	_, err := repo.UpdateForkPoint(ctx, "no-such", "sha")
-	assert.Error(t, err)
-}
-
-func TestWorkspace_SetPendingMerge_ErrorOnMissing(t *testing.T) {
-	ctx, repo := newRepo(t)
-	_, err := repo.SetPendingMerge(ctx, "no-such", gitdomain.MergeStrategyMerge, "p")
-	assert.Error(t, err)
-}
-
-func TestWorkspace_ClearPendingMerge_ErrorOnMissing(t *testing.T) {
-	ctx, repo := newRepo(t)
-	_, err := repo.ClearPendingMerge(ctx, "no-such")
 	assert.Error(t, err)
 }
 

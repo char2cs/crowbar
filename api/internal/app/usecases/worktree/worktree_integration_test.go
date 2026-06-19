@@ -432,7 +432,7 @@ func TestIntegration_DeleteCascadeSkipsLockedChild(t *testing.T) {
 
 	h.provider.protected = []string{"feature/locked"}
 	locked := h.createChild(t, "feature/locked", root.ID, root.Branch)
-	require.True(t, locked.Locked)
+	require.Equal(t, domain.WorkspaceStatusLocked, locked.Status)
 	h.provider.protected = nil
 
 	descendant := h.createChild(t, "feature/desc", locked.ID, locked.Branch)

@@ -284,7 +284,7 @@ func (u *projectImport) importProtectedBranchStubs(
 			ProjectID:    repo.ProjectID,
 			Branch:       branch,
 			WorktreePath: repo.Path,
-			Locked:       true,
+			Protected:    true,
 		}
 		if _, err := u.deps.Workspaces.Create(ctx, in, u.deps.Now()); err != nil {
 			slog.WarnContext(ctx, "project import: skip protected branch stub",
@@ -316,7 +316,7 @@ func (u *projectImport) adoptOneWorktree(
 		Branch:       wt.Branch,
 		WorktreePath: wt.Path,
 		ForkPointSha: u.forkPoint(ctx, repo, wt.Branch),
-		Locked:       locked[wt.Branch],
+		Protected:    locked[wt.Branch],
 	}
 	if _, err := u.deps.Workspaces.Create(ctx, in, u.deps.Now()); err != nil {
 		return fmt.Errorf("project import: adopt worktree: %w", err)

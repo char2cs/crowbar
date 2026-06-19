@@ -128,6 +128,10 @@ func (r *WorkspaceRepo) Create(
 	if r.CreateErr != nil {
 		return domain.Workspace{}, r.CreateErr
 	}
+	status := domain.WorkspaceStatusNew
+	if in.Protected {
+		status = domain.WorkspaceStatusLocked
+	}
 	ws := domain.Workspace{
 		ID:            in.ID,
 		RepoID:        in.RepoID,
@@ -136,7 +140,7 @@ func (r *WorkspaceRepo) Create(
 		WorktreePath:  in.WorktreePath,
 		ForkPointSha:  in.ForkPointSha,
 		ParentID:      in.ParentID,
-		Locked:        in.Locked,
+		Status:        status,
 		MergeStrategy: in.MergeStrategy,
 		CreatedAt:     now,
 	}

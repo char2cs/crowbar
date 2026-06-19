@@ -7,7 +7,7 @@ import (
 	"github.com/gin-gonic/gin"
 
 	"github.com/char2cs/crowbar/api/internal/api/libs"
-
+	"github.com/char2cs/crowbar/api/internal/domain"
 	enginesearch "github.com/char2cs/crowbar/api/internal/engine/search"
 )
 
@@ -97,7 +97,7 @@ func (h *Handlers) Replace(
 		CaseSensitive: body.CaseSensitive,
 		WholeWord:     body.WholeWord,
 		Regex:         body.Regex,
-	}, ws.Locked)
+	}, ws.Status == domain.WorkspaceStatusLocked)
 	if err != nil {
 		handleReplaceError(ctx, err)
 		return

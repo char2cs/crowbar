@@ -13,19 +13,17 @@ import (
 // to the corresponding function-field, allowing callers to inject behaviour
 // per-test without subclassing or code generation.
 type MockWorkspace struct {
-	CreateFn            func(ctx context.Context, in workspace.CreateInput, now time.Time) (domain.Workspace, error)
-	SyncWorkingFn       func(ctx context.Context, in workspace.SyncInput, now time.Time) (domain.Workspace, error)
-	SyncProviderFn      func(ctx context.Context, in workspace.ProviderInput, now time.Time) (domain.Workspace, error)
-	SetMergeStrategyFn  func(ctx context.Context, id string, s gitdomain.MergeStrategy) (domain.Workspace, error)
-	TouchActivityFn     func(ctx context.Context, id string, now time.Time) (domain.Workspace, error)
-	ReparentFn          func(ctx context.Context, id, parentID, forkPointSha string, now time.Time) (domain.Workspace, error)
-	UpdateForkPointFn   func(ctx context.Context, id, forkPointSha string) (domain.Workspace, error)
-	SetPendingMergeFn   func(ctx context.Context, id string, s gitdomain.MergeStrategy, target string) (domain.Workspace, error)
-	ClearPendingMergeFn  func(ctx context.Context, id string) (domain.Workspace, error)
-	SetParentFromPRFn    func(ctx context.Context, id, parentID string) (domain.Workspace, error)
-	DeleteFn             func(ctx context.Context, id string) error
-	GetFn               func(ctx context.Context, id string) (domain.Workspace, error)
-	ListFn              func(ctx context.Context) ([]domain.Workspace, error)
+	CreateFn           func(ctx context.Context, in workspace.CreateInput, now time.Time) (domain.Workspace, error)
+	SyncWorkingFn      func(ctx context.Context, in workspace.SyncInput, now time.Time) (domain.Workspace, error)
+	SyncProviderFn     func(ctx context.Context, in workspace.ProviderInput, now time.Time) (domain.Workspace, error)
+	SetMergeStrategyFn func(ctx context.Context, id string, s gitdomain.MergeStrategy) (domain.Workspace, error)
+	TouchActivityFn    func(ctx context.Context, id string, now time.Time) (domain.Workspace, error)
+	ReparentFn         func(ctx context.Context, id, parentID, forkPointSha string, now time.Time) (domain.Workspace, error)
+	UpdateForkPointFn  func(ctx context.Context, id, forkPointSha string) (domain.Workspace, error)
+	SetParentFromPRFn  func(ctx context.Context, id, parentID string) (domain.Workspace, error)
+	DeleteFn           func(ctx context.Context, id string) error
+	GetFn              func(ctx context.Context, id string) (domain.Workspace, error)
+	ListFn             func(ctx context.Context) ([]domain.Workspace, error)
 }
 
 func (m *MockWorkspace) Create(
@@ -84,22 +82,6 @@ func (m *MockWorkspace) UpdateForkPoint(
 	forkPointSha string,
 ) (domain.Workspace, error) {
 	return m.UpdateForkPointFn(ctx, id, forkPointSha)
-}
-
-func (m *MockWorkspace) SetPendingMerge(
-	ctx context.Context,
-	id string,
-	s gitdomain.MergeStrategy,
-	target string,
-) (domain.Workspace, error) {
-	return m.SetPendingMergeFn(ctx, id, s, target)
-}
-
-func (m *MockWorkspace) ClearPendingMerge(
-	ctx context.Context,
-	id string,
-) (domain.Workspace, error) {
-	return m.ClearPendingMergeFn(ctx, id)
 }
 
 func (m *MockWorkspace) SetParentFromPR(

@@ -82,5 +82,5 @@ func TestSweepCallback_AppliesProviderState(t *testing.T) {
 
 	got, err := repo.Get(ctx, "w1")
 	require.NoError(t, err)
-	assert.True(t, got.Locked)
+	assert.Equal(t, domain.WorkspaceStatusLocked, got.Status)
 }

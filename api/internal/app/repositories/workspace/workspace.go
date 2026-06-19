@@ -31,7 +31,7 @@ type CreateInput struct {
 	WorktreePath  string
 	ForkPointSha  string
 	ParentID      string
-	Locked        bool
+	Protected     bool
 	MergeStrategy gitdomain.MergeStrategy
 }
 
@@ -97,16 +97,6 @@ type Workspace interface {
 		ctx context.Context,
 		id string,
 		forkPointSha string,
-	) (domain.Workspace, error)
-	SetPendingMerge(
-		ctx context.Context,
-		id string,
-		strategy gitdomain.MergeStrategy,
-		targetParentID string,
-	) (domain.Workspace, error)
-	ClearPendingMerge(
-		ctx context.Context,
-		id string,
 	) (domain.Workspace, error)
 	// SetParentFromPR sets ParentID from an open PR's target branch without
 	// recomputing ForkPointSha.
@@ -241,7 +231,7 @@ func (w *workspace) Create(
 		WorktreePath:  in.WorktreePath,
 		ForkPointSha:  in.ForkPointSha,
 		ParentID:      in.ParentID,
-		Locked:        in.Locked,
+		Protected:     in.Protected,
 		MergeStrategy: in.MergeStrategy,
 		Now:           now,
 	})
@@ -381,42 +371,6 @@ func (w *workspace) UpdateForkPoint(
 	evt, err := entity.ax.SendWait(ctx, commands.UpdateForkPoint{ID: id, ForkPointSha: forkPointSha})
 	if err != nil {
 		return domain.Workspace{}, fmt.Errorf("workspace: update fork point: %w", err)
-	}
-	return evt.Aggregate, nil
-}
-
-func (w *workspace) SetPendingMerge(
-	ctx context.Context,
-	id string,
-	strategy gitdomain.MergeStrategy,
-	targetParentID string,
-) (domain.Workspace, error) {
-	entity, err := w.entityFor(ctx, id)
-	if err != nil {
-		return domain.Workspace{}, err
-	}
-	evt, err := entity.ax.SendWait(ctx, commands.SetPendingMerge{
-		ID:             id,
-		Strategy:       strategy,
-		TargetParentID: targetParentID,
-	})
-	if err != nil {
-		return domain.Workspace{}, fmt.Errorf("workspace: set pending merge: %w", err)
-	}
-	return evt.Aggregate, nil
-}
-
-func (w *workspace) ClearPendingMerge(
-	ctx context.Context,
-	id string,
-) (domain.Workspace, error) {
-	entity, err := w.entityFor(ctx, id)
-	if err != nil {
-		return domain.Workspace{}, err
-	}
-	evt, err := entity.ax.SendWait(ctx, commands.ClearPendingMerge{ID: id})
-	if err != nil {
-		return domain.Workspace{}, fmt.Errorf("workspace: clear pending merge: %w", err)
 	}
 	return evt.Aggregate, nil
 }

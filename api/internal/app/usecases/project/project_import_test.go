@@ -13,6 +13,7 @@ import (
 	"github.com/char2cs/crowbar/api/internal/app/usecases/internal/defaultbranch"
 	"github.com/char2cs/crowbar/api/internal/app/usecases/mocks"
 	"github.com/char2cs/crowbar/api/internal/app/usecases/project"
+	"github.com/char2cs/crowbar/api/internal/domain"
 	gitengine "github.com/char2cs/crowbar/api/internal/engine/git"
 )
 
@@ -101,7 +102,7 @@ func TestImport_CreatesProjectReposAndAdoptsWorktrees(
 	require.Len(t, ws.Created, 2)
 	byBranch := map[string]bool{}
 	for _, w := range ws.Created {
-		byBranch[w.Branch] = w.Locked
+		byBranch[w.Branch] = w.Status == domain.WorkspaceStatusLocked
 	}
 	assert.True(t, byBranch["main"])
 	assert.False(t, byBranch["feature"])
@@ -322,7 +323,7 @@ func TestImport_AutoImportsProtectedBranchStubs(t *testing.T) {
 	require.Len(t, ws.Created, 2)
 	byBranch := map[string]bool{}
 	for _, w := range ws.Created {
-		byBranch[w.Branch] = w.Locked
+		byBranch[w.Branch] = w.Status == domain.WorkspaceStatusLocked
 	}
 	assert.True(t, byBranch["main"])
 	assert.True(t, byBranch["develop"])

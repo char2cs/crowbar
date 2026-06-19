@@ -10,9 +10,9 @@ import (
 )
 
 // SyncWorkingTreeState recomputes the diff/conflict summary from git (00 §5.3,
-// §6.1). A local conflict surfaces as Status=pr-conflicts (dual-write alongside
-// the legacy HasConflicts bool); the base status otherwise stays unchanged.
-// HasCommits is a transient input, not a stored field.
+// §6.1). A local conflict surfaces as Status=pr-conflicts; the base status
+// otherwise stays unchanged. HasConflicts and HasCommits are transient inputs
+// that drive the status, not stored fields.
 type SyncWorkingTreeState struct {
 	ID           string
 	Added        int
@@ -49,11 +49,9 @@ func (c SyncWorkingTreeState) EmitEvent(
 	ws := *current
 	ws.Added = clampZero(c.Added)
 	ws.Deleted = clampZero(c.Deleted)
-	ws.HasConflicts = c.HasConflicts
 	ws.LastActivity = c.Now
-	// Dual-write (W4-mig-1): when local conflicts appear, also surface them via
-	// the new Status enum. Status stays at its current value otherwise (the
-	// legacy new→"" empty-status transition is removed per D4).
+	// When local conflicts appear, surface them via the Status enum. Status
+	// stays at its current value otherwise.
 	if c.HasConflicts {
 		ws.Status = domain.WorkspaceStatusPRConflicts
 	}

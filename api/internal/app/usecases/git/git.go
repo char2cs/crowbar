@@ -305,7 +305,7 @@ func (u *gitUsecase) writePath(
 	if err != nil {
 		return "", fmt.Errorf("git: load workspace: %w", err)
 	}
-	if ws.Locked {
+	if ws.Status == domain.WorkspaceStatusLocked {
 		return "", fmt.Errorf("git: mutate: workspace locked: %w", apperr.ErrLocked)
 	}
 	return ws.WorktreePath, nil

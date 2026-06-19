@@ -169,7 +169,7 @@ func TestProjectDelete_CascadesRecords_RemovesOnlyCrowbarWorktrees(t *testing.T)
 	f.seedProject()
 	crowbarPath := "/home/u/.crowbar/projects/github.com/test/repo/workspaces/w-child"
 	f.workspaces.workspaces = []domain.Workspace{
-		{ID: "w-main", RepoID: "r1", ProjectID: "p1", Branch: "main", WorktreePath: deleteRepoPath, Locked: true},
+		{ID: "w-main", RepoID: "r1", ProjectID: "p1", Branch: "main", WorktreePath: deleteRepoPath, Status: domain.WorkspaceStatusLocked},
 		{ID: "w-adopted", RepoID: "r1", ProjectID: "p1", Branch: "spike", WorktreePath: "/home/u/elsewhere/spike"},
 		{ID: "w-child", RepoID: "r1", ProjectID: "p1", Branch: "feature/x", WorktreePath: crowbarPath},
 	}
@@ -188,7 +188,7 @@ func TestProjectDelete_UnlockedAdoptedMainWorktree_RecordOnly(t *testing.T) {
 	f := newDeleteFixture(t)
 	f.seedProject()
 	f.workspaces.workspaces = []domain.Workspace{
-		{ID: "w-main", RepoID: "r1", ProjectID: "p1", Branch: "main", WorktreePath: deleteRepoPath, Locked: false},
+		{ID: "w-main", RepoID: "r1", ProjectID: "p1", Branch: "main", WorktreePath: deleteRepoPath},
 	}
 
 	require.NoError(t, f.uc.Delete(context.Background(), "p1"))
@@ -235,7 +235,7 @@ func TestProjectDelete_WorkspaceRecordDeleteError_Aborts(t *testing.T) {
 	f.seedProject()
 	f.workspaces.delErr = errors.New("db down")
 	f.workspaces.workspaces = []domain.Workspace{
-		{ID: "w-main", RepoID: "r1", ProjectID: "p1", Branch: "main", WorktreePath: deleteRepoPath, Locked: true},
+		{ID: "w-main", RepoID: "r1", ProjectID: "p1", Branch: "main", WorktreePath: deleteRepoPath, Status: domain.WorkspaceStatusLocked},
 	}
 
 	err := f.uc.Delete(context.Background(), "p1")

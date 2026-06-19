@@ -19,7 +19,7 @@ type CreateWorkspace struct {
 	WorktreePath  string
 	ForkPointSha  string
 	ParentID      string
-	Locked        bool
+	Protected     bool
 	MergeStrategy gitdomain.MergeStrategy
 	Now           time.Time
 }
@@ -55,10 +55,10 @@ func (c CreateWorkspace) EmitEvent(
 	if strategy == "" {
 		strategy = gitdomain.MergeStrategyMerge
 	}
-	// Dual-write (W4-mig-1): seed the new Status enum alongside the legacy
-	// Locked bool. Protected/Locked → locked, else new.
+	// Seed the lifecycle status from the protected flag: a protected branch
+	// starts locked, every other workspace starts new (00 §6.1).
 	status := domain.WorkspaceStatusNew
-	if c.Locked {
+	if c.Protected {
 		status = domain.WorkspaceStatusLocked
 	}
 	return domain.Workspace{
@@ -70,7 +70,6 @@ func (c CreateWorkspace) EmitEvent(
 		ForkPointSha:  c.ForkPointSha,
 		ParentID:      c.ParentID,
 		Status:        status,
-		Locked:        c.Locked,
 		MergeStrategy: strategy,
 		LastActivity:  c.Now,
 		CreatedAt:     c.Now,

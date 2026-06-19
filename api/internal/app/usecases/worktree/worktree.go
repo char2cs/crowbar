@@ -104,7 +104,7 @@ func (u *worktreeUsecase) CreateChild(
 			ProjectID: in.ProjectID,
 			Branch:    in.Branch,
 			ParentID:  in.ParentID,
-			Locked:    in.ForceLocked,
+			Protected: in.ForceLocked,
 		}, u.now())
 	}
 	// When ParentID is empty and the requested branch matches the parent branch
@@ -135,7 +135,7 @@ func (u *worktreeUsecase) CreateChild(
 		WorktreePath: path,
 		ForkPointSha: startSha,
 		ParentID:     in.ParentID,
-		Locked:       locked || in.ForceLocked,
+		Protected:    locked || in.ForceLocked,
 	}, u.now())
 }
 
@@ -212,7 +212,7 @@ func (u *worktreeUsecase) adoptMainWorktree(
 		WorktreePath: in.RepoPath,
 		ForkPointSha: startSha,
 		ParentID:     in.ParentID,
-		Locked:       locked || in.ForceLocked,
+		Protected:    locked || in.ForceLocked,
 	}, u.now())
 }
 
@@ -329,8 +329,7 @@ func (u *worktreeUsecase) handleMergeError(
 		return MergeResult{}, fmt.Errorf("merge: run: %w", mergeErr)
 	}
 	// A local merge/rebase conflict transitions the child to Status=pr-conflicts
-	// (07 §3.1, 00 §6.1). The HasConflicts dual-write on SyncWorkingTreeState
-	// drives that status enum; the legacy SetPendingMerge path is retired.
+	// (07 §3.1, 00 §6.1): the HasConflicts sync input drives the status enum.
 	_, err := u.workspaces.SyncWorkingTreeState(ctx, workspace.SyncInput{
 		ID:           child.ID,
 		HasConflicts: true,

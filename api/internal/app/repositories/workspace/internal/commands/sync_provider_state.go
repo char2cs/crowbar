@@ -48,8 +48,6 @@ func (c SyncProviderState) EmitEvent(
 	current *domain.Workspace,
 ) domain.Workspace {
 	ws := *current
-	// Dual-write (W4-mig-1): keep writing the legacy Locked bool from Protected.
-	ws.Locked = c.Protected
 	if c.HasPR {
 		ws.PRUrl = c.PRUrl
 		ws.PRTitle = c.PRTitle

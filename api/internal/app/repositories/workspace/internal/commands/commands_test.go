@@ -34,15 +34,13 @@ func TestCreateWorkspace_EmitEvent_SeedsNewStatusAndDefaultStrategy(t *testing.T
 	assert.Equal(t, now, ws.CreatedAt)
 }
 
-func TestCreate_SeedsLockedStatusWhenProtected(t *testing.T) {
+func TestCreate_SeedsLockedWhenProtected(t *testing.T) {
 	now := time.Unix(1000, 0)
-	locked := CreateWorkspace{ID: "w1", RepoID: "r1", ProjectID: "p1", Locked: true, Now: now}.EmitEvent(nil)
+	locked := CreateWorkspace{ID: "w1", RepoID: "r1", ProjectID: "p1", Protected: true, Now: now}.EmitEvent(nil)
 	assert.Equal(t, domain.WorkspaceStatusLocked, locked.Status)
-	assert.True(t, locked.Locked)
 
 	unlocked := CreateWorkspace{ID: "w2", RepoID: "r1", ProjectID: "p1", Now: now}.EmitEvent(nil)
 	assert.Equal(t, domain.WorkspaceStatusNew, unlocked.Status)
-	assert.False(t, unlocked.Locked)
 }
 
 func TestSyncWorkingTreeState_Validate_RejectsMissing(t *testing.T) {
@@ -59,7 +57,6 @@ func TestSyncWorkingTreeState_KeepsNewWhenHasCommits(t *testing.T) {
 func TestSyncWorkingTree_LocalConflictSetsPRConflicts(t *testing.T) {
 	cur := &domain.Workspace{ID: "w1", Status: domain.WorkspaceStatusNew}
 	ws := SyncWorkingTreeState{ID: "w1", HasConflicts: true}.EmitEvent(cur)
-	assert.True(t, ws.HasConflicts)
 	assert.Equal(t, domain.WorkspaceStatusPRConflicts, ws.Status)
 }
 
@@ -110,16 +107,6 @@ func TestCommands_Metadata(t *testing.T) {
 	assert.Equal(t, "w1", ufp.AggregateID())
 	assert.Contains(t, ufp.EventName(), "fork_point_updated")
 	assert.False(t, ufp.ShouldSnapshot())
-
-	spm := SetPendingMerge{ID: "w1"}
-	assert.Equal(t, "w1", spm.AggregateID())
-	assert.Contains(t, spm.EventName(), "pending_merge_set")
-	assert.False(t, spm.ShouldSnapshot())
-
-	cpm := ClearPendingMerge{ID: "w1"}
-	assert.Equal(t, "w1", cpm.AggregateID())
-	assert.Contains(t, cpm.EventName(), "pending_merge_cleared")
-	assert.False(t, cpm.ShouldSnapshot())
 }
 
 func TestCreateWorkspace_Validate_AcceptsValidNew(t *testing.T) {
@@ -163,7 +150,6 @@ func TestSyncProvider_ProtectedSetsLocked_PrStatusOtherwise(t *testing.T) {
 	}
 	ws := cmd.EmitEvent(curProtected)
 	assert.Equal(t, domain.WorkspaceStatusLocked, ws.Status)
-	assert.True(t, ws.Locked)
 	assert.Equal(t, "https://x/pr/1", ws.PRUrl)
 	assert.Equal(t, "main", ws.PRTargetBranch)
 
@@ -171,7 +157,6 @@ func TestSyncProvider_ProtectedSetsLocked_PrStatusOtherwise(t *testing.T) {
 	curOpen := &domain.Workspace{ID: "w2", Status: domain.WorkspaceStatusNew}
 	wsOpen := SyncProviderState{ID: "w2", Protected: false, HasPR: true, PRStatus: "open"}.EmitEvent(curOpen)
 	assert.Equal(t, domain.WorkspaceStatusPROpen, wsOpen.Status)
-	assert.False(t, wsOpen.Locked)
 }
 
 func TestSyncProvider_Precedence_DoesNotClobberLocked(t *testing.T) {
@@ -196,7 +181,6 @@ func TestSyncProviderState_NoPRLeavesStatusButSetsLocked(t *testing.T) {
 	cmd := SyncProviderState{ID: "w1", Protected: true, HasPR: false}
 	ws := cmd.EmitEvent(cur)
 	assert.Equal(t, domain.WorkspaceStatusLocked, ws.Status)
-	assert.True(t, ws.Locked)
 	assert.Empty(t, ws.PRUrl)
 }
 
@@ -309,44 +293,6 @@ func TestUpdateForkPoint_Validate_RejectsMissingSha(t *testing.T) {
 	assert.True(t, errors.Is(err, asynxModels.ErrValidation))
 }
 
-func TestSetPendingMerge_SetsMarker(t *testing.T) {
-	cur := &domain.Workspace{ID: "w1"}
-	ws := SetPendingMerge{
-		ID:             "w1",
-		Strategy:       gitdomain.MergeStrategyRebase,
-		TargetParentID: "p",
-	}.EmitEvent(cur)
-	require.NotNil(t, ws.PendingMerge)
-	assert.Equal(t, "p", ws.PendingMerge.TargetParentID)
-	assert.Equal(t, gitdomain.MergeStrategyRebase, ws.PendingMerge.Strategy)
-}
-
-func TestSetPendingMerge_Validate_RejectsMissingCurrent(t *testing.T) {
-	err := SetPendingMerge{ID: "w1", TargetParentID: "p"}.Validate(nil)
-	assert.True(t, errors.Is(err, asynxModels.ErrValidation))
-}
-
-func TestSetPendingMerge_Validate_RejectsMissingTarget(t *testing.T) {
-	err := SetPendingMerge{ID: "w1"}.Validate(&domain.Workspace{ID: "w1"})
-	assert.True(t, errors.Is(err, asynxModels.ErrValidation))
-}
-
-func TestClearPendingMerge_ClearsMarker(t *testing.T) {
-	cur := &domain.Workspace{ID: "w1", PendingMerge: &gitdomain.PendingMerge{TargetParentID: "p"}}
-	ws := ClearPendingMerge{ID: "w1"}.EmitEvent(cur)
-	assert.Nil(t, ws.PendingMerge)
-}
-
-func TestClearPendingMerge_Validate_RejectsMissing(t *testing.T) {
-	err := ClearPendingMerge{ID: "w1"}.Validate(nil)
-	assert.True(t, errors.Is(err, asynxModels.ErrValidation))
-}
-
-func TestClearPendingMerge_Validate_AcceptsExisting(t *testing.T) {
-	err := ClearPendingMerge{ID: "w1"}.Validate(&domain.Workspace{ID: "w1"})
-	assert.NoError(t, err)
-}
-
 func TestReparent_Validate_RejectsMissingForkPoint(t *testing.T) {
 	err := Reparent{ID: "w1", ParentID: "p"}.Validate(&domain.Workspace{ID: "w1"})
 	assert.True(t, errors.Is(err, asynxModels.ErrValidation))
@@ -359,10 +305,5 @@ func TestReparent_Validate_AcceptsValid(t *testing.T) {
 
 func TestUpdateForkPoint_Validate_AcceptsValid(t *testing.T) {
 	err := UpdateForkPoint{ID: "w1", ForkPointSha: "s"}.Validate(&domain.Workspace{ID: "w1"})
-	assert.NoError(t, err)
-}
-
-func TestSetPendingMerge_Validate_AcceptsValid(t *testing.T) {
-	err := SetPendingMerge{ID: "w1", TargetParentID: "p"}.Validate(&domain.Workspace{ID: "w1"})
 	assert.NoError(t, err)
 }

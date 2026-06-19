@@ -148,7 +148,11 @@ func TestWorkspaceUsecase_SyncWorkingTreeState_RecomputesAndRollsUp(t *testing.T
 		_ time.Time,
 	) (domain.Workspace, error) {
 		captured = in
-		return domain.Workspace{ID: in.ID, Added: in.Added, Deleted: in.Deleted, HasConflicts: in.HasConflicts}, nil
+		ws := domain.Workspace{ID: in.ID, Added: in.Added, Deleted: in.Deleted}
+		if in.HasConflicts {
+			ws.Status = domain.WorkspaceStatusPRConflicts
+		}
+		return ws, nil
 	}
 
 	got, err := uc.SyncWorkingTreeState(ctx, "w1", now)

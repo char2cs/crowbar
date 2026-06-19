@@ -17,10 +17,7 @@ type Workspace struct {
 	ForkPointSha   string                  `json:"forkPointSha"`
 	ParentID       string                  `json:"parentId,omitempty"`
 	Status         WorkspaceStatus         `json:"status,omitempty"`
-	Locked         bool                    `json:"locked"`
-	HasConflicts   bool                    `json:"hasConflicts"`
 	MergeStrategy  gitdomain.MergeStrategy `json:"mergeStrategy"`
-	PendingMerge   *gitdomain.PendingMerge `json:"pendingMerge,omitempty"`
 	Added          int                     `json:"added"`
 	Deleted        int                     `json:"deleted"`
 	PRUrl          string                  `json:"prUrl,omitempty"`
@@ -33,4 +30,9 @@ type Workspace struct {
 	// never written by any command. With the agent-run concept removed it is
 	// always false in scope.
 	Working bool `json:"working"`
+	// LastError carries the message from the most recent failed background
+	// mutation (00 §4): create/sync/merge/reparent set it on failure so the wire
+	// DTO can surface the error against the entity. Empty when the last mutation
+	// succeeded.
+	LastError string `json:"lastError,omitempty"`
 }

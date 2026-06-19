@@ -285,7 +285,7 @@ func (u *fileUsecase) writePath(
 	if err != nil {
 		return "", fmt.Errorf("file: load workspace: %w", err)
 	}
-	if ws.Locked {
+	if ws.Status == domain.WorkspaceStatusLocked {
 		return "", fmt.Errorf("file: write: workspace locked: %w", apperr.ErrLocked)
 	}
 	return ws.WorktreePath, nil

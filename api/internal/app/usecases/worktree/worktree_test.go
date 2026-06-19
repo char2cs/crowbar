@@ -29,7 +29,6 @@ type fakeWorkspace struct {
 	ListFn            func(ctx context.Context) ([]domain.Workspace, error)
 	ReparentFn        func(ctx context.Context, id, parentID, forkPointSha string, now time.Time) (domain.Workspace, error)
 	UpdateForkPointFn func(ctx context.Context, id, forkPointSha string) (domain.Workspace, error)
-	SetPendingMergeFn func(ctx context.Context, id string, s gitdomain.MergeStrategy, target string) (domain.Workspace, error)
 	DeleteFn          func(ctx context.Context, id string) error
 	SyncFn            func(ctx context.Context, in workspace.SyncInput, now time.Time) (domain.Workspace, error)
 }
@@ -73,15 +72,6 @@ func (f *fakeWorkspace) UpdateForkPoint(
 	return f.UpdateForkPointFn(ctx, id, forkPointSha)
 }
 
-func (f *fakeWorkspace) SetPendingMerge(
-	ctx context.Context,
-	id string,
-	s gitdomain.MergeStrategy,
-	target string,
-) (domain.Workspace, error) {
-	return f.SetPendingMergeFn(ctx, id, s, target)
-}
-
 func (f *fakeWorkspace) Delete(
 	ctx context.Context,
 	id string,
@@ -120,13 +110,6 @@ func (f *fakeWorkspace) TouchActivity(
 	_ context.Context,
 	_ string,
 	_ time.Time,
-) (domain.Workspace, error) {
-	return domain.Workspace{}, nil
-}
-
-func (f *fakeWorkspace) ClearPendingMerge(
-	_ context.Context,
-	_ string,
 ) (domain.Workspace, error) {
 	return domain.Workspace{}, nil
 }
@@ -389,7 +372,7 @@ func TestCreateChild_RecordsForkPointAndLocked(t *testing.T) {
 	require.NoError(t, err)
 	assert.NotEmpty(t, out.ID)
 	assert.Equal(t, "sha123", created.ForkPointSha)
-	assert.False(t, created.Locked)
+	assert.False(t, created.Protected)
 	assert.Equal(t, "w-parent", created.ParentID)
 	assert.Equal(t, []string{"RemoteBranchExists", "WorktreeAddBranch"}, g.ops())
 	assert.Equal(t, []string{"/repo", created.WorktreePath, "feature/x", "develop"}, g.calls[1].args)
@@ -414,7 +397,7 @@ func TestCreateChild_LocksProtectedBranch(t *testing.T) {
 		RepoPath: "/repo", RemoteURL: "https://github.com/test/repo.git", Branch: "feature/x", ParentBranch: "develop",
 	})
 	require.NoError(t, err)
-	assert.True(t, created.Locked)
+	assert.True(t, created.Protected)
 }
 
 // TestCreateChild_RemoteBranchAbsent_CreatesLocal verifies the spec-§3 decision:
@@ -758,18 +741,12 @@ func TestMergeIntoParent_Conflict_SetsPRConflicts(t *testing.T) {
 		synced = append(synced, in)
 		return domain.Workspace{}, nil
 	}
-	pendingCalled := false
-	ws.SetPendingMergeFn = func(_ context.Context, _ string, _ gitdomain.MergeStrategy, _ string) (domain.Workspace, error) {
-		pendingCalled = true
-		return domain.Workspace{}, nil
-	}
 	uc := worktree.New(ws, g, &fakeProvider{}, &fakeRepoStore{}, newNow(), fakeHome())
 
 	res, err := uc.MergeIntoParent(context.Background(), "c", gitdomain.MergeStrategyMerge)
 	require.NoError(t, err)
 	assert.True(t, res.ConflictsPending)
 	assert.Empty(t, res.ParentTipSha)
-	assert.False(t, pendingCalled, "pending-merge command must not be used; status drives the conflict state")
 	require.Len(t, synced, 1)
 	assert.Equal(t, "c", synced[0].ID)
 	assert.True(t, synced[0].HasConflicts)

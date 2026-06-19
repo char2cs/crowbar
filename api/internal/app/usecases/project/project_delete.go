@@ -4,7 +4,6 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
-
 	"strings"
 
 	"github.com/char2cs/crowbar/api/internal/app/apperr"
@@ -196,7 +195,7 @@ func (u *projectDelete) removeWorktreeIfCrowbarManaged(
 	if !ok {
 		return
 	}
-	if ws.Locked || ws.WorktreePath == "" {
+	if ws.Status == domain.WorkspaceStatusLocked || ws.WorktreePath == "" {
 		return
 	}
 	// Only remove worktrees that live under the crowbar home directory.

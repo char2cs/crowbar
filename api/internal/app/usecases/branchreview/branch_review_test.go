@@ -99,13 +99,6 @@ func (m *mockWorkspace) UpdateForkPoint(ctx context.Context, id, forkPointSha st
 	return domain.Workspace{}, nil
 }
 
-func (m *mockWorkspace) SetPendingMerge(ctx context.Context, id string, s gitdomain.MergeStrategy, target string) (domain.Workspace, error) {
-	return domain.Workspace{}, nil
-}
-
-func (m *mockWorkspace) ClearPendingMerge(ctx context.Context, id string) (domain.Workspace, error) {
-	return domain.Workspace{}, nil
-}
 func (m *mockWorkspace) Delete(ctx context.Context, id string) error { return nil }
 func (m *mockWorkspace) List(ctx context.Context) ([]domain.Workspace, error) {
 	return nil, nil
