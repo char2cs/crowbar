@@ -116,6 +116,16 @@ type Engine interface {
 		repoPath string,
 	) error
 
+	// FetchRef fetches a single branch from the `origin` remote via
+	// `git fetch origin <branch>`, making `origin/<branch>` available locally.
+	// Used by the worktree usecase before checking out a branch that exists on
+	// the remote but not yet locally (07 / Spec §3).
+	FetchRef(
+		ctx context.Context,
+		repoPath string,
+		branch string,
+	) error
+
 	// Pull runs git pull. mode is "merge" or "rebase" (04 §5).
 	Pull(
 		ctx context.Context,

@@ -276,6 +276,16 @@ func (e *engine) Fetch(
 	return gitexec.RequireSuccess("fetch", r)
 }
 
+func (e *engine) FetchRef(
+	ctx context.Context,
+	repoPath string,
+	branch string,
+) error {
+	defer e.lockRepo(repoPath)()
+	r := e.exec(ctx, repoPath, "fetch", "origin", branch)
+	return gitexec.RequireSuccess("fetch ref", r)
+}
+
 func (e *engine) Pull(
 	ctx context.Context,
 	repoPath string,

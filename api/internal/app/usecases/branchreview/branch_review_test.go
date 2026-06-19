@@ -110,6 +110,7 @@ func (m *mockWorkspace) Delete(ctx context.Context, id string) error { return ni
 func (m *mockWorkspace) List(ctx context.Context) ([]domain.Workspace, error) {
 	return nil, nil
 }
+
 func (m *mockWorkspace) SetParentFromPR(ctx context.Context, id string, parentID string) (domain.Workspace, error) {
 	return domain.Workspace{}, nil
 }
@@ -243,6 +244,8 @@ func (g *mockGitEngine) Commit(ctx context.Context, repoPath, subject, body stri
 func (g *mockGitEngine) Push(ctx context.Context, repoPath string) error { return nil }
 
 func (g *mockGitEngine) Fetch(ctx context.Context, repoPath string) error { return nil }
+
+func (g *mockGitEngine) FetchRef(ctx context.Context, repoPath, branch string) error { return nil }
 
 func (g *mockGitEngine) Pull(ctx context.Context, repoPath, mode string) error { return nil }
 

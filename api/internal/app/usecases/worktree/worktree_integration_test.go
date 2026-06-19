@@ -198,6 +198,12 @@ func initRepo(
 	gitRun(t, dir, "config", "user.email", "t@t")
 	gitRun(t, dir, "config", "user.name", "t")
 	gitRun(t, dir, "commit", "--allow-empty", "-m", "init")
+	// Wire a bare `origin` remote so the usecase's RemoteBranchExists check has
+	// something to query. Feature branches are never pushed here, so every
+	// CreateChild in the integration matrix takes the create-local path.
+	bare := filepath.Join(t.TempDir(), "origin.git")
+	gitRun(t, t.TempDir(), "init", "--bare", bare)
+	gitRun(t, dir, "remote", "add", "origin", bare)
 	return dir
 }
 
@@ -452,7 +458,7 @@ func TestIntegration_DeleteCascadeSkipsLockedChild(t *testing.T) {
 	assert.False(t, ids[descendant.ID], "descendant row removed")
 }
 
-func TestIntegration_MergeConflictSetsPendingMerge(t *testing.T) {
+func TestIntegration_MergeConflictSetsPRConflicts(t *testing.T) {
 	h := newRealUsecase(t)
 	ctx := context.Background()
 
@@ -468,15 +474,10 @@ func TestIntegration_MergeConflictSetsPendingMerge(t *testing.T) {
 
 	reloaded, err := h.workspaces.Get(ctx, child.ID)
 	require.NoError(t, err)
-	require.NotNil(t, reloaded.PendingMerge)
-	assert.Equal(t, gitdomain.MergeStrategyMerge, reloaded.PendingMerge.Strategy)
-	assert.Equal(t, h.parentID, reloaded.PendingMerge.TargetParentID)
+	assert.Equal(t, domain.WorkspaceStatusPRConflicts, reloaded.Status,
+		"a local merge conflict surfaces as Status=pr-conflicts")
 
 	require.NoError(t, enginegit.New().OperationAbort(ctx, h.repoPath))
-	cleared, err := h.workspaces.ClearPendingMerge(ctx, child.ID)
-	require.NoError(t, err)
-	assert.Nil(t, cleared.PendingMerge)
-
 	status := gitRun(t, h.repoPath, "status", "--porcelain")
 	assert.Empty(t, trimNewline(status), "abort rolls the parent worktree back clean")
 }

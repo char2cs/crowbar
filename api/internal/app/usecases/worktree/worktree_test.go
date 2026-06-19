@@ -146,19 +146,23 @@ type gitCall struct {
 
 type fakeGit struct {
 	enginegit.Engine
-	calls       []gitCall
-	addStartSha string
-	addErr      error
-	revParseSha string
-	revParseErr error
-	mergeErr    error
-	squashErr   error
-	rebaseErr   error
-	ffErr       error
-	rebaseFFErr error
-	rebaseOnto  error
-	removeErr   error
-	deleteErr   error
+	calls           []gitCall
+	addStartSha     string
+	addErr          error
+	revParseSha     string
+	revParseErr     error
+	mergeErr        error
+	squashErr       error
+	rebaseErr       error
+	ffErr           error
+	rebaseFFErr     error
+	rebaseOnto      error
+	removeErr       error
+	deleteErr       error
+	remoteExists    bool
+	remoteExistsErr error
+	fetchRefErr     error
+	worktreeAddErr  error
 
 	summaryAdded      int
 	summaryDeleted    int
@@ -190,6 +194,34 @@ func (f *fakeGit) WorktreeAddBranch(
 ) (string, error) {
 	f.record("WorktreeAddBranch", repoPath, worktreePath, branch, startPoint)
 	return f.addStartSha, f.addErr
+}
+
+func (f *fakeGit) RemoteBranchExists(
+	_ context.Context,
+	repoPath string,
+	branch string,
+) (bool, error) {
+	f.record("RemoteBranchExists", repoPath, branch)
+	return f.remoteExists, f.remoteExistsErr
+}
+
+func (f *fakeGit) FetchRef(
+	_ context.Context,
+	repoPath string,
+	branch string,
+) error {
+	f.record("FetchRef", repoPath, branch)
+	return f.fetchRefErr
+}
+
+func (f *fakeGit) WorktreeAdd(
+	_ context.Context,
+	repoPath string,
+	worktreePath string,
+	branch string,
+) error {
+	f.record("WorktreeAdd", repoPath, worktreePath, branch)
+	return f.worktreeAddErr
 }
 
 func (f *fakeGit) RevParse(
@@ -359,8 +391,8 @@ func TestCreateChild_RecordsForkPointAndLocked(t *testing.T) {
 	assert.Equal(t, "sha123", created.ForkPointSha)
 	assert.False(t, created.Locked)
 	assert.Equal(t, "w-parent", created.ParentID)
-	assert.Equal(t, []string{"WorktreeAddBranch"}, g.ops())
-	assert.Equal(t, []string{"/repo", created.WorktreePath, "feature/x", "develop"}, g.calls[0].args)
+	assert.Equal(t, []string{"RemoteBranchExists", "WorktreeAddBranch"}, g.ops())
+	assert.Equal(t, []string{"/repo", created.WorktreePath, "feature/x", "develop"}, g.calls[1].args)
 }
 
 func TestCreateChild_LocksProtectedBranch(t *testing.T) {
@@ -385,6 +417,155 @@ func TestCreateChild_LocksProtectedBranch(t *testing.T) {
 	assert.True(t, created.Locked)
 }
 
+// TestCreateChild_RemoteBranchAbsent_CreatesLocal verifies the spec-§3 decision:
+// when the branch does NOT exist on the remote, CreateChild creates it locally
+// from ParentBranch via WorktreeAddBranch and never fetches/checks out.
+func TestCreateChild_RemoteBranchAbsent_CreatesLocal(t *testing.T) {
+	g := &fakeGit{remoteExists: false, addStartSha: "localfork"}
+	var created workspace.CreateInput
+	ws := &fakeWorkspace{
+		CreateFn: func(
+			_ context.Context,
+			in workspace.CreateInput,
+			_ time.Time,
+		) (domain.Workspace, error) {
+			created = in
+			return domain.Workspace{ID: in.ID}, nil
+		},
+	}
+	uc := worktree.New(ws, g, &fakeProvider{}, &fakeRepoStore{}, newNow(), fakeHome())
+
+	_, err := uc.CreateChild(context.Background(), worktree.CreateChildInput{
+		RepoID:       "r1",
+		ProjectID:    "p1",
+		RepoPath:     "/repo",
+		Branch:       "feature/x",
+		ParentID:     "w-parent",
+		ParentBranch: "develop",
+	})
+	require.NoError(t, err)
+	assert.Equal(t, []string{"RemoteBranchExists", "WorktreeAddBranch"}, g.ops())
+	assert.Equal(t, []string{"/repo", created.WorktreePath, "feature/x", "develop"}, g.calls[1].args)
+	// Fork point comes from the create-local startSha.
+	assert.Equal(t, "localfork", created.ForkPointSha)
+}
+
+// TestCreateChild_RemoteBranchExists_ChecksOut verifies the spec-§3 decision:
+// when the branch already exists on the remote, CreateChild fetches it and
+// checks out the existing remote branch (WorktreeAdd), and the fork point comes
+// from RevParse of the resolved origin/<branch> ref — NOT from WorktreeAddBranch.
+func TestCreateChild_RemoteBranchExists_ChecksOut(t *testing.T) {
+	g := &fakeGit{remoteExists: true, revParseSha: "remotefork"}
+	var created workspace.CreateInput
+	ws := &fakeWorkspace{
+		CreateFn: func(
+			_ context.Context,
+			in workspace.CreateInput,
+			_ time.Time,
+		) (domain.Workspace, error) {
+			created = in
+			return domain.Workspace{ID: in.ID}, nil
+		},
+	}
+	uc := worktree.New(ws, g, &fakeProvider{}, &fakeRepoStore{}, newNow(), fakeHome())
+
+	_, err := uc.CreateChild(context.Background(), worktree.CreateChildInput{
+		RepoID:       "r1",
+		ProjectID:    "p1",
+		RepoPath:     "/repo",
+		Branch:       "feature/x",
+		ParentID:     "w-parent",
+		ParentBranch: "develop",
+	})
+	require.NoError(t, err)
+	assert.Equal(t, []string{"RemoteBranchExists", "FetchRef", "RevParse", "WorktreeAdd"}, g.ops())
+	assert.Equal(t, []string{"/repo", "feature/x"}, g.calls[0].args)
+	assert.Equal(t, []string{"/repo", "feature/x"}, g.calls[1].args)
+	assert.Equal(t, []string{"/repo", "origin/feature/x"}, g.calls[2].args)
+	assert.Equal(t, []string{"/repo", created.WorktreePath, "feature/x"}, g.calls[3].args)
+	// WorktreeAddBranch must NOT be called on the checkout path.
+	assert.NotContains(t, g.ops(), "WorktreeAddBranch")
+	assert.Equal(t, "remotefork", created.ForkPointSha)
+}
+
+func TestCreateChild_RemoteBranchExistsError(t *testing.T) {
+	g := &fakeGit{remoteExistsErr: errBoom}
+	uc := worktree.New(&fakeWorkspace{}, g, &fakeProvider{}, &fakeRepoStore{}, newNow(), fakeHome())
+	_, err := uc.CreateChild(context.Background(), worktree.CreateChildInput{
+		RepoPath: "/r", Branch: "b", ParentBranch: "develop",
+	})
+	require.ErrorIs(t, err, errBoom)
+}
+
+func TestCreateChild_FetchRefError(t *testing.T) {
+	g := &fakeGit{remoteExists: true, fetchRefErr: errBoom}
+	uc := worktree.New(&fakeWorkspace{}, g, &fakeProvider{}, &fakeRepoStore{}, newNow(), fakeHome())
+	_, err := uc.CreateChild(context.Background(), worktree.CreateChildInput{
+		RepoPath: "/r", Branch: "b", ParentBranch: "develop",
+	})
+	require.ErrorIs(t, err, errBoom)
+}
+
+func TestCreateChild_CheckoutWorktreeAddError(t *testing.T) {
+	g := &fakeGit{remoteExists: true, revParseSha: "s", worktreeAddErr: errBoom}
+	uc := worktree.New(&fakeWorkspace{}, g, &fakeProvider{}, &fakeRepoStore{}, newNow(), fakeHome())
+	_, err := uc.CreateChild(context.Background(), worktree.CreateChildInput{
+		RepoPath: "/r", Branch: "b", ParentBranch: "develop",
+	})
+	require.ErrorIs(t, err, errBoom)
+}
+
+func TestCreateChild_CheckoutRevParseError(t *testing.T) {
+	g := &fakeGit{remoteExists: true, revParseErr: errBoom}
+	uc := worktree.New(&fakeWorkspace{}, g, &fakeProvider{}, &fakeRepoStore{}, newNow(), fakeHome())
+	_, err := uc.CreateChild(context.Background(), worktree.CreateChildInput{
+		RepoPath: "/r", Branch: "b", ParentBranch: "develop",
+	})
+	require.ErrorIs(t, err, errBoom)
+}
+
+// TestCreateChild_AdoptMainWorktreeUnchanged proves the main-worktree adoption
+// path (empty parent + branch == parent branch) is untouched by the spec-§3
+// remote decision: it resolves HEAD directly and never queries the remote.
+func TestCreateChild_AdoptMainWorktreeUnchanged(t *testing.T) {
+	g := &fakeGit{revParseSha: "headsha"}
+	var created workspace.CreateInput
+	ws := &fakeWorkspace{
+		CreateFn: func(
+			_ context.Context,
+			in workspace.CreateInput,
+			_ time.Time,
+		) (domain.Workspace, error) {
+			created = in
+			return domain.Workspace{ID: in.ID}, nil
+		},
+	}
+	uc := worktree.New(ws, g, &fakeProvider{}, &fakeRepoStore{}, newNow(), fakeHome())
+
+	_, err := uc.CreateChild(context.Background(), worktree.CreateChildInput{
+		RepoID:       "r1",
+		ProjectID:    "p1",
+		RepoPath:     "/repo",
+		Branch:       "main",
+		ParentID:     "",
+		ParentBranch: "main",
+	})
+	require.NoError(t, err)
+	assert.Equal(t, []string{"RevParse"}, g.ops())
+	assert.NotContains(t, g.ops(), "RemoteBranchExists")
+	assert.Equal(t, "/repo", created.WorktreePath, "adopts the repo path as the worktree")
+	assert.Equal(t, "headsha", created.ForkPointSha)
+}
+
+func TestCreateChild_AdoptMainWorktree_RevParseError(t *testing.T) {
+	g := &fakeGit{revParseErr: errBoom}
+	uc := worktree.New(&fakeWorkspace{}, g, &fakeProvider{}, &fakeRepoStore{}, newNow(), fakeHome())
+	_, err := uc.CreateChild(context.Background(), worktree.CreateChildInput{
+		RepoPath: "/repo", Branch: "main", ParentBranch: "main",
+	})
+	require.ErrorIs(t, err, errBoom)
+}
+
 func TestCreateChild_WorktreeAddError(t *testing.T) {
 	g := &fakeGit{addErr: errBoom}
 	ws := &fakeWorkspace{}
@@ -399,6 +580,17 @@ func TestCreateChild_ProviderError(t *testing.T) {
 	uc := worktree.New(ws, g, &fakeProvider{err: errBoom}, &fakeRepoStore{}, newNow(), fakeHome())
 	_, err := uc.CreateChild(context.Background(), worktree.CreateChildInput{RepoPath: "/r", RemoteURL: "https://github.com/test/repo.git", Branch: "b"})
 	require.ErrorIs(t, err, errBoom)
+}
+
+func TestCreateChild_CrowbarHomeError(t *testing.T) {
+	g := &fakeGit{}
+	badHome := func() (string, error) { return "", errBoom }
+	uc := worktree.New(&fakeWorkspace{}, g, &fakeProvider{}, &fakeRepoStore{}, newNow(), badHome)
+	_, err := uc.CreateChild(context.Background(), worktree.CreateChildInput{
+		RepoPath: "/r", Branch: "feature/x", ParentBranch: "develop",
+	})
+	require.ErrorIs(t, err, errBoom)
+	assert.Empty(t, g.calls, "no git work runs when the home path cannot be resolved")
 }
 
 // --- MergeIntoParent ---
@@ -427,7 +619,7 @@ func mergeWS(
 
 func TestMergeIntoParent_RejectsLockedParent(t *testing.T) {
 	child := domain.Workspace{ID: "c", ParentID: "p", Branch: "feat"}
-	parent := domain.Workspace{ID: "p", Locked: true, WorktreePath: "/pw"}
+	parent := domain.Workspace{ID: "p", Status: domain.WorkspaceStatusLocked, WorktreePath: "/pw"}
 	g := &fakeGit{}
 	uc := worktree.New(mergeWS(child, parent, nil), g, &fakeProvider{}, &fakeRepoStore{}, newNow(), fakeHome())
 	_, err := uc.MergeIntoParent(context.Background(), "c", gitdomain.MergeStrategyMerge)
@@ -553,15 +745,22 @@ func TestMergeIntoParent_RebaseStrategy_RebasesChildThenFFMerges(t *testing.T) {
 	assert.Equal(t, []string{"/cw", "develop", "/pw", "feat"}, g.calls[0].args)
 }
 
-func TestMergeIntoParent_Conflict_SetsPendingMerge(t *testing.T) {
+// TestMergeIntoParent_Conflict_SetsPRConflicts proves that a local merge
+// conflict transitions the child to Status=pr-conflicts (via a
+// SyncWorkingTreeState HasConflicts write) instead of recording a pending merge.
+func TestMergeIntoParent_Conflict_SetsPRConflicts(t *testing.T) {
 	child := domain.Workspace{ID: "c", ParentID: "p", Branch: "feat"}
 	parent := domain.Workspace{ID: "p", WorktreePath: "/pw", Branch: "develop"}
 	g := &fakeGit{mergeErr: enginegit.ErrConflict}
 	ws := mergeWS(child, parent, nil)
-	var pendID, pendTarget string
-	var pendStrat gitdomain.MergeStrategy
-	ws.SetPendingMergeFn = func(_ context.Context, id string, s gitdomain.MergeStrategy, target string) (domain.Workspace, error) {
-		pendID, pendStrat, pendTarget = id, s, target
+	var synced []workspace.SyncInput
+	ws.SyncFn = func(_ context.Context, in workspace.SyncInput, _ time.Time) (domain.Workspace, error) {
+		synced = append(synced, in)
+		return domain.Workspace{}, nil
+	}
+	pendingCalled := false
+	ws.SetPendingMergeFn = func(_ context.Context, _ string, _ gitdomain.MergeStrategy, _ string) (domain.Workspace, error) {
+		pendingCalled = true
 		return domain.Workspace{}, nil
 	}
 	uc := worktree.New(ws, g, &fakeProvider{}, &fakeRepoStore{}, newNow(), fakeHome())
@@ -570,24 +769,29 @@ func TestMergeIntoParent_Conflict_SetsPendingMerge(t *testing.T) {
 	require.NoError(t, err)
 	assert.True(t, res.ConflictsPending)
 	assert.Empty(t, res.ParentTipSha)
-	assert.Equal(t, "c", pendID)
-	assert.Equal(t, gitdomain.MergeStrategyMerge, pendStrat)
-	assert.Equal(t, "p", pendTarget)
+	assert.False(t, pendingCalled, "pending-merge command must not be used; status drives the conflict state")
+	require.Len(t, synced, 1)
+	assert.Equal(t, "c", synced[0].ID)
+	assert.True(t, synced[0].HasConflicts)
 	assert.Equal(t, []string{"Merge"}, g.ops())
 }
 
-func TestMergeIntoParent_RebaseConflict_SetsPendingMerge(t *testing.T) {
+func TestMergeIntoParent_RebaseConflict_SetsPRConflicts(t *testing.T) {
 	child := domain.Workspace{ID: "c", ParentID: "p", Branch: "feat", WorktreePath: "/cw"}
 	parent := domain.Workspace{ID: "p", WorktreePath: "/pw", Branch: "develop"}
 	g := &fakeGit{rebaseFFErr: enginegit.ErrConflict}
 	ws := mergeWS(child, parent, nil)
-	ws.SetPendingMergeFn = func(_ context.Context, _ string, _ gitdomain.MergeStrategy, _ string) (domain.Workspace, error) {
+	var synced []workspace.SyncInput
+	ws.SyncFn = func(_ context.Context, in workspace.SyncInput, _ time.Time) (domain.Workspace, error) {
+		synced = append(synced, in)
 		return domain.Workspace{}, nil
 	}
 	uc := worktree.New(ws, g, &fakeProvider{}, &fakeRepoStore{}, newNow(), fakeHome())
 	res, err := uc.MergeIntoParent(context.Background(), "c", gitdomain.MergeStrategyRebase)
 	require.NoError(t, err)
 	assert.True(t, res.ConflictsPending)
+	require.Len(t, synced, 1)
+	assert.True(t, synced[0].HasConflicts)
 	assert.Equal(t, []string{"RebaseThenFFMerge"}, g.ops())
 }
 
@@ -641,7 +845,7 @@ func TestReparent_RejectsNonLeafChild(t *testing.T) {
 
 func TestReparent_RejectsLockedNewParent(t *testing.T) {
 	child := domain.Workspace{ID: "c"}
-	newParent := domain.Workspace{ID: "np", Locked: true}
+	newParent := domain.Workspace{ID: "np", Status: domain.WorkspaceStatusLocked}
 	ws := reparentWS(child, newParent, nil)
 	g := &fakeGit{}
 	uc := worktree.New(ws, g, &fakeProvider{}, &fakeRepoStore{}, newNow(), fakeHome())
@@ -731,11 +935,15 @@ func reparentWS(
 
 // --- DeleteCascade ---
 
-func TestDeleteCascade_DeepestFirstSkippingLocked(t *testing.T) {
+// TestDeleteCascade_SkipsLockedStatus proves the cascade planner derives the
+// skip-locked rule from Status==locked (not the legacy Locked bool): the
+// locked-status node 'b' is preserved while its unlocked descendant 'c' is
+// still deleted.
+func TestDeleteCascade_SkipsLockedStatus(t *testing.T) {
 	all := []domain.Workspace{
 		{ID: "root", RepoID: "r", Branch: "b-root", WorktreePath: "/wt/root"},
 		{ID: "a", ParentID: "root", RepoID: "r", Branch: "b-a", WorktreePath: "/wt/a"},
-		{ID: "b", ParentID: "a", Locked: true, RepoID: "r", Branch: "b-b", WorktreePath: "/wt/b"},
+		{ID: "b", ParentID: "a", Status: domain.WorkspaceStatusLocked, RepoID: "r", Branch: "b-b", WorktreePath: "/wt/b"},
 		{ID: "c", ParentID: "b", RepoID: "r", Branch: "b-c", WorktreePath: "/wt/c"},
 	}
 	g := &fakeGit{}
@@ -758,6 +966,21 @@ func TestDeleteCascade_DeepestFirstSkippingLocked(t *testing.T) {
 	}, g.ops())
 	assert.Equal(t, []string{"/repo", "/wt/c"}, g.calls[0].args)
 	assert.Equal(t, []string{"/repo", "b-c"}, g.calls[1].args)
+}
+
+// TestDeleteCascade_RejectsLockedRootStatus proves the root-level guard now
+// derives from Status==locked rather than the legacy Locked bool.
+func TestDeleteCascade_RejectsLockedRootStatus(t *testing.T) {
+	all := []domain.Workspace{
+		{ID: "root", RepoID: "r", Status: domain.WorkspaceStatusLocked, Branch: "b", WorktreePath: "/wt"},
+	}
+	g := &fakeGit{}
+	ws := &fakeWorkspace{
+		ListFn: func(_ context.Context) ([]domain.Workspace, error) { return all, nil },
+	}
+	uc := worktree.New(ws, g, &fakeProvider{}, &fakeRepoStore{path: "/repo"}, newNow(), fakeHome())
+	require.ErrorIs(t, uc.DeleteCascade(context.Background(), "root"), worktree.ErrWorkspaceLocked)
+	assert.Empty(t, g.calls)
 }
 
 func TestDeleteCascade_ListError(t *testing.T) {
@@ -810,12 +1033,12 @@ func TestDeleteCascade_BranchDeleteError(t *testing.T) {
 	require.ErrorIs(t, uc.DeleteCascade(context.Background(), "root"), errBoom)
 }
 
-func TestMergeIntoParent_SetPendingMergeError(t *testing.T) {
+func TestMergeIntoParent_SetPRConflictsError(t *testing.T) {
 	child := domain.Workspace{ID: "c", ParentID: "p", Branch: "feat"}
 	parent := domain.Workspace{ID: "p", WorktreePath: "/pw", Branch: "develop"}
 	g := &fakeGit{mergeErr: enginegit.ErrConflict}
 	ws := mergeWS(child, parent, nil)
-	ws.SetPendingMergeFn = func(_ context.Context, _ string, _ gitdomain.MergeStrategy, _ string) (domain.Workspace, error) {
+	ws.SyncFn = func(_ context.Context, _ workspace.SyncInput, _ time.Time) (domain.Workspace, error) {
 		return domain.Workspace{}, errBoom
 	}
 	uc := worktree.New(ws, g, &fakeProvider{}, &fakeRepoStore{}, newNow(), fakeHome())

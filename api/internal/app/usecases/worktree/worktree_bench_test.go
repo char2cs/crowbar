@@ -108,6 +108,11 @@ func benchInitRepo(
 	benchGitRun(b, dir, "config", "user.email", "t@t")
 	benchGitRun(b, dir, "config", "user.name", "t")
 	benchGitRun(b, dir, "commit", "--allow-empty", "-m", "init")
+	// Bare `origin` so the usecase's RemoteBranchExists check has a remote to
+	// query; bench branches are never pushed, so CreateChild stays create-local.
+	bare := filepath.Join(b.TempDir(), "origin.git")
+	benchGitRun(b, b.TempDir(), "init", "--bare", bare)
+	benchGitRun(b, dir, "remote", "add", "origin", bare)
 	return dir
 }
 
