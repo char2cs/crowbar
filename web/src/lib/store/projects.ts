@@ -3,9 +3,6 @@ import { persist } from 'zustand/middleware'
 import type { Project } from '@/lib/types'
 import { createLoadableSlice, type LoadableSlice } from '@/lib/store/loadable-slice'
 import { fetchProjects } from '@/lib/api'
-import { dataOf } from '@/lib/loadable'
-import { useWorkspaceListStore } from '@/lib/store/workspace-list'
-import { useSidebarStore } from '@/lib/store/sidebar'
 
 interface ProjectState {
   projects: Project[]
@@ -15,11 +12,15 @@ interface ProjectState {
   addProject: (project: Project) => void
 }
 
+// §6: the project list is GET-seeded and kept live by the `/v0/projects` WS
+// stream — an imported/deleted project arrives as a ProjectDTO frame and the
+// debounced applyDelta re-seeds the loadable (no caller-side double-refetch).
 export const useProjectDataStore = create<LoadableSlice<Project[], []>>()((set, get) =>
   createLoadableSlice<Project[], []>({
     store: 'projects-data',
     fetcher: () => fetchProjects(),
     cacheKey: () => 'projects',
+    wsEndpoint: () => '/v0/projects',
   })(set, get),
 )
 
@@ -37,17 +38,12 @@ export const useProjectStore = create<ProjectState>()(
 )
 
 /**
- * Add an imported project to the live store, then refetch the projects +
- * workspace lists and merge the new repos into the sidebar tree (BUG-013).
+ * Add an imported project to the live store so it appears immediately. The
+ * canonical ProjectDTO (and its repos/workspaces) arrive over the `/v0/projects`
+ * WS stream and the §7 per-repo entity streams, which re-seed the loadable and
+ * the sidebar cache — so there is no caller-side double-refetch anymore (§6).
  */
 export function importProjectAndSync(project: Project): void {
   useProjectStore.getState().addProject(project)
   void useProjectDataStore.getState().fetch()
-  void useWorkspaceListStore
-    .getState()
-    .fetch()
-    .then(() => {
-      const repos = dataOf(useWorkspaceListStore.getState().data)
-      if (repos) useSidebarStore.getState().mergeRepos(repos)
-    })
 }

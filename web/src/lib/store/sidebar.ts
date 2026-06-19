@@ -1,5 +1,7 @@
 import { create } from 'zustand'
 import { saveSidebarUI } from '@/lib/persistence/sidebar-ui'
+import type { WorkspaceDTO } from '@/lib/types'
+import { toSidebarWorkspace } from '@/lib/store/build-repo-tree'
 
 export interface ProjectChat {
   id: string
@@ -14,13 +16,17 @@ export interface ProjectChat {
 export type ChatStatus = 'idle' | 'agent-running'
 export type ChatType = 'chat' | 'workflow'
 
+// §5 7-value status union (drops the old 'agent-running' overlay — an agent in
+// flight is now the separate `working` flag). locked / pr-conflicts / deleted
+// are first-class statuses.
 export type WorkspaceStatus =
-  | 'locked'
   | 'new'
+  | 'locked'
+  | 'pr-conflicts'
+  | 'deleted'
+  | 'pr-merged'
   | 'pr-open'
   | 'pr-closed'
-  | 'pr-merged'
-  | 'agent-running'
 
 export interface Workspace {
   id: string
@@ -30,7 +36,14 @@ export interface Workspace {
   added?: number
   deleted?: number
   age: string
-  hasConflicts?: boolean
+  /** True while an agent/long-running op is in flight (replaces 'agent-running'). */
+  working?: boolean
+  /** Derived from MergeEligibility — whether this ws can merge into its parent. */
+  canMergeLocally?: boolean
+  /** Parent branch name when mergeable. */
+  parentBranch?: string
+  /** Open PR url, when the ws has one. */
+  prUrl?: string
 }
 
 export interface Repo {
@@ -73,6 +86,14 @@ interface SidebarState {
    * optimistic edits) are left untouched.
    */
   mergeRepos: (repos: Repo[]) => void
+  /**
+   * §6 WS-driven workspace upsert: merge a complete WorkspaceDTO into its repo
+   * by id (insert if new, replace fields if it already exists). A DTO whose
+   * status is 'deleted' is a tombstone — it removes the workspace from the
+   * tree. Replaces the old optimistic addWorkspace/deleteWorkspace BFS: the
+   * backend owns the deletion set and emits one tombstone per removed id.
+   */
+  applyWorkspaceDTO: (dto: WorkspaceDTO) => void
 }
 
 /**
@@ -269,6 +290,38 @@ export const useSidebarStore = create<SidebarState>()((set) => ({
         }
       }
       return changed ? { repos: next } : s
+    }),
+
+  applyWorkspaceDTO: (dto) =>
+    set((s) => {
+      // A 'deleted' tombstone removes the workspace from whichever repo holds
+      // it — the backend owns the cascade, so we never BFS-remove locally.
+      if (dto.status === 'deleted') {
+        let changed = false
+        const repos = s.repos.map((r) => {
+          if (!r.workspaces.some((w) => w.id === dto.id)) return r
+          changed = true
+          return { ...r, workspaces: r.workspaces.filter((w) => w.id !== dto.id) }
+        })
+        return changed ? { repos } : s
+      }
+
+      const ws = toSidebarWorkspace(dto)
+      const repoIdx = s.repos.findIndex((r) => r.id === dto.repoId)
+      // The repo isn't in the tree yet (its RepoDTO seed hasn't landed): drop
+      // the frame — the per-repo seed/stream will deliver this workspace once
+      // the repo exists.
+      if (repoIdx === -1) return s
+
+      const repo = s.repos[repoIdx]
+      const existingIdx = repo.workspaces.findIndex((w) => w.id === dto.id)
+      const workspaces =
+        existingIdx === -1
+          ? [...repo.workspaces, ws]
+          : repo.workspaces.map((w, i) => (i === existingIdx ? { ...w, ...ws } : w))
+      const repos = [...s.repos]
+      repos[repoIdx] = { ...repo, workspaces }
+      return { repos }
     }),
 }))
 

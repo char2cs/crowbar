@@ -1,4 +1,4 @@
-import type { WorkspacePayload, Project, Prerequisites, RepoDTO, WorkspaceDTO } from './types'
+import type { Project, Prerequisites, RepoDTO, WorkspaceDTO } from './types'
 import { useChaosStore } from '@/lib/store/chaos'
 
 const crowbar = (window as unknown as { __CROWBAR__?: { api?: string } }).__CROWBAR__
@@ -51,36 +51,16 @@ export async function apiFetch<T>(path: string, init?: RequestInit): Promise<T> 
   return body.data as T
 }
 
-export function fetchWorkspace(wsId: string): Promise<WorkspacePayload> {
-  return apiFetch(`/v0/workspaces/${wsId}`)
-}
-
-// The backend's WriteMutationOK returns only `{ id }`, not the full entity.
-// parentId omitted/empty = fork from the repo's default branch.
-export function postWorkspace(
-  repoId: string,
-  branch: string,
-  parentId?: string,
-): Promise<{ id: string }> {
-  return apiFetch('/v0/workspaces', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ repoId, branch, ...(parentId ? { parentId } : {}) }),
-  })
-}
-
-export function deleteWorkspace(wsId: string): Promise<void> {
-  return apiFetch(`/v0/workspaces/${wsId}`, { method: 'DELETE' })
-}
-
 export function fetchProjects(): Promise<Project[]> {
   return apiFetch('/v0/projects')
 }
 
+export function fetchProject(id: string): Promise<Project> {
+  return apiFetch(`/v0/projects/${id}`)
+}
+
 // ---------------------------------------------------------------------------
-// Hierarchical READ API (§3/§7) — ADDITIVE alongside the legacy flat functions
-// above. The W17/W18 cutover migrates callers to these; for now they coexist so
-// tsc + the current vitest suite stay green.
+// Hierarchical READ API (§3/§7).
 // ---------------------------------------------------------------------------
 
 export function fetchRepos(projectId: string): Promise<RepoDTO[]> {
@@ -91,50 +71,57 @@ export function fetchWorkspaces(projectId: string, repoId: string): Promise<Work
   return apiFetch(`/v0/projects/${projectId}/repos/${repoId}/workspaces`)
 }
 
-export function fetchProject(id: string): Promise<Project> {
-  return apiFetch(`/v0/projects/${id}`)
-}
-
-export function postRepo(
+export function fetchWorkspace(
   projectId: string,
-  name: string,
-  path: string,
-): Promise<{ id: string; projectId: string; name: string; path: string; defaultBranch: string }> {
-  return apiFetch('/v0/repos', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    // Supply the id from the frontend so the call is idempotent even when the
-    // daemon binary predates the server-side UUID generation fix.
-    body: JSON.stringify({ id: crypto.randomUUID(), projectId, name, path }),
-  })
+  repoId: string,
+  wsId: string,
+): Promise<WorkspaceDTO> {
+  return apiFetch(`/v0/projects/${projectId}/repos/${repoId}/workspaces/${wsId}`)
 }
 
-// Pick a real workspace to land on at app start. Prefer the first unlocked
-// (editable) workspace so editing works out of the box; fall back to the first
-// workspace of any kind, or null when the backend has none yet (→ projects).
-export async function fetchLandingWorkspaceId(): Promise<{
-  id: string
-  projectId: string
-  repoId: string
-} | null> {
-  const workspaces = await apiFetch<
-    Array<{ id: string; projectId: string; repoId: string; locked: boolean }>
-  >('/v0/workspaces')
-  if (workspaces.length === 0) return null
-  const editable = workspaces.find((ws) => !ws.locked)
-  const ws = editable ?? workspaces[0]
-  return { id: ws.id, projectId: ws.projectId, repoId: ws.repoId }
-}
+// ---------------------------------------------------------------------------
+// Hierarchical WRITE API (§3/§7) — every mutation is fire-and-forget: the
+// daemon answers 202 Accepted with an empty body and the real entity (with its
+// status transitions) arrives over the scoped WS broadcaster. Callers therefore
+// await the WS DTO for navigation, never an id from these calls.
+// ---------------------------------------------------------------------------
 
-export function fetchPrerequisites(): Promise<Prerequisites> {
-  return apiFetch('/v0/system/prerequisites')
-}
-
-// The backend's WriteMutationOK returns only `{ id }`, not the full entity.
-export function postProject(name: string, path: string, quick?: boolean): Promise<{ id: string }> {
+export function postProject(name: string, path: string, quick?: boolean): Promise<void> {
   return apiFetch('/v0/projects', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ name, path, ...(quick ? { quick: true } : {}) }),
   })
+}
+
+export function postRepo(projectId: string, name: string, path: string): Promise<void> {
+  return apiFetch(`/v0/projects/${projectId}/repos`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ name, path }),
+  })
+}
+
+// parentId omitted/empty = fork from the repo's default branch.
+export function postWorkspace(
+  projectId: string,
+  repoId: string,
+  branch: string,
+  parentId?: string,
+): Promise<void> {
+  return apiFetch(`/v0/projects/${projectId}/repos/${repoId}/workspaces`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ branch, ...(parentId ? { parentId } : {}) }),
+  })
+}
+
+export function deleteWorkspace(projectId: string, repoId: string, wsId: string): Promise<void> {
+  return apiFetch(`/v0/projects/${projectId}/repos/${repoId}/workspaces/${wsId}`, {
+    method: 'DELETE',
+  })
+}
+
+export function fetchPrerequisites(): Promise<Prerequisites> {
+  return apiFetch('/v0/system/prerequisites')
 }

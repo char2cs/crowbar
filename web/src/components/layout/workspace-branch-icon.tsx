@@ -1,14 +1,25 @@
 import { useState } from 'react'
-import { GitBranch, GitFork, GitMerge, GitPullRequest, Lock } from '@phosphor-icons/react'
+import {
+  GitBranch,
+  GitFork,
+  GitMerge,
+  GitPullRequest,
+  Lock,
+  Warning,
+} from '@phosphor-icons/react'
 import { Spinner, spinnerNames } from '@agilek/cli-loaders'
 import type { WorkspaceStatus } from '@/lib/store/sidebar'
 
 interface WorkspaceBranchIconProps {
   status: WorkspaceStatus
+  /** True while an agent/long-running op is in flight — renders the spinner. */
+  working?: boolean
 }
 
-export function WorkspaceBranchIcon({ status }: WorkspaceBranchIconProps) {
-  if (status === 'agent-running') return <WorkspaceAgentSpinner />
+export function WorkspaceBranchIcon({ status, working }: WorkspaceBranchIconProps) {
+  // `working` is the §5 in-flight flag that replaced the old 'agent-running'
+  // status overlay; it shows the spinner regardless of the underlying status.
+  if (working) return <WorkspaceAgentSpinner />
 
   switch (status) {
     case 'locked':
@@ -19,6 +30,12 @@ export function WorkspaceBranchIcon({ status }: WorkspaceBranchIconProps) {
       return (
         <GitBranch aria-hidden="true" className="size-4 shrink-0 text-foreground" weight="fill" />
       )
+    case 'pr-conflicts':
+      return (
+        <Warning aria-hidden="true" className="size-4 shrink-0 text-amber-500" weight="fill" />
+      )
+    case 'deleted':
+      return <GitFork aria-hidden="true" className="size-4 shrink-0 text-red-500" weight="fill" />
     case 'pr-open':
       return (
         <GitPullRequest

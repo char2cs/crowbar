@@ -12,11 +12,7 @@ import { FolderOpen } from '@phosphor-icons/react'
 import { toast } from 'sonner'
 import { open as openDialog } from '@tauri-apps/plugin-dialog'
 import { isTauri } from '@/lib/crowbar-bridge'
-import { postRepo, postWorkspace } from '@/lib/api'
-import { useWorkspaceListStore } from '@/lib/store/workspace-list'
-import { useSidebarStore } from '@/lib/store/sidebar'
-import { dataOf } from '@/lib/loadable'
-import { useNavigate } from '@tanstack/react-router'
+import { postRepo } from '@/lib/api'
 import { useProjectStore } from '@/lib/store/projects'
 
 interface AddRepositoryModalProps {
@@ -28,7 +24,6 @@ export function AddRepositoryModal({ open, onOpenChange }: AddRepositoryModalPro
   const [path, setPath] = useState('')
   const [name, setName] = useState('')
   const [loading, setLoading] = useState(false)
-  const navigate = useNavigate()
 
   const trimmedPath = path.trim()
   const pathLooksAbsolute = trimmedPath.startsWith('/') || /^[A-Za-z]:[\\/]/.test(trimmedPath)
@@ -55,27 +50,16 @@ export function AddRepositoryModal({ open, onOpenChange }: AddRepositoryModalPro
           .pop() ?? trimmedPath
       const repoName = name.trim() || fallbackName
 
-      // 1. Create the repo record (response includes defaultBranch resolved by daemon)
-      const repo = await postRepo(activeProjectId, repoName, trimmedPath)
-      const repoId = repo.id
-      const branch = repo.defaultBranch || 'main'
-
-      // 2. Create the first workspace on the default branch
-      const { id: wsId } = await postWorkspace(repoId, branch)
-
-      // 4. Refresh sidebar
-      await useWorkspaceListStore.getState().fetch()
-      const fresh = dataOf(useWorkspaceListStore.getState().data)
-      if (fresh) useSidebarStore.getState().mergeRepos(fresh)
+      // §3: postRepo is 202 with no body. The daemon imports the repo (and its
+      // default-branch workspace) and broadcasts the RepoDTO/WorkspaceDTO over
+      // the §7 entity streams, which seed the sidebar cache. Resolving the new
+      // repo/ws ids from those WS frames to navigate is W18; for now we just
+      // fire the mutation and close the modal.
+      await postRepo(activeProjectId, repoName, trimmedPath)
 
       onOpenChange(false)
       setPath('')
       setName('')
-
-      void navigate({
-        to: '/ide/$projectId/$repoId/$wsId',
-        params: { projectId: activeProjectId, repoId, wsId },
-      })
     } catch (err) {
       toast.error(err instanceof Error ? err.message : 'Failed to add repository')
     } finally {

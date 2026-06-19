@@ -1,5 +1,4 @@
 import { useState } from 'react'
-import { useNavigate } from '@tanstack/react-router'
 import { toast } from 'sonner'
 import { postWorkspace } from '@/lib/api'
 import { WorkspaceCreationForm } from '@/components/workspace/workspace-creation-form'
@@ -12,20 +11,17 @@ const REPOS = [
 ]
 
 export function NewWorkspacePage() {
-  const navigate = useNavigate()
   const [loading, setLoading] = useState(false)
-  const addWorkspace = useSidebarStore((s) => s.addWorkspace)
 
   const handleSubmit = async (data: { repoId: string; branch: string }) => {
     setLoading(true)
     try {
-      const ws = await postWorkspace(data.repoId, data.branch)
-      addWorkspace(data.repoId, ws.id, data.branch)
-      const repo = useSidebarStore.getState().repos.find((r) => r.id === data.repoId)
-      void navigate({
-        to: '/ide/$projectId/$repoId/$wsId',
-        params: { projectId: repo?.projectId ?? '', repoId: data.repoId, wsId: ws.id },
-      })
+      // §3: postWorkspace is 202 — the WorkspaceDTO arrives over the §7 stream
+      // and the WS-driven cache inserts it. Threading projectId from the cached
+      // repo; navigation-after-WS-DTO and cache-sourced repos are W18.
+      const projectId =
+        useSidebarStore.getState().repos.find((r) => r.id === data.repoId)?.projectId ?? ''
+      await postWorkspace(projectId, data.repoId, data.branch)
     } catch (err) {
       toast.error(err instanceof Error ? err.message : 'Failed to create workspace')
     } finally {

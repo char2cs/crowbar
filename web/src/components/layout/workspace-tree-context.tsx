@@ -14,18 +14,32 @@ import { postWorkspace, deleteWorkspace as apiDeleteWorkspace } from '@/lib/api'
 import { toast } from '@/components/ui/toast'
 
 /**
- * Creates the workspace on the backend, then mirrors it into the sidebar
- * store using the real id the backend returned. On failure no phantom node
- * is added — the error is surfaced via toast.
+ * Resolve the owning project id for a repo from the sidebar tree. Hierarchical
+ * mutations need both ids; the tree always carries `projectId` from the §5
+ * RepoDTO once the repo has seeded.
+ */
+function projectIdForRepo(repoId: string): string | undefined {
+  return useSidebarStore.getState().repos.find((r) => r.id === repoId)?.projectId
+}
+
+/**
+ * Fire the hierarchical create mutation (202 Accepted, §3). No optimistic node
+ * is added: the WorkspaceDTO arrives over the scoped WS stream (status 'new'
+ * then the real status) and the WS-driven cache inserts it. On failure the
+ * error is surfaced via toast.
  */
 export async function performCreateWorkspace(
   repoId: string,
   branch: string,
   parentId?: string,
 ): Promise<void> {
+  const projectId = projectIdForRepo(repoId)
+  if (!projectId) {
+    toast.error('Failed to create workspace', 'unknown project for repo')
+    return
+  }
   try {
-    const { id } = await postWorkspace(repoId, branch, parentId)
-    useSidebarStore.getState().addWorkspace(repoId, id, branch, parentId)
+    await postWorkspace(projectId, repoId, branch, parentId)
   } catch (err) {
     console.error('Failed to create workspace:', err)
     toast.error('Failed to create workspace', err instanceof Error ? err.message : undefined)
@@ -33,19 +47,24 @@ export async function performCreateWorkspace(
 }
 
 /**
- * Deletes the workspace on the backend, then removes it from the sidebar
- * store. Locked workspaces are never deleted. On failure the local store is
- * left untouched and the error is surfaced via toast.
+ * Fire the hierarchical delete mutation (202 Accepted, §3). Locked workspaces
+ * are never deleted. No optimistic removal: the backend owns the cascade and
+ * emits one status:'deleted' tombstone per removed id, which the WS-driven
+ * cache applies. On failure the error is surfaced via toast.
  */
 export async function performDeleteWorkspace(wsId: string): Promise<void> {
-  const ws = useSidebarStore
+  const repo = useSidebarStore
     .getState()
-    .repos.flatMap((r) => r.workspaces)
-    .find((w) => w.id === wsId)
-  if (!ws || ws.status === 'locked') return
+    .repos.find((r) => r.workspaces.some((w) => w.id === wsId))
+  const ws = repo?.workspaces.find((w) => w.id === wsId)
+  if (!repo || !ws || ws.status === 'locked') return
+  const projectId = repo.projectId
+  if (!projectId) {
+    toast.error('Failed to delete workspace', 'unknown project for repo')
+    return
+  }
   try {
-    await apiDeleteWorkspace(wsId)
-    useSidebarStore.getState().deleteWorkspace(wsId)
+    await apiDeleteWorkspace(projectId, repo.id, wsId)
   } catch (err) {
     console.error('Failed to delete workspace:', err)
     toast.error('Failed to delete workspace', err instanceof Error ? err.message : undefined)
@@ -53,17 +72,24 @@ export async function performDeleteWorkspace(wsId: string): Promise<void> {
 }
 
 /**
- * Reparents the workspace on the backend, then mirrors the change into the
- * sidebar store. On failure the local store is left untouched and the error
- * is surfaced via toast.
+ * Fire the hierarchical reparent mutation (202 Accepted, §3). The backend only
+ * accepts a non-empty parent, so a move back to the repo root (undefined) is a
+ * no-op for now — the new parentId arrives on the WS WorkspaceDTO and the
+ * WS-driven cache reflects it. On failure the error is surfaced via toast.
  */
 export async function performReparentWorkspace(
   wsId: string,
   newParentId: string | undefined,
   repoId: string,
 ): Promise<void> {
+  if (newParentId === undefined) return
+  const projectId = projectIdForRepo(repoId)
+  if (!projectId) {
+    toast.error('Failed to reparent workspace', 'unknown project for repo')
+    return
+  }
   try {
-    await reparentWorkspace(wsId, newParentId, repoId)
+    await reparentWorkspace(projectId, repoId, wsId, newParentId)
   } catch (err) {
     console.error('Failed to reparent workspace:', err)
     toast.error('Failed to reparent workspace', err instanceof Error ? err.message : undefined)

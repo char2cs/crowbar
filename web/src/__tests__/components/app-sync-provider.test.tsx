@@ -1,79 +1,86 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest'
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import { render, waitFor } from '@testing-library/react'
-import { useWorkspaceListStore } from '@/lib/store/workspace-list'
-import { useProjectDataStore } from '@/lib/store/projects'
-import { useSidebarStore, type Repo } from '@/lib/store/sidebar'
-import { success } from '@/lib/loadable'
+
+// §7 startup is driven by GET seeds + subscribeEntityStream subscriptions and a
+// one-time maybeWipeOnVersionChange() BEFORE seeding. We mock those seams and
+// assert the provider wires them up and tears every subscription down on unmount.
+const { wipe, subscribeEntityStream, fetchRepos, fetchWorkspaces } = vi.hoisted(() => ({
+  wipe: vi.fn().mockResolvedValue(undefined),
+  subscribeEntityStream: vi.fn(),
+  fetchRepos: vi.fn(),
+  fetchWorkspaces: vi.fn(),
+}))
+
+vi.mock('@/lib/persistence/idb', async () => {
+  const actual = await vi.importActual<typeof import('@/lib/persistence/idb')>(
+    '@/lib/persistence/idb',
+  )
+  return { ...actual, maybeWipeOnVersionChange: wipe }
+})
+
+vi.mock('@/lib/ws/entity-stream', () => ({
+  subscribeEntityStream: (...args: unknown[]) => subscribeEntityStream(...args),
+}))
+
+vi.mock('@/lib/api', () => ({
+  fetchRepos: (...args: unknown[]) => fetchRepos(...args),
+  fetchWorkspaces: (...args: unknown[]) => fetchWorkspaces(...args),
+  fetchProjects: vi.fn().mockResolvedValue([]),
+}))
+
 import { AppSyncProvider } from '@/components/app-sync-provider'
+import { useProjectStore } from '@/lib/store/projects'
+import { useProjectDataStore } from '@/lib/store/projects'
 
-describe('AppSyncProvider', () => {
-  it('fetches workspaces + projects on mount and unsubscribes on unmount', () => {
-    const wsUnsub = vi.fn()
-    const pUnsub = vi.fn()
-    vi.spyOn(useWorkspaceListStore.getState(), 'fetch').mockResolvedValue(undefined)
-    vi.spyOn(useProjectDataStore.getState(), 'fetch').mockResolvedValue(undefined)
-    const wsSync = vi.spyOn(useWorkspaceListStore.getState(), 'startSync').mockReturnValue(wsUnsub)
-    const pSync = vi.spyOn(useProjectDataStore.getState(), 'startSync').mockReturnValue(pUnsub)
+beforeEach(() => {
+  vi.clearAllMocks()
+  subscribeEntityStream.mockReturnValue(() => {})
+  fetchRepos.mockResolvedValue([])
+  fetchWorkspaces.mockResolvedValue([])
+  useProjectStore.setState({ activeProjectId: 'p1' })
+  vi.spyOn(useProjectDataStore.getState(), 'fetch').mockResolvedValue(undefined)
+  vi.spyOn(useProjectDataStore.getState(), 'startSync').mockReturnValue(() => {})
+})
 
-    const { unmount } = render(
+afterEach(() => {
+  vi.restoreAllMocks()
+})
+
+describe('AppSyncProvider §7 startup', () => {
+  it('wipes the cache on version change BEFORE seeding, then seeds projects', async () => {
+    render(
       <AppSyncProvider>
         <div>child</div>
       </AppSyncProvider>,
     )
-    expect(wsSync).toHaveBeenCalledOnce()
-    expect(pSync).toHaveBeenCalledOnce()
-    unmount()
-    expect(wsUnsub).toHaveBeenCalledOnce()
-    expect(pUnsub).toHaveBeenCalledOnce()
+    await waitFor(() => expect(wipe).toHaveBeenCalledOnce())
+    await waitFor(() => expect(useProjectDataStore.getState().fetch).toHaveBeenCalled())
   })
 
-  // Regression for BUG-014: a /v0/ws/workspaces push refetches the workspace
-  // list, but the sidebar tree renders from useSidebarStore.repos, which was
-  // only seeded once at boot. The provider must propagate fresh workspace-list
-  // data into the sidebar so cross-client creates appear without a reload.
-  describe('workspace-list → sidebar propagation (BUG-014)', () => {
-    const REPO: Repo = {
-      id: 'r1',
-      name: 'repo',
-      avatarLabel: 'R',
-      avatarColor: 'bg-primary',
-      workspaces: [{ id: 'ws-new', branch: 'feature/x', age: 'now' }],
-    }
+  it("subscribes the active project's repos entity stream", async () => {
+    const repoStream = subscribeEntityStream.mock
+    render(
+      <AppSyncProvider>
+        <div />
+      </AppSyncProvider>,
+    )
+    await waitFor(() => expect(repoStream.calls.length).toBeGreaterThan(0))
+    const reposCall = repoStream.calls
+      .map((c) => c[0] as { endpoint: string })
+      .find((o) => o.endpoint === '/v0/projects/p1/repos')
+    expect(reposCall).toBeDefined()
+  })
 
-    beforeEach(() => {
-      useSidebarStore.setState({ repos: [] })
-      vi.spyOn(useWorkspaceListStore.getState(), 'fetch').mockResolvedValue(undefined)
-      vi.spyOn(useProjectDataStore.getState(), 'fetch').mockResolvedValue(undefined)
-      vi.spyOn(useWorkspaceListStore.getState(), 'startSync').mockReturnValue(() => {})
-      vi.spyOn(useProjectDataStore.getState(), 'startSync').mockReturnValue(() => {})
-    })
-
-    it('merges refetched workspaces into the sidebar while mounted', async () => {
-      render(
-        <AppSyncProvider>
-          <div />
-        </AppSyncProvider>,
-      )
-
-      // Simulate the refetch triggered by a /v0/ws/workspaces push completing.
-      useWorkspaceListStore.setState({ data: success([REPO]) })
-
-      await waitFor(() => {
-        const repos = useSidebarStore.getState().repos
-        expect(repos.map((r) => r.id)).toContain('r1')
-        expect(repos.find((r) => r.id === 'r1')?.workspaces.map((w) => w.id)).toContain('ws-new')
-      })
-    })
-
-    it('stops propagating after unmount', () => {
-      const { unmount } = render(
-        <AppSyncProvider>
-          <div />
-        </AppSyncProvider>,
-      )
-      unmount()
-      useWorkspaceListStore.setState({ data: success([REPO]) })
-      expect(useSidebarStore.getState().repos).toEqual([])
-    })
+  it('tears every subscription down on unmount', async () => {
+    const unsub = vi.fn()
+    subscribeEntityStream.mockReturnValue(unsub)
+    const { unmount } = render(
+      <AppSyncProvider>
+        <div />
+      </AppSyncProvider>,
+    )
+    await waitFor(() => expect(subscribeEntityStream).toHaveBeenCalled())
+    unmount()
+    expect(unsub).toHaveBeenCalled()
   })
 })

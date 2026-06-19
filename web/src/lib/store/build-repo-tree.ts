@@ -1,5 +1,10 @@
 import { API_BASE } from '@/lib/api'
 import type { Repo, Workspace, WorkspaceStatus } from '@/lib/store/sidebar'
+import type { RepoDTO, WorkspaceDTO } from '@/lib/types'
+
+// Re-export the canonical §5 DTOs so existing importers (workspace-list, tests)
+// keep a single source of truth instead of a divergent local shape.
+export type { RepoDTO, WorkspaceDTO } from '@/lib/types'
 
 const AVATAR_COLORS = [
   'bg-indigo-700', 'bg-emerald-700', 'bg-orange-700', 'bg-sky-700',
@@ -19,66 +24,56 @@ function repoAvatarColor(name: string): string {
   return AVATAR_COLORS[hash % AVATAR_COLORS.length]
 }
 
-export interface RepoDTO {
-  id: string
-  projectId: string
-  name: string
-  path: string
-  defaultBranch: string
-  avatarLabel: string
-  avatarColor: string
-  avatarUrl?: string
-}
-
-export interface WorkspaceDTO {
-  id: string
-  repoId: string
-  projectId: string
-  parentId?: string
-  branch: string
-  status: WorkspaceStatus
-  locked: boolean
-  hasConflicts: boolean
-  added: number
-  deleted: number
-  mergeStrategy: string
-  agentRunning: boolean
-}
-
+// §5/§6: status now passes straight through — locked / pr-conflicts / deleted
+// are first-class WorkspaceStatus values, no longer derived from removed
+// agentRunning/locked/hasConflicts overlays. `working` is a separate flag the
+// sidebar renders as an in-progress indicator, not a status.
 function toSidebarStatus(ws: WorkspaceDTO): WorkspaceStatus {
-  if (ws.agentRunning) return 'agent-running'
-  if (ws.locked) return 'locked'
-  return ws.status
+  return ws.status as WorkspaceStatus
 }
 
-function toSidebarWorkspace(ws: WorkspaceDTO): Workspace {
+// repoAvatar resolves the sidebar avatar source from the §5 RepoDTO: a custom
+// emoji takes precedence (rendered as an `emoji:<char>` marker the sidebar
+// understands), otherwise the proxied /icon URL (prefixed with API_BASE so
+// WKWebView can load it cross-origin), otherwise undefined → initials fallback.
+function repoAvatarURL(repo: RepoDTO): string | undefined {
+  if (repo.avatarEmoji) return `emoji:${repo.avatarEmoji}`
+  if (repo.avatarUrl) return `${API_BASE}${repo.avatarUrl}`
+  return undefined
+}
+
+export function toSidebarWorkspace(ws: WorkspaceDTO): Workspace {
   return {
     id: ws.id,
     branch: ws.branch,
-    ...(ws.parentId !== undefined && { parentId: ws.parentId }),
+    ...(ws.parentId ? { parentId: ws.parentId } : {}),
     status: toSidebarStatus(ws),
     added: ws.added,
     deleted: ws.deleted,
-    hasConflicts: ws.hasConflicts,
+    working: ws.working,
+    canMergeLocally: ws.canMergeLocally,
+    ...(ws.parentBranch ? { parentBranch: ws.parentBranch } : {}),
+    ...(ws.prUrl ? { prUrl: ws.prUrl } : {}),
     age: '',
   }
 }
 
-// buildRepoTree groups the backend's flat workspace list under their repos to
-// produce the nested Repo[] the sidebar renders. Workspace parent/child links
-// are overlaid separately from the persisted hierarchy.
-export function buildRepoTree(repos: RepoDTO[], workspaces: WorkspaceDTO[]): Repo[] {
-  return repos.map((repo) => ({
+export function toSidebarRepo(repo: RepoDTO, workspaces: WorkspaceDTO[]): Repo {
+  return {
     id: repo.id,
     projectId: repo.projectId,
     name: repo.name,
     avatarLabel: repo.avatarLabel || repoAvatarLabel(repo.name),
     avatarColor: repo.avatarColor || repoAvatarColor(repo.name),
-    // Backend now always serves avatarUrl as the proxied /icon endpoint so
-    // WKWebView can load it without cross-origin restrictions.
-    avatarURL: repo.avatarUrl ? `${API_BASE}${repo.avatarUrl}` : undefined,
+    avatarURL: repoAvatarURL(repo),
     workspaces: workspaces.filter((ws) => ws.repoId === repo.id).map(toSidebarWorkspace),
-  }))
+  }
+}
+
+// buildRepoTree groups the workspace list under their repos to produce the
+// nested Repo[] the sidebar renders.
+export function buildRepoTree(repos: RepoDTO[], workspaces: WorkspaceDTO[]): Repo[] {
+  return repos.map((repo) => toSidebarRepo(repo, workspaces))
 }
 
 // countReposByProject derives the per-project repo count the project cards

@@ -22,7 +22,8 @@ const FIXTURE_REPOS: Repo[] = [
         id: 'ws1',
         branch: 'enhancement/scaffold',
         parentId: 'ws3',
-        status: 'agent-running',
+        status: 'new',
+        working: true,
         added: 22892,
         age: '3d ago',
       },
@@ -55,11 +56,10 @@ const FIXTURE_REPOS: Repo[] = [
         id: 'ws5',
         branch: 'refactor/query-layer',
         parentId: 'ws-develop',
-        status: 'agent-running',
+        status: 'pr-conflicts',
         added: 103482,
         deleted: 88910,
         age: '5d ago',
-        hasConflicts: true,
       },
       {
         id: 'ws6',
@@ -219,6 +219,73 @@ test('reparentWorkspace rejects cross-repo moves', () => {
     .repos.flatMap((r) => r.workspaces)
     .find((w) => w.id === 'ws3')!
   expect(ws.parentId).toBe('ws-develop') // unchanged
+})
+
+// ---------------------------------------------------------------------------
+// §6 WS-driven cache: applyWorkspaceDTO merges a complete WorkspaceDTO by id
+// (insert / replace) and a status:'deleted' tombstone removes it — there is no
+// optimistic BFS delete anymore; the backend owns the cascade.
+// ---------------------------------------------------------------------------
+import type { WorkspaceDTO } from '@/lib/types'
+
+const dto = (id: string, repoId: string, over: Partial<WorkspaceDTO> = {}): WorkspaceDTO => ({
+  id,
+  repoId,
+  projectId: 'p1',
+  branch: 'feature/x',
+  parentId: '',
+  forkPointSha: '',
+  status: 'new',
+  working: false,
+  lastError: '',
+  added: 0,
+  deleted: 0,
+  mergeStrategy: 'merge',
+  canMergeLocally: false,
+  parentBranch: '',
+  prUrl: '',
+  prTitle: '',
+  prTargetBranch: '',
+  ...over,
+})
+
+test('applyWorkspaceDTO inserts a new workspace into its repo', () => {
+  useSidebarStore.getState().applyWorkspaceDTO(dto('ws-new', 'crowbar', { branch: 'feature/new' }))
+  const repo = useSidebarStore.getState().repos.find((r) => r.id === 'crowbar')!
+  const created = repo.workspaces.find((w) => w.id === 'ws-new')!
+  expect(created).toBeDefined()
+  expect(created.branch).toBe('feature/new')
+  expect(created.status).toBe('new')
+})
+
+test('applyWorkspaceDTO replaces fields of an existing workspace by id', () => {
+  useSidebarStore
+    .getState()
+    .applyWorkspaceDTO(dto('ws3', 'crowbar', { status: 'pr-merged', working: true }))
+  const ws = useSidebarStore
+    .getState()
+    .repos.flatMap((r) => r.workspaces)
+    .find((w) => w.id === 'ws3')!
+  expect(ws.status).toBe('pr-merged')
+  expect(ws.working).toBe(true)
+})
+
+test('applyWorkspaceDTO with status:deleted removes the workspace (no BFS)', () => {
+  useSidebarStore.getState().applyWorkspaceDTO(dto('ws3', 'crowbar', { status: 'deleted' }))
+  const ids = useSidebarStore
+    .getState()
+    .repos.flatMap((r) => r.workspaces.map((w) => w.id))
+  expect(ids).not.toContain('ws3')
+  // children of ws3 are NOT removed locally — the backend emits a tombstone per id
+  expect(ids).toContain('ws1')
+})
+
+test('applyWorkspaceDTO ignores a workspace for an unknown repo', () => {
+  useSidebarStore.getState().applyWorkspaceDTO(dto('ws-x', 'no-such-repo'))
+  const ids = useSidebarStore
+    .getState()
+    .repos.flatMap((r) => r.workspaces.map((w) => w.id))
+  expect(ids).not.toContain('ws-x')
 })
 
 import { loadSidebarUI } from '@/lib/persistence/sidebar-ui'

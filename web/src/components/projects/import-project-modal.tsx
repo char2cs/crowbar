@@ -13,7 +13,7 @@ import { FolderOpen } from '@phosphor-icons/react'
 import { toast } from 'sonner'
 import { open as openDialog } from '@tauri-apps/plugin-dialog'
 import { isTauri } from '@/lib/crowbar-bridge'
-import { postProject, fetchProject } from '@/lib/api'
+import { postProject } from '@/lib/api'
 import type { Project } from '@/lib/types'
 
 interface ImportProjectModalProps {
@@ -45,15 +45,23 @@ export function ImportProjectModal({ open, onOpenChange, onImport, quick }: Impo
     if (!pathLooksAbsolute) return
     setLoading(true)
     try {
-      // The mutation returns only { id }; re-fetch the full project so the
-      // sidebar gets a complete entity (name/path) rather than undefined fields.
+      // §3: postProject is 202 with no body. The canonical ProjectDTO arrives
+      // over the `/v0/projects` WS stream (full subscribe-before-POST handling
+      // is W18); for now we hand onImport a provisional project built from the
+      // form so it appears immediately, and the WS DTO reconciles it.
       const fallbackName =
         trimmedPath
           .replace(/[\\/]+$/, '')
           .split(/[\\/]/)
           .pop() ?? trimmedPath
-      const { id } = await postProject(projectName.trim() || fallbackName, trimmedPath, quick)
-      const project = await fetchProject(id)
+      const name = projectName.trim() || fallbackName
+      await postProject(name, trimmedPath, quick)
+      const project: Project = {
+        id: crypto.randomUUID(),
+        name,
+        path: trimmedPath,
+        lastActivity: new Date(),
+      }
       onImport(project)
       setSelectedPath('')
       setProjectName('')

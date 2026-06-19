@@ -1,7 +1,8 @@
 import { useState } from 'react'
 import { GitBranchIcon } from 'lucide-react'
 import { createFileRoute, redirect } from '@tanstack/react-router'
-import { fetchLandingWorkspaceId, fetchProjects } from '@/lib/api'
+import { fetchProjects, fetchRepos, fetchWorkspaces } from '@/lib/api'
+import { useProjectStore } from '@/lib/store/projects'
 import {
   Empty,
   EmptyMedia,
@@ -35,30 +36,38 @@ function NoReposScreen() {
 export const Route = createFileRoute('/_shell/')({
   component: NoReposScreen,
   beforeLoad: async () => {
-    // Run both fetches in parallel so we don't serialize two API calls on cold start
-    const [projectsResult, wsIdResult] = await Promise.allSettled([
-      fetchProjects(),
-      fetchLandingWorkspaceId(),
-    ])
-
-    // Only treat empty list as "no projects" — propagate actual errors
-    if (projectsResult.status === 'rejected') {
-      throw projectsResult.reason
-    }
-    const projects = projectsResult.value
-
+    // §7 landing: there is no flat cross-project workspace list anymore. Resolve
+    // the landing route from the per-project repos/workspaces hierarchy, biasing
+    // toward the persisted active project so a returning user lands where they
+    // left off.
+    const projects = await fetchProjects()
     if (projects.length === 0) {
       throw redirect({ to: '/oobe' })
     }
 
-    const ws = wsIdResult.status === 'fulfilled' ? wsIdResult.value : null
+    const activeId = useProjectStore.getState().activeProjectId
+    const project = projects.find((p) => p.id === activeId) ?? projects[0]
 
-    if (ws) {
-      throw redirect({
-        to: '/ide/$projectId/$repoId/$wsId',
-        params: { projectId: ws.projectId, repoId: ws.repoId, wsId: ws.id },
-      })
+    // Walk this project's repos for the first workspace we can land on, biasing
+    // toward an editable (non-locked) workspace so editing works out of the box.
+    try {
+      const repos = await fetchRepos(project.id)
+      for (const repo of repos) {
+        const workspaces = await fetchWorkspaces(project.id, repo.id)
+        if (workspaces.length === 0) continue
+        const editable = workspaces.find((ws) => ws.status !== 'locked')
+        const ws = editable ?? workspaces[0]
+        throw redirect({
+          to: '/ide/$projectId/$repoId/$wsId',
+          params: { projectId: project.id, repoId: repo.id, wsId: ws.id },
+        })
+      }
+    } catch (err) {
+      // A thrown redirect is the success path — re-throw it. Any other failure
+      // (a transient repos/workspaces fetch error) falls through to the
+      // NoReposScreen rather than crashing cold start.
+      if (err && typeof err === 'object' && 'to' in err) throw err
     }
-    // Has projects but no active workspace — render NoReposScreen
+    // Has projects but no landable workspace — render NoReposScreen.
   },
 })

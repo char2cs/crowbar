@@ -1,7 +1,8 @@
 import { describe, expect, it } from 'vitest'
-import { buildRepoTree, type RepoDTO, type WorkspaceDTO } from '@/lib/store/build-repo-tree'
+import { buildRepoTree } from '@/lib/store/build-repo-tree'
+import type { RepoDTO, WorkspaceDTO } from '@/lib/types'
 
-const repo = (id: string, name: string): RepoDTO => ({
+const repo = (id: string, name: string, over: Partial<RepoDTO> = {}): RepoDTO => ({
   id,
   projectId: 'p1',
   name,
@@ -9,6 +10,9 @@ const repo = (id: string, name: string): RepoDTO => ({
   defaultBranch: 'main',
   avatarLabel: name[0].toUpperCase(),
   avatarColor: 'avatar-emerald',
+  avatarUrl: '',
+  avatarEmoji: '',
+  ...over,
 })
 
 const ws = (id: string, repoId: string, over: Partial<WorkspaceDTO> = {}): WorkspaceDTO => ({
@@ -16,13 +20,19 @@ const ws = (id: string, repoId: string, over: Partial<WorkspaceDTO> = {}): Works
   repoId,
   projectId: 'p1',
   branch: 'main',
+  parentId: '',
+  forkPointSha: '',
   status: 'new',
-  locked: false,
-  hasConflicts: false,
+  working: false,
+  lastError: '',
   added: 0,
   deleted: 0,
   mergeStrategy: 'merge',
-  agentRunning: false,
+  canMergeLocally: false,
+  parentBranch: '',
+  prUrl: '',
+  prTitle: '',
+  prTargetBranch: '',
   ...over,
 })
 
@@ -52,47 +62,64 @@ describe('buildRepoTree', () => {
     expect(tree[0].workspaces).toEqual([])
   })
 
-  it('maps agentRunning and locked into the sidebar status', () => {
+  it('passes the §5 status straight through (locked/pr-conflicts/deleted are statuses)', () => {
     const tree = buildRepoTree(
       [repo('r1', 'alpha')],
       [
-        ws('w1', 'r1', { agentRunning: true }),
-        ws('w2', 'r1', { locked: true }),
-        ws('w3', 'r1', { status: 'new' }),
+        ws('w1', 'r1', { status: 'locked' }),
+        ws('w2', 'r1', { status: 'pr-conflicts' }),
+        ws('w3', 'r1', { status: 'deleted' }),
+        ws('w4', 'r1', { status: 'new' }),
       ],
     )
-    const [a, b, c] = tree[0].workspaces
-    expect(a.status).toBe('agent-running')
-    expect(b.status).toBe('locked')
-    expect(c.status).toBe('new')
+    const [a, b, c, d] = tree[0].workspaces
+    expect(a.status).toBe('locked')
+    expect(b.status).toBe('pr-conflicts')
+    expect(c.status).toBe('deleted')
+    expect(d.status).toBe('new')
+  })
+
+  it('maps `working` through as a separate flag (replaces agent-running)', () => {
+    const tree = buildRepoTree(
+      [repo('r1', 'alpha')],
+      [ws('w1', 'r1', { working: true, status: 'new' })],
+    )
+    expect(tree[0].workspaces[0].working).toBe(true)
+    expect(tree[0].workspaces[0].status).toBe('new')
+  })
+
+  it('carries canMergeLocally + parentBranch + prUrl onto the sidebar workspace', () => {
+    const tree = buildRepoTree(
+      [repo('r1', 'alpha')],
+      [
+        ws('w1', 'r1', {
+          canMergeLocally: true,
+          parentBranch: 'develop',
+          prUrl: 'https://example.com/pr/1',
+        }),
+      ],
+    )
+    const w = tree[0].workspaces[0]
+    expect(w.canMergeLocally).toBe(true)
+    expect(w.parentBranch).toBe('develop')
+    expect(w.prUrl).toBe('https://example.com/pr/1')
   })
 
   it('maps avatarUrl from RepoDTO to Repo.avatarURL', () => {
-    const dto: RepoDTO = {
-      id: 'r1',
-      projectId: 'p1',
-      name: 'my-repo',
-      path: '/my-repo',
-      defaultBranch: 'main',
-      avatarLabel: 'M',
-      avatarColor: 'avatar-indigo',
-      avatarUrl: 'https://example.com/avatar.png',
-    }
-    const repos = buildRepoTree([dto], [])
-    expect(repos[0].avatarURL).toBe('https://example.com/avatar.png')
+    const repos = buildRepoTree([repo('r1', 'my-repo', { avatarUrl: '/v0/icon.png' })], [])
+    expect(repos[0].avatarURL).toBe('/v0/icon.png')
   })
 
-  it('leaves avatarURL undefined when avatarUrl is absent', () => {
-    const dto: RepoDTO = {
-      id: 'r1',
-      projectId: 'p1',
-      name: 'repo',
-      path: '/',
-      defaultBranch: 'main',
-      avatarLabel: 'R',
-      avatarColor: 'avatar-rose',
-    }
-    const repos = buildRepoTree([dto], [])
+  it('prefers a custom emoji over the proxied icon url', () => {
+    const repos = buildRepoTree(
+      [repo('r1', 'my-repo', { avatarUrl: '/v0/icon.png', avatarEmoji: '🚀' })],
+      [],
+    )
+    expect(repos[0].avatarURL).toBe('emoji:🚀')
+  })
+
+  it('leaves avatarURL undefined when neither avatarUrl nor avatarEmoji is set', () => {
+    const repos = buildRepoTree([repo('r1', 'repo')], [])
     expect(repos[0].avatarURL).toBeUndefined()
   })
 })

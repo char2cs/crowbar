@@ -28,6 +28,8 @@ describe('flattenWorkspaces', () => {
     expect(items).toHaveLength(3)
     expect(items[0]).toEqual({
       wsId: 'ws1',
+      projectId: '',
+      repoId: 'r1',
       repoName: 'crowbar',
       branch: 'develop',
       status: 'pr-open',
