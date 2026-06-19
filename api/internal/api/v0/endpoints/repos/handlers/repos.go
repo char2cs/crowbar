@@ -715,7 +715,10 @@ func (h *Handlers) PutIcon(c *gin.Context) {
 		libs.WriteErr(c, http.StatusInternalServerError, err.Error())
 		return
 	}
-	c.JSON(http.StatusOK, gin.H{"avatarUrl": "/v0/projects/" + repo.ProjectID + "/repos/" + repo.ID + "/icon"})
+	// 204, consistent with the other icon mutations: the FE apiFetch throws on
+	// any non-enveloped 200 body, and the updated avatar is delivered on the
+	// repos WS stream (the Save above broadcasts it), not in this response.
+	c.Status(http.StatusNoContent)
 }
 
 // readIconUpload extracts the icon bytes and content-type from the request,

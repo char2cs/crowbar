@@ -275,7 +275,10 @@ func TestPutIcon_JSONPath_ReadsFileFromDisk(t *testing.T) {
 	req.Header.Set("Content-Type", "application/json")
 	putIconRouter(store, home).ServeHTTP(w, req)
 
-	assert.Equal(t, http.StatusOK, w.Code)
+	// 204 (not a raw 200 body): the FE apiFetch throws on any non-enveloped
+	// 200, so PutIcon must answer 204 like the other icon mutations — the
+	// updated avatar arrives on the repos WS stream, not in this response.
+	assert.Equal(t, http.StatusNoContent, w.Code)
 	stored, err := os.ReadFile(filepath.Join(home, "projects", "p1", "r1", "icon"))
 	require.NoError(t, err)
 	assert.Equal(t, png, stored)
@@ -333,7 +336,7 @@ func TestPutIcon_Multipart_StoresBytes(t *testing.T) {
 	req.Header.Set("Content-Type", mw.FormDataContentType())
 	putIconRouter(store, home).ServeHTTP(w, req)
 
-	assert.Equal(t, http.StatusOK, w.Code)
+	assert.Equal(t, http.StatusNoContent, w.Code)
 	stored, err := os.ReadFile(filepath.Join(home, "projects", "p1", "r1", "icon"))
 	require.NoError(t, err)
 	assert.Equal(t, png, stored)
