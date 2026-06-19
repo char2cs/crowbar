@@ -17,8 +17,8 @@ import (
 // subscription scope.
 func workspacesSnapshot(
 	appContainer *app.Container,
-) func() []domain.Workspace {
-	return func() []domain.Workspace {
+) func(scope string) []domain.Workspace {
+	return func(_ string) []domain.Workspace {
 		rows, err := appContainer.Repositories.Workspace.List(context.Background())
 		if err != nil {
 			return nil
@@ -32,8 +32,8 @@ func workspacesSnapshot(
 // uses. Each client's wsId predicate filters the snapshot down to its workspace.
 func gitSnapshot(
 	appContainer *app.Container,
-) func() []gitdomain.GitStatusEvent {
-	return func() []gitdomain.GitStatusEvent {
+) func(scope string) []gitdomain.GitStatusEvent {
+	return func(_ string) []gitdomain.GitStatusEvent {
 		ctx := context.Background()
 		rows, err := appContainer.Repositories.Workspace.List(ctx)
 		if err != nil {
@@ -72,11 +72,11 @@ func appendGitStatus(
 func lspSnapshot(
 	appContainer *app.Container,
 	engContainer *engine.Container,
-) func() []lspdomain.DiagnosticsEvent {
+) func(scope string) []lspdomain.DiagnosticsEvent {
 	if engContainer == nil || engContainer.LSP == nil {
 		return nil
 	}
-	return func() []lspdomain.DiagnosticsEvent {
+	return func(_ string) []lspdomain.DiagnosticsEvent {
 		ctx := context.Background()
 		rows, err := appContainer.Repositories.Workspace.List(ctx)
 		if err != nil {

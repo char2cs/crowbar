@@ -120,3 +120,30 @@ func TestBuildPredicate_FallsBackToQueryWhenPathEmpty(t *testing.T) {
 	assert.True(t, p(row{name: "apple", kind: "fruit"}))
 	assert.False(t, p(row{name: "carrot", kind: "veg"}))
 }
+
+func TestPrefixMatch_Exact(t *testing.T) {
+	assert.True(t, PrefixMatch("p/r/w", "p/r/w"))
+}
+
+func TestPrefixMatch_ParentPrefixMatchesChild(t *testing.T) {
+	assert.True(t, PrefixMatch("p/r", "p/r/w"))
+	assert.True(t, PrefixMatch("p/r", "p/r"))
+}
+
+func TestPrefixMatch_RejectsSiblingRepo(t *testing.T) {
+	assert.False(t, PrefixMatch("p/r", "p/r2/w"))
+}
+
+func TestPrefixMatch_RejectsPartialSegment(t *testing.T) {
+	assert.False(t, PrefixMatch("p/r", "p/rx"))
+}
+
+func TestPrefixMatch_ProjectPrefix(t *testing.T) {
+	assert.True(t, PrefixMatch("p", "p/r/w"))
+}
+
+func TestPrefixMatch_EmptyMatchesAll(t *testing.T) {
+	assert.True(t, PrefixMatch("", "p/r/w"))
+	assert.True(t, PrefixMatch("", ""))
+	assert.True(t, PrefixMatch("", "anything"))
+}

@@ -15,7 +15,7 @@ type StreamDef[T any] struct {
 	Namespace     func(T) string
 	Serialize     func(T) ([]byte, error)
 	Filters       []FilterDef[T]
-	Snapshot      func() []T
+	Snapshot      func(scope string) []T
 	ScopeKey      func(*gin.Context) string
 	OnSubscribe   func(scope string)
 	OnUnsubscribe func(scope string)

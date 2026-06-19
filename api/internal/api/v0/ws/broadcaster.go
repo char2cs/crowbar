@@ -68,9 +68,10 @@ func (b *Broadcaster[T]) Handle(
 	cl := &filteredClient[T]{client: newClient(), predicate: predicate}
 
 	scope := b.scopeKey(c)
+	snapScope := clientScope(c)
 
 	b.register(cl)
-	snapshot := b.snapshotFor(cl)
+	snapshot := b.snapshotFor(cl, snapScope)
 	b.onSubscribe(scope)
 	go writePump(conn, cl.client, snapshot)
 	readPump(conn)
@@ -142,11 +143,12 @@ func (b *Broadcaster[T]) remove(
 // buffer; writePump flushes these ahead of any live frame.
 func (b *Broadcaster[T]) snapshotFor(
 	cl *filteredClient[T],
+	scope string,
 ) [][]byte {
 	if b.def.Snapshot == nil {
 		return nil
 	}
-	items := b.def.Snapshot()
+	items := b.def.Snapshot(scope)
 	frames := make([][]byte, 0, len(items))
 	for _, item := range items {
 		if !cl.predicate(item) {

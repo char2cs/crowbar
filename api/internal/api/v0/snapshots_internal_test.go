@@ -46,13 +46,13 @@ func newAppForSnapshot(
 func TestWorkspacesSnapshot_ListErrorReturnsNil(t *testing.T) {
 	a := newAppForSnapshot(t)
 	a.Repositories.Workspace = errWorkspaceRepo{}
-	assert.Nil(t, workspacesSnapshot(a)())
+	assert.Nil(t, workspacesSnapshot(a)(""))
 }
 
 func TestGitSnapshot_ListErrorReturnsNil(t *testing.T) {
 	a := newAppForSnapshot(t)
 	a.Repositories.Workspace = errWorkspaceRepo{}
-	assert.Nil(t, gitSnapshot(a)())
+	assert.Nil(t, gitSnapshot(a)(""))
 }
 
 func TestGitSnapshot_BadWorktreeSkipsWorkspace(t *testing.T) {
@@ -63,7 +63,7 @@ func TestGitSnapshot_BadWorktreeSkipsWorkspace(t *testing.T) {
 		time.Unix(1, 0).UTC(),
 	)
 	require.NoError(t, err)
-	assert.Empty(t, gitSnapshot(a)())
+	assert.Empty(t, gitSnapshot(a)(""))
 }
 
 func TestLSPSnapshot_NilEngineReturnsNil(t *testing.T) {
@@ -77,7 +77,7 @@ func TestLSPSnapshot_ListErrorReturnsNil(t *testing.T) {
 	a.Repositories.Workspace = errWorkspaceRepo{}
 	eng, err := engine.New(context.Background())
 	require.NoError(t, err)
-	assert.Nil(t, lspSnapshot(a, eng)())
+	assert.Nil(t, lspSnapshot(a, eng)(""))
 }
 
 func TestLSPSnapshot_NoDiagnosticsIsEmpty(t *testing.T) {
@@ -90,5 +90,5 @@ func TestLSPSnapshot_NoDiagnosticsIsEmpty(t *testing.T) {
 	require.NoError(t, err)
 	eng, err := engine.New(context.Background())
 	require.NoError(t, err)
-	assert.Empty(t, lspSnapshot(a, eng)())
+	assert.Empty(t, lspSnapshot(a, eng)(""))
 }

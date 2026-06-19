@@ -46,7 +46,7 @@ func snapshotDef(
 		rows = append(rows, item{Name: "ws" + strconv.Itoa(i), Kind: "fruit"})
 	}
 	def := itemDef()
-	def.Snapshot = func() []item { return rows }
+	def.Snapshot = func(_ string) []item { return rows }
 	return def
 }
 
