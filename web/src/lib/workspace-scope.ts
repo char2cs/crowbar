@@ -23,6 +23,34 @@ export function setWorkspaceScope(scope: WorkspaceScope): void {
   _activeWorkspaceId = scope.wsId
 }
 
+// The router pathname for the active workspace route. Not anchored to the start
+// so it also matches the hash-history in-hash path; captures exactly the three
+// /ide/:projectId/:repoId/:wsId segments and stops at the next separator.
+const IDE_ROUTE = /\/ide\/([^/]+)\/([^/]+)\/([^/]+)/
+
+/**
+ * Parse an /ide/:projectId/:repoId/:wsId pathname and record its scope, then
+ * return it (or null for a non-/ide path). The IDE shell calls this SYNCHRONOUSLY
+ * during render — before it renders WorkspaceView — because the workspace panels
+ * build workspace-scoped URLs (workspaceBase) during their own render. Recording
+ * the scope only in the route component's post-render effect was too late: the
+ * first render threw and tripped the ErrorBoundary. The route is the canonical
+ * scope source, so deriving it here keeps the lookup resolvable on first paint.
+ */
+export function recordWorkspaceScopeFromPath(pathname: string): WorkspaceScope | null {
+  const match = pathname.match(IDE_ROUTE)
+  if (!match) return null
+  const scope: WorkspaceScope = { projectId: match[1], repoId: match[2], wsId: match[3] }
+  setWorkspaceScope(scope)
+  return scope
+}
+
+/** Testing only — clears the in-memory scope registry between tests. */
+export function __resetWorkspaceScopesForTest(): void {
+  _scopes.clear()
+  _activeWorkspaceId = null
+}
+
 /**
  * Resolve the hierarchical scope for `wsId` (defaults to the active workspace).
  * Returns null when the scope was never recorded — callers throw/skip so a

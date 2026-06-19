@@ -22,6 +22,7 @@ import { Toaster } from '@/components/ui/sonner'
 import { ConnectionIndicator } from './connection-indicator'
 import { FpsOverlay } from './fps-overlay'
 import { useSidebarNavStore } from '@/features/layout/stores/sidebar-nav'
+import { recordWorkspaceScopeFromPath } from '@/lib/workspace-scope'
 
 const SIDEBAR_MIN_PX = 250
 const SIDEBAR_MAX_PX = 640
@@ -48,10 +49,15 @@ export function IDEShell() {
   // §7: the TanStack /ide/:projectId/:repoId/:wsId route params are the
   // canonical source for the active project/repo/workspace — read them directly
   // rather than scanning the sidebar store (which lags the route on cold start).
-  const ideMatch = pathname.match(/\/ide\/([^/]+)\/([^/]+)\/([^/]+)/)
-  const activeProjectIdFromRoute = ideMatch?.[1]
-  const activeRepoIdFromRoute = ideMatch?.[2]
-  const activeWorkspaceId = ideMatch?.[3]
+  // Recording the scope here, SYNCHRONOUSLY during render, is load-bearing: the
+  // WorkspaceView subtree (rendered below) builds workspace-scoped URLs via
+  // workspaceBase() during its own render, so the scope must exist before then —
+  // recording it only in the route component's post-render effect threw on first
+  // paint and tripped the ErrorBoundary (§14 add-repo regression).
+  const routeScope = recordWorkspaceScopeFromPath(pathname)
+  const activeProjectIdFromRoute = routeScope?.projectId
+  const activeRepoIdFromRoute = routeScope?.repoId
+  const activeWorkspaceId = routeScope?.wsId
   const activeChatId = pathname.match(/\/chat\/([^/]+)/)?.[1]
   const activeRepo = repos.find((r) => r.id === activeRepoIdFromRoute)
   // TODO(workspace-paths): `/repos/<repoId>` is a synthetic mock-era root prefix.
