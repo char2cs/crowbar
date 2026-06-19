@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
-import { render, waitFor } from '@testing-library/react'
+import { render, waitFor, act } from '@testing-library/react'
 
 // §7 startup is driven by GET seeds + subscribeEntityStream subscriptions and a
 // one-time maybeWipeOnVersionChange() BEFORE seeding. We mock those seams and
@@ -69,6 +69,38 @@ describe('AppSyncProvider §7 startup', () => {
       .map((c) => c[0] as { endpoint: string })
       .find((o) => o.endpoint === '/v0/projects/p1/repos')
     expect(reposCall).toBeDefined()
+  })
+
+  it('subscribes the active project repos stream when the project becomes active AFTER mount (first-run/OOBE)', async () => {
+    // Fresh start: the provider mounts at the root before any project exists, so
+    // activeProjectId is empty. The §7 startup must still (re)subscribe the
+    // active project's repos/workspaces once the user imports their first project
+    // — otherwise the entity cache is never populated and the sidebar stays empty.
+    useProjectStore.setState({ activeProjectId: '' })
+    render(
+      <AppSyncProvider>
+        <div />
+      </AppSyncProvider>,
+    )
+    await waitFor(() => expect(useProjectDataStore.getState().fetch).toHaveBeenCalled())
+    // No repos stream yet — there is no active project.
+    expect(
+      subscribeEntityStream.mock.calls
+        .map((c) => c[0] as { endpoint: string })
+        .some((o) => o.endpoint.endsWith('/repos')),
+    ).toBe(false)
+
+    // The user imports their first project after mount.
+    act(() => {
+      useProjectStore.setState({ activeProjectId: 'p-late' })
+    })
+
+    await waitFor(() => {
+      const reposCall = subscribeEntityStream.mock.calls
+        .map((c) => c[0] as { endpoint: string })
+        .find((o) => o.endpoint === '/v0/projects/p-late/repos')
+      expect(reposCall).toBeDefined()
+    })
   })
 
   it('tears every subscription down on unmount', async () => {

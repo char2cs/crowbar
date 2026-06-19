@@ -38,19 +38,15 @@ export function AppSyncProvider({ children }: { children: ReactNode }) {
         })
     }
 
-    async function start(): Promise<void> {
-      // 1. Version-gated wipe BEFORE seeding so a stale cache can't leak frames.
-      await maybeWipeOnVersionChange()
-      if (disposed) return
+    // Subscriptions for the CURRENT active project's repos + per-repo workspace
+    // streams. Re-created whenever the active project changes (see below), so the
+    // previous project's streams are torn down first.
+    let projectUnsubscribes: Array<() => void> = []
+    let currentProjectId: string | null = null
 
-      // 2. Project list: GET seed + live WS stream.
-      void useProjectDataStore.getState().fetch()
-      unsubscribes.push(useProjectDataStore.getState().startSync())
-
-      // 3. Active project's repos + per-repo workspace streams. The repos stream
-      //    keeps crowbar_repos fresh; for each repo currently in cache we open a
-      //    workspace stream that seeds via GET then stays live.
-      const projectId = useProjectStore.getState().activeProjectId
+    function subscribeActiveProject(projectId: string): void {
+      projectUnsubscribes.forEach((u) => u())
+      projectUnsubscribes = []
       if (!projectId) {
         rebuildSidebar()
         return
@@ -63,7 +59,7 @@ export function AppSyncProvider({ children }: { children: ReactNode }) {
         for (const repo of repos) {
           if (repo.projectId !== projectId || subscribedRepos.has(repo.id)) continue
           subscribedRepos.add(repo.id)
-          unsubscribes.push(
+          projectUnsubscribes.push(
             subscribeEntityStream({
               endpoint: `/v0/projects/${projectId}/repos/${repo.id}/workspaces`,
               store: 'crowbar_workspaces',
@@ -74,7 +70,7 @@ export function AppSyncProvider({ children }: { children: ReactNode }) {
         }
       }
 
-      unsubscribes.push(
+      projectUnsubscribes.push(
         subscribeEntityStream<RepoDTO>({
           endpoint: `/v0/projects/${projectId}/repos`,
           store: 'crowbar_repos',
@@ -87,10 +83,39 @@ export function AppSyncProvider({ children }: { children: ReactNode }) {
       )
     }
 
+    async function start(): Promise<void> {
+      // 1. Version-gated wipe BEFORE seeding so a stale cache can't leak frames.
+      await maybeWipeOnVersionChange()
+      if (disposed) return
+
+      // 2. Project list: GET seed + live WS stream.
+      void useProjectDataStore.getState().fetch()
+      unsubscribes.push(useProjectDataStore.getState().startSync())
+
+      // 3. Active project's repos + per-repo workspace streams. The provider
+      //    mounts at the root BEFORE any project exists (fresh start / OOBE), so
+      //    the active project usually becomes set AFTER mount — subscribe now if
+      //    one is already active, and re-subscribe whenever it changes. Without
+      //    this, importing the first project never populates the entity cache and
+      //    the sidebar stays empty.
+      currentProjectId = useProjectStore.getState().activeProjectId || null
+      subscribeActiveProject(currentProjectId ?? '')
+      unsubscribes.push(
+        useProjectStore.subscribe((state) => {
+          if (disposed) return
+          const next = state.activeProjectId || null
+          if (next === currentProjectId) return
+          currentProjectId = next
+          subscribeActiveProject(next ?? '')
+        }),
+      )
+    }
+
     void start()
     return () => {
       disposed = true
       unsubscribes.forEach((u) => u())
+      projectUnsubscribes.forEach((u) => u())
     }
   }, [])
   return <>{children}</>
