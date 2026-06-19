@@ -41,7 +41,8 @@ Every task implicitly includes these. A reviewer checks each one.
 
 **Spec binding rules:**
 - One WS channel = one Go type (`Broadcaster[T]`); no envelopes; errors live on the entity (`LastError`), never as a separate WS frame.
-- Domain-entity mutations (project/repo/workspace/thread) → `202`, good path over WS. Git read/stage/commit, LSP, files, search → sync `200`. Slow git (push/fetch/pull/merge/rebase) → `202` + WS.
+- Domain-entity mutations (project/repo/workspace) → `202`, good path over WS. Git read/stage/commit, LSP, files, search → sync `200`. Slow git (push/fetch/pull/merge/rebase) → `202` + WS.
+- **Threads (RATIFIED W9):** thread open/reply/resolve are **synchronous** (`201`/`200` + body) **and** broadcast a `ThreadDTO`. They are NOT 202 — threads are small, fast, and the FE benefits from the synchronous created/updated body. This resolves the design-spec §4 inconsistency (which had listed `thread` among 202 mutations) in favour of D2's enumeration (only project/repo/workspace are 202-empty-body).
 - Workspace status enum: `new | locked | pr-conflicts | deleted | pr-merged | pr-open | pr-closed`.
 - Every backend bug found during execution → a `TestRegression_*` written **red first**, then fixed.
 
