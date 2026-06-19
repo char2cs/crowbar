@@ -27,7 +27,7 @@ func TestWorkspacesDef_Lambdas(t *testing.T) {
 }
 
 func TestProjectsDef_NamespaceID(t *testing.T) {
-	def := projectsDef()
+	def := projectsDef(nil)
 	d := dto.ProjectDTO{ID: "p1"}
 
 	assert.Equal(t, "p1", def.Namespace(d))
@@ -38,7 +38,7 @@ func TestProjectsDef_NamespaceID(t *testing.T) {
 }
 
 func TestReposDef_NamespaceProjectRepo(t *testing.T) {
-	def := reposDef()
+	def := reposDef(nil)
 	d := dto.RepoDTO{ID: "r1", ProjectID: "p1"}
 
 	assert.Equal(t, "p1/r1", def.Namespace(d))

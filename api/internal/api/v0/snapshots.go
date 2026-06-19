@@ -80,6 +80,60 @@ func scopeWorkspacesToRepo(
 	return out
 }
 
+// projectSnapshot builds the Projects snapshot-on-subscribe source (03 §1a) as
+// wire DTOs. Projects sit at the top of the hierarchy, so the scope is either
+// empty (list-level subscription) or a bare project id (project-level): either
+// way the snapshot returns the full project set and the per-client prefix
+// predicate filters it down. A failed list degrades to a nil snapshot.
+func projectSnapshot(
+	appContainer *app.Container,
+) func(scope string) []dto.ProjectDTO {
+	return func(_ string) []dto.ProjectDTO {
+		rows, err := appContainer.GORM.Projects.FindAll(context.Background())
+		if err != nil {
+			return nil
+		}
+		return dto.ProjectDTOList(rows)
+	}
+}
+
+// repoSnapshot builds the Repos snapshot-on-subscribe source (03 §1a) as wire
+// DTOs, scoped to the project parsed from the connecting client's subscription
+// prefix ("p/..."). An empty project component matches every project, so a
+// list-level subscription snapshots every repo. A failed list degrades to a nil
+// snapshot.
+func repoSnapshot(
+	appContainer *app.Container,
+) func(scope string) []dto.RepoDTO {
+	return func(scope string) []dto.RepoDTO {
+		projectID, _ := parseRepoScope(scope)
+		rows, err := appContainer.GORM.Repositories.FindAll(context.Background())
+		if err != nil {
+			return nil
+		}
+		return dto.RepoDTOList(scopeReposToProject(rows, projectID))
+	}
+}
+
+// scopeReposToProject filters rows to those under the given projectID. An empty
+// projectID matches every repo, so a list-level scope keeps the full set.
+func scopeReposToProject(
+	rows []domain.Repository,
+	projectID string,
+) []domain.Repository {
+	if projectID == "" {
+		return rows
+	}
+	out := make([]domain.Repository, 0, len(rows))
+	for _, r := range rows {
+		if r.ProjectID != projectID {
+			continue
+		}
+		out = append(out, r)
+	}
+	return out
+}
+
 // gitSnapshot builds the Git snapshot-on-subscribe source (03 §1a): the current
 // GitStatus per workspace as the wsId-scoped GitStatusEvent the live broadcaster
 // uses. Each client's wsId predicate filters the snapshot down to its workspace.

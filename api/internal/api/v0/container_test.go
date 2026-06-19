@@ -133,6 +133,77 @@ func TestV0_WorkspacesFilter_RepoId(t *testing.T) {
 	assert.Equal(t, "w1", got["id"])
 }
 
+// TestContainer_PushProject_RouteByPrefix proves the Projects broadcaster routes
+// by hierarchical prefix derived from the :projectId path param: a client scoped
+// to "p1" receives only that project's frame; a sibling project's frame is
+// filtered out (spec §5).
+func TestContainer_PushProject_RouteByPrefix(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	tc := newApp(t)
+	c := v0.New(tc.app, tc.eng)
+	r := gin.New()
+	r.GET("/v0/projects/:projectId", c.ProjectsHandle)
+	srv := httptest.NewServer(r)
+	t.Cleanup(srv.Close)
+
+	url := "ws" + srv.URL[len("http"):] + "/v0/projects/p1"
+	conn, resp, err := websocket.DefaultDialer.Dial(url, nil)
+	if resp != nil {
+		_ = resp.Body.Close()
+	}
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = conn.Close() })
+	c.WaitProjectsRegistered()
+
+	// A sibling project's frame must be filtered out; only p1's arrives.
+	tc.app.Hub.BroadcastProject(dto.ProjectDTO{ID: "p2", Name: "skip"})
+	tc.app.Hub.BroadcastProject(dto.ProjectDTO{ID: "p1", Name: "keep"})
+
+	require.NoError(t, conn.SetReadDeadline(time.Now().Add(2*time.Second)))
+	_, msg, err := conn.ReadMessage()
+	require.NoError(t, err)
+	var got map[string]any
+	require.NoError(t, json.Unmarshal(msg, &got))
+	assert.Equal(t, "p1", got["id"])
+	assert.Equal(t, "keep", got["name"])
+}
+
+// TestContainer_PushRepo_RouteByPrefix proves the Repos broadcaster routes by
+// hierarchical prefix derived from the :projectId path param: a client scoped to
+// the project "p1" (prefix "p1") receives every child repo ("p1/r1") but not a
+// sibling project's repo ("p2/r1") (spec §5).
+func TestContainer_PushRepo_RouteByPrefix(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	tc := newApp(t)
+	c := v0.New(tc.app, tc.eng)
+	r := gin.New()
+	r.GET("/v0/projects/:projectId/repos", c.ReposHandle)
+	srv := httptest.NewServer(r)
+	t.Cleanup(srv.Close)
+
+	url := "ws" + srv.URL[len("http"):] + "/v0/projects/p1/repos"
+	conn, resp, err := websocket.DefaultDialer.Dial(url, nil)
+	if resp != nil {
+		_ = resp.Body.Close()
+	}
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = conn.Close() })
+	c.WaitReposRegistered()
+
+	// A sibling project's repo must be filtered out; only p1's child repo arrives.
+	tc.app.Hub.BroadcastRepo(dto.RepoDTO{ID: "r1", ProjectID: "p2", Name: "skip"})
+	tc.app.Hub.BroadcastRepo(dto.RepoDTO{ID: "r1", ProjectID: "p1", Name: "keep"})
+
+	require.NoError(t, conn.SetReadDeadline(time.Now().Add(2*time.Second)))
+	_, msg, err := conn.ReadMessage()
+	require.NoError(t, err)
+	var got map[string]any
+	require.NoError(t, json.Unmarshal(msg, &got))
+	assert.Equal(t, "r1", got["id"])
+	assert.Equal(t, "p1", got["projectId"])
+	assert.Equal(t, "keep", got["name"])
+}
+
 func TestV0_PushLSP_ReachesFilteredClient(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	tc := newApp(t)

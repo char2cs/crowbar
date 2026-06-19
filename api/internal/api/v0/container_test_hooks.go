@@ -3,8 +3,26 @@
 package v0
 
 import (
+	"github.com/gin-gonic/gin"
+
 	lspdomain "github.com/char2cs/crowbar/api/internal/domain/lsp"
 )
+
+// ProjectsHandle exposes the Projects broadcaster's WS upgrade handler so tests
+// can mount it on an ad-hoc route before the hierarchical router lands (W7).
+func (c *Container) ProjectsHandle(
+	ctx *gin.Context,
+) {
+	c.projects.Handle(ctx)
+}
+
+// ReposHandle exposes the Repos broadcaster's WS upgrade handler so tests can
+// mount it on an ad-hoc route before the hierarchical router lands (W7).
+func (c *Container) ReposHandle(
+	ctx *gin.Context,
+) {
+	c.repos.Handle(ctx)
+}
 
 // WaitProjectsRegistered blocks until a projects WS client registers.
 func (c *Container) WaitProjectsRegistered() { c.projects.WaitRegistered() }

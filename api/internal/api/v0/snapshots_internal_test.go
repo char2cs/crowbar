@@ -10,6 +10,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/char2cs/crowbar/api/internal/adapter"
+	"github.com/char2cs/crowbar/api/internal/adapter/store"
 	"github.com/char2cs/crowbar/api/internal/app"
 	"github.com/char2cs/crowbar/api/internal/app/repositories/workspace"
 	"github.com/char2cs/crowbar/api/internal/domain"
@@ -25,6 +26,30 @@ type errWorkspaceRepo struct {
 func (errWorkspaceRepo) List(
 	_ context.Context,
 ) ([]domain.Workspace, error) {
+	return nil, errSnapshotFake
+}
+
+// errProjectStore is a project store whose FindAll always fails, exercising the
+// snapshot's degrade-to-nil path.
+type errProjectStore struct {
+	store.Store[domain.Project, string]
+}
+
+func (errProjectStore) FindAll(
+	_ context.Context,
+) ([]domain.Project, error) {
+	return nil, errSnapshotFake
+}
+
+// errRepoStore is a repository store whose FindAll always fails, exercising the
+// snapshot's degrade-to-nil path.
+type errRepoStore struct {
+	store.Store[domain.Repository, string]
+}
+
+func (errRepoStore) FindAll(
+	_ context.Context,
+) ([]domain.Repository, error) {
 	return nil, errSnapshotFake
 }
 
@@ -113,6 +138,78 @@ func seedWorkspace(
 		time.Unix(1, 0).UTC(),
 	)
 	require.NoError(t, err)
+}
+
+// TestProjectSnapshot proves the Projects snapshot-on-subscribe (03 §1a)
+// returns every project row as wire DTOs. Projects sit at the top of the
+// hierarchy, so a list-level (empty) or project-level scope both snapshot the
+// full project set; the per-client predicate then filters by prefix.
+func TestProjectSnapshot(t *testing.T) {
+	a := newAppForSnapshot(t)
+	ctx := context.Background()
+	require.NoError(t, a.GORM.Projects.Save(ctx, domain.Project{ID: "p1", Name: "Alpha"}))
+	require.NoError(t, a.GORM.Projects.Save(ctx, domain.Project{ID: "p2", Name: "Beta"}))
+
+	got := projectSnapshot(a)("")
+	require.Len(t, got, 2)
+
+	byID := map[string]string{}
+	for _, d := range got {
+		byID[d.ID] = d.Name
+	}
+	assert.Equal(t, "Alpha", byID["p1"])
+	assert.Equal(t, "Beta", byID["p2"])
+}
+
+// TestProjectSnapshot_ListErrorReturnsNil proves a failed project list degrades
+// to a nil snapshot rather than panicking.
+func TestProjectSnapshot_ListErrorReturnsNil(t *testing.T) {
+	a := newAppForSnapshot(t)
+	a.GORM.Projects = errProjectStore{}
+	assert.Nil(t, projectSnapshot(a)(""))
+}
+
+// TestRepoSnapshot proves the Repos snapshot-on-subscribe (03 §1a) returns the
+// repos under the project parsed from the client's subscription prefix ("p/..."),
+// as wire DTOs. Repos under a sibling project are excluded.
+func TestRepoSnapshot(t *testing.T) {
+	a := newAppForSnapshot(t)
+	ctx := context.Background()
+	require.NoError(t, a.GORM.Repositories.Save(ctx, domain.Repository{ID: "r1", ProjectID: "p1", Name: "one"}))
+	require.NoError(t, a.GORM.Repositories.Save(ctx, domain.Repository{ID: "r2", ProjectID: "p1", Name: "two"}))
+	require.NoError(t, a.GORM.Repositories.Save(ctx, domain.Repository{ID: "r3", ProjectID: "p2", Name: "three"}))
+
+	got := repoSnapshot(a)("p1")
+	require.Len(t, got, 2)
+
+	byID := map[string]string{}
+	for _, d := range got {
+		byID[d.ID] = d.ProjectID
+	}
+	assert.Equal(t, "p1", byID["r1"])
+	assert.Equal(t, "p1", byID["r2"])
+	_, hasR3 := byID["r3"]
+	assert.False(t, hasR3, "sibling-project repo must be excluded")
+}
+
+// TestRepoSnapshot_EmptyScopeReturnsAll proves a list-level (empty) scope keeps
+// every repo: an empty project component matches all projects.
+func TestRepoSnapshot_EmptyScopeReturnsAll(t *testing.T) {
+	a := newAppForSnapshot(t)
+	ctx := context.Background()
+	require.NoError(t, a.GORM.Repositories.Save(ctx, domain.Repository{ID: "r1", ProjectID: "p1"}))
+	require.NoError(t, a.GORM.Repositories.Save(ctx, domain.Repository{ID: "r3", ProjectID: "p2"}))
+
+	got := repoSnapshot(a)("")
+	assert.Len(t, got, 2)
+}
+
+// TestRepoSnapshot_ListErrorReturnsNil proves a failed repo list degrades to a
+// nil snapshot.
+func TestRepoSnapshot_ListErrorReturnsNil(t *testing.T) {
+	a := newAppForSnapshot(t)
+	a.GORM.Repositories = errRepoStore{}
+	assert.Nil(t, repoSnapshot(a)("p1"))
 }
 
 func TestGitSnapshot_ListErrorReturnsNil(t *testing.T) {

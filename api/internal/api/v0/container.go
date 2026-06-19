@@ -60,8 +60,8 @@ func New(
 		panic("v0: appContainer is required")
 	}
 	c := &Container{
-		projects:   ws.NewBroadcaster(projectsDef()),
-		repos:      ws.NewBroadcaster(reposDef()),
+		projects:   ws.NewBroadcaster(projectsDef(appContainer)),
+		repos:      ws.NewBroadcaster(reposDef(appContainer)),
 		workspaces: ws.NewBroadcaster(workspacesDef(appContainer)),
 		threads:    ws.NewBroadcaster(threadsDef()),
 		terminals:  ws.NewBroadcaster(terminalsDef()),
@@ -172,21 +172,29 @@ func (c *Container) PushFile(
 }
 
 // projectsDef serves the Projects topic. Its hierarchical namespace is the bare
-// project id (spec §5); the snapshot source is wired in W6c when the Project
-// broadcaster is fed from the per-project store.
-func projectsDef() ws.StreamDef[dto.ProjectDTO] {
+// project id (spec §5). The snapshot returns every project as a wire DTO from
+// the GORM store; the per-client prefix predicate filters it (spec §9).
+func projectsDef(
+	appContainer *app.Container,
+) ws.StreamDef[dto.ProjectDTO] {
 	return ws.StreamDef[dto.ProjectDTO]{
 		Namespace: func(d dto.ProjectDTO) string { return d.ID },
 		Serialize: func(d dto.ProjectDTO) ([]byte, error) { return json.Marshal(d) },
+		Snapshot:  projectSnapshot(appContainer),
 	}
 }
 
-// reposDef serves the Repos topic. Its hierarchical namespace is projectID/ID
-// (spec §5); the snapshot source is wired in W6c.
-func reposDef() ws.StreamDef[dto.RepoDTO] {
+// reposDef serves the Repos topic. Its hierarchical namespace is projectID/ID,
+// so a project-scoped subscription ("p") receives every child repo (spec §5).
+// The snapshot is project-scoped from the client's subscription prefix and reads
+// the repos under that project from the GORM store (spec §9).
+func reposDef(
+	appContainer *app.Container,
+) ws.StreamDef[dto.RepoDTO] {
 	return ws.StreamDef[dto.RepoDTO]{
 		Namespace: func(d dto.RepoDTO) string { return d.ProjectID + "/" + d.ID },
 		Serialize: func(d dto.RepoDTO) ([]byte, error) { return json.Marshal(d) },
+		Snapshot:  repoSnapshot(appContainer),
 	}
 }
 
