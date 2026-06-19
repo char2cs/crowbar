@@ -114,6 +114,118 @@ func TestCreateRepo_BroadcastsRepoDTO(
 	assert.Empty(t, got.Status)
 }
 
+// fakeRepoImporter records the ImportRepo call so the test can assert the
+// full-import path runs in the background and returns a repo to broadcast.
+type fakeRepoImporter struct {
+	gotProjectID string
+	gotRepoPath  string
+	repo         domain.Repository
+	err          error
+	called       chan struct{}
+}
+
+func newFakeRepoImporter(
+	repo domain.Repository,
+) *fakeRepoImporter {
+	return &fakeRepoImporter{repo: repo, called: make(chan struct{}, 1)}
+}
+
+func (f *fakeRepoImporter) ImportRepo(
+	_ context.Context,
+	projectID string,
+	repoPath string,
+) (domain.Repository, error) {
+	f.gotProjectID = projectID
+	f.gotRepoPath = repoPath
+	f.called <- struct{}{}
+	return f.repo, f.err
+}
+
+// TestCreateRepo_RunsFullImport pins §14 Step 3: a valid create runs the full
+// repo import in the background (adopting default-branch workspaces + GitHub
+// avatar) via the injected RepoImporter, then broadcasts the imported RepoDTO.
+func TestCreateRepo_RunsFullImport(
+	t *testing.T,
+) {
+	bc := newRecordingRepoBroadcaster()
+	imp := newFakeRepoImporter(domain.Repository{
+		ID:        "r1",
+		ProjectID: "p1",
+		Name:      "alpha",
+		Path:      "/tmp/repo",
+	})
+	r := gin.New()
+	h := repohandlers.NewWithDeps(&fakeStore{}, nil, nil, bc.push).
+		WithStat(statRepoOK).
+		WithImporter(imp)
+	r.Group("/v0/projects/:projectId").POST("/repos", h.Create)
+
+	rec := doPost(r, "/v0/projects/p1/repos",
+		map[string]any{"name": "alpha", "path": "/tmp/repo"})
+	require.Equal(t, http.StatusAccepted, rec.Code)
+	assert.Empty(t, rec.Body.String())
+
+	got := bc.await(t)
+	assert.Equal(t, "r1", got.ID)
+	assert.Equal(t, "p1", got.ProjectID)
+	assert.Equal(t, "alpha", got.Name)
+	assert.Empty(t, got.Status)
+
+	<-imp.called
+	assert.Equal(t, "p1", imp.gotProjectID)
+	assert.Equal(t, "/tmp/repo", imp.gotRepoPath)
+}
+
+// TestCreateRepo_ValidationFailsSync_4xx pins that a missing path fails the
+// synchronous validation with a 4xx before the importer is ever invoked.
+func TestCreateRepo_ValidationFailsSync_4xx(
+	t *testing.T,
+) {
+	bc := newRecordingRepoBroadcaster()
+	imp := newFakeRepoImporter(domain.Repository{ID: "r1"})
+	r := gin.New()
+	h := repohandlers.NewWithDeps(&fakeStore{}, nil, nil, bc.push).
+		WithStat(func(string) (os.FileInfo, error) { return nil, os.ErrNotExist }).
+		WithImporter(imp)
+	r.Group("/v0/projects/:projectId").POST("/repos", h.Create)
+
+	rec := doPost(r, "/v0/projects/p1/repos",
+		map[string]any{"name": "alpha", "path": "/missing"})
+	assert.Equal(t, http.StatusBadRequest, rec.Code)
+
+	select {
+	case <-imp.called:
+		t.Fatal("importer must not run when synchronous validation fails")
+	case <-time.After(100 * time.Millisecond):
+	}
+}
+
+// TestCreateRepo_ImportError_NoBroadcast pins that a failed background import
+// broadcasts no RepoDTO (no per-repo LastError sink).
+func TestCreateRepo_ImportError_NoBroadcast(
+	t *testing.T,
+) {
+	bc := newRecordingRepoBroadcaster()
+	imp := newFakeRepoImporter(domain.Repository{ID: "r1"})
+	imp.err = assertErr
+	r := gin.New()
+	h := repohandlers.NewWithDeps(&fakeStore{}, nil, nil, bc.push).
+		WithStat(statRepoOK).
+		WithImporter(imp)
+	r.Group("/v0/projects/:projectId").POST("/repos", h.Create)
+
+	rec := doPost(r, "/v0/projects/p1/repos",
+		map[string]any{"name": "alpha", "path": "/tmp/repo"})
+	require.Equal(t, http.StatusAccepted, rec.Code)
+
+	<-imp.called
+	select {
+	case d := <-bc.ch:
+		t.Fatalf("unexpected broadcast on failed import: %+v", d)
+	case <-time.After(100 * time.Millisecond):
+	}
+}
+
 // TestCreateRepo_PathMissing_4xx pins that a non-existent path fails
 // synchronously before any background work is scheduled.
 func TestCreateRepo_PathMissing_4xx(

@@ -37,6 +37,12 @@ type Store interface {
 		ctx context.Context,
 		item domain.Project,
 	) error
+	// FindByKey loads a project by id so a standalone repo import (ImportRepo)
+	// can resolve the owning project before running the per-repo import.
+	FindByKey(
+		ctx context.Context,
+		id string,
+	) (*domain.Project, error)
 }
 
 // RepositoryStore is the repository persistence surface the import usecase needs.
@@ -136,6 +142,17 @@ type ImportUsecase interface {
 		name string,
 		path string,
 	) (domain.Project, error)
+	// ImportRepo runs the full per-repo import for a single repo path under an
+	// already-persisted project: it persists the Repository, writes the repo
+	// icon (local icon or best-effort GitHub owner avatar), adopts each existing
+	// worktree as a Workspace (so the default/checked-out branch becomes a
+	// workspace), and imports protected-branch stubs. It returns the created
+	// Repository so the caller can broadcast its DTO (§14 Step 3).
+	ImportRepo(
+		ctx context.Context,
+		projectID string,
+		repoPath string,
+	) (domain.Repository, error)
 }
 
 type projectImport struct {
@@ -211,7 +228,7 @@ func (u *projectImport) importRepos(
 		return fmt.Errorf("project import: discover repos: %w", err)
 	}
 	for _, repoPath := range repoPaths {
-		if err := u.importOneRepo(ctx, project, repoPath); err != nil {
+		if _, err := u.importOneRepo(ctx, project, repoPath); err != nil {
 			slog.WarnContext(
 				ctx, "project import: skipping repo after partial failure",
 				"repo_path", repoPath,
@@ -222,11 +239,28 @@ func (u *projectImport) importRepos(
 	return nil
 }
 
+// ImportRepo loads the owning project by id then runs the shared per-repo import
+// for a single repo path, returning the created Repository (00 §14 Step 3).
+func (u *projectImport) ImportRepo(
+	ctx context.Context,
+	projectID string,
+	repoPath string,
+) (domain.Repository, error) {
+	project, err := u.deps.Projects.FindByKey(ctx, projectID)
+	if err != nil {
+		return domain.Repository{}, fmt.Errorf("import repo: load project: %w", err)
+	}
+	if project == nil {
+		return domain.Repository{}, fmt.Errorf("import repo: project %q not found", projectID)
+	}
+	return u.importOneRepo(ctx, *project, repoPath)
+}
+
 func (u *projectImport) importOneRepo(
 	ctx context.Context,
 	project domain.Project,
 	repoPath string,
-) error {
+) (domain.Repository, error) {
 	name := filepath.Base(repoPath)
 	repoID := uuid.NewString()
 	runner := u.deps.RefRunner(repoPath)
@@ -242,13 +276,16 @@ func (u *projectImport) importOneRepo(
 		RemoteURL:     gitRemoteURL(repoPath),
 	}
 	if err := u.deps.Repos.Save(ctx, repo); err != nil {
-		return fmt.Errorf("project import: save repository: %w", err)
+		return domain.Repository{}, fmt.Errorf("project import: save repository: %w", err)
 	}
 	adopted, err := u.adoptWorktrees(ctx, repo)
 	if err != nil {
-		return err
+		return domain.Repository{}, err
 	}
-	return u.importProtectedBranchStubs(ctx, repo, adopted)
+	if err := u.importProtectedBranchStubs(ctx, repo, adopted); err != nil {
+		return domain.Repository{}, err
+	}
+	return repo, nil
 }
 
 // writeRepoIcon resolves the repo icon bytes (local repo icon first, then a

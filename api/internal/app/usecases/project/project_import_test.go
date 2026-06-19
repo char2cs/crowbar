@@ -469,6 +469,159 @@ func TestImport_AvatarFallsBackToGeneratedWhenNoFetcher(t *testing.T) {
 	assert.False(t, repos.Saved[0].AvatarHasIcon)
 }
 
+// TestImportRepo_AdoptsDefaultBranchWorkspace pins the OOBE add-repo path: a
+// repo whose checked-out branch is "develop" is imported under an existing
+// project — ImportRepo persists the repo row and adopts the branch as a
+// workspace (§14 Step 3). It loads the project by id from the project store.
+func TestImportRepo_AdoptsDefaultBranchWorkspace(
+	t *testing.T,
+) {
+	projects := mocks.NewProjectStore()
+	repos := mocks.NewRepositoryStore()
+	ws := mocks.NewWorkspaceRepo()
+	git := mocks.NewGitEngine()
+	prov := mocks.NewProviderEngine()
+
+	proj := domain.Project{ID: "proj-1", Name: "P", Path: "/root"}
+	require.NoError(t, projects.Save(context.Background(), proj))
+
+	git.Worktrees = []gitengine.WorktreeEntry{
+		{Path: "/root/repoA", Branch: "develop", Head: "h1"},
+	}
+	prov.Protected = []string{"develop"}
+
+	uc := project.NewImport(project.ImportDeps{
+		Projects:   projects,
+		Repos:      repos,
+		Workspaces: ws,
+		Git:        git,
+		Provider:   prov,
+		Discover: func(root string, maxDepth int) ([]string, error) {
+			return nil, nil
+		},
+		RefRunner: func(repoPath string) defaultbranch.RefRunner {
+			return func(args ...string) (string, bool) { return "", false }
+		},
+		Now:  func() time.Time { return time.Unix(1000, 0).UTC() },
+		Stat: statExists,
+	})
+
+	repo, err := uc.ImportRepo(context.Background(), "proj-1", "/root/repoA")
+	require.NoError(t, err)
+
+	require.Len(t, repos.Saved, 1)
+	assert.Equal(t, "repoA", repo.Name)
+	assert.Equal(t, "proj-1", repo.ProjectID)
+	assert.Equal(t, repos.Saved[0].ID, repo.ID)
+
+	require.Len(t, ws.Created, 1)
+	assert.Equal(t, "develop", ws.Created[0].Branch)
+	assert.Equal(t, repo.ID, ws.Created[0].RepoID)
+}
+
+// TestImportRepo_SetsGithubAvatarBestEffort pins that adding a repo with no
+// local icon best-effort fetches the GitHub owner avatar bytes and writes them
+// to the entity icon path, setting AvatarHasIcon=true.
+func TestImportRepo_SetsGithubAvatarBestEffort(
+	t *testing.T,
+) {
+	home := t.TempDir()
+	repoDir := t.TempDir() // no local icon files inside
+
+	projects := mocks.NewProjectStore()
+	repos := mocks.NewRepositoryStore()
+	require.NoError(t, projects.Save(context.Background(), domain.Project{ID: "proj-1", Path: "/root"}))
+
+	fetched := false
+	uc := project.NewImport(project.ImportDeps{
+		Projects:    projects,
+		Repos:       repos,
+		Workspaces:  mocks.NewWorkspaceRepo(),
+		Git:         mocks.NewGitEngine(),
+		Provider:    mocks.NewProviderEngine(),
+		CrowbarHome: func() (string, error) { return home, nil },
+		FetchAvatarBytes: func(_ context.Context, _ string) ([]byte, string, error) {
+			fetched = true
+			return []byte("PNGDATA"), "image/png", nil
+		},
+		Discover: func(root string, maxDepth int) ([]string, error) {
+			return nil, nil
+		},
+		RefRunner: func(repoPath string) defaultbranch.RefRunner {
+			return func(args ...string) (string, bool) { return "", false }
+		},
+		Now:  func() time.Time { return time.Unix(1000, 0).UTC() },
+		Stat: statExists,
+	})
+
+	repo, err := uc.ImportRepo(context.Background(), "proj-1", repoDir)
+	require.NoError(t, err)
+	assert.True(t, fetched, "the github avatar fetcher must run when no local icon exists")
+	assert.True(t, repo.AvatarHasIcon)
+
+	iconPath := filepath.Join(home, "projects", "proj-1", repo.ID, "icon")
+	data, readErr := os.ReadFile(iconPath)
+	require.NoError(t, readErr)
+	assert.Equal(t, "PNGDATA", string(data))
+}
+
+// TestImportRepo_UnknownProject_Errors pins that adding a repo under an unknown
+// project id returns an error and persists nothing.
+func TestImportRepo_UnknownProject_Errors(
+	t *testing.T,
+) {
+	projects := mocks.NewProjectStore()
+	repos := mocks.NewRepositoryStore()
+	uc := project.NewImport(project.ImportDeps{
+		Projects:   projects,
+		Repos:      repos,
+		Workspaces: mocks.NewWorkspaceRepo(),
+		Git:        mocks.NewGitEngine(),
+		Provider:   mocks.NewProviderEngine(),
+		Discover: func(root string, maxDepth int) ([]string, error) {
+			return nil, nil
+		},
+		RefRunner: func(repoPath string) defaultbranch.RefRunner {
+			return func(args ...string) (string, bool) { return "", false }
+		},
+		Now:  func() time.Time { return time.Unix(1000, 0).UTC() },
+		Stat: statExists,
+	})
+
+	_, err := uc.ImportRepo(context.Background(), "missing", "/root/repoA")
+	require.Error(t, err)
+	assert.Empty(t, repos.Saved)
+}
+
+// TestImportRepo_LoadProjectError_Errors pins that a project-store lookup error
+// surfaces from ImportRepo and persists nothing.
+func TestImportRepo_LoadProjectError_Errors(
+	t *testing.T,
+) {
+	projects := mocks.NewProjectStore()
+	projects.FindErr = errors.New("db down")
+	repos := mocks.NewRepositoryStore()
+	uc := project.NewImport(project.ImportDeps{
+		Projects:   projects,
+		Repos:      repos,
+		Workspaces: mocks.NewWorkspaceRepo(),
+		Git:        mocks.NewGitEngine(),
+		Provider:   mocks.NewProviderEngine(),
+		Discover: func(root string, maxDepth int) ([]string, error) {
+			return nil, nil
+		},
+		RefRunner: func(repoPath string) defaultbranch.RefRunner {
+			return func(args ...string) (string, bool) { return "", false }
+		},
+		Now:  func() time.Time { return time.Unix(1000, 0).UTC() },
+		Stat: statExists,
+	})
+
+	_, err := uc.ImportRepo(context.Background(), "proj-1", "/root/repoA")
+	require.Error(t, err)
+	assert.Empty(t, repos.Saved)
+}
+
 // TestImport_PartialRepoFailure verifies the best-effort guarantee (00 §5.1):
 // when two repos are discovered and the first fails (git engine error), Import
 // still returns the project with no error and the second repo IS fully adopted.

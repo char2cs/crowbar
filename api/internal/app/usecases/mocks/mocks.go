@@ -19,6 +19,7 @@ import (
 type ProjectStore struct {
 	Saved   []domain.Project
 	SaveErr error
+	FindErr error
 }
 
 // NewProjectStore returns an empty ProjectStore.
@@ -48,6 +49,9 @@ func (s *ProjectStore) FindByKey(
 	ctx context.Context,
 	id string,
 ) (*domain.Project, error) {
+	if s.FindErr != nil {
+		return nil, s.FindErr
+	}
 	for i := range s.Saved {
 		if s.Saved[i].ID == id {
 			return &s.Saved[i], nil

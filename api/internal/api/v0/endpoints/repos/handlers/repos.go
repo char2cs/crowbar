@@ -108,6 +108,18 @@ type AvatarBytesFetcher func(
 	repoPath string,
 ) ([]byte, string, error)
 
+// RepoImporter runs the full per-repo import for a single repo path under an
+// already-persisted project: it persists the Repository, writes the repo icon
+// (local icon or best-effort GitHub owner avatar), adopts the default/protected
+// branches as workspaces, and returns the created repo (00 §14 Step 3).
+type RepoImporter interface {
+	ImportRepo(
+		ctx context.Context,
+		projectID string,
+		repoPath string,
+	) (domain.Repository, error)
+}
+
 // Handlers serves the /v0/repos routes from the repository GORM store. Domain
 // mutations (create, delete) follow the fail-fast/good-path-async pattern
 // (00 §4): validate synchronously, return 202, run the slow work in the
@@ -117,6 +129,7 @@ type Handlers struct {
 	store       Store
 	provider    BranchProviderEngine
 	wsReader    WorkspaceReader
+	importer    RepoImporter
 	crowbarHome func() (string, error)
 	fetchAvatar AvatarBytesFetcher
 	broadcast   func(dto.RepoDTO)
@@ -159,6 +172,19 @@ func NewWithDeps(
 		broadcast:   broadcast,
 		stat:        os.Stat,
 	}
+}
+
+// WithImporter wires the full repo-import usecase that Create runs in the
+// background so adding a repo auto-adopts the default/protected-branch
+// workspaces and seeds the GitHub avatar (00 §14 Step 3). A nil arg leaves the
+// handler on its bare buildRepo+Save fallback.
+func (h *Handlers) WithImporter(
+	importer RepoImporter,
+) *Handlers {
+	if importer != nil {
+		h.importer = importer
+	}
+	return h
 }
 
 // WithStat overrides the filesystem stat used to validate the create path
@@ -264,12 +290,36 @@ func (h *Handlers) Create(
 	}
 	libs.WriteAccepted(c)
 	runAsync(c.Request.Context(), func(ctx context.Context) {
-		repo := buildRepo(body)
-		if err := h.store.Save(ctx, repo); err != nil {
+		repo, ok := h.persistRepo(ctx, body)
+		if !ok {
 			return
 		}
 		h.broadcast(dto.RepoDTOFrom(repo))
 	})
+}
+
+// persistRepo runs the background create work. When a full RepoImporter is
+// wired it runs the complete import (default-branch workspace adoption +
+// protected-branch stubs + GitHub avatar), which also broadcasts the adopted
+// workspaces via the workspace repo callback. Without an importer it falls back
+// to the bare buildRepo+Save path. ok is false when the work failed and no
+// RepoDTO should be broadcast (no per-repo LastError sink).
+func (h *Handlers) persistRepo(
+	ctx context.Context,
+	body createRequest,
+) (domain.Repository, bool) {
+	if h.importer != nil {
+		repo, err := h.importer.ImportRepo(ctx, body.ProjectID, body.Path)
+		if err != nil {
+			return domain.Repository{}, false
+		}
+		return repo, true
+	}
+	repo := buildRepo(body)
+	if err := h.store.Save(ctx, repo); err != nil {
+		return domain.Repository{}, false
+	}
+	return repo, true
 }
 
 // buildRepo derives the persisted Repository from the validated create request:
