@@ -117,7 +117,7 @@ func TestSnapshot_Workspaces_DeliveredOnConnect(t *testing.T) {
 	require.NoError(t, err)
 
 	_, srv := serveV0(t, tc.app, tc.eng)
-	conn := dialV0(t, srv, "/v0/projects/p1/repos/r1/ws/workspaces")
+	conn := dialV0(t, srv, "/v0/projects/p1/repos/r1/workspaces")
 
 	got := readSnapshot(t, conn)
 	assert.Equal(t, "w1", got["id"])
@@ -149,7 +149,7 @@ func TestSnapshot_Workspaces_ScopePredicateFilters(t *testing.T) {
 	require.NoError(t, err)
 
 	_, srv := serveV0(t, tc.app, tc.eng)
-	conn := dialV0(t, srv, "/v0/projects/p2/repos/r2/ws/workspaces")
+	conn := dialV0(t, srv, "/v0/projects/p2/repos/r2/workspaces")
 
 	got := readSnapshot(t, conn)
 	assert.Equal(t, "w2", got["id"])
@@ -178,7 +178,7 @@ func TestSnapshot_Git_DeliveredOnConnectScoped(t *testing.T) {
 	require.NoError(t, err)
 
 	_, srv := serveV0(t, tc.app, tc.eng)
-	conn := dialV0(t, srv, "/v0/projects/p1/repos/r1/ws/git?wsId=A")
+	conn := dialV0(t, srv, "/v0/projects/p1/repos/r1/workspaces/A/git/status")
 
 	got := readSnapshot(t, conn)
 	assert.Equal(t, "main", got["branch"])
@@ -205,7 +205,7 @@ func TestSnapshot_LSP_DeliveredOnConnect(t *testing.T) {
 	}
 
 	_, srv := serveV0(t, tc.app, tc.eng)
-	conn := dialV0(t, srv, "/v0/projects/p1/repos/r1/ws/lsp?wsId=w1")
+	conn := dialV0(t, srv, "/v0/projects/p1/repos/r1/workspaces/w1/lsp/ws")
 
 	got := readSnapshot(t, conn)
 	assert.Equal(t, "w1", got["wsId"])

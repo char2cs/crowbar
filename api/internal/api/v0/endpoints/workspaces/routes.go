@@ -10,11 +10,13 @@ import (
 )
 
 // Register mounts the workspace list, detail, create, delete, and hierarchy
-// routes on the supplied router group. The list route is dual-served: a plain
-// GET returns the flat REST list while a WebSocket upgrade is routed to wsHandle
-// for the live stream. reader and hierarchy back the reads and worktree
-// operations; repos resolves a repository for worktree-backed create; dispatch
-// wraps the list route so the upgrade is honoured without a second path.
+// routes on the supplied router group. The list AND detail routes are
+// dual-served: a plain GET returns REST while a WebSocket upgrade is routed to
+// wsHandle for the live stream — the list-scope subscriber receives the repo's
+// workspaces, the :wsId-scope subscriber receives exactly that workspace (W7-2).
+// reader and hierarchy back the reads and worktree operations; repos resolves a
+// repository for worktree-backed create; dispatch wraps the dual-served routes
+// so the upgrade is honoured without a second path.
 func Register(
 	rg *gin.RouterGroup,
 	reader workspacehandlers.Reader,
@@ -25,11 +27,10 @@ func Register(
 ) {
 	h := workspacehandlers.New(reader, hierarchy, repos)
 	rg.GET("/workspaces", dispatch(h.List, wsHandle))
-	rg.GET("/workspaces/:wsId", h.Detail)
+	rg.GET("/workspaces/:wsId", dispatch(h.Detail, wsHandle))
 	rg.POST("/workspaces", h.Create)
 	rg.DELETE("/workspaces/:wsId", h.Delete)
 	rg.POST("/workspaces/:wsId/sync", h.Sync)
 	rg.POST("/workspaces/:wsId/merge-into-parent", h.MergeIntoParent)
 	rg.POST("/workspaces/:wsId/reparent", h.Reparent)
-	rg.GET("/ws/workspaces", wsHandle)
 }

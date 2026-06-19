@@ -142,9 +142,9 @@ func collectFilters[T any](
 
 // resolveFilterValue reads a filter Param from the PATH param first, falling
 // back to the QUERY param, then the FilterDef Default. The path-first order lets
-// a single FilterDef scope both the dual-served path route
-// (/v0/workspaces/:wsId/git/status) and the dedicated query route
-// (/v0/ws/git?wsId=).
+// a single FilterDef scope the dual-served path routes
+// (.../workspaces/:wsId/git/status, .../files/ws, .../lsp/ws) from their :wsId
+// path param while still honouring a ?wsId= query for any non-nested caller.
 func resolveFilterValue[T any](
 	c *gin.Context,
 	f FilterDef[T],

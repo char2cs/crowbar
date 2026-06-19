@@ -10,6 +10,7 @@ import (
 	"github.com/stretchr/testify/assert"
 
 	"github.com/char2cs/crowbar/api/internal/api/v0/endpoints/projects"
+	"github.com/char2cs/crowbar/api/internal/api/v0/ws"
 	"github.com/char2cs/crowbar/api/internal/domain"
 )
 
@@ -66,7 +67,15 @@ func TestRegisterMountsRoutes(
 	t *testing.T,
 ) {
 	r := gin.New()
-	projects.Register(r.Group("/v0"), stubReader{}, stubImporter{}, stubDeleter{})
+	noopWS := func(_ *gin.Context) {}
+	projects.Register(
+		r.Group("/v0"),
+		stubReader{},
+		stubImporter{},
+		stubDeleter{},
+		noopWS,
+		ws.DualServe,
+	)
 
 	cases := []struct {
 		method string

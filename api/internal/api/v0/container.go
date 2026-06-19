@@ -239,8 +239,8 @@ func terminalsDef() ws.StreamDef[dto.TerminalSessionDTO] {
 }
 
 // gitDef scopes the Git topic to a single workspace by wsId. The wsId resolves
-// from the PATH param on the dual-served /v0/workspaces/:wsId/git/status route
-// and from the QUERY param on the dedicated /v0/ws/git?wsId= route. The wire
+// from the PATH param on the dual-served .../workspaces/:wsId/git/status route
+// (the dedicated /ws/git route was removed in W7-2). The wire
 // payload is a bare GitStatus (the embedded Status), matching the REST snapshot
 // of the dual-serve route; only the WsID is used for filtering, never serialized
 // onto the Git stream.

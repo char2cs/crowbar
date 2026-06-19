@@ -22,7 +22,7 @@ var terminalUpgrader = websocket.Upgrader{
 	CheckOrigin:     func(_ *http.Request) bool { return true },
 }
 
-// WS handles GET /v0/ws/terminals/:sessionId.
+// WS handles GET .../workspaces/:wsId/terminals/:sessionId/ws.
 // It verifies the session exists before upgrading, sets up ping/pong keepalive,
 // then runs the read/write pumps via the terminal engine.
 func (h *Handlers) WS(ctx *gin.Context) {

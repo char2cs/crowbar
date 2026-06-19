@@ -33,8 +33,9 @@ func expectedRoutes() map[string]struct{} {
 // specRoutes is every route in 02 §2 + §3, one per spec line, re-nested under
 // the hierarchical /v0/projects/:projectId/repos/:repoId/workspaces/:wsId/...
 // prefix (spec §3). Health, system, and the terminal profiles CRUD remain
-// top-level (outside /projects). The dedicated /ws/* routes stay for now (W7-2
-// folds them into co-located WS/dual-serve); they nest under the repo group.
+// top-level (outside /projects). The dedicated /ws/* routes are GONE (W7-2):
+// the entity list+detail GET routes dual-serve REST/WS, and the raw/diagnostic
+// streams are co-located as .../files/ws, .../lsp/ws, .../terminals/:sessionId/ws.
 func specRoutes() []string {
 	const repo = "/v0/projects/:projectId/repos/:repoId"
 	const ws = repo + "/workspaces/:wsId"
@@ -127,17 +128,17 @@ func specRoutes() []string {
 		"PUT /v0/settings/terminal/profiles/:id",
 		"DELETE /v0/settings/terminal/profiles/:id",
 		"POST " + ws + "/terminals",
-		"DELETE " + repo + "/terminals/:sessionId",
+		"DELETE " + ws + "/terminals/:sessionId",
 		// §2.12 System
 		"GET /v0/system/prerequisites",
 		// §2.13 Health
 		"GET /v0/health",
-		// §3 WebSocket endpoints (nested; W7-2 folds these into co-located WS)
-		"GET " + repo + "/ws/workspaces",
-		"GET " + repo + "/ws/git",
-		"GET " + repo + "/ws/files",
-		"GET " + repo + "/ws/lsp",
-		"GET " + repo + "/ws/terminals/:sessionId",
+		// §3 WebSocket endpoints — co-located on the nested tree (W7-2). The
+		// entity list+detail GET routes dual-serve REST/WS in place (no separate
+		// path); the raw/diagnostic streams hang off their workspace subtree.
+		"GET " + ws + "/files/ws",
+		"GET " + ws + "/lsp/ws",
+		"GET " + ws + "/terminals/:sessionId/ws",
 	}
 }
 
@@ -196,9 +197,39 @@ func TestRouteAudit_AllSpecRoutesRegistered(t *testing.T) {
 	assert.Len(t, got, len(want), "registered route count drifted from expected set")
 }
 
-// TestRouteAudit_DualServe_RestMode proves the two dual-served live-read routes
+// TestRouteAudit_NoLegacyWsRoutes asserts the five dedicated /ws/* routes are
+// GONE from the registered surface (W7-2): /ws/workspaces, /ws/git, /ws/files,
+// /ws/lsp, and /ws/terminals/:sessionId were folded into the dual-served entity
+// GET routes and the co-located .../files/ws, .../lsp/ws, .../terminals/:id/ws.
+func TestRouteAudit_NoLegacyWsRoutes(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	got := registeredRoutes(t)
+
+	const repo = "/v0/projects/:projectId/repos/:repoId"
+	legacy := []string{
+		"GET " + repo + "/ws/workspaces",
+		"GET " + repo + "/ws/git",
+		"GET " + repo + "/ws/files",
+		"GET " + repo + "/ws/lsp",
+		"GET " + repo + "/ws/terminals/:sessionId",
+	}
+	for _, r := range legacy {
+		_, ok := got[r]
+		assert.Falsef(t, ok, "legacy /ws/* route must be removed: %s", r)
+	}
+	// Any residual /ws/ segment anywhere in the surface is a regression.
+	for r := range got {
+		assert.NotContainsf(t, r, "/ws/workspaces", "legacy ws route present: %s", r)
+		assert.NotContainsf(t, r, "/ws/git", "legacy ws route present: %s", r)
+		assert.NotContainsf(t, r, "/ws/lsp", "legacy ws route present: %s", r)
+	}
+}
+
+// TestRouteAudit_DualServe_RestMode proves the dual-served live-read routes
 // answer a plain (non-Upgrade) GET on REST — the complement of the WS-upgrade
-// proofs in container_test.go, so both modes of both routes are covered.
+// proofs below, so both modes of every route are covered. It exercises the
+// entity list+detail routes (projects, projects/:id, repos, repos/:id,
+// workspaces, workspaces/:id) plus git/status.
 func TestRouteAudit_DualServe_RestMode(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	tc := newApp(t)
@@ -209,7 +240,12 @@ func TestRouteAudit_DualServe_RestMode(t *testing.T) {
 	t.Cleanup(srv.Close)
 
 	for _, path := range []string{
+		"/v0/projects",
+		"/v0/projects/p1",
+		"/v0/projects/p1/repos",
+		"/v0/projects/p1/repos/r1",
 		"/v0/projects/p1/repos/r1/workspaces",
+		"/v0/projects/p1/repos/r1/workspaces/w1",
 		"/v0/projects/p1/repos/r1/workspaces/w1/git/status",
 	} {
 		resp, err := http.Get(srv.URL + path)
@@ -225,8 +261,9 @@ func TestRouteAudit_DualServe_RestMode(t *testing.T) {
 	}
 }
 
-// TestRouteAudit_DualServe_WsMode proves both dual-served routes upgrade to a
-// live WebSocket stream when the request carries Upgrade: websocket.
+// TestRouteAudit_DualServe_WsMode proves every dual-served route upgrades to a
+// live WebSocket stream when the request carries Upgrade: websocket — including
+// the new project/repo/workspace detail routes (W7-2).
 func TestRouteAudit_DualServe_WsMode(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	tc := newApp(t)
@@ -237,7 +274,12 @@ func TestRouteAudit_DualServe_WsMode(t *testing.T) {
 	t.Cleanup(srv.Close)
 
 	for _, path := range []string{
-		"/v0/projects/p1/repos/r1/ws/workspaces",
+		"/v0/projects",
+		"/v0/projects/p1",
+		"/v0/projects/p1/repos",
+		"/v0/projects/p1/repos/r1",
+		"/v0/projects/p1/repos/r1/workspaces",
+		"/v0/projects/p1/repos/r1/workspaces/w1",
 		"/v0/projects/p1/repos/r1/workspaces/w1/git/status",
 	} {
 		url := "ws" + srv.URL[len("http"):] + path

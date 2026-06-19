@@ -51,18 +51,24 @@ func (c *Container) Register(
 	projectScoped := projects.Group("/:projectId")
 	repos := projectScoped.Group("/repos")
 	repoScoped := repos.Group("/:repoId")
+	workspacesGrp := repoScoped.Group("/workspaces")
+	wsScoped := workspacesGrp.Group("/:wsId")
 
 	projectsPkg.Register(
 		rg,
 		c.app.Usecases.Project,
 		c.app.Usecases.ProjectImport,
 		c.app.Usecases.ProjectDelete,
+		c.projects.Handle,
+		ws.DualServe,
 	)
 	reposPkg.Register(
 		projectScoped,
 		c.app.GORM.Repositories,
 		c.eng.Provider,
 		c.app.Repositories.Workspace,
+		c.repos.Handle,
+		ws.DualServe,
 	)
 	workspaces.Register(
 		repoScoped,
@@ -88,7 +94,7 @@ func (c *Container) Register(
 		ws.DualServe,
 	)
 	terminal.Register(
-		repoScoped,
+		wsScoped,
 		rg,
 		c.eng.Terminal,
 		c.app.GORM.TerminalProfiles,

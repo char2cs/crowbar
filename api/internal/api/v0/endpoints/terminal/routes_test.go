@@ -43,7 +43,10 @@ func (stubEngine) SessionExists(
 	_ context.Context,
 	_ string,
 ) bool {
-	return false
+	// True so the PTY /ws route's handler proceeds past the existence guard;
+	// the non-Upgrade request then 400s, proving the route is mounted (not a
+	// router 404).
+	return true
 }
 
 func (stubEngine) Attach(
@@ -97,17 +100,18 @@ func TestRegisterMountsRoutes(
 ) {
 	r := gin.New()
 	rg := r.Group("/v0")
-	// Session lifecycle + PTY routes mount on the repo-scoped group; the
+	// Session lifecycle + PTY routes mount on the workspace-scoped group; the
 	// profile CRUD mounts on the top-level /v0 group (mirroring the router).
-	repoScoped := rg.Group("/projects/:projectId/repos/:repoId")
-	terminal.Register(repoScoped, rg, stubEngine{}, stubProfiles{}, stubReader{})
+	wsScoped := rg.Group("/projects/:projectId/repos/:repoId/workspaces/:wsId")
+	terminal.Register(wsScoped, rg, stubEngine{}, stubProfiles{}, stubReader{})
 
 	cases := []struct {
 		method string
 		path   string
 	}{
 		{http.MethodPost, "/v0/projects/p1/repos/r1/workspaces/ws1/terminals"},
-		{http.MethodDelete, "/v0/projects/p1/repos/r1/terminals/sess1"},
+		{http.MethodDelete, "/v0/projects/p1/repos/r1/workspaces/ws1/terminals/sess1"},
+		{http.MethodGet, "/v0/projects/p1/repos/r1/workspaces/ws1/terminals/sess1/ws"},
 		{http.MethodGet, "/v0/settings/terminal/profiles"},
 		{http.MethodGet, "/v0/settings/terminal/profiles/p1"},
 		{http.MethodPost, "/v0/settings/terminal/profiles"},

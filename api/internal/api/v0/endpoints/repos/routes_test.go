@@ -10,6 +10,7 @@ import (
 	"github.com/stretchr/testify/assert"
 
 	"github.com/char2cs/crowbar/api/internal/api/v0/endpoints/repos"
+	"github.com/char2cs/crowbar/api/internal/api/v0/ws"
 	"github.com/char2cs/crowbar/api/internal/domain"
 )
 
@@ -49,7 +50,8 @@ func TestRegisterMountsRoutes(
 	// repos.Register mounts on the project-scoped group, so build the
 	// hierarchical prefix to mirror the production router chain.
 	projectScoped := r.Group("/v0/projects/:projectId")
-	repos.Register(projectScoped, stubStore{}, nil, nil)
+	noopWS := func(_ *gin.Context) {}
+	repos.Register(projectScoped, stubStore{}, nil, nil, noopWS, ws.DualServe)
 
 	cases := []struct {
 		method string

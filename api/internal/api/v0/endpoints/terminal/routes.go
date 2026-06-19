@@ -10,12 +10,14 @@ import (
 // Register mounts the terminal routes across two groups.
 //
 // The session lifecycle and PTY upgrade routes are workspace-scoped, so they
-// mount on repoScoped (the /v0/projects/:projectId/repos/:repoId group) and
-// carry the "/workspaces/:wsId/..."-relative paths. The terminal profile CRUD
-// is a global user setting, so it mounts on settingsRG (the top-level /v0
-// group) at /settings/terminal/profiles, outside the entity hierarchy.
+// mount on wsScoped (the /v0/projects/:projectId/repos/:repoId/workspaces/:wsId
+// group) and carry "/terminals/..."-relative paths. The raw PTY stream is
+// co-located with the session routes at .../terminals/:sessionId/ws (W7-2). The
+// terminal profile CRUD is a global user setting, so it mounts on settingsRG
+// (the top-level /v0 group) at /settings/terminal/profiles, outside the
+// entity hierarchy.
 func Register(
-	repoScoped *gin.RouterGroup,
+	wsScoped *gin.RouterGroup,
 	settingsRG *gin.RouterGroup,
 	termEng termhandlers.TerminalEngine,
 	profileStore termhandlers.ProfileStore,
@@ -23,9 +25,9 @@ func Register(
 ) {
 	h := termhandlers.New(termEng, profileStore, wsReader)
 
-	repoScoped.POST("/workspaces/:wsId/terminals", h.CreateSession)
-	repoScoped.DELETE("/terminals/:sessionId", h.KillSession)
-	repoScoped.GET("/ws/terminals/:sessionId", h.WS)
+	wsScoped.POST("/terminals", h.CreateSession)
+	wsScoped.DELETE("/terminals/:sessionId", h.KillSession)
+	wsScoped.GET("/terminals/:sessionId/ws", h.WS)
 
 	settingsRG.GET("/settings/terminal/profiles", h.ListProfiles)
 	settingsRG.GET("/settings/terminal/profiles/:id", h.GetProfile)
