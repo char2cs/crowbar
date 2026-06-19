@@ -55,6 +55,12 @@ func (c CreateWorkspace) EmitEvent(
 	if strategy == "" {
 		strategy = gitdomain.MergeStrategyMerge
 	}
+	// Dual-write (W4-mig-1): seed the new Status enum alongside the legacy
+	// Locked bool. Protected/Locked → locked, else new.
+	status := domain.WorkspaceStatusNew
+	if c.Locked {
+		status = domain.WorkspaceStatusLocked
+	}
 	return domain.Workspace{
 		ID:            c.ID,
 		RepoID:        c.RepoID,
@@ -63,7 +69,7 @@ func (c CreateWorkspace) EmitEvent(
 		WorktreePath:  c.WorktreePath,
 		ForkPointSha:  c.ForkPointSha,
 		ParentID:      c.ParentID,
-		Status:        domain.WorkspaceStatusNew,
+		Status:        status,
 		Locked:        c.Locked,
 		MergeStrategy: strategy,
 		LastActivity:  c.Now,

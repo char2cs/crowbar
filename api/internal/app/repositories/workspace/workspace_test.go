@@ -176,7 +176,7 @@ func newAdapterClosable(
 	return c
 }
 
-func TestWorkspace_SyncClearsNewStatus(t *testing.T) {
+func TestWorkspace_SyncKeepsNewStatus(t *testing.T) {
 	ctx, repo := newRepo(t)
 	now := time.Unix(1000, 0).UTC()
 	_, err := repo.Create(ctx, workspace.CreateInput{ID: "w1", RepoID: "r1", ProjectID: "p1"}, now)
@@ -189,12 +189,13 @@ func TestWorkspace_SyncClearsNewStatus(t *testing.T) {
 		HasCommits: true,
 	}, now)
 	require.NoError(t, err)
-	assert.Equal(t, domain.WorkspaceStatus(""), synced.Status)
+	// Dual-write (W4-mig-1): the new→"" transition is removed; status stays "new".
+	assert.Equal(t, domain.WorkspaceStatusNew, synced.Status)
 	assert.Equal(t, 10, synced.Added)
 
 	reloaded, err := repo.Get(ctx, "w1")
 	require.NoError(t, err)
-	assert.Equal(t, domain.WorkspaceStatus(""), reloaded.Status)
+	assert.Equal(t, domain.WorkspaceStatusNew, reloaded.Status)
 }
 
 func TestWorkspace_Create_RoundTrips_Timestamps(t *testing.T) {
@@ -254,8 +255,10 @@ func TestWorkspace_SyncProviderState_SetsPR(t *testing.T) {
 		PRUrl:     "u",
 	}, now)
 	require.NoError(t, err)
-	assert.Equal(t, domain.WorkspaceStatusPROpen, got.Status)
+	// Dual-write (W4-mig-1): Protected wins per D4 precedence → Status=locked.
+	assert.Equal(t, domain.WorkspaceStatusLocked, got.Status)
 	assert.True(t, got.Locked)
+	assert.Equal(t, "u", got.PRUrl)
 }
 
 func TestWorkspace_SetMergeStrategy(t *testing.T) {

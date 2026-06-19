@@ -34,15 +34,33 @@ func TestCreateWorkspace_EmitEvent_SeedsNewStatusAndDefaultStrategy(t *testing.T
 	assert.Equal(t, now, ws.CreatedAt)
 }
 
+func TestCreate_SeedsLockedStatusWhenProtected(t *testing.T) {
+	now := time.Unix(1000, 0)
+	locked := CreateWorkspace{ID: "w1", RepoID: "r1", ProjectID: "p1", Locked: true, Now: now}.EmitEvent(nil)
+	assert.Equal(t, domain.WorkspaceStatusLocked, locked.Status)
+	assert.True(t, locked.Locked)
+
+	unlocked := CreateWorkspace{ID: "w2", RepoID: "r1", ProjectID: "p1", Now: now}.EmitEvent(nil)
+	assert.Equal(t, domain.WorkspaceStatusNew, unlocked.Status)
+	assert.False(t, unlocked.Locked)
+}
+
 func TestSyncWorkingTreeState_Validate_RejectsMissing(t *testing.T) {
 	err := SyncWorkingTreeState{ID: "w1"}.Validate(nil)
 	assert.True(t, errors.Is(err, asynxModels.ErrValidation))
 }
 
-func TestSyncWorkingTreeState_ClearsNewWhenHasCommits(t *testing.T) {
+func TestSyncWorkingTreeState_KeepsNewWhenHasCommits(t *testing.T) {
 	cur := &domain.Workspace{ID: "w1", Status: domain.WorkspaceStatusNew}
 	ws := SyncWorkingTreeState{ID: "w1", HasCommits: true}.EmitEvent(cur)
-	assert.Equal(t, domain.WorkspaceStatus(""), ws.Status)
+	assert.Equal(t, domain.WorkspaceStatusNew, ws.Status)
+}
+
+func TestSyncWorkingTree_LocalConflictSetsPRConflicts(t *testing.T) {
+	cur := &domain.Workspace{ID: "w1", Status: domain.WorkspaceStatusNew}
+	ws := SyncWorkingTreeState{ID: "w1", HasConflicts: true}.EmitEvent(cur)
+	assert.True(t, ws.HasConflicts)
+	assert.Equal(t, domain.WorkspaceStatusPRConflicts, ws.Status)
 }
 
 func TestSyncWorkingTreeState_DoesNotStompPROpen(t *testing.T) {
@@ -130,8 +148,9 @@ func TestCreateWorkspace_EmitEvent_UsesProvidedStrategy(t *testing.T) {
 	assert.Equal(t, now, ws.LastActivity)
 }
 
-func TestSyncProviderState_SetsPROpenAndLocked(t *testing.T) {
-	cur := &domain.Workspace{ID: "w1", Status: domain.WorkspaceStatusNew}
+func TestSyncProvider_ProtectedSetsLocked_PrStatusOtherwise(t *testing.T) {
+	// Protected wins (D4 precedence): Status=locked even with an open PR; PR fields still recorded.
+	curProtected := &domain.Workspace{ID: "w1", Status: domain.WorkspaceStatusNew}
 	cmd := SyncProviderState{
 		ID:             "w1",
 		Protected:      true,
@@ -142,18 +161,41 @@ func TestSyncProviderState_SetsPROpenAndLocked(t *testing.T) {
 		PRTargetBranch: "main",
 		Now:            time.Unix(3000, 0),
 	}
-	ws := cmd.EmitEvent(cur)
-	assert.Equal(t, domain.WorkspaceStatusPROpen, ws.Status)
+	ws := cmd.EmitEvent(curProtected)
+	assert.Equal(t, domain.WorkspaceStatusLocked, ws.Status)
 	assert.True(t, ws.Locked)
 	assert.Equal(t, "https://x/pr/1", ws.PRUrl)
 	assert.Equal(t, "main", ws.PRTargetBranch)
+
+	// Not protected: PR status maps to pr-*.
+	curOpen := &domain.Workspace{ID: "w2", Status: domain.WorkspaceStatusNew}
+	wsOpen := SyncProviderState{ID: "w2", Protected: false, HasPR: true, PRStatus: "open"}.EmitEvent(curOpen)
+	assert.Equal(t, domain.WorkspaceStatusPROpen, wsOpen.Status)
+	assert.False(t, wsOpen.Locked)
+}
+
+func TestSyncProvider_Precedence_DoesNotClobberLocked(t *testing.T) {
+	// pr-* must not overwrite an existing locked status.
+	curLocked := &domain.Workspace{ID: "w1", Status: domain.WorkspaceStatusLocked}
+	ws := SyncProviderState{ID: "w1", Protected: false, HasPR: true, PRStatus: "open"}.EmitEvent(curLocked)
+	assert.Equal(t, domain.WorkspaceStatusLocked, ws.Status)
+
+	// pr-* must not overwrite an existing pr-conflicts status.
+	curConflicts := &domain.Workspace{ID: "w2", Status: domain.WorkspaceStatusPRConflicts}
+	wsc := SyncProviderState{ID: "w2", Protected: false, HasPR: true, PRStatus: "merged"}.EmitEvent(curConflicts)
+	assert.Equal(t, domain.WorkspaceStatusPRConflicts, wsc.Status)
+
+	// deleted is highest precedence.
+	curDeleted := &domain.Workspace{ID: "w3", Status: domain.WorkspaceStatusDeleted}
+	wsd := SyncProviderState{ID: "w3", Protected: true, HasPR: true, PRStatus: "open"}.EmitEvent(curDeleted)
+	assert.Equal(t, domain.WorkspaceStatusDeleted, wsd.Status)
 }
 
 func TestSyncProviderState_NoPRLeavesStatusButSetsLocked(t *testing.T) {
-	cur := &domain.Workspace{ID: "w1", Status: ""}
+	cur := &domain.Workspace{ID: "w1", Status: domain.WorkspaceStatusNew}
 	cmd := SyncProviderState{ID: "w1", Protected: true, HasPR: false}
 	ws := cmd.EmitEvent(cur)
-	assert.Equal(t, domain.WorkspaceStatus(""), ws.Status)
+	assert.Equal(t, domain.WorkspaceStatusLocked, ws.Status)
 	assert.True(t, ws.Locked)
 	assert.Empty(t, ws.PRUrl)
 }

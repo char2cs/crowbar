@@ -9,9 +9,10 @@ import (
 	"github.com/char2cs/crowbar/api/internal/domain"
 )
 
-// SyncWorkingTreeState recomputes diff/conflict summary from git and clears the
-// "new" status once the branch has commits (00 §5.3, §6.1). HasCommits is a
-// transient input, not a stored field.
+// SyncWorkingTreeState recomputes the diff/conflict summary from git (00 §5.3,
+// §6.1). A local conflict surfaces as Status=pr-conflicts (dual-write alongside
+// the legacy HasConflicts bool); the base status otherwise stays unchanged.
+// HasCommits is a transient input, not a stored field.
 type SyncWorkingTreeState struct {
 	ID           string
 	Added        int
@@ -50,8 +51,11 @@ func (c SyncWorkingTreeState) EmitEvent(
 	ws.Deleted = clampZero(c.Deleted)
 	ws.HasConflicts = c.HasConflicts
 	ws.LastActivity = c.Now
-	if ws.Status == domain.WorkspaceStatusNew && c.HasCommits {
-		ws.Status = ""
+	// Dual-write (W4-mig-1): when local conflicts appear, also surface them via
+	// the new Status enum. Status stays at its current value otherwise (the
+	// legacy new→"" empty-status transition is removed per D4).
+	if c.HasConflicts {
+		ws.Status = domain.WorkspaceStatusPRConflicts
 	}
 	return ws
 }

@@ -48,15 +48,48 @@ func (c SyncProviderState) EmitEvent(
 	current *domain.Workspace,
 ) domain.Workspace {
 	ws := *current
+	// Dual-write (W4-mig-1): keep writing the legacy Locked bool from Protected.
 	ws.Locked = c.Protected
-	if !c.HasPR {
-		return ws
+	if c.HasPR {
+		ws.PRUrl = c.PRUrl
+		ws.PRTitle = c.PRTitle
+		ws.PRTargetBranch = c.PRTargetBranch
 	}
-	ws.Status = prStatusToWorkspace(c.PRStatus)
-	ws.PRUrl = c.PRUrl
-	ws.PRTitle = c.PRTitle
-	ws.PRTargetBranch = c.PRTargetBranch
+	ws.Status = nextProviderStatus(
+		ws.Status,
+		c.Protected,
+		c.HasPR,
+		c.PRStatus,
+	)
 	return ws
+}
+
+// nextProviderStatus applies the D4 precedence rules
+// (deleted > locked > pr-conflicts > pr-* > new):
+//   - deleted/pr-conflicts are never clobbered by a provider sync;
+//   - Protected → locked (wins over any incoming pr-* status);
+//   - an existing locked status is preserved unless Protected was cleared;
+//   - otherwise an open/merged/closed PR maps to the matching pr-* status.
+func nextProviderStatus(
+	current domain.WorkspaceStatus,
+	protected bool,
+	hasPR bool,
+	prStatus string,
+) domain.WorkspaceStatus {
+	if current == domain.WorkspaceStatusDeleted ||
+		current == domain.WorkspaceStatusPRConflicts {
+		return current
+	}
+	if protected {
+		return domain.WorkspaceStatusLocked
+	}
+	if current == domain.WorkspaceStatusLocked {
+		return current
+	}
+	if hasPR {
+		return prStatusToWorkspace(prStatus)
+	}
+	return current
 }
 
 func prStatusToWorkspace(
