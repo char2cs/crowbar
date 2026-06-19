@@ -19,90 +19,119 @@ type errGit struct{}
 func (errGit) Status(_ context.Context, _ string) (gitdomain.GitStatus, error) {
 	return gitdomain.GitStatus{}, errBoom
 }
+
 func (errGit) Diff(_ context.Context, _ string, _ bool) ([]gitdomain.FileDiff, error) {
 	return nil, errBoom
 }
+
 func (errGit) Log(_ context.Context, _ string, _ int, _ int) ([]gitdomain.Commit, error) {
 	return nil, errBoom
 }
+
 func (errGit) Blame(_ context.Context, _ string, _ string) ([]gitdomain.BlameEntry, error) {
 	return nil, errBoom
 }
+
 func (errGit) Branches(_ context.Context, _ string) ([]gitdomain.Branch, error) {
 	return nil, errBoom
 }
+
 func (errGit) Stashes(_ context.Context, _ string) ([]gitdomain.Stash, error) {
 	return nil, errBoom
 }
+
 func (errGit) ConflictedFiles(_ context.Context, _ string) ([]string, error) {
 	return nil, errBoom
 }
+
 func (errGit) ConflictHunks(_ context.Context, _ string, _ string) ([]gitdomain.ConflictHunk, error) {
 	return nil, errBoom
 }
+
 func (errGit) CommitDiff(_ context.Context, _ string, _ string) (gitdomain.MultiFileDiff, error) {
 	return gitdomain.MultiFileDiff{}, errBoom
 }
+
 func (errGit) StageFile(_ context.Context, _ string, _ string, _ time.Time) error {
 	return errBoom
 }
+
 func (errGit) StageHunk(_ context.Context, _ string, _ string, _ string, _ time.Time) error {
 	return errBoom
 }
+
 func (errGit) UnstageFile(_ context.Context, _ string, _ string, _ time.Time) error {
 	return errBoom
 }
+
 func (errGit) UnstageHunk(_ context.Context, _ string, _ string, _ string, _ time.Time) error {
 	return errBoom
 }
+
 func (errGit) Discard(_ context.Context, _ string, _ string, _ time.Time) error {
 	return errBoom
 }
+
 func (errGit) Commit(_ context.Context, _ string, _ string, _ string, _ time.Time) error {
 	return errBoom
 }
+
 func (errGit) Push(_ context.Context, _ string, _ time.Time) error {
 	return errBoom
 }
+
 func (errGit) Fetch(_ context.Context, _ string, _ time.Time) error {
 	return errBoom
 }
+
 func (errGit) Pull(_ context.Context, _ string, _ string, _ time.Time) error {
 	return errBoom
 }
+
 func (errGit) CreateBranch(_ context.Context, _ string, _ string, _ string, _ bool, _ time.Time) error {
 	return errBoom
 }
+
 func (errGit) RenameBranch(_ context.Context, _ string, _ string, _ string, _ time.Time) error {
 	return errBoom
 }
+
 func (errGit) DeleteBranch(_ context.Context, _ string, _ string, _ time.Time) error {
 	return errBoom
 }
+
 func (errGit) SwitchBranch(_ context.Context, _ string, _ string, _ time.Time) error {
 	return errBoom
 }
+
 func (errGit) StashPush(_ context.Context, _ string, _ string, _ time.Time) error {
 	return errBoom
 }
+
 func (errGit) StashApply(_ context.Context, _ string, _ string, _ time.Time) error {
 	return errBoom
 }
+
 func (errGit) StashPop(_ context.Context, _ string, _ string, _ time.Time) error {
 	return errBoom
 }
+
 func (errGit) StashDrop(_ context.Context, _ string, _ string, _ time.Time) error {
 	return errBoom
 }
+
 func (errGit) Reset(_ context.Context, _ string, _ string, _ string, _ time.Time) error {
 	return errBoom
 }
+
 func (errGit) Merge(_ context.Context, _ string, _ string, _ time.Time) error {
 	return errBoom
 }
+
 func (errGit) Rebase(_ context.Context, _ string, _ string, _ time.Time) error {
 	return errBoom
 }
+
 func (errGit) ResolveHunk(
 	_ context.Context,
 	_ string,
@@ -114,9 +143,11 @@ func (errGit) ResolveHunk(
 ) error {
 	return errBoom
 }
+
 func (errGit) OperationContinue(_ context.Context, _ string, _ time.Time) error {
 	return errBoom
 }
+
 func (errGit) OperationAbort(_ context.Context, _ string, _ time.Time) error {
 	return errBoom
 }
@@ -154,9 +185,6 @@ func TestGitWriteHandlers_Errors(
 		map[string]any{"paths": []string{"a.go"}}).Code)
 	assert.Equal(t, http.StatusInternalServerError, do(r, http.MethodPost, ws+"/commit",
 		map[string]any{"subject": "feat: x"}).Code)
-	assert.Equal(t, http.StatusInternalServerError, do(r, http.MethodPost, ws+"/push", nil).Code)
-	assert.Equal(t, http.StatusInternalServerError, do(r, http.MethodPost, ws+"/fetch", nil).Code)
-	assert.Equal(t, http.StatusInternalServerError, do(r, http.MethodPost, ws+"/pull", nil).Code)
 	assert.Equal(t, http.StatusInternalServerError, do(r, http.MethodPost, ws+"/branches",
 		map[string]any{"name": "feat/x"}).Code)
 	assert.Equal(t, http.StatusInternalServerError, do(r, http.MethodPatch, ws+"/branches",
@@ -172,10 +200,6 @@ func TestGitWriteHandlers_Errors(
 	assert.Equal(t, http.StatusInternalServerError, do(r, http.MethodDelete, ws+"/stash?index=0", nil).Code)
 	assert.Equal(t, http.StatusInternalServerError, do(r, http.MethodPost, ws+"/reset",
 		map[string]any{"mode": "soft"}).Code)
-	assert.Equal(t, http.StatusInternalServerError, do(r, http.MethodPost, ws+"/merge",
-		map[string]any{"branch": "main"}).Code)
-	assert.Equal(t, http.StatusInternalServerError, do(r, http.MethodPost, ws+"/rebase",
-		map[string]any{"branch": "main"}).Code)
 	assert.Equal(t, http.StatusInternalServerError, do(r, http.MethodPost, ws+"/resolve-hunk",
 		map[string]any{"path": "a.go", "hunkIndex": 0, "choice": "ours"}).Code)
 	assert.Equal(t, http.StatusInternalServerError, do(r, http.MethodPost, ws+"/operation/continue", nil).Code)

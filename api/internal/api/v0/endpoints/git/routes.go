@@ -19,10 +19,11 @@ import (
 func Register(
 	rg *gin.RouterGroup,
 	gitSvc githandlers.Git,
+	lastErrors githandlers.LastErrorSetter,
 	gitWS gin.HandlerFunc,
 	dispatch func(rest, ws gin.HandlerFunc) gin.HandlerFunc,
 ) {
-	h := githandlers.New(gitSvc)
+	h := githandlers.New(gitSvc, lastErrors)
 	// Reads
 	rg.GET("/workspaces/:wsId/git/status", dispatch(h.Status, gitWS))
 	rg.GET("/workspaces/:wsId/git/diff", h.Diff)

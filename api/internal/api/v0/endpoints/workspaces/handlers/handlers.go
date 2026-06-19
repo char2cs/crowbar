@@ -7,14 +7,15 @@ import (
 	"context"
 	"time"
 
+	"github.com/char2cs/crowbar/api/internal/app/usecases/workspace"
 	"github.com/char2cs/crowbar/api/internal/app/usecases/worktree"
 	"github.com/char2cs/crowbar/api/internal/domain"
 	gitdomain "github.com/char2cs/crowbar/api/internal/domain/git"
 )
 
 // Reader is the workspace read surface the handlers need: list every workspace
-// row from the read model, fetch one by id, and sync the working-tree state on
-// demand.
+// row from the read model, fetch one by id, sync the working-tree state on
+// demand, and resolve a row's merge eligibility against its sibling set.
 type Reader interface {
 	List(
 		ctx context.Context,
@@ -28,6 +29,10 @@ type Reader interface {
 		id string,
 		now time.Time,
 	) (domain.Workspace, error)
+	MergeEligibilityFor(
+		ws domain.Workspace,
+		siblings []domain.Workspace,
+	) workspace.MergeEligibility
 }
 
 // Hierarchy is the worktree-orchestration surface the handlers need: create a

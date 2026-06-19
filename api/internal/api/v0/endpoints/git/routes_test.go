@@ -11,6 +11,7 @@ import (
 	"github.com/stretchr/testify/assert"
 
 	"github.com/char2cs/crowbar/api/internal/api/v0/endpoints/git"
+	"github.com/char2cs/crowbar/api/internal/domain"
 	gitdomain "github.com/char2cs/crowbar/api/internal/domain/git"
 )
 
@@ -26,18 +27,23 @@ type stubGit struct{}
 func (stubGit) Status(_ context.Context, _ string) (gitdomain.GitStatus, error) {
 	return gitdomain.GitStatus{}, nil
 }
+
 func (stubGit) Diff(_ context.Context, _ string, _ bool) ([]gitdomain.FileDiff, error) {
 	return nil, nil
 }
+
 func (stubGit) Log(_ context.Context, _ string, _ int, _ int) ([]gitdomain.Commit, error) {
 	return nil, nil
 }
+
 func (stubGit) Blame(_ context.Context, _ string, _ string) ([]gitdomain.BlameEntry, error) {
 	return nil, nil
 }
+
 func (stubGit) Branches(_ context.Context, _ string) ([]gitdomain.Branch, error) {
 	return nil, nil
 }
+
 func (stubGit) Stashes(_ context.Context, _ string) ([]gitdomain.Stash, error) {
 	return nil, nil
 }
@@ -45,10 +51,13 @@ func (stubGit) ConflictedFiles(_ context.Context, _ string) ([]string, error) { 
 func (stubGit) ConflictHunks(_ context.Context, _ string, _ string) ([]gitdomain.ConflictHunk, error) {
 	return nil, nil
 }
+
 func (stubGit) CommitDiff(_ context.Context, _ string, _ string) (gitdomain.MultiFileDiff, error) {
 	return gitdomain.MultiFileDiff{}, nil
 }
-func (stubGit) StageFile(_ context.Context, _ string, _ string, _ time.Time) error      { return nil }
+
+func (stubGit) StageFile(_ context.Context, _ string, _ string, _ time.Time) error { return nil }
+
 func (stubGit) StageHunk(_ context.Context, _ string, _ string, _ string, _ time.Time) error {
 	return nil
 }
@@ -65,15 +74,19 @@ func (stubGit) Fetch(_ context.Context, _ string, _ time.Time) error { return ni
 func (stubGit) Pull(_ context.Context, _ string, _ string, _ time.Time) error {
 	return nil
 }
+
 func (stubGit) CreateBranch(_ context.Context, _ string, _ string, _ string, _ bool, _ time.Time) error {
 	return nil
 }
+
 func (stubGit) RenameBranch(_ context.Context, _ string, _ string, _ string, _ time.Time) error {
 	return nil
 }
+
 func (stubGit) DeleteBranch(_ context.Context, _ string, _ string, _ time.Time) error {
 	return nil
 }
+
 func (stubGit) SwitchBranch(_ context.Context, _ string, _ string, _ time.Time) error {
 	return nil
 }
@@ -94,6 +107,16 @@ func (stubGit) ResolveHunk(_ context.Context, _ string, _ string, _ string, _ gi
 func (stubGit) OperationContinue(_ context.Context, _ string, _ time.Time) error { return nil }
 func (stubGit) OperationAbort(_ context.Context, _ string, _ time.Time) error    { return nil }
 
+type stubLastErrors struct{}
+
+func (stubLastErrors) SetLastError(
+	_ context.Context,
+	id string,
+	message string,
+) (domain.Workspace, error) {
+	return domain.Workspace{ID: id, LastError: message}, nil
+}
+
 func passthrough(
 	rest gin.HandlerFunc,
 	_ gin.HandlerFunc,
@@ -105,7 +128,7 @@ func TestRegisterMountsRoutes(
 	t *testing.T,
 ) {
 	r := gin.New()
-	git.Register(r.Group("/v0"), stubGit{}, func(_ *gin.Context) {}, passthrough)
+	git.Register(r.Group("/v0"), stubGit{}, stubLastErrors{}, func(_ *gin.Context) {}, passthrough)
 
 	cases := []struct {
 		method string

@@ -11,6 +11,7 @@ import (
 	"github.com/stretchr/testify/assert"
 
 	"github.com/char2cs/crowbar/api/internal/api/v0/endpoints/workspaces"
+	"github.com/char2cs/crowbar/api/internal/app/usecases/workspace"
 	"github.com/char2cs/crowbar/api/internal/app/usecases/worktree"
 	"github.com/char2cs/crowbar/api/internal/domain"
 	gitdomain "github.com/char2cs/crowbar/api/internal/domain/git"
@@ -44,6 +45,13 @@ func (stubReader) SyncWorkingTreeState(
 	_ time.Time,
 ) (domain.Workspace, error) {
 	return domain.Workspace{}, nil
+}
+
+func (stubReader) MergeEligibilityFor(
+	_ domain.Workspace,
+	_ []domain.Workspace,
+) workspace.MergeEligibility {
+	return workspace.MergeEligibility{}
 }
 
 type stubHierarchy struct{}

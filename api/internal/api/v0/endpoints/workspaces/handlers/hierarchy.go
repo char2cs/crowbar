@@ -1,37 +1,34 @@
 package handlers
 
 import (
+	"context"
 	"net/http"
 
 	"github.com/gin-gonic/gin"
 
 	"github.com/char2cs/crowbar/api/internal/api/libs"
-	"github.com/char2cs/crowbar/api/internal/api/v0/dto"
 	gitdomain "github.com/char2cs/crowbar/api/internal/domain/git"
 )
 
-// mergeRequest is the POST /v0/workspaces/:wsId/merge-into-parent body: the
+// mergeRequest is the POST .../workspaces/:wsId/merge-into-parent body: the
 // merge strategy to apply when folding the child branch into its parent.
 type mergeRequest struct {
 	Strategy gitdomain.MergeStrategy `json:"strategy"`
 }
 
-// mergeResponse is the merge-into-parent result body: whether the merge stalled
-// on conflicts (leaving a pending-merge marker) and, on a clean merge, the
-// parent's post-merge tip SHA.
-type mergeResponse struct {
-	ConflictsPending bool   `json:"conflictsPending"`
-	ParentTipSha     string `json:"parentTipSha,omitempty"`
-}
-
-// reparentRequest is the POST /v0/workspaces/:wsId/reparent body: the id of
-// the new parent the leaf child is rebased onto.
+// reparentRequest is the POST .../workspaces/:wsId/reparent body: the id of the
+// new parent the leaf child is rebased onto.
 type reparentRequest struct {
 	NewParentID string `json:"newParentId"`
 }
 
-// MergeIntoParent handles POST /v0/workspaces/:wsId/merge-into-parent,
-// running a local child→parent merge with the requested strategy.
+// MergeIntoParent handles
+// POST /v0/projects/:projectId/repos/:repoId/workspaces/:wsId/merge-into-parent.
+// It validates synchronously (body shape, strategy present, workspace exists)
+// returning 4xx on failure; then it returns 202 and runs the local child→parent
+// merge in the background. The merge outcome is delivered on the workspace
+// WebSocket stream via the repository's broadcast callback; a failure surfaces as
+// LastError on the entity (00 §4).
 func (h *Handlers) MergeIntoParent(
 	c *gin.Context,
 ) {
@@ -44,24 +41,31 @@ func (h *Handlers) MergeIntoParent(
 		libs.WriteErr(c, http.StatusBadRequest, "strategy is required")
 		return
 	}
-	result, err := h.hierarchy.MergeIntoParent(
-		c.Request.Context(),
-		c.Param("wsId"),
-		body.Strategy,
-	)
-	if err != nil {
+	id := c.Param("wsId")
+	if _, err := h.reader.Get(c.Request.Context(), id); err != nil {
 		status, msg := libs.StatusAndMessage(err)
 		libs.WriteErr(c, status, msg)
 		return
 	}
-	libs.WriteQueryOK(c, mergeResponse{
-		ConflictsPending: result.ConflictsPending,
-		ParentTipSha:     result.ParentTipSha,
-	})
+	libs.WriteAccepted(c)
+	runAsync(
+		c.Request.Context(),
+		h.broadcastLastError,
+		id,
+		func(ctx context.Context) error {
+			_, mergeErr := h.hierarchy.MergeIntoParent(ctx, id, body.Strategy)
+			return mergeErr
+		},
+	)
 }
 
-// Reparent handles POST /v0/workspaces/:wsId/reparent, rebasing a leaf child
-// onto a new parent and returning the updated WorkspaceDTO.
+// Reparent handles
+// POST /v0/projects/:projectId/repos/:repoId/workspaces/:wsId/reparent. It
+// validates synchronously (body shape, newParentId present, workspace exists)
+// returning 4xx on failure; then it returns 202 and rebases the leaf child onto
+// the new parent in the background. The reparented workspace is delivered on the
+// workspace WebSocket stream via the repository's broadcast callback; a failure
+// surfaces as LastError on the entity (00 §4).
 func (h *Handlers) Reparent(
 	c *gin.Context,
 ) {
@@ -74,15 +78,20 @@ func (h *Handlers) Reparent(
 		libs.WriteErr(c, http.StatusBadRequest, "newParentId is required")
 		return
 	}
-	updated, err := h.hierarchy.Reparent(
-		c.Request.Context(),
-		c.Param("wsId"),
-		body.NewParentID,
-	)
-	if err != nil {
+	id := c.Param("wsId")
+	if _, err := h.reader.Get(c.Request.Context(), id); err != nil {
 		status, msg := libs.StatusAndMessage(err)
 		libs.WriteErr(c, status, msg)
 		return
 	}
-	libs.WriteQueryOK(c, dto.WorkspaceDTOFrom(updated, noEligibility(updated)))
+	libs.WriteAccepted(c)
+	runAsync(
+		c.Request.Context(),
+		h.broadcastLastError,
+		id,
+		func(ctx context.Context) error {
+			_, reparentErr := h.hierarchy.Reparent(ctx, id, body.NewParentID)
+			return reparentErr
+		},
+	)
 }

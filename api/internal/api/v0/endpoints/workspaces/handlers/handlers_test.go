@@ -11,6 +11,7 @@ import (
 	"github.com/gin-gonic/gin"
 
 	workspacehandlers "github.com/char2cs/crowbar/api/internal/api/v0/endpoints/workspaces/handlers"
+	"github.com/char2cs/crowbar/api/internal/app/usecases/workspace"
 	"github.com/char2cs/crowbar/api/internal/app/usecases/worktree"
 	"github.com/char2cs/crowbar/api/internal/domain"
 	gitdomain "github.com/char2cs/crowbar/api/internal/domain/git"
@@ -24,14 +25,17 @@ func TestMain(
 }
 
 type fakeReader struct {
-	list    []domain.Workspace
-	listErr error
-	get     domain.Workspace
-	getErr  error
-	gotID   string
-	synced  domain.Workspace
-	syncErr error
-	gotSync string
+	list     []domain.Workspace
+	listErr  error
+	get      domain.Workspace
+	getErr   error
+	gotID    string
+	synced   domain.Workspace
+	syncErr  error
+	gotSync  string
+	syncDone chan struct{}
+	elig     map[string]workspace.MergeEligibility
+	gotElig  [][]domain.Workspace
 }
 
 func (f *fakeReader) List(
@@ -54,7 +58,18 @@ func (f *fakeReader) SyncWorkingTreeState(
 	_ time.Time,
 ) (domain.Workspace, error) {
 	f.gotSync = id
+	if f.syncDone != nil {
+		close(f.syncDone)
+	}
 	return f.synced, f.syncErr
+}
+
+func (f *fakeReader) MergeEligibilityFor(
+	ws domain.Workspace,
+	siblings []domain.Workspace,
+) workspace.MergeEligibility {
+	f.gotElig = append(f.gotElig, siblings)
+	return f.elig[ws.ID]
 }
 
 type fakeHierarchy struct {
@@ -73,6 +88,8 @@ type fakeHierarchy struct {
 	gotDeleteID  string
 	createDone   chan struct{}
 	deleteDone   chan struct{}
+	mergeDone    chan struct{}
+	reparentDone chan struct{}
 }
 
 func (f *fakeHierarchy) CreateChild(
@@ -93,6 +110,9 @@ func (f *fakeHierarchy) MergeIntoParent(
 ) (worktree.MergeResult, error) {
 	f.gotMergeID = childID
 	f.gotStrategy = strategy
+	if f.mergeDone != nil {
+		close(f.mergeDone)
+	}
 	return f.mergeResult, f.mergeErr
 }
 
@@ -103,6 +123,9 @@ func (f *fakeHierarchy) Reparent(
 ) (domain.Workspace, error) {
 	f.gotReparent = childID
 	f.gotNewParent = newParentID
+	if f.reparentDone != nil {
+		close(f.reparentDone)
+	}
 	return f.reparented, f.reparentErr
 }
 

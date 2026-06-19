@@ -91,6 +91,7 @@ func (c *Container) Register(
 	git.Register(
 		repoScoped,
 		c.app.Usecases.Git,
+		c.app.Repositories.Workspace,
 		c.git.Handle,
 		ws.DualServe,
 	)

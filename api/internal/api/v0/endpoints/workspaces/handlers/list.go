@@ -9,19 +9,12 @@ import (
 	"github.com/char2cs/crowbar/api/internal/domain"
 )
 
-// noEligibility resolves an empty merge-eligibility overlay. The eligibility-
-// aware path that reads the repo-scoped sibling set is wired into these handlers
-// in W8.3; until then the converters carry the zero overlay.
-func noEligibility(
-	_ domain.Workspace,
-) workspace.MergeEligibility {
-	return workspace.MergeEligibility{}
-}
-
 // List handles
 // GET /v0/projects/:projectId/repos/:repoId/workspaces, returning the
 // repo-scoped WorkspaceDTO[] list. The scope is taken from the :projectId and
-// :repoId path params and applied conjunctively over the workspace set.
+// :repoId path params and applied conjunctively over the workspace set; the
+// repo-filtered slice IS the sibling set used to compute each row's merge
+// eligibility (CanMergeLocally/ParentBranch).
 func (h *Handlers) List(
 	c *gin.Context,
 ) {
@@ -36,12 +29,13 @@ func (h *Handlers) List(
 		c.Param("projectId"),
 		c.Param("repoId"),
 	)
-	libs.WriteQueryOK(c, dto.WorkspaceDTOList(filtered, noEligibility))
+	libs.WriteQueryOK(c, dto.WorkspaceDTOList(filtered, h.eligibilityIn(filtered)))
 }
 
 // Detail handles
 // GET /v0/projects/:projectId/repos/:repoId/workspaces/:wsId, returning a
-// single WorkspaceDTO.
+// single WorkspaceDTO with its merge eligibility computed against the same-repo
+// siblings.
 func (h *Handlers) Detail(
 	c *gin.Context,
 ) {
@@ -51,7 +45,37 @@ func (h *Handlers) Detail(
 		libs.WriteErr(c, status, msg)
 		return
 	}
-	libs.WriteQueryOK(c, dto.WorkspaceDTOFrom(ws, noEligibility(ws)))
+	siblings, err := h.siblingsOf(c, ws)
+	if err != nil {
+		status, msg := libs.StatusAndMessage(err)
+		libs.WriteErr(c, status, msg)
+		return
+	}
+	elig := h.reader.MergeEligibilityFor(ws, siblings)
+	libs.WriteQueryOK(c, dto.WorkspaceDTOFrom(ws, elig))
+}
+
+// eligibilityIn returns a per-row eligibility resolver bound to the given
+// sibling set, suitable for WorkspaceDTOList.
+func (h *Handlers) eligibilityIn(
+	siblings []domain.Workspace,
+) func(domain.Workspace) workspace.MergeEligibility {
+	return func(ws domain.Workspace) workspace.MergeEligibility {
+		return h.reader.MergeEligibilityFor(ws, siblings)
+	}
+}
+
+// siblingsOf loads the same-repo workspace set for ws so Detail can compute its
+// merge eligibility against the rows the list view would scope to.
+func (h *Handlers) siblingsOf(
+	c *gin.Context,
+	ws domain.Workspace,
+) ([]domain.Workspace, error) {
+	rows, err := h.reader.List(c.Request.Context())
+	if err != nil {
+		return nil, err
+	}
+	return filterWorkspaces(rows, ws.ProjectID, ws.RepoID), nil
 }
 
 func filterWorkspaces(
