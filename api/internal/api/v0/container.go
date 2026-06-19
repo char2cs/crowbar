@@ -64,7 +64,7 @@ func New(
 	c := &Container{
 		projects:   ws.NewBroadcaster(projectsDef(appContainer)),
 		repos:      ws.NewBroadcaster(reposDef(appContainer)),
-		workspaces: ws.NewBroadcaster(workspacesDef(appContainer)),
+		workspaces: ws.NewBroadcaster(withProviderPollLifecycle(workspacesDef(appContainer), appContainer)),
 		threads:    ws.NewBroadcaster(threadsDef()),
 		terminals:  ws.NewBroadcaster(terminalsDef(appContainer, engContainer)),
 		git:        ws.NewBroadcaster(withWatcherLifecycle(gitDef(appContainer), appContainer)),
@@ -145,6 +145,22 @@ func withLSPLifecycle[T any](
 	def.ScopeKey = scopeWsID
 	def.OnSubscribe = appContainer.Realtime.AcquireLSP
 	def.OnUnsubscribe = appContainer.Realtime.ReleaseLSP
+	return def
+}
+
+// withProviderPollLifecycle attaches the per-active-WS-connection provider-poll
+// subscription triggers to a StreamDef, scoping the refcount by wsId resolved
+// from the path or query and delegating to the app-layer realtime service
+// (D10/§11). Only the single-workspace (:wsId) subscription carries a wsId; the
+// workspace list scope (.../workspaces, no :wsId) resolves to "" and the
+// manager no-ops, so the poll starts only when a client watches one workspace.
+func withProviderPollLifecycle[T any](
+	def ws.StreamDef[T],
+	appContainer *app.Container,
+) ws.StreamDef[T] {
+	def.ScopeKey = scopeWsID
+	def.OnSubscribe = appContainer.Realtime.AcquireProviderPoll
+	def.OnUnsubscribe = appContainer.Realtime.ReleaseProviderPoll
 	return def
 }
 

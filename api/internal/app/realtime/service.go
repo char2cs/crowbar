@@ -25,15 +25,17 @@ import (
 // in the app layer (matching RegisterHubProjections): producers and hub
 // broadcasts originate in app, never in the delivery layer.
 type Service struct {
-	watchers  *WatcherManager
-	lsps      *LSPManager
-	cancel    context.CancelFunc
-	closeOnce sync.Once
+	watchers     *WatcherManager
+	lsps         *LSPManager
+	providerPoll *ProviderPollManager
+	cancel       context.CancelFunc
+	closeOnce    sync.Once
 }
 
 // New builds the realtime Service from the hub, the workspace repository, the
-// git and fs engines, the LSP lifecycle, and a clock. It derives a cancelable
-// child of ctx so Close can stop every watcher and LSP host on graceful
+// git and fs engines, the LSP lifecycle, the provider-poll usecase, the
+// per-connection poll interval, and a clock. It derives a cancelable child of
+// ctx so Close can stop every watcher, LSP host, and provider poll on graceful
 // shutdown; New must not block, so the goroutines are started lazily on Acquire.
 func New(
 	ctx context.Context,
@@ -42,13 +44,16 @@ func New(
 	gitEngine enginegit.Engine,
 	fsEngine enginefs.Engine,
 	lspLifecycle LSPLifecycle,
+	providerPoll ProviderPoller,
+	perConnPollInterval time.Duration,
 	now func() time.Time,
 ) *Service {
 	root, cancel := context.WithCancel(ctx)
 	return &Service{
-		watchers: NewWatcherManager(root, h, workspace, gitEngine, fsEngine, now),
-		lsps:     NewLSPManager(root, lspLifecycle),
-		cancel:   cancel,
+		watchers:     NewWatcherManager(root, h, workspace, gitEngine, fsEngine, now),
+		lsps:         NewLSPManager(root, lspLifecycle),
+		providerPoll: NewProviderPollManager(root, perConnPollInterval, providerPoll),
+		cancel:       cancel,
 	}
 }
 
@@ -84,14 +89,32 @@ func (s *Service) ReleaseLSP(
 	s.lsps.Release(wsID)
 }
 
-// Close cancels the root context shared by every watcher and LSP goroutine,
-// then stops and clears every resource still held by both managers so fsnotify
-// file descriptors and LSP subprocesses are released promptly. It is idempotent
-// and safe to call when nothing was ever started.
+// AcquireProviderPoll records one single-workspace WS subscriber for wsID,
+// starting the 1-minute per-connection provider poll on the 0->1 transition. A
+// blank wsID (the workspace list scope) no-ops in the manager.
+func (s *Service) AcquireProviderPoll(
+	wsID string,
+) {
+	s.providerPoll.Acquire(wsID)
+}
+
+// ReleaseProviderPoll drops one single-workspace WS subscriber for wsID,
+// stopping the per-connection provider poll on the 1->0 transition.
+func (s *Service) ReleaseProviderPoll(
+	wsID string,
+) {
+	s.providerPoll.Release(wsID)
+}
+
+// Close cancels the root context shared by every watcher, LSP, and provider-poll
+// goroutine, then stops and clears every resource still held by the managers so
+// fsnotify file descriptors and LSP subprocesses are released promptly. It is
+// idempotent and safe to call when nothing was ever started.
 func (s *Service) Close() {
 	s.closeOnce.Do(func() {
 		s.cancel()
 		s.watchers.StopAll()
 		s.lsps.StopAll()
+		s.providerPoll.StopAll()
 	})
 }

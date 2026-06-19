@@ -104,7 +104,7 @@ func (e *providerEngine) PollOnView(
 	return pollOnce(ctx, prov, repoPath, branch)
 }
 
-// StartBackgroundSweep starts the 60s background sweep.
+// StartBackgroundSweep starts the 5-minute global cron sweep.
 func (e *providerEngine) StartBackgroundSweep(
 	ctx context.Context,
 	workspacesFn func() []poll.SweepTarget,

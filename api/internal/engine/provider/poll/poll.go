@@ -8,6 +8,15 @@ import (
 	"time"
 )
 
+// GlobalCronInterval is the cadence of the daemon-wide background sweep that
+// polls every workspace with a live PR, even ones nobody is watching (D10/§11).
+const GlobalCronInterval = 5 * time.Minute
+
+// PerConnectionInterval is the cadence of the per-active-WS-connection poll that
+// the realtime ProviderPollManager runs for the single subscribed workspace
+// (D10/§11).
+const PerConnectionInterval = 1 * time.Minute
+
 // SweepTarget is the minimal info the sweep needs per workspace.
 type SweepTarget struct {
 	WSID      string
@@ -66,12 +75,13 @@ type Sweeper interface {
 	)
 }
 
-// NewSweeper creates a Sweeper with the default 60-second interval.
+// NewSweeper creates a Sweeper with the default 5-minute global cron interval
+// (D10/§11). newSweeperWithInterval stays the test seam for a short interval.
 func NewSweeper(
 	pollFn PollFn,
 	onStateChange OnStateChangeFn,
 ) Sweeper {
-	return newSweeperWithInterval(pollFn, onStateChange, 60*time.Second)
+	return newSweeperWithInterval(pollFn, onStateChange, GlobalCronInterval)
 }
 
 // newSweeperWithInterval creates a Sweeper with a configurable interval.

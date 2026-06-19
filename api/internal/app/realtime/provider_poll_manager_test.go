@@ -1,0 +1,158 @@
+package realtime
+
+import (
+	"context"
+	"testing"
+	"time"
+
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
+)
+
+// fakePoller records every PollWorkspace call on a channel so tests can
+// synchronise on the per-connection ticker without sleeping.
+type fakePoller struct {
+	calls chan string
+}
+
+func newFakePoller() *fakePoller {
+	return &fakePoller{calls: make(chan string, 64)}
+}
+
+func (f *fakePoller) PollWorkspace(
+	_ context.Context,
+	wsID string,
+) error {
+	f.calls <- wsID
+	return nil
+}
+
+const testPollInterval = time.Millisecond
+
+func TestProviderPollManager_Acquire_StartsPoll(t *testing.T) {
+	p := newFakePoller()
+	m := NewProviderPollManager(context.Background(), testPollInterval, p)
+	t.Cleanup(m.StopAll)
+
+	m.Acquire("w1")
+
+	select {
+	case got := <-p.calls:
+		assert.Equal(t, "w1", got)
+	case <-time.After(time.Second):
+		t.Fatal("poll was not invoked after Acquire")
+	}
+}
+
+func TestProviderPollManager_Release_StopsPoll(t *testing.T) {
+	p := newFakePoller()
+	m := NewProviderPollManager(context.Background(), testPollInterval, p)
+	t.Cleanup(m.StopAll)
+
+	m.Acquire("w1")
+	<-p.calls // confirm polling started
+	m.Release("w1")
+
+	// Drain any in-flight tick already buffered at release time.
+	drainCalls(p.calls)
+
+	select {
+	case <-p.calls:
+		t.Fatal("poll fired after Release stopped the workspace")
+	case <-time.After(20 * time.Millisecond):
+	}
+}
+
+func TestProviderPollManager_Refcount(t *testing.T) {
+	p := newFakePoller()
+	m := NewProviderPollManager(context.Background(), testPollInterval, p)
+	t.Cleanup(m.StopAll)
+
+	m.Acquire("w1")
+	m.Acquire("w1")
+	<-p.calls
+	m.Release("w1") // refs 2 -> 1, still polling
+
+	drainCalls(p.calls)
+
+	select {
+	case got := <-p.calls:
+		assert.Equal(t, "w1", got)
+	case <-time.After(time.Second):
+		t.Fatal("poll stopped despite an outstanding subscriber")
+	}
+}
+
+func TestProviderPollManager_BlankWsID_NoOp(t *testing.T) {
+	p := newFakePoller()
+	m := NewProviderPollManager(context.Background(), testPollInterval, p)
+	t.Cleanup(m.StopAll)
+
+	m.Acquire("")
+	require.NotPanics(t, func() { m.Release("") })
+	// Releasing a workspace that was never acquired is a safe no-op.
+	require.NotPanics(t, func() { m.Release("never-acquired") })
+
+	m.mu.Lock()
+	count := len(m.handles)
+	m.mu.Unlock()
+	assert.Equal(t, 0, count)
+
+	select {
+	case <-p.calls:
+		t.Fatal("blank wsID started a poll")
+	case <-time.After(20 * time.Millisecond):
+	}
+}
+
+func TestProviderPollManager_StopAll_Idempotent(t *testing.T) {
+	p := newFakePoller()
+	m := NewProviderPollManager(context.Background(), testPollInterval, p)
+
+	m.Acquire("w1")
+	<-p.calls
+
+	require.NotPanics(t, m.StopAll)
+	require.NotPanics(t, m.StopAll) // second call is safe
+
+	m.mu.Lock()
+	count := len(m.handles)
+	m.mu.Unlock()
+	assert.Equal(t, 0, count)
+}
+
+func TestProviderPollManager_AcquireAfterClose_NoOp(t *testing.T) {
+	p := newFakePoller()
+	m := NewProviderPollManager(context.Background(), testPollInterval, p)
+
+	m.StopAll()
+	m.Acquire("w1")
+
+	m.mu.Lock()
+	count := len(m.handles)
+	m.mu.Unlock()
+	assert.Equal(t, 0, count)
+
+	select {
+	case <-p.calls:
+		t.Fatal("Acquire after StopAll started a poll")
+	case <-time.After(20 * time.Millisecond):
+	}
+}
+
+// drainCalls empties any already-buffered calls so a subsequent receive
+// observes only post-drain activity.
+func drainCalls(
+	c chan string,
+) {
+	for {
+		select {
+		case <-c:
+		default:
+			return
+		}
+	}
+}
+
+// ensure fakePoller satisfies the ProviderPoller interface at compile time.
+var _ ProviderPoller = (*fakePoller)(nil)

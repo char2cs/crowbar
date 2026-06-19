@@ -188,7 +188,13 @@ func TestNewSweeper_DefaultInterval(t *testing.T) {
 	require.NotNil(t, s)
 	concrete, ok := s.(*sweeper)
 	require.True(t, ok)
-	assert.Equal(t, 60*time.Second, concrete.interval)
+	assert.Equal(t, GlobalCronInterval, concrete.interval)
+	assert.Equal(t, 5*time.Minute, concrete.interval)
+}
+
+func TestPollIntervalConstants(t *testing.T) {
+	assert.Equal(t, 5*time.Minute, GlobalCronInterval)
+	assert.Equal(t, 1*time.Minute, PerConnectionInterval)
 }
 
 func TestNewSweeperWithInterval(t *testing.T) {

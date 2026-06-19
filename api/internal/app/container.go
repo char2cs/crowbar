@@ -75,6 +75,8 @@ func New(
 		engines.Git,
 		engines.FS,
 		realtime.NoopLSPLifecycle(),
+		ucs.ProviderSync,
+		poll.PerConnectionInterval,
 		time.Now,
 	)
 
@@ -138,6 +140,24 @@ func sweepCallback(
 	}
 }
 
+// shouldSweep reports whether the global cron should re-poll a workspace: it
+// must have a live PR (PRUrl != "") and must not be in a terminal PR state
+// (pr-merged/pr-closed), which are never re-polled (D10/§11). This widens the
+// old Status==pr-open filter so pr-open->pr-merged/closed transitions are
+// observed on unwatched workspaces and pr-conflicts workspaces keep syncing.
+func shouldSweep(
+	ws domain.Workspace,
+) bool {
+	if ws.PRUrl == "" {
+		return false
+	}
+	if ws.Status == domain.WorkspaceStatusPRMerged ||
+		ws.Status == domain.WorkspaceStatusPRClosed {
+		return false
+	}
+	return true
+}
+
 func sweepTargets(
 	repo workspace.Workspace,
 ) func() []poll.SweepTarget {
@@ -148,7 +168,7 @@ func sweepTargets(
 		}
 		targets := make([]poll.SweepTarget, 0, len(rows))
 		for _, ws := range rows {
-			if ws.Status != domain.WorkspaceStatusPROpen {
+			if !shouldSweep(ws) {
 				continue
 			}
 			targets = append(targets, poll.SweepTarget{

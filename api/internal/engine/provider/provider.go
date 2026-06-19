@@ -66,7 +66,7 @@ type Engine interface {
 		branch string,
 	) (ProviderState, error)
 
-	// StartBackgroundSweep starts the 60s background sweep.
+	// StartBackgroundSweep starts the 5-minute global cron sweep.
 	// The onStateChange callback is the hook Wave 3 will wire to
 	// SyncProviderState on the Workspace aggregate.
 	StartBackgroundSweep(
