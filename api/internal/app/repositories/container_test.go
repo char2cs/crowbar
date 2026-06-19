@@ -8,12 +8,12 @@ import (
 	"time"
 
 	"github.com/char2cs/asynx"
+	asynxModels "github.com/char2cs/asynx/models"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-	gormdb "gorm.io/gorm"
 
+	"github.com/char2cs/crowbar/api/internal/adapter"
 	eventsqlite "github.com/char2cs/crowbar/api/internal/adapter/eventstore/sqlite"
-	storesqlite "github.com/char2cs/crowbar/api/internal/adapter/store/sqlite"
 	"github.com/char2cs/crowbar/api/internal/app/hub"
 	"github.com/char2cs/crowbar/api/internal/app/repositories"
 	"github.com/char2cs/crowbar/api/internal/app/repositories/workspace"
@@ -35,13 +35,23 @@ func ax[T any](
 	return a
 }
 
-func newDB(
+func newAdapter(
 	t *testing.T,
-) *gormdb.DB {
+) *adapter.Container {
 	t.Helper()
-	db, err := storesqlite.OpenDB(":memory:")
+	c, err := adapter.New(adapter.WithHomeDir(t.TempDir()))
 	require.NoError(t, err)
-	return db
+	t.Cleanup(func() { _ = c.Close() })
+	return c
+}
+
+func wsFactory(
+	es asynxModels.Store,
+) (asynx.Asynx[domain.Workspace], error) {
+	return asynx.New[domain.Workspace]().
+		WithEventStore(es).
+		WithShardingOpts(asynx.ShardingOpts{Shards: 8, QueueDepth: 1000}).
+		Build()
 }
 
 type captureHub struct {
@@ -83,11 +93,11 @@ func newContainer(
 ) *repositories.Container {
 	t.Helper()
 	c, err := repositories.New(
-		newDB(t),
+		newAdapter(t),
 		h,
-		ax[domain.Workspace](t),
 		ax[domain.Chat](t),
 		ax[domain.ReviewThread](t),
+		wsFactory,
 	)
 	require.NoError(t, err)
 	return c
@@ -100,18 +110,13 @@ func TestContainer_New_BuildsRepos(t *testing.T) {
 	assert.NotNil(t, c.ReviewThread)
 }
 
-func TestContainer_New_ClosedDBReturnsError(t *testing.T) {
-	db := newDB(t)
-	sqlDB, err := db.DB()
-	require.NoError(t, err)
-	require.NoError(t, sqlDB.Close())
-
-	_, err = repositories.New(
-		db,
+func TestContainer_New_NilFactoryReturnsError(t *testing.T) {
+	_, err := repositories.New(
+		newAdapter(t),
 		hub.NewHub(),
-		ax[domain.Workspace](t),
 		ax[domain.Chat](t),
 		ax[domain.ReviewThread](t),
+		nil,
 	)
 	assert.Error(t, err)
 }

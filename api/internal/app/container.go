@@ -35,26 +35,28 @@ func New(
 	engines *engine.Container,
 	adapters *adapter.Container,
 ) (*Container, error) {
-	axWorkspace, err := newAsynx[domain.Workspace](adapters.WorkspaceES)
-	if err != nil {
-		return nil, fmt.Errorf("app: asynx workspace: %w", err)
-	}
-	axChat, err := newAsynx[domain.Chat](adapters.ChatES)
+	axChat, err := newAsynx[domain.Chat](adapters.ChatES())
 	if err != nil {
 		return nil, fmt.Errorf("app: asynx chat: %w", err)
 	}
-	axReviewThread, err := newAsynx[domain.ReviewThread](adapters.ReviewThreadES)
+	axReviewThread, err := newAsynx[domain.ReviewThread](adapters.ReviewThreadES())
 	if err != nil {
 		return nil, fmt.Errorf("app: asynx review thread: %w", err)
 	}
 
-	gormStores, err := newGORMStores(adapters.DB)
+	gormStores, err := newGORMStores(adapters.GlobalView())
 	if err != nil {
 		return nil, err
 	}
 
 	h := hub.NewHub()
-	repos, err := repositories.New(adapters.DB, h, axWorkspace, axChat, axReviewThread)
+	repos, err := repositories.New(
+		adapters,
+		h,
+		axChat,
+		axReviewThread,
+		newAsynx[domain.Workspace],
+	)
 	if err != nil {
 		return nil, fmt.Errorf("app: repositories: %w", err)
 	}

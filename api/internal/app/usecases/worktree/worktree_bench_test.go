@@ -9,9 +9,10 @@ import (
 	"time"
 
 	"github.com/char2cs/asynx"
+	asynxModels "github.com/char2cs/asynx/models"
 	"github.com/stretchr/testify/require"
 
-	eventsqlite "github.com/char2cs/crowbar/api/internal/adapter/eventstore/sqlite"
+	"github.com/char2cs/crowbar/api/internal/adapter"
 	storesqlite "github.com/char2cs/crowbar/api/internal/adapter/store/sqlite"
 	"github.com/char2cs/crowbar/api/internal/app/repositories/workspace"
 	"github.com/char2cs/crowbar/api/internal/app/usecases/worktree"
@@ -35,21 +36,23 @@ func newBenchHarness(
 	b *testing.B,
 ) *benchHarness {
 	b.Helper()
-	es, err := eventsqlite.NewEventStore(":memory:")
+	adapters, err := adapter.New(adapter.WithHomeDir(b.TempDir()))
 	require.NoError(b, err)
-	ax, err := asynx.New[domain.Workspace]().
-		WithEventStore(es).
-		WithShardingOpts(asynx.ShardingOpts{Shards: 8, QueueDepth: 1000}).
-		Build()
-	require.NoError(b, err)
-	b.Cleanup(func() { _ = ax.Shutdown(context.Background()) })
+	b.Cleanup(func() { _ = adapters.Close() })
 
-	db, err := storesqlite.OpenDB(":memory:")
-	require.NoError(b, err)
-	workspaces, err := workspace.New(ax, db, func(domain.Workspace) {})
+	workspaces, err := workspace.New(
+		adapters,
+		func(domain.Workspace) {},
+		func(es asynxModels.Store) (asynx.Asynx[domain.Workspace], error) {
+			return asynx.New[domain.Workspace]().
+				WithEventStore(es).
+				WithShardingOpts(asynx.ShardingOpts{Shards: 8, QueueDepth: 1000}).
+				Build()
+		},
+	)
 	require.NoError(b, err)
 
-	repos, err := storesqlite.NewFromDB[domain.Repository, string](db)
+	repos, err := storesqlite.NewFromDB[domain.Repository, string](adapters.GlobalView())
 	require.NoError(b, err)
 
 	repoPath := benchInitRepo(b)

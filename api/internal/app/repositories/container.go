@@ -5,8 +5,8 @@ import (
 	"fmt"
 
 	"github.com/char2cs/asynx"
-	gormdb "gorm.io/gorm"
 
+	"github.com/char2cs/crowbar/api/internal/adapter"
 	"github.com/char2cs/crowbar/api/internal/app/hub"
 	"github.com/char2cs/crowbar/api/internal/app/repositories/chat"
 	"github.com/char2cs/crowbar/api/internal/app/repositories/reviewthread"
@@ -23,21 +23,26 @@ type Container struct {
 }
 
 // New builds all aggregate repositories, wiring each projection's broadcast into
-// the hub. Read models live in the shared GORM DB.
+// the hub. The workspace aggregate is per-entity event-sourced: its Asynx
+// instances and view DBs are resolved lazily from the adapter container by ID,
+// using the injected asynxFactory (passed by the app layer to avoid an import
+// cycle on newAsynx). The chat and reviewthread aggregates keep their global
+// event stores and read models in the global view DB.
 func New(
-	db *gormdb.DB,
+	adapters *adapter.Container,
 	h hub.WebSocketHub,
-	axWorkspace asynx.Asynx[domain.Workspace],
 	axChat asynx.Asynx[domain.Chat],
 	axReviewThread asynx.Asynx[domain.ReviewThread],
+	asynxFactory workspace.AsynxFactory,
 ) (*Container, error) {
 	c := &Container{hub: h}
-	ws, err := workspace.New(axWorkspace, db, func(w domain.Workspace) {
+	ws, err := workspace.New(adapters, func(w domain.Workspace) {
 		c.broadcastWorkspace(context.Background(), w)
-	})
+	}, asynxFactory)
 	if err != nil {
 		return nil, err
 	}
+	db := adapters.GlobalView()
 	ch, err := chat.New(axChat, db, func(domain.Chat) {})
 	if err != nil {
 		return nil, err

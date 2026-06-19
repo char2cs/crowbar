@@ -7,8 +7,10 @@ import (
 	"time"
 
 	"github.com/char2cs/asynx"
+	asynxModels "github.com/char2cs/asynx/models"
 	"github.com/stretchr/testify/require"
 
+	"github.com/char2cs/crowbar/api/internal/adapter"
 	eventsqlite "github.com/char2cs/crowbar/api/internal/adapter/eventstore/sqlite"
 	storesqlite "github.com/char2cs/crowbar/api/internal/adapter/store/sqlite"
 	"github.com/char2cs/crowbar/api/internal/app/repositories/chat"
@@ -32,16 +34,12 @@ func newBenchReviewHarness(
 	b.Helper()
 	ctx := context.Background()
 
-	// ── event stores (in-memory SQLite) ──────────────────────────────────────
-	wsES, err := eventsqlite.NewEventStore(":memory:")
+	// ── adapter container (per-entity workspace storage under a temp home) ────
+	adapters, err := adapter.New(adapter.WithHomeDir(b.TempDir()))
 	require.NoError(b, err)
-	axWS, err := asynx.New[domain.Workspace]().
-		WithEventStore(wsES).
-		WithShardingOpts(asynx.ShardingOpts{Shards: 8, QueueDepth: 1000}).
-		Build()
-	require.NoError(b, err)
-	b.Cleanup(func() { _ = axWS.Shutdown(ctx) })
+	b.Cleanup(func() { _ = adapters.Close() })
 
+	// ── event stores (in-memory SQLite) ──────────────────────────────────────
 	rtES, err := eventsqlite.NewEventStore(":memory:")
 	require.NoError(b, err)
 	axRT, err := asynx.New[domain.ReviewThread]().
@@ -60,11 +58,19 @@ func newBenchReviewHarness(
 	require.NoError(b, err)
 	b.Cleanup(func() { _ = axChat.Shutdown(ctx) })
 
-	// ── GORM DB (in-memory SQLite) ────────────────────────────────────────────
-	db, err := storesqlite.OpenDB(":memory:")
-	require.NoError(b, err)
+	// ── GORM DB (the adapter's global view) ───────────────────────────────────
+	db := adapters.GlobalView()
 
-	workspaces, err := workspace.New(axWS, db, func(domain.Workspace) {})
+	workspaces, err := workspace.New(
+		adapters,
+		func(domain.Workspace) {},
+		func(es asynxModels.Store) (asynx.Asynx[domain.Workspace], error) {
+			return asynx.New[domain.Workspace]().
+				WithEventStore(es).
+				WithShardingOpts(asynx.ShardingOpts{Shards: 8, QueueDepth: 1000}).
+				Build()
+		},
+	)
 	require.NoError(b, err)
 
 	threads, err := reviewthread.New(axRT, db, func(domain.ReviewThread) {})

@@ -397,3 +397,80 @@ func TestRegistry_CloseAllAggregatesErrors(t *testing.T) {
 		t.Fatalf("CloseAll err = %v, want sentinel", err)
 	}
 }
+
+func TestRegistry_EvictClosesAndRemovesEntry(t *testing.T) {
+	var closed int32
+	r := NewRegistry[int](
+		8,
+		func(int) error {
+			atomic.AddInt32(&closed, 1)
+			return nil
+		},
+	)
+	defer r.CloseAll()
+
+	var opens int32
+	open := func() (int, error) {
+		atomic.AddInt32(&opens, 1)
+		return 1, nil
+	}
+
+	_, rel, err := r.Acquire("k", open)
+	if err != nil {
+		t.Fatalf("acquire: %v", err)
+	}
+	rel()
+
+	if err := r.Evict("k"); err != nil {
+		t.Fatalf("evict: %v", err)
+	}
+	if got := atomic.LoadInt32(&closed); got != 1 {
+		t.Fatalf("closeFn called %d times, want 1", got)
+	}
+	if r.Len() != 0 {
+		t.Fatalf("Len after evict = %d, want 0", r.Len())
+	}
+
+	// Re-acquiring the same key re-opens it.
+	if _, rel2, err := r.Acquire("k", open); err != nil {
+		t.Fatalf("re-acquire: %v", err)
+	} else {
+		rel2()
+	}
+	if got := atomic.LoadInt32(&opens); got != 2 {
+		t.Fatalf("openFn called %d times, want 2", got)
+	}
+}
+
+func TestRegistry_EvictClosesPinnedEntry(t *testing.T) {
+	var closed int32
+	r := NewRegistry[int](
+		8,
+		func(int) error {
+			atomic.AddInt32(&closed, 1)
+			return nil
+		},
+	)
+	defer r.CloseAll()
+
+	// Acquire without releasing: the entry stays pinned (refcount > 0).
+	if _, _, err := r.Acquire("k", func() (int, error) { return 1, nil }); err != nil {
+		t.Fatalf("acquire: %v", err)
+	}
+
+	if err := r.Evict("k"); err != nil {
+		t.Fatalf("evict: %v", err)
+	}
+	if got := atomic.LoadInt32(&closed); got != 1 {
+		t.Fatalf("evict must close even a pinned entry; closeFn called %d times", got)
+	}
+}
+
+func TestRegistry_EvictAbsentKeyIsNoOp(t *testing.T) {
+	r := NewRegistry[int](8, func(int) error { return nil })
+	defer r.CloseAll()
+
+	if err := r.Evict("nope"); err != nil {
+		t.Fatalf("evict absent: %v", err)
+	}
+}

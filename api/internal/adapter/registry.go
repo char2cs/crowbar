@@ -103,6 +103,31 @@ func (r *Registry[T]) CloseAll() error {
 	return errors.Join(errs...)
 }
 
+// Evict removes the entry for key from the cache and closes its handle via
+// closeFn, regardless of its refcount. It is a no-op if key is absent or not yet
+// opened. Use it when the underlying resource is being destroyed (for example a
+// deleted workspace whose DB files are about to be removed) so a stale handle is
+// not left pinned. Callers must not use any handle previously returned for key
+// after Evict.
+func (r *Registry[T]) Evict(
+	key string,
+) error {
+	r.mu.Lock()
+	entry, ok := r.entries[key]
+	if !ok {
+		r.mu.Unlock()
+		return nil
+	}
+	r.lru.Remove(entry.elem)
+	delete(r.entries, key)
+	r.mu.Unlock()
+
+	if !entry.opened {
+		return nil
+	}
+	return r.closeFn(entry.value)
+}
+
 // Len reports the number of cached entries, including handles that are pinned
 // or in the process of being opened.
 func (r *Registry[T]) Len() int {

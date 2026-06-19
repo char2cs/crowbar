@@ -2,35 +2,48 @@ package workspace_test
 
 import (
 	"context"
+	"errors"
+	"os"
+	"path/filepath"
 	"testing"
 	"time"
 
 	"github.com/char2cs/asynx"
+	asynxModels "github.com/char2cs/asynx/models"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	eventsqlite "github.com/char2cs/crowbar/api/internal/adapter/eventstore/sqlite"
-	storesqlite "github.com/char2cs/crowbar/api/internal/adapter/store/sqlite"
+	"github.com/char2cs/crowbar/api/internal/adapter"
 	"github.com/char2cs/crowbar/api/internal/app/repositories/workspace"
 	"github.com/char2cs/crowbar/api/internal/domain"
 	gitdomain "github.com/char2cs/crowbar/api/internal/domain/git"
 )
 
+func wsAsynxFactory(
+	es asynxModels.Store,
+) (asynx.Asynx[domain.Workspace], error) {
+	return asynx.New[domain.Workspace]().
+		WithEventStore(es).
+		WithShardingOpts(asynx.ShardingOpts{Shards: 8, QueueDepth: 1000}).
+		Build()
+}
+
+func newAdapter(
+	t *testing.T,
+	home string,
+) *adapter.Container {
+	t.Helper()
+	c, err := adapter.New(adapter.WithHomeDir(home))
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = c.Close() })
+	return c
+}
+
 func newRepo(
 	t *testing.T,
 ) (context.Context, workspace.Workspace) {
 	t.Helper()
-	es, err := eventsqlite.NewEventStore(":memory:")
-	require.NoError(t, err)
-	ax, err := asynx.New[domain.Workspace]().
-		WithEventStore(es).
-		WithShardingOpts(asynx.ShardingOpts{Shards: 8, QueueDepth: 1000}).
-		Build()
-	require.NoError(t, err)
-	t.Cleanup(func() { _ = ax.Shutdown(context.Background()) })
-	db, err := storesqlite.OpenDB(":memory:")
-	require.NoError(t, err)
-	repo, err := workspace.New(ax, db, func(domain.Workspace) {})
+	repo, err := workspace.New(newAdapter(t, t.TempDir()), func(domain.Workspace) {}, wsAsynxFactory)
 	require.NoError(t, err)
 	return context.Background(), repo
 }
@@ -53,6 +66,114 @@ func TestWorkspace_Create_RoundTrips(t *testing.T) {
 	assert.Equal(t, "feature/x", reloaded.Branch)
 	assert.Equal(t, domain.WorkspaceStatusNew, reloaded.Status)
 	assert.Equal(t, "p1", reloaded.ProjectID)
+}
+
+func TestCreate_WritesLocationIndexAndPerEntityStores(t *testing.T) {
+	home := t.TempDir()
+	repo, err := workspace.New(newAdapter(t, home), func(domain.Workspace) {}, wsAsynxFactory)
+	require.NoError(t, err)
+	ctx := context.Background()
+
+	_, err = repo.Create(ctx, workspace.CreateInput{
+		ID:        "w1",
+		RepoID:    "r1",
+		ProjectID: "p1",
+		Branch:    "b",
+	}, time.Unix(1, 0).UTC())
+	require.NoError(t, err)
+
+	storages := filepath.Join(home, "projects", "p1", "r1", "workspaces", "w1", "storages")
+	_, esErr := os.Stat(filepath.Join(storages, "event_stream.db"))
+	assert.NoError(t, esErr, "per-entity event_stream.db must exist")
+	_, viewErr := os.Stat(filepath.Join(storages, "view.db"))
+	assert.NoError(t, viewErr, "per-entity view.db must exist")
+}
+
+func TestGet_ResolvesViaIndex(t *testing.T) {
+	ctx, repo := newRepo(t)
+	now := time.Unix(1000, 0).UTC()
+	_, err := repo.Create(ctx, workspace.CreateInput{
+		ID:        "w1",
+		RepoID:    "r1",
+		ProjectID: "p1",
+		Branch:    "feature/x",
+	}, now)
+	require.NoError(t, err)
+
+	got, err := repo.Get(ctx, "w1")
+	require.NoError(t, err)
+	assert.Equal(t, "feature/x", got.Branch)
+}
+
+func TestList_AcrossEntities(t *testing.T) {
+	ctx, repo := newRepo(t)
+	now := time.Unix(1000, 0).UTC()
+	_, err := repo.Create(ctx, workspace.CreateInput{ID: "w1", RepoID: "r1", ProjectID: "p1"}, now)
+	require.NoError(t, err)
+	_, err = repo.Create(ctx, workspace.CreateInput{ID: "w2", RepoID: "r2", ProjectID: "p1"}, now)
+	require.NoError(t, err)
+	_, err = repo.Create(ctx, workspace.CreateInput{ID: "w3", RepoID: "r1", ProjectID: "p2"}, now)
+	require.NoError(t, err)
+
+	all, err := repo.List(ctx)
+	require.NoError(t, err)
+	assert.Len(t, all, 3)
+}
+
+func TestDelete_RemovesIndexRow(t *testing.T) {
+	ctx, repo := newRepo(t)
+	now := time.Unix(1000, 0).UTC()
+	_, err := repo.Create(ctx, workspace.CreateInput{ID: "w1", RepoID: "r1", ProjectID: "p1"}, now)
+	require.NoError(t, err)
+
+	require.NoError(t, repo.Delete(ctx, "w1"))
+
+	_, err = repo.Get(ctx, "w1")
+	assert.Error(t, err, "Get must fail once the location row is gone")
+
+	all, err := repo.List(ctx)
+	require.NoError(t, err)
+	assert.Empty(t, all)
+}
+
+func TestPersistence_AcrossReopen(t *testing.T) {
+	home := t.TempDir()
+	ctx := context.Background()
+	now := time.Unix(1000, 0).UTC()
+
+	first := newAdapterClosable(t, home)
+	repo1, err := workspace.New(first, func(domain.Workspace) {}, wsAsynxFactory)
+	require.NoError(t, err)
+	_, err = repo1.Create(ctx, workspace.CreateInput{
+		ID:        "w1",
+		RepoID:    "r1",
+		ProjectID: "p1",
+		Branch:    "persisted",
+	}, now)
+	require.NoError(t, err)
+	require.NoError(t, first.Close())
+
+	second := newAdapter(t, home)
+	repo2, err := workspace.New(second, func(domain.Workspace) {}, wsAsynxFactory)
+	require.NoError(t, err)
+
+	got, err := repo2.Get(ctx, "w1")
+	require.NoError(t, err)
+	assert.Equal(t, "persisted", got.Branch)
+
+	all, err := repo2.List(ctx)
+	require.NoError(t, err)
+	assert.Len(t, all, 1)
+}
+
+func newAdapterClosable(
+	t *testing.T,
+	home string,
+) *adapter.Container {
+	t.Helper()
+	c, err := adapter.New(adapter.WithHomeDir(home))
+	require.NoError(t, err)
+	return c
 }
 
 func TestWorkspace_SyncClearsNewStatus(t *testing.T) {
@@ -230,6 +351,22 @@ func TestWorkspace_Delete_ErrorOnMissing(t *testing.T) {
 	assert.Error(t, err)
 }
 
+func TestWorkspace_SetParentFromPR(t *testing.T) {
+	ctx, repo := newRepo(t)
+	now := time.Unix(1000, 0).UTC()
+	_, err := repo.Create(ctx, workspace.CreateInput{ID: "w1", RepoID: "r1", ProjectID: "p1"}, now)
+	require.NoError(t, err)
+	got, err := repo.SetParentFromPR(ctx, "w1", "parent")
+	require.NoError(t, err)
+	assert.Equal(t, "parent", got.ParentID)
+}
+
+func TestWorkspace_SetParentFromPR_ErrorOnMissing(t *testing.T) {
+	ctx, repo := newRepo(t)
+	_, err := repo.SetParentFromPR(ctx, "no-such", "p")
+	assert.Error(t, err)
+}
+
 func TestWorkspace_List(t *testing.T) {
 	ctx, repo := newRepo(t)
 	now := time.Unix(1000, 0).UTC()
@@ -240,4 +377,31 @@ func TestWorkspace_List(t *testing.T) {
 	all, err := repo.List(ctx)
 	require.NoError(t, err)
 	assert.Len(t, all, 2)
+}
+
+func TestWorkspace_New_NilGuards(t *testing.T) {
+	_, err := workspace.New(nil, func(domain.Workspace) {}, wsAsynxFactory)
+	assert.Error(t, err)
+
+	_, err = workspace.New(newAdapter(t, t.TempDir()), func(domain.Workspace) {}, nil)
+	assert.Error(t, err)
+}
+
+func TestWorkspace_Create_AsynxFactoryError(t *testing.T) {
+	sentinel := errors.New("boom")
+	repo, err := workspace.New(
+		newAdapter(t, t.TempDir()),
+		func(domain.Workspace) {},
+		func(asynxModels.Store) (asynx.Asynx[domain.Workspace], error) {
+			return nil, sentinel
+		},
+	)
+	require.NoError(t, err)
+
+	_, err = repo.Create(context.Background(), workspace.CreateInput{
+		ID:        "w1",
+		RepoID:    "r1",
+		ProjectID: "p1",
+	}, time.Unix(1, 0).UTC())
+	assert.ErrorIs(t, err, sentinel)
 }

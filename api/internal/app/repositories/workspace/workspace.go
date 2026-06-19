@@ -6,13 +6,21 @@ import (
 	"time"
 
 	"github.com/char2cs/asynx"
-	gormdb "gorm.io/gorm"
+	asynxModels "github.com/char2cs/asynx/models"
 
+	"github.com/char2cs/crowbar/api/internal/adapter"
 	"github.com/char2cs/crowbar/api/internal/app/repositories/workspace/internal/commands"
+	"github.com/char2cs/crowbar/api/internal/app/repositories/workspace/internal/locations"
 	"github.com/char2cs/crowbar/api/internal/app/repositories/workspace/internal/store"
 	"github.com/char2cs/crowbar/api/internal/domain"
 	gitdomain "github.com/char2cs/crowbar/api/internal/domain/git"
 )
+
+// AsynxFactory builds a workspace Asynx instance over a per-entity event store.
+// It is injected by the app layer to avoid an import cycle on newAsynx.
+type AsynxFactory func(
+	es asynxModels.Store,
+) (asynx.Asynx[domain.Workspace], error)
 
 // CreateInput carries the fields needed to create a workspace.
 type CreateInput struct {
@@ -116,23 +124,93 @@ type Workspace interface {
 	) ([]domain.Workspace, error)
 }
 
-type workspace struct {
+// wsEntity is the per-workspace resolved Asynx instance plus its read-model
+// store, cached in the entity registry.
+type wsEntity struct {
 	ax    asynx.Asynx[domain.Workspace]
 	store store.Store
 }
 
-// New builds a Workspace repository over the asynx instance and a GORM DB. The
-// broadcast func is the hub fan-out for projected rows (03 §2).
+type workspace struct {
+	adapters     *adapter.Container
+	broadcast    store.BroadcastFunc
+	asynxFactory AsynxFactory
+	locations    locations.Store
+	entities     *adapter.Registry[*wsEntity]
+}
+
+// New builds a per-entity Workspace repository. Each workspace's Asynx instance
+// and read-model view are resolved lazily from the adapter container by ID via
+// the location index (held in the global view DB), and cached in a ref-counted
+// LRU registry. The broadcast func is the hub fan-out for projected rows.
+// asynxFactory is injected by the app layer to avoid an import cycle on newAsynx.
 func New(
-	ax asynx.Asynx[domain.Workspace],
-	db *gormdb.DB,
+	adapters *adapter.Container,
 	broadcast store.BroadcastFunc,
+	asynxFactory AsynxFactory,
 ) (Workspace, error) {
-	st, err := store.New(db, ax, broadcast)
-	if err != nil {
-		return nil, fmt.Errorf("workspace: store: %w", err)
+	if adapters == nil {
+		return nil, fmt.Errorf("workspace: nil adapters")
 	}
-	return &workspace{ax: ax, store: st}, nil
+	if asynxFactory == nil {
+		return nil, fmt.Errorf("workspace: nil asynx factory")
+	}
+	locationIndex, err := locations.New(adapters.GlobalView())
+	if err != nil {
+		return nil, fmt.Errorf("workspace: location index: %w", err)
+	}
+	w := &workspace{
+		adapters:     adapters,
+		broadcast:    broadcast,
+		asynxFactory: asynxFactory,
+		locations:    locationIndex,
+	}
+	w.entities = adapter.NewRegistry[*wsEntity](0, func(e *wsEntity) error {
+		return e.ax.Shutdown(context.Background())
+	})
+	return w, nil
+}
+
+// entityFor resolves the per-workspace Asynx + store for id, building it on a
+// cache miss from the location index and the adapter's per-entity DB handles.
+// The returned entity is pinned in the registry for the process lifetime.
+func (w *workspace) entityFor(
+	ctx context.Context,
+	id string,
+) (*wsEntity, error) {
+	loc, err := w.locations.Get(ctx, id)
+	if err != nil {
+		return nil, fmt.Errorf("workspace: locate %q: %w", id, err)
+	}
+	return w.entityForLocation(loc)
+}
+
+func (w *workspace) entityForLocation(
+	loc locations.Location,
+) (*wsEntity, error) {
+	entity, _, err := w.entities.Acquire(loc.ID, func() (*wsEntity, error) {
+		es, esErr := w.adapters.WorkspaceES(loc.ProjectID, loc.RepoID, loc.ID)
+		if esErr != nil {
+			return nil, fmt.Errorf("workspace: event store: %w", esErr)
+		}
+		view, viewErr := w.adapters.WorkspaceView(loc.ProjectID, loc.RepoID, loc.ID)
+		if viewErr != nil {
+			return nil, fmt.Errorf("workspace: view: %w", viewErr)
+		}
+		ax, axErr := w.asynxFactory(es)
+		if axErr != nil {
+			return nil, fmt.Errorf("workspace: asynx: %w", axErr)
+		}
+		st, stErr := store.New(view, ax, w.broadcast)
+		if stErr != nil {
+			return nil, fmt.Errorf("workspace: store: %w", stErr)
+		}
+		return &wsEntity{ax: ax, store: st}, nil
+	})
+	if err != nil {
+		return nil, err
+	}
+	return entity, nil
 }
 
 func (w *workspace) Create(
@@ -140,7 +218,22 @@ func (w *workspace) Create(
 	in CreateInput,
 	now time.Time,
 ) (domain.Workspace, error) {
-	evt, err := w.ax.SendWait(ctx, commands.CreateWorkspace{
+	if err := w.locations.Save(ctx, locations.Location{
+		ID:        in.ID,
+		ProjectID: in.ProjectID,
+		RepoID:    in.RepoID,
+	}); err != nil {
+		return domain.Workspace{}, fmt.Errorf("workspace: create: %w", err)
+	}
+	entity, err := w.entityForLocation(locations.Location{
+		ID:        in.ID,
+		ProjectID: in.ProjectID,
+		RepoID:    in.RepoID,
+	})
+	if err != nil {
+		return domain.Workspace{}, fmt.Errorf("workspace: create: %w", err)
+	}
+	evt, err := entity.ax.SendWait(ctx, commands.CreateWorkspace{
 		ID:            in.ID,
 		RepoID:        in.RepoID,
 		ProjectID:     in.ProjectID,
@@ -163,7 +256,11 @@ func (w *workspace) SyncWorkingTreeState(
 	in SyncInput,
 	now time.Time,
 ) (domain.Workspace, error) {
-	evt, err := w.ax.SendWait(ctx, commands.SyncWorkingTreeState{
+	entity, err := w.entityFor(ctx, in.ID)
+	if err != nil {
+		return domain.Workspace{}, err
+	}
+	evt, err := entity.ax.SendWait(ctx, commands.SyncWorkingTreeState{
 		ID:           in.ID,
 		Added:        in.Added,
 		Deleted:      in.Deleted,
@@ -181,7 +278,11 @@ func (w *workspace) Get(
 	ctx context.Context,
 	id string,
 ) (domain.Workspace, error) {
-	got, err := w.ax.Get(ctx, id)
+	entity, err := w.entityFor(ctx, id)
+	if err != nil {
+		return domain.Workspace{}, err
+	}
+	got, err := entity.ax.Get(ctx, id)
 	if err != nil {
 		return domain.Workspace{}, fmt.Errorf("workspace: get: %w", err)
 	}
@@ -193,7 +294,11 @@ func (w *workspace) SyncProviderState(
 	in ProviderInput,
 	now time.Time,
 ) (domain.Workspace, error) {
-	evt, err := w.ax.SendWait(ctx, commands.SyncProviderState{
+	entity, err := w.entityFor(ctx, in.ID)
+	if err != nil {
+		return domain.Workspace{}, err
+	}
+	evt, err := entity.ax.SendWait(ctx, commands.SyncProviderState{
 		ID:             in.ID,
 		Protected:      in.Protected,
 		HasPR:          in.HasPR,
@@ -214,7 +319,11 @@ func (w *workspace) SetMergeStrategy(
 	id string,
 	strategy gitdomain.MergeStrategy,
 ) (domain.Workspace, error) {
-	evt, err := w.ax.SendWait(ctx, commands.SetMergeStrategy{ID: id, Strategy: strategy})
+	entity, err := w.entityFor(ctx, id)
+	if err != nil {
+		return domain.Workspace{}, err
+	}
+	evt, err := entity.ax.SendWait(ctx, commands.SetMergeStrategy{ID: id, Strategy: strategy})
 	if err != nil {
 		return domain.Workspace{}, fmt.Errorf("workspace: set merge strategy: %w", err)
 	}
@@ -226,7 +335,11 @@ func (w *workspace) TouchActivity(
 	id string,
 	now time.Time,
 ) (domain.Workspace, error) {
-	evt, err := w.ax.SendWait(ctx, commands.TouchActivity{ID: id, Now: now})
+	entity, err := w.entityFor(ctx, id)
+	if err != nil {
+		return domain.Workspace{}, err
+	}
+	evt, err := entity.ax.SendWait(ctx, commands.TouchActivity{ID: id, Now: now})
 	if err != nil {
 		return domain.Workspace{}, fmt.Errorf("workspace: touch activity: %w", err)
 	}
@@ -240,7 +353,11 @@ func (w *workspace) Reparent(
 	forkPointSha string,
 	now time.Time,
 ) (domain.Workspace, error) {
-	evt, err := w.ax.SendWait(ctx, commands.Reparent{
+	entity, err := w.entityFor(ctx, id)
+	if err != nil {
+		return domain.Workspace{}, err
+	}
+	evt, err := entity.ax.SendWait(ctx, commands.Reparent{
 		ID:           id,
 		ParentID:     parentID,
 		ForkPointSha: forkPointSha,
@@ -257,7 +374,11 @@ func (w *workspace) UpdateForkPoint(
 	id string,
 	forkPointSha string,
 ) (domain.Workspace, error) {
-	evt, err := w.ax.SendWait(ctx, commands.UpdateForkPoint{ID: id, ForkPointSha: forkPointSha})
+	entity, err := w.entityFor(ctx, id)
+	if err != nil {
+		return domain.Workspace{}, err
+	}
+	evt, err := entity.ax.SendWait(ctx, commands.UpdateForkPoint{ID: id, ForkPointSha: forkPointSha})
 	if err != nil {
 		return domain.Workspace{}, fmt.Errorf("workspace: update fork point: %w", err)
 	}
@@ -270,7 +391,11 @@ func (w *workspace) SetPendingMerge(
 	strategy gitdomain.MergeStrategy,
 	targetParentID string,
 ) (domain.Workspace, error) {
-	evt, err := w.ax.SendWait(ctx, commands.SetPendingMerge{
+	entity, err := w.entityFor(ctx, id)
+	if err != nil {
+		return domain.Workspace{}, err
+	}
+	evt, err := entity.ax.SendWait(ctx, commands.SetPendingMerge{
 		ID:             id,
 		Strategy:       strategy,
 		TargetParentID: targetParentID,
@@ -285,7 +410,11 @@ func (w *workspace) ClearPendingMerge(
 	ctx context.Context,
 	id string,
 ) (domain.Workspace, error) {
-	evt, err := w.ax.SendWait(ctx, commands.ClearPendingMerge{ID: id})
+	entity, err := w.entityFor(ctx, id)
+	if err != nil {
+		return domain.Workspace{}, err
+	}
+	evt, err := entity.ax.SendWait(ctx, commands.ClearPendingMerge{ID: id})
 	if err != nil {
 		return domain.Workspace{}, fmt.Errorf("workspace: clear pending merge: %w", err)
 	}
@@ -297,7 +426,11 @@ func (w *workspace) SetParentFromPR(
 	id string,
 	parentID string,
 ) (domain.Workspace, error) {
-	evt, err := w.ax.SendWait(ctx, commands.SetParentFromPR{ID: id, ParentID: parentID})
+	entity, err := w.entityFor(ctx, id)
+	if err != nil {
+		return domain.Workspace{}, err
+	}
+	evt, err := entity.ax.SendWait(ctx, commands.SetParentFromPR{ID: id, ParentID: parentID})
 	if err != nil {
 		return domain.Workspace{}, fmt.Errorf("workspace: set parent from pr: %w", err)
 	}
@@ -308,19 +441,45 @@ func (w *workspace) Delete(
 	ctx context.Context,
 	id string,
 ) error {
-	if err := w.ax.Forget(ctx, id); err != nil {
+	entity, err := w.entityFor(ctx, id)
+	if err != nil {
+		return err
+	}
+	if err := entity.ax.Forget(ctx, id); err != nil {
 		return fmt.Errorf("workspace: delete: %w", err)
+	}
+	if err := w.entities.Evict(id); err != nil {
+		return fmt.Errorf("workspace: evict entity: %w", err)
+	}
+	if err := w.locations.Delete(ctx, id); err != nil {
+		return fmt.Errorf("workspace: delete location: %w", err)
 	}
 	return nil
 }
 
-// List returns all workspace rows from the read-model projection.
+// List returns every workspace row across all entities. It enumerates the
+// location index and reads each workspace's read-model row.
 func (w *workspace) List(
 	ctx context.Context,
 ) ([]domain.Workspace, error) {
-	rows, err := w.store.List(ctx)
+	locs, err := w.locations.List(ctx)
 	if err != nil {
-		return nil, fmt.Errorf("workspace: list: %w", err)
+		return nil, fmt.Errorf("workspace: list locations: %w", err)
+	}
+	rows := make([]domain.Workspace, 0, len(locs))
+	for _, loc := range locs {
+		entity, entErr := w.entityForLocation(loc)
+		if entErr != nil {
+			return nil, fmt.Errorf("workspace: list: %w", entErr)
+		}
+		ws, getErr := entity.store.Get(ctx, loc.ID)
+		if getErr != nil {
+			return nil, fmt.Errorf("workspace: list: %w", getErr)
+		}
+		if ws == nil {
+			continue
+		}
+		rows = append(rows, *ws)
 	}
 	return rows, nil
 }

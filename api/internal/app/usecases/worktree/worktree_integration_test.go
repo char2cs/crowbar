@@ -8,10 +8,11 @@ import (
 	"time"
 
 	"github.com/char2cs/asynx"
+	asynxModels "github.com/char2cs/asynx/models"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	eventsqlite "github.com/char2cs/crowbar/api/internal/adapter/eventstore/sqlite"
+	"github.com/char2cs/crowbar/api/internal/adapter"
 	storesqlite "github.com/char2cs/crowbar/api/internal/adapter/store/sqlite"
 	"github.com/char2cs/crowbar/api/internal/app/repositories/workspace"
 	"github.com/char2cs/crowbar/api/internal/app/usecases/worktree"
@@ -124,21 +125,23 @@ func newRealUsecase(
 	t *testing.T,
 ) *realHarness {
 	t.Helper()
-	es, err := eventsqlite.NewEventStore(":memory:")
+	adapters, err := adapter.New(adapter.WithHomeDir(t.TempDir()))
 	require.NoError(t, err)
-	ax, err := asynx.New[domain.Workspace]().
-		WithEventStore(es).
-		WithShardingOpts(asynx.ShardingOpts{Shards: 8, QueueDepth: 1000}).
-		Build()
-	require.NoError(t, err)
-	t.Cleanup(func() { _ = ax.Shutdown(context.Background()) })
+	t.Cleanup(func() { _ = adapters.Close() })
 
-	db, err := storesqlite.OpenDB(":memory:")
-	require.NoError(t, err)
-	workspaces, err := workspace.New(ax, db, func(domain.Workspace) {})
+	workspaces, err := workspace.New(
+		adapters,
+		func(domain.Workspace) {},
+		func(es asynxModels.Store) (asynx.Asynx[domain.Workspace], error) {
+			return asynx.New[domain.Workspace]().
+				WithEventStore(es).
+				WithShardingOpts(asynx.ShardingOpts{Shards: 8, QueueDepth: 1000}).
+				Build()
+		},
+	)
 	require.NoError(t, err)
 
-	repos, err := storesqlite.NewFromDB[domain.Repository, string](db)
+	repos, err := storesqlite.NewFromDB[domain.Repository, string](adapters.GlobalView())
 	require.NoError(t, err)
 
 	repoPath := initRepo(t)

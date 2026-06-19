@@ -51,19 +51,25 @@ func newContainerDeps(
 	t.Cleanup(func() { _ = adapters.Close() })
 
 	repos, err := repositories.New(
-		adapters.DB,
+		adapters,
 		hub.NewHub(),
-		newTestAsynx[domain.Workspace](t, adapters.WorkspaceES),
-		newTestAsynx[domain.Chat](t, adapters.ChatES),
-		newTestAsynx[domain.ReviewThread](t, adapters.ReviewThreadES),
+		newTestAsynx[domain.Chat](t, adapters.ChatES()),
+		newTestAsynx[domain.ReviewThread](t, adapters.ReviewThreadES()),
+		func(es asynxModels.Store) (asynx.Asynx[domain.Workspace], error) {
+			return asynx.New[domain.Workspace]().
+				WithEventStore(es).
+				WithShardingOpts(asynx.ShardingOpts{Shards: 8, QueueDepth: 1000}).
+				Build()
+		},
 	)
 	require.NoError(t, err)
 
-	projects, err := storesqlite.NewFromDB[domain.Project, string](adapters.DB)
+	globalView := adapters.GlobalView()
+	projects, err := storesqlite.NewFromDB[domain.Project, string](globalView)
 	require.NoError(t, err)
-	repoStore, err := storesqlite.NewFromDB[domain.Repository, string](adapters.DB)
+	repoStore, err := storesqlite.NewFromDB[domain.Repository, string](globalView)
 	require.NoError(t, err)
-	profiles, err := storesqlite.NewFromDB[domain.TerminalProfile, string](adapters.DB)
+	profiles, err := storesqlite.NewFromDB[domain.TerminalProfile, string](globalView)
 	require.NoError(t, err)
 
 	gormStores := usecases.GORMStores{
