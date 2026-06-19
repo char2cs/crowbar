@@ -14,6 +14,11 @@
 
 import { Channel, invoke } from '@tauri-apps/api/core'
 
+// Mirrors ws_bridge::WS_CLOSE_SENTINEL — pushed down the Channel when the daemon
+// closes the stream (restart/timeout/error). The NUL prefix cannot collide with
+// a real JSON DTO frame, so the shim treats it as a close, not a message.
+const WS_CLOSE_SENTINEL = '\u0000crowbar-ws-close'
+
 export class TauriWebSocket {
   static readonly CONNECTING = 0
   static readonly OPEN = 1
@@ -36,6 +41,14 @@ export class TauriWebSocket {
     // exactly as it would a native frame.
     const channel = new Channel<string>()
     channel.onmessage = (text) => {
+      // A daemon-side close (restart/timeout/error) arrives as the sentinel:
+      // surface it as a close so wsManager reconnects and the §6 cache re-seeds.
+      if (text === WS_CLOSE_SENTINEL) {
+        if (this.readyState === TauriWebSocket.CLOSED) return
+        this.readyState = TauriWebSocket.CLOSED
+        this.onclose?.()
+        return
+      }
       this.onmessage?.({ data: text })
     }
 

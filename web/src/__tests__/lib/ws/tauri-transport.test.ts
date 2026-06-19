@@ -67,6 +67,22 @@ describe('TauriWebSocket', () => {
     expect(onmessage).toHaveBeenCalledWith({ data: dto })
   })
 
+  it('treats the close sentinel as a close (fires onclose, goes CLOSED) — not a message', async () => {
+    const sock = new TauriWebSocket('/v0/projects/p/repos/r/workspaces')
+    const onmessage = vi.fn()
+    const onclose = vi.fn()
+    sock.onmessage = onmessage
+    sock.onclose = onclose
+
+    await vi.waitFor(() => expect(channels.length).toBe(1))
+    // The Rust reader pushes this exact sentinel when the daemon closes the stream.
+    channels[0].onmessage?.('\u0000crowbar-ws-close')
+
+    expect(onclose).toHaveBeenCalledTimes(1)
+    expect(onmessage).not.toHaveBeenCalled()
+    expect(sock.readyState).toBe(TauriWebSocket.CLOSED)
+  })
+
   it('send() invokes ws_send with the conn id and raw data', async () => {
     const sock = new TauriWebSocket('/v0/projects/p/repos/r/workspaces')
     await vi.waitFor(() => expect(invoke).toHaveBeenCalledWith('ws_open', expect.anything()))

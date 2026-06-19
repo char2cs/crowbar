@@ -32,6 +32,12 @@ use tokio_tungstenite::client_async;
 use tokio_tungstenite::tungstenite::client::IntoClientRequest;
 use tokio_tungstenite::tungstenite::Message;
 
+/// Sentinel pushed down the message Channel when the daemon closes the stream
+/// (close frame, error, or EOF). The JS shim recognises it and fires `onclose`
+/// so `wsManager` reconnects and the §6 cache re-seeds. A NUL prefix makes it
+/// impossible to collide with a real JSON DTO frame (which always starts `{`).
+pub const WS_CLOSE_SENTINEL: &str = "\u{0}crowbar-ws-close";
+
 /// Maps a connection id to the sender feeding its WebSocket writer task. One
 /// writer task per connection serialises all outbound frames so command handlers
 /// never touch the socket directly.
@@ -89,19 +95,22 @@ pub async fn ws_open(
         let _ = write.close().await;
     });
 
-    // Reader task: forward each text frame verbatim to the webview channel.
+    // Reader task: forward each text frame verbatim to the webview channel. On
+    // any close/error/EOF, push the close sentinel so the JS shim fires onclose
+    // and the manager can reconnect + re-seed (§6 reconnect recovery on desktop).
     tokio::spawn(async move {
         while let Some(frame) = read.next().await {
             match frame {
                 Ok(Message::Text(text)) => {
                     if on_message.send(text).is_err() {
-                        break;
+                        return;
                     }
                 }
                 Ok(Message::Close(_)) | Err(_) => break,
                 _ => {}
             }
         }
+        let _ = on_message.send(WS_CLOSE_SENTINEL.to_string());
     });
 
     manager.connections.lock().unwrap().insert(conn_id, tx);
