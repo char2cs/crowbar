@@ -217,34 +217,30 @@ func appendDiagnostics(
 // prefix predicate trims the result to its subscription. It is empty until a
 // session is created.
 func terminalsSnapshot(
-	appContainer *app.Container,
+	_ *app.Container,
 	engContainer *engine.Container,
 ) func(scope string) []dto.TerminalSessionDTO {
 	if engContainer == nil || engContainer.Terminal == nil {
 		return nil
 	}
-	return func(_ string) []dto.TerminalSessionDTO {
-		ctx := context.Background()
-		rows, err := appContainer.Repositories.Workspace.List(ctx)
-		if err != nil {
+	return func(scope string) []dto.TerminalSessionDTO {
+		// Terminals are workspace-scoped: the subscribing client's scope is the
+		// hierarchical p/r/w key. Resolve the single workspace from the scope and
+		// list only its sessions — never enumerate every workspace's per-entity
+		// store (the scope arg exists precisely to avoid that global scan).
+		parts := strings.Split(scope, "/")
+		if len(parts) < 3 || parts[2] == "" {
 			return nil
 		}
-		now := time.Now().UTC()
-		out := make([]dto.TerminalSessionDTO, 0, len(rows))
-		for _, row := range rows {
-			out = append(
-				out,
-				dto.TerminalSessionDTOList(
-					engContainer.Terminal.ListSessionsForWorkspace(row.ID),
-					row.ID,
-					row.ProjectID,
-					row.RepoID,
-					"",
-					"active",
-					now,
-				)...,
-			)
-		}
-		return out
+		projectID, repoID, wsID := parts[0], parts[1], parts[2]
+		return dto.TerminalSessionDTOList(
+			engContainer.Terminal.ListSessionsForWorkspace(wsID),
+			wsID,
+			projectID,
+			repoID,
+			"",
+			"active",
+			time.Now().UTC(),
+		)
 	}
 }
