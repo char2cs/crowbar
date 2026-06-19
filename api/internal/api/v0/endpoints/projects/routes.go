@@ -4,6 +4,7 @@ package projects
 import (
 	"github.com/gin-gonic/gin"
 
+	"github.com/char2cs/crowbar/api/internal/api/v0/dto"
 	projecthandlers "github.com/char2cs/crowbar/api/internal/api/v0/endpoints/projects/handlers"
 )
 
@@ -18,10 +19,11 @@ func Register(
 	reader projecthandlers.ListGetter,
 	importer projecthandlers.Importer,
 	deleter projecthandlers.Deleter,
+	broadcast func(dto.ProjectDTO),
 	projectsWS gin.HandlerFunc,
 	dispatch func(rest, ws gin.HandlerFunc) gin.HandlerFunc,
 ) {
-	h := projecthandlers.New(reader, importer, deleter)
+	h := projecthandlers.New(reader, importer, deleter, broadcast)
 	rg.GET("/projects", dispatch(h.List, projectsWS))
 	rg.POST("/projects", h.Import)
 	rg.GET("/projects/:projectId", dispatch(h.Detail, projectsWS))

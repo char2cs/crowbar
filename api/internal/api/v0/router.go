@@ -59,6 +59,7 @@ func (c *Container) Register(
 		c.app.Usecases.Project,
 		c.app.Usecases.ProjectImport,
 		c.app.Usecases.ProjectDelete,
+		c.app.Hub.BroadcastProject,
 		c.projects.Handle,
 		ws.DualServe,
 	)
@@ -67,6 +68,7 @@ func (c *Container) Register(
 		c.app.GORM.Repositories,
 		c.eng.Provider,
 		c.app.Repositories.Workspace,
+		c.app.Hub.BroadcastRepo,
 		c.repos.Handle,
 		ws.DualServe,
 	)

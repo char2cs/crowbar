@@ -4,6 +4,7 @@ package handlers
 import (
 	"context"
 	"net/http"
+	"os"
 
 	"github.com/gin-gonic/gin"
 
@@ -53,25 +54,49 @@ type Deleter interface {
 }
 
 // Handlers serves the /v0/projects routes from the project read, import, and
-// delete usecases.
+// delete usecases. Domain mutations follow the fail-fast/good-path-async pattern
+// (00 §4): validate synchronously, return 202, run the slow work in the
+// background, then deliver the resulting ProjectDTO on the Projects WebSocket
+// stream via broadcast.
 type Handlers struct {
-	reader   ListGetter
-	importer Importer
-	deleter  Deleter
+	reader    ListGetter
+	importer  Importer
+	deleter   Deleter
+	broadcast func(dto.ProjectDTO)
+	stat      func(string) (os.FileInfo, error)
 }
 
 // New builds the projects Handlers from the project read, import, and delete
-// usecases.
+// usecases plus the Projects-channel broadcast func. A nil broadcast degrades to
+// a no-op so the handler never panics when wired without a hub (tests, dormant
+// surfaces).
 func New(
 	reader ListGetter,
 	importer Importer,
 	deleter Deleter,
+	broadcast func(dto.ProjectDTO),
 ) *Handlers {
-	return &Handlers{
-		reader:   reader,
-		importer: importer,
-		deleter:  deleter,
+	if broadcast == nil {
+		broadcast = func(dto.ProjectDTO) {}
 	}
+	return &Handlers{
+		reader:    reader,
+		importer:  importer,
+		deleter:   deleter,
+		broadcast: broadcast,
+		stat:      os.Stat,
+	}
+}
+
+// WithStat overrides the filesystem stat used to validate the import path
+// synchronously. Intended for tests; a nil arg leaves os.Stat in place.
+func (h *Handlers) WithStat(
+	stat func(string) (os.FileInfo, error),
+) *Handlers {
+	if stat != nil {
+		h.stat = stat
+	}
+	return h
 }
 
 // importRequest is the POST /v0/projects body: the display name and the
@@ -110,8 +135,12 @@ func (h *Handlers) Detail(
 	libs.WriteQueryOK(c, dto.ProjectDTOFrom(project))
 }
 
-// Import handles POST /v0/projects, adopting a directory tree as a new Project
-// and returning the created id.
+// Import handles POST /v0/projects. It validates the request synchronously (body
+// shape, name present, path present and existing on disk) returning 4xx on any
+// failure; then it returns 202 and runs the import/create in the background. On
+// success the created project is delivered as a ProjectDTO on the Projects
+// WebSocket stream. The import path additionally yields repos and a default
+// branch workspace, which broadcast on their own repo/workspace channels.
 func (h *Handlers) Import(
 	c *gin.Context,
 ) {
@@ -128,35 +157,57 @@ func (h *Handlers) Import(
 		libs.WriteErr(c, http.StatusBadRequest, "path is required")
 		return
 	}
-	var (
-		project domain.Project
-		err     error
-	)
-	if body.Quick {
-		project, err = h.importer.Create(c.Request.Context(), body.Name, body.Path)
-	} else {
-		project, err = h.importer.Import(c.Request.Context(), body.Name, body.Path)
-	}
-	if err != nil {
-		status, msg := libs.StatusAndMessage(err)
-		libs.WriteErr(c, status, msg)
+	if _, err := h.stat(body.Path); err != nil {
+		libs.WriteErr(c, http.StatusBadRequest, "path does not exist")
 		return
 	}
-	libs.WriteMutationOK(c, http.StatusCreated, project.ID)
+	libs.WriteAccepted(c)
+	quick := body.Quick
+	name := body.Name
+	path := body.Path
+	runAsync(c.Request.Context(), func(ctx context.Context) {
+		project, err := h.runImport(ctx, quick, name, path)
+		if err != nil {
+			return
+		}
+		h.broadcast(dto.ProjectDTOFrom(project))
+	})
 }
 
-// Delete handles DELETE /v0/projects/:projectId, removing the project record together
-// with its repo and workspace records and returning the requested id. Real
-// repository directories are never deleted from disk; only crowbar-created
-// worktree directories are torn down (see project.DeleteUsecase).
+// runImport dispatches to the lightweight Create or the full Import usecase
+// based on the quick flag.
+func (h *Handlers) runImport(
+	ctx context.Context,
+	quick bool,
+	name string,
+	path string,
+) (domain.Project, error) {
+	if quick {
+		return h.importer.Create(ctx, name, path)
+	}
+	return h.importer.Import(ctx, name, path)
+}
+
+// Delete handles DELETE /v0/projects/:projectId. It validates the project exists
+// synchronously (4xx if not), then returns 202 and runs the cascade delete in
+// the background. A deleted-status ProjectDTO tombstone is broadcast on the
+// Projects WebSocket stream after teardown so the client cache drops the entity
+// (00 §6). Real repository directories are never deleted from disk; only
+// crowbar-created worktree directories are torn down (see project.DeleteUsecase).
 func (h *Handlers) Delete(
 	c *gin.Context,
 ) {
 	id := c.Param("projectId")
-	if err := h.deleter.Delete(c.Request.Context(), id); err != nil {
+	if _, err := h.reader.Get(c.Request.Context(), id); err != nil {
 		status, msg := libs.StatusAndMessage(err)
 		libs.WriteErr(c, status, msg)
 		return
 	}
-	libs.WriteMutationOK(c, http.StatusOK, id)
+	libs.WriteAccepted(c)
+	runAsync(c.Request.Context(), func(ctx context.Context) {
+		if err := h.deleter.Delete(ctx, id); err != nil {
+			return
+		}
+		h.broadcast(dto.ProjectDTO{ID: id, Status: "deleted"})
+	})
 }

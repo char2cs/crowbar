@@ -65,7 +65,7 @@ func gitRemoteURL(path string) string {
 }
 
 // Store is the full surface the repos handlers need over the repository GORM
-// table: list every repo, fetch one by id, and persist a new one.
+// table: list every repo, fetch one by id, persist a new one, and remove one.
 type Store interface {
 	FindAll(
 		ctx context.Context,
@@ -77,6 +77,10 @@ type Store interface {
 	Save(
 		ctx context.Context,
 		repo domain.Repository,
+	) error
+	Delete(
+		ctx context.Context,
+		id string,
 	) error
 }
 
@@ -104,16 +108,24 @@ type AvatarBytesFetcher func(
 	repoPath string,
 ) ([]byte, string, error)
 
-// Handlers serves the /v0/repos routes from the repository GORM store.
+// Handlers serves the /v0/repos routes from the repository GORM store. Domain
+// mutations (create, delete) follow the fail-fast/good-path-async pattern
+// (00 §4): validate synchronously, return 202, run the slow work in the
+// background, then deliver the resulting RepoDTO on the Repos WebSocket stream
+// via broadcast.
 type Handlers struct {
 	store       Store
 	provider    BranchProviderEngine
 	wsReader    WorkspaceReader
 	crowbarHome func() (string, error)
 	fetchAvatar AvatarBytesFetcher
+	broadcast   func(dto.RepoDTO)
+	stat        func(string) (os.FileInfo, error)
 }
 
-// New builds the repos Handlers from the repository GORM store.
+// New builds the repos Handlers from the repository GORM store. The broadcast
+// func is the Repos-channel fan-out; a nil broadcast degrades to a no-op so the
+// handler never panics when wired without a hub (tests).
 func New(
 	store Store,
 ) *Handlers {
@@ -121,19 +133,43 @@ func New(
 		store:       store,
 		crowbarHome: defaultCrowbarHome,
 		fetchAvatar: fetchGithubAvatarBytes,
+		broadcast:   func(dto.RepoDTO) {},
+		stat:        os.Stat,
 	}
 }
 
 // NewWithDeps builds Handlers with the optional provider + workspace deps
-// needed for the Branches endpoint.
-func NewWithDeps(store Store, prov BranchProviderEngine, wsReader WorkspaceReader) *Handlers {
+// needed for the Branches endpoint plus the Repos-channel broadcast func. A nil
+// broadcast degrades to a no-op.
+func NewWithDeps(
+	store Store,
+	prov BranchProviderEngine,
+	wsReader WorkspaceReader,
+	broadcast func(dto.RepoDTO),
+) *Handlers {
+	if broadcast == nil {
+		broadcast = func(dto.RepoDTO) {}
+	}
 	return &Handlers{
 		store:       store,
 		provider:    prov,
 		wsReader:    wsReader,
 		crowbarHome: defaultCrowbarHome,
 		fetchAvatar: fetchGithubAvatarBytes,
+		broadcast:   broadcast,
+		stat:        os.Stat,
 	}
+}
+
+// WithStat overrides the filesystem stat used to validate the create path
+// synchronously. Intended for tests; a nil arg leaves os.Stat in place.
+func (h *Handlers) WithStat(
+	stat func(string) (os.FileInfo, error),
+) *Handlers {
+	if stat != nil {
+		h.stat = stat
+	}
+	return h
 }
 
 // WithIconStorage overrides the crowbar-home resolver and the GitHub avatar
@@ -187,23 +223,61 @@ func (h *Handlers) Detail(
 	libs.WriteQueryOK(c, dto.RepoDTOFrom(*repo))
 }
 
-// Create handles POST /v0/repos, persisting a new repository record. The
-// defaultBranch field is optional: when omitted the handler derives it from the
-// local git repository at path via symbolic-ref HEAD.
+// createRequest is the POST .../repos body.
+type createRequest struct {
+	ID            string `json:"id"`
+	ProjectID     string `json:"projectId"`
+	Name          string `json:"name"`
+	Path          string `json:"path"`
+	DefaultBranch string `json:"defaultBranch"`
+}
+
+// Create handles POST /v0/projects/:projectId/repos. It validates the request
+// synchronously (body shape, name present, path present and existing on disk)
+// returning 4xx on any failure; then it returns 202 and persists the repository
+// in the background. On success the created repo is delivered as a RepoDTO on
+// the Repos WebSocket stream. The defaultBranch field is optional: when omitted
+// the background work derives it from the local git repository at path via
+// symbolic-ref HEAD.
 func (h *Handlers) Create(
 	c *gin.Context,
 ) {
-	var body struct {
-		ID            string `json:"id"`
-		ProjectID     string `json:"projectId"`
-		Name          string `json:"name"`
-		Path          string `json:"path"`
-		DefaultBranch string `json:"defaultBranch"`
-	}
+	var body createRequest
 	if err := c.ShouldBindJSON(&body); err != nil {
 		libs.WriteErr(c, http.StatusBadRequest, err.Error())
 		return
 	}
+	if body.ProjectID == "" {
+		body.ProjectID = c.Param("projectId")
+	}
+	if body.Name == "" {
+		libs.WriteErr(c, http.StatusBadRequest, "name is required")
+		return
+	}
+	if body.Path == "" {
+		libs.WriteErr(c, http.StatusBadRequest, "path is required")
+		return
+	}
+	if _, err := h.stat(body.Path); err != nil {
+		libs.WriteErr(c, http.StatusBadRequest, "path does not exist")
+		return
+	}
+	libs.WriteAccepted(c)
+	runAsync(c.Request.Context(), func(ctx context.Context) {
+		repo := buildRepo(body)
+		if err := h.store.Save(ctx, repo); err != nil {
+			return
+		}
+		h.broadcast(dto.RepoDTOFrom(repo))
+	})
+}
+
+// buildRepo derives the persisted Repository from the validated create request:
+// a generated id when absent, the git-derived default branch and remote URL when
+// a local path is present, and the generated label/color avatar.
+func buildRepo(
+	body createRequest,
+) domain.Repository {
 	defaultBranch := body.DefaultBranch
 	if defaultBranch == "" && body.Path != "" {
 		defaultBranch = gitDefaultBranch(body.Path)
@@ -217,7 +291,7 @@ func (h *Handlers) Create(
 		remoteURL = gitRemoteURL(body.Path)
 	}
 	label, color := repoAvatar(body.Name)
-	repo := domain.Repository{
+	return domain.Repository{
 		ID:            id,
 		ProjectID:     body.ProjectID,
 		Name:          body.Name,
@@ -227,12 +301,52 @@ func (h *Handlers) Create(
 		AvatarLabel:   label,
 		AvatarColor:   color,
 	}
-	if err := h.store.Save(c.Request.Context(), repo); err != nil {
+}
+
+// DeleteRepo handles DELETE /v0/projects/:projectId/repos/:repoId. It validates
+// the repo exists synchronously (4xx if not), then returns 202 and runs the
+// removal in the background: the GORM record is deleted and the entity-scoped
+// repo directory (worktrees, icon, storages) is torn down on disk. A
+// deleted-status RepoDTO tombstone is broadcast on the Repos WebSocket stream
+// so the client cache drops the entity (00 §6). The user's real repository
+// directory (repo.Path) is never touched — only the ~/.crowbar entity dir.
+func (h *Handlers) DeleteRepo(
+	c *gin.Context,
+) {
+	projectID := c.Param("projectId")
+	repoID := c.Param("repoId")
+	repo, err := h.store.FindByKey(c.Request.Context(), repoID)
+	if err != nil {
 		status, msg := libs.StatusAndMessage(err)
 		libs.WriteErr(c, status, msg)
 		return
 	}
-	libs.WriteQueryWithStatus(c, http.StatusCreated, dto.RepoDTOFrom(repo))
+	if repo == nil {
+		libs.WriteErr(c, http.StatusNotFound, "repo not found")
+		return
+	}
+	home, _ := h.crowbarHome()
+	libs.WriteAccepted(c)
+	runAsync(c.Request.Context(), func(ctx context.Context) {
+		if err := h.store.Delete(ctx, repoID); err != nil {
+			return
+		}
+		if home != "" {
+			_ = os.RemoveAll(repoDir(home, projectID, repoID))
+		}
+		h.broadcast(dto.RepoDTO{ID: repoID, ProjectID: projectID, Status: "deleted"})
+	})
+}
+
+// repoDir mirrors worktreepath.RepoDir without importing the usecase-internal
+// package (forbidden from the api layer):
+// <crowbarHome>/projects/<projectID>/<repoID>.
+func repoDir(
+	crowbarHome string,
+	projectID string,
+	repoID string,
+) string {
+	return filepath.Join(crowbarHome, "projects", projectID, repoID)
 }
 
 // gitDefaultBranch reads the current branch from a git repository at path.

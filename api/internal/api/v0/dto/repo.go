@@ -19,6 +19,11 @@ type RepoDTO struct {
 	// AvatarEmoji passes the emoji icon through to the client, which renders it
 	// directly. Empty when the repo uses an on-disk image or a generated avatar.
 	AvatarEmoji string `json:"avatarEmoji,omitempty"`
+	// Status carries the tombstone marker on the Repo broadcast channel: "" for a
+	// live repo, "deleted" for a removal frame so the FE entity cache drops it
+	// (00 §6, one-type-per-channel, mirroring ProjectDTO). Read-path DTOs leave
+	// it empty.
+	Status string `json:"status,omitempty"`
 }
 
 // RepoDTOFrom maps a domain Repository onto the wire DTO. Icon precedence is

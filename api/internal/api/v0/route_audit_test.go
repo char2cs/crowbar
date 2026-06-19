@@ -150,6 +150,7 @@ func extraRoutes() []string {
 	const ws = repo + "/workspaces/:wsId"
 	return []string{
 		"DELETE /v0/projects/:projectId",
+		"DELETE " + repo,
 		"GET " + repo + "/icon",
 		"PUT " + repo + "/icon",
 		"DELETE " + repo + "/icon",

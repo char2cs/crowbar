@@ -27,11 +27,12 @@ func TestMain(
 }
 
 type fakeStore struct {
-	all     []domain.Repository
-	allErr  error
-	byKey   *domain.Repository
-	byKeErr error
-	SaveFn  func(ctx context.Context, r domain.Repository) error
+	all      []domain.Repository
+	allErr   error
+	byKey    *domain.Repository
+	byKeErr  error
+	SaveFn   func(ctx context.Context, r domain.Repository) error
+	DeleteFn func(ctx context.Context, id string) error
 }
 
 func (f *fakeStore) FindAll(
@@ -53,6 +54,16 @@ func (f *fakeStore) Save(
 ) error {
 	if f.SaveFn != nil {
 		return f.SaveFn(ctx, r)
+	}
+	return nil
+}
+
+func (f *fakeStore) Delete(
+	ctx context.Context,
+	id string,
+) error {
+	if f.DeleteFn != nil {
+		return f.DeleteFn(ctx, id)
 	}
 	return nil
 }
@@ -257,6 +268,7 @@ func TestBranches_AnnotatesProtectionAndWorkspace(t *testing.T) {
 		&fakeStore{byKey: nil},
 		&fakeBranchProvider{protected: []string{"main"}},
 		&fakeWSReader{},
+		nil,
 	)
 	r := gin.New()
 	r.GET("/v0/repos/:id/branches", h.Branches)

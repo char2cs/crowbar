@@ -4,6 +4,7 @@ package repos
 import (
 	"github.com/gin-gonic/gin"
 
+	"github.com/char2cs/crowbar/api/internal/api/v0/dto"
 	repohandlers "github.com/char2cs/crowbar/api/internal/api/v0/endpoints/repos/handlers"
 )
 
@@ -18,13 +19,15 @@ func Register(
 	store repohandlers.Store,
 	prov repohandlers.BranchProviderEngine,
 	wsReader repohandlers.WorkspaceReader,
+	broadcast func(dto.RepoDTO),
 	reposWS gin.HandlerFunc,
 	dispatch func(rest, ws gin.HandlerFunc) gin.HandlerFunc,
 ) {
-	h := repohandlers.NewWithDeps(store, prov, wsReader)
+	h := repohandlers.NewWithDeps(store, prov, wsReader, broadcast)
 	rg.POST("/repos", h.Create)
 	rg.GET("/repos", dispatch(h.List, reposWS))
 	rg.GET("/repos/:repoId", dispatch(h.Detail, reposWS))
+	rg.DELETE("/repos/:repoId", h.DeleteRepo)
 	rg.GET("/repos/:repoId/icon", h.Icon)
 	rg.PUT("/repos/:repoId/icon", h.PutIcon)
 	rg.DELETE("/repos/:repoId/icon", h.DeleteIcon)
