@@ -78,6 +78,13 @@ type Usecase interface {
 		id string,
 		now time.Time,
 	) (domain.Workspace, error)
+
+	// MergeEligibilityFor resolves whether ws can be merged into its local
+	// parent, reading the parent's status from the caller-held sibling set.
+	MergeEligibilityFor(
+		ws domain.Workspace,
+		siblings []domain.Workspace,
+	) MergeEligibility
 }
 
 type workspaceUsecase struct {
@@ -171,8 +178,10 @@ func (u *workspaceUsecase) MergeEligibilityFor(
 	}
 	for _, s := range siblings {
 		if s.ID == ws.ParentID {
+			eligible := s.Status != domain.WorkspaceStatusLocked &&
+				s.Status != domain.WorkspaceStatusDeleted
 			return MergeEligibility{
-				CanMergeLocally: !s.Locked,
+				CanMergeLocally: eligible,
 				ParentBranch:    s.Branch,
 			}
 		}
