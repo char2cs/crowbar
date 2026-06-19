@@ -65,7 +65,7 @@ func New(
 		projects:   ws.NewBroadcaster(projectsDef(appContainer)),
 		repos:      ws.NewBroadcaster(reposDef(appContainer)),
 		workspaces: ws.NewBroadcaster(withProviderPollLifecycle(workspacesDef(appContainer), appContainer)),
-		threads:    ws.NewBroadcaster(threadsDef()),
+		threads:    ws.NewBroadcaster(threadsDef(appContainer)),
 		terminals:  ws.NewBroadcaster(terminalsDef(appContainer, engContainer)),
 		git:        ws.NewBroadcaster(withWatcherLifecycle(gitDef(appContainer), appContainer)),
 		files:      ws.NewBroadcaster(withWatcherLifecycle(filesDef(), appContainer)),
@@ -275,13 +275,27 @@ func workspacesDef(
 }
 
 // threadsDef serves the Threads topic. Its hierarchical namespace is
-// projectID/repoID/workspaceID/ID (spec §5); the snapshot source is wired in W9.
-func threadsDef() ws.StreamDef[dto.ThreadDTO] {
+// projectID/repoID/workspaceID/ID, so a workspace-scoped subscription ("p/r/w")
+// receives every thread in that workspace (spec §5); the per-client
+// projectId/repoId/wsId Filters mirror the dual-served route's path params so
+// path-first filter resolution scopes correctly. The snapshot is workspace-
+// scoped from the client's subscription prefix and reads the workspace's threads
+// from the global ReviewThread aggregate (W9: per-workspace thread storage is
+// deferred — the aggregate stays on the global review_thread.db).
+func threadsDef(
+	appContainer *app.Container,
+) ws.StreamDef[dto.ThreadDTO] {
 	return ws.StreamDef[dto.ThreadDTO]{
 		Namespace: func(d dto.ThreadDTO) string {
 			return d.ProjectID + "/" + d.RepoID + "/" + d.WorkspaceID + "/" + d.ID
 		},
 		Serialize: func(d dto.ThreadDTO) ([]byte, error) { return json.Marshal(d) },
+		Snapshot:  threadsSnapshot(appContainer),
+		Filters: []ws.FilterDef[dto.ThreadDTO]{
+			{Param: "projectId", Extract: func(d dto.ThreadDTO) string { return d.ProjectID }, Match: ws.ExactMatch},
+			{Param: "repoId", Extract: func(d dto.ThreadDTO) string { return d.RepoID }, Match: ws.ExactMatch},
+			{Param: "wsId", Extract: func(d dto.ThreadDTO) string { return d.WorkspaceID }, Match: ws.ExactMatch},
+		},
 	}
 }
 

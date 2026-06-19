@@ -112,9 +112,12 @@ func specRoutes() []string {
 		// §2.9 Review
 		"GET " + ws + "/review",
 		"PATCH " + ws + "/review",
-		"POST " + ws + "/review/threads",
-		"POST " + ws + "/review/threads/:id/reply",
-		"PATCH " + ws + "/review/threads/:id",
+		// §2.9a Threads (promoted out of /review into a first-class endpoint, W9)
+		"GET " + ws + "/threads",
+		"POST " + ws + "/threads",
+		"GET " + ws + "/threads/:threadId",
+		"PATCH " + ws + "/threads/:threadId",
+		"POST " + ws + "/threads/:threadId/replies",
 		// §2.9b Provider (read-only)
 		"GET " + ws + "/provider",
 		"GET " + repo + "/protected-branches",

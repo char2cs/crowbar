@@ -9,8 +9,6 @@ import (
 	"github.com/char2cs/crowbar/api/internal/api/libs"
 
 	"github.com/char2cs/crowbar/api/internal/app/apperr"
-	"github.com/char2cs/crowbar/api/internal/app/usecases/branchreview"
-	"github.com/char2cs/crowbar/api/internal/domain"
 	gitdomain "github.com/char2cs/crowbar/api/internal/domain/git"
 )
 
@@ -56,73 +54,4 @@ func (h *Handlers) SetMergeStrategy(
 		return
 	}
 	libs.WriteQueryOK(ctx, gin.H{"mergeStrategy": body.MergeStrategy})
-}
-
-// OpenThread handles POST /v0/workspaces/:wsId/review/threads, opening a new
-// review thread anchored to a file location.
-func (h *Handlers) OpenThread(
-	ctx *gin.Context,
-) {
-	var body struct {
-		FilePath   string            `json:"filePath"`
-		LineNumber int               `json:"lineNumber"`
-		Side       domain.ReviewSide `json:"side"`
-		Body       string            `json:"body"`
-	}
-	if err := ctx.ShouldBindJSON(&body); err != nil {
-		libs.WriteErr(ctx, http.StatusBadRequest, err.Error())
-		return
-	}
-	thread, err := h.reviewUsecase.OpenThread(ctx.Request.Context(), branchreview.OpenThreadInput{
-		WsID:       ctx.Param("wsId"),
-		FilePath:   body.FilePath,
-		LineNumber: body.LineNumber,
-		Side:       body.Side,
-		Body:       body.Body,
-	})
-	if err != nil {
-		libs.WriteErr(ctx, http.StatusBadRequest, err.Error())
-		return
-	}
-	libs.WriteQueryWithStatus(ctx, http.StatusCreated, thread)
-}
-
-// Reply handles POST /v0/workspaces/:wsId/review/threads/:id/reply, appending
-// a reply message to an existing review thread.
-func (h *Handlers) Reply(
-	ctx *gin.Context,
-) {
-	var body struct {
-		Body string `json:"body"`
-	}
-	if err := ctx.ShouldBindJSON(&body); err != nil {
-		libs.WriteErr(ctx, http.StatusBadRequest, err.Error())
-		return
-	}
-	thread, err := h.reviewUsecase.Reply(ctx.Request.Context(), ctx.Param("id"), body.Body)
-	if err != nil {
-		libs.WriteErr(ctx, reviewErrorStatus(err), err.Error())
-		return
-	}
-	libs.WriteQueryOK(ctx, thread)
-}
-
-// SetThreadResolved handles PATCH /v0/workspaces/:wsId/review/threads/:id,
-// marking a review thread resolved or reopening it.
-func (h *Handlers) SetThreadResolved(
-	ctx *gin.Context,
-) {
-	var body struct {
-		IsResolved bool `json:"isResolved"`
-	}
-	if err := ctx.ShouldBindJSON(&body); err != nil {
-		libs.WriteErr(ctx, http.StatusBadRequest, err.Error())
-		return
-	}
-	thread, err := h.reviewUsecase.SetThreadResolved(ctx.Request.Context(), ctx.Param("id"), body.IsResolved)
-	if err != nil {
-		libs.WriteErr(ctx, reviewErrorStatus(err), err.Error())
-		return
-	}
-	libs.WriteQueryOK(ctx, thread)
 }

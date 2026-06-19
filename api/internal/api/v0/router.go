@@ -14,6 +14,7 @@ import (
 	"github.com/char2cs/crowbar/api/internal/api/v0/endpoints/search"
 	"github.com/char2cs/crowbar/api/internal/api/v0/endpoints/system"
 	"github.com/char2cs/crowbar/api/internal/api/v0/endpoints/terminal"
+	"github.com/char2cs/crowbar/api/internal/api/v0/endpoints/threads"
 	"github.com/char2cs/crowbar/api/internal/api/v0/endpoints/workspaces"
 	"github.com/char2cs/crowbar/api/internal/api/v0/ws"
 )
@@ -121,6 +122,13 @@ func (c *Container) Register(
 	review.Register(
 		repoScoped,
 		c.app.Usecases.BranchReview,
+	)
+	threads.Register(
+		repoScoped,
+		c.app.Repositories.ReviewThread,
+		c.threads,
+		c.threads.Handle,
+		ws.DualServe,
 	)
 	editor.Register(
 		repoScoped,

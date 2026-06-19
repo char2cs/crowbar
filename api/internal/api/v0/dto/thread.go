@@ -2,6 +2,8 @@ package dto
 
 import (
 	"time"
+
+	"github.com/char2cs/crowbar/api/internal/domain"
 )
 
 // ThreadReplyDTO is the wire shape of a reply on a review thread (00 §5.5): its
@@ -31,4 +33,63 @@ type ThreadDTO struct {
 	Resolved    bool             `json:"resolved"`
 	CreatedAt   time.Time        `json:"createdAt"`
 	Replies     []ThreadReplyDTO `json:"replies"`
+}
+
+// ThreadDTOFrom converts a ReviewThread aggregate into the workspace-scoped wire
+// ThreadDTO (00 §5.5). The ReviewThread carries only its WsID, so the owning
+// projectID and repoID are supplied by the caller from the request path. The
+// thread's first message is the root comment (its body/author surface at the top
+// level); every later message becomes an ordered reply. Replies is always a
+// non-nil slice so the envelope carries [] rather than null.
+func ThreadDTOFrom(
+	rt domain.ReviewThread,
+	projectID string,
+	repoID string,
+) ThreadDTO {
+	body := ""
+	author := ""
+	replies := make([]ThreadReplyDTO, 0, len(rt.Messages))
+	for i, msg := range rt.Messages {
+		if i == 0 {
+			body = msg.Body
+			author = msg.Author
+			continue
+		}
+		replies = append(replies, ThreadReplyDTO{
+			ID:        msg.ID,
+			ThreadID:  rt.ID,
+			Body:      msg.Body,
+			Author:    msg.Author,
+			CreatedAt: msg.CreatedAt,
+		})
+	}
+	return ThreadDTO{
+		ID:          rt.ID,
+		ProjectID:   projectID,
+		RepoID:      repoID,
+		WorkspaceID: rt.WsID,
+		FilePath:    rt.FilePath,
+		Line:        rt.LineNumber,
+		Side:        string(rt.Side),
+		Body:        body,
+		Author:      author,
+		Resolved:    rt.IsResolved(),
+		CreatedAt:   rt.CreatedAt,
+		Replies:     replies,
+	}
+}
+
+// ThreadDTOList converts a slice of ReviewThread aggregates into wire ThreadDTOs
+// sharing the same project/repo scope, returning a non-nil slice so the envelope
+// carries [] rather than null when the workspace has no threads.
+func ThreadDTOList(
+	threads []domain.ReviewThread,
+	projectID string,
+	repoID string,
+) []ThreadDTO {
+	out := make([]ThreadDTO, 0, len(threads))
+	for _, rt := range threads {
+		out = append(out, ThreadDTOFrom(rt, projectID, repoID))
+	}
+	return out
 }

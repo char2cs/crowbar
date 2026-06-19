@@ -135,6 +135,33 @@ func scopeReposToProject(
 	return out
 }
 
+// threadsSnapshot builds the Threads snapshot-on-subscribe source (03 §1a) from
+// the global ReviewThread aggregate, scoped to the single workspace parsed from
+// the connecting client's hierarchical subscription prefix (p/r/w). It resolves
+// the wsID from the scope and lists only that workspace's threads via
+// ListByWorkspace — never a global enumeration — stamping the project/repo from
+// the scope onto each ThreadDTO. A scope without a workspace segment (a repo- or
+// project-level subscription) yields nil, since threads are workspace-scoped.
+func threadsSnapshot(
+	appContainer *app.Container,
+) func(scope string) []dto.ThreadDTO {
+	return func(scope string) []dto.ThreadDTO {
+		parts := strings.Split(scope, "/")
+		if len(parts) < 3 || parts[2] == "" {
+			return nil
+		}
+		projectID, repoID, wsID := parts[0], parts[1], parts[2]
+		rows, err := appContainer.Repositories.ReviewThread.ListByWorkspace(
+			context.Background(),
+			wsID,
+		)
+		if err != nil {
+			return nil
+		}
+		return dto.ThreadDTOList(rows, projectID, repoID)
+	}
+}
+
 // gitSnapshot builds the Git snapshot-on-subscribe source (03 §1a): the current
 // GitStatus per workspace as the wsId-scoped GitStatusEvent the live broadcaster
 // uses. Each client's wsId predicate filters the snapshot down to its workspace.

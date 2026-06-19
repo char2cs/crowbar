@@ -49,7 +49,7 @@ func TestReposDef_NamespaceProjectRepo(t *testing.T) {
 }
 
 func TestThreadsDef_NamespaceProjectRepoWsID(t *testing.T) {
-	def := threadsDef()
+	def := threadsDef(nil)
 	d := dto.ThreadDTO{ID: "t1", ProjectID: "p1", RepoID: "r1", WorkspaceID: "w1"}
 
 	assert.Equal(t, "p1/r1/w1/t1", def.Namespace(d))
@@ -57,6 +57,19 @@ func TestThreadsDef_NamespaceProjectRepoWsID(t *testing.T) {
 	data, err := def.Serialize(d)
 	require.NoError(t, err)
 	assert.Contains(t, string(data), "t1")
+}
+
+func TestThreadsDef_FiltersScopeByProjectRepoWs(t *testing.T) {
+	def := threadsDef(nil)
+	d := dto.ThreadDTO{ID: "t1", ProjectID: "p1", RepoID: "r1", WorkspaceID: "w1"}
+
+	require.Len(t, def.Filters, 3)
+	assert.Equal(t, "projectId", def.Filters[0].Param)
+	assert.Equal(t, "p1", def.Filters[0].Extract(d))
+	assert.Equal(t, "repoId", def.Filters[1].Param)
+	assert.Equal(t, "r1", def.Filters[1].Extract(d))
+	assert.Equal(t, "wsId", def.Filters[2].Param)
+	assert.Equal(t, "w1", def.Filters[2].Extract(d))
 }
 
 func TestTerminalsDef_NamespaceProjectRepoWs(t *testing.T) {
