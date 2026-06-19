@@ -128,6 +128,25 @@ func TestClose_ClosesAllAndLock(t *testing.T) {
 	assert.NoError(t, err)
 }
 
+func TestRegression_AccessorsRefuseReopenAfterClose(t *testing.T) {
+	// A detached good-path-async goroutine (runAsync on context.WithoutCancel)
+	// could lazily re-open a per-entity DB just after Close, re-creating its
+	// storages dir and racing teardown. The accessors must refuse once closed.
+	home := t.TempDir()
+	c, err := adapter.New(adapter.WithHomeDir(home))
+	require.NoError(t, err)
+
+	require.NoError(t, c.Close())
+
+	_, esErr := c.WorkspaceES("p1", "r1", "w1")
+	require.ErrorIs(t, esErr, adapter.ErrClosed)
+	_, viewErr := c.WorkspaceView("p1", "r1", "w1")
+	require.ErrorIs(t, viewErr, adapter.ErrClosed)
+
+	// The closed accessor must NOT have re-created the entity storages dir.
+	assert.NoDirExists(t, filepath.Join(home, "projects", "p1", "r1", "workspaces", "w1", "storages"))
+}
+
 func TestWorkspaceES_MkdirError(t *testing.T) {
 	home := t.TempDir()
 	c, err := adapter.New(adapter.WithHomeDir(home))

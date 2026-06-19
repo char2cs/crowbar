@@ -43,9 +43,15 @@ type Container struct {
 
 	releaseMu sync.Mutex
 	releases  []func()
+	closed    bool
 
 	globalClosers []io.Closer
 }
+
+// ErrClosed is returned by the per-entity accessors once Close has run, so a
+// detached good-path-async goroutine cannot lazily re-open (and re-create the
+// storages dir of) an entity DB after shutdown has begun.
+var ErrClosed = errors.New("adapter: container closed")
 
 type adapterOpts struct {
 	homeDir string
@@ -164,6 +170,14 @@ func (c *Container) CrowbarHome() string {
 	return c.crowbarHome
 }
 
+// isClosed reports whether Close has run. The per-entity accessors check it so a
+// detached good-path-async goroutine cannot re-open an entity DB after shutdown.
+func (c *Container) isClosed() bool {
+	c.releaseMu.Lock()
+	defer c.releaseMu.Unlock()
+	return c.closed
+}
+
 // WorkspaceES returns the per-entity workspace event store, lazily creating the
 // storages directory and opening event_stream.db on first access. The handle is
 // pinned for the process lifetime and released on Close.
@@ -172,6 +186,9 @@ func (c *Container) WorkspaceES(
 	repoID string,
 	wsID string,
 ) (asynxModels.Store, error) {
+	if c.isClosed() {
+		return nil, ErrClosed
+	}
 	dir := workspaceStorageDir(c.crowbarHome, projectID, repoID, wsID)
 	key := entityKey(projectID, repoID, wsID)
 	es, release, err := c.workspaceES.Acquire(key, func() (asynxModels.Store, error) {
@@ -199,6 +216,9 @@ func (c *Container) WorkspaceView(
 	repoID string,
 	wsID string,
 ) (*gormdb.DB, error) {
+	if c.isClosed() {
+		return nil, ErrClosed
+	}
 	dir := workspaceStorageDir(c.crowbarHome, projectID, repoID, wsID)
 	key := entityKey(projectID, repoID, wsID)
 	view, release, err := c.workspaceView.Acquire(key, func() (*gormdb.DB, error) {
@@ -224,6 +244,7 @@ func (c *Container) Close() error {
 	var errs []error
 
 	c.releaseMu.Lock()
+	c.closed = true
 	releases := c.releases
 	c.releases = nil
 	c.releaseMu.Unlock()
