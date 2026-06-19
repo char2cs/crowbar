@@ -6,7 +6,7 @@ let _db: IDBPDatabase<CrowbarDB> | null = null
 
 export async function getDB(): Promise<IDBPDatabase<CrowbarDB>> {
   if (_db) return _db
-  _db = await openDB<CrowbarDB>('crowbar', 6, {
+  _db = await openDB<CrowbarDB>('crowbar', 7, {
     upgrade(db, oldVersion) {
       if (oldVersion < 1) {
         db.createObjectStore('workspace-layout', { keyPath: 'workspaceId' })
@@ -46,6 +46,17 @@ export async function getDB(): Promise<IDBPDatabase<CrowbarDB>> {
       }
       if (oldVersion < 6) {
         db.createObjectStore('chats-data', { keyPath: 'key' })
+      }
+      if (oldVersion < 7) {
+        // §6 entity cache: complete DTOs keyed by their own id (additive).
+        for (const name of [
+          'crowbar_projects',
+          'crowbar_repos',
+          'crowbar_workspaces',
+          'crowbar_threads',
+        ] as const) {
+          db.createObjectStore(name, { keyPath: 'id' })
+        }
       }
     },
   })

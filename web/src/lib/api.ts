@@ -1,4 +1,4 @@
-import type { WorkspacePayload, Project, Prerequisites } from './types'
+import type { WorkspacePayload, Project, Prerequisites, RepoDTO, WorkspaceDTO } from './types'
 import { useChaosStore } from '@/lib/store/chaos'
 
 const crowbar = (window as unknown as { __CROWBAR__?: { api?: string } }).__CROWBAR__
@@ -38,10 +38,11 @@ export async function apiFetch<T>(path: string, init?: RequestInit): Promise<T> 
     headers: { ...init?.headers, ...chaosHeaders },
   })
   const body = await res.json().catch(() => null)
-  // Success with an empty/204 body (e.g. WriteMutationOK with no payload, or
-  // a 204 No Content): the envelope check below would wrongly throw, so treat
-  // it as success returning undefined.
-  if (res.ok && (res.status === 204 || body === null)) {
+  // Success with an empty/204/202 body (e.g. WriteMutationOK with no payload, a
+  // 204 No Content, or a 202 Accepted for an async hierarchical mutation): the
+  // envelope check below would wrongly throw, so treat it as success returning
+  // undefined.
+  if (res.ok && (res.status === 204 || res.status === 202 || body === null)) {
     return undefined as T
   }
   if (!res.ok || !body?.success) {
@@ -74,6 +75,20 @@ export function deleteWorkspace(wsId: string): Promise<void> {
 
 export function fetchProjects(): Promise<Project[]> {
   return apiFetch('/v0/projects')
+}
+
+// ---------------------------------------------------------------------------
+// Hierarchical READ API (§3/§7) — ADDITIVE alongside the legacy flat functions
+// above. The W17/W18 cutover migrates callers to these; for now they coexist so
+// tsc + the current vitest suite stay green.
+// ---------------------------------------------------------------------------
+
+export function fetchRepos(projectId: string): Promise<RepoDTO[]> {
+  return apiFetch(`/v0/projects/${projectId}/repos`)
+}
+
+export function fetchWorkspaces(projectId: string, repoId: string): Promise<WorkspaceDTO[]> {
+  return apiFetch(`/v0/projects/${projectId}/repos/${repoId}/workspaces`)
 }
 
 export function fetchProject(id: string): Promise<Project> {

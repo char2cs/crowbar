@@ -29,3 +29,28 @@ describe('idb schema v5', () => {
     expect(rec?.fetchedAt).toBe(42)
   })
 })
+
+describe('idb schema v7 entity stores', () => {
+  it('creates the four entity stores keyed by id', async () => {
+    const db = await getDB()
+    const names = Array.from(db.objectStoreNames)
+    expect(names).toContain('crowbar_projects')
+    expect(names).toContain('crowbar_repos')
+    expect(names).toContain('crowbar_workspaces')
+    expect(names).toContain('crowbar_threads')
+  })
+
+  it('round-trips an entity keyed by id through crowbar_workspaces', async () => {
+    const db = await getDB()
+    await db.put('crowbar_workspaces', { id: 'w1', branch: 'main' } as never)
+    const rec = await db.get('crowbar_workspaces', 'w1')
+    expect((rec as { branch: string } | undefined)?.branch).toBe('main')
+  })
+
+  it('keeps the existing local-first stores (additive upgrade)', async () => {
+    const db = await getDB()
+    const names = Array.from(db.objectStoreNames)
+    expect(names).toContain('projects-data')
+    expect(names).toContain('chats-data')
+  })
+})
