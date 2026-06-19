@@ -61,7 +61,11 @@ func New(
 		return nil, fmt.Errorf("app: repositories: %w", err)
 	}
 
-	ucs, err := usecases.New(repos, toUsecaseStores(gormStores), engines)
+	// Path-deriving usecases must share the adapter's resolved home so git
+	// worktrees and per-entity storages land under the same root.
+	crowbarHome := adapters.CrowbarHome()
+	homeFunc := func() (string, error) { return crowbarHome, nil }
+	ucs, err := usecases.New(repos, toUsecaseStores(gormStores), engines, homeFunc)
 	if err != nil {
 		return nil, fmt.Errorf("app: usecases: %w", err)
 	}

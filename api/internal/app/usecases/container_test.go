@@ -86,7 +86,7 @@ func newContainerDeps(
 func TestContainer_New_BuildsEveryUsecase(t *testing.T) {
 	repos, gormStores, eng := newContainerDeps(t)
 
-	c, err := usecases.New(repos, gormStores, eng)
+	c, err := usecases.New(repos, gormStores, eng, func() (string, error) { return t.TempDir(), nil })
 	require.NoError(t, err)
 
 	assert.NotNil(t, c.Project)
@@ -103,7 +103,7 @@ func TestContainer_New_BuildsEveryUsecase(t *testing.T) {
 
 func TestContainer_FileTree_DelegatesToRealFsEngine(t *testing.T) {
 	repos, gormStores, eng := newContainerDeps(t)
-	c, err := usecases.New(repos, gormStores, eng)
+	c, err := usecases.New(repos, gormStores, eng, func() (string, error) { return t.TempDir(), nil })
 	require.NoError(t, err)
 
 	dir := t.TempDir()
@@ -122,7 +122,7 @@ func TestContainer_FileTree_DelegatesToRealFsEngine(t *testing.T) {
 
 func TestContainer_Import_ResolvesDefaultBranchViaRealGit(t *testing.T) {
 	repos, gormStores, eng := newContainerDeps(t)
-	c, err := usecases.New(repos, gormStores, eng)
+	c, err := usecases.New(repos, gormStores, eng, func() (string, error) { return t.TempDir(), nil })
 	require.NoError(t, err)
 
 	root := t.TempDir()

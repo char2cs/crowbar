@@ -156,6 +156,14 @@ func (c *Container) GlobalView() *gormdb.DB {
 	return c.globalView
 }
 
+// CrowbarHome returns the resolved crowbar home root this container was opened
+// against. Path-deriving usecases (worktree add, project import/delete) MUST use
+// this same home so the git worktrees and the per-entity storages land under one
+// root — otherwise an overridden home (e.g. a test temp dir) splits them.
+func (c *Container) CrowbarHome() string {
+	return c.crowbarHome
+}
+
 // WorkspaceES returns the per-entity workspace event store, lazily creating the
 // storages directory and opening event_stream.db on first access. The handle is
 // pinned for the process lifetime and released on Close.

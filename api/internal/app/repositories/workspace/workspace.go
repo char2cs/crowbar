@@ -2,13 +2,18 @@ package workspace
 
 import (
 	"context"
+	"errors"
 	"fmt"
+	"os"
+	"path/filepath"
+	"strings"
 	"time"
 
 	"github.com/char2cs/asynx"
 	asynxModels "github.com/char2cs/asynx/models"
 
 	"github.com/char2cs/crowbar/api/internal/adapter"
+	"github.com/char2cs/crowbar/api/internal/app/apperr"
 	"github.com/char2cs/crowbar/api/internal/app/repositories/workspace/internal/commands"
 	"github.com/char2cs/crowbar/api/internal/app/repositories/workspace/internal/locations"
 	"github.com/char2cs/crowbar/api/internal/app/repositories/workspace/internal/store"
@@ -178,6 +183,13 @@ func (w *workspace) entityFor(
 ) (*wsEntity, error) {
 	loc, err := w.locations.Get(ctx, id)
 	if err != nil {
+		// Translate the package-local not-found sentinel to the app-wide
+		// apperr.ErrNotFound so HTTP handlers map a bogus workspace id to 404
+		// (not 500): the location index is the authority for "does this
+		// workspace exist?" across all per-entity reads.
+		if errors.Is(err, locations.ErrNotFound) {
+			return nil, fmt.Errorf("workspace: locate %q: %w", id, apperr.ErrNotFound)
+		}
 		return nil, fmt.Errorf("workspace: locate %q: %w", id, err)
 	}
 	return w.entityForLocation(loc)
@@ -427,15 +439,8 @@ func (w *workspace) Delete(
 	if err != nil {
 		return err
 	}
-	// Broadcast the deleted tombstone BEFORE tearing down storage so subscribers
-	// learn the workspace is gone even though its per-entity stores no longer
-	// exist (00 §4: errors and lifecycle live on the entity).
-	w.broadcast(domain.Workspace{
-		ID:        id,
-		ProjectID: loc.ProjectID,
-		RepoID:    loc.RepoID,
-		Status:    domain.WorkspaceStatusDeleted,
-	})
+	// Tear the read model down first (Forget needs the per-entity view.db), then
+	// close the handles, drop the location index, and rm -rf the on-disk tree.
 	if err := entity.ax.Forget(ctx, id); err != nil {
 		return fmt.Errorf("workspace: delete: %w", err)
 	}
@@ -445,7 +450,39 @@ func (w *workspace) Delete(
 	if err := w.locations.Delete(ctx, id); err != nil {
 		return fmt.Errorf("workspace: delete location: %w", err)
 	}
+	w.removeWorkspaceDir(loc.ProjectID, loc.RepoID, id)
+	// Broadcast the deleted tombstone LAST — after the read model and the on-disk
+	// storage tree are gone — so a client that receives status:"deleted" knows the
+	// workspace is fully removed (00 §4/§6: lifecycle lives on the entity).
+	w.broadcast(domain.Workspace{
+		ID:        id,
+		ProjectID: loc.ProjectID,
+		RepoID:    loc.RepoID,
+		Status:    domain.WorkspaceStatusDeleted,
+	})
 	return nil
+}
+
+// removeWorkspaceDir rm -rf's the whole per-workspace directory
+// (<home>/projects/<P>/<R>/workspaces/<W>: worktree + storages + threads +
+// terminals). It is guarded to ONLY remove paths under <home>/projects so an
+// adopted/external worktree (the user's real repository, which lives outside the
+// crowbar home) is never touched.
+func (w *workspace) removeWorkspaceDir(
+	projectID string,
+	repoID string,
+	wsID string,
+) {
+	home := w.adapters.CrowbarHome()
+	if home == "" {
+		return
+	}
+	dir := filepath.Join(home, "projects", projectID, repoID, "workspaces", wsID)
+	root := filepath.Join(home, "projects") + string(os.PathSeparator)
+	if !strings.HasPrefix(dir, root) {
+		return
+	}
+	_ = os.RemoveAll(dir)
 }
 
 // List returns every workspace row across all entities. It enumerates the

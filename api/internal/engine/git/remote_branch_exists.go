@@ -10,6 +10,12 @@ import (
 // RemoteBranchExists reports whether branch exists on the `origin` remote. It
 // runs `git ls-remote --heads origin <branch>`, which queries the remote live
 // (not stale remote-tracking refs); non-empty output means the head exists.
+//
+// A failure to reach `origin` — a local-only repo with no remote, an offline
+// machine, or a missing/unauthenticated remote — is treated as "the branch is
+// not on any usable remote" (returns false, no error) so the caller falls back
+// to creating the branch locally. Only a reachable remote that genuinely lacks
+// the branch and one that has it are distinguished by the command's output.
 func (e *engine) RemoteBranchExists(
 	ctx context.Context,
 	repoPath string,
@@ -17,7 +23,7 @@ func (e *engine) RemoteBranchExists(
 ) (bool, error) {
 	r := e.exec(ctx, repoPath, "ls-remote", "--heads", "origin", branch)
 	if err := gitexec.RequireSuccess("remote branch exists", r); err != nil {
-		return false, err
+		return false, nil
 	}
 	return strings.TrimSpace(r.Stdout) != "", nil
 }

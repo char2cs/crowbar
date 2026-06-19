@@ -34,6 +34,7 @@ type harness struct {
 	t      *testing.T
 	server *httptest.Server
 	url    string
+	home   string
 }
 
 // newHarness boots the full backend over an httptest.Server rooted at a
@@ -66,6 +67,7 @@ func newHarness(
 		t:      t,
 		server: srv,
 		url:    srv.URL,
+		home:   tmp,
 	}
 }
 
