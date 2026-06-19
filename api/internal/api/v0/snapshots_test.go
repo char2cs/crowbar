@@ -94,11 +94,11 @@ func initGitRepo(
 	return dir
 }
 
-// TestSnapshot_Workspaces_DeliveredOnConnectWithOverlay proves the Workspaces
+// TestSnapshot_Workspaces_DeliveredOnConnect proves the Workspaces
 // snapshot-on-subscribe (03 §1a): a client receives the current workspace row
-// immediately on connect (before any live Push), with the agent-running overlay
-// computed at snapshot time and the persisted hasConflicts surfaced.
-func TestSnapshot_Workspaces_DeliveredOnConnectWithOverlay(t *testing.T) {
+// immediately on connect (before any live Push), with the persisted hasConflicts
+// surfaced. With the agent-run concept removed, agentRunning is always false.
+func TestSnapshot_Workspaces_DeliveredOnConnect(t *testing.T) {
 	tc := newApp(t)
 	ctx := context.Background()
 	now := time.Unix(1, 0).UTC()
@@ -115,19 +115,13 @@ func TestSnapshot_Workspaces_DeliveredOnConnectWithOverlay(t *testing.T) {
 		now.Add(time.Minute),
 	)
 	require.NoError(t, err)
-	_, err = tc.app.Repositories.Chat.Create(ctx, "c1", "w1", "title", now)
-	require.NoError(t, err)
-	_, err = tc.app.Repositories.AgentRun.Create(ctx, "run1", "w1", "c1", now)
-	require.NoError(t, err)
-	_, err = tc.app.Repositories.AgentRun.MarkRunning(ctx, "run1")
-	require.NoError(t, err)
 
 	_, srv := serveV0(t, tc.app, tc.eng)
 	conn := dialV0(t, srv, "/v0/ws/workspaces?projectId=p1")
 
 	got := readSnapshot(t, conn)
 	assert.Equal(t, "w1", got["id"])
-	assert.Equal(t, true, got["agentRunning"])
+	assert.Equal(t, false, got["agentRunning"])
 	assert.Equal(t, true, got["hasConflicts"])
 }
 

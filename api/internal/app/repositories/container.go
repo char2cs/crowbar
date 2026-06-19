@@ -8,18 +8,16 @@ import (
 	gormdb "gorm.io/gorm"
 
 	"github.com/char2cs/crowbar/api/internal/app/hub"
-	"github.com/char2cs/crowbar/api/internal/app/repositories/agentrun"
 	"github.com/char2cs/crowbar/api/internal/app/repositories/chat"
 	"github.com/char2cs/crowbar/api/internal/app/repositories/reviewthread"
 	"github.com/char2cs/crowbar/api/internal/app/repositories/workspace"
 	"github.com/char2cs/crowbar/api/internal/domain"
 )
 
-// Container holds the four aggregate repositories (each owning its read model).
+// Container holds the aggregate repositories (each owning its read model).
 type Container struct {
 	Workspace    workspace.Workspace
 	Chat         chat.Chat
-	AgentRun     agentrun.AgentRun
 	ReviewThread reviewthread.ReviewThread
 	hub          hub.WebSocketHub
 }
@@ -31,7 +29,6 @@ func New(
 	h hub.WebSocketHub,
 	axWorkspace asynx.Asynx[domain.Workspace],
 	axChat asynx.Asynx[domain.Chat],
-	axAgentRun asynx.Asynx[domain.AgentRun],
 	axReviewThread asynx.Asynx[domain.ReviewThread],
 ) (*Container, error) {
 	c := &Container{hub: h}
@@ -45,19 +42,12 @@ func New(
 	if err != nil {
 		return nil, err
 	}
-	ar, err := agentrun.New(axAgentRun, db, func(run domain.AgentRun) {
-		c.refreshWorkspace(context.Background(), run.WsID)
-	})
-	if err != nil {
-		return nil, err
-	}
 	rt, err := reviewthread.New(axReviewThread, db, func(domain.ReviewThread) {})
 	if err != nil {
 		return nil, err
 	}
 	c.Workspace = ws
 	c.Chat = ch
-	c.AgentRun = ar
 	c.ReviewThread = rt
 	return c, nil
 }
@@ -70,84 +60,29 @@ func broadcastChat(
 	}
 }
 
-// RegisterHubProjections wires the AgentRun subscription that drives Chat status
-// (03 §7). Workspace and Chat broadcast directly from their read-model
-// projections (built in New). The Workspace agent-running overlay is refreshed
-// from inside the AgentRun store projection (in New) after the read model is
-// saved, so its ListRunning view is always current when the overlay recomputes.
-func (c *Container) RegisterHubProjections(
-	axAgentRun asynx.Asynx[domain.AgentRun],
-) error {
-	return RegisterAgentRunProjection(axAgentRun, c.Chat, c.AgentRun)
-}
-
-func (c *Container) refreshWorkspace(
-	ctx context.Context,
-	wsID string,
-) {
-	ws, err := c.Workspace.Get(ctx, wsID)
-	if err != nil {
-		return
-	}
-	c.broadcastWorkspace(ctx, ws)
-}
-
+// broadcastWorkspace pushes a workspace row to the hub. The derived AgentRunning
+// overlay is always false: the agent-run concept has been removed and the chat
+// usecase that would set it is a dormant TODO (00 §5).
 func (c *Container) broadcastWorkspace(
-	ctx context.Context,
+	_ context.Context,
 	ws domain.Workspace,
 ) {
-	ws.AgentRunning = c.hasLiveAgentRun(ctx, ws.ID)
+	ws.AgentRunning = false
 	c.hub.BroadcastWorkspace(ws)
 }
 
-// ListWorkspacesWithOverlay returns every workspace row with the derived
-// agent-running overlay computed at call time, matching the live broadcast path
-// (00 §6.1, 03 §1a). The persisted HasConflicts field is left as stored. It backs
-// the Workspaces snapshot-on-subscribe so a client connecting mid-agent-run sees
-// the spinner immediately.
+// ListWorkspacesWithOverlay returns every workspace row. The agent-running
+// overlay has been removed (00 §5); AgentRunning is always false until the chat
+// usecase is implemented. It backs the Workspaces snapshot-on-subscribe.
 func (c *Container) ListWorkspacesWithOverlay(
 	ctx context.Context,
 ) ([]domain.Workspace, error) {
 	rows, err := c.Workspace.List(ctx)
 	if err != nil {
-		return nil, fmt.Errorf("repositories: list workspaces with overlay: %w", err)
+		return nil, fmt.Errorf("repositories: list workspaces: %w", err)
 	}
-	running := c.runningWorkspaceIDs(ctx)
 	for i := range rows {
-		rows[i].AgentRunning = running[rows[i].ID]
+		rows[i].AgentRunning = false
 	}
 	return rows, nil
-}
-
-func (c *Container) hasLiveAgentRun(
-	ctx context.Context,
-	wsID string,
-) bool {
-	return c.runningWorkspaceIDs(ctx)[wsID]
-}
-
-func (c *Container) runningWorkspaceIDs(
-	ctx context.Context,
-) map[string]bool {
-	ids := map[string]bool{}
-	if c.AgentRun == nil {
-		return ids
-	}
-	running, err := c.AgentRun.ListRunning(ctx)
-	if err != nil {
-		return ids
-	}
-	for _, run := range running {
-		ids[run.WsID] = true
-	}
-	return ids
-}
-
-// RecoverOrphans runs AgentRun crash recovery (running→error) then the idempotent
-// chat reconcile, in order, both draining via SendWait (00 §6.2).
-func (c *Container) RecoverOrphans(
-	ctx context.Context,
-) {
-	RecoverAgentRuns(ctx, c.AgentRun)
-	ReconcileChats(ctx, c.Chat, c.AgentRun)
 }

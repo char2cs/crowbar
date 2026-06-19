@@ -19,7 +19,6 @@ import (
 type Container struct {
 	WorkspaceES    asynxModels.Store
 	ChatES         asynxModels.Store
-	AgentRunES     asynxModels.Store
 	ReviewThreadES asynxModels.Store
 	DB             *gormdb.DB
 	closers        []io.Closer
@@ -94,8 +93,7 @@ func newLocked(
 	return &Container{
 		WorkspaceES:    stores[0],
 		ChatES:         stores[1],
-		AgentRunES:     stores[2],
-		ReviewThreadES: stores[3],
+		ReviewThreadES: stores[2],
 		DB:             db,
 		closers:        closers,
 		lock:           lock,
@@ -157,7 +155,7 @@ func resolveHomeDirs(
 func openEventStores(
 	eventsPath string,
 ) ([]asynxModels.Store, []io.Closer, error) {
-	names := []string{"workspace.db", "chat.db", "agent_run.db", "review_thread.db"}
+	names := []string{"workspace.db", "chat.db", "review_thread.db"}
 	stores := make([]asynxModels.Store, 0, len(names))
 	closers := make([]io.Closer, 0, len(names))
 	for _, name := range names {

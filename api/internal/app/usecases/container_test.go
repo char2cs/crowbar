@@ -55,7 +55,6 @@ func newContainerDeps(
 		hub.NewHub(),
 		newTestAsynx[domain.Workspace](t, adapters.WorkspaceES),
 		newTestAsynx[domain.Chat](t, adapters.ChatES),
-		newTestAsynx[domain.AgentRun](t, adapters.AgentRunES),
 		newTestAsynx[domain.ReviewThread](t, adapters.ReviewThreadES),
 	)
 	require.NoError(t, err)

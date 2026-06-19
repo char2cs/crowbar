@@ -126,13 +126,6 @@ func specRoutes() []string {
 		"DELETE /v0/settings/terminal/profiles/:id",
 		"POST /v0/workspaces/:wsId/terminals",
 		"DELETE /v0/terminals/:sessionId",
-		// §2.12 Agent Runs
-		"POST /v0/workspaces/:wsId/runs",
-		"GET /v0/runs/:id",
-		"GET /v0/runs/running",
-		"POST /v0/runs/:id/start",
-		"POST /v0/runs/:id/complete",
-		"POST /v0/runs/:id/fail",
 		// §2.13 Health
 		"GET /v0/health",
 		// §3 WebSocket endpoints

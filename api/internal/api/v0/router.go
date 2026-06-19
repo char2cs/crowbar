@@ -3,7 +3,6 @@ package v0
 import (
 	"github.com/gin-gonic/gin"
 
-	"github.com/char2cs/crowbar/api/internal/api/v0/endpoints/agentrun"
 	"github.com/char2cs/crowbar/api/internal/api/v0/endpoints/chats"
 	"github.com/char2cs/crowbar/api/internal/api/v0/endpoints/editor"
 	"github.com/char2cs/crowbar/api/internal/api/v0/endpoints/files"
@@ -97,9 +96,5 @@ func (c *Container) Register(
 		c.eng.Git,
 		c.app.Repositories.Workspace,
 		c.lsp.Handle,
-	)
-	agentrun.Register(
-		rg,
-		c.app.Repositories.AgentRun,
 	)
 }

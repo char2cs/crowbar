@@ -139,59 +139,6 @@ func (s *LifecycleSuite) TestLifecycle_WorkingTreeSyncUpdatesReadModelAndBroadca
 	s.Assert().False(hasStatus, "status badge must be absent (omitempty) once HasCommits is true and synced")
 }
 
-// TestLifecycle_ChatAgentRunDrivesChatStatusOverWS proves POST /v0/workspaces/:wsId/runs
-// → POST /v0/runs/:id/start → Chat projection → hub.BroadcastChat → WS client chain.
-func (s *LifecycleSuite) TestLifecycle_ChatAgentRunDrivesChatStatusOverWS() {
-	t := s.T()
-
-	repoResp := s.Env.POST(t, "/v0/repos", map[string]any{
-		"id":        "r1",
-		"projectId": "p1",
-		"name":      "repo",
-	})
-	kit.RequireStatus(t, repoResp, http.StatusCreated)
-	repoResp.Body.Close()
-
-	wsResp := s.Env.POST(t, "/v0/workspaces", map[string]any{
-		"repoId": "r1",
-		"branch": "feature/chat",
-	})
-	kit.RequireStatus(t, wsResp, http.StatusCreated)
-	wsID := kit.MutationID(t, wsResp)
-
-	watcher := s.Env.DialChats(t, "?wsId="+wsID)
-
-	chatResp := s.Env.POST(t, "/v0/workspaces/"+wsID+"/chats", map[string]any{
-		"title": "Chat Title",
-	})
-	kit.RequireStatus(t, chatResp, http.StatusCreated)
-	var chatObj map[string]any
-	kit.DecodeEnvData(t, chatResp, &chatObj)
-	chatID := chatObj["id"].(string)
-	s.Require().NotEmpty(chatID)
-
-	_ = kit.WaitForChat(t, watcher, chatID, wsID, "idle", 5*time.Second)
-
-	runResp := s.Env.POST(t, "/v0/workspaces/"+wsID+"/runs", map[string]any{
-		"chatId": chatID,
-	})
-	kit.RequireStatus(t, runResp, http.StatusCreated)
-
-	var runObj map[string]any
-	kit.DecodeEnvData(t, runResp, &runObj)
-	runID, _ := runObj["id"].(string)
-	s.Require().NotEmpty(runID)
-
-	startResp := s.Env.POST(t, "/v0/runs/"+runID+"/start", nil)
-	kit.RequireStatus(t, startResp, http.StatusOK)
-	startResp.Body.Close()
-
-	msg := kit.WaitForChat(t, watcher, chatID, wsID, "agent-running", 5*time.Second)
-	s.Assert().Equal(chatID, msg["chatId"])
-	s.Assert().Equal(wsID, msg["wsId"])
-	s.Assert().Equal("agent-running", msg["status"])
-}
-
 // TestLifecycle_HealthEndpoint verifies the health route responds 200.
 func (s *LifecycleSuite) TestLifecycle_HealthEndpoint() {
 	t := s.T()

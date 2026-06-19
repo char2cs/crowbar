@@ -28,9 +28,8 @@ type Container struct {
 	Realtime     *realtime.Service
 }
 
-// New constructs the application layer from the engine and adapter containers,
-// wires hub projections, and runs AgentRun crash recovery synchronously before
-// returning (00 §6.2, §7).
+// New constructs the application layer from the engine and adapter containers
+// and wires the aggregate repositories into the hub (00 §7).
 func New(
 	ctx context.Context,
 	engines *engine.Container,
@@ -44,10 +43,6 @@ func New(
 	if err != nil {
 		return nil, fmt.Errorf("app: asynx chat: %w", err)
 	}
-	axAgentRun, err := newAsynx[domain.AgentRun](adapters.AgentRunES)
-	if err != nil {
-		return nil, fmt.Errorf("app: asynx agent run: %w", err)
-	}
 	axReviewThread, err := newAsynx[domain.ReviewThread](adapters.ReviewThreadES)
 	if err != nil {
 		return nil, fmt.Errorf("app: asynx review thread: %w", err)
@@ -59,14 +54,10 @@ func New(
 	}
 
 	h := hub.NewHub()
-	repos, err := repositories.New(adapters.DB, h, axWorkspace, axChat, axAgentRun, axReviewThread)
+	repos, err := repositories.New(adapters.DB, h, axWorkspace, axChat, axReviewThread)
 	if err != nil {
 		return nil, fmt.Errorf("app: repositories: %w", err)
 	}
-	if err := repos.RegisterHubProjections(axAgentRun); err != nil {
-		return nil, fmt.Errorf("app: hub projections: %w", err)
-	}
-	repos.RecoverOrphans(ctx)
 
 	ucs, err := usecases.New(repos, toUsecaseStores(gormStores), engines)
 	if err != nil {

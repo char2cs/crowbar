@@ -145,16 +145,6 @@ func TestApp_New_NilChatES_ReturnsError(t *testing.T) {
 	assert.Error(t, err)
 }
 
-func TestApp_New_NilAgentRunES_ReturnsError(t *testing.T) {
-	adapters, err := adapter.New(adapter.WithHomeDir(t.TempDir()))
-	require.NoError(t, err)
-	t.Cleanup(func() { _ = adapters.Close() })
-	adapters.AgentRunES = nil
-
-	_, err = app.New(context.Background(), newEng(t), adapters)
-	assert.Error(t, err)
-}
-
 func TestApp_New_NilReviewThreadES_ReturnsError(t *testing.T) {
 	adapters, err := adapter.New(adapter.WithHomeDir(t.TempDir()))
 	require.NoError(t, err)
@@ -186,7 +176,6 @@ func TestApp_New_RepositoriesNewError(t *testing.T) {
 	adapters := &adapter.Container{
 		WorkspaceES:    newInMemES(t),
 		ChatES:         newInMemES(t),
-		AgentRunES:     newInMemES(t),
 		ReviewThreadES: newInMemES(t),
 		DB:             db,
 	}
