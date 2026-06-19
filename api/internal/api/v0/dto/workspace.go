@@ -10,24 +10,24 @@ import (
 // renders — diff counts, conflict and lock state, status, merge strategy, and
 // the pull-request summary — without leaking persistence-only fields.
 type WorkspaceDTO struct {
-	ID             string                   `json:"id"`
-	WorktreePath   string                   `json:"worktreePath,omitempty"`
-	RepoID         string                   `json:"repoId"`
-	ProjectID      string                   `json:"projectId"`
-	Branch         string                   `json:"branch"`
-	ParentID       string                   `json:"parentId,omitempty"`
-	ForkPointSha   string                   `json:"forkPointSha,omitempty"`
-	Status         domain.WorkspaceStatus   `json:"status,omitempty"`
-	Locked         bool                     `json:"locked"`
-	HasConflicts   bool                     `json:"hasConflicts"`
-	Added          int                      `json:"added"`
-	Deleted        int                      `json:"deleted"`
-	MergeStrategy  gitdomain.MergeStrategy  `json:"mergeStrategy"`
-	PRUrl          string                   `json:"prUrl,omitempty"`
-	PRTitle        string                   `json:"prTitle,omitempty"`
-	PRTargetBranch string                   `json:"prTargetBranch,omitempty"`
-	AgentRunning   bool                     `json:"agentRunning"`
-	PendingMerge   *gitdomain.PendingMerge  `json:"pendingMerge,omitempty"`
+	ID             string                  `json:"id"`
+	WorktreePath   string                  `json:"worktreePath,omitempty"`
+	RepoID         string                  `json:"repoId"`
+	ProjectID      string                  `json:"projectId"`
+	Branch         string                  `json:"branch"`
+	ParentID       string                  `json:"parentId,omitempty"`
+	ForkPointSha   string                  `json:"forkPointSha,omitempty"`
+	Status         domain.WorkspaceStatus  `json:"status,omitempty"`
+	Locked         bool                    `json:"locked"`
+	HasConflicts   bool                    `json:"hasConflicts"`
+	Added          int                     `json:"added"`
+	Deleted        int                     `json:"deleted"`
+	MergeStrategy  gitdomain.MergeStrategy `json:"mergeStrategy"`
+	PRUrl          string                  `json:"prUrl,omitempty"`
+	PRTitle        string                  `json:"prTitle,omitempty"`
+	PRTargetBranch string                  `json:"prTargetBranch,omitempty"`
+	Working        bool                    `json:"working"`
+	PendingMerge   *gitdomain.PendingMerge `json:"pendingMerge,omitempty"`
 }
 
 // WorkspaceDTOFrom converts a domain Workspace into its wire DTO.
@@ -51,7 +51,7 @@ func WorkspaceDTOFrom(
 		PRUrl:          w.PRUrl,
 		PRTitle:        w.PRTitle,
 		PRTargetBranch: w.PRTargetBranch,
-		AgentRunning:   w.AgentRunning,
+		Working:        w.Working,
 		PendingMerge:   w.PendingMerge,
 	}
 }

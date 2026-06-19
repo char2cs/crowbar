@@ -12,14 +12,15 @@ import (
 )
 
 // workspacesSnapshot builds the Workspaces snapshot-on-subscribe source (03 §1a):
-// every workspace row with the derived agent-running overlay computed at snapshot
-// time, alongside the persisted hasConflicts. Each client's projectId/repoId
-// predicate filters the snapshot down to its subscription scope.
+// every workspace row, with the derived working overlay always false now the
+// agent-run concept is removed, alongside the persisted hasConflicts. Each
+// client's projectId/repoId predicate filters the snapshot down to its
+// subscription scope.
 func workspacesSnapshot(
 	appContainer *app.Container,
 ) func() []domain.Workspace {
 	return func() []domain.Workspace {
-		rows, err := appContainer.Repositories.ListWorkspacesWithOverlay(context.Background())
+		rows, err := appContainer.Repositories.Workspace.List(context.Background())
 		if err != nil {
 			return nil
 		}

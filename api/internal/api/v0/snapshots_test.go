@@ -97,7 +97,7 @@ func initGitRepo(
 // TestSnapshot_Workspaces_DeliveredOnConnect proves the Workspaces
 // snapshot-on-subscribe (03 §1a): a client receives the current workspace row
 // immediately on connect (before any live Push), with the persisted hasConflicts
-// surfaced. With the agent-run concept removed, agentRunning is always false.
+// surfaced. With the agent-run concept removed, working is always false.
 func TestSnapshot_Workspaces_DeliveredOnConnect(t *testing.T) {
 	tc := newApp(t)
 	ctx := context.Background()
@@ -121,7 +121,7 @@ func TestSnapshot_Workspaces_DeliveredOnConnect(t *testing.T) {
 
 	got := readSnapshot(t, conn)
 	assert.Equal(t, "w1", got["id"])
-	assert.Equal(t, false, got["agentRunning"])
+	assert.Equal(t, false, got["working"])
 	assert.Equal(t, true, got["hasConflicts"])
 }
 

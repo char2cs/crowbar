@@ -60,21 +60,21 @@ func broadcastChat(
 	}
 }
 
-// broadcastWorkspace pushes a workspace row to the hub. The derived AgentRunning
+// broadcastWorkspace pushes a workspace row to the hub. The derived Working
 // overlay is always false: the agent-run concept has been removed and the chat
 // usecase that would set it is a dormant TODO (00 §5).
 func (c *Container) broadcastWorkspace(
 	_ context.Context,
 	ws domain.Workspace,
 ) {
-	ws.AgentRunning = false
+	ws.Working = false
 	c.hub.BroadcastWorkspace(ws)
 }
 
-// ListWorkspacesWithOverlay returns every workspace row. The agent-running
-// overlay has been removed (00 §5); AgentRunning is always false until the chat
-// usecase is implemented. It backs the Workspaces snapshot-on-subscribe.
-func (c *Container) ListWorkspacesWithOverlay(
+// ListWorkspaces returns every workspace row. The working overlay has been
+// removed (00 §5); Working is always false until the chat usecase is
+// implemented. It backs the Workspaces snapshot-on-subscribe.
+func (c *Container) ListWorkspaces(
 	ctx context.Context,
 ) ([]domain.Workspace, error) {
 	rows, err := c.Workspace.List(ctx)
@@ -82,7 +82,7 @@ func (c *Container) ListWorkspacesWithOverlay(
 		return nil, fmt.Errorf("repositories: list workspaces: %w", err)
 	}
 	for i := range rows {
-		rows[i].AgentRunning = false
+		rows[i].Working = false
 	}
 	return rows, nil
 }

@@ -69,14 +69,14 @@ func (h *captureHub) count() int {
 	return len(h.workspaces)
 }
 
-func (h *captureHub) lastAgentRunning(
+func (h *captureHub) lastWorking(
 	wsID string,
 ) (bool, bool) {
 	h.mu.Lock()
 	defer h.mu.Unlock()
 	for i := len(h.workspaces) - 1; i >= 0; i-- {
 		if h.workspaces[i].ID == wsID {
-			return h.workspaces[i].AgentRunning, true
+			return h.workspaces[i].Working, true
 		}
 	}
 	return false, false
@@ -145,10 +145,10 @@ func TestContainer_CreateWorkspace_ProjectsAndBroadcasts(t *testing.T) {
 	assert.GreaterOrEqual(t, h.count(), 1)
 }
 
-// TestContainer_BroadcastWorkspace_AgentRunningAlwaysFalse pins the post-removal
-// overlay behaviour: with the agent-run producer gone, every broadcast carries
-// AgentRunning=false (00 §5).
-func TestContainer_BroadcastWorkspace_AgentRunningAlwaysFalse(t *testing.T) {
+// TestBroadcastWorkspace_WorkingFalse pins the post-removal overlay behaviour:
+// with the agent-run producer gone, every broadcast carries Working=false
+// (00 §5).
+func TestBroadcastWorkspace_WorkingFalse(t *testing.T) {
 	ctx := context.Background()
 	h := &captureHub{}
 	c := newContainer(t, h)
@@ -159,14 +159,14 @@ func TestContainer_BroadcastWorkspace_AgentRunningAlwaysFalse(t *testing.T) {
 	require.NoError(t, err)
 
 	require.Eventually(t, func() bool {
-		running, ok := h.lastAgentRunning("w1")
-		return ok && !running
+		working, ok := h.lastWorking("w1")
+		return ok && !working
 	}, time.Second, 5*time.Millisecond)
 }
 
-// TestContainer_ListWorkspacesWithOverlay_NoAgentOverlay asserts the snapshot
-// source returns workspace rows without an agent-running overlay (00 §5).
-func TestContainer_ListWorkspacesWithOverlay_NoAgentOverlay(t *testing.T) {
+// TestContainer_ListWorkspaces_NoWorkingOverlay asserts the snapshot
+// source returns workspace rows with the working overlay always false (00 §5).
+func TestContainer_ListWorkspaces_NoWorkingOverlay(t *testing.T) {
 	ctx := context.Background()
 	c := newContainer(t, &captureHub{})
 
@@ -179,10 +179,10 @@ func TestContainer_ListWorkspacesWithOverlay_NoAgentOverlay(t *testing.T) {
 		return listErr == nil && len(list) == 1
 	}, time.Second, 5*time.Millisecond)
 
-	rows, err := c.ListWorkspacesWithOverlay(ctx)
+	rows, err := c.ListWorkspaces(ctx)
 	require.NoError(t, err)
 	require.Len(t, rows, 1)
-	assert.False(t, rows[0].AgentRunning)
+	assert.False(t, rows[0].Working)
 }
 
 type listErrWorkspaceRepo struct {
@@ -195,11 +195,11 @@ func (listErrWorkspaceRepo) List(
 	return nil, errFake
 }
 
-func TestContainer_ListWorkspacesWithOverlay_ListErrorPropagates(t *testing.T) {
+func TestContainer_ListWorkspaces_ListErrorPropagates(t *testing.T) {
 	c := newContainer(t, &captureHub{})
 	c.Workspace = listErrWorkspaceRepo{}
 
-	rows, err := c.ListWorkspacesWithOverlay(context.Background())
+	rows, err := c.ListWorkspaces(context.Background())
 	require.Error(t, err)
 	assert.Nil(t, rows)
 }

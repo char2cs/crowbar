@@ -28,8 +28,9 @@ type Workspace struct {
 	PRTargetBranch string                  `json:"prTargetBranch,omitempty"`
 	LastActivity   time.Time               `json:"lastActivity"`
 	CreatedAt      time.Time               `json:"createdAt"`
-	// AgentRunning is a derived, non-persisted overlay (00 §6.1, 03 §7): true iff
-	// at least one AgentRun for this workspace is running. It is computed at
-	// broadcast time and is never written by any command.
-	AgentRunning bool `json:"agentRunning"`
+	// Working is a derived, non-persisted overlay (00 §6.1, 03 §7): true iff the
+	// workspace has live work in progress. It is computed at broadcast time and is
+	// never written by any command. With the agent-run concept removed it is
+	// always false in scope.
+	Working bool `json:"working"`
 }

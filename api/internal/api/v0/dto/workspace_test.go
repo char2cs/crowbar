@@ -1,6 +1,7 @@
 package dto_test
 
 import (
+	"encoding/json"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -31,7 +32,7 @@ func TestWorkspaceDTOFrom(
 		PRUrl:          "http://pr",
 		PRTitle:        "title",
 		PRTargetBranch: "main",
-		AgentRunning:   true,
+		Working:        true,
 	})
 	assert.Equal(t, "w1", got.ID)
 	assert.Equal(t, "r1", got.RepoID)
@@ -47,7 +48,25 @@ func TestWorkspaceDTOFrom(
 	assert.Equal(t, "http://pr", got.PRUrl)
 	assert.Equal(t, "title", got.PRTitle)
 	assert.Equal(t, "main", got.PRTargetBranch)
-	assert.True(t, got.AgentRunning)
+	assert.True(t, got.Working)
+}
+
+// TestWorkspaceDTO_WorkingKey pins the wire contract: the working overlay
+// serialises under the json key "working" (renamed from "agentRunning").
+func TestWorkspaceDTO_WorkingKey(
+	t *testing.T,
+) {
+	raw, err := json.Marshal(dto.WorkspaceDTOFrom(domain.Workspace{
+		ID:      "w1",
+		Working: true,
+	}))
+	require.NoError(t, err)
+
+	var decoded map[string]any
+	require.NoError(t, json.Unmarshal(raw, &decoded))
+	assert.Equal(t, true, decoded["working"])
+	_, hasOld := decoded["agentRunning"]
+	assert.False(t, hasOld)
 }
 
 func TestWorkspaceDTOListEmptyNonNil(
