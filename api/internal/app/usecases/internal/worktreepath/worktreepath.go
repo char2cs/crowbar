@@ -1,41 +1,118 @@
 // Package worktreepath derives deterministic filesystem paths for git
-// worktrees and per-repo directories, all rooted under ~/.crowbar.
+// worktrees and per-entity directories, all rooted under ~/.crowbar. Paths are
+// keyed by opaque UUIDs (projectID/repoID/workspaceID), never by remote URL.
 package worktreepath
 
 import (
 	"fmt"
-	"net/url"
 	"os"
 	"path/filepath"
-	"strings"
 )
 
-// For returns the worktree directory for workspaceID under crowbarHome.
+// For returns the git worktree directory for a workspace.
 //
-// Path: <crowbarHome>/projects/<host>/<owner>/<repo>/workspaces/<workspaceID>
-//
-// remoteURL accepts HTTPS (https://github.com/owner/repo.git) and SSH
-// (git@github.com:owner/repo.git) formats. An empty or unrecognised URL
-// returns an error.
-func For(crowbarHome, remoteURL, workspaceID string) (string, error) {
-	dir, err := RepoDir(crowbarHome, remoteURL)
-	if err != nil {
-		return "", err
-	}
-	return filepath.Join(dir, "workspaces", workspaceID), nil
+// Path: <crowbarHome>/projects/<projectID>/<repoID>/workspaces/<workspaceID>/worktree
+func For(
+	crowbarHome string,
+	projectID string,
+	repoID string,
+	workspaceID string,
+) string {
+	return filepath.Join(
+		workspaceDir(crowbarHome, projectID, repoID, workspaceID),
+		"worktree",
+	)
 }
 
-// RepoDir returns the per-repo directory under crowbarHome/projects/.
+// StorageDir returns the per-workspace storage directory.
 //
-// Example: https://github.com/acme/foo.git →
+// Path: .../workspaces/<workspaceID>/storages
+func StorageDir(
+	crowbarHome string,
+	projectID string,
+	repoID string,
+	workspaceID string,
+) string {
+	return filepath.Join(
+		workspaceDir(crowbarHome, projectID, repoID, workspaceID),
+		"storages",
+	)
+}
+
+// ThreadsStorageDir returns the per-workspace thread storage directory.
 //
-//	<crowbarHome>/projects/github.com/acme/foo
-func RepoDir(crowbarHome, remoteURL string) (string, error) {
-	rel, err := repoRelPath(remoteURL)
-	if err != nil {
-		return "", err
-	}
-	return filepath.Join(crowbarHome, "projects", rel), nil
+// Path: .../workspaces/<workspaceID>/threads/storages
+func ThreadsStorageDir(
+	crowbarHome string,
+	projectID string,
+	repoID string,
+	workspaceID string,
+) string {
+	return filepath.Join(
+		workspaceDir(crowbarHome, projectID, repoID, workspaceID),
+		"threads",
+		"storages",
+	)
+}
+
+// RepoDir returns the per-repo directory.
+//
+// Path: <crowbarHome>/projects/<projectID>/<repoID>
+func RepoDir(
+	crowbarHome string,
+	projectID string,
+	repoID string,
+) string {
+	return filepath.Join(ProjectDir(crowbarHome, projectID), repoID)
+}
+
+// RepoStorageDir returns the per-repo storage directory.
+//
+// Path: .../projects/<projectID>/<repoID>/storages
+func RepoStorageDir(
+	crowbarHome string,
+	projectID string,
+	repoID string,
+) string {
+	return filepath.Join(RepoDir(crowbarHome, projectID, repoID), "storages")
+}
+
+// RepoIconPath returns the per-repo icon file path.
+//
+// Path: .../projects/<projectID>/<repoID>/icon
+func RepoIconPath(
+	crowbarHome string,
+	projectID string,
+	repoID string,
+) string {
+	return filepath.Join(RepoDir(crowbarHome, projectID, repoID), "icon")
+}
+
+// ProjectDir returns the per-project directory.
+//
+// Path: <crowbarHome>/projects/<projectID>
+func ProjectDir(
+	crowbarHome string,
+	projectID string,
+) string {
+	return filepath.Join(crowbarHome, "projects", projectID)
+}
+
+// ProjectStorageDir returns the per-project storage directory.
+//
+// Path: .../projects/<projectID>/storages
+func ProjectStorageDir(
+	crowbarHome string,
+	projectID string,
+) string {
+	return filepath.Join(ProjectDir(crowbarHome, projectID), "storages")
+}
+
+// GlobalStateDir returns the global state directory.
+//
+// Path: <crowbarHome>/state
+func GlobalStateDir(crowbarHome string) string {
+	return filepath.Join(crowbarHome, "state")
 }
 
 // DefaultCrowbarHome returns ~/.crowbar, the production root for all
@@ -48,32 +125,15 @@ func DefaultCrowbarHome() (string, error) {
 	return filepath.Join(h, ".crowbar"), nil
 }
 
-// repoRelPath parses a git remote URL into <host>/<owner>/<repo>.
-// It accepts HTTPS and SSH URL formats and strips any trailing ".git".
-func repoRelPath(rawURL string) (string, error) {
-	rawURL = strings.TrimSpace(rawURL)
-	if rawURL == "" {
-		return "", fmt.Errorf("worktreepath: empty remote URL")
-	}
-	rawURL = strings.TrimSuffix(rawURL, ".git")
-
-	// SSH: git@github.com:owner/repo
-	if strings.HasPrefix(rawURL, "git@") {
-		rest := rawURL[4:]
-		idx := strings.Index(rest, ":")
-		if idx < 0 {
-			return "", fmt.Errorf("worktreepath: invalid SSH URL: %q", rawURL)
-		}
-		host := rest[:idx]
-		path := strings.TrimPrefix(rest[idx+1:], "/")
-		return host + "/" + path, nil
-	}
-
-	// HTTPS: https://github.com/owner/repo
-	u, err := url.Parse(rawURL)
-	if err != nil || u.Host == "" {
-		return "", fmt.Errorf("worktreepath: unrecognised remote URL: %q", rawURL)
-	}
-	path := strings.TrimPrefix(u.Path, "/")
-	return u.Host + "/" + path, nil
+func workspaceDir(
+	crowbarHome string,
+	projectID string,
+	repoID string,
+	workspaceID string,
+) string {
+	return filepath.Join(
+		RepoDir(crowbarHome, projectID, repoID),
+		"workspaces",
+		workspaceID,
+	)
 }

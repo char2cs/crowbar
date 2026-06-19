@@ -118,10 +118,7 @@ func (u *worktreeUsecase) CreateChild(
 	if err != nil {
 		return domain.Workspace{}, fmt.Errorf("create child: crowbar home: %w", err)
 	}
-	path, err := worktreepath.For(home, in.RemoteURL, wsID)
-	if err != nil {
-		return domain.Workspace{}, fmt.Errorf("create child: worktree path: %w", err)
-	}
+	path := worktreepath.For(home, in.ProjectID, in.RepoID, wsID)
 	startSha, err := u.git.WorktreeAddBranch(ctx, in.RepoPath, path, in.Branch, in.ParentBranch)
 	if err != nil {
 		return domain.Workspace{}, fmt.Errorf("create child: worktree add: %w", err)
