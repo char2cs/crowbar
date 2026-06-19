@@ -34,12 +34,14 @@ type Version struct {
 
 // Paths holds path templates for all Crowbar data directories.
 type Paths struct {
-	Home   OsValue[string] `yaml:"home"`
-	Events string          `yaml:"events"`
-	Store  string          `yaml:"store"`
-	Runs   string          `yaml:"runs"`
-	Config string          `yaml:"config"`
-	Logs   string          `yaml:"logs"`
+	Home     OsValue[string] `yaml:"home"`
+	State    string          `yaml:"state"`
+	Projects string          `yaml:"projects"`
+	Events   string          `yaml:"events"`
+	Store    string          `yaml:"store"`
+	Runs     string          `yaml:"runs"`
+	Config   string          `yaml:"config"`
+	Logs     string          `yaml:"logs"`
 }
 
 // Metadata is the top-level structure parsed from metadata.yaml.
@@ -66,17 +68,31 @@ func GetVersion() string {
 	return Get().Version.Number
 }
 
-// GetStateDirPath returns the resolved absolute path to the state directory
-// (the parent of the events and store directories).
+// GetStateDirPath returns the resolved absolute path to the state directory,
+// where the global event_stream.db and view.db live. It is computed from its
+// own template, independent of the events/store templates.
 func GetStateDirPath() string {
-	return filepath.Dir(GetEventsPath())
+	return resolvePath(Get().Paths.State, resolveHome())
 }
 
 // GetStateDirPathAt returns the state directory path rooted at homeDir.
 func GetStateDirPathAt(
 	homeDir string,
 ) string {
-	return filepath.Dir(GetEventsPathAt(homeDir))
+	return resolvePath(Get().Paths.State, homeDir)
+}
+
+// GetProjectsPath returns the resolved absolute path to the projects directory,
+// the root of the per-entity (project/repo/workspace) filesystem layout.
+func GetProjectsPath() string {
+	return resolvePath(Get().Paths.Projects, resolveHome())
+}
+
+// GetProjectsPathAt returns the projects directory path rooted at homeDir.
+func GetProjectsPathAt(
+	homeDir string,
+) string {
+	return resolvePath(Get().Paths.Projects, homeDir)
 }
 
 // GetEventsPath returns the resolved absolute path to the events directory.
@@ -153,12 +169,14 @@ func defaultMetadata() *Metadata {
 			Author:      "char2cs",
 		},
 		Paths: Paths{
-			Home:   OsValue[string]{Default: "~/.crowbar"},
-			Events: "{{home}}/state/events",
-			Store:  "{{home}}/state/store",
-			Runs:   "{{home}}/runs",
-			Config: "{{home}}/config.yaml",
-			Logs:   "{{home}}/logs",
+			Home:     OsValue[string]{Default: "~/.crowbar"},
+			State:    "{{home}}/state",
+			Projects: "{{home}}/projects",
+			Events:   "{{home}}/state/events",
+			Store:    "{{home}}/state/store",
+			Runs:     "{{home}}/runs",
+			Config:   "{{home}}/config.yaml",
+			Logs:     "{{home}}/logs",
 		},
 	}
 }

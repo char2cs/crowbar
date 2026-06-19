@@ -37,6 +37,19 @@ func StateAt(
 	return ensure(metadata.GetStateDirPathAt(homeDir))
 }
 
+// Projects returns the projects-root directory (the per-entity filesystem
+// layout root), creating it if absent.
+func Projects() (string, error) {
+	return ensure(metadata.GetProjectsPath())
+}
+
+// ProjectsAt returns the projects-root directory rooted at homeDir, creating it if absent.
+func ProjectsAt(
+	homeDir string,
+) (string, error) {
+	return ensure(metadata.GetProjectsPathAt(homeDir))
+}
+
 // Events returns the event-store directory, creating it if absent.
 func Events() (string, error) {
 	return ensure(metadata.GetEventsPath())

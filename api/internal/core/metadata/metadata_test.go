@@ -42,6 +42,24 @@ func TestGetVersion_NonEmpty(t *testing.T) {
 	assert.NotEmpty(t, GetVersion())
 }
 
+func TestGetStateDirPath_IsStateDir(t *testing.T) {
+	t.Cleanup(resetForTesting)
+	resetForTesting()
+	got := GetStateDirPathAt("/tmp/crowtest")
+	assert.Equal(t, "/tmp/crowtest/state", got)
+}
+
+func TestGetProjectsPath(t *testing.T) {
+	t.Cleanup(resetForTesting)
+	resetForTesting()
+	got := GetProjectsPathAt("/tmp/crowtest")
+	assert.Equal(t, "/tmp/crowtest/projects", got)
+
+	t.Setenv("HOME", t.TempDir())
+	resetForTesting()
+	assert.NotEmpty(t, GetProjectsPath())
+}
+
 // --- New tests for coverage ---
 
 func TestGetEventsPath_NonEmpty(t *testing.T) {

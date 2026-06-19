@@ -43,6 +43,31 @@ func TestLogsAt_CreatesDir(t *testing.T) {
 	require.NoError(t, statErr)
 }
 
+func TestPaths_Projects(t *testing.T) {
+	home := t.TempDir()
+	got, err := ProjectsAt(home)
+	require.NoError(t, err)
+	info, statErr := os.Stat(got)
+	require.NoError(t, statErr)
+	assert.True(t, info.IsDir())
+	assert.Equal(t, filepath.Join(home, "projects"), got)
+
+	t.Setenv("HOME", t.TempDir())
+	got2, err2 := Projects()
+	require.NoError(t, err2)
+	assert.NotEmpty(t, got2)
+	info2, statErr2 := os.Stat(got2)
+	require.NoError(t, statErr2)
+	assert.True(t, info2.IsDir())
+}
+
+func TestStateAt_IsStateDir(t *testing.T) {
+	home := t.TempDir()
+	got, err := StateAt(home)
+	require.NoError(t, err)
+	assert.Equal(t, filepath.Join(home, "state"), got)
+}
+
 func TestEnsure_RejectsUncreatablePath(t *testing.T) {
 	_, err := ensure("/dev/null/cannot")
 	assert.Error(t, err)
