@@ -104,6 +104,9 @@ func (c *Container) Register(
 		c.eng.Terminal,
 		c.app.GORM.TerminalProfiles,
 		c.app.Repositories.Workspace,
+		c.terminals,
+		c.terminals.Handle,
+		ws.DualServe,
 	)
 	search.Register(
 		repoScoped,

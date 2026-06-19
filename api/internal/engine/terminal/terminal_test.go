@@ -112,6 +112,68 @@ func TestEngine_Create_And_ListSessions(t *testing.T) {
 	require.NoError(t, eng.Kill(ctx, sid))
 }
 
+func TestEngine_Create_KeysSessionByWorkspace(t *testing.T) {
+	eng := terminal.New()
+	ctx := context.Background()
+	dir := t.TempDir()
+
+	sid1, err := eng.Create(ctx, "ws-a", dir, nil)
+	require.NoError(t, err)
+	sid2, err := eng.Create(ctx, "ws-b", dir, nil)
+	require.NoError(t, err)
+
+	assert.ElementsMatch(t, []string{sid1}, eng.ListSessionsForWorkspace("ws-a"))
+	assert.ElementsMatch(t, []string{sid2}, eng.ListSessionsForWorkspace("ws-b"))
+
+	require.NoError(t, eng.Kill(ctx, sid1))
+	require.NoError(t, eng.Kill(ctx, sid2))
+}
+
+func TestEngine_ListSessionsForWorkspace(t *testing.T) {
+	eng := terminal.New()
+	ctx := context.Background()
+	dir := t.TempDir()
+
+	assert.Empty(t, eng.ListSessionsForWorkspace("ws-a"))
+
+	sid, err := eng.Create(ctx, "ws-a", dir, nil)
+	require.NoError(t, err)
+	assert.ElementsMatch(t, []string{sid}, eng.ListSessionsForWorkspace("ws-a"))
+	assert.Empty(t, eng.ListSessionsForWorkspace("ws-other"))
+
+	require.NoError(t, eng.Kill(ctx, sid))
+}
+
+func TestEngine_OnSessionEnded_FiresOnReap(t *testing.T) {
+	eng := terminal.New()
+	ctx := context.Background()
+	dir := t.TempDir()
+
+	type ended struct {
+		wsID string
+		sid  string
+	}
+	endedCh := make(chan ended, 1)
+	eng.OnSessionEnded(func(wsID, sid string) {
+		endedCh <- ended{wsID: wsID, sid: sid}
+	})
+
+	sid, err := eng.Create(ctx, "ws-a", dir, nil)
+	require.NoError(t, err)
+
+	// Kill triggers the PTY exit, which reapOnDone observes and reports via the
+	// OnSessionEnded callback. Synchronise on the callback channel, never sleep.
+	require.NoError(t, eng.Kill(ctx, sid))
+
+	select {
+	case got := <-endedCh:
+		assert.Equal(t, "ws-a", got.wsID)
+		assert.Equal(t, sid, got.sid)
+	case <-time.After(5 * time.Second):
+		t.Fatal("OnSessionEnded did not fire after Kill")
+	}
+}
+
 func TestEngine_Kill_Unknown(t *testing.T) {
 	eng := terminal.New()
 	ctx := context.Background()

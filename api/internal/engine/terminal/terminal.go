@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
+	"sync"
 
 	"github.com/google/uuid"
 	"github.com/gorilla/websocket"
@@ -74,6 +75,19 @@ type Engine interface {
 	// ListSessions returns all active session IDs.
 	ListSessions() []string
 
+	// ListSessionsForWorkspace returns the active session IDs owned by the given
+	// workspace.
+	ListSessionsForWorkspace(
+		workspaceID string,
+	) []string
+
+	// OnSessionEnded registers the callback invoked when a session terminates
+	// (a Kill, a Shutdown, or a PTY self-exit). It fires exactly once per
+	// session so the lifecycle topic can emit an "ended" frame.
+	OnSessionEnded(
+		fn func(workspaceID string, sessionID string),
+	)
+
 	// SessionExists reports whether a session with the given ID is currently active.
 	SessionExists(
 		ctx context.Context,
@@ -86,11 +100,18 @@ type Engine interface {
 
 type terminalEngine struct {
 	reg *registry.Registry
+
+	mu        sync.RWMutex
+	onEnded   func(workspaceID string, sessionID string)
+	endedOnce map[string]struct{}
 }
 
 // New returns a new Engine.
 func New() Engine {
-	return &terminalEngine{reg: registry.New()}
+	return &terminalEngine{
+		reg:       registry.New(),
+		endedOnce: make(map[string]struct{}),
+	}
 }
 
 var _ Engine = (*terminalEngine)(nil)
@@ -112,7 +133,7 @@ type inputMsg struct {
 
 func (e *terminalEngine) Create(
 	_ context.Context,
-	_ string,
+	workspaceID string,
 	workspaceDir string,
 	prof *domain.TerminalProfile,
 ) (string, error) {
@@ -136,19 +157,56 @@ func (e *terminalEngine) Create(
 		}
 	}
 
-	e.reg.Add(id, s)
+	e.reg.Add(id, workspaceID, s)
 
-	go e.reapOnDone(id, s)
+	go e.reapOnDone(id, workspaceID, s)
 	return id, nil
 }
 
-// reapOnDone removes the session from the registry once it terminates.
+// reapOnDone removes the session from the registry once it terminates and fires
+// the OnSessionEnded callback so the lifecycle topic can emit an "ended" frame.
+// It covers every termination path: an explicit Kill, a Shutdown, or a PTY
+// self-exit.
 func (e *terminalEngine) reapOnDone(
 	id string,
+	workspaceID string,
 	s *session.Session,
 ) {
 	<-s.Done()
 	e.reg.Remove(id)
+	e.fireEnded(workspaceID, id)
+}
+
+// fireEnded invokes the registered OnSessionEnded callback exactly once per
+// session id, guarding against duplicate notifications.
+func (e *terminalEngine) fireEnded(
+	workspaceID string,
+	sessionID string,
+) {
+	e.mu.Lock()
+	fn := e.onEnded
+	if fn == nil {
+		e.mu.Unlock()
+		return
+	}
+	if _, done := e.endedOnce[sessionID]; done {
+		e.mu.Unlock()
+		return
+	}
+	e.endedOnce[sessionID] = struct{}{}
+	e.mu.Unlock()
+
+	fn(workspaceID, sessionID)
+}
+
+// OnSessionEnded registers the termination callback. The most recent
+// registration wins, mirroring the LSP engine's OnDiagnostics hook.
+func (e *terminalEngine) OnSessionEnded(
+	fn func(workspaceID string, sessionID string),
+) {
+	e.mu.Lock()
+	e.onEnded = fn
+	e.mu.Unlock()
 }
 
 func (e *terminalEngine) Attach(
@@ -268,6 +326,13 @@ func (e *terminalEngine) Kill(
 
 func (e *terminalEngine) ListSessions() []string {
 	return e.reg.List()
+}
+
+// ListSessionsForWorkspace returns the active session IDs owned by workspaceID.
+func (e *terminalEngine) ListSessionsForWorkspace(
+	workspaceID string,
+) []string {
+	return e.reg.ListByWorkspace(workspaceID)
 }
 
 // SessionExists reports whether a session with the given ID is currently active.

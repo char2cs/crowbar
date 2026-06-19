@@ -1,7 +1,9 @@
 package v0
 
 import (
+	"context"
 	"encoding/json"
+	"time"
 
 	"github.com/gin-gonic/gin"
 
@@ -64,7 +66,7 @@ func New(
 		repos:      ws.NewBroadcaster(reposDef(appContainer)),
 		workspaces: ws.NewBroadcaster(workspacesDef(appContainer)),
 		threads:    ws.NewBroadcaster(threadsDef()),
-		terminals:  ws.NewBroadcaster(terminalsDef()),
+		terminals:  ws.NewBroadcaster(terminalsDef(appContainer, engContainer)),
 		git:        ws.NewBroadcaster(withWatcherLifecycle(gitDef(appContainer), appContainer)),
 		files:      ws.NewBroadcaster(withWatcherLifecycle(filesDef(), appContainer)),
 		lsp:        ws.NewBroadcaster(withLSPLifecycle(lspDef(appContainer, engContainer), appContainer)),
@@ -74,8 +76,50 @@ func New(
 	if engContainer != nil && engContainer.LSP != nil {
 		engContainer.LSP.OnDiagnostics(c.lsp.Push)
 	}
+	if engContainer != nil && engContainer.Terminal != nil {
+		engContainer.Terminal.OnSessionEnded(c.onTerminalEnded)
+	}
 	appContainer.Hub.Register(c)
 	return c
+}
+
+// onTerminalEnded emits an "ended" lifecycle frame when a PTY exits on its own
+// (the reap path in the terminal engine). The handler-driven Kill path also
+// pushes an "ended" frame; the broadcaster's idempotent full-replace makes the
+// duplicate harmless. The owning project/repo are resolved from the workspace
+// repo so the frame namespaces under projectId/repoId/wsId.
+func (c *Container) onTerminalEnded(
+	workspaceID string,
+	sessionID string,
+) {
+	projectID, repoID := c.resolveWorkspaceScope(workspaceID)
+	endedAt := time.Now().UTC()
+	ended := dto.TerminalSessionDTOFrom(
+		sessionID,
+		workspaceID,
+		projectID,
+		repoID,
+		"",
+		"ended",
+		endedAt,
+	)
+	ended.EndedAt = &endedAt
+	c.terminals.Push(ended)
+}
+
+// resolveWorkspaceScope returns the project and repo ids owning workspaceID,
+// or empty strings when the workspace cannot be resolved.
+func (c *Container) resolveWorkspaceScope(
+	workspaceID string,
+) (string, string) {
+	if c.app == nil {
+		return "", ""
+	}
+	ws, err := c.app.Repositories.Workspace.Get(context.Background(), workspaceID)
+	if err != nil {
+		return "", ""
+	}
+	return ws.ProjectID, ws.RepoID
 }
 
 // withWatcherLifecycle attaches the Files∪Git watcher subscription triggers to a
@@ -226,15 +270,27 @@ func threadsDef() ws.StreamDef[dto.ThreadDTO] {
 }
 
 // terminalsDef serves the Terminal-session lifecycle topic. Its hierarchical
-// namespace is projectID/repoID/workspaceID/ID (spec §5); the snapshot source is
-// wired in W10 from the in-memory engine registry. The raw PTY byte stream is a
-// separate, non-broadcast WebSocket.
-func terminalsDef() ws.StreamDef[dto.TerminalSessionDTO] {
+// namespace is projectID/repoID/workspaceID, so a workspace-scoped subscription
+// ("p/r/w") receives every session in that workspace (spec §5); the per-client
+// projectId/repoId/wsId Filters mirror the dual-served route's path params so
+// path-first filter resolution scopes correctly. The snapshot derives from the
+// in-memory engine registry (D6: no terminal_sessions view.db). The raw PTY byte
+// stream is a separate, non-broadcast WebSocket.
+func terminalsDef(
+	appContainer *app.Container,
+	engContainer *engine.Container,
+) ws.StreamDef[dto.TerminalSessionDTO] {
 	return ws.StreamDef[dto.TerminalSessionDTO]{
 		Namespace: func(d dto.TerminalSessionDTO) string {
-			return d.ProjectID + "/" + d.RepoID + "/" + d.WorkspaceID + "/" + d.ID
+			return d.ProjectID + "/" + d.RepoID + "/" + d.WorkspaceID
 		},
 		Serialize: func(d dto.TerminalSessionDTO) ([]byte, error) { return json.Marshal(d) },
+		Snapshot:  terminalsSnapshot(appContainer, engContainer),
+		Filters: []ws.FilterDef[dto.TerminalSessionDTO]{
+			{Param: "projectId", Extract: func(d dto.TerminalSessionDTO) string { return d.ProjectID }, Match: ws.ExactMatch},
+			{Param: "repoId", Extract: func(d dto.TerminalSessionDTO) string { return d.RepoID }, Match: ws.ExactMatch},
+			{Param: "wsId", Extract: func(d dto.TerminalSessionDTO) string { return d.WorkspaceID }, Match: ws.ExactMatch},
+		},
 	}
 }
 

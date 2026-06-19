@@ -127,6 +127,7 @@ func specRoutes() []string {
 		"POST /v0/settings/terminal/profiles",
 		"PUT /v0/settings/terminal/profiles/:id",
 		"DELETE /v0/settings/terminal/profiles/:id",
+		"GET " + ws + "/terminals",
 		"POST " + ws + "/terminals",
 		"DELETE " + ws + "/terminals/:sessionId",
 		// §2.12 System

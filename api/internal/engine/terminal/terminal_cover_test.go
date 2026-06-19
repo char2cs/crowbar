@@ -35,8 +35,29 @@ func TestAttach_SessionDeadInRegistry(t *testing.T) {
 
 	// Inject the dead session directly into a fresh engine's registry.
 	eng := New().(*terminalEngine)
-	eng.reg.Add("dead-id", s)
+	eng.reg.Add("dead-id", "dead-ws", s)
 
 	err = eng.Attach(context.Background(), "dead-id", &deadConn{})
 	assert.Error(t, err)
+}
+
+// TestFireEnded_NilCallback covers the no-callback short-circuit: fireEnded must
+// be a no-op (and must not record the session as ended) when no callback is set.
+func TestFireEnded_NilCallback(t *testing.T) {
+	eng := New().(*terminalEngine)
+	eng.fireEnded("ws", "s1")
+	assert.NotContains(t, eng.endedOnce, "s1")
+}
+
+// TestFireEnded_FiresExactlyOnce covers the duplicate guard: a second fireEnded
+// for the same session id must not re-invoke the callback.
+func TestFireEnded_FiresExactlyOnce(t *testing.T) {
+	eng := New().(*terminalEngine)
+	var calls int
+	eng.OnSessionEnded(func(_, _ string) { calls++ })
+
+	eng.fireEnded("ws", "s1")
+	eng.fireEnded("ws", "s1")
+
+	assert.Equal(t, 1, calls)
 }

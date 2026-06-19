@@ -22,9 +22,17 @@ func Register(
 	termEng termhandlers.TerminalEngine,
 	profileStore termhandlers.ProfileStore,
 	wsReader termhandlers.WorkspaceReader,
+	termBroadcast termhandlers.TerminalBroadcaster,
+	wsHandle gin.HandlerFunc,
+	dispatch func(rest, ws gin.HandlerFunc) gin.HandlerFunc,
 ) {
-	h := termhandlers.New(termEng, profileStore, wsReader)
+	h := termhandlers.New(termEng, profileStore, wsReader, termBroadcast)
 
+	// GET .../terminals is dual-served: a plain GET lists the workspace's live
+	// sessions, while a WebSocket upgrade is routed to the lifecycle broadcaster
+	// (D2). POST creates (201 {sessionId}); DELETE kills (202). The raw PTY
+	// stream is co-located at .../terminals/:sessionId/ws (W7-2).
+	wsScoped.GET("/terminals", dispatch(h.ListSessions, wsHandle))
 	wsScoped.POST("/terminals", h.CreateSession)
 	wsScoped.DELETE("/terminals/:sessionId", h.KillSession)
 	wsScoped.GET("/terminals/:sessionId/ws", h.WS)

@@ -3,6 +3,7 @@ package v0
 import (
 	"context"
 	"strings"
+	"time"
 
 	"github.com/char2cs/crowbar/api/internal/api/v0/dto"
 	"github.com/char2cs/crowbar/api/internal/app"
@@ -207,4 +208,43 @@ func appendDiagnostics(
 		return events
 	}
 	return append(events, lspdomain.DiagnosticsEvent{WsID: wsID, Diagnostics: diags})
+}
+
+// terminalsSnapshot builds the Terminal-session snapshot-on-subscribe source
+// (03 §1a) from the in-memory engine registry (D6: terminals are ephemeral, no
+// view.db). Every live session across every workspace is emitted as an "active"
+// DTO carrying its workspace's project/repo scope; each client's hierarchical
+// prefix predicate trims the result to its subscription. It is empty until a
+// session is created.
+func terminalsSnapshot(
+	appContainer *app.Container,
+	engContainer *engine.Container,
+) func(scope string) []dto.TerminalSessionDTO {
+	if engContainer == nil || engContainer.Terminal == nil {
+		return nil
+	}
+	return func(_ string) []dto.TerminalSessionDTO {
+		ctx := context.Background()
+		rows, err := appContainer.Repositories.Workspace.List(ctx)
+		if err != nil {
+			return nil
+		}
+		now := time.Now().UTC()
+		out := make([]dto.TerminalSessionDTO, 0, len(rows))
+		for _, row := range rows {
+			out = append(
+				out,
+				dto.TerminalSessionDTOList(
+					engContainer.Terminal.ListSessionsForWorkspace(row.ID),
+					row.ID,
+					row.ProjectID,
+					row.RepoID,
+					"",
+					"active",
+					now,
+				)...,
+			)
+		}
+		return out
+	}
 }

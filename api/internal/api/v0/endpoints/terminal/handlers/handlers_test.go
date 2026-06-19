@@ -4,13 +4,16 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"testing"
 
 	"github.com/gin-gonic/gin"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 
+	"github.com/char2cs/crowbar/api/internal/api/v0/dto"
 	"github.com/char2cs/crowbar/api/internal/api/v0/endpoints/terminal/handlers"
 	"github.com/char2cs/crowbar/api/internal/domain"
 	engineterminal "github.com/char2cs/crowbar/api/internal/engine/terminal"
@@ -56,6 +59,24 @@ func (stubEngine) Attach(
 	return nil
 }
 
+func (stubEngine) ListSessionsForWorkspace(
+	_ string,
+) []string {
+	return []string{"sess1"}
+}
+
+// spyBroadcaster records every pushed lifecycle DTO so handler tests can assert
+// the active/ended frames synchronously (no sleep).
+type spyBroadcaster struct {
+	pushed []dto.TerminalSessionDTO
+}
+
+func (s *spyBroadcaster) Push(
+	d dto.TerminalSessionDTO,
+) {
+	s.pushed = append(s.pushed, d)
+}
+
 type stubProfiles struct{}
 
 func (stubProfiles) FindAll(
@@ -94,12 +115,53 @@ func (stubReader) Get(
 	return domain.Workspace{ID: id}, nil
 }
 
+// errReader fails every Get so CreateSession's 404 path can be exercised.
+type errReader struct{}
+
+func (errReader) Get(
+	_ context.Context,
+	_ string,
+) (domain.Workspace, error) {
+	return domain.Workspace{}, errors.New("not found")
+}
+
+// notFoundEngine returns ErrSessionNotFound on Kill so the 404 path can be
+// exercised; it embeds stubEngine for the rest of the surface.
+type notFoundEngine struct {
+	stubEngine
+}
+
+func (notFoundEngine) Kill(
+	_ context.Context,
+	_ string,
+) error {
+	return engineterminal.ErrSessionNotFound
+}
+
+// wsPath is the hierarchical workspace-scoped terminals collection path.
+const wsPath = "/v0/projects/p1/repos/r1/workspaces/ws1/terminals"
+
+func newHandlers(
+	broadcast handlers.TerminalBroadcaster,
+) *handlers.Handlers {
+	return handlers.New(stubEngine{}, stubProfiles{}, stubReader{}, broadcast)
+}
+
+func mountSessions(
+	r *gin.Engine,
+	h *handlers.Handlers,
+) {
+	scoped := r.Group("/v0/projects/:projectId/repos/:repoId/workspaces/:wsId")
+	scoped.GET("/terminals", h.ListSessions)
+	scoped.POST("/terminals", h.CreateSession)
+	scoped.DELETE("/terminals/:sessionId", h.KillSession)
+}
+
 func newRouter() *gin.Engine {
 	r := gin.New()
-	h := handlers.New(stubEngine{}, stubProfiles{}, stubReader{})
+	h := newHandlers(&spyBroadcaster{})
+	mountSessions(r, h)
 	rg := r.Group("/v0")
-	rg.POST("/workspaces/:wsId/terminals", h.CreateSession)
-	rg.DELETE("/terminals/:sessionId", h.KillSession)
 	rg.GET("/settings/terminal/profiles", h.ListProfiles)
 	rg.GET("/settings/terminal/profiles/:id", h.GetProfile)
 	rg.POST("/settings/terminal/profiles", h.CreateProfile)
@@ -129,11 +191,11 @@ func TestTerminalHandlers_HappyPath(
 ) {
 	r := newRouter()
 
-	rec := do(r, http.MethodPost, "/v0/workspaces/ws1/terminals", nil)
+	rec := do(r, http.MethodPost, wsPath, nil)
 	assert.Equal(t, http.StatusCreated, rec.Code)
 
-	rec = do(r, http.MethodDelete, "/v0/terminals/sess1", nil) // KillSession
-	assert.Equal(t, http.StatusOK, rec.Code)
+	rec = do(r, http.MethodDelete, wsPath+"/sess1", nil) // KillSession
+	assert.Equal(t, http.StatusAccepted, rec.Code)
 
 	rec = do(r, http.MethodGet, "/v0/settings/terminal/profiles", nil)
 	assert.Equal(t, http.StatusOK, rec.Code)
@@ -151,4 +213,95 @@ func TestTerminalHandlers_HappyPath(
 
 	rec = do(r, http.MethodDelete, "/v0/settings/terminal/profiles/p1", nil)
 	assert.Equal(t, http.StatusNoContent, rec.Code)
+}
+
+func TestCreateSession_201AndBroadcast(
+	t *testing.T,
+) {
+	r := gin.New()
+	spy := &spyBroadcaster{}
+	mountSessions(r, newHandlers(spy))
+
+	rec := do(r, http.MethodPost, wsPath, map[string]any{"profileId": "prof1"})
+	assert.Equal(t, http.StatusCreated, rec.Code)
+
+	var env struct {
+		Data struct {
+			SessionID string `json:"sessionId"`
+		} `json:"data"`
+	}
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &env))
+	assert.Equal(t, "sess1", env.Data.SessionID)
+
+	require.Len(t, spy.pushed, 1)
+	active := spy.pushed[0]
+	assert.Equal(t, "sess1", active.ID)
+	assert.Equal(t, "p1", active.ProjectID)
+	assert.Equal(t, "r1", active.RepoID)
+	assert.Equal(t, "ws1", active.WorkspaceID)
+	assert.Equal(t, "prof1", active.ProfileID)
+	assert.Equal(t, "active", active.Status)
+	assert.Nil(t, active.EndedAt)
+}
+
+func TestKillSession_202AndEndedBroadcast(
+	t *testing.T,
+) {
+	r := gin.New()
+	spy := &spyBroadcaster{}
+	mountSessions(r, newHandlers(spy))
+
+	rec := do(r, http.MethodDelete, wsPath+"/sess1", nil)
+	assert.Equal(t, http.StatusAccepted, rec.Code)
+
+	require.Len(t, spy.pushed, 1)
+	ended := spy.pushed[0]
+	assert.Equal(t, "sess1", ended.ID)
+	assert.Equal(t, "p1", ended.ProjectID)
+	assert.Equal(t, "r1", ended.RepoID)
+	assert.Equal(t, "ws1", ended.WorkspaceID)
+	assert.Equal(t, "ended", ended.Status)
+	require.NotNil(t, ended.EndedAt)
+}
+
+func TestListSessions_ReturnsScopedList(
+	t *testing.T,
+) {
+	r := newRouter()
+
+	rec := do(r, http.MethodGet, wsPath, nil)
+	assert.Equal(t, http.StatusOK, rec.Code)
+
+	var env struct {
+		Data []dto.TerminalSessionDTO `json:"data"`
+	}
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &env))
+	require.Len(t, env.Data, 1)
+	assert.Equal(t, "sess1", env.Data[0].ID)
+	assert.Equal(t, "ws1", env.Data[0].WorkspaceID)
+	assert.Equal(t, "active", env.Data[0].Status)
+}
+
+func TestCreateSession_404OnUnknownWorkspace(
+	t *testing.T,
+) {
+	r := gin.New()
+	h := handlers.New(stubEngine{}, stubProfiles{}, errReader{}, &spyBroadcaster{})
+	mountSessions(r, h)
+
+	rec := do(r, http.MethodPost, wsPath, nil)
+	assert.Equal(t, http.StatusNotFound, rec.Code)
+}
+
+func TestKillSession_404OnUnknownSession(
+	t *testing.T,
+) {
+	r := gin.New()
+	spy := &spyBroadcaster{}
+	h := handlers.New(notFoundEngine{}, stubProfiles{}, stubReader{}, spy)
+	mountSessions(r, h)
+
+	rec := do(r, http.MethodDelete, wsPath+"/ghost", nil)
+	assert.Equal(t, http.StatusNotFound, rec.Code)
+	assert.Empty(t, spy.pushed)
 }

@@ -9,6 +9,7 @@ import (
 	"github.com/gin-gonic/gin"
 	"github.com/stretchr/testify/assert"
 
+	"github.com/char2cs/crowbar/api/internal/api/v0/dto"
 	"github.com/char2cs/crowbar/api/internal/api/v0/endpoints/terminal"
 	"github.com/char2cs/crowbar/api/internal/domain"
 	engineterminal "github.com/char2cs/crowbar/api/internal/engine/terminal"
@@ -57,6 +58,34 @@ func (stubEngine) Attach(
 	return nil
 }
 
+func (stubEngine) ListSessionsForWorkspace(
+	_ string,
+) []string {
+	return nil
+}
+
+type stubBroadcaster struct{}
+
+func (stubBroadcaster) Push(
+	_ dto.TerminalSessionDTO,
+) {
+}
+
+// passthroughDispatch mirrors ws.DualServe's signature for the route-mount test:
+// it returns the REST handler so a plain GET is served (the WS branch is
+// exercised by the container integration tests).
+func passthroughDispatch(
+	rest gin.HandlerFunc,
+	_ gin.HandlerFunc,
+) gin.HandlerFunc {
+	return rest
+}
+
+func noopWSHandle(
+	_ *gin.Context,
+) {
+}
+
 type stubProfiles struct{}
 
 func (stubProfiles) FindAll(
@@ -103,12 +132,22 @@ func TestRegisterMountsRoutes(
 	// Session lifecycle + PTY routes mount on the workspace-scoped group; the
 	// profile CRUD mounts on the top-level /v0 group (mirroring the router).
 	wsScoped := rg.Group("/projects/:projectId/repos/:repoId/workspaces/:wsId")
-	terminal.Register(wsScoped, rg, stubEngine{}, stubProfiles{}, stubReader{})
+	terminal.Register(
+		wsScoped,
+		rg,
+		stubEngine{},
+		stubProfiles{},
+		stubReader{},
+		stubBroadcaster{},
+		noopWSHandle,
+		passthroughDispatch,
+	)
 
 	cases := []struct {
 		method string
 		path   string
 	}{
+		{http.MethodGet, "/v0/projects/p1/repos/r1/workspaces/ws1/terminals"},
 		{http.MethodPost, "/v0/projects/p1/repos/r1/workspaces/ws1/terminals"},
 		{http.MethodDelete, "/v0/projects/p1/repos/r1/workspaces/ws1/terminals/sess1"},
 		{http.MethodGet, "/v0/projects/p1/repos/r1/workspaces/ws1/terminals/sess1/ws"},

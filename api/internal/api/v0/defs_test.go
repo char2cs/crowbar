@@ -59,15 +59,35 @@ func TestThreadsDef_NamespaceProjectRepoWsID(t *testing.T) {
 	assert.Contains(t, string(data), "t1")
 }
 
-func TestTerminalsDef_NamespaceProjectRepoWsID(t *testing.T) {
-	def := terminalsDef()
+func TestTerminalsDef_NamespaceProjectRepoWs(t *testing.T) {
+	def := terminalsDef(nil, nil)
 	d := dto.TerminalSessionDTO{ID: "s1", ProjectID: "p1", RepoID: "r1", WorkspaceID: "w1"}
 
-	assert.Equal(t, "p1/r1/w1/s1", def.Namespace(d))
+	// The namespace is the workspace prefix (p/r/w), NOT the session leaf: a
+	// workspace-scoped subscription receives every session in that workspace.
+	assert.Equal(t, "p1/r1/w1", def.Namespace(d))
 
 	data, err := def.Serialize(d)
 	require.NoError(t, err)
 	assert.Contains(t, string(data), "s1")
+}
+
+func TestTerminalsDef_FiltersScopeByProjectRepoWs(t *testing.T) {
+	def := terminalsDef(nil, nil)
+	d := dto.TerminalSessionDTO{ID: "s1", ProjectID: "p1", RepoID: "r1", WorkspaceID: "w1"}
+
+	require.Len(t, def.Filters, 3)
+	assert.Equal(t, "projectId", def.Filters[0].Param)
+	assert.Equal(t, "p1", def.Filters[0].Extract(d))
+	assert.Equal(t, "repoId", def.Filters[1].Param)
+	assert.Equal(t, "r1", def.Filters[1].Extract(d))
+	assert.Equal(t, "wsId", def.Filters[2].Param)
+	assert.Equal(t, "w1", def.Filters[2].Extract(d))
+}
+
+func TestTerminalsDef_SnapshotNilWithoutEngine(t *testing.T) {
+	def := terminalsDef(nil, nil)
+	assert.Nil(t, def.Snapshot)
 }
 
 func TestGitDef_Lambdas(t *testing.T) {
