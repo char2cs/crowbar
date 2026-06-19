@@ -178,8 +178,12 @@ func (c *Container) Close() error
 ### WS transport (`api/v0/ws`)
 ```go
 func PrefixMatch(prefix string, value string) bool  // hierarchical: "p/r" matches "p/r/w"; "" matches all; "p/r" does NOT match "p/r2/w"
-type StreamDef[T any] struct { Namespace func(T) string; Serialize func(T)([]byte,error); Filters []FilterDef[T]; Snapshot func(scope string) []T; ScopeKey func(*gin.Context) string; OnSubscribe func(scope string); OnUnsubscribe func(scope string) }
+type StreamDef[T any] struct { Namespace func(T) string; FlatNamespace bool; Serialize func(T)([]byte,error); Filters []FilterDef[T]; Snapshot func(scope string) []T; ScopeKey func(*gin.Context) string; OnSubscribe func(scope string); OnUnsubscribe func(scope string) }
 // Snapshot gains a scope arg (per-entity lazy storage must not enumerate globally).
+// FlatNamespace (RATIFIED W7-1): set on git/files/lsp whose Namespace is a bare wsId leaf
+// (not a p/r/w hierarchical key). BuildPredicate skips hierarchical PrefixMatch for these and
+// scopes them by their wsId Filter only — otherwise the structural p/r scope prefix can never
+// prefix-match a bare wsId and every git/files/lsp WS event is silently dropped.
 ```
 
 ### Broadcaster namespaces (`api/v0/container.go`)
