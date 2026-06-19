@@ -16,6 +16,8 @@ import { isTauri } from '@/lib/crowbar-bridge'
 import { postRepo } from '@/lib/api'
 import { useProjectStore } from '@/lib/store/projects'
 import { awaitEntity } from '@/lib/ws/await-entity'
+import { upsertEntity } from '@/lib/persistence/entity-cache'
+import { syncSidebarFromCache } from '@/lib/store/sidebar-sync'
 import type { RepoDTO, WorkspaceDTO } from '@/lib/types'
 
 interface AddRepositoryModalProps {
@@ -72,6 +74,16 @@ export function AddRepositoryModal({ open, onOpenChange }: AddRepositoryModalPro
         match: (w) => w.repoId === repo.id && w.status !== 'deleted',
         action: () => Promise.resolve(),
       })
+
+      // Persist the resolved entities and rebuild the sidebar BEFORE navigating.
+      // awaitEntity only resolves the DTOs; the entity cache and sidebar tree are
+      // populated asynchronously by app-sync's streams, which lag this navigate.
+      // Without seeding them here the /ide route guard reads a sidebar that does
+      // not yet contain the new workspace, treats it as unknown, and bounces back
+      // to / (a redirect loop with the landing beforeLoad).
+      await upsertEntity('crowbar_repos', repo)
+      await upsertEntity('crowbar_workspaces', ws)
+      await syncSidebarFromCache()
 
       onOpenChange(false)
       setPath('')

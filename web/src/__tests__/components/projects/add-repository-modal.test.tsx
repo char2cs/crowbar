@@ -52,6 +52,8 @@ vi.mock('@tanstack/react-router', async (importOriginal) => {
 import * as api from '@/lib/api'
 import { AddRepositoryModal } from '@/components/projects/add-repository-modal'
 import { useProjectStore } from '@/lib/store/projects'
+import { useSidebarStore } from '@/lib/store/sidebar'
+import { wipeEntityCache } from '@/lib/persistence/idb'
 
 function repoDTO(over: Partial<RepoDTO> & { id: string; path: string }): RepoDTO {
   return {
@@ -89,12 +91,14 @@ function workspaceDTO(over: Partial<WorkspaceDTO> & { id: string; repoId: string
 
 const pathInput = () => screen.getByPlaceholderText('/absolute/path/to/repo')
 
-beforeEach(() => {
+beforeEach(async () => {
   subscribers.clear()
   navigateMock.mockReset()
   vi.mocked(api.postRepo).mockReset()
   vi.mocked(api.postRepo).mockResolvedValue(undefined)
   useProjectStore.setState({ activeProjectId: 'proj-1' })
+  useSidebarStore.setState({ repos: [] })
+  await wipeEntityCache()
 })
 
 test('Add button is disabled when the path is empty', () => {
@@ -161,6 +165,27 @@ test('two-stage resolve: RepoDTO by path then default WorkspaceDTO, then navigat
     })
     expect(onOpenChange).toHaveBeenCalledWith(false)
   })
+})
+
+test('seeds the new repo+workspace into the sidebar tree before navigating (no /ide bounce)', async () => {
+  render(<AddRepositoryModal open={true} onOpenChange={() => {}} />)
+  fireEvent.change(pathInput(), { target: { value: '/tmp/my-repo' } })
+  fireEvent.click(screen.getByRole('button', { name: /add repository/i }))
+
+  await waitFor(() => expect(subscribers.has('/v0/projects/proj-1/repos')).toBe(true))
+  emit('/v0/projects/proj-1/repos', repoDTO({ id: 'repo-9', path: '/tmp/my-repo' }))
+  await waitFor(() =>
+    expect(subscribers.has('/v0/projects/proj-1/repos/repo-9/workspaces')).toBe(true),
+  )
+  emit('/v0/projects/proj-1/repos/repo-9/workspaces', workspaceDTO({ id: 'ws-1', repoId: 'repo-9' }))
+
+  await waitFor(() => expect(navigateMock).toHaveBeenCalled())
+
+  // By the time navigation fires, the sidebar tree already contains the new
+  // workspace, so the /ide route guard won't treat it as unknown and bounce.
+  const repo = useSidebarStore.getState().repos.find((r) => r.id === 'repo-9')
+  expect(repo).toBeDefined()
+  expect(repo!.workspaces.some((w) => w.id === 'ws-1')).toBe(true)
 })
 
 test('ignores a deleted-status workspace frame and waits for a live one', async () => {
