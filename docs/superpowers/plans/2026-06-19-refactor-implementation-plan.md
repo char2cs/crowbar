@@ -277,6 +277,23 @@ Backend waves W1–W13 land first and keep `go test ./...` green throughout. Fro
 - **Green-trunk rule:** the branch must build and pass tests at every wave boundary. The `web/dist` go:embed is satisfied by a placeholder (`make` builds the bundle for the binary; `go test ./internal/...` and the kit/harness suites do not need it).
 - **Bug protocol (esp. during W13/W19):** every defect → a `TestRegression_*` written red first, then fixed; if found during the live E2E, add it to the backend blackbox suite before fixing, then restart §14 from Step 0.
 
+### Expand-contract sequencing (mandatory for the backend domain/storage core)
+
+Removing a still-referenced symbol mid-stream breaks the build and defeats per-task TDD. **Never remove an old field/signature/store before all consumers are migrated.** Sequence every breaking change as: (1) **expand** — add the new field/accessor/status alongside the old (additive, green); (2) **migrate** — convert every reader/writer to the new path while the old still exists (dual-state, green); (3) **contract** — delete the old field + now-dead code in a final dedicated task (green). Concretely, the order is: add status constants + `Working`/`LastError`; convert all locking/conflict logic to `Status==locked`/`pr-conflicts` while `Locked`/`HasConflicts` bools still exist; add adapter per-entity accessors alongside the old global stores; switch `app.New`/`repositories.New` to the resolver; **only then** delete `Locked`/`HasConflicts`/`PendingMerge`/`AgentRunning` and the old global stores. This keeps `go test ./internal/...` green at every task boundary.
+
+### Milestones & green gates (orchestration granularity)
+
+The 19 waves are the task breakdown; execution proceeds in **milestones**, each ending green and verified by the orchestrator before the next begins:
+- **M1 Foundation** (W1–W5, expand-contract ordered) → `go build ./internal/... && go test ./internal/... -count=1` green.
+- **M2 Transport+routes** (W6–W8) → green + `route_audit` passes.
+- **M3 Feature endpoints** (W9–W12) → green.
+- **M4 Backend gate** (W13) → `go test ./... -tags integration` green; coverage ≥95% touched; bench baselines set.
+- **M5 FE data+cache+bridge** (W14–W16) → `cd web && npm test` green.
+- **M6 FE stores+flows** (W17–W18) → vitest green + `npm run build` + `make` desktop build.
+- **M7 Live E2E** (W19) → §14 passes live in Tauri + real PR.
+
+Within a milestone, tasks run **sequentially** (shared working tree — never parallel implementers). Orchestrate each milestone with a wave-runner workflow (sequential implement→review→fix per task), then the orchestrator verifies the green gate with Bash before advancing and records the milestone in the ledger + the `ide-production-quest` memory.
+
 ---
 
 ## Wave 1 — worktreepath UUID + status constants + domain field changes
