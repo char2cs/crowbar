@@ -2,7 +2,7 @@ export PATH := $(HOME)/.bun/bin:$(HOME)/.cargo/bin:$(HOME)/.rustup/toolchains/st
 export RUSTUP_HOME := $(HOME)/.rustup
 export CARGO_HOME := $(HOME)/.cargo
 
-.PHONY: dev dev-api dev-web dev-desktop build test test-coverage lint pr-checks ci docker-up docker-down
+.PHONY: dev dev-api dev-web dev-desktop dev-bundle build test test-coverage lint pr-checks ci docker-up docker-down
 
 # Parallel dev: starts all three subsystems
 dev:
@@ -16,6 +16,13 @@ dev-web:
 
 dev-desktop:
 	$(MAKE) -C desktop dev
+
+# Debug bundle with macOS 26 Tahoe adaptive icon — no hot reload.
+dev-bundle:
+	@echo "Building web..."
+	@$(MAKE) -C web build
+	@echo "Building debug bundle..."
+	@$(MAKE) -C desktop dev-bundle
 
 build:
 	@echo "Building web..."

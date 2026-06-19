@@ -827,10 +827,10 @@ const EXTREME_REPOS = [
 
 // ─── Workspace store ──────────────────────────────────────────────────────────
 
-const wsStore = new Map<string, { id: string; repoId: string; branch: string }>()
+const wsStore = new Map<string, { id: string; projectId: string; repoId: string; branch: string }>()
 for (const repo of EXTREME_REPOS) {
   for (const ws of repo.workspaces) {
-    wsStore.set(ws.id, { id: ws.id, repoId: repo.id, branch: ws.branch })
+    wsStore.set(ws.id, { id: ws.id, projectId: '', repoId: repo.id, branch: ws.branch })
   }
 }
 
@@ -953,7 +953,7 @@ export const extremeDataset: ScenarioDataset = {
   workspace: (wsId) => wsStore.get(wsId),
   createWorkspace: (repoId, branch) => {
     const id = nanoid()
-    const ws = { id, repoId, branch }
+    const ws = { id, projectId: '', repoId, branch }
     wsStore.set(id, ws)
     return ws
   },

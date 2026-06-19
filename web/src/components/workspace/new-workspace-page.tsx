@@ -21,7 +21,11 @@ export function NewWorkspacePage() {
     try {
       const ws = await postWorkspace(data.repoId, data.branch)
       addWorkspace(data.repoId, ws.id, data.branch)
-      void navigate({ to: '/workspaces/$wsId', params: { wsId: ws.id } })
+      const repo = useSidebarStore.getState().repos.find((r) => r.id === data.repoId)
+      void navigate({
+        to: '/ide/$projectId/$repoId/$wsId',
+        params: { projectId: repo?.projectId ?? '', repoId: data.repoId, wsId: ws.id },
+      })
     } catch (err) {
       toast.error(err instanceof Error ? err.message : 'Failed to create workspace')
     } finally {

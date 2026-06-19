@@ -4,7 +4,8 @@ import type { Scenario } from '@/lib/store/chaos'
 import Section, { SETTINGS_CONTROL_WIDTHS, SettingRow } from '../settings-section'
 import NumberInput from '@/components/ui/number-input'
 import { Button } from '@/components/ui/button'
-import { useSettingsStore } from '@/features/settings/store'
+import { Switch } from '@/components/ui/switch'
+import { useSettingsStore, getDefaultSetting } from '@/features/settings/store'
 import { downloadSettingsFile } from '@/features/settings/lib/settings-download'
 import { primitiveConfirm } from '@/components/ui/primitive-dialog-service'
 import { toast } from '@/features/window/stores/toast-store'
@@ -33,6 +34,9 @@ const SCENARIO_OPTIONS: { value: Scenario; label: string; description: string }[
 ]
 
 export function DeveloperSettings() {
+  const showFpsOverlay = useSettingsStore((s) => s.settings.showFpsOverlay)
+  const updateSetting = useSettingsStore((s) => s.updateSetting)
+
   const latency = useChaosStore((s) => s.latency)
   const errorRate = useChaosStore((s) => s.errorRate)
   const scenario = useChaosStore((s) => s.scenario)
@@ -98,6 +102,24 @@ export function DeveloperSettings() {
 
   return (
     <div className="space-y-4">
+      <Section
+        title="Performance"
+        description="Diagnostic overlays that appear on top of the editor. Persisted across restarts."
+      >
+        <SettingRow
+          label="FPS overlay"
+          description="Show a live frame-rate counter in the bottom-right corner — fps, worst frame time, and drop count per 500ms window."
+          onReset={() => updateSetting('showFpsOverlay', getDefaultSetting('showFpsOverlay'))}
+          canReset={showFpsOverlay !== getDefaultSetting('showFpsOverlay')}
+        >
+          <Switch
+            checked={showFpsOverlay}
+            onChange={(checked) => updateSetting('showFpsOverlay', checked)}
+            size="sm"
+          />
+        </SettingRow>
+      </Section>
+
       <Section
         title="Backup & Restore"
         description="Export your settings to a file, import a previous export, or reset everything to defaults."

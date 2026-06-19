@@ -1,4 +1,12 @@
 @import '@fontsource-variable/jetbrains-mono';
+/* Static "JetBrains Mono" (non-variable) for the terminal. Variable cuts force
+   xterm.js onto its slow DOM renderer (texture-atlas misalignment); the static
+   family keeps the WebGL renderer. Weights 400/700 cover regular + bold; latin
+   + latin-ext cover the terminal's glyph needs. See resolve-font.ts. */
+@import '@fontsource/jetbrains-mono/latin-400.css';
+@import '@fontsource/jetbrains-mono/latin-700.css';
+@import '@fontsource/jetbrains-mono/latin-ext-400.css';
+@import '@fontsource/jetbrains-mono/latin-ext-700.css';
 
 :root {
   --editor-font-family: ui-monospace, 'JetBrains Mono Variable', monospace;
@@ -31,6 +39,26 @@
 }
 
 html[data-pane-resizing] .monaco-editor {
+  transform: translateZ(0);
+}
+
+/*
+ * Non-sash pane layout changes (new pane open/close, terminal split, etc.).
+ * The ResizeObserver in editor-surface sets this attribute for two frames while
+ * editor.layout() runs, so WKWebView rasterizes the resized editor surface on
+ * the GPU compositor instead of blocking the main thread.
+ */
+html[data-editor-layout] .monaco-editor {
+  transform: translateZ(0);
+}
+
+/*
+ * Monaco drag-to-select. Pointer-down in the editor sets this attribute;
+ * pointer-up on window clears it. Keeps Monaco in a composited CALayer so
+ * per-frame selection-overlay updates are GPU-composited rather than triggering
+ * WKWebView CPU tile re-rasterization across every selected line.
+ */
+html[data-editor-selecting] .monaco-editor {
   transform: translateZ(0);
 }
 

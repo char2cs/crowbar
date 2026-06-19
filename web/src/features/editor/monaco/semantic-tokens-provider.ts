@@ -16,7 +16,7 @@
  * on the main thread has been removed — it caused 60–120ms stalls every ~30s
  * and a self-sustaining fireProviderChange → re-request → tokenize loop.
  */
-import { languages } from 'monaco-editor'
+import { editor, languages } from 'monaco-editor'
 import { getLanguageAssetConfig } from '@/features/editor/lib/wasm-parser/extension-assets'
 import { tokenizerWorkerClient } from '@/features/editor/lib/wasm-parser/tokenizer-worker-client'
 import type { HighlightToken } from '@/features/editor/lib/wasm-parser/types'
@@ -68,7 +68,7 @@ const providerOnDidChange = (listener: ListenerFn): { dispose(): void } => {
  * classify() function's conservative rules limit false positives.
  */
 function heuristicForRange(
-  model: languages.TextModel,
+  model: editor.ITextModel,
   startLine: number,
   endLine: number,
 ): languages.SemanticTokens {

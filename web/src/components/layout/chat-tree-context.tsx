@@ -115,7 +115,6 @@ interface ChatTreeContextValue {
   confirmRename: (title: string) => void
   cancelRename: () => void
   draggingChat: DraggingState | null
-  dragPos: { x: number; y: number } | null
   hoverTrash: boolean
   onPointerDownDrag: (chatId: string, label: string, e: React.PointerEvent) => void
 }
@@ -137,8 +136,15 @@ export function ChatTreeProvider({ children }: { children: ReactNode }) {
   const [creatingChildOf, setCreatingChildOf] = useState<CreatingState | null>(null)
   const [renamingId, setRenamingId] = useState<string | null>(null)
   const [draggingChat, setDraggingChat] = useState<DraggingState | null>(null)
-  const [dragPos, setDragPos] = useState<{ x: number; y: number } | null>(null)
   const [hoverTrash, setHoverTrash] = useState(false)
+
+  // Ghost div position is updated imperatively in pointermove — no React state,
+  // no tree re-renders on every pixel of mouse movement.
+  const ghostRef = useRef<HTMLDivElement | null>(null)
+  // Tracks the initial position for the ghost's first render.
+  const lastDragPosRef = useRef<{ x: number; y: number } | null>(null)
+  // Equality refs — avoids state writes when values haven't changed.
+  const hoverTrashRef = useRef(false)
 
   const pendingRef = useRef<{
     chatId: string
@@ -200,15 +206,28 @@ export function ChatTreeProvider({ children }: { children: ReactNode }) {
           if (target.isConnected) target.setPointerCapture(pointerId)
           const chat = { id: chatId, label }
           draggingRef.current = chat
+          // Store position before the React re-render so the ghost mounts at
+          // the correct location on its first render.
+          lastDragPosRef.current = { x: e.clientX, y: e.clientY }
           setDraggingChat(chat)
-          setDragPos({ x: e.clientX, y: e.clientY })
-          setHoverTrash(isOverTrash(e.clientX, e.clientY))
+          const initialTrash = isOverTrash(e.clientX, e.clientY)
+          hoverTrashRef.current = initialTrash
+          setHoverTrash(initialTrash)
         }
         return
       }
       if (!draggingRef.current) return
-      setDragPos({ x: e.clientX, y: e.clientY })
-      setHoverTrash(isOverTrash(e.clientX, e.clientY))
+      // Move ghost directly — no React state update, no tree re-render.
+      if (ghostRef.current) {
+        ghostRef.current.style.left = `${e.clientX + 12}px`
+        ghostRef.current.style.top = `${e.clientY - 10}px`
+      }
+      // Only re-render when trash hover state actually changes.
+      const newHoverTrash = isOverTrash(e.clientX, e.clientY)
+      if (newHoverTrash !== hoverTrashRef.current) {
+        hoverTrashRef.current = newHoverTrash
+        setHoverTrash(newHoverTrash)
+      }
     }
 
     function onPointerUp(e: PointerEvent) {
@@ -219,8 +238,9 @@ export function ChatTreeProvider({ children }: { children: ReactNode }) {
         void performDeleteChat(chat.id)
       }
       draggingRef.current = null
+      hoverTrashRef.current = false
+      lastDragPosRef.current = null
       setDraggingChat(null)
-      setDragPos(null)
       setHoverTrash(false)
     }
 
@@ -228,8 +248,9 @@ export function ChatTreeProvider({ children }: { children: ReactNode }) {
       pendingRef.current = null
       if (draggingRef.current) {
         draggingRef.current = null
+        hoverTrashRef.current = false
+        lastDragPosRef.current = null
         setDraggingChat(null)
-        setDragPos(null)
         setHoverTrash(false)
       }
     }
@@ -245,23 +266,36 @@ export function ChatTreeProvider({ children }: { children: ReactNode }) {
   }, [])
 
   return (
-    <ChatTreeContext.Provider
-      value={{
-        creatingChildOf,
-        startCreating,
-        confirmCreate,
-        cancelCreate,
-        renamingId,
-        startRenaming,
-        confirmRename,
-        cancelRename,
-        draggingChat,
-        dragPos,
-        hoverTrash,
-        onPointerDownDrag,
-      }}
-    >
-      {children}
-    </ChatTreeContext.Provider>
+    <>
+      <ChatTreeContext.Provider
+        value={{
+          creatingChildOf,
+          startCreating,
+          confirmCreate,
+          cancelCreate,
+          renamingId,
+          startRenaming,
+          confirmRename,
+          cancelRename,
+          draggingChat,
+          hoverTrash,
+          onPointerDownDrag,
+        }}
+      >
+        {children}
+      </ChatTreeContext.Provider>
+      {draggingChat && (
+        <div
+          ref={ghostRef}
+          className="pointer-events-none fixed z-50 rounded-md border border-border bg-secondary px-2 py-1 text-[13px] text-secondary-foreground shadow-md opacity-90"
+          style={{
+            left: lastDragPosRef.current ? lastDragPosRef.current.x + 12 : 0,
+            top: lastDragPosRef.current ? lastDragPosRef.current.y - 10 : 0,
+          }}
+        >
+          {draggingChat.label}
+        </div>
+      )}
+    </>
   )
 }

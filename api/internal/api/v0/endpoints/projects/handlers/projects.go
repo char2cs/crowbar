@@ -32,6 +32,14 @@ type Importer interface {
 		name string,
 		path string,
 	) (domain.Project, error)
+	// Create is the lightweight variant: validate the path and persist the
+	// Project record only — no repo discovery, no workspace stubs. Used by
+	// the OOBE flow where the project-level welcome screen handles repo setup.
+	Create(
+		ctx context.Context,
+		name string,
+		path string,
+	) (domain.Project, error)
 }
 
 // Deleter is the delete surface the projects handlers need: cascade-remove a
@@ -69,8 +77,11 @@ func New(
 // importRequest is the POST /v0/projects body: the display name and the
 // filesystem path to import.
 type importRequest struct {
-	Name string `json:"name"`
-	Path string `json:"path"`
+	Name  string `json:"name"`
+	Path  string `json:"path"`
+	// Quick skips repo discovery and workspace stub creation. Use it from the
+	// OOBE flow where repo setup is deferred to the project-level welcome screen.
+	Quick bool   `json:"quick,omitempty"`
 }
 
 // List handles GET /v0/projects, returning every project as ProjectDTO[].
@@ -117,7 +128,15 @@ func (h *Handlers) Import(
 		libs.WriteErr(c, http.StatusBadRequest, "path is required")
 		return
 	}
-	project, err := h.importer.Import(c.Request.Context(), body.Name, body.Path)
+	var (
+		project domain.Project
+		err     error
+	)
+	if body.Quick {
+		project, err = h.importer.Create(c.Request.Context(), body.Name, body.Path)
+	} else {
+		project, err = h.importer.Import(c.Request.Context(), body.Name, body.Path)
+	}
 	if err != nil {
 		status, msg := libs.StatusAndMessage(err)
 		libs.WriteErr(c, status, msg)

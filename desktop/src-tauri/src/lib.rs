@@ -164,6 +164,7 @@ pub fn run() {
         // removed in macOS 26. Keep it for macOS 13-15 compatibility but it is a
         // no-op (or crash-risk) on macOS 26 — our KVC fix in setup() covers that.
         .plugin(tauri_plugin_macos_fps::init())
+        .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_log::Builder::new().build())
         .plugin(tauri_plugin_shell::init())
         // Inject the desktop API endpoint on every webview load (see CROWBAR_BOOTSTRAP).

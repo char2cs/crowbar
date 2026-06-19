@@ -1,4 +1,4 @@
-import type { WorkspacePayload, Project } from './types'
+import type { WorkspacePayload, Project, Prerequisites } from './types'
 import { useChaosStore } from '@/lib/store/chaos'
 
 const crowbar = (window as unknown as { __CROWBAR__?: { api?: string } }).__CROWBAR__
@@ -80,21 +80,46 @@ export function fetchProject(id: string): Promise<Project> {
   return apiFetch(`/v0/projects/${id}`)
 }
 
+export function postRepo(
+  projectId: string,
+  name: string,
+  path: string,
+): Promise<{ id: string; projectId: string; name: string; path: string; defaultBranch: string }> {
+  return apiFetch('/v0/repos', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    // Supply the id from the frontend so the call is idempotent even when the
+    // daemon binary predates the server-side UUID generation fix.
+    body: JSON.stringify({ id: crypto.randomUUID(), projectId, name, path }),
+  })
+}
+
 // Pick a real workspace to land on at app start. Prefer the first unlocked
 // (editable) workspace so editing works out of the box; fall back to the first
 // workspace of any kind, or null when the backend has none yet (→ projects).
-export async function fetchLandingWorkspaceId(): Promise<string | null> {
-  const workspaces = await apiFetch<Array<{ id: string; locked: boolean }>>('/v0/workspaces')
+export async function fetchLandingWorkspaceId(): Promise<{
+  id: string
+  projectId: string
+  repoId: string
+} | null> {
+  const workspaces = await apiFetch<
+    Array<{ id: string; projectId: string; repoId: string; locked: boolean }>
+  >('/v0/workspaces')
   if (workspaces.length === 0) return null
   const editable = workspaces.find((ws) => !ws.locked)
-  return (editable ?? workspaces[0]).id
+  const ws = editable ?? workspaces[0]
+  return { id: ws.id, projectId: ws.projectId, repoId: ws.repoId }
+}
+
+export function fetchPrerequisites(): Promise<Prerequisites> {
+  return apiFetch('/v0/system/prerequisites')
 }
 
 // The backend's WriteMutationOK returns only `{ id }`, not the full entity.
-export function postProject(name: string, path: string): Promise<{ id: string }> {
+export function postProject(name: string, path: string, quick?: boolean): Promise<{ id: string }> {
   return apiFetch('/v0/projects', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ name, path }),
+    body: JSON.stringify({ name, path, ...(quick ? { quick: true } : {}) }),
   })
 }

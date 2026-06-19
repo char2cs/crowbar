@@ -6,6 +6,56 @@
     <title>Crowbar</title>
   </head>
   <body>
+    <!--
+      ProMotion keepalive: renders a real WebGL triangle (vertex + fragment
+      shader) every rAF frame. gl.clear() alone on a tiny hidden canvas gets
+      optimised away by CoreAnimation — Metal sees no visible pixels changed and
+      defers the layer. A shader draw call (drawArrays) forces real GPU
+      rasterisation, producing a CA layer commit on every frame that CoreDisplay
+      cannot defer, keeping ProMotion at 120 Hz. This is the same path xterm.js
+      WebGL uses. Canvas is 32×32 (real backing store), displayed at 2×2 CSS px
+      in the top-left corner at opacity 0.015 — imperceptible but above the
+      compositor's zero-alpha culling threshold.
+    -->
+    <canvas id="_promo" width="32" height="32" aria-hidden="true"
+      style="position:fixed;top:0;left:0;width:2px;height:2px;pointer-events:none;opacity:0.015"></canvas>
+    <script>
+      (function () {
+        var c = document.getElementById('_promo');
+        var gl = c.getContext('webgl') || c.getContext('experimental-webgl');
+        if (!gl) return;
+        var vs = gl.createShader(gl.VERTEX_SHADER);
+        gl.shaderSource(vs, 'attribute vec2 p;void main(){gl_Position=vec4(p,0,1);}');
+        gl.compileShader(vs);
+        var fs = gl.createShader(gl.FRAGMENT_SHADER);
+        gl.shaderSource(fs, 'precision mediump float;uniform float h;void main(){gl_FragColor=vec4(h,0.0,0.0,0.015);}');
+        gl.compileShader(fs);
+        var prog = gl.createProgram();
+        gl.attachShader(prog, vs);
+        gl.attachShader(prog, fs);
+        gl.linkProgram(prog);
+        gl.useProgram(prog);
+        var buf = gl.createBuffer();
+        gl.bindBuffer(gl.ARRAY_BUFFER, buf);
+        gl.bufferData(gl.ARRAY_BUFFER, new Float32Array([-1,-1, 1,-1, 0,1]), gl.STATIC_DRAW);
+        var pLoc = gl.getAttribLocation(prog, 'p');
+        gl.enableVertexAttribArray(pLoc);
+        gl.vertexAttribPointer(pLoc, 2, gl.FLOAT, false, 0, 0);
+        var hLoc = gl.getUniformLocation(prog, 'h');
+        gl.enable(gl.BLEND);
+        gl.blendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA);
+        var h = 0;
+        function draw() {
+          h = (h + 0.003) % 1.0;
+          gl.uniform1f(hLoc, h);
+          gl.clear(gl.COLOR_BUFFER_BIT);
+          gl.drawArrays(gl.TRIANGLES, 0, 3);
+          gl.flush();
+          requestAnimationFrame(draw);
+        }
+        requestAnimationFrame(draw);
+      })();
+    </script>
     <div id="root"></div>
     <script type="module" src="/src/main.tsx"></script>
   </body>

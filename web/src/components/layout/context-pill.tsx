@@ -26,7 +26,7 @@ export function ContextPill() {
   if (model.kind === 'empty') return null
 
   return (
-    <div className="shrink-0 px-2 pt-2 pb-1">
+    <div className="shrink-0 px-2 pt-0 pb-1">
       <CommandDialog open={open} onOpenChange={setOpen}>
         <CommandDialogTrigger
           render={(

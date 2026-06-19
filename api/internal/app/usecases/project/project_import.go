@@ -118,6 +118,14 @@ type ImportUsecase interface {
 		name string,
 		path string,
 	) (domain.Project, error)
+	// Create is the lightweight variant of Import: it validates the path and
+	// persists only the Project row. Repo discovery and workspace stub creation
+	// are skipped — the project-level welcome screen handles them later.
+	Create(
+		ctx context.Context,
+		name string,
+		path string,
+	) (domain.Project, error)
 }
 
 type projectImport struct {
@@ -132,6 +140,26 @@ func NewImport(
 		deps.Stat = os.Stat
 	}
 	return &projectImport{deps: deps}
+}
+
+func (u *projectImport) Create(
+	ctx context.Context,
+	name string,
+	path string,
+) (domain.Project, error) {
+	if err := u.validateImportPath(path); err != nil {
+		return domain.Project{}, err
+	}
+	project := domain.Project{
+		ID:           uuid.NewString(),
+		Name:         name,
+		Path:         path,
+		LastActivity: u.deps.Now(),
+	}
+	if err := u.deps.Projects.Save(ctx, project); err != nil {
+		return domain.Project{}, fmt.Errorf("project create: save project: %w", err)
+	}
+	return project, nil
 }
 
 func (u *projectImport) Import(

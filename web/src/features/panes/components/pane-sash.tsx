@@ -125,10 +125,10 @@ export function PaneSash({
       onPointerDown={handlePointerDown}
       className={cn(
         'relative z-10 flex shrink-0 items-center justify-center ring-offset-background',
-        'after:absolute after:left-1/2 after:-translate-x-1/2 after:inset-y-0 after:w-1',
+        'transition-colors hover:bg-border/60',
         isHorizontal
-          ? 'w-px cursor-col-resize'
-          : 'h-px w-full cursor-row-resize after:left-0 after:top-1/2 after:h-1 after:w-full after:translate-x-0 after:-translate-y-1/2',
+          ? 'w-1.5 cursor-col-resize'
+          : 'h-1.5 w-full cursor-row-resize',
       )}
     />
   )

@@ -1,6 +1,7 @@
 // web/src/lib/types.ts
 export interface WorkspacePayload {
   id: string
+  projectId: string
   repoId: string
   branch: string
 }
@@ -22,4 +23,10 @@ export interface Project {
   name: string
   path: string
   lastActivity: Date
+}
+
+export interface Prerequisites {
+  git: { installed: boolean; version?: string }
+  gh: { installed: boolean; authed: boolean }
+  glab: { installed: boolean; authed: boolean }
 }

@@ -14,6 +14,7 @@ import (
 	"github.com/char2cs/crowbar/api/internal/api/v0/endpoints/repos"
 	"github.com/char2cs/crowbar/api/internal/api/v0/endpoints/review"
 	"github.com/char2cs/crowbar/api/internal/api/v0/endpoints/search"
+	"github.com/char2cs/crowbar/api/internal/api/v0/endpoints/system"
 	"github.com/char2cs/crowbar/api/internal/api/v0/endpoints/terminal"
 	"github.com/char2cs/crowbar/api/internal/api/v0/endpoints/workspaces"
 	"github.com/char2cs/crowbar/api/internal/api/v0/ws"
@@ -30,6 +31,7 @@ func (c *Container) Register(
 	rg.Use(rejectEmptyPathParams())
 
 	health.Register(rg)
+	system.Register(rg)
 	projects.Register(
 		rg,
 		c.app.Usecases.Project,

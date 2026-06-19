@@ -1,5 +1,5 @@
 import { useState, useRef, useEffect } from 'react'
-import { Outlet, useNavigate, useRouterState } from '@tanstack/react-router'
+import { Outlet, useRouterState } from '@tanstack/react-router'
 import { SidebarProvider } from '@/components/ui/sidebar'
 import { ResizableHandle, ResizablePanel, ResizablePanelGroup } from '@/components/ui/resizable'
 import type { PanelImperativeHandle, PanelSize } from 'react-resizable-panels'
@@ -20,6 +20,7 @@ import { useUIState } from '@/features/window/stores/ui-state-store'
 import { FontStyleInjector } from '@/features/settings/components/font-style-injector'
 import { Toaster } from '@/components/ui/sonner'
 import { ConnectionIndicator } from './connection-indicator'
+import { FpsOverlay } from './fps-overlay'
 import { useSidebarNavStore } from '@/features/layout/stores/sidebar-nav'
 
 const SIDEBAR_MIN_PX = 250
@@ -35,7 +36,6 @@ function loadSidebarWidth(): number {
 }
 
 export function IDEShell() {
-  const navigate = useNavigate()
   const routerState = useRouterState()
   const pathname = routerState.location.pathname
   const chats = useSidebarStore((s) => s.chats)
@@ -45,7 +45,7 @@ export function IDEShell() {
   const [sidebarOpen, setSidebarOpen] = useState(true)
   const sidebarPanelRef = useRef<PanelImperativeHandle | null>(null)
 
-  const activeWorkspaceId = pathname.match(/\/workspaces\/([^/]+)/)?.[1]
+  const activeWorkspaceId = pathname.match(/\/ide\/[^/]+\/[^/]+\/([^/]+)/)?.[1]
   const activeChatId = pathname.match(/\/chat\/([^/]+)/)?.[1]
   const activeRepo = repos.find((r) => r.workspaces?.some((ws) => ws.id === activeWorkspaceId))
   // TODO(workspace-paths): `/repos/<repoId>` is a synthetic mock-era root prefix.
@@ -95,12 +95,7 @@ export function IDEShell() {
 
   const sidebarContent = (
     <div className="flex h-full flex-col overflow-hidden bg-transparent select-none">
-      {!hasNavScreen && (
-        <SidebarProjectHeader
-          onProjectsClick={() => void navigate({ to: '/projects' })}
-          onProjectSelect={() => void navigate({ to: '/' })}
-        />
-      )}
+      {!hasNavScreen && <SidebarProjectHeader />}
       {!hasNavScreen && <ContextPill />}
       {!hasNavScreen && <SidebarTabBar />}
       <ErrorBoundary>
@@ -173,6 +168,7 @@ export function IDEShell() {
               minSize={SIDEBAR_MIN_PX}
               maxSize={SIDEBAR_MAX_PX}
               collapsedSize={0}
+              groupResizeBehavior="preserve-pixel-size"
               onResize={handleSidebarResize}
             >
               {sidebarContent}
@@ -187,6 +183,7 @@ export function IDEShell() {
               minSize={SIDEBAR_MIN_PX}
               maxSize={SIDEBAR_MAX_PX}
               collapsedSize={0}
+              groupResizeBehavior="preserve-pixel-size"
               onResize={handleSidebarResize}
             >
               {sidebarContent}
@@ -205,6 +202,7 @@ export function IDEShell() {
       <TerminalHost />
       <FontStyleInjector />
       <ConnectionIndicator />
+      <FpsOverlay />
       <Toaster />
     </SidebarProvider>
   )

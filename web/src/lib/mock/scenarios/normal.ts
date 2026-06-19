@@ -100,10 +100,10 @@ const PROJECTS = [
 
 // ─── Workspaces ──────────────────────────────────────────────────────────────
 
-const WORKSPACES: Record<string, { id: string; repoId: string; branch: string }> = {
-  'rb-develop': { id: 'rb-develop', repoId: 'rabbyte', branch: 'develop' },
-  'rb-onboarding': { id: 'rb-onboarding', repoId: 'rabbyte', branch: 'feature/onboarding' },
-  'rb-fix': { id: 'rb-fix', repoId: 'rabbyte', branch: 'fix/signup-form' },
+const WORKSPACES: Record<string, { id: string; projectId: string; repoId: string; branch: string }> = {
+  'rb-develop': { id: 'rb-develop', projectId: '', repoId: 'rabbyte', branch: 'develop' },
+  'rb-onboarding': { id: 'rb-onboarding', projectId: '', repoId: 'rabbyte', branch: 'feature/onboarding' },
+  'rb-fix': { id: 'rb-fix', projectId: '', repoId: 'rabbyte', branch: 'fix/signup-form' },
 }
 
 const wsStore = new Map(Object.entries(WORKSPACES))
@@ -527,7 +527,7 @@ export const normalDataset: ScenarioDataset = {
   workspace: (wsId) => wsStore.get(wsId),
   createWorkspace: (repoId, branch) => {
     const id = nanoid()
-    const ws = { id, repoId, branch }
+    const ws = { id, projectId: '', repoId, branch }
     wsStore.set(id, ws)
     return ws
   },

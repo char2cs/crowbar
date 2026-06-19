@@ -157,10 +157,17 @@ export function EditorSurface({
           needsLayoutAfterResize = true
           return
         }
+        // GPU-promote Monaco for the layout frame so WKWebView rasterizes the
+        // resized surface on the compositor thread instead of the main thread.
+        document.documentElement.setAttribute('data-editor-layout', '1')
         if (layoutRafId !== null) cancelAnimationFrame(layoutRafId)
         layoutRafId = requestAnimationFrame(() => {
           layoutRafId = null
           runLayout()
+          // Clear one frame after layout so the compositor has time to settle.
+          requestAnimationFrame(() => {
+            document.documentElement.removeAttribute('data-editor-layout')
+          })
         })
       })
       resizeObserver.observe(container)
@@ -176,10 +183,30 @@ export function EditorSurface({
       }
       window.addEventListener('pane-resize-end', handlePaneResizeEnd)
 
+      // GPU-promote Monaco during pointer-down drag-selection so per-frame
+      // selection-overlay updates are compositor-composited rather than triggering
+      // WKWebView CPU tile re-rasterization across each selected line.
+      const handlePointerDown = (e: PointerEvent) => {
+        if (e.button === 0) {
+          document.documentElement.setAttribute('data-editor-selecting', '1')
+        }
+      }
+      const handlePointerUp = () => {
+        document.documentElement.removeAttribute('data-editor-selecting')
+      }
+      container.addEventListener('pointerdown', handlePointerDown)
+      window.addEventListener('pointerup', handlePointerUp)
+      window.addEventListener('pointercancel', handlePointerUp)
+
       resizeCleanupRef.current = () => {
         resizeObserver.disconnect()
         if (layoutRafId !== null) cancelAnimationFrame(layoutRafId)
         window.removeEventListener('pane-resize-end', handlePaneResizeEnd)
+        container.removeEventListener('pointerdown', handlePointerDown)
+        window.removeEventListener('pointerup', handlePointerUp)
+        window.removeEventListener('pointercancel', handlePointerUp)
+        document.documentElement.removeAttribute('data-editor-selecting')
+        document.documentElement.removeAttribute('data-editor-layout')
       }
     },
     // Theme is read fresh via getState(); mount-once per pane.

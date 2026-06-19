@@ -25,7 +25,10 @@
         "transparent": true,
         "titleBarStyle": "Overlay",
         "hiddenTitle": true,
-        "trafficLightPosition": { "x": 12, "y": 23 },
+        "trafficLightPosition": {
+          "x": 12,
+          "y": 23
+        },
         "backgroundThrottling": "disabled"
       }
     ]
@@ -36,7 +39,20 @@
   "bundle": {
     "active": true,
     "targets": "all",
-    "icon": [],
-    "externalBin": ["binaries/crowbar-api"]
+    "icon": [
+      "icons/32x32.png",
+      "icons/128x128.png",
+      "icons/128x128@2x.png",
+      "icons/icon.icns",
+      "icons/icon.ico"
+    ],
+    "externalBin": [
+      "binaries/crowbar-api"
+    ],
+    "macOS": {
+      "files": {
+        "Resources/Assets.car": "icons/Assets.car"
+      }
+    }
   }
 }

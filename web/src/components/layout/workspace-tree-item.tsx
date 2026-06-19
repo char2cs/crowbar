@@ -11,14 +11,16 @@ interface WorkspaceTreeItemProps {
   node: WorkspaceTreeNode
   depth: number
   repoId: string
+  projectId: string
   activeWorkspaceId: string
-  onWorkspaceClick: (wsId: string) => void
+  onWorkspaceClick: (wsId: string, projectId: string, repoId: string) => void
 }
 
 export function WorkspaceTreeItem({
   node,
   depth,
   repoId,
+  projectId,
   activeWorkspaceId,
   onWorkspaceClick,
 }: WorkspaceTreeItemProps) {
@@ -68,11 +70,11 @@ export function WorkspaceTreeItem({
             isDraggingThis && 'opacity-40',
             isDropTarget && 'ring-1 ring-ring',
           )}
-          onClick={() => !isRenaming && onWorkspaceClick(workspace.id)}
+          onClick={() => !isRenaming && onWorkspaceClick(workspace.id, projectId, repoId)}
           onKeyDown={(e) => {
             if (!isRenaming && (e.key === 'Enter' || e.key === ' ')) {
               e.preventDefault()
-              onWorkspaceClick(workspace.id)
+              onWorkspaceClick(workspace.id, projectId, repoId)
             }
           }}
           onPointerDown={
@@ -176,6 +178,7 @@ export function WorkspaceTreeItem({
                 node={child}
                 depth={depth + 1}
                 repoId={repoId}
+                projectId={projectId}
                 activeWorkspaceId={activeWorkspaceId}
                 onWorkspaceClick={onWorkspaceClick}
               />

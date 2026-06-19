@@ -2,10 +2,16 @@ export PATH := $(HOME)/.bun/bin:$(HOME)/.cargo/bin:$(HOME)/.rustup/toolchains/st
 export RUSTUP_HOME := $(HOME)/.rustup
 export CARGO_HOME := $(HOME)/.cargo
 
-.PHONY: dev build test test-coverage lint fetch-sidecar
+.PHONY: dev dev-bundle build test test-coverage lint fetch-sidecar
 
 dev: fetch-sidecar
 	bunx @tauri-apps/cli dev
+
+# Debug bundle: real .app with the macOS 26 Tahoe adaptive icon.
+# No hot reload — rebuild manually when source changes.
+dev-bundle: fetch-sidecar
+	bunx @tauri-apps/cli build --debug --bundles app
+	open src-tauri/target/debug/bundle/macos/Crowbar.app
 
 build: fetch-sidecar
 	bunx @tauri-apps/cli build

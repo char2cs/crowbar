@@ -1,4 +1,4 @@
-import { terminalCreate } from '@/lib/crowbar-bridge'
+import { terminalCreate, terminalResize } from '@/lib/crowbar-bridge'
 import { getActiveWorkspaceId } from '@/features/workspace/stores/workspace-store-registry'
 
 // Create a PTY session against the active workspace on the Go daemon.
@@ -98,8 +98,9 @@ export const XtermTerminal: React.FC<XtermTerminalProps> = ({
       if (!container || !addons) return
 
       const rect = container.getBoundingClientRect()
-      const isContainerVisible = container.offsetParent !== null
-      if (rect.width <= 0 || rect.height <= 0 || !isContainerVisible) {
+      // Use rect dimensions only — offsetParent is null inside position:fixed
+      // ancestors (popup windows, overlays) even when the element is visible.
+      if (rect.width <= 0 || rect.height <= 0) {
         if (attempt < attempts - 1) {
           attempt += 1
           rafId = requestAnimationFrame(runFit)
@@ -107,18 +108,20 @@ export const XtermTerminal: React.FC<XtermTerminalProps> = ({
         return
       }
 
+      const term = xtermRef.current
+      const prevRows = term?.rows ?? 0
+      const prevCols = term?.cols ?? 0
       addons.fitAddon.fit()
 
       if (attempt < attempts - 1) {
         attempt += 1
         rafId = requestAnimationFrame(runFit)
-      } else {
-        // Final pass: force a renderer refresh so the canvas/WebGL backend
-        // repaints after a size change. Without this, splitting a pane (or any
-        // layout change that resizes the container) leaves the buffer in memory
-        // but unpainted until the window regains focus.
-        const term = xtermRef.current
-        if (term) term.refresh(0, term.rows - 1)
+      } else if (term && (term.rows !== prevRows || term.cols !== prevCols)) {
+        // Final pass: only force a full WebGL repaint when dimensions actually
+        // changed. An unconditional refresh(0, rows-1) on every fit call causes
+        // expensive full-canvas repaints that compound with WKWebView's CA layer
+        // re-rasterization, making the app feel sluggish after terminal updates.
+        term.refresh(0, term.rows - 1)
       }
     }
 
@@ -168,8 +171,7 @@ export const XtermTerminal: React.FC<XtermTerminalProps> = ({
     if (!container || isInitialized || isInitializingRef.current) return
 
     const rect = container.getBoundingClientRect()
-    const isContainerVisible = container.offsetParent !== null
-    if (rect.width <= 0 || rect.height <= 0 || !isContainerVisible) return
+    if (rect.width <= 0 || rect.height <= 0) return
 
     isInitializingRef.current = true
     const resolved = await resolveTerminalFont(terminalFontFamily, effectiveTerminalFontSize)
@@ -275,8 +277,21 @@ export const XtermTerminal: React.FC<XtermTerminalProps> = ({
       xtermRef.current = terminal
       addonsRef.current = addons
 
-      // Fit synchronously after open so terminal.rows/cols reflect the actual container size
-      // before we create the PTY with those dimensions
+      // FitAddon.proposeDimensions() returns undefined until the renderer has computed
+      // cell metrics (css.cell.width/height > 0). With WebGL this takes at least one
+      // rAF after open(). Poll here so the PTY is created with the correct dimensions
+      // instead of xterm's default 80×24.
+      const maxWaitFrames = 20
+      for (let waitFrame = 0; waitFrame < maxWaitFrames; waitFrame++) {
+        if (addons.fitAddon.proposeDimensions()) break
+        await new Promise<void>((resolve) => {
+          requestAnimationFrame(() => resolve())
+        })
+        if (!terminalContainerRef.current) {
+          isInitializingRef.current = false
+          return
+        }
+      }
       addons.fitAddon.fit()
 
       const existingSession = getSession(sessionId)
@@ -306,6 +321,15 @@ export const XtermTerminal: React.FC<XtermTerminalProps> = ({
           remoteConnectionId: effectiveRemoteConnectionId,
         })
       }
+
+      // Force-sync the PTY to xterm's freshly-fitted size for BOTH paths:
+      // - New session: the backend spawns the PTY at its default 80×24 and does
+      //   not honor the create-time rows/cols, so without this full-screen TUIs
+      //   (cmatrix, vim, htop) only use 24 rows.
+      // - Remount (pane split / tab move): the PTY keeps its old size, and the
+      //   post-create fit() is a no-op for xterm's dimensions, so no onResize
+      //   fires. Pushing the size here makes the running process redraw.
+      void terminalResize(activeConnectionId, terminal.rows, terminal.cols).catch(() => {})
 
       // No snapshot replay: xterm is portaled and never remounts mid-session,
       // so the live PTY redrawing via SIGWINCH is the source of truth.
@@ -437,8 +461,7 @@ export const XtermTerminal: React.FC<XtermTerminalProps> = ({
       if (isInitialized || isInitializingRef.current) return
 
       const rect = container.getBoundingClientRect()
-      const isContainerVisible = container.offsetParent !== null
-      if (rect.width <= 0 || rect.height <= 0 || !isContainerVisible) {
+      if (rect.width <= 0 || rect.height <= 0) {
         rafId = requestAnimationFrame(attemptInitialize)
         return
       }
@@ -542,7 +565,7 @@ export const XtermTerminal: React.FC<XtermTerminalProps> = ({
     window.addEventListener('pane-resize-end', handlePaneResizeEnd)
 
     resizeObserver.observe(terminalContainerRef.current)
-    const cleanupFit = fitTerminal(12)
+    const cleanupFit = fitTerminal(3)
 
     return () => {
       resizeObserver.disconnect()

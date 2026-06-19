@@ -7,6 +7,8 @@ import { Avatar, AvatarImage, AvatarFallback } from '@/components/ui/avatar'
 import { apiFetch } from '@/lib/api'
 import { useWorkspaceListStore } from '@/lib/store/workspace-list'
 import { useSidebarStore } from '@/lib/store/sidebar'
+import { dataOf } from '@/lib/loadable'
+import { toast } from 'sonner'
 import { Lock, Check, Trash2, Upload, Star, Smile } from 'lucide-react'
 import { cn } from '@/lib/utils'
 
@@ -50,16 +52,30 @@ export function RepoSettingsPanel({ repoId, repoName }: RepoSettingsPanelProps) 
     if (selected.size === 0) return
     setImporting(true)
     try {
-      await Promise.all(
+      const results = await Promise.allSettled(
         Array.from(selected).map((branch) =>
           apiFetch('/v0/workspaces', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ repoId, branch }),
-          }).catch(() => {})
+          })
         )
       )
-      void useWorkspaceListStore.getState().fetch()
+      const failed = results.filter((r) => r.status === 'rejected')
+      if (failed.length > 0) {
+        const msg = failed[0].status === 'rejected'
+          ? String((failed[0] as PromiseRejectedResult).reason)
+          : 'Unknown error'
+        toast.error(`Failed to import ${failed.length} branch${failed.length > 1 ? 'es' : ''}: ${msg}`)
+      }
+      await useWorkspaceListStore.getState().fetch()
+      const fresh = dataOf(useWorkspaceListStore.getState().data)
+      if (fresh) useSidebarStore.getState().mergeRepos(fresh)
+      // Refresh branch list so newly imported branches show hasWorkspace=true
+      apiFetch<BranchEntry[]>(`/v0/repos/${repoId}/branches`)
+        .then(setBranches)
+        .catch(() => {})
+      setSelected(new Set())
     } finally {
       setImporting(false)
     }

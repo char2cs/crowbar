@@ -16,12 +16,54 @@ import (
 	"unicode/utf8"
 
 	"github.com/gin-gonic/gin"
+	"github.com/google/uuid"
 
 	"github.com/char2cs/crowbar/api/internal/api/libs"
 	"github.com/char2cs/crowbar/api/internal/api/v0/dto"
 	"github.com/char2cs/crowbar/api/internal/app/apperr"
 	"github.com/char2cs/crowbar/api/internal/domain"
 )
+
+var avatarColors = []string{
+	"bg-indigo-700", "bg-emerald-700", "bg-orange-700", "bg-sky-700",
+	"bg-rose-700", "bg-violet-700", "bg-teal-700", "bg-amber-700",
+}
+
+// repoAvatar derives a 1-2 char label and deterministic Tailwind color from a repo name.
+func repoAvatar(name string) (label string, color string) {
+	words := strings.Fields(strings.Map(func(r rune) rune {
+		if unicode.IsLetter(r) || unicode.IsSpace(r) {
+			return r
+		}
+		return ' '
+	}, name))
+	switch len(words) {
+	case 0:
+		label = "R"
+	case 1:
+		r, _ := utf8.DecodeRuneInString(words[0])
+		label = strings.ToUpper(string(r))
+	default:
+		r0, _ := utf8.DecodeRuneInString(words[0])
+		r1, _ := utf8.DecodeRuneInString(words[1])
+		label = strings.ToUpper(string(r0) + string(r1))
+	}
+	hash := 0
+	for _, c := range name {
+		hash = (hash*31 + int(c)) & 0xFFFFFF
+	}
+	color = avatarColors[hash%len(avatarColors)]
+	return
+}
+
+// gitRemoteURL returns the origin remote URL for the repo at path, or "".
+func gitRemoteURL(path string) string {
+	out, err := exec.Command("git", "-C", path, "remote", "get-url", "origin").Output()
+	if err != nil {
+		return ""
+	}
+	return strings.TrimSpace(string(out))
+}
 
 // Store is the full surface the repos handlers need over the repository GORM
 // table: list every repo, fetch one by id, and persist a new one.
@@ -132,19 +174,36 @@ func (h *Handlers) Create(
 	if defaultBranch == "" && body.Path != "" {
 		defaultBranch = gitDefaultBranch(body.Path)
 	}
+	id := body.ID
+	if id == "" {
+		id = uuid.NewString()
+	}
+	remoteURL := ""
+	if body.Path != "" {
+		remoteURL = gitRemoteURL(body.Path)
+	}
+	label, color := repoAvatar(body.Name)
+	avatarURL := ""
+	if body.Path != "" {
+		avatarURL = fetchGithubAvatar(c.Request.Context(), body.Path)
+	}
 	repo := domain.Repository{
-		ID:            body.ID,
+		ID:            id,
 		ProjectID:     body.ProjectID,
 		Name:          body.Name,
 		Path:          body.Path,
 		DefaultBranch: defaultBranch,
+		RemoteURL:     remoteURL,
+		AvatarLabel:   label,
+		AvatarColor:   color,
+		AvatarURL:     avatarURL,
 	}
 	if err := h.store.Save(c.Request.Context(), repo); err != nil {
 		status, msg := libs.StatusAndMessage(err)
 		libs.WriteErr(c, status, msg)
 		return
 	}
-	libs.WriteMutationOK(c, http.StatusCreated, repo.ID)
+	libs.WriteQueryWithStatus(c, http.StatusCreated, dto.RepoDTOFrom(repo))
 }
 
 // gitDefaultBranch reads the current branch from a git repository at path.
@@ -168,7 +227,22 @@ func (h *Handlers) Icon(c *gin.Context) {
 		return
 	}
 	if strings.HasPrefix(repo.AvatarURL, "http") {
-		c.Redirect(http.StatusTemporaryRedirect, repo.AvatarURL)
+		resp, err := http.Get(repo.AvatarURL) //nolint:gosec
+		if err != nil {
+			c.Status(http.StatusBadGateway)
+			return
+		}
+		defer resp.Body.Close()
+		ct := resp.Header.Get("Content-Type")
+		if ct == "" {
+			ct = "image/png"
+		}
+		data, err := io.ReadAll(resp.Body)
+		if err != nil {
+			c.Status(http.StatusBadGateway)
+			return
+		}
+		c.Data(http.StatusOK, ct, data)
 		return
 	}
 	data, err := os.ReadFile(repo.AvatarURL)

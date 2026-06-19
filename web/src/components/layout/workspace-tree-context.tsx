@@ -267,14 +267,29 @@ export function WorkspaceTreeProvider({ children }: { children: ReactNode }) {
           // or a deleted descendant), leave the dead route: go to the parent
           // / repo base workspace, or the projects page as last resort.
           const pathname = router.state.location.pathname
-          const activeId = pathname.match(/\/workspaces\/([^/]+)/)?.[1]
+          const activeId = pathname.match(/\/ide\/[^/]+\/[^/]+\/([^/]+)/)?.[1]
           if (!activeId) return
           const stillExists = useSidebarStore
             .getState()
             .repos.some((r) => r.workspaces.some((w) => w.id === activeId))
           if (stillExists) return
           if (fallbackWsId) {
-            void navigate({ to: '/workspaces/$wsId', params: { wsId: fallbackWsId } })
+            const updatedRepos = useSidebarStore.getState().repos
+            const fallbackRepo = updatedRepos.find((r) =>
+              r.workspaces.some((w) => w.id === fallbackWsId),
+            )
+            if (fallbackRepo) {
+              void navigate({
+                to: '/ide/$projectId/$repoId/$wsId',
+                params: {
+                  projectId: fallbackRepo.projectId ?? '',
+                  repoId: fallbackRepo.id,
+                  wsId: fallbackWsId,
+                },
+              })
+            } else {
+              void navigate({ to: '/' })
+            }
           } else {
             void navigate({ to: '/' })
           }

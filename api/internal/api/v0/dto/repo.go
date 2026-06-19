@@ -24,10 +24,9 @@ func RepoDTOFrom(r domain.Repository) RepoDTO {
 		// no change
 	case strings.HasPrefix(avatarURL, "emoji:"):
 		// pass through; frontend renders emoji directly
-	case strings.HasPrefix(avatarURL, "http"):
-		// pass through HTTPS URLs
 	default:
-		// local file path — rewrite to API endpoint
+		// local file path or HTTPS URL — always proxy through the API so
+		// WKWebView (crowbar:// scheme) can load it without cross-origin issues
 		avatarURL = "/v0/repos/" + r.ID + "/icon"
 	}
 	return RepoDTO{

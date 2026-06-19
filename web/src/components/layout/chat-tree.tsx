@@ -59,7 +59,7 @@ function ChatTreeInner({ wsId }: ChatTreeProps) {
   const activeChatId = pathname.match(/\/chat\/([^/]+)/)?.[1] ?? ''
   const allChats = useSidebarStore((s) => s.chats)
   const chats = useMemo(() => allChats.filter((c) => c.wsId === wsId), [allChats, wsId])
-  const { draggingChat, dragPos, hoverTrash } = useChatTreeContext()
+  const { draggingChat, hoverTrash } = useChatTreeContext()
 
   // Fetch via LoadableSlice (IDB-cached, stale-while-revalidate).
   // No fetch without a workspace — an empty wsId would hit /v0/workspaces//chats.
@@ -182,15 +182,6 @@ function ChatTreeInner({ wsId }: ChatTreeProps) {
         </div>
       </div>
 
-      {/* Drag ghost */}
-      {draggingChat && dragPos && (
-        <div
-          className="pointer-events-none fixed z-50 rounded-md border border-border bg-secondary px-2 py-1 text-[13px] text-secondary-foreground shadow-md opacity-90"
-          style={{ left: dragPos.x + 12, top: dragPos.y - 10 }}
-        >
-          {draggingChat.label}
-        </div>
-      )}
     </div>
   )
 }

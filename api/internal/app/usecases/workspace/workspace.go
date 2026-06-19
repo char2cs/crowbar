@@ -159,6 +159,27 @@ func (u *workspaceUsecase) SyncWorkingTreeState(
 	return synced, nil
 }
 
+// MergeEligibilityFor resolves whether ws can be merged into its local parent.
+// No repository call is made — the parent is resolved from siblings, which the
+// caller already holds from a preceding List call.
+func (u *workspaceUsecase) MergeEligibilityFor(
+	ws domain.Workspace,
+	siblings []domain.Workspace,
+) MergeEligibility {
+	if ws.ParentID == "" {
+		return MergeEligibility{}
+	}
+	for _, s := range siblings {
+		if s.ID == ws.ParentID {
+			return MergeEligibility{
+				CanMergeLocally: !s.Locked,
+				ParentBranch:    s.Branch,
+			}
+		}
+	}
+	return MergeEligibility{}
+}
+
 func (u *workspaceUsecase) summarize(
 	ctx context.Context,
 	ws domain.Workspace,

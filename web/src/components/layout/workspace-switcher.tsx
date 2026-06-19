@@ -35,7 +35,7 @@ export function WorkspaceSwitcherMenu({ onClose }: WorkspaceSwitcherMenuProps) {
   const pathname = useRouterState({ select: (s) => s.location.pathname })
   const repos = useSidebarStore((s) => s.repos)
 
-  const activeWorkspaceId = pathname.match(/\/workspaces\/([^/]+)/)?.[1]
+  const activeWorkspaceId = pathname.match(/\/ide\/[^/]+\/[^/]+\/([^/]+)/)?.[1]
   // Stable item identities across renders — base-ui tracks keyboard navigation
   // against item references, so recreating them each render makes the highlight jump.
   const items = useMemo(
@@ -43,8 +43,11 @@ export function WorkspaceSwitcherMenu({ onClose }: WorkspaceSwitcherMenuProps) {
     [repos, activeWorkspaceId],
   )
 
-  function select(wsId: string) {
-    void navigate({ to: '/workspaces/$wsId', params: { wsId } })
+  function select(item: WorkspaceSwitcherItem) {
+    void navigate({
+      to: '/ide/$projectId/$repoId/$wsId',
+      params: { projectId: item.projectId, repoId: item.repoId, wsId: item.wsId },
+    })
     onClose()
   }
 
@@ -66,7 +69,7 @@ export function WorkspaceSwitcherMenu({ onClose }: WorkspaceSwitcherMenuProps) {
             <CommandItem
               key={item.wsId}
               className="flex items-center gap-2 font-editor"
-              onClick={() => select(item.wsId)}
+              onClick={() => select(item)}
               value={item}
             >
               <WorkspaceBranchIcon status={item.status} />

@@ -1,3 +1,4 @@
+import { useState } from 'react'
 import { GitBranchIcon } from 'lucide-react'
 import { createFileRoute, redirect } from '@tanstack/react-router'
 import { fetchLandingWorkspaceId, fetchProjects } from '@/lib/api'
@@ -8,18 +9,26 @@ import {
   EmptyTitle,
   EmptyDescription,
 } from '@/components/ui/empty'
+import { Button } from '@/components/ui/button'
+import { AddRepositoryModal } from '@/components/projects/add-repository-modal'
 
 function NoReposScreen() {
+  const [open, setOpen] = useState(false)
+
   return (
-    <Empty>
-      <EmptyMedia variant="icon">
-        <GitBranchIcon />
-      </EmptyMedia>
-      <EmptyHeader>
-        <EmptyTitle>No repositories yet</EmptyTitle>
-        <EmptyDescription>Add a git repository to open a workspace.</EmptyDescription>
-      </EmptyHeader>
-    </Empty>
+    <>
+      <Empty>
+        <EmptyMedia variant="icon">
+          <GitBranchIcon />
+        </EmptyMedia>
+        <EmptyHeader>
+          <EmptyTitle>No repositories yet</EmptyTitle>
+          <EmptyDescription>Add a git repository to open a workspace.</EmptyDescription>
+        </EmptyHeader>
+        <Button onClick={() => setOpen(true)}>Add repository</Button>
+      </Empty>
+      <AddRepositoryModal open={open} onOpenChange={setOpen} />
+    </>
   )
 }
 
@@ -42,10 +51,13 @@ export const Route = createFileRoute('/_shell/')({
       throw redirect({ to: '/oobe' })
     }
 
-    const wsId = wsIdResult.status === 'fulfilled' ? wsIdResult.value : null
+    const ws = wsIdResult.status === 'fulfilled' ? wsIdResult.value : null
 
-    if (wsId) {
-      throw redirect({ to: '/workspaces/$wsId', params: { wsId } })
+    if (ws) {
+      throw redirect({
+        to: '/ide/$projectId/$repoId/$wsId',
+        params: { projectId: ws.projectId, repoId: ws.repoId, wsId: ws.id },
+      })
     }
     // Has projects but no active workspace — render NoReposScreen
   },

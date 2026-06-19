@@ -2,7 +2,7 @@ import type { Loadable } from '@/lib/loadable'
 import type { Repo } from '@/lib/store/sidebar'
 
 /**
- * BUG-010: decide whether a `/workspaces/<wsId>` route points at a workspace
+ * BUG-010: decide whether a `/ide/…/<wsId>` route points at a workspace
  * that does not exist, once the workspace list has actually loaded.
  *
  * - While the list is idle/loading (or only has stale data after an error),

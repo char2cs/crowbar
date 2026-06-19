@@ -81,6 +81,7 @@ export interface Settings {
   enterpriseManagedMode: boolean
   enterpriseRequireExtensionAllowlist: boolean
   enterpriseAllowedExtensionIds: string[]
+  showFpsOverlay: boolean
   // Other
   extensionsActiveTab:
     | 'all'

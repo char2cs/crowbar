@@ -2,6 +2,8 @@ import type { Repo, WorkspaceStatus } from '@/lib/store/sidebar'
 
 export interface WorkspaceSwitcherItem {
   wsId: string
+  projectId: string
+  repoId: string
   repoName: string
   branch: string
   status: WorkspaceStatus
@@ -18,6 +20,8 @@ export function flattenWorkspaces(
   return repos.flatMap((repo) =>
     repo.workspaces.map((ws) => ({
       wsId: ws.id,
+      projectId: repo.projectId ?? '',
+      repoId: repo.id,
       repoName: repo.name,
       branch: ws.branch,
       status: ws.status ?? 'new',

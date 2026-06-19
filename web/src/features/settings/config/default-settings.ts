@@ -2,6 +2,7 @@ import { normalizeUiFontSize, UI_FONT_SIZE_DEFAULT } from '@/features/settings/l
 import {
   DEFAULT_CODE_FONT_SIZE,
   DEFAULT_MONO_FONT_FAMILY,
+  DEFAULT_TERMINAL_FONT_FAMILY,
   DEFAULT_TERMINAL_FONT_SIZE,
   DEFAULT_UI_FONT_FAMILY,
 } from '@/features/settings/config/typography-defaults'
@@ -32,7 +33,7 @@ export const defaultSettings: Settings = {
   highlightOccurrences: false,
   showMinimap: false,
   // Terminal
-  terminalFontFamily: DEFAULT_MONO_FONT_FAMILY,
+  terminalFontFamily: DEFAULT_TERMINAL_FONT_FAMILY,
   terminalFontSize: DEFAULT_TERMINAL_FONT_SIZE,
   terminalLineHeight: 1,
   terminalLetterSpacing: 0,
@@ -91,6 +92,7 @@ export const defaultSettings: Settings = {
   enterpriseManagedMode: false,
   enterpriseRequireExtensionAllowlist: false,
   enterpriseAllowedExtensionIds: [],
+  showFpsOverlay: false,
   // Other
   extensionsActiveTab: 'all',
   maxOpenTabs: 100,

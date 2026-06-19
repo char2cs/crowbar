@@ -1,4 +1,23 @@
+import { API_BASE } from '@/lib/api'
 import type { Repo, Workspace, WorkspaceStatus } from '@/lib/store/sidebar'
+
+const AVATAR_COLORS = [
+  'bg-indigo-700', 'bg-emerald-700', 'bg-orange-700', 'bg-sky-700',
+  'bg-rose-700', 'bg-violet-700', 'bg-teal-700', 'bg-amber-700',
+]
+
+function repoAvatarLabel(name: string): string {
+  const words = name.replace(/[^a-zA-Z\s]/g, ' ').trim().split(/\s+/).filter(Boolean)
+  if (words.length === 0) return 'R'
+  if (words.length === 1) return words[0][0].toUpperCase()
+  return (words[0][0] + words[1][0]).toUpperCase()
+}
+
+function repoAvatarColor(name: string): string {
+  let hash = 0
+  for (const ch of name) hash = (hash * 31 + ch.charCodeAt(0)) & 0xffffff
+  return AVATAR_COLORS[hash % AVATAR_COLORS.length]
+}
 
 export interface RepoDTO {
   id: string
@@ -53,9 +72,11 @@ export function buildRepoTree(repos: RepoDTO[], workspaces: WorkspaceDTO[]): Rep
     id: repo.id,
     projectId: repo.projectId,
     name: repo.name,
-    avatarLabel: repo.avatarLabel,
-    avatarColor: repo.avatarColor,
-    avatarURL: repo.avatarUrl ?? undefined,
+    avatarLabel: repo.avatarLabel || repoAvatarLabel(repo.name),
+    avatarColor: repo.avatarColor || repoAvatarColor(repo.name),
+    // Backend now always serves avatarUrl as the proxied /icon endpoint so
+    // WKWebView can load it without cross-origin restrictions.
+    avatarURL: repo.avatarUrl ? `${API_BASE}${repo.avatarUrl}` : undefined,
     workspaces: workspaces.filter((ws) => ws.repoId === repo.id).map(toSidebarWorkspace),
   }))
 }
