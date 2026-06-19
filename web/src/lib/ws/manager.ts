@@ -1,13 +1,37 @@
+import { isTauri } from '@/lib/crowbar-bridge'
+
 import { wsUrl, isWebSocketCapable } from './url'
 import { reportChannelState, reportChannelGone } from './connection-store'
+import { TauriWebSocket } from './tauri-transport'
 
 type Callback = (data: unknown) => void
 
+// The subset of the WebSocket surface the manager drives. Both the native
+// `WebSocket` and the desktop `TauriWebSocket` shim satisfy it, so the manager
+// is transport-agnostic.
+interface WSLike {
+  onopen: (() => void) | null
+  onmessage: ((event: { data: string }) => void) | null
+  onclose: (() => void) | null
+  onerror: ((event: unknown) => void) | null
+  readyState: number
+  send(data: string): void
+  close(): void
+  addEventListener?: (type: 'open', listener: () => void, options?: { once: boolean }) => void
+}
+
 interface Channel {
-  socket: WebSocket
+  socket: WSLike
   callbacks: Set<Callback>
   reconnectDelay: number
   endpoint: string
+}
+
+// Construct the live transport for the active environment: the native WebSocket
+// in the browser, the unix-socket-bridged shim on desktop (where `crowbar://`
+// has no native WebSocket). Both share the surface the manager uses.
+function createTransport(endpoint: string): WSLike {
+  return isTauri() ? new TauriWebSocket(endpoint) : (new WebSocket(wsUrl(endpoint)) as WSLike)
 }
 
 export interface WSManager {
@@ -20,10 +44,12 @@ export interface WSManager {
 // mounts tear channels down before the handshake finishes). Defer the close
 // until the socket opens so the console stays clean; a socket that errors
 // while CONNECTING closes itself and needs no action.
-function closeSocketQuietly(socket: WebSocket): void {
-  if (socket.readyState === WebSocket.CONNECTING) {
+function closeSocketQuietly(socket: WSLike): void {
+  if (socket.readyState === WebSocket.CONNECTING && socket.addEventListener) {
     socket.addEventListener('open', () => socket.close(), { once: true })
   } else if (socket.readyState === WebSocket.OPEN) {
+    socket.close()
+  } else {
     socket.close()
   }
 }
@@ -33,7 +59,7 @@ export function createWSManager(): WSManager {
 
   function open(endpoint: string, reconnectDelay = 1000): Channel {
     const ch: Channel = {
-      socket: new WebSocket(wsUrl(endpoint)),
+      socket: createTransport(endpoint),
       callbacks: new Set(),
       reconnectDelay,
       endpoint,

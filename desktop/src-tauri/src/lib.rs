@@ -1,6 +1,7 @@
 mod api_proxy;
 mod sidecar;
 mod terminal;
+mod ws_bridge;
 
 use tauri::Manager;
 
@@ -187,6 +188,7 @@ pub fn run() {
     builder
         .manage(sidecar::SidecarHandle::new())
         .manage(terminal::TerminalManager::new())
+        .manage(ws_bridge::WsBridgeManager::new())
         .setup(|app| {
             let app_handle = app.handle().clone();
 
@@ -245,6 +247,9 @@ pub fn run() {
             terminal::terminal_send,
             terminal::terminal_resize,
             terminal::terminal_close,
+            ws_bridge::ws_open,
+            ws_bridge::ws_send,
+            ws_bridge::ws_close,
         ])
         .run(tauri::generate_context!())
         .expect("error running Tauri app");

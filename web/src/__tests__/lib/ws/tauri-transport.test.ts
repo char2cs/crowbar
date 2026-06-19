@@ -1,0 +1,94 @@
+import { describe, it, expect, vi, beforeEach } from 'vitest'
+
+// The transport mints a Tauri Channel and bridges its frames into the
+// WebSocket-like onmessage callback. We mock @tauri-apps/api/core so a frame
+// pushed at the captured Channel fires onmessage with the RAW DTO text, and so
+// the open/send/close handlers invoke the right ws_* commands.
+
+interface MockChannel {
+  onmessage: ((data: string) => void) | null
+}
+
+const channels: MockChannel[] = []
+const invoke = vi.fn(async () => undefined)
+
+vi.mock('@tauri-apps/api/core', () => ({
+  Channel: class {
+    onmessage: ((data: string) => void) | null = null
+    constructor() {
+      channels.push(this)
+    }
+  },
+  invoke,
+}))
+
+beforeEach(() => {
+  channels.length = 0
+  invoke.mockClear()
+  vi.stubGlobal('crypto', { randomUUID: () => 'conn-fixed-id' })
+})
+
+const { TauriWebSocket } = await import('@/lib/ws/tauri-transport')
+
+describe('TauriWebSocket', () => {
+  it('exposes the WebSocket readyState constants', () => {
+    expect(TauriWebSocket.CONNECTING).toBe(0)
+    expect(TauriWebSocket.OPEN).toBe(1)
+    expect(TauriWebSocket.CLOSED).toBe(3)
+  })
+
+  it('invokes ws_open with the conn id, path, and Channel, then fires onopen and goes OPEN', async () => {
+    const sock = new TauriWebSocket('/v0/projects/p/repos/r/workspaces')
+    const onopen = vi.fn()
+    sock.onopen = onopen
+
+    // Let the ws_open invoke promise resolve.
+    await vi.waitFor(() => expect(invoke).toHaveBeenCalled())
+    await Promise.resolve()
+
+    expect(invoke).toHaveBeenCalledWith('ws_open', {
+      connId: 'conn-fixed-id',
+      path: '/v0/projects/p/repos/r/workspaces',
+      onMessage: channels[0],
+    })
+    await vi.waitFor(() => expect(onopen).toHaveBeenCalled())
+    expect(sock.readyState).toBe(TauriWebSocket.OPEN)
+  })
+
+  it('forwards a raw DTO frame from the Channel to onmessage without extracting .data', async () => {
+    const sock = new TauriWebSocket('/v0/projects/p/repos/r/workspaces')
+    const onmessage = vi.fn()
+    sock.onmessage = onmessage
+
+    await vi.waitFor(() => expect(channels.length).toBe(1))
+    const dto = '{"id":"ws-1","status":"new","data":"not-extracted"}'
+    channels[0].onmessage?.(dto)
+
+    expect(onmessage).toHaveBeenCalledWith({ data: dto })
+  })
+
+  it('send() invokes ws_send with the conn id and raw data', async () => {
+    const sock = new TauriWebSocket('/v0/projects/p/repos/r/workspaces')
+    await vi.waitFor(() => expect(invoke).toHaveBeenCalledWith('ws_open', expect.anything()))
+    invoke.mockClear()
+
+    sock.send('{"hello":true}')
+    expect(invoke).toHaveBeenCalledWith('ws_send', {
+      connId: 'conn-fixed-id',
+      data: '{"hello":true}',
+    })
+  })
+
+  it('close() invokes ws_close, fires onclose, and goes CLOSED', async () => {
+    const sock = new TauriWebSocket('/v0/projects/p/repos/r/workspaces')
+    const onclose = vi.fn()
+    sock.onclose = onclose
+    await vi.waitFor(() => expect(invoke).toHaveBeenCalledWith('ws_open', expect.anything()))
+    invoke.mockClear()
+
+    sock.close()
+    expect(invoke).toHaveBeenCalledWith('ws_close', { connId: 'conn-fixed-id' })
+    expect(onclose).toHaveBeenCalled()
+    expect(sock.readyState).toBe(TauriWebSocket.CLOSED)
+  })
+})
