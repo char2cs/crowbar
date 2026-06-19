@@ -140,7 +140,13 @@ function WorkspaceTreeInner() {
                       useSidebarNavStore.getState().push({
                         id: `repo-settings:${repo.id}`,
                         title: repo.name,
-                        component: <RepoSettingsPanel repoId={repo.id} repoName={repo.name} />,
+                        component: (
+                          <RepoSettingsPanel
+                            projectId={repo.projectId ?? ''}
+                            repoId={repo.id}
+                            repoName={repo.name}
+                          />
+                        ),
                       })
                     }}
                   >

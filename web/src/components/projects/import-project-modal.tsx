@@ -14,7 +14,9 @@ import { toast } from 'sonner'
 import { open as openDialog } from '@tauri-apps/plugin-dialog'
 import { isTauri } from '@/lib/crowbar-bridge'
 import { postProject } from '@/lib/api'
-import type { Project } from '@/lib/types'
+import { awaitEntity } from '@/lib/ws/await-entity'
+import { projectFromDTO } from '@/lib/store/project-from-dto'
+import type { Project, ProjectDTO } from '@/lib/types'
 
 interface ImportProjectModalProps {
   open: boolean
@@ -45,24 +47,23 @@ export function ImportProjectModal({ open, onOpenChange, onImport, quick }: Impo
     if (!pathLooksAbsolute) return
     setLoading(true)
     try {
-      // §3: postProject is 202 with no body. The canonical ProjectDTO arrives
-      // over the `/v0/projects` WS stream (full subscribe-before-POST handling
-      // is W18); for now we hand onImport a provisional project built from the
-      // form so it appears immediately, and the WS DTO reconciles it.
+      // §4/§6 subscribe-before-POST: postProject answers 202 with no body — the
+      // daemon assigns the id and only the canonical ProjectDTO carries it, on
+      // the `/v0/projects` WS stream. We subscribe FIRST, fire the POST, then
+      // resolve the real project by matching the submitted path (the one field
+      // we can correlate before the id exists). No client-fabricated uuid.
       const fallbackName =
         trimmedPath
           .replace(/[\\/]+$/, '')
           .split(/[\\/]/)
           .pop() ?? trimmedPath
       const name = projectName.trim() || fallbackName
-      await postProject(name, trimmedPath, quick)
-      const project: Project = {
-        id: crypto.randomUUID(),
-        name,
-        path: trimmedPath,
-        lastActivity: new Date(),
-      }
-      onImport(project)
+      const dto = await awaitEntity<ProjectDTO>({
+        endpoint: '/v0/projects',
+        match: (p) => p.path === trimmedPath && p.status !== 'deleted',
+        action: () => postProject(name, trimmedPath, quick),
+      })
+      onImport(projectFromDTO(dto))
       setSelectedPath('')
       setProjectName('')
     } catch (err) {

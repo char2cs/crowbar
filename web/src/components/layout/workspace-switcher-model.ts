@@ -7,6 +7,8 @@ export interface WorkspaceSwitcherItem {
   repoName: string
   branch: string
   status: WorkspaceStatus
+  /** §5 in-flight flag — renders the spinner over the status icon. */
+  working?: boolean
   added?: number
   deleted?: number
   isCurrent: boolean
@@ -25,6 +27,7 @@ export function flattenWorkspaces(
       repoName: repo.name,
       branch: ws.branch,
       status: ws.status ?? 'new',
+      working: ws.working,
       added: ws.added,
       deleted: ws.deleted,
       isCurrent: ws.id === activeWorkspaceId,

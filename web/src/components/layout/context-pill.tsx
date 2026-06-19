@@ -46,7 +46,7 @@ export function ContextPill() {
                 </span>
               </span>
               <span className="flex shrink-0 scale-110">
-                <WorkspaceBranchIcon status={model.status} />
+                <WorkspaceBranchIcon status={model.status} working={model.working} />
               </span>
             </span>
           ) : (

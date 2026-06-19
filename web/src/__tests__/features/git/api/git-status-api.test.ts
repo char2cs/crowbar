@@ -1,5 +1,12 @@
-import { afterEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { getGitStatus } from '@/features/git/api/git-status-api'
+import { setWorkspaceScope } from '@/lib/workspace-scope'
+
+// §3: workspace-scoped URLs are hierarchical now; the api resolves project/repo
+// from the route-recorded scope. Register one for the test wsId.
+beforeEach(() => {
+  setWorkspaceScope({ projectId: 'p1', repoId: 'r1', wsId: 'ws-1' })
+})
 
 function mockFetchEnvelope(data: unknown): void {
   vi.stubGlobal(

@@ -51,6 +51,11 @@ impl TerminalManager {
 #[tauri::command]
 pub async fn terminal_open(
     session_id: String,
+    // §3: the hierarchical PTY WS path, e.g.
+    // /v0/projects/:p/repos/:r/workspaces/:w/terminals/:sessionId/ws. The
+    // frontend builds it (workspace-scope aware) and hands it down so Rust no
+    // longer hardcodes the removed flat /v0/ws/terminals/:id route.
+    ws_path: String,
     on_data: Channel<String>,
     manager: State<'_, TerminalManager>,
 ) -> Result<(), String> {
@@ -62,7 +67,7 @@ pub async fn terminal_open(
 
     // The URL's host is irrelevant — the transport is the UnixStream we hand in —
     // but tungstenite needs it to build the handshake's request line and Host.
-    let request = format!("ws://localhost/v0/ws/terminals/{session_id}")
+    let request = format!("ws://localhost{ws_path}")
         .into_client_request()
         .map_err(|e| format!("build ws request: {e}"))?;
     let (ws, _resp) = client_async(request, stream).await.map_err(|e| {

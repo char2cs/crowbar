@@ -4,10 +4,8 @@ import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { ScrollArea } from '@/components/ui/scroll-area'
 import { Avatar, AvatarImage, AvatarFallback } from '@/components/ui/avatar'
-import { apiFetch } from '@/lib/api'
-import { useWorkspaceListStore } from '@/lib/store/workspace-list'
+import { apiFetch, postWorkspace } from '@/lib/api'
 import { useSidebarStore } from '@/lib/store/sidebar'
-import { dataOf } from '@/lib/loadable'
 import { toast } from 'sonner'
 import { Lock, Check, Trash2, Upload, Star, Smile } from 'lucide-react'
 import { cn } from '@/lib/utils'
@@ -19,11 +17,14 @@ interface BranchEntry {
 }
 
 interface RepoSettingsPanelProps {
+  projectId: string
   repoId: string
   repoName: string
 }
 
-export function RepoSettingsPanel({ repoId, repoName }: RepoSettingsPanelProps) {
+// §3: every repo-scoped route is hierarchical under the owning project now.
+export function RepoSettingsPanel({ projectId, repoId, repoName }: RepoSettingsPanelProps) {
+  const repoBase = `/v0/projects/${projectId}/repos/${repoId}`
   const [branches, setBranches] = useState<BranchEntry[]>([])
   const [filter, setFilter] = useState('')
   const [selected, setSelected] = useState<Set<string>>(new Set())
@@ -39,10 +40,10 @@ export function RepoSettingsPanel({ repoId, repoName }: RepoSettingsPanelProps) 
     setBranches([])
     setSelected(new Set())
     setFilter('')
-    apiFetch<BranchEntry[]>(`/v0/repos/${repoId}/branches`)
+    apiFetch<BranchEntry[]>(`${repoBase}/branches`)
       .then(setBranches)
       .catch(() => {})
-  }, [repoId])
+  }, [repoBase])
 
   const visible = branches.filter((b) =>
     b.name.toLowerCase().includes(filter.toLowerCase())
@@ -52,14 +53,12 @@ export function RepoSettingsPanel({ repoId, repoName }: RepoSettingsPanelProps) 
     if (selected.size === 0) return
     setImporting(true)
     try {
+      // §3/§4: each branch import is a hierarchical 202 POST. The imported
+      // workspaces arrive on the per-repo WS stream and the WS-driven cache
+      // inserts the rows — no post-mutation list refetch/merge. We only refresh
+      // the branch list here so the dialog reflects hasWorkspace=true.
       const results = await Promise.allSettled(
-        Array.from(selected).map((branch) =>
-          apiFetch('/v0/workspaces', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ repoId, branch }),
-          })
-        )
+        Array.from(selected).map((branch) => postWorkspace(projectId, repoId, branch)),
       )
       const failed = results.filter((r) => r.status === 'rejected')
       if (failed.length > 0) {
@@ -68,11 +67,7 @@ export function RepoSettingsPanel({ repoId, repoName }: RepoSettingsPanelProps) 
           : 'Unknown error'
         toast.error(`Failed to import ${failed.length} branch${failed.length > 1 ? 'es' : ''}: ${msg}`)
       }
-      await useWorkspaceListStore.getState().fetch()
-      const fresh = dataOf(useWorkspaceListStore.getState().data)
-      if (fresh) useSidebarStore.getState().mergeRepos(fresh)
-      // Refresh branch list so newly imported branches show hasWorkspace=true
-      apiFetch<BranchEntry[]>(`/v0/repos/${repoId}/branches`)
+      apiFetch<BranchEntry[]>(`${repoBase}/branches`)
         .then(setBranches)
         .catch(() => {})
       setSelected(new Set())
@@ -97,8 +92,9 @@ export function RepoSettingsPanel({ repoId, repoName }: RepoSettingsPanelProps) 
     try {
       const form = new FormData()
       form.append('icon', file)
-      await apiFetch(`/v0/repos/${repoId}/icon`, { method: 'PUT', body: form })
-      void useWorkspaceListStore.getState().fetch()
+      // §3: the updated RepoDTO (new avatarUrl) arrives on the repos WS stream
+      // and merges into the cache — no manual list refetch.
+      await apiFetch(`${repoBase}/icon`, { method: 'PUT', body: form })
     } catch {
       // ignore
     } finally {
@@ -112,14 +108,13 @@ export function RepoSettingsPanel({ repoId, repoName }: RepoSettingsPanelProps) 
     if (!emoji) return
     setIconLoading(true)
     try {
-      await apiFetch(`/v0/repos/${repoId}/icon/emoji`, {
+      await apiFetch(`${repoBase}/icon/emoji`, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ emoji }),
       })
       setEmojiInput('')
       setShowEmojiInput(false)
-      void useWorkspaceListStore.getState().fetch()
     } catch {
       // ignore
     } finally {
@@ -130,8 +125,7 @@ export function RepoSettingsPanel({ repoId, repoName }: RepoSettingsPanelProps) 
   async function handleGithubAvatar() {
     setIconLoading(true)
     try {
-      await apiFetch(`/v0/repos/${repoId}/icon/github`, { method: 'PUT' })
-      void useWorkspaceListStore.getState().fetch()
+      await apiFetch(`${repoBase}/icon/github`, { method: 'PUT' })
     } catch {
       // ignore
     } finally {
@@ -142,8 +136,7 @@ export function RepoSettingsPanel({ repoId, repoName }: RepoSettingsPanelProps) 
   async function handleResetIcon() {
     setIconLoading(true)
     try {
-      await apiFetch(`/v0/repos/${repoId}/icon`, { method: 'DELETE' })
-      void useWorkspaceListStore.getState().fetch()
+      await apiFetch(`${repoBase}/icon`, { method: 'DELETE' })
     } catch {
       // ignore
     } finally {

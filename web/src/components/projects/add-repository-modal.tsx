@@ -11,9 +11,12 @@ import { Input } from '@/components/ui/input'
 import { FolderOpen } from '@phosphor-icons/react'
 import { toast } from 'sonner'
 import { open as openDialog } from '@tauri-apps/plugin-dialog'
+import { useNavigate } from '@tanstack/react-router'
 import { isTauri } from '@/lib/crowbar-bridge'
 import { postRepo } from '@/lib/api'
 import { useProjectStore } from '@/lib/store/projects'
+import { awaitEntity } from '@/lib/ws/await-entity'
+import type { RepoDTO, WorkspaceDTO } from '@/lib/types'
 
 interface AddRepositoryModalProps {
   open: boolean
@@ -24,6 +27,7 @@ export function AddRepositoryModal({ open, onOpenChange }: AddRepositoryModalPro
   const [path, setPath] = useState('')
   const [name, setName] = useState('')
   const [loading, setLoading] = useState(false)
+  const navigate = useNavigate()
 
   const trimmedPath = path.trim()
   const pathLooksAbsolute = trimmedPath.startsWith('/') || /^[A-Za-z]:[\\/]/.test(trimmedPath)
@@ -50,16 +54,32 @@ export function AddRepositoryModal({ open, onOpenChange }: AddRepositoryModalPro
           .pop() ?? trimmedPath
       const repoName = name.trim() || fallbackName
 
-      // §3: postRepo is 202 with no body. The daemon imports the repo (and its
-      // default-branch workspace) and broadcasts the RepoDTO/WorkspaceDTO over
-      // the §7 entity streams, which seed the sidebar cache. Resolving the new
-      // repo/ws ids from those WS frames to navigate is W18; for now we just
-      // fire the mutation and close the modal.
-      await postRepo(activeProjectId, repoName, trimmedPath)
+      // §3/§4 subscribe-before-POST: postRepo answers 202 with no body. The
+      // daemon imports the repo AND auto-imports its default-branch workspace,
+      // broadcasting the RepoDTO on the repos stream and the WorkspaceDTO on the
+      // per-repo workspaces stream. We do NOT post the default-branch workspace
+      // ourselves (that double-create would collide). Subscribe to the repos
+      // stream first, fire the POST, resolve the new repo by matching its path,
+      // then resolve its default WorkspaceDTO and navigate into the IDE.
+      const repo = await awaitEntity<RepoDTO>({
+        endpoint: `/v0/projects/${activeProjectId}/repos`,
+        match: (r) => r.path === trimmedPath,
+        action: () => postRepo(activeProjectId, repoName, trimmedPath),
+      })
+
+      const ws = await awaitEntity<WorkspaceDTO>({
+        endpoint: `/v0/projects/${activeProjectId}/repos/${repo.id}/workspaces`,
+        match: (w) => w.repoId === repo.id && w.status !== 'deleted',
+        action: () => Promise.resolve(),
+      })
 
       onOpenChange(false)
       setPath('')
       setName('')
+      void navigate({
+        to: '/ide/$projectId/$repoId/$wsId',
+        params: { projectId: activeProjectId, repoId: repo.id, wsId: ws.id },
+      })
     } catch (err) {
       toast.error(err instanceof Error ? err.message : 'Failed to add repository')
     } finally {

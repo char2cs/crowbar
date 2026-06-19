@@ -1,5 +1,12 @@
-import { afterEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { getCommitDiff } from '@/features/git/api/git-diff-api'
+import { setWorkspaceScope } from '@/lib/workspace-scope'
+
+// §3: workspace-scoped URLs are hierarchical; register scopes for the test wsIds.
+beforeEach(() => {
+  setWorkspaceScope({ projectId: 'p1', repoId: 'r1', wsId: 'ws-1' })
+  setWorkspaceScope({ projectId: 'p1', repoId: 'r1', wsId: 'ws-2' })
+})
 
 function mockFetchEnvelope(data: unknown): ReturnType<typeof vi.fn> {
   const fetchMock = vi.fn(async () => ({
@@ -25,7 +32,7 @@ describe('getCommitDiff', () => {
     await getCommitDiff('ws-1', 'deadbee')
 
     const url = fetchMock.mock.calls[0][0] as unknown as string
-    expect(url).toContain('/v0/workspaces/ws-1/git/commit-diff')
+    expect(url).toContain('/v0/projects/p1/repos/r1/workspaces/ws-1/git/commit-diff')
     expect(url).toContain('sha=deadbee')
   })
 

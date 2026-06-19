@@ -4,14 +4,31 @@ import { saveWorkspaceLayout } from '@/lib/persistence/workspace-layout'
 import { useHistoryStore } from '@/features/editor/stores/history-store'
 import { cleanupBufferHistoryTracking } from '@/features/editor/stores/buffer-history-tracking'
 import type { TerminalContent } from '@/features/panes/types/pane-content'
+import { setActiveScopeWorkspaceId } from '@/lib/workspace-scope'
 
 const registry = new Map<string, WorkspaceStore>()
 const persistTimers = new Map<string, ReturnType<typeof setTimeout>>()
 
 let _activeWorkspaceId: string | null = null
 
+// §3/§7: workspace-scoped API/WS URLs are now hierarchical
+// (/v0/projects/:p/repos/:r/workspaces/:w/...). The owning project+repo of the
+// active workspace are threaded from the TanStack route and recorded so the many
+// wsId-keyed callers (files, git, terminal, editor) can resolve the full scope
+// without every signature growing two params. The scope MAP itself lives in the
+// dependency-free `@/lib/workspace-scope` module so those lightweight builders
+// don't import this heavy registry (which pulls in the editor/Monaco graph and
+// timed out their dynamic-import unit tests). We re-export the setter/getter here
+// for callers that already depend on the registry.
+export {
+  setWorkspaceScope,
+  getWorkspaceScope,
+  type WorkspaceScope,
+} from '@/lib/workspace-scope'
+
 export function setActiveWorkspaceId(wsId: string): void {
   _activeWorkspaceId = wsId
+  setActiveScopeWorkspaceId(wsId)
 }
 
 export function getActiveWorkspaceStore(): WorkspaceStore | null {

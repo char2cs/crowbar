@@ -83,7 +83,7 @@ export function WorkspaceTreeItem({
               : undefined
           }
         >
-          <WorkspaceBranchIcon status={workspace.status ?? 'new'} />
+          <WorkspaceBranchIcon status={workspace.status ?? 'new'} working={workspace.working} />
 
           {isRenaming ? (
             <WorkspaceInlineInput

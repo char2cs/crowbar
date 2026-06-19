@@ -1,4 +1,5 @@
 import { apiFetch } from '@/lib/api'
+import { workspaceBase } from '@/lib/workspace-scope-url'
 
 interface BranchDTO {
   name: string
@@ -18,7 +19,7 @@ interface CheckoutResult {
 export const getBranches = async (wsId: string): Promise<string[]> => {
   try {
     const branches = await apiFetch<BranchDTO[]>(
-      `/v0/workspaces/${encodeURIComponent(wsId)}/git/branches`,
+      `${workspaceBase(wsId)}/git/branches`,
     )
     return branches.map((b) => b.name)
   } catch {
@@ -28,7 +29,7 @@ export const getBranches = async (wsId: string): Promise<string[]> => {
 
 export const checkoutBranch = async (wsId: string, branchName: string): Promise<CheckoutResult> => {
   try {
-    await apiFetch(`/v0/workspaces/${encodeURIComponent(wsId)}/git/checkout`, {
+    await apiFetch(`${workspaceBase(wsId)}/git/checkout`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ branch: branchName }),
@@ -45,7 +46,7 @@ export const createBranch = async (
   fromBranch?: string,
 ): Promise<boolean> => {
   try {
-    await apiFetch(`/v0/workspaces/${encodeURIComponent(wsId)}/git/branches`, {
+    await apiFetch(`${workspaceBase(wsId)}/git/branches`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ name: branchName, ...(fromBranch && { source: fromBranch }) }),
@@ -60,7 +61,7 @@ export const createBranch = async (
 export const deleteBranch = async (wsId: string, branchName: string): Promise<boolean> => {
   try {
     await apiFetch(
-      `/v0/workspaces/${encodeURIComponent(wsId)}/git/branches/${encodeURIComponent(branchName)}`,
+      `${workspaceBase(wsId)}/git/branches/${encodeURIComponent(branchName)}`,
       { method: 'DELETE' },
     )
     return true

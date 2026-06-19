@@ -4,6 +4,7 @@ import { Channel } from '@tauri-apps/api/core'
 
 import { apiFetch } from '@/lib/api'
 import { wsUrl } from '@/lib/ws/url'
+import { workspaceBase } from '@/lib/workspace-scope-url'
 
 // ── Terminal PTY ──────────────────────────────────────────────────────────────
 // Each session is a WebSocket to the daemon's PTY handler. The wire protocol is
@@ -35,20 +36,26 @@ interface TauriTerminal {
 
 const tauriTerminals = new Map<string, TauriTerminal>()
 
+// §3: PTY routes are workspace-scoped now (.../workspaces/:w/terminals[/:id/ws]).
+// terminalClose receives only the sessionId, so we record the hierarchical base
+// per session at create time to build the DELETE/PTY-WS paths.
+const sessionBases = new Map<string, string>()
+
 // Create a PTY session in the workspace and open its stream. Returns the
-// sessionId, which the terminal hooks use as the connection id.
+// sessionId, which the terminal hooks use as the connection id. The project/repo
+// are resolved from the active workspace route scope (workspaceBase).
 export async function terminalCreate(wsId: string, profileId?: string): Promise<string> {
-  const { sessionId } = await apiFetch<{ sessionId: string }>(
-    `/v0/workspaces/${encodeURIComponent(wsId)}/terminals`,
-    {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(profileId ? { profileId } : {}),
-    },
-  )
+  const base = `${workspaceBase(wsId)}/terminals`
+  const { sessionId } = await apiFetch<{ sessionId: string }>(base, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(profileId ? { profileId } : {}),
+  })
+  sessionBases.set(sessionId, base)
 
   // Desktop: hand a Channel to Rust, which opens the WS over the unix socket and
-  // pumps PTY output back through it.
+  // pumps PTY output back through it. Pass the hierarchical PTY path so Rust
+  // dials the workspace-scoped route, not the removed flat one.
   if (isTauri()) {
     const conn: TauriTerminal = { listener: null, outputBuffer: [] }
     const channel = new Channel<string>()
@@ -57,11 +64,15 @@ export async function terminalCreate(wsId: string, profileId?: string): Promise<
       else conn.outputBuffer.push(data)
     }
     tauriTerminals.set(sessionId, conn)
-    await tauriInvoke('terminal_open', { sessionId, onData: channel })
+    await tauriInvoke('terminal_open', {
+      sessionId,
+      wsPath: `${base}/${encodeURIComponent(sessionId)}/ws`,
+      onData: channel,
+    })
     return sessionId
   }
 
-  const ws = new WebSocket(wsUrl(`/v0/ws/terminals/${encodeURIComponent(sessionId)}`))
+  const ws = new WebSocket(wsUrl(`${base}/${encodeURIComponent(sessionId)}/ws`))
   const conn: TerminalConnection = {
     ws,
     listener: null,
@@ -112,9 +123,15 @@ export async function terminalResize(id: string, rows: number, cols: number): Pr
 }
 
 export async function terminalClose(id: string): Promise<void> {
+  // The DELETE is the hierarchical .../terminals/:sessionId under the workspace
+  // base recorded at create time. If the base is unknown (e.g. a session created
+  // before a reload), skip the REST call — the PTY is still torn down locally.
+  const base = sessionBases.get(id)
+  const deletePath = base ? `${base}/${encodeURIComponent(id)}` : null
   if (isTauri()) {
     if (tauriTerminals.delete(id)) await tauriInvoke('terminal_close', { sessionId: id })
-    await apiFetch(`/v0/terminals/${encodeURIComponent(id)}`, { method: 'DELETE' }).catch(() => {})
+    if (deletePath) await apiFetch(deletePath, { method: 'DELETE' }).catch(() => {})
+    sessionBases.delete(id)
     return
   }
   const conn = terminals.get(id)
@@ -122,7 +139,8 @@ export async function terminalClose(id: string): Promise<void> {
     conn.ws.close()
     terminals.delete(id)
   }
-  await apiFetch(`/v0/terminals/${encodeURIComponent(id)}`, { method: 'DELETE' }).catch(() => {})
+  if (deletePath) await apiFetch(deletePath, { method: 'DELETE' }).catch(() => {})
+  sessionBases.delete(id)
 }
 
 // Register the output sink for a session, flushing any frames that arrived

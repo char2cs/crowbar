@@ -12,6 +12,7 @@ import { wsManager } from '@/lib/ws/manager'
 import { openFileContent } from '@/features/workspace/lib/open-file-content'
 import { syncBufferWithDisk } from '@/features/workspace/lib/external-buffer-sync'
 import { getOrCreateWorkspaceStore } from '@/features/workspace/stores/workspace-store-registry'
+import { workspaceBase } from '@/lib/workspace-scope-url'
 import { fetchAllGitData, useGitStore } from '@/features/git/stores/git-store'
 import type { AppFile } from '@/features/file-system/types/app'
 
@@ -196,7 +197,7 @@ export function useWorkspaceEffects(wsId: string) {
     // actually differs from the previous one warrants a refetch.
     let lastFrame: string | null = null
     const unsubscribe = wsManager.subscribe(
-      `/v0/ws/git?wsId=${encodeURIComponent(wsId)}`,
+      `${workspaceBase(wsId)}/git/status`,
       (frame) => {
         let key: string
         try {

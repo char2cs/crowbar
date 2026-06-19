@@ -1,4 +1,5 @@
 import { apiFetch } from '@/lib/api'
+import { workspaceBase } from '@/lib/workspace-scope-url'
 import type { AppFile } from '@/features/file-system/types/app'
 
 export interface FileNodeDTO {
@@ -31,14 +32,14 @@ export function toAppFile(node: FileNodeDTO): AppFile {
 // call), so the explorer fetches deeper levels on expand.
 export async function fetchFileTree(wsId: string, path?: string): Promise<AppFile[]> {
   const query = path ? `?path=${encodeURIComponent(path)}` : ''
-  const nodes = await apiFetch<FileNodeDTO[]>(
-    `/v0/workspaces/${encodeURIComponent(wsId)}/files/tree${query}`,
-  )
+  const nodes = await apiFetch<FileNodeDTO[]>(`${workspaceBase(wsId)}/files/tree${query}`)
   return nodes.map(toAppFile)
 }
 
+// §3: the file-change WS is the workspace-scoped `.../files/ws` leaf (the old
+// flat /v0/ws/files?wsId= route is gone).
 export function filesWsEndpoint(wsId: string): string {
-  return `/v0/ws/files?wsId=${encodeURIComponent(wsId)}`
+  return `${workspaceBase(wsId)}/files/ws`
 }
 
 export function findNode(tree: AppFile[], path: string): AppFile | null {

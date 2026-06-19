@@ -72,7 +72,7 @@ export function WorkspaceSwitcherMenu({ onClose }: WorkspaceSwitcherMenuProps) {
               onClick={() => select(item)}
               value={item}
             >
-              <WorkspaceBranchIcon status={item.status} />
+              <WorkspaceBranchIcon status={item.status} working={item.working} />
               <span className="min-w-0 flex-1 truncate text-[13px]">
                 <span className="text-muted-foreground">{item.repoName} / </span>
                 <span className="text-foreground">{item.branch}</span>

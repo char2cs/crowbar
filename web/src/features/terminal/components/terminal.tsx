@@ -303,8 +303,11 @@ export const XtermTerminal: React.FC<XtermTerminalProps> = ({
       if (existingSession?.connectionId) {
         activeConnectionId = existingSession.connectionId
       } else {
-        const targetDirectory =
-          workingDirectory || existingSession?.currentDirectory || rootFolderPath
+        // §3/Open-Q2: do NOT fall back to the synthetic rootFolderPath
+        // ('/repos/<id>') — it is not a real filesystem path and the daemon
+        // already defaults a new PTY's cwd to the workspace worktree. Only pass
+        // an explicit working directory when one is actually known.
+        const targetDirectory = workingDirectory || existingSession?.currentDirectory
         // parseRemotePath does not expose connectionId in the stub; use only the passed remoteConnectionId
         const effectiveRemoteConnectionId = remoteConnectionId || undefined
 

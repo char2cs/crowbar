@@ -2,6 +2,11 @@ import { describe, it, expect, beforeEach, vi } from 'vitest'
 import { renderHook, waitFor } from '@testing-library/react'
 import { useWorkspaceEffects } from '@/features/workspace/stores/hooks/use-workspace-effects'
 import { useFileSystemStore } from '@/features/file-system/controllers/store'
+import { setWorkspaceScope } from '@/lib/workspace-scope'
+
+// §3: workspace-scoped WS endpoints are hierarchical now; record the scope so
+// workspaceBase resolves the project/repo for 'ws-test'.
+const WS_BASE = '/v0/projects/p1/repos/r1/workspaces/ws-test'
 
 const mockBufferActions = {
   openContent: vi.fn(() => 'buf-id'),
@@ -26,6 +31,7 @@ vi.mock('@/lib/ws/manager', () => ({ wsManager: { subscribe, send: vi.fn() } }))
 
 beforeEach(() => {
   vi.clearAllMocks()
+  setWorkspaceScope({ projectId: 'p1', repoId: 'r1', wsId: 'ws-test' })
   fetchFileTree.mockResolvedValue([
     { name: 'src', path: 'src', isDir: true, children: undefined },
     { name: 'README.md', path: 'README.md', isDir: false },
@@ -52,12 +58,12 @@ describe('useWorkspaceEffects', () => {
 
   it('subscribes to the files WS topic for the workspace', () => {
     renderHook(() => useWorkspaceEffects('ws-test'))
-    expect(subscribe).toHaveBeenCalledWith('/v0/ws/files?wsId=ws-test', expect.any(Function))
+    expect(subscribe).toHaveBeenCalledWith(`${WS_BASE}/files/ws`, expect.any(Function))
   })
 
   it('subscribes to the git WS topic for the workspace', () => {
     renderHook(() => useWorkspaceEffects('ws-test'))
-    expect(subscribe).toHaveBeenCalledWith('/v0/ws/git?wsId=ws-test', expect.any(Function))
+    expect(subscribe).toHaveBeenCalledWith(`${WS_BASE}/git/status`, expect.any(Function))
   })
 
   // Regression: an editor save dispatches "git-status-updated" but the git
@@ -98,7 +104,7 @@ describe('useWorkspaceEffects', () => {
 
       renderHook(() => useWorkspaceEffects('ws-test'))
       const calls = subscribe.mock.calls as unknown as [string, (frame: unknown) => void][]
-      const gitCall = calls.find(([ep]) => ep.startsWith('/v0/ws/git'))
+      const gitCall = calls.find(([ep]) => ep.startsWith(`${WS_BASE}/git`))
       expect(gitCall).toBeDefined()
       const onGitFrame = gitCall![1]
 
@@ -139,7 +145,7 @@ describe('useWorkspaceEffects', () => {
 
       renderHook(() => useWorkspaceEffects('ws-test'))
       const calls = subscribe.mock.calls as unknown as [string, (frame: unknown) => void][]
-      const gitCall = calls.find(([ep]) => ep.startsWith('/v0/ws/git'))
+      const gitCall = calls.find(([ep]) => ep.startsWith(`${WS_BASE}/git`))
       gitCall![1]({ branch: 'main', files: [] })
       await vi.advanceTimersByTimeAsync(500)
 
@@ -163,7 +169,7 @@ describe('useWorkspaceEffects', () => {
 
       renderHook(() => useWorkspaceEffects('ws-test'))
       const calls = subscribe.mock.calls as unknown as [string, (frame: unknown) => void][]
-      const gitCall = calls.find(([ep]) => ep.startsWith('/v0/ws/git'))
+      const gitCall = calls.find(([ep]) => ep.startsWith(`${WS_BASE}/git`))
       const onGitFrame = gitCall![1]
 
       // Settle the initial frame's reload first.

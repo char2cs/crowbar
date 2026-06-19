@@ -45,24 +45,32 @@ export function IDEShell() {
   const [sidebarOpen, setSidebarOpen] = useState(true)
   const sidebarPanelRef = useRef<PanelImperativeHandle | null>(null)
 
-  const activeWorkspaceId = pathname.match(/\/ide\/[^/]+\/[^/]+\/([^/]+)/)?.[1]
+  // §7: the TanStack /ide/:projectId/:repoId/:wsId route params are the
+  // canonical source for the active project/repo/workspace — read them directly
+  // rather than scanning the sidebar store (which lags the route on cold start).
+  const ideMatch = pathname.match(/\/ide\/([^/]+)\/([^/]+)\/([^/]+)/)
+  const activeProjectIdFromRoute = ideMatch?.[1]
+  const activeRepoIdFromRoute = ideMatch?.[2]
+  const activeWorkspaceId = ideMatch?.[3]
   const activeChatId = pathname.match(/\/chat\/([^/]+)/)?.[1]
-  const activeRepo = repos.find((r) => r.workspaces?.some((ws) => ws.id === activeWorkspaceId))
+  const activeRepo = repos.find((r) => r.id === activeRepoIdFromRoute)
   // TODO(workspace-paths): `/repos/<repoId>` is a synthetic mock-era root prefix.
   // Backend paths are workspace-relative, and this fiction already caused a 404
   // bug. It threads through rootFolderPath into 40+ files (sidebar-carousel →
   // file-explorer, path-helpers root checks, gitignore root rules), so removing
   // it is not a contained change — replace with workspace-relative roots in a
-  // dedicated pass.
-  const activeWorkspaceRepoPath = activeRepo ? `/repos/${activeRepo.id}` : '/repos/default'
+  // dedicated pass. Until then, key it off the route repo id.
+  const activeWorkspaceRepoPath = activeRepoIdFromRoute
+    ? `/repos/${activeRepoIdFromRoute}`
+    : '/repos/default'
   const chatTabLabel = chats.find((c) => c.id === activeChatId)?.title ?? 'Chat'
 
   const hasNavScreen = useSidebarNavStore((s) => s.stack.length > 0)
 
   // BUG-003: when landing directly on a workspace route, the header project
   // button showed "Select project" — the active project was never derived from
-  // the workspace being viewed. Keep it in sync with the owning repo's project.
-  const workspaceProjectId = activeRepo?.projectId
+  // the route. Keep the active project in sync with the route's projectId.
+  const workspaceProjectId = activeProjectIdFromRoute ?? activeRepo?.projectId
   useEffect(() => {
     if (!workspaceProjectId) return
     if (useProjectStore.getState().activeProjectId !== workspaceProjectId) {

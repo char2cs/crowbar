@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import {
   getReview,
   setMergeStrategy,
@@ -6,6 +6,14 @@ import {
   replyToThread,
   mapThread,
 } from '@/features/git/api/review-api'
+import { setWorkspaceScope } from '@/lib/workspace-scope'
+
+// §3: workspace-scoped URLs are hierarchical; register scopes for the test wsIds.
+beforeEach(() => {
+  for (const wsId of ['ws-1', 'ws-2', 'ws-3', 'ws-4']) {
+    setWorkspaceScope({ projectId: 'p1', repoId: 'r1', wsId })
+  }
+})
 
 function mockFetchEnvelope(data: unknown): ReturnType<typeof vi.fn> {
   const fetchMock = vi.fn(async () => ({
@@ -88,7 +96,7 @@ describe('review-api request shapes', () => {
 
     const review = await getReview('ws-1')
 
-    expect(fetchMock.mock.calls[0][0]).toContain('/v0/workspaces/ws-1/review')
+    expect(fetchMock.mock.calls[0][0]).toContain('/v0/projects/p1/repos/r1/workspaces/ws-1/review')
     expect(review.mergeStrategy).toBe('squash')
     expect(review.threads).toHaveLength(1)
     expect(review.threads[0].filePath).toBe('README.md')
@@ -101,7 +109,7 @@ describe('review-api request shapes', () => {
     const result = await setMergeStrategy('ws-2', 'rebase')
 
     const [url, init] = fetchMock.mock.calls[0] as [string, RequestInit]
-    expect(url).toContain('/v0/workspaces/ws-2/review')
+    expect(url).toContain('/v0/projects/p1/repos/r1/workspaces/ws-2/review')
     expect(init.method).toBe('PATCH')
     expect(JSON.parse(init.body as string)).toEqual({ mergeStrategy: 'rebase' })
     expect(result).toBe('rebase')
@@ -128,7 +136,7 @@ describe('review-api request shapes', () => {
     })
 
     const [url, init] = fetchMock.mock.calls[0] as [string, RequestInit]
-    expect(url).toContain('/v0/workspaces/ws-3/review/threads')
+    expect(url).toContain('/v0/projects/p1/repos/r1/workspaces/ws-3/review/threads')
     expect(init.method).toBe('POST')
     expect(JSON.parse(init.body as string)).toMatchObject({
       filePath: 'README.md',
@@ -151,7 +159,7 @@ describe('review-api request shapes', () => {
     await replyToThread('ws-4', 't 9', 'reply body')
 
     const [url, init] = fetchMock.mock.calls[0] as [string, RequestInit]
-    expect(url).toContain('/v0/workspaces/ws-4/review/threads/t%209/reply')
+    expect(url).toContain('/v0/projects/p1/repos/r1/workspaces/ws-4/review/threads/t%209/reply')
     expect(init.method).toBe('POST')
     expect(JSON.parse(init.body as string)).toEqual({ body: 'reply body' })
   })

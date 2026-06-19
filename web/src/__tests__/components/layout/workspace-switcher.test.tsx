@@ -14,6 +14,7 @@ vi.mock('@tanstack/react-router', () => ({
 const repos: Repo[] = [
   {
     id: 'r1',
+    projectId: 'p1',
     name: 'crowbar',
     avatarLabel: 'C',
     avatarColor: 'bg-indigo-700',
@@ -21,6 +22,7 @@ const repos: Repo[] = [
   },
   {
     id: 'r2',
+    projectId: 'p1',
     name: 'quiver.desktop',
     avatarLabel: 'Q',
     avatarColor: 'bg-teal-700',
@@ -30,7 +32,7 @@ const repos: Repo[] = [
 
 beforeEach(() => {
   navigateMock.mockClear()
-  mockPathname = '/workspaces/ws3'
+  mockPathname = '/ide/p1/r2/ws3'
   useSidebarStore.setState({ repos })
 })
 
@@ -54,7 +56,10 @@ describe('WorkspaceSwitcherMenu', () => {
     const onClose = vi.fn()
     render(<WorkspaceSwitcherMenu onClose={onClose} />)
     fireEvent.click(screen.getByText('develop'))
-    expect(navigateMock).toHaveBeenCalledWith({ to: '/workspaces/$wsId', params: { wsId: 'ws1' } })
+    expect(navigateMock).toHaveBeenCalledWith({
+      to: '/ide/$projectId/$repoId/$wsId',
+      params: { projectId: 'p1', repoId: 'r1', wsId: 'ws1' },
+    })
     expect(onClose).toHaveBeenCalled()
   })
 

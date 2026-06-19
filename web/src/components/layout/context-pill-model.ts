@@ -2,7 +2,13 @@ import type { Repo, WorkspaceStatus } from '@/lib/store/sidebar'
 import type { Project } from '@/lib/types'
 
 export type ContextPillModel =
-  | { kind: 'workspace'; status: WorkspaceStatus; repoName: string; branchName: string }
+  | {
+      kind: 'workspace'
+      status: WorkspaceStatus
+      working?: boolean
+      repoName: string
+      branchName: string
+    }
   | { kind: 'project'; projectName: string }
   | { kind: 'empty' }
 
@@ -32,6 +38,7 @@ export function deriveContextPillModel({
         // A statusless workspace is freshly created — matches the 'new' default
         // applied on workspace creation in sidebar.ts.
         status: workspace.status ?? 'new',
+        working: workspace.working,
         repoName: repo.name,
         branchName: workspace.branch,
       }

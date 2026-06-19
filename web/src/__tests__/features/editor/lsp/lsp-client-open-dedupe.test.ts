@@ -18,6 +18,7 @@ vi.mock('@/features/workspace/stores/workspace-store-registry', () => ({
 }))
 
 import { LspClient } from '@/features/editor/lsp/lsp-client'
+import { setWorkspaceScope } from '@/lib/workspace-scope'
 
 function postPaths() {
   return apiFetch.mock.calls.map((c) => String(c[0]))
@@ -26,6 +27,8 @@ function postPaths() {
 describe('LspClient didOpen/didClose dedupe (I4)', () => {
   beforeEach(() => {
     apiFetch.mockClear()
+    // §3: workspaceBase resolves the hierarchical scope from @/lib/workspace-scope.
+    setWorkspaceScope({ projectId: 'p1', repoId: 'r1', wsId: 'ws-1' })
   })
 
   it('opens a document exactly once even when two owners open it', async () => {

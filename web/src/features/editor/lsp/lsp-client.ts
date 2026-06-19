@@ -7,6 +7,7 @@ import type { CompletionItem } from 'vscode-languageserver-types'
 import { apiFetch } from '@/lib/api'
 import { wsManager } from '@/lib/ws/manager'
 import { getActiveWorkspaceId } from '@/features/workspace/stores/workspace-store-registry'
+import { workspaceBase } from '@/lib/workspace-scope-url'
 
 export interface LspError {
   message: string
@@ -104,7 +105,7 @@ class LspClientImpl {
     // The new workspace's documents are not open yet; drop stale refcounts so a
     // first open there still POSTs `/didOpen`.
     this.openRefs.clear()
-    this.unsubscribe = wsManager.subscribe(`/v0/ws/lsp?wsId=${encodeURIComponent(wsId)}`, (raw) =>
+    this.unsubscribe = wsManager.subscribe(`${workspaceBase(wsId)}/lsp/ws`, (raw) =>
       this.dispatch(raw as DiagnosticsEvent),
     )
   }
@@ -129,7 +130,7 @@ class LspClientImpl {
 
   private wsBase(): string | null {
     const wsId = getActiveWorkspaceId()
-    return wsId ? `/v0/workspaces/${encodeURIComponent(wsId)}/lsp` : null
+    return wsId ? `${workspaceBase(wsId)}/lsp` : null
   }
 
   async startServer(_filePath: string): Promise<void> {

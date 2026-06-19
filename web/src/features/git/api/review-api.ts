@@ -1,4 +1,5 @@
 import { apiFetch } from '@/lib/api'
+import { workspaceBase } from '@/lib/workspace-scope-url'
 import type { MultiFileDiff } from '../types/git-diff-types'
 import type {
   MergeStrategy,
@@ -15,7 +16,7 @@ import type {
 // PRs or execute the merge — those are out of scope for this surface.
 
 function reviewBase(wsId: string): string {
-  return `/v0/workspaces/${encodeURIComponent(wsId)}/review`
+  return `${workspaceBase(wsId)}/review`
 }
 
 // ── Wire shapes ─────────────────────────────────────────────────────

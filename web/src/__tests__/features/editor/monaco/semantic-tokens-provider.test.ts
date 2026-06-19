@@ -22,10 +22,14 @@ import { treeSitterSemanticTokensProvider } from '@/features/editor/monaco/seman
 
 const cancel = { isCancellationRequested: false } as any
 function model(path: string, value = 'x', lang = 'go') {
+  const lines = value.split('\n')
   return {
     uri: { path, toString: () => `file://${path}` },
     getValue: () => value,
-    getLineLength: () => 100,
+    getVersionId: () => 1,
+    getLineCount: () => lines.length,
+    getLineContent: (n: number) => lines[n - 1] ?? '',
+    getLineLength: (n: number) => (lines[n - 1] ?? '').length,
     getLanguageId: () => lang,
   } as any
 }
@@ -58,16 +62,16 @@ describe('treeSitterSemanticTokensProvider', () => {
     expect(tokenizerWorkerClient.tokenize).toHaveBeenCalledOnce()
   })
 
-  it('falls back to the heuristic when no grammar (unknown language → worker not called)', async () => {
+  it('returns empty for an unknown extension (no language id → worker not called)', async () => {
     ;(getLanguageIdFromPath as any).mockReturnValue(null)
     const r = await treeSitterSemanticTokensProvider.provideDocumentRangeSemanticTokens(
       model('/x.unknown', 'newRootCmd()\n'),
       range,
       cancel,
     )
+    // No path-derived language id → bail before any heuristic/worker work.
     expect(tokenizerWorkerClient.tokenize).not.toHaveBeenCalled()
-    // heuristic colored the call → one (5-int) token
-    expect(r!.data.length).toBe(5)
+    expect(r!.data.length).toBe(0)
   })
 
   it('falls back to the heuristic when the worker fails, and caches the language', async () => {

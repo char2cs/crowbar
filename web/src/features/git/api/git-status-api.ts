@@ -1,4 +1,5 @@
 import { apiFetch } from '@/lib/api'
+import { workspaceBase } from '@/lib/workspace-scope-url'
 import { toast } from '@/features/window/stores/toast-store'
 import type { GitHunk, GitStatus } from '../types/git-types'
 
@@ -8,7 +9,7 @@ async function gitPost(
   body: Record<string, unknown>,
 ): Promise<boolean> {
   try {
-    await apiFetch(`/v0/workspaces/${encodeURIComponent(wsId)}/git/${action}`, {
+    await apiFetch(`${workspaceBase(wsId)}/git/${action}`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(body),
@@ -28,9 +29,7 @@ function hunkIdOf(hunk: GitHunk): string | undefined {
 
 export const getGitStatus = async (wsId: string): Promise<GitStatus | null> => {
   try {
-    const status = await apiFetch<GitStatus>(
-      `/v0/workspaces/${encodeURIComponent(wsId)}/git/status`,
-    )
+    const status = await apiFetch<GitStatus>(`${workspaceBase(wsId)}/git/status`)
     // The backend serialises a clean working tree as `files: null`; normalise
     // here so downstream consumers can rely on `files` being an array.
     return { ...status, files: status.files ?? [] }
