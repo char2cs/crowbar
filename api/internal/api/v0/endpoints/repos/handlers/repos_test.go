@@ -1,11 +1,14 @@
 package handlers_test
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
+	"mime/multipart"
 	"net/http"
 	"net/http/httptest"
+	"net/textproto"
 	"os"
 	"path/filepath"
 	"strings"
@@ -243,6 +246,98 @@ func TestIcon_NoIcon_Returns404(t *testing.T) {
 	r.ServeHTTP(w, req)
 
 	assert.Equal(t, http.StatusNotFound, w.Code)
+}
+
+// putIconHandler builds a router wired to the multipart/JSON upload handler.
+func putIconRouter(store repohandlers.Store, home string) *gin.Engine {
+	h := repohandlers.New(store).WithIconStorage(func() (string, error) { return home, nil }, nil)
+	r := gin.New()
+	r.PUT(iconRoute, h.PutIcon)
+	return r
+}
+
+// Desktop transport: the WKWebView crowbar:// scheme cannot carry a
+// multipart/binary body, so the native file dialog hands the daemon an absolute
+// path (as JSON) and the daemon reads the file itself — exactly like repo import.
+func TestPutIcon_JSONPath_ReadsFileFromDisk(t *testing.T) {
+	home := t.TempDir()
+	srcPath := filepath.Join(t.TempDir(), "photo.png")
+	png := append([]byte("\x89PNG\r\n\x1a\n"), []byte("custom-photo-bytes")...)
+	require.NoError(t, os.WriteFile(srcPath, png, 0o644))
+
+	var saved domain.Repository
+	store := &fakeStore{byKey: &domain.Repository{ID: "r1", ProjectID: "p1", AvatarEmoji: "🚀"}}
+	store.SaveFn = func(_ context.Context, r domain.Repository) error { saved = r; return nil }
+
+	body, _ := json.Marshal(map[string]string{"path": srcPath})
+	w := httptest.NewRecorder()
+	req, _ := http.NewRequest(http.MethodPut, "/v0/projects/p1/repos/r1/icon", bytes.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	putIconRouter(store, home).ServeHTTP(w, req)
+
+	assert.Equal(t, http.StatusOK, w.Code)
+	stored, err := os.ReadFile(filepath.Join(home, "projects", "p1", "r1", "icon"))
+	require.NoError(t, err)
+	assert.Equal(t, png, stored)
+	assert.True(t, saved.AvatarHasIcon)
+	assert.Equal(t, "", saved.AvatarEmoji)
+}
+
+func TestPutIcon_JSONPath_MissingFile_Returns400(t *testing.T) {
+	home := t.TempDir()
+	store := &fakeStore{byKey: &domain.Repository{ID: "r1", ProjectID: "p1"}}
+
+	body, _ := json.Marshal(map[string]string{"path": filepath.Join(home, "does-not-exist.png")})
+	w := httptest.NewRecorder()
+	req, _ := http.NewRequest(http.MethodPut, "/v0/projects/p1/repos/r1/icon", bytes.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	putIconRouter(store, home).ServeHTTP(w, req)
+
+	assert.Equal(t, http.StatusBadRequest, w.Code)
+}
+
+func TestPutIcon_JSONPath_NonImageExt_Returns400(t *testing.T) {
+	home := t.TempDir()
+	srcPath := filepath.Join(t.TempDir(), "notes.txt")
+	require.NoError(t, os.WriteFile(srcPath, []byte("not an image"), 0o644))
+	store := &fakeStore{byKey: &domain.Repository{ID: "r1", ProjectID: "p1"}}
+
+	body, _ := json.Marshal(map[string]string{"path": srcPath})
+	w := httptest.NewRecorder()
+	req, _ := http.NewRequest(http.MethodPut, "/v0/projects/p1/repos/r1/icon", bytes.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	putIconRouter(store, home).ServeHTTP(w, req)
+
+	assert.Equal(t, http.StatusBadRequest, w.Code)
+}
+
+// Web browsers still POST the file as multipart/form-data; keep that path working.
+func TestPutIcon_Multipart_StoresBytes(t *testing.T) {
+	home := t.TempDir()
+	var saved domain.Repository
+	store := &fakeStore{byKey: &domain.Repository{ID: "r1", ProjectID: "p1"}}
+	store.SaveFn = func(_ context.Context, r domain.Repository) error { saved = r; return nil }
+
+	var buf bytes.Buffer
+	mw := multipart.NewWriter(&buf)
+	part, _ := mw.CreatePart(textproto.MIMEHeader{
+		"Content-Disposition": []string{`form-data; name="icon"; filename="x.png"`},
+		"Content-Type":        []string{"image/png"},
+	})
+	png := append([]byte("\x89PNG\r\n\x1a\n"), []byte("multipart-bytes")...)
+	_, _ = part.Write(png)
+	_ = mw.Close()
+
+	w := httptest.NewRecorder()
+	req, _ := http.NewRequest(http.MethodPut, "/v0/projects/p1/repos/r1/icon", &buf)
+	req.Header.Set("Content-Type", mw.FormDataContentType())
+	putIconRouter(store, home).ServeHTTP(w, req)
+
+	assert.Equal(t, http.StatusOK, w.Code)
+	stored, err := os.ReadFile(filepath.Join(home, "projects", "p1", "r1", "icon"))
+	require.NoError(t, err)
+	assert.Equal(t, png, stored)
+	assert.True(t, saved.AvatarHasIcon)
 }
 
 type fakeBranchProvider struct {

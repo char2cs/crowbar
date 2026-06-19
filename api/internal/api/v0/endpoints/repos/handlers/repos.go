@@ -676,7 +676,15 @@ func (h *Handlers) DeleteIcon(c *gin.Context) {
 	c.Status(http.StatusNoContent)
 }
 
-// PutIcon handles PUT /v0/projects/:projectId/repos/:repoId/icon (multipart/form-data, field "icon").
+// maxIconBytes caps the stored icon at 5 MB.
+const maxIconBytes = 5 << 20
+
+// PutIcon handles PUT /v0/projects/:projectId/repos/:repoId/icon. It accepts the
+// icon two ways: a multipart/form-data "icon" field (web browsers), or a JSON
+// body {"path": "<absolute path>"} the daemon reads from disk itself. The latter
+// is the desktop path: the WKWebView crowbar:// scheme cannot carry a
+// multipart/binary request body, so the native file dialog yields a path and the
+// daemon reads it — the same way repo import reads a user-selected path.
 // Accepts image/png, image/jpeg, image/webp; max 5 MB.
 func (h *Handlers) PutIcon(c *gin.Context) {
 	repo, err := h.store.FindByKey(c.Request.Context(), c.Param("repoId"))
@@ -684,30 +692,16 @@ func (h *Handlers) PutIcon(c *gin.Context) {
 		libs.WriteErr(c, http.StatusNotFound, "repo not found")
 		return
 	}
-	file, header, err := c.Request.FormFile("icon")
-	if err != nil {
-		libs.WriteErr(c, http.StatusBadRequest, "icon field required")
+	data, ct, ok := h.readIconUpload(c)
+	if !ok {
 		return
 	}
-	defer file.Close()
-
-	if header.Size > 5<<20 {
+	if len(data) > maxIconBytes {
 		libs.WriteErr(c, http.StatusBadRequest, "icon must be under 5 MB")
 		return
 	}
-
-	ct := header.Header.Get("Content-Type")
-	if ct == "" {
-		ct = mime.TypeByExtension(filepath.Ext(header.Filename))
-	}
 	if _, ok := iconContentTypeExt(ct); !ok {
 		libs.WriteErr(c, http.StatusBadRequest, "icon must be png, jpeg, or webp")
-		return
-	}
-
-	data, err := io.ReadAll(file)
-	if err != nil {
-		libs.WriteErr(c, http.StatusInternalServerError, "read error")
 		return
 	}
 	if err := h.storeIconBytes(c, data); err != nil {
@@ -722,6 +716,57 @@ func (h *Handlers) PutIcon(c *gin.Context) {
 		return
 	}
 	c.JSON(http.StatusOK, gin.H{"avatarUrl": "/v0/projects/" + repo.ProjectID + "/repos/" + repo.ID + "/icon"})
+}
+
+// readIconUpload extracts the icon bytes and content-type from the request,
+// dispatching on Content-Type: a JSON {"path"} body (desktop, daemon reads the
+// file) or a multipart "icon" field (web). On any error it writes the response
+// and returns ok=false.
+func (h *Handlers) readIconUpload(c *gin.Context) (data []byte, contentType string, ok bool) {
+	if strings.HasPrefix(c.ContentType(), "application/json") {
+		return readIconFromPath(c)
+	}
+	return readIconFromMultipart(c)
+}
+
+// readIconFromPath reads the icon from an absolute path supplied as JSON. The
+// content-type is derived from the file extension (the daemon and webview run on
+// the same host, so the dialog-supplied path is trusted like the import path).
+func readIconFromPath(c *gin.Context) ([]byte, string, bool) {
+	var body struct {
+		Path string `json:"path"`
+	}
+	if err := c.ShouldBindJSON(&body); err != nil || body.Path == "" {
+		libs.WriteErr(c, http.StatusBadRequest, "icon path required")
+		return nil, "", false
+	}
+	data, err := os.ReadFile(body.Path)
+	if err != nil {
+		libs.WriteErr(c, http.StatusBadRequest, "could not read icon file")
+		return nil, "", false
+	}
+	return data, mime.TypeByExtension(filepath.Ext(body.Path)), true
+}
+
+// readIconFromMultipart reads the icon from a multipart "icon" form field.
+func readIconFromMultipart(c *gin.Context) ([]byte, string, bool) {
+	file, header, err := c.Request.FormFile("icon")
+	if err != nil {
+		libs.WriteErr(c, http.StatusBadRequest, "icon field required")
+		return nil, "", false
+	}
+	defer file.Close()
+
+	ct := header.Header.Get("Content-Type")
+	if ct == "" {
+		ct = mime.TypeByExtension(filepath.Ext(header.Filename))
+	}
+	data, err := io.ReadAll(file)
+	if err != nil {
+		libs.WriteErr(c, http.StatusInternalServerError, "read error")
+		return nil, "", false
+	}
+	return data, ct, true
 }
 
 // storeIconBytes writes raw icon bytes to the entity-scoped icon path,

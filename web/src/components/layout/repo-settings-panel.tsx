@@ -9,6 +9,8 @@ import { useSidebarStore } from '@/lib/store/sidebar'
 import { toast } from 'sonner'
 import { Lock, Check, Trash2, Upload, Star, Smile } from 'lucide-react'
 import { cn } from '@/lib/utils'
+import { open as openDialog } from '@tauri-apps/plugin-dialog'
+import { isTauri } from '@/lib/crowbar-bridge'
 
 interface BranchEntry {
   name: string
@@ -32,6 +34,11 @@ export function RepoSettingsPanel({ projectId, repoId, repoName }: RepoSettingsP
   const [emojiInput, setEmojiInput] = useState('')
   const [showEmojiInput, setShowEmojiInput] = useState(false)
   const [iconLoading, setIconLoading] = useState(false)
+  // The icon proxy URL (/repos/:r/icon) is stable, so the browser caches the
+  // image and won't refetch after an upload/github/reset changes the bytes in
+  // place. Bump this on every successful icon mutation and append it as a
+  // cache-busting query param so the avatar refreshes immediately.
+  const [iconVersion, setIconVersion] = useState(0)
   const fileRef = useRef<HTMLInputElement>(null)
 
   const repo = useSidebarStore((s) => s.repos.find((r) => r.id === repoId))
@@ -85,6 +92,38 @@ export function RepoSettingsPanel({ projectId, repoId, repoName }: RepoSettingsP
     })
   }
 
+  // Upload entry point. On the desktop the WKWebView crowbar:// transport cannot
+  // carry a multipart/binary body, so we use the native file dialog to get an
+  // absolute path and let the daemon read the file (PUT JSON {path}) — the same
+  // path-based flow as repo import. In a real browser there is no filesystem
+  // path, so fall back to the hidden <input> + multipart upload.
+  async function handleUpload() {
+    if (!isTauri()) {
+      fileRef.current?.click()
+      return
+    }
+    const selected = await openDialog({
+      multiple: false,
+      filters: [{ name: 'Images', extensions: ['png', 'jpg', 'jpeg', 'webp'] }],
+    })
+    if (typeof selected !== 'string') return
+    setIconLoading(true)
+    try {
+      // §3: the updated RepoDTO (new avatarUrl) arrives on the repos WS stream
+      // and merges into the cache — no manual list refetch.
+      await apiFetch(`${repoBase}/icon`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ path: selected }),
+      })
+      setIconVersion((v) => v + 1)
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : 'Failed to set icon')
+    } finally {
+      setIconLoading(false)
+    }
+  }
+
   async function handleFileChange(e: React.ChangeEvent<HTMLInputElement>) {
     const file = e.target.files?.[0]
     if (!file) return
@@ -95,6 +134,7 @@ export function RepoSettingsPanel({ projectId, repoId, repoName }: RepoSettingsP
       // §3: the updated RepoDTO (new avatarUrl) arrives on the repos WS stream
       // and merges into the cache — no manual list refetch.
       await apiFetch(`${repoBase}/icon`, { method: 'PUT', body: form })
+      setIconVersion((v) => v + 1)
     } catch {
       // ignore
     } finally {
@@ -126,6 +166,7 @@ export function RepoSettingsPanel({ projectId, repoId, repoName }: RepoSettingsP
     setIconLoading(true)
     try {
       await apiFetch(`${repoBase}/icon/github`, { method: 'PUT' })
+      setIconVersion((v) => v + 1)
     } catch {
       // ignore
     } finally {
@@ -137,6 +178,7 @@ export function RepoSettingsPanel({ projectId, repoId, repoName }: RepoSettingsP
     setIconLoading(true)
     try {
       await apiFetch(`${repoBase}/icon`, { method: 'DELETE' })
+      setIconVersion((v) => v + 1)
     } catch {
       // ignore
     } finally {
@@ -146,7 +188,10 @@ export function RepoSettingsPanel({ projectId, repoId, repoName }: RepoSettingsP
 
   const importable = selected.size
   const isEmoji = repo?.avatarURL?.startsWith('emoji:')
-  const avatarSrc = !isEmoji && repo?.avatarURL ? repo.avatarURL : undefined
+  const avatarSrc =
+    !isEmoji && repo?.avatarURL
+      ? `${repo.avatarURL}${repo.avatarURL.includes('?') ? '&' : '?'}v=${iconVersion}`
+      : undefined
 
   return (
     <div className="flex h-full flex-col">
@@ -185,7 +230,7 @@ export function RepoSettingsPanel({ projectId, repoId, repoName }: RepoSettingsP
             variant="ghost"
             size="xs"
             disabled={iconLoading}
-            onClick={() => { setShowEmojiInput(false); fileRef.current?.click() }}
+            onClick={() => { setShowEmojiInput(false); void handleUpload() }}
             className="flex-1 gap-1 text-muted-foreground hover:text-foreground"
           >
             <Upload className="size-3" />
