@@ -84,14 +84,15 @@ func New(
 		engines.Provider,
 	)
 	projectImport := project.NewImport(project.ImportDeps{
-		Projects:   gormStores.Projects,
-		Repos:      gormStores.Repositories,
-		Workspaces: repos.Workspace,
-		Git:        engines.Git,
-		Provider:   engines.Provider,
-		Discover:   discover.Repos,
-		RefRunner:  newRefRunner,
-		Now:        nowFunc,
+		Projects:    gormStores.Projects,
+		Repos:       gormStores.Repositories,
+		Workspaces:  repos.Workspace,
+		Git:         engines.Git,
+		Provider:    engines.Provider,
+		Discover:    discover.Repos,
+		RefRunner:   newRefRunner,
+		Now:         nowFunc,
+		CrowbarHome: worktreepath.DefaultCrowbarHome,
 	})
 	projectDelete := project.NewDelete(project.DeleteDeps{
 		Projects:    gormStores.Projects,

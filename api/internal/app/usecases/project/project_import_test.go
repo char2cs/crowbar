@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"os"
+	"path/filepath"
 	"testing"
 	"time"
 
@@ -293,18 +294,127 @@ func TestImport_WorkspaceCreateError_IsTolerated(
 	assert.Empty(t, ws.Created)
 }
 
-func TestImport_AvatarURL_FromProvider(t *testing.T) {
-	_, repos, _, git, prov, uc := newImport(t)
-	git.Worktrees = []gitengine.WorktreeEntry{
-		{Path: "/repoA", Branch: "main", Head: "h1"},
-	}
-	prov.Protected = []string{"main"}
-	prov.AvatarURL = "https://avatars.githubusercontent.com/u/99"
+func TestImport_WritesRepoIconToEntityDir(t *testing.T) {
+	// A local repo icon (favicon.svg) on disk must be copied into the
+	// entity-scoped icon path <home>/projects/<P>/<R>/icon, and the repo row
+	// must record AvatarHasIcon=true.
+	home := t.TempDir()
+	repoDir := t.TempDir()
+	require.NoError(t, os.WriteFile(filepath.Join(repoDir, "favicon.svg"), []byte("<svg>icon</svg>"), 0o644))
+
+	repos := mocks.NewRepositoryStore()
+	uc := project.NewImport(project.ImportDeps{
+		Projects:    mocks.NewProjectStore(),
+		Repos:       repos,
+		Workspaces:  mocks.NewWorkspaceRepo(),
+		Git:         mocks.NewGitEngine(),
+		Provider:    mocks.NewProviderEngine(),
+		CrowbarHome: func() (string, error) { return home, nil },
+		Discover: func(root string, maxDepth int) ([]string, error) {
+			return []string{repoDir}, nil
+		},
+		RefRunner: func(repoPath string) defaultbranch.RefRunner {
+			return func(args ...string) (string, bool) { return "", false }
+		},
+		Now:  func() time.Time { return time.Unix(1000, 0).UTC() },
+		Stat: statExists,
+	})
 
 	_, err := uc.Import(context.Background(), "P", "/root")
 	require.NoError(t, err)
 	require.Len(t, repos.Saved, 1)
-	assert.Equal(t, "https://avatars.githubusercontent.com/u/99", repos.Saved[0].AvatarURL)
+
+	saved := repos.Saved[0]
+	assert.True(t, saved.AvatarHasIcon)
+
+	iconPath := filepath.Join(home, "projects", saved.ProjectID, saved.ID, "icon")
+	data, readErr := os.ReadFile(iconPath)
+	require.NoError(t, readErr)
+	assert.Equal(t, "<svg>icon</svg>", string(data))
+}
+
+func TestImport_DefaultsToGithubAvatar(t *testing.T) {
+	// No local icon: import must best-effort fetch the GitHub owner avatar
+	// bytes and write them to the entity icon path, setting AvatarHasIcon=true.
+	home := t.TempDir()
+	repoDir := t.TempDir() // no icon files inside
+
+	repos := mocks.NewRepositoryStore()
+	fetched := false
+	uc := project.NewImport(project.ImportDeps{
+		Projects:    mocks.NewProjectStore(),
+		Repos:       repos,
+		Workspaces:  mocks.NewWorkspaceRepo(),
+		Git:         mocks.NewGitEngine(),
+		Provider:    mocks.NewProviderEngine(),
+		CrowbarHome: func() (string, error) { return home, nil },
+		FetchAvatarBytes: func(_ context.Context, _ string) ([]byte, string, error) {
+			fetched = true
+			return []byte("PNGDATA"), "image/png", nil
+		},
+		Discover: func(root string, maxDepth int) ([]string, error) {
+			return []string{repoDir}, nil
+		},
+		RefRunner: func(repoPath string) defaultbranch.RefRunner {
+			return func(args ...string) (string, bool) { return "", false }
+		},
+		Now:  func() time.Time { return time.Unix(1000, 0).UTC() },
+		Stat: statExists,
+	})
+
+	_, err := uc.Import(context.Background(), "P", "/root")
+	require.NoError(t, err)
+	require.Len(t, repos.Saved, 1)
+	assert.True(t, fetched, "the github avatar fetcher must be invoked when no local icon exists")
+
+	saved := repos.Saved[0]
+	assert.True(t, saved.AvatarHasIcon)
+	iconPath := filepath.Join(home, "projects", saved.ProjectID, saved.ID, "icon")
+	data, readErr := os.ReadFile(iconPath)
+	require.NoError(t, readErr)
+	assert.Equal(t, "PNGDATA", string(data))
+}
+
+func TestImport_AvatarFetchFailureLeavesGeneratedAvatar(t *testing.T) {
+	// No local icon AND the github fetch yields nothing: the repo must still
+	// be saved with AvatarHasIcon=false (generated label/color avatar) and the
+	// import must NOT fail.
+	home := t.TempDir()
+	repoDir := t.TempDir() // no icon files
+
+	repos := mocks.NewRepositoryStore()
+	uc := project.NewImport(project.ImportDeps{
+		Projects:    mocks.NewProjectStore(),
+		Repos:       repos,
+		Workspaces:  mocks.NewWorkspaceRepo(),
+		Git:         mocks.NewGitEngine(),
+		Provider:    mocks.NewProviderEngine(),
+		CrowbarHome: func() (string, error) { return home, nil },
+		FetchAvatarBytes: func(_ context.Context, _ string) ([]byte, string, error) {
+			return nil, "", nil // degraded: no gh/origin
+		},
+		Discover: func(root string, maxDepth int) ([]string, error) {
+			return []string{repoDir}, nil
+		},
+		RefRunner: func(repoPath string) defaultbranch.RefRunner {
+			return func(args ...string) (string, bool) { return "", false }
+		},
+		Now:  func() time.Time { return time.Unix(1000, 0).UTC() },
+		Stat: statExists,
+	})
+
+	_, err := uc.Import(context.Background(), "P", "/root")
+	require.NoError(t, err)
+	require.Len(t, repos.Saved, 1)
+
+	saved := repos.Saved[0]
+	assert.False(t, saved.AvatarHasIcon)
+	assert.NotEmpty(t, saved.AvatarLabel)
+	assert.NotEmpty(t, saved.AvatarColor)
+
+	iconPath := filepath.Join(home, "projects", saved.ProjectID, saved.ID, "icon")
+	_, statErr := os.Stat(iconPath)
+	assert.True(t, os.IsNotExist(statErr), "no icon file should be written on fetch failure")
 }
 
 func TestImport_AutoImportsProtectedBranchStubs(t *testing.T) {
@@ -343,18 +453,20 @@ func TestImport_SkipsStubWhenAlreadyAdopted(t *testing.T) {
 	assert.Len(t, ws.Created, 1)
 }
 
-func TestImport_AvatarURL_FallsBackToEmpty(t *testing.T) {
+func TestImport_AvatarFallsBackToGeneratedWhenNoFetcher(t *testing.T) {
+	// The default newImport fixture has no CrowbarHome/FetchAvatarBytes wired,
+	// and the fake repoA path has no local icon, so the repo falls back to a
+	// generated avatar (AvatarHasIcon=false) without error.
 	_, repos, _, git, prov, uc := newImport(t)
 	git.Worktrees = []gitengine.WorktreeEntry{
 		{Path: "/repoA", Branch: "main", Head: "h1"},
 	}
 	prov.Protected = []string{"main"}
-	prov.AvatarURL = "" // provider returns nothing
 
 	_, err := uc.Import(context.Background(), "P", "/root")
 	require.NoError(t, err)
 	require.Len(t, repos.Saved, 1)
-	assert.Empty(t, repos.Saved[0].AvatarURL)
+	assert.False(t, repos.Saved[0].AvatarHasIcon)
 }
 
 // TestImport_PartialRepoFailure verifies the best-effort guarantee (00 §5.1):

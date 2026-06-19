@@ -4,9 +4,11 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
+	"os"
 	"strings"
 
 	"github.com/char2cs/crowbar/api/internal/app/apperr"
+	"github.com/char2cs/crowbar/api/internal/app/usecases/internal/worktreepath"
 	"github.com/char2cs/crowbar/api/internal/domain"
 )
 
@@ -70,6 +72,10 @@ type DeleteDeps struct {
 	Workspaces  DeleteWorkspaceRepo
 	Git         DeleteGitEngine
 	CrowbarHome func() (string, error)
+	// RemoveAll deletes the entity-scoped project directory tree (worktrees,
+	// storages, icon) under ~/.crowbar/projects/<P>. Defaults to os.RemoveAll
+	// when nil; tests stub it to assert the exact path removed.
+	RemoveAll func(path string) error
 }
 
 // DeleteUsecase removes a project and cascades over its records: every
@@ -101,6 +107,9 @@ type projectDelete struct {
 func NewDelete(
 	deps DeleteDeps,
 ) DeleteUsecase {
+	if deps.RemoveAll == nil {
+		deps.RemoveAll = os.RemoveAll
+	}
 	return &projectDelete{deps: deps}
 }
 
@@ -128,7 +137,35 @@ func (u *projectDelete) Delete(
 	if err := u.deps.Projects.Delete(ctx, id); err != nil {
 		return fmt.Errorf("project delete: delete project %s: %w", id, err)
 	}
+	u.removeProjectDir(ctx, id)
 	return nil
+}
+
+// removeProjectDir rm -rf's the entity-scoped project directory tree
+// (~/.crowbar/projects/<P> — worktrees, storages, icon) once the GORM rows are
+// gone. It is guarded by the crowbarHome prefix so it can NEVER touch a user's
+// real repo Path or an adopted main worktree (both live outside ~/.crowbar).
+// Best-effort: a removal failure is logged, not fatal, so a stale on-disk tree
+// never blocks the record cascade.
+func (u *projectDelete) removeProjectDir(
+	ctx context.Context,
+	projectID string,
+) {
+	if u.deps.CrowbarHome == nil {
+		return
+	}
+	home, err := u.deps.CrowbarHome()
+	if err != nil || home == "" {
+		return
+	}
+	dir := worktreepath.ProjectDir(home, projectID)
+	if !strings.HasPrefix(dir, home) {
+		return
+	}
+	if err := u.deps.RemoveAll(dir); err != nil {
+		slog.WarnContext(ctx, "project delete: remove project dir failed; records already gone",
+			"project_id", projectID, "dir", dir, "err", err)
+	}
 }
 
 func (u *projectDelete) projectRepos(

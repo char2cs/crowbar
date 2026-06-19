@@ -170,45 +170,65 @@ func TestDetailError(
 	assert.Equal(t, http.StatusInternalServerError, rec.Code)
 }
 
-func TestIcon_LocalFile(t *testing.T) {
-	dir := t.TempDir()
-	f := filepath.Join(dir, "logo.svg")
-	require.NoError(t, os.WriteFile(f, []byte("<svg/>"), 0o644))
-
-	h := repohandlers.New(&fakeStore{byKey: &domain.Repository{ID: "r1", AvatarURL: f}})
+// iconRouter mounts the icon route with the hierarchical :projectId/:repoId
+// params and wires the handler's icon storage to a temp home + an optional
+// avatar-bytes fetcher.
+func iconRouter(
+	store repohandlers.Store,
+	home string,
+	fetch repohandlers.AvatarBytesFetcher,
+	method string,
+	path string,
+) *gin.Engine {
+	h := repohandlers.New(store).WithIconStorage(
+		func() (string, error) { return home, nil },
+		fetch,
+	)
 	r := gin.New()
-	r.GET("/v0/repos/:id/icon", h.Icon)
+	switch method {
+	case http.MethodGet:
+		r.GET(path, h.Icon)
+	case http.MethodPut:
+		if strings.HasSuffix(path, "/icon/github") {
+			r.PUT(path, h.PutIconGithub)
+		} else {
+			r.PUT(path, h.PutIconEmoji)
+		}
+	case http.MethodDelete:
+		r.DELETE(path, h.DeleteIcon)
+	}
+	return r
+}
+
+const iconRoute = "/v0/projects/:projectId/repos/:repoId/icon"
+
+func TestIcon_ServesOnDiskBytes(t *testing.T) {
+	home := t.TempDir()
+	iconPath := filepath.Join(home, "projects", "p1", "r1", "icon")
+	require.NoError(t, os.MkdirAll(filepath.Dir(iconPath), 0o755))
+	// PNG magic bytes so http.DetectContentType reports image/png.
+	png := append([]byte("\x89PNG\r\n\x1a\n"), []byte("rest")...)
+	require.NoError(t, os.WriteFile(iconPath, png, 0o644))
+
+	store := &fakeStore{byKey: &domain.Repository{ID: "r1", ProjectID: "p1", AvatarHasIcon: true}}
+	r := iconRouter(store, home, nil, http.MethodGet, iconRoute)
 
 	w := httptest.NewRecorder()
-	req, _ := http.NewRequest(http.MethodGet, "/v0/repos/r1/icon", nil)
+	req, _ := http.NewRequest(http.MethodGet, "/v0/projects/p1/repos/r1/icon", nil)
 	r.ServeHTTP(w, req)
 
 	assert.Equal(t, http.StatusOK, w.Code)
-	assert.Equal(t, "image/svg+xml", w.Header().Get("Content-Type"))
-	assert.Equal(t, "<svg/>", w.Body.String())
+	assert.Equal(t, "image/png", w.Header().Get("Content-Type"))
+	assert.Equal(t, png, w.Body.Bytes())
 }
 
-func TestIcon_HTTPSUrl_Redirects(t *testing.T) {
-	t.Skip("pre-existing WIP divergence: the icon handler no longer HTTPS-redirects; the icon model is fully rewritten to on-disk bytes in W12 (D8), which replaces this test.")
-	h := repohandlers.New(&fakeStore{byKey: &domain.Repository{ID: "r1", AvatarURL: "https://example.com/avatar.png"}})
-	r := gin.New()
-	r.GET("/v0/repos/:id/icon", h.Icon)
+func TestIcon_NoIcon_Returns404(t *testing.T) {
+	home := t.TempDir()
+	store := &fakeStore{byKey: &domain.Repository{ID: "r1", ProjectID: "p1", AvatarHasIcon: false}}
+	r := iconRouter(store, home, nil, http.MethodGet, iconRoute)
 
 	w := httptest.NewRecorder()
-	req, _ := http.NewRequest(http.MethodGet, "/v0/repos/r1/icon", nil)
-	r.ServeHTTP(w, req)
-
-	assert.Equal(t, http.StatusTemporaryRedirect, w.Code)
-	assert.Equal(t, "https://example.com/avatar.png", w.Header().Get("Location"))
-}
-
-func TestIcon_NoAvatarURL_Returns404(t *testing.T) {
-	h := repohandlers.New(&fakeStore{byKey: &domain.Repository{ID: "r1", AvatarURL: ""}})
-	r := gin.New()
-	r.GET("/v0/repos/:id/icon", h.Icon)
-
-	w := httptest.NewRecorder()
-	req, _ := http.NewRequest(http.MethodGet, "/v0/repos/r1/icon", nil)
+	req, _ := http.NewRequest(http.MethodGet, "/v0/projects/p1/repos/r1/icon", nil)
 	r.ServeHTTP(w, req)
 
 	assert.Equal(t, http.StatusNotFound, w.Code)
@@ -248,37 +268,36 @@ func TestBranches_AnnotatesProtectionAndWorkspace(t *testing.T) {
 	assert.Equal(t, http.StatusNotFound, w.Code)
 }
 
-func TestPutIconEmoji_StoresEmojiURL(t *testing.T) {
+func TestPutIconEmoji_SetsEmoji(t *testing.T) {
+	home := t.TempDir()
 	var saved domain.Repository
-	store := &fakeStore{
-		byKey: &domain.Repository{ID: "r1", Path: "/repo"},
-	}
+	store := &fakeStore{byKey: &domain.Repository{ID: "r1", ProjectID: "p1", Path: "/repo", AvatarHasIcon: true}}
 	store.SaveFn = func(_ context.Context, r domain.Repository) error {
 		saved = r
 		return nil
 	}
-	r := gin.New()
-	h := repohandlers.New(store)
-	r.Group("/v0").PUT("/repos/:id/icon/emoji", h.PutIconEmoji)
+	r := iconRouter(store, home, nil, http.MethodPut,
+		"/v0/projects/:projectId/repos/:repoId/icon/emoji")
 
 	body := strings.NewReader(`{"emoji":"🦊"}`)
-	req := httptest.NewRequest(http.MethodPut, "/v0/repos/r1/icon/emoji", body)
+	req := httptest.NewRequest(http.MethodPut, "/v0/projects/p1/repos/r1/icon/emoji", body)
 	req.Header.Set("Content-Type", "application/json")
 	rec := httptest.NewRecorder()
 	r.ServeHTTP(rec, req)
 
 	assert.Equal(t, http.StatusNoContent, rec.Code)
-	assert.Equal(t, "emoji:🦊", saved.AvatarURL)
+	assert.Equal(t, "🦊", saved.AvatarEmoji)
+	assert.False(t, saved.AvatarHasIcon, "setting an emoji clears the on-disk icon flag")
 }
 
 func TestPutIconEmoji_MissingRepo_Returns404(t *testing.T) {
+	home := t.TempDir()
 	store := &fakeStore{byKey: nil}
-	r := gin.New()
-	h := repohandlers.New(store)
-	r.Group("/v0").PUT("/repos/:id/icon/emoji", h.PutIconEmoji)
+	r := iconRouter(store, home, nil, http.MethodPut,
+		"/v0/projects/:projectId/repos/:repoId/icon/emoji")
 
 	body := strings.NewReader(`{"emoji":"🦊"}`)
-	req := httptest.NewRequest(http.MethodPut, "/v0/repos/missing/icon/emoji", body)
+	req := httptest.NewRequest(http.MethodPut, "/v0/projects/p1/repos/missing/icon/emoji", body)
 	req.Header.Set("Content-Type", "application/json")
 	rec := httptest.NewRecorder()
 	r.ServeHTTP(rec, req)
@@ -286,23 +305,70 @@ func TestPutIconEmoji_MissingRepo_Returns404(t *testing.T) {
 	assert.Equal(t, http.StatusNotFound, rec.Code)
 }
 
-func TestDeleteIcon_ClearsAvatarURL(t *testing.T) {
+func TestDeleteIcon_ClearsFlag(t *testing.T) {
+	home := t.TempDir()
+	iconPath := filepath.Join(home, "projects", "p1", "r1", "icon")
+	require.NoError(t, os.MkdirAll(filepath.Dir(iconPath), 0o755))
+	require.NoError(t, os.WriteFile(iconPath, []byte("img"), 0o644))
+
 	var saved domain.Repository
-	store := &fakeStore{
-		byKey: &domain.Repository{ID: "r1", AvatarURL: "/some/path/icon.png"},
-	}
+	store := &fakeStore{byKey: &domain.Repository{ID: "r1", ProjectID: "p1", AvatarHasIcon: true, AvatarEmoji: "🦊"}}
 	store.SaveFn = func(_ context.Context, r domain.Repository) error {
 		saved = r
 		return nil
 	}
-	r := gin.New()
-	h := repohandlers.New(store)
-	r.Group("/v0").DELETE("/repos/:id/icon", h.DeleteIcon)
+	r := iconRouter(store, home, nil, http.MethodDelete, iconRoute)
 
-	req := httptest.NewRequest(http.MethodDelete, "/v0/repos/r1/icon", http.NoBody)
+	req := httptest.NewRequest(http.MethodDelete, "/v0/projects/p1/repos/r1/icon", http.NoBody)
 	rec := httptest.NewRecorder()
 	r.ServeHTTP(rec, req)
 
 	assert.Equal(t, http.StatusNoContent, rec.Code)
-	assert.Equal(t, "", saved.AvatarURL)
+	assert.False(t, saved.AvatarHasIcon)
+	assert.Empty(t, saved.AvatarEmoji)
+	_, statErr := os.Stat(iconPath)
+	assert.True(t, os.IsNotExist(statErr), "the on-disk icon file must be removed")
+}
+
+func TestPutIconGithub_StoresBytes(t *testing.T) {
+	home := t.TempDir()
+	var saved domain.Repository
+	store := &fakeStore{byKey: &domain.Repository{ID: "r1", ProjectID: "p1", Path: "/repo"}}
+	store.SaveFn = func(_ context.Context, r domain.Repository) error {
+		saved = r
+		return nil
+	}
+	fetch := func(_ context.Context, _ string) ([]byte, string, error) {
+		return []byte("AVATARBYTES"), "image/png", nil
+	}
+	r := iconRouter(store, home, fetch, http.MethodPut,
+		"/v0/projects/:projectId/repos/:repoId/icon/github")
+
+	req := httptest.NewRequest(http.MethodPut, "/v0/projects/p1/repos/r1/icon/github", http.NoBody)
+	rec := httptest.NewRecorder()
+	r.ServeHTTP(rec, req)
+
+	assert.Equal(t, http.StatusNoContent, rec.Code)
+	assert.True(t, saved.AvatarHasIcon)
+
+	iconPath := filepath.Join(home, "projects", "p1", "r1", "icon")
+	data, readErr := os.ReadFile(iconPath)
+	require.NoError(t, readErr)
+	assert.Equal(t, "AVATARBYTES", string(data))
+}
+
+func TestPutIconGithub_FetchFails_Returns422(t *testing.T) {
+	home := t.TempDir()
+	store := &fakeStore{byKey: &domain.Repository{ID: "r1", ProjectID: "p1", Path: "/repo"}}
+	fetch := func(_ context.Context, _ string) ([]byte, string, error) {
+		return nil, "", nil // degraded
+	}
+	r := iconRouter(store, home, fetch, http.MethodPut,
+		"/v0/projects/:projectId/repos/:repoId/icon/github")
+
+	req := httptest.NewRequest(http.MethodPut, "/v0/projects/p1/repos/r1/icon/github", http.NoBody)
+	rec := httptest.NewRecorder()
+	r.ServeHTTP(rec, req)
+
+	assert.Equal(t, http.StatusUnprocessableEntity, rec.Code)
 }

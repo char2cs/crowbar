@@ -7,7 +7,6 @@ import (
 	"io"
 	"mime"
 	"net/http"
-	"net/url"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -98,24 +97,59 @@ type BranchEntry struct {
 	HasWorkspace bool   `json:"hasWorkspace"`
 }
 
+// AvatarBytesFetcher downloads the repo owner's avatar image bytes plus the
+// response content-type, best-effort: (nil, "", nil) on absence.
+type AvatarBytesFetcher func(
+	ctx context.Context,
+	repoPath string,
+) ([]byte, string, error)
+
 // Handlers serves the /v0/repos routes from the repository GORM store.
 type Handlers struct {
-	store    Store
-	provider BranchProviderEngine
-	wsReader WorkspaceReader
+	store       Store
+	provider    BranchProviderEngine
+	wsReader    WorkspaceReader
+	crowbarHome func() (string, error)
+	fetchAvatar AvatarBytesFetcher
 }
 
 // New builds the repos Handlers from the repository GORM store.
 func New(
 	store Store,
 ) *Handlers {
-	return &Handlers{store: store}
+	return &Handlers{
+		store:       store,
+		crowbarHome: defaultCrowbarHome,
+		fetchAvatar: fetchGithubAvatarBytes,
+	}
 }
 
 // NewWithDeps builds Handlers with the optional provider + workspace deps
 // needed for the Branches endpoint.
 func NewWithDeps(store Store, prov BranchProviderEngine, wsReader WorkspaceReader) *Handlers {
-	return &Handlers{store: store, provider: prov, wsReader: wsReader}
+	return &Handlers{
+		store:       store,
+		provider:    prov,
+		wsReader:    wsReader,
+		crowbarHome: defaultCrowbarHome,
+		fetchAvatar: fetchGithubAvatarBytes,
+	}
+}
+
+// WithIconStorage overrides the crowbar-home resolver and the GitHub avatar
+// fetcher used by the icon handlers. Intended for tests; both nil args leave
+// the defaults in place.
+func (h *Handlers) WithIconStorage(
+	home func() (string, error),
+	fetch AvatarBytesFetcher,
+) *Handlers {
+	if home != nil {
+		h.crowbarHome = home
+	}
+	if fetch != nil {
+		h.fetchAvatar = fetch
+	}
+	return h
 }
 
 // List handles GET /v0/repos, returning every repo as RepoDTO[]. The optional
@@ -183,10 +217,6 @@ func (h *Handlers) Create(
 		remoteURL = gitRemoteURL(body.Path)
 	}
 	label, color := repoAvatar(body.Name)
-	avatarURL := ""
-	if body.Path != "" {
-		avatarURL = fetchGithubAvatar(c.Request.Context(), body.Path)
-	}
 	repo := domain.Repository{
 		ID:            id,
 		ProjectID:     body.ProjectID,
@@ -196,7 +226,6 @@ func (h *Handlers) Create(
 		RemoteURL:     remoteURL,
 		AvatarLabel:   label,
 		AvatarColor:   color,
-		AvatarURL:     avatarURL,
 	}
 	if err := h.store.Save(c.Request.Context(), repo); err != nil {
 		status, msg := libs.StatusAndMessage(err)
@@ -218,50 +247,130 @@ func gitDefaultBranch(
 	return strings.TrimSpace(string(out))
 }
 
-// Icon handles GET /v0/projects/:projectId/repos/:repoId/icon. If AvatarURL is an HTTPS URL it
-// redirects. If it is a local filesystem path it reads and serves the file.
+// Icon handles GET /v0/projects/:projectId/repos/:repoId/icon. It serves the
+// on-disk icon bytes stored at worktreepath.RepoIconPath, sniffing the
+// content-type from the bytes. Returns 404 when the repo has no on-disk icon.
 func (h *Handlers) Icon(c *gin.Context) {
 	repo, err := h.store.FindByKey(c.Request.Context(), c.Param("repoId"))
-	if err != nil || repo == nil || repo.AvatarURL == "" {
+	if err != nil || repo == nil || !repo.AvatarHasIcon {
 		c.Status(http.StatusNotFound)
 		return
 	}
-	if strings.HasPrefix(repo.AvatarURL, "http") {
-		resp, err := http.Get(repo.AvatarURL) //nolint:gosec
-		if err != nil {
-			c.Status(http.StatusBadGateway)
-			return
-		}
-		defer resp.Body.Close()
-		ct := resp.Header.Get("Content-Type")
-		if ct == "" {
-			ct = "image/png"
-		}
-		data, err := io.ReadAll(resp.Body)
-		if err != nil {
-			c.Status(http.StatusBadGateway)
-			return
-		}
-		c.Data(http.StatusOK, ct, data)
+	iconPath, ok := h.iconPath(c)
+	if !ok {
+		c.Status(http.StatusNotFound)
 		return
 	}
-	data, err := os.ReadFile(repo.AvatarURL)
+	data, err := os.ReadFile(iconPath)
 	if err != nil {
 		c.Status(http.StatusNotFound)
 		return
 	}
-	contentTypes := map[string]string{
-		".svg":  "image/svg+xml",
-		".png":  "image/png",
-		".ico":  "image/x-icon",
-		".jpg":  "image/jpeg",
-		".jpeg": "image/jpeg",
+	c.Data(http.StatusOK, http.DetectContentType(data), data)
+}
+
+// iconPath resolves the entity-scoped icon file path from the request's
+// :projectId/:repoId params and the configured crowbar home. ok is false when
+// the home cannot be resolved.
+func (h *Handlers) iconPath(
+	c *gin.Context,
+) (string, bool) {
+	home, err := h.crowbarHome()
+	if err != nil || home == "" {
+		return "", false
 	}
-	ct := contentTypes[strings.ToLower(filepath.Ext(repo.AvatarURL))]
+	return repoIconPath(home, c.Param("projectId"), c.Param("repoId")), true
+}
+
+// repoIconPath mirrors worktreepath.RepoIconPath without importing the
+// usecase-internal package (forbidden from the api layer):
+// <crowbarHome>/projects/<projectId>/<repoId>/icon.
+func repoIconPath(
+	crowbarHome string,
+	projectID string,
+	repoID string,
+) string {
+	return filepath.Join(crowbarHome, "projects", projectID, repoID, "icon")
+}
+
+// defaultCrowbarHome returns ~/.crowbar, the production root for all
+// crowbar-managed state.
+func defaultCrowbarHome() (string, error) {
+	h, err := os.UserHomeDir()
+	if err != nil {
+		return "", fmt.Errorf("crowbar home: %w", err)
+	}
+	return filepath.Join(h, ".crowbar"), nil
+}
+
+// fetchGithubAvatarBytes resolves the repo owner avatar URL via git + gh and
+// downloads its bytes. Best-effort: returns (nil, "", nil) on any soft
+// failure (no origin, no gh auth, transport error).
+func fetchGithubAvatarBytes(
+	ctx context.Context,
+	repoPath string,
+) ([]byte, string, error) {
+	url := githubAvatarURL(ctx, repoPath)
+	if url == "" {
+		return nil, "", nil
+	}
+	resp, err := http.Get(url) //nolint:gosec // owner-controlled GitHub avatar URL
+	if err != nil {
+		return nil, "", nil
+	}
+	defer func() { _ = resp.Body.Close() }()
+	if resp.StatusCode != http.StatusOK {
+		return nil, "", nil
+	}
+	data, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return nil, "", nil
+	}
+	ct := resp.Header.Get("Content-Type")
 	if ct == "" {
-		ct = "application/octet-stream"
+		ct = "image/png"
 	}
-	c.Data(http.StatusOK, ct, data)
+	return data, ct, nil
+}
+
+// githubAvatarURL shells out to git + gh to resolve the owner avatar URL.
+func githubAvatarURL(
+	ctx context.Context,
+	repoPath string,
+) string {
+	raw, err := exec.CommandContext(ctx, "git", "-C", repoPath, "remote", "get-url", "origin").Output()
+	if err != nil {
+		return ""
+	}
+	slug, err := githubSlugFromURL(strings.TrimSpace(string(raw)))
+	if err != nil {
+		return ""
+	}
+	out, err := exec.CommandContext(ctx, "gh", "api", "repos/"+slug, "--jq", ".owner.avatar_url").Output()
+	if err != nil {
+		return ""
+	}
+	return strings.TrimSpace(string(out))
+}
+
+// githubSlugFromURL extracts "owner/repo" from a GitHub remote URL.
+func githubSlugFromURL(
+	rawURL string,
+) (string, error) {
+	rawURL = strings.TrimSuffix(strings.TrimSpace(rawURL), ".git")
+	if strings.HasPrefix(rawURL, "git@") {
+		parts := strings.SplitN(rawURL, ":", 2)
+		if len(parts) == 2 {
+			return parts[1], nil
+		}
+	}
+	if idx := strings.Index(rawURL, "://"); idx >= 0 {
+		path := rawURL[idx+3:]
+		if slash := strings.Index(path, "/"); slash >= 0 {
+			return path[slash+1:], nil
+		}
+	}
+	return "", fmt.Errorf("unrecognised URL: %q", rawURL)
 }
 
 // Branches handles GET /v0/projects/:projectId/repos/:repoId/branches. Returns all remote branches
@@ -368,7 +477,13 @@ func (h *Handlers) PutIconEmoji(c *gin.Context) {
 		libs.WriteErr(c, http.StatusBadRequest, "emoji must be a single character")
 		return
 	}
-	repo.AvatarURL = "emoji:" + body.Emoji
+	// Emoji takes precedence over an on-disk image: clear the icon flag and
+	// best-effort remove any previously stored icon file.
+	if iconPath, ok := h.iconPath(c); ok {
+		_ = os.Remove(iconPath)
+	}
+	repo.AvatarEmoji = body.Emoji
+	repo.AvatarHasIcon = false
 	if err := h.store.Save(c.Request.Context(), *repo); err != nil {
 		libs.WriteErr(c, http.StatusInternalServerError, err.Error())
 		return
@@ -377,19 +492,19 @@ func (h *Handlers) PutIconEmoji(c *gin.Context) {
 }
 
 // DeleteIcon handles DELETE /v0/projects/:projectId/repos/:repoId/icon.
-// Clears avatar_url and deletes any local icon file.
+// Removes the on-disk icon file and clears both the icon flag and the emoji,
+// resetting the repo to its generated label/color avatar.
 func (h *Handlers) DeleteIcon(c *gin.Context) {
 	repo, err := h.store.FindByKey(c.Request.Context(), c.Param("repoId"))
 	if err != nil || repo == nil {
 		libs.WriteErr(c, http.StatusNotFound, "repo not found")
 		return
 	}
-	if repo.AvatarURL != "" &&
-		!strings.HasPrefix(repo.AvatarURL, "http") &&
-		!strings.HasPrefix(repo.AvatarURL, "emoji:") {
-		_ = os.Remove(repo.AvatarURL)
+	if iconPath, ok := h.iconPath(c); ok {
+		_ = os.Remove(iconPath)
 	}
-	repo.AvatarURL = ""
+	repo.AvatarHasIcon = false
+	repo.AvatarEmoji = ""
 	if err := h.store.Save(c.Request.Context(), *repo); err != nil {
 		libs.WriteErr(c, http.StatusInternalServerError, err.Error())
 		return
@@ -421,47 +536,53 @@ func (h *Handlers) PutIcon(c *gin.Context) {
 	if ct == "" {
 		ct = mime.TypeByExtension(filepath.Ext(header.Filename))
 	}
-	ext, ok := iconContentTypeExt(ct)
-	if !ok {
+	if _, ok := iconContentTypeExt(ct); !ok {
 		libs.WriteErr(c, http.StatusBadRequest, "icon must be png, jpeg, or webp")
 		return
 	}
 
-	iconDir, err := repoIconDir(repo.RemoteURL)
-	if err != nil {
-		libs.WriteErr(c, http.StatusInternalServerError, "could not resolve icon directory")
-		return
-	}
-	if err := os.MkdirAll(iconDir, 0o755); err != nil {
-		libs.WriteErr(c, http.StatusInternalServerError, "could not create icon directory")
-		return
-	}
-
-	for _, prevExt := range []string{".png", ".jpg", ".jpeg", ".webp"} {
-		_ = os.Remove(filepath.Join(iconDir, "icon"+prevExt))
-	}
-
-	iconPath := filepath.Join(iconDir, "icon"+ext)
 	data, err := io.ReadAll(file)
 	if err != nil {
 		libs.WriteErr(c, http.StatusInternalServerError, "read error")
 		return
 	}
-	if err := os.WriteFile(iconPath, data, 0o644); err != nil {
-		libs.WriteErr(c, http.StatusInternalServerError, "write error")
+	if err := h.storeIconBytes(c, data); err != nil {
+		libs.WriteErr(c, http.StatusInternalServerError, err.Error())
 		return
 	}
 
-	repo.AvatarURL = iconPath
+	repo.AvatarHasIcon = true
+	repo.AvatarEmoji = ""
 	if err := h.store.Save(c.Request.Context(), *repo); err != nil {
 		libs.WriteErr(c, http.StatusInternalServerError, err.Error())
 		return
 	}
-	c.JSON(http.StatusOK, gin.H{"avatarUrl": "/v0/repos/" + repo.ID + "/icon"})
+	c.JSON(http.StatusOK, gin.H{"avatarUrl": "/v0/projects/" + repo.ProjectID + "/repos/" + repo.ID + "/icon"})
+}
+
+// storeIconBytes writes raw icon bytes to the entity-scoped icon path,
+// creating the parent dir. The single icon file is content-type-agnostic
+// (sniffed on read), so there is no extension to manage.
+func (h *Handlers) storeIconBytes(
+	c *gin.Context,
+	data []byte,
+) error {
+	iconPath, ok := h.iconPath(c)
+	if !ok {
+		return fmt.Errorf("could not resolve icon path")
+	}
+	if err := os.MkdirAll(filepath.Dir(iconPath), 0o755); err != nil {
+		return fmt.Errorf("could not create icon directory: %w", err)
+	}
+	if err := os.WriteFile(iconPath, data, 0o644); err != nil {
+		return fmt.Errorf("write error: %w", err)
+	}
+	return nil
 }
 
 // PutIconGithub handles PUT /v0/projects/:projectId/repos/:repoId/icon/github.
-// Re-fetches the repo owner's GitHub avatar and stores it in avatar_url.
+// Downloads the repo owner's GitHub avatar bytes and stores them at the
+// entity-scoped icon path, setting AvatarHasIcon.
 func (h *Handlers) PutIconGithub(c *gin.Context) {
 	repo, err := h.store.FindByKey(c.Request.Context(), c.Param("repoId"))
 	if err != nil || repo == nil {
@@ -472,53 +593,22 @@ func (h *Handlers) PutIconGithub(c *gin.Context) {
 		libs.WriteErr(c, http.StatusUnprocessableEntity, "repo has no local path")
 		return
 	}
-	avatarURL := fetchGithubAvatar(c.Request.Context(), repo.Path)
-	if avatarURL == "" {
+	data, _, err := h.fetchAvatar(c.Request.Context(), repo.Path)
+	if err != nil || len(data) == 0 {
 		libs.WriteErr(c, http.StatusUnprocessableEntity, "could not fetch GitHub avatar")
 		return
 	}
-	repo.AvatarURL = avatarURL
+	if err := h.storeIconBytes(c, data); err != nil {
+		libs.WriteErr(c, http.StatusInternalServerError, err.Error())
+		return
+	}
+	repo.AvatarHasIcon = true
+	repo.AvatarEmoji = ""
 	if err := h.store.Save(c.Request.Context(), *repo); err != nil {
 		libs.WriteErr(c, http.StatusInternalServerError, err.Error())
 		return
 	}
 	c.Status(http.StatusNoContent)
-}
-
-// repoIconDir returns the directory under ~/.crowbar/projects/... for a repo's icon.
-func repoIconDir(remoteURL string) (string, error) {
-	home, err := os.UserHomeDir()
-	if err != nil {
-		return "", err
-	}
-	crowbarHome := filepath.Join(home, ".crowbar")
-	rel, err := repoRelPathFromURL(remoteURL)
-	if err != nil {
-		return "", err
-	}
-	return filepath.Join(crowbarHome, "projects", rel), nil
-}
-
-// repoRelPathFromURL parses a git remote URL into <host>/<owner>/<repo>.
-func repoRelPathFromURL(rawURL string) (string, error) {
-	rawURL = strings.TrimSpace(rawURL)
-	rawURL = strings.TrimSuffix(rawURL, ".git")
-	if rawURL == "" {
-		return "", fmt.Errorf("empty remote URL")
-	}
-	if strings.HasPrefix(rawURL, "git@") {
-		rest := rawURL[4:]
-		idx := strings.Index(rest, ":")
-		if idx < 0 {
-			return "", fmt.Errorf("invalid SSH URL")
-		}
-		return rest[:idx] + "/" + strings.TrimPrefix(rest[idx+1:], "/"), nil
-	}
-	u, err := url.Parse(rawURL)
-	if err != nil || u.Host == "" {
-		return "", fmt.Errorf("unrecognised URL: %q", rawURL)
-	}
-	return u.Host + "/" + strings.TrimPrefix(u.Path, "/"), nil
 }
 
 // iconContentTypeExt maps accepted content types to file extensions.
@@ -549,41 +639,4 @@ func isSingleEmoji(s string) bool {
 		return false
 	}
 	return !unicode.IsLetter(r) || r > 127
-}
-
-// fetchGithubAvatar runs gh api to get the owner avatar URL.
-func fetchGithubAvatar(ctx context.Context, repoPath string) string {
-	raw, err := exec.CommandContext(ctx, "git", "-C", repoPath, "remote", "get-url", "origin").Output()
-	if err != nil {
-		return ""
-	}
-	remoteURL := strings.TrimSpace(string(raw))
-	slug, err := githubSlugFromURL(remoteURL)
-	if err != nil {
-		return ""
-	}
-	out, err := exec.CommandContext(ctx, "gh", "api", "repos/"+slug, "--jq", ".owner.avatar_url").Output()
-	if err != nil {
-		return ""
-	}
-	return strings.TrimSpace(string(out))
-}
-
-// githubSlugFromURL extracts "owner/repo" from a GitHub remote URL.
-func githubSlugFromURL(rawURL string) (string, error) {
-	rawURL = strings.TrimSuffix(strings.TrimSpace(rawURL), ".git")
-	if strings.HasPrefix(rawURL, "git@") {
-		parts := strings.SplitN(rawURL, ":", 2)
-		if len(parts) == 2 {
-			return parts[1], nil
-		}
-	}
-	if idx := strings.Index(rawURL, "://"); idx >= 0 {
-		path := rawURL[idx+3:]
-		slash := strings.Index(path, "/")
-		if slash >= 0 {
-			return path[slash+1:], nil
-		}
-	}
-	return "", fmt.Errorf("unrecognised URL: %q", rawURL)
 }

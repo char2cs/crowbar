@@ -3,6 +3,8 @@ package project_test
 import (
 	"context"
 	"errors"
+	"os"
+	"path/filepath"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -228,6 +230,75 @@ func TestProjectDelete_WorktreeRemoveFailure_StillDeletesRecords(t *testing.T) {
 	assert.Empty(t, f.git.deletedBranches, "branch delete must not run after a failed worktree remove")
 	assert.Equal(t, []string{"w-child"}, f.workspaces.deleted)
 	assert.Equal(t, []string{"p1"}, f.projects.deleted)
+}
+
+func TestDelete_RemovesProjectDirTree(t *testing.T) {
+	// The entity-scoped project directory tree (worktrees + storages + icon
+	// under ~/.crowbar/projects/<P>) is rm -rf'd after the GORM rows go.
+	home := t.TempDir()
+	projectDir := filepath.Join(home, "projects", "p1")
+	iconPath := filepath.Join(projectDir, "r1", "icon")
+	require.NoError(t, os.MkdirAll(filepath.Dir(iconPath), 0o755))
+	require.NoError(t, os.WriteFile(iconPath, []byte("img"), 0o644))
+
+	projects := &fakeDeleteProjects{projects: map[string]domain.Project{
+		"p1": {ID: "p1", Name: "demo", Path: "/home/u/proj/repo"},
+	}}
+	uc := project.NewDelete(project.DeleteDeps{
+		Projects:    projects,
+		Repos:       &fakeDeleteRepos{},
+		Workspaces:  &fakeDeleteWorkspaces{},
+		Git:         &fakeDeleteGit{},
+		CrowbarHome: func() (string, error) { return home, nil },
+	})
+
+	require.NoError(t, uc.Delete(context.Background(), "p1"))
+
+	_, statErr := os.Stat(projectDir)
+	assert.True(t, os.IsNotExist(statErr), "the project dir tree must be removed")
+	assert.Equal(t, []string{"p1"}, projects.deleted)
+}
+
+func TestDelete_NeverTouchesRealRepoPath(t *testing.T) {
+	// The user's real repo checkout (an adopted main worktree at repo.Path,
+	// living OUTSIDE ~/.crowbar) must survive a project delete. We assert via a
+	// RemoveAll seam that only the crowbar projects/<P> dir is ever removed.
+	home := "/home/u/.crowbar"
+	realRepo := t.TempDir()
+	require.NoError(t, os.WriteFile(filepath.Join(realRepo, "keep.txt"), []byte("real"), 0o644))
+
+	var removed []string
+	projects := &fakeDeleteProjects{projects: map[string]domain.Project{
+		"p1": {ID: "p1", Name: "demo", Path: realRepo},
+	}}
+	repos := &fakeDeleteRepos{repos: []domain.Repository{
+		{ID: "r1", ProjectID: "p1", Path: realRepo},
+	}}
+	workspaces := &fakeDeleteWorkspaces{workspaces: []domain.Workspace{
+		{ID: "w-main", RepoID: "r1", ProjectID: "p1", Branch: "main", WorktreePath: realRepo},
+	}}
+	uc := project.NewDelete(project.DeleteDeps{
+		Projects:    projects,
+		Repos:       repos,
+		Workspaces:  workspaces,
+		Git:         &fakeDeleteGit{},
+		CrowbarHome: func() (string, error) { return home, nil },
+		RemoveAll: func(path string) error {
+			removed = append(removed, path)
+			return nil
+		},
+	})
+
+	require.NoError(t, uc.Delete(context.Background(), "p1"))
+
+	assert.Equal(t, []string{filepath.Join(home, "projects", "p1")}, removed,
+		"only the crowbar project dir may be removed")
+	for _, p := range removed {
+		assert.NotEqual(t, realRepo, p, "the real repo path must never be removed")
+	}
+	// The real repo checkout must still exist on disk.
+	_, statErr := os.Stat(filepath.Join(realRepo, "keep.txt"))
+	require.NoError(t, statErr, "the real repo directory must survive")
 }
 
 func TestProjectDelete_WorkspaceRecordDeleteError_Aborts(t *testing.T) {

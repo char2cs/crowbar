@@ -31,6 +31,41 @@ func TestRepoDTOFrom(
 	assert.Equal(t, "#fff", got.AvatarColor)
 }
 
+func TestRepoDTOFrom_ProxyURLHierarchical(
+	t *testing.T,
+) {
+	got := dto.RepoDTOFrom(domain.Repository{
+		ID:            "r1",
+		ProjectID:     "p1",
+		AvatarHasIcon: true,
+	})
+	assert.Equal(t, "/v0/projects/p1/repos/r1/icon", got.AvatarURL)
+	assert.Empty(t, got.AvatarEmoji)
+}
+
+func TestRepoDTOFrom_EmojiPassthrough(
+	t *testing.T,
+) {
+	got := dto.RepoDTOFrom(domain.Repository{
+		ID:          "r1",
+		ProjectID:   "p1",
+		AvatarEmoji: "🦊",
+	})
+	assert.Equal(t, "🦊", got.AvatarEmoji)
+	assert.Empty(t, got.AvatarURL, "emoji-only repo has no proxy URL")
+}
+
+func TestRepoDTOFrom_NoIconEmptyAvatarURL(
+	t *testing.T,
+) {
+	got := dto.RepoDTOFrom(domain.Repository{
+		ID:        "r1",
+		ProjectID: "p1",
+	})
+	assert.Empty(t, got.AvatarURL)
+	assert.Empty(t, got.AvatarEmoji)
+}
+
 func TestRepoDTOListEmptyNonNil(
 	t *testing.T,
 ) {

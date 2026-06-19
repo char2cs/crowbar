@@ -1,8 +1,6 @@
 package dto
 
 import (
-	"strings"
-
 	"github.com/char2cs/crowbar/api/internal/domain"
 )
 
@@ -14,20 +12,23 @@ type RepoDTO struct {
 	DefaultBranch string `json:"defaultBranch"`
 	AvatarLabel   string `json:"avatarLabel"`
 	AvatarColor   string `json:"avatarColor"`
-	AvatarURL     string `json:"avatarUrl,omitempty"`
+	// AvatarURL is the hierarchical icon proxy
+	// "/v0/projects/<projectId>/repos/<id>/icon", set only when the repo has an
+	// on-disk icon (AvatarHasIcon). Empty otherwise.
+	AvatarURL string `json:"avatarUrl,omitempty"`
+	// AvatarEmoji passes the emoji icon through to the client, which renders it
+	// directly. Empty when the repo uses an on-disk image or a generated avatar.
+	AvatarEmoji string `json:"avatarEmoji,omitempty"`
 }
 
+// RepoDTOFrom maps a domain Repository onto the wire DTO. Icon precedence is
+// resolved client-side (emoji > on-disk image > generated label/color); this
+// converter only surfaces the proxy URL when an on-disk icon exists and passes
+// the emoji through untouched.
 func RepoDTOFrom(r domain.Repository) RepoDTO {
-	avatarURL := r.AvatarURL
-	switch {
-	case avatarURL == "":
-		// no change
-	case strings.HasPrefix(avatarURL, "emoji:"):
-		// pass through; frontend renders emoji directly
-	default:
-		// local file path or HTTPS URL — always proxy through the API so
-		// WKWebView (crowbar:// scheme) can load it without cross-origin issues
-		avatarURL = "/v0/repos/" + r.ID + "/icon"
+	avatarURL := ""
+	if r.AvatarHasIcon {
+		avatarURL = "/v0/projects/" + r.ProjectID + "/repos/" + r.ID + "/icon"
 	}
 	return RepoDTO{
 		ID:            r.ID,
@@ -38,6 +39,7 @@ func RepoDTOFrom(r domain.Repository) RepoDTO {
 		AvatarLabel:   r.AvatarLabel,
 		AvatarColor:   r.AvatarColor,
 		AvatarURL:     avatarURL,
+		AvatarEmoji:   r.AvatarEmoji,
 	}
 }
 

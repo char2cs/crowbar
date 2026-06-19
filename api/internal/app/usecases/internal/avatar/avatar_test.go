@@ -1,6 +1,7 @@
 package avatar
 
 import (
+	"context"
 	"os"
 	"path/filepath"
 	"testing"
@@ -64,4 +65,15 @@ func TestScanRepoIcon_NoMatch_ReturnsEmpty(t *testing.T) {
 	dir := t.TempDir()
 	got := ScanRepoIcon(dir)
 	assert.Empty(t, got)
+}
+
+func TestFetchOwnerAvatarBytes_DegradesEmptyWhenNoGh(t *testing.T) {
+	// A bare temp dir is not a git repo, so `git remote get-url origin` fails
+	// and the helper must degrade to (nil, "", nil) — no error swallowed
+	// wrongly, no bytes fabricated.
+	dir := t.TempDir()
+	data, ct, err := FetchOwnerAvatarBytes(context.Background(), dir)
+	require.NoError(t, err)
+	assert.Nil(t, data)
+	assert.Empty(t, ct)
 }

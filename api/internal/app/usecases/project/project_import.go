@@ -17,6 +17,7 @@ import (
 	"github.com/char2cs/crowbar/api/internal/app/repositories/workspace"
 	"github.com/char2cs/crowbar/api/internal/app/usecases/internal/avatar"
 	"github.com/char2cs/crowbar/api/internal/app/usecases/internal/defaultbranch"
+	"github.com/char2cs/crowbar/api/internal/app/usecases/internal/worktreepath"
 	"github.com/char2cs/crowbar/api/internal/domain"
 	gitengine "github.com/char2cs/crowbar/api/internal/engine/git"
 )
@@ -75,12 +76,15 @@ type ImportProviderEngine interface {
 		ctx context.Context,
 		repoPath string,
 	) ([]string, error)
-	// OwnerAvatarURL returns the repo owner's avatar URL, or "" on failure.
-	OwnerAvatarURL(
-		ctx context.Context,
-		repoPath string,
-	) (string, error)
 }
+
+// AvatarBytesFetcher downloads the repo owner's avatar image bytes plus the
+// response content-type. It is best-effort: on absence (no origin/no gh) it
+// returns (nil, "", nil) so the import falls back to a generated avatar.
+type AvatarBytesFetcher func(
+	ctx context.Context,
+	repoPath string,
+) ([]byte, string, error)
 
 // DiscoverFunc walks root and returns the repo roots found within maxDepth.
 type DiscoverFunc func(
@@ -107,6 +111,12 @@ type ImportDeps struct {
 	// import leaves no project behind. Defaults to os.Stat when nil; tests
 	// stub it to avoid touching the real filesystem.
 	Stat func(name string) (os.FileInfo, error)
+	// CrowbarHome resolves the ~/.crowbar root used to derive the entity-scoped
+	// repo icon path. Defaults to worktreepath.DefaultCrowbarHome when nil.
+	CrowbarHome func() (string, error)
+	// FetchAvatarBytes downloads the GitHub owner avatar bytes for a repo with
+	// no local icon. Defaults to avatar.FetchOwnerAvatarBytes when nil.
+	FetchAvatarBytes AvatarBytesFetcher
 }
 
 // ImportUsecase imports a directory tree as a Project: it creates the
@@ -138,6 +148,12 @@ func NewImport(
 ) ImportUsecase {
 	if deps.Stat == nil {
 		deps.Stat = os.Stat
+	}
+	if deps.CrowbarHome == nil {
+		deps.CrowbarHome = worktreepath.DefaultCrowbarHome
+	}
+	if deps.FetchAvatarBytes == nil {
+		deps.FetchAvatarBytes = avatar.FetchOwnerAvatarBytes
 	}
 	return &projectImport{deps: deps}
 }
@@ -212,20 +228,17 @@ func (u *projectImport) importOneRepo(
 	repoPath string,
 ) error {
 	name := filepath.Base(repoPath)
+	repoID := uuid.NewString()
 	runner := u.deps.RefRunner(repoPath)
-	avatarURL := avatar.ScanRepoIcon(repoPath)
-	if avatarURL == "" {
-		avatarURL, _ = u.deps.Provider.OwnerAvatarURL(ctx, repoPath)
-	}
 	repo := domain.Repository{
-		ID:            uuid.NewString(),
+		ID:            repoID,
 		ProjectID:     project.ID,
 		Name:          name,
 		Path:          repoPath,
 		DefaultBranch: defaultbranch.Resolve(runner, defaultBranchCandidates),
 		AvatarLabel:   avatar.Label(name),
 		AvatarColor:   avatar.Color(name),
-		AvatarURL:     avatarURL,
+		AvatarHasIcon: u.writeRepoIcon(ctx, project.ID, repoID, repoPath),
 		RemoteURL:     gitRemoteURL(repoPath),
 	}
 	if err := u.deps.Repos.Save(ctx, repo); err != nil {
@@ -236,6 +249,56 @@ func (u *projectImport) importOneRepo(
 		return err
 	}
 	return u.importProtectedBranchStubs(ctx, repo, adopted)
+}
+
+// writeRepoIcon resolves the repo icon bytes (local repo icon first, then a
+// best-effort GitHub owner-avatar download) and writes them to the
+// entity-scoped icon path <home>/projects/<P>/<R>/icon. It returns true when an
+// icon was written. All failures degrade to false (generated avatar) and never
+// fail the import.
+func (u *projectImport) writeRepoIcon(
+	ctx context.Context,
+	projectID string,
+	repoID string,
+	repoPath string,
+) bool {
+	data := u.resolveIconBytes(ctx, repoPath)
+	if len(data) == 0 {
+		return false
+	}
+	home, err := u.deps.CrowbarHome()
+	if err != nil || home == "" {
+		return false
+	}
+	iconPath := worktreepath.RepoIconPath(home, projectID, repoID)
+	if err := os.MkdirAll(filepath.Dir(iconPath), 0o755); err != nil {
+		slog.WarnContext(ctx, "project import: create repo icon dir failed", "error", err)
+		return false
+	}
+	if err := os.WriteFile(iconPath, data, 0o644); err != nil {
+		slog.WarnContext(ctx, "project import: write repo icon failed", "error", err)
+		return false
+	}
+	return true
+}
+
+// resolveIconBytes returns the icon bytes for a repo: the local repo icon if
+// one is on disk, otherwise the best-effort GitHub owner avatar. Returns nil
+// when neither is available.
+func (u *projectImport) resolveIconBytes(
+	ctx context.Context,
+	repoPath string,
+) []byte {
+	if src := avatar.ScanRepoIcon(repoPath); src != "" {
+		if data, err := os.ReadFile(src); err == nil {
+			return data
+		}
+	}
+	data, _, err := u.deps.FetchAvatarBytes(ctx, repoPath)
+	if err != nil {
+		return nil
+	}
+	return data
 }
 
 func (u *projectImport) adoptWorktrees(

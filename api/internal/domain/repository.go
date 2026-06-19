@@ -8,7 +8,8 @@ type Repository struct {
 	DefaultBranch string `json:"defaultBranch"`
 	AvatarLabel   string `json:"avatarLabel"`
 	AvatarColor   string `json:"avatarColor"`
-	AvatarURL     string `json:"avatarUrl,omitempty"`
+	AvatarHasIcon bool   `json:"avatarHasIcon"`
+	AvatarEmoji   string `json:"avatarEmoji,omitempty"`
 	RemoteURL     string `json:"remoteUrl,omitempty"`
 }
 
