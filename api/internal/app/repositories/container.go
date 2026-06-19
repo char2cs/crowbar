@@ -38,7 +38,7 @@ func New(
 	if err != nil {
 		return nil, err
 	}
-	ch, err := chat.New(axChat, db, broadcastChat(h))
+	ch, err := chat.New(axChat, db, func(domain.Chat) {})
 	if err != nil {
 		return nil, err
 	}
@@ -50,14 +50,6 @@ func New(
 	c.Chat = ch
 	c.ReviewThread = rt
 	return c, nil
-}
-
-func broadcastChat(
-	h hub.WebSocketHub,
-) chat.BroadcastFunc {
-	return func(c domain.Chat) {
-		h.BroadcastChat(hub.ChatStatusEvent{ChatID: c.ID, WsID: c.WsID, Status: c.Status})
-	}
 }
 
 // broadcastWorkspace pushes a workspace row to the hub. The derived Working

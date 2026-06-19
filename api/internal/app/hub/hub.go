@@ -39,17 +39,6 @@ func (h *Hub) BroadcastWorkspace(
 	}
 }
 
-// BroadcastChat fans a ChatStatusEvent out to every subscriber.
-func (h *Hub) BroadcastChat(
-	evt ChatStatusEvent,
-) {
-	h.mu.RLock()
-	defer h.mu.RUnlock()
-	for _, s := range h.subscribers {
-		s.PushChat(evt)
-	}
-}
-
 // BroadcastGit fans a GitStatus out to every subscriber (Class B, 03 §2).
 func (h *Hub) BroadcastGit(
 	wsID string,

@@ -178,14 +178,6 @@ func (m *mockChat) Delete(ctx context.Context, id string, now time.Time) (domain
 	return domain.Chat{}, nil
 }
 
-func (m *mockChat) ResetIdle(ctx context.Context, id string) (domain.Chat, error) {
-	return domain.Chat{}, nil
-}
-
-func (m *mockChat) SetAgentRunning(ctx context.Context, id string) (domain.Chat, error) {
-	return domain.Chat{}, nil
-}
-
 func (m *mockChat) Get(ctx context.Context, id string) (domain.Chat, error) {
 	return domain.Chat{}, nil
 }

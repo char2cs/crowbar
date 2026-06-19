@@ -17,7 +17,6 @@ import (
 	"github.com/stretchr/testify/require"
 
 	v0 "github.com/char2cs/crowbar/api/internal/api/v0"
-	"github.com/char2cs/crowbar/api/internal/app/hub"
 	"github.com/char2cs/crowbar/api/internal/app/repositories/workspace"
 	"github.com/char2cs/crowbar/api/internal/domain"
 	gitdomain "github.com/char2cs/crowbar/api/internal/domain/git"
@@ -109,7 +108,6 @@ type fileProbe struct {
 }
 
 func (fileProbe) PushWorkspace(_ domain.Workspace)        {}
-func (fileProbe) PushChat(_ hub.ChatStatusEvent)          {}
 func (fileProbe) PushGit(_ string, _ gitdomain.GitStatus) {}
 
 func (p fileProbe) PushFile(

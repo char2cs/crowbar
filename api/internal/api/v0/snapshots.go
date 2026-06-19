@@ -4,7 +4,6 @@ import (
 	"context"
 
 	"github.com/char2cs/crowbar/api/internal/app"
-	"github.com/char2cs/crowbar/api/internal/app/hub"
 	"github.com/char2cs/crowbar/api/internal/domain"
 	gitdomain "github.com/char2cs/crowbar/api/internal/domain/git"
 	lspdomain "github.com/char2cs/crowbar/api/internal/domain/lsp"
@@ -25,25 +24,6 @@ func workspacesSnapshot(
 			return nil
 		}
 		return rows
-	}
-}
-
-// chatsSnapshot builds the Chats snapshot-on-subscribe source (03 §1a): one
-// ChatStatusEvent per chat carrying its current status. Each client's wsId
-// predicate filters the snapshot down to its workspace.
-func chatsSnapshot(
-	appContainer *app.Container,
-) func() []hub.ChatStatusEvent {
-	return func() []hub.ChatStatusEvent {
-		chats, err := appContainer.Repositories.Chat.List(context.Background())
-		if err != nil {
-			return nil
-		}
-		events := make([]hub.ChatStatusEvent, 0, len(chats))
-		for _, ch := range chats {
-			events = append(events, hub.ChatStatusEvent{ChatID: ch.ID, WsID: ch.WsID, Status: ch.Status})
-		}
-		return events
 	}
 }
 

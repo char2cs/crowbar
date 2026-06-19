@@ -44,17 +44,6 @@ func TestChat_Create_RoundTrips(t *testing.T) {
 	assert.Equal(t, "w1", reloaded.WsID)
 }
 
-func TestChat_ResetIdle_Idempotent(t *testing.T) {
-	ctx, repo := newRepo(t)
-	_, err := repo.Create(ctx, "c1", "w1", "hello", time.Unix(1, 0))
-	require.NoError(t, err)
-	_, err = repo.ResetIdle(ctx, "c1")
-	require.NoError(t, err)
-	second, err := repo.ResetIdle(ctx, "c1")
-	require.NoError(t, err)
-	assert.Equal(t, domain.ChatStatusIdle, second.Status)
-}
-
 func TestChat_Create_ErrorOnDuplicate(t *testing.T) {
 	ctx, repo := newRepo(t)
 	_, err := repo.Create(ctx, "c2", "w1", "hello", time.Unix(1, 0))
@@ -69,12 +58,6 @@ func TestChat_Get_ErrorOnMissing(t *testing.T) {
 	assert.Error(t, err)
 }
 
-func TestChat_ResetIdle_ErrorOnMissing(t *testing.T) {
-	ctx, repo := newRepo(t)
-	_, err := repo.ResetIdle(ctx, "does-not-exist")
-	assert.Error(t, err)
-}
-
 func TestChat_Get_ReturnsCreated(t *testing.T) {
 	ctx, repo := newRepo(t)
 	now := time.Unix(500, 0)
@@ -84,21 +67,6 @@ func TestChat_Get_ReturnsCreated(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, "w2", got.WsID)
 	assert.Equal(t, domain.ChatStatusIdle, got.Status)
-}
-
-func TestChat_SetAgentRunning_RoundTrips(t *testing.T) {
-	ctx, repo := newRepo(t)
-	_, err := repo.Create(ctx, "c1", "w1", "hello", time.Unix(1, 0))
-	require.NoError(t, err)
-	running, err := repo.SetAgentRunning(ctx, "c1")
-	require.NoError(t, err)
-	assert.Equal(t, domain.ChatStatusAgentRunning, running.Status)
-}
-
-func TestChat_SetAgentRunning_ErrorOnMissing(t *testing.T) {
-	ctx, repo := newRepo(t)
-	_, err := repo.SetAgentRunning(ctx, "does-not-exist")
-	assert.Error(t, err)
 }
 
 func TestChat_ForkRenameDeleteList(t *testing.T) {

@@ -117,64 +117,6 @@ func (s *WebSocketSuite) TestWS_WorkspacesFilter_RepoID() {
 	s.Assert().Equal("repo-1", msg["repoId"])
 }
 
-// TestWS_ChatsFilter_WsID verifies that chats topic filters by wsId.
-func (s *WebSocketSuite) TestWS_ChatsFilter_WsID() {
-	t := s.T()
-
-	// Create a repo so we can create workspaces.
-	resp := s.env.POST(t, "/v0/repos", map[string]any{
-		"id":        "r1",
-		"projectId": "p1",
-		"name":      "repo",
-	})
-	kit.RequireStatus(t, resp, http.StatusCreated)
-	resp.Body.Close()
-
-	// Create both workspaces on different branches to avoid conflicts.
-	resp = s.env.POST(t, "/v0/workspaces", map[string]any{
-		"repoId": "r1",
-		"branch": "feature/chats-1",
-	})
-	kit.RequireStatus(t, resp, http.StatusCreated)
-	wsID1 := kit.MutationID(t, resp)
-
-	resp = s.env.POST(t, "/v0/workspaces", map[string]any{
-		"repoId": "r1",
-		"branch": "feature/other",
-	})
-	kit.RequireStatus(t, resp, http.StatusCreated)
-	wsIDOther := kit.MutationID(t, resp)
-
-	watcher := s.env.DialChats(t, "?wsId="+wsID1)
-
-	// Create a chat for the other workspace — triggers idle for wsIDOther, filtered out.
-	resp = s.env.POST(t, "/v0/workspaces/"+wsIDOther+"/chats", map[string]any{
-		"title": "other",
-	})
-	kit.RequireStatus(t, resp, http.StatusCreated)
-	resp.Body.Close()
-
-	// Create the matching chat.
-	resp = s.env.POST(t, "/v0/workspaces/"+wsID1+"/chats", map[string]any{
-		"title": "match",
-	})
-	kit.RequireStatus(t, resp, http.StatusCreated)
-	var chatObj map[string]any
-	kit.DecodeEnvData(t, resp, &chatObj)
-	chatID := chatObj["id"].(string)
-
-	msg := kit.WaitForChat(
-		t,
-		watcher,
-		chatID,
-		wsID1,
-		"idle",
-		5*time.Second,
-	)
-	s.Assert().Equal(chatID, msg["chatId"])
-	s.Assert().Equal(wsID1, msg["wsId"])
-}
-
 // TestWS_LSP_FilteredByWsID verifies that the LSP topic filters by wsId.
 // This test pushes LSP events directly via the internal PushLSP helper — no
 // workspace creation needed, so it remains unchanged from Wave 3.

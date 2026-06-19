@@ -48,12 +48,8 @@ func specRoutes() []string {
 		"POST /v0/workspaces/:wsId/sync",
 		"POST /v0/workspaces/:wsId/merge-into-parent",
 		"POST /v0/workspaces/:wsId/reparent",
-		// §2.3 Chats
-		"GET /v0/workspaces/:wsId/chats",
-		"POST /v0/workspaces/:wsId/chats",
-		"POST /v0/chats/:id/fork",
-		"PATCH /v0/chats/:id",
-		"DELETE /v0/chats/:id",
+		// §2.3 Chats — chat WebSocket surface removed per D11; chat domain, repo
+		// CRUD, and usecase remain dormant TODO (routes not remounted in this PR).
 		// §2.4 Files
 		"GET /v0/workspaces/:wsId/files/tree",
 		"GET /v0/workspaces/:wsId/files/content",
@@ -130,12 +126,10 @@ func specRoutes() []string {
 		"GET /v0/health",
 		// §3 WebSocket endpoints
 		"GET /v0/ws/workspaces",
-		"GET /v0/ws/chats",
 		"GET /v0/ws/git",
 		"GET /v0/ws/files",
 		"GET /v0/ws/lsp",
 		"GET /v0/ws/terminals/:sessionId",
-		"GET /v0/ws/chats/:chatId/stream",
 	}
 }
 

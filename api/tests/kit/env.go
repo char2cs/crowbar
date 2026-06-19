@@ -236,29 +236,6 @@ func (e *Env) DialWorkspaces(
 	return w
 }
 
-// DialChats opens a WS watcher on /v0/ws/chats and blocks until the server has
-// registered this specific client (prevents broadcast races).
-//
-// Each call drains exactly one registration token from the per-registration
-// semaphore, so multiple calls on the same Env are safe — each blocks until the
-// client just dialled appears in the broadcaster's map.
-func (e *Env) DialChats(
-	t *testing.T,
-	queryParams string,
-) *WSWatcher {
-	t.Helper()
-	url := wsURL(
-		e.URL,
-		"/v0/ws/chats"+queryParams,
-	)
-	w := Dial(
-		t,
-		url,
-	)
-	e.v0c.WaitNChatsRegistered(1)
-	return w
-}
-
 // DialGit opens a WS watcher on /v0/ws/git and blocks until the server has
 // registered this specific client (prevents broadcast races).
 //
@@ -348,22 +325,6 @@ func WaitForWorkspace(
 			return pred(msg)
 		},
 	)
-}
-
-// WaitForChat reads WS events from w until a ChatStatusEvent for chatID in
-// wsID with the given status arrives. Returns the decoded event map.
-func WaitForChat(
-	t *testing.T,
-	w *WSWatcher,
-	chatID string,
-	wsID string,
-	status string,
-	timeout time.Duration,
-) map[string]any {
-	t.Helper()
-	return w.ReadUntil(t, timeout, func(msg map[string]any) bool {
-		return msg["chatId"] == chatID && msg["wsId"] == wsID && msg["status"] == status
-	})
 }
 
 // GET issues a GET request to path and returns the response.

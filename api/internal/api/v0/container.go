@@ -18,19 +18,20 @@ import (
 // routes. It implements hub.Subscriber so app-layer broadcasts reach connected
 // clients.
 //
-// Six of the seven topics (03 §3) are push-only Broadcaster[T] instances held
-// here: workspaces, chats, git, files, lsp, and chatStream. The seventh topic,
-// Terminal, is intentionally NOT a Broadcaster[T]: PTY streams are
-// bidirectional, so the Terminal topic is served by the engine.Attach WebSocket
-// handler (endpoints/terminal/handlers/ws.go), whose ring-buffer replay is its
-// snapshot-on-subscribe (03 §1a). It is wired separately in router.go.
+// The push-only Broadcaster[T] instances held here are workspaces, git, files,
+// and lsp. The Terminal topic is intentionally NOT a Broadcaster[T]: PTY streams
+// are bidirectional, so the Terminal topic is served by the engine.Attach
+// WebSocket handler (endpoints/terminal/handlers/ws.go), whose ring-buffer
+// replay is its snapshot-on-subscribe (03 §1a). It is wired separately in
+// router.go.
+//
+// The chat WebSocket surface (chats + chatStream) has been removed per D11; the
+// chat domain, repo CRUD, and usecase remain dormant TODO.
 type Container struct {
 	workspaces *ws.Broadcaster[domain.Workspace]
-	chats      *ws.Broadcaster[hub.ChatStatusEvent]
 	git        *ws.Broadcaster[gitdomain.GitStatusEvent]
 	files      *ws.Broadcaster[domain.FileChangeEvent]
 	lsp        *ws.Broadcaster[lspdomain.DiagnosticsEvent]
-	chatStream *ws.Broadcaster[ChatFrame]
 	app        *app.Container
 	eng        *engine.Container
 }
@@ -55,11 +56,9 @@ func New(
 	}
 	c := &Container{
 		workspaces: ws.NewBroadcaster(workspacesDef(appContainer)),
-		chats:      ws.NewBroadcaster(chatsDef(appContainer)),
 		git:        ws.NewBroadcaster(withWatcherLifecycle(gitDef(appContainer), appContainer)),
 		files:      ws.NewBroadcaster(withWatcherLifecycle(filesDef(), appContainer)),
 		lsp:        ws.NewBroadcaster(withLSPLifecycle(lspDef(appContainer, engContainer), appContainer)),
-		chatStream: ws.NewBroadcaster(chatStreamDef()),
 		app:        appContainer,
 		eng:        engContainer,
 	}
@@ -114,13 +113,6 @@ func (c *Container) PushWorkspace(
 	c.workspaces.Push(wsRow)
 }
 
-// PushChat implements hub.Subscriber.
-func (c *Container) PushChat(
-	evt hub.ChatStatusEvent,
-) {
-	c.chats.Push(evt)
-}
-
 // PushGit implements hub.Subscriber. It wraps the status in a wsId-carrying
 // event so the Git broadcaster can scope the fan-out to a single workspace.
 func (c *Container) PushGit(
@@ -152,19 +144,6 @@ func workspacesDef(
 		Filters: []ws.FilterDef[domain.Workspace]{
 			{Param: "projectId", Extract: func(w domain.Workspace) string { return w.ProjectID }, Match: ws.ExactMatch},
 			{Param: "repoId", Extract: func(w domain.Workspace) string { return w.RepoID }, Match: ws.ExactMatch},
-		},
-	}
-}
-
-func chatsDef(
-	appContainer *app.Container,
-) ws.StreamDef[hub.ChatStatusEvent] {
-	return ws.StreamDef[hub.ChatStatusEvent]{
-		Namespace: func(e hub.ChatStatusEvent) string { return e.ChatID },
-		Serialize: func(e hub.ChatStatusEvent) ([]byte, error) { return json.Marshal(e) },
-		Snapshot:  chatsSnapshot(appContainer),
-		Filters: []ws.FilterDef[hub.ChatStatusEvent]{
-			{Param: "wsId", Extract: func(e hub.ChatStatusEvent) string { return e.WsID }, Match: ws.ExactMatch},
 		},
 	}
 }
@@ -208,19 +187,6 @@ func lspDef(
 		Snapshot:  lspSnapshot(appContainer, engContainer),
 		Filters: []ws.FilterDef[lspdomain.DiagnosticsEvent]{
 			{Param: "wsId", Extract: func(e lspdomain.DiagnosticsEvent) string { return e.WsID }, Match: ws.ExactMatch},
-		},
-	}
-}
-
-// chatStreamDef scopes the post-spike ChatStream topic per chat by chatId
-// (03 §4.3). The topic and its route exist so the topology is complete, but no
-// producer ever pushes a ChatFrame to it yet (03 §8) — it is a placeholder.
-func chatStreamDef() ws.StreamDef[ChatFrame] {
-	return ws.StreamDef[ChatFrame]{
-		Namespace: func(f ChatFrame) string { return f.ChatID },
-		Serialize: func(f ChatFrame) ([]byte, error) { return json.Marshal(f) },
-		Filters: []ws.FilterDef[ChatFrame]{
-			{Param: "chatId", Extract: func(f ChatFrame) string { return f.ChatID }, Match: ws.ExactMatch},
 		},
 	}
 }

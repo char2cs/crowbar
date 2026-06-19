@@ -58,11 +58,6 @@ func (h *captureHub) BroadcastWorkspace(
 	h.workspaces = append(h.workspaces, ws)
 }
 
-func (h *captureHub) BroadcastChat(
-	_ hub.ChatStatusEvent,
-) {
-}
-
 func (h *captureHub) count() int {
 	h.mu.Lock()
 	defer h.mu.Unlock()

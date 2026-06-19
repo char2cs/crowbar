@@ -125,7 +125,7 @@ func TestBranchReviewDTOFromMapsFields(
 			{ID: "thread-1"},
 		},
 		Conversations: []domain.BranchChat{
-			{ID: "chat-1", Title: "first", IsActive: true},
+			{ID: "chat-1", Title: "first"},
 		},
 	})
 

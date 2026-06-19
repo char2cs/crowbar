@@ -10,9 +10,6 @@ type WebSocketHub interface {
 	BroadcastWorkspace(
 		ws domain.Workspace,
 	)
-	BroadcastChat(
-		evt ChatStatusEvent,
-	)
 	BroadcastGit(
 		wsID string,
 		status gitdomain.GitStatus,

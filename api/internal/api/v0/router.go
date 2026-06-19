@@ -3,7 +3,6 @@ package v0
 import (
 	"github.com/gin-gonic/gin"
 
-	"github.com/char2cs/crowbar/api/internal/api/v0/endpoints/chats"
 	"github.com/char2cs/crowbar/api/internal/api/v0/endpoints/editor"
 	"github.com/char2cs/crowbar/api/internal/api/v0/endpoints/files"
 	"github.com/char2cs/crowbar/api/internal/api/v0/endpoints/git"
@@ -51,14 +50,10 @@ func (c *Container) Register(
 		c.workspaces.Handle,
 		ws.DualServe,
 	)
-	chats.Register(
-		rg,
-		c.app.Usecases.Chat,
-		c.app.Repositories.Chat,
-		c.app.Repositories.Workspace,
-		c.chats.Handle,
-		c.chatStream.Handle,
-	)
+	// TODO: chat WebSocket surface removed per D11; the chat domain, repo CRUD,
+	// and usecase remain dormant. Re-mount chat routes when multi-agent
+	// conversations land:
+	// /v0/projects/:p/repos/:r/workspaces/:w/chats
 	files.Register(
 		rg,
 		c.app.Usecases.File,

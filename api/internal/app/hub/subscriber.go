@@ -10,9 +10,6 @@ type Subscriber interface {
 	PushWorkspace(
 		ws domain.Workspace,
 	)
-	PushChat(
-		evt ChatStatusEvent,
-	)
 	PushGit(
 		wsID string,
 		status gitdomain.GitStatus,

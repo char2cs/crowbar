@@ -24,20 +24,23 @@ func TestFrom_EmptyInput(t *testing.T) {
 	}
 }
 
-// TestFrom_ActiveMapping verifies that agent-running chats are marked active.
-func TestFrom_ActiveMapping(t *testing.T) {
+// TestFrom_NoActiveIndicator verifies that From sets no active/agent-running
+// indicator: the IsActive field was removed along with the agent-running status
+// producer (D11), so every projection is a plain ID/Title/Age triple regardless
+// of chat status.
+func TestFrom_NoActiveIndicator(t *testing.T) {
 	t.Parallel()
 
 	chats := []domain.Chat{
 		{
 			ID:        "a",
-			Title:     "Active Chat",
-			Status:    domain.ChatStatusAgentRunning,
+			Title:     "Chat A",
+			Status:    domain.ChatStatusIdle,
 			CreatedAt: epoch,
 		},
 		{
 			ID:        "b",
-			Title:     "Idle Chat",
+			Title:     "Chat B",
 			Status:    domain.ChatStatusIdle,
 			CreatedAt: epoch,
 		},
@@ -48,11 +51,14 @@ func TestFrom_ActiveMapping(t *testing.T) {
 	if len(got) != 2 {
 		t.Fatalf("expected 2 results, got %d", len(got))
 	}
-	if !got[0].IsActive {
-		t.Error("first chat should be active")
+	want := []domain.BranchChat{
+		{ID: "a", Title: "Chat A", Age: "0s"},
+		{ID: "b", Title: "Chat B", Age: "0s"},
 	}
-	if got[1].IsActive {
-		t.Error("second chat should not be active")
+	for i := range want {
+		if got[i] != want[i] {
+			t.Errorf("result %d = %+v, want %+v", i, got[i], want[i])
+		}
 	}
 }
 

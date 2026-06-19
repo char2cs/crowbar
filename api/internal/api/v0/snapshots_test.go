@@ -152,33 +152,6 @@ func TestSnapshot_Workspaces_ScopePredicateFilters(t *testing.T) {
 	assert.Equal(t, "w2", got["id"])
 }
 
-// TestSnapshot_Chats_DeliveredOnConnect proves the Chats snapshot-on-subscribe:
-// a wsId-scoped client receives the current ChatStatusEvent on connect.
-func TestSnapshot_Chats_DeliveredOnConnect(t *testing.T) {
-	tc := newApp(t)
-	ctx := context.Background()
-	now := time.Unix(1, 0).UTC()
-
-	_, err := tc.app.Repositories.Workspace.Create(
-		ctx,
-		workspace.CreateInput{ID: "w1", RepoID: "r1", ProjectID: "p1"},
-		now,
-	)
-	require.NoError(t, err)
-	_, err = tc.app.Repositories.Chat.Create(ctx, "c1", "w1", "title", now)
-	require.NoError(t, err)
-	_, err = tc.app.Repositories.Chat.Create(ctx, "c2", "w2", "other", now)
-	require.NoError(t, err)
-
-	_, srv := serveV0(t, tc.app, tc.eng)
-	conn := dialV0(t, srv, "/v0/ws/chats?wsId=w1")
-
-	got := readSnapshot(t, conn)
-	assert.Equal(t, "c1", got["chatId"])
-	assert.Equal(t, "w1", got["wsId"])
-	assert.Equal(t, "idle", got["status"])
-}
-
 // TestSnapshot_Git_DeliveredOnConnectScoped proves the Git snapshot-on-subscribe:
 // a wsId-scoped client receives the current GitStatus of its workspace only.
 func TestSnapshot_Git_DeliveredOnConnectScoped(t *testing.T) {

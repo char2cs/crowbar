@@ -17,7 +17,6 @@ import (
 	"github.com/char2cs/crowbar/api/internal/adapter"
 	v0 "github.com/char2cs/crowbar/api/internal/api/v0"
 	"github.com/char2cs/crowbar/api/internal/app"
-	"github.com/char2cs/crowbar/api/internal/app/hub"
 	"github.com/char2cs/crowbar/api/internal/domain"
 	gitdomain "github.com/char2cs/crowbar/api/internal/domain/git"
 	lspdomain "github.com/char2cs/crowbar/api/internal/domain/lsp"
@@ -72,38 +71,6 @@ func TestV0_HubBroadcastReachesWSClient(t *testing.T) {
 	var got map[string]any
 	require.NoError(t, json.Unmarshal(msg, &got))
 	assert.Equal(t, "w1", got["id"])
-}
-
-func TestV0_PushChat_ReachesWSClient(t *testing.T) {
-	gin.SetMode(gin.TestMode)
-	tc := newApp(t)
-	c := v0.New(tc.app, tc.eng)
-	r := gin.New()
-	c.Register(r.Group("/v0"))
-	srv := httptest.NewServer(r)
-	t.Cleanup(srv.Close)
-
-	url := "ws" + srv.URL[len("http"):] + "/v0/ws/chats"
-	conn, resp, err := websocket.DefaultDialer.Dial(url, nil)
-	if resp != nil {
-		_ = resp.Body.Close()
-	}
-	require.NoError(t, err)
-	t.Cleanup(func() { _ = conn.Close() })
-	c.WaitChatsRegistered()
-
-	tc.app.Hub.BroadcastChat(hub.ChatStatusEvent{
-		ChatID: "c1",
-		WsID:   "w1",
-		Status: domain.ChatStatusIdle,
-	})
-
-	require.NoError(t, conn.SetReadDeadline(time.Now().Add(2*time.Second)))
-	_, msg, err := conn.ReadMessage()
-	require.NoError(t, err)
-	var got map[string]any
-	require.NoError(t, json.Unmarshal(msg, &got))
-	assert.Equal(t, "c1", got["chatId"])
 }
 
 func TestV0_WorkspacesFilter_ProjectId(t *testing.T) {
@@ -256,30 +223,6 @@ func TestV0_GitDualServe_PathScope_IsolatesWsId(t *testing.T) {
 	assert.Equal(t, "branch-A", got.Branch)
 }
 
-func TestV0_ChatStream_RouteRegistered_NoFrames(t *testing.T) {
-	gin.SetMode(gin.TestMode)
-	tc := newApp(t)
-	c := v0.New(tc.app, tc.eng)
-	r := gin.New()
-	c.Register(r.Group("/v0"))
-	srv := httptest.NewServer(r)
-	t.Cleanup(srv.Close)
-
-	// The post-spike ChatStream route exists and upgrades, but no producer ever
-	// pushes a frame, so the read must time out rather than deliver anything.
-	url := "ws" + srv.URL[len("http"):] + "/v0/ws/chats/c1/stream"
-	conn, resp, err := websocket.DefaultDialer.Dial(url, nil)
-	if resp != nil {
-		_ = resp.Body.Close()
-	}
-	require.NoError(t, err)
-	t.Cleanup(func() { _ = conn.Close() })
-
-	_ = conn.SetReadDeadline(time.Now().Add(200 * time.Millisecond))
-	_, _, err = conn.ReadMessage()
-	assert.Error(t, err)
-}
-
 func TestV0_PushFile_ReachesFilteredClient(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	tc := newApp(t)
@@ -307,36 +250,4 @@ func TestV0_PushFile_ReachesFilteredClient(t *testing.T) {
 	var got domain.FileChangeEvent
 	require.NoError(t, json.Unmarshal(msg, &got))
 	assert.Equal(t, "a.go", got.Path)
-}
-
-func TestV0_ChatsFilter_WsId(t *testing.T) {
-	gin.SetMode(gin.TestMode)
-	tc := newApp(t)
-	c := v0.New(tc.app, tc.eng)
-	r := gin.New()
-	c.Register(r.Group("/v0"))
-	srv := httptest.NewServer(r)
-	t.Cleanup(srv.Close)
-
-	url := "ws" + srv.URL[len("http"):] + "/v0/ws/chats?wsId=w1"
-	conn, resp, err := websocket.DefaultDialer.Dial(url, nil)
-	if resp != nil {
-		_ = resp.Body.Close()
-	}
-	require.NoError(t, err)
-	t.Cleanup(func() { _ = conn.Close() })
-	c.WaitChatsRegistered()
-
-	tc.app.Hub.BroadcastChat(hub.ChatStatusEvent{
-		ChatID: "c1",
-		WsID:   "w1",
-		Status: domain.ChatStatusIdle,
-	})
-
-	require.NoError(t, conn.SetReadDeadline(time.Now().Add(2*time.Second)))
-	_, msg, err := conn.ReadMessage()
-	require.NoError(t, err)
-	var got map[string]any
-	require.NoError(t, json.Unmarshal(msg, &got))
-	assert.Equal(t, "c1", got["chatId"])
 }

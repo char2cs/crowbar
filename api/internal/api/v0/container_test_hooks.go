@@ -16,16 +16,6 @@ func (c *Container) WaitNWorkspacesRegistered(
 	c.workspaces.WaitNRegistered(n)
 }
 
-// WaitChatsRegistered blocks until a chats WS client registers.
-func (c *Container) WaitChatsRegistered() { c.chats.WaitRegistered() }
-
-// WaitNChatsRegistered blocks until exactly n chats WS clients register.
-func (c *Container) WaitNChatsRegistered(
-	n int,
-) {
-	c.chats.WaitNRegistered(n)
-}
-
 // WaitFilesRegistered blocks until a files WS client registers.
 func (c *Container) WaitFilesRegistered() { c.files.WaitRegistered() }
 
@@ -63,4 +53,3 @@ func (c *Container) PushLSP(
 ) {
 	c.lsp.Push(evt)
 }
-

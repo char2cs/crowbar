@@ -33,7 +33,6 @@ func newCapturingSubscriber() *capturingSubscriber {
 }
 
 func (s *capturingSubscriber) PushWorkspace(_ domain.Workspace)  {}
-func (s *capturingSubscriber) PushChat(_ hub.ChatStatusEvent)    {}
 func (s *capturingSubscriber) PushFile(e domain.FileChangeEvent) { s.files <- e }
 
 func (s *capturingSubscriber) PushGit(

@@ -11,7 +11,6 @@ import (
 
 	"github.com/char2cs/crowbar/api/internal/adapter"
 	"github.com/char2cs/crowbar/api/internal/app"
-	"github.com/char2cs/crowbar/api/internal/app/repositories/chat"
 	"github.com/char2cs/crowbar/api/internal/app/repositories/workspace"
 	"github.com/char2cs/crowbar/api/internal/domain"
 	"github.com/char2cs/crowbar/api/internal/engine"
@@ -26,16 +25,6 @@ type errWorkspaceRepo struct {
 func (errWorkspaceRepo) List(
 	_ context.Context,
 ) ([]domain.Workspace, error) {
-	return nil, errSnapshotFake
-}
-
-type errChatRepo struct {
-	chat.Chat
-}
-
-func (errChatRepo) List(
-	_ context.Context,
-) ([]domain.Chat, error) {
 	return nil, errSnapshotFake
 }
 
@@ -58,12 +47,6 @@ func TestWorkspacesSnapshot_ListErrorReturnsNil(t *testing.T) {
 	a := newAppForSnapshot(t)
 	a.Repositories.Workspace = errWorkspaceRepo{}
 	assert.Nil(t, workspacesSnapshot(a)())
-}
-
-func TestChatsSnapshot_ListErrorReturnsNil(t *testing.T) {
-	a := newAppForSnapshot(t)
-	a.Repositories.Chat = errChatRepo{}
-	assert.Nil(t, chatsSnapshot(a)())
 }
 
 func TestGitSnapshot_ListErrorReturnsNil(t *testing.T) {
