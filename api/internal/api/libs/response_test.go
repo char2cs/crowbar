@@ -100,6 +100,15 @@ func TestWriteMutationOK(t *testing.T) {
 	assert.Equal(t, "11111111-2222-3333-4444-555555555555", data["id"])
 }
 
+func TestWriteAccepted(t *testing.T) {
+	ctx, rec := newCtx(t)
+
+	libs.WriteAccepted(ctx)
+
+	assert.Equal(t, http.StatusAccepted, rec.Code)
+	assert.Empty(t, rec.Body.Bytes())
+}
+
 func TestWriteErr(t *testing.T) {
 	ctx, rec := newCtx(t)
 

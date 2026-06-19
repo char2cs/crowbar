@@ -80,6 +80,16 @@ func WriteMutationOK(
 	)
 }
 
+// WriteAccepted writes a 202 Accepted response with an empty body. Use it for
+// fail-fast/good-path-async mutations whose outcome is delivered later on the
+// entity's WebSocket stream rather than in the HTTP response (00 §4).
+func WriteAccepted(
+	c *gin.Context,
+) {
+	c.Status(http.StatusAccepted)
+	c.Writer.WriteHeaderNow()
+}
+
 // WriteErr writes an error response with the given HTTP status. The envelope
 // sets success:false and carries message as a non-null error string; data is
 // omitted.

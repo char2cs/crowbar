@@ -50,6 +50,8 @@ func (c SyncWorkingTreeState) EmitEvent(
 	ws.Added = clampZero(c.Added)
 	ws.Deleted = clampZero(c.Deleted)
 	ws.LastActivity = c.Now
+	// A successful mutating command clears any stale background error (00 §4).
+	ws.LastError = ""
 	// When local conflicts appear, surface them via the Status enum. Status
 	// stays at its current value otherwise.
 	if c.HasConflicts {

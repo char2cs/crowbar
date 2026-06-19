@@ -75,6 +75,7 @@ func (c *Container) Register(
 		c.app.Usecases.Workspace,
 		c.app.Usecases.Worktree,
 		c.app.GORM.Repositories,
+		c.app.Repositories.Workspace,
 		c.workspaces.Handle,
 		ws.DualServe,
 	)

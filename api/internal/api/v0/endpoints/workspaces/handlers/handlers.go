@@ -63,24 +63,39 @@ type Repos interface {
 	) (*domain.Repository, error)
 }
 
+// LastErrorSetter records the message from a failed background mutation on the
+// workspace entity so the failure is delivered on the workspace WebSocket stream
+// (00 §4: errors live on the entity, never a separate WS frame).
+type LastErrorSetter interface {
+	SetLastError(
+		ctx context.Context,
+		id string,
+		message string,
+	) (domain.Workspace, error)
+}
+
 // Handlers serves the /v0/workspaces routes from the workspace read usecase, the
-// worktree hierarchy usecase, and the repository store.
+// worktree hierarchy usecase, the repository store, and the workspace error
+// sink that surfaces async-mutation failures on the entity.
 type Handlers struct {
-	reader    Reader
-	hierarchy Hierarchy
-	repos     Repos
+	reader     Reader
+	hierarchy  Hierarchy
+	repos      Repos
+	lastErrors LastErrorSetter
 }
 
 // New builds the workspaces Handlers from the workspace read usecase, the
-// worktree hierarchy usecase, and the repository store.
+// worktree hierarchy usecase, the repository store, and the workspace error sink.
 func New(
 	reader Reader,
 	hierarchy Hierarchy,
 	repos Repos,
+	lastErrors LastErrorSetter,
 ) *Handlers {
 	return &Handlers{
-		reader:    reader,
-		hierarchy: hierarchy,
-		repos:     repos,
+		reader:     reader,
+		hierarchy:  hierarchy,
+		repos:      repos,
+		lastErrors: lastErrors,
 	}
 }

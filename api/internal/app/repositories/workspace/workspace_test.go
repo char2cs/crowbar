@@ -48,6 +48,65 @@ func newRepo(
 	return context.Background(), repo
 }
 
+func newRepoWithBroadcast(
+	t *testing.T,
+	broadcast func(domain.Workspace),
+) (context.Context, workspace.Workspace) {
+	t.Helper()
+	repo, err := workspace.New(newAdapter(t, t.TempDir()), broadcast, wsAsynxFactory)
+	require.NoError(t, err)
+	return context.Background(), repo
+}
+
+func TestWorkspace_SetLastError_SetsAndClears(t *testing.T) {
+	ctx, repo := newRepo(t)
+	now := time.Unix(1000, 0).UTC()
+	_, err := repo.Create(ctx, workspace.CreateInput{ID: "w1", RepoID: "r1", ProjectID: "p1"}, now)
+	require.NoError(t, err)
+
+	got, err := repo.SetLastError(ctx, "w1", "boom")
+	require.NoError(t, err)
+	assert.Equal(t, "boom", got.LastError)
+
+	reloaded, err := repo.Get(ctx, "w1")
+	require.NoError(t, err)
+	assert.Equal(t, "boom", reloaded.LastError)
+
+	// A successful mutating command clears the stale error.
+	cleared, err := repo.SyncWorkingTreeState(ctx, workspace.SyncInput{ID: "w1"}, now)
+	require.NoError(t, err)
+	assert.Empty(t, cleared.LastError)
+}
+
+func TestWorkspace_SetLastError_ErrorOnMissing(t *testing.T) {
+	ctx, repo := newRepo(t)
+	_, err := repo.SetLastError(ctx, "no-such", "x")
+	assert.Error(t, err)
+}
+
+func TestWorkspace_Delete_BroadcastsDeletedTombstone(t *testing.T) {
+	var got []domain.Workspace
+	broadcast := func(ws domain.Workspace) { got = append(got, ws) }
+	ctx, repo := newRepoWithBroadcast(t, broadcast)
+	now := time.Unix(1000, 0).UTC()
+	_, err := repo.Create(ctx, workspace.CreateInput{ID: "w1", RepoID: "r1", ProjectID: "p1"}, now)
+	require.NoError(t, err)
+
+	require.NoError(t, repo.Delete(ctx, "w1"))
+
+	var tombstone domain.Workspace
+	var found bool
+	for _, ws := range got {
+		if ws.ID == "w1" && ws.Status == domain.WorkspaceStatusDeleted {
+			tombstone = ws
+			found = true
+		}
+	}
+	require.True(t, found, "Delete must broadcast a deleted-status row")
+	assert.Equal(t, "p1", tombstone.ProjectID)
+	assert.Equal(t, "r1", tombstone.RepoID)
+}
+
 func TestWorkspace_Create_RoundTrips(t *testing.T) {
 	ctx, repo := newRepo(t)
 	now := time.Unix(1000, 0).UTC()

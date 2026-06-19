@@ -109,6 +109,47 @@ func TestCommands_Metadata(t *testing.T) {
 	assert.False(t, ufp.ShouldSnapshot())
 }
 
+func TestSetLastError_SetsMessage(t *testing.T) {
+	cur := &domain.Workspace{ID: "w1", Status: domain.WorkspaceStatusNew}
+	ws := SetLastError{ID: "w1", Message: "boom"}.EmitEvent(cur)
+	assert.Equal(t, "boom", ws.LastError)
+	assert.Equal(t, domain.WorkspaceStatusNew, ws.Status)
+}
+
+func TestSetLastError_Validate_RejectsMissing(t *testing.T) {
+	err := SetLastError{ID: "w1", Message: "x"}.Validate(nil)
+	assert.True(t, errors.Is(err, asynxModels.ErrValidation))
+}
+
+func TestSetLastError_Validate_AcceptsExisting(t *testing.T) {
+	err := SetLastError{ID: "w1", Message: "x"}.Validate(&domain.Workspace{ID: "w1"})
+	assert.NoError(t, err)
+}
+
+func TestSetLastError_Metadata(t *testing.T) {
+	c := SetLastError{ID: "w1"}
+	assert.Equal(t, "w1", c.AggregateID())
+	assert.Contains(t, c.EventName(), "last_error_set")
+	assert.False(t, c.ShouldSnapshot())
+}
+
+func TestCreate_ClearsLastError(t *testing.T) {
+	ws := CreateWorkspace{ID: "w1", RepoID: "r1", ProjectID: "p1", Now: time.Unix(1, 0)}.EmitEvent(nil)
+	assert.Empty(t, ws.LastError)
+}
+
+func TestSyncWorkingTreeState_ClearsLastError(t *testing.T) {
+	cur := &domain.Workspace{ID: "w1", Status: domain.WorkspaceStatusNew, LastError: "stale"}
+	ws := SyncWorkingTreeState{ID: "w1", HasCommits: true}.EmitEvent(cur)
+	assert.Empty(t, ws.LastError)
+}
+
+func TestSyncProviderState_ClearsLastError(t *testing.T) {
+	cur := &domain.Workspace{ID: "w1", Status: domain.WorkspaceStatusNew, LastError: "stale"}
+	ws := SyncProviderState{ID: "w1", HasPR: true, PRStatus: "open"}.EmitEvent(cur)
+	assert.Empty(t, ws.LastError)
+}
+
 func TestCreateWorkspace_Validate_AcceptsValidNew(t *testing.T) {
 	cmd := CreateWorkspace{ID: "w1", RepoID: "r1", ProjectID: "p1"}
 	err := cmd.Validate(nil)

@@ -22,9 +22,13 @@ type createRequest struct {
 }
 
 // Create handles
-// POST /v0/projects/:projectId/repos/:repoId/workspaces, creating a
-// worktree-backed workspace and returning the created id with status 201. The
-// repo is resolved from the :repoId path param.
+// POST /v0/projects/:projectId/repos/:repoId/workspaces. It validates the
+// request synchronously (body shape, repoId present, branch present, repo
+// exists, parent resolves) returning 4xx on any failure; then it returns 202
+// and runs CreateChild in the background. The created workspace is delivered on
+// the workspace WebSocket stream via the repository's broadcast callback; a
+// failure surfaces as LastError on… nothing yet, since no workspace id exists
+// pre-create, so the create error is best-effort logged by the background run.
 func (h *Handlers) Create(
 	c *gin.Context,
 ) {
@@ -48,13 +52,29 @@ func (h *Handlers) Create(
 		libs.WriteErr(c, status, msg)
 		return
 	}
-	created, err := h.hierarchy.CreateChild(c.Request.Context(), in)
-	if err != nil {
-		status, msg := libs.StatusAndMessage(err)
-		libs.WriteErr(c, status, msg)
+	libs.WriteAccepted(c)
+	runAsync(
+		c.Request.Context(),
+		h.broadcastLastError,
+		"",
+		func(ctx context.Context) error {
+			_, createErr := h.hierarchy.CreateChild(ctx, in)
+			return createErr
+		},
+	)
+}
+
+// broadcastLastError records a failed background mutation on the workspace
+// entity. A blank wsID (for example a create that never produced an id) is a
+// no-op since there is no entity to attach the error to.
+func (h *Handlers) broadcastLastError(
+	wsID string,
+	message string,
+) {
+	if wsID == "" {
 		return
 	}
-	libs.WriteMutationOK(c, http.StatusCreated, created.ID)
+	_, _ = h.lastErrors.SetLastError(context.Background(), wsID, message)
 }
 
 func (h *Handlers) buildCreateInput(
@@ -99,18 +119,27 @@ func (h *Handlers) resolveParentBranch(
 }
 
 // Delete handles
-// DELETE /v0/projects/:projectId/repos/:repoId/workspaces/:wsId,
-// cascade-deleting the workspace and
-// its descendants (locked rows are skipped by the usecase) and returning the
-// requested id.
+// DELETE /v0/projects/:projectId/repos/:repoId/workspaces/:wsId. It validates
+// the workspace exists synchronously (4xx if not), then returns 202 and runs the
+// cascade delete in the background (locked rows are skipped by the usecase). The
+// repository broadcasts a deleted-status tombstone on the workspace WebSocket
+// stream; a failure surfaces as LastError on the entity.
 func (h *Handlers) Delete(
 	c *gin.Context,
 ) {
 	id := c.Param("wsId")
-	if err := h.hierarchy.DeleteCascade(c.Request.Context(), id); err != nil {
+	if _, err := h.reader.Get(c.Request.Context(), id); err != nil {
 		status, msg := libs.StatusAndMessage(err)
 		libs.WriteErr(c, status, msg)
 		return
 	}
-	libs.WriteMutationOK(c, http.StatusOK, id)
+	libs.WriteAccepted(c)
+	runAsync(
+		c.Request.Context(),
+		h.broadcastLastError,
+		id,
+		func(ctx context.Context) error {
+			return h.hierarchy.DeleteCascade(ctx, id)
+		},
+	)
 }

@@ -71,6 +71,8 @@ type fakeHierarchy struct {
 	gotNewParent string
 	deleteErr    error
 	gotDeleteID  string
+	createDone   chan struct{}
+	deleteDone   chan struct{}
 }
 
 func (f *fakeHierarchy) CreateChild(
@@ -78,6 +80,9 @@ func (f *fakeHierarchy) CreateChild(
 	in worktree.CreateChildInput,
 ) (domain.Workspace, error) {
 	f.gotCreate = in
+	if f.createDone != nil {
+		close(f.createDone)
+	}
 	return f.created, f.createErr
 }
 
@@ -106,6 +111,9 @@ func (f *fakeHierarchy) DeleteCascade(
 	rootID string,
 ) error {
 	f.gotDeleteID = rootID
+	if f.deleteDone != nil {
+		close(f.deleteDone)
+	}
 	return f.deleteErr
 }
 
@@ -121,13 +129,32 @@ func (f *fakeRepos) FindByKey(
 	return f.repo, f.err
 }
 
+type fakeLastErrors struct {
+	gotID  string
+	gotMsg string
+	called chan struct{}
+}
+
+func (f *fakeLastErrors) SetLastError(
+	_ context.Context,
+	id string,
+	message string,
+) (domain.Workspace, error) {
+	f.gotID = id
+	f.gotMsg = message
+	if f.called != nil {
+		f.called <- struct{}{}
+	}
+	return domain.Workspace{ID: id, LastError: message}, nil
+}
+
 func newRouter(
 	reader workspacehandlers.Reader,
 	hierarchy workspacehandlers.Hierarchy,
 	repos workspacehandlers.Repos,
 ) *gin.Engine {
 	r := gin.New()
-	h := workspacehandlers.New(reader, hierarchy, repos)
+	h := workspacehandlers.New(reader, hierarchy, repos, &fakeLastErrors{})
 	// Mount under the hierarchical repo-scoped prefix so the handlers read
 	// :projectId/:repoId/:wsId from the path, mirroring the production router.
 	rg := r.Group("/v0/projects/:projectId/repos/:repoId")
@@ -139,6 +166,21 @@ func newRouter(
 	rg.POST("/workspaces/:wsId/merge-into-parent", h.MergeIntoParent)
 	rg.POST("/workspaces/:wsId/reparent", h.Reparent)
 	return r
+}
+
+// waitClosed blocks until done is closed, failing the test on a deadline so a
+// background goroutine that never runs surfaces as a clear failure instead of a
+// silent hang (no time.Sleep polling).
+func waitClosed(
+	t *testing.T,
+	done chan struct{},
+) {
+	t.Helper()
+	select {
+	case <-done:
+	case <-time.After(time.Second):
+		t.Fatal("timed out waiting for background work to run")
+	}
 }
 
 func do(

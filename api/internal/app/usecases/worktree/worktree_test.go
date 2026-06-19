@@ -118,6 +118,10 @@ func (f *fakeWorkspace) SetParentFromPR(_ context.Context, _ string, _ string) (
 	return domain.Workspace{}, nil
 }
 
+func (f *fakeWorkspace) SetLastError(_ context.Context, _ string, _ string) (domain.Workspace, error) {
+	return domain.Workspace{}, nil
+}
+
 var _ workspace.Workspace = (*fakeWorkspace)(nil)
 
 // --- fakes ---

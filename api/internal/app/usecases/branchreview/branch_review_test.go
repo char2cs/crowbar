@@ -108,6 +108,10 @@ func (m *mockWorkspace) SetParentFromPR(ctx context.Context, id string, parentID
 	return domain.Workspace{}, nil
 }
 
+func (m *mockWorkspace) SetLastError(ctx context.Context, id string, message string) (domain.Workspace, error) {
+	return domain.Workspace{}, nil
+}
+
 var _ workspace.Workspace = (*mockWorkspace)(nil)
 
 // --- local reviewthread mock ---

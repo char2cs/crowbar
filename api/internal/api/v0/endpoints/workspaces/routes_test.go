@@ -87,6 +87,16 @@ func (stubRepos) FindByKey(
 	return nil, nil
 }
 
+type stubLastErrors struct{}
+
+func (stubLastErrors) SetLastError(
+	_ context.Context,
+	id string,
+	message string,
+) (domain.Workspace, error) {
+	return domain.Workspace{ID: id, LastError: message}, nil
+}
+
 func passthrough(
 	rest gin.HandlerFunc,
 	_ gin.HandlerFunc,
@@ -107,6 +117,7 @@ func TestRegisterMountsRoutes(
 		stubReader{},
 		stubHierarchy{},
 		stubRepos{},
+		stubLastErrors{},
 		func(_ *gin.Context) { wsHit = true },
 		passthrough,
 	)

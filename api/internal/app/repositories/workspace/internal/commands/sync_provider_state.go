@@ -48,6 +48,8 @@ func (c SyncProviderState) EmitEvent(
 	current *domain.Workspace,
 ) domain.Workspace {
 	ws := *current
+	// A successful mutating command clears any stale background error (00 §4).
+	ws.LastError = ""
 	if c.HasPR {
 		ws.PRUrl = c.PRUrl
 		ws.PRTitle = c.PRTitle

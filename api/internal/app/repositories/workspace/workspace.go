@@ -105,6 +105,14 @@ type Workspace interface {
 		id string,
 		parentID string,
 	) (domain.Workspace, error)
+	// SetLastError records the message from a failed background operation on the
+	// workspace; the failure surfaces on the entity, never a separate WS frame
+	// (00 §4). The next successful mutating command clears it.
+	SetLastError(
+		ctx context.Context,
+		id string,
+		message string,
+	) (domain.Workspace, error)
 	Delete(
 		ctx context.Context,
 		id string,
@@ -391,14 +399,43 @@ func (w *workspace) SetParentFromPR(
 	return evt.Aggregate, nil
 }
 
+func (w *workspace) SetLastError(
+	ctx context.Context,
+	id string,
+	message string,
+) (domain.Workspace, error) {
+	entity, err := w.entityFor(ctx, id)
+	if err != nil {
+		return domain.Workspace{}, err
+	}
+	evt, err := entity.ax.SendWait(ctx, commands.SetLastError{ID: id, Message: message})
+	if err != nil {
+		return domain.Workspace{}, fmt.Errorf("workspace: set last error: %w", err)
+	}
+	return evt.Aggregate, nil
+}
+
 func (w *workspace) Delete(
 	ctx context.Context,
 	id string,
 ) error {
-	entity, err := w.entityFor(ctx, id)
+	loc, err := w.locations.Get(ctx, id)
+	if err != nil {
+		return fmt.Errorf("workspace: delete: locate %q: %w", id, err)
+	}
+	entity, err := w.entityForLocation(loc)
 	if err != nil {
 		return err
 	}
+	// Broadcast the deleted tombstone BEFORE tearing down storage so subscribers
+	// learn the workspace is gone even though its per-entity stores no longer
+	// exist (00 §4: errors and lifecycle live on the entity).
+	w.broadcast(domain.Workspace{
+		ID:        id,
+		ProjectID: loc.ProjectID,
+		RepoID:    loc.RepoID,
+		Status:    domain.WorkspaceStatusDeleted,
+	})
 	if err := entity.ax.Forget(ctx, id); err != nil {
 		return fmt.Errorf("workspace: delete: %w", err)
 	}
