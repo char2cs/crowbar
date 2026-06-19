@@ -84,5 +84,5 @@ func (h *Handlers) Reparent(
 		libs.WriteErr(c, status, msg)
 		return
 	}
-	libs.WriteQueryOK(c, dto.WorkspaceDTOFrom(updated))
+	libs.WriteQueryOK(c, dto.WorkspaceDTOFrom(updated, noEligibility(updated)))
 }

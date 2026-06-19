@@ -117,12 +117,15 @@ func TestSnapshot_Workspaces_DeliveredOnConnect(t *testing.T) {
 	require.NoError(t, err)
 
 	_, srv := serveV0(t, tc.app, tc.eng)
-	conn := dialV0(t, srv, "/v0/ws/workspaces?projectId=p1")
+	conn := dialV0(t, srv, "/v0/ws/workspaces?projectId=p1&repoId=r1")
 
 	got := readSnapshot(t, conn)
 	assert.Equal(t, "w1", got["id"])
 	assert.Equal(t, false, got["working"])
-	assert.Equal(t, true, got["hasConflicts"])
+	// hasConflicts was retired in W4; the working-tree conflict is now carried by
+	// status. The snapshot frame is the WorkspaceDTO wire shape (spec §9).
+	_, present := got["hasConflicts"]
+	assert.False(t, present)
 }
 
 // TestSnapshot_Workspaces_ScopePredicateFilters proves the snapshot is filtered

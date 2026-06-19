@@ -5,6 +5,7 @@ import (
 
 	"github.com/gin-gonic/gin"
 
+	"github.com/char2cs/crowbar/api/internal/api/v0/dto"
 	"github.com/char2cs/crowbar/api/internal/api/v0/ws"
 	"github.com/char2cs/crowbar/api/internal/app"
 	"github.com/char2cs/crowbar/api/internal/app/hub"
@@ -28,7 +29,11 @@ import (
 // The chat WebSocket surface (chats + chatStream) has been removed per D11; the
 // chat domain, repo CRUD, and usecase remain dormant TODO.
 type Container struct {
-	workspaces *ws.Broadcaster[domain.Workspace]
+	projects   *ws.Broadcaster[dto.ProjectDTO]
+	repos      *ws.Broadcaster[dto.RepoDTO]
+	workspaces *ws.Broadcaster[dto.WorkspaceDTO]
+	threads    *ws.Broadcaster[dto.ThreadDTO]
+	terminals  *ws.Broadcaster[dto.TerminalSessionDTO]
 	git        *ws.Broadcaster[gitdomain.GitStatusEvent]
 	files      *ws.Broadcaster[domain.FileChangeEvent]
 	lsp        *ws.Broadcaster[lspdomain.DiagnosticsEvent]
@@ -55,7 +60,11 @@ func New(
 		panic("v0: appContainer is required")
 	}
 	c := &Container{
+		projects:   ws.NewBroadcaster(projectsDef()),
+		repos:      ws.NewBroadcaster(reposDef()),
 		workspaces: ws.NewBroadcaster(workspacesDef(appContainer)),
+		threads:    ws.NewBroadcaster(threadsDef()),
+		terminals:  ws.NewBroadcaster(terminalsDef()),
 		git:        ws.NewBroadcaster(withWatcherLifecycle(gitDef(appContainer), appContainer)),
 		files:      ws.NewBroadcaster(withWatcherLifecycle(filesDef(), appContainer)),
 		lsp:        ws.NewBroadcaster(withLSPLifecycle(lspDef(appContainer, engContainer), appContainer)),
@@ -106,11 +115,39 @@ func scopeWsID(
 	return c.Query("wsId")
 }
 
+// PushProject implements hub.Subscriber.
+func (c *Container) PushProject(
+	p dto.ProjectDTO,
+) {
+	c.projects.Push(p)
+}
+
+// PushRepo implements hub.Subscriber.
+func (c *Container) PushRepo(
+	r dto.RepoDTO,
+) {
+	c.repos.Push(r)
+}
+
 // PushWorkspace implements hub.Subscriber.
 func (c *Container) PushWorkspace(
-	wsRow domain.Workspace,
+	w dto.WorkspaceDTO,
 ) {
-	c.workspaces.Push(wsRow)
+	c.workspaces.Push(w)
+}
+
+// PushThread implements hub.Subscriber.
+func (c *Container) PushThread(
+	t dto.ThreadDTO,
+) {
+	c.threads.Push(t)
+}
+
+// PushTerminalSession implements hub.Subscriber.
+func (c *Container) PushTerminalSession(
+	s dto.TerminalSessionDTO,
+) {
+	c.terminals.Push(s)
 }
 
 // PushGit implements hub.Subscriber. It wraps the status in a wsId-carrying
@@ -134,17 +171,62 @@ func (c *Container) PushFile(
 	c.files.Push(evt)
 }
 
+// projectsDef serves the Projects topic. Its hierarchical namespace is the bare
+// project id (spec §5); the snapshot source is wired in W6c when the Project
+// broadcaster is fed from the per-project store.
+func projectsDef() ws.StreamDef[dto.ProjectDTO] {
+	return ws.StreamDef[dto.ProjectDTO]{
+		Namespace: func(d dto.ProjectDTO) string { return d.ID },
+		Serialize: func(d dto.ProjectDTO) ([]byte, error) { return json.Marshal(d) },
+	}
+}
+
+// reposDef serves the Repos topic. Its hierarchical namespace is projectID/ID
+// (spec §5); the snapshot source is wired in W6c.
+func reposDef() ws.StreamDef[dto.RepoDTO] {
+	return ws.StreamDef[dto.RepoDTO]{
+		Namespace: func(d dto.RepoDTO) string { return d.ProjectID + "/" + d.ID },
+		Serialize: func(d dto.RepoDTO) ([]byte, error) { return json.Marshal(d) },
+	}
+}
+
+// workspacesDef serves the Workspaces topic. Its hierarchical namespace is
+// projectID/repoID/ID, so a repo-scoped subscription ("p/r") receives every
+// child workspace (spec §5). The snapshot is repo-scoped from the client's
+// subscription prefix and carries the merge-eligibility overlay (spec §9/§10).
 func workspacesDef(
 	appContainer *app.Container,
-) ws.StreamDef[domain.Workspace] {
-	return ws.StreamDef[domain.Workspace]{
-		Namespace: func(w domain.Workspace) string { return w.ID },
-		Serialize: func(w domain.Workspace) ([]byte, error) { return json.Marshal(w) },
-		Snapshot:  workspacesSnapshot(appContainer),
-		Filters: []ws.FilterDef[domain.Workspace]{
-			{Param: "projectId", Extract: func(w domain.Workspace) string { return w.ProjectID }, Match: ws.ExactMatch},
-			{Param: "repoId", Extract: func(w domain.Workspace) string { return w.RepoID }, Match: ws.ExactMatch},
+) ws.StreamDef[dto.WorkspaceDTO] {
+	return ws.StreamDef[dto.WorkspaceDTO]{
+		Namespace: func(d dto.WorkspaceDTO) string {
+			return d.ProjectID + "/" + d.RepoID + "/" + d.ID
 		},
+		Serialize: func(d dto.WorkspaceDTO) ([]byte, error) { return json.Marshal(d) },
+		Snapshot:  workspacesSnapshot(appContainer),
+	}
+}
+
+// threadsDef serves the Threads topic. Its hierarchical namespace is
+// projectID/repoID/workspaceID/ID (spec §5); the snapshot source is wired in W9.
+func threadsDef() ws.StreamDef[dto.ThreadDTO] {
+	return ws.StreamDef[dto.ThreadDTO]{
+		Namespace: func(d dto.ThreadDTO) string {
+			return d.ProjectID + "/" + d.RepoID + "/" + d.WorkspaceID + "/" + d.ID
+		},
+		Serialize: func(d dto.ThreadDTO) ([]byte, error) { return json.Marshal(d) },
+	}
+}
+
+// terminalsDef serves the Terminal-session lifecycle topic. Its hierarchical
+// namespace is projectID/repoID/workspaceID/ID (spec §5); the snapshot source is
+// wired in W10 from the in-memory engine registry. The raw PTY byte stream is a
+// separate, non-broadcast WebSocket.
+func terminalsDef() ws.StreamDef[dto.TerminalSessionDTO] {
+	return ws.StreamDef[dto.TerminalSessionDTO]{
+		Namespace: func(d dto.TerminalSessionDTO) string {
+			return d.ProjectID + "/" + d.RepoID + "/" + d.WorkspaceID + "/" + d.ID
+		},
+		Serialize: func(d dto.TerminalSessionDTO) ([]byte, error) { return json.Marshal(d) },
 	}
 }
 

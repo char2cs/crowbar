@@ -7,10 +7,12 @@ import (
 	"github.com/char2cs/asynx"
 
 	"github.com/char2cs/crowbar/api/internal/adapter"
+	"github.com/char2cs/crowbar/api/internal/api/v0/dto"
 	"github.com/char2cs/crowbar/api/internal/app/hub"
 	"github.com/char2cs/crowbar/api/internal/app/repositories/chat"
 	"github.com/char2cs/crowbar/api/internal/app/repositories/reviewthread"
 	"github.com/char2cs/crowbar/api/internal/app/repositories/workspace"
+	wsusecase "github.com/char2cs/crowbar/api/internal/app/usecases/workspace"
 	"github.com/char2cs/crowbar/api/internal/domain"
 )
 
@@ -57,15 +59,53 @@ func New(
 	return c, nil
 }
 
-// broadcastWorkspace pushes a workspace row to the hub. The derived Working
-// overlay is always false: the agent-run concept has been removed and the chat
-// usecase that would set it is a dormant TODO (00 §5).
+// broadcastWorkspace converts a workspace row to its wire DTO and pushes it to
+// the hub. The derived Working overlay is always false: the agent-run concept
+// has been removed and the chat usecase that would set it is a dormant TODO
+// (00 §5). The merge-eligibility overlay (CanMergeLocally/ParentBranch) is
+// resolved here — off the broadcaster hot path (spec §10) — from the row's
+// repo-scoped siblings, so the WorkspaceDTO carries it the moment it lands.
 func (c *Container) broadcastWorkspace(
-	_ context.Context,
+	ctx context.Context,
 	ws domain.Workspace,
 ) {
 	ws.Working = false
-	c.hub.BroadcastWorkspace(ws)
+	elig := c.eligibilityFor(ctx, ws)
+	c.hub.BroadcastWorkspace(dto.WorkspaceDTOFrom(ws, elig))
+}
+
+// eligibilityFor resolves the merge-eligibility overlay for ws by reading its
+// repo-scoped siblings and applying the §10 rule: ParentID set AND a sibling
+// matches that id AND its status is neither locked nor deleted → eligible with
+// the parent's branch; otherwise the zero overlay. The sibling read is best
+// effort — a failed List degrades to no eligibility rather than dropping the
+// broadcast.
+func (c *Container) eligibilityFor(
+	ctx context.Context,
+	ws domain.Workspace,
+) wsusecase.MergeEligibility {
+	if ws.ParentID == "" {
+		return wsusecase.MergeEligibility{}
+	}
+	rows, err := c.Workspace.List(ctx)
+	if err != nil {
+		return wsusecase.MergeEligibility{}
+	}
+	for _, s := range rows {
+		if s.ProjectID != ws.ProjectID || s.RepoID != ws.RepoID {
+			continue
+		}
+		if s.ID != ws.ParentID {
+			continue
+		}
+		eligible := s.Status != domain.WorkspaceStatusLocked &&
+			s.Status != domain.WorkspaceStatusDeleted
+		return wsusecase.MergeEligibility{
+			CanMergeLocally: eligible,
+			ParentBranch:    s.Branch,
+		}
+	}
+	return wsusecase.MergeEligibility{}
 }
 
 // ListWorkspaces returns every workspace row. The working overlay has been

@@ -5,8 +5,18 @@ import (
 
 	"github.com/char2cs/crowbar/api/internal/api/libs"
 	"github.com/char2cs/crowbar/api/internal/api/v0/dto"
+	"github.com/char2cs/crowbar/api/internal/app/usecases/workspace"
 	"github.com/char2cs/crowbar/api/internal/domain"
 )
+
+// noEligibility resolves an empty merge-eligibility overlay. The eligibility-
+// aware path that reads the repo-scoped sibling set is wired into these handlers
+// in W8.3; until then the converters carry the zero overlay.
+func noEligibility(
+	_ domain.Workspace,
+) workspace.MergeEligibility {
+	return workspace.MergeEligibility{}
+}
 
 // List handles GET /v0/workspaces, returning the flat WorkspaceDTO[] list. An
 // optional projectId or repoId query parameter scopes the result to a single
@@ -25,7 +35,7 @@ func (h *Handlers) List(
 		c.Query("projectId"),
 		c.Query("repoId"),
 	)
-	libs.WriteQueryOK(c, dto.WorkspaceDTOList(filtered))
+	libs.WriteQueryOK(c, dto.WorkspaceDTOList(filtered, noEligibility))
 }
 
 // Detail handles GET /v0/workspaces/:wsId, returning a single WorkspaceDTO.
@@ -38,7 +48,7 @@ func (h *Handlers) Detail(
 		libs.WriteErr(c, status, msg)
 		return
 	}
-	libs.WriteQueryOK(c, dto.WorkspaceDTOFrom(ws))
+	libs.WriteQueryOK(c, dto.WorkspaceDTOFrom(ws, noEligibility(ws)))
 }
 
 func filterWorkspaces(

@@ -1,6 +1,7 @@
 package dto
 
 import (
+	"github.com/char2cs/crowbar/api/internal/app/usecases/workspace"
 	"github.com/char2cs/crowbar/api/internal/domain"
 	gitdomain "github.com/char2cs/crowbar/api/internal/domain/git"
 )
@@ -30,41 +31,47 @@ type WorkspaceDTO struct {
 	PRTargetBranch  string                  `json:"prTargetBranch,omitempty"`
 }
 
-// WorkspaceDTOFrom converts a domain Workspace into its wire DTO. The merge
-// eligibility overlay (CanMergeLocally/ParentBranch) requires the workspace's
-// sibling set and is populated by the eligibility-aware callers wired in W8;
-// here it maps to its zero value.
+// WorkspaceDTOFrom converts a domain Workspace into its wire DTO, populating the
+// merge-eligibility overlay (CanMergeLocally/ParentBranch) from the resolved
+// eligibility the caller computed via MergeEligibilityFor over the repo-scoped
+// sibling set. Resolving eligibility outside the converter keeps the sibling
+// read off the broadcast hot path (spec §10).
 func WorkspaceDTOFrom(
 	w domain.Workspace,
+	elig workspace.MergeEligibility,
 ) WorkspaceDTO {
 	return WorkspaceDTO{
-		ID:             w.ID,
-		RepoID:         w.RepoID,
-		ProjectID:      w.ProjectID,
-		Branch:         w.Branch,
-		ParentID:       w.ParentID,
-		ForkPointSha:   w.ForkPointSha,
-		Status:         w.Status,
-		Working:        w.Working,
-		LastError:      w.LastError,
-		Added:          w.Added,
-		Deleted:        w.Deleted,
-		MergeStrategy:  w.MergeStrategy,
-		PRUrl:          w.PRUrl,
-		PRTitle:        w.PRTitle,
-		PRTargetBranch: w.PRTargetBranch,
+		ID:              w.ID,
+		RepoID:          w.RepoID,
+		ProjectID:       w.ProjectID,
+		Branch:          w.Branch,
+		ParentID:        w.ParentID,
+		ForkPointSha:    w.ForkPointSha,
+		Status:          w.Status,
+		Working:         w.Working,
+		LastError:       w.LastError,
+		Added:           w.Added,
+		Deleted:         w.Deleted,
+		MergeStrategy:   w.MergeStrategy,
+		CanMergeLocally: elig.CanMergeLocally,
+		ParentBranch:    elig.ParentBranch,
+		PRUrl:           w.PRUrl,
+		PRTitle:         w.PRTitle,
+		PRTargetBranch:  w.PRTargetBranch,
 	}
 }
 
 // WorkspaceDTOList converts a slice of domain Workspaces into wire DTOs,
-// returning a non-nil empty slice when the input is empty so the envelope
-// carries [].
+// resolving each row's merge eligibility through eligFn (typically a closure
+// over MergeEligibilityFor bound to the same sibling slice). It returns a
+// non-nil empty slice when the input is empty so the envelope carries [].
 func WorkspaceDTOList(
 	workspaces []domain.Workspace,
+	eligFn func(domain.Workspace) workspace.MergeEligibility,
 ) []WorkspaceDTO {
 	dtos := make([]WorkspaceDTO, 0, len(workspaces))
 	for _, w := range workspaces {
-		dtos = append(dtos, WorkspaceDTOFrom(w))
+		dtos = append(dtos, WorkspaceDTOFrom(w, eligFn(w)))
 	}
 	return dtos
 }

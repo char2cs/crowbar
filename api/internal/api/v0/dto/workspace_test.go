@@ -8,9 +8,16 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/char2cs/crowbar/api/internal/api/v0/dto"
+	"github.com/char2cs/crowbar/api/internal/app/usecases/workspace"
 	"github.com/char2cs/crowbar/api/internal/domain"
 	gitdomain "github.com/char2cs/crowbar/api/internal/domain/git"
 )
+
+func noElig(
+	_ domain.Workspace,
+) workspace.MergeEligibility {
+	return workspace.MergeEligibility{}
+}
 
 func TestWorkspaceDTOFrom(
 	t *testing.T,
@@ -32,7 +39,7 @@ func TestWorkspaceDTOFrom(
 		PRTargetBranch: "main",
 		Working:        true,
 		LastError:      "boom",
-	})
+	}, workspace.MergeEligibility{})
 	assert.Equal(t, "w1", got.ID)
 	assert.Equal(t, "r1", got.RepoID)
 	assert.Equal(t, "p1", got.ProjectID)
@@ -48,10 +55,23 @@ func TestWorkspaceDTOFrom(
 	assert.Equal(t, "main", got.PRTargetBranch)
 	assert.True(t, got.Working)
 	assert.Equal(t, "boom", got.LastError)
-	// Eligibility is populated by the caller (W8); the lone-workspace
-	// converter maps them to their zero values.
+	// Eligibility is supplied by the caller; an empty overlay maps to zero
+	// values.
 	assert.False(t, got.CanMergeLocally)
 	assert.Equal(t, "", got.ParentBranch)
+}
+
+// TestWorkspaceDTOFrom_MapsEligibility pins that the resolved merge-eligibility
+// overlay the caller computes is mapped onto the wire DTO (spec §10).
+func TestWorkspaceDTOFrom_MapsEligibility(
+	t *testing.T,
+) {
+	got := dto.WorkspaceDTOFrom(domain.Workspace{ID: "w1", ParentID: "w0"}, workspace.MergeEligibility{
+		CanMergeLocally: true,
+		ParentBranch:    "main",
+	})
+	assert.True(t, got.CanMergeLocally)
+	assert.Equal(t, "main", got.ParentBranch)
 }
 
 // TestWorkspaceDTO_WireFields pins the final wire contract: the field set and
@@ -65,7 +85,7 @@ func TestWorkspaceDTO_WireFields(
 		ID:        "w1",
 		Working:   true,
 		LastError: "oops",
-	}))
+	}, workspace.MergeEligibility{}))
 	require.NoError(t, err)
 
 	var decoded map[string]any
@@ -97,7 +117,7 @@ func TestWorkspaceDTO_WireFields(
 func TestWorkspaceDTO_ParentBranchOmitEmpty(
 	t *testing.T,
 ) {
-	dtoVal := dto.WorkspaceDTOFrom(domain.Workspace{ID: "w1"})
+	dtoVal := dto.WorkspaceDTOFrom(domain.Workspace{ID: "w1"}, workspace.MergeEligibility{})
 	dtoVal.CanMergeLocally = true
 	dtoVal.ParentBranch = "main"
 
@@ -113,7 +133,7 @@ func TestWorkspaceDTO_ParentBranchOmitEmpty(
 func TestWorkspaceDTOListEmptyNonNil(
 	t *testing.T,
 ) {
-	got := dto.WorkspaceDTOList(nil)
+	got := dto.WorkspaceDTOList(nil, noElig)
 	require.NotNil(t, got)
 	assert.Len(t, got, 0)
 }
@@ -124,8 +144,30 @@ func TestWorkspaceDTOList(
 	got := dto.WorkspaceDTOList([]domain.Workspace{
 		{ID: "w1"},
 		{ID: "w2"},
-	})
+	}, noElig)
 	require.Len(t, got, 2)
 	assert.Equal(t, "w1", got[0].ID)
 	assert.Equal(t, "w2", got[1].ID)
+}
+
+// TestWorkspaceDTOList_AppliesEligFn pins that the per-row eligibility resolver
+// is invoked and its result mapped onto each DTO (spec §10).
+func TestWorkspaceDTOList_AppliesEligFn(
+	t *testing.T,
+) {
+	eligFn := func(w domain.Workspace) workspace.MergeEligibility {
+		if w.ID == "w1" {
+			return workspace.MergeEligibility{CanMergeLocally: true, ParentBranch: "main"}
+		}
+		return workspace.MergeEligibility{}
+	}
+	got := dto.WorkspaceDTOList([]domain.Workspace{
+		{ID: "w1"},
+		{ID: "w2"},
+	}, eligFn)
+	require.Len(t, got, 2)
+	assert.True(t, got[0].CanMergeLocally)
+	assert.Equal(t, "main", got[0].ParentBranch)
+	assert.False(t, got[1].CanMergeLocally)
+	assert.Equal(t, "", got[1].ParentBranch)
 }

@@ -2,29 +2,82 @@ package v0
 
 import (
 	"context"
+	"strings"
 
+	"github.com/char2cs/crowbar/api/internal/api/v0/dto"
 	"github.com/char2cs/crowbar/api/internal/app"
+	"github.com/char2cs/crowbar/api/internal/app/usecases/workspace"
 	"github.com/char2cs/crowbar/api/internal/domain"
 	gitdomain "github.com/char2cs/crowbar/api/internal/domain/git"
 	lspdomain "github.com/char2cs/crowbar/api/internal/domain/lsp"
 	"github.com/char2cs/crowbar/api/internal/engine"
 )
 
-// workspacesSnapshot builds the Workspaces snapshot-on-subscribe source (03 §1a):
-// every workspace row, with the derived working overlay always false now the
-// agent-run concept is removed, alongside the persisted hasConflicts. Each
-// client's projectId/repoId predicate filters the snapshot down to its
-// subscription scope.
+// workspacesSnapshot builds the Workspaces snapshot-on-subscribe source (03 §1a)
+// as wire DTOs, scoped to the repo parsed from the connecting client's
+// subscription prefix ("p/r/..."). Each row carries the merge-eligibility
+// overlay (CanMergeLocally/ParentBranch) computed from its repo siblings via the
+// §10 rule. The derived working overlay is always false now the agent-run
+// concept is removed.
 func workspacesSnapshot(
 	appContainer *app.Container,
-) func(scope string) []domain.Workspace {
-	return func(_ string) []domain.Workspace {
+) func(scope string) []dto.WorkspaceDTO {
+	return func(scope string) []dto.WorkspaceDTO {
+		projectID, repoID := parseRepoScope(scope)
 		rows, err := appContainer.Repositories.Workspace.List(context.Background())
 		if err != nil {
 			return nil
 		}
+		siblings := scopeWorkspacesToRepo(rows, projectID, repoID)
+		eligFn := func(w domain.Workspace) workspace.MergeEligibility {
+			return appContainer.Usecases.Workspace.MergeEligibilityFor(w, siblings)
+		}
+		return dto.WorkspaceDTOList(siblings, eligFn)
+	}
+}
+
+// parseRepoScope splits a hierarchical subscription prefix ("p", "p/r", or
+// "p/r/w") into its projectID and repoID. A scope with fewer segments yields
+// empty components, which scopeWorkspacesToRepo treats as "match all" so a
+// project-level or global subscription still snapshots its subtree.
+func parseRepoScope(
+	scope string,
+) (string, string) {
+	if scope == "" {
+		return "", ""
+	}
+	segs := strings.Split(scope, "/")
+	projectID := segs[0]
+	repoID := ""
+	if len(segs) > 1 {
+		repoID = segs[1]
+	}
+	return projectID, repoID
+}
+
+// scopeWorkspacesToRepo filters rows to those matching the given projectID and
+// repoID. An empty component matches every value at that level, so a
+// project-level scope keeps all of a project's repos and an empty scope keeps
+// every row.
+func scopeWorkspacesToRepo(
+	rows []domain.Workspace,
+	projectID string,
+	repoID string,
+) []domain.Workspace {
+	if projectID == "" && repoID == "" {
 		return rows
 	}
+	out := make([]domain.Workspace, 0, len(rows))
+	for _, w := range rows {
+		if projectID != "" && w.ProjectID != projectID {
+			continue
+		}
+		if repoID != "" && w.RepoID != repoID {
+			continue
+		}
+		out = append(out, w)
+	}
+	return out
 }
 
 // gitSnapshot builds the Git snapshot-on-subscribe source (03 §1a): the current

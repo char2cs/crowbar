@@ -17,6 +17,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	v0 "github.com/char2cs/crowbar/api/internal/api/v0"
+	"github.com/char2cs/crowbar/api/internal/api/v0/dto"
 	"github.com/char2cs/crowbar/api/internal/app/repositories/workspace"
 	"github.com/char2cs/crowbar/api/internal/domain"
 	gitdomain "github.com/char2cs/crowbar/api/internal/domain/git"
@@ -107,8 +108,12 @@ type fileProbe struct {
 	ch chan domain.FileChangeEvent
 }
 
-func (fileProbe) PushWorkspace(_ domain.Workspace)        {}
-func (fileProbe) PushGit(_ string, _ gitdomain.GitStatus) {}
+func (fileProbe) PushProject(_ dto.ProjectDTO)                 {}
+func (fileProbe) PushRepo(_ dto.RepoDTO)                       {}
+func (fileProbe) PushWorkspace(_ dto.WorkspaceDTO)             {}
+func (fileProbe) PushThread(_ dto.ThreadDTO)                   {}
+func (fileProbe) PushTerminalSession(_ dto.TerminalSessionDTO) {}
+func (fileProbe) PushGit(_ string, _ gitdomain.GitStatus)      {}
 
 func (p fileProbe) PushFile(
 	e domain.FileChangeEvent,

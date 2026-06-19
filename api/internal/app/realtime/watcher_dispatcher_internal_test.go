@@ -8,6 +8,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/char2cs/crowbar/api/internal/api/v0/dto"
 	"github.com/char2cs/crowbar/api/internal/app/hub"
 	workspacerepo "github.com/char2cs/crowbar/api/internal/app/repositories/workspace"
 	"github.com/char2cs/crowbar/api/internal/domain"
@@ -32,8 +33,12 @@ func newCapturingSubscriber() *capturingSubscriber {
 	}
 }
 
-func (s *capturingSubscriber) PushWorkspace(_ domain.Workspace)  {}
-func (s *capturingSubscriber) PushFile(e domain.FileChangeEvent) { s.files <- e }
+func (s *capturingSubscriber) PushProject(_ dto.ProjectDTO)                 {}
+func (s *capturingSubscriber) PushRepo(_ dto.RepoDTO)                       {}
+func (s *capturingSubscriber) PushWorkspace(_ dto.WorkspaceDTO)             {}
+func (s *capturingSubscriber) PushThread(_ dto.ThreadDTO)                   {}
+func (s *capturingSubscriber) PushTerminalSession(_ dto.TerminalSessionDTO) {}
+func (s *capturingSubscriber) PushFile(e domain.FileChangeEvent)            { s.files <- e }
 
 func (s *capturingSubscriber) PushGit(
 	wsID string,

@@ -1,6 +1,8 @@
 package dto
 
 import (
+	"time"
+
 	"github.com/char2cs/crowbar/api/internal/domain"
 )
 
@@ -18,10 +20,19 @@ type TerminalProfileDTO struct {
 	Color            string   `json:"color,omitempty"`
 }
 
-// TerminalSessionDTO is the wire shape of a created PTY session: the id the
-// frontend reads to open the terminal WebSocket.
+// TerminalSessionDTO is the wire shape of a PTY session's lifecycle (00 §5.6):
+// the hierarchical entity ids, the launch profile, the active/ended status, and
+// the creation/termination timestamps. It is the Broadcaster[TerminalSessionDTO]
+// payload; the raw PTY byte stream is a separate, non-broadcast WebSocket.
 type TerminalSessionDTO struct {
-	SessionID string `json:"sessionId"`
+	ID          string     `json:"id"`
+	ProjectID   string     `json:"projectId"`
+	RepoID      string     `json:"repoId"`
+	WorkspaceID string     `json:"workspaceId"`
+	ProfileID   string     `json:"profileId,omitempty"`
+	Status      string     `json:"status"`
+	CreatedAt   time.Time  `json:"createdAt"`
+	EndedAt     *time.Time `json:"endedAt,omitempty"`
 }
 
 // TerminalProfileDTOFrom converts a domain TerminalProfile into its wire DTO,

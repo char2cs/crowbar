@@ -21,5 +21,5 @@ func (h *Handlers) Sync(
 		libs.WriteErr(c, status, msg)
 		return
 	}
-	libs.WriteQueryOK(c, dto.WorkspaceDTOFrom(ws))
+	libs.WriteQueryOK(c, dto.WorkspaceDTOFrom(ws, noEligibility(ws)))
 }

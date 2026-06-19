@@ -16,6 +16,7 @@ import (
 
 	"github.com/char2cs/crowbar/api/internal/adapter"
 	v0 "github.com/char2cs/crowbar/api/internal/api/v0"
+	"github.com/char2cs/crowbar/api/internal/api/v0/dto"
 	"github.com/char2cs/crowbar/api/internal/app"
 	"github.com/char2cs/crowbar/api/internal/domain"
 	gitdomain "github.com/char2cs/crowbar/api/internal/domain/git"
@@ -41,8 +42,8 @@ func newApp(t *testing.T) testContainers {
 	return testContainers{app: a, eng: eng}
 }
 
-func workspaceFixture() domain.Workspace {
-	return domain.Workspace{ID: "w1", RepoID: "r1", ProjectID: "p1"}
+func workspaceFixture() dto.WorkspaceDTO {
+	return dto.WorkspaceDTO{ID: "w1", RepoID: "r1", ProjectID: "p1"}
 }
 
 func TestV0_HubBroadcastReachesWSClient(t *testing.T) {
@@ -111,7 +112,9 @@ func TestV0_WorkspacesFilter_RepoId(t *testing.T) {
 	srv := httptest.NewServer(r)
 	t.Cleanup(srv.Close)
 
-	url := "ws" + srv.URL[len("http"):] + "/v0/ws/workspaces?repoId=r1"
+	// Prefix scoping is hierarchical: a repo-scoped subscription supplies both
+	// projectId and repoId (the standalone repoId query is no longer a scope key).
+	url := "ws" + srv.URL[len("http"):] + "/v0/ws/workspaces?projectId=p1&repoId=r1"
 	conn, resp, err := websocket.DefaultDialer.Dial(url, nil)
 	if resp != nil {
 		_ = resp.Body.Close()

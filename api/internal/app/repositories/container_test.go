@@ -14,6 +14,7 @@ import (
 
 	"github.com/char2cs/crowbar/api/internal/adapter"
 	eventsqlite "github.com/char2cs/crowbar/api/internal/adapter/eventstore/sqlite"
+	"github.com/char2cs/crowbar/api/internal/api/v0/dto"
 	"github.com/char2cs/crowbar/api/internal/app/hub"
 	"github.com/char2cs/crowbar/api/internal/app/repositories"
 	"github.com/char2cs/crowbar/api/internal/app/repositories/workspace"
@@ -57,11 +58,11 @@ func wsFactory(
 type captureHub struct {
 	hub.WebSocketHub
 	mu         sync.Mutex
-	workspaces []domain.Workspace
+	workspaces []dto.WorkspaceDTO
 }
 
 func (h *captureHub) BroadcastWorkspace(
-	ws domain.Workspace,
+	ws dto.WorkspaceDTO,
 ) {
 	h.mu.Lock()
 	defer h.mu.Unlock()
@@ -85,6 +86,19 @@ func (h *captureHub) lastWorking(
 		}
 	}
 	return false, false
+}
+
+func (h *captureHub) last(
+	wsID string,
+) (dto.WorkspaceDTO, bool) {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	for i := len(h.workspaces) - 1; i >= 0; i-- {
+		if h.workspaces[i].ID == wsID {
+			return h.workspaces[i], true
+		}
+	}
+	return dto.WorkspaceDTO{}, false
 }
 
 func newContainer(
@@ -183,6 +197,40 @@ func TestContainer_ListWorkspaces_NoWorkingOverlay(t *testing.T) {
 	require.NoError(t, err)
 	require.Len(t, rows, 1)
 	assert.False(t, rows[0].Working)
+}
+
+// TestBroadcastWorkspace_ResolvesMergeEligibility pins that the broadcast DTO
+// carries the merge-eligibility overlay resolved from the row's repo siblings
+// (spec §10): a child whose parent is a same-repo non-locked sibling is eligible
+// with the parent's branch, while the parent itself is not eligible.
+func TestBroadcastWorkspace_ResolvesMergeEligibility(t *testing.T) {
+	ctx := context.Background()
+	h := &captureHub{}
+	c := newContainer(t, h)
+
+	_, err := c.Workspace.Create(ctx, workspace.CreateInput{
+		ID: "parent", RepoID: "r1", ProjectID: "p1", Branch: "main",
+	}, time.Unix(1, 0).UTC())
+	require.NoError(t, err)
+	_, err = c.Workspace.Create(ctx, workspace.CreateInput{
+		ID: "child", RepoID: "r1", ProjectID: "p1", Branch: "feat", ParentID: "parent",
+	}, time.Unix(2, 0).UTC())
+	require.NoError(t, err)
+
+	require.Eventually(t, func() bool {
+		d, ok := h.last("child")
+		return ok && d.CanMergeLocally
+	}, time.Second, 5*time.Millisecond)
+
+	child, ok := h.last("child")
+	require.True(t, ok)
+	assert.True(t, child.CanMergeLocally)
+	assert.Equal(t, "main", child.ParentBranch)
+
+	parent, ok := h.last("parent")
+	require.True(t, ok)
+	assert.False(t, parent.CanMergeLocally)
+	assert.Equal(t, "", parent.ParentBranch)
 }
 
 type listErrWorkspaceRepo struct {
