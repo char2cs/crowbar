@@ -1,3 +1,4 @@
+EDITOR_RERUN_MARKER_88
 # Crowbar
 
 Crowbar is a self-improving agentic development platform. It orchestrates AI agents through structured development workflows, learns from human feedback over time, and progressively reduces the need for human review by encoding a developer's — or a team's — taste, philosophy, and patterns into every future agent run.
@@ -107,3 +108,4 @@ Crowbar is distributed through [Quiver](https://github.com/rabbytesoftware/quive
 ## Naming
 
 Crowbar follows the Valve-universe naming schema established across the rabbytesoftware ecosystem. The crowbar is Gordon Freeman's iconic tool — simple, brutally effective, works in any environment, and is the first thing you reach for. That's the right metaphor for a development tool.
+CROWBAR_RERUN_MARKER_77
