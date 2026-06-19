@@ -84,9 +84,11 @@ func TestWave3_WorkspaceCommand_ReachesWSClient(t *testing.T) {
 	// A freshly created workspace carries the "new" status badge.
 	assert.Equal(t, "new", created["status"])
 
-	// Command 2: SyncWorkingTreeState — a git working-tree summary mutation. With
-	// HasCommits=true the "new" badge clears and the added count is recorded; this
-	// proves a git-summary mutation propagates the UPDATED row over WS.
+	// Command 2: SyncWorkingTreeState — a git working-tree summary mutation. The
+	// added/deleted counts are recorded; this proves a git-summary mutation
+	// propagates the UPDATED row over WS. Per D4 the status STAYS "new" after
+	// HasCommits (commits no longer clear the badge — "new" is a first-class
+	// lifecycle status, not a transient "no commits yet" hint).
 	_, err = tc.app.Repositories.Workspace.SyncWorkingTreeState(
 		ctx,
 		workspace.SyncInput{ID: "w1", Added: 7, Deleted: 2, HasCommits: true},
@@ -101,7 +103,6 @@ func TestWave3_WorkspaceCommand_ReachesWSClient(t *testing.T) {
 	assert.Equal(t, "w1", updated["id"])
 	assert.Equal(t, float64(7), updated["added"])
 	assert.Equal(t, float64(2), updated["deleted"])
-	// Status badge "new" cleared (omitempty -> absent) once the branch has commits.
-	_, hasStatus := updated["status"]
-	assert.False(t, hasStatus, "status badge should clear after HasCommits")
+	// Status badge stays "new" after HasCommits (D4): commits do not clear it.
+	assert.Equal(t, "new", updated["status"], "status must stay new after HasCommits (D4)")
 }

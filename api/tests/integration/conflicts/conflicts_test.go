@@ -3,9 +3,9 @@
 package conflicts_test
 
 import (
-	"fmt"
 	"net/http"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/suite"
 
@@ -20,39 +20,36 @@ func TestMain(
 }
 
 // ConflictsSuite tests conflict detection, hunk parsing, and merge-abort flows
-// against a real multi-worktree git repository.
+// against a real multi-worktree git repository. A local merge conflict now
+// transitions the child workspace to Status=pr-conflicts (00 §6.1) — there is no
+// PendingMerge struct anymore (spec §5) — and merge-into-parent is 202+WS.
 type ConflictsSuite struct {
 	kit.IntegrationSuite
-	repoPath   string
-	baseBranch string
+	imported   kit.ImportedRepo
 	parentID   string
+	parentPath string
 }
 
-// SetupTest initialises a fresh environment, repo, and parent workspace for each test case.
+// SetupTest imports a repo and creates an UNLOCKED parent workspace (a child of
+// the locked adopted main) for each test case. Merging into a locked parent is
+// rejected by the guard, so the parent must be an unlocked feature branch.
 func (s *ConflictsSuite) SetupTest() {
 	s.IntegrationSuite.SetupTest()
+	s.imported = s.Env.ImportRepo(s.T(), "conflicts", "")
+	s.parentID = s.Env.CreateWorkspace(s.T(), s.imported.ProjectID, s.imported.RepoID, "feature/conflicts-base")
+	s.parentPath = s.Env.WorktreePath(s.imported.ProjectID, s.imported.RepoID, s.parentID)
+}
 
-	s.repoPath = kit.InitRepo(s.T())
-	kit.GitRun(s.T(), s.repoPath, "branch", "-m", "main", "feature/conflicts-base")
-	s.baseBranch = kit.BranchName(s.T(), s.repoPath)
+// wsBase returns the workspace-scoped route prefix for the given workspace id.
+func (s *ConflictsSuite) wsBase(wsID string) string {
+	return "/v0/projects/" + s.imported.ProjectID +
+		"/repos/" + s.imported.RepoID +
+		"/workspaces/" + wsID
+}
 
-	// Register the repo via HTTP.
-	resp := s.Env.POST(s.T(), "/v0/repos", map[string]string{
-		"id":        "r1",
-		"projectId": "p1",
-		"name":      "repo",
-		"path":      s.repoPath,
-	})
-	kit.RequireStatus(s.T(), resp, 201)
-	resp.Body.Close()
-
-	// Register the parent workspace via HTTP.
-	resp = s.Env.POST(s.T(), "/v0/workspaces", map[string]string{
-		"repoId": "r1",
-		"branch": s.baseBranch,
-	})
-	kit.RequireStatus(s.T(), resp, 201)
-	s.parentID = kit.MutationID(s.T(), resp)
+// repoBase returns the repo-scoped route prefix.
+func (s *ConflictsSuite) repoBase() string {
+	return "/v0/projects/" + s.imported.ProjectID + "/repos/" + s.imported.RepoID
 }
 
 // TestConflictsSuite runs the conflict resolution integration suite.
@@ -63,36 +60,29 @@ func TestConflictsSuite(t *testing.T) {
 	)
 }
 
-// conflictSetup commits a base file, creates a child workspace, then commits
-// diverging edits on both child and parent to produce a merge conflict.
-// Returns the child workspace ID and its worktree path.
-func (s *ConflictsSuite) conflictSetup() (childID string, childWorktreePath string) {
+// conflictSetup commits a base file on the parent (adopted-main) worktree,
+// creates a child workspace, then commits diverging edits on both child and
+// parent to produce a merge conflict. Returns the child workspace ID.
+func (s *ConflictsSuite) conflictSetup() (childID string) {
 	s.T().Helper()
 
-	// Commit the base version of shared.txt on the parent branch.
+	// Commit the base version of shared.txt on the (unlocked) parent worktree.
 	kit.CommitFile(
 		s.T(),
-		s.repoPath,
+		s.parentPath,
 		"shared.txt",
 		"base line\n",
 		"base",
 	)
 
-	// Create a child workspace via HTTP.
-	resp := s.Env.POST(s.T(), "/v0/workspaces", map[string]string{
-		"repoId":   "r1",
-		"branch":   "feature/conflict",
-		"parentId": s.parentID,
-	})
-	kit.RequireStatus(s.T(), resp, 201)
-	childID = kit.MutationID(s.T(), resp)
-
-	// GET the child workspace to retrieve the worktree path.
-	getResp := s.Env.GET(s.T(), "/v0/workspaces/"+childID)
-	kit.RequireStatus(s.T(), getResp, http.StatusOK)
-	var childWs map[string]any
-	kit.DecodeEnvData(s.T(), getResp, &childWs)
-	childWorktreePath = childWs["worktreePath"].(string)
+	childID = s.Env.CreateChildWorkspace(
+		s.T(),
+		s.imported.ProjectID,
+		s.imported.RepoID,
+		"feature/conflict",
+		s.parentID,
+	)
+	childWorktreePath := s.Env.WorktreePath(s.imported.ProjectID, s.imported.RepoID, childID)
 
 	// Commit a diverging edit on the child branch.
 	kit.CommitFile(
@@ -102,72 +92,55 @@ func (s *ConflictsSuite) conflictSetup() (childID string, childWorktreePath stri
 		"child version\n",
 		"child edit",
 	)
-
 	// Commit a diverging edit on the parent branch.
 	kit.CommitFile(
 		s.T(),
-		s.repoPath,
+		s.parentPath,
 		"shared.txt",
 		"parent version\n",
 		"parent edit",
 	)
-
-	return childID, childWorktreePath
+	return childID
 }
 
-// TestConflicts_mergeDetectsConflict verifies that a conflicting merge sets PendingMerge.
-func (s *ConflictsSuite) TestConflicts_mergeDetectsConflict() {
-	childID, _ := s.conflictSetup()
-
-	// Merge child into parent via HTTP.
-	resp := s.Env.POST(s.T(), fmt.Sprintf("/v0/workspaces/%s/merge-into-parent", childID), map[string]string{
+// mergeConflict triggers a conflicting child→parent merge (202) and blocks on
+// the child WorkspaceDTO reaching Status=pr-conflicts over WS.
+func (s *ConflictsSuite) mergeConflict(childID string) {
+	s.T().Helper()
+	watcher := s.Env.DialWorkspace(s.T(), s.imported.ProjectID, s.imported.RepoID, childID)
+	resp := s.Env.POST(s.T(), s.wsBase(childID)+"/merge-into-parent", map[string]string{
 		"strategy": "merge",
 	})
-	kit.RequireStatus(s.T(), resp, 200)
+	kit.RequireStatus(s.T(), resp, http.StatusAccepted)
+	resp.Body.Close()
+	kit.WaitForWorkspaceState(s.T(), watcher, childID, "pr-conflicts", 5*time.Second)
+}
 
-	var mergeResult map[string]any
-	kit.DecodeEnvData(s.T(), resp, &mergeResult)
+// TestConflicts_mergeDetectsConflict verifies a conflicting merge transitions
+// the child to Status=pr-conflicts (broadcast over WS).
+func (s *ConflictsSuite) TestConflicts_mergeDetectsConflict() {
+	childID := s.conflictSetup()
+	s.mergeConflict(childID)
 
-	s.Assert().Equal(true, mergeResult["conflictsPending"], "merge must report conflicts pending")
-	s.Assert().Empty(mergeResult["parentTipSha"], "parent tip SHA must be empty on conflict")
-
-	// Reload the child workspace and verify PendingMerge is set.
-	getResp := s.Env.GET(s.T(), fmt.Sprintf("/v0/workspaces/%s", childID))
-	kit.RequireStatus(s.T(), getResp, 200)
-
+	getResp := s.Env.GET(s.T(), s.wsBase(childID))
+	kit.RequireStatus(s.T(), getResp, http.StatusOK)
 	var reloaded map[string]any
 	kit.DecodeEnvData(s.T(), getResp, &reloaded)
-
-	s.Require().NotNil(reloaded["pendingMerge"], "child workspace must have pendingMerge set after conflict")
-
-	pendingMerge, ok := reloaded["pendingMerge"].(map[string]any)
-	s.Require().True(ok, "pendingMerge must be a JSON object")
-	s.Assert().Equal("merge", pendingMerge["strategy"])
-	s.Assert().Equal(s.parentID, pendingMerge["targetParentId"])
+	s.Assert().Equal("pr-conflicts", reloaded["status"],
+		"child workspace must be pr-conflicts after a conflicting merge")
 }
 
 // TestConflicts_conflictedFilesListsFile verifies the conflicted-files endpoint
 // returns the shared file that triggered the merge conflict.
 func (s *ConflictsSuite) TestConflicts_conflictedFilesListsFile() {
-	childID, _ := s.conflictSetup()
+	childID := s.conflictSetup()
+	s.mergeConflict(childID)
 
-	// Trigger a conflicting merge.
-	resp := s.Env.POST(s.T(), fmt.Sprintf("/v0/workspaces/%s/merge-into-parent", childID), map[string]string{
-		"strategy": "merge",
-	})
-	kit.RequireStatus(s.T(), resp, 200)
-
-	var mergeResult map[string]any
-	kit.DecodeEnvData(s.T(), resp, &mergeResult)
-	s.Require().Equal(true, mergeResult["conflictsPending"])
-
-	// GET the conflicted files on the parent workspace.
-	conflictsResp := s.Env.GET(s.T(), fmt.Sprintf("/v0/workspaces/%s/git/conflicts", s.parentID))
-	kit.RequireStatus(s.T(), conflictsResp, 200)
+	conflictsResp := s.Env.GET(s.T(), s.wsBase(s.parentID)+"/git/conflicts")
+	kit.RequireStatus(s.T(), conflictsResp, http.StatusOK)
 
 	var files []string
 	kit.DecodeEnvData(s.T(), conflictsResp, &files)
-
 	s.Require().NotEmpty(files)
 	s.Assert().Contains(files, "shared.txt")
 }
@@ -175,69 +148,41 @@ func (s *ConflictsSuite) TestConflicts_conflictedFilesListsFile() {
 // TestConflicts_conflictHunksParsesThreeWayView verifies conflict hunk parsing
 // returns ours/theirs sections for the conflicted file.
 func (s *ConflictsSuite) TestConflicts_conflictHunksParsesThreeWayView() {
-	childID, _ := s.conflictSetup()
+	childID := s.conflictSetup()
+	s.mergeConflict(childID)
 
-	// Trigger a conflicting merge.
-	resp := s.Env.POST(s.T(), fmt.Sprintf("/v0/workspaces/%s/merge-into-parent", childID), map[string]string{
-		"strategy": "merge",
-	})
-	kit.RequireStatus(s.T(), resp, 200)
-
-	var mergeResult map[string]any
-	kit.DecodeEnvData(s.T(), resp, &mergeResult)
-	s.Require().Equal(true, mergeResult["conflictsPending"])
-
-	// GET conflict hunks for shared.txt on the parent workspace.
-	hunksResp := s.Env.GET(s.T(), fmt.Sprintf("/v0/workspaces/%s/git/conflict-hunks?path=shared.txt", s.parentID))
-	kit.RequireStatus(s.T(), hunksResp, 200)
+	hunksResp := s.Env.GET(s.T(), s.wsBase(s.parentID)+"/git/conflict-hunks?path=shared.txt")
+	kit.RequireStatus(s.T(), hunksResp, http.StatusOK)
 
 	var hunks []map[string]any
 	kit.DecodeEnvData(s.T(), hunksResp, &hunks)
-
 	s.Require().NotEmpty(hunks)
 	s.Assert().NotEmpty(hunks[0]["ours"])
 	s.Assert().NotEmpty(hunks[0]["theirs"])
 }
 
 // TestConflicts_operationAbortRestoresCleanParent verifies git merge --abort
-// restores the parent tree to pre-merge state.
+// restores the parent tree to pre-merge state and does not auto-clear the
+// child's pr-conflicts status.
 func (s *ConflictsSuite) TestConflicts_operationAbortRestoresCleanParent() {
-	childID, _ := s.conflictSetup()
+	childID := s.conflictSetup()
+	s.mergeConflict(childID)
 
-	// Trigger a conflicting merge.
-	resp := s.Env.POST(s.T(), fmt.Sprintf("/v0/workspaces/%s/merge-into-parent", childID), map[string]string{
-		"strategy": "merge",
-	})
-	kit.RequireStatus(s.T(), resp, 200)
+	abortResp := s.Env.POST(s.T(), s.wsBase(s.parentID)+"/git/operation/abort", nil)
+	kit.RequireStatus(s.T(), abortResp, http.StatusOK)
+	abortResp.Body.Close()
 
-	var mergeResult map[string]any
-	kit.DecodeEnvData(s.T(), resp, &mergeResult)
-	s.Require().Equal(true, mergeResult["conflictsPending"])
-
-	// Abort the merge on the parent workspace.
-	abortResp := s.Env.POST(s.T(), fmt.Sprintf("/v0/workspaces/%s/git/operation/abort", s.parentID), nil)
-	kit.RequireStatus(s.T(), abortResp, 200)
-
-	// Verify the parent working tree is clean after abort.
-	statusResp := s.Env.GET(s.T(), fmt.Sprintf("/v0/workspaces/%s/git/status", s.parentID))
-	kit.RequireStatus(s.T(), statusResp, 200)
-
+	statusResp := s.Env.GET(s.T(), s.wsBase(s.parentID)+"/git/status")
+	kit.RequireStatus(s.T(), statusResp, http.StatusOK)
 	var status map[string]any
 	kit.DecodeEnvData(s.T(), statusResp, &status)
-
 	files, _ := status["files"].([]any)
 	s.Assert().Empty(files, "parent must be clean after merge abort")
 
-	// Reload the child workspace and verify PendingMerge is still set
-	// (abort must not auto-clear the pending merge marker on the child).
-	childResp := s.Env.GET(s.T(), fmt.Sprintf("/v0/workspaces/%s", childID))
-	kit.RequireStatus(s.T(), childResp, 200)
-
+	childResp := s.Env.GET(s.T(), s.wsBase(childID))
+	kit.RequireStatus(s.T(), childResp, http.StatusOK)
 	var childWs map[string]any
 	kit.DecodeEnvData(s.T(), childResp, &childWs)
-
-	s.Require().NotNil(
-		childWs["pendingMerge"],
-		"abort must not auto-clear pending merge on the child workspace",
-	)
+	s.Assert().Equal("pr-conflicts", childWs["status"],
+		"abort must not auto-clear the child's pr-conflicts status")
 }

@@ -141,6 +141,46 @@ func (w *WSWatcher) AssertNoMessage(
 	return false
 }
 
+// AssertNoMatch drains messages until timeout and fails the test if any message
+// satisfies match. Non-matching messages (legitimate in-prefix frames) are
+// ignored. A clean timeout is the success condition. This is the negative
+// prefix-filtering idiom: assert an out-of-prefix frame NEVER arrives while
+// tolerating the subscriber's own in-prefix traffic. Returns true on success.
+func (w *WSWatcher) AssertNoMatch(
+	t *testing.T,
+	timeout time.Duration,
+	match func(msg map[string]any) bool,
+) bool {
+	t.Helper()
+	deadline := time.Now().Add(timeout)
+	require.NoError(
+		t,
+		w.conn.SetReadDeadline(deadline),
+		"ws: SetReadDeadline",
+	)
+	for {
+		_, raw, err := w.conn.ReadMessage()
+		if err != nil {
+			var netErr net.Error
+			if errors.As(err, &netErr) && netErr.Timeout() {
+				return true
+			}
+			require.NoError(
+				t,
+				err,
+				"ws: AssertNoMatch: unexpected connection error",
+			)
+			return false
+		}
+		var msg map[string]any
+		require.NoError(t, json.Unmarshal(raw, &msg))
+		if match(msg) {
+			t.Fatalf("ws: AssertNoMatch: forbidden message arrived: %v", msg)
+			return false
+		}
+	}
+}
+
 // ReadRawMsg reads one raw WebSocket frame (binary or text) within timeout.
 // Use this for non-JSON protocols such as terminal PTY streams.
 func (w *WSWatcher) ReadRawMsg(

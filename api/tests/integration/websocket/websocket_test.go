@@ -16,7 +16,8 @@ func TestMain(m *testing.M) {
 	kit.Main(m)
 }
 
-// WebSocketSuite exercises all WebSocket broadcast topics end-to-end.
+// WebSocketSuite exercises the hierarchical WebSocket prefix-filtering and the
+// directly-injected (PushGit/PushFile/PushLSP) topics end-to-end.
 type WebSocketSuite struct {
 	suite.Suite
 	env *kit.Env
@@ -30,281 +31,225 @@ func TestWebSocketSuite(t *testing.T) {
 	suite.Run(t, new(WebSocketSuite))
 }
 
-// TestWS_WorkspacesFilter_ProjectID verifies that a client subscribed with
-// projectId=X receives only workspaces whose ProjectID matches X.
-//
-// Wave 4: projectId is derived from the repo record, not the workspace request.
-// We create two repos with different projectIds so the workspaces end up in
-// different projects without relying on the (now-ignored) request body field.
-func (s *WebSocketSuite) TestWS_WorkspacesFilter_ProjectID() {
+// TestWS_HierarchicalPrefix_RepoScopeReceivesAllWorkspaces proves that a client
+// subscribed at the repo-scoped .../workspaces prefix receives every workspace
+// under that repo via hierarchical prefix matching — no query params (spec §5).
+func (s *WebSocketSuite) TestWS_HierarchicalPrefix_RepoScopeReceivesAllWorkspaces() {
 	t := s.T()
 
-	// Repo r1 belongs to proj-A.
-	resp := s.env.POST(t, "/v0/repos", map[string]any{
-		"id":        "r1",
-		"projectId": "proj-A",
-		"name":      "repo-a",
+	imported := s.env.ImportRepo(t, "repo-scope", "")
+
+	watcher := s.env.DialWorkspaces(t, imported.ProjectID, imported.RepoID)
+	wsID := s.env.CreateWorkspace(t, imported.ProjectID, imported.RepoID, "feature/x")
+
+	msg := kit.WaitForWorkspace(t, watcher, wsID, 5*time.Second, func(_ map[string]any) bool {
+		return true
 	})
-	kit.RequireStatus(t, resp, http.StatusCreated)
-	resp.Body.Close()
-
-	// Repo r2 belongs to proj-B — used for the workspace that must be filtered out.
-	resp = s.env.POST(t, "/v0/repos", map[string]any{
-		"id":        "r2",
-		"projectId": "proj-B",
-		"name":      "repo-b",
-	})
-	kit.RequireStatus(t, resp, http.StatusCreated)
-	resp.Body.Close()
-
-	watcher := s.env.DialWorkspaces(t, "?projectId=proj-A")
-
-	// Create a workspace for proj-B (via r2) — must be filtered out.
-	resp = s.env.POST(t, "/v0/workspaces", map[string]any{
-		"repoId": "r2",
-		"branch": "main",
-	})
-	kit.RequireStatus(t, resp, http.StatusCreated)
-	kit.MutationID(t, resp) // consume body
-
-	// Create the matching workspace for proj-A (via r1).
-	resp = s.env.POST(t, "/v0/workspaces", map[string]any{
-		"repoId": "r1",
-		"branch": "feature/x",
-	})
-	kit.RequireStatus(t, resp, http.StatusCreated)
-	matchID := kit.MutationID(t, resp)
-
-	msg := kit.WaitForWorkspace(
-		t,
-		watcher,
-		matchID,
-		5*time.Second,
-		func(_ map[string]any) bool { return true },
-	)
-	s.Assert().Equal(matchID, msg["id"])
-	s.Assert().Equal("proj-A", msg["projectId"])
+	s.Assert().Equal(wsID, msg["id"])
+	s.Assert().Equal(imported.RepoID, msg["repoId"])
+	s.Assert().Equal(imported.ProjectID, msg["projectId"])
 }
 
-// TestWS_WorkspacesFilter_RepoID verifies per-repo filtering.
-func (s *WebSocketSuite) TestWS_WorkspacesFilter_RepoID() {
+// TestWS_HierarchicalPrefix_WsScopeRejectsSibling proves that a client at the
+// exact .../workspaces/:wsId prefix receives only that workspace's frames and
+// NOT a sibling's (negative filtering via AssertNoMessage, spec §5).
+func (s *WebSocketSuite) TestWS_HierarchicalPrefix_WsScopeRejectsSibling() {
 	t := s.T()
 
-	resp := s.env.POST(t, "/v0/repos", map[string]any{
-		"id":        "repo-1",
-		"projectId": "p1",
-		"name":      "repo",
+	imported := s.env.ImportRepo(t, "ws-scope", "")
+	target := s.env.CreateWorkspace(t, imported.ProjectID, imported.RepoID, "feature/target")
+
+	// Exact-scope subscriber: only frames for `target` should arrive. Confirm the
+	// connect snapshot carries the target.
+	watcher := s.env.DialWorkspace(t, imported.ProjectID, imported.RepoID, target)
+	own := kit.WaitForWorkspace(t, watcher, target, 5*time.Second, func(_ map[string]any) bool {
+		return true
 	})
-	kit.RequireStatus(t, resp, http.StatusCreated)
-	resp.Body.Close()
+	s.Assert().Equal(target, own["id"])
 
-	watcher := s.env.DialWorkspaces(t, "?repoId=repo-1")
-
-	resp = s.env.POST(t, "/v0/workspaces", map[string]any{
-		"repoId": "repo-1",
-		"branch": "main",
-	})
-	kit.RequireStatus(t, resp, http.StatusCreated)
-	capturedID := kit.MutationID(t, resp)
-
-	msg := kit.WaitForWorkspace(
-		t,
-		watcher,
-		capturedID,
-		5*time.Second,
-		func(_ map[string]any) bool { return true },
+	// Create a sibling under the SAME repo. Its frames must NOT reach the
+	// exact-scope subscriber (out-of-prefix). The watcher may legitimately see
+	// more of its own `target` frames, so assert the SIBLING id specifically is
+	// never delivered (negative prefix filtering, spec §5).
+	sibling := s.env.CreateWorkspace(t, imported.ProjectID, imported.RepoID, "feature/sibling")
+	s.Assert().True(
+		watcher.AssertNoMatch(t, time.Second, func(m map[string]any) bool {
+			return m["id"] == sibling
+		}),
+		"exact-scope watcher must not receive a sibling workspace's frame",
 	)
-	s.Assert().Equal("repo-1", msg["repoId"])
 }
 
-// TestWS_LSP_FilteredByWsID verifies that the LSP topic filters by wsId.
-// This test pushes LSP events directly via the internal PushLSP helper — no
-// workspace creation needed, so it remains unchanged from Wave 3.
+// TestRegression_Workspaces_NamespaceFiltering proves the full §5 prefix model
+// in one test: a repo-scoped subscriber receives the workspace; an exact-scope
+// subscriber on a DIFFERENT workspace never does (AssertNoMatch for the
+// out-of-prefix id). This is the namespace-filtering contract for the Workspaces
+// topic (project/repo/ws prefix).
+func (s *WebSocketSuite) TestRegression_Workspaces_NamespaceFiltering() {
+	t := s.T()
+
+	imported := s.env.ImportRepo(t, "ns-filter", "")
+
+	// An exact-scope subscriber on the adopted-main workspace.
+	mainWatcher := s.env.DialWorkspace(t, imported.ProjectID, imported.RepoID, imported.WorkspaceID)
+	kit.WaitForWorkspace(t, mainWatcher, imported.WorkspaceID, 5*time.Second, func(_ map[string]any) bool {
+		return true
+	})
+
+	// A repo-scoped subscriber receives every workspace under the repo.
+	repoWatcher := s.env.DialWorkspaces(t, imported.ProjectID, imported.RepoID)
+	wsID := s.env.CreateWorkspace(t, imported.ProjectID, imported.RepoID, "feature/ns")
+	kit.WaitForWorkspace(t, repoWatcher, wsID, 5*time.Second, func(_ map[string]any) bool {
+		return true
+	})
+
+	// The exact-scope main subscriber must NEVER receive the sibling's id.
+	s.Assert().True(
+		mainWatcher.AssertNoMatch(t, time.Second, func(m map[string]any) bool {
+			return m["id"] == wsID
+		}),
+		"out-of-prefix workspace must not reach an exact-scope subscriber",
+	)
+}
+
+// TestWS_ProjectScopeReceivesRepoEvents proves that a project-scoped repos
+// subscriber receives the repo's RepoDTO via hierarchical prefix matching.
+func (s *WebSocketSuite) TestWS_ProjectScopeReceivesRepoEvents() {
+	t := s.T()
+
+	repoPath := kit.InitRepo(t)
+	projectID := s.env.RegisterProject(t, "proj-scope", repoPath)
+
+	watcher := s.env.DialRepos(t, projectID)
+	resp := s.env.POST(t, "/v0/projects/"+projectID+"/repos", map[string]any{
+		"name": "repo-scope",
+		"path": repoPath,
+	})
+	kit.RequireStatus(t, resp, http.StatusAccepted)
+	resp.Body.Close()
+
+	// The importer derives the repo name from the on-disk directory, so match on
+	// the project-scoped prefix (projectId), not the request body name.
+	msg := watcher.ReadUntil(t, 5*time.Second, func(m map[string]any) bool {
+		id, _ := m["id"].(string)
+		return m["projectId"] == projectID && id != ""
+	})
+	s.Assert().Equal(projectID, msg["projectId"])
+}
+
+// TestWS_LSP_FilteredByWsID verifies the LSP topic (flat wsId namespace) filters
+// by the subscribing workspace's path scope. PushLSP injects directly so no
+// workspace creation is needed; the route is the hierarchical .../lsp/ws.
 func (s *WebSocketSuite) TestWS_LSP_FilteredByWsID() {
 	t := s.T()
 
-	watcher := s.env.DialLSP(t, "?wsId=ws-lsp-1")
+	imported := s.env.ImportRepo(t, "lsp-filter", "")
+	wsID := s.env.CreateWorkspace(t, imported.ProjectID, imported.RepoID, "feature/lsp")
+
+	watcher := s.env.DialLSP(t, imported.ProjectID, imported.RepoID, wsID)
 
 	// Push a diagnostic for a different workspace — must be filtered.
 	s.env.PushLSP("ws-other", []kit.LSPDiagnostic{{Message: "skip me"}})
-
 	// Push the matching diagnostic.
-	s.env.PushLSP("ws-lsp-1", []kit.LSPDiagnostic{{Message: "target diag"}})
+	s.env.PushLSP(wsID, []kit.LSPDiagnostic{{Message: "target diag"}})
 
-	msg := watcher.ReadUntil(
-		t,
-		5*time.Second,
-		func(m map[string]any) bool {
-			return m["wsId"] == "ws-lsp-1"
-		},
-	)
-	s.Assert().Equal("ws-lsp-1", msg["wsId"])
+	msg := watcher.ReadUntil(t, 5*time.Second, func(m map[string]any) bool {
+		return m["wsId"] == wsID
+	})
+	s.Assert().Equal(wsID, msg["wsId"])
 
 	diags, ok := msg["diagnostics"].([]any)
 	s.Require().True(ok)
 	s.Require().Len(diags, 1)
-
 	diag0, ok := diags[0].(map[string]any)
 	s.Require().True(ok)
 	s.Assert().Equal("target diag", diag0["message"])
 }
 
-// TestWS_MultiClientFanOut verifies that a push reaches all connected clients.
+// TestWS_MultiClientFanOut verifies that a create reaches all connected clients
+// on the same repo-scoped prefix.
 func (s *WebSocketSuite) TestWS_MultiClientFanOut() {
 	t := s.T()
 
-	// Create a repo so we can create a workspace via HTTP.
-	resp := s.env.POST(t, "/v0/repos", map[string]any{
-		"id":        "r1",
-		"projectId": "p1",
-		"name":      "repo",
+	imported := s.env.ImportRepo(t, "fan-out", "")
+
+	watcher1 := s.env.DialWorkspaces(t, imported.ProjectID, imported.RepoID)
+	watcher2 := s.env.DialWorkspaces(t, imported.ProjectID, imported.RepoID)
+
+	wsID := s.env.CreateWorkspace(t, imported.ProjectID, imported.RepoID, "feature/fan")
+
+	msg1 := kit.WaitForWorkspace(t, watcher1, wsID, 5*time.Second, func(_ map[string]any) bool {
+		return true
 	})
-	kit.RequireStatus(t, resp, http.StatusCreated)
-	resp.Body.Close()
-
-	watcher1 := s.env.DialWorkspaces(t, "")
-	watcher2 := s.env.DialWorkspaces(t, "")
-
-	resp = s.env.POST(t, "/v0/workspaces", map[string]any{
-		"repoId": "r1",
-		"branch": "main",
+	msg2 := kit.WaitForWorkspace(t, watcher2, wsID, 5*time.Second, func(_ map[string]any) bool {
+		return true
 	})
-	kit.RequireStatus(t, resp, http.StatusCreated)
-	capturedID := kit.MutationID(t, resp)
-
-	msg1 := kit.WaitForWorkspace(
-		t,
-		watcher1,
-		capturedID,
-		5*time.Second,
-		func(_ map[string]any) bool { return true },
-	)
-	msg2 := kit.WaitForWorkspace(
-		t,
-		watcher2,
-		capturedID,
-		5*time.Second,
-		func(_ map[string]any) bool { return true },
-	)
-
-	s.Assert().Equal(capturedID, msg1["id"])
-	s.Assert().Equal(capturedID, msg2["id"])
+	s.Assert().Equal(wsID, msg1["id"])
+	s.Assert().Equal(wsID, msg2["id"])
 }
 
-// TestWS_GitTopic_StatusBroadcast verifies the git WS topic delivers git status.
+// TestWS_GitTopic_StatusBroadcast verifies the git WS topic (flat wsId
+// namespace, change-only) delivers an injected git status on the hierarchical
+// .../git/status route.
 func (s *WebSocketSuite) TestWS_GitTopic_StatusBroadcast() {
 	t := s.T()
 
-	repoPath := kit.InitRepoWithFile(t, "file.txt", "initial\n")
-	kit.GitRun(t, repoPath, "branch", "-m", "main", "feature/ws-git-test")
+	imported := s.env.ImportRepo(t, "git-topic", "")
+	wsID := s.env.CreateWorkspace(t, imported.ProjectID, imported.RepoID, "feature/ws-git-test")
 
-	resp := s.env.POST(t, "/v0/repos", map[string]any{
-		"id":        "r1",
-		"projectId": "p1",
-		"name":      "repo",
-		"path":      repoPath,
-	})
-	kit.RequireStatus(t, resp, http.StatusCreated)
-	resp.Body.Close()
+	watcher := s.env.DialGit(t, imported.ProjectID, imported.RepoID, wsID)
 
-	// Wave 4: only repoId and branch are accepted; worktreePath and id are ignored.
-	// The handler derives WorktreePath from the repo's registered path when the
-	// branch matches the repo's default branch (adoptMainWorktree).
-	resp = s.env.POST(t, "/v0/workspaces", map[string]any{
-		"repoId": "r1",
-		"branch": kit.BranchName(t, repoPath),
-	})
-	kit.RequireStatus(t, resp, http.StatusCreated)
-	wsID := kit.MutationID(t, resp)
-
-	// Scope the watcher to this workspace so the broadcaster filters on wsId.
-	watcher := s.env.DialGit(t, "?wsId="+wsID)
-
-	// Dirty the worktree and stage the new file.
-	kit.WriteRepoFile(t, repoPath, "new.txt", "new content\n")
-	resp = s.env.POST(t, "/v0/workspaces/"+wsID+"/git/stage", map[string]any{
-		"paths": []string{"new.txt"},
-	})
-	kit.RequireStatus(t, resp, http.StatusOK)
-	resp.Body.Close()
-
-	// Inject the git status directly — the git WS topic is change-only (no snapshot
-	// on connect) and the file watcher is not running in the test environment.
+	// Inject the git status directly — the git WS topic is change-only and the
+	// OS file watcher is not running in the test environment.
 	s.env.PushGit(kit.GitStatusEvent{
 		WsID:   wsID,
-		Branch: kit.BranchName(t, repoPath),
+		Branch: "feature/ws-git-test",
 		Files: []kit.GitFileEntry{
 			{Path: "new.txt", Status: "added", Staged: true},
 		},
 	})
 
-	msg := watcher.ReadUntil(
-		t,
-		5*time.Second,
-		func(m map[string]any) bool { return len(m) > 0 },
-	)
-
-	files, ok := msg["files"].([]any)
-	s.Require().True(ok, "expected 'files' to be a JSON array")
+	// The git topic dual-serves a snapshot on connect (possibly empty), so wait
+	// for the frame that carries our injected file rather than the first frame.
+	msg := watcher.ReadUntil(t, 5*time.Second, func(m map[string]any) bool {
+		files, ok := m["files"].([]any)
+		if !ok {
+			return false
+		}
+		for _, f := range files {
+			entry, isMap := f.(map[string]any)
+			if isMap {
+				if path, _ := entry["path"].(string); path == "new.txt" {
+					return true
+				}
+			}
+		}
+		return false
+	})
+	files, _ := msg["files"].([]any)
 	s.Require().NotEmpty(files, "expected at least one file entry in git status")
-
-	found := false
-	for _, f := range files {
-		entry, isMap := f.(map[string]any)
-		if !isMap {
-			continue
-		}
-		if path, _ := entry["path"].(string); path == "new.txt" {
-			found = true
-			break
-		}
-	}
-	s.Assert().True(found, "expected 'new.txt' to appear in the git status files list")
-	// wsId is not serialized into the git status payload; the WS connection is
-	// scoped by the ?wsId= query param so messages are pre-filtered server-side.
 	s.Assert().Empty(msg["wsId"], "wsId must not appear in the git status wire payload")
 }
 
 // TestWS_FilesTopicIsChangeOnly verifies that the files topic has no snapshot.
-// If a snapshot were sent at connect time we would receive it before the event
-// we push below; receiving exactly our event proves the topic is change-only.
 func (s *WebSocketSuite) TestWS_FilesTopicIsChangeOnly() {
 	t := s.T()
 
-	repoPath := kit.InitRepo(t)
+	imported := s.env.ImportRepo(t, "files-topic", "")
+	wsID := s.env.CreateWorkspace(t, imported.ProjectID, imported.RepoID, "feature/files")
 
-	resp := s.env.POST(t, "/v0/repos", map[string]any{
-		"id":        "r1",
-		"projectId": "p1",
-		"name":      "repo",
-		"path":      repoPath,
-	})
-	kit.RequireStatus(t, resp, http.StatusCreated)
-	resp.Body.Close()
+	watcher := s.env.DialFiles(t, imported.ProjectID, imported.RepoID, wsID)
 
-	// Wave 4: repoId + branch only. The handler derives WorktreePath automatically.
-	resp = s.env.POST(t, "/v0/workspaces", map[string]any{
-		"repoId": "r1",
-		"branch": kit.BranchName(t, repoPath),
-	})
-	kit.RequireStatus(t, resp, http.StatusCreated)
-	wsID := kit.MutationID(t, resp)
-
-	watcher := s.env.DialFiles(t, "?wsId="+wsID)
-
-	// Inject a file change event directly — the OS file watcher is not running in
-	// the test environment, so we bypass it via the public PushFile API.
+	// Inject a file change event directly — the OS file watcher is not running.
 	s.env.PushFile(kit.FileEvent{
 		WsID: wsID,
 		Type: "modified",
 		Path: "test.txt",
 	})
 
-	msg := watcher.ReadUntil(
-		t,
-		5*time.Second,
-		func(m map[string]any) bool { return m["wsId"] == wsID },
-	)
+	msg := watcher.ReadUntil(t, 5*time.Second, func(m map[string]any) bool {
+		return m["wsId"] == wsID
+	})
 	s.Assert().Equal(wsID, msg["wsId"])
 	s.Assert().NotEmpty(msg["type"])
 	s.Assert().NotEmpty(msg["path"])

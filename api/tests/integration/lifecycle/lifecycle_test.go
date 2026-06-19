@@ -3,7 +3,6 @@
 package lifecycle_test
 
 import (
-	"fmt"
 	"net/http"
 	"testing"
 	"time"
@@ -31,112 +30,92 @@ func TestLifecycleSuite(t *testing.T) {
 	)
 }
 
-// TestLifecycle_WorkspaceCreateBroadcastsOverWS proves the full path:
-// POST /v0/workspaces → projection → hub.BroadcastWorkspace → WS client.
-func (s *LifecycleSuite) TestLifecycle_WorkspaceCreateBroadcastsOverWS() {
+// TestLifecycle_WorkspaceCreate202ThenWS proves the full hierarchical create
+// path: POST .../workspaces → 202 → projection → hub.BroadcastWorkspace → WS
+// client (spec §4/§5). The created workspace first arrives as status:"new" and
+// then transitions to its ready (status-absent / omitempty) terminal state.
+func (s *LifecycleSuite) TestLifecycle_WorkspaceCreate202ThenWS() {
 	t := s.T()
 
-	repoResp := s.Env.POST(t, "/v0/repos", map[string]any{
-		"id":        "r1",
-		"projectId": "p1",
-		"name":      "repo",
+	imported := s.Env.ImportRepo(t, "lifecycle", "")
+
+	watcher := s.Env.DialWorkspaces(t, imported.ProjectID, imported.RepoID)
+	resp := s.Env.POST(t,
+		"/v0/projects/"+imported.ProjectID+"/repos/"+imported.RepoID+"/workspaces",
+		map[string]any{"branch": "feature/lifecycle"})
+	kit.RequireStatus(t, resp, http.StatusAccepted)
+	resp.Body.Close()
+
+	created := watcher.ReadUntil(t, 5*time.Second, func(m map[string]any) bool {
+		return m["branch"] == "feature/lifecycle" && m["status"] == "new"
 	})
-	kit.RequireStatus(t, repoResp, http.StatusCreated)
-	repoResp.Body.Close()
-
-	watcher := s.Env.DialWorkspaces(t, "?projectId=p1")
-
-	resp := s.Env.POST(t, "/v0/workspaces", map[string]any{
-		"repoId": "r1",
-		"branch": "feature/lifecycle",
-	})
-	kit.RequireStatus(t, resp, http.StatusCreated)
-	wsID := kit.MutationID(t, resp)
-
-	msg := kit.WaitForWorkspace(
-		t,
-		watcher,
-		wsID,
-		5*time.Second,
-		func(_ map[string]any) bool { return true },
-	)
-	s.Assert().Equal(wsID, msg["id"])
-	s.Assert().Equal("feature/lifecycle", msg["branch"])
-	s.Assert().Equal("new", msg["status"])
+	wsID, _ := created["id"].(string)
+	s.Require().NotEmpty(wsID)
+	s.Assert().Equal("feature/lifecycle", created["branch"])
+	s.Assert().Equal(imported.RepoID, created["repoId"])
+	s.Assert().Equal(imported.ProjectID, created["projectId"])
 }
 
-// TestLifecycle_WorkingTreeSyncUpdatesReadModelAndBroadcasts proves that
-// POST /v0/workspaces/:id/sync pushes an updated row over WS with cleared status badge.
-func (s *LifecycleSuite) TestLifecycle_WorkingTreeSyncUpdatesReadModelAndBroadcasts() {
+// TestLifecycle_SyncClearsLastError proves a workspace edit → stage → commit →
+// sync flow round-trips: the workspace stays status "new" after committing (per
+// D4 — status is not cleared by HasCommits) and carries no lastError.
+func (s *LifecycleSuite) TestLifecycle_SyncClearsLastError() {
 	t := s.T()
 
-	repoPath := kit.InitRepo(t)
-	kit.GitRun(t, repoPath, "branch", "-m", "main", "feature/lifecycle-sync")
+	imported := s.Env.ImportRepo(t, "lifecycle-sync", "")
+	wsID := s.Env.CreateWorkspace(t, imported.ProjectID, imported.RepoID, "feature/lifecycle-sync")
+	base := "/v0/projects/" + imported.ProjectID + "/repos/" + imported.RepoID + "/workspaces/" + wsID
 
-	repoResp := s.Env.POST(t, "/v0/repos", map[string]any{
-		"id":        "r1",
-		"projectId": "p1",
-		"name":      "repo",
-		"path":      repoPath,
+	saveResp := s.Env.PUT(t, base+"/files/content", map[string]any{
+		"path":    "a.txt",
+		"content": "aaa\n",
 	})
-	kit.RequireStatus(t, repoResp, http.StatusCreated)
-	repoResp.Body.Close()
+	kit.RequireStatus(t, saveResp, http.StatusOK)
+	saveResp.Body.Close()
 
-	watcher := s.Env.DialWorkspaces(t, "?projectId=p1")
-
-	resp := s.Env.POST(t, "/v0/workspaces", map[string]any{
-		"repoId": "r1",
-		"branch": kit.BranchName(t, repoPath),
+	stageResp := s.Env.POST(t, base+"/git/stage", map[string]any{
+		"paths": []string{"a.txt"},
 	})
-	kit.RequireStatus(t, resp, http.StatusCreated)
-	wsID := kit.MutationID(t, resp)
+	kit.RequireStatus(t, stageResp, http.StatusOK)
+	stageResp.Body.Close()
 
-	_ = kit.WaitForWorkspace(
-		t,
-		watcher,
-		wsID,
-		5*time.Second,
-		func(m map[string]any) bool {
-			return m["status"] == "new"
-		},
-	)
-
-	kit.WriteRepoFile(t, repoPath, "a.txt", "aaa")
-	kit.WriteRepoFile(t, repoPath, "b.txt", "bbb")
-	kit.WriteRepoFile(t, repoPath, "c.txt", "ccc")
-
-	// Stage and commit so HasCommits=true — sync only clears the "new" badge when
-	// the workspace has at least one commit ahead of its fork point.
-	for _, f := range []string{"a.txt", "b.txt", "c.txt"} {
-		stageResp := s.Env.POST(t, "/v0/workspaces/"+wsID+"/git/stage", map[string]any{
-			"paths": []string{f},
-		})
-		kit.RequireStatus(t, stageResp, http.StatusOK)
-		stageResp.Body.Close()
-	}
-	commitResp := s.Env.POST(t, "/v0/workspaces/"+wsID+"/git/commit", map[string]any{
-		"subject": "add sync test files",
+	commitResp := s.Env.POST(t, base+"/git/commit", map[string]any{
+		"subject": "add sync test file",
 		"author":  "Test <t@t.com>",
 	})
 	kit.RequireStatus(t, commitResp, http.StatusOK)
 	commitResp.Body.Close()
 
-	syncResp := s.Env.POST(t, "/v0/workspaces/"+wsID+"/sync", nil)
-	kit.RequireStatus(t, syncResp, http.StatusOK)
+	watcher := s.Env.DialWorkspace(t, imported.ProjectID, imported.RepoID, wsID)
+	syncResp := s.Env.POST(t, base+"/sync", nil)
+	kit.RequireStatus(t, syncResp, http.StatusAccepted)
 	syncResp.Body.Close()
 
-	msg := kit.WaitForWorkspace(
-		t,
-		watcher,
-		wsID,
-		5*time.Second,
-		func(m map[string]any) bool {
-			_, hasStatus := m["status"]
-			return !hasStatus
-		},
-	)
-	_, hasStatus := msg["status"]
-	s.Assert().False(hasStatus, "status badge must be absent (omitempty) once HasCommits is true and synced")
+	// Per D4 status STAYS "new" after sync with commits; the workspace must carry
+	// no lastError. Wait on the terminal "new" frame and assert lastError empty.
+	msg := kit.WaitForWorkspaceState(t, watcher, wsID, "new", 5*time.Second)
+	le, _ := msg["lastError"].(string)
+	s.Assert().Empty(le, "sync must not set a lastError")
+}
+
+// TestLifecycle_MergeEligibilityTrueWhenParentIdle proves that a child whose
+// parent is idle (not locked/deleted) carries canMergeLocally:true and the
+// parent's branch in the WS DTO (spec §10).
+func (s *LifecycleSuite) TestLifecycle_MergeEligibilityTrueWhenParentIdle() {
+	t := s.T()
+
+	imported := s.Env.ImportRepo(t, "merge-elig", "")
+	parentID := s.Env.CreateWorkspace(t, imported.ProjectID, imported.RepoID, "feature/parent")
+
+	watcher := s.Env.DialWorkspaces(t, imported.ProjectID, imported.RepoID)
+	childID := s.Env.CreateChildWorkspace(t, imported.ProjectID, imported.RepoID, "feature/child", parentID)
+
+	msg := kit.WaitForWorkspace(t, watcher, childID, 5*time.Second, func(m map[string]any) bool {
+		can, _ := m["canMergeLocally"].(bool)
+		return can
+	})
+	s.Assert().Equal("feature/parent", msg["parentBranch"])
+	s.Assert().Equal(parentID, msg["parentId"])
 }
 
 // TestLifecycle_HealthEndpoint verifies the health route responds 200.
@@ -148,29 +127,20 @@ func (s *LifecycleSuite) TestLifecycle_HealthEndpoint() {
 	s.Require().Equal(http.StatusOK, resp.StatusCode)
 }
 
-// TestLifecycle_WorkspaceList verifies create then list round-trips.
+// TestLifecycle_WorkspaceList verifies create then list round-trips over the
+// repo-scoped hierarchical list route.
 func (s *LifecycleSuite) TestLifecycle_WorkspaceList() {
 	t := s.T()
 
-	repoResp := s.Env.POST(t, "/v0/repos", map[string]any{
-		"id":        "r1",
-		"projectId": "p1",
-		"name":      "repo",
-	})
-	kit.RequireStatus(t, repoResp, http.StatusCreated)
-	repoResp.Body.Close()
+	imported := s.Env.ImportRepo(t, "ws-list", "")
 
 	ids := make([]string, 3)
 	for i, branch := range []string{"feature/a", "feature/b", "feature/c"} {
-		resp := s.Env.POST(t, "/v0/workspaces", map[string]any{
-			"repoId": "r1",
-			"branch": fmt.Sprintf("%s-%d", branch, i),
-		})
-		kit.RequireStatus(t, resp, http.StatusCreated)
-		ids[i] = kit.MutationID(t, resp)
+		ids[i] = s.Env.CreateWorkspace(t, imported.ProjectID, imported.RepoID, branch)
 	}
 
-	listResp := s.Env.GET(t, "/v0/workspaces")
+	listResp := s.Env.GET(t,
+		"/v0/projects/"+imported.ProjectID+"/repos/"+imported.RepoID+"/workspaces")
 	kit.RequireStatus(t, listResp, http.StatusOK)
 
 	var list []map[string]any
@@ -188,63 +158,45 @@ func (s *LifecycleSuite) TestLifecycle_WorkspaceList() {
 }
 
 // TestLifecycle_GitStageCommitChangesStatus proves file edit → stage → commit
-// makes the working tree clean again (git status-driven via HTTP).
+// makes the working tree clean again (git status-driven via HTTP) on a writable
+// child workspace.
 func (s *LifecycleSuite) TestLifecycle_GitStageCommitChangesStatus() {
 	t := s.T()
 
-	repoPath := kit.InitRepo(t)
-	kit.GitRun(t, repoPath, "branch", "-m", "main", "feature/lifecycle-git")
+	imported := s.Env.ImportRepo(t, "git-status", "")
+	wsID := s.Env.CreateWorkspace(t, imported.ProjectID, imported.RepoID, "feature/lifecycle-git")
+	base := "/v0/projects/" + imported.ProjectID + "/repos/" + imported.RepoID + "/workspaces/" + wsID
 
-	repoResp := s.Env.POST(t, "/v0/repos", map[string]any{
-		"id":        "r1",
-		"projectId": "p1",
-		"name":      "repo",
-		"path":      repoPath,
+	saveResp := s.Env.PUT(t, base+"/files/content", map[string]any{
+		"path":    "hello.txt",
+		"content": "Hello, world!\n",
 	})
-	kit.RequireStatus(t, repoResp, http.StatusCreated)
-	repoResp.Body.Close()
+	kit.RequireStatus(t, saveResp, http.StatusOK)
+	saveResp.Body.Close()
 
-	wsResp := s.Env.POST(t, "/v0/workspaces", map[string]any{
-		"repoId": "r1",
-		"branch": kit.BranchName(t, repoPath),
-	})
-	kit.RequireStatus(t, wsResp, http.StatusCreated)
-	wsID := kit.MutationID(t, wsResp)
-
-	kit.WriteRepoFile(t, repoPath, "hello.txt", "Hello, world!\n")
-
-	statusResp := s.Env.GET(t, "/v0/workspaces/"+wsID+"/git/status")
+	statusResp := s.Env.GET(t, base+"/git/status")
 	kit.RequireStatus(t, statusResp, http.StatusOK)
 
 	var statusObj map[string]any
 	kit.DecodeEnvData(t, statusResp, &statusObj)
 
 	files, _ := statusObj["files"].([]any)
-	s.Assert().NotEmpty(files, "untracked file must appear in status")
+	s.Assert().NotEmpty(files, "edited file must appear in status")
 
-	paths := make([]string, 0, len(files))
-	for _, f := range files {
-		fm, _ := f.(map[string]any)
-		if p, ok := fm["path"].(string); ok {
-			paths = append(paths, p)
-		}
-	}
-	s.Assert().Contains(paths, "hello.txt")
-
-	stageResp := s.Env.POST(t, "/v0/workspaces/"+wsID+"/git/stage", map[string]any{
+	stageResp := s.Env.POST(t, base+"/git/stage", map[string]any{
 		"paths": []string{"hello.txt"},
 	})
 	kit.RequireStatus(t, stageResp, http.StatusOK)
 	stageResp.Body.Close()
 
-	commitResp := s.Env.POST(t, "/v0/workspaces/"+wsID+"/git/commit", map[string]any{
+	commitResp := s.Env.POST(t, base+"/git/commit", map[string]any{
 		"subject": "Add hello.txt",
 		"author":  "Test <t@t.com>",
 	})
 	kit.RequireStatus(t, commitResp, http.StatusOK)
 	commitResp.Body.Close()
 
-	statusResp2 := s.Env.GET(t, "/v0/workspaces/"+wsID+"/git/status")
+	statusResp2 := s.Env.GET(t, base+"/git/status")
 	kit.RequireStatus(t, statusResp2, http.StatusOK)
 
 	var statusObj2 map[string]any

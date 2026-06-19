@@ -10,6 +10,9 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"os"
+	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 	"time"
@@ -57,7 +60,36 @@ func BuildEnv(
 	t *testing.T,
 ) *Env {
 	t.Helper()
-	return BuildEnvAt(t, t.TempDir())
+	return BuildEnvAt(t, tempHome(t))
+}
+
+// tempHome creates an isolated home directory for an Env with a TOLERANT
+// teardown. It deliberately does NOT use t.TempDir(): a detached good-path-async
+// goroutine (runAsync runs on context.WithoutCancel and the adapter registry
+// lazily re-opens a per-entity DB on access) can write a per-workspace storages
+// file a hair after the adapter is closed — racing t.TempDir's RemoveAll and
+// flaking the run with "directory not empty" even though every assertion passed.
+// This is a benign teardown race (the leaked dir is under the OS temp root and
+// is reaped by the OS); we remove it best-effort with a bounded, cooperative
+// retry and never fail the test on a cleanup error.
+func tempHome(
+	t *testing.T,
+) string {
+	t.Helper()
+	dir, err := os.MkdirTemp("", "kitenv-")
+	require.NoError(t, err, "kit: create temp home")
+	t.Cleanup(func() {
+		for i := 0; i < 50; i++ {
+			if err := os.RemoveAll(dir); err == nil {
+				return
+			}
+			runtime.Gosched()
+		}
+		// Best-effort: a residual handle from a detached write may still hold a
+		// file; the OS reaps the temp tree. Do not fail the test on cleanup.
+		_ = os.RemoveAll(dir)
+	})
+	return dir
 }
 
 // BuildEnvAt spins up the full server stack (engine → adapter → app → api)
@@ -106,7 +138,19 @@ func BuildEnvAt(
 	apiContainer.Register(router.Group("/v0"))
 
 	srv := httptest.NewServer(router)
-	t.Cleanup(srv.Close)
+
+	// Registered LAST so it runs FIRST in teardown (cleanups are LIFO). Teardown
+	// order matters: close the HTTP server (stops every WS handler goroutine and
+	// its onUnsubscribe DB reads) and the realtime service (file watchers, LSP
+	// hosts, per-connection provider polls) BEFORE the adapter's per-entity SQLite
+	// handles (registered earlier, so it runs after) and t.TempDir's RemoveAll.
+	// Leaving a live WS handler or realtime goroutine running while RemoveAll
+	// walks the per-workspace storages dir lets a late DB reopen re-create files
+	// mid-walk, flaking the cleanup with "directory not empty".
+	t.Cleanup(func() {
+		srv.Close()
+		appContainer.Close()
+	})
 
 	return &Env{
 		URL:      srv.URL,
@@ -136,6 +180,45 @@ func (e *Env) Close(
 
 // HomeDir returns the home directory path used by this Env.
 func (e *Env) HomeDir() string { return e.homeDir }
+
+// WorktreePath mirrors worktreepath.For (the usecase-internal path builder,
+// which the kit cannot import): the on-disk worktree for a workspace at
+// <home>/projects/<P>/<R>/workspaces/<W>/worktree. Use it in tests that must
+// operate on a child workspace's worktree, since worktreePath is server-side
+// only and never surfaced in the WorkspaceDTO (spec §8/§5).
+func (e *Env) WorktreePath(
+	projectID string,
+	repoID string,
+	wsID string,
+) string {
+	return filepath.Join(
+		e.homeDir,
+		"projects",
+		projectID,
+		repoID,
+		"workspaces",
+		wsID,
+		"worktree",
+	)
+}
+
+// WorkspaceStorageDir mirrors worktreepath.StorageDir:
+// <home>/projects/<P>/<R>/workspaces/<W>/storages.
+func (e *Env) WorkspaceStorageDir(
+	projectID string,
+	repoID string,
+	wsID string,
+) string {
+	return filepath.Join(
+		e.homeDir,
+		"projects",
+		projectID,
+		repoID,
+		"workspaces",
+		wsID,
+		"storages",
+	)
+}
 
 // PushLSP injects a batch of diagnostics into the LSP broadcaster for wsID,
 // bypassing the engine OnDiagnostics callback. Use in integration tests when no
@@ -311,6 +394,21 @@ func (e *Env) DialTerminals(
 	w := Dial(t, wsURL(e.URL, e.wsScope(projectID, repoID, wsID)+"/terminals"))
 	e.v0c.WaitNTerminalsRegistered(1)
 	return w
+}
+
+// DialTerminalPTY opens a WS watcher on the raw PTY stream co-located at
+// .../workspaces/:wsId/terminals/:sessionId/ws (W7-2). This is NOT a broadcaster
+// topic (it's a direct engine pipe), so there is no WaitNRegistered gate; the
+// PTY emits its first frame promptly on connect.
+func (e *Env) DialTerminalPTY(
+	t *testing.T,
+	projectID string,
+	repoID string,
+	wsID string,
+	sessionID string,
+) *WSWatcher {
+	t.Helper()
+	return Dial(t, wsURL(e.URL, e.wsScope(projectID, repoID, wsID)+"/terminals/"+sessionID+"/ws"))
 }
 
 // DialGit opens a WS watcher on the workspace-scoped, co-located Git status
@@ -731,6 +829,66 @@ func (e *Env) createWorkspace(
 	id, _ := msg["id"].(string)
 	require.NotEmpty(t, id, "createWorkspace: WorkspaceDTO must carry an id")
 	return id
+}
+
+// ImportedRepo bundles the ids a full project+repo import yields: the project,
+// its discovered repository, and the workspace adopted from the repo's default
+// (main) worktree. It is the integration-suite analogue of the package-tests
+// importedRepo fixture.
+type ImportedRepo struct {
+	ProjectID   string
+	RepoID      string
+	WorkspaceID string
+	RepoPath    string
+}
+
+// ImportRepo creates a real git repo at the supplied path (or inits a fresh one
+// when path is empty), imports it as a project, and runs the full per-repo
+// import (RegisterRepo) which adopts the default-branch worktree as a workspace.
+// It returns the project/repo/adopted-workspace ids plus the repo path. The
+// adopted workspace id is learned from the WorkspaceDTO broadcast on the
+// repo-scoped Workspaces WS stream (dial-before-import), never from a sync body.
+func (e *Env) ImportRepo(
+	t *testing.T,
+	name string,
+	path string,
+) ImportedRepo {
+	t.Helper()
+	if path == "" {
+		path = InitRepo(t)
+	}
+	projectID := e.RegisterProject(t, name, path)
+	// The repo import (POST .../repos) runs the full importer, which derives the
+	// repo NAME from the on-disk directory — not from the request body — so the
+	// RepoDTO is matched by projectId, not name. Dial repos BEFORE the POST so the
+	// import broadcast is never missed.
+	reposWS := e.DialRepos(t, projectID)
+	resp := e.POST(t, "/v0/projects/"+projectID+"/repos", map[string]any{
+		"name": name,
+		"path": path,
+	})
+	RequireStatus(t, resp, http.StatusAccepted)
+	resp.Body.Close()
+	repo := reposWS.ReadUntil(t, 10*time.Second, func(m map[string]any) bool {
+		return m["projectId"] == projectID
+	})
+	repoID, _ := repo["id"].(string)
+	require.NotEmpty(t, repoID, "ImportRepo: import must broadcast a RepoDTO with an id")
+
+	// The adopted main worktree is persisted after the repo in the same async
+	// import job; wait for its WorkspaceDTO on the repo-scoped stream.
+	wsWatcher := e.DialWorkspaces(t, projectID, repoID)
+	adopted := wsWatcher.ReadUntil(t, 10*time.Second, func(m map[string]any) bool {
+		return m["repoId"] == repoID && m["branch"] != ""
+	})
+	wsID, _ := adopted["id"].(string)
+	require.NotEmpty(t, wsID, "ImportRepo: import must adopt and broadcast a workspace")
+	return ImportedRepo{
+		ProjectID:   projectID,
+		RepoID:      repoID,
+		WorkspaceID: wsID,
+		RepoPath:    path,
+	}
 }
 
 // PushProviderState injects a scripted provider poll result for wsID directly

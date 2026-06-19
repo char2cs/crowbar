@@ -4,7 +4,6 @@ package terminal_test
 
 import (
 	"net/http"
-	"strings"
 	"testing"
 	"time"
 
@@ -20,37 +19,28 @@ func TestMain(
 	kit.Main(m)
 }
 
-// TerminalSuite exercises terminal session and profile REST endpoints plus the PTY WebSocket route.
+// TerminalSuite exercises workspace-scoped terminal session and profile REST
+// endpoints, the TerminalSessionDTO lifecycle broadcaster, and the PTY WebSocket
+// route at the hierarchical .../terminals/:sessionId/ws path.
 type TerminalSuite struct {
 	kit.IntegrationSuite
-	repoPath string
+	imported kit.ImportedRepo
 	wsID     string
 }
 
-// SetupTest creates a fresh Env and registers a workspace before each test.
+// SetupTest creates a fresh Env, imports a repo, and creates a workspace before
+// each test.
 func (s *TerminalSuite) SetupTest() {
 	s.IntegrationSuite.SetupTest()
-	s.repoPath = kit.InitRepo(s.T())
+	s.imported = s.Env.ImportRepo(s.T(), "terminal", "")
+	s.wsID = s.Env.CreateWorkspace(s.T(), s.imported.ProjectID, s.imported.RepoID, "feature/terminal")
+}
 
-	repoResp := s.Env.POST(s.T(), "/v0/repos", map[string]any{
-		"id":        "r1",
-		"projectId": "p1",
-		"name":      "repo",
-		"path":      s.repoPath,
-	})
-	kit.RequireStatus(s.T(), repoResp, http.StatusCreated)
-	repoResp.Body.Close()
-
-	resp := s.Env.POST(
-		s.T(),
-		"/v0/workspaces",
-		map[string]any{
-			"repoId": "r1",
-			"branch": kit.BranchName(s.T(), s.repoPath),
-		},
-	)
-	kit.RequireStatus(s.T(), resp, http.StatusCreated)
-	s.wsID = kit.MutationID(s.T(), resp)
+// base returns the workspace-scoped route prefix for the suite's workspace.
+func (s *TerminalSuite) base() string {
+	return "/v0/projects/" + s.imported.ProjectID +
+		"/repos/" + s.imported.RepoID +
+		"/workspaces/" + s.wsID
 }
 
 // TestTerminalSuite is the testify suite entry point for terminal integration tests.
@@ -63,242 +53,186 @@ func TestTerminalSuite(
 	)
 }
 
-// TestTerminal_CreateAndKill verifies a terminal session can be created and killed.
-func (s *TerminalSuite) TestTerminal_CreateAndKill() {
+// TestTerminal_Create201ThenSessionDTOOverWS verifies a terminal session creates
+// (201 {sessionId}) and the TerminalSessionDTO{status:"active"} lifecycle frame
+// arrives on the workspace-scoped terminals WS (spec §10, D2).
+func (s *TerminalSuite) TestTerminal_Create201ThenSessionDTOOverWS() {
 	t := s.T()
 
-	resp := s.Env.POST(
-		t,
-		"/v0/workspaces/"+s.wsID+"/terminals",
-		map[string]any{},
-	)
-	kit.RequireStatus(
-		t,
-		resp,
-		http.StatusCreated,
-	)
+	watcher := s.Env.DialTerminals(t, s.imported.ProjectID, s.imported.RepoID, s.wsID)
+
+	resp := s.Env.POST(t, s.base()+"/terminals", map[string]any{})
+	kit.RequireStatus(t, resp, http.StatusCreated)
 
 	var body map[string]any
-	kit.DecodeEnvData(
-		t,
-		resp,
-		&body,
-	)
+	kit.DecodeEnvData(t, resp, &body)
 	sessionID, ok := body["sessionId"].(string)
-	s.Require().True(
-		ok,
-		"sessionId must be a string",
-	)
-	s.Assert().NotEmpty(sessionID)
+	s.Require().True(ok, "sessionId must be a string")
+	s.Require().NotEmpty(sessionID)
 
-	killResp := s.Env.DELETE(
-		t,
-		"/v0/terminals/"+sessionID,
-	)
+	msg := watcher.ReadUntil(t, 5*time.Second, func(m map[string]any) bool {
+		return m["id"] == sessionID && m["status"] == "active"
+	})
+	s.Assert().Equal(s.wsID, msg["workspaceId"])
+	s.Assert().Equal(s.imported.RepoID, msg["repoId"])
+	s.Assert().Equal(s.imported.ProjectID, msg["projectId"])
+
+	// Kill the session and block on its "ended" frame so the spawned PTY (whose
+	// CWD is the worktree) is reaped before the test's TempDir is removed —
+	// otherwise the live shell holds the per-workspace dir busy and RemoveAll
+	// flakes with "directory not empty".
+	kill := s.Env.DELETE(t, s.base()+"/terminals/"+sessionID)
+	kill.Body.Close()
+	watcher.ReadUntil(t, 5*time.Second, func(m map[string]any) bool {
+		return m["id"] == sessionID && m["status"] == "ended"
+	})
+}
+
+// TestRegression_TerminalSession_LifecycleBroadcast proves the §10 terminal
+// lifecycle topic: creating a session broadcasts an "active" TerminalSessionDTO
+// and killing it broadcasts an "ended" one, both on the workspace-scoped
+// terminals WS, carrying the hierarchical project/repo/workspace ids.
+func (s *TerminalSuite) TestRegression_TerminalSession_LifecycleBroadcast() {
+	t := s.T()
+
+	watcher := s.Env.DialTerminals(t, s.imported.ProjectID, s.imported.RepoID, s.wsID)
+
+	createResp := s.Env.POST(t, s.base()+"/terminals", map[string]any{})
+	kit.RequireStatus(t, createResp, http.StatusCreated)
+	var created map[string]any
+	kit.DecodeEnvData(t, createResp, &created)
+	sessionID, _ := created["sessionId"].(string)
+	s.Require().NotEmpty(sessionID)
+
+	active := watcher.ReadUntil(t, 5*time.Second, func(m map[string]any) bool {
+		return m["id"] == sessionID && m["status"] == "active"
+	})
+	s.Assert().Equal(s.wsID, active["workspaceId"])
+
+	killResp := s.Env.DELETE(t, s.base()+"/terminals/"+sessionID)
 	defer killResp.Body.Close()
-	kit.RequireStatus(
-		t,
-		killResp,
-		http.StatusOK,
-	)
+	kit.RequireStatus(t, killResp, http.StatusAccepted)
+
+	ended := watcher.ReadUntil(t, 5*time.Second, func(m map[string]any) bool {
+		return m["id"] == sessionID && m["status"] == "ended"
+	})
+	s.Assert().Equal(sessionID, ended["id"])
+}
+
+// TestTerminal_DeleteScopedRoute verifies a session is killed via the
+// workspace-scoped DELETE route (202) and an "ended" lifecycle frame broadcasts.
+func (s *TerminalSuite) TestTerminal_DeleteScopedRoute() {
+	t := s.T()
+
+	createResp := s.Env.POST(t, s.base()+"/terminals", map[string]any{})
+	kit.RequireStatus(t, createResp, http.StatusCreated)
+	var created map[string]any
+	kit.DecodeEnvData(t, createResp, &created)
+	sessionID, _ := created["sessionId"].(string)
+	s.Require().NotEmpty(sessionID)
+
+	watcher := s.Env.DialTerminals(t, s.imported.ProjectID, s.imported.RepoID, s.wsID)
+
+	killResp := s.Env.DELETE(t, s.base()+"/terminals/"+sessionID)
+	defer killResp.Body.Close()
+	kit.RequireStatus(t, killResp, http.StatusAccepted)
+
+	msg := watcher.ReadUntil(t, 5*time.Second, func(m map[string]any) bool {
+		return m["id"] == sessionID && m["status"] == "ended"
+	})
+	s.Assert().Equal(sessionID, msg["id"])
 }
 
 // TestTerminal_KillUnknownSessionReturns404 verifies kill of unknown session is 404.
 func (s *TerminalSuite) TestTerminal_KillUnknownSessionReturns404() {
 	t := s.T()
 
-	resp := s.Env.DELETE(
-		t,
-		"/v0/terminals/does-not-exist",
-	)
+	resp := s.Env.DELETE(t, s.base()+"/terminals/does-not-exist")
 	defer resp.Body.Close()
-	s.Assert().Equal(
-		http.StatusNotFound,
-		resp.StatusCode,
-	)
+	s.Assert().Equal(http.StatusNotFound, resp.StatusCode)
 }
 
 // TestTerminal_CreateForUnknownWorkspaceReturns404 verifies 404 on bad wsId.
 func (s *TerminalSuite) TestTerminal_CreateForUnknownWorkspaceReturns404() {
 	t := s.T()
 
-	resp := s.Env.POST(
-		t,
-		"/v0/workspaces/no-such-ws/terminals",
-		map[string]any{},
-	)
+	bad := "/v0/projects/" + s.imported.ProjectID +
+		"/repos/" + s.imported.RepoID + "/workspaces/no-such-ws/terminals"
+	resp := s.Env.POST(t, bad, map[string]any{})
 	defer resp.Body.Close()
-	s.Assert().Equal(
-		http.StatusNotFound,
-		resp.StatusCode,
-	)
+	s.Assert().Equal(http.StatusNotFound, resp.StatusCode)
 }
 
-// TestTerminal_ProfileCRUD exercises the terminal profile REST endpoints.
+// TestTerminal_ProfileCRUD exercises the terminal profile REST endpoints (a
+// global user setting, top-level under /v0/settings).
 func (s *TerminalSuite) TestTerminal_ProfileCRUD() {
 	t := s.T()
 
-	// Create
-	createResp := s.Env.POST(
-		t,
-		"/v0/settings/terminal/profiles",
-		map[string]any{
-			"name":  "My Shell",
-			"shell": "/bin/bash",
-		},
-	)
-	kit.RequireStatus(
-		t,
-		createResp,
-		http.StatusCreated,
-	)
+	createResp := s.Env.POST(t, "/v0/settings/terminal/profiles", map[string]any{
+		"name":  "My Shell",
+		"shell": "/bin/bash",
+	})
+	kit.RequireStatus(t, createResp, http.StatusCreated)
 	var created map[string]any
-	kit.DecodeEnvData(
-		t,
-		createResp,
-		&created,
-	)
+	kit.DecodeEnvData(t, createResp, &created)
 	id, ok := created["id"].(string)
 	s.Require().True(ok)
 	s.Assert().NotEmpty(id)
 
-	// Get
-	getResp := s.Env.GET(
-		t,
-		"/v0/settings/terminal/profiles/"+id,
-	)
-	kit.RequireStatus(
-		t,
-		getResp,
-		http.StatusOK,
-	)
+	getResp := s.Env.GET(t, "/v0/settings/terminal/profiles/"+id)
+	kit.RequireStatus(t, getResp, http.StatusOK)
 	var got map[string]any
-	kit.DecodeEnvData(
-		t,
-		getResp,
-		&got,
-	)
-	s.Assert().Equal(
-		"My Shell",
-		got["name"],
-	)
+	kit.DecodeEnvData(t, getResp, &got)
+	s.Assert().Equal("My Shell", got["name"])
 
-	// List
-	listResp := s.Env.GET(
-		t,
-		"/v0/settings/terminal/profiles",
-	)
-	kit.RequireStatus(
-		t,
-		listResp,
-		http.StatusOK,
-	)
+	listResp := s.Env.GET(t, "/v0/settings/terminal/profiles")
+	kit.RequireStatus(t, listResp, http.StatusOK)
 	var list []map[string]any
-	kit.DecodeEnvData(
-		t,
-		listResp,
-		&list,
-	)
+	kit.DecodeEnvData(t, listResp, &list)
 	s.Assert().NotEmpty(list)
 
-	// Update
-	updateResp := s.Env.PUT(
-		t,
-		"/v0/settings/terminal/profiles/"+id,
-		map[string]any{
-			"name":  "Updated Shell",
-			"shell": "/bin/bash",
-		},
-	)
+	updateResp := s.Env.PUT(t, "/v0/settings/terminal/profiles/"+id, map[string]any{
+		"name":  "Updated Shell",
+		"shell": "/bin/bash",
+	})
 	defer updateResp.Body.Close()
-	kit.RequireStatus(
-		t,
-		updateResp,
-		http.StatusOK,
-	)
+	kit.RequireStatus(t, updateResp, http.StatusOK)
 
-	// Delete
-	deleteResp := s.Env.DELETE(
-		t,
-		"/v0/settings/terminal/profiles/"+id,
-	)
+	deleteResp := s.Env.DELETE(t, "/v0/settings/terminal/profiles/"+id)
 	defer deleteResp.Body.Close()
-	kit.RequireStatus(
-		t,
-		deleteResp,
-		http.StatusNoContent,
-	)
+	kit.RequireStatus(t, deleteResp, http.StatusNoContent)
 
-	// Verify gone
-	getAfterDelete := s.Env.GET(
-		t,
-		"/v0/settings/terminal/profiles/"+id,
-	)
+	getAfterDelete := s.Env.GET(t, "/v0/settings/terminal/profiles/"+id)
 	defer getAfterDelete.Body.Close()
-	s.Assert().Equal(
-		http.StatusNotFound,
-		getAfterDelete.StatusCode,
-	)
+	s.Assert().Equal(http.StatusNotFound, getAfterDelete.StatusCode)
 }
 
-// TestTerminal_WSConnectionEstablishes verifies that a terminal WS connection
-// can be established to an active session. The terminal WS streams JSON text
-// frames with envelope {sessionId, data, isInput}.
-func (s *TerminalSuite) TestTerminal_WSConnectionEstablishes() {
+// TestTerminal_PTYWSAtScopedPath verifies the raw PTY WebSocket connects at the
+// hierarchical .../terminals/:sessionId/ws path and streams JSON text frames
+// {sessionId, data, isInput}.
+func (s *TerminalSuite) TestTerminal_PTYWSAtScopedPath() {
 	t := s.T()
 
-	createResp := s.Env.POST(
-		t,
-		"/v0/workspaces/"+s.wsID+"/terminals",
-		map[string]any{},
-	)
-	kit.RequireStatus(
-		t,
-		createResp,
-		http.StatusCreated,
-	)
+	lifecycle := s.Env.DialTerminals(t, s.imported.ProjectID, s.imported.RepoID, s.wsID)
 
+	createResp := s.Env.POST(t, s.base()+"/terminals", map[string]any{})
+	kit.RequireStatus(t, createResp, http.StatusCreated)
 	var createBody map[string]any
-	kit.DecodeEnvData(
-		t,
-		createResp,
-		&createBody,
-	)
+	kit.DecodeEnvData(t, createResp, &createBody)
 	sessionID, ok := createBody["sessionId"].(string)
-	s.Require().True(
-		ok,
-		"sessionId must be a string",
-	)
-	t.Cleanup(func() {
-		resp := s.Env.DELETE(
-			t,
-			"/v0/terminals/"+sessionID,
-		)
-		resp.Body.Close()
-	})
+	s.Require().True(ok, "sessionId must be a string")
 
-	wsURL := "ws" + strings.TrimPrefix(s.Env.URL, "http") + "/v0/ws/terminals/" + sessionID
-	ws := kit.Dial(
-		t,
-		wsURL,
-	)
-	frame := ws.ReadMsg(
-		t,
-		10*time.Second,
-	)
-	s.Require().Contains(
-		frame,
-		"sessionId",
-		"wire frame must contain sessionId field",
-	)
-	s.Assert().Equal(
-		sessionID,
-		frame["sessionId"],
-		"frame sessionId must match the created session",
-	)
-	s.Require().Contains(
-		frame,
-		"data",
-		"wire frame must contain data field",
-	)
+	ws := s.Env.DialTerminalPTY(t, s.imported.ProjectID, s.imported.RepoID, s.wsID, sessionID)
+	frame := ws.ReadMsg(t, 10*time.Second)
+	s.Require().Contains(frame, "sessionId", "wire frame must contain sessionId field")
+	s.Assert().Equal(sessionID, frame["sessionId"], "frame sessionId must match")
+	s.Require().Contains(frame, "data", "wire frame must contain data field")
+
+	// Kill and block on the "ended" frame so the PTY shell (CWD = worktree) is
+	// reaped before TempDir teardown.
+	kill := s.Env.DELETE(t, s.base()+"/terminals/"+sessionID)
+	kill.Body.Close()
+	lifecycle.ReadUntil(t, 5*time.Second, func(m map[string]any) bool {
+		return m["id"] == sessionID && m["status"] == "ended"
+	})
 }
