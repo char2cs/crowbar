@@ -18,7 +18,6 @@ import { cn } from '@/utils/cn'
 import { useSettingsStore } from '@/features/settings/store'
 import { useUIState } from '@/features/window/stores/ui-state-store'
 import { FontStyleInjector } from '@/features/settings/components/font-style-injector'
-import { Toaster } from '@/components/ui/sonner'
 import { ConnectionIndicator } from './connection-indicator'
 import { FpsOverlay } from './fps-overlay'
 import { useSidebarNavStore } from '@/features/layout/stores/sidebar-nav'
@@ -222,7 +221,6 @@ export function IDEShell() {
       <FontStyleInjector />
       <ConnectionIndicator />
       <FpsOverlay />
-      <Toaster />
     </SidebarProvider>
   )
 }

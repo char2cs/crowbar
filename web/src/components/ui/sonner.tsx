@@ -1,4 +1,4 @@
-import { useTheme } from 'next-themes'
+import { useEffect, useState } from 'react'
 import { Toaster as Sonner, type ToasterProps } from 'sonner'
 import {
   CircleCheckIcon,
@@ -8,12 +8,30 @@ import {
   Loader2Icon,
 } from 'lucide-react'
 
+// Crowbar has its own theme system (a `data-theme-type` attribute on
+// documentElement) — it does NOT use next-themes. Read that attribute directly
+// and hand sonner an explicit 'light' | 'dark' so the toaster never falls back
+// to sonner's 'system' path (which probes window.matchMedia and renders with
+// the wrong palette outside the IDE shell).
+function getToasterTheme(): 'light' | 'dark' {
+  if (typeof document === 'undefined') return 'dark'
+  return document.documentElement.getAttribute('data-theme-type') === 'light' ? 'light' : 'dark'
+}
+
 const Toaster = ({ ...props }: ToasterProps) => {
-  const { theme = 'system' } = useTheme()
+  const [theme, setTheme] = useState<'light' | 'dark'>(getToasterTheme)
+
+  useEffect(() => {
+    const root = document.documentElement
+    const observer = new MutationObserver(() => setTheme(getToasterTheme()))
+    observer.observe(root, { attributes: true, attributeFilter: ['data-theme-type'] })
+    setTheme(getToasterTheme())
+    return () => observer.disconnect()
+  }, [])
 
   return (
     <Sonner
-      theme={theme as ToasterProps['theme']}
+      theme={theme}
       className="toaster group"
       icons={{
         success: <CircleCheckIcon className="size-4" />,

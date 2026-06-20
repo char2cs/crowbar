@@ -27,10 +27,14 @@ export default defineConfig({
   optimizeDeps: {
     // Pre-bundle Tauri packages so the dev server never serves them as
     // "Outdated Optimize Dep" 504s when running inside the Tauri shell.
-    include: ['@tauri-apps/api/event'],
+    // sonner is pre-bundled + deduped so the store's toast() and the <Toaster>
+    // share ONE module instance (sonner keeps its toast state at module scope; a
+    // split instance silently swallows every toast — the app-wide "no feedback").
+    include: ['@tauri-apps/api/event', 'sonner'],
   },
   resolve: {
     alias: { '@': path.resolve(__dirname, './src') },
+    dedupe: ['sonner'],
   },
   test: {
     environment: 'jsdom',
