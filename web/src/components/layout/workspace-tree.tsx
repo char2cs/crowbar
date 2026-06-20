@@ -94,6 +94,8 @@ function WorkspaceTreeInner() {
             return (
               <div key={repo.id} className="mb-1">
                 <div
+                  role="button"
+                  tabIndex={0}
                   className={cn(
                     ROW_BASE,
                     'group',
@@ -103,50 +105,53 @@ function WorkspaceTreeInner() {
                     isRepoDragOver && 'ring-1 ring-ring',
                   )}
                   data-repo-drop={repo.id}
+                  aria-label={`Open ${repo.name}`}
+                  onClick={() => {
+                    if (repo.projectId && repo.defaultWorkspaceId) {
+                      handleWorkspaceClick(repo.defaultWorkspaceId, repo.projectId, repo.id)
+                    }
+                  }}
+                  onKeyDown={(e) => {
+                    if (
+                      e.target === e.currentTarget &&
+                      (e.key === 'Enter' || e.key === ' ') &&
+                      repo.projectId &&
+                      repo.defaultWorkspaceId
+                    ) {
+                      e.preventDefault()
+                      handleWorkspaceClick(repo.defaultWorkspaceId, repo.projectId, repo.id)
+                    }
+                  }}
                 >
-                  <button
-                    type="button"
-                    className="flex min-w-0 flex-1 cursor-pointer items-center gap-2 text-left"
-                    onClick={() => {
-                      if (repo.projectId && repo.defaultWorkspaceId) {
-                        void navigate({
-                          to: '/ide/$projectId/$repoId/$wsId',
-                          params: { projectId: repo.projectId, repoId: repo.id, wsId: repo.defaultWorkspaceId },
-                        })
-                      }
-                    }}
-                    aria-label={`Open ${repo.name}`}
-                  >
-                    {repo.avatarURL?.startsWith('emoji:') ? (
-                      <span className="pointer-events-none inline-flex h-5 w-5 shrink-0 items-center justify-center text-lg leading-none">
-                        {repo.avatarURL.slice(6)}
-                      </span>
-                    ) : repo.avatarURL ? (
-                      <img
-                        src={repo.avatarURL}
-                        alt={repo.name}
-                        draggable={false}
-                        className="pointer-events-none h-5 w-5 shrink-0 rounded-md object-cover"
-                      />
-                    ) : (
-                      <span
-                        className={cn(
-                          'pointer-events-none inline-flex h-5 w-5 shrink-0 items-center justify-center rounded-md px-1 text-[11px] font-bold text-primary-foreground',
-                          repo.avatarColor,
-                        )}
-                      >
-                        {repo.avatarLabel}
+                  {repo.avatarURL?.startsWith('emoji:') ? (
+                    <span className="pointer-events-none inline-flex h-5 w-5 shrink-0 items-center justify-center text-lg leading-none">
+                      {repo.avatarURL.slice(6)}
+                    </span>
+                  ) : repo.avatarURL ? (
+                    <img
+                      src={repo.avatarURL}
+                      alt={repo.name}
+                      draggable={false}
+                      className="pointer-events-none h-5 w-5 shrink-0 rounded-md object-cover"
+                    />
+                  ) : (
+                    <span
+                      className={cn(
+                        'pointer-events-none inline-flex h-5 w-5 shrink-0 items-center justify-center rounded-md px-1 text-[11px] font-bold text-primary-foreground',
+                        repo.avatarColor,
+                      )}
+                    >
+                      {repo.avatarLabel}
+                    </span>
+                  )}
+                  <span className="flex min-w-0 flex-1 items-baseline gap-1.5">
+                    <span className="shrink-0 font-mono text-foreground">{repo.name}</span>
+                    {repo.defaultWorkspaceId && (
+                      <span className="hidden min-w-0 truncate font-mono text-[11px] text-foreground/40 group-hover:inline">
+                        - default
                       </span>
                     )}
-                    <span className="flex min-w-0 items-baseline gap-1.5">
-                      <span className="shrink-0 font-mono text-foreground">{repo.name}</span>
-                      {repo.defaultWorkspaceId && (
-                        <span className="hidden min-w-0 truncate font-mono text-[11px] text-foreground/40 group-hover:inline">
-                          - default
-                        </span>
-                      )}
-                    </span>
-                  </button>
+                  </span>
 
                   {repo.defaultWorkspaceId && (
                     <button
