@@ -106,7 +106,7 @@ function WorkspaceTreeInner() {
                 >
                   <button
                     type="button"
-                    className="flex min-w-0 flex-1 items-center gap-2 text-left"
+                    className="flex min-w-0 flex-1 cursor-pointer items-center gap-2 text-left"
                     onClick={() => {
                       if (repo.projectId && repo.defaultWorkspaceId) {
                         void navigate({
@@ -151,7 +151,7 @@ function WorkspaceTreeInner() {
                     <button
                       type="button"
                       aria-label="Add child workspace"
-                      className="shrink-0 rounded-md p-1 text-foreground/30 hover:text-foreground/60 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
+                      className="shrink-0 cursor-pointer rounded-md p-1 text-foreground/30 hover:text-foreground/60 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
                       onClick={(e) => {
                         e.stopPropagation()
                         if (collapsedRepos.has(repo.id)) useSidebarStore.getState().toggleRepo(repo.id)
@@ -175,7 +175,7 @@ function WorkspaceTreeInner() {
                   <button
                     type="button"
                     aria-label="Repo settings"
-                    className="hidden shrink-0 rounded-md p-1 text-foreground/50 hover:text-foreground group-hover:inline-flex"
+                    className="hidden shrink-0 cursor-pointer rounded-md p-1 text-foreground/50 hover:text-foreground group-hover:inline-flex"
                     onClick={(e) => {
                       e.stopPropagation()
                       useSidebarNavStore.getState().push({
@@ -197,7 +197,7 @@ function WorkspaceTreeInner() {
                   <button
                     type="button"
                     aria-label={isCollapsed ? 'Expand repo' : 'Collapse repo'}
-                    className="inline-flex shrink-0 rounded-md p-1 text-foreground/30 hover:text-foreground"
+                    className="inline-flex shrink-0 cursor-pointer rounded-md p-1 text-foreground/30 hover:text-foreground"
                     onClick={(e) => {
                       e.stopPropagation()
                       useSidebarStore.getState().toggleRepo(repo.id)
