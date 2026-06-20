@@ -155,6 +155,49 @@ const CROWBAR_BOOTSTRAP: &str = r#"
 })();
 "#;
 
+/// macOS application menu, deliberately omitting three default accelerators so
+/// the keystrokes reach the webview instead of being captured natively by AppKit
+/// (menu key-equivalents are handled before the web content):
+///   - Edit > Undo / Redo (Cmd+Z / Shift+Cmd+Z): the native Undo targets the
+///     WKWebView's own undo, not Monaco's document undo stack. Omitting lets
+///     Cmd+Z reach Monaco so editor undo works.
+///   - Window > Close (Cmd+W): natively closes the window, quitting the app.
+///     Omitting frees Cmd+W for the in-app "close active tab" keybinding
+///     (web/src/features/panes/hooks/use-pane-keyboard.ts).
+/// Everything else standard is kept: Cut/Copy/Paste/Select-All, Hide, Services,
+/// Quit (Cmd+Q), Minimize.
+#[cfg(target_os = "macos")]
+fn build_app_menu(app: &tauri::AppHandle) -> tauri::Result<tauri::menu::Menu<tauri::Wry>> {
+    use tauri::menu::{AboutMetadata, MenuBuilder, SubmenuBuilder};
+
+    let app_menu = SubmenuBuilder::new(app, "Crowbar")
+        .about(Some(AboutMetadata::default()))
+        .separator()
+        .services()
+        .separator()
+        .hide()
+        .hide_others()
+        .show_all()
+        .separator()
+        .quit()
+        .build()?;
+
+    // No undo()/redo(): freed for Monaco (see doc comment above).
+    let edit_menu = SubmenuBuilder::new(app, "Edit")
+        .cut()
+        .copy()
+        .paste()
+        .select_all()
+        .build()?;
+
+    // No close_window(): Cmd+W is freed for the in-app close-active-tab binding.
+    let window_menu = SubmenuBuilder::new(app, "Window").minimize().build()?;
+
+    MenuBuilder::new(app)
+        .items(&[&app_menu, &edit_menu, &window_menu])
+        .build()
+}
+
 pub fn run() {
     // Step 1: NSUserDefaults before WKWebView creation (macOS 13-15 path).
     #[cfg(target_os = "macos")]
@@ -183,6 +226,13 @@ pub fn run() {
     #[cfg(debug_assertions)]
     {
         builder = builder.plugin(tauri_plugin_mcp_bridge::init());
+    }
+
+    // Custom macOS menu that frees Cmd+Z/Cmd+W from native capture so the webview
+    // (Monaco undo, in-app close-active-tab) can handle them. See build_app_menu.
+    #[cfg(target_os = "macos")]
+    {
+        builder = builder.menu(build_app_menu);
     }
 
     builder

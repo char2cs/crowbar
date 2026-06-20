@@ -10,6 +10,7 @@ import {
   PANE_NAVIGATE_UP,
   PANE_SPLIT_DOWN,
   PANE_SPLIT_RIGHT,
+  TAB_CLOSE,
   TAB_REOPEN_CLOSED,
 } from '@/features/keymaps/registry'
 
@@ -45,6 +46,27 @@ export function usePaneKeyboard() {
       if (matches(TAB_REOPEN_CLOSED)) {
         e.preventDefault()
         workspaceStore.getState().bufferActions.reopenLastClosedBuffer()
+        return
+      }
+
+      if (matches(TAB_CLOSE)) {
+        // Always preventDefault so the chord never reaches the OS window-close.
+        // Mirror the tab × button (handleTabClose): remove the buffer from its
+        // pane FIRST so an adjacent tab activates (raw closeBuffer alone leaves
+        // a dangling activeBufferId → empty state), and prompt before discarding
+        // a dirty editor buffer. No active buffer → no-op (never quits the app).
+        e.preventDefault()
+        const state = workspaceStore.getState()
+        const paneId = state.activePaneId
+        const bufferId = state.panes[paneId]?.activeBufferId
+        if (!bufferId) return
+        const buf = state.buffers.find((b) => b.id === bufferId)
+        if (buf && buf.type === 'editor' && buf.isDirty) {
+          state.bufferActions.setPendingClose({ type: 'single', bufferId })
+          return
+        }
+        state.paneActions.removeBufferFromPane(paneId, bufferId)
+        state.bufferActions.closeBuffer(bufferId)
         return
       }
 

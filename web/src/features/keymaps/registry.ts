@@ -20,6 +20,7 @@ export const PANE_NAVIGATE_DOWN = 'panes.navigateDown'
 export const PANE_SPLIT_RIGHT = 'panes.splitRight'
 export const PANE_SPLIT_DOWN = 'panes.splitDown'
 export const TAB_REOPEN_CLOSED = 'tabs.reopenClosed'
+export const TAB_CLOSE = 'tabs.closeActive'
 
 export const EDITOR_SAVE = 'editor.save'
 export const EDITOR_SAVE_ALL = 'editor.saveAll'
@@ -74,6 +75,13 @@ export const COMMANDS: Command[] = [
     label: 'Reopen last closed tab',
     category: 'Tabs',
     defaultChord: 'mod+shift+t',
+    liveEditable: true,
+  },
+  {
+    id: TAB_CLOSE,
+    label: 'Close active tab',
+    category: 'Tabs',
+    defaultChord: 'mod+w',
     liveEditable: true,
   },
   // --- Editor (display-only: still hardcoded in use-save-keyboard.ts) ---
