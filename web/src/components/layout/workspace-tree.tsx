@@ -1,5 +1,5 @@
 import { useCallback } from 'react'
-import { Settings } from 'lucide-react'
+import { Plus, Settings } from 'lucide-react'
 import { useNavigate, useRouterState } from '@tanstack/react-router'
 import { ScrollArea } from '@/components/ui/scroll-area'
 import { useSidebarStore } from '@/lib/store/sidebar'
@@ -7,6 +7,7 @@ import { useWorkspaceListStore } from '@/lib/store/workspace-list'
 import { InlineError } from '@/components/ui/inline-error'
 import { cn } from '@/lib/utils'
 import { ROW_BASE } from './workspace-row-base'
+import { WorkspaceInlineInput } from './workspace-inline-input'
 import { WorkspaceTreeFooter } from './workspace-tree-footer'
 import { WorkspaceTreeItem } from './workspace-tree-item'
 import { WorkspaceTreeProvider, useWorkspaceTreeContext } from './workspace-tree-context'
@@ -61,7 +62,8 @@ function WorkspaceTreeInner() {
   const pathname = useRouterState({ select: (s) => s.location.pathname })
   const repos = useSidebarStore((s) => s.repos)
   const collapsedRepos = useSidebarStore((s) => s.collapsedRepos)
-  const { hoverTargetId } = useWorkspaceTreeContext()
+  const { hoverTargetId, creatingChildOf, startCreating, confirmCreate, cancelCreate } =
+    useWorkspaceTreeContext()
   const wsListData = useWorkspaceListStore((s) => s.data)
   const retryWorkspaces = useCallback(() => {
     void useWorkspaceListStore.getState().fetch()
@@ -92,47 +94,74 @@ function WorkspaceTreeInner() {
             return (
               <div key={repo.id} className="mb-1">
                 <div
-                  role="button"
-                  tabIndex={0}
                   className={cn(
                     ROW_BASE,
                     'group border-transparent text-foreground hover:bg-accent',
+                    activeWorkspaceId !== '' && activeWorkspaceId === repo.defaultWorkspaceId && 'bg-accent',
                     isRepoDragOver && 'ring-1 ring-ring',
                   )}
-                  onClick={() => useSidebarStore.getState().toggleRepo(repo.id)}
-                  onKeyDown={(e) => {
-                    if (e.key === 'Enter' || e.key === ' ') {
-                      e.preventDefault()
-                      useSidebarStore.getState().toggleRepo(repo.id)
-                    }
-                  }}
-                  aria-label={isCollapsed ? 'Expand repo' : 'Collapse repo'}
                   data-repo-drop={repo.id}
                 >
-                  {repo.avatarURL?.startsWith('emoji:') ? (
-                    <span className="inline-flex h-4 w-4 shrink-0 items-center justify-center text-base leading-none">
-                      {repo.avatarURL.slice(6)}
-                    </span>
-                  ) : repo.avatarURL ? (
-                    <img
-                      src={repo.avatarURL}
-                      alt={repo.name}
-                      className="h-4 w-4 shrink-0 rounded object-cover"
-                    />
-                  ) : (
-                    <span
-                      className={cn(
-                        'inline-flex h-4 w-4 shrink-0 items-center justify-center rounded px-1 text-[10px] font-bold text-primary-foreground',
-                        repo.avatarColor,
-                      )}
-                    >
-                      {repo.avatarLabel}
-                    </span>
-                  )}
-                  <span className="min-w-0 flex-1 truncate text-left font-mono text-foreground">
-                    {repo.name}
-                  </span>
                   <button
+                    type="button"
+                    className="flex min-w-0 flex-1 items-center gap-2 text-left"
+                    onClick={() => {
+                      if (repo.projectId && repo.defaultWorkspaceId) {
+                        void navigate({
+                          to: '/ide/$projectId/$repoId/$wsId',
+                          params: { projectId: repo.projectId, repoId: repo.id, wsId: repo.defaultWorkspaceId },
+                        })
+                      }
+                    }}
+                    aria-label={`Open ${repo.name}`}
+                  >
+                    {repo.avatarURL?.startsWith('emoji:') ? (
+                      <span className="inline-flex h-5 w-5 shrink-0 items-center justify-center text-lg leading-none">
+                        {repo.avatarURL.slice(6)}
+                      </span>
+                    ) : repo.avatarURL ? (
+                      <img
+                        src={repo.avatarURL}
+                        alt={repo.name}
+                        className="h-5 w-5 shrink-0 rounded-md object-cover"
+                      />
+                    ) : (
+                      <span
+                        className={cn(
+                          'inline-flex h-5 w-5 shrink-0 items-center justify-center rounded-md px-1 text-[11px] font-bold text-primary-foreground',
+                          repo.avatarColor,
+                        )}
+                      >
+                        {repo.avatarLabel}
+                      </span>
+                    )}
+                    <span className="flex min-w-0 flex-col">
+                      <span className="min-w-0 truncate font-mono text-foreground">{repo.name}</span>
+                      {repo.defaultWorkspaceBranch && (
+                        <span className="min-w-0 truncate font-mono text-[11px] text-foreground/40 opacity-0 transition-opacity group-hover:opacity-100">
+                          {repo.defaultWorkspaceBranch}
+                        </span>
+                      )}
+                    </span>
+                  </button>
+
+                  {repo.defaultWorkspaceId && (
+                    <button
+                      type="button"
+                      aria-label="New workspace from default"
+                      className="hidden shrink-0 rounded-md p-1 text-foreground/50 hover:text-foreground group-hover:inline-flex"
+                      onClick={(e) => {
+                        e.stopPropagation()
+                        if (collapsedRepos.has(repo.id)) useSidebarStore.getState().toggleRepo(repo.id)
+                        startCreating(repo.id, repo.defaultWorkspaceId!)
+                      }}
+                    >
+                      <Plus className="size-3" />
+                    </button>
+                  )}
+
+                  <button
+                    type="button"
                     aria-label="Repo settings"
                     className="hidden shrink-0 rounded-md p-1 text-foreground/50 hover:text-foreground group-hover:inline-flex"
                     onClick={(e) => {
@@ -152,7 +181,16 @@ function WorkspaceTreeInner() {
                   >
                     <Settings className="size-3" />
                   </button>
-                  <span className="inline-flex shrink-0 rounded-md p-1 text-foreground/30 group-hover:hidden">
+
+                  <button
+                    type="button"
+                    aria-label={isCollapsed ? 'Expand repo' : 'Collapse repo'}
+                    className="inline-flex shrink-0 rounded-md p-1 text-foreground/30 hover:text-foreground"
+                    onClick={(e) => {
+                      e.stopPropagation()
+                      useSidebarStore.getState().toggleRepo(repo.id)
+                    }}
+                  >
                     <svg
                       aria-hidden="true"
                       className={cn('size-3 transition-transform', !isCollapsed && 'rotate-90')}
@@ -164,10 +202,19 @@ function WorkspaceTreeInner() {
                     >
                       <path d="M6 3l5 5-5 5" />
                     </svg>
-                  </span>
+                  </button>
                 </div>
                 {!isCollapsed && (
                   <div>
+                    {creatingChildOf?.repoId === repo.id &&
+                      creatingChildOf?.parentId === repo.defaultWorkspaceId && (
+                        <div style={{ paddingLeft: 14 }}>
+                          <div className={cn(ROW_BASE, 'border-transparent text-foreground')}>
+                            <Plus className="size-4 shrink-0 text-foreground/30" />
+                            <WorkspaceInlineInput onConfirm={confirmCreate} onCancel={cancelCreate} />
+                          </div>
+                        </div>
+                      )}
                     {roots.map((node) => (
                       <WorkspaceTreeItem
                         key={node.workspace.id}
