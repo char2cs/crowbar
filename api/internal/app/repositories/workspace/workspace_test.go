@@ -422,6 +422,24 @@ func TestWorkspace_List(t *testing.T) {
 	assert.Len(t, all, 2)
 }
 
+func TestCreate_PersistsIsDefault(t *testing.T) {
+	ctx, repo := newRepo(t)
+
+	created, err := repo.Create(ctx, workspace.CreateInput{
+		ID:        "w-default",
+		RepoID:    "r1",
+		ProjectID: "p1",
+		Branch:    "develop",
+		IsDefault: true,
+	}, time.Unix(1, 0).UTC())
+	require.NoError(t, err)
+	assert.True(t, created.IsDefault, "Create must return IsDefault")
+
+	got, err := repo.Get(ctx, "w-default")
+	require.NoError(t, err)
+	assert.True(t, got.IsDefault, "Get must round-trip IsDefault")
+}
+
 func TestWorkspace_New_NilGuards(t *testing.T) {
 	_, err := workspace.New(nil, func(domain.Workspace) {}, wsAsynxFactory)
 	assert.Error(t, err)

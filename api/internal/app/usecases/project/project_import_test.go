@@ -593,6 +593,43 @@ func TestImportRepo_UnknownProject_Errors(
 	assert.Empty(t, repos.Saved)
 }
 
+func TestImportRepo_FlagsMainWorktreeAsDefault(t *testing.T) {
+	projects := mocks.NewProjectStore()
+	repos := mocks.NewRepositoryStore()
+	ws := mocks.NewWorkspaceRepo()
+	git := mocks.NewGitEngine()
+	prov := mocks.NewProviderEngine()
+
+	require.NoError(t, projects.Save(context.Background(),
+		domain.Project{ID: "proj-1", Name: "P", Path: "/root"}))
+
+	// The main worktree is the entry whose Path == repo.Path (/root/repoA).
+	git.Worktrees = []gitengine.WorktreeEntry{
+		{Path: "/root/repoA", Branch: "develop", Head: "h1"},
+		{Path: "/root/wt-x", Branch: "feature/x", Head: "h2"},
+	}
+	prov.Protected = []string{"staging"} // a protected branch with no local worktree
+
+	uc := project.NewImport(project.ImportDeps{
+		Projects: projects, Repos: repos, Workspaces: ws, Git: git, Provider: prov,
+		Discover:  func(string, int) ([]string, error) { return nil, nil },
+		RefRunner: func(string) defaultbranch.RefRunner { return func(...string) (string, bool) { return "", false } },
+		Now:       func() time.Time { return time.Unix(1000, 0).UTC() },
+		Stat:      statExists,
+	})
+
+	_, err := uc.ImportRepo(context.Background(), "proj-1", "/root/repoA")
+	require.NoError(t, err)
+
+	byBranch := map[string]bool{}
+	for _, c := range ws.Created {
+		byBranch[c.Branch] = c.IsDefault
+	}
+	assert.True(t, byBranch["develop"], "main-worktree workspace must be IsDefault")
+	assert.False(t, byBranch["feature/x"], "non-main worktree must not be IsDefault")
+	assert.False(t, byBranch["staging"], "protected stub must not be IsDefault")
+}
+
 // TestImportRepo_LoadProjectError_Errors pins that a project-store lookup error
 // surfaces from ImportRepo and persists nothing.
 func TestImportRepo_LoadProjectError_Errors(

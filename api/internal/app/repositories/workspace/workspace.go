@@ -253,6 +253,7 @@ func (w *workspace) Create(
 		ForkPointSha:  in.ForkPointSha,
 		ParentID:      in.ParentID,
 		Protected:     in.Protected,
+		IsDefault:     in.IsDefault,
 		MergeStrategy: in.MergeStrategy,
 		Now:           now,
 	})

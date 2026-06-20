@@ -417,6 +417,7 @@ func (u *projectImport) adoptOneWorktree(
 		WorktreePath: wt.Path,
 		ForkPointSha: u.forkPoint(ctx, repo, wt.Branch),
 		Protected:    locked[wt.Branch],
+		IsDefault:    wt.Path == repo.Path,
 	}
 	if _, err := u.deps.Workspaces.Create(ctx, in, u.deps.Now()); err != nil {
 		return fmt.Errorf("project import: adopt worktree: %w", err)

@@ -6,7 +6,6 @@ type Repository struct {
 	Name          string `json:"name"`
 	Path          string `json:"path"`
 	DefaultBranch string `json:"defaultBranch"`
-	MainBranch    string `json:"mainBranch,omitempty"`
 	AvatarLabel   string `json:"avatarLabel"`
 	AvatarColor   string `json:"avatarColor"`
 	AvatarHasIcon bool   `json:"avatarHasIcon"`

@@ -20,6 +20,7 @@ type CreateWorkspace struct {
 	ForkPointSha  string
 	ParentID      string
 	Protected     bool
+	IsDefault     bool
 	MergeStrategy gitdomain.MergeStrategy
 	Now           time.Time
 }
@@ -71,6 +72,7 @@ func (c CreateWorkspace) EmitEvent(
 		ParentID:      c.ParentID,
 		Status:        status,
 		MergeStrategy: strategy,
+		IsDefault:     c.IsDefault,
 		LastActivity:  c.Now,
 		CreatedAt:     c.Now,
 	}

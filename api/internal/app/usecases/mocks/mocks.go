@@ -146,6 +146,7 @@ func (r *WorkspaceRepo) Create(
 		ParentID:      in.ParentID,
 		Status:        status,
 		MergeStrategy: in.MergeStrategy,
+		IsDefault:     in.IsDefault,
 		CreatedAt:     now,
 	}
 	r.Created = append(r.Created, ws)
