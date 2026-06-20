@@ -116,18 +116,21 @@ export function useWorkspaceEffects(wsId: string) {
             await renameFileNode(wsId, path, dir ? joinPath(dir, newName) : newName)
             return
           }
-          // No newName → begin an inline rename: mark the node editable so the
-          // tree renders its inline input (file.isEditing || file.isRenaming).
-          const mark = (nodes: AppFile[]): AppFile[] =>
-            nodes.map((n) =>
-              n.path === path
-                ? { ...n, isRenaming: true, isEditing: true }
-                : n.children
-                  ? { ...n, children: mark(n.children) }
-                  : n,
-            )
+          // No newName → TOGGLE inline rename on the node. The bare call is used
+          // both to START a rename (context menu / double-click) and to CANCEL one
+          // (Escape in the inline-editing hook), so toggling the editable flag
+          // makes start and cancel both work. The tree renders its inline input
+          // while isEditing/isRenaming is set.
+          const toggle = (nodes: AppFile[]): AppFile[] =>
+            nodes.map((n) => {
+              if (n.path === path) {
+                const renaming = !n.isRenaming
+                return { ...n, isRenaming: renaming, isEditing: renaming }
+              }
+              return n.children ? { ...n, children: toggle(n.children) } : n
+            })
           const fs = useFileSystemStore.getState()
-          fs.setFiles(mark(fs.files))
+          fs.setFiles(toggle(fs.files))
         },
         refreshDirectory: async (path?: string) => {
           const fresh = await fetchFileTree(wsId, path || undefined).catch(() => null)

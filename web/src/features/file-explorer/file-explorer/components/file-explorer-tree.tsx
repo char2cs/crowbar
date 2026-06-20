@@ -7,6 +7,7 @@ import { useEventListener } from 'usehooks-ts'
 import { useFileClipboardStore } from '@/features/file-explorer/stores/file-explorer-clipboard-store'
 import { useFileTreeStore } from '@/features/file-explorer/stores/file-explorer-tree-store'
 import {
+  computeFileTreeSearchHits,
   filterFileTreeForFffHits,
   getGuideAncestorRows,
   getStickyAncestorRows,
@@ -314,8 +315,12 @@ function FileExplorerTreeComponent({
     isTreeSearchActive && treeSearchQuery.trim() !== debouncedTreeSearchQuery.trim()
   const isTreeSearchSearching = isTreeSearchActive && isTreeSearchSettling
   const treeSearchResult = useMemo(
-    () => filterFileTreeForFffHits(filteredFiles, []),
-    [filteredFiles],
+    () =>
+      filterFileTreeForFffHits(
+        filteredFiles,
+        computeFileTreeSearchHits(filteredFiles, debouncedTreeSearchQuery),
+      ),
+    [filteredFiles, debouncedTreeSearchQuery],
   )
   const displayedFiles =
     isTreeSearchActive && !isTreeSearchSearching
@@ -758,17 +763,13 @@ function FileExplorerTreeComponent({
       if (!t) return
       e.preventDefault()
       e.stopPropagation()
-      if (!t.isDir) {
-        fileOpenBenchmark.ensureStarted(t.path, 'explorer-double-click')
-        fileOpenBenchmark.mark(t.path, 'explorer-double-click')
-      }
       setFocusedPath(t.path)
-      void Promise.resolve(onFileOpen?.(t.path, t.isDir))
-      if (t.isDir) {
-        updateActivePath?.(t.path)
-      }
+      // Double-click begins an inline rename (onRenamePath with no new name marks
+      // the node editable). Single-click still opens/previews; the context-menu
+      // "Rename" uses this same path.
+      onRenamePath?.(t.path)
     },
-    [onFileOpen, updateActivePath, pathToFile],
+    [onRenamePath],
   )
 
   const handleContainerContextMenu = useCallback(

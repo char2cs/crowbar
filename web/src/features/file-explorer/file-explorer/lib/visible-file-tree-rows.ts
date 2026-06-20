@@ -87,6 +87,32 @@ function normalizeSearchPath(path: string): string {
   return normalized.replace(/\/+$/g, '')
 }
 
+/**
+ * Compute search hits for the file-tree filter: every loaded node whose NAME
+ * contains `query` (case-insensitive substring). Matches both files and
+ * directories; pass the result to filterFileTreeForFffHits to prune the tree to
+ * the matches and their ancestors. Skips in-progress inline-edit placeholders.
+ * (Only loaded levels are searched — the tree is lazy, so unexpanded directories
+ * aren't traversed.)
+ */
+export function computeFileTreeSearchHits(
+  files: FileEntry[],
+  query: string,
+): FileTreeSearchHit[] {
+  const q = query.trim().toLowerCase()
+  if (!q) return []
+  const hits: FileTreeSearchHit[] = []
+  const walk = (items: FileEntry[]): void => {
+    for (const item of items) {
+      if (item.isNewItem || item.isEditing) continue
+      if (item.name.toLowerCase().includes(q)) hits.push({ path: item.path })
+      if (item.children) walk(item.children)
+    }
+  }
+  walk(files)
+  return hits
+}
+
 export function filterFileTreeForFffHits(
   files: FileEntry[],
   hits: readonly FileTreeSearchHit[],
