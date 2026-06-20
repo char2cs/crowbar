@@ -1,12 +1,12 @@
 import { useCallback } from 'react'
-import { Plus, Settings } from 'lucide-react'
+import { Settings } from 'lucide-react'
 import { useNavigate, useRouterState } from '@tanstack/react-router'
 import { ScrollArea } from '@/components/ui/scroll-area'
 import { useSidebarStore } from '@/lib/store/sidebar'
 import { useWorkspaceListStore } from '@/lib/store/workspace-list'
 import { InlineError } from '@/components/ui/inline-error'
 import { cn } from '@/lib/utils'
-import { ROW_BASE } from './workspace-row-base'
+import { ROW_BASE, ROW_ACTIVE, ROW_INACTIVE, ADD_GLYPH_PATH } from './workspace-row-base'
 import { WorkspaceInlineInput } from './workspace-inline-input'
 import { WorkspaceTreeFooter } from './workspace-tree-footer'
 import { WorkspaceTreeItem } from './workspace-tree-item'
@@ -96,8 +96,10 @@ function WorkspaceTreeInner() {
                 <div
                   className={cn(
                     ROW_BASE,
-                    'group border-transparent text-foreground hover:bg-accent',
-                    activeWorkspaceId !== '' && activeWorkspaceId === repo.defaultWorkspaceId && 'bg-accent',
+                    'group',
+                    activeWorkspaceId !== '' && activeWorkspaceId === repo.defaultWorkspaceId
+                      ? ROW_ACTIVE
+                      : ROW_INACTIVE,
                     isRepoDragOver && 'ring-1 ring-ring',
                   )}
                   data-repo-drop={repo.id}
@@ -135,11 +137,11 @@ function WorkspaceTreeInner() {
                         {repo.avatarLabel}
                       </span>
                     )}
-                    <span className="flex min-w-0 flex-col">
-                      <span className="min-w-0 truncate font-mono text-foreground">{repo.name}</span>
+                    <span className="flex min-w-0 items-baseline gap-1.5">
+                      <span className="shrink-0 font-mono text-foreground">{repo.name}</span>
                       {repo.defaultWorkspaceBranch && (
-                        <span className="hidden min-w-0 truncate font-mono text-[11px] text-foreground/40 group-hover:block">
-                          {repo.defaultWorkspaceBranch}
+                        <span className="hidden min-w-0 truncate font-mono text-[11px] text-foreground/40 group-hover:inline">
+                          - {repo.defaultWorkspaceBranch}
                         </span>
                       )}
                     </span>
@@ -148,15 +150,25 @@ function WorkspaceTreeInner() {
                   {repo.defaultWorkspaceId && (
                     <button
                       type="button"
-                      aria-label="New workspace from default"
-                      className="hidden shrink-0 rounded-md p-1 text-foreground/50 hover:text-foreground group-hover:inline-flex"
+                      aria-label="Add child workspace"
+                      className="shrink-0 rounded-md p-1 text-foreground/30 hover:text-foreground/60 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
                       onClick={(e) => {
                         e.stopPropagation()
                         if (collapsedRepos.has(repo.id)) useSidebarStore.getState().toggleRepo(repo.id)
                         startCreating(repo.id, repo.defaultWorkspaceId!)
                       }}
                     >
-                      <Plus className="size-3" />
+                      <svg
+                        aria-hidden="true"
+                        className="size-3"
+                        viewBox="0 0 16 16"
+                        fill="none"
+                        stroke="currentColor"
+                        strokeWidth="2"
+                        strokeLinecap="round"
+                      >
+                        <path d={ADD_GLYPH_PATH} />
+                      </svg>
                     </button>
                   )}
 
@@ -210,7 +222,17 @@ function WorkspaceTreeInner() {
                       creatingChildOf?.parentId === repo.defaultWorkspaceId && (
                         <div style={{ paddingLeft: 14 }}>
                           <div className={cn(ROW_BASE, 'border-transparent text-foreground')}>
-                            <Plus className="size-4 shrink-0 text-foreground/30" />
+                            <svg
+                              aria-hidden="true"
+                              className="size-4 shrink-0 text-foreground/30"
+                              viewBox="0 0 16 16"
+                              fill="none"
+                              stroke="currentColor"
+                              strokeWidth="2"
+                              strokeLinecap="round"
+                            >
+                              <path d={ADD_GLYPH_PATH} />
+                            </svg>
                             <WorkspaceInlineInput onConfirm={confirmCreate} onCancel={cancelCreate} />
                           </div>
                         </div>

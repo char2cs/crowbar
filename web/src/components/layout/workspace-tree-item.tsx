@@ -2,7 +2,7 @@ import { cn } from '@/lib/utils'
 import { formatChangeCount } from './format-change-count'
 import { WorkspaceBranchIcon } from './workspace-branch-icon'
 import { WorkspaceInlineInput } from './workspace-inline-input'
-import { ROW_BASE } from './workspace-row-base'
+import { ROW_BASE, ROW_ACTIVE, ROW_INACTIVE, ADD_GLYPH_PATH } from './workspace-row-base'
 import { useWorkspaceTreeContext } from './workspace-tree-context'
 import { useSidebarStore } from '@/lib/store/sidebar'
 import type { WorkspaceTreeNode } from './workspace-tree'
@@ -51,11 +51,7 @@ export function WorkspaceTreeItem({
   const isDropTarget = hoverTargetId === `ws:${workspace.id}` && !isDraggingThis
   const showChildrenSection = (hasChildren && expanded) || isCreatingChild
 
-  const variant = isActive
-    ? 'border-background bg-background text-foreground shadow-xs shadow-black/10 not-disabled:inset-shadow-[0_1px_--theme(--color-white/16%)] active:inset-shadow-[0_1px_--theme(--color-black/8%)] active:shadow-none'
-    : isLocked
-      ? 'border-transparent text-foreground hover:bg-accent'
-      : 'border-transparent text-foreground hover:bg-accent'
+  const variant = isActive ? ROW_ACTIVE : ROW_INACTIVE
 
   return (
     <div>
@@ -161,7 +157,7 @@ export function WorkspaceTreeItem({
                 strokeWidth="2"
                 strokeLinecap="round"
               >
-                <path d="M8 3v10M3 8h10" />
+                <path d={ADD_GLYPH_PATH} />
               </svg>
             </button>
           ) : null}
@@ -196,7 +192,7 @@ export function WorkspaceTreeItem({
                   strokeWidth="2"
                   strokeLinecap="round"
                 >
-                  <path d="M8 3v10M3 8h10" />
+                  <path d={ADD_GLYPH_PATH} />
                 </svg>
                 <WorkspaceInlineInput onConfirm={confirmCreate} onCancel={cancelCreate} />
               </div>
@@ -225,7 +221,7 @@ export function WorkspaceTreeItem({
                   strokeWidth="2"
                   strokeLinecap="round"
                 >
-                  <path d="M8 3v10M3 8h10" />
+                  <path d={ADD_GLYPH_PATH} />
                 </svg>
                 <span className="font-mono text-left text-[13px]">New</span>
               </div>
