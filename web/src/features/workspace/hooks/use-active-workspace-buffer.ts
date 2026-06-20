@@ -1,6 +1,7 @@
 import { useCallback, useSyncExternalStore } from 'react'
 import { useRouterState } from '@tanstack/react-router'
 import { getOrCreateWorkspaceStore } from '@/features/workspace/stores/workspace-store-registry'
+import { parseWorkspaceScopeFromPath } from '@/lib/workspace-scope'
 import type { PaneContent } from '@/features/panes/types/pane-content'
 
 /**
@@ -13,7 +14,7 @@ import type { PaneContent } from '@/features/panes/types/pane-content'
  */
 export function useActiveWorkspaceBuffer(): PaneContent | null {
   const wsId = useRouterState({
-    select: (s) => s.location.pathname.match(/\/workspaces\/([^/]+)/)?.[1] ?? '',
+    select: (s) => parseWorkspaceScopeFromPath(s.location.pathname)?.wsId ?? '',
   })
 
   const subscribe = useCallback(

@@ -7,6 +7,7 @@ import { useProjectStore } from '@/lib/store/projects'
 import { WorkspaceBranchIcon } from './workspace-branch-icon'
 import { deriveContextPillModel } from './context-pill-model'
 import { WorkspaceSwitcherMenu } from './workspace-switcher'
+import { parseWorkspaceScopeFromPath } from '@/lib/workspace-scope'
 
 /**
  * "You are here" pill above the sidebar tab bar: shows the current
@@ -20,7 +21,7 @@ export function ContextPill() {
   const activeProjectId = useProjectStore((s) => s.activeProjectId)
   const [open, setOpen] = useState(false)
 
-  const activeWorkspaceId = pathname.match(/\/workspaces\/([^/]+)/)?.[1]
+  const activeWorkspaceId = parseWorkspaceScopeFromPath(pathname)?.wsId
   const model = deriveContextPillModel({ activeWorkspaceId, repos, projects, activeProjectId })
 
   if (model.kind === 'empty') return null

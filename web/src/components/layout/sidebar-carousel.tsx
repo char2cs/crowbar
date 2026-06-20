@@ -10,6 +10,7 @@ import { SidebarSkeleton } from './sidebar-skeleton'
 import { useFileTreeStore } from '@/features/file-explorer/stores/file-explorer-tree-store'
 import { useFileSystemStore } from '@/features/file-system/controllers/store'
 import { useSidebarStore, type SidebarTab } from '@/lib/store/sidebar'
+import { parseWorkspaceScopeFromPath } from '@/lib/workspace-scope'
 
 const TABS: SidebarTab[] = ['workspaces', 'chats', 'files', 'git']
 
@@ -19,7 +20,7 @@ interface SidebarCarouselProps {
 
 export function SidebarCarousel({ activeWorkspaceRepoPath }: SidebarCarouselProps) {
   const pathname = useRouterState({ select: (s) => s.location.pathname })
-  const activeWorkspaceId = pathname.match(/\/workspaces\/([^/]+)/)?.[1] ?? ''
+  const activeWorkspaceId = parseWorkspaceScopeFromPath(pathname)?.wsId ?? ''
   const activeTab = useSidebarStore((s) => s.activeTab)
   const setActiveTab = useSidebarStore((s) => s.setActiveTab)
   const files = useFileSystemStore((s) => s.files)

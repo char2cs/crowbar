@@ -1,6 +1,7 @@
 import { describe, it, expect, beforeEach } from 'vitest'
 import {
   recordWorkspaceScopeFromPath,
+  parseWorkspaceScopeFromPath,
   getWorkspaceScope,
   __resetWorkspaceScopesForTest,
 } from '@/lib/workspace-scope'
@@ -45,5 +46,30 @@ describe('recordWorkspaceScopeFromPath', () => {
     expect(recordWorkspaceScopeFromPath('/')).toBeNull()
     expect(recordWorkspaceScopeFromPath('/chat/abc')).toBeNull()
     expect(getWorkspaceScope('w9')).toBeNull()
+  })
+})
+
+// The context pill (and other read-only render paths) parse the active workspace
+// from the route WITHOUT recording it. Regression: the pill used the legacy
+// /workspaces/:wsId shape, which never matches the real /ide/:p/:r/:wsId route, so
+// it always fell back to the project name ("Rabbyte") instead of the repo/branch.
+describe('parseWorkspaceScopeFromPath', () => {
+  it('parses the scope from an /ide/:p/:r/:wsId path', () => {
+    expect(parseWorkspaceScopeFromPath('/ide/p1/r1/ws1')).toEqual({
+      projectId: 'p1',
+      repoId: 'r1',
+      wsId: 'ws1',
+    })
+  })
+
+  it('returns null for a legacy /workspaces/:wsId path and other non-ide paths', () => {
+    expect(parseWorkspaceScopeFromPath('/workspaces/ws1')).toBeNull()
+    expect(parseWorkspaceScopeFromPath('/')).toBeNull()
+    expect(parseWorkspaceScopeFromPath('/chat/abc')).toBeNull()
+  })
+
+  it('does NOT record into the registry (pure read, unlike recordWorkspaceScopeFromPath)', () => {
+    parseWorkspaceScopeFromPath('/ide/p2/r2/ws2')
+    expect(getWorkspaceScope('ws2')).toBeNull()
   })
 })

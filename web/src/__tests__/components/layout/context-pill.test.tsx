@@ -33,7 +33,7 @@ beforeEach(() => {
 
 describe('ContextPill', () => {
   it('renders reponame/branchname in workspace mode', () => {
-    mockPathname = '/workspaces/ws1'
+    mockPathname = '/ide/p1/r1/ws1'
     render(<ContextPill />)
     expect(screen.getByText('crowbar')).toBeInTheDocument()
     expect(screen.getByText('ide-polish')).toBeInTheDocument()
@@ -46,7 +46,7 @@ describe('ContextPill', () => {
   })
 
   it('opens the workspace switcher on click', async () => {
-    mockPathname = '/workspaces/ws1'
+    mockPathname = '/ide/p1/r1/ws1'
     render(<ContextPill />)
     fireEvent.click(screen.getByRole('button', { name: 'Switch workspace' }))
     expect(await screen.findByPlaceholderText('Switch workspace…')).toBeInTheDocument()

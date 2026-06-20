@@ -38,11 +38,24 @@ const IDE_ROUTE = /\/ide\/([^/]+)\/([^/]+)\/([^/]+)/
  * scope source, so deriving it here keeps the lookup resolvable on first paint.
  */
 export function recordWorkspaceScopeFromPath(pathname: string): WorkspaceScope | null {
+  const scope = parseWorkspaceScopeFromPath(pathname)
+  if (scope) setWorkspaceScope(scope)
+  return scope
+}
+
+/**
+ * Pure parse of an /ide/:projectId/:repoId/:wsId pathname into its scope, WITHOUT
+ * recording it (no side effect). Returns null for a non-/ide path. Render paths
+ * that only need to READ the active workspace from the route — e.g. the context
+ * pill — use this so they react to pathname changes without mutating the registry
+ * (which the IDE shell owns). The route shape is /ide/:p/:r/:wsId; matching the
+ * legacy /workspaces/:wsId shape here is the bug this replaced — the pill then
+ * never resolved a workspace and always showed the project name.
+ */
+export function parseWorkspaceScopeFromPath(pathname: string): WorkspaceScope | null {
   const match = pathname.match(IDE_ROUTE)
   if (!match) return null
-  const scope: WorkspaceScope = { projectId: match[1], repoId: match[2], wsId: match[3] }
-  setWorkspaceScope(scope)
-  return scope
+  return { projectId: match[1], repoId: match[2], wsId: match[3] }
 }
 
 /** Testing only — clears the in-memory scope registry between tests. */

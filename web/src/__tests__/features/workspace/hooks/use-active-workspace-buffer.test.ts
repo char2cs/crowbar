@@ -3,8 +3,12 @@ import { describe, it, expect, beforeEach, vi } from 'vitest'
 
 const routerState = { wsId: 'ws1' }
 vi.mock('@tanstack/react-router', () => ({
+  // Real IDE route is /ide/:projectId/:repoId/:wsId; an empty wsId means we are
+  // not on a workspace route at all (pathname '/').
   useRouterState: ({ select }: { select: (s: unknown) => unknown }) =>
-    select({ location: { pathname: `/workspaces/${routerState.wsId}` } }),
+    select({
+      location: { pathname: routerState.wsId ? `/ide/p1/r1/${routerState.wsId}` : '/' },
+    }),
 }))
 
 const fakeStore = {
