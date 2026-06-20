@@ -394,6 +394,25 @@ func (u *projectImport) importProtectedBranchStubs(
 	return nil
 }
 
+// samePath reports whether two filesystem paths refer to the same location,
+// resolving symlinks first so a repo imported under a symlinked root still
+// matches the path git reports for its main worktree. This matters because git
+// worktree list emits the fully-resolved path (e.g. macOS /var -> /private/var,
+// or a symlinked home / network mount), while repo.Path is the path as imported;
+// a naive string compare would then never flag the main worktree as default.
+// Falls back to a lexical clean when a path cannot be resolved (e.g. it no
+// longer exists on disk).
+func samePath(a string, b string) bool {
+	return resolvePath(a) == resolvePath(b)
+}
+
+func resolvePath(p string) string {
+	if resolved, err := filepath.EvalSymlinks(p); err == nil {
+		return resolved
+	}
+	return filepath.Clean(p)
+}
+
 func (u *projectImport) adoptOneWorktree(
 	ctx context.Context,
 	repo domain.Repository,
@@ -417,7 +436,7 @@ func (u *projectImport) adoptOneWorktree(
 		WorktreePath: wt.Path,
 		ForkPointSha: u.forkPoint(ctx, repo, wt.Branch),
 		Protected:    locked[wt.Branch],
-		IsDefault:    wt.Path == repo.Path,
+		IsDefault:    samePath(wt.Path, repo.Path),
 	}
 	if _, err := u.deps.Workspaces.Create(ctx, in, u.deps.Now()); err != nil {
 		return fmt.Errorf("project import: adopt worktree: %w", err)

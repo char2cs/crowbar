@@ -80,6 +80,41 @@ func TestRegression_AllReadEndpointsUseEnvelope(t *testing.T) {
 	}
 }
 
+// The imported repo's main worktree (worktreePath == repo.Path) is adopted as a
+// workspace flagged IsDefault, and that flag must survive persistence and reach
+// the wire on GET /workspaces. The frontend pulls this workspace out of the
+// sidebar tree and opens it from the repo header by its real id; if the DTO does
+// not carry isDefault the default folder would render as a duplicate tree row.
+func TestRegression_MainWorktreeWorkspaceServedWithIsDefault(t *testing.T) {
+	h := newHarness(t)
+	imported := importProject(t, h)
+	repoBase := "/v0/projects/" + imported.projectID + "/repos/" + imported.repoID
+
+	var workspaces []struct {
+		ID        string `json:"id"`
+		Branch    string `json:"branch"`
+		IsDefault bool   `json:"isDefault"`
+	}
+	h.get(repoBase+"/workspaces", &workspaces)
+
+	var defaultBranches []string
+	var importedFlagged bool
+	for _, w := range workspaces {
+		if w.IsDefault {
+			defaultBranches = append(defaultBranches, w.Branch)
+		}
+		if w.ID == imported.workspaceID {
+			importedFlagged = w.IsDefault
+		}
+	}
+	require.True(t, importedFlagged,
+		"the adopted main-worktree workspace must be served with isDefault=true")
+	require.Len(t, defaultBranches, 1,
+		"exactly one workspace (the main worktree) must be flagged isDefault")
+	require.Equal(t, "main", defaultBranches[0],
+		"the default workspace must be the repo's main-worktree branch")
+}
+
 // BUG-010: git stage, unstage, and discard take {paths: []string} — including
 // "." for everything — matching the frontend. The handlers once bound a
 // singular {path}, so every stage click 400'd.
