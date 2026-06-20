@@ -564,12 +564,16 @@ func (h *Handlers) Branches(c *gin.Context) {
 		}
 	}
 
-	// Annotate with workspace existence
+	// Annotate with workspace existence. The default workspace is the imported
+	// folder itself — an unmanaged checkout that merely happens to sit on some
+	// branch. Crowbar does not own that branch, so it must NOT count as "already
+	// imported": the user is free to import that same branch as a real managed
+	// workspace. Skip IsDefault here.
 	hasWS := map[string]bool{}
 	if h.wsReader != nil {
 		all, _ := h.wsReader.List(c.Request.Context())
 		for _, ws := range all {
-			if ws.RepoID == repo.ID {
+			if ws.RepoID == repo.ID && !ws.IsDefault {
 				hasWS[ws.Branch] = true
 			}
 		}
