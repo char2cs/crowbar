@@ -36,7 +36,9 @@ type Workspace struct {
 	// succeeded.
 	LastError string `json:"lastError,omitempty"`
 	// IsDefault marks the workspace that represents the repo's main worktree (the
-	// on-disk folder the user originally imported). It is excluded from the
-	// workspace list and accessible via the special wsId "default".
+	// on-disk folder the user originally imported). It is served on every list and
+	// stream like any other workspace; the frontend pulls it out of the sidebar
+	// tree and opens it from the repo header by its real id (there is no "default"
+	// wsId alias).
 	IsDefault bool `json:"isDefault,omitempty"`
 }

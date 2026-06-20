@@ -310,6 +310,11 @@ export const useSidebarStore = create<SidebarState>()((set) => ({
         return changed ? { repos } : s
       }
 
+      // The default (main-worktree) workspace is never a tree row — it is
+      // surfaced on the repo header via Repo.defaultWorkspaceId (see
+      // toSidebarRepo). Skip it here so a stray live frame can't reintroduce it.
+      if (dto.isDefault) return s
+
       const ws = toSidebarWorkspace(dto)
       const repoIdx = s.repos.findIndex((r) => r.id === dto.repoId)
       // The repo isn't in the tree yet (its RepoDTO seed hasn't landed): drop
