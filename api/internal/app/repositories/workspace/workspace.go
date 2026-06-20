@@ -38,6 +38,7 @@ type CreateInput struct {
 	ParentID      string
 	Protected     bool
 	MergeStrategy gitdomain.MergeStrategy
+	IsDefault     bool
 }
 
 // SyncInput carries a recomputed working-tree summary.

@@ -35,4 +35,8 @@ type Workspace struct {
 	// DTO can surface the error against the entity. Empty when the last mutation
 	// succeeded.
 	LastError string `json:"lastError,omitempty"`
+	// IsDefault marks the workspace that represents the repo's main worktree (the
+	// on-disk folder the user originally imported). It is excluded from the
+	// workspace list and accessible via the special wsId "default".
+	IsDefault bool `json:"isDefault,omitempty"`
 }
