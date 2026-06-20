@@ -63,7 +63,14 @@ export function buildVisibleFileTreeRows(
         }
       }
 
-      const isExpanded = !!(rowFile.isDir && expandedPaths.has(rowFile.path))
+      // A brand-new inline-edit placeholder (isNewItem) must never count as an
+      // expanded directory — its path can be '' (the root), which would otherwise
+      // load the workspace root as its children and duplicate the whole tree.
+      const isExpanded = !!(
+        rowFile.isDir &&
+        !rowFile.isNewItem &&
+        expandedPaths.has(rowFile.path)
+      )
       rows.push({
         file: rowFile,
         depth,
