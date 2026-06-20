@@ -130,6 +130,16 @@ func (m *ProviderPollManager) run(
 	ctx context.Context,
 	wsID string,
 ) {
+	// Poll once immediately on the 0->1 subscriber transition so a freshly viewed
+	// workspace's PR status (and sidebar icon) updates within ~1s instead of after
+	// a full interval. Skip it only if the subscriber already released mid-startup.
+	select {
+	case <-ctx.Done():
+		return
+	default:
+		_ = m.poll.PollWorkspace(context.WithoutCancel(ctx), wsID)
+	}
+
 	ticker := time.NewTicker(m.interval)
 	defer ticker.Stop()
 

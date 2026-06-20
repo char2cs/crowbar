@@ -44,6 +44,25 @@ func TestProviderPollManager_Acquire_StartsPoll(t *testing.T) {
 	}
 }
 
+func TestProviderPollManager_Acquire_PollsImmediately(t *testing.T) {
+	p := newFakePoller()
+	// A long interval ensures the ticker cannot fire within the test window, so
+	// observing a poll proves the immediate-on-Acquire poll, not a ticker tick.
+	// Without it a freshly viewed workspace waits a full interval before its PR
+	// status (and icon) updates.
+	m := NewProviderPollManager(context.Background(), time.Hour, p)
+	t.Cleanup(m.StopAll)
+
+	m.Acquire("w1")
+
+	select {
+	case got := <-p.calls:
+		assert.Equal(t, "w1", got)
+	case <-time.After(time.Second):
+		t.Fatal("Acquire did not poll immediately (waited for the interval)")
+	}
+}
+
 func TestProviderPollManager_Release_StopsPoll(t *testing.T) {
 	p := newFakePoller()
 	m := NewProviderPollManager(context.Background(), testPollInterval, p)

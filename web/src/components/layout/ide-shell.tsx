@@ -23,6 +23,7 @@ import { ConnectionIndicator } from './connection-indicator'
 import { FpsOverlay } from './fps-overlay'
 import { useSidebarNavStore } from '@/features/layout/stores/sidebar-nav'
 import { recordWorkspaceScopeFromPath } from '@/lib/workspace-scope'
+import { useWorkspaceProviderStream } from '@/features/workspace/stores/hooks/use-workspace-provider-stream'
 
 const SIDEBAR_MIN_PX = 250
 const SIDEBAR_MAX_PX = 640
@@ -58,6 +59,10 @@ export function IDEShell() {
   const activeProjectIdFromRoute = routeScope?.projectId
   const activeRepoIdFromRoute = routeScope?.repoId
   const activeWorkspaceId = routeScope?.wsId
+  // Open the per-:wsId workspace WS stream for the viewed workspace. Beyond data,
+  // this is what starts the daemon's per-connection provider poll so a branch with
+  // an open PR flips to the green pr-open icon (the list stream never starts it).
+  useWorkspaceProviderStream(activeProjectIdFromRoute, activeRepoIdFromRoute, activeWorkspaceId)
   const activeChatId = pathname.match(/\/chat\/([^/]+)/)?.[1]
   const activeRepo = repos.find((r) => r.id === activeRepoIdFromRoute)
   // TODO(workspace-paths): `/repos/<repoId>` is a synthetic mock-era root prefix.
