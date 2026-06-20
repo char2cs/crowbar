@@ -310,6 +310,12 @@ export function RepoSettingsPanel({ projectId, repoId, repoName }: RepoSettingsP
               ...visible.filter((b) => b.isProtected),
               ...visible.filter((b) => !b.isProtected),
             ].map((b) => {
+              const isDefaultBranch = b.name === repo?.defaultWorkspaceBranch
+              const defaultTag = isDefaultBranch ? (
+                <span className="shrink-0 rounded bg-accent px-1 font-mono text-[10px] text-muted-foreground">
+                  default
+                </span>
+              ) : null
               if (b.isProtected) {
                 return (
                   <div
@@ -318,6 +324,7 @@ export function RepoSettingsPanel({ projectId, repoId, repoName }: RepoSettingsP
                   >
                     <Lock className="size-3 shrink-0" />
                     <span className="min-w-0 flex-1 truncate font-mono text-xs">{b.name}</span>
+                    {defaultTag}
                   </div>
                 )
               }
@@ -329,6 +336,7 @@ export function RepoSettingsPanel({ projectId, repoId, repoName }: RepoSettingsP
                   >
                     <Check className="size-3 shrink-0 text-green-500" />
                     <span className="min-w-0 flex-1 truncate font-mono text-xs">{b.name}</span>
+                    {defaultTag}
                   </div>
                 )
               }
