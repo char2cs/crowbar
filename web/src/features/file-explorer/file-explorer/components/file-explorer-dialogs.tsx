@@ -56,7 +56,7 @@ export function FileExplorerDialogs({
             </Button>
           }
         >
-          <p className="text-foreground ui-text-xs">{alertDialog.message}</p>
+          <p className="text-foreground text-sm">{alertDialog.message}</p>
         </Dialog>
       )}
       {openAllFilesDialog && (
@@ -85,7 +85,7 @@ export function FileExplorerDialogs({
             </>
           }
         >
-          <p className="text-foreground ui-text-xs">
+          <p className="text-foreground text-sm">
             {openAllFilesDialog.filePaths.length} files will be opened in tabs. Continue?
           </p>
         </Dialog>
@@ -118,7 +118,7 @@ export function FileExplorerDialogs({
             </>
           }
         >
-          <p className="text-foreground ui-text-xs">
+          <p className="text-foreground text-sm">
             {deleteCandidate.isDir
               ? `Are you sure you want to delete the folder "${getPathBaseName(deleteCandidate.path)}" and all its contents? This action cannot be undone.`
               : `Are you sure you want to delete the file "${getPathBaseName(deleteCandidate.path)}"? This action cannot be undone.`}
