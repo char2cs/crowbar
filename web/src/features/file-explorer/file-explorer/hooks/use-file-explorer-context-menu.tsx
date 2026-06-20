@@ -201,49 +201,68 @@ export function useFileExplorerContextMenu({
     const items: ContextMenuItem[] = []
 
     if (contextMenu.isDir) {
+      // Empty-space (root) right-click passes the absolute wsId as contextMenu.path,
+      // but tree nodes are worktree-relative (root === ''). Normalise so the
+      // directory actions address the worktree root, not a node literally named
+      // the wsId. isWorkspaceRootPath is true for the wsId root (and any added
+      // workspace root) and false for a real subdir like "api". Only the action
+      // onClicks use this — NOT the Rename/Delete visibility gate below, which
+      // must keep reading contextMenu.path so those stay hidden on the root.
+      const isRootTarget = isWorkspaceRootPath?.(contextMenu.path) ?? false
+      const dirTargetPath = isRootTarget ? '' : contextMenu.path
+
       items.push(
         {
           id: 'new-file',
           label: 'New File',
           icon: <FilePlus />,
-          onClick: () => onStartInlineEditing(contextMenu.path, false),
+          onClick: () => onStartInlineEditing(dirTargetPath, false),
         },
         {
           id: 'new-folder',
           label: 'New Folder',
           icon: <FolderPlus />,
           onClick: () => {
-            if (onCreateNewFolderInDirectory) onStartInlineEditing(contextMenu.path, true)
+            if (onCreateNewFolderInDirectory) onStartInlineEditing(dirTargetPath, true)
           },
         },
         {
           id: 'refresh',
           label: 'Refresh',
           icon: <RefreshCw />,
-          onClick: () => onRefreshDirectory?.(contextMenu.path),
+          onClick: () => {
+            void onRefreshDirectory?.(dirTargetPath)
+            toast.success('Refreshed')
+          },
         },
         {
           id: 'open-all-files',
           label: 'Open All Files',
           icon: <FolderOpen />,
-          onClick: () => void onOpenAllFilesInDirectory(contextMenu.path),
+          onClick: () => void onOpenAllFilesInDirectory(dirTargetPath),
         },
         {
           id: 'collapse-all',
           label: 'Collapse All',
           icon: <CaretDoubleUp />,
-          onClick: () => useFileTreeStore.getState().collapsePath(contextMenu.path),
+          onClick: () => {
+            // '' doesn't match relative paths, so the root collapses everything
+            // via collapseAll(); a subdir collapses just its own subtree.
+            const treeStore = useFileTreeStore.getState()
+            if (isRootTarget) treeStore.collapseAll()
+            else treeStore.collapsePath(contextMenu.path)
+          },
         },
         {
           id: 'open-terminal',
           label: 'Open in Terminal',
           icon: <Terminal />,
           onClick: () => {
-            const folderName = getBaseName(contextMenu.path, 'terminal')
+            const folderName = getBaseName(dirTargetPath, 'terminal')
             getActiveWorkspaceStoreRef()?.getState().bufferActions.openContent({
               type: 'terminal',
               name: folderName,
-              workingDirectory: contextMenu.path,
+              workingDirectory: dirTargetPath,
             })
           },
         },
@@ -337,8 +356,9 @@ export function useFileExplorerContextMenu({
         onClick: async () => {
           try {
             await navigator.clipboard.writeText(contextMenu.path)
+            toast.success('Copied path')
           } catch {
-            /* intentionally ignored */
+            toast.error('Failed to copy path')
           }
         },
       },
@@ -350,8 +370,9 @@ export function useFileExplorerContextMenu({
           try {
             const relativePath = getRelativePath(contextMenu.path, rootFolderPath)
             await navigator.clipboard.writeText(relativePath)
+            toast.success('Copied relative path')
           } catch {
-            /* intentionally ignored */
+            toast.error('Failed to copy relative path')
           }
         },
       },
@@ -359,15 +380,19 @@ export function useFileExplorerContextMenu({
         id: 'copy',
         label: 'Copy',
         icon: <Copy />,
-        onClick: () =>
-          clipboardActions.copy([{ path: contextMenu.path, is_dir: contextMenu.isDir }]),
+        onClick: () => {
+          clipboardActions.copy([{ path: contextMenu.path, is_dir: contextMenu.isDir }])
+          toast.success(`Copied ${getBaseName(contextMenu.path, 'item')}`)
+        },
       },
       {
         id: 'cut',
         label: 'Cut',
         icon: <Scissors />,
-        onClick: () =>
-          clipboardActions.cut([{ path: contextMenu.path, is_dir: contextMenu.isDir }]),
+        onClick: () => {
+          clipboardActions.cut([{ path: contextMenu.path, is_dir: contextMenu.isDir }])
+          toast.success(`Cut ${getBaseName(contextMenu.path, 'item')}`)
+        },
       },
     )
 
