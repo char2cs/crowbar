@@ -99,13 +99,19 @@ export function useWorkspaceEffects(wsId: string) {
         // these don't refetch (except the explicit Refresh action).
         handleCreateNewFileInDirectory: async (dirPath: string, fileName?: string) => {
           if (!fileName) return
-          const path = dirPath ? joinPath(dirPath, fileName) : fileName
+          // Tree paths are workspace-relative (root === ''). A dirPath equal to
+          // the absolute wsId is the workspace root addressed by its full path
+          // (right-click empty space) — normalise it to '' so we create at the
+          // worktree root rather than at wsId/<name>.
+          const dir = dirPath === wsId ? '' : dirPath
+          const path = dir ? joinPath(dir, fileName) : fileName
           await createFileNode(wsId, path, 'file')
           return path
         },
         handleCreateNewFolderInDirectory: async (dirPath: string, folderName?: string) => {
           if (!folderName) return
-          await createFileNode(wsId, dirPath ? joinPath(dirPath, folderName) : folderName, 'dir')
+          const dir = dirPath === wsId ? '' : dirPath
+          await createFileNode(wsId, dir ? joinPath(dir, folderName) : folderName, 'dir')
         },
         handleDeletePath: async (path: string) => {
           await deleteFileNode(wsId, path)
@@ -116,21 +122,19 @@ export function useWorkspaceEffects(wsId: string) {
             await renameFileNode(wsId, path, dir ? joinPath(dir, newName) : newName)
             return
           }
-          // No newName → TOGGLE inline rename on the node. The bare call is used
-          // both to START a rename (context menu / double-click) and to CANCEL one
-          // (Escape in the inline-editing hook), so toggling the editable flag
-          // makes start and cancel both work. The tree renders its inline input
-          // while isEditing/isRenaming is set.
-          const toggle = (nodes: AppFile[]): AppFile[] =>
+          // No newName → START an inline rename: mark the node editable. This is
+          // an idempotent SET (never a toggle) so a double-click reliably opens
+          // the input regardless of any stale isRenaming left by a prior edit —
+          // that toggle-vs-stale-state coupling is what made rename inconsistent.
+          // Cancel (Escape) and commit (Enter/blur) clear the flag explicitly in
+          // the inline-editing hook, so start and clear are independent.
+          const setRenaming = (nodes: AppFile[]): AppFile[] =>
             nodes.map((n) => {
-              if (n.path === path) {
-                const renaming = !n.isRenaming
-                return { ...n, isRenaming: renaming, isEditing: renaming }
-              }
-              return n.children ? { ...n, children: toggle(n.children) } : n
+              if (n.path === path) return { ...n, isRenaming: true, isEditing: true }
+              return n.children ? { ...n, children: setRenaming(n.children) } : n
             })
           const fs = useFileSystemStore.getState()
-          fs.setFiles(toggle(fs.files))
+          fs.setFiles(setRenaming(fs.files))
         },
         refreshDirectory: async (path?: string) => {
           const fresh = await fetchFileTree(wsId, path || undefined).catch(() => null)

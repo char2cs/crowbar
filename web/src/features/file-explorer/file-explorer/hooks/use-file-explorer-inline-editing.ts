@@ -17,6 +17,20 @@ interface UseFileExplorerInlineEditingProps {
   showAlertDialog: (title: string, message: string) => void
 }
 
+// Clear the inline-edit flags on the node at `path`. Rename START is an
+// idempotent SET in the store; cancel and commit must clear the flag here so the
+// editable state is never left stuck on a node — a stuck isRenaming made the next
+// double-click toggle the input OFF, i.e. "rename sometimes does nothing".
+function clearEditingFlag(items: FileEntry[], path: string): FileEntry[] {
+  return items.map((item) =>
+    item.path === path
+      ? { ...item, isRenaming: false, isEditing: false }
+      : item.children
+        ? { ...item, children: clearEditingFlag(item.children, path) }
+        : item,
+  )
+}
+
 export function useFileExplorerInlineEditing({
   files,
   rootFolderPath,
@@ -32,9 +46,15 @@ export function useFileExplorerInlineEditing({
     (parentPath: string, isFolder: boolean) => {
       if (!onUpdateFiles) return
 
+      // The workspace root is addressed by its absolute path (=== rootFolderPath)
+      // even though the tree's own nodes use root-relative paths (root === '').
+      // Normalise that to the empty-string root so the new item lands at the top
+      // level and finishInlineEditing derives an empty parent directory.
+      const isRootTarget = !parentPath || parentPath === rootFolderPath
+
       const newItem: FileEntry = {
         name: '',
-        path: `${parentPath}/`,
+        path: isRootTarget ? '' : `${parentPath}/`,
         isDir: isFolder,
         isEditing: true,
         isNewItem: true,
@@ -51,7 +71,7 @@ export function useFileExplorerInlineEditing({
           return item
         })
 
-      if (parentPath === getDirName(files[0]?.path ?? '') || !parentPath) {
+      if (isRootTarget || parentPath === getDirName(files[0]?.path ?? '')) {
         onUpdateFiles([...files, newItem])
       } else {
         onUpdateFiles(addNewItemToTree(files, parentPath))
@@ -68,7 +88,7 @@ export function useFileExplorerInlineEditing({
 
       setEditingValue('')
     },
-    [files, onUpdateFiles],
+    [files, onUpdateFiles, rootFolderPath],
   )
 
   const finishInlineEditing = useCallback(
@@ -76,16 +96,22 @@ export function useFileExplorerInlineEditing({
       if (!onUpdateFiles) return
 
       if (newName.trim()) {
-        let parentPath = stripTrailingPathSeparators(item.path)
-        if (!parentPath && rootFolderPath) parentPath = rootFolderPath
-
-        if (!parentPath) {
-          showAlertDialog('Cannot Create File', 'Cannot determine where to create the file.')
-          return
-        }
+        // An empty parentPath is the (valid) workspace root: tree paths are
+        // root-relative, so the create handlers join the name onto '' to write
+        // at the worktree root. Do NOT substitute rootFolderPath here — that is
+        // the absolute wsId path and would create at wsId/<name> instead.
+        const parentPath = stripTrailingPathSeparators(item.path)
 
         if (item.isRenaming) {
-          onRenamePath?.(item.path, newName.trim())
+          const trimmed = newName.trim()
+          // Only hit the rename API if the name actually changed (a blur with the
+          // pre-filled name should not round-trip a no-op rename).
+          if (trimmed !== item.name) onRenamePath?.(item.path, trimmed)
+          // Clear the flag now so the node is immediately non-editing; the WS
+          // refetch will later replace it with a fresh node at the new path. Do
+          // not depend on that refetch to clear the editable state.
+          onUpdateFiles(clearEditingFlag(files, item.path))
+          setEditingValue('')
           return
         }
 
@@ -120,7 +146,6 @@ export function useFileExplorerInlineEditing({
     [
       files,
       onUpdateFiles,
-      rootFolderPath,
       showAlertDialog,
       onRenamePath,
       onCreateNewFileInDirectory,
@@ -133,7 +158,10 @@ export function useFileExplorerInlineEditing({
       if (!onUpdateFiles) return
 
       if (file.isRenaming) {
-        onRenamePath?.(file.path)
+        // Clear the editable flag directly (do NOT call bare onRenamePath, which
+        // now START-s a rename) so Escape deterministically closes the input.
+        onUpdateFiles(clearEditingFlag(files, file.path))
+        setEditingValue('')
         return
       }
 
@@ -148,7 +176,7 @@ export function useFileExplorerInlineEditing({
       onUpdateFiles(removeNewItemFromTree(files))
       setEditingValue('')
     },
-    [files, onUpdateFiles, onRenamePath],
+    [files, onUpdateFiles],
   )
 
   const handleKeyDown = useCallback(

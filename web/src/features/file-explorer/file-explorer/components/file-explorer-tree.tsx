@@ -541,8 +541,19 @@ function FileExplorerTreeComponent({
 
   const collectLoadedFilesInDirectory = useCallback(
     (directoryPath: string): string[] => {
-      const directory = findFileInTree(filteredFiles, directoryPath)
-      if (!directory || !directory.isDir) return []
+      // The workspace root is addressed by its absolute path (=== rootFolderPath)
+      // or '', but the tree's own nodes are root-relative, so there is no node to
+      // look up — walk the top-level entries directly. Any other directory is a
+      // real relative-path node in the tree.
+      const isRoot = !directoryPath || directoryPath === rootFolderPath
+      let rootEntries: FileEntry[] | undefined
+      if (isRoot) {
+        rootEntries = filteredFiles
+      } else {
+        const directory = findFileInTree(filteredFiles, directoryPath)
+        if (!directory || !directory.isDir) return []
+        rootEntries = directory.children
+      }
 
       const collected: string[] = []
       const walk = (entries?: FileEntry[]) => {
@@ -556,10 +567,10 @@ function FileExplorerTreeComponent({
         }
       }
 
-      walk(directory.children)
+      walk(rootEntries)
       return collected
     },
-    [filteredFiles],
+    [filteredFiles, rootFolderPath],
   )
 
   const collectLocalFilesInDirectory = useCallback(
