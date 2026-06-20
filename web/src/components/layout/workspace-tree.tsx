@@ -118,19 +118,20 @@ function WorkspaceTreeInner() {
                     aria-label={`Open ${repo.name}`}
                   >
                     {repo.avatarURL?.startsWith('emoji:') ? (
-                      <span className="inline-flex h-5 w-5 shrink-0 items-center justify-center text-lg leading-none">
+                      <span className="pointer-events-none inline-flex h-5 w-5 shrink-0 items-center justify-center text-lg leading-none">
                         {repo.avatarURL.slice(6)}
                       </span>
                     ) : repo.avatarURL ? (
                       <img
                         src={repo.avatarURL}
                         alt={repo.name}
-                        className="h-5 w-5 shrink-0 rounded-md object-cover"
+                        draggable={false}
+                        className="pointer-events-none h-5 w-5 shrink-0 rounded-md object-cover"
                       />
                     ) : (
                       <span
                         className={cn(
-                          'inline-flex h-5 w-5 shrink-0 items-center justify-center rounded-md px-1 text-[11px] font-bold text-primary-foreground',
+                          'pointer-events-none inline-flex h-5 w-5 shrink-0 items-center justify-center rounded-md px-1 text-[11px] font-bold text-primary-foreground',
                           repo.avatarColor,
                         )}
                       >
