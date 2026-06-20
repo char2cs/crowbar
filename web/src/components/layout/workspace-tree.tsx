@@ -153,6 +153,28 @@ function WorkspaceTreeInner() {
                     )}
                   </span>
 
+                  <button
+                    type="button"
+                    aria-label="Repo settings"
+                    className="inline-flex shrink-0 cursor-pointer rounded-md p-1 text-foreground/50 hover:text-foreground"
+                    onClick={(e) => {
+                      e.stopPropagation()
+                      useSidebarNavStore.getState().push({
+                        id: `repo-settings:${repo.id}`,
+                        title: repo.name,
+                        component: (
+                          <RepoSettingsPanel
+                            projectId={repo.projectId ?? ''}
+                            repoId={repo.id}
+                            repoName={repo.name}
+                          />
+                        ),
+                      })
+                    }}
+                  >
+                    <Settings className="size-3" />
+                  </button>
+
                   {repo.defaultWorkspaceId && (
                     <button
                       type="button"
@@ -177,28 +199,6 @@ function WorkspaceTreeInner() {
                       </svg>
                     </button>
                   )}
-
-                  <button
-                    type="button"
-                    aria-label="Repo settings"
-                    className="hidden shrink-0 cursor-pointer rounded-md p-1 text-foreground/50 hover:text-foreground group-hover:inline-flex"
-                    onClick={(e) => {
-                      e.stopPropagation()
-                      useSidebarNavStore.getState().push({
-                        id: `repo-settings:${repo.id}`,
-                        title: repo.name,
-                        component: (
-                          <RepoSettingsPanel
-                            projectId={repo.projectId ?? ''}
-                            repoId={repo.id}
-                            repoName={repo.name}
-                          />
-                        ),
-                      })
-                    }}
-                  >
-                    <Settings className="size-3" />
-                  </button>
 
                   <button
                     type="button"
