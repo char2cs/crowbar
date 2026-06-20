@@ -122,4 +122,23 @@ describe('buildRepoTree', () => {
     const repos = buildRepoTree([repo('r1', 'repo')], [])
     expect(repos[0].avatarURL).toBeUndefined()
   })
+
+  it('pulls the isDefault workspace out of the tree and onto the repo', () => {
+    const tree = buildRepoTree(
+      [repo('r1', 'crowbar')],
+      [
+        ws('w-default', 'r1', { isDefault: true, branch: 'develop' }),
+        ws('w-child', 'r1', { branch: 'feature/x' }),
+      ],
+    )
+    expect(tree[0].workspaces.map((w) => w.id)).toEqual(['w-child'])
+    expect(tree[0].defaultWorkspaceId).toBe('w-default')
+    expect(tree[0].defaultWorkspaceBranch).toBe('develop')
+  })
+
+  it('leaves the default fields undefined when no workspace is the default', () => {
+    const tree = buildRepoTree([repo('r1', 'crowbar')], [ws('w1', 'r1')])
+    expect(tree[0].defaultWorkspaceId).toBeUndefined()
+    expect(tree[0].defaultWorkspaceBranch).toBeUndefined()
+  })
 })

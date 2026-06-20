@@ -55,6 +55,10 @@ export interface Repo {
   avatarColor: string
   avatarURL?: string
   workspaces: Workspace[]
+  /** Real id of the IsDefault workspace (the imported repo folder); used by the repo header. */
+  defaultWorkspaceId?: string
+  /** Branch checked out in the default workspace; shown as the repo-header subtitle. */
+  defaultWorkspaceBranch?: string
 }
 
 export type SidebarTab = 'workspaces' | 'chats' | 'files' | 'git'

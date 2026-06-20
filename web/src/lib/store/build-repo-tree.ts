@@ -59,6 +59,8 @@ export function toSidebarWorkspace(ws: WorkspaceDTO): Workspace {
 }
 
 export function toSidebarRepo(repo: RepoDTO, workspaces: WorkspaceDTO[]): Repo {
+  const repoWs = workspaces.filter((ws) => ws.repoId === repo.id)
+  const defaultWs = repoWs.find((ws) => ws.isDefault)
   return {
     id: repo.id,
     projectId: repo.projectId,
@@ -66,7 +68,8 @@ export function toSidebarRepo(repo: RepoDTO, workspaces: WorkspaceDTO[]): Repo {
     avatarLabel: repo.avatarLabel || repoAvatarLabel(repo.name),
     avatarColor: repo.avatarColor || repoAvatarColor(repo.name),
     avatarURL: repoAvatarURL(repo),
-    workspaces: workspaces.filter((ws) => ws.repoId === repo.id).map(toSidebarWorkspace),
+    workspaces: repoWs.filter((ws) => !ws.isDefault).map(toSidebarWorkspace),
+    ...(defaultWs ? { defaultWorkspaceId: defaultWs.id, defaultWorkspaceBranch: defaultWs.branch } : {}),
   }
 }
 
