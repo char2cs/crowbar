@@ -138,7 +138,7 @@ function WorkspaceTreeInner() {
                     <span className="flex min-w-0 flex-col">
                       <span className="min-w-0 truncate font-mono text-foreground">{repo.name}</span>
                       {repo.defaultWorkspaceBranch && (
-                        <span className="min-w-0 truncate font-mono text-[11px] text-foreground/40 opacity-0 transition-opacity group-hover:opacity-100">
+                        <span className="hidden min-w-0 truncate font-mono text-[11px] text-foreground/40 group-hover:block">
                           {repo.defaultWorkspaceBranch}
                         </span>
                       )}
