@@ -1,9 +1,7 @@
 import {
   CaretDoubleUp,
-  Clipboard,
   Copy,
   PencilSimple as Edit,
-  Eye,
   FilePlus,
   FileText,
   FolderOpen,
@@ -13,11 +11,8 @@ import {
   Link,
   ArrowClockwise as RefreshCw,
   Scissors,
-  MagnifyingGlass as Search,
   TerminalWindow as Terminal,
   Trash,
-  X,
-  Upload,
   Warning,
 } from '@phosphor-icons/react'
 import { useCallback, useMemo, useState } from 'react'
@@ -222,33 +217,11 @@ export function useFileExplorerContextMenu({
           },
         },
         {
-          id: 'upload-files',
-          label: 'Upload Files',
-          icon: <Upload />,
-          onClick: () => onUploadFile?.(contextMenu.path),
-        },
-        {
           id: 'refresh',
           label: 'Refresh',
           icon: <RefreshCw />,
           onClick: () => onRefreshDirectory?.(contextMenu.path),
         },
-        {
-          id: 'add-folder-to-workspace',
-          label: 'Add Folder to Workspace',
-          icon: <FolderPlus />,
-          onClick: () => onAddFolderToWorkspace?.(),
-        },
-        ...(canRemoveWorkspaceRootPath?.(contextMenu.path)
-          ? [
-              {
-                id: 'remove-folder-from-workspace',
-                label: 'Remove Folder from Workspace',
-                icon: <X />,
-                onClick: () => onRemoveFolderFromWorkspace?.(contextMenu.path),
-              },
-            ]
-          : []),
         {
           id: 'open-all-files',
           label: 'Open All Files',
@@ -273,12 +246,6 @@ export function useFileExplorerContextMenu({
               workingDirectory: contextMenu.path,
             })
           },
-        },
-        {
-          id: 'find-in-folder',
-          label: 'Find in Folder',
-          icon: <Search />,
-          onClick: () => {},
         },
       )
 
@@ -319,12 +286,6 @@ export function useFileExplorerContextMenu({
               /* intentionally ignored */
             }
           },
-        },
-        {
-          id: 'duplicate-file',
-          label: 'Duplicate',
-          icon: <FileText />,
-          onClick: () => onDuplicatePath?.(contextMenu.path),
         },
         ...(canCreateEnvTemplate
           ? [
@@ -410,19 +371,6 @@ export function useFileExplorerContextMenu({
       },
     )
 
-    if (clipboard && contextMenu.isDir) {
-      items.push({
-        id: 'paste',
-        label: 'Paste',
-        icon: <Clipboard />,
-        onClick: () => {
-          clipboardActions.paste(contextMenu.path).then(() => {
-            onRefreshDirectory?.(contextMenu.path)
-          })
-        },
-      })
-    }
-
     if (shouldShowFileManagementItems) {
       items.push(
         {
@@ -430,19 +378,6 @@ export function useFileExplorerContextMenu({
           label: 'Rename',
           icon: <Edit />,
           onClick: () => onRenamePath?.(contextMenu.path),
-        },
-        {
-          id: 'reveal',
-          label: 'Reveal in Finder',
-          icon: <Eye />,
-          onClick: () => {
-            if (onRevealInFinder) onRevealInFinder(contextMenu.path)
-            else if (window.electron) window.electron.shell.showItemInFolder(contextMenu.path)
-            else {
-              const parentDir = getDirName(contextMenu.path)
-              window.open(`file://${parentDir}`, '_blank')
-            }
-          },
         },
         { id: 'sep-end', label: '', separator: true, onClick: () => {} },
         {
@@ -453,13 +388,6 @@ export function useFileExplorerContextMenu({
           onClick: () => onDeleteRequested({ path: contextMenu.path, isDir: contextMenu.isDir }),
         },
       )
-    } else {
-      items.push({
-        id: 'reveal',
-        label: 'Reveal in Finder',
-        icon: <Eye />,
-        onClick: () => onRevealInFinder?.(contextMenu.path),
-      })
     }
 
     return items

@@ -3,11 +3,15 @@ import { useFileSystemStore } from '@/features/file-system/controllers/store'
 import { useBufferActions } from './use-buffer-store'
 import { useFileTreeStore } from '@/features/file-explorer/stores/file-explorer-tree-store'
 import {
+  createFileNode,
+  deleteFileNode,
   fetchFileTree,
   filesWsEndpoint,
   findNode,
   mergeChildren,
+  renameFileNode,
 } from '@/features/files/lib/file-tree-api'
+import { joinPath } from '@/utils/path-helpers'
 import { wsManager } from '@/lib/ws/manager'
 import { openFileContent } from '@/features/workspace/lib/open-file-content'
 import { syncBufferWithDisk } from '@/features/workspace/lib/external-buffer-sync'
@@ -89,6 +93,49 @@ export function useWorkspaceEffects(wsId: string) {
         handleFileSelect: (path: string, isDir?: boolean) => {
           if (isDir) return
           void openFileContent(wsId, path, bufferActions, { preview: true })
+        },
+        // File-tree mutations. The daemon emits a structural FileChangeEvent on
+        // success, which the files-WS effect below reconciles into the tree — so
+        // these don't refetch (except the explicit Refresh action).
+        handleCreateNewFileInDirectory: async (dirPath: string, fileName?: string) => {
+          if (!fileName) return
+          const path = dirPath ? joinPath(dirPath, fileName) : fileName
+          await createFileNode(wsId, path, 'file')
+          return path
+        },
+        handleCreateNewFolderInDirectory: async (dirPath: string, folderName?: string) => {
+          if (!folderName) return
+          await createFileNode(wsId, dirPath ? joinPath(dirPath, folderName) : folderName, 'dir')
+        },
+        handleDeletePath: async (path: string) => {
+          await deleteFileNode(wsId, path)
+        },
+        handleRenamePath: async (path: string, newName?: string) => {
+          if (newName) {
+            const dir = parentDir(path)
+            await renameFileNode(wsId, path, dir ? joinPath(dir, newName) : newName)
+            return
+          }
+          // No newName → begin an inline rename: mark the node editable so the
+          // tree renders its inline input (file.isEditing || file.isRenaming).
+          const mark = (nodes: AppFile[]): AppFile[] =>
+            nodes.map((n) =>
+              n.path === path
+                ? { ...n, isRenaming: true, isEditing: true }
+                : n.children
+                  ? { ...n, children: mark(n.children) }
+                  : n,
+            )
+          const fs = useFileSystemStore.getState()
+          fs.setFiles(mark(fs.files))
+        },
+        refreshDirectory: async (path?: string) => {
+          const fresh = await fetchFileTree(wsId, path || undefined).catch(() => null)
+          if (!Array.isArray(fresh)) return
+          const current = useFileSystemStore.getState().files
+          const reconciled = preserveLoadedChildren(current, fresh)
+          const next = !path ? reconciled : mergeChildren(current, path, reconciled)
+          useFileSystemStore.getState().setFiles(next)
         },
       })
     })()

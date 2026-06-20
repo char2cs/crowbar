@@ -26,6 +26,16 @@ export function SidebarCarousel({ activeWorkspaceRepoPath }: SidebarCarouselProp
   const files = useFileSystemStore((s) => s.files)
   const handleFileOpen = useFileSystemStore.use.handleFileOpen?.()
   const handleFileSelect = useFileSystemStore.use.handleFileSelect?.()
+  // File-tree mutation handlers (create/rename/delete/refresh) live on the
+  // file-system store; thread them into the explorer so its context menu and
+  // inline-edit actions actually run (the daemon backs them via /files).
+  const setFiles = useFileSystemStore((s) => s.setFiles)
+  const handleCreateNewFileInDirectory = useFileSystemStore.use.handleCreateNewFileInDirectory?.()
+  const handleCreateNewFolderInDirectory =
+    useFileSystemStore.use.handleCreateNewFolderInDirectory?.()
+  const handleRenamePath = useFileSystemStore.use.handleRenamePath?.()
+  const handleDeletePath = useFileSystemStore.use.handleDeletePath?.()
+  const refreshDirectory = useFileSystemStore.use.refreshDirectory?.()
   const containerRef = useRef<HTMLDivElement>(null)
   const isScrollingProgrammatically = useRef(false)
 
@@ -114,7 +124,12 @@ export function SidebarCarousel({ activeWorkspaceRepoPath }: SidebarCarouselProp
                     }
                   : undefined
               }
-              onCreateNewFileInDirectory={() => {}}
+              onUpdateFiles={setFiles}
+              onCreateNewFileInDirectory={handleCreateNewFileInDirectory ?? (() => {})}
+              onCreateNewFolderInDirectory={handleCreateNewFolderInDirectory ?? undefined}
+              onRenamePath={handleRenamePath ?? undefined}
+              onDeletePath={handleDeletePath ?? undefined}
+              onRefreshDirectory={refreshDirectory ?? undefined}
             />
           </Suspense>
         </ErrorBoundary>

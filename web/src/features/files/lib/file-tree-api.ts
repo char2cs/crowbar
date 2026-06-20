@@ -42,6 +42,42 @@ export function filesWsEndpoint(wsId: string): string {
   return `${workspaceBase(wsId)}/files/ws`
 }
 
+// File-tree mutations against the workspace files endpoint. Paths are
+// workspace-relative (the same `path` the tree nodes carry). On success the tree
+// refreshes automatically: the daemon emits a structural FileChangeEvent over the
+// files-WS, which use-workspace-effects reconciles — so callers do NOT refetch.
+
+/** Create a file (`type: 'file'`) or directory (`type: 'dir'`) at `path`. */
+export async function createFileNode(
+  wsId: string,
+  path: string,
+  type: 'file' | 'dir',
+): Promise<void> {
+  await apiFetch(`${workspaceBase(wsId)}/files`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ path, type }),
+  })
+}
+
+/** Rename/move the node at `path` to `newPath` (both workspace-relative). */
+export async function renameFileNode(wsId: string, path: string, newPath: string): Promise<void> {
+  await apiFetch(`${workspaceBase(wsId)}/files`, {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ path, newPath }),
+  })
+}
+
+/** Delete the file or directory at `path`. */
+export async function deleteFileNode(wsId: string, path: string): Promise<void> {
+  await apiFetch(`${workspaceBase(wsId)}/files`, {
+    method: 'DELETE',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ path }),
+  })
+}
+
 export function findNode(tree: AppFile[], path: string): AppFile | null {
   for (const node of tree) {
     if (node.path === path) return node
