@@ -15,8 +15,14 @@
 }
 
 @theme inline {
-  --font-sans: 'CalSansUI', sans-serif;
-  --font-heading: 'CalSans', sans-serif;
+  /* Single source of truth: the UI font picked in Settings (--app-font-family,
+     written to :root by the bootstrap + FontStyleInjector). 'CalSansUI' is the
+     bundled default and the fallback if the runtime var is ever unset. */
+  --font-sans: var(--app-font-family, 'CalSansUI', sans-serif);
+  /* Headings share the UI font; CalSans remains only as a load-bearing fallback. */
+  --font-heading: var(--app-font-family, 'CalSans', sans-serif);
+  /* Mono follows the Editor Font Family from Settings (--editor-font-family). */
+  --font-mono: var(--editor-font-family, 'JetBrains Mono Variable', ui-monospace, monospace);
   --color-background: var(--background);
   --color-foreground: var(--foreground);
   --color-card: var(--card);

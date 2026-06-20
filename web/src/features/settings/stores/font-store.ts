@@ -29,8 +29,8 @@ const FONT_CACHE_EXPIRY = 24 * 60 * 60 * 1000 // 24 hours in milliseconds
 // cut forces xterm's slow DOM renderer (see resolve-font.ts).
 const BUNDLED_FONTS: FontInfo[] = [
   {
-    name: 'IBM Plex Sans Variable',
-    family: 'IBM Plex Sans Variable',
+    name: 'CalSansUI',
+    family: 'CalSansUI',
     style: 'Regular',
     is_monospace: false,
   },
