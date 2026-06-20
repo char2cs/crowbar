@@ -21,6 +21,7 @@ type WorkspaceDTO struct {
 	Status          domain.WorkspaceStatus  `json:"status,omitempty"`
 	Working         bool                    `json:"working"`
 	LastError       string                  `json:"lastError,omitempty"`
+	IsDefault       bool                    `json:"isDefault,omitempty"`
 	Added           int                     `json:"added"`
 	Deleted         int                     `json:"deleted"`
 	MergeStrategy   gitdomain.MergeStrategy `json:"mergeStrategy"`
@@ -50,6 +51,7 @@ func WorkspaceDTOFrom(
 		Status:          w.Status,
 		Working:         w.Working,
 		LastError:       w.LastError,
+		IsDefault:       w.IsDefault,
 		Added:           w.Added,
 		Deleted:         w.Deleted,
 		MergeStrategy:   w.MergeStrategy,

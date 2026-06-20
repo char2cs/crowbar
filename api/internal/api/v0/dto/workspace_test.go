@@ -171,3 +171,17 @@ func TestWorkspaceDTOList_AppliesEligFn(
 	assert.False(t, got[1].CanMergeLocally)
 	assert.Equal(t, "", got[1].ParentBranch)
 }
+
+func TestWorkspaceDTOFrom_MapsIsDefault(t *testing.T) {
+	got := dto.WorkspaceDTOFrom(
+		domain.Workspace{ID: "w1", RepoID: "r1", ProjectID: "p1", IsDefault: true},
+		workspace.MergeEligibility{},
+	)
+	assert.True(t, got.IsDefault)
+
+	got2 := dto.WorkspaceDTOFrom(
+		domain.Workspace{ID: "w2", RepoID: "r1", ProjectID: "p1"},
+		workspace.MergeEligibility{},
+	)
+	assert.False(t, got2.IsDefault)
+}

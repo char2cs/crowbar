@@ -57,6 +57,7 @@ export interface WorkspaceDTO {
   status: WorkspaceStatusDTO
   working: boolean
   lastError: string
+  isDefault?: boolean
   added: number
   deleted: number
   mergeStrategy: string
