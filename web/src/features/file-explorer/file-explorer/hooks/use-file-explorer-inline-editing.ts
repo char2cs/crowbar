@@ -31,6 +31,21 @@ function clearEditingFlag(items: FileEntry[], path: string): FileEntry[] {
   )
 }
 
+// Strip every in-progress "new item" placeholder from the tree. A New File/Folder
+// dismissed without committing can leave its placeholder behind (the "already
+// exists" early-return in finishInlineEditing, or a spurious blur on appear), and
+// a second placeholder shares the same empty root path — colliding on React keys,
+// which silently breaks rendering so the next inline input never appears (the
+// "can't create files until reload" bug). startInlineEditing clears these first.
+function removeNewItems(items: FileEntry[]): FileEntry[] {
+  return items
+    .filter((i) => !(i.isNewItem && i.isEditing))
+    .map((i) => ({
+      ...i,
+      children: i.children ? removeNewItems(i.children) : undefined,
+    }))
+}
+
 export function useFileExplorerInlineEditing({
   files,
   rootFolderPath,
@@ -45,6 +60,11 @@ export function useFileExplorerInlineEditing({
   const startInlineEditing = useCallback(
     (parentPath: string, isFolder: boolean) => {
       if (!onUpdateFiles) return
+
+      // Clear any stale placeholder from a prior edit that was dismissed without
+      // committing, so a second New File/Folder never collides with it (see
+      // removeNewItems). Operate on the cleaned tree throughout.
+      const baseFiles = removeNewItems(files)
 
       // The workspace root is addressed by its absolute path (=== rootFolderPath)
       // even though the tree's own nodes use root-relative paths (root === '').
@@ -71,10 +91,10 @@ export function useFileExplorerInlineEditing({
           return item
         })
 
-      if (isRootTarget || parentPath === getDirName(files[0]?.path ?? '')) {
-        onUpdateFiles([...files, newItem])
+      if (isRootTarget || parentPath === getDirName(baseFiles[0]?.path ?? '')) {
+        onUpdateFiles([...baseFiles, newItem])
       } else {
-        onUpdateFiles(addNewItemToTree(files, parentPath))
+        onUpdateFiles(addNewItemToTree(baseFiles, parentPath))
       }
 
       // Expand the parent so the new inline-edit row is visible — but NEVER for
@@ -139,15 +159,7 @@ export function useFileExplorerInlineEditing({
         }
       }
 
-      const removeNewItemFromTree = (items: FileEntry[]): FileEntry[] =>
-        items
-          .filter((i) => !(i.isNewItem && i.isEditing))
-          .map((i) => ({
-            ...i,
-            children: i.children ? removeNewItemFromTree(i.children) : undefined,
-          }))
-
-      onUpdateFiles(removeNewItemFromTree(files))
+      onUpdateFiles(removeNewItems(files))
       setEditingValue('')
     },
     [
@@ -172,15 +184,7 @@ export function useFileExplorerInlineEditing({
         return
       }
 
-      const removeNewItemFromTree = (items: FileEntry[]): FileEntry[] =>
-        items
-          .filter((i) => !(i.isNewItem && i.isEditing))
-          .map((i) => ({
-            ...i,
-            children: i.children ? removeNewItemFromTree(i.children) : undefined,
-          }))
-
-      onUpdateFiles(removeNewItemFromTree(files))
+      onUpdateFiles(removeNewItems(files))
       setEditingValue('')
     },
     [files, onUpdateFiles],
