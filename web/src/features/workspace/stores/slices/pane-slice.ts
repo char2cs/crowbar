@@ -211,8 +211,17 @@ export const createPaneSlice: StateCreator<
       set((state) => {
         const pane = state.panes[paneId]
         if (!pane) return
+        const closedIndex = pane.bufferIds.indexOf(bufferId)
+        const wasActive = pane.activeBufferId === bufferId
         pane.bufferIds = pane.bufferIds.filter((id) => id !== bufferId)
-        if (pane.activeBufferId === bufferId) pane.activeBufferId = pane.bufferIds[0] ?? null
+        if (wasActive) {
+          // Activate the ADJACENT tab so a close keeps you on a nearby tab
+          // (VS Code-style): the buffer that shifted into the closed slot (the
+          // right neighbor), else the new last tab (the left neighbor when the
+          // closed tab was last), else null when the pane is now empty.
+          pane.activeBufferId =
+            pane.bufferIds[closedIndex] ?? pane.bufferIds[pane.bufferIds.length - 1] ?? null
+        }
         if (pane.previewBufferId === bufferId) pane.previewBufferId = null
         if (
           !preserveEmptyPane &&

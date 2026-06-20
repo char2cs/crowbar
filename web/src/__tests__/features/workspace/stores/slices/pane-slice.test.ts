@@ -55,6 +55,28 @@ describe('pane-slice', () => {
     expect(rootGroup?.bufferIds).toContain('buf-2')
   })
 
+  it('closing the active tab activates the ADJACENT tab (right neighbor, else left when last)', () => {
+    const actions = store.getState().paneActions
+    actions.addBufferToPane(ROOT_PANE_ID, 'buf-1', true)
+    actions.addBufferToPane(ROOT_PANE_ID, 'buf-2', false)
+    actions.addBufferToPane(ROOT_PANE_ID, 'buf-3', false)
+    const activeOf = () => store.getState().paneActions.getPaneById(ROOT_PANE_ID)?.activeBufferId
+
+    // Activate the MIDDLE tab, then close it -> the right neighbor activates
+    // (not the first tab, which is what dropped users onto a far-away tab).
+    store.getState().paneActions.activatePaneBuffer(ROOT_PANE_ID, 'buf-2')
+    store.getState().paneActions.removeBufferFromPane(ROOT_PANE_ID, 'buf-2')
+    expect(activeOf()).toBe('buf-3')
+
+    // buf-3 is now the last + active; closing it falls back to the left neighbor.
+    store.getState().paneActions.removeBufferFromPane(ROOT_PANE_ID, 'buf-3')
+    expect(activeOf()).toBe('buf-1')
+
+    // Closing the only remaining tab leaves the pane empty.
+    store.getState().paneActions.removeBufferFromPane(ROOT_PANE_ID, 'buf-1')
+    expect(activeOf()).toBeNull()
+  })
+
   it('getAllPaneGroups returns all leaf groups from paneRoot and bottomRoot', () => {
     const actions = store.getState().paneActions
     actions.splitPane(ROOT_PANE_ID, 'horizontal')
