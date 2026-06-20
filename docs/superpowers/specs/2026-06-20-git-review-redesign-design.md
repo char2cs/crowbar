@@ -86,7 +86,7 @@ duplicates, and fills a few small backend gaps.**
 | **Comments** | Inline, line-anchored, **single + range**. Posts **immediately** (no batched "submit review"). Resolve/reopen collapses. Drifted anchors become **Outdated** (kept, not deleted). |
 | **Comment body** | **Markdown** with **Write/Preview** tabs + formatting toolbar, rendered via the existing `react-markdown + remark-gfm` renderer (`panes/lib/markdown.tsx`). **Fenced-code highlighting** needs **shiki wired in** (it's a dependency but currently unused by the renderer), else code blocks ship CSS-styled-but-untokenized for v1. |
 | **Identity** | Human authors show **GitHub name + `@login` + avatar** (resolved via `gh api user`, cached); fallback to `git config user.name` + initials avatar. Agents show name + **AGENT** badge + agent avatar. Identity is **stored on the message at post time**. |
-| **Diff renderer** | **Custom virtualized DOM renderer** (`git-diff-text` / `git-diff-line` + `git-diff-multi-file`), not Monaco. It is lighter, more GitHub-like, supports tree-sitter highlighting, and can host inline thread rows + gutter affordances. The Monaco diff stack is retired from the review surface. |
+| **Diff renderer** | **`react-diff-view`** (purpose-built for review UIs), **not Monaco**. Inline threads via its `widgets` slot (keyed by `getChangeKey`); **our existing tree-sitter tokens** are fed in via a custom `tokenize` + `renderToken` so colors match the editor exactly (no refractor/prism); split/unified via `viewType`; the "+" gutter affordance via `renderGutter`/`gutterEvents` (which expose `{change, side}`). **It does not virtualize — we own that** (virtualize the file stack; lazy-render very large files). Retires both the Monaco diff stack and the bespoke `git-diff-text`/`git-diff-line` renderer; theme parity is preserved because we reuse the same tree-sitter tokenizer + `--syntax-*` palette the editor uses. |
 | **Review diff base** | `git diff <mergeBase(parentBranch, HEAD)>` evaluated **in the worktree** (working-tree-inclusive), so it shows exactly this workspace's changes (committed + uncommitted) since it forked. Per-file uncommitted flag from `git status`. |
 
 ---
@@ -179,23 +179,34 @@ Small, additive — the heavy lifting exists.
 
 ### 6.2 Unified review tab (`branch-review-pane.tsx` → single page)
 - Collapse the About/Git/Diff sub-tabs into **one full-width page**: toolbar +
-  stacked `git-diff-multi-file` viewer.
-- **Scroll-to-file:** add `rowVirtualizer.scrollToIndex(indexOf(activeFileKey))`
-  in the effect that seeds `expandedFiles`. Drive `activeFileKey` from a new
-  `branchReview.activeFileKey` action set by sidebar clicks (the tab dedups on
-  `wsId`, so re-clicking must scroll, not reopen).
+  a **virtualized stack of `react-diff-view` `<Diff>`s, one per file** (we own the
+  file-stack virtualization since the library renders all lines itself; repurpose
+  `git-diff-multi-file`'s tanstack stack as that shell).
+- **Diff input:** map the backend `MultiFileDiff` (already-parsed hunks/lines)
+  into `react-diff-view`'s `hunks`/`File` shape (or expose a raw unified-diff
+  passthrough and use its `parseDiff`). Prefer mapping to avoid re-parsing.
+- **Tokens:** a custom `tokenize` runs the existing tree-sitter `tokenizeByLine`
+  (`use-git-diff-highlight`) and emits `react-diff-view` tokens; `renderToken`
+  applies the same `.token-*` classes → `--syntax-*`.
+- **Scroll-to-file:** `virtualizer.scrollToIndex(indexOf(activeFileKey))`, driven
+  by a new `branchReview.activeFileKey` action set on sidebar clicks (the tab
+  dedups on `wsId`, so re-clicking must scroll, not reopen).
 - Per-file headers: path, `+/−`, `uncommitted` pill, **Viewed** checkbox.
-- Retire the `diff` buffer + `DiffPane` + the Monaco `git-diff-editor-stack` for
-  review. (The working-tree-only `diff` buffer flow is subsumed by the blended
-  review tab.)
+- Retire the `diff` buffer + `DiffPane` + the Monaco `git-diff-editor-stack`/
+  `surface` for review. (The working-tree-only `diff` buffer flow is subsumed by
+  the blended review tab.)
 
 ### 6.3 Inline comments
-- Add gutter **"+"** affordance + **range drag/shift-select** to `git-diff-line`
-  / `git-diff-multi-file`; injection point for inline thread rows interleaved
-  with diff lines (coexist with virtualization via size estimation).
+- **Anchor** threads via `react-diff-view`'s `widgets` map, keyed by
+  `getChangeKey(change)`; `side` (old/new) comes from the change type and maps to
+  our `left`/`right`. A **range** thread anchors at its last line's change key and
+  stores `{start,end}`; render the spanned lines via a decoration/`pickRanges`
+  highlight.
+- **"+" affordance** + **range drag/shift-select** via `renderGutter` /
+  `gutterEvents.onClick` (hover state available through `inHoverState`).
 - Reuse `review-thread-item.tsx` (already renders human/agent rows + reply) as
-  the inline thread body; **retire** the form-based `review-thread-panel.tsx`
-  and the `diff-pane.tsx` ephemeral composer.
+  the inline thread body rendered inside the widget; **retire** the form-based
+  `review-thread-panel.tsx` and the `diff-pane.tsx` ephemeral composer.
 - **Composer:** Write/Preview tabs + formatting toolbar; **Preview** renders via
   `panes/lib/markdown.tsx` (react-markdown + remark-gfm). For highlighted fenced
   code in the preview, **wire shiki** (already a dependency, currently unused by
@@ -234,20 +245,28 @@ Small, additive — the heavy lifting exists.
 
 **Keep / extend**
 - `review-api.ts` (realign to `/threads`, add merge call), `branch-review-slice.ts`
-  (+`activeFileKey`, +range, +identity), `git-diff-multi-file.tsx` (+scroll-to,
-  +inline threads), `git-diff-text/line/hunk-header.tsx`, `review-thread-item.tsx`,
-  `review-about-tab` merge selector, `file-explorer-tree*` + `FileExplorerIcon`,
-  `git-status-api` staging, the `/git/status` websocket sync.
+  (+`activeFileKey`, +range, +identity), `git-diff-multi-file.tsx` (repurpose its
+  tanstack stack as the **per-file virtualization shell** around `react-diff-view`),
+  `use-git-diff-highlight` (tree-sitter tokenizer, adapted to emit `react-diff-view`
+  tokens), `review-thread-item.tsx`, `review-about-tab` merge selector,
+  `file-explorer-tree*` + `FileExplorerIcon`, `git-status-api` staging, the
+  `/git/status` websocket sync.
 
 **Build**
+- Add the **`react-diff-view`** dependency; a `MultiFileDiff → hunks` mapper; a
+  custom `tokenize`/`renderToken` bridging tree-sitter → `--syntax-*`; `widgets`/
+  `renderGutter` wiring for threads + the "+" affordance; file-stack virtualization.
 - Blended changed-files tree component (sidebar) with dedicated expand store.
-- Scroll-to-file wiring; inline thread gutter + range select + thread overlay.
-- Write/Preview Markdown composer; identity rendering; merge-section state machine.
+- Scroll-to-file wiring; range select + thread overlay.
+- Write/Preview Markdown composer (+shiki for code fences); identity rendering;
+  merge-section state machine; thread reopen path.
 - Backend: `DiffAgainstRef` + working-tree-inclusive review diff + `uncommitted`
-  flag; range anchors; identity on `/threads` DTO + resolver; outdated snapshot.
+  flag; range anchors; identity + `isAgent` on `/threads` DTO + resolver; outdated
+  snapshot.
 
 **Retire**
-- `git-changes-panel.tsx` flat `FileRow`; `diff-pane.tsx` ephemeral comments;
+- `git-changes-panel.tsx` flat `FileRow`; the bespoke `git-diff-text`/`git-diff-line`
+  renderer (replaced by `react-diff-view`); `diff-pane.tsx` ephemeral comments;
   `git-diff-editor-stack/surface` + `monaco-diff-editor-view` (verify unused) for
   review; `review-thread-panel.tsx` form; the `diff` buffer review path; the
   `branchReview` About/Git/Diff sub-tab shell; stale `git_pull/push/fetch` Tauri
@@ -270,7 +289,10 @@ Small, additive — the heavy lifting exists.
 ## 9. Risks / open items
 - **Thread drift in the blend** is the main risk — anchors move as you edit
   uncommitted lines. Mitigation: anchor snapshot + Outdated state (§5.6, §6.3).
-- **Virtualization + inline thread rows** must coexist (variable row heights).
+- **`react-diff-view` does not virtualize** — it renders all lines of every
+  `<Diff>`. We virtualize the **file stack** (mount `<Diff>` per visible file) and
+  must **lazy-render very large files** (hunk pagination) to stay smooth; the
+  comment `widgets` (variable-height rows) must coexist with that.
 - **Agent posting** is honored in the data model but the producer (agent runtime)
   lands in the agentic phase; POC ships human threads + the AGENT-rendering path.
 - **Identity caching/staleness** (avatar/login) — cache with a TTL; store on the
