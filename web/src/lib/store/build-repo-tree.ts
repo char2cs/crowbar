@@ -69,7 +69,7 @@ export function toSidebarRepo(repo: RepoDTO, workspaces: WorkspaceDTO[]): Repo {
     avatarColor: repo.avatarColor || repoAvatarColor(repo.name),
     avatarURL: repoAvatarURL(repo),
     workspaces: repoWs.filter((ws) => !ws.isDefault).map(toSidebarWorkspace),
-    ...(defaultWs ? { defaultWorkspaceId: defaultWs.id, defaultWorkspaceBranch: defaultWs.branch } : {}),
+    ...(defaultWs ? { defaultWorkspaceId: defaultWs.id } : {}),
   }
 }
 

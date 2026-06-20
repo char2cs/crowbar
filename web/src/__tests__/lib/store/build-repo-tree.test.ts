@@ -133,12 +133,10 @@ describe('buildRepoTree', () => {
     )
     expect(tree[0].workspaces.map((w) => w.id)).toEqual(['w-child'])
     expect(tree[0].defaultWorkspaceId).toBe('w-default')
-    expect(tree[0].defaultWorkspaceBranch).toBe('develop')
   })
 
-  it('leaves the default fields undefined when no workspace is the default', () => {
+  it('leaves defaultWorkspaceId undefined when no workspace is the default', () => {
     const tree = buildRepoTree([repo('r1', 'crowbar')], [ws('w1', 'r1')])
     expect(tree[0].defaultWorkspaceId).toBeUndefined()
-    expect(tree[0].defaultWorkspaceBranch).toBeUndefined()
   })
 })

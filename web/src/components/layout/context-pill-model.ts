@@ -43,6 +43,19 @@ export function deriveContextPillModel({
         branchName: workspace.branch,
       }
     }
+    // The default workspace is the imported folder — excluded from the tree, so
+    // it is not in repo.workspaces. Identify it by defaultWorkspaceId and label
+    // it "default" (its incidental branch is irrelevant — Crowbar doesn't manage
+    // that checkout).
+    const defaultRepo = repos.find((r) => r.defaultWorkspaceId === activeWorkspaceId)
+    if (defaultRepo) {
+      return {
+        kind: 'workspace',
+        status: 'new',
+        repoName: defaultRepo.name,
+        branchName: 'default',
+      }
+    }
   }
 
   const project = projects.find((p) => p.id === activeProjectId)

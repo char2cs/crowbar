@@ -139,9 +139,9 @@ function WorkspaceTreeInner() {
                     )}
                     <span className="flex min-w-0 items-baseline gap-1.5">
                       <span className="shrink-0 font-mono text-foreground">{repo.name}</span>
-                      {repo.defaultWorkspaceBranch && (
+                      {repo.defaultWorkspaceId && (
                         <span className="hidden min-w-0 truncate font-mono text-[11px] text-foreground/40 group-hover:inline">
-                          - {repo.defaultWorkspaceBranch}
+                          - default
                         </span>
                       )}
                     </span>

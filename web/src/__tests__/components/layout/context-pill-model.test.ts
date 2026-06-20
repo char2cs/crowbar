@@ -57,6 +57,21 @@ describe('deriveContextPillModel', () => {
     expect(model).toEqual({ kind: 'project', projectName: 'Crowbar' })
   })
 
+  it('labels the default workspace "default" with the repo name', () => {
+    const model = deriveContextPillModel({
+      activeWorkspaceId: 'ws-default',
+      repos: [{ ...repos[0], defaultWorkspaceId: 'ws-default' }],
+      projects,
+      activeProjectId: 'p1',
+    })
+    expect(model).toEqual({
+      kind: 'workspace',
+      status: 'new',
+      repoName: 'crowbar',
+      branchName: 'default',
+    })
+  })
+
   it('returns project model when the workspace id does not resolve', () => {
     const model = deriveContextPillModel({
       activeWorkspaceId: 'missing',
