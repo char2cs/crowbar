@@ -8,6 +8,7 @@ const REPOS: Repo[] = [
     name: 'crowbar',
     avatarLabel: 'C',
     avatarColor: 'bg-indigo-700',
+    defaultWorkspaceId: 'ws-default',
     workspaces: [
       { id: 'ws-base', branch: 'develop', status: 'locked', age: '—' },
       { id: 'ws-child', branch: 'feature/x', parentId: 'ws-base', status: 'new', age: '—' },
@@ -36,4 +37,8 @@ test('redirects when the list is loaded and the id is unknown', () => {
 
 test('no id means nothing to guard', () => {
   expect(shouldRedirectUnknownWorkspace('success', REPOS, undefined)).toBe(false)
+})
+
+test('does not redirect for the repo default workspace id (excluded from the tree)', () => {
+  expect(shouldRedirectUnknownWorkspace('success', REPOS, 'ws-default')).toBe(false)
 })
