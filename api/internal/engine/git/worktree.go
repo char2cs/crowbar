@@ -15,7 +15,32 @@ func (e *engine) WorktreeAdd(
 ) error {
 	defer e.lockRepo(repoPath)()
 	r := e.exec(ctx, repoPath, "worktree", "add", worktreePath, branch)
-	return gitexec.RequireSuccess("worktree add", r)
+	err := gitexec.RequireSuccess("worktree add", r)
+	if err != nil && isStaleWorktreeConflict(err) {
+		// A worktree whose directory was removed out from under git still holds
+		// its branch "checked out", which blocks re-adding that branch with
+		// "already used by worktree" — so importing that branch fails forever.
+		// Prune dead registrations and retry once. `git worktree prune` only
+		// removes worktrees whose directory is gone, so a genuine conflict with a
+		// live worktree still fails on the retry (correctly).
+		_ = gitexec.RequireSuccess("worktree prune",
+			e.exec(ctx, repoPath, "worktree", "prune"))
+		r = e.exec(ctx, repoPath, "worktree", "add", worktreePath, branch)
+		return gitexec.RequireSuccess("worktree add", r)
+	}
+	return err
+}
+
+// isStaleWorktreeConflict reports whether a worktree-add error is the
+// "branch already used / checked out by another worktree" failure that pruning
+// dead worktree registrations can clear.
+func isStaleWorktreeConflict(err error) bool {
+	if err == nil {
+		return false
+	}
+	m := err.Error()
+	return strings.Contains(m, "already used by worktree") ||
+		strings.Contains(m, "is already checked out")
 }
 
 func (e *engine) WorktreeRemove(
