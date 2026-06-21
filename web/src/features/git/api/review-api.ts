@@ -124,6 +124,15 @@ export async function getBranchDiff(wsId: string): Promise<MultiFileDiff> {
 
 // ── Writes ──────────────────────────────────────────────────────────
 
+/** POST to merge the workspace branch into its parent. Returns void (202 async). */
+export async function mergeIntoParent(wsId: string, strategy: MergeStrategy): Promise<void> {
+  await apiFetch<unknown>(`${workspaceBase(wsId)}/merge-into-parent`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ strategy }),
+  })
+}
+
 /** PATCH the merge strategy for a workspace. */
 export async function setMergeStrategy(
   wsId: string,

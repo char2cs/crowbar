@@ -2,6 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import {
   getReview,
   setMergeStrategy,
+  mergeIntoParent,
   openThread,
   replyToThread,
   mapThread,
@@ -10,7 +11,7 @@ import { setWorkspaceScope } from '@/lib/workspace-scope'
 
 // §3: workspace-scoped URLs are hierarchical; register scopes for the test wsIds.
 beforeEach(() => {
-  for (const wsId of ['ws-1', 'ws-2', 'ws-3', 'ws-4']) {
+  for (const wsId of ['ws-1', 'ws-2', 'ws-3', 'ws-4', 'ws-5']) {
     setWorkspaceScope({ projectId: 'p1', repoId: 'r1', wsId })
   }
 })
@@ -143,6 +144,17 @@ describe('review-api request shapes', () => {
       lineNumber: 110,
     })
     expect(thread.messages[0].body).toBe('note')
+  })
+
+  it('mergeIntoParent POSTs to /merge-into-parent with the strategy body', async () => {
+    const fetchMock = mockFetchEnvelope(null)
+
+    await mergeIntoParent('ws-5', 'squash')
+
+    const [url, init] = fetchMock.mock.calls[0] as [string, RequestInit]
+    expect(url).toContain('/v0/projects/p1/repos/r1/workspaces/ws-5/merge-into-parent')
+    expect(init.method).toBe('POST')
+    expect(JSON.parse(init.body as string)).toEqual({ strategy: 'squash' })
   })
 
   it('replyToThread POSTs to the thread reply route with an encoded id', async () => {
