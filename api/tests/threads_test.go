@@ -7,6 +7,7 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 type threadDTO struct {
@@ -61,4 +62,41 @@ func TestThreads_SingleLineDefaultsRange(t *testing.T) {
 	assert.Equal(t, 7, got.Line)
 	assert.Equal(t, 7, got.StartLine)
 	assert.Equal(t, 7, got.EndLine)
+}
+
+type threadReplyDTO struct {
+	ID      string `json:"id"`
+	Body    string `json:"body"`
+	Author  string `json:"author"`
+	IsAgent bool   `json:"isAgent"`
+}
+
+type threadWithReplies struct {
+	threadDTO
+	Replies []threadReplyDTO `json:"replies"`
+}
+
+// TestThreads_AuthorAndIsAgent proves human vs agent authorship round-trips on
+// open and reply.
+func TestThreads_AuthorAndIsAgent(t *testing.T) {
+	h := newHarness(t)
+	imported := importWritableWorkspace(t, h)
+	base := wsBase(imported)
+
+	var opened threadWithReplies
+	h.post(base+"/threads", map[string]any{
+		"filePath": "README.md", "line": 10, "side": "right",
+		"author": "mateourru", "isAgent": false, "body": "@claude take a look",
+	}, http.StatusCreated, &opened)
+	assert.Equal(t, "mateourru", opened.Author)
+	assert.False(t, opened.IsAgent)
+
+	var replied threadWithReplies
+	h.post(base+"/threads/"+opened.ID+"/replies", map[string]any{
+		"author": "claude", "isAgent": true, "body": "on it",
+	}, http.StatusOK, &replied)
+
+	require.Len(t, replied.Replies, 1)
+	assert.Equal(t, "claude", replied.Replies[0].Author)
+	assert.True(t, replied.Replies[0].IsAgent, "agent reply must carry isAgent")
 }

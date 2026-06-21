@@ -43,6 +43,8 @@ type ReviewThread interface {
 		ctx context.Context,
 		id string,
 		messageID string,
+		author string,
+		isAgent bool,
 		body string,
 		now time.Time,
 	) (domain.ReviewThread, error)
@@ -115,12 +117,16 @@ func (r *reviewThread) Reply(
 	ctx context.Context,
 	id string,
 	messageID string,
+	author string,
+	isAgent bool,
 	body string,
 	now time.Time,
 ) (domain.ReviewThread, error) {
 	evt, err := r.ax.SendWait(ctx, commands.ReplyReviewThread{
 		ID:        id,
 		MessageID: messageID,
+		Author:    author,
+		IsAgent:   isAgent,
 		Body:      body,
 		Now:       now,
 	})

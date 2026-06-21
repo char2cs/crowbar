@@ -68,6 +68,8 @@ func (h *Handlers) OpenThread(
 		StartLine int               `json:"startLine"`
 		EndLine   int               `json:"endLine"`
 		Side      domain.ReviewSide `json:"side"`
+		Author    string            `json:"author"`
+		IsAgent   bool              `json:"isAgent"`
 		Body      string            `json:"body"`
 	}
 	if err := ctx.ShouldBindJSON(&body); err != nil {
@@ -83,6 +85,8 @@ func (h *Handlers) OpenThread(
 		EndLine:    body.EndLine,
 		Side:       body.Side,
 		MessageID:  h.newID(),
+		Author:     body.Author,
+		IsAgent:    body.IsAgent,
 		Body:       body.Body,
 	}, h.now())
 	if err != nil {
@@ -156,13 +160,15 @@ func (h *Handlers) Reply(
 	projectID, repoID, _ := scope(ctx)
 	threadID := ctx.Param("threadId")
 	var body struct {
-		Body string `json:"body"`
+		Author  string `json:"author"`
+		IsAgent bool   `json:"isAgent"`
+		Body    string `json:"body"`
 	}
 	if err := ctx.ShouldBindJSON(&body); err != nil {
 		libs.WriteErr(ctx, http.StatusBadRequest, err.Error())
 		return
 	}
-	thread, err := h.store.Reply(ctx.Request.Context(), threadID, h.newID(), body.Body, h.now())
+	thread, err := h.store.Reply(ctx.Request.Context(), threadID, h.newID(), body.Author, body.IsAgent, body.Body, h.now())
 	if err != nil {
 		libs.WriteErr(ctx, threadErrorStatus(err), err.Error())
 		return

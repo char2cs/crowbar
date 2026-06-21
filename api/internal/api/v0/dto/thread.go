@@ -7,12 +7,14 @@ import (
 )
 
 // ThreadReplyDTO is the wire shape of a reply on a review thread (00 §5.5): its
-// id, the parent thread, the body, the author, and the creation timestamp.
+// id, the parent thread, the body, the author, the agent flag, and the creation
+// timestamp.
 type ThreadReplyDTO struct {
 	ID        string    `json:"id"`
 	ThreadID  string    `json:"threadId"`
 	Body      string    `json:"body"`
 	Author    string    `json:"author"`
+	IsAgent   bool      `json:"isAgent"`
 	CreatedAt time.Time `json:"createdAt"`
 }
 
@@ -32,6 +34,7 @@ type ThreadDTO struct {
 	Side        string           `json:"side"`
 	Body        string           `json:"body"`
 	Author      string           `json:"author"`
+	IsAgent     bool             `json:"isAgent"`
 	Resolved    bool             `json:"resolved"`
 	CreatedAt   time.Time        `json:"createdAt"`
 	Replies     []ThreadReplyDTO `json:"replies"`
@@ -50,11 +53,13 @@ func ThreadDTOFrom(
 ) ThreadDTO {
 	body := ""
 	author := ""
+	rootIsAgent := false
 	replies := make([]ThreadReplyDTO, 0, len(rt.Messages))
 	for i, msg := range rt.Messages {
 		if i == 0 {
 			body = msg.Body
 			author = msg.Author
+			rootIsAgent = msg.IsAgent
 			continue
 		}
 		replies = append(replies, ThreadReplyDTO{
@@ -62,6 +67,7 @@ func ThreadDTOFrom(
 			ThreadID:  rt.ID,
 			Body:      msg.Body,
 			Author:    msg.Author,
+			IsAgent:   msg.IsAgent,
 			CreatedAt: msg.CreatedAt,
 		})
 	}
@@ -77,6 +83,7 @@ func ThreadDTOFrom(
 		Side:        string(rt.Side),
 		Body:        body,
 		Author:      author,
+		IsAgent:     rootIsAgent,
 		Resolved:    rt.IsResolved(),
 		CreatedAt:   rt.CreatedAt,
 		Replies:     replies,

@@ -233,7 +233,7 @@ func (u *branchReviewUsecase) Reply(
 	threadID string,
 	body string,
 ) (domain.ReviewThread, error) {
-	thread, err := u.threads.Reply(ctx, threadID, uuid.NewString(), body, u.now())
+	thread, err := u.threads.Reply(ctx, threadID, uuid.NewString(), "", false, body, u.now())
 	if err != nil {
 		return domain.ReviewThread{}, fmt.Errorf("branch review: reply: %w", asNotFound(err))
 	}

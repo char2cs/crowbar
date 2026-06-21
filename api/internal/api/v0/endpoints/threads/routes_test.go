@@ -38,6 +38,8 @@ func (stubStore) Reply(
 	_ string,
 	_ string,
 	_ string,
+	_ bool,
+	_ string,
 	_ time.Time,
 ) (domain.ReviewThread, error) {
 	return domain.ReviewThread{}, nil

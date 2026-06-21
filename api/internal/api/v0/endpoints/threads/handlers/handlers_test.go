@@ -29,16 +29,18 @@ func TestMain(
 // fakeStore records the calls the handlers make and returns canned threads so
 // the broadcast + response assertions can be made without an event store.
 type fakeStore struct {
-	openIn     reviewthread.OpenInput
-	replyID    string
-	replyBody  string
-	resolveID  string
-	reopenID   string
-	getID      string
-	listWsID   string
-	thread     domain.ReviewThread
-	listResult []domain.ReviewThread
-	err        error
+	openIn      reviewthread.OpenInput
+	replyID     string
+	replyAuthor string
+	replyIsAgent bool
+	replyBody   string
+	resolveID   string
+	reopenID    string
+	getID       string
+	listWsID    string
+	thread      domain.ReviewThread
+	listResult  []domain.ReviewThread
+	err         error
 }
 
 func (f *fakeStore) Open(
@@ -54,10 +56,14 @@ func (f *fakeStore) Reply(
 	_ context.Context,
 	id string,
 	_ string,
+	author string,
+	isAgent bool,
 	body string,
 	_ time.Time,
 ) (domain.ReviewThread, error) {
 	f.replyID = id
+	f.replyAuthor = author
+	f.replyIsAgent = isAgent
 	f.replyBody = body
 	return f.thread, f.err
 }

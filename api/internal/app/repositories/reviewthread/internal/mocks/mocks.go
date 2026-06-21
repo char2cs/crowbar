@@ -11,7 +11,7 @@ import (
 // MockReviewThread is a test double for reviewthread.ReviewThread.
 type MockReviewThread struct {
 	OpenFn            func(ctx context.Context, in reviewthread.OpenInput, now time.Time) (domain.ReviewThread, error)
-	ReplyFn           func(ctx context.Context, id, messageID, body string, now time.Time) (domain.ReviewThread, error)
+	ReplyFn           func(ctx context.Context, id, messageID, author string, isAgent bool, body string, now time.Time) (domain.ReviewThread, error)
 	ResolveFn         func(ctx context.Context, id string) (domain.ReviewThread, error)
 	ReopenFn          func(ctx context.Context, id string) (domain.ReviewThread, error)
 	GetFn             func(ctx context.Context, id string) (domain.ReviewThread, error)
@@ -31,10 +31,12 @@ func (m *MockReviewThread) Reply(
 	ctx context.Context,
 	id string,
 	messageID string,
+	author string,
+	isAgent bool,
 	body string,
 	now time.Time,
 ) (domain.ReviewThread, error) {
-	return m.ReplyFn(ctx, id, messageID, body, now)
+	return m.ReplyFn(ctx, id, messageID, author, isAgent, body, now)
 }
 
 func (m *MockReviewThread) Resolve(

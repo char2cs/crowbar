@@ -118,7 +118,7 @@ var _ workspace.Workspace = (*mockWorkspace)(nil)
 
 type mockReviewThread struct {
 	OpenFn            func(ctx context.Context, in reviewthread.OpenInput, now time.Time) (domain.ReviewThread, error)
-	ReplyFn           func(ctx context.Context, id, messageID, body string, now time.Time) (domain.ReviewThread, error)
+	ReplyFn           func(ctx context.Context, id, messageID, author string, isAgent bool, body string, now time.Time) (domain.ReviewThread, error)
 	ResolveFn         func(ctx context.Context, id string) (domain.ReviewThread, error)
 	ReopenFn          func(ctx context.Context, id string) (domain.ReviewThread, error)
 	ListByWorkspaceFn func(ctx context.Context, wsID string) ([]domain.ReviewThread, error)
@@ -128,8 +128,8 @@ func (m *mockReviewThread) Open(ctx context.Context, in reviewthread.OpenInput, 
 	return m.OpenFn(ctx, in, now)
 }
 
-func (m *mockReviewThread) Reply(ctx context.Context, id, messageID, body string, now time.Time) (domain.ReviewThread, error) {
-	return m.ReplyFn(ctx, id, messageID, body, now)
+func (m *mockReviewThread) Reply(ctx context.Context, id, messageID, author string, isAgent bool, body string, now time.Time) (domain.ReviewThread, error) {
+	return m.ReplyFn(ctx, id, messageID, author, isAgent, body, now)
 }
 
 func (m *mockReviewThread) Resolve(ctx context.Context, id string) (domain.ReviewThread, error) {
@@ -753,7 +753,7 @@ func TestBranchReview_Reply_MintsMessageID(t *testing.T) {
 
 	var capturedMsgID string
 	threads := &mockReviewThread{
-		ReplyFn: func(_ context.Context, id, messageID, body string, _ time.Time) (domain.ReviewThread, error) {
+		ReplyFn: func(_ context.Context, id, messageID, author string, isAgent bool, body string, _ time.Time) (domain.ReviewThread, error) {
 			capturedMsgID = messageID
 			return domain.ReviewThread{ID: id}, nil
 		},
@@ -771,7 +771,7 @@ func TestBranchReview_Reply_Error(t *testing.T) {
 	ctx := context.Background()
 
 	threads := &mockReviewThread{
-		ReplyFn: func(_ context.Context, _, _, _ string, _ time.Time) (domain.ReviewThread, error) {
+		ReplyFn: func(_ context.Context, _, _, _ string, _ bool, _ string, _ time.Time) (domain.ReviewThread, error) {
 			return domain.ReviewThread{}, errors.New("not found")
 		},
 	}

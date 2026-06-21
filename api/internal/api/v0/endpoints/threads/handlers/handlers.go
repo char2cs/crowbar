@@ -27,6 +27,8 @@ type ThreadStore interface {
 		ctx context.Context,
 		id string,
 		messageID string,
+		author string,
+		isAgent bool,
 		body string,
 		now time.Time,
 	) (domain.ReviewThread, error)

@@ -110,7 +110,7 @@ func TestReviewThread_OpenReplyList(t *testing.T) {
 	}, now)
 	require.NoError(t, err)
 
-	replied, err := repo.Reply(ctx, "t1", "m2", "second", now)
+	replied, err := repo.Reply(ctx, "t1", "m2", "", false, "second", now)
 	require.NoError(t, err)
 	require.Len(t, replied.Messages, 2)
 	assert.Equal(t, "second", replied.Messages[1].Body)
@@ -145,7 +145,7 @@ func TestReviewThread_ListByWorkspace_FiltersWsID(t *testing.T) {
 
 func TestReviewThread_Reply_ErrorOnMissing(t *testing.T) {
 	ctx, repo := newRepo(t)
-	_, err := repo.Reply(ctx, "no-thread", "m1", "body", time.Unix(1, 0))
+	_, err := repo.Reply(ctx, "no-thread", "m1", "", false, "body", time.Unix(1, 0))
 	assert.Error(t, err)
 }
 
