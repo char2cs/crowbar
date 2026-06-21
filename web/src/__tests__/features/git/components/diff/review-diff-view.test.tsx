@@ -34,7 +34,14 @@ vi.mock('@tanstack/react-virtual', () => ({
         end: estimateSize(i),
       })),
     measureElement: () => undefined,
+    scrollToIndex: () => undefined,
   }),
+}))
+
+// Mock useWorkspaceStoreContext so ReviewDiffView can render outside a provider in tests
+vi.mock('@/features/workspace/stores/workspace-context', () => ({
+  useWorkspaceStoreContext: (selector: (s: { branchReview: { activeFileKey: null; activeFileNonce: number } }) => unknown) =>
+    selector({ branchReview: { activeFileKey: null, activeFileNonce: 0 } }),
 }))
 
 import type { MultiFileDiff } from '@/features/git/types/git-diff-types'

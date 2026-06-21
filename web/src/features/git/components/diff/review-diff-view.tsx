@@ -18,6 +18,7 @@ import { getFileStatus } from '../../utils/git-diff-helpers'
 import { gitDiffToHunks } from '../../lib/to-diff-view-hunks'
 import { buildDiffTokens, renderTreeSitterToken } from '../../lib/render-tree-sitter-token'
 import ImageDiffViewer from './git-diff-image'
+import { useWorkspaceStoreContext } from '@/features/workspace/stores/workspace-context'
 
 const LARGE_DIFF_THRESHOLD = 500
 
@@ -31,12 +32,20 @@ interface FileDiffRowProps {
   viewMode: 'unified' | 'split'
   tokenCache: React.MutableRefObject<Map<string, HunkTokens | null | 'pending'>>
   onTokensResolved: (key: string, tokens: HunkTokens | null) => void
+  forceExpand?: boolean
 }
 
 const FileDiffRow = memo(
-  ({ diff, summary, viewMode, tokenCache, onTokensResolved }: FileDiffRowProps) => {
+  ({ diff, summary, viewMode, tokenCache, onTokensResolved, forceExpand }: FileDiffRowProps) => {
     const [isViewed, setIsViewed] = useState(false)
     const [isExpanded, setIsExpanded] = useState(!summary.shouldAutoCollapse)
+
+    useEffect(() => {
+      if (forceExpand) {
+        setIsExpanded(true)
+        setIsViewed(false)
+      }
+    }, [forceExpand])
     const [localTokens, setLocalTokens] = useState<HunkTokens | null | undefined>(
       () => {
         const cached = tokenCache.current.get(summary.key)
@@ -184,6 +193,11 @@ export interface ReviewDiffViewProps {
 export const ReviewDiffView = memo(({ multiDiff }: ReviewDiffViewProps) => {
   const [viewMode, setViewMode] = useState<'unified' | 'split'>('unified')
 
+  // Scroll-to-file: subscribe to activeFileKey + activeFileNonce from the workspace store.
+  // This component renders inside the branch-review pane's provider, so useWorkspaceStoreContext is correct.
+  const activeFileKey = useWorkspaceStoreContext((s) => s.branchReview.activeFileKey)
+  const activeFileNonce = useWorkspaceStoreContext((s) => s.branchReview.activeFileNonce)
+
   // Token cache: fileKey → HunkTokens | null | 'pending'
   // We use a ref (not state) to avoid re-renders on every cache write.
   // setResolvedCount is just a counter to trigger re-render when tokens arrive.
@@ -216,6 +230,9 @@ export const ReviewDiffView = memo(({ multiDiff }: ReviewDiffViewProps) => {
     })
   }, [multiDiff.fileKeys, multiDiff.files])
 
+  // Track which file key should be force-expanded (set when scrolling to a file)
+  const [expandedByScrollKey, setExpandedByScrollKey] = useState<string | null>(null)
+
   const scrollRef = useRef<HTMLDivElement>(null)
 
   const virtualizer = useVirtualizer({
@@ -230,6 +247,16 @@ export const ReviewDiffView = memo(({ multiDiff }: ReviewDiffViewProps) => {
     overscan: 3,
     measureElement: (el) => el.getBoundingClientRect().height,
   })
+
+  // Scroll-to-file effect: when activeFileNonce changes (including re-clicks of the same key),
+  // find the file by key, force-expand it, and scroll the virtualizer to it.
+  useEffect(() => {
+    if (!activeFileKey || activeFileNonce === 0) return
+    const index = fileSummaries.findIndex((s) => s.key === activeFileKey)
+    if (index === -1) return
+    setExpandedByScrollKey(activeFileKey)
+    virtualizer.scrollToIndex(index, { align: 'start' })
+  }, [activeFileNonce]) // eslint-disable-line react-hooks/exhaustive-deps
 
   return (
     <div className="flex h-full flex-col overflow-hidden bg-background">
@@ -295,6 +322,7 @@ export const ReviewDiffView = memo(({ multiDiff }: ReviewDiffViewProps) => {
                   viewMode={viewMode}
                   tokenCache={tokenCache}
                   onTokensResolved={handleTokensResolved}
+                  forceExpand={expandedByScrollKey === summary.key}
                 />
               </div>
             )

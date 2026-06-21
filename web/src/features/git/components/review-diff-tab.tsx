@@ -3,7 +3,7 @@ import { FileDashed, Warning } from '@phosphor-icons/react'
 import { LoadingSpinner } from '@/components/ui/loading-spinner'
 import { useWorkspaceStoreContext } from '@/features/workspace/stores/workspace-context'
 
-const MultiFileDiffViewer = lazy(() => import('./diff/git-diff-multi-file'))
+const ReviewDiffViewLazy = lazy(() => import('./diff/review-diff-view'))
 
 interface ReviewDiffTabProps {
   onRetry: () => void
@@ -56,7 +56,7 @@ export function ReviewDiffTab({ onRetry }: ReviewDiffTabProps) {
 
   return (
     <Suspense fallback={<CenteredState>{<LoadingSpinner />}</CenteredState>}>
-      <MultiFileDiffViewer multiDiff={diff} onClose={() => {}} />
+      <ReviewDiffViewLazy multiDiff={diff} />
     </Suspense>
   )
 }

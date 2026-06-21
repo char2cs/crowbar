@@ -36,6 +36,8 @@ export interface BranchReviewState {
   diffStatus: 'idle' | 'loading' | 'loaded' | 'error'
   threads: ReviewThread[]
   conversations: ReviewConversation[]
+  activeFileKey: string | null
+  activeFileNonce: number
 }
 
 export interface BranchReviewSlice {
@@ -45,6 +47,7 @@ export interface BranchReviewSlice {
   setBranchReviewSubtab: (tab: BranchReviewState['activeSubtab']) => void
   setBranchReviewDiff: (diff: MultiFileDiff) => void
   setBranchReviewDiffStatus: (status: BranchReviewState['diffStatus']) => void
+  setBranchReviewActiveFile: (key: string | null) => void
   addReviewThread: (thread: ReviewThread) => void
   removeReviewThread: (threadId: string) => void
   addReviewMessage: (threadId: string, message: ReviewMessage) => void
@@ -61,6 +64,8 @@ export const INITIAL_BRANCH_REVIEW_STATE: BranchReviewState = {
   diffStatus: 'idle',
   threads: [],
   conversations: [],
+  activeFileKey: null,
+  activeFileNonce: 0,
 }
 
 export interface OptimisticOp {
@@ -122,6 +127,13 @@ export const createBranchReviewSlice: StateCreator<
   setBranchReviewDiffStatus: (status) =>
     set((s) => {
       s.branchReview.diffStatus = status
+    }),
+
+  setBranchReviewActiveFile: (key) =>
+    set((s) => {
+      s.branchReview.activeFileKey = key
+      s.branchReview.activeFileNonce += 1
+      s.branchReview.activeSubtab = 'diff'
     }),
 
   addReviewThread: (thread) =>

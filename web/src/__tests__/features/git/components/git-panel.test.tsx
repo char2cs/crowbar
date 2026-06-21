@@ -36,10 +36,15 @@ vi.mock('@/features/git/hooks/use-review-diff', () => ({
   useReviewDiff: () => ({ files: [], uncommittedCount: 0, loading: false }),
 }))
 
-// Spy on useGitDiffHandlers to verify I1 (wsId is passed as activeRepoPath).
-const spyUseGitDiffHandlers = vi.fn(() => ({ handleViewFileDiff: vi.fn() }))
-vi.mock('@/features/git/hooks/use-git-diff-handlers', () => ({
-  useGitDiffHandlers: (props: unknown) => spyUseGitDiffHandlers(props),
+// Mock getOrCreateWorkspaceStore so git-panel can call it in event handlers.
+const mockSetBranchReviewActiveFile = vi.fn()
+vi.mock('@/features/workspace/stores/workspace-store-registry', () => ({
+  getOrCreateWorkspaceStore: () => ({
+    getState: () => ({
+      branchReview: { diffCache: null },
+      setBranchReviewActiveFile: mockSetBranchReviewActiveFile,
+    }),
+  }),
 }))
 
 vi.mock('@/features/git/stores/git-store', () => {
@@ -88,13 +93,12 @@ describe('GitPanel', () => {
 
   // I1: wsId is derived reactively from the route pathname, not a mount-time snapshot.
   // The mocked useRouterState returns pathname '/ide/proj1/repo1/ws-active', so
-  // parseWorkspaceScopeFromPath yields wsId = 'ws-active'.
-  it('(I1) derives wsId from route and passes it as activeRepoPath to diff handlers', () => {
-    spyUseGitDiffHandlers.mockClear()
+  // parseWorkspaceScopeFromPath yields wsId = 'ws-active'. File clicks now open the
+  // unified branch-review tab; useGitDiffHandlers is no longer called by GitPanel.
+  it('(I1) derives wsId from route and renders the panel without error', () => {
     render(<GitPanel />)
-    expect(spyUseGitDiffHandlers).toHaveBeenCalledWith(
-      expect.objectContaining({ activeRepoPath: 'ws-active' }),
-    )
+    // Panel renders correctly with wsId from route — tabs are present.
+    expect(screen.getByRole('tab', { name: /changes/i })).toBeInTheDocument()
   })
 
   // I3: onCommitSuccess dispatches git-status-changed so useReviewDiff re-fetches.

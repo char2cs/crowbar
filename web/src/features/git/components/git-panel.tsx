@@ -7,9 +7,8 @@ import { openBranchReviewForActiveWorkspace } from '@/features/panes/utils/pane-
 import { useSidebarStore } from '@/lib/store/sidebar'
 import { useGitStore } from '@/features/git/stores/git-store'
 import { parseWorkspaceScopeFromPath } from '@/lib/workspace-scope'
-import { useGitDiffHandlers } from '@/features/git/hooks/use-git-diff-handlers'
 import { useReviewDiff } from '@/features/git/hooks/use-review-diff'
-import type { GitFile } from '@/features/git/types/git-types'
+import { getOrCreateWorkspaceStore } from '@/features/workspace/stores/workspace-store-registry'
 import { ChangedFilesTree } from './changed-files-tree'
 import GitCommitPanel from './git-commit-panel'
 import { MergeSection } from './merge-section'
@@ -39,41 +38,20 @@ export function GitPanel() {
   // Review diff: branch-vs-parent blended files + uncommitted count.
   const { files, uncommittedCount } = useReviewDiff(wsId)
 
-  // I2 fix: build a merged visibleGitFiles that includes committed (branch-only)
-  // files from the review diff alongside the working-tree files from gitStatus.
-  // Without this, clicking a committed file in the blended tree calls getFileDiff
-  // which returns empty (no working-tree changes) and falls back to opening the
-  // file as a plain editor buffer instead of a diff.
-  //
-  // Strategy: adapt each review GitDiff into the GitFile shape expected by
-  // useGitDiffHandlers, then union with gitStatus.files (gitStatus entries take
-  // priority so staged/unstaged state is accurate for working-tree files).
-  const reviewAsGitFiles: GitFile[] = files.map((diff) => ({
-    path: diff.file_path,
-    status: diff.is_new
-      ? 'added'
-      : diff.is_deleted
-        ? 'deleted'
-        : diff.is_renamed
-          ? 'renamed'
-          : 'modified',
-    staged: false,
-  }))
-  const workingTreePaths = new Set((gitStatus?.files ?? []).map((f) => f.path))
-  const blendedGitFiles: GitFile[] = [
-    ...(gitStatus?.files ?? []),
-    ...reviewAsGitFiles.filter((f) => !workingTreePaths.has(f.path)),
-  ]
-
-  // Diff interaction handlers (same pattern as old GitChangesPanel).
-  const { handleViewFileDiff } = useGitDiffHandlers({
-    activeRepoPath: wsId ?? null,
-    visibleGitFiles: blendedGitFiles,
-  })
-
-  // Handler adapts the (filePath: string) signature that ChangedFilesTree expects.
+  // Open the unified branch-review tab and scroll to the clicked file.
+  // fileKey must match the scheme used by ReviewDiffView:
+  //   multiDiff.fileKeys?.[index] ?? `${diff.file_path}:${index}`
+  // We look up the file index from the cached diffCache in the workspace store.
   const handleFileOpen = (filePath: string) => {
-    void handleViewFileDiff(filePath, false)
+    openBranchReviewForActiveWorkspace()
+    if (!wsId) return
+    const store = getOrCreateWorkspaceStore(wsId)
+    const diffCache = store.getState().branchReview.diffCache
+    if (!diffCache) return
+    const index = diffCache.files.findIndex((f) => f.file_path === filePath)
+    if (index === -1) return
+    const fileKey = diffCache.fileKeys?.[index] ?? `${filePath}:${index}`
+    store.getState().setBranchReviewActiveFile(fileKey)
   }
 
   const repoPath = wsId ?? undefined
