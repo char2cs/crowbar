@@ -37,7 +37,6 @@ export function GitHistoryList() {
   // click opens the commit's multi-file diff tab.
   const { handleViewCommitDiff } = useGitDiffHandlers({
     activeRepoPath: wsId || null,
-    visibleGitFiles: [],
     onFileSelect: (path, isDir) => {
       if (isDir) return
       const rel = wsId && path.startsWith(`${wsId}/`) ? path.slice(wsId.length + 1) : path
