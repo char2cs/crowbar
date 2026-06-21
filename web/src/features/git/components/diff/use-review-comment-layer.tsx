@@ -144,7 +144,7 @@ export function useReviewCommentLayer(params: {
         key: `composer:${composer.modelLine}`,
         afterModelLine: composer.modelLine,
         node: (
-          <div className="border-border border-y bg-muted/10 px-2 py-2">
+          <div className="max-w-xl py-2">
             <CommentComposer
               title={`Comment on line ${composer.line}`}
               submitLabel="Comment"

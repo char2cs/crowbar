@@ -159,7 +159,7 @@ export function ReviewThreadItem({
   return (
     <div
       className={cn(
-        'ui-font my-1 rounded-lg border border-border bg-muted/20',
+        'ui-font my-1 max-w-xl rounded-lg border border-border bg-muted/20',
         thread.isResolved && 'opacity-60',
         isOutdated && outdatedExpanded && 'border-border/40',
       )}
