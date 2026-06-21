@@ -4,6 +4,32 @@ import { describe, it, expect, vi, beforeEach } from 'vitest'
 
 // ── Module mocks ───────────────────────────────────────────────────────────────
 
+// Mock @uiw/react-codemirror with a plain <textarea> to avoid CodeMirror 6 async
+// view setup / rAF / timer leaks that time out jsdom tests.  The textarea fires
+// onChange on every keystroke and exposes the same value contract used by
+// CommentComposer so "type + submit → openThread" is fully asserted.
+vi.mock('@uiw/react-codemirror', () => ({
+  default: ({
+    value,
+    onChange,
+    placeholder,
+    autoFocus,
+  }: {
+    value?: string
+    onChange?: (val: string) => void
+    placeholder?: string
+    autoFocus?: boolean
+  }) => (
+    <textarea
+      className="cm-content"
+      value={value ?? ''}
+      placeholder={placeholder}
+      autoFocus={autoFocus}
+      onChange={(e) => onChange?.(e.target.value)}
+    />
+  ),
+}))
+
 // Mock buildDiffTokens to resolve null (graceful degradation, no tree-sitter needed)
 vi.mock('@/features/git/lib/render-tree-sitter-token', async (importOriginal) => {
   const original = await importOriginal<typeof import('@/features/git/lib/render-tree-sitter-token')>()
