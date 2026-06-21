@@ -25,7 +25,6 @@ import { Button } from '@/components/ui/button'
 import Tooltip from '@/components/ui/tooltip'
 import { cn } from '@/utils/cn'
 import { formatRelativeDate } from '@/utils/date'
-import { joinPath } from '@/utils/path-helpers'
 import { getRemotes } from '../../api/git-remotes-api'
 import { getGitStatus } from '../../api/git-status-api'
 import { useDiffEditorBuffer } from '../../hooks/use-diff-editor-buffer'
@@ -594,23 +593,12 @@ const GitDiffEditorStack = memo(function GitDiffEditorStack({
   const activeBuffer = buffers.find((buffer) => buffer.id === activeBufferId) || null
   const isWorkingTreeBuffer = activeBuffer?.path === 'diff://working-tree/all-files'
   const isRefreshingRef = useRef(false)
-  const handleOpenFile = useCallback(
-    async (filePath: string) => {
-      const repoPath = multiDiff.repoPath ?? rootFolderPath
-      const targetPath =
-        filePath.startsWith('/') || filePath.startsWith('remote://')
-          ? filePath
-          : repoPath
-            ? joinPath(repoPath, filePath)
-            : filePath
-
-      const { handleFileSelect } = useFileSystemStore.getState()
-      if (handleFileSelect) {
-        handleFileSelect(targetPath, false, undefined, undefined, undefined, false)
-      }
-    },
-    [multiDiff.repoPath, rootFolderPath],
-  )
+  const handleOpenFile = useCallback(async (filePath: string) => {
+    // Diff file paths are workspace-relative; handleFileSelect → openFileContent
+    // resolves them within the workspace. Joining with a repo root (the old code)
+    // produced a non-workspace path that failed to open.
+    useFileSystemStore.getState().handleFileSelect?.(filePath, false)
+  }, [])
   const [githubCommitUrl, setGitHubCommitUrl] = useState<string | null>(null)
   const [expandedFiles, setExpandedFiles] = useState<Set<string>>(() =>
     getInitialExpandedFiles(multiDiff),
