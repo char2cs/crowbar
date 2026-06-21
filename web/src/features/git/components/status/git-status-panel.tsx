@@ -27,6 +27,13 @@ import {
   unstageFile,
 } from '../../api/git-status-api'
 import type { GitFile } from '../../types/git-types'
+import {
+  buildGitFolderTree,
+  collectNodeFiles,
+  sortFilesByPath,
+  sortFoldersByName,
+} from '../../utils/build-git-folder-tree'
+import type { GitFolderNode } from '../../utils/build-git-folder-tree'
 import GitSidebarSectionHeader, {
   gitSidebarSectionActionButtonClassName,
 } from '../git-sidebar-section-header'
@@ -95,61 +102,6 @@ const dedupeVisibleFilesByPath = (fileList: GitFile[]) => {
   return Array.from(filesByPath.values())
 }
 
-interface GitFolderNode {
-  name: string
-  fullPath: string
-  folders: Map<string, GitFolderNode>
-  files: GitFile[]
-}
-
-const createFolderNode = (name: string, fullPath: string): GitFolderNode => ({
-  name,
-  fullPath,
-  folders: new Map<string, GitFolderNode>(),
-  files: [],
-})
-
-const normalizePathSegments = (path: string): string[] =>
-  path
-    .replace(/\\/g, '/')
-    .split('/')
-    .map((segment) => segment.trim())
-    .filter((segment) => segment.length > 0)
-
-const buildGitFolderTree = (fileList: GitFile[]): GitFolderNode => {
-  const root = createFolderNode('', '')
-
-  for (const file of fileList) {
-    const segments = normalizePathSegments(file.path)
-    if (segments.length === 0) continue
-
-    let currentNode = root
-    let currentPath = ''
-    const directorySegments = segments.slice(0, -1)
-    for (const segment of directorySegments) {
-      currentPath = currentPath ? `${currentPath}/${segment}` : segment
-      if (!currentNode.folders.has(segment)) {
-        currentNode.folders.set(segment, createFolderNode(segment, currentPath))
-      }
-      currentNode = currentNode.folders.get(segment)!
-    }
-
-    currentNode.files.push(file)
-  }
-
-  return root
-}
-
-const sortFoldersByName = (folders: Iterable<GitFolderNode>) =>
-  Array.from(folders).sort((a, b) => a.name.localeCompare(b.name))
-
-const sortFilesByPath = (fileList: GitFile[]) =>
-  [...fileList].sort((a, b) => a.path.localeCompare(b.path))
-
-const collectNodeFiles = (node: GitFolderNode): GitFile[] => [
-  ...node.files,
-  ...Array.from(node.folders.values()).flatMap((child) => collectNodeFiles(child)),
-]
 
 const GitStatusPanel = ({
   files,
