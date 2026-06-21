@@ -229,7 +229,7 @@
   --git-modified: var(--color-amber-600);
   --git-modified-staged: var(--color-emerald-600);
   --git-added: var(--color-emerald-600);
-  --git-untracked: var(--color-green-600);
+  --git-untracked: var(--color-lime-600);
   --git-deleted: var(--color-red-600);
   --git-renamed: var(--color-sky-600);
 
@@ -349,7 +349,7 @@
   --git-modified: var(--color-amber-400);
   --git-modified-staged: var(--color-emerald-400);
   --git-added: var(--color-emerald-400);
-  --git-untracked: var(--color-green-500);
+  --git-untracked: var(--color-lime-400);
   --git-deleted: var(--color-red-400);
   --git-renamed: var(--color-sky-400);
 
