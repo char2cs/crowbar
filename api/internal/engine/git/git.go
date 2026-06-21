@@ -368,6 +368,15 @@ type Engine interface {
 		base string,
 		branch string,
 	) (gitdomain.MultiFileDiff, error)
+
+	// DiffAgainstRef returns the working-tree-inclusive diff against ref:
+	// committed changes since ref plus uncommitted tracked modifications
+	// (`git diff -M <ref> --`). Used for the blended branch-review diff.
+	DiffAgainstRef(
+		ctx context.Context,
+		repoPath string,
+		ref string,
+	) (gitdomain.MultiFileDiff, error)
 }
 
 // WorktreeEntry is a single worktree from `git worktree list`. Prunable is true
