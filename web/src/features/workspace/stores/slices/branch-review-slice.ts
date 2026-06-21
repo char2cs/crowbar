@@ -33,7 +33,6 @@ export interface ReviewConversation {
 export interface BranchReviewState {
   description: string
   mergeStrategy: MergeStrategy
-  activeSubtab: 'about' | 'git' | 'diff'
   diffCache: MultiFileDiff | null
   diffStatus: 'idle' | 'loading' | 'loaded' | 'error'
   threads: ReviewThread[]
@@ -46,7 +45,6 @@ export interface BranchReviewSlice {
   branchReview: BranchReviewState
   setBranchReviewDescription: (description: string) => void
   setBranchReviewMergeStrategy: (strategy: MergeStrategy) => void
-  setBranchReviewSubtab: (tab: BranchReviewState['activeSubtab']) => void
   setBranchReviewDiff: (diff: MultiFileDiff) => void
   setBranchReviewDiffStatus: (status: BranchReviewState['diffStatus']) => void
   setBranchReviewActiveFile: (key: string | null) => void
@@ -66,7 +64,6 @@ export interface BranchReviewSlice {
 export const INITIAL_BRANCH_REVIEW_STATE: BranchReviewState = {
   description: '',
   mergeStrategy: 'merge',
-  activeSubtab: 'about',
   diffCache: null,
   diffStatus: 'idle',
   threads: [],
@@ -120,11 +117,6 @@ export const createBranchReviewSlice: StateCreator<
       s.branchReview.mergeStrategy = strategy
     }),
 
-  setBranchReviewSubtab: (tab) =>
-    set((s) => {
-      s.branchReview.activeSubtab = tab
-    }),
-
   setBranchReviewDiff: (diff) =>
     set((s) => {
       s.branchReview.diffCache = diff
@@ -140,7 +132,6 @@ export const createBranchReviewSlice: StateCreator<
     set((s) => {
       s.branchReview.activeFileKey = key
       s.branchReview.activeFileNonce += 1
-      s.branchReview.activeSubtab = 'diff'
     }),
 
   addReviewThread: (thread) =>

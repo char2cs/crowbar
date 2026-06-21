@@ -3,7 +3,6 @@ import { createStore } from 'zustand'
 import { immer } from 'zustand/middleware/immer'
 import {
   createBranchReviewSlice,
-  INITIAL_BRANCH_REVIEW_STATE,
   type BranchReviewSlice,
   type ReviewThread,
 } from '@/features/workspace/stores/slices/branch-review-slice'
@@ -58,14 +57,6 @@ describe('branch-review-slice', () => {
     const state = store.getState().branchReview
     expect(state.activeFileKey).toBe('src/foo.ts:0')
     expect(state.activeFileNonce).toBe(2)
-  })
-
-  it('setBranchReviewActiveFile also switches activeSubtab to diff', () => {
-    expect(store.getState().branchReview.activeSubtab).toBe(
-      INITIAL_BRANCH_REVIEW_STATE.activeSubtab,
-    )
-    store.getState().setBranchReviewActiveFile('src/bar.ts:1')
-    expect(store.getState().branchReview.activeSubtab).toBe('diff')
   })
 
   it('setBranchReviewActiveFile accepts null to clear the active file', () => {
