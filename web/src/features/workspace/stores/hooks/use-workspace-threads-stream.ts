@@ -2,7 +2,7 @@ import { useEffect } from 'react'
 import { wsManager } from '@/lib/ws/manager'
 import { workspaceBase } from '@/lib/workspace-scope-url'
 import { listThreads, mapThread } from '@/features/git/api/review-api'
-import type { WireReviewThread } from '@/features/git/api/review-api'
+import type { ThreadDTO } from '@/features/git/api/review-api'
 import { getOrCreateWorkspaceStore } from '@/features/workspace/stores/workspace-store-registry'
 
 /**
@@ -46,7 +46,7 @@ export function useWorkspaceThreadsStream(wsId: string): void {
           void seed()
           return
         }
-        const thread = mapThread(frame as WireReviewThread)
+        const thread = mapThread(frame as ThreadDTO)
         getOrCreateWorkspaceStore(wsId).getState().upsertReviewThread(thread)
       },
     )

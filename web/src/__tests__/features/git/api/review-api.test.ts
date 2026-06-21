@@ -9,6 +9,7 @@ import {
   listThreads,
   mapThread,
 } from '@/features/git/api/review-api'
+import type { ThreadDTO } from '@/features/git/api/review-api'
 import { setWorkspaceScope } from '@/lib/workspace-scope'
 
 // §3: workspace-scoped URLs are hierarchical; register scopes for the test wsIds.
@@ -32,82 +33,113 @@ afterEach(() => {
   vi.unstubAllGlobals()
 })
 
-// Minimal wire thread with the new fields.
-function wireThread(overrides: Partial<{
-  id: string
-  filePath: string
-  lineNumber: number
-  startLine: number
-  endLine: number
-  side: 'old' | 'new'
-  status: 'open' | 'resolved'
-  messages: null | { id: string; author?: string; isAgent: boolean; body: string; createdAt: string }[]
-  createdAt: string
-}> = {}) {
+// Build a minimal real ThreadDTO (matches the live /threads backend shape).
+function wireThreadDTO(overrides: Partial<ThreadDTO> = {}): ThreadDTO {
   return {
     id: 't1',
-    wsId: 'ws-1',
+    projectId: 'p1',
+    repoId: 'r1',
+    workspaceId: 'ws-1',
     filePath: 'README.md',
-    lineNumber: 10,
+    line: 10,
     startLine: 8,
     endLine: 12,
-    side: 'new' as const,
-    status: 'open' as const,
-    messages: null,
+    side: 'new',
+    body: 'root comment',
+    author: 'char2cs',
+    isAgent: false,
+    resolved: false,
     createdAt: '2026-01-01T00:00:00Z',
+    replies: [],
     ...overrides,
   }
 }
 
 describe('mapThread', () => {
-  it('derives isResolved from status === "resolved" and defaults null messages to []', () => {
-    expect(
-      mapThread(wireThread({ id: 't1', side: 'new', status: 'open', messages: null })),
-    ).toEqual({
-      id: 't1',
+  it('maps real ThreadDTO fields: line→lineNumber, resolved→isResolved, body+replies→messages', () => {
+    const dto: ThreadDTO = {
+      id: 'thread-1',
+      projectId: 'p1',
+      repoId: 'r1',
+      workspaceId: 'ws-1',
       filePath: 'README.md',
-      lineNumber: 10,
-      startLine: 8,
-      endLine: 12,
+      line: 7,
+      startLine: 7,
+      endLine: 8,
       side: 'new',
-      messages: [],
-      isResolved: false,
-    })
-  })
-
-  it('maps status "resolved" → isResolved true', () => {
-    expect(
-      mapThread(wireThread({ status: 'resolved' })).isResolved,
-    ).toBe(true)
-  })
-
-  it('maps reply isAgent and falls back lineNumber when startLine/endLine absent', () => {
-    const result = mapThread({
-      id: 't2',
-      wsId: 'ws-1',
-      filePath: 'a.ts',
-      lineNumber: 5,
-      startLine: 0,
-      endLine: 0,
-      side: 'old',
-      status: 'open',
-      messages: [
-        { id: 'm1', author: 'me', isAgent: true, body: 'hi', createdAt: '2026-01-01T00:00:00Z' },
+      body: 'hi **x**',
+      author: 'char2cs',
+      isAgent: false,
+      resolved: false,
+      createdAt: '2026-06-18T00:00:00Z',
+      replies: [
+        {
+          id: 'r1',
+          threadId: 'thread-1',
+          body: 'reply',
+          author: 'claude',
+          isAgent: true,
+          createdAt: '2026-06-18T01:00:00Z',
+        },
       ],
-      createdAt: '2026-01-01T00:00:00Z',
-    })
-    expect(result.messages[0].isAgent).toBe(true)
-    expect(result.side).toBe('old')
+    }
+
+    const result = mapThread(dto)
+
+    expect(result.lineNumber).toBe(7)
+    expect(result.startLine).toBe(7)
+    expect(result.endLine).toBe(8)
+    expect(result.side).toBe('new')
+    expect(result.isResolved).toBe(false)
+    expect(result.messages).toHaveLength(2)
+    expect(result.messages[0].body).toBe('hi **x**')
+    expect(result.messages[0].author).toBe('char2cs')
+    expect(result.messages[0].isAgent).toBe(false)
+    expect(result.messages[1].id).toBe('r1')
+    expect(result.messages[1].body).toBe('reply')
+    expect(result.messages[1].author).toBe('claude')
+    expect(result.messages[1].isAgent).toBe(true)
+  })
+
+  it('derives isResolved from resolved===true', () => {
+    expect(mapThread(wireThreadDTO({ resolved: true })).isResolved).toBe(true)
+  })
+
+  it('derives isResolved===false from resolved===false', () => {
+    expect(mapThread(wireThreadDTO({ resolved: false })).isResolved).toBe(false)
+  })
+
+  it('falls back startLine/endLine to line when 0', () => {
+    const result = mapThread(wireThreadDTO({ line: 5, startLine: 0, endLine: 0 }))
+    expect(result.lineNumber).toBe(5)
+    expect(result.startLine).toBe(5)
+    expect(result.endLine).toBe(5)
+  })
+
+  it('root message has synthetic id of `{t.id}:root`', () => {
+    const result = mapThread(wireThreadDTO({ id: 'abc' }))
+    expect(result.messages[0].id).toBe('abc:root')
+  })
+
+  it('empty replies produces a single root message', () => {
+    const result = mapThread(wireThreadDTO({ replies: [] }))
+    expect(result.messages).toHaveLength(1)
+  })
+
+  it('maps side correctly', () => {
+    expect(mapThread(wireThreadDTO({ side: 'old' })).side).toBe('old')
+    expect(mapThread(wireThreadDTO({ side: 'new' })).side).toBe('new')
   })
 })
 
 describe('review-api request shapes', () => {
-  it('getReview reads the workspace-scoped /review route and unwraps threads', async () => {
+  it('getReview reads the workspace-scoped /review route and returns threads:[]', async () => {
     const fetchMock = mockFetchEnvelope({
       description: 'desc',
       mergeStrategy: 'squash',
       diff: { files: [] },
-      threads: [wireThread({ status: 'open', messages: [] })],
+      // old /review composite shape — intentionally ignored
+      threads: [{ id: 't-old', lineNumber: 1, status: 'open', messages: [] }],
       conversations: null,
     })
 
@@ -115,8 +147,8 @@ describe('review-api request shapes', () => {
 
     expect(fetchMock.mock.calls[0][0]).toContain('/v0/projects/p1/repos/r1/workspaces/ws-1/review')
     expect(review.mergeStrategy).toBe('squash')
-    expect(review.threads).toHaveLength(1)
-    expect(review.threads[0].filePath).toBe('README.md')
+    // threads must be [] — sourced from /threads not from /review
+    expect(review.threads).toEqual([])
     expect(review.conversations).toEqual([])
   })
 
@@ -133,17 +165,16 @@ describe('review-api request shapes', () => {
   })
 
   it('openThread POSTs to first-class /threads (not /review/threads) with all fields', async () => {
-    const fetchMock = mockFetchEnvelope(wireThread({
+    const fetchMock = mockFetchEnvelope(wireThreadDTO({
       id: 't9',
       filePath: 'README.md',
-      lineNumber: 10,
+      line: 10,
       startLine: 8,
       endLine: 12,
       side: 'new',
-      status: 'open',
-      messages: [
-        { id: 'm1', author: undefined, isAgent: false, body: 'note', createdAt: '2026-01-01T00:00:00Z' },
-      ],
+      body: 'note',
+      author: undefined as unknown as string,
+      replies: [],
     }))
 
     const thread = await openThread('ws-3', {
@@ -186,7 +217,7 @@ describe('review-api request shapes', () => {
   })
 
   it('replyToThread POSTs to /threads/:id/replies (plural) with encoded id', async () => {
-    const fetchMock = mockFetchEnvelope(wireThread({ id: 't9', messages: [] }))
+    const fetchMock = mockFetchEnvelope(wireThreadDTO({ id: 't9', body: 'reply body', author: 'me', isAgent: false, replies: [] }))
 
     await replyToThread('ws-4', 't 9', { author: 'me', isAgent: false, body: 'reply body' })
 
@@ -199,7 +230,7 @@ describe('review-api request shapes', () => {
   })
 
   it('replyToThread accepts a plain string body for backward compat', async () => {
-    const fetchMock = mockFetchEnvelope(wireThread({ id: 't9', messages: [] }))
+    const fetchMock = mockFetchEnvelope(wireThreadDTO({ id: 't9', body: 'plain reply', replies: [] }))
 
     await replyToThread('ws-4', 'tid', 'plain reply')
 
@@ -209,7 +240,7 @@ describe('review-api request shapes', () => {
   })
 
   it('setThreadResolved PATCHes /threads/:id (not /review/threads) with isResolved', async () => {
-    const fetchMock = mockFetchEnvelope(wireThread({ status: 'resolved' }))
+    const fetchMock = mockFetchEnvelope(wireThreadDTO({ resolved: true }))
 
     const thread = await setThreadResolved('ws-6', 'thread-abc', true)
 
@@ -222,7 +253,7 @@ describe('review-api request shapes', () => {
   })
 
   it('setThreadResolved can pass false (two-way) to reopen a thread', async () => {
-    const fetchMock = mockFetchEnvelope(wireThread({ status: 'open' }))
+    const fetchMock = mockFetchEnvelope(wireThreadDTO({ resolved: false }))
 
     const thread = await setThreadResolved('ws-6', 'thread-xyz', false)
 
@@ -233,8 +264,8 @@ describe('review-api request shapes', () => {
 
   it('listThreads GETs /threads and returns mapped array', async () => {
     const fetchMock = mockFetchEnvelope([
-      wireThread({ id: 'ta', side: 'old' }),
-      wireThread({ id: 'tb', side: 'new', status: 'resolved' }),
+      wireThreadDTO({ id: 'ta', side: 'old' }),
+      wireThreadDTO({ id: 'tb', side: 'new', resolved: true }),
     ])
 
     const threads = await listThreads('ws-1')

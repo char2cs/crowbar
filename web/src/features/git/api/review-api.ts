@@ -6,6 +6,7 @@ import type {
   ReviewConversation,
   ReviewThread,
 } from '@/features/workspace/stores/slices/branch-review-slice'
+import type { ThreadDTO, ThreadReplyDTO } from '@/lib/types'
 
 // Branch-review REST client. All routes are workspace-scoped under
 // /v0/workspaces/:wsId/review and return the standard {success,data} envelope,
@@ -21,35 +22,18 @@ function reviewBase(wsId: string): string {
 
 // ── Wire shapes ─────────────────────────────────────────────────────
 
-/** Raw thread message as serialized by the backend (domain.ReviewMessage). */
-interface WireReviewMessage {
-  id: string
-  author?: string
-  isAgent: boolean
-  body: string
-  createdAt: string
-}
+// Re-export canonical DTO types so consumers (e.g. use-workspace-threads-stream)
+// can import them from a single place without reaching into lib/types directly.
+export type { ThreadDTO, ThreadReplyDTO }
 
-/** Raw thread as serialized by the backend (domain.ReviewThread). */
-export interface WireReviewThread {
-  id: string
-  wsId: string
-  filePath: string
-  lineNumber: number
-  startLine: number
-  endLine: number
-  side: 'old' | 'new'
-  status: 'open' | 'resolved'
-  messages: WireReviewMessage[] | null
-  createdAt: string
-}
-
-/** Raw composite read model (domain.BranchReview). */
+/** Raw composite read model (domain.BranchReview).
+ *  Note: the `threads` field here comes from the OLD /review composite endpoint
+ *  and is intentionally ignored — threads are sourced exclusively from /threads. */
 interface WireBranchReview {
   description: string
   mergeStrategy: MergeStrategy
   diff: MultiFileDiff
-  threads: WireReviewThread[] | null
+  threads: unknown[] | null
   conversations: WireBranchChat[] | null
 }
 
@@ -64,26 +48,36 @@ interface WireBranchChat {
 
 // ── Mappers (wire → store slice types) ──────────────────────────────
 
-function mapMessage(m: WireReviewMessage): ReviewThread['messages'][number] {
+function mapReply(r: ThreadReplyDTO): ReviewThread['messages'][number] {
   return {
-    id: m.id,
-    author: m.author ?? null,
-    isAgent: m.isAgent,
-    body: m.body,
-    createdAt: m.createdAt,
+    id: r.id,
+    author: r.author || null,
+    isAgent: r.isAgent,
+    body: r.body,
+    createdAt: r.createdAt,
   }
 }
 
-export function mapThread(t: WireReviewThread): ReviewThread {
+/** Map a backend ThreadDTO (from /threads or the WS stream) to the store's ReviewThread.
+ *  The root comment body/author/isAgent live at the top level of ThreadDTO; subsequent
+ *  messages are in the replies[] array. */
+export function mapThread(t: ThreadDTO): ReviewThread {
+  const rootMessage: ReviewThread['messages'][number] = {
+    id: `${t.id}:root`,
+    author: t.author || null,
+    isAgent: t.isAgent,
+    body: t.body,
+    createdAt: t.createdAt,
+  }
   return {
     id: t.id,
     filePath: t.filePath,
-    lineNumber: t.lineNumber,
-    startLine: t.startLine ?? t.lineNumber,
-    endLine: t.endLine ?? t.lineNumber,
+    lineNumber: t.line,
+    startLine: t.startLine || t.line,
+    endLine: t.endLine || t.line,
     side: t.side,
-    messages: (t.messages ?? []).map(mapMessage),
-    isResolved: t.status === 'resolved',
+    messages: [rootMessage, ...(t.replies ?? []).map(mapReply)],
+    isResolved: t.resolved,
   }
 }
 
@@ -106,14 +100,16 @@ export interface ReviewState {
 
 // ── Reads ───────────────────────────────────────────────────────────
 
-/** GET the composite branch-review read model for a workspace. */
+/** GET the composite branch-review read model for a workspace.
+ *  Threads are intentionally returned as [] — they are sourced exclusively
+ *  from /threads + the WS stream (listThreads / useWorkspaceThreadsStream). */
 export async function getReview(wsId: string): Promise<ReviewState> {
   const raw = await apiFetch<WireBranchReview>(reviewBase(wsId))
   return {
     description: raw.description,
     mergeStrategy: raw.mergeStrategy,
     diff: raw.diff,
-    threads: (raw.threads ?? []).map(mapThread),
+    threads: [],
     conversations: (raw.conversations ?? []).map(mapConversation),
   }
 }
@@ -169,13 +165,13 @@ export interface ReplyToThreadInput {
 
 /** GET all review threads for a workspace. */
 export async function listThreads(wsId: string): Promise<ReviewThread[]> {
-  const raw = await apiFetch<WireReviewThread[]>(`${workspaceBase(wsId)}/threads`)
+  const raw = await apiFetch<ThreadDTO[]>(`${workspaceBase(wsId)}/threads`)
   return (raw ?? []).map(mapThread)
 }
 
 /** POST a new review thread anchored to a file location. Returns the thread. */
 export async function openThread(wsId: string, input: OpenThreadInput): Promise<ReviewThread> {
-  const raw = await apiFetch<WireReviewThread>(`${workspaceBase(wsId)}/threads`, {
+  const raw = await apiFetch<ThreadDTO>(`${workspaceBase(wsId)}/threads`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(input),
@@ -191,7 +187,7 @@ export async function replyToThread(
 ): Promise<ReviewThread> {
   // Accept a plain string body for backward compat (old callers pass just the text).
   const payload: ReplyToThreadInput = typeof input === 'string' ? { body: input } : input
-  const raw = await apiFetch<WireReviewThread>(
+  const raw = await apiFetch<ThreadDTO>(
     `${workspaceBase(wsId)}/threads/${encodeURIComponent(threadId)}/replies`,
     {
       method: 'POST',
@@ -208,7 +204,7 @@ export async function setThreadResolved(
   threadId: string,
   isResolved: boolean,
 ): Promise<ReviewThread> {
-  const raw = await apiFetch<WireReviewThread>(
+  const raw = await apiFetch<ThreadDTO>(
     `${workspaceBase(wsId)}/threads/${encodeURIComponent(threadId)}`,
     {
       method: 'PATCH',
