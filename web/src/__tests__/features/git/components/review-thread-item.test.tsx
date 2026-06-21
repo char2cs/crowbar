@@ -204,7 +204,7 @@ describe('ReviewThreadItem', () => {
 
     render(<ReviewThreadItem thread={thread} {...defaultProps} />)
 
-    const replyBtn = screen.getByText('Reply…')
+    const replyBtn = screen.getByPlaceholderText('Reply…')
     await user.click(replyBtn)
 
     // CommentComposer shows a "Reply" submit button

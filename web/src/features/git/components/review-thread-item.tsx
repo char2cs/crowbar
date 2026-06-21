@@ -2,6 +2,7 @@ import { useState } from 'react'
 import { CheckCircle, ArrowCounterClockwise } from '@phosphor-icons/react'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
+import { Input } from '@/components/ui/input'
 import { Avatar, AvatarImage, AvatarFallback } from '@/components/ui/avatar'
 import { cn } from '@/utils/cn'
 import { CommentComposer } from '@/features/panes/components/comment-composer'
@@ -79,7 +80,7 @@ function MessageRow({
 }) {
   const display = resolveAuthorDisplay(message, currentIdentity)
   return (
-    <div className="ui-font flex gap-2.5 border-border/40 border-b px-3.5 py-2.5 last:border-b-0">
+    <div className="ui-font flex gap-2.5 border-border/60 border-b px-3.5 py-2.5 last:border-b-0">
       <MessageAvatar display={display} />
       <div className="min-w-0 flex-1">
         <div className="mb-1 flex items-baseline gap-1.5">
@@ -118,9 +119,9 @@ export function ReviewThreadItem({
         <Badge variant="outline" className="h-4 border-border/40 px-1 text-xs text-muted-foreground/60">
           Outdated
         </Badge>
-        <button className="underline" onClick={() => setOutdatedExpanded(true)}>
+        <Button variant="link" size="xs" onClick={() => setOutdatedExpanded(true)}>
           Show
-        </button>
+        </Button>
       </div>
     )
   }
@@ -191,12 +192,13 @@ export function ReviewThreadItem({
         ) : (
           <div className="flex items-center justify-between gap-2">
             {!thread.isResolved && (
-              <button
-                className="flex-1 rounded-md border border-border/60 bg-transparent px-3 py-2 text-left text-sm text-muted-foreground/50 hover:border-border"
+              <Input
+                size="sm"
+                readOnly
+                placeholder="Reply…"
+                className="flex-1 cursor-pointer"
                 onClick={() => setIsReplying(true)}
-              >
-                Reply…
-              </button>
+              />
             )}
             {thread.isResolved ? (
               <Button
