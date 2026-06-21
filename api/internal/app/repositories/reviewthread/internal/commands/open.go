@@ -16,6 +16,8 @@ type OpenReviewThread struct {
 	WsID       string
 	FilePath   string
 	LineNumber int
+	StartLine  int
+	EndLine    int
 	Side       domain.ReviewSide
 	MessageID  string
 	Author     string
@@ -56,6 +58,8 @@ func (c OpenReviewThread) EmitEvent(
 		WsID:       c.WsID,
 		FilePath:   c.FilePath,
 		LineNumber: c.LineNumber,
+		StartLine:  c.StartLine,
+		EndLine:    c.EndLine,
 		Side:       c.Side,
 		Status:     domain.ReviewThreadStatusOpen,
 		Messages: []domain.ReviewMessage{{

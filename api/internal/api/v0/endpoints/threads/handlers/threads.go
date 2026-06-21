@@ -63,20 +63,30 @@ func (h *Handlers) OpenThread(
 ) {
 	projectID, repoID, wsID := scope(ctx)
 	var body struct {
-		FilePath string            `json:"filePath"`
-		Line     int               `json:"line"`
-		Side     domain.ReviewSide `json:"side"`
-		Body     string            `json:"body"`
+		FilePath  string            `json:"filePath"`
+		Line      int               `json:"line"`
+		StartLine int               `json:"startLine"`
+		EndLine   int               `json:"endLine"`
+		Side      domain.ReviewSide `json:"side"`
+		Body      string            `json:"body"`
 	}
 	if err := ctx.ShouldBindJSON(&body); err != nil {
 		libs.WriteErr(ctx, http.StatusBadRequest, err.Error())
 		return
+	}
+	if body.StartLine == 0 {
+		body.StartLine = body.Line
+	}
+	if body.EndLine == 0 {
+		body.EndLine = body.Line
 	}
 	thread, err := h.store.Open(ctx.Request.Context(), reviewthread.OpenInput{
 		ID:         h.newID(),
 		WsID:       wsID,
 		FilePath:   body.FilePath,
 		LineNumber: body.Line,
+		StartLine:  body.StartLine,
+		EndLine:    body.EndLine,
 		Side:       body.Side,
 		MessageID:  h.newID(),
 		Body:       body.Body,

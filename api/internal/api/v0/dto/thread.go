@@ -27,6 +27,8 @@ type ThreadDTO struct {
 	WorkspaceID string           `json:"workspaceId"`
 	FilePath    string           `json:"filePath"`
 	Line        int              `json:"line"`
+	StartLine   int              `json:"startLine"`
+	EndLine     int              `json:"endLine"`
 	Side        string           `json:"side"`
 	Body        string           `json:"body"`
 	Author      string           `json:"author"`
@@ -70,6 +72,8 @@ func ThreadDTOFrom(
 		WorkspaceID: rt.WsID,
 		FilePath:    rt.FilePath,
 		Line:        rt.LineNumber,
+		StartLine:   rt.StartLine,
+		EndLine:     rt.EndLine,
 		Side:        string(rt.Side),
 		Body:        body,
 		Author:      author,

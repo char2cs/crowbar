@@ -23,6 +23,8 @@ type OpenInput struct {
 	WsID       string
 	FilePath   string
 	LineNumber int
+	StartLine  int
+	EndLine    int
 	Side       domain.ReviewSide
 	MessageID  string
 	Author     string
@@ -94,6 +96,8 @@ func (r *reviewThread) Open(
 		WsID:       in.WsID,
 		FilePath:   in.FilePath,
 		LineNumber: in.LineNumber,
+		StartLine:  in.StartLine,
+		EndLine:    in.EndLine,
 		Side:       in.Side,
 		MessageID:  in.MessageID,
 		Author:     in.Author,
