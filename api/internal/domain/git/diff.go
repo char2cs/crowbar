@@ -38,6 +38,10 @@ type FileDiff struct {
 	Additions     int        `json:"additions"`
 	Deletions     int        `json:"deletions"`
 	Hunks         []Hunk     `json:"hunks"`
+	// Uncommitted is true when the file has working-tree changes not yet
+	// committed (staged or unstaged). Used by the blended branch-review diff to
+	// mark files as committed vs uncommitted. Always false for commit/range diffs.
+	Uncommitted bool `json:"uncommitted"`
 }
 
 // MultiFileDiff is the diff for a commit (04 §3).

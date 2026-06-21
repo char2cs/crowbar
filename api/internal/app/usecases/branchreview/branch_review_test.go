@@ -45,7 +45,7 @@ func TestBranchReview_Get_InternalGitError_IsNotNotFound(t *testing.T) {
 	repoStore := mocks.NewRepositoryStore()
 	_ = repoStore.Save(ctx, domain.Repository{ID: "repo1", DefaultBranch: "main"})
 	gitEng := &mockGitEngine{
-		RangeDiffFn: func(_ context.Context, _, _, _ string) (gitdomain.MultiFileDiff, error) {
+		DiffAgainstRefFn: func(_ context.Context, _, _ string) (gitdomain.MultiFileDiff, error) {
 			return gitdomain.MultiFileDiff{}, errors.New("git: not a repository")
 		},
 	}
@@ -187,11 +187,23 @@ func (m *mockChat) ListByWorkspace(ctx context.Context, wsID string) ([]domain.C
 // --- local git engine mock (only RangeDiff is exercised by these tests) ---
 
 type mockGitEngine struct {
-	RangeDiffFn func(ctx context.Context, repoPath, base, branch string) (gitdomain.MultiFileDiff, error)
+	RangeDiffFn      func(ctx context.Context, repoPath, base, branch string) (gitdomain.MultiFileDiff, error)
+	DiffAgainstRefFn func(ctx context.Context, repoPath, ref string) (gitdomain.MultiFileDiff, error)
+	MergeBaseFn      func(ctx context.Context, repoPath, a, b string) (string, error)
 }
 
 func (g *mockGitEngine) RangeDiff(ctx context.Context, repoPath, base, branch string) (gitdomain.MultiFileDiff, error) {
-	return g.RangeDiffFn(ctx, repoPath, base, branch)
+	if g.RangeDiffFn != nil {
+		return g.RangeDiffFn(ctx, repoPath, base, branch)
+	}
+	return gitdomain.MultiFileDiff{}, nil
+}
+
+func (g *mockGitEngine) DiffAgainstRef(ctx context.Context, repoPath, ref string) (gitdomain.MultiFileDiff, error) {
+	if g.DiffAgainstRefFn != nil {
+		return g.DiffAgainstRefFn(ctx, repoPath, ref)
+	}
+	return gitdomain.MultiFileDiff{}, nil
 }
 
 func (g *mockGitEngine) Status(ctx context.Context, repoPath string) (gitdomain.GitStatus, error) {
@@ -321,7 +333,10 @@ func (g *mockGitEngine) WorkingTreeSummary(ctx context.Context, repoPath, forkPo
 }
 
 func (g *mockGitEngine) MergeBase(ctx context.Context, repoPath, a, b string) (string, error) {
-	return "", nil
+	if g.MergeBaseFn != nil {
+		return g.MergeBaseFn(ctx, repoPath, a, b)
+	}
+	return a, nil
 }
 
 func (g *mockGitEngine) WorktreeAddBranch(ctx context.Context, repoPath, worktreePath, branch, startPoint string) (string, error) {
@@ -418,11 +433,13 @@ func TestBranchReview_Get_RootUsesDefaultBranch(t *testing.T) {
 			return nil, nil
 		},
 	}
-	var gotBase, gotBranch string
+	var gotMergeBase string
 	gitEng := &mockGitEngine{
-		RangeDiffFn: func(_ context.Context, _, base, branch string) (gitdomain.MultiFileDiff, error) {
-			gotBase = base
-			gotBranch = branch
+		MergeBaseFn: func(_ context.Context, _, a, _ string) (string, error) {
+			gotMergeBase = a
+			return "abc123", nil
+		},
+		DiffAgainstRefFn: func(_ context.Context, _, _ string) (gitdomain.MultiFileDiff, error) {
 			return expectedDiff, nil
 		},
 	}
@@ -432,8 +449,7 @@ func TestBranchReview_Get_RootUsesDefaultBranch(t *testing.T) {
 	review, err := uc.Get(ctx, "ws1")
 
 	require.NoError(t, err)
-	assert.Equal(t, "main", gotBase)
-	assert.Equal(t, "feature", gotBranch)
+	assert.Equal(t, "main", gotMergeBase, "MergeBase must be called with the default branch as base")
 	assert.Equal(t, expectedDiff, review.Diff)
 	assert.Equal(t, expectedThreads, review.Threads)
 	assert.Equal(t, gitdomain.MergeStrategyMerge, review.MergeStrategy)
@@ -467,11 +483,11 @@ func TestBranchReview_Get_ChildUsesParentBranch(t *testing.T) {
 		},
 	}
 	repoStore := mocks.NewRepositoryStore()
-	var gotBase string
+	var gotMergeBase string
 	gitEng := &mockGitEngine{
-		RangeDiffFn: func(_ context.Context, _, base, _ string) (gitdomain.MultiFileDiff, error) {
-			gotBase = base
-			return gitdomain.MultiFileDiff{}, nil
+		MergeBaseFn: func(_ context.Context, _, a, _ string) (string, error) {
+			gotMergeBase = a
+			return "fork123", nil
 		},
 	}
 
@@ -480,7 +496,7 @@ func TestBranchReview_Get_ChildUsesParentBranch(t *testing.T) {
 	_, err := uc.Get(ctx, "child")
 
 	require.NoError(t, err)
-	assert.Equal(t, "develop", gotBase)
+	assert.Equal(t, "develop", gotMergeBase, "MergeBase must be called with the parent branch as base")
 }
 
 func TestBranchReview_Get_WorkspaceNotFound(t *testing.T) {
@@ -514,7 +530,7 @@ func TestBranchReview_Get_RepoNil(t *testing.T) {
 	_, err := uc.Get(ctx, "ws1")
 
 	require.Error(t, err)
-	assert.Contains(t, err.Error(), "branch review: resolve base")
+	assert.Contains(t, err.Error(), "branch review: resolve ref")
 }
 
 func TestBranchReview_Get_RepoStoreError(t *testing.T) {
@@ -532,7 +548,7 @@ func TestBranchReview_Get_RepoStoreError(t *testing.T) {
 	_, err := uc.Get(ctx, "ws1")
 
 	require.Error(t, err)
-	assert.Contains(t, err.Error(), "branch review: resolve base")
+	assert.Contains(t, err.Error(), "branch review: resolve ref")
 }
 
 func TestBranchReview_Get_DiffError(t *testing.T) {
@@ -548,7 +564,7 @@ func TestBranchReview_Get_DiffError(t *testing.T) {
 	_ = repoStore.Save(ctx, repo)
 
 	gitEng := &mockGitEngine{
-		RangeDiffFn: func(_ context.Context, _, _, _ string) (gitdomain.MultiFileDiff, error) {
+		DiffAgainstRefFn: func(_ context.Context, _, _ string) (gitdomain.MultiFileDiff, error) {
 			return gitdomain.MultiFileDiff{}, errors.New("git: diff failed")
 		},
 	}
@@ -853,7 +869,7 @@ func TestBranchReview_Get_ParentGetError(t *testing.T) {
 	_, err := uc.Get(ctx, "child")
 
 	require.Error(t, err)
-	assert.Contains(t, err.Error(), "branch review: resolve base")
+	assert.Contains(t, err.Error(), "branch review: resolve ref")
 }
 
 // errRepoStore is a store.Store[domain.Repository, string] that always errors on FindByKey.
