@@ -31,7 +31,7 @@ interface WireReviewMessage {
 }
 
 /** Raw thread as serialized by the backend (domain.ReviewThread). */
-interface WireReviewThread {
+export interface WireReviewThread {
   id: string
   wsId: string
   filePath: string

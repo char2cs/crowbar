@@ -29,8 +29,10 @@ export function BranchReviewPane({ wsId }: BranchReviewPaneProps) {
   const store = useWorkspaceStore()
 
   // Load the composite review read model + branch diff on mount. The backend
-  // folds the branch-vs-parent diff into the same /review payload, so one fetch
-  // hydrates description, merge strategy, threads, conversations, and the diff.
+  // folds description, merge strategy, conversations, and diff into /review.
+  // Threads are intentionally NOT sourced here — they are seeded and kept live
+  // by useWorkspaceThreadsStream (mounted in useWorkspaceEffects) so optimistic
+  // writes and WS pushes are not clobbered on every pane remount.
   const load = useCallback(async () => {
     const actions = store.getState()
     actions.setBranchReviewDiffStatus('loading')
@@ -40,9 +42,6 @@ export function BranchReviewPane({ wsId }: BranchReviewPaneProps) {
       a.setBranchReviewDescription(review.description)
       a.setBranchReviewMergeStrategy(review.mergeStrategy)
       a.setBranchReviewConversations(review.conversations)
-      // Replace threads wholesale with the server set.
-      for (const t of a.branchReview.threads) a.removeReviewThread(t.id)
-      for (const t of review.threads) a.addReviewThread(t)
       a.setBranchReviewDiff(review.diff)
     } catch {
       store.getState().setBranchReviewDiffStatus('error')

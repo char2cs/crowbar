@@ -18,6 +18,7 @@ import { syncBufferWithDisk } from '@/features/workspace/lib/external-buffer-syn
 import { getOrCreateWorkspaceStore } from '@/features/workspace/stores/workspace-store-registry'
 import { workspaceBase } from '@/lib/workspace-scope-url'
 import { fetchAllGitData, useGitStore } from '@/features/git/stores/git-store'
+import { useWorkspaceThreadsStream } from './use-workspace-threads-stream'
 import type { AppFile } from '@/features/file-system/types/app'
 
 const GIT_REFRESH_DEBOUNCE_MS = 400
@@ -55,6 +56,8 @@ export function useWorkspaceEffects(wsId: string) {
   const bufferActions = useBufferActions()
   const expandedPaths = useFileTreeStore((state) => state.expandedPaths)
   const loadingDirs = useRef<Set<string>>(new Set())
+
+  useWorkspaceThreadsStream(wsId)
 
   // Seed the root file tree and wire the workspace-scoped file handlers. The
   // `cancelled` guard ensures a slow fetch from a previous workspace cannot
