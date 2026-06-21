@@ -100,6 +100,7 @@ const TextDiffViewer = memo(
     wsId,
     threads,
     onAddComment,
+    currentAuthor,
   }: TextDiffViewerProps) => {
     const selectionScopeRef = useRef<HTMLDivElement>(null)
     const editorFontSize = useEditorSettingsStore.use.fontSize()
@@ -275,6 +276,7 @@ const TextDiffViewer = memo(
                       wsId={wsId}
                       threads={liveThreads}
                       onAddComment={onAddComment}
+                      currentAuthor={currentAuthor}
                     />
                   ))}
               </div>
@@ -283,7 +285,7 @@ const TextDiffViewer = memo(
         </div>
         {/* Outdated threads: their anchor line is no longer in the current diff */}
         {wsId && outdatedThreads.length > 0 && (
-          <OutdatedThreadRows threads={outdatedThreads} wsId={wsId} />
+          <OutdatedThreadRows threads={outdatedThreads} wsId={wsId} currentAuthor={currentAuthor} />
         )}
       </div>
     )

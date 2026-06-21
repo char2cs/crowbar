@@ -310,6 +310,9 @@ describe('ReviewDiffView — inline threads', () => {
     expect(calledInput.body).toBe('hello world')
     expect(typeof calledInput.line).toBe('number')
     expect(['old', 'new']).toContain(calledInput.side)
+    // Identity must be stamped
+    expect(calledInput.author).toBe('testuser')
+    expect(calledInput.isAgent).toBe(false)
   })
 
   it('does not render threads from other files in this file\'s diff', () => {

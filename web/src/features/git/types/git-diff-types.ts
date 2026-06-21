@@ -75,6 +75,7 @@ export interface DiffLineProps {
   wsId?: string
   threads?: ReviewThread[]
   onAddComment?: (anchor: AddCommentAnchor) => void
+  currentAuthor?: string
 }
 
 export interface TextDiffViewerProps {
@@ -90,6 +91,7 @@ export interface TextDiffViewerProps {
   wsId?: string
   threads?: ReviewThread[]
   onAddComment?: (anchor: AddCommentAnchor) => void
+  currentAuthor?: string
 }
 
 export interface ImageDiffViewerProps {

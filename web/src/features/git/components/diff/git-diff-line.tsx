@@ -147,12 +147,14 @@ function getThreadsForLine(
 function ThreadRows({
   threads,
   wsId,
+  currentAuthor,
 }: {
   threads: ReviewThread[]
   wsId: string
+  currentAuthor: string
 }) {
   const handleReply = async (threadId: string, body: string) => {
-    await replyToThread(wsId, threadId, { body })
+    await replyToThread(wsId, threadId, { author: currentAuthor || undefined, isAgent: false, body })
   }
   const handleResolve = async (threadId: string) => {
     await setThreadResolved(wsId, threadId, true)
@@ -242,6 +244,7 @@ const DiffLine = memo(
     wsId,
     threads,
     onAddComment,
+    currentAuthor,
   }: DiffLineProps) => {
     const rowStyle = { minHeight: `${lineHeight}px` }
     const gutterStyle = { fontSize: `${fontSize}px`, lineHeight: `${lineHeight}px` }
@@ -282,6 +285,8 @@ const DiffLine = memo(
         startLine: composerAnchor.line,
         endLine: composerAnchor.line,
         side: composerAnchor.side,
+        author: currentAuthor || undefined,
+        isAgent: false,
         body,
       })
       setComposerAnchor(null)
@@ -460,7 +465,7 @@ const DiffLine = memo(
 
         {/* Thread rows anchored to this line */}
         {wsId && lineThreads.length > 0 && (
-          <ThreadRows threads={lineThreads} wsId={wsId} />
+          <ThreadRows threads={lineThreads} wsId={wsId} currentAuthor={currentAuthor ?? ''} />
         )}
       </>
     )
@@ -478,12 +483,14 @@ export default DiffLine
 export function OutdatedThreadRows({
   threads,
   wsId,
+  currentAuthor = '',
 }: {
   threads: ReviewThread[]
   wsId: string
+  currentAuthor?: string
 }) {
   const handleReply = async (threadId: string, body: string) => {
-    await replyToThread(wsId, threadId, { body })
+    await replyToThread(wsId, threadId, { author: currentAuthor || undefined, isAgent: false, body })
   }
   const handleResolve = async (threadId: string) => {
     await setThreadResolved(wsId, threadId, true)

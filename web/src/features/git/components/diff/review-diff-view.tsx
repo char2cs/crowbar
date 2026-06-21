@@ -25,6 +25,7 @@ import TextDiffViewer from './git-diff-text'
 import {
   useWorkspaceStoreContext,
 } from '@/features/workspace/stores/workspace-context'
+import { useCurrentIdentity } from '@/features/git/hooks/use-current-identity'
 import type { ReviewThread } from '@/features/workspace/stores/slices/branch-review-slice'
 
 const LARGE_DIFF_THRESHOLD = 500
@@ -38,6 +39,7 @@ interface FileDiffRowProps {
   wsId: string
   threads: ReviewThread[]
   onAddComment: (anchor: AddCommentAnchor) => void
+  currentAuthor: string
 }
 
 const FileDiffRow = memo(
@@ -50,6 +52,7 @@ const FileDiffRow = memo(
     wsId,
     threads,
     onAddComment,
+    currentAuthor,
   }: FileDiffRowProps) => {
     const [isViewed, setIsViewed] = useState(false)
     const [isExpanded, setIsExpanded] = useState(!summary.shouldAutoCollapse)
@@ -151,6 +154,7 @@ const FileDiffRow = memo(
                 wsId={wsId}
                 threads={threads}
                 onAddComment={onAddComment}
+                currentAuthor={currentAuthor}
               />
             )}
           </div>
@@ -176,6 +180,9 @@ export const ReviewDiffView = memo(({ multiDiff }: ReviewDiffViewProps) => {
   const activeFileNonce = useWorkspaceStoreContext((s) => s.branchReview.activeFileNonce)
   const wsId = useWorkspaceStoreContext((s) => s.workspaceId)
   const allThreads = useWorkspaceStoreContext((s) => s.branchReview.threads)
+
+  const identity = useCurrentIdentity(wsId)
+  const currentAuthor = identity?.login || identity?.displayName || ''
 
   const fileSummaries: FileDiffSummary[] = useMemo(() => {
     return files.map((diff, index) => {
@@ -333,6 +340,7 @@ export const ReviewDiffView = memo(({ multiDiff }: ReviewDiffViewProps) => {
                   wsId={wsId}
                   threads={fileThreads}
                   onAddComment={handleAddComment}
+                  currentAuthor={currentAuthor}
                 />
               </div>
             )
