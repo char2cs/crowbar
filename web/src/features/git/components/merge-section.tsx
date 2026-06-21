@@ -1,10 +1,8 @@
 import { GitMerge, Warning } from '@phosphor-icons/react'
 import { Button } from '@/components/ui/button'
 import { toast } from '@/features/window/stores/toast-store'
-import {
-  useWorkspaceStore,
-  useWorkspaceStoreContext,
-} from '@/features/workspace/stores/workspace-context'
+import { useWorkspaceStoreById } from '@/features/workspace/stores/hooks/use-workspace-store-by-id'
+import { getOrCreateWorkspaceStore } from '@/features/workspace/stores/workspace-store-registry'
 import type { MergeStrategy } from '@/features/workspace/stores/slices/branch-review-slice'
 import { setMergeStrategy as patchMergeStrategy, mergeIntoParent } from '../api/review-api'
 import { resolveMergeState } from '../lib/merge-section-state'
@@ -24,17 +22,16 @@ const STRATEGIES: { value: MergeStrategy; label: string }[] = [
 ]
 
 function MergeStrategySelector({ wsId }: { wsId: string }) {
-  const mergeStrategy = useWorkspaceStoreContext((s) => s.branchReview.mergeStrategy)
-  const store = useWorkspaceStore()
+  const mergeStrategy = useWorkspaceStoreById(wsId, (s) => s.branchReview.mergeStrategy)
 
   const handleSelect = async (next: MergeStrategy) => {
     if (next === mergeStrategy) return
     const previous = mergeStrategy
-    store.getState().setBranchReviewMergeStrategy(next)
+    getOrCreateWorkspaceStore(wsId).getState().setBranchReviewMergeStrategy(next)
     try {
       await patchMergeStrategy(wsId, next)
     } catch {
-      store.getState().setBranchReviewMergeStrategy(previous)
+      getOrCreateWorkspaceStore(wsId).getState().setBranchReviewMergeStrategy(previous)
       toast.error('Failed to update merge strategy')
     }
   }
@@ -68,7 +65,7 @@ export function MergeSection({
   hasUncommitted,
   status,
 }: MergeSectionProps) {
-  const mergeStrategy = useWorkspaceStoreContext((s) => s.branchReview.mergeStrategy)
+  const mergeStrategy = useWorkspaceStoreById(wsId, (s) => s.branchReview.mergeStrategy)
   const mergeState = resolveMergeState({ canMergeLocally, hasUncommitted, status })
 
   const handleMerge = async () => {

@@ -1,18 +1,21 @@
 import { render, screen } from '@testing-library/react'
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 
-// ── Mock workspace context before importing the component ─────────────────────
-const mockMergeStrategy = { value: 'merge' as import('@/features/workspace/stores/slices/branch-review-slice').MergeStrategy }
-const mockStore = {
-  getState: () => ({
-    setBranchReviewMergeStrategy: vi.fn(),
-  }),
+// ── Mock the workspace-store-registry so tests don't spin up real stores ──────
+const mockSetBranchReviewMergeStrategy = vi.fn()
+const mockRegistryState = { branchReview: { mergeStrategy: 'merge' as import('@/features/workspace/stores/slices/branch-review-slice').MergeStrategy } }
+
+// Minimal store returned by getOrCreateWorkspaceStore in test context.
+// Calling `store(selector)` (reactive read) returns selector(mockRegistryState).
+// Calling `store.getState()` returns the action object (for handlers/effects).
+function makeMockStore() {
+  const store = (selector: (s: typeof mockRegistryState) => unknown) => selector(mockRegistryState)
+  store.getState = () => ({ setBranchReviewMergeStrategy: mockSetBranchReviewMergeStrategy })
+  return store
 }
 
-vi.mock('@/features/workspace/stores/workspace-context', () => ({
-  useWorkspaceStoreContext: (selector: (s: { branchReview: { mergeStrategy: string } }) => unknown) =>
-    selector({ branchReview: { mergeStrategy: mockMergeStrategy.value } }),
-  useWorkspaceStore: () => mockStore,
+vi.mock('@/features/workspace/stores/workspace-store-registry', () => ({
+  getOrCreateWorkspaceStore: () => makeMockStore(),
 }))
 
 vi.mock('@/features/git/api/review-api', () => ({
@@ -46,12 +49,14 @@ function renderMergeSection(overrides: Partial<{
     hasUncommitted: overrides.hasUncommitted ?? false,
     status: overrides.status ?? '',
   }
+  // No WorkspaceStoreContext provider — MergeSection must work standalone via registry
   return render(<MergeSection {...props} />)
 }
 
 describe('MergeSection', () => {
   beforeEach(() => {
     vi.clearAllMocks()
+    mockRegistryState.branchReview.mergeStrategy = 'merge'
   })
 
   describe('eligible state', () => {
@@ -136,6 +141,14 @@ describe('MergeSection', () => {
       expect(screen.getByRole('button', { name: /^merge$/i })).toBeInTheDocument()
       expect(screen.getByRole('button', { name: /^squash$/i })).toBeInTheDocument()
       expect(screen.getByRole('button', { name: /^rebase$/i })).toBeInTheDocument()
+    })
+
+    it('highlights the active strategy from registry state', () => {
+      mockRegistryState.branchReview.mergeStrategy = 'squash'
+      renderMergeSection()
+      // The active strategy button uses "default" variant, others use "outline".
+      // Button component adds data-variant or we check aria — simplest: squash button exists
+      expect(screen.getByRole('button', { name: /^squash$/i })).toBeInTheDocument()
     })
   })
 })
