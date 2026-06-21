@@ -4,6 +4,22 @@ import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { ReviewThreadItem } from '@/features/git/components/review-thread-item'
 import type { ReviewThread } from '@/features/workspace/stores/slices/branch-review-slice'
 
+// Mock @base-ui/react/avatar so AvatarImage unconditionally renders its <img>
+// (jsdom never fires image load events, so base-ui's status stays 'idle'→null)
+vi.mock('@base-ui/react/avatar', () => {
+  const React = require('react')
+  return {
+    Avatar: {
+      Root: ({ children, className }: { children: React.ReactNode; className?: string }) =>
+        React.createElement('div', { className }, children),
+      Image: ({ src, alt }: { src?: string; alt?: string }) =>
+        src ? React.createElement('img', { src, alt }) : null,
+      Fallback: ({ children }: { children: React.ReactNode }) =>
+        React.createElement('span', {}, children),
+    },
+  }
+})
+
 // ── Fixtures ────────────────────────────────────────────────────────────────────
 
 function makeThread(overrides: Partial<ReviewThread> = {}): ReviewThread {
@@ -138,6 +154,48 @@ describe('ReviewThreadItem', () => {
 
     // The author name is shown
     expect(screen.getByText('alice')).toBeDefined()
+  })
+
+  it('human message with author renders GitHub profile photo img', () => {
+    const thread = makeThread({
+      messages: [
+        {
+          id: 'msg1',
+          author: 'char2cs',
+          isAgent: false,
+          body: 'A human comment',
+          createdAt: '2024-01-01T00:00:00Z',
+        },
+      ],
+    })
+    render(<ReviewThreadItem thread={thread} {...defaultProps} />)
+
+    const imgs = document.querySelectorAll('img')
+    const githubImg = Array.from(imgs).find((img) =>
+      img.getAttribute('src')?.includes('github.com/char2cs.png'),
+    )
+    expect(githubImg).not.toBeUndefined()
+  })
+
+  it('agent message does NOT render a GitHub profile photo img', () => {
+    const thread = makeThread({
+      messages: [
+        {
+          id: 'msg1',
+          author: 'char2cs',
+          isAgent: true,
+          body: 'An agent comment',
+          createdAt: '2024-01-01T00:00:00Z',
+        },
+      ],
+    })
+    render(<ReviewThreadItem thread={thread} {...defaultProps} />)
+
+    const imgs = document.querySelectorAll('img')
+    const githubImg = Array.from(imgs).find((img) =>
+      img.getAttribute('src')?.includes('github.com'),
+    )
+    expect(githubImg).toBeUndefined()
   })
 
   it('Reply box appears as CommentComposer with Reply submit button', async () => {

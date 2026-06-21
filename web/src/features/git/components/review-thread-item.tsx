@@ -2,6 +2,7 @@ import { useState } from 'react'
 import { CheckCircle, ArrowCounterClockwise } from '@phosphor-icons/react'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
+import { Avatar, AvatarImage, AvatarFallback } from '@/components/ui/avatar'
 import { cn } from '@/utils/cn'
 import { CommentComposer } from '@/features/panes/components/comment-composer'
 import { MarkdownPreview } from '@/features/panes/lib/markdown'
@@ -19,13 +20,29 @@ export interface ReviewThreadItemProps {
   onReopen: (threadId: string) => Promise<void>
 }
 
-function MessageRow({ message }: { message: ReviewMessage }) {
+function MessageAvatar({ message }: { message: ReviewMessage }) {
   const initials = (message.author ?? 'U').slice(0, 2).toUpperCase()
+  const showGitHubPhoto = !message.isAgent && !!message.author
+
+  return (
+    <Avatar className="mt-0.5 size-5 shrink-0 text-[9px] font-semibold">
+      {showGitHubPhoto && (
+        <AvatarImage
+          src={`https://github.com/${message.author}.png?size=48`}
+          alt={message.author ?? ''}
+        />
+      )}
+      <AvatarFallback className="text-[9px] font-semibold text-muted-foreground">
+        {initials}
+      </AvatarFallback>
+    </Avatar>
+  )
+}
+
+function MessageRow({ message }: { message: ReviewMessage }) {
   return (
     <div className="flex gap-2 px-3 py-2 border-b border-border/40 last:border-b-0">
-      <div className="mt-0.5 flex size-5 shrink-0 items-center justify-center rounded-full bg-muted text-[9px] font-semibold text-muted-foreground">
-        {initials}
-      </div>
+      <MessageAvatar message={message} />
       <div className="min-w-0 flex-1">
         <div className="mb-1 flex items-center gap-1.5">
           <span className="text-[11px] font-semibold text-foreground">
