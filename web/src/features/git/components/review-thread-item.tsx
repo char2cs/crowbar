@@ -61,9 +61,9 @@ function resolveAuthorDisplay(
 function MessageAvatar({ display }: { display: AuthorDisplay }) {
   const initials = (display.name || 'U').slice(0, 2).toUpperCase()
   return (
-    <Avatar className="mt-0.5 size-5 shrink-0 text-[9px] font-semibold">
+    <Avatar className="mt-0.5 size-6 shrink-0 text-xs font-semibold">
       {display.avatarUrl && <AvatarImage src={display.avatarUrl} alt={display.name} />}
-      <AvatarFallback className="text-[9px] font-semibold text-muted-foreground">
+      <AvatarFallback className="text-xs font-semibold text-muted-foreground">
         {initials}
       </AvatarFallback>
     </Avatar>
@@ -79,24 +79,21 @@ function MessageRow({
 }) {
   const display = resolveAuthorDisplay(message, currentIdentity)
   return (
-    <div className="ui-font flex gap-2 border-border/40 border-b px-3 py-2 last:border-b-0">
+    <div className="ui-font flex gap-2.5 border-border/40 border-b px-3.5 py-2.5 last:border-b-0">
       <MessageAvatar display={display} />
       <div className="min-w-0 flex-1">
         <div className="mb-1 flex items-baseline gap-1.5">
-          <span className="font-semibold text-[11px] text-foreground">{display.name}</span>
+          <span className="font-semibold text-sm text-foreground">{display.name}</span>
           {display.login && (
-            <span className="text-[10px] text-muted-foreground">@{display.login}</span>
+            <span className="text-xs text-muted-foreground">@{display.login}</span>
           )}
           {display.isAgent && (
-            <Badge
-              variant="outline"
-              className="h-3.5 border-primary/30 px-1 text-[9px] text-primary"
-            >
+            <Badge variant="outline" className="h-4 border-primary/30 px-1 text-xs text-primary">
               agent
             </Badge>
           )}
         </div>
-        <MarkdownPreview className="text-xs">{message.body}</MarkdownPreview>
+        <MarkdownPreview className="text-sm">{message.body}</MarkdownPreview>
       </div>
     </div>
   )
@@ -118,7 +115,7 @@ export function ReviewThreadItem({
   if (isOutdated && !outdatedExpanded) {
     return (
       <div className="my-1 flex items-center gap-2 px-3 py-1 text-xs text-muted-foreground/40">
-        <Badge variant="outline" className="h-3.5 border-border/40 px-1 text-[9px] text-muted-foreground/60">
+        <Badge variant="outline" className="h-4 border-border/40 px-1 text-xs text-muted-foreground/60">
           Outdated
         </Badge>
         <button className="underline" onClick={() => setOutdatedExpanded(true)}>
@@ -169,7 +166,7 @@ export function ReviewThreadItem({
     >
       {isOutdated && (
         <div className="flex items-center gap-1.5 border-b border-border/40 px-3 py-1">
-          <Badge variant="outline" className="h-3.5 border-border/40 px-1 text-[9px] text-muted-foreground/60">
+          <Badge variant="outline" className="h-4 border-border/40 px-1 text-xs text-muted-foreground/60">
             Outdated
           </Badge>
         </div>
@@ -195,7 +192,7 @@ export function ReviewThreadItem({
           <div className="flex items-center justify-between gap-2">
             {!thread.isResolved && (
               <button
-                className="flex-1 rounded-md border border-border/60 bg-transparent px-3 py-1.5 text-left text-xs text-muted-foreground/50 hover:border-border"
+                className="flex-1 rounded-md border border-border/60 bg-transparent px-3 py-2 text-left text-sm text-muted-foreground/50 hover:border-border"
                 onClick={() => setIsReplying(true)}
               >
                 Reply…
