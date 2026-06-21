@@ -7,6 +7,7 @@ import (
 	"github.com/char2cs/crowbar/api/internal/api/v0/endpoints/files"
 	"github.com/char2cs/crowbar/api/internal/api/v0/endpoints/git"
 	"github.com/char2cs/crowbar/api/internal/api/v0/endpoints/health"
+	"github.com/char2cs/crowbar/api/internal/api/v0/endpoints/identity"
 	projectsPkg "github.com/char2cs/crowbar/api/internal/api/v0/endpoints/projects"
 	"github.com/char2cs/crowbar/api/internal/api/v0/endpoints/provider"
 	reposPkg "github.com/char2cs/crowbar/api/internal/api/v0/endpoints/repos"
@@ -136,5 +137,10 @@ func (c *Container) Register(
 		c.eng.Git,
 		c.app.Repositories.Workspace,
 		c.lsp.Handle,
+	)
+	identity.Register(
+		repoScoped,
+		c.eng.Identity,
+		c.app.Repositories.Workspace,
 	)
 }

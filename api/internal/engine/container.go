@@ -22,7 +22,8 @@ type Container struct {
 	// LSP is the LSP host facade. It is always non-nil; graceful absence (no
 	// server installed for a language) is signalled by empty results rather than
 	// errors (10 §5).
-	LSP enginelsp.Engine
+	LSP      enginelsp.Engine
+	Identity *enginegit.IdentityEngine
 }
 
 type engineOpts struct {
@@ -58,5 +59,6 @@ func New(
 		Search:   enginesearch.New(),
 		Terminal: engineterminal.New(),
 		LSP:      enginelsp.New(nil),
+		Identity: enginegit.NewIdentityEngine(),
 	}, nil
 }
