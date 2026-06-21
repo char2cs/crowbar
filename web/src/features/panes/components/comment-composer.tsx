@@ -101,13 +101,7 @@ export function CommentComposer({
         <Button type="button" variant="outline" size="sm" onClick={onCancel}>
           Cancel
         </Button>
-        <Button
-          type="button"
-          size="sm"
-          disabled={!canSubmit}
-          onClick={submit}
-          className="text-foreground"
-        >
+        <Button type="button" size="sm" disabled={!canSubmit} onClick={submit}>
           {submitLabel}
         </Button>
       </div>
