@@ -77,6 +77,30 @@ export function createFileTreeGitStatusLookup(gitStatus: GitStatus): FileTreeGit
   return { files, directories }
 }
 
+/**
+ * Decide whether the git store's `workspaceGitStatus` applies to the file tree
+ * currently on screen.
+ *
+ * The file explorer always renders the ACTIVE workspace. The git store keys
+ * `workspaceGitStatus` by the workspace id it loaded (`currentWorkspaceRepoPath`,
+ * set to the wsId in git-store `loadFreshGitData`). Apply that status only when
+ * it belongs to the active workspace, so a workspace switch never briefly paints
+ * the previous workspace's decorations onto the new tree.
+ *
+ * Do NOT gate on the file tree's `rootFolderPath`: that is the synthetic
+ * `/repos/<repoId>` mock-era prefix (see ide-shell `activeWorkspaceRepoPath`), a
+ * different id space than the wsId the git store uses. Comparing the two was
+ * always false and silently disabled every file-tree git decoration.
+ */
+export function resolveActiveWorkspaceGitStatus(
+  workspaceGitStatus: GitStatus | null,
+  currentWorkspaceRepoPath: string | null,
+  activeWorkspaceId: string | null,
+): GitStatus | null {
+  if (!workspaceGitStatus || !currentWorkspaceRepoPath || !activeWorkspaceId) return null
+  return currentWorkspaceRepoPath === activeWorkspaceId ? workspaceGitStatus : null
+}
+
 export function getFileTreeEntryGitStatusDecoration(
   file: FileEntry,
   rootFolderPath: string | undefined,

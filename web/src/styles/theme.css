@@ -223,6 +223,16 @@
   --code-foreground: var(--foreground);
   --code-highlight: oklch(0 0 0 / 4%);
 
+  /* ── Git status decorations — light (file tree + changes) ──
+     The @theme block maps --color-git-* → these base tokens; without values
+     here every text-git-* utility resolved to empty and inherited foreground. */
+  --git-modified: var(--color-amber-600);
+  --git-modified-staged: var(--color-emerald-600);
+  --git-added: var(--color-emerald-600);
+  --git-untracked: var(--color-green-600);
+  --git-deleted: var(--color-red-600);
+  --git-renamed: var(--color-sky-600);
+
   /* ── Crowbar UI-layer tokens (not in Cross/UI) ── */
   --chrome-bg: oklch(0.97 0.018 50 / 0%);
 
@@ -334,6 +344,14 @@
   --code: var(--background);
   --code-foreground: var(--foreground);
   --code-highlight: oklch(1 0 0 / 4%);
+
+  /* ── Git status decorations — dark (file tree + changes) ── */
+  --git-modified: var(--color-amber-400);
+  --git-modified-staged: var(--color-emerald-400);
+  --git-added: var(--color-emerald-400);
+  --git-untracked: var(--color-green-500);
+  --git-deleted: var(--color-red-400);
+  --git-renamed: var(--color-sky-400);
 
   /* ── Crowbar UI-layer dark overrides ── */
   --chrome-bg: oklch(0 0 0 / 65%);

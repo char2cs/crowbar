@@ -15,6 +15,7 @@ import {
 import {
   createFileTreeGitStatusLookup,
   getFileTreeEntryGitStatusDecoration,
+  resolveActiveWorkspaceGitStatus,
   type FileTreeGitStatusDecoration,
   type FileTreeGitStatusLookup,
 } from '@/features/file-explorer/lib/file-tree-git-status'
@@ -27,6 +28,7 @@ import { useFileSystemStore } from '@/features/file-system/controllers/store'
 import type { FileEntry } from '@/features/file-system/types/app'
 import { useGitStore } from '@/features/git/stores/git-store'
 import { useSettingsStore } from '@/features/settings/store'
+import { getWorkspaceScope } from '@/lib/workspace-scope'
 import { Button } from '@/components/ui/button'
 import { Dropdown, type MenuItem } from '@/components/ui/dropdown'
 import { Input } from '@/components/ui/input'
@@ -231,10 +233,16 @@ function FileExplorerTreeComponent({
     getWorkspaceRootForPath,
   )
 
-  const gitStatus =
-    currentWorkspaceRepoPath && currentWorkspaceRepoPath === rootFolderPath
-      ? workspaceGitStatus
-      : null
+  // The git store keys workspaceGitStatus by the wsId it loaded
+  // (currentWorkspaceRepoPath). rootFolderPath is the synthetic `/repos/<repoId>`
+  // mock-era prefix (a different id space), so it cannot be the match key — the
+  // file explorer always renders the active workspace, so gate on its wsId.
+  const activeWorkspaceId = getWorkspaceScope()?.wsId ?? null
+  const gitStatus = resolveActiveWorkspaceGitStatus(
+    workspaceGitStatus,
+    currentWorkspaceRepoPath,
+    activeWorkspaceId,
+  )
 
   const gitStatusDecorationLookup = useMemo(() => {
     const startedAt = performance.now()
@@ -252,12 +260,15 @@ function FileExplorerTreeComponent({
     return lookup
   }, [gitStatus, settings.showGitStatusInFileTree])
 
+  // Resolve straight from the lookup: tree paths and git-status keys are both
+  // workspace-relative, so getFileTreeEntryGitStatusDecoration matches them and
+  // returns null for files with no change. (The old `getWorkspaceRootForPath ===
+  // rootFolderPath` guard compared a relative path against the synthetic
+  // `/repos/<repoId>` root — always false — and blocked every decoration.)
   const getGitStatusDecoration = useCallback(
     (file: FileEntry): FileTreeGitStatusDecoration | null =>
-      getWorkspaceRootForPath(file.path) === rootFolderPath
-        ? getFileTreeEntryGitStatusDecoration(file, rootFolderPath, gitStatusDecorationLookup)
-        : null,
-    [getWorkspaceRootForPath, gitStatusDecorationLookup, rootFolderPath],
+      getFileTreeEntryGitStatusDecoration(file, rootFolderPath, gitStatusDecorationLookup),
+    [gitStatusDecorationLookup, rootFolderPath],
   )
 
   const filteredFiles = useMemo(() => {

@@ -5,6 +5,7 @@ import {
   createFileTreeGitStatusLookup,
   getFileTreeEntryGitStatusDecoration,
   getFileTreeGitStatusDecoration,
+  resolveActiveWorkspaceGitStatus,
 } from '@/features/file-explorer/file-explorer/lib/file-tree-git-status'
 
 const gitFile = (path: string, status: GitFile['status'], staged = false): GitFile => ({
@@ -118,5 +119,69 @@ describe('file tree git status lookup', () => {
         lookup,
       ),
     ).toBeNull()
+  })
+
+  // Regression: the real app addresses file-tree entries by WORKSPACE-RELATIVE
+  // paths ("README.md", "api/x.go") while rootFolderPath is the synthetic
+  // `/repos/<repoId>` mock-era prefix — a different id space. The git status the
+  // backend returns is keyed by the same workspace-relative paths. These resolve
+  // correctly even though the file path never starts with rootFolderPath
+  // (getRelativePath returns the path unchanged when there is no prefix match).
+  // The previous code gated this behind `getWorkspaceRootForPath === rootFolderPath`
+  // which was always false, silently disabling every decoration.
+  test('resolves decorations for workspace-relative paths under a synthetic /repos root', () => {
+    const root = '/repos/81883222-d45f-44ca-80ed-9550d5228441'
+    const lookup = createFileTreeGitStatusLookup({
+      branch: 'epoch/first-pr',
+      ahead: 0,
+      behind: 1,
+      files: [
+        gitFile('README.md', 'modified'),
+        gitFile('api/internal/api/container.go', 'modified'),
+      ],
+    })
+
+    expect(getFileTreeEntryGitStatusDecoration(fileEntry('README.md'), root, lookup)).toEqual({
+      colorClassName: 'text-git-modified',
+      label: 'Modified',
+      statusLetter: 'M',
+    })
+    expect(
+      getFileTreeEntryGitStatusDecoration(
+        fileEntry('api/internal/api/container.go'),
+        root,
+        lookup,
+      ),
+    ).toEqual({ colorClassName: 'text-git-modified', label: 'Modified', statusLetter: 'M' })
+    // The parent folder inherits the descendant's status (folder tinting).
+    expect(getFileTreeEntryGitStatusDecoration(fileEntry('api', true), root, lookup)).toEqual({
+      colorClassName: 'text-git-modified',
+      label: 'Modified',
+      statusLetter: 'M',
+    })
+  })
+})
+
+describe('resolveActiveWorkspaceGitStatus', () => {
+  const status: GitStatus = {
+    branch: 'epoch/first-pr',
+    ahead: 0,
+    behind: 1,
+    files: [gitFile('README.md', 'modified')],
+  }
+  const wsId = 'd2e0a0de-dbee-4fc3-a333-2cac9b6aeff3'
+
+  test('applies the status when the git store loaded the active workspace', () => {
+    expect(resolveActiveWorkspaceGitStatus(status, wsId, wsId)).toBe(status)
+  })
+
+  test('rejects a status loaded for a different workspace', () => {
+    expect(resolveActiveWorkspaceGitStatus(status, 'other-ws-id', wsId)).toBeNull()
+  })
+
+  test('returns null when any input is missing', () => {
+    expect(resolveActiveWorkspaceGitStatus(null, wsId, wsId)).toBeNull()
+    expect(resolveActiveWorkspaceGitStatus(status, null, wsId)).toBeNull()
+    expect(resolveActiveWorkspaceGitStatus(status, wsId, null)).toBeNull()
   })
 })

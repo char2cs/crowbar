@@ -100,7 +100,7 @@ let storeState = {
   branchReview: {
     activeFileKey: null as string | null,
     activeFileNonce: 0,
-    threads: [],
+    threads: [] as ReviewThread[],
   },
 }
 
