@@ -286,8 +286,11 @@ function EmbeddedDiffSectionEditor({
             showToolbar={false}
             readOnly={true}
             scrollable={false}
-            onReadonlySurfaceClick={({ line, column }) =>
-              void openSourceLocation(line, column, splitContent.left.actualLines)
+            onReadonlySurfaceClick={
+              enableComments
+                ? undefined
+                : ({ line, column }) =>
+                    void openSourceLocation(line, column, splitContent.left.actualLines)
             }
           />
         </div>
@@ -302,8 +305,11 @@ function EmbeddedDiffSectionEditor({
             showToolbar={false}
             readOnly={true}
             scrollable={false}
-            onReadonlySurfaceClick={({ line, column }) =>
-              void openSourceLocation(line, column, splitContent.right.actualLines)
+            onReadonlySurfaceClick={
+              enableComments
+                ? undefined
+                : ({ line, column }) =>
+                    void openSourceLocation(line, column, splitContent.right.actualLines)
             }
           />
         </div>
@@ -331,8 +337,11 @@ function EmbeddedDiffSectionEditor({
         showToolbar={false}
         readOnly={true}
         scrollable={false}
-        onReadonlySurfaceClick={({ line, column }) =>
-          void openSourceLocation(line, column, unifiedContent.actualLines)
+        onReadonlySurfaceClick={
+          enableComments
+            ? undefined
+            : ({ line, column }) =>
+                void openSourceLocation(line, column, unifiedContent.actualLines)
         }
         commentZones={hasInlineLayer ? inlineZones : undefined}
         onAddCommentAtLine={commentLayer?.onAddCommentAtLine}
