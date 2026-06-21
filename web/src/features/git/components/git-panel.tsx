@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useRouterState } from '@tanstack/react-router'
 import { GitPullRequest } from '@phosphor-icons/react'
 import { ScrollArea } from '@/components/ui/scroll-area'
 import { Tabs, TabsList, TabsTab, TabsPanel } from '@/components/ui/tabs'
@@ -6,18 +6,21 @@ import { Button } from '@/components/ui/button'
 import { openBranchReviewForActiveWorkspace } from '@/features/panes/utils/pane-command-actions'
 import { useSidebarStore } from '@/lib/store/sidebar'
 import { useGitStore } from '@/features/git/stores/git-store'
-import { getActiveWorkspaceId } from '@/features/workspace/stores/workspace-store-registry'
+import { parseWorkspaceScopeFromPath } from '@/lib/workspace-scope'
 import { useGitDiffHandlers } from '@/features/git/hooks/use-git-diff-handlers'
 import { useReviewDiff } from '@/features/git/hooks/use-review-diff'
+import type { GitFile } from '@/features/git/types/git-types'
 import { ChangedFilesTree } from './changed-files-tree'
 import GitCommitPanel from './git-commit-panel'
 import { MergeSection } from './merge-section'
 import { GitHistoryList } from './git-history-list'
 
 export function GitPanel() {
-  // Resolve the active workspace id from the registry (same pattern as the
-  // old GitChangesPanel). We capture it in state so it's stable across renders.
-  const [wsId] = useState<string | null>(() => getActiveWorkspaceId())
+  // I1 fix: derive wsId reactively from the route so a workspace switch without
+  // remount keeps all API calls and store lookups pointed at the active workspace.
+  // Pattern mirrors sidebar-carousel.tsx and context-pill.tsx.
+  const pathname = useRouterState({ select: (s) => s.location.pathname })
+  const wsId = parseWorkspaceScopeFromPath(pathname)?.wsId ?? null
 
   // Narrow selectors: pull only the fields we need from each store.
   const gitStatus = useGitStore((s) => s.gitStatus)
@@ -36,11 +39,36 @@ export function GitPanel() {
   // Review diff: branch-vs-parent blended files + uncommitted count.
   const { files, uncommittedCount } = useReviewDiff(wsId)
 
+  // I2 fix: build a merged visibleGitFiles that includes committed (branch-only)
+  // files from the review diff alongside the working-tree files from gitStatus.
+  // Without this, clicking a committed file in the blended tree calls getFileDiff
+  // which returns empty (no working-tree changes) and falls back to opening the
+  // file as a plain editor buffer instead of a diff.
+  //
+  // Strategy: adapt each review GitDiff into the GitFile shape expected by
+  // useGitDiffHandlers, then union with gitStatus.files (gitStatus entries take
+  // priority so staged/unstaged state is accurate for working-tree files).
+  const reviewAsGitFiles: GitFile[] = files.map((diff) => ({
+    path: diff.file_path,
+    status: diff.is_new
+      ? 'added'
+      : diff.is_deleted
+        ? 'deleted'
+        : diff.is_renamed
+          ? 'renamed'
+          : 'modified',
+    staged: false,
+  }))
+  const workingTreePaths = new Set((gitStatus?.files ?? []).map((f) => f.path))
+  const blendedGitFiles: GitFile[] = [
+    ...(gitStatus?.files ?? []),
+    ...reviewAsGitFiles.filter((f) => !workingTreePaths.has(f.path)),
+  ]
+
   // Diff interaction handlers (same pattern as old GitChangesPanel).
   const { handleViewFileDiff } = useGitDiffHandlers({
     activeRepoPath: wsId ?? null,
-    // Cast to satisfy the GitFile[] type — we only need the path for diff lookup.
-    visibleGitFiles: gitStatus?.files ?? [],
+    visibleGitFiles: blendedGitFiles,
   })
 
   // Handler adapts the (filePath: string) signature that ChangedFilesTree expects.
@@ -80,12 +108,17 @@ export function GitPanel() {
         </ScrollArea>
 
         {/* Pinned commit bar */}
+        {/* I3 fix: dispatch git-status-changed on commit/push/pull so useReviewDiff
+            re-fetches the branch diff immediately after the operation completes.
+            GitCommitPanel calls onCommitSuccess after a successful commit or
+            remote action but does NOT dispatch the event itself. */}
         <div className="shrink-0 border-t border-border">
           <GitCommitPanel
             stagedFilesCount={staged.length}
             repoPath={repoPath}
             ahead={gitStatus?.ahead ?? 0}
             behind={gitStatus?.behind ?? 0}
+            onCommitSuccess={() => window.dispatchEvent(new Event('git-status-changed'))}
           />
         </div>
 

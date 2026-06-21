@@ -1,5 +1,5 @@
 import React from 'react'
-import { render, screen } from '@testing-library/react'
+import { render, screen, fireEvent } from '@testing-library/react'
 import { describe, it, expect, vi } from 'vitest'
 import { GitPanel } from '@/features/git/components/git-panel'
 
@@ -13,8 +13,17 @@ vi.mock('@/components/ui/scroll-area', () => ({
 vi.mock('@/features/git/components/changed-files-tree', () => ({
   ChangedFilesTree: () => <div data-testid="changed-files-tree" />,
 }))
+
+// Capture onCommitSuccess so we can test I3 wiring.
+const mockCommitPanel = vi.fn(
+  ({ onCommitSuccess }: { onCommitSuccess?: () => void }) => (
+    <button data-testid="commit-panel" onClick={onCommitSuccess}>
+      Commit
+    </button>
+  ),
+)
 vi.mock('@/features/git/components/git-commit-panel', () => ({
-  default: () => <div data-testid="commit-panel" />,
+  default: (props: { onCommitSuccess?: () => void }) => mockCommitPanel(props),
 }))
 vi.mock('@/features/git/components/merge-section', () => ({
   MergeSection: () => <div data-testid="merge-section" />,
@@ -26,9 +35,13 @@ vi.mock('@/features/git/components/git-history-list', () => ({
 vi.mock('@/features/git/hooks/use-review-diff', () => ({
   useReviewDiff: () => ({ files: [], uncommittedCount: 0, loading: false }),
 }))
+
+// Spy on useGitDiffHandlers to verify I1 (wsId is passed as activeRepoPath).
+const spyUseGitDiffHandlers = vi.fn(() => ({ handleViewFileDiff: vi.fn() }))
 vi.mock('@/features/git/hooks/use-git-diff-handlers', () => ({
-  useGitDiffHandlers: () => ({ handleViewFileDiff: vi.fn() }),
+  useGitDiffHandlers: (props: unknown) => spyUseGitDiffHandlers(props),
 }))
+
 vi.mock('@/features/git/stores/git-store', () => {
   const useGitStore = (sel: (s: { gitStatus: null }) => unknown) => sel({ gitStatus: null })
   return { useGitStore }
@@ -36,8 +49,18 @@ vi.mock('@/features/git/stores/git-store', () => {
 vi.mock('@/lib/store/sidebar', () => ({
   useSidebarStore: (sel: (s: { repos: [] }) => unknown) => sel({ repos: [] }),
 }))
-vi.mock('@/features/workspace/stores/workspace-store-registry', () => ({
-  getActiveWorkspaceId: () => null,
+// I1: GitPanel now reads wsId reactively via useRouterState + parseWorkspaceScopeFromPath.
+// Mock useRouterState to control the pathname; getActiveWorkspaceId is no longer used.
+vi.mock('@tanstack/react-router', () => ({
+  useRouterState: ({ select }: { select: (s: { location: { pathname: string } }) => unknown }) =>
+    select({ location: { pathname: '/ide/proj1/repo1/ws-active' } }),
+}))
+vi.mock('@/lib/workspace-scope', () => ({
+  parseWorkspaceScopeFromPath: (pathname: string) => {
+    const m = pathname.match(/\/ide\/([^/]+)\/([^/]+)\/([^/]+)/)
+    if (!m) return null
+    return { projectId: m[1], repoId: m[2], wsId: m[3] }
+  },
 }))
 vi.mock('@/features/panes/utils/pane-command-actions', () => ({
   openBranchReviewForActiveWorkspace: vi.fn(),
@@ -61,5 +84,26 @@ describe('GitPanel', () => {
   it('does not show the merge section when the workspace has no parentBranch', () => {
     render(<GitPanel />)
     expect(screen.queryByTestId('merge-section')).not.toBeInTheDocument()
+  })
+
+  // I1: wsId is derived reactively from the route pathname, not a mount-time snapshot.
+  // The mocked useRouterState returns pathname '/ide/proj1/repo1/ws-active', so
+  // parseWorkspaceScopeFromPath yields wsId = 'ws-active'.
+  it('(I1) derives wsId from route and passes it as activeRepoPath to diff handlers', () => {
+    spyUseGitDiffHandlers.mockClear()
+    render(<GitPanel />)
+    expect(spyUseGitDiffHandlers).toHaveBeenCalledWith(
+      expect.objectContaining({ activeRepoPath: 'ws-active' }),
+    )
+  })
+
+  // I3: onCommitSuccess dispatches git-status-changed so useReviewDiff re-fetches.
+  it('(I3) dispatches git-status-changed when onCommitSuccess fires', () => {
+    render(<GitPanel />)
+    const listener = vi.fn()
+    window.addEventListener('git-status-changed', listener)
+    fireEvent.click(screen.getByTestId('commit-panel'))
+    window.removeEventListener('git-status-changed', listener)
+    expect(listener).toHaveBeenCalledTimes(1)
   })
 })
