@@ -88,7 +88,13 @@ export function useDiffCommentZones(params: {
           const height = contentNode.offsetHeight
           if (height > 0 && zone.heightInPx !== height) {
             zone.heightInPx = height
-            editor.changeViewZones((a) => a.layoutZone(zoneId))
+            // Defer the relayout out of the observation callback (avoids the
+            // benign WebKit "ResizeObserver loop" warning + a sync reflow), and
+            // skip it if the editor was disposed between frames.
+            requestAnimationFrame(() => {
+              if (editorRef.current !== editor) return
+              editor.changeViewZones((a) => a.layoutZone(zoneId))
+            })
           }
         })
         observer.observe(contentNode)
@@ -122,6 +128,17 @@ export function useDiffCommentZones(params: {
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
+
+  // When the Monaco editor is disposed (editorReady → false, e.g. the diff
+  // editor is recreated for a new buffer), the zone ids in `active` belong to
+  // the dead editor. Drop them so the recreated editor re-adds its zones
+  // instead of skipping them as "already present", and stop orphaned observers.
+  useEffect(() => {
+    if (editorReady) return
+    for (const az of activeRef.current.values()) az.observer.disconnect()
+    activeRef.current.clear()
+    setPortalKeys([])
+  }, [editorReady])
 
   // Gutter "+" affordance: hover shows a "+" in the glyph margin; clicking it
   // opens a composer on that line.

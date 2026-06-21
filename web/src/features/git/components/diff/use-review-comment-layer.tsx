@@ -10,6 +10,7 @@ import {
 } from '@/features/git/utils/diff-editor-content'
 import { CommentComposer } from '@/features/panes/components/comment-composer'
 import type { CommentZoneSpec } from '@/features/editor/components/use-diff-comment-zones'
+import { toast } from '@/features/window/stores/toast-store'
 import { useWorkspaceStoreContext } from '@/features/workspace/stores/workspace-context'
 
 export interface ReviewCommentLayer {
@@ -59,8 +60,12 @@ export function useReviewCommentLayer(params: {
 
   const handleReply = useCallback(
     async (threadId: string, body: string) => {
-      const author = await resolveAuthor()
-      await replyToThread(wsId, threadId, { author, isAgent: false, body })
+      try {
+        const author = await resolveAuthor()
+        await replyToThread(wsId, threadId, { author, isAgent: false, body })
+      } catch (error) {
+        toast.error('Failed to post reply', error instanceof Error ? error.message : undefined)
+      }
     },
     [resolveAuthor, wsId],
   )
@@ -79,18 +84,22 @@ export function useReviewCommentLayer(params: {
   const handleComposerSubmit = useCallback(
     async (body: string) => {
       if (!composer) return
-      const author = await resolveAuthor()
-      await openThread(wsId, {
-        filePath,
-        line: composer.line,
-        startLine: composer.line,
-        endLine: composer.line,
-        side: composer.side,
-        author,
-        isAgent: false,
-        body,
-      })
-      setComposer(null)
+      try {
+        const author = await resolveAuthor()
+        await openThread(wsId, {
+          filePath,
+          line: composer.line,
+          startLine: composer.line,
+          endLine: composer.line,
+          side: composer.side,
+          author,
+          isAgent: false,
+          body,
+        })
+        setComposer(null)
+      } catch (error) {
+        toast.error('Failed to post comment', error instanceof Error ? error.message : undefined)
+      }
     },
     [composer, filePath, resolveAuthor, wsId],
   )
