@@ -66,6 +66,7 @@ describe('canonical DTO shapes', () => {
       threadId: 't1',
       body: 'hi',
       author: 'me',
+      isAgent: false,
       createdAt: '2026-06-19T00:00:00Z',
     }
     const thread: ThreadDTO = {
@@ -75,9 +76,12 @@ describe('canonical DTO shapes', () => {
       workspaceId: 'w1',
       filePath: 'a.ts',
       line: 1,
+      startLine: 1,
+      endLine: 1,
       side: 'new',
       body: 'comment',
       author: 'me',
+      isAgent: false,
       resolved: false,
       createdAt: '2026-06-19T00:00:00Z',
       replies: [reply],

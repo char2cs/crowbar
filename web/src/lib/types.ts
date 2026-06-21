@@ -93,6 +93,7 @@ export interface ThreadReplyDTO {
   threadId: string
   body: string
   author: string
+  isAgent: boolean
   createdAt: string
 }
 
@@ -103,9 +104,12 @@ export interface ThreadDTO {
   workspaceId: string
   filePath: string
   line: number
+  startLine: number
+  endLine: number
   side: 'old' | 'new'
   body: string
   author: string
+  isAgent: boolean
   resolved: boolean
   createdAt: string
   replies: ThreadReplyDTO[]

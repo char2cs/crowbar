@@ -16,7 +16,9 @@ export interface ReviewThread {
   id: string
   filePath: string
   lineNumber: number
-  side: 'left' | 'right'
+  startLine: number
+  endLine: number
+  side: 'old' | 'new'
   messages: ReviewMessage[]
   isResolved: boolean
 }
@@ -51,7 +53,12 @@ export interface BranchReviewSlice {
   addReviewThread: (thread: ReviewThread) => void
   removeReviewThread: (threadId: string) => void
   addReviewMessage: (threadId: string, message: ReviewMessage) => void
+  /** @deprecated Use setReviewThreadResolved(id, true) instead. Kept for backward compat. */
   resolveReviewThread: (threadId: string) => void
+  /** Two-way: pass false to reopen. */
+  setReviewThreadResolved: (threadId: string, isResolved: boolean) => void
+  /** Insert if new id; merge (replace) if id already exists. */
+  upsertReviewThread: (thread: ReviewThread) => void
   setBranchReviewConversations: (conversations: ReviewConversation[]) => void
   addReviewConversation: (conversation: ReviewConversation) => void
 }
@@ -156,6 +163,22 @@ export const createBranchReviewSlice: StateCreator<
     set((s) => {
       const t = s.branchReview.threads.find((t) => t.id === threadId)
       if (t) t.isResolved = true
+    }),
+
+  setReviewThreadResolved: (threadId, isResolved) =>
+    set((s) => {
+      const t = s.branchReview.threads.find((t) => t.id === threadId)
+      if (t) t.isResolved = isResolved
+    }),
+
+  upsertReviewThread: (thread) =>
+    set((s) => {
+      const idx = s.branchReview.threads.findIndex((t) => t.id === thread.id)
+      if (idx === -1) {
+        s.branchReview.threads.push(thread)
+      } else {
+        s.branchReview.threads[idx] = thread
+      }
     }),
 
   setBranchReviewConversations: (conversations) =>

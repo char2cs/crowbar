@@ -47,7 +47,9 @@ export function ReviewThreadPanel({ wsId }: ReviewThreadPanelProps) {
       id: tempId,
       filePath: trimmedPath,
       lineNumber: line,
-      side: 'right',
+      startLine: line,
+      endLine: line,
+      side: 'new',
       isResolved: false,
       messages: [
         {
@@ -65,8 +67,10 @@ export function ReviewThreadPanel({ wsId }: ReviewThreadPanelProps) {
     try {
       const created = await openThread(wsId, {
         filePath: trimmedPath,
-        lineNumber: line,
-        side: 'right',
+        line,
+        startLine: line,
+        endLine: line,
+        side: 'new',
         body: trimmedBody,
       })
       // Swap the optimistic placeholder for the server thread.

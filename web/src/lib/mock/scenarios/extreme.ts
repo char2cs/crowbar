@@ -211,7 +211,9 @@ function genThreads(wsId: string, count: number): ReviewThread[] {
       id: `thread-${wsId}-${i}`,
       filePath: file,
       lineNumber: lineNum,
-      side: i % 3 === 0 ? ('left' as const) : ('right' as const),
+      startLine: lineNum,
+      endLine: lineNum,
+      side: (i % 3 === 0 ? 'old' : 'new') as 'old' | 'new',
       messages,
       isResolved: i % 5 === 0,
     }

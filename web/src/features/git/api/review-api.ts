@@ -36,7 +36,9 @@ interface WireReviewThread {
   wsId: string
   filePath: string
   lineNumber: number
-  side: 'left' | 'right'
+  startLine: number
+  endLine: number
+  side: 'old' | 'new'
   status: 'open' | 'resolved'
   messages: WireReviewMessage[] | null
   createdAt: string
@@ -77,6 +79,8 @@ export function mapThread(t: WireReviewThread): ReviewThread {
     id: t.id,
     filePath: t.filePath,
     lineNumber: t.lineNumber,
+    startLine: t.startLine ?? t.lineNumber,
+    endLine: t.endLine ?? t.lineNumber,
     side: t.side,
     messages: (t.messages ?? []).map(mapMessage),
     isResolved: t.status === 'resolved',
@@ -148,14 +152,30 @@ export async function setMergeStrategy(
 
 export interface OpenThreadInput {
   filePath: string
-  lineNumber: number
-  side: 'left' | 'right'
+  line: number
+  startLine: number
+  endLine: number
+  side: 'old' | 'new'
+  author?: string
+  isAgent?: boolean
   body: string
+}
+
+export interface ReplyToThreadInput {
+  author?: string
+  isAgent?: boolean
+  body: string
+}
+
+/** GET all review threads for a workspace. */
+export async function listThreads(wsId: string): Promise<ReviewThread[]> {
+  const raw = await apiFetch<WireReviewThread[]>(`${workspaceBase(wsId)}/threads`)
+  return (raw ?? []).map(mapThread)
 }
 
 /** POST a new review thread anchored to a file location. Returns the thread. */
 export async function openThread(wsId: string, input: OpenThreadInput): Promise<ReviewThread> {
-  const raw = await apiFetch<WireReviewThread>(`${reviewBase(wsId)}/threads`, {
+  const raw = await apiFetch<WireReviewThread>(`${workspaceBase(wsId)}/threads`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(input),
@@ -167,27 +187,29 @@ export async function openThread(wsId: string, input: OpenThreadInput): Promise<
 export async function replyToThread(
   wsId: string,
   threadId: string,
-  body: string,
+  input: ReplyToThreadInput | string,
 ): Promise<ReviewThread> {
+  // Accept a plain string body for backward compat (old callers pass just the text).
+  const payload: ReplyToThreadInput = typeof input === 'string' ? { body: input } : input
   const raw = await apiFetch<WireReviewThread>(
-    `${reviewBase(wsId)}/threads/${encodeURIComponent(threadId)}/reply`,
+    `${workspaceBase(wsId)}/threads/${encodeURIComponent(threadId)}/replies`,
     {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ body }),
+      body: JSON.stringify(payload),
     },
   )
   return mapThread(raw)
 }
 
-/** PATCH a thread's resolved state. Returns the updated thread. */
+/** PATCH a thread's resolved state (two-way: pass false to reopen). Returns the updated thread. */
 export async function setThreadResolved(
   wsId: string,
   threadId: string,
   isResolved: boolean,
 ): Promise<ReviewThread> {
   const raw = await apiFetch<WireReviewThread>(
-    `${reviewBase(wsId)}/threads/${encodeURIComponent(threadId)}`,
+    `${workspaceBase(wsId)}/threads/${encodeURIComponent(threadId)}`,
     {
       method: 'PATCH',
       headers: { 'Content-Type': 'application/json' },

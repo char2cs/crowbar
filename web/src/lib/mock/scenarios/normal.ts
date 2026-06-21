@@ -304,7 +304,9 @@ const THREADS: Record<string, ReviewThread[]> = {
       id: 'rbt-1',
       filePath: 'src/features/onboarding/OnboardingWizard.tsx',
       lineNumber: 12,
-      side: 'right',
+      startLine: 12,
+      endLine: 12,
+      side: 'new',
       isResolved: false,
       messages: [
         msg(
@@ -328,7 +330,9 @@ const THREADS: Record<string, ReviewThread[]> = {
       id: 'rbt-2',
       filePath: 'src/api/onboarding.ts',
       lineNumber: 10,
-      side: 'right',
+      startLine: 10,
+      endLine: 10,
+      side: 'new',
       isResolved: false,
       messages: [
         msg(
@@ -358,7 +362,9 @@ const THREADS: Record<string, ReviewThread[]> = {
       id: 'rbt-3',
       filePath: 'src/router.tsx',
       lineNumber: 18,
-      side: 'right',
+      startLine: 18,
+      endLine: 18,
+      side: 'new',
       isResolved: true,
       messages: [
         msg(
@@ -383,7 +389,9 @@ const THREADS: Record<string, ReviewThread[]> = {
       id: 'rbt-4',
       filePath: 'src/features/auth/SignupForm.tsx',
       lineNumber: 34,
-      side: 'right',
+      startLine: 34,
+      endLine: 34,
+      side: 'new',
       isResolved: false,
       messages: [
         msg(
