@@ -1,6 +1,4 @@
-import type { HighlightToken } from '@/features/editor/lib/wasm-parser/types'
 import type { GitDiff, GitDiffLine, GitHunk } from './git-types'
-import type { ReviewThread } from '@/features/workspace/stores/slices/branch-review-slice'
 
 export interface AddCommentAnchor {
   filePath: string
@@ -58,40 +56,6 @@ export interface DiffHunkHeaderProps {
   onStageHunk?: (hunk: GitHunk) => void
   onUnstageHunk?: (hunk: GitHunk) => void
   isInMultiFileView?: boolean
-}
-
-export interface DiffLineProps {
-  line: GitDiffLine
-  viewMode: 'unified' | 'split'
-  splitSide?: 'left' | 'right'
-  wordWrap: boolean
-  showWhitespace: boolean
-  fontSize: number
-  lineHeight: number
-  tabSize: number
-  tokens?: HighlightToken[]
-  // Inline comment threading
-  filePath?: string
-  wsId?: string
-  threads?: ReviewThread[]
-  onAddComment?: (anchor: AddCommentAnchor) => void
-  currentAuthor?: string
-}
-
-export interface TextDiffViewerProps {
-  diff: GitDiff
-  isStaged: boolean
-  viewMode: 'unified' | 'split'
-  showWhitespace: boolean
-  onStageHunk?: (hunk: GitHunk) => void
-  onUnstageHunk?: (hunk: GitHunk) => void
-  isInMultiFileView?: boolean
-  isEmbeddedInScrollView?: boolean
-  // Inline comment threading
-  wsId?: string
-  threads?: ReviewThread[]
-  onAddComment?: (anchor: AddCommentAnchor) => void
-  currentAuthor?: string
 }
 
 export interface ImageDiffViewerProps {

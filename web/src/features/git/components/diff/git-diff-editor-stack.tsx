@@ -1,11 +1,9 @@
 import {
-  Check,
   CaretDown as ChevronDown,
   CaretRight as ChevronRight,
   Columns as Columns2,
   ArrowSquareOut as ExternalLink,
   Rows as Rows3,
-  Trash as Trash2,
 } from '@phosphor-icons/react'
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useStore } from 'zustand'
@@ -13,6 +11,7 @@ const openUrl = (url: string) => {
   window.open(url, '_blank')
 }
 import CodeEditor from '@/features/editor/components/code-editor'
+import { useHunkStagingZones } from './use-hunk-staging-zones'
 import { useReviewCommentLayer } from './use-review-comment-layer'
 import Breadcrumb from '@/features/editor/components/toolbar/breadcrumb'
 import { EDITOR_CONSTANTS } from '@/features/editor/config/constants'
@@ -47,7 +46,6 @@ import {
 import DiffLineBackgroundLayer from './diff-line-background-layer'
 import GitDiffEditorSurface from './git-diff-editor-surface'
 import ImageDiffViewer from './git-diff-image'
-import TextDiffViewer from './git-diff-text'
 import { Badge } from '@/components/ui/badge'
 
 function countStats(diff: GitDiff) {
@@ -83,7 +81,6 @@ const statusBadgeClass: Record<string, string> = {
   renamed: 'bg-git-renamed/12 text-git-renamed',
 }
 
-const MAX_HUNK_ACTION_DIFF_LINES = 1200
 
 function parseGitHubRemoteSlug(remoteUrl: string): { owner: string; repo: string } | null {
   const normalized = remoteUrl.trim()
@@ -166,11 +163,13 @@ function EmbeddedDiffSectionEditor({
   cacheKey,
   viewMode,
   enableComments = false,
+  enableHunkActions = false,
 }: {
   diff: GitDiff
   cacheKey: string
   viewMode: 'unified' | 'split'
   enableComments?: boolean
+  enableHunkActions?: boolean
 }) {
   const fontSize = useEditorSettingsStore.use.fontSize()
   const zoomLevel = useZoomStore.use.editorZoomLevel()
@@ -178,13 +177,24 @@ function EmbeddedDiffSectionEditor({
   const sourcePath = diff.new_path || diff.old_path || diff.file_path
   const unifiedContent = useMemo(() => serializeGitDiffSourceForEditor(diff), [diff])
   const splitContent = useMemo(() => serializeGitDiffSourceForSplitEditor(diff), [diff])
-  // Inline review comments are only wired for the unified surface (split would
-  // need per-side zones). Threads are anchored as Monaco view zones.
+  // Inline review comments and per-hunk staging are both hosted as Monaco view
+  // zones on the unified surface (split would need per-side zones).
   const commentLayer = useReviewCommentLayer({
     enabled: enableComments && viewMode === 'unified',
     diff,
     unifiedLineKinds: unifiedContent.lineKinds,
   })
+  const hunkZones = useHunkStagingZones({
+    enabled: enableHunkActions && viewMode === 'unified',
+    diff,
+    isStaged: cacheKey.startsWith('staged:'),
+  })
+  // One zone layer feeds the editor: review comment threads and/or hunk headers.
+  const inlineZones = useMemo(
+    () => [...(commentLayer?.commentZones ?? []), ...(hunkZones ?? [])],
+    [commentLayer, hunkZones],
+  )
+  const hasInlineLayer = commentLayer != null || hunkZones != null
   const [commentContentHeight, setCommentContentHeight] = useState<number | null>(null)
   const unifiedBufferId = useDiffEditorBuffer({
     cacheKey,
@@ -301,17 +311,18 @@ function EmbeddedDiffSectionEditor({
     )
   }
 
-  // With inline comments, view zones push lines down — grow the section to the
-  // editor's true content height and let the editor own the tint as decorations
-  // (the CSS overlay is position-based and would desync below a zone).
-  const unifiedHeight = commentLayer ? Math.max(height, commentContentHeight ?? 0) : height
+  // With inline zones (comments or hunk headers), view zones push lines down —
+  // grow the section to the editor's true content height and let the editor own
+  // the tint as decorations (the CSS overlay is position-based and would desync
+  // below a zone).
+  const unifiedHeight = hasInlineLayer ? Math.max(height, commentContentHeight ?? 0) : height
 
   return (
     <div
       className="relative overflow-hidden border-border border-t bg-background"
       style={{ height: `${unifiedHeight}px` }}
     >
-      {!commentLayer && (
+      {!hasInlineLayer && (
         <DiffLineBackgroundLayer lineKinds={unifiedContent.lineKinds} lineHeight={lineHeight} />
       )}
       <CodeEditor
@@ -323,10 +334,10 @@ function EmbeddedDiffSectionEditor({
         onReadonlySurfaceClick={({ line, column }) =>
           void openSourceLocation(line, column, unifiedContent.actualLines)
         }
-        commentZones={commentLayer?.commentZones}
+        commentZones={hasInlineLayer ? inlineZones : undefined}
         onAddCommentAtLine={commentLayer?.onAddCommentAtLine}
-        onContentHeightChange={commentLayer ? setCommentContentHeight : undefined}
-        diffLineKinds={commentLayer ? unifiedContent.lineKinds : undefined}
+        onContentHeightChange={hasInlineLayer ? setCommentContentHeight : undefined}
+        diffLineKinds={hasInlineLayer ? unifiedContent.lineKinds : undefined}
       />
     </div>
   )
@@ -337,11 +348,13 @@ function DiffSectionEditor({
   cacheKey,
   viewMode,
   enableComments = false,
+  enableHunkActions = false,
 }: {
   diff: GitDiff
   cacheKey: string
   viewMode: 'unified' | 'split'
   enableComments?: boolean
+  enableHunkActions?: boolean
 }) {
   if (shouldUseScrollableDiffEditor(diff)) {
     return <LargeDiffSectionEditor diff={diff} cacheKey={cacheKey} />
@@ -353,6 +366,7 @@ function DiffSectionEditor({
       cacheKey={cacheKey}
       viewMode={viewMode}
       enableComments={enableComments}
+      enableHunkActions={enableHunkActions}
     />
   )
 }
@@ -420,7 +434,6 @@ const DiffFileSection = memo(function DiffFileSection({
   expanded,
   onToggle,
   viewMode,
-  showWhitespace,
   enableHunkActions,
   enableComments,
   onOpenFile,
@@ -431,7 +444,6 @@ const DiffFileSection = memo(function DiffFileSection({
   onToggle: (sectionKey: string) => void
   onOpenFile: (filePath: string) => void | Promise<void>
   viewMode: 'unified' | 'split'
-  showWhitespace: boolean
   enableHunkActions: boolean
   enableComments: boolean
 }) {
@@ -448,8 +460,6 @@ const DiffFileSection = memo(function DiffFileSection({
   const handleOpenFile = useCallback(() => {
     void onOpenFile(filePath)
   }, [filePath, onOpenFile])
-  const shouldUseInlineTextDiff =
-    enableHunkActions && viewMode === 'unified' && diff.lines.length <= MAX_HUNK_ACTION_DIFF_LINES
 
   return (
     <section className="relative isolate min-w-0 max-w-full rounded-md bg-background">
@@ -521,22 +531,13 @@ const DiffFileSection = memo(function DiffFileSection({
         ) : (
           <div className="-mt-px min-w-0 max-w-full overflow-hidden rounded-b-md border-border/70 border-x border-b">
             <LazyDiffSectionBody expanded={expanded}>
-              {shouldUseInlineTextDiff ? (
-                <TextDiffViewer
-                  diff={diff}
-                  isStaged={sectionKey.startsWith('staged:')}
-                  viewMode={viewMode}
-                  showWhitespace={showWhitespace}
-                  isEmbeddedInScrollView={true}
-                />
-              ) : (
-                <DiffSectionEditor
-                  diff={diff}
-                  cacheKey={sectionKey}
-                  viewMode={viewMode}
-                  enableComments={enableComments}
-                />
-              )}
+              <DiffSectionEditor
+                diff={diff}
+                cacheKey={sectionKey}
+                viewMode={viewMode}
+                enableComments={enableComments}
+                enableHunkActions={enableHunkActions}
+              />
             </LazyDiffSectionBody>
           </div>
         )
@@ -580,7 +581,6 @@ const GitDiffEditorStack = memo(function GitDiffEditorStack({
   }
   const rootFolderPath = useFileSystemStore((state) => state.rootFolderPath)
   const [viewMode, setViewMode] = useState<'unified' | 'split'>('unified')
-  const [showWhitespace, setShowWhitespace] = useState(false)
   const isWorkingTree = multiDiff.commitHash === 'working-tree'
   const activeBuffer = buffers.find((buffer) => buffer.id === activeBufferId) || null
   const isWorkingTreeBuffer = activeBuffer?.path === 'diff://working-tree/all-files'
@@ -748,22 +748,6 @@ const GitDiffEditorStack = memo(function GitDiffEditorStack({
                 </Button>
               </Tooltip>
             ) : null}
-            <Tooltip content={showWhitespace ? 'Hide whitespace' : 'Show whitespace'} side="bottom">
-              <Button
-                type="button"
-                variant="ghost"
-                active={showWhitespace}
-                onClick={() => setShowWhitespace((prev) => !prev)}
-                className={cn(
-                  'h-5 gap-1 px-1.5 text-muted-foreground',
-                  showWhitespace && 'text-foreground',
-                )}
-                aria-label={showWhitespace ? 'Hide whitespace' : 'Show whitespace'}
-              >
-                <Trash2 />
-                {showWhitespace ? <Check /> : null}
-              </Button>
-            </Tooltip>
             <div className="flex items-center gap-0.5">
               <Tooltip content="Unified view" side="bottom">
                 <Button
@@ -842,7 +826,6 @@ const GitDiffEditorStack = memo(function GitDiffEditorStack({
                 sectionKey={sectionKey}
                 expanded={expandedFiles.has(sectionKey)}
                 viewMode={viewMode}
-                showWhitespace={showWhitespace}
                 enableHunkActions={isWorkingTree}
                 enableComments={enableComments}
                 onToggle={handleToggleSection}
