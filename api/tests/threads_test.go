@@ -41,3 +41,24 @@ func TestThreads_RangeAnchor(t *testing.T) {
 	assert.Equal(t, 44, got.EndLine)
 	assert.Equal(t, 44, got.Line)
 }
+
+// TestThreads_SingleLineDefaultsRange proves that omitting startLine/endLine
+// causes the aggregate to default both to line, enforcing the single-line
+// invariant for all callers (not just the HTTP handler).
+func TestThreads_SingleLineDefaultsRange(t *testing.T) {
+	h := newHarness(t)
+	imported := importWritableWorkspace(t, h)
+	base := wsBase(imported)
+
+	var got threadDTO
+	h.post(base+"/threads", map[string]any{
+		"filePath": "README.md",
+		"line":     7,
+		"side":     "right",
+		"body":     "single-line invariant",
+	}, http.StatusCreated, &got)
+
+	assert.Equal(t, 7, got.Line)
+	assert.Equal(t, 7, got.StartLine)
+	assert.Equal(t, 7, got.EndLine)
+}

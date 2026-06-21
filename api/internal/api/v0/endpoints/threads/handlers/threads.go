@@ -74,12 +74,6 @@ func (h *Handlers) OpenThread(
 		libs.WriteErr(ctx, http.StatusBadRequest, err.Error())
 		return
 	}
-	if body.StartLine == 0 {
-		body.StartLine = body.Line
-	}
-	if body.EndLine == 0 {
-		body.EndLine = body.Line
-	}
 	thread, err := h.store.Open(ctx.Request.Context(), reviewthread.OpenInput{
 		ID:         h.newID(),
 		WsID:       wsID,
