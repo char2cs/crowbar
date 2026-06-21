@@ -4,8 +4,11 @@
   "private": true,
   "type": "module",
   "scripts": {
+    "provision:tree-sitter": "node scripts/provision-tree-sitter.mjs",
+    "predev": "node scripts/provision-tree-sitter.mjs",
     "dev": "vite",
     "dev:mock": "vite --mode mock",
+    "prebuild": "node scripts/provision-tree-sitter.mjs",
     "build": "tsc && vite build",
     "preview": "vite preview",
     "test": "vitest run",

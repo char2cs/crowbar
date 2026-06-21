@@ -1,6 +1,9 @@
 # dependencies (bun install)
 node_modules
 
+# generated: provisioned tree-sitter parser assets (run `pnpm provision:tree-sitter`)
+public/tree-sitter/
+
 # output
 out
 dist
