@@ -165,6 +165,7 @@ const MultiFileDiffViewer = memo(({ multiDiff, onClose }: MultiFileDiffViewerPro
         additions,
         deletions,
         shouldAutoCollapse: additions + deletions > LARGE_DIFF_THRESHOLD,
+        uncommitted: diff.uncommitted ?? false,
       }
     })
   }, [multiDiff.fileKeys, multiDiff.files])

@@ -113,4 +113,5 @@ export interface FileDiffSummary {
   additions: number
   deletions: number
   shouldAutoCollapse: boolean
+  uncommitted: boolean
 }
