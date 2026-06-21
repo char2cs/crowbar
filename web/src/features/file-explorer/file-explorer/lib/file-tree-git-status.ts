@@ -5,6 +5,8 @@ import { getRelativePath } from '@/utils/path-helpers'
 export interface FileTreeGitStatusDecoration {
   colorClassName: string
   label: string
+  /** Single trailing letter shown after the filename (M / A / U / D / R). */
+  statusLetter: string
 }
 
 export interface FileTreeGitStatusLookup {
@@ -33,15 +35,16 @@ export function getFileTreeGitStatusDecoration(
       return {
         colorClassName: gitFile.staged ? 'text-git-modified-staged' : 'text-git-modified',
         label: gitFile.staged ? 'Modified (staged)' : 'Modified',
+        statusLetter: 'M',
       }
     case 'added':
-      return { colorClassName: 'text-git-added', label: 'Added' }
+      return { colorClassName: 'text-git-added', label: 'Added', statusLetter: 'A' }
     case 'deleted':
-      return { colorClassName: 'text-git-deleted', label: 'Deleted' }
+      return { colorClassName: 'text-git-deleted', label: 'Deleted', statusLetter: 'D' }
     case 'untracked':
-      return { colorClassName: 'text-git-untracked', label: 'Untracked' }
+      return { colorClassName: 'text-git-untracked', label: 'Untracked', statusLetter: 'U' }
     case 'renamed':
-      return { colorClassName: 'text-git-renamed', label: 'Renamed' }
+      return { colorClassName: 'text-git-renamed', label: 'Renamed', statusLetter: 'R' }
     default:
       return null
   }

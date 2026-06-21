@@ -237,13 +237,26 @@ function FileExplorerTreeItemComponent({
           isSymlink={file.isSymlink}
           className="relative z-1 shrink-0 text-muted-foreground"
         />
-        <span
-          className={cn(
-            'relative z-1 select-none whitespace-nowrap',
-            gitStatusDecoration?.colorClassName,
+        <span className="relative z-1 flex min-w-0 items-baseline gap-1.5">
+          <span
+            className={cn(
+              'select-none truncate whitespace-nowrap',
+              gitStatusDecoration?.colorClassName,
+            )}
+          >
+            {renderHighlightedLabel(displayName ?? file.name, searchQuery)}
+          </span>
+          {gitStatusDecoration && (
+            <span
+              className={cn(
+                'shrink-0 select-none font-mono text-[10px] leading-none opacity-80',
+                gitStatusDecoration.colorClassName,
+              )}
+              aria-label={gitStatusDecoration.label}
+            >
+              {gitStatusDecoration.statusLetter}
+            </span>
           )}
-        >
-          {renderHighlightedLabel(displayName ?? file.name, searchQuery)}
         </span>
       </TreeRow>
     </div>

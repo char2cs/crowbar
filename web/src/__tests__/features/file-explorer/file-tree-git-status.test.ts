@@ -24,11 +24,13 @@ describe('getFileTreeGitStatusDecoration', () => {
     expect(getFileTreeGitStatusDecoration(gitFile('src/app.ts', 'modified'))).toEqual({
       colorClassName: 'text-git-modified',
       label: 'Modified',
+      statusLetter: 'M',
     })
 
     expect(getFileTreeGitStatusDecoration(gitFile('src/app.ts', 'modified', true))).toEqual({
       colorClassName: 'text-git-modified-staged',
       label: 'Modified (staged)',
+      statusLetter: 'M',
     })
   })
 
@@ -36,18 +38,22 @@ describe('getFileTreeGitStatusDecoration', () => {
     expect(getFileTreeGitStatusDecoration(gitFile('added.ts', 'added'))).toEqual({
       colorClassName: 'text-git-added',
       label: 'Added',
+      statusLetter: 'A',
     })
     expect(getFileTreeGitStatusDecoration(gitFile('deleted.ts', 'deleted'))).toEqual({
       colorClassName: 'text-git-deleted',
       label: 'Deleted',
+      statusLetter: 'D',
     })
     expect(getFileTreeGitStatusDecoration(gitFile('untracked.ts', 'untracked'))).toEqual({
       colorClassName: 'text-git-untracked',
       label: 'Untracked',
+      statusLetter: 'U',
     })
     expect(getFileTreeGitStatusDecoration(gitFile('renamed.ts', 'renamed'))).toEqual({
       colorClassName: 'text-git-renamed',
       label: 'Renamed',
+      statusLetter: 'R',
     })
   })
 })
@@ -65,15 +71,15 @@ describe('file tree git status lookup', () => {
 
     expect(
       getFileTreeEntryGitStatusDecoration(fileEntry('/workspace/src/app.ts'), '/workspace', lookup),
-    ).toEqual({ colorClassName: 'text-git-modified', label: 'Modified' })
+    ).toEqual({ colorClassName: 'text-git-modified', label: 'Modified', statusLetter: 'M' })
 
     expect(
       getFileTreeEntryGitStatusDecoration(fileEntry('/workspace/src', true), '/workspace', lookup),
-    ).toEqual({ colorClassName: 'text-git-modified', label: 'Modified' })
+    ).toEqual({ colorClassName: 'text-git-modified', label: 'Modified', statusLetter: 'M' })
 
     expect(
       getFileTreeEntryGitStatusDecoration(fileEntry('/workspace/docs', true), '/workspace', lookup),
-    ).toEqual({ colorClassName: 'text-git-added', label: 'Added' })
+    ).toEqual({ colorClassName: 'text-git-added', label: 'Added', statusLetter: 'A' })
   })
 
   test('uses the highest priority descendant status for directories', () => {
@@ -91,7 +97,7 @@ describe('file tree git status lookup', () => {
 
     expect(
       getFileTreeEntryGitStatusDecoration(fileEntry('/workspace/src', true), '/workspace', lookup),
-    ).toEqual({ colorClassName: 'text-git-deleted', label: 'Deleted' })
+    ).toEqual({ colorClassName: 'text-git-deleted', label: 'Deleted', statusLetter: 'D' })
   })
 
   test('returns null without a root path or matching status', () => {
