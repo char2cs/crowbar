@@ -82,19 +82,9 @@ describe('MergeSection', () => {
     })
   })
 
-  describe('uncommitted state', () => {
-    it('renders a disabled button with commit-first copy', () => {
-      renderMergeSection({ canMergeLocally: true, hasUncommitted: true, status: '' })
-      const btn = screen.getByRole('button', { name: /commit your change/i })
-      expect(btn).toBeInTheDocument()
-      expect(btn).toBeDisabled()
-    })
-
-    it('does not render the merge action button', () => {
-      renderMergeSection({ canMergeLocally: true, hasUncommitted: true, status: '' })
-      expect(screen.queryByRole('button', { name: /merge into/i })).not.toBeInTheDocument()
-    })
-  })
+  // NOTE: The 'uncommitted' state is handled by git-panel.tsx (shows GitCommitPanel instead
+  // of MergeSection), so MergeSection no longer renders when hasUncommitted=true.
+  // No uncommitted UI assertions here — covered by git-panel.test.tsx.
 
   describe('protected state', () => {
     it('renders a disabled button mentioning pull request', () => {

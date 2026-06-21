@@ -85,29 +85,29 @@ export function GitPanel() {
           <ChangedFilesTree files={files} repoPath={repoPath} onFileOpen={handleFileOpen} />
         </ScrollArea>
 
-        {/* Pinned commit bar */}
-        {/* I3 fix: dispatch git-status-changed on commit/push/pull so useReviewDiff
-            re-fetches the branch diff immediately after the operation completes.
-            GitCommitPanel calls onCommitSuccess after a successful commit or
-            remote action but does NOT dispatch the event itself. */}
-        <div className="shrink-0 border-t border-border">
-          <GitCommitPanel
-            stagedFilesCount={staged.length}
-            repoPath={repoPath}
-            ahead={gitStatus?.ahead ?? 0}
-            behind={gitStatus?.behind ?? 0}
-            onCommitSuccess={() => window.dispatchEvent(new Event('git-status-changed'))}
-          />
-        </div>
-
-        {/* Merge section — only rendered when the ws has merge eligibility data */}
-        {wsId && activeWs?.parentBranch && (
+        {/* Bottom pinned region: commit box OR merge section — never both.
+            If there are uncommitted changes, show only GitCommitPanel.
+            If clean and merge-eligible (parentBranch present), show only MergeSection.
+            If neither condition applies, show GitCommitPanel as a fallback. */}
+        {uncommittedCount > 0 || !(wsId && activeWs?.parentBranch) ? (
+          /* I3 fix: dispatch git-status-changed on commit/push/pull so useReviewDiff
+             re-fetches the branch diff immediately after the operation completes. */
+          <div className="shrink-0 border-t border-border">
+            <GitCommitPanel
+              stagedFilesCount={staged.length}
+              repoPath={repoPath}
+              ahead={gitStatus?.ahead ?? 0}
+              behind={gitStatus?.behind ?? 0}
+              onCommitSuccess={() => window.dispatchEvent(new Event('git-status-changed'))}
+            />
+          </div>
+        ) : (
           <div className="shrink-0 border-t border-border p-3">
             <MergeSection
               wsId={wsId}
               parentBranch={activeWs.parentBranch}
               canMergeLocally={activeWs.canMergeLocally ?? false}
-              hasUncommitted={uncommittedCount > 0}
+              hasUncommitted={false}
               status={activeWs.status ?? 'new'}
             />
           </div>

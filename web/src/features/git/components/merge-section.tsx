@@ -115,12 +115,6 @@ export function MergeSection({
           </Button>
         )}
 
-        {mergeState.kind === 'uncommitted' && (
-          <Button size="sm" variant="outline" disabled>
-            Commit your change(s) first
-          </Button>
-        )}
-
         {mergeState.kind === 'protected' && (
           <Button size="sm" variant="outline" disabled>
             {parentBranch} is protected — open a pull request

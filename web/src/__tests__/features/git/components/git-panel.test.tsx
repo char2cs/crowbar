@@ -1,6 +1,6 @@
 import React from 'react'
 import { render, screen, fireEvent } from '@testing-library/react'
-import { describe, it, expect, vi } from 'vitest'
+import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { GitPanel } from '@/features/git/components/git-panel'
 
 // ── Module mocks ──────────────────────────────────────────────────────────────
@@ -32,8 +32,10 @@ vi.mock('@/features/git/components/git-history-list', () => ({
   GitHistoryList: () => <div data-testid="git-history" />,
 }))
 
+// useReviewDiff is controlled per-test via this mutable variable.
+let mockUncommittedCount = 0
 vi.mock('@/features/git/hooks/use-review-diff', () => ({
-  useReviewDiff: () => ({ files: [], uncommittedCount: 0, loading: false }),
+  useReviewDiff: () => ({ files: [], uncommittedCount: mockUncommittedCount, loading: false }),
 }))
 
 // Mock getOrCreateWorkspaceStore so git-panel can call it in event handlers.
@@ -51,9 +53,15 @@ vi.mock('@/features/git/stores/git-store', () => {
   const useGitStore = (sel: (s: { gitStatus: null }) => unknown) => sel({ gitStatus: null })
   return { useGitStore }
 })
+
+// mockActiveWs is controlled per-test to simulate workspace merge eligibility.
+type MockWs = { parentBranch?: string; canMergeLocally?: boolean; status?: string } | null
+let mockActiveWs: MockWs = null
 vi.mock('@/lib/store/sidebar', () => ({
-  useSidebarStore: (sel: (s: { repos: [] }) => unknown) => sel({ repos: [] }),
+  useSidebarStore: (sel: (s: { repos: Array<{ workspaces: Array<{ id: string; parentBranch?: string; canMergeLocally?: boolean; status?: string }> }> }) => unknown) =>
+    sel({ repos: mockActiveWs ? [{ workspaces: [{ id: 'ws-active', ...mockActiveWs }] }] : [] }),
 }))
+
 // I1: GitPanel now reads wsId reactively via useRouterState + parseWorkspaceScopeFromPath.
 // Mock useRouterState to control the pathname; getActiveWorkspaceId is no longer used.
 vi.mock('@tanstack/react-router', () => ({
@@ -74,6 +82,12 @@ vi.mock('@/features/panes/utils/pane-command-actions', () => ({
 // ── Tests ─────────────────────────────────────────────────────────────────────
 
 describe('GitPanel', () => {
+  beforeEach(() => {
+    mockUncommittedCount = 0
+    mockActiveWs = null
+    vi.clearAllMocks()
+  })
+
   it('renders Changes and History tabs', () => {
     render(<GitPanel />)
     expect(screen.getByRole('tab', { name: /changes/i })).toBeInTheDocument()
@@ -109,5 +123,32 @@ describe('GitPanel', () => {
     fireEvent.click(screen.getByTestId('commit-panel'))
     window.removeEventListener('git-status-changed', listener)
     expect(listener).toHaveBeenCalledTimes(1)
+  })
+
+  // State-based bottom region: commit box OR merge section, never both.
+  describe('state-based bottom region', () => {
+    it('shows only commit panel when uncommittedCount > 0 even if merge-eligible', () => {
+      mockUncommittedCount = 3
+      mockActiveWs = { parentBranch: 'main', canMergeLocally: true, status: '' }
+      render(<GitPanel />)
+      expect(screen.getByTestId('commit-panel')).toBeInTheDocument()
+      expect(screen.queryByTestId('merge-section')).not.toBeInTheDocument()
+    })
+
+    it('shows only merge section when clean and merge-eligible (parentBranch present)', () => {
+      mockUncommittedCount = 0
+      mockActiveWs = { parentBranch: 'main', canMergeLocally: true, status: '' }
+      render(<GitPanel />)
+      expect(screen.getByTestId('merge-section')).toBeInTheDocument()
+      expect(screen.queryByTestId('commit-panel')).not.toBeInTheDocument()
+    })
+
+    it('shows only commit panel when clean but no parentBranch (not merge-eligible)', () => {
+      mockUncommittedCount = 0
+      mockActiveWs = null
+      render(<GitPanel />)
+      expect(screen.getByTestId('commit-panel')).toBeInTheDocument()
+      expect(screen.queryByTestId('merge-section')).not.toBeInTheDocument()
+    })
   })
 })
