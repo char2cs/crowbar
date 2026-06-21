@@ -17,7 +17,7 @@ import {
 } from 'react'
 import { Badge } from '@/components/ui/badge'
 import { cn } from '@/utils/cn'
-import type { FileDiffSummary, MultiFileDiff } from '../../types/git-diff-types'
+import type { AddCommentAnchor, FileDiffSummary, MultiFileDiff } from '../../types/git-diff-types'
 import type { GitDiff } from '../../types/git-types'
 import { getFileStatus } from '../../utils/git-diff-helpers'
 import ImageDiffViewer from './git-diff-image'
@@ -25,6 +25,7 @@ import TextDiffViewer from './git-diff-text'
 import {
   useWorkspaceStoreContext,
 } from '@/features/workspace/stores/workspace-context'
+import type { ReviewThread } from '@/features/workspace/stores/slices/branch-review-slice'
 
 const LARGE_DIFF_THRESHOLD = 500
 
@@ -34,6 +35,9 @@ interface FileDiffRowProps {
   viewMode: 'unified' | 'split'
   showWhitespace: boolean
   forceExpand?: boolean
+  wsId: string
+  threads: ReviewThread[]
+  onAddComment: (anchor: AddCommentAnchor) => void
 }
 
 const FileDiffRow = memo(
@@ -43,6 +47,9 @@ const FileDiffRow = memo(
     viewMode,
     showWhitespace,
     forceExpand,
+    wsId,
+    threads,
+    onAddComment,
   }: FileDiffRowProps) => {
     const [isViewed, setIsViewed] = useState(false)
     const [isExpanded, setIsExpanded] = useState(!summary.shouldAutoCollapse)
@@ -141,6 +148,9 @@ const FileDiffRow = memo(
                 showWhitespace={showWhitespace}
                 isInMultiFileView
                 isEmbeddedInScrollView
+                wsId={wsId}
+                threads={threads}
+                onAddComment={onAddComment}
               />
             )}
           </div>
@@ -164,6 +174,8 @@ export const ReviewDiffView = memo(({ multiDiff }: ReviewDiffViewProps) => {
 
   const activeFileKey = useWorkspaceStoreContext((s) => s.branchReview.activeFileKey)
   const activeFileNonce = useWorkspaceStoreContext((s) => s.branchReview.activeFileNonce)
+  const wsId = useWorkspaceStoreContext((s) => s.workspaceId)
+  const allThreads = useWorkspaceStoreContext((s) => s.branchReview.threads)
 
   const fileSummaries: FileDiffSummary[] = useMemo(() => {
     return files.map((diff, index) => {
@@ -186,6 +198,15 @@ export const ReviewDiffView = memo(({ multiDiff }: ReviewDiffViewProps) => {
       }
     })
   }, [multiDiff.fileKeys, files])
+
+  // onAddComment is passed to DiffLine; DiffLine opens the inline composer itself.
+  // This callback is a no-op hook here — the actual openThread call happens inside
+  // git-diff-line.tsx's ComposerRow submit handler.
+  const handleAddComment = useCallback((_anchor: AddCommentAnchor) => {
+    // Intentional no-op: the gutter "+" and inline composer live entirely within
+    // DiffLine. This callback exists so parent components can optionally respond
+    // (e.g. scroll the file into view). Currently unused at this layer.
+  }, [])
 
   const [expandedByScrollKey, setExpandedByScrollKey] = useState<string | null>(null)
 
@@ -289,6 +310,7 @@ export const ReviewDiffView = memo(({ multiDiff }: ReviewDiffViewProps) => {
             const diff = files[virtualItem.index]
             const summary = fileSummaries[virtualItem.index]
             if (!diff || !summary) return null
+            const fileThreads = allThreads.filter((t) => t.filePath === diff.file_path)
             return (
               <div
                 key={summary.key}
@@ -308,6 +330,9 @@ export const ReviewDiffView = memo(({ multiDiff }: ReviewDiffViewProps) => {
                   viewMode={viewMode}
                   showWhitespace={showWhitespace}
                   forceExpand={expandedByScrollKey === summary.key}
+                  wsId={wsId}
+                  threads={fileThreads}
+                  onAddComment={handleAddComment}
                 />
               </div>
             )

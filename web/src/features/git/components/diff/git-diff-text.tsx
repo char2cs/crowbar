@@ -5,6 +5,7 @@ import { memo, useCallback, useMemo, useRef, useState } from 'react'
 import { useZoomStore } from '@/features/window/stores/zoom-store'
 import { useDiffHighlighting } from '../../hooks/use-git-diff-highlight'
 import type { ParsedHunk, TextDiffViewerProps } from '../../types/git-diff-types'
+import type { ReviewThread } from '@/features/workspace/stores/slices/branch-review-slice'
 import { groupLinesIntoHunks } from '../../utils/git-diff-helpers'
 import DiffHunkHeader from './git-diff-hunk-header'
 import DiffLine, {
@@ -12,6 +13,7 @@ import DiffLine, {
   getLineBackground,
   getSplitLineMeta,
   renderDiffLineContent,
+  OutdatedThreadRows,
 } from './git-diff-line'
 
 function SplitDiffCodePanel({
@@ -95,6 +97,9 @@ const TextDiffViewer = memo(
     onUnstageHunk,
     isInMultiFileView = false,
     isEmbeddedInScrollView = false,
+    wsId,
+    threads,
+    onAddComment,
   }: TextDiffViewerProps) => {
     const selectionScopeRef = useRef<HTMLDivElement>(null)
     const editorFontSize = useEditorSettingsStore.use.fontSize()
@@ -108,6 +113,31 @@ const TextDiffViewer = memo(
 
     const hunks = useMemo(() => groupLinesIntoHunks(diff.lines), [diff.lines])
     const tokenMap = useDiffHighlighting(diff.lines, diff.file_path)
+
+    // Partition file-level threads into live (anchor still in diff) vs outdated.
+    const { liveThreads, outdatedThreads } = useMemo(() => {
+      if (!threads || threads.length === 0) return { liveThreads: [] as ReviewThread[], outdatedThreads: [] as ReviewThread[] }
+      // Build a set of (side, lineNumber) pairs that exist in the current diff.
+      const liveAnchors = new Set<string>()
+      for (const line of diff.lines) {
+        if (line.line_type === 'added' && line.new_line_number !== undefined) {
+          liveAnchors.add(`new:${line.new_line_number}`)
+        } else if (line.line_type === 'removed' && line.old_line_number !== undefined) {
+          liveAnchors.add(`old:${line.old_line_number}`)
+        } else if (line.line_type === 'context') {
+          if (line.new_line_number !== undefined) liveAnchors.add(`new:${line.new_line_number}`)
+          if (line.old_line_number !== undefined) liveAnchors.add(`old:${line.old_line_number}`)
+        }
+      }
+      const live: ReviewThread[] = []
+      const outdated: ReviewThread[] = []
+      for (const t of threads) {
+        const key = `${t.side}:${t.lineNumber}`
+        if (liveAnchors.has(key)) live.push(t)
+        else outdated.push(t)
+      }
+      return { liveThreads: live, outdatedThreads: outdated }
+    }, [threads, diff.lines])
 
     const [collapsedHunks, setCollapsedHunks] = useState<Set<number>>(new Set())
     useSelectionScope(selectionScopeRef)
@@ -241,12 +271,20 @@ const TextDiffViewer = memo(
                       lineHeight={lineHeight}
                       tabSize={tabSize}
                       tokens={tokenMap.get(line.diffIndex)}
+                      filePath={diff.file_path}
+                      wsId={wsId}
+                      threads={liveThreads}
+                      onAddComment={onAddComment}
                     />
                   ))}
               </div>
             )
           })}
         </div>
+        {/* Outdated threads: their anchor line is no longer in the current diff */}
+        {wsId && outdatedThreads.length > 0 && (
+          <OutdatedThreadRows threads={outdatedThreads} wsId={wsId} />
+        )}
       </div>
     )
   },

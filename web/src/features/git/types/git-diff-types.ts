@@ -1,5 +1,12 @@
 import type { HighlightToken } from '@/features/editor/lib/wasm-parser/types'
 import type { GitDiff, GitDiffLine, GitHunk } from './git-types'
+import type { ReviewThread } from '@/features/workspace/stores/slices/branch-review-slice'
+
+export interface AddCommentAnchor {
+  filePath: string
+  side: 'old' | 'new'
+  line: number
+}
 
 export interface DiffViewerProps {
   onStageHunk?: (hunk: GitHunk) => void
@@ -63,6 +70,11 @@ export interface DiffLineProps {
   lineHeight: number
   tabSize: number
   tokens?: HighlightToken[]
+  // Inline comment threading
+  filePath?: string
+  wsId?: string
+  threads?: ReviewThread[]
+  onAddComment?: (anchor: AddCommentAnchor) => void
 }
 
 export interface TextDiffViewerProps {
@@ -74,6 +86,10 @@ export interface TextDiffViewerProps {
   onUnstageHunk?: (hunk: GitHunk) => void
   isInMultiFileView?: boolean
   isEmbeddedInScrollView?: boolean
+  // Inline comment threading
+  wsId?: string
+  threads?: ReviewThread[]
+  onAddComment?: (anchor: AddCommentAnchor) => void
 }
 
 export interface ImageDiffViewerProps {
