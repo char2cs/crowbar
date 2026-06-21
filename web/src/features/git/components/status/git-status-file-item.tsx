@@ -1,6 +1,7 @@
 import type { MouseEvent } from 'react'
 import { FileExplorerIcon } from '@/features/file-explorer/components/file-explorer-icon'
 import { useSettingsStore } from '@/features/settings/store'
+import { Badge } from '@/components/ui/badge'
 import { Checkbox } from '@/components/ui/checkbox'
 import { SIDEBAR_TREE_ICON_SIZE, SidebarTreeRow } from '@/components/ui/sidebar-tree'
 import { cn } from '@/utils/cn'
@@ -22,6 +23,7 @@ interface GitFileItemProps {
   indentLevel?: number
   className?: string
   repoPath?: string
+  uncommitted?: boolean
 }
 
 export const GitFileItem = ({
@@ -37,6 +39,7 @@ export const GitFileItem = ({
   indentLevel = 0,
   className,
   repoPath,
+  uncommitted,
 }: GitFileItemProps) => {
   const compactGitStatusBadges = useSettingsStore((state) => state.settings.compactGitStatusBadges)
   const pathParts = file.path.split('/')
@@ -80,6 +83,11 @@ export const GitFileItem = ({
         )}
       </div>
       <div className="relative z-1 ml-auto flex shrink-0 items-center gap-1.5">
+        {uncommitted && (
+          <Badge variant="warning" size="sm">
+            uncommitted
+          </Badge>
+        )}
         {hasDiffStats && (
           <div
             className={cn(
