@@ -116,6 +116,16 @@ export function ReviewThreadPanel({ wsId }: ReviewThreadPanelProps) {
     }
   }
 
+  const handleReopen = async (threadId: string) => {
+    store.getState().setReviewThreadResolved(threadId, false)
+    try {
+      await setThreadResolved(wsId, threadId, false)
+    } catch {
+      toast.error('Failed to reopen thread')
+      throw new Error('reopen failed')
+    }
+  }
+
   return (
     <div className="flex h-full flex-col">
       <ScrollArea className="flex-1">
@@ -130,8 +140,10 @@ export function ReviewThreadPanel({ wsId }: ReviewThreadPanelProps) {
               <ReviewThreadItem
                 key={thread.id}
                 thread={thread}
+                wsId={wsId}
                 onReply={handleReply}
                 onResolve={handleResolve}
+                onReopen={handleReopen}
               />
             ))
           )}

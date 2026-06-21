@@ -1,4 +1,5 @@
 import { render, screen } from '@testing-library/react'
+import userEvent from '@testing-library/user-event'
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 
 // ── Module mocks ───────────────────────────────────────────────────────────────
@@ -38,14 +39,46 @@ vi.mock('@tanstack/react-virtual', () => ({
   }),
 }))
 
-// Mock useWorkspaceStoreContext so ReviewDiffView can render outside a provider in tests
+const mockOpenThread = vi.fn()
+vi.mock('@/features/git/api/review-api', () => ({
+  openThread: (...args: unknown[]) => mockOpenThread(...args),
+  replyToThread: vi.fn().mockResolvedValue({ id: 'thread1', messages: [], isResolved: false }),
+  setThreadResolved: vi.fn().mockResolvedValue({ id: 'thread1', messages: [], isResolved: true }),
+}))
+
+vi.mock('@/features/git/hooks/use-current-identity', () => ({
+  useCurrentIdentity: () => ({
+    login: 'testuser',
+    displayName: 'Test User',
+    avatarUrl: '',
+  }),
+}))
+
+// Track the store state for mutation testing
+let storeState = {
+  workspaceId: 'ws-test',
+  branchReview: {
+    activeFileKey: null as string | null,
+    activeFileNonce: 0,
+    threads: [] as import('@/features/workspace/stores/slices/branch-review-slice').ReviewThread[],
+  },
+}
+
+const mockUpsertReviewThread = vi.fn()
+const mockRemoveReviewThread = vi.fn()
+const mockGetState = vi.fn(() => ({
+  upsertReviewThread: mockUpsertReviewThread,
+  removeReviewThread: mockRemoveReviewThread,
+}))
+
 vi.mock('@/features/workspace/stores/workspace-context', () => ({
-  useWorkspaceStoreContext: (selector: (s: { branchReview: { activeFileKey: null; activeFileNonce: number } }) => unknown) =>
-    selector({ branchReview: { activeFileKey: null, activeFileNonce: 0 } }),
+  useWorkspaceStoreContext: (selector: (s: typeof storeState) => unknown) => selector(storeState),
+  useWorkspaceStore: () => ({ getState: mockGetState }),
 }))
 
 import type { MultiFileDiff } from '@/features/git/types/git-diff-types'
 import type { GitDiff } from '@/features/git/types/git-types'
+import type { ReviewThread } from '@/features/workspace/stores/slices/branch-review-slice'
 import { ReviewDiffView } from '@/features/git/components/diff/review-diff-view'
 
 // ── Test fixtures ──────────────────────────────────────────────────────────────
@@ -76,11 +109,41 @@ const twoFileDiff: MultiFileDiff = {
   totalDeletions: 2,
 }
 
+function makeThread(overrides: Partial<ReviewThread> = {}): ReviewThread {
+  return {
+    id: 'thread1',
+    filePath: 'src/foo.ts',
+    lineNumber: 1,
+    startLine: 1,
+    endLine: 1,
+    side: 'new',
+    messages: [
+      {
+        id: 'msg1',
+        author: 'alice',
+        isAgent: false,
+        body: 'Hello there',
+        createdAt: '2024-01-01T00:00:00Z',
+      },
+    ],
+    isResolved: false,
+    ...overrides,
+  }
+}
+
 // ── Tests ──────────────────────────────────────────────────────────────────────
 
 describe('ReviewDiffView', () => {
   beforeEach(() => {
     vi.clearAllMocks()
+    storeState = {
+      workspaceId: 'ws-test',
+      branchReview: {
+        activeFileKey: null,
+        activeFileNonce: 0,
+        threads: [],
+      },
+    }
   })
 
   it('renders both file headers with their paths', () => {
@@ -129,14 +192,14 @@ describe('ReviewDiffView', () => {
 
   it('does not throw and shows empty state when files is null', () => {
     expect(() => {
-      render(<ReviewDiffView multiDiff={{ files: null } as any} />)
+      render(<ReviewDiffView multiDiff={{ files: null } as unknown as MultiFileDiff} />)
     }).not.toThrow()
     expect(screen.getByText(/No changes to show/)).toBeDefined()
   })
 
   it('does not throw and shows empty state when multiDiff has no files property', () => {
     expect(() => {
-      render(<ReviewDiffView multiDiff={{} as any} />)
+      render(<ReviewDiffView multiDiff={{} as unknown as MultiFileDiff} />)
     }).not.toThrow()
     expect(screen.getByText(/No changes to show/)).toBeDefined()
   })
@@ -153,5 +216,86 @@ describe('ReviewDiffView', () => {
       render(<ReviewDiffView multiDiff={emptyDiff} />)
     }).not.toThrow()
     expect(screen.getByText(/No changes to show/)).toBeDefined()
+  })
+
+  it('thread in store renders as inline widget at its line', async () => {
+    // Thread on src/foo.ts at line 1 (insert — new_line_number: 1)
+    storeState.branchReview.threads = [makeThread()]
+
+    const { container } = render(<ReviewDiffView multiDiff={twoFileDiff} />)
+
+    await vi.waitFor(() => {
+      // ReviewThreadItem renders the author initials in the message row
+      const text = container.textContent ?? ''
+      expect(text).toContain('Hello there')
+    })
+  })
+
+  it('gutter + click opens CommentComposer', async () => {
+    const user = userEvent.setup()
+    render(<ReviewDiffView multiDiff={twoFileDiff} />)
+
+    // Wait for diff to render
+    await vi.waitFor(() => {
+      expect(screen.queryByText('new line in src/foo.ts')).not.toBeNull()
+    })
+
+    // Find a gutter button (the "+" comment button)
+    const gutterBtns = document.querySelectorAll('.diff-comment-gutter-btn')
+    expect(gutterBtns.length).toBeGreaterThan(0)
+
+    await user.click(gutterBtns[0] as HTMLElement)
+
+    // CommentComposer should appear (it renders a "Comment" submit button)
+    await vi.waitFor(() => {
+      expect(screen.queryByText('Comment')).not.toBeNull()
+    })
+  })
+
+  it('submit calls openThread with correct anchor and author', async () => {
+    const user = userEvent.setup()
+
+    mockOpenThread.mockResolvedValue(makeThread())
+    mockUpsertReviewThread.mockImplementation(() => {})
+
+    render(<ReviewDiffView multiDiff={twoFileDiff} />)
+
+    // Wait for diff to render
+    await vi.waitFor(() => {
+      expect(screen.queryByText('new line in src/foo.ts')).not.toBeNull()
+    })
+
+    // Click gutter button on insert line (new side)
+    const gutterBtns = document.querySelectorAll('.diff-comment-gutter-btn')
+    expect(gutterBtns.length).toBeGreaterThan(0)
+    await user.click(gutterBtns[0] as HTMLElement)
+
+    // Wait for CommentComposer
+    await vi.waitFor(() => {
+      expect(screen.queryByText('Comment')).not.toBeNull()
+    })
+
+    // Type a comment and submit
+    const editor = document.querySelector('.cm-content') as HTMLElement
+    if (editor) {
+      await user.click(editor)
+      await user.type(editor, 'My inline comment')
+    }
+
+    // Click the Comment submit button
+    const submitBtn = screen.getByText('Comment')
+    await user.click(submitBtn)
+
+    // openThread should have been called
+    await vi.waitFor(() => {
+      expect(mockOpenThread).toHaveBeenCalledWith(
+        'ws-test',
+        expect.objectContaining({
+          filePath: 'src/foo.ts',
+          author: 'testuser',
+          isAgent: false,
+        }),
+      )
+    })
   })
 })
