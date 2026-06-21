@@ -5,6 +5,7 @@ import {
   FileText,
   Eye,
   EyeSlash,
+  FileDashed,
 } from '@phosphor-icons/react'
 import { memo, useCallback, useMemo, useRef, useState, useEffect } from 'react'
 import { Diff, Hunk } from 'react-diff-view'
@@ -191,6 +192,9 @@ export interface ReviewDiffViewProps {
 }
 
 export const ReviewDiffView = memo(({ multiDiff }: ReviewDiffViewProps) => {
+  // Derive files once — guards against null/undefined from the backend serializing empty arrays as null
+  const files = multiDiff?.files ?? []
+
   const [viewMode, setViewMode] = useState<'unified' | 'split'>('unified')
 
   // Scroll-to-file: subscribe to activeFileKey + activeFileNonce from the workspace store.
@@ -209,7 +213,7 @@ export const ReviewDiffView = memo(({ multiDiff }: ReviewDiffViewProps) => {
   }, [])
 
   const fileSummaries: FileDiffSummary[] = useMemo(() => {
-    return multiDiff.files.map((diff, index) => {
+    return files.map((diff, index) => {
       let additions = 0
       let deletions = 0
       for (const line of diff.lines) {
@@ -228,7 +232,7 @@ export const ReviewDiffView = memo(({ multiDiff }: ReviewDiffViewProps) => {
         uncommitted: diff.uncommitted ?? false,
       }
     })
-  }, [multiDiff.fileKeys, multiDiff.files])
+  }, [multiDiff.fileKeys, files])
 
   // Track which file key should be force-expanded (set when scrolling to a file)
   const [expandedByScrollKey, setExpandedByScrollKey] = useState<string | null>(null)
@@ -236,12 +240,12 @@ export const ReviewDiffView = memo(({ multiDiff }: ReviewDiffViewProps) => {
   const scrollRef = useRef<HTMLDivElement>(null)
 
   const virtualizer = useVirtualizer({
-    count: multiDiff.files.length,
+    count: files.length,
     getScrollElement: () => scrollRef.current,
     estimateSize: (index) => {
       const summary = fileSummaries[index]
       if (!summary) return 36
-      const lineCount = multiDiff.files[index].lines.length
+      const lineCount = files[index].lines.length
       return 36 + lineCount * 22
     },
     overscan: 3,
@@ -257,6 +261,16 @@ export const ReviewDiffView = memo(({ multiDiff }: ReviewDiffViewProps) => {
     setExpandedByScrollKey(activeFileKey)
     virtualizer.scrollToIndex(index, { align: 'start' })
   }, [activeFileNonce]) // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Empty state — shown when the backend serializes files as null or an empty array
+  if (files.length === 0) {
+    return (
+      <div className="flex h-full flex-col items-center justify-center gap-2 text-center text-muted-foreground">
+        <FileDashed className="size-6" />
+        <span className="ui-text-sm">No changes to show.</span>
+      </div>
+    )
+  }
 
   return (
     <div className="flex h-full flex-col overflow-hidden bg-background">
@@ -300,7 +314,7 @@ export const ReviewDiffView = memo(({ multiDiff }: ReviewDiffViewProps) => {
           }}
         >
           {virtualizer.getVirtualItems().map((virtualItem) => {
-            const diff = multiDiff.files[virtualItem.index]
+            const diff = files[virtualItem.index]
             const summary = fileSummaries[virtualItem.index]
             if (!diff || !summary) return null
             return (

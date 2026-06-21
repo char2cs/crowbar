@@ -126,4 +126,32 @@ describe('ReviewDiffView', () => {
     render(<ReviewDiffView multiDiff={twoFileDiff} />)
     expect(screen.getByText(/2 files changed/)).toBeDefined()
   })
+
+  it('does not throw and shows empty state when files is null', () => {
+    expect(() => {
+      render(<ReviewDiffView multiDiff={{ files: null } as any} />)
+    }).not.toThrow()
+    expect(screen.getByText(/No changes to show/)).toBeDefined()
+  })
+
+  it('does not throw and shows empty state when multiDiff has no files property', () => {
+    expect(() => {
+      render(<ReviewDiffView multiDiff={{} as any} />)
+    }).not.toThrow()
+    expect(screen.getByText(/No changes to show/)).toBeDefined()
+  })
+
+  it('does not throw and shows empty state when files is an empty array', () => {
+    const emptyDiff: MultiFileDiff = {
+      commitHash: '',
+      files: [],
+      totalFiles: 0,
+      totalAdditions: 0,
+      totalDeletions: 0,
+    }
+    expect(() => {
+      render(<ReviewDiffView multiDiff={emptyDiff} />)
+    }).not.toThrow()
+    expect(screen.getByText(/No changes to show/)).toBeDefined()
+  })
 })

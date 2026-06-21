@@ -45,7 +45,7 @@ export function ReviewDiffTab({ onRetry }: ReviewDiffTabProps) {
     )
   }
 
-  if (!diff || diff.files.length === 0) {
+  if (!diff || (diff.files ?? []).length === 0) {
     return (
       <CenteredState>
         <FileDashed className="size-6" />
