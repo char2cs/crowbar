@@ -34,23 +34,29 @@ const WS_BASE = '/v0/projects/p1/repos/r1/workspaces/ws1'
 
 const WIRE_THREAD = {
   id: 'thread-1',
-  wsId: 'ws1',
+  projectId: 'p1',
+  repoId: 'r1',
+  workspaceId: 'ws1',
   filePath: 'src/foo.ts',
-  lineNumber: 10,
+  line: 10,
   startLine: 8,
   endLine: 12,
   side: 'new' as const,
-  status: 'open' as const,
-  messages: [
+  body: 'Looks good',
+  author: 'alice',
+  isAgent: false,
+  resolved: false,
+  createdAt: '2026-01-01T00:00:00Z',
+  replies: [
     {
       id: 'msg-1',
-      author: 'alice',
+      threadId: 'thread-1',
+      author: 'bob',
       isAgent: false,
-      body: 'Looks good',
-      createdAt: '2026-01-01T00:00:00Z',
+      body: 'Thanks',
+      createdAt: '2026-01-02T00:00:00Z',
     },
   ],
-  createdAt: '2026-01-01T00:00:00Z',
 }
 
 beforeEach(() => {
@@ -113,10 +119,16 @@ describe('useWorkspaceThreadsStream', () => {
         isResolved: false,
         messages: [
           expect.objectContaining({
-            id: 'msg-1',
+            id: 'thread-1:root',
             author: 'alice',
             isAgent: false,
             body: 'Looks good',
+          }),
+          expect.objectContaining({
+            id: 'msg-1',
+            author: 'bob',
+            isAgent: false,
+            body: 'Thanks',
           }),
         ],
       }),
