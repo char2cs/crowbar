@@ -16,9 +16,11 @@ import {
   useEffect,
   useMemo,
   useRef,
+  useState,
   type MouseEventHandler,
   type ReactNode,
 } from 'react'
+import { createPortal } from 'react-dom'
 import { themeRegistry } from '@/extensions/themes/theme-registry'
 import { useSettingsStore } from '@/features/settings/store'
 import { useZoomStore } from '@/features/window/stores/zoom-store'
@@ -46,6 +48,7 @@ import {
   pathsMatch,
 } from '../monaco/editor-conversions'
 import { defineMonacoTheme } from '../monaco/define-theme'
+import { useDiffCommentZones, type CommentZoneSpec } from './use-diff-comment-zones'
 
 interface DiffMonacoEditorProps {
   paneId?: string
@@ -61,6 +64,18 @@ interface DiffMonacoEditorProps {
   currentHighlightIndex?: number
   lineNumberStart?: number
   lineNumberMap?: Array<number | null>
+  /** Inline review-comment threads rendered as Monaco view zones. */
+  commentZones?: CommentZoneSpec[]
+  /** Fired when the gutter "+" is clicked on a (1-based) model line. */
+  onAddCommentAtLine?: (modelLine: number) => void
+  /** Total content height incl. view zones — lets a fixed-height host grow. */
+  onContentHeightChange?: (height: number) => void
+  /**
+   * Per-model-line diff kind. When provided, the added/removed tint is applied
+   * as whole-line Monaco decorations instead of a CSS overlay, so it stays
+   * aligned when inline comment view zones push lines down.
+   */
+  diffLineKinds?: Array<'context' | 'added' | 'removed' | 'spacer'>
   onContentChange?: (
     content: string,
     previousContent?: string,
@@ -77,6 +92,10 @@ interface DiffMonacoEditorProps {
   onClick?: MouseEventHandler<HTMLDivElement>
   className?: string
 }
+
+// Stable empty reference so DiffMonacoEditor instances without a comment layer
+// don't re-run the zone hook on every render.
+const EMPTY_COMMENT_ZONES: CommentZoneSpec[] = []
 
 function createModelUri(bufferId: string | undefined, filePath: string): Monaco.Uri {
   const sanitizedPath = filePath.replace(/^\/+/, '')
@@ -97,6 +116,10 @@ export function DiffMonacoEditor({
   currentHighlightIndex,
   lineNumberStart,
   lineNumberMap,
+  commentZones,
+  onAddCommentAtLine,
+  onContentHeightChange,
+  diffLineKinds,
   onContentChange,
   onVisibleLineRangeChange,
   onScrollOffsetChange,
@@ -115,6 +138,9 @@ export function DiffMonacoEditor({
   const previousContentRef = useRef('')
   const decorationCollectionRef = useRef<Monaco.editor.IEditorDecorationsCollection | null>(null)
   const latestContentChangeRef = useRef(onContentChange)
+  // Flips true once the Monaco editor instance exists, so the comment-zone hook
+  // (which reads editorRef imperatively) can attach after creation.
+  const [editorReady, setEditorReady] = useState(false)
   // Diff-viewer editor. The retained per-pane widget (owned by EditorManager) for
   // real workspace panes lives in `editor-surface.tsx` (usePaneEditorController +
   // usePaneEditorSatellites). This component is the create-per-instance path used
@@ -335,6 +361,7 @@ export function DiffMonacoEditor({
 
     decorationCollectionRef.current = editor.createDecorationsCollection([])
     editorRef.current = editor
+    setEditorReady(true)
     modelRef.current = model
     previousContentRef.current = content
     lastAppliedContentRef.current = content
@@ -458,6 +485,7 @@ export function DiffMonacoEditor({
       if (editorRef.current === editor) editorRef.current = null
       if (modelRef.current === model) modelRef.current = null
       decorationCollectionRef.current = null
+      setEditorReady(false)
       editor.dispose()
       model.dispose()
       editorAPI.setViewportRef(null)
@@ -864,6 +892,52 @@ export function DiffMonacoEditor({
     return () => clearTimeout(timer)
   }, [content, filePath])
 
+  const commentPortals = useDiffCommentZones({
+    editorRef,
+    editorReady,
+    enabled: commentZones !== undefined,
+    zones: commentZones ?? EMPTY_COMMENT_ZONES,
+    onAddCommentAtLine,
+  })
+
+  // Report total content height (lines + view zones) so a fixed-height host can
+  // grow to fit inline comment threads.
+  useEffect(() => {
+    const editor = editorRef.current
+    if (!editorReady || !editor || !onContentHeightChange) return
+    const report = () => onContentHeightChange(editor.getContentHeight())
+    report()
+    const sub = editor.onDidContentSizeChange(report)
+    return () => sub.dispose()
+  }, [editorReady, onContentHeightChange])
+
+  // Diff add/removed tint as whole-line decorations (zone-safe, unlike a
+  // position-based CSS overlay).
+  const diffKindsKey = diffLineKinds?.join('') ?? null
+  useEffect(() => {
+    const editor = editorRef.current
+    if (!editorReady || !editor || !diffLineKinds) return
+    const decorations: Monaco.editor.IModelDeltaDecoration[] = []
+    for (let i = 0; i < diffLineKinds.length; i++) {
+      const kind = diffLineKinds[i]
+      const className =
+        kind === 'added'
+          ? 'diff-line-added'
+          : kind === 'removed'
+            ? 'diff-line-removed'
+            : null
+      if (!className) continue
+      const line = i + 1
+      decorations.push({
+        range: new MonacoRange(line, 1, line, 1),
+        options: { isWholeLine: true, className },
+      })
+    }
+    const collection = editor.createDecorationsCollection(decorations)
+    return () => collection.clear()
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [editorReady, diffKindsKey])
+
   if (!buffer) return null
 
   return (
@@ -895,6 +969,7 @@ export function DiffMonacoEditor({
         data-line-number-start={lineNumberStart}
         data-line-number-map={lineNumberMap?.length ?? undefined}
       />
+      {commentPortals.map((p) => createPortal(p.node, p.contentNode))}
     </div>
   )
 }

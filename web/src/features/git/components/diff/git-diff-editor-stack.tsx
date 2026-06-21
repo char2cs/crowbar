@@ -13,6 +13,7 @@ const openUrl = (url: string) => {
   window.open(url, '_blank')
 }
 import CodeEditor from '@/features/editor/components/code-editor'
+import { useReviewCommentLayer } from './use-review-comment-layer'
 import Breadcrumb from '@/features/editor/components/toolbar/breadcrumb'
 import { EDITOR_CONSTANTS } from '@/features/editor/config/constants'
 import { FileExplorerIcon } from '@/features/file-explorer/components/file-explorer-icon'
@@ -164,10 +165,12 @@ function EmbeddedDiffSectionEditor({
   diff,
   cacheKey,
   viewMode,
+  enableComments = false,
 }: {
   diff: GitDiff
   cacheKey: string
   viewMode: 'unified' | 'split'
+  enableComments?: boolean
 }) {
   const fontSize = useEditorSettingsStore.use.fontSize()
   const zoomLevel = useZoomStore.use.editorZoomLevel()
@@ -175,6 +178,14 @@ function EmbeddedDiffSectionEditor({
   const sourcePath = diff.new_path || diff.old_path || diff.file_path
   const unifiedContent = useMemo(() => serializeGitDiffSourceForEditor(diff), [diff])
   const splitContent = useMemo(() => serializeGitDiffSourceForSplitEditor(diff), [diff])
+  // Inline review comments are only wired for the unified surface (split would
+  // need per-side zones). Threads are anchored as Monaco view zones.
+  const commentLayer = useReviewCommentLayer({
+    enabled: enableComments && viewMode === 'unified',
+    diff,
+    unifiedLineKinds: unifiedContent.lineKinds,
+  })
+  const [commentContentHeight, setCommentContentHeight] = useState<number | null>(null)
   const unifiedBufferId = useDiffEditorBuffer({
     cacheKey,
     content: unifiedContent.content,
@@ -290,12 +301,19 @@ function EmbeddedDiffSectionEditor({
     )
   }
 
+  // With inline comments, view zones push lines down — grow the section to the
+  // editor's true content height and let the editor own the tint as decorations
+  // (the CSS overlay is position-based and would desync below a zone).
+  const unifiedHeight = commentLayer ? Math.max(height, commentContentHeight ?? 0) : height
+
   return (
     <div
       className="relative overflow-hidden border-border border-t bg-background"
-      style={{ height: `${height}px` }}
+      style={{ height: `${unifiedHeight}px` }}
     >
-      <DiffLineBackgroundLayer lineKinds={unifiedContent.lineKinds} lineHeight={lineHeight} />
+      {!commentLayer && (
+        <DiffLineBackgroundLayer lineKinds={unifiedContent.lineKinds} lineHeight={lineHeight} />
+      )}
       <CodeEditor
         bufferId={unifiedBufferId}
         isActiveSurface={false}
@@ -305,6 +323,10 @@ function EmbeddedDiffSectionEditor({
         onReadonlySurfaceClick={({ line, column }) =>
           void openSourceLocation(line, column, unifiedContent.actualLines)
         }
+        commentZones={commentLayer?.commentZones}
+        onAddCommentAtLine={commentLayer?.onAddCommentAtLine}
+        onContentHeightChange={commentLayer ? setCommentContentHeight : undefined}
+        diffLineKinds={commentLayer ? unifiedContent.lineKinds : undefined}
       />
     </div>
   )
@@ -314,16 +336,25 @@ function DiffSectionEditor({
   diff,
   cacheKey,
   viewMode,
+  enableComments = false,
 }: {
   diff: GitDiff
   cacheKey: string
   viewMode: 'unified' | 'split'
+  enableComments?: boolean
 }) {
   if (shouldUseScrollableDiffEditor(diff)) {
     return <LargeDiffSectionEditor diff={diff} cacheKey={cacheKey} />
   }
 
-  return <EmbeddedDiffSectionEditor diff={diff} cacheKey={cacheKey} viewMode={viewMode} />
+  return (
+    <EmbeddedDiffSectionEditor
+      diff={diff}
+      cacheKey={cacheKey}
+      viewMode={viewMode}
+      enableComments={enableComments}
+    />
+  )
 }
 
 const LazyDiffSectionBody = memo(function LazyDiffSectionBody({
@@ -391,6 +422,7 @@ const DiffFileSection = memo(function DiffFileSection({
   viewMode,
   showWhitespace,
   enableHunkActions,
+  enableComments,
   onOpenFile,
 }: {
   diff: GitDiff
@@ -401,6 +433,7 @@ const DiffFileSection = memo(function DiffFileSection({
   viewMode: 'unified' | 'split'
   showWhitespace: boolean
   enableHunkActions: boolean
+  enableComments: boolean
 }) {
   const filePath = diff.new_path || diff.old_path || diff.file_path
   const fileName = filePath.split('/').pop() || filePath
@@ -497,7 +530,12 @@ const DiffFileSection = memo(function DiffFileSection({
                   isEmbeddedInScrollView={true}
                 />
               ) : (
-                <DiffSectionEditor diff={diff} cacheKey={sectionKey} viewMode={viewMode} />
+                <DiffSectionEditor
+                  diff={diff}
+                  cacheKey={sectionKey}
+                  viewMode={viewMode}
+                  enableComments={enableComments}
+                />
               )}
             </LazyDiffSectionBody>
           </div>
@@ -513,8 +551,11 @@ function getInitialExpandedFiles(multiDiff: MultiFileDiff): Set<string> {
 
 const GitDiffEditorStack = memo(function GitDiffEditorStack({
   multiDiff,
+  enableComments = false,
 }: {
   multiDiff: MultiFileDiff
+  /** Enable the inline review-comment layer (the Branch Review surface). */
+  enableComments?: boolean
 }) {
   const workspaceStore = useWorkspaceStore()
   const buffers = useStore(workspaceStore, (s) => s.buffers)
@@ -642,7 +683,9 @@ const GitDiffEditorStack = memo(function GitDiffEditorStack({
   }, [isWorkingTree, refreshWorkingTreeBuffer])
 
   useEffect(() => {
-    if (isWorkingTree || multiDiff.commitHash.startsWith('stash@{')) {
+    // The branch-review diff has no single commitHash (it's a branch comparison),
+    // so there is no GitHub commit URL to build.
+    if (isWorkingTree || !multiDiff.commitHash || multiDiff.commitHash.startsWith('stash@{')) {
       setGitHubCommitUrl(null)
       return
     }
@@ -801,6 +844,7 @@ const GitDiffEditorStack = memo(function GitDiffEditorStack({
                 viewMode={viewMode}
                 showWhitespace={showWhitespace}
                 enableHunkActions={isWorkingTree}
+                enableComments={enableComments}
                 onToggle={handleToggleSection}
                 onOpenFile={handleOpenFile}
               />

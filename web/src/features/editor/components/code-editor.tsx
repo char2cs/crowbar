@@ -58,6 +58,10 @@ interface CodeEditorProps {
   currentHighlightIndex?: number
   lineNumberStart?: number
   lineNumberMap?: Array<number | null>
+  commentZones?: import('./use-diff-comment-zones').CommentZoneSpec[]
+  onAddCommentAtLine?: (modelLine: number) => void
+  onContentHeightChange?: (height: number) => void
+  diffLineKinds?: Array<'context' | 'added' | 'removed' | 'spacer'>
   onContentChange?: (
     content: string,
     previousContent?: string,
@@ -97,6 +101,10 @@ const CodeEditor = ({
   currentHighlightIndex,
   lineNumberStart,
   lineNumberMap,
+  commentZones,
+  onAddCommentAtLine,
+  onContentHeightChange,
+  diffLineKinds,
   onContentChange,
   isPreview = false,
   onPromote,
@@ -552,6 +560,10 @@ const CodeEditor = ({
                 currentHighlightIndex={currentHighlightIndex}
                 lineNumberStart={lineNumberStart}
                 lineNumberMap={lineNumberMap}
+                commentZones={commentZones}
+                onAddCommentAtLine={onAddCommentAtLine}
+                onContentHeightChange={onContentHeightChange}
+                diffLineKinds={diffLineKinds}
                 onContentChange={onChangeWithPromote}
                 onScrollOffsetChange={syncLspOverlayTransform}
                 onCoordinateResolverChange={handleCoordinateResolverChange}

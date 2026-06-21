@@ -6,6 +6,7 @@ import { Avatar, AvatarImage, AvatarFallback } from '@/components/ui/avatar'
 import { cn } from '@/utils/cn'
 import { CommentComposer } from '@/features/panes/components/comment-composer'
 import { MarkdownPreview } from '@/features/panes/lib/markdown'
+import type { IdentityDTO } from '@/features/git/api/identity-api'
 import type {
   ReviewMessage,
   ReviewThread,
@@ -14,24 +15,54 @@ import type {
 export interface ReviewThreadItemProps {
   thread: ReviewThread
   wsId: string
+  /** Resolved provider identity, used to show the author's real photo/name. */
+  currentIdentity?: IdentityDTO | null
   isOutdated?: boolean
   onReply: (threadId: string, body: string) => Promise<void>
   onResolve: (threadId: string) => Promise<void>
   onReopen: (threadId: string) => Promise<void>
 }
 
-function MessageAvatar({ message }: { message: ReviewMessage }) {
-  const initials = (message.author ?? 'U').slice(0, 2).toUpperCase()
-  const showGitHubPhoto = !message.isAgent && !!message.author
+interface AuthorDisplay {
+  name: string
+  login: string | null
+  avatarUrl: string | null
+  isAgent: boolean
+}
 
+// Resolve how to present a message's author. The message carries only the
+// provider login string; the current user's full identity (display name +
+// avatar) comes from `currentIdentity`. Other logins fall back to the GitHub
+// avatar URL convention and the bare login as the name.
+function resolveAuthorDisplay(
+  message: ReviewMessage,
+  currentIdentity: IdentityDTO | null | undefined,
+): AuthorDisplay {
+  if (message.isAgent) {
+    return { name: 'Agent', login: null, avatarUrl: null, isAgent: true }
+  }
+  const login = message.author ?? null
+  if (login && currentIdentity && currentIdentity.login === login) {
+    return {
+      name: currentIdentity.displayName || login,
+      login,
+      avatarUrl: currentIdentity.avatarUrl || `https://github.com/${login}.png?size=48`,
+      isAgent: false,
+    }
+  }
+  return {
+    name: login ?? 'Unknown',
+    login,
+    avatarUrl: login ? `https://github.com/${login}.png?size=48` : null,
+    isAgent: false,
+  }
+}
+
+function MessageAvatar({ display }: { display: AuthorDisplay }) {
+  const initials = (display.name || 'U').slice(0, 2).toUpperCase()
   return (
     <Avatar className="mt-0.5 size-5 shrink-0 text-[9px] font-semibold">
-      {showGitHubPhoto && (
-        <AvatarImage
-          src={`https://github.com/${message.author}.png?size=48`}
-          alt={message.author ?? ''}
-        />
-      )}
+      {display.avatarUrl && <AvatarImage src={display.avatarUrl} alt={display.name} />}
       <AvatarFallback className="text-[9px] font-semibold text-muted-foreground">
         {initials}
       </AvatarFallback>
@@ -39,17 +70,28 @@ function MessageAvatar({ message }: { message: ReviewMessage }) {
   )
 }
 
-function MessageRow({ message }: { message: ReviewMessage }) {
+function MessageRow({
+  message,
+  currentIdentity,
+}: {
+  message: ReviewMessage
+  currentIdentity: IdentityDTO | null | undefined
+}) {
+  const display = resolveAuthorDisplay(message, currentIdentity)
   return (
-    <div className="flex gap-2 px-3 py-2 border-b border-border/40 last:border-b-0">
-      <MessageAvatar message={message} />
+    <div className="ui-font flex gap-2 border-border/40 border-b px-3 py-2 last:border-b-0">
+      <MessageAvatar display={display} />
       <div className="min-w-0 flex-1">
-        <div className="mb-1 flex items-center gap-1.5">
-          <span className="text-[11px] font-semibold text-foreground">
-            {message.author ?? (message.isAgent ? 'Agent' : 'You')}
-          </span>
-          {message.isAgent && (
-            <Badge variant="outline" className="h-3.5 border-primary/30 px-1 text-[9px] text-primary">
+        <div className="mb-1 flex items-baseline gap-1.5">
+          <span className="font-semibold text-[11px] text-foreground">{display.name}</span>
+          {display.login && (
+            <span className="text-[10px] text-muted-foreground">@{display.login}</span>
+          )}
+          {display.isAgent && (
+            <Badge
+              variant="outline"
+              className="h-3.5 border-primary/30 px-1 text-[9px] text-primary"
+            >
               agent
             </Badge>
           )}
@@ -62,6 +104,7 @@ function MessageRow({ message }: { message: ReviewMessage }) {
 
 export function ReviewThreadItem({
   thread,
+  currentIdentity,
   isOutdated,
   onReply,
   onResolve,
@@ -119,7 +162,7 @@ export function ReviewThreadItem({
   return (
     <div
       className={cn(
-        'my-1 rounded-lg border border-border bg-muted/20',
+        'ui-font my-1 rounded-lg border border-border bg-muted/20',
         thread.isResolved && 'opacity-60',
         isOutdated && outdatedExpanded && 'border-border/40',
       )}
@@ -135,7 +178,7 @@ export function ReviewThreadItem({
       {/* Messages */}
       <div className="flex flex-col">
         {thread.messages.map((message) => (
-          <MessageRow key={message.id} message={message} />
+          <MessageRow key={message.id} message={message} currentIdentity={currentIdentity} />
         ))}
       </div>
 

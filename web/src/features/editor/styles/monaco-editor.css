@@ -51,3 +51,35 @@
 .monaco-vim-statusbar:empty {
   display: none !important;
 }
+
+/* ── Inline review-comment threads (Monaco view zones) ── */
+.diff-add-comment-glyph {
+  cursor: pointer;
+}
+.diff-add-comment-glyph::after {
+  content: '+';
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 1.1em;
+  height: 1.1em;
+  margin: auto;
+  font-weight: 700;
+  line-height: 1;
+  color: var(--primary);
+  border-radius: 4px;
+  background: color-mix(in oklch, var(--primary) 18%, transparent);
+}
+/* The view zone hosts a React-rendered thread/composer card. */
+.diff-comment-zone {
+  z-index: 5;
+  width: 100%;
+}
+
+/* Diff add/removed tint as whole-line decorations (zone-safe). */
+.diff-line-added {
+  background: color-mix(in oklch, var(--git-added) 15%, transparent);
+}
+.diff-line-removed {
+  background: color-mix(in oklch, var(--git-deleted) 15%, transparent);
+}
