@@ -1,11 +1,14 @@
 import type { ReactElement } from 'react'
 import { useState } from 'react'
+import { useNavigate } from '@tanstack/react-router'
 import { Popover, PopoverTrigger, PopoverContent, PopoverTitle } from '@/components/ui/popover'
 import { Button } from '@/components/ui/button'
+import { Checkbox } from '@/components/ui/checkbox'
 import { RadioGroup, Radio } from '@/components/ui/radio-group'
 import { toast } from '@/features/window/stores/toast-store'
 import { useWorkspaceStoreById } from '@/features/workspace/stores/hooks/use-workspace-store-by-id'
 import { getOrCreateWorkspaceStore } from '@/features/workspace/stores/workspace-store-registry'
+import { useSidebarStore, getPostDeleteNavigationTarget } from '@/lib/store/sidebar'
 import { setMergeStrategy as patchMergeStrategy, mergeIntoParent } from '../api/review-api'
 import type { MergeStrategy } from '@/features/workspace/stores/slices/branch-review-slice'
 
@@ -34,6 +37,9 @@ interface MergePopoverProps {
 
 export function MergePopover({ wsId, parentBranch, trigger }: MergePopoverProps) {
   const [open, setOpen] = useState(false)
+  // Default ON: merging a child into its parent usually means you're done with it.
+  const [deleteAfterMerge, setDeleteAfterMerge] = useState(true)
+  const navigate = useNavigate()
   const strategy = useWorkspaceStoreById(wsId, (s) => s.branchReview.mergeStrategy)
   const active = STRATEGIES.find((s) => s.value === strategy) ?? STRATEGIES[0]
 
@@ -52,9 +58,28 @@ export function MergePopover({ wsId, parentBranch, trigger }: MergePopoverProps)
 
   const handleMerge = async () => {
     setOpen(false)
+    // Resolve where to land while the child still exists in the sidebar: its
+    // parent, else the repo base, else a sibling (same logic as a delete).
+    let redirect: { projectId: string; repoId: string; wsId: string } | null = null
+    if (deleteAfterMerge) {
+      const repos = useSidebarStore.getState().repos
+      const targetWsId = getPostDeleteNavigationTarget(repos, wsId)
+      const repo = targetWsId
+        ? repos.find((r) => r.workspaces.some((w) => w.id === targetWsId))
+        : undefined
+      if (targetWsId && repo) {
+        redirect = { projectId: repo.projectId ?? '', repoId: repo.id, wsId: targetWsId }
+      }
+    }
     try {
-      await mergeIntoParent(wsId, strategy)
-      toast.info('Merging…')
+      await mergeIntoParent(wsId, strategy, deleteAfterMerge)
+      toast.info(deleteAfterMerge ? 'Merging & removing workspace…' : 'Merging…')
+      // The daemon deletes the child once the merge lands; move to the parent
+      // now so we're not stranded on a route that's about to disappear. Safe to
+      // navigate unconditionally: this popover only renders inside the Git panel
+      // for the active workspace (GitPanel derives wsId from the route), so wsId
+      // is always the workspace we're leaving.
+      if (redirect) void navigate({ to: '/ide/$projectId/$repoId/$wsId', params: redirect })
     } catch {
       toast.error('Merge failed — check the logs for details')
     }
@@ -83,6 +108,10 @@ export function MergePopover({ wsId, parentBranch, trigger }: MergePopoverProps)
             </label>
           ))}
         </RadioGroup>
+        <label className="mb-3 flex cursor-pointer items-center gap-2">
+          <Checkbox checked={deleteAfterMerge} onChange={setDeleteAfterMerge} />
+          <span className="ui-text-sm">Delete this workspace after merging</span>
+        </label>
         <Button variant="default" size="sm" className="w-full" onClick={() => void handleMerge()}>
           {active.confirm}
         </Button>

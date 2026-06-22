@@ -59,6 +59,15 @@ function wireThreadDTO(overrides: Partial<ThreadDTO> = {}): ThreadDTO {
   }
 }
 
+describe('mergeIntoParent deleteSource', () => {
+  it('sends deleteSource:true when the caller opts to delete the child', async () => {
+    const fetchMock = mockFetchEnvelope(undefined)
+    await mergeIntoParent('ws-1', 'squash', true)
+    const [, init] = fetchMock.mock.calls[0] as [string, RequestInit]
+    expect(JSON.parse(init.body as string)).toEqual({ strategy: 'squash', deleteSource: true })
+  })
+})
+
 describe('mapThread', () => {
   it('maps real ThreadDTO fields: line→lineNumber, resolved→isResolved, body+replies→messages', () => {
     const dto: ThreadDTO = {
@@ -223,7 +232,7 @@ describe('review-api request shapes', () => {
     const [url, init] = fetchMock.mock.calls[0] as [string, RequestInit]
     expect(url).toContain('/v0/projects/p1/repos/r1/workspaces/ws-5/merge-into-parent')
     expect(init.method).toBe('POST')
-    expect(JSON.parse(init.body as string)).toEqual({ strategy: 'squash' })
+    expect(JSON.parse(init.body as string)).toEqual({ strategy: 'squash', deleteSource: false })
   })
 
   it('replyToThread POSTs to /threads/:id/replies (plural) with encoded id', async () => {

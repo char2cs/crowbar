@@ -152,6 +152,76 @@ func (s *WorktreeSuite) TestWorktree_mergeStrategyMerge() {
 	s.Assert().Equal(parentTip, reloaded["forkPointSha"])
 }
 
+// TestWorktree_mergeDeleteSourceRemovesChild verifies merge-into-parent with
+// deleteSource:true folds the child branch into the parent AND removes the
+// now-merged child workspace (worktree on disk, branch, record), emitting a
+// deleted tombstone. The parent must still advance to the merged tip.
+func (s *WorktreeSuite) TestWorktree_mergeDeleteSourceRemovesChild() {
+	t := s.T()
+
+	parentTipBefore := kit.RevParse(t, s.parentPath, "HEAD")
+
+	childID, worktreePath := s.createChild("feature/merge-delete-source")
+	kit.CommitFile(t, worktreePath, "md.txt", "child change\n", "child commit")
+
+	watcher := s.Env.DialWorkspace(t, s.imported.ProjectID, s.imported.RepoID, childID)
+	resp := s.Env.POST(t, s.wsBase(childID)+"/merge-into-parent", map[string]any{
+		"strategy":     "merge",
+		"deleteSource": true,
+	})
+	kit.RequireStatus(t, resp, http.StatusAccepted)
+	resp.Body.Close()
+
+	// Merge runs, then the child is cascade-deleted → deleted-status tombstone.
+	kit.WaitForWorkspaceState(t, watcher, childID, "deleted", 10*time.Second)
+
+	s.Assert().NotEqual(parentTipBefore, kit.RevParse(t, s.parentPath, "HEAD"),
+		"merge must advance the parent before the child is removed")
+	s.Assert().False(kit.DirExists(t, worktreePath), "child worktree must be removed on disk")
+	s.Assert().False(kit.BranchExists(t, s.imported.RepoPath, "feature/merge-delete-source"),
+		"child branch must be force-deleted")
+	for _, ws := range s.listWorkspaces() {
+		s.Assert().NotEqual(childID, ws["id"], "deleted child must not appear in the workspace list")
+	}
+}
+
+// TestWorktree_mergeDeleteSourceKeepsNonLeafChild verifies deleteSource:true does
+// NOT remove a merged child that still has its own child workspace — cascade-
+// deleting it would destroy the grandchild's unmerged work. The merge still lands.
+func (s *WorktreeSuite) TestWorktree_mergeDeleteSourceKeepsNonLeafChild() {
+	t := s.T()
+
+	parentTipBefore := kit.RevParse(t, s.parentPath, "HEAD")
+
+	childID, childPath := s.createChild("feature/non-leaf-parent")
+	kit.CommitFile(t, childPath, "nl.txt", "child\n", "child commit")
+	preMergeFork, _ := s.getWorkspace(childID)["forkPointSha"].(string)
+	grandchildID, _ := s.createChildUnder(childID, "feature/non-leaf-grandchild")
+
+	watcher := s.Env.DialWorkspace(t, s.imported.ProjectID, s.imported.RepoID, childID)
+	resp := s.Env.POST(t, s.wsBase(childID)+"/merge-into-parent", map[string]any{
+		"strategy":     "merge",
+		"deleteSource": true,
+	})
+	kit.RequireStatus(t, resp, http.StatusAccepted)
+	resp.Body.Close()
+
+	// Wait for the merge to finalize (child fork point advances). The non-leaf
+	// child is then kept — no deleted tombstone follows.
+	kit.WaitForWorkspace(t, watcher, childID, 10*time.Second, func(m map[string]any) bool {
+		fp, _ := m["forkPointSha"].(string)
+		return fp != "" && fp != preMergeFork
+	})
+	s.Assert().NotEqual(parentTipBefore, kit.RevParse(t, s.parentPath, "HEAD"), "merge must advance the parent")
+
+	ids := map[string]bool{}
+	for _, ws := range s.listWorkspaces() {
+		ids[ws["id"].(string)] = true
+	}
+	s.Assert().True(ids[childID], "non-leaf merged child must be kept (deleting it would cascade the grandchild)")
+	s.Assert().True(ids[grandchildID], "grandchild must survive")
+}
+
 // TestWorktree_mergeStrategySquash verifies squash merge collapses child commits.
 func (s *WorktreeSuite) TestWorktree_mergeStrategySquash() {
 	t := s.T()

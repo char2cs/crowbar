@@ -2,6 +2,7 @@ package handlers
 
 import (
 	"context"
+	"fmt"
 	"net/http"
 
 	"github.com/gin-gonic/gin"
@@ -11,9 +12,11 @@ import (
 )
 
 // mergeRequest is the POST .../workspaces/:wsId/merge-into-parent body: the
-// merge strategy to apply when folding the child branch into its parent.
+// merge strategy to apply when folding the child branch into its parent, and
+// whether to delete the now-merged child workspace once the merge succeeds.
 type mergeRequest struct {
-	Strategy gitdomain.MergeStrategy `json:"strategy"`
+	Strategy     gitdomain.MergeStrategy `json:"strategy"`
+	DeleteSource bool                    `json:"deleteSource"`
 }
 
 // reparentRequest is the POST .../workspaces/:wsId/reparent body: the id of the
@@ -53,10 +56,44 @@ func (h *Handlers) MergeIntoParent(
 		h.broadcastLastError,
 		id,
 		func(ctx context.Context) error {
-			_, mergeErr := h.hierarchy.MergeIntoParent(ctx, id, body.Strategy)
-			return mergeErr
+			result, mergeErr := h.hierarchy.MergeIntoParent(ctx, id, body.Strategy)
+			if mergeErr != nil {
+				return mergeErr
+			}
+			// Fold the now-merged child away only on a clean merge AND only when
+			// it is a leaf: a conflict keeps it for the user to resolve, and a
+			// non-leaf child is kept because cascade-deleting it would destroy
+			// its descendants' unmerged work (no silent data loss either way).
+			if body.DeleteSource && !result.ConflictsPending {
+				leaf, leafErr := h.workspaceIsLeaf(ctx, id)
+				if leafErr != nil {
+					return fmt.Errorf("merge succeeded but post-merge cleanup failed: %w", leafErr)
+				}
+				if leaf {
+					if delErr := h.hierarchy.DeleteCascade(ctx, id); delErr != nil {
+						return fmt.Errorf("merge succeeded but removing the workspace failed: %w", delErr)
+					}
+				}
+			}
+			return nil
 		},
 	)
+}
+
+// workspaceIsLeaf reports whether the workspace has no child workspaces, so it
+// can be safely removed after a merge without cascade-deleting the unmerged work
+// of any descendants.
+func (h *Handlers) workspaceIsLeaf(ctx context.Context, id string) (bool, error) {
+	all, err := h.reader.List(ctx)
+	if err != nil {
+		return false, err
+	}
+	for _, ws := range all {
+		if ws.ParentID == id {
+			return false, nil
+		}
+	}
+	return true, nil
 }
 
 // Reparent handles
