@@ -274,7 +274,12 @@ function EmbeddedDiffSectionEditor({
   // to the editor's true content height. The tint is always applied as Monaco
   // whole-line decorations (part of the editor layout) — a position-based CSS
   // overlay drifts out of alignment with the rendered lines.
-  const unifiedHeight = hasInlineLayer ? Math.max(height, commentContentHeight ?? 0) : height
+  // Add breathing room below the last inline thread so it isn't flush against
+  // the section's bottom edge (which reads as "cut off").
+  const unifiedHeight =
+    hasInlineLayer && commentContentHeight
+      ? Math.max(height, commentContentHeight + 20)
+      : height
 
   return (
     <div
