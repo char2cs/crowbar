@@ -242,6 +242,7 @@ const dto = (id: string, repoId: string, over: Partial<WorkspaceDTO> = {}): Work
   deleted: 0,
   mergeStrategy: 'merge',
   canMergeLocally: false,
+  mergeConflicts: false,
   parentBranch: '',
   prUrl: '',
   prTitle: '',

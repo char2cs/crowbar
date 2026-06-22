@@ -1,6 +1,8 @@
 package handlers
 
 import (
+	"context"
+
 	"github.com/gin-gonic/gin"
 
 	"github.com/char2cs/crowbar/api/internal/api/libs"
@@ -29,7 +31,7 @@ func (h *Handlers) List(
 		c.Param("projectId"),
 		c.Param("repoId"),
 	)
-	libs.WriteQueryOK(c, dto.WorkspaceDTOList(filtered, h.eligibilityIn(filtered)))
+	libs.WriteQueryOK(c, dto.WorkspaceDTOList(filtered, h.eligibilityIn(c.Request.Context(), filtered)))
 }
 
 // Detail handles
@@ -51,17 +53,18 @@ func (h *Handlers) Detail(
 		libs.WriteErr(c, status, msg)
 		return
 	}
-	elig := h.reader.MergeEligibilityFor(ws, siblings)
+	elig := h.reader.MergeEligibilityFor(c.Request.Context(), ws, siblings)
 	libs.WriteQueryOK(c, dto.WorkspaceDTOFrom(ws, elig))
 }
 
 // eligibilityIn returns a per-row eligibility resolver bound to the given
-// sibling set, suitable for WorkspaceDTOList.
+// sibling set and request context, suitable for WorkspaceDTOList.
 func (h *Handlers) eligibilityIn(
+	ctx context.Context,
 	siblings []domain.Workspace,
 ) func(domain.Workspace) workspace.MergeEligibility {
 	return func(ws domain.Workspace) workspace.MergeEligibility {
-		return h.reader.MergeEligibilityFor(ws, siblings)
+		return h.reader.MergeEligibilityFor(ctx, ws, siblings)
 	}
 }
 

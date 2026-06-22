@@ -43,6 +43,7 @@ function makeWorkspace(over: Partial<WorkspaceDTO> & { id: string }): WorkspaceD
     deleted: 0,
     mergeStrategy: '',
     canMergeLocally: false,
+    mergeConflicts: false,
     parentBranch: '',
     prUrl: '',
     prTitle: '',

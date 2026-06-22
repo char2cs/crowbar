@@ -311,6 +311,15 @@ type Engine interface {
 		b string,
 	) (string, error)
 
+	// WouldMergeConflict reports whether a three-way merge of theirs into ours
+	// would conflict, computed non-destructively (git merge-tree --write-tree).
+	WouldMergeConflict(
+		ctx context.Context,
+		repoPath string,
+		ours string,
+		theirs string,
+	) (bool, error)
+
 	// WorktreeAddBranch creates a new git worktree at worktreePath on a freshly
 	// created branch starting at startPoint, returning the resolved start SHA so
 	// callers can record it as forkPointSha (07 §1).

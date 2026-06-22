@@ -40,6 +40,8 @@ export interface Workspace {
   working?: boolean
   /** Derived from MergeEligibility — whether this ws can merge into its parent. */
   canMergeLocally?: boolean
+  /** Predicted: merging this ws into its parent would conflict (blocks the merge). */
+  mergeConflicts?: boolean
   /** Parent branch name when mergeable. */
   parentBranch?: string
   /** Open PR url, when the ws has one. */

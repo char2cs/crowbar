@@ -347,6 +347,12 @@ type WorkingTreeGitEngine struct {
 		repoPath string,
 		forkPointSha string,
 	) (int, int, bool, bool, error)
+	WouldMergeConflictFn func(
+		ctx context.Context,
+		repoPath string,
+		ours string,
+		theirs string,
+	) (bool, error)
 }
 
 // NewWorkingTreeGitEngine returns an empty WorkingTreeGitEngine.
@@ -360,6 +366,18 @@ func (g *WorkingTreeGitEngine) WorkingTreeSummary(
 	forkPointSha string,
 ) (int, int, bool, bool, error) {
 	return g.WorkingTreeSummaryFn(ctx, repoPath, forkPointSha)
+}
+
+func (g *WorkingTreeGitEngine) WouldMergeConflict(
+	ctx context.Context,
+	repoPath string,
+	ours string,
+	theirs string,
+) (bool, error) {
+	if g.WouldMergeConflictFn == nil {
+		return false, nil
+	}
+	return g.WouldMergeConflictFn(ctx, repoPath, ours, theirs)
 }
 
 // ProjectRollup is a fake of the project lastActivity roll-up surface. It

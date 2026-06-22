@@ -31,6 +31,7 @@ const wsDTO: WorkspaceDTO = {
   deleted: 0,
   mergeStrategy: 'merge',
   canMergeLocally: false,
+  mergeConflicts: false,
   parentBranch: '',
   prUrl: '',
   prTitle: '',

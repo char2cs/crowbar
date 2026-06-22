@@ -29,6 +29,7 @@ const ws = (id: string, repoId: string, over: Partial<WorkspaceDTO> = {}): Works
   deleted: 0,
   mergeStrategy: 'merge',
   canMergeLocally: false,
+  mergeConflicts: false,
   parentBranch: '',
   prUrl: '',
   prTitle: '',
@@ -94,6 +95,7 @@ describe('buildRepoTree', () => {
       [
         ws('w1', 'r1', {
           canMergeLocally: true,
+          mergeConflicts: true,
           parentBranch: 'develop',
           prUrl: 'https://example.com/pr/1',
         }),
@@ -101,6 +103,7 @@ describe('buildRepoTree', () => {
     )
     const w = tree[0].workspaces[0]
     expect(w.canMergeLocally).toBe(true)
+    expect(w.mergeConflicts).toBe(true)
     expect(w.parentBranch).toBe('develop')
     expect(w.prUrl).toBe('https://example.com/pr/1')
   })

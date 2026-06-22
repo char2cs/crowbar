@@ -48,6 +48,7 @@ func (stubReader) SyncWorkingTreeState(
 }
 
 func (stubReader) MergeEligibilityFor(
+	_ context.Context,
 	_ domain.Workspace,
 	_ []domain.Workspace,
 ) workspace.MergeEligibility {

@@ -112,6 +112,7 @@ func newContainer(
 		ax[domain.Chat](t),
 		ax[domain.ReviewThread](t),
 		wsFactory,
+		nil,
 	)
 	require.NoError(t, err)
 	return c
@@ -130,6 +131,7 @@ func TestContainer_New_NilFactoryReturnsError(t *testing.T) {
 		hub.NewHub(),
 		ax[domain.Chat](t),
 		ax[domain.ReviewThread](t),
+		nil,
 		nil,
 	)
 	assert.Error(t, err)

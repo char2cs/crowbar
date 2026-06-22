@@ -233,7 +233,7 @@ func TestMergeEligibilityFor_NoParent(t *testing.T) {
 		{ID: "p1", Branch: "main", Status: domain.WorkspaceStatusNew},
 	}
 
-	got := uc.MergeEligibilityFor(ws, siblings)
+	got := uc.MergeEligibilityFor(context.Background(), ws, siblings)
 	assert.False(t, got.CanMergeLocally)
 	assert.Empty(t, got.ParentBranch)
 }
@@ -246,7 +246,7 @@ func TestMergeEligibilityFor_ParentLocked(t *testing.T) {
 		{ID: "p1", Branch: "main", Status: domain.WorkspaceStatusLocked},
 	}
 
-	got := uc.MergeEligibilityFor(ws, siblings)
+	got := uc.MergeEligibilityFor(context.Background(), ws, siblings)
 	assert.False(t, got.CanMergeLocally)
 	assert.Equal(t, "main", got.ParentBranch)
 }
@@ -259,7 +259,7 @@ func TestMergeEligibilityFor_ParentDeleted(t *testing.T) {
 		{ID: "p1", Branch: "main", Status: domain.WorkspaceStatusDeleted},
 	}
 
-	got := uc.MergeEligibilityFor(ws, siblings)
+	got := uc.MergeEligibilityFor(context.Background(), ws, siblings)
 	assert.False(t, got.CanMergeLocally)
 	assert.Equal(t, "main", got.ParentBranch)
 }
@@ -272,7 +272,7 @@ func TestMergeEligibilityFor_ParentIdle(t *testing.T) {
 		{ID: "p1", Branch: "feature/x", Status: domain.WorkspaceStatusNew},
 	}
 
-	got := uc.MergeEligibilityFor(ws, siblings)
+	got := uc.MergeEligibilityFor(context.Background(), ws, siblings)
 	assert.True(t, got.CanMergeLocally)
 	assert.Equal(t, "feature/x", got.ParentBranch)
 }
@@ -285,7 +285,7 @@ func TestMergeEligibilityFor_ParentMissing(t *testing.T) {
 		{ID: "p2", Branch: "main", Status: domain.WorkspaceStatusNew},
 	}
 
-	got := uc.MergeEligibilityFor(ws, siblings)
+	got := uc.MergeEligibilityFor(context.Background(), ws, siblings)
 	assert.False(t, got.CanMergeLocally)
 	assert.Empty(t, got.ParentBranch)
 }

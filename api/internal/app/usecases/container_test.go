@@ -61,6 +61,7 @@ func newContainerDeps(
 				WithShardingOpts(asynx.ShardingOpts{Shards: 8, QueueDepth: 1000}).
 				Build()
 		},
+		nil, // git conflict-checker not exercised by this test
 	)
 	require.NoError(t, err)
 

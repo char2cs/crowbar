@@ -31,13 +31,20 @@ type WorkspaceLifecycleRepo interface {
 	) (domain.Workspace, error)
 }
 
-// WorkingTreeGitEngine is the git surface used to recompute the summary.
+// WorkingTreeGitEngine is the git surface used to recompute the summary and to
+// predict whether folding a child into its parent would conflict.
 type WorkingTreeGitEngine interface {
 	WorkingTreeSummary(
 		ctx context.Context,
 		repoPath string,
 		forkPointSha string,
 	) (added, deleted int, hasConflicts, hasCommits bool, err error)
+	WouldMergeConflict(
+		ctx context.Context,
+		repoPath string,
+		ours string,
+		theirs string,
+	) (bool, error)
 }
 
 // ProjectActivityRollup is the best-effort project lastActivity roll-up surface.
@@ -80,8 +87,10 @@ type Usecase interface {
 	) (domain.Workspace, error)
 
 	// MergeEligibilityFor resolves whether ws can be merged into its local
-	// parent, reading the parent's status from the caller-held sibling set.
+	// parent, reading the parent's status from the caller-held sibling set. The
+	// ctx scopes the predicted-conflict git dry-run.
 	MergeEligibilityFor(
+		ctx context.Context,
 		ws domain.Workspace,
 		siblings []domain.Workspace,
 	) MergeEligibility
@@ -168,25 +177,15 @@ func (u *workspaceUsecase) SyncWorkingTreeState(
 
 // MergeEligibilityFor resolves whether ws can be merged into its local parent.
 // No repository call is made — the parent is resolved from siblings, which the
-// caller already holds from a preceding List call.
+// caller already holds from a preceding List call. Delegates to
+// ResolveMergeEligibility so the snapshot read and the live broadcast share one
+// implementation; the caller supplies the context for the conflict dry-run.
 func (u *workspaceUsecase) MergeEligibilityFor(
+	ctx context.Context,
 	ws domain.Workspace,
 	siblings []domain.Workspace,
 ) MergeEligibility {
-	if ws.ParentID == "" {
-		return MergeEligibility{}
-	}
-	for _, s := range siblings {
-		if s.ID == ws.ParentID {
-			eligible := s.Status != domain.WorkspaceStatusLocked &&
-				s.Status != domain.WorkspaceStatusDeleted
-			return MergeEligibility{
-				CanMergeLocally: eligible,
-				ParentBranch:    s.Branch,
-			}
-		}
-	}
-	return MergeEligibility{}
+	return ResolveMergeEligibility(ctx, ws, siblings, u.git)
 }
 
 func (u *workspaceUsecase) summarize(

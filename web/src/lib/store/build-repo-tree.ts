@@ -52,6 +52,7 @@ export function toSidebarWorkspace(ws: WorkspaceDTO): Workspace {
     deleted: ws.deleted,
     working: ws.working,
     canMergeLocally: ws.canMergeLocally,
+    mergeConflicts: ws.mergeConflicts,
     ...(ws.parentBranch ? { parentBranch: ws.parentBranch } : {}),
     ...(ws.prUrl ? { prUrl: ws.prUrl } : {}),
     age: '',

@@ -5,6 +5,7 @@ const base = {
   hasUncommitted: false,
   hasParent: true,
   canMergeLocally: true,
+  wouldConflict: false,
   status: 'new',
   ahead: 0,
   behind: 0,
@@ -27,6 +28,16 @@ describe('resolveBranchAction', () => {
 
   it('clean + mergeable parent → merge', () => {
     expect(resolveBranchAction(base).kind).toBe('merge')
+  })
+
+  it('mergeable but would conflict → merge-blocked (not merge)', () => {
+    expect(resolveBranchAction({ ...base, wouldConflict: true }).kind).toBe('merge-blocked')
+  })
+
+  it('active conflict (pr-conflicts) wins over a predicted would-conflict', () => {
+    expect(
+      resolveBranchAction({ ...base, wouldConflict: true, status: 'pr-conflicts' }).kind,
+    ).toBe('resolve')
   })
 
   it('clean + no parent → sync-only', () => {

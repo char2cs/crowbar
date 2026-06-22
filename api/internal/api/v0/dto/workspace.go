@@ -26,6 +26,7 @@ type WorkspaceDTO struct {
 	Deleted         int                     `json:"deleted"`
 	MergeStrategy   gitdomain.MergeStrategy `json:"mergeStrategy"`
 	CanMergeLocally bool                    `json:"canMergeLocally"`
+	MergeConflicts  bool                    `json:"mergeConflicts"`
 	ParentBranch    string                  `json:"parentBranch,omitempty"`
 	PRUrl           string                  `json:"prUrl,omitempty"`
 	PRTitle         string                  `json:"prTitle,omitempty"`
@@ -56,6 +57,7 @@ func WorkspaceDTOFrom(
 		Deleted:         w.Deleted,
 		MergeStrategy:   w.MergeStrategy,
 		CanMergeLocally: elig.CanMergeLocally,
+		MergeConflicts:  elig.MergeConflicts,
 		ParentBranch:    elig.ParentBranch,
 		PRUrl:           w.PRUrl,
 		PRTitle:         w.PRTitle,

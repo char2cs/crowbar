@@ -62,6 +62,7 @@ export interface WorkspaceDTO {
   deleted: number
   mergeStrategy: string
   canMergeLocally: boolean
+  mergeConflicts: boolean
   parentBranch: string
   prUrl: string
   prTitle: string

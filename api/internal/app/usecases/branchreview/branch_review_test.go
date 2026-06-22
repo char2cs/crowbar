@@ -348,6 +348,10 @@ func (g *mockGitEngine) WorkingTreeSummary(ctx context.Context, repoPath, forkPo
 	return 0, 0, false, false, nil
 }
 
+func (g *mockGitEngine) WouldMergeConflict(ctx context.Context, repoPath, ours, theirs string) (bool, error) {
+	return false, nil
+}
+
 func (g *mockGitEngine) MergeBase(ctx context.Context, repoPath, a, b string) (string, error) {
 	if g.MergeBaseFn != nil {
 		return g.MergeBaseFn(ctx, repoPath, a, b)

@@ -56,6 +56,7 @@ func New(
 		axChat,
 		axReviewThread,
 		newAsynx[domain.Workspace],
+		engines.Git,
 	)
 	if err != nil {
 		return nil, fmt.Errorf("app: repositories: %w", err)

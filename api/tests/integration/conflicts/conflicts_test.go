@@ -132,6 +132,44 @@ func (s *ConflictsSuite) TestConflicts_mergeDetectsConflict() {
 
 // TestConflicts_conflictedFilesListsFile verifies the conflicted-files endpoint
 // returns the shared file that triggered the merge conflict.
+// TestConflicts_mergeConflictsPredictedBeforeMerge verifies the workspace DTO
+// reports mergeConflicts:true when folding the child into its parent WOULD
+// conflict — computed up front, before any merge is attempted, so the UI can
+// block the merge. canMergeLocally stays structurally true.
+func (s *ConflictsSuite) TestConflicts_mergeConflictsPredictedBeforeMerge() {
+	childID := s.conflictSetup() // diverging edits to shared.txt on child + parent; no merge
+
+	getResp := s.Env.GET(s.T(), s.wsBase(childID))
+	kit.RequireStatus(s.T(), getResp, http.StatusOK)
+	var ws map[string]any
+	kit.DecodeEnvData(s.T(), getResp, &ws)
+
+	s.Assert().Equal(true, ws["mergeConflicts"],
+		"a child that would conflict must report mergeConflicts:true before any merge")
+	s.Assert().Equal(true, ws["canMergeLocally"],
+		"canMergeLocally stays structurally true")
+}
+
+// TestConflicts_mergeConflictsDeliveredOnBroadcast verifies the LIVE workspace
+// broadcast (not only the snapshot/REST read) carries the predicted
+// mergeConflicts flag — the broadcast and snapshot paths share one resolver. A
+// benign mutation (set merge strategy) triggers a broadcast; the predicate waits
+// for that post-mutation frame, so it exercises the broadcast path specifically.
+func (s *ConflictsSuite) TestConflicts_mergeConflictsDeliveredOnBroadcast() {
+	childID := s.conflictSetup() // conflict between child + parent, no merge
+
+	watcher := s.Env.DialWorkspace(s.T(), s.imported.ProjectID, s.imported.RepoID, childID)
+	resp := s.Env.PATCH(s.T(), s.wsBase(childID)+"/review", map[string]any{"mergeStrategy": "squash"})
+	kit.RequireStatus(s.T(), resp, http.StatusOK)
+	resp.Body.Close()
+
+	got := kit.WaitForWorkspace(s.T(), watcher, childID, 5*time.Second, func(m map[string]any) bool {
+		return m["mergeStrategy"] == "squash"
+	})
+	s.Assert().Equal(true, got["mergeConflicts"],
+		"the live broadcast must carry the predicted merge conflict, not only the snapshot read")
+}
+
 // TestConflicts_mergeDeleteSourceKeepsConflictedChild verifies that a conflicting
 // merge requested with deleteSource:true does NOT delete the child — the conflict
 // must be resolved first, so deleting it would lose the user's work. The child

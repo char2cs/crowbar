@@ -24,6 +24,7 @@ function workspaceDTO(over: Partial<WorkspaceDTO> & { id: string; repoId: string
     deleted: 0,
     mergeStrategy: 'merge',
     canMergeLocally: false,
+    mergeConflicts: false,
     parentBranch: '',
     prUrl: '',
     prTitle: '',

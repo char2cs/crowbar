@@ -14,6 +14,7 @@ interface BranchSectionProps {
   branch: string
   parentBranch?: string
   canMergeLocally: boolean
+  wouldConflict: boolean
   status: string
   ahead: number
   behind: number
@@ -25,6 +26,7 @@ export function BranchSection({
   branch,
   parentBranch,
   canMergeLocally,
+  wouldConflict,
   status,
   ahead,
   behind,
@@ -36,6 +38,7 @@ export function BranchSection({
     hasUncommitted: files.length > 0,
     hasParent: Boolean(parentBranch),
     canMergeLocally,
+    wouldConflict,
     status,
     ahead,
     behind,
@@ -68,6 +71,7 @@ export function BranchSection({
       return `${files.length} uncommitted change${files.length !== 1 ? 's' : ''}`
     }
     if (action.kind === 'resolve') return 'Merge conflicts'
+    if (action.kind === 'merge-blocked') return `Conflicts with ${parentBranch}`
     if (action.kind === 'pull-request') return `${parentBranch} is protected`
     // Diverged: local and the remote each hold commits the other lacks. Show
     // both — collapsing to just "behind" hides that there's local work to push.
@@ -97,7 +101,9 @@ export function BranchSection({
       <div
         className={cn(
           'ui-text-xs',
-          action.kind === 'resolve' ? 'text-destructive' : 'text-muted-foreground',
+          action.kind === 'resolve' || action.kind === 'merge-blocked'
+            ? 'text-destructive'
+            : 'text-muted-foreground',
         )}
       >
         {statusLine}
@@ -143,6 +149,15 @@ export function BranchSection({
             </Button>
           )}
 
+          {/* A clean merge isn't possible — the child conflicts with its parent.
+              Disabled: the user reconciles the conflicts first, then merges. */}
+          {action.kind === 'merge-blocked' && (
+            <Button variant="outline" size="sm" className="flex-1" disabled>
+              <Warning className="size-3.5" />
+              Resolve conflicts to merge
+            </Button>
+          )}
+
           {action.kind === 'merge' && parentBranch && (
             <MergePopover
               wsId={wsId}
@@ -174,6 +189,12 @@ export function BranchSection({
             </Button>
           )}
         </div>
+      )}
+
+      {action.kind === 'merge-blocked' && (
+        <p className="ui-text-xs text-muted-foreground">
+          Resolve the conflicts with {parentBranch} first, then merge.
+        </p>
       )}
     </div>
   )

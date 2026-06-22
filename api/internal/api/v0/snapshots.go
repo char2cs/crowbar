@@ -30,8 +30,12 @@ func workspacesSnapshot(
 			return nil
 		}
 		siblings := scopeWorkspacesToRepo(rows, projectID, repoID)
+		// Snapshot-on-subscribe has no request to scope to (it's built lazily for
+		// a connecting client), so it owns a background context — the same one it
+		// already uses for the List above. The detached context is a visible,
+		// edge-level choice here, not hidden inside the usecase.
 		eligFn := func(w domain.Workspace) workspace.MergeEligibility {
-			return appContainer.Usecases.Workspace.MergeEligibilityFor(w, siblings)
+			return appContainer.Usecases.Workspace.MergeEligibilityFor(context.Background(), w, siblings)
 		}
 		return dto.WorkspaceDTOList(siblings, eligFn)
 	}

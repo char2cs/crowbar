@@ -30,6 +30,7 @@ type Reader interface {
 		now time.Time,
 	) (domain.Workspace, error)
 	MergeEligibilityFor(
+		ctx context.Context,
 		ws domain.Workspace,
 		siblings []domain.Workspace,
 	) workspace.MergeEligibility

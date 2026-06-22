@@ -65,6 +65,7 @@ func (f *fakeReader) SyncWorkingTreeState(
 }
 
 func (f *fakeReader) MergeEligibilityFor(
+	_ context.Context,
 	ws domain.Workspace,
 	siblings []domain.Workspace,
 ) workspace.MergeEligibility {

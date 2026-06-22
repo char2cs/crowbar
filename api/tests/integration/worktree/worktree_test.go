@@ -152,6 +152,18 @@ func (s *WorktreeSuite) TestWorktree_mergeStrategyMerge() {
 	s.Assert().Equal(parentTip, reloaded["forkPointSha"])
 }
 
+// TestWorktree_mergeConflictsFalseForCleanChild verifies a child whose changes
+// fold cleanly into its parent reports mergeConflicts:false.
+func (s *WorktreeSuite) TestWorktree_mergeConflictsFalseForCleanChild() {
+	t := s.T()
+	childID, worktreePath := s.createChild("feature/clean-merge")
+	kit.CommitFile(t, worktreePath, "clean.txt", "clean\n", "clean commit")
+
+	ws := s.getWorkspace(childID)
+	s.Assert().Equal(false, ws["mergeConflicts"], "a cleanly-mergeable child must report mergeConflicts:false")
+	s.Assert().Equal(true, ws["canMergeLocally"], "structurally mergeable")
+}
+
 // TestWorktree_mergeDeleteSourceRemovesChild verifies merge-into-parent with
 // deleteSource:true folds the child branch into the parent AND removes the
 // now-merged child workspace (worktree on disk, branch, record), emitting a

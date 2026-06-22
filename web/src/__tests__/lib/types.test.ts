@@ -27,6 +27,7 @@ describe('canonical DTO shapes', () => {
       deleted: 2,
       mergeStrategy: 'rebase',
       canMergeLocally: true,
+      mergeConflicts: false,
       parentBranch: 'main',
       prUrl: '',
       prTitle: '',

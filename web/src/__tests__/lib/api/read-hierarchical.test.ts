@@ -60,6 +60,7 @@ describe('fetchWorkspaces', () => {
         deleted: 0,
         mergeStrategy: '',
         canMergeLocally: false,
+        mergeConflicts: false,
         parentBranch: '',
         prUrl: '',
         prTitle: '',

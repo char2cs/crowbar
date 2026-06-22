@@ -20,6 +20,7 @@ const base = {
   branch: 'epoch/first-pr',
   parentBranch: 'develop',
   canMergeLocally: true,
+  wouldConflict: false,
   status: 'new',
   ahead: 0,
   behind: 0,
@@ -53,6 +54,15 @@ describe('BranchSection', () => {
   it('clean + conflicts → Resolve conflicts', () => {
     render(<BranchSection {...base} status="pr-conflicts" />)
     expect(screen.getByRole('button', { name: /Resolve conflicts/ })).toBeDefined()
+  })
+
+  it('mergeable but would conflict → disabled merge + resolve message', () => {
+    render(<BranchSection {...base} wouldConflict />)
+    const btn = screen.getByRole('button', { name: /Resolve conflicts to merge/ })
+    expect(btn).toBeDisabled()
+    // No active "Merge into develop" affordance while blocked.
+    expect(screen.queryByRole('button', { name: /Merge into develop/ })).toBeNull()
+    expect(screen.getByText(/Resolve the conflicts with develop first/)).toBeDefined()
   })
 
   it('clean + ahead → a Push secondary', () => {

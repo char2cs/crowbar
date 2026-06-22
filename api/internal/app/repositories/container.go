@@ -22,6 +22,7 @@ type Container struct {
 	Chat         chat.Chat
 	ReviewThread reviewthread.ReviewThread
 	hub          hub.WebSocketHub
+	git          wsusecase.MergeConflictChecker
 }
 
 // New builds all aggregate repositories, wiring each projection's broadcast into
@@ -36,8 +37,9 @@ func New(
 	axChat asynx.Asynx[domain.Chat],
 	axReviewThread asynx.Asynx[domain.ReviewThread],
 	asynxFactory workspace.AsynxFactory,
+	git wsusecase.MergeConflictChecker,
 ) (*Container, error) {
-	c := &Container{hub: h}
+	c := &Container{hub: h, git: git}
 	ws, err := workspace.New(adapters, func(w domain.Workspace) {
 		c.broadcastWorkspace(context.Background(), w)
 	}, asynxFactory)
@@ -74,12 +76,12 @@ func (c *Container) broadcastWorkspace(
 	c.hub.BroadcastWorkspace(dto.WorkspaceDTOFrom(ws, elig))
 }
 
-// eligibilityFor resolves the merge-eligibility overlay for ws by reading its
-// repo-scoped siblings and applying the §10 rule: ParentID set AND a sibling
-// matches that id AND its status is neither locked nor deleted → eligible with
-// the parent's branch; otherwise the zero overlay. The sibling read is best
-// effort — a failed List degrades to no eligibility rather than dropping the
-// broadcast.
+// eligibilityFor resolves the merge-eligibility overlay (incl. the predicted
+// merge-conflict flag) for ws by reading its siblings and delegating to the
+// shared wsusecase.ResolveMergeEligibility — the SAME resolver the snapshot read
+// path uses, so the live broadcast and the snapshot always agree. The sibling
+// read is best effort — a failed List degrades to no eligibility rather than
+// dropping the broadcast.
 func (c *Container) eligibilityFor(
 	ctx context.Context,
 	ws domain.Workspace,
@@ -91,21 +93,7 @@ func (c *Container) eligibilityFor(
 	if err != nil {
 		return wsusecase.MergeEligibility{}
 	}
-	for _, s := range rows {
-		if s.ProjectID != ws.ProjectID || s.RepoID != ws.RepoID {
-			continue
-		}
-		if s.ID != ws.ParentID {
-			continue
-		}
-		eligible := s.Status != domain.WorkspaceStatusLocked &&
-			s.Status != domain.WorkspaceStatusDeleted
-		return wsusecase.MergeEligibility{
-			CanMergeLocally: eligible,
-			ParentBranch:    s.Branch,
-		}
-	}
-	return wsusecase.MergeEligibility{}
+	return wsusecase.ResolveMergeEligibility(ctx, ws, rows, c.git)
 }
 
 // ListWorkspaces returns every workspace row. The working overlay has been

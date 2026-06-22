@@ -1,6 +1,7 @@
 package workspace_test
 
 import (
+	"context"
 	"strconv"
 	"testing"
 
@@ -30,6 +31,6 @@ func BenchmarkMergeEligibilityFor_LargeSiblingSet(b *testing.B) {
 	b.ReportAllocs()
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
-		_ = uc.MergeEligibilityFor(ws, siblings)
+		_ = uc.MergeEligibilityFor(context.Background(), ws, siblings)
 	}
 }

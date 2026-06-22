@@ -93,6 +93,7 @@ export function GitPanel() {
               branch={activeWs?.branch ?? gitStatus?.branch ?? ''}
               parentBranch={activeWs?.parentBranch}
               canMergeLocally={activeWs?.canMergeLocally ?? false}
+              wouldConflict={activeWs?.mergeConflicts ?? false}
               status={activeWs?.status ?? 'new'}
               ahead={gitStatus?.ahead ?? 0}
               behind={gitStatus?.behind ?? 0}
