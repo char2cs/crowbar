@@ -1,5 +1,5 @@
 import React from 'react'
-import { render, screen, fireEvent } from '@testing-library/react'
+import { render, screen } from '@testing-library/react'
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { GitPanel } from '@/features/git/components/git-panel'
 
@@ -14,56 +14,55 @@ vi.mock('@/features/git/components/changed-files-tree', () => ({
   ChangedFilesTree: () => <div data-testid="changed-files-tree" />,
 }))
 
-// Capture onCommitSuccess so we can test I3 wiring.
-const mockCommitPanel = vi.fn(
-  ({ onCommitSuccess }: { onCommitSuccess?: () => void }) => (
-    <button data-testid="commit-panel" onClick={onCommitSuccess}>
-      Commit
-    </button>
-  ),
-)
-vi.mock('@/features/git/components/git-commit-panel', () => ({
-  default: (props: { onCommitSuccess?: () => void }) => mockCommitPanel(props),
+// Capture the props the unified BranchSection receives.
+const branchSectionProps = vi.fn()
+vi.mock('@/features/git/components/branch-section', () => ({
+  BranchSection: (props: Record<string, unknown>) => {
+    branchSectionProps(props)
+    return <div data-testid="branch-section" />
+  },
 }))
-vi.mock('@/features/git/components/merge-section', () => ({
-  MergeSection: () => <div data-testid="merge-section" />,
-}))
+
 vi.mock('@/features/git/components/git-history-list', () => ({
   GitHistoryList: () => <div data-testid="git-history" />,
 }))
 
-// useReviewDiff is controlled per-test via this mutable variable.
-let mockUncommittedCount = 0
 vi.mock('@/features/git/hooks/use-review-diff', () => ({
-  useReviewDiff: () => ({ files: [], uncommittedCount: mockUncommittedCount, loading: false }),
+  useReviewDiff: () => ({ files: [], uncommittedCount: 0, loading: false }),
 }))
 
-// Mock getOrCreateWorkspaceStore so git-panel can call it in event handlers.
-const mockSetBranchReviewActiveFile = vi.fn()
 vi.mock('@/features/workspace/stores/workspace-store-registry', () => ({
   getOrCreateWorkspaceStore: () => ({
-    getState: () => ({
-      branchReview: { diffCache: null },
-      setBranchReviewActiveFile: mockSetBranchReviewActiveFile,
-    }),
+    getState: () => ({ branchReview: { diffCache: null }, setBranchReviewActiveFile: vi.fn() }),
   }),
 }))
 
-vi.mock('@/features/git/stores/git-store', () => {
-  const useGitStore = (sel: (s: { gitStatus: null }) => unknown) => sel({ gitStatus: null })
-  return { useGitStore }
-})
-
-// mockActiveWs is controlled per-test to simulate workspace merge eligibility.
-type MockWs = { parentBranch?: string; canMergeLocally?: boolean; status?: string } | null
-let mockActiveWs: MockWs = null
-vi.mock('@/lib/store/sidebar', () => ({
-  useSidebarStore: (sel: (s: { repos: Array<{ workspaces: Array<{ id: string; parentBranch?: string; canMergeLocally?: boolean; status?: string }> }> }) => unknown) =>
-    sel({ repos: mockActiveWs ? [{ workspaces: [{ id: 'ws-active', ...mockActiveWs }] }] : [] }),
+// gitStatus is controlled per-test.
+let mockGitStatus: {
+  branch: string
+  ahead: number
+  behind: number
+  files: Array<{ path: string; status: string; staged: boolean }>
+} | null = null
+vi.mock('@/features/git/stores/git-store', () => ({
+  useGitStore: (sel: (s: { gitStatus: typeof mockGitStatus }) => unknown) =>
+    sel({ gitStatus: mockGitStatus }),
 }))
 
-// I1: GitPanel now reads wsId reactively via useRouterState + parseWorkspaceScopeFromPath.
-// Mock useRouterState to control the pathname; getActiveWorkspaceId is no longer used.
+// activeWs is controlled per-test.
+type MockWs = {
+  branch?: string
+  parentBranch?: string
+  canMergeLocally?: boolean
+  status?: string
+} | null
+let mockActiveWs: MockWs = null
+vi.mock('@/lib/store/sidebar', () => ({
+  useSidebarStore: (
+    sel: (s: { repos: Array<{ workspaces: Array<{ id: string } & NonNullable<MockWs>> }> }) => unknown,
+  ) => sel({ repos: mockActiveWs ? [{ workspaces: [{ id: 'ws-active', ...mockActiveWs }] }] : [] }),
+}))
+
 vi.mock('@tanstack/react-router', () => ({
   useRouterState: ({ select }: { select: (s: { location: { pathname: string } }) => unknown }) =>
     select({ location: { pathname: '/ide/proj1/repo1/ws-active' } }),
@@ -83,7 +82,7 @@ vi.mock('@/features/panes/utils/pane-command-actions', () => ({
 
 describe('GitPanel', () => {
   beforeEach(() => {
-    mockUncommittedCount = 0
+    mockGitStatus = null
     mockActiveWs = null
     vi.clearAllMocks()
   })
@@ -94,61 +93,32 @@ describe('GitPanel', () => {
     expect(screen.getByRole('tab', { name: /history/i })).toBeInTheDocument()
   })
 
-  it('shows the changed-files tree and commit panel in the Changes tab by default', () => {
+  it('renders the changed-files tree and the unified branch section in the Changes tab', () => {
     render(<GitPanel />)
     expect(screen.getByTestId('changed-files-tree')).toBeInTheDocument()
-    expect(screen.getByTestId('commit-panel')).toBeInTheDocument()
+    expect(screen.getByTestId('branch-section')).toBeInTheDocument()
   })
 
-  it('does not show the merge section when the workspace has no parentBranch', () => {
+  it('feeds BranchSection the branch/parent/ahead/behind/files from the stores', () => {
+    mockGitStatus = {
+      branch: 'epoch/first-pr',
+      ahead: 2,
+      behind: 1,
+      files: [{ path: 'a.ts', status: 'modified', staged: false }],
+    }
+    mockActiveWs = { branch: 'epoch/first-pr', parentBranch: 'develop', canMergeLocally: true, status: 'new' }
     render(<GitPanel />)
-    expect(screen.queryByTestId('merge-section')).not.toBeInTheDocument()
-  })
-
-  // I1: wsId is derived reactively from the route pathname, not a mount-time snapshot.
-  // The mocked useRouterState returns pathname '/ide/proj1/repo1/ws-active', so
-  // parseWorkspaceScopeFromPath yields wsId = 'ws-active'. File clicks now open the
-  // unified branch-review tab; useGitDiffHandlers is no longer called by GitPanel.
-  it('(I1) derives wsId from route and renders the panel without error', () => {
-    render(<GitPanel />)
-    // Panel renders correctly with wsId from route — tabs are present.
-    expect(screen.getByRole('tab', { name: /changes/i })).toBeInTheDocument()
-  })
-
-  // I3: onCommitSuccess dispatches git-status-changed so useReviewDiff re-fetches.
-  it('(I3) dispatches git-status-changed when onCommitSuccess fires', () => {
-    render(<GitPanel />)
-    const listener = vi.fn()
-    window.addEventListener('git-status-changed', listener)
-    fireEvent.click(screen.getByTestId('commit-panel'))
-    window.removeEventListener('git-status-changed', listener)
-    expect(listener).toHaveBeenCalledTimes(1)
-  })
-
-  // State-based bottom region: commit box OR merge section, never both.
-  describe('state-based bottom region', () => {
-    it('shows only commit panel when uncommittedCount > 0 even if merge-eligible', () => {
-      mockUncommittedCount = 3
-      mockActiveWs = { parentBranch: 'main', canMergeLocally: true, status: '' }
-      render(<GitPanel />)
-      expect(screen.getByTestId('commit-panel')).toBeInTheDocument()
-      expect(screen.queryByTestId('merge-section')).not.toBeInTheDocument()
-    })
-
-    it('shows only merge section when clean and merge-eligible (parentBranch present)', () => {
-      mockUncommittedCount = 0
-      mockActiveWs = { parentBranch: 'main', canMergeLocally: true, status: '' }
-      render(<GitPanel />)
-      expect(screen.getByTestId('merge-section')).toBeInTheDocument()
-      expect(screen.queryByTestId('commit-panel')).not.toBeInTheDocument()
-    })
-
-    it('shows only commit panel when clean but no parentBranch (not merge-eligible)', () => {
-      mockUncommittedCount = 0
-      mockActiveWs = null
-      render(<GitPanel />)
-      expect(screen.getByTestId('commit-panel')).toBeInTheDocument()
-      expect(screen.queryByTestId('merge-section')).not.toBeInTheDocument()
-    })
+    expect(branchSectionProps).toHaveBeenCalledWith(
+      expect.objectContaining({
+        wsId: 'ws-active',
+        branch: 'epoch/first-pr',
+        parentBranch: 'develop',
+        canMergeLocally: true,
+        status: 'new',
+        ahead: 2,
+        behind: 1,
+        files: mockGitStatus.files,
+      }),
+    )
   })
 })

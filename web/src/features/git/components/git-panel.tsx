@@ -10,8 +10,7 @@ import { parseWorkspaceScopeFromPath } from '@/lib/workspace-scope'
 import { useReviewDiff } from '@/features/git/hooks/use-review-diff'
 import { getOrCreateWorkspaceStore } from '@/features/workspace/stores/workspace-store-registry'
 import { ChangedFilesTree } from './changed-files-tree'
-import GitCommitPanel from './git-commit-panel'
-import { MergeSection } from './merge-section'
+import { BranchSection } from './branch-section'
 import { GitHistoryList } from './git-history-list'
 
 export function GitPanel() {
@@ -23,7 +22,6 @@ export function GitPanel() {
 
   // Narrow selectors: pull only the fields we need from each store.
   const gitStatus = useGitStore((s) => s.gitStatus)
-  const staged = gitStatus?.files.filter((f) => f.staged) ?? []
 
   // Active workspace metadata from sidebar store (canMergeLocally, parentBranch, status).
   const activeWs = useSidebarStore((s) => {
@@ -35,8 +33,8 @@ export function GitPanel() {
     return null
   })
 
-  // Review diff: branch-vs-parent blended files + uncommitted count.
-  const { files, uncommittedCount } = useReviewDiff(wsId)
+  // Review diff: branch-vs-parent blended files (for the changed-files tree).
+  const { files } = useReviewDiff(wsId)
 
   // Open the unified branch-review tab and scroll to the clicked file.
   // fileKey must match the scheme used by ReviewDiffView:
@@ -85,33 +83,23 @@ export function GitPanel() {
           <ChangedFilesTree files={files} repoPath={repoPath} onFileOpen={handleFileOpen} />
         </ScrollArea>
 
-        {/* Bottom pinned region: commit box OR merge section — never both.
-            If there are uncommitted changes, show only GitCommitPanel.
-            If clean and merge-eligible (parentBranch present), show only MergeSection.
-            If neither condition applies, show GitCommitPanel as a fallback. */}
-        {uncommittedCount > 0 || !(wsId && activeWs?.parentBranch) ? (
-          /* I3 fix: dispatch git-status-changed on commit/push/pull so useReviewDiff
-             re-fetches the branch diff immediately after the operation completes. */
+        {/* Bottom pinned region: one parent-anchored section whose primary action
+            reflects the branch state (commit / merge / sync). It dispatches
+            git-status-changed after any mutation so the diff + status refresh. */}
+        {wsId ? (
           <div className="shrink-0 border-t border-border">
-            <GitCommitPanel
-              stagedFilesCount={staged.length}
-              repoPath={repoPath}
+            <BranchSection
+              wsId={wsId}
+              branch={activeWs?.branch ?? gitStatus?.branch ?? ''}
+              parentBranch={activeWs?.parentBranch}
+              canMergeLocally={activeWs?.canMergeLocally ?? false}
+              status={activeWs?.status ?? 'new'}
               ahead={gitStatus?.ahead ?? 0}
               behind={gitStatus?.behind ?? 0}
-              onCommitSuccess={() => window.dispatchEvent(new Event('git-status-changed'))}
+              files={gitStatus?.files ?? []}
             />
           </div>
-        ) : (
-          <div className="shrink-0 border-t border-border p-3">
-            <MergeSection
-              wsId={wsId}
-              parentBranch={activeWs.parentBranch}
-              canMergeLocally={activeWs.canMergeLocally ?? false}
-              hasUncommitted={false}
-              status={activeWs.status ?? 'new'}
-            />
-          </div>
-        )}
+        ) : null}
       </TabsPanel>
 
       <TabsPanel value="history" className="flex flex-1 flex-col overflow-hidden">
