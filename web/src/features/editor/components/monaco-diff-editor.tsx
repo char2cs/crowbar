@@ -356,6 +356,9 @@ export function DiffMonacoEditor({
       scrollbar: {
         vertical: s.scrollable ? 'auto' : 'hidden',
         horizontal: s.scrollable ? 'auto' : 'hidden',
+        // Non-scrollable diff sections sit inside a virtualized scroll
+        // container — let the wheel pass through instead of being swallowed.
+        alwaysConsumeMouseWheel: s.scrollable,
       },
     })
 
@@ -702,6 +705,7 @@ export function DiffMonacoEditor({
       scrollbar: {
         vertical: scrollable ? 'auto' : 'hidden',
         horizontal: scrollable ? 'auto' : 'hidden',
+        alwaysConsumeMouseWheel: scrollable,
       },
     })
   }, [
