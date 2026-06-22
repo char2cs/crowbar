@@ -5,6 +5,7 @@ import {
   ArrowSquareOut as ExternalLink,
   Rows as Rows3,
 } from '@phosphor-icons/react'
+import { useVirtualizer } from '@tanstack/react-virtual'
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useStore } from 'zustand'
 const openUrl = (url: string) => {
@@ -16,7 +17,7 @@ import { useReviewCommentLayer } from './use-review-comment-layer'
 import Breadcrumb from '@/features/editor/components/toolbar/breadcrumb'
 import { EDITOR_CONSTANTS } from '@/features/editor/config/constants'
 import { FileExplorerIcon } from '@/features/file-explorer/components/file-explorer-icon'
-import { useWorkspaceStore } from '@/features/workspace/stores/workspace-context'
+import { useWorkspaceStore, useWorkspaceStoreContext } from '@/features/workspace/stores/workspace-context'
 import { useEditorSettingsStore } from '@/features/editor/stores/settings-store'
 import { calculateLineHeight, splitLines } from '@/features/editor/utils/lines'
 import { useZoomStore } from '@/features/window/stores/zoom-store'
@@ -42,7 +43,6 @@ import {
   serializeGitDiffSourceForEditor,
   serializeGitDiffSourceForSplitEditor,
 } from '../../utils/diff-editor-content'
-import DiffLineBackgroundLayer from './diff-line-background-layer'
 import GitDiffEditorSurface from './git-diff-editor-surface'
 import ImageDiffViewer from './git-diff-image'
 import { Badge } from '@/components/ui/badge'
@@ -240,7 +240,6 @@ function EmbeddedDiffSectionEditor({
     viewMode,
     zoomLevel,
   ])
-  const lineHeight = useMemo(() => calculateLineHeight(fontSize * zoomLevel), [fontSize, zoomLevel])
   const resolveAbsolutePath = useCallback(() => {
     if (sourcePath.startsWith('/') || sourcePath.startsWith('remote://')) return sourcePath
     if (!rootFolderPath) return sourcePath
@@ -275,16 +274,13 @@ function EmbeddedDiffSectionEditor({
         style={{ height: `${height}px` }}
       >
         <div className="relative overflow-hidden border-border border-r bg-background">
-          <DiffLineBackgroundLayer
-            lineKinds={splitContent.left.lineKinds}
-            lineHeight={lineHeight}
-          />
           <CodeEditor
             bufferId={leftSplitBufferId}
             isActiveSurface={false}
             showToolbar={false}
             readOnly={true}
             scrollable={false}
+            diffLineKinds={splitContent.left.lineKinds}
             onReadonlySurfaceClick={
               enableComments
                 ? undefined
@@ -294,16 +290,13 @@ function EmbeddedDiffSectionEditor({
           />
         </div>
         <div className="relative overflow-hidden bg-background">
-          <DiffLineBackgroundLayer
-            lineKinds={splitContent.right.lineKinds}
-            lineHeight={lineHeight}
-          />
           <CodeEditor
             bufferId={rightSplitBufferId}
             isActiveSurface={false}
             showToolbar={false}
             readOnly={true}
             scrollable={false}
+            diffLineKinds={splitContent.right.lineKinds}
             onReadonlySurfaceClick={
               enableComments
                 ? undefined
@@ -316,10 +309,10 @@ function EmbeddedDiffSectionEditor({
     )
   }
 
-  // With inline zones (comments or hunk headers), view zones push lines down —
-  // grow the section to the editor's true content height and let the editor own
-  // the tint as decorations (the CSS overlay is position-based and would desync
-  // below a zone).
+  // Inline zones (comments / hunk headers) push lines down, so grow the section
+  // to the editor's true content height. The tint is always applied as Monaco
+  // whole-line decorations (part of the editor layout) — a position-based CSS
+  // overlay drifts out of alignment with the rendered lines.
   const unifiedHeight = hasInlineLayer ? Math.max(height, commentContentHeight ?? 0) : height
 
   return (
@@ -327,9 +320,6 @@ function EmbeddedDiffSectionEditor({
       className="relative overflow-hidden border-border border-t bg-background"
       style={{ height: `${unifiedHeight}px` }}
     >
-      {!hasInlineLayer && (
-        <DiffLineBackgroundLayer lineKinds={unifiedContent.lineKinds} lineHeight={lineHeight} />
-      )}
       <CodeEditor
         bufferId={unifiedBufferId}
         isActiveSurface={false}
@@ -345,7 +335,7 @@ function EmbeddedDiffSectionEditor({
         commentZones={hasInlineLayer ? inlineZones : undefined}
         onAddCommentAtLine={commentLayer?.onAddCommentAtLine}
         onContentHeightChange={hasInlineLayer ? setCommentContentHeight : undefined}
-        diffLineKinds={hasInlineLayer ? unifiedContent.lineKinds : undefined}
+        diffLineKinds={unifiedContent.lineKinds}
       />
     </div>
   )
@@ -471,7 +461,7 @@ const DiffFileSection = memo(function DiffFileSection({
 
   return (
     <section className="relative isolate min-w-0 max-w-full rounded-md bg-background">
-      <div className="sticky top-0 z-50 min-w-0 max-w-full bg-background">
+      <div className="min-w-0 max-w-full bg-background">
         <div
           className={cn(
             'min-w-0 max-w-full overflow-hidden border border-border/70 bg-background shadow-[0_1px_0_rgba(0,0,0,0.04)]',
@@ -611,6 +601,46 @@ const GitDiffEditorStack = memo(function GitDiffEditorStack({
       return next
     })
   }, [])
+
+  const keyForIndex = useCallback(
+    (index: number) =>
+      multiDiff.fileKeys?.[index] ?? `${multiDiff.files[index]?.file_path}:${index}`,
+    [multiDiff.fileKeys, multiDiff.files],
+  )
+
+  // Virtualize the file list — an 830-file diff otherwise renders every section
+  // (each with a sticky header), which the browser cannot keep up with. Only the
+  // sections near the viewport mount; heights are measured dynamically.
+  const scrollRef = useRef<HTMLDivElement>(null)
+  const virtualizer = useVirtualizer({
+    count: multiDiff.files.length,
+    getScrollElement: () => scrollRef.current,
+    estimateSize: (index) => {
+      const diff = multiDiff.files[index]
+      if (!diff) return 44
+      if (!expandedFiles.has(keyForIndex(index))) return 44
+      if (shouldUseScrollableDiffEditor(diff)) return 620
+      return 44 + Math.max(diff.lines.length, 1) * 20 + 8
+    },
+    overscan: 3,
+    measureElement: (el) => el.getBoundingClientRect().height,
+  })
+
+  // Re-measure when expansion / view mode changes a section's height.
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  useEffect(() => virtualizer.measure(), [expandedFiles, viewMode])
+
+  // Scroll-to-file: the Branch Review side panel drives this via activeFileKey/Nonce.
+  const activeReviewFileKey = useWorkspaceStoreContext((s) => s.branchReview.activeFileKey)
+  const activeReviewFileNonce = useWorkspaceStoreContext((s) => s.branchReview.activeFileNonce)
+  useEffect(() => {
+    if (!activeReviewFileKey || activeReviewFileNonce === 0) return
+    const index = multiDiff.files.findIndex((_, i) => keyForIndex(i) === activeReviewFileKey)
+    if (index === -1) return
+    setExpandedFiles((prev) => new Set(prev).add(activeReviewFileKey))
+    virtualizer.scrollToIndex(index, { align: 'start' })
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [activeReviewFileNonce])
 
   useEffect(() => {
     const nextKeys = new Set(
@@ -803,6 +833,7 @@ const GitDiffEditorStack = memo(function GitDiffEditorStack({
       ) : null}
 
       <div
+        ref={scrollRef}
         className="min-h-0 flex-1 overflow-auto px-2 pb-2"
         style={{ overflowAnchor: 'none' }}
         data-diff-stack-scroll-container
@@ -812,22 +843,40 @@ const GitDiffEditorStack = memo(function GitDiffEditorStack({
             No uncommitted changes
           </div>
         ) : null}
-        <div className="flex min-w-0 max-w-full flex-col gap-2 rounded-md">
-          {multiDiff.files.map((diff, index) => {
-            const sectionKey = multiDiff.fileKeys?.[index] ?? `${diff.file_path}:${index}`
+        <div
+          className="relative min-w-0 max-w-full"
+          style={{ height: `${virtualizer.getTotalSize()}px` }}
+        >
+          {virtualizer.getVirtualItems().map((virtualItem) => {
+            const diff = multiDiff.files[virtualItem.index]
+            if (!diff) return null
+            const sectionKey = keyForIndex(virtualItem.index)
 
             return (
-              <DiffFileSection
+              <div
                 key={sectionKey}
-                diff={diff}
-                sectionKey={sectionKey}
-                expanded={expandedFiles.has(sectionKey)}
-                viewMode={viewMode}
-                enableHunkActions={isWorkingTree}
-                enableComments={enableComments}
-                onToggle={handleToggleSection}
-                onOpenFile={handleOpenFile}
-              />
+                ref={virtualizer.measureElement}
+                data-index={virtualItem.index}
+                style={{
+                  position: 'absolute',
+                  top: 0,
+                  left: 0,
+                  width: '100%',
+                  transform: `translateY(${virtualItem.start}px)`,
+                  paddingBottom: 8,
+                }}
+              >
+                <DiffFileSection
+                  diff={diff}
+                  sectionKey={sectionKey}
+                  expanded={expandedFiles.has(sectionKey)}
+                  viewMode={viewMode}
+                  enableHunkActions={isWorkingTree}
+                  enableComments={enableComments}
+                  onToggle={handleToggleSection}
+                  onOpenFile={handleOpenFile}
+                />
+              </div>
             )
           })}
         </div>
