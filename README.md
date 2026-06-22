@@ -5,7 +5,7 @@ Crowbar is a self-improving agentic development platform. It orchestrates AI age
 
 ---
 
-TEST # This is a change of a child branch
+TEST # This is a change of a child branch CONFLICTING CHNAGE FROM PARENT
 
 ## The Problem
 
