@@ -201,22 +201,12 @@ export function ReviewThreadItem({
               />
             )}
             {thread.isResolved ? (
-              <Button
-                size="xs"
-                variant="ghost"
-                onClick={handleReopen}
-                disabled={isSubmitting}
-              >
+              <Button size="sm" variant="ghost" onClick={handleReopen} disabled={isSubmitting}>
                 <ArrowCounterClockwise className="size-3.5" />
                 Reopen
               </Button>
             ) : (
-              <Button
-                size="xs"
-                variant="default"
-                onClick={handleResolve}
-                disabled={isSubmitting}
-              >
+              <Button size="sm" variant="default" onClick={handleResolve} disabled={isSubmitting}>
                 <CheckCircle className="size-3.5" />
                 Resolve
               </Button>
