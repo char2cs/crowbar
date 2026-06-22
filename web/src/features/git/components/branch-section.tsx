@@ -3,7 +3,7 @@ import { GitBranch, ArrowUp, ArrowDown, Warning } from '@phosphor-icons/react'
 import { Button } from '@/components/ui/button'
 import { cn } from '@/utils/cn'
 import { toast } from '@/features/window/stores/toast-store'
-import { CommitDialog } from './commit-dialog'
+import { CommitPopover } from './commit-popover'
 import { MergePopover } from './merge-popover'
 import { resolveBranchAction } from '../lib/branch-action'
 import { pushChanges, pullChanges } from '../api/git-remotes-api'
@@ -30,7 +30,6 @@ export function BranchSection({
   behind,
   files,
 }: BranchSectionProps) {
-  const [commitOpen, setCommitOpen] = useState(false)
   const [remoteBusy, setRemoteBusy] = useState(false)
 
   const action = resolveBranchAction({
@@ -101,9 +100,16 @@ export function BranchSection({
       {hasAction && (
         <div className="flex items-center gap-2">
           {action.kind === 'commit' && (
-            <Button variant="default" size="sm" className="flex-1" onClick={() => setCommitOpen(true)}>
-              Commit changes
-            </Button>
+            <CommitPopover
+              wsId={wsId}
+              files={files}
+              onCommitted={refresh}
+              trigger={
+                <Button variant="default" size="sm" className="flex-1">
+                  Commit changes
+                </Button>
+              }
+            />
           )}
 
           {action.kind === 'resolve' && (
@@ -163,14 +169,6 @@ export function BranchSection({
           )}
         </div>
       )}
-
-      <CommitDialog
-        open={commitOpen}
-        onOpenChange={setCommitOpen}
-        wsId={wsId}
-        files={files}
-        onCommitted={refresh}
-      />
     </div>
   )
 }

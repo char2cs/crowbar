@@ -4,7 +4,9 @@ import { BranchSection } from '@/features/git/components/branch-section'
 import type { GitFile } from '@/features/git/types/git-types'
 
 // Stub the heavy children so this test isolates BranchSection's own rendering.
-vi.mock('@/features/git/components/commit-dialog', () => ({ CommitDialog: () => null }))
+vi.mock('@/features/git/components/commit-popover', () => ({
+  CommitPopover: ({ trigger }: { trigger: React.ReactElement }) => trigger,
+}))
 vi.mock('@/features/git/components/merge-popover', () => ({
   MergePopover: ({ trigger }: { trigger: React.ReactElement }) => trigger,
 }))
