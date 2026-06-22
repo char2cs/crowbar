@@ -581,10 +581,6 @@ const GitDiffEditorStack = memo(function GitDiffEditorStack({
     measureElement: (el) => el.getBoundingClientRect().height,
   })
 
-  // Re-measure when expansion / view mode changes a section's height.
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  useEffect(() => virtualizer.measure(), [expandedFiles, viewMode])
-
   // Scroll-to-file: the Branch Review side panel drives this via activeFileKey/Nonce.
   const activeReviewFileKey = useWorkspaceStoreContext((s) => s.branchReview.activeFileKey)
   const activeReviewFileNonce = useWorkspaceStoreContext((s) => s.branchReview.activeFileNonce)
