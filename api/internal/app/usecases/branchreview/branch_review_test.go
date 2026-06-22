@@ -132,6 +132,18 @@ func (m *mockReviewThread) Reply(ctx context.Context, id, messageID, author stri
 	return m.ReplyFn(ctx, id, messageID, author, isAgent, body, now)
 }
 
+func (m *mockReviewThread) EditMessage(_ context.Context, _, _, _ string) (domain.ReviewThread, error) {
+	return domain.ReviewThread{}, nil
+}
+
+func (m *mockReviewThread) DeleteMessage(_ context.Context, _, _ string) (domain.ReviewThread, error) {
+	return domain.ReviewThread{}, nil
+}
+
+func (m *mockReviewThread) DeleteThread(_ context.Context, _ string) error {
+	return nil
+}
+
 func (m *mockReviewThread) Resolve(ctx context.Context, id string) (domain.ReviewThread, error) {
 	return m.ResolveFn(ctx, id)
 }

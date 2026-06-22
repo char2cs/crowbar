@@ -45,6 +45,30 @@ func (stubStore) Reply(
 	return domain.ReviewThread{}, nil
 }
 
+func (stubStore) EditMessage(
+	_ context.Context,
+	_ string,
+	_ string,
+	_ string,
+) (domain.ReviewThread, error) {
+	return domain.ReviewThread{}, nil
+}
+
+func (stubStore) DeleteMessage(
+	_ context.Context,
+	_ string,
+	_ string,
+) (domain.ReviewThread, error) {
+	return domain.ReviewThread{}, nil
+}
+
+func (stubStore) DeleteThread(
+	_ context.Context,
+	_ string,
+) error {
+	return nil
+}
+
 func (stubStore) Resolve(
 	_ context.Context,
 	_ string,
@@ -117,7 +141,10 @@ func TestRegisterMountsRoutes(
 		{http.MethodPost, base},
 		{http.MethodGet, base + "/t1"},
 		{http.MethodPatch, base + "/t1"},
+		{http.MethodDelete, base + "/t1"},
 		{http.MethodPost, base + "/t1/replies"},
+		{http.MethodPatch, base + "/t1/messages/m1"},
+		{http.MethodDelete, base + "/t1/messages/m1"},
 	}
 	for _, tc := range cases {
 		rec := httptest.NewRecorder()

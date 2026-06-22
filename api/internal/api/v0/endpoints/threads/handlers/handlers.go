@@ -32,6 +32,21 @@ type ThreadStore interface {
 		body string,
 		now time.Time,
 	) (domain.ReviewThread, error)
+	EditMessage(
+		ctx context.Context,
+		id string,
+		messageID string,
+		body string,
+	) (domain.ReviewThread, error)
+	DeleteMessage(
+		ctx context.Context,
+		id string,
+		messageID string,
+	) (domain.ReviewThread, error)
+	DeleteThread(
+		ctx context.Context,
+		id string,
+	) error
 	Resolve(
 		ctx context.Context,
 		id string,

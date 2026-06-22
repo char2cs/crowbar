@@ -28,5 +28,8 @@ func Register(
 	rg.POST("/threads", h.OpenThread)
 	rg.GET("/threads/:threadId", h.Detail)
 	rg.PATCH("/threads/:threadId", h.SetResolved)
+	rg.DELETE("/threads/:threadId", h.DeleteThread)
 	rg.POST("/threads/:threadId/replies", h.Reply)
+	rg.PATCH("/threads/:threadId/messages/:messageId", h.EditMessage)
+	rg.DELETE("/threads/:threadId/messages/:messageId", h.DeleteMessage)
 }

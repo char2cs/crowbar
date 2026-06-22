@@ -48,6 +48,21 @@ type ReviewThread interface {
 		body string,
 		now time.Time,
 	) (domain.ReviewThread, error)
+	EditMessage(
+		ctx context.Context,
+		id string,
+		messageID string,
+		body string,
+	) (domain.ReviewThread, error)
+	DeleteMessage(
+		ctx context.Context,
+		id string,
+		messageID string,
+	) (domain.ReviewThread, error)
+	DeleteThread(
+		ctx context.Context,
+		id string,
+	) error
 	Resolve(
 		ctx context.Context,
 		id string,
@@ -134,6 +149,48 @@ func (r *reviewThread) Reply(
 		return domain.ReviewThread{}, fmt.Errorf("reviewthread: reply: %w", err)
 	}
 	return evt.Aggregate, nil
+}
+
+func (r *reviewThread) EditMessage(
+	ctx context.Context,
+	id string,
+	messageID string,
+	body string,
+) (domain.ReviewThread, error) {
+	evt, err := r.ax.SendWait(ctx, commands.EditReviewMessage{
+		ID:        id,
+		MessageID: messageID,
+		Body:      body,
+	})
+	if err != nil {
+		return domain.ReviewThread{}, fmt.Errorf("reviewthread: edit message: %w", err)
+	}
+	return evt.Aggregate, nil
+}
+
+func (r *reviewThread) DeleteMessage(
+	ctx context.Context,
+	id string,
+	messageID string,
+) (domain.ReviewThread, error) {
+	evt, err := r.ax.SendWait(ctx, commands.DeleteReviewMessage{
+		ID:        id,
+		MessageID: messageID,
+	})
+	if err != nil {
+		return domain.ReviewThread{}, fmt.Errorf("reviewthread: delete message: %w", err)
+	}
+	return evt.Aggregate, nil
+}
+
+func (r *reviewThread) DeleteThread(
+	ctx context.Context,
+	id string,
+) error {
+	if err := r.ax.Forget(ctx, id); err != nil {
+		return fmt.Errorf("reviewthread: delete thread: %w", err)
+	}
+	return nil
 }
 
 func (r *reviewThread) Resolve(

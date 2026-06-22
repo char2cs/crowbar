@@ -12,6 +12,9 @@ import (
 type MockReviewThread struct {
 	OpenFn            func(ctx context.Context, in reviewthread.OpenInput, now time.Time) (domain.ReviewThread, error)
 	ReplyFn           func(ctx context.Context, id, messageID, author string, isAgent bool, body string, now time.Time) (domain.ReviewThread, error)
+	EditMessageFn     func(ctx context.Context, id, messageID, body string) (domain.ReviewThread, error)
+	DeleteMessageFn   func(ctx context.Context, id, messageID string) (domain.ReviewThread, error)
+	DeleteThreadFn    func(ctx context.Context, id string) error
 	ResolveFn         func(ctx context.Context, id string) (domain.ReviewThread, error)
 	ReopenFn          func(ctx context.Context, id string) (domain.ReviewThread, error)
 	GetFn             func(ctx context.Context, id string) (domain.ReviewThread, error)
@@ -37,6 +40,30 @@ func (m *MockReviewThread) Reply(
 	now time.Time,
 ) (domain.ReviewThread, error) {
 	return m.ReplyFn(ctx, id, messageID, author, isAgent, body, now)
+}
+
+func (m *MockReviewThread) EditMessage(
+	ctx context.Context,
+	id string,
+	messageID string,
+	body string,
+) (domain.ReviewThread, error) {
+	return m.EditMessageFn(ctx, id, messageID, body)
+}
+
+func (m *MockReviewThread) DeleteMessage(
+	ctx context.Context,
+	id string,
+	messageID string,
+) (domain.ReviewThread, error) {
+	return m.DeleteMessageFn(ctx, id, messageID)
+}
+
+func (m *MockReviewThread) DeleteThread(
+	ctx context.Context,
+	id string,
+) error {
+	return m.DeleteThreadFn(ctx, id)
 }
 
 func (m *MockReviewThread) Resolve(

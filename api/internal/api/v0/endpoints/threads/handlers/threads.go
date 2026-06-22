@@ -4,6 +4,7 @@ import (
 	"errors"
 	"net/http"
 
+	asynxModels "github.com/char2cs/asynx/models"
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
 
@@ -20,13 +21,18 @@ func newUUID() string {
 }
 
 // threadErrorStatus maps a store error to an HTTP status: a not-found aggregate
-// yields 404, every other failure yields 500 so a real store error is never
-// masked as a 404.
+// yields 404, a command validation failure (e.g. deleting the root via the
+// message route, or editing a message that no longer exists) yields 400 as a
+// deterministic client error, and every other failure yields 500 so a real
+// store error is never masked.
 func threadErrorStatus(
 	err error,
 ) int {
 	if errors.Is(err, apperr.ErrNotFound) {
 		return http.StatusNotFound
+	}
+	if errors.Is(err, asynxModels.ErrValidation) {
+		return http.StatusBadRequest
 	}
 	return http.StatusInternalServerError
 }
@@ -176,6 +182,79 @@ func (h *Handlers) Reply(
 	d := dto.ThreadDTOFrom(thread.NormalizedMessages(), projectID, repoID)
 	h.push(d)
 	libs.WriteQueryOK(ctx, d)
+}
+
+// EditMessage handles PATCH
+// /v0/projects/:projectId/repos/:repoId/workspaces/:wsId/threads/:threadId/messages/:messageId,
+// rewriting a message body. It targets any message by id, including the root
+// comment. Returns 200 with the scoped DTO and broadcasts it.
+func (h *Handlers) EditMessage(
+	ctx *gin.Context,
+) {
+	projectID, repoID, _ := scope(ctx)
+	threadID := ctx.Param("threadId")
+	messageID := ctx.Param("messageId")
+	var body struct {
+		Body string `json:"body"`
+	}
+	if err := ctx.ShouldBindJSON(&body); err != nil {
+		libs.WriteErr(ctx, http.StatusBadRequest, err.Error())
+		return
+	}
+	thread, err := h.store.EditMessage(ctx.Request.Context(), threadID, messageID, body.Body)
+	if err != nil {
+		libs.WriteErr(ctx, threadErrorStatus(err), err.Error())
+		return
+	}
+	d := dto.ThreadDTOFrom(thread.NormalizedMessages(), projectID, repoID)
+	h.push(d)
+	libs.WriteQueryOK(ctx, d)
+}
+
+// DeleteMessage handles DELETE
+// /v0/projects/:projectId/repos/:repoId/workspaces/:wsId/threads/:threadId/messages/:messageId,
+// removing a single reply. The root comment cannot be removed this way (deleting
+// the root is DELETE on the thread); attempting it yields a 400. Returns 200 with
+// the updated thread DTO and broadcasts it.
+func (h *Handlers) DeleteMessage(
+	ctx *gin.Context,
+) {
+	projectID, repoID, _ := scope(ctx)
+	threadID := ctx.Param("threadId")
+	messageID := ctx.Param("messageId")
+	thread, err := h.store.DeleteMessage(ctx.Request.Context(), threadID, messageID)
+	if err != nil {
+		libs.WriteErr(ctx, threadErrorStatus(err), err.Error())
+		return
+	}
+	d := dto.ThreadDTOFrom(thread.NormalizedMessages(), projectID, repoID)
+	h.push(d)
+	libs.WriteQueryOK(ctx, d)
+}
+
+// DeleteThread handles DELETE
+// /v0/projects/:projectId/repos/:repoId/workspaces/:wsId/threads/:threadId,
+// forgetting the whole thread (root comment + replies). It broadcasts a tombstone
+// DTO (Deleted=true) carrying the entity scope so subscribed clients drop it, and
+// returns 200 with the same tombstone.
+func (h *Handlers) DeleteThread(
+	ctx *gin.Context,
+) {
+	projectID, repoID, wsID := scope(ctx)
+	threadID := ctx.Param("threadId")
+	if err := h.store.DeleteThread(ctx.Request.Context(), threadID); err != nil {
+		libs.WriteErr(ctx, threadErrorStatus(err), err.Error())
+		return
+	}
+	tombstone := dto.ThreadDTO{
+		ID:          threadID,
+		ProjectID:   projectID,
+		RepoID:      repoID,
+		WorkspaceID: wsID,
+		Deleted:     true,
+	}
+	h.push(tombstone)
+	libs.WriteQueryOK(ctx, tombstone)
 }
 
 // push forwards a thread DTO to the broadcaster when one is wired.

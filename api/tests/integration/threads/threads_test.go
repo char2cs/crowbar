@@ -114,6 +114,104 @@ func (s *ThreadsSuite) TestThreads_Reply_Broadcasts() {
 	s.Assert().Equal(threadID, msg["id"])
 }
 
+// TestThreads_EditMessage_Broadcasts verifies PATCH .../threads/:id/messages/:mid
+// rewrites the root comment body (by its surfaced messageId) and broadcasts the
+// updated ThreadDTO.
+func (s *ThreadsSuite) TestThreads_EditMessage_Broadcasts() {
+	t := s.T()
+
+	thread := s.openThread("edit.go", 3, "Typo here.")
+	threadID := thread["id"].(string)
+	rootMessageID, ok := thread["messageId"].(string)
+	s.Require().True(ok, "the root comment id is surfaced as messageId")
+	s.Require().NotEmpty(rootMessageID)
+
+	watcher := s.Env.DialThreads(t, s.imported.ProjectID, s.imported.RepoID, s.wsID)
+
+	editResp := s.Env.PATCH(t, s.threadsBase()+"/"+threadID+"/messages/"+rootMessageID, map[string]any{
+		"body": "Fixed the typo.",
+	})
+	kit.RequireStatus(t, editResp, http.StatusOK)
+	var edited map[string]any
+	kit.DecodeEnvData(t, editResp, &edited)
+	s.Assert().Equal("Fixed the typo.", edited["body"])
+
+	watcher.ReadUntil(t, 5*time.Second, func(m map[string]any) bool {
+		return m["id"] == threadID && m["body"] == "Fixed the typo."
+	})
+}
+
+// TestThreads_DeleteMessage_Broadcasts verifies DELETE .../messages/:mid removes
+// a reply (200 + updated DTO) and rejects deleting the root comment with a 400.
+func (s *ThreadsSuite) TestThreads_DeleteMessage_Broadcasts() {
+	t := s.T()
+
+	thread := s.openThread("del.go", 7, "Root.")
+	threadID := thread["id"].(string)
+	rootMessageID := thread["messageId"].(string)
+
+	replyResp := s.Env.POST(t, s.threadsBase()+"/"+threadID+"/replies", map[string]any{"body": "A reply."})
+	kit.RequireStatus(t, replyResp, http.StatusOK)
+	var replied map[string]any
+	kit.DecodeEnvData(t, replyResp, &replied)
+	replies := replied["replies"].([]any)
+	s.Require().Len(replies, 1)
+	replyID := replies[0].(map[string]any)["id"].(string)
+
+	// Deleting the root via the message route is rejected with 400 — use DELETE thread.
+	rejectResp := s.Env.DELETE(t, s.threadsBase()+"/"+threadID+"/messages/"+rootMessageID)
+	kit.RequireStatus(t, rejectResp, http.StatusBadRequest)
+
+	watcher := s.Env.DialThreads(t, s.imported.ProjectID, s.imported.RepoID, s.wsID)
+
+	delResp := s.Env.DELETE(t, s.threadsBase()+"/"+threadID+"/messages/"+replyID)
+	kit.RequireStatus(t, delResp, http.StatusOK)
+	var afterDelete map[string]any
+	kit.DecodeEnvData(t, delResp, &afterDelete)
+	remaining, _ := afterDelete["replies"].([]any)
+	s.Assert().Empty(remaining, "the reply is gone after delete")
+
+	watcher.ReadUntil(t, 5*time.Second, func(m map[string]any) bool {
+		if m["id"] != threadID {
+			return false
+		}
+		r, _ := m["replies"].([]any)
+		return len(r) == 0
+	})
+}
+
+// TestThreads_DeleteThread_BroadcastsTombstone verifies DELETE .../threads/:id
+// forgets the thread (it disappears from the list) and broadcasts a tombstone
+// (deleted=true) so subscribed clients drop it.
+func (s *ThreadsSuite) TestThreads_DeleteThread_BroadcastsTombstone() {
+	t := s.T()
+
+	thread := s.openThread("gone.go", 2, "Delete this whole thread.")
+	threadID := thread["id"].(string)
+
+	watcher := s.Env.DialThreads(t, s.imported.ProjectID, s.imported.RepoID, s.wsID)
+
+	delResp := s.Env.DELETE(t, s.threadsBase()+"/"+threadID)
+	kit.RequireStatus(t, delResp, http.StatusOK)
+	var tombstone map[string]any
+	kit.DecodeEnvData(t, delResp, &tombstone)
+	s.Assert().Equal(true, tombstone["deleted"])
+
+	watcher.ReadUntil(t, 5*time.Second, func(m map[string]any) bool {
+		d, _ := m["deleted"].(bool)
+		return m["id"] == threadID && d
+	})
+
+	// The thread is gone from the workspace list.
+	listResp := s.Env.GET(t, s.threadsBase())
+	kit.RequireStatus(t, listResp, http.StatusOK)
+	var list []map[string]any
+	kit.DecodeEnvData(t, listResp, &list)
+	for _, th := range list {
+		s.Assert().NotEqual(threadID, th["id"], "the deleted thread must not be listed")
+	}
+}
+
 // TestThreads_Resolve_Broadcasts verifies PATCH .../threads/:id toggles resolved
 // (200 + scoped DTO) and broadcasts the updated ThreadDTO both ways.
 func (s *ThreadsSuite) TestThreads_Resolve_Broadcasts() {

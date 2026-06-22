@@ -9,12 +9,14 @@ import (
 	"testing"
 	"time"
 
+	asynxModels "github.com/char2cs/asynx/models"
 	"github.com/gin-gonic/gin"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
 	"github.com/char2cs/crowbar/api/internal/api/v0/dto"
 	"github.com/char2cs/crowbar/api/internal/api/v0/endpoints/threads/handlers"
+	"github.com/char2cs/crowbar/api/internal/app/apperr"
 	"github.com/char2cs/crowbar/api/internal/app/repositories/reviewthread"
 	"github.com/char2cs/crowbar/api/internal/domain"
 )
@@ -29,18 +31,24 @@ func TestMain(
 // fakeStore records the calls the handlers make and returns canned threads so
 // the broadcast + response assertions can be made without an event store.
 type fakeStore struct {
-	openIn      reviewthread.OpenInput
-	replyID     string
-	replyAuthor string
-	replyIsAgent bool
-	replyBody   string
-	resolveID   string
-	reopenID    string
-	getID       string
-	listWsID    string
-	thread      domain.ReviewThread
-	listResult  []domain.ReviewThread
-	err         error
+	openIn         reviewthread.OpenInput
+	replyID        string
+	replyAuthor    string
+	replyIsAgent   bool
+	replyBody      string
+	editID         string
+	editMsgID      string
+	editBody       string
+	deleteMsgID    string
+	deleteMsgMsgID string
+	deleteThreadID string
+	resolveID      string
+	reopenID       string
+	getID          string
+	listWsID       string
+	thread         domain.ReviewThread
+	listResult     []domain.ReviewThread
+	err            error
 }
 
 func (f *fakeStore) Open(
@@ -66,6 +74,36 @@ func (f *fakeStore) Reply(
 	f.replyIsAgent = isAgent
 	f.replyBody = body
 	return f.thread, f.err
+}
+
+func (f *fakeStore) EditMessage(
+	_ context.Context,
+	id string,
+	messageID string,
+	body string,
+) (domain.ReviewThread, error) {
+	f.editID = id
+	f.editMsgID = messageID
+	f.editBody = body
+	return f.thread, f.err
+}
+
+func (f *fakeStore) DeleteMessage(
+	_ context.Context,
+	id string,
+	messageID string,
+) (domain.ReviewThread, error) {
+	f.deleteMsgID = id
+	f.deleteMsgMsgID = messageID
+	return f.thread, f.err
+}
+
+func (f *fakeStore) DeleteThread(
+	_ context.Context,
+	id string,
+) error {
+	f.deleteThreadID = id
+	return f.err
 }
 
 func (f *fakeStore) Resolve(
@@ -122,7 +160,10 @@ func newRouter(
 	ws.POST("/threads", h.OpenThread)
 	ws.GET("/threads/:threadId", h.Detail)
 	ws.PATCH("/threads/:threadId", h.SetResolved)
+	ws.DELETE("/threads/:threadId", h.DeleteThread)
 	ws.POST("/threads/:threadId/replies", h.Reply)
+	ws.PATCH("/threads/:threadId/messages/:messageId", h.EditMessage)
+	ws.DELETE("/threads/:threadId/messages/:messageId", h.DeleteMessage)
 	return r
 }
 
@@ -223,6 +264,105 @@ func TestReply_BroadcastsAndReturns(t *testing.T) {
 	assert.Equal(t, "a reply", store.replyBody)
 	require.Len(t, bc.pushed, 1)
 	assert.Equal(t, "t1", bc.pushed[0].ID)
+}
+
+// TestEditMessage_BroadcastsAndReturns asserts PATCH .../messages/:messageId
+// edits a message through the store, returns 200 with the DTO, and broadcasts it.
+func TestEditMessage_BroadcastsAndReturns(t *testing.T) {
+	store := &fakeStore{thread: sampleThread()}
+	bc := &fakeBroadcaster{}
+	r := newRouter(store, bc)
+
+	rec := do(r, http.MethodPatch, base+"/t1/messages/m1", map[string]any{"body": "edited"})
+
+	assert.Equal(t, http.StatusOK, rec.Code)
+	assert.Equal(t, "t1", store.editID)
+	assert.Equal(t, "m1", store.editMsgID)
+	assert.Equal(t, "edited", store.editBody)
+	require.Len(t, bc.pushed, 1)
+	assert.Equal(t, "t1", bc.pushed[0].ID)
+}
+
+// TestEditMessage_BadJSON asserts a malformed edit body is rejected with 400
+// before the store is touched.
+func TestEditMessage_BadJSON(t *testing.T) {
+	store := &fakeStore{thread: sampleThread()}
+	r := newRouter(store, &fakeBroadcaster{})
+
+	assert.Equal(t, http.StatusBadRequest, doRaw(r, http.MethodPatch, base+"/t1/messages/m1", "{bad").Code)
+	assert.Empty(t, store.editID)
+}
+
+// TestDeleteMessage_BroadcastsAndReturns asserts DELETE .../messages/:messageId
+// removes a reply through the store, returns 200 with the updated DTO, and
+// broadcasts it.
+func TestDeleteMessage_BroadcastsAndReturns(t *testing.T) {
+	store := &fakeStore{thread: sampleThread()}
+	bc := &fakeBroadcaster{}
+	r := newRouter(store, bc)
+
+	rec := do(r, http.MethodDelete, base+"/t1/messages/m2", nil)
+
+	assert.Equal(t, http.StatusOK, rec.Code)
+	assert.Equal(t, "t1", store.deleteMsgID)
+	assert.Equal(t, "m2", store.deleteMsgMsgID)
+	require.Len(t, bc.pushed, 1)
+	assert.Equal(t, "t1", bc.pushed[0].ID)
+}
+
+// TestDeleteThread_BroadcastsTombstone asserts DELETE .../threads/:threadId
+// forgets the thread and broadcasts a scoped tombstone (Deleted=true) so
+// subscribed clients drop it.
+func TestDeleteThread_BroadcastsTombstone(t *testing.T) {
+	store := &fakeStore{thread: sampleThread()}
+	bc := &fakeBroadcaster{}
+	r := newRouter(store, bc)
+
+	rec := do(r, http.MethodDelete, base+"/t1", nil)
+
+	assert.Equal(t, http.StatusOK, rec.Code)
+	assert.Equal(t, "t1", store.deleteThreadID)
+	require.Len(t, bc.pushed, 1)
+	assert.Equal(t, "t1", bc.pushed[0].ID)
+	assert.Equal(t, "p1", bc.pushed[0].ProjectID)
+	assert.Equal(t, "r1", bc.pushed[0].RepoID)
+	assert.Equal(t, "w1", bc.pushed[0].WorkspaceID)
+	assert.True(t, bc.pushed[0].Deleted)
+
+	var env struct {
+		Data dto.ThreadDTO `json:"data"`
+	}
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &env))
+	assert.True(t, env.Data.Deleted)
+}
+
+// TestDeleteThread_NotFound asserts the handler maps a not-found store error to
+// 404. (Note: the real ax.Forget path returns a validation error, not
+// ErrNotFound — see TestThreadMutations_Validation_400 for that production path.)
+func TestDeleteThread_NotFound(t *testing.T) {
+	store := &fakeStore{err: apperr.ErrNotFound}
+	bc := &fakeBroadcaster{}
+	r := newRouter(store, bc)
+
+	assert.Equal(t, http.StatusNotFound, do(r, http.MethodDelete, base+"/t1", nil).Code)
+	assert.Empty(t, bc.pushed)
+}
+
+// TestThreadMutations_Validation_400 asserts the production error mapping: a
+// command validation failure (asynx ErrValidation) — e.g. deleting the root via
+// the message route, editing a vanished message, or forgetting a missing thread —
+// maps to 400 and broadcasts nothing. This is the error the real store layer
+// actually returns (ax.Forget and the edit/delete commands wrap ErrValidation).
+func TestThreadMutations_Validation_400(t *testing.T) {
+	store := &fakeStore{err: asynxModels.ErrValidation}
+	bc := &fakeBroadcaster{}
+	r := newRouter(store, bc)
+
+	assert.Equal(t, http.StatusBadRequest, do(r, http.MethodDelete, base+"/t1", nil).Code)
+	assert.Equal(t, http.StatusBadRequest, do(r, http.MethodDelete, base+"/t1/messages/m1", nil).Code)
+	assert.Equal(t, http.StatusBadRequest, do(r, http.MethodPatch, base+"/t1/messages/m1",
+		map[string]any{"body": "x"}).Code)
+	assert.Empty(t, bc.pushed)
 }
 
 // TestSetResolved_Resolve asserts a PATCH with isResolved=true resolves through

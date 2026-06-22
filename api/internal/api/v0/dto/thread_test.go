@@ -44,7 +44,11 @@ func TestThreadDTOFrom(t *testing.T) {
 	assert.Equal(t, "right", got.Side)
 	assert.Equal(t, "root comment", got.Body)
 	assert.Equal(t, "alice", got.Author)
+	// The root message's real id is surfaced so the client can edit the root by
+	// the same /messages/:messageId route that addresses replies.
+	assert.Equal(t, "m1", got.MessageID)
 	assert.True(t, got.Resolved)
+	assert.False(t, got.Deleted)
 	assert.Equal(t, created, got.CreatedAt)
 
 	require.Len(t, got.Replies, 1)
