@@ -44,6 +44,12 @@ export const stageFile = (wsId: string, filePath: string): Promise<boolean> =>
 export const unstageFile = (wsId: string, filePath: string): Promise<boolean> =>
   gitPost(wsId, 'unstage', { paths: [filePath] })
 
+export const stagePaths = (wsId: string, paths: string[]): Promise<boolean> =>
+  gitPost(wsId, 'stage', { paths })
+
+export const unstagePaths = (wsId: string, paths: string[]): Promise<boolean> =>
+  gitPost(wsId, 'unstage', { paths })
+
 export const stageAllFiles = (wsId: string): Promise<boolean> =>
   gitPost(wsId, 'stage', { paths: ['.'] })
 
