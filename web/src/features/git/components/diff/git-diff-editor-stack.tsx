@@ -25,7 +25,7 @@ import { useFileSystemStore } from '@/features/file-system/controllers/store'
 import { Button } from '@/components/ui/button'
 import Tooltip from '@/components/ui/tooltip'
 import { cn } from '@/utils/cn'
-import { formatRelativeDate } from '@/utils/date'
+import { DiffReviewHeader } from './diff-review-header'
 import { getRemotes } from '../../api/git-remotes-api'
 import { getGitStatus } from '../../api/git-status-api'
 import { useDiffEditorBuffer } from '../../hooks/use-diff-editor-buffer'
@@ -511,10 +511,17 @@ function getInitialExpandedFiles(multiDiff: MultiFileDiff): Set<string> {
 const GitDiffEditorStack = memo(function GitDiffEditorStack({
   multiDiff,
   enableComments = false,
+  branchHeader,
 }: {
   multiDiff: MultiFileDiff
   /** Enable the inline review-comment layer (the Branch Review surface). */
   enableComments?: boolean
+  /**
+   * Branch-review header data. When present, the shared header shows the branch
+   * name as its title and the base branch as its meta (in place of the
+   * commit message + author/date/hash a commit diff would show).
+   */
+  branchHeader?: { title: string; baseBranch?: string }
 }) {
   const workspaceStore = useWorkspaceStore()
   const buffers = useStore(workspaceStore, (s) => s.buffers)
@@ -761,31 +768,17 @@ const GitDiffEditorStack = memo(function GitDiffEditorStack({
         }
       />
 
-      {!isWorkingTree &&
-      (multiDiff.commitMessage || multiDiff.commitAuthor || multiDiff.commitDate) ? (
-        <div className="bg-background px-2 py-2">
-          <div className="px-1 py-1.5">
-            {multiDiff.commitMessage ? (
-              <div className="ui-text-sm font-medium text-foreground">
-                {multiDiff.commitMessage}
-              </div>
-            ) : null}
-            {multiDiff.commitDescription ? (
-              <div className="ui-text-sm mt-2 whitespace-pre-wrap text-muted-foreground">
-                {multiDiff.commitDescription}
-              </div>
-            ) : null}
-            <div className="ui-text-sm mt-2 flex flex-wrap items-center gap-x-2 gap-y-1 text-muted-foreground">
-              {multiDiff.commitAuthor ? <span>{multiDiff.commitAuthor}</span> : null}
-              {multiDiff.commitDate ? (
-                <span>{formatRelativeDate(multiDiff.commitDate)}</span>
-              ) : null}
-              <Badge size="sm" variant="secondary">
-                {multiDiff.commitHash}
-              </Badge>
-            </div>
-          </div>
-        </div>
+      {branchHeader ? (
+        <DiffReviewHeader title={branchHeader.title} baseBranch={branchHeader.baseBranch} />
+      ) : !isWorkingTree &&
+        (multiDiff.commitMessage || multiDiff.commitAuthor || multiDiff.commitDate) ? (
+        <DiffReviewHeader
+          title={multiDiff.commitMessage}
+          description={multiDiff.commitDescription}
+          author={multiDiff.commitAuthor}
+          date={multiDiff.commitDate}
+          hash={multiDiff.commitHash}
+        />
       ) : null}
 
       <div

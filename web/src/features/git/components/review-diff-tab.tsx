@@ -7,6 +7,8 @@ const GitDiffEditorStackLazy = lazy(() => import('./diff/git-diff-editor-stack')
 
 interface ReviewDiffTabProps {
   onRetry: () => void
+  /** Branch-review header data (branch name + base) for the shared diff header. */
+  branchHeader?: { title: string; baseBranch?: string }
 }
 
 function CenteredState({ children }: { children: React.ReactNode }) {
@@ -17,7 +19,7 @@ function CenteredState({ children }: { children: React.ReactNode }) {
   )
 }
 
-export function ReviewDiffTab({ onRetry }: ReviewDiffTabProps) {
+export function ReviewDiffTab({ onRetry, branchHeader }: ReviewDiffTabProps) {
   const diff = useWorkspaceStoreContext((s) => s.branchReview.diffCache)
   const status = useWorkspaceStoreContext((s) => s.branchReview.diffStatus)
 
@@ -56,7 +58,7 @@ export function ReviewDiffTab({ onRetry }: ReviewDiffTabProps) {
 
   return (
     <Suspense fallback={<CenteredState>{<LoadingSpinner />}</CenteredState>}>
-      <GitDiffEditorStackLazy multiDiff={diff} enableComments />
+      <GitDiffEditorStackLazy multiDiff={diff} enableComments branchHeader={branchHeader} />
     </Suspense>
   )
 }

@@ -1,8 +1,9 @@
 import { useCallback, useEffect } from 'react'
-import { GitPullRequest } from '@phosphor-icons/react'
+import { useShallow } from 'zustand/react/shallow'
 import {
   useWorkspaceStore,
 } from '@/features/workspace/stores/workspace-context'
+import { useSidebarStore } from '@/lib/store/sidebar'
 import { getReview } from '../api/review-api'
 import { ReviewDiffTab } from './review-diff-tab'
 
@@ -12,6 +13,18 @@ interface BranchReviewPaneProps {
 
 export function BranchReviewPane({ wsId }: BranchReviewPaneProps) {
   const store = useWorkspaceStore()
+
+  // Branch + base for the shared diff header: title = branch name, meta = → base.
+  // Sourced from the sidebar workspace record (same data the merge section uses).
+  const branchHeader = useSidebarStore(
+    useShallow((s): { title: string; baseBranch?: string } => {
+      for (const repo of s.repos) {
+        const ws = repo.workspaces.find((w) => w.id === wsId)
+        if (ws) return { title: ws.branch || 'Branch Review', baseBranch: ws.parentBranch }
+      }
+      return { title: 'Branch Review' }
+    }),
+  )
 
   // Load the composite review read model + branch diff on mount. The backend
   // folds description, merge strategy, conversations, and diff into /review.
@@ -39,13 +52,8 @@ export function BranchReviewPane({ wsId }: BranchReviewPaneProps) {
 
   return (
     <div className="flex h-full flex-col overflow-hidden bg-background">
-      <div className="flex shrink-0 items-center gap-2 border-border border-b px-3 py-2">
-        <GitPullRequest className="size-4 text-muted-foreground" />
-        <span className="ui-text-sm font-medium text-foreground">Branch Review</span>
-      </div>
-
       <div className="flex flex-1 flex-col overflow-hidden">
-        <ReviewDiffTab onRetry={() => void load()} />
+        <ReviewDiffTab onRetry={() => void load()} branchHeader={branchHeader} />
       </div>
     </div>
   )

@@ -1,6 +1,7 @@
 import {
   Chat,
   GitBranch,
+  GitPullRequest,
   Package,
   PushPin as Pin,
   TerminalWindow as Terminal,
@@ -107,6 +108,8 @@ const TabBarItem = memo(function TabBarItem({
             <Chat className="text-muted-foreground" />
           ) : buffer.path === 'extensions://marketplace' ? (
             <Package className="text-muted-foreground" />
+          ) : buffer.type === 'branchReview' ? (
+            <GitPullRequest className="text-muted-foreground" />
           ) : buffer.type === 'diff' && isMultiFileDiff(buffer.diffData) ? (
             <GitBranch className="text-muted-foreground" />
           ) : buffer.type === 'terminal' ? (
