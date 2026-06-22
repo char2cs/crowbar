@@ -48,7 +48,10 @@ export function BranchSection({
     try {
       const res = kind === 'push' ? await pushChanges(wsId) : await pullChanges(wsId)
       if (res.success) {
-        toast.success(kind === 'push' ? 'Changes pushed' : 'Changes pulled')
+        // The op runs async on the daemon; the git-status stream reflects the
+        // result (updated ahead/behind, or a conflict). Toast the start, then
+        // nudge a refresh so the counts resync promptly.
+        toast.info(kind === 'push' ? 'Pushing…' : 'Pulling…')
         refresh()
       } else {
         toast.error(res.error || `Failed to ${kind}`)
@@ -66,6 +69,9 @@ export function BranchSection({
     }
     if (action.kind === 'resolve') return 'Merge conflicts'
     if (action.kind === 'pull-request') return `${parentBranch} is protected`
+    // Diverged: local and the remote each hold commits the other lacks. Show
+    // both — collapsing to just "behind" hides that there's local work to push.
+    if (ahead > 0 && behind > 0) return `Diverged · ${ahead} ahead, ${behind} behind`
     if (behind > 0) return `Clean · ${behind} behind`
     if (ahead > 0) return `Clean · ${ahead} to push`
     return 'Up to date'

@@ -59,4 +59,11 @@ describe('BranchSection', () => {
     render(<BranchSection {...base} ahead={1} />)
     expect(screen.getByRole('button', { name: /Push/ })).toBeDefined()
   })
+
+  it('diverged (ahead + behind) → shows both, and Pull wins as the action', () => {
+    render(<BranchSection {...base} ahead={1} behind={1} />)
+    expect(screen.getByText(/1 ahead, 1 behind/)).toBeDefined()
+    // Pull-before-push: you can't push while behind, so Pull is the action.
+    expect(screen.getByRole('button', { name: /Pull/ })).toBeDefined()
+  })
 })
