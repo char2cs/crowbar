@@ -132,6 +132,27 @@ func (s *ConflictsSuite) TestConflicts_mergeDetectsConflict() {
 
 // TestConflicts_conflictedFilesListsFile verifies the conflicted-files endpoint
 // returns the shared file that triggered the merge conflict.
+// TestConflicts_mergeDeleteSourceKeepsConflictedChild verifies that a conflicting
+// merge requested with deleteSource:true does NOT delete the child — the conflict
+// must be resolved first, so deleting it would lose the user's work. The child
+// stays at pr-conflicts.
+func (s *ConflictsSuite) TestConflicts_mergeDeleteSourceKeepsConflictedChild() {
+	childID := s.conflictSetup()
+
+	watcher := s.Env.DialWorkspace(s.T(), s.imported.ProjectID, s.imported.RepoID, childID)
+	resp := s.Env.POST(s.T(), s.wsBase(childID)+"/merge-into-parent", map[string]any{
+		"strategy":     "merge",
+		"deleteSource": true,
+	})
+	kit.RequireStatus(s.T(), resp, http.StatusAccepted)
+	resp.Body.Close()
+	kit.WaitForWorkspaceState(s.T(), watcher, childID, "pr-conflicts", 5*time.Second)
+
+	// Despite deleteSource:true, the conflicted child must survive.
+	getResp := s.Env.GET(s.T(), s.wsBase(childID))
+	kit.RequireStatus(s.T(), getResp, http.StatusOK)
+}
+
 func (s *ConflictsSuite) TestConflicts_conflictedFilesListsFile() {
 	childID := s.conflictSetup()
 	s.mergeConflict(childID)
