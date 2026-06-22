@@ -13,7 +13,7 @@ import (
 )
 
 // Container owns the configured gin engine and the v0 surface. The lazy WS
-// resource lifecycles are owned by the app layer and torn down via
+// resource lifecycles are owned by the app layer and torn down via 
 // app.Container.Close, not here.
 type Container struct {
 	router *gin.Engine

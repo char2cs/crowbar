@@ -4,6 +4,8 @@ Crowbar is a self-improving agentic development platform. It orchestrates AI age
 
 ---
 
+TEST
+
 ## The Problem
 
 Modern AI coding tools are stateless. Every agent run starts from zero. The AI reviewer today catches the same things it caught yesterday, and misses the same things too. Human developers end up reviewing the same categories of mistakes over and over, with no mechanism for the AI to learn from that signal.
