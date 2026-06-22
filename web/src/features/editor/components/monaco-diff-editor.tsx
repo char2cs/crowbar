@@ -76,6 +76,12 @@ interface DiffMonacoEditorProps {
    * aligned when inline comment view zones push lines down.
    */
   diffLineKinds?: Array<'context' | 'added' | 'removed' | 'spacer'>
+  /** Diff-wide search hits in this editor (1-based model line + columns). */
+  diffSearchMatches?: Array<{ lineNumber: number; startColumn: number; endColumn: number }> | null
+  /** The active hit (highlighted distinctly + scrolled into view), if it's here. */
+  activeDiffSearchMatch?: { lineNumber: number; startColumn: number; endColumn: number } | null
+  /** Bumps to re-trigger reveal of `activeDiffSearchMatch` (repeat next/prev). */
+  diffSearchRevealNonce?: number
   onContentChange?: (
     content: string,
     previousContent?: string,
@@ -120,6 +126,9 @@ export function DiffMonacoEditor({
   onAddCommentAtLine,
   onContentHeightChange,
   diffLineKinds,
+  diffSearchMatches,
+  activeDiffSearchMatch,
+  diffSearchRevealNonce,
   onContentChange,
   onVisibleLineRangeChange,
   onScrollOffsetChange,
@@ -941,6 +950,56 @@ export function DiffMonacoEditor({
     return () => collection.clear()
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [editorReady, diffKindsKey])
+
+  // Diff-wide search: highlight every hit in this file, with the active hit
+  // styled distinctly. Keyed on a structural signature so it only reruns when
+  // the matches or the active hit actually change.
+  const diffSearchMatchesKey = diffSearchMatches
+    ? diffSearchMatches.map((m) => `${m.lineNumber}:${m.startColumn}:${m.endColumn}`).join('|')
+    : ''
+  const activeDiffMatchKey = activeDiffSearchMatch
+    ? `${activeDiffSearchMatch.lineNumber}:${activeDiffSearchMatch.startColumn}:${activeDiffSearchMatch.endColumn}`
+    : ''
+  useEffect(() => {
+    const editor = editorRef.current
+    if (!editorReady || !editor || !diffSearchMatches || diffSearchMatches.length === 0) return
+    const decorations: Monaco.editor.IModelDeltaDecoration[] = diffSearchMatches.map((m) => {
+      const isActive =
+        activeDiffSearchMatch != null &&
+        m.lineNumber === activeDiffSearchMatch.lineNumber &&
+        m.startColumn === activeDiffSearchMatch.startColumn &&
+        m.endColumn === activeDiffSearchMatch.endColumn
+      const cls = isActive ? 'diff-search-match-active' : 'diff-search-match'
+      return {
+        range: new MonacoRange(m.lineNumber, m.startColumn, m.lineNumber, m.endColumn),
+        // inlineClassName highlights the matched text; className backs the range.
+        options: { className: cls, inlineClassName: cls },
+      }
+    })
+    const collection = editor.createDecorationsCollection(decorations)
+    return () => collection.clear()
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [editorReady, diffSearchMatchesKey, activeDiffMatchKey])
+
+  // Reveal the active hit. The diff editors are non-scrollable inside a
+  // virtualized container, so scroll that container (not the editor) to bring
+  // the matched line to the centre.
+  useEffect(() => {
+    if (!editorReady || !activeDiffSearchMatch) return
+    const timer = setTimeout(() => {
+      const editor = editorRef.current
+      const dom = editor?.getDomNode()
+      const scroller = dom?.closest('[data-diff-stack-scroll-container]') as HTMLElement | null
+      if (!editor || !dom || !scroller) return
+      const lineTop = editor.getTopForLineNumber(activeDiffSearchMatch.lineNumber)
+      const editorTopInScroller =
+        dom.getBoundingClientRect().top - scroller.getBoundingClientRect().top + scroller.scrollTop
+      const target = editorTopInScroller + lineTop - scroller.clientHeight / 2
+      scroller.scrollTo({ top: Math.max(0, target), behavior: 'smooth' })
+    }, 60)
+    return () => clearTimeout(timer)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [editorReady, activeDiffMatchKey, diffSearchRevealNonce])
 
   if (!buffer) return null
 

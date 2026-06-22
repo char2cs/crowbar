@@ -18,6 +18,7 @@ import Breadcrumb from '@/features/editor/components/toolbar/breadcrumb'
 import { EDITOR_CONSTANTS } from '@/features/editor/config/constants'
 import { FileExplorerIcon } from '@/features/file-explorer/components/file-explorer-icon'
 import { useWorkspaceStore, useWorkspaceStoreContext } from '@/features/workspace/stores/workspace-context'
+import { useUIState } from '@/features/window/stores/ui-state-store'
 import { useEditorSettingsStore } from '@/features/editor/stores/settings-store'
 import { calculateLineHeight, splitLines } from '@/features/editor/utils/lines'
 import { useZoomStore } from '@/features/window/stores/zoom-store'
@@ -26,6 +27,9 @@ import { Button } from '@/components/ui/button'
 import Tooltip from '@/components/ui/tooltip'
 import { cn } from '@/utils/cn'
 import { DiffReviewHeader } from './diff-review-header'
+import { DiffSearchBar } from './diff-search-bar'
+import { DiffSearchProvider, useDiffSearchContext } from './diff-search-context'
+import { useDiffSearch } from './use-diff-search'
 import { getRemotes } from '../../api/git-remotes-api'
 import { getGitStatus } from '../../api/git-status-api'
 import { useDiffEditorBuffer } from '../../hooks/use-diff-editor-buffer'
@@ -173,6 +177,12 @@ function EmbeddedDiffSectionEditor({
   const fontSize = useEditorSettingsStore.use.fontSize()
   const zoomLevel = useZoomStore.use.editorZoomLevel()
   const sourcePath = diff.new_path || diff.old_path || diff.file_path
+  // Diff-search highlights for THIS file (unified editor): its matches + the
+  // active match when it belongs here.
+  const searchLayer = useDiffSearchContext()
+  const fileSearchMatches = searchLayer?.matchesByFile.get(cacheKey) ?? null
+  const activeSearchMatch =
+    searchLayer?.active && searchLayer.active.fileKey === cacheKey ? searchLayer.active : null
   const unifiedContent = useMemo(() => serializeGitDiffSourceForEditor(diff), [diff])
   const splitContent = useMemo(() => serializeGitDiffSourceForSplitEditor(diff), [diff])
   // Inline review comments and per-hunk staging are both hosted as Monaco view
@@ -296,6 +306,9 @@ function EmbeddedDiffSectionEditor({
         onAddCommentAtLine={commentLayer?.onAddCommentAtLine}
         onContentHeightChange={hasInlineLayer ? setCommentContentHeight : undefined}
         diffLineKinds={unifiedContent.lineKinds}
+        diffSearchMatches={fileSearchMatches}
+        activeDiffSearchMatch={activeSearchMatch}
+        diffSearchRevealNonce={searchLayer?.revealNonce}
       />
     </div>
   )
@@ -512,6 +525,7 @@ const GitDiffEditorStack = memo(function GitDiffEditorStack({
   multiDiff,
   enableComments = false,
   branchHeader,
+  isActivePane = true,
 }: {
   multiDiff: MultiFileDiff
   /** Enable the inline review-comment layer (the Branch Review surface). */
@@ -522,6 +536,13 @@ const GitDiffEditorStack = memo(function GitDiffEditorStack({
    * commit message + author/date/hash a commit diff would show).
    */
   branchHeader?: { title: string; baseBranch?: string }
+  /**
+   * Whether this diff's pane is the active one. The find flag (`isFindVisible`)
+   * is global and shared with the text-editor find, so the diff only opens its
+   * own search bar when it is the active pane — otherwise a split with an active
+   * editor + an inactive diff would pop two find UIs from one Cmd+F.
+   */
+  isActivePane?: boolean
 }) {
   const workspaceStore = useWorkspaceStore()
   const buffers = useStore(workspaceStore, (s) => s.buffers)
@@ -592,6 +613,43 @@ const GitDiffEditorStack = memo(function GitDiffEditorStack({
     overscan: 3,
     measureElement: (el) => el.getBoundingClientRect().height,
   })
+
+  // ── Diff-wide search ──────────────────────────────────────────────────────
+  // The search button + Cmd/Ctrl+F toggle the global find flag; the diff opens
+  // its own find bar in response and searches across ALL files.
+  const isFindVisible = useUIState((s) => s.isFindVisible)
+  const setIsFindVisible = useUIState((s) => s.setIsFindVisible)
+  // Only this pane responds to the global find flag when it is active.
+  const searchOpen = isFindVisible && isActivePane
+  const search = useDiffSearch({
+    files: multiDiff.files,
+    keyForIndex,
+    enabled: searchOpen,
+  })
+  const searchContextValue = useMemo(
+    () => ({
+      matchesByFile: search.matchesByFile,
+      active: search.current,
+      revealNonce: search.revealNonce,
+    }),
+    [search.matchesByFile, search.current, search.revealNonce],
+  )
+  // On navigation / new results, bring the active match's file into view; its
+  // editor then reveals the exact line (see monaco-diff-editor reveal effect).
+  useEffect(() => {
+    const current = search.current
+    if (!current) return
+    setExpandedFiles((prev) => (prev.has(current.fileKey) ? prev : new Set(prev).add(current.fileKey)))
+    virtualizer.scrollToIndex(current.fileIndex, { align: 'start' })
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [search.revealNonce])
+  const closeSearch = useCallback(() => setIsFindVisible(false), [setIsFindVisible])
+  // Search highlights + line reveal are wired for the unified editor only; switch
+  // away from split when the search opens so matches are actually shown.
+  useEffect(() => {
+    if (searchOpen && viewMode === 'split') setViewMode('unified')
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [searchOpen])
 
   // Scroll-to-file: the Branch Review side panel drives this via activeFileKey/Nonce.
   const activeReviewFileKey = useWorkspaceStoreContext((s) => s.branchReview.activeFileKey)
@@ -781,6 +839,9 @@ const GitDiffEditorStack = memo(function GitDiffEditorStack({
         />
       ) : null}
 
+      {searchOpen ? <DiffSearchBar search={search} onClose={closeSearch} /> : null}
+
+      <DiffSearchProvider value={searchContextValue}>
       <div
         ref={scrollRef}
         className="min-h-0 flex-1 overflow-auto px-2 pb-2"
@@ -830,6 +891,7 @@ const GitDiffEditorStack = memo(function GitDiffEditorStack({
           })}
         </div>
       </div>
+      </DiffSearchProvider>
     </div>
   )
 })

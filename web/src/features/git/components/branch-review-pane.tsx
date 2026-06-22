@@ -9,9 +9,10 @@ import { ReviewDiffTab } from './review-diff-tab'
 
 interface BranchReviewPaneProps {
   wsId: string
+  isActivePane?: boolean
 }
 
-export function BranchReviewPane({ wsId }: BranchReviewPaneProps) {
+export function BranchReviewPane({ wsId, isActivePane }: BranchReviewPaneProps) {
   const store = useWorkspaceStore()
 
   // Branch + base for the shared diff header: title = branch name, meta = → base.
@@ -53,7 +54,11 @@ export function BranchReviewPane({ wsId }: BranchReviewPaneProps) {
   return (
     <div className="flex h-full flex-col overflow-hidden bg-background">
       <div className="flex flex-1 flex-col overflow-hidden">
-        <ReviewDiffTab onRetry={() => void load()} branchHeader={branchHeader} />
+        <ReviewDiffTab
+          onRetry={() => void load()}
+          branchHeader={branchHeader}
+          isActivePane={isActivePane}
+        />
       </div>
     </div>
   )

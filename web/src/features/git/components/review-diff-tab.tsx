@@ -9,6 +9,7 @@ interface ReviewDiffTabProps {
   onRetry: () => void
   /** Branch-review header data (branch name + base) for the shared diff header. */
   branchHeader?: { title: string; baseBranch?: string }
+  isActivePane?: boolean
 }
 
 function CenteredState({ children }: { children: React.ReactNode }) {
@@ -19,7 +20,7 @@ function CenteredState({ children }: { children: React.ReactNode }) {
   )
 }
 
-export function ReviewDiffTab({ onRetry, branchHeader }: ReviewDiffTabProps) {
+export function ReviewDiffTab({ onRetry, branchHeader, isActivePane }: ReviewDiffTabProps) {
   const diff = useWorkspaceStoreContext((s) => s.branchReview.diffCache)
   const status = useWorkspaceStoreContext((s) => s.branchReview.diffStatus)
 
@@ -58,7 +59,12 @@ export function ReviewDiffTab({ onRetry, branchHeader }: ReviewDiffTabProps) {
 
   return (
     <Suspense fallback={<CenteredState>{<LoadingSpinner />}</CenteredState>}>
-      <GitDiffEditorStackLazy multiDiff={diff} enableComments branchHeader={branchHeader} />
+      <GitDiffEditorStackLazy
+        multiDiff={diff}
+        enableComments
+        branchHeader={branchHeader}
+        isActivePane={isActivePane}
+      />
     </Suspense>
   )
 }

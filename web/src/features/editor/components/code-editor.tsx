@@ -62,6 +62,10 @@ interface CodeEditorProps {
   onAddCommentAtLine?: (modelLine: number) => void
   onContentHeightChange?: (height: number) => void
   diffLineKinds?: Array<'context' | 'added' | 'removed' | 'spacer'>
+  /** Diff-wide search highlights for this editor's content (model line + columns). */
+  diffSearchMatches?: Array<{ lineNumber: number; startColumn: number; endColumn: number }> | null
+  activeDiffSearchMatch?: { lineNumber: number; startColumn: number; endColumn: number } | null
+  diffSearchRevealNonce?: number
   onContentChange?: (
     content: string,
     previousContent?: string,
@@ -105,6 +109,9 @@ const CodeEditor = ({
   onAddCommentAtLine,
   onContentHeightChange,
   diffLineKinds,
+  diffSearchMatches,
+  activeDiffSearchMatch,
+  diffSearchRevealNonce,
   onContentChange,
   isPreview = false,
   onPromote,
@@ -564,6 +571,9 @@ const CodeEditor = ({
                 onAddCommentAtLine={onAddCommentAtLine}
                 onContentHeightChange={onContentHeightChange}
                 diffLineKinds={diffLineKinds}
+                diffSearchMatches={diffSearchMatches}
+                activeDiffSearchMatch={activeDiffSearchMatch}
+                diffSearchRevealNonce={diffSearchRevealNonce}
                 onContentChange={onChangeWithPromote}
                 onScrollOffsetChange={syncLspOverlayTransform}
                 onCoordinateResolverChange={handleCoordinateResolverChange}

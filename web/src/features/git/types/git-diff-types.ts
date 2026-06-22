@@ -9,6 +9,8 @@ export interface AddCommentAnchor {
 export interface DiffViewerProps {
   onStageHunk?: (hunk: GitHunk) => void
   onUnstageHunk?: (hunk: GitHunk) => void
+  /** Whether this diff's pane is active (gates the diff find bar). */
+  isActivePane?: boolean
 }
 
 export interface DiffLineWithIndex extends GitDiffLine {

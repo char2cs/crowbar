@@ -83,3 +83,14 @@
 .diff-line-removed {
   background: color-mix(in oklch, var(--git-deleted) 15%, transparent);
 }
+
+/* Diff-wide search hit highlights (range decorations over the matched text). */
+.diff-search-match {
+  background: color-mix(in oklch, var(--warning) 40%, transparent);
+  border-radius: 2px;
+}
+.diff-search-match-active {
+  background: color-mix(in oklch, var(--warning) 80%, transparent);
+  border-radius: 2px;
+  box-shadow: 0 0 0 1px var(--warning);
+}

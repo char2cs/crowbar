@@ -456,7 +456,13 @@ export function PaneContainer({ pane, position = ROOT_PANE_POSITION }: PaneConta
           )
 
         case 'diff':
-          return <DiffPane onStageHunk={handleStageHunk} onUnstageHunk={handleUnstageHunk} />
+          return (
+            <DiffPane
+              onStageHunk={handleStageHunk}
+              onUnstageHunk={handleUnstageHunk}
+              isActivePane={isActivePane}
+            />
+          )
 
         case 'externalEditor':
           return (
@@ -474,7 +480,12 @@ export function PaneContainer({ pane, position = ROOT_PANE_POSITION }: PaneConta
           return <MarkdownChatView chatId={(buffer as CrowbarChatContent).wsId} />
 
         case 'branchReview':
-          return <BranchReviewPane wsId={(buffer as BranchReviewContent).wsId} />
+          return (
+            <BranchReviewPane
+              wsId={(buffer as BranchReviewContent).wsId}
+              isActivePane={isActivePane}
+            />
+          )
 
         default:
           return (

@@ -6,13 +6,18 @@ const DiffViewer = lazy(() => import('@/features/git/components/diff/git-diff-vi
 interface DiffPaneProps {
   onStageHunk: (hunk: GitHunk) => Promise<void>
   onUnstageHunk: (hunk: GitHunk) => Promise<void>
+  isActivePane?: boolean
 }
 
-export function DiffPane({ onStageHunk, onUnstageHunk }: DiffPaneProps) {
+export function DiffPane({ onStageHunk, onUnstageHunk, isActivePane }: DiffPaneProps) {
   return (
     <div className="flex h-full flex-col overflow-hidden">
       <Suspense fallback={null}>
-        <DiffViewer onStageHunk={onStageHunk} onUnstageHunk={onUnstageHunk} />
+        <DiffViewer
+          onStageHunk={onStageHunk}
+          onUnstageHunk={onUnstageHunk}
+          isActivePane={isActivePane}
+        />
       </Suspense>
     </div>
   )
