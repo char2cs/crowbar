@@ -3,10 +3,11 @@ import { renderHook, waitFor } from '@testing-library/react'
 import { setWorkspaceScope } from '@/lib/workspace-scope'
 
 // Hoisted fakes — must be declared before any vi.mock calls.
-const { subscribe, listThreadsFn, upsertReviewThread } = vi.hoisted(() => ({
+const { subscribe, listThreadsFn, upsertReviewThread, removeReviewThread } = vi.hoisted(() => ({
   subscribe: vi.fn(() => () => {}),
   listThreadsFn: vi.fn(),
   upsertReviewThread: vi.fn(),
+  removeReviewThread: vi.fn(),
 }))
 
 vi.mock('@/lib/ws/manager', () => ({
@@ -24,7 +25,7 @@ vi.mock('@/features/git/api/review-api', async (importOriginal) => {
 
 vi.mock('@/features/workspace/stores/workspace-store-registry', () => ({
   getOrCreateWorkspaceStore: () => ({
-    getState: () => ({ upsertReviewThread }),
+    getState: () => ({ upsertReviewThread, removeReviewThread }),
   }),
 }))
 
@@ -133,6 +134,32 @@ describe('useWorkspaceThreadsStream', () => {
         ],
       }),
     )
+  })
+
+  it('uses the real root message id when the frame carries messageId', () => {
+    renderHook(() => useWorkspaceThreadsStream('ws1'))
+    const [, onFrame] = subscribe.mock.calls[0] as unknown as [string, (frame: unknown) => void]
+
+    onFrame({ ...WIRE_THREAD, messageId: 'root-msg-1' })
+
+    expect(upsertReviewThread).toHaveBeenCalledWith(
+      expect.objectContaining({
+        messages: [
+          expect.objectContaining({ id: 'root-msg-1', body: 'Looks good' }),
+          expect.objectContaining({ id: 'msg-1', body: 'Thanks' }),
+        ],
+      }),
+    )
+  })
+
+  it('removes a thread on a tombstone frame (deleted=true) without upserting', () => {
+    renderHook(() => useWorkspaceThreadsStream('ws1'))
+    const [, onFrame] = subscribe.mock.calls[0] as unknown as [string, (frame: unknown) => void]
+
+    onFrame({ id: 'thread-1', deleted: true })
+
+    expect(removeReviewThread).toHaveBeenCalledWith('thread-1')
+    expect(upsertReviewThread).not.toHaveBeenCalled()
   })
 
   it('re-seeds on reconnect sentinel frame', async () => {

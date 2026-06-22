@@ -3,6 +3,11 @@ import userEvent from '@testing-library/user-event'
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { ReviewThreadItem } from '@/features/git/components/review-thread-item'
 import type { ReviewThread } from '@/features/workspace/stores/slices/branch-review-slice'
+import type { IdentityDTO } from '@/features/git/api/identity-api'
+
+vi.mock('@/features/window/stores/toast-store', () => ({
+  toast: { success: vi.fn(), error: vi.fn(), info: vi.fn(), warning: vi.fn() },
+}))
 
 // Mock @base-ui/react/avatar so AvatarImage unconditionally renders its <img>
 // (jsdom never fires image load events, so base-ui's status stays 'idle'→null)
@@ -211,5 +216,129 @@ describe('ReviewThreadItem', () => {
     await vi.waitFor(() => {
       expect(screen.queryByText('Reply')).not.toBeNull()
     })
+  })
+})
+
+// ── Three-dots comment menu (edit / copy / delete) ───────────────────────────────
+
+const IDENTITY: IdentityDTO = {
+  login: 'alice',
+  displayName: 'Alice',
+  avatarUrl: 'https://github.com/alice.png',
+}
+
+const manageProps = {
+  wsId: 'ws-test',
+  onReply: vi.fn().mockResolvedValue(undefined),
+  onResolve: vi.fn().mockResolvedValue(undefined),
+  onReopen: vi.fn().mockResolvedValue(undefined),
+  onEditMessage: vi.fn().mockResolvedValue(undefined),
+  onDeleteMessage: vi.fn().mockResolvedValue(undefined),
+  onDeleteThread: vi.fn().mockResolvedValue(undefined),
+}
+
+// A thread authored by `alice` with one reply by `bob`.
+function makeThreadWithReply(): ReviewThread {
+  return makeThread({
+    messages: [
+      { id: 'root-1', author: 'alice', isAgent: false, body: 'root body', createdAt: '2024-01-01T00:00:00Z' },
+      { id: 'reply-1', author: 'bob', isAgent: false, body: 'reply body', createdAt: '2024-01-02T00:00:00Z' },
+    ],
+  })
+}
+
+describe('ReviewThreadItem — comment menu', () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+  })
+
+  it('renders a menu trigger per message when manage handlers are provided', () => {
+    render(<ReviewThreadItem thread={makeThreadWithReply()} {...manageProps} currentIdentity={IDENTITY} />)
+    expect(screen.getAllByLabelText('Comment actions')).toHaveLength(2)
+  })
+
+  it('does not render a menu trigger without manage handlers', () => {
+    render(<ReviewThreadItem thread={makeThreadWithReply()} {...defaultProps} currentIdentity={IDENTITY} />)
+    expect(screen.queryByLabelText('Comment actions')).toBeNull()
+  })
+
+  it('shows Edit on your own non-agent comment', async () => {
+    const user = userEvent.setup()
+    render(<ReviewThreadItem thread={makeThreadWithReply()} {...manageProps} currentIdentity={IDENTITY} />)
+
+    // First message is alice's (own) → Edit present.
+    await user.click(screen.getAllByLabelText('Comment actions')[0])
+    expect(await screen.findByRole('menuitem', { name: /Edit/ })).toBeDefined()
+  })
+
+  it('hides Edit on a comment you did not author, but keeps Copy + Delete', async () => {
+    const user = userEvent.setup()
+    render(<ReviewThreadItem thread={makeThreadWithReply()} {...manageProps} currentIdentity={IDENTITY} />)
+
+    // Second message is bob's → no Edit, but Copy + Delete still present.
+    await user.click(screen.getAllByLabelText('Comment actions')[1])
+    expect(await screen.findByRole('menuitem', { name: /Copy as Markdown/ })).toBeDefined()
+    expect(screen.getByRole('menuitem', { name: /Delete/ })).toBeDefined()
+    expect(screen.queryByRole('menuitem', { name: /Edit/ })).toBeNull()
+  })
+
+  it('deleting the root comment confirms then calls onDeleteThread', async () => {
+    const user = userEvent.setup()
+    render(<ReviewThreadItem thread={makeThreadWithReply()} {...manageProps} currentIdentity={IDENTITY} />)
+
+    await user.click(screen.getAllByLabelText('Comment actions')[0])
+    await user.click(await screen.findByRole('menuitem', { name: /Delete/ }))
+
+    // Confirmation dialog for the whole thread.
+    expect(await screen.findByText('Delete this thread?')).toBeDefined()
+    await user.click(screen.getByRole('button', { name: 'Delete' }))
+
+    expect(manageProps.onDeleteThread).toHaveBeenCalledWith('thread1')
+    expect(manageProps.onDeleteMessage).not.toHaveBeenCalled()
+  })
+
+  it('deleting a reply confirms then calls onDeleteMessage with the reply id', async () => {
+    const user = userEvent.setup()
+    render(<ReviewThreadItem thread={makeThreadWithReply()} {...manageProps} currentIdentity={IDENTITY} />)
+
+    await user.click(screen.getAllByLabelText('Comment actions')[1])
+    await user.click(await screen.findByRole('menuitem', { name: /Delete/ }))
+
+    expect(await screen.findByText('Delete this comment?')).toBeDefined()
+    await user.click(screen.getByRole('button', { name: 'Delete' }))
+
+    expect(manageProps.onDeleteMessage).toHaveBeenCalledWith('thread1', 'reply-1')
+    expect(manageProps.onDeleteThread).not.toHaveBeenCalled()
+  })
+
+  it('editing a comment opens an editor seeded with the body and saves via onEditMessage', async () => {
+    const user = userEvent.setup()
+    render(<ReviewThreadItem thread={makeThreadWithReply()} {...manageProps} currentIdentity={IDENTITY} />)
+
+    await user.click(screen.getAllByLabelText('Comment actions')[0])
+    await user.click(await screen.findByRole('menuitem', { name: /Edit/ }))
+
+    // The editor seeds with the existing body and offers Save.
+    const save = await screen.findByRole('button', { name: 'Save' })
+    await user.click(save)
+
+    expect(manageProps.onEditMessage).toHaveBeenCalledWith('thread1', 'root-1', 'root body')
+  })
+
+  it('Copy as Markdown writes the body to the clipboard', async () => {
+    const user = userEvent.setup()
+    // Override after setup() — userEvent installs its own clipboard stub on setup.
+    const writeText = vi.fn().mockResolvedValue(undefined)
+    Object.defineProperty(navigator, 'clipboard', {
+      value: { writeText },
+      configurable: true,
+      writable: true,
+    })
+    render(<ReviewThreadItem thread={makeThreadWithReply()} {...manageProps} currentIdentity={IDENTITY} />)
+
+    await user.click(screen.getAllByLabelText('Comment actions')[1])
+    await user.click(await screen.findByRole('menuitem', { name: /Copy as Markdown/ }))
+
+    expect(writeText).toHaveBeenCalledWith('reply body')
   })
 })

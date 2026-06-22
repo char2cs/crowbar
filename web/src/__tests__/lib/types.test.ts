@@ -79,6 +79,7 @@ describe('canonical DTO shapes', () => {
       startLine: 1,
       endLine: 1,
       side: 'new',
+      messageId: 'm0',
       body: 'comment',
       author: 'me',
       isAgent: false,

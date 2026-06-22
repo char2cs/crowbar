@@ -3,6 +3,7 @@ import type { GitDiff, GitDiffLine } from '@/features/git/types/git-types'
 import {
   buildMonacoDiffContent,
   buildUnifiedThreadAnchorMap,
+  findNearestUnifiedModelLine,
   findUnifiedModelLine,
   serializeGitDiffSourceForEditor,
 } from '@/features/git/utils/diff-editor-content'
@@ -151,5 +152,39 @@ describe('unified thread anchor map', () => {
     expect(findUnifiedModelLine(anchors, 'new', 6)).not.toBeNull()
     // 'old' side never had line 6's new number, etc.
     expect(findUnifiedModelLine(anchors, 'old', 8)).toBeNull()
+  })
+
+  describe('findNearestUnifiedModelLine (outdated fallback)', () => {
+    const anchors = buildUnifiedThreadAnchorMap(diff)
+
+    test('returns the exact model line when present', () => {
+      expect(findNearestUnifiedModelLine(anchors, 'new', 5)).toBe(1)
+      expect(findNearestUnifiedModelLine(anchors, 'new', 8)).toBe(5)
+    })
+
+    test('falls back to the closest line at or below the target', () => {
+      // new side has lines 5,6,7,8 → target 99 clamps to the last one (model 5).
+      expect(findNearestUnifiedModelLine(anchors, 'new', 99)).toBe(5)
+      // 7 is an exact new-side anchor mapping to model line 4.
+      expect(findNearestUnifiedModelLine(anchors, 'new', 7)).toBe(4)
+    })
+
+    test('falls back to the closest line above when nothing is at or below', () => {
+      // new side smallest is 5; target 1 has nothing below → nearest above is 5 (model 1).
+      expect(findNearestUnifiedModelLine(anchors, 'new', 1)).toBe(1)
+    })
+
+    test('returns null only when the side has no anchored lines at all', () => {
+      const addedOnly = buildUnifiedThreadAnchorMap(
+        makeRawDiff([
+          { type: 'header', content: '@@ -0,0 +1,2 @@' },
+          { type: 'added', content: 'x', new: 1 },
+          { type: 'added', content: 'y', new: 2 },
+        ]),
+      )
+      // No removed/context lines → the 'old' side has no numbers anywhere.
+      expect(findNearestUnifiedModelLine(addedOnly, 'old', 3)).toBeNull()
+      expect(findNearestUnifiedModelLine(addedOnly, 'new', 9)).toBe(2)
+    })
   })
 })

@@ -107,12 +107,16 @@ export interface ThreadDTO {
   startLine: number
   endLine: number
   side: 'old' | 'new'
+  /** Real id of the root comment (Messages[0]); lets the client edit the root. */
+  messageId: string
   body: string
   author: string
   isAgent: boolean
   resolved: boolean
   createdAt: string
   replies: ThreadReplyDTO[]
+  /** Tombstone flag on a broadcast frame: the thread was deleted, drop it. */
+  deleted?: boolean
 }
 
 export interface TerminalSessionDTO {

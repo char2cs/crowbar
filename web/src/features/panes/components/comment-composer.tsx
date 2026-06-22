@@ -12,6 +12,8 @@ interface CommentComposerProps {
   placeholder?: string
   submitLabel?: string
   autoFocus?: boolean
+  /** Seed the editor with existing text — used when editing a comment. */
+  initialValue?: string
   onSubmit: (body: string) => void
   onCancel: () => void
 }
@@ -21,10 +23,11 @@ export function CommentComposer({
   placeholder = 'Leave a comment',
   submitLabel = 'Comment',
   autoFocus = true,
+  initialValue = '',
   onSubmit,
   onCancel,
 }: CommentComposerProps) {
-  const [value, setValue] = useState('')
+  const [value, setValue] = useState(initialValue)
   const [mode, setMode] = useState<'write' | 'preview'>('write')
   const canSubmit = value.trim().length > 0
 

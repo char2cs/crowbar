@@ -46,8 +46,13 @@ export function useWorkspaceThreadsStream(wsId: string): void {
           void seed()
           return
         }
-        const thread = mapThread(frame as ThreadDTO)
-        getOrCreateWorkspaceStore(wsId).getState().upsertReviewThread(thread)
+        const dto = frame as ThreadDTO
+        // Tombstone frame: the thread was deleted — drop it from the store.
+        if (dto.deleted && dto.id) {
+          getOrCreateWorkspaceStore(wsId).getState().removeReviewThread(dto.id)
+          return
+        }
+        getOrCreateWorkspaceStore(wsId).getState().upsertReviewThread(mapThread(dto))
       },
     )
 

@@ -222,6 +222,35 @@ export function findUnifiedModelLine(
   return null
 }
 
+/**
+ * Best-effort model line for a thread whose exact anchor line no longer exists
+ * in the diff (an outdated thread). Returns the model line of the nearest
+ * non-spacer anchor on the same side — preferring the closest line at or below
+ * the target, else the closest above it. Returns null only when the diff has no
+ * anchored lines on that side at all. Used to keep outdated threads visible
+ * (rendered collapsed) instead of dropping them.
+ */
+export function findNearestUnifiedModelLine(
+  anchors: UnifiedAnchorEntry[],
+  side: 'old' | 'new',
+  line: number,
+): number | null {
+  let bestBelow: { model: number; line: number } | null = null
+  let bestAbove: { model: number; line: number } | null = null
+
+  for (let i = 0; i < anchors.length; i++) {
+    const sideLine = side === 'new' ? anchors[i].newLine : anchors[i].oldLine
+    if (sideLine == null) continue // spacer / other-side-only line
+    if (sideLine <= line) {
+      if (!bestBelow || sideLine > bestBelow.line) bestBelow = { model: i + 1, line: sideLine }
+    } else if (!bestAbove || sideLine < bestAbove.line) {
+      bestAbove = { model: i + 1, line: sideLine }
+    }
+  }
+
+  return (bestBelow ?? bestAbove)?.model ?? null
+}
+
 export function serializeGitDiffSourceForSplitEditor(
   diff: GitDiff,
 ): SerializedSplitEditorDiffContent {

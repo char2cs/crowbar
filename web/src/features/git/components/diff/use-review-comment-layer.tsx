@@ -1,10 +1,18 @@
 import { useCallback, useMemo, useState } from 'react'
-import { openThread, replyToThread, setThreadResolved } from '@/features/git/api/review-api'
+import {
+  deleteMessage,
+  deleteThread,
+  editMessage,
+  openThread,
+  replyToThread,
+  setThreadResolved,
+} from '@/features/git/api/review-api'
 import { ReviewThreadItem } from '@/features/git/components/review-thread-item'
 import { resolveIdentity, useCurrentIdentity } from '@/features/git/hooks/use-current-identity'
 import type { GitDiff } from '@/features/git/types/git-types'
 import {
   buildUnifiedThreadAnchorMap,
+  findNearestUnifiedModelLine,
   findUnifiedModelLine,
   type DiffEditorLineKind,
 } from '@/features/git/utils/diff-editor-content'
@@ -81,6 +89,38 @@ export function useReviewCommentLayer(params: {
     },
     [wsId],
   )
+  const handleEditMessage = useCallback(
+    async (threadId: string, messageId: string, body: string) => {
+      try {
+        await editMessage(wsId, threadId, messageId, body)
+      } catch (error) {
+        toast.error('Failed to edit comment', error instanceof Error ? error.message : undefined)
+        // Re-throw so the inline editor stays open and the user keeps their text.
+        throw error
+      }
+    },
+    [wsId],
+  )
+  const handleDeleteMessage = useCallback(
+    async (threadId: string, messageId: string) => {
+      try {
+        await deleteMessage(wsId, threadId, messageId)
+      } catch (error) {
+        toast.error('Failed to delete comment', error instanceof Error ? error.message : undefined)
+      }
+    },
+    [wsId],
+  )
+  const handleDeleteThread = useCallback(
+    async (threadId: string) => {
+      try {
+        await deleteThread(wsId, threadId)
+      } catch (error) {
+        toast.error('Failed to delete thread', error instanceof Error ? error.message : undefined)
+      }
+    },
+    [wsId],
+  )
   const handleComposerSubmit = useCallback(
     async (body: string) => {
       if (!composer) return
@@ -122,8 +162,14 @@ export function useReviewCommentLayer(params: {
     if (!enabled) return []
     const zones: CommentZoneSpec[] = []
     for (const thread of fileThreads) {
-      const modelLine = findUnifiedModelLine(anchors, thread.side, thread.lineNumber)
-      if (modelLine == null) continue // outdated — anchor line gone from this diff
+      // Anchor to the thread's exact line when it still exists; otherwise the
+      // thread is outdated — fall back to the nearest surviving line and render
+      // it collapsed (instead of dropping it silently).
+      const exactLine = findUnifiedModelLine(anchors, thread.side, thread.lineNumber)
+      const isOutdated = exactLine == null
+      const modelLine =
+        exactLine ?? findNearestUnifiedModelLine(anchors, thread.side, thread.lineNumber)
+      if (modelLine == null) continue // no anchored lines on this side at all
       zones.push({
         key: thread.id,
         afterModelLine: modelLine,
@@ -132,9 +178,13 @@ export function useReviewCommentLayer(params: {
             thread={thread}
             wsId={wsId}
             currentIdentity={identity}
+            isOutdated={isOutdated}
             onReply={handleReply}
             onResolve={handleResolve}
             onReopen={handleReopen}
+            onEditMessage={handleEditMessage}
+            onDeleteMessage={handleDeleteMessage}
+            onDeleteThread={handleDeleteThread}
           />
         ),
       })
@@ -166,6 +216,9 @@ export function useReviewCommentLayer(params: {
     handleReply,
     handleResolve,
     handleReopen,
+    handleEditMessage,
+    handleDeleteMessage,
+    handleDeleteThread,
     handleComposerSubmit,
   ])
 

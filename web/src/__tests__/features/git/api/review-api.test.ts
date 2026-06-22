@@ -6,6 +6,9 @@ import {
   openThread,
   replyToThread,
   setThreadResolved,
+  deleteThread,
+  deleteMessage,
+  editMessage,
   listThreads,
   mapThread,
 } from '@/features/git/api/review-api'
@@ -45,6 +48,7 @@ function wireThreadDTO(overrides: Partial<ThreadDTO> = {}): ThreadDTO {
     startLine: 8,
     endLine: 12,
     side: 'new',
+    messageId: 'm0',
     body: 'root comment',
     author: 'char2cs',
     isAgent: false,
@@ -67,6 +71,7 @@ describe('mapThread', () => {
       startLine: 7,
       endLine: 8,
       side: 'new',
+      messageId: 'm0',
       body: 'hi **x**',
       author: 'char2cs',
       isAgent: false,
@@ -116,8 +121,13 @@ describe('mapThread', () => {
     expect(result.endLine).toBe(5)
   })
 
-  it('root message has synthetic id of `{t.id}:root`', () => {
-    const result = mapThread(wireThreadDTO({ id: 'abc' }))
+  it('root message uses the real messageId from the wire', () => {
+    const result = mapThread(wireThreadDTO({ id: 'abc', messageId: 'root-real' }))
+    expect(result.messages[0].id).toBe('root-real')
+  })
+
+  it('root message falls back to synthetic `{t.id}:root` when messageId is empty', () => {
+    const result = mapThread(wireThreadDTO({ id: 'abc', messageId: '' }))
     expect(result.messages[0].id).toBe('abc:root')
   })
 
@@ -260,6 +270,40 @@ describe('review-api request shapes', () => {
     const [, init] = fetchMock.mock.calls[0] as [string, RequestInit]
     expect(JSON.parse(init.body as string)).toEqual({ isResolved: false })
     expect(thread.isResolved).toBe(false)
+  })
+
+  it('deleteThread DELETEs /threads/:id with the encoded id', async () => {
+    const fetchMock = mockFetchEnvelope({ id: 'thread-abc', deleted: true })
+
+    await deleteThread('ws-6', 'thread abc')
+
+    const [url, init] = fetchMock.mock.calls[0] as [string, RequestInit]
+    expect(url).toContain('/v0/projects/p1/repos/r1/workspaces/ws-6/threads/thread%20abc')
+    expect(url).not.toContain('/messages')
+    expect(init.method).toBe('DELETE')
+  })
+
+  it('deleteMessage DELETEs /threads/:id/messages/:mid and returns the mapped thread', async () => {
+    const fetchMock = mockFetchEnvelope(wireThreadDTO({ id: 't9', replies: [] }))
+
+    const thread = await deleteMessage('ws-6', 't9', 'm 2')
+
+    const [url, init] = fetchMock.mock.calls[0] as [string, RequestInit]
+    expect(url).toContain('/v0/projects/p1/repos/r1/workspaces/ws-6/threads/t9/messages/m%202')
+    expect(init.method).toBe('DELETE')
+    expect(thread.id).toBe('t9')
+  })
+
+  it('editMessage PATCHes /threads/:id/messages/:mid with the body and returns the mapped thread', async () => {
+    const fetchMock = mockFetchEnvelope(wireThreadDTO({ id: 't9', body: 'edited' }))
+
+    const thread = await editMessage('ws-6', 't9', 'm1', 'edited')
+
+    const [url, init] = fetchMock.mock.calls[0] as [string, RequestInit]
+    expect(url).toContain('/v0/projects/p1/repos/r1/workspaces/ws-6/threads/t9/messages/m1')
+    expect(init.method).toBe('PATCH')
+    expect(JSON.parse(init.body as string)).toEqual({ body: 'edited' })
+    expect(thread.messages[0].body).toBe('edited')
   })
 
   it('listThreads GETs /threads and returns mapped array', async () => {

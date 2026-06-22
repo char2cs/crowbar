@@ -63,7 +63,9 @@ function mapReply(r: ThreadReplyDTO): ReviewThread['messages'][number] {
  *  messages are in the replies[] array. */
 export function mapThread(t: ThreadDTO): ReviewThread {
   const rootMessage: ReviewThread['messages'][number] = {
-    id: `${t.id}:root`,
+    // Prefer the root comment's real id (so it can be edited via /messages/:id);
+    // fall back to the synthetic id for any pre-`messageId` payloads.
+    id: t.messageId || `${t.id}:root`,
     author: t.author || null,
     isAgent: t.isAgent,
     body: t.body,
@@ -210,6 +212,48 @@ export async function setThreadResolved(
       method: 'PATCH',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ isResolved }),
+    },
+  )
+  return mapThread(raw)
+}
+
+/** DELETE an entire thread (root comment + replies). The backend forgets the
+ *  aggregate and broadcasts a tombstone so the workspace stream drops it. */
+export async function deleteThread(wsId: string, threadId: string): Promise<void> {
+  await apiFetch<unknown>(`${workspaceBase(wsId)}/threads/${encodeURIComponent(threadId)}`, {
+    method: 'DELETE',
+  })
+}
+
+/** DELETE a single reply by message id. Returns the updated thread (root + the
+ *  remaining replies). The root comment cannot be deleted this way — delete the
+ *  whole thread instead. */
+export async function deleteMessage(
+  wsId: string,
+  threadId: string,
+  messageId: string,
+): Promise<ReviewThread> {
+  const raw = await apiFetch<ThreadDTO>(
+    `${workspaceBase(wsId)}/threads/${encodeURIComponent(threadId)}/messages/${encodeURIComponent(messageId)}`,
+    { method: 'DELETE' },
+  )
+  return mapThread(raw)
+}
+
+/** PATCH a message body by id (works for the root comment and replies). Returns
+ *  the updated thread. */
+export async function editMessage(
+  wsId: string,
+  threadId: string,
+  messageId: string,
+  body: string,
+): Promise<ReviewThread> {
+  const raw = await apiFetch<ThreadDTO>(
+    `${workspaceBase(wsId)}/threads/${encodeURIComponent(threadId)}/messages/${encodeURIComponent(messageId)}`,
+    {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ body }),
     },
   )
   return mapThread(raw)
