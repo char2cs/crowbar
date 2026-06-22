@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { GitBranch, ArrowUp, ArrowDown, ArrowSquareOut, Warning } from '@phosphor-icons/react'
+import { GitBranch, ArrowUp, ArrowDown, Warning } from '@phosphor-icons/react'
 import { Button } from '@/components/ui/button'
 import { cn } from '@/utils/cn'
 import { toast } from '@/features/window/stores/toast-store'
@@ -72,8 +72,13 @@ export function BranchSection({
     return 'Up to date'
   })()
 
+  // The action row only renders when there is something to do: a primary action
+  // (anything but the no-parent sync-only state) or a remote (push/pull). A
+  // clean, synced, parentless branch shows just the status line — no empty row.
+  const hasAction = action.kind !== 'sync-only' || action.remote != null
+
   return (
-    <div className="flex flex-col gap-2 p-3">
+    <div className="flex flex-col gap-2 p-3" aria-label="Branch actions">
       <div className="ui-text-sm flex items-center gap-1.5">
         <GitBranch className="size-3.5 text-muted-foreground" />
         <span className="font-mono font-medium">{branch}</span>
@@ -93,73 +98,71 @@ export function BranchSection({
         {statusLine}
       </div>
 
-      <div className="flex items-center gap-2">
-        {action.kind === 'commit' && (
-          <Button variant="default" size="sm" className="flex-1" onClick={() => setCommitOpen(true)}>
-            Commit changes
-          </Button>
-        )}
+      {hasAction && (
+        <div className="flex items-center gap-2">
+          {action.kind === 'commit' && (
+            <Button variant="default" size="sm" className="flex-1" onClick={() => setCommitOpen(true)}>
+              Commit changes
+            </Button>
+          )}
 
-        {action.kind === 'resolve' && (
-          <Button
-            variant="destructive"
-            size="sm"
-            className="flex-1"
-            onClick={() =>
-              toast.warning(
-                'Open the conflicting files and resolve conflicts, then commit.',
-                'Merge conflicts detected',
-              )
-            }
-          >
-            <Warning className="size-3.5" />
-            Resolve conflicts
-          </Button>
-        )}
+          {action.kind === 'resolve' && (
+            <Button
+              variant="destructive"
+              size="sm"
+              className="flex-1"
+              onClick={() =>
+                toast.warning(
+                  'Merge conflicts detected',
+                  'Open the conflicting files and resolve them, then commit.',
+                )
+              }
+            >
+              <Warning className="size-3.5" />
+              Resolve conflicts
+            </Button>
+          )}
 
-        {action.kind === 'pull-request' && (
-          <Button
-            variant="outline"
-            size="sm"
-            className="flex-1"
-            onClick={() => toast.info(`${parentBranch} is protected — open a pull request to merge.`)}
-          >
-            Open a pull request
-            <ArrowSquareOut className="size-3.5" />
-          </Button>
-        )}
+          {/* Protected parents can't be merged locally — informational only (the
+              PR is opened on the host). Disabled to avoid implying a click action. */}
+          {action.kind === 'pull-request' && (
+            <Button variant="outline" size="sm" className="flex-1" disabled>
+              {parentBranch} is protected — open a PR
+            </Button>
+          )}
 
-        {action.kind === 'merge' && parentBranch && (
-          <MergePopover
-            wsId={wsId}
-            parentBranch={parentBranch}
-            trigger={
-              <Button variant="default" size="sm" className="flex-1">
-                <GitBranch className="size-3.5" />
-                Merge into {parentBranch}
-              </Button>
-            }
-          />
-        )}
+          {action.kind === 'merge' && parentBranch && (
+            <MergePopover
+              wsId={wsId}
+              parentBranch={parentBranch}
+              trigger={
+                <Button variant="default" size="sm" className="flex-1">
+                  <GitBranch className="size-3.5" />
+                  Merge into {parentBranch}
+                </Button>
+              }
+            />
+          )}
 
-        {action.remote && (
-          <Button
-            variant="outline"
-            size="sm"
-            disabled={remoteBusy}
-            onClick={() => void runRemote(action.remote as 'push' | 'pull')}
-          >
-            {action.remote === 'push' ? (
-              <ArrowUp className="size-3.5" />
-            ) : (
-              <ArrowDown className="size-3.5" />
-            )}
-            {action.remote === 'push'
-              ? `Push${ahead ? ` ${ahead}` : ''}`
-              : `Pull${behind ? ` ${behind}` : ''}`}
-          </Button>
-        )}
-      </div>
+          {action.remote && (
+            <Button
+              variant="outline"
+              size="sm"
+              disabled={remoteBusy}
+              onClick={() => void runRemote(action.remote as 'push' | 'pull')}
+            >
+              {action.remote === 'push' ? (
+                <ArrowUp className="size-3.5" />
+              ) : (
+                <ArrowDown className="size-3.5" />
+              )}
+              {action.remote === 'push'
+                ? `Push${ahead ? ` ${ahead}` : ''}`
+                : `Pull${behind ? ` ${behind}` : ''}`}
+            </Button>
+          )}
+        </div>
+      )}
 
       <CommitDialog
         open={commitOpen}

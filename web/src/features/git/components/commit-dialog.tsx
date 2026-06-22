@@ -18,13 +18,17 @@ interface CommitDialogProps {
 
 export function CommitDialog({ open, onOpenChange, wsId, files, onCommitted }: CommitDialogProps) {
   const [message, setMessage] = useState('')
+  // Snapshot the file set when the dialog opens so a background git-status refresh
+  // can't mutate the list (and therefore the committed set) while the user edits.
+  const [dialogFiles, setDialogFiles] = useState<GitFile[]>(files)
   const [checked, setChecked] = useState<Set<string>>(() => new Set(files.map((f) => f.path)))
   const [isCommitting, setIsCommitting] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
-  // Reset to a fresh state (all files checked, empty message) each time it opens.
+  // Reset to a fresh state (snapshot the files, all checked, empty message) on open.
   useEffect(() => {
     if (!open) return
+    setDialogFiles(files)
     setChecked(new Set(files.map((f) => f.path)))
     setMessage('')
     setError(null)
@@ -46,11 +50,19 @@ export function CommitDialog({ open, onOpenChange, wsId, files, onCommitted }: C
     if (!canCommit) return
     setIsCommitting(true)
     setError(null)
-    const stage = files.filter((f) => checked.has(f.path)).map((f) => f.path)
-    const unstage = files.filter((f) => !checked.has(f.path)).map((f) => f.path)
+    const stage = dialogFiles.filter((f) => checked.has(f.path)).map((f) => f.path)
+    const unstage = dialogFiles.filter((f) => !checked.has(f.path)).map((f) => f.path)
     try {
-      if (stage.length) await stagePaths(wsId, stage)
-      if (unstage.length) await unstagePaths(wsId, unstage)
+      // stagePaths/unstagePaths swallow their errors and return false (they toast),
+      // so guard the booleans — never commit against a half-staged index.
+      if (stage.length && !(await stagePaths(wsId, stage))) {
+        setError('Failed to stage changes')
+        return
+      }
+      if (unstage.length && !(await unstagePaths(wsId, unstage))) {
+        setError('Failed to update staging')
+        return
+      }
       const ok = await commitChanges(wsId, message.trim())
       if (!ok) {
         setError('Failed to commit changes')
@@ -80,6 +92,7 @@ export function CommitDialog({ open, onOpenChange, wsId, files, onCommitted }: C
           <Textarea
             autoFocus
             value={message}
+            disabled={isCommitting}
             onChange={(e) => setMessage(e.target.value)}
             onKeyDown={(e) => {
               if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) {
@@ -92,12 +105,16 @@ export function CommitDialog({ open, onOpenChange, wsId, files, onCommitted }: C
           />
           <div>
             <div className="ui-text-xs mb-1.5 text-muted-foreground">
-              {files.length} file{files.length !== 1 ? 's' : ''}
+              {dialogFiles.length} file{dialogFiles.length !== 1 ? 's' : ''}
             </div>
             <div className="flex max-h-48 flex-col gap-1 overflow-auto">
-              {files.map((f) => (
+              {dialogFiles.map((f) => (
                 <label key={f.path} className="ui-text-sm flex cursor-pointer items-center gap-2">
-                  <Checkbox checked={checked.has(f.path)} onChange={() => toggle(f.path)} />
+                  <Checkbox
+                    checked={checked.has(f.path)}
+                    onChange={() => toggle(f.path)}
+                    disabled={isCommitting}
+                  />
                   <span className="truncate">{f.path}</span>
                 </label>
               ))}

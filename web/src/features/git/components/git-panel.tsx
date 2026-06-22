@@ -96,6 +96,9 @@ export function GitPanel() {
               status={activeWs?.status ?? 'new'}
               ahead={gitStatus?.ahead ?? 0}
               behind={gitStatus?.behind ?? 0}
+              // Working-tree status (incl. untracked) — drives the commit dialog and
+              // the "N uncommitted changes" line. The changed-files tree above uses
+              // the branch-vs-parent review diff, so the two can differ by untracked files.
               files={gitStatus?.files ?? []}
             />
           </div>

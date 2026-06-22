@@ -54,4 +54,21 @@ describe('CommitDialog', () => {
     expect(onCommitted).toHaveBeenCalled()
     expect(onOpenChange).toHaveBeenCalledWith(false)
   })
+
+  it('does not commit (or close) when staging fails', async () => {
+    stagePaths.mockResolvedValueOnce(false)
+    const user = userEvent.setup()
+    const onOpenChange = vi.fn()
+    const onCommitted = vi.fn()
+    render(
+      <CommitDialog open onOpenChange={onOpenChange} wsId="w1" files={files} onCommitted={onCommitted} />,
+    )
+    await user.type(screen.getByPlaceholderText('Commit message…'), 'my commit')
+    await user.click(screen.getByRole('button', { name: 'Commit' }))
+
+    expect(commitChanges).not.toHaveBeenCalled()
+    expect(onCommitted).not.toHaveBeenCalled()
+    expect(onOpenChange).not.toHaveBeenCalled()
+    expect(screen.getByText('Failed to stage changes')).toBeDefined()
+  })
 })

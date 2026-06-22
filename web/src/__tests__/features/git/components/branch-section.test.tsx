@@ -41,9 +41,11 @@ describe('BranchSection', () => {
     expect(screen.getByRole('button', { name: /Merge into develop/ })).toBeDefined()
   })
 
-  it('clean + protected → Open a pull request', () => {
+  it('clean + protected → a disabled "protected — open a PR" button', () => {
     render(<BranchSection {...base} canMergeLocally={false} />)
-    expect(screen.getByRole('button', { name: /Open a pull request/ })).toBeDefined()
+    const btn = screen.getByRole('button', { name: /protected/i })
+    expect(btn).toBeDefined()
+    expect(btn).toBeDisabled()
   })
 
   it('clean + conflicts → Resolve conflicts', () => {

@@ -4,7 +4,7 @@ export type BranchActionKind =
   | 'resolve' // merge conflicts must be resolved
   | 'pull-request' // parent is protected → open a PR
   | 'merge' // mergeable into parent → open the merge popover
-  | 'sync-only' // no parent (or nothing to merge) → push/pull only
+  | 'sync-only' // no parent branch → push/pull only
 
 export interface BranchActionInput {
   hasUncommitted: boolean
