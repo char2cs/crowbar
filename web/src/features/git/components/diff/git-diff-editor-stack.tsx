@@ -619,8 +619,12 @@ const GitDiffEditorStack = memo(function GitDiffEditorStack({
   // its own find bar in response and searches across ALL files.
   const isFindVisible = useUIState((s) => s.isFindVisible)
   const setIsFindVisible = useUIState((s) => s.setIsFindVisible)
+  // Diff search is for the surfaces you actively work with — the branch review
+  // and the working tree. A commit/stash/tag diff is a historical snapshot
+  // (identified by a real commitHash); search is disabled there.
+  const isCommitDiff = !isWorkingTree && Boolean(multiDiff.commitHash)
   // Only this pane responds to the global find flag when it is active.
-  const searchOpen = isFindVisible && isActivePane
+  const searchOpen = isFindVisible && isActivePane && !isCommitDiff
   const search = useDiffSearch({
     files: multiDiff.files,
     keyForIndex,
