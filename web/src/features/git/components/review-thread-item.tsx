@@ -213,7 +213,7 @@ export function ReviewThreadItem({
             ) : (
               <Button
                 size="xs"
-                variant="ghost"
+                variant="default"
                 onClick={handleResolve}
                 disabled={isSubmitting}
               >
