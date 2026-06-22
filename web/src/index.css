@@ -33,6 +33,10 @@
   font-size: var(--ui-text-base);
 }
 
+@utility ui-text-lg {
+  font-size: var(--ui-text-lg);
+}
+
 @layer utilities {
   .scrollbar-hidden {
     scrollbar-width: none;

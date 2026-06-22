@@ -37,7 +37,7 @@ export function DiffReviewHeader({
   return (
     <div className="bg-background px-2 py-2">
       <div className="px-1 py-1.5">
-        {title ? <div className="ui-text-sm font-medium text-foreground">{title}</div> : null}
+        {title ? <div className="ui-text-lg font-medium text-foreground">{title}</div> : null}
         {description ? (
           <div className="ui-text-sm mt-2 whitespace-pre-wrap text-muted-foreground">
             {description}

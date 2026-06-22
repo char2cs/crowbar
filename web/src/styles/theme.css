@@ -242,6 +242,7 @@
   --ui-text-xs: calc(0.6875rem * var(--app-ui-scale));
   --ui-text-sm: calc(0.75rem * var(--app-ui-scale));
   --ui-text-base: calc(0.875rem * var(--app-ui-scale));
+  --ui-text-lg: calc(1rem * var(--app-ui-scale));
   --app-scrollbar-size: 11px;
   --app-scrollbar-thumb: oklch(0.55 0 0 / 42%);
   --app-scrollbar-thumb-border: 3px solid transparent;
