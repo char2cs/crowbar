@@ -63,7 +63,6 @@ const GitBranchManager = ({
   const hasBlockingModalOpen = useUIState(
     (state) =>
       state.isQuickOpenVisible ||
-      state.isCommandPaletteVisible ||
       state.isGlobalSearchVisible ||
       state.isSettingsDialogVisible ||
       state.isProjectPickerVisible,
