@@ -172,7 +172,6 @@ function EmbeddedDiffSectionEditor({
 }) {
   const fontSize = useEditorSettingsStore.use.fontSize()
   const zoomLevel = useZoomStore.use.editorZoomLevel()
-  const rootFolderPath = useFileSystemStore((state) => state.rootFolderPath)
   const sourcePath = diff.new_path || diff.old_path || diff.file_path
   const unifiedContent = useMemo(() => serializeGitDiffSourceForEditor(diff), [diff])
   const splitContent = useMemo(() => serializeGitDiffSourceForSplitEditor(diff), [diff])
@@ -240,32 +239,6 @@ function EmbeddedDiffSectionEditor({
     viewMode,
     zoomLevel,
   ])
-  const resolveAbsolutePath = useCallback(() => {
-    if (sourcePath.startsWith('/') || sourcePath.startsWith('remote://')) return sourcePath
-    if (!rootFolderPath) return sourcePath
-    return `${rootFolderPath.replace(/\/$/, '')}/${sourcePath.replace(/^\//, '')}`
-  }, [rootFolderPath, sourcePath])
-  const findNearestActualLine = useCallback((actualLines: Array<number | null>, line: number) => {
-    if (actualLines[line] != null) return actualLines[line]
-    for (let delta = 1; delta < actualLines.length; delta++) {
-      const before = line - delta
-      if (before >= 0 && actualLines[before] != null) return actualLines[before]
-      const after = line + delta
-      if (after < actualLines.length && actualLines[after] != null) return actualLines[after]
-    }
-    return 1
-  }, [])
-  const openSourceLocation = useCallback(
-    async (line: number, column: number, actualLines: Array<number | null>) => {
-      const targetPath = resolveAbsolutePath()
-      const targetLine = findNearestActualLine(actualLines, line) ?? 1
-      const { handleFileSelect } = useFileSystemStore.getState()
-      if (handleFileSelect) {
-        handleFileSelect(targetPath, false, targetLine, column + 1, undefined, false)
-      }
-    },
-    [findNearestActualLine, resolveAbsolutePath],
-  )
 
   if (viewMode === 'split') {
     return (
@@ -281,12 +254,6 @@ function EmbeddedDiffSectionEditor({
             readOnly={true}
             scrollable={false}
             diffLineKinds={splitContent.left.lineKinds}
-            onReadonlySurfaceClick={
-              enableComments
-                ? undefined
-                : ({ line, column }) =>
-                    void openSourceLocation(line, column, splitContent.left.actualLines)
-            }
           />
         </div>
         <div className="relative overflow-hidden bg-background">
@@ -297,12 +264,6 @@ function EmbeddedDiffSectionEditor({
             readOnly={true}
             scrollable={false}
             diffLineKinds={splitContent.right.lineKinds}
-            onReadonlySurfaceClick={
-              enableComments
-                ? undefined
-                : ({ line, column }) =>
-                    void openSourceLocation(line, column, splitContent.right.actualLines)
-            }
           />
         </div>
       </div>
@@ -326,12 +287,6 @@ function EmbeddedDiffSectionEditor({
         showToolbar={false}
         readOnly={true}
         scrollable={false}
-        onReadonlySurfaceClick={
-          enableComments
-            ? undefined
-            : ({ line, column }) =>
-                void openSourceLocation(line, column, unifiedContent.actualLines)
-        }
         commentZones={hasInlineLayer ? inlineZones : undefined}
         onAddCommentAtLine={commentLayer?.onAddCommentAtLine}
         onContentHeightChange={hasInlineLayer ? setCommentContentHeight : undefined}
