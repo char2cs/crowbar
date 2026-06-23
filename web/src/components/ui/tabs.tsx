@@ -1,72 +1,66 @@
-'use client'
+"use client";
 
-import { Tabs as TabsPrimitive } from '@base-ui/react/tabs'
-import * as React from 'react'
-import { cn } from '@/lib/utils'
+import { Tabs as TabsPrimitive } from "@base-ui/react/tabs";
+import * as React from "react";
+import { cn } from "@/lib/utils";
 
-export type TabsVariant = 'default' | 'underline' | 'segmented'
+export type TabsVariant = "default" | "underline";
 
-export function Tabs({ className, ...props }: TabsPrimitive.Root.Props): React.ReactElement {
+export function Tabs({
+  className,
+  ...props
+}: TabsPrimitive.Root.Props): React.ReactElement {
   return (
     <TabsPrimitive.Root
-      className={cn('flex flex-col gap-2 data-[orientation=vertical]:flex-row', className)}
+      className={cn(
+        "flex flex-col gap-2 data-[orientation=vertical]:flex-row",
+        className,
+      )}
       data-slot="tabs"
       {...props}
     />
-  )
+  );
 }
 
-// Active-tab styling applied directly on the active tab via CSS (`data-active`),
-// not via Base UI's <Tabs.Indicator>. The Indicator measured the active tab with
-// getComputedStyle + getBoundingClientRect on every render to position a sliding
-// element; during a pane-resize drag that re-rendered every frame and caused a
-// forced-layout storm (the dominant cost of resize jank — profiled in WKWebView:
-// ~18 layout reads/frame, every frame dropped). VSCode uses the same CSS-only
-// approach. The active-tab background/border transitions smoothly via the
-// `transition-[...background-color...]` already on TabsTab.
-// NOTE: these must be written as literal class strings (no template interpolation) —
-// Tailwind's scanner only generates CSS for class names it can find verbatim in source.
-const activeTabPill = cn(
-  '[&_[data-slot=tabs-tab][data-active]]:rounded-md [&_[data-slot=tabs-tab][data-active]]:bg-background',
-  '[&_[data-slot=tabs-tab][data-active]]:shadow-sm/5 dark:[&_[data-slot=tabs-tab][data-active]]:bg-input',
-)
-const activeTabUnderline = cn(
-  "[&_[data-slot=tabs-tab][data-active]]:after:absolute [&_[data-slot=tabs-tab][data-active]]:after:inset-x-1",
-  "[&_[data-slot=tabs-tab][data-active]]:after:bottom-0 [&_[data-slot=tabs-tab][data-active]]:after:h-0.5",
-  "[&_[data-slot=tabs-tab][data-active]]:after:rounded-full [&_[data-slot=tabs-tab][data-active]]:after:bg-primary",
-  "[&_[data-slot=tabs-tab][data-active]]:after:content-['']",
-)
-
 export function TabsList({
-  variant = 'default',
+  variant = "default",
   className,
   children,
   ...props
 }: TabsPrimitive.List.Props & {
-  variant?: TabsVariant
+  variant?: TabsVariant;
 }): React.ReactElement {
   return (
     <TabsPrimitive.List
       className={cn(
-        'relative z-0 flex w-fit items-center justify-center gap-x-0.5 text-muted-foreground',
-        'data-[orientation=vertical]:flex-col',
-        variant === 'default'
-          ? cn('rounded-lg bg-muted p-0.5 text-muted-foreground/72', activeTabPill)
-          : cn(
-              'data-[orientation=vertical]:px-1 data-[orientation=horizontal]:py-1 *:data-[slot=tabs-tab]:hover:bg-accent',
-              variant === 'underline' ? activeTabUnderline : activeTabPill,
-            ),
+        "relative z-0 flex w-fit items-center justify-center gap-x-0.5 text-muted-foreground",
+        "data-[orientation=vertical]:flex-col",
+        variant === "default"
+          ? "rounded-lg bg-muted p-0.5 text-muted-foreground/72"
+          : "data-[orientation=vertical]:px-1 data-[orientation=horizontal]:py-1 *:data-[slot=tabs-tab]:hover:bg-accent",
         className,
       )}
       data-slot="tabs-list"
       {...props}
     >
       {children}
+      <TabsPrimitive.Indicator
+        className={cn(
+          "absolute bottom-0 left-0 h-(--active-tab-height) w-(--active-tab-width) translate-x-(--active-tab-left) -translate-y-(--active-tab-bottom) transition-[width,translate] duration-200 ease-in-out",
+          variant === "underline"
+            ? "z-10 bg-primary data-[orientation=horizontal]:h-0.5 data-[orientation=vertical]:w-0.5 data-[orientation=vertical]:-translate-x-px data-[orientation=horizontal]:translate-y-px"
+            : "-z-1 rounded-lg border border-background bg-background shadow-xs shadow-black/10 inset-shadow-[0_1px_--theme(--color-white/16%)]",
+        )}
+        data-slot="tab-indicator"
+      />
     </TabsPrimitive.List>
-  )
+  );
 }
 
-export function TabsTab({ className, ...props }: TabsPrimitive.Tab.Props): React.ReactElement {
+export function TabsTab({
+  className,
+  ...props
+}: TabsPrimitive.Tab.Props): React.ReactElement {
   return (
     <TabsPrimitive.Tab
       className={cn(
@@ -76,20 +70,22 @@ export function TabsTab({ className, ...props }: TabsPrimitive.Tab.Props): React
       data-slot="tabs-tab"
       {...props}
     />
-  )
+  );
 }
 
-export function TabsPanel({ className, ...props }: TabsPrimitive.Panel.Props): React.ReactElement {
+export function TabsPanel({
+  className,
+  ...props
+}: TabsPrimitive.Panel.Props): React.ReactElement {
   return (
     <TabsPrimitive.Panel
-      className={cn('flex-1 outline-none', className)}
+      className={cn("flex-1 outline-none", className)}
       data-slot="tabs-content"
       {...props}
     />
-  )
+  );
 }
 
-/** Standalone tab button used by Crowbar feature modules (does not require a tabs value context) */
 export interface TabProps extends React.ButtonHTMLAttributes<HTMLButtonElement> {
   isActive?: boolean
   isDragged?: boolean
@@ -136,26 +132,6 @@ const Tab = React.forwardRef<HTMLButtonElement, TabProps>(
 )
 Tab.displayName = 'Tab'
 
-/** Crowbar tab item descriptor */
-export interface TabsItem {
-  id: string
-  icon?: React.ReactNode
-  label?: string
-  isActive?: boolean
-  onClick?: () => void
-  role?: string
-  ariaLabel?: string
-  className?: string
-  tabIndex?: number
-  title?: string
-  tooltip?: {
-    content: string
-    shortcut?: string
-    side?: 'top' | 'right' | 'bottom' | 'left'
-    className?: string
-  }
-}
+export { Tab };
 
-export { Tab }
-
-export { TabsPrimitive, TabsTab as TabsTrigger, TabsPanel as TabsContent }
+export { TabsPrimitive, TabsTab as TabsTrigger, TabsPanel as TabsContent };
