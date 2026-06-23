@@ -272,6 +272,14 @@ type Engine interface {
 		worktreePath string,
 	) error
 
+	// WorktreePrune reaps worktree registrations whose on-disk directory is gone
+	// (`git worktree prune`). Used by the startup recovery sweep to clean up
+	// orphaned worktrees left behind by a crash mid-teardown (H19).
+	WorktreePrune(
+		ctx context.Context,
+		repoPath string,
+	) error
+
 	// WorktreeList lists all git worktrees in a repo (04 / 07).
 	WorktreeList(
 		ctx context.Context,

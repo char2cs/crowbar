@@ -217,6 +217,14 @@ func (w *Watcher) loop(
 	defer safego.Recover("fs.watch.loop")
 	defer w.closeFSW()
 
+	// Emit an initial git frame so a freshly-subscribed client always resyncs
+	// from real git state on Start, not only on the next file event. Without this
+	// the first frame is whatever was last persisted: a workspace whose conflict
+	// was resolved (or whose diff changed) while no watcher was running keeps the
+	// stale badge until the user happens to touch a file (H19). Scheduled here,
+	// inside the loop goroutine, so it never races loop's drain of gitTimer.C.
+	w.scheduleGitRecompute()
+
 	timer := time.NewTimer(0)
 	if !timer.Stop() {
 		<-timer.C

@@ -331,6 +331,10 @@ func (g *mockGitEngine) WorktreeRemove(ctx context.Context, repoPath, worktreePa
 	return nil
 }
 
+func (g *mockGitEngine) WorktreePrune(ctx context.Context, repoPath string) error {
+	return nil
+}
+
 func (g *mockGitEngine) WorktreeList(ctx context.Context, repoPath string) ([]gitengine.WorktreeEntry, error) {
 	return nil, nil
 }

@@ -11,6 +11,7 @@ import (
 	"github.com/char2cs/crowbar/api/internal/app/repositories"
 	"github.com/char2cs/crowbar/api/internal/app/repositories/workspace"
 	"github.com/char2cs/crowbar/api/internal/app/usecases"
+	"github.com/char2cs/crowbar/api/internal/core/safego"
 	"github.com/char2cs/crowbar/api/internal/domain"
 	"github.com/char2cs/crowbar/api/internal/engine"
 	"github.com/char2cs/crowbar/api/internal/engine/provider"
@@ -72,6 +73,7 @@ func New(
 	}
 
 	startProviderSweep(ctx, engines, repos, ucs)
+	startRecoverySweep(ctx, ucs)
 
 	rt := realtime.New(
 		ctx,
@@ -123,6 +125,21 @@ func startProviderSweep(
 		sweepTargets(repos.Workspace),
 		sweepCallback(ctx, ucs),
 	)
+}
+
+// startRecoverySweep runs the one-shot startup recovery sweep (H19) in the
+// background so boot stays fast. Unlike the provider sweep this is not a cron —
+// it runs exactly once at startup, re-syncing each workspace's git state from
+// disk and reaping orphaned worktrees. Its effects broadcast over WS as each
+// workspace re-syncs. A panic is contained by safego; ReconcileAll is itself
+// best-effort and never returns a fatal error, so its result is ignored.
+func startRecoverySweep(
+	ctx context.Context,
+	ucs *usecases.Container,
+) {
+	safego.Go("app.recoverySweep", func() {
+		_ = ucs.Worktree.ReconcileAll(context.WithoutCancel(ctx))
+	})
 }
 
 func sweepCallback(

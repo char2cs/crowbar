@@ -53,6 +53,18 @@ func (e *engine) WorktreeRemove(
 	return gitexec.RequireSuccess("worktree remove", r)
 }
 
+// WorktreePrune runs `git worktree prune`, which removes registrations for
+// worktrees whose directory is gone. It only touches dead registrations, so a
+// live worktree is never disturbed.
+func (e *engine) WorktreePrune(
+	ctx context.Context,
+	repoPath string,
+) error {
+	defer e.lockRepo(ctx, repoPath)()
+	r := e.exec(ctx, repoPath, "worktree", "prune")
+	return gitexec.RequireSuccess("worktree prune", r)
+}
+
 func (e *engine) WorktreeList(
 	ctx context.Context,
 	repoPath string,
