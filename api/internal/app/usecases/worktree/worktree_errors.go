@@ -19,6 +19,12 @@ var ErrChildHasChildren = errors.New("usecases: child has children")
 // workspace (07 §4).
 var ErrNewParentLocked = errors.New("usecases: new parent is locked")
 
+// ErrSelfParent is returned when a re-parent targets the child itself. A
+// workspace cannot be its own parent: the self-loop both detaches the node in
+// the tree and makes it permanently unreparentable (it would count as its own
+// child in the leaf check), so it is rejected before any git work.
+var ErrSelfParent = errors.New("usecases: cannot reparent a workspace onto itself")
+
 // ErrWorkspaceLocked is returned when a cascade delete targets a locked root
 // workspace. The guard runs before any destructive side effect (worktree
 // removal, branch delete), so a locked workspace is rejected cleanly instead

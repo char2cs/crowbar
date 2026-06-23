@@ -824,6 +824,35 @@ func TestReparent_RejectsNonLeafChild(t *testing.T) {
 	assert.Empty(t, g.calls)
 }
 
+func TestReparent_RejectsSelfParent(t *testing.T) {
+	// A workspace must never become its own parent: the self-loop detaches the
+	// node in the tree and (via childHasChildren) makes it permanently
+	// unreparentable. The guard rejects it before any git work.
+	child := domain.Workspace{ID: "c", Branch: "feat", WorktreePath: "/cw"}
+	ws := reparentWS(child, child, nil)
+	g := &fakeGit{}
+	uc := worktree.New(ws, g, &fakeProvider{}, &fakeRepoStore{}, newNow(), fakeHome())
+	_, err := uc.Reparent(context.Background(), "c", "c")
+	require.ErrorIs(t, err, worktree.ErrSelfParent)
+	assert.Empty(t, g.calls)
+}
+
+func TestReparent_SelfLoopedChildIsStillALeaf(t *testing.T) {
+	// A workspace already corrupted into a self-loop (ParentID == ID) must not
+	// count as its own child, so the leaf check passes and it can be reparented
+	// out of the bad state onto a real parent.
+	child := domain.Workspace{ID: "c", ParentID: "c", Branch: "feat", WorktreePath: "/cw", ForkPointSha: "fork"}
+	newParent := domain.Workspace{ID: "np", WorktreePath: "/np"}
+	ws := reparentWS(child, newParent, nil)
+	ws.ReparentFn = func(_ context.Context, id, parentID, _ string, _ time.Time) (domain.Workspace, error) {
+		return domain.Workspace{ID: id, ParentID: parentID}, nil
+	}
+	g := &fakeGit{revParseSha: "ntip"}
+	uc := worktree.New(ws, g, &fakeProvider{}, &fakeRepoStore{}, newNow(), fakeHome())
+	_, err := uc.Reparent(context.Background(), "c", "np")
+	require.NoError(t, err) // not blocked by a phantom self-child
+}
+
 func TestReparent_RejectsLockedNewParent(t *testing.T) {
 	child := domain.Workspace{ID: "c"}
 	newParent := domain.Workspace{ID: "np", Status: domain.WorkspaceStatusLocked}

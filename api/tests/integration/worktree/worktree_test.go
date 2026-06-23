@@ -404,6 +404,34 @@ func (s *WorktreeSuite) TestWorktree_reparentWithChildrenRejected() {
 	s.Assert().Equal(s.parentID, reloaded["parentId"], "rejected reparent must keep the original parent")
 }
 
+// TestRegression_ReparentOntoSelfRejected guards a corruption found in manual
+// testing: reparenting a workspace onto ITSELF was unguarded, producing
+// parentId == id. That self-loop detached the node in the tree AND made it
+// permanently unreparentable (the leaf check counted the node as its own child).
+// The guard now rejects it; the rejection surfaces as a lastError (reparent is
+// 202+async) and the workspace's parent and git history are untouched.
+func (s *WorktreeSuite) TestRegression_ReparentOntoSelfRejected() {
+	t := s.T()
+
+	childID, childPath := s.createChild("feature/self-parent")
+	kit.CommitFile(t, childPath, "c.txt", "c\n", "child commit")
+	childTipBefore := kit.RevParse(t, childPath, "HEAD")
+
+	watcher := s.Env.DialWorkspace(t, s.imported.ProjectID, s.imported.RepoID, childID)
+	resp := s.Env.POST(t, s.wsBase(childID)+"/reparent", map[string]any{
+		"newParentId": childID, // onto itself
+	})
+	kit.RequireStatus(t, resp, http.StatusAccepted)
+	resp.Body.Close()
+	le := kit.WaitForWorkspaceLastError(t, watcher, childID, 5*time.Second)
+	s.Assert().Contains(le, "itself", "self-parent must be rejected with a clear error")
+
+	reloaded := s.getWorkspace(childID)
+	s.Assert().Equal(s.parentID, reloaded["parentId"], "self-parent must not change the parent")
+	s.Assert().NotEqual(childID, reloaded["parentId"], "workspace must never become its own parent")
+	s.Assert().Equal(childTipBefore, kit.RevParse(t, childPath, "HEAD"), "rejected self-parent must not mutate git")
+}
+
 // TestRegression_CreateWorkspace_RemoteBranchExists_Checkout proves the §3
 // decision: when the requested branch already exists on the remote, CreateChild
 // fetches origin/<branch> and checks it out (rather than forking a new branch

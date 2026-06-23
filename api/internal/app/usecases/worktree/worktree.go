@@ -523,6 +523,9 @@ func (u *worktreeUsecase) guardReparent(
 	child domain.Workspace,
 	newParent domain.Workspace,
 ) error {
+	if child.ID == newParent.ID {
+		return ErrSelfParent
+	}
 	if newParent.Status == domain.WorkspaceStatusLocked {
 		return ErrNewParentLocked
 	}
@@ -601,7 +604,9 @@ func (u *worktreeUsecase) childHasChildren(
 		return false, err
 	}
 	for _, ws := range all {
-		if ws.ParentID == childID {
+		// A self-loop (ws.ParentID == ws.ID) must not count the node as its own
+		// child, or a corrupted self-parented workspace becomes unreparentable.
+		if ws.ParentID == childID && ws.ID != childID {
 			return true, nil
 		}
 	}

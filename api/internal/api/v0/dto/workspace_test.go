@@ -19,6 +19,34 @@ func noElig(
 	return workspace.MergeEligibility{}
 }
 
+// TestWorkspaceDTOFrom_EffectiveStatus covers the read-time status overlay:
+// a predicted conflict folds into pr-conflicts, but a terminal/locked base
+// status takes precedence and a non-conflicting read keeps the base status.
+func TestWorkspaceDTOFrom_EffectiveStatus(t *testing.T) {
+	cases := []struct {
+		name     string
+		base     domain.WorkspaceStatus
+		conflict bool
+		want     domain.WorkspaceStatus
+	}{
+		{"conflict folds new -> pr-conflicts", domain.WorkspaceStatusNew, true, domain.WorkspaceStatusPRConflicts},
+		{"conflict folds pr-open -> pr-conflicts", domain.WorkspaceStatusPROpen, true, domain.WorkspaceStatusPRConflicts},
+		{"locked base wins over conflict", domain.WorkspaceStatusLocked, true, domain.WorkspaceStatusLocked},
+		{"deleted base wins over conflict", domain.WorkspaceStatusDeleted, true, domain.WorkspaceStatusDeleted},
+		{"no conflict keeps base", domain.WorkspaceStatusPROpen, false, domain.WorkspaceStatusPROpen},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			got := dto.WorkspaceDTOFrom(
+				domain.Workspace{ID: "w", Status: tc.base},
+				workspace.MergeEligibility{MergeConflicts: tc.conflict},
+			)
+			assert.Equal(t, tc.want, got.Status)
+			assert.Equal(t, tc.conflict, got.MergeConflicts)
+		})
+	}
+}
+
 func TestWorkspaceDTOFrom(
 	t *testing.T,
 ) {
