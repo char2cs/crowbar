@@ -458,6 +458,10 @@ func TestIntegration_DeleteCascadeSkipsLockedChild(t *testing.T) {
 	assert.False(t, ids[descendant.ID], "descendant row removed")
 }
 
+// TestIntegration_MergeConflictSetsPRConflicts proves the try-then-warn model
+// (H6/H7 guard): a conflicting merge-into-parent flags the CHILD pr-conflicts
+// AND leaves the PARENT worktree clean — the in-progress merge is aborted
+// automatically, so no manual abort is needed and the parent is never stuck.
 func TestIntegration_MergeConflictSetsPRConflicts(t *testing.T) {
 	h := newRealUsecase(t)
 	ctx := context.Background()
@@ -477,9 +481,46 @@ func TestIntegration_MergeConflictSetsPRConflicts(t *testing.T) {
 	assert.Equal(t, domain.WorkspaceStatusPRConflicts, reloaded.Status,
 		"a local merge conflict surfaces as Status=pr-conflicts")
 
-	require.NoError(t, enginegit.New().OperationAbort(ctx, h.repoPath))
+	// The parent is ALREADY clean: the conflicting merge was aborted internally,
+	// so there is no in-progress op to abort and no conflict markers remain.
+	require.ErrorContains(t, enginegit.New().OperationAbort(ctx, h.repoPath),
+		"no in-progress operation",
+		"the parent merge was already aborted; nothing left to abort")
 	status := gitRun(t, h.repoPath, "status", "--porcelain")
-	assert.Empty(t, trimNewline(status), "abort rolls the parent worktree back clean")
+	assert.Empty(t, trimNewline(status), "the parent worktree is clean after a conflicting merge")
+}
+
+// TestRegression_SquashMergeConflictDoesNotBrickParent encodes the core H6
+// guarantee: a conflicting `git merge --squash` writes AUTO_MERGE but neither
+// MERGE_HEAD nor SQUASH_HEAD, so a naive in-progress detector would miss it and
+// leave the parent's conflicted index permanently blocking commits/merges. The
+// fix detects AUTO_MERGE as a squash op and aborts it; this test proves the
+// parent worktree is clean afterward and a subsequent commit is NOT blocked.
+func TestRegression_SquashMergeConflictDoesNotBrickParent(t *testing.T) {
+	h := newRealUsecase(t)
+	ctx := context.Background()
+
+	child := h.createChild(t, "feature/sq", h.parentID, h.baseBranch)
+	commitInWorktree(t, child.WorktreePath, "c.txt", "child line\n", "child edit")
+	commitInWorktree(t, h.repoPath, "c.txt", "parent line\n", "parent edit")
+
+	res, err := h.uc.MergeIntoParent(ctx, child.ID, gitdomain.MergeStrategySquash)
+	require.NoError(t, err)
+	assert.True(t, res.ConflictsPending)
+
+	// Parent worktree is clean: no AUTO_MERGE, no unmerged paths.
+	gitDir := trimNewline(gitRun(t, h.repoPath, "rev-parse", "--git-dir"))
+	if !filepath.IsAbs(gitDir) {
+		gitDir = filepath.Join(h.repoPath, gitDir)
+	}
+	assert.False(t, fileExists(t, gitDir, "AUTO_MERGE"), "AUTO_MERGE marker must be gone")
+	assert.Empty(t, trimNewline(gitRun(t, h.repoPath, "status", "--porcelain")),
+		"parent must have no unmerged paths after the conflicting squash")
+
+	// The parent is NOT bricked: a fresh commit on it succeeds.
+	commitInWorktree(t, h.repoPath, "after.txt", "after\n", "post-conflict commit")
+	assert.True(t, fileExists(t, h.repoPath, "after.txt"),
+		"a subsequent commit on the parent must succeed (not blocked by a stuck index)")
 }
 
 func dirExists(

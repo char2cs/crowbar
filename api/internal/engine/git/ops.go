@@ -47,6 +47,17 @@ func detectInProgressOp(
 	if fileExists(filepath.Join(gitDir, "MERGE_HEAD")) {
 		return "merge"
 	}
+	// A conflicting `git merge --squash` writes NEITHER MERGE_HEAD nor
+	// SQUASH_HEAD — it only leaves AUTO_MERGE (plus MERGE_MSG/SQUASH_MSG).
+	// Without this branch detectInProgressOp returns "" for a stuck squash
+	// conflict, so abort/continue both fail with "no in-progress operation"
+	// and the worktree's conflicted index permanently blocks future merges.
+	// A real `git merge` conflict has MERGE_HEAD and matches above; only a
+	// squash conflict falls through to here, and "squash" maps to the
+	// `git reset --merge` abort which cleanly clears it.
+	if fileExists(filepath.Join(gitDir, "AUTO_MERGE")) {
+		return "squash"
+	}
 	return ""
 }
 

@@ -562,3 +562,39 @@ func TestOperationAbort_RebaseInProgress(
 	err := e.OperationAbort(ctx, dir)
 	require.NoError(t, err)
 }
+
+// TestOperationAbort_SquashConflictInProgress is the H6 regression guard. A
+// conflicting `git merge --squash` writes AUTO_MERGE but NEITHER MERGE_HEAD nor
+// SQUASH_HEAD, so detectInProgressOp must recognize AUTO_MERGE as a squash op —
+// otherwise abort returns "no in-progress operation" and the conflicted index
+// permanently bricks the worktree. This proves abort (via `git reset --merge`)
+// cleanly recovers it.
+func TestOperationAbort_SquashConflictInProgress(
+	t *testing.T,
+) {
+	ctx := context.Background()
+	dir := initRepo(t)
+
+	makeCommit(t, dir, "conflict.txt", "line1\nshared\nline3\n", "base")
+
+	gitRun(t, dir, "checkout", "-b", "feature")
+	makeCommit(t, dir, "conflict.txt", "line1\nFEATURE\nline3\n", "feature")
+	gitRun(t, dir, "checkout", "main")
+	makeCommit(t, dir, "conflict.txt", "line1\nMAIN\nline3\n", "main change")
+
+	squashCmd := newGitCmd("merge", "--squash", "feature")
+	squashCmd.Dir = dir
+	_ = squashCmd.Run()
+
+	// The empirical H6 precondition: AUTO_MERGE exists, MERGE_HEAD/SQUASH_HEAD do not.
+	require.FileExists(t, filepath.Join(dir, ".git", "AUTO_MERGE"))
+	require.NoFileExists(t, filepath.Join(dir, ".git", "MERGE_HEAD"))
+	require.NoFileExists(t, filepath.Join(dir, ".git", "SQUASH_HEAD"))
+
+	e := git.New()
+	require.NoError(t, e.OperationAbort(ctx, dir), "squash conflict (AUTO_MERGE) must be abortable")
+
+	// The worktree is clean and not bricked: a subsequent commit succeeds.
+	require.NoFileExists(t, filepath.Join(dir, ".git", "AUTO_MERGE"))
+	makeCommit(t, dir, "after.txt", "after\n", "post-abort commit")
+}

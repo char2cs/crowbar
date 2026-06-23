@@ -145,23 +145,24 @@ type gitCall struct {
 
 type fakeGit struct {
 	enginegit.Engine
-	calls           []gitCall
-	addStartSha     string
-	addErr          error
-	revParseSha     string
-	revParseErr     error
-	mergeErr        error
-	squashErr       error
-	rebaseErr       error
-	ffErr           error
-	rebaseFFErr     error
-	rebaseOnto      error
-	removeErr       error
-	deleteErr       error
-	remoteExists    bool
-	remoteExistsErr error
-	fetchRefErr     error
-	worktreeAddErr  error
+	calls             []gitCall
+	addStartSha       string
+	addErr            error
+	revParseSha       string
+	revParseErr       error
+	mergeErr          error
+	squashErr         error
+	rebaseErr         error
+	ffErr             error
+	rebaseFFErr       error
+	rebaseOnto        error
+	operationAbortErr error
+	removeErr         error
+	deleteErr         error
+	remoteExists      bool
+	remoteExistsErr   error
+	fetchRefErr       error
+	worktreeAddErr    error
 
 	summaryAdded      int
 	summaryDeleted    int
@@ -289,6 +290,14 @@ func (f *fakeGit) RebaseOnto(
 ) error {
 	f.record("RebaseOnto", repoPath, newTip, forkPoint, branch)
 	return f.rebaseOnto
+}
+
+func (f *fakeGit) OperationAbort(
+	_ context.Context,
+	repoPath string,
+) error {
+	f.record("OperationAbort", repoPath)
+	return f.operationAbortErr
 }
 
 func (f *fakeGit) WorkingTreeSummary(
@@ -746,7 +755,9 @@ func TestMergeIntoParent_RebaseStrategy_RebasesChildThenFFMerges(t *testing.T) {
 
 // TestMergeIntoParent_Conflict_SetsPRConflicts proves that a local merge
 // conflict transitions the child to Status=pr-conflicts (via a
-// SyncWorkingTreeState HasConflicts write) instead of recording a pending merge.
+// SyncWorkingTreeState HasConflicts write) instead of recording a pending merge,
+// AND aborts the in-progress merge in the PARENT worktree (where the plain
+// merge runs) so neither worktree is left stuck (try-then-warn, H6/H7 guard).
 func TestMergeIntoParent_Conflict_SetsPRConflicts(t *testing.T) {
 	child := domain.Workspace{ID: "c", ParentID: "p", Branch: "feat"}
 	parent := domain.Workspace{ID: "p", WorktreePath: "/pw", Branch: "develop"}
@@ -766,9 +777,14 @@ func TestMergeIntoParent_Conflict_SetsPRConflicts(t *testing.T) {
 	require.Len(t, synced, 1)
 	assert.Equal(t, "c", synced[0].ID)
 	assert.True(t, synced[0].HasConflicts)
-	assert.Equal(t, []string{"Merge"}, g.ops())
+	// The plain merge runs in the parent worktree, so the abort targets the parent.
+	assert.Equal(t, []string{"Merge", "OperationAbort"}, g.ops())
+	assert.Equal(t, []string{"/pw"}, g.calls[1].args, "abort must run in the PARENT worktree")
 }
 
+// TestMergeIntoParent_RebaseConflict_SetsPRConflicts proves the rebase strategy
+// aborts in the CHILD worktree (where RebaseThenFFMerge rebases the child) on a
+// conflict, so the child is never left mid-rebase and the parent is untouched.
 func TestMergeIntoParent_RebaseConflict_SetsPRConflicts(t *testing.T) {
 	child := domain.Workspace{ID: "c", ParentID: "p", Branch: "feat", WorktreePath: "/cw"}
 	parent := domain.Workspace{ID: "p", WorktreePath: "/pw", Branch: "develop"}
@@ -785,7 +801,53 @@ func TestMergeIntoParent_RebaseConflict_SetsPRConflicts(t *testing.T) {
 	assert.True(t, res.ConflictsPending)
 	require.Len(t, synced, 1)
 	assert.True(t, synced[0].HasConflicts)
-	assert.Equal(t, []string{"RebaseThenFFMerge"}, g.ops())
+	// The rebase runs in the child worktree, so the abort targets the child.
+	assert.Equal(t, []string{"RebaseThenFFMerge", "OperationAbort"}, g.ops())
+	assert.Equal(t, []string{"/cw"}, g.calls[1].args, "abort must run in the CHILD worktree")
+}
+
+// TestMergeIntoParent_SquashConflict_AbortsInParent proves the squash strategy
+// aborts in the PARENT worktree (where MergeSquash runs) on a conflict. This is
+// the core H6 guard: a conflicting squash merge must not brick the parent.
+func TestMergeIntoParent_SquashConflict_AbortsInParent(t *testing.T) {
+	child := domain.Workspace{ID: "c", ParentID: "p", Branch: "feat"}
+	parent := domain.Workspace{ID: "p", WorktreePath: "/pw", Branch: "develop"}
+	g := &fakeGit{squashErr: enginegit.ErrConflict}
+	ws := mergeWS(child, parent, nil)
+	var synced []workspace.SyncInput
+	ws.SyncFn = func(_ context.Context, in workspace.SyncInput, _ time.Time) (domain.Workspace, error) {
+		synced = append(synced, in)
+		return domain.Workspace{}, nil
+	}
+	uc := worktree.New(ws, g, &fakeProvider{}, &fakeRepoStore{}, newNow(), fakeHome())
+	res, err := uc.MergeIntoParent(context.Background(), "c", gitdomain.MergeStrategySquash)
+	require.NoError(t, err)
+	assert.True(t, res.ConflictsPending)
+	require.Len(t, synced, 1)
+	assert.True(t, synced[0].HasConflicts)
+	assert.Equal(t, []string{"MergeSquash", "OperationAbort"}, g.ops())
+	assert.Equal(t, []string{"/pw"}, g.calls[1].args, "squash abort must run in the PARENT worktree")
+}
+
+// TestMergeIntoParent_Conflict_AbortFailureStillFlagsChild proves the abort is
+// best-effort: if OperationAbort itself fails the child is STILL flagged
+// pr-conflicts and the op does not fail (the warning is logged, not returned).
+func TestMergeIntoParent_Conflict_AbortFailureStillFlagsChild(t *testing.T) {
+	child := domain.Workspace{ID: "c", ParentID: "p", Branch: "feat"}
+	parent := domain.Workspace{ID: "p", WorktreePath: "/pw", Branch: "develop"}
+	g := &fakeGit{mergeErr: enginegit.ErrConflict, operationAbortErr: errBoom}
+	ws := mergeWS(child, parent, nil)
+	var synced []workspace.SyncInput
+	ws.SyncFn = func(_ context.Context, in workspace.SyncInput, _ time.Time) (domain.Workspace, error) {
+		synced = append(synced, in)
+		return domain.Workspace{}, nil
+	}
+	uc := worktree.New(ws, g, &fakeProvider{}, &fakeRepoStore{}, newNow(), fakeHome())
+	res, err := uc.MergeIntoParent(context.Background(), "c", gitdomain.MergeStrategyMerge)
+	require.NoError(t, err)
+	assert.True(t, res.ConflictsPending)
+	require.Len(t, synced, 1)
+	assert.True(t, synced[0].HasConflicts)
 }
 
 func TestMergeIntoParent_NonConflictError_Propagates(t *testing.T) {

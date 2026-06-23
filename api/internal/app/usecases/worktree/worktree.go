@@ -325,12 +325,29 @@ func (u *worktreeUsecase) runRebaseMerge(
 func (u *worktreeUsecase) handleMergeError(
 	ctx context.Context,
 	child domain.Workspace,
-	_ domain.Workspace,
-	_ gitdomain.MergeStrategy,
+	parent domain.Workspace,
+	strategy gitdomain.MergeStrategy,
 	mergeErr error,
 ) (MergeResult, error) {
 	if !errors.Is(mergeErr, enginegit.ErrConflict) {
 		return MergeResult{}, fmt.Errorf("merge: run: %w", mergeErr)
+	}
+	// Try-then-warn (consistent with replayAndReparent): a conflicting
+	// merge-into-parent must NEVER leave a worktree stuck. The merge runs in the
+	// PARENT for the squash/plain-merge strategies and in the CHILD for the
+	// rebase strategy, so abort the in-progress op in whichever worktree holds
+	// it. The conflict is then surfaced only as the child's pr-conflicts state;
+	// the user resolves it via "Rebase onto parent" (which keeps a resolvable
+	// rebase in the child's OWN worktree) and re-runs the merge once clean.
+	abortPath := parent.WorktreePath
+	if strategy == gitdomain.MergeStrategyRebase {
+		abortPath = child.WorktreePath
+	}
+	if abortErr := u.git.OperationAbort(ctx, abortPath); abortErr != nil {
+		// Best-effort: do not fail the whole operation, but log so a worktree
+		// that somehow stayed stuck is visible rather than silently bricked.
+		slog.WarnContext(ctx, "merge: abort after conflict failed; worktree may be stuck",
+			"workspace_id", child.ID, "abort_path", abortPath, "err", abortErr)
 	}
 	// A local merge/rebase conflict transitions the child to Status=pr-conflicts
 	// (07 §3.1, 00 §6.1): the HasConflicts sync input drives the status enum.
