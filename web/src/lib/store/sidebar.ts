@@ -46,6 +46,8 @@ export interface Workspace {
   parentBranch?: string
   /** Open PR url, when the ws has one. */
   prUrl?: string
+  /** Last background-operation error (e.g. a rejected reparent), surfaced to the user. */
+  lastError?: string
 }
 
 export interface Repo {

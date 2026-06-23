@@ -55,6 +55,10 @@ export function toSidebarWorkspace(ws: WorkspaceDTO): Workspace {
     mergeConflicts: ws.mergeConflicts,
     ...(ws.parentBranch ? { parentBranch: ws.parentBranch } : {}),
     ...(ws.prUrl ? { prUrl: ws.prUrl } : {}),
+    // Always present (not conditionally spread): applyWorkspaceDTO merges frames
+    // with {...w, ...ws}, so a cleared error must overwrite a stale one — an
+    // omitted key would leave the previous error lingering.
+    lastError: ws.lastError ?? '',
     age: '',
   }
 }

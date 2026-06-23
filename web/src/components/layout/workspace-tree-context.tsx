@@ -112,8 +112,24 @@ function announceReparentOutcome(wsId: string, newParentId: string): void {
     clearTimeout(timer)
     announce()
   }
+  // Baseline the workspace's current error so we react only to a NEW one raised
+  // by THIS reparent. The op is 202-async: a guard rejection (locked/non-leaf/
+  // self/bad target) never throws on the request, it surfaces as a fresh
+  // lastError on the workspace's broadcast — otherwise the failure is silent.
+  let baselineError: string | undefined
+  let baselineBranch: string | undefined
+  for (const repo of useSidebarStore.getState().repos) {
+    for (const w of repo.workspaces) {
+      if (w.id === wsId) {
+        baselineError = w.lastError
+        baselineBranch = w.branch
+      }
+    }
+  }
   const check = (): void => {
-    let moved: { branch?: string; parentId?: string; mergeConflicts?: boolean } | undefined
+    let moved:
+      | { branch?: string; parentId?: string; mergeConflicts?: boolean; lastError?: string }
+      | undefined
     let parentBranch: string | undefined
     for (const repo of useSidebarStore.getState().repos) {
       for (const w of repo.workspaces) {
@@ -121,7 +137,14 @@ function announceReparentOutcome(wsId: string, newParentId: string): void {
         if (w.id === newParentId) parentBranch = w.branch
       }
     }
-    if (!moved || moved.parentId !== newParentId) return // not landed yet
+    if (!moved) return
+    // Failure: a fresh error appeared and the move did not land under the target.
+    if (moved.lastError && moved.lastError !== baselineError && moved.parentId !== newParentId) {
+      const name = moved.branch ?? baselineBranch ?? 'workspace'
+      settle(() => toast.error(`Couldn’t move ${name}`, moved?.lastError))
+      return
+    }
+    if (moved.parentId !== newParentId) return // not landed yet
     const where = parentBranch ?? 'its new parent'
     settle(() => {
       if (moved?.mergeConflicts) {
