@@ -718,3 +718,61 @@ func TestRegression_DuplicateDefaultBranchWorkspace(t *testing.T) {
 		2*time.Second, 100*time.Millisecond,
 		"a duplicate default-branch workspace was persisted")
 }
+
+// TestRegression_DuplicateNonDefaultBranchWorkspace proves the one-per-branch
+// invariant also covers child branches: once a workspace exists for a branch,
+// creating a second workspace on that same branch is rejected (409 sync) and
+// never persists a duplicate.
+func TestRegression_DuplicateNonDefaultBranchWorkspace(t *testing.T) {
+	h := newHarness(t)
+	imported := importProject(t, h)
+	base := "/v0/projects/" + imported.projectID + "/repos/" + imported.repoID
+
+	// Create a child workspace on a fresh branch (async 202).
+	_ = h.raw(http.MethodPost, base+"/workspaces",
+		map[string]string{"branch": "feature/dup"}, http.StatusAccepted).Body.Close()
+
+	countBranch := func(name string) int {
+		n := 0
+		for _, w := range listWorkspaces(t, h, imported.projectID, imported.repoID) {
+			if w.Branch == name {
+				n++
+			}
+		}
+		return n
+	}
+	require.Eventually(t, func() bool { return countBranch("feature/dup") == 1 },
+		3*time.Second, 100*time.Millisecond, "first feature/dup workspace should land")
+
+	// A second create on the same branch is rejected synchronously with 409.
+	resp := h.raw(http.MethodPost, base+"/workspaces",
+		map[string]string{"branch": "feature/dup"}, http.StatusConflict)
+	_ = resp.Body.Close()
+
+	// And never produces a duplicate. countBranch is called in a goroutine by
+	// require.Never, so drive it via a raw GET that tolerates connection errors
+	// rather than require.NoError (which would FailNow from a non-test goroutine).
+	dupURL := h.url + base + "/workspaces"
+	countDupRaw := func() int {
+		r, err := h.server.Client().Get(dupURL)
+		if err != nil {
+			return 0
+		}
+		defer func() { _ = r.Body.Close() }()
+		var env struct {
+			Data []workspaceDTO `json:"data"`
+		}
+		if err := json.NewDecoder(r.Body).Decode(&env); err != nil {
+			return 0
+		}
+		n := 0
+		for _, w := range env.Data {
+			if w.Branch == "feature/dup" {
+				n++
+			}
+		}
+		return n
+	}
+	require.Never(t, func() bool { return countDupRaw() > 1 },
+		2*time.Second, 100*time.Millisecond, "no duplicate feature/dup workspace")
+}
