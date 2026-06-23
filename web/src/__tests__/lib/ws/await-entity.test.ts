@@ -67,6 +67,24 @@ describe('awaitEntity', () => {
     expect(subscribedWhenActionRan).toBe(true)
   })
 
+  it('acceptExisting resolves on a snapshot/pre-existing match (R4 regression)', async () => {
+    // The awaited entity (a repo import's default workspace) was created by an
+    // EARLIER action, so it arrives in the snapshot-on-subscribe burst — during
+    // the window, before this action settles. With acceptExisting it must resolve
+    // to that existing row, not bank it as pre-existing and time out.
+    const promise = awaitEntity<{ id: string; repoId: string }>({
+      endpoint: '/v0/projects/p/repos/r/workspaces',
+      match: (f) => f.repoId === 'r',
+      action: () => Promise.resolve(),
+      acceptExisting: true,
+      timeoutMs: 1000,
+    })
+    // Snapshot replay delivers the existing workspace immediately (window open).
+    emit({ id: 'ws-existing', repoId: 'r' })
+    const resolved = await promise
+    expect(resolved).toEqual({ id: 'ws-existing', repoId: 'r' })
+  })
+
   it('resolves with the first matching frame and ignores non-matches', async () => {
     const promise = awaitEntity<{ id: string; path: string }>({
       endpoint: '/v0/projects',

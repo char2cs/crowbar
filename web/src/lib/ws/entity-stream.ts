@@ -79,6 +79,15 @@ export function subscribeEntityStream<T extends { id: string; status?: string }>
       .then(() => {
         if (!disposed) onChange?.()
       })
+      // A rejection (a failed seed() GET, an IDB error) must NOT poison the chain:
+      // .then on a rejected promise skips every subsequent step, which would
+      // permanently freeze this stream for the session (no live frames, no
+      // reconnect reseed could recover). Absorb it here so applyChain is always
+      // resolved for the next step; applySeed throws before mutating the cache, so
+      // a failed reseed simply leaves the cache intact and a later reseed retries.
+      .catch((err: unknown) => {
+        console.error(`entity-stream: seed failed for ${endpoint}`, err)
+      })
   }
 
   // Seed before the first push lands; the WS subscription is registered
@@ -99,6 +108,12 @@ export function subscribeEntityStream<T extends { id: string; status?: string }>
       .then(() => applyFrame(frame))
       .then(() => {
         if (!disposed) onChange?.()
+      })
+      // Absorb a failed frame apply so it can't poison the chain and freeze all
+      // later frames + reseeds for the session (see runSeed). Ordering is still
+      // preserved: a later frame only runs after this one's catch resolves.
+      .catch((err: unknown) => {
+        console.error(`entity-stream: frame apply failed for ${endpoint}`, err)
       })
   })
 

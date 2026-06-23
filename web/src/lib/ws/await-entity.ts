@@ -28,6 +28,16 @@ export interface AwaitEntityOptions<T> {
   action: () => Promise<void>
   /** Reject after this many ms if no matching frame arrives. Default 30s. */
   timeoutMs?: number
+  /**
+   * Accept a matching entity from the snapshot-on-subscribe burst — resolve on
+   * the FIRST match, including pre-existing rows. Use when the awaited entity was
+   * created by an EARLIER action (e.g. a side effect of a parent POST, like the
+   * default workspace a repo import creates) and so is ALREADY in the snapshot
+   * when we subscribe — banking it as "pre-existing" would strand the caller
+   * forever. Default false: only a genuinely NEW id resolves, so a fresh create
+   * on a branch that already has a workspace doesn't match the stale row.
+   */
+  acceptExisting?: boolean
 }
 
 const DEFAULT_TIMEOUT_MS = 30_000
@@ -35,7 +45,7 @@ const DEFAULT_TIMEOUT_MS = 30_000
 export function awaitEntity<T extends { id: string }>(
   opts: AwaitEntityOptions<T>,
 ): Promise<T> {
-  const { endpoint, match, action, timeoutMs = DEFAULT_TIMEOUT_MS } = opts
+  const { endpoint, match, action, timeoutMs = DEFAULT_TIMEOUT_MS, acceptExisting = false } = opts
   return new Promise<T>((resolve, reject) => {
     let settled = false
     // Ids replayed by the snapshot-on-subscribe burst. While `collecting` is
@@ -61,8 +71,10 @@ export function awaitEntity<T extends { id: string }>(
       if (!frame || typeof frame.id !== 'string') return
       if (!match(frame)) return
       // Snapshot window: bank the id (it is a pre-existing row) and wait for a
-      // genuinely new one. After the window closes, accept only NEW ids.
-      if (collecting || seen.has(frame.id)) {
+      // genuinely new one. After the window closes, accept only NEW ids. Skipped
+      // entirely when acceptExisting is set — the awaited entity may already be in
+      // the snapshot (created by an earlier action), so the first match resolves.
+      if (!acceptExisting && (collecting || seen.has(frame.id))) {
         seen.add(frame.id)
         return
       }

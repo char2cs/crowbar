@@ -73,6 +73,10 @@ export function AddRepositoryModal({ open, onOpenChange }: AddRepositoryModalPro
         endpoint: `/v0/projects/${activeProjectId}/repos/${repo.id}/workspaces`,
         match: (w) => w.repoId === repo.id && w.status !== 'deleted',
         action: () => Promise.resolve(),
+        // The default workspace is created as a side effect of the repo POST
+        // above, so it is already in this stream's snapshot-on-subscribe burst —
+        // accept that existing row instead of banking it and timing out (R4).
+        acceptExisting: true,
       })
 
       // Persist the resolved entities and rebuild the sidebar BEFORE navigating.

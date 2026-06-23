@@ -110,6 +110,30 @@ describe('subscribeEntityStream', () => {
     expect(onChange).toHaveBeenCalled()
   })
 
+  it('a rejected seed does not poison the chain — later frames still apply (R3 regression)', async () => {
+    // The first seed() GET fails (daemon hiccup / 503 / chaos). The stream must
+    // NOT freeze for the session: a later live frame must still land. Before the
+    // fix, the rejected applyChain skipped every subsequent .then forever.
+    const seed = vi.fn().mockRejectedValueOnce(new Error('boom'))
+    const onChange = vi.fn()
+    subscribeEntityStream<WorkspaceDTO>({
+      endpoint: '/v0/projects/p1/repos/r1/workspaces',
+      store: 'crowbar_workspaces',
+      seed,
+      onChange,
+    })
+    // let the failing seed settle
+    await vi.waitFor(() => expect(seed).toHaveBeenCalledTimes(1))
+
+    // A live frame after the failed seed must still be applied.
+    emit(makeWorkspace({ id: 'w1', branch: 'feature' }))
+    await vi.waitFor(async () => {
+      const all = await getAllEntities<WorkspaceDTO>('crowbar_workspaces')
+      expect(all).toHaveLength(1)
+      expect(all[0].id).toBe('w1')
+    })
+  })
+
   it('upserts a complete DTO frame by id', async () => {
     const seed = vi.fn(async () => [makeWorkspace({ id: 'w1', branch: 'main' })])
     subscribeEntityStream<WorkspaceDTO>({
