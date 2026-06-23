@@ -3,6 +3,8 @@
 package conflicts_test
 
 import (
+	"encoding/json"
+	"io"
 	"net/http"
 	"testing"
 	"time"
@@ -103,17 +105,49 @@ func (s *ConflictsSuite) conflictSetup() (childID string) {
 	return childID
 }
 
-// mergeConflict triggers a conflicting child→parent merge (202) and blocks on
-// the child WorkspaceDTO reaching Status=pr-conflicts over WS.
+// mergeConflict triggers a conflicting child→parent merge (202) and blocks until
+// the async merge has actually run and left conflict markers in the parent
+// worktree.
+//
+// It cannot key on the child reaching Status=pr-conflicts: that status is now
+// also produced up front by the merge-tree prediction overlay (a child with
+// diverging edits reads pr-conflicts before any merge is attempted), so it flips
+// before the operation runs. The real post-condition is unmerged paths in the
+// parent — poll for them directly.
 func (s *ConflictsSuite) mergeConflict(childID string) {
 	s.T().Helper()
-	watcher := s.Env.DialWorkspace(s.T(), s.imported.ProjectID, s.imported.RepoID, childID)
 	resp := s.Env.POST(s.T(), s.wsBase(childID)+"/merge-into-parent", map[string]string{
 		"strategy": "merge",
 	})
 	kit.RequireStatus(s.T(), resp, http.StatusAccepted)
 	resp.Body.Close()
-	kit.WaitForWorkspaceState(s.T(), watcher, childID, "pr-conflicts", 5*time.Second)
+	s.waitForParentConflicts(5 * time.Second)
+}
+
+// waitForParentConflicts polls the parent's /git/conflicts endpoint until it
+// lists at least one unmerged file, failing the test if the timeout elapses.
+// Decoding is inlined (not kit.DecodeEnvData) so an intermediate empty/odd
+// response just retries instead of failing the run.
+func (s *ConflictsSuite) waitForParentConflicts(timeout time.Duration) {
+	s.T().Helper()
+	deadline := time.Now().Add(timeout)
+	for time.Now().Before(deadline) {
+		resp := s.Env.GET(s.T(), s.wsBase(s.parentID)+"/git/conflicts")
+		if resp.StatusCode == http.StatusOK {
+			raw, _ := io.ReadAll(resp.Body)
+			resp.Body.Close()
+			var env struct {
+				Data []string `json:"data"`
+			}
+			if json.Unmarshal(raw, &env) == nil && len(env.Data) > 0 {
+				return
+			}
+		} else {
+			resp.Body.Close()
+		}
+		time.Sleep(50 * time.Millisecond)
+	}
+	s.FailNow("parent worktree never reported conflict markers within timeout")
 }
 
 // TestConflicts_mergeDetectsConflict verifies a conflicting merge transitions

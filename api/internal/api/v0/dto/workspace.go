@@ -49,7 +49,7 @@ func WorkspaceDTOFrom(
 		Branch:          w.Branch,
 		ParentID:        w.ParentID,
 		ForkPointSha:    w.ForkPointSha,
-		Status:          w.Status,
+		Status:          effectiveStatus(w.Status, elig.MergeConflicts),
 		Working:         w.Working,
 		LastError:       w.LastError,
 		IsDefault:       w.IsDefault,
@@ -63,6 +63,21 @@ func WorkspaceDTOFrom(
 		PRTitle:         w.PRTitle,
 		PRTargetBranch:  w.PRTargetBranch,
 	}
+}
+
+// effectiveStatus folds the predicted "conflicts with parent" signal into the
+// wire status: a branch that would conflict with its parent — whether from a
+// reparent's failed rebase or the merge-tree prediction — is surfaced as
+// pr-conflicts, the single conflict state the UI resolves on. A terminal/locked
+// status takes precedence. The persisted aggregate status is unchanged; this is
+// a read-time overlay, like the merge-eligibility overlay above.
+func effectiveStatus(base domain.WorkspaceStatus, mergeConflicts bool) domain.WorkspaceStatus {
+	if mergeConflicts &&
+		base != domain.WorkspaceStatusDeleted &&
+		base != domain.WorkspaceStatusLocked {
+		return domain.WorkspaceStatusPRConflicts
+	}
+	return base
 }
 
 // WorkspaceDTOList converts a slice of domain Workspaces into wire DTOs,

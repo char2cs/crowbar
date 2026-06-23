@@ -5,7 +5,6 @@ const base = {
   hasUncommitted: false,
   hasParent: true,
   canMergeLocally: true,
-  wouldConflict: false,
   status: 'new',
   ahead: 0,
   behind: 0,
@@ -18,8 +17,14 @@ describe('resolveBranchAction', () => {
     ).toEqual({ kind: 'commit', remote: null })
   })
 
-  it('clean + conflicts → resolve', () => {
+  it('conflicts with parent (pr-conflicts) → resolve, ahead of merge/pull-request', () => {
+    // The backend folds a predicted conflict into pr-conflicts, so the single
+    // resolve case covers both an active and a predicted conflict. It wins even
+    // when the parent looks mergeable or protected.
     expect(resolveBranchAction({ ...base, status: 'pr-conflicts' }).kind).toBe('resolve')
+    expect(
+      resolveBranchAction({ ...base, status: 'pr-conflicts', canMergeLocally: false }).kind,
+    ).toBe('resolve')
   })
 
   it('clean + protected parent → pull-request', () => {
@@ -28,16 +33,6 @@ describe('resolveBranchAction', () => {
 
   it('clean + mergeable parent → merge', () => {
     expect(resolveBranchAction(base).kind).toBe('merge')
-  })
-
-  it('mergeable but would conflict → merge-blocked (not merge)', () => {
-    expect(resolveBranchAction({ ...base, wouldConflict: true }).kind).toBe('merge-blocked')
-  })
-
-  it('active conflict (pr-conflicts) wins over a predicted would-conflict', () => {
-    expect(
-      resolveBranchAction({ ...base, wouldConflict: true, status: 'pr-conflicts' }).kind,
-    ).toBe('resolve')
   })
 
   it('clean + no parent → sync-only', () => {

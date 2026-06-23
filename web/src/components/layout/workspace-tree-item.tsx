@@ -1,4 +1,3 @@
-import { Warning } from '@phosphor-icons/react'
 import { cn } from '@/lib/utils'
 import { formatChangeCount } from './format-change-count'
 import { WorkspaceBranchIcon } from './workspace-branch-icon'
@@ -98,17 +97,6 @@ export function WorkspaceTreeItem({
               }}
             >
               {workspace.branch}
-            </span>
-          )}
-
-          {/* Predicted conflict with the (current) parent. Suppressed while an
-              ACTIVE conflict already owns the branch icon (status pr-conflicts). */}
-          {workspace.mergeConflicts && workspace.status !== 'pr-conflicts' && (
-            <span
-              className="flex shrink-0 items-center"
-              title={`Would conflict when merged into ${workspace.parentBranch ?? 'its parent'}`}
-            >
-              <Warning aria-hidden="true" weight="fill" className="size-3.5 text-amber-500" />
             </span>
           )}
 

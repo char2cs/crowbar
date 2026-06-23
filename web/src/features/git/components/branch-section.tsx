@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { GitBranch, ArrowUp, ArrowDown, Warning } from '@phosphor-icons/react'
+import { GitBranch, ArrowUp, ArrowDown } from '@phosphor-icons/react'
 import { Button } from '@/components/ui/button'
 import { cn } from '@/utils/cn'
 import { toast } from '@/features/window/stores/toast-store'
@@ -15,7 +15,6 @@ interface BranchSectionProps {
   branch: string
   parentBranch?: string
   canMergeLocally: boolean
-  wouldConflict: boolean
   status: string
   ahead: number
   behind: number
@@ -27,7 +26,6 @@ export function BranchSection({
   branch,
   parentBranch,
   canMergeLocally,
-  wouldConflict,
   status,
   ahead,
   behind,
@@ -40,7 +38,6 @@ export function BranchSection({
     hasUncommitted: files.length > 0,
     hasParent: Boolean(parentBranch),
     canMergeLocally,
-    wouldConflict,
     status,
     ahead,
     behind,
@@ -50,7 +47,7 @@ export function BranchSection({
 
   // User-initiated "finish the move": rebase the branch onto its parent. Async on
   // the daemon — a clean rebase integrates it; a conflict is kept and surfaces as
-  // the Resolve-conflicts state over the WS stream. Crowbar never rebases on its own.
+  // the conflict state over the WS stream. Crowbar never rebases on its own.
   const handleRebaseOntoParent = async () => {
     setRebasing(true)
     try {
@@ -88,8 +85,7 @@ export function BranchSection({
     if (action.kind === 'commit') {
       return `${files.length} uncommitted change${files.length !== 1 ? 's' : ''}`
     }
-    if (action.kind === 'resolve') return 'Merge conflicts'
-    if (action.kind === 'merge-blocked') return `Conflicts with ${parentBranch}`
+    if (action.kind === 'resolve') return `Conflicts with ${parentBranch}`
     if (action.kind === 'pull-request') return `${parentBranch} is protected`
     // Diverged: local and the remote each hold commits the other lacks. Show
     // both — collapsing to just "behind" hides that there's local work to push.
@@ -119,9 +115,7 @@ export function BranchSection({
       <div
         className={cn(
           'ui-text-xs',
-          action.kind === 'resolve' || action.kind === 'merge-blocked'
-            ? 'text-destructive'
-            : 'text-muted-foreground',
+          action.kind === 'resolve' ? 'text-destructive' : 'text-muted-foreground',
         )}
       >
         {statusLine}
@@ -142,35 +136,10 @@ export function BranchSection({
             />
           )}
 
-          {action.kind === 'resolve' && (
-            <Button
-              variant="destructive"
-              size="sm"
-              className="flex-1"
-              onClick={() =>
-                toast.warning(
-                  'Merge conflicts detected',
-                  'Open the conflicting files and resolve them, then commit.',
-                )
-              }
-            >
-              <Warning className="size-3.5" />
-              Resolve conflicts
-            </Button>
-          )}
-
-          {/* Protected parents can't be merged locally — informational only (the
-              PR is opened on the host). Disabled to avoid implying a click action. */}
-          {action.kind === 'pull-request' && (
-            <Button variant="outline" size="sm" className="flex-1" disabled>
-              {parentBranch} is protected — open a PR
-            </Button>
-          )}
-
-          {/* The branch conflicts with its parent and isn't integrated. The user
-              chooses to rebase onto the parent; on conflict that keeps the rebase
-              for the standard resolve flow. Crowbar never rebases on its own. */}
-          {action.kind === 'merge-blocked' && parentBranch && (
+          {/* The branch conflicts with its parent. The user chooses to rebase onto
+              it; on conflict the rebase is kept for the standard resolve flow.
+              Crowbar never rebases on its own. */}
+          {action.kind === 'resolve' && parentBranch && (
             <Button
               variant="default"
               size="sm"
@@ -180,6 +149,14 @@ export function BranchSection({
             >
               <GitBranch className="size-3.5" />
               {rebasing ? 'Rebasing…' : `Rebase onto ${parentBranch}`}
+            </Button>
+          )}
+
+          {/* Protected parents can't be merged locally — informational only (the
+              PR is opened on the host). Disabled to avoid implying a click action. */}
+          {action.kind === 'pull-request' && (
+            <Button variant="outline" size="sm" className="flex-1" disabled>
+              {parentBranch} is protected — open a PR
             </Button>
           )}
 
@@ -216,7 +193,7 @@ export function BranchSection({
         </div>
       )}
 
-      {action.kind === 'merge-blocked' && (
+      {action.kind === 'resolve' && (
         <p className="ui-text-xs text-muted-foreground">
           This branch conflicts with {parentBranch} and isn’t integrated yet. Rebase onto{' '}
           {parentBranch} to resolve it — or drag it back to undo.

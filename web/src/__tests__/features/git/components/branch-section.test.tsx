@@ -20,7 +20,6 @@ const base = {
   branch: 'epoch/first-pr',
   parentBranch: 'develop',
   canMergeLocally: true,
-  wouldConflict: false,
   status: 'new',
   ahead: 0,
   behind: 0,
@@ -51,13 +50,8 @@ describe('BranchSection', () => {
     expect(btn).toBeDisabled()
   })
 
-  it('clean + conflicts → Resolve conflicts', () => {
+  it('conflicts with parent (pr-conflicts) → active "Rebase onto parent" + explain message', () => {
     render(<BranchSection {...base} status="pr-conflicts" />)
-    expect(screen.getByRole('button', { name: /Resolve conflicts/ })).toBeDefined()
-  })
-
-  it('mergeable but would conflict → active "Rebase onto parent" + explain message', () => {
-    render(<BranchSection {...base} wouldConflict />)
     // Active (not disabled) — the user chooses to rebase; Crowbar never does it on its own.
     const btn = screen.getByRole('button', { name: /Rebase onto develop/ })
     expect(btn).not.toBeDisabled()
