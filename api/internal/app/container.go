@@ -52,6 +52,7 @@ func New(
 
 	h := hub.NewHub()
 	repos, err := repositories.New(
+		ctx,
 		adapters,
 		h,
 		axChat,
@@ -81,7 +82,7 @@ func New(
 		repos.Workspace,
 		engines.Git,
 		engines.FS,
-		realtime.NoopLSPLifecycle(),
+		realtime.NewLSPLifecycle(engines.LSP),
 		ucs.ProviderSync,
 		poll.PerConnectionInterval,
 		time.Now,

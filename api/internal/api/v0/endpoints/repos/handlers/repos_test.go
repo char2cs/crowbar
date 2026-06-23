@@ -482,3 +482,59 @@ func TestPutIconGithub_FetchFails_Returns422(t *testing.T) {
 
 	assert.Equal(t, http.StatusUnprocessableEntity, rec.Code)
 }
+
+// TestRegression_RepoIcon_RejectsOversizeOrNonImage asserts that the icon
+// upload path:
+//   - rejects a file whose size on disk exceeds maxIconBytes (2 MiB), and
+//   - rejects a file whose content does not sniff as image/* even when its
+//     filename extension is .png.
+//
+// Both vectors were previously exploitable: an oversize file was read entirely
+// into memory before the size check ran, and a non-image file was accepted when
+// the caller supplied a .png path because the content-type was derived from the
+// extension rather than from content sniffing.
+func TestRegression_RepoIcon_RejectsOversizeOrNonImage(t *testing.T) {
+	t.Run("oversize file via JSON path is rejected with 400", func(t *testing.T) {
+		home := t.TempDir()
+		srcPath := filepath.Join(t.TempDir(), "big.png")
+		// Write a file of exactly maxIconBytes+1 bytes (2 MiB + 1).
+		// maxIconBytes = 2<<20 = 2097152; we write 2097153 bytes.
+		oversize := make([]byte, (2<<20)+1)
+		// Give it PNG magic bytes so it would pass content sniffing.
+		copy(oversize, []byte("\x89PNG\r\n\x1a\n"))
+		require.NoError(t, os.WriteFile(srcPath, oversize, 0o644))
+
+		store := &fakeStore{byKey: &domain.Repository{ID: "r1", ProjectID: "p1"}}
+		h := repohandlers.New(store).WithIconStorage(func() (string, error) { return home, nil }, nil)
+		r := gin.New()
+		r.PUT("/v0/projects/:projectId/repos/:repoId/icon", h.PutIcon)
+
+		body, _ := json.Marshal(map[string]string{"path": srcPath})
+		req := httptest.NewRequest(http.MethodPut, "/v0/projects/p1/repos/r1/icon", bytes.NewReader(body))
+		req.Header.Set("Content-Type", "application/json")
+		rec := httptest.NewRecorder()
+		r.ServeHTTP(rec, req)
+
+		assert.Equal(t, http.StatusBadRequest, rec.Code, "oversize icon must be rejected before the full file is read")
+	})
+
+	t.Run("non-image file with .png extension via JSON path is rejected with 400", func(t *testing.T) {
+		home := t.TempDir()
+		// A file with a .png extension but non-image content (will sniff as text/plain).
+		srcPath := filepath.Join(t.TempDir(), "secret.png")
+		require.NoError(t, os.WriteFile(srcPath, []byte("root:x:0:0:root:/root:/bin/bash\n"), 0o644))
+
+		store := &fakeStore{byKey: &domain.Repository{ID: "r1", ProjectID: "p1"}}
+		h := repohandlers.New(store).WithIconStorage(func() (string, error) { return home, nil }, nil)
+		r := gin.New()
+		r.PUT("/v0/projects/:projectId/repos/:repoId/icon", h.PutIcon)
+
+		body, _ := json.Marshal(map[string]string{"path": srcPath})
+		req := httptest.NewRequest(http.MethodPut, "/v0/projects/p1/repos/r1/icon", bytes.NewReader(body))
+		req.Header.Set("Content-Type", "application/json")
+		rec := httptest.NewRecorder()
+		r.ServeHTTP(rec, req)
+
+		assert.Equal(t, http.StatusBadRequest, rec.Code, "non-image content must be rejected by content sniffing even when the extension is .png")
+	})
+}

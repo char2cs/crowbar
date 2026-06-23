@@ -3,11 +3,14 @@ package reviewthread
 import (
 	"context"
 	"fmt"
+	"log/slog"
 	"time"
 
 	"github.com/char2cs/asynx"
+	asynxModels "github.com/char2cs/asynx/models"
 	gormdb "gorm.io/gorm"
 
+	"github.com/char2cs/crowbar/api/internal/app/repositories/internal/serialize"
 	"github.com/char2cs/crowbar/api/internal/app/repositories/reviewthread/internal/commands"
 	"github.com/char2cs/crowbar/api/internal/app/repositories/reviewthread/internal/store"
 	"github.com/char2cs/crowbar/api/internal/domain"
@@ -85,22 +88,53 @@ type ReviewThread interface {
 }
 
 type reviewThread struct {
-	ax    asynx.Asynx[domain.ReviewThread]
-	store store.Store
+	ax      asynx.Asynx[domain.ReviewThread]
+	store   store.Store
+	writeMu serialize.KeyedMutex
 }
 
 // New builds a ReviewThread repository over the given asynx instance and a GORM DB.
 // The broadcast func is the hub fan-out for projected rows (03 §2).
+//
+// The reviewthread aggregate is global: one asynx and one event store hold every
+// thread. es is that shared event store; when it exposes serialize.AggregateLister,
+// New enumerates its ids so store.New can reconcile each read-model row from the
+// event log on open (heals rows a dropped projection left missing). Enumeration is
+// best-effort — a failure logs and falls back to no reconcile, exactly as if no
+// row needed healing.
 func New(
+	ctx context.Context,
 	ax asynx.Asynx[domain.ReviewThread],
+	es asynxModels.Store,
 	db *gormdb.DB,
 	broadcast store.BroadcastFunc,
 ) (ReviewThread, error) {
-	st, err := store.New(db, ax, broadcast)
+	ids := aggregateIDs(ctx, es)
+	st, err := store.New(ctx, db, ax, broadcast, ids)
 	if err != nil {
 		return nil, fmt.Errorf("reviewthread: store: %w", err)
 	}
 	return &reviewThread{ax: ax, store: st}, nil
+}
+
+// aggregateIDs enumerates the event store's aggregate ids when it supports the
+// optional AggregateLister capability, so the read model can reconcile every
+// thread on open. A store without the capability, or an enumeration error, yields
+// no ids (reconcile is then a no-op).
+func aggregateIDs(
+	ctx context.Context,
+	es asynxModels.Store,
+) []string {
+	lister, ok := es.(serialize.AggregateLister)
+	if !ok {
+		return nil
+	}
+	ids, err := lister.AggregateIDs(ctx)
+	if err != nil {
+		slog.WarnContext(ctx, "reviewthread: enumerate aggregate ids for reconcile failed; skipping reconcile", "err", err)
+		return nil
+	}
+	return ids
 }
 
 func (r *reviewThread) Open(
@@ -108,6 +142,8 @@ func (r *reviewThread) Open(
 	in OpenInput,
 	now time.Time,
 ) (domain.ReviewThread, error) {
+	r.writeMu.Lock(in.ID)
+	defer r.writeMu.Unlock(in.ID)
 	evt, err := r.ax.SendWait(ctx, commands.OpenReviewThread{
 		ID:         in.ID,
 		WsID:       in.WsID,
@@ -137,6 +173,8 @@ func (r *reviewThread) Reply(
 	body string,
 	now time.Time,
 ) (domain.ReviewThread, error) {
+	r.writeMu.Lock(id)
+	defer r.writeMu.Unlock(id)
 	evt, err := r.ax.SendWait(ctx, commands.ReplyReviewThread{
 		ID:        id,
 		MessageID: messageID,
@@ -157,6 +195,8 @@ func (r *reviewThread) EditMessage(
 	messageID string,
 	body string,
 ) (domain.ReviewThread, error) {
+	r.writeMu.Lock(id)
+	defer r.writeMu.Unlock(id)
 	evt, err := r.ax.SendWait(ctx, commands.EditReviewMessage{
 		ID:        id,
 		MessageID: messageID,
@@ -173,6 +213,8 @@ func (r *reviewThread) DeleteMessage(
 	id string,
 	messageID string,
 ) (domain.ReviewThread, error) {
+	r.writeMu.Lock(id)
+	defer r.writeMu.Unlock(id)
 	evt, err := r.ax.SendWait(ctx, commands.DeleteReviewMessage{
 		ID:        id,
 		MessageID: messageID,
@@ -187,6 +229,8 @@ func (r *reviewThread) DeleteThread(
 	ctx context.Context,
 	id string,
 ) error {
+	r.writeMu.Lock(id)
+	defer r.writeMu.Unlock(id)
 	if err := r.ax.Forget(ctx, id); err != nil {
 		return fmt.Errorf("reviewthread: delete thread: %w", err)
 	}
@@ -197,6 +241,8 @@ func (r *reviewThread) Resolve(
 	ctx context.Context,
 	id string,
 ) (domain.ReviewThread, error) {
+	r.writeMu.Lock(id)
+	defer r.writeMu.Unlock(id)
 	evt, err := r.ax.SendWait(ctx, commands.ResolveReviewThread{ID: id})
 	if err != nil {
 		return domain.ReviewThread{}, fmt.Errorf("reviewthread: resolve: %w", err)
@@ -208,6 +254,8 @@ func (r *reviewThread) Reopen(
 	ctx context.Context,
 	id string,
 ) (domain.ReviewThread, error) {
+	r.writeMu.Lock(id)
+	defer r.writeMu.Unlock(id)
 	evt, err := r.ax.SendWait(ctx, commands.ReopenReviewThread{ID: id})
 	if err != nil {
 		return domain.ReviewThread{}, fmt.Errorf("reviewthread: reopen: %w", err)

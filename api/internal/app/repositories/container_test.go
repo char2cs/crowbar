@@ -107,6 +107,7 @@ func newContainer(
 ) *repositories.Container {
 	t.Helper()
 	c, err := repositories.New(
+		context.Background(),
 		newAdapter(t),
 		h,
 		ax[domain.Chat](t),
@@ -127,6 +128,7 @@ func TestContainer_New_BuildsRepos(t *testing.T) {
 
 func TestContainer_New_NilFactoryReturnsError(t *testing.T) {
 	_, err := repositories.New(
+		context.Background(),
 		newAdapter(t),
 		hub.NewHub(),
 		ax[domain.Chat](t),

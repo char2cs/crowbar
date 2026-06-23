@@ -142,7 +142,7 @@ func TestNew_StorageError(t *testing.T) {
 	require.NoError(t, err)
 	require.NoError(t, sqlDB.Close())
 
-	_, err = New(db, nil, func(domain.ReviewThread) {})
+	_, err = New(context.Background(), db, nil, func(domain.ReviewThread) {}, nil)
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "reviewthread store")
 }

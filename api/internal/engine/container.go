@@ -68,9 +68,15 @@ func New(
 // child processes plus their master FDs; without this they are orphaned to init
 // on shutdown/restart (dev hot-restart, crash-restart, OS quit) — the shell and
 // any dev servers/builds it launched keep running and holding ports with no UI
-// to manage them, and the PTY master FDs leak.
+// to manage them, and the PTY master FDs leak. The LSP host likewise holds live
+// language-server subprocesses (gopls/tsserver/rust-analyzer) plus their stdio
+// pipe FDs; without Shutdown every spawned server survives the daemon, leaking
+// RAM, CPU, and FDs across restarts (R8).
 func (c *Container) Close() {
 	if c.Terminal != nil {
 		c.Terminal.Shutdown()
+	}
+	if c.LSP != nil {
+		c.LSP.Shutdown(context.Background())
 	}
 }

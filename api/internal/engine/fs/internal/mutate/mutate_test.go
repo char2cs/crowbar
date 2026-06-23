@@ -10,6 +10,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/char2cs/crowbar/api/internal/engine/fs/internal/mutate"
+	"github.com/char2cs/crowbar/api/internal/engine/fs/safepath"
 )
 
 func TestCreateFile_CreatesEmptyFile(
@@ -207,4 +208,178 @@ func TestRename_MkdirError(
 
 	err := mutate.Rename(dir, "src.txt", "blocker/subdir/dst.txt")
 	require.Error(t, err)
+}
+
+// escapeCases are the adversarial workspace-relative paths every fs mutation
+// must reject (security finding R1).
+var escapeCases = []struct {
+	name string
+	path string
+}{
+	{"parent traversal", "../../etc/passwd"},
+	{"absolute path", "/etc/passwd"},
+	{"mid-path escape", "a/../../b"},
+}
+
+// TestRegression_CreateFile_RejectsPathEscape verifies CreateFile cannot create
+// a file outside the workspace root. Writing e.g. ../.git/hooks/pre-commit is
+// the RCE vector this guards.
+func TestRegression_CreateFile_RejectsPathEscape(
+	t *testing.T,
+) {
+	root := t.TempDir()
+	outside := t.TempDir()
+
+	for _, tc := range escapeCases {
+		t.Run(tc.name, func(t *testing.T) {
+			err := mutate.CreateFile(root, tc.path)
+			require.ErrorIs(t, err, safepath.ErrPathEscapesWorkspace)
+		})
+	}
+
+	entries, err := os.ReadDir(outside)
+	require.NoError(t, err)
+	assert.Empty(t, entries)
+}
+
+// TestRegression_CreateFile_AllowsInWorkspace confirms normal creation still
+// works.
+func TestRegression_CreateFile_AllowsInWorkspace(
+	t *testing.T,
+) {
+	root := t.TempDir()
+	require.NoError(t, mutate.CreateFile(root, "sub/new.txt"))
+	_, err := os.Stat(filepath.Join(root, "sub/new.txt"))
+	require.NoError(t, err)
+}
+
+// TestRegression_CreateDir_RejectsPathEscape verifies CreateDir cannot create a
+// directory outside the workspace root.
+func TestRegression_CreateDir_RejectsPathEscape(
+	t *testing.T,
+) {
+	root := t.TempDir()
+	for _, tc := range escapeCases {
+		t.Run(tc.name, func(t *testing.T) {
+			err := mutate.CreateDir(root, tc.path)
+			require.ErrorIs(t, err, safepath.ErrPathEscapesWorkspace)
+		})
+	}
+}
+
+// TestRegression_CreateDir_AllowsInWorkspace confirms normal creation works.
+func TestRegression_CreateDir_AllowsInWorkspace(
+	t *testing.T,
+) {
+	root := t.TempDir()
+	require.NoError(t, mutate.CreateDir(root, "a/b/c"))
+	info, err := os.Stat(filepath.Join(root, "a/b/c"))
+	require.NoError(t, err)
+	assert.True(t, info.IsDir())
+}
+
+// TestRegression_Rename_RejectsOldPathEscape verifies Rename validates the
+// SOURCE path: an escaping oldPath cannot move host files into the workspace.
+func TestRegression_Rename_RejectsOldPathEscape(
+	t *testing.T,
+) {
+	root := t.TempDir()
+	for _, tc := range escapeCases {
+		t.Run(tc.name, func(t *testing.T) {
+			err := mutate.Rename(root, tc.path, "dest.txt")
+			require.ErrorIs(t, err, safepath.ErrPathEscapesWorkspace)
+		})
+	}
+}
+
+// TestRegression_Rename_RejectsNewPathEscape verifies Rename validates the
+// DESTINATION path: an escaping newPath cannot move workspace files out of the
+// workspace.
+func TestRegression_Rename_RejectsNewPathEscape(
+	t *testing.T,
+) {
+	root := t.TempDir()
+	require.NoError(t, os.WriteFile(filepath.Join(root, "src.txt"), []byte("x"), 0o600))
+
+	for _, tc := range escapeCases {
+		t.Run(tc.name, func(t *testing.T) {
+			err := mutate.Rename(root, "src.txt", tc.path)
+			require.ErrorIs(t, err, safepath.ErrPathEscapesWorkspace)
+		})
+	}
+
+	// Source untouched: the rename never happened.
+	_, err := os.Stat(filepath.Join(root, "src.txt"))
+	require.NoError(t, err)
+}
+
+// TestRegression_Rename_AllowsInWorkspace confirms a normal in-workspace rename
+// still works.
+func TestRegression_Rename_AllowsInWorkspace(
+	t *testing.T,
+) {
+	root := t.TempDir()
+	require.NoError(t, os.WriteFile(filepath.Join(root, "old.txt"), []byte("x"), 0o600))
+
+	require.NoError(t, mutate.Rename(root, "old.txt", "dst/new.txt"))
+
+	data, err := os.ReadFile(filepath.Join(root, "dst/new.txt"))
+	require.NoError(t, err)
+	assert.Equal(t, "x", string(data))
+}
+
+// TestRegression_Delete_RejectsPathEscape verifies Delete cannot remove files
+// outside the workspace root (arbitrary host delete vector).
+func TestRegression_Delete_RejectsPathEscape(
+	t *testing.T,
+) {
+	root := t.TempDir()
+	outside := t.TempDir()
+	victim := filepath.Join(outside, "important.txt")
+	require.NoError(t, os.WriteFile(victim, []byte("keep me"), 0o600))
+
+	for _, tc := range escapeCases {
+		t.Run(tc.name, func(t *testing.T) {
+			err := mutate.Delete(root, tc.path)
+			require.ErrorIs(t, err, safepath.ErrPathEscapesWorkspace)
+		})
+	}
+
+	// The outside file survived.
+	_, err := os.Stat(victim)
+	require.NoError(t, err)
+}
+
+// TestRegression_Delete_RejectsSymlinkEscape verifies Delete cannot traverse a
+// symlinked parent to remove content outside the workspace.
+func TestRegression_Delete_RejectsSymlinkEscape(
+	t *testing.T,
+) {
+	if runtime.GOOS == "windows" {
+		t.Skip("symlink semantics differ on windows")
+	}
+	outside := t.TempDir()
+	require.NoError(t, os.WriteFile(filepath.Join(outside, "victim.txt"), []byte("keep"), 0o600))
+	root := t.TempDir()
+	require.NoError(t, os.Symlink(outside, filepath.Join(root, "link")))
+
+	err := mutate.Delete(root, "link/victim.txt")
+	require.ErrorIs(t, err, safepath.ErrPathEscapesWorkspace)
+
+	_, statErr := os.Stat(filepath.Join(outside, "victim.txt"))
+	require.NoError(t, statErr, "victim outside the root must survive")
+}
+
+// TestRegression_Delete_AllowsInWorkspace confirms a normal in-workspace delete
+// still works.
+func TestRegression_Delete_AllowsInWorkspace(
+	t *testing.T,
+) {
+	root := t.TempDir()
+	require.NoError(t, os.WriteFile(filepath.Join(root, "del.txt"), nil, 0o600))
+
+	require.NoError(t, mutate.Delete(root, "del.txt"))
+
+	_, err := os.Stat(filepath.Join(root, "del.txt"))
+	assert.True(t, os.IsNotExist(err))
 }

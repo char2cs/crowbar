@@ -41,6 +41,14 @@ type ProviderPollManager struct {
 	closed   bool
 }
 
+// pollTimeout bounds a single PollWorkspace invocation. The chain runs network
+// subprocesses (gh auth status, gh api, git ls-remote, gh pr list) and a hung
+// remote (network partition, credential prompt on stdin) would otherwise leak
+// the poll goroutine + child forever and stall all PR polling. WithoutCancel
+// keeps the poll decoupled from the per-connection ctx; this timeout still
+// guarantees forward progress on every tick.
+const pollTimeout = 30 * time.Second
+
 // NewProviderPollManager builds the manager over the per-connection poll
 // interval and the provider-poll usecase. root is the parent context for every
 // poll goroutine; cancelling it (via the realtime Service) stops all polls.
@@ -140,7 +148,7 @@ func (m *ProviderPollManager) run(
 	case <-ctx.Done():
 		return
 	default:
-		_ = m.poll.PollWorkspace(context.WithoutCancel(ctx), wsID)
+		m.pollTick(ctx, wsID)
 	}
 
 	ticker := time.NewTicker(m.interval)
@@ -151,7 +159,31 @@ func (m *ProviderPollManager) run(
 		case <-ctx.Done():
 			return
 		case <-ticker.C:
-			_ = m.poll.PollWorkspace(context.WithoutCancel(ctx), wsID)
+			m.pollTick(ctx, wsID)
 		}
 	}
+}
+
+// pollTick issues a single PollWorkspace on a context.WithoutCancel-derived,
+// timeout-bounded context. WithoutCancel keeps an in-flight Asynx write from
+// being aborted by a mid-tick Release/StopAll; the timeout still cancels a poll
+// whose subprocesses hang, so the run goroutine cannot wedge forever.
+func (m *ProviderPollManager) pollTick(
+	ctx context.Context,
+	wsID string,
+) {
+	m.pollTickWithTimeout(ctx, wsID, pollTimeout)
+}
+
+// pollTickWithTimeout is pollTick with an injectable timeout (the test seam for
+// a short interval). The cancel func runs before this returns so no timer
+// outlives the tick.
+func (m *ProviderPollManager) pollTickWithTimeout(
+	ctx context.Context,
+	wsID string,
+	timeout time.Duration,
+) {
+	pollCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), timeout)
+	defer cancel()
+	_ = m.poll.PollWorkspace(pollCtx, wsID)
 }

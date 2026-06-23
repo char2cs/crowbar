@@ -12,6 +12,7 @@ import (
 	"github.com/char2cs/crowbar/api/internal/domain"
 	gitdomain "github.com/char2cs/crowbar/api/internal/domain/git"
 	"github.com/char2cs/crowbar/api/internal/engine/fs/internal/tree"
+	"github.com/char2cs/crowbar/api/internal/engine/fs/safepath"
 )
 
 type noopProvider struct{}
@@ -237,4 +238,42 @@ func TestList_NestedSubdirs(
 	assert.Equal(t, "child", nodes[0].Name)
 	assert.Equal(t, domain.FileNodeTypeFile, nodes[1].Type)
 	assert.Equal(t, "file.txt", nodes[1].Name)
+}
+
+// TestRegression_List_RejectsPathEscape verifies tree.List refuses a dirPath
+// that escapes the workspace root, so it cannot enumerate arbitrary host
+// directories (security finding R1).
+func TestRegression_List_RejectsPathEscape(
+	t *testing.T,
+) {
+	root := t.TempDir()
+	cases := []struct {
+		name string
+		path string
+	}{
+		{"parent traversal", "../../etc"},
+		{"absolute path", "/etc"},
+		{"mid-path escape", "a/../../b"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			_, err := tree.List(root, tc.path, &noopProvider{})
+			require.ErrorIs(t, err, safepath.ErrPathEscapesWorkspace)
+		})
+	}
+}
+
+// TestRegression_List_AllowsInWorkspace confirms a normal subdir listing still
+// works after the containment guard.
+func TestRegression_List_AllowsInWorkspace(
+	t *testing.T,
+) {
+	root := t.TempDir()
+	require.NoError(t, os.MkdirAll(filepath.Join(root, "sub"), 0o700))
+	require.NoError(t, os.WriteFile(filepath.Join(root, "sub/f.txt"), nil, 0o600))
+
+	nodes, err := tree.List(root, "sub", &noopProvider{})
+	require.NoError(t, err)
+	require.Len(t, nodes, 1)
+	assert.Equal(t, "f.txt", nodes[0].Name)
 }

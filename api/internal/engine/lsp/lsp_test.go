@@ -28,6 +28,7 @@ type fakeServer struct {
 	reqCalls []call
 	notCalls []call
 	diagFn   func(domlsp.DiagnosticsEvent)
+	exitFn   func()
 	closedN  int
 	docs     *server.OpenDocs
 }
@@ -78,6 +79,14 @@ func (f *fakeServer) OnDiagnostics(
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	f.diagFn = fn
+}
+
+func (f *fakeServer) OnExit(
+	fn func(),
+) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.exitFn = fn
 }
 
 func (f *fakeServer) OpenDocs() *server.OpenDocs {
@@ -485,6 +494,53 @@ func TestRelease_NoSpecIsNoOp(t *testing.T) {
 	fake := newFakeServer(nil)
 	e := buildEngine(t, fake)
 	e.Release(context.Background(), ws, noF)
+	assert.Equal(t, 0, fake.closeCount())
+}
+
+// TestShutdown_ClosesEverySpawnedServer proves R8: engine.Shutdown (called by
+// engine.Container.Close on daemon shutdown) tears down every running language
+// server regardless of refcount, so no gopls/tsserver survives the daemon.
+func TestShutdown_ClosesEverySpawnedServer(t *testing.T) {
+	fake := newFakeServer(nil)
+	e := buildEngine(t, fake)
+	ctx := context.Background()
+
+	// Open a document so a server is spawned and held warm (refcount > 0).
+	require.NoError(t, e.DidOpen(ctx, ws, tree, goF, "go", "package main"))
+	require.Equal(t, 0, fake.closeCount(), "open document keeps the server warm")
+
+	e.Shutdown(ctx)
+	assert.Equal(t, 1, fake.closeCount(), "Shutdown closes the live server despite its held ref")
+}
+
+// TestReleaseWorkspace_ReleasesAllServerRefs proves R11's engine side: releasing
+// a workspace tears down every server it holds regardless of refcount and evicts
+// the diagnostics snapshot, even though no per-document DidClose ran.
+func TestReleaseWorkspace_ReleasesAllServerRefs(t *testing.T) {
+	fake := newFakeServer(nil)
+	e := buildEngine(t, fake)
+	ctx := context.Background()
+
+	require.NoError(t, e.DidOpen(ctx, ws, tree, goF, "go", "package main"))
+	cb := fake.diagCallback()
+	require.NotNil(t, cb)
+	cb(domlsp.DiagnosticsEvent{WsID: ws, Diagnostics: []domlsp.Diagnostic{{Message: "boom"}}})
+	require.Len(t, e.DiagnosticsSnapshot(ws), 1)
+
+	// WS drop without DidClose: the open-doc ref is still held.
+	require.Equal(t, 0, fake.closeCount())
+
+	e.ReleaseWorkspace(ctx, ws)
+	assert.Equal(t, 1, fake.closeCount(), "ReleaseWorkspace tears the server down despite the held ref")
+	assert.Empty(t, e.DiagnosticsSnapshot(ws), "OnReleaseEmpty evicts the snapshot")
+}
+
+// TestReleaseWorkspace_UnknownWorkspaceIsNoOp verifies releasing a workspace
+// with no running servers does not panic and tears nothing down.
+func TestReleaseWorkspace_UnknownWorkspaceIsNoOp(t *testing.T) {
+	fake := newFakeServer(nil)
+	e := buildEngine(t, fake)
+	e.ReleaseWorkspace(context.Background(), "ghost")
 	assert.Equal(t, 0, fake.closeCount())
 }
 

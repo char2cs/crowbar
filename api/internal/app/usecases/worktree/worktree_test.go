@@ -170,6 +170,17 @@ type fakeGit struct {
 	summaryHasConflicts bool
 	summaryErr          error
 	pruneErr            error
+
+	opInProgress    string
+	opInProgressErr error
+}
+
+func (f *fakeGit) OperationInProgress(
+	_ context.Context,
+	repoPath string,
+) (string, error) {
+	f.record("OperationInProgress", repoPath)
+	return f.opInProgress, f.opInProgressErr
 }
 
 func (f *fakeGit) record(
@@ -1274,6 +1285,33 @@ func TestReconcileAll_ClearsStalePRConflicts(t *testing.T) {
 	require.NoError(t, uc.ReconcileAll(context.Background()))
 	assert.Equal(t, []string{"stale"}, resolved,
 		"only the workspace with no real conflicts must be ResolveConflicts'd")
+}
+
+// TestReconcileAll_KeepsPRConflictsWhenOpInProgress proves R13: a workspace that
+// is MID conflict-resolution — the conflict markers were resolved and staged so
+// WorkingTreeSummary reports hasConflicts=false, but the rebase/merge was never
+// continued so an in-progress op is still on disk — must KEEP its pr-conflicts.
+// Clearing it would drop the signal that the operation is unfinished.
+func TestReconcileAll_KeepsPRConflictsWhenOpInProgress(t *testing.T) {
+	midRes := domain.Workspace{ID: "midres", RepoID: "r", WorktreePath: "/wt/midres", Status: domain.WorkspaceStatusPRConflicts}
+	// No unresolved markers in the tree (hasConflicts=false) but a rebase is still
+	// in progress (the user staged the resolution and stopped).
+	g := &fakeGit{opInProgress: "rebase"}
+	var resolved []string
+	ws := &fakeWorkspace{
+		ListFn: func(_ context.Context) ([]domain.Workspace, error) {
+			return []domain.Workspace{midRes}, nil
+		},
+		ResolveConflictsFn: func(_ context.Context, id string, _ time.Time) (domain.Workspace, error) {
+			resolved = append(resolved, id)
+			return domain.Workspace{ID: id}, nil
+		},
+	}
+	uc := worktree.New(ws, g, &fakeProvider{}, &fakeRepoStore{path: "/repo"}, newNow(), fakeHome())
+
+	require.NoError(t, uc.ReconcileAll(context.Background()))
+	assert.Empty(t, resolved,
+		"a workspace mid conflict-resolution (in-progress rebase) must keep pr-conflicts, not be cleared")
 }
 
 // TestReconcileAll_ResyncsSummaryAndSkipsNoPathRows proves ReconcileAll resyncs

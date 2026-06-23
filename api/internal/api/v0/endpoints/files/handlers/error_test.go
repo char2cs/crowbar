@@ -50,4 +50,3 @@ func TestFileHandlers_NotFoundError(
 
 	assert.Equal(t, http.StatusNotFound, do(r, http.MethodGet, "/v0/workspaces/ws1/files/content?path=missing.go", nil).Code)
 }
-

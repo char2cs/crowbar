@@ -267,7 +267,8 @@ func (u *gitUsecase) Pull(
 	})
 }
 
-// CreateBranch creates a branch and resyncs the working tree.
+// CreateBranch creates a branch and resyncs the working tree. The new name and
+// optional source are validated so neither can be read as a git option.
 func (u *gitUsecase) CreateBranch(
 	ctx context.Context,
 	wsID string,
@@ -276,12 +277,19 @@ func (u *gitUsecase) CreateBranch(
 	switchTo bool,
 	now time.Time,
 ) error {
+	if err := validateOperand("name", name); err != nil {
+		return err
+	}
+	if err := validateOperand("source", source); err != nil {
+		return err
+	}
 	return u.mutate(ctx, wsID, now, func(repoPath string) error {
 		return u.git.CreateBranch(ctx, repoPath, name, source, switchTo)
 	})
 }
 
-// RenameBranch renames a branch and resyncs the working tree.
+// RenameBranch renames a branch and resyncs the working tree. Both names are
+// validated so neither can be read as a git option.
 func (u *gitUsecase) RenameBranch(
 	ctx context.Context,
 	wsID string,
@@ -289,30 +297,44 @@ func (u *gitUsecase) RenameBranch(
 	newName string,
 	now time.Time,
 ) error {
+	if err := validateOperand("oldName", oldName); err != nil {
+		return err
+	}
+	if err := validateOperand("newName", newName); err != nil {
+		return err
+	}
 	return u.mutate(ctx, wsID, now, func(repoPath string) error {
 		return u.git.RenameBranch(ctx, repoPath, oldName, newName)
 	})
 }
 
-// DeleteBranch deletes a branch and resyncs the working tree.
+// DeleteBranch deletes a branch and resyncs the working tree. name is validated
+// so a leading-dash value can never be read as a git option.
 func (u *gitUsecase) DeleteBranch(
 	ctx context.Context,
 	wsID string,
 	name string,
 	now time.Time,
 ) error {
+	if err := validateOperand("name", name); err != nil {
+		return err
+	}
 	return u.mutate(ctx, wsID, now, func(repoPath string) error {
 		return u.git.DeleteBranch(ctx, repoPath, name)
 	})
 }
 
-// SwitchBranch checks out a branch and resyncs the working tree.
+// SwitchBranch checks out a branch and resyncs the working tree. name is
+// validated so a leading-dash value can never be read as a git option.
 func (u *gitUsecase) SwitchBranch(
 	ctx context.Context,
 	wsID string,
 	name string,
 	now time.Time,
 ) error {
+	if err := validateOperand("name", name); err != nil {
+		return err
+	}
 	return u.mutate(ctx, wsID, now, func(repoPath string) error {
 		return u.git.SwitchBranch(ctx, repoPath, name)
 	})
@@ -366,7 +388,9 @@ func (u *gitUsecase) StashDrop(
 	})
 }
 
-// Reset runs git reset and resyncs the working tree.
+// Reset runs git reset and resyncs the working tree. mode is allowlisted (it
+// becomes a `--<mode>` flag) and commit is validated as a safe operand so a
+// leading-dash value can never be read as a git option (argument injection).
 func (u *gitUsecase) Reset(
 	ctx context.Context,
 	wsID string,
@@ -374,30 +398,45 @@ func (u *gitUsecase) Reset(
 	commit string,
 	now time.Time,
 ) error {
+	if err := validateResetMode(mode); err != nil {
+		return err
+	}
+	if err := validateOperand("commit", commit); err != nil {
+		return err
+	}
 	return u.mutate(ctx, wsID, now, func(repoPath string) error {
 		return u.git.Reset(ctx, repoPath, mode, commit)
 	})
 }
 
-// Merge merges a branch and resyncs the working tree.
+// Merge merges a branch and resyncs the working tree. branch is validated so a
+// leading-dash value can never be read as a git option (argument injection).
 func (u *gitUsecase) Merge(
 	ctx context.Context,
 	wsID string,
 	branch string,
 	now time.Time,
 ) error {
+	if err := validateOperand("branch", branch); err != nil {
+		return err
+	}
 	return u.mutate(ctx, wsID, now, func(repoPath string) error {
 		return u.git.Merge(ctx, repoPath, branch)
 	})
 }
 
-// Rebase rebases the current branch and resyncs the working tree.
+// Rebase rebases the current branch and resyncs the working tree. onto is
+// validated so a leading-dash value can never be read as a git option such as
+// `--exec=<cmd>` (argument injection → arbitrary command execution).
 func (u *gitUsecase) Rebase(
 	ctx context.Context,
 	wsID string,
 	onto string,
 	now time.Time,
 ) error {
+	if err := validateOperand("onto", onto); err != nil {
+		return err
+	}
 	return u.mutate(ctx, wsID, now, func(repoPath string) error {
 		return u.git.Rebase(ctx, repoPath, onto)
 	})

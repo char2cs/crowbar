@@ -13,6 +13,7 @@ import (
 	"github.com/char2cs/crowbar/api/internal/api/libs"
 	"github.com/char2cs/crowbar/api/internal/app/apperr"
 	"github.com/char2cs/crowbar/api/internal/app/usecases/worktree"
+	"github.com/char2cs/crowbar/api/internal/engine/fs/safepath"
 	enginegit "github.com/char2cs/crowbar/api/internal/engine/git"
 	enginesearch "github.com/char2cs/crowbar/api/internal/engine/search"
 	engineterminal "github.com/char2cs/crowbar/api/internal/engine/terminal"
@@ -130,6 +131,11 @@ func TestStatusAndMessageMapping(t *testing.T) {
 			err:    enginegit.ErrAuthFailed,
 			status: http.StatusForbidden,
 		},
+		{
+			name:   "file too large",
+			err:    safepath.ErrFileTooLarge,
+			status: http.StatusRequestEntityTooLarge,
+		},
 	}
 
 	for _, tc := range cases {
@@ -210,5 +216,17 @@ func TestStatusAndMessageWrappedAsynxNotFound(t *testing.T) {
 	status, msg := libs.StatusAndMessage(wrapped)
 
 	assert.Equal(t, http.StatusNotFound, status)
+	assert.Equal(t, wrapped.Error(), msg)
+}
+
+func TestStatusAndMessageWrappedFileTooLarge(t *testing.T) {
+	wrapped := fmt.Errorf(
+		"content: read big.bin: %w",
+		safepath.ErrFileTooLarge,
+	)
+
+	status, msg := libs.StatusAndMessage(wrapped)
+
+	assert.Equal(t, http.StatusRequestEntityTooLarge, status)
 	assert.Equal(t, wrapped.Error(), msg)
 }

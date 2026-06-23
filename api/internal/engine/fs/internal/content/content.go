@@ -4,12 +4,24 @@ package content
 import (
 	"encoding/base64"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"unicode/utf8"
 
 	"github.com/char2cs/crowbar/api/internal/domain"
+	"github.com/char2cs/crowbar/api/internal/engine/fs/safepath"
 )
+
+// maxReadBytes is the upper bound on file size for content reads. Files larger
+// than this threshold are rejected with ErrFileTooLarge to prevent OOM when a
+// caller requests a multi-GB file (security/hardening finding R16).
+const maxReadBytes = 25 << 20 // 25 MiB
+
+// ErrFileTooLarge is re-exported from safepath for callers that import only
+// this package. The canonical definition lives in safepath so api/libs can
+// import it without violating Go's internal-package rule.
+var ErrFileTooLarge = safepath.ErrFileTooLarge
 
 // Read returns the content of a file. Binary files are base64-encoded with
 // Encoding set to "base64"; text files are returned as UTF-8.
@@ -17,10 +29,45 @@ func Read(
 	repoPath string,
 	filePath string,
 ) (domain.FileContent, error) {
-	full := filepath.Join(repoPath, filePath)
-	data, err := os.ReadFile(full)
+	return readWithCap(repoPath, filePath, maxReadBytes)
+}
+
+// readWithCap is the internal implementation of Read with an injectable cap so
+// tests can exercise the size-rejection path without creating a 25 MiB file.
+func readWithCap(
+	repoPath string,
+	filePath string,
+	cap int64,
+) (domain.FileContent, error) {
+	full, err := safepath.Resolve(repoPath, filePath)
 	if err != nil {
 		return domain.FileContent{}, fmt.Errorf("content: read %s: %w", filePath, err)
+	}
+
+	// Stat first for a fast rejection; io.LimitReader below provides the
+	// hard cap in case the file grows between Stat and the actual read.
+	info, err := os.Stat(full)
+	if err != nil {
+		return domain.FileContent{}, fmt.Errorf("content: read %s: %w", filePath, err)
+	}
+	if info.Size() > cap {
+		return domain.FileContent{}, fmt.Errorf("content: read %s: %w", filePath, ErrFileTooLarge)
+	}
+
+	f, err := os.Open(full)
+	if err != nil {
+		return domain.FileContent{}, fmt.Errorf("content: read %s: %w", filePath, err)
+	}
+	defer f.Close() //nolint:errcheck
+
+	// Read at most cap+1 bytes. If we get cap+1 bytes the file grew past the
+	// cap between Stat and Open; reject it with ErrFileTooLarge.
+	data, err := io.ReadAll(io.LimitReader(f, cap+1))
+	if err != nil {
+		return domain.FileContent{}, fmt.Errorf("content: read %s: %w", filePath, err)
+	}
+	if int64(len(data)) > cap {
+		return domain.FileContent{}, fmt.Errorf("content: read %s: %w", filePath, ErrFileTooLarge)
 	}
 
 	if isBinary(data) {
@@ -39,7 +86,10 @@ func Write(
 	filePath string,
 	content string,
 ) error {
-	full := filepath.Join(repoPath, filePath)
+	full, err := safepath.Resolve(repoPath, filePath)
+	if err != nil {
+		return fmt.Errorf("content: write %s: %w", filePath, err)
+	}
 	if err := os.MkdirAll(filepath.Dir(full), 0o700); err != nil {
 		return fmt.Errorf("content: mkdirall %s: %w", filePath, err)
 	}

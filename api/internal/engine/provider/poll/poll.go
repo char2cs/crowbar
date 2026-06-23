@@ -19,6 +19,12 @@ const GlobalCronInterval = 5 * time.Minute
 // (D10/§11).
 const PerConnectionInterval = 1 * time.Minute
 
+// perTargetTimeout bounds a single target's pollFn (which runs network
+// subprocesses: gh/glab/git). Without it one hung remote would stall the whole
+// serial sweep — every other workspace's PR status would stop updating until the
+// hang resolved. The sweep ctx still cancels every target on shutdown.
+const perTargetTimeout = 30 * time.Second
+
 // SweepTarget is the minimal info the sweep needs per workspace.
 type SweepTarget struct {
 	WSID      string
@@ -63,6 +69,7 @@ type sweeper struct {
 	pollFn        PollFn
 	onStateChange OnStateChangeFn
 	interval      time.Duration
+	targetTimeout time.Duration
 	mu            sync.Mutex
 	lastState     map[string]ProviderStateSnapshot
 }
@@ -97,6 +104,7 @@ func newSweeperWithInterval(
 		pollFn:        pollFn,
 		onStateChange: onStateChange,
 		interval:      interval,
+		targetTimeout: perTargetTimeout,
 		lastState:     make(map[string]ProviderStateSnapshot),
 	}
 }
@@ -147,7 +155,14 @@ func (s *sweeper) sweepTarget(
 		return
 	}
 
-	state, err := s.pollFn(ctx, t.WSID, t.RepoPath, t.Branch)
+	timeout := s.targetTimeout
+	if timeout <= 0 {
+		timeout = perTargetTimeout
+	}
+	targetCtx, cancel := context.WithTimeout(ctx, timeout)
+	defer cancel()
+
+	state, err := s.pollFn(targetCtx, t.WSID, t.RepoPath, t.Branch)
 	if err != nil {
 		return
 	}

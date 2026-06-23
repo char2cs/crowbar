@@ -136,7 +136,7 @@ func TestNew_StorageError(t *testing.T) {
 	require.NoError(t, err)
 	require.NoError(t, sqlDB.Close())
 
-	_, err = New(db, nil, func(domain.Chat) {})
+	_, err = New(context.Background(), db, nil, func(domain.Chat) {}, nil)
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "chat store")
 }
@@ -145,7 +145,7 @@ func TestNew_ProjectionsError(t *testing.T) {
 	db, err := storesqlite.OpenDB(":memory:")
 	require.NoError(t, err)
 	ax := &fakeAx{subscribeErr: errors.New("bus down")}
-	_, err = New(db, ax, func(domain.Chat) {})
+	_, err = New(context.Background(), db, ax, func(domain.Chat) {}, nil)
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "chat store: projections")
 }

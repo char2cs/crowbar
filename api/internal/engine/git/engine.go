@@ -374,6 +374,11 @@ func (e *engine) StashDrop(
 	return stash.Drop(ctx, repoPath, id)
 }
 
+// Reset runs `git reset --<mode> [<commit>]`. mode is allowlisted and commit is
+// validated for a leading dash at the usecase boundary (git_write.go), which is
+// the guard here: `git reset` does not accept a `--` end-of-options separator
+// before a commit (it would reinterpret the commit as a pathspec — "Cannot do
+// hard reset with paths"), so a separator is infeasible for this subcommand.
 func (e *engine) Reset(
 	ctx context.Context,
 	repoPath string,
@@ -396,7 +401,10 @@ func (e *engine) Merge(
 	branch string,
 ) error {
 	defer e.lockRepo(ctx, repoPath)()
-	r := e.exec(ctx, repoPath, "merge", branch)
+	// `--` end-of-options separator so a branch value can never be read as a git
+	// option (argument injection); the usecase boundary also rejects leading-dash
+	// operands as defense in depth.
+	r := e.exec(ctx, repoPath, "merge", "--", branch)
 	return classifyGitError("merge", r)
 }
 
@@ -406,7 +414,10 @@ func (e *engine) Rebase(
 	onto string,
 ) error {
 	defer e.lockRepo(ctx, repoPath)()
-	r := e.exec(ctx, repoPath, "rebase", onto)
+	// `--` end-of-options separator so an onto value can never be read as a git
+	// option such as `--exec=<cmd>` (argument injection → arbitrary command
+	// execution); the usecase boundary also rejects leading-dash operands.
+	r := e.exec(ctx, repoPath, "rebase", "--", onto)
 	return classifyGitError("rebase", r)
 }
 
@@ -450,6 +461,17 @@ func (e *engine) OperationAbort(
 ) error {
 	defer e.lockRepo(ctx, repoPath)()
 	return e.operationAbort(ctx, repoPath)
+}
+
+// OperationInProgress reports the in-progress git operation at repoPath, reading
+// only the .git marker files. It takes no repo lock: the marker check is a pure
+// read and the recovery sweep calls it on workspaces whose worktrees may be mid
+// operation, where blocking on a write lock would be wrong.
+func (e *engine) OperationInProgress(
+	ctx context.Context,
+	repoPath string,
+) (string, error) {
+	return detectInProgressOp(ctx, repoPath), nil
 }
 
 func (e *engine) WorkingTreeSummary(

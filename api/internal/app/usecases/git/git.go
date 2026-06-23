@@ -349,12 +349,19 @@ func (u *gitUsecase) Diff(
 	return diff, nil
 }
 
-// CommitDiff returns the diff for a single commit.
+// CommitDiff returns the diff for a single commit. sha is validated as a safe
+// operand so a leading-dash / metacharacter value can never be read by `git
+// show`/`git diff` as an option such as `--output=<path>` (argument injection →
+// arbitrary file write); `git show` cannot hide a revision behind `--`, so the
+// validator is the guard here.
 func (u *gitUsecase) CommitDiff(
 	ctx context.Context,
 	wsID string,
 	sha string,
 ) (gitdomain.MultiFileDiff, error) {
+	if err := validateOperand("sha", sha); err != nil {
+		return gitdomain.MultiFileDiff{}, err
+	}
 	repoPath, err := u.repoPath(ctx, wsID)
 	if err != nil {
 		return gitdomain.MultiFileDiff{}, err

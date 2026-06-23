@@ -4,8 +4,11 @@ import (
 	"bufio"
 	"context"
 	"encoding/json"
+	"io"
 	"os"
 	"os/exec"
+	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -44,7 +47,7 @@ func TestProcessTransport_CloseReapsProcess(t *testing.T) {
 	t.Setenv("CROWBAR_LSP_HELPER", "1")
 
 	cmd := exec.Command(os.Args[0], "-test.run=TestHelperProcess")
-	tr, err := newProcessTransport(cmd)
+	tr, err := newProcessTransport(cmd, nil)
 	require.NoError(t, err)
 
 	require.NoError(t, tr.Close())
@@ -52,6 +55,60 @@ func TestProcessTransport_CloseReapsProcess(t *testing.T) {
 
 	// Close is idempotent and must not panic on an already-reaped process.
 	require.NoError(t, tr.Close())
+}
+
+// TestProcessTransport_NaturalExitReapsAndFiresOnExit proves R10 at the
+// transport layer (mirroring the terminal session natural-exit reap test): a
+// process that exits on its own is reaped via cmd.Wait() — ProcessState is set —
+// and the onExit callback fires exactly once so the manager can evict the dead
+// pool entry. The reaper, not Close(), owns the single Wait here.
+func TestProcessTransport_NaturalExitReapsAndFiresOnExit(t *testing.T) {
+	t.Setenv("CROWBAR_LSP_HELPER", "1")
+
+	exited := make(chan struct{})
+	var once sync.Once
+
+	cmd := exec.Command(os.Args[0], "-test.run=TestHelperProcess")
+	tr, err := newProcessTransport(cmd, func() {
+		once.Do(func() { close(exited) })
+	})
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = tr.Close() })
+
+	// The helper reads one framed request, replies, then exits on its own
+	// (os.Exit(0)). Send a request so it proceeds to exit, and drain its reply so
+	// the reaper observes the exit promptly.
+	go func() { _, _ = io.Copy(io.Discard, tr) }()
+	req := protocol.Request{JSONRPC: "2.0", ID: 1, Method: "ping"}
+	out, marshalErr := json.Marshal(req)
+	require.NoError(t, marshalErr)
+	require.NoError(t, protocol.WriteMessage(tr, out))
+
+	select {
+	case <-exited:
+	case <-time.After(5 * time.Second):
+		t.Fatal("onExit was not fired after the process exited on its own")
+	}
+
+	require.NotNil(t, cmd.ProcessState, "natural exit must reap the child via cmd.Wait()")
+	assert.True(t, cmd.ProcessState.Exited(), "child process must have exited")
+}
+
+// TestProcessTransport_CloseSuppressesOnExit verifies that a deliberate Close
+// (manager Release/Shutdown/Replay) does NOT fire onExit — only a genuine
+// self-exit does.
+func TestProcessTransport_CloseSuppressesOnExit(t *testing.T) {
+	t.Setenv("CROWBAR_LSP_HELPER", "1")
+
+	var fired int32
+	cmd := exec.Command(os.Args[0], "-test.run=TestHelperProcess")
+	tr, err := newProcessTransport(cmd, func() { atomic.AddInt32(&fired, 1) })
+	require.NoError(t, err)
+
+	// Close before the process finishes on its own; onExit must be suppressed.
+	require.NoError(t, tr.Close())
+	require.NotNil(t, cmd.ProcessState, "Close must reap the process")
+	assert.Equal(t, int32(0), atomic.LoadInt32(&fired), "deliberate Close must not fire onExit")
 }
 
 func TestServer_NewSpawnsRealProcess(t *testing.T) {

@@ -84,3 +84,27 @@ func NewWithErrorExec() Engine {
 		execStdin: errExecStdin,
 	}
 }
+
+// NewWithRecordingExec returns an Engine whose every git invocation is recorded
+// (the exec returns a benign success) and a pointer to the slice of recorded
+// argument lists. It lets tests assert the exact args (e.g. that a `--`
+// end-of-options separator precedes a user operand) without spawning git.
+func NewWithRecordingExec() (Engine, *[][]string) {
+	var recorded [][]string
+	rec := func(_ context.Context, _ string, args ...string) gitexec.Result {
+		captured := make([]string, len(args))
+		copy(captured, args)
+		recorded = append(recorded, captured)
+		return gitexec.Result{ExitCode: 0}
+	}
+	e := &engine{
+		exec: rec,
+		execStdin: func(_ context.Context, _, _ string, args ...string) gitexec.Result {
+			captured := make([]string, len(args))
+			copy(captured, args)
+			recorded = append(recorded, captured)
+			return gitexec.Result{ExitCode: 0}
+		},
+	}
+	return e, &recorded
+}

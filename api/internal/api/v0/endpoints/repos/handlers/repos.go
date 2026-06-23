@@ -5,7 +5,6 @@ import (
 	"context"
 	"fmt"
 	"io"
-	"mime"
 	"net/http"
 	"os"
 	"os/exec"
@@ -425,7 +424,24 @@ func (h *Handlers) Icon(c *gin.Context) {
 		c.Status(http.StatusNotFound)
 		return
 	}
-	data, err := os.ReadFile(iconPath)
+	// Stat-reject and cap the read: icons are stored by this daemon, but a
+	// corrupted or replaced file should not cause an unbounded heap allocation.
+	info, err := os.Stat(iconPath)
+	if err != nil {
+		c.Status(http.StatusNotFound)
+		return
+	}
+	if info.Size() > maxIconBytes {
+		c.Status(http.StatusNotFound)
+		return
+	}
+	f, err := os.Open(iconPath)
+	if err != nil {
+		c.Status(http.StatusNotFound)
+		return
+	}
+	defer func() { _ = f.Close() }()
+	data, err := io.ReadAll(io.LimitReader(f, maxIconBytes+1))
 	if err != nil {
 		c.Status(http.StatusNotFound)
 		return
@@ -680,8 +696,10 @@ func (h *Handlers) DeleteIcon(c *gin.Context) {
 	c.Status(http.StatusNoContent)
 }
 
-// maxIconBytes caps the stored icon at 5 MB.
-const maxIconBytes = 5 << 20
+// maxIconBytes caps the stored icon at 2 MiB. Any file larger than this is
+// rejected before or immediately after opening, so the daemon never reads an
+// unbounded amount of data from a client-supplied path.
+const maxIconBytes = 2 << 20
 
 // PutIcon handles PUT /v0/projects/:projectId/repos/:repoId/icon. It accepts the
 // icon two ways: a multipart/form-data "icon" field (web browsers), or a JSON
@@ -696,16 +714,20 @@ func (h *Handlers) PutIcon(c *gin.Context) {
 		libs.WriteErr(c, http.StatusNotFound, "repo not found")
 		return
 	}
-	data, ct, ok := h.readIconUpload(c)
+	data, _, ok := h.readIconUpload(c)
 	if !ok {
 		return
 	}
 	if len(data) > maxIconBytes {
-		libs.WriteErr(c, http.StatusBadRequest, "icon must be under 5 MB")
+		libs.WriteErr(c, http.StatusBadRequest, "icon must be under 2 MB")
 		return
 	}
-	if _, ok := iconContentTypeExt(ct); !ok {
-		libs.WriteErr(c, http.StatusBadRequest, "icon must be png, jpeg, or webp")
+	// Always validate by content sniffing (not by trusting the extension or the
+	// caller-supplied Content-Type) so a non-image file cannot be stored by
+	// supplying a .png filename or a JSON path to an arbitrary host file.
+	sniffed := http.DetectContentType(data)
+	if !strings.HasPrefix(sniffed, "image/") {
+		libs.WriteErr(c, http.StatusBadRequest, "icon must be an image file")
 		return
 	}
 	if err := h.storeIconBytes(c, data); err != nil {
@@ -736,9 +758,20 @@ func (h *Handlers) readIconUpload(c *gin.Context) (data []byte, contentType stri
 	return readIconFromMultipart(c)
 }
 
-// readIconFromPath reads the icon from an absolute path supplied as JSON. The
-// content-type is derived from the file extension (the daemon and webview run on
-// the same host, so the dialog-supplied path is trusted like the import path).
+// readIconFromPath reads the icon from an absolute path supplied as JSON.
+//
+// Residual trust assumption: the path is an absolute host path supplied by the
+// desktop client (native file-picker dialog). The daemon and the WKWebView run
+// on the same host, so this is equivalent to the repo-import path trust model:
+// the path is user-chosen, not attacker-controlled from the network. This path
+// should eventually be replaced by a byte-upload (multipart) so the daemon never
+// reads arbitrary host paths at client direction.
+//
+// Hardening applied:
+//   - Stat-reject: file must exist and be ≤ maxIconBytes before any read.
+//   - LimitReader: read at most maxIconBytes+1 so an oversize file is detected.
+//   - Content sniffing: content-type is derived from the first 512 bytes, not
+//     from the file extension, so /etc/passwd styled as photo.png is rejected.
 func readIconFromPath(c *gin.Context) ([]byte, string, bool) {
 	var body struct {
 		Path string `json:"path"`
@@ -747,32 +780,56 @@ func readIconFromPath(c *gin.Context) ([]byte, string, bool) {
 		libs.WriteErr(c, http.StatusBadRequest, "icon path required")
 		return nil, "", false
 	}
-	data, err := os.ReadFile(body.Path)
+	// Stat-reject before opening: avoids an unbounded read on a huge file.
+	info, err := os.Stat(body.Path)
 	if err != nil {
 		libs.WriteErr(c, http.StatusBadRequest, "could not read icon file")
 		return nil, "", false
 	}
-	return data, mime.TypeByExtension(filepath.Ext(body.Path)), true
+	if info.Size() > maxIconBytes {
+		libs.WriteErr(c, http.StatusBadRequest, "icon must be under 2 MB")
+		return nil, "", false
+	}
+	f, err := os.Open(body.Path)
+	if err != nil {
+		libs.WriteErr(c, http.StatusBadRequest, "could not read icon file")
+		return nil, "", false
+	}
+	defer func() { _ = f.Close() }()
+	// LimitReader caps the actual read even if the file grows between Stat and Open.
+	data, err := io.ReadAll(io.LimitReader(f, maxIconBytes+1))
+	if err != nil {
+		libs.WriteErr(c, http.StatusBadRequest, "could not read icon file")
+		return nil, "", false
+	}
+	if int64(len(data)) > maxIconBytes {
+		libs.WriteErr(c, http.StatusBadRequest, "icon must be under 2 MB")
+		return nil, "", false
+	}
+	// Derive content-type by sniffing bytes, not by trusting the file extension.
+	ct := http.DetectContentType(data)
+	return data, ct, true
 }
 
 // readIconFromMultipart reads the icon from a multipart "icon" form field.
+// The read is capped at maxIconBytes+1 so an oversize upload is detected without
+// buffering the entire body. Content-type is derived from content sniffing.
 func readIconFromMultipart(c *gin.Context) ([]byte, string, bool) {
-	file, header, err := c.Request.FormFile("icon")
+	file, _, err := c.Request.FormFile("icon")
 	if err != nil {
 		libs.WriteErr(c, http.StatusBadRequest, "icon field required")
 		return nil, "", false
 	}
 	defer file.Close()
 
-	ct := header.Header.Get("Content-Type")
-	if ct == "" {
-		ct = mime.TypeByExtension(filepath.Ext(header.Filename))
-	}
-	data, err := io.ReadAll(file)
+	data, err := io.ReadAll(io.LimitReader(file, maxIconBytes+1))
 	if err != nil {
 		libs.WriteErr(c, http.StatusInternalServerError, "read error")
 		return nil, "", false
 	}
+	// Content-type from content sniffing (not from the caller-supplied MIME header
+	// or filename extension) so the caller cannot sneak a non-image through.
+	ct := http.DetectContentType(data)
 	return data, ct, true
 }
 
@@ -825,20 +882,6 @@ func (h *Handlers) PutIconGithub(c *gin.Context) {
 		return
 	}
 	c.Status(http.StatusNoContent)
-}
-
-// iconContentTypeExt maps accepted content types to file extensions.
-func iconContentTypeExt(ct string) (string, bool) {
-	if idx := strings.Index(ct, ";"); idx >= 0 {
-		ct = strings.TrimSpace(ct[:idx])
-	}
-	m := map[string]string{
-		"image/png":  ".png",
-		"image/jpeg": ".jpg",
-		"image/webp": ".webp",
-	}
-	ext, ok := m[ct]
-	return ext, ok
 }
 
 // isSingleEmoji returns true when s is a non-empty string containing exactly

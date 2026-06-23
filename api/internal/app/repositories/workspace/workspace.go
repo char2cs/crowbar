@@ -171,6 +171,20 @@ func (e *wsEntity) send(
 	return e.ax.SendWait(ctx, cmd)
 }
 
+// forget tombstones and erases the aggregate, serialized under the same
+// per-aggregate write mutex as send so it never races a concurrent send (the
+// provider sweep / fs-watcher firing SyncProviderState/SyncWorkingTreeState on
+// the same workspace) — that race version-conflicts, the exact failure writeMu
+// exists to eliminate.
+func (e *wsEntity) forget(
+	ctx context.Context,
+	id string,
+) error {
+	e.writeMu.Lock()
+	defer e.writeMu.Unlock()
+	return e.ax.Forget(ctx, id)
+}
+
 type workspace struct {
 	adapters     *adapter.Container
 	broadcast    store.BroadcastFunc
@@ -561,7 +575,9 @@ func (w *workspace) Delete(
 	defer release()
 	// Tear the read model down first (Forget needs the per-entity view.db), then
 	// close the handles, drop the location index, and rm -rf the on-disk tree.
-	if err := entity.ax.Forget(ctx, id); err != nil {
+	// forget serializes under writeMu so it never version-conflicts with a
+	// concurrent sweep/watcher sync on the same aggregate.
+	if err := entity.forget(ctx, id); err != nil {
 		return fmt.Errorf("workspace: delete: %w", err)
 	}
 	if err := w.entities.Evict(id); err != nil {

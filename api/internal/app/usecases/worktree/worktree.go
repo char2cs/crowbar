@@ -708,9 +708,25 @@ func (u *worktreeUsecase) reconcileOne(
 	if hasConflicts {
 		return
 	}
-	// No real conflict on disk: clear a sticky pr-conflicts (a no-op when the
-	// status isn't pr-conflicts) so a workspace whose conflict was resolved while
-	// the daemon was down drops its stale warning.
+	// hasConflicts==false only means there are no unresolved conflict markers in
+	// the working tree. A workspace can be MID conflict-resolution: the user (or a
+	// merge) staged the resolved files but never ran continue/abort, so the
+	// rebase-merge/MERGE_HEAD/AUTO_MERGE markers are still present even though no
+	// file shows `<<<<<<<`. Clearing pr-conflicts here would lose the signal that
+	// the operation is unfinished. Treat an in-progress op as still-conflicting
+	// and leave the status untouched. A marker-check failure is non-fatal — fall
+	// through and clear, matching the surrounding best-effort posture.
+	if op, opErr := u.git.OperationInProgress(ctx, ws.WorktreePath); opErr != nil {
+		slog.WarnContext(ctx, "recovery sweep: in-progress-op check failed; treating as resolved",
+			"workspace_id", ws.ID, "worktree", ws.WorktreePath, "err", opErr)
+	} else if op != "" {
+		slog.InfoContext(ctx, "recovery sweep: workspace mid conflict-resolution; keeping pr-conflicts",
+			"workspace_id", ws.ID, "operation", op)
+		return
+	}
+	// No real conflict on disk and no in-progress op: clear a sticky pr-conflicts
+	// (a no-op when the status isn't pr-conflicts) so a workspace whose conflict
+	// was resolved while the daemon was down drops its stale warning.
 	if _, err := u.workspaces.ResolveConflicts(ctx, ws.ID, u.now()); err != nil {
 		slog.WarnContext(ctx, "recovery sweep: resolve stale conflicts failed",
 			"workspace_id", ws.ID, "err", err)

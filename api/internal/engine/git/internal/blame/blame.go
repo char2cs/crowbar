@@ -29,7 +29,10 @@ func File(
 	repoPath string,
 	filePath string,
 ) ([]gitdomain.BlameEntry, error) {
-	r := gitRunner(ctx, repoPath, "blame", "--porcelain", filePath)
+	// `--` end-of-options separator so a file path beginning with `-` can never
+	// be read as a git option (e.g. `--output=<path>` writing an arbitrary file);
+	// `git blame --porcelain -- <path>` treats everything after `--` as a path.
+	r := gitRunner(ctx, repoPath, "blame", "--porcelain", "--", filePath)
 	if r.ExitCode != 0 {
 		return nil, fmt.Errorf("blame: file: exit %d: %s", r.ExitCode, strings.TrimSpace(r.Stderr))
 	}

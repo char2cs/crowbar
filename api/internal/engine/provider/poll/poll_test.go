@@ -249,6 +249,54 @@ func TestSweepTarget_MultipleTargets(t *testing.T) {
 	assert.Equal(t, []string{"ws1", "ws3"}, notifiedIDs)
 }
 
+func TestSweepTarget_HungPollIsCancelledByPerTargetTimeout(t *testing.T) {
+	// A pollFn that blocks until its ctx is cancelled mimics a hung remote. The
+	// per-target timeout (perTargetTimeout in production) must fire so one stuck
+	// target cannot stall the whole serial sweep — every other workspace's PR
+	// status would otherwise stop updating until the hang resolved.
+	gotErr := make(chan error, 1)
+	s := newTestSweeper(
+		func(
+			ctx context.Context,
+			wsID string,
+			repoPath string,
+			branch string,
+		) (ProviderStateSnapshot, error) {
+			<-ctx.Done()
+			gotErr <- ctx.Err()
+			return ProviderStateSnapshot{}, ctx.Err()
+		},
+		func(_ string, _ ProviderStateSnapshot) {
+			t.Error("onStateChange must not fire when the poll was cancelled")
+		},
+	)
+	// Inject a tiny per-target timeout so the test exercises the bound without
+	// waiting the production 30s.
+	s.targetTimeout = 10 * time.Millisecond
+
+	done := make(chan struct{})
+	go func() {
+		s.sweepTarget(context.Background(), SweepTarget{
+			WSID: "ws1", RepoPath: "/r", Branch: "b", HasOpenPR: true,
+		})
+		close(done)
+	}()
+
+	select {
+	case err := <-gotErr:
+		assert.ErrorIs(t, err, context.DeadlineExceeded,
+			"hung target poll must be cancelled by the per-target timeout")
+	case <-time.After(time.Second):
+		t.Fatal("per-target timeout never cancelled the hung poll")
+	}
+
+	select {
+	case <-done:
+	case <-time.After(time.Second):
+		t.Fatal("sweepTarget did not return after the poll was cancelled")
+	}
+}
+
 func TestStatesEqual(t *testing.T) {
 	pr := &PRInfoSnapshot{Number: 1, Status: "open", URL: "u", Title: "t", TargetBranch: "main"}
 

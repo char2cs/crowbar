@@ -323,6 +323,9 @@ func (g *mockGitEngine) ResolveHunk(ctx context.Context, repoPath, filePath, hun
 }
 func (g *mockGitEngine) OperationContinue(ctx context.Context, repoPath string) error { return nil }
 func (g *mockGitEngine) OperationAbort(ctx context.Context, repoPath string) error    { return nil }
+func (g *mockGitEngine) OperationInProgress(ctx context.Context, repoPath string) (string, error) {
+	return "", nil
+}
 func (g *mockGitEngine) WorktreeAdd(ctx context.Context, repoPath, worktreePath, branch string) error {
 	return nil
 }

@@ -17,3 +17,10 @@ var ErrNotFound = errors.New("apperr: not found")
 // errors.Is, mirroring the engine-level enginesearch.ErrLocked guard already
 // enforced on global replace.
 var ErrLocked = errors.New("apperr: workspace locked")
+
+// ErrInvalidArgument signals that a usecase received a syntactically invalid or
+// unsafe argument from the client (e.g. a git operand that begins with "-" and
+// could be interpreted as a command-line option, or a reset mode outside the
+// allowlist). The git write usecase wraps this sentinel so handlers map it to
+// HTTP 400 via errors.Is, rejecting the request before it reaches the engine.
+var ErrInvalidArgument = errors.New("apperr: invalid argument")

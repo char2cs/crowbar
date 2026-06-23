@@ -5,8 +5,8 @@ package handlers
 import (
 	"context"
 
-	enginesearch "github.com/char2cs/crowbar/api/internal/engine/search"
 	"github.com/char2cs/crowbar/api/internal/domain"
+	enginesearch "github.com/char2cs/crowbar/api/internal/engine/search"
 )
 
 // SearchEngine is the global search/replace surface the handlers need.

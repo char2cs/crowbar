@@ -6,10 +6,32 @@ import (
 	"fmt"
 	"os/exec"
 	"strings"
+	"time"
 )
 
 // DetectExecFn matches exec.CommandContext so callers can inject a test stub.
 type DetectExecFn func(ctx context.Context, name string, args ...string) *exec.Cmd
+
+// detectWaitDelay bounds how long Cmd.Wait blocks for I/O to drain after the
+// context is cancelled. Without it a detection subprocess (git/gh/glab) whose
+// pipes are held by a grandchild would keep its goroutine alive after a kill.
+const detectWaitDelay = 10 * time.Second
+
+// withWaitDelay wraps a DetectExecFn so every constructed Cmd carries a
+// WaitDelay, guaranteeing a killed subprocess releases even with held pipes.
+func withWaitDelay(
+	execFn DetectExecFn,
+) DetectExecFn {
+	return func(
+		ctx context.Context,
+		name string,
+		args ...string,
+	) *exec.Cmd {
+		cmd := execFn(ctx, name, args...)
+		cmd.WaitDelay = detectWaitDelay
+		return cmd
+	}
+}
 
 // DetectResult carries the detected provider kind and CLI availability.
 type DetectResult struct {
@@ -35,7 +57,7 @@ func Detect(
 	ctx context.Context,
 	repoPath string,
 ) (DetectResult, error) {
-	return DetectWithExec(ctx, repoPath, exec.CommandContext)
+	return DetectWithExec(ctx, repoPath, withWaitDelay(exec.CommandContext))
 }
 
 // DetectWithExec is like Detect but accepts an injectable exec function.

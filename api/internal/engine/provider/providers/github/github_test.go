@@ -251,7 +251,7 @@ func TestParseLines(t *testing.T) {
 func TestGHProvider_OwnerAvatarURL(t *testing.T) {
 	dir := t.TempDir()
 	g := NewWithExec(sequentialFake([]fakeResponse{
-		{output: "https://github.com/owner/repo.git", code: 0}, // git remote get-url
+		{output: "https://github.com/owner/repo.git", code: 0},           // git remote get-url
 		{output: "https://avatars.githubusercontent.com/u/123", code: 0}, // gh api
 	}))
 	got, err := g.OwnerAvatarURL(context.Background(), dir)

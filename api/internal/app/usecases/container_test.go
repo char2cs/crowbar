@@ -51,6 +51,7 @@ func newContainerDeps(
 	t.Cleanup(func() { _ = adapters.Close() })
 
 	repos, err := repositories.New(
+		context.Background(),
 		adapters,
 		hub.NewHub(),
 		newTestAsynx[domain.Chat](t, adapters.ChatES()),

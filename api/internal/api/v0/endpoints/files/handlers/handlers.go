@@ -6,8 +6,8 @@ import (
 	"context"
 	"time"
 
-	"github.com/char2cs/crowbar/api/internal/domain"
 	fileusecase "github.com/char2cs/crowbar/api/internal/app/usecases/file"
+	"github.com/char2cs/crowbar/api/internal/domain"
 )
 
 // Files is the file usecase surface the handlers need.

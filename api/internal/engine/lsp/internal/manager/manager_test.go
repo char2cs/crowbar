@@ -30,6 +30,7 @@ type fakeServer struct {
 	mu      sync.Mutex
 	closedN int
 	diagFn  func(domlsp.DiagnosticsEvent)
+	exitFn  func()
 }
 
 func (f *fakeServer) Request(
@@ -61,6 +62,25 @@ func (f *fakeServer) OnDiagnostics(
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	f.diagFn = fn
+}
+
+func (f *fakeServer) OnExit(
+	fn func(),
+) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.exitFn = fn
+}
+
+// fireExit invokes the OnExit callback the manager wired, simulating the
+// transport reaper detecting a natural process exit.
+func (f *fakeServer) fireExit() {
+	f.mu.Lock()
+	fn := f.exitFn
+	f.mu.Unlock()
+	if fn != nil {
+		fn()
+	}
 }
 
 func (f *fakeServer) OpenDocs() *server.OpenDocs {
@@ -801,6 +821,161 @@ func TestAcquire_MissingEntry(
 	// Calling Acquire for a key that was never spawned must not panic.
 	m.Acquire("no-such-ws", "go")
 	assert.Equal(t, int32(0), count.Load())
+}
+
+// TestOnServerExit_EvictsDeadEntryAndRespawns proves R10: when a server's
+// process exits on its own, the wired OnExit callback evicts the dead pool
+// entry so the next ServerForFile spawns a FRESH server instead of handing back
+// the corpse (which would block requests to the 10s timeout).
+func TestOnServerExit_EvictsDeadEntryAndRespawns(
+	t *testing.T,
+) {
+	var count atomic.Int32
+	m, getLastFake := buildManager(t, &count)
+	ctx := context.Background()
+
+	srv1, err := m.ServerForFile(ctx, "ws1", "/repo", "main.go")
+	require.NoError(t, err)
+	require.Equal(t, int32(1), count.Load())
+
+	dead := getLastFake()
+	require.NotNil(t, dead)
+
+	// The process exits on its own: the transport reaper fires the OnExit
+	// callback the manager wired into the server during spawn.
+	dead.fireExit()
+	assert.Equal(t, 1, dead.closeCount(), "exit must close the dead server (failing in-flight waiters)")
+
+	// The dead entry must be gone: the next request spawns a fresh, live server.
+	srv2, err := m.ServerForFile(ctx, "ws1", "/repo", "util.go")
+	require.NoError(t, err)
+	assert.Equal(t, int32(2), count.Load(), "a fresh server must be spawned after eviction")
+	assert.NotSame(t, srv1, srv2, "the corpse must not be handed back")
+}
+
+// TestOnServerExit_FiresEmptyCallbackOnLastServer verifies that evicting a
+// crashed server fires OnReleaseEmpty when it was the workspace's last server,
+// so per-workspace state (the diagnostics snapshot) is dropped.
+func TestOnServerExit_FiresEmptyCallbackOnLastServer(
+	t *testing.T,
+) {
+	var count atomic.Int32
+	m, getLastFake := buildManager(t, &count)
+	ctx := context.Background()
+
+	var released []string
+	var mu sync.Mutex
+	m.OnReleaseEmpty(func(wsID string) {
+		mu.Lock()
+		released = append(released, wsID)
+		mu.Unlock()
+	})
+
+	_, err := m.ServerForFile(ctx, "ws1", "/repo", "main.go")
+	require.NoError(t, err)
+	getLastFake().fireExit()
+
+	mu.Lock()
+	defer mu.Unlock()
+	assert.Equal(t, []string{"ws1"}, released, "evicting the last server fires the empty callback")
+}
+
+// TestOnServerExit_UnknownEntryIsNoOp verifies a late/duplicate exit for an
+// already-evicted entry does not panic and closes nothing.
+func TestOnServerExit_UnknownEntryIsNoOp(
+	t *testing.T,
+) {
+	var count atomic.Int32
+	m, getLastFake := buildManager(t, &count)
+	ctx := context.Background()
+
+	_, err := m.ServerForFile(ctx, "ws1", "/repo", "main.go")
+	require.NoError(t, err)
+	fake := getLastFake()
+
+	fake.fireExit()
+	fake.fireExit() // duplicate: entry already gone
+	assert.Equal(t, 1, fake.closeCount(), "second exit is a no-op")
+}
+
+// TestReleaseWorkspace_ClosesAllServersForWorkspace proves R11's manager side:
+// every server for the workspace is torn down regardless of refcount, other
+// workspaces are untouched, and the empty callback fires once.
+func TestReleaseWorkspace_ClosesAllServersForWorkspace(
+	t *testing.T,
+) {
+	var count atomic.Int32
+	var mu sync.Mutex
+	var fakes []*fakeServer
+
+	spawn := func(
+		_ context.Context,
+		_ registry.ServerSpec,
+		_ string,
+	) (server.Server, error) {
+		count.Add(1)
+		fs := &fakeServer{}
+		mu.Lock()
+		fakes = append(fakes, fs)
+		mu.Unlock()
+		return fs, nil
+	}
+
+	reg := registry.New(nil)
+	m := New(reg, spawn, foundLookPath())
+	ctx := context.Background()
+
+	var released []string
+	var relMu sync.Mutex
+	m.OnReleaseEmpty(func(wsID string) {
+		relMu.Lock()
+		released = append(released, wsID)
+		relMu.Unlock()
+	})
+
+	// Two languages in ws1 (both held with extra Acquire refs), one in ws2.
+	_, err := m.ServerForFile(ctx, "ws1", "/repo", "main.go")
+	require.NoError(t, err)
+	m.Acquire("ws1", "go")
+	_, err = m.ServerForFile(ctx, "ws1", "/repo", "app.ts")
+	require.NoError(t, err)
+	_, err = m.ServerForFile(ctx, "ws2", "/repo2", "main.go")
+	require.NoError(t, err)
+
+	mu.Lock()
+	require.Len(t, fakes, 3)
+	ws1Go, ws1TS, ws2Go := fakes[0], fakes[1], fakes[2]
+	mu.Unlock()
+
+	m.ReleaseWorkspace(ctx, "ws1")
+
+	assert.Equal(t, 1, ws1Go.closeCount(), "ws1 go server closed despite held refs")
+	assert.Equal(t, 1, ws1TS.closeCount(), "ws1 ts server closed despite held refs")
+	assert.Equal(t, 0, ws2Go.closeCount(), "ws2 server must be untouched")
+
+	relMu.Lock()
+	assert.Equal(t, []string{"ws1"}, released, "empty callback fires once for the released workspace")
+	relMu.Unlock()
+
+	// ws1 is gone: a fresh request spawns anew; ws2 is still served from the pool.
+	_, err = m.ServerForFile(ctx, "ws1", "/repo", "main.go")
+	require.NoError(t, err)
+	assert.Equal(t, int32(4), count.Load(), "released ws1 respawns; ws2 is unchanged")
+}
+
+// TestReleaseWorkspace_UnknownWorkspaceIsNoOp verifies releasing a workspace
+// with no servers does not panic and does not fire the empty callback.
+func TestReleaseWorkspace_UnknownWorkspaceIsNoOp(
+	t *testing.T,
+) {
+	var count atomic.Int32
+	m, _ := buildManager(t, &count)
+
+	fired := false
+	m.OnReleaseEmpty(func(string) { fired = true })
+
+	m.ReleaseWorkspace(context.Background(), "ghost")
+	assert.False(t, fired, "no servers means no empty callback")
 }
 
 // countingServer wraps fakeServer and counts Close calls via an atomic.

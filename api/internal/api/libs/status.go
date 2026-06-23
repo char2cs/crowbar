@@ -10,6 +10,7 @@ import (
 	"github.com/char2cs/crowbar/api/internal/app/apperr"
 	"github.com/char2cs/crowbar/api/internal/app/usecases/project"
 	"github.com/char2cs/crowbar/api/internal/app/usecases/worktree"
+	"github.com/char2cs/crowbar/api/internal/engine/fs/safepath"
 	enginegit "github.com/char2cs/crowbar/api/internal/engine/git"
 	enginesearch "github.com/char2cs/crowbar/api/internal/engine/search"
 	engineterminal "github.com/char2cs/crowbar/api/internal/engine/terminal"
@@ -29,7 +30,14 @@ import (
 //     project.ErrFolderNotFound (a project import targeting a path that does
 //     not exist on disk).
 //   - 400 Bad Request    — enginesearch.ErrBadPattern,
-//     enginesearch.ErrPathOutsideWorkspace.
+//     enginesearch.ErrPathOutsideWorkspace, safepath.ErrPathEscapesWorkspace
+//     (a workspace-relative fs path that is absolute or traverses outside the
+//     workspace root via ".." or a symlink — the fs engine containment guard),
+//     apperr.ErrInvalidArgument (an
+//     unsafe/invalid git operand or reset mode rejected at the usecase boundary
+//     before it can reach the git engine — see the git write validator).
+//   - 413 Request Entity Too Large — safepath.ErrFileTooLarge (a file read was
+//     rejected because the file exceeds the 25 MiB cap; hardening R16).
 //   - 403 Forbidden       — enginegit.ErrAuthFailed (remote rejected the
 //     supplied credentials on push/pull/fetch; a forbidden-style auth failure,
 //     not a transport outage).
@@ -62,8 +70,14 @@ func StatusAndMessage(
 	}
 
 	if errors.Is(err, enginesearch.ErrBadPattern) ||
-		errors.Is(err, enginesearch.ErrPathOutsideWorkspace) {
+		errors.Is(err, enginesearch.ErrPathOutsideWorkspace) ||
+		errors.Is(err, safepath.ErrPathEscapesWorkspace) ||
+		errors.Is(err, apperr.ErrInvalidArgument) {
 		return http.StatusBadRequest, err.Error()
+	}
+
+	if errors.Is(err, safepath.ErrFileTooLarge) {
+		return http.StatusRequestEntityTooLarge, err.Error()
 	}
 
 	if errors.Is(err, enginegit.ErrAuthFailed) {

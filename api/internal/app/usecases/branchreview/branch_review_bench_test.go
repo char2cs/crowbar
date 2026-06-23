@@ -73,10 +73,10 @@ func newBenchReviewHarness(
 	)
 	require.NoError(b, err)
 
-	threads, err := reviewthread.New(axRT, db, func(domain.ReviewThread) {})
+	threads, err := reviewthread.New(ctx, axRT, rtES, db, func(domain.ReviewThread) {})
 	require.NoError(b, err)
 
-	chats, err := chat.New(axChat, db, func(domain.Chat) {})
+	chats, err := chat.New(ctx, axChat, chatES, db, func(domain.Chat) {})
 	require.NoError(b, err)
 
 	repoStore, err := storesqlite.NewFromDB[domain.Repository, string](db)

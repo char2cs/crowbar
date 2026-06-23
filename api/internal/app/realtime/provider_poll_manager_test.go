@@ -159,6 +159,78 @@ func TestProviderPollManager_AcquireAfterClose_NoOp(t *testing.T) {
 	}
 }
 
+// blockingPoller blocks each PollWorkspace on the per-poll context until that
+// context is cancelled, then reports the cancellation cause on a channel. It
+// proves the manager bounds a hung poll: a remote that never returns must not
+// wedge the run goroutine forever.
+type blockingPoller struct {
+	released chan error
+}
+
+func newBlockingPoller() *blockingPoller {
+	return &blockingPoller{released: make(chan error, 8)}
+}
+
+func (b *blockingPoller) PollWorkspace(
+	ctx context.Context,
+	_ string,
+) error {
+	<-ctx.Done()
+	b.released <- ctx.Err()
+	return ctx.Err()
+}
+
+func TestProviderPollManager_PollTick_CancelsHungPoll(t *testing.T) {
+	b := newBlockingPoller()
+	m := NewProviderPollManager(context.Background(), time.Hour, b)
+
+	// Drive a single tick directly with a short injected timeout so the test does
+	// not wait the production 30s. The poll blocks on ctx.Done(); the timeout must
+	// fire and unblock it, proving a hung remote cannot wedge the run goroutine.
+	done := make(chan struct{})
+	go func() {
+		ctx, cancel := context.WithTimeout(context.Background(), 20*time.Millisecond)
+		defer cancel()
+		m.pollTickWithTimeout(ctx, "w1", 10*time.Millisecond)
+		close(done)
+	}()
+
+	select {
+	case err := <-b.released:
+		assert.ErrorIs(t, err, context.DeadlineExceeded,
+			"hung poll must be cancelled by the per-poll timeout")
+	case <-time.After(time.Second):
+		t.Fatal("poll was never cancelled — the per-poll timeout did not fire")
+	}
+
+	select {
+	case <-done:
+	case <-time.After(time.Second):
+		t.Fatal("pollTick did not return after the poll was cancelled")
+	}
+}
+
+func TestProviderPollManager_PollTick_DecoupledFromConnCtx(t *testing.T) {
+	b := newBlockingPoller()
+	m := NewProviderPollManager(context.Background(), time.Hour, b)
+
+	// The per-connection ctx is ALREADY cancelled, yet WithoutCancel must let the
+	// poll start (it only stops via its own timeout). This preserves the in-flight
+	// Asynx write guarantee while still bounding the poll.
+	connCtx, cancelConn := context.WithCancel(context.Background())
+	cancelConn()
+
+	go m.pollTickWithTimeout(connCtx, "w1", 10*time.Millisecond)
+
+	select {
+	case err := <-b.released:
+		assert.ErrorIs(t, err, context.DeadlineExceeded,
+			"poll must run under WithoutCancel and stop only on its own timeout")
+	case <-time.After(time.Second):
+		t.Fatal("poll did not start/cancel despite an already-cancelled conn ctx")
+	}
+}
+
 // drainCalls empties any already-buffered calls so a subsequent receive
 // observes only post-drain activity.
 func drainCalls(

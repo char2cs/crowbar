@@ -32,6 +32,7 @@ type Container struct {
 // cycle on newAsynx). The chat and reviewthread aggregates keep their global
 // event stores and read models in the global view DB.
 func New(
+	ctx context.Context,
 	adapters *adapter.Container,
 	h hub.WebSocketHub,
 	axChat asynx.Asynx[domain.Chat],
@@ -47,11 +48,11 @@ func New(
 		return nil, err
 	}
 	db := adapters.GlobalView()
-	ch, err := chat.New(axChat, db, func(domain.Chat) {})
+	ch, err := chat.New(ctx, axChat, adapters.ChatES(), db, func(domain.Chat) {})
 	if err != nil {
 		return nil, err
 	}
-	rt, err := reviewthread.New(axReviewThread, db, func(domain.ReviewThread) {})
+	rt, err := reviewthread.New(ctx, axReviewThread, adapters.ReviewThreadES(), db, func(domain.ReviewThread) {})
 	if err != nil {
 		return nil, err
 	}

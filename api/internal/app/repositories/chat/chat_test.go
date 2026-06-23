@@ -2,6 +2,8 @@ package chat_test
 
 import (
 	"context"
+	"fmt"
+	"sync"
 	"testing"
 	"time"
 
@@ -29,7 +31,7 @@ func newRepo(
 	t.Cleanup(func() { _ = ax.Shutdown(context.Background()) })
 	db, err := storesqlite.OpenDB(":memory:")
 	require.NoError(t, err)
-	repo, err := chat.New(ax, db, func(domain.Chat) {})
+	repo, err := chat.New(context.Background(), ax, es, db, func(domain.Chat) {})
 	require.NoError(t, err)
 	return context.Background(), repo
 }
@@ -123,6 +125,39 @@ func TestChat_Delete_ErrorOnMissing(t *testing.T) {
 	assert.Error(t, err)
 }
 
+// TestChat_ConcurrentSameAggregateCommandsAllSucceed proves R6 for the global
+// chat repo: many commands targeting the SAME chat aggregate at once must ALL
+// commit. The chat aggregate shares one asynx (8 workers) and one event store
+// across every chat; without single-writer-per-aggregate serialization the
+// optimistic event store rejects the losers with a version/PK conflict and the
+// read model silently goes stale.
+func TestChat_ConcurrentSameAggregateCommandsAllSucceed(t *testing.T) {
+	ctx, repo := newRepo(t)
+	now := time.Unix(1000, 0).UTC()
+	_, err := repo.Create(ctx, "c1", "w1", "root", now)
+	require.NoError(t, err)
+
+	const n = 32
+	errs := make([]error, n)
+	var wg sync.WaitGroup
+	for i := 0; i < n; i++ {
+		wg.Add(1)
+		go func(idx int) {
+			defer wg.Done()
+			_, errs[idx] = repo.Rename(ctx, "c1", fmt.Sprintf("title-%d", idx))
+		}(i)
+	}
+	wg.Wait()
+
+	failed := 0
+	for _, e := range errs {
+		if e != nil {
+			failed++
+		}
+	}
+	require.Zero(t, failed, "%d/%d concurrent same-aggregate commands failed with a version conflict", failed, n)
+}
+
 func TestChat_New_ErrorOnClosedDB(t *testing.T) {
 	es, err := eventsqlite.NewEventStore(":memory:")
 	require.NoError(t, err)
@@ -139,6 +174,6 @@ func TestChat_New_ErrorOnClosedDB(t *testing.T) {
 	require.NoError(t, sqlErr)
 	sqlDB.Close()
 
-	_, newErr := chat.New(ax, db, func(domain.Chat) {})
+	_, newErr := chat.New(context.Background(), ax, es, db, func(domain.Chat) {})
 	assert.Error(t, newErr)
 }

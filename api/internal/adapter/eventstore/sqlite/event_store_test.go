@@ -128,3 +128,32 @@ func TestEventStore_Count_ContextCancelled(t *testing.T) {
 	_, err := s.Count(cancelledCtx(), "agg-1", 1)
 	assert.Error(t, err)
 }
+
+func TestEventStore_AggregateIDs_ReturnsDistinct(t *testing.T) {
+	s := newTestEventStore(t)
+	ctx := context.Background()
+	require.NoError(t, s.Append(ctx, "agg-1", 1, []byte("a")))
+	require.NoError(t, s.Append(ctx, "agg-1", 2, []byte("b")))
+	require.NoError(t, s.Append(ctx, "agg-2", 1, []byte("c")))
+
+	lister, ok := s.(interface {
+		AggregateIDs(ctx context.Context) ([]string, error)
+	})
+	require.True(t, ok)
+
+	ids, err := lister.AggregateIDs(ctx)
+	require.NoError(t, err)
+	assert.ElementsMatch(t, []string{"agg-1", "agg-2"}, ids)
+}
+
+func TestEventStore_AggregateIDs_EmptyStore(t *testing.T) {
+	s := newTestEventStore(t)
+	lister, ok := s.(interface {
+		AggregateIDs(ctx context.Context) ([]string, error)
+	})
+	require.True(t, ok)
+
+	ids, err := lister.AggregateIDs(context.Background())
+	require.NoError(t, err)
+	assert.Empty(t, ids)
+}

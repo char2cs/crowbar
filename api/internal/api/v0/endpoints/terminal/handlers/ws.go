@@ -1,12 +1,14 @@
 package handlers
 
 import (
+	"log/slog"
 	"net/http"
 	"time"
 
 	"github.com/gin-gonic/gin"
 
 	"github.com/char2cs/crowbar/api/internal/api/libs"
+	"github.com/char2cs/crowbar/api/internal/api/origin"
 	"github.com/char2cs/crowbar/api/internal/core/safego"
 	"github.com/gorilla/websocket"
 )
@@ -17,10 +19,21 @@ const (
 	wsPingPeriod = 45 * time.Second // must be < wsPongWait
 )
 
+// terminalUpgrader rejects cross-origin WebSocket upgrades from a non-allow-listed
+// Origin: the terminal socket is a live shell, so a blanket "return true" would let
+// any website the user visited open a PTY through their browser. See origin.Allowed.
 var terminalUpgrader = websocket.Upgrader{
 	ReadBufferSize:  4096,
 	WriteBufferSize: 4096,
-	CheckOrigin:     func(_ *http.Request) bool { return true },
+	CheckOrigin: func(r *http.Request) bool {
+		o := r.Header.Get("Origin")
+		if origin.Allowed(o, r.Host) {
+			return true
+		}
+		slog.WarnContext(r.Context(), "terminal ws: rejected cross-origin upgrade",
+			"origin", o, "host", r.Host)
+		return false
+	},
 }
 
 // WS handles GET .../workspaces/:wsId/terminals/:sessionId/ws.

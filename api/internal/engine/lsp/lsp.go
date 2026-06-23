@@ -141,6 +141,21 @@ type Engine interface {
 		wsID string,
 		filePath string,
 	)
+	// ReleaseWorkspace tears down every language server running for wsID
+	// regardless of its refcount. The realtime LSP lifecycle calls it on the
+	// workspace WS topic's last-unsubscribe edge so a force-quit/crash/WS-drop
+	// with documents still open never leaks the workspace's server processes
+	// (the per-document DidClose decrement-to-zero path may never run).
+	ReleaseWorkspace(
+		ctx context.Context,
+		wsID string,
+	)
+	// Shutdown closes every language server in the pool regardless of refcount.
+	// engine.Container.Close calls it on daemon shutdown so no spawned gopls /
+	// tsserver / rust-analyzer survives to leak RAM, CPU, and pipe FDs.
+	Shutdown(
+		ctx context.Context,
+	)
 }
 
 // DefaultRequestTimeout bounds each synchronous LSP feature request and each
@@ -540,4 +555,17 @@ func (e *engine) Release(
 	filePath string,
 ) {
 	e.releaseFile(ctx, wsID, filePath)
+}
+
+func (e *engine) ReleaseWorkspace(
+	ctx context.Context,
+	wsID string,
+) {
+	e.mgr.ReleaseWorkspace(ctx, wsID)
+}
+
+func (e *engine) Shutdown(
+	ctx context.Context,
+) {
+	e.mgr.Shutdown(ctx)
 }

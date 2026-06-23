@@ -71,6 +71,14 @@ type Manager interface {
 		wsID string,
 		languageID string,
 	)
+	// ReleaseWorkspace closes and removes every server running for wsID
+	// regardless of refcount. It is the engine-side release for the workspace WS
+	// topic's last-unsubscribe edge, covering a force-quit/crash/WS-drop where
+	// the per-document Release-to-zero path never runs.
+	ReleaseWorkspace(
+		ctx context.Context,
+		wsID string,
+	)
 	// OnDiagnostics registers the callback that receives diagnostics events from
 	// every server in the pool, present and future.
 	OnDiagnostics(
@@ -257,6 +265,13 @@ func (m *manager) spawnAndWire(
 		srv.OnDiagnostics(stampWsID(wsID, cb))
 	}
 
+	// Reap-and-evict: when the server process exits on its own (crash/OOM), the
+	// transport reaper fires this so the dead pool entry is removed and the next
+	// request respawns a live server instead of blocking on the corpse to the
+	// 10s request timeout (R10). A deliberate Close (Release/Shutdown/Replay)
+	// does NOT fire it.
+	srv.OnExit(func() { m.onServerExit(wsID, spec.LanguageID) })
+
 	// The LSP handshake must complete before any document sync, and gopls cold
 	// starts can take several seconds, so give it its own timeout rather than
 	// inheriting a short request deadline.
@@ -321,6 +336,63 @@ func (m *manager) Release(
 
 	_ = srv.Close()
 	if empty && cb != nil {
+		cb(wsID)
+	}
+}
+
+// onServerExit evicts the pool entry for a server whose process exited on its
+// own. The transport has already reaped itself; closing the server here fails
+// any in-flight request waiters so they return immediately instead of blocking
+// to the request timeout. A re-spawn is left to the next ServerForFile. If this
+// was the workspace's last server, the empty callback fires so per-workspace
+// state (the diagnostics snapshot) is evicted, mirroring Release.
+func (m *manager) onServerExit(
+	wsID string,
+	languageID string,
+) {
+	key := poolKey(wsID, languageID)
+
+	m.mu.Lock()
+	e, ok := m.pool[key]
+	if !ok {
+		m.mu.Unlock()
+		return
+	}
+	delete(m.pool, key)
+	srv := e.srv
+	empty := !m.hasWorkspace(wsID)
+	cb := m.onRelEmpty
+	m.mu.Unlock()
+
+	_ = srv.Close()
+	if empty && cb != nil {
+		cb(wsID)
+	}
+}
+
+// ReleaseWorkspace closes and removes every server running for wsID regardless
+// of refcount, then fires the empty callback once if any server was torn down.
+func (m *manager) ReleaseWorkspace(
+	_ context.Context,
+	wsID string,
+) {
+	prefix := wsID + "|"
+
+	m.mu.Lock()
+	var srvs []server.Server
+	for key, e := range m.pool {
+		if strings.HasPrefix(key, prefix) {
+			srvs = append(srvs, e.srv)
+			delete(m.pool, key)
+		}
+	}
+	cb := m.onRelEmpty
+	m.mu.Unlock()
+
+	for _, srv := range srvs {
+		_ = srv.Close()
+	}
+	if len(srvs) > 0 && cb != nil {
 		cb(wsID)
 	}
 }
