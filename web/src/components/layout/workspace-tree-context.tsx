@@ -3,6 +3,7 @@ import {
   useCallback,
   useContext,
   useEffect,
+  useMemo,
   useRef,
   useState,
   type ReactNode,
@@ -170,7 +171,14 @@ interface DraggingState {
   label: string
 }
 
-interface WorkspaceTreeContextValue {
+/**
+ * The slow-changing slice: action callbacks (stable identities) plus the
+ * create/rename UI state, which only flips on explicit user intent. Split out
+ * from the drag slice so that a drag (which fires `setHoverTargetId` on every
+ * drop-boundary crossing) does not recreate this value and re-render every row
+ * that only needs the actions.
+ */
+interface WorkspaceTreeActionsContextValue {
   // Create
   creatingChildOf: CreatingState | null
   startCreating: (repoId: string, parentId: string) => void
@@ -181,17 +189,32 @@ interface WorkspaceTreeContextValue {
   startRenaming: (wsId: string) => void
   confirmRename: (branch: string) => void
   cancelRename: () => void
-  // Drag (pointer-based)
-  draggingWs: DraggingState | null
-  hoverTargetId: string | null
+  // Drag start (pointer-based) — stable callback, lives with the actions
   onPointerDownDrag: (wsId: string, repoId: string, label: string, e: React.PointerEvent) => void
 }
 
-const WorkspaceTreeContext = createContext<WorkspaceTreeContextValue | null>(null)
+/**
+ * The fast-changing slice: the live drag state. `hoverTargetId` updates on every
+ * boundary crossing during a drag; keeping it in its own context means only the
+ * subscribers that actually read drag state re-render on those updates.
+ */
+interface WorkspaceTreeDragContextValue {
+  draggingWs: DraggingState | null
+  hoverTargetId: string | null
+}
 
-export function useWorkspaceTreeContext() {
-  const ctx = useContext(WorkspaceTreeContext)
-  if (!ctx) throw new Error('useWorkspaceTreeContext must be used inside WorkspaceTreeProvider')
+const WorkspaceTreeActionsContext = createContext<WorkspaceTreeActionsContextValue | null>(null)
+const WorkspaceTreeDragContext = createContext<WorkspaceTreeDragContextValue | null>(null)
+
+export function useWorkspaceTreeActions() {
+  const ctx = useContext(WorkspaceTreeActionsContext)
+  if (!ctx) throw new Error('useWorkspaceTreeActions must be used inside WorkspaceTreeProvider')
+  return ctx
+}
+
+export function useWorkspaceTreeDrag() {
+  const ctx = useContext(WorkspaceTreeDragContext)
+  if (!ctx) throw new Error('useWorkspaceTreeDrag must be used inside WorkspaceTreeProvider')
   return ctx
 }
 
@@ -427,25 +450,46 @@ export function WorkspaceTreeProvider({ children }: { children: ReactNode }) {
     }
   }, [navigate, router])
 
+  // Memoize each slice so the Provider hands out stable values: the actions
+  // value only changes when the create/rename state does (its callbacks are
+  // stable), and the drag value only changes on a real drag update.
+  const actionsValue = useMemo<WorkspaceTreeActionsContextValue>(
+    () => ({
+      creatingChildOf,
+      startCreating,
+      confirmCreate,
+      cancelCreate,
+      renamingId,
+      startRenaming,
+      confirmRename,
+      cancelRename,
+      onPointerDownDrag,
+    }),
+    [
+      creatingChildOf,
+      startCreating,
+      confirmCreate,
+      cancelCreate,
+      renamingId,
+      startRenaming,
+      confirmRename,
+      cancelRename,
+      onPointerDownDrag,
+    ],
+  )
+
+  const dragValue = useMemo<WorkspaceTreeDragContextValue>(
+    () => ({ draggingWs, hoverTargetId }),
+    [draggingWs, hoverTargetId],
+  )
+
   return (
     <>
-      <WorkspaceTreeContext.Provider
-        value={{
-          creatingChildOf,
-          startCreating,
-          confirmCreate,
-          cancelCreate,
-          renamingId,
-          startRenaming,
-          confirmRename,
-          cancelRename,
-          draggingWs,
-          hoverTargetId,
-          onPointerDownDrag,
-        }}
-      >
-        {children}
-      </WorkspaceTreeContext.Provider>
+      <WorkspaceTreeActionsContext.Provider value={actionsValue}>
+        <WorkspaceTreeDragContext.Provider value={dragValue}>
+          {children}
+        </WorkspaceTreeDragContext.Provider>
+      </WorkspaceTreeActionsContext.Provider>
       {draggingWs && (
         <div
           ref={ghostRef}

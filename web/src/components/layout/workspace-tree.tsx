@@ -1,4 +1,4 @@
-import { useCallback } from 'react'
+import { useCallback, useMemo } from 'react'
 import { Settings } from 'lucide-react'
 import { useNavigate, useRouterState } from '@tanstack/react-router'
 import { ScrollArea } from '@/components/ui/scroll-area'
@@ -10,7 +10,11 @@ import { ROW_BASE, ROW_ACTIVE, ROW_INACTIVE, ADD_GLYPH_PATH } from './workspace-
 import { WorkspaceInlineInput } from './workspace-inline-input'
 import { WorkspaceTreeFooter } from './workspace-tree-footer'
 import { WorkspaceTreeItem } from './workspace-tree-item'
-import { WorkspaceTreeProvider, useWorkspaceTreeContext } from './workspace-tree-context'
+import {
+  WorkspaceTreeProvider,
+  useWorkspaceTreeActions,
+  useWorkspaceTreeDrag,
+} from './workspace-tree-context'
 import { RepoSettingsPanel } from './repo-settings-panel'
 import { ProjectSwitcherRow } from './project-switcher-row'
 import { useSidebarNavStore } from '@/features/layout/stores/sidebar-nav'
@@ -62,17 +66,28 @@ function WorkspaceTreeInner() {
   const pathname = useRouterState({ select: (s) => s.location.pathname })
   const repos = useSidebarStore((s) => s.repos)
   const collapsedRepos = useSidebarStore((s) => s.collapsedRepos)
-  const { hoverTargetId, creatingChildOf, startCreating, confirmCreate, cancelCreate } =
-    useWorkspaceTreeContext()
+  const { creatingChildOf, startCreating, confirmCreate, cancelCreate } = useWorkspaceTreeActions()
+  const { hoverTargetId } = useWorkspaceTreeDrag()
   const wsListData = useWorkspaceListStore((s) => s.data)
   const retryWorkspaces = useCallback(() => {
     void useWorkspaceListStore.getState().fetch()
   }, [])
   const activeWorkspaceId = pathname.match(/\/ide\/[^/]+\/[^/]+\/([^/]+)/)?.[1] ?? ''
 
-  function handleWorkspaceClick(wsId: string, projectId: string, repoId: string) {
-    void navigate({ to: '/ide/$projectId/$repoId/$wsId', params: { projectId, repoId, wsId } })
-  }
+  // Per-repo tree, memoized so a drag/hover re-render (or any unrelated state
+  // change) doesn't rebuild every repo's node graph from scratch.
+  const rootsByRepo = useMemo(() => {
+    const map = new Map<string, WorkspaceTreeNode[]>()
+    for (const repo of repos) map.set(repo.id, buildWorkspaceTree(repo.workspaces))
+    return map
+  }, [repos])
+
+  const handleWorkspaceClick = useCallback(
+    (wsId: string, projectId: string, repoId: string) => {
+      void navigate({ to: '/ide/$projectId/$repoId/$wsId', params: { projectId, repoId, wsId } })
+    },
+    [navigate],
+  )
 
   if (wsListData.status === 'error' && repos.length === 0) {
     return (
@@ -88,7 +103,7 @@ function WorkspaceTreeInner() {
       <ScrollArea className="flex-1">
         <div className="py-1">
           {repos.map((repo) => {
-            const roots = buildWorkspaceTree(repo.workspaces)
+            const roots = rootsByRepo.get(repo.id) ?? []
             const isCollapsed = collapsedRepos.has(repo.id)
             const isRepoDragOver = hoverTargetId === `repo:${repo.id}`
             return (

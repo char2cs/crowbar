@@ -107,4 +107,40 @@ describe('TauriWebSocket', () => {
     expect(onclose).toHaveBeenCalled()
     expect(sock.readyState).toBe(TauriWebSocket.CLOSED)
   })
+
+  it('close() while CONNECTING defers ws_close until ws_open resolves and never fires onopen', async () => {
+    // Gate the ws_open resolution so we can close() while the socket is still
+    // CONNECTING — the StrictMode double-mount / rapid scope-switch race that
+    // leaks a daemon FD + 2 tokio tasks if the deferred teardown is missing.
+    let resolveOpen: (() => void) | undefined
+    invoke.mockImplementationOnce(
+      () =>
+        new Promise<undefined>((resolve) => {
+          resolveOpen = () => resolve(undefined)
+        }),
+    )
+
+    const sock = new TauriWebSocket('/v0/projects/p/repos/r/workspaces')
+    const onopen = vi.fn()
+    sock.onopen = onopen
+
+    // The Channel is minted, but ws_open has NOT resolved: still CONNECTING.
+    await vi.waitFor(() => expect(channels.length).toBe(1))
+    expect(sock.readyState).toBe(TauriWebSocket.CONNECTING)
+
+    // Close before the handshake completes. Rust hasn't registered the
+    // connection yet, so no eager ws_close (it would be a Rust-side no-op).
+    sock.close()
+    expect(sock.readyState).toBe(TauriWebSocket.CLOSED)
+    expect(invoke).not.toHaveBeenCalledWith('ws_close', expect.anything())
+
+    // ws_open now resolves: the connection is registered, so the deferred
+    // ws_close fires to tear it down — and onopen must NOT fire.
+    resolveOpen?.()
+    await vi.waitFor(() =>
+      expect(invoke).toHaveBeenCalledWith('ws_close', { connId: 'conn-fixed-id' }),
+    )
+    expect(onopen).not.toHaveBeenCalled()
+    expect(sock.readyState).toBe(TauriWebSocket.CLOSED)
+  })
 })

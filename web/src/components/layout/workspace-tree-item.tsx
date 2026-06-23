@@ -3,7 +3,7 @@ import { formatChangeCount } from './format-change-count'
 import { WorkspaceBranchIcon } from './workspace-branch-icon'
 import { WorkspaceInlineInput } from './workspace-inline-input'
 import { ROW_BASE, ROW_ACTIVE, ROW_INACTIVE, ADD_GLYPH_PATH } from './workspace-row-base'
-import { useWorkspaceTreeContext } from './workspace-tree-context'
+import { useWorkspaceTreeActions, useWorkspaceTreeDrag } from './workspace-tree-context'
 import { useSidebarStore } from '@/lib/store/sidebar'
 import type { WorkspaceTreeNode } from './workspace-tree'
 
@@ -40,10 +40,9 @@ export function WorkspaceTreeItem({
     startRenaming,
     confirmRename,
     cancelRename,
-    draggingWs,
-    hoverTargetId,
     onPointerDownDrag,
-  } = useWorkspaceTreeContext()
+  } = useWorkspaceTreeActions()
+  const { draggingWs, hoverTargetId } = useWorkspaceTreeDrag()
 
   const isCreatingChild = creatingChildOf?.parentId === workspace.id
   const isRenaming = renamingId === workspace.id

@@ -1,5 +1,5 @@
 import type React from 'react'
-import { Fragment, useState } from 'react'
+import { Fragment, useMemo, useState } from 'react'
 import { FileExplorerIcon } from '@/features/file-explorer/components/file-explorer-icon'
 import { SIDEBAR_TREE_ICON_SIZE, SidebarTreeRow } from '@/components/ui/sidebar-tree'
 import {
@@ -57,9 +57,14 @@ function adaptDiffToEntries(diffs: GitDiff[]): ChangedFileEntry[] {
 export function ChangedFilesTree({ files, repoPath, onFileOpen }: ChangedFilesTreeProps) {
   const [collapsedFolders, setCollapsedFolders] = useState<Set<string>>(new Set())
 
-  const entries = adaptDiffToEntries(files)
-  // buildGitFolderTree accepts GitFile[] — ChangedFileEntry extends GitFile so this is safe
-  const rootNode = buildGitFolderTree(entries as GitFile[])
+  // Adapting the diff + rebuilding the nested folder tree is O(files) and only
+  // depends on `files`. Memoize it so toggling a folder (or any unrelated
+  // re-render) doesn't re-adapt every diff and rebuild the whole tree.
+  const rootNode = useMemo(() => {
+    const entries = adaptDiffToEntries(files)
+    // buildGitFolderTree accepts GitFile[] — ChangedFileEntry extends GitFile so this is safe
+    return buildGitFolderTree(entries as GitFile[])
+  }, [files])
 
   const toggleFolder = (folderPath: string) => {
     setCollapsedFolders((prev) => {

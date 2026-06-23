@@ -1,8 +1,8 @@
 import { cn } from '@/lib/utils'
-import { useWorkspaceTreeContext } from './workspace-tree-context'
+import { useWorkspaceTreeDrag } from './workspace-tree-context'
 
 export function WorkspaceTreeFooter() {
-  const { draggingWs, hoverTargetId } = useWorkspaceTreeContext()
+  const { draggingWs, hoverTargetId } = useWorkspaceTreeDrag()
   const isOver = hoverTargetId === 'trash'
 
   // Always rendered so the ScrollArea doesn't resize on drag start/end.

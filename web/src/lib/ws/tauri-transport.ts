@@ -32,6 +32,15 @@ export class TauriWebSocket {
   readyState: number = TauriWebSocket.CONNECTING
 
   private readonly connId: string
+  // Set by close() so a teardown issued while the socket is still CONNECTING is
+  // honoured once ws_open resolves. The connId is minted client-side before
+  // ws_open is invoked, but Rust only registers the connection (UnixStream +
+  // reader/writer tasks) AFTER the async dial+upgrade completes. A ws_close
+  // racing ahead of that registration is a no-op on the Rust side, so without
+  // this flag the now-registered connection — daemon FD + 2 tokio tasks — would
+  // leak for every StrictMode double-mount or rapid scope switch. We defer the
+  // real ws_close to the ws_open .then() instead.
+  private closed = false
 
   constructor(path: string) {
     this.connId = crypto.randomUUID()
@@ -54,11 +63,19 @@ export class TauriWebSocket {
 
     invoke('ws_open', { connId: this.connId, path, onMessage: channel })
       .then(() => {
+        // Closed while CONNECTING: the Rust connection is only now registered,
+        // so issue the deferred ws_close to tear it down. Per the WebSocket
+        // contract a close before open yields no onopen — just a clean teardown.
+        if (this.closed) {
+          void invoke('ws_close', { connId: this.connId })
+          return
+        }
         this.readyState = TauriWebSocket.OPEN
         this.onopen?.()
       })
       .catch((err) => {
         this.readyState = TauriWebSocket.CLOSED
+        if (this.closed) return
         this.onerror?.(err)
         this.onclose?.()
       })
@@ -69,8 +86,16 @@ export class TauriWebSocket {
   }
 
   close(): void {
+    const wasConnecting = this.readyState === TauriWebSocket.CONNECTING
     this.readyState = TauriWebSocket.CLOSED
-    void invoke('ws_close', { connId: this.connId })
+    this.closed = true
+    // While CONNECTING the Rust connection isn't registered yet, so a ws_close
+    // now would be a no-op; the ws_open .then() handler issues it once the
+    // connection exists. Only call ws_close eagerly when there is something to
+    // close (open, or a prior reconnect race).
+    if (!wasConnecting) {
+      void invoke('ws_close', { connId: this.connId })
+    }
     this.onclose?.()
   }
 }
