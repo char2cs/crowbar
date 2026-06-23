@@ -154,6 +154,12 @@ export function destroyWorkspaceStore(wsId: string): void {
       useHistoryStore.getState().actions.clearHistory(buf.id)
     }
 
+    // Tear down the store's internal session-persistence subscription so a late
+    // setState after teardown can't write this (now stale) workspace's session
+    // to IndexedDB. Distinct from the registry's layout-persistence unsubscribe
+    // handled above; this one lives inside the store itself.
+    store._disposeSession()
+
     // Dispose editor resources
     store.editorManager.disposeAll()
   }

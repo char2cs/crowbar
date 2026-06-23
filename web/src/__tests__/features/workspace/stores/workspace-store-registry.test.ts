@@ -11,8 +11,17 @@ vi.mock('@/lib/persistence/workspace-layout', () => ({
   saveWorkspaceLayout: vi.fn().mockResolvedValue(undefined),
 }))
 
+// Mock the session writer (the store's INNER subscription) so we can assert it
+// stops firing once the store is destroyed.
+vi.mock('@/features/editor/stores/buffer-session-persistence', () => ({
+  saveSessionToStore: vi.fn(),
+  clearQueuedWorkspaceSessionSave: vi.fn(),
+}))
+
 import { saveWorkspaceLayout } from '@/lib/persistence/workspace-layout'
+import { saveSessionToStore } from '@/features/editor/stores/buffer-session-persistence'
 const mockSave = saveWorkspaceLayout as ReturnType<typeof vi.fn>
+const mockSaveSession = saveSessionToStore as ReturnType<typeof vi.fn>
 
 afterEach(() => {
   getAllActiveWorkspaceIds().forEach((id) => destroyWorkspaceStore(id))
@@ -127,5 +136,26 @@ describe('workspace-store-registry persistence subscription', () => {
 
     // Exactly one save for the one persisted change (timer was debounced).
     expect(mockSave).toHaveBeenCalledTimes(1)
+  })
+})
+
+describe('workspace-store inner session subscription (pass-3 #2)', () => {
+  beforeEach(() => {
+    mockSaveSession.mockClear()
+  })
+
+  it('destroyWorkspaceStore disposes the inner session writer — no session write after destroy', () => {
+    const store = getOrCreateWorkspaceStore('ws-session')
+
+    // A buffers-identity change fires the inner session writer.
+    store.setState({ buffers: [...store.getState().buffers] })
+    expect(mockSaveSession).toHaveBeenCalled()
+
+    mockSaveSession.mockClear()
+    destroyWorkspaceStore('ws-session')
+
+    // A late setState on the destroyed store must NOT write a stale session.
+    store.setState({ buffers: [...store.getState().buffers] })
+    expect(mockSaveSession).not.toHaveBeenCalled()
   })
 })

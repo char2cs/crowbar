@@ -41,6 +41,13 @@ export interface WorkspaceEditorHandles {
    * as a NON-REACTIVE handle.
    */
   readonly activeEditorRegistry: ActiveEditorRegistry
+  /**
+   * Tears down the internal session-persistence subscription (the IndexedDB
+   * saveSessionToStore writer wired in createWorkspaceStore). destroyWorkspaceStore
+   * MUST call this: the subscription closes over this store, so without it a
+   * late setState after teardown writes a stale workspace's session to IndexedDB.
+   */
+  readonly _disposeSession: () => void
 }
 
 export type WorkspaceStore = StoreApi<WorkspaceState> & WorkspaceEditorHandles
@@ -77,7 +84,12 @@ export function createWorkspaceStore(wsId: string, snapshot?: WorkspaceSnapshot)
     ),
   )
 
-  store.subscribe((state, prev) => {
+  // Persist session (open buffers + active buffer) to IndexedDB on buffer changes.
+  // Capture the unsubscribe so destroyWorkspaceStore can tear it down — otherwise
+  // a late setState on a destroyed store (an in-flight file load / WS frame
+  // resolving after teardown) fires this and writes a STALE workspace's session,
+  // corrupting persisted layout. Exposed below as `_disposeSession`.
+  const disposeSession = store.subscribe((state, prev) => {
     if (state.buffers === prev.buffers) return
     const activePane = state.panes[state.activePaneId] ?? null
     saveSessionToStore(state.buffers, activePane?.activeBufferId ?? null)
@@ -104,5 +116,6 @@ export function createWorkspaceStore(wsId: string, snapshot?: WorkspaceSnapshot)
     modelRegistry: registry,
     editorManager: manager,
     activeEditorRegistry,
+    _disposeSession: disposeSession,
   })
 }
