@@ -63,6 +63,9 @@ export interface Repo {
    *  header opens it and the context pill labels it "default". Its branch is
    *  intentionally not tracked — Crowbar does not manage that checkout. */
   defaultWorkspaceId?: string
+  /** Branch name of the default (main-worktree) workspace, surfaced on the repo
+   *  header. Used by create-input validation to reserve the default branch. */
+  defaultBranch?: string
 }
 
 export type SidebarTab = 'workspaces' | 'chats' | 'files' | 'git'

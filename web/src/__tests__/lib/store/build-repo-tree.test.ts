@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { buildRepoTree } from '@/lib/store/build-repo-tree'
+import { buildRepoTree, toSidebarRepo } from '@/lib/store/build-repo-tree'
 import type { RepoDTO, WorkspaceDTO } from '@/lib/types'
 
 const repo = (id: string, name: string, over: Partial<RepoDTO> = {}): RepoDTO => ({
@@ -141,5 +141,31 @@ describe('buildRepoTree', () => {
   it('leaves defaultWorkspaceId undefined when no workspace is the default', () => {
     const tree = buildRepoTree([repo('r1', 'crowbar')], [ws('w1', 'r1')])
     expect(tree[0].defaultWorkspaceId).toBeUndefined()
+  })
+})
+
+function makeWs(over: Partial<WorkspaceDTO> & { id: string }): WorkspaceDTO {
+  return {
+    repoId: 'r1', projectId: 'p1', branch: 'main', parentId: '',
+    forkPointSha: '', status: 'new', working: false, lastError: '', added: 0,
+    deleted: 0, mergeStrategy: 'merge', canMergeLocally: false, mergeConflicts: false,
+    parentBranch: '', prUrl: '', prTitle: '', prTargetBranch: '', ...over,
+  } as WorkspaceDTO
+}
+const baseRepo: RepoDTO = { id: 'r1', projectId: 'p1', name: 'crowbar' } as RepoDTO
+
+describe('toSidebarRepo defaultBranch', () => {
+  it('sets defaultBranch from the isDefault workspace', () => {
+    const out = toSidebarRepo(baseRepo, [
+      makeWs({ id: 'd', branch: 'develop', isDefault: true }),
+      makeWs({ id: 'c', branch: 'feature/x' }),
+    ])
+    expect(out.defaultBranch).toBe('develop')
+    expect(out.defaultWorkspaceId).toBe('d')
+  })
+
+  it('leaves defaultBranch undefined when there is no default workspace', () => {
+    const out = toSidebarRepo(baseRepo, [makeWs({ id: 'c', branch: 'feature/x' })])
+    expect(out.defaultBranch).toBeUndefined()
   })
 })
