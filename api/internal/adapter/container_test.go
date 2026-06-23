@@ -40,9 +40,10 @@ func TestWorkspaceES_LazyOpenCreatesEventStreamDB(t *testing.T) {
 	_, statErr := os.Stat(dbPath)
 	require.True(t, os.IsNotExist(statErr), "event_stream.db must not exist before first access")
 
-	es, err := c.WorkspaceES("p1", "r1", "w1")
+	es, release, err := c.WorkspaceES("p1", "r1", "w1")
 	require.NoError(t, err)
 	require.NotNil(t, es)
+	t.Cleanup(release)
 
 	_, statErr = os.Stat(dbPath)
 	assert.NoError(t, statErr, "event_stream.db must exist after WorkspaceES")
@@ -58,9 +59,10 @@ func TestWorkspaceView_LazyOpenCreatesViewDB(t *testing.T) {
 	_, statErr := os.Stat(dbPath)
 	require.True(t, os.IsNotExist(statErr), "view.db must not exist before first access")
 
-	view, err := c.WorkspaceView("p1", "r1", "w1")
+	view, release, err := c.WorkspaceView("p1", "r1", "w1")
 	require.NoError(t, err)
 	require.NotNil(t, view)
+	t.Cleanup(release)
 
 	_, statErr = os.Stat(dbPath)
 	assert.NoError(t, statErr, "view.db must exist after WorkspaceView")
@@ -72,10 +74,12 @@ func TestWorkspaceES_CachedSecondCall(t *testing.T) {
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = c.Close() })
 
-	first, err := c.WorkspaceES("p1", "r1", "w1")
+	first, releaseFirst, err := c.WorkspaceES("p1", "r1", "w1")
 	require.NoError(t, err)
-	second, err := c.WorkspaceES("p1", "r1", "w1")
+	t.Cleanup(releaseFirst)
+	second, releaseSecond, err := c.WorkspaceES("p1", "r1", "w1")
 	require.NoError(t, err)
+	t.Cleanup(releaseSecond)
 	assert.Same(t, first, second)
 }
 
@@ -108,10 +112,12 @@ func TestClose_ClosesAllAndLock(t *testing.T) {
 	c, err := adapter.New(adapter.WithHomeDir(home))
 	require.NoError(t, err)
 
-	_, err = c.WorkspaceES("p1", "r1", "w1")
+	_, releaseES, err := c.WorkspaceES("p1", "r1", "w1")
 	require.NoError(t, err)
-	_, err = c.WorkspaceView("p1", "r1", "w1")
+	releaseES()
+	_, releaseView, err := c.WorkspaceView("p1", "r1", "w1")
 	require.NoError(t, err)
+	releaseView()
 
 	require.NoError(t, c.Close())
 
@@ -121,8 +127,9 @@ func TestClose_ClosesAllAndLock(t *testing.T) {
 	t.Cleanup(func() { _ = again.Close() })
 
 	// And the per-entity stores re-open cleanly after the prior Close.
-	es, err := again.WorkspaceES("p1", "r1", "w1")
+	es, releaseAgain, err := again.WorkspaceES("p1", "r1", "w1")
 	require.NoError(t, err)
+	t.Cleanup(releaseAgain)
 	assert.NotNil(t, es)
 	_, err = es.ReadFrom(context.Background(), "missing", 0)
 	assert.NoError(t, err)
@@ -138,9 +145,9 @@ func TestRegression_AccessorsRefuseReopenAfterClose(t *testing.T) {
 
 	require.NoError(t, c.Close())
 
-	_, esErr := c.WorkspaceES("p1", "r1", "w1")
+	_, _, esErr := c.WorkspaceES("p1", "r1", "w1")
 	require.ErrorIs(t, esErr, adapter.ErrClosed)
-	_, viewErr := c.WorkspaceView("p1", "r1", "w1")
+	_, _, viewErr := c.WorkspaceView("p1", "r1", "w1")
 	require.ErrorIs(t, viewErr, adapter.ErrClosed)
 
 	// The closed accessor must NOT have re-created the entity storages dir.
@@ -158,10 +165,10 @@ func TestWorkspaceES_MkdirError(t *testing.T) {
 	require.NoError(t, os.MkdirAll(filepath.Join(home, "projects"), 0o750))
 	require.NoError(t, os.WriteFile(filepath.Join(home, "projects", "p1"), []byte("x"), 0o600))
 
-	_, err = c.WorkspaceES("p1", "r1", "w1")
+	_, _, err = c.WorkspaceES("p1", "r1", "w1")
 	assert.Error(t, err)
 
-	_, err = c.WorkspaceView("p1", "r1", "w1")
+	_, _, err = c.WorkspaceView("p1", "r1", "w1")
 	assert.Error(t, err)
 }
 

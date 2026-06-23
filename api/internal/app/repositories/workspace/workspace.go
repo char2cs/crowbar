@@ -139,6 +139,13 @@ type Workspace interface {
 type wsEntity struct {
 	ax    asynx.Asynx[domain.Workspace]
 	store store.Store
+	// esRelease and viewRelease release the adapter's per-entity event-store and
+	// view DB handles. The asynx (ax) is built over the ES handle, so they MUST be
+	// released only after ax.Shutdown — see the registry closeFn in New. The entity
+	// owns them so the wsEntity and its underlying ES/View handles are evicted
+	// together.
+	esRelease   func()
+	viewRelease func()
 	// writeMu serializes commands to this aggregate: single-writer-per-aggregate.
 	writeMu sync.Mutex
 }
@@ -172,6 +179,24 @@ type workspace struct {
 	entities     *adapter.Registry[*wsEntity]
 }
 
+// Option configures the Workspace repository.
+type Option func(*repoOpts)
+
+type repoOpts struct {
+	maxOpenEntities int
+}
+
+// WithMaxOpenEntities bounds the per-entity LRU cache to n open entities. A
+// non-positive n falls back to the registry default. Used by tests to exercise
+// eviction without opening 64+ entities.
+func WithMaxOpenEntities(
+	n int,
+) Option {
+	return func(o *repoOpts) {
+		o.maxOpenEntities = n
+	}
+}
+
 // New builds a per-entity Workspace repository. Each workspace's Asynx instance
 // and read-model view are resolved lazily from the adapter container by ID via
 // the location index (held in the global view DB), and cached in a ref-counted
@@ -181,12 +206,17 @@ func New(
 	adapters *adapter.Container,
 	broadcast store.BroadcastFunc,
 	asynxFactory AsynxFactory,
+	opts ...Option,
 ) (Workspace, error) {
 	if adapters == nil {
 		return nil, fmt.Errorf("workspace: nil adapters")
 	}
 	if asynxFactory == nil {
 		return nil, fmt.Errorf("workspace: nil asynx factory")
+	}
+	cfg := repoOpts{}
+	for _, o := range opts {
+		o(&cfg)
 	}
 	locationIndex, err := locations.New(adapters.GlobalView())
 	if err != nil {
@@ -198,19 +228,30 @@ func New(
 		asynxFactory: asynxFactory,
 		locations:    locationIndex,
 	}
-	w.entities = adapter.NewRegistry[*wsEntity](0, func(e *wsEntity) error {
-		return e.ax.Shutdown(context.Background())
+	// closeFn shuts down asynx FIRST (it references the ES handle), then releases
+	// the adapter's ES/View handles, so the underlying SQLite DB is never closed
+	// out from under a live asynx — that ordering is the use-after-free guard.
+	w.entities = adapter.NewRegistry[*wsEntity](cfg.maxOpenEntities, func(e *wsEntity) error {
+		err := e.ax.Shutdown(context.Background())
+		if e.esRelease != nil {
+			e.esRelease()
+		}
+		if e.viewRelease != nil {
+			e.viewRelease()
+		}
+		return err
 	})
 	return w, nil
 }
 
 // entityFor resolves the per-workspace Asynx + store for id, building it on a
 // cache miss from the location index and the adapter's per-entity DB handles.
-// The returned entity is pinned in the registry for the process lifetime.
+// The returned release func decrements the registry refcount; the caller MUST
+// call it (typically via defer) when done so the LRU can evict the entity.
 func (w *workspace) entityFor(
 	ctx context.Context,
 	id string,
-) (*wsEntity, error) {
+) (*wsEntity, func(), error) {
 	loc, err := w.locations.Get(ctx, id)
 	if err != nil {
 		// Translate the package-local not-found sentinel to the app-wide
@@ -218,9 +259,9 @@ func (w *workspace) entityFor(
 		// (not 500): the location index is the authority for "does this
 		// workspace exist?" across all per-entity reads.
 		if errors.Is(err, locations.ErrNotFound) {
-			return nil, fmt.Errorf("workspace: locate %q: %w", id, apperr.ErrNotFound)
+			return nil, nil, fmt.Errorf("workspace: locate %q: %w", id, apperr.ErrNotFound)
 		}
-		return nil, fmt.Errorf("workspace: locate %q: %w", id, err)
+		return nil, nil, fmt.Errorf("workspace: locate %q: %w", id, err)
 	}
 	return w.entityForLocation(ctx, loc)
 }
@@ -228,32 +269,44 @@ func (w *workspace) entityFor(
 func (w *workspace) entityForLocation(
 	ctx context.Context,
 	loc locations.Location,
-) (*wsEntity, error) {
-	entity, _, err := w.entities.Acquire(loc.ID, func() (*wsEntity, error) {
-		es, esErr := w.adapters.WorkspaceES(loc.ProjectID, loc.RepoID, loc.ID)
+) (*wsEntity, func(), error) {
+	entity, release, err := w.entities.Acquire(loc.ID, func() (*wsEntity, error) {
+		es, esRelease, esErr := w.adapters.WorkspaceES(loc.ProjectID, loc.RepoID, loc.ID)
 		if esErr != nil {
 			return nil, fmt.Errorf("workspace: event store: %w", esErr)
 		}
-		view, viewErr := w.adapters.WorkspaceView(loc.ProjectID, loc.RepoID, loc.ID)
+		view, viewRelease, viewErr := w.adapters.WorkspaceView(loc.ProjectID, loc.RepoID, loc.ID)
 		if viewErr != nil {
+			// Release the ES handle acquired above before bailing, or it leaks
+			// pinned in the registry forever (the wsEntity that would own it is
+			// never built).
+			esRelease()
 			return nil, fmt.Errorf("workspace: view: %w", viewErr)
 		}
 		ax, axErr := w.asynxFactory(es)
 		if axErr != nil {
+			esRelease()
+			viewRelease()
 			return nil, fmt.Errorf("workspace: asynx: %w", axErr)
 		}
 		// store.New reconciles the read model from the event store on open, so the
 		// first List after a crash mid-projection self-corrects (see store.New).
 		st, stErr := store.New(ctx, view, ax, w.broadcast, loc.ID)
 		if stErr != nil {
+			// ax was built but never registered with the entity, so shut it down
+			// before releasing the ES handle it sits on — same ordering as the
+			// registry closeFn to avoid a use-after-free.
+			_ = ax.Shutdown(context.Background())
+			esRelease()
+			viewRelease()
 			return nil, fmt.Errorf("workspace: store: %w", stErr)
 		}
-		return &wsEntity{ax: ax, store: st}, nil
+		return &wsEntity{ax: ax, store: st, esRelease: esRelease, viewRelease: viewRelease}, nil
 	})
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
-	return entity, nil
+	return entity, release, nil
 }
 
 func (w *workspace) Create(
@@ -268,7 +321,7 @@ func (w *workspace) Create(
 	}); err != nil {
 		return domain.Workspace{}, fmt.Errorf("workspace: create: %w", err)
 	}
-	entity, err := w.entityForLocation(ctx, locations.Location{
+	entity, release, err := w.entityForLocation(ctx, locations.Location{
 		ID:        in.ID,
 		ProjectID: in.ProjectID,
 		RepoID:    in.RepoID,
@@ -276,6 +329,7 @@ func (w *workspace) Create(
 	if err != nil {
 		return domain.Workspace{}, fmt.Errorf("workspace: create: %w", err)
 	}
+	defer release()
 	evt, err := entity.send(ctx, commands.CreateWorkspace{
 		ID:            in.ID,
 		RepoID:        in.RepoID,
@@ -300,10 +354,11 @@ func (w *workspace) SyncWorkingTreeState(
 	in SyncInput,
 	now time.Time,
 ) (domain.Workspace, error) {
-	entity, err := w.entityFor(ctx, in.ID)
+	entity, release, err := w.entityFor(ctx, in.ID)
 	if err != nil {
 		return domain.Workspace{}, err
 	}
+	defer release()
 	evt, err := entity.send(ctx, commands.SyncWorkingTreeState{
 		ID:           in.ID,
 		Added:        in.Added,
@@ -322,10 +377,11 @@ func (w *workspace) Get(
 	ctx context.Context,
 	id string,
 ) (domain.Workspace, error) {
-	entity, err := w.entityFor(ctx, id)
+	entity, release, err := w.entityFor(ctx, id)
 	if err != nil {
 		return domain.Workspace{}, err
 	}
+	defer release()
 	got, err := entity.ax.Get(ctx, id)
 	if err != nil {
 		return domain.Workspace{}, fmt.Errorf("workspace: get: %w", err)
@@ -338,10 +394,11 @@ func (w *workspace) SyncProviderState(
 	in ProviderInput,
 	now time.Time,
 ) (domain.Workspace, error) {
-	entity, err := w.entityFor(ctx, in.ID)
+	entity, release, err := w.entityFor(ctx, in.ID)
 	if err != nil {
 		return domain.Workspace{}, err
 	}
+	defer release()
 	evt, err := entity.send(ctx, commands.SyncProviderState{
 		ID:             in.ID,
 		Protected:      in.Protected,
@@ -363,10 +420,11 @@ func (w *workspace) SetMergeStrategy(
 	id string,
 	strategy gitdomain.MergeStrategy,
 ) (domain.Workspace, error) {
-	entity, err := w.entityFor(ctx, id)
+	entity, release, err := w.entityFor(ctx, id)
 	if err != nil {
 		return domain.Workspace{}, err
 	}
+	defer release()
 	evt, err := entity.send(ctx, commands.SetMergeStrategy{ID: id, Strategy: strategy})
 	if err != nil {
 		return domain.Workspace{}, fmt.Errorf("workspace: set merge strategy: %w", err)
@@ -379,10 +437,11 @@ func (w *workspace) TouchActivity(
 	id string,
 	now time.Time,
 ) (domain.Workspace, error) {
-	entity, err := w.entityFor(ctx, id)
+	entity, release, err := w.entityFor(ctx, id)
 	if err != nil {
 		return domain.Workspace{}, err
 	}
+	defer release()
 	evt, err := entity.send(ctx, commands.TouchActivity{ID: id, Now: now})
 	if err != nil {
 		return domain.Workspace{}, fmt.Errorf("workspace: touch activity: %w", err)
@@ -397,10 +456,11 @@ func (w *workspace) Reparent(
 	forkPointSha string,
 	now time.Time,
 ) (domain.Workspace, error) {
-	entity, err := w.entityFor(ctx, id)
+	entity, release, err := w.entityFor(ctx, id)
 	if err != nil {
 		return domain.Workspace{}, err
 	}
+	defer release()
 	evt, err := entity.send(ctx, commands.Reparent{
 		ID:           id,
 		ParentID:     parentID,
@@ -418,10 +478,11 @@ func (w *workspace) ResolveConflicts(
 	id string,
 	now time.Time,
 ) (domain.Workspace, error) {
-	entity, err := w.entityFor(ctx, id)
+	entity, release, err := w.entityFor(ctx, id)
 	if err != nil {
 		return domain.Workspace{}, err
 	}
+	defer release()
 	evt, err := entity.send(ctx, commands.ResolveConflicts{
 		ID:  id,
 		Now: now,
@@ -437,10 +498,11 @@ func (w *workspace) UpdateForkPoint(
 	id string,
 	forkPointSha string,
 ) (domain.Workspace, error) {
-	entity, err := w.entityFor(ctx, id)
+	entity, release, err := w.entityFor(ctx, id)
 	if err != nil {
 		return domain.Workspace{}, err
 	}
+	defer release()
 	evt, err := entity.send(ctx, commands.UpdateForkPoint{ID: id, ForkPointSha: forkPointSha})
 	if err != nil {
 		return domain.Workspace{}, fmt.Errorf("workspace: update fork point: %w", err)
@@ -453,10 +515,11 @@ func (w *workspace) SetParentFromPR(
 	id string,
 	parentID string,
 ) (domain.Workspace, error) {
-	entity, err := w.entityFor(ctx, id)
+	entity, release, err := w.entityFor(ctx, id)
 	if err != nil {
 		return domain.Workspace{}, err
 	}
+	defer release()
 	evt, err := entity.send(ctx, commands.SetParentFromPR{ID: id, ParentID: parentID})
 	if err != nil {
 		return domain.Workspace{}, fmt.Errorf("workspace: set parent from pr: %w", err)
@@ -469,10 +532,11 @@ func (w *workspace) SetLastError(
 	id string,
 	message string,
 ) (domain.Workspace, error) {
-	entity, err := w.entityFor(ctx, id)
+	entity, release, err := w.entityFor(ctx, id)
 	if err != nil {
 		return domain.Workspace{}, err
 	}
+	defer release()
 	evt, err := entity.send(ctx, commands.SetLastError{ID: id, Message: message})
 	if err != nil {
 		return domain.Workspace{}, fmt.Errorf("workspace: set last error: %w", err)
@@ -488,10 +552,13 @@ func (w *workspace) Delete(
 	if err != nil {
 		return fmt.Errorf("workspace: delete: locate %q: %w", id, err)
 	}
-	entity, err := w.entityForLocation(ctx, loc)
+	entity, release, err := w.entityForLocation(ctx, loc)
 	if err != nil {
 		return err
 	}
+	// Safe to release even after the Evict below: Evict detaches the entry, so the
+	// deferred release just decrements a detached refcount (a no-op for eviction).
+	defer release()
 	// Tear the read model down first (Forget needs the per-entity view.db), then
 	// close the handles, drop the location index, and rm -rf the on-disk tree.
 	if err := entity.ax.Forget(ctx, id); err != nil {
@@ -549,13 +616,12 @@ func (w *workspace) List(
 	}
 	rows := make([]domain.Workspace, 0, len(locs))
 	for _, loc := range locs {
-		entity, entErr := w.entityForLocation(ctx, loc)
-		if entErr != nil {
-			return nil, fmt.Errorf("workspace: list: %w", entErr)
-		}
-		ws, getErr := entity.store.Get(ctx, loc.ID)
-		if getErr != nil {
-			return nil, fmt.Errorf("workspace: list: %w", getErr)
+		// readRow acquires the entity, reads its row, and releases the registry
+		// refcount via defer — so a per-iteration acquire/release lets the LRU evict
+		// between reads instead of pinning every entity for the whole List.
+		ws, err := w.readRow(ctx, loc)
+		if err != nil {
+			return nil, fmt.Errorf("workspace: list: %w", err)
 		}
 		if ws == nil {
 			continue
@@ -563,4 +629,19 @@ func (w *workspace) List(
 		rows = append(rows, *ws)
 	}
 	return rows, nil
+}
+
+// readRow resolves the entity for loc, reads its read-model row, and releases the
+// registry refcount before returning (including on error), so List does not pin
+// every entity at once.
+func (w *workspace) readRow(
+	ctx context.Context,
+	loc locations.Location,
+) (*domain.Workspace, error) {
+	entity, release, err := w.entityForLocation(ctx, loc)
+	if err != nil {
+		return nil, err
+	}
+	defer release()
+	return entity.store.Get(ctx, loc.ID)
 }

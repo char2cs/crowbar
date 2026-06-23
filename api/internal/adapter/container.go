@@ -42,7 +42,6 @@ type Container struct {
 	lock *instanceLock
 
 	releaseMu sync.Mutex
-	releases  []func()
 	closed    bool
 
 	globalClosers []io.Closer
@@ -180,14 +179,16 @@ func (c *Container) isClosed() bool {
 
 // WorkspaceES returns the per-entity workspace event store, lazily creating the
 // storages directory and opening event_stream.db on first access. The handle is
-// pinned for the process lifetime and released on Close.
+// pinned in the registry until the returned release func is called; the caller
+// (the owning workspace entity) must call it when that entity is evicted, so the
+// LRU can reclaim the handle. release is nil on the error paths.
 func (c *Container) WorkspaceES(
 	projectID string,
 	repoID string,
 	wsID string,
-) (asynxModels.Store, error) {
+) (asynxModels.Store, func(), error) {
 	if c.isClosed() {
-		return nil, ErrClosed
+		return nil, nil, ErrClosed
 	}
 	dir := workspaceStorageDir(c.crowbarHome, projectID, repoID, wsID)
 	key := entityKey(projectID, repoID, wsID)
@@ -202,22 +203,23 @@ func (c *Container) WorkspaceES(
 		return store, nil
 	})
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
-	c.pin(release)
-	return es, nil
+	return es, release, nil
 }
 
 // WorkspaceView returns the per-entity workspace view DB, lazily creating the
 // storages directory and opening view.db on first access. The handle is pinned
-// for the process lifetime and released on Close.
+// in the registry until the returned release func is called; the caller (the
+// owning workspace entity) must call it when that entity is evicted, so the LRU
+// can reclaim the handle. release is nil on the error paths.
 func (c *Container) WorkspaceView(
 	projectID string,
 	repoID string,
 	wsID string,
-) (*gormdb.DB, error) {
+) (*gormdb.DB, func(), error) {
 	if c.isClosed() {
-		return nil, ErrClosed
+		return nil, nil, ErrClosed
 	}
 	dir := workspaceStorageDir(c.crowbarHome, projectID, repoID, wsID)
 	key := entityKey(projectID, repoID, wsID)
@@ -232,10 +234,9 @@ func (c *Container) WorkspaceView(
 		return db, nil
 	})
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
-	c.pin(release)
-	return view, nil
+	return view, release, nil
 }
 
 // Close drains and closes every cached per-entity handle, the global view DB,
@@ -245,12 +246,7 @@ func (c *Container) Close() error {
 
 	c.releaseMu.Lock()
 	c.closed = true
-	releases := c.releases
-	c.releases = nil
 	c.releaseMu.Unlock()
-	for _, release := range releases {
-		release()
-	}
 
 	if c.workspaceES != nil {
 		if err := c.workspaceES.CloseAll(); err != nil {
@@ -284,14 +280,6 @@ func (c *Container) Close() error {
 		c.lock = nil
 	}
 	return errors.Join(errs...)
-}
-
-func (c *Container) pin(
-	release func(),
-) {
-	c.releaseMu.Lock()
-	c.releases = append(c.releases, release)
-	c.releaseMu.Unlock()
 }
 
 func entityKey(

@@ -3,6 +3,7 @@ package workspace_test
 import (
 	"context"
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"testing"
@@ -446,6 +447,52 @@ func TestWorkspace_New_NilGuards(t *testing.T) {
 
 	_, err = workspace.New(newAdapter(t, t.TempDir()), func(context.Context, domain.Workspace) {}, nil)
 	assert.Error(t, err)
+}
+
+// TestWorkspace_EntityCacheStaysBounded proves the per-entity LRU is actually
+// bounded: before the release-after-use fix, every entityFor/entityForLocation
+// discarded the registry release func, pinning every wsEntity (each ~ an asynx
+// instance + its ES/View SQLite handles) for the process lifetime, so the cache
+// grew without bound. Now each repo op acquires then releases, so touching far
+// more than the configured bound of distinct workspaces leaves the registry
+// holding at most `bound` entries.
+func TestWorkspace_EntityCacheStaysBounded(t *testing.T) {
+	const bound = 8
+	const n = 70 // > bound; also > the default 64 so this fails on the old code path
+	repo, err := workspace.New(
+		newAdapter(t, t.TempDir()),
+		func(context.Context, domain.Workspace) {},
+		wsAsynxFactory,
+		workspace.WithMaxOpenEntities(bound),
+	)
+	require.NoError(t, err)
+	ctx := context.Background()
+	now := time.Unix(1000, 0).UTC()
+
+	for i := 0; i < n; i++ {
+		id := fmt.Sprintf("w%d", i)
+		_, createErr := repo.Create(ctx, workspace.CreateInput{ID: id, RepoID: "r1", ProjectID: "p1"}, now)
+		require.NoError(t, createErr)
+		// A second op on the same entity exercises the cache-hit acquire/release
+		// path too, not just the build-on-miss path.
+		_, getErr := repo.Get(ctx, id)
+		require.NoError(t, getErr)
+	}
+
+	// Every op above released its handle, so the LRU has evicted down to the bound.
+	// The whole point of the fix: cached entities never exceed maxOpen.
+	cached := workspace.CachedEntityCount(repo)
+	t.Logf("cached entities after touching %d distinct workspaces (bound=%d): %d", n, bound, cached)
+	require.GreaterOrEqual(t, cached, 0, "test accessor must reach the concrete repo")
+	assert.LessOrEqualf(t, cached, bound,
+		"entity cache must stay bounded by maxOpen=%d after touching %d distinct workspaces, got %d cached",
+		bound, n, cached)
+
+	// And a list across all N still works (re-opening evicted entities lazily),
+	// proving eviction did not lose any data.
+	all, listErr := repo.List(ctx)
+	require.NoError(t, listErr)
+	assert.Len(t, all, n)
 }
 
 func TestWorkspace_Create_AsynxFactoryError(t *testing.T) {
