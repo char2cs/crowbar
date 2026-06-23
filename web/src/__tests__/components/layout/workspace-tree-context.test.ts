@@ -14,13 +14,11 @@ vi.mock('@/components/ui/toast', () => ({
 }))
 
 import { postWorkspace, deleteWorkspace as apiDeleteWorkspace } from '@/lib/api'
-import { reparentWorkspace } from '@/lib/api/workspace'
 import { toast } from '@/components/ui/toast'
 import { useSidebarStore, type Repo } from '@/lib/store/sidebar'
 import {
   performCreateWorkspace,
   performDeleteWorkspace,
-  performReparentWorkspace,
 } from '@/components/layout/workspace-tree-context'
 
 const repo = (workspaces: Repo['workspaces']): Repo => ({
@@ -95,12 +93,13 @@ describe('performDeleteWorkspace', () => {
     expect(workspaceIds()).toEqual(['ws-parent', 'ws-locked'])
   })
 
-  it('surfaces a failure via toast', async () => {
+  it('logs failure silently — no toast, item stays in list via WS non-arrival', async () => {
     vi.mocked(apiDeleteWorkspace).mockRejectedValue(new Error('409 conflict'))
 
     await performDeleteWorkspace('ws-parent')
 
-    expect(toast.error).toHaveBeenCalledWith('Failed to delete workspace', '409 conflict')
+    expect(toast.error).not.toHaveBeenCalled()
+    expect(console.error).toHaveBeenCalledWith('Failed to delete workspace:', expect.any(Error))
   })
 
   it('never deletes a locked workspace (no API call)', async () => {
@@ -113,29 +112,5 @@ describe('performDeleteWorkspace', () => {
     await performDeleteWorkspace('nope')
 
     expect(apiDeleteWorkspace).not.toHaveBeenCalled()
-  })
-})
-
-describe('performReparentWorkspace', () => {
-  it('fires the hierarchical 202 reparent threading projectId+repoId', async () => {
-    vi.mocked(reparentWorkspace).mockResolvedValue(undefined)
-
-    await performReparentWorkspace('ws-parent', 'ws-locked', 'r1')
-
-    expect(reparentWorkspace).toHaveBeenCalledWith('p1', 'r1', 'ws-parent', 'ws-locked')
-  })
-
-  it('skips the backend call when moving to the repo root (newParentId undefined)', async () => {
-    await performReparentWorkspace('ws-parent', undefined, 'r1')
-
-    expect(reparentWorkspace).not.toHaveBeenCalled()
-  })
-
-  it('surfaces a failure via toast', async () => {
-    vi.mocked(reparentWorkspace).mockRejectedValue(new Error('cycle'))
-
-    await performReparentWorkspace('ws-parent', 'ws-locked', 'r1')
-
-    expect(toast.error).toHaveBeenCalledWith('Failed to reparent workspace', 'cycle')
   })
 })

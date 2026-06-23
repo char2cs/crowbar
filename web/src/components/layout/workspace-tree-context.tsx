@@ -51,7 +51,8 @@ export async function performCreateWorkspace(
  * Fire the hierarchical delete mutation (202 Accepted, §3). Locked workspaces
  * are never deleted. No optimistic removal: the backend owns the cascade and
  * emits one status:'deleted' tombstone per removed id, which the WS-driven
- * cache applies. On failure the error is surfaced via toast.
+ * cache applies. On failure the item stays in the list via WS non-arrival — no
+ * toast needed.
  */
 export async function performDeleteWorkspace(wsId: string): Promise<void> {
   const repo = useSidebarStore
@@ -60,104 +61,13 @@ export async function performDeleteWorkspace(wsId: string): Promise<void> {
   const ws = repo?.workspaces.find((w) => w.id === wsId)
   if (!repo || !ws || ws.status === 'locked') return
   const projectId = repo.projectId
-  if (!projectId) {
-    toast.error('Failed to delete workspace', 'unknown project for repo')
-    return
-  }
+  if (!projectId) return
   try {
     await apiDeleteWorkspace(projectId, repo.id, wsId)
   } catch (err) {
     console.error('Failed to delete workspace:', err)
-    toast.error('Failed to delete workspace', err instanceof Error ? err.message : undefined)
+    // item stays in list via WS non-arrival — no toast needed
   }
-}
-
-/**
- * Fire the hierarchical reparent mutation (202 Accepted, §3). The backend only
- * accepts a non-empty parent, so a move back to the repo root (undefined) is a
- * no-op for now — the new parentId arrives on the WS WorkspaceDTO and the
- * WS-driven cache reflects it. On failure the error is surfaced via toast.
- */
-export async function performReparentWorkspace(
-  wsId: string,
-  newParentId: string | undefined,
-  repoId: string,
-): Promise<void> {
-  if (newParentId === undefined) return
-  const projectId = projectIdForRepo(repoId)
-  if (!projectId) {
-    toast.error('Failed to reparent workspace', 'unknown project for repo')
-    return
-  }
-  try {
-    await reparentWorkspace(projectId, repoId, wsId, newParentId)
-    announceReparentOutcome(wsId, newParentId)
-  } catch (err) {
-    console.error('Failed to reparent workspace:', err)
-    toast.error('Failed to reparent workspace', err instanceof Error ? err.message : undefined)
-  }
-}
-
-/**
- * A reparent is 202-async; the outcome (clean vs conflicting) arrives over the WS
- * broadcast. Watch the moved workspace settle under its new parent — computed
- * fresh, since the parent may have drifted — and tell the user. This answers the
- * "is it clean now?" question on a move-back. One-shot, with a quiet timeout.
- */
-function announceReparentOutcome(wsId: string, newParentId: string): void {
-  let done = false
-  const settle = (announce: () => void): void => {
-    if (done) return
-    done = true
-    unsub()
-    clearTimeout(timer)
-    announce()
-  }
-  // Baseline the workspace's current error so we react only to a NEW one raised
-  // by THIS reparent. The op is 202-async: a guard rejection (locked/non-leaf/
-  // self/bad target) never throws on the request, it surfaces as a fresh
-  // lastError on the workspace's broadcast — otherwise the failure is silent.
-  let baselineError: string | undefined
-  let baselineBranch: string | undefined
-  for (const repo of useSidebarStore.getState().repos) {
-    for (const w of repo.workspaces) {
-      if (w.id === wsId) {
-        baselineError = w.lastError
-        baselineBranch = w.branch
-      }
-    }
-  }
-  const check = (): void => {
-    let moved:
-      | { branch?: string; parentId?: string; mergeConflicts?: boolean; lastError?: string }
-      | undefined
-    let parentBranch: string | undefined
-    for (const repo of useSidebarStore.getState().repos) {
-      for (const w of repo.workspaces) {
-        if (w.id === wsId) moved = w
-        if (w.id === newParentId) parentBranch = w.branch
-      }
-    }
-    if (!moved) return
-    // Failure: a fresh error appeared and the move did not land under the target.
-    if (moved.lastError && moved.lastError !== baselineError && moved.parentId !== newParentId) {
-      const name = moved.branch ?? baselineBranch ?? 'workspace'
-      settle(() => toast.error(`Couldn’t move ${name}`, moved?.lastError))
-      return
-    }
-    if (moved.parentId !== newParentId) return // not landed yet
-    const where = parentBranch ?? 'its new parent'
-    settle(() => {
-      if (moved?.mergeConflicts) {
-        toast.warning(`${moved.branch} conflicts with ${where} — resolve it from its panel`)
-      } else {
-        toast.success(`${moved?.branch} is clean under ${where}`)
-      }
-    })
-  }
-  const unsub = useSidebarStore.subscribe(check)
-  const timer = setTimeout(() => settle(() => {}), 8000)
-  check() // in case it already landed
 }
 
 interface CreatingState {
@@ -211,6 +121,7 @@ interface WorkspaceTreeActionsContextValue {
 interface WorkspaceTreeDragContextValue {
   draggingWs: DraggingState | null
   hoverTargetId: string | null
+  movingWsId: string | null // wsId of item currently being moved (API in-flight)
 }
 
 const WorkspaceTreeActionsContext = createContext<WorkspaceTreeActionsContextValue | null>(null)
@@ -264,6 +175,7 @@ export function WorkspaceTreeProvider({ children }: { children: ReactNode }) {
   const [draggingWs, setDraggingWs] = useState<DraggingState | null>(null)
   const [hoverTargetId, setHoverTargetId] = useState<string | null>(null)
   const [pendingCreates, setPendingCreates] = useState<Map<string, PendingCreate>>(new Map())
+  const [movingWsId, setMovingWsId] = useState<string | null>(null)
 
   function addPendingCreate(tempId: string, entry: PendingCreate) {
     setPendingCreates((prev) => new Map(prev).set(tempId, entry))
@@ -305,6 +217,10 @@ export function WorkspaceTreeProvider({ children }: { children: ReactNode }) {
   // Mirrors draggingWs for use inside window event handlers without stale closures.
   // Set synchronously at the point of change, not via useEffect, to avoid one-render lag.
   const draggingRef = useRef<DraggingState | null>(null)
+
+  // Ref so the onPointerUp closure can call setMovingWsId without stale captures.
+  const setMovingWsIdRef = useRef(setMovingWsId)
+  setMovingWsIdRef.current = setMovingWsId
 
   const startCreating = useCallback((repoId: string, parentId: string) => {
     setCreatingChildOf({ repoId, parentId })
@@ -469,13 +385,31 @@ export function WorkspaceTreeProvider({ children }: { children: ReactNode }) {
           const repos = useSidebarStore.getState().repos
           const targetRepo = repos.find((r) => r.workspaces.some((w) => w.id === targetWsId))
           if (targetRepo?.id === ws.repoId) {
-            void performReparentWorkspace(ws.id, targetWsId, ws.repoId)
+            // Capture original parent before optimistic move
+            const originalParentId = repos
+              .flatMap((r) => r.workspaces)
+              .find((w) => w.id === ws.id)?.parentId
+
+            // Optimistic: move immediately in store
+            useSidebarStore.getState().reparentWorkspace(ws.id, targetWsId)
+            setMovingWsIdRef.current(ws.id)
+
+            const projectId = projectIdForRepo(ws.repoId)
+            if (projectId) {
+              reparentWorkspace(projectId, ws.repoId, ws.id, targetWsId)
+                .catch(() => {
+                  // Snap back on failure
+                  useSidebarStore.getState().reparentWorkspace(ws.id, originalParentId)
+                })
+                .finally(() => {
+                  setMovingWsIdRef.current(null)
+                })
+            } else {
+              // Can't move — revert immediately
+              useSidebarStore.getState().reparentWorkspace(ws.id, originalParentId)
+              setMovingWsIdRef.current(null)
+            }
           }
-        }
-      } else if (target?.startsWith('repo:')) {
-        const targetRepoId = target.slice(5)
-        if (targetRepoId === ws.repoId) {
-          void performReparentWorkspace(ws.id, undefined, ws.repoId)
         }
       }
 
@@ -539,8 +473,8 @@ export function WorkspaceTreeProvider({ children }: { children: ReactNode }) {
   )
 
   const dragValue = useMemo<WorkspaceTreeDragContextValue>(
-    () => ({ draggingWs, hoverTargetId }),
-    [draggingWs, hoverTargetId],
+    () => ({ draggingWs, hoverTargetId, movingWsId }),
+    [draggingWs, hoverTargetId, movingWsId],
   )
 
   return (

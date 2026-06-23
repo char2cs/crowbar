@@ -42,11 +42,12 @@ export function WorkspaceTreeItem({
     cancelRename,
     onPointerDownDrag,
   } = useWorkspaceTreeActions()
-  const { draggingWs, hoverTargetId } = useWorkspaceTreeDrag()
+  const { draggingWs, hoverTargetId, movingWsId } = useWorkspaceTreeDrag()
 
   const isCreatingChild = creatingChildOf?.parentId === workspace.id
   const isRenaming = renamingId === workspace.id
   const isDraggingThis = draggingWs?.id === workspace.id
+  const isMoving = movingWsId === workspace.id
   const isDropTarget = hoverTargetId === `ws:${workspace.id}` && !isDraggingThis
   const showChildrenSection = (hasChildren && expanded) || isCreatingChild
 
@@ -63,6 +64,7 @@ export function WorkspaceTreeItem({
             ROW_BASE,
             variant,
             isDraggingThis && 'opacity-40',
+            isMoving && 'opacity-50 pointer-events-none',
             isDropTarget && 'ring-1 ring-ring',
           )}
           onClick={() => !isRenaming && onWorkspaceClick(workspace.id, projectId, repoId)}
@@ -78,7 +80,7 @@ export function WorkspaceTreeItem({
               : undefined
           }
         >
-          <WorkspaceBranchIcon status={workspace.status ?? 'new'} working={workspace.working} />
+          <WorkspaceBranchIcon status={workspace.status ?? 'new'} working={workspace.working || isMoving} />
 
           {isRenaming ? (
             <WorkspaceInlineInput
