@@ -15,7 +15,6 @@ import { useSettingsStore } from '@/features/settings/store'
 import { ContextMenu, type ContextMenuItem } from '@/components/ui/context-menu'
 import { LoadingSpinner } from '@/components/ui/loading-spinner'
 import { primitiveConfirm } from '@/components/ui/primitive-dialog-service'
-import { toast } from '@/components/ui/toast'
 import {
   fetchChanges,
   pullChanges,
@@ -57,7 +56,8 @@ const GitActionsMenu = ({
   onInitializeRepository,
   isInitializingRepository,
 }: GitActionsMenuProps) => {
-  const [isLoading, setIsLoading] = useState(false)
+  const [runningAction, setRunningAction] = useState<string | null>(null)
+  const [actionError, setActionError] = useState<string | null>(null)
   const isRefreshing = useGitStore((s) => s.isRefreshing)
   const confirmBeforeDiscard = useSettingsStore((state) => state.settings.confirmBeforeDiscard)
 
@@ -65,69 +65,51 @@ const GitActionsMenu = ({
     action: () => Promise<boolean | GitRemoteActionResult>,
     actionName: string,
     messages?: {
-      loading?: string
       success?: string
       error?: string
     },
   ) => {
     if (!repoPath) return
 
-    let toastId: string | null = null
-    setIsLoading(true)
+    setRunningAction(actionName)
+    setActionError(null)
     try {
-      if (messages?.loading) {
-        toastId = toast.show({
-          message: messages.loading,
-          type: 'info',
-          duration: 0,
-        })
-      }
-
       const result = await action()
       const remoteResult =
         typeof result === 'boolean' ? { success: result, error: undefined } : result
 
       if (remoteResult.success) {
-        if (toastId) toast.dismiss(toastId)
-        toast.success(messages?.success ?? `${actionName} completed.`)
         onRefresh?.()
+        onClose()
       } else {
         const errorMessage = remoteResult.error || messages?.error || `${actionName} failed.`
-        if (toastId) toast.dismiss(toastId)
-        toast.error(errorMessage)
         console.error(`${actionName} failed`, remoteResult.error)
+        setActionError(errorMessage)
       }
     } catch (error) {
       const errorMessage =
         error instanceof Error ? error.message : messages?.error || `${actionName} failed.`
-      if (toastId) toast.dismiss(toastId)
-      toast.error(errorMessage)
       console.error(`${actionName} error:`, error)
+      setActionError(errorMessage)
     } finally {
-      setIsLoading(false)
+      setRunningAction(null)
     }
   }
 
   const handlePush = () => {
-    handleAction(() => pushChanges(repoPath!), 'Push', {
-      loading: 'Pushing changes...',
-      success: 'Changes pushed successfully.',
+    void handleAction(() => pushChanges(repoPath!), 'Push', {
       error: 'Failed to push changes.',
     })
   }
 
   const handlePull = () => {
-    handleAction(() => pullChanges(repoPath!), 'Pull', {
-      loading: 'Pulling changes...',
-      success: 'Changes pulled successfully.',
+    void handleAction(() => pullChanges(repoPath!), 'Pull', {
       error: 'Failed to pull changes.',
     })
   }
 
   const handleFetch = () => {
-    handleAction(() => fetchChanges(repoPath!), 'Fetch', {
-      loading: 'Fetching changes...',
-      success: 'Fetched successfully.',
+    void handleAction(() => fetchChanges(repoPath!), 'Fetch', {
       error: 'Failed to fetch changes.',
     })
   }
@@ -143,7 +125,7 @@ const GitActionsMenu = ({
     ) {
       return
     }
-    handleAction(() => discardAllChanges(repoPath!), 'Discard all changes')
+    void handleAction(() => discardAllChanges(repoPath!), 'Discard all changes')
   }
 
   const handleInitRepository = () => {
@@ -153,7 +135,7 @@ const GitActionsMenu = ({
       return
     }
 
-    handleAction(() => Promise.resolve(false), 'Initialize repository')
+    void handleAction(() => Promise.resolve(false), 'Initialize repository')
   }
 
   const handleRefresh = async () => {
@@ -184,6 +166,16 @@ const GitActionsMenu = ({
     return null
   }
 
+  const spinner = (
+    <span className="size-3.5 animate-spin rounded-full border border-transparent border-t-current" />
+  )
+
+  const errorFooter = actionError ? (
+    <div className="px-2 py-1.5 text-xs text-destructive border-t border-border mt-1">
+      {actionError}
+    </div>
+  ) : null
+
   const items: ContextMenuItem[] = hasGitRepo
     ? [
         {
@@ -197,23 +189,26 @@ const GitActionsMenu = ({
         {
           id: 'push',
           label: 'Push Changes',
-          icon: <Upload />,
-          disabled: isLoading,
+          icon: runningAction === 'Push' ? spinner : <Upload />,
+          disabled: !!runningAction,
+          closeOnClick: false,
           onClick: handlePush,
         },
         { id: 'sep-2', label: '', separator: true, onClick: () => {} },
         {
           id: 'pull',
           label: 'Pull Changes',
-          icon: <Download />,
-          disabled: isLoading,
+          icon: runningAction === 'Pull' ? spinner : <Download />,
+          disabled: !!runningAction,
+          closeOnClick: false,
           onClick: handlePull,
         },
         {
           id: 'fetch',
           label: 'Fetch',
-          icon: <GitPullRequest />,
-          disabled: isLoading,
+          icon: runningAction === 'Fetch' ? spinner : <GitPullRequest />,
+          disabled: !!runningAction,
+          closeOnClick: false,
           onClick: handleFetch,
         },
         { id: 'sep-3', label: '', separator: true, onClick: () => {} },
@@ -247,8 +242,9 @@ const GitActionsMenu = ({
         {
           id: 'discard-all',
           label: 'Discard All Changes',
-          icon: <RotateCcw />,
-          disabled: isLoading,
+          icon: runningAction === 'Discard all changes' ? spinner : <RotateCcw />,
+          disabled: !!runningAction,
+          closeOnClick: false,
           className: 'text-red-400',
           onClick: () => void handleDiscardAllChanges(),
         },
@@ -258,7 +254,7 @@ const GitActionsMenu = ({
           id: 'init-repository',
           label: isInitializingRepository ? 'Initializing...' : 'Initialize Repository',
           icon: <Settings />,
-          disabled: isLoading || isInitializingRepository,
+          disabled: !!runningAction || isInitializingRepository,
           onClick: handleInitRepository,
         },
         { id: 'sep-1', label: '', separator: true, onClick: () => {} },
@@ -280,6 +276,7 @@ const GitActionsMenu = ({
       }}
       items={items}
       onClose={onClose}
+      footer={errorFooter}
     />
   )
 }
