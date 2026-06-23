@@ -95,6 +95,10 @@ func (m *mockWorkspace) Reparent(ctx context.Context, id, parentID, forkPointSha
 	return domain.Workspace{}, nil
 }
 
+func (m *mockWorkspace) ResolveConflicts(ctx context.Context, id string, now time.Time) (domain.Workspace, error) {
+	return domain.Workspace{}, nil
+}
+
 func (m *mockWorkspace) UpdateForkPoint(ctx context.Context, id, forkPointSha string) (domain.Workspace, error) {
 	return domain.Workspace{}, nil
 }

@@ -419,14 +419,28 @@ func (u *gitUsecase) ResolveHunk(
 }
 
 // OperationContinue finalizes an in-progress merge/rebase/pull and resyncs.
+//
+// A successful continue fully completes the operation in THIS worktree (git
+// errors the continue if any conflict remains), so any pr-conflicts status the
+// branch carried from its own kept rebase is now resolved. pr-conflicts is
+// otherwise sticky, so clear it here. This is safe for the merge-into-parent
+// case: that marks the CHILD pr-conflicts while the markers live in the PARENT,
+// and it is resolved via the PARENT's continue — a child never reaches this path
+// with a clean-but-still-logically-conflicting state.
 func (u *gitUsecase) OperationContinue(
 	ctx context.Context,
 	wsID string,
 	now time.Time,
 ) error {
-	return u.mutate(ctx, wsID, now, func(repoPath string) error {
+	if err := u.mutate(ctx, wsID, now, func(repoPath string) error {
 		return u.git.OperationContinue(ctx, repoPath)
-	})
+	}); err != nil {
+		return err
+	}
+	if _, err := u.syncer.ResolveConflicts(ctx, wsID, now); err != nil {
+		return fmt.Errorf("git: resolve conflicts: %w", err)
+	}
+	return nil
 }
 
 // OperationAbort aborts an in-progress merge/rebase/pull and resyncs.

@@ -29,6 +29,11 @@ type WorkspaceLifecycleRepo interface {
 		in wsrepo.SyncInput,
 		now time.Time,
 	) (domain.Workspace, error)
+	ResolveConflicts(
+		ctx context.Context,
+		id string,
+		now time.Time,
+	) (domain.Workspace, error)
 }
 
 // WorkingTreeGitEngine is the git surface used to recompute the summary and to
@@ -81,6 +86,15 @@ type Usecase interface {
 	// SyncWorkingTreeState recomputes the working-tree summary from git, issues
 	// the sync command, and rolls up project lastActivity best-effort.
 	SyncWorkingTreeState(
+		ctx context.Context,
+		id string,
+		now time.Time,
+	) (domain.Workspace, error)
+
+	// ResolveConflicts clears a sticky pr-conflicts status once the operation in
+	// the workspace's own worktree has been resolved (the git usecase calls this
+	// on a successful operation continue).
+	ResolveConflicts(
 		ctx context.Context,
 		id string,
 		now time.Time,
@@ -173,6 +187,23 @@ func (u *workspaceUsecase) SyncWorkingTreeState(
 	}
 	u.rollup.TouchProjectActivity(ctx, ws.RepoID, now)
 	return synced, nil
+}
+
+// ResolveConflicts clears the workspace's pr-conflicts status after the operation
+// in its own worktree has been resolved (the git usecase calls this on a
+// successful operation continue). pr-conflicts is sticky otherwise, so this is
+// the path that lets a resolved kept-rebase drop its conflict warning.
+func (u *workspaceUsecase) ResolveConflicts(
+	ctx context.Context,
+	id string,
+	now time.Time,
+) (domain.Workspace, error) {
+	ws, err := u.repo.ResolveConflicts(ctx, id, now)
+	if err != nil {
+		return domain.Workspace{}, fmt.Errorf("workspace: resolve conflicts: %w", err)
+	}
+	u.rollup.TouchProjectActivity(ctx, ws.RepoID, now)
+	return ws, nil
 }
 
 // MergeEligibilityFor resolves whether ws can be merged into its local parent.

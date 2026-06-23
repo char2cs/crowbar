@@ -19,6 +19,7 @@ type MockWorkspace struct {
 	SetMergeStrategyFn func(ctx context.Context, id string, s gitdomain.MergeStrategy) (domain.Workspace, error)
 	TouchActivityFn    func(ctx context.Context, id string, now time.Time) (domain.Workspace, error)
 	ReparentFn         func(ctx context.Context, id, parentID, forkPointSha string, now time.Time) (domain.Workspace, error)
+	ResolveConflictsFn func(ctx context.Context, id string, now time.Time) (domain.Workspace, error)
 	UpdateForkPointFn  func(ctx context.Context, id, forkPointSha string) (domain.Workspace, error)
 	SetParentFromPRFn  func(ctx context.Context, id, parentID string) (domain.Workspace, error)
 	SetLastErrorFn     func(ctx context.Context, id, message string) (domain.Workspace, error)
@@ -75,6 +76,17 @@ func (m *MockWorkspace) Reparent(
 	now time.Time,
 ) (domain.Workspace, error) {
 	return m.ReparentFn(ctx, id, parentID, forkPointSha, now)
+}
+
+func (m *MockWorkspace) ResolveConflicts(
+	ctx context.Context,
+	id string,
+	now time.Time,
+) (domain.Workspace, error) {
+	if m.ResolveConflictsFn != nil {
+		return m.ResolveConflictsFn(ctx, id, now)
+	}
+	return domain.Workspace{ID: id}, nil
 }
 
 func (m *MockWorkspace) UpdateForkPoint(

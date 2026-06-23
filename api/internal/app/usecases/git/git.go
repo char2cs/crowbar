@@ -24,6 +24,11 @@ type WorkspaceSyncer interface {
 		id string,
 		now time.Time,
 	) (domain.Workspace, error)
+	ResolveConflicts(
+		ctx context.Context,
+		id string,
+		now time.Time,
+	) (domain.Workspace, error)
 }
 
 // ReadEngine is the read surface the git usecase passes through to.

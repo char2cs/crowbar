@@ -99,6 +99,11 @@ type Workspace interface {
 		forkPointSha string,
 		now time.Time,
 	) (domain.Workspace, error)
+	ResolveConflicts(
+		ctx context.Context,
+		id string,
+		now time.Time,
+	) (domain.Workspace, error)
 	UpdateForkPoint(
 		ctx context.Context,
 		id string,
@@ -377,6 +382,25 @@ func (w *workspace) Reparent(
 	})
 	if err != nil {
 		return domain.Workspace{}, fmt.Errorf("workspace: reparent: %w", err)
+	}
+	return evt.Aggregate, nil
+}
+
+func (w *workspace) ResolveConflicts(
+	ctx context.Context,
+	id string,
+	now time.Time,
+) (domain.Workspace, error) {
+	entity, err := w.entityFor(ctx, id)
+	if err != nil {
+		return domain.Workspace{}, err
+	}
+	evt, err := entity.ax.SendWait(ctx, commands.ResolveConflicts{
+		ID:  id,
+		Now: now,
+	})
+	if err != nil {
+		return domain.Workspace{}, fmt.Errorf("workspace: resolve conflicts: %w", err)
 	}
 	return evt.Aggregate, nil
 }

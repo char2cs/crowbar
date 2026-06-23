@@ -304,6 +304,11 @@ type WorkspaceLifecycleRepo struct {
 		in workspace.SyncInput,
 		now time.Time,
 	) (domain.Workspace, error)
+	ResolveConflictsFn func(
+		ctx context.Context,
+		id string,
+		now time.Time,
+	) (domain.Workspace, error)
 }
 
 // NewWorkspaceLifecycleRepo returns an empty WorkspaceLifecycleRepo.
@@ -338,6 +343,17 @@ func (r *WorkspaceLifecycleRepo) SyncWorkingTreeState(
 	now time.Time,
 ) (domain.Workspace, error) {
 	return r.SyncWorkingTreeFn(ctx, in, now)
+}
+
+func (r *WorkspaceLifecycleRepo) ResolveConflicts(
+	ctx context.Context,
+	id string,
+	now time.Time,
+) (domain.Workspace, error) {
+	if r.ResolveConflictsFn != nil {
+		return r.ResolveConflictsFn(ctx, id, now)
+	}
+	return domain.Workspace{ID: id}, nil
 }
 
 // WorkingTreeGitEngine is a fake of the git WorkingTreeSummary surface.
@@ -534,11 +550,14 @@ func (r *ChatWorkspaceRepo) TouchActivity(
 // WorkspaceSyncer is a fake of the workspace syncer surface used by the file and
 // git usecases.
 type WorkspaceSyncer struct {
-	Synced   bool
-	SyncedID string
+	Synced     bool
+	SyncedID   string
+	Resolved   bool
+	ResolvedID string
 
-	GetFn  func(ctx context.Context, id string) (domain.Workspace, error)
-	SyncFn func(ctx context.Context, id string, now time.Time) (domain.Workspace, error)
+	GetFn     func(ctx context.Context, id string) (domain.Workspace, error)
+	SyncFn    func(ctx context.Context, id string, now time.Time) (domain.Workspace, error)
+	ResolveFn func(ctx context.Context, id string, now time.Time) (domain.Workspace, error)
 }
 
 // NewWorkspaceSyncer returns an empty WorkspaceSyncer.
@@ -562,6 +581,19 @@ func (s *WorkspaceSyncer) SyncWorkingTreeState(
 	s.SyncedID = id
 	if s.SyncFn != nil {
 		return s.SyncFn(ctx, id, now)
+	}
+	return domain.Workspace{ID: id}, nil
+}
+
+func (s *WorkspaceSyncer) ResolveConflicts(
+	ctx context.Context,
+	id string,
+	now time.Time,
+) (domain.Workspace, error) {
+	s.Resolved = true
+	s.ResolvedID = id
+	if s.ResolveFn != nil {
+		return s.ResolveFn(ctx, id, now)
 	}
 	return domain.Workspace{ID: id}, nil
 }

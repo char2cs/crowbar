@@ -24,13 +24,14 @@ var errBoom = errors.New("boom")
 // fakeWorkspace is a full workspace.Workspace double driven by function fields;
 // only the fields a given test sets are exercised by the usecase under test.
 type fakeWorkspace struct {
-	CreateFn          func(ctx context.Context, in workspace.CreateInput, now time.Time) (domain.Workspace, error)
-	GetFn             func(ctx context.Context, id string) (domain.Workspace, error)
-	ListFn            func(ctx context.Context) ([]domain.Workspace, error)
-	ReparentFn        func(ctx context.Context, id, parentID, forkPointSha string, now time.Time) (domain.Workspace, error)
-	UpdateForkPointFn func(ctx context.Context, id, forkPointSha string) (domain.Workspace, error)
-	DeleteFn          func(ctx context.Context, id string) error
-	SyncFn            func(ctx context.Context, in workspace.SyncInput, now time.Time) (domain.Workspace, error)
+	CreateFn           func(ctx context.Context, in workspace.CreateInput, now time.Time) (domain.Workspace, error)
+	GetFn              func(ctx context.Context, id string) (domain.Workspace, error)
+	ListFn             func(ctx context.Context) ([]domain.Workspace, error)
+	ReparentFn         func(ctx context.Context, id, parentID, forkPointSha string, now time.Time) (domain.Workspace, error)
+	ResolveConflictsFn func(ctx context.Context, id string, now time.Time) (domain.Workspace, error)
+	UpdateForkPointFn  func(ctx context.Context, id, forkPointSha string) (domain.Workspace, error)
+	DeleteFn           func(ctx context.Context, id string) error
+	SyncFn             func(ctx context.Context, in workspace.SyncInput, now time.Time) (domain.Workspace, error)
 }
 
 func (f *fakeWorkspace) Create(
@@ -62,6 +63,17 @@ func (f *fakeWorkspace) Reparent(
 	now time.Time,
 ) (domain.Workspace, error) {
 	return f.ReparentFn(ctx, id, parentID, forkPointSha, now)
+}
+
+func (f *fakeWorkspace) ResolveConflicts(
+	ctx context.Context,
+	id string,
+	now time.Time,
+) (domain.Workspace, error) {
+	if f.ResolveConflictsFn != nil {
+		return f.ResolveConflictsFn(ctx, id, now)
+	}
+	return domain.Workspace{ID: id}, nil
 }
 
 func (f *fakeWorkspace) UpdateForkPoint(
