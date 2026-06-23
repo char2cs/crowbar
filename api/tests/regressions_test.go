@@ -708,13 +708,37 @@ func TestRegression_DuplicateDefaultBranchWorkspace(t *testing.T) {
 	require.Equal(t, 1, countMain(), "exactly one default (main) workspace after import")
 
 	// Attempt to create a second workspace on the default branch with no parent —
-	// the path that re-adopts the main worktree. Creation is async (202 with an
-	// empty body, so use raw rather than the envelope-decoding post).
-	_ = h.raw(http.MethodPost, base+"/workspaces", map[string]string{"branch": "main"}, http.StatusAccepted).Body.Close()
+	// the path that re-adopts the main worktree. The one-per-branch guard now
+	// rejects this synchronously with 409 (empty body), so use raw rather than
+	// the envelope-decoding post.
+	_ = h.raw(http.MethodPost, base+"/workspaces", map[string]string{"branch": "main"}, http.StatusConflict).Body.Close()
 
-	// The guard rejects it asynchronously, so the list must NEVER gain a second
-	// "main" workspace. Poll to give any (wrong) async create time to land.
-	require.Never(t, func() bool { return countMain() > 1 },
+	// The guard rejects it synchronously, but poll anyway to prove no duplicate
+	// "main" workspace ever lands. countMainRaw drives a raw GET that tolerates
+	// connection errors: require.Never runs its closure in a goroutine, where
+	// h.get's require.NoError would FailNow from a non-test goroutine.
+	mainURL := h.url + base + "/workspaces"
+	countMainRaw := func() int {
+		r, err := h.server.Client().Get(mainURL)
+		if err != nil {
+			return 0
+		}
+		defer func() { _ = r.Body.Close() }()
+		var env struct {
+			Data []workspaceDTO `json:"data"`
+		}
+		if err := json.NewDecoder(r.Body).Decode(&env); err != nil {
+			return 0
+		}
+		n := 0
+		for _, w := range env.Data {
+			if w.Branch == "main" {
+				n++
+			}
+		}
+		return n
+	}
+	require.Never(t, func() bool { return countMainRaw() > 1 },
 		2*time.Second, 100*time.Millisecond,
 		"a duplicate default-branch workspace was persisted")
 }
