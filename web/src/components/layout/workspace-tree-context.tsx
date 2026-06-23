@@ -90,10 +90,50 @@ export async function performReparentWorkspace(
   }
   try {
     await reparentWorkspace(projectId, repoId, wsId, newParentId)
+    announceReparentOutcome(wsId, newParentId)
   } catch (err) {
     console.error('Failed to reparent workspace:', err)
     toast.error('Failed to reparent workspace', err instanceof Error ? err.message : undefined)
   }
+}
+
+/**
+ * A reparent is 202-async; the outcome (clean vs conflicting) arrives over the WS
+ * broadcast. Watch the moved workspace settle under its new parent — computed
+ * fresh, since the parent may have drifted — and tell the user. This answers the
+ * "is it clean now?" question on a move-back. One-shot, with a quiet timeout.
+ */
+function announceReparentOutcome(wsId: string, newParentId: string): void {
+  let done = false
+  const settle = (announce: () => void): void => {
+    if (done) return
+    done = true
+    unsub()
+    clearTimeout(timer)
+    announce()
+  }
+  const check = (): void => {
+    let moved: { branch?: string; parentId?: string; mergeConflicts?: boolean } | undefined
+    let parentBranch: string | undefined
+    for (const repo of useSidebarStore.getState().repos) {
+      for (const w of repo.workspaces) {
+        if (w.id === wsId) moved = w
+        if (w.id === newParentId) parentBranch = w.branch
+      }
+    }
+    if (!moved || moved.parentId !== newParentId) return // not landed yet
+    const where = parentBranch ?? 'its new parent'
+    settle(() => {
+      if (moved?.mergeConflicts) {
+        toast.warning(`${moved.branch} conflicts with ${where} — resolve it from its panel`)
+      } else {
+        toast.success(`${moved?.branch} is clean under ${where}`)
+      }
+    })
+  }
+  const unsub = useSidebarStore.subscribe(check)
+  const timer = setTimeout(() => settle(() => {}), 8000)
+  check() // in case it already landed
 }
 
 interface CreatingState {
