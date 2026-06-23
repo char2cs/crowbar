@@ -33,6 +33,11 @@ export function useWorkspaceProviderStream(
       store: 'crowbar_workspaces',
       seed: () => fetchWorkspace(projectId, repoId, wsId).then((ws) => [ws]),
       onChange: () => void syncSidebarFromCache(),
+      // This stream shares crowbar_workspaces with the repo-level LIST stream but
+      // seeds with ONLY the viewed workspace — it is authoritative over that one
+      // id, never its siblings. Without this scope its seed would prune every
+      // other workspace and collapse the sidebar to the active row.
+      pruneScope: (ws) => ws.id === wsId,
     })
   }, [projectId, repoId, wsId])
 }

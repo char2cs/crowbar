@@ -24,12 +24,28 @@ export interface SubscribeEntityStreamOptions<T> {
   seed: () => Promise<T[]>
   /** Called after every cache mutation (seed batch, upsert, remove). */
   onChange?: () => void
+  /**
+   * Predicate marking which CACHED entities this seed is authoritative over —
+   * only matching entities absent from the fresh seed are pruned as ghosts.
+   * Omit when the seed owns the entire store.
+   *
+   * REQUIRED whenever multiple streams share ONE store partitioned by scope.
+   * `crowbar_workspaces` is fed by BOTH the per-repo LIST stream (seed = all of
+   * a repo's workspaces) AND the per-:wsId stream (seed = just the viewed
+   * workspace). Without a scope, the single-workspace seed is treated as
+   * authoritative over the whole store and prunes every sibling — navigating
+   * into one workspace deleted all the others from the sidebar until reload.
+   * Each stream sets `pruneScope` to its own scope: `(ws) => ws.id === wsId` for
+   * the single-workspace stream, `(ws) => ws.repoId === repoId` for the
+   * per-repo list, `(repo) => repo.projectId === projectId` for the repo list.
+   */
+  pruneScope?: (cached: T) => boolean
 }
 
 export function subscribeEntityStream<T extends { id: string; status?: string }>(
   opts: SubscribeEntityStreamOptions<T>,
 ): () => void {
-  const { endpoint, store, seed, onChange } = opts
+  const { endpoint, store, seed, onChange, pruneScope } = opts
   let disposed = false
 
   // §6 ordering: every cache mutation (seed + each live frame) is queued onto a
@@ -62,10 +78,16 @@ export function subscribeEntityStream<T extends { id: string; status?: string }>
     // A newer reseed started while our GET was in flight; let it win.
     if (disposed || generation !== seedGeneration) return
     const fresh = new Set(items.map((item) => item.id))
-    const cached = await getAllEntities<{ id: string }>(store)
+    const cached = await getAllEntities<T>(store)
     if (disposed || generation !== seedGeneration) return
     for (const entity of cached) {
-      if (!fresh.has(entity.id)) await removeEntity(store, entity.id)
+      // Prune a ghost ONLY if this seed is authoritative over it. Without a
+      // pruneScope the seed owns the whole store (legacy behaviour). With one,
+      // a narrowly-scoped seed (e.g. the single-:wsId stream) leaves entities
+      // outside its scope untouched instead of wiping every sibling.
+      if (fresh.has(entity.id)) continue
+      if (pruneScope && !pruneScope(entity)) continue
+      await removeEntity(store, entity.id)
     }
     for (const item of items) {
       await upsertEntity(store, item)

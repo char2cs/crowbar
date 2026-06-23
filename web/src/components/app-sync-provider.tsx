@@ -7,7 +7,7 @@ import { fetchRepos, fetchWorkspaces } from '@/lib/api'
 import { subscribeEntityStream } from '@/lib/ws/entity-stream'
 import { getAllEntities } from '@/lib/persistence/entity-cache'
 import { maybeWipeOnVersionChange } from '@/lib/persistence/idb'
-import type { RepoDTO } from '@/lib/types'
+import type { RepoDTO, WorkspaceDTO } from '@/lib/types'
 
 // §7 startup sequence. There is no flat cross-project workspace GET anymore:
 // the live sidebar tree is built from the WS-driven entity cache. On mount we
@@ -60,11 +60,15 @@ export function AppSyncProvider({ children }: { children: ReactNode }) {
           if (repo.projectId !== projectId || subscribedRepos.has(repo.id)) continue
           subscribedRepos.add(repo.id)
           projectUnsubscribes.push(
-            subscribeEntityStream({
+            subscribeEntityStream<WorkspaceDTO>({
               endpoint: `/v0/projects/${projectId}/repos/${repo.id}/workspaces`,
               store: 'crowbar_workspaces',
               seed: () => fetchWorkspaces(projectId, repo.id),
               onChange: rebuildSidebar,
+              // Authoritative over THIS repo's workspaces only — crowbar_workspaces
+              // also holds every other repo's rows; pruning the whole store would
+              // wipe sibling repos on each reseed.
+              pruneScope: (ws) => ws.repoId === repo.id,
             }),
           )
         }
@@ -79,6 +83,9 @@ export function AppSyncProvider({ children }: { children: ReactNode }) {
             void subscribeReposWorkspaces()
             rebuildSidebar()
           },
+          // Authoritative over THIS project's repos only — crowbar_repos holds
+          // other projects' repos too.
+          pruneScope: (repo) => repo.projectId === projectId,
         }),
       )
     }

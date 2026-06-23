@@ -57,7 +57,7 @@ vi.mock('@/lib/persistence/entity-cache', () => ({
 }))
 
 const { subscribeEntityStream } = await import('@/lib/ws/entity-stream')
-const { getAllEntities } = await import('@/lib/persistence/entity-cache')
+const { getAllEntities, upsertEntity } = await import('@/lib/persistence/entity-cache')
 
 function makeWorkspace(over: Partial<WorkspaceDTO> & { id: string }): WorkspaceDTO {
   return {
@@ -258,6 +258,58 @@ describe('subscribeEntityStream', () => {
       expect(all.map((w) => w.id)).toEqual(['w1'])
     })
     expect(seed).toHaveBeenCalledTimes(2)
+  })
+
+  // REGRESSION (sidebar workspaces vanish on navigate): the single-:wsId stream
+  // shares the `crowbar_workspaces` store with the repo-level LIST stream, but
+  // seeds with ONLY the viewed workspace. The reseed prune treated that one-item
+  // seed as authoritative over the WHOLE store and DELETED every sibling — so
+  // clicking into a workspace collapsed the sidebar to just that row (siblings
+  // only came back on reload, when the repo-level list stream reseeds). A
+  // narrowly-scoped seed must prune ONLY within its own scope.
+  it('a narrowly-scoped seed (single-workspace stream) does not prune sibling entities sharing the store', async () => {
+    await upsertEntity('crowbar_workspaces', makeWorkspace({ id: 'w1' }))
+    await upsertEntity('crowbar_workspaces', makeWorkspace({ id: 'w2' }))
+    await upsertEntity('crowbar_workspaces', makeWorkspace({ id: 'w3' }))
+
+    subscribeEntityStream<WorkspaceDTO>({
+      endpoint: '/v0/projects/p1/repos/r1/workspaces/w2',
+      store: 'crowbar_workspaces',
+      seed: async () => [makeWorkspace({ id: 'w2', branch: 'updated' })],
+      pruneScope: (ws) => ws.id === 'w2',
+    })
+
+    // Wait until the seed has actually applied (the viewed workspace is
+    // refreshed), THEN assert the siblings are still present — pre-fix, the prune
+    // ran in the same applySeed and the siblings were already gone by this point.
+    await vi.waitFor(async () => {
+      const all = await getAllEntities<WorkspaceDTO>('crowbar_workspaces')
+      expect(all.find((w) => w.id === 'w2')?.branch).toBe('updated')
+    })
+    const all = await getAllEntities<WorkspaceDTO>('crowbar_workspaces')
+    expect(all.map((w) => w.id).sort()).toEqual(['w1', 'w2', 'w3'])
+  })
+
+  // The same prune flaw across REPOS: a per-repo list seed is authoritative only
+  // over its own repo. It must prune that repo's stale rows but never another
+  // repo's rows that share the store.
+  it('a per-repo seed prunes only its own repo, leaving sibling repos intact', async () => {
+    await upsertEntity('crowbar_workspaces', makeWorkspace({ id: 'a1', repoId: 'r1' }))
+    await upsertEntity('crowbar_workspaces', makeWorkspace({ id: 'a2', repoId: 'r1' }))
+    await upsertEntity('crowbar_workspaces', makeWorkspace({ id: 'b1', repoId: 'r2' }))
+
+    subscribeEntityStream<WorkspaceDTO>({
+      endpoint: '/v0/projects/p1/repos/r1/workspaces',
+      store: 'crowbar_workspaces',
+      // a2 was deleted during the outage; a1 survives. b1 belongs to repo r2.
+      seed: async () => [makeWorkspace({ id: 'a1', repoId: 'r1' })],
+      pruneScope: (ws) => ws.repoId === 'r1',
+    })
+
+    await vi.waitFor(async () => {
+      const all = await getAllEntities<WorkspaceDTO>('crowbar_workspaces')
+      expect(all.map((w) => w.id).sort()).toEqual(['a1', 'b1'])
+    })
   })
 
   it('unsubscribes from the underlying wsManager channel', async () => {
