@@ -683,3 +683,38 @@ func TestRegression_EmptyPathParamsRejected(t *testing.T) {
 		require.Empty(t, env.Data, "GET %s error envelope must not carry data", path)
 	}
 }
+
+// TestRegression_DuplicateDefaultBranchWorkspace proves a create that would
+// adopt the repo's main worktree a SECOND time (branch == the default branch,
+// no parentId) is rejected and never persists a phantom duplicate workspace.
+// Field bug: the sidebar showed two "develop" rows; the duplicate row pointed at
+// the same main worktree with no distinct worktree of its own (git cannot check
+// out an already-checked-out branch), so it could never be opened and only
+// disappeared on reload. The fix guards adoptMainWorktree against re-adoption.
+func TestRegression_DuplicateDefaultBranchWorkspace(t *testing.T) {
+	h := newHarness(t)
+	imported := importProject(t, h)
+	base := "/v0/projects/" + imported.projectID + "/repos/" + imported.repoID
+
+	countMain := func() int {
+		n := 0
+		for _, w := range listWorkspaces(t, h, imported.projectID, imported.repoID) {
+			if w.Branch == "main" {
+				n++
+			}
+		}
+		return n
+	}
+	require.Equal(t, 1, countMain(), "exactly one default (main) workspace after import")
+
+	// Attempt to create a second workspace on the default branch with no parent —
+	// the path that re-adopts the main worktree. Creation is async (202 with an
+	// empty body, so use raw rather than the envelope-decoding post).
+	_ = h.raw(http.MethodPost, base+"/workspaces", map[string]string{"branch": "main"}, http.StatusAccepted).Body.Close()
+
+	// The guard rejects it asynchronously, so the list must NEVER gain a second
+	// "main" workspace. Poll to give any (wrong) async create time to land.
+	require.Never(t, func() bool { return countMain() > 1 },
+		2*time.Second, 100*time.Millisecond,
+		"a duplicate default-branch workspace was persisted")
+}

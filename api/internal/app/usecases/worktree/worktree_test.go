@@ -635,6 +635,8 @@ func TestCreateChild_AdoptMainWorktreeUnchanged(t *testing.T) {
 			created = in
 			return domain.Workspace{ID: in.ID}, nil
 		},
+		// No workspace yet adopts the main worktree, so the first adoption proceeds.
+		ListFn: func(_ context.Context) ([]domain.Workspace, error) { return nil, nil },
 	}
 	uc := worktree.New(ws, g, &fakeProvider{}, &fakeRepoStore{}, newNow(), fakeHome())
 
@@ -655,11 +657,75 @@ func TestCreateChild_AdoptMainWorktreeUnchanged(t *testing.T) {
 
 func TestCreateChild_AdoptMainWorktree_RevParseError(t *testing.T) {
 	g := &fakeGit{revParseErr: errBoom}
-	uc := worktree.New(&fakeWorkspace{}, g, &fakeProvider{}, &fakeRepoStore{}, newNow(), fakeHome())
+	ws := &fakeWorkspace{
+		ListFn: func(_ context.Context) ([]domain.Workspace, error) { return nil, nil },
+	}
+	uc := worktree.New(ws, g, &fakeProvider{}, &fakeRepoStore{}, newNow(), fakeHome())
 	_, err := uc.CreateChild(context.Background(), worktree.CreateChildInput{
 		RepoPath: "/repo", Branch: "main", ParentBranch: "main",
 	})
 	require.ErrorIs(t, err, errBoom)
+}
+
+// TestCreateChild_AdoptMainWorktree_RejectsSecondAdoption proves the duplicate
+// default-branch bug is fixed: when a workspace already adopts the repo's main
+// worktree, a second adoption (empty parent + branch == default branch) is
+// rejected with ErrDefaultWorkspaceExists instead of persisting a phantom
+// duplicate "develop" row that points at the same path with no real worktree.
+func TestCreateChild_AdoptMainWorktree_RejectsSecondAdoption(t *testing.T) {
+	g := &fakeGit{revParseSha: "headsha"}
+	createCalls := 0
+	ws := &fakeWorkspace{
+		// The repo's main worktree is already adopted (WorktreePath == RepoPath).
+		ListFn: func(_ context.Context) ([]domain.Workspace, error) {
+			return []domain.Workspace{
+				{ID: "ws-default", RepoID: "r1", Branch: "develop", WorktreePath: "/repo"},
+			}, nil
+		},
+		CreateFn: func(_ context.Context, in workspace.CreateInput, _ time.Time) (domain.Workspace, error) {
+			createCalls++
+			return domain.Workspace{ID: in.ID}, nil
+		},
+	}
+	uc := worktree.New(ws, g, &fakeProvider{}, &fakeRepoStore{}, newNow(), fakeHome())
+
+	_, err := uc.CreateChild(context.Background(), worktree.CreateChildInput{
+		RepoID:       "r1",
+		ProjectID:    "p1",
+		RepoPath:     "/repo",
+		Branch:       "develop",
+		ParentID:     "",
+		ParentBranch: "develop",
+	})
+
+	require.ErrorIs(t, err, worktree.ErrDefaultWorkspaceExists)
+	assert.Equal(t, 0, createCalls, "no duplicate workspace row is persisted")
+	assert.NotContains(t, g.ops(), "RevParse", "guard rejects before any git work")
+}
+
+// A deleted prior adoption must NOT block re-adopting the main worktree (e.g.
+// the default workspace was removed and is being recreated).
+func TestCreateChild_AdoptMainWorktree_IgnoresDeletedAdoption(t *testing.T) {
+	g := &fakeGit{revParseSha: "headsha"}
+	var created workspace.CreateInput
+	ws := &fakeWorkspace{
+		ListFn: func(_ context.Context) ([]domain.Workspace, error) {
+			return []domain.Workspace{
+				{ID: "old", RepoID: "r1", Branch: "develop", WorktreePath: "/repo", Status: domain.WorkspaceStatusDeleted},
+			}, nil
+		},
+		CreateFn: func(_ context.Context, in workspace.CreateInput, _ time.Time) (domain.Workspace, error) {
+			created = in
+			return domain.Workspace{ID: in.ID}, nil
+		},
+	}
+	uc := worktree.New(ws, g, &fakeProvider{}, &fakeRepoStore{}, newNow(), fakeHome())
+
+	_, err := uc.CreateChild(context.Background(), worktree.CreateChildInput{
+		RepoID: "r1", ProjectID: "p1", RepoPath: "/repo", Branch: "develop", ParentBranch: "develop",
+	})
+	require.NoError(t, err)
+	assert.Equal(t, "/repo", created.WorktreePath)
 }
 
 func TestCreateChild_WorktreeAddError(t *testing.T) {

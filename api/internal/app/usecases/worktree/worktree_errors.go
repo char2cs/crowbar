@@ -30,3 +30,11 @@ var ErrSelfParent = errors.New("usecases: cannot reparent a workspace onto itsel
 // removal, branch delete), so a locked workspace is rejected cleanly instead
 // of failing midway with a raw git error. Handlers map it to HTTP 409.
 var ErrWorkspaceLocked = errors.New("workspace is locked")
+
+// ErrDefaultWorkspaceExists is returned when a create would adopt the repo's
+// main worktree a second time (empty parent + branch == the repo's default
+// branch) while a workspace already adopts it. The main worktree can back only
+// ONE workspace row; a second adoption would create a duplicate default-branch
+// workspace pointing at the same path with no distinct worktree — a phantom row
+// the sidebar shows but git can never provision. Handlers map it to HTTP 409.
+var ErrDefaultWorkspaceExists = errors.New("usecases: default workspace already exists")
