@@ -6,6 +6,8 @@ import (
 	"context"
 	"sync"
 	"time"
+
+	"github.com/char2cs/crowbar/api/internal/core/safego"
 )
 
 // GlobalCronInterval is the cadence of the daemon-wide background sweep that
@@ -112,6 +114,7 @@ func (s *sweeper) run(
 	ctx context.Context,
 	workspacesFn func() []SweepTarget,
 ) {
+	defer safego.Recover("provider.poll.run")
 	ticker := time.NewTicker(s.interval)
 	defer ticker.Stop()
 

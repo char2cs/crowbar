@@ -7,6 +7,7 @@ import (
 	"github.com/gin-gonic/gin"
 
 	"github.com/char2cs/crowbar/api/internal/api/libs"
+	"github.com/char2cs/crowbar/api/internal/core/safego"
 	"github.com/gorilla/websocket"
 )
 
@@ -50,6 +51,7 @@ func (h *Handlers) WS(ctx *gin.Context) {
 	_ = conn.SetReadDeadline(time.Now().Add(wsPongWait))
 
 	go func() {
+		defer safego.Recover("terminal.ws.pinger")
 		ticker := time.NewTicker(wsPingPeriod)
 		defer ticker.Stop()
 		for {

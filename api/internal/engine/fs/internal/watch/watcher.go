@@ -15,6 +15,7 @@ import (
 
 	"github.com/fsnotify/fsnotify"
 
+	"github.com/char2cs/crowbar/api/internal/core/safego"
 	"github.com/char2cs/crowbar/api/internal/domain"
 	gitdomain "github.com/char2cs/crowbar/api/internal/domain/git"
 )
@@ -210,6 +211,7 @@ func (w *Watcher) Stop() {
 func (w *Watcher) loop(
 	ctx context.Context,
 ) {
+	defer safego.Recover("fs.watch.loop")
 	defer w.closeFSW()
 
 	timer := time.NewTimer(0)

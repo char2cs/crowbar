@@ -2,6 +2,9 @@ package handlers
 
 import (
 	"context"
+	"fmt"
+
+	"github.com/char2cs/crowbar/api/internal/core/safego"
 )
 
 // runAsync runs fn in a detached goroutine after the handler has already
@@ -21,6 +24,11 @@ func runAsync(
 ) {
 	ctx := context.WithoutCancel(parent)
 	go func() {
+		// A panic in the detached op must not crash the daemon; surface it on the
+		// workspace entity (the same channel as an error) instead of vanishing.
+		defer safego.RecoverFn("workspaces.runAsync", func(r any) {
+			broadcastOnErr(ctx, wsID, fmt.Sprintf("internal error: %v", r))
+		})
 		if err := fn(ctx); err != nil {
 			broadcastOnErr(ctx, wsID, err.Error())
 		}

@@ -7,6 +7,7 @@ import (
 
 	"github.com/char2cs/crowbar/api/internal/app/hub"
 	workspacerepo "github.com/char2cs/crowbar/api/internal/app/repositories/workspace"
+	"github.com/char2cs/crowbar/api/internal/core/safego"
 	enginefs "github.com/char2cs/crowbar/api/internal/engine/fs"
 	enginegit "github.com/char2cs/crowbar/api/internal/engine/git"
 )
@@ -100,6 +101,7 @@ func (m *WatcherManager) Acquire(
 	m.mu.Unlock()
 
 	go func() {
+		defer safego.Recover("realtime.watcher.start")
 		_ = proc.Start(ctx)
 	}()
 }

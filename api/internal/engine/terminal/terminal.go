@@ -12,6 +12,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/gorilla/websocket"
 
+	"github.com/char2cs/crowbar/api/internal/core/safego"
 	"github.com/char2cs/crowbar/api/internal/domain"
 	"github.com/char2cs/crowbar/api/internal/engine/terminal/internal/profile"
 	"github.com/char2cs/crowbar/api/internal/engine/terminal/internal/registry"
@@ -172,6 +173,7 @@ func (e *terminalEngine) reapOnDone(
 	workspaceID string,
 	s *session.Session,
 ) {
+	defer safego.Recover("terminal.reapOnDone")
 	<-s.Done()
 	e.reg.Remove(id)
 	e.fireEnded(context.Background(), workspaceID, id)
@@ -242,6 +244,7 @@ func (e *terminalEngine) writePump(
 	ch <-chan session.OutputFrame,
 	done chan<- struct{},
 ) {
+	defer safego.Recover("terminal.writePump")
 	defer func() {
 		_ = conn.Close()
 		close(done)

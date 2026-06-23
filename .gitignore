@@ -28,3 +28,6 @@ api/docs/superpowers/
 
 # stray local build artifact (noEmbed daemon binary)
 /api/crowbar
+
+# hardening loop scratch (not committed)
+/.hardening/

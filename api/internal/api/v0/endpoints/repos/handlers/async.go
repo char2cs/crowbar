@@ -2,6 +2,8 @@ package handlers
 
 import (
 	"context"
+
+	"github.com/char2cs/crowbar/api/internal/core/safego"
 )
 
 // runAsync runs fn in a detached goroutine after the handler has already
@@ -18,5 +20,5 @@ func runAsync(
 	fn func(ctx context.Context),
 ) {
 	ctx := context.WithoutCancel(parent)
-	go fn(ctx)
+	safego.Go("repos.runAsync", func() { fn(ctx) })
 }

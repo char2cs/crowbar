@@ -5,6 +5,8 @@ import (
 	"sync"
 
 	"github.com/gin-gonic/gin"
+
+	"github.com/char2cs/crowbar/api/internal/core/safego"
 )
 
 type filteredClient[T any] struct {
@@ -64,6 +66,13 @@ func (b *Broadcaster[T]) Handle(
 		c.AbortWithStatus(http.StatusBadRequest)
 		return
 	}
+	// The hijacked conn, the clients-map entry, and the watcher/LSP refcount must
+	// all be released even if snapshotFor/onSubscribe panics (gin's Recovery would
+	// otherwise unwind past the cleanup, leaking an FD, a dead map entry that every
+	// future Push iterates, and a watcher/LSP refcount). Defers make cleanup
+	// unconditional; double-close of conn is harmless (the err is ignored).
+	defer func() { _ = conn.Close() }()
+
 	predicate := BuildPredicate(c, b.def)
 	cl := &filteredClient[T]{client: newClient(), predicate: predicate}
 
@@ -71,12 +80,14 @@ func (b *Broadcaster[T]) Handle(
 	snapScope := clientScope(c)
 
 	b.register(cl)
+	defer b.remove(cl)
+
 	snapshot := b.snapshotFor(cl, snapScope)
 	b.onSubscribe(scope)
-	go writePump(conn, cl.client, snapshot)
+	defer b.onUnsubscribe(scope)
+
+	safego.Go("broadcaster.writePump", func() { writePump(conn, cl.client, snapshot) })
 	readPump(conn)
-	b.remove(cl)
-	b.onUnsubscribe(scope)
 }
 
 func (b *Broadcaster[T]) scopeKey(
@@ -174,7 +185,12 @@ func (b *Broadcaster[T]) Push(
 	b.mu.RLock()
 	defer b.mu.RUnlock()
 	for cl := range b.clients {
-		sendIfMatch(cl, event, data)
+		// A panic in one client's predicate must not abort the fan-out to the rest
+		// (nor crash the daemon — Push runs on a watcher/projection goroutine).
+		func() {
+			defer safego.Recover("broadcaster.Push")
+			sendIfMatch(cl, event, data)
+		}()
 	}
 }
 

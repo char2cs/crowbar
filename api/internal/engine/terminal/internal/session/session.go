@@ -10,6 +10,8 @@ import (
 	"syscall"
 
 	"github.com/creack/pty"
+
+	"github.com/char2cs/crowbar/api/internal/core/safego"
 )
 
 const clientSendBuf = 256
@@ -150,16 +152,23 @@ func (s *Session) Resize(
 	return nil
 }
 
-// Kill terminates the PTY process and waits for cleanup.
+// Kill terminates the PTY process. The single child reap (cmd.Wait) lives in
+// shutdown() so it runs exactly once whether the shell is killed here or exits
+// on its own (see pump). Closing the PTY makes pump's Read return, which also
+// drives shutdown — so reaping happens regardless of which path fires first.
 func (s *Session) Kill() {
 	_ = s.ptmx.Close()
-	_ = s.cmd.Process.Kill()
-	_ = s.cmd.Wait()
+	if s.cmd.Process != nil {
+		_ = s.cmd.Process.Kill()
+	}
 	s.shutdown()
 }
 
 // pump reads PTY stdout, appends to the ring, and fans out to all clients.
 func (s *Session) pump() {
+	// A panic here must not crash the daemon; cleanup (shutdown) still runs on the
+	// unwind because its defer is registered after this recover boundary.
+	defer safego.Recover("terminal.session.pump")
 	defer s.shutdown()
 
 	buf := make([]byte, 4096)
@@ -220,9 +229,16 @@ func (s *Session) fanOut(
 	}
 }
 
-// shutdown closes the done channel and all client channels exactly once.
+// shutdown reaps the child process and closes the done + client channels exactly
+// once. The cmd.Wait() here is the ONLY reap: without it a shell that exits on
+// its own (the common case — the user types `exit`) is never waited on and leaks
+// a zombie holding a PID slot until the daemon dies. once guards against a double
+// Wait when both Kill() and pump()'s exit reach shutdown. Wait runs before the
+// lock so a slow child exit never blocks fan-out cleanup.
 func (s *Session) shutdown() {
 	s.once.Do(func() {
+		_ = s.cmd.Wait()
+
 		s.mu.Lock()
 		defer s.mu.Unlock()
 

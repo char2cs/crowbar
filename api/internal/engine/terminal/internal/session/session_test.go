@@ -72,6 +72,29 @@ func TestSession_AttachReceivesOutput(t *testing.T) {
 	s.Kill()
 }
 
+// TestSession_NaturalExitReapsChild proves H4: a shell that exits on its own
+// (the common case — the user types `exit`) must be reaped via cmd.Wait() on the
+// pump/shutdown path, not only on Kill(). Without the reap the child is left a
+// zombie. ProcessState is non-nil only after a successful Wait().
+func TestSession_NaturalExitReapsChild(t *testing.T) {
+	dir := t.TempDir()
+	s, err := New("sid-natural-exit", "/bin/sh", dir, os.Environ())
+	require.NoError(t, err)
+
+	// Make the shell exit on its own — no Kill().
+	require.NoError(t, s.Write([]byte("exit\n")))
+
+	select {
+	case <-s.Done():
+	case <-time.After(3 * time.Second):
+		t.Fatal("session did not terminate after the shell exited")
+	}
+
+	// The child must have been waited on (reaped); otherwise it is a zombie.
+	require.NotNil(t, s.cmd.ProcessState, "natural shell exit must reap the child via cmd.Wait()")
+	assert.True(t, s.cmd.ProcessState.Exited(), "child process must have exited")
+}
+
 func TestSession_AttachDeadSession(t *testing.T) {
 	dir := t.TempDir()
 	s, err := New("sid-3", "/bin/sh", dir, os.Environ())

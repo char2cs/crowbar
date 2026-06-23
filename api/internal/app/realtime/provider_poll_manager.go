@@ -4,6 +4,8 @@ import (
 	"context"
 	"sync"
 	"time"
+
+	"github.com/char2cs/crowbar/api/internal/core/safego"
 )
 
 // ProviderPoller is the usecase surface the per-connection poll needs. It is
@@ -130,6 +132,7 @@ func (m *ProviderPollManager) run(
 	ctx context.Context,
 	wsID string,
 ) {
+	defer safego.Recover("realtime.providerPoll.run")
 	// Poll once immediately on the 0->1 subscriber transition so a freshly viewed
 	// workspace's PR status (and sidebar icon) updates within ~1s instead of after
 	// a full interval. Skip it only if the subscriber already released mid-startup.

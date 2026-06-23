@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"io"
 
+	"github.com/char2cs/crowbar/api/internal/core/safego"
 	"github.com/char2cs/crowbar/api/internal/domain/lsp"
 	"github.com/char2cs/crowbar/api/internal/engine/lsp/internal/convert"
 	"github.com/char2cs/crowbar/api/internal/engine/lsp/internal/protocol"
@@ -14,6 +15,7 @@ func (s *server) readLoop(
 	transport io.ReadWriteCloser,
 	reader *bufio.Reader,
 ) {
+	defer safego.Recover("lsp.server.readLoop")
 	for {
 		payload, err := protocol.ReadMessage(reader)
 		if err != nil {

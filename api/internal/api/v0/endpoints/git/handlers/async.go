@@ -2,6 +2,9 @@ package handlers
 
 import (
 	"context"
+	"fmt"
+
+	"github.com/char2cs/crowbar/api/internal/core/safego"
 )
 
 // runAsync runs the slow git op fn in a detached goroutine after the handler has
@@ -21,6 +24,11 @@ func (h *Handlers) runAsync(
 ) {
 	ctx := context.WithoutCancel(parent)
 	go func() {
+		// A panic in the detached git op must not crash the daemon; surface it on
+		// the workspace entity (same channel as an error) instead of vanishing.
+		defer safego.RecoverFn("git.runAsync", func(r any) {
+			_, _ = h.lastErrors.SetLastError(ctx, wsID, fmt.Sprintf("internal error: %v", r))
+		})
 		if err := fn(ctx); err != nil {
 			_, _ = h.lastErrors.SetLastError(ctx, wsID, err.Error())
 		}
