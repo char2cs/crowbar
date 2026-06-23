@@ -51,6 +51,12 @@ func (c *Container) Register(
 
 	projects := rg.Group("/projects")
 	projectScoped := projects.Group("/:projectId")
+	// Enforce :repoId ⊂ :projectId for every repo- and workspace-scoped route.
+	// Installed on projectScoped BEFORE its sub-groups so they all inherit it; a
+	// request whose :repoId belongs to a different project is rejected 404 before
+	// any handler (incl. the destructive DeleteRepo / icon writes). Routes with no
+	// :repoId pass through.
+	projectScoped.Use(scopeRepoToPath(c.app.GORM.Repositories))
 	repos := projectScoped.Group("/repos")
 	repoScoped := repos.Group("/:repoId")
 	// Enforce :wsId ⊂ :projectId/:repoId for every entity-scoped route. Installed

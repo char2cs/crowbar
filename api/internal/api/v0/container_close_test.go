@@ -19,6 +19,7 @@ import (
 func TestAppClose_StopsLiveWatcher(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	tc := newApp(t)
+	seedRepo(t, tc, "r1")
 	repoPath := gitRepo(t)
 
 	_, err := tc.app.Repositories.Workspace.Create(

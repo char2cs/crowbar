@@ -335,6 +335,18 @@ func (w *workspace) Create(
 	}); err != nil {
 		return domain.Workspace{}, fmt.Errorf("workspace: create: %w", err)
 	}
+	// Roll back the location index row unless the create fully succeeds. The
+	// location is a forward-reference index written before the entity exists; if
+	// building the entity or sending CreateWorkspace fails, an un-rolled-back row
+	// orphans forever — List enumerates it, finds no read-model row, and silently
+	// drops it (the row is invisible but accumulates on every retry). committed is
+	// set only on the success path.
+	committed := false
+	defer func() {
+		if !committed {
+			_ = w.locations.Delete(ctx, in.ID)
+		}
+	}()
 	entity, release, err := w.entityForLocation(ctx, locations.Location{
 		ID:        in.ID,
 		ProjectID: in.ProjectID,
@@ -360,6 +372,7 @@ func (w *workspace) Create(
 	if err != nil {
 		return domain.Workspace{}, fmt.Errorf("workspace: create: %w", err)
 	}
+	committed = true
 	return evt.Aggregate, nil
 }
 

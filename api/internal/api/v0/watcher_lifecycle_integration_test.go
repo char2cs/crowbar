@@ -62,6 +62,7 @@ func dialWS(
 func TestWatcherLifecycle_FilesSubscriberStartsWatcher(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	tc := newApp(t)
+	seedRepo(t, tc, "r1")
 	repoPath := gitRepo(t)
 
 	_, err := tc.app.Repositories.Workspace.Create(
@@ -130,6 +131,7 @@ func (p fileProbe) PushFile(
 func TestWatcherLifecycle_LSPOnlySubscriberDoesNotStartWatcher(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	tc := newApp(t)
+	seedRepo(t, tc, "r1")
 	repoPath := gitRepo(t)
 
 	_, err := tc.app.Repositories.Workspace.Create(

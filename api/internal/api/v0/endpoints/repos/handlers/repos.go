@@ -272,9 +272,11 @@ func (h *Handlers) Create(
 		libs.WriteErr(c, http.StatusBadRequest, err.Error())
 		return
 	}
-	if body.ProjectID == "" {
-		body.ProjectID = c.Param("projectId")
-	}
+	// The URL :projectId is authoritative — the repo is created under the project
+	// in the path. A body-supplied projectId must never override it (that would let
+	// a POST to /projects/A/repos create a repo under project B). The body field is
+	// ignored.
+	body.ProjectID = c.Param("projectId")
 	if body.Name == "" {
 		libs.WriteErr(c, http.StatusBadRequest, "name is required")
 		return

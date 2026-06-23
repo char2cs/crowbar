@@ -11,6 +11,46 @@ import (
 	"github.com/char2cs/crowbar/api/internal/domain"
 )
 
+// repoScopeReader loads a repository row by id for the repo scope guard.
+type repoScopeReader interface {
+	FindByKey(ctx context.Context, id string) (*domain.Repository, error)
+}
+
+// scopeRepoToPath enforces that a request's :repoId belongs to the :projectId in
+// the SAME URL — the project-level analogue of scopeWorkspaceToPath. The repo
+// handlers (Detail/Delete/Icon*/Branches) load a repo by :repoId alone and act on
+// the URL :projectId (DeleteRepo even os.RemoveAll's repoDir(home, projectId,
+// repoId)), so without this a caller could delete, re-icon, or read ANY repo by id
+// from an unrelated project path — cross-project destruction. We load the repo
+// once and 404 on a project mismatch (the same response a missing id gets). Routes
+// with no :repoId (the repo collection list/create) pass through.
+//
+// Workspace-scoped requests carry :repoId too and are validated here as well as by
+// scopeWorkspaceToPath downstream; the extra read is a cheap read-model lookup and
+// keeps the guard independent of the workspace↔repo data invariant.
+func scopeRepoToPath(reader repoScopeReader) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		repoID := c.Param("repoId")
+		if repoID == "" {
+			c.Next()
+			return
+		}
+		repo, err := reader.FindByKey(c.Request.Context(), repoID)
+		if err != nil {
+			status, msg := libs.StatusAndMessage(err)
+			libs.WriteErr(c, status, msg)
+			c.Abort()
+			return
+		}
+		if repo == nil || repo.ProjectID != c.Param("projectId") {
+			libs.WriteErr(c, http.StatusNotFound, "repository not found")
+			c.Abort()
+			return
+		}
+		c.Next()
+	}
+}
+
 // workspaceScopeReader loads a workspace row by id for the scope guard. It is
 // the narrow surface scopeWorkspaceToPath needs; the concrete workspace repo
 // satisfies it.

@@ -16,6 +16,7 @@ import (
 
 	"github.com/char2cs/crowbar/api/internal/adapter"
 	"github.com/char2cs/crowbar/api/internal/app/repositories/workspace"
+	"github.com/char2cs/crowbar/api/internal/app/repositories/workspace/internal/locations"
 	"github.com/char2cs/crowbar/api/internal/domain"
 	gitdomain "github.com/char2cs/crowbar/api/internal/domain/git"
 )
@@ -512,4 +513,35 @@ func TestWorkspace_Create_AsynxFactoryError(t *testing.T) {
 		ProjectID: "p1",
 	}, time.Unix(1, 0).UTC())
 	assert.ErrorIs(t, err, sentinel)
+}
+
+// TestWorkspace_Create_RollsBackLocationOnFailure proves pass-4 HIGH: when the
+// entity build fails AFTER locations.Save, the location index row is rolled back
+// rather than orphaned (List would otherwise enumerate it, find no read-model row,
+// and silently drop it — a row that accumulates on every retry).
+func TestWorkspace_Create_RollsBackLocationOnFailure(t *testing.T) {
+	sentinel := errors.New("boom")
+	ad := newAdapter(t, t.TempDir())
+	repo, err := workspace.New(
+		ad,
+		func(context.Context, domain.Workspace) {},
+		func(asynxModels.Store) (asynx.Asynx[domain.Workspace], error) {
+			return nil, sentinel
+		},
+	)
+	require.NoError(t, err)
+
+	_, err = repo.Create(context.Background(), workspace.CreateInput{
+		ID:        "w1",
+		RepoID:    "r1",
+		ProjectID: "p1",
+	}, time.Unix(1, 0).UTC())
+	require.ErrorIs(t, err, sentinel)
+
+	// The location row written before the failed entity build must be gone.
+	locStore, err := locations.New(ad.GlobalView())
+	require.NoError(t, err)
+	_, getErr := locStore.Get(context.Background(), "w1")
+	assert.ErrorIs(t, getErr, locations.ErrNotFound,
+		"a failed Create must roll back its location row, not orphan it")
 }

@@ -100,6 +100,7 @@ func initGitRepo(
 // surfaced. With the agent-run concept removed, working is always false.
 func TestSnapshot_Workspaces_DeliveredOnConnect(t *testing.T) {
 	tc := newApp(t)
+	seedRepo(t, tc, "r1")
 	ctx := context.Background()
 	now := time.Unix(1, 0).UTC()
 
@@ -132,6 +133,7 @@ func TestSnapshot_Workspaces_DeliveredOnConnect(t *testing.T) {
 // by the per-client predicate: a p2/r2-scoped client sees only its workspace.
 func TestSnapshot_Workspaces_ScopePredicateFilters(t *testing.T) {
 	tc := newApp(t)
+	seedRepoIn(t, tc, "p2", "r2")
 	ctx := context.Background()
 	now := time.Unix(1, 0).UTC()
 
@@ -159,6 +161,7 @@ func TestSnapshot_Workspaces_ScopePredicateFilters(t *testing.T) {
 // a wsId-scoped client receives the current GitStatus of its workspace only.
 func TestSnapshot_Git_DeliveredOnConnectScoped(t *testing.T) {
 	tc := newApp(t)
+	seedRepo(t, tc, "rA")
 	ctx := context.Background()
 	now := time.Unix(1, 0).UTC()
 	repoA := initGitRepo(t)
@@ -192,6 +195,7 @@ func TestSnapshot_Git_DeliveredOnConnectScoped(t *testing.T) {
 // wsId-scoped client receives the engine's current diagnostics for its workspace.
 func TestSnapshot_LSP_DeliveredOnConnect(t *testing.T) {
 	tc := newApp(t)
+	seedRepo(t, tc, "r1")
 	ctx := context.Background()
 	now := time.Unix(1, 0).UTC()
 

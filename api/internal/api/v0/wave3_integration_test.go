@@ -48,6 +48,7 @@ func readUntil(
 func TestWave3_WorkspaceCommand_ReachesWSClient(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	tc := newApp(t)
+	seedRepo(t, tc, "r1")
 	c := v0.New(tc.app, tc.eng)
 	r := gin.New()
 	c.Register(r.Group("/v0"))

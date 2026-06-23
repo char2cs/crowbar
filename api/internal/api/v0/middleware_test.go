@@ -12,6 +12,82 @@ import (
 	"github.com/char2cs/crowbar/api/internal/domain"
 )
 
+type fakeRepoReader struct {
+	repo   *domain.Repository
+	err    error
+	called int
+}
+
+func (f *fakeRepoReader) FindByKey(_ context.Context, _ string) (*domain.Repository, error) {
+	f.called++
+	return f.repo, f.err
+}
+
+func mountRepoGuard(reader repoScopeReader) *gin.Engine {
+	gin.SetMode(gin.TestMode)
+	r := gin.New()
+	grp := r.Group("/v0/projects/:projectId")
+	grp.Use(scopeRepoToPath(reader))
+	grp.GET("/repos/:repoId/thing", func(c *gin.Context) { c.String(http.StatusOK, "ok") })
+	grp.DELETE("/repos/:repoId", func(c *gin.Context) { c.String(http.StatusOK, "deleted") })
+	grp.GET("/repos", func(c *gin.Context) { c.String(http.StatusOK, "list") })
+	return r
+}
+
+// TestRegression_RepoScopeGuard_RejectsCrossProjectRepoId proves pass-4: a :repoId
+// from a different project must 404, not let a destructive op (DeleteRepo, icon
+// write) touch another project's repo.
+func TestRegression_RepoScopeGuard_RejectsCrossProjectRepoId(t *testing.T) {
+	reader := &fakeRepoReader{repo: &domain.Repository{ID: "R", ProjectID: "pX"}}
+	r := mountRepoGuard(reader)
+
+	w := httptest.NewRecorder()
+	req, _ := http.NewRequest(http.MethodDelete, "/v0/projects/pA/repos/R", nil)
+	r.ServeHTTP(w, req)
+
+	assert.Equal(t, http.StatusNotFound, w.Code,
+		"a :repoId from a different project must 404 before the handler")
+}
+
+// TestRegression_RepoScopeGuard_AllowsMatchingProject proves an in-scope repo
+// reaches the handler.
+func TestRegression_RepoScopeGuard_AllowsMatchingProject(t *testing.T) {
+	reader := &fakeRepoReader{repo: &domain.Repository{ID: "R", ProjectID: "pA"}}
+	r := mountRepoGuard(reader)
+
+	w := httptest.NewRecorder()
+	req, _ := http.NewRequest(http.MethodGet, "/v0/projects/pA/repos/R/thing", nil)
+	r.ServeHTTP(w, req)
+
+	assert.Equal(t, http.StatusOK, w.Code)
+}
+
+// TestRegression_RepoScopeGuard_404OnMissingRepo proves a non-existent repo 404s.
+func TestRegression_RepoScopeGuard_404OnMissingRepo(t *testing.T) {
+	reader := &fakeRepoReader{repo: nil}
+	r := mountRepoGuard(reader)
+
+	w := httptest.NewRecorder()
+	req, _ := http.NewRequest(http.MethodGet, "/v0/projects/pA/repos/ghost/thing", nil)
+	r.ServeHTTP(w, req)
+
+	assert.Equal(t, http.StatusNotFound, w.Code)
+}
+
+// TestRegression_RepoScopeGuard_SkipsWhenNoRepoId proves the repo collection
+// route (no :repoId) passes through without a lookup.
+func TestRegression_RepoScopeGuard_SkipsWhenNoRepoId(t *testing.T) {
+	reader := &fakeRepoReader{repo: &domain.Repository{ID: "R", ProjectID: "pA"}}
+	r := mountRepoGuard(reader)
+
+	w := httptest.NewRecorder()
+	req, _ := http.NewRequest(http.MethodGet, "/v0/projects/pA/repos", nil)
+	r.ServeHTTP(w, req)
+
+	assert.Equal(t, http.StatusOK, w.Code)
+	assert.Equal(t, 0, reader.called, "a route with no :repoId must not trigger a repo lookup")
+}
+
 type fakeScopeReader struct {
 	ws     domain.Workspace
 	err    error

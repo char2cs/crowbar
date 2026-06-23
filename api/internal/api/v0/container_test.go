@@ -47,12 +47,30 @@ func workspaceFixture() dto.WorkspaceDTO {
 	return dto.WorkspaceDTO{ID: "w1", RepoID: "r1", ProjectID: "p1"}
 }
 
-// seedWorkspace creates a real workspace row under p1/r1 so the scope guard
-// (scopeWorkspaceToPath) admits a request/WS upgrade to /workspaces/:id/...; a
-// :wsId that resolves to no row, or to a different project/repo, is now 404'd
-// before the handler, so any test connecting to a scoped route must seed it.
+// seedRepo creates a real repository row under project p1 so the repo scope guard
+// (scopeRepoToPath) admits a request to /projects/p1/repos/:repoId/...; a :repoId
+// that resolves to no row, or to a different project, is now 404'd before the
+// handler. Save is an upsert, so seeding the same repo twice is harmless.
+func seedRepoIn(t *testing.T, tc testContainers, projectID, repoID string) {
+	t.Helper()
+	require.NoError(t, tc.app.GORM.Repositories.Save(
+		context.Background(),
+		domain.Repository{ID: repoID, ProjectID: projectID, Name: repoID, Path: t.TempDir()},
+	))
+}
+
+func seedRepo(t *testing.T, tc testContainers, repoID string) {
+	t.Helper()
+	seedRepoIn(t, tc, "p1", repoID)
+}
+
+// seedWorkspace creates a real workspace row under p1/r1 (plus its repo) so both
+// scope guards (scopeRepoToPath, scopeWorkspaceToPath) admit a request/WS upgrade
+// to /workspaces/:id/...; a :repoId/:wsId that resolves to no row, or to a
+// different scope, is now 404'd before the handler.
 func seedWorkspace(t *testing.T, tc testContainers, id string) {
 	t.Helper()
+	seedRepo(t, tc, "r1")
 	_, err := tc.app.Repositories.Workspace.Create(
 		context.Background(),
 		workspace.CreateInput{ID: id, RepoID: "r1", ProjectID: "p1", WorktreePath: t.TempDir()},
@@ -64,6 +82,7 @@ func seedWorkspace(t *testing.T, tc testContainers, id string) {
 func TestV0_HubBroadcastReachesWSClient(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	tc := newApp(t)
+	seedRepo(t, tc, "r1")
 	c := v0.New(tc.app, tc.eng)
 	r := gin.New()
 	c.Register(r.Group("/v0"))
@@ -92,6 +111,7 @@ func TestV0_HubBroadcastReachesWSClient(t *testing.T) {
 func TestV0_WorkspacesFilter_ProjectId(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	tc := newApp(t)
+	seedRepo(t, tc, "r1")
 	c := v0.New(tc.app, tc.eng)
 	r := gin.New()
 	c.Register(r.Group("/v0"))
@@ -123,6 +143,7 @@ func TestV0_WorkspacesFilter_ProjectId(t *testing.T) {
 func TestV0_WorkspacesFilter_RepoId(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	tc := newApp(t)
+	seedRepo(t, tc, "r1")
 	c := v0.New(tc.app, tc.eng)
 	r := gin.New()
 	c.Register(r.Group("/v0"))
