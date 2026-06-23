@@ -61,7 +61,8 @@ export interface Repo {
   workspaces: Workspace[]
   /** Real id of the IsDefault workspace (the imported repo folder); the repo
    *  header opens it and the context pill labels it "default". Its branch is
-   *  intentionally not tracked — Crowbar does not manage that checkout. */
+   *  exposed as `defaultBranch` (below) so create-input validation can reserve
+   *  the default branch. */
   defaultWorkspaceId?: string
   /** Branch name of the default (main-worktree) workspace, surfaced on the repo
    *  header. Used by create-input validation to reserve the default branch. */
