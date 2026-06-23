@@ -5,7 +5,6 @@ import { Popover, PopoverTrigger, PopoverContent, PopoverTitle } from '@/compone
 import { Button } from '@/components/ui/button'
 import { Checkbox } from '@/components/ui/checkbox'
 import { RadioGroup, Radio } from '@/components/ui/radio-group'
-import { toast } from '@/features/window/stores/toast-store'
 import { useWorkspaceStoreById } from '@/features/workspace/stores/hooks/use-workspace-store-by-id'
 import { getOrCreateWorkspaceStore } from '@/features/workspace/stores/workspace-store-registry'
 import { useSidebarStore, getPostDeleteNavigationTarget } from '@/lib/store/sidebar'
@@ -39,6 +38,9 @@ export function MergePopover({ wsId, parentBranch, trigger }: MergePopoverProps)
   const [open, setOpen] = useState(false)
   // Default ON: merging a child into its parent usually means you're done with it.
   const [deleteAfterMerge, setDeleteAfterMerge] = useState(true)
+  const [mergeError, setMergeError] = useState<string | null>(null)
+  const [strategyError, setStrategyError] = useState<string | null>(null)
+  const [merging, setMerging] = useState(false)
   const navigate = useNavigate()
   const strategy = useWorkspaceStoreById(wsId, (s) => s.branchReview.mergeStrategy)
   const active = STRATEGIES.find((s) => s.value === strategy) ?? STRATEGIES[0]
@@ -47,19 +49,19 @@ export function MergePopover({ wsId, parentBranch, trigger }: MergePopoverProps)
   const selectStrategy = async (next: MergeStrategy) => {
     if (next === strategy) return
     const previous = strategy
+    setStrategyError(null)
     getOrCreateWorkspaceStore(wsId).getState().setBranchReviewMergeStrategy(next)
     try {
       await patchMergeStrategy(wsId, next)
     } catch {
       getOrCreateWorkspaceStore(wsId).getState().setBranchReviewMergeStrategy(previous)
-      toast.error('Failed to update merge strategy')
+      setStrategyError('Failed to save strategy — try again')
     }
   }
 
   const handleMerge = async () => {
-    setOpen(false)
-    // Resolve where to land while the child still exists in the sidebar: its
-    // parent, else the repo base, else a sibling (same logic as a delete).
+    setMergeError(null)
+    setMerging(true)
     let redirect: { projectId: string; repoId: string; wsId: string } | null = null
     if (deleteAfterMerge) {
       const repos = useSidebarStore.getState().repos
@@ -73,15 +75,12 @@ export function MergePopover({ wsId, parentBranch, trigger }: MergePopoverProps)
     }
     try {
       await mergeIntoParent(wsId, strategy, deleteAfterMerge)
-      toast.info(deleteAfterMerge ? 'Merging & removing workspace…' : 'Merging…')
-      // The daemon deletes the child once the merge lands; move to the parent
-      // now so we're not stranded on a route that's about to disappear. Safe to
-      // navigate unconditionally: this popover only renders inside the Git panel
-      // for the active workspace (GitPanel derives wsId from the route), so wsId
-      // is always the workspace we're leaving.
+      setOpen(false)
       if (redirect) void navigate({ to: '/ide/$projectId/$repoId/$wsId', params: redirect })
     } catch {
-      toast.error('Merge failed — check the logs for details')
+      setMergeError('Merge failed — check the logs for details')
+    } finally {
+      setMerging(false)
     }
   }
 
@@ -108,13 +107,25 @@ export function MergePopover({ wsId, parentBranch, trigger }: MergePopoverProps)
             </label>
           ))}
         </RadioGroup>
+        {strategyError && (
+          <p className="ui-text-xs text-destructive mb-2">{strategyError}</p>
+        )}
         <label className="mb-3 flex cursor-pointer items-center gap-2">
           <Checkbox checked={deleteAfterMerge} onChange={setDeleteAfterMerge} />
           <span className="ui-text-sm">Delete this workspace after merging</span>
         </label>
-        <Button variant="default" size="sm" className="w-full" onClick={() => void handleMerge()}>
-          {active.confirm}
+        <Button
+          variant="default"
+          size="sm"
+          className="w-full"
+          disabled={merging}
+          onClick={() => void handleMerge()}
+        >
+          {merging ? 'Merging…' : active.confirm}
         </Button>
+        {mergeError && (
+          <p className="ui-text-xs text-destructive mt-2">{mergeError}</p>
+        )}
       </PopoverContent>
     </Popover>
   )
