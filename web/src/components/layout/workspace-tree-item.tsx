@@ -6,6 +6,7 @@ import { WorkspaceInlineInput } from './workspace-inline-input'
 import { ROW_BASE, ROW_ACTIVE, ROW_INACTIVE, ADD_GLYPH_PATH } from './workspace-row-base'
 import { useWorkspaceTreeActions, useWorkspaceTreeDrag } from './workspace-tree-context'
 import { useSidebarStore } from '@/lib/store/sidebar'
+import { findWorkspaceForBranch } from '@/lib/workspace/branch-workspace'
 import type { WorkspaceTreeNode } from './workspace-tree'
 
 interface WorkspaceTreeItemProps {
@@ -30,6 +31,7 @@ export function WorkspaceTreeItem({
   const isLocked = workspace.status === 'locked'
   const hasChildren = children.length > 0
   const isCollapsed = useSidebarStore((s) => s.collapsedWorkspaces.has(workspace.id))
+  const repo = useSidebarStore((s) => s.repos.find((r) => r.id === repoId))
   const expanded = !isCollapsed
 
   const {
@@ -230,7 +232,12 @@ export function WorkspaceTreeItem({
                 >
                   <path d={ADD_GLYPH_PATH} />
                 </svg>
-                <WorkspaceInlineInput onConfirm={confirmCreate} onCancel={cancelCreate} />
+                <WorkspaceInlineInput
+                  onConfirm={confirmCreate}
+                  onCancel={cancelCreate}
+                  resolveExisting={(b) => (repo ? findWorkspaceForBranch(repo, b) : null)}
+                  onOpenExisting={(wsId) => onWorkspaceClick(wsId, projectId, repoId)}
+                />
               </div>
             ) : (
               <div

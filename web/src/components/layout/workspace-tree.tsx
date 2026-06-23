@@ -8,6 +8,7 @@ import { InlineError } from '@/components/ui/inline-error'
 import { cn } from '@/lib/utils'
 import { ROW_BASE, ROW_ACTIVE, ROW_INACTIVE, ADD_GLYPH_PATH } from './workspace-row-base'
 import { WorkspaceInlineInput } from './workspace-inline-input'
+import { findWorkspaceForBranch } from '@/lib/workspace/branch-workspace'
 import { WorkspaceTreeFooter } from './workspace-tree-footer'
 import { WorkspaceTreeItem } from './workspace-tree-item'
 import {
@@ -254,7 +255,15 @@ function WorkspaceTreeInner() {
                             >
                               <path d={ADD_GLYPH_PATH} />
                             </svg>
-                            <WorkspaceInlineInput onConfirm={confirmCreate} onCancel={cancelCreate} />
+                            <WorkspaceInlineInput
+                              onConfirm={confirmCreate}
+                              onCancel={cancelCreate}
+                              resolveExisting={(b) => findWorkspaceForBranch(repo, b)}
+                              onOpenExisting={(wsId) => {
+                                cancelCreate()
+                                if (repo.projectId) handleWorkspaceClick(wsId, repo.projectId, repo.id)
+                              }}
+                            />
                           </div>
                         </div>
                       )}
