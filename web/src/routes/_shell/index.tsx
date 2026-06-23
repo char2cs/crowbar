@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import { GitBranchIcon } from 'lucide-react'
-import { createFileRoute, redirect } from '@tanstack/react-router'
+import { createFileRoute, redirect, isRedirect } from '@tanstack/react-router'
 import { fetchProjects, fetchRepos, fetchWorkspaces } from '@/lib/api'
 import { useProjectStore } from '@/lib/store/projects'
 import {
@@ -63,10 +63,14 @@ export const Route = createFileRoute('/_shell/')({
         })
       }
     } catch (err) {
-      // A thrown redirect is the success path — re-throw it. Any other failure
+      // A thrown redirect is the success path — re-throw it. TanStack's redirect
+      // is a Response with its nav options under `.options` (NOT a top-level
+      // `.to`), so it must be detected with isRedirect — a `'to' in err` duck
+      // check silently swallows the workspace redirect and strands the user on
+      // the NoReposScreen even when a workspace was found. Any *other* failure
       // (a transient repos/workspaces fetch error) falls through to the
       // NoReposScreen rather than crashing cold start.
-      if (err && typeof err === 'object' && 'to' in err) throw err
+      if (isRedirect(err)) throw err
     }
     // Has projects but no landable workspace — render NoReposScreen.
   },
