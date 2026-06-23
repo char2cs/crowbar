@@ -62,3 +62,15 @@ func New(
 		Identity: enginegit.NewIdentityEngine(),
 	}, nil
 }
+
+// Close releases engine resources that own OS-level handles on daemon shutdown.
+// Most engines are stateless facades, but the terminal engine holds live PTY
+// child processes plus their master FDs; without this they are orphaned to init
+// on shutdown/restart (dev hot-restart, crash-restart, OS quit) — the shell and
+// any dev servers/builds it launched keep running and holding ports with no UI
+// to manage them, and the PTY master FDs leak.
+func (c *Container) Close() {
+	if c.Terminal != nil {
+		c.Terminal.Shutdown()
+	}
+}
