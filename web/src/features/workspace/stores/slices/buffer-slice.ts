@@ -289,6 +289,17 @@ export const createBufferSlice: StateCreator<
           ({ killTerminalSession }) => killTerminalSession(sessionId).catch(() => {}),
         )
       }
+      // Closing a chat tab is final too — drop its conversation store so the
+      // streamed turns[] (full agent/user message text) don't leak for the
+      // lifetime of the session. The store is keyed by the chat's wsId (the
+      // nanoid minted at open). Dynamic import avoids a workspace-slice →
+      // markdown-chat-feature cycle, mirroring the terminal branch above.
+      if (buf && buf.type === 'crowbarChat') {
+        const { wsId } = buf as CrowbarChatContent
+        void import('@/features/markdown-chat/stores/conversation-store').then(
+          ({ destroyConversationStore }) => destroyConversationStore(wsId),
+        )
+      }
       if (buf && shouldStartLsp(buf)) {
         set((state) => {
           const entry: ClosedBuffer = { path: buf.path, name: buf.name, isPinned: buf.isPinned }

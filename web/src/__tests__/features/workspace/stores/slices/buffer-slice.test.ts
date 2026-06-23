@@ -14,6 +14,14 @@ vi.mock('@/features/terminal/lib/kill-terminal-session', () => ({
   killTerminalSession,
 }))
 
+const { destroyConversationStore } = vi.hoisted(() => ({
+  destroyConversationStore: vi.fn(),
+}))
+
+vi.mock('@/features/markdown-chat/stores/conversation-store', () => ({
+  destroyConversationStore,
+}))
+
 const makePaneActions = () => ({
   addBufferToPane: vi.fn(),
   setPanePreviewBuffer: vi.fn(),
@@ -103,6 +111,36 @@ describe('buffer-slice', () => {
     expect(store.getState().buffers).toHaveLength(0)
     // The kill goes through a dynamic import — flush microtasks.
     await vi.waitFor(() => expect(killTerminalSession).toHaveBeenCalledWith('sess-9'))
+  })
+
+  // H10: each "New Conversation" mints a fresh wsId-keyed conversation store
+  // holding the full streamed turns[]. Closing the chat tab is final, so the
+  // store must be destroyed on close — otherwise every closed chat leaks its
+  // entire message history for the lifetime of the session.
+  it('closeBuffer destroys the conversation store of a crowbarChat buffer', async () => {
+    destroyConversationStore.mockClear()
+    const id = store.getState().bufferActions.openContent({
+      type: 'crowbarChat',
+      wsId: 'chat-ws-7',
+      name: 'Chat',
+    })
+    store.getState().bufferActions.closeBuffer(id)
+    expect(store.getState().buffers).toHaveLength(0)
+    // The teardown goes through a dynamic import — flush microtasks.
+    await vi.waitFor(() => expect(destroyConversationStore).toHaveBeenCalledWith('chat-ws-7'))
+  })
+
+  it('closeBuffer does not destroy conversation stores for non-chat buffers', async () => {
+    destroyConversationStore.mockClear()
+    const id = store.getState().bufferActions.openContent({
+      type: 'editor',
+      path: '/y.ts',
+      name: 'y.ts',
+      content: '',
+    })
+    store.getState().bufferActions.closeBuffer(id)
+    await new Promise((resolve) => setTimeout(resolve, 0))
+    expect(destroyConversationStore).not.toHaveBeenCalled()
   })
 
   it('closeBuffer does not kill PTYs for non-terminal buffers', async () => {

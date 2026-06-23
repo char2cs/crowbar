@@ -31,6 +31,7 @@ import { useEditorUIStore } from '../stores/ui-store'
 import type { Position, Range } from '../types/editor'
 import { getLanguageIdFromPath } from '../utils/language-id'
 import { calculateLineHeight } from '../utils/lines'
+import { shouldSkipLsp } from '../utils/lsp-surface'
 import { editorAPI } from '../extensions/api'
 import { LspClient, type LspDiagnostic } from '../lsp/lsp-client'
 import type {
@@ -871,9 +872,15 @@ export function DiffMonacoEditor({
     }
   }, [activeBufferId, isActiveSurface, isPreviewMode, readOnly, viewStateKey])
 
+  // Diff / virtual / read-only surfaces must stay out of the LSP document
+  // lifecycle entirely — see shouldSkipLsp for why (path collides with a real
+  // file whose true text differs from this surface's serialized diff content).
+  const skipLsp = shouldSkipLsp(readOnly, isPreviewMode, buffer?.isVirtual ?? false)
+
   // LSP diagnostics: open the document so the server analyzes it, then paint
   // its diagnostics as Monaco markers (squiggles) for this file.
   useEffect(() => {
+    if (skipLsp) return
     const model = modelRef.current
     if (!model || !filePath) return
 
@@ -890,20 +897,22 @@ export function DiffMonacoEditor({
 
     return () => {
       unsubscribe()
+      // Only a non-skipped effect ever reached documentOpen above, so the early
+      // return guarantees we never documentClose a file we never opened.
       void client.documentClose(filePath)
       const current = modelRef.current
       if (current) monacoEditor.setModelMarkers(current, 'crowbar-lsp', [])
     }
-  }, [filePath, languageId])
+  }, [filePath, languageId, skipLsp])
 
   // Re-analyze on edits (debounced — the server wants the full buffer text).
   useEffect(() => {
-    if (!filePath) return
+    if (skipLsp || !filePath) return
     const timer = setTimeout(() => {
       void LspClient.getInstance().documentChange(filePath, content)
     }, 400)
     return () => clearTimeout(timer)
-  }, [content, filePath])
+  }, [content, filePath, skipLsp])
 
   const commentPortals = useDiffCommentZones({
     editorRef,
