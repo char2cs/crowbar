@@ -906,10 +906,12 @@ func TestMergeIntoParent_SquashConflict_AbortsInParent(t *testing.T) {
 	assert.Equal(t, []string{"/pw"}, g.calls[1].args, "squash abort must run in the PARENT worktree")
 }
 
-// TestMergeIntoParent_Conflict_AbortFailureStillFlagsChild proves the abort is
-// best-effort: if OperationAbort itself fails the child is STILL flagged
-// pr-conflicts and the op does not fail (the warning is logged, not returned).
-func TestMergeIntoParent_Conflict_AbortFailureStillFlagsChild(t *testing.T) {
+// TestMergeIntoParent_Conflict_AbortFailure_FlagsParentAndChild proves R7: if
+// OperationAbort fails (the worktree stays mid-merge), the op is still best-effort
+// (no error returned) but the STUCK worktree — the PARENT for the merge/squash
+// strategies — is ALSO flagged pr-conflicts, so the brick is VISIBLE and
+// recoverable instead of a silent merge-pending success.
+func TestMergeIntoParent_Conflict_AbortFailure_FlagsParentAndChild(t *testing.T) {
 	child := domain.Workspace{ID: "c", ParentID: "p", Branch: "feat"}
 	parent := domain.Workspace{ID: "p", WorktreePath: "/pw", Branch: "develop"}
 	g := &fakeGit{mergeErr: enginegit.ErrConflict, operationAbortErr: errBoom}
@@ -923,7 +925,35 @@ func TestMergeIntoParent_Conflict_AbortFailureStillFlagsChild(t *testing.T) {
 	res, err := uc.MergeIntoParent(context.Background(), "c", gitdomain.MergeStrategyMerge)
 	require.NoError(t, err)
 	assert.True(t, res.ConflictsPending)
-	require.Len(t, synced, 1)
+	flagged := map[string]bool{}
+	for _, s := range synced {
+		if s.HasConflicts {
+			flagged[s.ID] = true
+		}
+	}
+	assert.True(t, flagged["p"], "the stuck PARENT worktree must be flagged pr-conflicts on abort failure (R7)")
+	assert.True(t, flagged["c"], "the child must be flagged pr-conflicts")
+}
+
+// TestMergeIntoParent_Conflict_AbortSuccess_FlagsOnlyChild proves that when the
+// abort SUCCEEDS (the normal case) the parent worktree is clean again, so only
+// the child is flagged — the parent is NOT spuriously marked conflicted.
+func TestMergeIntoParent_Conflict_AbortSuccess_FlagsOnlyChild(t *testing.T) {
+	child := domain.Workspace{ID: "c", ParentID: "p", Branch: "feat"}
+	parent := domain.Workspace{ID: "p", WorktreePath: "/pw", Branch: "develop"}
+	g := &fakeGit{mergeErr: enginegit.ErrConflict} // abort succeeds
+	ws := mergeWS(child, parent, nil)
+	var synced []workspace.SyncInput
+	ws.SyncFn = func(_ context.Context, in workspace.SyncInput, _ time.Time) (domain.Workspace, error) {
+		synced = append(synced, in)
+		return domain.Workspace{}, nil
+	}
+	uc := worktree.New(ws, g, &fakeProvider{}, &fakeRepoStore{}, newNow(), fakeHome())
+	res, err := uc.MergeIntoParent(context.Background(), "c", gitdomain.MergeStrategyMerge)
+	require.NoError(t, err)
+	assert.True(t, res.ConflictsPending)
+	require.Len(t, synced, 1, "a clean abort flags only the child")
+	assert.Equal(t, "c", synced[0].ID)
 	assert.True(t, synced[0].HasConflicts)
 }
 

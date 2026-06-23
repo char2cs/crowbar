@@ -360,14 +360,28 @@ func (u *worktreeUsecase) handleMergeError(
 	// the user resolves it via "Rebase onto parent" (which keeps a resolvable
 	// rebase in the child's OWN worktree) and re-runs the merge once clean.
 	abortPath := parent.WorktreePath
+	abortWS := parent.ID
 	if strategy == gitdomain.MergeStrategyRebase {
 		abortPath = child.WorktreePath
+		abortWS = child.ID
 	}
 	if abortErr := u.git.OperationAbort(ctx, abortPath); abortErr != nil {
-		// Best-effort: do not fail the whole operation, but log so a worktree
-		// that somehow stayed stuck is visible rather than silently bricked.
 		slog.WarnContext(ctx, "merge: abort after conflict failed; worktree may be stuck",
 			"workspace_id", child.ID, "abort_path", abortPath, "err", abortErr)
+		// The abort failed, so the worktree that holds the op is NOT clean — its
+		// index is still mid-merge. When that worktree is the PARENT (the child is
+		// flagged below regardless), flag the parent pr-conflicts too so the stuck
+		// state is VISIBLE and recoverable (the user can abort it from its panel)
+		// rather than a silent brick reported as merge-pending success (R7).
+		if abortWS != child.ID {
+			if _, perr := u.workspaces.SyncWorkingTreeState(ctx, workspace.SyncInput{
+				ID:           abortWS,
+				HasConflicts: true,
+			}, u.now()); perr != nil {
+				slog.WarnContext(ctx, "merge: flag stuck parent after failed abort",
+					"workspace_id", abortWS, "err", perr)
+			}
+		}
 	}
 	// A local merge/rebase conflict transitions the child to Status=pr-conflicts
 	// (07 §3.1, 00 §6.1): the HasConflicts sync input drives the status enum.
