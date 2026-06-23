@@ -31,6 +31,12 @@ export function useFileExplorerDragDrop(
   onMoveError?: (message: string) => void,
 ) {
   const [dragState, setDragState] = useState<DragState>(initialDragState)
+  // Mirror of the latest dragState so the document mouse handlers can read
+  // fresh drag data (draggedItem/dragOverPath/dragOverIsDir) without the
+  // listener effect re-subscribing every frame. Assigned inline on each render
+  // so it is up to date before any effect or event handler runs.
+  const dragStateRef = useRef<DragState>(dragState)
+  dragStateRef.current = dragState
   const dragPreviewRef = useRef<HTMLDivElement | null>(null)
   const autoExpandRef = useRef<{
     path: string
@@ -128,7 +134,7 @@ export function useFileExplorerDragDrop(
         clearEditorDropHover()
         const path = fileTreeItem.getAttribute('data-file-path')
         const isDir = fileTreeItem.getAttribute('data-is-dir') === 'true'
-        const draggedItem = dragState.draggedItem
+        const draggedItem = dragStateRef.current.draggedItem
 
         if (path && draggedItem && path !== draggedItem.path) {
           const separator = getPathSeparator(draggedItem.path)
@@ -162,7 +168,7 @@ export function useFileExplorerDragDrop(
           dragOverIsDir: true,
         }))
         clearAutoExpand()
-      } else if (aiContextDropTarget && dragState.draggedItem) {
+      } else if (aiContextDropTarget && dragStateRef.current.draggedItem) {
         clearEditorDropHover()
         setDragState((prev) => ({
           ...prev,
@@ -170,7 +176,11 @@ export function useFileExplorerDragDrop(
           dragOverIsDir: false,
         }))
         clearAutoExpand()
-      } else if (editorDropTarget && dragState.draggedItem && !dragState.draggedItem.isDir) {
+      } else if (
+        editorDropTarget &&
+        dragStateRef.current.draggedItem &&
+        !dragStateRef.current.draggedItem.isDir
+      ) {
         setInternalTabDragHover({ x: e.clientX, y: e.clientY })
         setDragState((prev) => ({
           ...prev,
@@ -190,18 +200,19 @@ export function useFileExplorerDragDrop(
     }
 
     const handleMouseUp = async (e: MouseEvent) => {
+      const { draggedItem, dragOverPath, dragOverIsDir } = dragStateRef.current
       // Check if dropping on a pane container (outside file tree)
       const elementUnder = document.elementFromPoint(e.clientX, e.clientY)
       const isOverPane = elementUnder?.closest('[data-pane-container]') !== null
       const isOverFileTree = elementUnder?.closest('.file-tree-container') !== null
       // If dropping on a pane (not in file tree), dispatch event for pane to handle
-      if (isOverPane && !isOverFileTree && dragState.draggedItem && !dragState.draggedItem.isDir) {
+      if (isOverPane && !isOverFileTree && draggedItem && !draggedItem.isDir) {
         window.dispatchEvent(
           new CustomEvent('file-tree-drop-on-pane', {
             detail: {
-              path: dragState.draggedItem.path,
-              name: dragState.draggedItem.name,
-              isDir: dragState.draggedItem.isDir,
+              path: draggedItem.path,
+              name: draggedItem.name,
+              isDir: draggedItem.isDir,
               x: e.clientX,
               y: e.clientY,
             },
@@ -213,9 +224,9 @@ export function useFileExplorerDragDrop(
         return
       }
 
-      if (dragState.dragOverPath && dragState.draggedItem) {
-        const { path: sourcePath, name: sourceName } = dragState.draggedItem
-        let targetPath = dragState.dragOverPath
+      if (dragOverPath && draggedItem) {
+        const { path: sourcePath, name: sourceName } = draggedItem
+        let targetPath = dragOverPath
 
         if (targetPath === '__ROOT__') {
           targetPath = rootFolderPath || ''
@@ -226,7 +237,7 @@ export function useFileExplorerDragDrop(
           }
         }
 
-        if (!dragState.dragOverIsDir && targetPath !== '__ROOT__') {
+        if (!dragOverIsDir && targetPath !== '__ROOT__') {
           targetPath = getDirName(targetPath) || rootFolderPath || ''
         }
 
@@ -258,10 +269,14 @@ export function useFileExplorerDragDrop(
       clearAutoExpand()
       clearEditorDropHover()
     }
+    // Subscribe ONCE per drag: depend only on the isDragging boolean so the
+    // listeners stay mounted for the whole drag. The handlers read live drag
+    // data from dragStateRef, so no per-frame re-subscription is needed (which
+    // previously left a window where mouseup was unbound and could be missed).
   }, [
     clearAutoExpand,
     clearEditorDropHover,
-    dragState,
+    dragState.isDragging,
     onFileMove,
     onMoveError,
     rootFolderPath,
