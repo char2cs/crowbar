@@ -240,6 +240,20 @@ func TestDeleteMissingWorkspace_4xx(
 	assert.Empty(t, hierarchy.gotDeleteID, "cascade must not run when the workspace is missing")
 }
 
+func TestCreate_DuplicateBranch_Returns409(t *testing.T) {
+	repos := &fakeRepos{repo: &domain.Repository{
+		ID: "r1", ProjectID: "p1", Path: "/repo", DefaultBranch: "main",
+	}}
+	reader := &fakeReader{list: []domain.Workspace{{ID: "w1", RepoID: "r1", Branch: "develop"}}}
+	rec := do(
+		newRouter(reader, &fakeHierarchy{}, repos),
+		http.MethodPost,
+		"/v0/projects/p1/repos/r1/workspaces",
+		`{"branch":"develop"}`,
+	)
+	assert.Equal(t, http.StatusConflict, rec.Code)
+}
+
 func TestDeleteAsyncErrorBroadcastsLastError(
 	t *testing.T,
 ) {

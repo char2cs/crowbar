@@ -9,6 +9,7 @@ import (
 	"github.com/char2cs/crowbar/api/internal/api/libs"
 	"github.com/char2cs/crowbar/api/internal/app/apperr"
 	"github.com/char2cs/crowbar/api/internal/app/usecases/worktree"
+	"github.com/char2cs/crowbar/api/internal/domain"
 )
 
 // createRequest is the POST .../workspaces body: the new branch name and an
@@ -52,6 +53,16 @@ func (h *Handlers) Create(
 		libs.WriteErr(c, status, msg)
 		return
 	}
+	dup, err := h.branchTaken(c.Request.Context(), in.RepoID, in.Branch)
+	if err != nil {
+		status, msg := libs.StatusAndMessage(err)
+		libs.WriteErr(c, status, msg)
+		return
+	}
+	if dup {
+		libs.WriteErr(c, http.StatusConflict, "a workspace already exists for this branch")
+		return
+	}
 	libs.WriteAccepted(c)
 	runAsync(
 		c.Request.Context(),
@@ -76,6 +87,23 @@ func (h *Handlers) broadcastLastError(
 		return
 	}
 	_, _ = h.lastErrors.SetLastError(ctx, wsID, message)
+}
+
+// branchTaken reports whether a non-deleted workspace already holds the branch
+// in the repo, so the create handler can return 409 synchronously instead of
+// letting the async CreateChild reject after the 202 (where the error is only
+// best-effort logged). The usecase guard remains the authoritative backstop.
+func (h *Handlers) branchTaken(ctx context.Context, repoID, branch string) (bool, error) {
+	all, err := h.reader.List(ctx)
+	if err != nil {
+		return false, err
+	}
+	for _, w := range all {
+		if w.RepoID == repoID && w.Branch == branch && w.Status != domain.WorkspaceStatusDeleted {
+			return true, nil
+		}
+	}
+	return false, nil
 }
 
 func (h *Handlers) buildCreateInput(
