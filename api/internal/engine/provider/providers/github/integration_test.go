@@ -52,7 +52,11 @@ func TestIntegration_ProtectedBranches(t *testing.T) {
 	t.Logf("protected branches: %v", branches)
 }
 
-// TestIntegration_PullRequestForBranch calls gh pr list against the real PR #10.
+// TestIntegration_PullRequestForBranch exercises the real `gh pr list`
+// invocation + parsing. It does NOT pin a specific live PR: the original fixture
+// (PR #10 open on feature/wave2-engines) drifted when that PR merged, so the test
+// now asserts the call succeeds and that any returned PR is well-typed — accepting
+// "no open PR" as valid.
 func TestIntegration_PullRequestForBranch(t *testing.T) {
 	if _, err := exec.LookPath("gh"); err != nil {
 		t.Skip("gh not installed")
@@ -64,11 +68,12 @@ func TestIntegration_PullRequestForBranch(t *testing.T) {
 	pr, err := p.PullRequestForBranch(context.Background(), dir, "feature/wave2-engines")
 	require.NoError(t, err)
 
-	// PR #10 exists and is open.
-	require.NotNil(t, pr, "expected PR for feature/wave2-engines")
-	assert.Equal(t, 10, pr.Number)
-	assert.Equal(t, "open", pr.Status)
-	assert.Equal(t, "develop", pr.TargetBranch)
+	if pr == nil {
+		t.Log("no open PR for feature/wave2-engines (the original PR #10 merged) — call succeeded")
+		return
+	}
+	assert.Positive(t, pr.Number)
+	assert.NotEmpty(t, pr.Status)
 	assert.NotEmpty(t, pr.URL)
 	assert.NotEmpty(t, pr.Title)
 	t.Logf("PR: #%d %q status=%s target=%s", pr.Number, pr.Title, pr.Status, pr.TargetBranch)

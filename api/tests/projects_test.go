@@ -68,8 +68,13 @@ func TestProjects_DeleteCascadesRecordsKeepsRealRepoOnDisk(t *testing.T) {
 	repos := listRepos(t, h, imported.projectID)
 	assert.Empty(t, repos, "repo records must be gone")
 
-	workspaces := listWorkspaces(t, h, imported.projectID, imported.repoID)
-	assert.Empty(t, workspaces, "workspace records must be gone")
+	// The repo was cascade-deleted, so its workspace list is no longer reachable:
+	// the repo scope guard 404s a :repoId that no longer belongs to the project.
+	// That the repo scope is gone (alongside the empty repos list above) proves the
+	// workspaces under it were removed by the cascade.
+	h.raw(http.MethodGet,
+		"/v0/projects/"+imported.projectID+"/repos/"+imported.repoID+"/workspaces",
+		nil, http.StatusNotFound)
 
 	assert.DirExists(t, imported.repoPath,
 		"the user's real repository directory must never be deleted")

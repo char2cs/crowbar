@@ -217,14 +217,14 @@ func (w *Watcher) loop(
 	defer safego.Recover("fs.watch.loop")
 	defer w.closeFSW()
 
-	// Emit an initial git frame so a freshly-subscribed client always resyncs
-	// from real git state on Start, not only on the next file event. Without this
-	// the first frame is whatever was last persisted: a workspace whose conflict
-	// was resolved (or whose diff changed) while no watcher was running keeps the
-	// stale badge until the user happens to touch a file (H19). Scheduled here,
-	// inside the loop goroutine, so it never races loop's drain of gitTimer.C.
-	w.scheduleGitRecompute()
-
+	// No initial git emit on subscribe: the snapshot-on-subscribe already delivers
+	// fresh git status (gitSnapshot reads real `git status`, not the read model),
+	// so an initial broadcast would be a redundant duplicate of the snapshot — and,
+	// racing ahead of or behind the snapshot, it would either leak a stray frame to
+	// a wsId-scoped client (cross-workspace isolation) or suppress the first real
+	// change. Live git frames are driven purely by real file changes; the
+	// read-model summary badge is kept fresh by the startup ReconcileAll sweep and
+	// by file-change recomputes (H19).
 	timer := time.NewTimer(0)
 	if !timer.Stop() {
 		<-timer.C
@@ -369,6 +369,10 @@ func (w *Watcher) fanOutGit(
 	// Workspaces sharing a .git (linked worktrees) all see each other's ref
 	// events; without this guard every such event re-broadcasts an unchanged
 	// status to every subscriber (observed as a ~6Hz identical-frame storm).
+	// prevStatus is primed at watcher start (primeGitStatus) to the same baseline
+	// the snapshot-on-subscribe delivered, so the first recompute broadcasts only
+	// when git status CHANGED since the client connected — never a redundant
+	// duplicate of the snapshot.
 	if !w.prevStatusSet || !gitStatusEqual(w.prevStatus, status) {
 		w.prevStatus = status
 		w.prevStatusSet = true
