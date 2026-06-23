@@ -200,8 +200,8 @@ func TestImport_RepoSaveError_IsTolerated(
 func TestImport_WorktreeListError_IsTolerated(
 	t *testing.T,
 ) {
-	// A worktree-list failure is inside importOneRepo — best-effort: the
-	// project and the repo row are returned; no workspaces are adopted.
+	// A worktree-list failure aborts adoption (no workspaces), so the repo is
+	// rolled back rather than orphaned; the multi-repo import still succeeds.
 	projects, repos, ws, git, _, uc := newImport(t)
 	git.WorktreeListErr = errors.New("wt boom")
 
@@ -209,15 +209,17 @@ func TestImport_WorktreeListError_IsTolerated(
 	require.NoError(t, err)
 	assert.Equal(t, "P", project.Name)
 	assert.Len(t, projects.Saved, 1)
-	assert.Len(t, repos.Saved, 1)
+	assert.Empty(t, repos.Saved,
+		"a repo whose worktree adoption fails must be rolled back, not left orphaned")
 	assert.Empty(t, ws.Created)
 }
 
 func TestImport_ProtectedBranchesError_IsTolerated(
 	t *testing.T,
 ) {
-	// A protected-branches failure is inside importOneRepo — best-effort:
-	// the project and repo row are returned; no workspaces are adopted.
+	// A protected-branches failure inside adoptWorktrees aborts adoption (no
+	// workspaces), so the repo is rolled back rather than orphaned; the multi-repo
+	// import still succeeds.
 	projects, repos, ws, git, prov, uc := newImport(t)
 	git.Worktrees = []gitengine.WorktreeEntry{{Path: "/repoA", Branch: "main", Head: "h1"}}
 	prov.ProtectedErr = errors.New("prov boom")
@@ -226,7 +228,8 @@ func TestImport_ProtectedBranchesError_IsTolerated(
 	require.NoError(t, err)
 	assert.Equal(t, "P", project.Name)
 	assert.Len(t, projects.Saved, 1)
-	assert.Len(t, repos.Saved, 1)
+	assert.Empty(t, repos.Saved,
+		"a repo whose adoption fails must be rolled back, not left orphaned")
 	assert.Empty(t, ws.Created)
 }
 
@@ -280,8 +283,10 @@ func TestImport_PrunableWorktreeSkipped(
 func TestImport_WorkspaceCreateError_IsTolerated(
 	t *testing.T,
 ) {
-	// A workspace-create failure is inside importOneRepo — best-effort: the
-	// project and repo row are returned; no workspaces are adopted.
+	// A workspace-create failure inside importOneRepo is tolerated at the Import
+	// level (the whole multi-repo import does not fail), but the repo whose worktree
+	// adoption failed is ROLLED BACK rather than persisted as an orphaned,
+	// unnavigable row (one with no workspaces).
 	projects, repos, ws, git, _, uc := newImport(t)
 	git.Worktrees = []gitengine.WorktreeEntry{{Path: "/repoA", Branch: "main", Head: "h1"}}
 	ws.CreateErr = errors.New("ws boom")
@@ -290,7 +295,8 @@ func TestImport_WorkspaceCreateError_IsTolerated(
 	require.NoError(t, err)
 	assert.Equal(t, "P", project.Name)
 	assert.Len(t, projects.Saved, 1)
-	assert.Len(t, repos.Saved, 1)
+	assert.Empty(t, repos.Saved,
+		"a repo whose worktree adoption fails must be rolled back, not left orphaned")
 	assert.Empty(t, ws.Created)
 }
 
@@ -519,6 +525,43 @@ func TestImportRepo_AdoptsDefaultBranchWorkspace(
 	assert.Equal(t, repo.ID, ws.Created[0].RepoID)
 }
 
+// TestImportRepo_AdoptionFailure_RollsBackRepo proves pass-6: the single-repo
+// ImportRepo path propagates the adoption error AND rolls back the repo row, so a
+// user retrying a failed add cannot accumulate orphaned, workspace-less repos.
+func TestImportRepo_AdoptionFailure_RollsBackRepo(t *testing.T) {
+	projects := mocks.NewProjectStore()
+	repos := mocks.NewRepositoryStore()
+	ws := mocks.NewWorkspaceRepo()
+	git := mocks.NewGitEngine()
+	prov := mocks.NewProviderEngine()
+
+	require.NoError(t, projects.Save(
+		context.Background(),
+		domain.Project{ID: "proj-1", Name: "P", Path: "/root"},
+	))
+	git.WorktreeListErr = errors.New("wt boom")
+
+	uc := project.NewImport(project.ImportDeps{
+		Projects:   projects,
+		Repos:      repos,
+		Workspaces: ws,
+		Git:        git,
+		Provider:   prov,
+		Discover:   func(root string, maxDepth int) ([]string, error) { return nil, nil },
+		RefRunner: func(repoPath string) defaultbranch.RefRunner {
+			return func(args ...string) (string, bool) { return "", false }
+		},
+		Now:  func() time.Time { return time.Unix(1000, 0).UTC() },
+		Stat: statExists,
+	})
+
+	_, err := uc.ImportRepo(context.Background(), "proj-1", "/root/repoA")
+	require.Error(t, err, "ImportRepo must propagate the adoption failure")
+	assert.Empty(t, repos.Saved,
+		"the repo row must be rolled back so retries cannot accumulate orphaned repos")
+	assert.Empty(t, ws.Created)
+}
+
 // TestImportRepo_SetsGithubAvatarBestEffort pins that adding a repo with no
 // local icon best-effort fetches the GitHub owner avatar bytes and writes them
 // to the entity icon path, setting AvatarHasIcon=true.
@@ -709,13 +752,10 @@ func TestImport_PartialRepoFailure(
 	assert.Equal(t, "My Project", project.Name)
 	assert.Len(t, projects.Saved, 1)
 
-	// Both repo rows are saved (both get past Repos.Save before WorktreeList).
-	require.Len(t, repos.Saved, 2, "both repo rows must be saved")
-	repoNames := make([]string, 0, len(repos.Saved))
-	for _, r := range repos.Saved {
-		repoNames = append(repoNames, r.Name)
-	}
-	assert.Contains(t, repoNames, "repoB")
+	// repoA's adoption failed, so its repo row is rolled back; only repoB (which
+	// adopted a workspace) persists — no orphaned, workspace-less row remains.
+	require.Len(t, repos.Saved, 1, "the failed repo must be rolled back; only repoB persists")
+	assert.Equal(t, "repoB", repos.Saved[0].Name)
 
 	// repoB's workspace (branch "main") must be adopted; repoA has none.
 	require.Len(t, ws.Created, 1, "repoB workspace must be adopted")

@@ -51,6 +51,13 @@ type RepositoryStore interface {
 		ctx context.Context,
 		item domain.Repository,
 	) error
+	// Delete removes a repository row by id. Used to roll back a repo whose
+	// worktree adoption failed, so a failed import never persists an orphaned
+	// repository (one with no workspaces, hence unnavigable).
+	Delete(
+		ctx context.Context,
+		id string,
+	) error
 }
 
 // WorkspaceCreator is the workspace-creation surface the import usecase needs.
@@ -278,10 +285,25 @@ func (u *projectImport) importOneRepo(
 	if err := u.deps.Repos.Save(ctx, repo); err != nil {
 		return domain.Repository{}, fmt.Errorf("project import: save repository: %w", err)
 	}
+	// Roll back the repo row if WORKTREE ADOPTION fails. A repository with no
+	// workspaces is unnavigable (workspaces are the UI's unit) and unusable; never
+	// leave one persisted. Without this, a failed adoption (git error, ws-create
+	// failure) orphans the repo — visible-but-broken in the multi-repo Import, and
+	// accumulating one stale row per retry in the single-repo ImportRepo path. Once
+	// adoption succeeds the repo HAS workspaces and must be kept, so committed is
+	// set before the best-effort protected-branch stubs (whose failure must NOT
+	// roll back a repo that already has valid workspaces).
+	committed := false
+	defer func() {
+		if !committed {
+			_ = u.deps.Repos.Delete(ctx, repo.ID)
+		}
+	}()
 	adopted, err := u.adoptWorktrees(ctx, repo)
 	if err != nil {
 		return domain.Repository{}, err
 	}
+	committed = true
 	if err := u.importProtectedBranchStubs(ctx, repo, adopted); err != nil {
 		return domain.Repository{}, err
 	}

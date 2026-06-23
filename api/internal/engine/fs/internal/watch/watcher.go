@@ -369,10 +369,10 @@ func (w *Watcher) fanOutGit(
 	// Workspaces sharing a .git (linked worktrees) all see each other's ref
 	// events; without this guard every such event re-broadcasts an unchanged
 	// status to every subscriber (observed as a ~6Hz identical-frame storm).
-	// prevStatus is primed at watcher start (primeGitStatus) to the same baseline
-	// the snapshot-on-subscribe delivered, so the first recompute broadcasts only
-	// when git status CHANGED since the client connected — never a redundant
-	// duplicate of the snapshot.
+	// prevStatus starts unset, so the FIRST recompute always broadcasts; since the
+	// watcher does no initial recompute on subscribe (see loop — the snapshot
+	// already delivers fresh status), that first broadcast is the first real
+	// file-change, and subsequent identical frames are deduped here.
 	if !w.prevStatusSet || !gitStatusEqual(w.prevStatus, status) {
 		w.prevStatus = status
 		w.prevStatusSet = true
