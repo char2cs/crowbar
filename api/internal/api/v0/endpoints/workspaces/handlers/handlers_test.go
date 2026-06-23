@@ -130,6 +130,13 @@ func (f *fakeHierarchy) Reparent(
 	return f.reparented, f.reparentErr
 }
 
+func (f *fakeHierarchy) RebaseOntoParent(
+	_ context.Context,
+	_ string,
+) (domain.Workspace, error) {
+	return domain.Workspace{}, nil
+}
+
 func (f *fakeHierarchy) DeleteCascade(
 	_ context.Context,
 	rootID string,

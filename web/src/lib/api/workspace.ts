@@ -1,4 +1,5 @@
 import { apiFetch } from '@/lib/api'
+import { workspaceBase } from '@/lib/workspace-scope-url'
 
 /**
  * Reparent a workspace on the backend (§3, 202 Accepted). The new `parentId`
@@ -17,4 +18,14 @@ export async function reparentWorkspace(
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ newParentId }),
   })
+}
+
+/**
+ * User-initiated "finish the move": rebase a moved-but-conflicting workspace onto
+ * its current parent (§3, 202 Accepted). A clean rebase integrates it; a
+ * conflicting one is kept for the standard resolve flow. The outcome rides the WS
+ * broadcast.
+ */
+export async function rebaseOntoParent(wsId: string): Promise<void> {
+  await apiFetch(`${workspaceBase(wsId)}/rebase-onto-parent`, { method: 'POST' })
 }

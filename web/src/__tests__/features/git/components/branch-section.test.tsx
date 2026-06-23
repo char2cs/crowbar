@@ -56,13 +56,14 @@ describe('BranchSection', () => {
     expect(screen.getByRole('button', { name: /Resolve conflicts/ })).toBeDefined()
   })
 
-  it('mergeable but would conflict → disabled merge + resolve message', () => {
+  it('mergeable but would conflict → active "Rebase onto parent" + explain message', () => {
     render(<BranchSection {...base} wouldConflict />)
-    const btn = screen.getByRole('button', { name: /Resolve conflicts to merge/ })
-    expect(btn).toBeDisabled()
-    // No active "Merge into develop" affordance while blocked.
+    // Active (not disabled) — the user chooses to rebase; Crowbar never does it on its own.
+    const btn = screen.getByRole('button', { name: /Rebase onto develop/ })
+    expect(btn).not.toBeDisabled()
+    // No active "Merge into develop" affordance while conflicted.
     expect(screen.queryByRole('button', { name: /Merge into develop/ })).toBeNull()
-    expect(screen.getByText(/Resolve the conflicts with develop first/)).toBeDefined()
+    expect(screen.getByText(/drag it back to undo/)).toBeDefined()
   })
 
   it('clean + ahead → a Push secondary', () => {

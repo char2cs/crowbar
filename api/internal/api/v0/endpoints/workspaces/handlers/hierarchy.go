@@ -103,6 +103,33 @@ func (h *Handlers) workspaceIsLeaf(ctx context.Context, id string) (bool, error)
 // the new parent in the background. The reparented workspace is delivered on the
 // workspace WebSocket stream via the repository's broadcast callback; a failure
 // surfaces as LastError on the entity (00 §4).
+// RebaseOntoParent handles
+// POST /v0/projects/:projectId/repos/:repoId/workspaces/:wsId/rebase-onto-parent.
+// It is the user-initiated "finish the move" for a moved-but-conflicting child:
+// 202 + async rebase of the child onto its current parent, keeping a conflicting
+// rebase live for the standard resolve flow. The outcome rides the workspace WS
+// stream; a failure surfaces as LastError on the entity.
+func (h *Handlers) RebaseOntoParent(
+	c *gin.Context,
+) {
+	id := c.Param("wsId")
+	if _, err := h.reader.Get(c.Request.Context(), id); err != nil {
+		status, msg := libs.StatusAndMessage(err)
+		libs.WriteErr(c, status, msg)
+		return
+	}
+	libs.WriteAccepted(c)
+	runAsync(
+		c.Request.Context(),
+		h.broadcastLastError,
+		id,
+		func(ctx context.Context) error {
+			_, rebaseErr := h.hierarchy.RebaseOntoParent(ctx, id)
+			return rebaseErr
+		},
+	)
+}
+
 func (h *Handlers) Reparent(
 	c *gin.Context,
 ) {

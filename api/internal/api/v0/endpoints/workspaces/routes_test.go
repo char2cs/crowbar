@@ -72,6 +72,13 @@ func (stubHierarchy) MergeIntoParent(
 	return worktree.MergeResult{}, nil
 }
 
+func (stubHierarchy) RebaseOntoParent(
+	_ context.Context,
+	_ string,
+) (domain.Workspace, error) {
+	return domain.Workspace{}, nil
+}
+
 func (stubHierarchy) Reparent(
 	_ context.Context,
 	_ string,

@@ -55,6 +55,10 @@ type Usecase interface {
 		childID string,
 		newParentID string,
 	) (domain.Workspace, error)
+	RebaseOntoParent(
+		ctx context.Context,
+		childID string,
+	) (domain.Workspace, error)
 	DeleteCascade(
 		ctx context.Context,
 		rootID string,
@@ -460,6 +464,56 @@ func (u *worktreeUsecase) settleReparent(
 	if syncErr := u.resyncSummary(ctx, child.ID, child.WorktreePath, forkPoint); syncErr != nil {
 		slog.WarnContext(ctx, "reparent: child summary resync failed; read-model will self-correct",
 			"workspace_id", child.ID, "err", syncErr)
+	}
+	return ws, nil
+}
+
+// RebaseOntoParent is the user-initiated "finish the move" action for a
+// moved-but-conflicting child: it rebases the child onto its CURRENT parent's
+// tip. Unlike the automatic reparent (which aborts on conflict), this KEEPS a
+// conflicting rebase in progress so the user can resolve it with the standard
+// conflict tooling; a clean rebase integrates the child. The intended fork point
+// (the parent tip) is persisted up front so the branch reads correctly once
+// resolved.
+func (u *worktreeUsecase) RebaseOntoParent(
+	ctx context.Context,
+	childID string,
+) (domain.Workspace, error) {
+	child, err := u.workspaces.Get(ctx, childID)
+	if err != nil {
+		return domain.Workspace{}, fmt.Errorf("rebase onto parent: get child: %w", err)
+	}
+	if child.ParentID == "" {
+		return domain.Workspace{}, fmt.Errorf("rebase onto parent: workspace has no parent")
+	}
+	parent, err := u.workspaces.Get(ctx, child.ParentID)
+	if err != nil {
+		return domain.Workspace{}, fmt.Errorf("rebase onto parent: get parent: %w", err)
+	}
+	tip, err := u.git.RevParse(ctx, parent.WorktreePath, "HEAD")
+	if err != nil {
+		return domain.Workspace{}, fmt.Errorf("rebase onto parent: parent tip: %w", err)
+	}
+	rebaseErr := u.git.RebaseOnto(ctx, child.WorktreePath, tip, child.ForkPointSha, child.Branch)
+	if rebaseErr == nil {
+		// Clean: the child is genuinely integrated onto the parent.
+		return u.settleReparent(ctx, child, child.ParentID, tip)
+	}
+	if !errors.Is(rebaseErr, enginegit.ErrConflict) {
+		return domain.Workspace{}, fmt.Errorf("rebase onto parent: %w", rebaseErr)
+	}
+	// Conflict: KEEP the rebase in progress (the user resolves it with the
+	// standard conflict tooling). Persist the intended fork point now so the
+	// branch reads correctly once resolved, and surface the conflict via status.
+	if _, err := u.workspaces.Reparent(ctx, child.ID, child.ParentID, tip, u.now()); err != nil {
+		return domain.Workspace{}, fmt.Errorf("rebase onto parent: persist: %w", err)
+	}
+	ws, err := u.workspaces.SyncWorkingTreeState(ctx, workspace.SyncInput{
+		ID:           child.ID,
+		HasConflicts: true,
+	}, u.now())
+	if err != nil {
+		return domain.Workspace{}, fmt.Errorf("rebase onto parent: set conflicts: %w", err)
 	}
 	return ws, nil
 }

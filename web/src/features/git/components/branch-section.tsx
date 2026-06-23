@@ -7,6 +7,7 @@ import { CommitPopover } from './commit-popover'
 import { MergePopover } from './merge-popover'
 import { resolveBranchAction } from '../lib/branch-action'
 import { pushChanges, pullChanges } from '../api/git-remotes-api'
+import { rebaseOntoParent } from '@/lib/api/workspace'
 import type { GitFile } from '../types/git-types'
 
 interface BranchSectionProps {
@@ -33,6 +34,7 @@ export function BranchSection({
   files,
 }: BranchSectionProps) {
   const [remoteBusy, setRemoteBusy] = useState(false)
+  const [rebasing, setRebasing] = useState(false)
 
   const action = resolveBranchAction({
     hasUncommitted: files.length > 0,
@@ -45,6 +47,22 @@ export function BranchSection({
   })
 
   const refresh = () => window.dispatchEvent(new Event('git-status-changed'))
+
+  // User-initiated "finish the move": rebase the branch onto its parent. Async on
+  // the daemon — a clean rebase integrates it; a conflict is kept and surfaces as
+  // the Resolve-conflicts state over the WS stream. Crowbar never rebases on its own.
+  const handleRebaseOntoParent = async () => {
+    setRebasing(true)
+    try {
+      await rebaseOntoParent(wsId)
+      toast.info(`Rebasing onto ${parentBranch}…`)
+      refresh()
+    } catch (e) {
+      toast.error('Rebase failed', e instanceof Error ? e.message : undefined)
+    } finally {
+      setRebasing(false)
+    }
+  }
 
   const runRemote = async (kind: 'push' | 'pull') => {
     setRemoteBusy(true)
@@ -149,12 +167,19 @@ export function BranchSection({
             </Button>
           )}
 
-          {/* A clean merge isn't possible — the child conflicts with its parent.
-              Disabled: the user reconciles the conflicts first, then merges. */}
-          {action.kind === 'merge-blocked' && (
-            <Button variant="outline" size="sm" className="flex-1" disabled>
-              <Warning className="size-3.5" />
-              Resolve conflicts to merge
+          {/* The branch conflicts with its parent and isn't integrated. The user
+              chooses to rebase onto the parent; on conflict that keeps the rebase
+              for the standard resolve flow. Crowbar never rebases on its own. */}
+          {action.kind === 'merge-blocked' && parentBranch && (
+            <Button
+              variant="default"
+              size="sm"
+              className="flex-1"
+              disabled={rebasing}
+              onClick={() => void handleRebaseOntoParent()}
+            >
+              <GitBranch className="size-3.5" />
+              {rebasing ? 'Rebasing…' : `Rebase onto ${parentBranch}`}
             </Button>
           )}
 
@@ -193,7 +218,8 @@ export function BranchSection({
 
       {action.kind === 'merge-blocked' && (
         <p className="ui-text-xs text-muted-foreground">
-          Resolve the conflicts with {parentBranch} first, then merge.
+          This branch conflicts with {parentBranch} and isn’t integrated yet. Rebase onto{' '}
+          {parentBranch} to resolve it — or drag it back to undo.
         </p>
       )}
     </div>

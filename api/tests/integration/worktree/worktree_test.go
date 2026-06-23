@@ -339,6 +339,43 @@ func (s *WorktreeSuite) TestWorktree_reparentConflictMovesButStaysClean() {
 	s.Assert().True(kit.FileExists(t, childPath+"/shared.txt"), "child's own work survives")
 }
 
+// TestWorktree_rebaseOntoParentConflictKeepsForResolve verifies the user-initiated
+// "finish the move": rebasing a moved-but-conflicting child onto its parent KEEPS
+// the conflicting rebase (status pr-conflicts) for the standard resolve flow, and
+// persists the intended fork point up front so the branch reads correctly once
+// resolved.
+func (s *WorktreeSuite) TestWorktree_rebaseOntoParentConflictKeepsForResolve() {
+	t := s.T()
+
+	parentBID, parentBPath := s.createChild("feature/rop-parent")
+	kit.CommitFile(t, parentBPath, "shared.txt", "parent version\n", "parent edit")
+	parentBTip := kit.RevParse(t, parentBPath, "HEAD")
+
+	childID, childPath := s.createChild("feature/rop-child")
+	kit.CommitFile(t, childPath, "shared.txt", "child version\n", "child edit")
+
+	watcher := s.Env.DialWorkspace(t, s.imported.ProjectID, s.imported.RepoID, childID)
+	// Move it under parentB: conflict → moved-but-conflicting, clean worktree.
+	resp := s.Env.POST(t, s.wsBase(childID)+"/reparent", map[string]any{"newParentId": parentBID})
+	kit.RequireStatus(t, resp, http.StatusAccepted)
+	resp.Body.Close()
+	kit.WaitForWorkspace(t, watcher, childID, 10*time.Second, func(m map[string]any) bool {
+		return m["parentId"] == parentBID && m["mergeConflicts"] == true
+	})
+
+	// User clicks "Rebase onto parent" → keep the conflict for resolution.
+	resp2 := s.Env.POST(t, s.wsBase(childID)+"/rebase-onto-parent", map[string]any{})
+	kit.RequireStatus(t, resp2, http.StatusAccepted)
+	resp2.Body.Close()
+	kit.WaitForWorkspaceState(t, watcher, childID, "pr-conflicts", 10*time.Second)
+
+	got := s.getWorkspace(childID)
+	s.Assert().Equal(parentBTip, got["forkPointSha"], "the intended fork point is persisted up front")
+	s.Assert().Equal("HEAD",
+		kit.TrimNewline(kit.GitRun(t, childPath, "rev-parse", "--abbrev-ref", "HEAD")),
+		"the rebase is kept in progress (detached HEAD) for the user to resolve")
+}
+
 func (s *WorktreeSuite) TestWorktree_reparentWithChildrenRejected() {
 	t := s.T()
 

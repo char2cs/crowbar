@@ -54,6 +54,10 @@ type Hierarchy interface {
 		childID string,
 		newParentID string,
 	) (domain.Workspace, error)
+	RebaseOntoParent(
+		ctx context.Context,
+		childID string,
+	) (domain.Workspace, error)
 	DeleteCascade(
 		ctx context.Context,
 		rootID string,
