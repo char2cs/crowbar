@@ -138,6 +138,16 @@ func (u *worktreeUsecase) CreateChild(
 			Protected: in.ForceLocked,
 		}, u.now())
 	}
+	// At most one non-deleted workspace per (repo, branch). Reject a duplicate on
+	// both the adopt and child paths before any git work, so it surfaces as a
+	// clean 409 rather than a raw git "branch already exists" error.
+	exists, err := u.branchWorkspaceExists(ctx, in.RepoID, in.Branch)
+	if err != nil {
+		return domain.Workspace{}, err
+	}
+	if exists {
+		return domain.Workspace{}, fmt.Errorf("%w (repo %s, branch %q)", ErrBranchWorkspaceExists, in.RepoID, in.Branch)
+	}
 	// When ParentID is empty and the requested branch matches the parent branch
 	// (i.e. the repo's default branch), the workspace IS the main worktree —
 	// adopt the existing repo path instead of creating a new git worktree.
@@ -244,19 +254,6 @@ func (u *worktreeUsecase) adoptMainWorktree(
 	ctx context.Context,
 	in CreateChildInput,
 ) (domain.Workspace, error) {
-	// The main worktree backs at most ONE workspace row. Reject a second
-	// adoption (e.g. POST {branch: defaultBranch} with no parentId) before any
-	// git work — otherwise it would persist a duplicate default-branch workspace
-	// pointing at the same repo path with no distinct worktree: a phantom row the
-	// sidebar shows but git can never provision (a new worktree on an
-	// already-checked-out branch is impossible).
-	adopted, err := u.mainWorktreeAdopted(ctx, in.RepoID, in.RepoPath)
-	if err != nil {
-		return domain.Workspace{}, err
-	}
-	if adopted {
-		return domain.Workspace{}, fmt.Errorf("%w (repo %s, branch %q)", ErrDefaultWorkspaceExists, in.RepoID, in.Branch)
-	}
 	startSha, err := u.git.RevParse(ctx, in.RepoPath, "HEAD")
 	if err != nil {
 		return domain.Workspace{}, fmt.Errorf("create child: adopt main worktree: rev-parse HEAD: %w", err)
@@ -277,22 +274,21 @@ func (u *worktreeUsecase) adoptMainWorktree(
 	}, u.now())
 }
 
-// mainWorktreeAdopted reports whether a (non-deleted) workspace already adopts
-// this repo's main worktree — identified by its WorktreePath being the repo's
-// own path, which is exactly what adoptMainWorktree records. Used to keep the
-// main worktree backing at most one workspace row.
-func (u *worktreeUsecase) mainWorktreeAdopted(
+// branchWorkspaceExists reports whether a non-deleted workspace already holds
+// this branch in the repo. A branch can be checked out in at most one worktree,
+// so the repo keeps at most one workspace per branch.
+func (u *worktreeUsecase) branchWorkspaceExists(
 	ctx context.Context,
 	repoID string,
-	repoPath string,
+	branch string,
 ) (bool, error) {
 	all, err := u.workspaces.List(ctx)
 	if err != nil {
-		return false, fmt.Errorf("create child: adopt main worktree: list workspaces: %w", err)
+		return false, fmt.Errorf("create child: list workspaces: %w", err)
 	}
 	for _, w := range all {
 		if w.RepoID == repoID &&
-			w.WorktreePath == repoPath &&
+			w.Branch == branch &&
 			w.Status != domain.WorkspaceStatusDeleted {
 			return true, nil
 		}

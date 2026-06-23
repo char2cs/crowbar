@@ -106,7 +106,7 @@ func isConflict(
 
 	if errors.Is(err, worktree.ErrRebaseNonLeaf) ||
 		errors.Is(err, worktree.ErrChildHasChildren) ||
-		errors.Is(err, worktree.ErrDefaultWorkspaceExists) {
+		errors.Is(err, worktree.ErrBranchWorkspaceExists) {
 		return true
 	}
 

@@ -52,7 +52,10 @@ func (f *fakeWorkspace) Get(
 func (f *fakeWorkspace) List(
 	ctx context.Context,
 ) ([]domain.Workspace, error) {
-	return f.ListFn(ctx)
+	if f.ListFn != nil {
+		return f.ListFn(ctx)
+	}
+	return nil, nil
 }
 
 func (f *fakeWorkspace) Reparent(
@@ -667,20 +670,15 @@ func TestCreateChild_AdoptMainWorktree_RevParseError(t *testing.T) {
 	require.ErrorIs(t, err, errBoom)
 }
 
-// TestCreateChild_AdoptMainWorktree_RejectsSecondAdoption proves the duplicate
-// default-branch bug is fixed: when a workspace already adopts the repo's main
-// worktree, a second adoption (empty parent + branch == default branch) is
-// rejected with ErrDefaultWorkspaceExists instead of persisting a phantom
-// duplicate "develop" row that points at the same path with no real worktree.
-func TestCreateChild_AdoptMainWorktree_RejectsSecondAdoption(t *testing.T) {
+// TestCreateChild_RejectsDuplicateBranch_AdoptPath proves a second workspace on
+// the repo's default branch (empty parent + branch == default) is rejected with
+// ErrBranchWorkspaceExists before any git work — no phantom duplicate row.
+func TestCreateChild_RejectsDuplicateBranch_AdoptPath(t *testing.T) {
 	g := &fakeGit{revParseSha: "headsha"}
 	createCalls := 0
 	ws := &fakeWorkspace{
-		// The repo's main worktree is already adopted (WorktreePath == RepoPath).
 		ListFn: func(_ context.Context) ([]domain.Workspace, error) {
-			return []domain.Workspace{
-				{ID: "ws-default", RepoID: "r1", Branch: "develop", WorktreePath: "/repo"},
-			}, nil
+			return []domain.Workspace{{ID: "ws-default", RepoID: "r1", Branch: "develop"}}, nil
 		},
 		CreateFn: func(_ context.Context, in workspace.CreateInput, _ time.Time) (domain.Workspace, error) {
 			createCalls++
@@ -690,17 +688,40 @@ func TestCreateChild_AdoptMainWorktree_RejectsSecondAdoption(t *testing.T) {
 	uc := worktree.New(ws, g, &fakeProvider{}, &fakeRepoStore{}, newNow(), fakeHome())
 
 	_, err := uc.CreateChild(context.Background(), worktree.CreateChildInput{
-		RepoID:       "r1",
-		ProjectID:    "p1",
-		RepoPath:     "/repo",
-		Branch:       "develop",
-		ParentID:     "",
-		ParentBranch: "develop",
+		RepoID: "r1", ProjectID: "p1", RepoPath: "/repo",
+		Branch: "develop", ParentID: "", ParentBranch: "develop",
 	})
 
-	require.ErrorIs(t, err, worktree.ErrDefaultWorkspaceExists)
+	require.ErrorIs(t, err, worktree.ErrBranchWorkspaceExists)
 	assert.Equal(t, 0, createCalls, "no duplicate workspace row is persisted")
-	assert.NotContains(t, g.ops(), "RevParse", "guard rejects before any git work")
+	assert.Empty(t, g.ops(), "guard rejects before any git work")
+}
+
+// TestCreateChild_RejectsDuplicateBranch_ChildPath proves a NON-default branch
+// that already has a workspace is rejected cleanly (not a raw git "branch
+// exists" error) before git worktree add runs.
+func TestCreateChild_RejectsDuplicateBranch_ChildPath(t *testing.T) {
+	g := &fakeGit{addStartSha: "sha"}
+	createCalls := 0
+	ws := &fakeWorkspace{
+		ListFn: func(_ context.Context) ([]domain.Workspace, error) {
+			return []domain.Workspace{{ID: "ws-x", RepoID: "r1", Branch: "feature/x"}}, nil
+		},
+		CreateFn: func(_ context.Context, in workspace.CreateInput, _ time.Time) (domain.Workspace, error) {
+			createCalls++
+			return domain.Workspace{ID: in.ID}, nil
+		},
+	}
+	uc := worktree.New(ws, g, &fakeProvider{}, &fakeRepoStore{}, newNow(), fakeHome())
+
+	_, err := uc.CreateChild(context.Background(), worktree.CreateChildInput{
+		RepoID: "r1", ProjectID: "p1", RepoPath: "/repo", RemoteURL: "https://github.com/test/repo.git",
+		Branch: "feature/x", ParentID: "w-parent", ParentBranch: "develop",
+	})
+
+	require.ErrorIs(t, err, worktree.ErrBranchWorkspaceExists)
+	assert.Equal(t, 0, createCalls)
+	assert.NotContains(t, g.ops(), "WorktreeAddBranch", "guard rejects before git worktree add")
 }
 
 // A deleted prior adoption must NOT block re-adopting the main worktree (e.g.
@@ -711,7 +732,7 @@ func TestCreateChild_AdoptMainWorktree_IgnoresDeletedAdoption(t *testing.T) {
 	ws := &fakeWorkspace{
 		ListFn: func(_ context.Context) ([]domain.Workspace, error) {
 			return []domain.Workspace{
-				{ID: "old", RepoID: "r1", Branch: "develop", WorktreePath: "/repo", Status: domain.WorkspaceStatusDeleted},
+				{ID: "old", RepoID: "r1", Branch: "develop", Status: domain.WorkspaceStatusDeleted},
 			}, nil
 		},
 		CreateFn: func(_ context.Context, in workspace.CreateInput, _ time.Time) (domain.Workspace, error) {

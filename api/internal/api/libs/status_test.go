@@ -77,6 +77,11 @@ func TestStatusAndMessageMapping(t *testing.T) {
 			status: http.StatusConflict,
 		},
 		{
+			name:   "duplicate branch workspace is conflict",
+			err:    worktree.ErrBranchWorkspaceExists,
+			status: http.StatusConflict,
+		},
+		{
 			name:   "new parent locked",
 			err:    worktree.ErrNewParentLocked,
 			status: http.StatusConflict,
