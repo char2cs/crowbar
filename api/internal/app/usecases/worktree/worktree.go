@@ -410,17 +410,58 @@ func (u *worktreeUsecase) Reparent(
 	return u.replayAndReparent(ctx, child, newParentID, tip)
 }
 
+// replayAndReparent tries to rebase the child onto the new parent's tip, then
+// settles the move. Try-then-warn: a CLEAN rebase moves the child onto the new
+// parent and integrates it; a CONFLICT never leaves the rebase stuck — it is
+// ABORTED back to a clean worktree, yet the child is STILL moved under the new
+// parent ("moved on paper, not yet integrated"). The predicted-conflict overlay
+// (mergeConflicts) marks it; the user finishes the rebase on their own terms.
 func (u *worktreeUsecase) replayAndReparent(
 	ctx context.Context,
 	child domain.Workspace,
 	newParentID string,
 	tip string,
 ) (domain.Workspace, error) {
-	err := u.git.RebaseOnto(ctx, child.WorktreePath, tip, child.ForkPointSha, child.Branch)
-	if err != nil {
-		return domain.Workspace{}, fmt.Errorf("reparent: rebase onto: %w", err)
+	rebaseErr := u.git.RebaseOnto(ctx, child.WorktreePath, tip, child.ForkPointSha, child.Branch)
+	if rebaseErr == nil {
+		// Clean: the branch is genuinely based on the new parent's tip now.
+		return u.settleReparent(ctx, child, newParentID, tip)
 	}
-	return u.workspaces.Reparent(ctx, child.ID, newParentID, tip, u.now())
+	if !errors.Is(rebaseErr, enginegit.ErrConflict) {
+		return domain.Workspace{}, fmt.Errorf("reparent: rebase onto: %w", rebaseErr)
+	}
+	// Conflict: abort the rebase so the worktree returns to clean (never the stuck
+	// mid-rebase mess), but keep the move.
+	if abortErr := u.git.OperationAbort(ctx, child.WorktreePath); abortErr != nil {
+		return domain.Workspace{}, fmt.Errorf("reparent: abort after conflict: %w", abortErr)
+	}
+	// Fork point = merge-base of the branch and the new parent, so diffs/summaries
+	// read against the new parent's lineage until a clean rebase finalizes it.
+	base, baseErr := u.git.MergeBase(ctx, child.WorktreePath, tip, child.Branch)
+	if baseErr != nil {
+		return domain.Workspace{}, fmt.Errorf("reparent: merge-base: %w", baseErr)
+	}
+	return u.settleReparent(ctx, child, newParentID, base)
+}
+
+// settleReparent persists the child's new parent + fork point and resyncs its
+// working-tree summary (best-effort, like finalizeMerge) so a prior conflict
+// status clears and the diff stats reflect the new base.
+func (u *worktreeUsecase) settleReparent(
+	ctx context.Context,
+	child domain.Workspace,
+	newParentID string,
+	forkPoint string,
+) (domain.Workspace, error) {
+	ws, err := u.workspaces.Reparent(ctx, child.ID, newParentID, forkPoint, u.now())
+	if err != nil {
+		return domain.Workspace{}, fmt.Errorf("reparent: persist: %w", err)
+	}
+	if syncErr := u.resyncSummary(ctx, child.ID, child.WorktreePath, forkPoint); syncErr != nil {
+		slog.WarnContext(ctx, "reparent: child summary resync failed; read-model will self-correct",
+			"workspace_id", child.ID, "err", syncErr)
+	}
+	return ws, nil
 }
 
 func (u *worktreeUsecase) guardReparent(

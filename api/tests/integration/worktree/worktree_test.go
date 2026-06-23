@@ -303,6 +303,42 @@ func (s *WorktreeSuite) TestWorktree_reparent() {
 // guard runs in the background (00 §4: reparent is 202+async), so the rejection
 // surfaces as a lastError on the workspace WS rather than a synchronous 409. The
 // child's git history must be untouched.
+// TestWorktree_reparentConflictMovesButStaysClean verifies the try-then-warn
+// model: a reparent whose rebase conflicts MOVES the child under the new parent
+// anyway, but ABORTS the rebase so the worktree stays clean (never stuck), and
+// the predicted-conflict flag lights up.
+func (s *WorktreeSuite) TestWorktree_reparentConflictMovesButStaysClean() {
+	t := s.T()
+
+	parentBID, parentBPath := s.createChild("feature/parent-b-conflict")
+	kit.CommitFile(t, parentBPath, "shared.txt", "parent-b version\n", "parent-b edit")
+	parentBTip := kit.RevParse(t, parentBPath, "HEAD")
+
+	childID, childPath := s.createChild("feature/child-conflict")
+	kit.CommitFile(t, childPath, "shared.txt", "child version\n", "child edit") // same file, diverging
+
+	watcher := s.Env.DialWorkspace(t, s.imported.ProjectID, s.imported.RepoID, childID)
+	resp := s.Env.POST(t, s.wsBase(childID)+"/reparent", map[string]any{"newParentId": parentBID})
+	kit.RequireStatus(t, resp, http.StatusAccepted)
+	resp.Body.Close()
+
+	// Moved under parentB AND flagged as conflicting.
+	moved := kit.WaitForWorkspace(t, watcher, childID, 10*time.Second, func(m map[string]any) bool {
+		return m["parentId"] == parentBID && m["mergeConflicts"] == true
+	})
+	// Moved on paper, NOT cleanly integrated: fork point is the merge-base, not
+	// the new parent's tip (which a clean rebase would have produced).
+	s.Assert().NotEqual(parentBTip, moved["forkPointSha"], "a conflicted reparent must not finalize onto the new tip")
+
+	// The worktree is CLEAN, not stuck mid-rebase.
+	s.Assert().Equal("feature/child-conflict",
+		kit.TrimNewline(kit.GitRun(t, childPath, "rev-parse", "--abbrev-ref", "HEAD")),
+		"worktree must be on its branch, not a detached mid-rebase HEAD")
+	s.Assert().Empty(kit.TrimNewline(kit.GitRun(t, childPath, "status", "--porcelain")),
+		"worktree must be clean (no conflict markers, no in-progress rebase)")
+	s.Assert().True(kit.FileExists(t, childPath+"/shared.txt"), "child's own work survives")
+}
+
 func (s *WorktreeSuite) TestWorktree_reparentWithChildrenRejected() {
 	t := s.T()
 
