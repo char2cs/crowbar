@@ -29,7 +29,6 @@ import type { ContextMenuState } from '@/features/file-system/types/app'
 import { Button } from '@/components/ui/button'
 import { ContextMenu, type ContextMenuItem } from '@/components/ui/context-menu'
 import { AppDialog as Dialog } from '@/components/ui/dialog'
-import { toast } from '@/components/ui/toast'
 import { getBaseName, getDirName, getRelativePath, joinPath } from '@/utils/path-helpers'
 
 interface UseFileExplorerContextMenuOptions {
@@ -107,8 +106,22 @@ export function useFileExplorerContextMenu({
   const [contextMenu, setContextMenu] = useState<ContextMenuState | null>(null)
   const [envOverwriteDialog, setEnvOverwriteDialog] = useState<EnvOverwriteDialogState | null>(null)
   const [propertiesDialog, setPropertiesDialog] = useState<PropertiesDialogState | null>(null)
+  const [fileFeedback, setFileFeedback] = useState<
+    Map<string, 'copied-path' | 'copied-rel' | 'created' | 'err'>
+  >(new Map())
   const clipboardActions = useFileClipboardStore((state) => state.actions)
   const clipboard = useFileClipboardStore((state) => state.clipboard)
+
+  function flashFeedback(path: string, kind: 'copied-path' | 'copied-rel' | 'created' | 'err') {
+    setFileFeedback((prev) => new Map(prev).set(path, kind))
+    setTimeout(() => {
+      setFileFeedback((prev) => {
+        const next = new Map(prev)
+        next.delete(path)
+        return next
+      })
+    }, 1500)
+  }
 
   const createEnvTemplateFile = useCallback(
     async (sourcePath: string, targetFileName: string, options?: { overwrite?: boolean }) => {
@@ -119,7 +132,7 @@ export function useFileExplorerContextMenu({
 
       try {
         if (targetPath === sourcePath) {
-          toast.error('Choose a different env file name')
+          // Silent no-op: same-name env file is an edge case; skip without feedback
           return
         }
 
@@ -161,13 +174,9 @@ export function useFileExplorerContextMenu({
         }
 
         onRefreshDirectory?.(directoryPath)
-        toast.success(`Created ${targetFileName}`)
+        flashFeedback(createdPath, 'created')
       } catch (error) {
         console.error('Failed to create env template file:', error)
-        toast.error(
-          `Failed to create ${targetFileName}`,
-          error instanceof Error ? error.message : undefined,
-        )
       }
     },
     [onCreateNewFileInDirectory, onRefreshDirectory],
@@ -232,7 +241,6 @@ export function useFileExplorerContextMenu({
           icon: <RefreshCw />,
           onClick: () => {
             void onRefreshDirectory?.(dirTargetPath)
-            toast.success('Refreshed')
           },
         },
         {
@@ -353,27 +361,23 @@ export function useFileExplorerContextMenu({
         id: 'copy-path',
         label: 'Copy Path',
         icon: <Link />,
-        onClick: async () => {
-          try {
-            await navigator.clipboard.writeText(contextMenu.path)
-            toast.success('Copied path')
-          } catch {
-            toast.error('Failed to copy path')
-          }
+        onClick: () => {
+          navigator.clipboard.writeText(contextMenu.path).then(
+            () => flashFeedback(contextMenu.path, 'copied-path'),
+            () => flashFeedback(contextMenu.path, 'err'),
+          )
         },
       },
       {
         id: 'copy-relative-path',
         label: 'Copy Relative Path',
         icon: <FileText />,
-        onClick: async () => {
-          try {
-            const relativePath = getRelativePath(contextMenu.path, rootFolderPath)
-            await navigator.clipboard.writeText(relativePath)
-            toast.success('Copied relative path')
-          } catch {
-            toast.error('Failed to copy relative path')
-          }
+        onClick: () => {
+          const relativePath = getRelativePath(contextMenu.path, rootFolderPath)
+          navigator.clipboard.writeText(relativePath).then(
+            () => flashFeedback(contextMenu.path, 'copied-rel'),
+            () => flashFeedback(contextMenu.path, 'err'),
+          )
         },
       },
       {
@@ -382,7 +386,6 @@ export function useFileExplorerContextMenu({
         icon: <Copy />,
         onClick: () => {
           clipboardActions.copy([{ path: contextMenu.path, is_dir: contextMenu.isDir }])
-          toast.success(`Copied ${getBaseName(contextMenu.path, 'item')}`)
         },
       },
       {
@@ -391,7 +394,6 @@ export function useFileExplorerContextMenu({
         icon: <Scissors />,
         onClick: () => {
           clipboardActions.cut([{ path: contextMenu.path, is_dir: contextMenu.isDir }])
-          toast.success(`Cut ${getBaseName(contextMenu.path, 'item')}`)
         },
       },
     )
@@ -504,5 +506,6 @@ export function useFileExplorerContextMenu({
     setContextMenu,
     handleContextMenu,
     contextMenuElement,
+    fileFeedback,
   }
 }

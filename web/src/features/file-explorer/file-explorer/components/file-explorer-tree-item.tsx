@@ -62,6 +62,7 @@ interface FileExplorerTreeItemProps {
   searchQuery?: string
   isSearchMatch?: boolean
   rowId?: string
+  fileFeedback?: Map<string, 'copied-path' | 'copied-rel' | 'created' | 'err'>
 }
 
 function renderHighlightedLabel(label: string, query: string | undefined) {
@@ -106,6 +107,7 @@ function FileExplorerTreeItemComponent({
   searchQuery,
   isSearchMatch = false,
   rowId,
+  fileFeedback,
 }: FileExplorerTreeItemProps) {
   const isCut = useFileClipboardStore(
     (s) =>
@@ -258,6 +260,18 @@ function FileExplorerTreeItemComponent({
             </span>
           )}
         </span>
+        {fileFeedback?.get(file.path) === 'copied-path' && (
+          <span className="ml-auto text-xs text-green-500 shrink-0">✓ path copied</span>
+        )}
+        {fileFeedback?.get(file.path) === 'copied-rel' && (
+          <span className="ml-auto text-xs text-green-500 shrink-0">✓ rel copied</span>
+        )}
+        {fileFeedback?.get(file.path) === 'created' && (
+          <span className="ml-auto text-xs text-green-500 shrink-0">✓ created</span>
+        )}
+        {fileFeedback?.get(file.path) === 'err' && (
+          <span className="ml-auto text-xs text-destructive shrink-0">✕ failed</span>
+        )}
       </TreeRow>
     </div>
   )
@@ -285,5 +299,6 @@ export const FileExplorerTreeItem = memo(
     prev.getGitStatusDecoration === next.getGitStatusDecoration &&
     prev.searchQuery === next.searchQuery &&
     prev.isSearchMatch === next.isSearchMatch &&
-    prev.rowId === next.rowId,
+    prev.rowId === next.rowId &&
+    prev.fileFeedback?.get(prev.file.path) === next.fileFeedback?.get(next.file.path),
 )

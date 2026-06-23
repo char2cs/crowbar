@@ -705,7 +705,8 @@ function FileExplorerTreeComponent({
     }
   }, [openAllFilesDialog, openFilePathsInTabs])
 
-  const { setContextMenu, handleContextMenu, contextMenuElement } = useFileExplorerContextMenu({
+  const { setContextMenu, handleContextMenu, contextMenuElement, fileFeedback } =
+    useFileExplorerContextMenu({
     rootFolderPath,
     onFileSelect,
     onCreateNewFileInDirectory,
@@ -1255,6 +1256,7 @@ function FileExplorerTreeComponent({
                       rowId={getFileTreeRowId(row.file.path)}
                       searchQuery={isTreeSearchActive ? treeSearchQuery : undefined}
                       isSearchMatch={treeSearchResult.matchedPaths.has(row.file.path)}
+                      fileFeedback={fileFeedback}
                     />
                   )
                 })}
