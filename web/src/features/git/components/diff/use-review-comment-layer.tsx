@@ -18,12 +18,12 @@ import {
 } from '@/features/git/utils/diff-editor-content'
 import { CommentComposer } from '@/features/panes/components/comment-composer'
 import type { CommentZoneSpec } from '@/features/editor/components/use-diff-comment-zones'
-import { toast } from '@/features/window/stores/toast-store'
 import { useWorkspaceStoreContext } from '@/features/workspace/stores/workspace-context'
 
 export interface ReviewCommentLayer {
   commentZones: CommentZoneSpec[]
   onAddCommentAtLine: (modelLine: number) => void
+  commentError: { threadId?: string; msg: string } | null
 }
 
 /**
@@ -47,6 +47,7 @@ export function useReviewCommentLayer(params: {
   const allThreads = useWorkspaceStoreContext((s) => s.branchReview.threads)
   const identity = useCurrentIdentity(wsId)
   const anchors = useMemo(() => buildUnifiedThreadAnchorMap(diff), [diff])
+  const [commentError, setCommentError] = useState<{ threadId?: string; msg: string } | null>(null)
   const [composer, setComposer] = useState<{
     modelLine: number
     side: 'old' | 'new'
@@ -68,11 +69,12 @@ export function useReviewCommentLayer(params: {
 
   const handleReply = useCallback(
     async (threadId: string, body: string) => {
+      setCommentError(null)
       try {
         const author = await resolveAuthor()
         await replyToThread(wsId, threadId, { author, isAgent: false, body })
-      } catch (error) {
-        toast.error('Failed to post reply', error instanceof Error ? error.message : undefined)
+      } catch {
+        setCommentError({ threadId, msg: 'Failed to post reply' })
       }
     },
     [resolveAuthor, wsId],
@@ -91,32 +93,35 @@ export function useReviewCommentLayer(params: {
   )
   const handleEditMessage = useCallback(
     async (threadId: string, messageId: string, body: string) => {
+      setCommentError(null)
       try {
         await editMessage(wsId, threadId, messageId, body)
-      } catch (error) {
-        toast.error('Failed to edit comment', error instanceof Error ? error.message : undefined)
+      } catch (err) {
+        setCommentError({ threadId, msg: 'Failed to edit comment' })
         // Re-throw so the inline editor stays open and the user keeps their text.
-        throw error
+        throw err
       }
     },
     [wsId],
   )
   const handleDeleteMessage = useCallback(
     async (threadId: string, messageId: string) => {
+      setCommentError(null)
       try {
         await deleteMessage(wsId, threadId, messageId)
-      } catch (error) {
-        toast.error('Failed to delete comment', error instanceof Error ? error.message : undefined)
+      } catch {
+        setCommentError({ threadId, msg: 'Failed to delete comment' })
       }
     },
     [wsId],
   )
   const handleDeleteThread = useCallback(
     async (threadId: string) => {
+      setCommentError(null)
       try {
         await deleteThread(wsId, threadId)
-      } catch (error) {
-        toast.error('Failed to delete thread', error instanceof Error ? error.message : undefined)
+      } catch {
+        setCommentError({ threadId, msg: 'Failed to delete thread' })
       }
     },
     [wsId],
@@ -124,6 +129,7 @@ export function useReviewCommentLayer(params: {
   const handleComposerSubmit = useCallback(
     async (body: string) => {
       if (!composer) return
+      setCommentError(null)
       try {
         const author = await resolveAuthor()
         await openThread(wsId, {
@@ -137,8 +143,8 @@ export function useReviewCommentLayer(params: {
           body,
         })
         setComposer(null)
-      } catch (error) {
-        toast.error('Failed to post comment', error instanceof Error ? error.message : undefined)
+      } catch {
+        setCommentError({ msg: 'Failed to post comment' })
       }
     },
     [composer, filePath, resolveAuthor, wsId],
@@ -223,5 +229,5 @@ export function useReviewCommentLayer(params: {
   ])
 
   if (!enabled) return null
-  return { commentZones, onAddCommentAtLine }
+  return { commentZones, onAddCommentAtLine, commentError }
 }
