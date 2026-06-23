@@ -25,3 +25,6 @@ api/cmd/crowbar/web/
 
 # backend superpowers working artifacts (root docs/superpowers is intentionally tracked)
 api/docs/superpowers/
+
+# stray local build artifact (noEmbed daemon binary)
+/api/crowbar

@@ -35,23 +35,23 @@ type engine struct {
 // one lock and their git operations serialize (07 §3.1). Resolution runs once
 // per input path before the lock is taken (no reentrancy), and falls back to the
 // raw path when repoPath is not inside a git repo.
-func (e *engine) repoMutex(repoPath string) *sync.Mutex {
-	key := e.resolveCommonDir(repoPath)
+func (e *engine) repoMutex(ctx context.Context, repoPath string) *sync.Mutex {
+	key := e.resolveCommonDir(ctx, repoPath)
 	actual, _ := e.mu.LoadOrStore(key, &sync.Mutex{})
 	return actual.(*sync.Mutex)
 }
 
-func (e *engine) resolveCommonDir(repoPath string) string {
+func (e *engine) resolveCommonDir(ctx context.Context, repoPath string) string {
 	if cached, ok := e.commonDir.Load(repoPath); ok {
 		return cached.(string)
 	}
-	key := e.computeCommonDir(repoPath)
+	key := e.computeCommonDir(ctx, repoPath)
 	e.commonDir.Store(repoPath, key)
 	return key
 }
 
-func (e *engine) computeCommonDir(repoPath string) string {
-	r := e.exec(context.Background(), repoPath, "rev-parse", "--git-common-dir")
+func (e *engine) computeCommonDir(ctx context.Context, repoPath string) string {
+	r := e.exec(ctx, repoPath, "rev-parse", "--git-common-dir")
 	if gitexec.RequireSuccess("rev-parse --git-common-dir", r) != nil {
 		return repoPath
 	}
@@ -69,9 +69,8 @@ func (e *engine) computeCommonDir(repoPath string) string {
 	return filepath.Clean(abs)
 }
 
-// lockRepo acquires the per-repo mutex and returns an unlock func for use with defer.
-func (e *engine) lockRepo(repoPath string) func() {
-	mu := e.repoMutex(repoPath)
+func (e *engine) lockRepo(ctx context.Context, repoPath string) func() {
+	mu := e.repoMutex(ctx, repoPath)
 	mu.Lock()
 	return mu.Unlock
 }
@@ -168,7 +167,7 @@ func (e *engine) StageFile(
 	repoPath string,
 	filePath string,
 ) error {
-	defer e.lockRepo(repoPath)()
+	defer e.lockRepo(ctx, repoPath)()
 	r := e.exec(ctx, repoPath, "add", filePath)
 	return gitexec.RequireSuccess("stage file", r)
 }
@@ -179,7 +178,7 @@ func (e *engine) StageHunk(
 	filePath string,
 	hunkID string,
 ) error {
-	defer e.lockRepo(repoPath)()
+	defer e.lockRepo(ctx, repoPath)()
 	return e.applyHunk(ctx, repoPath, filePath, hunkID, false)
 }
 
@@ -188,7 +187,7 @@ func (e *engine) UnstageFile(
 	repoPath string,
 	filePath string,
 ) error {
-	defer e.lockRepo(repoPath)()
+	defer e.lockRepo(ctx, repoPath)()
 	r := e.exec(ctx, repoPath, "restore", "--staged", filePath)
 	return gitexec.RequireSuccess("unstage file", r)
 }
@@ -199,7 +198,7 @@ func (e *engine) UnstageHunk(
 	filePath string,
 	hunkID string,
 ) error {
-	defer e.lockRepo(repoPath)()
+	defer e.lockRepo(ctx, repoPath)()
 	return e.applyHunk(ctx, repoPath, filePath, hunkID, true)
 }
 
@@ -208,7 +207,7 @@ func (e *engine) Discard(
 	repoPath string,
 	filePath string,
 ) error {
-	defer e.lockRepo(repoPath)()
+	defer e.lockRepo(ctx, repoPath)()
 	st, err := e.Status(ctx, repoPath)
 	if err != nil {
 		return fmt.Errorf("git: discard: status: %w", err)
@@ -249,7 +248,7 @@ func (e *engine) Commit(
 	subject string,
 	body string,
 ) error {
-	defer e.lockRepo(repoPath)()
+	defer e.lockRepo(ctx, repoPath)()
 	args := []string{"commit", "-m", subject}
 	if body != "" {
 		args = append(args, "-m", body)
@@ -262,7 +261,7 @@ func (e *engine) Push(
 	ctx context.Context,
 	repoPath string,
 ) error {
-	defer e.lockRepo(repoPath)()
+	defer e.lockRepo(ctx, repoPath)()
 	r := e.exec(ctx, repoPath, "push")
 	return classifyGitError("push", r)
 }
@@ -271,7 +270,7 @@ func (e *engine) Fetch(
 	ctx context.Context,
 	repoPath string,
 ) error {
-	defer e.lockRepo(repoPath)()
+	defer e.lockRepo(ctx, repoPath)()
 	r := e.exec(ctx, repoPath, "fetch")
 	return gitexec.RequireSuccess("fetch", r)
 }
@@ -281,7 +280,7 @@ func (e *engine) FetchRef(
 	repoPath string,
 	branch string,
 ) error {
-	defer e.lockRepo(repoPath)()
+	defer e.lockRepo(ctx, repoPath)()
 	r := e.exec(ctx, repoPath, "fetch", "origin", branch)
 	return gitexec.RequireSuccess("fetch ref", r)
 }
@@ -291,7 +290,7 @@ func (e *engine) Pull(
 	repoPath string,
 	mode string,
 ) error {
-	defer e.lockRepo(repoPath)()
+	defer e.lockRepo(ctx, repoPath)()
 	flag := "--no-rebase"
 	if mode == "rebase" {
 		flag = "--rebase"
@@ -381,7 +380,7 @@ func (e *engine) Reset(
 	mode string,
 	commit string,
 ) error {
-	defer e.lockRepo(repoPath)()
+	defer e.lockRepo(ctx, repoPath)()
 	flag := "--" + mode
 	args := []string{"reset", flag}
 	if commit != "" {
@@ -396,7 +395,7 @@ func (e *engine) Merge(
 	repoPath string,
 	branch string,
 ) error {
-	defer e.lockRepo(repoPath)()
+	defer e.lockRepo(ctx, repoPath)()
 	r := e.exec(ctx, repoPath, "merge", branch)
 	return classifyGitError("merge", r)
 }
@@ -406,7 +405,7 @@ func (e *engine) Rebase(
 	repoPath string,
 	onto string,
 ) error {
-	defer e.lockRepo(repoPath)()
+	defer e.lockRepo(ctx, repoPath)()
 	r := e.exec(ctx, repoPath, "rebase", onto)
 	return classifyGitError("rebase", r)
 }
@@ -441,7 +440,7 @@ func (e *engine) OperationContinue(
 	ctx context.Context,
 	repoPath string,
 ) error {
-	defer e.lockRepo(repoPath)()
+	defer e.lockRepo(ctx, repoPath)()
 	return e.operationContinue(ctx, repoPath)
 }
 
@@ -449,7 +448,7 @@ func (e *engine) OperationAbort(
 	ctx context.Context,
 	repoPath string,
 ) error {
-	defer e.lockRepo(repoPath)()
+	defer e.lockRepo(ctx, repoPath)()
 	return e.operationAbort(ctx, repoPath)
 }
 

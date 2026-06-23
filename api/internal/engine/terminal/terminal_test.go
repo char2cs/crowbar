@@ -154,7 +154,7 @@ func TestEngine_OnSessionEnded_FiresOnReap(t *testing.T) {
 		sid  string
 	}
 	endedCh := make(chan ended, 1)
-	eng.OnSessionEnded(func(wsID, sid string) {
+	eng.OnSessionEnded(func(_ context.Context, wsID, sid string) {
 		endedCh <- ended{wsID: wsID, sid: sid}
 	})
 

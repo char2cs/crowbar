@@ -85,7 +85,7 @@ type Engine interface {
 	// (a Kill, a Shutdown, or a PTY self-exit). It fires exactly once per
 	// session so the lifecycle topic can emit an "ended" frame.
 	OnSessionEnded(
-		fn func(workspaceID string, sessionID string),
+		fn func(ctx context.Context, workspaceID string, sessionID string),
 	)
 
 	// SessionExists reports whether a session with the given ID is currently active.
@@ -102,7 +102,7 @@ type terminalEngine struct {
 	reg *registry.Registry
 
 	mu        sync.RWMutex
-	onEnded   func(workspaceID string, sessionID string)
+	onEnded   func(ctx context.Context, workspaceID string, sessionID string)
 	endedOnce map[string]struct{}
 }
 
@@ -174,12 +174,13 @@ func (e *terminalEngine) reapOnDone(
 ) {
 	<-s.Done()
 	e.reg.Remove(id)
-	e.fireEnded(workspaceID, id)
+	e.fireEnded(context.Background(), workspaceID, id)
 }
 
 // fireEnded invokes the registered OnSessionEnded callback exactly once per
 // session id, guarding against duplicate notifications.
 func (e *terminalEngine) fireEnded(
+	ctx context.Context,
 	workspaceID string,
 	sessionID string,
 ) {
@@ -196,13 +197,13 @@ func (e *terminalEngine) fireEnded(
 	e.endedOnce[sessionID] = struct{}{}
 	e.mu.Unlock()
 
-	fn(workspaceID, sessionID)
+	fn(ctx, workspaceID, sessionID)
 }
 
 // OnSessionEnded registers the termination callback. The most recent
 // registration wins, mirroring the LSP engine's OnDiagnostics hook.
 func (e *terminalEngine) OnSessionEnded(
-	fn func(workspaceID string, sessionID string),
+	fn func(ctx context.Context, workspaceID string, sessionID string),
 ) {
 	e.mu.Lock()
 	e.onEnded = fn

@@ -68,13 +68,14 @@ func (h *Handlers) Create(
 // entity. A blank wsID (for example a create that never produced an id) is a
 // no-op since there is no entity to attach the error to.
 func (h *Handlers) broadcastLastError(
+	ctx context.Context,
 	wsID string,
 	message string,
 ) {
 	if wsID == "" {
 		return
 	}
-	_, _ = h.lastErrors.SetLastError(context.Background(), wsID, message)
+	_, _ = h.lastErrors.SetLastError(ctx, wsID, message)
 }
 
 func (h *Handlers) buildCreateInput(

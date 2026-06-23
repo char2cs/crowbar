@@ -138,7 +138,7 @@ func TestNew_StorageError(t *testing.T) {
 	require.NoError(t, sqlDB.Close())
 
 	// New should surface the storage init error.
-	_, err = New(db, nil, func(domain.Workspace) {})
+	_, err = New(db, nil, func(context.Context, domain.Workspace) {})
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "workspace store")
 }

@@ -12,9 +12,22 @@
  *      high-signal cases:  name( → function,  Name → type,  ALL_CAPS → constant.
  *      False-positive rate inside string literals is low and acceptable.
  *
- * The previous heuristic path that called `monaco.editor.tokenize(fullText)`
- * on the main thread has been removed — it caused 60–120ms stalls every ~30s
- * and a self-sustaining fireProviderChange → re-request → tokenize loop.
+ * Cancellation-safe design:
+ *   Monaco wraps every provider call in createCancelablePromise. When _cancelAll()
+ *   fires (triggered by scroll, resize, config change, etc.) the outer promise
+ *   rejects immediately — any value the async provider later returns is silently
+ *   dropped and setPartialSemanticTokens never runs.
+ *
+ *   The async tree-sitter path (100ms+ for the wasm fetch to fail in dev) was
+ *   therefore never surviving cancellation. The fix: provideDocumentRangeSemanticTokens
+ *   is now synchronous — it always returns heuristic tokens immediately so Monaco
+ *   settles the promise before any macro-task can cancel it. Tree-sitter runs in
+ *   the background; when it succeeds it populates the cache and fires providerChange,
+ *   and the next Monaco request hits the cache synchronously.
+ *
+ *   Monaco's adaptive debounce (min 100ms, max 500ms) rewards fast providers by
+ *   keeping the delay at the minimum — so resize/scroll performance is better than
+ *   with the async path.
  */
 import { editor, languages } from 'monaco-editor'
 import { getLanguageAssetConfig } from '@/features/editor/lib/wasm-parser/extension-assets'
@@ -31,6 +44,10 @@ const EMPTY: languages.SemanticTokens = { data: new Uint32Array(0) }
 // failed worker call and never cleared — a language is either supported or
 // not for the lifetime of the page.
 const unsupportedLanguages = new Set<string>()
+
+// Model URIs currently being parsed in the background. Prevents duplicate
+// parses when Monaco fires multiple rapid requests for the same document.
+const pendingParse = new Set<string>()
 
 // Full token set per {modelUri, versionId} — populated once per document
 // version from a 'full' tree-sitter parse, then filtered to the viewport on
@@ -97,7 +114,9 @@ export const treeSitterSemanticTokensProvider: languages.DocumentRangeSemanticTo
   getLegend: () => SEMANTIC_TOKEN_LEGEND,
   onDidChange: providerOnDidChange,
 
-  async provideDocumentRangeSemanticTokens(model, range, token) {
+  // Synchronous — always returns immediately so Monaco's createCancelablePromise
+  // settles before any _cancelAll() macro-task can drop our tokens.
+  provideDocumentRangeSemanticTokens(model, range) {
     const languageId = getLanguageIdFromPath(model.uri.path)
     if (!languageId) return EMPTY
 
@@ -106,8 +125,7 @@ export const treeSitterSemanticTokensProvider: languages.DocumentRangeSemanticTo
     const startLine = range.startLineNumber - 1
     const endLine = range.endLineNumber - 1
 
-    // Tree-sitter cache hit: full token set already computed for this version.
-    // Filter to viewport locally — O(viewport tokens), no getValue(), no worker.
+    // Tree-sitter cache hit: filter to viewport — O(viewport tokens), no worker.
     const cached = fullTokenCache.get(key)
     if (cached && cached.versionId === versionId) {
       if (cached.tokens.length === 0) return EMPTY
@@ -118,50 +136,55 @@ export const treeSitterSemanticTokensProvider: languages.DocumentRangeSemanticTo
       return data.length > 0 ? { data } : EMPTY
     }
 
-    // Tree-sitter grammar not available for this language — use heuristic.
+    // Tree-sitter grammar not available — heuristic only, no background work.
     if (unsupportedLanguages.has(languageId)) {
       return heuristicForRange(model, startLine, endLine)
     }
 
-    // Cache miss: attempt a full tree-sitter parse, then cache for every
-    // subsequent scroll / viewport request for this document version.
-    try {
-      const assets = getLanguageAssetConfig(languageId)
-      const result = await tokenizerWorkerClient.tokenize({
-        bufferId: key,
-        content: model.getValue(),
-        languageId,
-        wasmPath: assets.wasmPath,
-        highlightQueryUrl: assets.highlightQueryUrl,
-        mode: 'full',
-      })
-
-      if (token.isCancellationRequested) return EMPTY
-
-      fullTokenCache.set(key, { versionId, tokens: result.tokens })
-      if (fullTokenCache.size > MAX_FULL_TOKEN_CACHE) {
-        const oldest = fullTokenCache.keys().next().value
-        if (oldest !== undefined) fullTokenCache.delete(oldest)
-      }
-
-      // Signal Monaco to re-apply tokens now that the cache is warm. Only
-      // fired on tree-sitter success — firing for heuristic results would
-      // create an infinite re-request loop.
-      fireProviderChange()
-
-      const filtered = result.tokens.filter(
-        (t) => t.endPosition.row >= startLine && t.startPosition.row <= endLine,
-      )
-      const data = encodeTokens(filtered, (row) => model.getLineLength(row + 1))
-      return data.length > 0 ? { data } : EMPTY
-    } catch {
-      // Mark the language permanently unsupported regardless of whether the
-      // request was cancelled. A wasm-not-found error is a deployment-time
-      // fact; cancellation doesn't change it.
-      unsupportedLanguages.add(languageId)
-      return heuristicForRange(model, startLine, endLine)
-    }
+    // Cache miss: return heuristic immediately and kick off a background parse.
+    // When tree-sitter finishes it populates the cache and fires providerChange,
+    // which triggers a second Monaco request that hits the cache synchronously.
+    void parseInBackground(model, languageId, key, versionId)
+    return heuristicForRange(model, startLine, endLine)
   },
+}
+
+async function parseInBackground(
+  model: editor.ITextModel,
+  languageId: string,
+  key: string,
+  versionId: number,
+): Promise<void> {
+  if (pendingParse.has(key)) return
+  pendingParse.add(key)
+  try {
+    const assets = getLanguageAssetConfig(languageId)
+    const result = await tokenizerWorkerClient.tokenize({
+      bufferId: key,
+      content: model.getValue(),
+      languageId,
+      wasmPath: assets.wasmPath,
+      highlightQueryUrl: assets.highlightQueryUrl,
+      mode: 'full',
+    })
+
+    // Discard if the document was edited while we were parsing.
+    if (model.isDisposed() || model.getVersionId() !== versionId) return
+
+    fullTokenCache.set(key, { versionId, tokens: result.tokens })
+    if (fullTokenCache.size > MAX_FULL_TOKEN_CACHE) {
+      const oldest = fullTokenCache.keys().next().value
+      if (oldest !== undefined) fullTokenCache.delete(oldest)
+    }
+
+    // Trigger Monaco to re-request; next call is a synchronous cache hit.
+    fireProviderChange()
+  } catch {
+    unsupportedLanguages.add(languageId)
+    // No fireProviderChange — heuristic is already applied.
+  } finally {
+    pendingParse.delete(key)
+  }
 }
 
 let registered = false

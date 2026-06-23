@@ -11,19 +11,21 @@ import (
 // SameRepoMutex reports whether two repo paths resolve to the same per-repo
 // mutex (i.e. share a git common directory) for the engine returned by New().
 func SameRepoMutex(
+	ctx context.Context,
 	a string,
 	b string,
 ) bool {
 	e := New().(*engine)
-	return e.repoMutex(a) == e.repoMutex(b)
+	return e.repoMutex(ctx, a) == e.repoMutex(ctx, b)
 }
 
 // ExportedResolveCommonDir returns the lock key the engine derives for repoPath.
 func ExportedResolveCommonDir(
+	ctx context.Context,
 	repoPath string,
 ) string {
 	e := New().(*engine)
-	return e.resolveCommonDir(repoPath)
+	return e.resolveCommonDir(ctx, repoPath)
 }
 
 // ExportedComputeStatus calls ComputeStatus on the engine returned by New().
@@ -61,9 +63,10 @@ func ExportedParseNumstat(
 
 // ExportedDetectInProgressOp wraps detectInProgressOp for unit tests.
 func ExportedDetectInProgressOp(
+	ctx context.Context,
 	repoPath string,
 ) string {
-	return detectInProgressOp(repoPath)
+	return detectInProgressOp(ctx, repoPath)
 }
 
 func errExec(_ context.Context, _ string, _ ...string) gitexec.Result {

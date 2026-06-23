@@ -43,14 +43,14 @@ func newRepo(
 	t *testing.T,
 ) (context.Context, workspace.Workspace) {
 	t.Helper()
-	repo, err := workspace.New(newAdapter(t, t.TempDir()), func(domain.Workspace) {}, wsAsynxFactory)
+	repo, err := workspace.New(newAdapter(t, t.TempDir()), func(context.Context, domain.Workspace) {}, wsAsynxFactory)
 	require.NoError(t, err)
 	return context.Background(), repo
 }
 
 func newRepoWithBroadcast(
 	t *testing.T,
-	broadcast func(domain.Workspace),
+	broadcast func(context.Context, domain.Workspace),
 ) (context.Context, workspace.Workspace) {
 	t.Helper()
 	repo, err := workspace.New(newAdapter(t, t.TempDir()), broadcast, wsAsynxFactory)
@@ -86,7 +86,7 @@ func TestWorkspace_SetLastError_ErrorOnMissing(t *testing.T) {
 
 func TestWorkspace_Delete_BroadcastsDeletedTombstone(t *testing.T) {
 	var got []domain.Workspace
-	broadcast := func(ws domain.Workspace) { got = append(got, ws) }
+	broadcast := func(_ context.Context, ws domain.Workspace) { got = append(got, ws) }
 	ctx, repo := newRepoWithBroadcast(t, broadcast)
 	now := time.Unix(1000, 0).UTC()
 	_, err := repo.Create(ctx, workspace.CreateInput{ID: "w1", RepoID: "r1", ProjectID: "p1"}, now)
@@ -129,7 +129,7 @@ func TestWorkspace_Create_RoundTrips(t *testing.T) {
 
 func TestCreate_WritesLocationIndexAndPerEntityStores(t *testing.T) {
 	home := t.TempDir()
-	repo, err := workspace.New(newAdapter(t, home), func(domain.Workspace) {}, wsAsynxFactory)
+	repo, err := workspace.New(newAdapter(t, home), func(context.Context, domain.Workspace) {}, wsAsynxFactory)
 	require.NoError(t, err)
 	ctx := context.Background()
 
@@ -201,7 +201,7 @@ func TestPersistence_AcrossReopen(t *testing.T) {
 	now := time.Unix(1000, 0).UTC()
 
 	first := newAdapterClosable(t, home)
-	repo1, err := workspace.New(first, func(domain.Workspace) {}, wsAsynxFactory)
+	repo1, err := workspace.New(first, func(context.Context, domain.Workspace) {}, wsAsynxFactory)
 	require.NoError(t, err)
 	_, err = repo1.Create(ctx, workspace.CreateInput{
 		ID:        "w1",
@@ -213,7 +213,7 @@ func TestPersistence_AcrossReopen(t *testing.T) {
 	require.NoError(t, first.Close())
 
 	second := newAdapter(t, home)
-	repo2, err := workspace.New(second, func(domain.Workspace) {}, wsAsynxFactory)
+	repo2, err := workspace.New(second, func(context.Context, domain.Workspace) {}, wsAsynxFactory)
 	require.NoError(t, err)
 
 	got, err := repo2.Get(ctx, "w1")
@@ -441,10 +441,10 @@ func TestCreate_PersistsIsDefault(t *testing.T) {
 }
 
 func TestWorkspace_New_NilGuards(t *testing.T) {
-	_, err := workspace.New(nil, func(domain.Workspace) {}, wsAsynxFactory)
+	_, err := workspace.New(nil, func(context.Context, domain.Workspace) {}, wsAsynxFactory)
 	assert.Error(t, err)
 
-	_, err = workspace.New(newAdapter(t, t.TempDir()), func(domain.Workspace) {}, nil)
+	_, err = workspace.New(newAdapter(t, t.TempDir()), func(context.Context, domain.Workspace) {}, nil)
 	assert.Error(t, err)
 }
 
@@ -452,7 +452,7 @@ func TestWorkspace_Create_AsynxFactoryError(t *testing.T) {
 	sentinel := errors.New("boom")
 	repo, err := workspace.New(
 		newAdapter(t, t.TempDir()),
-		func(domain.Workspace) {},
+		func(context.Context, domain.Workspace) {},
 		func(asynxModels.Store) (asynx.Asynx[domain.Workspace], error) {
 			return nil, sentinel
 		},

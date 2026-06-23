@@ -13,7 +13,7 @@ func (e *engine) WorktreeAdd(
 	worktreePath string,
 	branch string,
 ) error {
-	defer e.lockRepo(repoPath)()
+	defer e.lockRepo(ctx, repoPath)()
 	r := e.exec(ctx, repoPath, "worktree", "add", worktreePath, branch)
 	err := gitexec.RequireSuccess("worktree add", r)
 	if err != nil && isStaleWorktreeConflict(err) {
@@ -48,7 +48,7 @@ func (e *engine) WorktreeRemove(
 	repoPath string,
 	worktreePath string,
 ) error {
-	defer e.lockRepo(repoPath)()
+	defer e.lockRepo(ctx, repoPath)()
 	r := e.exec(ctx, repoPath, "worktree", "remove", "--force", worktreePath)
 	return gitexec.RequireSuccess("worktree remove", r)
 }
@@ -71,7 +71,7 @@ func (e *engine) RebaseOnto(
 	forkPoint string,
 	branch string,
 ) error {
-	defer e.lockRepo(repoPath)()
+	defer e.lockRepo(ctx, repoPath)()
 	r := e.exec(ctx, repoPath, "rebase", "--onto", newTip, forkPoint, branch)
 	return classifyGitError("rebase --onto", r)
 }
@@ -81,7 +81,7 @@ func (e *engine) MergeFFOnly(
 	repoPath string,
 	branch string,
 ) error {
-	defer e.lockRepo(repoPath)()
+	defer e.lockRepo(ctx, repoPath)()
 	r := e.exec(ctx, repoPath, "merge", "--ff-only", branch)
 	return classifyGitError("merge --ff-only", r)
 }

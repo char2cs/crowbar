@@ -15,14 +15,14 @@ import (
 // — errors live on the entity, never on a separate WS frame.
 func runAsync(
 	parent context.Context,
-	broadcastOnErr func(wsID string, message string),
+	broadcastOnErr func(ctx context.Context, wsID string, message string),
 	wsID string,
 	fn func(ctx context.Context) error,
 ) {
 	ctx := context.WithoutCancel(parent)
 	go func() {
 		if err := fn(ctx); err != nil {
-			broadcastOnErr(wsID, err.Error())
+			broadcastOnErr(ctx, wsID, err.Error())
 		}
 	}()
 }

@@ -29,7 +29,7 @@ func TestStore_ListReflectsProjection(t *testing.T) {
 	db, err := storesqlite.OpenDB(":memory:")
 	require.NoError(t, err)
 
-	st, err := store.New(db, ax, func(domain.Workspace) {})
+	st, err := store.New(db, ax, func(context.Context, domain.Workspace) {})
 	require.NoError(t, err)
 
 	ctx := context.Background()
@@ -54,7 +54,7 @@ func TestStore_GetReflectsProjection(t *testing.T) {
 	db, err := storesqlite.OpenDB(":memory:")
 	require.NoError(t, err)
 
-	st, err := store.New(db, ax, func(domain.Workspace) {})
+	st, err := store.New(db, ax, func(context.Context, domain.Workspace) {})
 	require.NoError(t, err)
 
 	ctx := context.Background()
@@ -80,7 +80,7 @@ func TestStore_GetMissingReturnsNil(t *testing.T) {
 	db, err := storesqlite.OpenDB(":memory:")
 	require.NoError(t, err)
 
-	st, err := store.New(db, ax, func(domain.Workspace) {})
+	st, err := store.New(db, ax, func(context.Context, domain.Workspace) {})
 	require.NoError(t, err)
 
 	got, err := st.Get(context.Background(), "nope")

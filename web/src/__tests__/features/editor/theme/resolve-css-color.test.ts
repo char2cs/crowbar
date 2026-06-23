@@ -75,6 +75,24 @@ describe('DOM resolver', () => {
     expect(resolveCssVar('--nope')).toBeNull()
   })
 
+  it('resolveCssVar resolves var() chains via a temporary element', () => {
+    vi.spyOn(window, 'getComputedStyle').mockImplementation((el) => {
+      if (el === document.documentElement) {
+        return {
+          getPropertyValue: (name: string) =>
+            name === '--syntax-comment' ? 'var(--muted-foreground)' : '',
+        } as unknown as CSSStyleDeclaration
+      }
+      // Called on the temporary span — simulate browser resolving the chain.
+      return { color: 'rgb(105, 105, 105)', getPropertyValue: () => '' } as unknown as CSSStyleDeclaration
+    })
+    const appendSpy = vi.spyOn(document.body, 'appendChild').mockImplementation((n) => n as never)
+    const removeSpy = vi.spyOn(document.body, 'removeChild').mockImplementation((n) => n as never)
+    expect(resolveCssVar('--syntax-comment')).toBe('#696969')
+    expect(appendSpy).toHaveBeenCalledOnce()
+    expect(removeSpy).toHaveBeenCalledOnce()
+  })
+
   it('readSyntaxPalette returns a hex for every syntax key', () => {
     const palette = readSyntaxPalette()
     for (const key of SYNTAX_TOKEN_KEYS) {

@@ -41,6 +41,20 @@ describe('semantic token legend', () => {
     expect(idx('keyword.return')).toBe('keyword')
   })
 
+  it('accepts pre-mapped token-* class names stored by the tokenizer worker', () => {
+    // The worker calls mapCaptureToClass before storing HighlightToken.type, so
+    // captureToTypeIndex must handle 'token-function' directly (not re-map it).
+    const idx = (t: string) => SEMANTIC_TOKEN_TYPES[captureToTypeIndex(t)]
+    expect(idx('token-function')).toBe('function')
+    expect(idx('token-type')).toBe('type')
+    expect(idx('token-keyword')).toBe('keyword')
+    expect(idx('token-variable')).toBe('variable')
+    expect(idx('token-constant')).toBe('constant')
+    expect(idx('token-comment')).toBe('comment')
+    // 'token-text' is the fallback class for unstyled identifiers — should be skipped
+    expect(captureToTypeIndex('token-text')).toBe(-1)
+  })
+
   it('returns -1 for ignored / text captures', () => {
     expect(captureToTypeIndex('none')).toBe(-1)
     expect(captureToTypeIndex('spell')).toBe(-1)

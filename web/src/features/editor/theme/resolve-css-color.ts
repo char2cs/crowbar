@@ -106,9 +106,31 @@ export const TERMINAL_ANSI_KEYS = [
 ] as const
 export type TerminalAnsiKey = (typeof TERMINAL_ANSI_KEYS)[number]
 
-/** Resolve a single CSS variable on <html> to #hex, or null if unset/unparseable. */
+/**
+ * Resolve a CSS variable to #hex, or null if unset/unparseable.
+ *
+ * `getComputedStyle().getPropertyValue()` for custom properties returns the
+ * *specified* value, not the computed one. When a variable is defined as
+ * `--syntax-comment: var(--muted-foreground)`, the API returns that literal
+ * string rather than the resolved color.
+ *
+ * When the value is a var() reference we assign it to a concrete CSS property
+ * on a temporary element so the browser resolves the full chain, then read it
+ * back as an rgb() value that cssColorToHex can parse.
+ */
 export function resolveCssVar(name: string, el: Element = document.documentElement): string | null {
-  const raw = getComputedStyle(el).getPropertyValue(name)
+  const raw = getComputedStyle(el).getPropertyValue(name).trim()
+  if (!raw) return null
+
+  if (raw.startsWith('var(')) {
+    const tmp = document.createElement('span')
+    tmp.style.color = raw
+    document.body.appendChild(tmp)
+    const resolved = getComputedStyle(tmp).color
+    document.body.removeChild(tmp)
+    return cssColorToHex(resolved)
+  }
+
   return cssColorToHex(raw)
 }
 

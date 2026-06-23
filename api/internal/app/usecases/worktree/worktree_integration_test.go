@@ -131,7 +131,7 @@ func newRealUsecase(
 
 	workspaces, err := workspace.New(
 		adapters,
-		func(domain.Workspace) {},
+		func(context.Context, domain.Workspace) {},
 		func(es asynxModels.Store) (asynx.Asynx[domain.Workspace], error) {
 			return asynx.New[domain.Workspace]().
 				WithEventStore(es).

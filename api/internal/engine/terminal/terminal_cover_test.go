@@ -45,7 +45,7 @@ func TestAttach_SessionDeadInRegistry(t *testing.T) {
 // be a no-op (and must not record the session as ended) when no callback is set.
 func TestFireEnded_NilCallback(t *testing.T) {
 	eng := New().(*terminalEngine)
-	eng.fireEnded("ws", "s1")
+	eng.fireEnded(context.Background(), "ws", "s1")
 	assert.NotContains(t, eng.endedOnce, "s1")
 }
 
@@ -54,10 +54,10 @@ func TestFireEnded_NilCallback(t *testing.T) {
 func TestFireEnded_FiresExactlyOnce(t *testing.T) {
 	eng := New().(*terminalEngine)
 	var calls int
-	eng.OnSessionEnded(func(_, _ string) { calls++ })
+	eng.OnSessionEnded(func(_ context.Context, _, _ string) { calls++ })
 
-	eng.fireEnded("ws", "s1")
-	eng.fireEnded("ws", "s1")
+	eng.fireEnded(context.Background(), "ws", "s1")
+	eng.fireEnded(context.Background(), "ws", "s1")
 
 	assert.Equal(t, 1, calls)
 }

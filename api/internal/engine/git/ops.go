@@ -13,9 +13,9 @@ import (
 // resolveGitDir returns the real .git directory for repoPath. In a secondary
 // git worktree the .git entry is a file, not a directory; we ask git itself so
 // in-progress marker files (MERGE_HEAD, rebase-merge/, …) are always found.
-func resolveGitDir(repoPath string) string {
+func resolveGitDir(ctx context.Context, repoPath string) string {
 	r := gitexec.Git(
-		context.Background(),
+		ctx,
 		repoPath,
 		"rev-parse",
 		"--git-dir",
@@ -31,9 +31,10 @@ func resolveGitDir(repoPath string) string {
 }
 
 func detectInProgressOp(
+	ctx context.Context,
 	repoPath string,
 ) string {
-	gitDir := resolveGitDir(repoPath)
+	gitDir := resolveGitDir(ctx, repoPath)
 	if fileExists(filepath.Join(gitDir, "rebase-merge")) {
 		return "rebase"
 	}
@@ -60,7 +61,7 @@ func (e *engine) operationContinue(
 	ctx context.Context,
 	repoPath string,
 ) error {
-	op := detectInProgressOp(repoPath)
+	op := detectInProgressOp(ctx, repoPath)
 	switch op {
 	case "rebase":
 		r := e.exec(ctx, repoPath, "rebase", "--continue")
@@ -76,7 +77,7 @@ func (e *engine) operationAbort(
 	ctx context.Context,
 	repoPath string,
 ) error {
-	op := detectInProgressOp(repoPath)
+	op := detectInProgressOp(ctx, repoPath)
 	switch op {
 	case "rebase":
 		r := e.exec(ctx, repoPath, "rebase", "--abort")

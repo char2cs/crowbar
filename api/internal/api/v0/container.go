@@ -89,10 +89,11 @@ func New(
 // duplicate harmless. The owning project/repo are resolved from the workspace
 // repo so the frame namespaces under projectId/repoId/wsId.
 func (c *Container) onTerminalEnded(
+	ctx context.Context,
 	workspaceID string,
 	sessionID string,
 ) {
-	projectID, repoID := c.resolveWorkspaceScope(workspaceID)
+	projectID, repoID := c.resolveWorkspaceScope(ctx, workspaceID)
 	endedAt := time.Now().UTC()
 	ended := dto.TerminalSessionDTOFrom(
 		sessionID,
@@ -110,12 +111,13 @@ func (c *Container) onTerminalEnded(
 // resolveWorkspaceScope returns the project and repo ids owning workspaceID,
 // or empty strings when the workspace cannot be resolved.
 func (c *Container) resolveWorkspaceScope(
+	ctx context.Context,
 	workspaceID string,
 ) (string, string) {
 	if c.app == nil {
 		return "", ""
 	}
-	ws, err := c.app.Repositories.Workspace.Get(context.Background(), workspaceID)
+	ws, err := c.app.Repositories.Workspace.Get(ctx, workspaceID)
 	if err != nil {
 		return "", ""
 	}

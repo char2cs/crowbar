@@ -9,11 +9,19 @@
   * {
     @apply border-border outline-ring/50;
   }
-  body {
-    @apply bg-chrome-bg text-foreground;
-  }
   html {
     @apply font-sans;
+    height: 100%;
+    overflow: hidden;
+  }
+  body {
+    @apply bg-chrome-bg text-foreground;
+    height: 100%;
+    overflow: hidden;
+  }
+  #root {
+    height: 100%;
+    overflow: hidden;
   }
 }
 

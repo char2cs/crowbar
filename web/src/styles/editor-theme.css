@@ -15,26 +15,25 @@
 /*
  * Pane-resize GPU layer pre-promotion.
  *
- * `will-change: transform` keeps each Monaco editor in its own Core Animation
- * layer at all times. This eliminates the ~47ms first-drag-frame rasterization
- * spike (WebKit uploading the editor surface to GPU on the first pointer-move).
- * Without pre-promotion that spike is visible as a stutter the moment the user
- * starts a drag.
+ * `will-change: transform` is applied to the `.monaco-editor-shell` wrapper
+ * (NOT `.monaco-editor` directly) to keep each editor in its own Core Animation
+ * layer. This eliminates the ~47ms first-drag-frame rasterization spike.
  *
- * `will-change` without a computed `transform` value does NOT establish a
- * containing block for position:fixed descendants — Monaco's fixedOverflowWidgets
- * (hover cards, signature help) are unaffected at rest.
+ * IMPORTANT: WKWebView (Tauri) treats `will-change: transform` as establishing
+ * a new containing block for `position:fixed` descendants — same as a computed
+ * `transform`. Applying it directly to `.monaco-editor` breaks `fixedOverflowWidgets`
+ * (suggest, hover, signature help): Monaco positions them relative to the viewport
+ * but they end up offset relative to the editor instead.
  *
- * During the actual drag, `transform: translateZ(0)` is added to activate the
- * layer as a proper compositor clip target, turning per-frame re-rasterization
- * (~55-66ms/frame) into a GPU clip (~9ms/frame). `transform` does create a
- * containing block, but no overflow widgets are open mid-drag and editor.layout()
- * is suppressed for the drag duration (flushed on pane-resize-end).
+ * Promoting the shell wrapper preserves GPU layering while leaving `.monaco-editor`
+ * free of containing-block side-effects.
  *
- * At 120fps (8.33ms budget) this leaves ~0.7ms headroom per frame — tight but
- * within spec. At 60fps it is effectively free.
+ * During the actual drag, `transform: translateZ(0)` on `.monaco-editor` activates
+ * the layer as a proper compositor clip target (~9ms/frame vs ~55-66ms/frame).
+ * `transform` does create a containing block, but no overflow widgets are open
+ * mid-drag and editor.layout() is suppressed for the drag duration.
  */
-.monaco-editor {
+.monaco-editor-shell {
   will-change: transform;
 }
 

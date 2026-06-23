@@ -16,7 +16,7 @@ func TestRunAsync_ErrorBroadcastsOnEntity(t *testing.T) {
 		msg string
 	}
 	got := make(chan call, 1)
-	broadcast := func(wsID string, message string) {
+	broadcast := func(_ context.Context, wsID string, message string) {
 		got <- call{id: wsID, msg: message}
 	}
 
@@ -38,7 +38,7 @@ func TestRunAsync_ErrorBroadcastsOnEntity(t *testing.T) {
 
 func TestRunAsync_SuccessDoesNotBroadcast(t *testing.T) {
 	broadcasted := make(chan struct{}, 1)
-	broadcast := func(string, string) { broadcasted <- struct{}{} }
+	broadcast := func(context.Context, string, string) { broadcasted <- struct{}{} }
 	done := make(chan struct{})
 
 	runAsync(
@@ -66,7 +66,7 @@ func TestRunAsync_DetachesFromCancelledParent(t *testing.T) {
 	gotErr := make(chan error, 1)
 	runAsync(
 		parent,
-		func(string, string) {},
+		func(context.Context, string, string) {},
 		"w1",
 		func(ctx context.Context) error {
 			gotErr <- ctx.Err()

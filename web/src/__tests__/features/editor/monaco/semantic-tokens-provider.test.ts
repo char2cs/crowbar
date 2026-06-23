@@ -1,3 +1,10 @@
+/**
+ * Tests for the heuristic-first, cancellation-safe semantic tokens provider.
+ *
+ * The provider is synchronous — it always returns immediately (heuristic or
+ * cache) so Monaco's createCancelablePromise settles before _cancelAll() can
+ * drop the result. Tree-sitter runs in the background via parseInBackground.
+ */
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 vi.mock('@/features/editor/lib/wasm-parser/tokenizer-worker-client', () => ({
@@ -6,13 +13,8 @@ vi.mock('@/features/editor/lib/wasm-parser/tokenizer-worker-client', () => ({
 vi.mock('@/features/editor/utils/language-id', () => ({
   getLanguageIdFromPath: vi.fn(),
 }))
-// Mock Monaco: the provider only uses `editor.tokenize` (heuristic fallback) and
-// `languages.register…` (registration, not exercised here). tokenize marks every
-// line as plain code so the heuristic classifies identifiers.
 vi.mock('monaco-editor', () => ({
-  editor: {
-    tokenize: vi.fn((text: string) => text.split('\n').map(() => [{ offset: 0, type: '' }])),
-  },
+  editor: {},
   languages: { registerDocumentRangeSemanticTokensProvider: vi.fn() },
 }))
 
@@ -20,87 +22,139 @@ import { tokenizerWorkerClient } from '@/features/editor/lib/wasm-parser/tokeniz
 import { getLanguageIdFromPath } from '@/features/editor/utils/language-id'
 import { treeSitterSemanticTokensProvider } from '@/features/editor/monaco/semantic-tokens-provider'
 
-const cancel = { isCancellationRequested: false } as any
-function model(path: string, value = 'x', lang = 'go') {
+/** Drain pending microtasks so background promises settle. */
+async function flush(): Promise<void> {
+  await Promise.resolve()
+  await Promise.resolve()
+  await Promise.resolve()
+}
+
+function fakeModel(path: string, value = 'x', versionId = 1) {
   const lines = value.split('\n')
   return {
-    uri: { path, toString: () => `file://${path}` },
+    uri: { path, toString: () => `mock://${path}` },
     getValue: () => value,
-    getVersionId: () => 1,
+    getVersionId: () => versionId,
+    isDisposed: () => false,
     getLineCount: () => lines.length,
     getLineContent: (n: number) => lines[n - 1] ?? '',
     getLineLength: (n: number) => (lines[n - 1] ?? '').length,
-    getLanguageId: () => lang,
+    getLanguageId: () => 'go',
   } as any
 }
+
 const range = { startLineNumber: 1, endLineNumber: 10 } as any
+const cancelToken = { isCancellationRequested: false } as any
 
 describe('treeSitterSemanticTokensProvider', () => {
   beforeEach(() => vi.clearAllMocks())
   afterEach(() => vi.restoreAllMocks())
 
-  it('uses precise Tree-sitter tokens when the grammar yields them', async () => {
+  it('returns heuristic tokens immediately on first call without awaiting tree-sitter', () => {
+    ;(getLanguageIdFromPath as any).mockReturnValue('go')
+    ;(tokenizerWorkerClient.tokenize as any).mockResolvedValue({ tokens: [], normalizedText: '' })
+
+    const m = fakeModel('/first-call.go', 'Foo()\n')
+    const result = treeSitterSemanticTokensProvider.provideDocumentRangeSemanticTokens(
+      m, range, cancelToken,
+    ) as any
+
+    // Heuristic detects Foo() as a function call → non-empty token data
+    expect(result.data.length).toBeGreaterThan(0)
+    // Background parse was kicked off
+    expect(tokenizerWorkerClient.tokenize).toHaveBeenCalledOnce()
+  })
+
+  it('returns tree-sitter tokens from cache on the second call after background parse succeeds', async () => {
     ;(getLanguageIdFromPath as any).mockReturnValue('go')
     ;(tokenizerWorkerClient.tokenize as any).mockResolvedValue({
-      tokens: [
-        {
-          type: 'function.call',
-          startIndex: 0,
-          endIndex: 0,
-          startPosition: { row: 0, column: 0 },
-          endPosition: { row: 0, column: 5 },
-        },
-      ],
+      tokens: [{
+        type: 'function.call',
+        startIndex: 0, endIndex: 0,
+        startPosition: { row: 0, column: 0 },
+        endPosition: { row: 0, column: 5 },
+      }],
+      normalizedText: 'Foo()',
+    })
+
+    const m = fakeModel('/cache-upgrade.go', 'Foo()\n')
+
+    // First call: heuristic + starts background parse
+    treeSitterSemanticTokensProvider.provideDocumentRangeSemanticTokens(m, range, cancelToken)
+    await flush()
+
+    // Second call: cache hit → tree-sitter token (5 uint32s per token)
+    const r2 = treeSitterSemanticTokensProvider.provideDocumentRangeSemanticTokens(
+      m, range, cancelToken,
+    ) as any
+    expect(r2.data.length).toBe(5)
+    // Worker called only once — second call was a cache read
+    expect(tokenizerWorkerClient.tokenize).toHaveBeenCalledOnce()
+  })
+
+  it('returns empty for an unknown file extension without touching the worker', () => {
+    ;(getLanguageIdFromPath as any).mockReturnValue(null)
+
+    const r = treeSitterSemanticTokensProvider.provideDocumentRangeSemanticTokens(
+      fakeModel('/x.unknown', 'Foo()\n'), range, cancelToken,
+    ) as any
+
+    expect(tokenizerWorkerClient.tokenize).not.toHaveBeenCalled()
+    expect(r.data.length).toBe(0)
+  })
+
+  it('marks the language unsupported after a failed background parse and never retries the worker', async () => {
+    ;(getLanguageIdFromPath as any).mockReturnValue('no-wasm-lang')
+    ;(tokenizerWorkerClient.tokenize as any).mockRejectedValue(new Error('no wasm'))
+
+    const m1 = fakeModel('/a.nwl', 'Foo()\n')
+    const r1 = treeSitterSemanticTokensProvider.provideDocumentRangeSemanticTokens(
+      m1, range, cancelToken,
+    ) as any
+    expect(r1.data.length).toBeGreaterThan(0) // heuristic returned immediately
+
+    await flush() // background parse fails, marks 'no-wasm-lang' unsupported
+
+    const m2 = fakeModel('/b.nwl', 'Bar()\n')
+    treeSitterSemanticTokensProvider.provideDocumentRangeSemanticTokens(m2, range, cancelToken)
+    expect(tokenizerWorkerClient.tokenize).toHaveBeenCalledOnce() // no retry
+  })
+
+  it('does not spawn duplicate background parses for the same model URI', () => {
+    ;(getLanguageIdFromPath as any).mockReturnValue('go')
+    ;(tokenizerWorkerClient.tokenize as any).mockResolvedValue({ tokens: [], normalizedText: '' })
+
+    const m = fakeModel('/dup-guard.go', 'x')
+    treeSitterSemanticTokensProvider.provideDocumentRangeSemanticTokens(m, range, cancelToken)
+    treeSitterSemanticTokensProvider.provideDocumentRangeSemanticTokens(m, range, cancelToken)
+    treeSitterSemanticTokensProvider.provideDocumentRangeSemanticTokens(m, range, cancelToken)
+
+    expect(tokenizerWorkerClient.tokenize).toHaveBeenCalledOnce()
+  })
+
+  it('discards stale background parse results when the model version changed during parse', async () => {
+    ;(getLanguageIdFromPath as any).mockReturnValue('go')
+    ;(tokenizerWorkerClient.tokenize as any).mockResolvedValue({
+      tokens: [{
+        type: 'function.call',
+        startIndex: 0, endIndex: 0,
+        startPosition: { row: 0, column: 0 },
+        endPosition: { row: 0, column: 5 },
+      }],
       normalizedText: 'x',
     })
-    const r = await treeSitterSemanticTokensProvider.provideDocumentRangeSemanticTokens(
-      model('/main.go'),
-      range,
-      cancel,
-    )
-    expect(r!.data.length).toBe(5)
-    expect(tokenizerWorkerClient.tokenize).toHaveBeenCalledOnce()
-  })
 
-  it('returns empty for an unknown extension (no language id → worker not called)', async () => {
-    ;(getLanguageIdFromPath as any).mockReturnValue(null)
-    const r = await treeSitterSemanticTokensProvider.provideDocumentRangeSemanticTokens(
-      model('/x.unknown', 'newRootCmd()\n'),
-      range,
-      cancel,
-    )
-    // No path-derived language id → bail before any heuristic/worker work.
-    expect(tokenizerWorkerClient.tokenize).not.toHaveBeenCalled()
-    expect(r!.data.length).toBe(0)
-  })
+    const staleModel = fakeModel('/stale.go', 'x', 1)
+    treeSitterSemanticTokensProvider.provideDocumentRangeSemanticTokens(staleModel, range, cancelToken)
+    await flush() // cache populated with versionId=1
 
-  it('falls back to the heuristic when the worker fails, and caches the language', async () => {
-    ;(getLanguageIdFromPath as any).mockReturnValue('zonk')
-    ;(tokenizerWorkerClient.tokenize as any).mockRejectedValue(new Error('no wasm'))
-    const r1 = await treeSitterSemanticTokensProvider.provideDocumentRangeSemanticTokens(
-      model('/a.zonk', 'Foo()\n'),
-      range,
-      cancel,
-    )
-    expect(r1!.data.length).toBe(5) // heuristic colored Foo()
-    // second call: language cached unsupported → worker NOT retried, heuristic again
-    const r2 = await treeSitterSemanticTokensProvider.provideDocumentRangeSemanticTokens(
-      model('/b.zonk', 'Bar()\n'),
-      range,
-      cancel,
-    )
-    expect(r2!.data.length).toBe(5)
-    expect(tokenizerWorkerClient.tokenize).toHaveBeenCalledOnce()
-  })
+    // Same URI, newer version — simulates an edit while the parse was in flight
+    const freshModel = fakeModel('/stale.go', 'y', 2)
+    const r = treeSitterSemanticTokensProvider.provideDocumentRangeSemanticTokens(
+      freshModel, range, cancelToken,
+    ) as any
 
-  it('returns empty when cancelled (no heuristic work)', async () => {
-    ;(getLanguageIdFromPath as any).mockReturnValue(null)
-    const cancelled = { isCancellationRequested: true } as any
-    const r = await treeSitterSemanticTokensProvider.provideDocumentRangeSemanticTokens(
-      model('/x.unknown', 'Foo()\n'),
-      range,
-      cancelled,
-    )
-    expect(r!.data.length).toBe(0)
+    // Cache miss (version mismatch) → heuristic for 'y' → no tokens
+    expect(r.data.length).toBe(0)
   })
 })

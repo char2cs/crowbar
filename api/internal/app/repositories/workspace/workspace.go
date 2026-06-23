@@ -480,7 +480,7 @@ func (w *workspace) Delete(
 	// Broadcast the deleted tombstone LAST — after the read model and the on-disk
 	// storage tree are gone — so a client that receives status:"deleted" knows the
 	// workspace is fully removed (00 §4/§6: lifecycle lives on the entity).
-	w.broadcast(domain.Workspace{
+	w.broadcast(ctx, domain.Workspace{
 		ID:        id,
 		ProjectID: loc.ProjectID,
 		RepoID:    loc.RepoID,

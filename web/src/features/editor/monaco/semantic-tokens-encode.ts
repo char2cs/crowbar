@@ -32,10 +32,22 @@ const TYPE_INDEX: Record<string, number> = Object.fromEntries(
   SEMANTIC_TOKEN_TYPES.map((t, i) => [t, i]),
 )
 
-/** tree-sitter capture name -> legend index, or -1 to skip (ignored or `text`). */
+/**
+ * Map a token type string to a legend index, or -1 to skip.
+ *
+ * Accepts two formats:
+ *   - Raw tree-sitter capture names ('function.call', 'type.definition') as
+ *     produced by tree-sitter queries — passed through mapCaptureToClass first.
+ *   - Pre-mapped class names ('token-function', 'token-type') as stored in
+ *     HighlightToken.type by the tokenizer worker (which calls mapCaptureToClass
+ *     before storing). Stripping the prefix directly avoids a second call to
+ *     mapCaptureToClass, which would misclassify them as 'token-text'.
+ */
 export function captureToTypeIndex(capture: string): number {
   if (isIgnoredCapture(capture)) return -1
-  const category = mapCaptureToClass(capture).replace(/^token-/, '')
+  const category = capture.startsWith('token-')
+    ? capture.slice('token-'.length)
+    : mapCaptureToClass(capture).replace(/^token-/, '')
   const idx = TYPE_INDEX[category]
   return idx === undefined ? -1 : idx
 }

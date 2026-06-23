@@ -40,8 +40,8 @@ func New(
 	git wsusecase.MergeConflictChecker,
 ) (*Container, error) {
 	c := &Container{hub: h, git: git}
-	ws, err := workspace.New(adapters, func(w domain.Workspace) {
-		c.broadcastWorkspace(context.Background(), w)
+	ws, err := workspace.New(adapters, func(ctx context.Context, w domain.Workspace) {
+		c.broadcastWorkspace(ctx, w)
 	}, asynxFactory)
 	if err != nil {
 		return nil, err
