@@ -11,7 +11,6 @@ import type { GitFile } from '../types/git-types'
 
 interface BranchSectionProps {
   wsId: string
-  branch: string
   parentBranch?: string
   canMergeLocally: boolean
   status: string
@@ -22,7 +21,6 @@ interface BranchSectionProps {
 
 export function BranchSection({
   wsId,
-  branch,
   parentBranch,
   canMergeLocally,
   status,
@@ -104,16 +102,6 @@ export function BranchSection({
 
   return (
     <div className="flex flex-col gap-2 p-3" aria-label="Branch actions">
-      <div className="ui-text-sm flex items-center gap-1.5">
-        <GitBranch className="size-3.5 text-muted-foreground" />
-        <span className="font-mono font-medium">{branch}</span>
-        {parentBranch && (
-          <>
-            <span className="text-muted-foreground">→</span>
-            <span className="font-mono text-muted-foreground">{parentBranch}</span>
-          </>
-        )}
-      </div>
       <div
         className={cn(
           'ui-text-xs',

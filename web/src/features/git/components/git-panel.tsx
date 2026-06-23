@@ -1,5 +1,5 @@
 import { useRouterState } from '@tanstack/react-router'
-import { GitPullRequest } from '@phosphor-icons/react'
+import { GitPullRequest, GitBranch } from '@phosphor-icons/react'
 import { ScrollArea } from '@/components/ui/scroll-area'
 import { Tabs, TabsList, TabsTab, TabsPanel } from '@/components/ui/tabs'
 import { Button } from '@/components/ui/button'
@@ -53,9 +53,34 @@ export function GitPanel() {
   }
 
   const repoPath = wsId ?? undefined
+  const branch = activeWs?.branch ?? gitStatus?.branch ?? ''
+  const parentBranch = activeWs?.parentBranch
 
   return (
     <Tabs defaultValue="changes" className="flex flex-1 flex-col overflow-hidden">
+      {wsId && branch && (
+        <div className="mx-1.5 my-0.5 rounded-lg border border-background bg-background text-foreground shadow-xs shadow-black/10 inset-shadow-[0_1px_--theme(--color-white/16%)]">
+          <div className="flex select-none items-center gap-2 h-9 px-2 text-[13px] font-medium">
+            <GitBranch className="size-3.5 shrink-0 text-muted-foreground" />
+            <span className="min-w-0 flex-1 truncate font-mono">{branch}</span>
+            {parentBranch && (
+              <>
+                <span className="shrink-0 text-muted-foreground">→</span>
+                <span className="shrink-0 font-mono text-muted-foreground">{parentBranch}</span>
+              </>
+            )}
+          </div>
+          <BranchSection
+            wsId={wsId}
+            parentBranch={parentBranch}
+            canMergeLocally={activeWs?.canMergeLocally ?? false}
+            status={activeWs?.status ?? 'new'}
+            ahead={gitStatus?.ahead ?? 0}
+            behind={gitStatus?.behind ?? 0}
+            files={gitStatus?.files ?? []}
+          />
+        </div>
+      )}
       <div className="flex shrink-0 items-center gap-1 px-2 py-1.5">
         <TabsList variant="default" className="min-w-0 flex-1">
           <TabsTab value="changes" className="flex-1 justify-center">
@@ -83,26 +108,6 @@ export function GitPanel() {
           <ChangedFilesTree files={files} repoPath={repoPath} onFileOpen={handleFileOpen} />
         </ScrollArea>
 
-        {/* Bottom pinned region: one parent-anchored section whose primary action
-            reflects the branch state (commit / merge / sync). It dispatches
-            git-status-changed after any mutation so the diff + status refresh. */}
-        {wsId ? (
-          <div className="shrink-0 border-t border-border">
-            <BranchSection
-              wsId={wsId}
-              branch={activeWs?.branch ?? gitStatus?.branch ?? ''}
-              parentBranch={activeWs?.parentBranch}
-              canMergeLocally={activeWs?.canMergeLocally ?? false}
-              status={activeWs?.status ?? 'new'}
-              ahead={gitStatus?.ahead ?? 0}
-              behind={gitStatus?.behind ?? 0}
-              // Working-tree status (incl. untracked) — drives the commit dialog and
-              // the "N uncommitted changes" line. The changed-files tree above uses
-              // the branch-vs-parent review diff, so the two can differ by untracked files.
-              files={gitStatus?.files ?? []}
-            />
-          </div>
-        ) : null}
       </TabsPanel>
 
       <TabsPanel value="history" className="flex flex-1 flex-col overflow-hidden">
