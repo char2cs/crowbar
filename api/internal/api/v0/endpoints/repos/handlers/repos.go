@@ -10,6 +10,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strings"
+	"time"
 	"unicode"
 	"unicode/utf8"
 
@@ -496,7 +497,16 @@ func fetchGithubAvatarBytes(
 	if url == "" {
 		return nil, "", nil
 	}
-	resp, err := http.Get(url) //nolint:gosec // owner-controlled GitHub avatar URL
+	// Bound the fetch in time AND size: a slow host must not stall the request, and
+	// a malicious/misconfigured one must not stream gigabytes into memory (the
+	// timeout alone is not a size bound). Both degrade to a generated avatar.
+	dlCtx, cancel := context.WithTimeout(ctx, githubAvatarFetchTimeout)
+	defer cancel()
+	req, err := http.NewRequestWithContext(dlCtx, http.MethodGet, url, http.NoBody)
+	if err != nil {
+		return nil, "", nil
+	}
+	resp, err := http.DefaultClient.Do(req) //nolint:gosec // owner-controlled GitHub avatar URL
 	if err != nil {
 		return nil, "", nil
 	}
@@ -504,8 +514,12 @@ func fetchGithubAvatarBytes(
 	if resp.StatusCode != http.StatusOK {
 		return nil, "", nil
 	}
-	data, err := io.ReadAll(resp.Body)
+	// LimitReader(+1) detects (not silently truncates) an oversize body.
+	data, err := io.ReadAll(io.LimitReader(resp.Body, maxIconBytes+1))
 	if err != nil {
+		return nil, "", nil
+	}
+	if len(data) > maxIconBytes {
 		return nil, "", nil
 	}
 	ct := resp.Header.Get("Content-Type")
@@ -702,6 +716,10 @@ func (h *Handlers) DeleteIcon(c *gin.Context) {
 // rejected before or immediately after opening, so the daemon never reads an
 // unbounded amount of data from a client-supplied path.
 const maxIconBytes = 2 << 20
+
+// githubAvatarFetchTimeout bounds the outbound GitHub owner-avatar download so a
+// slow host never stalls the icon-refresh path.
+const githubAvatarFetchTimeout = 10 * time.Second
 
 // PutIcon handles PUT /v0/projects/:projectId/repos/:repoId/icon. It accepts the
 // icon two ways: a multipart/form-data "icon" field (web browsers), or a JSON

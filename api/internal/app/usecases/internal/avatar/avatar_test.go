@@ -2,6 +2,8 @@ package avatar
 
 import (
 	"context"
+	"net/http"
+	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"testing"
@@ -9,6 +11,36 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
+
+// TestRegression_DownloadBytes_RejectsOversize proves pass-8: an avatar host that
+// streams more than the cap is rejected (soft failure) rather than read into
+// memory, so a malicious/misconfigured URL can't OOM the import path.
+func TestRegression_DownloadBytes_RejectsOversize(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "image/png")
+		_, _ = w.Write(make([]byte, maxAvatarBytes+1024))
+	}))
+	defer srv.Close()
+
+	data, ct, err := downloadBytes(context.Background(), srv.URL)
+	require.NoError(t, err)
+	assert.Nil(t, data, "an oversize avatar body must be rejected, not returned")
+	assert.Empty(t, ct)
+}
+
+// TestDownloadBytes_AcceptsUnderCap proves a normal (small) avatar still downloads.
+func TestDownloadBytes_AcceptsUnderCap(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "image/png")
+		_, _ = w.Write([]byte("small-png-bytes"))
+	}))
+	defer srv.Close()
+
+	data, ct, err := downloadBytes(context.Background(), srv.URL)
+	require.NoError(t, err)
+	assert.Equal(t, "small-png-bytes", string(data))
+	assert.Equal(t, "image/png", ct)
+}
 
 func TestPaletteSizeMatchesConst(t *testing.T) {
 	assert.Len(t, Palette(), paletteSize)

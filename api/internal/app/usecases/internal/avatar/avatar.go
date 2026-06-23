@@ -93,6 +93,12 @@ func ScanRepoIcon(repoPath string) string {
 // unreachable host never stalls the import path.
 const avatarFetchTimeout = 10 * time.Second
 
+// maxAvatarBytes caps the owner-avatar download. The timeout alone is not a size
+// bound — a malicious or misconfigured host can stream ~100 MB within 10s at
+// modest bandwidth — so the body is read through an io.LimitReader to keep the
+// import path from OOMing the daemon. Mirrors the 2 MiB repo-icon cap.
+const maxAvatarBytes = 2 << 20
+
 // FetchOwnerAvatarBytes resolves the repo owner's avatar URL via the gh CLI
 // and downloads its bytes. It is a best-effort helper: when there is no origin
 // remote, no gh auth, or the download fails, it returns (nil, "", nil) so the
@@ -152,8 +158,14 @@ func downloadBytes(
 	if resp.StatusCode != http.StatusOK {
 		return nil, "", nil
 	}
-	data, err := io.ReadAll(resp.Body)
+	// LimitReader(+1) lets us DETECT (not silently truncate) an oversize body; a
+	// body at/over the cap is treated as a soft failure so the caller falls back to
+	// a generated avatar rather than storing a giant/partial image.
+	data, err := io.ReadAll(io.LimitReader(resp.Body, maxAvatarBytes+1))
 	if err != nil {
+		return nil, "", nil
+	}
+	if len(data) > maxAvatarBytes {
 		return nil, "", nil
 	}
 	ct := resp.Header.Get("Content-Type")
