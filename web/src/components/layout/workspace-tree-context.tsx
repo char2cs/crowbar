@@ -171,6 +171,13 @@ interface DraggingState {
   label: string
 }
 
+export interface PendingCreate {
+  repoId: string
+  parentId: string
+  branch: string
+  error?: string
+}
+
 /**
  * The slow-changing slice: action callbacks (stable identities) plus the
  * create/rename UI state, which only flips on explicit user intent. Split out
@@ -184,6 +191,9 @@ interface WorkspaceTreeActionsContextValue {
   startCreating: (repoId: string, parentId: string) => void
   confirmCreate: (branch: string) => void
   cancelCreate: () => void
+  // Pending creates (in-flight / errored)
+  pendingCreates: Map<string, PendingCreate>
+  clearPendingCreate: (tempId: string) => void
   // Rename
   renamingId: string | null
   startRenaming: (wsId: string) => void
@@ -253,6 +263,25 @@ export function WorkspaceTreeProvider({ children }: { children: ReactNode }) {
   const [renamingId, setRenamingId] = useState<string | null>(null)
   const [draggingWs, setDraggingWs] = useState<DraggingState | null>(null)
   const [hoverTargetId, setHoverTargetId] = useState<string | null>(null)
+  const [pendingCreates, setPendingCreates] = useState<Map<string, PendingCreate>>(new Map())
+
+  function addPendingCreate(tempId: string, entry: PendingCreate) {
+    setPendingCreates((prev) => new Map(prev).set(tempId, entry))
+  }
+  function setPendingCreateError(tempId: string, error: string) {
+    setPendingCreates((prev) => {
+      const entry = prev.get(tempId)
+      if (!entry) return prev
+      return new Map(prev).set(tempId, { ...entry, error })
+    })
+  }
+  function clearPendingCreate(tempId: string) {
+    setPendingCreates((prev) => {
+      const n = new Map(prev)
+      n.delete(tempId)
+      return n
+    })
+  }
 
   // Ghost div position is updated imperatively in pointermove — no React state,
   // no tree re-renders on every pixel of mouse movement.
@@ -284,10 +313,38 @@ export function WorkspaceTreeProvider({ children }: { children: ReactNode }) {
   const confirmCreate = useCallback(
     (branch: string) => {
       if (!creatingChildOf) return
-      void performCreateWorkspace(creatingChildOf.repoId, branch, creatingChildOf.parentId)
-      setCreatingChildOf(null)
+      const { repoId, parentId } = creatingChildOf
+      const tempId = crypto.randomUUID()
+      setCreatingChildOf(null) // hide input immediately
+
+      addPendingCreate(tempId, { repoId, parentId, branch })
+
+      // Subscribe to sidebar store: when the real workspace arrives, remove pending
+      const unsub = useSidebarStore.subscribe((state) => {
+        const repo = state.repos.find((r) => r.id === repoId)
+        if (!repo) return
+        const found = repo.workspaces.find(
+          (w) => w.branch === branch && w.parentId === parentId,
+        )
+        if (found) {
+          clearPendingCreate(tempId)
+          unsub()
+        }
+      })
+
+      // Fire the API
+      const projectId = projectIdForRepo(repoId)
+      if (!projectId) {
+        setPendingCreateError(tempId, 'Unknown project')
+        unsub()
+        return
+      }
+      postWorkspace(projectId, repoId, branch, parentId).catch((err) => {
+        unsub()
+        setPendingCreateError(tempId, err instanceof Error ? err.message : 'Create failed')
+      })
     },
-    [creatingChildOf],
+    [creatingChildOf], // eslint-disable-line react-hooks/exhaustive-deps
   )
 
   const cancelCreate = useCallback(() => setCreatingChildOf(null), [])
@@ -459,6 +516,8 @@ export function WorkspaceTreeProvider({ children }: { children: ReactNode }) {
       startCreating,
       confirmCreate,
       cancelCreate,
+      pendingCreates,
+      clearPendingCreate,
       renamingId,
       startRenaming,
       confirmRename,
@@ -470,6 +529,7 @@ export function WorkspaceTreeProvider({ children }: { children: ReactNode }) {
       startCreating,
       confirmCreate,
       cancelCreate,
+      pendingCreates,
       renamingId,
       startRenaming,
       confirmRename,
