@@ -53,6 +53,11 @@ func (c *Container) Register(
 	projectScoped := projects.Group("/:projectId")
 	repos := projectScoped.Group("/repos")
 	repoScoped := repos.Group("/:repoId")
+	// Enforce :wsId ⊂ :projectId/:repoId for every entity-scoped route. Installed
+	// on repoScoped BEFORE its sub-groups are derived so they all inherit it; a
+	// request whose :wsId belongs to a different project/repo is rejected 404
+	// before any handler runs. Routes with no :wsId pass through untouched.
+	repoScoped.Use(scopeWorkspaceToPath(c.app.Repositories.Workspace))
 	workspacesGrp := repoScoped.Group("/workspaces")
 	wsScoped := workspacesGrp.Group("/:wsId")
 

@@ -318,3 +318,40 @@ func TestStatesEqual(t *testing.T) {
 		ProviderStateSnapshot{PR: &PRInfoSnapshot{Number: 2}},
 	))
 }
+
+// TestSweepOnce_PrunesLastStateForRemovedWorkspaces proves pass-3 #3: a workspace
+// that drops out of the sweep targets (deleted) has its stale lastState entry
+// pruned, so the map can't grow unboundedly across the daemon's lifetime.
+func TestSweepOnce_PrunesLastStateForRemovedWorkspaces(t *testing.T) {
+	s := newTestSweeper(
+		mockPollFn(ProviderStateSnapshot{
+			Protected: true,
+			PR:        &PRInfoSnapshot{Number: 1, Status: "open"},
+		}, nil),
+		func(_ string, _ ProviderStateSnapshot) {},
+	)
+
+	a := SweepTarget{WSID: "wsA", RepoPath: "/a", Branch: "main", HasOpenPR: true}
+	b := SweepTarget{WSID: "wsB", RepoPath: "/b", Branch: "main", HasOpenPR: true}
+
+	// First sweep records both PR-bearing workspaces.
+	s.sweepOnce(context.Background(), []SweepTarget{a, b})
+	s.mu.Lock()
+	_, hasA := s.lastState["wsA"]
+	_, hasB := s.lastState["wsB"]
+	s.mu.Unlock()
+	require.True(t, hasA)
+	require.True(t, hasB)
+
+	// wsB is deleted: the next tick's targets contain only wsA, so wsB's now-stale
+	// entry must be pruned rather than lingering forever.
+	s.sweepOnce(context.Background(), []SweepTarget{a})
+	s.mu.Lock()
+	_, hasA = s.lastState["wsA"]
+	_, hasB = s.lastState["wsB"]
+	n := len(s.lastState)
+	s.mu.Unlock()
+	assert.True(t, hasA, "an active workspace keeps its lastState entry")
+	assert.False(t, hasB, "a removed workspace's stale entry is pruned")
+	assert.Equal(t, 1, n)
+}

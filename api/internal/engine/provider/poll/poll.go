@@ -144,6 +144,30 @@ func (s *sweeper) sweepOnce(
 	for _, t := range targets {
 		s.sweepTarget(ctx, t)
 	}
+	s.pruneLastState(targets)
+}
+
+// pruneLastState drops lastState entries whose workspace is no longer among the
+// sweep targets. targets is recomputed from the live workspace list each tick, so
+// a workspace absent from it has been deleted (or its repo/project removed);
+// without this prune the map keeps one stale snapshot per deleted PR-bearing
+// workspace for the daemon's whole lifetime. Self-correcting: a workspace gone
+// for one tick is reaped on that tick.
+func (s *sweeper) pruneLastState(targets []SweepTarget) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if len(s.lastState) == 0 {
+		return
+	}
+	seen := make(map[string]struct{}, len(targets))
+	for _, t := range targets {
+		seen[t.WSID] = struct{}{}
+	}
+	for wsID := range s.lastState {
+		if _, ok := seen[wsID]; !ok {
+			delete(s.lastState, wsID)
+		}
+	}
 }
 
 // sweepTarget polls a single workspace target and notifies only on state change.

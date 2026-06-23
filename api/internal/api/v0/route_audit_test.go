@@ -164,6 +164,15 @@ func extraRoutes() []string {
 		"POST " + ws + "/lsp/didOpen",
 		"POST " + ws + "/lsp/didChange",
 		"POST " + ws + "/lsp/didClose",
+		// Registered hierarchy/feature routes the §2 spec list did not yet
+		// enumerate: the rebase-onto-parent hierarchy op (sibling of
+		// merge-into-parent/reparent), the git-identity read, and the
+		// review-thread message CRUD.
+		"POST " + ws + "/rebase-onto-parent",
+		"GET " + ws + "/identity",
+		"DELETE " + ws + "/threads/:threadId",
+		"PATCH " + ws + "/threads/:threadId/messages/:messageId",
+		"DELETE " + ws + "/threads/:threadId/messages/:messageId",
 	}
 }
 
@@ -244,6 +253,9 @@ func TestRouteAudit_DualServe_RestMode(t *testing.T) {
 	srv := httptest.NewServer(r)
 	t.Cleanup(srv.Close)
 
+	// w1 must exist under p1/r1 so the scope guard admits the :wsId routes below.
+	seedWorkspace(t, tc, "w1")
+
 	for _, path := range []string{
 		"/v0/projects",
 		"/v0/projects/p1",
@@ -277,6 +289,9 @@ func TestRouteAudit_DualServe_WsMode(t *testing.T) {
 	c.Register(r.Group("/v0"))
 	srv := httptest.NewServer(r)
 	t.Cleanup(srv.Close)
+
+	// w1 must exist under p1/r1 so the scope guard admits the :wsId routes below.
+	seedWorkspace(t, tc, "w1")
 
 	for _, path := range []string{
 		"/v0/projects",

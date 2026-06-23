@@ -18,6 +18,7 @@ import (
 	v0 "github.com/char2cs/crowbar/api/internal/api/v0"
 	"github.com/char2cs/crowbar/api/internal/api/v0/dto"
 	"github.com/char2cs/crowbar/api/internal/app"
+	"github.com/char2cs/crowbar/api/internal/app/repositories/workspace"
 	"github.com/char2cs/crowbar/api/internal/domain"
 	gitdomain "github.com/char2cs/crowbar/api/internal/domain/git"
 	lspdomain "github.com/char2cs/crowbar/api/internal/domain/lsp"
@@ -44,6 +45,20 @@ func newApp(t *testing.T) testContainers {
 
 func workspaceFixture() dto.WorkspaceDTO {
 	return dto.WorkspaceDTO{ID: "w1", RepoID: "r1", ProjectID: "p1"}
+}
+
+// seedWorkspace creates a real workspace row under p1/r1 so the scope guard
+// (scopeWorkspaceToPath) admits a request/WS upgrade to /workspaces/:id/...; a
+// :wsId that resolves to no row, or to a different project/repo, is now 404'd
+// before the handler, so any test connecting to a scoped route must seed it.
+func seedWorkspace(t *testing.T, tc testContainers, id string) {
+	t.Helper()
+	_, err := tc.app.Repositories.Workspace.Create(
+		context.Background(),
+		workspace.CreateInput{ID: id, RepoID: "r1", ProjectID: "p1", WorktreePath: t.TempDir()},
+		time.Now(),
+	)
+	require.NoError(t, err)
 }
 
 func TestV0_HubBroadcastReachesWSClient(t *testing.T) {
@@ -215,6 +230,7 @@ func TestV0_PushLSP_ReachesFilteredClient(t *testing.T) {
 	srv := httptest.NewServer(r)
 	t.Cleanup(srv.Close)
 
+	seedWorkspace(t, tc, "w1")
 	url := "ws" + srv.URL[len("http"):] + "/v0/projects/p1/repos/r1/workspaces/w1/lsp/ws"
 	conn, resp, err := websocket.DefaultDialer.Dial(url, nil)
 	if resp != nil {
@@ -248,6 +264,7 @@ func TestV0_PushGit_QueryScope_IsolatesWsId(t *testing.T) {
 	srv := httptest.NewServer(r)
 	t.Cleanup(srv.Close)
 
+	seedWorkspace(t, tc, "A")
 	url := "ws" + srv.URL[len("http"):] + "/v0/projects/p1/repos/r1/workspaces/A/git/status"
 	conn, resp, err := websocket.DefaultDialer.Dial(url, nil)
 	if resp != nil {
@@ -279,6 +296,7 @@ func TestV0_GitDualServe_PathScope_IsolatesWsId(t *testing.T) {
 	t.Cleanup(srv.Close)
 
 	// The dual-served route scopes by the :wsId PATH param, not a query param.
+	seedWorkspace(t, tc, "A")
 	url := "ws" + srv.URL[len("http"):] + "/v0/projects/p1/repos/r1/workspaces/A/git/status"
 	conn, resp, err := websocket.DefaultDialer.Dial(url, nil)
 	if resp != nil {
@@ -308,6 +326,7 @@ func TestV0_PushFile_ReachesFilteredClient(t *testing.T) {
 	srv := httptest.NewServer(r)
 	t.Cleanup(srv.Close)
 
+	seedWorkspace(t, tc, "w1")
 	url := "ws" + srv.URL[len("http"):] + "/v0/projects/p1/repos/r1/workspaces/w1/files/ws"
 	conn, resp, err := websocket.DefaultDialer.Dial(url, nil)
 	if resp != nil {

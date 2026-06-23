@@ -177,8 +177,10 @@ func TestSnapshot_Git_DeliveredOnConnectScoped(t *testing.T) {
 	)
 	require.NoError(t, err)
 
+	// The URL scope must match workspace A's actual repo (rA): the scope guard
+	// now rejects a :wsId that does not belong to the :repoId in the path.
 	_, srv := serveV0(t, tc.app, tc.eng)
-	conn := dialV0(t, srv, "/v0/projects/p1/repos/r1/workspaces/A/git/status")
+	conn := dialV0(t, srv, "/v0/projects/p1/repos/rA/workspaces/A/git/status")
 
 	got := readSnapshot(t, conn)
 	assert.Equal(t, "main", got["branch"])
