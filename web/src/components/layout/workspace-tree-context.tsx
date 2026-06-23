@@ -12,7 +12,6 @@ import { useNavigate, useRouter } from '@tanstack/react-router'
 import { getPostDeleteNavigationTarget, useSidebarStore } from '@/lib/store/sidebar'
 import { reparentWorkspace } from '@/lib/api/workspace'
 import { postWorkspace, deleteWorkspace as apiDeleteWorkspace } from '@/lib/api'
-import { toast } from '@/components/ui/toast'
 
 /**
  * Resolve the owning project id for a repo from the sidebar tree. Hierarchical
@@ -26,8 +25,7 @@ function projectIdForRepo(repoId: string): string | undefined {
 /**
  * Fire the hierarchical create mutation (202 Accepted, §3). No optimistic node
  * is added: the WorkspaceDTO arrives over the scoped WS stream (status 'new'
- * then the real status) and the WS-driven cache inserts it. On failure the
- * error is surfaced via toast.
+ * then the real status) and the WS-driven cache inserts it.
  */
 export async function performCreateWorkspace(
   repoId: string,
@@ -36,14 +34,13 @@ export async function performCreateWorkspace(
 ): Promise<void> {
   const projectId = projectIdForRepo(repoId)
   if (!projectId) {
-    toast.error('Failed to create workspace', 'unknown project for repo')
+    console.error('Failed to create workspace: unknown project for repo', repoId)
     return
   }
   try {
     await postWorkspace(projectId, repoId, branch, parentId)
   } catch (err) {
     console.error('Failed to create workspace:', err)
-    toast.error('Failed to create workspace', err instanceof Error ? err.message : undefined)
   }
 }
 
