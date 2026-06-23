@@ -2,7 +2,6 @@ import { useState } from 'react'
 import { GitBranch, ArrowUp, ArrowDown } from '@phosphor-icons/react'
 import { Button } from '@/components/ui/button'
 import { cn } from '@/utils/cn'
-import { toast } from '@/features/window/stores/toast-store'
 import { CommitPopover } from './commit-popover'
 import { MergePopover } from './merge-popover'
 import { resolveBranchAction } from '../lib/branch-action'
@@ -33,6 +32,8 @@ export function BranchSection({
 }: BranchSectionProps) {
   const [remoteBusy, setRemoteBusy] = useState(false)
   const [rebasing, setRebasing] = useState(false)
+  const [remoteError, setRemoteError] = useState<string | null>(null)
+  const [rebaseError, setRebaseError] = useState<string | null>(null)
 
   const action = resolveBranchAction({
     hasUncommitted: files.length > 0,
@@ -50,12 +51,12 @@ export function BranchSection({
   // the conflict state over the WS stream. Crowbar never rebases on its own.
   const handleRebaseOntoParent = async () => {
     setRebasing(true)
+    setRebaseError(null)
     try {
       await rebaseOntoParent(wsId)
-      toast.info(`Rebasing onto ${parentBranch}…`)
       refresh()
     } catch (e) {
-      toast.error('Rebase failed', e instanceof Error ? e.message : undefined)
+      setRebaseError(e instanceof Error ? e.message : 'Rebase failed')
     } finally {
       setRebasing(false)
     }
@@ -63,25 +64,26 @@ export function BranchSection({
 
   const runRemote = async (kind: 'push' | 'pull') => {
     setRemoteBusy(true)
+    setRemoteError(null)
     try {
       const res = kind === 'push' ? await pushChanges(wsId) : await pullChanges(wsId)
       if (res.success) {
-        // The op runs async on the daemon; the git-status stream reflects the
-        // result (updated ahead/behind, or a conflict). Toast the start, then
-        // nudge a refresh so the counts resync promptly.
-        toast.info(kind === 'push' ? 'Pushing…' : 'Pulling…')
         refresh()
       } else {
-        toast.error(res.error || `Failed to ${kind}`)
+        setRemoteError(res.error || `Failed to ${kind}`)
       }
     } catch (e) {
-      toast.error(e instanceof Error ? e.message : `Failed to ${kind}`)
+      setRemoteError(e instanceof Error ? e.message : `Failed to ${kind}`)
     } finally {
       setRemoteBusy(false)
     }
   }
 
   const statusLine = (() => {
+    if (remoteBusy && action.remote === 'push') return 'Pushing to remote…'
+    if (remoteBusy && action.remote === 'pull') return 'Pulling from remote…'
+    if (remoteBusy) return 'Syncing…'
+    if (rebasing) return `Rebasing onto ${parentBranch}…`
     if (action.kind === 'commit') {
       return `${files.length} uncommitted change${files.length !== 1 ? 's' : ''}`
     }
@@ -180,22 +182,43 @@ export function BranchSection({
               disabled={remoteBusy}
               onClick={() => void runRemote(action.remote as 'push' | 'pull')}
             >
-              {action.remote === 'push' ? (
+              {remoteBusy ? (
+                <span className="size-3.5 animate-spin rounded-full border border-transparent border-t-current" />
+              ) : action.remote === 'push' ? (
                 <ArrowUp className="size-3.5" />
               ) : (
                 <ArrowDown className="size-3.5" />
               )}
-              {action.remote === 'push'
-                ? `Push${ahead ? ` ${ahead}` : ''}`
-                : `Pull${behind ? ` ${behind}` : ''}`}
+              {remoteBusy
+                ? action.remote === 'push' ? 'Pushing…' : 'Pulling…'
+                : action.remote === 'push'
+                  ? `Push${ahead ? ` ${ahead}` : ''}`
+                  : `Pull${behind ? ` ${behind}` : ''}`}
             </Button>
           )}
         </div>
       )}
 
+      {(remoteError || rebaseError) && (
+        <p className="ui-text-xs text-destructive mt-1">
+          {remoteError ?? rebaseError}
+          {' · '}
+          <button
+            type="button"
+            className="underline"
+            onClick={() => {
+              if (remoteError) { setRemoteError(null); void runRemote(action.remote as 'push' | 'pull') }
+              if (rebaseError) { setRebaseError(null); void handleRebaseOntoParent() }
+            }}
+          >
+            Retry
+          </button>
+        </p>
+      )}
+
       {action.kind === 'resolve' && (
         <p className="ui-text-xs text-muted-foreground">
-          This branch conflicts with {parentBranch} and isn’t integrated yet. Rebase onto{' '}
+          This branch conflicts with {parentBranch} and isn't integrated yet. Rebase onto{' '}
           {parentBranch} to resolve it — or drag it back to undo.
         </p>
       )}
