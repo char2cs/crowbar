@@ -292,25 +292,32 @@ function EmbeddedDiffSectionEditor({
       : height
 
   return (
-    <div
-      className="relative overflow-hidden border-border border-t bg-background"
-      style={{ height: `${unifiedHeight}px` }}
-    >
-      <CodeEditor
-        bufferId={unifiedBufferId}
-        isActiveSurface={false}
-        showToolbar={false}
-        readOnly={true}
-        scrollable={false}
-        commentZones={hasInlineLayer ? inlineZones : undefined}
-        onAddCommentAtLine={commentLayer?.onAddCommentAtLine}
-        onContentHeightChange={hasInlineLayer ? setCommentContentHeight : undefined}
-        diffLineKinds={unifiedContent.lineKinds}
-        diffSearchMatches={fileSearchMatches}
-        activeDiffSearchMatch={activeSearchMatch}
-        diffSearchRevealNonce={searchLayer?.revealNonce}
-      />
-    </div>
+    <>
+      <div
+        className="relative overflow-hidden border-border border-t bg-background"
+        style={{ height: `${unifiedHeight}px` }}
+      >
+        <CodeEditor
+          bufferId={unifiedBufferId}
+          isActiveSurface={false}
+          showToolbar={false}
+          readOnly={true}
+          scrollable={false}
+          commentZones={hasInlineLayer ? inlineZones : undefined}
+          onAddCommentAtLine={commentLayer?.onAddCommentAtLine}
+          onContentHeightChange={hasInlineLayer ? setCommentContentHeight : undefined}
+          diffLineKinds={unifiedContent.lineKinds}
+          diffSearchMatches={fileSearchMatches}
+          activeDiffSearchMatch={activeSearchMatch}
+          diffSearchRevealNonce={searchLayer?.revealNonce}
+        />
+      </div>
+      {commentLayer?.commentError && (
+        <div className="border-border border-t px-3 py-1.5 text-xs text-destructive">
+          {commentLayer.commentError.msg}
+        </div>
+      )}
+    </>
   )
 }
 

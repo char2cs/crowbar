@@ -65,13 +65,14 @@ describe('performCreateWorkspace', () => {
     expect(workspaceIds()).toEqual(['ws-parent', 'ws-locked'])
   })
 
-  it('surfaces a failure via toast and adds no phantom node', async () => {
+  it('logs failure silently — no toast, no phantom node', async () => {
     vi.mocked(postWorkspace).mockRejectedValue(new Error('500 boom'))
 
     await performCreateWorkspace('r1', 'feat/x', 'ws-parent')
 
     expect(workspaceIds()).toEqual(['ws-parent', 'ws-locked'])
-    expect(toast.error).toHaveBeenCalledWith('Failed to create workspace', '500 boom')
+    expect(toast.error).not.toHaveBeenCalled()
+    expect(console.error).toHaveBeenCalledWith('Failed to create workspace:', expect.any(Error))
   })
 })
 
