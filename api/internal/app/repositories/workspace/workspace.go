@@ -222,10 +222,11 @@ func (w *workspace) entityFor(
 		}
 		return nil, fmt.Errorf("workspace: locate %q: %w", id, err)
 	}
-	return w.entityForLocation(loc)
+	return w.entityForLocation(ctx, loc)
 }
 
 func (w *workspace) entityForLocation(
+	ctx context.Context,
 	loc locations.Location,
 ) (*wsEntity, error) {
 	entity, _, err := w.entities.Acquire(loc.ID, func() (*wsEntity, error) {
@@ -241,7 +242,9 @@ func (w *workspace) entityForLocation(
 		if axErr != nil {
 			return nil, fmt.Errorf("workspace: asynx: %w", axErr)
 		}
-		st, stErr := store.New(view, ax, w.broadcast)
+		// store.New reconciles the read model from the event store on open, so the
+		// first List after a crash mid-projection self-corrects (see store.New).
+		st, stErr := store.New(ctx, view, ax, w.broadcast, loc.ID)
 		if stErr != nil {
 			return nil, fmt.Errorf("workspace: store: %w", stErr)
 		}
@@ -265,7 +268,7 @@ func (w *workspace) Create(
 	}); err != nil {
 		return domain.Workspace{}, fmt.Errorf("workspace: create: %w", err)
 	}
-	entity, err := w.entityForLocation(locations.Location{
+	entity, err := w.entityForLocation(ctx, locations.Location{
 		ID:        in.ID,
 		ProjectID: in.ProjectID,
 		RepoID:    in.RepoID,
@@ -485,7 +488,7 @@ func (w *workspace) Delete(
 	if err != nil {
 		return fmt.Errorf("workspace: delete: locate %q: %w", id, err)
 	}
-	entity, err := w.entityForLocation(loc)
+	entity, err := w.entityForLocation(ctx, loc)
 	if err != nil {
 		return err
 	}
@@ -546,7 +549,7 @@ func (w *workspace) List(
 	}
 	rows := make([]domain.Workspace, 0, len(locs))
 	for _, loc := range locs {
-		entity, entErr := w.entityForLocation(loc)
+		entity, entErr := w.entityForLocation(ctx, loc)
 		if entErr != nil {
 			return nil, fmt.Errorf("workspace: list: %w", entErr)
 		}
