@@ -207,8 +207,13 @@ export function BranchSection({
             type="button"
             className="underline"
             onClick={() => {
-              if (remoteError) { setRemoteError(null); void runRemote(action.remote as 'push' | 'pull') }
-              if (rebaseError) { setRebaseError(null); void handleRebaseOntoParent() }
+              if (remoteError && (action.remote === 'push' || action.remote === 'pull')) {
+                setRemoteError(null)
+                void runRemote(action.remote)
+              } else if (rebaseError) {
+                setRebaseError(null)
+                void handleRebaseOntoParent()
+              }
             }}
           >
             Retry
