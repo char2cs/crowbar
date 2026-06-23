@@ -303,6 +303,12 @@ func (u *projectImport) importOneRepo(
 	if err != nil {
 		return domain.Repository{}, err
 	}
+	if len(adopted) == 0 {
+		// No worktree could be adopted (all per-worktree adoptions failed, or the
+		// repo has no adoptable worktree). A repo with zero workspaces is unnavigable;
+		// roll it back rather than persist a broken row.
+		return domain.Repository{}, fmt.Errorf("project import: repo %q: no workspaces adopted", repo.Name)
+	}
 	committed = true
 	if err := u.importProtectedBranchStubs(ctx, repo, adopted); err != nil {
 		return domain.Repository{}, err
@@ -376,7 +382,14 @@ func (u *projectImport) adoptWorktrees(
 	adopted := make(map[string]bool)
 	for _, wt := range worktrees {
 		if err := u.adoptOneWorktree(ctx, repo, wt, locked); err != nil {
-			return nil, err
+			// Per-worktree adoption is best-effort: skip the worktree that failed
+			// rather than aborting the whole repo. Aborting after an earlier worktree
+			// already created a workspace would, with the caller's rollback, delete
+			// the repo and ORPHAN that workspace. Skipping keeps every successfully
+			// adopted worktree; if NONE succeed the caller rolls the repo back.
+			slog.WarnContext(ctx, "project import: skipping worktree after adopt failure",
+				"repo", repo.Name, "branch", wt.Branch, "err", err)
+			continue
 		}
 		if wt.Branch != "" && !wt.Prunable {
 			adopted[wt.Branch] = true

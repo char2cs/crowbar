@@ -68,6 +68,14 @@ type Usecase interface {
 	) error
 }
 
+// TerminalReaper is the narrow terminal-engine surface the cascade delete uses to
+// terminate a workspace's live PTY sessions before its worktree is removed, so the
+// shell processes, their fds, and the per-session ring buffers don't leak.
+type TerminalReaper interface {
+	ListSessionsForWorkspace(workspaceID string) []string
+	Kill(ctx context.Context, sessionID string) error
+}
+
 type worktreeUsecase struct {
 	workspaces  workspace.Workspace
 	git         enginegit.Engine
@@ -75,6 +83,17 @@ type worktreeUsecase struct {
 	repos       store.Store[domain.Repository, string]
 	now         func() time.Time
 	crowbarHome func() (string, error)
+	terminals   TerminalReaper
+}
+
+// Option configures optional worktreeUsecase dependencies without widening the
+// New signature (it has many test call sites).
+type Option func(*worktreeUsecase)
+
+// WithTerminalReaper wires the terminal engine so cascade delete can kill a
+// workspace's PTY sessions. Without it, terminal cleanup is skipped (tests).
+func WithTerminalReaper(r TerminalReaper) Option {
+	return func(u *worktreeUsecase) { u.terminals = r }
 }
 
 // New builds the hierarchy usecase. repos resolves a workspace's repository main
@@ -87,8 +106,9 @@ func New(
 	repos store.Store[domain.Repository, string],
 	now func() time.Time,
 	crowbarHome func() (string, error),
+	opts ...Option,
 ) Usecase {
-	return &worktreeUsecase{
+	u := &worktreeUsecase{
 		workspaces:  workspaces,
 		git:         git,
 		provider:    provider,
@@ -96,6 +116,10 @@ func New(
 		now:         now,
 		crowbarHome: crowbarHome,
 	}
+	for _, o := range opts {
+		o(u)
+	}
+	return u
 }
 
 func (u *worktreeUsecase) CreateChild(
@@ -621,6 +645,13 @@ func (u *worktreeUsecase) removeOne(
 	ctx context.Context,
 	ws domain.Workspace,
 ) error {
+	// Kill the workspace's live PTY sessions FIRST, before the worktree is removed.
+	// They are keyed by workspace id and otherwise survive the delete as orphaned
+	// shell processes with a now-deleted CWD, leaking fds and ring-buffer memory on
+	// every workspace/cascade delete. Best-effort: a kill failure must not abort the
+	// cascade. Runs even when the repo path can't be resolved below.
+	u.reapTerminals(ctx, ws.ID)
+
 	repoPath, err := u.repoPathFor(ctx, ws)
 	if err != nil {
 		// Can't resolve the repo path — still drop the read-model row so the cascade
@@ -643,6 +674,23 @@ func (u *worktreeUsecase) removeOne(
 			"ws", ws.ID, "branch", ws.Branch, "err", delErr)
 	}
 	return u.workspaces.Delete(ctx, ws.ID)
+}
+
+// reapTerminals terminates every live PTY session owned by wsID. Best-effort and a
+// no-op when no terminal reaper is wired (tests / virtual repos).
+func (u *worktreeUsecase) reapTerminals(
+	ctx context.Context,
+	wsID string,
+) {
+	if u.terminals == nil {
+		return
+	}
+	for _, sid := range u.terminals.ListSessionsForWorkspace(wsID) {
+		if err := u.terminals.Kill(ctx, sid); err != nil {
+			slog.WarnContext(ctx, "cascade: terminal kill failed (continuing)",
+				"ws", wsID, "session", sid, "err", err)
+		}
+	}
 }
 
 func (u *worktreeUsecase) repoPathFor(

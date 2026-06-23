@@ -1145,6 +1145,45 @@ func reparentWS(
 // skip-locked rule from Status==locked (not the legacy Locked bool): the
 // locked-status node 'b' is preserved while its unlocked descendant 'c' is
 // still deleted.
+type fakeTerminalReaper struct {
+	byWorkspace map[string][]string
+	killed      []string
+}
+
+func (f *fakeTerminalReaper) ListSessionsForWorkspace(wsID string) []string {
+	return f.byWorkspace[wsID]
+}
+
+func (f *fakeTerminalReaper) Kill(_ context.Context, sid string) error {
+	f.killed = append(f.killed, sid)
+	return nil
+}
+
+// TestDeleteCascade_KillsTerminalSessions proves pass-7: every cascade-deleted
+// workspace's live PTY sessions are terminated, so deleting a workspace (or a
+// whole subtree) never leaks shell processes, fds, or per-session ring buffers.
+func TestDeleteCascade_KillsTerminalSessions(t *testing.T) {
+	all := []domain.Workspace{
+		{ID: "root", RepoID: "r", Branch: "b-root", WorktreePath: "/wt/root"},
+		{ID: "child", ParentID: "root", RepoID: "r", Branch: "b-child", WorktreePath: "/wt/child"},
+	}
+	g := &fakeGit{}
+	ws := &fakeWorkspace{
+		ListFn:   func(_ context.Context) ([]domain.Workspace, error) { return all, nil },
+		DeleteFn: func(_ context.Context, _ string) error { return nil },
+	}
+	reaper := &fakeTerminalReaper{byWorkspace: map[string][]string{
+		"root":  {"root-sess"},
+		"child": {"child-sess-1", "child-sess-2"},
+	}}
+	uc := worktree.New(ws, g, &fakeProvider{}, &fakeRepoStore{path: "/repo"}, newNow(), fakeHome(),
+		worktree.WithTerminalReaper(reaper))
+
+	require.NoError(t, uc.DeleteCascade(context.Background(), "root"))
+	assert.ElementsMatch(t, []string{"root-sess", "child-sess-1", "child-sess-2"}, reaper.killed,
+		"every cascade-deleted workspace's terminal sessions must be killed")
+}
+
 func TestDeleteCascade_SkipsLockedStatus(t *testing.T) {
 	all := []domain.Workspace{
 		{ID: "root", RepoID: "r", Branch: "b-root", WorktreePath: "/wt/root"},

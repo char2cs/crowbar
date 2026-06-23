@@ -309,11 +309,15 @@ func TestImport_WritesRepoIconToEntityDir(t *testing.T) {
 	require.NoError(t, os.WriteFile(filepath.Join(repoDir, "favicon.svg"), []byte("<svg>icon</svg>"), 0o644))
 
 	repos := mocks.NewRepositoryStore()
+	// A real repo always has a main worktree, so adoption yields >=1 workspace and
+	// the repo is kept (a repo with no adoptable worktree is now rolled back).
+	git := mocks.NewGitEngine()
+	git.Worktrees = []gitengine.WorktreeEntry{{Path: repoDir, Branch: "main", Head: "h1"}}
 	uc := project.NewImport(project.ImportDeps{
 		Projects:    mocks.NewProjectStore(),
 		Repos:       repos,
 		Workspaces:  mocks.NewWorkspaceRepo(),
-		Git:         mocks.NewGitEngine(),
+		Git:         git,
 		Provider:    mocks.NewProviderEngine(),
 		CrowbarHome: func() (string, error) { return home, nil },
 		Discover: func(root string, maxDepth int) ([]string, error) {
@@ -347,11 +351,13 @@ func TestImport_DefaultsToGithubAvatar(t *testing.T) {
 
 	repos := mocks.NewRepositoryStore()
 	fetched := false
+	git := mocks.NewGitEngine()
+	git.Worktrees = []gitengine.WorktreeEntry{{Path: repoDir, Branch: "main", Head: "h1"}}
 	uc := project.NewImport(project.ImportDeps{
 		Projects:    mocks.NewProjectStore(),
 		Repos:       repos,
 		Workspaces:  mocks.NewWorkspaceRepo(),
-		Git:         mocks.NewGitEngine(),
+		Git:         git,
 		Provider:    mocks.NewProviderEngine(),
 		CrowbarHome: func() (string, error) { return home, nil },
 		FetchAvatarBytes: func(_ context.Context, _ string) ([]byte, string, error) {
@@ -389,11 +395,13 @@ func TestImport_AvatarFetchFailureLeavesGeneratedAvatar(t *testing.T) {
 	repoDir := t.TempDir() // no icon files
 
 	repos := mocks.NewRepositoryStore()
+	git := mocks.NewGitEngine()
+	git.Worktrees = []gitengine.WorktreeEntry{{Path: repoDir, Branch: "main", Head: "h1"}}
 	uc := project.NewImport(project.ImportDeps{
 		Projects:    mocks.NewProjectStore(),
 		Repos:       repos,
 		Workspaces:  mocks.NewWorkspaceRepo(),
-		Git:         mocks.NewGitEngine(),
+		Git:         git,
 		Provider:    mocks.NewProviderEngine(),
 		CrowbarHome: func() (string, error) { return home, nil },
 		FetchAvatarBytes: func(_ context.Context, _ string) ([]byte, string, error) {
@@ -576,11 +584,13 @@ func TestImportRepo_SetsGithubAvatarBestEffort(
 	require.NoError(t, projects.Save(context.Background(), domain.Project{ID: "proj-1", Path: "/root"}))
 
 	fetched := false
+	git := mocks.NewGitEngine()
+	git.Worktrees = []gitengine.WorktreeEntry{{Path: repoDir, Branch: "main", Head: "h1"}}
 	uc := project.NewImport(project.ImportDeps{
 		Projects:    projects,
 		Repos:       repos,
 		Workspaces:  mocks.NewWorkspaceRepo(),
-		Git:         mocks.NewGitEngine(),
+		Git:         git,
 		Provider:    mocks.NewProviderEngine(),
 		CrowbarHome: func() (string, error) { return home, nil },
 		FetchAvatarBytes: func(_ context.Context, _ string) ([]byte, string, error) {

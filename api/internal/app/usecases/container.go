@@ -108,6 +108,7 @@ func New(
 		gormStores.Repositories,
 		nowFunc,
 		crowbarHome,
+		worktree.WithTerminalReaper(engines.Terminal),
 	)
 	branchReview := branchreview.New(
 		repos.Workspace,
