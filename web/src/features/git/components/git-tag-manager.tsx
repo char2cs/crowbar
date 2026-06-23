@@ -27,7 +27,7 @@ import {
   SelectContent,
   SelectItem,
 } from '@/components/ui/select'
-import { toast } from '@/components/ui/toast'
+import { cn } from '@/utils/cn'
 import { formatShortDate } from '@/utils/date'
 import { matchesSearchQuery } from '@/utils/search-match'
 import { getRemotes } from '../api/git-remotes-api'
@@ -69,6 +69,12 @@ const GitTagManager = ({
   const [selectedRemote, setSelectedRemote] = useState('origin')
   const [expandedTagName, setExpandedTagName] = useState<string | null>(null)
   const [actionLoading, setActionLoading] = useState<Set<string>>(new Set())
+  const [tagFeedback, setTagFeedback] = useState<{ id: string; kind: 'ok' | 'err'; msg: string } | null>(null)
+
+  function showTagFeedback(id: string, kind: 'ok' | 'err', msg: string) {
+    setTagFeedback({ id, kind, msg })
+    setTimeout(() => setTagFeedback(null), 2000)
+  }
 
   useEffect(() => {
     if (!isOpen) return
@@ -149,10 +155,10 @@ const GitTagManager = ({
     try {
       const result = await action()
       if (result.success) {
-        toast.success(`${actionName} completed`)
+        showTagFeedback(tagName, 'ok', `${actionName} completed`)
         onRefresh?.()
       } else {
-        toast.error(result.error || `${actionName} failed`)
+        showTagFeedback(tagName, 'err', result.error || `${actionName} failed`)
       }
     } finally {
       setActionLoading((prev) => {
@@ -179,11 +185,11 @@ const GitTagManager = ({
     try {
       const result = await checkoutTag(repoPath, tagName)
       if (result.success) {
-        toast.success(result.message)
+        showTagFeedback(tagName, 'ok', result.message)
         onRefresh?.()
         onClose()
       } else {
-        toast.error(result.message)
+        showTagFeedback(tagName, 'err', result.message)
       }
     } finally {
       setActionLoading((prev) => {
@@ -215,10 +221,10 @@ const GitTagManager = ({
   const handleCopy = async (value: string, label: string) => {
     try {
       await writeText(value)
-      toast.success(`${label} copied`)
+      showTagFeedback('copy', 'ok', '✓ copied')
     } catch (error) {
       console.error(`Failed to copy ${label.toLowerCase()}:`, error)
-      toast.error(`Failed to copy ${label.toLowerCase()}`)
+      showTagFeedback('copy', 'err', `Failed to copy ${label.toLowerCase()}`)
     }
   }
 
@@ -527,7 +533,23 @@ const GitTagManager = ({
                   >
                     <Trash2 />
                   </Button>
+                  {tagFeedback?.id === 'copy' && (
+                    <span className={cn(
+                      'text-xs ml-1',
+                      tagFeedback.kind === 'ok' ? 'text-green-500' : 'text-destructive'
+                    )}>
+                      {tagFeedback.msg}
+                    </span>
+                  )}
                 </div>
+                {tagFeedback?.id === tag.name && (
+                  <span className={cn(
+                    'text-xs ml-auto block px-2.5 pb-1',
+                    tagFeedback.kind === 'ok' ? 'text-green-500' : 'text-destructive'
+                  )}>
+                    {tagFeedback.msg}
+                  </span>
+                )}
                 {isExpanded ? (
                   <div className="border-border/50 border-t px-2.5 py-2">
                     <div className="grid gap-1.5 pl-9">
