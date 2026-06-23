@@ -54,6 +54,9 @@ type Watcher struct {
 	stopped      bool
 	fswCloseOnce sync.Once
 
+	gitDirOnce     sync.Once
+	resolvedGitDir string
+
 	prevAdded    int
 	prevDeleted  int
 	prevConflict bool
@@ -393,10 +396,11 @@ func (w *Watcher) fanOutGit(
 }
 
 func (w *Watcher) isRewriteInProgress() bool {
+	gitDir := w.gitDir()
 	checks := []string{
-		filepath.Join(w.repoPath, ".git", "MERGE_HEAD"),
-		filepath.Join(w.repoPath, ".git", "rebase-merge"),
-		filepath.Join(w.repoPath, ".git", "rebase-apply"),
+		filepath.Join(gitDir, "MERGE_HEAD"),
+		filepath.Join(gitDir, "rebase-merge"),
+		filepath.Join(gitDir, "rebase-apply"),
 	}
 	for _, path := range checks {
 		if _, err := os.Stat(path); err == nil {
@@ -404,6 +408,41 @@ func (w *Watcher) isRewriteInProgress() bool {
 		}
 	}
 	return false
+}
+
+// gitDir resolves and caches the real git directory for repoPath. The main
+// worktree's repoPath/.git is a directory; a child (linked) worktree's .git is a
+// FILE ("gitdir: <path>") pointing at the per-worktree dir under the common dir —
+// which is where that worktree's MERGE_HEAD / rebase-merge / rebase-apply live.
+// Statting repoPath/.git/<marker> directly returns ENOTDIR for a linked worktree,
+// so the rewrite guard would always read "false" mid-rebase/merge and broadcast
+// transient, wrong status frames during exactly the rewrite it should skip.
+func (w *Watcher) gitDir() string {
+	w.gitDirOnce.Do(func() {
+		dotGit := filepath.Join(w.repoPath, ".git")
+		if info, err := os.Stat(dotGit); err == nil && info.IsDir() {
+			w.resolvedGitDir = dotGit
+			return
+		}
+		// .git is a gitlink file ("gitdir: <path>"). Fall back to dotGit on any
+		// parse failure (worst case: the guard behaves as before for this worktree).
+		w.resolvedGitDir = dotGit
+		data, err := os.ReadFile(dotGit)
+		if err != nil {
+			return
+		}
+		line := strings.TrimSpace(string(data))
+		const prefix = "gitdir:"
+		if !strings.HasPrefix(line, prefix) {
+			return
+		}
+		p := strings.TrimSpace(strings.TrimPrefix(line, prefix))
+		if !filepath.IsAbs(p) {
+			p = filepath.Join(w.repoPath, p)
+		}
+		w.resolvedGitDir = p
+	})
+	return w.resolvedGitDir
 }
 
 // walkFn is the filepath.Walk callback used by addRecursive.

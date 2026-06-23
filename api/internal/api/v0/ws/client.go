@@ -2,6 +2,7 @@ package ws
 
 import (
 	"net/http"
+	"sync"
 	"time"
 
 	"github.com/gorilla/websocket"
@@ -19,8 +20,9 @@ var upgrader = websocket.Upgrader{
 }
 
 type client struct {
-	send chan []byte
-	done chan struct{}
+	send      chan []byte
+	done      chan struct{}
+	closeOnce sync.Once
 }
 
 func newClient() *client {
@@ -28,6 +30,13 @@ func newClient() *client {
 		send: make(chan []byte, sendBuffer),
 		done: make(chan struct{}),
 	}
+}
+
+// closeDone signals the client's writePump to stop, exactly once. Both the
+// normal removal path and a slow-consumer overflow disconnect route through it,
+// so done is never double-closed (which would panic).
+func (c *client) closeDone() {
+	c.closeOnce.Do(func() { close(c.done) })
 }
 
 func readPump(

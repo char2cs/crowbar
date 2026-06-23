@@ -403,6 +403,34 @@ func TestCreateChild_RecordsForkPointAndLocked(t *testing.T) {
 	assert.Equal(t, []string{"/repo", created.WorktreePath, "feature/x", "develop"}, g.calls[1].args)
 }
 
+// TestCreateChild_CleansUpWorktreeOnCreateFailure proves H17: if the workspace
+// row fails to persist after the worktree + branch were created on disk, both are
+// cleaned up best-effort so a fresh-wsID retry is not blocked by the orphaned
+// branch and the worktree dir does not dangle.
+func TestCreateChild_CleansUpWorktreeOnCreateFailure(t *testing.T) {
+	g := &fakeGit{addStartSha: "sha"}
+	ws := &fakeWorkspace{
+		CreateFn: func(_ context.Context, _ workspace.CreateInput, _ time.Time) (domain.Workspace, error) {
+			return domain.Workspace{}, errBoom
+		},
+	}
+	uc := worktree.New(ws, g, &fakeProvider{}, &fakeRepoStore{}, newNow(), fakeHome())
+
+	_, err := uc.CreateChild(context.Background(), worktree.CreateChildInput{
+		RepoID:       "r1",
+		ProjectID:    "p1",
+		RepoPath:     "/repo",
+		RemoteURL:    "https://github.com/test/repo.git",
+		Branch:       "feature/x",
+		ParentID:     "w-parent",
+		ParentBranch: "develop",
+	})
+	require.ErrorIs(t, err, errBoom)
+	ops := g.ops()
+	assert.Contains(t, ops, "WorktreeRemove", "failed create must remove the orphaned worktree")
+	assert.Contains(t, ops, "ForceDeleteBranch", "failed create must delete the orphaned branch")
+}
+
 func TestCreateChild_LocksProtectedBranch(t *testing.T) {
 	g := &fakeGit{addStartSha: "sha"}
 	var created workspace.CreateInput
@@ -1079,46 +1107,61 @@ func TestDeleteCascade_ListError(t *testing.T) {
 	require.ErrorIs(t, uc.DeleteCascade(context.Background(), "root"), errBoom)
 }
 
-func TestDeleteCascade_RepoPathError(t *testing.T) {
+// H17: removeOne is best-effort — a repo-path / worktree / branch teardown
+// failure must drop the read-model row anyway (the user asked to delete it),
+// never abort the cascade and never leave a ghost row pointing at a gone
+// worktree. Orphaned worktrees on disk are reaped by `git worktree prune`.
+
+func TestDeleteCascade_RepoPathError_DropsRowBestEffort(t *testing.T) {
 	all := []domain.Workspace{{ID: "root", RepoID: "r"}}
+	var deleted []string
 	ws := &fakeWorkspace{
-		ListFn: func(_ context.Context) ([]domain.Workspace, error) { return all, nil },
+		ListFn:   func(_ context.Context) ([]domain.Workspace, error) { return all, nil },
+		DeleteFn: func(_ context.Context, id string) error { deleted = append(deleted, id); return nil },
 	}
 	uc := worktree.New(ws, &fakeGit{}, &fakeProvider{}, &fakeRepoStore{err: errBoom}, newNow(), fakeHome())
-	require.ErrorIs(t, uc.DeleteCascade(context.Background(), "root"), errBoom)
+	require.NoError(t, uc.DeleteCascade(context.Background(), "root"))
+	assert.Equal(t, []string{"root"}, deleted)
 }
 
-func TestDeleteCascade_MissingRepoRow_ErrorsNoPanic(t *testing.T) {
+func TestDeleteCascade_MissingRepoRow_DropsRowNoPanic(t *testing.T) {
 	all := []domain.Workspace{{ID: "root", RepoID: "r", WorktreePath: "/wt", Branch: "b"}}
+	var deleted []string
 	ws := &fakeWorkspace{
-		ListFn: func(_ context.Context) ([]domain.Workspace, error) { return all, nil },
+		ListFn:   func(_ context.Context) ([]domain.Workspace, error) { return all, nil },
+		DeleteFn: func(_ context.Context, id string) error { deleted = append(deleted, id); return nil },
 	}
-	// FindByKey returns (nil, nil) for a missing repo row; dereferencing it
-	// previously panicked. The usecase must surface a plain error instead.
+	// FindByKey returns (nil, nil) for a missing repo row (must not panic); the
+	// repo is gone so the worktree is unreachable, so the row is dropped best-effort.
 	uc := worktree.New(ws, &fakeGit{}, &fakeProvider{}, &fakeRepoStore{missing: true}, newNow(), fakeHome())
-	err := uc.DeleteCascade(context.Background(), "root")
-	require.Error(t, err)
-	assert.Contains(t, err.Error(), "repo r not found")
+	require.NoError(t, uc.DeleteCascade(context.Background(), "root"))
+	assert.Equal(t, []string{"root"}, deleted)
 }
 
-func TestDeleteCascade_WorktreeRemoveError(t *testing.T) {
+func TestDeleteCascade_WorktreeRemoveError_DropsRowBestEffort(t *testing.T) {
 	all := []domain.Workspace{{ID: "root", RepoID: "r", WorktreePath: "/wt", Branch: "b"}}
+	var deleted []string
 	ws := &fakeWorkspace{
-		ListFn: func(_ context.Context) ([]domain.Workspace, error) { return all, nil },
+		ListFn:   func(_ context.Context) ([]domain.Workspace, error) { return all, nil },
+		DeleteFn: func(_ context.Context, id string) error { deleted = append(deleted, id); return nil },
 	}
 	g := &fakeGit{removeErr: errBoom}
 	uc := worktree.New(ws, g, &fakeProvider{}, &fakeRepoStore{path: "/repo"}, newNow(), fakeHome())
-	require.ErrorIs(t, uc.DeleteCascade(context.Background(), "root"), errBoom)
+	require.NoError(t, uc.DeleteCascade(context.Background(), "root"))
+	assert.Equal(t, []string{"root"}, deleted)
 }
 
-func TestDeleteCascade_BranchDeleteError(t *testing.T) {
+func TestDeleteCascade_BranchDeleteError_DropsRowBestEffort(t *testing.T) {
 	all := []domain.Workspace{{ID: "root", RepoID: "r", WorktreePath: "/wt", Branch: "b"}}
+	var deleted []string
 	ws := &fakeWorkspace{
-		ListFn: func(_ context.Context) ([]domain.Workspace, error) { return all, nil },
+		ListFn:   func(_ context.Context) ([]domain.Workspace, error) { return all, nil },
+		DeleteFn: func(_ context.Context, id string) error { deleted = append(deleted, id); return nil },
 	}
 	g := &fakeGit{deleteErr: errBoom}
 	uc := worktree.New(ws, g, &fakeProvider{}, &fakeRepoStore{path: "/repo"}, newNow(), fakeHome())
-	require.ErrorIs(t, uc.DeleteCascade(context.Background(), "root"), errBoom)
+	require.NoError(t, uc.DeleteCascade(context.Background(), "root"))
+	assert.Equal(t, []string{"root"}, deleted)
 }
 
 func TestMergeIntoParent_SetPRConflictsError(t *testing.T) {

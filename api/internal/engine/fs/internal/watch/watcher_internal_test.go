@@ -278,6 +278,31 @@ func TestIsRewriteInProgress_None(t *testing.T) {
 	assert.False(t, w.isRewriteInProgress())
 }
 
+// TestIsRewriteInProgress_LinkedWorktree proves H20: a child (linked) worktree's
+// .git is a FILE ("gitdir: <path>") whose rebase/merge markers live in the
+// per-worktree dir under the common dir, NOT in <worktree>/.git/. The guard must
+// resolve the real git dir, or it reads "false" mid-rebase and broadcasts
+// transient wrong status during the exact rewrite it should skip.
+func TestIsRewriteInProgress_LinkedWorktree(t *testing.T) {
+	root := t.TempDir()
+	worktree := filepath.Join(root, "wt")
+	require.NoError(t, os.MkdirAll(worktree, 0o700))
+	realGitDir := filepath.Join(root, "common", ".git", "worktrees", "wt")
+	require.NoError(t, os.MkdirAll(realGitDir, 0o700))
+	// .git is a gitlink file pointing at the per-worktree git dir.
+	require.NoError(t, os.WriteFile(filepath.Join(worktree, ".git"),
+		[]byte("gitdir: "+realGitDir+"\n"), 0o600))
+
+	w := newBareWatcher(worktree, &recordingDispatcher{})
+	assert.False(t, w.isRewriteInProgress(), "clean linked worktree")
+
+	// A rebase-merge in the REAL git dir must be detected. With the old code this
+	// stayed false (os.Stat(<worktree>/.git/rebase-merge) -> ENOTDIR, .git a file).
+	require.NoError(t, os.MkdirAll(filepath.Join(realGitDir, "rebase-merge"), 0o700))
+	assert.True(t, w.isRewriteInProgress(),
+		"a rebase in a linked worktree must be detected via the resolved git dir")
+}
+
 // ---------------------------------------------------------------------------
 // classifyChange — all branches
 // ---------------------------------------------------------------------------

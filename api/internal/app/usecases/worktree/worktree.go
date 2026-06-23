@@ -122,16 +122,18 @@ func (u *worktreeUsecase) CreateChild(
 	if err != nil {
 		return domain.Workspace{}, fmt.Errorf("create child: crowbar home: %w", err)
 	}
+	// Resolve the locked flag BEFORE creating the worktree so a provider hiccup
+	// can't leave an orphaned worktree+branch on disk (it has no on-disk effect).
+	locked, err := u.resolveLocked(ctx, in.RepoPath, in.Branch)
+	if err != nil {
+		return domain.Workspace{}, fmt.Errorf("create child: locked: %w", err)
+	}
 	path := worktreepath.For(home, in.ProjectID, in.RepoID, wsID)
 	startSha, err := u.addWorktree(ctx, in, path)
 	if err != nil {
 		return domain.Workspace{}, err
 	}
-	locked, err := u.resolveLocked(ctx, in.RepoPath, in.Branch)
-	if err != nil {
-		return domain.Workspace{}, fmt.Errorf("create child: locked: %w", err)
-	}
-	return u.workspaces.Create(ctx, workspace.CreateInput{
+	ws, err := u.workspaces.Create(ctx, workspace.CreateInput{
 		ID:           wsID,
 		RepoID:       in.RepoID,
 		ProjectID:    in.ProjectID,
@@ -141,6 +143,21 @@ func (u *worktreeUsecase) CreateChild(
 		ParentID:     in.ParentID,
 		Protected:    locked || in.ForceLocked,
 	}, u.now())
+	if err != nil {
+		// The worktree + branch are on disk but the workspace row never landed.
+		// Clean them up best-effort so a fresh-wsID retry isn't blocked by the
+		// orphaned branch and the worktree dir doesn't dangle forever.
+		if rmErr := u.git.WorktreeRemove(ctx, in.RepoPath, path); rmErr != nil {
+			slog.WarnContext(ctx, "create child: cleanup worktree after failed create",
+				"worktree", path, "err", rmErr)
+		}
+		if delErr := u.git.ForceDeleteBranch(ctx, in.RepoPath, in.Branch); delErr != nil {
+			slog.WarnContext(ctx, "create child: cleanup branch after failed create",
+				"branch", in.Branch, "err", delErr)
+		}
+		return domain.Workspace{}, err
+	}
+	return ws, nil
 }
 
 // addWorktree applies the spec-§3 checkout-vs-create decision and returns the
@@ -587,13 +604,24 @@ func (u *worktreeUsecase) removeOne(
 ) error {
 	repoPath, err := u.repoPathFor(ctx, ws)
 	if err != nil {
-		return err
+		// Can't resolve the repo path — still drop the read-model row so the cascade
+		// doesn't leave a ghost workspace pointing at an unreachable worktree.
+		slog.WarnContext(ctx, "cascade: repo path unresolved; dropping row best-effort",
+			"ws", ws.ID, "err", err)
+		return u.workspaces.Delete(ctx, ws.ID)
 	}
+	// Best-effort git teardown: a failure here (branch checked out elsewhere, a
+	// transient index lock, an already-removed worktree) must NOT abort the cascade
+	// or leave a GHOST row pointing at a gone worktree — that breaks every future op
+	// on it and makes a re-run cascade fail too. Log and continue; the row is always
+	// dropped, and an orphaned worktree on disk is reaped by `git worktree prune`.
 	if removeErr := u.git.WorktreeRemove(ctx, repoPath, ws.WorktreePath); removeErr != nil {
-		return fmt.Errorf("worktree remove: %w", removeErr)
+		slog.WarnContext(ctx, "cascade: worktree remove failed (continuing)",
+			"ws", ws.ID, "worktree", ws.WorktreePath, "err", removeErr)
 	}
 	if delErr := u.git.ForceDeleteBranch(ctx, repoPath, ws.Branch); delErr != nil {
-		return fmt.Errorf("branch delete: %w", delErr)
+		slog.WarnContext(ctx, "cascade: branch delete failed (continuing)",
+			"ws", ws.ID, "branch", ws.Branch, "err", delErr)
 	}
 	return u.workspaces.Delete(ctx, ws.ID)
 }

@@ -144,7 +144,7 @@ func (b *Broadcaster[T]) remove(
 	b.mu.Lock()
 	defer b.mu.Unlock()
 	delete(b.clients, cl)
-	close(cl.done)
+	cl.closeDone()
 }
 
 // snapshotFor computes cl's snapshot OUTSIDE the broadcaster lock (b.def.Snapshot
@@ -205,5 +205,12 @@ func sendIfMatch[T any](
 	select {
 	case cl.send <- data:
 	default:
+		// Buffer full: this client's writePump is stalled. Silently dropping the
+		// frame would leave it permanently stale for the coalesced git-status /
+		// file-change streams — the watcher dedups against its previous value and
+		// will not re-broadcast an identical state. Disconnect instead so the
+		// client reconnects and gets a fresh snapshot-on-subscribe (the full-state
+		// DTO streams self-heal the same way). closeDone is idempotent.
+		cl.closeDone()
 	}
 }
