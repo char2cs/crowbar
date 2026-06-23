@@ -5,6 +5,10 @@ interface WorkspaceInlineInputProps {
   placeholder?: string
   onConfirm: (value: string) => void
   onCancel: () => void
+  /** Resolve a branch to the id of the workspace already holding it, or null. */
+  resolveExisting?: (branch: string) => string | null
+  /** Navigate to the existing workspace when the user clicks the hint. */
+  onOpenExisting?: (wsId: string) => void
 }
 
 export function WorkspaceInlineInput({
@@ -12,6 +16,8 @@ export function WorkspaceInlineInput({
   placeholder = 'branch-name',
   onConfirm,
   onCancel,
+  resolveExisting,
+  onOpenExisting,
 }: WorkspaceInlineInputProps) {
   const [value, setValue] = useState(defaultValue)
   const ref = useRef<HTMLInputElement>(null)
@@ -23,12 +29,20 @@ export function WorkspaceInlineInput({
     ref.current?.select()
   }, [])
 
+  const existingWsId = resolveExisting?.(value) ?? null
+
+  function tryConfirm() {
+    // A collision suppresses create — the user opens the existing one or renames.
+    if (existingWsId) return
+    if (value.trim()) onConfirm(value.trim())
+    else onCancel()
+  }
+
   function handleKeyDown(e: React.KeyboardEvent<HTMLInputElement>) {
     if (e.key === 'Enter') {
       e.preventDefault()
       handledRef.current = true
-      if (value.trim()) onConfirm(value.trim())
-      else onCancel()
+      tryConfirm()
     } else if (e.key === 'Escape') {
       e.preventDefault()
       handledRef.current = true
@@ -38,20 +52,35 @@ export function WorkspaceInlineInput({
 
   function handleBlur() {
     if (handledRef.current) return
-    if (value.trim()) onConfirm(value.trim())
-    else onCancel()
+    tryConfirm()
   }
 
   return (
-    <input
-      ref={ref}
-      type="text"
-      value={value}
-      onChange={(e) => setValue(e.target.value)}
-      onKeyDown={handleKeyDown}
-      onBlur={handleBlur}
-      placeholder={placeholder}
-      className="min-w-0 flex-1 bg-transparent font-mono text-[13px] outline-none placeholder:text-muted-foreground/40"
-    />
+    <div className="flex min-w-0 flex-1 flex-col">
+      <input
+        ref={ref}
+        type="text"
+        value={value}
+        onChange={(e) => setValue(e.target.value)}
+        onKeyDown={handleKeyDown}
+        onBlur={handleBlur}
+        placeholder={placeholder}
+        className="min-w-0 flex-1 bg-transparent font-mono text-[13px] outline-none placeholder:text-muted-foreground/40"
+      />
+      {existingWsId && (
+        <button
+          type="button"
+          // Use mousedown so it fires before the input's blur cancels the create.
+          onMouseDown={(e) => {
+            e.preventDefault()
+            handledRef.current = true
+            onOpenExisting?.(existingWsId)
+          }}
+          className="mt-0.5 text-left font-mono text-[11px] text-muted-foreground/70 hover:text-foreground"
+        >
+          {`'${value.trim()}' already has a workspace — open it`}
+        </button>
+      )}
+    </div>
   )
 }
