@@ -3,8 +3,12 @@
  *
  * Each pane tracks its current ActiveEditorContext. Subscribers are notified
  * immediately on subscription (with the current context or undefined), and on
- * every subsequent change. `set` is uri-deduped: if the new context carries
- * the same uri as the current one, subscribers are NOT re-notified.
+ * every subsequent change. `set` dedups on uri AND model identity: if the new
+ * context carries the same uri AND the same model as the current one, subscribers
+ * are NOT re-notified. Comparing the model too is essential — a close-then-reopen
+ * of the same file recreates the model (the old one was disposed), so the uri is
+ * unchanged but the held model is stale; deduping on uri alone would keep the
+ * disposed model and crash satellite reads with 'Model is disposed!'.
  */
 
 export interface ActiveEditorContext {
@@ -21,6 +25,13 @@ export interface ActiveEditorRegistry {
   get(paneId: string): ActiveEditorContext | undefined
   subscribe(paneId: string, cb: (ctx: ActiveEditorContext | undefined) => void): () => void
   clear(paneId: string): void
+  /**
+   * Clear the pane's context ONLY if its current context still points at `uri`.
+   * Used by the buffer-close path: when the closed buffer was the active ctx the
+   * registry must drop the (now-disposed) model so a later reopen does not keep
+   * the stale entry. A no-op if the pane already moved on to a different uri.
+   */
+  clearIfActive(paneId: string, uri: string): void
 }
 
 type Listener = (ctx: ActiveEditorContext | undefined) => void
@@ -51,7 +62,10 @@ export function createActiveEditorRegistry(): ActiveEditorRegistry {
   return {
     set(paneId, ctx) {
       const state = getOrCreate(paneId)
-      if (state.ctx?.uri === ctx.uri) return
+      // Dedup on uri AND model identity: a reopened file reuses the uri but gets
+      // a FRESH model (the prior one was disposed on close), so deduping on uri
+      // alone would retain the disposed model and never re-notify satellites.
+      if (state.ctx?.uri === ctx.uri && state.ctx?.model === ctx.model) return
       state.ctx = ctx
       notify(state, ctx)
     },
@@ -72,6 +86,13 @@ export function createActiveEditorRegistry(): ActiveEditorRegistry {
     clear(paneId) {
       const state = panes.get(paneId)
       if (!state) return
+      state.ctx = undefined
+      notify(state, undefined)
+    },
+
+    clearIfActive(paneId, uri) {
+      const state = panes.get(paneId)
+      if (!state || state.ctx?.uri !== uri) return
       state.ctx = undefined
       notify(state, undefined)
     },

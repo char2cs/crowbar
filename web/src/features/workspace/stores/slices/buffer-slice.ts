@@ -322,6 +322,15 @@ export const createBufferSlice: StateCreator<
           if (pane.bufferIds.includes(id)) manager?.closeBuffer(pane.id, uri)
         }
       }
+      // Free git-blame data accumulated for this file so per-file Maps don't
+      // grow unbounded across a long session. Dynamic import mirrors the pattern
+      // used above for terminal/chat to avoid circular slice → git-feature deps.
+      if (buf && isEditorContent(buf)) {
+        const filePath = buf.path
+        void import('@/features/git/stores/git-blame-store').then(({ useGitBlameStore }) => {
+          useGitBlameStore.getState().clearBlameForFile(filePath)
+        })
+      }
       // Free full-content history snapshots so closed buffers don't leak memory.
       // clearHistory drops up to 100 HistoryEntry objects each holding a full copy
       // of the file text — the dominant source of memory growth in long sessions.

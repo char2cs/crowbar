@@ -158,7 +158,15 @@ export function usePaneEditorController<S>(
       // before `currentBufferId` is updated — so the flush attributes to the
       // outgoing buffer (sinkBufferId still points at it).
       sink.flush()
-      applyActiveBuffer({ manager, registry }, paneId, buffer)
+      if (buffer) {
+        applyActiveBuffer({ manager, registry }, paneId, buffer)
+      } else if (currentUri) {
+        // The pane just became empty (last tab closed). `applyActiveBuffer` is a
+        // no-op for a null buffer, so it would leave the registry holding the
+        // outgoing context — whose model the ModelRegistry just disposed. Clear it
+        // here so satellites drop the dead model and a later reopen re-notifies.
+        registry.clearIfActive(paneId, currentUri)
+      }
       currentUri = nextUri
       currentBufferId = buffer ? buffer.bufferId : null
       firstEditFlushed = false

@@ -190,4 +190,32 @@ describe('usePaneEditorController', () => {
     expect(deps.unmountPane).toHaveBeenCalledTimes(1)
     expect(deps.registry.get('p1')).toBeUndefined()
   })
+
+  // R12 regression: closing the LAST tab (activeBufferId -> null) must CLEAR the
+  // pane's registry entry. Previously applyActiveBuffer early-returned for a null
+  // buffer and left the disposed model's context in place, which then crashed
+  // satellites ('Model is disposed!') on the next content sync. The pane never
+  // unmounts, so cleanup-on-unmount did not cover this.
+  it('clears the registry when the last tab closes (active buffer -> null)', () => {
+    const { store, deps } = setup()
+    expect(deps.registry.get('p1')?.filePath).toBe('/a.ts')
+
+    act(() => store.getState().setActive(null))
+
+    expect(deps.registry.get('p1')).toBeUndefined()
+  })
+
+  // R12 regression: after a close, reopening the SAME file must re-publish the
+  // context (and re-notify satellites). With the registry cleared on close this
+  // is a fresh set; the model-identity dedup additionally protects the case where
+  // the entry was not cleared but the model was recreated.
+  it('re-publishes the context when the same file is reopened after a close', () => {
+    const { store, deps } = setup()
+
+    act(() => store.getState().setActive(null))
+    expect(deps.registry.get('p1')).toBeUndefined()
+
+    act(() => store.getState().setActive('a'))
+    expect(deps.registry.get('p1')?.filePath).toBe('/a.ts')
+  })
 })

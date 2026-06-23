@@ -4,10 +4,13 @@ import { saveWorkspaceLayout } from '@/lib/persistence/workspace-layout'
 import { useHistoryStore } from '@/features/editor/stores/history-store'
 import { cleanupBufferHistoryTracking } from '@/features/editor/stores/buffer-history-tracking'
 import type { TerminalContent, CrowbarChatContent } from '@/features/panes/types/pane-content'
+import { isEditorContent } from '@/features/panes/types/pane-content'
 import { setActiveScopeWorkspaceId } from '@/lib/workspace-scope'
 
 const registry = new Map<string, WorkspaceStore>()
 const persistTimers = new Map<string, ReturnType<typeof setTimeout>>()
+/** Unsubscribe functions for the per-workspace persistence subscriptions. */
+const persistUnsubs = new Map<string, () => void>()
 
 let _activeWorkspaceId: string | null = null
 
@@ -45,7 +48,23 @@ export function getOrCreateWorkspaceStore(wsId: string): WorkspaceStore {
     const snapshot = loadFromLocalStorage(wsId)
     const store = createWorkspaceStore(wsId, snapshot === null ? undefined : snapshot)
 
-    store.subscribe((state) => {
+    // Subscribe to store changes and debounce persistence writes.
+    // The callback runs a shallow-compare of the five persisted layout fields
+    // before doing any work, so non-persisted mutations (LSP diagnostics,
+    // terminal output, editor cursor, etc.) are ignored immediately without
+    // arming the debounce timer.
+    const unsub = store.subscribe((state, prev) => {
+      if (
+        state.panes === prev.panes &&
+        state.rootLayout === prev.rootLayout &&
+        state.bottomLayout === prev.bottomLayout &&
+        state.activePaneId === prev.activePaneId &&
+        state.mostRecentActivePaneIds === prev.mostRecentActivePaneIds &&
+        state.buffers === prev.buffers
+      ) {
+        return
+      }
+
       const existing = persistTimers.get(wsId)
       if (existing !== undefined) clearTimeout(existing)
       const timer = setTimeout(() => {
@@ -65,6 +84,7 @@ export function getOrCreateWorkspaceStore(wsId: string): WorkspaceStore {
       }, 300)
       persistTimers.set(wsId, timer)
     })
+    persistUnsubs.set(wsId, unsub)
 
     registry.set(wsId, store)
   }
@@ -76,6 +96,12 @@ export function destroyWorkspaceStore(wsId: string): void {
   if (existing !== undefined) {
     clearTimeout(existing)
     persistTimers.delete(wsId)
+  }
+
+  const unsub = persistUnsubs.get(wsId)
+  if (unsub !== undefined) {
+    unsub()
+    persistUnsubs.delete(wsId)
   }
 
   const store = registry.get(wsId)
@@ -105,6 +131,21 @@ export function destroyWorkspaceStore(wsId: string): void {
           }
         },
       )
+    }
+
+    // Free cached git-blame for this workspace's open files. The blame store is a
+    // global singleton keyed by file path, so clearAllBlame() would wipe blame for
+    // OTHER still-active workspaces; we instead clear only this workspace's editor
+    // buffer paths. Dynamic import avoids a registry → git-feature cycle, mirroring
+    // the terminal/chat branches above.
+    const editorPaths = buffers.filter(isEditorContent).map((b) => b.path)
+    if (editorPaths.length > 0) {
+      void import('@/features/git/stores/git-blame-store').then(({ useGitBlameStore }) => {
+        const { clearBlameForFile } = useGitBlameStore.getState()
+        for (const path of editorPaths) {
+          clearBlameForFile(path)
+        }
+      })
     }
 
     // Cleanup undo tracker and history for each buffer

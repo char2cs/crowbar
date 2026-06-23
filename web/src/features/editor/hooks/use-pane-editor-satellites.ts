@@ -491,6 +491,10 @@ export function usePaneEditorSatellites(
       const editor = editorRef.current
       const model = modelRef.current
       if (!editor || !model) return
+      // A disposed model can linger in modelRef across a close→reopen race (the
+      // registry briefly held the old context). Reading it (getValue / applyEdit)
+      // throws 'Model is disposed!' and crashes this effect — bail instead.
+      if (model.isDisposed()) return
       const path = filePathRef.current
       if (!path) return
       if (model.getValue() === content) return
@@ -809,7 +813,12 @@ export function usePaneEditorSatellites(
       if (timer) clearTimeout(timer)
       timer = setTimeout(() => {
         timer = null
-        const content = modelRef.current?.getValue() ?? activeContentRef.current
+        const model = modelRef.current
+        // Guard against a disposed model lingering across a close→reopen race:
+        // getValue() would throw 'Model is disposed!'. Fall back to the last
+        // known store content instead.
+        const content =
+          model && !model.isDisposed() ? model.getValue() : activeContentRef.current
         void LspClient.getInstance().documentChange(filePath, content)
       }, 400)
     }
