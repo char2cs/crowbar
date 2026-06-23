@@ -14,7 +14,6 @@ import { useSidebarStore, type ProjectChat } from '@/lib/store/sidebar'
 import { useChatListStore } from '@/lib/store/chat-list-store'
 import { chatDtoToProjectChat } from '@/lib/api/chat'
 import { dataOf } from '@/lib/loadable'
-import { toast } from '@/components/ui/toast'
 
 function buildChatTree(chats: ProjectChat[]): ChatTreeNode[] {
   const nodeMap = new Map<string, ChatTreeNode>()
@@ -59,7 +58,7 @@ function ChatTreeInner({ wsId }: ChatTreeProps) {
   const activeChatId = pathname.match(/\/chat\/([^/]+)/)?.[1] ?? ''
   const allChats = useSidebarStore((s) => s.chats)
   const chats = useMemo(() => allChats.filter((c) => c.wsId === wsId), [allChats, wsId])
-  const { draggingChat, hoverTrash } = useChatTreeContext()
+  const { draggingChat, hoverTrash, setChatError } = useChatTreeContext()
 
   // Fetch via LoadableSlice (IDB-cached, stale-while-revalidate).
   // No fetch without a workspace — an empty wsId would hit /v0/workspaces//chats.
@@ -91,7 +90,6 @@ function ChatTreeInner({ wsId }: ChatTreeProps) {
     // first paint of the sidebar.
     const store = getActiveWorkspaceStore() ?? (wsId ? getOrCreateWorkspaceStore(wsId) : null)
     if (!store) {
-      toast.error('Open a workspace to view this chat')
       return
     }
     store.getState().bufferActions.openContent({
@@ -103,12 +101,11 @@ function ChatTreeInner({ wsId }: ChatTreeProps) {
 
   function handleNew() {
     if (!wsId) {
-      toast.error('Open a workspace to create a chat')
       return
     }
     // Creating a chat also opens its tab — same path as clicking the row
     // (the created chat is already in the sidebar store by then).
-    void performCreateChat(wsId, 'New chat').then((chat) => {
+    void performCreateChat(wsId, 'New chat', setChatError).then((chat) => {
       if (chat) handleChatClick(chat.id)
     })
   }

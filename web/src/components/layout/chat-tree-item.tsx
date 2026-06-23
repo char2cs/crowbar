@@ -36,6 +36,8 @@ export function ChatTreeItem({ node, depth, activeChatId, onChatClick }: ChatTre
     cancelRename,
     draggingChat,
     onPointerDownDrag,
+    chatErrors,
+    clearChatError,
   } = useChatTreeContext()
 
   const isCreatingChild = creatingChildOf?.parentId === chat.id
@@ -92,6 +94,20 @@ export function ChatTreeItem({ node, depth, activeChatId, onChatClick }: ChatTre
 
           {!isRenaming && (
             <span className="shrink-0 font-mono text-[11px] text-muted-foreground">{chat.age}</span>
+          )}
+
+          {chatErrors.get(chat.id) && (
+            <span className="ml-auto text-xs text-destructive flex items-center gap-1">
+              {chatErrors.get(chat.id)}
+              <button
+                type="button"
+                onClick={(e) => { e.stopPropagation(); clearChatError(chat.id) }}
+                onPointerDown={(e) => e.stopPropagation()}
+                className="hover:text-foreground"
+              >
+                ✕
+              </button>
+            </span>
           )}
 
           {!isRenaming &&
