@@ -7,6 +7,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/char2cs/asynx"
@@ -138,6 +139,29 @@ type Workspace interface {
 type wsEntity struct {
 	ax    asynx.Asynx[domain.Workspace]
 	store store.Store
+	// writeMu serializes commands to this aggregate: single-writer-per-aggregate.
+	writeMu sync.Mutex
+}
+
+// send dispatches a command to this entity's aggregate, serialized so only one
+// command per workspace is in flight at a time.
+//
+// The optimistic event store reads nextVersion then Appends; asynx's default
+// shard runs 8 workers, and that worker count is not settable through its public
+// builder. So concurrent same-aggregate commands (the fs-watcher sync, the
+// provider sweep, chat activity, and a user git op all firing on one workspace)
+// each read the same nextVersion and Append at it — the losers fail with a
+// version/PK conflict and the read model silently goes stale. Serializing here
+// is the single-writer-per-aggregate model the event store assumes, without
+// forking asynx. Cross-aggregate writes still run fully in parallel (one mutex
+// per entity).
+func (e *wsEntity) send(
+	ctx context.Context,
+	cmd asynxModels.Command[domain.Workspace],
+) (asynxModels.Event[domain.Workspace], error) {
+	e.writeMu.Lock()
+	defer e.writeMu.Unlock()
+	return e.ax.SendWait(ctx, cmd)
 }
 
 type workspace struct {
@@ -249,7 +273,7 @@ func (w *workspace) Create(
 	if err != nil {
 		return domain.Workspace{}, fmt.Errorf("workspace: create: %w", err)
 	}
-	evt, err := entity.ax.SendWait(ctx, commands.CreateWorkspace{
+	evt, err := entity.send(ctx, commands.CreateWorkspace{
 		ID:            in.ID,
 		RepoID:        in.RepoID,
 		ProjectID:     in.ProjectID,
@@ -277,7 +301,7 @@ func (w *workspace) SyncWorkingTreeState(
 	if err != nil {
 		return domain.Workspace{}, err
 	}
-	evt, err := entity.ax.SendWait(ctx, commands.SyncWorkingTreeState{
+	evt, err := entity.send(ctx, commands.SyncWorkingTreeState{
 		ID:           in.ID,
 		Added:        in.Added,
 		Deleted:      in.Deleted,
@@ -315,7 +339,7 @@ func (w *workspace) SyncProviderState(
 	if err != nil {
 		return domain.Workspace{}, err
 	}
-	evt, err := entity.ax.SendWait(ctx, commands.SyncProviderState{
+	evt, err := entity.send(ctx, commands.SyncProviderState{
 		ID:             in.ID,
 		Protected:      in.Protected,
 		HasPR:          in.HasPR,
@@ -340,7 +364,7 @@ func (w *workspace) SetMergeStrategy(
 	if err != nil {
 		return domain.Workspace{}, err
 	}
-	evt, err := entity.ax.SendWait(ctx, commands.SetMergeStrategy{ID: id, Strategy: strategy})
+	evt, err := entity.send(ctx, commands.SetMergeStrategy{ID: id, Strategy: strategy})
 	if err != nil {
 		return domain.Workspace{}, fmt.Errorf("workspace: set merge strategy: %w", err)
 	}
@@ -356,7 +380,7 @@ func (w *workspace) TouchActivity(
 	if err != nil {
 		return domain.Workspace{}, err
 	}
-	evt, err := entity.ax.SendWait(ctx, commands.TouchActivity{ID: id, Now: now})
+	evt, err := entity.send(ctx, commands.TouchActivity{ID: id, Now: now})
 	if err != nil {
 		return domain.Workspace{}, fmt.Errorf("workspace: touch activity: %w", err)
 	}
@@ -374,7 +398,7 @@ func (w *workspace) Reparent(
 	if err != nil {
 		return domain.Workspace{}, err
 	}
-	evt, err := entity.ax.SendWait(ctx, commands.Reparent{
+	evt, err := entity.send(ctx, commands.Reparent{
 		ID:           id,
 		ParentID:     parentID,
 		ForkPointSha: forkPointSha,
@@ -395,7 +419,7 @@ func (w *workspace) ResolveConflicts(
 	if err != nil {
 		return domain.Workspace{}, err
 	}
-	evt, err := entity.ax.SendWait(ctx, commands.ResolveConflicts{
+	evt, err := entity.send(ctx, commands.ResolveConflicts{
 		ID:  id,
 		Now: now,
 	})
@@ -414,7 +438,7 @@ func (w *workspace) UpdateForkPoint(
 	if err != nil {
 		return domain.Workspace{}, err
 	}
-	evt, err := entity.ax.SendWait(ctx, commands.UpdateForkPoint{ID: id, ForkPointSha: forkPointSha})
+	evt, err := entity.send(ctx, commands.UpdateForkPoint{ID: id, ForkPointSha: forkPointSha})
 	if err != nil {
 		return domain.Workspace{}, fmt.Errorf("workspace: update fork point: %w", err)
 	}
@@ -430,7 +454,7 @@ func (w *workspace) SetParentFromPR(
 	if err != nil {
 		return domain.Workspace{}, err
 	}
-	evt, err := entity.ax.SendWait(ctx, commands.SetParentFromPR{ID: id, ParentID: parentID})
+	evt, err := entity.send(ctx, commands.SetParentFromPR{ID: id, ParentID: parentID})
 	if err != nil {
 		return domain.Workspace{}, fmt.Errorf("workspace: set parent from pr: %w", err)
 	}
@@ -446,7 +470,7 @@ func (w *workspace) SetLastError(
 	if err != nil {
 		return domain.Workspace{}, err
 	}
-	evt, err := entity.ax.SendWait(ctx, commands.SetLastError{ID: id, Message: message})
+	evt, err := entity.send(ctx, commands.SetLastError{ID: id, Message: message})
 	if err != nil {
 		return domain.Workspace{}, fmt.Errorf("workspace: set last error: %w", err)
 	}
