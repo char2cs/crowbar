@@ -1,8 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
-import { IDBFactory } from 'fake-indexeddb'
-import { resetDB } from '@/lib/persistence/idb'
-import { getAllEntities } from '@/lib/persistence/entity-cache'
 import type { WorkspaceDTO } from '@/lib/types'
+import type { EntityStoreName } from '@/lib/persistence/entity-cache'
 
 // The entity-stream layer is built on top of wsManager.subscribe — mock it so
 // the test drives WS frames directly without standing up a real socket.
@@ -27,7 +25,39 @@ vi.mock('@/lib/ws/manager', () => ({
   },
 }))
 
+// Mock the IndexedDB cache layer with a controllable in-memory store. The key
+// lever is `upsertDelayMs`: an upsert that resolves SLOWLY lets us reproduce the
+// H21 race where a fast delete would otherwise commit first. With the serial
+// applyChain in entity-stream, arrival order is preserved regardless of latency.
+const cache = new Map<string, Map<string, { id: string; status?: string }>>()
+let upsertDelayMs = 0
+
+function bucket(store: EntityStoreName): Map<string, { id: string; status?: string }> {
+  let b = cache.get(store)
+  if (!b) {
+    b = new Map()
+    cache.set(store, b)
+  }
+  return b
+}
+
+function delay(ms: number): Promise<void> {
+  return ms > 0 ? new Promise((r) => setTimeout(r, ms)) : Promise.resolve()
+}
+
+vi.mock('@/lib/persistence/entity-cache', () => ({
+  upsertEntity: vi.fn(async (store: EntityStoreName, dto: { id: string; status?: string }) => {
+    await delay(upsertDelayMs)
+    bucket(store).set(dto.id, dto)
+  }),
+  removeEntity: vi.fn(async (store: EntityStoreName, id: string) => {
+    bucket(store).delete(id)
+  }),
+  getAllEntities: vi.fn(async (store: EntityStoreName) => Array.from(bucket(store).values())),
+}))
+
 const { subscribeEntityStream } = await import('@/lib/ws/entity-stream')
+const { getAllEntities } = await import('@/lib/persistence/entity-cache')
 
 function makeWorkspace(over: Partial<WorkspaceDTO> & { id: string }): WorkspaceDTO {
   return {
@@ -53,8 +83,8 @@ function makeWorkspace(over: Partial<WorkspaceDTO> & { id: string }): WorkspaceD
 }
 
 beforeEach(() => {
-  resetDB()
-  globalThis.indexedDB = new IDBFactory()
+  cache.clear()
+  upsertDelayMs = 0
   subscribers.clear()
   subscribe.mockClear()
   unsubscribe.mockClear()
@@ -119,6 +149,33 @@ describe('subscribeEntityStream', () => {
     })
   })
 
+  // H21 part 1: ordering. A 'new' frame immediately followed by a 'deleted'
+  // tombstone for the SAME id (rapid mutate/abort) must end REMOVED. We make the
+  // upsert resolve slowly so an unordered, fire-and-forget implementation would
+  // let the fast delete commit first and the late upsert would resurrect a ghost
+  // row. The serial applyChain forces the delete to land after the upsert.
+  it('keeps an entity REMOVED when upsert(id) is immediately followed by remove(id)', async () => {
+    const seed = vi.fn(async () => [])
+    subscribeEntityStream<WorkspaceDTO>({
+      endpoint: '/v0/projects/p1/repos/r1/workspaces',
+      store: 'crowbar_workspaces',
+      seed,
+    })
+    await vi.waitFor(() => expect(seed).toHaveBeenCalled())
+
+    upsertDelayMs = 20 // upsert resolves slowly, delete resolves immediately
+    emit(makeWorkspace({ id: 'wx', status: 'new' }))
+    emit(makeWorkspace({ id: 'wx', status: 'deleted' }))
+
+    await vi.waitFor(async () => {
+      // both frames applied — and the entity is gone, not resurrected
+      expect(await getAllEntities<WorkspaceDTO>('crowbar_workspaces')).toHaveLength(0)
+    })
+    // give any out-of-order late upsert a chance to (wrongly) revive it
+    await new Promise((r) => setTimeout(r, 40))
+    expect(await getAllEntities<WorkspaceDTO>('crowbar_workspaces')).toHaveLength(0)
+  })
+
   it('re-seeds (full GET) on the reconnect sentinel, not a corrupt upsert', async () => {
     let seedCalls = 0
     const seed = vi.fn(async () => {
@@ -145,6 +202,36 @@ describe('subscribeEntityStream', () => {
       expect(all).toHaveLength(2)
       // no corrupt entity (the sentinel has no id, so it must never be stored)
       expect(all.every((w) => w.id === 'w1' || w.id === 'w2')).toBe(true)
+    })
+    expect(seed).toHaveBeenCalledTimes(2)
+  })
+
+  // H21 part 2: authoritative reseed. A GET is a point-in-time snapshot; on
+  // reconnect any entity deleted DURING the outage is absent from the fresh seed
+  // and must be PRUNED from the cache, not left to linger.
+  it('reseed prunes a cached entity that is absent from the fresh seed', async () => {
+    let seedCalls = 0
+    const seed = vi.fn(async () => {
+      seedCalls++
+      // first seed has w1+w2; after the outage only w1 survives (w2 was deleted)
+      return seedCalls === 1
+        ? [makeWorkspace({ id: 'w1' }), makeWorkspace({ id: 'w2' })]
+        : [makeWorkspace({ id: 'w1' })]
+    })
+    subscribeEntityStream<WorkspaceDTO>({
+      endpoint: '/v0/projects/p1/repos/r1/workspaces',
+      store: 'crowbar_workspaces',
+      seed,
+    })
+    await vi.waitFor(async () => {
+      expect(await getAllEntities<WorkspaceDTO>('crowbar_workspaces')).toHaveLength(2)
+    })
+
+    emit({ reconnected: true })
+
+    await vi.waitFor(async () => {
+      const all = await getAllEntities<WorkspaceDTO>('crowbar_workspaces')
+      expect(all.map((w) => w.id)).toEqual(['w1'])
     })
     expect(seed).toHaveBeenCalledTimes(2)
   })

@@ -1,5 +1,10 @@
 import { wsManager } from './manager'
-import { upsertEntity, removeEntity, type EntityStoreName } from '@/lib/persistence/entity-cache'
+import {
+  upsertEntity,
+  removeEntity,
+  getAllEntities,
+  type EntityStoreName,
+} from '@/lib/persistence/entity-cache'
 import { isReconnectSentinel, type EntityFrame } from './types'
 
 // §6 live-cache core: subscribe a hierarchical WS endpoint and MERGE each
@@ -27,37 +32,74 @@ export function subscribeEntityStream<T extends { id: string; status?: string }>
   const { endpoint, store, seed, onChange } = opts
   let disposed = false
 
-  async function runSeed(): Promise<void> {
+  // §6 ordering: every cache mutation (seed + each live frame) is queued onto a
+  // single serial promise chain so writes commit in ARRIVAL ORDER. Without this
+  // each frame ran its own fire-and-forget async IDB transaction, so a 'new'
+  // then 'deleted' pair for the same id could race — if the delete committed
+  // first, the late upsert resurrected a tombstoned ghost row (H21). Chaining a
+  // later delete strictly after an earlier upsert removes that window.
+  let applyChain: Promise<void> = Promise.resolve()
+  // Each reseed bumps the generation; an in-flight seed whose generation is no
+  // longer current has been superseded by a newer reconnect reseed and must
+  // not write stale rows.
+  let seedGeneration = 0
+
+  function applyFrame(frame: EntityFrame): Promise<void> {
+    if (frame.status === 'deleted') {
+      return removeEntity(store, frame.id)
+    }
+    return upsertEntity(store, frame as unknown as T)
+  }
+
+  // Authoritative + atomic reseed: a GET is only a point-in-time snapshot, so
+  // upserting its rows is not enough — entities deleted during the outage would
+  // linger. We diff the fresh set against the cache and removeEntity any id no
+  // longer present, then upsert the fresh rows, pruning ghosts left by missed
+  // delete frames. Folding this into applyChain (below) keeps it from
+  // interleaving with live frames.
+  async function applySeed(generation: number): Promise<void> {
     const items = await seed()
-    if (disposed) return
+    // A newer reseed started while our GET was in flight; let it win.
+    if (disposed || generation !== seedGeneration) return
+    const fresh = new Set(items.map((item) => item.id))
+    const cached = await getAllEntities<{ id: string }>(store)
+    if (disposed || generation !== seedGeneration) return
+    for (const entity of cached) {
+      if (!fresh.has(entity.id)) await removeEntity(store, entity.id)
+    }
     for (const item of items) {
       await upsertEntity(store, item)
     }
-    if (!disposed) onChange?.()
+  }
+
+  function runSeed(): void {
+    const generation = ++seedGeneration
+    applyChain = applyChain
+      .then(() => applySeed(generation))
+      .then(() => {
+        if (!disposed) onChange?.()
+      })
   }
 
   // Seed before the first push lands; the WS subscription is registered
   // synchronously below so no frame is dropped while the GET is in flight.
-  void runSeed()
+  runSeed()
 
   const unsubscribe = wsManager.subscribe(endpoint, (data: unknown) => {
     if (disposed) return
     // The reconnect sentinel is NOT a DTO — never upsert it; trigger a full
     // GET reseed so any frames missed during the outage are recovered.
     if (isReconnectSentinel(data)) {
-      void runSeed()
+      runSeed()
       return
     }
     const frame = data as EntityFrame
     if (!frame || typeof frame.id !== 'string') return
-    void (async () => {
-      if (frame.status === 'deleted') {
-        await removeEntity(store, frame.id)
-      } else {
-        await upsertEntity(store, frame as unknown as T)
-      }
-      if (!disposed) onChange?.()
-    })()
+    applyChain = applyChain
+      .then(() => applyFrame(frame))
+      .then(() => {
+        if (!disposed) onChange?.()
+      })
   })
 
   return () => {

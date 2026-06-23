@@ -16,6 +16,14 @@ function emit(data: unknown): void {
   subscribers.forEach((cb) => cb(data))
 }
 
+// awaitEntity closes its snapshot window when the action() promise settles, on a
+// microtask. Flushing the microtask queue lets a test deliver a "post-creation"
+// frame that the primitive will treat as new rather than a snapshot replay.
+async function flush(): Promise<void> {
+  await Promise.resolve()
+  await Promise.resolve()
+}
+
 vi.mock('@/lib/ws/manager', () => ({
   wsManager: {
     subscribe: (endpoint: string, cb: (data: unknown) => void) => subscribe(endpoint, cb),
@@ -50,6 +58,8 @@ describe('awaitEntity', () => {
     expect(subscribe).toHaveBeenCalledOnce()
 
     await vi.waitFor(() => expect(action).toHaveBeenCalled())
+    // The new entity is broadcast after the create round-trips (window closed).
+    await flush()
     emit({ id: 'real-id', path: '/tmp/p' })
 
     const resolved = await promise
@@ -63,10 +73,40 @@ describe('awaitEntity', () => {
       match: (f) => f.path === '/tmp/want',
       action: async () => {},
     })
+    // Wait for the snapshot window to close before delivering the created entity.
+    await flush()
     emit({ id: 'other', path: '/tmp/nope' })
     emit({ id: 'mine', path: '/tmp/want' })
     await expect(promise).resolves.toEqual({ id: 'mine', path: '/tmp/want' })
     expect(unsubscribe).toHaveBeenCalledOnce()
+  })
+
+  it('resolves to the NEW entity, not a pre-existing snapshot match (H14)', async () => {
+    // Repro of finding H14: a snapshot-on-subscribe frame for a PRE-EXISTING row
+    // that already satisfies `match` (e.g. a workspace already on this branch)
+    // arrives FIRST, before the freshly-created entity. awaitEntity must bank the
+    // snapshot id and resolve only to the genuinely new entity.
+    let actionFired = false
+    const promise = awaitEntity<{ id: string; branch: string }>({
+      endpoint: '/v0/projects/p1/repos/r1/workspaces',
+      match: (w) => w.branch === 'feature',
+      action: async () => {
+        // The snapshot replay lands the instant we subscribe — before the POST
+        // completes — so deliver the pre-existing match here.
+        actionFired = true
+        emit({ id: 'pre-existing', branch: 'feature' })
+      },
+    })
+
+    await vi.waitFor(() => expect(actionFired).toBe(true))
+    // Window closes once the action settles; now the created workspace arrives.
+    await flush()
+    emit({ id: 'freshly-created', branch: 'feature' })
+
+    const resolved = await promise
+    // It must be the new id, NOT the pre-existing snapshot row.
+    expect(resolved.id).toBe('freshly-created')
+    expect(resolved.id).not.toBe('pre-existing')
   })
 
   it('ignores the reconnect sentinel', async () => {
@@ -75,6 +115,7 @@ describe('awaitEntity', () => {
       match: (f) => f.path === '/tmp/want',
       action: async () => {},
     })
+    await flush()
     emit({ reconnected: true })
     emit({ id: 'mine', path: '/tmp/want' })
     await expect(promise).resolves.toEqual({ id: 'mine', path: '/tmp/want' })

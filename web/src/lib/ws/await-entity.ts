@@ -10,6 +10,14 @@ import { isReconnectSentinel } from './types'
 //   3. resolve with the first frame that `match` accepts.
 // A timeout guards against a frame that never arrives (the daemon errored after
 // the 202) so callers can surface an error instead of hanging the UI.
+//
+// Snapshot-on-subscribe caveat: repo/workspace topics replay every existing row
+// the instant we connect, BEFORE the freshly-created entity lands. A `match`
+// that a pre-existing row satisfies (e.g. another workspace already on this
+// branch, or an existing workspace under this repo) would otherwise resolve to
+// the OLD entity and strand the caller in the wrong worktree. So we record the
+// ids seen in the snapshot window (everything up to and including the action's
+// settlement) and only resolve on a matching frame whose id is NEW.
 
 export interface AwaitEntityOptions<T> {
   /** Hierarchical WS endpoint to subscribe, e.g. '/v0/projects'. */
@@ -30,6 +38,13 @@ export function awaitEntity<T extends { id: string }>(
   const { endpoint, match, action, timeoutMs = DEFAULT_TIMEOUT_MS } = opts
   return new Promise<T>((resolve, reject) => {
     let settled = false
+    // Ids replayed by the snapshot-on-subscribe burst. While `collecting` is
+    // true a matching frame is recorded here instead of resolving — those rows
+    // pre-date our mutation and must never be the answer. The action settling
+    // closes the window: the freshly-created entity is broadcast only once the
+    // create round-trips, i.e. at/after the POST resolves.
+    const seen = new Set<string>()
+    let collecting = true
 
     const finish = (fn: () => void): void => {
       if (settled) return
@@ -44,7 +59,14 @@ export function awaitEntity<T extends { id: string }>(
       if (isReconnectSentinel(data)) return
       const frame = data as T
       if (!frame || typeof frame.id !== 'string') return
-      if (match(frame)) finish(() => resolve(frame))
+      if (!match(frame)) return
+      // Snapshot window: bank the id (it is a pre-existing row) and wait for a
+      // genuinely new one. After the window closes, accept only NEW ids.
+      if (collecting || seen.has(frame.id)) {
+        seen.add(frame.id)
+        return
+      }
+      finish(() => resolve(frame))
     })
 
     const timer = setTimeout(
@@ -54,7 +76,12 @@ export function awaitEntity<T extends { id: string }>(
 
     // Fire the mutation only after the subscription is live. A rejection here
     // (e.g. a fail-fast 4xx) surfaces immediately instead of waiting for the
-    // timeout.
-    void action().catch((err) => finish(() => reject(err)))
+    // timeout. The snapshot window stays open until the action settles, so every
+    // pre-existing row is banked before we start accepting new ids.
+    void action()
+      .then(() => {
+        collecting = false
+      })
+      .catch((err) => finish(() => reject(err)))
   })
 }
