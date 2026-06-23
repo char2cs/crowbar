@@ -15,7 +15,6 @@ import {
   useWorkspaceTreeActions,
   useWorkspaceTreeDrag,
 } from './workspace-tree-context'
-import { WorkspaceAgentSpinner } from './workspace-branch-icon'
 import { RepoSettingsPanel } from './repo-settings-panel'
 import { ProjectSwitcherRow } from './project-switcher-row'
 import { useSidebarNavStore } from '@/features/layout/stores/sidebar-nav'
@@ -67,7 +66,7 @@ function WorkspaceTreeInner() {
   const pathname = useRouterState({ select: (s) => s.location.pathname })
   const repos = useSidebarStore((s) => s.repos)
   const collapsedRepos = useSidebarStore((s) => s.collapsedRepos)
-  const { creatingChildOf, startCreating, confirmCreate, cancelCreate, pendingCreates, clearPendingCreate } = useWorkspaceTreeActions()
+  const { creatingChildOf, startCreating, confirmCreate, cancelCreate } = useWorkspaceTreeActions()
   const { hoverTargetId } = useWorkspaceTreeDrag()
   const wsListData = useWorkspaceListStore((s) => s.data)
   const retryWorkspaces = useCallback(() => {
@@ -270,37 +269,6 @@ function WorkspaceTreeInner() {
                         onWorkspaceClick={handleWorkspaceClick}
                       />
                     ))}
-                    {Array.from(pendingCreates.entries())
-                      .filter(([, p]) => p.repoId === repo.id)
-                      .map(([tempId, pending]) => (
-                        <div key={tempId} style={{ paddingLeft: 14 }}>
-                          <div className={cn(ROW_BASE, 'border-transparent opacity-60 pointer-events-none')}>
-                            {pending.error ? (
-                              <>
-                                <span className="size-4 shrink-0 text-destructive flex items-center justify-center text-xs">✕</span>
-                                <span className="min-w-0 flex-1 truncate font-mono text-muted-foreground text-[13px]">
-                                  {pending.branch}
-                                </span>
-                                <span className="text-xs text-destructive">failed</span>
-                                <button
-                                  type="button"
-                                  className="pointer-events-auto text-xs text-muted-foreground hover:text-foreground ml-1"
-                                  onClick={() => clearPendingCreate(tempId)}
-                                >
-                                  ✕
-                                </button>
-                              </>
-                            ) : (
-                              <>
-                                <WorkspaceAgentSpinner />
-                                <span className="min-w-0 flex-1 truncate font-mono text-muted-foreground text-[13px]">
-                                  {pending.branch}
-                                </span>
-                              </>
-                            )}
-                          </div>
-                        </div>
-                      ))}
                   </div>
                 )}
               </div>

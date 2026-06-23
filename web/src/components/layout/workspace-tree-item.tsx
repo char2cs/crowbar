@@ -1,6 +1,7 @@
 import { cn } from '@/lib/utils'
 import { formatChangeCount } from './format-change-count'
 import { WorkspaceBranchIcon } from './workspace-branch-icon'
+import { WorkspaceAgentSpinner } from './workspace-branch-icon'
 import { WorkspaceInlineInput } from './workspace-inline-input'
 import { ROW_BASE, ROW_ACTIVE, ROW_INACTIVE, ADD_GLYPH_PATH } from './workspace-row-base'
 import { useWorkspaceTreeActions, useWorkspaceTreeDrag } from './workspace-tree-context'
@@ -41,6 +42,8 @@ export function WorkspaceTreeItem({
     confirmRename,
     cancelRename,
     onPointerDownDrag,
+    pendingCreates,
+    clearPendingCreate,
   } = useWorkspaceTreeActions()
   const { draggingWs, hoverTargetId, movingWsId } = useWorkspaceTreeDrag()
 
@@ -179,6 +182,38 @@ export function WorkspaceTreeItem({
                 activeWorkspaceId={activeWorkspaceId}
                 onWorkspaceClick={onWorkspaceClick}
               />
+            ))}
+
+          {Array.from(pendingCreates.entries())
+            .filter(([, p]) => p.parentId === workspace.id)
+            .map(([tempId, pending]) => (
+              <div key={tempId} style={{ paddingLeft: (depth + 2) * 14 }}>
+                <div className={cn(ROW_BASE, 'border-transparent opacity-60 pointer-events-none')}>
+                  {pending.error ? (
+                    <>
+                      <span className="size-4 shrink-0 text-destructive flex items-center justify-center text-xs">✕</span>
+                      <span className="min-w-0 flex-1 truncate font-mono text-muted-foreground text-[13px]">
+                        {pending.branch}
+                      </span>
+                      <span className="text-xs text-destructive">failed</span>
+                      <button
+                        type="button"
+                        className="pointer-events-auto text-xs text-muted-foreground hover:text-foreground ml-1"
+                        onClick={() => clearPendingCreate(tempId)}
+                      >
+                        ✕
+                      </button>
+                    </>
+                  ) : (
+                    <>
+                      <WorkspaceAgentSpinner />
+                      <span className="min-w-0 flex-1 truncate font-mono text-muted-foreground text-[13px]">
+                        {pending.branch}
+                      </span>
+                    </>
+                  )}
+                </div>
+              </div>
             ))}
 
           <div style={{ paddingLeft: (depth + 2) * 14 }}>
