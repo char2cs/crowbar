@@ -11,6 +11,7 @@ import { WorkspaceInlineInput } from './workspace-inline-input'
 import { findWorkspaceForBranch } from '@/lib/workspace/branch-workspace'
 import { WorkspaceTreeFooter } from './workspace-tree-footer'
 import { WorkspaceTreeItem } from './workspace-tree-item'
+import { PendingCreateRow } from './pending-create-row'
 import {
   WorkspaceTreeProvider,
   useWorkspaceTreeActions,
@@ -67,7 +68,8 @@ function WorkspaceTreeInner() {
   const pathname = useRouterState({ select: (s) => s.location.pathname })
   const repos = useSidebarStore((s) => s.repos)
   const collapsedRepos = useSidebarStore((s) => s.collapsedRepos)
-  const { creatingChildOf, startCreating, confirmCreate, cancelCreate } = useWorkspaceTreeActions()
+  const { creatingChildOf, startCreating, confirmCreate, cancelCreate, pendingCreates, clearPendingCreate } =
+    useWorkspaceTreeActions()
   const { hoverTargetId } = useWorkspaceTreeDrag()
   const wsListData = useWorkspaceListStore((s) => s.data)
   const retryWorkspaces = useCallback(() => {
@@ -267,6 +269,19 @@ function WorkspaceTreeInner() {
                           </div>
                         </div>
                       )}
+                    {Array.from(pendingCreates.entries())
+                      .filter(
+                        ([, p]) => p.repoId === repo.id && p.parentId === repo.defaultWorkspaceId,
+                      )
+                      .map(([tempId, pending]) => (
+                        <PendingCreateRow
+                          key={tempId}
+                          tempId={tempId}
+                          pending={pending}
+                          paddingLeft={14}
+                          onClear={clearPendingCreate}
+                        />
+                      ))}
                     {roots.map((node) => (
                       <WorkspaceTreeItem
                         key={node.workspace.id}
