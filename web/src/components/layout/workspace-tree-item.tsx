@@ -54,7 +54,15 @@ export function WorkspaceTreeItem({
   const isDraggingThis = draggingWs?.id === workspace.id
   const isMoving = movingWsId === workspace.id
   const isDropTarget = hoverTargetId === `ws:${workspace.id}` && !isDraggingThis
-  const showChildrenSection = (hasChildren && expanded) || isCreatingChild
+  // An in-flight create lives in pendingCreates AFTER the inline input is hidden
+  // (confirmCreate clears creatingChildOf immediately). For a LEAF workspace
+  // hasChildren and isCreatingChild are both false by then, so without this the
+  // children section — and the optimistic spinner row inside it — would not
+  // render and the create would show nothing.
+  const hasPendingChild = Array.from(pendingCreates.values()).some(
+    (p) => p.parentId === workspace.id,
+  )
+  const showChildrenSection = (hasChildren && expanded) || isCreatingChild || hasPendingChild
 
   const variant = isActive ? ROW_ACTIVE : ROW_INACTIVE
 
