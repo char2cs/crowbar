@@ -673,14 +673,24 @@ func TestCreateChild_AdoptMainWorktree_RevParseError(t *testing.T) {
 // TestCreateChild_RejectsDuplicateBranch_AdoptPath proves a second workspace on
 // the repo's default branch (empty parent + branch == default) is rejected with
 // ErrBranchWorkspaceExists before any git work — no phantom duplicate row.
-func TestCreateChild_RejectsDuplicateBranch_AdoptPath(t *testing.T) {
-	g := &fakeGit{revParseSha: "headsha"}
+// TestCreateChild_DefaultWorkspaceDoesNotBlockImport pins the user-required rule:
+// the default workspace (the imported repo folder) is unmanaged and must NOT
+// count for the one-managed-workspace-per-branch guard — so it never blocks
+// importing its own branch as a real managed workspace. With the default already
+// adopting the repo path, creating develop again is allowed and goes to the
+// managed-worktree path; it does NOT persist a second default.
+func TestCreateChild_DefaultWorkspaceDoesNotBlockImport(t *testing.T) {
+	g := &fakeGit{addStartSha: "sha"}
+	var created workspace.CreateInput
 	createCalls := 0
 	ws := &fakeWorkspace{
 		ListFn: func(_ context.Context) ([]domain.Workspace, error) {
-			return []domain.Workspace{{ID: "ws-default", RepoID: "r1", Branch: "develop"}}, nil
+			return []domain.Workspace{
+				{ID: "def", RepoID: "r1", Branch: "develop", WorktreePath: "/repo", IsDefault: true},
+			}, nil
 		},
 		CreateFn: func(_ context.Context, in workspace.CreateInput, _ time.Time) (domain.Workspace, error) {
+			created = in
 			createCalls++
 			return domain.Workspace{ID: in.ID}, nil
 		},
@@ -688,13 +698,15 @@ func TestCreateChild_RejectsDuplicateBranch_AdoptPath(t *testing.T) {
 	uc := worktree.New(ws, g, &fakeProvider{}, &fakeRepoStore{}, newNow(), fakeHome())
 
 	_, err := uc.CreateChild(context.Background(), worktree.CreateChildInput{
-		RepoID: "r1", ProjectID: "p1", RepoPath: "/repo",
+		RepoID: "r1", ProjectID: "p1", RepoPath: "/repo", RemoteURL: "https://github.com/test/repo.git",
 		Branch: "develop", ParentID: "", ParentBranch: "develop",
 	})
 
-	require.ErrorIs(t, err, worktree.ErrBranchWorkspaceExists)
-	assert.Equal(t, 0, createCalls, "no duplicate workspace row is persisted")
-	assert.Empty(t, g.ops(), "guard rejects before any git work")
+	require.NoError(t, err, "the default workspace must not block importing its branch")
+	require.Equal(t, 1, createCalls)
+	assert.False(t, created.IsDefault, "a repeat develop create must NOT adopt a second default")
+	assert.NotEqual(t, "/repo", created.WorktreePath,
+		"it goes to the managed-worktree path, not re-adopting the repo folder")
 }
 
 // TestCreateChild_RejectsDuplicateBranch_ChildPath proves a NON-default branch

@@ -99,7 +99,11 @@ func (h *Handlers) branchTaken(ctx context.Context, repoID, branch string) (bool
 		return false, err
 	}
 	for _, w := range all {
-		if w.RepoID == repoID && w.Branch == branch && w.Status != domain.WorkspaceStatusDeleted {
+		// Only Crowbar-managed (non-default) workspaces count: the default
+		// workspace is the imported repo folder and must never block importing
+		// its branch as a real managed workspace.
+		if w.RepoID == repoID && w.Branch == branch && !w.IsDefault &&
+			w.Status != domain.WorkspaceStatusDeleted {
 			return true, nil
 		}
 	}

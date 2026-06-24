@@ -14,11 +14,11 @@ const repo: Repo = {
 } as Repo
 
 describe('findWorkspaceForBranch', () => {
-  it('matches an existing child branch', () => {
+  it('matches an existing managed child branch', () => {
     expect(findWorkspaceForBranch(repo, 'feature/x')).toBe('c1')
   })
-  it('matches the default branch via defaultWorkspaceId', () => {
-    expect(findWorkspaceForBranch(repo, 'develop')).toBe('d')
+  it('does NOT match the default branch — the repo folder is unmanaged', () => {
+    expect(findWorkspaceForBranch(repo, 'develop')).toBeNull()
   })
   it('returns null for a free branch', () => {
     expect(findWorkspaceForBranch(repo, 'feature/new')).toBeNull()
@@ -27,7 +27,7 @@ describe('findWorkspaceForBranch', () => {
     expect(findWorkspaceForBranch(repo, 'Feature/X')).toBeNull()
   })
   it('trims surrounding whitespace before matching', () => {
-    expect(findWorkspaceForBranch(repo, '  develop  ')).toBe('d')
+    expect(findWorkspaceForBranch(repo, '  feature/x  ')).toBe('c1')
   })
   it('returns null for an empty/whitespace branch', () => {
     expect(findWorkspaceForBranch(repo, '   ')).toBeNull()

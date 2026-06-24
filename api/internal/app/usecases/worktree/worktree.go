@@ -138,9 +138,8 @@ func (u *worktreeUsecase) CreateChild(
 			Protected: in.ForceLocked,
 		}, u.now())
 	}
-	// At most one non-deleted workspace per (repo, branch). Reject a duplicate on
-	// both the adopt and child paths before any git work, so it surfaces as a
-	// clean 409 rather than a raw git "branch already exists" error.
+	// At most one MANAGED (non-default) workspace per (repo, branch). The default
+	// workspace (the imported repo folder) never counts — see branchWorkspaceExists.
 	exists, err := u.branchWorkspaceExists(ctx, in.RepoID, in.Branch)
 	if err != nil {
 		return domain.Workspace{}, err
@@ -148,11 +147,20 @@ func (u *worktreeUsecase) CreateChild(
 	if exists {
 		return domain.Workspace{}, fmt.Errorf("%w (repo %s, branch %q)", ErrBranchWorkspaceExists, in.RepoID, in.Branch)
 	}
-	// When ParentID is empty and the requested branch matches the parent branch
-	// (i.e. the repo's default branch), the workspace IS the main worktree —
-	// adopt the existing repo path instead of creating a new git worktree.
+	// When ParentID is empty and the requested branch matches the repo's default
+	// branch, the FIRST such create adopts the existing repo path as the default
+	// workspace instead of creating a new git worktree. A repeat (e.g. importing
+	// the default branch via the branch panel after the folder is already
+	// adopted) must NOT create a second default — fall through to the managed
+	// worktree path, where git rejects checking the branch out a second time.
 	if in.ParentID == "" && in.Branch == in.ParentBranch {
-		return u.adoptMainWorktree(ctx, in)
+		adopted, err := u.mainWorktreeAdopted(ctx, in.RepoID)
+		if err != nil {
+			return domain.Workspace{}, err
+		}
+		if !adopted {
+			return u.adoptMainWorktree(ctx, in)
+		}
 	}
 	wsID := uuid.NewString()
 	home, err := u.crowbarHome()
@@ -271,6 +279,10 @@ func (u *worktreeUsecase) adoptMainWorktree(
 		ForkPointSha: startSha,
 		ParentID:     in.ParentID,
 		Protected:    locked || in.ForceLocked,
+		// The adopted main worktree IS the repo's default workspace. Marking it
+		// keeps IsDefault reliable for the one-managed-workspace-per-branch guard,
+		// which must never count the default.
+		IsDefault: true,
 	}, u.now())
 }
 
@@ -287,9 +299,33 @@ func (u *worktreeUsecase) branchWorkspaceExists(
 		return false, fmt.Errorf("create child: list workspaces: %w", err)
 	}
 	for _, w := range all {
+		// Only Crowbar-MANAGED workspaces count. The default workspace is the
+		// imported repo folder itself — an unmanaged checkout that merely happens
+		// to sit on some branch; Crowbar does not own that branch, so it must not
+		// block importing the same branch as a real managed workspace.
 		if w.RepoID == repoID &&
 			w.Branch == branch &&
+			!w.IsDefault &&
 			w.Status != domain.WorkspaceStatusDeleted {
+			return true, nil
+		}
+	}
+	return false, nil
+}
+
+// mainWorktreeAdopted reports whether the repo's main worktree (the default
+// workspace) is already adopted, so adoptMainWorktree runs at most once and a
+// repeat attempt cannot persist a duplicate default row.
+func (u *worktreeUsecase) mainWorktreeAdopted(
+	ctx context.Context,
+	repoID string,
+) (bool, error) {
+	all, err := u.workspaces.List(ctx)
+	if err != nil {
+		return false, fmt.Errorf("create child: list workspaces: %w", err)
+	}
+	for _, w := range all {
+		if w.RepoID == repoID && w.IsDefault && w.Status != domain.WorkspaceStatusDeleted {
 			return true, nil
 		}
 	}

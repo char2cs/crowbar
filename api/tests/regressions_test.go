@@ -684,13 +684,15 @@ func TestRegression_EmptyPathParamsRejected(t *testing.T) {
 	}
 }
 
-// TestRegression_DuplicateDefaultBranchWorkspace proves a create that would
-// adopt the repo's main worktree a SECOND time (branch == the default branch,
-// no parentId) is rejected and never persists a phantom duplicate workspace.
-// Field bug: the sidebar showed two "develop" rows; the duplicate row pointed at
-// the same main worktree with no distinct worktree of its own (git cannot check
-// out an already-checked-out branch), so it could never be opened and only
-// disappeared on reload. The fix guards adoptMainWorktree against re-adoption.
+// TestRegression_DuplicateDefaultBranchWorkspace proves that creating a workspace
+// on the repo's DEFAULT branch never persists a phantom duplicate. The default
+// workspace (the imported repo folder) is unmanaged and does NOT count for the
+// one-managed-workspace-per-branch guard, so the create is ACCEPTED (202) rather
+// than falsely rejected — but git cannot check the already-checked-out default
+// branch into a second worktree, so no duplicate row is ever created.
+// Field bug: the sidebar once showed two "develop" rows; the duplicate pointed at
+// the same main worktree with no distinct worktree of its own, so it could never
+// be opened and only disappeared on reload.
 func TestRegression_DuplicateDefaultBranchWorkspace(t *testing.T) {
 	h := newHarness(t)
 	imported := importProject(t, h)
@@ -707,11 +709,11 @@ func TestRegression_DuplicateDefaultBranchWorkspace(t *testing.T) {
 	}
 	require.Equal(t, 1, countMain(), "exactly one default (main) workspace after import")
 
-	// Attempt to create a second workspace on the default branch with no parent —
-	// the path that re-adopts the main worktree. The one-per-branch guard now
-	// rejects this synchronously with 409 (empty body), so use raw rather than
-	// the envelope-decoding post.
-	_ = h.raw(http.MethodPost, base+"/workspaces", map[string]string{"branch": "main"}, http.StatusConflict).Body.Close()
+	// Create a second workspace on the default branch with no parent. The default
+	// workspace does not count, so this is ACCEPTED (202, empty body) — use raw
+	// rather than the envelope-decoding post. git then refuses to check the
+	// already-checked-out default branch into a second worktree, so no row lands.
+	_ = h.raw(http.MethodPost, base+"/workspaces", map[string]string{"branch": "main"}, http.StatusAccepted).Body.Close()
 
 	// The guard rejects it synchronously, but poll anyway to prove no duplicate
 	// "main" workspace ever lands. countMainRaw drives a raw GET that tolerates

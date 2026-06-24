@@ -240,6 +240,7 @@ func TestDeleteMissingWorkspace_4xx(
 	assert.Empty(t, hierarchy.gotDeleteID, "cascade must not run when the workspace is missing")
 }
 
+// A MANAGED workspace already on the requested branch → synchronous 409.
 func TestCreate_DuplicateBranch_Returns409(t *testing.T) {
 	repos := &fakeRepos{repo: &domain.Repository{
 		ID: "r1", ProjectID: "p1", Path: "/repo", DefaultBranch: "main",
@@ -252,6 +253,27 @@ func TestCreate_DuplicateBranch_Returns409(t *testing.T) {
 		`{"branch":"develop"}`,
 	)
 	assert.Equal(t, http.StatusConflict, rec.Code)
+}
+
+// The DEFAULT workspace (the imported repo folder) must NOT block importing its
+// branch — it is unmanaged, so the sync 409 guard skips it and the create is
+// accepted (202). The usecase/git layer decides whether the worktree can be added.
+func TestCreate_DefaultBranchWorkspace_NotBlocked(t *testing.T) {
+	repos := &fakeRepos{repo: &domain.Repository{
+		ID: "r1", ProjectID: "p1", Path: "/repo", DefaultBranch: "develop",
+	}}
+	reader := &fakeReader{list: []domain.Workspace{
+		{ID: "def", RepoID: "r1", Branch: "develop", IsDefault: true},
+	}}
+	hierarchy := &fakeHierarchy{created: domain.Workspace{ID: "new-ws"}, createDone: make(chan struct{})}
+	rec := do(
+		newRouter(reader, hierarchy, repos),
+		http.MethodPost,
+		"/v0/projects/p1/repos/r1/workspaces",
+		`{"branch":"develop"}`,
+	)
+	assert.Equal(t, http.StatusAccepted, rec.Code)
+	waitClosed(t, hierarchy.createDone)
 }
 
 func TestDeleteAsyncErrorBroadcastsLastError(
