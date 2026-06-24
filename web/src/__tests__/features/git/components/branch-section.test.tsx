@@ -27,11 +27,9 @@ const base = {
 }
 
 describe('BranchSection', () => {
-  it('shows the branch → parent header', () => {
-    render(<BranchSection {...base} />)
-    expect(screen.getByText('epoch/first-pr')).toBeDefined()
-    expect(screen.getByText('develop')).toBeDefined()
-  })
+  // The branch → parent header lives in the pill ABOVE BranchSection (rendered by
+  // GitPanel, asserted in git-panel.test); BranchSection itself no longer renders
+  // the branch name (ca42c0d removed the duplicate row).
 
   it('uncommitted → Commit changes', () => {
     render(<BranchSection {...base} files={[{ path: 'a.ts', status: 'modified', staged: false }]} />)

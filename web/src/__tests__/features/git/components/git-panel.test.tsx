@@ -94,12 +94,15 @@ describe('GitPanel', () => {
   })
 
   it('renders the changed-files tree and the unified branch section in the Changes tab', () => {
+    // BranchSection (and the branch pill above it) only render when a branch is
+    // resolved for the active workspace.
+    mockGitStatus = { branch: 'develop', ahead: 0, behind: 0, files: [] }
     render(<GitPanel />)
     expect(screen.getByTestId('changed-files-tree')).toBeInTheDocument()
     expect(screen.getByTestId('branch-section')).toBeInTheDocument()
   })
 
-  it('feeds BranchSection the branch/parent/ahead/behind/files from the stores', () => {
+  it('feeds BranchSection the parent/ahead/behind/files from the stores', () => {
     mockGitStatus = {
       branch: 'epoch/first-pr',
       ahead: 2,
@@ -108,10 +111,11 @@ describe('GitPanel', () => {
     }
     mockActiveWs = { branch: 'epoch/first-pr', parentBranch: 'develop', canMergeLocally: true, status: 'new' }
     render(<GitPanel />)
+    // The branch name is rendered in the pill above BranchSection, not passed as
+    // a prop; BranchSection receives the merge/diff metadata.
     expect(branchSectionProps).toHaveBeenCalledWith(
       expect.objectContaining({
         wsId: 'ws-active',
-        branch: 'epoch/first-pr',
         parentBranch: 'develop',
         canMergeLocally: true,
         status: 'new',

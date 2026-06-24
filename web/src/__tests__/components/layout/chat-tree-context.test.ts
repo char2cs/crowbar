@@ -11,10 +11,6 @@ vi.mock('@/lib/api/chat', async (importOriginal) => {
   }
 })
 
-vi.mock('@/components/ui/toast', () => ({
-  toast: { error: vi.fn() },
-}))
-
 import {
   postChat,
   forkChat,
@@ -22,7 +18,6 @@ import {
   deleteChat as apiDeleteChat,
   type ChatDto,
 } from '@/lib/api/chat'
-import { toast } from '@/components/ui/toast'
 import { useSidebarStore, type ProjectChat } from '@/lib/store/sidebar'
 import {
   performCreateChat,
@@ -75,13 +70,14 @@ describe('performCreateChat', () => {
     expect(chatIds()).toEqual(['c1'])
   })
 
-  it('does not add a phantom node when the API call fails', async () => {
+  it('surfaces an inline error and adds no phantom node when the API call fails', async () => {
     vi.mocked(postChat).mockRejectedValue(new Error('500 boom'))
+    const setChatError = vi.fn()
 
-    await performCreateChat('ws1', 'New chat')
+    await performCreateChat('ws1', 'New chat', setChatError)
 
     expect(chatIds()).toEqual(['c1'])
-    expect(toast.error).toHaveBeenCalledWith('Failed to create chat', '500 boom')
+    expect(setChatError).toHaveBeenCalledWith('create', '500 boom')
   })
 
   // BUG-021: the sidebar "New chat" button must also open the chat's tab —
@@ -125,13 +121,14 @@ describe('performForkChat', () => {
     expect(fork?.title).toBe('My fork')
   })
 
-  it('does not add a phantom node when the fork call fails', async () => {
+  it('surfaces an inline error and adds no phantom node when the fork call fails', async () => {
     vi.mocked(forkChat).mockRejectedValue(new Error('500 boom'))
+    const setChatError = vi.fn()
 
-    await performForkChat('c1', 'My fork')
+    await performForkChat('c1', 'My fork', setChatError)
 
     expect(chatIds()).toEqual(['c1'])
-    expect(toast.error).toHaveBeenCalledWith('Failed to fork chat', '500 boom')
+    expect(setChatError).toHaveBeenCalledWith('c1', '500 boom')
   })
 })
 
@@ -145,13 +142,14 @@ describe('performRenameChat', () => {
     expect(useSidebarStore.getState().chats[0].title).toBe('Renamed')
   })
 
-  it('leaves the title untouched when the API call fails', async () => {
+  it('leaves the title untouched and surfaces an inline error when the API call fails', async () => {
     vi.mocked(patchChat).mockRejectedValue(new Error('409 conflict'))
+    const setChatError = vi.fn()
 
-    await performRenameChat('c1', 'Renamed')
+    await performRenameChat('c1', 'Renamed', setChatError)
 
     expect(useSidebarStore.getState().chats[0].title).toBe('Existing')
-    expect(toast.error).toHaveBeenCalledWith('Failed to rename chat', '409 conflict')
+    expect(setChatError).toHaveBeenCalledWith('c1', '409 conflict')
   })
 })
 
@@ -165,13 +163,14 @@ describe('performDeleteChat', () => {
     expect(chatIds()).toEqual([])
   })
 
-  it('does not remove the chat when the API call fails', async () => {
+  it('does not remove the chat and surfaces an inline error when the API call fails', async () => {
     vi.mocked(apiDeleteChat).mockRejectedValue(new Error('500 boom'))
+    const setChatError = vi.fn()
 
-    await performDeleteChat('c1')
+    await performDeleteChat('c1', setChatError)
 
     expect(chatIds()).toEqual(['c1'])
-    expect(toast.error).toHaveBeenCalledWith('Failed to delete chat', '500 boom')
+    expect(setChatError).toHaveBeenCalledWith('c1', '500 boom')
   })
 
   it('is a no-op for unknown chat ids', async () => {
