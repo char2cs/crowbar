@@ -2,6 +2,7 @@ package handlers
 
 import (
 	"context"
+	"log/slog"
 	"net/http"
 
 	"github.com/gin-gonic/gin"
@@ -70,6 +71,14 @@ func (h *Handlers) Create(
 		"",
 		func(ctx context.Context) error {
 			_, createErr := h.hierarchy.CreateChild(ctx, in)
+			if createErr != nil {
+				// A create that fails before producing a workspace id has no entity to
+				// hang LastError on (broadcastLastError is a no-op for a blank id), so
+				// the failure would otherwise vanish. Log it so the operator can see
+				// why an accepted create never produced a workspace.
+				slog.WarnContext(ctx, "workspace create failed before producing an id",
+					"repo", in.RepoID, "branch", in.Branch, "err", createErr)
+			}
 			return createErr
 		},
 	)

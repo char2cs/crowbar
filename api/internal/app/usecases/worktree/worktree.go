@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"path/filepath"
 	"time"
 
 	"github.com/google/uuid"
@@ -174,9 +175,24 @@ func (u *worktreeUsecase) CreateChild(
 		return domain.Workspace{}, fmt.Errorf("create child: locked: %w", err)
 	}
 	path := worktreepath.For(home, in.ProjectID, in.RepoID, wsID)
+	detached := false
 	startSha, err := u.addWorktree(ctx, in, path)
 	if err != nil {
-		return domain.Workspace{}, err
+		// git refuses a worktree on a branch that's already checked out. If the
+		// holder is the repo's MAIN folder (the unmanaged default workspace),
+		// detach it — its branch is incidental — to free the branch, and retry
+		// once. A branch held by another managed worktree is left to fail (the
+		// one-managed-per-branch guard already covers that case).
+		if held, hErr := u.mainWorktreeHoldsBranch(ctx, in.RepoPath, in.Branch); hErr == nil && held {
+			if dErr := u.git.DetachWorktree(ctx, in.RepoPath); dErr == nil {
+				detached = true
+				startSha, err = u.addWorktree(ctx, in, path)
+			}
+		}
+		if err != nil {
+			u.reattachMain(ctx, detached, in.RepoPath, in.Branch)
+			return domain.Workspace{}, err
+		}
 	}
 	ws, err := u.workspaces.Create(ctx, workspace.CreateInput{
 		ID:           wsID,
@@ -196,6 +212,10 @@ func (u *worktreeUsecase) CreateChild(
 			slog.WarnContext(ctx, "create child: cleanup worktree after failed create",
 				"worktree", path, "err", rmErr)
 		}
+		// Re-attach the main folder FIRST (if we detached it): this restores the
+		// folder AND re-checks-out the branch, so the force-delete below cannot
+		// destroy an adopted (pre-existing) branch like the default branch.
+		u.reattachMain(ctx, detached, in.RepoPath, in.Branch)
 		if delErr := u.git.ForceDeleteBranch(ctx, in.RepoPath, in.Branch); delErr != nil {
 			slog.WarnContext(ctx, "create child: cleanup branch after failed create",
 				"branch", in.Branch, "err", delErr)
@@ -330,6 +350,60 @@ func (u *worktreeUsecase) mainWorktreeAdopted(
 		}
 	}
 	return false, nil
+}
+
+// mainWorktreeHoldsBranch reports whether the repo's MAIN worktree (the folder at
+// repoPath — the unmanaged default workspace) currently has `branch` checked out.
+// When true, a managed worktree on that branch can only be created after the main
+// folder is detached.
+func (u *worktreeUsecase) mainWorktreeHoldsBranch(
+	ctx context.Context,
+	repoPath string,
+	branch string,
+) (bool, error) {
+	wts, err := u.git.WorktreeList(ctx, repoPath)
+	if err != nil {
+		return false, fmt.Errorf("create child: list worktrees: %w", err)
+	}
+	for _, wt := range wts {
+		if wt.Branch == branch {
+			return samePath(wt.Path, repoPath), nil
+		}
+	}
+	return false, nil
+}
+
+// reattachMain re-checks-out `branch` in the main folder after a detach, to roll
+// back a failed managed-worktree create (or to restore the folder when the
+// managed worktree holding its branch is removed). Best-effort: a failure is
+// logged, never fatal.
+func (u *worktreeUsecase) reattachMain(
+	ctx context.Context,
+	detached bool,
+	repoPath string,
+	branch string,
+) {
+	if !detached {
+		return
+	}
+	if err := u.git.CheckoutBranch(ctx, repoPath, branch); err != nil {
+		slog.WarnContext(ctx, "create child: re-attach main worktree after rollback",
+			"repo", repoPath, "branch", branch, "err", err)
+	}
+}
+
+// samePath reports whether two filesystem paths refer to the same location,
+// resolving symlinks so a repo imported under a symlinked root still matches the
+// fully-resolved path git's worktree list emits.
+func samePath(a string, b string) bool {
+	return resolvePath(a) == resolvePath(b)
+}
+
+func resolvePath(p string) string {
+	if resolved, err := filepath.EvalSymlinks(p); err == nil {
+		return resolved
+	}
+	return filepath.Clean(p)
 }
 
 func (u *worktreeUsecase) resolveLocked(
@@ -720,14 +794,15 @@ func (u *worktreeUsecase) removeOne(
 	// cascade. Runs even when the repo path can't be resolved below.
 	u.reapTerminals(ctx, ws.ID)
 
-	repoPath, err := u.repoPathFor(ctx, ws)
-	if err != nil {
-		// Can't resolve the repo path — still drop the read-model row so the cascade
+	repo, err := u.repos.FindByKey(ctx, ws.RepoID)
+	if err != nil || repo == nil {
+		// Can't resolve the repo — still drop the read-model row so the cascade
 		// doesn't leave a ghost workspace pointing at an unreachable worktree.
-		slog.WarnContext(ctx, "cascade: repo path unresolved; dropping row best-effort",
+		slog.WarnContext(ctx, "cascade: repo unresolved; dropping row best-effort",
 			"ws", ws.ID, "err", err)
 		return u.workspaces.Delete(ctx, ws.ID)
 	}
+	repoPath := repo.Path
 	// Best-effort git teardown: a failure here (branch checked out elsewhere, a
 	// transient index lock, an already-removed worktree) must NOT abort the cascade
 	// or leave a GHOST row pointing at a gone worktree — that breaks every future op
@@ -737,7 +812,16 @@ func (u *worktreeUsecase) removeOne(
 		slog.WarnContext(ctx, "cascade: worktree remove failed (continuing)",
 			"ws", ws.ID, "worktree", ws.WorktreePath, "err", removeErr)
 	}
-	if delErr := u.git.ForceDeleteBranch(ctx, repoPath, ws.Branch); delErr != nil {
+	if ws.Branch != "" && ws.Branch == repo.DefaultBranch {
+		// The default branch is the unmanaged main folder's branch and the shared
+		// integration branch — NEVER delete it on workspace removal. If the main
+		// folder was detached to free it for this managed worktree, re-attach it
+		// (removing the worktree above freed the branch); a no-op otherwise.
+		if reErr := u.git.CheckoutBranch(ctx, repoPath, ws.Branch); reErr != nil {
+			slog.WarnContext(ctx, "cascade: re-attach main folder to default branch (continuing)",
+				"ws", ws.ID, "branch", ws.Branch, "err", reErr)
+		}
+	} else if delErr := u.git.ForceDeleteBranch(ctx, repoPath, ws.Branch); delErr != nil {
 		slog.WarnContext(ctx, "cascade: branch delete failed (continuing)",
 			"ws", ws.ID, "branch", ws.Branch, "err", delErr)
 	}

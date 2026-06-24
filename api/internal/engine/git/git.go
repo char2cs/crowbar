@@ -298,6 +298,22 @@ type Engine interface {
 		repoPath string,
 	) ([]WorktreeEntry, error)
 
+	// DetachWorktree detaches HEAD of the worktree at worktreePath (keeping its
+	// files), freeing the branch it had checked out so another worktree can take
+	// it (07 — managed-worktree import of the unmanaged main folder's branch).
+	DetachWorktree(
+		ctx context.Context,
+		worktreePath string,
+	) error
+
+	// CheckoutBranch switches the worktree at worktreePath onto branch,
+	// re-attaching a detached HEAD (rollback / restore the main folder).
+	CheckoutBranch(
+		ctx context.Context,
+		worktreePath string,
+		branch string,
+	) error
+
 	// RebaseOnto runs `git rebase --onto newTip forkPoint branch` (04 / 07).
 	RebaseOnto(
 		ctx context.Context,

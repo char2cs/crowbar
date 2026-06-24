@@ -176,6 +176,43 @@ type fakeGit struct {
 
 	opInProgress    string
 	opInProgressErr error
+
+	worktrees       []enginegit.WorktreeEntry
+	worktreeListErr error
+	detachErr       error
+	checkoutErr     error
+	// addConflictUntilDetach, when set, makes WorktreeAdd/WorktreeAddBranch fail
+	// with this error until DetachWorktree is called — simulating git's
+	// "branch already checked out by the main worktree" conflict that a detach
+	// clears.
+	addConflictUntilDetach error
+	detachCalled           bool
+}
+
+func (f *fakeGit) WorktreeList(
+	_ context.Context,
+	repoPath string,
+) ([]enginegit.WorktreeEntry, error) {
+	f.record("WorktreeList", repoPath)
+	return f.worktrees, f.worktreeListErr
+}
+
+func (f *fakeGit) DetachWorktree(
+	_ context.Context,
+	worktreePath string,
+) error {
+	f.record("DetachWorktree", worktreePath)
+	f.detachCalled = true
+	return f.detachErr
+}
+
+func (f *fakeGit) CheckoutBranch(
+	_ context.Context,
+	worktreePath string,
+	branch string,
+) error {
+	f.record("CheckoutBranch", worktreePath, branch)
+	return f.checkoutErr
 }
 
 func (f *fakeGit) OperationInProgress(
@@ -237,6 +274,9 @@ func (f *fakeGit) WorktreeAdd(
 	branch string,
 ) error {
 	f.record("WorktreeAdd", repoPath, worktreePath, branch)
+	if f.addConflictUntilDetach != nil && !f.detachCalled {
+		return f.addConflictUntilDetach
+	}
 	return f.worktreeAddErr
 }
 
@@ -366,9 +406,10 @@ func (f *fakeProvider) ProtectedBranches(
 
 type fakeRepoStore struct {
 	store.Store[domain.Repository, string]
-	path    string
-	err     error
-	missing bool
+	path          string
+	defaultBranch string
+	err           error
+	missing       bool
 }
 
 func (f *fakeRepoStore) FindByKey(
@@ -381,7 +422,7 @@ func (f *fakeRepoStore) FindByKey(
 	if f.missing {
 		return nil, nil
 	}
-	return &domain.Repository{Path: f.path}, nil
+	return &domain.Repository{Path: f.path, DefaultBranch: f.defaultBranch}, nil
 }
 
 // perPathSummaryGit is a fakeGit that varies WorkingTreeSummary's hasConflicts
@@ -707,6 +748,129 @@ func TestCreateChild_DefaultWorkspaceDoesNotBlockImport(t *testing.T) {
 	assert.False(t, created.IsDefault, "a repeat develop create must NOT adopt a second default")
 	assert.NotEqual(t, "/repo", created.WorktreePath,
 		"it goes to the managed-worktree path, not re-adopting the repo folder")
+}
+
+// TestCreateChild_DetachesMainToFreeDefaultBranch proves importing the default
+// branch (held by the unmanaged main folder) detaches the main folder to free
+// the branch, then retries the worktree add — yielding a real managed worktree.
+func TestCreateChild_DetachesMainToFreeDefaultBranch(t *testing.T) {
+	inUse := errors.New("fatal: 'develop' is already used by worktree at '/repo'")
+	g := &fakeGit{
+		remoteExists:           true,
+		revParseSha:            "forksha",
+		addConflictUntilDetach: inUse,
+		worktrees:              []enginegit.WorktreeEntry{{Path: "/repo", Branch: "develop"}},
+	}
+	var created workspace.CreateInput
+	ws := &fakeWorkspace{
+		ListFn: func(_ context.Context) ([]domain.Workspace, error) {
+			return []domain.Workspace{
+				{ID: "def", RepoID: "r1", Branch: "develop", WorktreePath: "/repo", IsDefault: true},
+			}, nil
+		},
+		CreateFn: func(_ context.Context, in workspace.CreateInput, _ time.Time) (domain.Workspace, error) {
+			created = in
+			return domain.Workspace{ID: in.ID}, nil
+		},
+	}
+	uc := worktree.New(ws, g, &fakeProvider{}, &fakeRepoStore{}, newNow(), fakeHome())
+
+	_, err := uc.CreateChild(context.Background(), worktree.CreateChildInput{
+		RepoID: "r1", ProjectID: "p1", RepoPath: "/repo", RemoteURL: "https://github.com/test/repo.git",
+		Branch: "develop", ParentID: "", ParentBranch: "develop",
+	})
+
+	require.NoError(t, err, "importing the default branch must succeed by detaching the main folder")
+	assert.Contains(t, g.ops(), "DetachWorktree", "the main folder must be detached to free the branch")
+	var addCount int
+	for _, op := range g.ops() {
+		if op == "WorktreeAdd" {
+			addCount++
+		}
+	}
+	assert.Equal(t, 2, addCount, "worktree add runs once (conflict), then again after the detach")
+	assert.NotEqual(t, "/repo", created.WorktreePath, "the managed worktree lives outside the repo folder")
+	assert.Equal(t, "forksha", created.ForkPointSha)
+}
+
+// TestCreateChild_RollsBackDetachWhenRetryFails proves that if the worktree add
+// still fails after the detach, the main folder is re-attached to its branch so
+// the repo folder is never left stranded on a detached HEAD.
+func TestCreateChild_RollsBackDetachWhenRetryFails(t *testing.T) {
+	inUse := errors.New("fatal: 'develop' is already used by worktree at '/repo'")
+	g := &fakeGit{
+		remoteExists:           true,
+		revParseSha:            "forksha",
+		addConflictUntilDetach: inUse,
+		worktreeAddErr:         errBoom, // even after the detach, the add fails
+		worktrees:              []enginegit.WorktreeEntry{{Path: "/repo", Branch: "develop"}},
+	}
+	ws := &fakeWorkspace{
+		ListFn: func(_ context.Context) ([]domain.Workspace, error) {
+			return []domain.Workspace{
+				{ID: "def", RepoID: "r1", Branch: "develop", WorktreePath: "/repo", IsDefault: true},
+			}, nil
+		},
+		CreateFn: func(_ context.Context, _ workspace.CreateInput, _ time.Time) (domain.Workspace, error) {
+			t.Fatal("Create must not run when the worktree add fails")
+			return domain.Workspace{}, nil
+		},
+	}
+	uc := worktree.New(ws, g, &fakeProvider{}, &fakeRepoStore{}, newNow(), fakeHome())
+
+	_, err := uc.CreateChild(context.Background(), worktree.CreateChildInput{
+		RepoID: "r1", ProjectID: "p1", RepoPath: "/repo", RemoteURL: "https://github.com/test/repo.git",
+		Branch: "develop", ParentID: "", ParentBranch: "develop",
+	})
+
+	require.Error(t, err, "a persistent add failure must surface as an error")
+	assert.Contains(t, g.ops(), "DetachWorktree", "the detach was attempted")
+	assert.Contains(t, g.ops(), "CheckoutBranch", "the main folder must be re-attached after the failed retry")
+}
+
+// TestRemoveOne_DefaultBranchWorkspace_ReattachesMainAndKeepsBranch proves that
+// removing a managed workspace on the repo's default branch re-attaches the main
+// folder to that branch and NEVER force-deletes it (the shared integration
+// branch must survive).
+func TestRemoveOne_DefaultBranchWorkspace_ReattachesMainAndKeepsBranch(t *testing.T) {
+	g := &fakeGit{}
+	repos := &fakeRepoStore{path: "/repo", defaultBranch: "develop"}
+	ws := &fakeWorkspace{
+		ListFn: func(_ context.Context) ([]domain.Workspace, error) {
+			return []domain.Workspace{
+				{ID: "w1", RepoID: "r1", Branch: "develop", WorktreePath: "/managed"},
+			}, nil
+		},
+		DeleteFn: func(_ context.Context, _ string) error { return nil },
+	}
+	uc := worktree.New(ws, g, &fakeProvider{}, repos, newNow(), fakeHome())
+
+	require.NoError(t, uc.DeleteCascade(context.Background(), "w1"))
+
+	assert.Contains(t, g.ops(), "CheckoutBranch", "the main folder must be re-attached to the default branch")
+	assert.NotContains(t, g.ops(), "ForceDeleteBranch", "the default branch must never be force-deleted")
+}
+
+// TestRemoveOne_FeatureBranchWorkspace_ForceDeletesBranch proves removing a
+// managed workspace on a non-default branch still force-deletes that branch (the
+// default-branch protection must not leak into ordinary teardown).
+func TestRemoveOne_FeatureBranchWorkspace_ForceDeletesBranch(t *testing.T) {
+	g := &fakeGit{}
+	repos := &fakeRepoStore{path: "/repo", defaultBranch: "develop"}
+	ws := &fakeWorkspace{
+		ListFn: func(_ context.Context) ([]domain.Workspace, error) {
+			return []domain.Workspace{
+				{ID: "w1", RepoID: "r1", Branch: "feature/x", WorktreePath: "/managed"},
+			}, nil
+		},
+		DeleteFn: func(_ context.Context, _ string) error { return nil },
+	}
+	uc := worktree.New(ws, g, &fakeProvider{}, repos, newNow(), fakeHome())
+
+	require.NoError(t, uc.DeleteCascade(context.Background(), "w1"))
+
+	assert.Contains(t, g.ops(), "ForceDeleteBranch", "a feature branch is force-deleted on teardown")
+	assert.NotContains(t, g.ops(), "CheckoutBranch", "no re-attach for a non-default branch")
 }
 
 // TestCreateChild_RejectsDuplicateBranch_ChildPath proves a NON-default branch

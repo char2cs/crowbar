@@ -602,31 +602,49 @@ func TestRegression_LinkedWorktreeImportsAsOneRepo(t *testing.T) {
 	require.Len(t, repos, 1,
 		"a repo plus its linked worktree must discover as ONE repo")
 
-	// Both worktrees (main + linked) must each be adopted exactly once. Wait for
-	// the second adoption on the workspaces WS, then read the persisted list.
+	// Only the main worktree is auto-adopted. The linked worktree on a
+	// NON-protected branch (feature/linked) is intentionally left for the user to
+	// add explicitly — import must not flood the sidebar with every on-disk
+	// checkout. Wait for the main adoption, then prove feature/linked never lands.
 	workspacesWS := h.dial("/v0/projects/" + projectID + "/repos/" + repoID + "/workspaces")
-	seen := map[string]bool{}
 	readUntil(t, workspacesWS, func(m map[string]any) bool {
-		if b, ok := m["branch"].(string); ok {
-			seen[b] = true
-		}
-		return seen["main"] && seen["feature/linked"]
+		return m["branch"] == "main"
 	})
 
-	workspaces := listWorkspaces(t, h, projectID, repoID)
+	listURL := h.url + "/v0/projects/" + projectID + "/repos/" + repoID + "/workspaces"
+	countLinkedRaw := func() int {
+		r, err := h.server.Client().Get(listURL)
+		if err != nil {
+			return 0
+		}
+		defer func() { _ = r.Body.Close() }()
+		var env struct {
+			Data []workspaceDTO `json:"data"`
+		}
+		if err := json.NewDecoder(r.Body).Decode(&env); err != nil {
+			return 0
+		}
+		n := 0
+		for _, w := range env.Data {
+			if w.Branch == "feature/linked" {
+				n++
+			}
+		}
+		return n
+	}
+	require.Never(t, func() bool { return countLinkedRaw() > 0 },
+		2*time.Second, 100*time.Millisecond,
+		"a non-protected linked worktree must not be auto-adopted at import")
 
+	workspaces := listWorkspaces(t, h, projectID, repoID)
 	branches := map[string]int{}
 	for _, ws := range workspaces {
 		branches[ws.Branch]++
 	}
-	// The two on-disk worktrees (main + linked) must each be adopted exactly
-	// once. Import additionally seeds locked stubs for the default protected
-	// branches (develop, master) that have no worktree — those are not adoptions
-	// and must not double-count the real worktrees.
 	require.Equal(t, 1, branches["main"],
 		"the main worktree must register as exactly one workspace")
-	require.Equal(t, 1, branches["feature/linked"],
-		"the linked worktree must register as exactly one workspace")
+	require.Equal(t, 0, branches["feature/linked"],
+		"the non-protected linked worktree must NOT be auto-adopted (user adds it explicitly)")
 }
 
 // BUG-008: reads scoped to a workspace id that does not exist must 404 with an
@@ -693,56 +711,75 @@ func TestRegression_EmptyPathParamsRejected(t *testing.T) {
 // Field bug: the sidebar once showed two "develop" rows; the duplicate pointed at
 // the same main worktree with no distinct worktree of its own, so it could never
 // be opened and only disappeared on reload.
-func TestRegression_DuplicateDefaultBranchWorkspace(t *testing.T) {
+// TestRegression_ImportDefaultBranchAsManagedWorktree proves the user-facing fix
+// for "I can't import develop": the default branch is held by the unmanaged repo
+// folder (the adopted main worktree), which historically made `git worktree add`
+// fail with "branch already checked out". The create flow now DETACHES the repo
+// folder to free the branch, then adds a real managed worktree on it — so the
+// default branch becomes a first-class Crowbar workspace. The default workspace
+// row does NOT count for the one-per-branch guard, so the create is accepted.
+func TestRegression_ImportDefaultBranchAsManagedWorktree(t *testing.T) {
 	h := newHarness(t)
 	imported := importProject(t, h)
-	base := "/v0/projects/" + imported.projectID + "/repos/" + imported.repoID
+	repoBase := "/v0/projects/" + imported.projectID + "/repos/" + imported.repoID
 
-	countMain := func() int {
-		n := 0
-		for _, w := range listWorkspaces(t, h, imported.projectID, imported.repoID) {
-			if w.Branch == "main" {
-				n++
-			}
-		}
-		return n
-	}
-	require.Equal(t, 1, countMain(), "exactly one default (main) workspace after import")
+	// Precondition: the imported repo folder is the main worktree, on `main`.
+	require.Equal(t, "main", currentBranch(t, imported.repoPath),
+		"the imported repo folder starts checked out on the default branch")
 
-	// Create a second workspace on the default branch with no parent. The default
-	// workspace does not count, so this is ACCEPTED (202, empty body) — use raw
-	// rather than the envelope-decoding post. git then refuses to check the
-	// already-checked-out default branch into a second worktree, so no row lands.
-	_ = h.raw(http.MethodPost, base+"/workspaces", map[string]string{"branch": "main"}, http.StatusAccepted).Body.Close()
+	// Give the repo an origin remote carrying `main` — mirroring a real cloned
+	// repo, where the default branch exists on the remote and the create flow
+	// checks it out via origin/<branch>.
+	remote := t.TempDir()
+	runGit(t, remote, "init", "--bare")
+	runGit(t, imported.repoPath, "remote", "add", "origin", remote)
+	runGit(t, imported.repoPath, "push", "origin", "main")
 
-	// The guard rejects it synchronously, but poll anyway to prove no duplicate
-	// "main" workspace ever lands. countMainRaw drives a raw GET that tolerates
-	// connection errors: require.Never runs its closure in a goroutine, where
-	// h.get's require.NoError would FailNow from a non-test goroutine.
-	mainURL := h.url + base + "/workspaces"
-	countMainRaw := func() int {
-		r, err := h.server.Client().Get(mainURL)
-		if err != nil {
-			return 0
-		}
-		defer func() { _ = r.Body.Close() }()
-		var env struct {
-			Data []workspaceDTO `json:"data"`
-		}
-		if err := json.NewDecoder(r.Body).Decode(&env); err != nil {
-			return 0
-		}
-		n := 0
-		for _, w := range env.Data {
-			if w.Branch == "main" {
-				n++
-			}
-		}
-		return n
-	}
-	require.Never(t, func() bool { return countMainRaw() > 1 },
-		2*time.Second, 100*time.Millisecond,
-		"a duplicate default-branch workspace was persisted")
+	// Importing the default branch as a managed workspace must be ACCEPTED — the
+	// adopted default workspace does not block its own branch.
+	conn := h.dial(repoBase + "/workspaces")
+	_ = h.raw(http.MethodPost, repoBase+"/workspaces",
+		map[string]string{"branch": "main"}, http.StatusAccepted).Body.Close()
+
+	// The managed worktree is a brand-new workspace on `main` — distinct from the
+	// adopted default. `main` is a protected branch, so it may broadcast straight
+	// to a locked status rather than "new"; match on the fresh id, not the status.
+	created := readUntil(t, conn, func(m map[string]any) bool {
+		id, _ := m["id"].(string)
+		return m["branch"] == "main" && id != "" && id != imported.workspaceID
+	})
+	managedID, _ := created["id"].(string)
+	require.NotEmpty(t, managedID, "the managed default-branch workspace must broadcast an id")
+	require.NotEqual(t, imported.workspaceID, managedID,
+		"the managed worktree is a brand-new workspace, not the adopted default")
+
+	// The managed worktree must materialise on disk holding `main`, while the repo
+	// folder is detached so the two never both claim the branch.
+	managed := imported
+	managed.workspaceID = managedID
+	worktreeDir := workspaceWorktreePath(t, h, managed)
+	require.Eventually(t, func() bool { return dirExists(worktreeDir) },
+		5*time.Second, 100*time.Millisecond, "the managed worktree dir must be created on disk")
+	require.Equal(t, "main", currentBranch(t, worktreeDir),
+		"the managed worktree holds the default branch")
+	require.Equal(t, "HEAD", currentBranch(t, imported.repoPath),
+		"the repo folder is detached (HEAD) to free the default branch for the managed worktree")
+}
+
+// currentBranch returns dir's checked-out branch, or "HEAD" when detached.
+func currentBranch(t *testing.T, dir string) string {
+	t.Helper()
+	cmd := exec.Command("git", "-C", dir, "rev-parse", "--abbrev-ref", "HEAD")
+	out, err := cmd.CombinedOutput()
+	require.NoError(t, err, "git rev-parse --abbrev-ref HEAD: %s", out)
+	return strings.TrimSpace(string(out))
+}
+
+// dirExists reports whether path is an existing directory (goroutine-safe: no
+// testing assertions, so it is callable from require.Eventually closures).
+func dirExists(path string) bool {
+	info, err := os.Stat(path)
+	return err == nil && info.IsDir()
 }
 
 // TestRegression_DuplicateNonDefaultBranchWorkspace proves the one-per-branch

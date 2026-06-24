@@ -342,6 +342,12 @@ func (g *mockGitEngine) WorktreeList(ctx context.Context, repoPath string) ([]gi
 	return nil, nil
 }
 
+func (g *mockGitEngine) DetachWorktree(ctx context.Context, worktreePath string) error { return nil }
+
+func (g *mockGitEngine) CheckoutBranch(ctx context.Context, worktreePath, branch string) error {
+	return nil
+}
+
 func (g *mockGitEngine) RebaseOnto(ctx context.Context, repoPath, newTip, forkPoint, branch string) error {
 	return nil
 }

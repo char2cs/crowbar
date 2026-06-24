@@ -76,6 +76,34 @@ func (e *engine) WorktreeList(
 	return parseWorktreeList(r.Stdout), nil
 }
 
+// DetachWorktree puts the worktree at worktreePath on a detached HEAD at its
+// current commit, freeing whatever branch it had checked out so that branch can
+// be added to a NEW worktree. Working-tree files are left untouched (this only
+// moves HEAD). Used to free the repo's unmanaged main folder from a branch the
+// user wants to open as a real managed worktree.
+func (e *engine) DetachWorktree(
+	ctx context.Context,
+	worktreePath string,
+) error {
+	defer e.lockRepo(ctx, worktreePath)()
+	r := e.exec(ctx, worktreePath, "switch", "--detach")
+	return gitexec.RequireSuccess("switch --detach", r)
+}
+
+// CheckoutBranch switches the worktree at worktreePath onto branch, re-attaching
+// a detached HEAD. Used to roll back a failed detach+add, and to restore the
+// main folder once the managed worktree that held its branch is removed. Fails
+// if the branch is currently checked out in another worktree.
+func (e *engine) CheckoutBranch(
+	ctx context.Context,
+	worktreePath string,
+	branch string,
+) error {
+	defer e.lockRepo(ctx, worktreePath)()
+	r := e.exec(ctx, worktreePath, "switch", branch)
+	return gitexec.RequireSuccess("switch", r)
+}
+
 func (e *engine) RebaseOnto(
 	ctx context.Context,
 	repoPath string,
