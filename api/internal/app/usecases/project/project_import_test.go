@@ -41,10 +41,12 @@ func newImport(
 		Git:        git,
 		Provider:   prov,
 		Discover: func(
-			root string,
-			maxDepth int,
+			_ string,
+			_ int,
 		) ([]string, error) {
-			return []string{root + "/repoA"}, nil
+			// repo.Path must equal the main worktree's path so samePath identifies
+			// it as the default; the worktree fixtures below use "/repoA".
+			return []string{"/repoA"}, nil
 		},
 		RefRunner: func(
 			repoPath string,
@@ -100,13 +102,42 @@ func TestImport_CreatesProjectReposAndAdoptsWorktrees(
 	assert.NotEmpty(t, repo.AvatarLabel)
 	assert.NotEmpty(t, repo.AvatarColor)
 
-	require.Len(t, ws.Created, 2)
+	// Only the main worktree (main, protected) is auto-adopted; the local
+	// "feature" worktree is not a protected remote branch, so it is left for the
+	// user to add explicitly rather than imported.
+	require.Len(t, ws.Created, 1)
+	assert.Equal(t, "main", ws.Created[0].Branch)
+	assert.Equal(t, domain.WorkspaceStatusLocked, ws.Created[0].Status,
+		"the protected main branch is adopted locked")
+}
+
+// TestImport_SkipsNonProtectedLocalWorktrees pins the user-requested rule: on
+// import, only the repo's main worktree and protected remote branches are
+// auto-imported. Other local worktrees (feature/spike/agent checkouts) are NOT
+// turned into workspaces — the user adds those explicitly.
+func TestImport_SkipsNonProtectedLocalWorktrees(t *testing.T) {
+	_, _, ws, git, prov, uc := newImport(t)
+	git.Worktrees = []gitengine.WorktreeEntry{
+		{Path: "/repoA", Branch: "develop", Head: "h1"},                // main (protected) → adopted
+		{Path: "/repoA/wt1", Branch: "feature/x", Head: "h2"},          // skip
+		{Path: "/repoA/wt2", Branch: "spike/y", Head: "h3"},            // skip
+		{Path: "/repoA/wt3", Branch: "worktree-agent-abc", Head: "h4"}, // skip
+	}
+	prov.Protected = []string{"develop", "main"}
+
+	_, err := uc.Import(context.Background(), "P", "/root")
+	require.NoError(t, err)
+
 	byBranch := map[string]bool{}
 	for _, w := range ws.Created {
-		byBranch[w.Branch] = w.Status == domain.WorkspaceStatusLocked
+		byBranch[w.Branch] = true
 	}
-	assert.True(t, byBranch["main"])
-	assert.False(t, byBranch["feature"])
+	assert.True(t, byBranch["develop"], "the main worktree (protected) is adopted")
+	assert.True(t, byBranch["main"], "a protected remote branch without a local worktree is stubbed")
+	assert.False(t, byBranch["feature/x"], "non-protected local worktree is NOT imported")
+	assert.False(t, byBranch["spike/y"], "non-protected local worktree is NOT imported")
+	assert.False(t, byBranch["worktree-agent-abc"], "non-protected local worktree is NOT imported")
+	assert.Len(t, ws.Created, 2, "only develop (adopted) + main (stub)")
 }
 
 func TestImport_ProjectSaveError(
@@ -250,16 +281,17 @@ func TestImport_MergeBaseErrorIsTolerated(
 func TestImport_DetachedWorktreeSkipped(
 	t *testing.T,
 ) {
-	_, _, ws, git, _, uc := newImport(t)
+	_, _, ws, git, prov, uc := newImport(t)
 	git.Worktrees = []gitengine.WorktreeEntry{
-		{Path: "/repoA", Branch: "", Head: "detached"},
-		{Path: "/repoA/wt", Branch: "feature", Head: "h2"},
+		{Path: "/repoA", Branch: "main", Head: "h1"},      // main (protected) → adopted
+		{Path: "/repoA/wt", Branch: "", Head: "detached"}, // detached → skipped
 	}
+	prov.Protected = []string{"main"}
 
 	_, err := uc.Import(context.Background(), "P", "/root")
 	require.NoError(t, err)
 	require.Len(t, ws.Created, 1)
-	assert.Equal(t, "feature", ws.Created[0].Branch)
+	assert.Equal(t, "main", ws.Created[0].Branch)
 }
 
 func TestImport_PrunableWorktreeSkipped(

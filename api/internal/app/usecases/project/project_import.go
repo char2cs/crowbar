@@ -381,6 +381,14 @@ func (u *projectImport) adoptWorktrees(
 	locked := toSet(protected)
 	adopted := make(map[string]bool)
 	for _, wt := range worktrees {
+		// Auto-import only the repo's main worktree (always — it is the default
+		// workspace / repo header) and worktrees whose branch is protected on the
+		// remote. Other local worktrees (feature branches, agent checkouts) are
+		// left for the user to add explicitly, rather than flooding the sidebar
+		// with every checkout on disk at import time.
+		if !samePath(wt.Path, repo.Path) && !locked[wt.Branch] {
+			continue
+		}
 		if err := u.adoptOneWorktree(ctx, repo, wt, locked); err != nil {
 			// Per-worktree adoption is best-effort: skip the worktree that failed
 			// rather than aborting the whole repo. Aborting after an earlier worktree
