@@ -21,6 +21,13 @@ const BUILTIN_THEMES: ThemeDefinition[] = [
     type: 'dark',
     category: 'Dark',
   },
+  {
+    id: 'terra',
+    name: 'Terra',
+    isDark: true,
+    type: 'dark',
+    category: 'Dark',
+  },
 ]
 
 export class ThemeRegistry {
