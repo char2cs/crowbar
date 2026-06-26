@@ -25,6 +25,8 @@ export const TAB_CLOSE = 'tabs.closeActive'
 export const EDITOR_SAVE = 'editor.save'
 export const EDITOR_SAVE_ALL = 'editor.saveAll'
 
+export const OPEN_WORKSPACE_SWITCHER = 'navigation.openWorkspaceSwitcher'
+
 export const COMMANDS: Command[] = [
   // --- Panes (live-editable, resolved from registry) ---
   {
@@ -98,6 +100,14 @@ export const COMMANDS: Command[] = [
     category: 'Editor',
     defaultChord: 'mod+shift+s',
     liveEditable: false,
+  },
+  // --- Navigation (live-editable) ---
+  {
+    id: OPEN_WORKSPACE_SWITCHER,
+    label: 'Open workspace switcher',
+    category: 'Navigation',
+    defaultChord: 'mod+.',
+    liveEditable: true,
   },
 ]
 

@@ -7,7 +7,7 @@
  */
 
 /** Categories used to group commands in the Keybindings settings tab. */
-export type CommandCategory = 'Panes' | 'Tabs' | 'Editor'
+export type CommandCategory = 'Panes' | 'Tabs' | 'Editor' | 'Navigation'
 
 /**
  * A command is a finite, knowable action that can be bound to a key chord.
