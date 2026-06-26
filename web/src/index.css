@@ -145,10 +145,3 @@
   }
 }
 
-:root {
-  --destructive-foreground: var(--color-red-700);
-}
-
-.dark {
-  --destructive-foreground: var(--color-red-400);
-}
