@@ -137,7 +137,7 @@ function LargeDiffSectionEditor({ diff, cacheKey }: { diff: GitDiff; cacheKey: s
   if (diff.raw_patch && diff.lines.length === 0) {
     return (
       <div
-        className="relative overflow-hidden border-border border-t bg-background"
+        className="relative overflow-hidden border-border border-t bg-pane-background"
         style={containerStyle}
       >
         <GitDiffEditorSurface cacheKey={`${cacheKey}_raw`} diff={diff} />
@@ -147,7 +147,7 @@ function LargeDiffSectionEditor({ diff, cacheKey }: { diff: GitDiff; cacheKey: s
 
   return (
     <div
-      className="relative overflow-hidden border-border border-t bg-background"
+      className="relative overflow-hidden border-border border-t bg-pane-background"
       style={containerStyle}
     >
       <CodeEditor
@@ -253,10 +253,10 @@ function EmbeddedDiffSectionEditor({
   if (viewMode === 'split') {
     return (
       <div
-        className="grid grid-cols-2 border-border border-t bg-background"
+        className="grid grid-cols-2 border-border border-t bg-pane-background"
         style={{ height: `${height}px` }}
       >
-        <div className="relative overflow-hidden border-border border-r bg-background">
+        <div className="relative overflow-hidden border-border border-r bg-pane-background">
           <CodeEditor
             bufferId={leftSplitBufferId}
             isActiveSurface={false}
@@ -266,7 +266,7 @@ function EmbeddedDiffSectionEditor({
             diffLineKinds={splitContent.left.lineKinds}
           />
         </div>
-        <div className="relative overflow-hidden bg-background">
+        <div className="relative overflow-hidden bg-pane-background">
           <CodeEditor
             bufferId={rightSplitBufferId}
             isActiveSurface={false}
@@ -294,7 +294,7 @@ function EmbeddedDiffSectionEditor({
   return (
     <>
       <div
-        className="relative overflow-hidden border-border border-t bg-background"
+        className="relative overflow-hidden border-border border-t bg-pane-background"
         style={{ height: `${unifiedHeight}px` }}
       >
         <CodeEditor
@@ -401,7 +401,7 @@ const LazyDiffSectionBody = memo(function LazyDiffSectionBody({
       className="border-border border-t"
       style={{ contentVisibility: 'auto', containIntrinsicSize: '960px' }}
     >
-      {shouldMount ? children : <div className="h-[320px] bg-background" />}
+      {shouldMount ? children : <div className="h-[320px] bg-pane-background" />}
     </div>
   )
 })
@@ -440,11 +440,11 @@ const DiffFileSection = memo(function DiffFileSection({
   }, [filePath, onOpenFile])
 
   return (
-    <section className="relative isolate min-w-0 max-w-full rounded-md bg-background">
-      <div className="min-w-0 max-w-full bg-background">
+    <section className="relative isolate min-w-0 max-w-full rounded-md bg-pane-background">
+      <div className="min-w-0 max-w-full bg-pane-background">
         <div
           className={cn(
-            'min-w-0 max-w-full overflow-hidden border border-border/70 bg-background shadow-[0_1px_0_rgba(0,0,0,0.04)]',
+            'min-w-0 max-w-full overflow-hidden border border-border/70 bg-pane-background shadow-[0_1px_0_rgba(0,0,0,0.04)]',
             expanded ? 'rounded-t-md' : 'rounded-md',
           )}
         >
@@ -775,7 +775,7 @@ const GitDiffEditorStack = memo(function GitDiffEditorStack({
   }, [isWorkingTree, multiDiff.commitHash, multiDiff.repoPath, rootFolderPath])
 
   return (
-    <div className="flex h-full flex-col overflow-hidden bg-background">
+    <div className="flex h-full flex-col overflow-hidden bg-pane-background">
       <Breadcrumb
         filePathOverride={multiDiff.title || 'Uncommitted Changes'}
         interactive={false}

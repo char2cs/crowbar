@@ -50,7 +50,7 @@ export function SplitViewRoot() {
           className="fixed inset-x-2 z-[10040]"
           style={{ top: `${titleBarHeight + 8}px`, bottom: `${footerHeight + 8}px` }}
         >
-          <div className="h-full overflow-hidden rounded-xl border border-border/80 bg-background shadow-2xl">
+          <div className="h-full overflow-hidden rounded-xl border border-border/80 bg-pane-background shadow-2xl">
             <PaneBoundary paneId={fullscreenPane.id}>
               <PaneContainer pane={fullscreenPane} />
             </PaneBoundary>

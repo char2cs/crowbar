@@ -24,6 +24,7 @@
   /* Mono follows the Editor Font Family from Settings (--editor-font-family). */
   --font-mono: var(--editor-font-family, 'JetBrains Mono Variable', ui-monospace, monospace);
   --color-background: var(--background);
+  --color-pane-background: var(--pane-background);
   --color-foreground: var(--foreground);
   --color-card: var(--card);
   --color-card-foreground: var(--card-foreground);
@@ -180,6 +181,7 @@
   /* ── Cross/UI light-mode tokens ── */
   --radius: 0.625rem;
   --background: var(--color-white);
+  --pane-background: var(--background);
   --foreground: var(--color-neutral-800);
   --card: var(--color-white);
   --card-foreground: var(--color-neutral-800);
@@ -357,7 +359,7 @@
   --git-renamed: var(--color-sky-400);
 
   /* ── Crowbar UI-layer dark overrides ── */
-  --chrome-bg: oklch(0 0 0 / 65%);
+  --chrome-bg: oklch(0 0 0 / 50%);
 
   /* ── Syntax dedicated hues — Palette A (dark) ─────────────────── */
   --syntax-keyword: #d97757;

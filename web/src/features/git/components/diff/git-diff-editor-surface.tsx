@@ -39,7 +39,7 @@ const GitDiffEditorSurface = ({
   })
 
   return (
-    <div className="min-h-0 flex-1 overflow-hidden bg-background">
+    <div className="min-h-0 flex-1 overflow-hidden bg-pane-background">
       <CodeEditor
         bufferId={bufferId}
         isActiveSurface={true}

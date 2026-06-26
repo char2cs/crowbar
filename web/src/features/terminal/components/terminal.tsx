@@ -786,7 +786,7 @@ export const XtermTerminal: React.FC<XtermTerminalProps> = ({
   )
 
   return (
-    <div className="relative flex h-full w-full flex-col overflow-hidden bg-background">
+    <div className="relative flex h-full w-full flex-col overflow-hidden bg-pane-background">
       <TerminalSearch
         isVisible={isSearchVisible}
         onSearch={handleSearch}

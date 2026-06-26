@@ -1014,7 +1014,7 @@ export function DiffMonacoEditor({
 
   return (
     <div
-      className={`monaco-editor-shell absolute inset-0 min-h-0 bg-background ${className ?? ''}`}
+      className={`monaco-editor-shell absolute inset-0 min-h-0 bg-pane-background ${className ?? ''}`}
       onMouseMove={onMouseMove}
       onMouseLeave={onMouseLeave}
       onMouseEnter={onMouseEnter}
