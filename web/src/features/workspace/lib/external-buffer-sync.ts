@@ -1,7 +1,7 @@
 import { readWorkspaceFile } from '@/features/file-system/controllers/platform'
 import { useFileWatcherStore } from '@/features/file-system/controllers/file-watcher-store'
 import { isEditorContent } from '@/features/panes/types/pane-content'
-import { toast } from '@/components/ui/toast'
+import { toast } from '@/features/window/stores/toast-store'
 import type { WorkspaceStore } from '@/features/workspace/stores/workspace-store'
 
 /**

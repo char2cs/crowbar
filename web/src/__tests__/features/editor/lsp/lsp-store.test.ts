@@ -3,7 +3,7 @@ import type { CompletionItem } from 'vscode-languageserver-protocol'
 import type { useLspStore as useLspStoreHook } from '@/features/editor/lsp/lsp-store'
 import type { useEditorUIStore as useEditorUIStoreHook } from '@/features/editor/stores/ui-store'
 
-vi.mock('@/components/ui/toast', () => ({
+vi.mock('@/features/window/stores/toast-store', () => ({
   toast: {
     show: vi.fn(),
     dismissByKey: vi.fn(),
@@ -11,7 +11,7 @@ vi.mock('@/components/ui/toast', () => ({
 }))
 
 import { useLspStore } from '@/features/editor/lsp/lsp-store'
-import { toast } from '@/components/ui/toast'
+import { toast } from '@/features/window/stores/toast-store'
 
 describe('lspStore — toast decoupling', () => {
   beforeEach(() => {

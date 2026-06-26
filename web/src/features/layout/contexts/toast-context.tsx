@@ -1,24 +1,23 @@
 import type React from 'react'
-import { type Toast, useToast as useUiToast } from '@/components/ui/toast'
+import { toast } from '@/features/window/stores/toast-store'
+
+interface ShowOptions {
+  message: string
+  description?: string
+  type?: 'info' | 'success' | 'warning' | 'error'
+  key?: string
+  duration?: number
+  action?: { label: string; onClick: () => void }
+}
 
 interface ToastContextType {
-  toasts: Toast[]
-  showToast: (value: Omit<Toast, 'id'>) => string
-  updateToast: (id: string, updates: Partial<Omit<Toast, 'id'>>) => void
+  showToast: (value: ShowOptions) => string
   dismissToast: (id: string) => void
-  hasToast: (id: string) => boolean
 }
 
 export const ToastProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => children
 
-export const useToast = (): ToastContextType => {
-  const { toasts, showToast, updateToast, dismissToast, hasToast } = useUiToast()
-
-  return {
-    toasts,
-    showToast,
-    updateToast,
-    dismissToast,
-    hasToast,
-  }
-}
+export const useToast = (): ToastContextType => ({
+  showToast: (value) => toast.show(value),
+  dismissToast: (id) => toast.dismiss(id),
+})

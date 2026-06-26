@@ -8,8 +8,8 @@ vi.mock('@/features/file-system/controllers/platform', async (importOriginal) =>
 })
 
 const toastWarning = vi.fn()
-vi.mock('@/components/ui/toast', async (importOriginal) => {
-  const actual = await importOriginal<typeof import('@/components/ui/toast')>()
+vi.mock('@/features/window/stores/toast-store', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@/features/window/stores/toast-store')>()
   return {
     ...actual,
     toast: {

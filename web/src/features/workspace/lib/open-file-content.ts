@@ -1,6 +1,6 @@
 import { apiFetch } from '@/lib/api'
 import { workspaceBase } from '@/lib/workspace-scope-url'
-import { toast } from '@/components/ui/toast'
+import { toast } from '@/features/window/stores/toast-store'
 
 interface BufferOpener {
   openContent: (spec: {

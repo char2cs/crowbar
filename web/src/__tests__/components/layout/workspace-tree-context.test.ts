@@ -9,12 +9,12 @@ vi.mock('@/lib/api/workspace', () => ({
   reparentWorkspace: vi.fn(),
 }))
 
-vi.mock('@/components/ui/toast', () => ({
+vi.mock('@/features/window/stores/toast-store', () => ({
   toast: { error: vi.fn() },
 }))
 
 import { postWorkspace, deleteWorkspace as apiDeleteWorkspace } from '@/lib/api'
-import { toast } from '@/components/ui/toast'
+import { toast } from '@/features/window/stores/toast-store'
 import { useSidebarStore, type Repo } from '@/lib/store/sidebar'
 import {
   performCreateWorkspace,

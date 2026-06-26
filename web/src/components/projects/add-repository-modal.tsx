@@ -9,7 +9,7 @@ import {
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { FolderOpen } from '@phosphor-icons/react'
-import { toast } from 'sonner'
+import { toast } from '@/features/window/stores/toast-store'
 import { open as openDialog } from '@tauri-apps/plugin-dialog'
 import { useNavigate } from '@tanstack/react-router'
 import { isTauri } from '@/lib/crowbar-bridge'

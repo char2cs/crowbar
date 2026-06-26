@@ -30,7 +30,7 @@ import { useSettingsStore } from '@/features/settings/store'
 import { Button, buttonVariants } from '@/components/ui/button'
 import { Dropdown, dropdownItemClassName } from '@/components/ui/dropdown'
 import Keybinding from '@/components/ui/keybinding'
-import { toast } from '@/components/ui/toast'
+import { toast } from '@/features/window/stores/toast-store'
 import { cn } from '@/utils/cn'
 import { getFilenameFromPath } from '@/features/file-system/controllers/file-utils'
 

@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import { useNavigate } from '@tanstack/react-router'
-import { toast } from 'sonner'
+import { toast } from '@/features/window/stores/toast-store'
 import { postWorkspace } from '@/lib/api'
 import { awaitEntity } from '@/lib/ws/await-entity'
 import { WorkspaceCreationForm } from '@/components/workspace/workspace-creation-form'

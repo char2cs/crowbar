@@ -19,10 +19,10 @@ vi.mock('@/lib/api', async (importOriginal) => {
   }
 })
 
-vi.mock('sonner', () => ({ toast: { error: vi.fn(), success: vi.fn() } }))
+vi.mock('@/features/window/stores/toast-store', () => ({ toast: { error: vi.fn(), success: vi.fn() } }))
 
 import * as api from '@/lib/api'
-import { toast } from 'sonner'
+import { toast } from '@/features/window/stores/toast-store'
 import { RepoSettingsPanel } from '@/components/layout/repo-settings-panel'
 import { useSidebarStore } from '@/lib/store/sidebar'
 
