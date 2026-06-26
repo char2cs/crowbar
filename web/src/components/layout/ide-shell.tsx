@@ -1,4 +1,4 @@
-import { useState, useRef, useEffect } from 'react'
+import { useState, useRef, useEffect, useLayoutEffect } from 'react'
 import { Outlet, useRouterState } from '@tanstack/react-router'
 import { SidebarProvider } from '@/components/ui/sidebar'
 import { ResizableHandle, ResizablePanel, ResizablePanelGroup } from '@/components/ui/resizable'
@@ -90,7 +90,9 @@ export function IDEShell() {
 
   // Signal to root ToastProvider that IDEShell is mounted so it can suppress
   // the fixed-position global toast overlay (SidebarToastOverlay takes over).
-  useEffect(() => {
+  // useLayoutEffect fires synchronously before paint so ideShellMounted is true
+  // before the root ever renders <Toasts>, preventing a double-viewport flash.
+  useLayoutEffect(() => {
     useUIState.getState().setIdeShellMounted(true)
     return () => useUIState.getState().setIdeShellMounted(false)
   }, [])

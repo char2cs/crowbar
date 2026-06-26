@@ -8,6 +8,7 @@ import {
   X,
 } from 'lucide-react'
 import { buttonVariants } from '@/components/ui/button'
+import { toastManager } from '@/lib/toast-manager'
 
 const TOAST_ICONS = {
   error: CircleAlertIcon,
@@ -69,7 +70,7 @@ function SidebarToastItem({
   )
 }
 
-export function SidebarToastOverlay({ sidebarOpen, sidebarSide }: SidebarToastOverlayProps) {
+function SidebarToastOverlayInner({ sidebarOpen, sidebarSide }: SidebarToastOverlayProps) {
   const { toasts } = Toast.useToastManager()
   const swipeDirection: ('left' | 'right' | 'down')[] =
     sidebarSide === 'left' ? ['left', 'down'] : ['right', 'down']
@@ -101,5 +102,13 @@ export function SidebarToastOverlay({ sidebarOpen, sidebarSide }: SidebarToastOv
         ))}
       </Toast.Viewport>
     </Toast.Portal>
+  )
+}
+
+export function SidebarToastOverlay({ sidebarOpen, sidebarSide }: SidebarToastOverlayProps) {
+  return (
+    <Toast.Provider toastManager={toastManager}>
+      <SidebarToastOverlayInner sidebarOpen={sidebarOpen} sidebarSide={sidebarSide} />
+    </Toast.Provider>
   )
 }
