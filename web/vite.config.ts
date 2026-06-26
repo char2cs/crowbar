@@ -27,14 +27,13 @@ export default defineConfig({
   optimizeDeps: {
     // Pre-bundle Tauri packages so the dev server never serves them as
     // "Outdated Optimize Dep" 504s when running inside the Tauri shell.
-    // sonner is pre-bundled + deduped so the store's toast() and the <Toaster>
-    // share ONE module instance (sonner keeps its toast state at module scope; a
-    // split instance silently swallows every toast — the app-wide "no feedback").
-    include: ['@tauri-apps/api/event', 'sonner'],
+    include: ['@tauri-apps/api/event'],
   },
   resolve: {
     alias: { '@': path.resolve(__dirname, './src') },
-    dedupe: ['sonner'],
+    // Force a single copy of react/react-dom — pnpm's virtual store can
+    // resolve multiple versions when peer deps differ across packages.
+    dedupe: ['react', 'react-dom'],
   },
   test: {
     environment: 'jsdom',
