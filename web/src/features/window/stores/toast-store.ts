@@ -2,7 +2,7 @@
 // Thin imperative toast API backed by CossUI toastManager.
 // No Zustand, no sonner — just delegates to @base-ui/react/toast via the
 // generated component wrapper.
-import { toastManager } from '@/components/ui/toast'
+import { toastManager } from '@/lib/toast-manager'
 
 interface ShowOptions {
   message: string
@@ -27,7 +27,7 @@ function toAdd(opts: ShowOptions) {
 }
 
 export const toast = {
-  show: (opts: ShowOptions): string => toastManager.add(toAdd(opts)) as string,
+  show: (opts: ShowOptions): string => toastManager.add(toAdd(opts)),
   dismiss: (id: string) => toastManager.close(id),
   dismissByKey: (key: string) => toastManager.close(key),
   info: (message: string, description?: string) =>
