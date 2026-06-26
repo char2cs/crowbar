@@ -366,7 +366,7 @@ export const ExternalEditorTerminal = ({
   }, [terminalConnectionId])
 
   return (
-    <div className="flex size-full flex-col bg-pane-background">
+    <div className="flex size-full flex-col bg-transparent">
       <div
         ref={terminalRef}
         className={cn('xterm-container size-full flex-1', 'focus:outline-none')}

@@ -55,7 +55,7 @@ export const PaneNodeRenderer = memo(function PaneNodeRenderer({
 
   if (node.type === 'pane') {
     if (hiddenPaneId === node.id) {
-      return <div className="h-full w-full bg-pane-background" aria-hidden="true" />
+      return <div className="h-full w-full bg-transparent" aria-hidden="true" />
     }
     const pane = panes[node.id]
     if (!pane) return null

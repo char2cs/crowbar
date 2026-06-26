@@ -515,7 +515,7 @@ export function PaneContainer({ pane, position = ROOT_PANE_POSITION }: PaneConta
       ref={containerRef}
       data-pane-container
       data-pane-id={pane.id}
-      className={`relative flex h-full w-full flex-col overflow-hidden ${
+      className={`relative flex h-full w-full flex-col overflow-hidden bg-pane-background ${
         isActivePane ? 'ring-1 ring-accent/30' : ''
       } ${isDragOver || internalHoverZone ? 'ring-2 ring-accent' : ''}`}
       onMouseDownCapture={handlePaneMouseDownCapture}
@@ -540,7 +540,7 @@ export function PaneContainer({ pane, position = ROOT_PANE_POSITION }: PaneConta
       />
       <div
         className={cn(
-          'relative z-[1] min-h-0 flex-1 overflow-hidden bg-pane-background',
+          'relative z-[1] min-h-0 flex-1 overflow-hidden',
           (sidebarPosition === 'left' ? position.atLeft : position.atRight) &&
             'shadow-[-4px_0_8px_rgba(0,0,0,0.12)]',
         )}

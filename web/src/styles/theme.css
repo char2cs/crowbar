@@ -181,7 +181,7 @@
   /* ── Cross/UI light-mode tokens ── */
   --radius: 0.625rem;
   --background: var(--color-white);
-  --pane-background: var(--background);
+  --pane-background: oklch(1 0 0 / .25);
   --foreground: var(--color-neutral-800);
   --card: var(--color-white);
   --card-foreground: var(--color-neutral-800);

@@ -38,7 +38,7 @@ export class PaneBoundary extends React.Component<Props, State> {
 
 function PaneErrorState({ error, onRetry }: { error: Error | null; onRetry: () => void }) {
   return (
-    <div className="flex h-full w-full flex-col items-center justify-center gap-3 bg-pane-background p-8 text-center">
+    <div className="flex h-full w-full flex-col items-center justify-center gap-3 bg-transparent p-8 text-center">
       <div className="text-sm font-medium text-destructive">This pane encountered an error</div>
       {error?.message && (
         <pre className="max-w-sm overflow-auto rounded-md bg-muted px-3 py-2 text-xs text-muted-foreground">

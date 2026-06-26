@@ -402,7 +402,7 @@ export function EditorSurface({
           />
 
           {/* Stable Monaco slot — the retained per-pane widget mounts here. */}
-          <div className="absolute inset-0 bg-pane-background">
+          <div className="absolute inset-0 bg-transparent">
             <div
               ref={containerRef}
               className="absolute inset-0"

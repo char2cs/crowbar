@@ -83,7 +83,7 @@ const GitStashPanel = ({
       <div
         className={cn(
           'flex min-h-0 flex-1 flex-col overflow-hidden',
-          showHeader && 'rounded-lg border border-border/60 bg-pane-background/55',
+          showHeader && 'rounded-lg border border-border/60 bg-transparent/55',
         )}
       >
         <div className="shrink-0 px-1 py-1">
@@ -103,7 +103,7 @@ const GitStashPanel = ({
           <div
             className={cn(
               'scrollbar-none min-h-0 flex-1 overflow-y-scroll px-1 pb-1',
-              showHeader ? 'bg-pane-background/70' : 'bg-transparent',
+              showHeader ? 'bg-transparent/70' : 'bg-transparent',
             )}
           >
             {stashes.length === 0 ? (
