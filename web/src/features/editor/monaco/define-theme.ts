@@ -121,6 +121,20 @@ export function buildMonacoThemeData(input: MonacoThemeInput): MonacoThemeData {
       'editorBracketHighlight.foreground5': ui.subtle,
       'editorBracketHighlight.foreground6': ui.subtle,
       'editorBracketHighlight.unexpectedBracket.foreground': ui.error,
+      // Ensure all Monaco sub-areas match the pane background.
+      // Without these, minimap, gutter, and overview ruler default to slightly
+      // different shades and create a visible inconsistency.
+      'editorGutter.background': ui.background,
+      'minimap.background': ui.background,
+      'minimapSlider.background': ui.border,
+      'minimapSlider.hoverBackground': ui.subtle,
+      'minimapSlider.activeBackground': ui.subtle,
+      'editorOverviewRuler.background': ui.background,
+      'editorOverviewRuler.border': ui.border,
+      'scrollbar.shadow': '#00000000',
+      'scrollbarSlider.background': ui.border,
+      'scrollbarSlider.hoverBackground': ui.subtle,
+      'scrollbarSlider.activeBackground': ui.subtle,
     },
   }
 }
