@@ -8,6 +8,7 @@ import { WorkspaceBranchIcon } from './workspace-branch-icon'
 import { deriveContextPillModel } from './context-pill-model'
 import { WorkspaceSwitcherMenu } from './workspace-switcher'
 import { parseWorkspaceScopeFromPath } from '@/lib/workspace-scope'
+import { useWorkspaceSwitcherKeyboard } from '@/features/keymaps/hooks/use-workspace-switcher-keyboard'
 
 /**
  * "You are here" pill above the sidebar tab bar: shows the current
@@ -20,6 +21,7 @@ export function ContextPill() {
   const projects = useProjectStore((s) => s.projects)
   const activeProjectId = useProjectStore((s) => s.activeProjectId)
   const [open, setOpen] = useState(false)
+  useWorkspaceSwitcherKeyboard(() => setOpen(true))
 
   const activeWorkspaceId = parseWorkspaceScopeFromPath(pathname)?.wsId
   const model = deriveContextPillModel({ activeWorkspaceId, repos, projects, activeProjectId })
