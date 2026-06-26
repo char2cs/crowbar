@@ -197,6 +197,7 @@ export const XtermTerminal: React.FC<XtermTerminalProps> = ({
         cursorStyle: terminalCursorStyle,
         cursorWidth: effectiveTerminalCursorWidth,
         allowProposedApi: true,
+        allowTransparency: true,
         theme: getTerminalTheme(),
         scrollback: terminalScrollback,
         convertEol: false,

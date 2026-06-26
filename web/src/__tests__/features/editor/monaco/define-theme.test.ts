@@ -9,7 +9,8 @@ const SYNTAX = {
 }
 
 const UI = {
-  background: '#1f1f1f',
+  background: '#00000000',
+  widgetBackground: '#1f1f1f',
   foreground: '#f5f5f5',
   selection: '#33445566',
   border: '#2a2a2a',
@@ -36,9 +37,9 @@ describe('buildMonacoThemeData', () => {
     expect(rules.some((r) => r.token === 'keyword')).toBe(true)
   })
 
-  it('sets editor background/foreground from UI tokens', () => {
+  it('sets editor background to transparent (CSS handles it) and foreground from UI tokens', () => {
     const { colors } = buildMonacoThemeData({ isDark: true, syntax: SYNTAX, ui: UI })
-    expect(colors['editor.background']).toBe('#1f1f1f')
+    expect(colors['editor.background']).toBe('#00000000')
     expect(colors['editor.foreground']).toBe('#f5f5f5')
   })
 

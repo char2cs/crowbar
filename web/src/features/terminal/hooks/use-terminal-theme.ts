@@ -31,7 +31,6 @@ export interface TerminalTheme {
 }
 
 export interface TerminalUiTokens {
-  background: string
   foreground: string
   cursor: string
 }
@@ -58,10 +57,10 @@ export function buildTerminalTheme(
   ui: TerminalUiTokens,
 ): TerminalTheme {
   const theme = {
-    background: ui.background,
+    background: '#00000000',
     foreground: ui.foreground,
     cursor: ui.cursor,
-    cursorAccent: ui.background,
+    cursorAccent: '#00000000',
     selectionBackground: withAlpha(ui.cursor, 0.25),
     selectionForeground: ui.foreground,
   } as TerminalTheme
@@ -81,7 +80,6 @@ function readUiTokens(): TerminalUiTokens {
   const isDark =
     typeof document !== 'undefined' && document.documentElement.classList.contains('dark')
   return {
-    background: resolveCssVar('--pane-background') ?? (isDark ? '#141413' : '#ffffff'),
     foreground: resolveCssVar('--foreground') ?? (isDark ? '#f5f5f5' : '#141413'),
     cursor: resolveCssVar('--foreground') ?? (isDark ? '#f5f5f5' : '#141413'),
   }

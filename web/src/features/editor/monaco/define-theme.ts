@@ -43,6 +43,7 @@ function stripHash(value: string): string {
 
 export interface MonacoUiTokens {
   background: string
+  widgetBackground: string
   foreground: string
   selection: string
   border: string
@@ -86,7 +87,9 @@ export function buildMonacoThemeData(input: MonacoThemeInput): MonacoThemeData {
     inherit: true,
     rules,
     colors: {
-      'editor.background': ui.background,
+      // Transparent: CSS bg-pane-background on the content div is the single
+      // source. Painting a JS background on top stacks opacity incorrectly.
+      'editor.background': '#00000000',
       'editor.foreground': ui.foreground,
       'editorCursor.foreground': ui.foreground,
       'editor.selectionBackground': ui.selection,
@@ -100,14 +103,14 @@ export function buildMonacoThemeData(input: MonacoThemeInput): MonacoThemeData {
       'editorIndentGuide.background1': ui.border,
       'editorIndentGuide.activeBackground1': ui.subtle,
       'editorWhitespace.foreground': ui.subtle,
-      'editorWidget.background': ui.background,
+      'editorWidget.background': ui.widgetBackground,
       'editorWidget.foreground': ui.foreground,
       'editorWidget.border': ui.border,
-      'editorSuggestWidget.background': ui.background,
+      'editorSuggestWidget.background': ui.widgetBackground,
       'editorSuggestWidget.foreground': ui.foreground,
       'editorSuggestWidget.border': ui.border,
       'editorSuggestWidget.selectedBackground': ui.border,
-      'input.background': ui.background,
+      'input.background': ui.widgetBackground,
       'input.foreground': ui.foreground,
       'input.border': ui.border,
       // Bracket pair colorization is on by default in Monaco; without these it
@@ -124,12 +127,12 @@ export function buildMonacoThemeData(input: MonacoThemeInput): MonacoThemeData {
       // Ensure all Monaco sub-areas match the pane background.
       // Without these, minimap, gutter, and overview ruler default to slightly
       // different shades and create a visible inconsistency.
-      'editorGutter.background': ui.background,
-      'minimap.background': ui.background,
+      'editorGutter.background': '#00000000',
+      'minimap.background': '#00000000',
       'minimapSlider.background': ui.border,
       'minimapSlider.hoverBackground': ui.subtle,
       'minimapSlider.activeBackground': ui.subtle,
-      'editorOverviewRuler.background': ui.background,
+      'editorOverviewRuler.background': '#00000000',
       'editorOverviewRuler.border': ui.border,
       'scrollbar.shadow': '#00000000',
       'scrollbarSlider.background': ui.border,
@@ -141,7 +144,8 @@ export function buildMonacoThemeData(input: MonacoThemeInput): MonacoThemeData {
 
 function readUiTokens(isDark: boolean): MonacoUiTokens {
   return {
-    background: resolveCssVar('--pane-background') ?? (isDark ? '#1f1f1f' : '#ffffff'),
+    background: '#00000000',
+    widgetBackground: resolveCssVar('--background') ?? (isDark ? '#1f1f1f' : '#ffffff'),
     foreground: resolveCssVar('--foreground') ?? (isDark ? '#f5f5f5' : '#1f1f1f'),
     selection:
       resolveCssVar('--editor-selection') ??
