@@ -81,7 +81,7 @@ function readUiTokens(): TerminalUiTokens {
   const isDark =
     typeof document !== 'undefined' && document.documentElement.classList.contains('dark')
   return {
-    background: resolveCssVar('--background') ?? (isDark ? '#141413' : '#ffffff'),
+    background: resolveCssVar('--pane-background') ?? (isDark ? '#141413' : '#ffffff'),
     foreground: resolveCssVar('--foreground') ?? (isDark ? '#f5f5f5' : '#141413'),
     cursor: resolveCssVar('--foreground') ?? (isDark ? '#f5f5f5' : '#141413'),
   }

@@ -127,7 +127,7 @@ export function buildMonacoThemeData(input: MonacoThemeInput): MonacoThemeData {
 
 function readUiTokens(isDark: boolean): MonacoUiTokens {
   return {
-    background: resolveCssVar('--background') ?? (isDark ? '#1f1f1f' : '#ffffff'),
+    background: resolveCssVar('--pane-background') ?? (isDark ? '#1f1f1f' : '#ffffff'),
     foreground: resolveCssVar('--foreground') ?? (isDark ? '#f5f5f5' : '#1f1f1f'),
     selection:
       resolveCssVar('--editor-selection') ??
