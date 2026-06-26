@@ -6,7 +6,7 @@ export const BOTTOM_PANE_ITEM_ORDER: string[] = ['terminal']
 
 export const FOOTER_LEADING_ITEM_IDS: string[] = ['branch', 'sync']
 
-export const FOOTER_TRAILING_ITEM_IDS: string[] = ['notifications', 'settings']
+export const FOOTER_TRAILING_ITEM_IDS: string[] = ['settings']
 
 export const HEADER_TRAILING_ITEM_IDS: string[] = ['layout', 'extensions']
 

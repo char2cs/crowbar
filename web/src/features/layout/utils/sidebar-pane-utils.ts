@@ -1,4 +1,4 @@
-export type SidebarView = 'files' | 'outline' | 'collaboration' | 'notifications' | (string & {})
+export type SidebarView = 'files' | 'outline' | 'collaboration' | (string & {})
 
 interface SidebarPaneState {
   isSidebarVisible: boolean
@@ -23,7 +23,7 @@ interface SidebarPaneTriggerResult extends SidebarPaneClickResult {
   nextPosition: SidebarPosition
 }
 
-const EDGE_SIDEBAR_VIEWS = new Set<SidebarView>(['outline', 'collaboration', 'notifications'])
+const EDGE_SIDEBAR_VIEWS = new Set<SidebarView>(['outline', 'collaboration'])
 
 export function getSidebarPaneLevel(view: SidebarView): SidebarPaneLevel {
   if (EDGE_SIDEBAR_VIEWS.has(view)) return 'edge'
