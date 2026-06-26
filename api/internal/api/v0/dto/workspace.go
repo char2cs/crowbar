@@ -9,8 +9,7 @@ import (
 // WorkspaceDTO is the wire shape of a Workspace: the git-worktree aggregate that
 // backs a sidebar row (00 §5.3). It carries the live-badge fields the frontend
 // renders — diff counts, status, merge strategy, the merge-eligibility overlay,
-// the last-error overlay, and the pull-request summary — without leaking
-// persistence-only fields (the on-disk worktree path stays server-side).
+// the last-error overlay, and the pull-request summary.
 type WorkspaceDTO struct {
 	ID              string                  `json:"id"`
 	RepoID          string                  `json:"repoId"`
@@ -31,6 +30,10 @@ type WorkspaceDTO struct {
 	PRUrl           string                  `json:"prUrl,omitempty"`
 	PRTitle         string                  `json:"prTitle,omitempty"`
 	PRTargetBranch  string                  `json:"prTargetBranch,omitempty"`
+	// LocalPath is the on-disk worktree directory for this workspace. Clients use
+	// it to construct absolute file paths (e.g. "Copy Path" in the file explorer).
+	// Exposed here so workspace-creation details never bleed into client code.
+	LocalPath string `json:"localPath,omitempty"`
 }
 
 // WorkspaceDTOFrom converts a domain Workspace into its wire DTO, populating the
@@ -62,6 +65,7 @@ func WorkspaceDTOFrom(
 		PRUrl:           w.PRUrl,
 		PRTitle:         w.PRTitle,
 		PRTargetBranch:  w.PRTargetBranch,
+		LocalPath:       w.WorktreePath,
 	}
 }
 

@@ -83,7 +83,7 @@ export function SidebarProjectHeader() {
     >
       {/* Reserve space for the macOS traffic lights on whichever side is
           top-left (only when the sidebar is on the left). */}
-      {IS_MAC && !isRight && <div className="w-[52px] shrink-0" />}
+      {IS_MAC && !isRight && <div className="w-[72px] shrink-0" />}
       {toggle}
       <div className="flex-1" />
       {cluster}

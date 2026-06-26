@@ -45,6 +45,19 @@
   font-size: var(--ui-text-lg);
 }
 
+/* Allow content-pane shadow to bleed leftward into the sidebar area.
+   react-resizable-panels injects overflow:hidden/auto via inline styles — override both.
+   pane-container also clips; override so the shadow follows the rounded pane content shape. */
+[data-slot="resizable-panel-group"] {
+  overflow: visible !important;
+}
+[data-slot="resizable-panel"] > div {
+  overflow: visible !important;
+}
+[data-pane-container] {
+  overflow: visible !important;
+}
+
 @layer utilities {
   .scrollbar-hidden {
     scrollbar-width: none;

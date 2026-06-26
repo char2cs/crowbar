@@ -9,6 +9,7 @@ import { stageHunk, unstageHunk } from '@/features/git/api/git-status-api'
 import type { GitHunk } from '@/features/git/types/git-types'
 import { useSettingsStore } from '@/features/settings/store'
 import { buildPaneContentStyle } from '../utils/pane-border'
+import { cn } from '@/lib/utils'
 import { ROOT_PANE_POSITION, type PanePosition } from '../types/pane'
 import TabBar from '@/features/tabs/components/tab-bar'
 import { extractDroppedFilePaths } from '@/features/file-system/utils/file-system-dropped-paths'
@@ -538,7 +539,11 @@ export function PaneContainer({ pane, position = ROOT_PANE_POSITION }: PaneConta
         disablePaneActions={pane.id === BOTTOM_PANE_ID}
       />
       <div
-        className="relative min-h-0 flex-1 overflow-hidden bg-background"
+        className={cn(
+          'relative z-[1] min-h-0 flex-1 overflow-hidden bg-background',
+          (sidebarPosition === 'left' ? position.atLeft : position.atRight) &&
+            'shadow-[-4px_0_8px_rgba(0,0,0,0.12)]',
+        )}
         style={paneContentStyle}
       >
         {!activeBuffer && <EmptyEditorState />}

@@ -83,7 +83,7 @@ export function useFileExplorerInlineEditing({
       const addNewItemToTree = (items: FileEntry[], targetPath: string): FileEntry[] =>
         items.map((item) => {
           if (item.path === targetPath && item.isDir) {
-            return { ...item, children: [...(item.children || []), newItem] }
+            return { ...item, children: [newItem, ...(item.children || [])] }
           }
           if (item.children) {
             return { ...item, children: addNewItemToTree(item.children, targetPath) }
@@ -92,7 +92,7 @@ export function useFileExplorerInlineEditing({
         })
 
       if (isRootTarget || parentPath === getDirName(baseFiles[0]?.path ?? '')) {
-        onUpdateFiles([...baseFiles, newItem])
+        onUpdateFiles([newItem, ...baseFiles])
       } else {
         onUpdateFiles(addNewItemToTree(baseFiles, parentPath))
       }

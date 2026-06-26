@@ -67,6 +67,8 @@ export interface WorkspaceDTO {
   prUrl: string
   prTitle: string
   prTargetBranch: string
+  /** On-disk worktree directory for this workspace (e.g. /home/user/project). */
+  localPath?: string
 }
 
 export interface RepoDTO {

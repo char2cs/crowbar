@@ -60,6 +60,7 @@ export function toSidebarWorkspace(ws: WorkspaceDTO): Workspace {
     // omitted key would leave the previous error lingering.
     lastError: ws.lastError ?? '',
     age: '',
+    ...(ws.localPath ? { localPath: ws.localPath } : {}),
   }
 }
 
@@ -75,6 +76,7 @@ export function toSidebarRepo(repo: RepoDTO, workspaces: WorkspaceDTO[]): Repo {
     avatarURL: repoAvatarURL(repo),
     workspaces: repoWs.filter((ws) => !ws.isDefault).map(toSidebarWorkspace),
     ...(defaultWs ? { defaultWorkspaceId: defaultWs.id, defaultBranch: defaultWs.branch } : {}),
+    ...(repo.path ? { localPath: repo.path } : {}),
   }
 }
 

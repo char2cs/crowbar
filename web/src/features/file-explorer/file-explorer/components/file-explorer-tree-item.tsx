@@ -1,5 +1,5 @@
 import type React from 'react'
-import { memo } from 'react'
+import { memo, useEffect, useRef } from 'react'
 import {
   FILE_TREE_DENSITY_CONFIG,
   type FileTreeDensity,
@@ -145,6 +145,24 @@ function FileExplorerTreeItemComponent({
     </div>
   )
 
+  const inputRef = useRef<HTMLInputElement>(null)
+  useEffect(() => {
+    if (!file.isEditing && !file.isRenaming) return
+    const el = inputRef.current
+    if (!el) return
+    // Defer focus by one frame so any cleanup effects from unmounting components
+    // (e.g. @base-ui/react/menu restoring focus on close) settle first. Without
+    // this, the menu cleanup fires after el.focus() and returns focus to body,
+    // which immediately triggers handleBlur → cancelInlineEditing.
+    const timer = setTimeout(() => {
+      if (el.isConnected) {
+        el.focus()
+        el.scrollIntoView({ behavior: 'smooth', block: 'center', inline: 'nearest' })
+      }
+    }, 16)
+    return () => clearTimeout(timer)
+  }, [file.isEditing, file.isRenaming])
+
   if (file.isEditing || file.isRenaming) {
     return (
       <div className="file-tree-item w-full" data-depth={depth}>
@@ -165,16 +183,7 @@ function FileExplorerTreeItemComponent({
             className="relative z-[1] shrink-0 text-muted-foreground"
           />
           <Input
-            ref={(el) => {
-              if (el) {
-                el.focus()
-                el.scrollIntoView({
-                  behavior: 'smooth',
-                  block: 'center',
-                  inline: 'nearest',
-                })
-              }
-            }}
+            ref={inputRef}
             type="text"
             autoCapitalize="none"
             autoComplete="off"

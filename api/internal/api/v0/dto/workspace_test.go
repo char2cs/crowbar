@@ -83,6 +83,7 @@ func TestWorkspaceDTOFrom(
 	assert.Equal(t, "main", got.PRTargetBranch)
 	assert.True(t, got.Working)
 	assert.Equal(t, "boom", got.LastError)
+	assert.Equal(t, "/wt", got.LocalPath)
 	// Eligibility is supplied by the caller; an empty overlay maps to zero
 	// values.
 	assert.False(t, got.CanMergeLocally)
@@ -110,16 +111,17 @@ func TestWorkspaceDTO_WireFields(
 	t *testing.T,
 ) {
 	raw, err := json.Marshal(dto.WorkspaceDTOFrom(domain.Workspace{
-		ID:        "w1",
-		Working:   true,
-		LastError: "oops",
+		ID:           "w1",
+		Working:      true,
+		LastError:    "oops",
+		WorktreePath: "/wt",
 	}, workspace.MergeEligibility{}))
 	require.NoError(t, err)
 
 	var decoded map[string]any
 	require.NoError(t, json.Unmarshal(raw, &decoded))
 
-	for _, key := range []string{"working", "lastError", "canMergeLocally"} {
+	for _, key := range []string{"working", "lastError", "canMergeLocally", "localPath"} {
 		_, present := decoded[key]
 		assert.Truef(t, present, "expected wire key %q to be present", key)
 	}

@@ -48,7 +48,7 @@ export function NavStack({ children }: NavStackProps) {
                 IS_MAC ? 'h-[44px]' : 'h-[34px]',
               )}
             >
-              {IS_MAC && !isRight && <div className="w-[52px] shrink-0" />}
+              {IS_MAC && !isRight && <div className="w-[72px] shrink-0" />}
               <Button
                 variant="ghost"
                 size="icon-sm"

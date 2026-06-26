@@ -48,6 +48,8 @@ export interface Workspace {
   prUrl?: string
   /** Last background-operation error (e.g. a rejected reparent), surfaced to the user. */
   lastError?: string
+  /** On-disk worktree directory, from the backend WorkspaceDTO. */
+  localPath?: string
 }
 
 export interface Repo {
@@ -67,6 +69,9 @@ export interface Repo {
   /** Branch name of the default (main-worktree) workspace, surfaced on the repo
    *  header. Used by create-input validation to reserve the default branch. */
   defaultBranch?: string
+  /** On-disk root of the repo (RepoDTO.path). Used as the localPath fallback for
+   *  the default workspace, which is not stored in the workspaces array. */
+  localPath?: string
 }
 
 export type SidebarTab = 'workspaces' | 'chats' | 'files' | 'git'

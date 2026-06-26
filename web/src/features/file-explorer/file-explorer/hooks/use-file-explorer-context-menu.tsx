@@ -231,9 +231,7 @@ export function useFileExplorerContextMenu({
           id: 'new-folder',
           label: 'New Folder',
           icon: <FolderPlus />,
-          onClick: () => {
-            if (onCreateNewFolderInDirectory) onStartInlineEditing(dirTargetPath, true)
-          },
+          onClick: () => onStartInlineEditing(dirTargetPath, true),
         },
         {
           id: 'refresh',
@@ -362,7 +360,15 @@ export function useFileExplorerContextMenu({
         label: 'Copy Path',
         icon: <Link />,
         onClick: () => {
-          navigator.clipboard.writeText(contextMenu.path).then(
+          // contextMenu.path is root-relative for tree nodes (e.g. "api/main.go").
+          // Join with rootFolderPath to produce the absolute path, unless the path
+          // is already absolute (happens when right-clicking the workspace root itself,
+          // which passes rootFolderPath directly as contextMenu.path).
+          const absolutePath =
+            rootFolderPath && !contextMenu.path.startsWith(rootFolderPath)
+              ? joinPath(rootFolderPath, contextMenu.path)
+              : contextMenu.path
+          navigator.clipboard.writeText(absolutePath).then(
             () => flashFeedback(contextMenu.path, 'copied-path'),
             () => flashFeedback(contextMenu.path, 'err'),
           )
@@ -373,8 +379,10 @@ export function useFileExplorerContextMenu({
         label: 'Copy Relative Path',
         icon: <FileText />,
         onClick: () => {
+          // getRelativePath strips rootFolderPath when the path is absolute.
+          // For already-relative paths it returns the path unchanged, which is correct.
           const relativePath = getRelativePath(contextMenu.path, rootFolderPath)
-          navigator.clipboard.writeText(relativePath).then(
+          navigator.clipboard.writeText(relativePath || '.').then(
             () => flashFeedback(contextMenu.path, 'copied-rel'),
             () => flashFeedback(contextMenu.path, 'err'),
           )

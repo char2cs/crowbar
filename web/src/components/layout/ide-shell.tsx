@@ -64,15 +64,14 @@ export function IDEShell() {
   useWorkspaceProviderStream(activeProjectIdFromRoute, activeRepoIdFromRoute, activeWorkspaceId)
   const activeChatId = pathname.match(/\/chat\/([^/]+)/)?.[1]
   const activeRepo = repos.find((r) => r.id === activeRepoIdFromRoute)
-  // TODO(workspace-paths): `/repos/<repoId>` is a synthetic mock-era root prefix.
-  // Backend paths are workspace-relative, and this fiction already caused a 404
-  // bug. It threads through rootFolderPath into 40+ files (sidebar-carousel →
-  // file-explorer, path-helpers root checks, gitignore root rules), so removing
-  // it is not a contained change — replace with workspace-relative roots in a
-  // dedicated pass. Until then, key it off the route repo id.
-  const activeWorkspaceRepoPath = activeRepoIdFromRoute
-    ? `/repos/${activeRepoIdFromRoute}`
-    : '/repos/default'
+  // Use the on-disk worktree path from the backend DTO so that "Copy Path" and
+  // other filesystem operations produce real paths regardless of how workspaces
+  // are created. Non-default workspaces expose localPath on their WorkspaceDTO;
+  // the default (main-worktree) workspace falls back to the repo's root path
+  // (RepoDTO.path), which is the same directory.
+  const activeWorkspace = activeRepo?.workspaces.find((w) => w.id === activeWorkspaceId)
+  const activeWorkspaceRepoPath =
+    activeWorkspace?.localPath ?? activeRepo?.localPath ?? ''
   const chatTabLabel = chats.find((c) => c.id === activeChatId)?.title ?? 'Chat'
 
   const hasNavScreen = useSidebarNavStore((s) => s.stack.length > 0)
@@ -123,7 +122,7 @@ export function IDEShell() {
   )
 
   const contentEl = (
-    <div className="flex h-full min-w-0 flex-col overflow-hidden bg-transparent">
+    <div className="relative z-[1] flex h-full min-w-0 flex-col bg-transparent">
       <ErrorBoundary>
         {activeWorkspaceId ? (
           <>
@@ -158,7 +157,7 @@ export function IDEShell() {
 
   return (
     <SidebarProvider
-      className="h-screen overflow-hidden bg-transparent text-foreground"
+      className="h-screen bg-transparent text-foreground"
       open={sidebarOpen}
       onOpenChange={setSidebarOpen}
     >

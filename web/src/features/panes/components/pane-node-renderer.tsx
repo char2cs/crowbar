@@ -77,7 +77,7 @@ export const PaneNodeRenderer = memo(function PaneNodeRenderer({
     >
       <div
         ref={firstPaneRef}
-        className="min-h-0 min-w-0 grow-0 shrink overflow-hidden"
+        className="min-h-0 min-w-0 grow-0 shrink"
         style={{ flexBasis: `${node.sizes[0]}%` }}
       >
         <PaneNodeRenderer node={node.first} hiddenPaneId={hiddenPaneId} position={firstPos} />
@@ -92,7 +92,7 @@ export const PaneNodeRenderer = memo(function PaneNodeRenderer({
       />
       <div
         ref={secondPaneRef}
-        className="min-h-0 min-w-0 grow-0 shrink overflow-hidden"
+        className="min-h-0 min-w-0 grow-0 shrink"
         style={{ flexBasis: `${node.sizes[1]}%` }}
       >
         <PaneNodeRenderer node={node.second} hiddenPaneId={hiddenPaneId} position={secondPos} />

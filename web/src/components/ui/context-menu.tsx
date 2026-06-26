@@ -68,6 +68,7 @@ function ImperativeContextMenu({
 
   return (
     <MenuPrimitive.Root
+      modal={false}
       open={isOpen}
       onOpenChange={(open) => {
         if (!open) onCloseRef.current()
