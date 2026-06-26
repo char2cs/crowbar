@@ -72,6 +72,8 @@ export interface UIState {
   setIsGlobalSearchVisible: (v: boolean) => void
   isProjectPickerVisible: boolean
   setIsProjectPickerVisible: (v: boolean) => void
+  ideShellMounted: boolean
+  setIdeShellMounted: (v: boolean) => void
 }
 
 export const useUIState = create<UIState>((set) => ({
@@ -130,4 +132,6 @@ export const useUIState = create<UIState>((set) => ({
   setIsGlobalSearchVisible: (v) => set({ isGlobalSearchVisible: v }),
   isProjectPickerVisible: false,
   setIsProjectPickerVisible: (v) => set({ isProjectPickerVisible: v }),
+  ideShellMounted: false,
+  setIdeShellMounted: (v) => set({ ideShellMounted: v }),
 }))

@@ -4,15 +4,15 @@ import { ErrorBoundary } from '@/components/error-boundary'
 import { HydrationGate } from '@/components/hydration-gate'
 import { AppSyncProvider } from '@/components/app-sync-provider'
 import { AnchoredToastProvider, ToastProvider } from '@/components/ui/toast'
+import { useUIState } from '@/features/window/stores/ui-state-store'
 
 function RootComponent() {
+  const ideShellMounted = useUIState((s) => s.ideShellMounted)
   return (
     <HydrationGate>
       <ErrorBoundary>
         <AppSyncProvider>
-          {/* ToastProvider + AnchoredToastProvider mounted at the root so
-              toasts render on every route (OOBE, onboarding, IDE shell, etc.) */}
-          <ToastProvider position="bottom-right">
+          <ToastProvider position="bottom-right" suppressToasts={ideShellMounted}>
             <AnchoredToastProvider>
               <Outlet />
             </AnchoredToastProvider>

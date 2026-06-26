@@ -288,18 +288,20 @@ export type ToastPosition =
 export interface ToastProviderProps extends Toast.Provider.Props {
   position?: ToastPosition;
   portalProps?: React.ComponentProps<typeof Toast.Portal>;
+  suppressToasts?: boolean;
 }
 
 export function ToastProvider({
   children,
   position = "bottom-right",
   portalProps,
+  suppressToasts,
   ...props
 }: ToastProviderProps): React.ReactElement {
   return (
     <Toast.Provider toastManager={toastManager} {...props}>
       {children}
-      <Toasts portalProps={portalProps} position={position} />
+      {!suppressToasts && <Toasts portalProps={portalProps} position={position} />}
     </Toast.Provider>
   );
 }
