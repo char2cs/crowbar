@@ -20,6 +20,7 @@ import { useUIState } from '@/features/window/stores/ui-state-store'
 import { FontStyleInjector } from '@/features/settings/components/font-style-injector'
 import { ConnectionIndicator } from './connection-indicator'
 import { FpsOverlay } from './fps-overlay'
+import { SidebarToastOverlay } from './sidebar-toast-overlay'
 import { useSidebarNavStore } from '@/features/layout/stores/sidebar-nav'
 import { recordWorkspaceScopeFromPath } from '@/lib/workspace-scope'
 import { useWorkspaceProviderStream } from '@/features/workspace/stores/hooks/use-workspace-provider-stream'
@@ -87,6 +88,13 @@ export function IDEShell() {
     }
   }, [workspaceProjectId])
 
+  // Signal to root ToastProvider that IDEShell is mounted so it can suppress
+  // the fixed-position global toast overlay (SidebarToastOverlay takes over).
+  useEffect(() => {
+    useUIState.getState().setIdeShellMounted(true)
+    return () => useUIState.getState().setIdeShellMounted(false)
+  }, [])
+
   // Drive panel collapse/expand from sidebarOpen state (set by SidebarProvider's toggleSidebar)
   useEffect(() => {
     const panel = sidebarPanelRef.current
@@ -111,13 +119,17 @@ export function IDEShell() {
   }
 
   const sidebarContent = (
-    <div className="flex h-full flex-col overflow-hidden bg-transparent select-none">
+    <div className="relative flex h-full flex-col overflow-hidden bg-transparent select-none">
       {!hasNavScreen && <SidebarProjectHeader />}
       {!hasNavScreen && <ContextPill />}
       {!hasNavScreen && <SidebarTabBar />}
       <ErrorBoundary>
         <SidebarCarousel activeWorkspaceRepoPath={activeWorkspaceRepoPath} />
       </ErrorBoundary>
+      <SidebarToastOverlay
+        sidebarOpen={sidebarOpen}
+        sidebarSide={sidebarPosition ?? 'left'}
+      />
     </div>
   )
 
