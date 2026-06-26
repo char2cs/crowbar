@@ -42,8 +42,8 @@
   --primary-foreground: #FEFAE0;
   --secondary: #BC6C25;
   --secondary-foreground: #FEFAE0;
-  --accent: #BC6C25;
-  --accent-foreground: #FEFAE0;
+  --accent: #283618;
+  --accent-foreground: #0F150A;
   --muted: oklch(0 0 0 / 5%);
   --muted-foreground: #283618;
   --border: oklch(0 0 0 / 8%);
