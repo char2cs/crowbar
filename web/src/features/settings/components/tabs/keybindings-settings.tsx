@@ -26,7 +26,7 @@ import {
 import { cn } from '@/utils/cn'
 import Section, { SETTINGS_CONTROL_WIDTHS } from '../settings-section'
 
-const CATEGORY_ORDER: CommandCategory[] = ['Panes', 'Tabs', 'Editor']
+const CATEGORY_ORDER: CommandCategory[] = ['Navigation', 'Panes', 'Tabs', 'Editor']
 
 /** Inline key-capture button for rebinding a single command. */
 function RebindControl({
