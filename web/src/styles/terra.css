@@ -34,9 +34,9 @@
 [data-theme="terra"]:not(.dark) {
   --background: #FEFAE0;
   --foreground: #0F150A;
-  --card: #ffffff;
+  --card: #FEFAE0;
   --card-foreground: #0F150A;
-  --popover: #ffffff;
+  --popover: #FEFAE0;
   --popover-foreground: #0F150A;
   --primary: #606C38;
   --primary-foreground: #FEFAE0;
