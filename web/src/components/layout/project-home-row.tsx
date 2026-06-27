@@ -7,7 +7,7 @@ import { useProjectStore } from '@/lib/store/projects'
 export function ProjectHomeRow() {
   const navigate = useNavigate()
   const projectId = useProjectStore((s) => s.activeProjectId)
-  const isActive = useMatch({ from: '/ide/$projectId/home', shouldThrow: false })
+  const isActive = useMatch({ from: '/_shell/ide/$projectId/home', shouldThrow: false })
 
   function handleClick() {
     if (!projectId) return

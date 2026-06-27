@@ -19,7 +19,7 @@ const TABS: {
 export function SidebarTabBar() {
   const activeTab = useSidebarStore((s) => s.activeTab)
   const setActiveTab = useSidebarStore((s) => s.setActiveTab)
-  const isHomeRoute = useMatch({ from: '/ide/$projectId/home', shouldThrow: false })
+  const isHomeRoute = useMatch({ from: '/_shell/ide/$projectId/home', shouldThrow: false })
 
   useEffect(() => {
     if (isHomeRoute && activeTab === 'git') {
