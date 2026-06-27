@@ -56,7 +56,8 @@ export function IDEShell() {
   // recording it only in the route component's post-render effect threw on first
   // paint and tripped the ErrorBoundary (§14 add-repo regression).
   const routeScope = recordWorkspaceScopeFromPath(pathname)
-  const activeProjectIdFromRoute = routeScope?.projectId
+  const homeRouteMatch = routeScope ? null : pathname.match(/\/ide\/([^/]+)\/home$/)
+  const activeProjectIdFromRoute = routeScope?.projectId ?? homeRouteMatch?.[1]
   const activeRepoIdFromRoute = routeScope?.repoId
   const activeWorkspaceId = routeScope?.wsId
   // Open the per-:wsId workspace WS stream for the viewed workspace. Beyond data,
@@ -71,8 +72,14 @@ export function IDEShell() {
   // the default (main-worktree) workspace falls back to the repo's root path
   // (RepoDTO.path), which is the same directory.
   const activeWorkspace = activeRepo?.workspaces.find((w) => w.id === activeWorkspaceId)
+  // For the home route there is no repoId, so fall back to any repo under the
+  // active project — home workspaces point to the project root, which for a
+  // single-repo project equals the repo's own localPath.
+  const projectFallbackPath = homeRouteMatch
+    ? (repos.find((r) => r.projectId === activeProjectIdFromRoute)?.localPath ?? '')
+    : ''
   const activeWorkspaceRepoPath =
-    activeWorkspace?.localPath ?? activeRepo?.localPath ?? ''
+    activeWorkspace?.localPath ?? activeRepo?.localPath ?? projectFallbackPath
   const chatTabLabel = chats.find((c) => c.id === activeChatId)?.title ?? 'Chat'
 
   const hasNavScreen = useSidebarNavStore((s) => s.stack.length > 0)
@@ -161,7 +168,7 @@ export function IDEShell() {
             </div>
           </div>
         ) : (
-          <div className="flex h-full flex-col overflow-hidden bg-background">
+          <div className="flex h-full flex-col overflow-hidden bg-transparent">
             <Outlet />
           </div>
         )}
