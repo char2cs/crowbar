@@ -1,3 +1,5 @@
+import { useEffect } from 'react'
+import { useMatch } from '@tanstack/react-router'
 import { SquaresFour, ChatsCircle, FolderOpen, GitBranch } from '@phosphor-icons/react'
 import { Tabs, TabsList, TabsTab } from '@/components/ui/tabs'
 import { cn } from '@/utils/cn'
@@ -17,6 +19,15 @@ const TABS: {
 export function SidebarTabBar() {
   const activeTab = useSidebarStore((s) => s.activeTab)
   const setActiveTab = useSidebarStore((s) => s.setActiveTab)
+  const isHomeRoute = useMatch({ from: '/ide/$projectId/home', shouldThrow: false })
+
+  useEffect(() => {
+    if (isHomeRoute && activeTab === 'git') {
+      setActiveTab('workspaces')
+    }
+  }, [isHomeRoute, activeTab, setActiveTab])
+
+  const visibleTabs = isHomeRoute ? TABS.filter((t) => t.tab !== 'git') : TABS
 
   return (
     // @container so child labels can respond to the sidebar's actual width
@@ -27,7 +38,7 @@ export function SidebarTabBar() {
         className="w-full"
       >
         <TabsList variant="default" className="w-full">
-          {TABS.map(({ tab, label, Icon }) => {
+          {visibleTabs.map(({ tab, label, Icon }) => {
             const isActive = activeTab === tab
             return (
               <TabsTab
