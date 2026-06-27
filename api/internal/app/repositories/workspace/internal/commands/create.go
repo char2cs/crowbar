@@ -22,6 +22,7 @@ type CreateWorkspace struct {
 	Protected     bool
 	IsDefault     bool
 	MergeStrategy gitdomain.MergeStrategy
+	Kind          domain.WorkspaceKind
 	Now           time.Time
 }
 
@@ -43,8 +44,11 @@ func (c CreateWorkspace) Validate(
 	if current != nil {
 		return fmt.Errorf("create workspace: %w", asynxModels.ErrValidation)
 	}
-	if c.ID == "" || c.RepoID == "" || c.ProjectID == "" {
+	if c.ID == "" || c.ProjectID == "" {
 		return fmt.Errorf("create workspace: missing ids: %w", asynxModels.ErrValidation)
+	}
+	if c.Kind != domain.WorkspaceKindHome && c.RepoID == "" {
+		return fmt.Errorf("create workspace: missing repoId for git workspace: %w", asynxModels.ErrValidation)
 	}
 	return nil
 }
@@ -55,6 +59,10 @@ func (c CreateWorkspace) EmitEvent(
 	strategy := c.MergeStrategy
 	if strategy == "" {
 		strategy = gitdomain.MergeStrategyMerge
+	}
+	kind := c.Kind
+	if kind == "" {
+		kind = domain.WorkspaceKindGit
 	}
 	// Seed the lifecycle status from the protected flag: a protected branch
 	// starts locked, every other workspace starts new (00 §6.1).
@@ -73,6 +81,7 @@ func (c CreateWorkspace) EmitEvent(
 		Status:        status,
 		MergeStrategy: strategy,
 		IsDefault:     c.IsDefault,
+		Kind:          kind,
 		LastActivity:  c.Now,
 		CreatedAt:     c.Now,
 	}

@@ -40,6 +40,7 @@ type CreateInput struct {
 	Protected     bool
 	MergeStrategy gitdomain.MergeStrategy
 	IsDefault     bool
+	Kind          domain.WorkspaceKind
 }
 
 // SyncInput carries a recomputed working-tree summary.
@@ -367,6 +368,7 @@ func (w *workspace) Create(
 		Protected:     in.Protected,
 		IsDefault:     in.IsDefault,
 		MergeStrategy: in.MergeStrategy,
+		Kind:          in.Kind,
 		Now:           now,
 	})
 	if err != nil {

@@ -6,6 +6,15 @@ import (
 	gitdomain "github.com/char2cs/crowbar/api/internal/domain/git"
 )
 
+// WorkspaceKind distinguishes git-worktree workspaces from the project-level
+// home workspace which has no branch and no git operations.
+type WorkspaceKind string
+
+const (
+	WorkspaceKindGit  WorkspaceKind = "git"
+	WorkspaceKindHome WorkspaceKind = "home"
+)
+
 // Workspace is the git-worktree aggregate; the single source of truth for the
 // sidebar row (00 §5.3). Mutated only through Asynx commands.
 type Workspace struct {
@@ -41,4 +50,8 @@ type Workspace struct {
 	// tree and opens it from the repo header by its real id (there is no "default"
 	// wsId alias).
 	IsDefault bool `json:"isDefault,omitempty"`
+	// Kind distinguishes git-worktree workspaces ("git", default) from the
+	// project-level home workspace ("home"). Old persisted records without this
+	// field replay as WorkspaceKindGit.
+	Kind WorkspaceKind `json:"kind,omitempty"`
 }

@@ -348,3 +348,46 @@ func TestUpdateForkPoint_Validate_AcceptsValid(t *testing.T) {
 	err := UpdateForkPoint{ID: "w1", ForkPointSha: "s"}.Validate(&domain.Workspace{ID: "w1"})
 	assert.NoError(t, err)
 }
+
+func TestCreateWorkspace_EmitEvent_KindDefault(t *testing.T) {
+	cmd := CreateWorkspace{
+		ID:        "ws-1",
+		RepoID:    "repo-1",
+		ProjectID: "proj-1",
+		Branch:    "main",
+		Now:       time.Now(),
+		// Kind not set → should default to git
+	}
+	ws := cmd.EmitEvent(nil)
+	require.Equal(t, domain.WorkspaceKindGit, ws.Kind)
+}
+
+func TestCreateWorkspace_EmitEvent_KindHome(t *testing.T) {
+	cmd := CreateWorkspace{
+		ID:        "ws-home",
+		ProjectID: "proj-1",
+		Kind:      domain.WorkspaceKindHome,
+		Now:       time.Now(),
+	}
+	ws := cmd.EmitEvent(nil)
+	require.Equal(t, domain.WorkspaceKindHome, ws.Kind)
+	require.Empty(t, ws.RepoID)
+}
+
+func TestCreateWorkspace_Validate_HomeAllowsEmptyRepoID(t *testing.T) {
+	cmd := CreateWorkspace{
+		ID:        "ws-home",
+		ProjectID: "proj-1",
+		Kind:      domain.WorkspaceKindHome,
+	}
+	require.NoError(t, cmd.Validate(nil))
+}
+
+func TestCreateWorkspace_Validate_GitRequiresRepoID(t *testing.T) {
+	cmd := CreateWorkspace{
+		ID:        "ws-git",
+		ProjectID: "proj-1",
+		Kind:      domain.WorkspaceKindGit,
+	}
+	require.Error(t, cmd.Validate(nil))
+}
