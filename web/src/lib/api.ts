@@ -132,7 +132,7 @@ export function fetchWorkspace(
 }
 
 export function fetchHomeWorkspace(projectId: string): Promise<WorkspaceDTO> {
-  return apiFetch<WorkspaceDTO>(`/v0/projects/${projectId}/home`)
+  return apiFetch(`/v0/projects/${projectId}/home`)
 }
 
 // ---------------------------------------------------------------------------

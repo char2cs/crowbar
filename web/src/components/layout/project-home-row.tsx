@@ -18,7 +18,6 @@ export function ProjectHomeRow() {
     <div
       role="button"
       tabIndex={0}
-      aria-label="Project Home"
       className={cn(ROW_BASE, isActive ? ROW_ACTIVE : ROW_INACTIVE)}
       onClick={handleClick}
       onKeyDown={(e) => {

@@ -1,3 +1,4 @@
+import React from 'react'
 import { render, screen, fireEvent } from '@testing-library/react'
 import { describe, it, expect, beforeEach, vi } from 'vitest'
 import { ProjectHomeRow } from '@/components/layout/project-home-row'
@@ -9,7 +10,7 @@ import { useProjectStore } from '@/lib/store/projects'
 // ESM singleton issue.
 vi.mock('@phosphor-icons/react', () => ({
   House: ({ size, weight }: { size?: number; weight?: string }) =>
-    `<svg data-icon="house" data-size="${size}" data-weight="${weight}" />`,
+    React.createElement('svg', { 'data-icon': 'house', 'data-size': size, 'data-weight': weight }),
 }))
 
 const navigateMock = vi.fn()
@@ -61,5 +62,25 @@ describe('ProjectHomeRow', () => {
     render(<ProjectHomeRow />)
     const btn = screen.getByRole('button', { name: /Home/i })
     expect(btn.className).toContain('border-transparent')
+  })
+
+  it('navigates on Enter key', () => {
+    render(<ProjectHomeRow />)
+    const btn = screen.getByRole('button', { name: /Home/i })
+    fireEvent.keyDown(btn, { key: 'Enter' })
+    expect(navigateMock).toHaveBeenCalledWith({
+      to: '/ide/$projectId/home',
+      params: { projectId: 'p1' },
+    })
+  })
+
+  it('navigates on Space key', () => {
+    render(<ProjectHomeRow />)
+    const btn = screen.getByRole('button', { name: /Home/i })
+    fireEvent.keyDown(btn, { key: ' ' })
+    expect(navigateMock).toHaveBeenCalledWith({
+      to: '/ide/$projectId/home',
+      params: { projectId: 'p1' },
+    })
   })
 })
