@@ -27,6 +27,11 @@ export const EDITOR_SAVE_ALL = 'editor.saveAll'
 
 export const OPEN_WORKSPACE_SWITCHER = 'navigation.openWorkspaceSwitcher'
 
+export const SIDEBAR_TAB_WORKSPACES = 'navigation.sidebarWorkspaces'
+export const SIDEBAR_TAB_CHATS = 'navigation.sidebarChats'
+export const SIDEBAR_TAB_FILES = 'navigation.sidebarFiles'
+export const SIDEBAR_TAB_GIT = 'navigation.sidebarGit'
+
 export const COMMANDS: Command[] = [
   // --- Panes (live-editable, resolved from registry) ---
   {
@@ -107,6 +112,34 @@ export const COMMANDS: Command[] = [
     label: 'Open workspace switcher',
     category: 'Navigation',
     defaultChord: 'mod+k',
+    liveEditable: true,
+  },
+  {
+    id: SIDEBAR_TAB_WORKSPACES,
+    label: 'Sidebar: Workspaces',
+    category: 'Navigation',
+    defaultChord: 'mod+1',
+    liveEditable: true,
+  },
+  {
+    id: SIDEBAR_TAB_CHATS,
+    label: 'Sidebar: Chats',
+    category: 'Navigation',
+    defaultChord: 'mod+2',
+    liveEditable: true,
+  },
+  {
+    id: SIDEBAR_TAB_FILES,
+    label: 'Sidebar: Files',
+    category: 'Navigation',
+    defaultChord: 'mod+3',
+    liveEditable: true,
+  },
+  {
+    id: SIDEBAR_TAB_GIT,
+    label: 'Sidebar: Git',
+    category: 'Navigation',
+    defaultChord: 'mod+4',
     liveEditable: true,
   },
 ]
