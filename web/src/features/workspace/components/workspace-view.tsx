@@ -7,6 +7,7 @@ import { WorkspaceLayoutRoot } from './workspace-layout-root'
 import { useWorkspaceEffects } from '../stores/hooks/use-workspace-effects'
 import { useSaveKeyboard } from '@/features/keymaps/hooks/use-save-keyboard'
 import { usePaneKeyboard } from '@/features/panes/hooks/use-pane-keyboard'
+import { useSidebarTabKeyboard } from '@/features/keymaps/hooks/use-sidebar-tab-keyboard'
 
 interface WorkspaceViewProps {
   wsId: string
@@ -60,5 +61,6 @@ function WorkspaceViewInner({ wsId }: Pick<WorkspaceViewProps, 'wsId'>) {
   useWorkspaceEffects(wsId)
   useSaveKeyboard()
   usePaneKeyboard()
+  useSidebarTabKeyboard()
   return <WorkspaceLayoutRoot />
 }
