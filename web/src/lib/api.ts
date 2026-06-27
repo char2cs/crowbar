@@ -131,6 +131,10 @@ export function fetchWorkspace(
   return apiFetch(`/v0/projects/${projectId}/repos/${repoId}/workspaces/${wsId}`)
 }
 
+export function fetchHomeWorkspace(projectId: string): Promise<WorkspaceDTO> {
+  return apiFetch<WorkspaceDTO>(`/v0/projects/${projectId}/home`)
+}
+
 // ---------------------------------------------------------------------------
 // Hierarchical WRITE API (§3/§7) — every mutation is fire-and-forget: the
 // daemon answers 202 Accepted with an empty body and the real entity (with its

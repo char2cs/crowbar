@@ -1,5 +1,5 @@
-import { afterEach, describe, expect, it, vi } from 'vitest'
-import { apiFetch, ApiError } from '@/lib/api'
+import { afterEach, describe, expect, it, vi, beforeEach } from 'vitest'
+import { apiFetch, ApiError, fetchHomeWorkspace } from '@/lib/api'
 
 // A retry config that runs instantly (no real backoff sleeps) so the suite stays
 // fast while still exercising the real attempt-counting logic.
@@ -106,5 +106,34 @@ describe('apiFetch transient-transport retry', () => {
     expect(err).toBeInstanceOf(ApiError)
     expect(err.status).toBe(500)
     expect(fetchMock).toHaveBeenCalledTimes(1)
+  })
+})
+
+describe('fetchHomeWorkspace', () => {
+  beforeEach(() => {
+    vi.stubGlobal('fetch', vi.fn())
+  })
+  afterEach(() => {
+    vi.unstubAllGlobals()
+  })
+
+  it('fetches from the correct endpoint and returns JSON', async () => {
+    const dto = { id: 'ws-home', projectId: 'p1', kind: 'home' }
+    vi.mocked(fetch).mockResolvedValueOnce(
+      new Response(JSON.stringify({ success: true, data: dto }), { status: 200 }),
+    )
+    const result = await fetchHomeWorkspace('p1')
+    expect(result).toEqual(dto)
+    expect(vi.mocked(fetch)).toHaveBeenCalledWith(
+      expect.stringContaining('/v0/projects/p1/home'),
+      expect.any(Object),
+    )
+  })
+
+  it('throws on non-2xx response', async () => {
+    vi.mocked(fetch).mockResolvedValueOnce(
+      new Response(JSON.stringify({ success: false, error: 'not found' }), { status: 404 }),
+    )
+    await expect(fetchHomeWorkspace('p1')).rejects.toThrow()
   })
 })

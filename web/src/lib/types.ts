@@ -69,6 +69,8 @@ export interface WorkspaceDTO {
   prTargetBranch: string
   /** On-disk worktree directory for this workspace (e.g. /home/user/project). */
   localPath?: string
+  /** "home" for the project home workspace; absent or "git" for normal git workspaces. */
+  kind?: 'git' | 'home'
 }
 
 export interface RepoDTO {
