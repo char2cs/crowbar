@@ -133,6 +133,12 @@ type Workspace interface {
 	List(
 		ctx context.Context,
 	) ([]domain.Workspace, error)
+	// GetHomeForProject returns the home workspace for the given project.
+	// Returns apperr.ErrNotFound if no home workspace exists yet.
+	GetHomeForProject(
+		ctx context.Context,
+		projectID string,
+	) (domain.Workspace, error)
 }
 
 // wsEntity is the per-workspace resolved Asynx instance plus its read-model
@@ -660,6 +666,21 @@ func (w *workspace) List(
 		rows = append(rows, *ws)
 	}
 	return rows, nil
+}
+
+// GetHomeForProject scans all workspaces for the project and returns the one
+// whose Kind is WorkspaceKindHome. Returns apperr.ErrNotFound when absent.
+func (w *workspace) GetHomeForProject(ctx context.Context, projectID string) (domain.Workspace, error) {
+	all, err := w.List(ctx)
+	if err != nil {
+		return domain.Workspace{}, fmt.Errorf("get home for project: list: %w", err)
+	}
+	for _, ws := range all {
+		if ws.ProjectID == projectID && ws.Kind == domain.WorkspaceKindHome {
+			return ws, nil
+		}
+	}
+	return domain.Workspace{}, fmt.Errorf("get home for project %q: %w", projectID, apperr.ErrNotFound)
 }
 
 // readRow resolves the entity for loc, reads its read-model row, and releases the

@@ -15,6 +15,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/char2cs/crowbar/api/internal/adapter"
+	"github.com/char2cs/crowbar/api/internal/app/apperr"
 	"github.com/char2cs/crowbar/api/internal/app/repositories/workspace"
 	"github.com/char2cs/crowbar/api/internal/app/repositories/workspace/internal/locations"
 	"github.com/char2cs/crowbar/api/internal/domain"
@@ -544,4 +545,28 @@ func TestWorkspace_Create_RollsBackLocationOnFailure(t *testing.T) {
 	_, getErr := locStore.Get(context.Background(), "w1")
 	assert.ErrorIs(t, getErr, locations.ErrNotFound,
 		"a failed Create must roll back its location row, not orphan it")
+}
+
+func TestGetHomeForProject_Found(t *testing.T) {
+	ctx, repo := newRepo(t)
+
+	projectID := "proj-abc"
+	_, err := repo.Create(ctx, workspace.CreateInput{
+		ID:           "ws-home-1",
+		ProjectID:    projectID,
+		Kind:         domain.WorkspaceKindHome,
+		WorktreePath: "/projects/myproject",
+	}, time.Now())
+	require.NoError(t, err)
+
+	got, err := repo.GetHomeForProject(ctx, projectID)
+	require.NoError(t, err)
+	require.Equal(t, "ws-home-1", got.ID)
+	require.Equal(t, domain.WorkspaceKindHome, got.Kind)
+}
+
+func TestGetHomeForProject_NotFound(t *testing.T) {
+	_, repo := newRepo(t)
+	_, err := repo.GetHomeForProject(context.Background(), "nonexistent-project")
+	require.ErrorIs(t, err, apperr.ErrNotFound)
 }
