@@ -95,7 +95,7 @@ vi.mock('@/utils/platform', async (importOriginal) => ({
 
 vi.mock('@/features/keymaps/hooks/use-effective-keymap', () => ({
   useEffectiveChordMap: () => ({
-    'navigation.openWorkspaceSwitcher': 'mod+.',
+    'navigation.openWorkspaceSwitcher': 'mod+k',
   }),
 }))
 
@@ -147,11 +147,11 @@ describe('ContextPill', () => {
     expect(await screen.findByPlaceholderText('Switch workspace…')).toBeInTheDocument()
   })
 
-  it('opens the workspace switcher on Ctrl+. keydown', async () => {
+  it('opens the workspace switcher on Ctrl+K keydown', async () => {
     mockPathname = '/ide/p1/r1/ws1'
     render(<ContextPill />)
 
-    fireEvent.keyDown(window, { key: '.', ctrlKey: true })
+    fireEvent.keyDown(window, { key: 'k', ctrlKey: true })
 
     expect(await screen.findByPlaceholderText('Switch workspace…')).toBeInTheDocument()
   })

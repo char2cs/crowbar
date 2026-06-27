@@ -9,7 +9,7 @@ vi.mock('@/utils/platform', async (importOriginal) => ({
 
 vi.mock('@/features/keymaps/hooks/use-effective-keymap', () => ({
   useEffectiveChordMap: () => ({
-    'navigation.openWorkspaceSwitcher': 'mod+.',
+    'navigation.openWorkspaceSwitcher': 'mod+k',
   }),
 }))
 
@@ -24,21 +24,21 @@ describe('useWorkspaceSwitcherKeyboard', () => {
     vi.clearAllMocks()
   })
 
-  it('calls onOpen and prevents default on Ctrl+.', () => {
+  it('calls onOpen and prevents default on Ctrl+K', () => {
     const onOpen = vi.fn()
     renderHook(() => useWorkspaceSwitcherKeyboard(onOpen))
 
-    const event = dispatchKeydown({ key: '.', ctrlKey: true })
+    const event = dispatchKeydown({ key: 'k', ctrlKey: true })
 
     expect(onOpen).toHaveBeenCalledTimes(1)
     expect(event.defaultPrevented).toBe(true)
   })
 
-  it('does not call onOpen on plain dot', () => {
+  it('does not call onOpen on plain k', () => {
     const onOpen = vi.fn()
     renderHook(() => useWorkspaceSwitcherKeyboard(onOpen))
 
-    dispatchKeydown({ key: '.' })
+    dispatchKeydown({ key: 'k' })
 
     expect(onOpen).not.toHaveBeenCalled()
   })
@@ -47,7 +47,7 @@ describe('useWorkspaceSwitcherKeyboard', () => {
     const onOpen = vi.fn()
     renderHook(() => useWorkspaceSwitcherKeyboard(onOpen))
 
-    dispatchKeydown({ key: ',', ctrlKey: true })
+    dispatchKeydown({ key: 'j', ctrlKey: true })
 
     expect(onOpen).not.toHaveBeenCalled()
   })
@@ -57,7 +57,7 @@ describe('useWorkspaceSwitcherKeyboard', () => {
     const { unmount } = renderHook(() => useWorkspaceSwitcherKeyboard(onOpen))
     unmount()
 
-    dispatchKeydown({ key: '.', ctrlKey: true })
+    dispatchKeydown({ key: 'k', ctrlKey: true })
 
     expect(onOpen).not.toHaveBeenCalled()
   })

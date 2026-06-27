@@ -106,7 +106,7 @@ export const COMMANDS: Command[] = [
     id: OPEN_WORKSPACE_SWITCHER,
     label: 'Open workspace switcher',
     category: 'Navigation',
-    defaultChord: 'mod+.',
+    defaultChord: 'mod+k',
     liveEditable: true,
   },
 ]
