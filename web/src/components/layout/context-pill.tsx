@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useCallback, useState } from 'react'
 import { useRouterState } from '@tanstack/react-router'
 import { Button } from '@/components/ui/button'
 import { CommandDialog, CommandDialogTrigger, CommandDialogPopup } from '@/components/ui/command'
@@ -21,7 +21,8 @@ export function ContextPill() {
   const projects = useProjectStore((s) => s.projects)
   const activeProjectId = useProjectStore((s) => s.activeProjectId)
   const [open, setOpen] = useState(false)
-  useWorkspaceSwitcherKeyboard(() => setOpen(true))
+  const openSwitcher = useCallback(() => setOpen(true), [])
+  useWorkspaceSwitcherKeyboard(openSwitcher)
 
   const activeWorkspaceId = parseWorkspaceScopeFromPath(pathname)?.wsId
   const model = deriveContextPillModel({ activeWorkspaceId, repos, projects, activeProjectId })

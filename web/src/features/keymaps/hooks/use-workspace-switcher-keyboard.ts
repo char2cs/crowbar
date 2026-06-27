@@ -8,6 +8,7 @@ export function useWorkspaceSwitcherKeyboard(onOpen: () => void): void {
 
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.repeat) return
       const chord = chordMap[OPEN_WORKSPACE_SWITCHER]
       if (!chord || !eventMatchesChord(e, chord)) return
       e.preventDefault()
