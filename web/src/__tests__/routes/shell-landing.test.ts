@@ -9,7 +9,7 @@ import { useProjectStore } from '@/lib/store/projects'
 // layer. Before the fix this either crashed the route (uncaught fetchProjects)
 // or fell through to the "No repositories yet" empty state. This test drives the
 // ACTUAL Route.beforeLoad through a transport that rejects a few times before
-// answering, and asserts the user is redirected onto their workspace.
+// answering, and asserts the user is redirected onto Project Home.
 
 type FetchResult = { ok: boolean; status: number; statusText?: string; json: () => Promise<unknown> }
 const envelope = (data: unknown): FetchResult => ({
@@ -19,13 +19,9 @@ const envelope = (data: unknown): FetchResult => ({
 })
 
 const PROJECT = { id: 'proj-1', name: 'crowbar', path: '/repos/crowbar' }
-const REPO = { id: 'repo-1', projectId: 'proj-1', name: 'crowbar' }
-const WORKSPACE = { id: 'ws-1', repoId: 'repo-1', branch: 'develop', status: 'ready' }
 
 function routeByPath(path: string): FetchResult {
   if (path.endsWith('/v0/projects')) return envelope([PROJECT])
-  if (path.endsWith(`/v0/projects/${PROJECT.id}/repos`)) return envelope([REPO])
-  if (path.includes(`/repos/${REPO.id}/workspaces`)) return envelope([WORKSPACE])
   throw new Error(`unexpected path ${path}`)
 }
 
@@ -48,8 +44,8 @@ afterEach(() => {
 })
 
 describe('landing route cold-start resilience', () => {
-  it('retries through transient transport failures and redirects to the workspace', async () => {
-    // The first two attempts on EVERY endpoint reject (socket not accepting),
+  it('retries through transient transport failures and redirects to Project Home', async () => {
+    // The first two attempts on the projects endpoint reject (socket not accepting),
     // then succeed — mirroring the sidecar's bind window.
     const failsLeft = new Map<string, number>()
     const fetchMock = vi.fn(async (url: string) => {
@@ -67,11 +63,9 @@ describe('landing route cold-start resilience', () => {
 
     expect(isRedirect(result)).toBe(true)
     const opts = (result as { options: { to: string; params: Record<string, string> } }).options
-    expect(opts.to).toBe('/ide/$projectId/$repoId/$wsId')
+    expect(opts.to).toBe('/ide/$projectId/home')
     expect(opts.params).toMatchObject({
       projectId: 'proj-1',
-      repoId: 'repo-1',
-      wsId: 'ws-1',
     })
   })
 
