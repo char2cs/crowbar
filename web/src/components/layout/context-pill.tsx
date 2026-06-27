@@ -56,8 +56,8 @@ export function ContextPill() {
             </span>
           ) : model.kind === 'home' ? (
             <span className="flex min-w-0 flex-1 flex-col items-start gap-0.5 text-left leading-tight">
-              <span className="truncate text-xs text-muted-foreground">{model.projectName}</span>
-              <span className="truncate text-[13px] font-semibold text-foreground">home</span>
+              <span className="truncate font-mono text-xs text-muted-foreground">{model.projectName}</span>
+              <span className="truncate font-mono text-[13px] font-semibold text-foreground">home</span>
             </span>
           ) : (
             <span className="truncate text-[13px] text-foreground">{model.projectName}</span>
