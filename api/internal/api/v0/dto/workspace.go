@@ -14,6 +14,7 @@ type WorkspaceDTO struct {
 	ID              string                  `json:"id"`
 	RepoID          string                  `json:"repoId"`
 	ProjectID       string                  `json:"projectId"`
+	Kind            domain.WorkspaceKind    `json:"kind,omitempty"`
 	Branch          string                  `json:"branch"`
 	ParentID        string                  `json:"parentId,omitempty"`
 	ForkPointSha    string                  `json:"forkPointSha,omitempty"`
@@ -49,6 +50,7 @@ func WorkspaceDTOFrom(
 		ID:              w.ID,
 		RepoID:          w.RepoID,
 		ProjectID:       w.ProjectID,
+		Kind:            w.Kind,
 		Branch:          w.Branch,
 		ParentID:        w.ParentID,
 		ForkPointSha:    w.ForkPointSha,

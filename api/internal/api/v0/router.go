@@ -7,6 +7,7 @@ import (
 	"github.com/char2cs/crowbar/api/internal/api/v0/endpoints/files"
 	"github.com/char2cs/crowbar/api/internal/api/v0/endpoints/git"
 	"github.com/char2cs/crowbar/api/internal/api/v0/endpoints/health"
+	homePkg "github.com/char2cs/crowbar/api/internal/api/v0/endpoints/home"
 	"github.com/char2cs/crowbar/api/internal/api/v0/endpoints/identity"
 	projectsPkg "github.com/char2cs/crowbar/api/internal/api/v0/endpoints/projects"
 	"github.com/char2cs/crowbar/api/internal/api/v0/endpoints/provider"
@@ -85,6 +86,12 @@ func (c *Container) Register(
 		c.app.Hub.BroadcastRepo,
 		c.repos.Handle,
 		ws.DualServe,
+	)
+	homePkg.Register(
+		projectScoped,
+		c.app.Repositories.Workspace,
+		c.app.Usecases.File,
+		c.eng.Terminal,
 	)
 	workspaces.Register(
 		repoScoped,
