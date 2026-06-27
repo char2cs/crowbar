@@ -10,10 +10,12 @@ export type ContextPillModel =
       branchName: string
     }
   | { kind: 'project'; projectName: string }
+  | { kind: 'home'; projectName: string }
   | { kind: 'empty' }
 
 interface DeriveArgs {
   activeWorkspaceId: string | undefined
+  isHomeRoute: boolean
   repos: Repo[]
   projects: Project[]
   activeProjectId: string
@@ -25,10 +27,16 @@ interface DeriveArgs {
  */
 export function deriveContextPillModel({
   activeWorkspaceId,
+  isHomeRoute,
   repos,
   projects,
   activeProjectId,
 }: DeriveArgs): ContextPillModel {
+  if (isHomeRoute) {
+    const project = projects.find((p) => p.id === activeProjectId)
+    if (project) return { kind: 'home', projectName: project.name }
+  }
+
   if (activeWorkspaceId) {
     const repo = repos.find((r) => r.workspaces.some((ws) => ws.id === activeWorkspaceId))
     const workspace = repo?.workspaces.find((ws) => ws.id === activeWorkspaceId)

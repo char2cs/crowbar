@@ -25,7 +25,8 @@ export function ContextPill() {
   useWorkspaceSwitcherKeyboard(openSwitcher)
 
   const activeWorkspaceId = parseWorkspaceScopeFromPath(pathname)?.wsId
-  const model = deriveContextPillModel({ activeWorkspaceId, repos, projects, activeProjectId })
+  const isHomeRoute = !activeWorkspaceId && /\/ide\/[^/]+\/home$/.test(pathname)
+  const model = deriveContextPillModel({ activeWorkspaceId, isHomeRoute, repos, projects, activeProjectId })
 
   if (model.kind === 'empty') return null
 
@@ -52,6 +53,11 @@ export function ContextPill() {
               <span className="flex shrink-0 scale-110">
                 <WorkspaceBranchIcon status={model.status} working={model.working} />
               </span>
+            </span>
+          ) : model.kind === 'home' ? (
+            <span className="flex min-w-0 flex-1 flex-col items-start gap-0.5 text-left leading-tight">
+              <span className="truncate text-xs text-muted-foreground">{model.projectName}</span>
+              <span className="truncate text-[13px] font-semibold text-foreground">Home</span>
             </span>
           ) : (
             <span className="truncate text-[13px] text-foreground">{model.projectName}</span>
