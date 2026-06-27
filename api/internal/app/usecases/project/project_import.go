@@ -37,6 +37,13 @@ type Store interface {
 		ctx context.Context,
 		item domain.Project,
 	) error
+	// Delete removes a project row by id. Used to roll back a project whose
+	// home workspace creation failed, so a failed create/import never persists
+	// an orphaned project row.
+	Delete(
+		ctx context.Context,
+		id string,
+	) error
 	// FindByKey loads a project by id so a standalone repo import (ImportRepo)
 	// can resolve the owning project before running the per-repo import.
 	FindByKey(
@@ -200,7 +207,8 @@ func (u *projectImport) Create(
 		return domain.Project{}, fmt.Errorf("project create: save project: %w", err)
 	}
 	if err := u.createHomeWorkspace(ctx, project); err != nil {
-		return domain.Project{}, err
+		_ = u.deps.Projects.Delete(ctx, project.ID) // best-effort: don't mask the original error
+		return domain.Project{}, fmt.Errorf("project create: home workspace: %w", err)
 	}
 	return project, nil
 }
@@ -223,7 +231,8 @@ func (u *projectImport) Import(
 		return domain.Project{}, fmt.Errorf("project import: save project: %w", err)
 	}
 	if err := u.createHomeWorkspace(ctx, project); err != nil {
-		return domain.Project{}, err
+		_ = u.deps.Projects.Delete(ctx, project.ID) // best-effort: don't mask the original error
+		return domain.Project{}, fmt.Errorf("project import: home workspace: %w", err)
 	}
 	if err := u.importRepos(ctx, project, path); err != nil {
 		return domain.Project{}, err

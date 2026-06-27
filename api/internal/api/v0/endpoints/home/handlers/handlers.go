@@ -3,12 +3,14 @@ package handlers
 
 import (
 	"context"
+	"errors"
 	"net/http"
 	"time"
 
 	"github.com/gin-gonic/gin"
 
 	"github.com/char2cs/crowbar/api/internal/api/libs"
+	"github.com/char2cs/crowbar/api/internal/app/apperr"
 	fileusecase "github.com/char2cs/crowbar/api/internal/app/usecases/file"
 	"github.com/char2cs/crowbar/api/internal/domain"
 )
@@ -108,11 +110,16 @@ func New(reader HomeReader, files Files, termEng TerminalEngine) *Handlers {
 }
 
 // resolveHome fetches the home workspace for the project named in the request
-// path. It writes a 404 and returns false when the workspace is not found.
+// path. It writes a 404 when the workspace is not found and a 500 for any
+// other storage failure, returning false in both cases.
 func (h *Handlers) resolveHome(c *gin.Context) (domain.Workspace, bool) {
 	ws, err := h.reader.GetHomeForProject(c.Request.Context(), c.Param("projectId"))
 	if err != nil {
-		libs.WriteErr(c, http.StatusNotFound, "home workspace not found")
+		if errors.Is(err, apperr.ErrNotFound) {
+			libs.WriteErr(c, http.StatusNotFound, "home workspace not found")
+		} else {
+			libs.WriteErr(c, http.StatusInternalServerError, "failed to resolve home workspace")
+		}
 		return domain.Workspace{}, false
 	}
 	return ws, true

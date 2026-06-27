@@ -39,7 +39,24 @@ func (h *Handlers) CreateTerminal(c *gin.Context) {
 
 // KillTerminal handles DELETE /v0/projects/:projectId/home/terminals/:sessionId.
 func (h *Handlers) KillTerminal(c *gin.Context) {
+	ws, ok := h.resolveHome(c)
+	if !ok {
+		return
+	}
 	sessionID := c.Param("sessionId")
+	// Verify the session belongs to this home workspace before killing it.
+	sessions := h.termEng.ListSessionsForWorkspace(ws.ID)
+	found := false
+	for _, s := range sessions {
+		if s == sessionID {
+			found = true
+			break
+		}
+	}
+	if !found {
+		libs.WriteErr(c, http.StatusNotFound, "session not found")
+		return
+	}
 	if err := h.termEng.Kill(c.Request.Context(), sessionID); err != nil {
 		if errors.Is(err, engineterminal.ErrSessionNotFound) {
 			libs.WriteErr(c, http.StatusNotFound, err.Error())
