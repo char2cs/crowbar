@@ -11,6 +11,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/char2cs/crowbar/api/internal/app/repositories/workspace"
 	"github.com/char2cs/crowbar/api/internal/app/usecases/internal/defaultbranch"
 	"github.com/char2cs/crowbar/api/internal/app/usecases/mocks"
 	"github.com/char2cs/crowbar/api/internal/app/usecases/project"
@@ -102,12 +103,15 @@ func TestImport_CreatesProjectReposAndAdoptsWorktrees(
 	assert.NotEmpty(t, repo.AvatarLabel)
 	assert.NotEmpty(t, repo.AvatarColor)
 
+	// The home workspace is provisioned first (project-level, no repo/branch).
 	// Only the main worktree (main, protected) is auto-adopted; the local
 	// "feature" worktree is not a protected remote branch, so it is left for the
 	// user to add explicitly rather than imported.
-	require.Len(t, ws.Created, 1)
-	assert.Equal(t, "main", ws.Created[0].Branch)
-	assert.Equal(t, domain.WorkspaceStatusLocked, ws.Created[0].Status,
+	require.Len(t, ws.Created, 2)
+	assert.Equal(t, domain.WorkspaceKindHome, ws.Created[0].Kind,
+		"first created workspace must be the home workspace")
+	assert.Equal(t, "main", ws.Created[1].Branch)
+	assert.Equal(t, domain.WorkspaceStatusLocked, ws.Created[1].Status,
 		"the protected main branch is adopted locked")
 }
 
@@ -137,7 +141,7 @@ func TestImport_SkipsNonProtectedLocalWorktrees(t *testing.T) {
 	assert.False(t, byBranch["feature/x"], "non-protected local worktree is NOT imported")
 	assert.False(t, byBranch["spike/y"], "non-protected local worktree is NOT imported")
 	assert.False(t, byBranch["worktree-agent-abc"], "non-protected local worktree is NOT imported")
-	assert.Len(t, ws.Created, 2, "only develop (adopted) + main (stub)")
+	assert.Len(t, ws.Created, 3, "home workspace + develop (adopted) + main (stub)")
 }
 
 func TestImport_ProjectSaveError(
@@ -242,7 +246,9 @@ func TestImport_WorktreeListError_IsTolerated(
 	assert.Len(t, projects.Saved, 1)
 	assert.Empty(t, repos.Saved,
 		"a repo whose worktree adoption fails must be rolled back, not left orphaned")
-	assert.Empty(t, ws.Created)
+	require.Len(t, ws.Created, 1)
+	assert.Equal(t, domain.WorkspaceKindHome, ws.Created[0].Kind,
+		"only the home workspace is created when worktree adoption fails")
 }
 
 func TestImport_ProtectedBranchesError_IsTolerated(
@@ -261,7 +267,9 @@ func TestImport_ProtectedBranchesError_IsTolerated(
 	assert.Len(t, projects.Saved, 1)
 	assert.Empty(t, repos.Saved,
 		"a repo whose adoption fails must be rolled back, not left orphaned")
-	assert.Empty(t, ws.Created)
+	require.Len(t, ws.Created, 1)
+	assert.Equal(t, domain.WorkspaceKindHome, ws.Created[0].Kind,
+		"only the home workspace is created when protected-branches lookup fails")
 }
 
 func TestImport_MergeBaseErrorIsTolerated(
@@ -274,8 +282,9 @@ func TestImport_MergeBaseErrorIsTolerated(
 
 	_, err := uc.Import(context.Background(), "P", "/root")
 	require.NoError(t, err)
-	require.Len(t, ws.Created, 1)
-	assert.Empty(t, ws.Created[0].ForkPointSha)
+	require.Len(t, ws.Created, 2)
+	assert.Equal(t, domain.WorkspaceKindHome, ws.Created[0].Kind)
+	assert.Empty(t, ws.Created[1].ForkPointSha)
 }
 
 func TestImport_DetachedWorktreeSkipped(
@@ -290,8 +299,9 @@ func TestImport_DetachedWorktreeSkipped(
 
 	_, err := uc.Import(context.Background(), "P", "/root")
 	require.NoError(t, err)
-	require.Len(t, ws.Created, 1)
-	assert.Equal(t, "main", ws.Created[0].Branch)
+	require.Len(t, ws.Created, 2)
+	assert.Equal(t, domain.WorkspaceKindHome, ws.Created[0].Kind)
+	assert.Equal(t, "main", ws.Created[1].Branch)
 }
 
 func TestImport_PrunableWorktreeSkipped(
@@ -308,8 +318,9 @@ func TestImport_PrunableWorktreeSkipped(
 
 	_, err := uc.Import(context.Background(), "P", "/root")
 	require.NoError(t, err)
-	require.Len(t, ws.Created, 1)
-	assert.Equal(t, "main", ws.Created[0].Branch)
+	require.Len(t, ws.Created, 2)
+	assert.Equal(t, domain.WorkspaceKindHome, ws.Created[0].Kind)
+	assert.Equal(t, "main", ws.Created[1].Branch)
 }
 
 func TestImport_WorkspaceCreateError_IsTolerated(
@@ -319,9 +330,19 @@ func TestImport_WorkspaceCreateError_IsTolerated(
 	// level (the whole multi-repo import does not fail), but the repo whose worktree
 	// adoption failed is ROLLED BACK rather than persisted as an orphaned,
 	// unnavigable row (one with no workspaces).
+	// The project-level home workspace create must still succeed so Import proceeds.
 	projects, repos, ws, git, _, uc := newImport(t)
 	git.Worktrees = []gitengine.WorktreeEntry{{Path: "/repoA", Branch: "main", Head: "h1"}}
-	ws.CreateErr = errors.New("ws boom")
+	ws.CreateFn = func(_ context.Context, in workspace.CreateInput, now time.Time) (domain.Workspace, error) {
+		if in.RepoID != "" {
+			// Repo-scoped workspace creation fails — adoption aborts for this repo.
+			return domain.Workspace{}, errors.New("ws boom")
+		}
+		// Home workspace — succeed and record it.
+		created := domain.Workspace{ID: in.ID, Kind: in.Kind, ProjectID: in.ProjectID}
+		ws.Created = append(ws.Created, created)
+		return created, nil
+	}
 
 	project, err := uc.Import(context.Background(), "P", "/root")
 	require.NoError(t, err)
@@ -329,7 +350,9 @@ func TestImport_WorkspaceCreateError_IsTolerated(
 	assert.Len(t, projects.Saved, 1)
 	assert.Empty(t, repos.Saved,
 		"a repo whose worktree adoption fails must be rolled back, not left orphaned")
-	assert.Empty(t, ws.Created)
+	require.Len(t, ws.Created, 1)
+	assert.Equal(t, domain.WorkspaceKindHome, ws.Created[0].Kind,
+		"only the home workspace is created when repo-workspace creation fails")
 }
 
 func TestImport_WritesRepoIconToEntityDir(t *testing.T) {
@@ -475,8 +498,8 @@ func TestImport_AutoImportsProtectedBranchStubs(t *testing.T) {
 	_, err := uc.Import(context.Background(), "P", "/root")
 	require.NoError(t, err)
 
-	// Should have created 2 workspaces: main (adopted) + develop (stub)
-	require.Len(t, ws.Created, 2)
+	// Should have created 3 workspaces: home + main (adopted) + develop (stub)
+	require.Len(t, ws.Created, 3)
 	byBranch := map[string]bool{}
 	for _, w := range ws.Created {
 		byBranch[w.Branch] = w.Status == domain.WorkspaceStatusLocked
@@ -496,7 +519,7 @@ func TestImport_SkipsStubWhenAlreadyAdopted(t *testing.T) {
 
 	_, err := uc.Import(context.Background(), "P", "/root")
 	require.NoError(t, err)
-	assert.Len(t, ws.Created, 1)
+	assert.Len(t, ws.Created, 2, "home workspace + develop (no duplicate stub)")
 }
 
 func TestImport_AvatarFallsBackToGeneratedWhenNoFetcher(t *testing.T) {
@@ -799,7 +822,43 @@ func TestImport_PartialRepoFailure(
 	require.Len(t, repos.Saved, 1, "the failed repo must be rolled back; only repoB persists")
 	assert.Equal(t, "repoB", repos.Saved[0].Name)
 
-	// repoB's workspace (branch "main") must be adopted; repoA has none.
-	require.Len(t, ws.Created, 1, "repoB workspace must be adopted")
-	assert.Equal(t, "main", ws.Created[0].Branch)
+	// The home workspace is provisioned first, then repoB's workspace (branch "main").
+	require.Len(t, ws.Created, 2, "home workspace + repoB workspace must be adopted")
+	assert.Equal(t, domain.WorkspaceKindHome, ws.Created[0].Kind)
+	assert.Equal(t, "main", ws.Created[1].Branch)
+}
+
+// TestCreate_ProvisionesHomeWorkspace proves that Create auto-provisions a
+// project-level home workspace (Kind=WorkspaceKindHome, WorktreePath=project.Path)
+// immediately after saving the project row.
+func TestCreate_ProvisionesHomeWorkspace(t *testing.T) {
+	_, _, ws, _, _, uc := newImport(t)
+
+	dir := t.TempDir()
+	_, err := uc.Create(context.Background(), "myproject", dir)
+	require.NoError(t, err)
+
+	require.Len(t, ws.Created, 1)
+	require.Equal(t, domain.WorkspaceKindHome, ws.Created[0].Kind)
+	require.Equal(t, dir, ws.Created[0].WorktreePath)
+}
+
+// TestImport_ProvisionesHomeWorkspace proves that Import auto-provisions a
+// project-level home workspace before discovering repos.
+func TestImport_ProvisionesHomeWorkspace(t *testing.T) {
+	_, _, ws, git, prov, uc := newImport(t)
+	git.Worktrees = []gitengine.WorktreeEntry{
+		{Path: "/repoA", Branch: "main", Head: "h1"},
+	}
+	prov.Protected = []string{"main"}
+
+	_, err := uc.Import(context.Background(), "myproject", "/root")
+	require.NoError(t, err)
+
+	// First entry must be the home workspace.
+	require.GreaterOrEqual(t, len(ws.Created), 1)
+	homeWS := ws.Created[0]
+	require.Equal(t, domain.WorkspaceKindHome, homeWS.Kind)
+	require.Equal(t, "/root", homeWS.WorktreePath)
+	require.Empty(t, homeWS.RepoID, "home workspace must not be repo-scoped")
 }

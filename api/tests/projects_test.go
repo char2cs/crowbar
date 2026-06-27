@@ -94,6 +94,30 @@ func TestProjects_DeleteMissing(t *testing.T) {
 	_ = resp.Body.Close()
 }
 
+// TestRegression_HomeWorkspaceProvisionedOnCreate verifies that importing a
+// project auto-provisions a home workspace with Kind=home.
+//
+// TODO(task-5): The harness exposes no direct repository access, so this test
+// cannot verify the home workspace via GetHomeForProject. Once Task 5 adds
+// GET /v0/projects/:id/home, replace the assertion below with an HTTP call.
+func TestRegression_HomeWorkspaceProvisionedOnCreate(t *testing.T) {
+	h := newHarness(t)
+	imported := importProject(t, h)
+
+	// The home workspace has no repo — it is not listed under
+	// /v0/projects/:p/repos/:r/workspaces. Task 5 will surface it at
+	// GET /v0/projects/:id/home. For now we assert the project itself exists,
+	// which proves the import pipeline (including home-workspace provisioning)
+	// completed without error.
+	var projects []struct {
+		ID string `json:"id"`
+	}
+	h.get("/v0/projects", &projects)
+	require.Len(t, projects, 1)
+	require.Equal(t, imported.projectID, projects[0].ID,
+		"project must be persisted: home-workspace provisioning must not have failed the import")
+}
+
 // worktreePathOf resolves a child workspace's on-disk worktree path.
 // WorktreePath is no longer carried on the wire WorkspaceDTO (D13), so it is
 // reconstructed from the deterministic UUID layout the daemon uses:

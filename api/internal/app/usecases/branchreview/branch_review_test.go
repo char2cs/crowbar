@@ -116,6 +116,10 @@ func (m *mockWorkspace) SetLastError(ctx context.Context, id string, message str
 	return domain.Workspace{}, nil
 }
 
+func (m *mockWorkspace) GetHomeForProject(_ context.Context, _ string) (domain.Workspace, error) {
+	return domain.Workspace{}, nil
+}
+
 var _ workspace.Workspace = (*mockWorkspace)(nil)
 
 // --- local reviewthread mock ---

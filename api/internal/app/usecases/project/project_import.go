@@ -199,6 +199,9 @@ func (u *projectImport) Create(
 	if err := u.deps.Projects.Save(ctx, project); err != nil {
 		return domain.Project{}, fmt.Errorf("project create: save project: %w", err)
 	}
+	if err := u.createHomeWorkspace(ctx, project); err != nil {
+		return domain.Project{}, err
+	}
 	return project, nil
 }
 
@@ -218,6 +221,9 @@ func (u *projectImport) Import(
 	}
 	if err := u.deps.Projects.Save(ctx, project); err != nil {
 		return domain.Project{}, fmt.Errorf("project import: save project: %w", err)
+	}
+	if err := u.createHomeWorkspace(ctx, project); err != nil {
+		return domain.Project{}, err
 	}
 	if err := u.importRepos(ctx, project, path); err != nil {
 		return domain.Project{}, err
@@ -500,6 +506,21 @@ func (u *projectImport) forkPoint(
 		return ""
 	}
 	return sha
+}
+
+// createHomeWorkspace persists the project-level home workspace rooted at the
+// project's own path. It has no repo, branch, or git operations.
+func (u *projectImport) createHomeWorkspace(ctx context.Context, project domain.Project) error {
+	_, err := u.deps.Workspaces.Create(ctx, workspace.CreateInput{
+		ID:           uuid.NewString(),
+		ProjectID:    project.ID,
+		WorktreePath: project.Path,
+		Kind:         domain.WorkspaceKindHome,
+	}, u.deps.Now())
+	if err != nil {
+		return fmt.Errorf("project create home workspace: %w", err)
+	}
+	return nil
 }
 
 func (u *projectImport) validateImportPath(

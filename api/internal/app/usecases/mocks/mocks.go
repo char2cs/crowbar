@@ -126,6 +126,9 @@ func (s *RepositoryStore) FindAll(
 type WorkspaceRepo struct {
 	Created   []domain.Workspace
 	CreateErr error
+	// CreateFn, when non-nil, is called instead of the default stub logic. The
+	// caller is responsible for appending to Created if it wants tracking.
+	CreateFn func(ctx context.Context, in workspace.CreateInput, now time.Time) (domain.Workspace, error)
 }
 
 // NewWorkspaceRepo returns an empty WorkspaceRepo.
@@ -138,6 +141,9 @@ func (r *WorkspaceRepo) Create(
 	in workspace.CreateInput,
 	now time.Time,
 ) (domain.Workspace, error) {
+	if r.CreateFn != nil {
+		return r.CreateFn(ctx, in, now)
+	}
 	if r.CreateErr != nil {
 		return domain.Workspace{}, r.CreateErr
 	}
@@ -156,6 +162,7 @@ func (r *WorkspaceRepo) Create(
 		Status:        status,
 		MergeStrategy: in.MergeStrategy,
 		IsDefault:     in.IsDefault,
+		Kind:          in.Kind,
 		CreatedAt:     now,
 	}
 	r.Created = append(r.Created, ws)

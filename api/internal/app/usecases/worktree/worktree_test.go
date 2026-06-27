@@ -137,6 +137,10 @@ func (f *fakeWorkspace) SetLastError(_ context.Context, _ string, _ string) (dom
 	return domain.Workspace{}, nil
 }
 
+func (f *fakeWorkspace) GetHomeForProject(_ context.Context, _ string) (domain.Workspace, error) {
+	return domain.Workspace{}, nil
+}
+
 var _ workspace.Workspace = (*fakeWorkspace)(nil)
 
 // --- fakes ---
