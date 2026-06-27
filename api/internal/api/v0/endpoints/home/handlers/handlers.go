@@ -11,7 +11,6 @@ import (
 	"github.com/char2cs/crowbar/api/internal/api/libs"
 	fileusecase "github.com/char2cs/crowbar/api/internal/app/usecases/file"
 	"github.com/char2cs/crowbar/api/internal/domain"
-	engineterminal "github.com/char2cs/crowbar/api/internal/engine/terminal"
 )
 
 // HomeReader resolves the home workspace for a project.
@@ -90,15 +89,6 @@ type TerminalEngine interface {
 	Kill(
 		ctx context.Context,
 		sessionID string,
-	) error
-	SessionExists(
-		ctx context.Context,
-		sessionID string,
-	) bool
-	Attach(
-		ctx context.Context,
-		sessionID string,
-		conn engineterminal.WSConn,
 	) error
 	ListSessionsForWorkspace(
 		workspaceID string,

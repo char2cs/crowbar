@@ -114,18 +114,18 @@ func (h *Handlers) RenameFile(c *gin.Context) {
 		return
 	}
 	var body struct {
-		Path    string `json:"path"`
+		OldPath string `json:"oldPath"`
 		NewPath string `json:"newPath"`
 	}
 	if err := c.ShouldBindJSON(&body); err != nil {
 		libs.WriteErr(c, http.StatusBadRequest, err.Error())
 		return
 	}
-	if body.Path == "" || body.NewPath == "" {
-		libs.WriteErr(c, http.StatusBadRequest, "path and newPath are required")
+	if body.OldPath == "" || body.NewPath == "" {
+		libs.WriteErr(c, http.StatusBadRequest, "oldPath and newPath are required")
 		return
 	}
-	if err := h.files.Rename(c.Request.Context(), ws.ID, body.Path, body.NewPath, time.Now()); err != nil {
+	if err := h.files.Rename(c.Request.Context(), ws.ID, body.OldPath, body.NewPath, time.Now()); err != nil {
 		homeFileError(c, err)
 		return
 	}
