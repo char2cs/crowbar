@@ -12,11 +12,12 @@ import (
 // (/v0/projects/:projectId).
 func Register(
 	projectScoped *gin.RouterGroup,
-	workspaces homehandlers.HomeReader,
+	workspaces homehandlers.HomeWorkspaces,
+	projects homehandlers.ProjectReader,
 	files homehandlers.Files,
 	termEng homehandlers.TerminalEngine,
 ) {
-	h := homehandlers.New(workspaces, files, termEng)
+	h := homehandlers.New(workspaces, projects, files, termEng)
 	home := projectScoped.Group("/home")
 
 	home.GET("", h.Get)

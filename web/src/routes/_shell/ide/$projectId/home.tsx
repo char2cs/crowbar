@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react'
 import { createFileRoute, useParams } from '@tanstack/react-router'
 import { WorkspaceView } from '@/features/workspace/components/workspace-view'
 import { fetchHomeWorkspace } from '@/lib/api'
+import { setWorkspaceScope } from '@/lib/workspace-scope'
 
 export function HomeRoute() {
   const { projectId } = useParams({ from: '/_shell/ide/$projectId/home' })
@@ -31,6 +32,9 @@ export function HomeRoute() {
   }
   if (!wsId) return null
 
+  // Record the workspace scope before WorkspaceView renders — home workspaces
+  // have no repoId, so workspaceBase() uses the /home API path instead.
+  setWorkspaceScope({ projectId, repoId: '', wsId })
   return <WorkspaceView wsId={wsId} />
 }
 

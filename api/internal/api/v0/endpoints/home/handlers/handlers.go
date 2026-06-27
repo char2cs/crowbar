@@ -15,9 +15,15 @@ import (
 	"github.com/char2cs/crowbar/api/internal/domain"
 )
 
-// HomeReader resolves the home workspace for a project.
-type HomeReader interface {
+// ProjectReader resolves a project by ID — used for lazy home provisioning.
+type ProjectReader interface {
+	FindByKey(ctx context.Context, id string) (*domain.Project, error)
+}
+
+// HomeWorkspaces is the workspace surface the home handlers need.
+type HomeWorkspaces interface {
 	GetHomeForProject(ctx context.Context, projectID string) (domain.Workspace, error)
+	CreateHome(ctx context.Context, projectID, worktreePath string, now time.Time) (domain.Workspace, error)
 }
 
 // Files is the file usecase surface needed by home file handlers.
@@ -99,27 +105,40 @@ type TerminalEngine interface {
 
 // Handlers serves all /home/* routes.
 type Handlers struct {
-	reader  HomeReader
-	files   Files
-	termEng TerminalEngine
+	workspaces HomeWorkspaces
+	projects   ProjectReader
+	files      Files
+	termEng    TerminalEngine
 }
 
 // New builds Handlers.
-func New(reader HomeReader, files Files, termEng TerminalEngine) *Handlers {
-	return &Handlers{reader: reader, files: files, termEng: termEng}
+func New(workspaces HomeWorkspaces, projects ProjectReader, files Files, termEng TerminalEngine) *Handlers {
+	return &Handlers{workspaces: workspaces, projects: projects, files: files, termEng: termEng}
 }
 
-// resolveHome fetches the home workspace for the project named in the request
-// path. It writes a 404 when the workspace is not found and a 500 for any
-// other storage failure, returning false in both cases.
+// resolveHome fetches the home workspace for the project. If not yet
+// provisioned (ErrNotFound), it looks up the project path and creates one
+// lazily — supporting projects created before the home feature was introduced.
 func (h *Handlers) resolveHome(c *gin.Context) (domain.Workspace, bool) {
-	ws, err := h.reader.GetHomeForProject(c.Request.Context(), c.Param("projectId"))
-	if err != nil {
-		if errors.Is(err, apperr.ErrNotFound) {
-			libs.WriteErr(c, http.StatusNotFound, "home workspace not found")
-		} else {
-			libs.WriteErr(c, http.StatusInternalServerError, "failed to resolve home workspace")
-		}
+	projectID := c.Param("projectId")
+	ws, err := h.workspaces.GetHomeForProject(c.Request.Context(), projectID)
+	if err == nil {
+		return ws, true
+	}
+	if !errors.Is(err, apperr.ErrNotFound) {
+		libs.WriteErr(c, http.StatusInternalServerError, "failed to resolve home workspace")
+		return domain.Workspace{}, false
+	}
+
+	// Lazily provision: look up the project to get its path, then create.
+	project, pErr := h.projects.FindByKey(c.Request.Context(), projectID)
+	if pErr != nil || project == nil {
+		libs.WriteErr(c, http.StatusNotFound, "project not found")
+		return domain.Workspace{}, false
+	}
+	ws, cErr := h.workspaces.CreateHome(c.Request.Context(), projectID, project.Path, time.Now())
+	if cErr != nil {
+		libs.WriteErr(c, http.StatusInternalServerError, "failed to provision home workspace")
 		return domain.Workspace{}, false
 	}
 	return ws, true

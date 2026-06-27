@@ -27,6 +27,7 @@ type MockWorkspace struct {
 	GetFn                 func(ctx context.Context, id string) (domain.Workspace, error)
 	ListFn                func(ctx context.Context) ([]domain.Workspace, error)
 	GetHomeForProjectFn   func(ctx context.Context, projectID string) (domain.Workspace, error)
+	CreateHomeFn          func(ctx context.Context, projectID, worktreePath string, now time.Time) (domain.Workspace, error)
 }
 
 func (m *MockWorkspace) Create(
@@ -139,6 +140,18 @@ func (m *MockWorkspace) GetHomeForProject(
 	projectID string,
 ) (domain.Workspace, error) {
 	return m.GetHomeForProjectFn(ctx, projectID)
+}
+
+func (m *MockWorkspace) CreateHome(
+	ctx context.Context,
+	projectID string,
+	worktreePath string,
+	now time.Time,
+) (domain.Workspace, error) {
+	if m.CreateHomeFn != nil {
+		return m.CreateHomeFn(ctx, projectID, worktreePath, now)
+	}
+	return domain.Workspace{}, nil
 }
 
 var _ workspace.Workspace = (*MockWorkspace)(nil)

@@ -12,6 +12,7 @@ import (
 
 	"github.com/char2cs/asynx"
 	asynxModels "github.com/char2cs/asynx/models"
+	"github.com/google/uuid"
 
 	"github.com/char2cs/crowbar/api/internal/adapter"
 	"github.com/char2cs/crowbar/api/internal/app/apperr"
@@ -138,6 +139,14 @@ type Workspace interface {
 	GetHomeForProject(
 		ctx context.Context,
 		projectID string,
+	) (domain.Workspace, error)
+	// CreateHome provisions the home workspace for a project. Callers use this
+	// for lazy provisioning when GetHomeForProject returns ErrNotFound.
+	CreateHome(
+		ctx context.Context,
+		projectID string,
+		worktreePath string,
+		now time.Time,
 	) (domain.Workspace, error)
 }
 
@@ -681,6 +690,21 @@ func (w *workspace) GetHomeForProject(ctx context.Context, projectID string) (do
 		}
 	}
 	return domain.Workspace{}, fmt.Errorf("get home for project %q: %w", projectID, apperr.ErrNotFound)
+}
+
+// CreateHome provisions the home workspace for a project, used for lazy
+// provisioning when GetHomeForProject returns ErrNotFound.
+func (w *workspace) CreateHome(ctx context.Context, projectID, worktreePath string, now time.Time) (domain.Workspace, error) {
+	ws, err := w.Create(ctx, CreateInput{
+		ID:           uuid.NewString(),
+		ProjectID:    projectID,
+		WorktreePath: worktreePath,
+		Kind:         domain.WorkspaceKindHome,
+	}, now)
+	if err != nil {
+		return domain.Workspace{}, fmt.Errorf("create home workspace: %w", err)
+	}
+	return ws, nil
 }
 
 // readRow resolves the entity for loc, reads its read-model row, and releases the

@@ -90,6 +90,7 @@ func (c *Container) Register(
 	homePkg.Register(
 		projectScoped,
 		c.app.Repositories.Workspace,
+		c.app.GORM.Projects,
 		c.app.Usecases.File,
 		c.eng.Terminal,
 	)

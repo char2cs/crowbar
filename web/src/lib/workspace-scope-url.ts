@@ -10,6 +10,8 @@ export function workspaceBase(wsId: string): string {
   const scope = getWorkspaceScope(wsId)
   if (!scope) throw new Error(`no project/repo scope recorded for workspace ${wsId}`)
   const p = encodeURIComponent(scope.projectId)
+  // Home workspaces have no repoId — they route to /v0/projects/:p/home/...
+  if (!scope.repoId) return `/v0/projects/${p}/home`
   const r = encodeURIComponent(scope.repoId)
   const w = encodeURIComponent(wsId)
   return `/v0/projects/${p}/repos/${r}/workspaces/${w}`
