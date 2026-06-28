@@ -142,6 +142,7 @@ func waitForSettled(t *testing.T, eng terminal.Engine, id string, d time.Duratio
 // produces no new output (dirty=false after TakeDirty clears it).
 func TestMaintenance_CadenceFlush(t *testing.T) {
 	eng := terminal.New()
+	terminal.StopMaintenanceForTest(eng) // prevent ticker from racing with RunMaintenanceOnceForTest
 	ctx := context.Background()
 	dir := t.TempDir()
 	store := newFakeMetaStore(t)
@@ -192,6 +193,7 @@ func TestMaintenance_SoftLimit(t *testing.T) {
 	defer restore()
 
 	eng := terminal.New()
+	terminal.StopMaintenanceForTest(eng) // prevent ticker from racing with limit-var writes
 	ctx := context.Background()
 	dir := t.TempDir()
 	store := newFakeMetaStore(t)
@@ -262,6 +264,7 @@ func TestMaintenance_RunningNeverIdleSuspended(t *testing.T) {
 	defer restore()
 
 	eng := terminal.New()
+	terminal.StopMaintenanceForTest(eng) // prevent ticker from racing with limit-var writes
 	ctx := context.Background()
 	dir := t.TempDir()
 	store := newFakeMetaStore(t)
@@ -324,6 +327,7 @@ func TestMaintenance_GlobalForceLastResort(t *testing.T) {
 	defer restoreSessions()
 
 	eng := terminal.New()
+	terminal.StopMaintenanceForTest(eng) // prevent ticker from racing with limit-var writes
 	ctx := context.Background()
 	dir := t.TempDir()
 	store := newFakeMetaStore(t)

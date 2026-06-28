@@ -67,3 +67,18 @@ func SnapshotLenForTest(eng Engine, id string) int {
 	}
 	return len(s.Snapshot())
 }
+
+// StopMaintenanceForTest stops the background maintenance ticker goroutine
+// without killing any active sessions. Call this immediately after New() in any
+// test that either drives maintenance manually via RunMaintenanceOnceForTest or
+// mutates the package-level limit vars (SetSoftLimitPerWorkspaceForTest,
+// SetMaxTotalSessionsForTest, SetMaxTotalRingBytesForTest). Stopping the ticker
+// ensures no background goroutine reads the limit vars concurrently with the
+// test's writes, eliminating the data race under -race.
+//
+// The engine's Shutdown() remains safe to call afterwards: stopOnce ensures
+// close(te.stop) is idempotent.
+func StopMaintenanceForTest(eng Engine) {
+	te := eng.(*terminalEngine)
+	te.stopOnce.Do(func() { close(te.stop) })
+}
