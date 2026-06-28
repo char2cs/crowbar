@@ -168,7 +168,10 @@ export function IDEShell() {
             </div>
           </div>
         ) : (
-          <div className="flex h-full flex-col overflow-hidden bg-transparent">
+          // overflow-visible (not hidden) so the content pane's drop shadow can
+          // render past this wrapper toward the sidebar instead of being clipped
+          // at the boundary. The pane clips its own content via its own overflow.
+          <div className="flex h-full flex-col bg-transparent">
             <Outlet />
           </div>
         )}
