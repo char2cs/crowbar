@@ -38,6 +38,9 @@ type TerminalEngine interface {
 	ListSessionsForWorkspace(
 		workspaceID string,
 	) []string
+	// StateOf returns the current lifecycle state ("active", "detached",
+	// "suspended") for the given session and true; ("", false) if not found.
+	StateOf(sessionID string) (string, bool)
 }
 
 // TerminalBroadcaster receives terminal-session lifecycle DTOs so the v0

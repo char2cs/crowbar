@@ -130,7 +130,9 @@ export interface TerminalSessionDTO {
   repoId: string
   workspaceId: string
   profileId: string
-  status: 'active' | 'ended'
+  status: 'active' | 'detached' | 'suspended' | 'ended'
+  /** Process exit code; only present on "ended" frames where the exit code is known (>=0). */
+  exitCode?: number
   createdAt: string
   endedAt: string | null
 }

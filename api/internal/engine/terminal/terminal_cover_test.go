@@ -41,7 +41,7 @@ func TestAttach_PlaceholderWithBadShell_ReturnsError(t *testing.T) {
 // be a no-op (and must not record the session as ended) when no callback is set.
 func TestFireEnded_NilCallback(t *testing.T) {
 	eng := New().(*terminalEngine)
-	eng.fireEnded(context.Background(), "ws", "s1")
+	eng.fireEnded(context.Background(), "ws", "s1", 0)
 	assert.NotContains(t, eng.endedOnce, "s1")
 }
 
@@ -50,10 +50,41 @@ func TestFireEnded_NilCallback(t *testing.T) {
 func TestFireEnded_FiresExactlyOnce(t *testing.T) {
 	eng := New().(*terminalEngine)
 	var calls int
-	eng.OnSessionEnded(func(_ context.Context, _, _ string) { calls++ })
+	eng.OnSessionEnded(func(_ context.Context, _, _ string, _ int) { calls++ })
 
-	eng.fireEnded(context.Background(), "ws", "s1")
-	eng.fireEnded(context.Background(), "ws", "s1")
+	eng.fireEnded(context.Background(), "ws", "s1", 0)
+	eng.fireEnded(context.Background(), "ws", "s1", 0)
 
 	assert.Equal(t, 1, calls)
+}
+
+// TestFireState_NilCallback covers the nil-safe guard: fireState must be a
+// no-op when no OnSessionState callback is registered.
+func TestFireState_NilCallback(t *testing.T) {
+	eng := New().(*terminalEngine)
+	// Must not panic.
+	eng.fireState(context.Background(), "ws", "s1", "detached")
+}
+
+// TestFireState_FiresCallback verifies fireState invokes the registered callback
+// with the correct arguments.
+func TestFireState_FiresCallback(t *testing.T) {
+	eng := New().(*terminalEngine)
+	type call struct {
+		ws    string
+		sid   string
+		state string
+	}
+	ch := make(chan call, 2)
+	eng.OnSessionState(func(_ context.Context, ws, sid, state string) {
+		ch <- call{ws, sid, state}
+	})
+
+	eng.fireState(context.Background(), "ws-1", "s-1", "detached")
+	eng.fireState(context.Background(), "ws-1", "s-1", "suspended")
+
+	got1 := <-ch
+	assert.Equal(t, call{"ws-1", "s-1", "detached"}, got1)
+	got2 := <-ch
+	assert.Equal(t, call{"ws-1", "s-1", "suspended"}, got2)
 }

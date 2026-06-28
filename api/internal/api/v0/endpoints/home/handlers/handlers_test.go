@@ -27,6 +27,19 @@ func (m *mockHomeReader) GetHomeForProject(ctx context.Context, projectID string
 	return args.Get(0).(domain.Workspace), args.Error(1)
 }
 
+func (m *mockHomeReader) CreateHome(ctx context.Context, projectID, worktreePath string, now time.Time) (domain.Workspace, error) {
+	args := m.Called(ctx, projectID, worktreePath, now)
+	return args.Get(0).(domain.Workspace), args.Error(1)
+}
+
+// ── ProjectReader stub — always returns "not found" ──────────────────────────
+
+type stubProjectReader struct{}
+
+func (stubProjectReader) FindByKey(_ context.Context, _ string) (*domain.Project, error) {
+	return nil, apperr.ErrNotFound
+}
+
 // ── Files stub (no-op, always returns empty results) ──────────────────────────
 
 type stubFiles struct{}
@@ -70,7 +83,7 @@ func TestGetHome_Returns200WithWorkspace(t *testing.T) {
 	reader := &mockHomeReader{}
 	reader.On("GetHomeForProject", mock.Anything, "proj-1").Return(homeWS, nil)
 
-	h := handlers.New(reader, nil, nil)
+	h := handlers.New(reader, nil, nil, nil)
 	r.GET("/projects/:projectId/home", h.Get)
 
 	w := httptest.NewRecorder()
@@ -82,7 +95,9 @@ func TestGetHome_Returns200WithWorkspace(t *testing.T) {
 }
 
 // TestGetHome_Returns404WhenNotFound verifies that a GET /home for a project
-// whose home workspace is missing returns HTTP 404.
+// whose home workspace is missing returns HTTP 404. The handler lazily tries to
+// provision a home workspace; if the project itself is not found (stubProjectReader
+// returns ErrNotFound), the handler returns 404.
 func TestGetHome_Returns404WhenNotFound(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	r := gin.New()
@@ -91,7 +106,7 @@ func TestGetHome_Returns404WhenNotFound(t *testing.T) {
 	reader.On("GetHomeForProject", mock.Anything, "proj-missing").
 		Return(domain.Workspace{}, apperr.ErrNotFound)
 
-	h := handlers.New(reader, nil, nil)
+	h := handlers.New(reader, stubProjectReader{}, nil, nil)
 	r.GET("/projects/:projectId/home", h.Get)
 
 	w := httptest.NewRecorder()
@@ -112,7 +127,7 @@ func TestGetHome_Returns500OnStorageError(t *testing.T) {
 	reader.On("GetHomeForProject", mock.Anything, "proj-err").
 		Return(domain.Workspace{}, errors.New("asynx: read failed"))
 
-	h := handlers.New(reader, nil, nil)
+	h := handlers.New(reader, nil, nil, nil)
 	r.GET("/projects/:projectId/home", h.Get)
 
 	w := httptest.NewRecorder()
@@ -138,7 +153,7 @@ func TestFileTree_Returns200WhenWorkspaceExists(t *testing.T) {
 	reader := &mockHomeReader{}
 	reader.On("GetHomeForProject", mock.Anything, "proj-2").Return(homeWS, nil)
 
-	h := handlers.New(reader, &stubFiles{}, nil)
+	h := handlers.New(reader, nil, &stubFiles{}, nil)
 	r.GET("/projects/:projectId/home/files/tree", h.FileTree)
 
 	w := httptest.NewRecorder()

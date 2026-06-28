@@ -213,12 +213,13 @@ func TestEngine_OnSessionEnded_FiresOnReap(t *testing.T) {
 	dir := t.TempDir()
 
 	type ended struct {
-		wsID string
-		sid  string
+		wsID     string
+		sid      string
+		exitCode int
 	}
 	endedCh := make(chan ended, 1)
-	eng.OnSessionEnded(func(_ context.Context, wsID, sid string) {
-		endedCh <- ended{wsID: wsID, sid: sid}
+	eng.OnSessionEnded(func(_ context.Context, wsID, sid string, exitCode int) {
+		endedCh <- ended{wsID: wsID, sid: sid, exitCode: exitCode}
 	})
 
 	sid, err := eng.Create(ctx, "ws-a", dir, nil)
@@ -232,6 +233,8 @@ func TestEngine_OnSessionEnded_FiresOnReap(t *testing.T) {
 	case got := <-endedCh:
 		assert.Equal(t, "ws-a", got.wsID)
 		assert.Equal(t, sid, got.sid)
+		// exitCode is -1 when killed by signal; any integer is valid here.
+		_ = got.exitCode
 	case <-time.After(5 * time.Second):
 		t.Fatal("OnSessionEnded did not fire after Kill")
 	}
@@ -653,7 +656,7 @@ func TestEngine_Suspend_MakesPlaceholder(t *testing.T) {
 	eng.SetMetaStore(store)
 
 	endedFired := false
-	eng.OnSessionEnded(func(_ context.Context, _, _ string) { endedFired = true })
+	eng.OnSessionEnded(func(_ context.Context, _, _ string, _ int) { endedFired = true })
 
 	sid, err := eng.Create(ctx, "ws-susp", dir, nil)
 	require.NoError(t, err)
@@ -752,7 +755,7 @@ func TestEngine_Kill_CleanReap(t *testing.T) {
 	eng.SetMetaStore(store)
 
 	endedCh := make(chan string, 1)
-	eng.OnSessionEnded(func(_ context.Context, _, sid string) { endedCh <- sid })
+	eng.OnSessionEnded(func(_ context.Context, _, sid string, _ int) { endedCh <- sid })
 
 	sid, err := eng.Create(ctx, "ws-kill", dir, nil)
 	require.NoError(t, err)
@@ -774,4 +777,200 @@ func TestEngine_Kill_CleanReap(t *testing.T) {
 	assert.False(t, eng.SessionExists(ctx, sid), "session must be absent after kill")
 	assert.True(t, store.hasDeleted(sid), "meta must be deleted by reapOnDone")
 	assert.False(t, bufExists(store.dir, sid), ".buf must be deleted by reapOnDone")
+}
+
+// ---------------------------------------------------------------------------
+// StateOf + OnSessionState tests (lifecycle state wire-protocol — Phase 2 TDD)
+// ---------------------------------------------------------------------------
+
+// TestEngine_StateOf_ReturnsStateForLiveSession verifies StateOf returns
+// "detached" for a freshly created session (no clients yet).
+func TestEngine_StateOf_ReturnsStateForLiveSession(t *testing.T) {
+	eng := terminal.New()
+	ctx := context.Background()
+	dir := t.TempDir()
+
+	sid, err := eng.Create(ctx, "ws-stateof", dir, nil)
+	require.NoError(t, err)
+
+	state, ok := eng.StateOf(sid)
+	assert.True(t, ok, "StateOf must return ok=true for a live session")
+	// Newly created session has no clients → "detached"
+	assert.Equal(t, "detached", state)
+
+	require.NoError(t, eng.Kill(ctx, sid))
+}
+
+// TestEngine_StateOf_ReturnsFalseForUnknown verifies StateOf returns ("", false)
+// for a session that does not exist in the registry.
+func TestEngine_StateOf_ReturnsFalseForUnknown(t *testing.T) {
+	eng := terminal.New()
+
+	state, ok := eng.StateOf("no-such-session")
+	assert.False(t, ok)
+	assert.Empty(t, state)
+}
+
+// TestEngine_StateOf_ActiveWhileAttached verifies StateOf returns "active"
+// while a client is attached.
+func TestEngine_StateOf_ActiveWhileAttached(t *testing.T) {
+	eng := terminal.New()
+	ctx := context.Background()
+	dir := t.TempDir()
+
+	sid, err := eng.Create(ctx, "ws-active", dir, nil)
+	require.NoError(t, err)
+
+	conn := newMockConn()
+	attachDone := make(chan struct{})
+	go func() {
+		defer close(attachDone)
+		_ = eng.Attach(ctx, sid, conn)
+	}()
+
+	// Wait until we receive at least one frame, confirming the client is registered.
+	found := waitForMsg(t, conn, func(d string) bool { return len(d) > 0 }, 3*time.Second)
+	require.True(t, found, "must receive initial output to confirm attach")
+
+	state, ok := eng.StateOf(sid)
+	assert.True(t, ok)
+	assert.Equal(t, "active", state)
+
+	conn.Close()
+	<-attachDone
+	require.NoError(t, eng.Kill(ctx, sid))
+}
+
+// TestEngine_OnSessionState_DetachedFiredOnLastClientLeave verifies that the
+// OnSessionState callback receives "detached" when the last client disconnects.
+func TestEngine_OnSessionState_DetachedFiredOnLastClientLeave(t *testing.T) {
+	eng := terminal.New()
+	ctx := context.Background()
+	dir := t.TempDir()
+
+	stateCh := make(chan string, 4)
+	eng.OnSessionState(func(_ context.Context, _, _, state string) {
+		stateCh <- state
+	})
+
+	sid, err := eng.Create(ctx, "ws-detach-state", dir, nil)
+	require.NoError(t, err)
+
+	conn := newMockConn()
+	attachDone := make(chan struct{})
+	go func() {
+		defer close(attachDone)
+		_ = eng.Attach(ctx, sid, conn)
+	}()
+
+	found := waitForMsg(t, conn, func(d string) bool { return len(d) > 0 }, 3*time.Second)
+	require.True(t, found, "must receive initial output before closing")
+
+	conn.Close()
+	<-attachDone
+
+	select {
+	case got := <-stateCh:
+		assert.Equal(t, "detached", got)
+	case <-time.After(3 * time.Second):
+		t.Fatal("OnSessionState 'detached' did not fire after last-client disconnect")
+	}
+
+	require.NoError(t, eng.Kill(ctx, sid))
+}
+
+// TestRegression_TerminalLifecycle_StateOf_And_OnSessionState is the regression
+// test for the lifecycle wire-protocol data path (Phase 2): the engine's
+// StateOf must reflect the session's actual state, and the OnSessionState
+// callback must fire "detached" after last-client disconnect and "suspended"
+// after Suspend.
+func TestRegression_TerminalLifecycle_StateOf_And_OnSessionState(t *testing.T) {
+	eng := terminal.New()
+	ctx := context.Background()
+	dir := t.TempDir()
+	store := newFakeMetaStore(t)
+	eng.SetMetaStore(store)
+
+	stateCh := make(chan string, 8)
+	eng.OnSessionState(func(_ context.Context, _, _, state string) {
+		stateCh <- state
+	})
+
+	endedCh := make(chan int, 1)
+	eng.OnSessionEnded(func(_ context.Context, _, _ string, exitCode int) {
+		endedCh <- exitCode
+	})
+
+	// Create → should be detached (no clients).
+	sid, err := eng.Create(ctx, "ws-regress", dir, nil)
+	require.NoError(t, err)
+
+	state, ok := eng.StateOf(sid)
+	assert.True(t, ok)
+	assert.Equal(t, "detached", state, "newly created session must report detached (no clients)")
+
+	// Attach client → "active".
+	conn := newMockConn()
+	attachDone := make(chan struct{})
+	go func() {
+		defer close(attachDone)
+		_ = eng.Attach(ctx, sid, conn)
+	}()
+	found := waitForMsg(t, conn, func(d string) bool { return len(d) > 0 }, 3*time.Second)
+	require.True(t, found, "must receive initial output to confirm attach")
+
+	state, ok = eng.StateOf(sid)
+	assert.True(t, ok)
+	assert.Equal(t, "active", state, "session must be active while client is attached")
+
+	// Detach client → "detached" + callback fires.
+	conn.Close()
+	<-attachDone
+
+	select {
+	case got := <-stateCh:
+		assert.Equal(t, "detached", got, "OnSessionState must fire 'detached' on last-client leave")
+	case <-time.After(3 * time.Second):
+		t.Fatal("OnSessionState 'detached' did not fire after detach")
+	}
+
+	state, ok = eng.StateOf(sid)
+	assert.True(t, ok)
+	assert.Equal(t, "detached", state)
+
+	// Suspend → "suspended" + callback fires.
+	deadline := time.After(15 * time.Second)
+	for {
+		_ = eng.Suspend(ctx, sid)
+		if store.hasSavedWithState(sid, "suspended") {
+			break
+		}
+		select {
+		case <-deadline:
+			t.Fatal("session did not suspend within 15s")
+		case <-time.After(200 * time.Millisecond):
+		}
+	}
+
+	select {
+	case got := <-stateCh:
+		assert.Equal(t, "suspended", got, "OnSessionState must fire 'suspended' after Suspend")
+	case <-time.After(3 * time.Second):
+		t.Fatal("OnSessionState 'suspended' did not fire after Suspend")
+	}
+
+	state, ok = eng.StateOf(sid)
+	assert.True(t, ok)
+	assert.Equal(t, "suspended", state)
+
+	// Kill the placeholder → "ended" via OnSessionEnded.
+	require.NoError(t, eng.Kill(ctx, sid))
+
+	select {
+	case exitCode := <-endedCh:
+		// Placeholder kill → exit code -1 (no process).
+		assert.Equal(t, -1, exitCode, "placeholder kill must report exitCode -1")
+	case <-time.After(5 * time.Second):
+		t.Fatal("OnSessionEnded did not fire after killing suspended placeholder")
+	}
 }

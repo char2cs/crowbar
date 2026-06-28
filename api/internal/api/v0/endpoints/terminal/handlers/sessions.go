@@ -77,9 +77,10 @@ func (h *Handlers) CreateSession(ctx *gin.Context) {
 
 // ListSessions handles GET
 // /v0/projects/:projectId/repos/:repoId/workspaces/:wsId/terminals. It returns
-// the active sessions for the workspace from the in-memory engine registry
-// (D6: terminals are ephemeral, no persistence). A WebSocket upgrade on the same
-// path is routed to the lifecycle broadcaster by the dual-serve wrapper.
+// the sessions for the workspace from the in-memory engine registry with their
+// real lifecycle state (active|detached|suspended) (D6: terminals are ephemeral,
+// no persistence). A WebSocket upgrade on the same path is routed to the
+// lifecycle broadcaster by the dual-serve wrapper.
 func (h *Handlers) ListSessions(ctx *gin.Context) {
 	eng := h.requireTerminalEngine(ctx)
 	if eng == nil {
@@ -90,15 +91,16 @@ func (h *Handlers) ListSessions(ctx *gin.Context) {
 	repoID := ctx.Param("repoId")
 	wsID := ctx.Param("wsId")
 
-	sessions := dto.TerminalSessionDTOList(
-		eng.ListSessionsForWorkspace(wsID),
-		wsID,
-		projectID,
-		repoID,
-		"",
-		"active",
-		time.Now().UTC(),
-	)
+	ids := eng.ListSessionsForWorkspace(wsID)
+	now := time.Now().UTC()
+	sessions := make([]dto.TerminalSessionDTO, 0, len(ids))
+	for _, id := range ids {
+		state, ok := eng.StateOf(id)
+		if !ok {
+			continue // session vanished between List and StateOf
+		}
+		sessions = append(sessions, dto.TerminalSessionDTOFrom(id, wsID, projectID, repoID, "", state, now))
+	}
 
 	libs.WriteQueryOK(ctx, sessions)
 }

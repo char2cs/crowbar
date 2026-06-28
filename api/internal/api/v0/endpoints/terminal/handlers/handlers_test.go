@@ -65,6 +65,10 @@ func (stubEngine) ListSessionsForWorkspace(
 	return []string{"sess1"}
 }
 
+func (stubEngine) StateOf(_ string) (string, bool) {
+	return "active", true
+}
+
 // spyBroadcaster records every pushed lifecycle DTO so handler tests can assert
 // the active/ended frames synchronously (no sleep).
 type spyBroadcaster struct {

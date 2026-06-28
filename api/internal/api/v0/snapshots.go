@@ -243,10 +243,10 @@ func appendDiagnostics(
 
 // terminalsSnapshot builds the Terminal-session snapshot-on-subscribe source
 // (03 §1a) from the in-memory engine registry (D6: terminals are ephemeral, no
-// view.db). Every live session across every workspace is emitted as an "active"
-// DTO carrying its workspace's project/repo scope; each client's hierarchical
-// prefix predicate trims the result to its subscription. It is empty until a
-// session is created.
+// view.db). Every live session across every workspace is emitted with its real
+// state (active|detached|suspended) carrying its workspace's project/repo scope;
+// each client's hierarchical prefix predicate trims the result to its
+// subscription. It is empty until a session is created.
 func terminalsSnapshot(
 	_ *app.Container,
 	engContainer *engine.Container,
@@ -264,14 +264,17 @@ func terminalsSnapshot(
 			return nil
 		}
 		projectID, repoID, wsID := parts[0], parts[1], parts[2]
-		return dto.TerminalSessionDTOList(
-			engContainer.Terminal.ListSessionsForWorkspace(wsID),
-			wsID,
-			projectID,
-			repoID,
-			"",
-			"active",
-			time.Now().UTC(),
-		)
+		ids := engContainer.Terminal.ListSessionsForWorkspace(wsID)
+		now := time.Now().UTC()
+		out := make([]dto.TerminalSessionDTO, 0, len(ids))
+		for _, id := range ids {
+			state, ok := engContainer.Terminal.StateOf(id)
+			if !ok {
+				state = "active" // session vanished between List and StateOf; skip
+				continue
+			}
+			out = append(out, dto.TerminalSessionDTOFrom(id, wsID, projectID, repoID, "", state, now))
+		}
+		return out
 	}
 }

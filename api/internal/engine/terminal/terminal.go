@@ -128,10 +128,24 @@ type Engine interface {
 
 	// OnSessionEnded registers the callback invoked when a session terminates
 	// (a Kill, a Shutdown, or a PTY self-exit). It fires exactly once per
-	// session so the lifecycle topic can emit an "ended" frame.
+	// session so the lifecycle topic can emit an "ended" frame. exitCode is
+	// the process exit code captured by shutdown(); -1 if unknown (killed by
+	// signal, placeholder, or daemon restart).
 	OnSessionEnded(
-		fn func(ctx context.Context, workspaceID string, sessionID string),
+		fn func(ctx context.Context, workspaceID string, sessionID string, exitCode int),
 	)
+
+	// OnSessionState registers the callback invoked when a session transitions
+	// to "detached" (last client disconnects or post-restore) or "suspended"
+	// (placeholder swap complete). The most recent registration wins.
+	OnSessionState(
+		fn func(ctx context.Context, workspaceID string, sessionID string, state string),
+	)
+
+	// StateOf returns the current state string ("active", "detached", or
+	// "suspended") for the given session ID and true. Returns ("", false) when
+	// the session does not exist in the registry.
+	StateOf(sessionID string) (string, bool)
 
 	// SessionExists reports whether a session with the given ID is currently active.
 	// Returns true for both live sessions and suspended placeholders.
@@ -160,7 +174,8 @@ type terminalEngine struct {
 	reg *registry.Registry
 
 	mu         sync.RWMutex
-	onEnded    func(ctx context.Context, workspaceID string, sessionID string)
+	onEnded    func(ctx context.Context, workspaceID string, sessionID string, exitCode int)
+	onState    func(ctx context.Context, workspaceID string, sessionID string, state string)
 	endedOnce  map[string]struct{}
 	metaStore  SessionMetaStore
 	lastActive map[string]time.Time // guarded by mu; set on last-client detach
@@ -281,6 +296,7 @@ func (e *terminalEngine) reapOnDone(
 	}
 
 	// Real exit (Kill, Shutdown, or PTY self-exit): full cleanup.
+	exitCode := s.ExitCode()
 	e.reg.Remove(id)
 
 	ctx := context.Background()
@@ -291,15 +307,17 @@ func (e *terminalEngine) reapOnDone(
 		}
 	}
 	e.deleteMeta(ctx, id)
-	e.fireEnded(ctx, workspaceID, id)
+	e.fireEnded(ctx, workspaceID, id, exitCode)
 }
 
 // fireEnded invokes the registered OnSessionEnded callback exactly once per
-// session id, guarding against duplicate notifications.
+// session id, guarding against duplicate notifications. exitCode is the process
+// exit code; -1 when unknown (killed by signal, placeholder, or daemon restart).
 func (e *terminalEngine) fireEnded(
 	ctx context.Context,
 	workspaceID string,
 	sessionID string,
+	exitCode int,
 ) {
 	e.mu.Lock()
 	fn := e.onEnded
@@ -314,17 +332,58 @@ func (e *terminalEngine) fireEnded(
 	e.endedOnce[sessionID] = struct{}{}
 	e.mu.Unlock()
 
-	fn(ctx, workspaceID, sessionID)
+	fn(ctx, workspaceID, sessionID, exitCode)
+}
+
+// fireState invokes the registered OnSessionState callback if one is set.
+// It is nil-safe: if no callback has been registered the call is a no-op.
+func (e *terminalEngine) fireState(
+	ctx context.Context,
+	workspaceID string,
+	sessionID string,
+	state string,
+) {
+	e.mu.RLock()
+	fn := e.onState
+	e.mu.RUnlock()
+	if fn == nil {
+		return
+	}
+	fn(ctx, workspaceID, sessionID, state)
 }
 
 // OnSessionEnded registers the termination callback. The most recent
 // registration wins, mirroring the LSP engine's OnDiagnostics hook.
 func (e *terminalEngine) OnSessionEnded(
-	fn func(ctx context.Context, workspaceID string, sessionID string),
+	fn func(ctx context.Context, workspaceID string, sessionID string, exitCode int),
 ) {
 	e.mu.Lock()
 	e.onEnded = fn
 	e.mu.Unlock()
+}
+
+// OnSessionState registers the state-transition callback. The most recent
+// registration wins. Fires on "detached" (last-client detach or post-restore)
+// and "suspended" (placeholder swap). Does not fire for "ended" — use
+// OnSessionEnded for that.
+func (e *terminalEngine) OnSessionState(
+	fn func(ctx context.Context, workspaceID string, sessionID string, state string),
+) {
+	e.mu.Lock()
+	e.onState = fn
+	e.mu.Unlock()
+}
+
+// StateOf returns the current state string for a session and true, or
+// ("", false) when the session does not exist in the registry. The state is
+// derived from the session's Session.State() method: "active", "detached", or
+// "suspended".
+func (e *terminalEngine) StateOf(sessionID string) (string, bool) {
+	s, ok := e.reg.Get(sessionID)
+	if !ok {
+		return "", false
+	}
+	return s.State(), true
 }
 
 // SetMetaStore injects the durable session-metadata store. The most recent
@@ -427,6 +486,7 @@ func (e *terminalEngine) restore(ctx context.Context, sid string) error {
 		ProfileID:   profileID,
 		State:       "detached",
 	})
+	e.fireState(ctx, ws, sid, "detached")
 
 	return nil
 }
@@ -500,6 +560,9 @@ func (e *terminalEngine) suspend(ctx context.Context, sid string, force bool) er
 	// Step c: kill the OLD live session.
 	s.Kill()
 
+	// Notify lifecycle subscribers that the session is now suspended.
+	e.fireState(ctx, ws, sid, "suspended")
+
 	return nil
 }
 
@@ -564,6 +627,7 @@ func (e *terminalEngine) Attach(
 				State:        "detached",
 				LastActiveAt: now,
 			})
+			e.fireState(ctx, ws, sessionID, "detached")
 		}
 	}
 
@@ -650,18 +714,40 @@ func (e *terminalEngine) Resize(
 }
 
 func (e *terminalEngine) Kill(
-	_ context.Context,
+	ctx context.Context,
 	sessionID string,
 ) error {
 	s, ok := e.reg.Get(sessionID)
 	if !ok {
 		return fmt.Errorf("terminal: kill: %w: %s", registry.ErrSessionNotFound, sessionID)
 	}
+
+	// Capture whether this is a placeholder BEFORE modifying state. A placeholder
+	// session has no live PTY (IsLive() == false) so no reapOnDone goroutine is
+	// running to fire ended/cleanup after Kill returns.
+	isPlaceholder := !s.IsLive()
+	ws, wsOK := e.reg.WorkspaceID(sessionID)
+
 	// Remove from registry eagerly so callers see it gone immediately after Kill returns.
-	// reapOnDone will also call reg.Remove (idempotent no-op) and then handle the
-	// remaining cleanup: deleteMeta, DeleteBuf, fireEnded.
+	// For live sessions, reapOnDone will also call reg.Remove (idempotent no-op) and then
+	// handle the remaining cleanup: deleteMeta, DeleteBuf, fireEnded.
 	e.reg.Remove(sessionID)
 	s.Kill()
+
+	// For placeholder sessions (suspended state), no reapOnDone goroutine is listening
+	// on s.Done(). Perform the cleanup and fire the ended callback inline.
+	if isPlaceholder && wsOK {
+		exitCode := s.ExitCode() // -1 for placeholders (no process)
+		dir, _ := e.storageDir(ctx, ws)
+		if dir != "" {
+			if delErr := persistence.DeleteBuf(dir, sessionID); delErr != nil {
+				_, _ = fmt.Fprintf(os.Stderr, "terminal: kill: delete buf %s: %v\n", sessionID, delErr)
+			}
+		}
+		e.deleteMeta(ctx, sessionID)
+		e.fireEnded(ctx, ws, sessionID, exitCode)
+	}
+
 	return nil
 }
 

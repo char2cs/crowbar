@@ -78,6 +78,7 @@ func New(
 	}
 	if engContainer != nil && engContainer.Terminal != nil {
 		engContainer.Terminal.OnSessionEnded(c.onTerminalEnded)
+		engContainer.Terminal.OnSessionState(c.onTerminalState)
 		if appContainer.Usecases != nil && appContainer.Usecases.TerminalMeta != nil {
 			engContainer.Terminal.SetMetaStore(appContainer.Usecases.TerminalMeta)
 		}
@@ -90,11 +91,13 @@ func New(
 // (the reap path in the terminal engine). The handler-driven Kill path also
 // pushes an "ended" frame; the broadcaster's idempotent full-replace makes the
 // duplicate harmless. The owning project/repo are resolved from the workspace
-// repo so the frame namespaces under projectId/repoId/wsId.
+// repo so the frame namespaces under projectId/repoId/wsId. exitCode is the
+// process exit code; it is included in the frame when >=0 (known).
 func (c *Container) onTerminalEnded(
 	ctx context.Context,
 	workspaceID string,
 	sessionID string,
+	exitCode int,
 ) {
 	projectID, repoID := c.resolveWorkspaceScope(ctx, workspaceID)
 	endedAt := time.Now().UTC()
@@ -108,7 +111,32 @@ func (c *Container) onTerminalEnded(
 		endedAt,
 	)
 	ended.EndedAt = &endedAt
+	if exitCode >= 0 {
+		ended.ExitCode = &exitCode
+	}
 	c.terminals.Push(ended)
+}
+
+// onTerminalState emits a lifecycle frame when a session transitions to
+// "detached" or "suspended". The owning project/repo are resolved from the
+// workspace so the frame namespaces under projectId/repoId/wsId.
+func (c *Container) onTerminalState(
+	ctx context.Context,
+	workspaceID string,
+	sessionID string,
+	state string,
+) {
+	projectID, repoID := c.resolveWorkspaceScope(ctx, workspaceID)
+	d := dto.TerminalSessionDTOFrom(
+		sessionID,
+		workspaceID,
+		projectID,
+		repoID,
+		"",
+		state,
+		time.Now().UTC(),
+	)
+	c.terminals.Push(d)
 }
 
 // resolveWorkspaceScope returns the project and repo ids owning workspaceID,

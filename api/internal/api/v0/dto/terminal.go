@@ -21,9 +21,11 @@ type TerminalProfileDTO struct {
 }
 
 // TerminalSessionDTO is the wire shape of a PTY session's lifecycle (00 §5.6):
-// the hierarchical entity ids, the launch profile, the active/ended status, and
-// the creation/termination timestamps. It is the Broadcaster[TerminalSessionDTO]
-// payload; the raw PTY byte stream is a separate, non-broadcast WebSocket.
+// the hierarchical entity ids, the launch profile, the
+// active|detached|suspended|ended status, and the creation/termination
+// timestamps. It is the Broadcaster[TerminalSessionDTO] payload; the raw PTY
+// byte stream is a separate, non-broadcast WebSocket. ExitCode is only present
+// on "ended" frames where the exit code is known (>=0).
 type TerminalSessionDTO struct {
 	ID          string     `json:"id"`
 	ProjectID   string     `json:"projectId"`
@@ -31,6 +33,7 @@ type TerminalSessionDTO struct {
 	WorkspaceID string     `json:"workspaceId"`
 	ProfileID   string     `json:"profileId,omitempty"`
 	Status      string     `json:"status"`
+	ExitCode    *int       `json:"exitCode,omitempty"`
 	CreatedAt   time.Time  `json:"createdAt"`
 	EndedAt     *time.Time `json:"endedAt,omitempty"`
 }

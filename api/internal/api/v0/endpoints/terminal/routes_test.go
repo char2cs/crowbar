@@ -64,6 +64,10 @@ func (stubEngine) ListSessionsForWorkspace(
 	return nil
 }
 
+func (stubEngine) StateOf(_ string) (string, bool) {
+	return "active", true
+}
+
 type stubBroadcaster struct{}
 
 func (stubBroadcaster) Push(

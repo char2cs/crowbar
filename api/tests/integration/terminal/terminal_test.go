@@ -207,6 +207,62 @@ func (s *TerminalSuite) TestTerminal_ProfileCRUD() {
 	s.Assert().Equal(http.StatusNotFound, getAfterDelete.StatusCode)
 }
 
+// TestRegression_TerminalSession_RealStateInListAndEndedBroadcast verifies the
+// lifecycle wire-protocol Phase 2 on the REST + broadcast surface:
+//
+//   - GET /terminals (ListSessions) reports the engine's real state for each
+//     session; a newly created session with no attached clients is "detached"
+//     (live but no clients), NOT the hardcoded "active" of the previous impl.
+//   - The "ended" lifecycle frame carries an exitCode field (may be nil when
+//     the kill is via SIGKILL and the exit code is unknown).
+func (s *TerminalSuite) TestRegression_TerminalSession_RealStateInListAndEndedBroadcast() {
+	t := s.T()
+
+	watcher := s.Env.DialTerminals(t, s.imported.ProjectID, s.imported.RepoID, s.wsID)
+
+	// Create a session — the POST broadcasts "active" and returns 201.
+	createResp := s.Env.POST(t, s.base()+"/terminals", map[string]any{})
+	kit.RequireStatus(t, createResp, http.StatusCreated)
+	var created map[string]any
+	kit.DecodeEnvData(t, createResp, &created)
+	sessionID, _ := created["sessionId"].(string)
+	s.Require().NotEmpty(sessionID)
+
+	// Wait for the "active" broadcast from the POST handler.
+	watcher.ReadUntil(t, 5*time.Second, func(m map[string]any) bool {
+		return m["id"] == sessionID && m["status"] == "active"
+	})
+
+	// GET /terminals should now return the real engine state. With no attached
+	// clients, StateOf returns "detached" (live PTY, no clients) — NOT "active".
+	listResp := s.Env.GET(t, s.base()+"/terminals")
+	kit.RequireStatus(t, listResp, http.StatusOK)
+	var sessions []map[string]any
+	kit.DecodeEnvData(t, listResp, &sessions)
+	var found map[string]any
+	for _, sess := range sessions {
+		if sess["id"] == sessionID {
+			found = sess
+			break
+		}
+	}
+	s.Require().NotNil(found, "created session must appear in ListSessions")
+	s.Assert().Equal("detached", found["status"],
+		"ListSessions must report real engine state ('detached' for no-client live session)")
+
+	// Kill → "ended" broadcast. The exitCode field may or may not be present
+	// (SIGKILL → -1 → omitted); we assert the status and presence of the frame.
+	killResp := s.Env.DELETE(t, s.base()+"/terminals/"+sessionID)
+	defer killResp.Body.Close()
+	kit.RequireStatus(t, killResp, http.StatusAccepted)
+
+	endedMsg := watcher.ReadUntil(t, 5*time.Second, func(m map[string]any) bool {
+		return m["id"] == sessionID && m["status"] == "ended"
+	})
+	s.Assert().Equal(sessionID, endedMsg["id"])
+	s.Assert().Equal(s.wsID, endedMsg["workspaceId"])
+}
+
 // TestTerminal_PTYWSAtScopedPath verifies the raw PTY WebSocket connects at the
 // hierarchical .../terminals/:sessionId/ws path and streams JSON text frames
 // {sessionId, data, isInput}.
