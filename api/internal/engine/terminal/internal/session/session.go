@@ -537,6 +537,17 @@ func (s *Session) BeginForceSuspend() bool {
 	return true
 }
 
+// MarkSuspendingForShutdown unconditionally sets suspending=true under s.mu,
+// regardless of attached clients or idle state. Called by terminalEngine.Shutdown
+// BEFORE Kill so that reapOnDone detects suspending=true and takes its
+// early-return path — preserving the .buf file and meta row that Shutdown wrote
+// for daemon-restart restore.
+func (s *Session) MarkSuspendingForShutdown() {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.suspending = true
+}
+
 // RingCap returns the capacity of the session's ring buffer in bytes.
 // Exported for the engine to compute total ring-memory ceilings.
 func (s *Session) RingCap() int {

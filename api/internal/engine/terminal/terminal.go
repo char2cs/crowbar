@@ -1023,13 +1023,53 @@ func (e *terminalEngine) runMaintenanceOnce(ctx context.Context) {
 }
 
 // Shutdown terminates all active sessions and removes them from the registry.
+//
+// Graceful-shutdown contract (Phase 3):
+//   - For each LIVE session, before killing, Shutdown flushes the ring-buffer
+//     snapshot to disk (persistence.WriteBuf) and saves meta with
+//     state="suspended" so a subsequent daemon start can call
+//     RestorePersistedSessions and hand the session back as a placeholder.
+//   - s.MarkSuspendingForShutdown() is called before s.Kill() so that
+//     reapOnDone takes its early-return path and does NOT delete the .buf file
+//     or meta row — the delete-on-reap path is reserved for explicit Kill()
+//     calls during normal operation, not daemon shutdown.
+//   - Placeholder sessions (already suspended, no live PTY) are killed without
+//     any additional flush because their scrollback is already on disk.
+//   - All persist operations are best-effort: errors are logged but never cause
+//     Shutdown to panic or hang.
 func (e *terminalEngine) Shutdown() {
 	e.stopOnce.Do(func() { close(e.stop) })
+	ctx := context.Background()
 	for _, id := range e.reg.List() {
 		s, ok := e.reg.Get(id)
 		if !ok {
 			continue
 		}
+		if s.IsLive() {
+			ws, wsOK := e.reg.WorkspaceID(id)
+			if wsOK {
+				// a) Flush scrollback to disk (best-effort; continue on error).
+				dir, _ := e.storageDir(ctx, ws)
+				if dir != "" {
+					if err := persistence.WriteBuf(dir, id, s.Snapshot()); err != nil {
+						_, _ = fmt.Fprintf(os.Stderr, "terminal: shutdown: persist buf %s: %v\n", id, err)
+					}
+				}
+				// b) Persist meta with state="suspended" for restart restore.
+				e.saveMeta(ctx, SessionMeta{
+					SessionID:    id,
+					WorkspaceID:  ws,
+					CWD:          s.CWD(),
+					Shell:        s.Shell(),
+					ProfileID:    s.ProfileID(),
+					State:        "suspended",
+					LastActiveAt: time.Now(),
+				})
+			}
+			// c) Mark suspending so reapOnDone skips the delete-on-reap path.
+			s.MarkSuspendingForShutdown()
+		}
+		// d) Remove from registry and kill (process dies; scrollback survives).
 		e.reg.Remove(id)
 		s.Kill()
 	}
