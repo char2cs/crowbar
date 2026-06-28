@@ -254,7 +254,26 @@ export function useTerminalConnection({
       scheduleOutputFlush()
     })
 
+    // When a TUI app like CC enables mouse tracking, xterm forwards wheel events
+    // to the PTY as SGR sequences instead of scrolling its viewport. Intercept in
+    // capture phase so we can scroll the viewport ourselves while the app is active,
+    // without breaking apps that don't use mouse tracking.
+    const wheelContainer = terminal.element?.parentElement
+    const handleWheel = (event: WheelEvent) => {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const mode = (terminal as any).modes?.mouseTrackingMode as string | undefined
+      if (!mode || mode === 'none') return
+      event.preventDefault()
+      event.stopPropagation()
+      // xterm sign convention: positive = scroll toward older content (up).
+      // Wheel deltaY is opposite: negative = user scrolled up.
+      const lines = Math.ceil(Math.abs(event.deltaY) / 40) * (event.deltaY < 0 ? 1 : -1)
+      terminal.scrollLines(lines * 3)
+    }
+    wheelContainer?.addEventListener('wheel', handleWheel, { capture: true, passive: false })
+
     return () => {
+      wheelContainer?.removeEventListener('wheel', handleWheel, true)
       if (outputFlushFrameRef.current !== null) {
         cancelAnimationFrame(outputFlushFrameRef.current)
         flushOutputBuffer()

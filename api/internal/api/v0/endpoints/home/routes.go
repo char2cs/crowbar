@@ -32,7 +32,5 @@ func Register(
 	home.GET("/terminals", h.ListTerminals)
 	home.POST("/terminals", h.CreateTerminal)
 	home.DELETE("/terminals/:sessionId", h.KillTerminal)
-
-	// TODO: mount GET /terminals/:sessionId/ws for the raw PTY WebSocket stream
-	// once the dual-serve wrapper is wired into the home route group (Task 5).
+	home.GET("/terminals/:sessionId/ws", h.TerminalWS)
 }

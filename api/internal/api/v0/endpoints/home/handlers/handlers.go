@@ -13,7 +13,11 @@ import (
 	"github.com/char2cs/crowbar/api/internal/app/apperr"
 	fileusecase "github.com/char2cs/crowbar/api/internal/app/usecases/file"
 	"github.com/char2cs/crowbar/api/internal/domain"
+	engineterminal "github.com/char2cs/crowbar/api/internal/engine/terminal"
 )
+
+// WSConn is the WebSocket abstraction used by the terminal engine Attach method.
+type WSConn = engineterminal.WSConn
 
 // ProjectReader resolves a project by ID — used for lazy home provisioning.
 type ProjectReader interface {
@@ -101,6 +105,8 @@ type TerminalEngine interface {
 	ListSessionsForWorkspace(
 		workspaceID string,
 	) []string
+	SessionExists(ctx context.Context, sessionID string) bool
+	Attach(ctx context.Context, sessionID string, conn WSConn) error
 }
 
 // Handlers serves all /home/* routes.
