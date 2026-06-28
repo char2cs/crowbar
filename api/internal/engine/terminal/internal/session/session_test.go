@@ -5,6 +5,8 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"sync"
+	"sync/atomic"
 	"syscall"
 	"testing"
 	"time"
@@ -280,6 +282,99 @@ func TestIsNormalPTYClose_OtherError(t *testing.T) {
 	assert.False(t, isNormalPTYClose(syscall.EPERM))
 }
 
+// TestSession_ReplayLiveHandoff_NoDuplication verifies that a client attaching
+// while the pump is between ring.Write and fanOut never receives the same chunk
+// twice (once in the ring snapshot, once via the live fan-out delivery).
+//
+// PumpChunkForTest mirrors the pump's critical path:
+//   - pre-fix:  two separate lock acquisitions (a race window exists between them)
+//   - post-fix: a single s.mu acquisition spanning both operations
+//
+// Run with: go test -race -run TestSession_ReplayLiveHandoff_NoDuplication
+func TestSession_ReplayLiveHandoff_NoDuplication(t *testing.T) {
+	dir := t.TempDir()
+	s, err := New("sid-handoff", "/bin/sh", dir, os.Environ())
+	require.NoError(t, err)
+	t.Cleanup(s.Kill)
+
+	const rounds = 100
+
+	// makeChunk returns a unique 8-byte sentinel for each round using bytes
+	// that are invalid UTF-8 lead bytes and will not appear in shell output.
+	makeChunk := func(r int) []byte {
+		return []byte{
+			0xC0, 0xC1,
+			byte(r >> 8), byte(r & 0xFF),
+			0xFE, 0xFF,
+			byte(r >> 8), byte(r & 0xFF),
+		}
+	}
+
+	var dupCount int64
+	stop := make(chan struct{})
+
+	// Attacher goroutines: continuously attach, collect frames, check for
+	// duplicate delivery of any known chunk.
+	const numAttachers = 5
+	var attachWg sync.WaitGroup
+	for a := 0; a < numAttachers; a++ {
+		attachWg.Add(1)
+		go func() {
+			defer attachWg.Done()
+			for {
+				select {
+				case <-stop:
+					return
+				default:
+				}
+
+				ch, attachErr := s.Attach()
+				if attachErr != nil {
+					return // session is dead
+				}
+
+				var received []byte
+				timer := time.NewTimer(5 * time.Millisecond)
+			drain:
+				for {
+					select {
+					case f, ok := <-ch:
+						if !ok {
+							break drain
+						}
+						received = append(received, f.Data...)
+					case <-timer.C:
+						break drain
+					}
+				}
+				timer.Stop()
+				s.Detach(ch)
+
+				// Any unique chunk appearing more than once means the client
+				// saw it in both the ring snapshot and the live fan-out.
+				for r := 0; r < rounds; r++ {
+					if countOccurrences(received, makeChunk(r)) > 1 {
+						atomic.AddInt64(&dupCount, 1)
+					}
+				}
+			}
+		}()
+	}
+
+	// Producer: pump all chunks via the pump-simulation helper.
+	// PumpChunkForTest pre-fix: ring.Write + Gosched + fanOut (separate locks).
+	// PumpChunkForTest post-fix: s.mu held across ring.Write + fanOutLocked.
+	for r := 0; r < rounds; r++ {
+		s.PumpChunkForTest(makeChunk(r))
+	}
+	close(stop)
+	attachWg.Wait()
+
+	assert.Zero(t, dupCount,
+		"detected %d chunk duplication(s): snapshot + live delivery both fired for the same data — ring write and fan-out are not atomic",
+		dupCount)
+}
+
 func containsStr(
 	data []byte,
 	sub string,
@@ -310,4 +405,28 @@ func contains(
 		}
 	}
 	return false
+}
+
+// countOccurrences counts non-overlapping occurrences of needle in data.
+func countOccurrences(data, needle []byte) int {
+	if len(needle) == 0 || len(data) < len(needle) {
+		return 0
+	}
+	count := 0
+	for i := 0; i <= len(data)-len(needle); {
+		match := true
+		for j := 0; j < len(needle); j++ {
+			if data[i+j] != needle[j] {
+				match = false
+				break
+			}
+		}
+		if match {
+			count++
+			i += len(needle) // skip past the match (non-overlapping)
+		} else {
+			i++
+		}
+	}
+	return count
 }

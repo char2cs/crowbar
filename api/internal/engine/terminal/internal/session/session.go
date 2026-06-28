@@ -165,6 +165,10 @@ func (s *Session) Kill() {
 }
 
 // pump reads PTY stdout, appends to the ring, and fans out to all clients.
+// s.mu is held across both ring.Write and fanOutLocked so that Attach() can
+// never observe a chunk in the ring snapshot but not yet in the fan-out, which
+// would cause the client to receive the chunk twice (once in the snapshot, once
+// via live delivery). Lock order: s.mu → ring.mu (same as Attach).
 func (s *Session) pump() {
 	// A panic here must not crash the daemon; cleanup (shutdown) still runs on the
 	// unwind because its defer is registered after this recover boundary.
@@ -177,8 +181,10 @@ func (s *Session) pump() {
 		if n > 0 {
 			chunk := make([]byte, n)
 			copy(chunk, buf[:n])
-			s.ring.Write(chunk)
-			s.fanOut(chunk)
+			s.mu.Lock()
+			s.ring.Write(chunk)    // ring.mu nested under s.mu — same order Attach uses
+			s.fanOutLocked(chunk)  // assumes s.mu held
+			s.mu.Unlock()
 		}
 		if err != nil {
 			if !isNormalPTYClose(err) {
@@ -206,13 +212,22 @@ func isNormalPTYClose(
 
 // fanOut delivers a chunk to all currently attached clients.
 // Clients whose channel is full are disconnected (drop-on-overflow).
+// This is a thin convenience wrapper for callers that do not already hold s.mu.
 func (s *Session) fanOut(
 	chunk []byte,
 ) {
-	frame := OutputFrame{SessionID: s.id, Data: chunk}
-
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	s.fanOutLocked(chunk)
+}
+
+// fanOutLocked delivers a chunk to all currently attached clients.
+// Clients whose channel is full are disconnected (drop-on-overflow).
+// Caller must hold s.mu.
+func (s *Session) fanOutLocked(
+	chunk []byte,
+) {
+	frame := OutputFrame{SessionID: s.id, Data: chunk}
 
 	var overflow []*client
 	for cl := range s.clients {
