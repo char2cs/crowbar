@@ -310,15 +310,32 @@ func (e *terminalEngine) reapOnDone(
 	s *session.Session,
 ) {
 	defer safego.Recover("terminal.reapOnDone")
+
+	// Wait for termination BEFORE acquiring the per-session lock so we never
+	// block other lifecycle ops (Kill/suspend/flush/detach) while parked here.
 	<-s.Done()
 
-	// Suspend path: Suspend already replaced the registry entry with a placeholder
-	// and persisted scrollback. We must NOT remove that placeholder or fire ended.
-	if s.Suspending() {
+	// FIX: serialise the real-exit cleanup with the cadence-flush and
+	// detach-bookkeeping persist paths via the per-session lifecycle lock. Lock
+	// order: sessionMu (outer) → s.mu → ring.mu — we hold only sessionMu here.
+	unlock := e.lockSession(id)
+
+	// Suspend path: Suspend (or Shutdown) already replaced the registry entry
+	// with a placeholder and persisted scrollback, or set the suspending flag.
+	// We must NOT remove that placeholder, delete the .buf/row, or fire ended.
+	// reg.Get(id) != s detects the placeholder swap; Suspending() covers the
+	// shutdown/force paths. A removed entry (!ok, e.g. eager Kill of a live
+	// session) is NOT the suspend case — fall through to real-exit cleanup,
+	// which Kill delegates to reapOnDone for live sessions.
+	if cur, ok := e.reg.Get(id); (ok && cur != s) || s.Suspending() {
+		unlock()
 		return
 	}
 
-	// Real exit (Kill, Shutdown, or PTY self-exit): full cleanup.
+	// Real exit (Kill, Shutdown-of-non-suspended, or PTY self-exit): full cleanup
+	// under the lock. A flush/detach that lost the lock race sees !s.IsLive()
+	// (ptmx nilled in shutdown) and skips; one that won wrote first and we delete
+	// it here, so the explicitly-closed terminal never resurrects.
 	exitCode := s.ExitCode()
 	e.reg.Remove(id)
 
@@ -337,6 +354,10 @@ func (e *terminalEngine) reapOnDone(
 	delete(e.lastActive, id)
 	delete(e.endedOnce, id)
 	e.mu.Unlock()
+
+	// Release the lifecycle lock before deleting its sessionMu entry, mirroring
+	// Kill's ordering so a late lockSession(id) caller can never alias a freed mutex.
+	unlock()
 	e.sessionMu.Delete(id)
 }
 
@@ -664,41 +685,60 @@ func (e *terminalEngine) Attach(
 	// record "detached" meta so a future restore knows the last-known state.
 	// This runs after <-writeDone so the WS is already closed — never blocks detach.
 	if s.AttachedCount() == 0 {
-		now := time.Now()
-		ws, wsOK := e.reg.WorkspaceID(sessionID)
-
-		e.mu.Lock()
-		e.lastActive[sessionID] = now
-		e.mu.Unlock()
-
-		if wsOK {
-			dir, _ := e.storageDir(ctx, ws)
-			if dir != "" {
-				// FIX 2: hold flushMu across snapshot+write so concurrent flush
-				// paths (cadence, suspend, shutdown) don't interleave writes.
-				fm := s.FlushMu()
-				fm.Lock()
-				snap := s.Snapshot()
-				writeErr := persistence.WriteBuf(dir, sessionID, snap)
-				fm.Unlock()
-				if writeErr != nil {
-					_, _ = fmt.Fprintf(os.Stderr, "terminal: detach: persist buf %s: %v\n", sessionID, writeErr)
-				}
-			}
-			e.saveMeta(ctx, SessionMeta{
-				SessionID:    sessionID,
-				WorkspaceID:  ws,
-				CWD:          s.CWD(),
-				Shell:        s.Shell(),
-				ProfileID:    s.ProfileID(),
-				State:        "detached",
-				LastActiveAt: now,
-			})
-			e.fireState(ctx, ws, sessionID, "detached")
-		}
+		e.persistOnDetach(ctx, sessionID, s)
 	}
 
 	return nil
+}
+
+// persistOnDetach writes the last-known scrollback + "detached" meta when the
+// final client leaves. It takes the per-session lifecycle lock and checks
+// s.IsLive() first: if the session died (self-exit/Kill) while we were
+// detaching, reapOnDone owns cleanup and persisting here would resurrect an
+// explicitly-closed terminal — so we skip. Lock order: sessionMu (outer) →
+// s.mu/flushMu → ring.mu.
+func (e *terminalEngine) persistOnDetach(ctx context.Context, sessionID string, s *session.Session) {
+	unlock := e.lockSession(sessionID)
+	defer unlock()
+
+	// Lost the race to reap (or to a suspend that swapped in a placeholder):
+	// the reap/suspend path owns the .buf/row — do not write.
+	if !s.IsLive() {
+		return
+	}
+	ws, wsOK := e.reg.WorkspaceID(sessionID)
+	if !wsOK {
+		return
+	}
+
+	now := time.Now()
+	e.mu.Lock()
+	e.lastActive[sessionID] = now
+	e.mu.Unlock()
+
+	dir, _ := e.storageDir(ctx, ws)
+	if dir != "" {
+		// Hold flushMu across snapshot+write so concurrent flush paths
+		// (cadence, suspend, shutdown) don't interleave writes.
+		fm := s.FlushMu()
+		fm.Lock()
+		snap := s.Snapshot()
+		writeErr := persistence.WriteBuf(dir, sessionID, snap)
+		fm.Unlock()
+		if writeErr != nil {
+			_, _ = fmt.Fprintf(os.Stderr, "terminal: detach: persist buf %s: %v\n", sessionID, writeErr)
+		}
+	}
+	e.saveMeta(ctx, SessionMeta{
+		SessionID:    sessionID,
+		WorkspaceID:  ws,
+		CWD:          s.CWD(),
+		Shell:        s.Shell(),
+		ProfileID:    s.ProfileID(),
+		State:        "detached",
+		LastActiveAt: now,
+	})
+	e.fireState(ctx, ws, sessionID, "detached")
 }
 
 // writePump reads from ch and forwards output frames to the WebSocket.
@@ -928,6 +968,54 @@ type sessionCandidate struct {
 	lastActive time.Time
 }
 
+// flushSessionOnce persists one session's dirty ring snapshot under the
+// per-session lifecycle lock. Acquiring e.lockSession(id) serialises this write
+// with reapOnDone (delete) and the detach-bookkeeping persist, and the
+// !s.IsLive() guard makes a flush that loses the race to reap a no-op — so a
+// cadence flush can never resurrect the .buf/row of an explicitly-closed
+// terminal. Lock order: sessionMu (outer) → s.mu/flushMu → ring.mu.
+func (e *terminalEngine) flushSessionOnce(ctx context.Context, id string) {
+	unlock := e.lockSession(id)
+	defer unlock()
+
+	s, ok := e.reg.Get(id)
+	if !ok || !s.IsLive() {
+		// Dead or gone: reapOnDone owns cleanup; never re-write its deleted .buf.
+		return
+	}
+	if !s.TakeDirty() {
+		return
+	}
+	ws, wsOK := e.reg.WorkspaceID(id)
+	if !wsOK {
+		return
+	}
+	dir, err := e.storageDir(ctx, ws)
+	if err != nil || dir == "" {
+		return
+	}
+	// Hold flushMu across snapshot+write so concurrent flush paths
+	// (detach-bookkeeping, suspend, shutdown) don't interleave.
+	fm := s.FlushMu()
+	fm.Lock()
+	snap := s.Snapshot()
+	writeErr := persistence.WriteBuf(dir, id, snap)
+	fm.Unlock()
+	if writeErr != nil {
+		_, _ = fmt.Fprintf(os.Stderr, "terminal: maintenance: flush buf %s: %v\n", id, writeErr)
+		return
+	}
+	e.saveMeta(ctx, SessionMeta{
+		SessionID:    id,
+		WorkspaceID:  ws,
+		CWD:          s.CWD(),
+		Shell:        s.Shell(),
+		ProfileID:    s.ProfileID(),
+		State:        s.State(),
+		LastActiveAt: e.getLastActive(id),
+	})
+}
+
 // runMaintenanceOnce performs the three-phase maintenance sweep in order:
 //
 //  1. Cadence flush — for each LIVE session with new output (dirty), persist
@@ -945,44 +1033,11 @@ type sessionCandidate struct {
 // RunMaintenanceOnceForTest so tests can drive it directly without waiting 10 s.
 func (e *terminalEngine) runMaintenanceOnce(ctx context.Context) {
 	// -------------------------------------------------------------------------
-	// Phase 1: cadence flush
+	// Phase 1: cadence flush — acquire/release the per-session lock per id so
+	// the sweep never holds it across the whole registry iteration.
 	// -------------------------------------------------------------------------
 	for _, id := range e.reg.List() {
-		s, ok := e.reg.Get(id)
-		if !ok || !s.IsLive() {
-			continue
-		}
-		if !s.TakeDirty() {
-			continue
-		}
-		ws, wsOK := e.reg.WorkspaceID(id)
-		if !wsOK {
-			continue
-		}
-		dir, err := e.storageDir(ctx, ws)
-		if err != nil || dir == "" {
-			continue
-		}
-		// FIX 2: hold flushMu across snapshot+write so concurrent flush paths
-		// (detach-bookkeeping, suspend, shutdown) don't interleave.
-		fm := s.FlushMu()
-		fm.Lock()
-		snap := s.Snapshot()
-		writeErr := persistence.WriteBuf(dir, id, snap)
-		fm.Unlock()
-		if writeErr != nil {
-			_, _ = fmt.Fprintf(os.Stderr, "terminal: maintenance: flush buf %s: %v\n", id, writeErr)
-			continue
-		}
-		e.saveMeta(ctx, SessionMeta{
-			SessionID:    id,
-			WorkspaceID:  ws,
-			CWD:          s.CWD(),
-			Shell:        s.Shell(),
-			ProfileID:    s.ProfileID(),
-			State:        s.State(),
-			LastActiveAt: e.getLastActive(id),
-		})
+		e.flushSessionOnce(ctx, id)
 	}
 
 	// -------------------------------------------------------------------------

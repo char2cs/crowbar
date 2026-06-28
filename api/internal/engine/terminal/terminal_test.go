@@ -24,18 +24,20 @@ type fakeMetaStore struct {
 	mu      sync.Mutex
 	saved   []terminal.SessionMeta
 	deleted []string
+	rows    map[string]terminal.SessionMeta // current live rows (upsert on Save, drop on Delete)
 	dir     string
 }
 
 func newFakeMetaStore(t *testing.T) *fakeMetaStore {
 	t.Helper()
-	return &fakeMetaStore{dir: t.TempDir()}
+	return &fakeMetaStore{dir: t.TempDir(), rows: make(map[string]terminal.SessionMeta)}
 }
 
 func (f *fakeMetaStore) Save(_ context.Context, meta terminal.SessionMeta) error {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	f.saved = append(f.saved, meta)
+	f.rows[meta.SessionID] = meta
 	return nil
 }
 
@@ -43,7 +45,28 @@ func (f *fakeMetaStore) Delete(_ context.Context, sessionID string) error {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	f.deleted = append(f.deleted, sessionID)
+	delete(f.rows, sessionID)
 	return nil
+}
+
+// liveRows returns a snapshot of the currently-persisted rows (Saved and not
+// subsequently Deleted), mirroring what RestorePersistedSessions would iterate.
+func (f *fakeMetaStore) liveRows() []terminal.SessionMeta {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	out := make([]terminal.SessionMeta, 0, len(f.rows))
+	for _, m := range f.rows {
+		out = append(out, m)
+	}
+	return out
+}
+
+// hasLiveRow reports whether a current (non-deleted) row exists for sid.
+func (f *fakeMetaStore) hasLiveRow(sid string) bool {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	_, ok := f.rows[sid]
+	return ok
 }
 
 func (f *fakeMetaStore) StorageDir(_ context.Context, _ string) (string, error) {

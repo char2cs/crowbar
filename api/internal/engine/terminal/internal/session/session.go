@@ -464,6 +464,13 @@ func (s *Session) shutdown() {
 		defer s.mu.Unlock()
 
 		s.exitCode = code
+		// Mark the session not-live the instant it dies by ANY path (self-exit,
+		// Kill, or Shutdown), not just Kill. IsLive() reads s.ptmx, so nilling it
+		// here makes the engine's reap/flush/detach liveness guards observe a dead
+		// session immediately — closing the resurrection race where a flush or
+		// detach-persist runs WriteBuf after reapOnDone deleted the .buf/row. The
+		// pump goroutine reads its own captured-local ptmx, so this is safe.
+		s.ptmx = nil
 		for cl := range s.clients {
 			close(cl.send)
 		}

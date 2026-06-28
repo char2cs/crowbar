@@ -14,6 +14,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/char2cs/crowbar/api/internal/engine/terminal"
+	"github.com/char2cs/crowbar/api/internal/engine/terminal/internal/persistence"
 )
 
 // TestRestore_ConcurrentAttach_NoOrphan verifies that N concurrent Attach calls
@@ -198,6 +199,224 @@ func TestKill_vs_Suspend_Serialized(t *testing.T) {
 			"round %d: OnSessionEnded must fire exactly once", round)
 
 		eng.Shutdown()
+	}
+}
+
+// gatedMetaStore wraps fakeMetaStore and lets a test park the FIRST StorageDir
+// call made after arm() until release() is called. This deterministically
+// places a flush/detach persist write AFTER reapOnDone's DeleteBuf+deleteMeta,
+// which is the exact interleaving that resurrects an explicitly-closed terminal
+// on the unfixed code.
+type gatedMetaStore struct {
+	*fakeMetaStore
+	gmu     sync.Mutex
+	armed   bool
+	blocked chan struct{}
+	release chan struct{}
+}
+
+func newGatedMetaStore(t *testing.T) *gatedMetaStore {
+	return &gatedMetaStore{fakeMetaStore: newFakeMetaStore(t)}
+}
+
+// arm primes the gate so the next StorageDir call parks until release().
+func (g *gatedMetaStore) arm() {
+	g.gmu.Lock()
+	g.armed = true
+	g.blocked = make(chan struct{})
+	g.release = make(chan struct{})
+	g.gmu.Unlock()
+}
+
+func (g *gatedMetaStore) blockedCh() chan struct{} {
+	g.gmu.Lock()
+	defer g.gmu.Unlock()
+	return g.blocked
+}
+
+func (g *gatedMetaStore) releaseGate() {
+	g.gmu.Lock()
+	r := g.release
+	g.gmu.Unlock()
+	close(r)
+}
+
+func (g *gatedMetaStore) StorageDir(ctx context.Context, ws string) (string, error) {
+	g.gmu.Lock()
+	if g.armed {
+		g.armed = false
+		b, r := g.blocked, g.release
+		g.gmu.Unlock()
+		close(b) // signal: a call has parked
+		<-r      // wait for the test to release us
+		return g.fakeMetaStore.StorageDir(ctx, ws)
+	}
+	g.gmu.Unlock()
+	return g.fakeMetaStore.StorageDir(ctx, ws)
+}
+
+// TestReap_NoResurrection_OnSelfExit verifies that when a shell self-exits (the
+// common `exit` path) while a client is attached, neither a concurrent
+// cadence-flush nor the detach-bookkeeping persist resurrects the just-deleted
+// .buf file or meta row.
+//
+// Root cause (unfixed code): session.shutdown() never nils ptmx, so IsLive()
+// stays true after a self-exit until reapOnDone runs reg.Remove. The cadence
+// flush and the detach-bookkeeping each do WriteBuf+saveMeta with NO
+// e.lockSession and NO liveness guard, so either can land its write AFTER
+// reapOnDone's DeleteBuf+deleteMeta — recreating the scrollback file and durable
+// row, which the next daemon start reloads as a ghost placeholder.
+//
+// This test makes the bad interleaving deterministic via gatedMetaStore: the
+// persist path is parked at StorageDir (after it has passed every liveness
+// check, holding e.lockSession under the fix) while the shell self-exits and
+// reapOnDone runs; the parked write is then released. On unfixed code reap has
+// already deleted everything, so the released write resurrects it. With the fix,
+// reapOnDone blocks on e.lockSession until the parked write finishes, then runs
+// its DeleteBuf+deleteMeta last — leaving NO trace.
+//
+// Run with: go test -race -count=10 -run TestReap_NoResurrection_OnSelfExit ./...
+func TestReap_NoResurrection_OnSelfExit(t *testing.T) {
+	cases := []struct {
+		name string
+		// park installs the late writer (flush or detach) so its StorageDir call
+		// parks on the gate; it returns a channel closed when the writer's
+		// goroutine has fully returned.
+		park func(t *testing.T, eng terminal.Engine, store *gatedMetaStore, conn *mockConn, sid string) <-chan struct{}
+	}{
+		{
+			name: "cadence-flush",
+			park: func(_ *testing.T, eng terminal.Engine, store *gatedMetaStore, _ *mockConn, _ string) <-chan struct{} {
+				done := make(chan struct{})
+				store.arm()
+				go func() {
+					defer close(done)
+					terminal.RunMaintenanceOnceForTest(eng, context.Background())
+				}()
+				return done
+			},
+		},
+		{
+			name: "detach-bookkeeping",
+			park: func(_ *testing.T, _ terminal.Engine, store *gatedMetaStore, conn *mockConn, _ string) <-chan struct{} {
+				done := make(chan struct{})
+				store.arm()
+				// Closing the conn unblocks readPump → Detach → the
+				// detach-bookkeeping persist parks on the gate.
+				conn.Close()
+				close(done) // the Attach goroutine itself is joined separately
+				return done
+			},
+		},
+	}
+
+	for _, tc := range cases {
+		tc := tc
+		t.Run(tc.name, func(t *testing.T) {
+			eng := terminal.New()
+			terminal.StopMaintenanceForTest(eng)
+			ctx := context.Background()
+			store := newGatedMetaStore(t)
+			eng.SetMetaStore(store)
+
+			sid, err := eng.Create(ctx, "ws-reap", store.dir, nil)
+			require.NoError(t, err)
+
+			// Wait for the shell to become idle (prompt drawn, ready for input).
+			waitUntil(t, 15*time.Second, func() bool { return terminal.IsIdleForTest(eng, sid) },
+				"session never became idle")
+
+			// Attach a real client and wait until the session is active.
+			conn := newMockConn()
+			attachDone := make(chan struct{})
+			go func() {
+				defer close(attachDone)
+				_ = eng.Attach(ctx, sid, conn)
+			}()
+			waitUntil(t, 10*time.Second, func() bool {
+				state, ok := eng.StateOf(sid)
+				return ok && state == "active"
+			}, "client never attached")
+
+			// Drive output so the ring is dirty (so the cadence flush persists).
+			require.NoError(t, eng.Write(ctx, sid, []byte("echo reap-probe-line\n")))
+			time.Sleep(80 * time.Millisecond)
+
+			// Install the late writer; it parks at StorageDir holding the
+			// per-session lock (under the fix), having passed all liveness checks.
+			writerDone := tc.park(t, eng, store, conn, sid)
+
+			// Wait until the writer is actually parked on the gate.
+			select {
+			case <-store.blockedCh():
+			case <-time.After(10 * time.Second):
+				t.Fatal("late writer never parked on StorageDir gate")
+			}
+
+			// Now self-exit the shell. reapOnDone fires: on unfixed code it runs
+			// to completion (DeleteBuf+deleteMeta); under the fix it blocks on
+			// e.lockSession held by the parked writer.
+			_ = eng.Write(ctx, sid, []byte("exit\n"))
+
+			// Give the shell time to exit and reapOnDone its chance to run (or to
+			// block on the lock). 400ms >> shell-exit + reap latency.
+			time.Sleep(400 * time.Millisecond)
+
+			// Release the parked write. On unfixed code this WriteBuf+saveMeta
+			// lands after reap already deleted everything → resurrection.
+			store.releaseGate()
+			<-writerDone
+
+			// Wait until the session is reaped out of the registry.
+			waitUntil(t, 10*time.Second, func() bool { return !eng.SessionExists(ctx, sid) },
+				"session not reaped from registry")
+			<-attachDone
+			conn.Close()
+
+			// Settle, then assert the explicitly-closed terminal left NO trace.
+			time.Sleep(150 * time.Millisecond)
+
+			assert.False(t, eng.SessionExists(ctx, sid),
+				"registry must not contain the reaped session")
+
+			buf, readErr := persistence.ReadBuf(store.dir, sid)
+			require.NoError(t, readErr)
+			assert.Nil(t, buf,
+				".buf must stay deleted — a flush/detach write resurrected it")
+
+			assert.False(t, store.hasLiveRow(sid),
+				"meta row must stay deleted — a flush/detach saveMeta resurrected it")
+
+			// A fresh daemon's RestorePersistedSessions must NOT bring it back.
+			fresh := terminal.New()
+			terminal.StopMaintenanceForTest(fresh)
+			fresh.SetMetaStore(store.fakeMetaStore)
+			for _, m := range store.liveRows() {
+				sb, _ := persistence.ReadBuf(store.dir, m.SessionID)
+				_ = fresh.LoadPlaceholder(ctx, m, sb)
+			}
+			assert.False(t, fresh.SessionExists(ctx, sid),
+				"fresh-engine restore resurrected an explicitly-closed terminal")
+
+			fresh.Shutdown()
+			eng.Shutdown()
+		})
+	}
+}
+
+// waitUntil polls cond every 10ms until it is true or the timeout elapses.
+func waitUntil(t *testing.T, timeout time.Duration, cond func() bool, msg string) {
+	t.Helper()
+	deadline := time.After(timeout)
+	for {
+		if cond() {
+			return
+		}
+		select {
+		case <-deadline:
+			t.Fatal(msg)
+		case <-time.After(10 * time.Millisecond):
+		}
 	}
 }
 
