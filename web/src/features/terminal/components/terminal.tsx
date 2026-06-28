@@ -2,6 +2,7 @@ import { terminalCreate, terminalListLive, terminalResize } from '@/lib/crowbar-
 import { getActiveWorkspaceId } from '@/features/workspace/stores/workspace-store-registry'
 import { workspaceBase } from '@/lib/workspace-scope-url'
 import { resolveTerminalConnection } from './resolve-terminal-connection'
+import { saveReconnect } from '../lib/terminal-reconnect-map'
 import type { ISearchOptions } from '@xterm/addon-search'
 import { Terminal } from '@xterm/xterm'
 import React, { useCallback, useEffect, useRef, useState } from 'react'
@@ -334,6 +335,13 @@ export const XtermTerminal: React.FC<XtermTerminalProps> = ({
         currentDirectory: targetDirectory ?? undefined,
         ...(effectiveRemoteConnectionId ? { remoteConnectionId: effectiveRemoteConnectionId } : {}),
       })
+
+      // Persist the tab→connectionId mapping now (not only on workspace switch).
+      // Without this, if the user stays on the same workspace and the daemon
+      // restarts, loadReconnect() returns null and resolve creates a fresh shell
+      // instead of re-attaching the restored session. Idempotent — overwrites
+      // with the current (correct) connectionId on every init.
+      saveReconnect(wsId, sessionId, activeConnectionId)
 
       // Thread the resolver's reused decision into useTerminalConnection so
       // initial-command resend and other first-connect side-effects are correctly

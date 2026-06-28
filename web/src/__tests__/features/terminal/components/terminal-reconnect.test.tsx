@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest'
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 
 // vi.hoisted vars are initialized before vi.mock factories run (hoisting-safe).
 const mocks = vi.hoisted(() => {
@@ -28,6 +28,11 @@ beforeEach(() => {
   listSpy.mockClear()
   localStorage.clear()
   mocks.setHasTransport(true)
+  vi.useFakeTimers()
+})
+
+afterEach(() => {
+  vi.useRealTimers()
 })
 
 describe('resolveTerminalConnection', () => {
@@ -85,5 +90,79 @@ describe('resolveTerminalConnection', () => {
     })
     expect(createSpy).toHaveBeenCalledOnce()
     expect(r).toEqual({ connectionId: 'fresh-conn', reused: false })
+  })
+})
+
+describe('Fix B — empty live-session list retry', () => {
+  it('retries once after 400ms on an empty list and re-attaches when found on retry', async () => {
+    saveReconnect('ws-1', 'tab-1', 'conn-1')
+    // First call: empty (daemon still loading sessions); second call: conn-1 is there.
+    listSpy
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce(['conn-1'])
+
+    const promise = resolveTerminalConnection({
+      workspaceId: 'ws-1', tabSessionId: 'tab-1', storeConnectionId: undefined,
+      base: '/base', listLiveSessions: listSpy, createTerminal: createSpy,
+    })
+    // Fire the 400ms retry timer so the second listLiveSessions call proceeds.
+    await vi.advanceTimersByTimeAsync(400)
+    const r = await promise
+
+    expect(listSpy).toHaveBeenCalledTimes(2)
+    expect(mocks.attachSpy).toHaveBeenCalledWith('conn-1', '/base')
+    expect(r).toEqual({ connectionId: 'conn-1', reused: true })
+    expect(createSpy).not.toHaveBeenCalled()
+  })
+
+  it('creates fresh when retry also returns empty (id permanently absent)', async () => {
+    saveReconnect('ws-1', 'tab-1', 'conn-1')
+    // Both calls return empty — session is truly gone.
+    listSpy.mockResolvedValue([])
+
+    const promise = resolveTerminalConnection({
+      workspaceId: 'ws-1', tabSessionId: 'tab-1', storeConnectionId: undefined,
+      base: '/base', listLiveSessions: listSpy, createTerminal: createSpy,
+    })
+    await vi.advanceTimersByTimeAsync(400)
+    const r = await promise
+
+    expect(listSpy).toHaveBeenCalledTimes(2)
+    expect(createSpy).toHaveBeenCalledOnce()
+    expect(r).toEqual({ connectionId: 'fresh-conn', reused: false })
+    expect(mocks.attachSpy).not.toHaveBeenCalled()
+  })
+
+  it('does NOT retry when the first live list is non-empty but missing the persisted id', async () => {
+    // Non-empty list where the persisted id is simply absent → stale, no retry.
+    saveReconnect('ws-1', 'tab-1', 'dead-conn')
+    listSpy.mockResolvedValueOnce(['other-conn'])
+
+    const promise = resolveTerminalConnection({
+      workspaceId: 'ws-1', tabSessionId: 'tab-1', storeConnectionId: undefined,
+      base: '/base', listLiveSessions: listSpy, createTerminal: createSpy,
+    })
+    await vi.advanceTimersByTimeAsync(400)  // timer should never fire, but safe to advance
+    const r = await promise
+
+    expect(listSpy).toHaveBeenCalledTimes(1)  // no second call
+    expect(createSpy).toHaveBeenCalledOnce()
+    expect(r).toEqual({ connectionId: 'fresh-conn', reused: false })
+  })
+})
+
+describe('Fix D — branch-1 store id not in daemon list', () => {
+  it('creates fresh when storeConnectionId has no transport and daemon list does NOT contain it', async () => {
+    // Validates Fix D: branch 1 should fall through to createTerminal when the
+    // stored connectionId is not in the live sessions list.
+    mocks.setHasTransport(false)
+    listSpy.mockResolvedValueOnce(['other-conn'])  // non-empty but stored id absent
+    const r = await resolveTerminalConnection({
+      workspaceId: 'ws-1', tabSessionId: 'tab-1', storeConnectionId: 'dead-store-conn',
+      base: '/base', listLiveSessions: listSpy, createTerminal: createSpy,
+    })
+    expect(createSpy).toHaveBeenCalledOnce()
+    expect(r).toEqual({ connectionId: 'fresh-conn', reused: false })
+    expect(mocks.attachSpy).not.toHaveBeenCalled()
   })
 })

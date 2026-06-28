@@ -34,7 +34,14 @@ export async function resolveTerminalConnection(
 
   const persisted = loadReconnect(args.workspaceId, args.tabSessionId)
   if (persisted) {
-    const live = await args.listLiveSessions().catch(() => [] as string[])
+    let live = await args.listLiveSessions().catch(() => [] as string[])
+    // A completely empty live-session list right after a daemon restart can be
+    // transient (backend loads restored sessions asynchronously in some builds).
+    // Retry once after a short delay before concluding the persisted id is stale.
+    if (live.length === 0) {
+      await new Promise<void>((resolve) => setTimeout(resolve, 400))
+      live = await args.listLiveSessions().catch(() => [] as string[])
+    }
     if (live.includes(persisted)) {
       await terminalAttach(persisted, args.base)
       return { connectionId: persisted, reused: true }
