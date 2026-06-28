@@ -169,13 +169,18 @@ func TestMaintenance_CadenceFlush(t *testing.T) {
 	savesAfter := countSavedForSession(store, sid)
 	assert.Greater(t, savesAfter, savesBefore, "meta must be saved on first cadence flush")
 
-	// Record the state before the second run.
-	savesAfterFirst := savesAfter
+	// Drain any straggler prompt output the shell may still emit (especially slow
+	// under -race), and flush it, so the session reliably reaches dirty=false
+	// BEFORE the assertion run. Without this, a late prompt chunk sets dirty=true
+	// between the two runs and the "no flush when not dirty" assertion flakes.
+	waitForSettled(t, eng, sid, 5*time.Second)
+	terminal.RunMaintenanceOnceForTest(eng, ctx) // flush any stragglers, clearing dirty
+	waitForSettled(t, eng, sid, 5*time.Second)
+	savesQuiet := countSavedForSession(store, sid)
 
-	// Second maintenance run — dirty=false (cleared by first TakeDirty) → no flush.
+	// With dirty=false and the shell idle, a maintenance run must NOT flush again.
 	terminal.RunMaintenanceOnceForTest(eng, ctx)
-	savesAfterSecond := countSavedForSession(store, sid)
-	assert.Equal(t, savesAfterFirst, savesAfterSecond,
+	assert.Equal(t, savesQuiet, countSavedForSession(store, sid),
 		"no new meta save when session has no new output (dirty=false)")
 
 	require.NoError(t, eng.Kill(ctx, sid))
