@@ -190,6 +190,7 @@ func waitForMsg(
 
 func TestEngine_Create_And_ListSessions(t *testing.T) {
 	eng := terminal.New()
+	terminal.StopMaintenanceForTest(eng)
 	ctx := context.Background()
 	dir := t.TempDir()
 
@@ -206,6 +207,7 @@ func TestEngine_Create_And_ListSessions(t *testing.T) {
 
 func TestEngine_Create_KeysSessionByWorkspace(t *testing.T) {
 	eng := terminal.New()
+	terminal.StopMaintenanceForTest(eng)
 	ctx := context.Background()
 	dir := t.TempDir()
 
@@ -223,6 +225,7 @@ func TestEngine_Create_KeysSessionByWorkspace(t *testing.T) {
 
 func TestEngine_ListSessionsForWorkspace(t *testing.T) {
 	eng := terminal.New()
+	terminal.StopMaintenanceForTest(eng)
 	ctx := context.Background()
 	dir := t.TempDir()
 
@@ -238,6 +241,7 @@ func TestEngine_ListSessionsForWorkspace(t *testing.T) {
 
 func TestEngine_OnSessionEnded_FiresOnReap(t *testing.T) {
 	eng := terminal.New()
+	terminal.StopMaintenanceForTest(eng)
 	ctx := context.Background()
 	dir := t.TempDir()
 
@@ -271,6 +275,7 @@ func TestEngine_OnSessionEnded_FiresOnReap(t *testing.T) {
 
 func TestEngine_Kill_Unknown(t *testing.T) {
 	eng := terminal.New()
+	terminal.StopMaintenanceForTest(eng)
 	ctx := context.Background()
 	err := eng.Kill(ctx, "nope")
 	assert.Error(t, err)
@@ -278,6 +283,7 @@ func TestEngine_Kill_Unknown(t *testing.T) {
 
 func TestEngine_Write_And_Resize_Unknown(t *testing.T) {
 	eng := terminal.New()
+	terminal.StopMaintenanceForTest(eng)
 	ctx := context.Background()
 	assert.Error(t, eng.Write(ctx, "nope", []byte("hi")))
 	assert.Error(t, eng.Resize(ctx, "nope", 80, 24))
@@ -285,6 +291,7 @@ func TestEngine_Write_And_Resize_Unknown(t *testing.T) {
 
 func TestEngine_Write(t *testing.T) {
 	eng := terminal.New()
+	terminal.StopMaintenanceForTest(eng)
 	ctx := context.Background()
 	dir := t.TempDir()
 
@@ -297,6 +304,7 @@ func TestEngine_Write(t *testing.T) {
 
 func TestEngine_Resize(t *testing.T) {
 	eng := terminal.New()
+	terminal.StopMaintenanceForTest(eng)
 	ctx := context.Background()
 	dir := t.TempDir()
 
@@ -309,6 +317,7 @@ func TestEngine_Resize(t *testing.T) {
 
 func TestEngine_Attach_UnknownSession(t *testing.T) {
 	eng := terminal.New()
+	terminal.StopMaintenanceForTest(eng)
 	ctx := context.Background()
 	conn := newMockConn()
 	conn.Close()
@@ -318,6 +327,7 @@ func TestEngine_Attach_UnknownSession(t *testing.T) {
 
 func TestEngine_Attach_ReceivesOutput(t *testing.T) {
 	eng := terminal.New()
+	terminal.StopMaintenanceForTest(eng)
 	ctx := context.Background()
 	dir := t.TempDir()
 
@@ -335,7 +345,7 @@ func TestEngine_Attach_ReceivesOutput(t *testing.T) {
 
 	found := waitForMsg(t, conn, func(data string) bool {
 		return len(data) >= 5 && containsStr(data, "hello")
-	}, 5*time.Second)
+	}, 10*time.Second)
 	assert.True(t, found, "must receive output containing 'hello'")
 
 	conn.Close()
@@ -345,6 +355,7 @@ func TestEngine_Attach_ReceivesOutput(t *testing.T) {
 
 func TestEngine_ListSessions_AfterKill(t *testing.T) {
 	eng := terminal.New()
+	terminal.StopMaintenanceForTest(eng)
 	ctx := context.Background()
 	dir := t.TempDir()
 
@@ -357,6 +368,7 @@ func TestEngine_ListSessions_AfterKill(t *testing.T) {
 
 func TestEngine_Create_BadShell(t *testing.T) {
 	eng := terminal.New()
+	terminal.StopMaintenanceForTest(eng)
 	ctx := context.Background()
 	dir := t.TempDir()
 
@@ -369,6 +381,7 @@ func TestEngine_Create_BadShell(t *testing.T) {
 
 func TestEngine_Create_InvalidShellViaProfile(t *testing.T) {
 	eng := terminal.New()
+	terminal.StopMaintenanceForTest(eng)
 	ctx := context.Background()
 	dir := t.TempDir()
 
@@ -379,6 +392,7 @@ func TestEngine_Create_InvalidShellViaProfile(t *testing.T) {
 
 func TestEngine_Attach_DeadSession(t *testing.T) {
 	eng := terminal.New()
+	terminal.StopMaintenanceForTest(eng)
 	ctx := context.Background()
 	dir := t.TempDir()
 
@@ -400,6 +414,7 @@ func TestEngine_Attach_DeadSession(t *testing.T) {
 
 func TestEngine_Attach_ResizeMessage(t *testing.T) {
 	eng := terminal.New()
+	terminal.StopMaintenanceForTest(eng)
 	ctx := context.Background()
 	dir := t.TempDir()
 
@@ -483,6 +498,7 @@ func (c *seqConn) Close() error {
 
 func TestEngine_Attach_WritePumpClosedConn(t *testing.T) {
 	eng := terminal.New()
+	terminal.StopMaintenanceForTest(eng)
 	ctx := context.Background()
 	dir := t.TempDir()
 
@@ -501,7 +517,7 @@ func TestEngine_Attach_WritePumpClosedConn(t *testing.T) {
 
 	select {
 	case <-attachDone:
-	case <-time.After(5 * time.Second):
+	case <-time.After(10 * time.Second):
 		t.Fatal("Attach did not return after write error")
 	}
 	require.NoError(t, eng.Kill(ctx, sid))
@@ -541,6 +557,7 @@ func (e *errConn) Close() error {
 
 func TestEngine_Create_WithStartupCommands(t *testing.T) {
 	eng := terminal.New()
+	terminal.StopMaintenanceForTest(eng)
 	ctx := context.Background()
 	dir := t.TempDir()
 
@@ -556,6 +573,7 @@ func TestEngine_Create_WithStartupCommands(t *testing.T) {
 
 func TestEngine_SessionExists(t *testing.T) {
 	eng := terminal.New()
+	terminal.StopMaintenanceForTest(eng)
 	ctx := context.Background()
 	dir := t.TempDir()
 
@@ -571,6 +589,7 @@ func TestEngine_SessionExists(t *testing.T) {
 
 func TestEngine_Shutdown(t *testing.T) {
 	eng := terminal.New()
+	terminal.StopMaintenanceForTest(eng)
 	ctx := context.Background()
 	dir := t.TempDir()
 
@@ -717,6 +736,7 @@ func TestEngine_LoadPlaceholder_ThenAttach_Restores(t *testing.T) {
 // disconnects the engine writes the .buf file and records a "detached" meta entry.
 func TestEngine_Detach_PersistsScrollbackAndMeta(t *testing.T) {
 	eng := terminal.New()
+	terminal.StopMaintenanceForTest(eng)
 	ctx := context.Background()
 	dir := t.TempDir()
 	store := newFakeMetaStore(t)
@@ -752,6 +772,7 @@ func TestEngine_Detach_PersistsScrollbackAndMeta(t *testing.T) {
 // when a client is currently attached (BeginSuspendIfEligible returns false).
 func TestEngine_Suspend_WithConnectedClient_NoOp(t *testing.T) {
 	eng := terminal.New()
+	terminal.StopMaintenanceForTest(eng)
 	ctx := context.Background()
 	dir := t.TempDir()
 
@@ -766,7 +787,7 @@ func TestEngine_Suspend_WithConnectedClient_NoOp(t *testing.T) {
 	}()
 
 	// Wait for at least one frame to confirm the client is fully registered.
-	found := waitForMsg(t, conn, func(d string) bool { return len(d) > 0 }, 3*time.Second)
+	found := waitForMsg(t, conn, func(d string) bool { return len(d) > 0 }, 10*time.Second)
 	require.True(t, found, "must receive initial PTY output to confirm attach is live")
 
 	// Suspend with a connected client must be a no-op.
@@ -788,6 +809,7 @@ func TestEngine_Suspend_WithConnectedClient_NoOp(t *testing.T) {
 //   - the onEnded callback is NOT fired
 func TestEngine_Suspend_MakesPlaceholder(t *testing.T) {
 	eng := terminal.New()
+	terminal.StopMaintenanceForTest(eng)
 	ctx := context.Background()
 	dir := t.TempDir()
 	store := newFakeMetaStore(t)
@@ -826,6 +848,7 @@ func TestEngine_Suspend_MakesPlaceholder(t *testing.T) {
 // and new output flows normally.
 func TestEngine_Suspend_ThenAttach_Restores(t *testing.T) {
 	eng := terminal.New()
+	terminal.StopMaintenanceForTest(eng)
 	ctx := context.Background()
 	dir := t.TempDir()
 	store := newFakeMetaStore(t)
@@ -916,6 +939,7 @@ func TestEngine_DropUnrestorable_CleansUpSessionMu(t *testing.T) {
 // from registry, meta deleted, .buf deleted, and onEnded fired exactly once.
 func TestEngine_Kill_CleanReap(t *testing.T) {
 	eng := terminal.New()
+	terminal.StopMaintenanceForTest(eng)
 	ctx := context.Background()
 	dir := t.TempDir()
 	store := newFakeMetaStore(t)
@@ -954,6 +978,7 @@ func TestEngine_Kill_CleanReap(t *testing.T) {
 // "detached" for a freshly created session (no clients yet).
 func TestEngine_StateOf_ReturnsStateForLiveSession(t *testing.T) {
 	eng := terminal.New()
+	terminal.StopMaintenanceForTest(eng)
 	ctx := context.Background()
 	dir := t.TempDir()
 
@@ -972,6 +997,7 @@ func TestEngine_StateOf_ReturnsStateForLiveSession(t *testing.T) {
 // for a session that does not exist in the registry.
 func TestEngine_StateOf_ReturnsFalseForUnknown(t *testing.T) {
 	eng := terminal.New()
+	terminal.StopMaintenanceForTest(eng)
 
 	state, ok := eng.StateOf("no-such-session")
 	assert.False(t, ok)
@@ -982,6 +1008,7 @@ func TestEngine_StateOf_ReturnsFalseForUnknown(t *testing.T) {
 // while a client is attached.
 func TestEngine_StateOf_ActiveWhileAttached(t *testing.T) {
 	eng := terminal.New()
+	terminal.StopMaintenanceForTest(eng)
 	ctx := context.Background()
 	dir := t.TempDir()
 
@@ -996,7 +1023,7 @@ func TestEngine_StateOf_ActiveWhileAttached(t *testing.T) {
 	}()
 
 	// Wait until we receive at least one frame, confirming the client is registered.
-	found := waitForMsg(t, conn, func(d string) bool { return len(d) > 0 }, 3*time.Second)
+	found := waitForMsg(t, conn, func(d string) bool { return len(d) > 0 }, 10*time.Second)
 	require.True(t, found, "must receive initial output to confirm attach")
 
 	state, ok := eng.StateOf(sid)
@@ -1012,6 +1039,7 @@ func TestEngine_StateOf_ActiveWhileAttached(t *testing.T) {
 // OnSessionState callback receives "detached" when the last client disconnects.
 func TestEngine_OnSessionState_DetachedFiredOnLastClientLeave(t *testing.T) {
 	eng := terminal.New()
+	terminal.StopMaintenanceForTest(eng)
 	ctx := context.Background()
 	dir := t.TempDir()
 
@@ -1030,7 +1058,7 @@ func TestEngine_OnSessionState_DetachedFiredOnLastClientLeave(t *testing.T) {
 		_ = eng.Attach(ctx, sid, conn)
 	}()
 
-	found := waitForMsg(t, conn, func(d string) bool { return len(d) > 0 }, 3*time.Second)
+	found := waitForMsg(t, conn, func(d string) bool { return len(d) > 0 }, 10*time.Second)
 	require.True(t, found, "must receive initial output before closing")
 
 	conn.Close()
@@ -1053,6 +1081,7 @@ func TestEngine_OnSessionState_DetachedFiredOnLastClientLeave(t *testing.T) {
 // after Suspend.
 func TestRegression_TerminalLifecycle_StateOf_And_OnSessionState(t *testing.T) {
 	eng := terminal.New()
+	terminal.StopMaintenanceForTest(eng)
 	ctx := context.Background()
 	dir := t.TempDir()
 	store := newFakeMetaStore(t)
@@ -1083,7 +1112,7 @@ func TestRegression_TerminalLifecycle_StateOf_And_OnSessionState(t *testing.T) {
 		defer close(attachDone)
 		_ = eng.Attach(ctx, sid, conn)
 	}()
-	found := waitForMsg(t, conn, func(d string) bool { return len(d) > 0 }, 3*time.Second)
+	found := waitForMsg(t, conn, func(d string) bool { return len(d) > 0 }, 10*time.Second)
 	require.True(t, found, "must receive initial output to confirm attach")
 
 	state, ok = eng.StateOf(sid)

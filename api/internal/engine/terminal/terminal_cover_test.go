@@ -71,6 +71,7 @@ func TestAttach_PlaceholderWithBadShell_ReturnsError(t *testing.T) {
 	ph := session.NewPlaceholder("ph-bad", "/nonexistent/shell/binary", t.TempDir(), "", nil)
 
 	eng := New().(*terminalEngine)
+	StopMaintenanceForTest(eng)
 	eng.reg.Add("ph-bad", "ws-bad", ph)
 
 	err := eng.Attach(context.Background(), "ph-bad", &deadConn{})
@@ -81,6 +82,7 @@ func TestAttach_PlaceholderWithBadShell_ReturnsError(t *testing.T) {
 // be a no-op (and must not record the session as ended) when no callback is set.
 func TestFireEnded_NilCallback(t *testing.T) {
 	eng := New().(*terminalEngine)
+	StopMaintenanceForTest(eng)
 	eng.fireEnded(context.Background(), "ws", "s1", 0)
 	assert.NotContains(t, eng.endedOnce, "s1")
 }
@@ -89,6 +91,7 @@ func TestFireEnded_NilCallback(t *testing.T) {
 // for the same session id must not re-invoke the callback.
 func TestFireEnded_FiresExactlyOnce(t *testing.T) {
 	eng := New().(*terminalEngine)
+	StopMaintenanceForTest(eng)
 	var calls int
 	eng.OnSessionEnded(func(_ context.Context, _, _ string, _ int) { calls++ })
 
@@ -102,6 +105,7 @@ func TestFireEnded_FiresExactlyOnce(t *testing.T) {
 // no-op when no OnSessionState callback is registered.
 func TestFireState_NilCallback(t *testing.T) {
 	eng := New().(*terminalEngine)
+	StopMaintenanceForTest(eng)
 	// Must not panic.
 	eng.fireState(context.Background(), "ws", "s1", "detached")
 }
@@ -110,6 +114,7 @@ func TestFireState_NilCallback(t *testing.T) {
 // with the correct arguments.
 func TestFireState_FiresCallback(t *testing.T) {
 	eng := New().(*terminalEngine)
+	StopMaintenanceForTest(eng)
 	type call struct {
 		ws    string
 		sid   string

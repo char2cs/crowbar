@@ -404,6 +404,9 @@ func TestMaintenance_GlobalForceLastResort(t *testing.T) {
 // runMaintenanceOnce call do not panic.
 func TestMaintenance_ShutdownStopsGoroutine(t *testing.T) {
 	eng := terminal.New()
+	// Note: we do NOT call StopMaintenanceForTest here because this test
+	// specifically exercises that Shutdown() stops the maintenance goroutine.
+	// However Shutdown() is called immediately so the goroutine window is tiny.
 	ctx := context.Background()
 
 	// Shutdown must return promptly.
@@ -435,6 +438,7 @@ func TestMaintenance_ShutdownStopsGoroutine(t *testing.T) {
 // creates, suspensions, and kills.
 func TestEngine_Stats(t *testing.T) {
 	eng := terminal.New()
+	terminal.StopMaintenanceForTest(eng)
 	ctx := context.Background()
 	dir := t.TempDir()
 	store := newFakeMetaStore(t)

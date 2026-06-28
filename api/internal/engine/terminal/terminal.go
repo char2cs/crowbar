@@ -1332,6 +1332,15 @@ func (e *terminalEngine) Shutdown() {
 		if !ok {
 			continue
 		}
+		// Acquire the per-session lifecycle lock so that a session that
+		// self-exits at the exact shutdown instant cannot race reapOnDone's
+		// DeleteBuf+deleteMeta against Shutdown's WriteBuf+saveMeta. Lock is
+		// released before the next iteration — we never hold it across the
+		// whole loop. Each inner operation is non-blocking so there is no risk
+		// of deadlock: reapOnDone waits on <-s.Done() BEFORE acquiring the
+		// lock, and the session's Done channel is closed only by s.Kill() which
+		// Shutdown calls AFTER releasing this lock.
+		unlock := e.lockSession(id)
 		if s.IsLive() {
 			ws, wsOK := e.reg.WorkspaceID(id)
 			if wsOK {
@@ -1366,5 +1375,6 @@ func (e *terminalEngine) Shutdown() {
 		// d) Remove from registry and kill (process dies; scrollback survives).
 		e.reg.Remove(id)
 		s.Kill()
+		unlock()
 	}
 }

@@ -277,8 +277,9 @@ export async function terminalListLive(base: string): Promise<string[]> {
 // an unsubscribe function. Multiple subscribers are supported but a single
 // mounted terminal tab is the normal case.
 //
-// Tauri path: channel-drop detection is not yet wired on the Rust side.
-// The browser path fires reliably on ws.onclose while the entry is mapped.
+// Tauri path: channel-drop is wired — Rust emits `terminal:transport-dropped`
+// after its reader loop exits (commit 8d47530); openTauriChannel subscribes and
+// fires the registered callbacks. The browser path fires on ws.onclose instead.
 export function onTransportDrop(connectionId: string, cb: () => void): () => void {
   let cbs = dropCallbacks.get(connectionId)
   if (!cbs) {

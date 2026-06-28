@@ -29,6 +29,7 @@ import (
 //     as suspended placeholders.
 func TestShutdown_FlushPersistNoBufDelete(t *testing.T) {
 	eng := terminal.New()
+	terminal.StopMaintenanceForTest(eng)
 	ctx := context.Background()
 	store := newFakeMetaStore(t)
 	eng.SetMetaStore(store)
