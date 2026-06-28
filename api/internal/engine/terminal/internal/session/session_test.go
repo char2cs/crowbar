@@ -490,6 +490,40 @@ func TestNewPlaceholder(t *testing.T) {
 	}
 }
 
+// TestNewPlaceholder_RingCapLazySized verifies that a placeholder's ring buffer
+// is lazily sized to its scrollback length rather than the full 256 KB live
+// budget — the prior unconditional allocation was the 23 GB suspended-placeholder
+// memory-growth class. RingCap must report the actual (small) capacity.
+func TestNewPlaceholder_RingCapLazySized(t *testing.T) {
+	scrollback := []byte("some prior scrollback bytes")
+	s := NewPlaceholder("ph-cap", "/bin/sh", "/tmp", "", scrollback)
+
+	require.Equal(t, len(scrollback), s.RingCap(),
+		"placeholder ring must be sized to scrollback length, not defaultRingSize")
+	require.NotEqual(t, defaultRingSize, s.RingCap(),
+		"placeholder must NOT allocate a full 256 KB ring")
+	require.Equal(t, scrollback, s.Snapshot(),
+		"placeholder must still replay the full scrollback")
+}
+
+// TestNewPlaceholder_RingCapEmptyScrollback verifies the small floor: an empty
+// scrollback still yields a tiny (>=1) ring rather than a zero-length one.
+func TestNewPlaceholder_RingCapEmptyScrollback(t *testing.T) {
+	s := NewPlaceholder("ph-empty", "/bin/sh", "/tmp", "", nil)
+	require.GreaterOrEqual(t, s.RingCap(), 1)
+	require.Less(t, s.RingCap(), defaultRingSize)
+}
+
+// TestLiveSession_RingCapFullBudget verifies live sessions still pin the full
+// default ring budget (so byte-ceiling accounting stays correct for them).
+func TestLiveSession_RingCapFullBudget(t *testing.T) {
+	dir := t.TempDir()
+	s, err := New("sid-cap", "/bin/sh", dir, "", os.Environ())
+	require.NoError(t, err)
+	t.Cleanup(s.Kill)
+	require.Equal(t, defaultRingSize, s.RingCap())
+}
+
 // TestOSC7_CWD_Update pumps two OSC 7 sequences through pumpStep and verifies
 // that CWD() returns the path from the LAST sequence.
 func TestOSC7_CWD_Update(t *testing.T) {

@@ -210,6 +210,14 @@ var (
 	maxTotalRingBytes     = int64(256) << 20 // global hard ceiling (~ring bytes)
 )
 
+// MaxTotalSessions returns the global hard ceiling on the number of concurrent
+// sessions (live plus suspended placeholders). RestorePersistedSessions uses it
+// at daemon startup to cap how many persisted placeholders it reloads so a large
+// on-disk backlog cannot blow the in-memory ceiling on restart.
+func MaxTotalSessions() int {
+	return maxTotalSessions
+}
+
 // New returns a new Engine.
 func New() Engine {
 	e := &terminalEngine{
@@ -543,7 +551,19 @@ func (e *terminalEngine) restore(ctx context.Context, sid string) error {
 		scrollback, _ = persistence.ReadBuf(dir, sid)
 	}
 
+	// CWD fallback: the saved working directory may have been deleted (worktree
+	// removed, repo cleaned) since suspend. Spawning with a non-existent cmd.Dir
+	// fails, which — left unhandled — would strand the placeholder and make every
+	// future Attach retry the same doomed spawn forever. Stat first and fall back
+	// to the user's home directory, noting the substitution in the scrollback.
+	cwd, scrollback = restoreCWD(cwd, scrollback)
+
 	if _, err := e.spawn(sid, ws, shell, cwd, profileID, scrollback); err != nil {
+		// Un-restorable even after the CWD fallback (e.g. the shell binary itself
+		// is gone). Never leave the placeholder in the registry: drop it, delete
+		// its persisted state, and fire ended so the FE removes the dead tab
+		// instead of looping on Attach.
+		e.dropUnrestorable(ctx, ws, sid, dir)
 		return fmt.Errorf("terminal: restore: spawn: %w", err)
 	}
 
@@ -559,6 +579,64 @@ func (e *terminalEngine) restore(ctx context.Context, sid string) error {
 	e.fireState(ctx, ws, sid, "detached")
 
 	return nil
+}
+
+// restoreCWD returns a working directory that is guaranteed to exist for a
+// restore spawn. If the saved cwd still resolves to a directory it is returned
+// unchanged; otherwise it falls back to the user's home directory (or "" so the
+// shell defaults) and appends a one-line notice to the restored scrollback so
+// the user can see why their previous directory was not used.
+func restoreCWD(
+	cwd string,
+	scrollback []byte,
+) (string, []byte) {
+	if dirExists(cwd) {
+		return cwd, scrollback
+	}
+	home, err := os.UserHomeDir()
+	if err != nil {
+		home = ""
+	}
+	notice := fmt.Sprintf(
+		"\r\n[crowbar] previous directory unavailable; restored in %s\r\n", home)
+	return home, append(scrollback, []byte(notice)...)
+}
+
+// dirExists reports whether path resolves to an existing directory.
+func dirExists(
+	path string,
+) bool {
+	if path == "" {
+		return false
+	}
+	info, err := os.Stat(path)
+	return err == nil && info.IsDir()
+}
+
+// dropUnrestorable permanently removes a placeholder whose restore spawn failed,
+// so a doomed session can never loop forever on Attach. It removes the registry
+// entry, deletes the persisted .buf and meta row, fires the ended callback so
+// the FE drops the tab, and prunes the per-session bookkeeping maps. The caller
+// holds the per-session lifecycle lock (sessionMu) for sid.
+func (e *terminalEngine) dropUnrestorable(
+	ctx context.Context,
+	ws string,
+	sid string,
+	dir string,
+) {
+	e.reg.Remove(sid)
+	if dir != "" {
+		if delErr := persistence.DeleteBuf(dir, sid); delErr != nil {
+			_, _ = fmt.Fprintf(os.Stderr, "terminal: restore: delete buf %s: %v\n", sid, delErr)
+		}
+	}
+	e.deleteMeta(ctx, sid)
+	e.fireEnded(ctx, ws, sid, -1)
+
+	e.mu.Lock()
+	delete(e.lastActive, sid)
+	delete(e.endedOnce, sid)
+	e.mu.Unlock()
 }
 
 // Suspend intentionally tears down a session's PTY if it is idle and has no
@@ -906,13 +984,15 @@ func (e *terminalEngine) Stats() (active, detached, suspended int, ringBytes int
 		if !ok {
 			continue
 		}
+		// Count every session's actual ring capacity — live sessions pin a full
+		// 256 KB ring, suspended placeholders only their lazily-sized scrollback —
+		// so the total reflects real resident memory across mixed session types.
+		ringBytes += int64(s.RingCap())
 		switch s.State() {
 		case "active":
 			active++
-			ringBytes += int64(s.RingCap())
 		case "detached":
 			detached++
-			ringBytes += int64(s.RingCap())
 		case "suspended":
 			suspended++
 		}
@@ -1102,15 +1182,22 @@ func (e *terminalEngine) runMaintenanceOnce(ctx context.Context) {
 		}
 	}
 
+	// underCeiling counts EVERY registered session — live and suspended
+	// placeholder alike — and sums each one's actual ring capacity, so an
+	// unbounded pile of suspended placeholders can no longer slip past the
+	// global memory/count ceiling uncounted.
 	underCeiling := func() bool {
-		var lc int
+		var count int
+		var bytes int64
 		for _, id := range e.reg.List() {
 			s, ok := e.reg.Get(id)
-			if ok && s.IsLive() {
-				lc++
+			if !ok {
+				continue
 			}
+			count++
+			bytes += int64(s.RingCap())
 		}
-		return lc <= maxTotalSessions && int64(lc)*int64(session.DefaultRingSize) <= maxTotalRingBytes
+		return count <= maxTotalSessions && bytes <= maxTotalRingBytes
 	}
 
 	if underCeiling() {
@@ -1128,7 +1215,7 @@ func (e *terminalEngine) runMaintenanceOnce(ctx context.Context) {
 		_ = e.Suspend(ctx, c.id)
 	}
 
-	// Phase 3b: last resort — force-suspend oldest detached running sessions.
+	// Phase 3b: force-suspend oldest detached running sessions.
 	sort.Slice(runningDetached, func(i, j int) bool {
 		return runningDetached[i].lastActive.Before(runningDetached[j].lastActive)
 	})
@@ -1138,6 +1225,76 @@ func (e *terminalEngine) runMaintenanceOnce(ctx context.Context) {
 		}
 		_ = e.suspend(ctx, c.id, true)
 	}
+
+	// Phase 3c: last resort — evict oldest suspended placeholders (LRU). Suspend
+	// only converts a live ring to a placeholder ring; it never lowers the
+	// session COUNT, so once placeholders themselves push us over the ceiling the
+	// only way back under is to drop the least-recently-active ones entirely.
+	if underCeiling() {
+		return
+	}
+	placeholders := e.placeholderCandidates()
+	sort.Slice(placeholders, func(i, j int) bool {
+		return placeholders[i].lastActive.Before(placeholders[j].lastActive)
+	})
+	for _, c := range placeholders {
+		if underCeiling() {
+			return
+		}
+		e.evictPlaceholder(ctx, c.id)
+	}
+}
+
+// placeholderCandidates returns the suspended (non-live) sessions paired with
+// their last-active time, for LRU eviction ordering.
+func (e *terminalEngine) placeholderCandidates() []sessionCandidate {
+	var out []sessionCandidate
+	for _, id := range e.reg.List() {
+		s, ok := e.reg.Get(id)
+		if !ok || s.IsLive() {
+			continue
+		}
+		out = append(out, sessionCandidate{id, e.getLastActive(id)})
+	}
+	return out
+}
+
+// evictPlaceholder permanently drops a suspended placeholder to reclaim its
+// registry slot, scrollback file, and meta row when the global ceiling is
+// exceeded. It takes the per-session lifecycle lock and re-checks that the
+// session is still a placeholder (a concurrent Attach may have restored it to
+// live), then removes it from the registry, deletes its .buf and meta row, and
+// prunes the per-session bookkeeping maps. Lock order: sessionMu (outer) →
+// s.mu → ring.mu — we hold only sessionMu here.
+func (e *terminalEngine) evictPlaceholder(
+	ctx context.Context,
+	id string,
+) {
+	unlock := e.lockSession(id)
+
+	s, ok := e.reg.Get(id)
+	if !ok || s.IsLive() {
+		unlock()
+		return
+	}
+	ws, _ := e.reg.WorkspaceID(id)
+	e.reg.Remove(id)
+
+	dir, _ := e.storageDir(ctx, ws)
+	if dir != "" {
+		if delErr := persistence.DeleteBuf(dir, id); delErr != nil {
+			_, _ = fmt.Fprintf(os.Stderr, "terminal: evict: delete buf %s: %v\n", id, delErr)
+		}
+	}
+	e.deleteMeta(ctx, id)
+
+	e.mu.Lock()
+	delete(e.lastActive, id)
+	delete(e.endedOnce, id)
+	e.mu.Unlock()
+
+	unlock()
+	e.sessionMu.Delete(id)
 }
 
 // Shutdown terminates all active sessions and removes them from the registry.

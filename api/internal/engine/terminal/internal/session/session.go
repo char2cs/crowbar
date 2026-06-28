@@ -126,6 +126,12 @@ func NewRestored(
 // bytes are loaded into the ring buffer so Attach() replays them. The done
 // channel is open — it is closed only when Kill() is called. No pump goroutine
 // is started; Attach() on a placeholder does not panic.
+//
+// The ring buffer is lazily sized to the scrollback length (with a small floor)
+// rather than the full live-session budget: a placeholder's ring is never used
+// for live PTY output — restore() spawns a fresh NewRestored session that
+// re-reads the .buf — so it only needs to hold the loaded scrollback. This keeps
+// thousands of suspended placeholders from each pinning a full 256 KB ring.
 func NewPlaceholder(
 	id string,
 	shell string,
@@ -133,7 +139,11 @@ func NewPlaceholder(
 	profileID string,
 	scrollback []byte,
 ) *Session {
-	r := newRingBuffer(defaultRingSize)
+	n := len(scrollback)
+	if n < 1 {
+		n = 1
+	}
+	r := newRingBuffer(n)
 	if len(scrollback) > 0 {
 		r.Write(scrollback)
 	}
@@ -555,10 +565,12 @@ func (s *Session) MarkSuspendingForShutdown() {
 	s.suspending = true
 }
 
-// RingCap returns the capacity of the session's ring buffer in bytes.
-// Exported for the engine to compute total ring-memory ceilings.
+// RingCap returns the actual capacity of the session's ring buffer in bytes.
+// Live sessions use the full defaultRingSize budget; placeholders are lazily
+// sized to their loaded scrollback (see NewPlaceholder). Exported for the engine
+// to compute accurate total ring-memory ceilings across mixed session types.
 func (s *Session) RingCap() int {
-	return defaultRingSize
+	return s.ring.Cap()
 }
 
 // parseLastOSC7 scans b for OSC 7 sequences of the form

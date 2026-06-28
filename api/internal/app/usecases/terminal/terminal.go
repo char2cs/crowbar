@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"sort"
 
 	"github.com/google/uuid"
 
@@ -205,7 +206,16 @@ func (u *terminalUsecase) RestorePersistedSessions(ctx context.Context) error {
 		return fmt.Errorf("terminal: restore: list: %w", err)
 	}
 
-	restored, dropped := 0, 0
+	// Most-recent-first so the cap keeps the freshest sessions and discards the
+	// stalest. The engine enforces the same ceiling in-memory; restoring more
+	// than it can hold would just trigger immediate eviction, so we bound here
+	// and also delete the excess .buf/row to keep DISK usage bounded too.
+	sort.SliceStable(rows, func(i, j int) bool {
+		return rows[i].LastActiveAt.After(rows[j].LastActiveAt)
+	})
+	limit := engineterminal.MaxTotalSessions()
+
+	restored, dropped, evicted := 0, 0, 0
 	for _, row := range rows {
 		dir, dirErr := u.metaStore.StorageDir(ctx, row.WorkspaceID)
 		if dirErr != nil {
@@ -215,6 +225,14 @@ func (u *terminalUsecase) RestorePersistedSessions(ctx context.Context) error {
 					"terminal: restore: delete orphan %s: %v\n", row.SessionID, delErr)
 			}
 			dropped++
+			continue
+		}
+
+		// Over the cap: this is one of the stalest rows. Delete its row and .buf
+		// so the on-disk backlog cannot grow without bound across restarts.
+		if restored >= limit {
+			u.evictPersistedRow(ctx, dir, row.SessionID)
+			evicted++
 			continue
 		}
 
@@ -236,8 +254,27 @@ func (u *terminalUsecase) RestorePersistedSessions(ctx context.Context) error {
 	}
 
 	_, _ = fmt.Fprintf(os.Stderr,
-		"terminal: restore: restored=%d dropped_orphans=%d\n", restored, dropped)
+		"terminal: restore: restored=%d dropped_orphans=%d evicted_over_cap=%d\n",
+		restored, dropped, evicted)
 	return nil
+}
+
+// evictPersistedRow deletes a persisted session's meta row and its scrollback
+// .buf file when it falls beyond the restore cap, bounding on-disk growth.
+func (u *terminalUsecase) evictPersistedRow(
+	ctx context.Context,
+	dir string,
+	sessionID string,
+) {
+	if delErr := u.metaStore.Delete(ctx, sessionID); delErr != nil {
+		_, _ = fmt.Fprintf(os.Stderr,
+			"terminal: restore: delete over-cap row %s: %v\n", sessionID, delErr)
+	}
+	path := filepath.Join(dir, sessionID+".buf")
+	if rmErr := os.Remove(path); rmErr != nil && !os.IsNotExist(rmErr) {
+		_, _ = fmt.Fprintf(os.Stderr,
+			"terminal: restore: remove over-cap buf %s: %v\n", sessionID, rmErr)
+	}
 }
 
 // readScrollback reads <dir>/<sessionID>.buf, returning nil when the file is

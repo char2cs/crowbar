@@ -65,6 +65,12 @@ func (r *RingBuffer) Write(
 	r.size = min(r.size+len(p), cap)
 }
 
+// Cap returns the byte capacity of the ring buffer. It is fixed at construction
+// and never changes, so it is safe to read without holding r.mu.
+func (r *RingBuffer) Cap() int {
+	return len(r.buf)
+}
+
 // Snapshot returns a copy of all buffered bytes in chronological order.
 func (r *RingBuffer) Snapshot() []byte {
 	r.mu.Lock()

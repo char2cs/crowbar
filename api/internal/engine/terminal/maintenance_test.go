@@ -317,14 +317,20 @@ func TestMaintenance_RunningNeverIdleSuspended(t *testing.T) {
 // TestMaintenance_GlobalForceLastResort
 // ---------------------------------------------------------------------------
 
-// TestMaintenance_GlobalForceLastResort verifies the last-resort path: when
-// maxTotalSessions=1 and both detached sessions have a running foreground child
-// (neither idle), the global ceiling exhausts idle candidates (none) and then
-// force-suspends the oldest detached session. The suspended session's .buf must
-// contain the resource notice.
+// TestMaintenance_GlobalForceLastResort verifies the last-resort path: when the
+// global ring-byte ceiling is exceeded and both detached sessions have a running
+// foreground child (neither idle), the global ceiling exhausts idle candidates
+// (none) and then force-suspends the oldest detached session. The suspended
+// session's .buf must contain the resource notice.
+//
+// The trigger is the BYTE ceiling: two live sessions pin 2×256 KB rings; the
+// ceiling is set between one and two rings so force-suspending the oldest (which
+// swaps its 256 KB live ring for a tiny placeholder ring) brings us back under,
+// leaving the placeholder intact rather than evicting it. The count ceiling is
+// left at its default so the surviving placeholder is not LRU-evicted.
 func TestMaintenance_GlobalForceLastResort(t *testing.T) {
-	restoreSessions := terminal.SetMaxTotalSessionsForTest(1)
-	defer restoreSessions()
+	restoreBytes := terminal.SetMaxTotalRingBytesForTest(384 * 1024) // between 1 and 2 live rings
+	defer restoreBytes()
 
 	eng := terminal.New()
 	terminal.StopMaintenanceForTest(eng) // prevent ticker from racing with limit-var writes
@@ -361,7 +367,7 @@ func TestMaintenance_GlobalForceLastResort(t *testing.T) {
 	terminal.SetLastActiveForTest(eng, sid1, base)
 	terminal.SetLastActiveForTest(eng, sid2, base.Add(time.Minute))
 
-	// Run maintenance: 2 live sessions > maxTotalSessions=1 → global ceiling fires.
+	// Run maintenance: 2 live rings (512 KB) > 384 KB ceiling → global ceiling fires.
 	// No idle candidates → last-resort force-suspend of sid1 (oldest).
 	terminal.RunMaintenanceOnceForTest(eng, ctx)
 	time.Sleep(300 * time.Millisecond)
