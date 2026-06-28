@@ -82,3 +82,11 @@ func StopMaintenanceForTest(eng Engine) {
 	te := eng.(*terminalEngine)
 	te.stopOnce.Do(func() { close(te.stop) })
 }
+
+// HasSessionMuForTest reports whether a sessionMu entry exists for the given
+// session id. Exposed so tests can assert that dropUnrestorable (and other
+// cleanup paths) correctly prune the per-session lifecycle mutex map.
+func HasSessionMuForTest(eng Engine, id string) bool {
+	_, ok := eng.(*terminalEngine).sessionMu.Load(id)
+	return ok
+}

@@ -525,19 +525,24 @@ func (e *terminalEngine) storageDir(
 // calls on the same placeholder serialise here — the first caller spawns, all
 // subsequent callers see IsLive()==true and return nil without a second spawn.
 func (e *terminalEngine) restore(ctx context.Context, sid string) error {
+	// Do NOT defer unlock here — the error path must release the lock before
+	// deleting the sessionMu entry, mirroring reapOnDone's unlock-before-delete
+	// ordering so a concurrent lockSession(sid) caller cannot alias a freed mutex.
 	unlock := e.lockSession(sid)
-	defer unlock()
 
 	s, ok := e.reg.Get(sid)
 	if !ok {
+		unlock()
 		return nil // session gone (concurrently killed)
 	}
 	if s.IsLive() {
+		unlock()
 		return nil // already restored by the goroutine that held the lock before us
 	}
 
 	ws, wsOK := e.reg.WorkspaceID(sid)
 	if !wsOK {
+		unlock()
 		return fmt.Errorf("terminal: restore: workspace not found for session %s", sid)
 	}
 
@@ -563,7 +568,13 @@ func (e *terminalEngine) restore(ctx context.Context, sid string) error {
 		// is gone). Never leave the placeholder in the registry: drop it, delete
 		// its persisted state, and fire ended so the FE removes the dead tab
 		// instead of looping on Attach.
+		//
+		// Release the lifecycle lock before dropUnrestorable and the subsequent
+		// sessionMu.Delete — matching reapOnDone's and Kill's unlock-before-delete
+		// ordering so the entry is pruned while no lock is held.
+		unlock()
 		e.dropUnrestorable(ctx, ws, sid, dir)
+		e.sessionMu.Delete(sid)
 		return fmt.Errorf("terminal: restore: spawn: %w", err)
 	}
 
@@ -578,6 +589,7 @@ func (e *terminalEngine) restore(ctx context.Context, sid string) error {
 	})
 	e.fireState(ctx, ws, sid, "detached")
 
+	unlock()
 	return nil
 }
 

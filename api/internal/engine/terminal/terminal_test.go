@@ -883,6 +883,35 @@ func TestEngine_Suspend_ThenAttach_Restores(t *testing.T) {
 	require.NoError(t, eng.Kill(ctx, sid))
 }
 
+// TestEngine_DropUnrestorable_CleansUpSessionMu verifies that when a placeholder's
+// restore spawn fails (un-restorable), both the registry entry AND the sessionMu
+// entry are pruned. A leaked sessionMu entry would prevent a future lockSession
+// call from creating a fresh mutex for the same id after a re-provision.
+func TestEngine_DropUnrestorable_CleansUpSessionMu(t *testing.T) {
+	eng := terminal.New()
+	terminal.StopMaintenanceForTest(eng)
+	ctx := context.Background()
+
+	sid := "ph-unrestorable-mu"
+	require.NoError(t, eng.LoadPlaceholder(ctx, terminal.SessionMeta{
+		SessionID:   sid,
+		WorkspaceID: "ws-unrestorable-mu",
+		CWD:         t.TempDir(),
+		Shell:       "/nonexistent/shell-that-cannot-spawn",
+	}, nil))
+
+	// Attach triggers restore, which calls spawn with the non-existent shell.
+	// spawn fails → dropUnrestorable removes the registry entry → Attach returns error.
+	conn := newMockConn()
+	err := eng.Attach(ctx, sid, conn)
+	require.Error(t, err, "Attach must return an error for an un-restorable session")
+
+	assert.False(t, eng.SessionExists(ctx, sid),
+		"registry entry must be removed after unrestorable drop")
+	assert.False(t, terminal.HasSessionMuForTest(eng, sid),
+		"sessionMu entry must be pruned after unrestorable drop to prevent mutex aliasing")
+}
+
 // TestEngine_Kill_CleanReap verifies that Kill triggers a full reap: session removed
 // from registry, meta deleted, .buf deleted, and onEnded fired exactly once.
 func TestEngine_Kill_CleanReap(t *testing.T) {

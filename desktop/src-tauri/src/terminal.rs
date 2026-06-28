@@ -20,7 +20,7 @@ use std::sync::Mutex;
 
 use futures_util::{SinkExt, StreamExt};
 use tauri::ipc::Channel;
-use tauri::State;
+use tauri::{Emitter, State};
 use tokio::net::UnixStream;
 use tokio::sync::mpsc;
 use tokio_tungstenite::client_async;
@@ -58,6 +58,7 @@ pub async fn terminal_open(
     ws_path: String,
     on_data: Channel<String>,
     manager: State<'_, TerminalManager>,
+    app: tauri::AppHandle,
 ) -> Result<(), String> {
     let socket = crate::sidecar::socket_path();
     let stream = UnixStream::connect(&socket).await.map_err(|e| {
@@ -88,6 +89,11 @@ pub async fn terminal_open(
     });
 
     // Reader task: forward each frame's `data` payload to the webview channel.
+    // After the loop exits for any reason, emit `terminal:transport-dropped` so
+    // the JS side can detect an unexpected daemon disconnect and trigger reconnect.
+    // The JS guard (`tauriTerminals.has(connectionId)`) distinguishes unexpected
+    // drops from clean terminal_close paths — mirroring the browser onclose guard.
+    let sid_for_drop = session_id.clone();
     tokio::spawn(async move {
         while let Some(frame) = read.next().await {
             match frame {
@@ -104,6 +110,7 @@ pub async fn terminal_open(
                 _ => {}
             }
         }
+        let _ = app.emit("terminal:transport-dropped", sid_for_drop);
     });
 
     manager.sessions.lock().unwrap().insert(session_id, tx);

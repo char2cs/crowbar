@@ -39,6 +39,7 @@ const dropCallbacks = new Map<string, Set<() => void>>()
 interface TauriTerminal {
   listener: ((data: string) => void) | null
   outputBuffer: string[]
+  unlisten?: () => void // unsubscribe fn for the terminal:transport-dropped listener
 }
 
 const tauriTerminals = new Map<string, TauriTerminal>()
@@ -95,6 +96,24 @@ async function openTauriSocket(connectionId: string, wsPath: string): Promise<vo
     else conn.outputBuffer.push(data)
   }
   tauriTerminals.set(connectionId, conn)
+
+  // Mirror openBrowserSocket's ws.onclose semantics for the Tauri path: subscribe
+  // to `terminal:transport-dropped` events emitted by Rust after the reader loop
+  // exits. Only treat the event as an unexpected drop when the entry is still in
+  // `tauriTerminals` — a clean terminalClose/terminalDetach deletes the entry
+  // BEFORE invoking terminal_close, so the guard sees has()===false and no-ops.
+  const { listen } = await import('@tauri-apps/api/event')
+  const unlisten = await listen<string>('terminal:transport-dropped', (event) => {
+    if (event.payload !== connectionId) return
+    if (!tauriTerminals.has(connectionId)) return
+    tauriTerminals.delete(connectionId)
+    const cbs = dropCallbacks.get(connectionId)
+    if (cbs) {
+      for (const cb of cbs) cb()
+    }
+  })
+  conn.unlisten = unlisten
+
   await tauriInvoke('terminal_open', { sessionId: connectionId, wsPath, onData: channel })
 }
 
@@ -149,7 +168,12 @@ export async function terminalClose(id: string): Promise<void> {
   const base = sessionBases.get(id)
   const deletePath = base ? `${base}/${encodeURIComponent(id)}` : null
   if (isTauri()) {
-    if (tauriTerminals.delete(id)) await tauriInvoke('terminal_close', { sessionId: id })
+    const tconn = tauriTerminals.get(id)
+    if (tconn) {
+      tauriTerminals.delete(id)
+      tconn.unlisten?.()
+      await tauriInvoke('terminal_close', { sessionId: id })
+    }
     if (deletePath) await apiFetch(deletePath, { method: 'DELETE' }).catch(() => {})
     sessionBases.delete(id)
     return
@@ -195,7 +219,10 @@ export function terminalListen(id: string, onData: (data: string) => void): () =
 // `sessionBases` is intentionally retained so terminalAttach can re-dial later.
 export async function terminalDetach(connectionId: string): Promise<void> {
   if (isTauri()) {
-    if (tauriTerminals.delete(connectionId)) {
+    const tconn = tauriTerminals.get(connectionId)
+    if (tconn) {
+      tauriTerminals.delete(connectionId)
+      tconn.unlisten?.()
       await tauriInvoke('terminal_close', { sessionId: connectionId }).catch(() => {})
     }
     return

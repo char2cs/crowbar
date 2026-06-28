@@ -300,7 +300,9 @@ func TestRegression_TerminalSession_RestartRoundTrip_RealStore(t *testing.T) {
 	}()
 
 	// The replayed scrollback must contain the pre-restart marker.
-	assert.True(t,
+	// require.True so a missing marker fails fast instead of letting the test
+	// proceed with Write/pwd assertions that depend on this invariant.
+	require.True(t,
 		waitForRestartContent(t, conn2, func(data string) bool {
 			return rrHas(data, "restart-crossboundary-marker")
 		}, 10*time.Second),
