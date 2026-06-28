@@ -197,10 +197,11 @@ export function useTerminalConnection({
 
     disposables.push(
       terminal.onTitleChange((rawTitle) => {
-        const title = sanitizeTerminalTitle(rawTitle)
-        if (title) {
-          updateSession(sessionId, { title })
-        }
+        // Always write the sanitized result. An empty/rejected title — e.g. a
+        // shell that embeds its colored prompt in the OSC title — clears any
+        // prior (possibly garbled) value so the tab falls back to the
+        // directory/command label instead of showing stale garbage.
+        updateSession(sessionId, { title: sanitizeTerminalTitle(rawTitle) })
       }),
     )
 
