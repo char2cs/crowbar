@@ -108,12 +108,15 @@ export function destroyWorkspaceStore(wsId: string): void {
   if (store) {
     const { buffers } = store.getState()
 
-    // Kill terminal PTY sessions
+    // Detach (not kill) pane terminal PTY sessions on workspace switch.
+    // The PTY stays alive in the daemon; the WS transport is closed and the
+    // connectionId is persisted to localStorage so re-entry can re-attach with
+    // scrollback replay. killTerminalSession is still used on real tab close.
     const terminalBuffers = buffers.filter((b) => b.type === 'terminal')
     if (terminalBuffers.length > 0) {
-      void import('@/features/terminal/lib/kill-terminal-session').then(({ killTerminalSession }) => {
+      void import('@/features/terminal/lib/detach-terminal-session').then(({ detachTerminalSession }) => {
         for (const buf of terminalBuffers) {
-          void killTerminalSession((buf as TerminalContent).sessionId).catch(() => {})
+          void detachTerminalSession(wsId, (buf as TerminalContent).sessionId).catch(() => {})
         }
       })
     }

@@ -22,6 +22,16 @@ vi.mock('@/features/markdown-chat/stores/conversation-store', () => ({
   destroyConversationStore,
 }))
 
+const { clearReconnect } = vi.hoisted(() => ({
+  clearReconnect: vi.fn(),
+}))
+
+vi.mock('@/features/terminal/lib/terminal-reconnect-map', () => ({
+  clearReconnect,
+  saveReconnect: vi.fn(),
+  loadReconnect: vi.fn(() => null),
+}))
+
 const makePaneActions = () => ({
   addBufferToPane: vi.fn(),
   setPanePreviewBuffer: vi.fn(),
@@ -32,11 +42,12 @@ const makePaneActions = () => ({
 
 type PaneActions = ReturnType<typeof makePaneActions>
 
-function makeStore(paneActions: PaneActions = makePaneActions()) {
-  const store = createStore<BufferSlice & { paneActions: PaneActions }>()(
+function makeStore(paneActions: PaneActions = makePaneActions(), workspaceId = 'ws-test') {
+  const store = createStore<BufferSlice & { paneActions: PaneActions; workspaceId: string }>()(
     immer((set, get) => ({
       ...createBufferSlice(...([set, get, {}] as unknown as Parameters<typeof createBufferSlice>)),
       paneActions,
+      workspaceId,
     })),
   )
   return { store, paneActions }
@@ -111,6 +122,21 @@ describe('buffer-slice', () => {
     expect(store.getState().buffers).toHaveLength(0)
     // The kill goes through a dynamic import — flush microtasks.
     await vi.waitFor(() => expect(killTerminalSession).toHaveBeenCalledWith('sess-9'))
+  })
+
+  it('closeBuffer clears the reconnect map entry after killing a terminal buffer', async () => {
+    clearReconnect.mockClear()
+    const { store: localStore } = makeStore(makePaneActions(), 'ws-99')
+    const id = localStore.getState().bufferActions.openContent({
+      type: 'terminal',
+      sessionId: 'sess-reconnect',
+      name: 'Terminal 2',
+    })
+    localStore.getState().bufferActions.closeBuffer(id)
+    // clearReconnect fires after killTerminalSession completes (both in the same async chain)
+    await vi.waitFor(() =>
+      expect(clearReconnect).toHaveBeenCalledWith('ws-99', 'sess-reconnect'),
+    )
   })
 
   // H10: each "New Conversation" mints a fresh wsId-keyed conversation store

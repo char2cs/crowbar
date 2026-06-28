@@ -285,8 +285,15 @@ export const createBufferSlice: StateCreator<
       // Dynamic import avoids a workspace-slice → terminal-feature cycle.
       if (buf && buf.type === 'terminal') {
         const { sessionId } = buf as TerminalContent
+        const workspaceId = get().workspaceId
         void import('@/features/terminal/lib/kill-terminal-session').then(
-          ({ killTerminalSession }) => killTerminalSession(sessionId).catch(() => {}),
+          async ({ killTerminalSession }) => {
+            await killTerminalSession(sessionId).catch(() => {})
+            // Clear the reconnect map entry so a stale connectionId can't be
+            // picked up if the same tab sessionId is reused in a later session.
+            const { clearReconnect } = await import('@/features/terminal/lib/terminal-reconnect-map')
+            clearReconnect(workspaceId, sessionId)
+          },
         )
       }
       // Closing a chat tab is final too — drop its conversation store so the
