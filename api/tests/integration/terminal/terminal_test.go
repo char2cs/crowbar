@@ -4,9 +4,11 @@ package terminal_test
 
 import (
 	"net/http"
+	"strings"
 	"testing"
 	"time"
 
+	"github.com/stretchr/testify/require"
 	"github.com/stretchr/testify/suite"
 
 	"github.com/char2cs/crowbar/api/tests/kit"
@@ -289,6 +291,134 @@ func (s *TerminalSuite) TestTerminal_PTYWSAtScopedPath() {
 	kill := s.Env.DELETE(t, s.base()+"/terminals/"+sessionID)
 	kill.Body.Close()
 	lifecycle.ReadUntil(t, 5*time.Second, func(m map[string]any) bool {
+		return m["id"] == sessionID && m["status"] == "ended"
+	})
+}
+
+// ---------------------------------------------------------------------------
+// TestRegression_TerminalSession_RestartRoundTrip — full REST/WS restart test
+// ---------------------------------------------------------------------------
+
+// TestRegression_TerminalSession_RestartRoundTrip is the end-to-end
+// daemon-restart integration test at REST/WS fidelity. It uses the real gin
+// router, real SQLite-backed GORM stores, and real disk-backed scrollback
+// persistence to prove the headline guarantee:
+//
+//   Sessions survive a simulated daemon restart; scrollback (including known
+//   output driven into the session before shutdown) is replayed when the client
+//   dials the PTY WS on the fresh server, and GET /terminals shows the session
+//   as "suspended" before the first attach.
+//
+// Sequence (mirrors the daemon restart path exactly):
+//  1. env1: import repo, create workspace, POST /terminals to create a session.
+//  2. env1: dial the PTY WS, wait for initial shell output (confirms live PTY).
+//  3. env1: send "echo restart-crossboundary-marker" via the PTY WS.
+//  4. env1: wait for the marker in the PTY output stream.
+//  5. env1.ShutdownTerminal(): flush all live sessions to disk with state="suspended".
+//  6. env1.Close(t): release adapter SQLite connections (release file locks).
+//  7. env2 := BuildEnvAt(same homeDir): restores sessions synchronously via
+//     startRestoreTerminalSessions in app.New.
+//  8. env2: GET /terminals → session must appear with status "suspended".
+//  9. env2: dial the PTY WS → triggers transparent restore.
+// 10. Assert "restart-crossboundary-marker" appears in the replayed frames.
+func TestRegression_TerminalSession_RestartRoundTrip(t *testing.T) {
+	// A homeDir shared between env1 and env2 is what makes the SQLite session
+	// rows and the .buf scrollback files persist across the simulated restart.
+	homeDir := kit.TempHomeForTest(t)
+
+	// ---- env1: create session and drive known output. ----
+	env1 := kit.BuildEnvAt(t, homeDir)
+	imported := env1.ImportRepo(t, "restart-terminal", "")
+	wsID := env1.CreateWorkspace(t, imported.ProjectID, imported.RepoID, "feature/restart")
+	base := "/v0/projects/" + imported.ProjectID + "/repos/" + imported.RepoID + "/workspaces/" + wsID
+
+	// Dial the lifecycle WS before creating the session so we never miss the
+	// "active" broadcast.
+	lifecycle1 := env1.DialTerminals(t, imported.ProjectID, imported.RepoID, wsID)
+
+	createResp := env1.POST(t, base+"/terminals", map[string]any{})
+	kit.RequireStatus(t, createResp, http.StatusCreated)
+	var createBody map[string]any
+	kit.DecodeEnvData(t, createResp, &createBody)
+	sessionID, _ := createBody["sessionId"].(string)
+	require.NotEmpty(t, sessionID, "POST /terminals must return a sessionId")
+
+	// Wait for the "active" lifecycle broadcast so the session is confirmed live.
+	lifecycle1.ReadUntil(t, 5*time.Second, func(m map[string]any) bool {
+		return m["id"] == sessionID && m["status"] == "active"
+	})
+
+	// Dial the raw PTY WS and wait for the shell's initial output (prompt).
+	// This confirms the PTY subprocess is running and the ring buffer has content.
+	ptyWS1 := env1.DialTerminalPTY(t, imported.ProjectID, imported.RepoID, wsID, sessionID)
+	ptyWS1.ReadUntil(t, 10*time.Second, func(m map[string]any) bool {
+		data, _ := m["data"].(string)
+		return len(data) > 0
+	})
+
+	// Send a specific marker command via the PTY WS so we can prove scrollback
+	// replay contains pre-restart content (not just a fresh shell prompt).
+	ptyWS1.SendJSON(t, map[string]any{"data": "echo restart-crossboundary-marker\n"})
+
+	// Wait for the marker to arrive in the PTY output frames.
+	ptyWS1.ReadUntil(t, 5*time.Second, func(m map[string]any) bool {
+		data, _ := m["data"].(string)
+		return strings.Contains(data, "restart-crossboundary-marker")
+	})
+
+	// ShutdownTerminal flushes all live sessions (including the active PTY WS
+	// client) to disk as state="suspended", then kills the PTY processes. The
+	// PTY WS conn from env1 will receive errors after this point (the session is
+	// dead), but that is handled by t.Cleanup's conn.Close().
+	env1.ShutdownTerminal()
+
+	// Release env1's adapter SQLite connections so env2 can open the same DB
+	// files. The deferred t.Cleanup for env1 will call Close a second time;
+	// that is safe — the underlying sql.DB is already closed and Close is idempotent.
+	env1.Close(t)
+
+	// ---- env2: fresh server over the same homeDir → restores sessions. ----
+	//
+	// app.New calls startRestoreTerminalSessions synchronously, so by the time
+	// BuildEnvAt returns the session is already a suspended placeholder in eng2's
+	// registry.
+	env2 := kit.BuildEnvAt(t, homeDir)
+
+	// GET /terminals on env2 must list the restored session as "suspended".
+	listResp := env2.GET(t, base+"/terminals")
+	kit.RequireStatus(t, listResp, http.StatusOK)
+	var sessions []map[string]any
+	kit.DecodeEnvData(t, listResp, &sessions)
+
+	var found map[string]any
+	for _, sess := range sessions {
+		if sess["id"] == sessionID {
+			found = sess
+			break
+		}
+	}
+	require.NotNil(t, found,
+		"GET /terminals on env2 must list the restored session (id=%s)", sessionID)
+	require.Equal(t, "suspended", found["status"],
+		"restored session must have status='suspended' before first attach")
+
+	// Dial the PTY WS on env2 — this triggers the transparent restore path:
+	// restore() spawns a fresh shell with the saved CWD and replays the
+	// scrollback (including our marker) as the first frame.
+	ptyWS2 := env2.DialTerminalPTY(t, imported.ProjectID, imported.RepoID, wsID, sessionID)
+
+	// The replayed scrollback must contain the pre-restart marker.
+	ptyWS2.ReadUntil(t, 10*time.Second, func(m map[string]any) bool {
+		data, _ := m["data"].(string)
+		return strings.Contains(data, "restart-crossboundary-marker")
+	})
+
+	// Cleanup: kill the restored session so the PTY subprocess is reaped before
+	// TempDir teardown (avoids "directory not empty" flakes on some platforms).
+	lifecycle2 := env2.DialTerminals(t, imported.ProjectID, imported.RepoID, wsID)
+	killResp := env2.DELETE(t, base+"/terminals/"+sessionID)
+	killResp.Body.Close()
+	lifecycle2.ReadUntil(t, 5*time.Second, func(m map[string]any) bool {
 		return m["id"] == sessionID && m["status"] == "ended"
 	})
 }

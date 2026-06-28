@@ -63,6 +63,14 @@ func BuildEnv(
 	return BuildEnvAt(t, tempHome(t))
 }
 
+// TempHomeForTest creates an isolated home directory with the same tolerant
+// teardown semantics as BuildEnv uses internally. Call this when you need a
+// homeDir to pass to BuildEnvAt for crash-recovery / restart tests.
+func TempHomeForTest(t *testing.T) string {
+	t.Helper()
+	return tempHome(t)
+}
+
 // tempHome creates an isolated home directory for an Env with a TOLERANT
 // teardown. It deliberately does NOT use t.TempDir(): a detached good-path-async
 // goroutine (runAsync runs on context.WithoutCancel and the adapter registry
@@ -180,6 +188,17 @@ func (e *Env) Close(
 
 // HomeDir returns the home directory path used by this Env.
 func (e *Env) HomeDir() string { return e.homeDir }
+
+// ShutdownTerminal calls Shutdown on the terminal engine, flushing all live
+// sessions to disk and persisting their metadata with state="suspended". Call
+// this before Close when simulating a daemon restart in tests: Shutdown ensures
+// scrollback is durable so the next BuildEnvAt can restore sessions via
+// RestorePersistedSessions.
+func (e *Env) ShutdownTerminal() {
+	if e.engine != nil && e.engine.Terminal != nil {
+		e.engine.Terminal.Shutdown()
+	}
+}
 
 // WorktreePath mirrors worktreepath.For (the usecase-internal path builder,
 // which the kit cannot import): the on-disk worktree for a workspace at

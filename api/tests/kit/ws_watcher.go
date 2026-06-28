@@ -181,6 +181,18 @@ func (w *WSWatcher) AssertNoMatch(
 	}
 }
 
+// SendJSON marshals msg to JSON and sends it as a WebSocket text frame.
+// Use this to inject client-to-server messages in tests (e.g. PTY input).
+func (w *WSWatcher) SendJSON(
+	t *testing.T,
+	msg any,
+) {
+	t.Helper()
+	raw, err := json.Marshal(msg)
+	require.NoError(t, err, "ws: SendJSON marshal")
+	require.NoError(t, w.conn.WriteMessage(websocket.TextMessage, raw), "ws: SendJSON write")
+}
+
 // ReadRawMsg reads one raw WebSocket frame (binary or text) within timeout.
 // Use this for non-JSON protocols such as terminal PTY streams.
 func (w *WSWatcher) ReadRawMsg(
