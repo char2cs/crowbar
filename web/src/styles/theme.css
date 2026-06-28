@@ -58,6 +58,7 @@
   --color-sidebar-ring: var(--sidebar-ring);
   --color-sidebar-element-idle: var(--sidebar-element-idle);
   --color-sidebar-element-hover: var(--sidebar-element-hover);
+  --color-sidebar-element-press: var(--sidebar-element-press);
   --color-success: var(--success);
   --color-success-foreground: var(--success-foreground);
   --color-warning: var(--warning);
@@ -225,6 +226,7 @@
   --sidebar-ring: var(--color-neutral-400);
   --sidebar-element-idle: color-mix(in oklch, var(--foreground) 6%, transparent);
   --sidebar-element-hover: oklch(0 0 0 / 8%);
+  --sidebar-element-press: color-mix(in oklch, var(--foreground) 8%, transparent);
   --code: var(--color-white);
   --code-foreground: var(--foreground);
   --code-highlight: oklch(0 0 0 / 4%);
@@ -353,6 +355,7 @@
   --sidebar-ring: var(--color-neutral-400);
   --sidebar-element-idle: color-mix(in oklch, var(--foreground) 11%, transparent);
   --sidebar-element-hover: oklch(1 0 0 / 10%);
+  --sidebar-element-press: color-mix(in oklch, var(--foreground) 7%, transparent);
   --code: var(--background);
   --code-foreground: var(--foreground);
   --code-highlight: oklch(1 0 0 / 4%);
