@@ -27,6 +27,13 @@ interface TerminalConnection {
 
 const terminals = new Map<string, TerminalConnection>()
 
+// Transport-drop notification: registered callbacks fire when the WS closes
+// unexpectedly (e.g. daemon restart) while the entry is still in `terminals`.
+// A clean terminalDetach removes the entry BEFORE calling ws.close(), so the
+// `terminals.has(connectionId)` check correctly distinguishes unexpected drops
+// from intentional detaches.
+const dropCallbacks = new Map<string, Set<() => void>>()
+
 // Desktop transport: output arrives over a Tauri Channel instead of a WebSocket.
 // Same buffer-until-listener semantics as the browser TerminalConnection.
 interface TauriTerminal {
@@ -57,6 +64,21 @@ function openBrowserSocket(connectionId: string, base: string): void {
     if (typeof data !== 'string') return
     if (conn.listener) conn.listener(data)
     else conn.outputBuffer.push(data)
+  }
+  ws.onerror = () => {
+    // Error events are followed by a close event on the same socket; all
+    // cleanup is handled in the onclose handler below.
+  }
+  ws.onclose = () => {
+    // Only treat the close as unexpected if the entry is still in `terminals`.
+    // terminalDetach removes the entry BEFORE calling ws.close(), so a clean
+    // detach never reaches the drop-notification branch.
+    if (!terminals.has(connectionId)) return
+    terminals.delete(connectionId)
+    const cbs = dropCallbacks.get(connectionId)
+    if (cbs) {
+      for (const cb of cbs) cb()
+    }
   }
   terminals.set(connectionId, conn)
 }
@@ -223,9 +245,31 @@ export async function terminalListLive(base: string): Promise<string[]> {
   return ids
 }
 
+// Register a callback that fires when the browser-socket transport for
+// `connectionId` drops unexpectedly (daemon restart, network loss). Returns
+// an unsubscribe function. Multiple subscribers are supported but a single
+// mounted terminal tab is the normal case.
+//
+// Tauri path: channel-drop detection is not yet wired on the Rust side.
+// The browser path fires reliably on ws.onclose while the entry is mapped.
+export function onTransportDrop(connectionId: string, cb: () => void): () => void {
+  let cbs = dropCallbacks.get(connectionId)
+  if (!cbs) {
+    cbs = new Set()
+    dropCallbacks.set(connectionId, cbs)
+  }
+  cbs.add(cb)
+  return () => {
+    const set = dropCallbacks.get(connectionId)
+    if (!set) return
+    set.delete(cb)
+    if (set.size === 0) dropCallbacks.delete(connectionId)
+  }
+}
+
 // Test-only: expose internal maps for unit tests. Do not use in app code.
 export function __getBridgeInternals() {
-  return { terminals, tauriTerminals, sessionBases }
+  return { terminals, tauriTerminals, sessionBases, dropCallbacks }
 }
 
 // ── File Clipboard ────────────────────────────────────────────────────────────

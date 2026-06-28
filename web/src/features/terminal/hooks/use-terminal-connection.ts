@@ -57,6 +57,10 @@ interface UseTerminalConnectionOptions {
   initialCommand?: string
   isInitialized: boolean
   onTerminalExit?: (sessionId: string) => void
+  // Bumped by the parent component after a transport drop + re-attach so this
+  // hook re-registers its terminalListen call on the fresh connection object
+  // even when connectionId itself has not changed.
+  reconnectKey?: number
   remoteConnectionId?: string
   reuseExistingConnection?: boolean
   sessionId: string
@@ -77,6 +81,7 @@ export function useTerminalConnection({
   initialCommand,
   isInitialized,
   onTerminalExit,
+  reconnectKey = 0,
   remoteConnectionId,
   reuseExistingConnection = false,
   sessionId,
@@ -290,6 +295,7 @@ export function useTerminalConnection({
     flush,
     getTerminalTheme,
     isInitialized,
+    reconnectKey,
     sessionId,
     terminal,
     updateSession,

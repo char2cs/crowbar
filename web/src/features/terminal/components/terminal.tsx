@@ -1,4 +1,4 @@
-import { terminalCreate, terminalListLive, terminalResize } from '@/lib/crowbar-bridge'
+import { terminalCreate, terminalListLive, terminalResize, onTransportDrop } from '@/lib/crowbar-bridge'
 import { getActiveWorkspaceId } from '@/features/workspace/stores/workspace-store-registry'
 import { workspaceBase } from '@/lib/workspace-scope-url'
 import { resolveTerminalConnection } from './resolve-terminal-connection'
@@ -69,6 +69,11 @@ export const XtermTerminal: React.FC<XtermTerminalProps> = ({
   // command resend and font-settle delay, same as a native remount would.
   const [reuseConnection, setReuseConnection] = useState(Boolean(session?.connectionId))
 
+  // Bumped after a transport-drop reconnect so useTerminalConnection re-registers
+  // its terminalListen call on the fresh connection object, even when the
+  // connectionId itself has not changed (daemon restarted, session restored).
+  const [reconnectKey, setReconnectKey] = useState(0)
+
   const {
     theme: terminalThemeId,
     terminalFontFamily,
@@ -131,12 +136,60 @@ export const XtermTerminal: React.FC<XtermTerminalProps> = ({
     }
   }, [])
 
+  // Re-resolve the terminal connection after a transport drop (daemon restart)
+  // without recreating the xterm UI. Runs resolveTerminalConnection which
+  // handles the reuse/re-attach/create decision, updates the store, and then
+  // bumps reconnectKey so useTerminalConnection re-subscribes its listener on
+  // the freshly-attached connection object.
+  const doReconnect = useCallback(async () => {
+    if (isInitializingRef.current) return
+    const wsId = getActiveWorkspaceId()
+    if (!wsId) return
+    const base = `${workspaceBase(wsId)}/terminals`
+    const existingSession = getSession(sessionId)
+    isInitializingRef.current = true
+    try {
+      const result = await resolveTerminalConnection({
+        workspaceId: wsId,
+        tabSessionId: sessionId,
+        storeConnectionId: existingSession?.connectionId,
+        base,
+        listLiveSessions: () => terminalListLive(base),
+        createTerminal: () => terminalCreate(wsId, existingSession?.profileId),
+      })
+      updateSession(sessionId, { connectionId: result.connectionId })
+      saveReconnect(wsId, sessionId, result.connectionId)
+      // Sync PTY dimensions after re-attach so TUI apps redraw correctly.
+      const term = xtermRef.current
+      if (term) {
+        void terminalResize(result.connectionId, term.rows, term.cols).catch(() => {})
+      }
+      setReconnectKey((k) => k + 1)
+    } catch (err) {
+      console.error('[terminal] transport-drop reconnect failed:', err)
+    } finally {
+      isInitializingRef.current = false
+    }
+  }, [getSession, sessionId, updateSession])
+
+  // Subscribe to unexpected transport drops for the current connection. When
+  // the daemon restarts while a pane terminal stays mounted, the WS closes
+  // without a user-initiated detach — this effect picks that up and triggers
+  // doReconnect so the tab re-attaches without a manual workspace switch.
+  useEffect(() => {
+    if (!connectionId) return
+    return onTransportDrop(connectionId, () => {
+      void doReconnect()
+    })
+  }, [connectionId, doReconnect])
+
   const { currentConnectionIdRef, writeBuffered } = useTerminalConnection({
     connectionId,
     getTerminalTheme,
     initialCommand,
     isInitialized,
     onTerminalExit,
+    reconnectKey,
     remoteConnectionId,
     reuseExistingConnection: reuseConnection,
     sessionId,
