@@ -3,6 +3,8 @@ package terminal_test
 import (
 	"context"
 	"encoding/json"
+	"os"
+	"path/filepath"
 	"sync"
 	"testing"
 	"time"
@@ -13,6 +15,67 @@ import (
 	"github.com/char2cs/crowbar/api/internal/domain"
 	"github.com/char2cs/crowbar/api/internal/engine/terminal"
 )
+
+// ---------------------------------------------------------------------------
+// fakeMetaStore — test double for SessionMetaStore.
+// ---------------------------------------------------------------------------
+
+type fakeMetaStore struct {
+	mu      sync.Mutex
+	saved   []terminal.SessionMeta
+	deleted []string
+	dir     string
+}
+
+func newFakeMetaStore(t *testing.T) *fakeMetaStore {
+	t.Helper()
+	return &fakeMetaStore{dir: t.TempDir()}
+}
+
+func (f *fakeMetaStore) Save(_ context.Context, meta terminal.SessionMeta) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.saved = append(f.saved, meta)
+	return nil
+}
+
+func (f *fakeMetaStore) Delete(_ context.Context, sessionID string) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.deleted = append(f.deleted, sessionID)
+	return nil
+}
+
+func (f *fakeMetaStore) StorageDir(_ context.Context, _ string) (string, error) {
+	return f.dir, nil
+}
+
+func (f *fakeMetaStore) hasSavedWithState(sid, state string) bool {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	for _, m := range f.saved {
+		if m.SessionID == sid && m.State == state {
+			return true
+		}
+	}
+	return false
+}
+
+func (f *fakeMetaStore) hasDeleted(sid string) bool {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	for _, id := range f.deleted {
+		if id == sid {
+			return true
+		}
+	}
+	return false
+}
+
+func bufExists(dir, sid string) bool {
+	_, err := os.Stat(filepath.Join(dir, sid+".buf"))
+	return err == nil
+}
 
 // mockConn is a simple in-memory WSConn for unit tests.
 type mockConn struct {
@@ -503,4 +566,212 @@ func containsStr(
 		}
 	}
 	return false
+}
+
+// ---------------------------------------------------------------------------
+// Phase 2: Suspend / Restore / detach-persistence tests (TDD — written first)
+// ---------------------------------------------------------------------------
+
+// TestEngine_Detach_PersistsScrollbackAndMeta verifies that when the last client
+// disconnects the engine writes the .buf file and records a "detached" meta entry.
+func TestEngine_Detach_PersistsScrollbackAndMeta(t *testing.T) {
+	eng := terminal.New()
+	ctx := context.Background()
+	dir := t.TempDir()
+	store := newFakeMetaStore(t)
+	eng.SetMetaStore(store)
+
+	sid, err := eng.Create(ctx, "ws-detach", dir, nil)
+	require.NoError(t, err)
+
+	conn := newMockConn()
+	attachDone := make(chan struct{})
+	go func() {
+		defer close(attachDone)
+		_ = eng.Attach(ctx, sid, conn)
+	}()
+
+	require.NoError(t, eng.Write(ctx, sid, []byte("echo detach-marker\n")))
+	found := waitForMsg(t, conn, func(data string) bool {
+		return containsStr(data, "detach-marker")
+	}, 5*time.Second)
+	require.True(t, found, "must receive 'detach-marker' output before detaching")
+
+	conn.Close()
+	<-attachDone
+
+	assert.True(t, bufExists(store.dir, sid), ".buf file must exist after last-client detach")
+	assert.True(t, store.hasSavedWithState(sid, "detached"),
+		"meta must be saved with state=detached after last-client detach")
+
+	require.NoError(t, eng.Kill(ctx, sid))
+}
+
+// TestEngine_Suspend_WithConnectedClient_NoOp verifies that Suspend is a no-op
+// when a client is currently attached (BeginSuspendIfEligible returns false).
+func TestEngine_Suspend_WithConnectedClient_NoOp(t *testing.T) {
+	eng := terminal.New()
+	ctx := context.Background()
+	dir := t.TempDir()
+
+	sid, err := eng.Create(ctx, "ws-susp-client", dir, nil)
+	require.NoError(t, err)
+
+	conn := newMockConn()
+	attachDone := make(chan struct{})
+	go func() {
+		defer close(attachDone)
+		_ = eng.Attach(ctx, sid, conn)
+	}()
+
+	// Wait for at least one frame to confirm the client is fully registered.
+	found := waitForMsg(t, conn, func(d string) bool { return len(d) > 0 }, 3*time.Second)
+	require.True(t, found, "must receive initial PTY output to confirm attach is live")
+
+	// Suspend with a connected client must be a no-op.
+	require.NoError(t, eng.Suspend(ctx, sid))
+	assert.True(t, eng.SessionExists(ctx, sid), "session must still exist after no-op suspend")
+
+	// Session must still be writable (live PTY).
+	assert.NoError(t, eng.Write(ctx, sid, []byte("echo still-alive\n")))
+
+	conn.Close()
+	<-attachDone
+	require.NoError(t, eng.Kill(ctx, sid))
+}
+
+// TestEngine_Suspend_MakesPlaceholder verifies that after Suspend on an idle session:
+//   - the session still exists in the registry (as a placeholder)
+//   - a .buf file is written to disk
+//   - meta is saved with state="suspended"
+//   - the onEnded callback is NOT fired
+func TestEngine_Suspend_MakesPlaceholder(t *testing.T) {
+	eng := terminal.New()
+	ctx := context.Background()
+	dir := t.TempDir()
+	store := newFakeMetaStore(t)
+	eng.SetMetaStore(store)
+
+	endedFired := false
+	eng.OnSessionEnded(func(_ context.Context, _, _ string) { endedFired = true })
+
+	sid, err := eng.Create(ctx, "ws-susp", dir, nil)
+	require.NoError(t, err)
+
+	// Poll: keep calling Suspend until meta shows "suspended" (shell must be idle).
+	deadline := time.After(15 * time.Second)
+	for {
+		_ = eng.Suspend(ctx, sid)
+		if store.hasSavedWithState(sid, "suspended") {
+			break
+		}
+		select {
+		case <-deadline:
+			t.Fatal("session was not suspended within 15s")
+		case <-time.After(200 * time.Millisecond):
+		}
+	}
+
+	assert.True(t, eng.SessionExists(ctx, sid), "suspended session must still be in registry")
+	assert.True(t, bufExists(store.dir, sid), ".buf must exist after suspend")
+
+	// Give a brief window for any spurious async reap to fire — should not happen.
+	time.Sleep(300 * time.Millisecond)
+	assert.False(t, endedFired, "onEnded must NOT fire for a suspended session")
+}
+
+// TestEngine_Suspend_ThenAttach_Restores verifies that attaching to a suspended
+// session triggers restore: a fresh shell spawns, prior scrollback is replayed,
+// and new output flows normally.
+func TestEngine_Suspend_ThenAttach_Restores(t *testing.T) {
+	eng := terminal.New()
+	ctx := context.Background()
+	dir := t.TempDir()
+	store := newFakeMetaStore(t)
+	eng.SetMetaStore(store)
+
+	sid, err := eng.Create(ctx, "ws-restore", dir, nil)
+	require.NoError(t, err)
+
+	// Attach first client, write something to populate the ring, then detach.
+	conn1 := newMockConn()
+	go func() { _ = eng.Attach(ctx, sid, conn1) }()
+	require.NoError(t, eng.Write(ctx, sid, []byte("echo pre-suspend\n")))
+	waitForMsg(t, conn1, func(d string) bool { return containsStr(d, "pre-suspend") }, 5*time.Second)
+	conn1.Close()
+	// Brief wait for detach bookkeeping to finish.
+	time.Sleep(150 * time.Millisecond)
+
+	// Suspend: poll until it takes effect.
+	deadline := time.After(15 * time.Second)
+	for {
+		_ = eng.Suspend(ctx, sid)
+		if store.hasSavedWithState(sid, "suspended") {
+			break
+		}
+		select {
+		case <-deadline:
+			t.Fatal("session did not suspend within 15s")
+		case <-time.After(200 * time.Millisecond):
+		}
+	}
+
+	// Attach to the suspended session → restore must happen transparently.
+	conn2 := newMockConn()
+	attachDone := make(chan struct{})
+	go func() {
+		defer close(attachDone)
+		_ = eng.Attach(ctx, sid, conn2)
+	}()
+
+	// Restored session must replay prior scrollback.
+	found := waitForMsg(t, conn2, func(d string) bool {
+		return containsStr(d, "pre-suspend")
+	}, 8*time.Second)
+	assert.True(t, found, "scrollback must be replayed after restore")
+
+	// New output must flow through the restored live shell.
+	require.NoError(t, eng.Write(ctx, sid, []byte("echo post-restore\n")))
+	found = waitForMsg(t, conn2, func(d string) bool {
+		return containsStr(d, "post-restore")
+	}, 5*time.Second)
+	assert.True(t, found, "new output must flow after restore")
+
+	conn2.Close()
+	<-attachDone
+	require.NoError(t, eng.Kill(ctx, sid))
+}
+
+// TestEngine_Kill_CleanReap verifies that Kill triggers a full reap: session removed
+// from registry, meta deleted, .buf deleted, and onEnded fired exactly once.
+func TestEngine_Kill_CleanReap(t *testing.T) {
+	eng := terminal.New()
+	ctx := context.Background()
+	dir := t.TempDir()
+	store := newFakeMetaStore(t)
+	eng.SetMetaStore(store)
+
+	endedCh := make(chan string, 1)
+	eng.OnSessionEnded(func(_ context.Context, _, sid string) { endedCh <- sid })
+
+	sid, err := eng.Create(ctx, "ws-kill", dir, nil)
+	require.NoError(t, err)
+
+	// Pre-write a .buf so we can verify Kill deletes it.
+	bufFile := filepath.Join(store.dir, sid+".buf")
+	require.NoError(t, os.WriteFile(bufFile, []byte("scrollback"), 0o644))
+
+	require.NoError(t, eng.Kill(ctx, sid))
+
+	// Wait for reapOnDone to fire the callback.
+	select {
+	case got := <-endedCh:
+		assert.Equal(t, sid, got)
+	case <-time.After(5 * time.Second):
+		t.Fatal("onEnded did not fire after Kill")
+	}
+
+	assert.False(t, eng.SessionExists(ctx, sid), "session must be absent after kill")
+	assert.True(t, store.hasDeleted(sid), "meta must be deleted by reapOnDone")
+	assert.False(t, bufExists(store.dir, sid), ".buf must be deleted by reapOnDone")
 }

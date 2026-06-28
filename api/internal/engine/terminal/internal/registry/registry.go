@@ -108,5 +108,17 @@ func (r *Registry) ListByWorkspace(
 	return out
 }
 
+// WorkspaceID returns the workspace ID associated with the given session ID.
+// Returns ("", false) if the session is not found.
+func (r *Registry) WorkspaceID(id string) (string, bool) {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	e, ok := r.sessions[id]
+	if !ok {
+		return "", false
+	}
+	return e.workspaceID, true
+}
+
 // ErrSessionNotFound is returned when a session ID does not exist.
 var ErrSessionNotFound = errors.New("registry: session not found")

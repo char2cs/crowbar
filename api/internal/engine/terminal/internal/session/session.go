@@ -43,9 +43,28 @@ type Session struct {
 	done       chan struct{}
 	once       sync.Once
 	suspending bool
+	exitCode   int // -1 until shutdown; 0 on clean exit; >0 or -1 on error/kill
 	cwd        string
 	shell      string
 	profileID  string
+}
+
+// newSession allocates a Session with the given PTY resources. The pump
+// goroutine is NOT started here; callers are responsible for calling go s.pump()
+// (or not, for placeholder sessions).
+func newSession(id, shell, cwd, profileID string, ptmx *os.File, cmd *exec.Cmd) *Session {
+	return &Session{
+		id:        id,
+		ptmx:      ptmx,
+		cmd:       cmd,
+		ring:      newRingBuffer(defaultRingSize),
+		clients:   make(map[*client]struct{}),
+		done:      make(chan struct{}),
+		cwd:       cwd,
+		shell:     shell,
+		profileID: profileID,
+		exitCode:  -1, // unknown until shutdown captures it
+	}
 }
 
 // New spawns a PTY subprocess and starts the io pump.
@@ -67,18 +86,37 @@ func New(
 		return nil, fmt.Errorf("session: pty start: %w", err)
 	}
 
-	s := &Session{
-		id:        id,
-		ptmx:      ptmx,
-		cmd:       cmd,
-		ring:      newRingBuffer(defaultRingSize),
-		clients:   make(map[*client]struct{}),
-		done:      make(chan struct{}),
-		cwd:       cwd,
-		shell:     shell,
-		profileID: profileID,
+	s := newSession(id, shell, cwd, profileID, ptmx, cmd)
+	go s.pump()
+	return s, nil
+}
+
+// NewRestored spawns a PTY subprocess like New, but pre-loads scrollback into the
+// ring buffer BEFORE starting the pump goroutine. This ensures that the restored
+// scrollback appears before the new shell's first output in the ring's chronological
+// order, so Attach() replays old data ahead of new data.
+func NewRestored(
+	id string,
+	shell string,
+	cwd string,
+	profileID string,
+	env []string,
+	scrollback []byte,
+) (*Session, error) {
+	cmd := exec.Command(shell)
+	cmd.Dir = cwd
+	cmd.Env = env
+
+	ptmx, err := pty.Start(cmd)
+	if err != nil {
+		return nil, fmt.Errorf("session: pty start (restore): %w", err)
 	}
 
+	s := newSession(id, shell, cwd, profileID, ptmx, cmd)
+	if len(scrollback) > 0 {
+		// Write BEFORE pump starts so the ring snapshot stays chronological.
+		s.ring.Write(scrollback)
+	}
 	go s.pump()
 	return s, nil
 }
@@ -106,6 +144,7 @@ func NewPlaceholder(
 		cwd:       cwd,
 		shell:     shell,
 		profileID: profileID,
+		exitCode:  -1, // unknown; placeholder has no process
 		// ptmx and cmd intentionally nil — State() returns "suspended"
 	}
 }
@@ -405,19 +444,70 @@ func (s *Session) fanOutLocked(
 // lock so a slow child exit never blocks fan-out cleanup.
 func (s *Session) shutdown() {
 	s.once.Do(func() {
+		code := -1
 		if s.cmd != nil {
-			_ = s.cmd.Wait()
+			err := s.cmd.Wait()
+			if err == nil {
+				code = 0
+			} else {
+				var exitErr *exec.ExitError
+				if errors.As(err, &exitErr) {
+					code = exitErr.ExitCode()
+				}
+				// else: killed with signal → -1 (unknown)
+			}
 		}
 
 		s.mu.Lock()
 		defer s.mu.Unlock()
 
+		s.exitCode = code
 		for cl := range s.clients {
 			close(cl.send)
 		}
 		s.clients = make(map[*client]struct{})
 		close(s.done)
 	})
+}
+
+// Snapshot returns a copy of all bytes currently in the ring buffer, in
+// chronological order. It is safe for concurrent use and does not acquire s.mu
+// (only ring.mu is taken internally by RingBuffer.Snapshot).
+func (s *Session) Snapshot() []byte {
+	return s.ring.Snapshot()
+}
+
+// ExitCode returns the process exit code captured by shutdown(). It returns -1
+// if the process has not yet exited or was killed with a signal (unknown code).
+func (s *Session) ExitCode() int {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.exitCode
+}
+
+// BeginSuspendIfEligible atomically checks whether this session is eligible for
+// suspend and, if so, sets the suspending flag under s.mu. A session is eligible
+// only if it has no attached clients, is not already suspending, and is idle.
+// Returns true if the caller should proceed with the suspend; false otherwise.
+// This is an atomic check-and-set that closes the TOCTOU window between the
+// idle-check and the actual kill.
+func (s *Session) BeginSuspendIfEligible() bool {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if len(s.clients) > 0 || s.suspending || !s.isIdleLocked() {
+		return false
+	}
+	s.suspending = true
+	return true
+}
+
+// Suspending reports whether the suspend flag has been set by BeginSuspendIfEligible.
+// reapOnDone checks this flag to distinguish an intentional suspend-kill from a
+// real process exit, and skips reg.Remove + fireEnded for suspend.
+func (s *Session) Suspending() bool {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.suspending
 }
 
 // parseLastOSC7 scans b for OSC 7 sequences of the form

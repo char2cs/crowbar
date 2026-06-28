@@ -6,11 +6,9 @@ package terminal
 import (
 	"context"
 	"io"
-	"os"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
-	"github.com/stretchr/testify/require"
 
 	"github.com/char2cs/crowbar/api/internal/engine/terminal/internal/session"
 )
@@ -22,23 +20,21 @@ func (d *deadConn) WriteMessage(_ int, _ []byte) error { return nil }
 func (d *deadConn) ReadMessage() (int, []byte, error)  { return 0, nil, io.EOF }
 func (d *deadConn) Close() error                       { return nil }
 
-// TestAttach_SessionDeadInRegistry covers the s.Attach() error path: the
-// session IS in the registry but its done channel is already closed.
-func TestAttach_SessionDeadInRegistry(t *testing.T) {
-	dir := t.TempDir()
-	s, err := session.New("dead-id", "/bin/sh", dir, "", os.Environ())
-	require.NoError(t, err)
+// TestAttach_PlaceholderWithBadShell_ReturnsError covers the restore error path:
+// the session IS in the registry as a placeholder, but the stored shell binary
+// does not exist, so restore (spawn) fails and Attach must return an error.
+// (Previously this test injected a killed session and expected s.Attach() to error
+// because done was closed. With restore-aware Attach, a not-live session triggers
+// restore instead, so we exercise the restore-failure path instead.)
+func TestAttach_PlaceholderWithBadShell_ReturnsError(t *testing.T) {
+	// Create a placeholder with an invalid shell so spawn fails during restore.
+	ph := session.NewPlaceholder("ph-bad", "/nonexistent/shell/binary", t.TempDir(), "", nil)
 
-	// Kill the session and wait until it is fully terminated.
-	s.Kill()
-	<-s.Done()
-
-	// Inject the dead session directly into a fresh engine's registry.
 	eng := New().(*terminalEngine)
-	eng.reg.Add("dead-id", "dead-ws", s)
+	eng.reg.Add("ph-bad", "ws-bad", ph)
 
-	err = eng.Attach(context.Background(), "dead-id", &deadConn{})
-	assert.Error(t, err)
+	err := eng.Attach(context.Background(), "ph-bad", &deadConn{})
+	assert.Error(t, err, "Attach on a placeholder with a bad shell must return an error")
 }
 
 // TestFireEnded_NilCallback covers the no-callback short-circuit: fireEnded must

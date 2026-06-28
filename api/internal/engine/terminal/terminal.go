@@ -8,12 +8,14 @@ import (
 	"fmt"
 	"os"
 	"sync"
+	"time"
 
 	"github.com/google/uuid"
 	"github.com/gorilla/websocket"
 
 	"github.com/char2cs/crowbar/api/internal/core/safego"
 	"github.com/char2cs/crowbar/api/internal/domain"
+	"github.com/char2cs/crowbar/api/internal/engine/terminal/internal/persistence"
 	"github.com/char2cs/crowbar/api/internal/engine/terminal/internal/profile"
 	"github.com/char2cs/crowbar/api/internal/engine/terminal/internal/registry"
 	"github.com/char2cs/crowbar/api/internal/engine/terminal/internal/session"
@@ -75,7 +77,8 @@ type Engine interface {
 	) (sessionID string, err error)
 
 	// Attach connects a WebSocket connection to an existing session,
-	// replaying the ring buffer and streaming live output.
+	// replaying the ring buffer and streaming live output. If the session is
+	// suspended (placeholder), it is transparently restored before attaching.
 	// The conn is closed by the engine when the session ends or the client is dropped.
 	Attach(
 		ctx context.Context,
@@ -104,6 +107,15 @@ type Engine interface {
 		sessionID string,
 	) error
 
+	// Suspend intentionally tears down an idle, unattached session's PTY,
+	// persists its scrollback to disk, and replaces the registry entry with a
+	// placeholder. A subsequent Attach transparently restores it. Returns nil
+	// when the session is not eligible (has clients, not idle, or not live).
+	Suspend(
+		ctx context.Context,
+		sessionID string,
+	) error
+
 	// ListSessions returns all active session IDs.
 	ListSessions() []string
 
@@ -121,6 +133,7 @@ type Engine interface {
 	)
 
 	// SessionExists reports whether a session with the given ID is currently active.
+	// Returns true for both live sessions and suspended placeholders.
 	SessionExists(
 		ctx context.Context,
 		sessionID string,
@@ -141,17 +154,23 @@ type Engine interface {
 type terminalEngine struct {
 	reg *registry.Registry
 
-	mu        sync.RWMutex
-	onEnded   func(ctx context.Context, workspaceID string, sessionID string)
-	endedOnce map[string]struct{}
-	metaStore SessionMetaStore
+	mu         sync.RWMutex
+	onEnded    func(ctx context.Context, workspaceID string, sessionID string)
+	endedOnce  map[string]struct{}
+	metaStore  SessionMetaStore
+	lastActive map[string]time.Time // guarded by mu; set on last-client detach
+
+	// restoring prevents double-spawn when concurrent Attach calls hit a
+	// suspended placeholder. LoadOrStore ensures only the first caller spawns.
+	restoring sync.Map // map[string]struct{}
 }
 
 // New returns a new Engine.
 func New() Engine {
 	return &terminalEngine{
-		reg:       registry.New(),
-		endedOnce: make(map[string]struct{}),
+		reg:        registry.New(),
+		endedOnce:  make(map[string]struct{}),
+		lastActive: make(map[string]time.Time),
 	}
 }
 
@@ -172,6 +191,34 @@ type inputMsg struct {
 	Rows uint16 `json:"rows"`
 }
 
+// spawn creates a live session (or restores one from scrollback), registers it
+// in the registry under id/workspaceID, and starts reapOnDone. It is the single
+// point of session birth — both Create and restore delegate here.
+func (e *terminalEngine) spawn(
+	id string,
+	workspaceID string,
+	shell string,
+	cwd string,
+	profileID string,
+	scrollback []byte,
+) (*session.Session, error) {
+	var (
+		s   *session.Session
+		err error
+	)
+	if len(scrollback) > 0 {
+		s, err = session.NewRestored(id, shell, cwd, profileID, ptyEnv(), scrollback)
+	} else {
+		s, err = session.New(id, shell, cwd, profileID, ptyEnv())
+	}
+	if err != nil {
+		return nil, err
+	}
+	e.reg.Add(id, workspaceID, s)
+	go e.reapOnDone(id, workspaceID, s)
+	return s, nil
+}
+
 func (e *terminalEngine) Create(
 	_ context.Context,
 	workspaceID string,
@@ -181,13 +228,7 @@ func (e *terminalEngine) Create(
 	resolved := profile.Resolve(prof, workspaceDir)
 	id := uuid.NewString()
 
-	s, err := session.New(
-		id,
-		resolved.Shell,
-		resolved.CWD,
-		"", // profileID: not yet propagated to the engine layer
-		ptyEnv(),
-	)
+	s, err := e.spawn(id, workspaceID, resolved.Shell, resolved.CWD, "", nil)
 	if err != nil {
 		return "", fmt.Errorf("terminal: create: %w", err)
 	}
@@ -199,16 +240,14 @@ func (e *terminalEngine) Create(
 		}
 	}
 
-	e.reg.Add(id, workspaceID, s)
-
-	go e.reapOnDone(id, workspaceID, s)
 	return id, nil
 }
 
 // reapOnDone removes the session from the registry once it terminates and fires
 // the OnSessionEnded callback so the lifecycle topic can emit an "ended" frame.
-// It covers every termination path: an explicit Kill, a Shutdown, or a PTY
-// self-exit.
+// It covers every real-termination path: an explicit Kill, a Shutdown, or a PTY
+// self-exit. For the suspend path it returns early so it does NOT remove the
+// placeholder or fire ended.
 func (e *terminalEngine) reapOnDone(
 	id string,
 	workspaceID string,
@@ -216,8 +255,25 @@ func (e *terminalEngine) reapOnDone(
 ) {
 	defer safego.Recover("terminal.reapOnDone")
 	<-s.Done()
+
+	// Suspend path: Suspend already replaced the registry entry with a placeholder
+	// and persisted scrollback. We must NOT remove that placeholder or fire ended.
+	if s.Suspending() {
+		return
+	}
+
+	// Real exit (Kill, Shutdown, or PTY self-exit): full cleanup.
 	e.reg.Remove(id)
-	e.fireEnded(context.Background(), workspaceID, id)
+
+	ctx := context.Background()
+	dir, _ := e.storageDir(ctx, workspaceID)
+	if dir != "" {
+		if delErr := persistence.DeleteBuf(dir, id); delErr != nil {
+			_, _ = fmt.Fprintf(os.Stderr, "terminal: reap: delete buf %s: %v\n", id, delErr)
+		}
+	}
+	e.deleteMeta(ctx, id)
+	e.fireEnded(ctx, workspaceID, id)
 }
 
 // fireEnded invokes the registered OnSessionEnded callback exactly once per
@@ -309,6 +365,112 @@ func (e *terminalEngine) storageDir(
 	return ms.StorageDir(ctx, workspaceID)
 }
 
+// restore spawns a live session to replace the placeholder currently at sid.
+// It is idempotent: if the session is already live (or another goroutine is
+// restoring it concurrently) it returns nil. The restoring sync.Map acts as a
+// per-session spinlock that prevents double-spawn on concurrent first-attaches.
+func (e *terminalEngine) restore(ctx context.Context, sid string) error {
+	// Prevent double-spawn: only the first goroutine that wins LoadOrStore proceeds.
+	if _, loaded := e.restoring.LoadOrStore(sid, struct{}{}); loaded {
+		return nil
+	}
+	defer e.restoring.Delete(sid)
+
+	s, ok := e.reg.Get(sid)
+	if !ok || s.IsLive() {
+		return nil // already gone or already restored by another path
+	}
+
+	ws, wsOK := e.reg.WorkspaceID(sid)
+	if !wsOK {
+		return fmt.Errorf("terminal: restore: workspace not found for session %s", sid)
+	}
+
+	shell := s.Shell()
+	cwd := s.CWD()
+	profileID := s.ProfileID()
+
+	var scrollback []byte
+	dir, dirErr := e.storageDir(ctx, ws)
+	if dirErr == nil && dir != "" {
+		scrollback, _ = persistence.ReadBuf(dir, sid)
+	}
+
+	if _, err := e.spawn(sid, ws, shell, cwd, profileID, scrollback); err != nil {
+		return fmt.Errorf("terminal: restore: spawn: %w", err)
+	}
+
+	// Record restored session as detached (live but no clients yet).
+	e.saveMeta(ctx, SessionMeta{
+		SessionID:   sid,
+		WorkspaceID: ws,
+		CWD:         cwd,
+		Shell:       shell,
+		ProfileID:   profileID,
+		State:       "detached",
+	})
+
+	return nil
+}
+
+// Suspend intentionally tears down a session's PTY if it is idle and has no
+// attached clients. The exact ordering:
+//
+//  1. Capture scrollback + persist to disk + save "suspended" meta.
+//  2. Replace registry entry with a placeholder (so concurrent Attach → restore).
+//  3. Kill the OLD live session (reapOnDone will see Suspending()==true → no-op).
+//
+// Returns nil for non-eligible sessions (not live, has clients, not idle) — the
+// caller cannot distinguish a no-op from a success; detection is via the meta store.
+func (e *terminalEngine) Suspend(ctx context.Context, sid string) error {
+	s, ok := e.reg.Get(sid)
+	if !ok || !s.IsLive() {
+		return nil
+	}
+	if !s.BeginSuspendIfEligible() {
+		return nil // has clients, already suspending, or not idle
+	}
+
+	ws, wsOK := e.reg.WorkspaceID(sid)
+	if !wsOK {
+		// Unexpected: session in registry but workspace unknown. Bail without killing.
+		return nil
+	}
+
+	now := time.Now()
+
+	// Step a: capture state + persist BEFORE replacing registry or killing.
+	scrollback := s.Snapshot()
+
+	dir, _ := e.storageDir(ctx, ws)
+	if dir != "" {
+		if err := persistence.WriteBuf(dir, sid, scrollback); err != nil {
+			_, _ = fmt.Fprintf(os.Stderr, "terminal: suspend: persist buf %s: %v\n", sid, err)
+		}
+	}
+	e.saveMeta(ctx, SessionMeta{
+		SessionID:    sid,
+		WorkspaceID:  ws,
+		CWD:          s.CWD(),
+		Shell:        s.Shell(),
+		ProfileID:    s.ProfileID(),
+		State:        "suspended",
+		LastActiveAt: now,
+	})
+
+	// Step b: replace registry entry with placeholder BEFORE killing.
+	// Any concurrent Attach arriving after this point finds the placeholder → restore.
+	ph := session.NewPlaceholder(sid, s.Shell(), s.CWD(), s.ProfileID(), scrollback)
+	e.reg.Add(sid, ws, ph)
+
+	// Step c: kill the OLD live session.
+	// reapOnDone will see s.Suspending()==true and return early, leaving the
+	// placeholder in the registry and suppressing fireEnded/deleteMeta/DeleteBuf.
+	s.Kill()
+
+	return nil
+}
+
 func (e *terminalEngine) Attach(
 	ctx context.Context,
 	sessionID string,
@@ -317,6 +479,18 @@ func (e *terminalEngine) Attach(
 	s, ok := e.reg.Get(sessionID)
 	if !ok {
 		return fmt.Errorf("terminal: attach: %w: %s", registry.ErrSessionNotFound, sessionID)
+	}
+
+	// Restore-aware: if the registry holds a placeholder, restore it first.
+	if !s.IsLive() {
+		if err := e.restore(ctx, sessionID); err != nil {
+			return fmt.Errorf("terminal: attach: restore: %w", err)
+		}
+		// Re-fetch: restore replaced the placeholder with a new live session.
+		s, ok = e.reg.Get(sessionID)
+		if !ok {
+			return fmt.Errorf("terminal: attach: %w: %s (post-restore)", registry.ErrSessionNotFound, sessionID)
+		}
 	}
 
 	ch, err := s.Attach()
@@ -330,6 +504,37 @@ func (e *terminalEngine) Attach(
 
 	s.Detach(ch)
 	<-writeDone
+
+	// Detach bookkeeping: when the last client leaves, persist scrollback and
+	// record "detached" meta so a future restore knows the last-known state.
+	// This runs after <-writeDone so the WS is already closed — never blocks detach.
+	if s.AttachedCount() == 0 {
+		now := time.Now()
+		ws, wsOK := e.reg.WorkspaceID(sessionID)
+
+		e.mu.Lock()
+		e.lastActive[sessionID] = now
+		e.mu.Unlock()
+
+		if wsOK {
+			dir, _ := e.storageDir(ctx, ws)
+			if dir != "" {
+				if writeErr := persistence.WriteBuf(dir, sessionID, s.Snapshot()); writeErr != nil {
+					_, _ = fmt.Fprintf(os.Stderr, "terminal: detach: persist buf %s: %v\n", sessionID, writeErr)
+				}
+			}
+			e.saveMeta(ctx, SessionMeta{
+				SessionID:    sessionID,
+				WorkspaceID:  ws,
+				CWD:          s.CWD(),
+				Shell:        s.Shell(),
+				ProfileID:    s.ProfileID(),
+				State:        "detached",
+				LastActiveAt: now,
+			})
+		}
+	}
+
 	return nil
 }
 
@@ -420,8 +625,11 @@ func (e *terminalEngine) Kill(
 	if !ok {
 		return fmt.Errorf("terminal: kill: %w: %s", registry.ErrSessionNotFound, sessionID)
 	}
-	s.Kill()
+	// Remove from registry eagerly so callers see it gone immediately after Kill returns.
+	// reapOnDone will also call reg.Remove (idempotent no-op) and then handle the
+	// remaining cleanup: deleteMeta, DeleteBuf, fireEnded.
 	e.reg.Remove(sessionID)
+	s.Kill()
 	return nil
 }
 
@@ -437,6 +645,7 @@ func (e *terminalEngine) ListSessionsForWorkspace(
 }
 
 // SessionExists reports whether a session with the given ID is currently active.
+// Returns true for both live sessions and suspended placeholders.
 func (e *terminalEngine) SessionExists(
 	_ context.Context,
 	sessionID string,
@@ -452,7 +661,7 @@ func (e *terminalEngine) Shutdown() {
 		if !ok {
 			continue
 		}
-		s.Kill()
 		e.reg.Remove(id)
+		s.Kill()
 	}
 }

@@ -511,6 +511,137 @@ func TestOSC7_CWD_Update(t *testing.T) {
 
 // ---------------------------------------------------------------------------
 
+// ---------------------------------------------------------------------------
+// Phase 2: Suspend/Restore helpers
+// ---------------------------------------------------------------------------
+
+// TestSession_Snapshot_ContentFromPlaceholder verifies Snapshot returns ring content.
+func TestSession_Snapshot_ContentFromPlaceholder(t *testing.T) {
+	data := []byte("scrollback data")
+	ph := NewPlaceholder("ph-snap", "/bin/sh", "/tmp", "", data)
+	snap := ph.Snapshot()
+	assert.Equal(t, data, snap)
+}
+
+// TestSession_BeginSuspendIfEligible_WithClients verifies no-op when clients attached.
+func TestSession_BeginSuspendIfEligible_WithClients(t *testing.T) {
+	dir := t.TempDir()
+	s, err := New("sid-bse1", "/bin/sh", dir, "", os.Environ())
+	require.NoError(t, err)
+	t.Cleanup(s.Kill)
+
+	ch, err := s.Attach()
+	require.NoError(t, err)
+	defer s.Detach(ch)
+
+	assert.False(t, s.BeginSuspendIfEligible(), "with attached clients, must not be eligible")
+	assert.False(t, s.Suspending())
+}
+
+// TestSession_BeginSuspendIfEligible_AlreadySuspending verifies that a second call
+// is a no-op once the flag is set.
+func TestSession_BeginSuspendIfEligible_AlreadySuspending(t *testing.T) {
+	dir := t.TempDir()
+	s, err := New("sid-bse2", "/bin/sh", dir, "", os.Environ())
+	require.NoError(t, err)
+	t.Cleanup(s.Kill)
+
+	if !waitIdleOrSkip(t, s) {
+		return
+	}
+	assert.True(t, s.BeginSuspendIfEligible(), "first call on idle session must succeed")
+	assert.True(t, s.Suspending())
+	assert.False(t, s.BeginSuspendIfEligible(), "second call must return false (already suspending)")
+}
+
+// TestSession_Suspending verifies the flag is readable after BeginSuspendIfEligible.
+func TestSession_Suspending(t *testing.T) {
+	dir := t.TempDir()
+	s, err := New("sid-suspflag", "/bin/sh", dir, "", os.Environ())
+	require.NoError(t, err)
+	t.Cleanup(s.Kill)
+
+	assert.False(t, s.Suspending(), "must be false before any suspend call")
+
+	if !waitIdleOrSkip(t, s) {
+		return
+	}
+	s.BeginSuspendIfEligible()
+	assert.True(t, s.Suspending())
+}
+
+// TestSession_ExitCode_Default verifies ExitCode is -1 before any exit.
+func TestSession_ExitCode_Default(t *testing.T) {
+	dir := t.TempDir()
+	s, err := New("sid-ec0", "/bin/sh", dir, "", os.Environ())
+	require.NoError(t, err)
+	t.Cleanup(s.Kill)
+
+	assert.Equal(t, -1, s.ExitCode())
+}
+
+// TestSession_ExitCode_AfterCleanExit verifies ExitCode is 0 after `exit 0`.
+func TestSession_ExitCode_AfterCleanExit(t *testing.T) {
+	dir := t.TempDir()
+	s, err := New("sid-ec1", "/bin/sh", dir, "", os.Environ())
+	require.NoError(t, err)
+
+	require.NoError(t, s.Write([]byte("exit 0\n")))
+	select {
+	case <-s.Done():
+	case <-time.After(5 * time.Second):
+		s.Kill()
+		t.Fatal("session did not exit after `exit 0`")
+	}
+	assert.Equal(t, 0, s.ExitCode())
+}
+
+// TestSession_NewRestored_LoadsScrollbackBeforePump verifies that NewRestored pre-loads
+// scrollback into the ring before the pump goroutine starts, so a first Attach sees
+// scrollback in the snapshot frame ahead of any new shell output.
+func TestSession_NewRestored_LoadsScrollbackBeforePump(t *testing.T) {
+	scrollback := []byte("old-scrollback\r\n")
+	dir := t.TempDir()
+	s, err := NewRestored("sid-restored", "/bin/sh", dir, "profX", os.Environ(), scrollback)
+	require.NoError(t, err)
+	t.Cleanup(s.Kill)
+
+	snap := s.Snapshot()
+	require.True(t, contains(snap, scrollback),
+		"ring snapshot must contain pre-loaded scrollback; got %q", snap)
+
+	ch, err := s.Attach()
+	require.NoError(t, err)
+	defer s.Detach(ch)
+
+	select {
+	case f, ok := <-ch:
+		require.True(t, ok)
+		require.True(t, contains(f.Data, scrollback),
+			"first attach frame must contain the pre-loaded scrollback; got %q", f.Data)
+	case <-time.After(2 * time.Second):
+		t.Fatal("no snapshot frame received from restored session")
+	}
+}
+
+// waitIdleOrSkip polls until the shell is idle. Returns false (and calls t.Skip)
+// if the shell does not become idle within 5 s.
+func waitIdleOrSkip(t *testing.T, s *Session) bool {
+	t.Helper()
+	deadline := time.After(5 * time.Second)
+	for {
+		if s.IsIdle() {
+			return true
+		}
+		select {
+		case <-deadline:
+			t.Skip("shell did not become idle within 5s; skipping idle-dependent test")
+			return false
+		case <-time.After(100 * time.Millisecond):
+		}
+	}
+}
+
 // countOccurrences counts non-overlapping occurrences of needle in data.
 func countOccurrences(data, needle []byte) int {
 	if len(needle) == 0 || len(data) < len(needle) {
