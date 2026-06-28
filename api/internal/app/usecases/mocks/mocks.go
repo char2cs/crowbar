@@ -12,6 +12,7 @@ import (
 	"github.com/char2cs/crowbar/api/internal/domain"
 	gitdomain "github.com/char2cs/crowbar/api/internal/domain/git"
 	gitengine "github.com/char2cs/crowbar/api/internal/engine/git"
+	engineterminal "github.com/char2cs/crowbar/api/internal/engine/terminal"
 	provider "github.com/char2cs/crowbar/api/internal/engine/provider"
 )
 
@@ -686,8 +687,9 @@ func (e *FsEngine) Delete(
 // TerminalEngine is a fake of the terminal-engine surface used by the terminal
 // usecase.
 type TerminalEngine struct {
-	CreateFn func(ctx context.Context, wsID, dir string, prof *domain.TerminalProfile) (string, error)
-	KillFn   func(ctx context.Context, sessionID string) error
+	CreateFn          func(ctx context.Context, wsID, dir string, prof *domain.TerminalProfile) (string, error)
+	KillFn            func(ctx context.Context, sessionID string) error
+	LoadPlaceholderFn func(ctx context.Context, m engineterminal.SessionMeta, scrollback []byte) error
 }
 
 // NewTerminalEngine returns an empty TerminalEngine.
@@ -709,6 +711,18 @@ func (e *TerminalEngine) Kill(
 	sessionID string,
 ) error {
 	return e.KillFn(ctx, sessionID)
+}
+
+// LoadPlaceholder is a no-op by default; set LoadPlaceholderFn to override.
+func (e *TerminalEngine) LoadPlaceholder(
+	ctx context.Context,
+	m engineterminal.SessionMeta,
+	scrollback []byte,
+) error {
+	if e.LoadPlaceholderFn != nil {
+		return e.LoadPlaceholderFn(ctx, m, scrollback)
+	}
+	return nil
 }
 
 // TerminalProfileStore is a fake store.Store[domain.TerminalProfile, string].

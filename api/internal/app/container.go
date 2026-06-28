@@ -75,6 +75,7 @@ func New(
 
 	startProviderSweep(ctx, engines, repos, ucs)
 	startRecoverySweep(ctx, ucs)
+	startRestoreTerminalSessions(ctx, ucs)
 
 	rt := realtime.New(
 		ctx,
@@ -141,6 +142,23 @@ func startRecoverySweep(
 ) {
 	safego.Go("app.recoverySweep", func() {
 		_ = ucs.Worktree.ReconcileAll(context.WithoutCancel(ctx))
+	})
+}
+
+// startRestoreTerminalSessions reloads persisted terminal sessions as PTY-less
+// placeholders so a subsequent client Attach transparently restores them.
+// Runs exactly once at startup in the background; best-effort (panics are
+// contained, per-row errors are logged). Orphaned rows (deleted workspaces) are
+// reconciled away automatically inside RestorePersistedSessions.
+func startRestoreTerminalSessions(
+	ctx context.Context,
+	ucs *usecases.Container,
+) {
+	if ucs.Terminal == nil {
+		return
+	}
+	safego.Go("app.restoreTerminalSessions", func() {
+		_ = ucs.Terminal.RestorePersistedSessions(context.WithoutCancel(ctx))
 	})
 }
 

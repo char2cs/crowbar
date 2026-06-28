@@ -3,6 +3,8 @@ package terminal
 import (
 	"context"
 	"time"
+
+	"github.com/char2cs/crowbar/api/internal/domain"
 )
 
 // SessionMeta carries the durable metadata the engine writes for a single
@@ -42,4 +44,10 @@ type SessionMetaStore interface {
 		ctx context.Context,
 		workspaceID string,
 	) (string, error)
+
+	// List returns all persisted terminal session rows. Called at daemon start
+	// by RestorePersistedSessions to reload placeholder sessions into the engine.
+	List(
+		ctx context.Context,
+	) ([]domain.TerminalSession, error)
 }

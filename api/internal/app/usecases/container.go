@@ -89,6 +89,7 @@ func New(
 		engines.Terminal,
 		gormStores.TerminalProfiles,
 		repos.Workspace,
+		terminalMeta,
 	)
 	providerSync := provider.New(
 		repos.Workspace,

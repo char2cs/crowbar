@@ -212,3 +212,36 @@ func TestSessionMetaStore_StorageDir_WorkspaceError(t *testing.T) {
 	_, err := ms.StorageDir(ctx, "ws-1")
 	assert.Error(t, err)
 }
+
+func TestSessionMetaStore_List_ReturnsAllRows(t *testing.T) {
+	ctx := context.Background()
+	repo := &fakeWorkspaceRepo{ws: domain.Workspace{ID: "ws-1", ProjectID: "p", RepoID: "r"}}
+	store := newFakeSessionStore()
+	ms := buildMetaStore(t, repo, store, "/home")
+
+	// Save two rows via the store directly so we don't need workspace resolution.
+	store.rows["sess-1"] = domain.TerminalSession{SessionID: "sess-1", WorkspaceID: "ws-1", State: "suspended"}
+	store.rows["sess-2"] = domain.TerminalSession{SessionID: "sess-2", WorkspaceID: "ws-1", State: "detached"}
+
+	rows, err := ms.List(ctx)
+	require.NoError(t, err)
+	assert.Len(t, rows, 2)
+
+	ids := make(map[string]bool)
+	for _, r := range rows {
+		ids[r.SessionID] = true
+	}
+	assert.True(t, ids["sess-1"])
+	assert.True(t, ids["sess-2"])
+}
+
+func TestSessionMetaStore_List_Empty(t *testing.T) {
+	ctx := context.Background()
+	repo := &fakeWorkspaceRepo{}
+	store := newFakeSessionStore()
+	ms := buildMetaStore(t, repo, store, "/home")
+
+	rows, err := ms.List(ctx)
+	require.NoError(t, err)
+	assert.Empty(t, rows)
+}

@@ -103,3 +103,15 @@ func (s *sessionMetaStoreImpl) StorageDir(
 
 	return worktreepath.StorageDir(home, ws.ProjectID, ws.RepoID, workspaceID), nil
 }
+
+// List returns all persisted terminal session rows. Called at daemon start
+// by RestorePersistedSessions to reload placeholder sessions into the engine.
+func (s *sessionMetaStoreImpl) List(
+	ctx context.Context,
+) ([]domain.TerminalSession, error) {
+	rows, err := s.sessions.FindAll(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("terminal: metastore: list: %w", err)
+	}
+	return rows, nil
+}

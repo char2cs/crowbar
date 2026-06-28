@@ -3,11 +3,14 @@ package terminal
 import (
 	"context"
 	"fmt"
+	"os"
+	"path/filepath"
 
 	"github.com/google/uuid"
 
 	store "github.com/char2cs/crowbar/api/internal/adapter/store"
 	"github.com/char2cs/crowbar/api/internal/domain"
+	engineterminal "github.com/char2cs/crowbar/api/internal/engine/terminal"
 )
 
 // Engine is the PTY-session surface the terminal usecase passes through to.
@@ -21,6 +24,14 @@ type Engine interface {
 	Kill(
 		ctx context.Context,
 		sessionID string,
+	) error
+	// LoadPlaceholder registers a durable session as a PTY-less placeholder so
+	// a subsequent Attach can restore it. Idempotent: no-op if session already
+	// present. Called by RestorePersistedSessions at daemon startup.
+	LoadPlaceholder(
+		ctx context.Context,
+		m engineterminal.SessionMeta,
+		scrollback []byte,
 	) error
 }
 
@@ -70,25 +81,38 @@ type Usecase interface {
 		ctx context.Context,
 		id string,
 	) error
+
+	// RestorePersistedSessions reloads all durable terminal session rows from
+	// the metastore as PTY-less placeholders in the engine. Orphaned rows
+	// (workspace deleted) are reconciled away. Per-row errors are logged and
+	// skipped; the overall call never fails the daemon startup. Must be called
+	// after both the engine and the metastore are wired.
+	RestorePersistedSessions(
+		ctx context.Context,
+	) error
 }
 
 type terminalUsecase struct {
 	engine     Engine
 	profiles   store.Store[domain.TerminalProfile, string]
 	workspaces WorkspaceRepo
+	metaStore  engineterminal.SessionMetaStore
 }
 
-// New builds a Usecase from the terminal engine, the profile store, and the
-// workspace repo.
+// New builds a Usecase from the terminal engine, the profile store, the
+// workspace repo, and the durable session metastore. metaStore may be nil; in
+// that case RestorePersistedSessions is a no-op.
 func New(
 	engine Engine,
 	profiles store.Store[domain.TerminalProfile, string],
 	workspaces WorkspaceRepo,
+	metaStore engineterminal.SessionMetaStore,
 ) Usecase {
 	return &terminalUsecase{
 		engine:     engine,
 		profiles:   profiles,
 		workspaces: workspaces,
+		metaStore:  metaStore,
 	}
 }
 
@@ -166,4 +190,64 @@ func (u *terminalUsecase) DeleteProfile(
 		return fmt.Errorf("terminal: delete profile: %w", err)
 	}
 	return nil
+}
+
+// RestorePersistedSessions reloads all durable terminal session rows from the
+// metastore as PTY-less placeholders. Orphaned rows (workspace no longer
+// resolvable) are deleted from the store. Per-row errors are logged and
+// skipped; the overall call never returns a fatal error.
+func (u *terminalUsecase) RestorePersistedSessions(ctx context.Context) error {
+	if u.metaStore == nil {
+		return nil
+	}
+	rows, err := u.metaStore.List(ctx)
+	if err != nil {
+		return fmt.Errorf("terminal: restore: list: %w", err)
+	}
+
+	restored, dropped := 0, 0
+	for _, row := range rows {
+		dir, dirErr := u.metaStore.StorageDir(ctx, row.WorkspaceID)
+		if dirErr != nil {
+			// Workspace deleted or unresolvable — reconcile orphan away.
+			if delErr := u.metaStore.Delete(ctx, row.SessionID); delErr != nil {
+				_, _ = fmt.Fprintf(os.Stderr,
+					"terminal: restore: delete orphan %s: %v\n", row.SessionID, delErr)
+			}
+			dropped++
+			continue
+		}
+
+		scrollback := readScrollback(dir, row.SessionID)
+
+		if loadErr := u.engine.LoadPlaceholder(ctx, engineterminal.SessionMeta{
+			SessionID:   row.SessionID,
+			WorkspaceID: row.WorkspaceID,
+			CWD:         row.CWD,
+			Shell:       row.Shell,
+			ProfileID:   row.ProfileID,
+			State:       "suspended",
+		}, scrollback); loadErr != nil {
+			_, _ = fmt.Fprintf(os.Stderr,
+				"terminal: restore: load placeholder %s: %v\n", row.SessionID, loadErr)
+			continue
+		}
+		restored++
+	}
+
+	_, _ = fmt.Fprintf(os.Stderr,
+		"terminal: restore: restored=%d dropped_orphans=%d\n", restored, dropped)
+	return nil
+}
+
+// readScrollback reads <dir>/<sessionID>.buf, returning nil when the file is
+// absent (session had no persisted scrollback). Real IO errors are silently
+// swallowed and treated as missing so a corrupt buf never blocks startup.
+func readScrollback(dir, sessionID string) []byte {
+	path := filepath.Join(dir, sessionID+".buf")
+	data, err := os.ReadFile(path) //nolint:gosec // path controlled by callers
+	if err != nil {
+		return nil
+	}
+	return data
 }

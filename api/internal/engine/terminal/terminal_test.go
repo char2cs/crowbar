@@ -50,6 +50,12 @@ func (f *fakeMetaStore) StorageDir(_ context.Context, _ string) (string, error) 
 	return f.dir, nil
 }
 
+// List returns an empty slice — the engine-level fakeMetaStore is only used
+// to test Save/Delete/StorageDir; List is not exercised at this layer.
+func (f *fakeMetaStore) List(_ context.Context) ([]domain.TerminalSession, error) {
+	return nil, nil
+}
+
 func (f *fakeMetaStore) hasSavedWithState(sid, state string) bool {
 	f.mu.Lock()
 	defer f.mu.Unlock()
@@ -569,6 +575,115 @@ func containsStr(
 		}
 	}
 	return false
+}
+
+// ---------------------------------------------------------------------------
+// Phase 3: LoadPlaceholder / restart-restore tests (TDD — written first)
+// ---------------------------------------------------------------------------
+
+// TestEngine_LoadPlaceholder_IsPlaceholder verifies that after LoadPlaceholder the
+// session appears in the registry as a suspended (non-live) placeholder.
+func TestEngine_LoadPlaceholder_IsPlaceholder(t *testing.T) {
+	eng := terminal.New()
+	terminal.StopMaintenanceForTest(eng)
+	ctx := context.Background()
+
+	sid := "ph-sess-1"
+	err := eng.LoadPlaceholder(ctx, terminal.SessionMeta{
+		SessionID:   sid,
+		WorkspaceID: "ws-ph",
+		CWD:         "/tmp",
+		Shell:       "/bin/sh",
+		ProfileID:   "",
+		State:       "suspended",
+	}, []byte("old scrollback"))
+	require.NoError(t, err)
+
+	assert.True(t, eng.SessionExists(ctx, sid), "placeholder must be present in registry")
+	state, ok := eng.StateOf(sid)
+	assert.True(t, ok)
+	assert.Equal(t, "suspended", state, "placeholder state must be 'suspended'")
+
+	// Cleanup.
+	require.NoError(t, eng.Kill(ctx, sid))
+}
+
+// TestEngine_LoadPlaceholder_Idempotent verifies that loading the same session ID
+// twice does not double-register and does not error.
+func TestEngine_LoadPlaceholder_Idempotent(t *testing.T) {
+	eng := terminal.New()
+	terminal.StopMaintenanceForTest(eng)
+	ctx := context.Background()
+
+	sid := "ph-sess-idem"
+	meta := terminal.SessionMeta{
+		SessionID:   sid,
+		WorkspaceID: "ws-ph",
+		CWD:         "/tmp",
+		Shell:       "/bin/sh",
+	}
+
+	require.NoError(t, eng.LoadPlaceholder(ctx, meta, nil))
+	require.NoError(t, eng.LoadPlaceholder(ctx, meta, nil)) // second call must be no-op
+
+	// Should still appear exactly once.
+	ids := eng.ListSessions()
+	count := 0
+	for _, id := range ids {
+		if id == sid {
+			count++
+		}
+	}
+	assert.Equal(t, 1, count, "session must be registered exactly once after two loads")
+
+	require.NoError(t, eng.Kill(ctx, sid))
+}
+
+// TestEngine_LoadPlaceholder_ThenAttach_Restores verifies that attaching to a
+// session loaded via LoadPlaceholder transparently restores it: a live PTY is
+// spawned and the scrollback bytes pre-loaded into the placeholder are replayed.
+func TestEngine_LoadPlaceholder_ThenAttach_Restores(t *testing.T) {
+	eng := terminal.New()
+	terminal.StopMaintenanceForTest(eng)
+	ctx := context.Background()
+	dir := t.TempDir()
+	store := newFakeMetaStore(t)
+	eng.SetMetaStore(store)
+
+	sid := "ph-sess-attach"
+	marker := "pre-restart-marker"
+	scrollback := []byte("$ echo " + marker + "\r\n" + marker + "\r\n")
+
+	// Write scrollback to disk so restore() can read it via persistence.ReadBuf.
+	// (restore re-reads from disk, not from the placeholder ring.)
+	bufPath := filepath.Join(store.dir, sid+".buf")
+	require.NoError(t, os.WriteFile(bufPath, scrollback, 0o644))
+
+	require.NoError(t, eng.LoadPlaceholder(ctx, terminal.SessionMeta{
+		SessionID:   sid,
+		WorkspaceID: "ws-ph-attach",
+		CWD:         dir,
+		Shell:       "/bin/sh",
+		ProfileID:   "",
+	}, scrollback))
+
+	// Attach must trigger restore transparently.
+	conn := newMockConn()
+	attachDone := make(chan struct{})
+	go func() {
+		defer close(attachDone)
+		_ = eng.Attach(ctx, sid, conn)
+	}()
+
+	// The replayed scrollback must appear in the first messages.
+	found := waitForMsg(t, conn, func(data string) bool {
+		return containsStr(data, marker)
+	}, 8*time.Second)
+	assert.True(t, found, "scrollback must be replayed after LoadPlaceholder → Attach")
+
+	conn.Close()
+	<-attachDone
+	require.NoError(t, eng.Kill(ctx, sid))
 }
 
 // ---------------------------------------------------------------------------

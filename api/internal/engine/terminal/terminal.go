@@ -162,6 +162,17 @@ type Engine interface {
 		s SessionMetaStore,
 	)
 
+	// LoadPlaceholder loads a durable session from disk as a PTY-less placeholder
+	// so a subsequent Attach can transparently restore it. It is idempotent: if the
+	// session is already present in the registry (live or suspended), the call is a
+	// no-op. No pump goroutine or reapOnDone is started — a later Attach→restore
+	// handles that. Called by RestorePersistedSessions at daemon startup.
+	LoadPlaceholder(
+		ctx context.Context,
+		m SessionMeta,
+		scrollback []byte,
+	) error
+
 	// Stats returns a snapshot of session counts and total estimated ring-buffer
 	// memory for observability (health endpoint, settings panel, etc.).
 	Stats() (active, detached, suspended int, ringBytes int64)
@@ -395,6 +406,24 @@ func (e *terminalEngine) SetMetaStore(
 	e.mu.Lock()
 	e.metaStore = s
 	e.mu.Unlock()
+}
+
+// LoadPlaceholder loads a durable session into the registry as a PTY-less
+// placeholder. Idempotent: if the session already exists in the registry (live
+// or suspended), the call is a no-op and returns nil. No pump goroutine or
+// reapOnDone is started — a later Attach→restore handles that.
+func (e *terminalEngine) LoadPlaceholder(
+	_ context.Context,
+	m SessionMeta,
+	scrollback []byte,
+) error {
+	// Idempotent: already in registry (live or placeholder) — skip.
+	if _, ok := e.reg.Get(m.SessionID); ok {
+		return nil
+	}
+	ph := session.NewPlaceholder(m.SessionID, m.Shell, m.CWD, m.ProfileID, scrollback)
+	e.reg.Add(m.SessionID, m.WorkspaceID, ph)
+	return nil
 }
 
 // saveMeta persists session metadata if a store is wired. It is a no-op when
