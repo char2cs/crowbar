@@ -206,9 +206,14 @@ func TestMaintenance_SoftLimit(t *testing.T) {
 		sids[i] = sid
 	}
 
-	// Wait for all four to be idle (shell at prompt, no foreground child).
+	// Wait for all four to be idle AND fully settled at their prompts.
+	// waitIdle alone returns on the first true TIOCGPGRP reading, which can be
+	// a transient idle moment between shell-init sub-processes. waitForSettled
+	// ensures 250 ms of ring-buffer silence, guaranteeing the shell is truly at
+	// its prompt before we trigger the maintenance sweep.
 	for _, sid := range sids {
 		waitIdle(t, eng, sid, 15*time.Second)
+		waitForSettled(t, eng, sid, 10*time.Second)
 	}
 
 	// Assign staggered lastActive times: sids[0] oldest, sids[3] newest.
@@ -267,11 +272,18 @@ func TestMaintenance_RunningNeverIdleSuspended(t *testing.T) {
 	sidIdle, err := eng.Create(ctx, "ws-running", dir, nil)
 	require.NoError(t, err)
 	waitIdle(t, eng, sidIdle, 10*time.Second)
+	waitForSettled(t, eng, sidIdle, 10*time.Second)
 
 	// Create a running session (foreground sleep).
+	// waitForSettled before writing ensures the shell is fully initialised (250 ms
+	// of ring-buffer silence). This makes the shell respond to the sleep command
+	// immediately, so waitNotIdle completes in < 1 s rather than possibly close to
+	// its 10 s deadline — which would allow the engine's 10-second maintenance ticker
+	// to fire and race with the next test's global-variable writes.
 	sidRunning, err := eng.Create(ctx, "ws-running", dir, nil)
 	require.NoError(t, err)
 	waitIdle(t, eng, sidRunning, 10*time.Second)
+	waitForSettled(t, eng, sidRunning, 10*time.Second)
 	require.NoError(t, eng.Write(ctx, sidRunning, []byte("sleep 9999\n")))
 	waitNotIdle(t, eng, sidRunning, 10*time.Second)
 
@@ -324,9 +336,15 @@ func TestMaintenance_GlobalForceLastResort(t *testing.T) {
 	sid2, err := eng.Create(ctx, "ws-force", dir, nil)
 	require.NoError(t, err)
 
-	// Wait for both to reach their prompts first.
+	// Wait for both to reach their prompts first, and ensure they have fully
+	// settled (no ring-buffer growth for 250 ms). This guarantees the shell is
+	// responsive before we write the sleep command, so waitNotIdle completes
+	// quickly (< 1 s) rather than risking the engine's 10-second maintenance
+	// ticker firing and causing a data race on maxTotalSessions with the next test.
 	waitIdle(t, eng, sid1, 10*time.Second)
+	waitForSettled(t, eng, sid1, 10*time.Second)
 	waitIdle(t, eng, sid2, 10*time.Second)
+	waitForSettled(t, eng, sid2, 10*time.Second)
 
 	// Start a long-running foreground process in both.
 	require.NoError(t, eng.Write(ctx, sid1, []byte("sleep 9999\n")))
