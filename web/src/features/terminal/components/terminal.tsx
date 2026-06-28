@@ -326,10 +326,13 @@ export const XtermTerminal: React.FC<XtermTerminalProps> = ({
       const activeConnectionId = result.connectionId
 
       // Always sync the store so in-memory connectionId is up to date.
+      // Only include remoteConnectionId when it is actually defined — writing
+      // undefined would clobber a previously-stored value on a reuse where the
+      // prop is absent.
       updateSession(sessionId, {
         connectionId: activeConnectionId,
         currentDirectory: targetDirectory ?? undefined,
-        remoteConnectionId: effectiveRemoteConnectionId,
+        ...(effectiveRemoteConnectionId ? { remoteConnectionId: effectiveRemoteConnectionId } : {}),
       })
 
       // Thread the resolver's reused decision into useTerminalConnection so

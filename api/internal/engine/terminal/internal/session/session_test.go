@@ -286,9 +286,9 @@ func TestIsNormalPTYClose_OtherError(t *testing.T) {
 // while the pump is between ring.Write and fanOut never receives the same chunk
 // twice (once in the ring snapshot, once via the live fan-out delivery).
 //
-// PumpChunkForTest mirrors the pump's critical path:
-//   - pre-fix:  two separate lock acquisitions (a race window exists between them)
-//   - post-fix: a single s.mu acquisition spanning both operations
+// PumpChunkForTest delegates to pumpStep — the production critical section used by
+// pump() — so this test exercises the real code path. A regression that removes the
+// lock from pumpStep will be caught by the race detector running this test.
 //
 // Run with: go test -race -run TestSession_ReplayLiveHandoff_NoDuplication
 func TestSession_ReplayLiveHandoff_NoDuplication(t *testing.T) {
@@ -361,9 +361,9 @@ func TestSession_ReplayLiveHandoff_NoDuplication(t *testing.T) {
 		}()
 	}
 
-	// Producer: pump all chunks via the pump-simulation helper.
-	// PumpChunkForTest pre-fix: ring.Write + Gosched + fanOut (separate locks).
-	// PumpChunkForTest post-fix: s.mu held across ring.Write + fanOutLocked.
+	// Producer: pump all chunks via the pump-simulation helper. PumpChunkForTest
+	// delegates to pumpStep (the production critical section), so this exercises
+	// the same lock path as the real pump goroutine.
 	for r := 0; r < rounds; r++ {
 		s.PumpChunkForTest(makeChunk(r))
 	}

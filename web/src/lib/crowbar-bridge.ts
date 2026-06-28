@@ -208,7 +208,7 @@ export async function terminalAttach(connectionId: string, base: string): Promis
 // confirm a persisted id is still alive before re-attaching.
 export async function terminalListLive(base: string): Promise<string[]> {
   const list = await apiFetch<import('@/lib/types').TerminalSessionDTO[]>(base)
-  return list.map((s) => s.id)
+  return list.filter((s) => s.status !== 'ended').map((s) => s.id)
 }
 
 // Test-only: expose internal maps for unit tests. Do not use in app code.

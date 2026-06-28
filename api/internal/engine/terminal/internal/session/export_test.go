@@ -12,14 +12,11 @@ func (s *Session) RingWriteForTest(p []byte) {
 	s.ring.Write(p)
 }
 
-// PumpChunkForTest simulates one fixed pump cycle: holds s.mu across ring.Write
-// and fanOutLocked, matching the post-fix pump behavior. This prevents Attach()
-// from interleaving between the ring write and the fan-out delivery.
+// PumpChunkForTest delegates to pumpStep, the production critical section used by
+// pump(). This means the regression test exercises the real code path: a future
+// regression that removes the lock from pumpStep will be caught by the race detector.
 func (s *Session) PumpChunkForTest(chunk []byte) {
-	s.mu.Lock()
-	s.ring.Write(chunk)
-	s.fanOutLocked(chunk)
-	s.mu.Unlock()
+	s.pumpStep(chunk)
 }
 
 // ClientSendBufForTest exposes the constant for test assertions.

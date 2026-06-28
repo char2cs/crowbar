@@ -15,11 +15,18 @@ interface ResolveArgs {
 export async function resolveTerminalConnection(
   args: ResolveArgs,
 ): Promise<{ connectionId: string; reused: boolean }> {
-  // In-memory store still knows the connectionId, but a workspace switch
-  // detached (closed) its transport. Reuse the id, but RE-ATTACH if the WS is
-  // gone — otherwise terminalListen/Write/Resize no-op and the pane is dead.
+  // In-memory store still knows the connectionId. If the WS transport is alive,
+  // reuse immediately. If not, validate against the daemon before re-attaching:
+  // the PTY may be gone (Phase 2 suspend / daemon restart), in which case fall
+  // through to create a fresh session rather than attaching to a dead PTY.
   if (args.storeConnectionId) {
     if (!terminalHasTransport(args.storeConnectionId)) {
+      const live = await args.listLiveSessions().catch(() => [] as string[])
+      if (!live.includes(args.storeConnectionId)) {
+        // PTY no longer exists on the daemon — create fresh.
+        const fresh = await args.createTerminal()
+        return { connectionId: fresh, reused: false }
+      }
       await terminalAttach(args.storeConnectionId, args.base)
     }
     return { connectionId: args.storeConnectionId, reused: true }

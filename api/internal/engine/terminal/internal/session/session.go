@@ -164,11 +164,20 @@ func (s *Session) Kill() {
 	s.shutdown()
 }
 
-// pump reads PTY stdout, appends to the ring, and fans out to all clients.
-// s.mu is held across both ring.Write and fanOutLocked so that Attach() can
-// never observe a chunk in the ring snapshot but not yet in the fan-out, which
-// would cause the client to receive the chunk twice (once in the snapshot, once
-// via live delivery). Lock order: s.mu → ring.mu (same as Attach).
+// pumpStep is the production critical section for one PTY output chunk: it holds
+// s.mu across both ring.Write and fanOutLocked so that Attach() can never observe
+// a chunk in the ring snapshot but not yet in the fan-out (which would cause the
+// client to receive the chunk twice). Lock order: s.mu → ring.mu (same as Attach).
+// Called from pump() and, via PumpChunkForTest, from the regression test — so a
+// regression that removes the lock will break the race-detector test.
+func (s *Session) pumpStep(chunk []byte) {
+	s.mu.Lock()
+	s.ring.Write(chunk)    // ring.mu nested under s.mu — same order Attach uses
+	s.fanOutLocked(chunk)  // assumes s.mu held
+	s.mu.Unlock()
+}
+
+// pump reads PTY stdout and delivers each chunk via pumpStep.
 func (s *Session) pump() {
 	// A panic here must not crash the daemon; cleanup (shutdown) still runs on the
 	// unwind because its defer is registered after this recover boundary.
@@ -181,10 +190,7 @@ func (s *Session) pump() {
 		if n > 0 {
 			chunk := make([]byte, n)
 			copy(chunk, buf[:n])
-			s.mu.Lock()
-			s.ring.Write(chunk)    // ring.mu nested under s.mu — same order Attach uses
-			s.fanOutLocked(chunk)  // assumes s.mu held
-			s.mu.Unlock()
+			s.pumpStep(chunk)
 		}
 		if err != nil {
 			if !isNormalPTYClose(err) {
