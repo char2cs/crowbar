@@ -26,7 +26,7 @@ func (d *deadConn) Close() error                       { return nil }
 // session IS in the registry but its done channel is already closed.
 func TestAttach_SessionDeadInRegistry(t *testing.T) {
 	dir := t.TempDir()
-	s, err := session.New("dead-id", "/bin/sh", dir, os.Environ())
+	s, err := session.New("dead-id", "/bin/sh", dir, "", os.Environ())
 	require.NoError(t, err)
 
 	// Kill the session and wait until it is fully terminated.

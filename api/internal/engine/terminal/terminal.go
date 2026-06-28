@@ -185,6 +185,7 @@ func (e *terminalEngine) Create(
 		id,
 		resolved.Shell,
 		resolved.CWD,
+		"", // profileID: not yet propagated to the engine layer
 		ptyEnv(),
 	)
 	if err != nil {

@@ -32,7 +32,7 @@ func waitFrame(
 
 func TestSession_NewAndKill(t *testing.T) {
 	dir := t.TempDir()
-	s, err := New("sid-1", "/bin/sh", dir, os.Environ())
+	s, err := New("sid-1", "/bin/sh", dir, "", os.Environ())
 	require.NoError(t, err)
 	require.NotNil(t, s)
 
@@ -47,7 +47,7 @@ func TestSession_NewAndKill(t *testing.T) {
 
 func TestSession_AttachReceivesOutput(t *testing.T) {
 	dir := t.TempDir()
-	s, err := New("sid-2", "/bin/sh", dir, os.Environ())
+	s, err := New("sid-2", "/bin/sh", dir, "", os.Environ())
 	require.NoError(t, err)
 
 	ch, err := s.Attach()
@@ -80,7 +80,7 @@ func TestSession_AttachReceivesOutput(t *testing.T) {
 // zombie. ProcessState is non-nil only after a successful Wait().
 func TestSession_NaturalExitReapsChild(t *testing.T) {
 	dir := t.TempDir()
-	s, err := New("sid-natural-exit", "/bin/sh", dir, os.Environ())
+	s, err := New("sid-natural-exit", "/bin/sh", dir, "", os.Environ())
 	require.NoError(t, err)
 
 	// Make the shell exit on its own — no Kill().
@@ -99,7 +99,7 @@ func TestSession_NaturalExitReapsChild(t *testing.T) {
 
 func TestSession_AttachDeadSession(t *testing.T) {
 	dir := t.TempDir()
-	s, err := New("sid-3", "/bin/sh", dir, os.Environ())
+	s, err := New("sid-3", "/bin/sh", dir, "", os.Environ())
 	require.NoError(t, err)
 	s.Kill()
 
@@ -111,7 +111,7 @@ func TestSession_AttachDeadSession(t *testing.T) {
 
 func TestSession_DetachClosesChannel(t *testing.T) {
 	dir := t.TempDir()
-	s, err := New("sid-4", "/bin/sh", dir, os.Environ())
+	s, err := New("sid-4", "/bin/sh", dir, "", os.Environ())
 	require.NoError(t, err)
 
 	ch, err := s.Attach()
@@ -127,7 +127,7 @@ func TestSession_DetachClosesChannel(t *testing.T) {
 
 func TestSession_RingBufferReplay(t *testing.T) {
 	dir := t.TempDir()
-	s, err := New("sid-5", "/bin/sh", dir, os.Environ())
+	s, err := New("sid-5", "/bin/sh", dir, "", os.Environ())
 	require.NoError(t, err)
 
 	ch, err := s.Attach()
@@ -168,7 +168,7 @@ func TestSession_RingBufferReplay(t *testing.T) {
 
 func TestSession_Resize(t *testing.T) {
 	dir := t.TempDir()
-	s, err := New("sid-6", "/bin/sh", dir, os.Environ())
+	s, err := New("sid-6", "/bin/sh", dir, "", os.Environ())
 	require.NoError(t, err)
 	assert.NoError(t, s.Resize(120, 40))
 	s.Kill()
@@ -176,7 +176,7 @@ func TestSession_Resize(t *testing.T) {
 
 func TestSession_ID(t *testing.T) {
 	dir := t.TempDir()
-	s, err := New("my-id", "/bin/sh", dir, os.Environ())
+	s, err := New("my-id", "/bin/sh", dir, "", os.Environ())
 	require.NoError(t, err)
 	assert.Equal(t, "my-id", s.ID())
 	s.Kill()
@@ -185,13 +185,13 @@ func TestSession_ID(t *testing.T) {
 func TestSession_New_BadShell(t *testing.T) {
 	dir := t.TempDir()
 	// A non-existent executable must cause pty.Start to fail.
-	_, err := New("sid-bad", "/nonexistent/shell/binary", dir, os.Environ())
+	_, err := New("sid-bad", "/nonexistent/shell/binary", dir, "", os.Environ())
 	assert.Error(t, err)
 }
 
 func TestSession_WriteAfterKill(t *testing.T) {
 	dir := t.TempDir()
-	s, err := New("sid-7", "/bin/sh", dir, os.Environ())
+	s, err := New("sid-7", "/bin/sh", dir, "", os.Environ())
 	require.NoError(t, err)
 	s.Kill()
 	// Wait for PTY to fully close.
@@ -203,7 +203,7 @@ func TestSession_WriteAfterKill(t *testing.T) {
 
 func TestSession_ResizeAfterKill(t *testing.T) {
 	dir := t.TempDir()
-	s, err := New("sid-8", "/bin/sh", dir, os.Environ())
+	s, err := New("sid-8", "/bin/sh", dir, "", os.Environ())
 	require.NoError(t, err)
 	s.Kill()
 	<-s.Done()
@@ -214,7 +214,7 @@ func TestSession_ResizeAfterKill(t *testing.T) {
 
 func TestSession_DropOnOverflow(t *testing.T) {
 	dir := t.TempDir()
-	s, err := New("sid-9", "/bin/sh", dir, os.Environ())
+	s, err := New("sid-9", "/bin/sh", dir, "", os.Environ())
 	require.NoError(t, err)
 	t.Cleanup(s.Kill)
 
@@ -293,7 +293,7 @@ func TestIsNormalPTYClose_OtherError(t *testing.T) {
 // Run with: go test -race -run TestSession_ReplayLiveHandoff_NoDuplication
 func TestSession_ReplayLiveHandoff_NoDuplication(t *testing.T) {
 	dir := t.TempDir()
-	s, err := New("sid-handoff", "/bin/sh", dir, os.Environ())
+	s, err := New("sid-handoff", "/bin/sh", dir, "", os.Environ())
 	require.NoError(t, err)
 	t.Cleanup(s.Kill)
 
@@ -406,6 +406,110 @@ func contains(
 	}
 	return false
 }
+
+// ---------------------------------------------------------------------------
+// New lifecycle / safety tests
+// ---------------------------------------------------------------------------
+
+// TestIsLive_AttachedCount_State_Transitions verifies the State/IsLive/
+// AttachedCount accessors across a typical session lifecycle:
+//   live + 0 clients → "detached"
+//   live + 1 client  → "active"
+//   after Kill        → IsLive false, State "suspended"
+func TestIsLive_AttachedCount_State_Transitions(t *testing.T) {
+	dir := t.TempDir()
+	s, err := New("sid-lifecycle", "/bin/sh", dir, "", os.Environ())
+	require.NoError(t, err)
+	t.Cleanup(s.Kill)
+
+	// Freshly spawned: live, no clients → "detached".
+	require.True(t, s.IsLive(), "newly spawned session must be live")
+	require.Equal(t, 0, s.AttachedCount())
+	require.Equal(t, "detached", s.State())
+
+	ch, err := s.Attach()
+	require.NoError(t, err)
+
+	// One client → "active".
+	require.Equal(t, 1, s.AttachedCount())
+	require.Equal(t, "active", s.State())
+
+	s.Detach(ch)
+
+	// Back to no clients → "detached".
+	require.Equal(t, 0, s.AttachedCount())
+	require.Equal(t, "detached", s.State())
+
+	// Kill and wait for shutdown.
+	s.Kill()
+	select {
+	case <-s.Done():
+	case <-time.After(3 * time.Second):
+		t.Fatal("session did not shut down after Kill")
+	}
+
+	require.False(t, s.IsLive(), "after Kill, IsLive must return false")
+	require.Equal(t, "suspended", s.State())
+}
+
+// TestNewPlaceholder verifies that a placeholder session:
+//   - reports IsLive false and State "suspended"
+//   - returns the loaded scrollback on Attach without panic
+//   - can be killed without panic, closing Done()
+func TestNewPlaceholder(t *testing.T) {
+	scrollback := []byte("old output here")
+	s := NewPlaceholder("ph-1", "/bin/sh", "/tmp", "prof-A", scrollback)
+
+	require.False(t, s.IsLive(), "placeholder must not be live")
+	require.Equal(t, "suspended", s.State())
+	require.Equal(t, "/bin/sh", s.Shell())
+	require.Equal(t, "/tmp", s.CWD())
+	require.Equal(t, "prof-A", s.ProfileID())
+
+	// Attach must succeed and replay the scrollback.
+	ch, err := s.Attach()
+	require.NoError(t, err)
+	require.NotNil(t, ch)
+
+	// The ring snapshot should be delivered immediately.
+	select {
+	case f, ok := <-ch:
+		require.True(t, ok)
+		require.Equal(t, scrollback, f.Data)
+	case <-time.After(time.Second):
+		t.Fatal("placeholder Attach did not deliver scrollback snapshot")
+	}
+	s.Detach(ch)
+
+	// Kill must not panic and must close Done().
+	s.Kill()
+	select {
+	case <-s.Done():
+	case <-time.After(time.Second):
+		t.Fatal("placeholder Kill did not close Done channel")
+	}
+}
+
+// TestOSC7_CWD_Update pumps two OSC 7 sequences through pumpStep and verifies
+// that CWD() returns the path from the LAST sequence.
+func TestOSC7_CWD_Update(t *testing.T) {
+	dir := t.TempDir()
+	s, err := New("sid-osc7", "/bin/sh", dir, "", os.Environ())
+	require.NoError(t, err)
+	t.Cleanup(s.Kill)
+
+	// Build a chunk with two OSC 7 sequences: first /old/dir, then /new/dir.
+	chunk := []byte(
+		"\x1b]7;file:///old/dir\x07" +
+			"\x1b]7;file:///new/dir\x07",
+	)
+	s.PumpChunkForTest(chunk)
+
+	require.Equal(t, "/new/dir", s.CWD(),
+		"CWD must reflect the last OSC 7 path in the chunk")
+}
+
+// ---------------------------------------------------------------------------
 
 // countOccurrences counts non-overlapping occurrences of needle in data.
 func countOccurrences(data, needle []byte) int {

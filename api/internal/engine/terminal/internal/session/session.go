@@ -1,11 +1,14 @@
 package session
 
 import (
+	"bytes"
 	"errors"
 	"fmt"
 	"io"
+	"net/url"
 	"os"
 	"os/exec"
+	"strings"
 	"sync"
 	"syscall"
 
@@ -27,24 +30,32 @@ type client struct {
 	send chan OutputFrame
 }
 
-// Session is a single live PTY session.
+// Session is a single PTY session. It may be live (ptmx != nil) or suspended
+// (ptmx == nil, created via NewPlaceholder).
 type Session struct {
-	id      string
-	ptmx    *os.File
-	cmd     *exec.Cmd
-	ring    *RingBuffer
-	mu      sync.Mutex
-	clients map[*client]struct{}
-	done    chan struct{}
-	once    sync.Once
+	id         string
+	ptmx       *os.File
+	cmd        *exec.Cmd
+	ring       *RingBuffer
+	mu         sync.Mutex
+	flushMu    sync.Mutex // used by engine flush in a later step
+	clients    map[*client]struct{}
+	done       chan struct{}
+	once       sync.Once
+	suspending bool
+	cwd        string
+	shell      string
+	profileID  string
 }
 
 // New spawns a PTY subprocess and starts the io pump.
-// shell is the binary to exec; cwd is the working directory.
+// shell is the binary to exec; cwd is the working directory; profileID is the
+// terminal profile identifier (empty string when not yet known).
 func New(
 	id string,
 	shell string,
 	cwd string,
+	profileID string,
 	env []string,
 ) (*Session, error) {
 	cmd := exec.Command(shell)
@@ -57,16 +68,46 @@ func New(
 	}
 
 	s := &Session{
-		id:      id,
-		ptmx:    ptmx,
-		cmd:     cmd,
-		ring:    newRingBuffer(defaultRingSize),
-		clients: make(map[*client]struct{}),
-		done:    make(chan struct{}),
+		id:        id,
+		ptmx:      ptmx,
+		cmd:       cmd,
+		ring:      newRingBuffer(defaultRingSize),
+		clients:   make(map[*client]struct{}),
+		done:      make(chan struct{}),
+		cwd:       cwd,
+		shell:     shell,
+		profileID: profileID,
 	}
 
 	go s.pump()
 	return s, nil
+}
+
+// NewPlaceholder builds a suspended Session with no live PTY. The scrollback
+// bytes are loaded into the ring buffer so Attach() replays them. The done
+// channel is open — it is closed only when Kill() is called. No pump goroutine
+// is started; Attach() on a placeholder does not panic.
+func NewPlaceholder(
+	id string,
+	shell string,
+	cwd string,
+	profileID string,
+	scrollback []byte,
+) *Session {
+	r := newRingBuffer(defaultRingSize)
+	if len(scrollback) > 0 {
+		r.Write(scrollback)
+	}
+	return &Session{
+		id:        id,
+		ring:      r,
+		clients:   make(map[*client]struct{}),
+		done:      make(chan struct{}),
+		cwd:       cwd,
+		shell:     shell,
+		profileID: profileID,
+		// ptmx and cmd intentionally nil — State() returns "suspended"
+	}
 }
 
 // ID returns the session identifier.
@@ -77,6 +118,73 @@ func (s *Session) ID() string {
 // Done returns a channel closed when the session has terminated.
 func (s *Session) Done() <-chan struct{} {
 	return s.done
+}
+
+// IsLive reports whether the PTY is still open (ptmx != nil).
+func (s *Session) IsLive() bool {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.ptmx != nil
+}
+
+// AttachedCount returns the number of currently attached clients.
+func (s *Session) AttachedCount() int {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return len(s.clients)
+}
+
+// State returns one of "active", "detached", or "suspended".
+//
+//   - "suspended"  — ptmx is nil (placeholder or after Kill)
+//   - "active"     — ptmx is live and at least one client is attached
+//   - "detached"   — ptmx is live but no clients are attached
+func (s *Session) State() string {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.ptmx == nil {
+		return "suspended"
+	}
+	if len(s.clients) > 0 {
+		return "active"
+	}
+	return "detached"
+}
+
+// CWD returns the last known working directory (updated from OSC 7 sequences).
+func (s *Session) CWD() string {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.cwd
+}
+
+// Shell returns the shell binary path.
+func (s *Session) Shell() string {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.shell
+}
+
+// ProfileID returns the terminal profile identifier.
+func (s *Session) ProfileID() string {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.profileID
+}
+
+// FlushMu returns the dedicated flush mutex for use by the engine in a later
+// step. It is separate from the main session mutex (s.mu) so that bulk
+// scrollback flushes do not block fan-out.
+func (s *Session) FlushMu() *sync.Mutex {
+	return &s.flushMu
+}
+
+// IsIdle reports whether the shell is idle (no foreground child process).
+// This is a thin, platform-agnostic wrapper around isIdleLocked.
+func (s *Session) IsIdle() bool {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.isIdleLocked()
 }
 
 // Attach registers a new client and returns its channel, pre-filled with the
@@ -126,23 +234,35 @@ func (s *Session) detachLocked(
 	}
 }
 
-// Write sends data to the PTY stdin.
+// Write sends data to the PTY stdin. Returns an error if the PTY is not live.
 func (s *Session) Write(
 	data []byte,
 ) error {
-	_, err := s.ptmx.Write(data)
+	s.mu.Lock()
+	ptmx := s.ptmx
+	s.mu.Unlock()
+	if ptmx == nil {
+		return fmt.Errorf("session: write: session not live")
+	}
+	_, err := ptmx.Write(data)
 	if err != nil {
 		return fmt.Errorf("session: write: %w", err)
 	}
 	return nil
 }
 
-// Resize updates the PTY window size.
+// Resize updates the PTY window size. Returns an error if the PTY is not live.
 func (s *Session) Resize(
 	cols uint16,
 	rows uint16,
 ) error {
-	err := pty.Setsize(s.ptmx, &pty.Winsize{
+	s.mu.Lock()
+	ptmx := s.ptmx
+	s.mu.Unlock()
+	if ptmx == nil {
+		return fmt.Errorf("session: resize: session not live")
+	}
+	err := pty.Setsize(ptmx, &pty.Winsize{
 		Cols: cols,
 		Rows: rows,
 	})
@@ -152,15 +272,27 @@ func (s *Session) Resize(
 	return nil
 }
 
-// Kill terminates the PTY process. The single child reap (cmd.Wait) lives in
-// shutdown() so it runs exactly once whether the shell is killed here or exits
-// on its own (see pump). Closing the PTY makes pump's Read return, which also
-// drives shutdown — so reaping happens regardless of which path fires first.
+// Kill terminates the PTY process. For placeholder sessions (ptmx == nil) it
+// only calls shutdown(). For live sessions it acquires s.mu, closes the PTY,
+// kills the child, sets ptmx = nil, releases s.mu, then calls shutdown().
+// s.mu must NOT be held across shutdown() because shutdown() re-acquires it
+// inside once.Do — that would self-deadlock.
 func (s *Session) Kill() {
+	s.mu.Lock()
+	if s.ptmx == nil {
+		// Placeholder: no PTY to close.
+		s.mu.Unlock()
+		s.shutdown()
+		return
+	}
 	_ = s.ptmx.Close()
-	if s.cmd.Process != nil {
+	if s.cmd != nil && s.cmd.Process != nil {
 		_ = s.cmd.Process.Kill()
 	}
+	s.ptmx = nil
+	s.mu.Unlock()
+
+	// shutdown() re-acquires s.mu inside once.Do — must not hold it here.
 	s.shutdown()
 }
 
@@ -170,10 +302,14 @@ func (s *Session) Kill() {
 // client to receive the chunk twice). Lock order: s.mu → ring.mu (same as Attach).
 // Called from pump() and, via PumpChunkForTest, from the regression test — so a
 // regression that removes the lock will break the race-detector test.
+// Also scans the chunk for OSC 7 sequences to update s.cwd (best-effort).
 func (s *Session) pumpStep(chunk []byte) {
 	s.mu.Lock()
-	s.ring.Write(chunk)    // ring.mu nested under s.mu — same order Attach uses
-	s.fanOutLocked(chunk)  // assumes s.mu held
+	if path, ok := parseLastOSC7(chunk); ok {
+		s.cwd = path
+	}
+	s.ring.Write(chunk)   // ring.mu nested under s.mu — same order Attach uses
+	s.fanOutLocked(chunk) // assumes s.mu held
 	s.mu.Unlock()
 }
 
@@ -184,9 +320,20 @@ func (s *Session) pump() {
 	defer safego.Recover("terminal.session.pump")
 	defer s.shutdown()
 
+	// Capture ptmx into a local variable once, under s.mu, so that Kill()
+	// can safely write s.ptmx = nil later without racing the field read in
+	// the hot loop below. The underlying *os.File is unaffected — Close() on
+	// it will cause Read() to return an error, which terminates the loop.
+	s.mu.Lock()
+	ptmx := s.ptmx
+	s.mu.Unlock()
+	if ptmx == nil {
+		return // placeholder: no PTY to read from
+	}
+
 	buf := make([]byte, 4096)
 	for {
-		n, err := s.ptmx.Read(buf)
+		n, err := ptmx.Read(buf)
 		if n > 0 {
 			chunk := make([]byte, n)
 			copy(chunk, buf[:n])
@@ -258,7 +405,9 @@ func (s *Session) fanOutLocked(
 // lock so a slow child exit never blocks fan-out cleanup.
 func (s *Session) shutdown() {
 	s.once.Do(func() {
-		_ = s.cmd.Wait()
+		if s.cmd != nil {
+			_ = s.cmd.Wait()
+		}
 
 		s.mu.Lock()
 		defer s.mu.Unlock()
@@ -269,4 +418,57 @@ func (s *Session) shutdown() {
 		s.clients = make(map[*client]struct{})
 		close(s.done)
 	})
+}
+
+// parseLastOSC7 scans b for OSC 7 sequences of the form
+//
+//	ESC ] 7 ; file://[host]/path BEL
+//
+// and returns the decoded path from the last match found. Best-effort: partial
+// sequences that span chunk boundaries are silently ignored.
+func parseLastOSC7(b []byte) (string, bool) {
+	prefix := []byte("\x1b]7;")
+	last := ""
+	found := false
+
+	for {
+		idx := bytes.Index(b, prefix)
+		if idx < 0 {
+			break
+		}
+		b = b[idx+len(prefix):]
+
+		// Find the terminator: BEL (0x07) or ST (ESC \).
+		end := -1
+		for i := 0; i < len(b); i++ {
+			if b[i] == '\x07' {
+				end = i
+				break
+			}
+			if b[i] == '\x1b' && i+1 < len(b) && b[i+1] == '\\' {
+				end = i
+				break
+			}
+		}
+		if end < 0 {
+			break // no terminator in this chunk — skip (best-effort)
+		}
+
+		uri := string(b[:end])
+		b = b[end+1:]
+
+		if !strings.HasPrefix(uri, "file://") {
+			continue
+		}
+
+		parsed, err := url.Parse(uri)
+		if err != nil || parsed.Path == "" {
+			continue
+		}
+
+		last = parsed.Path
+		found = true
+	}
+
+	return last, found
 }
