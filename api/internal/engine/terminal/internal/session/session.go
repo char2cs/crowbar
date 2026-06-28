@@ -43,7 +43,8 @@ type Session struct {
 	done       chan struct{}
 	once       sync.Once
 	suspending bool
-	exitCode   int // -1 until shutdown; 0 on clean exit; >0 or -1 on error/kill
+	dirty      bool // set by pumpStep on new ring output; cleared by TakeDirty
+	exitCode   int  // -1 until shutdown; 0 on clean exit; >0 or -1 on error/kill
 	cwd        string
 	shell      string
 	profileID  string
@@ -347,7 +348,8 @@ func (s *Session) pumpStep(chunk []byte) {
 	if path, ok := parseLastOSC7(chunk); ok {
 		s.cwd = path
 	}
-	s.ring.Write(chunk)   // ring.mu nested under s.mu — same order Attach uses
+	s.ring.Write(chunk) // ring.mu nested under s.mu — same order Attach uses
+	s.dirty = true
 	s.fanOutLocked(chunk) // assumes s.mu held
 	s.mu.Unlock()
 }
@@ -508,6 +510,37 @@ func (s *Session) Suspending() bool {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	return s.suspending
+}
+
+// TakeDirty returns the current dirty flag and resets it to false, all under s.mu.
+// The engine uses this to skip cadence flushes for sessions with no new output.
+func (s *Session) TakeDirty() bool {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	d := s.dirty
+	s.dirty = false
+	return d
+}
+
+// BeginForceSuspend atomically sets the suspending flag for a DETACHED session
+// even when it is not idle. Returns false if the session has attached clients or
+// is already suspending; true if the caller should proceed with a force-suspend.
+// Unlike BeginSuspendIfEligible, it skips the idle check, so running (non-idle)
+// detached sessions can be force-suspended as a last resort.
+func (s *Session) BeginForceSuspend() bool {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if len(s.clients) > 0 || s.suspending {
+		return false
+	}
+	s.suspending = true
+	return true
+}
+
+// RingCap returns the capacity of the session's ring buffer in bytes.
+// Exported for the engine to compute total ring-memory ceilings.
+func (s *Session) RingCap() int {
+	return defaultRingSize
 }
 
 // parseLastOSC7 scans b for OSC 7 sequences of the form

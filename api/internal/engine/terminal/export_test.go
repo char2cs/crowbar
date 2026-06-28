@@ -1,0 +1,69 @@
+package terminal
+
+import (
+	"context"
+	"time"
+)
+
+// RunMaintenanceOnceForTest exposes runMaintenanceOnce for unit tests so they
+// can drive the maintenance sweep directly without waiting for the 10-second ticker.
+func RunMaintenanceOnceForTest(eng Engine, ctx context.Context) {
+	eng.(*terminalEngine).runMaintenanceOnce(ctx)
+}
+
+// SetSoftLimitPerWorkspaceForTest overrides the per-workspace detached-session
+// soft limit and returns a restore function. Call defer restore() in tests.
+func SetSoftLimitPerWorkspaceForTest(n int) (restore func()) {
+	old := softLimitPerWorkspace
+	softLimitPerWorkspace = n
+	return func() { softLimitPerWorkspace = old }
+}
+
+// SetMaxTotalSessionsForTest overrides the global session-count ceiling and
+// returns a restore function.
+func SetMaxTotalSessionsForTest(n int) (restore func()) {
+	old := maxTotalSessions
+	maxTotalSessions = n
+	return func() { maxTotalSessions = old }
+}
+
+// SetMaxTotalRingBytesForTest overrides the global ring-bytes ceiling and
+// returns a restore function.
+func SetMaxTotalRingBytesForTest(n int64) (restore func()) {
+	old := maxTotalRingBytes
+	maxTotalRingBytes = n
+	return func() { maxTotalRingBytes = old }
+}
+
+// SetLastActiveForTest directly sets the last-active timestamp for a session,
+// allowing tests to control ordering without real time delays.
+func SetLastActiveForTest(eng Engine, id string, t time.Time) {
+	e := eng.(*terminalEngine)
+	e.mu.Lock()
+	e.lastActive[id] = t
+	e.mu.Unlock()
+}
+
+// IsIdleForTest reports whether the session with the given ID is currently idle.
+// Exposed for tests that need to wait for a session's foreground process state
+// without having access to the concrete *session.Session type.
+func IsIdleForTest(eng Engine, id string) bool {
+	e := eng.(*terminalEngine)
+	s, ok := e.reg.Get(id)
+	if !ok {
+		return false
+	}
+	return s.IsIdle()
+}
+
+// SnapshotLenForTest returns the number of bytes currently in the session's ring
+// buffer. Tests use this to wait until the shell has emitted at least one byte
+// (prompt output) before triggering a cadence-flush maintenance sweep.
+func SnapshotLenForTest(eng Engine, id string) int {
+	e := eng.(*terminalEngine)
+	s, ok := e.reg.Get(id)
+	if !ok {
+		return 0
+	}
+	return len(s.Snapshot())
+}

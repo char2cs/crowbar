@@ -10,6 +10,10 @@ import (
 // 100-session ceiling × 256 KB = 25.6 MB total peak memory.
 const defaultRingSize = 256 * 1024 // 256 KB
 
+// DefaultRingSize is the per-session scrollback ring capacity, exported for
+// the engine to compute total ring-memory ceilings.
+const DefaultRingSize = defaultRingSize
+
 // RingBuffer is a circular byte buffer that retains the most recent N bytes.
 // All methods are safe for concurrent use.
 type RingBuffer struct {

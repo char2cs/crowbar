@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
+	"sort"
 	"sync"
 	"time"
 
@@ -147,6 +148,10 @@ type Engine interface {
 		s SessionMetaStore,
 	)
 
+	// Stats returns a snapshot of session counts and total estimated ring-buffer
+	// memory for observability (health endpoint, settings panel, etc.).
+	Stats() (active, detached, suspended int, ringBytes int64)
+
 	// Shutdown terminates all active sessions and removes them from the registry.
 	Shutdown()
 }
@@ -163,18 +168,31 @@ type terminalEngine struct {
 	// restoring prevents double-spawn when concurrent Attach calls hit a
 	// suspended placeholder. LoadOrStore ensures only the first caller spawns.
 	restoring sync.Map // map[string]struct{}
-}
 
-// New returns a new Engine.
-func New() Engine {
-	return &terminalEngine{
-		reg:        registry.New(),
-		endedOnce:  make(map[string]struct{}),
-		lastActive: make(map[string]time.Time),
-	}
+	stop     chan struct{}
+	stopOnce sync.Once
 }
 
 var _ Engine = (*terminalEngine)(nil)
+
+// Session limits — package-level so tests can override them.
+var (
+	softLimitPerWorkspace = 10               // max simultaneous detached sessions per workspace
+	maxTotalSessions      = 100              // global hard ceiling (count)
+	maxTotalRingBytes     = int64(256) << 20 // global hard ceiling (~ring bytes)
+)
+
+// New returns a new Engine.
+func New() Engine {
+	e := &terminalEngine{
+		reg:        registry.New(),
+		endedOnce:  make(map[string]struct{}),
+		lastActive: make(map[string]time.Time),
+		stop:       make(chan struct{}),
+	}
+	go e.maintenanceLoop()
+	return e
+}
 
 // outputMsg is the server→client wire frame.
 type outputMsg struct {
@@ -414,26 +432,37 @@ func (e *terminalEngine) restore(ctx context.Context, sid string) error {
 }
 
 // Suspend intentionally tears down a session's PTY if it is idle and has no
-// attached clients. The exact ordering:
-//
-//  1. Capture scrollback + persist to disk + save "suspended" meta.
-//  2. Replace registry entry with a placeholder (so concurrent Attach → restore).
-//  3. Kill the OLD live session (reapOnDone will see Suspending()==true → no-op).
-//
-// Returns nil for non-eligible sessions (not live, has clients, not idle) — the
-// caller cannot distinguish a no-op from a success; detection is via the meta store.
+// attached clients. Returns nil for non-eligible sessions (not live, has clients,
+// not idle) — the caller cannot distinguish a no-op from a success; detection is
+// via the meta store.
 func (e *terminalEngine) Suspend(ctx context.Context, sid string) error {
+	return e.suspend(ctx, sid, false)
+}
+
+// suspend is the unified suspend implementation. force=false uses
+// BeginSuspendIfEligible (idle-gated); force=true uses BeginForceSuspend
+// (skips idle check, for detached-running last-resort). The persist →
+// placeholder-swap → kill sequence is identical for both paths.
+func (e *terminalEngine) suspend(ctx context.Context, sid string, force bool) error {
 	s, ok := e.reg.Get(sid)
 	if !ok || !s.IsLive() {
 		return nil
 	}
-	if !s.BeginSuspendIfEligible() {
-		return nil // has clients, already suspending, or not idle
+
+	var wasRunning bool
+	var began bool
+	if force {
+		wasRunning = !s.IsIdle() // capture before BeginForceSuspend sets suspending
+		began = s.BeginForceSuspend()
+	} else {
+		began = s.BeginSuspendIfEligible()
+	}
+	if !began {
+		return nil
 	}
 
 	ws, wsOK := e.reg.WorkspaceID(sid)
 	if !wsOK {
-		// Unexpected: session in registry but workspace unknown. Bail without killing.
 		return nil
 	}
 
@@ -441,6 +470,12 @@ func (e *terminalEngine) Suspend(ctx context.Context, sid string) error {
 
 	// Step a: capture state + persist BEFORE replacing registry or killing.
 	scrollback := s.Snapshot()
+
+	// For force-suspend of a running (non-idle) session, append a user-visible notice.
+	if force && wasRunning {
+		scrollback = append(scrollback,
+			[]byte("\r\n[crowbar] session suspended to free resources; re-open to restore\r\n")...)
+	}
 
 	dir, _ := e.storageDir(ctx, ws)
 	if dir != "" {
@@ -459,13 +494,10 @@ func (e *terminalEngine) Suspend(ctx context.Context, sid string) error {
 	})
 
 	// Step b: replace registry entry with placeholder BEFORE killing.
-	// Any concurrent Attach arriving after this point finds the placeholder → restore.
 	ph := session.NewPlaceholder(sid, s.Shell(), s.CWD(), s.ProfileID(), scrollback)
 	e.reg.Add(sid, ws, ph)
 
 	// Step c: kill the OLD live session.
-	// reapOnDone will see s.Suspending()==true and return early, leaving the
-	// placeholder in the registry and suppressing fireEnded/deleteMeta/DeleteBuf.
 	s.Kill()
 
 	return nil
@@ -654,8 +686,230 @@ func (e *terminalEngine) SessionExists(
 	return ok
 }
 
+// Stats returns a point-in-time snapshot of session counts and estimated
+// ring-buffer memory across all registered sessions.
+func (e *terminalEngine) Stats() (active, detached, suspended int, ringBytes int64) {
+	for _, id := range e.reg.List() {
+		s, ok := e.reg.Get(id)
+		if !ok {
+			continue
+		}
+		switch s.State() {
+		case "active":
+			active++
+			ringBytes += int64(s.RingCap())
+		case "detached":
+			detached++
+			ringBytes += int64(s.RingCap())
+		case "suspended":
+			suspended++
+		}
+	}
+	return
+}
+
+// getLastActive returns the stored last-active time for a session, or the zero
+// time if the session has never had a client detach recorded.
+func (e *terminalEngine) getLastActive(id string) time.Time {
+	e.mu.RLock()
+	defer e.mu.RUnlock()
+	return e.lastActive[id]
+}
+
+// allWorkspaceIDs returns the distinct workspace IDs present in the registry.
+func (e *terminalEngine) allWorkspaceIDs() []string {
+	all := e.reg.List()
+	seen := make(map[string]struct{}, len(all))
+	var out []string
+	for _, id := range all {
+		ws, ok := e.reg.WorkspaceID(id)
+		if !ok {
+			continue
+		}
+		if _, dup := seen[ws]; !dup {
+			seen[ws] = struct{}{}
+			out = append(out, ws)
+		}
+	}
+	return out
+}
+
+// maintenanceLoop runs runMaintenanceOnce on a 10-second ticker until the stop
+// channel is closed by Shutdown.
+func (e *terminalEngine) maintenanceLoop() {
+	defer safego.Recover("terminal.maintenanceLoop")
+	ticker := time.NewTicker(10 * time.Second)
+	defer ticker.Stop()
+	for {
+		select {
+		case <-e.stop:
+			return
+		case <-ticker.C:
+			e.runMaintenanceOnce(context.Background())
+		}
+	}
+}
+
+// sessionCandidate pairs a session ID with its last-active time for sorting.
+type sessionCandidate struct {
+	id         string
+	lastActive time.Time
+}
+
+// runMaintenanceOnce performs the three-phase maintenance sweep in order:
+//
+//  1. Cadence flush — for each LIVE session with new output (dirty), persist
+//     the ring snapshot and save updated meta.
+//
+//  2. Per-workspace soft limit — if a workspace has more than
+//     softLimitPerWorkspace detached sessions, idle-gated-suspend the oldest
+//     idle detached ones until back at/under the limit.
+//
+//  3. Global ceiling — if over maxTotalSessions or maxTotalRingBytes:
+//     a. first idle-gated-suspend oldest idle detached sessions;
+//     b. as a last resort, force-suspend oldest detached running sessions.
+//
+// This method is called on the ticker and exposed to tests via
+// RunMaintenanceOnceForTest so tests can drive it directly without waiting 10 s.
+func (e *terminalEngine) runMaintenanceOnce(ctx context.Context) {
+	// -------------------------------------------------------------------------
+	// Phase 1: cadence flush
+	// -------------------------------------------------------------------------
+	for _, id := range e.reg.List() {
+		s, ok := e.reg.Get(id)
+		if !ok || !s.IsLive() {
+			continue
+		}
+		if !s.TakeDirty() {
+			continue
+		}
+		ws, wsOK := e.reg.WorkspaceID(id)
+		if !wsOK {
+			continue
+		}
+		dir, err := e.storageDir(ctx, ws)
+		if err != nil || dir == "" {
+			continue
+		}
+		snap := s.Snapshot()
+		if writeErr := persistence.WriteBuf(dir, id, snap); writeErr != nil {
+			_, _ = fmt.Fprintf(os.Stderr, "terminal: maintenance: flush buf %s: %v\n", id, writeErr)
+			continue
+		}
+		e.saveMeta(ctx, SessionMeta{
+			SessionID:    id,
+			WorkspaceID:  ws,
+			CWD:          s.CWD(),
+			Shell:        s.Shell(),
+			ProfileID:    s.ProfileID(),
+			State:        s.State(),
+			LastActiveAt: e.getLastActive(id),
+		})
+	}
+
+	// -------------------------------------------------------------------------
+	// Phase 2: per-workspace soft limit (idle-gated only)
+	// -------------------------------------------------------------------------
+	for _, ws := range e.allWorkspaceIDs() {
+		wsIDs := e.reg.ListByWorkspace(ws)
+
+		var totalDetached int
+		var idleCandidates []sessionCandidate
+		for _, id := range wsIDs {
+			s, ok := e.reg.Get(id)
+			if !ok || !s.IsLive() {
+				continue
+			}
+			if s.AttachedCount() > 0 {
+				continue // attached — never touch
+			}
+			totalDetached++
+			if s.IsIdle() {
+				idleCandidates = append(idleCandidates, sessionCandidate{
+					id:         id,
+					lastActive: e.getLastActive(id),
+				})
+			}
+		}
+
+		if totalDetached <= softLimitPerWorkspace {
+			continue
+		}
+
+		// Sort oldest-first and suspend the excess.
+		sort.Slice(idleCandidates, func(i, j int) bool {
+			return idleCandidates[i].lastActive.Before(idleCandidates[j].lastActive)
+		})
+		excess := totalDetached - softLimitPerWorkspace
+		for i := 0; i < excess && i < len(idleCandidates); i++ {
+			_ = e.Suspend(ctx, idleCandidates[i].id)
+		}
+	}
+
+	// -------------------------------------------------------------------------
+	// Phase 3: global ceiling
+	// -------------------------------------------------------------------------
+	// Snapshot which sessions are live and classify detached ones.
+	var idleGlobal []sessionCandidate
+	var runningDetached []sessionCandidate
+
+	for _, id := range e.reg.List() {
+		s, ok := e.reg.Get(id)
+		if !ok || !s.IsLive() {
+			continue
+		}
+		if s.AttachedCount() > 0 {
+			continue // attached — never touch
+		}
+		la := e.getLastActive(id)
+		if s.IsIdle() {
+			idleGlobal = append(idleGlobal, sessionCandidate{id, la})
+		} else {
+			runningDetached = append(runningDetached, sessionCandidate{id, la})
+		}
+	}
+
+	underCeiling := func() bool {
+		var lc int
+		for _, id := range e.reg.List() {
+			s, ok := e.reg.Get(id)
+			if ok && s.IsLive() {
+				lc++
+			}
+		}
+		return lc <= maxTotalSessions && int64(lc)*int64(session.DefaultRingSize) <= maxTotalRingBytes
+	}
+
+	if underCeiling() {
+		return
+	}
+
+	// Phase 3a: idle-gated suspend.
+	sort.Slice(idleGlobal, func(i, j int) bool {
+		return idleGlobal[i].lastActive.Before(idleGlobal[j].lastActive)
+	})
+	for _, c := range idleGlobal {
+		if underCeiling() {
+			return
+		}
+		_ = e.Suspend(ctx, c.id)
+	}
+
+	// Phase 3b: last resort — force-suspend oldest detached running sessions.
+	sort.Slice(runningDetached, func(i, j int) bool {
+		return runningDetached[i].lastActive.Before(runningDetached[j].lastActive)
+	})
+	for _, c := range runningDetached {
+		if underCeiling() {
+			return
+		}
+		_ = e.suspend(ctx, c.id, true)
+	}
+}
+
 // Shutdown terminates all active sessions and removes them from the registry.
 func (e *terminalEngine) Shutdown() {
+	e.stopOnce.Do(func() { close(e.stop) })
 	for _, id := range e.reg.List() {
 		s, ok := e.reg.Get(id)
 		if !ok {

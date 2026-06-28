@@ -1,0 +1,444 @@
+package terminal_test
+
+import (
+	"context"
+	"os"
+	"path/filepath"
+	"testing"
+	"time"
+
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
+
+	"github.com/char2cs/crowbar/api/internal/engine/terminal"
+)
+
+// ---------------------------------------------------------------------------
+// helpers shared by this file
+// ---------------------------------------------------------------------------
+
+// countSavedForSession returns how many times the meta store recorded a Save
+// for the given session ID.
+func countSavedForSession(store *fakeMetaStore, sid string) int {
+	store.mu.Lock()
+	defer store.mu.Unlock()
+	n := 0
+	for _, m := range store.saved {
+		if m.SessionID == sid {
+			n++
+		}
+	}
+	return n
+}
+
+// bufModTime returns the modification time of <dir>/<sid>.buf, or zero if absent.
+func bufModTime(dir, sid string) time.Time {
+	fi, err := os.Stat(filepath.Join(dir, sid+".buf"))
+	if err != nil {
+		return time.Time{}
+	}
+	return fi.ModTime()
+}
+
+// waitIdle polls IsIdleForTest until it returns true or deadline.
+func waitIdle(t *testing.T, eng terminal.Engine, id string, d time.Duration) {
+	t.Helper()
+	deadline := time.After(d)
+	for {
+		if terminal.IsIdleForTest(eng, id) {
+			return
+		}
+		select {
+		case <-deadline:
+			t.Fatalf("session %s did not become idle within %s", id, d)
+		case <-time.After(50 * time.Millisecond):
+		}
+	}
+}
+
+// waitNotIdle polls IsIdleForTest until it returns false consistently (3 consecutive
+// non-idle readings separated by 50 ms). A single non-idle reading is insufficient
+// because TIOCGPGRP can return the shell's pgroup transiently before the foreground
+// child (e.g. sleep) sets up its own process group; Getpgid errors also cause
+// isIdleLocked to return false, making waitNotIdle exit too early.
+func waitNotIdle(t *testing.T, eng terminal.Engine, id string, d time.Duration) {
+	t.Helper()
+	deadline := time.After(d)
+	const required = 3
+	confirmed := 0
+	for {
+		if !terminal.IsIdleForTest(eng, id) {
+			confirmed++
+			if confirmed >= required {
+				return
+			}
+		} else {
+			confirmed = 0
+		}
+		select {
+		case <-deadline:
+			t.Fatalf("session %s did not become non-idle (running) within %s", id, d)
+		case <-time.After(50 * time.Millisecond):
+		}
+	}
+}
+
+// waitForOutput polls until the session's ring buffer is non-empty (i.e. the
+// shell has emitted at least one byte — typically the prompt). This is needed
+// because IsIdle() returns true as soon as the shell is the foreground process
+// group, which is BEFORE it writes the prompt bytes to the PTY. Without this
+// extra wait the cadence-flush check (dirty=true) races with pumpStep.
+func waitForOutput(t *testing.T, eng terminal.Engine, id string, d time.Duration) {
+	t.Helper()
+	deadline := time.After(d)
+	for {
+		if terminal.SnapshotLenForTest(eng, id) > 0 {
+			return
+		}
+		select {
+		case <-deadline:
+			t.Fatalf("session %s did not emit any output within %s", id, d)
+		case <-time.After(20 * time.Millisecond):
+		}
+	}
+}
+
+// waitForSettled polls until the session's ring buffer has not grown for at
+// least 5 consecutive 50 ms samples (250 ms of silence). Shell prompts arrive
+// in multiple PTY chunks; waitForOutput returns on the first chunk, but dirty
+// will still be set by later chunks. waitForSettled ensures the pump has fully
+// drained the shell's initial output before the test triggers a maintenance run.
+func waitForSettled(t *testing.T, eng terminal.Engine, id string, d time.Duration) {
+	t.Helper()
+	deadline := time.After(d)
+	const stableNeeded = 5
+	lastLen := -1
+	stableCount := 0
+	for {
+		curLen := terminal.SnapshotLenForTest(eng, id)
+		if curLen == lastLen {
+			stableCount++
+			if stableCount >= stableNeeded {
+				return
+			}
+		} else {
+			stableCount = 0
+			lastLen = curLen
+		}
+		select {
+		case <-deadline:
+			t.Fatalf("session %s ring buffer did not settle within %s", id, d)
+		case <-time.After(50 * time.Millisecond):
+		}
+	}
+}
+
+// ---------------------------------------------------------------------------
+// TestMaintenance_CadenceFlush
+// ---------------------------------------------------------------------------
+
+// TestMaintenance_CadenceFlush verifies that runMaintenanceOnce flushes the .buf
+// and meta for a dirty session, then does NOT flush again when the session
+// produces no new output (dirty=false after TakeDirty clears it).
+func TestMaintenance_CadenceFlush(t *testing.T) {
+	eng := terminal.New()
+	ctx := context.Background()
+	dir := t.TempDir()
+	store := newFakeMetaStore(t)
+	eng.SetMetaStore(store)
+	defer eng.Shutdown()
+
+	sid, err := eng.Create(ctx, "ws-flush", dir, nil)
+	require.NoError(t, err)
+
+	// Wait for the shell to start and emit its prompt (sets dirty=true via pumpStep).
+	// waitIdle returns as soon as the shell is the foreground process group (kernel
+	// check), which can be BEFORE prompt bytes propagate through pumpStep. We also
+	// wait until the ring buffer has settled (no growth for 250 ms) to ensure all
+	// prompt chunks have been processed by pumpStep and dirty=true is set.
+	waitIdle(t, eng, sid, 10*time.Second)
+	waitForSettled(t, eng, sid, 10*time.Second)
+
+	// First maintenance run — dirty=true → flush happens.
+	savesBefore := countSavedForSession(store, sid)
+	terminal.RunMaintenanceOnceForTest(eng, ctx)
+
+	// .buf must now exist and meta must have been saved.
+	assert.True(t, bufExists(store.dir, sid), ".buf must be written on first cadence flush")
+	savesAfter := countSavedForSession(store, sid)
+	assert.Greater(t, savesAfter, savesBefore, "meta must be saved on first cadence flush")
+
+	// Record the state before the second run.
+	savesAfterFirst := savesAfter
+
+	// Second maintenance run — dirty=false (cleared by first TakeDirty) → no flush.
+	terminal.RunMaintenanceOnceForTest(eng, ctx)
+	savesAfterSecond := countSavedForSession(store, sid)
+	assert.Equal(t, savesAfterFirst, savesAfterSecond,
+		"no new meta save when session has no new output (dirty=false)")
+
+	require.NoError(t, eng.Kill(ctx, sid))
+}
+
+// ---------------------------------------------------------------------------
+// TestMaintenance_SoftLimit
+// ---------------------------------------------------------------------------
+
+// TestMaintenance_SoftLimit verifies that with softLimitPerWorkspace=2 and four
+// idle detached sessions in one workspace, runMaintenanceOnce suspends the two
+// oldest (by lastActive) and leaves the two newest live.
+func TestMaintenance_SoftLimit(t *testing.T) {
+	restore := terminal.SetSoftLimitPerWorkspaceForTest(2)
+	defer restore()
+
+	eng := terminal.New()
+	ctx := context.Background()
+	dir := t.TempDir()
+	store := newFakeMetaStore(t)
+	eng.SetMetaStore(store)
+	defer eng.Shutdown()
+
+	// Create 4 sessions in the same workspace.
+	var sids [4]string
+	for i := range sids {
+		sid, err := eng.Create(ctx, "ws-softlimit", dir, nil)
+		require.NoError(t, err)
+		sids[i] = sid
+	}
+
+	// Wait for all four to be idle (shell at prompt, no foreground child).
+	for _, sid := range sids {
+		waitIdle(t, eng, sid, 15*time.Second)
+	}
+
+	// Assign staggered lastActive times: sids[0] oldest, sids[3] newest.
+	base := time.Now().Add(-10 * time.Minute)
+	for i, sid := range sids {
+		terminal.SetLastActiveForTest(eng, sid, base.Add(time.Duration(i)*time.Minute))
+	}
+
+	// Run maintenance — should suspend sids[0] and sids[1] (2 oldest).
+	terminal.RunMaintenanceOnceForTest(eng, ctx)
+
+	// Give Kill goroutines a brief moment to propagate the placeholder swap.
+	time.Sleep(200 * time.Millisecond)
+
+	// sids[0] and sids[1] must be suspended (placeholders).
+	assert.True(t, store.hasSavedWithState(sids[0], "suspended"),
+		"oldest session must be suspended by soft limit")
+	assert.True(t, store.hasSavedWithState(sids[1], "suspended"),
+		"second-oldest session must be suspended by soft limit")
+
+	// sids[2] and sids[3] must still be live.
+	assert.True(t, eng.SessionExists(ctx, sids[2]), "third session must still exist")
+	assert.True(t, eng.SessionExists(ctx, sids[3]), "fourth (newest) session must still exist")
+
+	// Verify sids[2] and sids[3] are NOT placeholders (still writable).
+	assert.NoError(t, eng.Write(ctx, sids[2], []byte("echo still-alive\n")),
+		"third session must still be writable (live)")
+	assert.NoError(t, eng.Write(ctx, sids[3], []byte("echo still-alive\n")),
+		"fourth session must still be writable (live)")
+
+	// Cleanup
+	for _, sid := range sids {
+		_ = eng.Kill(ctx, sid)
+	}
+}
+
+// ---------------------------------------------------------------------------
+// TestMaintenance_RunningNeverIdleSuspended
+// ---------------------------------------------------------------------------
+
+// TestMaintenance_RunningNeverIdleSuspended verifies that the soft-limit path
+// never suspends a detached session that has a running foreground child, even
+// when the workspace is over the limit.
+func TestMaintenance_RunningNeverIdleSuspended(t *testing.T) {
+	restore := terminal.SetSoftLimitPerWorkspaceForTest(1)
+	defer restore()
+
+	eng := terminal.New()
+	ctx := context.Background()
+	dir := t.TempDir()
+	store := newFakeMetaStore(t)
+	eng.SetMetaStore(store)
+	defer eng.Shutdown()
+
+	// Create an idle session (will be over limit).
+	sidIdle, err := eng.Create(ctx, "ws-running", dir, nil)
+	require.NoError(t, err)
+	waitIdle(t, eng, sidIdle, 10*time.Second)
+
+	// Create a running session (foreground sleep).
+	sidRunning, err := eng.Create(ctx, "ws-running", dir, nil)
+	require.NoError(t, err)
+	waitIdle(t, eng, sidRunning, 10*time.Second)
+	require.NoError(t, eng.Write(ctx, sidRunning, []byte("sleep 9999\n")))
+	waitNotIdle(t, eng, sidRunning, 10*time.Second)
+
+	// Assign lastActive: running session is "older" so it would be first candidate
+	// if idle — but it's not idle, so it must be skipped.
+	base := time.Now().Add(-10 * time.Minute)
+	terminal.SetLastActiveForTest(eng, sidRunning, base)
+	terminal.SetLastActiveForTest(eng, sidIdle, base.Add(time.Minute))
+
+	// Run maintenance — workspace has 2 detached sessions > limit of 1.
+	// The running one must be skipped; the idle one gets suspended.
+	terminal.RunMaintenanceOnceForTest(eng, ctx)
+	time.Sleep(200 * time.Millisecond)
+
+	// sidIdle must be suspended.
+	assert.True(t, store.hasSavedWithState(sidIdle, "suspended"),
+		"idle detached session must be suspended by soft limit")
+
+	// sidRunning must still be live and writable.
+	assert.NoError(t, eng.Write(ctx, sidRunning, []byte("echo running\n")),
+		"running session must NOT be suspended by the soft-limit (idle-gated) path")
+
+	_ = eng.Kill(ctx, sidIdle)
+	_ = eng.Kill(ctx, sidRunning)
+}
+
+// ---------------------------------------------------------------------------
+// TestMaintenance_GlobalForceLastResort
+// ---------------------------------------------------------------------------
+
+// TestMaintenance_GlobalForceLastResort verifies the last-resort path: when
+// maxTotalSessions=1 and both detached sessions have a running foreground child
+// (neither idle), the global ceiling exhausts idle candidates (none) and then
+// force-suspends the oldest detached session. The suspended session's .buf must
+// contain the resource notice.
+func TestMaintenance_GlobalForceLastResort(t *testing.T) {
+	restoreSessions := terminal.SetMaxTotalSessionsForTest(1)
+	defer restoreSessions()
+
+	eng := terminal.New()
+	ctx := context.Background()
+	dir := t.TempDir()
+	store := newFakeMetaStore(t)
+	eng.SetMetaStore(store)
+	defer eng.Shutdown()
+
+	// Create two sessions that will have running foreground children.
+	sid1, err := eng.Create(ctx, "ws-force", dir, nil)
+	require.NoError(t, err)
+	sid2, err := eng.Create(ctx, "ws-force", dir, nil)
+	require.NoError(t, err)
+
+	// Wait for both to reach their prompts first.
+	waitIdle(t, eng, sid1, 10*time.Second)
+	waitIdle(t, eng, sid2, 10*time.Second)
+
+	// Start a long-running foreground process in both.
+	require.NoError(t, eng.Write(ctx, sid1, []byte("sleep 9999\n")))
+	require.NoError(t, eng.Write(ctx, sid2, []byte("sleep 9999\n")))
+	waitNotIdle(t, eng, sid1, 10*time.Second)
+	waitNotIdle(t, eng, sid2, 10*time.Second)
+
+	// sid1 is "older" — it should be force-suspended first.
+	base := time.Now().Add(-10 * time.Minute)
+	terminal.SetLastActiveForTest(eng, sid1, base)
+	terminal.SetLastActiveForTest(eng, sid2, base.Add(time.Minute))
+
+	// Run maintenance: 2 live sessions > maxTotalSessions=1 → global ceiling fires.
+	// No idle candidates → last-resort force-suspend of sid1 (oldest).
+	terminal.RunMaintenanceOnceForTest(eng, ctx)
+	time.Sleep(300 * time.Millisecond)
+
+	// sid1 must be suspended (placeholder) and sid2 must still be live.
+	assert.True(t, store.hasSavedWithState(sid1, "suspended"),
+		"oldest session must be force-suspended by global ceiling last resort")
+
+	// The .buf for sid1 must contain the resource notice.
+	bufData, readErr := os.ReadFile(filepath.Join(store.dir, sid1+".buf"))
+	require.NoError(t, readErr, ".buf must exist after force-suspend")
+	assert.Contains(t, string(bufData), "suspended to free resources",
+		"force-suspend buf must contain the resource-freed notice")
+
+	// sid2 must still be writable (live).
+	assert.NoError(t, eng.Write(ctx, sid2, []byte("echo alive\n")),
+		"sid2 must still be live after global force-suspend of sid1")
+
+	_ = eng.Kill(ctx, sid1)
+	_ = eng.Kill(ctx, sid2)
+}
+
+// ---------------------------------------------------------------------------
+// TestMaintenance_ShutdownStopsGoroutine
+// ---------------------------------------------------------------------------
+
+// TestMaintenance_ShutdownStopsGoroutine verifies that Shutdown closes the stop
+// channel (goroutine exits cleanly) and that a subsequent double-Shutdown and
+// runMaintenanceOnce call do not panic.
+func TestMaintenance_ShutdownStopsGoroutine(t *testing.T) {
+	eng := terminal.New()
+	ctx := context.Background()
+
+	// Shutdown must return promptly.
+	done := make(chan struct{})
+	go func() {
+		eng.Shutdown()
+		close(done)
+	}()
+	select {
+	case <-done:
+	case <-time.After(5 * time.Second):
+		t.Fatal("Shutdown did not return within 5 s")
+	}
+
+	// Double Shutdown must not panic (stopOnce guard).
+	assert.NotPanics(t, func() { eng.Shutdown() })
+
+	// runMaintenanceOnce on a shut-down engine must not panic.
+	assert.NotPanics(t, func() {
+		terminal.RunMaintenanceOnceForTest(eng, ctx)
+	})
+}
+
+// ---------------------------------------------------------------------------
+// TestEngine_Stats
+// ---------------------------------------------------------------------------
+
+// TestEngine_Stats verifies that Stats returns correct counts after session
+// creates, suspensions, and kills.
+func TestEngine_Stats(t *testing.T) {
+	eng := terminal.New()
+	ctx := context.Background()
+	dir := t.TempDir()
+	store := newFakeMetaStore(t)
+	eng.SetMetaStore(store)
+	defer eng.Shutdown()
+
+	// No sessions yet.
+	a, d, s, rb := eng.Stats()
+	assert.Zero(t, a+d+s, "no sessions at start")
+	assert.Zero(t, rb, "no ring bytes at start")
+
+	// Create one session — it starts detached (live, no clients).
+	sid, err := eng.Create(ctx, "ws-stats", dir, nil)
+	require.NoError(t, err)
+
+	_, det, _, ringB := eng.Stats()
+	assert.Equal(t, 1, det, "one detached session")
+	assert.Greater(t, ringB, int64(0), "ring bytes must be positive for a live session")
+
+	// Suspend it — must move to suspended.
+	waitIdle(t, eng, sid, 10*time.Second)
+	deadline := time.After(15 * time.Second)
+	for {
+		_ = eng.Suspend(ctx, sid)
+		if store.hasSavedWithState(sid, "suspended") {
+			break
+		}
+		select {
+		case <-deadline:
+			t.Fatal("session did not suspend within 15 s")
+		case <-time.After(200 * time.Millisecond):
+		}
+	}
+
+	_, detAfter, susp, _ := eng.Stats()
+	assert.Zero(t, detAfter, "no detached sessions after suspend")
+	assert.Equal(t, 1, susp, "one suspended session")
+
+	_ = eng.Kill(ctx, sid)
+}
