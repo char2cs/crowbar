@@ -170,6 +170,28 @@ export function terminalListen(id: string, onData: (data: string) => void): () =
   }
 }
 
+// Detach the WS transport for a workspace switch: closes the socket (the daemon
+// records a per-client detach and keeps the PTY running) WITHOUT issuing DELETE.
+// `sessionBases` is intentionally retained so terminalAttach can re-dial later.
+export async function terminalDetach(connectionId: string): Promise<void> {
+  if (isTauri()) {
+    if (tauriTerminals.delete(connectionId)) {
+      await tauriInvoke('terminal_close', { sessionId: connectionId }).catch(() => {})
+    }
+    return
+  }
+  const conn = terminals.get(connectionId)
+  if (conn) {
+    conn.ws.close()
+    terminals.delete(connectionId)
+  }
+}
+
+// Test-only: expose internal maps for unit tests. Do not use in app code.
+export function __getBridgeInternals() {
+  return { terminals, tauriTerminals, sessionBases }
+}
+
 // ── File Clipboard ────────────────────────────────────────────────────────────
 // FUTURE: Go API file operations at /api/fs/clipboard
 
