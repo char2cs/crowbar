@@ -10,6 +10,19 @@ interface ResolveArgs {
   createTerminal: () => Promise<string>
 }
 
+// List the daemon's live sessions, tolerating a transiently-empty result right
+// after a daemon restart (socket-rebind window / startup restore): an empty list
+// is retried once after a short delay before being trusted. Used by BOTH reuse
+// branches so neither falls to a spurious fresh-create during the restart window.
+async function listLiveWithRetry(list: () => Promise<string[]>): Promise<string[]> {
+  let live = await list().catch(() => [] as string[])
+  if (live.length === 0) {
+    await new Promise<void>((resolve) => setTimeout(resolve, 400))
+    live = await list().catch(() => [] as string[])
+  }
+  return live
+}
+
 // Decide whether to reuse, re-attach to, or freshly create the daemon PTY for a
 // terminal tab. Reuse order: in-memory store > persisted+daemon-confirmed > fresh.
 export async function resolveTerminalConnection(
@@ -21,7 +34,7 @@ export async function resolveTerminalConnection(
   // through to create a fresh session rather than attaching to a dead PTY.
   if (args.storeConnectionId) {
     if (!terminalHasTransport(args.storeConnectionId)) {
-      const live = await args.listLiveSessions().catch(() => [] as string[])
+      const live = await listLiveWithRetry(args.listLiveSessions)
       if (!live.includes(args.storeConnectionId)) {
         // PTY no longer exists on the daemon — create fresh.
         const fresh = await args.createTerminal()
@@ -34,14 +47,7 @@ export async function resolveTerminalConnection(
 
   const persisted = loadReconnect(args.workspaceId, args.tabSessionId)
   if (persisted) {
-    let live = await args.listLiveSessions().catch(() => [] as string[])
-    // A completely empty live-session list right after a daemon restart can be
-    // transient (backend loads restored sessions asynchronously in some builds).
-    // Retry once after a short delay before concluding the persisted id is stale.
-    if (live.length === 0) {
-      await new Promise<void>((resolve) => setTimeout(resolve, 400))
-      live = await args.listLiveSessions().catch(() => [] as string[])
-    }
+    const live = await listLiveWithRetry(args.listLiveSessions)
     if (live.includes(persisted)) {
       await terminalAttach(persisted, args.base)
       return { connectionId: persisted, reused: true }

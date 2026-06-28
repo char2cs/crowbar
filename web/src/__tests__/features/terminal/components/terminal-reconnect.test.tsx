@@ -61,7 +61,7 @@ describe('resolveTerminalConnection', () => {
 
   it('creates fresh when storeConnectionId has no transport and daemon does NOT confirm it', async () => {
     mocks.setHasTransport(false)  // transport gone
-    listSpy.mockResolvedValueOnce([])  // daemon no longer has this PTY
+    listSpy.mockResolvedValueOnce(['other-conn'])  // non-empty list, stored id absent → genuinely gone
     const r = await resolveTerminalConnection({
       workspaceId: 'ws-1', tabSessionId: 'tab-1', storeConnectionId: 'dead-store-conn',
       base: '/base', listLiveSessions: listSpy, createTerminal: createSpy,
@@ -148,6 +148,26 @@ describe('Fix B — empty live-session list retry', () => {
     expect(listSpy).toHaveBeenCalledTimes(1)  // no second call
     expect(createSpy).toHaveBeenCalledOnce()
     expect(r).toEqual({ connectionId: 'fresh-conn', reused: false })
+  })
+
+  it('branch 1 (storeConnectionId, no transport): retries empty list and re-attaches the restored session', async () => {
+    // The daemon-restart reconnect bug: store has the id, transport is gone, and
+    // the just-restarted daemon returns [] on the first list (socket rebind window),
+    // then the restored id on retry. Must re-attach, not create fresh.
+    mocks.setHasTransport(false)
+    listSpy.mockResolvedValueOnce([]).mockResolvedValueOnce(['conn-store'])
+
+    const promise = resolveTerminalConnection({
+      workspaceId: 'ws-1', tabSessionId: 'tab-1', storeConnectionId: 'conn-store',
+      base: '/base', listLiveSessions: listSpy, createTerminal: createSpy,
+    })
+    await vi.advanceTimersByTimeAsync(400)
+    const r = await promise
+
+    expect(listSpy).toHaveBeenCalledTimes(2)
+    expect(mocks.attachSpy).toHaveBeenCalledWith('conn-store', '/base')
+    expect(r).toEqual({ connectionId: 'conn-store', reused: true })
+    expect(createSpy).not.toHaveBeenCalled()
   })
 })
 
