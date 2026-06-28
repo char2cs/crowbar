@@ -1,5 +1,6 @@
 import type { Repo, WorkspaceStatus } from '@/lib/store/sidebar'
 import type { Project } from '@/lib/types'
+import type { RepoAvatarData } from './repo-avatar'
 
 export type ContextPillModel =
   | {
@@ -8,6 +9,8 @@ export type ContextPillModel =
       working?: boolean
       repoName: string
       branchName: string
+      /** Only set for the default (imported folder) workspace. */
+      repoAvatar?: RepoAvatarData
     }
   | { kind: 'project'; projectName: string }
   | { kind: 'home'; projectName: string }
@@ -62,6 +65,11 @@ export function deriveContextPillModel({
         status: 'new',
         repoName: defaultRepo.name,
         branchName: 'default',
+        repoAvatar: {
+          url: defaultRepo.avatarURL,
+          label: defaultRepo.avatarLabel,
+          color: defaultRepo.avatarColor,
+        },
       }
     }
   }

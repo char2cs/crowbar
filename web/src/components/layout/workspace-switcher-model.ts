@@ -1,5 +1,6 @@
 import type { Repo, WorkspaceStatus } from '@/lib/store/sidebar'
 import type { Project } from '@/lib/types'
+import type { RepoAvatarData } from './repo-avatar'
 
 export type WorkspaceSwitcherItem =
   | {
@@ -21,6 +22,7 @@ export type WorkspaceSwitcherItem =
       added?: number
       deleted?: number
       isCurrent: boolean
+      repoAvatar?: RepoAvatarData
     }
 
 /** Flattens repos → a flat list of workspaces with repo context and current-state.
@@ -58,6 +60,7 @@ export function flattenWorkspaces(
           branch: 'default',
           status: 'new',
           isCurrent: repo.defaultWorkspaceId === activeWorkspaceId,
+          repoAvatar: { url: repo.avatarURL, label: repo.avatarLabel, color: repo.avatarColor },
         })
       }
 

@@ -8,6 +8,7 @@ import { useProjectStore } from '@/lib/store/projects'
 import { WorkspaceBranchIcon } from './workspace-branch-icon'
 import { deriveContextPillModel } from './context-pill-model'
 import { WorkspaceSwitcherMenu } from './workspace-switcher'
+import { RepoAvatar } from './repo-avatar'
 import { parseWorkspaceScopeFromPath } from '@/lib/workspace-scope'
 import { useWorkspaceSwitcherKeyboard } from '@/features/keymaps/hooks/use-workspace-switcher-keyboard'
 
@@ -52,7 +53,11 @@ export function ContextPill() {
                 </span>
               </span>
               <span className="flex shrink-0 scale-110">
-                <WorkspaceBranchIcon status={model.status} working={model.working} isDefault={model.isDefault} />
+                {model.repoAvatar ? (
+                  <RepoAvatar avatar={model.repoAvatar} name={model.repoName} size="lg" />
+                ) : (
+                  <WorkspaceBranchIcon status={model.status} working={model.working} />
+                )}
               </span>
             </span>
           ) : model.kind === 'home' ? (
