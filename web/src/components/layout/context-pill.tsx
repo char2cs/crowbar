@@ -1,4 +1,5 @@
 import { useCallback, useState } from 'react'
+import { House } from '@phosphor-icons/react'
 import { useRouterState } from '@tanstack/react-router'
 import { Button } from '@/components/ui/button'
 import { CommandDialog, CommandDialogTrigger, CommandDialogPopup } from '@/components/ui/command'
@@ -55,9 +56,14 @@ export function ContextPill() {
               </span>
             </span>
           ) : model.kind === 'home' ? (
-            <span className="flex min-w-0 flex-1 flex-col items-start gap-0.5 text-left leading-tight">
-              <span className="truncate font-mono text-xs text-muted-foreground">{model.projectName}</span>
-              <span className="truncate font-mono text-[13px] font-semibold text-foreground">home</span>
+            <span className="flex w-full min-w-0 items-center gap-2">
+              <span className="flex min-w-0 flex-1 flex-col items-start gap-0.5 text-left leading-tight">
+                <span className="truncate font-mono text-xs text-muted-foreground">{model.projectName}</span>
+                <span className="truncate font-mono text-[13px] font-semibold text-foreground">home</span>
+              </span>
+              <span className="flex shrink-0 scale-110 text-muted-foreground">
+                <House size={14} weight="fill" />
+              </span>
             </span>
           ) : (
             <span className="truncate text-[13px] text-foreground">{model.projectName}</span>

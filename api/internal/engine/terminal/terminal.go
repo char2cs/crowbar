@@ -19,6 +19,37 @@ import (
 	"github.com/char2cs/crowbar/api/internal/engine/terminal/internal/session"
 )
 
+// ptyEnv returns the process environment augmented with the terminal capability
+// vars that a GUI-launched daemon won't inherit from any shell session. Without
+// TERM, readline-based programs (bash, zsh, Claude Code, etc.) fall back to
+// dumb-terminal mode and disable history navigation and line editing.
+func ptyEnv() []string {
+	base := os.Environ()
+	overrides := map[string]string{
+		"TERM":      "xterm-256color",
+		"COLORTERM": "truecolor",
+	}
+
+	// Replace any existing TERM/COLORTERM entries, then append the rest.
+	result := make([]string, 0, len(base)+len(overrides))
+	for _, entry := range base {
+		keep := true
+		for key := range overrides {
+			if len(entry) > len(key) && entry[:len(key)+1] == key+"=" {
+				keep = false
+				break
+			}
+		}
+		if keep {
+			result = append(result, entry)
+		}
+	}
+	for k, v := range overrides {
+		result = append(result, k+"="+v)
+	}
+	return result
+}
+
 // WSConn is the WebSocket abstraction implemented by gorilla/websocket connections.
 type WSConn interface {
 	WriteMessage(
@@ -145,7 +176,7 @@ func (e *terminalEngine) Create(
 		id,
 		resolved.Shell,
 		resolved.CWD,
-		os.Environ(),
+		ptyEnv(),
 	)
 	if err != nil {
 		return "", fmt.Errorf("terminal: create: %w", err)

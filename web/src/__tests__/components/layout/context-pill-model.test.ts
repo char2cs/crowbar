@@ -25,6 +25,7 @@ describe('deriveContextPillModel', () => {
   it('returns workspace model when the active workspace resolves', () => {
     const model = deriveContextPillModel({
       activeWorkspaceId: 'ws1',
+      isHomeRoute: false,
       repos,
       projects,
       activeProjectId: 'p1',
@@ -40,6 +41,7 @@ describe('deriveContextPillModel', () => {
   it('falls back to status "new" when the workspace has no status', () => {
     const model = deriveContextPillModel({
       activeWorkspaceId: 'ws2',
+      isHomeRoute: false,
       repos,
       projects,
       activeProjectId: 'p1',
@@ -50,6 +52,7 @@ describe('deriveContextPillModel', () => {
   it('returns project model when no workspace is active', () => {
     const model = deriveContextPillModel({
       activeWorkspaceId: undefined,
+      isHomeRoute: false,
       repos,
       projects,
       activeProjectId: 'p1',
@@ -60,6 +63,7 @@ describe('deriveContextPillModel', () => {
   it('labels the default workspace "default" with the repo name', () => {
     const model = deriveContextPillModel({
       activeWorkspaceId: 'ws-default',
+      isHomeRoute: false,
       repos: [{ ...repos[0], defaultWorkspaceId: 'ws-default' }],
       projects,
       activeProjectId: 'p1',
@@ -75,6 +79,7 @@ describe('deriveContextPillModel', () => {
   it('returns project model when the workspace id does not resolve', () => {
     const model = deriveContextPillModel({
       activeWorkspaceId: 'missing',
+      isHomeRoute: false,
       repos,
       projects,
       activeProjectId: 'p1',
@@ -85,6 +90,7 @@ describe('deriveContextPillModel', () => {
   it('returns empty when nothing resolves', () => {
     const model = deriveContextPillModel({
       activeWorkspaceId: undefined,
+      isHomeRoute: false,
       repos,
       projects,
       activeProjectId: '',

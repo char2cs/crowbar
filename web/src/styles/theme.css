@@ -181,7 +181,11 @@
   /* ── Cross/UI light-mode tokens ── */
   --radius: 0.625rem;
   --background: var(--color-white);
-  --pane-background: oklch(1 0 0 / .75);
+  /* Light content frost — mirror of the dark theme. Sits on the full-window
+     light wash (--chrome-bg) as a slight white frost so the empty pane reads a
+     touch lighter than the chrome, not as a gray island (the gray was the dark
+     HUDWindow vibrancy leaking through a fully-transparent pane). */
+  --pane-background: oklch(1 0 0 / 12%);
   --foreground: var(--color-neutral-800);
   --card: var(--color-white);
   --card-foreground: var(--color-neutral-800);
@@ -213,7 +217,8 @@
   --chart-3: var(--color-cyan-900);
   --chart-4: var(--color-amber-400);
   --chart-5: var(--color-amber-500);
-  --sidebar: var(--color-neutral-50);
+  /* Zen-matched sidebar (light): fully transparent → pure native vibrancy. */
+  --sidebar: oklch(0 0 0 / 0%);
   --sidebar-foreground: var(--color-neutral-800);
   --sidebar-primary: var(--color-neutral-800);
   --sidebar-primary-foreground: var(--color-neutral-50);
@@ -238,7 +243,10 @@
   --git-renamed: var(--color-sky-600);
 
   /* ── Crowbar UI-layer tokens (not in Cross/UI) ── */
-  --chrome-bg: oklch(0.97 0.018 50 / 0%);
+  /* Full-window light wash (mirror of the dark theme's dark wash): brings the
+     whole window to a uniform light frost so the dark vibrancy behind the
+     content pane is masked, matching the cream margins. Tune opacity live. */
+  --chrome-bg: oklch(0.97 0.018 50 / 40%);
 
   --app-ui-scale: 1;
   --ui-text-xs: calc(0.6875rem * var(--app-ui-scale));
@@ -308,7 +316,11 @@
 .dark {
   /* ── Cross/UI dark-mode tokens ── */
   --background: oklch(0.19 0 0);
-  --pane-background: oklch(0.19 0 0 / .75);
+  /* Zen empty-content frost. On top of the full-window dark wash (--chrome-bg),
+     Zen's empty/transparent content is rgba(255,255,255,0.1) — a barely-there
+     10% WHITE frost that reads as slightly LIGHTER than the surrounding chrome,
+     not a dark island. The darkness comes from the window-wide wash, not here. */
+  --pane-background: oklch(1 0 0 / 10%);
   --foreground: var(--color-neutral-100);
   --card: var(--background);
   --card-foreground: var(--color-neutral-100);
@@ -339,7 +351,9 @@
   --chart-3: var(--color-amber-500);
   --chart-4: var(--color-purple-500);
   --chart-5: var(--color-rose-500);
-  --sidebar: oklch(0.18 0 0 / 70%);
+  /* Sidebar tint over the native vibrancy — gives the sidebar body instead of
+     being fully see-through. Starting point; tune opacity to taste. */
+  --sidebar: oklch(0 0 0 / 18%);
   --sidebar-foreground: var(--color-neutral-100);
   --sidebar-primary: var(--color-neutral-100);
   --sidebar-primary-foreground: var(--color-neutral-800);
@@ -360,7 +374,12 @@
   --git-renamed: var(--color-sky-400);
 
   /* ── Crowbar UI-layer dark overrides ── */
-  --chrome-bg: oklch(0 0 0 / 50%);
+  /* Full-window dark wash — Zen's actual model. Zen paints rgba(0,0,0,0.4)
+     behind the ENTIRE window (sidebar + tab strip + margins + content) so the
+     whole surface reads as one even frosted layer. This token sits on <body>
+     (bg-chrome-bg), darkening every transparent region uniformly — which kills
+     the "dark card on bright margins" contrast. */
+  --chrome-bg: oklch(0 0 0 / 40%);
 
   /* ── Syntax dedicated hues — Palette A (dark) ─────────────────── */
   --syntax-keyword: #d97757;

@@ -18,7 +18,6 @@ import {
   useWorkspaceTreeDrag,
 } from './workspace-tree-context'
 import { RepoSettingsPanel } from './repo-settings-panel'
-import { ProjectSwitcherRow } from './project-switcher-row'
 import { ProjectHomeRow } from './project-home-row'
 import { useSidebarNavStore } from '@/features/layout/stores/sidebar-nav'
 import type { Workspace } from '@/lib/store/sidebar'
@@ -104,9 +103,8 @@ function WorkspaceTreeInner() {
   return (
     <div className="flex flex-1 flex-col overflow-hidden">
       <ProjectHomeRow />
-      <ProjectSwitcherRow />
       <ScrollArea className="flex-1">
-        <div className="py-1">
+        <div className="pb-1">
           {repos.map((repo) => {
             const roots = rootsByRepo.get(repo.id) ?? []
             const isCollapsed = collapsedRepos.has(repo.id)

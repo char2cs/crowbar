@@ -249,9 +249,13 @@ pub fn run() {
             let socket = sidecar::socket_path();
 
             // Native macOS blur behind the transparent window. NSVisualEffectView
-            // blur is fixed per material (no numeric radius); HudWindow is one of
-            // the heaviest-blur materials. Requires `transparent: true` +
-            // `macOSPrivateApi: true` (set in tauri.conf.json).
+            // blur is fixed per material (no numeric radius). `HudWindow` is the
+            // exact material Zen Browser uses: its VibrancyManager patch maps the
+            // window vibrancy via the `zen.widget.macos.window-material` pref, whose
+            // default (1) = NSVisualEffectMaterialHUDWindow — a heavy, smooth blur.
+            // (The old over-darkness came from the chrome-bg film + opaque overlays,
+            // not this material.) Requires `transparent: true` + `macOSPrivateApi:
+            // true` (set in tauri.conf.json).
             #[cfg(target_os = "macos")]
             if let Some(window) = app.get_webview_window("main") {
                 use window_vibrancy::{apply_vibrancy, NSVisualEffectMaterial, NSVisualEffectState};
