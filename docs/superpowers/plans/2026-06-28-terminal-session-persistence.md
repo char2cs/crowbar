@@ -32,13 +32,56 @@
 
 ## Phase 1 File Structure
 
+- `api/internal/engine/terminal/internal/session/session.go` — MODIFY (Task 0, prerequisite): hold `s.mu` across ring write + fan-out (`fanOutLocked`).
 - `web/src/features/terminal/utils/osc-parser.ts` — MODIFY: global regex, last match.
-- `web/src/lib/crowbar-bridge.ts` — MODIFY: add `terminalDetach(connectionId)` and `terminalAttach(connectionId, base)`.
+- `web/src/lib/crowbar-bridge.ts` — MODIFY: add `terminalDetach(connectionId)`, `terminalAttach(connectionId, base)`, `terminalHasTransport(connectionId)`, `terminalListLive(base)`, and extracted `openBrowserSocket`/`openTauriSocket` helpers.
 - `web/src/features/terminal/lib/terminal-reconnect-map.ts` — CREATE: localStorage `{ tabSessionId → connectionId }` per workspace (backstop mapping).
 - `web/src/features/terminal/lib/detach-terminal-session.ts` — CREATE: the switch-time detach (mirror of `kill-terminal-session.ts`, but no DELETE).
 - `web/src/features/workspace/stores/workspace-store-registry.ts` — MODIFY: `destroyWorkspaceStore` calls detach (not kill) for pane terminals.
 - `web/src/features/terminal/components/terminal.tsx` — MODIFY: reconnect path — resolve an existing connectionId (store ∪ localStorage ∪ daemon list) and `terminalAttach` before falling to `createTerminal`.
 - Tests mirror under `web/src/__tests__/...`.
+
+---
+
+### Task 0 (backend, prerequisite): Hold the session lock across ring write + fan-out
+
+**Why in Phase 1:** Phase 1 introduces attach-with-replay on every workspace re-entry. The existing pump appends to the ring under `ring.mu` and fans out under `s.mu` as two separate critical sections, so a chunk written just before a client registers but fanned out just after is delivered twice — visible corruption in the exact acceptance scenario (switch back to a still-producing process). This latent race becomes user-visible in Phase 1, so its fix lands here, not Phase 2.
+
+**Files:**
+- Modify: `api/internal/engine/terminal/internal/session/session.go` (pump ~lines 180-181; add `fanOutLocked`)
+- Test: `api/internal/engine/terminal/internal/session/session_test.go`
+
+**Interfaces:**
+- Produces: pump holds `s.mu` across both `s.ring.Write(chunk)` and the fan-out; `fanOutLocked(chunk)` assumes the caller holds `s.mu`. Lock order stays `s.mu → ring.mu` (matches `Attach`), so no new deadlock.
+
+- [ ] **Step 1: Write the failing `-race` test** — attach a client while a high-rate writer streams; assert `snapshot bytes ⧺ subsequently-received live frames == produced byte stream` (no duplicated, no missing bytes). Place in `session_test.go` as `TestSession_ReplayLiveHandoff_NoDuplication`.
+- [ ] **Step 2: Run under race detector to verify it fails/flakes**
+
+Run: `cd api && go test -race -run TestSession_ReplayLiveHandoff_NoDuplication ./internal/engine/terminal/internal/session/`
+Expected: FAIL (duplicated bytes) or race report.
+
+- [ ] **Step 3: Implement** — in `pump()`, wrap the write+fanout in `s.mu`:
+
+```go
+s.mu.Lock()
+s.ring.Write(chunk)   // ring.mu nested under s.mu — same order Attach uses
+s.fanOutLocked(chunk) // was s.fanOut(chunk); now assumes s.mu held
+s.mu.Unlock()
+```
+
+Refactor `fanOut` → `fanOutLocked` (drop its internal `s.mu` lock); if any other caller used `fanOut`, give them a thin `fanOut` that locks then calls `fanOutLocked`.
+
+- [ ] **Step 4: Run the test to verify it passes**
+
+Run: `cd api && go test -race ./internal/engine/terminal/internal/session/`
+Expected: PASS, no race.
+
+- [ ] **Step 5: Commit**
+
+```bash
+git add api/internal/engine/terminal/internal/session/session.go api/internal/engine/terminal/internal/session/session_test.go
+git commit -m "fix(terminal): serialize ring write + fan-out under session lock (no replay/live byte duplication)"
+```
 
 ---
 
@@ -143,11 +186,12 @@ git commit -m "fix(terminal): parseOSC7 returns the newest cwd (last match) for 
 ```typescript
 // web/src/__tests__/lib/crowbar-bridge-detach.test.ts
 import { describe, it, expect, vi, beforeEach } from 'vitest'
-
-// Force the browser (non-Tauri) path.
-vi.mock('@/lib/tauri', () => ({ isTauri: () => false, tauriInvoke: vi.fn() }))
-
+// NOTE: crowbar-bridge declares isTauri()/tauriInvoke LOCALLY (it does not import
+// '@/lib/tauri'). jsdom's window lacks __TAURI_INTERNALS__, so the browser path is
+// the default — no mock needed. (To test the Tauri branch, set
+// window.__TAURI_INTERNALS__ = { invoke: vi.fn() }.)
 import { terminalCreate, terminalDetach, __getBridgeInternals } from '@/lib/crowbar-bridge'
+import { setWorkspaceScope } from '@/lib/workspace-scope'
 
 class FakeWebSocket {
   static instances: FakeWebSocket[] = []
@@ -163,8 +207,11 @@ class FakeWebSocket {
 beforeEach(() => {
   FakeWebSocket.instances = []
   vi.stubGlobal('WebSocket', FakeWebSocket as unknown as typeof WebSocket)
-  // apiFetch returns {sessionId} for the POST create
-  vi.stubGlobal('fetch', vi.fn(async () => new Response(JSON.stringify({ sessionId: 'conn-1' }), { status: 201 })))
+  // terminalCreate calls workspaceBase(wsId) which requires a recorded scope.
+  setWorkspaceScope({ projectId: 'p', repoId: 'r', wsId: 'ws-1' })
+  // terminalCreate POSTs via apiFetch, which unwraps the {success,data} envelope.
+  vi.stubGlobal('fetch', vi.fn(async () =>
+    new Response(JSON.stringify({ success: true, data: { sessionId: 'conn-1' } }), { status: 200 })))
 })
 
 describe('terminalDetach', () => {
@@ -219,7 +266,7 @@ export async function terminalDetach(connectionId: string): Promise<void> {
 }
 ```
 
-And add a test-only accessor at the end of the file (guarded so it is tree-shaken/ignored in prod usage):
+And add a test-only accessor at the end of the file (a plain unused-in-prod export — tree-shaken because nothing imports it; not a runtime guard):
 
 ```typescript
 // Test-only: expose internal maps for unit tests. Do not use in app code.
@@ -257,7 +304,7 @@ git commit -m "feat(terminal): terminalDetach — close PTY WS on switch without
 ```typescript
 // web/src/__tests__/lib/crowbar-bridge-attach.test.ts
 import { describe, it, expect, vi, beforeEach } from 'vitest'
-vi.mock('@/lib/tauri', () => ({ isTauri: () => false, tauriInvoke: vi.fn() }))
+// Browser path is the jsdom default (no __TAURI_INTERNALS__); no mock needed.
 import { terminalAttach, terminalListen, __getBridgeInternals } from '@/lib/crowbar-bridge'
 
 class FakeWebSocket {
@@ -309,7 +356,11 @@ Factor the WS-wiring out of `terminalCreate` into a shared helper and call it fr
 function openBrowserSocket(connectionId: string, base: string): void {
   const ws = new WebSocket(wsUrl(`${base}/${encodeURIComponent(connectionId)}/ws`))
   const conn: TerminalConnection = { ws, listener: null, outputBuffer: [], inputQueue: [], open: false }
-  ws.onopen = () => { conn.open = true; for (const data of conn.inputQueue) ws.send(JSON.stringify({ data })) }
+  ws.onopen = () => {
+    conn.open = true
+    for (const data of conn.inputQueue) ws.send(JSON.stringify({ data }))
+    conn.inputQueue = [] // match terminalCreate's original reset
+  }
   ws.onmessage = (event) => {
     let data: string | undefined
     try { data = (JSON.parse(event.data as string) as { data?: string }).data } catch { return }
@@ -320,21 +371,37 @@ function openBrowserSocket(connectionId: string, base: string): void {
   terminals.set(connectionId, conn)
 }
 
+// Wire a Tauri channel for a connectionId into the `tauriTerminals` map and ask
+// Rust to open the WS. `terminal_open` REQUIRES an `onData: Channel<string>`
+// (see desktop/src-tauri/src/terminal.rs) — omitting it makes the invoke reject.
+async function openTauriSocket(connectionId: string, wsPath: string): Promise<void> {
+  const conn: TauriTerminal = { listener: null, outputBuffer: [] }
+  const channel = new Channel<string>()
+  channel.onmessage = (data) => { if (conn.listener) conn.listener(data); else conn.outputBuffer.push(data) }
+  tauriTerminals.set(connectionId, conn)
+  await tauriInvoke('terminal_open', { sessionId: connectionId, wsPath, onData: channel })
+}
+
+// True when a live WS/channel transport exists for this connectionId. Used by the
+// reconnect resolver: a surviving store entry whose transport was detached on a
+// workspace switch must be RE-ATTACHED, not reused as-is.
+export function terminalHasTransport(connectionId: string): boolean {
+  return terminals.has(connectionId) || tauriTerminals.has(connectionId)
+}
+
 // Attach to an EXISTING daemon PTY (after a workspace switch) without creating a
 // new one. The daemon replays its ring snapshot on attach, restoring scrollback.
 export async function terminalAttach(connectionId: string, base: string): Promise<void> {
   sessionBases.set(connectionId, base)
   if (isTauri()) {
-    const wsPath = `${base}/${encodeURIComponent(connectionId)}/ws`
-    tauriTerminals.set(connectionId, { listener: null, outputBuffer: [] })
-    await tauriInvoke('terminal_open', { sessionId: connectionId, wsPath })
+    await openTauriSocket(connectionId, `${base}/${encodeURIComponent(connectionId)}/ws`)
     return
   }
   openBrowserSocket(connectionId, base)
 }
 ```
 
-Refactor `terminalCreate`'s browser branch to call `openBrowserSocket(sessionId, base)` instead of its inline duplicate (keep behavior identical).
+Refactor both `terminalCreate` branches to call `openBrowserSocket(sessionId, base)` / `openTauriSocket(sessionId, wsPath)` instead of their inline duplicates (keep behavior identical — confirm the Tauri branch already passes an `onData` channel today and reuse that shape).
 
 - [ ] **Step 4: Run tests (new + existing bridge tests) to verify pass + no regression**
 
@@ -548,6 +615,8 @@ if (terminalBuffers.length > 0) {
 
 (`wsId` is the workspace id already in scope in `destroyWorkspaceStore`; confirm the parameter name and use it. `killTerminalSession` stays for real tab-close / `exit`.)
 
+Also clear the reconnect mapping on a **real** close so it can't go stale: in the terminal branch of `closeBuffer` (`buffer-slice.ts`), after `killTerminalSession(sessionId)`, call `clearReconnect(get().workspaceId, sessionId)` (the workspace id is in scope there). Add a small test asserting `loadReconnect` returns null after a real close.
+
 - [ ] **Step 6: Typecheck + run the workspace-registry tests**
 
 Run: `cd web && npx tsc --noEmit && npx vitest run src/__tests__/features/workspace`
@@ -581,21 +650,37 @@ import { describe, it, expect, vi, beforeEach } from 'vitest'
 const attachSpy = vi.fn(async () => {})
 const createSpy = vi.fn(async () => 'fresh-conn')
 const listSpy = vi.fn(async () => ['conn-1'])  // daemon says conn-1 is alive
-vi.mock('@/lib/crowbar-bridge', () => ({ terminalAttach: attachSpy }))
+let hasTransport = true
+vi.mock('@/lib/crowbar-bridge', () => ({
+  terminalAttach: attachSpy,
+  terminalHasTransport: () => hasTransport,
+}))
 
 import { resolveTerminalConnection } from '@/features/terminal/components/resolve-terminal-connection'
 import { saveReconnect } from '@/features/terminal/lib/terminal-reconnect-map'
 
-beforeEach(() => { attachSpy.mockClear(); createSpy.mockClear(); listSpy.mockClear(); localStorage.clear() })
+beforeEach(() => { attachSpy.mockClear(); createSpy.mockClear(); listSpy.mockClear(); localStorage.clear(); hasTransport = true })
 
 describe('resolveTerminalConnection', () => {
-  it('reuses a store connectionId without attaching or creating', async () => {
+  it('reuses a store connectionId WITH a live transport — no attach, no create', async () => {
+    hasTransport = true
     const r = await resolveTerminalConnection({
       workspaceId: 'ws-1', tabSessionId: 'tab-1', storeConnectionId: 'conn-store',
       base: '/base', listLiveSessions: listSpy, createTerminal: createSpy,
     })
     expect(r).toEqual({ connectionId: 'conn-store', reused: true })
     expect(attachSpy).not.toHaveBeenCalled()
+    expect(createSpy).not.toHaveBeenCalled()
+  })
+
+  it('re-attaches a store connectionId whose transport was detached on switch', async () => {
+    hasTransport = false  // detach closed the WS
+    const r = await resolveTerminalConnection({
+      workspaceId: 'ws-1', tabSessionId: 'tab-1', storeConnectionId: 'conn-store',
+      base: '/base', listLiveSessions: listSpy, createTerminal: createSpy,
+    })
+    expect(attachSpy).toHaveBeenCalledWith('conn-store', '/base')  // re-attached → scrollback replays
+    expect(r).toEqual({ connectionId: 'conn-store', reused: true })
     expect(createSpy).not.toHaveBeenCalled()
   })
 
@@ -631,7 +716,7 @@ Expected: FAIL — `resolve-terminal-connection` module not found.
 
 ```typescript
 // web/src/features/terminal/components/resolve-terminal-connection.ts
-import { terminalAttach } from '@/lib/crowbar-bridge'
+import { terminalAttach, terminalHasTransport } from '@/lib/crowbar-bridge'
 import { loadReconnect, clearReconnect } from '../lib/terminal-reconnect-map'
 
 interface ResolveArgs {
@@ -648,7 +733,15 @@ interface ResolveArgs {
 export async function resolveTerminalConnection(
   args: ResolveArgs,
 ): Promise<{ connectionId: string; reused: boolean }> {
-  if (args.storeConnectionId) return { connectionId: args.storeConnectionId, reused: true }
+  // In-memory store still knows the connectionId, but a workspace switch
+  // detached (closed) its transport. Reuse the id, but RE-ATTACH if the WS is
+  // gone — otherwise terminalListen/Write/Resize no-op and the pane is dead.
+  if (args.storeConnectionId) {
+    if (!terminalHasTransport(args.storeConnectionId)) {
+      await terminalAttach(args.storeConnectionId, args.base)
+    }
+    return { connectionId: args.storeConnectionId, reused: true }
+  }
 
   const persisted = loadReconnect(args.workspaceId, args.tabSessionId)
   if (persisted) {
@@ -669,19 +762,35 @@ export async function resolveTerminalConnection(
 Run: `cd web && npx vitest run src/__tests__/features/terminal/components/terminal-reconnect.test.tsx`
 Expected: PASS (3 tests).
 
-- [ ] **Step 5: Wire into `terminal.tsx`**
+- [ ] **Step 5: Add the daemon live-session lister to `crowbar-bridge.ts`**
 
-Replace the create-vs-reuse block (`terminal.tsx:298-327`) so it calls `resolveTerminalConnection` BEFORE xterm init, passing the live-session lister (a thin wrapper over the existing `GET ${base}` discovery) and the existing `createTerminal` closure. Set `connectionId` in `useTerminalStore` (`updateSession`) and the local `activeConnectionId` from the result. When `reused` is true, set `reuseExistingConnection` so the initial command is not re-sent. Keep all other behavior. The ordering requirement (populate `connectionId` before `XtermTerminal` mounts) is satisfied because this block already runs before init in the existing effect.
+The resolver needs `listLiveSessions(): Promise<string[]>`. No such function exists — add one over the existing `GET …/terminals` route (returns `TerminalSessionDTO[]`; the DTO field is `id`, which IS the daemon connectionId, not `sessionId`):
 
-- [ ] **Step 6: Typecheck**
+```typescript
+import type { TerminalSessionDTO } from '@/lib/types' // adjust to the actual DTO type location
+// List the daemon's live session connectionIds for a workspace (the `base` is
+// `${workspaceBase(wsId)}/terminals`). Used to confirm a persisted id is still alive.
+export async function terminalListLive(base: string): Promise<string[]> {
+  const list = await apiFetch<TerminalSessionDTO[]>(base)
+  return list.map((s) => s.id)
+}
+```
+
+- [ ] **Step 6: Wire into `terminal.tsx`**
+
+Replace the create-vs-reuse block (`terminal.tsx:298-327`) so it `await`s `resolveTerminalConnection({ workspaceId, tabSessionId: sessionId, storeConnectionId: existingSession?.connectionId, base, listLiveSessions: () => terminalListLive(base), createTerminal: () => createTerminal({...}) })`, then `updateSession(sessionId, { connectionId: result.connectionId, ... })` and sets the local `activeConnectionId`.
+
+**Reused-flag wiring (important):** `reuseExistingConnection` currently derives from `hadExistingConnectionOnMountRef` (terminal.tsx:71), captured ONCE at mount and never reassigned — so a post-mount re-attach would not reach `useTerminalConnection`, and the initial command would re-fire on the reattached live PTY. Replace that ref with React state: initialize `const [reuseConnection, setReuseConnection] = useState(Boolean(session?.connectionId))`, call `setReuseConnection(result.reused)` after `resolveTerminalConnection` returns, and pass `reuseExistingConnection={reuseConnection}` into the hook. This threads the resolver's `reused` decision into the render path. Delete the false "this block already runs before init" assumption.
+
+- [ ] **Step 7: Typecheck**
 
 Run: `cd web && npx tsc --noEmit`
 Expected: no errors.
 
-- [ ] **Step 7: Commit**
+- [ ] **Step 8: Commit**
 
 ```bash
-git add web/src/features/terminal/components/resolve-terminal-connection.ts web/src/features/terminal/components/terminal.tsx web/src/__tests__/features/terminal/components/terminal-reconnect.test.tsx
+git add web/src/lib/crowbar-bridge.ts web/src/features/terminal/components/resolve-terminal-connection.ts web/src/features/terminal/components/terminal.tsx web/src/__tests__/features/terminal/components/terminal-reconnect.test.tsx
 git commit -m "feat(terminal): reconnect to live PTY on workspace re-entry (replay scrollback)"
 ```
 
@@ -709,10 +818,10 @@ git commit -m "feat(terminal): reconnect to live PTY on workspace re-entry (repl
 ## Phase 2 File Structure & Tasks (task-level; expand to TDD steps at execution)
 
 - **Task 2.1 — `TerminalSession` GORM model + store.** Create `domain.TerminalSession` (`SessionID` pk, `WorkspaceID`, `ProjectID`, `RepoID`, `CWD`, `Shell`, `ProfileID`, `State`, `CreatedAt`, `LastActiveAt`; `TableName() = "terminal_sessions"`), register it in the global `state/view.db` GORM stores (mirror `terminal_profiles` in `usecases/container.go` `GORMStores`). *Test:* store save/get/delete round-trip. *Supersedes D6 — update the D6 comments + the contract test `container_terminals_test.go`.*
-- **Task 2.2 — `SessionMetaStore` port + engine DI.** Define `engineterminal.SessionMetaStore` interface (`Save(ctx, Meta) error`, `Delete(ctx, sessionID) error`) and `Meta` struct in the engine package. Change `engineterminal.New()` → `New(meta SessionMetaStore)`; thread it from `engine/container.go` (which must now receive it) and implement it in the terminal usecase over the GORM store. Resolve+thread the per-workspace storage path into `Create` via `worktreepath.StorageDir` using the `workspace_locations` index already reachable from the usecase. *Test:* engine calls `Save` on create/detach; `Delete` on Kill — assert via a fake store.
+- **Task 2.2 — `SessionMetaStore` port + engine DI (setter, not constructor).** Define `engineterminal.SessionMetaStore` interface (`Save(ctx, Meta) error`, `Delete(ctx, sessionID) error`) and `Meta` struct in the engine package. **Do NOT add it to `engineterminal.New()`:** the engine is constructed (`internal.go` ~line 63) *before* the adapter/app layers where the usecase + GORM store exist, and the usecase implementing the port would create a usecase→engine→metaStore→usecase cycle. Instead add a post-construction `Terminal.SetMetaStore(meta)` setter and wire it from the api layer AFTER both engine and usecase exist — mirror exactly how `OnSessionEnded` is wired at `api/internal/api/v0/container.go:80`. The terminal usecase implements the port over the global `state/view.db` GORM store. Resolve+thread the per-workspace storage path into `Create` via `worktreepath.StorageDir` using the `workspace_locations` index already reachable from the usecase. *Test:* engine calls `Save` on create/detach and `Delete` on real exit/Kill — assert via a fake store; assert a nil metaStore (setter never called) is a safe no-op.
 - **Task 2.3 — ring `Flush`/`Load` + resize.** Add `Flush(io.Writer) error` / `Load(io.Reader) error` to `ring.go`; bump `defaultRingSize` to 256KB (configurable). *Test:* extend `ring_test.go` with a flush→load round-trip including wrap-around.
-- **Task 2.4 — session lifecycle fields + safety.** Add `state`, `IsLive()` (`ptmx != nil`), `NewPlaceholder(...)`, `AttachedCount()`, `isIdleLocked()`/`IsIdle()` (tcgetpgrp), `suspending` flag, `flushMu`, mutable `cwd`/`shell`/`profileId`. Make the pump hold `s.mu` across `ring.Write`+`fanOut` (fixes the replay/live duplication race). Make `Kill` take `s.mu` only around `ptmx.Close`/`Process.Kill` then release before `shutdown()`; short-circuit `Kill`/`shutdown`/`isIdleLocked` when `ptmx == nil`. Add OSC 7 scan in the pump updating `cwd`. *Tests (extend `session_test.go`, run under `-race`):* `IsIdle` with/without a foreground child; placeholder `Kill` no-panic; replay→live handoff produces no duplicate/lost bytes.
-- **Task 2.5 — engine Suspend/Restore/auto-suspend/reap.** Refactor `Create` → private `spawn(id, …)`; make `Attach` restore-aware (`Restore` when `!IsLive`, guarded/idempotent, `SessionExists` counts placeholders so no 404); add `Suspend` (re-verify `clients==0 && !suspending && idle` under `s.mu`, set `suspending`, kill process, flush `.buf` + `metaStore.Save state=suspended`, suppress `ended`), `Restore` (re-register same id, `Load` `.buf`, reset state). Add the 10s auto-suspend sweep (soft limit per workspace + global ceiling: evict idle by `lastActiveAt`; force-suspend last-resort for the global ceiling only). Make `reapOnDone` honor `suspending`; on real exit/Kill do `metaStore.Delete` + `.buf` delete; capture `cmd.Wait()` exit code. *Tests (integration, `TestRegression_*`):* detach→re-attach replay; suspend→restore in saved CWD with no `ended` frame; running detached session never auto-suspended.
+- **Task 2.4 — session lifecycle fields + safety.** Add `state`, `IsLive()` (`ptmx != nil`), `NewPlaceholder(...)`, `AttachedCount()`, `isIdleLocked()`/`IsIdle()`, `suspending` flag, `flushMu`, mutable `cwd`/`shell`/`profileId`. (The pump's `s.mu`-across-`ring.Write`+`fanOut` handoff fix already landed in Phase 1 Task 0 — do not redo it.) Make `Kill`/`Suspend` set `ptmx = nil` after closing it (so `IsLive()` reflects dead state); take `s.mu` only around `ptmx.Close`/`Process.Kill` then release before `shutdown()`; short-circuit `Kill`/`shutdown`/`isIdleLocked` when `ptmx == nil`. **Idle detection is unix-only:** `tcgetpgrp`/`TIOCGPGRP` does not exist on Windows (release matrix includes windows/amd64, `CGO_ENABLED=0`). Split into build-tagged files: `session_idle_unix.go` (`//go:build !windows`, ioctl via `golang.org/x/sys/unix`) and `session_idle_windows.go` (returns not-idle). Note that idle-based auto-suspend degrades to force-suspend-only on Windows (record in the spec's *What This Does NOT Solve*). Add OSC 7 scan in the pump updating `cwd`. *Tests (extend `session_test.go`, run under `-race`):* `IsIdle` with/without a foreground child (unix); placeholder `Kill` no-panic; `IsLive()` false after Kill.
+- **Task 2.5 — engine Suspend/Restore/auto-suspend/reap.** Refactor `Create` → private `spawn(id, …)`. **Suspend must swap the registry entry, not keep the dead one:** killing the PTY makes the pump's `defer shutdown()` close `s.done`, and the live `Session.Attach()` short-circuits on a closed `done` ("session is dead"). So `Suspend` (under `s.mu`, re-verify `clients==0 && !suspending && idle`; set `suspending` so `reapOnDone` suppresses `ended`) flushes `.buf` + `metaStore.Save state=suspended`, kills the process, and then **registers a fresh `NewPlaceholder(id, meta, ringSnapshot)` in the registry under the same id** (open `done`, `ptmx==nil`, ring pre-loaded) — replacing the dead session. Make `Attach` restore-aware: `s := reg.Get(id)`; if `!s.IsLive()` call `Restore(id)` (idempotent under a per-id lock), then **re-fetch `s = reg.Get(id)`** (the placeholder was replaced — do not reuse the pre-`Restore` pointer) before `s.Attach()`. `Restore` spawns a PTY under the same id via `spawn(id, savedCwd, shell)`, `Load`s the `.buf`, registers the live session, transitions state. `SessionExists` counts placeholders so the WS upgrade does not 404. Add the 10s auto-suspend sweep (soft limit per workspace + global ceiling: evict idle by `lastActiveAt`; force-suspend last-resort for the global ceiling only). `reapOnDone` honors `suspending`; on real exit/Kill do `metaStore.Delete` + `.buf` delete; capture `cmd.Wait()` exit code. *Tests (integration, `TestRegression_*`):* detach→re-attach replay; suspend then re-attach restores in saved CWD with no `ended` frame and no "session is dead" error; running detached session never auto-suspended.
 - **Task 2.6 — hardened atomic persistence helper.** A `persistence` helper writing `.buf` via `os.CreateTemp(dir, sessionId+".buf-*")` → write → `tmp.Sync()` → close → `os.Rename` → parent-dir `fsync`; serialized per session via `flushMu`. *Test:* concurrent flushers never corrupt; torn-write leaves prior good file.
 - **Task 2.7 — cadence flush.** Per-session 10s ticker (stopped on `s.Done()`) that, when there is un-flushed output, writes `.buf` + `metaStore.Save` (cwd/state/lastActiveAt). *Test:* row + buf updated within the interval.
 - **Task 2.8 — wire protocol + snapshot re-source.** Extend status to `active|detached|suspended|ended` (+ `exitCode?`) in `dto/terminal.go` and `web/src/lib/types.ts`; re-source `terminalsSnapshot` / `ListSessions` from store∪registry emitting real state (replace the three hardcoded `"active"` sites); push frames on detach transition (inside `Attach`), `Suspend`, `Restore`, reap. *Tests:* update the contract assertions that currently expect `"active"`.
@@ -734,7 +843,7 @@ git commit -m "feat(terminal): reconnect to live PTY on workspace re-entry (repl
 
 ## Self-Review
 
-- **Spec coverage:** Phase 1 covers the showstopper (stop-kill + detach + attach-with-replay + OSC7 + reconnect map). Phases 2–3 cover lifecycle/idle/suspend/restore, durable store + DI (`SessionMetaStore`), wire protocol, limits/observability, restart reconcile, graceful shutdown, Tauri SIGTERM — each spec section maps to a task. The deferred items (launchd, pure-Go `proc_info` CWD fallback) are documented in the spec's *What This Does NOT Solve* and intentionally not tasked.
+- **Spec coverage:** Phase 1 covers the showstopper (Task 0 handoff-lock + stop-kill + detach + attach-with-replay + OSC7 + reconnect map). Phases 2–3 cover lifecycle/idle/suspend/restore, durable store + DI (`SessionMetaStore` via setter), wire protocol, limits/observability, restart reconcile, graceful shutdown, Tauri SIGTERM. **One spec item is intentionally superseded, not tasked:** the spec's Phase 2/3 *IndexedDB session-index + rehydrate-on-mount* bullet is replaced by Phase 1's localStorage reconnect map (Task 4) + `resolveTerminalConnection` validated against the post-restart daemon list (Task 6) — sufficient because the workspace store restores terminal buffers on re-entry. If that assumption fails in live testing, add a Phase 2/3 frontend task that promotes the map to IndexedDB and rehydrates `useTerminalStore` on mount. The deferred items (launchd, pure-Go `proc_info` CWD fallback, Windows idle-suspend) are documented in the spec's *What This Does NOT Solve* and intentionally not tasked.
 - **Placeholder scan:** Phase 1 steps contain real code + real signatures grounded in the current source; Phases 2–3 are intentionally task-level (to be expanded to TDD steps against live code at execution, per the ship-gate) — not placeholders within an executing task.
 - **Type consistency:** `terminalDetach(connectionId)`, `terminalAttach(connectionId, base)`, `resolveTerminalConnection({...})`, `detachTerminalSession(workspaceId, tabSessionId)`, and the reconnect-map signatures are used identically across tasks. The two id-spaces (tab `sessionId` vs daemon `connectionId`) are stated in Global Constraints and respected in every task.
 
