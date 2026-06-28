@@ -198,6 +198,96 @@ fn build_app_menu(app: &tauri::AppHandle) -> tauri::Result<tauri::menu::Menu<tau
         .build()
 }
 
+/// Pin the native vibrancy frost to a fixed appearance so it renders per-theme.
+///
+/// window-vibrancy 0.6.0 `apply_vibrancy` adds an NSVisualEffectView tagged
+/// NS_VIEW_TAG_BLUR_VIEW = 91376254 (window-vibrancy-0.6.0/src/macos/internal.rs:13)
+/// as a `Below` subview of the window contentView but never calls setAppearance:,
+/// so the frost inherits effectiveAppearance from the OS (dark in BOTH themes —
+/// the proven root cause of the light theme reading gray). Pinning the blur view
+/// to NSAppearanceNameAqua (light) / NSAppearanceNameDarkAqua (dark) makes the
+/// SAME HUDWindow material render light/dark by construction — the exact
+/// mechanism Gecko uses for Zen. Targets the blur VIEW (falls back to the
+/// NSWindow), never NSApp, so the WKWebView's own prefers-color-scheme is
+/// untouched.
+#[tauri::command]
+fn set_vibrancy_appearance(window: tauri::WebviewWindow, dark: bool) -> Result<(), String> {
+    #[cfg(target_os = "macos")]
+    {
+        use objc2::msg_send;
+        use objc2::runtime::{AnyClass, AnyObject, Bool};
+
+        // window-vibrancy internal.rs:13 — the tag of the NSVisualEffectView.
+        const NS_VIEW_TAG_BLUR_VIEW: isize = 91376254;
+
+        unsafe {
+            // AppKit is main-thread-only. Tauri runs sync commands on the main
+            // (event-loop) thread; guard defensively so we never msg_send a UI
+            // object off-main.
+            let thread_cls = AnyClass::get(c"NSThread").ok_or("NSThread class missing")?;
+            let is_main: Bool = msg_send![thread_cls, isMainThread];
+            if !is_main.as_bool() {
+                return Err("set_vibrancy_appearance must run on the main thread".into());
+            }
+
+            let ns_window =
+                window.ns_window().map_err(|e| format!("ns_window() failed: {e}"))? as *mut AnyObject;
+            if ns_window.is_null() {
+                return Err("ns_window is null".into());
+            }
+            let content_view: *mut AnyObject = msg_send![ns_window, contentView];
+            if content_view.is_null() {
+                return Err("contentView is null".into());
+            }
+
+            // The string VALUE of NSAppearanceNameAqua / NSAppearanceNameDarkAqua
+            // equals the symbol name, so appearanceNamed: resolves it from a
+            // plain NSString.
+            let appearance_cls =
+                AnyClass::get(c"NSAppearance").ok_or("NSAppearance class missing")?;
+            let str_cls = AnyClass::get(c"NSString").ok_or("NSString class missing")?;
+            let name_bytes: &[u8] = if dark {
+                b"NSAppearanceNameDarkAqua\0"
+            } else {
+                b"NSAppearanceNameAqua\0"
+            };
+            let name: *mut AnyObject =
+                msg_send![str_cls, stringWithUTF8String: name_bytes.as_ptr()];
+            let appearance: *mut AnyObject = msg_send![appearance_cls, appearanceNamed: name];
+            if appearance.is_null() {
+                return Err("appearanceNamed: returned nil".into());
+            }
+
+            // Pin ONLY the blur view's appearance — NOT the NSWindow. Setting the
+            // window appearance also flips the WKWebView's effectiveAppearance →
+            // its `prefers-color-scheme`, which the JS `system` theme mode reads to
+            // follow macOS; pinning the window froze that ("doesn't react to
+            // light/dark"). Pinning just the blur view lightens the HudWindow frost
+            // (Aqua) / darkens it (DarkAqua) while leaving the webview's
+            // prefers-color-scheme tied to the OS, so system mode keeps following.
+            //
+            // viewWithTag: searches the receiver + descendants; contentView.tag==0.
+            let blur_view: *mut AnyObject =
+                msg_send![content_view, viewWithTag: NS_VIEW_TAG_BLUR_VIEW];
+            if !blur_view.is_null() {
+                let _: () = msg_send![blur_view, setAppearance: appearance];
+                let _: () = msg_send![blur_view, setNeedsDisplay: Bool::new(true)];
+            } else {
+                // Fallback only if the tagged view is missing.
+                let _: () = msg_send![ns_window, setAppearance: appearance];
+            }
+
+            let _: () = msg_send![content_view, setNeedsDisplay: Bool::new(true)];
+        }
+        Ok(())
+    }
+    #[cfg(not(target_os = "macos"))]
+    {
+        let _ = (window, dark);
+        Ok(())
+    }
+}
+
 pub fn run() {
     // Step 1: NSUserDefaults before WKWebView creation (macOS 13-15 path).
     #[cfg(target_os = "macos")]
@@ -291,7 +381,32 @@ pub fn run() {
             {
                 if let Some(state) = window.try_state::<sidecar::SidecarHandle>() {
                     if let Some(child) = state.child.lock().unwrap().take() {
-                        let _ = child.kill();
+                        // On Unix: send SIGTERM to allow the daemon's graceful
+                        // shutdown path (Container.Close → Terminal.Shutdown →
+                        // flush+persist) to run. Poll up to 3 s, then SIGKILL.
+                        // On Windows: fall back to the existing SIGKILL-only path.
+                        #[cfg(unix)]
+                        {
+                            let pid = child.pid() as libc::pid_t;
+                            // SIGTERM — request orderly shutdown.
+                            unsafe { libc::kill(pid, libc::SIGTERM) };
+                            // Wait up to 3 s for the daemon to exit cleanly.
+                            let deadline = std::time::Instant::now()
+                                + std::time::Duration::from_secs(3);
+                            while std::time::Instant::now() < deadline {
+                                std::thread::sleep(std::time::Duration::from_millis(100));
+                                // kill(pid, 0) returns 0 while the process exists.
+                                if unsafe { libc::kill(pid, 0) } != 0 {
+                                    break; // Process exited — no SIGKILL needed.
+                                }
+                            }
+                            // SIGKILL fallback — no-op (returns error) if already gone.
+                            let _ = child.kill();
+                        }
+                        #[cfg(not(unix))]
+                        {
+                            let _ = child.kill();
+                        }
                     }
                 }
             }
@@ -304,6 +419,7 @@ pub fn run() {
             ws_bridge::ws_open,
             ws_bridge::ws_send,
             ws_bridge::ws_close,
+            set_vibrancy_appearance,
         ])
         .run(tauri::generate_context!())
         .expect("error running Tauri app");

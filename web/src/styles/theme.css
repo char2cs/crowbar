@@ -181,11 +181,13 @@
   /* ── Cross/UI light-mode tokens ── */
   --radius: 0.625rem;
   --background: var(--color-white);
-  /* Light content frost — mirror of the dark theme. Sits on the full-window
-     light wash (--chrome-bg) as a slight white frost so the empty pane reads a
-     touch lighter than the chrome, not as a gray island (the gray was the dark
-     HUDWindow vibrancy leaking through a fully-transparent pane). */
-  --pane-background: oklch(1 0 0 / 12%);
+  /* Zen-exact content fill. Zen paints the content webview itself —
+     browser[type=content][transparent=true] (zen-browser-container.css:21) —
+     `rgba(255,255,255,0.6)` in light. That is the gray the empty pane / terminal
+     / editor host shows; it is NOT transparent. Symmetric with the dark theme's
+     white@10% (Zen's dark value). Over the native-light vibrancy this lands on
+     Zen's #c9c8c8 content (confirmed by measurement). */
+  --pane-background: oklch(1 0 0 / 60%);
   --foreground: var(--color-neutral-800);
   --card: var(--color-white);
   --card-foreground: var(--color-neutral-800);
@@ -243,10 +245,12 @@
   --git-renamed: var(--color-sky-600);
 
   /* ── Crowbar UI-layer tokens (not in Cross/UI) ── */
-  /* Full-window light wash (mirror of the dark theme's dark wash): brings the
-     whole window to a uniform light frost so the dark vibrancy behind the
-     content pane is masked, matching the cream margins. Tune opacity live. */
-  --chrome-bg: oklch(0.97 0.018 50 / 40%);
+  /* No window-wide wash in light. Zen's #main-window is `transparent` on macOS
+     (zen-theme.css:300); with the native blur view pinned to Aqua via
+     set_vibrancy_appearance the frost is already light, so the cream
+     counter-wash (the source of the endless tuning) is dropped. Per-element
+     tinting only, exactly like Zen. */
+  --chrome-bg: oklch(0 0 0 / 0%);
 
   --app-ui-scale: 1;
   --ui-text-xs: calc(0.6875rem * var(--app-ui-scale));
