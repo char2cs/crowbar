@@ -57,19 +57,14 @@ func WriteBuf(dir, sessionID string, data []byte) error {
 		return fmt.Errorf("persistence: rename: %w", err)
 	}
 
-	// Fsync the parent directory so the directory entry for the rename is
-	// durable across a power loss or OS crash.
-	d, err := os.Open(dir) //nolint:gosec // dir is controlled by callers
-	if err != nil {
-		return fmt.Errorf("persistence: open dir for sync: %w", err)
-	}
-	syncErr := d.Sync()
-	_ = d.Close()
-	if syncErr != nil {
-		// The rename already succeeded; the file is present. Treat a
-		// dir-sync failure as a non-fatal durability concern rather than
-		// data loss (some filesystems reject fsync on directories).
-		return fmt.Errorf("persistence: sync dir: %w", syncErr)
+	// Best-effort: fsync the parent directory so the rename entry is durable
+	// across power loss. The rename already succeeded, so the .buf is present
+	// and atomic; a dir-fsync failure (e.g. ENOTSUP on some APFS/network
+	// volumes) must NOT fail an otherwise-successful write, or it would turn
+	// every flush into a spurious error on those filesystems.
+	if d, err := os.Open(dir); err == nil { //nolint:gosec // dir is controlled by callers
+		_ = d.Sync()
+		_ = d.Close()
 	}
 
 	return nil
