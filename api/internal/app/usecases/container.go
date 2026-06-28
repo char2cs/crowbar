@@ -15,6 +15,7 @@ import (
 	"github.com/char2cs/crowbar/api/internal/app/usecases/worktree"
 	"github.com/char2cs/crowbar/api/internal/domain"
 	"github.com/char2cs/crowbar/api/internal/engine"
+	engineterminal "github.com/char2cs/crowbar/api/internal/engine/terminal"
 )
 
 // GORMStores carries the plain-CRUD stores the usecases compose. It mirrors the
@@ -24,6 +25,7 @@ type GORMStores struct {
 	Projects         store.Store[domain.Project, string]
 	Repositories     store.Store[domain.Repository, string]
 	TerminalProfiles store.Store[domain.TerminalProfile, string]
+	TerminalSessions store.Store[domain.TerminalSession, string]
 }
 
 // Container holds every application usecase, composing the aggregate
@@ -40,6 +42,10 @@ type Container struct {
 	ProviderSync  provider.Usecase
 	Worktree      worktree.Usecase
 	BranchReview  branchreview.Usecase
+	// TerminalMeta is the durable session metadata store implementation exposed
+	// so the API layer can inject it into the terminal engine via SetMetaStore
+	// after both the engine and the usecase are constructed.
+	TerminalMeta engineterminal.SessionMetaStore
 }
 
 // New builds the usecases container. It takes the aggregate repositories, the
@@ -73,6 +79,11 @@ func New(
 	gitUsecase := git.New(
 		engines.Git,
 		workspaceUsecase,
+	)
+	terminalMeta := terminal.NewSessionMetaStore(
+		repos.Workspace,
+		gormStores.TerminalSessions,
+		crowbarHome,
 	)
 	terminalUsecase := terminal.New(
 		engines.Terminal,
@@ -130,5 +141,6 @@ func New(
 		ProviderSync:  providerSync,
 		Worktree:      worktreeUsecase,
 		BranchReview:  branchReview,
+		TerminalMeta:  terminalMeta,
 	}, nil
 }

@@ -126,6 +126,14 @@ type Engine interface {
 		sessionID string,
 	) bool
 
+	// SetMetaStore injects the durable session metadata store. It must be called
+	// after both the engine and the terminal usecase are constructed to avoid an
+	// import cycle (engine → usecase). A nil store is a valid no-op sentinel; all
+	// internal meta helpers short-circuit when metaStore is nil.
+	SetMetaStore(
+		s SessionMetaStore,
+	)
+
 	// Shutdown terminates all active sessions and removes them from the registry.
 	Shutdown()
 }
@@ -136,6 +144,7 @@ type terminalEngine struct {
 	mu        sync.RWMutex
 	onEnded   func(ctx context.Context, workspaceID string, sessionID string)
 	endedOnce map[string]struct{}
+	metaStore SessionMetaStore
 }
 
 // New returns a new Engine.
@@ -241,6 +250,62 @@ func (e *terminalEngine) OnSessionEnded(
 	e.mu.Lock()
 	e.onEnded = fn
 	e.mu.Unlock()
+}
+
+// SetMetaStore injects the durable session-metadata store. The most recent
+// call wins. A nil argument removes any previously injected store; all
+// internal meta helpers no-op when metaStore is nil.
+func (e *terminalEngine) SetMetaStore(
+	s SessionMetaStore,
+) {
+	e.mu.Lock()
+	e.metaStore = s
+	e.mu.Unlock()
+}
+
+// saveMeta persists session metadata if a store is wired. It is a no-op when
+// metaStore is nil, so callers do not need nil-guards at every call site.
+func (e *terminalEngine) saveMeta(
+	ctx context.Context,
+	meta SessionMeta,
+) {
+	e.mu.RLock()
+	ms := e.metaStore
+	e.mu.RUnlock()
+	if ms == nil {
+		return
+	}
+	_ = ms.Save(ctx, meta)
+}
+
+// deleteMeta removes the session metadata row if a store is wired. It is a
+// no-op when metaStore is nil.
+func (e *terminalEngine) deleteMeta(
+	ctx context.Context,
+	sessionID string,
+) {
+	e.mu.RLock()
+	ms := e.metaStore
+	e.mu.RUnlock()
+	if ms == nil {
+		return
+	}
+	_ = ms.Delete(ctx, sessionID)
+}
+
+// storageDir resolves the per-workspace storage directory via the injected
+// store. It returns ("", nil) when metaStore is nil.
+func (e *terminalEngine) storageDir(
+	ctx context.Context,
+	workspaceID string,
+) (string, error) {
+	e.mu.RLock()
+	ms := e.metaStore
+	e.mu.RUnlock()
+	if ms == nil {
+		return "", nil
+	}
+	return ms.StorageDir(ctx, workspaceID)
 }
 
 func (e *terminalEngine) Attach(

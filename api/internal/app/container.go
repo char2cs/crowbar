@@ -112,6 +112,7 @@ func toUsecaseStores(
 		Projects:         gormStores.Projects,
 		Repositories:     gormStores.Repositories,
 		TerminalProfiles: gormStores.TerminalProfiles,
+		TerminalSessions: gormStores.TerminalSessions,
 	}
 }
 

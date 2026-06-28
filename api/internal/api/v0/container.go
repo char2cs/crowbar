@@ -78,6 +78,9 @@ func New(
 	}
 	if engContainer != nil && engContainer.Terminal != nil {
 		engContainer.Terminal.OnSessionEnded(c.onTerminalEnded)
+		if appContainer.Usecases != nil && appContainer.Usecases.TerminalMeta != nil {
+			engContainer.Terminal.SetMetaStore(appContainer.Usecases.TerminalMeta)
+		}
 	}
 	appContainer.Hub.Register(c)
 	return c
