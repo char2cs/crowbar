@@ -2,6 +2,7 @@ package session
 
 import (
 	"bytes"
+	"fmt"
 	"sync"
 	"testing"
 
@@ -97,4 +98,68 @@ func TestRingBuffer_OversizedWriteThenMore(t *testing.T) {
 	// Snapshot: start=(2-4+4)%4=2, size=4 → buf[2:]=ef + buf[:2]=xy → "efxy"
 	snap := r.Snapshot()
 	assert.Len(t, snap, 4)
+}
+
+// --- Flush / Load / defaultRingSize tests ---
+
+func TestRingBuffer_DefaultSize(t *testing.T) {
+	assert.Equal(t, 256*1024, defaultRingSize)
+}
+
+func TestRingBuffer_FlushLoad_RoundTrip(t *testing.T) {
+	r := newRingBuffer(16)
+	r.Write([]byte("hello world"))
+
+	var buf bytes.Buffer
+	err := r.Flush(&buf)
+	assert.NoError(t, err)
+
+	r2 := newRingBuffer(16)
+	err = r2.Load(&buf)
+	assert.NoError(t, err)
+
+	assert.Equal(t, r.Snapshot(), r2.Snapshot())
+}
+
+func TestRingBuffer_FlushLoad_AfterWrapAround(t *testing.T) {
+	// Write more than capacity so the ring wraps.
+	r := newRingBuffer(8)
+	r.Write([]byte("ABCDEFGH")) // fills exactly
+	r.Write([]byte("XY"))       // wraps; oldest two bytes evicted
+
+	preSnap := r.Snapshot()
+
+	var buf bytes.Buffer
+	assert.NoError(t, r.Flush(&buf))
+
+	r2 := newRingBuffer(8)
+	assert.NoError(t, r2.Load(&buf))
+
+	assert.Equal(t, preSnap, r2.Snapshot())
+}
+
+func TestRingBuffer_Load_TruncatesToCapacity(t *testing.T) {
+	// Load more bytes than capacity; ring should keep the last capacity bytes.
+	r := newRingBuffer(4)
+	src := bytes.NewReader([]byte("abcdefgh")) // 8 bytes into 4-byte ring
+	assert.NoError(t, r.Load(src))
+
+	snap := r.Snapshot()
+	assert.Equal(t, 4, len(snap))
+	assert.Equal(t, []byte("efgh"), snap)
+}
+
+func TestRingBuffer_Flush_ReturnsWriteError(t *testing.T) {
+	r := newRingBuffer(8)
+	r.Write([]byte("data"))
+
+	err := r.Flush(&errorWriter{})
+	assert.Error(t, err)
+}
+
+// errorWriter always errors on Write.
+type errorWriter struct{}
+
+func (e *errorWriter) Write(_ []byte) (int, error) {
+	return 0, fmt.Errorf("disk full")
 }

@@ -1,9 +1,14 @@
 // Package session provides PTY session management with ring-buffer output history.
 package session
 
-import "sync"
+import (
+	"io"
+	"sync"
+)
 
-const defaultRingSize = 64 * 1024 // 64 KB
+// defaultRingSize is the per-session scrollback budget.
+// 100-session ceiling × 256 KB = 25.6 MB total peak memory.
+const defaultRingSize = 256 * 1024 // 256 KB
 
 // RingBuffer is a circular byte buffer that retains the most recent N bytes.
 // All methods are safe for concurrent use.
@@ -60,7 +65,12 @@ func (r *RingBuffer) Write(
 func (r *RingBuffer) Snapshot() []byte {
 	r.mu.Lock()
 	defer r.mu.Unlock()
+	return r.snapshotLocked()
+}
 
+// snapshotLocked returns the chronological snapshot without acquiring mu.
+// Callers must hold r.mu.
+func (r *RingBuffer) snapshotLocked() []byte {
 	if r.size == 0 {
 		return nil
 	}
@@ -78,4 +88,31 @@ func (r *RingBuffer) Snapshot() []byte {
 	copy(out, r.buf[start:])
 	copy(out[firstChunk:], r.buf[:r.size-firstChunk])
 	return out
+}
+
+// Flush writes all buffered bytes in chronological order to w.
+// It is safe for concurrent use.
+func (r *RingBuffer) Flush(w io.Writer) error {
+	r.mu.Lock()
+	data := r.snapshotLocked()
+	r.mu.Unlock()
+
+	if len(data) == 0 {
+		return nil
+	}
+	_, err := w.Write(data)
+	return err
+}
+
+// Load reads all bytes from rd and writes them into the ring, respecting
+// capacity (only the last capacity bytes are retained, same as Write).
+// It is safe for concurrent use; there is no double-lock because the mutex
+// is never held while calling r.Write.
+func (r *RingBuffer) Load(rd io.Reader) error {
+	data, err := io.ReadAll(rd)
+	if err != nil {
+		return err
+	}
+	r.Write(data)
+	return nil
 }
