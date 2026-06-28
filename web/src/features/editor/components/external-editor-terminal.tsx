@@ -16,6 +16,7 @@ import { useEditorSettingsStore } from '@/features/editor/stores/settings-store'
 import { useWorkspaceStore } from '@/features/workspace/stores/workspace-context'
 import { useSettingsStore } from '@/features/settings/store'
 import { useTerminalTheme } from '@/features/terminal/hooks/use-terminal-theme'
+import { sanitizeTerminalTitle } from '@/features/terminal/utils/terminal-title'
 import { useProjectStore } from '@/features/window/stores/project-store'
 import { cn } from '@/utils/cn'
 import '@xterm/xterm/css/xterm.css'
@@ -26,22 +27,6 @@ interface ExternalEditorTerminalProps {
   fileName: string
   terminalConnectionId: string
   onEditorExit?: () => void
-}
-
-function sanitizeTerminalTitle(rawTitle: string): string {
-  let result = ''
-
-  for (const char of rawTitle) {
-    const code = char.charCodeAt(0)
-
-    if ((code >= 0 && code <= 31) || code === 127 || code === 155) {
-      continue
-    }
-
-    result += char
-  }
-
-  return result.trim()
 }
 
 export const ExternalEditorTerminal = ({

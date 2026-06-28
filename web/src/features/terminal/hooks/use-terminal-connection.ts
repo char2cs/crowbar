@@ -3,53 +3,8 @@ import type { IDisposable, Terminal as XtermTerminal } from '@xterm/xterm'
 import { useEffect, useRef } from 'react'
 import { themeRegistry } from '@/extensions/themes/theme-registry'
 import { parseOSC7 } from '../utils/osc-parser'
+import { sanitizeTerminalTitle } from '../utils/terminal-title'
 import { useTerminalWriteBuffer } from './use-terminal-write-buffer'
-
-const ESCAPE_CODE = 27
-const BEL_CODE = 7
-const DELETE_CODE = 127
-const C1_ESCAPE_CODE = 155
-
-const isAsciiLetter = (charCode: number) =>
-  (charCode >= 65 && charCode <= 90) || (charCode >= 97 && charCode <= 122)
-
-const stripTerminalControlSequences = (rawTitle: string) => {
-  let title = ''
-
-  for (let index = 0; index < rawTitle.length; index += 1) {
-    const charCode = rawTitle.charCodeAt(index)
-
-    if (charCode === ESCAPE_CODE) {
-      const nextChar = rawTitle[index + 1]
-
-      if (nextChar === '[') {
-        index += 2
-        while (index < rawTitle.length && !isAsciiLetter(rawTitle.charCodeAt(index))) {
-          index += 1
-        }
-        continue
-      }
-
-      if (nextChar === ']') {
-        index += 2
-        while (index < rawTitle.length && rawTitle.charCodeAt(index) !== BEL_CODE) {
-          index += 1
-        }
-        continue
-      }
-
-      continue
-    }
-
-    if (charCode <= 31 || charCode === DELETE_CODE || charCode === C1_ESCAPE_CODE) {
-      continue
-    }
-
-    title += rawTitle[index]
-  }
-
-  return title.trim()
-}
 
 interface UseTerminalConnectionOptions {
   connectionId?: string
@@ -242,7 +197,7 @@ export function useTerminalConnection({
 
     disposables.push(
       terminal.onTitleChange((rawTitle) => {
-        const title = stripTerminalControlSequences(rawTitle)
+        const title = sanitizeTerminalTitle(rawTitle)
         if (title) {
           updateSession(sessionId, { title })
         }
