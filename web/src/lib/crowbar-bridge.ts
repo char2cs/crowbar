@@ -156,8 +156,8 @@ export async function terminalClose(id: string): Promise<void> {
   }
   const conn = terminals.get(id)
   if (conn) {
-    conn.ws.close()
     terminals.delete(id)
+    conn.ws.close()
   }
   if (deletePath) await apiFetch(deletePath, { method: 'DELETE' }).catch(() => {})
   sessionBases.delete(id)
@@ -202,8 +202,8 @@ export async function terminalDetach(connectionId: string): Promise<void> {
   }
   const conn = terminals.get(connectionId)
   if (conn) {
-    conn.ws.close()
     terminals.delete(connectionId)
+    conn.ws.close()
   }
 }
 

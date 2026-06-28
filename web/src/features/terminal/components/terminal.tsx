@@ -24,6 +24,7 @@ import { useTerminalStore } from '../stores/terminal-store'
 import { formatDroppedPathsForTerminal } from '../utils/terminal-file-drop'
 import { analyzeTerminalPaste } from '../utils/paste-guard'
 import { resolveTerminalFont } from '../utils/resolve-font'
+import { toast } from '@/features/window/stores/toast-store'
 import { TerminalSearch, type TerminalSearchOptions } from './terminal-search'
 import '@xterm/xterm/css/xterm.css'
 import '../styles/terminal.css'
@@ -167,6 +168,7 @@ export const XtermTerminal: React.FC<XtermTerminalProps> = ({
       setReconnectKey((k) => k + 1)
     } catch (err) {
       console.error('[terminal] transport-drop reconnect failed:', err)
+      toast.error('Terminal disconnected', 'Could not reconnect to the terminal session. Try closing and reopening the tab.')
     } finally {
       isInitializingRef.current = false
     }
