@@ -41,6 +41,41 @@ const tauriTerminals = new Map<string, TauriTerminal>()
 // per session at create time to build the DELETE/PTY-WS paths.
 const sessionBases = new Map<string, string>()
 
+// Wire a browser WebSocket for a connectionId into the `terminals` map.
+// Extracted from terminalCreate so terminalAttach can reuse it without a POST.
+function openBrowserSocket(connectionId: string, base: string): void {
+  const ws = new WebSocket(wsUrl(`${base}/${encodeURIComponent(connectionId)}/ws`))
+  const conn: TerminalConnection = { ws, listener: null, outputBuffer: [], inputQueue: [], open: false }
+  ws.onopen = () => {
+    conn.open = true
+    for (const data of conn.inputQueue) ws.send(JSON.stringify({ data }))
+    conn.inputQueue = []
+  }
+  ws.onmessage = (event) => {
+    let data: string | undefined
+    try { data = (JSON.parse(event.data as string) as { data?: string }).data } catch { return }
+    if (typeof data !== 'string') return
+    if (conn.listener) conn.listener(data)
+    else conn.outputBuffer.push(data)
+  }
+  terminals.set(connectionId, conn)
+}
+
+// Wire a Tauri channel for a connectionId into the `tauriTerminals` map and ask
+// Rust to open the WS. `terminal_open` REQUIRES an `onData: Channel<string>`
+// (see desktop/src-tauri/src/terminal.rs) — omitting it makes the invoke reject.
+// Extracted from terminalCreate so terminalAttach can reuse it without a POST.
+async function openTauriSocket(connectionId: string, wsPath: string): Promise<void> {
+  const conn: TauriTerminal = { listener: null, outputBuffer: [] }
+  const channel = new Channel<string>()
+  channel.onmessage = (data) => {
+    if (conn.listener) conn.listener(data)
+    else conn.outputBuffer.push(data)
+  }
+  tauriTerminals.set(connectionId, conn)
+  await tauriInvoke('terminal_open', { sessionId: connectionId, wsPath, onData: channel })
+}
+
 // Create a PTY session in the workspace and open its stream. Returns the
 // sessionId, which the terminal hooks use as the connection id. The project/repo
 // are resolved from the active workspace route scope (workspaceBase).
@@ -57,48 +92,11 @@ export async function terminalCreate(wsId: string, profileId?: string): Promise<
   // pumps PTY output back through it. Pass the hierarchical PTY path so Rust
   // dials the workspace-scoped route, not the removed flat one.
   if (isTauri()) {
-    const conn: TauriTerminal = { listener: null, outputBuffer: [] }
-    const channel = new Channel<string>()
-    channel.onmessage = (data) => {
-      if (conn.listener) conn.listener(data)
-      else conn.outputBuffer.push(data)
-    }
-    tauriTerminals.set(sessionId, conn)
-    await tauriInvoke('terminal_open', {
-      sessionId,
-      wsPath: `${base}/${encodeURIComponent(sessionId)}/ws`,
-      onData: channel,
-    })
+    await openTauriSocket(sessionId, `${base}/${encodeURIComponent(sessionId)}/ws`)
     return sessionId
   }
 
-  const ws = new WebSocket(wsUrl(`${base}/${encodeURIComponent(sessionId)}/ws`))
-  const conn: TerminalConnection = {
-    ws,
-    listener: null,
-    outputBuffer: [],
-    inputQueue: [],
-    open: false,
-  }
-
-  ws.onopen = () => {
-    conn.open = true
-    for (const data of conn.inputQueue) ws.send(JSON.stringify({ data }))
-    conn.inputQueue = []
-  }
-  ws.onmessage = (event) => {
-    let data: string | undefined
-    try {
-      data = (JSON.parse(event.data as string) as { data?: string }).data
-    } catch {
-      return
-    }
-    if (typeof data !== 'string') return
-    if (conn.listener) conn.listener(data)
-    else conn.outputBuffer.push(data)
-  }
-
-  terminals.set(sessionId, conn)
+  openBrowserSocket(sessionId, base)
   return sessionId
 }
 
@@ -185,6 +183,24 @@ export async function terminalDetach(connectionId: string): Promise<void> {
     conn.ws.close()
     terminals.delete(connectionId)
   }
+}
+
+// True when a live WS/channel transport exists for this connectionId. Used by the
+// reconnect resolver: a surviving store entry whose transport was detached on a
+// workspace switch must be RE-ATTACHED, not reused as-is.
+export function terminalHasTransport(connectionId: string): boolean {
+  return terminals.has(connectionId) || tauriTerminals.has(connectionId)
+}
+
+// Attach to an EXISTING daemon PTY (after a workspace switch) without creating a
+// new one. The daemon replays its ring snapshot on attach, restoring scrollback.
+export async function terminalAttach(connectionId: string, base: string): Promise<void> {
+  sessionBases.set(connectionId, base)
+  if (isTauri()) {
+    await openTauriSocket(connectionId, `${base}/${encodeURIComponent(connectionId)}/ws`)
+    return
+  }
+  openBrowserSocket(connectionId, base)
 }
 
 // Test-only: expose internal maps for unit tests. Do not use in app code.
