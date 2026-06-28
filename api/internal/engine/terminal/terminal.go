@@ -191,9 +191,11 @@ type terminalEngine struct {
 	metaStore  SessionMetaStore
 	lastActive map[string]time.Time // guarded by mu; set on last-client detach
 
-	// restoring prevents double-spawn when concurrent Attach calls hit a
-	// suspended placeholder. LoadOrStore ensures only the first caller spawns.
-	restoring sync.Map // map[string]struct{}
+	// sessionMu serialises per-session lifecycle operations (restore, suspend,
+	// Kill) so concurrent Attach calls on a placeholder never spawn two shells
+	// or leave clients attached to a dead placeholder. Lock order:
+	// sessionMu (outer) → s.mu (inner) → ring.mu. Never reverse.
+	sessionMu sync.Map // map[string]*sync.Mutex
 
 	stop     chan struct{}
 	stopOnce sync.Once
@@ -218,6 +220,16 @@ func New() Engine {
 	}
 	go e.maintenanceLoop()
 	return e
+}
+
+// lockSession acquires the per-session lifecycle mutex for id and returns its
+// unlock function. The caller must call the returned function (typically via
+// defer) to release the lock. Lock order: sessionMu (outer) → s.mu (inner).
+func (e *terminalEngine) lockSession(id string) func() {
+	m, _ := e.sessionMu.LoadOrStore(id, &sync.Mutex{})
+	mu := m.(*sync.Mutex)
+	mu.Lock()
+	return mu.Unlock
 }
 
 // outputMsg is the server→client wire frame.
@@ -319,6 +331,13 @@ func (e *terminalEngine) reapOnDone(
 	}
 	e.deleteMeta(ctx, id)
 	e.fireEnded(ctx, workspaceID, id, exitCode)
+
+	// Prune per-session maps so they don't grow without bound.
+	e.mu.Lock()
+	delete(e.lastActive, id)
+	delete(e.endedOnce, id)
+	e.mu.Unlock()
+	e.sessionMu.Delete(id)
 }
 
 // fireEnded invokes the registered OnSessionEnded callback exactly once per
@@ -472,19 +491,20 @@ func (e *terminalEngine) storageDir(
 }
 
 // restore spawns a live session to replace the placeholder currently at sid.
-// It is idempotent: if the session is already live (or another goroutine is
-// restoring it concurrently) it returns nil. The restoring sync.Map acts as a
-// per-session spinlock that prevents double-spawn on concurrent first-attaches.
+// It is idempotent: if the session is already live it returns nil immediately.
+// The per-session lifecycle mutex (sessionMu) ensures that concurrent Attach
+// calls on the same placeholder serialise here — the first caller spawns, all
+// subsequent callers see IsLive()==true and return nil without a second spawn.
 func (e *terminalEngine) restore(ctx context.Context, sid string) error {
-	// Prevent double-spawn: only the first goroutine that wins LoadOrStore proceeds.
-	if _, loaded := e.restoring.LoadOrStore(sid, struct{}{}); loaded {
-		return nil
-	}
-	defer e.restoring.Delete(sid)
+	unlock := e.lockSession(sid)
+	defer unlock()
 
 	s, ok := e.reg.Get(sid)
-	if !ok || s.IsLive() {
-		return nil // already gone or already restored by another path
+	if !ok {
+		return nil // session gone (concurrently killed)
+	}
+	if s.IsLive() {
+		return nil // already restored by the goroutine that held the lock before us
 	}
 
 	ws, wsOK := e.reg.WorkspaceID(sid)
@@ -533,6 +553,11 @@ func (e *terminalEngine) Suspend(ctx context.Context, sid string) error {
 // (skips idle check, for detached-running last-resort). The persist →
 // placeholder-swap → kill sequence is identical for both paths.
 func (e *terminalEngine) suspend(ctx context.Context, sid string, force bool) error {
+	// FIX 1: serialise with concurrent Kill / restore / Attach-triggered-restore
+	// so the placeholder swap and kill form an atomic lifecycle transition.
+	unlock := e.lockSession(sid)
+	defer unlock()
+
 	s, ok := e.reg.Get(sid)
 	if !ok || !s.IsLive() {
 		return nil
@@ -558,20 +583,23 @@ func (e *terminalEngine) suspend(ctx context.Context, sid string, force bool) er
 	now := time.Now()
 
 	// Step a: capture state + persist BEFORE replacing registry or killing.
+	// FIX 2: hold flushMu across snapshot+write so this path serialises with
+	// the cadence-flush, detach-bookkeeping, and shutdown flush paths.
+	dir, _ := e.storageDir(ctx, ws)
+	fm := s.FlushMu()
+	fm.Lock()
 	scrollback := s.Snapshot()
-
 	// For force-suspend of a running (non-idle) session, append a user-visible notice.
 	if force && wasRunning {
 		scrollback = append(scrollback,
 			[]byte("\r\n[crowbar] session suspended to free resources; re-open to restore\r\n")...)
 	}
-
-	dir, _ := e.storageDir(ctx, ws)
 	if dir != "" {
 		if err := persistence.WriteBuf(dir, sid, scrollback); err != nil {
 			_, _ = fmt.Fprintf(os.Stderr, "terminal: suspend: persist buf %s: %v\n", sid, err)
 		}
 	}
+	fm.Unlock()
 	e.saveMeta(ctx, SessionMeta{
 		SessionID:    sid,
 		WorkspaceID:  ws,
@@ -615,6 +643,9 @@ func (e *terminalEngine) Attach(
 		if !ok {
 			return fmt.Errorf("terminal: attach: %w: %s (post-restore)", registry.ErrSessionNotFound, sessionID)
 		}
+		if !s.IsLive() {
+			return fmt.Errorf("terminal: attach: restore failed for %s", sessionID)
+		}
 	}
 
 	ch, err := s.Attach()
@@ -643,7 +674,14 @@ func (e *terminalEngine) Attach(
 		if wsOK {
 			dir, _ := e.storageDir(ctx, ws)
 			if dir != "" {
-				if writeErr := persistence.WriteBuf(dir, sessionID, s.Snapshot()); writeErr != nil {
+				// FIX 2: hold flushMu across snapshot+write so concurrent flush
+				// paths (cadence, suspend, shutdown) don't interleave writes.
+				fm := s.FlushMu()
+				fm.Lock()
+				snap := s.Snapshot()
+				writeErr := persistence.WriteBuf(dir, sessionID, snap)
+				fm.Unlock()
+				if writeErr != nil {
 					_, _ = fmt.Fprintf(os.Stderr, "terminal: detach: persist buf %s: %v\n", sessionID, writeErr)
 				}
 			}
@@ -746,8 +784,13 @@ func (e *terminalEngine) Kill(
 	ctx context.Context,
 	sessionID string,
 ) error {
+	// FIX 1: serialise with concurrent suspend / restore so Kill never races a
+	// suspend that could resurrect the session in the registry after removal.
+	unlock := e.lockSession(sessionID)
+
 	s, ok := e.reg.Get(sessionID)
 	if !ok {
+		unlock()
 		return fmt.Errorf("terminal: kill: %w: %s", registry.ErrSessionNotFound, sessionID)
 	}
 
@@ -775,6 +818,20 @@ func (e *terminalEngine) Kill(
 		}
 		e.deleteMeta(ctx, sessionID)
 		e.fireEnded(ctx, ws, sessionID, exitCode)
+
+		// FIX 4: prune per-session maps. For live sessions, reapOnDone handles
+		// this after the PTY exits. For placeholders, Kill is the terminal path.
+		e.mu.Lock()
+		delete(e.lastActive, sessionID)
+		delete(e.endedOnce, sessionID)
+		e.mu.Unlock()
+	}
+
+	// Release the session lock, then remove the sessionMu entry for placeholders.
+	// Live-session sessionMu cleanup is deferred to reapOnDone.
+	unlock()
+	if isPlaceholder {
+		e.sessionMu.Delete(sessionID)
 	}
 
 	return nil
@@ -906,8 +963,14 @@ func (e *terminalEngine) runMaintenanceOnce(ctx context.Context) {
 		if err != nil || dir == "" {
 			continue
 		}
+		// FIX 2: hold flushMu across snapshot+write so concurrent flush paths
+		// (detach-bookkeeping, suspend, shutdown) don't interleave.
+		fm := s.FlushMu()
+		fm.Lock()
 		snap := s.Snapshot()
-		if writeErr := persistence.WriteBuf(dir, id, snap); writeErr != nil {
+		writeErr := persistence.WriteBuf(dir, id, snap)
+		fm.Unlock()
+		if writeErr != nil {
 			_, _ = fmt.Fprintf(os.Stderr, "terminal: maintenance: flush buf %s: %v\n", id, writeErr)
 			continue
 		}
@@ -1049,10 +1112,17 @@ func (e *terminalEngine) Shutdown() {
 			ws, wsOK := e.reg.WorkspaceID(id)
 			if wsOK {
 				// a) Flush scrollback to disk (best-effort; continue on error).
+				// FIX 2: hold flushMu across snapshot+write to serialise with
+				// any concurrent cadence-flush or detach-bookkeeping flush.
 				dir, _ := e.storageDir(ctx, ws)
 				if dir != "" {
-					if err := persistence.WriteBuf(dir, id, s.Snapshot()); err != nil {
-						_, _ = fmt.Fprintf(os.Stderr, "terminal: shutdown: persist buf %s: %v\n", id, err)
+					fm := s.FlushMu()
+					fm.Lock()
+					snap := s.Snapshot()
+					shutErr := persistence.WriteBuf(dir, id, snap)
+					fm.Unlock()
+					if shutErr != nil {
+						_, _ = fmt.Fprintf(os.Stderr, "terminal: shutdown: persist buf %s: %v\n", id, shutErr)
 					}
 				}
 				// b) Persist meta with state="suspended" for restart restore.

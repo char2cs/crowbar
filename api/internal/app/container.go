@@ -147,9 +147,10 @@ func startRecoverySweep(
 
 // startRestoreTerminalSessions reloads persisted terminal sessions as PTY-less
 // placeholders so a subsequent client Attach transparently restores them.
-// Runs exactly once at startup in the background; best-effort (panics are
-// contained, per-row errors are logged). Orphaned rows (deleted workspaces) are
-// reconciled away automatically inside RestorePersistedSessions.
+// FIX 3: runs SYNCHRONOUSLY before the engine/HTTP layer starts serving, so
+// the registry is fully populated before the first Attach can arrive. Running
+// it in the background allowed concurrent Attach + restore races. Best-effort:
+// per-row errors are logged; orphaned rows are reconciled automatically.
 func startRestoreTerminalSessions(
 	ctx context.Context,
 	ucs *usecases.Container,
@@ -157,9 +158,7 @@ func startRestoreTerminalSessions(
 	if ucs.Terminal == nil {
 		return
 	}
-	safego.Go("app.restoreTerminalSessions", func() {
-		_ = ucs.Terminal.RestorePersistedSessions(context.WithoutCancel(ctx))
-	})
+	_ = ucs.Terminal.RestorePersistedSessions(context.WithoutCancel(ctx))
 }
 
 func sweepCallback(
