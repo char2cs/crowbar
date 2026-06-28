@@ -291,9 +291,9 @@ export async function setMacOSWindowAppearance(
   _transparencyEnabled: boolean,
 ): Promise<void> {
   // Pin the window-vibrancy NSVisualEffectView's appearance to the app theme so
-  // the (dark) HUDWindow material renders a LIGHT frost in light mode — the exact
-  // mechanism Zen/Gecko uses. Targets the blur view (NSWindow fallback), NOT the
-  // app-level NSApp.appearance that Tauri's setTheme flips (fragile/inconsistent).
+  // the (dark) HUDWindow material renders a LIGHT frost in light mode. Targets the
+  // blur view (NSWindow fallback), NOT the app-level NSApp.appearance that Tauri's
+  // setTheme flips (fragile/inconsistent).
   if (!isTauri()) return
   await tauriInvoke('set_vibrancy_appearance', { dark: themeType === 'dark' })
 }

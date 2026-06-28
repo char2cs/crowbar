@@ -8,9 +8,9 @@ import { IS_MAC } from '@/utils/platform'
 import { cn } from '@/utils/cn'
 
 /**
- * Zen-style sidebar top bar: a sidebar-toggle on the leading edge and a
- * back / forward / settings cluster on the trailing edge. Mirrors when the
- * sidebar sits on the right. Back/forward reuse the editor jump navigation.
+ * Sidebar top bar: a sidebar-toggle on the leading edge and a back / forward /
+ * settings cluster on the trailing edge. Mirrors when the sidebar sits on the
+ * right. Back/forward reuse the editor jump navigation.
  */
 export function SidebarProjectHeader() {
   const sidebarPosition = useSettingsStore((s) => s.settings.sidebarPosition)
@@ -23,7 +23,7 @@ export function SidebarProjectHeader() {
       onClick={toggleSidebar}
       variant="ghost"
       size="icon-sm"
-      className={cn('shrink-0 text-muted-foreground', isRight && 'scale-x-[-1]')}
+      className={cn('shrink-0 rounded-sm text-muted-foreground hover:bg-sidebar-element-hover', isRight && 'scale-x-[-1]')}
       tooltip={sidebarOpen ? 'Hide Sidebar' : 'Show Sidebar'}
       tooltipSide="bottom"
       aria-label={sidebarOpen ? 'Hide sidebar' : 'Show sidebar'}
@@ -39,7 +39,7 @@ export function SidebarProjectHeader() {
         disabled={!canGoBack}
         variant="ghost"
         size="icon-sm"
-        className="shrink-0 text-muted-foreground"
+        className="shrink-0 rounded-sm text-muted-foreground hover:bg-sidebar-element-hover"
         tooltip="Go Back"
         tooltipSide="bottom"
         aria-label="Go back to previous location"
@@ -51,7 +51,7 @@ export function SidebarProjectHeader() {
         disabled={!canGoForward}
         variant="ghost"
         size="icon-sm"
-        className="shrink-0 text-muted-foreground"
+        className="shrink-0 rounded-sm text-muted-foreground hover:bg-sidebar-element-hover"
         tooltip="Go Forward"
         tooltipSide="bottom"
         aria-label="Go forward to next location"
@@ -62,7 +62,7 @@ export function SidebarProjectHeader() {
         onClick={() => useUIState.getState().openSettingsDialog()}
         variant="ghost"
         size="icon-sm"
-        className="shrink-0 text-muted-foreground"
+        className="shrink-0 rounded-sm text-muted-foreground hover:bg-sidebar-element-hover"
         tooltip="Settings"
         tooltipSide="bottom"
         aria-label="Settings"

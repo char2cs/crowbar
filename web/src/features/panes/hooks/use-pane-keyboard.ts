@@ -11,6 +11,7 @@ import {
   PANE_SPLIT_DOWN,
   PANE_SPLIT_RIGHT,
   TAB_CLOSE,
+  TAB_NEW_TERMINAL,
   TAB_REOPEN_CLOSED,
 } from '@/features/keymaps/registry'
 
@@ -40,6 +41,12 @@ export function usePaneKeyboard() {
       if (matches(PANE_SPLIT_DOWN)) {
         e.preventDefault()
         splitActiveEditorGroup('vertical')
+        return
+      }
+
+      if (matches(TAB_NEW_TERMINAL)) {
+        e.preventDefault()
+        workspaceStore.getState().bufferActions.openContent({ type: 'terminal' })
         return
       }
 

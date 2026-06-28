@@ -56,6 +56,8 @@
   --color-sidebar-accent-foreground: var(--sidebar-accent-foreground);
   --color-sidebar-border: var(--sidebar-border);
   --color-sidebar-ring: var(--sidebar-ring);
+  --color-sidebar-element-idle: var(--sidebar-element-idle);
+  --color-sidebar-element-hover: var(--sidebar-element-hover);
   --color-success: var(--success);
   --color-success-foreground: var(--success-foreground);
   --color-warning: var(--warning);
@@ -181,12 +183,6 @@
   /* ── Cross/UI light-mode tokens ── */
   --radius: 0.625rem;
   --background: var(--color-white);
-  /* Zen-exact content fill. Zen paints the content webview itself —
-     browser[type=content][transparent=true] (zen-browser-container.css:21) —
-     `rgba(255,255,255,0.6)` in light. That is the gray the empty pane / terminal
-     / editor host shows; it is NOT transparent. Symmetric with the dark theme's
-     white@10% (Zen's dark value). Over the native-light vibrancy this lands on
-     Zen's #c9c8c8 content (confirmed by measurement). */
   --pane-background: oklch(1 0 0 / 60%);
   --foreground: var(--color-neutral-800);
   --card: var(--color-white);
@@ -219,7 +215,6 @@
   --chart-3: var(--color-cyan-900);
   --chart-4: var(--color-amber-400);
   --chart-5: var(--color-amber-500);
-  /* Zen-matched sidebar (light): fully transparent → pure native vibrancy. */
   --sidebar: oklch(0 0 0 / 0%);
   --sidebar-foreground: var(--color-neutral-800);
   --sidebar-primary: var(--color-neutral-800);
@@ -228,6 +223,8 @@
   --sidebar-accent-foreground: var(--color-neutral-800);
   --sidebar-border: oklch(0 0 0 / 6%);
   --sidebar-ring: var(--color-neutral-400);
+  --sidebar-element-idle: color-mix(in oklch, var(--foreground) 6%, transparent);
+  --sidebar-element-hover: oklch(0 0 0 / 8%);
   --code: var(--color-white);
   --code-foreground: var(--foreground);
   --code-highlight: oklch(0 0 0 / 4%);
@@ -245,11 +242,6 @@
   --git-renamed: var(--color-sky-600);
 
   /* ── Crowbar UI-layer tokens (not in Cross/UI) ── */
-  /* No window-wide wash in light. Zen's #main-window is `transparent` on macOS
-     (zen-theme.css:300); with the native blur view pinned to Aqua via
-     set_vibrancy_appearance the frost is already light, so the cream
-     counter-wash (the source of the endless tuning) is dropped. Per-element
-     tinting only, exactly like Zen. */
   --chrome-bg: oklch(0 0 0 / 0%);
 
   --app-ui-scale: 1;
@@ -320,10 +312,6 @@
 .dark {
   /* ── Cross/UI dark-mode tokens ── */
   --background: oklch(0.19 0 0);
-  /* Zen empty-content frost. On top of the full-window dark wash (--chrome-bg),
-     Zen's empty/transparent content is rgba(255,255,255,0.1) — a barely-there
-     10% WHITE frost that reads as slightly LIGHTER than the surrounding chrome,
-     not a dark island. The darkness comes from the window-wide wash, not here. */
   --pane-background: oklch(1 0 0 / 10%);
   --foreground: var(--color-neutral-100);
   --card: var(--background);
@@ -355,8 +343,6 @@
   --chart-3: var(--color-amber-500);
   --chart-4: var(--color-purple-500);
   --chart-5: var(--color-rose-500);
-  /* Sidebar tint over the native vibrancy — gives the sidebar body instead of
-     being fully see-through. Starting point; tune opacity to taste. */
   --sidebar: oklch(0 0 0 / 18%);
   --sidebar-foreground: var(--color-neutral-100);
   --sidebar-primary: var(--color-neutral-100);
@@ -365,6 +351,8 @@
   --sidebar-accent-foreground: var(--color-neutral-100);
   --sidebar-border: oklch(1 0 0 / 5%);
   --sidebar-ring: var(--color-neutral-400);
+  --sidebar-element-idle: color-mix(in oklch, var(--foreground) 11%, transparent);
+  --sidebar-element-hover: oklch(1 0 0 / 10%);
   --code: var(--background);
   --code-foreground: var(--foreground);
   --code-highlight: oklch(1 0 0 / 4%);
@@ -378,11 +366,6 @@
   --git-renamed: var(--color-sky-400);
 
   /* ── Crowbar UI-layer dark overrides ── */
-  /* Full-window dark wash — Zen's actual model. Zen paints rgba(0,0,0,0.4)
-     behind the ENTIRE window (sidebar + tab strip + margins + content) so the
-     whole surface reads as one even frosted layer. This token sits on <body>
-     (bg-chrome-bg), darkening every transparent region uniformly — which kills
-     the "dark card on bright margins" contrast. */
   --chrome-bg: oklch(0 0 0 / 40%);
 
   /* ── Syntax dedicated hues — Palette A (dark) ─────────────────── */

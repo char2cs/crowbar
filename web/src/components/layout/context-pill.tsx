@@ -39,29 +39,29 @@ export function ContextPill() {
             <Button
               variant="ghost"
               aria-label="Switch workspace"
-              className="h-auto w-full justify-start gap-2 rounded-lg bg-foreground/4 px-3 py-1.5 font-mono font-normal hover:bg-foreground/8 sm:h-auto"
+              className="h-auto w-full justify-start gap-2 rounded-lg bg-sidebar-element-idle px-3 py-1.5 font-mono font-normal hover:bg-sidebar-element-hover sm:h-auto"
             />
           )}
         >
           {model.kind === 'workspace' ? (
             <span className="flex w-full min-w-0 items-center gap-2">
               <span className="flex min-w-0 flex-1 flex-col items-start gap-0.5 text-left leading-tight">
-                <span className="truncate text-xs text-muted-foreground">{model.repoName}</span>
+                <span className="truncate text-xs text-foreground/70">{model.repoName}</span>
                 <span className="truncate text-[13px] font-semibold text-foreground">
                   {model.branchName}
                 </span>
               </span>
               <span className="flex shrink-0 scale-110">
-                <WorkspaceBranchIcon status={model.status} working={model.working} />
+                <WorkspaceBranchIcon status={model.status} working={model.working} isDefault={model.isDefault} />
               </span>
             </span>
           ) : model.kind === 'home' ? (
             <span className="flex w-full min-w-0 items-center gap-2">
               <span className="flex min-w-0 flex-1 flex-col items-start gap-0.5 text-left leading-tight">
-                <span className="truncate font-mono text-xs text-muted-foreground">{model.projectName}</span>
+                <span className="truncate font-mono text-xs text-foreground/70">{model.projectName}</span>
                 <span className="truncate font-mono text-[13px] font-semibold text-foreground">home</span>
               </span>
-              <span className="flex shrink-0 scale-110 text-muted-foreground">
+              <span className="flex shrink-0 scale-110 text-foreground/70">
                 <House size={14} weight="fill" />
               </span>
             </span>

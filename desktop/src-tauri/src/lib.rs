@@ -206,10 +206,9 @@ fn build_app_menu(app: &tauri::AppHandle) -> tauri::Result<tauri::menu::Menu<tau
 /// so the frost inherits effectiveAppearance from the OS (dark in BOTH themes —
 /// the proven root cause of the light theme reading gray). Pinning the blur view
 /// to NSAppearanceNameAqua (light) / NSAppearanceNameDarkAqua (dark) makes the
-/// SAME HUDWindow material render light/dark by construction — the exact
-/// mechanism Gecko uses for Zen. Targets the blur VIEW (falls back to the
-/// NSWindow), never NSApp, so the WKWebView's own prefers-color-scheme is
-/// untouched.
+/// SAME HUDWindow material render light/dark by construction. Targets the blur
+/// VIEW (falls back to the NSWindow), never NSApp, so the WKWebView's own
+/// prefers-color-scheme is untouched.
 #[tauri::command]
 fn set_vibrancy_appearance(window: tauri::WebviewWindow, dark: bool) -> Result<(), String> {
     #[cfg(target_os = "macos")]
@@ -339,13 +338,9 @@ pub fn run() {
             let socket = sidecar::socket_path();
 
             // Native macOS blur behind the transparent window. NSVisualEffectView
-            // blur is fixed per material (no numeric radius). `HudWindow` is the
-            // exact material Zen Browser uses: its VibrancyManager patch maps the
-            // window vibrancy via the `zen.widget.macos.window-material` pref, whose
-            // default (1) = NSVisualEffectMaterialHUDWindow — a heavy, smooth blur.
-            // (The old over-darkness came from the chrome-bg film + opaque overlays,
-            // not this material.) Requires `transparent: true` + `macOSPrivateApi:
-            // true` (set in tauri.conf.json).
+            // blur is fixed per material (no numeric radius). `HudWindow` maps to
+            // NSVisualEffectMaterialHUDWindow — a heavy, smooth blur. Requires
+            // `transparent: true` + `macOSPrivateApi: true` (set in tauri.conf.json).
             #[cfg(target_os = "macos")]
             if let Some(window) = app.get_webview_window("main") {
                 use window_vibrancy::{apply_vibrancy, NSVisualEffectMaterial, NSVisualEffectState};

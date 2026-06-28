@@ -37,7 +37,7 @@ export function SidebarTabBar() {
         onValueChange={(v) => setActiveTab(v as SidebarTab)}
         className="w-full"
       >
-        <TabsList variant="default" className="w-full">
+        <TabsList variant="default" className="w-full bg-sidebar-element-idle text-foreground/70">
           {visibleTabs.map(({ tab, label, Icon }) => {
             const isActive = activeTab === tab
             return (

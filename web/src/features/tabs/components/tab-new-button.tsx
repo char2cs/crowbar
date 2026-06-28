@@ -36,7 +36,7 @@ const TabNewButton = React.memo(function TabNewButton({
             <Button
               variant="ghost"
               size="icon-xs"
-              className="shrink-0 text-muted-foreground"
+              className="shrink-0 rounded-sm text-muted-foreground hover:bg-sidebar-element-hover"
               aria-label="New tab"
             />
           }
@@ -61,7 +61,7 @@ const TabNewButton = React.memo(function TabNewButton({
           onClick={onClosePane}
           variant="ghost"
           size="icon-xs"
-          className="shrink-0 text-muted-foreground"
+          className="shrink-0 rounded-sm text-muted-foreground hover:bg-sidebar-element-hover"
           tooltip="Close Split"
           tooltipSide="bottom"
           aria-label="Close split pane"

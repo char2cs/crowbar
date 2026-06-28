@@ -19,6 +19,7 @@ export const PANE_NAVIGATE_UP = 'panes.navigateUp'
 export const PANE_NAVIGATE_DOWN = 'panes.navigateDown'
 export const PANE_SPLIT_RIGHT = 'panes.splitRight'
 export const PANE_SPLIT_DOWN = 'panes.splitDown'
+export const TAB_NEW_TERMINAL = 'tabs.newTerminal'
 export const TAB_REOPEN_CLOSED = 'tabs.reopenClosed'
 export const TAB_CLOSE = 'tabs.closeActive'
 
@@ -77,6 +78,13 @@ export const COMMANDS: Command[] = [
     liveEditable: true,
   },
   // --- Tabs (live-editable, resolved from registry) ---
+  {
+    id: TAB_NEW_TERMINAL,
+    label: 'New terminal tab',
+    category: 'Tabs',
+    defaultChord: 'mod+t',
+    liveEditable: true,
+  },
   {
     id: TAB_REOPEN_CLOSED,
     label: 'Reopen last closed tab',
