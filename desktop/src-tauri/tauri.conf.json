@@ -7,7 +7,7 @@
     "frontendDist": "../../web/dist",
     "devUrl": "http://localhost:5173",
     "beforeDevCommand": "pkill -f vite 2>/dev/null; sleep 0.5; cd ../web && npm run dev -- --port 5173",
-    "beforeBuildCommand": ""
+    "beforeBuildCommand": "bash ../icons-compiler/compile-icon.sh"
   },
   "app": {
     "macOSPrivateApi": true,
