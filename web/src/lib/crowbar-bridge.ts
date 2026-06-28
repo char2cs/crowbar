@@ -203,6 +203,14 @@ export async function terminalAttach(connectionId: string, base: string): Promis
   openBrowserSocket(connectionId, base)
 }
 
+// List the daemon's live session connectionIds for a workspace. The `base` is
+// `${workspaceBase(wsId)}/terminals`. Used by resolveTerminalConnection to
+// confirm a persisted id is still alive before re-attaching.
+export async function terminalListLive(base: string): Promise<string[]> {
+  const list = await apiFetch<import('@/lib/types').TerminalSessionDTO[]>(base)
+  return list.map((s) => s.id)
+}
+
 // Test-only: expose internal maps for unit tests. Do not use in app code.
 export function __getBridgeInternals() {
   return { terminals, tauriTerminals, sessionBases }

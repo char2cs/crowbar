@@ -1,12 +1,7 @@
-import { terminalCreate, terminalResize } from '@/lib/crowbar-bridge'
+import { terminalCreate, terminalListLive, terminalResize } from '@/lib/crowbar-bridge'
 import { getActiveWorkspaceId } from '@/features/workspace/stores/workspace-store-registry'
-
-// Create a PTY session against the active workspace on the Go daemon.
-const createTerminal = async (config: Record<string, unknown>): Promise<string> => {
-  const wsId = getActiveWorkspaceId()
-  if (!wsId) throw new Error('no active workspace for terminal')
-  return terminalCreate(wsId, config.profileId as string | undefined)
-}
+import { workspaceBase } from '@/lib/workspace-scope-url'
+import { resolveTerminalConnection } from './resolve-terminal-connection'
 import type { ISearchOptions } from '@xterm/addon-search'
 import { Terminal } from '@xterm/xterm'
 import React, { useCallback, useEffect, useRef, useState } from 'react'
@@ -68,7 +63,10 @@ export const XtermTerminal: React.FC<XtermTerminalProps> = ({
   const getSession = useTerminalStore((s) => s.getSession)
   const session = getSession(sessionId)
   const connectionId = session?.connectionId
-  const hadExistingConnectionOnMountRef = useRef(Boolean(session?.connectionId))
+  // State-backed reuse flag: updated after resolveTerminalConnection returns so
+  // post-mount re-attaches (workspace re-entry) correctly suppress the initial
+  // command resend and font-settle delay, same as a native remount would.
+  const [reuseConnection, setReuseConnection] = useState(Boolean(session?.connectionId))
 
   const {
     theme: terminalThemeId,
@@ -139,7 +137,7 @@ export const XtermTerminal: React.FC<XtermTerminalProps> = ({
     isInitialized,
     onTerminalExit,
     remoteConnectionId,
-    reuseExistingConnection: hadExistingConnectionOnMountRef.current,
+    reuseExistingConnection: reuseConnection,
     sessionId,
     terminal: xtermRef.current,
     updateSession,
@@ -177,8 +175,12 @@ export const XtermTerminal: React.FC<XtermTerminalProps> = ({
     const resolved = await resolveTerminalFont(terminalFontFamily, effectiveTerminalFontSize)
     // Skip the font-settle delay when reconnecting to an existing PTY — font is
     // already loaded and rasterized, so the wait is pure dead time that makes
-    // the blank gap on pane splits/moves visibly long.
-    if (!hadExistingConnectionOnMountRef.current) {
+    // the blank gap on pane splits/moves visibly long. We read the store here
+    // (before resolveTerminalConnection runs) because it reflects the mount-time
+    // state; the post-resolve setReuseConnection() updates only affect the next
+    // render's useTerminalConnection call, not this init path.
+    const hadConnectionAtInitStart = Boolean(getSession(sessionId)?.connectionId)
+    if (!hadConnectionAtInitStart) {
       await new Promise((resolve) => setTimeout(resolve, 100))
     }
 
@@ -297,34 +299,43 @@ export const XtermTerminal: React.FC<XtermTerminalProps> = ({
 
       const existingSession = getSession(sessionId)
 
-      // If the session already has a live PTY connection (e.g., component
-      // remounted after a pane split or tab move), reuse the existing
-      // connection instead of killing the running process.
-      let activeConnectionId: string
-      if (existingSession?.connectionId) {
-        activeConnectionId = existingSession.connectionId
-      } else {
-        // §3/Open-Q2: do NOT fall back to the synthetic rootFolderPath
-        // ('/repos/<id>') — it is not a real filesystem path and the daemon
-        // already defaults a new PTY's cwd to the workspace worktree. Only pass
-        // an explicit working directory when one is actually known.
-        const targetDirectory = workingDirectory || existingSession?.currentDirectory
-        // parseRemotePath does not expose connectionId in the stub; use only the passed remoteConnectionId
-        const effectiveRemoteConnectionId = remoteConnectionId || undefined
+      // §3/Open-Q2: do NOT fall back to the synthetic rootFolderPath
+      // ('/repos/<id>') — it is not a real filesystem path and the daemon
+      // already defaults a new PTY's cwd to the workspace worktree. Only pass
+      // an explicit working directory when one is actually known.
+      const targetDirectory = workingDirectory || existingSession?.currentDirectory
+      // parseRemotePath does not expose connectionId in the stub; use only the passed remoteConnectionId
+      const effectiveRemoteConnectionId = remoteConnectionId || undefined
 
-        activeConnectionId = await createTerminal({
-          working_directory: targetDirectory || undefined,
-          shell: existingSession?.shell || undefined,
-          rows: terminal.rows,
-          cols: terminal.cols,
-        })
+      // Derive the workspace base for attach/listLive paths.
+      // getActiveWorkspaceId() is safe here (we're inside an async callback,
+      // not the render path), and terminalCreate uses the same strategy.
+      const wsId = getActiveWorkspaceId()
+      if (!wsId) throw new Error('no active workspace for terminal')
+      const base = `${workspaceBase(wsId)}/terminals`
 
-        updateSession(sessionId, {
-          connectionId: activeConnectionId,
-          currentDirectory: targetDirectory ?? undefined,
-          remoteConnectionId: effectiveRemoteConnectionId,
-        })
-      }
+      // Resolve: reuse live transport → re-attach detached → create fresh.
+      const result = await resolveTerminalConnection({
+        workspaceId: wsId,
+        tabSessionId: sessionId,
+        storeConnectionId: existingSession?.connectionId,
+        base,
+        listLiveSessions: () => terminalListLive(base),
+        createTerminal: () => terminalCreate(wsId, existingSession?.profileId),
+      })
+      const activeConnectionId = result.connectionId
+
+      // Always sync the store so in-memory connectionId is up to date.
+      updateSession(sessionId, {
+        connectionId: activeConnectionId,
+        currentDirectory: targetDirectory ?? undefined,
+        remoteConnectionId: effectiveRemoteConnectionId,
+      })
+
+      // Thread the resolver's reused decision into useTerminalConnection so
+      // initial-command resend and other first-connect side-effects are correctly
+      // suppressed when we're reusing or re-attaching an existing PTY.
+      setReuseConnection(result.reused)
 
       // Force-sync the PTY to xterm's freshly-fitted size for BOTH paths:
       // - New session: the backend spawns the PTY at its default 80×24 and does
