@@ -328,15 +328,15 @@ func TestMaintenance_RunningNeverIdleSuspended(t *testing.T) {
 // (none) and then force-suspends the oldest detached session. The suspended
 // session's .buf must contain the resource notice.
 //
-// The trigger is the BYTE ceiling: two live sessions pin 2×256 KB rings; the
-// ceiling is set between one and two rings so force-suspending the oldest (which
-// swaps its 256 KB live ring for a tiny placeholder ring) brings us back under,
+// The trigger is the BYTE ceiling: two live sessions pin two full-budget rings;
+// the ceiling is set between one and two rings so force-suspending the oldest
+// (which swaps its live ring for a tiny placeholder ring) brings us back under,
 // leaving the placeholder intact rather than evicting it. The count ceiling is
 // left at its default so the surviving placeholder is not LRU-evicted.
+//
+// The ceiling is derived from the engine's own ring-byte accounting (two live
+// RingCaps) rather than hardcoded, so it tracks defaultRingSize automatically.
 func TestMaintenance_GlobalForceLastResort(t *testing.T) {
-	restoreBytes := terminal.SetMaxTotalRingBytesForTest(384 * 1024) // between 1 and 2 live rings
-	defer restoreBytes()
-
 	eng := terminal.New()
 	terminal.StopMaintenanceForTest(eng) // prevent ticker from racing with limit-var writes
 	ctx := context.Background()
@@ -350,6 +350,13 @@ func TestMaintenance_GlobalForceLastResort(t *testing.T) {
 	require.NoError(t, err)
 	sid2, err := eng.Create(ctx, "ws-force", dir, nil)
 	require.NoError(t, err)
+
+	// Two live full-budget rings are now accounted; set the ceiling at 75% of
+	// that (between one and two rings) so the global byte ceiling fires and a
+	// single force-suspend brings us back under.
+	_, _, _, ringBytes := eng.Stats()
+	restoreBytes := terminal.SetMaxTotalRingBytesForTest(ringBytes * 3 / 4)
+	defer restoreBytes()
 
 	// Wait for both to reach their prompts first, and ensure they have fully
 	// settled (no ring-buffer growth for 250 ms). This guarantees the shell is

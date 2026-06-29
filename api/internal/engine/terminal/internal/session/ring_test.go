@@ -103,7 +103,61 @@ func TestRingBuffer_OversizedWriteThenMore(t *testing.T) {
 // --- Flush / Load / defaultRingSize tests ---
 
 func TestRingBuffer_DefaultSize(t *testing.T) {
-	assert.Equal(t, 256*1024, defaultRingSize)
+	assert.Equal(t, 1024*1024, defaultRingSize)
+}
+
+func TestRingBuffer_LazyGrowth_StartsSmallReportsCeiling(t *testing.T) {
+	// A ring whose ceiling exceeds initialRingAlloc starts with a small backing
+	// array but reports the full ceiling via Cap().
+	r := newRingBuffer(defaultRingSize)
+	assert.Equal(t, defaultRingSize, r.Cap(), "Cap reports the logical ceiling")
+	assert.Equal(t, initialRingAlloc, len(r.buf), "backing array starts small")
+}
+
+func TestRingBuffer_LazyGrowth_GrowsToFitWithoutEvicting(t *testing.T) {
+	// Writing more than initialRingAlloc but less than the ceiling must grow the
+	// backing array and retain ALL bytes (no premature eviction).
+	r := newRingBuffer(defaultRingSize)
+	total := initialRingAlloc * 3
+	payload := bytes.Repeat([]byte("x"), total)
+	r.Write(payload)
+
+	snap := r.Snapshot()
+	assert.Equal(t, total, len(snap), "all bytes retained across growth")
+	assert.Equal(t, payload, snap)
+	assert.GreaterOrEqual(t, len(r.buf), total, "backing array grew to fit")
+	assert.LessOrEqual(t, len(r.buf), defaultRingSize, "never exceeds the ceiling")
+}
+
+func TestRingBuffer_LazyGrowth_GrowsAcrossManyWritesThenWrapsAtCeiling(t *testing.T) {
+	// Small ceiling just above initialRingAlloc: accumulate past it in chunks,
+	// confirm growth keeps history, then confirm it wraps once the ceiling is hit.
+	const ceiling = initialRingAlloc + 100
+	r := newRingBuffer(ceiling)
+
+	// Write well past the ceiling in small chunks so growth definitely reaches
+	// the cap and the ring starts wrapping.
+	for i := 0; i < (ceiling/10)+20; i++ {
+		r.Write(bytes.Repeat([]byte("ab"), 5)) // 10 bytes/write
+	}
+	// Now the ring is at/over the ceiling and must behave as a fixed buffer.
+	assert.Equal(t, ceiling, len(r.buf), "backing array capped at the ceiling")
+	assert.Equal(t, ceiling, r.size, "ring is full at the ceiling")
+
+	// One more write wraps and keeps exactly the last `ceiling` bytes.
+	marker := bytes.Repeat([]byte("Z"), ceiling+50)
+	r.Write(marker)
+	snap := r.Snapshot()
+	assert.Equal(t, ceiling, len(snap))
+	assert.Equal(t, bytes.Repeat([]byte("Z"), ceiling), snap)
+}
+
+func TestRingBuffer_LazyGrowth_SmallCeilingIsEager(t *testing.T) {
+	// A ceiling at or below initialRingAlloc is allocated eagerly — behaviour is
+	// identical to the old fixed ring (the existing wrap tests rely on this).
+	r := newRingBuffer(8)
+	assert.Equal(t, 8, len(r.buf))
+	assert.Equal(t, 8, r.Cap())
 }
 
 func TestRingBuffer_FlushLoad_RoundTrip(t *testing.T) {

@@ -6,28 +6,70 @@ import (
 	"sync"
 )
 
-// defaultRingSize is the per-session scrollback budget.
-// 100-session ceiling × 256 KB = 25.6 MB total peak memory.
-const defaultRingSize = 256 * 1024 // 256 KB
+// defaultRingSize is the per-session scrollback budget (the ceiling a ring
+// grows toward, not an eager allocation — see newRingBuffer/growLocked). A
+// busy TUI like Claude Code emits scrollback faster than the old 256 KB held,
+// so a re-attach after a workspace switch dropped the top of the session. 1 MiB
+// retains ~4× more while the lazy backing array keeps idle/short sessions tiny.
+// Worst case is bounded: 100-session ceiling × 1 MiB = 100 MB peak, reached only
+// if every session actually fills its budget.
+const defaultRingSize = 1024 * 1024 // 1 MiB
 
 // DefaultRingSize is the per-session scrollback ring capacity, exported for
 // the engine to compute total ring-memory ceilings.
 const DefaultRingSize = defaultRingSize
 
-// RingBuffer is a circular byte buffer that retains the most recent N bytes.
-// All methods are safe for concurrent use.
+// initialRingAlloc is the starting backing-array size for a ring whose ceiling
+// exceeds it. The ring grows from here toward maxCap as output accumulates, so a
+// session that prints little never pays for the full budget.
+const initialRingAlloc = 4096
+
+// RingBuffer is a circular byte buffer that retains the most recent maxCap
+// bytes. The backing array grows lazily from initialRingAlloc toward maxCap, so
+// memory tracks actual output. All methods are safe for concurrent use.
 type RingBuffer struct {
-	mu   sync.Mutex
-	buf  []byte
-	head int
-	size int
+	mu     sync.Mutex
+	buf    []byte
+	head   int
+	size   int
+	maxCap int // logical capacity ceiling; len(buf) grows toward it
 }
 
-// newRingBuffer allocates a RingBuffer with the given capacity.
+// newRingBuffer allocates a RingBuffer whose retained-byte ceiling is maxCap.
+// The backing array starts small (initialRingAlloc) and grows lazily, except
+// when maxCap is already smaller — then it is allocated eagerly at maxCap.
 func newRingBuffer(
-	capacity int,
+	maxCap int,
 ) *RingBuffer {
-	return &RingBuffer{buf: make([]byte, capacity)}
+	if maxCap < 1 {
+		maxCap = 1
+	}
+	init := maxCap
+	if init > initialRingAlloc {
+		init = initialRingAlloc
+	}
+	return &RingBuffer{buf: make([]byte, init), maxCap: maxCap}
+}
+
+// growLocked enlarges the backing array toward maxCap when `needed` bytes would
+// not fit, re-linearizing existing data to start at index 0. It is a no-op once
+// len(buf) has reached maxCap — from then on the ring wraps like a fixed buffer.
+// Caller must hold r.mu.
+func (r *RingBuffer) growLocked(
+	needed int,
+) {
+	if len(r.buf) >= r.maxCap || needed <= len(r.buf) {
+		return
+	}
+	newCap := needed
+	if newCap > r.maxCap {
+		newCap = r.maxCap
+	}
+	nb := make([]byte, newCap)
+	n := copy(nb, r.snapshotLocked()) // chronological copy; n == r.size
+	r.buf = nb
+	r.size = n
+	r.head = n % newCap
 }
 
 // Write appends p into the ring, overwriting the oldest bytes when full.
@@ -39,6 +81,10 @@ func (r *RingBuffer) Write(
 	}
 	r.mu.Lock()
 	defer r.mu.Unlock()
+
+	// Grow toward maxCap before writing so a chunk that would overflow the
+	// current (sub-ceiling) allocation does not evict still-fitting history.
+	r.growLocked(r.size + len(p))
 
 	cap := len(r.buf)
 
@@ -65,10 +111,12 @@ func (r *RingBuffer) Write(
 	r.size = min(r.size+len(p), cap)
 }
 
-// Cap returns the byte capacity of the ring buffer. It is fixed at construction
-// and never changes, so it is safe to read without holding r.mu.
+// Cap returns the logical byte capacity (ceiling) of the ring. The backing
+// array may currently be smaller — it grows lazily — but Cap reports the maximum
+// scrollback the ring will retain. maxCap is fixed at construction, so this is
+// safe to read without holding r.mu.
 func (r *RingBuffer) Cap() int {
-	return len(r.buf)
+	return r.maxCap
 }
 
 // Snapshot returns a copy of all buffered bytes in chronological order.
