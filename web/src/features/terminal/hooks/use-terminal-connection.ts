@@ -51,6 +51,9 @@ export function useTerminalConnection({
   const lastExitInfoRef = useRef<{ exitCode?: number | null; signal?: string | null } | null>(null)
   const outputBufferRef = useRef('')
   const outputFlushFrameRef = useRef<number | null>(null)
+  // One-shot flag: armed on every (re)attach, consumed by the first output
+  // flush (the daemon's bulk scrollback replay) to force a viewport repaint.
+  const pendingAttachFinalizeRef = useRef(false)
   const { write, flush } = useTerminalWriteBuffer({
     getConnectionId: () => currentConnectionIdRef.current,
     writeChunk: async (activeConnectionId, data) => {
@@ -80,6 +83,17 @@ export function useTerminalConnection({
     }
   }, [])
 
+  // Arm the one-shot viewport finalize for the first output flush after every
+  // (re)attach. The first post-attach frame is the daemon's bulk scrollback
+  // replay; flushOutputBuffer repaints + scrolls to bottom once it lands so the
+  // re-attached xterm is never left blank in WKWebView. Keyed only on the
+  // connection identity (not the main effect's callback deps) so ordinary
+  // mid-session re-renders don't re-arm it and yank a scrolled-up user to the
+  // bottom. reconnectKey bumps on a transport-drop re-attach (same connectionId).
+  useEffect(() => {
+    pendingAttachFinalizeRef.current = true
+  }, [connectionId, reconnectKey])
+
   useEffect(() => {
     if (!terminal || !isInitialized || !connectionId) return
 
@@ -91,7 +105,30 @@ export function useTerminalConnection({
       if (!pendingOutput) return
 
       outputBufferRef.current = ''
-      terminal.write(pendingOutput)
+
+      // The first flush after a (re)attach is the daemon's bulk ring-buffer
+      // replay, written into a freshly-opened xterm. xterm schedules its own
+      // render after write(), but in WKWebView that render can no-op — the
+      // WebGL canvas is not repainted until something invalidates it, leaving
+      // the viewport BLANK until a manual scroll forces refresh() (the
+      // "terminal empty until I scroll" bug after a workspace switch). Force it
+      // once, in write()'s parse-complete callback: pin to the latest output
+      // and repaint every visible row. Gated to this first post-attach flush so
+      // live streaming keeps xterm's cheap incremental rendering — an
+      // unconditional refresh per frame is expensive and compounds with
+      // WKWebView CA-layer re-rasterization.
+      const finalizeViewport = pendingAttachFinalizeRef.current
+      if (finalizeViewport) pendingAttachFinalizeRef.current = false
+
+      terminal.write(
+        pendingOutput,
+        finalizeViewport
+          ? () => {
+              terminal.scrollToBottom()
+              terminal.refresh(0, terminal.rows - 1)
+            }
+          : undefined,
+      )
 
       const newDirectory = parseOSC7(pendingOutput)
       if (newDirectory) updateSession(sessionId, { currentDirectory: newDirectory })
