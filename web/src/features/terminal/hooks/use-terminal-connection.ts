@@ -51,6 +51,10 @@ export function useTerminalConnection({
   const lastExitInfoRef = useRef<{ exitCode?: number | null; signal?: string | null } | null>(null)
   const outputBufferRef = useRef('')
   const outputFlushFrameRef = useRef<number | null>(null)
+  // Tracks the last delete-key sequence + timestamp so a single physical
+  // keypress that WKWebView delivers as two keydowns (an intermittent WebKit
+  // quirk on macOS Option-combos) doesn't double-delete. See onData.
+  const lastDeleteRef = useRef<{ data: string; t: number }>({ data: '', t: 0 })
   const { write, flush } = useTerminalWriteBuffer({
     getConnectionId: () => currentConnectionIdRef.current,
     writeChunk: async (activeConnectionId, data) => {
@@ -113,6 +117,21 @@ export function useTerminalConnection({
         // via the window focus/blur listeners below, which is what focus-aware
         // TUIs (Claude Code, vim, tmux) actually want to track.
         if (data === '\x1b[I' || data === '\x1b[O') return
+
+        // Collapse a delete-key sequence that arrives twice within one frame.
+        // On macOS, WKWebView intermittently delivers two keydowns for a single
+        // Option+Backspace (and similar) press, so the delete sequence is emitted
+        // twice ~1ms apart — deleting two words/chars on one keystroke. Even the
+        // fastest macOS key-repeat is ≥15ms apart, so a strict <15ms guard
+        // suppresses only the same-press duplicate, never a held-key repeat or a
+        // second deliberate press.
+        const DELETE_SEQUENCES = new Set(['\x7f', '\b', '\x1b\x7f', '\x17', '\x1b[3~'])
+        if (DELETE_SEQUENCES.has(data)) {
+          const now = performance.now()
+          const isDup = data === lastDeleteRef.current.data && now - lastDeleteRef.current.t < 15
+          lastDeleteRef.current = { data, t: now }
+          if (isDup) return
+        }
 
         const activeConnectionId = currentConnectionIdRef.current || connectionId
         const hasNewline = data.includes('\n') || data.includes('\r')

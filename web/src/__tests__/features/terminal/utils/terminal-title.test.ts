@@ -17,6 +17,20 @@ describe('sanitizeTerminalTitle', () => {
     expect(sanitizeTerminalTitle(raw)).toBe('')
   })
 
+  it('rejects ESC-stripped prompt garbage (xterm dropped the ESC, leaving CSI bodies)', () => {
+    // This is the live tab-title bug: xterm's OSC parser drops the ESC, so the
+    // printable escape bodies survive the no-ESC check and reached the tab.
+    expect(sanitizeTerminalTitle('Rabbyte [01;32m0[00m] % [?1h=')).toBe('')
+    expect(sanitizeTerminalTitle('crowbar [01;32m0[00m] %')).toBe('')
+    expect(sanitizeTerminalTitle('[2J[H clean')).toBe('')
+  })
+
+  it('preserves legitimate bracketed titles', () => {
+    expect(sanitizeTerminalTitle('[WIP] feature')).toBe('[WIP] feature')
+    expect(sanitizeTerminalTitle('build [2/5]')).toBe('build [2/5]')
+    expect(sanitizeTerminalTitle('array[0].ts')).toBe('array[0].ts')
+  })
+
   it('rejects any title containing a raw ESC (two-byte Fe sequences too)', () => {
     expect(sanitizeTerminalTitle('foo\x1b=bar')).toBe('') // DECKPAM
     expect(sanitizeTerminalTitle('foo\x1b>bar')).toBe('') // DECKPNM
