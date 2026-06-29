@@ -48,6 +48,10 @@ type Session struct {
 	cwd        string
 	shell      string
 	profileID  string
+	// decModes tracks live DEC private-mode state (mouse tracking, application
+	// cursor keys, …) so Attach can re-assert it to a re-attaching client whose
+	// fresh xterm would otherwise lose it. Guarded by mu.
+	decModes *decModeTracker
 }
 
 // newSession allocates a Session with the given PTY resources. The pump
@@ -65,6 +69,7 @@ func newSession(id, shell, cwd, profileID string, ptmx *os.File, cmd *exec.Cmd) 
 		shell:     shell,
 		profileID: profileID,
 		exitCode:  -1, // unknown until shutdown captures it
+		decModes:  newDecModeTracker(),
 	}
 }
 
@@ -156,6 +161,7 @@ func NewPlaceholder(
 		shell:     shell,
 		profileID: profileID,
 		exitCode:  -1, // unknown; placeholder has no process
+		decModes:  newDecModeTracker(),
 		// ptmx and cmd intentionally nil — State() returns "suspended"
 	}
 }
@@ -253,11 +259,24 @@ func (s *Session) Attach() (<-chan OutputFrame, error) {
 	cl := &client{send: make(chan OutputFrame, clientSendBuf)}
 
 	// Sanitize the replayed scrollback so re-attach/restore does not make xterm
-	// re-answer embedded queries (echoed as garbage at the prompt), re-apply
-	// app-only modes, or re-set a stale title. Visual content is preserved.
+	// re-answer embedded queries (echoed as garbage at the prompt) or re-set a
+	// stale title. The sanitizer also strips DEC private-mode bytes from the
+	// historical scrollback; their net-active state is re-asserted below instead.
 	snap := sanitizeReplaySnapshot(s.ring.Snapshot())
 	if len(snap) > 0 {
 		cl.send <- OutputFrame{SessionID: s.id, Data: snap}
+	}
+
+	// Re-assert the running app's live DEC private modes (mouse tracking,
+	// application cursor keys, alt-screen, …) so the freshly-created xterm on the
+	// re-attaching client matches the app — the scrollback alone can't, because
+	// the one-time SET sequence is evicted from the ring or stripped above. Only
+	// while a foreground app is alive (!idle), so an exited app does not leave the
+	// shell prompt with stuck mouse-tracking/alt-screen even after a SIGKILL.
+	if !s.isIdleLocked() {
+		if pre := s.decModes.preamble(); len(pre) > 0 {
+			cl.send <- OutputFrame{SessionID: s.id, Data: pre}
+		}
 	}
 
 	s.clients[cl] = struct{}{}
@@ -367,7 +386,8 @@ func (s *Session) pumpStep(chunk []byte) {
 	if ok {
 		s.cwd = path
 	}
-	s.ring.Write(chunk) // ring.mu nested under s.mu — same order Attach uses
+	s.decModes.observe(chunk) // track DEC private modes for re-attach restore
+	s.ring.Write(chunk)       // ring.mu nested under s.mu — same order Attach uses
 	s.dirty = true
 	s.fanOutLocked(chunk) // assumes s.mu held
 	s.mu.Unlock()

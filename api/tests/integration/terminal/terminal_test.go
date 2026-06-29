@@ -416,6 +416,66 @@ func (s *TerminalSuite) TestRegression_TerminalSession_MultibyteOutputNotCorrupt
 	})
 }
 
+// TestRegression_TerminalSession_ReAttachReassertsLiveModes proves the DEC
+// private-mode preamble: a client attaching mid-session to a LIVE app that enabled
+// mouse tracking receives that mode re-asserted, even though the replay sanitizer
+// strips the mode bytes from the scrollback. Without it, a workspace switch (which
+// disposes + recreates xterm) leaves the new terminal in default modes and breaks
+// Claude Code's mouse-wheel and arrow-key scrolling.
+func (s *TerminalSuite) TestRegression_TerminalSession_ReAttachReassertsLiveModes() {
+	t := s.T()
+
+	lifecycle := s.Env.DialTerminals(t, s.imported.ProjectID, s.imported.RepoID, s.wsID)
+	createResp := s.Env.POST(t, s.base()+"/terminals", map[string]any{})
+	kit.RequireStatus(t, createResp, http.StatusCreated)
+	var created map[string]any
+	kit.DecodeEnvData(t, createResp, &created)
+	sessionID, _ := created["sessionId"].(string)
+	s.Require().NotEmpty(sessionID)
+
+	ws1 := s.Env.DialTerminalPTY(t, s.imported.ProjectID, s.imported.RepoID, s.wsID, sessionID)
+	ws1.ReadUntil(t, 10*time.Second, func(m map[string]any) bool {
+		d, _ := m["data"].(string)
+		return len(d) > 0
+	})
+
+	// Enable mouse tracking (?1000h — which the sanitizer strips from scrollback),
+	// emit an ASCII marker right after it, then keep a foreground child alive
+	// (sleep) so the session is NOT idle. Wait for the marker (accumulated, so a
+	// frame split can't hide it): seeing it proves printf ran, so the pump has
+	// observed ?1000h, and the shell has moved on to the foreground sleep.
+	ws1.SendJSON(t, map[string]any{"data": "printf '\\033[?1000hMODESET_OK'; sleep 30\n"})
+	var ws1buf strings.Builder
+	ws1.ReadUntil(t, 5*time.Second, func(m map[string]any) bool {
+		d, _ := m["data"].(string)
+		ws1buf.WriteString(d)
+		return strings.Contains(ws1buf.String(), "MODESET_OK")
+	})
+
+	// Re-attach: a SECOND client. Its scrollback snapshot has ?1000h stripped, so
+	// if ?1000h appears it can ONLY be the mode preamble re-asserting it.
+	ws2 := s.Env.DialTerminalPTY(t, s.imported.ProjectID, s.imported.RepoID, s.wsID, sessionID)
+	var sb strings.Builder
+	reasserted := false
+	ws2.ReadUntil(t, 5*time.Second, func(m map[string]any) bool {
+		d, _ := m["data"].(string)
+		sb.WriteString(d)
+		if strings.Contains(sb.String(), "\x1b[?1000h") {
+			reasserted = true
+			return true
+		}
+		return false
+	})
+	s.Assert().True(reasserted,
+		"re-attach must re-assert mouse tracking ?1000h via the mode preamble (the sanitizer strips it from the replayed scrollback)")
+
+	kill := s.Env.DELETE(t, s.base()+"/terminals/"+sessionID)
+	kill.Body.Close()
+	lifecycle.ReadUntil(t, 5*time.Second, func(m map[string]any) bool {
+		return m["id"] == sessionID && m["status"] == "ended"
+	})
+}
+
 // ---------------------------------------------------------------------------
 // TestRegression_TerminalSession_RestartRoundTrip — full REST/WS restart test
 // ---------------------------------------------------------------------------
