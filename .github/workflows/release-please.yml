@@ -2,7 +2,7 @@ name: Release Please
 
 on:
   push:
-    branches: [develop]
+    branches: [develop, master]
 
 permissions:
   contents: write
@@ -26,7 +26,8 @@ jobs:
   # and open the PR to master that will eventually trigger the stable release.
   open-prerelease:
     needs: release-please
-    if: needs.release-please.outputs.release_created == 'true'
+    # Only cut a prerelease branch from develop — hotfix releases come from master via release-please
+    if: needs.release-please.outputs.release_created == 'true' && github.ref == 'refs/heads/develop'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4

@@ -12,10 +12,16 @@ permissions:
 
 jobs:
   guard:
-    # Only run on merges from prerelease/* or hotfix/* branches
+    # Triggers on:
+    # - prerelease/* → master  (normal release flow)
+    # - hotfix/* → master      (emergency fix, no prerelease cycle)
+    # - release-please--branches--master--* → master  (release-please version bump after hotfix)
     if: >
-      github.event.pull_request.merged == true &&
-      (startsWith(github.head_ref, 'prerelease/') || startsWith(github.head_ref, 'hotfix/'))
+      github.event.pull_request.merged == true && (
+        startsWith(github.head_ref, 'prerelease/') ||
+        startsWith(github.head_ref, 'hotfix/') ||
+        startsWith(github.head_ref, 'release-please--branches--master--')
+      )
     runs-on: ubuntu-latest
     outputs:
       version: ${{ steps.version.outputs.version }}
