@@ -264,6 +264,15 @@ func (s *Session) Attach() (<-chan OutputFrame, error) {
 	// historical scrollback; their net-active state is re-asserted below instead.
 	snap := sanitizeReplaySnapshot(s.ring.Snapshot())
 	if len(snap) > 0 {
+		// Force xterm's parser back to the ground state after the historical
+		// scrollback. The ring holds only the most recent bytes, so it can begin
+		// or (worse) END mid-sequence — e.g. an OSC set-title whose BEL/ST
+		// terminator was evicted. Replayed as-is, that dangling sequence makes
+		// xterm swallow everything that follows — the live stream AND the DEC-mode
+		// preamble below — into a never-terminated title (the garbled-tab bug).
+		// CAN (0x18) aborts any in-progress control/string sequence and is a no-op
+		// in the ground state, so it cleanly closes the snapshot.
+		snap = append(snap, 0x18)
 		cl.send <- OutputFrame{SessionID: s.id, Data: snap}
 	}
 

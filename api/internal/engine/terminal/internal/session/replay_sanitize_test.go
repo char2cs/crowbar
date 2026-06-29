@@ -22,6 +22,13 @@ func TestSanitizeReplaySnapshot(t *testing.T) {
 		// Stripped: set-title (avoids stale/garbled tab on replay).
 		{"OSC set-title BEL", "\x1b]2;my title\x07rest", "rest"},
 		{"OSC set-title ST", "\x1b]0;name\x1b\\rest", "rest"},
+		// Stripped: a zsh colored-prompt title with embedded SGR inside the OSC
+		// body — the regex must not bail at the first inner ESC.
+		{"OSC colored-prompt title BEL", "\x1b]2;worktree [\x1b[01;32m0\x1b[00m] %\x07rest", "rest"},
+		{"OSC colored-prompt title ST", "\x1b]2;w [\x1b[32m0\x1b[0m]\x1b\\keep", "keep"},
+		// The greedy title body must still stop at its OWN terminator, leaving a
+		// following standalone SGR sequence (real screen drawing) untouched.
+		{"title then preserved SGR", "\x1b]2;t\x1b[1m\x07\x1b[32mKEEP", "\x1b[32mKEEP"},
 		// Stripped: app-only private modes that must not persist to a shell.
 		{"focus mode set", "\x1b[?1004hZ", "Z"},
 		{"mouse modes", "\x1b[?1000h\x1b[?1006hM", "M"},

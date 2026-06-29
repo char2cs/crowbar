@@ -27,8 +27,14 @@ var replaySanitizers = []*regexp.Regexp{
 	regexp.MustCompile(`\x1b\[[0-9;]*n`),
 	// OSC queries (e.g. color "ESC ] 11 ; ?"), terminated by BEL or ST.
 	regexp.MustCompile(`\x1b\][0-9;]*\?(?:\x07|\x1b\\)`),
-	// OSC set-title (0/1/2), terminated by BEL or ST.
-	regexp.MustCompile(`\x1b\][012];[^\x07\x1b]*(?:\x07|\x1b\\)`),
+	// OSC set-title (0/1/2), terminated by BEL or ST. The title body may itself
+	// contain embedded ESC sequences — some zsh prompt-title hooks put the whole
+	// ANSI-COLORED prompt inside the OSC parameter (e.g. ESC]2;worktree
+	// [ESC[01;32m0ESC[00m] %BEL). A plain [^ESC]* body bails at that first inner
+	// ESC and fails to strip such a title, so allow ESC-that-is-not-ST inside the
+	// body (ESC followed by any byte except '\', since ESC '\' is the ST
+	// terminator).
+	regexp.MustCompile(`\x1b\][012];(?:[^\x07\x1b]|\x1b[^\\])*(?:\x07|\x1b\\)`),
 	// App-only private modes (set or reset): mouse 1000-1006/1015, focus 1004,
 	// bracketed paste 2004, alternate screen 47/1047/1049.
 	regexp.MustCompile(`\x1b\[\?(?:1000|1001|1002|1003|1004|1005|1006|1015|2004|1049|1047|47)[hl]`),
