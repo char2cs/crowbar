@@ -51,10 +51,6 @@ export function useTerminalConnection({
   const lastExitInfoRef = useRef<{ exitCode?: number | null; signal?: string | null } | null>(null)
   const outputBufferRef = useRef('')
   const outputFlushFrameRef = useRef<number | null>(null)
-  // Tracks the last delete-key sequence + timestamp so a single physical
-  // keypress that WKWebView delivers as two keydowns (an intermittent WebKit
-  // quirk on macOS Option-combos) doesn't double-delete. See onData.
-  const lastDeleteRef = useRef<{ data: string; t: number }>({ data: '', t: 0 })
   const { write, flush } = useTerminalWriteBuffer({
     getConnectionId: () => currentConnectionIdRef.current,
     writeChunk: async (activeConnectionId, data) => {
@@ -118,21 +114,6 @@ export function useTerminalConnection({
         // TUIs (Claude Code, vim, tmux) actually want to track.
         if (data === '\x1b[I' || data === '\x1b[O') return
 
-        // Collapse a delete-key sequence that arrives twice within one frame.
-        // On macOS, WKWebView intermittently delivers two keydowns for a single
-        // Option+Backspace (and similar) press, so the delete sequence is emitted
-        // twice ~1ms apart — deleting two words/chars on one keystroke. Even the
-        // fastest macOS key-repeat is ≥15ms apart, so a strict <15ms guard
-        // suppresses only the same-press duplicate, never a held-key repeat or a
-        // second deliberate press.
-        const DELETE_SEQUENCES = new Set(['\x7f', '\b', '\x1b\x7f', '\x17', '\x1b[3~'])
-        if (DELETE_SEQUENCES.has(data)) {
-          const now = performance.now()
-          const isDup = data === lastDeleteRef.current.data && now - lastDeleteRef.current.t < 15
-          lastDeleteRef.current = { data, t: now }
-          if (isDup) return
-        }
-
         const activeConnectionId = currentConnectionIdRef.current || connectionId
         const hasNewline = data.includes('\n') || data.includes('\r')
 
@@ -159,60 +140,14 @@ export function useTerminalConnection({
       }),
     )
 
-    disposables.push(
-      terminal.onKey(({ domEvent: event }) => {
-        // NOTE: do NOT add 'alt+Backspace' here. The terminal is created with
-        // macOptionIsMeta:true, so xterm natively emits ESC+DEL (backward-kill-
-        // word) for opt+backspace via onData. A shortcut entry here would fire a
-        // SECOND delete-word sequence (Ctrl-W), deleting two words per keystroke.
-        const shortcuts: Record<string, string> = {
-          'meta+Backspace': '\u0015',
-          'ctrl+u': '\u0015',
-          'meta+k': '\u000c',
-          'meta+a': '\u0001',
-          'meta+e': '\u0005',
-        }
+    // NOTE: there is intentionally no terminal.onKey handler. xterm's built-in
+    // keyboard model already emits the correct sequence for every standard key
+    // (Ctrl+U, Shift+Tab, arrows, Backspace, Option word-nav via macOptionIsMeta,
+    // ...) via onData. A second onKey that re-wrote those sequences sent every
+    // such key TWICE -- the double-fire bug. The only sequence xterm 5.5.0 cannot
+    // produce (Shift/Alt+Enter disambiguation, kitty protocol) is handled once in
+    // the attachCustomKeyEventHandler in terminal.tsx (see resolveKeyOverride).
 
-        const key = `${event.metaKey ? 'meta+' : ''}${event.ctrlKey ? 'ctrl+' : ''}${event.altKey ? 'alt+' : ''}${event.key}`
-        if (shortcuts[key]) {
-          event.preventDefault()
-          write(shortcuts[key])
-          return
-        }
-
-        // Modifier+Enter: send CSI u sequences so TUI apps can distinguish them
-        if (event.key === 'Enter') {
-          if (event.shiftKey) {
-            event.preventDefault()
-            write('\x1b[13;2u') // Shift+Enter
-            return
-          }
-          if (event.altKey) {
-            event.preventDefault()
-            write('\x1b[13;3u') // Alt+Enter
-            return
-          }
-        }
-
-        // Shift+Tab: send reverse-tab escape sequence
-        if (event.key === 'Tab' && event.shiftKey) {
-          event.preventDefault()
-          write('\x1b[Z')
-          return
-        }
-
-        if (event.metaKey && (event.key === 'ArrowLeft' || event.key === 'ArrowRight')) {
-          event.preventDefault()
-          write(event.key === 'ArrowLeft' ? '\u0001' : '\u0005')
-          return
-        }
-
-        if (event.altKey && (event.key === 'ArrowLeft' || event.key === 'ArrowRight')) {
-          event.preventDefault()
-          write(event.key === 'ArrowLeft' ? '\u001bb' : '\u001bf')
-        }
-      }),
-    )
 
     disposables.push(
       terminal.onResize(({ cols, rows }) => {

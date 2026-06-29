@@ -24,6 +24,7 @@ import { useTerminalStore } from '../stores/terminal-store'
 import { formatDroppedPathsForTerminal } from '../utils/terminal-file-drop'
 import { analyzeTerminalPaste } from '../utils/paste-guard'
 import { resolveTerminalFont } from '../utils/resolve-font'
+import { resolveKeyOverride } from '../utils/terminal-key-overrides'
 import { toast } from '@/features/window/stores/toast-store'
 import { TerminalSearch, type TerminalSearchOptions } from './terminal-search'
 import '@xterm/xterm/css/xterm.css'
@@ -269,13 +270,20 @@ export const XtermTerminal: React.FC<XtermTerminalProps> = ({
 
       terminal.open(terminalContainerRef.current)
       terminal.attachCustomKeyEventHandler((event) => {
-        if (event.ctrlKey && !event.metaKey) return true
-        if (
-          event.metaKey &&
-          ['Backspace', 'k', 'a', 'e', 'f', 'ArrowLeft', 'ArrowRight'].includes(event.key)
-        ) {
-          return true
+        // The ONLY manual key override (Shift/Alt+Enter): emit the CSI-u sequence
+        // here and return false to SUPPRESS xterm's default CR, so it is sent
+        // exactly once. Everything else is left to xterm's built-in keyboard
+        // model — re-implementing it (the old onKey shortcuts) double-sent keys.
+        const override = resolveKeyOverride(event)
+        if (override !== null) {
+          event.preventDefault()
+          writeBuffered(override)
+          return false
         }
+        // Ctrl combos (without Cmd) → xterm handles them (Ctrl+U, Ctrl+C, …).
+        if (event.ctrlKey && !event.metaKey) return true
+        // Cmd combos are app/OS shortcuts (copy, paste, select-all, search) — keep
+        // them out of the terminal; everything else goes to xterm.
         return !event.metaKey
       })
 
