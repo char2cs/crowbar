@@ -1,9 +1,12 @@
 name: Backport
 
+# Manual trigger only — automated backport is handled by stable-release.yml.
+# Use this when the automated backport PR fails or needs to be re-opened.
 on:
   workflow_dispatch:
     inputs:
       version:
+        description: 'Version to backport (e.g. 0.2.0)'
         required: true
         type: string
 
@@ -25,17 +28,21 @@ jobs:
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
 
-      - name: Create backport branch and PR
+      - name: Open backport PR to develop
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          DATE=$(date +%Y-%m-%d)
-          BRANCH="backport/${DATE}-${{ inputs.version }}"
-          git checkout -b "$BRANCH" origin/master
+          VERSION="${{ inputs.version }}"
+          BRANCH="backport/v${VERSION}"
+
+          # Branch from develop, merge master in — this is the actual diff
+          git checkout -b "$BRANCH" origin/develop
+          git merge --no-ff origin/master -m "chore: backport v${VERSION} to develop"
           git push origin "$BRANCH"
+
           gh pr create \
-            --title "chore: backport ${{ inputs.version }} to develop" \
-            --body "Automated backport of ${{ inputs.version }} from master." \
+            --title "chore: backport v${VERSION} to develop" \
+            --body "Manual backport of v${VERSION} from \`master\` to \`develop\`." \
             --base develop \
             --head "$BRANCH" \
             --label "backport"

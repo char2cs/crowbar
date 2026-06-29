@@ -1,44 +1,36 @@
-name: Stable Release
+name: Nightly
 
 on:
-  pull_request:
-    types: [closed]
-    branches: [master]
+  push:
+    branches: [develop]
+  workflow_dispatch:
 
 permissions:
   contents: write
-  pull-requests: write
-  actions: write
+
+concurrency:
+  group: nightly
+  cancel-in-progress: true
 
 jobs:
-  guard:
-    # Only run on merges from prerelease/* or hotfix/* branches
-    if: >
-      github.event.pull_request.merged == true &&
-      (startsWith(github.head_ref, 'prerelease/') || startsWith(github.head_ref, 'hotfix/'))
+  derive-version:
     runs-on: ubuntu-latest
     outputs:
-      version: ${{ steps.version.outputs.version }}
-      tag: ${{ steps.version.outputs.tag }}
+      version: ${{ steps.v.outputs.version }}
     steps:
       - uses: actions/checkout@v4
-        with:
-          ref: master
-      - name: Read version from Cargo.toml
-        id: version
+      - id: v
         run: |
           VERSION=$(grep -m1 '^version' desktop/src-tauri/Cargo.toml | grep -oP '[\d.]+')
           echo "version=${VERSION}" >> $GITHUB_OUTPUT
-          echo "tag=v${VERSION}" >> $GITHUB_OUTPUT
-          echo "Stable release: v${VERSION}"
 
   daemon:
-    needs: guard
+    needs: derive-version
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
         with:
-          ref: master
+          ref: develop
       - uses: actions/setup-go@v5
         with:
           go-version: '1.26.2'
@@ -61,18 +53,18 @@ jobs:
           done
       - uses: actions/upload-artifact@v4
         with:
-          name: daemon-binaries
+          name: nightly-daemon
           path: dist/
 
   desktop-macos:
-    needs: guard
+    needs: derive-version
     runs-on: macos-latest
     env:
-      VERSION: ${{ needs.guard.outputs.version }}
+      VERSION: ${{ needs.derive-version.outputs.version }}
     steps:
       - uses: actions/checkout@v4
         with:
-          ref: master
+          ref: develop
       - uses: dtolnay/rust-toolchain@stable
         with:
           toolchain: '1.85'
@@ -100,7 +92,7 @@ jobs:
           NODE_OPTIONS: --max-old-space-size=6144
         run: cd web && bun install --frozen-lockfile && bun run build
       - name: Sync version into tauri.conf.json
-        run: jq ".version = \"${VERSION}\"" desktop/src-tauri/tauri.conf.json > /tmp/tc.json && mv /tmp/tc.json desktop/src-tauri/tauri.conf.json
+        run: jq ".version = \"${VERSION}-nightly\"" desktop/src-tauri/tauri.conf.json > /tmp/tc.json && mv /tmp/tc.json desktop/src-tauri/tauri.conf.json
       - name: Compile Liquid Glass icon (Xcode 26+ only)
         run: bash desktop/icons-compiler/compile-icon.sh
       - name: Build Tauri app (universal DMG)
@@ -119,18 +111,18 @@ jobs:
           echo "DMG: $DMG ($(du -h "$DMG" | cut -f1))"
       - uses: actions/upload-artifact@v4
         with:
-          name: desktop-macos
+          name: nightly-macos
           path: desktop/src-tauri/target/universal-apple-darwin/release/bundle/dmg/*.dmg
 
   desktop-linux:
-    needs: guard
+    needs: derive-version
     runs-on: ubuntu-latest
     env:
-      VERSION: ${{ needs.guard.outputs.version }}
+      VERSION: ${{ needs.derive-version.outputs.version }}
     steps:
       - uses: actions/checkout@v4
         with:
-          ref: master
+          ref: develop
       - uses: dtolnay/rust-toolchain@stable
         with:
           toolchain: '1.85'
@@ -159,7 +151,7 @@ jobs:
           NODE_OPTIONS: --max-old-space-size=6144
         run: cd web && bun install --frozen-lockfile && bun run build
       - name: Sync version into tauri.conf.json
-        run: jq ".version = \"${VERSION}\"" desktop/src-tauri/tauri.conf.json > /tmp/tc.json && mv /tmp/tc.json desktop/src-tauri/tauri.conf.json
+        run: jq ".version = \"${VERSION}-nightly\"" desktop/src-tauri/tauri.conf.json > /tmp/tc.json && mv /tmp/tc.json desktop/src-tauri/tauri.conf.json
       - name: Build Tauri app (AppImage + deb)
         working-directory: desktop/src-tauri
         run: |
@@ -172,16 +164,18 @@ jobs:
           echo "AppImage: $APPIMAGE ($(du -h "$APPIMAGE" | cut -f1))"
       - uses: actions/upload-artifact@v4
         with:
-          name: desktop-linux
+          name: nightly-linux
           path: |
             desktop/src-tauri/target/release/bundle/appimage/*.AppImage
             desktop/src-tauri/target/release/bundle/deb/*.deb
 
-  release:
-    needs: [guard, daemon, desktop-macos, desktop-linux]
-    # All jobs must succeed — no partial stable releases
+  publish:
+    needs: [derive-version, daemon, desktop-macos, desktop-linux]
     runs-on: ubuntu-latest
     steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: develop
       - uses: actions/download-artifact@v4
         with:
           path: release-artifacts/
@@ -190,50 +184,18 @@ jobs:
         run: |
           cd release-artifacts
           find . -type f ! -name 'SHA256SUMS' -exec sha256sum {} \; | sed 's|./||' > SHA256SUMS
-      - uses: softprops/action-gh-release@v2
-        with:
-          tag_name: ${{ needs.guard.outputs.tag }}
-          name: "Crowbar ${{ needs.guard.outputs.tag }}"
-          prerelease: false
-          make_latest: true
-          files: release-artifacts/**/*
-          generate_release_notes: true
-
-  backport:
-    needs: [guard, release]
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
-          token: ${{ secrets.GITHUB_TOKEN }}
-      - name: Configure git
-        run: |
-          git config user.name "github-actions[bot]"
-          git config user.email "github-actions[bot]@users.noreply.github.com"
-      - name: Open backport PR to develop
+      - name: Delete previous nightly release
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          VERSION: ${{ needs.guard.outputs.version }}
-          TAG: ${{ needs.guard.outputs.tag }}
-        run: |
-          BRANCH="backport/v${VERSION}"
+        run: gh release delete nightly --yes --cleanup-tag 2>/dev/null || true
+      - name: Publish nightly release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: nightly
+          name: "Nightly (${{ github.run_id }})"
+          body: |
+            Automated nightly build from `develop` — ${{ github.sha }}
 
-          git checkout -b "$BRANCH" origin/develop
-
-          # Conflicts are expected when develop has diverged significantly.
-          # Push the branch regardless so the PR can be resolved manually.
-          if ! git merge --no-ff origin/master -m "chore: backport ${TAG} to develop"; then
-            echo "⚠️ Merge conflicts detected — pushing branch for manual resolution"
-            git add -A
-            git commit -m "chore: backport ${TAG} to develop (conflicts need resolution)"
-          fi
-
-          git push origin "$BRANCH"
-
-          gh pr create \
-            --title "chore: backport ${TAG} to develop" \
-            --body "Backport stable release ${TAG} from \`master\` to \`develop\`." \
-            --base develop \
-            --head "$BRANCH" \
-            --label "backport"
+            > ⚠️ This is an unstable build. Use at your own risk.
+          prerelease: true
+          files: release-artifacts/**/*

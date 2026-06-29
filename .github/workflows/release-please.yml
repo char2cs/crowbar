@@ -1,0 +1,70 @@
+name: Release Please
+
+on:
+  push:
+    branches: [develop]
+
+permissions:
+  contents: write
+  pull-requests: write
+
+jobs:
+  release-please:
+    runs-on: ubuntu-latest
+    outputs:
+      release_created: ${{ steps.rp.outputs.releases_created }}
+      version: ${{ steps.rp.outputs['desktop/src-tauri--version'] }}
+    steps:
+      - uses: googleapis/release-please-action@v4
+        id: rp
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+          config-file: .github/release-please-config.json
+          manifest-file: .github/.release-please-manifest.json
+
+  # When release-please merges a version-bump PR onto develop, cut the prerelease branch
+  # and open the PR to master that will eventually trigger the stable release.
+  open-prerelease:
+    needs: release-please
+    if: needs.release-please.outputs.release_created == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          token: ${{ secrets.GITHUB_TOKEN }}
+      - name: Configure git
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+      - name: Create prerelease branch and open PR to master
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          VERSION: ${{ needs.release-please.outputs.version }}
+        run: |
+          BRANCH="prerelease/v${VERSION}"
+
+          # Guard: don't create if already exists (re-run safety)
+          if git ls-remote --exit-code --heads origin "$BRANCH" >/dev/null 2>&1; then
+            echo "Branch $BRANCH already exists, skipping"
+            exit 0
+          fi
+
+          git checkout -b "$BRANCH" origin/develop
+          git push origin "$BRANCH"
+
+          gh pr create \
+            --title "Release v${VERSION}" \
+            --body "$(cat <<EOF
+Automated release PR for **v${VERSION}**.
+
+## What to do
+- Merge commits from \`develop\` into this branch as bugs are fixed during stabilization
+- Each push to this branch triggers a pre-release build (beta)
+- Merging this PR into \`master\` publishes the stable release
+
+EOF
+)" \
+            --base master \
+            --head "$BRANCH" \
+            --label "release"
