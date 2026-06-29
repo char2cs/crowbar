@@ -1,23 +1,39 @@
 // Package home mounts the project-level home workspace routes under
-// /v0/projects/:projectId/home. The home workspace has no git operations.
+// /v0/projects/:projectId/home. The home workspace has files, a live
+// file-change stream, review threads, and terminals — but no git operations.
 package home
 
 import (
 	"github.com/gin-gonic/gin"
 
 	homehandlers "github.com/char2cs/crowbar/api/internal/api/v0/endpoints/home/handlers"
+	threadhandlers "github.com/char2cs/crowbar/api/internal/api/v0/endpoints/threads/handlers"
 )
 
 // Register mounts all home routes under projectScoped
 // (/v0/projects/:projectId).
+//
+// Files and review threads are reused from the workspace-scoped surface: the
+// home group has no :wsId path segment, so RequireHomeWorkspace resolves the
+// project's home workspace and injects :wsId before each reused handler runs.
+// That lets the file-change WS handler (filesWS), the dual-served thread list
+// WS (threadsWS), and the thread REST handlers resolve the home workspace by id.
+// Git is intentionally absent — the home workspace is the project root, not a
+// per-workspace git worktree.
 func Register(
 	projectScoped *gin.RouterGroup,
 	workspaces homehandlers.HomeWorkspaces,
 	projects homehandlers.ProjectReader,
 	files homehandlers.Files,
 	termEng homehandlers.TerminalEngine,
+	filesWS gin.HandlerFunc,
+	threadStore threadhandlers.ThreadStore,
+	threadBroadcast threadhandlers.ThreadBroadcaster,
+	threadsWS gin.HandlerFunc,
+	dispatch func(rest, wsHandler gin.HandlerFunc) gin.HandlerFunc,
 ) {
 	h := homehandlers.New(workspaces, projects, files, termEng)
+	th := threadhandlers.New(threadStore, threadBroadcast)
 	home := projectScoped.Group("/home")
 
 	home.GET("", h.Get)
@@ -28,6 +44,24 @@ func Register(
 	home.POST("/files", h.CreateFile)
 	home.PATCH("/files", h.RenameFile)
 	home.DELETE("/files", h.DeleteFile)
+	// Live file-change stream for the home workspace, mirroring the workspace-
+	// scoped .../files/ws leaf. RequireHomeWorkspace injects :wsId so the files
+	// broadcaster's wsId filter and the watcher lifecycle scope to the home
+	// workspace (rooted at the project path).
+	home.GET("/files/ws", h.RequireHomeWorkspace, filesWS)
+
+	// Review threads are a home capability. The list route is dual-served (a
+	// plain GET lists threads; a WebSocket upgrade subscribes the thread topic);
+	// the rest are REST mutations. Every route resolves the home workspace via
+	// RequireHomeWorkspace.
+	home.GET("/threads", h.RequireHomeWorkspace, dispatch(th.List, threadsWS))
+	home.POST("/threads", h.RequireHomeWorkspace, th.OpenThread)
+	home.GET("/threads/:threadId", h.RequireHomeWorkspace, th.Detail)
+	home.PATCH("/threads/:threadId", h.RequireHomeWorkspace, th.SetResolved)
+	home.DELETE("/threads/:threadId", h.RequireHomeWorkspace, th.DeleteThread)
+	home.POST("/threads/:threadId/replies", h.RequireHomeWorkspace, th.Reply)
+	home.PATCH("/threads/:threadId/messages/:messageId", h.RequireHomeWorkspace, th.EditMessage)
+	home.DELETE("/threads/:threadId/messages/:messageId", h.RequireHomeWorkspace, th.DeleteMessage)
 
 	home.GET("/terminals", h.ListTerminals)
 	home.POST("/terminals", h.CreateTerminal)

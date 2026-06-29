@@ -180,6 +180,24 @@ type GitEngine struct {
 	// WorktreeListFn, when non-nil, overrides Worktrees/WorktreeListErr for
 	// per-repo control in tests.
 	WorktreeListFn func(repoPath string) ([]gitengine.WorktreeEntry, error)
+
+	// Protected-branch managed-worktree provisioning fakes (project import).
+	Detached        []string          // worktree paths detached to HEAD
+	CheckedOut      []WorktreeAddCall // (path, branch) re-attach calls
+	WorktreeAdds    []WorktreeAddCall // (path, branch) worktrees materialised
+	WorktreeRemoves []string          // worktree paths force-removed
+	FetchedRefs     []string          // branches fetched from origin
+	RemoteBranches  map[string]bool   // branch -> exists on origin (default false)
+	RevParseShas    map[string]string // rev -> sha (default "")
+	DetachErr       error             // forces DetachWorktree to fail
+	// WorktreeAddErrByBranch forces WorktreeAdd to fail for specific branches.
+	WorktreeAddErrByBranch map[string]error
+}
+
+// WorktreeAddCall records a fake WorktreeAdd invocation.
+type WorktreeAddCall struct {
+	Path   string
+	Branch string
 }
 
 // NewGitEngine returns an empty GitEngine.
@@ -210,6 +228,76 @@ func (g *GitEngine) MergeBase(
 		return "", g.MergeBaseErr
 	}
 	return g.MergeBaseSha, nil
+}
+
+func (g *GitEngine) DetachWorktree(
+	ctx context.Context,
+	worktreePath string,
+) error {
+	if g.DetachErr != nil {
+		return g.DetachErr
+	}
+	g.Detached = append(g.Detached, worktreePath)
+	return nil
+}
+
+func (g *GitEngine) CheckoutBranch(
+	ctx context.Context,
+	worktreePath string,
+	branch string,
+) error {
+	g.CheckedOut = append(g.CheckedOut, WorktreeAddCall{Path: worktreePath, Branch: branch})
+	return nil
+}
+
+func (g *GitEngine) RemoteBranchExists(
+	ctx context.Context,
+	repoPath string,
+	branch string,
+) (bool, error) {
+	return g.RemoteBranches[branch], nil
+}
+
+func (g *GitEngine) FetchRef(
+	ctx context.Context,
+	repoPath string,
+	branch string,
+) error {
+	g.FetchedRefs = append(g.FetchedRefs, branch)
+	return nil
+}
+
+func (g *GitEngine) WorktreeAdd(
+	ctx context.Context,
+	repoPath string,
+	worktreePath string,
+	branch string,
+) error {
+	if err := g.WorktreeAddErrByBranch[branch]; err != nil {
+		return err
+	}
+	g.WorktreeAdds = append(g.WorktreeAdds, WorktreeAddCall{Path: worktreePath, Branch: branch})
+	return nil
+}
+
+func (g *GitEngine) WorktreeRemove(
+	ctx context.Context,
+	repoPath string,
+	worktreePath string,
+) error {
+	g.WorktreeRemoves = append(g.WorktreeRemoves, worktreePath)
+	return nil
+}
+
+func (g *GitEngine) RevParse(
+	ctx context.Context,
+	repoPath string,
+	rev string,
+) (string, error) {
+	if sha, ok := g.RevParseShas[rev]; ok {
+		return sha, nil
+	}
+	return "", nil
 }
 
 // ProviderEngine is a fake of the provider operations the import usecase consumes.

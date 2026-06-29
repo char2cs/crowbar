@@ -120,6 +120,10 @@ func (m *mockWorkspace) GetHomeForProject(_ context.Context, _ string) (domain.W
 	return domain.Workspace{}, nil
 }
 
+func (m *mockWorkspace) CreateHome(_ context.Context, _, _ string, _ time.Time) (domain.Workspace, error) {
+	return domain.Workspace{}, nil
+}
+
 var _ workspace.Workspace = (*mockWorkspace)(nil)
 
 // --- local reviewthread mock ---

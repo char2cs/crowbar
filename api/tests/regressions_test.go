@@ -80,12 +80,15 @@ func TestRegression_AllReadEndpointsUseEnvelope(t *testing.T) {
 	}
 }
 
-// The imported repo's main worktree (worktreePath == repo.Path) is adopted as a
-// workspace flagged IsDefault, and that flag must survive persistence and reach
-// the wire on GET /workspaces. The frontend pulls this workspace out of the
-// sidebar tree and opens it from the repo header by its real id; if the DTO does
-// not carry isDefault the default folder would render as a duplicate tree row.
-func TestRegression_MainWorktreeWorkspaceServedWithIsDefault(t *testing.T) {
+// The repo home (worktreePath == repo.Path) is adopted as the IsDefault
+// workspace, and that flag must survive persistence and reach the wire on GET
+// /workspaces. The frontend pulls this workspace out of the sidebar tree and
+// opens it from the repo header by its real id; if the DTO does not carry
+// isDefault the default folder would render as a duplicate tree row. Under the
+// workspace model the home is DETACHED off its protected default branch (so its
+// branch is ""), and the protected branch itself is served as a separate,
+// non-default managed worktree.
+func TestRegression_RepoHomeServedWithIsDefault(t *testing.T) {
 	h := newHarness(t)
 	imported := importProject(t, h)
 	repoBase := "/v0/projects/" + imported.projectID + "/repos/" + imported.repoID
@@ -97,22 +100,22 @@ func TestRegression_MainWorktreeWorkspaceServedWithIsDefault(t *testing.T) {
 	}
 	h.get(repoBase+"/workspaces", &workspaces)
 
-	var defaultBranches []string
+	var defaults []string // branches of the isDefault workspaces
 	var importedFlagged bool
 	for _, w := range workspaces {
 		if w.IsDefault {
-			defaultBranches = append(defaultBranches, w.Branch)
+			defaults = append(defaults, w.Branch)
 		}
 		if w.ID == imported.workspaceID {
 			importedFlagged = w.IsDefault
 		}
 	}
-	require.True(t, importedFlagged,
-		"the adopted main-worktree workspace must be served with isDefault=true")
-	require.Len(t, defaultBranches, 1,
-		"exactly one workspace (the main worktree) must be flagged isDefault")
-	require.Equal(t, "main", defaultBranches[0],
-		"the default workspace must be the repo's main-worktree branch")
+	require.Len(t, defaults, 1,
+		"exactly one workspace (the repo home) must be flagged isDefault")
+	require.Empty(t, defaults[0],
+		"the default repo-home workspace is detached off the protected branch (branch=\"\")")
+	require.False(t, importedFlagged,
+		"the protected 'main' managed worktree must NOT be the default")
 }
 
 // BUG-010: git stage, unstage, and discard take {paths: []string} — including
@@ -560,11 +563,12 @@ func TestRegression_ImportNonexistentPathLeavesNoProject(t *testing.T) {
 		"a failed import must not leave a project behind")
 }
 
-// BUG-011: a project root containing a repo AND one of its linked worktrees
-// (git worktree add) must import as exactly ONE repo. Discovery once treated
-// the worktree's .git FILE (gitdir pointer) as a repo marker, registering the
-// worktree as a second repo and adopting every worktree once per "repo" —
-// duplicate workspaces all over the tree. Import is async (202 + WS).
+// BUG-011: a repo folder that also contains one of its linked worktrees (git
+// worktree add) must import as exactly ONE repo, and a linked worktree on a
+// NON-protected branch (feature/linked) must NOT be auto-adopted — import only
+// adopts the repo home plus a managed worktree per protected branch. POST
+// /v0/projects creates the project; the repo is added explicitly via ImportRepo.
+// Async: 202 + WS.
 func TestRegression_LinkedWorktreeImportsAsOneRepo(t *testing.T) {
 	h := newHarness(t)
 
@@ -592,6 +596,9 @@ func TestRegression_LinkedWorktreeImportsAsOneRepo(t *testing.T) {
 	require.NotEmpty(t, projectID)
 
 	reposWS := h.dial("/v0/projects/" + projectID + "/repos")
+	addResp := h.raw(http.MethodPost, "/v0/projects/"+projectID+"/repos",
+		map[string]string{"name": "repo", "path": repoPath}, http.StatusAccepted)
+	_ = addResp.Body.Close()
 	repo := readUntil(t, reposWS, func(m map[string]any) bool {
 		return m["projectId"] == projectID
 	})
@@ -712,58 +719,36 @@ func TestRegression_EmptyPathParamsRejected(t *testing.T) {
 // the same main worktree with no distinct worktree of its own, so it could never
 // be opened and only disappeared on reload.
 // TestRegression_ImportDefaultBranchAsManagedWorktree proves the user-facing fix
-// for "I can't import develop": the default branch is held by the unmanaged repo
-// folder (the adopted main worktree), which historically made `git worktree add`
-// fail with "branch already checked out". The create flow now DETACHES the repo
-// folder to free the branch, then adds a real managed worktree on it — so the
-// default branch becomes a first-class Crowbar workspace. The default workspace
-// row does NOT count for the one-per-branch guard, so the create is accepted.
+// for "I can't import develop": the protected default branch is no longer held by
+// the unmanaged repo folder. Import DETACHES the repo home to HEAD and provisions
+// the default branch as its OWN locked, Crowbar-managed worktree — a first-class
+// workspace distinct from the home, so the repo folder and the workspace never
+// both claim the branch.
 func TestRegression_ImportDefaultBranchAsManagedWorktree(t *testing.T) {
 	h := newHarness(t)
-	imported := importProject(t, h)
-	repoBase := "/v0/projects/" + imported.projectID + "/repos/" + imported.repoID
+	imported := importProject(t, h) // imported.workspaceID is the managed `main` worktree
 
-	// Precondition: the imported repo folder is the main worktree, on `main`.
-	require.Equal(t, "main", currentBranch(t, imported.repoPath),
-		"the imported repo folder starts checked out on the default branch")
-
-	// Give the repo an origin remote carrying `main` — mirroring a real cloned
-	// repo, where the default branch exists on the remote and the create flow
-	// checks it out via origin/<branch>.
-	remote := t.TempDir()
-	runGit(t, remote, "init", "--bare")
-	runGit(t, imported.repoPath, "remote", "add", "origin", remote)
-	runGit(t, imported.repoPath, "push", "origin", "main")
-
-	// Importing the default branch as a managed workspace must be ACCEPTED — the
-	// adopted default workspace does not block its own branch.
-	conn := h.dial(repoBase + "/workspaces")
-	_ = h.raw(http.MethodPost, repoBase+"/workspaces",
-		map[string]string{"branch": "main"}, http.StatusAccepted).Body.Close()
-
-	// The managed worktree is a brand-new workspace on `main` — distinct from the
-	// adopted default. `main` is a protected branch, so it may broadcast straight
-	// to a locked status rather than "new"; match on the fresh id, not the status.
-	created := readUntil(t, conn, func(m map[string]any) bool {
-		id, _ := m["id"].(string)
-		return m["branch"] == "main" && id != "" && id != imported.workspaceID
-	})
-	managedID, _ := created["id"].(string)
-	require.NotEmpty(t, managedID, "the managed default-branch workspace must broadcast an id")
-	require.NotEqual(t, imported.workspaceID, managedID,
-		"the managed worktree is a brand-new workspace, not the adopted default")
-
-	// The managed worktree must materialise on disk holding `main`, while the repo
-	// folder is detached so the two never both claim the branch.
-	managed := imported
-	managed.workspaceID = managedID
-	worktreeDir := workspaceWorktreePath(t, h, managed)
-	require.Eventually(t, func() bool { return dirExists(worktreeDir) },
-		5*time.Second, 100*time.Millisecond, "the managed worktree dir must be created on disk")
-	require.Equal(t, "main", currentBranch(t, worktreeDir),
-		"the managed worktree holds the default branch")
+	// The repo home is detached so it no longer claims the default branch.
 	require.Equal(t, "HEAD", currentBranch(t, imported.repoPath),
-		"the repo folder is detached (HEAD) to free the default branch for the managed worktree")
+		"the repo home is detached (HEAD) to free the default branch for its managed worktree")
+
+	// `main` is served as a locked, managed worktree distinct from the home.
+	var mainWs struct {
+		Branch    string `json:"branch"`
+		IsDefault bool   `json:"isDefault"`
+		Status    string `json:"status"`
+		LocalPath string `json:"localPath"`
+	}
+	h.get(wsBase(imported), &mainWs)
+	require.Equal(t, "main", mainWs.Branch)
+	require.False(t, mainWs.IsDefault, "the managed default-branch worktree is not the home")
+	require.Equal(t, "locked", mainWs.Status, "the protected default branch is locked")
+	require.NotEqual(t, imported.repoPath, mainWs.LocalPath,
+		"the default branch lives in a managed worktree, not the repo folder")
+
+	// On disk the managed worktree holds `main`.
+	require.Equal(t, "main", currentBranch(t, mainWs.LocalPath),
+		"the managed worktree is checked out on the default branch")
 }
 
 // currentBranch returns dir's checked-out branch, or "HEAD" when detached.

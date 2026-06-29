@@ -23,8 +23,11 @@ const (
 // Origin: the terminal socket is a live shell, so a blanket "return true" would let
 // any website the user visited open a PTY through their browser. See origin.Allowed.
 var terminalUpgrader = websocket.Upgrader{
-	ReadBufferSize:  4096,
-	WriteBufferSize: 4096,
+	ReadBufferSize: 4096,
+	// 64 KB write buffer matches the writePump coalescing target so a coalesced
+	// output message flushes in a couple of socket writes instead of being
+	// re-fragmented into ~64 writes by a small 4 KB buffer.
+	WriteBufferSize: 64 * 1024,
 	CheckOrigin: func(r *http.Request) bool {
 		o := r.Header.Get("Origin")
 		if origin.Allowed(o, r.Host) {

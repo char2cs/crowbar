@@ -47,10 +47,13 @@ export function AppSyncProvider({ children }: { children: ReactNode }) {
     function subscribeActiveProject(projectId: string): void {
       projectUnsubscribes.forEach((u) => u())
       projectUnsubscribes = []
-      if (!projectId) {
-        rebuildSidebar()
-        return
-      }
+      // Re-scope the sidebar to the new active project immediately. The tree is
+      // built from the cross-project entity cache filtered to the active project
+      // (see buildTreeFromCache), so rebuilding now drops the previous project's
+      // repos right away instead of leaving them on screen until the repo seed
+      // GET below resolves. The seed's onChange rebuilds again with fresh data.
+      rebuildSidebar()
+      if (!projectId) return
 
       const subscribedRepos = new Set<string>()
       const subscribeReposWorkspaces = async (): Promise<void> => {

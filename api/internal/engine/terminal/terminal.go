@@ -831,8 +831,66 @@ func (e *terminalEngine) persistOnDetach(ctx context.Context, sessionID string, 
 	e.fireState(ctx, ws, sessionID, "detached")
 }
 
+// maxCoalesceBytes caps how much queued PTY output writePump merges into a
+// single WebSocket message. Large enough to collapse bursts (build logs, cat,
+// full-screen TUI redraws) into a handful of messages, small enough to bound
+// per-message memory and keep the renderer's per-frame work reasonable.
+const maxCoalesceBytes = 256 * 1024
+
+// trailingIncompleteUTF8 returns the number of bytes at the end of b that form a
+// truncated (not-yet-complete) multi-byte UTF-8 sequence — a rune whose lead byte
+// has arrived but whose continuation bytes have not. Returns 0 when b ends on a
+// rune boundary (empty, or ending in an ASCII byte or a complete sequence).
+//
+// writePump uses this to avoid splitting a multi-byte rune across two messages:
+// the Data field is JSON-string-encoded, and json.Marshal replaces ANY invalid
+// UTF-8 in a string with U+FFFD. A box-drawing/powerline/emoji glyph (common in
+// TUIs like Claude Code) whose 2-4 bytes straddle a PTY-read / coalescing
+// boundary would otherwise be corrupted to the "�"/"???" glyph on screen.
+func trailingIncompleteUTF8(b []byte) int {
+	// A truncated sequence is at most 3 bytes (a 4-byte rune missing up to 3).
+	maxScan := 3
+	if len(b) < maxScan {
+		maxScan = len(b)
+	}
+	for i := 1; i <= maxScan; i++ {
+		c := b[len(b)-i]
+		if c < 0x80 {
+			return 0 // ASCII byte: the tail is already on a rune boundary
+		}
+		if c >= 0xC0 { // a lead byte
+			need := 2
+			switch {
+			case c >= 0xF0:
+				need = 4
+			case c >= 0xE0:
+				need = 3
+			}
+			if i < need {
+				return i // lead byte present but continuation bytes missing
+			}
+			return 0 // full sequence present
+		}
+		// 0x80..0xBF: continuation byte — keep scanning back for the lead byte
+	}
+	return 0 // no lead byte within the last 3 bytes (malformed) — leave as-is
+}
+
 // writePump reads from ch and forwards output frames to the WebSocket.
 // When the write fails or ch closes, it closes the connection so readPump unblocks.
+//
+// To keep high-throughput output from generating one JSON WebSocket message per
+// 4 KB PTY read (which floods the transport, the Tauri reader's IPC channel, and
+// the renderer), each iteration opportunistically drains any frames ALREADY
+// queued on ch — without blocking — and concatenates them into one message.
+// Because it never waits for more data, single-keystroke echo latency is
+// unchanged; only already-backed-up bursts coalesce. Each frame's Data is a
+// freshly-allocated slice (session.readLoop copies every read), so appending is
+// safe and never mutates a frame still sitting in the channel.
+//
+// A trailing incomplete UTF-8 rune is held back (via pending) and prepended to
+// the next message so json.Marshal never corrupts a split multi-byte glyph to
+// U+FFFD — see trailingIncompleteUTF8.
 func (e *terminalEngine) writePump(
 	conn WSConn,
 	sessionID string,
@@ -844,16 +902,50 @@ func (e *terminalEngine) writePump(
 		_ = conn.Close()
 		close(done)
 	}()
+	var pending []byte
 	for frame := range ch {
-		msg := outputMsg{
-			SessionID: sessionID,
-			Data:      string(frame.Data),
+		buf := make([]byte, 0, len(pending)+len(frame.Data))
+		buf = append(buf, pending...)
+		buf = append(buf, frame.Data...)
+		pending = pending[:0]
+		closed := false
+
+	drain:
+		for len(buf) < maxCoalesceBytes {
+			select {
+			case next, ok := <-ch:
+				if !ok {
+					closed = true
+					break drain
+				}
+				buf = append(buf, next.Data...)
+			default:
+				break drain
+			}
 		}
-		data, err := json.Marshal(msg)
-		if err != nil {
-			continue
+
+		// Hold back a trailing incomplete rune until its remaining bytes arrive.
+		// On channel close there is no more data, so flush everything as-is.
+		if !closed {
+			if n := trailingIncompleteUTF8(buf); n > 0 {
+				pending = append(pending, buf[len(buf)-n:]...)
+				buf = buf[:len(buf)-n]
+			}
 		}
-		if writeErr := conn.WriteMessage(websocket.TextMessage, data); writeErr != nil {
+
+		if len(buf) > 0 {
+			msg := outputMsg{
+				SessionID: sessionID,
+				Data:      string(buf),
+			}
+			data, err := json.Marshal(msg)
+			if err == nil {
+				if writeErr := conn.WriteMessage(websocket.TextMessage, data); writeErr != nil {
+					return
+				}
+			}
+		}
+		if closed {
 			return
 		}
 	}

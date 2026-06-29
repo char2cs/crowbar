@@ -1,5 +1,6 @@
 import { ChevronsUpDown } from 'lucide-react'
-import { useProjectStore } from '@/lib/store/projects'
+import { useProjectStore, useProjectDataStore, EMPTY_PROJECTS } from '@/lib/store/projects'
+import { dataOf } from '@/lib/loadable'
 import { useSidebarNavStore } from '@/features/layout/stores/sidebar-nav'
 import { ProjectSwitcherPanel } from './project-switcher-panel'
 
@@ -9,7 +10,7 @@ import { ProjectSwitcherPanel } from './project-switcher-panel'
  * clicking it opens the project switcher as a pushed sidebar screen.
  */
 export function ProjectSwitcherRow() {
-  const projects = useProjectStore((s) => s.projects)
+  const projects = useProjectDataStore((s) => dataOf(s.data) ?? EMPTY_PROJECTS)
   const activeProjectId = useProjectStore((s) => s.activeProjectId)
   const activeProject = projects.find((p) => p.id === activeProjectId)
 

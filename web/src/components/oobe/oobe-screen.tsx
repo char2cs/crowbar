@@ -404,7 +404,7 @@ export function OobeScreen() {
         </AnimatePresence>
       </>
 
-      <ImportProjectModal open={importOpen} onOpenChange={setImportOpen} onImport={handleImport} quick />
+      <ImportProjectModal open={importOpen} onOpenChange={setImportOpen} onImport={handleImport} />
     </div>
   )
 }

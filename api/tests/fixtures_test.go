@@ -21,11 +21,14 @@ type importedRepo struct {
 	repoPath    string
 }
 
-// importProject creates a real git repo, imports it as a project over the public
-// API, and resolves the adopted workspace. Project import is async (202 + WS,
-// spec §4): the project, its discovered repo, and the adopted main-branch
-// workspace are each broadcast as DTOs on their hierarchical WS streams. The ids
-// are learned from those frames (dial-before-POST), never from a sync body.
+// importProject creates a real git repo and brings it into Crowbar via the
+// two-step public flow: POST /v0/projects creates the project (+ its home
+// workspace) and POST /v0/projects/:p/repos adds the repo (ImportRepo). ImportRepo
+// adopts the repo home — detached off its protected default branch — and provisions
+// a locked managed worktree per protected branch (main/develop/master fallback).
+// The returned workspaceID is the locked `main` managed worktree (branch=="main");
+// write-path tests use importWritableWorkspace to get an unlocked child instead.
+// All ids are learned from the hierarchical WS streams (dial-before-POST).
 func importProject(
 	t *testing.T,
 	h *harness,
@@ -42,24 +45,27 @@ func importProject(
 		return m["path"] == repoPath
 	})
 	projectID, _ := project["id"].(string)
-	require.NotEmpty(t, projectID, "import must broadcast a ProjectDTO with an id")
+	require.NotEmpty(t, projectID, "create must broadcast a ProjectDTO with an id")
 
 	reposWS := h.dial("/v0/projects/" + projectID + "/repos")
+	addResp := h.raw(http.MethodPost, "/v0/projects/"+projectID+"/repos",
+		map[string]string{"name": "demo", "path": repoPath}, http.StatusAccepted)
+	_ = addResp.Body.Close()
 	repo := readUntil(t, reposWS, func(m map[string]any) bool {
 		return m["projectId"] == projectID
 	})
 	repoID, _ := repo["id"].(string)
-	require.NotEmpty(t, repoID, "import must broadcast a RepoDTO with an id")
+	require.NotEmpty(t, repoID, "add-repo must broadcast a RepoDTO with an id")
 
-	// The adopted main worktree is persisted after the repo in the same
-	// background import job, so wait for its WorkspaceDTO on the repo-scoped
-	// stream rather than racing a GET against the async adoption.
+	// The locked managed worktree for the protected default branch ("main") is
+	// persisted during the background ImportRepo job; wait for its WorkspaceDTO on
+	// the repo-scoped stream rather than racing a GET against the async adoption.
 	workspacesWS := h.dial("/v0/projects/" + projectID + "/repos/" + repoID + "/workspaces")
 	adopted := readUntil(t, workspacesWS, func(m map[string]any) bool {
 		return m["branch"] == "main"
 	})
 	wsID, _ := adopted["id"].(string)
-	require.NotEmpty(t, wsID, "import must adopt and broadcast a workspace for the repo")
+	require.NotEmpty(t, wsID, "import must provision and broadcast the main managed worktree")
 
 	return importedRepo{
 		projectID:   projectID,

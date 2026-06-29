@@ -16,7 +16,7 @@ import { wsManager } from '@/lib/ws/manager'
 import { openFileContent } from '@/features/workspace/lib/open-file-content'
 import { syncBufferWithDisk } from '@/features/workspace/lib/external-buffer-sync'
 import { getOrCreateWorkspaceStore } from '@/features/workspace/stores/workspace-store-registry'
-import { workspaceBase } from '@/lib/workspace-scope-url'
+import { workspaceBase, isHomeWorkspace } from '@/lib/workspace-scope-url'
 import { fetchAllGitData, useGitStore } from '@/features/git/stores/git-store'
 import { useWorkspaceThreadsStream } from './use-workspace-threads-stream'
 import type { AppFile } from '@/features/file-system/types/app'
@@ -212,7 +212,13 @@ export function useWorkspaceEffects(wsId: string) {
   // Load full git data once, then keep status + commit log live on the git
   // topic. Branches/stashes change rarely — those reload on explicit git
   // actions.
+  //
+  // The home (project-level) workspace has no git surface — the backend mounts
+  // no /home/git/* routes (the project root is not a per-workspace git
+  // worktree). Skip all git loading and the git/status stream for it so we never
+  // fire requests that 404. Files and threads remain enabled for home.
   useEffect(() => {
+    if (isHomeWorkspace(wsId)) return
     let cancelled = false
     void (async () => {
       const data = await fetchAllGitData(wsId).catch(() => null)

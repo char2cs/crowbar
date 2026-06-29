@@ -5,7 +5,8 @@ import { useNavigate, useMatch } from '@tanstack/react-router'
 import { cn } from '@/lib/utils'
 import { Button } from '@/components/ui/button'
 import { ROW_BASE, ROW_ACTIVE, ROW_INACTIVE } from './workspace-row-base'
-import { useProjectStore } from '@/lib/store/projects'
+import { useProjectStore, useProjectDataStore, EMPTY_PROJECTS } from '@/lib/store/projects'
+import { dataOf } from '@/lib/loadable'
 import { useSidebarNavStore } from '@/features/layout/stores/sidebar-nav'
 import { ProjectSwitcherPanel } from './project-switcher-panel'
 import { AddRepositoryModal } from '@/components/projects/add-repository-modal'
@@ -13,7 +14,7 @@ import { AddRepositoryModal } from '@/components/projects/add-repository-modal'
 export function ProjectHomeRow() {
   const navigate = useNavigate()
   const projectId = useProjectStore((s) => s.activeProjectId)
-  const projects = useProjectStore((s) => s.projects)
+  const projects = useProjectDataStore((s) => dataOf(s.data) ?? EMPTY_PROJECTS)
   const activeProject = projects.find((p) => p.id === projectId)
   const isActive = useMatch({ from: '/_shell/ide/$projectId/home', shouldThrow: false })
   const [addRepoOpen, setAddRepoOpen] = useState(false)

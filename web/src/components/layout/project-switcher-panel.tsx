@@ -1,10 +1,17 @@
 import { useState } from 'react'
 import { Plus } from 'lucide-react'
+import { useNavigate } from '@tanstack/react-router'
 import { cn } from '@/lib/utils'
 import { ROW_BASE } from './workspace-row-base'
 import { ImportProjectModal } from '@/components/projects/import-project-modal'
 import { useSidebarNavStore } from '@/features/layout/stores/sidebar-nav'
-import { useProjectStore, importProjectAndSync } from '@/lib/store/projects'
+import {
+  useProjectStore,
+  useProjectDataStore,
+  importProjectAndSync,
+  EMPTY_PROJECTS,
+} from '@/lib/store/projects'
+import { dataOf } from '@/lib/loadable'
 import type { Project } from '@/lib/types'
 
 /**
@@ -12,12 +19,21 @@ import type { Project } from '@/lib/types'
  * back button + title; this renders the project list and the import row.
  */
 export function ProjectSwitcherPanel() {
-  const projects = useProjectStore((s) => s.projects)
+  // Live project list (the import-only useProjectStore.projects starts empty and
+  // only carries projects imported this session — see context-pill).
+  const projects = useProjectDataStore((s) => dataOf(s.data) ?? EMPTY_PROJECTS)
   const activeProjectId = useProjectStore((s) => s.activeProjectId)
+  const navigate = useNavigate()
   const [importOpen, setImportOpen] = useState(false)
 
   function handleSelect(id: string) {
+    // Navigate to the selected project's home route. The route is the source of
+    // truth for the displayed workspace/files; setActiveProject alone only moved
+    // the context pill, leaving the route (and the file tree) on the old project.
+    // ide-shell syncs activeProjectId from the route, but we set it here too so
+    // the pill updates without waiting for the navigation effect.
     useProjectStore.getState().setActiveProject(id)
+    void navigate({ to: '/ide/$projectId/home', params: { projectId: id } })
     useSidebarNavStore.getState().pop()
   }
 

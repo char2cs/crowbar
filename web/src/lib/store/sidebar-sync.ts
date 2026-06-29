@@ -1,6 +1,7 @@
 import { getAllEntities } from '@/lib/persistence/entity-cache'
-import { buildRepoTree, type RepoDTO, type WorkspaceDTO } from '@/lib/store/build-repo-tree'
+import { buildScopedRepoTree, type RepoDTO, type WorkspaceDTO } from '@/lib/store/build-repo-tree'
 import { useSidebarStore } from '@/lib/store/sidebar'
+import { useProjectStore } from '@/lib/store/projects'
 
 /**
  * Rebuild the sidebar repo tree directly from the entity cache and push it into
@@ -15,5 +16,8 @@ export async function syncSidebarFromCache(): Promise<void> {
     getAllEntities<RepoDTO>('crowbar_repos'),
     getAllEntities<WorkspaceDTO>('crowbar_workspaces'),
   ])
-  useSidebarStore.getState().setRepos(buildRepoTree(repos, workspaces))
+  // Scope to the active project: the entity cache is cross-project but the
+  // sidebar only shows the active one (see build-repo-tree / workspace-list).
+  const tree = buildScopedRepoTree(repos, workspaces, useProjectStore.getState().activeProjectId)
+  useSidebarStore.getState().setRepos(tree)
 }

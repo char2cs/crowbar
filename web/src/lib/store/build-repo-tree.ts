@@ -86,6 +86,23 @@ export function buildRepoTree(repos: RepoDTO[], workspaces: WorkspaceDTO[]): Rep
   return repos.map((repo) => toSidebarRepo(repo, workspaces))
 }
 
+// buildScopedRepoTree is buildRepoTree filtered to a single project. The entity
+// cache holds repos from every imported project (each project's stream prunes
+// only its own scope), but the sidebar only ever shows the ACTIVE project — so
+// repos outside it are dropped before grouping. An empty/absent activeProjectId
+// (no project selected) yields an empty tree.
+export function buildScopedRepoTree(
+  repos: RepoDTO[],
+  workspaces: WorkspaceDTO[],
+  activeProjectId: string | undefined,
+): Repo[] {
+  if (!activeProjectId) return []
+  return buildRepoTree(
+    repos.filter((repo) => repo.projectId === activeProjectId),
+    workspaces,
+  )
+}
+
 // countReposByProject derives the per-project repo count the project cards
 // show, from the same repo list the sidebar already fetched.
 export function countReposByProject(repos: Array<{ projectId?: string }>): Map<string, number> {

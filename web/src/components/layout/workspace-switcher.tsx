@@ -13,7 +13,8 @@ import {
 } from '@/components/ui/command'
 import { Kbd, KbdGroup } from '@/components/ui/kbd'
 import { useSidebarStore } from '@/lib/store/sidebar'
-import { useProjectStore } from '@/lib/store/projects'
+import { useProjectStore, useProjectDataStore, EMPTY_PROJECTS } from '@/lib/store/projects'
+import { dataOf } from '@/lib/loadable'
 import { fuzzyMatch } from '@/utils/search-match'
 import { WorkspaceBranchIcon } from './workspace-branch-icon'
 import { RepoAvatar } from './repo-avatar'
@@ -36,7 +37,9 @@ export function WorkspaceSwitcherMenu({ onClose }: WorkspaceSwitcherMenuProps) {
   const navigate = useNavigate()
   const pathname = useRouterState({ select: (s) => s.location.pathname })
   const repos = useSidebarStore((s) => s.repos)
-  const projects = useProjectStore((s) => s.projects)
+  // Live project list — the import-only useProjectStore.projects starts empty
+  // (see context-pill / project-switcher-panel).
+  const projects = useProjectDataStore((s) => dataOf(s.data) ?? EMPTY_PROJECTS)
   const activeProjectId = useProjectStore((s) => s.activeProjectId)
 
   const activeWorkspaceId = pathname.match(/\/ide\/[^/]+\/[^/]+\/([^/]+)/)?.[1]

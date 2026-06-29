@@ -2,7 +2,8 @@ import { render, screen, fireEvent } from '@testing-library/react'
 import { describe, it, expect, beforeEach } from 'vitest'
 import { ContextPill } from '@/components/layout/context-pill'
 import { useSidebarStore, type Repo } from '@/lib/store/sidebar'
-import { useProjectStore } from '@/lib/store/projects'
+import { useProjectStore, useProjectDataStore } from '@/lib/store/projects'
+import { success } from '@/lib/loadable'
 
 // @base-ui/react ships pure ESM (.mjs) and pnpm gives it its own React copy
 // that diverges from react-dom's singleton in the vitest/jsdom process, causing
@@ -120,9 +121,10 @@ const repos: Repo[] = [
 beforeEach(() => {
   mockPathname = '/'
   useSidebarStore.setState({ repos, activeTab: 'files' })
-  useProjectStore.setState({
-    projects: [{ id: 'p1', name: 'Crowbar', path: '/x', lastActivity: new Date(0) }],
-    activeProjectId: 'p1',
+  useProjectStore.setState({ activeProjectId: 'p1' })
+  // The pill reads the live project list (useProjectDataStore) for the name.
+  useProjectDataStore.setState({
+    data: success([{ id: 'p1', name: 'Crowbar', path: '/x', lastActivity: new Date(0) }]),
   })
 })
 
@@ -158,7 +160,8 @@ describe('ContextPill', () => {
 
   it('renders nothing when nothing resolves', () => {
     mockPathname = '/'
-    useProjectStore.setState({ projects: [], activeProjectId: '' })
+    useProjectStore.setState({ activeProjectId: '' })
+    useProjectDataStore.setState({ data: success([]) })
     const { container } = render(<ContextPill />)
     expect(container).toBeEmptyDOMElement()
   })

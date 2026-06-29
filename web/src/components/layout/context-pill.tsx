@@ -4,7 +4,8 @@ import { useRouterState } from '@tanstack/react-router'
 import { Button } from '@/components/ui/button'
 import { CommandDialog, CommandDialogTrigger, CommandDialogPopup } from '@/components/ui/command'
 import { useSidebarStore } from '@/lib/store/sidebar'
-import { useProjectStore } from '@/lib/store/projects'
+import { useProjectStore, useProjectDataStore, EMPTY_PROJECTS } from '@/lib/store/projects'
+import { dataOf } from '@/lib/loadable'
 import { WorkspaceBranchIcon } from './workspace-branch-icon'
 import { deriveContextPillModel } from './context-pill-model'
 import { WorkspaceSwitcherMenu } from './workspace-switcher'
@@ -20,7 +21,7 @@ import { useWorkspaceSwitcherKeyboard } from '@/features/keymaps/hooks/use-works
 export function ContextPill() {
   const pathname = useRouterState({ select: (s) => s.location.pathname })
   const repos = useSidebarStore((s) => s.repos)
-  const projects = useProjectStore((s) => s.projects)
+  const projects = useProjectDataStore((s) => dataOf(s.data) ?? EMPTY_PROJECTS)
   const activeProjectId = useProjectStore((s) => s.activeProjectId)
   const [open, setOpen] = useState(false)
   const openSwitcher = useCallback(() => setOpen(true), [])

@@ -11,6 +11,8 @@ import { useProjectStore } from '@/lib/store/projects'
 vi.mock('@phosphor-icons/react', () => ({
   House: ({ size, weight }: { size?: number; weight?: string }) =>
     React.createElement('svg', { 'data-icon': 'house', 'data-size': size, 'data-weight': weight }),
+  FolderPlus: ({ size }: { size?: number }) =>
+    React.createElement('svg', { 'data-icon': 'folder-plus', 'data-size': size }),
 }))
 
 const navigateMock = vi.fn()

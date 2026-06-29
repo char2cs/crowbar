@@ -93,6 +93,14 @@ func (c *Container) Register(
 		c.app.GORM.Projects,
 		c.app.Usecases.File,
 		c.eng.Terminal,
+		// Reused from the workspace-scoped surface: the file-change WS handler and
+		// the review-thread store/broadcaster/WS, dual-served via the same wrapper.
+		// home.Register injects the resolved home :wsId so these scope correctly.
+		c.files.Handle,
+		c.app.Repositories.ReviewThread,
+		c.threads,
+		c.threads.Handle,
+		ws.DualServe,
 	)
 	workspaces.Register(
 		repoScoped,

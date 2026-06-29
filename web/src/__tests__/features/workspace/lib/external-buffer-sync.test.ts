@@ -9,7 +9,9 @@ vi.mock('@/features/file-system/controllers/platform', () => ({
 }))
 
 const toastWarning = vi.fn()
-vi.mock('@/components/ui/toast', () => ({
+// The toast API moved to the window toast-store (cossui migration); mock the path
+// external-buffer-sync actually imports, not the legacy @/components/ui/toast.
+vi.mock('@/features/window/stores/toast-store', () => ({
   toast: {
     warning: (...args: unknown[]) => toastWarning(...args),
     error: vi.fn(),

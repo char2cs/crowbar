@@ -3,6 +3,7 @@ import { upsertEntity } from '@/lib/persistence/entity-cache'
 import { wipeEntityCache } from '@/lib/persistence/idb'
 import { syncSidebarFromCache } from '@/lib/store/sidebar-sync'
 import { useSidebarStore } from '@/lib/store/sidebar'
+import { useProjectStore } from '@/lib/store/projects'
 import type { RepoDTO, WorkspaceDTO } from '@/lib/types'
 
 // Regression for the §14 add-repo bounce: after adding a repo the modal
@@ -50,6 +51,7 @@ function repoDTO(over: Partial<RepoDTO> & { id: string }): RepoDTO {
 beforeEach(async () => {
   await wipeEntityCache()
   useSidebarStore.setState({ repos: [] })
+  useProjectStore.setState({ activeProjectId: 'p1' })
 })
 
 describe('syncSidebarFromCache', () => {
@@ -63,5 +65,17 @@ describe('syncSidebarFromCache', () => {
     const repo = repos.find((r) => r.id === 'repo-9')
     expect(repo).toBeDefined()
     expect(repo!.workspaces.some((w) => w.id === 'ws-1')).toBe(true)
+  })
+
+  // Regression: the entity cache is cross-project, so syncSidebarFromCache must
+  // scope its rebuild to the active project — otherwise adding a repo to one
+  // project would surface every other project's repos in the sidebar too.
+  it('scopes the rebuilt tree to the active project', async () => {
+    await upsertEntity('crowbar_repos', repoDTO({ id: 'repo-p1', projectId: 'p1' }))
+    await upsertEntity('crowbar_repos', repoDTO({ id: 'repo-p2', projectId: 'p2' }))
+
+    await syncSidebarFromCache()
+
+    expect(useSidebarStore.getState().repos.map((r) => r.id)).toEqual(['repo-p1'])
   })
 })

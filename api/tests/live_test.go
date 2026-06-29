@@ -28,7 +28,8 @@ func TestLive_GitSnapshotThenLiveUpdate(t *testing.T) {
 	})
 	assert.Equal(t, "main", snapshot["branch"])
 
-	stop := rewriteOnTicker(t, imported.repoPath, "README.md", "snapshot then live\n")
+	// Edit the WATCHED workspace's managed worktree (not the detached repo home).
+	stop := rewriteOnTicker(t, workspaceWorktreePath(t, h, imported), "README.md", "snapshot then live\n")
 	defer stop()
 
 	live := readUntil(t, conn, func(m map[string]any) bool {
@@ -48,7 +49,7 @@ func TestLive_FileChangeEvent(t *testing.T) {
 
 	conn := h.dial(wsBase(imported) + "/files/ws")
 
-	stop := rewriteOnTicker(t, imported.repoPath, "watched.txt", "edit\n")
+	stop := rewriteOnTicker(t, workspaceWorktreePath(t, h, imported), "watched.txt", "edit\n")
 	defer stop()
 
 	got := readUntil(t, conn, func(m map[string]any) bool {
@@ -91,7 +92,7 @@ func TestLive_GitWsIdScopingIsolatesWorkspaces(t *testing.T) {
 		return ok
 	})
 
-	stop := rewriteOnTicker(t, b.repoPath, "README.md", "edit B\n")
+	stop := rewriteOnTicker(t, workspaceWorktreePath(t, h, b), "README.md", "edit B\n")
 	defer stop()
 
 	// Subscribing to B's watcher via a second connection makes B's events real;

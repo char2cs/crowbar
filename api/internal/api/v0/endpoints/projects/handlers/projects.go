@@ -25,17 +25,9 @@ type ListGetter interface {
 	) (domain.Project, error)
 }
 
-// Importer is the import surface the projects handlers need: adopt a directory
-// tree as a new Project.
+// Importer is the import surface the projects handlers need: validate the path
+// and persist the Project record with its home workspace.
 type Importer interface {
-	Import(
-		ctx context.Context,
-		name string,
-		path string,
-	) (domain.Project, error)
-	// Create is the lightweight variant: validate the path and persist the
-	// Project record only — no repo discovery, no workspace stubs. Used by
-	// the OOBE flow where the project-level welcome screen handles repo setup.
 	Create(
 		ctx context.Context,
 		name string,
@@ -104,9 +96,6 @@ func (h *Handlers) WithStat(
 type importRequest struct {
 	Name string `json:"name"`
 	Path string `json:"path"`
-	// Quick skips repo discovery and workspace stub creation. Use it from the
-	// OOBE flow where repo setup is deferred to the project-level welcome screen.
-	Quick bool `json:"quick,omitempty"`
 }
 
 // List handles GET /v0/projects, returning every project as ProjectDTO[].
@@ -137,10 +126,9 @@ func (h *Handlers) Detail(
 
 // Import handles POST /v0/projects. It validates the request synchronously (body
 // shape, name present, path present and existing on disk) returning 4xx on any
-// failure; then it returns 202 and runs the import/create in the background. On
+// failure; then it returns 202 and runs the create in the background. On
 // success the created project is delivered as a ProjectDTO on the Projects
-// WebSocket stream. The import path additionally yields repos and a default
-// branch workspace, which broadcast on their own repo/workspace channels.
+// WebSocket stream.
 func (h *Handlers) Import(
 	c *gin.Context,
 ) {
@@ -162,30 +150,15 @@ func (h *Handlers) Import(
 		return
 	}
 	libs.WriteAccepted(c)
-	quick := body.Quick
 	name := body.Name
 	path := body.Path
 	runAsync(c.Request.Context(), func(ctx context.Context) {
-		project, err := h.runImport(ctx, quick, name, path)
+		project, err := h.importer.Create(ctx, name, path)
 		if err != nil {
 			return
 		}
 		h.broadcast(dto.ProjectDTOFrom(project))
 	})
-}
-
-// runImport dispatches to the lightweight Create or the full Import usecase
-// based on the quick flag.
-func (h *Handlers) runImport(
-	ctx context.Context,
-	quick bool,
-	name string,
-	path string,
-) (domain.Project, error) {
-	if quick {
-		return h.importer.Create(ctx, name, path)
-	}
-	return h.importer.Import(ctx, name, path)
 }
 
 // Delete handles DELETE /v0/projects/:projectId. It validates the project exists

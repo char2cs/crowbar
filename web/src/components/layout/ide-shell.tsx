@@ -9,7 +9,7 @@ import { ContextPill } from './context-pill'
 import { SidebarCarousel } from './sidebar-carousel'
 import { IS_MAC } from '@/utils/platform'
 import { useSidebarStore } from '@/lib/store/sidebar'
-import { useProjectStore } from '@/lib/store/projects'
+import { useProjectStore, useProjectDataStore, EMPTY_PROJECTS } from '@/lib/store/projects'
 import { WorkspaceView } from '@/features/workspace/components/workspace-view'
 import SettingsDialog from '@/features/settings/components/settings-dialog'
 import { TerminalHost } from '@/features/terminal/components/terminal-host'
@@ -24,6 +24,7 @@ import { SidebarToastOverlay } from './sidebar-toast-overlay'
 import { useSidebarNavStore } from '@/features/layout/stores/sidebar-nav'
 import { recordWorkspaceScopeFromPath } from '@/lib/workspace-scope'
 import { useWorkspaceProviderStream } from '@/features/workspace/stores/hooks/use-workspace-provider-stream'
+import { dataOf } from '@/lib/loadable'
 
 const SIDEBAR_MIN_PX = 250
 const SIDEBAR_MAX_PX = 640
@@ -73,10 +74,12 @@ export function IDEShell() {
   // (RepoDTO.path), which is the same directory.
   const activeWorkspace = activeRepo?.workspaces.find((w) => w.id === activeWorkspaceId)
   // For the home route there is no repoId, so fall back to any repo under the
-  // active project — home workspaces point to the project root, which for a
-  // single-repo project equals the repo's own localPath.
+  // active project, then to the project's own path (the home workspace root).
+  const allProjects = useProjectDataStore((s) => dataOf(s.data) ?? EMPTY_PROJECTS)
   const projectFallbackPath = homeRouteMatch
-    ? (repos.find((r) => r.projectId === activeProjectIdFromRoute)?.localPath ?? '')
+    ? (repos.find((r) => r.projectId === activeProjectIdFromRoute)?.localPath
+        ?? allProjects.find((p) => p.id === activeProjectIdFromRoute)?.path
+        ?? '')
     : ''
   const activeWorkspaceRepoPath =
     activeWorkspace?.localPath ?? activeRepo?.localPath ?? projectFallbackPath

@@ -16,8 +16,10 @@ import (
 )
 
 var homeTerminalUpgrader = websocket.Upgrader{
-	ReadBufferSize:  4096,
-	WriteBufferSize: 4096,
+	ReadBufferSize: 4096,
+	// 64 KB write buffer matches the writePump coalescing target so a coalesced
+	// output message flushes in a couple of socket writes instead of ~64.
+	WriteBufferSize: 64 * 1024,
 	CheckOrigin: func(r *http.Request) bool {
 		o := r.Header.Get("Origin")
 		if origin.Allowed(o, r.Host) {

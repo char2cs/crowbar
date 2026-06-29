@@ -14,6 +14,33 @@
   font-display: swap;
 }
 
+/*
+ * Symbols Nerd Font Mono — icon-glyph fallback for the terminal.
+ *
+ * TUIs like Claude Code render Nerd Font / Powerline icon glyphs (private-use
+ * codepoints). Those are NOT in JetBrains Mono or any system mono font, so
+ * without this they fall through the whole chain to a missing-glyph box (tofu).
+ * The terminal font chain (terminal-fonts.ts) already lists "Symbols Nerd Font
+ * Mono"/"Symbols Nerd Font" as the first fallbacks; bundling the symbols-only
+ * font under those exact family names lights that chain up. Single-cell ("Mono")
+ * width keeps icons aligned to the terminal grid. One file backs both names.
+ */
+@font-face {
+  font-family: 'Symbols Nerd Font Mono';
+  src: url('/fonts/SymbolsNerdFontMono-Regular.woff2') format('woff2');
+  font-weight: normal;
+  font-style: normal;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: 'Symbols Nerd Font';
+  src: url('/fonts/SymbolsNerdFontMono-Regular.woff2') format('woff2');
+  font-weight: normal;
+  font-style: normal;
+  font-display: swap;
+}
+
 @theme inline {
   /* Single source of truth: the UI font picked in Settings (--app-font-family,
      written to :root by the bootstrap + FontStyleInjector). 'CalSansUI' is the

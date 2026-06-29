@@ -3,14 +3,17 @@ import { render, screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { describe, it, expect, beforeEach } from 'vitest'
 import { ProjectSwitcherRow } from '@/components/layout/project-switcher-row'
-import { useProjectStore } from '@/lib/store/projects'
+import { useProjectStore, useProjectDataStore } from '@/lib/store/projects'
+import { success } from '@/lib/loadable'
 import { useSidebarNavStore } from '@/features/layout/stores/sidebar-nav'
 
 beforeEach(() => {
   useSidebarNavStore.getState().reset()
-  useProjectStore.setState({
-    projects: [{ id: 'p1', name: 'Rabbyte', path: '/a', lastActivity: new Date(0) }],
-    activeProjectId: 'p1',
+  useProjectStore.setState({ activeProjectId: 'p1' })
+  // The row reads the live project list (useProjectDataStore), not the
+  // import-only useProjectStore.projects.
+  useProjectDataStore.setState({
+    data: success([{ id: 'p1', name: 'Rabbyte', path: '/a', lastActivity: new Date(0) }]),
   })
 })
 
@@ -30,7 +33,8 @@ describe('ProjectSwitcherRow', () => {
   })
 
   it('falls back to "Select project" when none is active', () => {
-    useProjectStore.setState({ projects: [], activeProjectId: '' })
+    useProjectStore.setState({ activeProjectId: '' })
+    useProjectDataStore.setState({ data: success([]) })
     render(<ProjectSwitcherRow />)
     expect(screen.getByRole('button', { name: /Select project/ })).toBeTruthy()
   })

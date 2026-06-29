@@ -156,10 +156,36 @@ export function deriveStaticFontEquivalent(font: string): string | null {
   return stripped.toLowerCase() === base.toLowerCase() ? null : stripped
 }
 
+/**
+ * The bundled Nerd Font symbol fallback family (see the @font-face in theme.css
+ * and the fallback list in terminal-fonts.ts). TUIs (Claude Code, lazygit, etc.)
+ * render private-use icon glyphs that no text mono font carries.
+ */
+const SYMBOL_FALLBACK_FONT = 'Symbols Nerd Font Mono'
+
+/**
+ * Warm the bundled symbol fallback font so the terminal's WebGL glyph atlas
+ * rasterizes icon glyphs correctly on first paint instead of caching a
+ * missing-glyph box (the atlas does not re-rasterize already-drawn codepoints
+ * until it is cleared). Best-effort: never throws, never blocks terminal init.
+ */
+async function ensureSymbolFallbackFontLoaded(fontSize: number): Promise<void> {
+  if (typeof document === 'undefined' || !document.fonts) return
+  try {
+    await document.fonts.load(`${fontSize}px "${SYMBOL_FALLBACK_FONT}"`)
+  } catch {
+    // Font missing/unavailable: the chain still degrades to a box, same as before.
+  }
+}
+
 export async function resolveTerminalFont(
   requestedFont: string,
   fontSize: number,
 ): Promise<{ fontFamily: string; skipWebGL: boolean }> {
+  // Make sure the icon-glyph fallback is loaded before the terminal renders so
+  // Nerd Font symbols don't get cached as tofu in the WebGL atlas.
+  await ensureSymbolFallbackFontLoaded(fontSize)
+
   // Prefer the static cut of a variable font so xterm can keep its WebGL
   // renderer. Only taken when the static cut is actually available.
   const staticEquivalent = deriveStaticFontEquivalent(requestedFont)

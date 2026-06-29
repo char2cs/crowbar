@@ -66,6 +66,18 @@ describe('useWorkspaceEffects', () => {
     expect(subscribe).toHaveBeenCalledWith(`${WS_BASE}/git/status`, expect.any(Function))
   })
 
+  // The home (project-level) workspace has no git surface — the backend mounts
+  // no /home/git/* routes. The effect must skip the git stream for it (no
+  // git/status 404s) while keeping files (the file tree watcher stays).
+  it('skips the git stream for a home workspace but keeps the files stream', () => {
+    setWorkspaceScope({ projectId: 'p1', repoId: '', wsId: 'home-ws' })
+    renderHook(() => useWorkspaceEffects('home-ws'))
+
+    const endpoints = (subscribe.mock.calls as unknown as [string][]).map(([ep]) => ep)
+    expect(endpoints).toContain('/v0/projects/p1/home/files/ws')
+    expect(endpoints.some((ep) => ep.includes('/git/'))).toBe(false)
+  })
+
   // Regression: an editor save dispatches "git-status-updated" but the git
   // store only refreshed on the backend watcher's WS event, so the Changes
   // panel went stale when that event was missed. The effect must also reload

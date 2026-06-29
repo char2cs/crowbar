@@ -142,11 +142,11 @@ export function fetchHomeWorkspace(projectId: string): Promise<WorkspaceDTO> {
 // await the WS DTO for navigation, never an id from these calls.
 // ---------------------------------------------------------------------------
 
-export function postProject(name: string, path: string, quick?: boolean): Promise<void> {
+export function postProject(name: string, path: string): Promise<void> {
   return apiFetch('/v0/projects', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ name, path, ...(quick ? { quick: true } : {}) }),
+    body: JSON.stringify({ name, path }),
   })
 }
 

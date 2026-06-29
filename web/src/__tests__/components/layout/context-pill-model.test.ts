@@ -73,6 +73,8 @@ describe('deriveContextPillModel', () => {
       status: 'new',
       repoName: 'crowbar',
       branchName: 'default',
+      // The default (imported-folder) workspace shows the repo avatar in the pill.
+      repoAvatar: { url: undefined, label: 'C', color: 'bg-indigo-700' },
     })
   })
 

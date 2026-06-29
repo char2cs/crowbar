@@ -252,7 +252,10 @@ func (s *Session) Attach() (<-chan OutputFrame, error) {
 
 	cl := &client{send: make(chan OutputFrame, clientSendBuf)}
 
-	snap := s.ring.Snapshot()
+	// Sanitize the replayed scrollback so re-attach/restore does not make xterm
+	// re-answer embedded queries (echoed as garbage at the prompt), re-apply
+	// app-only modes, or re-set a stale title. Visual content is preserved.
+	snap := sanitizeReplaySnapshot(s.ring.Snapshot())
 	if len(snap) > 0 {
 		cl.send <- OutputFrame{SessionID: s.id, Data: snap}
 	}
@@ -354,8 +357,14 @@ func (s *Session) Kill() {
 // regression that removes the lock will break the race-detector test.
 // Also scans the chunk for OSC 7 sequences to update s.cwd (best-effort).
 func (s *Session) pumpStep(chunk []byte) {
+	// Scan for OSC 7 OUTSIDE the lock: the chunk is freshly owned by pump() (or
+	// the test), so the read-only scan is race-free, and keeping it out of s.mu
+	// shrinks the hot-path critical section — which matters now that the read
+	// buffer is large (the scan is O(chunk)). Only the s.cwd assignment, which
+	// races with CWD()/Attach(), stays under the lock.
+	path, ok := parseLastOSC7(chunk)
 	s.mu.Lock()
-	if path, ok := parseLastOSC7(chunk); ok {
+	if ok {
 		s.cwd = path
 	}
 	s.ring.Write(chunk) // ring.mu nested under s.mu — same order Attach uses
@@ -382,7 +391,12 @@ func (s *Session) pump() {
 		return // placeholder: no PTY to read from
 	}
 
-	buf := make([]byte, 4096)
+	// 64 KB read buffer: PTY masters return whatever is available up to the
+	// buffer size, so a single keystroke echo still reads a few bytes with the
+	// same latency, but a high-throughput burst (Claude Code redraws, build logs,
+	// cat) is drained in ~4-8 reads instead of dozens of 4 KB reads — cutting
+	// syscalls, allocations, OSC7 scans, and per-chunk channel sends ~16x.
+	buf := make([]byte, 64*1024)
 	for {
 		n, err := ptmx.Read(buf)
 		if n > 0 {

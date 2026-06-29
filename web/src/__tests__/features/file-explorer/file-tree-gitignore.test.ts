@@ -42,6 +42,22 @@ describe('file tree gitignore rules', () => {
     ])
   })
 
+  // Regression: never synthesize a conventional root .gitignore reference. The
+  // backend tree includes dotfiles, so a real root .gitignore is surfaced by the
+  // walk; synthesizing one when the project root has none (common for the
+  // project-home workspace) fetched a non-existent file and 404'd on every load.
+  it('does not synthesize a root .gitignore reference when the loaded tree has none', () => {
+    const references = collectGitIgnoreFileReferences(
+      [dir('athas', 'athas'), dir('desktop', 'desktop')],
+      '/repo',
+    )
+    expect(references).toEqual([])
+  })
+
+  it('returns no references for an empty (not-yet-loaded) tree instead of synthesizing one', () => {
+    expect(collectGitIgnoreFileReferences([], '/repo')).toEqual([])
+  })
+
   it('applies nested .gitignore files relative to the directory that owns them', () => {
     const rules = createFileTreeGitIgnoreRules('/repo', [
       {

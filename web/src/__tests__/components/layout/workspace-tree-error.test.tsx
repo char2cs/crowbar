@@ -6,6 +6,7 @@ vi.mock('@tanstack/react-router', () => ({
   useNavigate: () => () => {},
   useRouterState: () => '',
   useRouter: () => ({ state: { location: { pathname: '/' } } }),
+  useMatch: () => null,
 }))
 
 import { failed, idle } from '@/lib/loadable'

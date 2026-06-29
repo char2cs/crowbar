@@ -2,8 +2,14 @@ import { render, screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { describe, it, expect, beforeEach, vi } from 'vitest'
 import { ProjectSwitcherPanel } from '@/components/layout/project-switcher-panel'
-import { useProjectStore } from '@/lib/store/projects'
+import { useProjectStore, useProjectDataStore } from '@/lib/store/projects'
+import { success } from '@/lib/loadable'
 import { useSidebarNavStore } from '@/features/layout/stores/sidebar-nav'
+
+// Selecting a project navigates to its home route (the route is the source of
+// truth); mock the router so navigate is observable without a RouterProvider.
+const navigateMock = vi.fn()
+vi.mock('@tanstack/react-router', () => ({ useNavigate: () => navigateMock }))
 
 const PROJECTS = [
   { id: 'p1', name: 'Rabbyte', path: '/a', lastActivity: new Date(0) },
@@ -11,8 +17,11 @@ const PROJECTS = [
 ]
 
 beforeEach(() => {
+  navigateMock.mockClear()
   useSidebarNavStore.getState().reset()
-  useProjectStore.setState({ projects: PROJECTS, activeProjectId: 'p1' })
+  useProjectStore.setState({ activeProjectId: 'p1' })
+  // The panel lists the live project set (useProjectDataStore).
+  useProjectDataStore.setState({ data: success(PROJECTS) })
 })
 
 describe('ProjectSwitcherPanel', () => {
@@ -34,6 +43,11 @@ describe('ProjectSwitcherPanel', () => {
     render(<ProjectSwitcherPanel />)
     await userEvent.click(screen.getByRole('button', { name: /Quiver/ }))
     expect(setActiveProject).toHaveBeenCalledWith('p2')
+    // The route is navigated to the selected project's home (the desync fix).
+    expect(navigateMock).toHaveBeenCalledWith({
+      to: '/ide/$projectId/home',
+      params: { projectId: 'p2' },
+    })
     expect(useSidebarNavStore.getState().stack).toHaveLength(0)
   })
 

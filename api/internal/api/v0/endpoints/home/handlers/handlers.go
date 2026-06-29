@@ -149,3 +149,21 @@ func (h *Handlers) resolveHome(c *gin.Context) (domain.Workspace, bool) {
 	}
 	return ws, true
 }
+
+// RequireHomeWorkspace resolves the project's home workspace and injects its id
+// as the :wsId path param, so handlers and the WS broadcaster reused from the
+// repo-scoped surface (the file-change WS, review threads) resolve the home
+// workspace by id without a dedicated home implementation. The home workspace
+// has no repo, so :repoId stays empty — the thread namespace, filters, and
+// snapshot all tolerate the empty middle segment (clientScope trims only
+// trailing empties, so "p//w" still prefix-matches "p//w/<id>"). On failure
+// resolveHome has already written the error envelope; we just abort the chain.
+func (h *Handlers) RequireHomeWorkspace(c *gin.Context) {
+	ws, ok := h.resolveHome(c)
+	if !ok {
+		c.Abort()
+		return
+	}
+	c.Params = append(c.Params, gin.Param{Key: "wsId", Value: ws.ID})
+	c.Next()
+}

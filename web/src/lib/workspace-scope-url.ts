@@ -16,3 +16,13 @@ export function workspaceBase(wsId: string): string {
   const w = encodeURIComponent(wsId)
   return `/v0/projects/${p}/repos/${r}/workspaces/${w}`
 }
+
+// A home (project-level) workspace has no owning repo: its scope is recorded
+// with an empty repoId (see the .../home route), which is how workspaceBase
+// routes it to /home/... The home workspace deliberately has no git surface on
+// the backend, so callers use this to skip git data/streams (files and threads
+// ARE home capabilities and stay enabled). Returns false when the scope is
+// unknown so non-home workspaces keep their full surface.
+export function isHomeWorkspace(wsId: string): boolean {
+  return getWorkspaceScope(wsId)?.repoId === ''
+}

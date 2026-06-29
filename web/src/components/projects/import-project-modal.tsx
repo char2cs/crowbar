@@ -22,15 +22,13 @@ interface ImportProjectModalProps {
   open: boolean
   onOpenChange: (open: boolean) => void
   onImport: (project: Project) => void
-  /** Skip repo discovery — used by OOBE where project-level setup handles it later. */
-  quick?: boolean
 }
 
 // The backend imports a project from an absolute path on its own filesystem,
 // so the dialog takes the path as text. A browser folder picker cannot supply
 // one (webkitdirectory yields only the folder *name*), which used to send
 // garbage paths like "my-repo" to the import endpoint.
-export function ImportProjectModal({ open, onOpenChange, onImport, quick }: ImportProjectModalProps) {
+export function ImportProjectModal({ open, onOpenChange, onImport }: ImportProjectModalProps) {
   const [selectedPath, setSelectedPath] = useState('')
   const [projectName, setProjectName] = useState('')
   const [loading, setLoading] = useState(false)
@@ -61,7 +59,7 @@ export function ImportProjectModal({ open, onOpenChange, onImport, quick }: Impo
       const dto = await awaitEntity<ProjectDTO>({
         endpoint: '/v0/projects',
         match: (p) => p.path === trimmedPath && p.status !== 'deleted',
-        action: () => postProject(name, trimmedPath, quick),
+        action: () => postProject(name, trimmedPath),
       })
       onImport(projectFromDTO(dto))
       setSelectedPath('')

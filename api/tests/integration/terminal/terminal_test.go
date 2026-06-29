@@ -295,6 +295,127 @@ func (s *TerminalSuite) TestTerminal_PTYWSAtScopedPath() {
 	})
 }
 
+// TestRegression_TerminalSession_HighThroughputOutputIntact proves that the
+// writePump output-coalescing optimization (it merges PTY frames already queued
+// on the client channel into a single WebSocket message under load) preserves
+// the byte stream exactly: a large deterministic burst is delivered in full and
+// in order, with no dropped, duplicated, or reordered bytes. Guards the
+// coalescing change in terminalEngine.writePump.
+func (s *TerminalSuite) TestRegression_TerminalSession_HighThroughputOutputIntact() {
+	t := s.T()
+
+	lifecycle := s.Env.DialTerminals(t, s.imported.ProjectID, s.imported.RepoID, s.wsID)
+
+	createResp := s.Env.POST(t, s.base()+"/terminals", map[string]any{})
+	kit.RequireStatus(t, createResp, http.StatusCreated)
+	var createBody map[string]any
+	kit.DecodeEnvData(t, createResp, &createBody)
+	sessionID, _ := createBody["sessionId"].(string)
+	s.Require().NotEmpty(sessionID)
+
+	ws := s.Env.DialTerminalPTY(t, s.imported.ProjectID, s.imported.RepoID, s.wsID, sessionID)
+
+	// Wait for the initial shell prompt so the PTY is confirmed live before the
+	// burst (otherwise the command can race the shell's startup).
+	ws.ReadUntil(t, 10*time.Second, func(m map[string]any) bool {
+		data, _ := m["data"].(string)
+		return len(data) > 0
+	})
+
+	// Drive a large deterministic burst. The completion marker is assembled from
+	// a shell variable so the literal "BURST_COMPLETE_7d1c" appears ONLY in the
+	// command's OUTPUT, never in the echoed command line — otherwise ReadUntil
+	// would stop on the echo before the burst arrived.
+	ws.SendJSON(t, map[string]any{
+		"data": "M=BURST_COMPLETE; seq 1 3000; echo \"${M}_7d1c\"\n",
+	})
+
+	var sb strings.Builder
+	ws.ReadUntil(t, 20*time.Second, func(m map[string]any) bool {
+		data, _ := m["data"].(string)
+		sb.WriteString(data)
+		return strings.Contains(sb.String(), "BURST_COMPLETE_7d1c")
+	})
+
+	// Strip the PTY's ONLCR carriage returns so the line checks are termios-agnostic.
+	out := strings.ReplaceAll(sb.String(), "\r", "")
+
+	// Early, middle, and tail of the ascending run must each be present as
+	// consecutive newline-delimited sequences. These multi-line substrings cannot
+	// come from the echoed `seq 1 3000` command and would break if coalescing
+	// dropped, duplicated, or reordered any frame boundary. (We anchor on runs
+	// with a guaranteed leading "\n" — the very first "1" follows a terminal
+	// bell from the shell's OSC title sequence, not a newline.)
+	s.Assert().Contains(out, "\n10\n11\n12\n13\n14\n15\n", "start of burst must arrive intact and in order")
+	s.Assert().Contains(out, "\n1500\n1501\n1502\n1503\n1504\n1505\n", "middle of burst must arrive intact and in order")
+	s.Assert().Contains(out, "\n2996\n2997\n2998\n2999\n3000\n", "end of burst must arrive intact and in order")
+
+	// The completion marker must arrive AFTER the full burst — proves the entire
+	// ordered stream was delivered before the trailing echo, with nothing lost.
+	idxTail := strings.Index(out, "\n3000\n")
+	idxMarker := strings.Index(out, "BURST_COMPLETE_7d1c")
+	s.Require().GreaterOrEqual(idxTail, 0, "tail of burst (3000) must be present")
+	s.Assert().Greater(idxMarker, idxTail, "completion marker must follow the full burst")
+
+	// Cleanup: kill and block on "ended" so the PTY is reaped before TempDir teardown.
+	kill := s.Env.DELETE(t, s.base()+"/terminals/"+sessionID)
+	kill.Body.Close()
+	lifecycle.ReadUntil(t, 5*time.Second, func(m map[string]any) bool {
+		return m["id"] == sessionID && m["status"] == "ended"
+	})
+}
+
+// TestRegression_TerminalSession_MultibyteOutputNotCorrupted proves the writePump
+// UTF-8 holdback: a large burst of multi-byte glyphs (box-drawing U+2500, which a
+// TUI like Claude Code draws constantly) is delivered with every rune intact and
+// ZERO U+FFFD replacement characters — even though the bytes straddle the PTY read
+// buffer and message-coalescing boundaries. Without the holdback, json.Marshal
+// corrupts any rune split across a message into U+FFFD (the on-screen "???"/box).
+func (s *TerminalSuite) TestRegression_TerminalSession_MultibyteOutputNotCorrupted() {
+	t := s.T()
+
+	lifecycle := s.Env.DialTerminals(t, s.imported.ProjectID, s.imported.RepoID, s.wsID)
+
+	createResp := s.Env.POST(t, s.base()+"/terminals", map[string]any{})
+	kit.RequireStatus(t, createResp, http.StatusCreated)
+	var createBody map[string]any
+	kit.DecodeEnvData(t, createResp, &createBody)
+	sessionID, _ := createBody["sessionId"].(string)
+	s.Require().NotEmpty(sessionID)
+
+	ws := s.Env.DialTerminalPTY(t, s.imported.ProjectID, s.imported.RepoID, s.wsID, sessionID)
+	ws.ReadUntil(t, 10*time.Second, func(m map[string]any) bool {
+		data, _ := m["data"].(string)
+		return len(data) > 0
+	})
+
+	// Emit ~120 KB of the 3-byte rune U+2500 (well past the 64 KB read buffer, so
+	// runes are guaranteed to straddle read+coalesce boundaries), then a marker
+	// assembled from a shell var so the literal only appears in the OUTPUT.
+	ws.SendJSON(t, map[string]any{
+		"data": "M=BURSTDONE; yes ─ | head -n 40000 | tr -d '\\n'; echo \"${M}_u8\"\n",
+	})
+
+	var sb strings.Builder
+	ws.ReadUntil(t, 25*time.Second, func(m map[string]any) bool {
+		data, _ := m["data"].(string)
+		sb.WriteString(data)
+		return strings.Contains(sb.String(), "BURSTDONE_u8")
+	})
+	out := sb.String()
+
+	// The headline invariant: not a single replacement character anywhere.
+	s.Assert().NotContains(out, "�", "multi-byte glyphs must not be corrupted to U+FFFD")
+	// And the run actually arrived: at least the 40000 emitted box-drawing runes.
+	s.Assert().GreaterOrEqual(strings.Count(out, "─"), 40000, "all box-drawing runes must arrive intact")
+
+	kill := s.Env.DELETE(t, s.base()+"/terminals/"+sessionID)
+	kill.Body.Close()
+	lifecycle.ReadUntil(t, 5*time.Second, func(m map[string]any) bool {
+		return m["id"] == sessionID && m["status"] == "ended"
+	})
+}
+
 // ---------------------------------------------------------------------------
 // TestRegression_TerminalSession_RestartRoundTrip — full REST/WS restart test
 // ---------------------------------------------------------------------------

@@ -4,6 +4,14 @@ import type { Project } from '@/lib/types'
 import { createLoadableSlice, type LoadableSlice } from '@/lib/store/loadable-slice'
 import { fetchProjects } from '@/lib/api'
 
+// Stable empty fallback for `useProjectDataStore((s) => dataOf(s.data) ?? EMPTY_PROJECTS)`
+// selectors. Returning a fresh `[]` each render makes Zustand's useSyncExternalStore
+// snapshot compare unstable (a new reference every call), which React treats as a
+// perpetual change → "Maximum update depth exceeded". A shared constant keeps the
+// reference identical across renders. Read-only by convention (consumers only
+// map/find/filter).
+export const EMPTY_PROJECTS: Project[] = []
+
 interface ProjectState {
   projects: Project[]
   activeProjectId: string
