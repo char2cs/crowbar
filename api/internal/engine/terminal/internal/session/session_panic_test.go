@@ -18,6 +18,7 @@ import (
 type panicCtl struct {
 	resize    atomic.Bool
 	serialize atomic.Bool
+	write     atomic.Bool
 }
 
 // fakeModel is a no-op model.TerminalModel + model.ModelHealth used to exercise the session's
@@ -31,7 +32,11 @@ type fakeModel struct {
 	panics     int
 }
 
-func (m *fakeModel) Write(p []byte) {}
+func (m *fakeModel) Write(p []byte) {
+	if m.ctl != nil && m.ctl.write.Load() {
+		panic("injected write panic")
+	}
+}
 
 func (m *fakeModel) Resize(cols, rows int) {
 	if m.ctl != nil && m.ctl.resize.Load() {

@@ -20,7 +20,6 @@ type shadowState struct {
 	g0              byte
 	g1              byte
 	glLock          int
-	workingDir      string
 	modes           map[int]bool
 	fg              color.Color
 	bg              color.Color

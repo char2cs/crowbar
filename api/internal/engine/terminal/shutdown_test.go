@@ -43,7 +43,7 @@ func TestShutdown_FlushPersistNoBufDelete(t *testing.T) {
 	}
 
 	// Wait for each session to produce output — confirms the PTY is live and
-	// the ring buffer has content that Shutdown can flush.
+	// the screen model has content that Shutdown can flush.
 	for _, sid := range sids {
 		waitForOutput(t, eng, sid, 10*time.Second)
 	}

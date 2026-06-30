@@ -1,5 +1,5 @@
 // Package terminal is the PTY session engine. It manages session lifecycle,
-// ring-buffer replay, and multi-client WebSocket fan-out.
+// serialized-snapshot redraw on (re)attach, and multi-client WebSocket fan-out.
 package terminal
 
 import (
@@ -77,8 +77,9 @@ type Engine interface {
 		prof *domain.TerminalProfile,
 	) (sessionID string, err error)
 
-	// Attach connects a WebSocket connection to an existing session,
-	// replaying the ring buffer and streaming live output. If the session is
+	// Attach connects a WebSocket connection to an existing session, sending the
+	// serialized screen-model snapshot to redraw the client and then streaming
+	// live output. If the session is
 	// suspended (placeholder), it is transparently restored before attaching.
 	// The conn is closed by the engine when the session ends or the client is dropped.
 	Attach(
@@ -183,8 +184,22 @@ type Engine interface {
 	Shutdown()
 }
 
+// sessionRegistry is the subset of *registry.Registry the engine uses. It is an interface
+// only so a test can substitute a hooked registry that drives the engine's
+// otherwise-unreachable lookup-race guards (a List id that Get cannot resolve, a Get'able
+// session whose WorkspaceID has concurrently vanished). Production always uses
+// *registry.Registry.
+type sessionRegistry interface {
+	Add(id string, workspaceID string, s *session.Session)
+	Get(id string) (*session.Session, bool)
+	Remove(id string)
+	List() []string
+	ListByWorkspace(workspaceID string) []string
+	WorkspaceID(id string) (string, bool)
+}
+
 type terminalEngine struct {
-	reg *registry.Registry
+	reg sessionRegistry
 
 	mu         sync.RWMutex
 	onEnded    func(ctx context.Context, workspaceID string, sessionID string, exitCode int)
@@ -196,11 +211,15 @@ type terminalEngine struct {
 	// sessionMu serialises per-session lifecycle operations (restore, suspend,
 	// Kill) so concurrent Attach calls on a placeholder never spawn two shells
 	// or leave clients attached to a dead placeholder. Lock order:
-	// sessionMu (outer) → s.mu (inner) → ring.mu. Never reverse.
+	// sessionMu (outer) → s.mu/flushMu (inner). Never reverse.
 	sessionMu sync.Map // map[string]*sync.Mutex
 
 	stop     chan struct{}
 	stopOnce sync.Once
+	// maintDone is closed by maintenanceLoop when it returns, so Shutdown can JOIN the
+	// maintenance goroutine before tearing down sessions — guaranteeing no background sweep
+	// (which reads the package-level limit vars) outlives Shutdown.
+	maintDone chan struct{}
 }
 
 var _ Engine = (*terminalEngine)(nil)
@@ -211,6 +230,18 @@ var (
 	maxTotalSessions      = 100              // global hard ceiling (count)
 	maxTotalModelBytes    = int64(256) << 20 // global hard ceiling (~serialized model bytes)
 )
+
+// maintenanceTickInterval is the cadence of the background maintenance sweep. It is a
+// package-level var only so a test can shorten it to drive the maintenanceLoop ticker branch
+// deterministically; production uses the 10-second default.
+var maintenanceTickInterval = 10 * time.Second
+
+// startupWrite issues one resolved profile startup command to a freshly-created session. It
+// is a package-level var only so a test can force the write-failure branch in Create (a live
+// PTY whose write fails); production always delegates straight to session.Write.
+var startupWrite = func(s *session.Session, data []byte) error {
+	return s.Write(data)
+}
 
 // MaxTotalSessions returns the global hard ceiling on the number of concurrent
 // sessions (live plus suspended placeholders). RestorePersistedSessions uses it
@@ -227,6 +258,7 @@ func New() Engine {
 		endedOnce:  make(map[string]struct{}),
 		lastActive: make(map[string]time.Time),
 		stop:       make(chan struct{}),
+		maintDone:  make(chan struct{}),
 	}
 	go e.maintenanceLoop()
 	return e
@@ -320,7 +352,7 @@ func (e *terminalEngine) Create(
 	}
 
 	for _, cmd := range resolved.Startup {
-		if writeErr := s.Write([]byte(cmd + "\n")); writeErr != nil {
+		if writeErr := startupWrite(s, []byte(cmd+"\n")); writeErr != nil {
 			// Non-fatal: PTY is alive but startup command failed.
 			break
 		}
@@ -347,7 +379,7 @@ func (e *terminalEngine) reapOnDone(
 
 	// FIX: serialise the real-exit cleanup with the cadence-flush and
 	// detach-bookkeeping persist paths via the per-session lifecycle lock. Lock
-	// order: sessionMu (outer) → s.mu → ring.mu — we hold only sessionMu here.
+	// order: sessionMu (outer) → s.mu/flushMu — we hold only sessionMu here.
 	unlock := e.lockSession(id)
 
 	// Suspend path: Suspend (or Shutdown) already replaced the registry entry
@@ -812,7 +844,7 @@ func (e *terminalEngine) Attach(
 // s.IsLive() first: if the session died (self-exit/Kill) while we were
 // detaching, reapOnDone owns cleanup and persisting here would resurrect an
 // explicitly-closed terminal — so we skip. Lock order: sessionMu (outer) →
-// s.mu/flushMu → ring.mu.
+// s.mu/flushMu.
 func (e *terminalEngine) persistOnDetach(ctx context.Context, sessionID string, s *session.Session) {
 	unlock := e.lockSession(sessionID)
 	defer unlock()
@@ -1168,7 +1200,8 @@ func (e *terminalEngine) allWorkspaceIDs() []string {
 // channel is closed by Shutdown.
 func (e *terminalEngine) maintenanceLoop() {
 	defer safego.Recover("terminal.maintenanceLoop")
-	ticker := time.NewTicker(10 * time.Second)
+	defer close(e.maintDone)
+	ticker := time.NewTicker(maintenanceTickInterval)
 	defer ticker.Stop()
 	for {
 		select {
@@ -1191,7 +1224,7 @@ type sessionCandidate struct {
 // with reapOnDone (delete) and the detach-bookkeeping persist, and the
 // !s.IsLive() guard makes a flush that loses the race to reap a no-op — so a
 // cadence flush can never resurrect the .buf/row of an explicitly-closed
-// terminal. Lock order: sessionMu (outer) → s.mu/flushMu → ring.mu.
+// terminal. Lock order: sessionMu (outer) → s.mu/flushMu.
 func (e *terminalEngine) flushSessionOnce(ctx context.Context, id string) {
 	unlock := e.lockSession(id)
 	defer unlock()
@@ -1388,7 +1421,8 @@ func (e *terminalEngine) runMaintenanceOnce(ctx context.Context) {
 	}
 
 	// Phase 3c: last resort — evict oldest suspended placeholders (LRU). Suspend
-	// only converts a live ring to a placeholder ring; it never lowers the
+	// only converts a live session to a placeholder (its serialized snapshot on
+	// disk); it never lowers the
 	// session COUNT, so once placeholders themselves push us over the ceiling the
 	// only way back under is to drop the least-recently-active ones entirely.
 	if underCeiling() {
@@ -1441,7 +1475,7 @@ func (e *terminalEngine) placeholderCandidates() []sessionCandidate {
 // session is still a placeholder (a concurrent Attach may have restored it to
 // live), then removes it from the registry, deletes its .buf and meta row, and
 // prunes the per-session bookkeeping maps. Lock order: sessionMu (outer) →
-// s.mu → ring.mu — we hold only sessionMu here.
+// s.mu/flushMu — we hold only sessionMu here.
 func (e *terminalEngine) evictPlaceholder(
 	ctx context.Context,
 	id string,
@@ -1476,8 +1510,8 @@ func (e *terminalEngine) evictPlaceholder(
 // Shutdown terminates all active sessions and removes them from the registry.
 //
 // Graceful-shutdown contract (Phase 3):
-//   - For each LIVE session, before killing, Shutdown flushes the ring-buffer
-//     snapshot to disk (persistence.WriteBuf) and saves meta with
+//   - For each LIVE session, before killing, Shutdown flushes the serialized
+//     screen-model snapshot to disk (persistence.WriteBuf) and saves meta with
 //     state="suspended" so a subsequent daemon start can call
 //     RestorePersistedSessions and hand the session back as a placeholder.
 //   - s.MarkSuspendingForShutdown() is called before s.Kill() so that
@@ -1490,6 +1524,10 @@ func (e *terminalEngine) evictPlaceholder(
 //     Shutdown to panic or hang.
 func (e *terminalEngine) Shutdown() {
 	e.stopOnce.Do(func() { close(e.stop) })
+	// JOIN the maintenance goroutine before tearing down sessions, so no in-flight sweep
+	// (which reads the package-level limit vars and walks the registry) can run concurrently
+	// with Shutdown's own teardown or with a later caller that mutates those vars.
+	<-e.maintDone
 	ctx := context.Background()
 	for _, id := range e.reg.List() {
 		s, ok := e.reg.Get(id)

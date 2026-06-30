@@ -28,7 +28,9 @@ const (
 //   - Locking shift — SI (0x0F) invokes G0 into GL, SO (0x0E) invokes G1 into GL, recorded
 //     in shadow.glLock. A DEC line-drawing TUI commonly invokes G1 via SO; x/vt does NOT
 //     itself resolve SO+G1 into the grid runes (verified at the pin), so without re-emitting
-//     the shift the live post-attach stream mis-renders on the client.
+//     the shift the live post-attach stream mis-renders on the client. Re-emitting fixes only
+//     that FUTURE live output; grid cells already painted via the unresolved G1 path self-heal
+//     on the app's next repaint rather than being reproduced exactly on attach.
 //   - DECSTBM scroll region — CSI <top> ; <bottom> r, recorded in shadow.scrollTop/Bottom/
 //     scrollRegionSet and re-emitted by serialize step 11 (guarded out when full-screen).
 //

@@ -168,6 +168,12 @@ func writeChrome(
 	}
 }
 
+// writeCharset emits step 10: the G0/G1 charset designation and the active locking shift.
+// Re-emitting these makes FUTURE live output after attach render correctly. It does NOT — and
+// cannot — reproduce grid cells x/vt already painted via an unresolved SO-invoked G1
+// line-drawing charset: the pinned commit leaves those as raw 'q'/'x' cell bytes which
+// writeContent has already emitted above this step, so such already-painted box-drawing
+// self-heals on the app's next repaint rather than being exact on attach.
 func writeCharset(
 	b *strings.Builder,
 	sh *shadowState,

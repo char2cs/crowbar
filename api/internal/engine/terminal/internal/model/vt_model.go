@@ -90,7 +90,6 @@ func (m *vtModel) buildEmu(
 		},
 		EnableMode:       func(mode ansi.Mode) { m.observeMode(mode, true) },
 		DisableMode:      func(mode ansi.Mode) { m.observeMode(mode, false) },
-		WorkingDirectory: func(uri string) { m.shadow.workingDir = uri },
 		ForegroundColor:  func(c color.Color) { m.observeDefaultColor(0, c) },
 		BackgroundColor:  func(c color.Color) { m.observeDefaultColor(1, c) },
 		CursorColor:      func(c color.Color) { m.observeDefaultColor(2, c) },

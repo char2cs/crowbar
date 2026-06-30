@@ -191,11 +191,6 @@ func TestCallbacksFeedShadowState(t *testing.T) {
 		t.Fatal("mode 1000 not disabled")
 	}
 
-	m.Write([]byte("\x1b]7;file:///tmp/x\x07"))
-	if m.shadow.workingDir != "file:///tmp/x" {
-		t.Fatalf("workingDir = %q", m.shadow.workingDir)
-	}
-
 	m.Write([]byte("\x1b]10;rgb:ff/00/00\x07"))
 	m.Write([]byte("\x1b]11;rgb:00/ff/00\x07"))
 	m.Write([]byte("\x1b]12;rgb:00/00/ff\x07"))

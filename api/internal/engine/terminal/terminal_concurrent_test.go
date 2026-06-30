@@ -338,7 +338,7 @@ func TestReap_NoResurrection_OnSelfExit(t *testing.T) {
 				return ok && state == "active"
 			}, "client never attached")
 
-			// Drive output so the ring is dirty (so the cadence flush persists).
+			// Drive output so the model is dirty (so the cadence flush persists).
 			require.NoError(t, eng.Write(ctx, sid, []byte("echo reap-probe-line\n")))
 			time.Sleep(80 * time.Millisecond)
 
@@ -435,7 +435,8 @@ func TestFlush_Serialized_NewestWins(t *testing.T) {
 	sid, err := eng.Create(ctx, "ws-flush", store.dir, nil)
 	require.NoError(t, err)
 
-	// Populate the ring so TakeDirty() returns true and a flush is triggered.
+	// Drive output so the model is dirty: the next Snapshot() returns
+	// (blob, changed=true), which gates the cadence flush so it persists.
 	require.NoError(t, eng.Write(ctx, sid, []byte("echo flush-test-output\n")))
 	time.Sleep(200 * time.Millisecond) // let shell produce output
 

@@ -14,8 +14,8 @@ import (
 )
 
 // TestStats_CountsSuspendedPlaceholders verifies that suspended placeholders are
-// counted in both the suspended tally and the total ring-byte estimate, using
-// their lazily-sized rings (not a phantom 256 KB each). Previously placeholders
+// counted in both the suspended tally and the total model-byte estimate, using
+// their lazily-sized placeholder blobs (not a phantom 256 KB each). Previously placeholders
 // were uncounted, letting them grow without bound.
 func TestStats_CountsSuspendedPlaceholders(t *testing.T) {
 	eng := terminal.New()

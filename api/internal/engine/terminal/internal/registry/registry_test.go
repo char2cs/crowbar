@@ -132,3 +132,20 @@ func TestRegistry_ConcurrentAccess(t *testing.T) {
 func TestRegistry_ErrSessionNotFound(t *testing.T) {
 	assert.EqualError(t, ErrSessionNotFound, "registry: session not found")
 }
+
+// TestRegistry_WorkspaceID covers both WorkspaceID branches: an unknown id returns
+// ("", false); a registered id returns its owning workspace and true.
+func TestRegistry_WorkspaceID(t *testing.T) {
+	r := New()
+
+	ws, ok := r.WorkspaceID("missing")
+	assert.False(t, ok, "an unknown session id must report not-found")
+	assert.Empty(t, ws)
+
+	s := newTestSession(t, "sid-ws")
+	r.Add("sid-ws", "ws-42", s)
+
+	ws, ok = r.WorkspaceID("sid-ws")
+	assert.True(t, ok, "a registered session id must resolve its workspace")
+	assert.Equal(t, "ws-42", ws)
+}

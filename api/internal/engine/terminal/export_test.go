@@ -56,8 +56,8 @@ func IsIdleForTest(eng Engine, id string) bool {
 	return s.IsIdle()
 }
 
-// SnapshotLenForTest returns the number of bytes currently in the session's ring
-// buffer. Tests use this to wait until the shell has emitted at least one byte
+// SnapshotLenForTest returns the number of bytes in the session's current
+// serialized screen-model snapshot. Tests use this to wait until the shell has emitted at least one byte
 // (prompt output) before triggering a cadence-flush maintenance sweep.
 func SnapshotLenForTest(eng Engine, id string) int {
 	e := eng.(*terminalEngine)

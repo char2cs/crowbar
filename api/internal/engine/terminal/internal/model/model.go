@@ -16,18 +16,20 @@
 //
 // Backend reality note: the pinned x/vt commit exposes a subset of the callbacks the
 // design envisioned. Private-mode, title, icon, alt-screen, cursor visibility, cursor
-// style, working-directory and default fg/bg/cursor-colour state ARE delivered via
-// vt.Callbacks and mirrored in the shadow state. Scroll-region (DECSTBM), charset (SCS) and
-// locking-shift (SI/SO) have NO callback at the pinned commit, so — per the spec §4.1
-// contract-note / step-10 fallback — the adapter parses those few sequences itself in Write
-// (escan.go) and populates shadow.scrollTop/Bottom/scrollRegionSet and g0/g1/glLock. This
-// matters in production: x/vt itself does NOT resolve an SO-invoked G1 line-drawing charset
-// into its grid runes (verified at the pin), so a DEC line-drawing TUI would mis-render on
-// the client after re-attach unless step 10 re-emits the designation AND the active shift —
-// the scan is what makes that path live (it is not white-box-only dead code). Scrollback is
-// sourced from x/vt's own built-in scrollback buffer rather than a pre-scroll eviction hook
-// (which the pinned commit does not provide). The recorded spike findings and the
-// adoption/deviation decisions live in model/UPSTREAM.md.
+// style and default fg/bg/cursor-colour state ARE delivered via vt.Callbacks and mirrored
+// in the shadow state. Scroll-region (DECSTBM), charset (SCS) and locking-shift (SI/SO) have
+// NO callback at the pinned commit, so — per the spec §4.1 contract-note / step-10 fallback —
+// the adapter parses those few sequences itself in Write (escan.go) and populates
+// shadow.scrollTop/Bottom/scrollRegionSet and g0/g1/glLock. This matters in production: x/vt
+// itself does NOT resolve an SO-invoked G1 line-drawing charset into its grid runes (verified
+// at the pin). Step 10 re-emits the designation AND the active locking shift so that FUTURE
+// live output after re-attach renders correctly — the scan is what makes that path live (it is
+// not white-box-only dead code). It does NOT retroactively fix grid cells x/vt already painted
+// via the unresolved G1 path: writeContent emits those raw cell bytes BEFORE the step-10
+// designation, so any already-painted box-drawing self-heals on the app's next repaint rather
+// than being exact on attach. Scrollback is sourced from x/vt's own built-in scrollback buffer
+// rather than a pre-scroll eviction hook (which the pinned commit does not provide). The
+// recorded spike findings and the adoption/deviation decisions live in model/UPSTREAM.md.
 //
 // Accepted residual — soft-wrap / reflow bit (spec §6.2 family, extending steps 5/7):
 // the design declares soft-wrap preservation load-bearing — a row that soft-wrapped into

@@ -83,7 +83,7 @@ func waitNotIdle(t *testing.T, eng terminal.Engine, id string, d time.Duration) 
 	}
 }
 
-// waitForOutput polls until the session's ring buffer is non-empty (i.e. the
+// waitForOutput polls until the session's serialized model is non-empty (i.e. the
 // shell has emitted at least one byte — typically the prompt). This is needed
 // because IsIdle() returns true as soon as the shell is the foreground process
 // group, which is BEFORE it writes the prompt bytes to the PTY. Without this
@@ -103,7 +103,7 @@ func waitForOutput(t *testing.T, eng terminal.Engine, id string, d time.Duration
 	}
 }
 
-// waitForSettled polls until the session's ring buffer has not grown for at
+// waitForSettled polls until the session's serialized model has not grown for at
 // least 5 consecutive 50 ms samples (250 ms of silence). Shell prompts arrive
 // in multiple PTY chunks; waitForOutput returns on the first chunk, but dirty
 // will still be set by later chunks. waitForSettled ensures the pump has fully
@@ -127,7 +127,7 @@ func waitForSettled(t *testing.T, eng terminal.Engine, id string, d time.Duratio
 		}
 		select {
 		case <-deadline:
-			t.Fatalf("session %s ring buffer did not settle within %s", id, d)
+			t.Fatalf("session %s serialized model did not settle within %s", id, d)
 		case <-time.After(50 * time.Millisecond):
 		}
 	}
@@ -139,7 +139,10 @@ func waitForSettled(t *testing.T, eng terminal.Engine, id string, d time.Duratio
 
 // TestMaintenance_CadenceFlush verifies that runMaintenanceOnce flushes the .buf
 // and meta for a dirty session, then does NOT flush again when the session
-// produces no new output (dirty=false after TakeDirty clears it).
+// produces no new output. Dirty-gating now flows through Snapshot()'s
+// (blob, changed) return: the first flush sees changed=true and persists, which
+// clears the dirty bit under the model lock, so the next Snapshot() reports
+// changed=false and the maintenance run skips the write.
 func TestMaintenance_CadenceFlush(t *testing.T) {
 	eng := terminal.New()
 	terminal.StopMaintenanceForTest(eng) // prevent ticker from racing with RunMaintenanceOnceForTest
@@ -155,7 +158,7 @@ func TestMaintenance_CadenceFlush(t *testing.T) {
 	// Wait for the shell to start and emit its prompt (sets dirty=true via pumpStep).
 	// waitIdle returns as soon as the shell is the foreground process group (kernel
 	// check), which can be BEFORE prompt bytes propagate through pumpStep. We also
-	// wait until the ring buffer has settled (no growth for 250 ms) to ensure all
+	// wait until the serialized model has settled (no growth for 250 ms) to ensure all
 	// prompt chunks have been processed by pumpStep and dirty=true is set.
 	waitIdle(t, eng, sid, 10*time.Second)
 	waitForSettled(t, eng, sid, 10*time.Second)
@@ -216,7 +219,7 @@ func TestMaintenance_SoftLimit(t *testing.T) {
 	// Wait for all four to be idle AND fully settled at their prompts.
 	// waitIdle alone returns on the first true TIOCGPGRP reading, which can be
 	// a transient idle moment between shell-init sub-processes. waitForSettled
-	// ensures 250 ms of ring-buffer silence, guaranteeing the shell is truly at
+	// ensures 250 ms of output silence, guaranteeing the shell is truly at
 	// its prompt before we trigger the maintenance sweep.
 	for _, sid := range sids {
 		waitIdle(t, eng, sid, 15*time.Second)
@@ -284,7 +287,7 @@ func TestMaintenance_RunningNeverIdleSuspended(t *testing.T) {
 
 	// Create a running session (foreground sleep).
 	// waitForSettled before writing ensures the shell is fully initialised (250 ms
-	// of ring-buffer silence). This makes the shell respond to the sleep command
+	// of output silence). This makes the shell respond to the sleep command
 	// immediately, so waitNotIdle completes in < 1 s rather than possibly close to
 	// its 10 s deadline — which would allow the engine's 10-second maintenance ticker
 	// to fire and race with the next test's global-variable writes.
@@ -323,7 +326,7 @@ func TestMaintenance_RunningNeverIdleSuspended(t *testing.T) {
 // ---------------------------------------------------------------------------
 
 // TestMaintenance_GlobalForceLastResort verifies the last-resort path: when the
-// global ring-byte ceiling is exceeded and both detached sessions have a running
+// global model-byte ceiling is exceeded and both detached sessions have a running
 // foreground child (neither idle), the global ceiling exhausts idle candidates
 // (none) and then force-suspends the oldest detached session. The suspended
 // session's .buf must contain the resource notice.
@@ -351,15 +354,15 @@ func TestMaintenance_GlobalForceLastResort(t *testing.T) {
 	sid2, err := eng.Create(ctx, "ws-force", dir, nil)
 	require.NoError(t, err)
 
-	// Two live full-budget rings are now accounted; set the ceiling at 75% of
-	// that (between one and two rings) so the global byte ceiling fires and a
+	// Two live full-budget models are now accounted; set the ceiling at 75% of
+	// that (between one and two models) so the global byte ceiling fires and a
 	// single force-suspend brings us back under.
 	_, _, _, modelBytes, _, _ := eng.Stats()
 	restoreBytes := terminal.SetMaxTotalModelBytesForTest(modelBytes * 3 / 4)
 	defer restoreBytes()
 
 	// Wait for both to reach their prompts first, and ensure they have fully
-	// settled (no ring-buffer growth for 250 ms). This guarantees the shell is
+	// settled (no model growth for 250 ms). This guarantees the shell is
 	// responsive before we write the sleep command, so waitNotIdle completes
 	// quickly (< 1 s) rather than risking the engine's 10-second maintenance
 	// ticker firing and causing a data race on maxTotalSessions with the next test.
@@ -379,7 +382,7 @@ func TestMaintenance_GlobalForceLastResort(t *testing.T) {
 	terminal.SetLastActiveForTest(eng, sid1, base)
 	terminal.SetLastActiveForTest(eng, sid2, base.Add(time.Minute))
 
-	// Run maintenance: 2 live rings (512 KB) > 384 KB ceiling → global ceiling fires.
+	// Run maintenance: 2 live models (512 KB) > 384 KB ceiling → global ceiling fires.
 	// No idle candidates → last-resort force-suspend of sid1 (oldest).
 	terminal.RunMaintenanceOnceForTest(eng, ctx)
 	time.Sleep(300 * time.Millisecond)
@@ -463,9 +466,9 @@ func TestEngine_Stats(t *testing.T) {
 	sid, err := eng.Create(ctx, "ws-stats", dir, nil)
 	require.NoError(t, err)
 
-	_, det, _, ringB, deg2, pp2 := eng.Stats()
+	_, det, _, modelB, deg2, pp2 := eng.Stats()
 	assert.Equal(t, 1, det, "one detached session")
-	assert.Greater(t, ringB, int64(0), "model bytes must be positive for a live session")
+	assert.Greater(t, modelB, int64(0), "model bytes must be positive for a live session")
 	assert.Zero(t, deg2, "a healthy live session reports not-degraded")
 	assert.Zero(t, pp2, "a healthy live session reports zero parse panics")
 
