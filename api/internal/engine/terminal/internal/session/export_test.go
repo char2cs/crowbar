@@ -7,11 +7,6 @@ func (s *Session) FanOutForTest(
 	s.fanOut(chunk)
 }
 
-// RingWriteForTest writes p directly to the session's ring buffer for testing.
-func (s *Session) RingWriteForTest(p []byte) {
-	s.ring.Write(p)
-}
-
 // PumpChunkForTest delegates to pumpStep, the production critical section used by
 // pump(). This means the regression test exercises the real code path: a future
 // regression that removes the lock from pumpStep will be caught by the race detector.

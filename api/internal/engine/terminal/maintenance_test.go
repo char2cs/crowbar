@@ -328,14 +328,14 @@ func TestMaintenance_RunningNeverIdleSuspended(t *testing.T) {
 // (none) and then force-suspends the oldest detached session. The suspended
 // session's .buf must contain the resource notice.
 //
-// The trigger is the BYTE ceiling: two live sessions pin two full-budget rings;
-// the ceiling is set between one and two rings so force-suspending the oldest
-// (which swaps its live ring for a tiny placeholder ring) brings us back under,
+// The trigger is the BYTE ceiling: two live sessions pin two full-budget models;
+// the ceiling is set between one and two models so force-suspending the oldest
+// (which swaps its live model for a tiny placeholder blob) brings us back under,
 // leaving the placeholder intact rather than evicting it. The count ceiling is
 // left at its default so the surviving placeholder is not LRU-evicted.
 //
-// The ceiling is derived from the engine's own ring-byte accounting (two live
-// RingCaps) rather than hardcoded, so it tracks defaultRingSize automatically.
+// The ceiling is derived from the engine's own model-byte accounting (two live
+// ModelBytes) rather than hardcoded, so it tracks the default model size automatically.
 func TestMaintenance_GlobalForceLastResort(t *testing.T) {
 	eng := terminal.New()
 	terminal.StopMaintenanceForTest(eng) // prevent ticker from racing with limit-var writes
@@ -354,8 +354,8 @@ func TestMaintenance_GlobalForceLastResort(t *testing.T) {
 	// Two live full-budget rings are now accounted; set the ceiling at 75% of
 	// that (between one and two rings) so the global byte ceiling fires and a
 	// single force-suspend brings us back under.
-	_, _, _, ringBytes := eng.Stats()
-	restoreBytes := terminal.SetMaxTotalRingBytesForTest(ringBytes * 3 / 4)
+	_, _, _, modelBytes, _, _ := eng.Stats()
+	restoreBytes := terminal.SetMaxTotalModelBytesForTest(modelBytes * 3 / 4)
 	defer restoreBytes()
 
 	// Wait for both to reach their prompts first, and ensure they have fully
@@ -453,17 +453,21 @@ func TestEngine_Stats(t *testing.T) {
 	defer eng.Shutdown()
 
 	// No sessions yet.
-	a, d, s, rb := eng.Stats()
+	a, d, s, rb, deg, pp := eng.Stats()
 	assert.Zero(t, a+d+s, "no sessions at start")
-	assert.Zero(t, rb, "no ring bytes at start")
+	assert.Zero(t, rb, "no model bytes at start")
+	assert.Zero(t, deg, "a clean engine reports zero degraded sessions (§9.4)")
+	assert.Zero(t, pp, "a clean engine reports zero parse panics (§9.4)")
 
 	// Create one session — it starts detached (live, no clients).
 	sid, err := eng.Create(ctx, "ws-stats", dir, nil)
 	require.NoError(t, err)
 
-	_, det, _, ringB := eng.Stats()
+	_, det, _, ringB, deg2, pp2 := eng.Stats()
 	assert.Equal(t, 1, det, "one detached session")
-	assert.Greater(t, ringB, int64(0), "ring bytes must be positive for a live session")
+	assert.Greater(t, ringB, int64(0), "model bytes must be positive for a live session")
+	assert.Zero(t, deg2, "a healthy live session reports not-degraded")
+	assert.Zero(t, pp2, "a healthy live session reports zero parse panics")
 
 	// Suspend it — must move to suspended.
 	waitIdle(t, eng, sid, 10*time.Second)
@@ -480,7 +484,7 @@ func TestEngine_Stats(t *testing.T) {
 		}
 	}
 
-	_, detAfter, susp, _ := eng.Stats()
+	_, detAfter, susp, _, _, _ := eng.Stats()
 	assert.Zero(t, detAfter, "no detached sessions after suspend")
 	assert.Equal(t, 1, susp, "one suspended session")
 

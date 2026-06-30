@@ -27,12 +27,12 @@ func SetMaxTotalSessionsForTest(n int) (restore func()) {
 	return func() { maxTotalSessions = old }
 }
 
-// SetMaxTotalRingBytesForTest overrides the global ring-bytes ceiling and
+// SetMaxTotalModelBytesForTest overrides the global model-bytes ceiling and
 // returns a restore function.
-func SetMaxTotalRingBytesForTest(n int64) (restore func()) {
-	old := maxTotalRingBytes
-	maxTotalRingBytes = n
-	return func() { maxTotalRingBytes = old }
+func SetMaxTotalModelBytesForTest(n int64) (restore func()) {
+	old := maxTotalModelBytes
+	maxTotalModelBytes = n
+	return func() { maxTotalModelBytes = old }
 }
 
 // SetLastActiveForTest directly sets the last-active timestamp for a session,
@@ -65,14 +65,16 @@ func SnapshotLenForTest(eng Engine, id string) int {
 	if !ok {
 		return 0
 	}
-	return len(s.Snapshot())
+	// Non-mutating: SerializedLen does NOT consume the dirty bit (unlike Snapshot), so
+	// polling it as a readiness/settle signal never makes a later cadence flush skip.
+	return s.SerializedLen()
 }
 
 // StopMaintenanceForTest stops the background maintenance ticker goroutine
 // without killing any active sessions. Call this immediately after New() in any
 // test that either drives maintenance manually via RunMaintenanceOnceForTest or
 // mutates the package-level limit vars (SetSoftLimitPerWorkspaceForTest,
-// SetMaxTotalSessionsForTest, SetMaxTotalRingBytesForTest). Stopping the ticker
+// SetMaxTotalSessionsForTest, SetMaxTotalModelBytesForTest). Stopping the ticker
 // ensures no background goroutine reads the limit vars concurrently with the
 // test's writes, eliminating the data race under -race.
 //

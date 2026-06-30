@@ -694,10 +694,12 @@ func TestEngine_LoadPlaceholder_ThenAttach_Restores(t *testing.T) {
 
 	sid := "ph-sess-attach"
 	marker := "pre-restart-marker"
-	scrollback := []byte("$ echo " + marker + "\r\n" + marker + "\r\n")
+	// A persisted blob is a CRWB1 header + redraw bytes (§12). The body prints the marker,
+	// so after restore→attach the serialized screen reproduces it.
+	scrollback := []byte("CRWB1 80 24 0 10000\n$ echo " + marker + "\r\n" + marker + "\r\n")
 
-	// Write scrollback to disk so restore() can read it via persistence.ReadBuf.
-	// (restore re-reads from disk, not from the placeholder ring.)
+	// Write the blob to disk so restore() can read it via persistence.ReadBuf.
+	// (restore re-reads from disk, not from the placeholder.)
 	bufPath := filepath.Join(store.dir, sid+".buf")
 	require.NoError(t, os.WriteFile(bufPath, scrollback, 0o644))
 

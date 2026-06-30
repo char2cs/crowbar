@@ -16,7 +16,7 @@ func BenchmarkListByWorkspace(b *testing.B) {
 	for i := 0; i < 256; i++ {
 		id := "s" + strconv.Itoa(i)
 		wsID := "ws" + strconv.Itoa(i%8)
-		s, err := session.New(id, "/bin/sh", dir, "", os.Environ())
+		s, err := session.New(id, "/bin/sh", dir, "", os.Environ(), 80, 24, 0)
 		if err != nil {
 			b.Fatalf("session.New: %v", err)
 		}

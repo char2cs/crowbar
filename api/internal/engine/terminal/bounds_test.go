@@ -42,11 +42,11 @@ func TestStats_CountsSuspendedPlaceholders(t *testing.T) {
 		wantBytes += int64(len(sb))
 	}
 
-	active, detached, suspended, ringBytes := eng.Stats()
+	active, detached, suspended, modelBytes, _, _ := eng.Stats()
 	assert.Zero(t, active+detached, "no live sessions")
 	assert.Equal(t, 3, suspended, "all three placeholders counted as suspended")
-	assert.Equal(t, wantBytes, ringBytes,
-		"ring bytes must equal the sum of scrollback lengths, not 3×256 KB")
+	assert.Equal(t, wantBytes, modelBytes,
+		"model bytes must equal the sum of stored blob lengths, not 3×256 KB")
 }
 
 // TestMaintenance_EvictsOldestPlaceholdersOverCeiling verifies that when the
@@ -64,7 +64,7 @@ func TestMaintenance_EvictsOldestPlaceholdersOverCeiling(t *testing.T) {
 
 	restoreN := terminal.SetMaxTotalSessionsForTest(2)
 	defer restoreN()
-	restoreB := terminal.SetMaxTotalRingBytesForTest(1 << 30) // keep byte ceiling out of the way
+	restoreB := terminal.SetMaxTotalModelBytesForTest(1 << 30) // keep byte ceiling out of the way
 	defer restoreB()
 
 	ids := []string{"ph-old", "ph-mid", "ph-new"}

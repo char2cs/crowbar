@@ -111,3 +111,58 @@ func TestWriteBuf_CreatesDir(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, []byte("hi"), got)
 }
+
+func TestWriteBuf_MkdirError(t *testing.T) {
+	base := t.TempDir()
+	// Make a regular file, then ask to write under a path that treats it as a
+	// directory — MkdirAll cannot create a dir beneath a file.
+	blocker := filepath.Join(base, "iam-a-file")
+	require.NoError(t, os.WriteFile(blocker, []byte("x"), 0o600))
+
+	err := persistence.WriteBuf(filepath.Join(blocker, "child"), "s", []byte("data"))
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "mkdir")
+}
+
+func TestWriteBuf_RenameError(t *testing.T) {
+	dir := t.TempDir()
+	// Occupy the destination path with a NON-EMPTY directory so renaming the
+	// staging file over it fails (rename onto a non-empty dir is not allowed).
+	dest := filepath.Join(dir, "s.buf")
+	require.NoError(t, os.Mkdir(dest, 0o755))
+	require.NoError(t, os.WriteFile(filepath.Join(dest, "occupant"), []byte("x"), 0o600))
+
+	err := persistence.WriteBuf(dir, "s", []byte("data"))
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "rename")
+
+	// No staging temp file should be left behind after the failed rename.
+	matches, gErr := filepath.Glob(filepath.Join(dir, "s.buf-*"))
+	require.NoError(t, gErr)
+	assert.Empty(t, matches, "leftover temp files after rename failure: %v", matches)
+}
+
+func TestReadBuf_RealIOError(t *testing.T) {
+	dir := t.TempDir()
+	// A directory at the .buf path makes os.ReadFile fail with a non-NotExist
+	// error (EISDIR), exercising the wrapped-error branch.
+	require.NoError(t, os.Mkdir(filepath.Join(dir, "s.buf"), 0o755))
+
+	got, err := persistence.ReadBuf(dir, "s")
+	require.Error(t, err)
+	assert.Nil(t, got)
+	assert.Contains(t, err.Error(), "read s")
+}
+
+func TestDeleteBuf_RealIOError(t *testing.T) {
+	dir := t.TempDir()
+	// A non-empty directory at the .buf path makes os.Remove fail with a
+	// non-NotExist error (ENOTEMPTY), exercising the wrapped-error branch.
+	bufDir := filepath.Join(dir, "s.buf")
+	require.NoError(t, os.Mkdir(bufDir, 0o755))
+	require.NoError(t, os.WriteFile(filepath.Join(bufDir, "occupant"), []byte("x"), 0o600))
+
+	err := persistence.DeleteBuf(dir, "s")
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "delete s")
+}

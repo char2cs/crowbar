@@ -17,7 +17,7 @@ func newTestSession(
 ) *session.Session {
 	t.Helper()
 	dir := t.TempDir()
-	s, err := session.New(id, "/bin/sh", dir, "", os.Environ())
+	s, err := session.New(id, "/bin/sh", dir, "", os.Environ(), 80, 24, 0)
 	require.NoError(t, err)
 	t.Cleanup(s.Kill)
 	return s

@@ -28,7 +28,7 @@ import (
 //     pgid.
 func TestIsIdle_unix(t *testing.T) {
 	dir := t.TempDir()
-	s, err := New("sid-idle", "/bin/sh", dir, "", os.Environ())
+	s, err := New("sid-idle", "/bin/sh", dir, "", os.Environ(), 80, 24, 0)
 	require.NoError(t, err)
 	t.Cleanup(s.Kill)
 

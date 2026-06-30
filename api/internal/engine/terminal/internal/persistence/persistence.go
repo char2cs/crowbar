@@ -9,9 +9,28 @@ package persistence
 
 import (
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 )
+
+// tempFile is the narrow subset of *os.File that WriteBuf uses for its staging
+// file. It exists only as a file-local seam so tests can inject Write/Sync/Close
+// failures that a real filesystem cannot be coerced into producing reliably.
+type tempFile interface {
+	io.Writer
+	Name() string
+	Sync() error
+	Close() error
+}
+
+// createTemp is the seam over os.CreateTemp. Production code uses the real
+// implementation; tests override it to return a tempFile whose Write/Sync/Close
+// fail on demand. It is package-level (not guarded by a lock) and must only be
+// reassigned from tests that do not run in parallel.
+var createTemp = func(dir, pattern string) (tempFile, error) {
+	return os.CreateTemp(dir, pattern)
+}
 
 // WriteBuf atomically persists data as <dir>/<sessionID>.buf.
 //
@@ -28,7 +47,7 @@ func WriteBuf(dir, sessionID string, data []byte) error {
 		return fmt.Errorf("persistence: mkdir %s: %w", dir, err)
 	}
 
-	tmp, err := os.CreateTemp(dir, sessionID+".buf-*")
+	tmp, err := createTemp(dir, sessionID+".buf-*")
 	if err != nil {
 		return fmt.Errorf("persistence: create temp: %w", err)
 	}

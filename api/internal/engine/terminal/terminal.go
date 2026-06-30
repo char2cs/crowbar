@@ -173,9 +173,11 @@ type Engine interface {
 		scrollback []byte,
 	) error
 
-	// Stats returns a snapshot of session counts and total estimated ring-buffer
-	// memory for observability (health endpoint, settings panel, etc.).
-	Stats() (active, detached, suspended int, ringBytes int64)
+	// Stats returns a snapshot of session counts, total estimated model memory, and
+	// the parse-health surface (§9.4) for observability (health endpoint, settings
+	// panel, etc.): how many live sessions are in the sticky degraded state and the
+	// aggregate recovered-parse-panic count across all sessions.
+	Stats() (active, detached, suspended int, modelBytes int64, degraded, parsePanics int)
 
 	// Shutdown terminates all active sessions and removes them from the registry.
 	Shutdown()
@@ -207,7 +209,7 @@ var _ Engine = (*terminalEngine)(nil)
 var (
 	softLimitPerWorkspace = 10               // max simultaneous detached sessions per workspace
 	maxTotalSessions      = 100              // global hard ceiling (count)
-	maxTotalRingBytes     = int64(256) << 20 // global hard ceiling (~ring bytes)
+	maxTotalModelBytes    = int64(256) << 20 // global hard ceiling (~serialized model bytes)
 )
 
 // MaxTotalSessions returns the global hard ceiling on the number of concurrent
@@ -255,28 +257,45 @@ type inputMsg struct {
 	Rows uint16 `json:"rows"`
 }
 
-// spawn creates a live session (or restores one from scrollback), registers it
-// in the registry under id/workspaceID, and starts reapOnDone. It is the single
-// point of session birth — both Create and restore delegate here.
+// engineBirth carries exactly one of the two birth modes to e.spawn (§9.1): create
+// (Blob == nil, size+scrollback from Cols/Rows/ScrollbackLines) or restore (Blob != nil,
+// the raw .buf bytes including the CRWB1 header, plus an optional daemon-authored on-screen
+// Notice injected into the model BEFORE the session is registered for attach).
+type engineBirth struct {
+	Cols            int
+	Rows            int
+	ScrollbackLines int
+	Blob            []byte
+	Notice          []byte
+}
+
+// spawn creates a live session (create or restore), registers it in the registry under
+// id/workspaceID, and starts reapOnDone. It is the single point of session birth — both
+// Create and restore delegate here. For the restore path it injects the on-screen Notice
+// into the model BEFORE e.reg.Add exposes the session, so the very first concurrent Attach
+// cannot observe the registered session without the notice already applied (§12 race fix).
 func (e *terminalEngine) spawn(
 	id string,
 	workspaceID string,
 	shell string,
 	cwd string,
 	profileID string,
-	scrollback []byte,
+	b engineBirth,
 ) (*session.Session, error) {
 	var (
 		s   *session.Session
 		err error
 	)
-	if len(scrollback) > 0 {
-		s, err = session.NewRestored(id, shell, cwd, profileID, ptyEnv(), scrollback)
+	if b.Blob != nil {
+		s, err = session.NewRestored(id, shell, cwd, profileID, ptyEnv(), b.Blob)
 	} else {
-		s, err = session.New(id, shell, cwd, profileID, ptyEnv())
+		s, err = session.New(id, shell, cwd, profileID, ptyEnv(), b.Cols, b.Rows, b.ScrollbackLines)
 	}
 	if err != nil {
 		return nil, err
+	}
+	if len(b.Notice) > 0 {
+		s.InjectLocal(b.Notice)
 	}
 	e.reg.Add(id, workspaceID, s)
 	go e.reapOnDone(id, workspaceID, s)
@@ -292,7 +311,10 @@ func (e *terminalEngine) Create(
 	resolved := profile.Resolve(prof, workspaceDir)
 	id := uuid.NewString()
 
-	s, err := e.spawn(id, workspaceID, resolved.Shell, resolved.CWD, "", nil)
+	// Create births at the historical 80×24 default with the default scrollback depth; the
+	// session resolves the zero values (§9.1 step 5). FE-measured dims are a deferred wire
+	// addition — until then a fresh attach's first resize reshapes both PTY and model.
+	s, err := e.spawn(id, workspaceID, resolved.Shell, resolved.CWD, "", engineBirth{})
 	if err != nil {
 		return "", fmt.Errorf("terminal: create: %w", err)
 	}
@@ -550,20 +572,21 @@ func (e *terminalEngine) restore(ctx context.Context, sid string) error {
 	cwd := s.CWD()
 	profileID := s.ProfileID()
 
-	var scrollback []byte
+	var rawBlob []byte
 	dir, dirErr := e.storageDir(ctx, ws)
 	if dirErr == nil && dir != "" {
-		scrollback, _ = persistence.ReadBuf(dir, sid)
+		rawBlob, _ = persistence.ReadBuf(dir, sid)
 	}
 
 	// CWD fallback: the saved working directory may have been deleted (worktree
 	// removed, repo cleaned) since suspend. Spawning with a non-existent cmd.Dir
 	// fails, which — left unhandled — would strand the placeholder and make every
 	// future Attach retry the same doomed spawn forever. Stat first and fall back
-	// to the user's home directory, noting the substitution in the scrollback.
-	cwd, scrollback = restoreCWD(cwd, scrollback)
+	// to the user's home directory; the substitution notice is injected into the
+	// model (never the persisted .buf) via engineBirth.Notice (§12).
+	cwd, notice := resolveRestoreCWD(cwd)
 
-	if _, err := e.spawn(sid, ws, shell, cwd, profileID, scrollback); err != nil {
+	if _, err := e.spawn(sid, ws, shell, cwd, profileID, engineBirth{Blob: rawBlob, Notice: notice}); err != nil {
 		// Un-restorable even after the CWD fallback (e.g. the shell binary itself
 		// is gone). Never leave the placeholder in the registry: drop it, delete
 		// its persisted state, and fire ended so the FE removes the dead tab
@@ -593,17 +616,16 @@ func (e *terminalEngine) restore(ctx context.Context, sid string) error {
 	return nil
 }
 
-// restoreCWD returns a working directory that is guaranteed to exist for a
-// restore spawn. If the saved cwd still resolves to a directory it is returned
-// unchanged; otherwise it falls back to the user's home directory (or "" so the
-// shell defaults) and appends a one-line notice to the restored scrollback so
-// the user can see why their previous directory was not used.
-func restoreCWD(
+// resolveRestoreCWD returns a working directory guaranteed to exist for a restore spawn,
+// plus an optional on-screen notice. If the saved cwd still resolves to a directory it is
+// returned with no notice; otherwise it falls back to the user's home directory (or "" so
+// the shell defaults) and returns a one-line notice the engine injects into the model (never
+// the persisted blob) so the user sees why their previous directory was not used.
+func resolveRestoreCWD(
 	cwd string,
-	scrollback []byte,
 ) (string, []byte) {
 	if dirExists(cwd) {
-		return cwd, scrollback
+		return cwd, nil
 	}
 	home, err := os.UserHomeDir()
 	if err != nil {
@@ -611,7 +633,7 @@ func restoreCWD(
 	}
 	notice := fmt.Sprintf(
 		"\r\n[crowbar] previous directory unavailable; restored in %s\r\n", home)
-	return home, append(scrollback, []byte(notice)...)
+	return home, []byte(notice)
 }
 
 // dirExists reports whether path resolves to an existing directory.
@@ -699,14 +721,18 @@ func (e *terminalEngine) suspend(ctx context.Context, sid string, force bool) er
 	dir, _ := e.storageDir(ctx, ws)
 	fm := s.FlushMu()
 	fm.Lock()
-	scrollback := s.Snapshot()
-	// For force-suspend of a running (non-idle) session, append a user-visible notice.
+	var blob []byte
 	if force && wasRunning {
-		scrollback = append(scrollback,
-			[]byte("\r\n[crowbar] session suspended to free resources; re-open to restore\r\n")...)
+		// Force-suspend of a LIVE app: fuse teardown + notice + serialize in ONE s.mu hold
+		// inside the session so no live chunk can re-alt the model between them (§11.2).
+		// Persist the returned clean-primary blob verbatim — no second Snapshot.
+		blob = s.ForceSuspendSnapshot(
+			[]byte("\r\n[crowbar] session suspended to free resources; re-open to restore\r\n"))
+	} else {
+		blob, _ = s.Snapshot()
 	}
 	if dir != "" {
-		if err := persistence.WriteBuf(dir, sid, scrollback); err != nil {
+		if err := persistence.WriteBuf(dir, sid, blob); err != nil {
 			_, _ = fmt.Fprintf(os.Stderr, "terminal: suspend: persist buf %s: %v\n", sid, err)
 		}
 	}
@@ -722,7 +748,7 @@ func (e *terminalEngine) suspend(ctx context.Context, sid string, force bool) er
 	})
 
 	// Step b: replace registry entry with placeholder BEFORE killing.
-	ph := session.NewPlaceholder(sid, s.Shell(), s.CWD(), s.ProfileID(), scrollback)
+	ph := session.NewPlaceholder(sid, s.Shell(), s.CWD(), s.ProfileID(), blob)
 	e.reg.Add(sid, ws, ph)
 
 	// Step c: kill the OLD live session.
@@ -812,7 +838,7 @@ func (e *terminalEngine) persistOnDetach(ctx context.Context, sessionID string, 
 		// (cadence, suspend, shutdown) don't interleave writes.
 		fm := s.FlushMu()
 		fm.Lock()
-		snap := s.Snapshot()
+		snap, _ := s.Snapshot()
 		writeErr := persistence.WriteBuf(dir, sessionID, snap)
 		fm.Unlock()
 		if writeErr != nil {
@@ -1080,18 +1106,26 @@ func (e *terminalEngine) SessionExists(
 	return ok
 }
 
-// Stats returns a point-in-time snapshot of session counts and estimated
-// ring-buffer memory across all registered sessions.
-func (e *terminalEngine) Stats() (active, detached, suspended int, ringBytes int64) {
+// Stats returns a point-in-time snapshot of session counts, estimated model memory,
+// and the parse-health surface (§9.4) across all registered sessions: degraded is the
+// count of currently-degraded live sessions and parsePanics the aggregate of every
+// session's recovered parse panics, sourced through the optional model.ModelHealth assert
+// plus the session-level backstop counter so a blanked-and-reparsed session is observable.
+func (e *terminalEngine) Stats() (active, detached, suspended int, modelBytes int64, degraded, parsePanics int) {
 	for _, id := range e.reg.List() {
 		s, ok := e.reg.Get(id)
 		if !ok {
 			continue
 		}
-		// Count every session's actual ring capacity — live sessions pin a full
-		// 256 KB ring, suspended placeholders only their lazily-sized scrollback —
-		// so the total reflects real resident memory across mixed session types.
-		ringBytes += int64(s.RingCap())
+		// Count every session's estimated model bytes — a live session's grid +
+		// retained scrollback + cached blob, a placeholder its persisted blob — so the
+		// total reflects real resident memory across mixed session types (§9.4).
+		modelBytes += s.ModelBytes()
+		dg, pp := s.Health()
+		if dg {
+			degraded++
+		}
+		parsePanics += pp
 		switch s.State() {
 		case "active":
 			active++
@@ -1152,7 +1186,7 @@ type sessionCandidate struct {
 	lastActive time.Time
 }
 
-// flushSessionOnce persists one session's dirty ring snapshot under the
+// flushSessionOnce persists one session's dirty serialized model state under the
 // per-session lifecycle lock. Acquiring e.lockSession(id) serialises this write
 // with reapOnDone (delete) and the detach-bookkeeping persist, and the
 // !s.IsLive() guard makes a flush that loses the race to reap a no-op — so a
@@ -1167,9 +1201,6 @@ func (e *terminalEngine) flushSessionOnce(ctx context.Context, id string) {
 		// Dead or gone: reapOnDone owns cleanup; never re-write its deleted .buf.
 		return
 	}
-	if !s.TakeDirty() {
-		return
-	}
 	ws, wsOK := e.reg.WorkspaceID(id)
 	if !wsOK {
 		return
@@ -1179,10 +1210,16 @@ func (e *terminalEngine) flushSessionOnce(ctx context.Context, id string) {
 		return
 	}
 	// Hold flushMu across snapshot+write so concurrent flush paths
-	// (detach-bookkeeping, suspend, shutdown) don't interleave.
+	// (detach-bookkeeping, suspend, shutdown) don't interleave. Snapshot consumes the
+	// dirty bit and reports whether the state changed; an idle (unchanged) session skips
+	// the disk write entirely, matching today's dirty gate (§8.4).
 	fm := s.FlushMu()
 	fm.Lock()
-	snap := s.Snapshot()
+	snap, changed := s.Snapshot()
+	if !changed {
+		fm.Unlock()
+		return
+	}
 	writeErr := persistence.WriteBuf(dir, id, snap)
 	fm.Unlock()
 	if writeErr != nil {
@@ -1203,13 +1240,13 @@ func (e *terminalEngine) flushSessionOnce(ctx context.Context, id string) {
 // runMaintenanceOnce performs the three-phase maintenance sweep in order:
 //
 //  1. Cadence flush — for each LIVE session with new output (dirty), persist
-//     the ring snapshot and save updated meta.
+//     the serialized model state and save updated meta.
 //
 //  2. Per-workspace soft limit — if a workspace has more than
 //     softLimitPerWorkspace detached sessions, idle-gated-suspend the oldest
 //     idle detached ones until back at/under the limit.
 //
-//  3. Global ceiling — if over maxTotalSessions or maxTotalRingBytes:
+//  3. Global ceiling — if over maxTotalSessions or maxTotalModelBytes:
 //     a. first idle-gated-suspend oldest idle detached sessions;
 //     b. as a last resort, force-suspend oldest detached running sessions.
 //
@@ -1287,7 +1324,7 @@ func (e *terminalEngine) runMaintenanceOnce(ctx context.Context) {
 	}
 
 	// underCeiling counts EVERY registered session — live and suspended
-	// placeholder alike — and sums each one's actual ring capacity, so an
+	// placeholder alike — and sums each one's resident model bytes, so an
 	// unbounded pile of suspended placeholders can no longer slip past the
 	// global memory/count ceiling uncounted.
 	underCeiling := func() bool {
@@ -1299,11 +1336,31 @@ func (e *terminalEngine) runMaintenanceOnce(ctx context.Context) {
 				continue
 			}
 			count++
-			bytes += int64(s.RingCap())
+			bytes += s.ModelBytes()
 		}
-		return count <= maxTotalSessions && bytes <= maxTotalRingBytes
+		return count <= maxTotalSessions && bytes <= maxTotalModelBytes
 	}
 
+	if underCeiling() {
+		return
+	}
+
+	// Phase 3 pre-step: reclaim reclaimable cached blobs before suspending or evicting any
+	// session (§9.4). Because ModelBytes() counts each live session's cached blob, the
+	// ceiling can be tripped purely by reclaimable cache; dropping it first (LRU-coldest)
+	// avoids spurious suspend/evict churn. Returns the instant we are back under.
+	live := e.liveCacheCandidates()
+	sort.Slice(live, func(i, j int) bool {
+		return live[i].lastActive.Before(live[j].lastActive)
+	})
+	for _, c := range live {
+		if underCeiling() {
+			return
+		}
+		if s, ok := e.reg.Get(c.id); ok {
+			s.DropCachedBlob()
+		}
+	}
 	if underCeiling() {
 		return
 	}
@@ -1347,6 +1404,21 @@ func (e *terminalEngine) runMaintenanceOnce(ctx context.Context) {
 		}
 		e.evictPlaceholder(ctx, c.id)
 	}
+}
+
+// liveCacheCandidates returns the live sessions paired with their last-active time, for the
+// §9.4 Phase-3 pre-step cache reclaim ordering. DropCachedBlob is a no-op on sessions whose
+// cache is already nil, so the list need not pre-filter on cache presence.
+func (e *terminalEngine) liveCacheCandidates() []sessionCandidate {
+	var out []sessionCandidate
+	for _, id := range e.reg.List() {
+		s, ok := e.reg.Get(id)
+		if !ok || !s.IsLive() {
+			continue
+		}
+		out = append(out, sessionCandidate{id, e.getLastActive(id)})
+	}
+	return out
 }
 
 // placeholderCandidates returns the suspended (non-live) sessions paired with
@@ -1443,7 +1515,7 @@ func (e *terminalEngine) Shutdown() {
 				if dir != "" {
 					fm := s.FlushMu()
 					fm.Lock()
-					snap := s.Snapshot()
+					snap, _ := s.Snapshot()
 					shutErr := persistence.WriteBuf(dir, id, snap)
 					fm.Unlock()
 					if shutErr != nil {

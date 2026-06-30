@@ -30,9 +30,20 @@ func waitFrame(
 	}
 }
 
+// newTestSession spawns a live session at the default 80×24 size with no scrollback
+// override, the shape every session unit test that does not care about size uses.
+func newTestSession(
+	t *testing.T,
+	id string,
+	dir string,
+) (*Session, error) {
+	t.Helper()
+	return New(id, "/bin/sh", dir, "", os.Environ(), 80, 24, 0)
+}
+
 func TestSession_NewAndKill(t *testing.T) {
 	dir := t.TempDir()
-	s, err := New("sid-1", "/bin/sh", dir, "", os.Environ())
+	s, err := newTestSession(t, "sid-1", dir)
 	require.NoError(t, err)
 	require.NotNil(t, s)
 
@@ -47,7 +58,7 @@ func TestSession_NewAndKill(t *testing.T) {
 
 func TestSession_AttachReceivesOutput(t *testing.T) {
 	dir := t.TempDir()
-	s, err := New("sid-2", "/bin/sh", dir, "", os.Environ())
+	s, err := newTestSession(t, "sid-2", dir)
 	require.NoError(t, err)
 
 	ch, err := s.Attach()
@@ -80,7 +91,7 @@ func TestSession_AttachReceivesOutput(t *testing.T) {
 // zombie. ProcessState is non-nil only after a successful Wait().
 func TestSession_NaturalExitReapsChild(t *testing.T) {
 	dir := t.TempDir()
-	s, err := New("sid-natural-exit", "/bin/sh", dir, "", os.Environ())
+	s, err := newTestSession(t, "sid-natural-exit", dir)
 	require.NoError(t, err)
 
 	// Make the shell exit on its own — no Kill().
@@ -99,7 +110,7 @@ func TestSession_NaturalExitReapsChild(t *testing.T) {
 
 func TestSession_AttachDeadSession(t *testing.T) {
 	dir := t.TempDir()
-	s, err := New("sid-3", "/bin/sh", dir, "", os.Environ())
+	s, err := newTestSession(t, "sid-3", dir)
 	require.NoError(t, err)
 	s.Kill()
 
@@ -111,7 +122,7 @@ func TestSession_AttachDeadSession(t *testing.T) {
 
 func TestSession_DetachClosesChannel(t *testing.T) {
 	dir := t.TempDir()
-	s, err := New("sid-4", "/bin/sh", dir, "", os.Environ())
+	s, err := newTestSession(t, "sid-4", dir)
 	require.NoError(t, err)
 
 	ch, err := s.Attach()
@@ -125,17 +136,21 @@ func TestSession_DetachClosesChannel(t *testing.T) {
 	s.Kill()
 }
 
-func TestSession_RingBufferReplay(t *testing.T) {
+// TestSession_ReAttachSerializesScreen proves the serialize-on-attach behavior switch:
+// a re-attaching client receives ONE clean redraw serialized from the current screen
+// model (not a raw ring replay), so output a prior client produced is still visible in
+// the new client's first frame.
+func TestSession_ReAttachSerializesScreen(t *testing.T) {
 	dir := t.TempDir()
-	s, err := New("sid-5", "/bin/sh", dir, "", os.Environ())
+	s, err := newTestSession(t, "sid-5", dir)
 	require.NoError(t, err)
 
 	ch, err := s.Attach()
 	require.NoError(t, err)
 
-	require.NoError(t, s.Write([]byte("echo ring\n")))
+	require.NoError(t, s.Write([]byte("echo ringmarker\n")))
 
-	// Wait until ring has data.
+	// Wait until the first client sees the echoed marker so the model has parsed it.
 	deadline := time.After(3 * time.Second)
 	found := false
 	for !found {
@@ -144,23 +159,28 @@ func TestSession_RingBufferReplay(t *testing.T) {
 			if !ok {
 				t.Fatal("channel closed unexpectedly")
 			}
-			if containsStr(f.Data, "ring") {
+			if containsStr(f.Data, "ringmarker") {
 				found = true
 			}
 		case <-deadline:
-			t.Fatal("timeout waiting for ring output on first client")
+			t.Fatal("timeout waiting for output on first client")
 		}
 	}
 
 	s.Detach(ch)
 
-	// Second attach must replay ring (snapshot contains "ring").
+	// Second attach must serialize the current screen, whose grid still shows the marker.
 	ch2, err := s.Attach()
 	require.NoError(t, err)
 
 	f, ok := waitFrame(t, ch2, 2*time.Second)
-	assert.True(t, ok, "expected replay frame")
-	assert.True(t, containsStr(f.Data, "ring"), "replay must contain 'ring', got: %q", f.Data)
+	assert.True(t, ok, "expected serialized redraw frame")
+	assert.True(t, containsStr(f.Data, "ringmarker"),
+		"serialized redraw must contain the on-screen marker, got: %q", f.Data)
+	// The serialized redraw must be a clean ground-state frame: no replay sanitizer CAN
+	// byte and no historical query bytes — it starts with the soft-reset DECSTR.
+	assert.True(t, contains(f.Data, []byte("\x1b[!p")),
+		"serialized redraw must begin with the DECSTR soft reset, got: %q", f.Data)
 
 	s.Detach(ch2)
 	s.Kill()
@@ -168,7 +188,7 @@ func TestSession_RingBufferReplay(t *testing.T) {
 
 func TestSession_Resize(t *testing.T) {
 	dir := t.TempDir()
-	s, err := New("sid-6", "/bin/sh", dir, "", os.Environ())
+	s, err := newTestSession(t, "sid-6", dir)
 	require.NoError(t, err)
 	assert.NoError(t, s.Resize(120, 40))
 	s.Kill()
@@ -176,7 +196,7 @@ func TestSession_Resize(t *testing.T) {
 
 func TestSession_ID(t *testing.T) {
 	dir := t.TempDir()
-	s, err := New("my-id", "/bin/sh", dir, "", os.Environ())
+	s, err := New("my-id", "/bin/sh", dir, "", os.Environ(), 80, 24, 0)
 	require.NoError(t, err)
 	assert.Equal(t, "my-id", s.ID())
 	s.Kill()
@@ -185,13 +205,13 @@ func TestSession_ID(t *testing.T) {
 func TestSession_New_BadShell(t *testing.T) {
 	dir := t.TempDir()
 	// A non-existent executable must cause pty.Start to fail.
-	_, err := New("sid-bad", "/nonexistent/shell/binary", dir, "", os.Environ())
+	_, err := New("sid-bad", "/nonexistent/shell/binary", dir, "", os.Environ(), 80, 24, 0)
 	assert.Error(t, err)
 }
 
 func TestSession_WriteAfterKill(t *testing.T) {
 	dir := t.TempDir()
-	s, err := New("sid-7", "/bin/sh", dir, "", os.Environ())
+	s, err := newTestSession(t, "sid-7", dir)
 	require.NoError(t, err)
 	s.Kill()
 	// Wait for PTY to fully close.
@@ -203,7 +223,7 @@ func TestSession_WriteAfterKill(t *testing.T) {
 
 func TestSession_ResizeAfterKill(t *testing.T) {
 	dir := t.TempDir()
-	s, err := New("sid-8", "/bin/sh", dir, "", os.Environ())
+	s, err := newTestSession(t, "sid-8", dir)
 	require.NoError(t, err)
 	s.Kill()
 	<-s.Done()
@@ -214,7 +234,7 @@ func TestSession_ResizeAfterKill(t *testing.T) {
 
 func TestSession_DropOnOverflow(t *testing.T) {
 	dir := t.TempDir()
-	s, err := New("sid-9", "/bin/sh", dir, "", os.Environ())
+	s, err := newTestSession(t, "sid-9", dir)
 	require.NoError(t, err)
 	t.Cleanup(s.Kill)
 
@@ -283,8 +303,8 @@ func TestIsNormalPTYClose_OtherError(t *testing.T) {
 }
 
 // TestSession_ReplayLiveHandoff_NoDuplication verifies that a client attaching
-// while the pump is between ring.Write and fanOut never receives the same chunk
-// twice (once in the ring snapshot, once via the live fan-out delivery).
+// while the pump is between the model write and fanOut never receives the same chunk
+// twice (once in the serialized attach redraw, once via the live fan-out delivery).
 //
 // PumpChunkForTest delegates to pumpStep — the production critical section used by
 // pump() — so this test exercises the real code path. A regression that removes the
@@ -293,7 +313,7 @@ func TestIsNormalPTYClose_OtherError(t *testing.T) {
 // Run with: go test -race -run TestSession_ReplayLiveHandoff_NoDuplication
 func TestSession_ReplayLiveHandoff_NoDuplication(t *testing.T) {
 	dir := t.TempDir()
-	s, err := New("sid-handoff", "/bin/sh", dir, "", os.Environ())
+	s, err := newTestSession(t, "sid-handoff", dir)
 	require.NoError(t, err)
 	t.Cleanup(s.Kill)
 
@@ -351,7 +371,7 @@ func TestSession_ReplayLiveHandoff_NoDuplication(t *testing.T) {
 				s.Detach(ch)
 
 				// Any unique chunk appearing more than once means the client
-				// saw it in both the ring snapshot and the live fan-out.
+				// saw it in both the serialized attach redraw and the live fan-out.
 				for r := 0; r < rounds; r++ {
 					if countOccurrences(received, makeChunk(r)) > 1 {
 						atomic.AddInt64(&dupCount, 1)
@@ -413,12 +433,13 @@ func contains(
 
 // TestIsLive_AttachedCount_State_Transitions verifies the State/IsLive/
 // AttachedCount accessors across a typical session lifecycle:
-//   live + 0 clients → "detached"
-//   live + 1 client  → "active"
-//   after Kill        → IsLive false, State "suspended"
+//
+//	live + 0 clients → "detached"
+//	live + 1 client  → "active"
+//	after Kill        → IsLive false, State "suspended"
 func TestIsLive_AttachedCount_State_Transitions(t *testing.T) {
 	dir := t.TempDir()
-	s, err := New("sid-lifecycle", "/bin/sh", dir, "", os.Environ())
+	s, err := newTestSession(t, "sid-lifecycle", dir)
 	require.NoError(t, err)
 	t.Cleanup(s.Kill)
 
@@ -454,11 +475,12 @@ func TestIsLive_AttachedCount_State_Transitions(t *testing.T) {
 
 // TestNewPlaceholder verifies that a placeholder session:
 //   - reports IsLive false and State "suspended"
-//   - returns the loaded scrollback on Attach without panic
+//   - holds NO model and delivers no serialized frame on Attach (the engine restores a
+//     placeholder to a live session before attaching in production), without panicking
 //   - can be killed without panic, closing Done()
 func TestNewPlaceholder(t *testing.T) {
-	scrollback := []byte("old output here")
-	s := NewPlaceholder("ph-1", "/bin/sh", "/tmp", "prof-A", scrollback)
+	rawBlob := []byte("CRWB1 80 24 0 10000\nold output here")
+	s := NewPlaceholder("ph-1", "/bin/sh", "/tmp", "prof-A", rawBlob)
 
 	require.False(t, s.IsLive(), "placeholder must not be live")
 	require.Equal(t, "suspended", s.State())
@@ -466,18 +488,15 @@ func TestNewPlaceholder(t *testing.T) {
 	require.Equal(t, "/tmp", s.CWD())
 	require.Equal(t, "prof-A", s.ProfileID())
 
-	// Attach must succeed and replay the scrollback.
+	// A model-less placeholder Attach must not panic and must deliver no redraw frame
+	// (there is no model to serialize).
 	ch, err := s.Attach()
 	require.NoError(t, err)
 	require.NotNil(t, ch)
-
-	// The ring snapshot should be delivered immediately.
 	select {
-	case f, ok := <-ch:
-		require.True(t, ok)
-		require.Equal(t, scrollback, f.Data)
-	case <-time.After(time.Second):
-		t.Fatal("placeholder Attach did not deliver scrollback snapshot")
+	case f := <-ch:
+		t.Fatalf("placeholder Attach must not deliver a frame, got: %q", f.Data)
+	case <-time.After(200 * time.Millisecond):
 	}
 	s.Detach(ch)
 
@@ -490,45 +509,33 @@ func TestNewPlaceholder(t *testing.T) {
 	}
 }
 
-// TestNewPlaceholder_RingCapLazySized verifies that a placeholder's ring buffer
-// is lazily sized to its scrollback length rather than the full 256 KB live
-// budget — the prior unconditional allocation was the 23 GB suspended-placeholder
-// memory-growth class. RingCap must report the actual (small) capacity.
-func TestNewPlaceholder_RingCapLazySized(t *testing.T) {
-	scrollback := []byte("some prior scrollback bytes")
-	s := NewPlaceholder("ph-cap", "/bin/sh", "/tmp", "", scrollback)
+// TestNewPlaceholder_ModelBytesIsBlobLen verifies a placeholder accounts only its stored
+// blob bytes (no live model), so thousands of suspended placeholders do not each pin a full
+// model's worth of memory.
+func TestNewPlaceholder_ModelBytesIsBlobLen(t *testing.T) {
+	rawBlob := []byte("CRWB1 80 24 0 10000\nsome prior bytes")
+	s := NewPlaceholder("ph-cap", "/bin/sh", "/tmp", "", rawBlob)
 
-	require.Equal(t, len(scrollback), s.RingCap(),
-		"placeholder ring must be sized to scrollback length, not defaultRingSize")
-	require.NotEqual(t, defaultRingSize, s.RingCap(),
-		"placeholder must NOT allocate a full 256 KB ring")
-	require.Equal(t, scrollback, s.Snapshot(),
-		"placeholder must still replay the full scrollback")
+	require.Equal(t, int64(len(rawBlob)), s.ModelBytes(),
+		"placeholder ModelBytes must equal its stored blob length")
 }
 
-// TestNewPlaceholder_RingCapEmptyScrollback verifies the small floor: an empty
-// scrollback still yields a tiny (>=1) ring rather than a zero-length one.
-func TestNewPlaceholder_RingCapEmptyScrollback(t *testing.T) {
-	s := NewPlaceholder("ph-empty", "/bin/sh", "/tmp", "", nil)
-	require.GreaterOrEqual(t, s.RingCap(), 1)
-	require.Less(t, s.RingCap(), defaultRingSize)
-}
-
-// TestLiveSession_RingCapFullBudget verifies live sessions still pin the full
-// default ring budget (so byte-ceiling accounting stays correct for them).
-func TestLiveSession_RingCapFullBudget(t *testing.T) {
+// TestLiveSession_ModelBytesAccountsGrid verifies a live session's ModelBytes reflects its
+// grid (and grows with scrollback) so the byte-ceiling accounting stays correct.
+func TestLiveSession_ModelBytesAccountsGrid(t *testing.T) {
 	dir := t.TempDir()
-	s, err := New("sid-cap", "/bin/sh", dir, "", os.Environ())
+	s, err := newTestSession(t, "sid-cap", dir)
 	require.NoError(t, err)
 	t.Cleanup(s.Kill)
-	require.Equal(t, defaultRingSize, s.RingCap())
+	require.Greater(t, s.ModelBytes(), int64(0),
+		"a live session must account a positive model footprint")
 }
 
 // TestOSC7_CWD_Update pumps two OSC 7 sequences through pumpStep and verifies
 // that CWD() returns the path from the LAST sequence.
 func TestOSC7_CWD_Update(t *testing.T) {
 	dir := t.TempDir()
-	s, err := New("sid-osc7", "/bin/sh", dir, "", os.Environ())
+	s, err := newTestSession(t, "sid-osc7", dir)
 	require.NoError(t, err)
 	t.Cleanup(s.Kill)
 
@@ -549,18 +556,20 @@ func TestOSC7_CWD_Update(t *testing.T) {
 // Phase 2: Suspend/Restore helpers
 // ---------------------------------------------------------------------------
 
-// TestSession_Snapshot_ContentFromPlaceholder verifies Snapshot returns ring content.
+// TestSession_Snapshot_ContentFromPlaceholder verifies a placeholder Snapshot returns its
+// stored blob verbatim with changed==false (no model, nothing to re-serialize).
 func TestSession_Snapshot_ContentFromPlaceholder(t *testing.T) {
-	data := []byte("scrollback data")
+	data := []byte("CRWB1 80 24 0 10000\nscrollback data")
 	ph := NewPlaceholder("ph-snap", "/bin/sh", "/tmp", "", data)
-	snap := ph.Snapshot()
+	snap, changed := ph.Snapshot()
 	assert.Equal(t, data, snap)
+	assert.False(t, changed, "a placeholder's persisted blob never changes")
 }
 
 // TestSession_BeginSuspendIfEligible_WithClients verifies no-op when clients attached.
 func TestSession_BeginSuspendIfEligible_WithClients(t *testing.T) {
 	dir := t.TempDir()
-	s, err := New("sid-bse1", "/bin/sh", dir, "", os.Environ())
+	s, err := newTestSession(t, "sid-bse1", dir)
 	require.NoError(t, err)
 	t.Cleanup(s.Kill)
 
@@ -576,7 +585,7 @@ func TestSession_BeginSuspendIfEligible_WithClients(t *testing.T) {
 // is a no-op once the flag is set.
 func TestSession_BeginSuspendIfEligible_AlreadySuspending(t *testing.T) {
 	dir := t.TempDir()
-	s, err := New("sid-bse2", "/bin/sh", dir, "", os.Environ())
+	s, err := newTestSession(t, "sid-bse2", dir)
 	require.NoError(t, err)
 	t.Cleanup(s.Kill)
 
@@ -591,7 +600,7 @@ func TestSession_BeginSuspendIfEligible_AlreadySuspending(t *testing.T) {
 // TestSession_Suspending verifies the flag is readable after BeginSuspendIfEligible.
 func TestSession_Suspending(t *testing.T) {
 	dir := t.TempDir()
-	s, err := New("sid-suspflag", "/bin/sh", dir, "", os.Environ())
+	s, err := newTestSession(t, "sid-suspflag", dir)
 	require.NoError(t, err)
 	t.Cleanup(s.Kill)
 
@@ -607,7 +616,7 @@ func TestSession_Suspending(t *testing.T) {
 // TestSession_ExitCode_Default verifies ExitCode is -1 before any exit.
 func TestSession_ExitCode_Default(t *testing.T) {
 	dir := t.TempDir()
-	s, err := New("sid-ec0", "/bin/sh", dir, "", os.Environ())
+	s, err := newTestSession(t, "sid-ec0", dir)
 	require.NoError(t, err)
 	t.Cleanup(s.Kill)
 
@@ -617,7 +626,7 @@ func TestSession_ExitCode_Default(t *testing.T) {
 // TestSession_ExitCode_AfterCleanExit verifies ExitCode is 0 after `exit 0`.
 func TestSession_ExitCode_AfterCleanExit(t *testing.T) {
 	dir := t.TempDir()
-	s, err := New("sid-ec1", "/bin/sh", dir, "", os.Environ())
+	s, err := newTestSession(t, "sid-ec1", dir)
 	require.NoError(t, err)
 
 	require.NoError(t, s.Write([]byte("exit 0\n")))
@@ -630,19 +639,38 @@ func TestSession_ExitCode_AfterCleanExit(t *testing.T) {
 	assert.Equal(t, 0, s.ExitCode())
 }
 
-// TestSession_NewRestored_LoadsScrollbackBeforePump verifies that NewRestored pre-loads
-// scrollback into the ring before the pump goroutine starts, so a first Attach sees
-// scrollback in the snapshot frame ahead of any new shell output.
-func TestSession_NewRestored_LoadsScrollbackBeforePump(t *testing.T) {
-	scrollback := []byte("old-scrollback\r\n")
+// TestSession_NewRestored_RebuildsModelFromBlob verifies that NewRestored parses a
+// persisted CRWB1 blob, rebuilds the model from its redraw bytes BEFORE the pump starts,
+// and a first Attach serializes the restored screen — so prior on-screen content survives
+// the round-trip. The blob is produced by a real live session's Snapshot so the header and
+// redraw are exactly what the engine persists.
+func TestSession_NewRestored_RebuildsModelFromBlob(t *testing.T) {
 	dir := t.TempDir()
-	s, err := NewRestored("sid-restored", "/bin/sh", dir, "profX", os.Environ(), scrollback)
+
+	// Produce a real persisted blob: a live session that printed a known marker.
+	src, err := newTestSession(t, "sid-src", dir)
+	require.NoError(t, err)
+	require.NoError(t, src.Write([]byte("echo restoremarker\n")))
+	deadline := time.After(3 * time.Second)
+	for {
+		blob, _ := src.Snapshot()
+		if contains(blob, []byte("restoremarker")) {
+			src.Kill()
+			break
+		}
+		select {
+		case <-deadline:
+			src.Kill()
+			t.Fatal("source session never produced the marker on screen")
+		case <-time.After(50 * time.Millisecond):
+		}
+	}
+	blob, _ := src.Snapshot()
+	require.True(t, contains(blob, []byte("CRWB1 ")), "blob must carry a CRWB1 header")
+
+	s, err := NewRestored("sid-restored", "/bin/sh", dir, "profX", os.Environ(), blob)
 	require.NoError(t, err)
 	t.Cleanup(s.Kill)
-
-	snap := s.Snapshot()
-	require.True(t, contains(snap, scrollback),
-		"ring snapshot must contain pre-loaded scrollback; got %q", snap)
 
 	ch, err := s.Attach()
 	require.NoError(t, err)
@@ -651,10 +679,10 @@ func TestSession_NewRestored_LoadsScrollbackBeforePump(t *testing.T) {
 	select {
 	case f, ok := <-ch:
 		require.True(t, ok)
-		require.True(t, contains(f.Data, scrollback),
-			"first attach frame must contain the pre-loaded scrollback; got %q", f.Data)
+		require.True(t, contains(f.Data, []byte("restoremarker")),
+			"first attach frame must contain the restored on-screen marker; got %q", f.Data)
 	case <-time.After(2 * time.Second):
-		t.Fatal("no snapshot frame received from restored session")
+		t.Fatal("no serialized frame received from restored session")
 	}
 }
 
