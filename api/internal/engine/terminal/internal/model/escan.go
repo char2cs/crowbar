@@ -97,12 +97,31 @@ func (m *vtModel) escanFromEsc(
 		m.escanState = escSCSG1
 	case '[': // CSI
 		m.beginCSI()
+	case 'c': // RIS — full reset
+		m.applyRIS()
+		m.escanState = escGround
 	default:
 		// Any other ESC sequence (including CAN/SUB abort and the multi-byte SCS variants
 		// ESC * / ESC + for G2/G3 we do not track) returns to ground; the emulator still
 		// parses it for the grid.
 		m.escanState = escGround
 	}
+}
+
+// applyRIS mirrors x/vt's fullReset (ESC c) for exactly the shadow state x/vt never reports
+// back: it resets the scroll region and the G0/G1 charset designation + active locking shift
+// to hardware defaults. The DEC private modes are NOT touched here — x/vt's resetModes
+// re-applies every default through the EnableMode/DisableMode callbacks, so shadow.modes is
+// already corrected by the time RIS returns. Application-keypad (DEC-66) is likewise corrected
+// by that resetModes callback (DisableMode(66)), so it is deliberately NOT cleared here:
+// clearing it would clobber a DECKPAM (ESC =) that arrives in the SAME Write chunk as the RIS,
+// because escan runs as a second pass AFTER the emulator callbacks have already observed the
+// ESC = (escan does not itself re-observe ESC =). Like the resize reset, this prevents a later
+// Serialize from re-emitting a stale DECSTBM / charset the app has already cleared.
+func (m *vtModel) applyRIS() {
+	m.shadow.scrollRegionSet = false
+	m.shadow.scrollTop, m.shadow.scrollBottom = 0, 0
+	m.shadow.g0, m.shadow.g1, m.shadow.glLock = 'B', 'B', 0
 }
 
 // escanFromSCS records the charset designator for the given slot. Intermediate bytes

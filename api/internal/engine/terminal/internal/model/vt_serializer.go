@@ -15,6 +15,10 @@ const maxOSCTextRunes = 256
 // decstr is the DECSTR (soft terminal reset) sequence. x/ansi has no constant for it.
 const decstr = "\x1b[!p"
 
+// deckpam is DECKPAM (ESC =), application-keypad mode. It is re-emitted verbatim — there is
+// no DECSET form that re-establishes application keypad on a live xterm client.
+const deckpam = "\x1b="
+
 // serializedModeOrder is the deterministic emission order for the default-OFF DEC private
 // modes re-asserted in step 8 (DECCKM, the three mouse-tracking modes, the two
 // mouse-encoding modes, focus reporting, and bracketed paste).
@@ -100,9 +104,10 @@ func writeContent(
 	}
 }
 
-// writeModes emits steps 8-11: the default-OFF private modes, the autowrap reset (only
-// when the app disabled it), the charset designation + active locking shift, and the
-// scroll region (only when set and not full-screen).
+// writeModes emits steps 8-11: the default-OFF private modes, application-keypad mode
+// (re-emitted as ESC =, never a DECSET), the autowrap reset (only when the app disabled
+// it), the charset designation + active locking shift, and the scroll region (only when
+// set and not full-screen).
 func writeModes(
 	b *strings.Builder,
 	sh *shadowState,
@@ -112,6 +117,9 @@ func writeModes(
 		if sh.modes[mode] {
 			b.WriteString(ansi.SetMode(ansi.DECMode(mode)))
 		}
+	}
+	if sh.keypadApplication {
+		b.WriteString(deckpam)
 	}
 	if on, ok := sh.modes[7]; ok && !on {
 		b.WriteString(ansi.ResetMode(ansi.DECMode(7)))

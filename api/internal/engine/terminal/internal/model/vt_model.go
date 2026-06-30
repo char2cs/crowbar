@@ -24,7 +24,8 @@ const bytesPerCell = 16
 // entered the alt buffer via the legacy ?47h/?1047h, and ?1049l alone does NOT take x/vt
 // out of a buffer entered that way. The trailing ESC(B ESC)B re-designate G0/G1 to
 // US-ASCII and SI re-invokes G0 into GL, resetting charset/locking-shift state without
-// touching the grid.
+// touching the grid. ESC > (DECKPNM) returns the keypad to numeric mode, undoing any
+// application-keypad (ESC =) the dead app left on.
 //
 // RIS (ESC c) is deliberately ABSENT: RIS clears the grid AND scrollback, which would wipe
 // the shell screen on every app-death edge — the opposite of this method's contract. The
@@ -33,7 +34,7 @@ const bytesPerCell = 16
 const foregroundResetTeardown = "\x1b[?1049l\x1b[?47l\x1b[?1047l" +
 	"\x1b[?1l\x1b[?6l" +
 	"\x1b[?1000l\x1b[?1002l\x1b[?1003l\x1b[?1004l\x1b[?1006l\x1b[?1015l" +
-	"\x1b[?7h\x1b[?25h\x1b[?2004l" +
+	"\x1b[?7h\x1b[?25h\x1b[?2004l\x1b>" +
 	"\x1b(B\x1b)B\x0f"
 
 type vtModel struct {
@@ -97,14 +98,28 @@ func (m *vtModel) buildEmu(
 	return newEmulator(cols, rows, cb, m.scrollbackLines)
 }
 
+// decModeNumericKeypad is DECMode(66) (ansi.ModeNumericKeypad / DECNKM). x/vt routes both
+// the DEC private-mode form (CSI ?66 h/l) AND the two-byte DECKPAM/DECKPNM escapes
+// (ESC = / ESC >) through this mode toggle, so it is the single signal for application-
+// keypad state. EnableMode(66) == application keypad on (ESC =), DisableMode(66) == numeric
+// keypad (ESC >).
+const decModeNumericKeypad = 66
+
 // observeMode records a DEC private mode toggle. Non-DEC (ANSI) modes are ignored: only
-// private modes are re-asserted by the serializer.
+// private modes are re-asserted by the serializer. Application-keypad mode (DEC 66) is
+// pulled out into its own shadow flag because the serializer must re-emit it as ESC = /
+// ESC >, not as a DECSET — a plain ?66h would not re-establish application keypad on the
+// live xterm client.
 func (m *vtModel) observeMode(
 	mode ansi.Mode,
 	on bool,
 ) {
 	dm, ok := mode.(ansi.DECMode)
 	if !ok {
+		return
+	}
+	if dm.Mode() == decModeNumericKeypad {
+		m.shadow.keypadApplication = on
 		return
 	}
 	m.shadow.setMode(dm.Mode(), on)
@@ -185,11 +200,22 @@ func (m *vtModel) recreateEmu(
 	m.resetEscan()
 }
 
+// Resize forwards the new geometry to the emulator and clears the shadow scroll region.
+// x/vt's Screen.Resize unconditionally resets its scroll region to the full new bounds
+// (s.scroll = buf.Bounds()), and the scroll region is tracked in the shadow by the
+// escan DECSTBM scanner — which never observes that emulator-internal reset. Without
+// clearing it here, a re-attach Serialize after a SIGWINCH (every workspace switch resizes
+// the recreated xterm) would re-emit a STALE DECSTBM the live app has already lost, landing
+// the app's next repaint one row off and leaking adjacent chrome into the input line. The
+// app re-establishes its real region on its post-resize repaint; until then full-screen
+// (no DECSTBM) is the correct, x/vt-matching state.
 func (m *vtModel) Resize(
 	cols int,
 	rows int,
 ) {
 	m.emu.Resize(cols, rows)
+	m.shadow.scrollRegionSet = false
+	m.shadow.scrollTop, m.shadow.scrollBottom = 0, 0
 }
 
 // OnForegroundReset clears transient, app-owned screen state on the foreground-app-death
