@@ -1,5 +1,7 @@
 package model
 
+import "strconv"
+
 // OSC 0/1/2 (icon name / window title) strip state machine.
 //
 // Motivation: the pinned x/vt commit parses its input as a byte stream and honours the 8-bit
@@ -18,10 +20,12 @@ package model
 // calls so an OSC split across PTY chunks is still recognised and never leaks a dangling
 // partial OSC title into x/vt.
 //
-// It strips ONLY OSC 0/1/2. OSC 10/11/12 (default colours, code "10"/"11"/"12"), OSC 4, OSC 8
-// and every other OSC pass straight through to x/vt unchanged, because a code with two or
-// more digits can never be 0/1/2. The live-client fan-out is not involved here — the session
-// fans out the RAW stream to clients; only what the EMULATOR sees is stripped.
+// It strips ONLY OSC 0/1/2, deciding by the SAME numeric parse escan uses to capture them:
+// the collected code digits are read with strconv.Atoi and the OSC is stripped iff the value
+// is 0, 1 or 2. So the leading-zero forms "00"/"01"/"02" strip (Atoi -> 0/1/2, exactly what
+// escan captures), while OSC 10/11/12 (default colours), OSC 4, OSC 8 and every other OSC pass
+// straight through to x/vt unchanged. The live-client fan-out is not involved here — the
+// session fans out the RAW stream to clients; only what the EMULATOR sees is stripped.
 //
 // Because a conforming terminal moves no cursor on an OSC, removing the sequence also removes
 // the spurious cursor movement the mis-print caused.
@@ -118,25 +122,20 @@ func (m *vtModel) stripFromEsc(
 	return m.stripStep(out, c)
 }
 
-// stripFromOSCCode reads the numeric OSC code that follows ESC ]. OSC 0/1/2 are single-digit,
-// so a SECOND digit proves the code is >= 10 (a colour/hyperlink/etc. OSC) and the whole
-// sequence is flushed through. On the first non-digit byte the accumulated code decides: a
-// title/icon code (0/1/2) switches to discard, any other (including an empty code) flushes the
-// withheld introducer and passes the rest through.
+// stripFromOSCCode reads the numeric OSC code that follows ESC ]. It accumulates EVERY leading
+// digit (matching escan, which parses the whole code field with Atoi) so a leading-zero code
+// like "00"/"01"/"02" is read as its numeric value, not misjudged by digit count. The withheld
+// introducer stays withheld across the digits, because until a non-digit arrives the code is
+// still ambiguous. On the first non-digit byte the accumulated code decides: a title/icon code
+// (oscCodeIsTitle: value 0/1/2) switches to discard, any other (including an empty code) flushes
+// the withheld introducer and passes the rest through.
 func (m *vtModel) stripFromOSCCode(
 	out []byte,
 	c byte,
 ) []byte {
 	if c >= '0' && c <= '9' {
 		m.stripWithheld = append(m.stripWithheld, c)
-		if len(m.stripCode) == 0 {
-			m.stripCode = append(m.stripCode, c)
-			return out
-		}
-		// Second digit: code >= 10, never OSC 0/1/2 — keep the whole OSC for x/vt.
 		m.stripCode = append(m.stripCode, c)
-		out = m.flushWithheld(out)
-		m.stripState = stripOSCPass
 		return out
 	}
 	if m.oscCodeIsTitle() {
@@ -149,17 +148,18 @@ func (m *vtModel) stripFromOSCCode(
 	return m.stripFromPass(out, c)
 }
 
-// oscCodeIsTitle reports whether the accumulated code is an icon/title OSC (0, 1 or 2). The
-// exact single-digit match mirrors escan's capture set precisely: OSC 10/11/12 (code "10"…)
-// and an empty code are NOT titles, so this machine and escan always agree on which OSCs are
-// captured-and-stripped versus passed through.
+// oscCodeIsTitle reports whether the accumulated code is an icon/title OSC (numeric value 0, 1
+// or 2). It parses the collected digits with strconv.Atoi — the IDENTICAL parse escan.finishOSC
+// uses to capture the title — so the two agree on the exact same set: "0"/"1"/"2" AND their
+// leading-zero forms "00"/"01"/"02" are titles, while OSC 10/11/12 (code "10"…), an empty code,
+// and any non-numeric or out-of-range code are NOT. Strip and capture therefore never disagree
+// on which OSCs are captured-and-stripped versus passed through.
 func (m *vtModel) oscCodeIsTitle() bool {
-	switch string(m.stripCode) {
-	case "0", "1", "2":
-		return true
-	default:
+	code, err := strconv.Atoi(string(m.stripCode))
+	if err != nil {
 		return false
 	}
+	return code == 0 || code == 1 || code == 2
 }
 
 // stripFromDiscard drops the body of an OSC 0/1/2 until a UTF-8-safe terminator: BEL commits,

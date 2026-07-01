@@ -25,6 +25,33 @@ func TestStripOSCTitlesMisprint(t *testing.T) {
 	}
 }
 
+// TestStripOSCTitlesLeadingZeroMatchesSingleDigit locks strip and escan to the IDENTICAL numeric
+// OSC-code rule for the non-conformant leading-zero title form. A leading-zero OSC 2 whose UTF-8
+// body carries 0x9C ("✳" U+2733 = E2 9C B3) must behave exactly like the "\x1b]2;" form: the
+// sequence is stripped from the emulator input (no leftover title text mis-printed into the grid
+// by x/vt's 0x9C truncation) AND the full title is captured via escan's Atoi("02")=2. Before the
+// fix, strip treated the second '0' as "code >= 10, keep" and passed "\x1b]02;" to x/vt (grid
+// mis-print) while escan still captured it (double-capture) — strip and capture disagreed.
+func TestStripOSCTitlesLeadingZeroMatchesSingleDigit(t *testing.T) {
+	const body = "\xe2\x9c\xb3 ZZLEAK" // "✳ ZZLEAK", middle byte 0x9C truncates x/vt's OSC parser
+
+	lz := newVTModel(40, 12, 100)
+	lz.Write([]byte("\x1b[10;5H\x1b]02;" + body + "\x07"))
+
+	single := newVTModel(40, 12, 100)
+	single.Write([]byte("\x1b[10;5H\x1b]2;" + body + "\x07"))
+
+	if snap := gridSnapshot(lz); strings.Contains(snap, "ZZLEAK") {
+		t.Fatalf("leading-zero OSC 2 leaked title text into the grid; grid:\n%s", snap)
+	}
+	if got, want := lz.Title(), "✳ ZZLEAK"; got != want {
+		t.Fatalf("leading-zero Title() = %q, want %q", got, want)
+	}
+	if got, want := lz.Title(), single.Title(); got != want {
+		t.Fatalf("leading-zero Title() = %q, want single-digit Title() = %q", got, want)
+	}
+}
+
 // TestStripOSCTitlesGridClean tables the icon/title and terminator variants: OSC 0/1/2 with a
 // 0x9C, terminated by BEL or the 7-bit ST, must leave the grid empty of title text while the
 // title/icon is still captured.
@@ -102,6 +129,9 @@ func TestStripOSCTitlesOutput(t *testing.T) {
 		{"OSC2 7-bit ST removed", "\x1b]2;title\x1b\\", ""},
 		{"OSC1 removed", "\x1b]1;icon\x07", ""},
 		{"OSC0 removed", "\x1b]0;both\x07", ""},
+		{"OSC02 leading-zero removed", "\x1b]02;title\x07", ""},
+		{"OSC01 leading-zero removed", "\x1b]01;icon\x07", ""},
+		{"OSC00 leading-zero removed", "\x1b]00;both\x07", ""},
 		{"CUP then OSC2", "\x1b[10;5H\x1b]2;x\x07", "\x1b[10;5H"},
 		{"OSC10 fg kept", "\x1b]10;rgb:00/00/00\x07", "\x1b]10;rgb:00/00/00\x07"},
 		{"OSC11 bg kept ST", "\x1b]11;#fff\x1b\\", "\x1b]11;#fff\x1b\\"},
@@ -132,8 +162,8 @@ func TestStripOSCTitlesOutput(t *testing.T) {
 
 // TestStripOSCTitlesSplitOutput pins the cross-chunk behaviour of stripOSCTitles at the byte
 // level: a stripped OSC withholds its introducer until it terminates (never leaking a dangling
-// partial to x/vt), while a kept OSC flushes its introducer to x/vt as soon as its multi-digit
-// code disambiguates it.
+// partial to x/vt), while a kept OSC withholds its introducer only until a non-digit byte
+// disambiguates the code, then flushes the whole introducer to x/vt.
 func TestStripOSCTitlesSplitOutput(t *testing.T) {
 	t.Run("stripped title split mid-code and mid-char", func(t *testing.T) {
 		m := newVTModel(40, 12, 100)
@@ -146,12 +176,15 @@ func TestStripOSCTitlesSplitOutput(t *testing.T) {
 	})
 	t.Run("kept colour split at code boundary", func(t *testing.T) {
 		m := newVTModel(40, 12, 100)
-		// Chunk 1 ends after the second code digit: the introducer flushes to x/vt.
-		if got := string(m.stripOSCTitles([]byte("\x1b]10"))); got != "\x1b]10" {
-			t.Fatalf("chunk 1 = %q, want %q", got, "\x1b]10")
+		// Chunk 1 ends on the digits alone: the code is still ambiguous (a further digit could
+		// make it 0/1/2 via a leading zero), so the introducer stays withheld — nothing leaks.
+		if got := string(m.stripOSCTitles([]byte("\x1b]10"))); got != "" {
+			t.Fatalf("chunk 1 = %q, want empty (code still ambiguous, withheld)", got)
 		}
-		if got := string(m.stripOSCTitles([]byte(";rgb:0/0/0\x07"))); got != ";rgb:0/0/0\x07" {
-			t.Fatalf("chunk 2 = %q, want %q", got, ";rgb:0/0/0\x07")
+		// The ';' is the first non-digit: Atoi("10") = 10 is not a title, so the withheld
+		// introducer plus the rest flush through to x/vt.
+		if got := string(m.stripOSCTitles([]byte(";rgb:0/0/0\x07"))); got != "\x1b]10;rgb:0/0/0\x07" {
+			t.Fatalf("chunk 2 = %q, want %q", got, "\x1b]10;rgb:0/0/0\x07")
 		}
 	})
 	t.Run("stripped title code withheld across chunk", func(t *testing.T) {
