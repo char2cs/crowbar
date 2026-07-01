@@ -42,6 +42,7 @@ type CreateInput struct {
 	MergeStrategy gitdomain.MergeStrategy
 	IsDefault     bool
 	Kind          domain.WorkspaceKind
+	HeldByPath    string
 }
 
 // SyncInput carries a recomputed working-tree summary.
@@ -111,6 +112,21 @@ type Workspace interface {
 		ctx context.Context,
 		id string,
 		forkPointSha string,
+	) (domain.Workspace, error)
+	// ProvisionInPlace attaches a worktree to a placeholder row (spec §3.3): it
+	// records worktreePath + forkPointSha and clears HeldByPath, keeping Status.
+	ProvisionInPlace(
+		ctx context.Context,
+		id string,
+		worktreePath string,
+		forkPointSha string,
+	) (domain.Workspace, error)
+	// ClearBranch blanks an existing aggregate's Branch to "" (spec §4/B6),
+	// leaving every other field untouched. Used by the Detach-holder op when the
+	// holder is the repo home.
+	ClearBranch(
+		ctx context.Context,
+		id string,
 	) (domain.Workspace, error)
 	// SetParentFromPR sets ParentID from an open PR's target branch without
 	// recomputing ForkPointSha.
@@ -384,6 +400,7 @@ func (w *workspace) Create(
 		IsDefault:     in.IsDefault,
 		MergeStrategy: in.MergeStrategy,
 		Kind:          in.Kind,
+		HeldByPath:    in.HeldByPath,
 		Now:           now,
 	})
 	if err != nil {
@@ -550,6 +567,44 @@ func (w *workspace) UpdateForkPoint(
 	evt, err := entity.send(ctx, commands.UpdateForkPoint{ID: id, ForkPointSha: forkPointSha})
 	if err != nil {
 		return domain.Workspace{}, fmt.Errorf("workspace: update fork point: %w", err)
+	}
+	return evt.Aggregate, nil
+}
+
+func (w *workspace) ProvisionInPlace(
+	ctx context.Context,
+	id string,
+	worktreePath string,
+	forkPointSha string,
+) (domain.Workspace, error) {
+	entity, release, err := w.entityFor(ctx, id)
+	if err != nil {
+		return domain.Workspace{}, err
+	}
+	defer release()
+	evt, err := entity.send(ctx, commands.ProvisionInPlace{
+		ID:           id,
+		WorktreePath: worktreePath,
+		ForkPointSha: forkPointSha,
+	})
+	if err != nil {
+		return domain.Workspace{}, fmt.Errorf("workspace: provision in place: %w", err)
+	}
+	return evt.Aggregate, nil
+}
+
+func (w *workspace) ClearBranch(
+	ctx context.Context,
+	id string,
+) (domain.Workspace, error) {
+	entity, release, err := w.entityFor(ctx, id)
+	if err != nil {
+		return domain.Workspace{}, err
+	}
+	defer release()
+	evt, err := entity.send(ctx, commands.ClearBranch{ID: id})
+	if err != nil {
+		return domain.Workspace{}, fmt.Errorf("workspace: clear branch: %w", err)
 	}
 	return evt.Aggregate, nil
 }

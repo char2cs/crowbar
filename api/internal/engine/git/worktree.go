@@ -15,8 +15,7 @@ func (e *engine) WorktreeAdd(
 ) error {
 	defer e.lockRepo(ctx, repoPath)()
 	r := e.exec(ctx, repoPath, "worktree", "add", worktreePath, branch)
-	err := gitexec.RequireSuccess("worktree add", r)
-	if err != nil && isStaleWorktreeConflict(err) {
+	if rawErr := gitexec.RequireSuccess("worktree add", r); rawErr != nil && isStaleWorktreeConflict(rawErr) {
 		// A worktree whose directory was removed out from under git still holds
 		// its branch "checked out", which blocks re-adding that branch with
 		// "already used by worktree" — so importing that branch fails forever.
@@ -26,9 +25,8 @@ func (e *engine) WorktreeAdd(
 		_ = gitexec.RequireSuccess("worktree prune",
 			e.exec(ctx, repoPath, "worktree", "prune"))
 		r = e.exec(ctx, repoPath, "worktree", "add", worktreePath, branch)
-		return gitexec.RequireSuccess("worktree add", r)
 	}
-	return err
+	return classifyGitError("worktree add", r)
 }
 
 // isStaleWorktreeConflict reports whether a worktree-add error is the
@@ -101,7 +99,7 @@ func (e *engine) CheckoutBranch(
 ) error {
 	defer e.lockRepo(ctx, worktreePath)()
 	r := e.exec(ctx, worktreePath, "switch", branch)
-	return gitexec.RequireSuccess("switch", r)
+	return classifyGitError("switch", r)
 }
 
 func (e *engine) RebaseOnto(

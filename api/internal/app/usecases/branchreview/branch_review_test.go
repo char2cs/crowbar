@@ -103,6 +103,22 @@ func (m *mockWorkspace) UpdateForkPoint(ctx context.Context, id, forkPointSha st
 	return domain.Workspace{}, nil
 }
 
+func (m *mockWorkspace) ProvisionInPlace(
+	_ context.Context,
+	id string,
+	worktreePath string,
+	forkPointSha string,
+) (domain.Workspace, error) {
+	return domain.Workspace{ID: id, WorktreePath: worktreePath, ForkPointSha: forkPointSha}, nil
+}
+
+func (m *mockWorkspace) ClearBranch(
+	_ context.Context,
+	id string,
+) (domain.Workspace, error) {
+	return domain.Workspace{ID: id}, nil
+}
+
 func (m *mockWorkspace) Delete(ctx context.Context, id string) error { return nil }
 func (m *mockWorkspace) List(ctx context.Context) ([]domain.Workspace, error) {
 	return nil, nil
@@ -283,6 +299,10 @@ func (g *mockGitEngine) Push(ctx context.Context, repoPath string) error { retur
 func (g *mockGitEngine) Fetch(ctx context.Context, repoPath string) error { return nil }
 
 func (g *mockGitEngine) FetchRef(ctx context.Context, repoPath, branch string) error { return nil }
+
+func (g *mockGitEngine) FastForwardBranch(ctx context.Context, repoPath, branch string) error {
+	return nil
+}
 
 func (g *mockGitEngine) Pull(ctx context.Context, repoPath, mode string) error { return nil }
 

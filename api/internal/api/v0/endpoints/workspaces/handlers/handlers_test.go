@@ -148,6 +148,20 @@ func (f *fakeHierarchy) DeleteCascade(
 	return f.deleteErr
 }
 
+func (f *fakeHierarchy) RetryProvision(
+	_ context.Context,
+	_ string,
+) (domain.Workspace, error) {
+	return domain.Workspace{}, nil
+}
+
+func (f *fakeHierarchy) DetachHolder(
+	_ context.Context,
+	_ string,
+) (domain.Workspace, error) {
+	return domain.Workspace{}, nil
+}
+
 type fakeRepos struct {
 	repo *domain.Repository
 	err  error
@@ -196,6 +210,8 @@ func newRouter(
 	rg.POST("/workspaces/:wsId/sync", h.Sync)
 	rg.POST("/workspaces/:wsId/merge-into-parent", h.MergeIntoParent)
 	rg.POST("/workspaces/:wsId/reparent", h.Reparent)
+	rg.POST("/workspaces/:wsId/retry-provision", h.RetryProvision)
+	rg.POST("/workspaces/:wsId/detach-holder", h.DetachHolder)
 	return r
 }
 

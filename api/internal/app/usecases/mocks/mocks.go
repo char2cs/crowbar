@@ -164,6 +164,7 @@ func (r *WorkspaceRepo) Create(
 		MergeStrategy: in.MergeStrategy,
 		IsDefault:     in.IsDefault,
 		Kind:          in.Kind,
+		HeldByPath:    in.HeldByPath,
 		CreatedAt:     now,
 	}
 	r.Created = append(r.Created, ws)
@@ -186,12 +187,20 @@ type GitEngine struct {
 	CheckedOut      []WorktreeAddCall // (path, branch) re-attach calls
 	WorktreeAdds    []WorktreeAddCall // (path, branch) worktrees materialised
 	WorktreeRemoves []string          // worktree paths force-removed
-	FetchedRefs     []string          // branches fetched from origin
+	FetchedRefs          []string // branches fetched from origin (FetchRef)
+	FastForwardedBranches []string // branches fast-forwarded from origin (FastForwardBranch)
 	RemoteBranches  map[string]bool   // branch -> exists on origin (default false)
 	RevParseShas    map[string]string // rev -> sha (default "")
 	DetachErr       error             // forces DetachWorktree to fail
 	// WorktreeAddErrByBranch forces WorktreeAdd to fail for specific branches.
 	WorktreeAddErrByBranch map[string]error
+	// Pruned records repo paths WorktreePrune was called on.
+	Pruned []string
+	// DeadRegistrations maps a dead worktree dir -> branch it "holds"; WorktreePrune
+	// removes them and merges the survivors into the list holder.Resolve sees.
+	DeadRegistrations map[string]string
+	// FastForwardErr forces FastForwardBranch to fail (best-effort FF path).
+	FastForwardErr error
 }
 
 // WorktreeAddCall records a fake WorktreeAdd invocation.
@@ -215,7 +224,11 @@ func (g *GitEngine) WorktreeList(
 	if g.WorktreeListErr != nil {
 		return nil, g.WorktreeListErr
 	}
-	return g.Worktrees, nil
+	out := append([]gitengine.WorktreeEntry(nil), g.Worktrees...)
+	for path, branch := range g.DeadRegistrations {
+		out = append(out, gitengine.WorktreeEntry{Path: path, Branch: branch})
+	}
+	return out, nil
 }
 
 func (g *GitEngine) MergeBase(
@@ -267,6 +280,18 @@ func (g *GitEngine) FetchRef(
 	return nil
 }
 
+func (g *GitEngine) FastForwardBranch(
+	ctx context.Context,
+	repoPath string,
+	branch string,
+) error {
+	if g.FastForwardErr != nil {
+		return g.FastForwardErr
+	}
+	g.FastForwardedBranches = append(g.FastForwardedBranches, branch)
+	return nil
+}
+
 func (g *GitEngine) WorktreeAdd(
 	ctx context.Context,
 	repoPath string,
@@ -286,6 +311,15 @@ func (g *GitEngine) WorktreeRemove(
 	worktreePath string,
 ) error {
 	g.WorktreeRemoves = append(g.WorktreeRemoves, worktreePath)
+	return nil
+}
+
+func (g *GitEngine) WorktreePrune(
+	ctx context.Context,
+	repoPath string,
+) error {
+	g.Pruned = append(g.Pruned, repoPath)
+	g.DeadRegistrations = nil // prune reaps every dead registration
 	return nil
 }
 

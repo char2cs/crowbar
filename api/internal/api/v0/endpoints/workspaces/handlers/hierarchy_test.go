@@ -199,3 +199,36 @@ func TestReparentAsyncErrorBroadcastsLastError(
 	}
 	assert.Equal(t, "child", lastErrors.gotID)
 }
+
+func TestRetryProvision_Returns202(t *testing.T) {
+	reader := &fakeReader{get: domain.Workspace{ID: "child"}}
+	rec := do(
+		newRouter(reader, &fakeHierarchy{}, &fakeRepos{}),
+		http.MethodPost,
+		"/v0/projects/p1/repos/r1/workspaces/child/retry-provision",
+		"",
+	)
+	assert.Equal(t, http.StatusAccepted, rec.Code)
+}
+
+func TestDetachHolder_Returns202(t *testing.T) {
+	reader := &fakeReader{get: domain.Workspace{ID: "child"}}
+	rec := do(
+		newRouter(reader, &fakeHierarchy{}, &fakeRepos{}),
+		http.MethodPost,
+		"/v0/projects/p1/repos/r1/workspaces/child/detach-holder",
+		"",
+	)
+	assert.Equal(t, http.StatusAccepted, rec.Code)
+}
+
+func TestRetryProvisionMissingWorkspace_4xx(t *testing.T) {
+	reader := &fakeReader{getErr: apperr.ErrNotFound}
+	rec := do(
+		newRouter(reader, &fakeHierarchy{}, &fakeRepos{}),
+		http.MethodPost,
+		"/v0/projects/p1/repos/r1/workspaces/nope/retry-provision",
+		"",
+	)
+	assert.Equal(t, http.StatusNotFound, rec.Code)
+}

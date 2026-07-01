@@ -59,6 +59,10 @@ export function toSidebarWorkspace(ws: WorkspaceDTO): Workspace {
     // with {...w, ...ws}, so a cleared error must overwrite a stale one — an
     // omitted key would leave the previous error lingering.
     lastError: ws.lastError ?? '',
+    // Always present (not conditionally spread): applyWorkspaceDTO merges frames
+    // with {...w, ...ws}, so a HeldByPath cleared by a successful Retry (absent
+    // under omitempty) must overwrite the stale value rather than linger.
+    heldByPath: ws.heldByPath ?? '',
     age: '',
     ...(ws.localPath ? { localPath: ws.localPath } : {}),
   }

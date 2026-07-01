@@ -1,6 +1,8 @@
 import { cn } from '@/lib/utils'
 import { formatChangeCount } from './format-change-count'
 import { WorkspaceBranchIcon } from './workspace-branch-icon'
+import { PlaceholderRowActions } from './placeholder-row-actions'
+import { isPlaceholderWorkspace } from '@/lib/workspace/placeholder'
 import { WorkspaceInlineInput } from './workspace-inline-input'
 import { PendingCreateRow } from './pending-create-row'
 import { ROW_BASE, ROW_ACTIVE, ROW_INACTIVE, ADD_GLYPH_PATH } from './workspace-row-base'
@@ -29,6 +31,7 @@ export function WorkspaceTreeItem({
   const { workspace, children } = node
   const isActive = workspace.id === activeWorkspaceId
   const isLocked = workspace.status === 'locked'
+  const isPlaceholder = isPlaceholderWorkspace(workspace)
   const hasChildren = children.length > 0
   const isCollapsed = useSidebarStore((s) => s.collapsedWorkspaces.has(workspace.id))
   const repo = useSidebarStore((s) => s.repos.find((r) => r.id === repoId))
@@ -93,7 +96,11 @@ export function WorkspaceTreeItem({
               : undefined
           }
         >
-          <WorkspaceBranchIcon status={workspace.status ?? 'new'} working={workspace.working || isMoving} />
+          <WorkspaceBranchIcon
+            status={workspace.status ?? 'new'}
+            working={workspace.working || isMoving}
+            isPlaceholder={isPlaceholder}
+          />
 
           {isRenaming ? (
             <WorkspaceInlineInput
@@ -177,6 +184,8 @@ export function WorkspaceTreeItem({
           ) : null}
         </div>
       </div>
+
+      {isPlaceholder && <PlaceholderRowActions workspace={workspace} />}
 
       {showChildrenSection && (
         <div>

@@ -215,3 +215,14 @@ func TestWorkspaceDTOFrom_MapsIsDefault(t *testing.T) {
 	)
 	assert.False(t, got2.IsDefault)
 }
+
+// TestWorkspaceDTOFrom_MapsHeldByPath proves the placeholder holder path
+// (domain.Workspace.HeldByPath) is carried onto the wire DTO so the FE can
+// reconstruct the placeholder reason from it (spec §4/B3).
+func TestWorkspaceDTOFrom_MapsHeldByPath(t *testing.T) {
+	got := dto.WorkspaceDTOFrom(
+		domain.Workspace{ID: "w1", HeldByPath: "/Users/me/proj"},
+		workspace.MergeEligibility{},
+	)
+	assert.Equal(t, "/Users/me/proj", got.HeldByPath)
+}

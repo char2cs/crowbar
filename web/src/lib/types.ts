@@ -69,6 +69,9 @@ export interface WorkspaceDTO {
   prTargetBranch: string
   /** On-disk worktree directory for this workspace (e.g. /home/user/project). */
   localPath?: string
+  /** Worktree dir holding this branch when the workspace is a placeholder
+   *  (locked + no localPath). Absent on healthy workspaces. */
+  heldByPath?: string
   /** "home" for the project home workspace; absent or "git" for normal git workspaces. */
   kind?: 'git' | 'home'
 }

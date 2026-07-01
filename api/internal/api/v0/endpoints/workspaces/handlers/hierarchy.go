@@ -159,3 +159,58 @@ func (h *Handlers) Reparent(
 		},
 	)
 }
+
+// RetryProvision handles
+// POST /v0/projects/:projectId/repos/:repoId/workspaces/:wsId/retry-provision.
+// It validates the workspace exists synchronously (4xx if not), then returns 202
+// and re-provisions the placeholder in place in the background. The provisioned
+// workspace is delivered on the workspace WebSocket stream; a failure (e.g. the
+// branch is still held) surfaces as LastError on the entity.
+func (h *Handlers) RetryProvision(
+	c *gin.Context,
+) {
+	id := c.Param("wsId")
+	if _, err := h.reader.Get(c.Request.Context(), id); err != nil {
+		status, msg := libs.StatusAndMessage(err)
+		libs.WriteErr(c, status, msg)
+		return
+	}
+	libs.WriteAccepted(c)
+	runAsync(
+		c.Request.Context(),
+		h.broadcastLastError,
+		id,
+		func(ctx context.Context) error {
+			_, retryErr := h.hierarchy.RetryProvision(ctx, id)
+			return retryErr
+		},
+	)
+}
+
+// DetachHolder handles
+// POST /v0/projects/:projectId/repos/:repoId/workspaces/:wsId/detach-holder.
+// It validates the workspace exists synchronously (4xx if not), then returns 202
+// and, in the background, detaches the branch's holder (with the user's consent,
+// captured by the modal that fires this call), clears the home row's branch when
+// the holder is the repo home, and re-provisions the placeholder in place. A
+// failure (e.g. detach blocked mid-merge) surfaces as LastError on the entity.
+func (h *Handlers) DetachHolder(
+	c *gin.Context,
+) {
+	id := c.Param("wsId")
+	if _, err := h.reader.Get(c.Request.Context(), id); err != nil {
+		status, msg := libs.StatusAndMessage(err)
+		libs.WriteErr(c, status, msg)
+		return
+	}
+	libs.WriteAccepted(c)
+	runAsync(
+		c.Request.Context(),
+		h.broadcastLastError,
+		id,
+		func(ctx context.Context) error {
+			_, detachErr := h.hierarchy.DetachHolder(ctx, id)
+			return detachErr
+		},
+	)
+}

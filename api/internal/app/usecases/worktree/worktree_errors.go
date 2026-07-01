@@ -38,3 +38,16 @@ var ErrWorkspaceLocked = errors.New("workspace is locked")
 // The guard runs before any git work, so a duplicate is rejected cleanly instead
 // of failing midway with a raw git error. Handlers map it to HTTP 409.
 var ErrBranchWorkspaceExists = errors.New("usecases: a workspace already exists for this branch")
+
+// ErrParentUnprovisioned is returned when a parent-tip op (merge-into-parent,
+// reparent-onto, rebase-onto-parent) targets a placeholder parent — a locked row
+// whose WorktreePath is still empty because its protected branch has not been
+// materialised yet. The guard runs before any RevParse so no git op can run
+// against "". Handlers map it to HTTP 409 (spec §3.4/B2).
+var ErrParentUnprovisioned = errors.New("usecases: parent branch is not yet provisioned")
+
+// ErrBranchStillHeld is returned by RetryProvision when the protected branch is
+// still held by a live worktree (the repo home or an external checkout) that was
+// not freed first: the user must detach the holder before a retry can succeed
+// (spec §3.3/§3.7).
+var ErrBranchStillHeld = errors.New("usecases: branch is still held; detach the holder first")

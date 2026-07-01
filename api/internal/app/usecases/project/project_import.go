@@ -17,6 +17,7 @@ import (
 	"github.com/char2cs/crowbar/api/internal/app/repositories/workspace"
 	"github.com/char2cs/crowbar/api/internal/app/usecases/internal/avatar"
 	"github.com/char2cs/crowbar/api/internal/app/usecases/internal/defaultbranch"
+	"github.com/char2cs/crowbar/api/internal/app/usecases/internal/holder"
 	"github.com/char2cs/crowbar/api/internal/app/usecases/internal/worktreepath"
 	"github.com/char2cs/crowbar/api/internal/domain"
 	gitengine "github.com/char2cs/crowbar/api/internal/engine/git"
@@ -111,9 +112,9 @@ type ImportGitEngine interface {
 		repoPath string,
 		branch string,
 	) (bool, error)
-	// FetchRef fetches a single branch from origin so a remote-only protected
-	// branch can be materialised into a managed worktree.
-	FetchRef(
+	// FastForwardBranch fetches origin/<branch> and fast-forwards the local
+	// branch ref to match, so the worktree checked out from it starts up to date.
+	FastForwardBranch(
 		ctx context.Context,
 		repoPath string,
 		branch string,
@@ -124,6 +125,14 @@ type ImportGitEngine interface {
 		repoPath string,
 		worktreePath string,
 		branch string,
+	) error
+	// WorktreePrune reaps worktree registrations whose on-disk directory is gone
+	// (`git worktree prune`), so a branch held only by a deleted worktree dir is
+	// freed before provisioning (the rm -rf ~/.crowbar case). Satisfied by the
+	// container's engine (spec §5/B4).
+	WorktreePrune(
+		ctx context.Context,
+		repoPath string,
 	) error
 	// WorktreeRemove force-removes a worktree, used to undo a managed worktree
 	// when its workspace row fails to persist.
@@ -384,7 +393,7 @@ func (u *projectImport) importOneRepo(
 	// on it). If it sits on a protected branch, it is detached to HEAD first so
 	// that branch is free for its own managed worktree. This is the one essential
 	// workspace — its failure rolls the repo back.
-	if err := u.adoptRepoHome(ctx, repo, toSet(protected)); err != nil {
+	if err := u.adoptRepoHome(ctx, repo); err != nil {
 		return domain.Repository{}, err
 	}
 	committed = true
@@ -445,60 +454,33 @@ func (u *projectImport) resolveIconBytes(
 }
 
 // adoptRepoHome adopts the repo's main worktree (repo.Path) as the special
-// default workspace. Crowbar never runs git operations on this directory — it is
-// the user-facing "home" that carries chats/threads — so it is created
-// non-protected even when detached. If the home is currently checked out on a
-// PROTECTED branch it is first detached to HEAD, releasing that branch so it can
-// get its own managed worktree (a branch cannot live in two worktrees). The home
-// is the one essential workspace; its failure rolls the repo back.
+// default workspace, IN PLACE on whatever branch it currently sits on. Crowbar
+// never runs git on this directory — it is the user-facing "home" that carries
+// chats/threads — so it is created non-protected. The home is NO LONGER
+// force-detached off a protected branch: that branch is materialised as a
+// placeholder by provisionProtectedWorktrees (the single owner), whose
+// holder.Resolve returns held-by-home for it, and freed only later with user
+// consent via the Detach-holder op (spec §3.5). The home is the one essential
+// workspace; its failure rolls the repo back.
 func (u *projectImport) adoptRepoHome(
 	ctx context.Context,
 	repo domain.Repository,
-	locked map[string]bool,
 ) error {
 	worktrees, err := u.deps.Git.WorktreeList(ctx, repo.Path)
 	if err != nil {
 		return fmt.Errorf("project import: list worktrees: %w", err)
 	}
-	branch := mainWorktreeBranch(worktrees, repo.Path)
-	detached := false
-	if branch != "" && locked[branch] {
-		// Free the protected branch by detaching the home to HEAD. This can fail in
-		// recoverable states (mid-merge/rebase/cherry-pick, or an unborn branch in a
-		// freshly init'd repo); rather than fail the whole import, DEGRADE — keep the
-		// home on its branch (that branch then keeps the home checkout and so gets no
-		// separate managed worktree). The detach is data-safe: it never touches the
-		// working tree, only moves HEAD.
-		if err := u.deps.Git.DetachWorktree(ctx, repo.Path); err != nil {
-			slog.WarnContext(ctx, "project import: cannot detach repo home off protected branch; keeping the home on it",
-				"repo", repo.Name, "branch", branch, "error", err)
-		} else {
-			detached = true
-		}
-	}
-	homeBranch := branch
-	if detached {
-		homeBranch = "" // now detached at HEAD; the protected branch is free to adopt
-	}
 	in := workspace.CreateInput{
 		ID:           uuid.NewString(),
 		RepoID:       repo.ID,
 		ProjectID:    repo.ProjectID,
-		Branch:       homeBranch,
+		Branch:       mainWorktreeBranch(worktrees, repo.Path),
 		WorktreePath: repo.Path,
 		IsDefault:    true,
 		// ForkPointSha stays empty and Protected stays false: the home is the base
 		// the branch tree hangs off, and Crowbar does not operate on it.
 	}
 	if _, err := u.deps.Workspaces.Create(ctx, in, u.deps.Now()); err != nil {
-		// The home row failed AFTER we mutated the user's real repo — re-attach it
-		// so the user's checkout is never left on a detached HEAD with no DB state.
-		if detached {
-			if reErr := u.deps.Git.CheckoutBranch(ctx, repo.Path, branch); reErr != nil {
-				slog.WarnContext(ctx, "project import: failed to re-attach repo home after home-row create failed",
-					"repo", repo.Name, "branch", branch, "error", reErr)
-			}
-		}
 		return fmt.Errorf("project import: adopt repo home: %w", err)
 	}
 	return nil
@@ -565,15 +547,30 @@ func (u *projectImport) provisionProtectedWorktrees(
 	}
 }
 
-// provisionProtectedBranchWorktree creates one managed worktree for a protected
-// branch under <crowbarHome>/projects/<p>/<r>/workspaces/<ws>/worktree and
-// persists the locked workspace row pointing at it.
+// provisionProtectedBranchWorktree materialises one protected branch. It first
+// resolves who holds the branch (pruning dead registrations): a live holder
+// Crowbar may not seize without consent (the repo home, or an external worktree)
+// yields a PLACEHOLDER row (locked, empty WorktreePath, HeldByPath = holder);
+// an already-managed holder is skipped; a free branch gets its own managed
+// worktree. This is the SINGLE owner of placeholder creation (spec §3.2/§3.5).
 func (u *projectImport) provisionProtectedBranchWorktree(
 	ctx context.Context,
 	repo domain.Repository,
 	branch string,
 	crowbarHome string,
 ) error {
+	outcome, err := holder.Resolve(ctx, u.deps.Git, repo.Path, branch, crowbarHome)
+	if err != nil {
+		return fmt.Errorf("resolve holder for %q: %w", branch, err)
+	}
+	switch outcome.Kind {
+	case holder.HeldByManaged:
+		// Already represented by a managed workspace — never double-provision.
+		return nil
+	case holder.HeldByHome, holder.HeldByExternal:
+		return u.createPlaceholderWorkspace(ctx, repo, branch, outcome.HeldByPath)
+	}
+	// Free: provision the managed worktree.
 	wsID := uuid.NewString()
 	path := worktreepath.For(crowbarHome, repo.ProjectID, repo.ID, wsID)
 	startSha, err := u.addProtectedWorktree(ctx, repo, branch, path)
@@ -601,10 +598,37 @@ func (u *projectImport) provisionProtectedBranchWorktree(
 	return nil
 }
 
+// createPlaceholderWorkspace persists a locked, worktree-less row recording the
+// live holder of a protected branch, so the branch is never silently dropped and
+// the user gets a visible, retryable surface (spec §3.3). No LastError is written
+// — the FE reconstructs the reason from HeldByPath (spec §4/B7).
+func (u *projectImport) createPlaceholderWorkspace(
+	ctx context.Context,
+	repo domain.Repository,
+	branch string,
+	heldByPath string,
+) error {
+	in := workspace.CreateInput{
+		ID:         uuid.NewString(),
+		RepoID:     repo.ID,
+		ProjectID:  repo.ProjectID,
+		Branch:     branch,
+		Protected:  true, // seeds locked; keeps every protection guard for free (B1)
+		HeldByPath: heldByPath,
+		// WorktreePath + ForkPointSha stay empty — this is the placeholder signal.
+	}
+	if _, err := u.deps.Workspaces.Create(ctx, in, u.deps.Now()); err != nil {
+		return fmt.Errorf("create placeholder workspace for %q: %w", branch, err)
+	}
+	return nil
+}
+
 // addProtectedWorktree checks branch out into a fresh worktree at path and
-// returns the branch tip SHA (the workspace's fork point). A protected branch
-// already exists; if it is on origin it is fetched first so a remote-only
-// protected branch can be materialised locally.
+// returns the branch tip SHA (the workspace's fork point). The parent fetch is
+// BEST-EFFORT (matching addWorktree): a refused fetch (a dead reg still
+// "holding" the branch, or an offline remote) must NOT skip the branch — branch
+// from the local tip instead (spec §3.2). WorktreeAdd already prunes-and-retries
+// the stale "already used by worktree" conflict internally.
 func (u *projectImport) addProtectedWorktree(
 	ctx context.Context,
 	repo domain.Repository,
@@ -612,16 +636,16 @@ func (u *projectImport) addProtectedWorktree(
 	path string,
 ) (string, error) {
 	if exists, err := u.deps.Git.RemoteBranchExists(ctx, repo.Path, branch); err == nil && exists {
-		if err := u.deps.Git.FetchRef(ctx, repo.Path, branch); err != nil {
-			return "", fmt.Errorf("fetch protected branch %q: %w", branch, err)
+		if err := u.deps.Git.FastForwardBranch(ctx, repo.Path, branch); err != nil {
+			slog.WarnContext(ctx, "project import: could not fast-forward protected branch; branching from local tip",
+				"repo", repo.Name, "branch", branch, "error", err)
 		}
 	}
 	if err := u.deps.Git.WorktreeAdd(ctx, repo.Path, path, branch); err != nil {
 		return "", fmt.Errorf("add worktree for protected branch %q: %w", branch, err)
 	}
 	// Resolve the BRANCH head explicitly: `git rev-parse <name>` resolves a tag of
-	// the same name before the branch, which would record a fork point that is not
-	// the checked-out commit (and could mis-base a later rebase --onto).
+	// the same name before the branch, which would record a wrong fork point.
 	sha, err := u.deps.Git.RevParse(ctx, repo.Path, "refs/heads/"+branch)
 	if err != nil {
 		return "", nil // fork point is non-essential; the worktree is valid
@@ -674,16 +698,6 @@ func (u *projectImport) validateImportPath(
 		return fmt.Errorf("project import: stat path: %w", err)
 	}
 	return nil
-}
-
-func toSet(
-	values []string,
-) map[string]bool {
-	set := make(map[string]bool, len(values))
-	for _, v := range values {
-		set[v] = true
-	}
-	return set
 }
 
 // gitRemoteURL returns the origin remote URL for the repo at path, or ""

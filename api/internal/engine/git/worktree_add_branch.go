@@ -26,7 +26,7 @@ func (e *engine) WorktreeAddBranch(
 	unlock := e.lockRepo(ctx, repoPath)
 	defer unlock()
 	r := e.exec(ctx, repoPath, "worktree", "add", worktreePath, "-b", branch, startSha)
-	if err := gitexec.RequireSuccess("worktree add branch", r); err != nil {
+	if err := classifyGitError("worktree add branch", r); err != nil {
 		return "", err
 	}
 	return startSha, nil

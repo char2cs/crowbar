@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { buildRepoTree, toSidebarRepo } from '@/lib/store/build-repo-tree'
+import { buildRepoTree, toSidebarRepo, toSidebarWorkspace } from '@/lib/store/build-repo-tree'
 import type { RepoDTO, WorkspaceDTO } from '@/lib/types'
 
 const repo = (id: string, name: string, over: Partial<RepoDTO> = {}): RepoDTO => ({
@@ -153,6 +153,18 @@ function makeWs(over: Partial<WorkspaceDTO> & { id: string }): WorkspaceDTO {
   } as WorkspaceDTO
 }
 const baseRepo: RepoDTO = { id: 'r1', projectId: 'p1', name: 'crowbar' } as RepoDTO
+
+describe('toSidebarWorkspace heldByPath', () => {
+  it('maps heldByPath from the DTO', () => {
+    const w = toSidebarWorkspace(ws('w1', 'r1', { heldByPath: '/repo' }))
+    expect(w.heldByPath).toBe('/repo')
+  })
+
+  it('maps heldByPath to "" when absent (overwrites a stale value on Retry)', () => {
+    const w = toSidebarWorkspace(ws('w1', 'r1'))
+    expect(w.heldByPath).toBe('')
+  })
+})
 
 describe('toSidebarRepo defaultBranch', () => {
   it('sets defaultBranch from the isDefault workspace', () => {

@@ -32,6 +32,8 @@ type fakeWorkspace struct {
 	UpdateForkPointFn  func(ctx context.Context, id, forkPointSha string) (domain.Workspace, error)
 	DeleteFn           func(ctx context.Context, id string) error
 	SyncFn             func(ctx context.Context, in workspace.SyncInput, now time.Time) (domain.Workspace, error)
+	ProvisionInPlaceFn func(id, worktreePath, forkPointSha string) (domain.Workspace, error)
+	ClearBranchFn      func(id string) (domain.Workspace, error)
 }
 
 func (f *fakeWorkspace) Create(
@@ -85,6 +87,28 @@ func (f *fakeWorkspace) UpdateForkPoint(
 	forkPointSha string,
 ) (domain.Workspace, error) {
 	return f.UpdateForkPointFn(ctx, id, forkPointSha)
+}
+
+func (f *fakeWorkspace) ProvisionInPlace(
+	_ context.Context,
+	id string,
+	worktreePath string,
+	forkPointSha string,
+) (domain.Workspace, error) {
+	if f.ProvisionInPlaceFn != nil {
+		return f.ProvisionInPlaceFn(id, worktreePath, forkPointSha)
+	}
+	return domain.Workspace{ID: id, WorktreePath: worktreePath, ForkPointSha: forkPointSha}, nil
+}
+
+func (f *fakeWorkspace) ClearBranch(
+	_ context.Context,
+	id string,
+) (domain.Workspace, error) {
+	if f.ClearBranchFn != nil {
+		return f.ClearBranchFn(id)
+	}
+	return domain.Workspace{ID: id}, nil
 }
 
 func (f *fakeWorkspace) Delete(
@@ -170,10 +194,12 @@ type fakeGit struct {
 	operationAbortErr error
 	removeErr         error
 	deleteErr         error
-	remoteExists      bool
-	remoteExistsErr   error
-	fetchRefErr       error
-	worktreeAddErr    error
+	remoteExists         bool
+	remoteExistsByBranch map[string]bool // overrides remoteExists per branch when non-nil
+	remoteExistsErr      error
+	fetchRefErr            error
+	fastForwardBranchErr   error
+	worktreeAddErr         error
 
 	summaryAdded        int
 	summaryDeleted      int
@@ -202,6 +228,11 @@ func (f *fakeGit) WorktreeList(
 	repoPath string,
 ) ([]enginegit.WorktreeEntry, error) {
 	f.record("WorktreeList", repoPath)
+	if f.detachCalled {
+		// After a detach the holder is freed: the branch is no longer checked out
+		// anywhere, so the next resolution classifies it Free.
+		return nil, f.worktreeListErr
+	}
 	return f.worktrees, f.worktreeListErr
 }
 
@@ -263,6 +294,9 @@ func (f *fakeGit) RemoteBranchExists(
 	branch string,
 ) (bool, error) {
 	f.record("RemoteBranchExists", repoPath, branch)
+	if f.remoteExistsByBranch != nil {
+		return f.remoteExistsByBranch[branch], f.remoteExistsErr
+	}
 	return f.remoteExists, f.remoteExistsErr
 }
 
@@ -273,6 +307,15 @@ func (f *fakeGit) FetchRef(
 ) error {
 	f.record("FetchRef", repoPath, branch)
 	return f.fetchRefErr
+}
+
+func (f *fakeGit) FastForwardBranch(
+	_ context.Context,
+	repoPath string,
+	branch string,
+) error {
+	f.record("FastForwardBranch", repoPath, branch)
+	return f.fastForwardBranchErr
 }
 
 func (f *fakeGit) WorktreeAdd(
@@ -511,8 +554,9 @@ func TestCreateChild_RecordsForkPointAndLocked(t *testing.T) {
 	assert.Equal(t, "sha123", created.ForkPointSha)
 	assert.False(t, created.Protected)
 	assert.Equal(t, "w-parent", created.ParentID)
-	assert.Equal(t, []string{"RemoteBranchExists", "WorktreeAddBranch"}, g.ops())
-	assert.Equal(t, []string{"/repo", created.WorktreePath, "feature/x", "develop"}, g.calls[1].args)
+	// Parent check (develop → not on remote) + child check (feature/x → not on remote).
+	assert.Equal(t, []string{"RemoteBranchExists", "RemoteBranchExists", "WorktreeAddBranch"}, g.ops())
+	assert.Equal(t, []string{"/repo", created.WorktreePath, "feature/x", "develop"}, g.calls[2].args)
 }
 
 // TestCreateChild_CleansUpWorktreeOnCreateFailure proves H17: if the workspace
@@ -592,17 +636,21 @@ func TestCreateChild_RemoteBranchAbsent_CreatesLocal(t *testing.T) {
 		ParentBranch: "develop",
 	})
 	require.NoError(t, err)
-	assert.Equal(t, []string{"RemoteBranchExists", "WorktreeAddBranch"}, g.ops())
-	assert.Equal(t, []string{"/repo", created.WorktreePath, "feature/x", "develop"}, g.calls[1].args)
+	// Parent check (develop → not on remote) + child check (feature/x → not on remote).
+	assert.Equal(t, []string{"RemoteBranchExists", "RemoteBranchExists", "WorktreeAddBranch"}, g.ops())
+	assert.Equal(t, []string{"/repo", created.WorktreePath, "feature/x", "develop"}, g.calls[2].args)
 	// Fork point comes from the create-local startSha.
 	assert.Equal(t, "localfork", created.ForkPointSha)
 }
 
 // TestCreateChild_RemoteBranchExists_ChecksOut verifies the spec-§3 decision:
-// when the branch already exists on the remote, CreateChild fetches it and
-// checks out the existing remote branch (WorktreeAdd), and the fork point comes
-// from RevParse of the resolved origin/<branch> ref — NOT from WorktreeAddBranch.
+// when the branch already exists on the remote, CreateChild fast-forwards it
+// and checks out the existing remote branch (WorktreeAdd), and the fork point
+// comes from RevParse of the resolved origin/<branch> ref — NOT WorktreeAddBranch.
+// The parent branch is also fast-forwarded first (best-effort) before the child
+// remote-exists check, so the child inherits a fresh parent tip.
 func TestCreateChild_RemoteBranchExists_ChecksOut(t *testing.T) {
+	// Both the child branch AND the parent branch exist on the remote.
 	g := &fakeGit{remoteExists: true, revParseSha: "remotefork"}
 	var created workspace.CreateInput
 	ws := &fakeWorkspace{
@@ -626,14 +674,60 @@ func TestCreateChild_RemoteBranchExists_ChecksOut(t *testing.T) {
 		ParentBranch: "develop",
 	})
 	require.NoError(t, err)
-	assert.Equal(t, []string{"RemoteBranchExists", "FetchRef", "RevParse", "WorktreeAdd"}, g.ops())
-	assert.Equal(t, []string{"/repo", "feature/x"}, g.calls[0].args)
-	assert.Equal(t, []string{"/repo", "feature/x"}, g.calls[1].args)
-	assert.Equal(t, []string{"/repo", "origin/feature/x"}, g.calls[2].args)
-	assert.Equal(t, []string{"/repo", created.WorktreePath, "feature/x"}, g.calls[3].args)
+	// Op sequence: parent fast-forward check + fast-forward, then child exists
+	// check + fast-forward + rev-parse + worktree-add.
+	assert.Equal(t, []string{
+		"RemoteBranchExists",  // parent exists?
+		"FastForwardBranch",   // fast-forward parent
+		"RemoteBranchExists",  // child exists?
+		"FastForwardBranch",   // fast-forward child
+		"RevParse",
+		"WorktreeAdd",
+	}, g.ops())
+	assert.Equal(t, []string{"/repo", "develop"}, g.calls[0].args)
+	assert.Equal(t, []string{"/repo", "develop"}, g.calls[1].args)
+	assert.Equal(t, []string{"/repo", "feature/x"}, g.calls[2].args)
+	assert.Equal(t, []string{"/repo", "feature/x"}, g.calls[3].args)
+	assert.Equal(t, []string{"/repo", "origin/feature/x"}, g.calls[4].args)
+	assert.Equal(t, []string{"/repo", created.WorktreePath, "feature/x"}, g.calls[5].args)
 	// WorktreeAddBranch must NOT be called on the checkout path.
 	assert.NotContains(t, g.ops(), "WorktreeAddBranch")
 	assert.Equal(t, "remotefork", created.ForkPointSha)
+}
+
+// TestCreateChild_NewBranch_ParentFastForwarded verifies that when creating a
+// brand-new branch (not on the remote), the parent is fast-forwarded first so
+// the child starts at the latest parent tip, not a stale local ref.
+func TestCreateChild_NewBranch_ParentFastForwarded(t *testing.T) {
+	// Parent exists on remote; child does NOT — use per-branch map.
+	g := &fakeGit{
+		remoteExistsByBranch: map[string]bool{"develop": true},
+		addStartSha:          "newsha",
+	}
+	uc := worktree.New(&fakeWorkspace{
+		CreateFn: func(_ context.Context, in workspace.CreateInput, _ time.Time) (domain.Workspace, error) {
+			return domain.Workspace{ID: in.ID}, nil
+		},
+	}, g, &fakeProvider{}, &fakeRepoStore{}, newNow(), fakeHome())
+
+	_, err := uc.CreateChild(context.Background(), worktree.CreateChildInput{
+		RepoID:       "r1",
+		ProjectID:    "p1",
+		RepoPath:     "/repo",
+		Branch:       "my-feature",
+		ParentID:     "w-parent",
+		ParentBranch: "develop",
+	})
+	require.NoError(t, err)
+	assert.Equal(t, []string{
+		"RemoteBranchExists", // parent exists? → true
+		"FastForwardBranch",  // fast-forward parent
+		"RemoteBranchExists", // child exists? → false
+		"WorktreeAddBranch",  // create new branch from fast-forwarded parent
+	}, g.ops())
+	assert.Equal(t, []string{"/repo", "develop"}, g.calls[0].args)
+	assert.Equal(t, []string{"/repo", "develop"}, g.calls[1].args)
+	assert.Equal(t, []string{"/repo", "my-feature"}, g.calls[2].args)
 }
 
 func TestCreateChild_RemoteBranchExistsError(t *testing.T) {
@@ -645,8 +739,11 @@ func TestCreateChild_RemoteBranchExistsError(t *testing.T) {
 	require.ErrorIs(t, err, errBoom)
 }
 
-func TestCreateChild_FetchRefError(t *testing.T) {
-	g := &fakeGit{remoteExists: true, fetchRefErr: errBoom}
+func TestCreateChild_FastForwardBranchError(t *testing.T) {
+	// FastForwardBranch failing on the CHILD branch (checkoutRemoteBranch path) is fatal.
+	// remoteExists=true means both parent and child are "on remote", so both
+	// fast-forward calls run; the child fast-forward error surfaces.
+	g := &fakeGit{remoteExists: true, fastForwardBranchErr: errBoom}
 	uc := worktree.New(&fakeWorkspace{}, g, &fakeProvider{}, &fakeRepoStore{}, newNow(), fakeHome())
 	_, err := uc.CreateChild(context.Background(), worktree.CreateChildInput{
 		RepoPath: "/r", Branch: "b", ParentBranch: "develop",
@@ -1318,7 +1415,7 @@ func TestReparent_SelfLoopedChildIsStillALeaf(t *testing.T) {
 
 func TestReparent_RejectsLockedNewParent(t *testing.T) {
 	child := domain.Workspace{ID: "c"}
-	newParent := domain.Workspace{ID: "np", Status: domain.WorkspaceStatusLocked}
+	newParent := domain.Workspace{ID: "np", Status: domain.WorkspaceStatusLocked, WorktreePath: "/np"}
 	ws := reparentWS(child, newParent, nil)
 	g := &fakeGit{}
 	uc := worktree.New(ws, g, &fakeProvider{}, &fakeRepoStore{}, newNow(), fakeHome())
@@ -1797,4 +1894,239 @@ func TestReparent_RevParseError(t *testing.T) {
 	uc := worktree.New(reparentWS(child, newParent, nil), g, &fakeProvider{}, &fakeRepoStore{}, newNow(), fakeHome())
 	_, err := uc.Reparent(context.Background(), "c", "np")
 	require.ErrorIs(t, err, errBoom)
+}
+
+// TestMergeIntoParent_RejectsUnprovisionedParent proves a placeholder parent
+// (locked + empty WorktreePath) is rejected before any git runs — no
+// RevParse("", "HEAD"). It is ALSO rejected as locked; the empty-path guard is
+// the explicit backstop the spec adds (§3.4/B2).
+func TestMergeIntoParent_RejectsUnprovisionedParent(t *testing.T) {
+	child := domain.Workspace{ID: "c", ParentID: "p", Branch: "feat", WorktreePath: "/cw"}
+	parent := domain.Workspace{ID: "p", Status: domain.WorkspaceStatusLocked, WorktreePath: ""}
+	g := &fakeGit{}
+	uc := worktree.New(mergeWS(child, parent, nil), g, &fakeProvider{}, &fakeRepoStore{}, newNow(), fakeHome())
+	_, err := uc.MergeIntoParent(context.Background(), "c", gitdomain.MergeStrategyMerge)
+	require.Error(t, err)
+	assert.Empty(t, g.calls, "no git runs against an unprovisioned parent")
+}
+
+// TestReparent_RejectsUnprovisionedNewParent: reparenting onto a placeholder
+// parent is rejected before RevParse.
+func TestReparent_RejectsUnprovisionedNewParent(t *testing.T) {
+	child := domain.Workspace{ID: "c", ParentID: "old", Branch: "feat", WorktreePath: "/cw"}
+	newParent := domain.Workspace{ID: "np", Status: domain.WorkspaceStatusLocked, WorktreePath: ""}
+	ws := &fakeWorkspace{
+		GetFn: func(_ context.Context, id string) (domain.Workspace, error) {
+			if id == "c" {
+				return child, nil
+			}
+			return newParent, nil
+		},
+		ListFn: func(_ context.Context) ([]domain.Workspace, error) {
+			return []domain.Workspace{child, newParent}, nil
+		},
+	}
+	g := &fakeGit{}
+	uc := worktree.New(ws, g, &fakeProvider{}, &fakeRepoStore{}, newNow(), fakeHome())
+	_, err := uc.Reparent(context.Background(), "c", "np")
+	require.ErrorIs(t, err, worktree.ErrParentUnprovisioned)
+	assert.Empty(t, g.calls)
+}
+
+// TestRebaseOntoParent_RejectsUnprovisionedParent: finishing the move against a
+// placeholder parent is rejected before RevParse.
+func TestRebaseOntoParent_RejectsUnprovisionedParent(t *testing.T) {
+	child := domain.Workspace{ID: "c", ParentID: "p", Branch: "feat", WorktreePath: "/cw", ForkPointSha: "f"}
+	parent := domain.Workspace{ID: "p", Status: domain.WorkspaceStatusLocked, WorktreePath: ""}
+	ws := &fakeWorkspace{
+		GetFn: func(_ context.Context, id string) (domain.Workspace, error) {
+			if id == "c" {
+				return child, nil
+			}
+			return parent, nil
+		},
+	}
+	g := &fakeGit{}
+	uc := worktree.New(ws, g, &fakeProvider{}, &fakeRepoStore{}, newNow(), fakeHome())
+	_, err := uc.RebaseOntoParent(context.Background(), "c")
+	require.ErrorIs(t, err, worktree.ErrParentUnprovisioned)
+	assert.Empty(t, g.calls)
+}
+
+// TestRemoveOne_PlaceholderSkipsGitTeardown proves a placeholder (empty
+// WorktreePath) whose branch is a protected NON-default branch is torn down as a
+// pure read-model drop: no WorktreeRemove, no ForceDeleteBranch, no CheckoutBranch
+// — the real branch is never git-touched (spec §5 defense-in-depth). The
+// placeholder is created NON-locked here only to exercise removeOne directly
+// (DeleteCascade's locked guard is proven separately by TestDeleteCascade).
+func TestRemoveOne_PlaceholderSkipsGitTeardown(t *testing.T) {
+	g := &fakeGit{}
+	repos := &fakeRepoStore{path: "/repo", defaultBranch: "develop"}
+	ws := &fakeWorkspace{
+		ListFn: func(_ context.Context) ([]domain.Workspace, error) {
+			return []domain.Workspace{
+				{ID: "ph", RepoID: "r1", Branch: "master", WorktreePath: ""},
+			}, nil
+		},
+		DeleteFn: func(_ context.Context, _ string) error { return nil },
+	}
+	uc := worktree.New(ws, g, &fakeProvider{}, repos, newNow(), fakeHome())
+
+	require.NoError(t, uc.DeleteCascade(context.Background(), "ph"))
+
+	assert.NotContains(t, g.ops(), "WorktreeRemove")
+	assert.NotContains(t, g.ops(), "ForceDeleteBranch", "the real protected branch must never be force-deleted")
+	assert.NotContains(t, g.ops(), "CheckoutBranch")
+}
+
+// TestCreateChild_UsesHolderResolveForDetach proves the detach path goes through
+// the shared holder primitive: on the "already used by worktree" conflict it
+// prunes (holder.Resolve step 1) and lists, sees the main folder holds the
+// branch (held-by-home), detaches, and retries — one unified mechanism (spec §5).
+func TestCreateChild_UsesHolderResolveForDetach(t *testing.T) {
+	inUse := errors.New("fatal: 'develop' is already used by worktree at '/repo'")
+	g := &fakeGit{
+		remoteExists:           true,
+		revParseSha:            "forksha",
+		addConflictUntilDetach: inUse,
+		worktrees:              []enginegit.WorktreeEntry{{Path: "/repo", Branch: "develop"}},
+	}
+	ws := &fakeWorkspace{
+		ListFn: func(_ context.Context) ([]domain.Workspace, error) {
+			return []domain.Workspace{
+				{ID: "def", RepoID: "r1", Branch: "develop", WorktreePath: "/repo", IsDefault: true},
+			}, nil
+		},
+		CreateFn: func(_ context.Context, in workspace.CreateInput, _ time.Time) (domain.Workspace, error) {
+			return domain.Workspace{ID: in.ID}, nil
+		},
+	}
+	uc := worktree.New(ws, g, &fakeProvider{}, &fakeRepoStore{}, newNow(), fakeHome())
+
+	_, err := uc.CreateChild(context.Background(), worktree.CreateChildInput{
+		RepoID: "r1", ProjectID: "p1", RepoPath: "/repo", RemoteURL: "https://github.com/test/repo.git",
+		Branch: "develop", ParentID: "", ParentBranch: "develop",
+	})
+	require.NoError(t, err)
+	assert.Contains(t, g.ops(), "WorktreePrune", "holder.Resolve prunes dead regs before classifying")
+	assert.Contains(t, g.ops(), "DetachWorktree")
+}
+
+// TestRetryProvision_FreeBranch_ProvisionsInPlace proves Retry on a placeholder
+// (free after resolution) materialises a worktree, records the fork point, and
+// provisions the SAME id in place (spec §3.3).
+func TestRetryProvision_FreeBranch_ProvisionsInPlace(t *testing.T) {
+	g := &fakeGit{revParseSha: "forksha", worktrees: nil} // no holder → Free
+	var gotID, gotPath, gotSha string
+	ws := &fakeWorkspace{
+		GetFn: func(_ context.Context, id string) (domain.Workspace, error) {
+			return domain.Workspace{ID: id, RepoID: "r1", ProjectID: "p1", Branch: "develop",
+				Status: domain.WorkspaceStatusLocked, HeldByPath: "/repo"}, nil
+		},
+		ProvisionInPlaceFn: func(id, path, sha string) (domain.Workspace, error) {
+			gotID, gotPath, gotSha = id, path, sha
+			return domain.Workspace{ID: id, WorktreePath: path, ForkPointSha: sha, Status: domain.WorkspaceStatusLocked}, nil
+		},
+	}
+	uc := worktree.New(ws, g, &fakeProvider{}, &fakeRepoStore{path: "/repo"}, newNow(), fakeHome())
+
+	out, err := uc.RetryProvision(context.Background(), "ph")
+	require.NoError(t, err)
+	assert.Equal(t, "ph", gotID, "provisions the SAME id in place")
+	assert.NotEmpty(t, gotPath)
+	assert.Equal(t, "forksha", gotSha)
+	assert.Equal(t, domain.WorkspaceStatusLocked, out.Status)
+	assert.Contains(t, g.ops(), "WorktreeAdd")
+}
+
+// TestRetryProvision_StillHeld_ReturnsError proves a Retry while the branch is
+// still held by the home returns ErrBranchStillHeld and does NOT provision.
+func TestRetryProvision_StillHeld_ReturnsError(t *testing.T) {
+	g := &fakeGit{worktrees: []enginegit.WorktreeEntry{{Path: "/repo", Branch: "develop"}}}
+	provisionCalled := false
+	ws := &fakeWorkspace{
+		GetFn: func(_ context.Context, id string) (domain.Workspace, error) {
+			return domain.Workspace{ID: id, RepoID: "r1", Branch: "develop",
+				Status: domain.WorkspaceStatusLocked, HeldByPath: "/repo"}, nil
+		},
+		ProvisionInPlaceFn: func(_, _, _ string) (domain.Workspace, error) {
+			provisionCalled = true
+			return domain.Workspace{}, nil
+		},
+	}
+	uc := worktree.New(ws, g, &fakeProvider{}, &fakeRepoStore{path: "/repo"}, newNow(), fakeHome())
+
+	_, err := uc.RetryProvision(context.Background(), "ph")
+	require.ErrorIs(t, err, worktree.ErrBranchStillHeld)
+	assert.False(t, provisionCalled, "no provision while the branch is still held")
+}
+
+// TestDetachHolder_Home_ClearsBranchThenProvisions proves detaching a home
+// holder detaches the repo folder, clears the home row's branch via ClearBranch,
+// then provisions the placeholder in place (spec §3.5/B6). The second
+// holder.Resolve (inside RetryProvision) sees the freed branch.
+func TestDetachHolder_Home_ClearsBranchThenProvisions(t *testing.T) {
+	// First Resolve: home holds develop. After DetachWorktree the fake frees it,
+	// so RetryProvision's Resolve sees Free.
+	g := &fakeGit{
+		revParseSha:            "forksha",
+		worktrees:              []enginegit.WorktreeEntry{{Path: "/repo", Branch: "develop"}},
+		addConflictUntilDetach: nil,
+	}
+	clearedID := ""
+	provisioned := false
+	ws := &fakeWorkspace{
+		GetFn: func(_ context.Context, id string) (domain.Workspace, error) {
+			return domain.Workspace{ID: id, RepoID: "r1", ProjectID: "p1", Branch: "develop",
+				Status: domain.WorkspaceStatusLocked, HeldByPath: "/repo"}, nil
+		},
+		ListFn: func(_ context.Context) ([]domain.Workspace, error) {
+			return []domain.Workspace{
+				{ID: "home", RepoID: "r1", Branch: "develop", WorktreePath: "/repo", IsDefault: true},
+			}, nil
+		},
+		ClearBranchFn: func(id string) (domain.Workspace, error) {
+			clearedID = id
+			return domain.Workspace{ID: id}, nil
+		},
+		ProvisionInPlaceFn: func(id, path, sha string) (domain.Workspace, error) {
+			provisioned = true
+			return domain.Workspace{ID: id, WorktreePath: path, ForkPointSha: sha, Status: domain.WorkspaceStatusLocked}, nil
+		},
+	}
+	uc := worktree.New(ws, g, &fakeProvider{}, &fakeRepoStore{path: "/repo"}, newNow(), fakeHome())
+
+	_, err := uc.DetachHolder(context.Background(), "ph")
+	require.NoError(t, err)
+	assert.Contains(t, g.ops(), "DetachWorktree")
+	assert.Equal(t, "home", clearedID, "the home row's branch is cleared")
+	assert.True(t, provisioned, "the placeholder is provisioned after the detach")
+}
+
+// TestDetachHolder_DetachFails_NoPartialState proves a detach failure
+// (mid-merge/rebase) surfaces cleanly: no ClearBranch, no provision.
+func TestDetachHolder_DetachFails_NoPartialState(t *testing.T) {
+	g := &fakeGit{
+		worktrees: []enginegit.WorktreeEntry{{Path: "/repo", Branch: "develop"}},
+		detachErr: errors.New("fatal: cannot detach while merging"),
+	}
+	cleared := false
+	provisioned := false
+	ws := &fakeWorkspace{
+		GetFn: func(_ context.Context, id string) (domain.Workspace, error) {
+			return domain.Workspace{ID: id, RepoID: "r1", Branch: "develop",
+				Status: domain.WorkspaceStatusLocked, HeldByPath: "/repo"}, nil
+		},
+		ListFn: func(_ context.Context) ([]domain.Workspace, error) {
+			return []domain.Workspace{{ID: "home", RepoID: "r1", IsDefault: true}}, nil
+		},
+		ClearBranchFn:      func(_ string) (domain.Workspace, error) { cleared = true; return domain.Workspace{}, nil },
+		ProvisionInPlaceFn: func(_, _, _ string) (domain.Workspace, error) { provisioned = true; return domain.Workspace{}, nil },
+	}
+	uc := worktree.New(ws, g, &fakeProvider{}, &fakeRepoStore{path: "/repo"}, newNow(), fakeHome())
+
+	_, err := uc.DetachHolder(context.Background(), "ph")
+	require.Error(t, err)
+	assert.False(t, cleared, "no ClearBranch after a failed detach")
+	assert.False(t, provisioned, "no provision after a failed detach")
 }

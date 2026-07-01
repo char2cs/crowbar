@@ -54,4 +54,11 @@ type Workspace struct {
 	// project-level home workspace ("home"). Old persisted records without this
 	// field replay as WorkspaceKindGit.
 	Kind WorkspaceKind `json:"kind,omitempty"`
+	// HeldByPath is the worktree directory currently holding this workspace's
+	// branch, set only on a PLACEHOLDER (a locked row with an empty WorktreePath)
+	// that could not get a managed worktree because a live worktree — the repo
+	// home or an external checkout — holds the branch. It is the single durable
+	// signal from which the frontend reconstructs the placeholder reason; a
+	// successful Retry clears it. Empty on every healthy workspace (00 §4, spec §4).
+	HeldByPath string `json:"heldByPath,omitempty"`
 }

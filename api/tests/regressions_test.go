@@ -85,37 +85,40 @@ func TestRegression_AllReadEndpointsUseEnvelope(t *testing.T) {
 // /workspaces. The frontend pulls this workspace out of the sidebar tree and
 // opens it from the repo header by its real id; if the DTO does not carry
 // isDefault the default folder would render as a duplicate tree row. Under the
-// workspace model the home is DETACHED off its protected default branch (so its
-// branch is ""), and the protected branch itself is served as a separate,
-// non-default managed worktree.
+// workspace model the home STAYS on its protected default branch ("main") — it is
+// no longer force-detached (spec §3.4) — and that same branch is surfaced as a
+// separate, non-default PLACEHOLDER row held by the repo home.
 func TestRegression_RepoHomeServedWithIsDefault(t *testing.T) {
 	h := newHarness(t)
-	imported := importProject(t, h)
+	imported := importProjectHomeHoldsDefault(t, h)
 	repoBase := "/v0/projects/" + imported.projectID + "/repos/" + imported.repoID
 
 	var workspaces []struct {
-		ID        string `json:"id"`
-		Branch    string `json:"branch"`
-		IsDefault bool   `json:"isDefault"`
+		ID         string `json:"id"`
+		Branch     string `json:"branch"`
+		IsDefault  bool   `json:"isDefault"`
+		HeldByPath string `json:"heldByPath"`
 	}
 	h.get(repoBase+"/workspaces", &workspaces)
 
 	var defaults []string // branches of the isDefault workspaces
-	var importedFlagged bool
+	var placeholderHeld bool
 	for _, w := range workspaces {
 		if w.IsDefault {
 			defaults = append(defaults, w.Branch)
 		}
-		if w.ID == imported.workspaceID {
-			importedFlagged = w.IsDefault
+		// The same protected branch the home sits on is surfaced as a separate,
+		// non-default placeholder that records the repo home as the branch holder.
+		if !w.IsDefault && w.Branch == "main" && w.HeldByPath != "" {
+			placeholderHeld = true
 		}
 	}
 	require.Len(t, defaults, 1,
 		"exactly one workspace (the repo home) must be flagged isDefault")
-	require.Empty(t, defaults[0],
-		"the default repo-home workspace is detached off the protected branch (branch=\"\")")
-	require.False(t, importedFlagged,
-		"the protected 'main' managed worktree must NOT be the default")
+	require.Equal(t, "main", defaults[0],
+		"the default repo-home workspace stays on its protected branch (spec §3.4)")
+	require.True(t, placeholderHeld,
+		"the protected 'main' branch the home holds is surfaced as a non-default placeholder")
 }
 
 // BUG-010: git stage, unstage, and discard take {paths: []string} — including
@@ -643,14 +646,35 @@ func TestRegression_LinkedWorktreeImportsAsOneRepo(t *testing.T) {
 		2*time.Second, 100*time.Millisecond,
 		"a non-protected linked worktree must not be auto-adopted at import")
 
-	workspaces := listWorkspaces(t, h, projectID, repoID)
-	branches := map[string]int{}
-	for _, ws := range workspaces {
-		branches[ws.Branch]++
+	// Under the protected-branch model the repo home STAYS on its protected default
+	// branch (main): the home is adopted as the single isDefault workspace, and that
+	// same branch is surfaced once more as a locked, worktree-less PLACEHOLDER held by
+	// the repo folder. The presence of a linked worktree must NOT duplicate either
+	// row, so the invariant is exactly one isDefault "main" home + exactly one "main"
+	// placeholder (not two homes, not a per-worktree fan-out).
+	var workspaces []struct {
+		Branch     string `json:"branch"`
+		IsDefault  bool   `json:"isDefault"`
+		HeldByPath string `json:"heldByPath"`
 	}
-	require.Equal(t, 1, branches["main"],
-		"the main worktree must register as exactly one workspace")
-	require.Equal(t, 0, branches["feature/linked"],
+	h.get("/v0/projects/"+projectID+"/repos/"+repoID+"/workspaces", &workspaces)
+
+	var defaultMain, placeholderMain, linked int
+	for _, ws := range workspaces {
+		switch {
+		case ws.Branch == "main" && ws.IsDefault:
+			defaultMain++
+		case ws.Branch == "main" && !ws.IsDefault && ws.HeldByPath != "":
+			placeholderMain++
+		case ws.Branch == "feature/linked":
+			linked++
+		}
+	}
+	require.Equal(t, 1, defaultMain,
+		"the repo home (the main worktree) must register as exactly one isDefault workspace, not duplicated by the linked worktree")
+	require.Equal(t, 1, placeholderMain,
+		"the held main branch must surface as exactly one placeholder, not duplicated by the linked worktree")
+	require.Equal(t, 0, linked,
 		"the non-protected linked worktree must NOT be auto-adopted (user adds it explicitly)")
 }
 
@@ -718,37 +742,48 @@ func TestRegression_EmptyPathParamsRejected(t *testing.T) {
 // Field bug: the sidebar once showed two "develop" rows; the duplicate pointed at
 // the same main worktree with no distinct worktree of its own, so it could never
 // be opened and only disappeared on reload.
-// TestRegression_ImportDefaultBranchAsManagedWorktree proves the user-facing fix
-// for "I can't import develop": the protected default branch is no longer held by
-// the unmanaged repo folder. Import DETACHES the repo home to HEAD and provisions
-// the default branch as its OWN locked, Crowbar-managed worktree — a first-class
-// workspace distinct from the home, so the repo folder and the workspace never
-// both claim the branch.
-func TestRegression_ImportDefaultBranchAsManagedWorktree(t *testing.T) {
+// TestRegression_ImportDefaultBranchStaysHomeWithPlaceholder proves the fix for
+// "Crowbar silently moved my checkout": the protected default branch held by the
+// imported repo folder is NO LONGER force-detached. The repo home stays on the
+// branch, and that same branch is surfaced as a non-default PLACEHOLDER row —
+// locked, with no managed worktree on disk, recording the repo folder as the
+// holder — until the user consents to free it (spec §3.4).
+func TestRegression_ImportDefaultBranchStaysHomeWithPlaceholder(t *testing.T) {
 	h := newHarness(t)
-	imported := importProject(t, h) // imported.workspaceID is the managed `main` worktree
+	imported := importProjectHomeHoldsDefault(t, h)
+	repoBase := "/v0/projects/" + imported.projectID + "/repos/" + imported.repoID
 
-	// The repo home is detached so it no longer claims the default branch.
-	require.Equal(t, "HEAD", currentBranch(t, imported.repoPath),
-		"the repo home is detached (HEAD) to free the default branch for its managed worktree")
+	// The repo home STAYS on `main`: Crowbar no longer moves the user's checkout
+	// without consent.
+	require.Equal(t, "main", currentBranch(t, imported.repoPath),
+		"the repo home stays on the protected default branch — no silent force-detach")
 
-	// `main` is served as a locked, managed worktree distinct from the home.
-	var mainWs struct {
-		Branch    string `json:"branch"`
-		IsDefault bool   `json:"isDefault"`
-		Status    string `json:"status"`
-		LocalPath string `json:"localPath"`
+	// The default branch is surfaced as a locked, non-default PLACEHOLDER: it has
+	// no managed worktree on disk (empty localPath) and records the repo folder as
+	// the holder (heldByPath).
+	var workspaces []struct {
+		Branch     string `json:"branch"`
+		IsDefault  bool   `json:"isDefault"`
+		Status     string `json:"status"`
+		LocalPath  string `json:"localPath"`
+		HeldByPath string `json:"heldByPath"`
 	}
-	h.get(wsBase(imported), &mainWs)
-	require.Equal(t, "main", mainWs.Branch)
-	require.False(t, mainWs.IsDefault, "the managed default-branch worktree is not the home")
-	require.Equal(t, "locked", mainWs.Status, "the protected default branch is locked")
-	require.NotEqual(t, imported.repoPath, mainWs.LocalPath,
-		"the default branch lives in a managed worktree, not the repo folder")
+	h.get(repoBase+"/workspaces", &workspaces)
 
-	// On disk the managed worktree holds `main`.
-	require.Equal(t, "main", currentBranch(t, mainWs.LocalPath),
-		"the managed worktree is checked out on the default branch")
+	var found bool
+	for _, w := range workspaces {
+		if w.Branch != "main" || w.IsDefault {
+			continue
+		}
+		found = true
+		require.Equal(t, "locked", w.Status, "the default-branch placeholder is locked")
+		require.Empty(t, w.LocalPath,
+			"a placeholder has no managed worktree, so it carries no localPath")
+		require.True(t, samePathResolved(t, imported.repoPath, w.HeldByPath),
+			"the placeholder records the repo folder as the branch holder, got %s", w.HeldByPath)
+	}
+	require.True(t, found,
+		"the held default branch must be surfaced as a non-default placeholder row")
 }
 
 // currentBranch returns dir's checked-out branch, or "HEAD" when detached.

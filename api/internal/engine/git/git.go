@@ -126,6 +126,16 @@ type Engine interface {
 		branch string,
 	) error
 
+	// FastForwardBranch fetches origin/<branch> and updates the local branch ref
+	// to match via `git fetch origin <branch>:<branch>`. Unlike FetchRef, which
+	// only updates the remote-tracking ref, this ensures the local branch is at
+	// the same commit as origin before being checked out into a worktree.
+	FastForwardBranch(
+		ctx context.Context,
+		repoPath string,
+		branch string,
+	) error
+
 	// Pull runs git pull. mode is "merge" or "rebase" (04 §5).
 	Pull(
 		ctx context.Context,

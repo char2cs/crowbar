@@ -35,6 +35,10 @@ type WorkspaceDTO struct {
 	// it to construct absolute file paths (e.g. "Copy Path" in the file explorer).
 	// Exposed here so workspace-creation details never bleed into client code.
 	LocalPath string `json:"localPath,omitempty"`
+	// HeldByPath is the worktree directory holding this branch when the workspace
+	// is a placeholder (locked + empty LocalPath). The client reconstructs the
+	// "checked out elsewhere" reason from it; absent on healthy workspaces.
+	HeldByPath string `json:"heldByPath,omitempty"`
 }
 
 // WorkspaceDTOFrom converts a domain Workspace into its wire DTO, populating the
@@ -68,6 +72,7 @@ func WorkspaceDTOFrom(
 		PRTitle:         w.PRTitle,
 		PRTargetBranch:  w.PRTargetBranch,
 		LocalPath:       w.WorktreePath,
+		HeldByPath:      w.HeldByPath,
 	}
 }
 

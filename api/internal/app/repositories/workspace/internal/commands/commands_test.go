@@ -391,3 +391,15 @@ func TestCreateWorkspace_Validate_GitRequiresRepoID(t *testing.T) {
 	}
 	require.Error(t, cmd.Validate(nil))
 }
+
+func TestCreateWorkspace_EmitEvent_CarriesHeldByPath(t *testing.T) {
+	now := time.Unix(1000, 0)
+	ws := CreateWorkspace{
+		ID: "w1", RepoID: "r1", ProjectID: "p1",
+		Protected: true, HeldByPath: "/repo", Now: now,
+	}.EmitEvent(nil)
+	assert.Equal(t, "/repo", ws.HeldByPath)
+	assert.Equal(t, domain.WorkspaceStatusLocked, ws.Status,
+		"a placeholder is still seeded locked from Protected")
+	assert.Empty(t, ws.WorktreePath, "a placeholder carries no worktree path")
+}

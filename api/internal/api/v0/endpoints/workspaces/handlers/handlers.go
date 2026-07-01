@@ -62,6 +62,17 @@ type Hierarchy interface {
 		ctx context.Context,
 		rootID string,
 	) error
+	// RetryProvision re-provisions a placeholder workspace in place (spec §3.3).
+	RetryProvision(
+		ctx context.Context,
+		wsID string,
+	) (domain.Workspace, error)
+	// DetachHolder frees the placeholder's branch from its holder (with consent),
+	// then re-provisions in place (spec §3.5/§3.7).
+	DetachHolder(
+		ctx context.Context,
+		wsID string,
+	) (domain.Workspace, error)
 }
 
 // Repos resolves a repository by id so the create handler can derive the repo's

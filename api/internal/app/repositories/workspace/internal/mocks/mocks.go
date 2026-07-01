@@ -99,6 +99,22 @@ func (m *MockWorkspace) UpdateForkPoint(
 	return m.UpdateForkPointFn(ctx, id, forkPointSha)
 }
 
+func (m *MockWorkspace) ProvisionInPlace(
+	_ context.Context,
+	id string,
+	worktreePath string,
+	forkPointSha string,
+) (domain.Workspace, error) {
+	return domain.Workspace{ID: id, WorktreePath: worktreePath, ForkPointSha: forkPointSha}, nil
+}
+
+func (m *MockWorkspace) ClearBranch(
+	_ context.Context,
+	id string,
+) (domain.Workspace, error) {
+	return domain.Workspace{ID: id}, nil
+}
+
 func (m *MockWorkspace) SetParentFromPR(
 	ctx context.Context,
 	id string,

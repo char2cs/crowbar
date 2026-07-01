@@ -94,6 +94,20 @@ func (stubHierarchy) DeleteCascade(
 	return nil
 }
 
+func (stubHierarchy) RetryProvision(
+	_ context.Context,
+	_ string,
+) (domain.Workspace, error) {
+	return domain.Workspace{}, nil
+}
+
+func (stubHierarchy) DetachHolder(
+	_ context.Context,
+	_ string,
+) (domain.Workspace, error) {
+	return domain.Workspace{}, nil
+}
+
 type stubRepos struct{}
 
 func (stubRepos) FindByKey(

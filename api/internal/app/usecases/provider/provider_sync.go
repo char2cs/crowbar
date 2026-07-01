@@ -119,9 +119,23 @@ func (u *providerSyncUsecase) SyncFromState(
 		return fmt.Errorf("provider sync: sync from state: %w", err)
 	}
 
-	// Auto-reparent: only when a PR targets a branch with a workspace and
-	// this workspace has no parent yet.
-	if state.PR != nil && state.PR.TargetBranch != "" && current.ParentID == "" {
+	// A protected (locked) branch is a branch-tree root and is never reparented,
+	// no matter what a PR says — the same invariant the user-facing reparent path
+	// enforces (locked rows are undraggable; guardReparent rejects a locked
+	// parent). It is guarded independently so it holds even if the parent-state
+	// precondition below is later relaxed (e.g. to follow a retargeted PR).
+	if current.Status == domain.WorkspaceStatusLocked {
+		return nil
+	}
+	// Auto-reparent wires the workspace under the sibling its PR targets, but only
+	// for an OPEN PR (a closed/merged PR is stale history and must not reshape the
+	// tree) that targets a branch, and only while the workspace has no parent yet.
+	// Without the open-PR guard a long-closed master→develop PR would nest the
+	// branch under develop on the first poll after import.
+	if state.PR != nil &&
+		state.PR.Status == "open" &&
+		state.PR.TargetBranch != "" &&
+		current.ParentID == "" {
 		u.maybeReparentFromPR(ctx, current, state.PR.TargetBranch)
 	}
 	return nil

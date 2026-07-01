@@ -50,6 +50,9 @@ export interface Workspace {
   lastError?: string
   /** On-disk worktree directory, from the backend WorkspaceDTO. */
   localPath?: string
+  /** Holder path for a placeholder workspace (locked + no localPath); drives the
+   *  reconstructed reason and whether the Detach… action is offered. */
+  heldByPath?: string
 }
 
 export interface Repo {

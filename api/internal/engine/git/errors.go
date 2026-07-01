@@ -15,6 +15,10 @@ var (
 	ErrDirtyTree              = errors.New("git: dirty_tree")
 	ErrHasChildren            = errors.New("git: has_children")
 	ErrAuthFailed             = errors.New("git: auth_failed")
+	ErrBranchAlreadyExists    = errors.New("git: branch_already_exists")
+	ErrBranchNotFound         = errors.New("git: branch_not_found")
+	ErrNoRemote               = errors.New("git: no_remote")
+	ErrNonFastForward         = errors.New("git: non_fast_forward")
 )
 
 // ErrStaleHunk re-exports the diff subpackage's stale-hunk sentinel so callers

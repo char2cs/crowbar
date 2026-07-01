@@ -88,7 +88,10 @@ func TestImport_CreatesProjectReposAndAdoptsWorktrees(
 		{Path: "/repoA/wt-feature", Branch: "feature", Head: "h2"},
 	}
 	git.MergeBaseSha = "forksha"
-	prov.Protected = []string{"main"}
+	// main is the home's branch (held-by-home → placeholder); develop is remote-only
+	// and unheld (→ managed worktree).
+	git.RemoteBranches = map[string]bool{"develop": true}
+	prov.Protected = []string{"main", "develop"}
 
 	project, err := uc.Import(context.Background(), "My Project", "/root")
 	require.NoError(t, err)
@@ -101,34 +104,37 @@ func TestImport_CreatesProjectReposAndAdoptsWorktrees(
 	repo := repos.Saved[0]
 	assert.Equal(t, "repoA", repo.Name)
 	assert.Equal(t, project.ID, repo.ProjectID)
-	assert.NotEmpty(t, repo.DefaultBranch)
 	assert.Equal(t, "main", repo.DefaultBranch)
-	assert.NotEmpty(t, repo.AvatarLabel)
-	assert.NotEmpty(t, repo.AvatarColor)
 
-	// Workspace model: the project home (Kind=home) is provisioned first; then the
-	// repo home (IsDefault) — detached off the protected "main" so that branch is
-	// free — then "main" as its OWN Crowbar-managed locked worktree. The local
-	// "feature" worktree is non-protected, so it is left for the user to add.
-	require.Len(t, ws.Created, 3)
-	assert.Equal(t, domain.WorkspaceKindHome, ws.Created[0].Kind,
-		"first created workspace must be the project home workspace")
+	// project home (Kind=home) + repo home (IsDefault, stays on main, NOT detached)
+	// + a main PLACEHOLDER (held by the home) + a develop MANAGED worktree.
+	require.Len(t, ws.Created, 4)
+	assert.Equal(t, domain.WorkspaceKindHome, ws.Created[0].Kind)
 
 	home := ws.Created[1]
 	assert.True(t, home.IsDefault, "the repo home is the default workspace")
 	assert.Equal(t, "/repoA", home.WorktreePath, "the repo home stays the repo folder")
-	assert.Empty(t, home.Branch, "the repo home is detached off the protected branch")
-	assert.NotEqual(t, domain.WorkspaceStatusLocked, home.Status, "the repo home is never locked")
-	assert.Contains(t, git.Detached, "/repoA", "the repo home is detached off its protected branch")
+	assert.Equal(t, "main", home.Branch, "the repo home stays on its branch (NOT detached)")
+	assert.NotEqual(t, domain.WorkspaceStatusLocked, home.Status)
+	assert.Empty(t, git.Detached, "the repo home is never force-detached")
 
-	mainWs := ws.Created[2]
-	assert.Equal(t, "main", mainWs.Branch)
-	assert.Equal(t, domain.WorkspaceStatusLocked, mainWs.Status, "the protected branch is a locked workspace")
-	assert.False(t, mainWs.IsDefault)
-	assert.NotEqual(t, "/repoA", mainWs.WorktreePath,
-		"a protected branch gets a Crowbar-managed worktree, never the repo folder")
-	assert.Contains(t, mainWs.WorktreePath, "/crowbar-home/projects/")
-	assert.Contains(t, mainWs.WorktreePath, "/worktree")
+	var placeholder, managed domain.Workspace
+	for _, w := range ws.Created {
+		if w.Branch == "main" && !w.IsDefault {
+			placeholder = w
+		}
+		if w.Branch == "develop" {
+			managed = w
+		}
+	}
+	assert.Equal(t, domain.WorkspaceStatusLocked, placeholder.Status)
+	assert.Empty(t, placeholder.WorktreePath, "the home-held branch is a placeholder")
+	assert.Equal(t, "/repoA", placeholder.HeldByPath)
+
+	assert.Equal(t, domain.WorkspaceStatusLocked, managed.Status)
+	assert.NotEqual(t, "/repoA", managed.WorktreePath)
+	assert.Contains(t, managed.WorktreePath, "/crowbar-home/projects/")
+	assert.Contains(t, managed.WorktreePath, "/worktree")
 }
 
 // TestImport_SkipsNonProtectedLocalWorktrees pins the user-requested rule: on
@@ -148,25 +154,28 @@ func TestImport_SkipsNonProtectedLocalWorktrees(t *testing.T) {
 	_, err := uc.Import(context.Background(), "P", "/root")
 	require.NoError(t, err)
 
-	// Every protected branch (develop, main) becomes its OWN managed worktree;
-	// the repo home is detached off the protected default; non-protected local
-	// worktrees are not imported.
-	managed := map[string]domain.Workspace{}
+	// develop is the home's branch (held-by-home → placeholder); main is unheld
+	// (→ managed). Non-protected local worktrees are still not imported.
+	byBranch := map[string]domain.Workspace{}
 	for _, w := range ws.Created {
 		if w.Branch != "" && !w.IsDefault {
-			managed[w.Branch] = w
+			byBranch[w.Branch] = w
 		}
 	}
-	assert.Contains(t, managed, "develop", "protected branch gets a managed worktree")
-	assert.Contains(t, managed, "main", "protected branch gets a managed worktree")
-	assert.NotContains(t, managed, "feature/x", "non-protected local worktree is NOT imported")
-	assert.NotContains(t, managed, "spike/y", "non-protected local worktree is NOT imported")
-	assert.NotContains(t, managed, "worktree-agent-abc", "non-protected local worktree is NOT imported")
-	for _, b := range []string{"develop", "main"} {
-		assert.Equal(t, domain.WorkspaceStatusLocked, managed[b].Status, b+" is a locked workspace")
-		assert.NotEqual(t, "/repoA", managed[b].WorktreePath, b+" gets a managed worktree, not the repo folder")
-	}
-	assert.Len(t, ws.Created, 4, "project home + repo home + develop + main managed worktrees")
+	require.Contains(t, byBranch, "develop")
+	require.Contains(t, byBranch, "main")
+	assert.NotContains(t, byBranch, "feature/x", "non-protected local worktree is NOT imported")
+	assert.NotContains(t, byBranch, "spike/y")
+	assert.NotContains(t, byBranch, "worktree-agent-abc")
+
+	assert.Equal(t, domain.WorkspaceStatusLocked, byBranch["develop"].Status)
+	assert.Empty(t, byBranch["develop"].WorktreePath, "the home-held develop is a placeholder")
+	assert.Equal(t, "/repoA", byBranch["develop"].HeldByPath)
+
+	assert.Equal(t, domain.WorkspaceStatusLocked, byBranch["main"].Status)
+	assert.NotEqual(t, "/repoA", byBranch["main"].WorktreePath, "unheld main gets a managed worktree")
+
+	assert.Len(t, ws.Created, 4, "project home + repo home + develop placeholder + main managed")
 }
 
 func TestImport_ProjectSaveError(
@@ -525,12 +534,14 @@ func TestImport_AvatarFetchFailureLeavesGeneratedAvatar(t *testing.T) {
 	assert.True(t, os.IsNotExist(statErr), "no icon file should be written on fetch failure")
 }
 
+// TestImport_ProvisionsManagedWorktreesForProtectedBranches: home on protected
+// main, develop also protected but unheld. Under the recovery model the home is
+// adopted IN PLACE on main (never detached), main becomes exactly ONE placeholder
+// (locked, empty WorktreePath, heldByPath == repo folder), and develop (free) gets
+// its own Crowbar-managed locked worktree.
 func TestImport_ProvisionsManagedWorktreesForProtectedBranches(t *testing.T) {
 	_, _, ws, git, prov, uc := newImport(t)
 
-	// main is the checked-out (protected) branch; develop is protected with no
-	// local worktree. BOTH must end up as their own Crowbar-managed locked
-	// worktrees (never a stub at the repo folder).
 	git.Worktrees = []gitengine.WorktreeEntry{
 		{Path: "/repoA", Branch: "main", Head: "h1"},
 	}
@@ -539,28 +550,38 @@ func TestImport_ProvisionsManagedWorktreesForProtectedBranches(t *testing.T) {
 	_, err := uc.Import(context.Background(), "P", "/root")
 	require.NoError(t, err)
 
-	require.Len(t, ws.Created, 4, "project home + repo home + main + develop managed worktrees")
-	managed := map[string]domain.Workspace{}
+	require.Len(t, ws.Created, 4, "project home + repo home + main placeholder + develop managed worktree")
+	assert.Empty(t, git.Detached, "the repo home is adopted in place, never force-detached")
+
+	byBranch := map[string]domain.Workspace{}
 	for _, w := range ws.Created {
 		if w.Branch != "" && !w.IsDefault {
-			managed[w.Branch] = w
+			byBranch[w.Branch] = w
 		}
 	}
-	require.Contains(t, managed, "main")
-	require.Contains(t, managed, "develop")
-	for _, b := range []string{"main", "develop"} {
-		assert.Equal(t, domain.WorkspaceStatusLocked, managed[b].Status, b+" is locked")
-		assert.NotEqual(t, "/repoA", managed[b].WorktreePath, b+" gets a managed worktree, not the repo folder")
-		assert.Contains(t, managed[b].WorktreePath, "/worktree")
-	}
-	assert.Contains(t, git.Detached, "/repoA", "the repo home detaches off the protected main")
+	require.Contains(t, byBranch, "main")
+	require.Contains(t, byBranch, "develop")
+
+	// main is held by the home → a placeholder (locked, no worktree, holder recorded).
+	assert.Equal(t, domain.WorkspaceStatusLocked, byBranch["main"].Status, "main is a locked placeholder")
+	assert.Empty(t, byBranch["main"].WorktreePath, "the home-held main is a placeholder with no worktree")
+	assert.Equal(t, "/repoA", byBranch["main"].HeldByPath, "the placeholder records the home as holder")
+
+	// develop is unheld → its own managed worktree (never a stub at the repo folder).
+	assert.Equal(t, domain.WorkspaceStatusLocked, byBranch["develop"].Status, "develop is locked")
+	assert.NotEqual(t, "/repoA", byBranch["develop"].WorktreePath, "develop gets a managed worktree, not the repo folder")
+	assert.Contains(t, byBranch["develop"].WorktreePath, "/worktree")
+	assert.Empty(t, byBranch["develop"].HeldByPath, "a managed worktree has no holder")
 }
 
-func TestImport_DefaultProtectedBranch_HomeDetachedAndManaged(t *testing.T) {
+// TestImport_DefaultProtectedBranch_HomeInPlaceAndPlaceholder: the checked-out
+// default ("develop") is protected. The repo home is adopted IN PLACE (keeps
+// develop, never detached) and develop becomes exactly ONE placeholder (locked,
+// empty WorktreePath, heldByPath == repo folder) — no duplicate, no stub, no
+// managed worktree seized from under the user's live checkout.
+func TestImport_DefaultProtectedBranch_HomeInPlaceAndPlaceholder(t *testing.T) {
 	_, _, ws, git, prov, uc := newImport(t)
 
-	// The checked-out default ("develop") is protected: the repo home detaches off
-	// it and develop gets exactly ONE managed worktree (no duplicate, no stub).
 	git.Worktrees = []gitengine.WorktreeEntry{
 		{Path: "/repoA", Branch: "develop", Head: "h1"},
 	}
@@ -568,25 +589,27 @@ func TestImport_DefaultProtectedBranch_HomeDetachedAndManaged(t *testing.T) {
 
 	_, err := uc.Import(context.Background(), "P", "/root")
 	require.NoError(t, err)
-	require.Len(t, ws.Created, 3, "project home + repo home (detached) + develop managed worktree")
+	require.Len(t, ws.Created, 3, "project home + repo home (in place) + develop placeholder")
 
 	home := ws.Created[1]
 	assert.True(t, home.IsDefault)
-	assert.Empty(t, home.Branch, "home detached off the protected develop")
+	assert.Equal(t, "develop", home.Branch, "the repo home keeps develop (adopted in place, not detached)")
 	assert.Equal(t, "/repoA", home.WorktreePath)
+	assert.Empty(t, git.Detached, "the repo home is never force-detached")
 
 	develop := ws.Created[2]
 	assert.Equal(t, "develop", develop.Branch)
 	assert.Equal(t, domain.WorkspaceStatusLocked, develop.Status)
-	assert.NotEqual(t, "/repoA", develop.WorktreePath)
+	assert.Empty(t, develop.WorktreePath, "the home-held develop is a placeholder, not a managed worktree")
+	assert.Equal(t, "/repoA", develop.HeldByPath)
 
 	count := 0
 	for _, w := range ws.Created {
-		if w.Branch == "develop" {
+		if w.Branch == "develop" && !w.IsDefault {
 			count++
 		}
 	}
-	assert.Equal(t, 1, count, "develop appears exactly once (managed worktree, not also the home)")
+	assert.Equal(t, 1, count, "develop appears exactly once as a placeholder (never duplicated)")
 }
 
 func TestImport_RemoteProtectedBranch_FetchedAndForkPointRecorded(t *testing.T) {
@@ -603,7 +626,7 @@ func TestImport_RemoteProtectedBranch_FetchedAndForkPointRecorded(t *testing.T) 
 	_, err := uc.Import(context.Background(), "P", "/root")
 	require.NoError(t, err)
 
-	assert.Contains(t, git.FetchedRefs, "release", "a remote protected branch is fetched before checkout")
+	assert.Contains(t, git.FastForwardedBranches, "release", "a remote protected branch is fast-forwarded before checkout")
 	require.Len(t, git.WorktreeAdds, 1)
 	assert.Equal(t, "release", git.WorktreeAdds[0].Branch)
 
@@ -626,7 +649,7 @@ func TestImport_LocalOnlyProtectedBranch_NotFetched(t *testing.T) {
 
 	_, err := uc.Import(context.Background(), "P", "/root")
 	require.NoError(t, err)
-	assert.NotContains(t, git.FetchedRefs, "master", "a local-only protected branch is not fetched")
+	assert.NotContains(t, git.FastForwardedBranches, "master", "a local-only protected branch is not fast-forwarded")
 	require.Len(t, git.WorktreeAdds, 1)
 	assert.Equal(t, "master", git.WorktreeAdds[0].Branch)
 }
@@ -697,10 +720,12 @@ func TestImport_DetachFailure_DegradesAndStillImports(t *testing.T) {
 	assert.Empty(t, git.Detached, "the detach did not succeed")
 }
 
-func TestImport_HomeRowFailureAfterDetach_ReattachesRepo(t *testing.T) {
-	// If the home workspace row fails to persist AFTER the home was detached off a
-	// protected branch, the user's real repo must be re-attached — never left on a
-	// detached HEAD with no DB state.
+// TestImport_HomeRowFailure_NoDetachNoReattach: if the repo home row fails to
+// persist, the user's real checkout must be left exactly as it was. Under the
+// recovery model the home is adopted IN PLACE (never detached), so there is no
+// detach to undo and no reattach to perform. The per-repo failure is tolerated by
+// the bulk import.
+func TestImport_HomeRowFailure_NoDetachNoReattach(t *testing.T) {
 	_, _, ws, git, prov, uc := newImport(t)
 	git.Worktrees = []gitengine.WorktreeEntry{{Path: "/repoA", Branch: "develop", Head: "h1"}}
 	prov.Protected = []string{"develop"}
@@ -715,10 +740,8 @@ func TestImport_HomeRowFailureAfterDetach_ReattachesRepo(t *testing.T) {
 
 	_, err := uc.Import(context.Background(), "P", "/root")
 	require.NoError(t, err) // the per-repo failure is tolerated by the bulk import
-	assert.Contains(t, git.Detached, "/repoA", "the home was detached off the protected branch")
-	require.Len(t, git.CheckedOut, 1, "the repo must be re-attached after the home row failed")
-	assert.Equal(t, "/repoA", git.CheckedOut[0].Path)
-	assert.Equal(t, "develop", git.CheckedOut[0].Branch, "re-attached onto the original branch")
+	assert.Empty(t, git.Detached, "the home is adopted in place, so nothing is ever detached")
+	assert.Empty(t, git.CheckedOut, "no reattach: there was no detach to undo")
 }
 
 func TestImportRepo_DuplicatePath_IsNoOp(t *testing.T) {
@@ -822,18 +845,21 @@ func TestImportRepo_AdoptsDefaultBranchWorkspace(
 	assert.Equal(t, repos.Saved[0].ID, repo.ID)
 
 	// ImportRepo (add-repo-to-existing-project) creates no project home; it adopts
-	// the repo home (detached off the protected default) plus develop as a managed
-	// locked worktree.
-	require.Len(t, ws.Created, 2, "repo home (detached) + develop managed worktree")
+	// the repo home IN PLACE (keeps develop, not detached) plus develop as a locked
+	// PLACEHOLDER (held by the home) — never a stub or a seized managed worktree.
+	require.Len(t, ws.Created, 2, "repo home (in place) + develop placeholder")
 	home := ws.Created[0]
 	assert.True(t, home.IsDefault)
-	assert.Empty(t, home.Branch, "repo home detached off the protected develop")
+	assert.Equal(t, "develop", home.Branch, "the repo home keeps develop (adopted in place, not detached)")
 	assert.Equal(t, repo.ID, home.RepoID)
+	assert.Empty(t, git.Detached, "the repo home is never force-detached")
+
 	develop := ws.Created[1]
 	assert.Equal(t, "develop", develop.Branch)
 	assert.Equal(t, repo.ID, develop.RepoID)
 	assert.Equal(t, domain.WorkspaceStatusLocked, develop.Status)
-	assert.NotEqual(t, "/root/repoA", develop.WorktreePath, "develop gets a managed worktree")
+	assert.Empty(t, develop.WorktreePath, "the home-held develop is a placeholder")
+	assert.Equal(t, "/root/repoA", develop.HeldByPath, "the placeholder records the home as holder")
 }
 
 // TestImportRepo_AdoptionFailure_RollsBackRepo proves pass-6: the single-repo
@@ -1109,4 +1135,112 @@ func TestImport_ProvisionesHomeWorkspace(t *testing.T) {
 	require.Equal(t, domain.WorkspaceKindHome, homeWS.Kind)
 	require.Equal(t, "/root", homeWS.WorktreePath)
 	require.Empty(t, homeWS.RepoID, "home workspace must not be repo-scoped")
+}
+
+// TestImport_HomeHeldProtectedBranch_YieldsSinglePlaceholder is the exact
+// char2cs/asynx case: home on develop, protected develop+master. The home is
+// adopted IN PLACE (not detached), develop becomes exactly ONE placeholder
+// (locked, empty WorktreePath, heldByPath == repoPath), master (unheld) becomes
+// a managed worktree — never two develop rows (spec §3.5/B5).
+func TestImport_HomeHeldProtectedBranch_YieldsSinglePlaceholder(t *testing.T) {
+	_, _, ws, git, prov, uc := newImport(t)
+	git.Worktrees = []gitengine.WorktreeEntry{{Path: "/repoA", Branch: "develop", Head: "h1"}}
+	prov.Protected = []string{"develop", "master"}
+
+	_, err := uc.Import(context.Background(), "P", "/root")
+	require.NoError(t, err)
+
+	assert.Empty(t, git.Detached, "the repo home is NOT detached; it is adopted in place")
+
+	var developRows, placeholders, managed []domain.Workspace
+	for _, w := range ws.Created {
+		if w.Branch == "develop" && !w.IsDefault {
+			developRows = append(developRows, w)
+		}
+		if w.Status == domain.WorkspaceStatusLocked && w.WorktreePath == "" {
+			placeholders = append(placeholders, w)
+		}
+		if w.Status == domain.WorkspaceStatusLocked && w.WorktreePath != "" {
+			managed = append(managed, w)
+		}
+	}
+	require.Len(t, developRows, 1, "the home-held protected branch yields exactly ONE develop row")
+	require.Len(t, placeholders, 1, "develop is a single placeholder")
+	assert.Equal(t, "develop", placeholders[0].Branch)
+	assert.Equal(t, "/repoA", placeholders[0].HeldByPath, "placeholder records the home as holder")
+	require.Len(t, managed, 1, "master (unheld) gets a managed worktree")
+	assert.Equal(t, "master", managed[0].Branch)
+}
+
+// TestImport_ExternalHolder_YieldsPlaceholder: a protected branch held by a live
+// worktree OUTSIDE the crowbar home becomes a placeholder recording that path.
+func TestImport_ExternalHolder_YieldsPlaceholder(t *testing.T) {
+	_, _, ws, git, prov, uc := newImport(t)
+	git.Worktrees = []gitengine.WorktreeEntry{
+		{Path: "/repoA", Branch: "main", Head: "h1"},
+		{Path: "/some/external/wt", Branch: "release", Head: "h2"},
+	}
+	prov.Protected = []string{"release"}
+
+	_, err := uc.Import(context.Background(), "P", "/root")
+	require.NoError(t, err)
+
+	var placeholder *domain.Workspace
+	for i := range ws.Created {
+		if ws.Created[i].Branch == "release" {
+			placeholder = &ws.Created[i]
+		}
+	}
+	require.NotNil(t, placeholder)
+	assert.Equal(t, domain.WorkspaceStatusLocked, placeholder.Status)
+	assert.Empty(t, placeholder.WorktreePath)
+	assert.Equal(t, "/some/external/wt", placeholder.HeldByPath)
+}
+
+// TestImport_DeadRegistrationPruned_ProvisionsCleanly: a protected branch whose
+// only "holder" is a dead worktree registration is freed by the prune-before in
+// holder.Resolve and provisions a managed worktree — never dropped. The mock
+// GitEngine drops dead regs on WorktreePrune (see step 3).
+func TestImport_DeadRegistrationPruned_ProvisionsCleanly(t *testing.T) {
+	_, _, ws, git, prov, uc := newImport(t)
+	git.Worktrees = []gitengine.WorktreeEntry{{Path: "/repoA", Branch: "main", Head: "h1"}}
+	// A dead registration: develop registered at a now-deleted dir; prune reaps it.
+	git.DeadRegistrations = map[string]string{"/deleted/wt-develop": "develop"}
+	prov.Protected = []string{"develop"}
+
+	_, err := uc.Import(context.Background(), "P", "/root")
+	require.NoError(t, err)
+
+	var managed *domain.Workspace
+	for i := range ws.Created {
+		if ws.Created[i].Branch == "develop" {
+			managed = &ws.Created[i]
+		}
+	}
+	require.NotNil(t, managed, "develop is provisioned, not dropped")
+	assert.NotEmpty(t, managed.WorktreePath, "develop got a managed worktree after prune freed it")
+	assert.Contains(t, git.Pruned, "/repoA", "prune ran before provisioning")
+}
+
+// TestImport_ParentFetchFails_ProvisionsFromLocalTip: FastForwardBranch failing
+// (offline / refused) must NOT skip the branch — the worktree is added from the
+// local tip (best-effort FF, matching addWorktree).
+func TestImport_ParentFetchFails_ProvisionsFromLocalTip(t *testing.T) {
+	_, _, ws, git, prov, uc := newImport(t)
+	git.Worktrees = []gitengine.WorktreeEntry{{Path: "/repoA", Branch: "main", Head: "h1"}}
+	git.RemoteBranches = map[string]bool{"develop": true}
+	git.FastForwardErr = errors.New("fatal: refusing to fetch")
+	prov.Protected = []string{"develop"}
+
+	_, err := uc.Import(context.Background(), "P", "/root")
+	require.NoError(t, err)
+
+	var managed *domain.Workspace
+	for i := range ws.Created {
+		if ws.Created[i].Branch == "develop" {
+			managed = &ws.Created[i]
+		}
+	}
+	require.NotNil(t, managed, "develop is provisioned despite the FF failure")
+	assert.NotEmpty(t, managed.WorktreePath)
 }

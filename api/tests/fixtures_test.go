@@ -7,6 +7,7 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/require"
 )
@@ -23,43 +24,40 @@ type importedRepo struct {
 
 // importProject creates a real git repo and brings it into Crowbar via the
 // two-step public flow: POST /v0/projects creates the project (+ its home
-// workspace) and POST /v0/projects/:p/repos adds the repo (ImportRepo). ImportRepo
-// adopts the repo home — detached off its protected default branch — and provisions
-// a locked managed worktree per protected branch (main/develop/master fallback).
-// The returned workspaceID is the locked `main` managed worktree (branch=="main");
-// write-path tests use importWritableWorkspace to get an unlocked child instead.
-// All ids are learned from the hierarchical WS streams (dial-before-POST).
+// workspace) and POST /v0/projects/:p/repos adds the repo (ImportRepo).
+//
+// Under the protected-branch provisioning model the home is NO LONGER
+// force-detached: left on "main" it would stay the home AND surface "main" as a
+// worktree-less placeholder, yielding two branch=="main" rows. To hand these
+// tests a real LOCKED MANAGED "main" worktree unambiguously, the fixture detaches
+// the repo's HEAD BEFORE import. The home is then adopted detached (branch==""),
+// "main" is free, and ImportRepo provisions it as its own managed locked worktree
+// under the crowbar home. The returned workspaceID is that managed locked "main"
+// worktree (branch=="main", status "locked", real on-disk worktree at
+// <home>/projects/<P>/<R>/workspaces/<W>/worktree); write-path tests use
+// importWritableWorkspace to get an unlocked child forked off it. Tests that need
+// the home to STAY on its protected branch (and thus a placeholder) use
+// importProjectHomeHoldsDefault instead. All ids are learned from the
+// hierarchical WS streams (dial-before-POST).
 func importProject(
 	t *testing.T,
 	h *harness,
 ) importedRepo {
 	t.Helper()
 	repoPath := gitRepoWithCommit(t)
+	// Detach the home off "main" so the protected default branch is free and
+	// provisions as its own managed locked worktree — the workspace these tests
+	// operate on. (importProjectHomeHoldsDefault skips this to keep the home on
+	// "main" and exercise the placeholder path instead.)
+	runGit(t, repoPath, "checkout", "--detach")
 
-	projectsWS := h.dial("/v0/projects")
-	resp := h.raw(http.MethodPost, "/v0/projects",
-		map[string]string{"name": "demo", "path": repoPath}, http.StatusAccepted)
-	_ = resp.Body.Close()
-
-	project := readUntil(t, projectsWS, func(m map[string]any) bool {
-		return m["path"] == repoPath
-	})
-	projectID, _ := project["id"].(string)
-	require.NotEmpty(t, projectID, "create must broadcast a ProjectDTO with an id")
-
-	reposWS := h.dial("/v0/projects/" + projectID + "/repos")
-	addResp := h.raw(http.MethodPost, "/v0/projects/"+projectID+"/repos",
-		map[string]string{"name": "demo", "path": repoPath}, http.StatusAccepted)
-	_ = addResp.Body.Close()
-	repo := readUntil(t, reposWS, func(m map[string]any) bool {
-		return m["projectId"] == projectID
-	})
-	repoID, _ := repo["id"].(string)
-	require.NotEmpty(t, repoID, "add-repo must broadcast a RepoDTO with an id")
+	projectID, repoID := createProjectAndRepo(t, h, repoPath)
 
 	// The locked managed worktree for the protected default branch ("main") is
 	// persisted during the background ImportRepo job; wait for its WorkspaceDTO on
 	// the repo-scoped stream rather than racing a GET against the async adoption.
+	// With the home detached, "main" is now unambiguously that single managed
+	// worktree (the home carries branch=="").
 	workspacesWS := h.dial("/v0/projects/" + projectID + "/repos/" + repoID + "/workspaces")
 	adopted := readUntil(t, workspacesWS, func(m map[string]any) bool {
 		return m["branch"] == "main"
@@ -73,6 +71,88 @@ func importProject(
 		workspaceID: wsID,
 		repoPath:    repoPath,
 	}
+}
+
+// importProjectHomeHoldsDefault imports a repo whose home STAYS on its protected
+// default branch ("main"): unlike importProject it does NOT detach the home, so
+// the home is adopted as the single isDefault workspace on "main" AND that same
+// branch is surfaced as a locked, worktree-less PLACEHOLDER held by the repo
+// folder (spec §3.4). It waits until BOTH the home and the placeholder have
+// materialised so the placeholder-asserting tests never race the async import.
+// The returned workspaceID is the home (isDefault) row; these tests read the
+// repo's workspace list directly rather than operating on a managed worktree.
+func importProjectHomeHoldsDefault(
+	t *testing.T,
+	h *harness,
+) importedRepo {
+	t.Helper()
+	repoPath := gitRepoWithCommit(t) // home stays on "main" (no detach)
+
+	projectID, repoID := createProjectAndRepo(t, h, repoPath)
+
+	workspacesWS := h.dial("/v0/projects/" + projectID + "/repos/" + repoID + "/workspaces")
+	var homeID string
+	sawPlaceholder := false
+	deadline := time.Now().Add(10 * time.Second)
+	for homeID == "" || !sawPlaceholder {
+		readUntil(t, workspacesWS, func(m map[string]any) bool {
+			id, _ := m["id"].(string)
+			if id == "" {
+				return false
+			}
+			if m["isDefault"] == true {
+				homeID = id
+				return true
+			}
+			held, _ := m["heldByPath"].(string)
+			if m["branch"] == "main" && held != "" {
+				sawPlaceholder = true
+				return true
+			}
+			return false
+		})
+		require.True(t, time.Now().Before(deadline),
+			"home + main placeholder must both materialise before import returns")
+	}
+
+	return importedRepo{
+		projectID:   projectID,
+		repoID:      repoID,
+		workspaceID: homeID,
+		repoPath:    repoPath,
+	}
+}
+
+// createProjectAndRepo runs the two-step public import flow (POST /v0/projects
+// then POST .../repos) for an on-disk repo at repoPath and returns the project
+// and repo ids learned from the hierarchical WS streams (dial-before-POST).
+func createProjectAndRepo(
+	t *testing.T,
+	h *harness,
+	repoPath string,
+) (projectID string, repoID string) {
+	t.Helper()
+	projectsWS := h.dial("/v0/projects")
+	resp := h.raw(http.MethodPost, "/v0/projects",
+		map[string]string{"name": "demo", "path": repoPath}, http.StatusAccepted)
+	_ = resp.Body.Close()
+
+	project := readUntil(t, projectsWS, func(m map[string]any) bool {
+		return m["path"] == repoPath
+	})
+	projectID, _ = project["id"].(string)
+	require.NotEmpty(t, projectID, "create must broadcast a ProjectDTO with an id")
+
+	reposWS := h.dial("/v0/projects/" + projectID + "/repos")
+	addResp := h.raw(http.MethodPost, "/v0/projects/"+projectID+"/repos",
+		map[string]string{"name": "demo", "path": repoPath}, http.StatusAccepted)
+	_ = addResp.Body.Close()
+	repo := readUntil(t, reposWS, func(m map[string]any) bool {
+		return m["projectId"] == projectID
+	})
+	repoID, _ = repo["id"].(string)
+	require.NotEmpty(t, repoID, "add-repo must broadcast a RepoDTO with an id")
+	return projectID, repoID
 }
 
 // importWritableWorkspace imports a project and then creates a child workspace

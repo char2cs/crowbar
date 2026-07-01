@@ -19,12 +19,13 @@ import (
 // homeWorkspaceDTO mirrors the WorkspaceDTO wire fields this suite asserts on
 // (the shared fixtures workspaceDTO omits isDefault/localPath).
 type homeWorkspaceDTO struct {
-	ID        string `json:"id"`
-	RepoID    string `json:"repoId"`
-	Branch    string `json:"branch"`
-	Status    string `json:"status"`
-	IsDefault bool   `json:"isDefault"`
-	LocalPath string `json:"localPath"`
+	ID         string `json:"id"`
+	RepoID     string `json:"repoId"`
+	Branch     string `json:"branch"`
+	Status     string `json:"status"`
+	IsDefault  bool   `json:"isDefault"`
+	LocalPath  string `json:"localPath"`
+	HeldByPath string `json:"heldByPath"`
 }
 
 // gitRepoWithBranches builds a real git repo with one commit, creates each of
@@ -71,10 +72,13 @@ func gitOutput(t *testing.T, dir string, args ...string) string {
 
 // TestRepoImport_ProtectedBranchesGetManagedWorktrees is the end-to-end contract
 // for the Crowbar workspace model with REAL git:
-//   - the repo home (the imported folder) is the special default workspace and is
-//     DETACHED to HEAD because it was on a protected branch (develop);
-//   - every protected branch that exists (develop, master) gets its OWN
-//     Crowbar-managed worktree under the crowbar home, locked, NOT the repo folder;
+//   - the repo home (the imported folder) is the special default workspace and
+//     STAYS on its branch (develop) — it is no longer force-detached (spec §3.4);
+//   - the protected branch the home holds (develop) cannot get its own worktree,
+//     so it lands as a PLACEHOLDER row: locked, no worktree on disk, HeldByPath ==
+//     the repo folder (spec §3.2);
+//   - a protected branch that is free (master) gets its OWN Crowbar-managed
+//     worktree under the crowbar home, locked, NOT the repo folder;
 //   - a protected branch that does not exist (main, from the fallback set) is
 //     skipped, not stubbed.
 func TestRepoImport_ProtectedBranchesGetManagedWorktrees(t *testing.T) {
@@ -82,7 +86,8 @@ func TestRepoImport_ProtectedBranchesGetManagedWorktrees(t *testing.T) {
 
 	parent := t.TempDir()
 	repoDir := filepath.Join(parent, "myrepo")
-	// Default branch develop is protected (fallback set), so the home must detach.
+	// Default branch develop is protected (fallback set); the home stays on it and
+	// the branch is surfaced as a placeholder held by the repo folder (spec §3.4).
 	gitRepoWithBranches(t, repoDir, "develop", "develop")
 	require.Equal(t, "develop", gitCurrentBranch(t, repoDir), "repo starts checked out on develop")
 
@@ -113,7 +118,7 @@ func TestRepoImport_ProtectedBranchesGetManagedWorktrees(t *testing.T) {
 		return dev && mas
 	})
 
-	// The repo home: default, detached (no branch), rooted at the repo folder.
+	// The repo home: default, STAYS on its branch (develop), rooted at the repo folder.
 	var home homeWorkspaceDTO
 	for _, w := range byBranch {
 		if w.IsDefault {
@@ -121,32 +126,44 @@ func TestRepoImport_ProtectedBranchesGetManagedWorktrees(t *testing.T) {
 		}
 	}
 	require.True(t, home.IsDefault, "a default (home) workspace must exist")
-	assert.Empty(t, home.Branch, "the repo home is detached off the protected default branch")
+	assert.Equal(t, "develop", home.Branch,
+		"the repo home stays on its protected branch — no longer force-detached (spec §3.4)")
 	assert.NotEqual(t, "locked", home.Status, "the repo home is never locked")
 	assert.Equal(t, repoDir, home.LocalPath, "the repo home stays the imported repo folder")
+	assert.Empty(t, home.HeldByPath, "the repo home is never a placeholder")
 
-	// develop + master: each its own managed locked worktree, NOT the repo folder.
-	for _, branch := range []string{"develop", "master"} {
-		ws := byBranch[branch]
-		require.NotEmpty(t, ws.ID, "protected branch %q must have a workspace", branch)
-		assert.Equal(t, "locked", ws.Status, "%q is a locked workspace", branch)
-		assert.False(t, ws.IsDefault, "%q is not the default", branch)
-		assert.NotEqual(t, repoDir, ws.LocalPath, "%q gets a managed worktree, not the repo folder", branch)
-		assert.True(t, strings.HasPrefix(ws.LocalPath, h.home),
-			"%q managed worktree lives under the crowbar home (%s), got %s", branch, h.home, ws.LocalPath)
-		// On disk: the managed worktree is a real checkout on that branch.
-		assert.DirExists(t, ws.LocalPath, "%q managed worktree dir exists", branch)
-		assert.Equal(t, branch, gitCurrentBranch(t, ws.LocalPath),
-			"%q managed worktree is checked out on %q", branch, branch)
-	}
+	// develop is held by the repo home, so it cannot get its own worktree — it lands
+	// as a placeholder: locked, no worktree on disk, HeldByPath == the repo folder.
+	dev := byBranch["develop"]
+	require.NotEmpty(t, dev.ID, "the held protected branch must still appear as a placeholder row")
+	assert.Equal(t, "locked", dev.Status, "the develop placeholder is locked")
+	assert.False(t, dev.IsDefault, "the develop placeholder is not the default")
+	assert.Empty(t, dev.LocalPath, "a placeholder has no managed worktree on disk")
+	assert.True(t, samePathResolved(t, repoDir, dev.HeldByPath),
+		"the develop placeholder records the repo folder as the branch holder, got %s", dev.HeldByPath)
+
+	// master is free, so it gets its OWN managed locked worktree, NOT the repo folder.
+	mas := byBranch["master"]
+	require.NotEmpty(t, mas.ID, "the free protected branch must have a managed workspace")
+	assert.Equal(t, "locked", mas.Status, "master is a locked workspace")
+	assert.False(t, mas.IsDefault, "master is not the default")
+	assert.Empty(t, mas.HeldByPath, "a healthy managed worktree carries no holder")
+	assert.NotEqual(t, repoDir, mas.LocalPath, "master gets a managed worktree, not the repo folder")
+	assert.True(t, strings.HasPrefix(mas.LocalPath, h.home),
+		"master managed worktree lives under the crowbar home (%s), got %s", h.home, mas.LocalPath)
+	// On disk: the managed worktree is a real checkout on master.
+	assert.DirExists(t, mas.LocalPath, "master managed worktree dir exists")
+	assert.Equal(t, "master", gitCurrentBranch(t, mas.LocalPath),
+		"master managed worktree is checked out on master")
 
 	// "main" is in the fallback protected set but does not exist → skipped, not stubbed.
 	_, hasMain := byBranch["main"]
 	assert.False(t, hasMain, "a non-existent fallback-protected branch is not imported")
 
-	// The repo folder itself is now on a detached HEAD (its branch was freed).
-	assert.Empty(t, gitCurrentBranch(t, repoDir),
-		"the repo home folder is detached to HEAD so develop is free for its managed worktree")
+	// The repo folder itself STAYS on develop — Crowbar no longer detaches the
+	// user's checkout without consent; develop is surfaced as a placeholder instead.
+	assert.Equal(t, "develop", gitCurrentBranch(t, repoDir),
+		"the repo home folder stays on develop — no silent force-detach (spec §3.4)")
 }
 
 // TestRepoImport_UnbornBranchRepo_DegradesGracefully proves the git-safety
@@ -208,12 +225,13 @@ func collectWorkspacesUntil(
 				return false
 			}
 			seen[branchKey(m)] = homeWorkspaceDTO{
-				ID:        id,
-				RepoID:    asString(m["repoId"]),
-				Branch:    asString(m["branch"]),
-				Status:    asString(m["status"]),
-				IsDefault: m["isDefault"] == true,
-				LocalPath: asString(m["localPath"]),
+				ID:         id,
+				RepoID:     asString(m["repoId"]),
+				Branch:     asString(m["branch"]),
+				Status:     asString(m["status"]),
+				IsDefault:  m["isDefault"] == true,
+				LocalPath:  asString(m["localPath"]),
+				HeldByPath: asString(m["heldByPath"]),
 			}
 			return true
 		})
@@ -224,8 +242,9 @@ func collectWorkspacesUntil(
 	}
 }
 
-// branchKey keys a workspace by branch, falling back to the default marker so the
-// detached home (empty branch) does not collide with a branch named "".
+// branchKey keys a workspace by branch, falling back to the default marker for the
+// repo home so it does not collide with the same-branch placeholder row (the home
+// now stays on its protected branch instead of detaching, spec §3.4).
 func branchKey(m map[string]any) string {
 	if m["isDefault"] == true {
 		return "(default)"
@@ -236,6 +255,19 @@ func branchKey(m map[string]any) string {
 func asString(v any) string {
 	s, _ := v.(string)
 	return s
+}
+
+// samePathResolved reports whether two filesystem paths point at the same
+// location, resolving symlinks first: git worktree list (and thus a placeholder's
+// HeldByPath) emits fully-resolved paths (macOS /var -> /private/var) while the
+// imported repo path is not resolved, so a naive string compare would miss.
+func samePathResolved(t *testing.T, a string, b string) bool {
+	t.Helper()
+	ra, err := filepath.EvalSymlinks(a)
+	require.NoError(t, err)
+	rb, err := filepath.EvalSymlinks(b)
+	require.NoError(t, err)
+	return ra == rb
 }
 
 func keys(m map[string]homeWorkspaceDTO) []string {

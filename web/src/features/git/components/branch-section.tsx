@@ -146,7 +146,7 @@ export function BranchSection({
               PR is opened on the host). Disabled to avoid implying a click action. */}
           {action.kind === 'pull-request' && (
             <Button variant="outline" size="sm" className="flex-1" disabled>
-              {parentBranch} is protected — open a PR
+              Parent is protected
             </Button>
           )}
 
