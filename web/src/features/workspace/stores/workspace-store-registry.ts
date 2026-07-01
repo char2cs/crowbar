@@ -23,11 +23,7 @@ let _activeWorkspaceId: string | null = null
 // don't import this heavy registry (which pulls in the editor/Monaco graph and
 // timed out their dynamic-import unit tests). We re-export the setter/getter here
 // for callers that already depend on the registry.
-export {
-  setWorkspaceScope,
-  getWorkspaceScope,
-  type WorkspaceScope,
-} from '@/lib/workspace-scope'
+export { setWorkspaceScope, getWorkspaceScope, type WorkspaceScope } from '@/lib/workspace-scope'
 
 export function setActiveWorkspaceId(wsId: string): void {
   _activeWorkspaceId = wsId
@@ -114,11 +110,13 @@ export function destroyWorkspaceStore(wsId: string): void {
     // scrollback replay. killTerminalSession is still used on real tab close.
     const terminalBuffers = buffers.filter((b) => b.type === 'terminal')
     if (terminalBuffers.length > 0) {
-      void import('@/features/terminal/lib/detach-terminal-session').then(({ detachTerminalSession }) => {
-        for (const buf of terminalBuffers) {
-          void detachTerminalSession(wsId, (buf as TerminalContent).sessionId).catch(() => {})
-        }
-      })
+      void import('@/features/terminal/lib/detach-terminal-session').then(
+        ({ detachTerminalSession }) => {
+          for (const buf of terminalBuffers) {
+            void detachTerminalSession(wsId, (buf as TerminalContent).sessionId).catch(() => {})
+          }
+        },
+      )
     }
 
     // Drop conversation stores for this workspace's chat tabs so their streamed

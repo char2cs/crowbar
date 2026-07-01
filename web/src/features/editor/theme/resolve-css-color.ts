@@ -66,9 +66,7 @@ export function cssColorToHex(value: string): string | null {
   if (/^#[0-9a-f]{3}$/.test(v)) return expandShortHex(v)
   if (/^#[0-9a-f]{6}([0-9a-f]{2})?$/.test(v)) return v
 
-  const rgb = v.match(
-    /^rgba?\(\s*([\d.]+)[\s,]+([\d.]+)[\s,]+([\d.]+)(?:[\s,/]+([\d.]+%?))?\s*\)$/,
-  )
+  const rgb = v.match(/^rgba?\(\s*([\d.]+)[\s,]+([\d.]+)[\s,]+([\d.]+)(?:[\s,/]+([\d.]+%?))?\s*\)$/)
   if (rgb) {
     const [, r, g, b, a] = rgb
     const alpha = parseAlpha(a)
@@ -76,9 +74,7 @@ export function cssColorToHex(value: string): string | null {
     return alpha >= 1 ? hex : `${hex}${toHexByte(alpha * 255)}`
   }
 
-  const oklch = v.match(
-    /^oklch\(\s*([\d.]+%?)\s+([\d.]+)\s+([\d.]+)(?:\s*\/\s*([\d.]+%?))?\s*\)$/,
-  )
+  const oklch = v.match(/^oklch\(\s*([\d.]+%?)\s+([\d.]+)\s+([\d.]+)(?:\s*\/\s*([\d.]+%?))?\s*\)$/)
   if (oklch) {
     const [, lRaw, cRaw, hRaw, aRaw] = oklch
     const l = lRaw.endsWith('%') ? Number.parseFloat(lRaw) / 100 : Number.parseFloat(lRaw)
@@ -90,19 +86,55 @@ export function cssColorToHex(value: string): string | null {
 
 /** Syntax token keys → their CSS variable is `--syntax-<key>`. */
 export const SYNTAX_TOKEN_KEYS = [
-  'keyword', 'string', 'number', 'constant', 'comment', 'variable', 'property',
-  'type', 'function', 'operator', 'punctuation', 'tag', 'attribute', 'boolean',
-  'null', 'regex', 'jsx', 'jsx-attribute', 'error',
-  'markdown-heading', 'markdown-bold', 'markdown-italic', 'markdown-strikethrough',
-  'markdown-link', 'markdown-link-text', 'markdown-code', 'markdown-list', 'markdown-quote',
+  'keyword',
+  'string',
+  'number',
+  'constant',
+  'comment',
+  'variable',
+  'property',
+  'type',
+  'function',
+  'operator',
+  'punctuation',
+  'tag',
+  'attribute',
+  'boolean',
+  'null',
+  'regex',
+  'jsx',
+  'jsx-attribute',
+  'error',
+  'markdown-heading',
+  'markdown-bold',
+  'markdown-italic',
+  'markdown-strikethrough',
+  'markdown-link',
+  'markdown-link-text',
+  'markdown-code',
+  'markdown-list',
+  'markdown-quote',
 ] as const
 export type SyntaxTokenKey = (typeof SYNTAX_TOKEN_KEYS)[number]
 
 /** ANSI keys → their CSS variable is `--terminal-<key>`. */
 export const TERMINAL_ANSI_KEYS = [
-  'black', 'red', 'green', 'yellow', 'blue', 'magenta', 'cyan', 'white',
-  'bright-black', 'bright-red', 'bright-green', 'bright-yellow',
-  'bright-blue', 'bright-magenta', 'bright-cyan', 'bright-white',
+  'black',
+  'red',
+  'green',
+  'yellow',
+  'blue',
+  'magenta',
+  'cyan',
+  'white',
+  'bright-black',
+  'bright-red',
+  'bright-green',
+  'bright-yellow',
+  'bright-blue',
+  'bright-magenta',
+  'bright-cyan',
+  'bright-white',
 ] as const
 export type TerminalAnsiKey = (typeof TERMINAL_ANSI_KEYS)[number]
 
@@ -134,7 +166,10 @@ export function resolveCssVar(name: string, el: Element = document.documentEleme
   return cssColorToHex(raw)
 }
 
-function readPalette<K extends string>(keys: readonly K[], prefix: string): Partial<Record<K, string>> {
+function readPalette<K extends string>(
+  keys: readonly K[],
+  prefix: string,
+): Partial<Record<K, string>> {
   const out: Partial<Record<K, string>> = {}
   for (const key of keys) {
     const hex = resolveCssVar(`${prefix}${key}`)

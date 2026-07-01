@@ -26,12 +26,7 @@
 
 import type React from 'react'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import {
-  editor as monacoEditor,
-  KeyCode,
-  KeyMod,
-  Range as MonacoRange,
-} from 'monaco-editor'
+import { editor as monacoEditor, KeyCode, KeyMod, Range as MonacoRange } from 'monaco-editor'
 import type * as Monaco from 'monaco-editor'
 import { themeRegistry } from '@/extensions/themes/theme-registry'
 import { useSettingsStore } from '@/features/settings/store'
@@ -97,10 +92,7 @@ export interface PaneEditorSatelliteDeps {
  * by the controller on every swap), so this hook never reads `activeBufferId`
  * through React render and never remounts the widget.
  */
-export function usePaneEditorSatellites(
-  paneId: string,
-  deps: PaneEditorSatelliteDeps,
-): void {
+export function usePaneEditorSatellites(paneId: string, deps: PaneEditorSatelliteDeps): void {
   const {
     highlightMatches,
     currentHighlightIndex,
@@ -128,9 +120,7 @@ export function usePaneEditorSatellites(
   const readActiveContent = useCallback(() => {
     const state = workspaceStore.getState()
     const bufferId = state.panes[paneId]?.activeBufferId ?? null
-    const buffer = bufferId
-      ? state.buffers.find((candidate) => candidate.id === bufferId)
-      : null
+    const buffer = bufferId ? state.buffers.find((candidate) => candidate.id === bufferId) : null
     return buffer && hasTextContent(buffer) ? buffer.content : ''
   }, [workspaceStore, paneId])
 
@@ -159,8 +149,7 @@ export function usePaneEditorSatellites(
   const editorRef = useRef<StandaloneEditor | null>(null)
   const modelRef = useRef<Monaco.editor.ITextModel | null>(null)
   const filePathRef = useRef('')
-  const decorationCollectionRef =
-    useRef<Monaco.editor.IEditorDecorationsCollection | null>(null)
+  const decorationCollectionRef = useRef<Monaco.editor.IEditorDecorationsCollection | null>(null)
 
   // ── Settings (latest in a ref; applied by the updateOptions effect) ───────
   const baseFontSize = useEditorSettingsStore.use.fontSize()
@@ -179,8 +168,7 @@ export function usePaneEditorSatellites(
   const minimapEnabled = useSettingsStore((state) => state.settings.showMinimap)
   const autoCompletion = useSettingsStore((state) => state.settings.autoCompletion)
   const parameterHints = useSettingsStore((state) => state.settings.parameterHints)
-  const { setCursorAndSelection, setViewportHeight } =
-    useEditorStateStore.use.actions()
+  const { setCursorAndSelection, setViewportHeight } = useEditorStateStore.use.actions()
   const searchMatches = useEditorUIStore.use.searchMatches()
   const currentSearchMatchIndex = useEditorUIStore.use.currentMatchIndex()
 
@@ -230,10 +218,7 @@ export function usePaneEditorSatellites(
     const syncer = cursorSyncerRef.current
     return () => syncer?.cancel()
   }, [])
-  const syncCursorAndSelection = useCallback(
-    () => cursorSyncerRef.current?.schedule(),
-    [],
-  )
+  const syncCursorAndSelection = useCallback(() => cursorSyncerRef.current?.schedule(), [])
 
   const updateVisibleLineRange = useCallback((editor: StandaloneEditor) => {
     const visibleRanges = editor.getVisibleRanges()
@@ -540,8 +525,7 @@ export function usePaneEditorSatellites(
   useEffect(() => {
     const editor = editorRef.current
     if (!editor) return
-    const applyTheme = () =>
-      monacoEditor.setTheme(defineMonacoTheme(settingsTheme || theme))
+    const applyTheme = () => monacoEditor.setTheme(defineMonacoTheme(settingsTheme || theme))
     // Always reapply the theme value (cheap) when theme inputs change; rebind the
     // registry subscriptions only when the editor instance itself changed.
     applyTheme()
@@ -667,13 +651,7 @@ export function usePaneEditorSatellites(
       ]
     })
     collection.set(decorations)
-  }, [
-    currentHighlightIndex,
-    currentSearchMatchIndex,
-    highlightMatches,
-    searchMatches,
-    swapTick,
-  ])
+  }, [currentHighlightIndex, currentSearchMatchIndex, highlightMatches, searchMatches, swapTick])
 
   // ── Coordinate / model-position resolvers (LSP overlays) ──────────────────
   useEffect(() => {
@@ -817,8 +795,7 @@ export function usePaneEditorSatellites(
         // Guard against a disposed model lingering across a close→reopen race:
         // getValue() would throw 'Model is disposed!'. Fall back to the last
         // known store content instead.
-        const content =
-          model && !model.isDisposed() ? model.getValue() : activeContentRef.current
+        const content = model && !model.isDisposed() ? model.getValue() : activeContentRef.current
         void LspClient.getInstance().documentChange(filePath, content)
       }, 400)
     }

@@ -70,11 +70,14 @@ describe('heuristicTokensFromLineTokens', () => {
 
   it('respects the emit row window', () => {
     const text = 'Foo()\nBar()\nBaz()'
-    const out = heuristicTokensFromLineTokens(
-      text,
-      [codeLine(), codeLine(), codeLine()],
-      { emitStartRow: 1, emitEndRow: 1 },
-    )
-    expect(out.map((t) => text.split('\n')[t.startPosition.row].slice(t.startPosition.column, t.endPosition.column))).toEqual(['Bar'])
+    const out = heuristicTokensFromLineTokens(text, [codeLine(), codeLine(), codeLine()], {
+      emitStartRow: 1,
+      emitEndRow: 1,
+    })
+    expect(
+      out.map((t) =>
+        text.split('\n')[t.startPosition.row].slice(t.startPosition.column, t.endPosition.column),
+      ),
+    ).toEqual(['Bar'])
   })
 })

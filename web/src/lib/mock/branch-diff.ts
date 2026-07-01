@@ -28,7 +28,16 @@ function thread(
   messages: ReviewMessage[],
   isResolved: boolean,
 ): ReviewThread {
-  return { id, filePath, lineNumber, startLine: lineNumber, endLine: lineNumber, side, messages, isResolved }
+  return {
+    id,
+    filePath,
+    lineNumber,
+    startLine: lineNumber,
+    endLine: lineNumber,
+    side,
+    messages,
+    isResolved,
+  }
 }
 
 /**

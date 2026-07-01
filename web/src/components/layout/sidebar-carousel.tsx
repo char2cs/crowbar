@@ -87,59 +87,59 @@ export function SidebarCarousel({ activeWorkspaceRepoPath }: SidebarCarouselProp
 
   return (
     <NavStack>
-    <div
-      ref={containerRef}
-      onScroll={handleScroll}
-      data-sidebar-carousel=""
-      className="flex flex-1 overflow-x-scroll overflow-y-hidden [scroll-snap-type:x_mandatory] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
-    >
-      {/* Workspaces panel */}
-      <div className="min-w-full [scroll-snap-align:start] flex flex-col overflow-hidden h-full">
-        <WorkspaceTree />
-      </div>
+      <div
+        ref={containerRef}
+        onScroll={handleScroll}
+        data-sidebar-carousel=""
+        className="flex flex-1 overflow-x-scroll overflow-y-hidden [scroll-snap-type:x_mandatory] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
+      >
+        {/* Workspaces panel */}
+        <div className="min-w-full [scroll-snap-align:start] flex flex-col overflow-hidden h-full">
+          <WorkspaceTree />
+        </div>
 
-      {/* Chats panel */}
-      <div className="min-w-full [scroll-snap-align:start] flex flex-col overflow-hidden">
-        <ChatTree wsId={activeWorkspaceId} />
-      </div>
+        {/* Chats panel */}
+        <div className="min-w-full [scroll-snap-align:start] flex flex-col overflow-hidden">
+          <ChatTree wsId={activeWorkspaceId} />
+        </div>
 
-      {/* Files panel */}
-      <div className="min-w-full [scroll-snap-align:start] flex flex-col overflow-hidden">
-        <ErrorBoundary>
-          <Suspense fallback={<SidebarSkeleton />}>
-            <FileExplorerTree
-              files={files}
-              rootFolderPath={activeWorkspaceRepoPath}
-              onFileSelect={(path, isDir) => {
-                if (isDir) {
-                  useFileTreeStore.getState().toggleFolder(path)
-                } else {
-                  handleFileSelect?.(path, false)
+        {/* Files panel */}
+        <div className="min-w-full [scroll-snap-align:start] flex flex-col overflow-hidden">
+          <ErrorBoundary>
+            <Suspense fallback={<SidebarSkeleton />}>
+              <FileExplorerTree
+                files={files}
+                rootFolderPath={activeWorkspaceRepoPath}
+                onFileSelect={(path, isDir) => {
+                  if (isDir) {
+                    useFileTreeStore.getState().toggleFolder(path)
+                  } else {
+                    handleFileSelect?.(path, false)
+                  }
+                }}
+                onFileOpen={
+                  handleFileOpen
+                    ? (path: string, isDir: boolean) => {
+                        if (!isDir) void handleFileOpen(path, false)
+                      }
+                    : undefined
                 }
-              }}
-              onFileOpen={
-                handleFileOpen
-                  ? (path: string, isDir: boolean) => {
-                      if (!isDir) void handleFileOpen(path, false)
-                    }
-                  : undefined
-              }
-              onUpdateFiles={setFiles}
-              onCreateNewFileInDirectory={handleCreateNewFileInDirectory ?? (() => {})}
-              onCreateNewFolderInDirectory={handleCreateNewFolderInDirectory ?? undefined}
-              onRenamePath={handleRenamePath ?? undefined}
-              onDeletePath={handleDeletePath ?? undefined}
-              onRefreshDirectory={refreshDirectory ?? undefined}
-            />
-          </Suspense>
-        </ErrorBoundary>
-      </div>
+                onUpdateFiles={setFiles}
+                onCreateNewFileInDirectory={handleCreateNewFileInDirectory ?? (() => {})}
+                onCreateNewFolderInDirectory={handleCreateNewFolderInDirectory ?? undefined}
+                onRenamePath={handleRenamePath ?? undefined}
+                onDeletePath={handleDeletePath ?? undefined}
+                onRefreshDirectory={refreshDirectory ?? undefined}
+              />
+            </Suspense>
+          </ErrorBoundary>
+        </div>
 
-      {/* Git panel */}
-      <div className="min-w-full [scroll-snap-align:start] flex flex-col overflow-hidden">
-        <GitPanel />
+        {/* Git panel */}
+        <div className="min-w-full [scroll-snap-align:start] flex flex-col overflow-hidden">
+          <GitPanel />
+        </div>
       </div>
-    </div>
     </NavStack>
   )
 }

@@ -23,7 +23,10 @@ export function SidebarProjectHeader() {
       onClick={toggleSidebar}
       variant="ghost"
       size="icon-sm"
-      className={cn('shrink-0 rounded-sm text-muted-foreground hover:bg-sidebar-element-hover', isRight && 'scale-x-[-1]')}
+      className={cn(
+        'shrink-0 rounded-sm text-muted-foreground hover:bg-sidebar-element-hover',
+        isRight && 'scale-x-[-1]',
+      )}
       tooltip={sidebarOpen ? 'Hide Sidebar' : 'Show Sidebar'}
       tooltipSide="bottom"
       aria-label={sidebarOpen ? 'Hide sidebar' : 'Show sidebar'}

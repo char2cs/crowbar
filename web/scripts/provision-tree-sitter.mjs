@@ -44,7 +44,12 @@ const WEB_ROOT = resolve(__dirname, '..')
 const PUBLIC_TREE_SITTER = join(WEB_ROOT, 'public', 'tree-sitter')
 
 // Runtime wasm: always from node_modules (version-correct, always present)
-const NODE_MODULES_WEB_TREE_SITTER = join(WEB_ROOT, 'node_modules', 'web-tree-sitter', 'web-tree-sitter.wasm')
+const NODE_MODULES_WEB_TREE_SITTER = join(
+  WEB_ROOT,
+  'node_modules',
+  'web-tree-sitter',
+  'web-tree-sitter.wasm',
+)
 
 // Grammar wasms: sibling athas project (local-dev workaround; see header comment)
 const ATHAS_TREE_SITTER = join(homedir(), 'Projects', 'Cloned', 'athas', 'public', 'tree-sitter')
@@ -70,20 +75,20 @@ const PARSER_FOLDER_BY_LANGUAGE = {
 const PARSER_FOLDERS = [
   ...new Set([
     // Direct languageId -> folder mappings (the folders used in /tree-sitter/parsers/<folder>/)
-    'tsx',       // typescript, typescriptreact, javascript, javascriptreact
+    'tsx', // typescript, typescriptreact, javascript, javascriptreact
     'typescript',
     'go',
     'json',
-    'markdown',  // mdx
-    'css',       // less, sass, scss
-    'html',      // angular
-    'bash',      // dotenv, sh, zsh
+    'markdown', // mdx
+    'css', // less, sass, scss
+    'html', // angular
+    'bash', // dotenv, sh, zsh
     'python',
     'rust',
     'java',
     'c',
     'cpp',
-    'c_sharp',   // csharp
+    'c_sharp', // csharp
     'ruby',
     'php',
     'xml',
@@ -97,7 +102,7 @@ const PARSER_FOLDERS = [
     'nix',
     'dart',
     'elixir',
-    'elisp',     // scheme
+    'elisp', // scheme
     'ocaml',
     'sql',
     'solidity',

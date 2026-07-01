@@ -9,7 +9,7 @@ import { useSidebarStore } from '@/lib/store/sidebar'
 import { toast } from '@/features/window/stores/toast-store'
 import { Lock, Check, Trash2, Upload, Star, Smile } from 'lucide-react'
 import { cn } from '@/lib/utils'
-import { open as openDialog } from '@tauri-apps/plugin-dialog'
+import { openNativeDialog as openDialog } from '@/lib/native-dialog'
 import { isTauri } from '@/lib/crowbar-bridge'
 
 interface BranchEntry {
@@ -52,9 +52,7 @@ export function RepoSettingsPanel({ projectId, repoId, repoName }: RepoSettingsP
       .catch(() => {})
   }, [repoBase])
 
-  const visible = branches.filter((b) =>
-    b.name.toLowerCase().includes(filter.toLowerCase())
-  )
+  const visible = branches.filter((b) => b.name.toLowerCase().includes(filter.toLowerCase()))
 
   async function handleImport() {
     if (selected.size === 0) return
@@ -69,10 +67,13 @@ export function RepoSettingsPanel({ projectId, repoId, repoName }: RepoSettingsP
       )
       const failed = results.filter((r) => r.status === 'rejected')
       if (failed.length > 0) {
-        const msg = failed[0].status === 'rejected'
-          ? String((failed[0] as PromiseRejectedResult).reason)
-          : 'Unknown error'
-        toast.error(`Failed to import ${failed.length} branch${failed.length > 1 ? 'es' : ''}: ${msg}`)
+        const msg =
+          failed[0].status === 'rejected'
+            ? String((failed[0] as PromiseRejectedResult).reason)
+            : 'Unknown error'
+        toast.error(
+          `Failed to import ${failed.length} branch${failed.length > 1 ? 'es' : ''}: ${msg}`,
+        )
       }
       apiFetch<BranchEntry[]>(`${repoBase}/branches`)
         .then(setBranches)
@@ -195,7 +196,6 @@ export function RepoSettingsPanel({ projectId, repoId, repoName }: RepoSettingsP
 
   return (
     <div className="flex h-full flex-col">
-
       {/* Icon section — fixed at top */}
       <div className="flex-shrink-0 border-b border-border p-3 flex flex-col gap-3">
         <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
@@ -211,7 +211,12 @@ export function RepoSettingsPanel({ projectId, repoId, repoName }: RepoSettingsP
             ) : avatarSrc ? (
               <AvatarImage src={avatarSrc} alt={repoName} />
             ) : (
-              <AvatarFallback className={cn('rounded-xl text-sm font-bold text-primary-foreground', repo?.avatarColor)}>
+              <AvatarFallback
+                className={cn(
+                  'rounded-xl text-sm font-bold text-primary-foreground',
+                  repo?.avatarColor,
+                )}
+              >
                 {repo?.avatarLabel}
               </AvatarFallback>
             )}
@@ -230,7 +235,10 @@ export function RepoSettingsPanel({ projectId, repoId, repoName }: RepoSettingsP
             variant="ghost"
             size="xs"
             disabled={iconLoading}
-            onClick={() => { setShowEmojiInput(false); void handleUpload() }}
+            onClick={() => {
+              setShowEmojiInput(false)
+              void handleUpload()
+            }}
             className="flex-1 gap-1 text-muted-foreground hover:text-foreground"
           >
             <Upload className="size-3" />
@@ -250,7 +258,10 @@ export function RepoSettingsPanel({ projectId, repoId, repoName }: RepoSettingsP
             variant="ghost"
             size="xs"
             disabled={iconLoading}
-            onClick={() => { setShowEmojiInput(false); void handleGithubAvatar() }}
+            onClick={() => {
+              setShowEmojiInput(false)
+              void handleGithubAvatar()
+            }}
             className="flex-1 gap-1 text-muted-foreground hover:text-foreground"
           >
             <Star className="size-3" />
@@ -263,7 +274,9 @@ export function RepoSettingsPanel({ projectId, repoId, repoName }: RepoSettingsP
             <Input
               value={emojiInput}
               onChange={(e) => setEmojiInput(e.target.value)}
-              onKeyDown={(e) => { if (e.key === 'Enter') void handleEmojiSubmit() }}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter') void handleEmojiSubmit()
+              }}
               placeholder="Type an emoji…"
               maxLength={4}
               className="h-7 flex-1 text-center text-base"
@@ -312,10 +325,7 @@ export function RepoSettingsPanel({ projectId, repoId, repoName }: RepoSettingsP
             ].map((b) => {
               if (b.isProtected) {
                 return (
-                  <div
-                    key={b.name}
-                    className="flex items-center gap-2 px-1 py-1.5 opacity-40"
-                  >
+                  <div key={b.name} className="flex items-center gap-2 px-1 py-1.5 opacity-40">
                     <Lock className="size-3 shrink-0" />
                     <span className="min-w-0 flex-1 truncate font-mono text-xs">{b.name}</span>
                   </div>
@@ -323,10 +333,7 @@ export function RepoSettingsPanel({ projectId, repoId, repoName }: RepoSettingsP
               }
               if (b.hasWorkspace) {
                 return (
-                  <div
-                    key={b.name}
-                    className="flex items-center gap-2 px-1 py-1.5 opacity-40"
-                  >
+                  <div key={b.name} className="flex items-center gap-2 px-1 py-1.5 opacity-40">
                     <Check className="size-3 shrink-0 text-green-500" />
                     <span className="min-w-0 flex-1 truncate font-mono text-xs">{b.name}</span>
                   </div>
@@ -358,11 +365,10 @@ export function RepoSettingsPanel({ projectId, repoId, repoName }: RepoSettingsP
           {importing
             ? 'Importing…'
             : importable > 0
-            ? `Import ${importable} branch${importable > 1 ? 'es' : ''}`
-            : 'Import'}
+              ? `Import ${importable} branch${importable > 1 ? 'es' : ''}`
+              : 'Import'}
         </Button>
       </div>
-
     </div>
   )
 }

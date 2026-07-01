@@ -4,14 +4,13 @@ import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { Button } from '@/components/ui/button'
 import { MergePopover } from '@/features/git/components/merge-popover'
 
-const { patchMergeStrategy, mergeIntoParent, setBranchReviewMergeStrategy, navigateMock } = vi.hoisted(
-  () => ({
+const { patchMergeStrategy, mergeIntoParent, setBranchReviewMergeStrategy, navigateMock } =
+  vi.hoisted(() => ({
     patchMergeStrategy: vi.fn().mockResolvedValue('squash'),
     mergeIntoParent: vi.fn().mockResolvedValue(undefined),
     setBranchReviewMergeStrategy: vi.fn(),
     navigateMock: vi.fn(),
-  }),
-)
+  }))
 vi.mock('@/features/git/api/review-api', () => ({
   setMergeStrategy: patchMergeStrategy,
   mergeIntoParent,
@@ -27,8 +26,10 @@ vi.mock('@/lib/store/sidebar', () => ({
 }))
 let strategy = 'merge'
 vi.mock('@/features/workspace/stores/hooks/use-workspace-store-by-id', () => ({
-  useWorkspaceStoreById: (_id: string, sel: (s: { branchReview: { mergeStrategy: string } }) => unknown) =>
-    sel({ branchReview: { mergeStrategy: strategy } }),
+  useWorkspaceStoreById: (
+    _id: string,
+    sel: (s: { branchReview: { mergeStrategy: string } }) => unknown,
+  ) => sel({ branchReview: { mergeStrategy: strategy } }),
 }))
 vi.mock('@/features/workspace/stores/workspace-store-registry', () => ({
   getOrCreateWorkspaceStore: () => ({ getState: () => ({ setBranchReviewMergeStrategy }) }),
@@ -40,7 +41,9 @@ beforeEach(() => {
 })
 
 const renderPopover = () =>
-  render(<MergePopover wsId="w1" parentBranch="develop" trigger={<Button>Merge into develop</Button>} />)
+  render(
+    <MergePopover wsId="w1" parentBranch="develop" trigger={<Button>Merge into develop</Button>} />,
+  )
 
 describe('MergePopover', () => {
   it('opens with the three strategies and a confirm matching the active strategy', async () => {

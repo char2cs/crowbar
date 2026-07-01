@@ -37,24 +37,21 @@ export function useWorkspaceThreadsStream(wsId: string): void {
 
     void seed()
 
-    const unsubscribe = wsManager.subscribe(
-      `${workspaceBase(wsId)}/threads`,
-      (frame) => {
-        if (cancelled) return
-        // Reconnect sentinel emitted by the manager after a socket drop+reopen.
-        if (frame && typeof frame === 'object' && 'reconnected' in frame) {
-          void seed()
-          return
-        }
-        const dto = frame as ThreadDTO
-        // Tombstone frame: the thread was deleted — drop it from the store.
-        if (dto.deleted && dto.id) {
-          getOrCreateWorkspaceStore(wsId).getState().removeReviewThread(dto.id)
-          return
-        }
-        getOrCreateWorkspaceStore(wsId).getState().upsertReviewThread(mapThread(dto))
-      },
-    )
+    const unsubscribe = wsManager.subscribe(`${workspaceBase(wsId)}/threads`, (frame) => {
+      if (cancelled) return
+      // Reconnect sentinel emitted by the manager after a socket drop+reopen.
+      if (frame && typeof frame === 'object' && 'reconnected' in frame) {
+        void seed()
+        return
+      }
+      const dto = frame as ThreadDTO
+      // Tombstone frame: the thread was deleted — drop it from the store.
+      if (dto.deleted && dto.id) {
+        getOrCreateWorkspaceStore(wsId).getState().removeReviewThread(dto.id)
+        return
+      }
+      getOrCreateWorkspaceStore(wsId).getState().upsertReviewThread(mapThread(dto))
+    })
 
     return () => {
       cancelled = true

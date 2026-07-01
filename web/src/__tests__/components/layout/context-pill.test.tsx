@@ -1,3 +1,4 @@
+import React from 'react'
 import { render, screen, fireEvent } from '@testing-library/react'
 import { describe, it, expect, beforeEach } from 'vitest'
 import { ContextPill } from '@/components/layout/context-pill'
@@ -36,7 +37,7 @@ vi.mock('@/components/ui/command', async () => {
     render: renderEl,
   }: {
     children: React.ReactNode
-    render: React.ReactElement
+    render: React.ReactElement<{ onClick?: () => void }>
   }) {
     const { onOpenChange } = React.useContext(Ctx)
     return React.cloneElement(renderEl, { onClick: () => onOpenChange(true) }, children)
@@ -55,16 +56,18 @@ vi.mock('@/components/ui/command', async () => {
 // singleton mismatch; replace with a minimal <button> wrapper.
 vi.mock('@/components/ui/button', async () => {
   const React = await import('react')
-  const Button = React.forwardRef(function Button(
-    { children, 'aria-label': ariaLabel, onClick, disabled, className, ...rest }: any,
-    ref: any,
-  ) {
-    return React.createElement(
-      'button',
-      { 'aria-label': ariaLabel, onClick, disabled, className, ref, ...rest },
-      children,
-    )
-  })
+  const Button = React.forwardRef<HTMLButtonElement, React.ComponentPropsWithoutRef<'button'>>(
+    function Button(
+      { children, 'aria-label': ariaLabel, onClick, disabled, className, ...rest },
+      ref,
+    ) {
+      return React.createElement(
+        'button',
+        { 'aria-label': ariaLabel, onClick, disabled, className, ref, ...rest },
+        children,
+      )
+    },
+  )
   Button.displayName = 'Button'
   return { Button }
 })
@@ -73,10 +76,7 @@ vi.mock('@/components/ui/button', async () => {
 // The real menu uses Command/Autocomplete (also @base-ui/react).  A stub with
 // the placeholder text is enough for "opens the switcher" assertions.
 vi.mock('@/components/layout/workspace-switcher', () => ({
-  WorkspaceSwitcherMenu: () => {
-    const React = require('react')
-    return React.createElement('input', { placeholder: 'Switch workspace…' })
-  },
+  WorkspaceSwitcherMenu: () => React.createElement('input', { placeholder: 'Switch workspace…' }),
 }))
 
 // ── WorkspaceBranchIcon ──────────────────────────────────────────────────────

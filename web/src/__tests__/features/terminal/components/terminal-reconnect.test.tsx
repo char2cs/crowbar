@@ -6,7 +6,9 @@ const mocks = vi.hoisted(() => {
   const attachSpy = vi.fn(async () => {})
   return {
     attachSpy,
-    setHasTransport: (v: boolean) => { _hasTransport = v },
+    setHasTransport: (v: boolean) => {
+      _hasTransport = v
+    },
     terminalHasTransport: () => _hasTransport,
   }
 })
@@ -20,7 +22,7 @@ import { resolveTerminalConnection } from '@/features/terminal/components/resolv
 import { saveReconnect } from '@/features/terminal/lib/terminal-reconnect-map'
 
 const createSpy = vi.fn(async () => 'fresh-conn')
-const listSpy = vi.fn(async () => ['conn-1'])  // daemon says conn-1 is alive
+const listSpy = vi.fn(async () => ['conn-1']) // daemon says conn-1 is alive
 
 beforeEach(() => {
   mocks.attachSpy.mockClear()
@@ -39,8 +41,12 @@ describe('resolveTerminalConnection', () => {
   it('reuses a store connectionId WITH a live transport — no attach, no create', async () => {
     mocks.setHasTransport(true)
     const r = await resolveTerminalConnection({
-      workspaceId: 'ws-1', tabSessionId: 'tab-1', storeConnectionId: 'conn-store',
-      base: '/base', listLiveSessions: listSpy, createTerminal: createSpy,
+      workspaceId: 'ws-1',
+      tabSessionId: 'tab-1',
+      storeConnectionId: 'conn-store',
+      base: '/base',
+      listLiveSessions: listSpy,
+      createTerminal: createSpy,
     })
     expect(r).toEqual({ connectionId: 'conn-store', reused: true })
     expect(mocks.attachSpy).not.toHaveBeenCalled()
@@ -48,23 +54,31 @@ describe('resolveTerminalConnection', () => {
   })
 
   it('re-attaches a store connectionId whose transport was detached on switch', async () => {
-    mocks.setHasTransport(false)  // detach closed the WS
-    listSpy.mockResolvedValueOnce(['conn-store'])  // daemon still has the PTY
+    mocks.setHasTransport(false) // detach closed the WS
+    listSpy.mockResolvedValueOnce(['conn-store']) // daemon still has the PTY
     const r = await resolveTerminalConnection({
-      workspaceId: 'ws-1', tabSessionId: 'tab-1', storeConnectionId: 'conn-store',
-      base: '/base', listLiveSessions: listSpy, createTerminal: createSpy,
+      workspaceId: 'ws-1',
+      tabSessionId: 'tab-1',
+      storeConnectionId: 'conn-store',
+      base: '/base',
+      listLiveSessions: listSpy,
+      createTerminal: createSpy,
     })
-    expect(mocks.attachSpy).toHaveBeenCalledWith('conn-store', '/base')  // re-attached → scrollback replays
+    expect(mocks.attachSpy).toHaveBeenCalledWith('conn-store', '/base') // re-attached → scrollback replays
     expect(r).toEqual({ connectionId: 'conn-store', reused: true })
     expect(createSpy).not.toHaveBeenCalled()
   })
 
   it('creates fresh when storeConnectionId has no transport and daemon does NOT confirm it', async () => {
-    mocks.setHasTransport(false)  // transport gone
-    listSpy.mockResolvedValueOnce(['other-conn'])  // non-empty list, stored id absent → genuinely gone
+    mocks.setHasTransport(false) // transport gone
+    listSpy.mockResolvedValueOnce(['other-conn']) // non-empty list, stored id absent → genuinely gone
     const r = await resolveTerminalConnection({
-      workspaceId: 'ws-1', tabSessionId: 'tab-1', storeConnectionId: 'dead-store-conn',
-      base: '/base', listLiveSessions: listSpy, createTerminal: createSpy,
+      workspaceId: 'ws-1',
+      tabSessionId: 'tab-1',
+      storeConnectionId: 'dead-store-conn',
+      base: '/base',
+      listLiveSessions: listSpy,
+      createTerminal: createSpy,
     })
     expect(createSpy).toHaveBeenCalledOnce()
     expect(r).toEqual({ connectionId: 'fresh-conn', reused: false })
@@ -74,8 +88,12 @@ describe('resolveTerminalConnection', () => {
   it('attaches to a persisted connectionId that the daemon confirms is alive', async () => {
     saveReconnect('ws-1', 'tab-1', 'conn-1')
     const r = await resolveTerminalConnection({
-      workspaceId: 'ws-1', tabSessionId: 'tab-1', storeConnectionId: undefined,
-      base: '/base', listLiveSessions: listSpy, createTerminal: createSpy,
+      workspaceId: 'ws-1',
+      tabSessionId: 'tab-1',
+      storeConnectionId: undefined,
+      base: '/base',
+      listLiveSessions: listSpy,
+      createTerminal: createSpy,
     })
     expect(mocks.attachSpy).toHaveBeenCalledWith('conn-1', '/base')
     expect(r).toEqual({ connectionId: 'conn-1', reused: true })
@@ -85,8 +103,12 @@ describe('resolveTerminalConnection', () => {
   it('creates fresh when the persisted connectionId is no longer alive', async () => {
     saveReconnect('ws-1', 'tab-1', 'dead-conn')
     const r = await resolveTerminalConnection({
-      workspaceId: 'ws-1', tabSessionId: 'tab-1', storeConnectionId: undefined,
-      base: '/base', listLiveSessions: listSpy, createTerminal: createSpy,
+      workspaceId: 'ws-1',
+      tabSessionId: 'tab-1',
+      storeConnectionId: undefined,
+      base: '/base',
+      listLiveSessions: listSpy,
+      createTerminal: createSpy,
     })
     expect(createSpy).toHaveBeenCalledOnce()
     expect(r).toEqual({ connectionId: 'fresh-conn', reused: false })
@@ -97,13 +119,15 @@ describe('Fix B — empty live-session list retry', () => {
   it('retries once after 400ms on an empty list and re-attaches when found on retry', async () => {
     saveReconnect('ws-1', 'tab-1', 'conn-1')
     // First call: empty (daemon still loading sessions); second call: conn-1 is there.
-    listSpy
-      .mockResolvedValueOnce([])
-      .mockResolvedValueOnce(['conn-1'])
+    listSpy.mockResolvedValueOnce([]).mockResolvedValueOnce(['conn-1'])
 
     const promise = resolveTerminalConnection({
-      workspaceId: 'ws-1', tabSessionId: 'tab-1', storeConnectionId: undefined,
-      base: '/base', listLiveSessions: listSpy, createTerminal: createSpy,
+      workspaceId: 'ws-1',
+      tabSessionId: 'tab-1',
+      storeConnectionId: undefined,
+      base: '/base',
+      listLiveSessions: listSpy,
+      createTerminal: createSpy,
     })
     // Fire the 400ms retry timer so the second listLiveSessions call proceeds.
     await vi.advanceTimersByTimeAsync(400)
@@ -121,8 +145,12 @@ describe('Fix B — empty live-session list retry', () => {
     listSpy.mockResolvedValue([])
 
     const promise = resolveTerminalConnection({
-      workspaceId: 'ws-1', tabSessionId: 'tab-1', storeConnectionId: undefined,
-      base: '/base', listLiveSessions: listSpy, createTerminal: createSpy,
+      workspaceId: 'ws-1',
+      tabSessionId: 'tab-1',
+      storeConnectionId: undefined,
+      base: '/base',
+      listLiveSessions: listSpy,
+      createTerminal: createSpy,
     })
     await vi.advanceTimersByTimeAsync(400)
     const r = await promise
@@ -139,13 +167,17 @@ describe('Fix B — empty live-session list retry', () => {
     listSpy.mockResolvedValueOnce(['other-conn'])
 
     const promise = resolveTerminalConnection({
-      workspaceId: 'ws-1', tabSessionId: 'tab-1', storeConnectionId: undefined,
-      base: '/base', listLiveSessions: listSpy, createTerminal: createSpy,
+      workspaceId: 'ws-1',
+      tabSessionId: 'tab-1',
+      storeConnectionId: undefined,
+      base: '/base',
+      listLiveSessions: listSpy,
+      createTerminal: createSpy,
     })
-    await vi.advanceTimersByTimeAsync(400)  // timer should never fire, but safe to advance
+    await vi.advanceTimersByTimeAsync(400) // timer should never fire, but safe to advance
     const r = await promise
 
-    expect(listSpy).toHaveBeenCalledTimes(1)  // no second call
+    expect(listSpy).toHaveBeenCalledTimes(1) // no second call
     expect(createSpy).toHaveBeenCalledOnce()
     expect(r).toEqual({ connectionId: 'fresh-conn', reused: false })
   })
@@ -158,8 +190,12 @@ describe('Fix B — empty live-session list retry', () => {
     listSpy.mockResolvedValueOnce([]).mockResolvedValueOnce(['conn-store'])
 
     const promise = resolveTerminalConnection({
-      workspaceId: 'ws-1', tabSessionId: 'tab-1', storeConnectionId: 'conn-store',
-      base: '/base', listLiveSessions: listSpy, createTerminal: createSpy,
+      workspaceId: 'ws-1',
+      tabSessionId: 'tab-1',
+      storeConnectionId: 'conn-store',
+      base: '/base',
+      listLiveSessions: listSpy,
+      createTerminal: createSpy,
     })
     await vi.advanceTimersByTimeAsync(400)
     const r = await promise
@@ -176,10 +212,14 @@ describe('Fix D — branch-1 store id not in daemon list', () => {
     // Validates Fix D: branch 1 should fall through to createTerminal when the
     // stored connectionId is not in the live sessions list.
     mocks.setHasTransport(false)
-    listSpy.mockResolvedValueOnce(['other-conn'])  // non-empty but stored id absent
+    listSpy.mockResolvedValueOnce(['other-conn']) // non-empty but stored id absent
     const r = await resolveTerminalConnection({
-      workspaceId: 'ws-1', tabSessionId: 'tab-1', storeConnectionId: 'dead-store-conn',
-      base: '/base', listLiveSessions: listSpy, createTerminal: createSpy,
+      workspaceId: 'ws-1',
+      tabSessionId: 'tab-1',
+      storeConnectionId: 'dead-store-conn',
+      base: '/base',
+      listLiveSessions: listSpy,
+      createTerminal: createSpy,
     })
     expect(createSpy).toHaveBeenCalledOnce()
     expect(r).toEqual({ connectionId: 'fresh-conn', reused: false })

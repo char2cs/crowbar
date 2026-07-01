@@ -1,4 +1,9 @@
-import { terminalCreate, terminalListLive, terminalResize, onTransportDrop } from '@/lib/crowbar-bridge'
+import {
+  terminalCreate,
+  terminalListLive,
+  terminalResize,
+  onTransportDrop,
+} from '@/lib/crowbar-bridge'
 import { getActiveWorkspaceId } from '@/features/workspace/stores/workspace-store-registry'
 import { workspaceBase } from '@/lib/workspace-scope-url'
 import { resolveTerminalConnection } from './resolve-terminal-connection'
@@ -169,7 +174,10 @@ export const XtermTerminal: React.FC<XtermTerminalProps> = ({
       setReconnectKey((k) => k + 1)
     } catch (err) {
       console.error('[terminal] transport-drop reconnect failed:', err)
-      toast.error('Terminal disconnected', 'Could not reconnect to the terminal session. Try closing and reopening the tab.')
+      toast.error(
+        'Terminal disconnected',
+        'Could not reconnect to the terminal session. Try closing and reopening the tab.',
+      )
     } finally {
       isInitializingRef.current = false
     }

@@ -146,10 +146,24 @@ describe('buildRepoTree', () => {
 
 function makeWs(over: Partial<WorkspaceDTO> & { id: string }): WorkspaceDTO {
   return {
-    repoId: 'r1', projectId: 'p1', branch: 'main', parentId: '',
-    forkPointSha: '', status: 'new', working: false, lastError: '', added: 0,
-    deleted: 0, mergeStrategy: 'merge', canMergeLocally: false, mergeConflicts: false,
-    parentBranch: '', prUrl: '', prTitle: '', prTargetBranch: '', ...over,
+    repoId: 'r1',
+    projectId: 'p1',
+    branch: 'main',
+    parentId: '',
+    forkPointSha: '',
+    status: 'new',
+    working: false,
+    lastError: '',
+    added: 0,
+    deleted: 0,
+    mergeStrategy: 'merge',
+    canMergeLocally: false,
+    mergeConflicts: false,
+    parentBranch: '',
+    prUrl: '',
+    prTitle: '',
+    prTargetBranch: '',
+    ...over,
   } as WorkspaceDTO
 }
 const baseRepo: RepoDTO = { id: 'r1', projectId: 'p1', name: 'crowbar' } as RepoDTO

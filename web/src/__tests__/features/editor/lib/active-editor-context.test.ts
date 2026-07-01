@@ -15,7 +15,7 @@ describe('createActiveEditorRegistry', () => {
     r.set('p1', ctx('athas://editor/a'))
     const cb = vi.fn()
     r.subscribe('p1', cb)
-    expect(cb).toHaveBeenCalledTimes(1)                 // immediate with current
+    expect(cb).toHaveBeenCalledTimes(1) // immediate with current
     expect(cb).toHaveBeenLastCalledWith(expect.objectContaining({ uri: 'athas://editor/a' }))
     r.set('p1', ctx('athas://editor/b'))
     expect(cb).toHaveBeenCalledTimes(2)
@@ -26,15 +26,15 @@ describe('createActiveEditorRegistry', () => {
     const r = createActiveEditorRegistry()
     r.set('p1', ctx('athas://editor/a'))
     const cb = vi.fn()
-    r.subscribe('p1', cb)            // 1 (immediate)
-    r.set('p1', ctx('athas://editor/a'))   // same uri -> no refire
+    r.subscribe('p1', cb) // 1 (immediate)
+    r.set('p1', ctx('athas://editor/a')) // same uri -> no refire
     expect(cb).toHaveBeenCalledTimes(1)
   })
 
   it('isolates panes: a change to p2 does not call p1 subscribers', () => {
     const r = createActiveEditorRegistry()
     const cb1 = vi.fn()
-    r.subscribe('p1', cb1)          // 1 (immediate, undefined)
+    r.subscribe('p1', cb1) // 1 (immediate, undefined)
     r.set('p2', ctx('athas://editor/x', 'p2'))
     expect(cb1).toHaveBeenCalledTimes(1)
   })
@@ -42,7 +42,7 @@ describe('createActiveEditorRegistry', () => {
   it('unsubscribe stops further calls', () => {
     const r = createActiveEditorRegistry()
     const cb = vi.fn()
-    const off = r.subscribe('p1', cb)   // 1 (immediate undefined)
+    const off = r.subscribe('p1', cb) // 1 (immediate undefined)
     off()
     r.set('p1', ctx('athas://editor/a'))
     expect(cb).toHaveBeenCalledTimes(1)
@@ -52,7 +52,7 @@ describe('createActiveEditorRegistry', () => {
     const r = createActiveEditorRegistry()
     r.set('p1', ctx('athas://editor/a'))
     const cb = vi.fn()
-    r.subscribe('p1', cb)   // 1 immediate
+    r.subscribe('p1', cb) // 1 immediate
     r.clear('p1')
     expect(cb).toHaveBeenLastCalledWith(undefined)
     expect(r.get('p1')).toBeUndefined()

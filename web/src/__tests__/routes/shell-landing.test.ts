@@ -11,7 +11,12 @@ import { useProjectStore } from '@/lib/store/projects'
 // ACTUAL Route.beforeLoad through a transport that rejects a few times before
 // answering, and asserts the user is redirected onto Project Home.
 
-type FetchResult = { ok: boolean; status: number; statusText?: string; json: () => Promise<unknown> }
+type FetchResult = {
+  ok: boolean
+  status: number
+  statusText?: string
+  json: () => Promise<unknown>
+}
 const envelope = (data: unknown): FetchResult => ({
   ok: true,
   status: 200,
@@ -70,7 +75,10 @@ describe('landing route cold-start resilience', () => {
   })
 
   it('redirects to /oobe when the daemon answers with zero projects', async () => {
-    vi.stubGlobal('fetch', vi.fn(async () => envelope([])))
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () => envelope([])),
+    )
 
     const result = await runBeforeLoad()
 

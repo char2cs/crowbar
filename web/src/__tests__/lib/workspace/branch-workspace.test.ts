@@ -3,13 +3,27 @@ import { findWorkspaceForBranch } from '@/lib/workspace/branch-workspace'
 import type { Repo, Workspace } from '@/lib/store/sidebar'
 
 function w(id: string, branch: string): Workspace {
-  return { id, branch, status: 'new', added: 0, deleted: 0, working: false,
-    canMergeLocally: false, mergeConflicts: false, lastError: '', age: '' } as Workspace
+  return {
+    id,
+    branch,
+    status: 'new',
+    added: 0,
+    deleted: 0,
+    working: false,
+    canMergeLocally: false,
+    mergeConflicts: false,
+    lastError: '',
+    age: '',
+  } as Workspace
 }
 const repo: Repo = {
-  id: 'r1', projectId: 'p1', name: 'crowbar',
-  avatarLabel: 'C', avatarColor: 'bg-sky-700',
-  defaultWorkspaceId: 'd', defaultBranch: 'develop',
+  id: 'r1',
+  projectId: 'p1',
+  name: 'crowbar',
+  avatarLabel: 'C',
+  avatarColor: 'bg-sky-700',
+  defaultWorkspaceId: 'd',
+  defaultBranch: 'develop',
   workspaces: [w('c1', 'feature/x'), w('c2', 'spike/y')],
 } as Repo
 

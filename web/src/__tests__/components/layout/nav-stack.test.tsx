@@ -10,7 +10,11 @@ beforeEach(() => {
 
 describe('NavStack', () => {
   it('renders children (root screen) when stack is empty', () => {
-    render(<NavStack><div data-testid="root">Root</div></NavStack>)
+    render(
+      <NavStack>
+        <div data-testid="root">Root</div>
+      </NavStack>,
+    )
     expect(screen.getByTestId('root')).toBeTruthy()
   })
 
@@ -20,7 +24,11 @@ describe('NavStack', () => {
       title: 'Test Screen',
       component: <div data-testid="pushed">Pushed</div>,
     })
-    render(<NavStack><div data-testid="root">Root</div></NavStack>)
+    render(
+      <NavStack>
+        <div data-testid="root">Root</div>
+      </NavStack>,
+    )
     expect(screen.getByTestId('pushed')).toBeTruthy()
     expect(screen.getByText('Test Screen')).toBeTruthy()
   })
@@ -31,7 +39,11 @@ describe('NavStack', () => {
       title: 'Test Screen',
       component: <div>Content</div>,
     })
-    render(<NavStack><div>Root</div></NavStack>)
+    render(
+      <NavStack>
+        <div>Root</div>
+      </NavStack>,
+    )
     await userEvent.click(screen.getByRole('button', { name: /back/i }))
     expect(useSidebarNavStore.getState().stack).toHaveLength(0)
   })

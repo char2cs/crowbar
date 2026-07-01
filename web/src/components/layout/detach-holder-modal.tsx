@@ -1,4 +1,11 @@
-import { Dialog, DialogPopup, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from '@/components/ui/dialog'
+import {
+  Dialog,
+  DialogPopup,
+  DialogHeader,
+  DialogTitle,
+  DialogDescription,
+  DialogFooter,
+} from '@/components/ui/dialog'
 import { Button } from '@/components/ui/button'
 import { useDetachModalStore } from '@/features/window/stores/detach-modal-store'
 import { detachHolder } from '@/lib/api/workspace'
@@ -20,15 +27,21 @@ export function DetachHolderModal() {
   }
 
   return (
-    <Dialog open onOpenChange={(open) => { if (!open) close() }}>
+    <Dialog
+      open
+      onOpenChange={(open) => {
+        if (!open) close()
+      }}
+    >
       <DialogPopup className="max-w-md">
         <DialogHeader className="pr-10">
           <DialogTitle>Detach to manage {target.branch}</DialogTitle>
           <DialogDescription className="leading-relaxed">
-            The checkout at <span className="font-mono text-foreground">{target.heldByPath}</span> will
-            move to a detached HEAD, releasing <span className="font-mono text-foreground">{target.branch}</span>{' '}
-            so Crowbar can manage it in its own worktree. Your files are safe — only the working
-            directory's current branch changes; uncommitted changes and commits are preserved.
+            The checkout at <span className="font-mono text-foreground">{target.heldByPath}</span>{' '}
+            will move to a detached HEAD, releasing{' '}
+            <span className="font-mono text-foreground">{target.branch}</span> so Crowbar can manage
+            it in its own worktree. Your files are safe — only the working directory's current
+            branch changes; uncommitted changes and commits are preserved.
           </DialogDescription>
         </DialogHeader>
         <DialogFooter>

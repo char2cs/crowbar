@@ -27,14 +27,8 @@ beforeEach(() => {
 describe('ProjectSwitcherPanel', () => {
   it('renders a row per project and marks the active one', () => {
     render(<ProjectSwitcherPanel />)
-    expect(screen.getByRole('button', { name: /Rabbyte/ })).toHaveAttribute(
-      'aria-current',
-      'true',
-    )
-    expect(screen.getByRole('button', { name: /Quiver/ })).toHaveAttribute(
-      'aria-current',
-      'false',
-    )
+    expect(screen.getByRole('button', { name: /Rabbyte/ })).toHaveAttribute('aria-current', 'true')
+    expect(screen.getByRole('button', { name: /Quiver/ })).toHaveAttribute('aria-current', 'false')
   })
 
   it('switches the active project and pops the stack when a row is clicked', async () => {

@@ -17,9 +17,7 @@ const repos: Repo[] = [
   },
 ]
 
-const projects: Project[] = [
-  { id: 'p1', name: 'Crowbar', path: '/x', lastActivity: new Date(0) },
-]
+const projects: Project[] = [{ id: 'p1', name: 'Crowbar', path: '/x', lastActivity: new Date(0) }]
 
 describe('deriveContextPillModel', () => {
   it('returns workspace model when the active workspace resolves', () => {

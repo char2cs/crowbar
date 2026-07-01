@@ -238,9 +238,10 @@ describe('editor API model operations', () => {
     expect(editorAPI.canRedo()).toBe(false)
 
     // Push a history entry so canUndo becomes true via the store.
-    useHistoryStore
-      .getState()
-      .actions.pushHistory('buffer_editor_api_test', { content: 'alpha\nbeta', timestamp: Date.now() })
+    useHistoryStore.getState().actions.pushHistory('buffer_editor_api_test', {
+      content: 'alpha\nbeta',
+      timestamp: Date.now(),
+    })
 
     expect(editorAPI.canUndo()).toBe(true)
     // No redo entries yet.

@@ -7,13 +7,7 @@ import {
 } from '@/features/editor/monaco/semantic-tokens-encode'
 import type { HighlightToken } from '@/features/editor/lib/wasm-parser/types'
 
-function tok(
-  type: string,
-  sr: number,
-  sc: number,
-  er: number,
-  ec: number,
-): HighlightToken {
+function tok(type: string, sr: number, sc: number, er: number, ec: number): HighlightToken {
   return {
     type,
     startIndex: 0,
@@ -73,8 +67,16 @@ describe('encodeTokens', () => {
       () => 100,
     )
     expect(Array.from(data)).toEqual([
-      0, 4, 8, fIdx, 0, // first: line0 char4 len8
-      0, 16, 3, fIdx, 0, // second: same line, deltaChar 20-4=16, len3
+      0,
+      4,
+      8,
+      fIdx,
+      0, // first: line0 char4 len8
+      0,
+      16,
+      3,
+      fIdx,
+      0, // second: same line, deltaChar 20-4=16, len3
     ])
   })
 
@@ -84,8 +86,16 @@ describe('encodeTokens', () => {
       () => 100,
     )
     expect(Array.from(data)).toEqual([
-      0, 4, 4, fIdx, 0,
-      2, 2, 3, fIdx, 0, // deltaLine 2 -> deltaChar is absolute (2)
+      0,
+      4,
+      4,
+      fIdx,
+      0,
+      2,
+      2,
+      3,
+      fIdx,
+      0, // deltaLine 2 -> deltaChar is absolute (2)
     ])
   })
 
@@ -94,9 +104,21 @@ describe('encodeTokens', () => {
     const lens = [10, 6, 20]
     const data = encodeTokens([tok('comment.block', 0, 3, 2, 4)], (row) => lens[row])
     expect(Array.from(data)).toEqual([
-      0, 3, 7, cIdx, 0, // line0: col3..10 => len7
-      1, 0, 6, cIdx, 0, // line1: full 6
-      1, 0, 4, cIdx, 0, // line2: col0..4 => len4 (deltaLine 1)
+      0,
+      3,
+      7,
+      cIdx,
+      0, // line0: col3..10 => len7
+      1,
+      0,
+      6,
+      cIdx,
+      0, // line1: full 6
+      1,
+      0,
+      4,
+      cIdx,
+      0, // line2: col0..4 => len4 (deltaLine 1)
     ])
   })
 

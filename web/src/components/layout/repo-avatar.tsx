@@ -19,7 +19,9 @@ export function RepoAvatar({
   const { box, text, emoji } = sizeClasses[size]
   if (avatar.url?.startsWith('emoji:')) {
     return (
-      <span className={cn('inline-flex shrink-0 items-center justify-center leading-none', box, emoji)}>
+      <span
+        className={cn('inline-flex shrink-0 items-center justify-center leading-none', box, emoji)}
+      >
         {avatar.url.slice(6)}
       </span>
     )

@@ -60,4 +60,3 @@ html[data-editor-layout] .monaco-editor {
 html[data-editor-selecting] .monaco-editor {
   transform: translateZ(0);
 }
-

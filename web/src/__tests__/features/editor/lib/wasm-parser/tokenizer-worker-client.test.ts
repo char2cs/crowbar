@@ -27,7 +27,9 @@ function makeWorkerMock() {
     },
     /** Simulate a successful reply from the worker. */
     reply(id: number, extra: Record<string, unknown> = {}) {
-      onmessage?.({ data: { id, ok: true, tokens: [], normalizedText: '', ...extra } } as MessageEvent)
+      onmessage?.({
+        data: { id, ok: true, tokens: [], normalizedText: '', ...extra },
+      } as MessageEvent)
     },
     /** Simulate an error reply from the worker. */
     replyError(id: number, error: string) {
@@ -47,7 +49,10 @@ describe('TokenizerWorkerClient', () => {
   beforeEach(() => {
     workerMock = makeWorkerMock()
     // Replace global Worker so TokenizerWorkerClient uses our mock.
-    vi.stubGlobal('Worker', vi.fn(() => workerMock))
+    vi.stubGlobal(
+      'Worker',
+      vi.fn(() => workerMock),
+    )
     vi.useFakeTimers()
   })
 
@@ -103,7 +108,10 @@ describe('TokenizerWorkerClient', () => {
 
     // Reply immediately (before timeout fires).
     const msg = workerMock.posted[0] as { id: number }
-    workerMock.reply(msg.id, { tokens: [{ type: 'keyword', start: 0, end: 5 }], normalizedText: 'hello' })
+    workerMock.reply(msg.id, {
+      tokens: [{ type: 'keyword', start: 0, end: 5 }],
+      normalizedText: 'hello',
+    })
 
     const result = await promise
     expect(result).toEqual({

@@ -27,8 +27,8 @@ describe('useFileExplorerDragDrop — stable listener subscription (H13)', () =>
     removeSpy = vi.spyOn(document, 'removeEventListener')
     // jsdom does not implement elementFromPoint; the handlers call it on every
     // move/up. Returning null = "empty space" (no drop target).
-    ;(document as unknown as { elementFromPoint: () => Element | null }).elementFromPoint =
-      () => null
+    ;(document as unknown as { elementFromPoint: () => Element | null }).elementFromPoint = () =>
+      null
   })
 
   afterEach(() => {
@@ -41,8 +41,8 @@ describe('useFileExplorerDragDrop — stable listener subscription (H13)', () =>
   // Count addEventListener calls for the drag listeners only (ignore any other
   // listeners jsdom/React might attach).
   const countDragAdds = () =>
-    addSpy.mock.calls.filter(([type]) =>
-      type === 'mousemove' || type === 'mouseup' || type === 'mouseleave',
+    addSpy.mock.calls.filter(
+      ([type]) => type === 'mousemove' || type === 'mouseup' || type === 'mouseleave',
     ).length
 
   it('attaches each document listener exactly once per drag, not once per mousemove', () => {
@@ -77,8 +77,8 @@ describe('useFileExplorerDragDrop — stable listener subscription (H13)', () =>
 
     expect(countDragAdds()).toBe(addsAfterStart)
     // And nothing was torn down mid-drag.
-    const dragRemoves = removeSpy.mock.calls.filter(([type]) =>
-      type === 'mousemove' || type === 'mouseup' || type === 'mouseleave',
+    const dragRemoves = removeSpy.mock.calls.filter(
+      ([type]) => type === 'mousemove' || type === 'mouseup' || type === 'mouseleave',
     ).length
     expect(dragRemoves).toBe(0)
   })

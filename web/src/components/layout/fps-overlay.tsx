@@ -55,7 +55,13 @@ function FpsOverlayInner() {
 
   const { fps, maxDt, drops } = stats
   const fpsColor =
-    fps >= 110 ? 'text-success' : fps >= 80 ? 'text-warning' : fps > 0 ? 'text-destructive' : 'text-muted-foreground'
+    fps >= 110
+      ? 'text-success'
+      : fps >= 80
+        ? 'text-warning'
+        : fps > 0
+          ? 'text-destructive'
+          : 'text-muted-foreground'
 
   return (
     <div

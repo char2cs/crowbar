@@ -20,7 +20,11 @@ function write(workspaceId: string, map: Record<string, string>): void {
   }
 }
 
-export function saveReconnect(workspaceId: string, tabSessionId: string, connectionId: string): void {
+export function saveReconnect(
+  workspaceId: string,
+  tabSessionId: string,
+  connectionId: string,
+): void {
   const map = read(workspaceId)
   map[tabSessionId] = connectionId
   write(workspaceId, map)

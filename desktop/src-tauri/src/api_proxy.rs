@@ -29,16 +29,13 @@ pub fn handle_request<R: Runtime>(
     request: http::Request<Vec<u8>>,
     responder: UriSchemeResponder,
 ) {
-    let socket = ctx
-        .app_handle()
-        .state::<SidecarHandle>()
-        .socket_path();
+    let socket = ctx.app_handle().state::<SidecarHandle>().socket_path();
 
     tauri::async_runtime::spawn(async move {
         let resp = match socket {
-            Some(path) => proxy(path, request).await.unwrap_or_else(|e| {
-                error_response(502, &format!("crowbar proxy error: {e}"))
-            }),
+            Some(path) => proxy(path, request)
+                .await
+                .unwrap_or_else(|e| error_response(502, &format!("crowbar proxy error: {e}"))),
             None => error_response(502, "crowbar daemon socket not ready"),
         };
         responder.respond(resp);
@@ -76,7 +73,10 @@ async fn proxy(
             headers.insert(name, value.clone());
         }
         if !headers.contains_key(http::header::HOST) {
-            headers.insert(http::header::HOST, http::HeaderValue::from_static("localhost"));
+            headers.insert(
+                http::header::HOST,
+                http::HeaderValue::from_static("localhost"),
+            );
         }
     }
 

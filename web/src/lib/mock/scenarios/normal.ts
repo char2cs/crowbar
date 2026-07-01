@@ -100,9 +100,17 @@ const PROJECTS = [
 
 // ─── Workspaces ──────────────────────────────────────────────────────────────
 
-const WORKSPACES: Record<string, { id: string; projectId: string; repoId: string; branch: string }> = {
+const WORKSPACES: Record<
+  string,
+  { id: string; projectId: string; repoId: string; branch: string }
+> = {
   'rb-develop': { id: 'rb-develop', projectId: '', repoId: 'rabbyte', branch: 'develop' },
-  'rb-onboarding': { id: 'rb-onboarding', projectId: '', repoId: 'rabbyte', branch: 'feature/onboarding' },
+  'rb-onboarding': {
+    id: 'rb-onboarding',
+    projectId: '',
+    repoId: 'rabbyte',
+    branch: 'feature/onboarding',
+  },
   'rb-fix': { id: 'rb-fix', projectId: '', repoId: 'rabbyte', branch: 'fix/signup-form' },
 }
 

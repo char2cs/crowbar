@@ -53,7 +53,13 @@ const sessionBases = new Map<string, string>()
 // Extracted from terminalCreate so terminalAttach can reuse it without a POST.
 function openBrowserSocket(connectionId: string, base: string): void {
   const ws = new WebSocket(wsUrl(`${base}/${encodeURIComponent(connectionId)}/ws`))
-  const conn: TerminalConnection = { ws, listener: null, outputBuffer: [], inputQueue: [], open: false }
+  const conn: TerminalConnection = {
+    ws,
+    listener: null,
+    outputBuffer: [],
+    inputQueue: [],
+    open: false,
+  }
   ws.onopen = () => {
     conn.open = true
     for (const data of conn.inputQueue) ws.send(JSON.stringify({ data }))
@@ -61,7 +67,11 @@ function openBrowserSocket(connectionId: string, base: string): void {
   }
   ws.onmessage = (event) => {
     let data: string | undefined
-    try { data = (JSON.parse(event.data as string) as { data?: string }).data } catch { return }
+    try {
+      data = (JSON.parse(event.data as string) as { data?: string }).data
+    } catch {
+      return
+    }
     if (typeof data !== 'string') return
     if (conn.listener) conn.listener(data)
     else conn.outputBuffer.push(data)
@@ -386,4 +396,3 @@ async function tauriInvoke(cmd: string, args?: Record<string, unknown>): Promise
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   await (window as any).__TAURI_INTERNALS__.invoke(cmd, args)
 }
-

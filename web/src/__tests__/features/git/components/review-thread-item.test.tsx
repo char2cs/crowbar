@@ -1,3 +1,4 @@
+import React from 'react'
 import { render, screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { describe, it, expect, vi, beforeEach } from 'vitest'
@@ -12,7 +13,6 @@ vi.mock('@/features/window/stores/toast-store', () => ({
 // Mock @base-ui/react/avatar so AvatarImage unconditionally renders its <img>
 // (jsdom never fires image load events, so base-ui's status stays 'idle'→null)
 vi.mock('@base-ui/react/avatar', () => {
-  const React = require('react')
   return {
     Avatar: {
       Root: ({ children, className }: { children: React.ReactNode; className?: string }) =>
@@ -241,8 +241,20 @@ const manageProps = {
 function makeThreadWithReply(): ReviewThread {
   return makeThread({
     messages: [
-      { id: 'root-1', author: 'alice', isAgent: false, body: 'root body', createdAt: '2024-01-01T00:00:00Z' },
-      { id: 'reply-1', author: 'bob', isAgent: false, body: 'reply body', createdAt: '2024-01-02T00:00:00Z' },
+      {
+        id: 'root-1',
+        author: 'alice',
+        isAgent: false,
+        body: 'root body',
+        createdAt: '2024-01-01T00:00:00Z',
+      },
+      {
+        id: 'reply-1',
+        author: 'bob',
+        isAgent: false,
+        body: 'reply body',
+        createdAt: '2024-01-02T00:00:00Z',
+      },
     ],
   })
 }
@@ -253,18 +265,36 @@ describe('ReviewThreadItem — comment menu', () => {
   })
 
   it('renders a menu trigger per message when manage handlers are provided', () => {
-    render(<ReviewThreadItem thread={makeThreadWithReply()} {...manageProps} currentIdentity={IDENTITY} />)
+    render(
+      <ReviewThreadItem
+        thread={makeThreadWithReply()}
+        {...manageProps}
+        currentIdentity={IDENTITY}
+      />,
+    )
     expect(screen.getAllByLabelText('Comment actions')).toHaveLength(2)
   })
 
   it('does not render a menu trigger without manage handlers', () => {
-    render(<ReviewThreadItem thread={makeThreadWithReply()} {...defaultProps} currentIdentity={IDENTITY} />)
+    render(
+      <ReviewThreadItem
+        thread={makeThreadWithReply()}
+        {...defaultProps}
+        currentIdentity={IDENTITY}
+      />,
+    )
     expect(screen.queryByLabelText('Comment actions')).toBeNull()
   })
 
   it('shows Edit on your own non-agent comment', async () => {
     const user = userEvent.setup()
-    render(<ReviewThreadItem thread={makeThreadWithReply()} {...manageProps} currentIdentity={IDENTITY} />)
+    render(
+      <ReviewThreadItem
+        thread={makeThreadWithReply()}
+        {...manageProps}
+        currentIdentity={IDENTITY}
+      />,
+    )
 
     // First message is alice's (own) → Edit present.
     await user.click(screen.getAllByLabelText('Comment actions')[0])
@@ -273,7 +303,13 @@ describe('ReviewThreadItem — comment menu', () => {
 
   it('hides Edit on a comment you did not author, but keeps Copy + Delete', async () => {
     const user = userEvent.setup()
-    render(<ReviewThreadItem thread={makeThreadWithReply()} {...manageProps} currentIdentity={IDENTITY} />)
+    render(
+      <ReviewThreadItem
+        thread={makeThreadWithReply()}
+        {...manageProps}
+        currentIdentity={IDENTITY}
+      />,
+    )
 
     // Second message is bob's → no Edit, but Copy + Delete still present.
     await user.click(screen.getAllByLabelText('Comment actions')[1])
@@ -284,7 +320,13 @@ describe('ReviewThreadItem — comment menu', () => {
 
   it('deleting the root comment confirms then calls onDeleteThread', async () => {
     const user = userEvent.setup()
-    render(<ReviewThreadItem thread={makeThreadWithReply()} {...manageProps} currentIdentity={IDENTITY} />)
+    render(
+      <ReviewThreadItem
+        thread={makeThreadWithReply()}
+        {...manageProps}
+        currentIdentity={IDENTITY}
+      />,
+    )
 
     await user.click(screen.getAllByLabelText('Comment actions')[0])
     await user.click(await screen.findByRole('menuitem', { name: /Delete/ }))
@@ -299,7 +341,13 @@ describe('ReviewThreadItem — comment menu', () => {
 
   it('deleting a reply confirms then calls onDeleteMessage with the reply id', async () => {
     const user = userEvent.setup()
-    render(<ReviewThreadItem thread={makeThreadWithReply()} {...manageProps} currentIdentity={IDENTITY} />)
+    render(
+      <ReviewThreadItem
+        thread={makeThreadWithReply()}
+        {...manageProps}
+        currentIdentity={IDENTITY}
+      />,
+    )
 
     await user.click(screen.getAllByLabelText('Comment actions')[1])
     await user.click(await screen.findByRole('menuitem', { name: /Delete/ }))
@@ -313,7 +361,13 @@ describe('ReviewThreadItem — comment menu', () => {
 
   it('editing a comment opens an editor seeded with the body and saves via onEditMessage', async () => {
     const user = userEvent.setup()
-    render(<ReviewThreadItem thread={makeThreadWithReply()} {...manageProps} currentIdentity={IDENTITY} />)
+    render(
+      <ReviewThreadItem
+        thread={makeThreadWithReply()}
+        {...manageProps}
+        currentIdentity={IDENTITY}
+      />,
+    )
 
     await user.click(screen.getAllByLabelText('Comment actions')[0])
     await user.click(await screen.findByRole('menuitem', { name: /Edit/ }))
@@ -334,7 +388,13 @@ describe('ReviewThreadItem — comment menu', () => {
       configurable: true,
       writable: true,
     })
-    render(<ReviewThreadItem thread={makeThreadWithReply()} {...manageProps} currentIdentity={IDENTITY} />)
+    render(
+      <ReviewThreadItem
+        thread={makeThreadWithReply()}
+        {...manageProps}
+        currentIdentity={IDENTITY}
+      />,
+    )
 
     await user.click(screen.getAllByLabelText('Comment actions')[1])
     await user.click(await screen.findByRole('menuitem', { name: /Copy as Markdown/ }))

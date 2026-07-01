@@ -101,7 +101,10 @@ export function ChatTreeItem({ node, depth, activeChatId, onChatClick }: ChatTre
               {chatErrors.get(chat.id)}
               <button
                 type="button"
-                onClick={(e) => { e.stopPropagation(); clearChatError(chat.id) }}
+                onClick={(e) => {
+                  e.stopPropagation()
+                  clearChatError(chat.id)
+                }}
                 onPointerDown={(e) => e.stopPropagation()}
                 className="hover:text-foreground"
               >

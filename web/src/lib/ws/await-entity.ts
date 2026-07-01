@@ -42,9 +42,7 @@ export interface AwaitEntityOptions<T> {
 
 const DEFAULT_TIMEOUT_MS = 30_000
 
-export function awaitEntity<T extends { id: string }>(
-  opts: AwaitEntityOptions<T>,
-): Promise<T> {
+export function awaitEntity<T extends { id: string }>(opts: AwaitEntityOptions<T>): Promise<T> {
   const { endpoint, match, action, timeoutMs = DEFAULT_TIMEOUT_MS, acceptExisting = false } = opts
   return new Promise<T>((resolve, reject) => {
     let settled = false

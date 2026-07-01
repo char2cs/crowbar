@@ -12,9 +12,14 @@ class FakeWebSocket {
   onmessage: ((e: { data: string }) => void) | null = null
   readyState = 0
   closed = false
-  constructor(public url: string) { FakeWebSocket.instances.push(this); queueMicrotask(() => this.onopen?.()) }
+  constructor(public url: string) {
+    FakeWebSocket.instances.push(this)
+    queueMicrotask(() => this.onopen?.())
+  }
   send = vi.fn()
-  close = vi.fn(() => { this.closed = true })
+  close = vi.fn(() => {
+    this.closed = true
+  })
 }
 
 beforeEach(() => {
@@ -23,8 +28,15 @@ beforeEach(() => {
   // terminalCreate calls workspaceBase(wsId) which requires a recorded scope.
   setWorkspaceScope({ projectId: 'p', repoId: 'r', wsId: 'ws-1' })
   // terminalCreate POSTs via apiFetch, which unwraps the {success,data} envelope.
-  vi.stubGlobal('fetch', vi.fn(async () =>
-    new Response(JSON.stringify({ success: true, data: { sessionId: 'conn-1' } }), { status: 200 })))
+  vi.stubGlobal(
+    'fetch',
+    vi.fn(
+      async () =>
+        new Response(JSON.stringify({ success: true, data: { sessionId: 'conn-1' } }), {
+          status: 200,
+        }),
+    ),
+  )
 })
 
 describe('terminalDetach', () => {
@@ -36,7 +48,7 @@ describe('terminalDetach', () => {
 
     expect(ws.close).toHaveBeenCalledOnce()
     const internals = __getBridgeInternals()
-    expect(internals.terminals.has(connectionId)).toBe(false)   // transport removed
+    expect(internals.terminals.has(connectionId)).toBe(false) // transport removed
     expect(internals.sessionBases.has(connectionId)).toBe(true) // base kept for re-attach
   })
 
@@ -45,7 +57,9 @@ describe('terminalDetach', () => {
     const fetchSpy = globalThis.fetch as ReturnType<typeof vi.fn>
     fetchSpy.mockClear()
     await terminalDetach(connectionId)
-    const deleteCalls = fetchSpy.mock.calls.filter(([, init]) => (init as RequestInit | undefined)?.method === 'DELETE')
+    const deleteCalls = fetchSpy.mock.calls.filter(
+      ([, init]) => (init as RequestInit | undefined)?.method === 'DELETE',
+    )
     expect(deleteCalls).toHaveLength(0)
   })
 })

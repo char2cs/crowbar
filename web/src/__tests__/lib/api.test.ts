@@ -64,9 +64,9 @@ describe('apiFetch transient-transport retry', () => {
     const fetchMock = vi.fn().mockRejectedValue(new TypeError('Load failed'))
     vi.stubGlobal('fetch', fetchMock)
 
-    await expect(
-      apiFetch('/v0/projects', { method: 'POST' }, fastRetry(8)),
-    ).rejects.toThrow('Load failed')
+    await expect(apiFetch('/v0/projects', { method: 'POST' }, fastRetry(8))).rejects.toThrow(
+      'Load failed',
+    )
     expect(fetchMock).toHaveBeenCalledTimes(1)
   })
 
@@ -84,7 +84,11 @@ describe('apiFetch transient-transport retry', () => {
     const fetchMock = vi.fn().mockResolvedValue(envelope({ ok: true }))
     vi.stubGlobal('fetch', fetchMock)
 
-    const data = await apiFetch<{ ok: boolean }>('/v0/system/prerequisites', undefined, fastRetry(8))
+    const data = await apiFetch<{ ok: boolean }>(
+      '/v0/system/prerequisites',
+      undefined,
+      fastRetry(8),
+    )
 
     expect(data).toEqual({ ok: true })
     expect(fetchMock).toHaveBeenCalledTimes(1)

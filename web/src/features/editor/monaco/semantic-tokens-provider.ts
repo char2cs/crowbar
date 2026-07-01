@@ -69,7 +69,9 @@ function fireProviderChange() {
 }
 const providerOnDidChange = (listener: ListenerFn): { dispose(): void } => {
   providerChangeListeners.push(listener)
-  return { dispose: () => providerChangeListeners.splice(providerChangeListeners.indexOf(listener), 1) }
+  return {
+    dispose: () => providerChangeListeners.splice(providerChangeListeners.indexOf(listener), 1),
+  }
 }
 
 /**
@@ -98,11 +100,8 @@ function heuristicForRange(
   // rows in [start, end], so entries below start are never read.
   const lineTokens: LineToken[][] = Array.from({ length: end + 1 }, () => [])
 
-  const tokens = heuristicTokensInRange(
-    lineTokens,
-    start,
-    end,
-    (row) => (row < lineCount ? model.getLineContent(row + 1) : ''),
+  const tokens = heuristicTokensInRange(lineTokens, start, end, (row) =>
+    row < lineCount ? model.getLineContent(row + 1) : '',
   )
 
   if (tokens.length === 0) return EMPTY

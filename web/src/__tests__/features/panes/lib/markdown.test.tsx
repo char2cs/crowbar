@@ -54,9 +54,7 @@ describe('MarkdownPreview', () => {
   })
 
   it('renders a fenced code block as plain fallback immediately (before shiki resolves)', () => {
-    const { container } = render(
-      <MarkdownPreview>{'```ts\nconst x = 1\n```'}</MarkdownPreview>,
-    )
+    const { container } = render(<MarkdownPreview>{'```ts\nconst x = 1\n```'}</MarkdownPreview>)
     // Before async shiki resolves, the plain <pre><code> fallback should be present.
     const pre = container.querySelector('pre')
     expect(pre).not.toBeNull()
@@ -64,9 +62,7 @@ describe('MarkdownPreview', () => {
   })
 
   it('upgrades to shiki-highlighted markup after async load', async () => {
-    const { container } = render(
-      <MarkdownPreview>{'```ts\nconst x = 1\n```'}</MarkdownPreview>,
-    )
+    const { container } = render(<MarkdownPreview>{'```ts\nconst x = 1\n```'}</MarkdownPreview>)
 
     // Wait for the shiki promise chain to settle.
     await flushPromises()
@@ -86,9 +82,7 @@ describe('MarkdownPreview', () => {
   })
 
   it('renders a fenced block without a language tag as plain code', () => {
-    const { container } = render(
-      <MarkdownPreview>{'```\nplain block\n```'}</MarkdownPreview>,
-    )
+    const { container } = render(<MarkdownPreview>{'```\nplain block\n```'}</MarkdownPreview>)
     const pre = container.querySelector('pre')
     expect(pre).not.toBeNull()
     expect(pre?.textContent).toContain('plain block')

@@ -20,7 +20,9 @@ describe('DetachHolderModal', () => {
   })
 
   it('names the holder path and states files are safe', () => {
-    useDetachModalStore.setState({ target: { wsId: 'w1', branch: 'develop', heldByPath: '/Users/me/repo' } })
+    useDetachModalStore.setState({
+      target: { wsId: 'w1', branch: 'develop', heldByPath: '/Users/me/repo' },
+    })
     render(<DetachHolderModal />)
     expect(screen.getByText(/\/Users\/me\/repo/)).toBeInTheDocument()
     expect(screen.getByText(/files are safe/i)).toBeInTheDocument()

@@ -34,7 +34,9 @@ describe('_shell/index beforeLoad', () => {
   beforeEach(() => {
     redirectMock.mockClear()
     vi.mocked(fetchProjects).mockReset()
-    vi.mocked(useProjectStore.getState).mockReturnValue({ activeProjectId: '' } as any)
+    vi.mocked(useProjectStore.getState).mockReturnValue({
+      activeProjectId: '',
+    } as ReturnType<typeof useProjectStore.getState>)
   })
 
   it('redirects to /oobe when no projects', async () => {
@@ -54,7 +56,9 @@ describe('_shell/index beforeLoad', () => {
       { id: 'p1', name: 'Rabbyte', path: '/a', lastActivity: new Date('2024-01-01') },
       { id: 'p2', name: 'Other', path: '/b', lastActivity: new Date('2024-01-01') },
     ])
-    vi.mocked(useProjectStore.getState).mockReturnValue({ activeProjectId: 'p1' } as any)
+    vi.mocked(useProjectStore.getState).mockReturnValue({
+      activeProjectId: 'p1',
+    } as ReturnType<typeof useProjectStore.getState>)
     try {
       await runBeforeLoad()
     } catch (e) {
@@ -71,7 +75,9 @@ describe('_shell/index beforeLoad', () => {
     vi.mocked(fetchProjects).mockResolvedValueOnce([
       { id: 'p2', name: 'Other', path: '/b', lastActivity: new Date('2024-01-01') },
     ])
-    vi.mocked(useProjectStore.getState).mockReturnValue({ activeProjectId: '' } as any)
+    vi.mocked(useProjectStore.getState).mockReturnValue({
+      activeProjectId: '',
+    } as ReturnType<typeof useProjectStore.getState>)
     try {
       await runBeforeLoad()
     } catch (e) {

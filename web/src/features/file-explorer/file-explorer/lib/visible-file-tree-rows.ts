@@ -66,11 +66,7 @@ export function buildVisibleFileTreeRows(
       // A brand-new inline-edit placeholder (isNewItem) must never count as an
       // expanded directory — its path can be '' (the root), which would otherwise
       // load the workspace root as its children and duplicate the whole tree.
-      const isExpanded = !!(
-        rowFile.isDir &&
-        !rowFile.isNewItem &&
-        expandedPaths.has(rowFile.path)
-      )
+      const isExpanded = !!(rowFile.isDir && !rowFile.isNewItem && expandedPaths.has(rowFile.path))
       rows.push({
         file: rowFile,
         depth,
@@ -102,10 +98,7 @@ function normalizeSearchPath(path: string): string {
  * (Only loaded levels are searched — the tree is lazy, so unexpanded directories
  * aren't traversed.)
  */
-export function computeFileTreeSearchHits(
-  files: FileEntry[],
-  query: string,
-): FileTreeSearchHit[] {
+export function computeFileTreeSearchHits(files: FileEntry[], query: string): FileTreeSearchHit[] {
   const q = query.trim().toLowerCase()
   if (!q) return []
   const hits: FileTreeSearchHit[] = []

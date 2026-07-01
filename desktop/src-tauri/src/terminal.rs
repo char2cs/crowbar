@@ -155,11 +155,7 @@ pub async fn terminal_close(
     Ok(())
 }
 
-fn enqueue(
-    manager: &TerminalManager,
-    session_id: &str,
-    msg: Message,
-) -> Result<(), String> {
+fn enqueue(manager: &TerminalManager, session_id: &str, msg: Message) -> Result<(), String> {
     match manager.sender(session_id) {
         Some(tx) => tx
             .send(msg)

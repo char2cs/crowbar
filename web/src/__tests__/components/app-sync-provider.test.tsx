@@ -12,9 +12,8 @@ const { wipe, subscribeEntityStream, fetchRepos, fetchWorkspaces } = vi.hoisted(
 }))
 
 vi.mock('@/lib/persistence/idb', async () => {
-  const actual = await vi.importActual<typeof import('@/lib/persistence/idb')>(
-    '@/lib/persistence/idb',
-  )
+  const actual =
+    await vi.importActual<typeof import('@/lib/persistence/idb')>('@/lib/persistence/idb')
   return { ...actual, maybeWipeOnVersionChange: wipe }
 })
 

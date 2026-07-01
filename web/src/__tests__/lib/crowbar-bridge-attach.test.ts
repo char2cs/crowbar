@@ -6,11 +6,17 @@ class FakeWebSocket {
   static instances: FakeWebSocket[] = []
   onopen: (() => void) | null = null
   onmessage: ((e: { data: string }) => void) | null = null
-  constructor(public url: string) { FakeWebSocket.instances.push(this); queueMicrotask(() => this.onopen?.()) }
+  constructor(public url: string) {
+    FakeWebSocket.instances.push(this)
+    queueMicrotask(() => this.onopen?.())
+  }
   send = vi.fn()
   close = vi.fn()
 }
-beforeEach(() => { FakeWebSocket.instances = []; vi.stubGlobal('WebSocket', FakeWebSocket as unknown as typeof WebSocket) })
+beforeEach(() => {
+  FakeWebSocket.instances = []
+  vi.stubGlobal('WebSocket', FakeWebSocket as unknown as typeof WebSocket)
+})
 
 describe('terminalAttach', () => {
   it('opens a WS to the existing session path without POSTing and registers the transport', async () => {
@@ -20,8 +26,8 @@ describe('terminalAttach', () => {
 
     await terminalAttach('conn-1', base)
 
-    expect(fetchSpy).not.toHaveBeenCalled()                         // no POST
-    expect(FakeWebSocket.instances[0].url).toContain('/conn-1/ws')  // dialed existing PTY
+    expect(fetchSpy).not.toHaveBeenCalled() // no POST
+    expect(FakeWebSocket.instances[0].url).toContain('/conn-1/ws') // dialed existing PTY
     expect(__getBridgeInternals().terminals.has('conn-1')).toBe(true)
     expect(__getBridgeInternals().sessionBases.get('conn-1')).toBe(base)
   })

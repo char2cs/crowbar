@@ -2,7 +2,15 @@ import { describe, it, expect } from 'vitest'
 import { resolveKeyOverride } from '@/features/terminal/utils/terminal-key-overrides'
 
 const kd = (init: Partial<KeyboardEvent>): KeyboardEvent =>
-  ({ type: 'keydown', key: 'a', shiftKey: false, altKey: false, ctrlKey: false, metaKey: false, ...init }) as KeyboardEvent
+  ({
+    type: 'keydown',
+    key: 'a',
+    shiftKey: false,
+    altKey: false,
+    ctrlKey: false,
+    metaKey: false,
+    ...init,
+  }) as KeyboardEvent
 
 describe('resolveKeyOverride', () => {
   it('disambiguates Shift+Enter and Alt+Enter (xterm.js cannot)', () => {

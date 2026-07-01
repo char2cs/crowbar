@@ -11,10 +11,7 @@ interface UseGitDiffHandlersProps {
   onFileSelect?: (path: string, isDir: boolean) => void
 }
 
-export function useGitDiffHandlers({
-  activeRepoPath,
-  onFileSelect,
-}: UseGitDiffHandlersProps) {
+export function useGitDiffHandlers({ activeRepoPath, onFileSelect }: UseGitDiffHandlersProps) {
   const handleOpenOriginalFile = useCallback(
     async (filePath: string) => {
       if (!activeRepoPath || !onFileSelect) return

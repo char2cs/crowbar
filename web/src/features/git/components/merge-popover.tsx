@@ -18,7 +18,12 @@ const STRATEGIES: { value: MergeStrategy; label: string; confirm: string; desc: 
     confirm: 'Create merge commit',
     desc: 'All commits, plus a merge commit',
   },
-  { value: 'squash', label: 'Squash and merge', confirm: 'Squash & merge', desc: 'One combined commit' },
+  {
+    value: 'squash',
+    label: 'Squash and merge',
+    confirm: 'Squash & merge',
+    desc: 'One combined commit',
+  },
   {
     value: 'rebase',
     label: 'Rebase and merge',
@@ -98,7 +103,10 @@ export function MergePopover({ wsId, parentBranch, trigger }: MergePopoverProps)
           className="mb-3 gap-1"
         >
           {STRATEGIES.map((s) => (
-            <label key={s.value} className="flex cursor-pointer items-start gap-2 rounded-md py-0.5">
+            <label
+              key={s.value}
+              className="flex cursor-pointer items-start gap-2 rounded-md py-0.5"
+            >
               <Radio value={s.value} className="mt-0.5" />
               <div className="ui-text-sm">
                 <div className="font-medium">{s.label}</div>
@@ -107,9 +115,7 @@ export function MergePopover({ wsId, parentBranch, trigger }: MergePopoverProps)
             </label>
           ))}
         </RadioGroup>
-        {strategyError && (
-          <p className="ui-text-xs text-destructive mb-2">{strategyError}</p>
-        )}
+        {strategyError && <p className="ui-text-xs text-destructive mb-2">{strategyError}</p>}
         <label className="mb-3 flex cursor-pointer items-center gap-2">
           <Checkbox checked={deleteAfterMerge} onChange={setDeleteAfterMerge} />
           <span className="ui-text-sm">Delete this workspace after merging</span>
@@ -123,9 +129,7 @@ export function MergePopover({ wsId, parentBranch, trigger }: MergePopoverProps)
         >
           {merging ? 'Merging…' : active.confirm}
         </Button>
-        {mergeError && (
-          <p className="ui-text-xs text-destructive mt-2">{mergeError}</p>
-        )}
+        {mergeError && <p className="ui-text-xs text-destructive mt-2">{mergeError}</p>}
       </PopoverContent>
     </Popover>
   )

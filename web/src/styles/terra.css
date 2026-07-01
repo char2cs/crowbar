@@ -1,4 +1,4 @@
-[data-theme="terra"].dark {
+[data-theme='terra'].dark {
   --background: oklch(0.12 0.022 140);
   --pane-background: var(--background);
   --foreground: oklch(0.98 0.027 98);
@@ -29,10 +29,10 @@
   --code-foreground: oklch(0.98 0.027 98);
   --code-highlight: oklch(1 0 0 / 4%);
   --chrome-bg: oklch(0 0 0 / 65%);
-  --editor-selection: oklch(0.55 0.08 120 / 0.30);
+  --editor-selection: oklch(0.55 0.08 120 / 0.3);
 }
 
-[data-theme="terra"]:not(.dark) {
+[data-theme='terra']:not(.dark) {
   --background: oklch(0.98 0.027 98);
   --pane-background: var(--background);
   --foreground: oklch(0.12 0.022 140);

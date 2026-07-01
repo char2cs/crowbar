@@ -707,33 +707,33 @@ function FileExplorerTreeComponent({
 
   const { setContextMenu, handleContextMenu, contextMenuElement, fileFeedback } =
     useFileExplorerContextMenu({
-    rootFolderPath,
-    onFileSelect,
-    onCreateNewFileInDirectory,
-    onCreateNewFolderInDirectory,
-    onGenerateImage,
-    onRefreshDirectory,
-    onRenamePath,
-    onRevealInFinder,
-    onUploadFile,
-    onDuplicatePath,
-    onAddFolderToWorkspace: () => {
-      void addFolderToWorkspace()
-    },
-    onRemoveFolderFromWorkspace: (path) => {
-      void removeFolderFromWorkspace(path)
-    },
-    // Only the actual workspace root hides Rename/Delete. workspaceRootPaths
-    // lists every top-level folder (a multi-root-workspace notion that doesn't
-    // apply to Crowbar's single worktree); using it here wrongly treated every
-    // top-level folder as a root, so Delete/Rename never appeared on them.
-    isWorkspaceRootPath: (path) => path === rootFolderPath,
-    canRemoveWorkspaceRootPath: (path) =>
-      path !== rootFolderPath && workspaceRootPaths.includes(path),
-    onDeleteRequested: setDeleteCandidate,
-    onStartInlineEditing: startInlineEditing,
-    onOpenAllFilesInDirectory: handleOpenAllFilesInDirectory,
-  })
+      rootFolderPath,
+      onFileSelect,
+      onCreateNewFileInDirectory,
+      onCreateNewFolderInDirectory,
+      onGenerateImage,
+      onRefreshDirectory,
+      onRenamePath,
+      onRevealInFinder,
+      onUploadFile,
+      onDuplicatePath,
+      onAddFolderToWorkspace: () => {
+        void addFolderToWorkspace()
+      },
+      onRemoveFolderFromWorkspace: (path) => {
+        void removeFolderFromWorkspace(path)
+      },
+      // Only the actual workspace root hides Rename/Delete. workspaceRootPaths
+      // lists every top-level folder (a multi-root-workspace notion that doesn't
+      // apply to Crowbar's single worktree); using it here wrongly treated every
+      // top-level folder as a root, so Delete/Rename never appeared on them.
+      isWorkspaceRootPath: (path) => path === rootFolderPath,
+      canRemoveWorkspaceRootPath: (path) =>
+        path !== rootFolderPath && workspaceRootPaths.includes(path),
+      onDeleteRequested: setDeleteCandidate,
+      onStartInlineEditing: startInlineEditing,
+      onOpenAllFilesInDirectory: handleOpenAllFilesInDirectory,
+    })
 
   useEventListener(
     'keydown',

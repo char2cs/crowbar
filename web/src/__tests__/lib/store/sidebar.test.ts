@@ -273,9 +273,7 @@ test('applyWorkspaceDTO replaces fields of an existing workspace by id', () => {
 
 test('applyWorkspaceDTO with status:deleted removes the workspace (no BFS)', () => {
   useSidebarStore.getState().applyWorkspaceDTO(dto('ws3', 'crowbar', { status: 'deleted' }))
-  const ids = useSidebarStore
-    .getState()
-    .repos.flatMap((r) => r.workspaces.map((w) => w.id))
+  const ids = useSidebarStore.getState().repos.flatMap((r) => r.workspaces.map((w) => w.id))
   expect(ids).not.toContain('ws3')
   // children of ws3 are NOT removed locally — the backend emits a tombstone per id
   expect(ids).toContain('ws1')
@@ -283,9 +281,7 @@ test('applyWorkspaceDTO with status:deleted removes the workspace (no BFS)', () 
 
 test('applyWorkspaceDTO ignores a workspace for an unknown repo', () => {
   useSidebarStore.getState().applyWorkspaceDTO(dto('ws-x', 'no-such-repo'))
-  const ids = useSidebarStore
-    .getState()
-    .repos.flatMap((r) => r.workspaces.map((w) => w.id))
+  const ids = useSidebarStore.getState().repos.flatMap((r) => r.workspaces.map((w) => w.id))
   expect(ids).not.toContain('ws-x')
 })
 

@@ -97,7 +97,10 @@ export async function performRenameChat(
  * Deletes the chat on the backend, then removes it from the sidebar store.
  * On failure the local store is left untouched.
  */
-export async function performDeleteChat(chatId: string, setChatError?: SetChatError): Promise<void> {
+export async function performDeleteChat(
+  chatId: string,
+  setChatError?: SetChatError,
+): Promise<void> {
   const chat = useSidebarStore.getState().chats.find((c) => c.id === chatId)
   if (!chat) return
   try {

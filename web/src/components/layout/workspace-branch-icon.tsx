@@ -1,12 +1,5 @@
 import { useState } from 'react'
-import {
-  GitBranch,
-  GitFork,
-  GitMerge,
-  GitPullRequest,
-  Lock,
-  Warning,
-} from '@phosphor-icons/react'
+import { GitBranch, GitFork, GitMerge, GitPullRequest, Lock, Warning } from '@phosphor-icons/react'
 import { Spinner, spinnerNames } from '@agilek/cli-loaders'
 import type { WorkspaceStatus } from '@/lib/store/sidebar'
 
@@ -39,17 +32,13 @@ export function WorkspaceBranchIcon({ status, working, isPlaceholder }: Workspac
 
   switch (status) {
     case 'locked':
-      return (
-        <Lock aria-hidden="true" className="size-4 shrink-0 text-foreground" weight="fill" />
-      )
+      return <Lock aria-hidden="true" className="size-4 shrink-0 text-foreground" weight="fill" />
     case 'new':
       return (
         <GitBranch aria-hidden="true" className="size-4 shrink-0 text-foreground" weight="fill" />
       )
     case 'pr-conflicts':
-      return (
-        <Warning aria-hidden="true" className="size-4 shrink-0 text-amber-500" weight="fill" />
-      )
+      return <Warning aria-hidden="true" className="size-4 shrink-0 text-amber-500" weight="fill" />
     case 'deleted':
       return <GitFork aria-hidden="true" className="size-4 shrink-0 text-red-500" weight="fill" />
     case 'pr-open':

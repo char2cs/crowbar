@@ -226,7 +226,7 @@
   --accent: oklch(0 0 0 / 4%);
   --accent-foreground: var(--color-neutral-800);
   /* Editor text-selection wash (needs real opacity, unlike the 4% --accent) */
-  --editor-selection: oklch(0.62 0.13 235 / 0.30);
+  --editor-selection: oklch(0.62 0.13 235 / 0.3);
   --destructive: var(--color-red-500);
   --destructive-foreground: var(--color-red-700);
   --info: var(--color-blue-500);
@@ -355,7 +355,7 @@
   --muted-foreground: oklch(0.6 0 0);
   --accent: oklch(1 0 0 / 4%);
   --accent-foreground: var(--color-neutral-100);
-  --editor-selection: oklch(0.70 0.13 235 / 0.32);
+  --editor-selection: oklch(0.7 0.13 235 / 0.32);
   --destructive: oklch(0.65 0.22 24);
   --destructive-foreground: var(--color-red-400);
   --info: var(--color-blue-500);

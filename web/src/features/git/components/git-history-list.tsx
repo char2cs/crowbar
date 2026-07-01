@@ -62,7 +62,13 @@ export function GitHistoryList() {
     )
   }
 
-  return <GitHistoryListBody commits={commits} isLoadingMore={isLoadingMore} onViewCommitDiff={handleViewCommitDiff} />
+  return (
+    <GitHistoryListBody
+      commits={commits}
+      isLoadingMore={isLoadingMore}
+      onViewCommitDiff={handleViewCommitDiff}
+    />
+  )
 }
 
 /**
@@ -106,7 +112,11 @@ function GitHistoryListBody({
   }, [lastIndex, commits.length])
 
   return (
-    <div ref={scrollRef} className="min-h-0 flex-1 overflow-auto" style={{ overflowAnchor: 'none' }}>
+    <div
+      ref={scrollRef}
+      className="min-h-0 flex-1 overflow-auto"
+      style={{ overflowAnchor: 'none' }}
+    >
       <div className="py-1">
         <div className="relative w-full" style={{ height: `${rowVirtualizer.getTotalSize()}px` }}>
           {virtualItems.map((virtualItem) => {

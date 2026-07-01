@@ -31,7 +31,10 @@ describe('applyActiveBuffer', () => {
     const registry = createActiveEditorRegistry()
     const setSpy = vi.spyOn(registry, 'set')
 
-    const ctx = applyActiveBuffer({ manager, registry }, 'p1', { bufferId: 'b-a', filePath: '/a.ts' })
+    const ctx = applyActiveBuffer({ manager, registry }, 'p1', {
+      bufferId: 'b-a',
+      filePath: '/a.ts',
+    })
 
     expect(manager.showBuffer).toHaveBeenCalledWith('p1', fileUri('/a.ts'))
     expect(setSpy).toHaveBeenCalledTimes(1)
@@ -79,7 +82,10 @@ describe('applyActiveBuffer', () => {
       getRawEditor: vi.fn(() => null),
     }
 
-    const ctx = applyActiveBuffer({ manager, registry }, 'p1', { bufferId: 'b-a', filePath: '/a.ts' })
+    const ctx = applyActiveBuffer({ manager, registry }, 'p1', {
+      bufferId: 'b-a',
+      filePath: '/a.ts',
+    })
 
     expect(manager.showBuffer).toHaveBeenCalledWith('p1', fileUri('/a.ts'))
     expect(ctx).toBeUndefined()

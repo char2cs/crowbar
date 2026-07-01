@@ -123,7 +123,6 @@ describe('usePaneEditorController', () => {
     // First edit flushed immediately, attributed to the active buffer 'a'.
     expect(deps.onContentChange).toHaveBeenCalledWith('x', 'a')
     expect(deps.syncCursorAndSelection).toHaveBeenCalled()
-
     ;(deps.onContentChange as ReturnType<typeof vi.fn>).mockClear()
     editor.setModelValue('xy')
     act(() => editor.fire('content'))
@@ -141,7 +140,6 @@ describe('usePaneEditorController', () => {
     act(() => editor.fire('content')) // queued (throttled)
     act(() => editor.fire('blur'))
     expect(deps.onContentChange).toHaveBeenCalledWith('blurred', 'a')
-
     ;(deps.onContentChange as ReturnType<typeof vi.fn>).mockClear()
     editor.setModelValue('saved')
     act(() => editor.fire('content'))

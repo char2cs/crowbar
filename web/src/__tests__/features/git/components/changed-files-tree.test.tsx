@@ -37,10 +37,7 @@ vi.mock('@/features/file-explorer/components/file-explorer-icon', () => ({
 
 // ── Fixtures ─────────────────────────────────────────────────────────────────
 
-function makeDiff(
-  file_path: string,
-  overrides: Partial<GitDiff> = {},
-): GitDiff {
+function makeDiff(file_path: string, overrides: Partial<GitDiff> = {}): GitDiff {
   return {
     file_path,
     is_new: false,

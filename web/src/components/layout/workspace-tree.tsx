@@ -68,8 +68,14 @@ function WorkspaceTreeInner() {
   const pathname = useRouterState({ select: (s) => s.location.pathname })
   const repos = useSidebarStore((s) => s.repos)
   const collapsedRepos = useSidebarStore((s) => s.collapsedRepos)
-  const { creatingChildOf, startCreating, confirmCreate, cancelCreate, pendingCreates, clearPendingCreate } =
-    useWorkspaceTreeActions()
+  const {
+    creatingChildOf,
+    startCreating,
+    confirmCreate,
+    cancelCreate,
+    pendingCreates,
+    clearPendingCreate,
+  } = useWorkspaceTreeActions()
   const { hoverTargetId } = useWorkspaceTreeDrag()
   const wsListData = useWorkspaceListStore((s) => s.data)
   const retryWorkspaces = useCallback(() => {
@@ -200,7 +206,8 @@ function WorkspaceTreeInner() {
                       className="shrink-0 cursor-pointer rounded-md p-1 text-foreground/30 hover:text-foreground/60 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
                       onClick={(e) => {
                         e.stopPropagation()
-                        if (collapsedRepos.has(repo.id)) useSidebarStore.getState().toggleRepo(repo.id)
+                        if (collapsedRepos.has(repo.id))
+                          useSidebarStore.getState().toggleRepo(repo.id)
                         startCreating(repo.id, repo.defaultWorkspaceId!)
                       }}
                     >
@@ -263,7 +270,8 @@ function WorkspaceTreeInner() {
                               resolveExisting={(b) => findWorkspaceForBranch(repo, b)}
                               onOpenExisting={(wsId) => {
                                 cancelCreate()
-                                if (repo.projectId) handleWorkspaceClick(wsId, repo.projectId, repo.id)
+                                if (repo.projectId)
+                                  handleWorkspaceClick(wsId, repo.projectId, repo.id)
                               }}
                             />
                           </div>

@@ -11,9 +11,7 @@ vi.mock('@/lib/api', () => ({
 }))
 
 vi.mock('@/features/workspace/components/workspace-view', () => ({
-  WorkspaceView: ({ wsId }: { wsId: string }) => (
-    <div data-testid="workspace-view">{wsId}</div>
-  ),
+  WorkspaceView: ({ wsId }: { wsId: string }) => <div data-testid="workspace-view">{wsId}</div>,
 }))
 
 import { fetchHomeWorkspace } from '@/lib/api'

@@ -107,9 +107,7 @@ async fn wait_for_health(
     Ok(())
 }
 
-async fn check_health(
-    socket: &PathBuf,
-) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+async fn check_health(socket: &PathBuf) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     let stream = UnixStream::connect(socket).await?;
     let io = TokioIo::new(stream);
 

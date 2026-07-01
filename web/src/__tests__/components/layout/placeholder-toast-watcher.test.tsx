@@ -13,9 +13,7 @@ const repoWith = (over = {}): Repo => ({
   name: 'repo',
   avatarLabel: 'R',
   avatarColor: 'bg-sky-700',
-  workspaces: [
-    { id: 'ph', branch: 'develop', status: 'locked', heldByPath: '/repo', age: '' },
-  ],
+  workspaces: [{ id: 'ph', branch: 'develop', status: 'locked', heldByPath: '/repo', age: '' }],
   ...over,
 })
 

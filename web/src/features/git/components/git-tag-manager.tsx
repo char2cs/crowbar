@@ -69,7 +69,11 @@ const GitTagManager = ({
   const [selectedRemote, setSelectedRemote] = useState('origin')
   const [expandedTagName, setExpandedTagName] = useState<string | null>(null)
   const [actionLoading, setActionLoading] = useState<Set<string>>(new Set())
-  const [tagFeedback, setTagFeedback] = useState<{ id: string; kind: 'ok' | 'err'; msg: string } | null>(null)
+  const [tagFeedback, setTagFeedback] = useState<{
+    id: string
+    kind: 'ok' | 'err'
+    msg: string
+  } | null>(null)
 
   function showTagFeedback(id: string, kind: 'ok' | 'err', msg: string) {
     setTagFeedback({ id, kind, msg })
@@ -534,19 +538,23 @@ const GitTagManager = ({
                     <Trash2 />
                   </Button>
                   {tagFeedback?.id === 'copy' && (
-                    <span className={cn(
-                      'text-xs ml-1',
-                      tagFeedback.kind === 'ok' ? 'text-green-500' : 'text-destructive'
-                    )}>
+                    <span
+                      className={cn(
+                        'text-xs ml-1',
+                        tagFeedback.kind === 'ok' ? 'text-green-500' : 'text-destructive',
+                      )}
+                    >
                       {tagFeedback.msg}
                     </span>
                   )}
                 </div>
                 {tagFeedback?.id === tag.name && (
-                  <span className={cn(
-                    'text-xs ml-auto block px-2.5 pb-1',
-                    tagFeedback.kind === 'ok' ? 'text-green-500' : 'text-destructive'
-                  )}>
+                  <span
+                    className={cn(
+                      'text-xs ml-auto block px-2.5 pb-1',
+                      tagFeedback.kind === 'ok' ? 'text-green-500' : 'text-destructive',
+                    )}
+                  >
                     {tagFeedback.msg}
                   </span>
                 )}

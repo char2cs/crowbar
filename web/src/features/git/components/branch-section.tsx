@@ -178,7 +178,9 @@ export function BranchSection({
                 <ArrowDown className="size-3.5" />
               )}
               {remoteBusy
-                ? action.remote === 'push' ? 'Pushing…' : 'Pulling…'
+                ? action.remote === 'push'
+                  ? 'Pushing…'
+                  : 'Pulling…'
                 : action.remote === 'push'
                   ? `Push${ahead ? ` ${ahead}` : ''}`
                   : `Pull${behind ? ` ${behind}` : ''}`}

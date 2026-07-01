@@ -82,7 +82,13 @@ describe('branch-review-slice', () => {
 
   it('upsertReviewThread merges (replaces) by id when thread already exists', () => {
     const original = makeThread({ id: 't-a', isResolved: false, lineNumber: 10 })
-    const updated = makeThread({ id: 't-a', isResolved: true, lineNumber: 99, startLine: 99, endLine: 99 })
+    const updated = makeThread({
+      id: 't-a',
+      isResolved: true,
+      lineNumber: 99,
+      startLine: 99,
+      endLine: 99,
+    })
 
     store.getState().upsertReviewThread(original)
     store.getState().upsertReviewThread(updated)

@@ -3,13 +3,7 @@ import '../monaco/language-contributions'
 import 'monaco-editor/min/vs/editor/editor.main.css'
 import '../styles/monaco-editor.css'
 
-import {
-  editor as monacoEditor,
-  KeyCode,
-  KeyMod,
-  Range as MonacoRange,
-  Uri,
-} from 'monaco-editor'
+import { editor as monacoEditor, KeyCode, KeyMod, Range as MonacoRange, Uri } from 'monaco-editor'
 import type * as Monaco from 'monaco-editor'
 import {
   useCallback,
@@ -275,20 +269,17 @@ export function DiffMonacoEditor({
   const latestOnVisibleLineRangeChangeRef = useRef(onVisibleLineRangeChange)
   latestOnVisibleLineRangeChangeRef.current = onVisibleLineRangeChange
 
-  const updateVisibleLineRange = useCallback(
-    (editor: Monaco.editor.IStandaloneCodeEditor) => {
-      const visibleRanges = editor.getVisibleRanges()
-      const firstRange = visibleRanges[0]
-      const lastRange = visibleRanges[visibleRanges.length - 1] ?? firstRange
-      if (!firstRange || !lastRange) return
+  const updateVisibleLineRange = useCallback((editor: Monaco.editor.IStandaloneCodeEditor) => {
+    const visibleRanges = editor.getVisibleRanges()
+    const firstRange = visibleRanges[0]
+    const lastRange = visibleRanges[visibleRanges.length - 1] ?? firstRange
+    if (!firstRange || !lastRange) return
 
-      latestOnVisibleLineRangeChangeRef.current?.({
-        startLine: Math.max(0, firstRange.startLineNumber - 1 - 30),
-        endLine: Math.max(0, lastRange.endLineNumber - 1 + 30),
-      })
-    },
-    [],
-  )
+    latestOnVisibleLineRangeChangeRef.current?.({
+      startLine: Math.max(0, firstRange.startLineNumber - 1 - 30),
+      endLine: Math.max(0, lastRange.endLineNumber - 1 + 30),
+    })
+  }, [])
 
   const syncCursorAndSelectionRef = useRef<() => void>(() => {})
   syncCursorAndSelectionRef.current = () => {
@@ -943,11 +934,7 @@ export function DiffMonacoEditor({
     for (let i = 0; i < diffLineKinds.length; i++) {
       const kind = diffLineKinds[i]
       const className =
-        kind === 'added'
-          ? 'diff-line-added'
-          : kind === 'removed'
-            ? 'diff-line-removed'
-            : null
+        kind === 'added' ? 'diff-line-added' : kind === 'removed' ? 'diff-line-removed' : null
       if (!className) continue
       const line = i + 1
       decorations.push({

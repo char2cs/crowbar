@@ -1,7 +1,9 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 
 vi.mock('@/lib/api', () => ({ apiFetch: vi.fn() }))
-vi.mock('@/features/window/stores/toast-store', () => ({ toast: { error: vi.fn(), success: vi.fn() } }))
+vi.mock('@/features/window/stores/toast-store', () => ({
+  toast: { error: vi.fn(), success: vi.fn() },
+}))
 
 import { apiFetch } from '@/lib/api'
 import { toast } from '@/features/window/stores/toast-store'

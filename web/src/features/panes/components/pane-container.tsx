@@ -554,8 +554,7 @@ export function PaneContainer({ pane, position = ROOT_PANE_POSITION }: PaneConta
                 PTY sessions and embedded webview state. */}
             {paneBuffers
               .filter(
-                (b): b is import('../types/pane-content').TerminalContent =>
-                  b.type === 'terminal',
+                (b): b is import('../types/pane-content').TerminalContent => b.type === 'terminal',
               )
               .map((b) => {
                 const isActive = b.id === activeBuffer?.id
@@ -577,9 +576,7 @@ export function PaneContainer({ pane, position = ROOT_PANE_POSITION }: PaneConta
                   </div>
                 )
               })}
-            {activeBuffer &&
-              activeBuffer.type !== 'terminal' &&
-              renderActiveBuffer(activeBuffer)}
+            {activeBuffer && activeBuffer.type !== 'terminal' && renderActiveBuffer(activeBuffer)}
           </>
         </Suspense>
       </div>

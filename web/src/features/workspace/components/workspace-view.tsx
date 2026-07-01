@@ -1,6 +1,10 @@
 import { useEffect, useLayoutEffect, useState } from 'react'
 import { WorkspaceStoreContext } from '../stores/workspace-context'
-import { getOrCreateWorkspaceStore, setActiveWorkspaceId, destroyWorkspaceStore } from '../stores/workspace-store-registry'
+import {
+  getOrCreateWorkspaceStore,
+  setActiveWorkspaceId,
+  destroyWorkspaceStore,
+} from '../stores/workspace-store-registry'
 import { setActiveWorkspaceStoreRef } from '../stores/workspace-store-ref'
 import { hydrateWorkspace } from '@/lib/persistence/hydrate'
 import { WorkspaceLayoutRoot } from './workspace-layout-root'

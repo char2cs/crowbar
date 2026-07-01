@@ -6,9 +6,7 @@ import '../styles/monaco-editor.css'
 import type React from 'react'
 import { useCallback, useEffect, useMemo, useRef } from 'react'
 import { useEditorScroll } from '@/features/editor/hooks/use-scroll'
-import {
-  useWorkspaceStore,
-} from '@/features/workspace/stores/workspace-context'
+import { useWorkspaceStore } from '@/features/workspace/stores/workspace-context'
 import { useSettingsStore } from '@/features/settings/store'
 import { useEditorSettingsStore } from '@/features/editor/stores/settings-store'
 import { useEditorStateStore } from '@/features/editor/stores/state-store'
@@ -97,9 +95,7 @@ export function EditorSurface({
   // the editor's CURRENT position+selection once and writes them in ONE batched
   // store update. The pending frame is cancelled on dispose.
   const flushCursorSync = useCallback(() => {
-    const editor = editorManager.getRawEditor(paneId) as
-      | Monaco.editor.IStandaloneCodeEditor
-      | null
+    const editor = editorManager.getRawEditor(paneId) as Monaco.editor.IStandaloneCodeEditor | null
     const model = editor?.getModel()
     if (!editor || !model) return
     const position = editor.getPosition()
@@ -139,9 +135,7 @@ export function EditorSurface({
       editorAPI.setTextareaRef(null)
       editorAPI.setViewportRef(container as HTMLDivElement)
 
-      const raw = editorManager.getRawEditor(paneId) as
-        | Monaco.editor.IStandaloneCodeEditor
-        | null
+      const raw = editorManager.getRawEditor(paneId) as Monaco.editor.IStandaloneCodeEditor | null
       // Initial theme to avoid a flash; the satellites theme effect (which also
       // subscribes to theme changes) is authoritative right after mount.
       const editorSettingsTheme = useEditorSettingsStore.getState().theme
@@ -254,10 +248,7 @@ export function EditorSurface({
 
   // Legacy 5-arg seam handed to the state bridge / editorAPI (no bufferId →
   // active buffer). Identity is stable; extra legacy args are ignored here.
-  const onContentChange = useCallback(
-    (content: string) => writeContent(content),
-    [writeContent],
-  )
+  const onContentChange = useCallback((content: string) => writeContent(content), [writeContent])
 
   // Controller seam: the imperative ContentSink flush passes the buffer it was
   // tracking so the write targets the edited buffer (I3 fix).
@@ -403,11 +394,7 @@ export function EditorSurface({
 
           {/* Stable Monaco slot — the retained per-pane widget mounts here. */}
           <div className="absolute inset-0 bg-transparent">
-            <div
-              ref={containerRef}
-              className="absolute inset-0"
-              data-monaco-editor-scroll
-            />
+            <div ref={containerRef} className="absolute inset-0" data-monaco-editor-scroll />
           </div>
         </div>
       </div>

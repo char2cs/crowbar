@@ -11,8 +11,17 @@ interface DiffSearchBarProps {
 
 /** Compact find bar for the multi-file diff: query, match count, next/prev, case toggle. */
 export function DiffSearchBar({ search, onClose }: DiffSearchBarProps) {
-  const { query, setQuery, total, currentIndex, limited, caseSensitive, toggleCaseSensitive, next, prev } =
-    search
+  const {
+    query,
+    setQuery,
+    total,
+    currentIndex,
+    limited,
+    caseSensitive,
+    toggleCaseSensitive,
+    next,
+    prev,
+  } = search
   const trimmed = query.trim()
   const hasNoResults = trimmed !== '' && total === 0
   const countLabel =

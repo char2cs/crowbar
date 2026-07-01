@@ -133,9 +133,7 @@ export function PaneSash({
       const onUp = (ev: globalThis.PointerEvent) => {
         const cPx = containerPxRef.current
         const finalSizes =
-          cPx > 0
-            ? pxToPercents(cPx, liveFirstPx.current, MIN_PANE_SIZE)
-            : sizesRef.current
+          cPx > 0 ? pxToPercents(cPx, liveFirstPx.current, MIN_PANE_SIZE) : sizesRef.current
 
         // Drop the inline imperative sizes so React's percentage flex-basis
         // (driven by the committed store state) takes over again.
@@ -169,9 +167,7 @@ export function PaneSash({
       className={cn(
         'relative z-10 flex shrink-0 items-center justify-center ring-offset-background',
         'transition-colors hover:bg-border/60',
-        isHorizontal
-          ? 'w-1.5 cursor-col-resize'
-          : 'h-1.5 w-full cursor-row-resize',
+        isHorizontal ? 'w-1.5 cursor-col-resize' : 'h-1.5 w-full cursor-row-resize',
       )}
     />
   )

@@ -10,7 +10,7 @@ import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { FolderOpen } from '@phosphor-icons/react'
 import { toast } from '@/features/window/stores/toast-store'
-import { open as openDialog } from '@tauri-apps/plugin-dialog'
+import { openNativeDialog as openDialog } from '@/lib/native-dialog'
 import { useNavigate } from '@tanstack/react-router'
 import { isTauri } from '@/lib/crowbar-bridge'
 import { postRepo } from '@/lib/api'
@@ -39,7 +39,12 @@ export function AddRepositoryModal({ open, onOpenChange }: AddRepositoryModalPro
     if (typeof selected === 'string') {
       setPath(selected)
       if (!name) {
-        setName(selected.replace(/[\\/]+$/, '').split(/[\\/]/).pop() ?? '')
+        setName(
+          selected
+            .replace(/[\\/]+$/, '')
+            .split(/[\\/]/)
+            .pop() ?? '',
+        )
       }
     }
   }
@@ -135,8 +140,7 @@ export function AddRepositoryModal({ open, onOpenChange }: AddRepositoryModalPro
 
           <div className="space-y-2">
             <label className="text-sm font-medium text-foreground">
-              Repository name{' '}
-              <span className="font-normal text-muted-foreground">(optional)</span>
+              Repository name <span className="font-normal text-muted-foreground">(optional)</span>
             </label>
             <Input
               value={name}

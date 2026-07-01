@@ -1,5 +1,9 @@
 import { describe, it, expect, beforeEach } from 'vitest'
-import { saveReconnect, loadReconnect, clearReconnect } from '@/features/terminal/lib/terminal-reconnect-map'
+import {
+  saveReconnect,
+  loadReconnect,
+  clearReconnect,
+} from '@/features/terminal/lib/terminal-reconnect-map'
 
 beforeEach(() => localStorage.clear())
 

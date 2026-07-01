@@ -21,9 +21,7 @@ export const commitChanges = async (wsId: string, message: string): Promise<bool
 
 export const getGitLog = async (wsId: string, limit = 50, skip = 0): Promise<GitCommit[]> => {
   try {
-    return await apiFetch<GitCommit[]>(
-      `${workspaceBase(wsId)}/git/log?limit=${limit}&skip=${skip}`,
-    )
+    return await apiFetch<GitCommit[]>(`${workspaceBase(wsId)}/git/log?limit=${limit}&skip=${skip}`)
   } catch {
     return []
   }

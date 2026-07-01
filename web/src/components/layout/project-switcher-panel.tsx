@@ -77,11 +77,7 @@ export function ProjectSwitcherPanel() {
         </button>
       </div>
 
-      <ImportProjectModal
-        open={importOpen}
-        onOpenChange={setImportOpen}
-        onImport={handleImport}
-      />
+      <ImportProjectModal open={importOpen} onOpenChange={setImportOpen} onImport={handleImport} />
     </div>
   )
 }

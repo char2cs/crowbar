@@ -59,7 +59,9 @@ type MockWs = {
 let mockActiveWs: MockWs = null
 vi.mock('@/lib/store/sidebar', () => ({
   useSidebarStore: (
-    sel: (s: { repos: Array<{ workspaces: Array<{ id: string } & NonNullable<MockWs>> }> }) => unknown,
+    sel: (s: {
+      repos: Array<{ workspaces: Array<{ id: string } & NonNullable<MockWs>> }>
+    }) => unknown,
   ) => sel({ repos: mockActiveWs ? [{ workspaces: [{ id: 'ws-active', ...mockActiveWs }] }] : [] }),
 }))
 
@@ -109,7 +111,12 @@ describe('GitPanel', () => {
       behind: 1,
       files: [{ path: 'a.ts', status: 'modified', staged: false }],
     }
-    mockActiveWs = { branch: 'epoch/first-pr', parentBranch: 'develop', canMergeLocally: true, status: 'new' }
+    mockActiveWs = {
+      branch: 'epoch/first-pr',
+      parentBranch: 'develop',
+      canMergeLocally: true,
+      status: 'new',
+    }
     render(<GitPanel />)
     // The branch name is rendered in the pill above BranchSection, not passed as
     // a prop; BranchSection receives the merge/diff metadata.

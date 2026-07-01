@@ -84,7 +84,10 @@ describe('DOM resolver', () => {
         } as unknown as CSSStyleDeclaration
       }
       // Called on the temporary span — simulate browser resolving the chain.
-      return { color: 'rgb(105, 105, 105)', getPropertyValue: () => '' } as unknown as CSSStyleDeclaration
+      return {
+        color: 'rgb(105, 105, 105)',
+        getPropertyValue: () => '',
+      } as unknown as CSSStyleDeclaration
     })
     const appendSpy = vi.spyOn(document.body, 'appendChild').mockImplementation((n) => n as never)
     const removeSpy = vi.spyOn(document.body, 'removeChild').mockImplementation((n) => n as never)

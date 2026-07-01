@@ -1,9 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import {
-  clampFirstPx,
-  percentsToPx,
-  pxToPercents,
-} from '@/features/panes/lib/split-sizing'
+import { clampFirstPx, percentsToPx, pxToPercents } from '@/features/panes/lib/split-sizing'
 
 describe('pxToPercents', () => {
   it('produces a 50/50 split for a centered divider', () => {

@@ -43,11 +43,7 @@ describe('FileExplorerTreeItem git status decorations', () => {
   it('renders no status letter for an unchanged file', () => {
     const file = makeFile('index.ts', '/repo/index.ts')
     const { container } = render(
-      <FileExplorerTreeItem
-        {...defaultProps}
-        file={file}
-        getGitStatusDecoration={noDecoration}
-      />,
+      <FileExplorerTreeItem {...defaultProps} file={file} getGitStatusDecoration={noDecoration} />,
     )
     // filename is present
     expect(screen.getByText('index.ts')).toBeInTheDocument()

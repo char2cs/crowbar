@@ -19,7 +19,9 @@ vi.mock('@/lib/api', async (importOriginal) => {
   }
 })
 
-vi.mock('@/features/window/stores/toast-store', () => ({ toast: { error: vi.fn(), success: vi.fn() } }))
+vi.mock('@/features/window/stores/toast-store', () => ({
+  toast: { error: vi.fn(), success: vi.fn() },
+}))
 
 import * as api from '@/lib/api'
 import { toast } from '@/features/window/stores/toast-store'

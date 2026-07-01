@@ -81,7 +81,7 @@ jobs:
           ref: master
       - uses: dtolnay/rust-toolchain@stable
         with:
-          toolchain: '1.85'
+          toolchain: '1.88'
           targets: aarch64-apple-darwin,x86_64-apple-darwin
       - uses: Swatinem/rust-cache@v2
         with:
@@ -139,7 +139,7 @@ jobs:
           ref: master
       - uses: dtolnay/rust-toolchain@stable
         with:
-          toolchain: '1.85'
+          toolchain: '1.88'
       - uses: Swatinem/rust-cache@v2
         with:
           workspaces: desktop/src-tauri

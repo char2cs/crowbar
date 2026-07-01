@@ -178,7 +178,10 @@ test('seeds the new repo+workspace into the sidebar tree before navigating (no /
   await waitFor(() =>
     expect(subscribers.has('/v0/projects/proj-1/repos/repo-9/workspaces')).toBe(true),
   )
-  emit('/v0/projects/proj-1/repos/repo-9/workspaces', workspaceDTO({ id: 'ws-1', repoId: 'repo-9' }))
+  emit(
+    '/v0/projects/proj-1/repos/repo-9/workspaces',
+    workspaceDTO({ id: 'ws-1', repoId: 'repo-9' }),
+  )
 
   await waitFor(() => expect(navigateMock).toHaveBeenCalled())
 

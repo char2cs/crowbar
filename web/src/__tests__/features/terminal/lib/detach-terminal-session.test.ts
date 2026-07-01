@@ -19,8 +19,8 @@ describe('detachTerminalSession', () => {
 
     await detachTerminalSession('ws-1', 'tab-1')
 
-    expect(terminalDetach).toHaveBeenCalledWith('conn-1')            // by connectionId, not tab id
-    expect(loadReconnect('ws-1', 'tab-1')).toBe('conn-1')           // mapping persisted
+    expect(terminalDetach).toHaveBeenCalledWith('conn-1') // by connectionId, not tab id
+    expect(loadReconnect('ws-1', 'tab-1')).toBe('conn-1') // mapping persisted
     expect(useTerminalStore.getState().getSession('tab-1')).toBeTruthy() // store entry kept
   })
 

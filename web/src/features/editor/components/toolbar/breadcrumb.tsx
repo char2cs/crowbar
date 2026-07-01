@@ -43,8 +43,7 @@ export default function Breadcrumb({
 }: BreadcrumbProps = {}) {
   const workspaceStore = useWorkspaceStore()
   const resolvedBufferId = useWorkspaceStoreContext(
-    (state) =>
-      bufferId ?? state.panes[paneId ?? state.activePaneId]?.activeBufferId ?? null,
+    (state) => bufferId ?? state.panes[paneId ?? state.activePaneId]?.activeBufferId ?? null,
   )
   const resolvedEditorViewKey =
     editorViewKey ?? (paneId && resolvedBufferId ? `${paneId}:${resolvedBufferId}` : editorViewKey)

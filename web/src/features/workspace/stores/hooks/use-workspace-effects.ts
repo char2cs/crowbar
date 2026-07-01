@@ -259,20 +259,17 @@ export function useWorkspaceEffects(wsId: string) {
     // The push stream repeats identical status frames; only a frame that
     // actually differs from the previous one warrants a refetch.
     let lastFrame: string | null = null
-    const unsubscribe = wsManager.subscribe(
-      `${workspaceBase(wsId)}/git/status`,
-      (frame) => {
-        let key: string
-        try {
-          key = JSON.stringify(frame)
-        } catch {
-          key = String(frame)
-        }
-        if (key === lastFrame) return
-        lastFrame = key
-        scheduleStatusReload()
-      },
-    )
+    const unsubscribe = wsManager.subscribe(`${workspaceBase(wsId)}/git/status`, (frame) => {
+      let key: string
+      try {
+        key = JSON.stringify(frame)
+      } catch {
+        key = String(frame)
+      }
+      if (key === lastFrame) return
+      lastFrame = key
+      scheduleStatusReload()
+    })
     // Editor saves dispatch "git-status-updated" after a successful write.
     // Refresh on it directly so the Changes panel updates deterministically,
     // without depending on the backend watcher's git event arriving.

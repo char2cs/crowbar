@@ -147,11 +147,7 @@ describe('file tree git status lookup', () => {
       statusLetter: 'M',
     })
     expect(
-      getFileTreeEntryGitStatusDecoration(
-        fileEntry('api/internal/api/container.go'),
-        root,
-        lookup,
-      ),
+      getFileTreeEntryGitStatusDecoration(fileEntry('api/internal/api/container.go'), root, lookup),
     ).toEqual({ colorClassName: 'text-git-modified', label: 'Modified', statusLetter: 'M' })
     // The parent folder inherits the descendant's status (folder tinting).
     expect(getFileTreeEntryGitStatusDecoration(fileEntry('api', true), root, lookup)).toEqual({

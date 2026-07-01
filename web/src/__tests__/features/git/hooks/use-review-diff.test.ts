@@ -89,7 +89,9 @@ describe('useReviewDiff', () => {
   it('re-fetches when git-status-changed fires', async () => {
     const initial = [makeDiff('src/a.ts')]
     const updated = [makeDiff('src/a.ts'), makeDiff('src/b.ts')]
-    mocks.getReview.mockResolvedValueOnce(makeReview(initial)).mockResolvedValueOnce(makeReview(updated))
+    mocks.getReview
+      .mockResolvedValueOnce(makeReview(initial))
+      .mockResolvedValueOnce(makeReview(updated))
 
     const { result } = renderHook(() => useReviewDiff('ws-1'))
     await waitFor(() => expect(result.current.files).toHaveLength(1))

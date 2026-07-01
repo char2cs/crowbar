@@ -56,9 +56,7 @@ export function createRafCoalescer(task: () => void): RafCoalescer {
     schedule: () => {
       if (handle !== null) return
       usedRaf = hasRaf()
-      handle = usedRaf
-        ? requestAnimationFrame(run)
-        : (setTimeout(run, 0) as unknown as number)
+      handle = usedRaf ? requestAnimationFrame(run) : (setTimeout(run, 0) as unknown as number)
     },
     flush: () => {
       if (handle === null) return

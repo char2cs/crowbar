@@ -124,7 +124,12 @@ export function CommitPopover({ wsId, files, onCommitted, trigger }: CommitPopov
             <Button variant="outline" size="sm" onClick={() => setOpen(false)}>
               Cancel
             </Button>
-            <Button variant="default" size="sm" disabled={!canCommit} onClick={() => void handleCommit()}>
+            <Button
+              variant="default"
+              size="sm"
+              disabled={!canCommit}
+              onClick={() => void handleCommit()}
+            >
               {isCommitting ? 'Committing…' : 'Commit'}
             </Button>
           </div>

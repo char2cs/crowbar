@@ -185,7 +185,6 @@ export function useTerminalConnection({
     // produce (Shift/Alt+Enter disambiguation, kitty protocol) is handled once in
     // the attachCustomKeyEventHandler in terminal.tsx (see resolveKeyOverride).
 
-
     disposables.push(
       terminal.onResize(({ cols, rows }) => {
         void terminalResize(connectionId, rows, cols).catch(() => {})

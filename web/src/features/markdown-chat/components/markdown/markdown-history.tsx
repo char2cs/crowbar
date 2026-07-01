@@ -81,9 +81,7 @@ const TurnItem = memo(function TurnItem({ turn, onWidgetChange }: TurnItemProps)
         ...articleStyle,
         // Same tint as the input/composer (markdown-chat-view).
         background:
-          turn.role === 'user'
-            ? 'color-mix(in srgb, var(--primary) 10%, transparent)'
-            : undefined,
+          turn.role === 'user' ? 'color-mix(in srgb, var(--primary) 10%, transparent)' : undefined,
       }}
     >
       {/* Full-height column rails (span the tint and touch the adjacent

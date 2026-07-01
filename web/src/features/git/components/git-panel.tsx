@@ -107,7 +107,6 @@ export function GitPanel() {
         <ScrollArea className="flex-1">
           <ChangedFilesTree files={files} repoPath={repoPath} onFileOpen={handleFileOpen} />
         </ScrollArea>
-
       </TabsPanel>
 
       <TabsPanel value="history" className="flex flex-1 flex-col overflow-hidden">

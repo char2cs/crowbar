@@ -12,7 +12,10 @@ export interface MonacoModelApi {
   getModel(uri: string): IModelLike | null
 }
 
-interface Entry { model: IModelLike; refs: number }
+interface Entry {
+  model: IModelLike
+  refs: number
+}
 
 /** Per-workspace registry of Monaco text models keyed by file URI.
  *  Same file in two panes => same model => live sync + shared undo. */
@@ -22,7 +25,10 @@ export class ModelRegistry {
 
   acquire(uri: string, languageId: string, initialText: string): IModelLike {
     const existing = this.entries.get(uri)
-    if (existing) { existing.refs++; return existing.model }
+    if (existing) {
+      existing.refs++
+      return existing.model
+    }
     const model = this.api.getModel(uri) ?? this.api.createModel(initialText, languageId, uri)
     this.entries.set(uri, { model, refs: 1 })
     return model
@@ -32,9 +38,17 @@ export class ModelRegistry {
     const e = this.entries.get(uri)
     if (!e) return
     e.refs--
-    if (e.refs <= 0) { this.entries.delete(uri); e.model.dispose() }
+    if (e.refs <= 0) {
+      this.entries.delete(uri)
+      e.model.dispose()
+    }
   }
 
-  get(uri: string): IModelLike | null { return this.entries.get(uri)?.model ?? null }
-  disposeAll(): void { for (const e of this.entries.values()) e.model.dispose(); this.entries.clear() }
+  get(uri: string): IModelLike | null {
+    return this.entries.get(uri)?.model ?? null
+  }
+  disposeAll(): void {
+    for (const e of this.entries.values()) e.model.dispose()
+    this.entries.clear()
+  }
 }

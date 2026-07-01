@@ -20,7 +20,10 @@ const actions = {
   confirmRename: vi.fn(),
   cancelRename: vi.fn(),
   onPointerDownDrag: vi.fn(),
-  pendingCreates: new Map<string, { repoId: string; parentId: string; branch: string; error?: string }>(),
+  pendingCreates: new Map<
+    string,
+    { repoId: string; parentId: string; branch: string; error?: string }
+  >(),
   clearPendingCreate: vi.fn(),
 }
 const drag = { draggingWs: null, hoverTargetId: null, movingWsId: null }

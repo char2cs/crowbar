@@ -41,10 +41,7 @@ export function pxToPercents(
  * Convert `[firstPct, secondPct]` percentages into pixel sizes that sum to
  * exactly `containerPx` (the second pane absorbs any rounding remainder).
  */
-export function percentsToPx(
-  containerPx: number,
-  sizes: [number, number],
-): [number, number] {
+export function percentsToPx(containerPx: number, sizes: [number, number]): [number, number] {
   const total = sizes[0] + sizes[1]
   const firstPct = total > 0 ? sizes[0] / total : 0.5
   const firstPx = Math.round(containerPx * firstPct)

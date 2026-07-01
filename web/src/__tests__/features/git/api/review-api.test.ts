@@ -184,17 +184,19 @@ describe('review-api request shapes', () => {
   })
 
   it('openThread POSTs to first-class /threads (not /review/threads) with all fields', async () => {
-    const fetchMock = mockFetchEnvelope(wireThreadDTO({
-      id: 't9',
-      filePath: 'README.md',
-      line: 10,
-      startLine: 8,
-      endLine: 12,
-      side: 'new',
-      body: 'note',
-      author: undefined as unknown as string,
-      replies: [],
-    }))
+    const fetchMock = mockFetchEnvelope(
+      wireThreadDTO({
+        id: 't9',
+        filePath: 'README.md',
+        line: 10,
+        startLine: 8,
+        endLine: 12,
+        side: 'new',
+        body: 'note',
+        author: undefined as unknown as string,
+        replies: [],
+      }),
+    )
 
     const thread = await openThread('ws-3', {
       filePath: 'README.md',
@@ -236,7 +238,9 @@ describe('review-api request shapes', () => {
   })
 
   it('replyToThread POSTs to /threads/:id/replies (plural) with encoded id', async () => {
-    const fetchMock = mockFetchEnvelope(wireThreadDTO({ id: 't9', body: 'reply body', author: 'me', isAgent: false, replies: [] }))
+    const fetchMock = mockFetchEnvelope(
+      wireThreadDTO({ id: 't9', body: 'reply body', author: 'me', isAgent: false, replies: [] }),
+    )
 
     await replyToThread('ws-4', 't 9', { author: 'me', isAgent: false, body: 'reply body' })
 
@@ -245,11 +249,17 @@ describe('review-api request shapes', () => {
     expect(url).not.toContain('/reply')
     expect(url).toContain('/v0/projects/p1/repos/r1/workspaces/ws-4/threads/t%209/replies')
     expect(init.method).toBe('POST')
-    expect(JSON.parse(init.body as string)).toMatchObject({ author: 'me', isAgent: false, body: 'reply body' })
+    expect(JSON.parse(init.body as string)).toMatchObject({
+      author: 'me',
+      isAgent: false,
+      body: 'reply body',
+    })
   })
 
   it('replyToThread accepts a plain string body for backward compat', async () => {
-    const fetchMock = mockFetchEnvelope(wireThreadDTO({ id: 't9', body: 'plain reply', replies: [] }))
+    const fetchMock = mockFetchEnvelope(
+      wireThreadDTO({ id: 't9', body: 'plain reply', replies: [] }),
+    )
 
     await replyToThread('ws-4', 'tid', 'plain reply')
 

@@ -32,7 +32,9 @@ describe('BranchSection', () => {
   // the branch name (ca42c0d removed the duplicate row).
 
   it('uncommitted → Commit changes', () => {
-    render(<BranchSection {...base} files={[{ path: 'a.ts', status: 'modified', staged: false }]} />)
+    render(
+      <BranchSection {...base} files={[{ path: 'a.ts', status: 'modified', staged: false }]} />,
+    )
     expect(screen.getByRole('button', { name: 'Commit changes' })).toBeDefined()
   })
 

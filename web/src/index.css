@@ -49,10 +49,10 @@
 /* Allow content-pane shadow to bleed leftward into the sidebar area.
    react-resizable-panels injects overflow:hidden/auto via inline styles — override both.
    pane-container also clips; override so the shadow follows the rounded pane content shape. */
-[data-slot="resizable-panel-group"] {
+[data-slot='resizable-panel-group'] {
   overflow: visible !important;
 }
-[data-slot="resizable-panel"] > div {
+[data-slot='resizable-panel'] > div {
   overflow: visible !important;
 }
 [data-pane-container] {
@@ -82,66 +82,65 @@
   --animate-toast-error-even: toast-error-even 0.28s cubic-bezier(0.5, 1, 0.89, 1);
   --color-destructive-foreground: var(--destructive-foreground);
   @keyframes toast-success-odd {
-  0% {
-    scale: 1;
+    0% {
+      scale: 1;
     }
-  30% {
-    scale: 1.025;
+    30% {
+      scale: 1.025;
     }
-  60% {
-    scale: 0.99;
+    60% {
+      scale: 0.99;
     }
-  100% {
-    scale: 1;
+    100% {
+      scale: 1;
     }
   }
   @keyframes toast-error-odd {
-  0% {
-    translate: 0 0;
+    0% {
+      translate: 0 0;
     }
-  25% {
-    translate: -3px 0;
+    25% {
+      translate: -3px 0;
     }
-  50% {
-    translate: 3px 0;
+    50% {
+      translate: 3px 0;
     }
-  75% {
-    translate: -3px 0;
+    75% {
+      translate: -3px 0;
     }
-  100% {
-    translate: 0 0;
+    100% {
+      translate: 0 0;
     }
   }
   @keyframes toast-success-even {
-  0% {
-    scale: 1;
+    0% {
+      scale: 1;
     }
-  30% {
-    scale: 1.025;
+    30% {
+      scale: 1.025;
     }
-  60% {
-    scale: 0.99;
+    60% {
+      scale: 0.99;
     }
-  100% {
-    scale: 1;
+    100% {
+      scale: 1;
     }
   }
   @keyframes toast-error-even {
-  0% {
-    translate: 0 0;
+    0% {
+      translate: 0 0;
     }
-  25% {
-    translate: -3px 0;
+    25% {
+      translate: -3px 0;
     }
-  50% {
-    translate: 3px 0;
+    50% {
+      translate: 3px 0;
     }
-  75% {
-    translate: -3px 0;
+    75% {
+      translate: -3px 0;
     }
-  100% {
-    translate: 0 0;
+    100% {
+      translate: 0 0;
     }
   }
 }
-

@@ -17,7 +17,10 @@ import { useReviewCommentLayer } from './use-review-comment-layer'
 import Breadcrumb from '@/features/editor/components/toolbar/breadcrumb'
 import { EDITOR_CONSTANTS } from '@/features/editor/config/constants'
 import { FileExplorerIcon } from '@/features/file-explorer/components/file-explorer-icon'
-import { useWorkspaceStore, useWorkspaceStoreContext } from '@/features/workspace/stores/workspace-context'
+import {
+  useWorkspaceStore,
+  useWorkspaceStoreContext,
+} from '@/features/workspace/stores/workspace-context'
 import { useUIState } from '@/features/window/stores/ui-state-store'
 import { useEditorSettingsStore } from '@/features/editor/stores/settings-store'
 import { calculateLineHeight, splitLines } from '@/features/editor/utils/lines'
@@ -83,7 +86,6 @@ const statusBadgeClass: Record<string, string> = {
   modified: 'bg-git-modified/12 text-git-modified',
   renamed: 'bg-git-renamed/12 text-git-renamed',
 }
-
 
 function parseGitHubRemoteSlug(remoteUrl: string): { owner: string; repo: string } | null {
   const normalized = remoteUrl.trim()
@@ -287,9 +289,7 @@ function EmbeddedDiffSectionEditor({
   // Add breathing room below the last inline thread so it isn't flush against
   // the section's bottom edge (which reads as "cut off").
   const unifiedHeight =
-    hasInlineLayer && commentContentHeight
-      ? Math.max(height, commentContentHeight + 20)
-      : height
+    hasInlineLayer && commentContentHeight ? Math.max(height, commentContentHeight + 20) : height
 
   return (
     <>
@@ -650,7 +650,9 @@ const GitDiffEditorStack = memo(function GitDiffEditorStack({
   useEffect(() => {
     const current = search.current
     if (!current) return
-    setExpandedFiles((prev) => (prev.has(current.fileKey) ? prev : new Set(prev).add(current.fileKey)))
+    setExpandedFiles((prev) =>
+      prev.has(current.fileKey) ? prev : new Set(prev).add(current.fileKey),
+    )
     virtualizer.scrollToIndex(current.fileIndex, { align: 'start' })
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [search.revealNonce])
@@ -853,55 +855,55 @@ const GitDiffEditorStack = memo(function GitDiffEditorStack({
       {searchOpen ? <DiffSearchBar search={search} onClose={closeSearch} /> : null}
 
       <DiffSearchProvider value={searchContextValue}>
-      <div
-        ref={scrollRef}
-        className="min-h-0 flex-1 overflow-auto px-2 pb-2"
-        style={{ overflowAnchor: 'none' }}
-        data-diff-stack-scroll-container
-      >
-        {isWorkingTree && multiDiff.files.length === 0 && !multiDiff.isLoading ? (
-          <div className="flex h-full items-center justify-center text-[13px] text-muted-foreground">
-            No uncommitted changes
-          </div>
-        ) : null}
         <div
-          className="relative min-w-0 max-w-full"
-          style={{ height: `${virtualizer.getTotalSize()}px` }}
+          ref={scrollRef}
+          className="min-h-0 flex-1 overflow-auto px-2 pb-2"
+          style={{ overflowAnchor: 'none' }}
+          data-diff-stack-scroll-container
         >
-          {virtualizer.getVirtualItems().map((virtualItem) => {
-            const diff = multiDiff.files[virtualItem.index]
-            if (!diff) return null
-            const sectionKey = keyForIndex(virtualItem.index)
+          {isWorkingTree && multiDiff.files.length === 0 && !multiDiff.isLoading ? (
+            <div className="flex h-full items-center justify-center text-[13px] text-muted-foreground">
+              No uncommitted changes
+            </div>
+          ) : null}
+          <div
+            className="relative min-w-0 max-w-full"
+            style={{ height: `${virtualizer.getTotalSize()}px` }}
+          >
+            {virtualizer.getVirtualItems().map((virtualItem) => {
+              const diff = multiDiff.files[virtualItem.index]
+              if (!diff) return null
+              const sectionKey = keyForIndex(virtualItem.index)
 
-            return (
-              <div
-                key={sectionKey}
-                ref={virtualizer.measureElement}
-                data-index={virtualItem.index}
-                style={{
-                  position: 'absolute',
-                  top: 0,
-                  left: 0,
-                  width: '100%',
-                  transform: `translateY(${virtualItem.start}px)`,
-                  paddingBottom: 8,
-                }}
-              >
-                <DiffFileSection
-                  diff={diff}
-                  sectionKey={sectionKey}
-                  expanded={expandedFiles.has(sectionKey)}
-                  viewMode={viewMode}
-                  enableHunkActions={isWorkingTree}
-                  enableComments={enableComments}
-                  onToggle={handleToggleSection}
-                  onOpenFile={handleOpenFile}
-                />
-              </div>
-            )
-          })}
+              return (
+                <div
+                  key={sectionKey}
+                  ref={virtualizer.measureElement}
+                  data-index={virtualItem.index}
+                  style={{
+                    position: 'absolute',
+                    top: 0,
+                    left: 0,
+                    width: '100%',
+                    transform: `translateY(${virtualItem.start}px)`,
+                    paddingBottom: 8,
+                  }}
+                >
+                  <DiffFileSection
+                    diff={diff}
+                    sectionKey={sectionKey}
+                    expanded={expandedFiles.has(sectionKey)}
+                    viewMode={viewMode}
+                    enableHunkActions={isWorkingTree}
+                    enableComments={enableComments}
+                    onToggle={handleToggleSection}
+                    onOpenFile={handleOpenFile}
+                  />
+                </div>
+              )
+            })}
+          </div>
         </div>
-      </div>
       </DiffSearchProvider>
     </div>
   )

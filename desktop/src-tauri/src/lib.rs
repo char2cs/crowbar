@@ -44,30 +44,36 @@ static CA_FRAME_RATE_RANGE_FIELDS: [objc2::encode::Encoding; 3] = [
 ];
 
 #[cfg(target_os = "macos")]
+const CA_FRAME_RATE_RANGE_ENCODING: objc2::encode::Encoding =
+    objc2::encode::Encoding::Struct("CAFrameRateRange", &CA_FRAME_RATE_RANGE_FIELDS);
+
+#[cfg(target_os = "macos")]
 unsafe impl objc2::encode::Encode for CAFrameRateRange {
-    const ENCODING: objc2::encode::Encoding =
-        objc2::encode::Encoding::Struct("CAFrameRateRange", &CA_FRAME_RATE_RANGE_FIELDS);
+    const ENCODING: objc2::encode::Encoding = CA_FRAME_RATE_RANGE_ENCODING;
 }
 
 #[cfg(target_os = "macos")]
 unsafe impl objc2::encode::RefEncode for CAFrameRateRange {
     const ENCODING_REF: objc2::encode::Encoding =
-        objc2::encode::Encoding::Pointer(&objc2::encode::Encoding::Struct(
-            "CAFrameRateRange",
-            &CA_FRAME_RATE_RANGE_FIELDS,
-        ));
+        objc2::encode::Encoding::Pointer(&CA_FRAME_RATE_RANGE_ENCODING);
 }
 
 #[cfg(target_os = "macos")]
 unsafe fn disable_webkit_60fps_cap_early() {
-    use objc2::runtime::{AnyClass, AnyObject, Bool};
     use objc2::msg_send;
+    use objc2::runtime::{AnyClass, AnyObject, Bool};
 
-    let Some(defaults_cls) = AnyClass::get(c"NSUserDefaults") else { return };
+    let Some(defaults_cls) = AnyClass::get(c"NSUserDefaults") else {
+        return;
+    };
     let defaults: *mut AnyObject = unsafe { msg_send![defaults_cls, standardUserDefaults] };
-    if defaults.is_null() { return }
+    if defaults.is_null() {
+        return;
+    }
 
-    let Some(str_cls) = AnyClass::get(c"NSString") else { return };
+    let Some(str_cls) = AnyClass::get(c"NSString") else {
+        return;
+    };
 
     for key in [
         b"WebKitPreferPageRenderingUpdatesNear60FPSEnabled\0" as &[u8],
@@ -75,7 +81,9 @@ unsafe fn disable_webkit_60fps_cap_early() {
     ] {
         let nskey: *mut AnyObject =
             unsafe { msg_send![str_cls, stringWithUTF8String: key.as_ptr()] };
-        if nskey.is_null() { continue }
+        if nskey.is_null() {
+            continue;
+        }
         let _: () = unsafe { msg_send![defaults, setBool: Bool::new(false), forKey: nskey] };
     }
     log::info!("ProMotion: NSUserDefaults 60fps keys cleared");
@@ -87,8 +95,8 @@ unsafe fn disable_webkit_60fps_cap_early() {
 // (extern "C" context where ObjC exceptions can't unwind → SIGABRT).
 #[cfg(target_os = "macos")]
 unsafe fn disable_webkit_60fps_cap_post(wkwebview_ptr: *mut objc2::runtime::AnyObject) {
-    use objc2::runtime::{AnyObject, Bool};
     use objc2::msg_send;
+    use objc2::runtime::{AnyObject, Bool};
 
     // Step A: remove the 60fps cap from WKPreferences.
     let config: *mut AnyObject = msg_send![wkwebview_ptr, configuration];
@@ -115,7 +123,11 @@ unsafe fn disable_webkit_60fps_cap_post(wkwebview_ptr: *mut objc2::runtime::AnyO
     let sel_pfr = objc2::sel!(setPreferredFrameRateRange:);
     let has_pfr: Bool = msg_send![wkwebview_ptr, respondsToSelector: sel_pfr];
     if has_pfr.as_bool() {
-        let range = CAFrameRateRange { minimum: 120.0, maximum: 120.0, preferred: 120.0 };
+        let range = CAFrameRateRange {
+            minimum: 120.0,
+            maximum: 120.0,
+            preferred: 120.0,
+        };
         let _: () = msg_send![wkwebview_ptr, setPreferredFrameRateRange: range];
         log::info!("ProMotion: preferredFrameRateRange locked to 120fps");
     } else {
@@ -164,6 +176,7 @@ const CROWBAR_BOOTSTRAP: &str = r#"
 ///   - Window > Close (Cmd+W): natively closes the window, quitting the app.
 ///     Omitting frees Cmd+W for the in-app "close active tab" keybinding
 ///     (web/src/features/panes/hooks/use-pane-keyboard.ts).
+///
 /// Everything else standard is kept: Cut/Copy/Paste/Select-All, Hide, Services,
 /// Quit (Cmd+Q), Minimize.
 #[cfg(target_os = "macos")]
@@ -229,8 +242,10 @@ fn set_vibrancy_appearance(window: tauri::WebviewWindow, dark: bool) -> Result<(
                 return Err("set_vibrancy_appearance must run on the main thread".into());
             }
 
-            let ns_window =
-                window.ns_window().map_err(|e| format!("ns_window() failed: {e}"))? as *mut AnyObject;
+            let ns_window = window
+                .ns_window()
+                .map_err(|e| format!("ns_window() failed: {e}"))?
+                as *mut AnyObject;
             if ns_window.is_null() {
                 return Err("ns_window is null".into());
             }
@@ -290,7 +305,9 @@ fn set_vibrancy_appearance(window: tauri::WebviewWindow, dark: bool) -> Result<(
 pub fn run() {
     // Step 1: NSUserDefaults before WKWebView creation (macOS 13-15 path).
     #[cfg(target_os = "macos")]
-    unsafe { disable_webkit_60fps_cap_early() }
+    unsafe {
+        disable_webkit_60fps_cap_early()
+    }
 
     let mut builder = tauri::Builder::default()
         // tauri-plugin-macos-fps uses the `_features` private selector which was
@@ -343,7 +360,9 @@ pub fn run() {
             // `transparent: true` + `macOSPrivateApi: true` (set in tauri.conf.json).
             #[cfg(target_os = "macos")]
             if let Some(window) = app.get_webview_window("main") {
-                use window_vibrancy::{apply_vibrancy, NSVisualEffectMaterial, NSVisualEffectState};
+                use window_vibrancy::{
+                    apply_vibrancy, NSVisualEffectMaterial, NSVisualEffectState,
+                };
                 if let Err(e) = apply_vibrancy(
                     &window,
                     NSVisualEffectMaterial::HudWindow,
@@ -371,8 +390,7 @@ pub fn run() {
             Ok(())
         })
         .on_window_event(|window, event| {
-            if let tauri::WindowEvent::CloseRequested { .. } | tauri::WindowEvent::Destroyed =
-                event
+            if let tauri::WindowEvent::CloseRequested { .. } | tauri::WindowEvent::Destroyed = event
             {
                 if let Some(state) = window.try_state::<sidecar::SidecarHandle>() {
                     if let Some(child) = state.child.lock().unwrap().take() {
@@ -386,8 +404,8 @@ pub fn run() {
                             // SIGTERM — request orderly shutdown.
                             unsafe { libc::kill(pid, libc::SIGTERM) };
                             // Wait up to 3 s for the daemon to exit cleanly.
-                            let deadline = std::time::Instant::now()
-                                + std::time::Duration::from_secs(3);
+                            let deadline =
+                                std::time::Instant::now() + std::time::Duration::from_secs(3);
                             while std::time::Instant::now() < deadline {
                                 std::thread::sleep(std::time::Duration::from_millis(100));
                                 // kill(pid, 0) returns 0 while the process exists.

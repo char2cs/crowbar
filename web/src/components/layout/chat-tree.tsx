@@ -178,7 +178,6 @@ function ChatTreeInner({ wsId }: ChatTreeProps) {
           </div>
         </div>
       </div>
-
     </div>
   )
 }

@@ -52,9 +52,7 @@ export async function performCreateWorkspace(
  * toast needed.
  */
 export async function performDeleteWorkspace(wsId: string): Promise<void> {
-  const repo = useSidebarStore
-    .getState()
-    .repos.find((r) => r.workspaces.some((w) => w.id === wsId))
+  const repo = useSidebarStore.getState().repos.find((r) => r.workspaces.some((w) => w.id === wsId))
   const ws = repo?.workspaces.find((w) => w.id === wsId)
   if (!repo || !ws || ws.status === 'locked') return
   const projectId = repo.projectId
@@ -236,9 +234,7 @@ export function WorkspaceTreeProvider({ children }: { children: ReactNode }) {
       const unsub = useSidebarStore.subscribe((state) => {
         const repo = state.repos.find((r) => r.id === repoId)
         if (!repo) return
-        const found = repo.workspaces.find(
-          (w) => w.branch === branch && w.parentId === parentId,
-        )
+        const found = repo.workspaces.find((w) => w.branch === branch && w.parentId === parentId)
         if (found) {
           clearPendingCreate(tempId)
           unsub()

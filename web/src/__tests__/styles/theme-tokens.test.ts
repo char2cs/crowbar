@@ -84,7 +84,9 @@ describe('theme.css syntax tokens', () => {
       const hex = cssColorToHex(raw as string)
       expect(hex, `--syntax-${key} unparseable`).toBeTruthy()
       const ratio = contrast(hex as string, bg as string)
-      expect(ratio, `--syntax-${key} contrast ${ratio.toFixed(2)} < 4.5`).toBeGreaterThanOrEqual(4.5)
+      expect(ratio, `--syntax-${key} contrast ${ratio.toFixed(2)} < 4.5`).toBeGreaterThanOrEqual(
+        4.5,
+      )
     }
   })
 
@@ -97,7 +99,9 @@ describe('theme.css syntax tokens', () => {
       const hex = cssColorToHex(raw as string)
       expect(hex, `--syntax-${key} unparseable`).toBeTruthy()
       const ratio = contrast(hex as string, bg)
-      expect(ratio, `--syntax-${key} contrast ${ratio.toFixed(2)} < 4.5`).toBeGreaterThanOrEqual(4.5)
+      expect(ratio, `--syntax-${key} contrast ${ratio.toFixed(2)} < 4.5`).toBeGreaterThanOrEqual(
+        4.5,
+      )
     }
   })
 })

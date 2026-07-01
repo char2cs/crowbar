@@ -29,7 +29,13 @@ export function ContextPill() {
 
   const activeWorkspaceId = parseWorkspaceScopeFromPath(pathname)?.wsId
   const isHomeRoute = !activeWorkspaceId && /\/ide\/[^/]+\/home$/.test(pathname)
-  const model = deriveContextPillModel({ activeWorkspaceId, isHomeRoute, repos, projects, activeProjectId })
+  const model = deriveContextPillModel({
+    activeWorkspaceId,
+    isHomeRoute,
+    repos,
+    projects,
+    activeProjectId,
+  })
 
   if (model.kind === 'empty') return null
 
@@ -37,13 +43,13 @@ export function ContextPill() {
     <div className="shrink-0 px-2 pt-0 pb-1">
       <CommandDialog open={open} onOpenChange={setOpen}>
         <CommandDialogTrigger
-          render={(
+          render={
             <Button
               variant="ghost"
               aria-label="Switch workspace"
               className="h-auto w-full justify-start gap-2 rounded-lg bg-sidebar-element-idle px-3 py-1.5 font-mono font-normal hover:bg-sidebar-element-hover sm:h-auto"
             />
-          )}
+          }
         >
           {model.kind === 'workspace' ? (
             <span className="flex w-full min-w-0 items-center gap-2">
@@ -64,8 +70,12 @@ export function ContextPill() {
           ) : model.kind === 'home' ? (
             <span className="flex w-full min-w-0 items-center gap-2">
               <span className="flex min-w-0 flex-1 flex-col items-start gap-0.5 text-left leading-tight">
-                <span className="truncate font-mono text-xs text-foreground/70">{model.projectName}</span>
-                <span className="truncate font-mono text-[13px] font-semibold text-foreground">home</span>
+                <span className="truncate font-mono text-xs text-foreground/70">
+                  {model.projectName}
+                </span>
+                <span className="truncate font-mono text-[13px] font-semibold text-foreground">
+                  home
+                </span>
               </span>
               <span className="flex shrink-0 scale-110 text-foreground/70">
                 <House size={14} weight="fill" />

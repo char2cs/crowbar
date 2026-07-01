@@ -36,7 +36,9 @@ export function NavStack({ children }: NavStackProps) {
             key={screen.id}
             className={cn(
               'absolute inset-0 flex flex-col transition-[transform,opacity] duration-[280ms] ease-[cubic-bezier(0.4,0,0.2,1)]',
-              isTop ? 'translate-x-0 opacity-100' : '-translate-x-1/4 opacity-0 pointer-events-none',
+              isTop
+                ? 'translate-x-0 opacity-100'
+                : '-translate-x-1/4 opacity-0 pointer-events-none',
               !isTop && 'translate-x-full',
             )}
           >
@@ -63,9 +65,7 @@ export function NavStack({ children }: NavStackProps) {
               </span>
             </div>
 
-            <div className="flex flex-1 flex-col overflow-hidden">
-              {screen.component}
-            </div>
+            <div className="flex flex-1 flex-col overflow-hidden">{screen.component}</div>
           </div>
         )
       })}

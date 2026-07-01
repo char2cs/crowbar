@@ -1,8 +1,6 @@
 import { useCallback, useEffect } from 'react'
 import { useShallow } from 'zustand/react/shallow'
-import {
-  useWorkspaceStore,
-} from '@/features/workspace/stores/workspace-context'
+import { useWorkspaceStore } from '@/features/workspace/stores/workspace-context'
 import { useSidebarStore } from '@/lib/store/sidebar'
 import { getReview } from '../api/review-api'
 import { ReviewDiffTab } from './review-diff-tab'

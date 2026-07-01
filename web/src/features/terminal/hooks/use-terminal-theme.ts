@@ -66,9 +66,22 @@ export function buildTerminalTheme(
   } as TerminalTheme
 
   const keys: TerminalAnsiKey[] = [
-    'black', 'red', 'green', 'yellow', 'blue', 'magenta', 'cyan', 'white',
-    'bright-black', 'bright-red', 'bright-green', 'bright-yellow',
-    'bright-blue', 'bright-magenta', 'bright-cyan', 'bright-white',
+    'black',
+    'red',
+    'green',
+    'yellow',
+    'blue',
+    'magenta',
+    'cyan',
+    'white',
+    'bright-black',
+    'bright-red',
+    'bright-green',
+    'bright-yellow',
+    'bright-blue',
+    'bright-magenta',
+    'bright-cyan',
+    'bright-white',
   ]
   for (const key of keys) {
     theme[camel(key)] = ansi[key] ?? ANSI_FALLBACK

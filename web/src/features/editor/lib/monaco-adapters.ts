@@ -1,8 +1,5 @@
 import { editor as monacoEditor, Uri } from 'monaco-editor'
-import type {
-  IEditorLike,
-  MonacoEditorApi,
-} from '@/features/editor/lib/editor-manager'
+import type { IEditorLike, MonacoEditorApi } from '@/features/editor/lib/editor-manager'
 import type { IModelLike, MonacoModelApi } from '@/features/editor/lib/model-registry'
 import { uriToFsPath } from '@/features/editor/lib/editor-uri'
 import { getLanguageIdFromPath } from '@/features/editor/utils/language-id'
@@ -17,39 +14,38 @@ import { toMonacoLanguageId } from '@/features/editor/monaco/language'
  * `automaticLayout: false` (the manager drives layout) and `editContext: false`
  * (the Monaco 0.55 EditContext perf workaround).
  */
-export const EDITOR_CREATE_OPTIONS: monacoEditor.IStandaloneEditorConstructionOptions =
-  {
-    // The retained per-pane widget is laid out by the surface's ResizeObserver
-    // (rAF-debounced, suppressed during a pane-resize drag and flushed on
-    // pane-resize-end) — keeping editor.layout() off the per-frame drag path so
-    // the GPU layer-promotion (editor-theme.css) can keep resize smooth.
-    automaticLayout: false,
-    // Monaco 0.55 enables the experimental EditContext input mode by default on
-    // Chromium. Its post-render handler (_updateSelectionAndControlBoundsAfterRender)
-    // calls getDomNodePagePosition — a getBoundingClientRect walk up the offsetParent
-    // chain — on every selection/render. Profiling a drag-select across split panes
-    // showed this as the dominant cost (INP 564ms → 178ms, forced reflow 768ms → 391ms
-    // once disabled). Fall back to the classic hidden-textarea input path.
-    editContext: false,
-    insertSpaces: true,
-    detectIndentation: false,
-    minimap: { enabled: false },
-    scrollBeyondLastLine: false,
-    occurrencesHighlight: 'off',
-    selectionHighlight: true,
-    quickSuggestions: true,
-    suggestOnTriggerCharacters: true,
-    parameterHints: { enabled: true },
-    cursorStyle: 'line',
-    cursorBlinking: 'blink',
-    contextmenu: false,
-    overviewRulerLanes: 0,
-    fixedOverflowWidgets: true,
-    scrollbar: {
-      vertical: 'auto',
-      horizontal: 'auto',
-    },
-  }
+export const EDITOR_CREATE_OPTIONS: monacoEditor.IStandaloneEditorConstructionOptions = {
+  // The retained per-pane widget is laid out by the surface's ResizeObserver
+  // (rAF-debounced, suppressed during a pane-resize drag and flushed on
+  // pane-resize-end) — keeping editor.layout() off the per-frame drag path so
+  // the GPU layer-promotion (editor-theme.css) can keep resize smooth.
+  automaticLayout: false,
+  // Monaco 0.55 enables the experimental EditContext input mode by default on
+  // Chromium. Its post-render handler (_updateSelectionAndControlBoundsAfterRender)
+  // calls getDomNodePagePosition — a getBoundingClientRect walk up the offsetParent
+  // chain — on every selection/render. Profiling a drag-select across split panes
+  // showed this as the dominant cost (INP 564ms → 178ms, forced reflow 768ms → 391ms
+  // once disabled). Fall back to the classic hidden-textarea input path.
+  editContext: false,
+  insertSpaces: true,
+  detectIndentation: false,
+  minimap: { enabled: false },
+  scrollBeyondLastLine: false,
+  occurrencesHighlight: 'off',
+  selectionHighlight: true,
+  quickSuggestions: true,
+  suggestOnTriggerCharacters: true,
+  parameterHints: { enabled: true },
+  cursorStyle: 'line',
+  cursorBlinking: 'blink',
+  contextmenu: false,
+  overviewRulerLanes: 0,
+  fixedOverflowWidgets: true,
+  scrollbar: {
+    vertical: 'auto',
+    horizontal: 'auto',
+  },
+}
 
 /** Monaco language id for a model URI (uri → fs path → athas id → monaco id). */
 export function langForUri(uri: string): string {
@@ -72,11 +68,7 @@ function wrapModel(model: monacoEditor.ITextModel): IModelLike {
       if (model.getValue() === text) return
       // pushEditOperations replaces the full range as a single undoable edit,
       // preserving the existing undo stack (unlike setValue, which resets it).
-      model.pushEditOperations(
-        null,
-        [{ range: model.getFullModelRange(), text }],
-        () => null,
-      )
+      model.pushEditOperations(null, [{ range: model.getFullModelRange(), text }], () => null)
     },
   }
 }

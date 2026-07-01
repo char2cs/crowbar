@@ -235,7 +235,8 @@ export const useEditorAppStore = createSelectors(
           const { buffers, panes, activePaneId } = wsStore
           // Pin to the explicitly-targeted buffer when provided (I3); otherwise
           // fall back to the active buffer (legacy seam behavior).
-          const targetBufferId = options?.targetBufferId ?? panes[activePaneId]?.activeBufferId ?? null
+          const targetBufferId =
+            options?.targetBufferId ?? panes[activePaneId]?.activeBufferId ?? null
           const { settings } = useSettingsStore.getState()
           const { markPendingSave } = useFileWatcherStore.getState()
           const contentAlreadyApplied = options?.contentAlreadyApplied === true

@@ -44,10 +44,11 @@ beforeEach(() => {
   // Stub fetch for terminalCreate POST.
   vi.stubGlobal(
     'fetch',
-    vi.fn(async () =>
-      new Response(JSON.stringify({ success: true, data: { sessionId: 'conn-1' } }), {
-        status: 200,
-      }),
+    vi.fn(
+      async () =>
+        new Response(JSON.stringify({ success: true, data: { sessionId: 'conn-1' } }), {
+          status: 200,
+        }),
     ),
   )
 })

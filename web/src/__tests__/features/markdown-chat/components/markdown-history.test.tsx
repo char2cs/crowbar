@@ -21,12 +21,10 @@ vi.mock('mermaid', () => ({
   default: { initialize: vi.fn(), render: vi.fn().mockResolvedValue({ svg: '<svg/>' }) },
 }))
 
-const { MarkdownHistory } = await import(
-  '@/features/markdown-chat/components/markdown/markdown-history'
-)
-const { getOrCreateConversationStore, destroyConversationStore } = await import(
-  '@/features/markdown-chat/stores/conversation-store'
-)
+const { MarkdownHistory } =
+  await import('@/features/markdown-chat/components/markdown/markdown-history')
+const { getOrCreateConversationStore, destroyConversationStore } =
+  await import('@/features/markdown-chat/stores/conversation-store')
 
 const CHAT_ID = 'history-rerender-test'
 
@@ -124,9 +122,7 @@ describe('MarkdownHistory streaming re-render isolation (H12)', () => {
 
   test('memoized TurnItem skips re-render for an unchanged turn reference', () => {
     const turns = [finalizedTurn('done-1', 'alpha'), finalizedTurn('done-2', 'beta')]
-    const { rerender } = render(
-      <MarkdownHistory turns={turns} onWidgetChange={onWidgetChange} />,
-    )
+    const { rerender } = render(<MarkdownHistory turns={turns} onWidgetChange={onWidgetChange} />)
     expect(parseCounts.get('alpha')).toBe(1)
     expect(parseCounts.get('beta')).toBe(1)
 

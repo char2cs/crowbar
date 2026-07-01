@@ -134,9 +134,7 @@ describe('buffer-slice', () => {
     })
     localStore.getState().bufferActions.closeBuffer(id)
     // clearReconnect fires after killTerminalSession completes (both in the same async chain)
-    await vi.waitFor(() =>
-      expect(clearReconnect).toHaveBeenCalledWith('ws-99', 'sess-reconnect'),
-    )
+    await vi.waitFor(() => expect(clearReconnect).toHaveBeenCalledWith('ws-99', 'sess-reconnect'))
   })
 
   // H10: each "New Conversation" mints a fresh wsId-keyed conversation store

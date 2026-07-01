@@ -13,23 +13,42 @@ export interface IEditorLike {
    *  (e.g. test fakes that don't model one). */
   raw(): unknown
 }
-export interface MonacoEditorApi { create(container: HTMLElement): IEditorLike }
-export interface BufferMeta { lang(uri: string): string; text(uri: string): string }
+export interface MonacoEditorApi {
+  create(container: HTMLElement): IEditorLike
+}
+export interface BufferMeta {
+  lang(uri: string): string
+  text(uri: string): string
+}
 
-interface PaneState { editor: IEditorLike; currentUri: string | null; held: Set<string> }
+interface PaneState {
+  editor: IEditorLike
+  currentUri: string | null
+  held: Set<string>
+}
 
 /** Owns one retained Monaco widget per pane. Tab switch = model swap (not remount);
  *  a model stays alive while its file is OPEN in the pane (held), not just visible. */
 export class EditorManager {
   private panes = new Map<string, PaneState>()
   private viewState = new Map<string, unknown>() // key: `${paneId} ${uri}`
-  constructor(private editorApi: MonacoEditorApi, private registry: ModelRegistry, private meta: BufferMeta) {}
+  constructor(
+    private editorApi: MonacoEditorApi,
+    private registry: ModelRegistry,
+    private meta: BufferMeta,
+  ) {}
 
-  private vsKey(paneId: string, uri: string) { return `${paneId} ${uri}` }
+  private vsKey(paneId: string, uri: string) {
+    return `${paneId} ${uri}`
+  }
 
   mountPane(paneId: string, container: HTMLElement): void {
     if (this.panes.has(paneId)) return
-    this.panes.set(paneId, { editor: this.editorApi.create(container), currentUri: null, held: new Set() })
+    this.panes.set(paneId, {
+      editor: this.editorApi.create(container),
+      currentUri: null,
+      held: new Set(),
+    })
   }
 
   showBuffer(paneId: string, uri: string): void {
@@ -41,7 +60,9 @@ export class EditorManager {
     }
     let model: IModelLike
     if (pane.held.has(uri)) {
-      model = this.registry.get(uri) ?? this.registry.acquire(uri, this.meta.lang(uri), this.meta.text(uri))
+      model =
+        this.registry.get(uri) ??
+        this.registry.acquire(uri, this.meta.lang(uri), this.meta.text(uri))
     } else {
       model = this.registry.acquire(uri, this.meta.lang(uri), this.meta.text(uri))
       pane.held.add(uri)
@@ -88,10 +109,19 @@ export class EditorManager {
     model?.setValueIfChanged(text)
   }
 
-  getEditor(paneId: string): IEditorLike | undefined { return this.panes.get(paneId)?.editor }
+  getEditor(paneId: string): IEditorLike | undefined {
+    return this.panes.get(paneId)?.editor
+  }
   /** The underlying monaco standalone editor for a pane, for the React controller
    *  to apply `updateOptions` and attach listeners. Cast at the call site. */
-  getRawEditor(paneId: string): unknown { return this.panes.get(paneId)?.editor.raw() ?? null }
-  layoutPane(paneId: string): void { this.panes.get(paneId)?.editor.layout() }
-  disposeAll(): void { for (const id of [...this.panes.keys()]) this.unmountPane(id); this.registry.disposeAll() }
+  getRawEditor(paneId: string): unknown {
+    return this.panes.get(paneId)?.editor.raw() ?? null
+  }
+  layoutPane(paneId: string): void {
+    this.panes.get(paneId)?.editor.layout()
+  }
+  disposeAll(): void {
+    for (const id of [...this.panes.keys()]) this.unmountPane(id)
+    this.registry.disposeAll()
+  }
 }

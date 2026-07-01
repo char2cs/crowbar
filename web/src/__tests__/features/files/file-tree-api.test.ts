@@ -46,7 +46,9 @@ describe('fetchFileTree', () => {
   it('encodes the path query for a subdirectory', async () => {
     ;(apiFetch as ReturnType<typeof vi.fn>).mockResolvedValue([])
     await fetchFileTree('ws-1', 'src/utils')
-    expect(apiFetch).toHaveBeenCalledWith('/v0/projects/p1/repos/r1/workspaces/ws-1/files/tree?path=src%2Futils')
+    expect(apiFetch).toHaveBeenCalledWith(
+      '/v0/projects/p1/repos/r1/workspaces/ws-1/files/tree?path=src%2Futils',
+    )
   })
 })
 

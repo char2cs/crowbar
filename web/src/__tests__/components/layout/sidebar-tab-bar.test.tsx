@@ -8,37 +8,48 @@ import { getInitialState, useSidebarStore } from '@/lib/store/sidebar'
 // that diverges from react-dom's singleton in the vitest/jsdom process, causing
 // "Cannot read properties of null (reading 'useRef')". Mock Tabs component to
 // a simple wrapper so tests can exercise the component's logic.
+interface TabsInjectedProps {
+  _tabsValue?: string
+  _onValueChange?: (value: string) => void
+}
+
+interface TabsProps extends TabsInjectedProps {
+  children?: React.ReactNode
+  value?: string
+  onValueChange?: (value: string) => void
+  className?: string
+}
+
+interface TabsTabProps extends TabsInjectedProps {
+  children?: React.ReactNode
+  value?: string
+  className?: string
+}
+
 vi.mock('@/components/ui/tabs', () => ({
-  Tabs: ({ children, value, onValueChange, className }: any) => {
+  Tabs: ({ children, value, onValueChange, className }: TabsProps) => {
     // Pass value and onValueChange through context-like props to children
     const processedChildren = React.Children.map(children, (child) => {
-      if (!React.isValidElement(child)) return child
-      return React.cloneElement(child, { _tabsValue: value, _onValueChange: onValueChange } as any)
+      if (!React.isValidElement<TabsInjectedProps>(child)) return child
+      return React.cloneElement(child, { _tabsValue: value, _onValueChange: onValueChange })
     })
     return React.createElement('div', { 'data-testid': 'tabs', className }, processedChildren)
   },
-  TabsList: ({ children, className, _tabsValue, _onValueChange }: any) => {
+  TabsList: ({ children, className, _tabsValue, _onValueChange }: TabsProps) => {
     const processedChildren = React.Children.map(children, (child) => {
-      if (!React.isValidElement(child)) return child
-      return React.cloneElement(child, { _tabsValue, _onValueChange } as any)
+      if (!React.isValidElement<TabsInjectedProps>(child)) return child
+      return React.cloneElement(child, { _tabsValue, _onValueChange })
     })
     return React.createElement('div', { 'data-testid': 'tabs-list', className }, processedChildren)
   },
-  TabsTab: ({
-    children,
-    value,
-    className,
-    _tabsValue,
-    _onValueChange,
-    ...props
-  }: any) =>
+  TabsTab: ({ children, value, className, _tabsValue, _onValueChange, ...props }: TabsTabProps) =>
     React.createElement(
       'button',
       {
         role: 'tab',
         'aria-selected': value === _tabsValue ? 'true' : 'false',
         className,
-        onClick: () => _onValueChange?.(value),
+        onClick: () => _onValueChange?.(value ?? ''),
         ...props,
       },
       children,
@@ -51,13 +62,29 @@ vi.mock('@/components/ui/tabs', () => ({
 // ESM singleton issue.
 vi.mock('@phosphor-icons/react', () => ({
   SquaresFour: ({ size, weight }: { size?: number; weight?: string }) =>
-    React.createElement('svg', { 'data-icon': 'squares-four', 'data-size': size, 'data-weight': weight }),
+    React.createElement('svg', {
+      'data-icon': 'squares-four',
+      'data-size': size,
+      'data-weight': weight,
+    }),
   ChatsCircle: ({ size, weight }: { size?: number; weight?: string }) =>
-    React.createElement('svg', { 'data-icon': 'chats-circle', 'data-size': size, 'data-weight': weight }),
+    React.createElement('svg', {
+      'data-icon': 'chats-circle',
+      'data-size': size,
+      'data-weight': weight,
+    }),
   FolderOpen: ({ size, weight }: { size?: number; weight?: string }) =>
-    React.createElement('svg', { 'data-icon': 'folder-open', 'data-size': size, 'data-weight': weight }),
+    React.createElement('svg', {
+      'data-icon': 'folder-open',
+      'data-size': size,
+      'data-weight': weight,
+    }),
   GitBranch: ({ size, weight }: { size?: number; weight?: string }) =>
-    React.createElement('svg', { 'data-icon': 'git-branch', 'data-size': size, 'data-weight': weight }),
+    React.createElement('svg', {
+      'data-icon': 'git-branch',
+      'data-size': size,
+      'data-weight': weight,
+    }),
 }))
 
 let mockMatch: object | null = null

@@ -103,9 +103,7 @@ export function createWorkspaceStore(wsId: string, snapshot?: WorkspaceSnapshot)
     lang: (uri) => langForUri(uri),
     text: (uri) => {
       const fsPath = uriToFsPath(uri)
-      const buf = store
-        .getState()
-        .buffers.find((b) => b.type === 'editor' && b.path === fsPath)
+      const buf = store.getState().buffers.find((b) => b.type === 'editor' && b.path === fsPath)
       return buf && 'content' in buf ? buf.content : ''
     },
   }

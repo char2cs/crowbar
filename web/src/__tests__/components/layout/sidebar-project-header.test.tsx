@@ -26,8 +26,7 @@ vi.mock('@/features/window/stores/ui-state-store', () => ({
 
 let sidebarPosition: 'left' | 'right' = 'left'
 vi.mock('@/features/settings/store', () => ({
-  useSettingsStore: (sel: (s: unknown) => unknown) =>
-    sel({ settings: { sidebarPosition } }),
+  useSettingsStore: (sel: (s: unknown) => unknown) => sel({ settings: { sidebarPosition } }),
 }))
 
 import { SidebarProjectHeader } from '@/components/layout/sidebar-project-header'

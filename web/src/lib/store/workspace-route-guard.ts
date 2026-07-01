@@ -19,8 +19,6 @@ export function shouldRedirectUnknownWorkspace(
   if (!wsId) return false
   if (listStatus !== 'success') return false
   return !repos.some(
-    (repo) =>
-      repo.defaultWorkspaceId === wsId ||
-      repo.workspaces.some((ws) => ws.id === wsId),
+    (repo) => repo.defaultWorkspaceId === wsId || repo.workspaces.some((ws) => ws.id === wsId),
   )
 }

@@ -142,9 +142,7 @@ function MessageRow({
       <div className="min-w-0 flex-1">
         <div className="mb-1 flex items-baseline gap-1.5">
           <span className="font-semibold text-sm text-foreground">{display.name}</span>
-          {display.login && (
-            <span className="text-xs text-muted-foreground">@{display.login}</span>
-          )}
+          {display.login && <span className="text-xs text-muted-foreground">@{display.login}</span>}
           {display.isAgent && (
             <Badge variant="outline" className="h-4 border-primary/30 px-1 text-xs text-primary">
               agent
@@ -224,7 +222,10 @@ export function ReviewThreadItem({
   if (isOutdated && !outdatedExpanded) {
     return (
       <div className="my-1 flex items-center gap-2 px-3 py-1 text-xs text-muted-foreground/40">
-        <Badge variant="outline" className="h-4 border-border/40 px-1 text-xs text-muted-foreground/60">
+        <Badge
+          variant="outline"
+          className="h-4 border-border/40 px-1 text-xs text-muted-foreground/60"
+        >
           Outdated
         </Badge>
         <Button variant="link" size="xs" onClick={() => setOutdatedExpanded(true)}>
@@ -299,7 +300,10 @@ export function ReviewThreadItem({
     >
       {isOutdated && (
         <div className="flex items-center gap-1.5 border-b border-border/40 px-3 py-1">
-          <Badge variant="outline" className="h-4 border-border/40 px-1 text-xs text-muted-foreground/60">
+          <Badge
+            variant="outline"
+            className="h-4 border-border/40 px-1 text-xs text-muted-foreground/60"
+          >
             Outdated
           </Badge>
         </div>

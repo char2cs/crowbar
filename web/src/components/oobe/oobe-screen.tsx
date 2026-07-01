@@ -158,7 +158,7 @@ function PrerequisitesStep({
             !visible.git
               ? 'Checking…'
               : prereqs?.git.installed
-                ? prereqs.git.version ?? 'Installed'
+                ? (prereqs.git.version ?? 'Installed')
                 : 'Not found — install from git-scm.com'
           }
           status={gitStatus}
@@ -244,8 +244,8 @@ function AddProjectStep({ onChooseFolder }: { onChooseFolder: () => void }) {
           They don't have to be inside the project folder — but it's a natural home for them.
         </p>
         <p className="mt-2 text-sm leading-relaxed text-white/60">
-          Projects are also where cross-repo plans, chats, and context get saved. Think of it as
-          the shared memory for everything you're building.
+          Projects are also where cross-repo plans, chats, and context get saved. Think of it as the
+          shared memory for everything you're building.
         </p>
       </div>
 
@@ -289,7 +289,11 @@ export function OobeScreen() {
       .catch(() => {
         if (cancelled) return
         // Surface failures as "not installed" so the UI can still guide the user
-        setPrereqs({ git: { installed: false }, gh: { installed: false, authed: false }, glab: { installed: false, authed: false } })
+        setPrereqs({
+          git: { installed: false },
+          gh: { installed: false, authed: false },
+          glab: { installed: false, authed: false },
+        })
         timers.push(setTimeout(() => setVisible((v) => ({ ...v, git: true })), 300))
         timers.push(setTimeout(() => setVisible((v) => ({ ...v, gh: true })), 650))
         timers.push(setTimeout(() => setVisible((v) => ({ ...v, glab: true })), 1000))
@@ -361,44 +365,44 @@ export function OobeScreen() {
               transition={{ duration: 0.3 }}
               className="absolute inset-0 z-10 flex items-center justify-center p-6"
             >
-            <div className="w-full max-w-md rounded-3xl border border-white/20 bg-white/10 p-10 shadow-2xl backdrop-blur-2xl">
-              {/* Logo pinned to top of card */}
-              <div className="mb-8 flex justify-center">
-                <CrowbarWordmark className="w-[min(180px,28vw)] text-white" />
+              <div className="w-full max-w-md rounded-3xl border border-white/20 bg-white/10 p-10 shadow-2xl backdrop-blur-2xl">
+                {/* Logo pinned to top of card */}
+                <div className="mb-8 flex justify-center">
+                  <CrowbarWordmark className="w-[min(180px,28vw)] text-white" />
+                </div>
+
+                {/* Step content cross-fades inside the card */}
+                <AnimatePresence mode="wait">
+                  {step === 'prerequisites' && (
+                    <motion.div
+                      key="prereqs"
+                      initial={{ opacity: 0, y: 8 }}
+                      animate={{ opacity: 1, y: 0 }}
+                      exit={{ opacity: 0, y: -8 }}
+                      transition={{ duration: 0.2 }}
+                    >
+                      <PrerequisitesStep
+                        prereqs={prereqs}
+                        visible={visible}
+                        onContinue={() => setStep('add-project')}
+                        onRetry={() => setRetryCount((c) => c + 1)}
+                      />
+                    </motion.div>
+                  )}
+
+                  {step === 'add-project' && (
+                    <motion.div
+                      key="add-project"
+                      initial={{ opacity: 0, y: 8 }}
+                      animate={{ opacity: 1, y: 0 }}
+                      exit={{ opacity: 0, y: -8 }}
+                      transition={{ duration: 0.2 }}
+                    >
+                      <AddProjectStep onChooseFolder={() => setImportOpen(true)} />
+                    </motion.div>
+                  )}
+                </AnimatePresence>
               </div>
-
-              {/* Step content cross-fades inside the card */}
-              <AnimatePresence mode="wait">
-                {step === 'prerequisites' && (
-                  <motion.div
-                    key="prereqs"
-                    initial={{ opacity: 0, y: 8 }}
-                    animate={{ opacity: 1, y: 0 }}
-                    exit={{ opacity: 0, y: -8 }}
-                    transition={{ duration: 0.2 }}
-                  >
-                    <PrerequisitesStep
-                      prereqs={prereqs}
-                      visible={visible}
-                      onContinue={() => setStep('add-project')}
-                      onRetry={() => setRetryCount((c) => c + 1)}
-                    />
-                  </motion.div>
-                )}
-
-                {step === 'add-project' && (
-                  <motion.div
-                    key="add-project"
-                    initial={{ opacity: 0, y: 8 }}
-                    animate={{ opacity: 1, y: 0 }}
-                    exit={{ opacity: 0, y: -8 }}
-                    transition={{ duration: 0.2 }}
-                  >
-                    <AddProjectStep onChooseFolder={() => setImportOpen(true)} />
-                  </motion.div>
-                )}
-              </AnimatePresence>
-            </div>
             </motion.div>
           )}
         </AnimatePresence>

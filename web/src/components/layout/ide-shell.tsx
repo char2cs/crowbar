@@ -79,9 +79,9 @@ export function IDEShell() {
   // active project, then to the project's own path (the home workspace root).
   const allProjects = useProjectDataStore((s) => dataOf(s.data) ?? EMPTY_PROJECTS)
   const projectFallbackPath = homeRouteMatch
-    ? (repos.find((r) => r.projectId === activeProjectIdFromRoute)?.localPath
-        ?? allProjects.find((p) => p.id === activeProjectIdFromRoute)?.path
-        ?? '')
+    ? (repos.find((r) => r.projectId === activeProjectIdFromRoute)?.localPath ??
+      allProjects.find((p) => p.id === activeProjectIdFromRoute)?.path ??
+      '')
     : ''
   const activeWorkspaceRepoPath =
     activeWorkspace?.localPath ?? activeRepo?.localPath ?? projectFallbackPath
@@ -140,10 +140,7 @@ export function IDEShell() {
       <ErrorBoundary>
         <SidebarCarousel activeWorkspaceRepoPath={activeWorkspaceRepoPath} />
       </ErrorBoundary>
-      <SidebarToastOverlay
-        sidebarOpen={sidebarOpen}
-        sidebarSide={sidebarPosition ?? 'left'}
-      />
+      <SidebarToastOverlay sidebarOpen={sidebarOpen} sidebarSide={sidebarPosition ?? 'left'} />
     </div>
   )
 

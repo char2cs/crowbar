@@ -64,7 +64,12 @@ export function heuristicTokensFromLineTokens(
   const startRow = opts.emitStartRow ?? 0
   const endRow = opts.emitEndRow ?? Number.MAX_SAFE_INTEGER
   const lines = text.split('\n')
-  return heuristicTokensInRange(lineTokens, startRow, Math.min(endRow, lines.length - 1), (row) => lines[row] ?? '')
+  return heuristicTokensInRange(
+    lineTokens,
+    startRow,
+    Math.min(endRow, lines.length - 1),
+    (row) => lines[row] ?? '',
+  )
 }
 
 /**

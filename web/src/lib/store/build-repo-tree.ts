@@ -7,12 +7,22 @@ import type { RepoDTO, WorkspaceDTO } from '@/lib/types'
 export type { RepoDTO, WorkspaceDTO } from '@/lib/types'
 
 const AVATAR_COLORS = [
-  'bg-indigo-700', 'bg-emerald-700', 'bg-orange-700', 'bg-sky-700',
-  'bg-rose-700', 'bg-violet-700', 'bg-teal-700', 'bg-amber-700',
+  'bg-indigo-700',
+  'bg-emerald-700',
+  'bg-orange-700',
+  'bg-sky-700',
+  'bg-rose-700',
+  'bg-violet-700',
+  'bg-teal-700',
+  'bg-amber-700',
 ]
 
 function repoAvatarLabel(name: string): string {
-  const words = name.replace(/[^a-zA-Z\s]/g, ' ').trim().split(/\s+/).filter(Boolean)
+  const words = name
+    .replace(/[^a-zA-Z\s]/g, ' ')
+    .trim()
+    .split(/\s+/)
+    .filter(Boolean)
   if (words.length === 0) return 'R'
   if (words.length === 1) return words[0][0].toUpperCase()
   return (words[0][0] + words[1][0]).toUpperCase()

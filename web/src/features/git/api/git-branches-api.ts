@@ -18,9 +18,7 @@ interface CheckoutResult {
 
 export const getBranches = async (wsId: string): Promise<string[]> => {
   try {
-    const branches = await apiFetch<BranchDTO[]>(
-      `${workspaceBase(wsId)}/git/branches`,
-    )
+    const branches = await apiFetch<BranchDTO[]>(`${workspaceBase(wsId)}/git/branches`)
     return branches.map((b) => b.name)
   } catch {
     return []
@@ -60,10 +58,9 @@ export const createBranch = async (
 
 export const deleteBranch = async (wsId: string, branchName: string): Promise<boolean> => {
   try {
-    await apiFetch(
-      `${workspaceBase(wsId)}/git/branches/${encodeURIComponent(branchName)}`,
-      { method: 'DELETE' },
-    )
+    await apiFetch(`${workspaceBase(wsId)}/git/branches/${encodeURIComponent(branchName)}`, {
+      method: 'DELETE',
+    })
     return true
   } catch (error) {
     console.error('git delete branch failed:', error)
