@@ -14,9 +14,22 @@ const (
 // scanPartial runs a minimal ECMA-48 escape-framing state machine over b and returns the
 // trailing bytes of an incomplete escape/control sequence, or nil when b ends in ground
 // state. It recognises sequence FRAMING only (never semantics): ground, ESC, two-byte
-// ESC + intermediate, CSI (ESC [ ... final 0x40-0x7E), OSC (ESC ] ... ST or BEL), and the
-// DCS/SOS/PM/APC string family (ESC P/X/^/_ ... ST), plus the 8-bit C1 introducers, with
-// CAN (0x18) and SUB (0x1A) aborting to ground.
+// ESC + intermediate, CSI (ESC [ ... final 0x40-0x7E), OSC (ESC ] ... BEL or 7-bit ST
+// ESC \), and the DCS/SOS/PM/APC string family (ESC P/X/^/_ ... 7-bit ST), with CAN (0x18)
+// and SUB (0x1A) aborting to ground.
+//
+// UTF-8 TRANSPARENCY (the load-bearing property). The emulator this scanner shadows is fed
+// a UTF-8 byte stream, and a UTF-8 terminal does NOT decode the 8-bit C1 range (0x80-0x9F)
+// as control introducers: those bytes only ever appear as the lead or continuation bytes of
+// a multi-byte UTF-8 character (e.g. "▘" U+2598 = E2 96 98, whose 0x98 byte is the C1 SOS
+// code point). Treating them as C1 introducers (or as an 8-bit ST 0x9C terminator inside a
+// string) is exactly the defect this scanner previously had: a single box-drawing glyph mid
+// frame flipped it into a string/CSI state that then swallowed the whole rest of the frame,
+// so PendingInput() returned a hundreds-of-bytes, PRINTABLE-leading blob instead of nil.
+// Attach appends that after the clean serialize and paints app chrome into the input line.
+// The scanner is therefore restricted to the 7-bit C0/ESC framing the emulator actually
+// honours; every byte >= 0x80 is inert ground content. The one and only sequence introducer
+// is the 7-bit ESC (0x1B), so a non-nil return ALWAYS starts with ESC.
 func scanPartial(
 	b []byte,
 ) []byte {
@@ -62,18 +75,13 @@ func framingFromGround(
 	i int,
 	start int,
 ) (int, int) {
-	switch {
-	case c == 0x1b:
+	// Only the 7-bit ESC introduces a sequence. Bytes >= 0x80 are UTF-8 lead/continuation
+	// bytes in this stream, never 8-bit C1 introducers (see scanPartial's UTF-8 note), so
+	// they remain inert ground content.
+	if c == 0x1b {
 		return framingEsc, i
-	case c == 0x9b:
-		return framingCSI, i
-	case c == 0x9d:
-		return framingOSC, i
-	case c == 0x90 || c == 0x98 || c == 0x9e || c == 0x9f:
-		return framingString, i
-	default:
-		return framingGround, start
 	}
+	return framingGround, start
 }
 
 func framingFromEsc(
@@ -120,8 +128,10 @@ func framingFromCSI(
 func framingFromOSC(
 	c byte,
 ) int {
+	// BEL (7-bit) and ESC \ terminate; the 8-bit ST 0x9C is NOT honoured because a UTF-8
+	// byte inside the OSC string (e.g. a title glyph) can equal 0x9C and must not close it.
 	switch {
-	case c == 0x07 || c == 0x9c:
+	case c == 0x07:
 		return framingGround
 	case c == 0x1b:
 		return framingOSCEsc
@@ -135,9 +145,9 @@ func framingFromOSC(
 func framingFromString(
 	c byte,
 ) int {
+	// Only ESC \ (7-bit ST) and CAN/SUB terminate; the 8-bit ST 0x9C is NOT honoured, for
+	// the same UTF-8-transparency reason as framingFromOSC.
 	switch {
-	case c == 0x9c:
-		return framingGround
 	case c == 0x1b:
 		return framingStringEsc
 	case c == 0x18 || c == 0x1a:

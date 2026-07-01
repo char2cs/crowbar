@@ -63,7 +63,7 @@ func (f *fakeEmu) Height() int                 { return f.rows }
 func (f *fakeEmu) CellAt(x, y int) *uv.Cell    { return nil }
 func (f *fakeEmu) CursorPosition() uv.Position { return uv.Pos(0, 0) }
 func (f *fakeEmu) IsAltScreen() bool           { return false }
-func (f *fakeEmu) ScrollbackLen() int { return len(f.scrollback) }
+func (f *fakeEmu) ScrollbackLen() int          { return len(f.scrollback) }
 func (f *fakeEmu) ScrollbackLine(y int) uv.Line {
 	if y < 0 || y >= len(f.scrollback) {
 		return nil
@@ -392,6 +392,68 @@ func TestTrackPendingPartial(t *testing.T) {
 	m.Write(long)
 	if m.PendingInput() != nil {
 		t.Fatalf("oversized partial not dropped: %d bytes", len(m.PendingInput()))
+	}
+}
+
+// TestPendingInputNeverPrintableLeadingBlob is the re-attach corruption regression. A
+// realistic multi-write Claude-style frame — box drawing, "What's new" tips, footer, input
+// line, cursor-park — is fed across several chunks. Its final chunk ends AFTER complete draw
+// commands (ground state), so PendingInput() MUST be nil. Before the UTF-8-transparency fix
+// the box-drawing glyph "▘" (U+2598 = E2 96 98) flipped scanPartial into an 8-bit-C1 string
+// state on byte 0x98, so PendingInput() returned a hundreds-of-bytes PRINTABLE-leading blob
+// that Attach appended after the clean serialize — painting app chrome into the input line.
+func TestPendingInputNeverPrintableLeadingBlob(t *testing.T) {
+	m := newVTModel(170, 59, 1000)
+
+	// Multi-write frame. Box glyphs (U+2500 family, U+2598/U+259D quadrants) carry bytes in
+	// the 0x80-0x9F C1 range as UTF-8 continuation/lead bytes; interleaved with real CSI
+	// draw commands, exactly like Claude Code's welcome frame.
+	chunks := []string{
+		"\x1b[2J\x1b[H",
+		"╭" + strings.Repeat("─", 60) + "╮\r\n",
+		"│ ▘ ▝▝  \x1b[54G\x1b[2m│\x1b[56G\x1b[39m\x1b[22mAdded\x1b[62Gsupport\x1b[70Gfor\r\n",
+		"│ \x1b[38;2;153;153;153mOpus with me… · Claude Max\x1b[39m\r\n",
+		"╰" + strings.Repeat("─", 60) + "╯\r\n",
+		"\x1b[59;3H> ", // park cursor on the input line, ground state
+	}
+	for _, c := range chunks {
+		m.Write([]byte(c))
+	}
+
+	if pi := m.PendingInput(); pi != nil {
+		t.Fatalf("ground-terminated frame left pending input: len=%d printableLeading=%v %q",
+			len(pi), len(pi) > 0 && pi[0] != 0x1b, pi)
+	}
+
+	// Assert the concatenation Attach performs (clean serialize + PendingInput) never begins
+	// its appended tail with a printable byte, i.e. there is no printable-leading multi-
+	// command run leaking past the serialize.
+	redraw := vtSerializer{}.Serialize(m)
+	tail := m.PendingInput()
+	full := append(append([]byte(nil), redraw...), tail...)
+	if len(tail) > 0 && tail[0] != 0x1b {
+		t.Fatalf("appended pending tail is printable-leading: %q", tail)
+	}
+	if bytes.Contains(full, []byte("Added\x1b[62Gsupport")) && len(tail) > 0 {
+		t.Fatalf("frame content leaked into appended pending tail: %q", tail)
+	}
+
+	// Genuine mid-sequence attach boundary: the final chunk ends INSIDE a CSI. PendingInput
+	// must now be a SHORT ESC-leading tail (the incomplete sequence only), never the frame.
+	m2 := newVTModel(170, 59, 1000)
+	for _, c := range chunks[:len(chunks)-1] {
+		m2.Write([]byte(c))
+	}
+	m2.Write([]byte("▘▝\x1b[38;2;153")) // glyphs then an incomplete SGR
+	pi := m2.PendingInput()
+	if len(pi) == 0 || pi[0] != 0x1b {
+		t.Fatalf("genuine partial not returned as ESC-leading tail: %q", pi)
+	}
+	if string(pi) != "\x1b[38;2;153" {
+		t.Fatalf("partial tail = %q, want the incomplete CSI only", pi)
+	}
+	if len(pi) > 16 {
+		t.Fatalf("partial tail not bounded-small: len=%d", len(pi))
 	}
 }
 

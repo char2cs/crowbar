@@ -89,11 +89,11 @@ func (m *vtModel) buildEmu(
 			m.shadow.cursorShape, m.shadow.cursorBlink = style, blink
 			m.shadow.cursorShapeSet = true
 		},
-		EnableMode:       func(mode ansi.Mode) { m.observeMode(mode, true) },
-		DisableMode:      func(mode ansi.Mode) { m.observeMode(mode, false) },
-		ForegroundColor:  func(c color.Color) { m.observeDefaultColor(0, c) },
-		BackgroundColor:  func(c color.Color) { m.observeDefaultColor(1, c) },
-		CursorColor:      func(c color.Color) { m.observeDefaultColor(2, c) },
+		EnableMode:      func(mode ansi.Mode) { m.observeMode(mode, true) },
+		DisableMode:     func(mode ansi.Mode) { m.observeMode(mode, false) },
+		ForegroundColor: func(c color.Color) { m.observeDefaultColor(0, c) },
+		BackgroundColor: func(c color.Color) { m.observeDefaultColor(1, c) },
+		CursorColor:     func(c color.Color) { m.observeDefaultColor(2, c) },
 	}
 	return newEmulator(cols, rows, cb, m.scrollbackLines)
 }
@@ -309,6 +309,13 @@ func (m *vtModel) ParsePanics() int {
 // chunk, then keeps only the trailing in-flight sequence (nil in ground state). A
 // still-incomplete sequence longer than maxPendingPartial is dropped (the accepted,
 // self-healing residual).
+//
+// The retained tail is required to START WITH ESC (0x1B): scanPartial is UTF-8-transparent
+// and its sole introducer is the 7-bit ESC, so a genuine partial always leads with ESC.
+// This final guard is defence-in-depth — it guarantees Attach can never concatenate a
+// printable-leading multi-command run onto the clean serialize even if the scanner framing
+// were to regress. A tail that fails it is dropped (treated as ground); the app's next
+// repaint re-syncs the client.
 func (m *vtModel) trackPendingPartial(
 	p []byte,
 ) {
@@ -319,7 +326,7 @@ func (m *vtModel) trackPendingPartial(
 		combined = append(combined, p...)
 	}
 	tail := scanPartial(combined)
-	if len(tail) == 0 || len(tail) > maxPendingPartial {
+	if len(tail) == 0 || len(tail) > maxPendingPartial || tail[0] != 0x1b {
 		m.pendingPartial = nil
 		return
 	}
