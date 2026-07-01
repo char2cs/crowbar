@@ -211,7 +211,9 @@ function genThreads(wsId: string, count: number): ReviewThread[] {
       id: `thread-${wsId}-${i}`,
       filePath: file,
       lineNumber: lineNum,
-      side: i % 3 === 0 ? ('left' as const) : ('right' as const),
+      startLine: lineNum,
+      endLine: lineNum,
+      side: (i % 3 === 0 ? 'old' : 'new') as 'old' | 'new',
       messages,
       isResolved: i % 5 === 0,
     }
@@ -421,7 +423,8 @@ const EXTREME_REPOS = [
         id: 'ex-cr-2',
         branch: 'enhancement/scaffold',
         parentId: 'ex-cr-1',
-        status: 'agent-running' as const,
+        status: 'new' as const,
+        working: true,
         added: 22892,
         age: '3d ago',
       },
@@ -462,11 +465,11 @@ const EXTREME_REPOS = [
         id: 'ex-cr-7',
         branch: 'refactor/query-layer',
         parentId: 'ex-cr-dev',
-        status: 'agent-running' as const,
+        status: 'new' as const,
+        working: true,
         added: 103482,
         deleted: 88910,
         age: '5d ago',
-        hasConflicts: true,
       },
       {
         id: 'ex-cr-8',
@@ -489,7 +492,8 @@ const EXTREME_REPOS = [
         id: 'ex-cr-10',
         branch: 'fix/cache-stampede',
         parentId: 'ex-cr-9',
-        status: 'agent-running' as const,
+        status: 'new' as const,
+        working: true,
         added: 312,
         age: '3d ago',
       },
@@ -506,7 +510,8 @@ const EXTREME_REPOS = [
         id: 'ex-cr-12',
         branch: 'feat/terminal-v2',
         parentId: 'ex-cr-dev',
-        status: 'agent-running' as const,
+        status: 'new' as const,
+        working: true,
         added: 15600,
         deleted: 2100,
         age: '7d ago',
@@ -562,13 +567,13 @@ const EXTREME_REPOS = [
         status: 'new' as const,
         added: 47,
         age: 'just now',
-        hasConflicts: true,
       },
       {
         id: 'ex-qc-3',
         branch: 'perf/redis-cache',
         parentId: 'ex-qc-dev',
-        status: 'agent-running' as const,
+        status: 'new' as const,
+        working: true,
         added: 1823,
         deleted: 402,
         age: '12h ago',
@@ -586,7 +591,8 @@ const EXTREME_REPOS = [
         id: 'ex-qc-5',
         branch: 'fix/graphql-n-plus-one',
         parentId: 'ex-qc-4',
-        status: 'agent-running' as const,
+        status: 'new' as const,
+        working: true,
         added: 340,
         deleted: 120,
         age: '2d ago',
@@ -613,7 +619,8 @@ const EXTREME_REPOS = [
         id: 'ex-qc-8',
         branch: 'feat/multi-region',
         parentId: 'ex-qc-dev',
-        status: 'agent-running' as const,
+        status: 'new' as const,
+        working: true,
         added: 45000,
         deleted: 8200,
         age: '10d ago',
@@ -625,7 +632,6 @@ const EXTREME_REPOS = [
         status: 'new' as const,
         added: 230,
         age: '9d ago',
-        hasConflicts: true,
       },
       {
         id: 'ex-qc-10',
@@ -675,7 +681,8 @@ const EXTREME_REPOS = [
         id: 'ex-qd-3',
         branch: 'feat/native-file-picker',
         parentId: 'ex-qd-dev',
-        status: 'agent-running' as const,
+        status: 'new' as const,
+        working: true,
         added: 2341,
         age: '8h ago',
       },
@@ -701,7 +708,8 @@ const EXTREME_REPOS = [
         id: 'ex-qd-6',
         branch: 'fix/update-rollback',
         parentId: 'ex-qd-5',
-        status: 'agent-running' as const,
+        status: 'new' as const,
+        working: true,
         added: 120,
         deleted: 45,
         age: '5d ago',
@@ -719,11 +727,11 @@ const EXTREME_REPOS = [
         id: 'ex-qd-8',
         branch: 'chore/tauri-v2-migration',
         parentId: 'ex-qd-dev',
-        status: 'agent-running' as const,
+        status: 'new' as const,
+        working: true,
         added: 34000,
         deleted: 29000,
         age: '9d ago',
-        hasConflicts: true,
       },
       {
         id: 'ex-qd-9',
@@ -772,7 +780,8 @@ const EXTREME_REPOS = [
         id: 'ex-qcl-4',
         branch: 'feat/cdn-integration',
         parentId: 'ex-qcl-dev',
-        status: 'agent-running' as const,
+        status: 'new' as const,
+        working: true,
         added: 2300,
         deleted: 400,
         age: '5d ago',
@@ -798,7 +807,8 @@ const EXTREME_REPOS = [
         id: 'ex-qcl-7',
         branch: 'feat/sso-saml',
         parentId: 'ex-qcl-dev',
-        status: 'agent-running' as const,
+        status: 'new' as const,
+        working: true,
         added: 12000,
         deleted: 2300,
         age: '10d ago',
@@ -810,7 +820,6 @@ const EXTREME_REPOS = [
         status: 'new' as const,
         added: 89,
         age: '9d ago',
-        hasConflicts: true,
       },
       {
         id: 'ex-qcl-9',
@@ -827,10 +836,10 @@ const EXTREME_REPOS = [
 
 // ─── Workspace store ──────────────────────────────────────────────────────────
 
-const wsStore = new Map<string, { id: string; repoId: string; branch: string }>()
+const wsStore = new Map<string, { id: string; projectId: string; repoId: string; branch: string }>()
 for (const repo of EXTREME_REPOS) {
   for (const ws of repo.workspaces) {
-    wsStore.set(ws.id, { id: ws.id, repoId: repo.id, branch: ws.branch })
+    wsStore.set(ws.id, { id: ws.id, projectId: '', repoId: repo.id, branch: ws.branch })
   }
 }
 
@@ -953,7 +962,7 @@ export const extremeDataset: ScenarioDataset = {
   workspace: (wsId) => wsStore.get(wsId),
   createWorkspace: (repoId, branch) => {
     const id = nanoid()
-    const ws = { id, repoId, branch }
+    const ws = { id, projectId: '', repoId, branch }
     wsStore.set(id, ws)
     return ws
   },

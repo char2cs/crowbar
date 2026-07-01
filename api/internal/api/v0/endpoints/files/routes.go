@@ -22,5 +22,5 @@ func Register(
 	rg.POST("/workspaces/:wsId/files", h.Create)
 	rg.PATCH("/workspaces/:wsId/files", h.Rename)
 	rg.DELETE("/workspaces/:wsId/files", h.Delete)
-	rg.GET("/ws/files", filesWS)
+	rg.GET("/workspaces/:wsId/files/ws", filesWS)
 }

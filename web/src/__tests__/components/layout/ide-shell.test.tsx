@@ -41,7 +41,10 @@ vi.mock('@/lib/store/sidebar', () => {
 })
 vi.mock('@tanstack/react-router', () => ({
   useNavigate: () => vi.fn(),
-  useRouterState: () => ({ location: { pathname: '/' } }),
+  useRouterState: (opts?: { select?: (s: { location: { pathname: string } }) => unknown }) => {
+    const state = { location: { pathname: '/' } }
+    return opts?.select ? opts.select(state) : state
+  },
   Outlet: () => <div data-testid="outlet" />,
 }))
 vi.mock('@/components/ui/sidebar', () => ({

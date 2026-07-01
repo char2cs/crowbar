@@ -2,46 +2,20 @@ import { useCallback } from 'react'
 import { useJumpListStore } from '@/features/editor/stores/jump-list-store'
 import { useEditorStateStore } from '@/features/editor/stores/state-store'
 import { navigateToJumpEntry } from '@/features/editor/utils/jump-navigation'
-import { useWorkspaceStore } from '@/features/workspace/stores/workspace-context'
+import { getActiveWorkspaceStore } from '@/features/workspace/stores/workspace-store-registry'
 
-interface WebViewerNavigation {
-  canGoBack?: boolean
-  canGoForward?: boolean
-  goBack?: () => void
-  goForward?: () => void
-}
-
-interface UseJumpNavigationOptions {
-  usesWebViewerNavigation: boolean
-  activeWebViewerNavigation: WebViewerNavigation | undefined
-}
-
-/**
- * Returns stable `handleJumpBack` and `handleJumpForward` callbacks that
- * delegate to the web-viewer navigation or the editor jump-list.
- */
-export function useJumpNavigation({
-  usesWebViewerNavigation,
-  activeWebViewerNavigation,
-}: UseJumpNavigationOptions) {
+export function useJumpNavigation() {
   const jumpListActions = useJumpListStore.use.actions()
-  const workspaceStore = useWorkspaceStore()
+  useJumpListStore.use.entries()
+  useJumpListStore.use.currentIndex()
 
-  const canGoBack = usesWebViewerNavigation
-    ? Boolean(activeWebViewerNavigation?.canGoBack)
-    : jumpListActions.canGoBack()
-
-  const canGoForward = usesWebViewerNavigation
-    ? Boolean(activeWebViewerNavigation?.canGoForward)
-    : jumpListActions.canGoForward()
+  const canGoBack = jumpListActions.canGoBack()
+  const canGoForward = jumpListActions.canGoForward()
 
   const handleJumpBack = useCallback(async () => {
-    if (usesWebViewerNavigation) {
-      activeWebViewerNavigation?.goBack?.()
-      return
-    }
-
-    const wsState = workspaceStore.getState()
+    const store = getActiveWorkspaceStore()
+    if (!store) return
+    const wsState = store.getState()
     const editorState = useEditorStateStore.getState()
     const currentActiveBufferId = wsState.panes[wsState.activePaneId]?.activeBufferId ?? null
     const currentActiveBuffer = currentActiveBufferId
@@ -65,19 +39,14 @@ export function useJumpNavigation({
     if (entry) {
       await navigateToJumpEntry(entry)
     }
-  }, [activeWebViewerNavigation, jumpListActions, usesWebViewerNavigation, workspaceStore])
+  }, [jumpListActions])
 
   const handleJumpForward = useCallback(async () => {
-    if (usesWebViewerNavigation) {
-      activeWebViewerNavigation?.goForward?.()
-      return
-    }
-
     const entry = jumpListActions.goForward()
     if (entry) {
       await navigateToJumpEntry(entry)
     }
-  }, [activeWebViewerNavigation, jumpListActions, usesWebViewerNavigation])
+  }, [jumpListActions])
 
   return { canGoBack, canGoForward, handleJumpBack, handleJumpForward }
 }

@@ -11,6 +11,7 @@ import (
 	"github.com/stretchr/testify/assert"
 
 	"github.com/char2cs/crowbar/api/internal/api/v0/endpoints/workspaces"
+	"github.com/char2cs/crowbar/api/internal/app/usecases/workspace"
 	"github.com/char2cs/crowbar/api/internal/app/usecases/worktree"
 	"github.com/char2cs/crowbar/api/internal/domain"
 	gitdomain "github.com/char2cs/crowbar/api/internal/domain/git"
@@ -46,6 +47,14 @@ func (stubReader) SyncWorkingTreeState(
 	return domain.Workspace{}, nil
 }
 
+func (stubReader) MergeEligibilityFor(
+	_ context.Context,
+	_ domain.Workspace,
+	_ []domain.Workspace,
+) workspace.MergeEligibility {
+	return workspace.MergeEligibility{}
+}
+
 type stubHierarchy struct{}
 
 func (stubHierarchy) CreateChild(
@@ -63,6 +72,13 @@ func (stubHierarchy) MergeIntoParent(
 	return worktree.MergeResult{}, nil
 }
 
+func (stubHierarchy) RebaseOntoParent(
+	_ context.Context,
+	_ string,
+) (domain.Workspace, error) {
+	return domain.Workspace{}, nil
+}
+
 func (stubHierarchy) Reparent(
 	_ context.Context,
 	_ string,
@@ -78,6 +94,20 @@ func (stubHierarchy) DeleteCascade(
 	return nil
 }
 
+func (stubHierarchy) RetryProvision(
+	_ context.Context,
+	_ string,
+) (domain.Workspace, error) {
+	return domain.Workspace{}, nil
+}
+
+func (stubHierarchy) DetachHolder(
+	_ context.Context,
+	_ string,
+) (domain.Workspace, error) {
+	return domain.Workspace{}, nil
+}
+
 type stubRepos struct{}
 
 func (stubRepos) FindByKey(
@@ -85,6 +115,16 @@ func (stubRepos) FindByKey(
 	_ string,
 ) (*domain.Repository, error) {
 	return nil, nil
+}
+
+type stubLastErrors struct{}
+
+func (stubLastErrors) SetLastError(
+	_ context.Context,
+	id string,
+	message string,
+) (domain.Workspace, error) {
+	return domain.Workspace{ID: id, LastError: message}, nil
 }
 
 func passthrough(
@@ -99,11 +139,15 @@ func TestRegisterMountsRoutes(
 ) {
 	r := gin.New()
 	var wsHit bool
+	// workspaces.Register mounts on the repo-scoped group, so build the
+	// hierarchical prefix to mirror the production router chain.
+	repoScoped := r.Group("/v0/projects/:projectId/repos/:repoId")
 	workspaces.Register(
-		r.Group("/v0"),
+		repoScoped,
 		stubReader{},
 		stubHierarchy{},
 		stubRepos{},
+		stubLastErrors{},
 		func(_ *gin.Context) { wsHit = true },
 		passthrough,
 	)
@@ -112,12 +156,12 @@ func TestRegisterMountsRoutes(
 		method string
 		path   string
 	}{
-		{http.MethodGet, "/v0/workspaces"},
-		{http.MethodGet, "/v0/workspaces/abc"},
-		{http.MethodPost, "/v0/workspaces"},
-		{http.MethodDelete, "/v0/workspaces/abc"},
-		{http.MethodPost, "/v0/workspaces/abc/merge-into-parent"},
-		{http.MethodPost, "/v0/workspaces/abc/reparent"},
+		{http.MethodGet, "/v0/projects/p1/repos/r1/workspaces"},
+		{http.MethodGet, "/v0/projects/p1/repos/r1/workspaces/abc"},
+		{http.MethodPost, "/v0/projects/p1/repos/r1/workspaces"},
+		{http.MethodDelete, "/v0/projects/p1/repos/r1/workspaces/abc"},
+		{http.MethodPost, "/v0/projects/p1/repos/r1/workspaces/abc/merge-into-parent"},
+		{http.MethodPost, "/v0/projects/p1/repos/r1/workspaces/abc/reparent"},
 	}
 	for _, tc := range cases {
 		rec := httptest.NewRecorder()

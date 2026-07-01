@@ -3,7 +3,7 @@
 // snapshot (02 §2.5, 04 §3, 10). Every route hangs off /workspaces/:wsId; blame
 // carries its path in the ?path= query because GET has no body, while the LSP
 // routes take their path in the JSON body. The diagnostics WebSocket stream is
-// mounted separately on /ws/lsp.
+// co-located on .../workspaces/:wsId/lsp/ws (W7-2).
 package editor
 
 import (
@@ -13,9 +13,9 @@ import (
 )
 
 // Register mounts the blame, LSP feature, document-sync, diagnostics routes,
-// and the /ws/lsp WebSocket upgrade on the supplied router group, backed by the
-// LSP host, the git engine, and the workspace reader. lspWSHandle is the
-// pre-built broadcaster handle for the live diagnostics stream.
+// and the co-located .../lsp/ws WebSocket upgrade on the supplied router group,
+// backed by the LSP host, the git engine, and the workspace reader. lspWSHandle
+// is the pre-built broadcaster handle for the live diagnostics stream.
 func Register(
 	rg *gin.RouterGroup,
 	lsp editorhandlers.LSPEngine,
@@ -36,5 +36,5 @@ func Register(
 	rg.POST("/workspaces/:wsId/lsp/didOpen", h.DidOpen)
 	rg.POST("/workspaces/:wsId/lsp/didChange", h.DidChange)
 	rg.POST("/workspaces/:wsId/lsp/didClose", h.DidClose)
-	rg.GET("/ws/lsp", lspWSHandle)
+	rg.GET("/workspaces/:wsId/lsp/ws", lspWSHandle)
 }

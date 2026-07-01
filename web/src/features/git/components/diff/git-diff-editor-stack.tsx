@@ -1,22 +1,27 @@
 import {
-  Check,
   CaretDown as ChevronDown,
   CaretRight as ChevronRight,
   Columns as Columns2,
   ArrowSquareOut as ExternalLink,
   Rows as Rows3,
-  Trash as Trash2,
 } from '@phosphor-icons/react'
+import { useVirtualizer } from '@tanstack/react-virtual'
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useStore } from 'zustand'
 const openUrl = (url: string) => {
   window.open(url, '_blank')
 }
 import CodeEditor from '@/features/editor/components/code-editor'
+import { useHunkStagingZones } from './use-hunk-staging-zones'
+import { useReviewCommentLayer } from './use-review-comment-layer'
 import Breadcrumb from '@/features/editor/components/toolbar/breadcrumb'
 import { EDITOR_CONSTANTS } from '@/features/editor/config/constants'
 import { FileExplorerIcon } from '@/features/file-explorer/components/file-explorer-icon'
-import { useWorkspaceStore } from '@/features/workspace/stores/workspace-context'
+import {
+  useWorkspaceStore,
+  useWorkspaceStoreContext,
+} from '@/features/workspace/stores/workspace-context'
+import { useUIState } from '@/features/window/stores/ui-state-store'
 import { useEditorSettingsStore } from '@/features/editor/stores/settings-store'
 import { calculateLineHeight, splitLines } from '@/features/editor/utils/lines'
 import { useZoomStore } from '@/features/window/stores/zoom-store'
@@ -24,8 +29,10 @@ import { useFileSystemStore } from '@/features/file-system/controllers/store'
 import { Button } from '@/components/ui/button'
 import Tooltip from '@/components/ui/tooltip'
 import { cn } from '@/utils/cn'
-import { formatRelativeDate } from '@/utils/date'
-import { joinPath } from '@/utils/path-helpers'
+import { DiffReviewHeader } from './diff-review-header'
+import { DiffSearchBar } from './diff-search-bar'
+import { DiffSearchProvider, useDiffSearchContext } from './diff-search-context'
+import { useDiffSearch } from './use-diff-search'
 import { getRemotes } from '../../api/git-remotes-api'
 import { getGitStatus } from '../../api/git-status-api'
 import { useDiffEditorBuffer } from '../../hooks/use-diff-editor-buffer'
@@ -43,10 +50,8 @@ import {
   serializeGitDiffSourceForEditor,
   serializeGitDiffSourceForSplitEditor,
 } from '../../utils/diff-editor-content'
-import DiffLineBackgroundLayer from './diff-line-background-layer'
 import GitDiffEditorSurface from './git-diff-editor-surface'
 import ImageDiffViewer from './git-diff-image'
-import TextDiffViewer from './git-diff-text'
 import { Badge } from '@/components/ui/badge'
 
 function countStats(diff: GitDiff) {
@@ -81,8 +86,6 @@ const statusBadgeClass: Record<string, string> = {
   modified: 'bg-git-modified/12 text-git-modified',
   renamed: 'bg-git-renamed/12 text-git-renamed',
 }
-
-const MAX_HUNK_ACTION_DIFF_LINES = 1200
 
 function parseGitHubRemoteSlug(remoteUrl: string): { owner: string; repo: string } | null {
   const normalized = remoteUrl.trim()
@@ -136,7 +139,7 @@ function LargeDiffSectionEditor({ diff, cacheKey }: { diff: GitDiff; cacheKey: s
   if (diff.raw_patch && diff.lines.length === 0) {
     return (
       <div
-        className="relative overflow-hidden border-border border-t bg-background"
+        className="relative overflow-hidden border-border border-t bg-transparent"
         style={containerStyle}
       >
         <GitDiffEditorSurface cacheKey={`${cacheKey}_raw`} diff={diff} />
@@ -146,7 +149,7 @@ function LargeDiffSectionEditor({ diff, cacheKey }: { diff: GitDiff; cacheKey: s
 
   return (
     <div
-      className="relative overflow-hidden border-border border-t bg-background"
+      className="relative overflow-hidden border-border border-t bg-transparent"
       style={containerStyle}
     >
       <CodeEditor
@@ -164,17 +167,45 @@ function EmbeddedDiffSectionEditor({
   diff,
   cacheKey,
   viewMode,
+  enableComments = false,
+  enableHunkActions = false,
 }: {
   diff: GitDiff
   cacheKey: string
   viewMode: 'unified' | 'split'
+  enableComments?: boolean
+  enableHunkActions?: boolean
 }) {
   const fontSize = useEditorSettingsStore.use.fontSize()
   const zoomLevel = useZoomStore.use.editorZoomLevel()
-  const rootFolderPath = useFileSystemStore((state) => state.rootFolderPath)
   const sourcePath = diff.new_path || diff.old_path || diff.file_path
+  // Diff-search highlights for THIS file (unified editor): its matches + the
+  // active match when it belongs here.
+  const searchLayer = useDiffSearchContext()
+  const fileSearchMatches = searchLayer?.matchesByFile.get(cacheKey) ?? null
+  const activeSearchMatch =
+    searchLayer?.active && searchLayer.active.fileKey === cacheKey ? searchLayer.active : null
   const unifiedContent = useMemo(() => serializeGitDiffSourceForEditor(diff), [diff])
   const splitContent = useMemo(() => serializeGitDiffSourceForSplitEditor(diff), [diff])
+  // Inline review comments and per-hunk staging are both hosted as Monaco view
+  // zones on the unified surface (split would need per-side zones).
+  const commentLayer = useReviewCommentLayer({
+    enabled: enableComments && viewMode === 'unified',
+    diff,
+    unifiedLineKinds: unifiedContent.lineKinds,
+  })
+  const hunkZones = useHunkStagingZones({
+    enabled: enableHunkActions && viewMode === 'unified',
+    diff,
+    isStaged: cacheKey.startsWith('staged:'),
+  })
+  // One zone layer feeds the editor: review comment threads and/or hunk headers.
+  const inlineZones = useMemo(
+    () => [...(commentLayer?.commentZones ?? []), ...(hunkZones ?? [])],
+    [commentLayer, hunkZones],
+  )
+  const hasInlineLayer = commentLayer != null || hunkZones != null
+  const [commentContentHeight, setCommentContentHeight] = useState<number | null>(null)
   const unifiedBufferId = useDiffEditorBuffer({
     cacheKey,
     content: unifiedContent.content,
@@ -220,93 +251,73 @@ function EmbeddedDiffSectionEditor({
     viewMode,
     zoomLevel,
   ])
-  const lineHeight = useMemo(() => calculateLineHeight(fontSize * zoomLevel), [fontSize, zoomLevel])
-  const resolveAbsolutePath = useCallback(() => {
-    if (sourcePath.startsWith('/') || sourcePath.startsWith('remote://')) return sourcePath
-    if (!rootFolderPath) return sourcePath
-    return `${rootFolderPath.replace(/\/$/, '')}/${sourcePath.replace(/^\//, '')}`
-  }, [rootFolderPath, sourcePath])
-  const findNearestActualLine = useCallback((actualLines: Array<number | null>, line: number) => {
-    if (actualLines[line] != null) return actualLines[line]
-    for (let delta = 1; delta < actualLines.length; delta++) {
-      const before = line - delta
-      if (before >= 0 && actualLines[before] != null) return actualLines[before]
-      const after = line + delta
-      if (after < actualLines.length && actualLines[after] != null) return actualLines[after]
-    }
-    return 1
-  }, [])
-  const openSourceLocation = useCallback(
-    async (line: number, column: number, actualLines: Array<number | null>) => {
-      const targetPath = resolveAbsolutePath()
-      const targetLine = findNearestActualLine(actualLines, line) ?? 1
-      const { handleFileSelect } = useFileSystemStore.getState()
-      if (handleFileSelect) {
-        handleFileSelect(targetPath, false, targetLine, column + 1, undefined, false)
-      }
-    },
-    [findNearestActualLine, resolveAbsolutePath],
-  )
 
   if (viewMode === 'split') {
     return (
       <div
-        className="grid grid-cols-2 border-border border-t bg-background"
+        className="grid grid-cols-2 border-border border-t bg-transparent"
         style={{ height: `${height}px` }}
       >
-        <div className="relative overflow-hidden border-border border-r bg-background">
-          <DiffLineBackgroundLayer
-            lineKinds={splitContent.left.lineKinds}
-            lineHeight={lineHeight}
-          />
+        <div className="relative overflow-hidden border-border border-r bg-transparent">
           <CodeEditor
             bufferId={leftSplitBufferId}
             isActiveSurface={false}
             showToolbar={false}
             readOnly={true}
             scrollable={false}
-            onReadonlySurfaceClick={({ line, column }) =>
-              void openSourceLocation(line, column, splitContent.left.actualLines)
-            }
+            diffLineKinds={splitContent.left.lineKinds}
           />
         </div>
-        <div className="relative overflow-hidden bg-background">
-          <DiffLineBackgroundLayer
-            lineKinds={splitContent.right.lineKinds}
-            lineHeight={lineHeight}
-          />
+        <div className="relative overflow-hidden bg-transparent">
           <CodeEditor
             bufferId={rightSplitBufferId}
             isActiveSurface={false}
             showToolbar={false}
             readOnly={true}
             scrollable={false}
-            onReadonlySurfaceClick={({ line, column }) =>
-              void openSourceLocation(line, column, splitContent.right.actualLines)
-            }
+            diffLineKinds={splitContent.right.lineKinds}
           />
         </div>
       </div>
     )
   }
 
+  // Inline zones (comments / hunk headers) push lines down, so grow the section
+  // to the editor's true content height. The tint is always applied as Monaco
+  // whole-line decorations (part of the editor layout) — a position-based CSS
+  // overlay drifts out of alignment with the rendered lines.
+  // Add breathing room below the last inline thread so it isn't flush against
+  // the section's bottom edge (which reads as "cut off").
+  const unifiedHeight =
+    hasInlineLayer && commentContentHeight ? Math.max(height, commentContentHeight + 20) : height
+
   return (
-    <div
-      className="relative overflow-hidden border-border border-t bg-background"
-      style={{ height: `${height}px` }}
-    >
-      <DiffLineBackgroundLayer lineKinds={unifiedContent.lineKinds} lineHeight={lineHeight} />
-      <CodeEditor
-        bufferId={unifiedBufferId}
-        isActiveSurface={false}
-        showToolbar={false}
-        readOnly={true}
-        scrollable={false}
-        onReadonlySurfaceClick={({ line, column }) =>
-          void openSourceLocation(line, column, unifiedContent.actualLines)
-        }
-      />
-    </div>
+    <>
+      <div
+        className="relative overflow-hidden border-border border-t bg-transparent"
+        style={{ height: `${unifiedHeight}px` }}
+      >
+        <CodeEditor
+          bufferId={unifiedBufferId}
+          isActiveSurface={false}
+          showToolbar={false}
+          readOnly={true}
+          scrollable={false}
+          commentZones={hasInlineLayer ? inlineZones : undefined}
+          onAddCommentAtLine={commentLayer?.onAddCommentAtLine}
+          onContentHeightChange={hasInlineLayer ? setCommentContentHeight : undefined}
+          diffLineKinds={unifiedContent.lineKinds}
+          diffSearchMatches={fileSearchMatches}
+          activeDiffSearchMatch={activeSearchMatch}
+          diffSearchRevealNonce={searchLayer?.revealNonce}
+        />
+      </div>
+      {commentLayer?.commentError && (
+        <div className="border-border border-t px-3 py-1.5 text-xs text-destructive">
+          {commentLayer.commentError.msg}
+        </div>
+      )}
+    </>
   )
 }
 
@@ -314,16 +325,28 @@ function DiffSectionEditor({
   diff,
   cacheKey,
   viewMode,
+  enableComments = false,
+  enableHunkActions = false,
 }: {
   diff: GitDiff
   cacheKey: string
   viewMode: 'unified' | 'split'
+  enableComments?: boolean
+  enableHunkActions?: boolean
 }) {
   if (shouldUseScrollableDiffEditor(diff)) {
     return <LargeDiffSectionEditor diff={diff} cacheKey={cacheKey} />
   }
 
-  return <EmbeddedDiffSectionEditor diff={diff} cacheKey={cacheKey} viewMode={viewMode} />
+  return (
+    <EmbeddedDiffSectionEditor
+      diff={diff}
+      cacheKey={cacheKey}
+      viewMode={viewMode}
+      enableComments={enableComments}
+      enableHunkActions={enableHunkActions}
+    />
+  )
 }
 
 const LazyDiffSectionBody = memo(function LazyDiffSectionBody({
@@ -378,7 +401,7 @@ const LazyDiffSectionBody = memo(function LazyDiffSectionBody({
       className="border-border border-t"
       style={{ contentVisibility: 'auto', containIntrinsicSize: '960px' }}
     >
-      {shouldMount ? children : <div className="h-[320px] bg-background" />}
+      {shouldMount ? children : <div className="h-[320px] bg-transparent" />}
     </div>
   )
 })
@@ -389,8 +412,8 @@ const DiffFileSection = memo(function DiffFileSection({
   expanded,
   onToggle,
   viewMode,
-  showWhitespace,
   enableHunkActions,
+  enableComments,
   onOpenFile,
 }: {
   diff: GitDiff
@@ -399,8 +422,8 @@ const DiffFileSection = memo(function DiffFileSection({
   onToggle: (sectionKey: string) => void
   onOpenFile: (filePath: string) => void | Promise<void>
   viewMode: 'unified' | 'split'
-  showWhitespace: boolean
   enableHunkActions: boolean
+  enableComments: boolean
 }) {
   const filePath = diff.new_path || diff.old_path || diff.file_path
   const fileName = filePath.split('/').pop() || filePath
@@ -415,15 +438,13 @@ const DiffFileSection = memo(function DiffFileSection({
   const handleOpenFile = useCallback(() => {
     void onOpenFile(filePath)
   }, [filePath, onOpenFile])
-  const shouldUseInlineTextDiff =
-    enableHunkActions && viewMode === 'unified' && diff.lines.length <= MAX_HUNK_ACTION_DIFF_LINES
 
   return (
-    <section className="relative isolate min-w-0 max-w-full rounded-md bg-background">
-      <div className="sticky top-0 z-50 min-w-0 max-w-full bg-background">
+    <section className="relative isolate min-w-0 max-w-full rounded-md bg-transparent">
+      <div className="min-w-0 max-w-full bg-transparent">
         <div
           className={cn(
-            'min-w-0 max-w-full overflow-hidden border border-border/70 bg-background shadow-[0_1px_0_rgba(0,0,0,0.04)]',
+            'min-w-0 max-w-full overflow-hidden border border-border/70 bg-transparent shadow-[0_1px_0_rgba(0,0,0,0.04)]',
             expanded ? 'rounded-t-md' : 'rounded-md',
           )}
         >
@@ -488,17 +509,13 @@ const DiffFileSection = memo(function DiffFileSection({
         ) : (
           <div className="-mt-px min-w-0 max-w-full overflow-hidden rounded-b-md border-border/70 border-x border-b">
             <LazyDiffSectionBody expanded={expanded}>
-              {shouldUseInlineTextDiff ? (
-                <TextDiffViewer
-                  diff={diff}
-                  isStaged={sectionKey.startsWith('staged:')}
-                  viewMode={viewMode}
-                  showWhitespace={showWhitespace}
-                  isEmbeddedInScrollView={true}
-                />
-              ) : (
-                <DiffSectionEditor diff={diff} cacheKey={sectionKey} viewMode={viewMode} />
-              )}
+              <DiffSectionEditor
+                diff={diff}
+                cacheKey={sectionKey}
+                viewMode={viewMode}
+                enableComments={enableComments}
+                enableHunkActions={enableHunkActions}
+              />
             </LazyDiffSectionBody>
           </div>
         )
@@ -513,8 +530,26 @@ function getInitialExpandedFiles(multiDiff: MultiFileDiff): Set<string> {
 
 const GitDiffEditorStack = memo(function GitDiffEditorStack({
   multiDiff,
+  enableComments = false,
+  branchHeader,
+  isActivePane = true,
 }: {
   multiDiff: MultiFileDiff
+  /** Enable the inline review-comment layer (the Branch Review surface). */
+  enableComments?: boolean
+  /**
+   * Branch-review header data. When present, the shared header shows the branch
+   * name as its title and the base branch as its meta (in place of the
+   * commit message + author/date/hash a commit diff would show).
+   */
+  branchHeader?: { title: string; baseBranch?: string }
+  /**
+   * Whether this diff's pane is the active one. The find flag (`isFindVisible`)
+   * is global and shared with the text-editor find, so the diff only opens its
+   * own search bar when it is the active pane — otherwise a split with an active
+   * editor + an inactive diff would pop two find UIs from one Cmd+F.
+   */
+  isActivePane?: boolean
 }) {
   const workspaceStore = useWorkspaceStore()
   const buffers = useStore(workspaceStore, (s) => s.buffers)
@@ -537,31 +572,18 @@ const GitDiffEditorStack = memo(function GitDiffEditorStack({
       ),
     }))
   }
-  const closeBuffer = (id: string) => workspaceStore.getState().bufferActions.closeBuffer(id)
   const rootFolderPath = useFileSystemStore((state) => state.rootFolderPath)
   const [viewMode, setViewMode] = useState<'unified' | 'split'>('unified')
-  const [showWhitespace, setShowWhitespace] = useState(false)
   const isWorkingTree = multiDiff.commitHash === 'working-tree'
   const activeBuffer = buffers.find((buffer) => buffer.id === activeBufferId) || null
   const isWorkingTreeBuffer = activeBuffer?.path === 'diff://working-tree/all-files'
   const isRefreshingRef = useRef(false)
-  const handleOpenFile = useCallback(
-    async (filePath: string) => {
-      const repoPath = multiDiff.repoPath ?? rootFolderPath
-      const targetPath =
-        filePath.startsWith('/') || filePath.startsWith('remote://')
-          ? filePath
-          : repoPath
-            ? joinPath(repoPath, filePath)
-            : filePath
-
-      const { handleFileSelect } = useFileSystemStore.getState()
-      if (handleFileSelect) {
-        handleFileSelect(targetPath, false, undefined, undefined, undefined, false)
-      }
-    },
-    [multiDiff.repoPath, rootFolderPath],
-  )
+  const handleOpenFile = useCallback(async (filePath: string) => {
+    // Diff file paths are workspace-relative; handleFileSelect → openFileContent
+    // resolves them within the workspace. Joining with a repo root (the old code)
+    // produced a non-workspace path that failed to open.
+    useFileSystemStore.getState().handleFileSelect?.(filePath, false)
+  }, [])
   const [githubCommitUrl, setGitHubCommitUrl] = useState<string | null>(null)
   const [expandedFiles, setExpandedFiles] = useState<Set<string>>(() =>
     getInitialExpandedFiles(multiDiff),
@@ -574,6 +596,85 @@ const GitDiffEditorStack = memo(function GitDiffEditorStack({
       return next
     })
   }, [])
+
+  const keyForIndex = useCallback(
+    (index: number) =>
+      multiDiff.fileKeys?.[index] ?? `${multiDiff.files[index]?.file_path}:${index}`,
+    [multiDiff.fileKeys, multiDiff.files],
+  )
+
+  // Virtualize the file list — an 830-file diff otherwise renders every section
+  // (each with a sticky header), which the browser cannot keep up with. Only the
+  // sections near the viewport mount; heights are measured dynamically.
+  const scrollRef = useRef<HTMLDivElement>(null)
+  const virtualizer = useVirtualizer({
+    count: multiDiff.files.length,
+    getScrollElement: () => scrollRef.current,
+    estimateSize: (index) => {
+      const diff = multiDiff.files[index]
+      if (!diff) return 44
+      if (!expandedFiles.has(keyForIndex(index))) return 44
+      if (shouldUseScrollableDiffEditor(diff)) return 620
+      return 44 + Math.max(diff.lines.length, 1) * 20 + 8
+    },
+    overscan: 3,
+    measureElement: (el) => el.getBoundingClientRect().height,
+  })
+
+  // ── Diff-wide search ──────────────────────────────────────────────────────
+  // The search button + Cmd/Ctrl+F toggle the global find flag; the diff opens
+  // its own find bar in response and searches across ALL files.
+  const isFindVisible = useUIState((s) => s.isFindVisible)
+  const setIsFindVisible = useUIState((s) => s.setIsFindVisible)
+  // Diff search is for the surfaces you actively work with — the branch review
+  // and the working tree. A commit/stash/tag diff is a historical snapshot
+  // (identified by a real commitHash); search is disabled there.
+  const isCommitDiff = !isWorkingTree && Boolean(multiDiff.commitHash)
+  // Only this pane responds to the global find flag when it is active.
+  const searchOpen = isFindVisible && isActivePane && !isCommitDiff
+  const search = useDiffSearch({
+    files: multiDiff.files,
+    keyForIndex,
+    enabled: searchOpen,
+  })
+  const searchContextValue = useMemo(
+    () => ({
+      matchesByFile: search.matchesByFile,
+      active: search.current,
+      revealNonce: search.revealNonce,
+    }),
+    [search.matchesByFile, search.current, search.revealNonce],
+  )
+  // On navigation / new results, bring the active match's file into view; its
+  // editor then reveals the exact line (see monaco-diff-editor reveal effect).
+  useEffect(() => {
+    const current = search.current
+    if (!current) return
+    setExpandedFiles((prev) =>
+      prev.has(current.fileKey) ? prev : new Set(prev).add(current.fileKey),
+    )
+    virtualizer.scrollToIndex(current.fileIndex, { align: 'start' })
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [search.revealNonce])
+  const closeSearch = useCallback(() => setIsFindVisible(false), [setIsFindVisible])
+  // Search highlights + line reveal are wired for the unified editor only; switch
+  // away from split when the search opens so matches are actually shown.
+  useEffect(() => {
+    if (searchOpen && viewMode === 'split') setViewMode('unified')
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [searchOpen])
+
+  // Scroll-to-file: the Branch Review side panel drives this via activeFileKey/Nonce.
+  const activeReviewFileKey = useWorkspaceStoreContext((s) => s.branchReview.activeFileKey)
+  const activeReviewFileNonce = useWorkspaceStoreContext((s) => s.branchReview.activeFileNonce)
+  useEffect(() => {
+    if (!activeReviewFileKey || activeReviewFileNonce === 0) return
+    const index = multiDiff.files.findIndex((_, i) => keyForIndex(i) === activeReviewFileKey)
+    if (index === -1) return
+    setExpandedFiles((prev) => new Set(prev).add(activeReviewFileKey))
+    virtualizer.scrollToIndex(index, { align: 'start' })
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [activeReviewFileNonce])
 
   useEffect(() => {
     const nextKeys = new Set(
@@ -612,18 +713,14 @@ const GitDiffEditorStack = memo(function GitDiffEditorStack({
         previousFileKeys: multiDiff.fileKeys,
       })
 
-      if (nextMultiDiff.files.length === 0) {
-        closeBuffer(activeBuffer.id)
-        return
-      }
-
+      // A clean tree keeps the tab open with an explicit empty state — the
+      // committed hunks must never linger after the working tree is clean.
       updateBufferContent(activeBuffer.id, '', false, nextMultiDiff)
     } finally {
       isRefreshingRef.current = false
     }
   }, [
     activeBuffer,
-    closeBuffer,
     isWorkingTree,
     isWorkingTreeBuffer,
     multiDiff.fileKeys,
@@ -647,7 +744,9 @@ const GitDiffEditorStack = memo(function GitDiffEditorStack({
   }, [isWorkingTree, refreshWorkingTreeBuffer])
 
   useEffect(() => {
-    if (isWorkingTree || multiDiff.commitHash.startsWith('stash@{')) {
+    // The branch-review diff has no single commitHash (it's a branch comparison),
+    // so there is no GitHub commit URL to build.
+    if (isWorkingTree || !multiDiff.commitHash || multiDiff.commitHash.startsWith('stash@{')) {
       setGitHubCommitUrl(null)
       return
     }
@@ -678,7 +777,7 @@ const GitDiffEditorStack = memo(function GitDiffEditorStack({
   }, [isWorkingTree, multiDiff.commitHash, multiDiff.repoPath, rootFolderPath])
 
   return (
-    <div className="flex h-full flex-col overflow-hidden bg-background">
+    <div className="flex h-full flex-col overflow-hidden bg-transparent">
       <Breadcrumb
         filePathOverride={multiDiff.title || 'Uncommitted Changes'}
         interactive={false}
@@ -710,22 +809,6 @@ const GitDiffEditorStack = memo(function GitDiffEditorStack({
                 </Button>
               </Tooltip>
             ) : null}
-            <Tooltip content={showWhitespace ? 'Hide whitespace' : 'Show whitespace'} side="bottom">
-              <Button
-                type="button"
-                variant="ghost"
-                active={showWhitespace}
-                onClick={() => setShowWhitespace((prev) => !prev)}
-                className={cn(
-                  'h-5 gap-1 px-1.5 text-muted-foreground',
-                  showWhitespace && 'text-foreground',
-                )}
-                aria-label={showWhitespace ? 'Hide whitespace' : 'Show whitespace'}
-              >
-                <Trash2 />
-                {showWhitespace ? <Check /> : null}
-              </Button>
-            </Tooltip>
             <div className="flex items-center gap-0.5">
               <Tooltip content="Unified view" side="bottom">
                 <Button
@@ -756,58 +839,72 @@ const GitDiffEditorStack = memo(function GitDiffEditorStack({
         }
       />
 
-      {!isWorkingTree &&
-      (multiDiff.commitMessage || multiDiff.commitAuthor || multiDiff.commitDate) ? (
-        <div className="bg-background px-2 py-2">
-          <div className="px-1 py-1.5">
-            {multiDiff.commitMessage ? (
-              <div className="ui-text-sm font-medium text-foreground">
-                {multiDiff.commitMessage}
-              </div>
-            ) : null}
-            {multiDiff.commitDescription ? (
-              <div className="ui-text-sm mt-2 whitespace-pre-wrap text-muted-foreground">
-                {multiDiff.commitDescription}
-              </div>
-            ) : null}
-            <div className="ui-text-sm mt-2 flex flex-wrap items-center gap-x-2 gap-y-1 text-muted-foreground">
-              {multiDiff.commitAuthor ? <span>{multiDiff.commitAuthor}</span> : null}
-              {multiDiff.commitDate ? (
-                <span>{formatRelativeDate(multiDiff.commitDate)}</span>
-              ) : null}
-              <Badge size="sm" variant="secondary">
-                {multiDiff.commitHash}
-              </Badge>
-            </div>
-          </div>
-        </div>
+      {branchHeader ? (
+        <DiffReviewHeader title={branchHeader.title} baseBranch={branchHeader.baseBranch} />
+      ) : !isWorkingTree &&
+        (multiDiff.commitMessage || multiDiff.commitAuthor || multiDiff.commitDate) ? (
+        <DiffReviewHeader
+          title={multiDiff.commitMessage}
+          description={multiDiff.commitDescription}
+          author={multiDiff.commitAuthor}
+          date={multiDiff.commitDate}
+          hash={multiDiff.commitHash}
+        />
       ) : null}
 
-      <div
-        className="min-h-0 flex-1 overflow-auto px-2 pb-2"
-        style={{ overflowAnchor: 'none' }}
-        data-diff-stack-scroll-container
-      >
-        <div className="flex min-w-0 max-w-full flex-col gap-2 rounded-md">
-          {multiDiff.files.map((diff, index) => {
-            const sectionKey = multiDiff.fileKeys?.[index] ?? `${diff.file_path}:${index}`
+      {searchOpen ? <DiffSearchBar search={search} onClose={closeSearch} /> : null}
 
-            return (
-              <DiffFileSection
-                key={sectionKey}
-                diff={diff}
-                sectionKey={sectionKey}
-                expanded={expandedFiles.has(sectionKey)}
-                viewMode={viewMode}
-                showWhitespace={showWhitespace}
-                enableHunkActions={isWorkingTree}
-                onToggle={handleToggleSection}
-                onOpenFile={handleOpenFile}
-              />
-            )
-          })}
+      <DiffSearchProvider value={searchContextValue}>
+        <div
+          ref={scrollRef}
+          className="min-h-0 flex-1 overflow-auto px-2 pb-2"
+          style={{ overflowAnchor: 'none' }}
+          data-diff-stack-scroll-container
+        >
+          {isWorkingTree && multiDiff.files.length === 0 && !multiDiff.isLoading ? (
+            <div className="flex h-full items-center justify-center text-[13px] text-muted-foreground">
+              No uncommitted changes
+            </div>
+          ) : null}
+          <div
+            className="relative min-w-0 max-w-full"
+            style={{ height: `${virtualizer.getTotalSize()}px` }}
+          >
+            {virtualizer.getVirtualItems().map((virtualItem) => {
+              const diff = multiDiff.files[virtualItem.index]
+              if (!diff) return null
+              const sectionKey = keyForIndex(virtualItem.index)
+
+              return (
+                <div
+                  key={sectionKey}
+                  ref={virtualizer.measureElement}
+                  data-index={virtualItem.index}
+                  style={{
+                    position: 'absolute',
+                    top: 0,
+                    left: 0,
+                    width: '100%',
+                    transform: `translateY(${virtualItem.start}px)`,
+                    paddingBottom: 8,
+                  }}
+                >
+                  <DiffFileSection
+                    diff={diff}
+                    sectionKey={sectionKey}
+                    expanded={expandedFiles.has(sectionKey)}
+                    viewMode={viewMode}
+                    enableHunkActions={isWorkingTree}
+                    enableComments={enableComments}
+                    onToggle={handleToggleSection}
+                    onOpenFile={handleOpenFile}
+                  />
+                </div>
+              )
+            })}
+          </div>
         </div>
-      </div>
+      </DiffSearchProvider>
     </div>
   )
 })

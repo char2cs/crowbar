@@ -31,7 +31,7 @@ func (f *flakyStorage) Save(
 
 func TestSaveWithRetry_RetriesTransientThenSucceeds(t *testing.T) {
 	st := &flakyStorage{failCount: 2, err: errors.New("disk I/O error")}
-	p := &projector{store: st, broadcast: func(_ domain.Workspace) {}}
+	p := &projector{store: st, broadcast: func(_ context.Context, _ domain.Workspace) {}}
 	err := p.saveWithRetry(context.Background(), domain.Workspace{ID: "w1"})
 	require.NoError(t, err)
 	assert.Equal(t, 3, st.calls)
@@ -39,7 +39,7 @@ func TestSaveWithRetry_RetriesTransientThenSucceeds(t *testing.T) {
 
 func TestSaveWithRetry_PersistentTransientGivesUp(t *testing.T) {
 	st := &flakyStorage{failCount: 5, err: errors.New("disk I/O error")}
-	p := &projector{store: st, broadcast: func(_ domain.Workspace) {}}
+	p := &projector{store: st, broadcast: func(_ context.Context, _ domain.Workspace) {}}
 	err := p.saveWithRetry(context.Background(), domain.Workspace{ID: "w1"})
 	require.Error(t, err)
 	assert.Equal(t, 3, st.calls)
@@ -47,7 +47,7 @@ func TestSaveWithRetry_PersistentTransientGivesUp(t *testing.T) {
 
 func TestSaveWithRetry_NonTransientNotRetried(t *testing.T) {
 	st := &flakyStorage{failCount: 5, err: errors.New("constraint violation")}
-	p := &projector{store: st, broadcast: func(_ domain.Workspace) {}}
+	p := &projector{store: st, broadcast: func(_ context.Context, _ domain.Workspace) {}}
 	err := p.saveWithRetry(context.Background(), domain.Workspace{ID: "w1"})
 	require.Error(t, err)
 	assert.Equal(t, 1, st.calls)

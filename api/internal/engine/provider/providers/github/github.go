@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"os/exec"
 	"strings"
+	"time"
 
 	providertypes "github.com/char2cs/crowbar/api/internal/engine/provider/types"
 )
@@ -15,13 +16,35 @@ import (
 // ExecFn matches exec.CommandContext so callers can inject a test stub.
 type ExecFn func(ctx context.Context, name string, args ...string) *exec.Cmd
 
+// waitDelay bounds how long Cmd.Wait blocks for I/O to drain after the context
+// is cancelled (e.g. on poll timeout). Without it a subprocess whose stdout pipe
+// is inherited by a still-running grandchild keeps the goroutine and the process
+// entry alive indefinitely, leaking on every hung poll.
+const waitDelay = 10 * time.Second
+
+// withWaitDelay wraps an ExecFn so every constructed Cmd carries a WaitDelay,
+// guaranteeing a killed subprocess releases even when its pipes are held open.
+func withWaitDelay(
+	execFn ExecFn,
+) ExecFn {
+	return func(
+		ctx context.Context,
+		name string,
+		args ...string,
+	) *exec.Cmd {
+		cmd := execFn(ctx, name, args...)
+		cmd.WaitDelay = waitDelay
+		return cmd
+	}
+}
+
 type ghProvider struct {
 	execFn ExecFn
 }
 
 // New returns a ghProvider backed by the gh CLI.
 func New() *ghProvider {
-	return &ghProvider{execFn: exec.CommandContext}
+	return &ghProvider{execFn: withWaitDelay(exec.CommandContext)}
 }
 
 // NewWithExec returns a ghProvider that uses execFn for subprocess invocation.
@@ -216,6 +239,24 @@ func (g *ghProvider) runGH(
 		return "", fmt.Errorf("gh %s: stderr=%q: %w", args[0], strings.TrimSpace(errBuf.String()), err)
 	}
 	return out.String(), nil
+}
+
+// OwnerAvatarURL returns the GitHub owner's avatar URL for the repo.
+// Returns ("", nil) on any soft failure so callers can fall back gracefully.
+func (g *ghProvider) OwnerAvatarURL(
+	ctx context.Context,
+	repoPath string,
+) (string, error) {
+	s, err := slug(ctx, repoPath, g.execFn)
+	if err != nil {
+		return "", nil
+	}
+	path := fmt.Sprintf("repos/%s", s)
+	out, err := g.runGH(ctx, repoPath, "api", path, "--jq", ".owner.avatar_url")
+	if err != nil {
+		return "", nil
+	}
+	return strings.TrimSpace(out), nil
 }
 
 // parseLines splits newline-delimited output into non-empty strings.

@@ -112,7 +112,7 @@ func TestBroadcaster_NamespaceGlob(t *testing.T) {
 
 func TestBroadcaster_SnapshotOnSubscribe(t *testing.T) {
 	def := itemDef()
-	def.Snapshot = func() []item {
+	def.Snapshot = func(_ string) []item {
 		return []item{{Name: "seed", Kind: "fruit"}}
 	}
 	b, srv := setup(t, def)
@@ -122,6 +122,88 @@ func TestBroadcaster_SnapshotOnSubscribe(t *testing.T) {
 	var got item
 	read(t, conn, &got)
 	assert.Equal(t, "seed", got.Name)
+}
+
+// TestBroadcaster_ScopedSnapshot asserts the connecting client's hierarchical
+// scope ("p/r/w" from projectId/repoId/wsId path params, empties trimmed) is
+// passed through to def.Snapshot, so per-entity lazy storage reads only the
+// subscribed subtree.
+func TestBroadcaster_ScopedSnapshot(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	gotScope := make(chan string, 1)
+	def := itemDef()
+	def.Snapshot = func(scope string) []item {
+		gotScope <- scope
+		// Namespace must fall under the subscribed scope so the live prefix
+		// predicate admits it (PrefixMatch("p1/r1/w1", "p1/r1/w1")).
+		return []item{{Name: "p1/r1/w1", Kind: "fruit"}}
+	}
+	b := ws.NewBroadcaster(def)
+	r := gin.New()
+	r.GET("/p/:projectId/r/:repoId/w/:wsId/items", b.Handle)
+	srv := httptest.NewServer(r)
+	t.Cleanup(srv.Close)
+
+	conn := dial(t, srv, "/p/p1/r/r1/w/w1/items")
+	b.WaitNRegistered(1)
+
+	var got item
+	read(t, conn, &got)
+	assert.Equal(t, "p1/r1/w1", got.Name)
+	assert.Equal(t, "p1/r1/w1", <-gotScope)
+}
+
+// TestBroadcaster_ScopedSnapshot_RepoLevelTrimsEmpty asserts a repo-level
+// subscription (no wsId) trims the trailing empty segment, yielding "p/r".
+func TestBroadcaster_ScopedSnapshot_RepoLevelTrimsEmpty(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	gotScope := make(chan string, 1)
+	def := itemDef()
+	def.Snapshot = func(scope string) []item {
+		gotScope <- scope
+		return nil
+	}
+	b := ws.NewBroadcaster(def)
+	r := gin.New()
+	r.GET("/p/:projectId/r/:repoId/items", b.Handle)
+	srv := httptest.NewServer(r)
+	t.Cleanup(srv.Close)
+
+	_ = dial(t, srv, "/p/p1/r/r1/items")
+	b.WaitNRegistered(1)
+
+	assert.Equal(t, "p1/r1", <-gotScope)
+}
+
+// TestBroadcaster_PrefixNamespace_RepoScopedReceivesChildren asserts a
+// repo-level subscription ("p1/r1", derived from projectId/repoId path params)
+// receives every child workspace's live events via hierarchical PrefixMatch
+// ("p1/r1" matches "p1/r1/w1"), while events under a sibling repo ("p1/r2/w1")
+// are filtered out.
+func TestBroadcaster_PrefixNamespace_RepoScopedReceivesChildren(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	b := ws.NewBroadcaster(itemDef())
+	r := gin.New()
+	r.GET("/p/:projectId/r/:repoId/items", b.Handle)
+	srv := httptest.NewServer(r)
+	t.Cleanup(srv.Close)
+
+	conn := dial(t, srv, "/p/p1/r/r1/items")
+	b.WaitNRegistered(1)
+
+	// Sibling-repo event must be filtered out; both child-workspace events under
+	// the subscribed repo must arrive, in order.
+	b.Push(item{Name: "p1/r2/w1", Kind: "fruit"})
+	b.Push(item{Name: "p1/r1/w1", Kind: "fruit"})
+	b.Push(item{Name: "p1/r1/w2", Kind: "fruit"})
+
+	first, ok := readItem(t, conn)
+	require.True(t, ok)
+	assert.Equal(t, "p1/r1/w1", first.Name, "sibling-repo event must be filtered, first child must arrive")
+
+	second, ok := readItem(t, conn)
+	require.True(t, ok)
+	assert.Equal(t, "p1/r1/w2", second.Name, "second child-workspace event must arrive")
 }
 
 // readItem reads one frame with a deadline and decodes it, returning false on
@@ -147,7 +229,7 @@ func readItem(
 func TestBroadcaster_Snapshot_LargerThanBuffer_NoTruncation(t *testing.T) {
 	const total = 200
 	def := itemDef()
-	def.Snapshot = func() []item {
+	def.Snapshot = func(_ string) []item {
 		out := make([]item, total)
 		for i := range out {
 			out[i] = item{Name: fmt.Sprintf("s%d", i), Kind: "fruit"}
@@ -171,7 +253,7 @@ func TestBroadcaster_Snapshot_LargerThanBuffer_NoTruncation(t *testing.T) {
 // (the snapshot is filtered, like live Push).
 func TestBroadcaster_Snapshot_FilteredByPredicate(t *testing.T) {
 	def := itemDef()
-	def.Snapshot = func() []item {
+	def.Snapshot = func(_ string) []item {
 		return []item{
 			{Name: "veg1", Kind: "veg"},
 			{Name: "fruit1", Kind: "fruit"},
@@ -200,7 +282,7 @@ func TestBroadcaster_Snapshot_SerializeErrorSkipped(t *testing.T) {
 		Filters: []ws.FilterDef[item]{
 			{Param: "kind", Extract: func(i item) string { return i.Kind }, Match: ws.ExactMatch},
 		},
-		Snapshot: func() []item {
+		Snapshot: func(_ string) []item {
 			return []item{
 				{Name: "bad", Kind: "fruit"},
 				{Name: "good", Kind: "fruit"},
@@ -221,7 +303,7 @@ func TestBroadcaster_Snapshot_SerializeErrorSkipped(t *testing.T) {
 func TestBroadcaster_Snapshot_PrecedesLive(t *testing.T) {
 	const total = 100
 	def := itemDef()
-	def.Snapshot = func() []item {
+	def.Snapshot = func(_ string) []item {
 		out := make([]item, total)
 		for i := range out {
 			out[i] = item{Name: fmt.Sprintf("snap%d", i), Kind: "fruit"}
@@ -254,7 +336,7 @@ func TestBroadcaster_Snapshot_DoesNotBlockConcurrentPush(t *testing.T) {
 	var armed atomic.Bool
 
 	def := itemDef()
-	def.Snapshot = func() []item {
+	def.Snapshot = func(_ string) []item {
 		if !armed.Load() {
 			return nil
 		}

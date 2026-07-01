@@ -17,7 +17,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	v0 "github.com/char2cs/crowbar/api/internal/api/v0"
-	"github.com/char2cs/crowbar/api/internal/app/hub"
+	"github.com/char2cs/crowbar/api/internal/api/v0/dto"
 	"github.com/char2cs/crowbar/api/internal/app/repositories/workspace"
 	"github.com/char2cs/crowbar/api/internal/domain"
 	gitdomain "github.com/char2cs/crowbar/api/internal/domain/git"
@@ -62,6 +62,7 @@ func dialWS(
 func TestWatcherLifecycle_FilesSubscriberStartsWatcher(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	tc := newApp(t)
+	seedRepo(t, tc, "r1")
 	repoPath := gitRepo(t)
 
 	_, err := tc.app.Repositories.Workspace.Create(
@@ -77,7 +78,7 @@ func TestWatcherLifecycle_FilesSubscriberStartsWatcher(t *testing.T) {
 	srv := httptest.NewServer(r)
 	t.Cleanup(srv.Close)
 
-	conn := dialWS(t, srv, "/v0/ws/files?wsId=w1")
+	conn := dialWS(t, srv, "/v0/projects/p1/repos/r1/workspaces/w1/files/ws")
 	c.WaitFilesRegistered()
 
 	// The watcher starts asynchronously on the subscribe hook; re-write on a
@@ -108,9 +109,12 @@ type fileProbe struct {
 	ch chan domain.FileChangeEvent
 }
 
-func (fileProbe) PushWorkspace(_ domain.Workspace)        {}
-func (fileProbe) PushChat(_ hub.ChatStatusEvent)          {}
-func (fileProbe) PushGit(_ string, _ gitdomain.GitStatus) {}
+func (fileProbe) PushProject(_ dto.ProjectDTO)                 {}
+func (fileProbe) PushRepo(_ dto.RepoDTO)                       {}
+func (fileProbe) PushWorkspace(_ dto.WorkspaceDTO)             {}
+func (fileProbe) PushThread(_ dto.ThreadDTO)                   {}
+func (fileProbe) PushTerminalSession(_ dto.TerminalSessionDTO) {}
+func (fileProbe) PushGit(_ string, _ gitdomain.GitStatus)      {}
 
 func (p fileProbe) PushFile(
 	e domain.FileChangeEvent,
@@ -127,6 +131,7 @@ func (p fileProbe) PushFile(
 func TestWatcherLifecycle_LSPOnlySubscriberDoesNotStartWatcher(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	tc := newApp(t)
+	seedRepo(t, tc, "r1")
 	repoPath := gitRepo(t)
 
 	_, err := tc.app.Repositories.Workspace.Create(
@@ -145,7 +150,7 @@ func TestWatcherLifecycle_LSPOnlySubscriberDoesNotStartWatcher(t *testing.T) {
 	srv := httptest.NewServer(r)
 	t.Cleanup(srv.Close)
 
-	_ = dialWS(t, srv, "/v0/ws/lsp?wsId=w1")
+	_ = dialWS(t, srv, "/v0/projects/p1/repos/r1/workspaces/w1/lsp/ws")
 	c.WaitLSPRegistered()
 
 	require.NoError(t, os.WriteFile(filepath.Join(repoPath, "x.txt"), []byte("a"), 0o644))

@@ -126,6 +126,14 @@ export const settingsSearchIndex: SettingSearchRecord[] = [
     keywords: ['indent', 'guides', 'indentation', 'tabs', 'spaces', 'display'],
   },
   {
+    id: 'editor-semantic-highlighting',
+    tab: 'editor',
+    section: 'Display',
+    label: 'Semantic Highlighting',
+    description: 'Color functions, types, and properties using the Tree-sitter tokenizer',
+    keywords: ['semantic', 'highlighting', 'syntax', 'tree-sitter', 'colors', 'tokens', 'display'],
+  },
+  {
     id: 'editor-highlight-occurrences',
     tab: 'editor',
     section: 'Display',

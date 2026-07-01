@@ -1,5 +1,5 @@
 import { render, screen, fireEvent } from '@testing-library/react'
-import { vi, test, expect } from 'vitest'
+import { vi, test, expect, describe, it } from 'vitest'
 import { WorkspaceInlineInput } from '@/components/layout/workspace-inline-input'
 
 test('confirms trimmed value on Enter', () => {
@@ -77,4 +77,47 @@ test('Escape cancels even when input has a value', () => {
   fireEvent.keyDown(input, { key: 'Escape' })
   expect(onCancel).toHaveBeenCalled()
   expect(onConfirm).not.toHaveBeenCalled()
+})
+
+describe('WorkspaceInlineInput collision handling', () => {
+  function setup() {
+    const onConfirm = vi.fn()
+    const onCancel = vi.fn()
+    const onOpenExisting = vi.fn()
+    const resolveExisting = (b: string) => (b.trim() === 'develop' ? 'ws-default' : null)
+    render(
+      <WorkspaceInlineInput
+        onConfirm={onConfirm}
+        onCancel={onCancel}
+        resolveExisting={resolveExisting}
+        onOpenExisting={onOpenExisting}
+      />,
+    )
+    return { onConfirm, onCancel, onOpenExisting }
+  }
+
+  it('shows the hint and suppresses confirm for an existing branch', () => {
+    const { onConfirm } = setup()
+    const input = screen.getByRole('textbox')
+    fireEvent.change(input, { target: { value: 'develop' } })
+    expect(screen.getByText(/already has a workspace/i)).toBeInTheDocument()
+    fireEvent.keyDown(input, { key: 'Enter' })
+    expect(onConfirm).not.toHaveBeenCalled()
+  })
+
+  it('clicking the hint opens the existing workspace', () => {
+    const { onOpenExisting } = setup()
+    const input = screen.getByRole('textbox')
+    fireEvent.change(input, { target: { value: 'develop' } })
+    fireEvent.mouseDown(screen.getByText(/already has a workspace/i))
+    expect(onOpenExisting).toHaveBeenCalledWith('ws-default')
+  })
+
+  it('confirms normally for a free branch', () => {
+    const { onConfirm } = setup()
+    const input = screen.getByRole('textbox')
+    fireEvent.change(input, { target: { value: 'feature/new' } })
+    fireEvent.keyDown(input, { key: 'Enter' })
+    expect(onConfirm).toHaveBeenCalledWith('feature/new')
+  })
 })

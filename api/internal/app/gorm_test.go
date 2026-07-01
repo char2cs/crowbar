@@ -117,3 +117,43 @@ func TestNewGORMStores_TerminalProfileStoreError(t *testing.T) {
 	require.Error(t, err)
 	assert.ErrorContains(t, err, "app: terminal profile store:")
 }
+
+// TestNewGORMStores_TerminalSessionStoreError triggers the "terminal session
+// store" error branch by allowing the first three ExecContext calls (Project,
+// Repository, and TerminalProfile CREATE TABLE) to succeed before injecting a
+// failure.
+func TestNewGORMStores_TerminalSessionStoreError(t *testing.T) {
+	db := newFailAfterExecDB(t, 3)
+	_, err := newGORMStores(db)
+	require.Error(t, err)
+	assert.ErrorContains(t, err, "app: terminal session store:")
+}
+
+func TestNewGORMStores_TerminalSessionRoundTrip(t *testing.T) {
+	db, err := storesqlite.OpenDB(":memory:")
+	require.NoError(t, err)
+	stores, err := newGORMStores(db)
+	require.NoError(t, err)
+
+	ctx := context.Background()
+	sess := domain.TerminalSession{
+		SessionID:   "sess-1",
+		WorkspaceID: "ws-1",
+		ProjectID:   "proj-1",
+		RepoID:      "repo-1",
+		State:       "active",
+	}
+	require.NoError(t, stores.TerminalSessions.Save(ctx, sess))
+
+	got, err := stores.TerminalSessions.FindByKey(ctx, "sess-1")
+	require.NoError(t, err)
+	require.NotNil(t, got)
+	assert.Equal(t, "ws-1", got.WorkspaceID)
+	assert.Equal(t, "proj-1", got.ProjectID)
+	assert.Equal(t, "active", got.State)
+
+	require.NoError(t, stores.TerminalSessions.Delete(ctx, "sess-1"))
+	gone, err := stores.TerminalSessions.FindByKey(ctx, "sess-1")
+	require.NoError(t, err)
+	assert.Nil(t, gone)
+}

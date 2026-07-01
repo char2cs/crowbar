@@ -5,6 +5,7 @@ import (
 	"context"
 	"time"
 
+	"github.com/char2cs/crowbar/api/internal/domain"
 	gitdomain "github.com/char2cs/crowbar/api/internal/domain/git"
 )
 
@@ -46,12 +47,33 @@ type Git interface {
 	OperationAbort(ctx context.Context, wsID string, now time.Time) error
 }
 
-// Handlers holds the git usecase and exposes HTTP handler methods.
-type Handlers struct {
-	git Git
+// LastErrorSetter records the message from a failed background git op on the
+// workspace entity so the failure is delivered on the workspace WebSocket stream
+// (00 §4: errors live on the entity, never a separate WS frame). It is satisfied
+// by the workspace repository, wired in router.go.
+type LastErrorSetter interface {
+	SetLastError(
+		ctx context.Context,
+		id string,
+		message string,
+	) (domain.Workspace, error)
 }
 
-// New builds a Handlers from the git usecase.
-func New(git Git) *Handlers {
-	return &Handlers{git: git}
+// Handlers holds the git usecase, the workspace error sink for slow-op failures,
+// and exposes HTTP handler methods.
+type Handlers struct {
+	git        Git
+	lastErrors LastErrorSetter
+}
+
+// New builds a Handlers from the git usecase and the workspace error sink that
+// surfaces slow-op async failures on the workspace entity.
+func New(
+	git Git,
+	lastErrors LastErrorSetter,
+) *Handlers {
+	return &Handlers{
+		git:        git,
+		lastErrors: lastErrors,
+	}
 }

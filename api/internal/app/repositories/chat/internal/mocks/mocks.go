@@ -16,8 +16,6 @@ type MockChat struct {
 	ForkFn            func(ctx context.Context, id, wsID, parentID, title string, now time.Time) (domain.Chat, error)
 	RenameFn          func(ctx context.Context, id, title string) (domain.Chat, error)
 	DeleteFn          func(ctx context.Context, id string, now time.Time) (domain.Chat, error)
-	ResetIdleFn       func(ctx context.Context, id string) (domain.Chat, error)
-	SetAgentRunningFn func(ctx context.Context, id string) (domain.Chat, error)
 	GetFn             func(ctx context.Context, id string) (domain.Chat, error)
 	ListFn            func(ctx context.Context) ([]domain.Chat, error)
 	ListByWorkspaceFn func(ctx context.Context, wsID string) ([]domain.Chat, error)
@@ -58,20 +56,6 @@ func (m *MockChat) Delete(
 	now time.Time,
 ) (domain.Chat, error) {
 	return m.DeleteFn(ctx, id, now)
-}
-
-func (m *MockChat) ResetIdle(
-	ctx context.Context,
-	id string,
-) (domain.Chat, error) {
-	return m.ResetIdleFn(ctx, id)
-}
-
-func (m *MockChat) SetAgentRunning(
-	ctx context.Context,
-	id string,
-) (domain.Chat, error) {
-	return m.SetAgentRunningFn(ctx, id)
 }
 
 func (m *MockChat) Get(

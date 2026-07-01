@@ -1,14 +1,19 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 
 vi.mock('@/lib/api', () => ({ apiFetch: vi.fn() }))
-vi.mock('@/components/ui/toast', () => ({ toast: { error: vi.fn(), success: vi.fn() } }))
+vi.mock('@/features/window/stores/toast-store', () => ({
+  toast: { error: vi.fn(), success: vi.fn() },
+}))
 
 import { apiFetch } from '@/lib/api'
-import { toast } from '@/components/ui/toast'
+import { toast } from '@/features/window/stores/toast-store'
 import { openFileContent } from '@/features/workspace/lib/open-file-content'
+import { setWorkspaceScope } from '@/lib/workspace-scope'
 
 beforeEach(() => {
   vi.clearAllMocks()
+  // §3: content route is hierarchical; record the scope for the test wsId.
+  setWorkspaceScope({ projectId: 'p1', repoId: 'r1', wsId: 'ws-1' })
 })
 
 describe('openFileContent', () => {
@@ -19,7 +24,7 @@ describe('openFileContent', () => {
       preview: false,
     })
     expect(apiFetch).toHaveBeenCalledWith(
-      '/v0/workspaces/ws-1/files/content?path=web%2Fvite.config.ts',
+      '/v0/projects/p1/repos/r1/workspaces/ws-1/files/content?path=web%2Fvite.config.ts',
     )
     expect(openContent).toHaveBeenCalledWith(
       expect.objectContaining({

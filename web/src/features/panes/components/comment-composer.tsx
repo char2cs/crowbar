@@ -3,7 +3,7 @@ import CodeMirror from '@uiw/react-codemirror'
 import { markdown } from '@codemirror/lang-markdown'
 import { keymap } from '@codemirror/view'
 import { Button } from '@/components/ui/button'
-import { cn } from '@/utils/cn'
+import { Tabs, TabsList, TabsTab } from '@/components/ui/tabs'
 import { transparentMarkdownTheme, MarkdownPreview } from '@/features/panes/lib/markdown'
 
 interface CommentComposerProps {
@@ -12,6 +12,8 @@ interface CommentComposerProps {
   placeholder?: string
   submitLabel?: string
   autoFocus?: boolean
+  /** Seed the editor with existing text — used when editing a comment. */
+  initialValue?: string
   onSubmit: (body: string) => void
   onCancel: () => void
 }
@@ -21,10 +23,11 @@ export function CommentComposer({
   placeholder = 'Leave a comment',
   submitLabel = 'Comment',
   autoFocus = true,
+  initialValue = '',
   onSubmit,
   onCancel,
 }: CommentComposerProps) {
-  const [value, setValue] = useState('')
+  const [value, setValue] = useState(initialValue)
   const [mode, setMode] = useState<'write' | 'preview'>('write')
   const canSubmit = value.trim().length > 0
 
@@ -60,22 +63,17 @@ export function CommentComposer({
         </div>
       )}
 
-      <div className="flex items-center gap-1 border-b border-border/60 px-2 pt-1.5">
-        {(['write', 'preview'] as const).map((m) => (
-          <button
-            key={m}
-            type="button"
-            onClick={() => setMode(m)}
-            className={cn(
-              'rounded-t-md px-2.5 py-1 text-xs font-medium capitalize transition-colors',
-              mode === m
-                ? 'border border-b-0 border-border bg-muted/40 text-foreground'
-                : 'text-muted-foreground hover:text-foreground',
-            )}
-          >
-            {m}
-          </button>
-        ))}
+      <div className="border-b border-border/60 px-2 py-1.5">
+        <Tabs value={mode} onValueChange={(value) => setMode(value as 'write' | 'preview')}>
+          <TabsList variant="default" className="h-7">
+            <TabsTab value="write" className="h-6 px-3 text-xs">
+              Write
+            </TabsTab>
+            <TabsTab value="preview" className="h-6 px-3 text-xs">
+              Preview
+            </TabsTab>
+          </TabsList>
+        </Tabs>
       </div>
 
       <div className="px-3 py-2">
@@ -106,13 +104,7 @@ export function CommentComposer({
         <Button type="button" variant="outline" size="sm" onClick={onCancel}>
           Cancel
         </Button>
-        <Button
-          type="button"
-          size="sm"
-          disabled={!canSubmit}
-          onClick={submit}
-          className="text-foreground"
-        >
+        <Button type="button" size="sm" disabled={!canSubmit} onClick={submit}>
           {submitLabel}
         </Button>
       </div>

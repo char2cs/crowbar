@@ -13,7 +13,12 @@ interface Definition {
 
 interface UseDefinitionLinkProps {
   filePath: string
-  content: string
+  /**
+   * Accessor for the current file content, read IMPERATIVELY at mouse-handler
+   * time. A getter (not a `content` value) keeps this hook off the per-keystroke
+   * render path — the content is resolved only when a cmd-hover actually fires.
+   */
+  getContent: () => string
   lineHeight: number
   charWidth: number
   isLanguageSupported: boolean
@@ -71,7 +76,7 @@ function getWordBoundaries(
 
 export const useDefinitionLink = ({
   filePath,
-  content,
+  getContent,
   lineHeight,
   charWidth,
   isLanguageSupported,
@@ -79,7 +84,8 @@ export const useDefinitionLink = ({
   resolveEditorPosition,
 }: UseDefinitionLinkProps) => {
   const actions = useEditorUIStore((s) => s.actions)
-  const latestContentRef = useRef(content)
+  const getContentRef = useRef(getContent)
+  getContentRef.current = getContent
   const isModifierHeldRef = useRef(false)
   const lastMousePosRef = useRef<{ x: number; y: number } | null>(null)
   const editorRefCache = useRef<HTMLElement | null>(null)
@@ -93,10 +99,6 @@ export const useDefinitionLink = ({
   // Track pending LSP request to cancel/ignore stale results
   const pendingRequestRef = useRef<{ cancelled: boolean } | null>(null)
   const debounceTimerRef = useRef<NodeJS.Timeout | null>(null)
-
-  useEffect(() => {
-    latestContentRef.current = content
-  }, [content])
 
   const setPointerCursor = useCallback((editor: HTMLElement | null, enabled: boolean) => {
     if (!editor) return
@@ -159,7 +161,7 @@ export const useDefinitionLink = ({
         return
       }
 
-      const boundaries = getWordBoundaries(latestContentRef.current, pos.line, pos.column)
+      const boundaries = getWordBoundaries(getContentRef.current(), pos.line, pos.column)
       if (!boundaries) {
         currentWordRef.current = null
         actions.setDefinitionLinkRange(null)

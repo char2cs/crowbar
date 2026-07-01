@@ -1,83 +1,95 @@
-import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuSeparator,
-  DropdownMenuTrigger,
-} from '@/components/ui/dropdown-menu'
-import { useProjectStore } from '@/lib/store/projects'
+import { ArrowLeft, ArrowRight, GearSix, SidebarSimple } from '@phosphor-icons/react'
+import { Button } from '@/components/ui/button'
+import { useSidebar } from '@/components/ui/sidebar'
 import { useSettingsStore } from '@/features/settings/store'
 import { useUIState } from '@/features/window/stores/ui-state-store'
+import { useJumpNavigation } from '@/features/tabs/hooks/use-jump-navigation'
 import { IS_MAC } from '@/utils/platform'
 import { cn } from '@/utils/cn'
-import { ChevronDown } from 'lucide-react'
-import { GearSix } from '@phosphor-icons/react'
 
-interface SidebarProjectHeaderProps {
-  onProjectsClick?: () => void
-  onProjectSelect?: (projectId: string) => void
-}
-
-export function SidebarProjectHeader({
-  onProjectsClick,
-  onProjectSelect,
-}: SidebarProjectHeaderProps) {
-  const projects = useProjectStore((s) => s.projects)
-  const activeProjectId = useProjectStore((s) => s.activeProjectId)
+/**
+ * Sidebar top bar: a sidebar-toggle on the leading edge and a back / forward /
+ * settings cluster on the trailing edge. Mirrors when the sidebar sits on the
+ * right. Back/forward reuse the editor jump navigation.
+ */
+export function SidebarProjectHeader() {
   const sidebarPosition = useSettingsStore((s) => s.settings.sidebarPosition)
-
-  const activeProject = projects.find((p) => p.id === activeProjectId)
   const isRight = sidebarPosition === 'right'
+  const { open: sidebarOpen, toggleSidebar } = useSidebar()
+  const { canGoBack, canGoForward, handleJumpBack, handleJumpForward } = useJumpNavigation()
 
-  const handleSelect = (id: string) => {
-    useProjectStore.getState().setActiveProject(id)
-    onProjectSelect?.(id)
-  }
+  const toggle = (
+    <Button
+      onClick={toggleSidebar}
+      variant="ghost"
+      size="icon-sm"
+      className={cn(
+        'shrink-0 rounded-sm text-muted-foreground hover:bg-sidebar-element-hover',
+        isRight && 'scale-x-[-1]',
+      )}
+      tooltip={sidebarOpen ? 'Hide Sidebar' : 'Show Sidebar'}
+      tooltipSide="bottom"
+      aria-label={sidebarOpen ? 'Hide sidebar' : 'Show sidebar'}
+    >
+      <SidebarSimple size={16} />
+    </Button>
+  )
+
+  const cluster = (
+    <div className="flex shrink-0 items-center gap-0.5">
+      <Button
+        onClick={() => void handleJumpBack()}
+        disabled={!canGoBack}
+        variant="ghost"
+        size="icon-sm"
+        className="shrink-0 rounded-sm text-muted-foreground hover:bg-sidebar-element-hover"
+        tooltip="Go Back"
+        tooltipSide="bottom"
+        aria-label="Go back to previous location"
+      >
+        <ArrowLeft size={16} />
+      </Button>
+      <Button
+        onClick={() => void handleJumpForward()}
+        disabled={!canGoForward}
+        variant="ghost"
+        size="icon-sm"
+        className="shrink-0 rounded-sm text-muted-foreground hover:bg-sidebar-element-hover"
+        tooltip="Go Forward"
+        tooltipSide="bottom"
+        aria-label="Go forward to next location"
+      >
+        <ArrowRight size={16} />
+      </Button>
+      <Button
+        onClick={() => useUIState.getState().openSettingsDialog()}
+        variant="ghost"
+        size="icon-sm"
+        className="shrink-0 rounded-sm text-muted-foreground hover:bg-sidebar-element-hover"
+        tooltip="Settings"
+        tooltipSide="bottom"
+        aria-label="Settings"
+      >
+        <GearSix size={16} />
+      </Button>
+    </div>
+  )
 
   return (
     <div
       className={cn(
-        'flex w-full flex-shrink-0 items-center px-3',
+        'flex w-full flex-shrink-0 items-center gap-1 px-3',
         IS_MAC ? 'h-[44px]' : 'h-[34px]',
+        isRight && 'flex-row-reverse',
       )}
       data-tauri-drag-region
     >
-      {IS_MAC && !isRight && <div className="w-[52px] shrink-0" />}
-
-      <DropdownMenu>
-        <DropdownMenuTrigger
-          className={cn(
-            'inline-flex items-center gap-1 rounded-sm px-1.5 py-0.5 text-[13px] font-semibold text-foreground outline-none hover:bg-accent/50',
-            isRight ? 'mr-auto' : 'ml-auto',
-          )}
-        >
-          {activeProject?.name ?? 'Select project'}
-          <ChevronDown className="h-3 w-3 text-muted-foreground" />
-        </DropdownMenuTrigger>
-        <DropdownMenuContent align={isRight ? 'start' : 'end'} style={{ minWidth: '160px' }}>
-          {projects.map((p) => (
-            <DropdownMenuItem
-              key={p.id}
-              onClick={() => handleSelect(p.id)}
-              className={p.id === activeProjectId ? 'font-medium text-primary' : ''}
-            >
-              {p.name}
-            </DropdownMenuItem>
-          ))}
-          <DropdownMenuSeparator />
-          <DropdownMenuItem onClick={onProjectsClick} className="text-muted-foreground">
-            Manage projects…
-          </DropdownMenuItem>
-        </DropdownMenuContent>
-      </DropdownMenu>
-
-      <button
-        onClick={() => useUIState.getState().openSettingsDialog()}
-        aria-label="Settings"
-        className="flex h-7 w-7 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
-      >
-        <GearSix size={16} />
-      </button>
+      {/* Reserve space for the macOS traffic lights on whichever side is
+          top-left (only when the sidebar is on the left). */}
+      {IS_MAC && !isRight && <div className="w-[72px] shrink-0" />}
+      {toggle}
+      <div className="flex-1" />
+      {cluster}
     </div>
   )
 }

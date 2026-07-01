@@ -17,6 +17,7 @@ import (
 	"regexp"
 	"strings"
 
+	"github.com/char2cs/crowbar/api/internal/core/safego"
 	"github.com/char2cs/crowbar/api/internal/engine/search/internal/ignore"
 	"github.com/char2cs/crowbar/api/internal/engine/search/internal/match"
 	"github.com/char2cs/crowbar/api/internal/engine/search/internal/replace"
@@ -308,6 +309,7 @@ func drainChannel(
 	ch <-chan string,
 ) {
 	go func() {
+		defer safego.Recover("search.drainChannel")
 		for range ch {
 		}
 	}()

@@ -6,6 +6,9 @@ export interface ConversationState {
   appendTurn: (turn: MarkdownTurn) => void
   updateStreamingTurn: (id: string, contentDelta: string) => void
   finalizeStreamingTurn: (id: string) => void
+  // Marks a turn as failed: stops its streaming state and attaches the error
+  // message so the history can render an inline error notice.
+  setTurnError: (id: string, message: string) => void
   // Silent no-op if turnId or widgetId not found — callers must ensure IDs are valid
   updateWidgetPayload: (turnId: string, widgetId: string, payload: unknown) => void
   appendWidget: (turnId: string, widget: WidgetData) => void
@@ -24,6 +27,10 @@ function createConversationStore() {
     finalizeStreamingTurn: (id) =>
       set((s) => ({
         turns: s.turns.map((t) => (t.id === id ? { ...t, streaming: false } : t)),
+      })),
+    setTurnError: (id, message) =>
+      set((s) => ({
+        turns: s.turns.map((t) => (t.id === id ? { ...t, streaming: false, error: message } : t)),
       })),
     updateWidgetPayload: (turnId, widgetId, payload) =>
       set((s) => ({

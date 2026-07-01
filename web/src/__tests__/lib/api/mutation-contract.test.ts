@@ -1,63 +1,85 @@
-import { afterAll, afterEach, beforeAll, describe, expect, test } from 'vitest'
-import { http, HttpResponse } from 'msw'
-import { setupServer } from 'msw/node'
-import { projectHandlers } from '@/mocks/handlers/projects'
-import { workspaceHandlers } from '@/mocks/handlers/workspaces'
-import { postProject, postWorkspace, fetchProject, apiFetch } from '@/lib/api'
+import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest'
+import { postProject, postRepo, postWorkspace, deleteWorkspace, apiFetch } from '@/lib/api'
 
-// The real backend wraps every response in { success, error, data }. Mutations
-// (POST) go through WriteMutationOK and return ONLY { id } in `data`, never the
-// full entity. These tests pin both the mock handlers and the api client to
-// that contract so the mocks can't silently diverge from production again.
-const server = setupServer(...projectHandlers, ...workspaceHandlers)
+// §3/§7: every entity mutation is hierarchical and fire-and-forget — the daemon
+// answers 202 Accepted with an EMPTY body and the real entity arrives over the
+// scoped WS broadcaster. These tests pin the URLs/methods and that the client
+// treats a 202-no-body as success returning undefined (never a synchronous id).
+let fetchMock: ReturnType<typeof vi.fn>
 
-beforeAll(() => server.listen({ onUnhandledRequest: 'error' }))
-afterEach(() => server.resetHandlers())
-afterAll(() => server.close())
+beforeEach(() => {
+  fetchMock = vi.fn().mockResolvedValue(new Response(null, { status: 202 }))
+  vi.stubGlobal('fetch', fetchMock)
+})
 
-describe('mutation responses are { id } only', () => {
-  test('POST /v0/projects returns { id } and nothing else', async () => {
+afterEach(() => {
+  vi.unstubAllGlobals()
+})
+
+function lastCall(): [string, RequestInit] {
+  return fetchMock.mock.calls[fetchMock.mock.calls.length - 1] as [string, RequestInit]
+}
+
+describe('hierarchical mutations are 202-empty (no synchronous entity)', () => {
+  test('POST /v0/projects → 202, resolves undefined', async () => {
     const res = await postProject('my-proj', '/tmp/my-proj')
-    expect(Object.keys(res)).toEqual(['id'])
-    expect(typeof res.id).toBe('string')
-    expect(res.id.length).toBeGreaterThan(0)
+    const [url, init] = lastCall()
+    expect(url).toBe('/v0/projects')
+    expect(init.method).toBe('POST')
+    expect(JSON.parse(init.body as string)).toEqual({ name: 'my-proj', path: '/tmp/my-proj' })
+    expect(res).toBeUndefined()
   })
 
-  test('fetchProject re-fetches the full entity created by the POST mock', async () => {
-    const { id } = await postProject('hydrate-me', '/tmp/hydrate-me')
-    const project = await fetchProject(id)
-    expect(project.id).toBe(id)
-    expect(project.name).toBe('hydrate-me')
-    expect(project.path).toBe('/tmp/hydrate-me')
+  test('POST /v0/projects/:p/repos → 202, resolves undefined', async () => {
+    const res = await postRepo('p1', 'crowbar', '/tmp/crowbar')
+    const [url, init] = lastCall()
+    expect(url).toBe('/v0/projects/p1/repos')
+    expect(init.method).toBe('POST')
+    expect(JSON.parse(init.body as string)).toEqual({ name: 'crowbar', path: '/tmp/crowbar' })
+    expect(res).toBeUndefined()
   })
 
-  test('GET /v0/projects/:id returns 404 envelope for unknown id', async () => {
-    await expect(fetchProject('does-not-exist')).rejects.toThrow('not found')
+  test('POST .../workspaces body {branch, parentId?} → 202, resolves undefined', async () => {
+    const res = await postWorkspace('p1', 'r1', 'feature/x', 'parent-id')
+    const [url, init] = lastCall()
+    expect(url).toBe('/v0/projects/p1/repos/r1/workspaces')
+    expect(init.method).toBe('POST')
+    expect(JSON.parse(init.body as string)).toEqual({ branch: 'feature/x', parentId: 'parent-id' })
+    expect(res).toBeUndefined()
   })
 
-  test('POST /v0/workspaces returns { id } only', async () => {
-    const res = await postWorkspace('crowbar', 'feature/test')
-    expect(Object.keys(res)).toEqual(['id'])
-    expect(typeof res.id).toBe('string')
+  test('postWorkspace omits parentId when not given', async () => {
+    await postWorkspace('p1', 'r1', 'develop')
+    const [, init] = lastCall()
+    expect(JSON.parse(init.body as string)).toEqual({ branch: 'develop' })
+  })
+
+  test('DELETE .../workspaces/:w → 202, resolves undefined', async () => {
+    const res = await deleteWorkspace('p1', 'r1', 'w1')
+    const [url, init] = lastCall()
+    expect(url).toBe('/v0/projects/p1/repos/r1/workspaces/w1')
+    expect(init.method).toBe('DELETE')
+    expect(res).toBeUndefined()
   })
 })
 
-describe('apiFetch empty/204 success handling', () => {
+describe('apiFetch empty/204/202 success handling', () => {
   test('treats a 204 No Content success as undefined, not an error', async () => {
-    server.use(http.post('/v0/things/delete', () => new HttpResponse(null, { status: 204 })))
+    fetchMock.mockResolvedValueOnce(new Response(null, { status: 204 }))
     await expect(apiFetch('/v0/things/delete', { method: 'POST' })).resolves.toBeUndefined()
   })
 
-  test('treats an empty-body 200 success as undefined', async () => {
-    server.use(http.post('/v0/things/noop', () => new HttpResponse(null, { status: 200 })))
-    await expect(apiFetch('/v0/things/noop', { method: 'POST' })).resolves.toBeUndefined()
+  test('treats a 202 Accepted with no body as undefined', async () => {
+    fetchMock.mockResolvedValueOnce(new Response(null, { status: 202 }))
+    await expect(apiFetch('/v0/things/accept', { method: 'POST' })).resolves.toBeUndefined()
   })
 
   test('still throws on a real error envelope', async () => {
-    server.use(
-      http.get('/v0/things/boom', () =>
-        HttpResponse.json({ success: false, error: 'kaboom', data: null }, { status: 500 }),
-      ),
+    fetchMock.mockResolvedValueOnce(
+      new Response(JSON.stringify({ success: false, error: 'kaboom', data: null }), {
+        status: 500,
+        headers: { 'Content-Type': 'application/json' },
+      }),
     )
     await expect(apiFetch('/v0/things/boom')).rejects.toThrow('kaboom')
   })

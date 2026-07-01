@@ -1,3 +1,4 @@
+import { useEffect, useRef, useState } from 'react'
 import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 import { EditorView } from '@codemirror/view'
@@ -41,10 +42,133 @@ export const MARKDOWN_PROSE_CLASS =
   '[&_hr]:border-border [&_hr]:my-3 ' +
   '[&_a]:text-primary [&_a]:underline-offset-2 [&_a]:hover:underline'
 
+// ── Shiki lazy singleton ──────────────────────────────────────────────────────
+
+type HighlightFn = (code: string, lang: string) => Promise<string>
+
+let highlightFnPromise: Promise<HighlightFn> | null = null
+
+/**
+ * Lazily initialise shiki on first use and cache the highlight function.
+ * Returns null in environments where the dynamic import fails (SSR/jsdom).
+ */
+function getHighlightFn(): Promise<HighlightFn> | null {
+  if (typeof window === 'undefined') return null // SSR guard
+
+  if (!highlightFnPromise) {
+    highlightFnPromise = import('shiki/bundle/full')
+      .then(({ getSingletonHighlighter }) =>
+        getSingletonHighlighter({ themes: ['github-dark'], langs: [] }).then((hl) => {
+          return async (code: string, lang: string): Promise<string> => {
+            // Dynamically load language on demand; ignore unknown languages.
+            try {
+              // loadLanguage is a no-op if already loaded.
+              await hl.loadLanguage(lang as Parameters<typeof hl.loadLanguage>[0])
+            } catch {
+              // Unknown / unsupported language — fall through to plain render.
+              return ''
+            }
+            return hl.codeToHtml(code, { lang, theme: 'github-dark' })
+          }
+        }),
+      )
+      .catch(() => {
+        highlightFnPromise = null // allow retry on next render
+        return async () => '' // fallback: no highlight
+      })
+  }
+
+  return highlightFnPromise
+}
+
+// ── Highlighted code block ────────────────────────────────────────────────────
+
+interface ShikiCodeProps {
+  code: string
+  lang: string
+}
+
+function ShikiCodeBlock({ code, lang }: ShikiCodeProps) {
+  const [html, setHtml] = useState<string | null>(null)
+  const mountedRef = useRef(true)
+
+  useEffect(() => {
+    mountedRef.current = true
+    const promise = getHighlightFn()
+    if (!promise) return
+
+    promise
+      .then((fn) => fn(code, lang))
+      .then((result) => {
+        if (mountedRef.current && result) setHtml(result)
+      })
+      .catch(() => {
+        /* ignore — plain fallback stays visible */
+      })
+
+    return () => {
+      mountedRef.current = false
+    }
+  }, [code, lang])
+
+  if (html) {
+    return (
+      <div
+        className="[&_pre]:!bg-transparent [&_pre]:!p-0 [&_.shiki]:overflow-x-auto [&_.shiki]:rounded-lg [&_.shiki]:bg-muted/60 [&_.shiki]:p-3 [&_.shiki]:text-xs"
+        // biome-ignore lint/security/noDangerouslySetInnerHtml: shiki output is sanitised HTML
+        dangerouslySetInnerHTML={{ __html: html }}
+      />
+    )
+  }
+
+  // Plain fallback while shiki loads or if it fails.
+  return (
+    <pre className="overflow-x-auto rounded-lg bg-muted/60 p-3 text-xs">
+      <code>{code}</code>
+    </pre>
+  )
+}
+
+// ── Custom react-markdown components ─────────────────────────────────────────
+
+interface CodeProps {
+  inline?: boolean
+  className?: string
+  children?: React.ReactNode
+}
+
+function MarkdownCode({ inline, className, children }: CodeProps) {
+  const match = /language-(\w+)/.exec(className ?? '')
+  const lang = match?.[1] ?? ''
+  const code = String(children ?? '').replace(/\n$/, '')
+
+  if (!inline && lang) {
+    return <ShikiCodeBlock code={code} lang={lang} />
+  }
+
+  if (!inline && !lang) {
+    // Fenced block without a language tag — plain pre/code.
+    return (
+      <pre className="overflow-x-auto rounded-lg bg-muted/60 p-3 text-xs">
+        <code>{code}</code>
+      </pre>
+    )
+  }
+
+  // Inline code.
+  return <code className="rounded bg-muted/60 px-1 py-0.5 text-xs font-mono">{children}</code>
+}
+
+const MD_COMPONENTS = { code: MarkdownCode } as Parameters<typeof ReactMarkdown>[0]['components']
+
+// ── Public component ──────────────────────────────────────────────────────────
+
 export function MarkdownPreview({ children, className }: { children: string; className?: string }) {
   return (
     <div className={cn(MARKDOWN_PROSE_CLASS, className)}>
-      <ReactMarkdown remarkPlugins={[remarkGfm]}>{children}</ReactMarkdown>
+      <ReactMarkdown remarkPlugins={[remarkGfm]} components={MD_COMPONENTS}>
+        {children}
+      </ReactMarkdown>
     </div>
   )
 }

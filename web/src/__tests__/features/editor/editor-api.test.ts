@@ -169,6 +169,8 @@ describe('editor API model operations', () => {
     const selectAll = vi.fn()
     const undo = vi.fn()
     const redo = vi.fn()
+    const canUndo = vi.fn().mockReturnValue(true)
+    const canRedo = vi.fn().mockReturnValue(false)
     const range = {
       start: calculateCursorPositionFromContent(0, 'alpha\nbeta'),
       end: calculateCursorPositionFromContent(5, 'alpha\nbeta'),
@@ -182,6 +184,8 @@ describe('editor API model operations', () => {
       selectAll,
       undo,
       redo,
+      canUndo,
+      canRedo,
     })
 
     editorAPI.insertText('X')
@@ -200,6 +204,50 @@ describe('editor API model operations', () => {
     expect(onChange).not.toHaveBeenCalled()
   })
 
+  it('delegates canUndo/canRedo to the active adapter; falls back to history store without one', () => {
+    const adapterCanUndo = vi.fn().mockReturnValue(true)
+    const adapterCanRedo = vi.fn().mockReturnValue(false)
+
+    editorAPI.setActiveEditorAdapter({
+      ownerId: 'monaco-can-test',
+      insertText: vi.fn(),
+      deleteRange: vi.fn(),
+      replaceRange: vi.fn(),
+      selectAll: vi.fn(),
+      undo: vi.fn(),
+      redo: vi.fn(),
+      canUndo: adapterCanUndo,
+      canRedo: adapterCanRedo,
+    })
+
+    expect(editorAPI.canUndo()).toBe(true)
+    expect(editorAPI.canRedo()).toBe(false)
+    expect(adapterCanUndo).toHaveBeenCalledTimes(1)
+    expect(adapterCanRedo).toHaveBeenCalledTimes(1)
+
+    // Verify it does NOT consult the history store (which has no entries) —
+    // the history store would also return false for both, so we confirm the
+    // adapter was called rather than a coincidental match.
+    expect(adapterCanUndo).toHaveBeenCalledTimes(1)
+
+    // Without an adapter, fall back to the history store.
+    editorAPI.clearActiveEditorAdapter('monaco-can-test')
+
+    // No history entries → history store returns false for both.
+    expect(editorAPI.canUndo()).toBe(false)
+    expect(editorAPI.canRedo()).toBe(false)
+
+    // Push a history entry so canUndo becomes true via the store.
+    useHistoryStore.getState().actions.pushHistory('buffer_editor_api_test', {
+      content: 'alpha\nbeta',
+      timestamp: Date.now(),
+    })
+
+    expect(editorAPI.canUndo()).toBe(true)
+    // No redo entries yet.
+    expect(editorAPI.canRedo()).toBe(false)
+  })
+
   it('clears only the matching active editor adapter', () => {
     const firstInsert = vi.fn()
     const secondInsert = vi.fn()
@@ -209,6 +257,8 @@ describe('editor API model operations', () => {
       selectAll: vi.fn(),
       undo: vi.fn(),
       redo: vi.fn(),
+      canUndo: vi.fn().mockReturnValue(false),
+      canRedo: vi.fn().mockReturnValue(false),
     }
 
     editorAPI.setActiveEditorAdapter({

@@ -16,7 +16,7 @@ func (e *engine) MergeSquash(
 	branch string,
 	subject string,
 ) error {
-	unlock := e.lockRepo(repoPath)
+	unlock := e.lockRepo(ctx, repoPath)
 	defer unlock()
 	sq := e.exec(ctx, repoPath, "merge", "--squash", "--", branch)
 	if err := classifyGitError("merge --squash", sq); err != nil {

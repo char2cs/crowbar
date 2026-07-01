@@ -63,7 +63,10 @@ export function buildVisibleFileTreeRows(
         }
       }
 
-      const isExpanded = !!(rowFile.isDir && expandedPaths.has(rowFile.path))
+      // A brand-new inline-edit placeholder (isNewItem) must never count as an
+      // expanded directory — its path can be '' (the root), which would otherwise
+      // load the workspace root as its children and duplicate the whole tree.
+      const isExpanded = !!(rowFile.isDir && !rowFile.isNewItem && expandedPaths.has(rowFile.path))
       rows.push({
         file: rowFile,
         depth,
@@ -85,6 +88,29 @@ function normalizeSearchPath(path: string): string {
   const normalized = path.replace(/\\/g, '/')
   if (normalized === '/') return normalized
   return normalized.replace(/\/+$/g, '')
+}
+
+/**
+ * Compute search hits for the file-tree filter: every loaded node whose NAME
+ * contains `query` (case-insensitive substring). Matches both files and
+ * directories; pass the result to filterFileTreeForFffHits to prune the tree to
+ * the matches and their ancestors. Skips in-progress inline-edit placeholders.
+ * (Only loaded levels are searched — the tree is lazy, so unexpanded directories
+ * aren't traversed.)
+ */
+export function computeFileTreeSearchHits(files: FileEntry[], query: string): FileTreeSearchHit[] {
+  const q = query.trim().toLowerCase()
+  if (!q) return []
+  const hits: FileTreeSearchHit[] = []
+  const walk = (items: FileEntry[]): void => {
+    for (const item of items) {
+      if (item.isNewItem || item.isEditing) continue
+      if (item.name.toLowerCase().includes(q)) hits.push({ path: item.path })
+      if (item.children) walk(item.children)
+    }
+  }
+  walk(files)
+  return hits
 }
 
 export function filterFileTreeForFffHits(

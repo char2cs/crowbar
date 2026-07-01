@@ -10,7 +10,6 @@ import (
 	"github.com/stretchr/testify/assert"
 
 	"github.com/char2cs/crowbar/api/internal/api/v0/endpoints/review"
-	"github.com/char2cs/crowbar/api/internal/app/usecases/branchreview"
 	"github.com/char2cs/crowbar/api/internal/domain"
 	gitdomain "github.com/char2cs/crowbar/api/internal/domain/git"
 )
@@ -39,29 +38,6 @@ func (stubUsecase) SetMergeStrategy(
 	return nil
 }
 
-func (stubUsecase) OpenThread(
-	_ context.Context,
-	_ branchreview.OpenThreadInput,
-) (domain.ReviewThread, error) {
-	return domain.ReviewThread{}, nil
-}
-
-func (stubUsecase) Reply(
-	_ context.Context,
-	_ string,
-	_ string,
-) (domain.ReviewThread, error) {
-	return domain.ReviewThread{}, nil
-}
-
-func (stubUsecase) SetThreadResolved(
-	_ context.Context,
-	_ string,
-	_ bool,
-) (domain.ReviewThread, error) {
-	return domain.ReviewThread{}, nil
-}
-
 func TestRegisterMountsRoutes(
 	t *testing.T,
 ) {
@@ -74,9 +50,6 @@ func TestRegisterMountsRoutes(
 	}{
 		{http.MethodGet, "/v0/workspaces/ws1/review"},
 		{http.MethodPatch, "/v0/workspaces/ws1/review"},
-		{http.MethodPost, "/v0/workspaces/ws1/review/threads"},
-		{http.MethodPost, "/v0/workspaces/ws1/review/threads/t1/reply"},
-		{http.MethodPatch, "/v0/workspaces/ws1/review/threads/t1"},
 	}
 	for _, tc := range cases {
 		rec := httptest.NewRecorder()

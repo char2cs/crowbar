@@ -45,19 +45,34 @@ type ChatRepo interface {
 	) ([]domain.Chat, error)
 }
 
-// Handlers serves the /v0/chats routes from the chat usecase and repo.
+// WorkspaceReader is the workspace read surface the handlers need: List uses
+// it to 404 on a workspace id that does not exist instead of serving an empty
+// chat list with a 200.
+type WorkspaceReader interface {
+	Get(
+		ctx context.Context,
+		id string,
+	) (domain.Workspace, error)
+}
+
+// Handlers serves the /v0/chats routes from the chat usecase, repo, and
+// workspace reader.
 type Handlers struct {
 	chatUsecase ChatUsecase
 	chatRepo    ChatRepo
+	wsReader    WorkspaceReader
 }
 
-// New builds the chats Handlers from the chat usecase and repo.
+// New builds the chats Handlers from the chat usecase, repo, and workspace
+// reader.
 func New(
 	chatUsecase ChatUsecase,
 	chatRepo ChatRepo,
+	wsReader WorkspaceReader,
 ) *Handlers {
 	return &Handlers{
 		chatUsecase: chatUsecase,
 		chatRepo:    chatRepo,
+		wsReader:    wsReader,
 	}
 }

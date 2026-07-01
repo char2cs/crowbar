@@ -6,6 +6,7 @@ import { getBranches } from '../api/git-branches-api'
 import { getStashes } from '../api/git-stash-api'
 import type { GitCommit, GitStash, GitStatus } from '../types/git-types'
 import { createLoadableSlice } from '@/lib/store/loadable-slice'
+import { workspaceBase } from '@/lib/workspace-scope-url'
 import { success, type Loadable } from '@/lib/loadable'
 
 const MAX_WORKSPACE_GIT_STATUS_FILES = 200
@@ -83,6 +84,7 @@ interface GitState {
     refreshWorkspaceGitStatus: (repoPath: string) => Promise<void>
     reload: (wsId: string) => Promise<void>
     reloadStatus: (wsId: string) => Promise<void>
+    reloadStatusAndLog: (wsId: string) => Promise<void>
     loadMoreCommits: (repoPath: string) => Promise<void>
     setGitStatus: (status: GitStatus | null) => void
     setWorkspaceGitStatus: (status: GitStatus | null, repoPath: string | null) => void
@@ -102,7 +104,7 @@ export const useGitStore = create<GitState>((set, get) => ({
     const slice = createLoadableSlice<GitData>({
       store: 'git-data',
       fetcher: fetchAllGitData,
-      wsEndpoint: (wsId: string) => `/v0/ws/git?wsId=${encodeURIComponent(wsId)}`,
+      wsEndpoint: (wsId: string) => `${workspaceBase(wsId)}/git/status`,
     })(
       // setter: remap the slice's { data } writes onto the host's gitData field.
       // The slice only ever calls set({ data: ... }) (verified in loadable-slice.ts);
@@ -223,6 +225,26 @@ export const useGitStore = create<GitState>((set, get) => ({
         gitStatus: status,
         workspaceGitStatus: toWorkspaceGitStatus(status),
         currentWorkspaceRepoPath: wsId,
+      })
+    },
+
+    // Live git-event refresh: status AND the commit log together. A
+    // terminal-side commit (or soft reset) changes the log without any UI
+    // action, so the History tab must refetch on the same push that refreshes
+    // the Changes panel. The fresh first page REPLACES the list (a reset can
+    // remove commits, so merge-only updates would keep dead hashes).
+    reloadStatusAndLog: async (wsId) => {
+      const [status, commits] = await Promise.all([
+        getGitStatus(wsId),
+        getGitLog(wsId, COMMITS_PER_PAGE, 0),
+      ])
+      set({
+        gitStatus: status,
+        workspaceGitStatus: toWorkspaceGitStatus(status),
+        currentWorkspaceRepoPath: wsId,
+        currentRepoPath: wsId,
+        commits,
+        hasMoreCommits: commits.length >= COMMITS_PER_PAGE,
       })
     },
 

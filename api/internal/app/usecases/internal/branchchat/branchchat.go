@@ -18,10 +18,9 @@ func From(
 	out := make([]domain.BranchChat, 0, len(chats))
 	for _, c := range chats {
 		out = append(out, domain.BranchChat{
-			ID:       c.ID,
-			Title:    c.Title,
-			Age:      relativeAge(now, c.CreatedAt),
-			IsActive: c.Status == domain.ChatStatusAgentRunning,
+			ID:    c.ID,
+			Title: c.Title,
+			Age:   relativeAge(now, c.CreatedAt),
 		})
 	}
 	return out

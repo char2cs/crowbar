@@ -19,6 +19,7 @@ import (
 func TestAppClose_StopsLiveWatcher(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	tc := newApp(t)
+	seedRepo(t, tc, "r1")
 	repoPath := gitRepo(t)
 
 	_, err := tc.app.Repositories.Workspace.Create(
@@ -34,7 +35,7 @@ func TestAppClose_StopsLiveWatcher(t *testing.T) {
 	srv := httptest.NewServer(r)
 	t.Cleanup(srv.Close)
 
-	conn := dialWS(t, srv, "/v0/ws/files?wsId=w1")
+	conn := dialWS(t, srv, "/v0/projects/p1/repos/r1/workspaces/w1/files/ws")
 	c.WaitFilesRegistered()
 	t.Cleanup(func() { _ = conn.Close() })
 

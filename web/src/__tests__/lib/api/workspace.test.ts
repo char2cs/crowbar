@@ -1,78 +1,21 @@
-import { reparentWorkspace, handleWorkspaceReparented } from '@/lib/api/workspace'
-import { loadWorkspaceHierarchy } from '@/lib/persistence/workspace-hierarchy'
-import { useSidebarStore } from '@/lib/store/sidebar'
-import type { Repo } from '@/lib/store/sidebar'
-import { IDBFactory } from 'fake-indexeddb'
-import { resetDB } from '@/lib/persistence/idb'
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
+import { reparentWorkspace, retryProvision, detachHolder } from '@/lib/api/workspace'
 
-const WORKSPACE_TEST_REPOS: Repo[] = [
-  {
-    id: 'crowbar',
-    name: 'crowbar',
-    avatarLabel: 'C',
-    avatarColor: 'bg-indigo-700',
-    workspaces: [
-      { id: 'ws-develop', branch: 'develop', status: 'locked', age: '—' },
-      {
-        id: 'ws3',
-        branch: 'feature/app-design',
-        parentId: 'ws-develop',
-        status: 'pr-open',
-        age: '16h ago',
-      },
-    ],
-  },
-]
+// §3.3/§3.5: placeholder recovery routes resolve their project/repo from the
+// recorded workspace scope, which isn't set up in a unit test — mock the base
+// builder to a deterministic scoped URL so we can assert the exact route.
+vi.mock('@/lib/workspace-scope-url', () => ({
+  workspaceBase: (id: string) => `/v0/projects/p/repos/r/workspaces/${id}`,
+}))
 
-beforeEach(() => {
-  resetDB()
-  globalThis.indexedDB = new IDBFactory()
-  useSidebarStore.setState({
-    chats: [],
-    repos: WORKSPACE_TEST_REPOS.map((r) => ({ ...r, workspaces: [...r.workspaces] })),
-    collapsedRepos: new Set<string>(),
-    collapsedWorkspaces: new Set<string>(),
-    activeTab: 'workspaces',
-  })
-})
-
-describe('handleWorkspaceReparented', () => {
-  it('updates the sidebar store parentId', async () => {
-    await handleWorkspaceReparented('ws3', 'ws-develop', 'crowbar')
-    const repo = useSidebarStore.getState().repos.find((r) => r.id === 'crowbar')!
-    const ws = repo.workspaces.find((w) => w.id === 'ws3')!
-    expect(ws.parentId).toBe('ws-develop')
-  })
-
-  it('writes hierarchy to IDB after updating store', async () => {
-    await handleWorkspaceReparented('ws3', 'ws-develop', 'crowbar')
-    const hierarchy = await loadWorkspaceHierarchy('crowbar')
-    expect(hierarchy).not.toBeNull()
-    const entry = hierarchy!.entries.find((e) => e.wsId === 'ws3')
-    expect(entry?.parentId).toBe('ws-develop')
-  })
-
-  it('removes parentId when newParentId is undefined', async () => {
-    await handleWorkspaceReparented('ws3', undefined, 'crowbar')
-    const repo = useSidebarStore.getState().repos.find((r) => r.id === 'crowbar')!
-    const ws = repo.workspaces.find((w) => w.id === 'ws3')!
-    expect(ws.parentId).toBeUndefined()
-    const hierarchy = await loadWorkspaceHierarchy('crowbar')
-    const entry = hierarchy!.entries.find((e) => e.wsId === 'ws3')
-    expect(entry?.parentId).toBeUndefined()
-  })
-})
-
+// §3: reparent is a hierarchical 202 mutation. The new parentId arrives on the
+// WorkspaceDTO over the scoped WS stream, so this function no longer mutates
+// local state — it just dials the hierarchical reparent route.
 describe('reparentWorkspace', () => {
   let fetchMock: ReturnType<typeof vi.fn>
 
   beforeEach(() => {
-    fetchMock = vi.fn().mockResolvedValue(
-      new Response(JSON.stringify({ success: true, data: { id: 'ws3' } }), {
-        status: 200,
-        headers: { 'Content-Type': 'application/json' },
-      }),
-    )
+    fetchMock = vi.fn().mockResolvedValue(new Response(null, { status: 202 }))
     vi.stubGlobal('fetch', fetchMock)
   })
 
@@ -80,40 +23,72 @@ describe('reparentWorkspace', () => {
     vi.unstubAllGlobals()
   })
 
-  it('POSTs to /v0/workspaces/:wsId/reparent with the new parent id', async () => {
-    await reparentWorkspace('ws3', 'ws-develop', 'crowbar')
+  it('POSTs to the hierarchical reparent route with the new parent id', async () => {
+    await reparentWorkspace('p1', 'crowbar', 'ws3', 'ws-develop')
     expect(fetchMock).toHaveBeenCalledTimes(1)
     const [url, init] = fetchMock.mock.calls[0] as [string, RequestInit]
-    expect(url).toBe('/v0/workspaces/ws3/reparent')
+    expect(url).toBe('/v0/projects/p1/repos/crowbar/workspaces/ws3/reparent')
     expect(init.method).toBe('POST')
     expect(JSON.parse(init.body as string)).toEqual({ newParentId: 'ws-develop' })
   })
 
-  it('updates store and IDB after a successful backend call', async () => {
-    await reparentWorkspace('ws3', 'ws-develop', 'crowbar')
-    const repo = useSidebarStore.getState().repos.find((r) => r.id === 'crowbar')!
-    expect(repo.workspaces.find((w) => w.id === 'ws3')?.parentId).toBe('ws-develop')
-    const hierarchy = await loadWorkspaceHierarchy('crowbar')
-    expect(hierarchy?.entries.find((e) => e.wsId === 'ws3')?.parentId).toBe('ws-develop')
-  })
-
-  it('does not touch the local store when the backend call fails', async () => {
+  it('propagates a backend failure to the caller', async () => {
     fetchMock.mockResolvedValue(
       new Response(JSON.stringify({ success: false, error: 'has children' }), {
         status: 409,
         headers: { 'Content-Type': 'application/json' },
       }),
     )
-    await expect(reparentWorkspace('ws3', 'ws-other', 'crowbar')).rejects.toThrow('has children')
-    const repo = useSidebarStore.getState().repos.find((r) => r.id === 'crowbar')!
-    // ws3 keeps its original parent — the local handler must not run on failure.
-    expect(repo.workspaces.find((w) => w.id === 'ws3')?.parentId).toBe('ws-develop')
+    await expect(reparentWorkspace('p1', 'crowbar', 'ws3', 'ws-other')).rejects.toThrow(
+      'has children',
+    )
+  })
+})
+
+// §3.3: retryProvision re-provisions a held placeholder branch in place. It's a
+// 202 mutation whose outcome rides the WS broadcast, so the FE call just fires a
+// POST to the scoped retry-provision route.
+describe('retryProvision', () => {
+  let fetchMock: ReturnType<typeof vi.fn>
+
+  beforeEach(() => {
+    fetchMock = vi.fn().mockResolvedValue(new Response(null, { status: 202 }))
+    vi.stubGlobal('fetch', fetchMock)
   })
 
-  it('skips the backend call when moving to the repo root (newParentId undefined)', async () => {
-    await reparentWorkspace('ws3', undefined, 'crowbar')
-    expect(fetchMock).not.toHaveBeenCalled()
-    const repo = useSidebarStore.getState().repos.find((r) => r.id === 'crowbar')!
-    expect(repo.workspaces.find((w) => w.id === 'ws3')?.parentId).toBeUndefined()
+  afterEach(() => {
+    vi.unstubAllGlobals()
+  })
+
+  it('POSTs to the retry-provision route', async () => {
+    await retryProvision('w1')
+    expect(fetchMock).toHaveBeenCalledTimes(1)
+    const [url, init] = fetchMock.mock.calls[0] as [string, RequestInit]
+    expect(url).toBe('/v0/projects/p/repos/r/workspaces/w1/retry-provision')
+    expect(init.method).toBe('POST')
+  })
+})
+
+// §3.5/§3.7: detachHolder evicts the branch's holder (with the user's consent)
+// then re-provisions in place. Same 202-over-WS shape — fire a POST to the
+// scoped detach-holder route.
+describe('detachHolder', () => {
+  let fetchMock: ReturnType<typeof vi.fn>
+
+  beforeEach(() => {
+    fetchMock = vi.fn().mockResolvedValue(new Response(null, { status: 202 }))
+    vi.stubGlobal('fetch', fetchMock)
+  })
+
+  afterEach(() => {
+    vi.unstubAllGlobals()
+  })
+
+  it('POSTs to the detach-holder route', async () => {
+    await detachHolder('w1')
+    expect(fetchMock).toHaveBeenCalledTimes(1)
+    const [url, init] = fetchMock.mock.calls[0] as [string, RequestInit]
+    expect(url).toBe('/v0/projects/p/repos/r/workspaces/w1/detach-holder')
+    expect(init.method).toBe('POST')
   })
 })

@@ -1,13 +1,37 @@
-import { wsUrl } from './url'
+import { isTauri } from '@/lib/crowbar-bridge'
+
+import { wsUrl, isWebSocketCapable } from './url'
 import { reportChannelState, reportChannelGone } from './connection-store'
+import { TauriWebSocket } from './tauri-transport'
 
 type Callback = (data: unknown) => void
 
+// The subset of the WebSocket surface the manager drives. Both the native
+// `WebSocket` and the desktop `TauriWebSocket` shim satisfy it, so the manager
+// is transport-agnostic.
+interface WSLike {
+  onopen: (() => void) | null
+  onmessage: ((event: { data: string }) => void) | null
+  onclose: (() => void) | null
+  onerror: ((event: unknown) => void) | null
+  readyState: number
+  send(data: string): void
+  close(): void
+  addEventListener?: (type: 'open', listener: () => void, options?: { once: boolean }) => void
+}
+
 interface Channel {
-  socket: WebSocket
+  socket: WSLike
   callbacks: Set<Callback>
   reconnectDelay: number
   endpoint: string
+}
+
+// Construct the live transport for the active environment: the native WebSocket
+// in the browser, the unix-socket-bridged shim on desktop (where `crowbar://`
+// has no native WebSocket). Both share the surface the manager uses.
+function createTransport(endpoint: string): WSLike {
+  return isTauri() ? new TauriWebSocket(endpoint) : (new WebSocket(wsUrl(endpoint)) as WSLike)
 }
 
 export interface WSManager {
@@ -15,12 +39,27 @@ export interface WSManager {
   send(endpoint: string, data: unknown): void
 }
 
+// Closing a socket that is still CONNECTING makes the browser log
+// "WebSocket is closed before the connection is established" (StrictMode
+// mounts tear channels down before the handshake finishes). Defer the close
+// until the socket opens so the console stays clean; a socket that errors
+// while CONNECTING closes itself and needs no action.
+function closeSocketQuietly(socket: WSLike): void {
+  if (socket.readyState === WebSocket.CONNECTING && socket.addEventListener) {
+    socket.addEventListener('open', () => socket.close(), { once: true })
+  } else if (socket.readyState === WebSocket.OPEN) {
+    socket.close()
+  } else {
+    socket.close()
+  }
+}
+
 export function createWSManager(): WSManager {
   const channels = new Map<string, Channel>()
 
   function open(endpoint: string, reconnectDelay = 1000): Channel {
     const ch: Channel = {
-      socket: new WebSocket(wsUrl(endpoint)),
+      socket: createTransport(endpoint),
       callbacks: new Set(),
       reconnectDelay,
       endpoint,
@@ -75,6 +114,14 @@ export function createWSManager(): WSManager {
 
   return {
     subscribe(endpoint, cb) {
+      // The active transport may not be able to carry a WebSocket (e.g. the
+      // desktop's crowbar:// unix-socket scheme). Constructing one throws and
+      // crashes startup, so skip the live channel entirely — mark it gone so
+      // the UI reflects "no live stream" rather than a perpetual "connecting".
+      if (!isWebSocketCapable()) {
+        reportChannelGone(endpoint)
+        return () => {}
+      }
       const ch = channels.get(endpoint) ?? open(endpoint)
       ch.callbacks.add(cb)
       return () => {
@@ -84,11 +131,11 @@ export function createWSManager(): WSManager {
           // subscription was created; close the live socket, not the stale one.
           const current = channels.get(endpoint)
           if (current && current.callbacks === ch.callbacks) {
-            current.socket.close()
+            closeSocketQuietly(current.socket)
             channels.delete(endpoint)
             reportChannelGone(endpoint)
           } else {
-            ch.socket.close()
+            closeSocketQuietly(ch.socket)
           }
         }
       }

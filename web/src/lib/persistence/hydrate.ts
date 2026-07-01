@@ -2,10 +2,15 @@ import { getDB } from './idb'
 import type { WorkspaceLayout, EditorState, UIPreferences } from './schemas'
 import { getOrCreateWorkspaceStore } from '@/features/workspace/stores/workspace-store-registry'
 import type { WorkspaceStore } from '@/features/workspace/stores/workspace-store'
-import { isPersistableContent, type PaneContent } from '@/features/panes/types/pane-content'
+import {
+  isEditorContent,
+  isPersistableContent,
+  type PaneContent,
+} from '@/features/panes/types/pane-content'
 import { syncBufferWithDisk } from '@/features/workspace/lib/external-buffer-sync'
 import { readWorkspaceFile } from '@/features/file-system/controllers/platform'
 import { useSettingsStore } from '@/features/settings/store'
+import { isNotFoundError } from '@/lib/api'
 import { loadSidebarUI } from './sidebar-ui'
 import { loadAllWorkspaceHierarchies } from './workspace-hierarchy'
 import { useSidebarStore } from '@/lib/store/sidebar'
@@ -98,13 +103,36 @@ async function reconcileRestoredBuffers(
       // Read from the hydrating workspace explicitly: hydration can still be
       // in flight when the user switches workspaces, and the active-workspace
       // readFile would then load the sibling worktree's file into this store.
-      const diskContent = await readWorkspaceFile(store.getState().workspaceId, buffer.path).catch(
-        () => null,
-      )
-      if (diskContent === null || diskContent === buffer.savedContent) return
+      let diskContent: string | null = null
+      try {
+        diskContent = await readWorkspaceFile(store.getState().workspaceId, buffer.path)
+      } catch (err) {
+        // BUG-001: a 404 means the file is gone (e.g. its worktree was
+        // deleted). Mark a clean buffer terminally so the pane shows a "file
+        // not found" placeholder and nothing re-fetches the dead path. A
+        // dirty buffer keeps its editor: the unsaved edits are the only copy
+        // left, and saving recreates the file. Other errors (network, 5xx)
+        // stay silent and non-terminal as before.
+        if (isNotFoundError(err) && !buffer.isDirty) {
+          setBufferFileMissing(store, buffer.path, true)
+        }
+        return
+      }
+      // The file is back (or was never gone) — clear a stale missing flag
+      // that may have been persisted by a previous session.
+      if (buffer.fileMissing) setBufferFileMissing(store, buffer.path, false)
+      if (diskContent === buffer.savedContent) return
       await syncBufferWithDisk(store, buffer.path)
     }),
   )
+}
+
+function setBufferFileMissing(store: WorkspaceStore, path: string, fileMissing: boolean): void {
+  store.setState((state) => ({
+    buffers: state.buffers.map((b) =>
+      isEditorContent(b) && !b.isVirtual && b.path === path ? { ...b, fileMissing } : b,
+    ),
+  }))
 }
 
 export async function hydrateSidebar(): Promise<void> {

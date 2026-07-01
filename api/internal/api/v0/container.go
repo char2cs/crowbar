@@ -1,10 +1,13 @@
 package v0
 
 import (
+	"context"
 	"encoding/json"
+	"time"
 
 	"github.com/gin-gonic/gin"
 
+	"github.com/char2cs/crowbar/api/internal/api/v0/dto"
 	"github.com/char2cs/crowbar/api/internal/api/v0/ws"
 	"github.com/char2cs/crowbar/api/internal/app"
 	"github.com/char2cs/crowbar/api/internal/app/hub"
@@ -18,19 +21,24 @@ import (
 // routes. It implements hub.Subscriber so app-layer broadcasts reach connected
 // clients.
 //
-// Six of the seven topics (03 §3) are push-only Broadcaster[T] instances held
-// here: workspaces, chats, git, files, lsp, and chatStream. The seventh topic,
-// Terminal, is intentionally NOT a Broadcaster[T]: PTY streams are
-// bidirectional, so the Terminal topic is served by the engine.Attach WebSocket
-// handler (endpoints/terminal/handlers/ws.go), whose ring-buffer replay is its
-// snapshot-on-subscribe (03 §1a). It is wired separately in router.go.
+// The push-only Broadcaster[T] instances held here are workspaces, git, files,
+// and lsp. The Terminal topic is intentionally NOT a Broadcaster[T]: PTY streams
+// are bidirectional, so the Terminal topic is served by the engine.Attach
+// WebSocket handler (endpoints/terminal/handlers/ws.go), whose ring-buffer
+// replay is its snapshot-on-subscribe (03 §1a). It is wired separately in
+// router.go.
+//
+// The chat WebSocket surface (chats + chatStream) has been removed per D11; the
+// chat domain, repo CRUD, and usecase remain dormant TODO.
 type Container struct {
-	workspaces *ws.Broadcaster[domain.Workspace]
-	chats      *ws.Broadcaster[hub.ChatStatusEvent]
+	projects   *ws.Broadcaster[dto.ProjectDTO]
+	repos      *ws.Broadcaster[dto.RepoDTO]
+	workspaces *ws.Broadcaster[dto.WorkspaceDTO]
+	threads    *ws.Broadcaster[dto.ThreadDTO]
+	terminals  *ws.Broadcaster[dto.TerminalSessionDTO]
 	git        *ws.Broadcaster[gitdomain.GitStatusEvent]
 	files      *ws.Broadcaster[domain.FileChangeEvent]
 	lsp        *ws.Broadcaster[lspdomain.DiagnosticsEvent]
-	chatStream *ws.Broadcaster[ChatFrame]
 	app        *app.Container
 	eng        *engine.Container
 }
@@ -54,20 +62,97 @@ func New(
 		panic("v0: appContainer is required")
 	}
 	c := &Container{
-		workspaces: ws.NewBroadcaster(workspacesDef(appContainer)),
-		chats:      ws.NewBroadcaster(chatsDef(appContainer)),
+		projects:   ws.NewBroadcaster(projectsDef(appContainer)),
+		repos:      ws.NewBroadcaster(reposDef(appContainer)),
+		workspaces: ws.NewBroadcaster(withProviderPollLifecycle(workspacesDef(appContainer), appContainer)),
+		threads:    ws.NewBroadcaster(threadsDef(appContainer)),
+		terminals:  ws.NewBroadcaster(terminalsDef(appContainer, engContainer)),
 		git:        ws.NewBroadcaster(withWatcherLifecycle(gitDef(appContainer), appContainer)),
 		files:      ws.NewBroadcaster(withWatcherLifecycle(filesDef(), appContainer)),
 		lsp:        ws.NewBroadcaster(withLSPLifecycle(lspDef(appContainer, engContainer), appContainer)),
-		chatStream: ws.NewBroadcaster(chatStreamDef()),
 		app:        appContainer,
 		eng:        engContainer,
 	}
 	if engContainer != nil && engContainer.LSP != nil {
 		engContainer.LSP.OnDiagnostics(c.lsp.Push)
 	}
+	if engContainer != nil && engContainer.Terminal != nil {
+		engContainer.Terminal.OnSessionEnded(c.onTerminalEnded)
+		engContainer.Terminal.OnSessionState(c.onTerminalState)
+		if appContainer.Usecases != nil && appContainer.Usecases.TerminalMeta != nil {
+			engContainer.Terminal.SetMetaStore(appContainer.Usecases.TerminalMeta)
+		}
+	}
 	appContainer.Hub.Register(c)
 	return c
+}
+
+// onTerminalEnded emits an "ended" lifecycle frame when a PTY exits on its own
+// (the reap path in the terminal engine). The handler-driven Kill path also
+// pushes an "ended" frame; the broadcaster's idempotent full-replace makes the
+// duplicate harmless. The owning project/repo are resolved from the workspace
+// repo so the frame namespaces under projectId/repoId/wsId. exitCode is the
+// process exit code; it is included in the frame when >=0 (known).
+func (c *Container) onTerminalEnded(
+	ctx context.Context,
+	workspaceID string,
+	sessionID string,
+	exitCode int,
+) {
+	projectID, repoID := c.resolveWorkspaceScope(ctx, workspaceID)
+	endedAt := time.Now().UTC()
+	ended := dto.TerminalSessionDTOFrom(
+		sessionID,
+		workspaceID,
+		projectID,
+		repoID,
+		"",
+		"ended",
+		endedAt,
+	)
+	ended.EndedAt = &endedAt
+	if exitCode >= 0 {
+		ended.ExitCode = &exitCode
+	}
+	c.terminals.Push(ended)
+}
+
+// onTerminalState emits a lifecycle frame when a session transitions to
+// "detached" or "suspended". The owning project/repo are resolved from the
+// workspace so the frame namespaces under projectId/repoId/wsId.
+func (c *Container) onTerminalState(
+	ctx context.Context,
+	workspaceID string,
+	sessionID string,
+	state string,
+) {
+	projectID, repoID := c.resolveWorkspaceScope(ctx, workspaceID)
+	d := dto.TerminalSessionDTOFrom(
+		sessionID,
+		workspaceID,
+		projectID,
+		repoID,
+		"",
+		state,
+		time.Now().UTC(),
+	)
+	c.terminals.Push(d)
+}
+
+// resolveWorkspaceScope returns the project and repo ids owning workspaceID,
+// or empty strings when the workspace cannot be resolved.
+func (c *Container) resolveWorkspaceScope(
+	ctx context.Context,
+	workspaceID string,
+) (string, string) {
+	if c.app == nil {
+		return "", ""
+	}
+	ws, err := c.app.Repositories.Workspace.Get(ctx, workspaceID)
+	if err != nil {
+		return "", ""
+	}
+	return ws.ProjectID, ws.RepoID
 }
 
 // withWatcherLifecycle attaches the Files∪Git watcher subscription triggers to a
@@ -96,6 +181,22 @@ func withLSPLifecycle[T any](
 	return def
 }
 
+// withProviderPollLifecycle attaches the per-active-WS-connection provider-poll
+// subscription triggers to a StreamDef, scoping the refcount by wsId resolved
+// from the path or query and delegating to the app-layer realtime service
+// (D10/§11). Only the single-workspace (:wsId) subscription carries a wsId; the
+// workspace list scope (.../workspaces, no :wsId) resolves to "" and the
+// manager no-ops, so the poll starts only when a client watches one workspace.
+func withProviderPollLifecycle[T any](
+	def ws.StreamDef[T],
+	appContainer *app.Container,
+) ws.StreamDef[T] {
+	def.ScopeKey = scopeWsID
+	def.OnSubscribe = appContainer.Realtime.AcquireProviderPoll
+	def.OnUnsubscribe = appContainer.Realtime.ReleaseProviderPoll
+	return def
+}
+
 // scopeWsID resolves the workspace id from the path param, falling back to the
 // query param, mirroring the dual-served Git/Files/LSP routes (T15).
 func scopeWsID(
@@ -107,18 +208,39 @@ func scopeWsID(
 	return c.Query("wsId")
 }
 
-// PushWorkspace implements hub.Subscriber.
-func (c *Container) PushWorkspace(
-	wsRow domain.Workspace,
+// PushProject implements hub.Subscriber.
+func (c *Container) PushProject(
+	p dto.ProjectDTO,
 ) {
-	c.workspaces.Push(wsRow)
+	c.projects.Push(p)
 }
 
-// PushChat implements hub.Subscriber.
-func (c *Container) PushChat(
-	evt hub.ChatStatusEvent,
+// PushRepo implements hub.Subscriber.
+func (c *Container) PushRepo(
+	r dto.RepoDTO,
 ) {
-	c.chats.Push(evt)
+	c.repos.Push(r)
+}
+
+// PushWorkspace implements hub.Subscriber.
+func (c *Container) PushWorkspace(
+	w dto.WorkspaceDTO,
+) {
+	c.workspaces.Push(w)
+}
+
+// PushThread implements hub.Subscriber.
+func (c *Container) PushThread(
+	t dto.ThreadDTO,
+) {
+	c.threads.Push(t)
+}
+
+// PushTerminalSession implements hub.Subscriber.
+func (c *Container) PushTerminalSession(
+	s dto.TerminalSessionDTO,
+) {
+	c.terminals.Push(s)
 }
 
 // PushGit implements hub.Subscriber. It wraps the status in a wsId-carrying
@@ -142,36 +264,102 @@ func (c *Container) PushFile(
 	c.files.Push(evt)
 }
 
+// projectsDef serves the Projects topic. Its hierarchical namespace is the bare
+// project id (spec §5). The snapshot returns every project as a wire DTO from
+// the GORM store; the per-client prefix predicate filters it (spec §9).
+func projectsDef(
+	appContainer *app.Container,
+) ws.StreamDef[dto.ProjectDTO] {
+	return ws.StreamDef[dto.ProjectDTO]{
+		Namespace: func(d dto.ProjectDTO) string { return d.ID },
+		Serialize: func(d dto.ProjectDTO) ([]byte, error) { return json.Marshal(d) },
+		Snapshot:  projectSnapshot(appContainer),
+	}
+}
+
+// reposDef serves the Repos topic. Its hierarchical namespace is projectID/ID,
+// so a project-scoped subscription ("p") receives every child repo (spec §5).
+// The snapshot is project-scoped from the client's subscription prefix and reads
+// the repos under that project from the GORM store (spec §9).
+func reposDef(
+	appContainer *app.Container,
+) ws.StreamDef[dto.RepoDTO] {
+	return ws.StreamDef[dto.RepoDTO]{
+		Namespace: func(d dto.RepoDTO) string { return d.ProjectID + "/" + d.ID },
+		Serialize: func(d dto.RepoDTO) ([]byte, error) { return json.Marshal(d) },
+		Snapshot:  repoSnapshot(appContainer),
+	}
+}
+
+// workspacesDef serves the Workspaces topic. Its hierarchical namespace is
+// projectID/repoID/ID, so a repo-scoped subscription ("p/r") receives every
+// child workspace (spec §5). The snapshot is repo-scoped from the client's
+// subscription prefix and carries the merge-eligibility overlay (spec §9/§10).
 func workspacesDef(
 	appContainer *app.Container,
-) ws.StreamDef[domain.Workspace] {
-	return ws.StreamDef[domain.Workspace]{
-		Namespace: func(w domain.Workspace) string { return w.ID },
-		Serialize: func(w domain.Workspace) ([]byte, error) { return json.Marshal(w) },
+) ws.StreamDef[dto.WorkspaceDTO] {
+	return ws.StreamDef[dto.WorkspaceDTO]{
+		Namespace: func(d dto.WorkspaceDTO) string {
+			return d.ProjectID + "/" + d.RepoID + "/" + d.ID
+		},
+		Serialize: func(d dto.WorkspaceDTO) ([]byte, error) { return json.Marshal(d) },
 		Snapshot:  workspacesSnapshot(appContainer),
-		Filters: []ws.FilterDef[domain.Workspace]{
-			{Param: "projectId", Extract: func(w domain.Workspace) string { return w.ProjectID }, Match: ws.ExactMatch},
-			{Param: "repoId", Extract: func(w domain.Workspace) string { return w.RepoID }, Match: ws.ExactMatch},
+	}
+}
+
+// threadsDef serves the Threads topic. Its hierarchical namespace is
+// projectID/repoID/workspaceID/ID, so a workspace-scoped subscription ("p/r/w")
+// receives every thread in that workspace (spec §5); the per-client
+// projectId/repoId/wsId Filters mirror the dual-served route's path params so
+// path-first filter resolution scopes correctly. The snapshot is workspace-
+// scoped from the client's subscription prefix and reads the workspace's threads
+// from the global ReviewThread aggregate (W9: per-workspace thread storage is
+// deferred — the aggregate stays on the global review_thread.db).
+func threadsDef(
+	appContainer *app.Container,
+) ws.StreamDef[dto.ThreadDTO] {
+	return ws.StreamDef[dto.ThreadDTO]{
+		Namespace: func(d dto.ThreadDTO) string {
+			return d.ProjectID + "/" + d.RepoID + "/" + d.WorkspaceID + "/" + d.ID
+		},
+		Serialize: func(d dto.ThreadDTO) ([]byte, error) { return json.Marshal(d) },
+		Snapshot:  threadsSnapshot(appContainer),
+		Filters: []ws.FilterDef[dto.ThreadDTO]{
+			{Param: "projectId", Extract: func(d dto.ThreadDTO) string { return d.ProjectID }, Match: ws.ExactMatch},
+			{Param: "repoId", Extract: func(d dto.ThreadDTO) string { return d.RepoID }, Match: ws.ExactMatch},
+			{Param: "wsId", Extract: func(d dto.ThreadDTO) string { return d.WorkspaceID }, Match: ws.ExactMatch},
 		},
 	}
 }
 
-func chatsDef(
+// terminalsDef serves the Terminal-session lifecycle topic. Its hierarchical
+// namespace is projectID/repoID/workspaceID, so a workspace-scoped subscription
+// ("p/r/w") receives every session in that workspace (spec §5); the per-client
+// projectId/repoId/wsId Filters mirror the dual-served route's path params so
+// path-first filter resolution scopes correctly. The snapshot derives from the
+// in-memory engine registry (D6: no terminal_sessions view.db). The raw PTY byte
+// stream is a separate, non-broadcast WebSocket.
+func terminalsDef(
 	appContainer *app.Container,
-) ws.StreamDef[hub.ChatStatusEvent] {
-	return ws.StreamDef[hub.ChatStatusEvent]{
-		Namespace: func(e hub.ChatStatusEvent) string { return e.ChatID },
-		Serialize: func(e hub.ChatStatusEvent) ([]byte, error) { return json.Marshal(e) },
-		Snapshot:  chatsSnapshot(appContainer),
-		Filters: []ws.FilterDef[hub.ChatStatusEvent]{
-			{Param: "wsId", Extract: func(e hub.ChatStatusEvent) string { return e.WsID }, Match: ws.ExactMatch},
+	engContainer *engine.Container,
+) ws.StreamDef[dto.TerminalSessionDTO] {
+	return ws.StreamDef[dto.TerminalSessionDTO]{
+		Namespace: func(d dto.TerminalSessionDTO) string {
+			return d.ProjectID + "/" + d.RepoID + "/" + d.WorkspaceID
+		},
+		Serialize: func(d dto.TerminalSessionDTO) ([]byte, error) { return json.Marshal(d) },
+		Snapshot:  terminalsSnapshot(appContainer, engContainer),
+		Filters: []ws.FilterDef[dto.TerminalSessionDTO]{
+			{Param: "projectId", Extract: func(d dto.TerminalSessionDTO) string { return d.ProjectID }, Match: ws.ExactMatch},
+			{Param: "repoId", Extract: func(d dto.TerminalSessionDTO) string { return d.RepoID }, Match: ws.ExactMatch},
+			{Param: "wsId", Extract: func(d dto.TerminalSessionDTO) string { return d.WorkspaceID }, Match: ws.ExactMatch},
 		},
 	}
 }
 
 // gitDef scopes the Git topic to a single workspace by wsId. The wsId resolves
-// from the PATH param on the dual-served /v0/workspaces/:wsId/git/status route
-// and from the QUERY param on the dedicated /v0/ws/git?wsId= route. The wire
+// from the PATH param on the dual-served .../workspaces/:wsId/git/status route
+// (the dedicated /ws/git route was removed in W7-2). The wire
 // payload is a bare GitStatus (the embedded Status), matching the REST snapshot
 // of the dual-serve route; only the WsID is used for filtering, never serialized
 // onto the Git stream.
@@ -179,9 +367,10 @@ func gitDef(
 	appContainer *app.Container,
 ) ws.StreamDef[gitdomain.GitStatusEvent] {
 	return ws.StreamDef[gitdomain.GitStatusEvent]{
-		Namespace: func(e gitdomain.GitStatusEvent) string { return e.WsID },
-		Serialize: func(e gitdomain.GitStatusEvent) ([]byte, error) { return json.Marshal(e.Status) },
-		Snapshot:  gitSnapshot(appContainer),
+		Namespace:     func(e gitdomain.GitStatusEvent) string { return e.WsID },
+		Serialize:     func(e gitdomain.GitStatusEvent) ([]byte, error) { return json.Marshal(e.Status) },
+		Snapshot:      gitSnapshot(appContainer),
+		FlatNamespace: true,
 		Filters: []ws.FilterDef[gitdomain.GitStatusEvent]{
 			{Param: "wsId", Extract: func(e gitdomain.GitStatusEvent) string { return e.WsID }, Match: ws.ExactMatch},
 		},
@@ -190,8 +379,9 @@ func gitDef(
 
 func filesDef() ws.StreamDef[domain.FileChangeEvent] {
 	return ws.StreamDef[domain.FileChangeEvent]{
-		Namespace: func(e domain.FileChangeEvent) string { return e.WsID },
-		Serialize: func(e domain.FileChangeEvent) ([]byte, error) { return json.Marshal(e) },
+		Namespace:     func(e domain.FileChangeEvent) string { return e.WsID },
+		Serialize:     func(e domain.FileChangeEvent) ([]byte, error) { return json.Marshal(e) },
+		FlatNamespace: true,
 		Filters: []ws.FilterDef[domain.FileChangeEvent]{
 			{Param: "wsId", Extract: func(e domain.FileChangeEvent) string { return e.WsID }, Match: ws.ExactMatch},
 		},
@@ -203,24 +393,12 @@ func lspDef(
 	engContainer *engine.Container,
 ) ws.StreamDef[lspdomain.DiagnosticsEvent] {
 	return ws.StreamDef[lspdomain.DiagnosticsEvent]{
-		Namespace: func(e lspdomain.DiagnosticsEvent) string { return e.WsID },
-		Serialize: func(e lspdomain.DiagnosticsEvent) ([]byte, error) { return json.Marshal(e) },
-		Snapshot:  lspSnapshot(appContainer, engContainer),
+		Namespace:     func(e lspdomain.DiagnosticsEvent) string { return e.WsID },
+		Serialize:     func(e lspdomain.DiagnosticsEvent) ([]byte, error) { return json.Marshal(e) },
+		Snapshot:      lspSnapshot(appContainer, engContainer),
+		FlatNamespace: true,
 		Filters: []ws.FilterDef[lspdomain.DiagnosticsEvent]{
 			{Param: "wsId", Extract: func(e lspdomain.DiagnosticsEvent) string { return e.WsID }, Match: ws.ExactMatch},
-		},
-	}
-}
-
-// chatStreamDef scopes the post-spike ChatStream topic per chat by chatId
-// (03 §4.3). The topic and its route exist so the topology is complete, but no
-// producer ever pushes a ChatFrame to it yet (03 §8) — it is a placeholder.
-func chatStreamDef() ws.StreamDef[ChatFrame] {
-	return ws.StreamDef[ChatFrame]{
-		Namespace: func(f ChatFrame) string { return f.ChatID },
-		Serialize: func(f ChatFrame) ([]byte, error) { return json.Marshal(f) },
-		Filters: []ws.FilterDef[ChatFrame]{
-			{Param: "chatId", Extract: func(f ChatFrame) string { return f.ChatID }, Match: ws.ExactMatch},
 		},
 	}
 }

@@ -1,11 +1,13 @@
 import { apiFetch } from '@/lib/api'
+import { workspaceBase } from '@/lib/workspace-scope-url'
 import type { GitDiff } from '../types/git-types'
 import { gitDiffCache } from '../utils/git-diff-cache'
 
-// All diff reads go through the workspace-scoped backend route
-// GET /v0/workspaces/:wsId/git/diff (?path= / ?staged= / ?commit=). The first
-// argument is the workspace id (the app threads rootFolderPath, which is the
-// wsId, as the "repo" handle).
+// All diff reads go through the workspace-scoped backend routes
+// GET /v0/workspaces/:wsId/git/diff (?path= / ?staged=) and
+// GET /v0/workspaces/:wsId/git/commit-diff (?sha=). The first argument is the
+// workspace id (the app threads rootFolderPath, which is the wsId, as the
+// "repo" handle).
 
 interface MultiFileDiffCacheEntry {
   diffs: GitDiff[]
@@ -41,7 +43,7 @@ const setMultiFileDiffCacheEntry = (
 }
 
 function diffBase(wsId: string): string {
-  return `/v0/workspaces/${encodeURIComponent(wsId)}/git/diff`
+  return `${workspaceBase(wsId)}/git/diff`
 }
 
 // Working-tree diff for a single file. Returns the one matching file diff (the
@@ -88,7 +90,7 @@ export const getCommitDiff = async (
 
   try {
     const res = await apiFetch<CommitDiffResponse>(
-      `${diffBase(wsId)}?commit=${encodeURIComponent(commitHash)}`,
+      `${workspaceBase(wsId)}/git/commit-diff?sha=${encodeURIComponent(commitHash)}`,
     )
     const diffs = res.files ?? []
     setMultiFileDiffCacheEntry(commitDiffCache, cacheKey, diffs)

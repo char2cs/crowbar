@@ -1,10 +1,4 @@
-import {
-  Chat,
-  GlobeHemisphereWest as Globe,
-  Plus,
-  TerminalWindow as Terminal,
-  X,
-} from '@phosphor-icons/react'
+import { Chat, Plus, TerminalWindow as Terminal, X } from '@phosphor-icons/react'
 import React from 'react'
 import {
   DropdownMenu,
@@ -21,7 +15,6 @@ interface TabNewButtonProps {
   isInSplit: boolean
   onNewConversation: () => void
   onNewTerminal: () => void
-  onOpenUrl: () => void
   onClosePane: () => void
 }
 
@@ -31,7 +24,6 @@ const TabNewButton = React.memo(function TabNewButton({
   isInSplit,
   onNewConversation,
   onNewTerminal,
-  onOpenUrl,
   onClosePane,
 }: TabNewButtonProps) {
   if (isBottomPane) return null
@@ -44,7 +36,7 @@ const TabNewButton = React.memo(function TabNewButton({
             <Button
               variant="ghost"
               size="icon-xs"
-              className="shrink-0 text-muted-foreground"
+              className="shrink-0 rounded-sm text-muted-foreground hover:bg-sidebar-element-hover"
               aria-label="New tab"
             />
           }
@@ -61,10 +53,6 @@ const TabNewButton = React.memo(function TabNewButton({
             <Terminal className="text-muted-foreground" />
             New Terminal
           </DropdownMenuItem>
-          <DropdownMenuItem onClick={onOpenUrl}>
-            <Globe className="text-muted-foreground" />
-            Open URL
-          </DropdownMenuItem>
         </DropdownMenuContent>
       </DropdownMenu>
 
@@ -73,7 +61,7 @@ const TabNewButton = React.memo(function TabNewButton({
           onClick={onClosePane}
           variant="ghost"
           size="icon-xs"
-          className="shrink-0 text-muted-foreground"
+          className="shrink-0 rounded-sm text-muted-foreground hover:bg-sidebar-element-hover"
           tooltip="Close Split"
           tooltipSide="bottom"
           aria-label="Close split pane"

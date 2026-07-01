@@ -24,7 +24,7 @@ type gitStatusDTO struct {
 func TestGit_StatusDiffStageCommit(t *testing.T) {
 	h := newHarness(t)
 	imported := importWritableWorkspace(t, h)
-	base := "/v0/workspaces/" + imported.workspaceID
+	base := wsBase(imported)
 
 	var saved struct {
 		ID string `json:"id"`
@@ -62,11 +62,11 @@ func TestGit_StatusDiffStageCommit(t *testing.T) {
 func TestGit_LockedWorkspaceRejectsWrite(t *testing.T) {
 	h := newHarness(t)
 	imported := importProject(t, h)
-	base := "/v0/workspaces/" + imported.workspaceID
+	base := wsBase(imported)
 
 	var detail workspaceDTO
-	h.get("/v0/workspaces/"+imported.workspaceID, &detail)
-	require.True(t, detail.Locked, "adopted main worktree must be locked")
+	h.get(base, &detail)
+	require.Equal(t, "locked", detail.Status, "adopted main worktree must be locked")
 
 	var status gitStatusDTO
 	h.get(base+"/git/status", &status)
@@ -82,7 +82,7 @@ func TestGit_StatusDualServeWS(t *testing.T) {
 	h := newHarness(t)
 	imported := importProject(t, h)
 
-	conn := h.dial("/v0/workspaces/" + imported.workspaceID + "/git/status")
+	conn := h.dial(wsBase(imported) + "/git/status")
 	got := readUntil(t, conn, func(m map[string]any) bool {
 		_, ok := m["branch"]
 		return ok

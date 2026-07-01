@@ -1,5 +1,6 @@
 import { apiFetch } from '@/lib/api'
-import { toast } from '@/components/ui/toast'
+import { workspaceBase } from '@/lib/workspace-scope-url'
+import { toast } from '@/features/window/stores/toast-store'
 
 interface BufferOpener {
   openContent: (spec: {
@@ -36,7 +37,7 @@ export async function openFileContent(
   const name = path.split('/').pop() ?? path
   try {
     const payload = await apiFetch<FileContentPayload>(
-      `/v0/workspaces/${encodeURIComponent(wsId)}/files/content?path=${encodeURIComponent(path)}`,
+      `${workspaceBase(wsId)}/files/content?path=${encodeURIComponent(path)}`,
     )
     bufferActions.openContent({
       type: 'editor',

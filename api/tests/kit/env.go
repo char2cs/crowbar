@@ -10,6 +10,9 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"os"
+	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 	"time"
@@ -20,6 +23,7 @@ import (
 	"github.com/char2cs/crowbar/api/internal/adapter"
 	v0 "github.com/char2cs/crowbar/api/internal/api/v0"
 	"github.com/char2cs/crowbar/api/internal/app"
+	wsrepo "github.com/char2cs/crowbar/api/internal/app/repositories/workspace"
 	"github.com/char2cs/crowbar/api/internal/domain"
 	gitdomain "github.com/char2cs/crowbar/api/internal/domain/git"
 	lspdomain "github.com/char2cs/crowbar/api/internal/domain/lsp"
@@ -56,7 +60,44 @@ func BuildEnv(
 	t *testing.T,
 ) *Env {
 	t.Helper()
-	return BuildEnvAt(t, t.TempDir())
+	return BuildEnvAt(t, tempHome(t))
+}
+
+// TempHomeForTest creates an isolated home directory with the same tolerant
+// teardown semantics as BuildEnv uses internally. Call this when you need a
+// homeDir to pass to BuildEnvAt for crash-recovery / restart tests.
+func TempHomeForTest(t *testing.T) string {
+	t.Helper()
+	return tempHome(t)
+}
+
+// tempHome creates an isolated home directory for an Env with a TOLERANT
+// teardown. It deliberately does NOT use t.TempDir(): a detached good-path-async
+// goroutine (runAsync runs on context.WithoutCancel and the adapter registry
+// lazily re-opens a per-entity DB on access) can write a per-workspace storages
+// file a hair after the adapter is closed — racing t.TempDir's RemoveAll and
+// flaking the run with "directory not empty" even though every assertion passed.
+// This is a benign teardown race (the leaked dir is under the OS temp root and
+// is reaped by the OS); we remove it best-effort with a bounded, cooperative
+// retry and never fail the test on a cleanup error.
+func tempHome(
+	t *testing.T,
+) string {
+	t.Helper()
+	dir, err := os.MkdirTemp("", "kitenv-")
+	require.NoError(t, err, "kit: create temp home")
+	t.Cleanup(func() {
+		for i := 0; i < 50; i++ {
+			if err := os.RemoveAll(dir); err == nil {
+				return
+			}
+			runtime.Gosched()
+		}
+		// Best-effort: a residual handle from a detached write may still hold a
+		// file; the OS reaps the temp tree. Do not fail the test on cleanup.
+		_ = os.RemoveAll(dir)
+	})
+	return dir
 }
 
 // BuildEnvAt spins up the full server stack (engine → adapter → app → api)
@@ -105,7 +146,19 @@ func BuildEnvAt(
 	apiContainer.Register(router.Group("/v0"))
 
 	srv := httptest.NewServer(router)
-	t.Cleanup(srv.Close)
+
+	// Registered LAST so it runs FIRST in teardown (cleanups are LIFO). Teardown
+	// order matters: close the HTTP server (stops every WS handler goroutine and
+	// its onUnsubscribe DB reads) and the realtime service (file watchers, LSP
+	// hosts, per-connection provider polls) BEFORE the adapter's per-entity SQLite
+	// handles (registered earlier, so it runs after) and t.TempDir's RemoveAll.
+	// Leaving a live WS handler or realtime goroutine running while RemoveAll
+	// walks the per-workspace storages dir lets a late DB reopen re-create files
+	// mid-walk, flaking the cleanup with "directory not empty".
+	t.Cleanup(func() {
+		srv.Close()
+		appContainer.Close()
+	})
 
 	return &Env{
 		URL:      srv.URL,
@@ -135,6 +188,56 @@ func (e *Env) Close(
 
 // HomeDir returns the home directory path used by this Env.
 func (e *Env) HomeDir() string { return e.homeDir }
+
+// ShutdownTerminal calls Shutdown on the terminal engine, flushing all live
+// sessions to disk and persisting their metadata with state="suspended". Call
+// this before Close when simulating a daemon restart in tests: Shutdown ensures
+// scrollback is durable so the next BuildEnvAt can restore sessions via
+// RestorePersistedSessions.
+func (e *Env) ShutdownTerminal() {
+	if e.engine != nil && e.engine.Terminal != nil {
+		e.engine.Terminal.Shutdown()
+	}
+}
+
+// WorktreePath mirrors worktreepath.For (the usecase-internal path builder,
+// which the kit cannot import): the on-disk worktree for a workspace at
+// <home>/projects/<P>/<R>/workspaces/<W>/worktree. Use it in tests that must
+// operate on a child workspace's worktree, since worktreePath is server-side
+// only and never surfaced in the WorkspaceDTO (spec §8/§5).
+func (e *Env) WorktreePath(
+	projectID string,
+	repoID string,
+	wsID string,
+) string {
+	return filepath.Join(
+		e.homeDir,
+		"projects",
+		projectID,
+		repoID,
+		"workspaces",
+		wsID,
+		"worktree",
+	)
+}
+
+// WorkspaceStorageDir mirrors worktreepath.StorageDir:
+// <home>/projects/<P>/<R>/workspaces/<W>/storages.
+func (e *Env) WorkspaceStorageDir(
+	projectID string,
+	repoID string,
+	wsID string,
+) string {
+	return filepath.Join(
+		e.homeDir,
+		"projects",
+		projectID,
+		repoID,
+		"workspaces",
+		wsID,
+		"storages",
+	)
+}
 
 // PushLSP injects a batch of diagnostics into the LSP broadcaster for wsID,
 // bypassing the engine OnDiagnostics callback. Use in integration tests when no
@@ -192,6 +295,19 @@ type GitStatusEvent struct {
 	Files  []GitFileEntry
 }
 
+// ProviderState is a scripted provider poll result for the mock-provider seam
+// (PushProviderState). It mirrors the fields the workspace aggregate consumes to
+// drive PR-status and protected-branch transitions, avoiding a direct dependency
+// on the workspace repository's ProviderInput in test callers.
+type ProviderState struct {
+	Protected      bool
+	HasPR          bool
+	PRStatus       string
+	PRUrl          string
+	PRTitle        string
+	PRTargetBranch string
+}
+
 // PushGit injects a GitStatus directly into the git broadcaster,
 // bypassing the file watcher and git write usecases. Use in integration tests
 // when deterministic git status injection is required.
@@ -213,119 +329,160 @@ func (e *Env) PushGit(
 	})
 }
 
-// DialWorkspaces opens a WS watcher on /v0/ws/workspaces and blocks until the
-// server has registered this specific client (prevents broadcast races).
-//
-// Each call drains exactly one registration token from the per-registration
-// semaphore, so multiple calls on the same Env are safe — each blocks until the
-// client just dialled appears in the broadcaster's map.
-func (e *Env) DialWorkspaces(
+// DialProjects opens a WS watcher on the list-scoped Projects stream
+// (WS /v0/projects) and blocks until the server has registered this client. A
+// list-scope subscriber receives every project's ProjectDTO (snapshot + live).
+func (e *Env) DialProjects(
 	t *testing.T,
-	queryParams string,
 ) *WSWatcher {
 	t.Helper()
-	url := wsURL(
-		e.URL,
-		"/v0/ws/workspaces"+queryParams,
-	)
-	w := Dial(
-		t,
-		url,
-	)
+	w := Dial(t, wsURL(e.URL, "/v0/projects"))
+	e.v0c.WaitNProjectsRegistered(1)
+	return w
+}
+
+// DialRepos opens a WS watcher on the project-scoped Repos stream
+// (WS /v0/projects/:projectId/repos) and blocks until registration. The
+// subscriber receives that project's RepoDTOs (snapshot + live).
+func (e *Env) DialRepos(
+	t *testing.T,
+	projectID string,
+) *WSWatcher {
+	t.Helper()
+	w := Dial(t, wsURL(e.URL, "/v0/projects/"+projectID+"/repos"))
+	e.v0c.WaitNReposRegistered(1)
+	return w
+}
+
+// DialWorkspaces opens a WS watcher on the repo-scoped Workspaces stream
+// (WS /v0/projects/:projectId/repos/:repoId/workspaces) and blocks until
+// registration. A repo-scope subscriber receives all of the repo's workspaces
+// via hierarchical prefix matching (spec §5).
+func (e *Env) DialWorkspaces(
+	t *testing.T,
+	projectID string,
+	repoID string,
+) *WSWatcher {
+	t.Helper()
+	w := Dial(t, wsURL(e.URL, "/v0/projects/"+projectID+"/repos/"+repoID+"/workspaces"))
 	e.v0c.WaitNWorkspacesRegistered(1)
 	return w
 }
 
-// DialChats opens a WS watcher on /v0/ws/chats and blocks until the server has
-// registered this specific client (prevents broadcast races).
-//
-// Each call drains exactly one registration token from the per-registration
-// semaphore, so multiple calls on the same Env are safe — each blocks until the
-// client just dialled appears in the broadcaster's map.
-func (e *Env) DialChats(
+// DialWorkspace opens a WS watcher on the exact-workspace Workspaces stream
+// (WS /v0/projects/:projectId/repos/:repoId/workspaces/:wsId) and blocks until
+// registration. An exact-scope subscriber receives only that workspace's DTOs.
+func (e *Env) DialWorkspace(
 	t *testing.T,
-	queryParams string,
+	projectID string,
+	repoID string,
+	wsID string,
 ) *WSWatcher {
 	t.Helper()
-	url := wsURL(
-		e.URL,
-		"/v0/ws/chats"+queryParams,
-	)
-	w := Dial(
-		t,
-		url,
-	)
-	e.v0c.WaitNChatsRegistered(1)
+	w := Dial(t, wsURL(e.URL, "/v0/projects/"+projectID+"/repos/"+repoID+"/workspaces/"+wsID))
+	e.v0c.WaitNWorkspacesRegistered(1)
 	return w
 }
 
-// DialGit opens a WS watcher on /v0/ws/git and blocks until the server has
-// registered this specific client (prevents broadcast races).
-//
-// Each call drains exactly one registration token from the per-registration
-// semaphore, so multiple calls on the same Env are safe — each blocks until the
-// client just dialled appears in the broadcaster's map.
-func (e *Env) DialGit(
+// DialThreads opens a WS watcher on the workspace-scoped Threads stream and
+// blocks until registration. The subscriber receives that workspace's
+// ThreadDTOs (snapshot + live).
+func (e *Env) DialThreads(
 	t *testing.T,
-	queryParams string,
+	projectID string,
+	repoID string,
+	wsID string,
 ) *WSWatcher {
 	t.Helper()
-	url := wsURL(
-		e.URL,
-		"/v0/ws/git"+queryParams,
-	)
-	w := Dial(
-		t,
-		url,
-	)
+	w := Dial(t, wsURL(e.URL, e.wsScope(projectID, repoID, wsID)+"/threads"))
+	e.v0c.WaitNThreadsRegistered(1)
+	return w
+}
+
+// DialTerminals opens a WS watcher on the workspace-scoped Terminals lifecycle
+// stream and blocks until registration. The subscriber receives that
+// workspace's TerminalSessionDTOs (snapshot + live). This is the lifecycle
+// topic, NOT the raw PTY stream (.../terminals/:sessionId/ws).
+func (e *Env) DialTerminals(
+	t *testing.T,
+	projectID string,
+	repoID string,
+	wsID string,
+) *WSWatcher {
+	t.Helper()
+	w := Dial(t, wsURL(e.URL, e.wsScope(projectID, repoID, wsID)+"/terminals"))
+	e.v0c.WaitNTerminalsRegistered(1)
+	return w
+}
+
+// DialTerminalPTY opens a WS watcher on the raw PTY stream co-located at
+// .../workspaces/:wsId/terminals/:sessionId/ws (W7-2). This is NOT a broadcaster
+// topic (it's a direct engine pipe), so there is no WaitNRegistered gate; the
+// PTY emits its first frame promptly on connect.
+func (e *Env) DialTerminalPTY(
+	t *testing.T,
+	projectID string,
+	repoID string,
+	wsID string,
+	sessionID string,
+) *WSWatcher {
+	t.Helper()
+	return Dial(t, wsURL(e.URL, e.wsScope(projectID, repoID, wsID)+"/terminals/"+sessionID+"/ws"))
+}
+
+// DialGit opens a WS watcher on the workspace-scoped, co-located Git status
+// stream (.../workspaces/:wsId/git/status) and blocks until registration. The
+// git broadcaster uses a flat wsId namespace, so scoping is implicit in the
+// path (no query params).
+func (e *Env) DialGit(
+	t *testing.T,
+	projectID string,
+	repoID string,
+	wsID string,
+) *WSWatcher {
+	t.Helper()
+	w := Dial(t, wsURL(e.URL, e.wsScope(projectID, repoID, wsID)+"/git/status"))
 	e.v0c.WaitNGitRegistered(1)
 	return w
 }
 
-// DialFiles opens a WS watcher on /v0/ws/files (change-only, no snapshot) and
-// blocks until the server has registered this specific client (prevents broadcast races).
-//
-// Each call drains exactly one registration token from the per-registration
-// semaphore, so multiple calls on the same Env are safe — each blocks until the
-// client just dialled appears in the broadcaster's map.
+// DialFiles opens a WS watcher on the workspace-scoped, co-located Files stream
+// (.../workspaces/:wsId/files/ws, change-only, no snapshot) and blocks until
+// registration.
 func (e *Env) DialFiles(
 	t *testing.T,
-	queryParams string,
+	projectID string,
+	repoID string,
+	wsID string,
 ) *WSWatcher {
 	t.Helper()
-	url := wsURL(
-		e.URL,
-		"/v0/ws/files"+queryParams,
-	)
-	w := Dial(
-		t,
-		url,
-	)
+	w := Dial(t, wsURL(e.URL, e.wsScope(projectID, repoID, wsID)+"/files/ws"))
 	e.v0c.WaitNFilesRegistered(1)
 	return w
 }
 
-// DialLSP opens a WS watcher on /v0/ws/lsp and blocks until the server has
-// registered this specific client (prevents broadcast races).
-//
-// Each call drains exactly one registration token from the per-registration
-// semaphore, so multiple calls on the same Env are safe — each blocks until the
-// client just dialled appears in the broadcaster's map.
+// DialLSP opens a WS watcher on the workspace-scoped, co-located LSP stream
+// (.../workspaces/:wsId/lsp/ws) and blocks until registration.
 func (e *Env) DialLSP(
 	t *testing.T,
-	queryParams string,
+	projectID string,
+	repoID string,
+	wsID string,
 ) *WSWatcher {
 	t.Helper()
-	url := wsURL(
-		e.URL,
-		"/v0/ws/lsp"+queryParams,
-	)
-	w := Dial(
-		t,
-		url,
-	)
+	w := Dial(t, wsURL(e.URL, e.wsScope(projectID, repoID, wsID)+"/lsp/ws"))
 	e.v0c.WaitNLSPRegistered(1)
 	return w
+}
+
+// wsScope builds the hierarchical workspace path prefix shared by all
+// workspace-scoped routes.
+func (e *Env) wsScope(
+	projectID string,
+	repoID string,
+	wsID string,
+) string {
+	return "/v0/projects/" + projectID + "/repos/" + repoID + "/workspaces/" + wsID
 }
 
 // WaitForWorkspace reads WS events from w until a workspace with the given ID
@@ -350,20 +507,52 @@ func WaitForWorkspace(
 	)
 }
 
-// WaitForChat reads WS events from w until a ChatStatusEvent for chatID in
-// wsID with the given status arrives. Returns the decoded event map.
-func WaitForChat(
+// WaitForWorkspaceState reads WS events from w until a WorkspaceDTO with the
+// given id reaches the given status. Returns the decoded DTO map. A blank status
+// matches the omitempty "" state (commits, no PR).
+func WaitForWorkspaceState(
 	t *testing.T,
 	w *WSWatcher,
-	chatID string,
 	wsID string,
 	status string,
 	timeout time.Duration,
 ) map[string]any {
 	t.Helper()
-	return w.ReadUntil(t, timeout, func(msg map[string]any) bool {
-		return msg["chatId"] == chatID && msg["wsId"] == wsID && msg["status"] == status
-	})
+	return w.ReadUntil(
+		t,
+		timeout,
+		func(msg map[string]any) bool {
+			if msg["id"] != wsID {
+				return false
+			}
+			got, _ := msg["status"].(string)
+			return got == status
+		},
+	)
+}
+
+// WaitForWorkspaceLastError reads WS events from w until a WorkspaceDTO with the
+// given id carries a non-empty lastError. Returns the lastError string.
+func WaitForWorkspaceLastError(
+	t *testing.T,
+	w *WSWatcher,
+	wsID string,
+	timeout time.Duration,
+) string {
+	t.Helper()
+	msg := w.ReadUntil(
+		t,
+		timeout,
+		func(m map[string]any) bool {
+			if m["id"] != wsID {
+				return false
+			}
+			le, _ := m["lastError"].(string)
+			return le != ""
+		},
+	)
+	le, _ := msg["lastError"].(string)
+	return le
 }
 
 // GET issues a GET request to path and returns the response.
@@ -555,55 +744,199 @@ func DecodeEnvData(
 	require.NoError(t, json.Unmarshal(env.Data, dest), "DecodeEnvData.data body: %s", string(raw))
 }
 
-// RegisterRepo creates a repo record via POST /v0/repos.
-// path may be empty for repos that don't need git operations.
-func (e *Env) RegisterRepo(
+// RegisterProject creates a project via POST /v0/projects and returns the
+// server-assigned project id. Creation is async (202 + empty body, spec §4): the
+// id is learned from the ProjectDTO delivered on the Projects WS stream. The WS
+// is dialled BEFORE the POST so the create broadcast is never missed.
+func (e *Env) RegisterProject(
 	t *testing.T,
-	id string,
+	name string,
 	path string,
-) {
+) string {
 	t.Helper()
-	resp := e.POST(t, "/v0/repos", map[string]any{
-		"id":        id,
-		"projectId": "p1",
-		"name":      id,
-		"path":      path,
+	w := e.DialProjects(t)
+	resp := e.POST(t, "/v0/projects", map[string]any{
+		"name": name,
+		"path": path,
 	})
-	RequireStatus(t, resp, http.StatusCreated)
+	RequireStatus(t, resp, http.StatusAccepted)
 	resp.Body.Close()
+	msg := w.ReadUntil(t, 10*time.Second, func(m map[string]any) bool {
+		p, _ := m["path"].(string)
+		return p == path
+	})
+	id, _ := msg["id"].(string)
+	require.NotEmpty(t, id, "RegisterProject: ProjectDTO must carry an id")
+	return id
 }
 
-// CreateWorkspace creates a workspace via POST /v0/workspaces and returns the
-// server-assigned UUID. repoID must already be registered via RegisterRepo.
+// RegisterRepo creates a repo via POST /v0/projects/:projectId/repos and returns
+// the server-assigned repo id. Creation is async (202 + empty body, spec §4):
+// the id is learned from the RepoDTO delivered on the Repos WS stream. The WS is
+// dialled BEFORE the POST so the create broadcast is never missed. path may be
+// empty for repos that don't need git operations.
+func (e *Env) RegisterRepo(
+	t *testing.T,
+	projectID string,
+	name string,
+	path string,
+) string {
+	t.Helper()
+	w := e.DialRepos(t, projectID)
+	resp := e.POST(t, "/v0/projects/"+projectID+"/repos", map[string]any{
+		"name": name,
+		"path": path,
+	})
+	RequireStatus(t, resp, http.StatusAccepted)
+	resp.Body.Close()
+	msg := w.ReadUntil(t, 10*time.Second, func(m map[string]any) bool {
+		return m["name"] == name && m["projectId"] == projectID
+	})
+	id, _ := msg["id"].(string)
+	require.NotEmpty(t, id, "RegisterRepo: RepoDTO must carry an id")
+	return id
+}
+
+// CreateWorkspace creates a workspace via
+// POST /v0/projects/:projectId/repos/:repoId/workspaces and returns the
+// server-assigned UUID. Creation is async (202 + empty body, spec §4): the id is
+// learned from the WorkspaceDTO{status:"new"} delivered on the repo-scoped
+// Workspaces WS stream. The WS is dialled BEFORE the POST so the create
+// broadcast is never missed.
 func (e *Env) CreateWorkspace(
 	t *testing.T,
+	projectID string,
 	repoID string,
 	branch string,
 ) string {
 	t.Helper()
-	resp := e.POST(t, "/v0/workspaces", map[string]any{
-		"repoId": repoID,
-		"branch": branch,
-	})
-	RequireStatus(t, resp, http.StatusCreated)
-	return MutationID(t, resp)
+	return e.createWorkspace(t, projectID, repoID, branch, "")
 }
 
-// CreateChildWorkspace creates a child workspace under parentID and returns the UUID.
+// CreateChildWorkspace creates a child workspace under parentID and returns the
+// UUID. See CreateWorkspace for the 202 + WS-learning semantics.
 func (e *Env) CreateChildWorkspace(
 	t *testing.T,
+	projectID string,
 	repoID string,
 	branch string,
 	parentID string,
 ) string {
 	t.Helper()
-	resp := e.POST(t, "/v0/workspaces", map[string]any{
-		"repoId":   repoID,
-		"branch":   branch,
-		"parentId": parentID,
+	return e.createWorkspace(t, projectID, repoID, branch, parentID)
+}
+
+func (e *Env) createWorkspace(
+	t *testing.T,
+	projectID string,
+	repoID string,
+	branch string,
+	parentID string,
+) string {
+	t.Helper()
+	w := e.DialWorkspaces(t, projectID, repoID)
+	body := map[string]any{"branch": branch}
+	if parentID != "" {
+		body["parentId"] = parentID
+	}
+	resp := e.POST(t, "/v0/projects/"+projectID+"/repos/"+repoID+"/workspaces", body)
+	RequireStatus(t, resp, http.StatusAccepted)
+	resp.Body.Close()
+	msg := w.ReadUntil(t, 10*time.Second, func(m map[string]any) bool {
+		return m["branch"] == branch && m["status"] == string(domain.WorkspaceStatusNew)
 	})
-	RequireStatus(t, resp, http.StatusCreated)
-	return MutationID(t, resp)
+	id, _ := msg["id"].(string)
+	require.NotEmpty(t, id, "createWorkspace: WorkspaceDTO must carry an id")
+	return id
+}
+
+// ImportedRepo bundles the ids a full project+repo import yields: the project,
+// its discovered repository, and the workspace adopted from the repo's default
+// (main) worktree. It is the integration-suite analogue of the package-tests
+// importedRepo fixture.
+type ImportedRepo struct {
+	ProjectID   string
+	RepoID      string
+	WorkspaceID string
+	RepoPath    string
+}
+
+// ImportRepo creates a real git repo at the supplied path (or inits a fresh one
+// when path is empty), imports it as a project, and runs the full per-repo
+// import (RegisterRepo) which adopts the default-branch worktree as a workspace.
+// It returns the project/repo/adopted-workspace ids plus the repo path. The
+// adopted workspace id is learned from the WorkspaceDTO broadcast on the
+// repo-scoped Workspaces WS stream (dial-before-import), never from a sync body.
+func (e *Env) ImportRepo(
+	t *testing.T,
+	name string,
+	path string,
+) ImportedRepo {
+	t.Helper()
+	if path == "" {
+		path = InitRepo(t)
+	}
+	projectID := e.RegisterProject(t, name, path)
+	// The repo import (POST .../repos) runs the full importer, which derives the
+	// repo NAME from the on-disk directory — not from the request body — so the
+	// RepoDTO is matched by projectId, not name. Dial repos BEFORE the POST so the
+	// import broadcast is never missed.
+	reposWS := e.DialRepos(t, projectID)
+	resp := e.POST(t, "/v0/projects/"+projectID+"/repos", map[string]any{
+		"name": name,
+		"path": path,
+	})
+	RequireStatus(t, resp, http.StatusAccepted)
+	resp.Body.Close()
+	repo := reposWS.ReadUntil(t, 10*time.Second, func(m map[string]any) bool {
+		return m["projectId"] == projectID
+	})
+	repoID, _ := repo["id"].(string)
+	require.NotEmpty(t, repoID, "ImportRepo: import must broadcast a RepoDTO with an id")
+
+	// The adopted main worktree is persisted after the repo in the same async
+	// import job; wait for its WorkspaceDTO on the repo-scoped stream.
+	wsWatcher := e.DialWorkspaces(t, projectID, repoID)
+	adopted := wsWatcher.ReadUntil(t, 10*time.Second, func(m map[string]any) bool {
+		return m["repoId"] == repoID && m["branch"] != ""
+	})
+	wsID, _ := adopted["id"].(string)
+	require.NotEmpty(t, wsID, "ImportRepo: import must adopt and broadcast a workspace")
+	return ImportedRepo{
+		ProjectID:   projectID,
+		RepoID:      repoID,
+		WorkspaceID: wsID,
+		RepoPath:    path,
+	}
+}
+
+// PushProviderState injects a scripted provider poll result for wsID directly
+// into the workspace aggregate, bypassing the real GitHub/GitLab provider
+// engine. The resulting status transition (pr-open → pr-merged, protected →
+// locked, etc.) is persisted projection-synchronously (Asynx SendWait) and
+// broadcast as a WorkspaceDTO on the Workspaces WS stream. This is the
+// mock-provider seam (spec §11) — analogous to PushGit/PushLSP — that lets a
+// test drive PR-status transitions deterministically without a real provider.
+func (e *Env) PushProviderState(
+	t *testing.T,
+	wsID string,
+	state ProviderState,
+) {
+	t.Helper()
+	_, err := e.app.Repositories.Workspace.SyncProviderState(
+		context.Background(),
+		wsrepo.ProviderInput{
+			ID:             wsID,
+			Protected:      state.Protected,
+			HasPR:          state.HasPR,
+			PRStatus:       state.PRStatus,
+			PRUrl:          state.PRUrl,
+			PRTitle:        state.PRTitle,
+			PRTargetBranch: state.PRTargetBranch,
+		},
+		Now(),
+	)
+	require.NoError(t, err, "PushProviderState: SyncProviderState")
 }
 
 // DecodeJSON decodes the response body into dest and closes the body.

@@ -188,7 +188,13 @@ func TestNewSweeper_DefaultInterval(t *testing.T) {
 	require.NotNil(t, s)
 	concrete, ok := s.(*sweeper)
 	require.True(t, ok)
-	assert.Equal(t, 60*time.Second, concrete.interval)
+	assert.Equal(t, GlobalCronInterval, concrete.interval)
+	assert.Equal(t, 5*time.Minute, concrete.interval)
+}
+
+func TestPollIntervalConstants(t *testing.T) {
+	assert.Equal(t, 5*time.Minute, GlobalCronInterval)
+	assert.Equal(t, 1*time.Minute, PerConnectionInterval)
 }
 
 func TestNewSweeperWithInterval(t *testing.T) {
@@ -243,6 +249,54 @@ func TestSweepTarget_MultipleTargets(t *testing.T) {
 	assert.Equal(t, []string{"ws1", "ws3"}, notifiedIDs)
 }
 
+func TestSweepTarget_HungPollIsCancelledByPerTargetTimeout(t *testing.T) {
+	// A pollFn that blocks until its ctx is cancelled mimics a hung remote. The
+	// per-target timeout (perTargetTimeout in production) must fire so one stuck
+	// target cannot stall the whole serial sweep — every other workspace's PR
+	// status would otherwise stop updating until the hang resolved.
+	gotErr := make(chan error, 1)
+	s := newTestSweeper(
+		func(
+			ctx context.Context,
+			wsID string,
+			repoPath string,
+			branch string,
+		) (ProviderStateSnapshot, error) {
+			<-ctx.Done()
+			gotErr <- ctx.Err()
+			return ProviderStateSnapshot{}, ctx.Err()
+		},
+		func(_ string, _ ProviderStateSnapshot) {
+			t.Error("onStateChange must not fire when the poll was cancelled")
+		},
+	)
+	// Inject a tiny per-target timeout so the test exercises the bound without
+	// waiting the production 30s.
+	s.targetTimeout = 10 * time.Millisecond
+
+	done := make(chan struct{})
+	go func() {
+		s.sweepTarget(context.Background(), SweepTarget{
+			WSID: "ws1", RepoPath: "/r", Branch: "b", HasOpenPR: true,
+		})
+		close(done)
+	}()
+
+	select {
+	case err := <-gotErr:
+		assert.ErrorIs(t, err, context.DeadlineExceeded,
+			"hung target poll must be cancelled by the per-target timeout")
+	case <-time.After(time.Second):
+		t.Fatal("per-target timeout never cancelled the hung poll")
+	}
+
+	select {
+	case <-done:
+	case <-time.After(time.Second):
+		t.Fatal("sweepTarget did not return after the poll was cancelled")
+	}
+}
+
 func TestStatesEqual(t *testing.T) {
 	pr := &PRInfoSnapshot{Number: 1, Status: "open", URL: "u", Title: "t", TargetBranch: "main"}
 
@@ -263,4 +317,41 @@ func TestStatesEqual(t *testing.T) {
 		ProviderStateSnapshot{PR: pr},
 		ProviderStateSnapshot{PR: &PRInfoSnapshot{Number: 2}},
 	))
+}
+
+// TestSweepOnce_PrunesLastStateForRemovedWorkspaces proves pass-3 #3: a workspace
+// that drops out of the sweep targets (deleted) has its stale lastState entry
+// pruned, so the map can't grow unboundedly across the daemon's lifetime.
+func TestSweepOnce_PrunesLastStateForRemovedWorkspaces(t *testing.T) {
+	s := newTestSweeper(
+		mockPollFn(ProviderStateSnapshot{
+			Protected: true,
+			PR:        &PRInfoSnapshot{Number: 1, Status: "open"},
+		}, nil),
+		func(_ string, _ ProviderStateSnapshot) {},
+	)
+
+	a := SweepTarget{WSID: "wsA", RepoPath: "/a", Branch: "main", HasOpenPR: true}
+	b := SweepTarget{WSID: "wsB", RepoPath: "/b", Branch: "main", HasOpenPR: true}
+
+	// First sweep records both PR-bearing workspaces.
+	s.sweepOnce(context.Background(), []SweepTarget{a, b})
+	s.mu.Lock()
+	_, hasA := s.lastState["wsA"]
+	_, hasB := s.lastState["wsB"]
+	s.mu.Unlock()
+	require.True(t, hasA)
+	require.True(t, hasB)
+
+	// wsB is deleted: the next tick's targets contain only wsA, so wsB's now-stale
+	// entry must be pruned rather than lingering forever.
+	s.sweepOnce(context.Background(), []SweepTarget{a})
+	s.mu.Lock()
+	_, hasA = s.lastState["wsA"]
+	_, hasB = s.lastState["wsB"]
+	n := len(s.lastState)
+	s.mu.Unlock()
+	assert.True(t, hasA, "an active workspace keeps its lastState entry")
+	assert.False(t, hasB, "a removed workspace's stale entry is pruned")
+	assert.Equal(t, 1, n)
 }

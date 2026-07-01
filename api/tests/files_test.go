@@ -16,7 +16,7 @@ import (
 func TestFiles_TreeSaveReadBack(t *testing.T) {
 	h := newHarness(t)
 	imported := importWritableWorkspace(t, h)
-	base := "/v0/workspaces/" + imported.workspaceID
+	base := wsBase(imported)
 
 	var tree []map[string]any
 	h.get(base+"/files/tree", &tree)
@@ -41,7 +41,7 @@ func TestFiles_TreeSaveReadBack(t *testing.T) {
 func TestFiles_CreateRenameDelete(t *testing.T) {
 	h := newHarness(t)
 	imported := importWritableWorkspace(t, h)
-	base := "/v0/workspaces/" + imported.workspaceID
+	base := wsBase(imported)
 
 	var created struct {
 		ID string `json:"id"`
@@ -69,7 +69,7 @@ func TestFiles_CreateRenameDelete(t *testing.T) {
 func TestFiles_LockedWorkspaceRejectsWrite(t *testing.T) {
 	h := newHarness(t)
 	imported := importProject(t, h)
-	base := "/v0/workspaces/" + imported.workspaceID
+	base := wsBase(imported)
 
 	var tree []map[string]any
 	h.get(base+"/files/tree", &tree)

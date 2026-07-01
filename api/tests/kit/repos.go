@@ -204,6 +204,34 @@ func TrimNewline(
 	)
 }
 
+// InitRepoWithRemoteBranch creates a working repo (default branch main, one
+// commit) wired to a fresh bare origin remote, and pushes an extra branch to the
+// remote that does NOT exist as a local head. It returns the working repo path
+// and the name of the remote-only branch. This is the fixture for the §3
+// remote-branch-exists decision: CreateChild on the remote-only branch must
+// fetch + checkout it; CreateChild on any absent branch must fork from parent.
+func InitRepoWithRemoteBranch(
+	t *testing.T,
+	remoteBranch string,
+) (string, string) {
+	t.Helper()
+	bare := t.TempDir()
+	GitRun(t, bare, "init", "--bare", "-b", "main")
+
+	repo := InitRepoWithFile(t, "base.txt", "base\n")
+	GitRun(t, repo, "remote", "add", "origin", bare)
+	GitRun(t, repo, "push", "origin", "main")
+
+	// Create the extra branch, push it, then delete the local head so it only
+	// exists on the remote (ls-remote --heads origin sees it; local does not).
+	GitRun(t, repo, "checkout", "-b", remoteBranch)
+	CommitFile(t, repo, "remote-only.txt", "remote-only\n", "remote-only commit")
+	GitRun(t, repo, "push", "origin", remoteBranch)
+	GitRun(t, repo, "checkout", "main")
+	GitRun(t, repo, "branch", "-D", remoteBranch)
+	return repo, remoteBranch
+}
+
 // BranchExists reports whether branch exists in repoPath.
 // Fails the test immediately on unexpected exec errors.
 func BranchExists(

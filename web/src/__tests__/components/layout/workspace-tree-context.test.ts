@@ -5,12 +5,16 @@ vi.mock('@/lib/api', () => ({
   deleteWorkspace: vi.fn(),
 }))
 
-vi.mock('@/components/ui/toast', () => ({
+vi.mock('@/lib/api/workspace', () => ({
+  reparentWorkspace: vi.fn(),
+}))
+
+vi.mock('@/features/window/stores/toast-store', () => ({
   toast: { error: vi.fn() },
 }))
 
 import { postWorkspace, deleteWorkspace as apiDeleteWorkspace } from '@/lib/api'
-import { toast } from '@/components/ui/toast'
+import { toast } from '@/features/window/stores/toast-store'
 import { useSidebarStore, type Repo } from '@/lib/store/sidebar'
 import {
   performCreateWorkspace,
@@ -19,6 +23,7 @@ import {
 
 const repo = (workspaces: Repo['workspaces']): Repo => ({
   id: 'r1',
+  projectId: 'p1',
   name: 'repo',
   avatarLabel: 'R',
   avatarColor: '#fff',
@@ -43,60 +48,70 @@ beforeEach(() => {
 })
 
 describe('performCreateWorkspace', () => {
-  it('calls POST /v0/workspaces and adds the workspace with the backend id', async () => {
-    vi.mocked(postWorkspace).mockResolvedValue({ id: 'real-backend-id' })
+  it('fires the hierarchical 202 mutation threading projectId+repoId', async () => {
+    vi.mocked(postWorkspace).mockResolvedValue(undefined)
 
     await performCreateWorkspace('r1', 'feat/x', 'ws-parent')
 
-    expect(postWorkspace).toHaveBeenCalledWith('r1', 'feat/x', 'ws-parent')
-    const created = useSidebarStore
-      .getState()
-      .repos[0].workspaces.find((w) => w.id === 'real-backend-id')
-    expect(created).toBeDefined()
-    expect(created?.branch).toBe('feat/x')
-    expect(created?.parentId).toBe('ws-parent')
+    expect(postWorkspace).toHaveBeenCalledWith('p1', 'r1', 'feat/x', 'ws-parent')
   })
 
-  it('does not add a phantom node when the API call fails', async () => {
+  it('does NOT optimistically add a node — the WS DTO drives the cache', async () => {
+    vi.mocked(postWorkspace).mockResolvedValue(undefined)
+
+    await performCreateWorkspace('r1', 'feat/x', 'ws-parent')
+
+    // No optimistic insert: the tree is unchanged until the WS WorkspaceDTO lands.
+    expect(workspaceIds()).toEqual(['ws-parent', 'ws-locked'])
+  })
+
+  it('logs failure silently — no toast, no phantom node', async () => {
     vi.mocked(postWorkspace).mockRejectedValue(new Error('500 boom'))
 
     await performCreateWorkspace('r1', 'feat/x', 'ws-parent')
 
     expect(workspaceIds()).toEqual(['ws-parent', 'ws-locked'])
-    expect(toast.error).toHaveBeenCalledWith('Failed to create workspace', '500 boom')
+    expect(toast.error).not.toHaveBeenCalled()
+    expect(console.error).toHaveBeenCalledWith('Failed to create workspace:', expect.any(Error))
   })
 })
 
 describe('performDeleteWorkspace', () => {
-  it('calls DELETE /v0/workspaces/:id and removes the workspace on success', async () => {
+  it('fires the hierarchical 202 delete threading projectId+repoId', async () => {
     vi.mocked(apiDeleteWorkspace).mockResolvedValue(undefined)
 
     await performDeleteWorkspace('ws-parent')
 
-    expect(apiDeleteWorkspace).toHaveBeenCalledWith('ws-parent')
-    expect(workspaceIds()).toEqual(['ws-locked'])
+    expect(apiDeleteWorkspace).toHaveBeenCalledWith('p1', 'r1', 'ws-parent')
   })
 
-  it('does not remove the workspace when the API call fails', async () => {
+  it('does NOT optimistically remove — the WS tombstone drives the cache', async () => {
+    vi.mocked(apiDeleteWorkspace).mockResolvedValue(undefined)
+
+    await performDeleteWorkspace('ws-parent')
+
+    // No optimistic removal: the node stays until the status:'deleted' DTO lands.
+    expect(workspaceIds()).toEqual(['ws-parent', 'ws-locked'])
+  })
+
+  it('logs failure silently — no toast, item stays in list via WS non-arrival', async () => {
     vi.mocked(apiDeleteWorkspace).mockRejectedValue(new Error('409 conflict'))
 
     await performDeleteWorkspace('ws-parent')
 
-    expect(workspaceIds()).toEqual(['ws-parent', 'ws-locked'])
-    expect(toast.error).toHaveBeenCalledWith('Failed to delete workspace', '409 conflict')
+    expect(toast.error).not.toHaveBeenCalled()
+    expect(console.error).toHaveBeenCalledWith('Failed to delete workspace:', expect.any(Error))
   })
 
-  it('never deletes a locked workspace (no API call, store untouched)', async () => {
+  it('never deletes a locked workspace (no API call)', async () => {
     await performDeleteWorkspace('ws-locked')
 
     expect(apiDeleteWorkspace).not.toHaveBeenCalled()
-    expect(workspaceIds()).toEqual(['ws-parent', 'ws-locked'])
   })
 
   it('is a no-op for unknown workspace ids', async () => {
     await performDeleteWorkspace('nope')
 
     expect(apiDeleteWorkspace).not.toHaveBeenCalled()
-    expect(workspaceIds()).toEqual(['ws-parent', 'ws-locked'])
   })
 })

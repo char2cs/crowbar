@@ -2,6 +2,8 @@ package reviewthread_test
 
 import (
 	"context"
+	"fmt"
+	"sync"
 	"testing"
 	"time"
 
@@ -29,7 +31,7 @@ func newRepo(
 	t.Cleanup(func() { _ = ax.Shutdown(context.Background()) })
 	db, err := storesqlite.OpenDB(":memory:")
 	require.NoError(t, err)
-	repo, err := reviewthread.New(ax, db, func(domain.ReviewThread) {})
+	repo, err := reviewthread.New(context.Background(), ax, es, db, func(domain.ReviewThread) {})
 	require.NoError(t, err)
 	return context.Background(), repo
 }
@@ -110,7 +112,7 @@ func TestReviewThread_OpenReplyList(t *testing.T) {
 	}, now)
 	require.NoError(t, err)
 
-	replied, err := repo.Reply(ctx, "t1", "m2", "second", now)
+	replied, err := repo.Reply(ctx, "t1", "m2", "", false, "second", now)
 	require.NoError(t, err)
 	require.Len(t, replied.Messages, 2)
 	assert.Equal(t, "second", replied.Messages[1].Body)
@@ -145,8 +147,43 @@ func TestReviewThread_ListByWorkspace_FiltersWsID(t *testing.T) {
 
 func TestReviewThread_Reply_ErrorOnMissing(t *testing.T) {
 	ctx, repo := newRepo(t)
-	_, err := repo.Reply(ctx, "no-thread", "m1", "body", time.Unix(1, 0))
+	_, err := repo.Reply(ctx, "no-thread", "m1", "", false, "body", time.Unix(1, 0))
 	assert.Error(t, err)
+}
+
+// TestReviewThread_ConcurrentSameAggregateCommandsAllSucceed proves R6 for the
+// global reviewthread repo: many commands targeting the SAME thread aggregate at
+// once must ALL commit. The reviewthread aggregate shares one asynx (8 workers)
+// and one event store across every thread; without single-writer-per-aggregate
+// serialization the optimistic event store rejects the losers with a version/PK
+// conflict and the read model silently goes stale.
+func TestReviewThread_ConcurrentSameAggregateCommandsAllSucceed(t *testing.T) {
+	ctx, repo := newRepo(t)
+	now := time.Unix(1000, 0).UTC()
+	_, err := repo.Open(ctx, reviewthread.OpenInput{
+		ID: "t1", WsID: "w1", MessageID: "m0", Body: "first",
+	}, now)
+	require.NoError(t, err)
+
+	const n = 32
+	errs := make([]error, n)
+	var wg sync.WaitGroup
+	for i := 0; i < n; i++ {
+		wg.Add(1)
+		go func(idx int) {
+			defer wg.Done()
+			_, errs[idx] = repo.Reply(ctx, "t1", fmt.Sprintf("m-%d", idx), "", false, "reply", now)
+		}(i)
+	}
+	wg.Wait()
+
+	failed := 0
+	for _, e := range errs {
+		if e != nil {
+			failed++
+		}
+	}
+	require.Zero(t, failed, "%d/%d concurrent same-aggregate commands failed with a version conflict", failed, n)
 }
 
 func TestReviewThread_List_StorageError(t *testing.T) {
@@ -161,7 +198,7 @@ func TestReviewThread_List_StorageError(t *testing.T) {
 
 	db, err := storesqlite.OpenDB(":memory:")
 	require.NoError(t, err)
-	repo, err := reviewthread.New(ax, db, func(domain.ReviewThread) {})
+	repo, err := reviewthread.New(context.Background(), ax, es, db, func(domain.ReviewThread) {})
 	require.NoError(t, err)
 
 	sqlDB, err := db.DB()
@@ -184,7 +221,7 @@ func TestReviewThread_ListByWorkspace_StorageError(t *testing.T) {
 
 	db, err := storesqlite.OpenDB(":memory:")
 	require.NoError(t, err)
-	repo, err := reviewthread.New(ax, db, func(domain.ReviewThread) {})
+	repo, err := reviewthread.New(context.Background(), ax, es, db, func(domain.ReviewThread) {})
 	require.NoError(t, err)
 
 	sqlDB, err := db.DB()
@@ -211,6 +248,6 @@ func TestReviewThread_New_ErrorOnBadDB(t *testing.T) {
 	require.NoError(t, err)
 	require.NoError(t, sqlDB.Close())
 
-	_, err = reviewthread.New(ax, db, func(domain.ReviewThread) {})
+	_, err = reviewthread.New(context.Background(), ax, es, db, func(domain.ReviewThread) {})
 	assert.Error(t, err)
 }

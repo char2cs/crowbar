@@ -18,3 +18,36 @@ var ErrChildHasChildren = errors.New("usecases: child has children")
 // ErrNewParentLocked is returned when a re-parent targets a locked new parent
 // workspace (07 §4).
 var ErrNewParentLocked = errors.New("usecases: new parent is locked")
+
+// ErrSelfParent is returned when a re-parent targets the child itself. A
+// workspace cannot be its own parent: the self-loop both detaches the node in
+// the tree and makes it permanently unreparentable (it would count as its own
+// child in the leaf check), so it is rejected before any git work.
+var ErrSelfParent = errors.New("usecases: cannot reparent a workspace onto itself")
+
+// ErrWorkspaceLocked is returned when a cascade delete targets a locked root
+// workspace. The guard runs before any destructive side effect (worktree
+// removal, branch delete), so a locked workspace is rejected cleanly instead
+// of failing midway with a raw git error. Handlers map it to HTTP 409.
+var ErrWorkspaceLocked = errors.New("workspace is locked")
+
+// ErrBranchWorkspaceExists is returned when a create would produce a second
+// workspace for a branch that a non-deleted workspace already holds in the repo.
+// A branch can be checked out in at most one worktree, so the repo keeps at most
+// one workspace per branch (the default workspace reserves the default branch).
+// The guard runs before any git work, so a duplicate is rejected cleanly instead
+// of failing midway with a raw git error. Handlers map it to HTTP 409.
+var ErrBranchWorkspaceExists = errors.New("usecases: a workspace already exists for this branch")
+
+// ErrParentUnprovisioned is returned when a parent-tip op (merge-into-parent,
+// reparent-onto, rebase-onto-parent) targets a placeholder parent — a locked row
+// whose WorktreePath is still empty because its protected branch has not been
+// materialised yet. The guard runs before any RevParse so no git op can run
+// against "". Handlers map it to HTTP 409 (spec §3.4/B2).
+var ErrParentUnprovisioned = errors.New("usecases: parent branch is not yet provisioned")
+
+// ErrBranchStillHeld is returned by RetryProvision when the protected branch is
+// still held by a live worktree (the repo home or an external checkout) that was
+// not freed first: the user must detach the holder before a retry can succeed
+// (spec §3.3/§3.7).
+var ErrBranchStillHeld = errors.New("usecases: branch is still held; detach the holder first")

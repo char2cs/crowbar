@@ -3,16 +3,22 @@ import { useFileSystemStore } from '@/features/file-system/controllers/store'
 import { useBufferActions } from './use-buffer-store'
 import { useFileTreeStore } from '@/features/file-explorer/stores/file-explorer-tree-store'
 import {
+  createFileNode,
+  deleteFileNode,
   fetchFileTree,
   filesWsEndpoint,
   findNode,
   mergeChildren,
+  renameFileNode,
 } from '@/features/files/lib/file-tree-api'
+import { joinPath } from '@/utils/path-helpers'
 import { wsManager } from '@/lib/ws/manager'
 import { openFileContent } from '@/features/workspace/lib/open-file-content'
 import { syncBufferWithDisk } from '@/features/workspace/lib/external-buffer-sync'
 import { getOrCreateWorkspaceStore } from '@/features/workspace/stores/workspace-store-registry'
+import { workspaceBase, isHomeWorkspace } from '@/lib/workspace-scope-url'
 import { fetchAllGitData, useGitStore } from '@/features/git/stores/git-store'
+import { useWorkspaceThreadsStream } from './use-workspace-threads-stream'
 import type { AppFile } from '@/features/file-system/types/app'
 
 const GIT_REFRESH_DEBOUNCE_MS = 400
@@ -51,6 +57,8 @@ export function useWorkspaceEffects(wsId: string) {
   const expandedPaths = useFileTreeStore((state) => state.expandedPaths)
   const loadingDirs = useRef<Set<string>>(new Set())
 
+  useWorkspaceThreadsStream(wsId)
+
   // Seed the root file tree and wire the workspace-scoped file handlers. The
   // `cancelled` guard ensures a slow fetch from a previous workspace cannot
   // overwrite the global file-system store after the user has switched away.
@@ -88,6 +96,56 @@ export function useWorkspaceEffects(wsId: string) {
         handleFileSelect: (path: string, isDir?: boolean) => {
           if (isDir) return
           void openFileContent(wsId, path, bufferActions, { preview: true })
+        },
+        // File-tree mutations. The daemon emits a structural FileChangeEvent on
+        // success, which the files-WS effect below reconciles into the tree — so
+        // these don't refetch (except the explicit Refresh action).
+        handleCreateNewFileInDirectory: async (dirPath: string, fileName?: string) => {
+          if (!fileName) return
+          // Tree paths are workspace-relative (root === ''). A dirPath equal to
+          // the absolute wsId is the workspace root addressed by its full path
+          // (right-click empty space) — normalise it to '' so we create at the
+          // worktree root rather than at wsId/<name>.
+          const dir = dirPath === wsId ? '' : dirPath
+          const path = dir ? joinPath(dir, fileName) : fileName
+          await createFileNode(wsId, path, 'file')
+          return path
+        },
+        handleCreateNewFolderInDirectory: async (dirPath: string, folderName?: string) => {
+          if (!folderName) return
+          const dir = dirPath === wsId ? '' : dirPath
+          await createFileNode(wsId, dir ? joinPath(dir, folderName) : folderName, 'dir')
+        },
+        handleDeletePath: async (path: string) => {
+          await deleteFileNode(wsId, path)
+        },
+        handleRenamePath: async (path: string, newName?: string) => {
+          if (newName) {
+            const dir = parentDir(path)
+            await renameFileNode(wsId, path, dir ? joinPath(dir, newName) : newName)
+            return
+          }
+          // No newName → START an inline rename: mark the node editable. This is
+          // an idempotent SET (never a toggle) so a double-click reliably opens
+          // the input regardless of any stale isRenaming left by a prior edit —
+          // that toggle-vs-stale-state coupling is what made rename inconsistent.
+          // Cancel (Escape) and commit (Enter/blur) clear the flag explicitly in
+          // the inline-editing hook, so start and clear are independent.
+          const setRenaming = (nodes: AppFile[]): AppFile[] =>
+            nodes.map((n) => {
+              if (n.path === path) return { ...n, isRenaming: true, isEditing: true }
+              return n.children ? { ...n, children: setRenaming(n.children) } : n
+            })
+          const fs = useFileSystemStore.getState()
+          fs.setFiles(setRenaming(fs.files))
+        },
+        refreshDirectory: async (path?: string) => {
+          const fresh = await fetchFileTree(wsId, path || undefined).catch(() => null)
+          if (!Array.isArray(fresh)) return
+          const current = useFileSystemStore.getState().files
+          const reconciled = preserveLoadedChildren(current, fresh)
+          const next = !path ? reconciled : mergeChildren(current, path, reconciled)
+          useFileSystemStore.getState().setFiles(next)
         },
       })
     })()
@@ -151,10 +209,16 @@ export function useWorkspaceEffects(wsId: string) {
     }
   }, [wsId])
 
-  // Load full git data once, then keep status live on the git topic. A live
-  // event only refreshes status (one request), not the rarely-changing
-  // commits/branches/stashes — those reload on explicit git actions.
+  // Load full git data once, then keep status + commit log live on the git
+  // topic. Branches/stashes change rarely — those reload on explicit git
+  // actions.
+  //
+  // The home (project-level) workspace has no git surface — the backend mounts
+  // no /home/git/* routes (the project root is not a per-workspace git
+  // worktree). Skip all git loading and the git/status stream for it so we never
+  // fire requests that 404. Files and threads remain enabled for home.
   useEffect(() => {
+    if (isHomeWorkspace(wsId)) return
     let cancelled = false
     void (async () => {
       const data = await fetchAllGitData(wsId).catch(() => null)
@@ -177,26 +241,35 @@ export function useWorkspaceEffects(wsId: string) {
       if (timer) return
       timer = setTimeout(() => {
         timer = null
-        if (!cancelled) void useGitStore.getState().actions.reloadStatus(wsId)
+        if (cancelled) return
+        // Status + commit log together: terminal-side commits/resets change
+        // the History list without any UI action (BUG-020). After the store
+        // refresh, notify open diff views ("Uncommitted Changes" tab,
+        // single-file diff tabs) so they refetch instead of showing the
+        // already-committed hunks (BUG-017).
+        void useGitStore
+          .getState()
+          .actions.reloadStatusAndLog(wsId)
+          .then(() => {
+            if (!cancelled) window.dispatchEvent(new CustomEvent('git-status-changed'))
+          })
+          .catch(() => {})
       }, GIT_REFRESH_DEBOUNCE_MS)
     }
     // The push stream repeats identical status frames; only a frame that
     // actually differs from the previous one warrants a refetch.
     let lastFrame: string | null = null
-    const unsubscribe = wsManager.subscribe(
-      `/v0/ws/git?wsId=${encodeURIComponent(wsId)}`,
-      (frame) => {
-        let key: string
-        try {
-          key = JSON.stringify(frame)
-        } catch {
-          key = String(frame)
-        }
-        if (key === lastFrame) return
-        lastFrame = key
-        scheduleStatusReload()
-      },
-    )
+    const unsubscribe = wsManager.subscribe(`${workspaceBase(wsId)}/git/status`, (frame) => {
+      let key: string
+      try {
+        key = JSON.stringify(frame)
+      } catch {
+        key = String(frame)
+      }
+      if (key === lastFrame) return
+      lastFrame = key
+      scheduleStatusReload()
+    })
     // Editor saves dispatch "git-status-updated" after a successful write.
     // Refresh on it directly so the Changes panel updates deterministically,
     // without depending on the backend watcher's git event arriving.

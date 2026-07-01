@@ -10,8 +10,47 @@ import { createFileWatcherSlice } from './slices/file-watcher-slice'
 import { createRecentFilesSlice } from './slices/recent-files-slice'
 import { createBranchReviewSlice } from './slices/branch-review-slice'
 import { saveSessionToStore } from '@/features/editor/stores/buffer-session-persistence'
+import { ModelRegistry } from '@/features/editor/lib/model-registry'
+import { EditorManager, type BufferMeta } from '@/features/editor/lib/editor-manager'
+import {
+  createActiveEditorRegistry,
+  type ActiveEditorRegistry,
+} from '@/features/editor/lib/active-editor-context'
+import {
+  EDITOR_CREATE_OPTIONS,
+  langForUri,
+  realEditorApi,
+  realModelApi,
+} from '@/features/editor/lib/monaco-adapters'
+import { uriToFsPath } from '@/features/editor/lib/editor-uri'
 
-export type WorkspaceStore = StoreApi<WorkspaceState>
+/**
+ * Per-workspace, NON-REACTIVE editor handles attached to the store object.
+ * They are NOT part of the reactive {@link WorkspaceState} (so they never
+ * trigger subscriptions/persistence). Access via `store.editorManager` /
+ * `store.modelRegistry`; disposed in `destroyWorkspaceStore`.
+ */
+export interface WorkspaceEditorHandles {
+  readonly modelRegistry: ModelRegistry
+  readonly editorManager: EditorManager
+  /**
+   * Per-workspace active-editor pub/sub registry. The per-pane editor
+   * controller publishes the current ActiveEditorContext here on each buffer
+   * swap; satellite UI (status bar, LSP overlays, etc.) subscribe by paneId
+   * without re-rendering on a tab switch. Sits next to {@link editorManager}
+   * as a NON-REACTIVE handle.
+   */
+  readonly activeEditorRegistry: ActiveEditorRegistry
+  /**
+   * Tears down the internal session-persistence subscription (the IndexedDB
+   * saveSessionToStore writer wired in createWorkspaceStore). destroyWorkspaceStore
+   * MUST call this: the subscription closes over this store, so without it a
+   * late setState after teardown writes a stale workspace's session to IndexedDB.
+   */
+  readonly _disposeSession: () => void
+}
+
+export type WorkspaceStore = StoreApi<WorkspaceState> & WorkspaceEditorHandles
 
 export type WorkspaceSnapshot = Partial<
   Pick<
@@ -45,11 +84,36 @@ export function createWorkspaceStore(wsId: string, snapshot?: WorkspaceSnapshot)
     ),
   )
 
-  store.subscribe((state, prev) => {
+  // Persist session (open buffers + active buffer) to IndexedDB on buffer changes.
+  // Capture the unsubscribe so destroyWorkspaceStore can tear it down — otherwise
+  // a late setState on a destroyed store (an in-flight file load / WS frame
+  // resolving after teardown) fires this and writes a STALE workspace's session,
+  // corrupting persisted layout. Exposed below as `_disposeSession`.
+  const disposeSession = store.subscribe((state, prev) => {
     if (state.buffers === prev.buffers) return
     const activePane = state.panes[state.activePaneId] ?? null
     saveSessionToStore(state.buffers, activePane?.activeBufferId ?? null)
   })
 
-  return store
+  // One ModelRegistry + EditorManager per workspace (non-reactive handles).
+  // `text(uri)` reads the buffer content for the file at that uri, or '' if it
+  // isn't loaded; `lang(uri)` derives the Monaco language id from the path.
+  const registry = new ModelRegistry(realModelApi())
+  const meta: BufferMeta = {
+    lang: (uri) => langForUri(uri),
+    text: (uri) => {
+      const fsPath = uriToFsPath(uri)
+      const buf = store.getState().buffers.find((b) => b.type === 'editor' && b.path === fsPath)
+      return buf && 'content' in buf ? buf.content : ''
+    },
+  }
+  const manager = new EditorManager(realEditorApi(EDITOR_CREATE_OPTIONS), registry, meta)
+  const activeEditorRegistry = createActiveEditorRegistry()
+
+  return Object.assign(store, {
+    modelRegistry: registry,
+    editorManager: manager,
+    activeEditorRegistry,
+    _disposeSession: disposeSession,
+  })
 }

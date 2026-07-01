@@ -1,10 +1,58 @@
-import type { WorkspacePayload, Project } from './types'
+import type { Project, Prerequisites, RepoDTO, WorkspaceDTO } from './types'
 import { useChaosStore } from '@/lib/store/chaos'
 
 const crowbar = (window as unknown as { __CROWBAR__?: { api?: string } }).__CROWBAR__
 export const API_BASE: string = crowbar?.api ?? import.meta.env.VITE_API_URL ?? ''
 
-export async function apiFetch<T>(path: string, init?: RequestInit): Promise<T> {
+/** Error thrown by apiFetch carrying the HTTP status, so callers can make
+ *  status-specific decisions (e.g. a 404 is terminal — never retried). */
+export class ApiError extends Error {
+  readonly status: number
+  constructor(message: string, status: number) {
+    super(message)
+    this.name = 'ApiError'
+    this.status = status
+  }
+}
+
+export function isNotFoundError(err: unknown): boolean {
+  return err instanceof ApiError && err.status === 404
+}
+
+/** Tunable transient-retry policy for {@link apiFetch}. A `fetch()` *rejection*
+ *  (a network/transport error — never an HTTP status) means the request never
+ *  reached the daemon; at app launch that is the sidecar's unix socket not yet
+ *  accepting connections. Idempotent reads retry across that startup window so a
+ *  cold start lands on the workspace instead of crashing or showing an empty
+ *  state. Injectable so tests run without real backoff sleeps. */
+export interface RetryConfig {
+  /** Total attempts including the first (1 = no retry). */
+  attempts: number
+  /** Exponential backoff base; delay = baseDelayMs * 2^(attempt-1), capped. */
+  baseDelayMs: number
+  maxDelayMs: number
+  sleep?: (ms: number) => Promise<void>
+}
+
+// ~5s of bounded backoff (0,100,200,400,800,1000,1000,1000) comfortably covers a
+// daemon sidecar's socket-bind window without masking a genuinely-down daemon.
+const DEFAULT_RETRY: RetryConfig = { attempts: 8, baseDelayMs: 100, maxDelayMs: 1000 }
+
+const defaultSleep = (ms: number): Promise<void> => new Promise((r) => setTimeout(r, ms))
+
+/** Only idempotent reads auto-retry on transport failure. Mutations have their
+ *  own async-202 + subscribe-before-POST resilience and must never be blindly
+ *  replayed (at-least-once would double-apply). */
+function isIdempotentRead(init?: RequestInit): boolean {
+  const method = init?.method?.toUpperCase()
+  return method === undefined || method === 'GET'
+}
+
+export async function apiFetch<T>(
+  path: string,
+  init?: RequestInit,
+  retry: RetryConfig = DEFAULT_RETRY,
+): Promise<T> {
   const { latency, errorRate, scenario, faults } = useChaosStore.getState()
   const chaosHeaders: Record<string, string> = {}
   if (latency > 0) chaosHeaders['X-Crowbar-Latency'] = String(latency)
@@ -18,43 +66,41 @@ export async function apiFetch<T>(path: string, init?: RequestInit): Promise<T> 
     }
   }
 
-  const res = await fetch(`${API_BASE}${path}`, {
-    ...init,
-    headers: { ...init?.headers, ...chaosHeaders },
-  })
-  const body = await res.json().catch(() => null)
-  // Success with an empty/204 body (e.g. WriteMutationOK with no payload, or
-  // a 204 No Content): the envelope check below would wrongly throw, so treat
-  // it as success returning undefined.
-  if (res.ok && (res.status === 204 || body === null)) {
-    return undefined as T
+  const maxAttempts = isIdempotentRead(init) ? Math.max(1, retry.attempts) : 1
+  const sleep = retry.sleep ?? defaultSleep
+
+  for (let attempt = 1; ; attempt++) {
+    let res: Response
+    try {
+      res = await fetch(`${API_BASE}${path}`, {
+        ...init,
+        headers: { ...init?.headers, ...chaosHeaders },
+      })
+    } catch (err) {
+      // Transport-level failure — the request never produced an HTTP response
+      // (daemon not ready / connection refused). Retry idempotent reads with
+      // bounded backoff; surface the error once attempts are exhausted.
+      if (attempt >= maxAttempts) throw err
+      await sleep(Math.min(retry.maxDelayMs, retry.baseDelayMs * 2 ** (attempt - 1)))
+      continue
+    }
+
+    const body = await res.json().catch(() => null)
+    // Success with an empty/204/202 body (e.g. WriteMutationOK with no payload, a
+    // 204 No Content, or a 202 Accepted for an async hierarchical mutation): the
+    // envelope check below would wrongly throw, so treat it as success returning
+    // undefined.
+    if (res.ok && (res.status === 204 || res.status === 202 || body === null)) {
+      return undefined as T
+    }
+    // An HTTP error status is a real daemon response, not a transport failure —
+    // it is terminal (a 404 is meaningful; a 500 is a genuine server error) and
+    // must never be retried.
+    if (!res.ok || !body?.success) {
+      throw new ApiError(body?.error ?? `${res.status} ${res.statusText}`, res.status)
+    }
+    return body.data as T
   }
-  if (!res.ok || !body?.success) {
-    throw new Error(body?.error ?? `${res.status} ${res.statusText}`)
-  }
-  return body.data as T
-}
-
-export function fetchWorkspace(wsId: string): Promise<WorkspacePayload> {
-  return apiFetch(`/v0/workspaces/${wsId}`)
-}
-
-// The backend's WriteMutationOK returns only `{ id }`, not the full entity.
-// parentId omitted/empty = fork from the repo's default branch.
-export function postWorkspace(
-  repoId: string,
-  branch: string,
-  parentId?: string,
-): Promise<{ id: string }> {
-  return apiFetch('/v0/workspaces', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ repoId, branch, ...(parentId ? { parentId } : {}) }),
-  })
-}
-
-export function deleteWorkspace(wsId: string): Promise<void> {
-  return apiFetch(`/v0/workspaces/${wsId}`, { method: 'DELETE' })
 }
 
 export function fetchProjects(): Promise<Project[]> {
@@ -65,21 +111,73 @@ export function fetchProject(id: string): Promise<Project> {
   return apiFetch(`/v0/projects/${id}`)
 }
 
-// Pick a real workspace to land on at app start. Prefer the first unlocked
-// (editable) workspace so editing works out of the box; fall back to the first
-// workspace of any kind, or null when the backend has none yet (→ projects).
-export async function fetchLandingWorkspaceId(): Promise<string | null> {
-  const workspaces = await apiFetch<Array<{ id: string; locked: boolean }>>('/v0/workspaces')
-  if (workspaces.length === 0) return null
-  const editable = workspaces.find((ws) => !ws.locked)
-  return (editable ?? workspaces[0]).id
+// ---------------------------------------------------------------------------
+// Hierarchical READ API (§3/§7).
+// ---------------------------------------------------------------------------
+
+export function fetchRepos(projectId: string): Promise<RepoDTO[]> {
+  return apiFetch(`/v0/projects/${projectId}/repos`)
 }
 
-// The backend's WriteMutationOK returns only `{ id }`, not the full entity.
-export function postProject(name: string, path: string): Promise<{ id: string }> {
+export function fetchWorkspaces(projectId: string, repoId: string): Promise<WorkspaceDTO[]> {
+  return apiFetch(`/v0/projects/${projectId}/repos/${repoId}/workspaces`)
+}
+
+export function fetchWorkspace(
+  projectId: string,
+  repoId: string,
+  wsId: string,
+): Promise<WorkspaceDTO> {
+  return apiFetch(`/v0/projects/${projectId}/repos/${repoId}/workspaces/${wsId}`)
+}
+
+export function fetchHomeWorkspace(projectId: string): Promise<WorkspaceDTO> {
+  return apiFetch(`/v0/projects/${projectId}/home`)
+}
+
+// ---------------------------------------------------------------------------
+// Hierarchical WRITE API (§3/§7) — every mutation is fire-and-forget: the
+// daemon answers 202 Accepted with an empty body and the real entity (with its
+// status transitions) arrives over the scoped WS broadcaster. Callers therefore
+// await the WS DTO for navigation, never an id from these calls.
+// ---------------------------------------------------------------------------
+
+export function postProject(name: string, path: string): Promise<void> {
   return apiFetch('/v0/projects', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ name, path }),
   })
+}
+
+export function postRepo(projectId: string, name: string, path: string): Promise<void> {
+  return apiFetch(`/v0/projects/${projectId}/repos`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ name, path }),
+  })
+}
+
+// parentId omitted/empty = fork from the repo's default branch.
+export function postWorkspace(
+  projectId: string,
+  repoId: string,
+  branch: string,
+  parentId?: string,
+): Promise<void> {
+  return apiFetch(`/v0/projects/${projectId}/repos/${repoId}/workspaces`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ branch, ...(parentId ? { parentId } : {}) }),
+  })
+}
+
+export function deleteWorkspace(projectId: string, repoId: string, wsId: string): Promise<void> {
+  return apiFetch(`/v0/projects/${projectId}/repos/${repoId}/workspaces/${wsId}`, {
+    method: 'DELETE',
+  })
+}
+
+export function fetchPrerequisites(): Promise<Prerequisites> {
+  return apiFetch('/v0/system/prerequisites')
 }

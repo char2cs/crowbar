@@ -1,4 +1,5 @@
 import { apiFetch } from '@/lib/api'
+import { workspaceBase } from '@/lib/workspace-scope-url'
 import type { GitStash } from '../types/git-types'
 
 interface StashDTO {
@@ -9,7 +10,7 @@ interface StashDTO {
 }
 
 function base(wsId: string): string {
-  return `/v0/workspaces/${encodeURIComponent(wsId)}/git`
+  return `${workspaceBase(wsId)}/git`
 }
 
 // Resolve a positional stash index to the backend's stash id, which the

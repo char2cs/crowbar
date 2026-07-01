@@ -1,16 +1,22 @@
 // web/src/routes/__root.tsx
-import { createRootRoute } from '@tanstack/react-router'
-import { IDEShell } from '@/components/layout/ide-shell'
+import { createRootRoute, Outlet } from '@tanstack/react-router'
 import { ErrorBoundary } from '@/components/error-boundary'
 import { HydrationGate } from '@/components/hydration-gate'
 import { AppSyncProvider } from '@/components/app-sync-provider'
+import { AnchoredToastProvider, ToastProvider } from '@/components/ui/toast'
+import { useUIState } from '@/features/window/stores/ui-state-store'
 
 function RootComponent() {
+  const ideShellMounted = useUIState((s) => s.ideShellMounted)
   return (
     <HydrationGate>
       <ErrorBoundary>
         <AppSyncProvider>
-          <IDEShell />
+          <ToastProvider position="bottom-right" suppressToasts={ideShellMounted}>
+            <AnchoredToastProvider>
+              <Outlet />
+            </AnchoredToastProvider>
+          </ToastProvider>
         </AppSyncProvider>
       </ErrorBoundary>
     </HydrationGate>

@@ -1,0 +1,90 @@
+import { render, screen, fireEvent } from '@testing-library/react'
+import { describe, it, expect, beforeEach, vi } from 'vitest'
+import { WorkspaceSwitcherMenu } from '@/components/layout/workspace-switcher'
+import { useSidebarStore, type Repo } from '@/lib/store/sidebar'
+
+const navigateMock = vi.fn()
+let mockPathname = '/workspaces/ws3'
+vi.mock('@tanstack/react-router', () => ({
+  useNavigate: () => navigateMock,
+  useRouterState: ({ select }: { select: (s: { location: { pathname: string } }) => unknown }) =>
+    select({ location: { pathname: mockPathname } }),
+}))
+
+const repos: Repo[] = [
+  {
+    id: 'r1',
+    projectId: 'p1',
+    name: 'crowbar',
+    avatarLabel: 'C',
+    avatarColor: 'bg-indigo-700',
+    workspaces: [{ id: 'ws1', branch: 'develop', status: 'pr-open', age: '1d' }],
+  },
+  {
+    id: 'r2',
+    projectId: 'p1',
+    name: 'quiver.desktop',
+    avatarLabel: 'Q',
+    avatarColor: 'bg-teal-700',
+    workspaces: [{ id: 'ws3', branch: 'feature/quiver-shell', status: 'new', age: '3d' }],
+  },
+]
+
+beforeEach(() => {
+  navigateMock.mockClear()
+  mockPathname = '/ide/p1/r2/ws3'
+  useSidebarStore.setState({ repos })
+})
+
+describe('WorkspaceSwitcherMenu', () => {
+  it('renders a row for every workspace', () => {
+    render(<WorkspaceSwitcherMenu onClose={() => {}} />)
+    expect(screen.getByText('develop')).toBeInTheDocument()
+    expect(screen.getByText('feature/quiver-shell')).toBeInTheDocument()
+  })
+
+  it('filters rows as the query changes', () => {
+    render(<WorkspaceSwitcherMenu onClose={() => {}} />)
+    fireEvent.change(screen.getByPlaceholderText('Switch workspace…'), {
+      target: { value: 'develop' },
+    })
+    expect(screen.getByText('develop')).toBeInTheDocument()
+    expect(screen.queryByText('feature/quiver-shell')).not.toBeInTheDocument()
+  })
+
+  it('navigates to the chosen workspace and closes on select', () => {
+    const onClose = vi.fn()
+    render(<WorkspaceSwitcherMenu onClose={onClose} />)
+    fireEvent.click(screen.getByText('develop'))
+    expect(navigateMock).toHaveBeenCalledWith({
+      to: '/ide/$projectId/$repoId/$wsId',
+      params: { projectId: 'p1', repoId: 'r1', wsId: 'ws1' },
+    })
+    expect(onClose).toHaveBeenCalled()
+  })
+
+  it('renders formatted added/deleted counts when present', () => {
+    useSidebarStore.setState({
+      repos: [
+        {
+          id: 'r1',
+          name: 'crowbar',
+          avatarLabel: 'C',
+          avatarColor: 'bg-indigo-700',
+          workspaces: [
+            { id: 'ws1', branch: 'develop', status: 'pr-open', added: 1234, deleted: 5, age: '1d' },
+          ],
+        },
+      ],
+    })
+    render(<WorkspaceSwitcherMenu onClose={() => {}} />)
+    expect(screen.getByText('+1k')).toBeInTheDocument()
+    expect(screen.getByText('-5')).toBeInTheDocument()
+  })
+
+  it('shows an empty state when there are no workspaces', () => {
+    useSidebarStore.setState({ repos: [] })
+    render(<WorkspaceSwitcherMenu onClose={() => {}} />)
+    expect(screen.getByText(/no workspaces/i)).toBeInTheDocument()
+  })
+})

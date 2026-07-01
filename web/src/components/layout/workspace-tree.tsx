@@ -1,14 +1,25 @@
-import { useCallback } from 'react'
+import { useCallback, useMemo } from 'react'
+import { Settings } from 'lucide-react'
 import { useNavigate, useRouterState } from '@tanstack/react-router'
 import { ScrollArea } from '@/components/ui/scroll-area'
 import { useSidebarStore } from '@/lib/store/sidebar'
 import { useWorkspaceListStore } from '@/lib/store/workspace-list'
 import { InlineError } from '@/components/ui/inline-error'
 import { cn } from '@/lib/utils'
-import { ROW_BASE } from './workspace-row-base'
+import { ROW_BASE, ROW_ACTIVE, ROW_INACTIVE, ADD_GLYPH_PATH } from './workspace-row-base'
+import { WorkspaceInlineInput } from './workspace-inline-input'
+import { findWorkspaceForBranch } from '@/lib/workspace/branch-workspace'
 import { WorkspaceTreeFooter } from './workspace-tree-footer'
 import { WorkspaceTreeItem } from './workspace-tree-item'
-import { WorkspaceTreeProvider, useWorkspaceTreeContext } from './workspace-tree-context'
+import { PendingCreateRow } from './pending-create-row'
+import {
+  WorkspaceTreeProvider,
+  useWorkspaceTreeActions,
+  useWorkspaceTreeDrag,
+} from './workspace-tree-context'
+import { RepoSettingsPanel } from './repo-settings-panel'
+import { ProjectHomeRow } from './project-home-row'
+import { useSidebarNavStore } from '@/features/layout/stores/sidebar-nav'
 import type { Workspace } from '@/lib/store/sidebar'
 
 export interface WorkspaceTreeNode {
@@ -57,17 +68,35 @@ function WorkspaceTreeInner() {
   const pathname = useRouterState({ select: (s) => s.location.pathname })
   const repos = useSidebarStore((s) => s.repos)
   const collapsedRepos = useSidebarStore((s) => s.collapsedRepos)
-  const { draggingWs, dragPos, hoverTargetId } = useWorkspaceTreeContext()
+  const {
+    creatingChildOf,
+    startCreating,
+    confirmCreate,
+    cancelCreate,
+    pendingCreates,
+    clearPendingCreate,
+  } = useWorkspaceTreeActions()
+  const { hoverTargetId } = useWorkspaceTreeDrag()
   const wsListData = useWorkspaceListStore((s) => s.data)
   const retryWorkspaces = useCallback(() => {
     void useWorkspaceListStore.getState().fetch()
   }, [])
+  const activeWorkspaceId = pathname.match(/\/ide\/[^/]+\/[^/]+\/([^/]+)/)?.[1] ?? ''
 
-  const activeWorkspaceId = pathname.match(/\/workspaces\/([^/]+)/)?.[1] ?? ''
+  // Per-repo tree, memoized so a drag/hover re-render (or any unrelated state
+  // change) doesn't rebuild every repo's node graph from scratch.
+  const rootsByRepo = useMemo(() => {
+    const map = new Map<string, WorkspaceTreeNode[]>()
+    for (const repo of repos) map.set(repo.id, buildWorkspaceTree(repo.workspaces))
+    return map
+  }, [repos])
 
-  function handleWorkspaceClick(wsId: string) {
-    void navigate({ to: '/workspaces/$wsId', params: { wsId } })
-  }
+  const handleWorkspaceClick = useCallback(
+    (wsId: string, projectId: string, repoId: string) => {
+      void navigate({ to: '/ide/$projectId/$repoId/$wsId', params: { projectId, repoId, wsId } })
+    },
+    [navigate],
+  )
 
   if (wsListData.status === 'error' && repos.length === 0) {
     return (
@@ -79,10 +108,11 @@ function WorkspaceTreeInner() {
 
   return (
     <div className="flex flex-1 flex-col overflow-hidden">
+      <ProjectHomeRow />
       <ScrollArea className="flex-1">
-        <div className="py-1">
+        <div className="pb-1">
           {repos.map((repo) => {
-            const roots = buildWorkspaceTree(repo.workspaces)
+            const roots = rootsByRepo.get(repo.id) ?? []
             const isCollapsed = collapsedRepos.has(repo.id)
             const isRepoDragOver = hoverTargetId === `repo:${repo.id}`
             return (
@@ -92,31 +122,118 @@ function WorkspaceTreeInner() {
                   tabIndex={0}
                   className={cn(
                     ROW_BASE,
-                    'border-transparent text-foreground hover:bg-accent',
+                    'group',
+                    activeWorkspaceId !== '' && activeWorkspaceId === repo.defaultWorkspaceId
+                      ? ROW_ACTIVE
+                      : ROW_INACTIVE,
                     isRepoDragOver && 'ring-1 ring-ring',
                   )}
-                  onClick={() => useSidebarStore.getState().toggleRepo(repo.id)}
-                  onKeyDown={(e) => {
-                    if (e.key === 'Enter' || e.key === ' ') {
-                      e.preventDefault()
-                      useSidebarStore.getState().toggleRepo(repo.id)
+                  data-repo-drop={repo.id}
+                  aria-label={`Open ${repo.name}`}
+                  onClick={() => {
+                    if (repo.projectId && repo.defaultWorkspaceId) {
+                      handleWorkspaceClick(repo.defaultWorkspaceId, repo.projectId, repo.id)
                     }
                   }}
-                  aria-label={isCollapsed ? 'Expand repo' : 'Collapse repo'}
-                  data-repo-drop={repo.id}
+                  onKeyDown={(e) => {
+                    if (
+                      e.target === e.currentTarget &&
+                      (e.key === 'Enter' || e.key === ' ') &&
+                      repo.projectId &&
+                      repo.defaultWorkspaceId
+                    ) {
+                      e.preventDefault()
+                      handleWorkspaceClick(repo.defaultWorkspaceId, repo.projectId, repo.id)
+                    }
+                  }}
                 >
-                  <span
-                    className={cn(
-                      'inline-flex h-4 w-4 shrink-0 items-center justify-center rounded px-1 text-[10px] font-bold text-primary-foreground',
-                      repo.avatarColor,
+                  {repo.avatarURL?.startsWith('emoji:') ? (
+                    <span className="pointer-events-none inline-flex h-5 w-5 shrink-0 items-center justify-center text-lg leading-none">
+                      {repo.avatarURL.slice(6)}
+                    </span>
+                  ) : repo.avatarURL ? (
+                    <img
+                      src={repo.avatarURL}
+                      alt={repo.name}
+                      draggable={false}
+                      className="pointer-events-none h-5 w-5 shrink-0 rounded-md object-cover"
+                    />
+                  ) : (
+                    <span
+                      className={cn(
+                        'pointer-events-none inline-flex h-5 w-5 shrink-0 items-center justify-center rounded-md px-1 text-[11px] font-bold text-primary-foreground',
+                        repo.avatarColor,
+                      )}
+                    >
+                      {repo.avatarLabel}
+                    </span>
+                  )}
+                  <span className="flex min-w-0 flex-1 items-baseline gap-1.5">
+                    <span className="shrink-0 font-mono text-foreground">{repo.name}</span>
+                    {repo.defaultWorkspaceId && (
+                      <span className="hidden min-w-0 truncate font-mono text-[11px] text-foreground/40 group-hover:inline">
+                        - default
+                      </span>
                     )}
+                  </span>
+
+                  <button
+                    type="button"
+                    aria-label="Repo settings"
+                    className="inline-flex shrink-0 cursor-pointer rounded-md p-1 text-foreground/50 hover:text-foreground"
+                    onClick={(e) => {
+                      e.stopPropagation()
+                      useSidebarNavStore.getState().push({
+                        id: `repo-settings:${repo.id}`,
+                        title: repo.name,
+                        component: (
+                          <RepoSettingsPanel
+                            projectId={repo.projectId ?? ''}
+                            repoId={repo.id}
+                            repoName={repo.name}
+                          />
+                        ),
+                      })
+                    }}
                   >
-                    {repo.avatarLabel}
-                  </span>
-                  <span className="min-w-0 flex-1 truncate text-left font-mono text-muted-foreground/60">
-                    {repo.name}
-                  </span>
-                  <span className="shrink-0 rounded-md p-1 text-foreground/30">
+                    <Settings className="size-3" />
+                  </button>
+
+                  {repo.defaultWorkspaceId && (
+                    <button
+                      type="button"
+                      aria-label="Add child workspace"
+                      className="shrink-0 cursor-pointer rounded-md p-1 text-foreground/30 hover:text-foreground/60 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
+                      onClick={(e) => {
+                        e.stopPropagation()
+                        if (collapsedRepos.has(repo.id))
+                          useSidebarStore.getState().toggleRepo(repo.id)
+                        startCreating(repo.id, repo.defaultWorkspaceId!)
+                      }}
+                    >
+                      <svg
+                        aria-hidden="true"
+                        className="size-3"
+                        viewBox="0 0 16 16"
+                        fill="none"
+                        stroke="currentColor"
+                        strokeWidth="2"
+                        strokeLinecap="round"
+                      >
+                        <path d={ADD_GLYPH_PATH} />
+                      </svg>
+                    </button>
+                  )}
+
+                  <button
+                    type="button"
+                    aria-label={isCollapsed ? 'Expand repo' : 'Collapse repo'}
+                    className="inline-flex shrink-0 cursor-pointer rounded-md p-1 text-foreground/30 hover:text-foreground"
+                    onClick={(e) => {
+                      e.stopPropagation()
+                      useSidebarStore.getState().toggleRepo(repo.id)
+                    }}
+                  >
                     <svg
                       aria-hidden="true"
                       className={cn('size-3 transition-transform', !isCollapsed && 'rotate-90')}
@@ -128,16 +245,58 @@ function WorkspaceTreeInner() {
                     >
                       <path d="M6 3l5 5-5 5" />
                     </svg>
-                  </span>
+                  </button>
                 </div>
                 {!isCollapsed && (
                   <div>
+                    {creatingChildOf?.repoId === repo.id &&
+                      creatingChildOf?.parentId === repo.defaultWorkspaceId && (
+                        <div style={{ paddingLeft: 14 }}>
+                          <div className={cn(ROW_BASE, 'border-transparent text-foreground')}>
+                            <svg
+                              aria-hidden="true"
+                              className="size-4 shrink-0 text-foreground/30"
+                              viewBox="0 0 16 16"
+                              fill="none"
+                              stroke="currentColor"
+                              strokeWidth="2"
+                              strokeLinecap="round"
+                            >
+                              <path d={ADD_GLYPH_PATH} />
+                            </svg>
+                            <WorkspaceInlineInput
+                              onConfirm={confirmCreate}
+                              onCancel={cancelCreate}
+                              resolveExisting={(b) => findWorkspaceForBranch(repo, b)}
+                              onOpenExisting={(wsId) => {
+                                cancelCreate()
+                                if (repo.projectId)
+                                  handleWorkspaceClick(wsId, repo.projectId, repo.id)
+                              }}
+                            />
+                          </div>
+                        </div>
+                      )}
+                    {Array.from(pendingCreates.entries())
+                      .filter(
+                        ([, p]) => p.repoId === repo.id && p.parentId === repo.defaultWorkspaceId,
+                      )
+                      .map(([tempId, pending]) => (
+                        <PendingCreateRow
+                          key={tempId}
+                          tempId={tempId}
+                          pending={pending}
+                          paddingLeft={14}
+                          onClear={clearPendingCreate}
+                        />
+                      ))}
                     {roots.map((node) => (
                       <WorkspaceTreeItem
                         key={node.workspace.id}
                         node={node}
                         depth={0}
                         repoId={repo.id}
+                        projectId={repo.projectId ?? ''}
                         activeWorkspaceId={activeWorkspaceId}
                         onWorkspaceClick={handleWorkspaceClick}
                       />
@@ -150,14 +309,6 @@ function WorkspaceTreeInner() {
         </div>
       </ScrollArea>
       <WorkspaceTreeFooter />
-      {draggingWs && dragPos && (
-        <div
-          className="pointer-events-none fixed z-50 rounded-md border border-border bg-secondary px-2 py-1 font-mono text-[13px] text-secondary-foreground shadow-md opacity-90"
-          style={{ left: dragPos.x + 12, top: dragPos.y - 10 }}
-        >
-          {draggingWs.label}
-        </div>
-      )}
     </div>
   )
 }

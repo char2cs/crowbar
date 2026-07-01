@@ -18,6 +18,7 @@ interface EditorSettingsState {
   lineNumbers: boolean
   renderWhitespace: RenderWhitespaceMode
   renderIndentGuides: boolean
+  semanticHighlighting: boolean
   highlightOccurrences: boolean
   disabled: boolean
   theme: string
@@ -33,6 +34,7 @@ interface EditorSettingsActions {
   setLineNumbers: (show: boolean) => void
   setRenderWhitespace: (mode: RenderWhitespaceMode) => void
   setRenderIndentGuides: (show: boolean) => void
+  setSemanticHighlighting: (value: boolean) => void
   setHighlightOccurrences: (show: boolean) => void
   setDisabled: (disabled: boolean) => void
   setTheme: (theme: string) => void
@@ -49,6 +51,7 @@ export const useEditorSettingsStore = createSelectors(
       lineNumbers: true,
       renderWhitespace: 'none',
       renderIndentGuides: true,
+      semanticHighlighting: true,
       highlightOccurrences: true,
       disabled: false,
       theme: 'crowbar-dark',
@@ -61,6 +64,7 @@ export const useEditorSettingsStore = createSelectors(
         setLineNumbers: (show) => set({ lineNumbers: show }),
         setRenderWhitespace: (mode) => set({ renderWhitespace: mode }),
         setRenderIndentGuides: (show) => set({ renderIndentGuides: show }),
+        setSemanticHighlighting: (value) => set({ semanticHighlighting: value }),
         setHighlightOccurrences: (show) => set({ highlightOccurrences: show }),
         setDisabled: (disabled) => set({ disabled }),
         setTheme: (theme) => set({ theme }),
@@ -80,6 +84,7 @@ function syncEditorSettings(state: ReturnType<typeof useSettingsStore.getState>)
     lineNumbers,
     renderWhitespace,
     renderIndentGuides,
+    semanticHighlighting,
     highlightOccurrences,
     theme,
   } = state.settings
@@ -93,6 +98,7 @@ function syncEditorSettings(state: ReturnType<typeof useSettingsStore.getState>)
   actions.setLineNumbers(lineNumbers)
   actions.setRenderWhitespace(renderWhitespace)
   actions.setRenderIndentGuides(renderIndentGuides)
+  actions.setSemanticHighlighting(semanticHighlighting)
   actions.setHighlightOccurrences(highlightOccurrences)
   actions.setTheme(theme)
 }

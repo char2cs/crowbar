@@ -1,31 +1,40 @@
 import { cn } from '@/lib/utils'
+import { formatChangeCount } from './format-change-count'
 import { WorkspaceBranchIcon } from './workspace-branch-icon'
+import { PlaceholderRowActions } from './placeholder-row-actions'
+import { isPlaceholderWorkspace } from '@/lib/workspace/placeholder'
 import { WorkspaceInlineInput } from './workspace-inline-input'
-import { ROW_BASE } from './workspace-row-base'
-import { useWorkspaceTreeContext } from './workspace-tree-context'
+import { PendingCreateRow } from './pending-create-row'
+import { ROW_BASE, ROW_ACTIVE, ROW_INACTIVE, ADD_GLYPH_PATH } from './workspace-row-base'
+import { useWorkspaceTreeActions, useWorkspaceTreeDrag } from './workspace-tree-context'
 import { useSidebarStore } from '@/lib/store/sidebar'
+import { findWorkspaceForBranch } from '@/lib/workspace/branch-workspace'
 import type { WorkspaceTreeNode } from './workspace-tree'
 
 interface WorkspaceTreeItemProps {
   node: WorkspaceTreeNode
   depth: number
   repoId: string
+  projectId: string
   activeWorkspaceId: string
-  onWorkspaceClick: (wsId: string) => void
+  onWorkspaceClick: (wsId: string, projectId: string, repoId: string) => void
 }
 
 export function WorkspaceTreeItem({
   node,
   depth,
   repoId,
+  projectId,
   activeWorkspaceId,
   onWorkspaceClick,
 }: WorkspaceTreeItemProps) {
   const { workspace, children } = node
   const isActive = workspace.id === activeWorkspaceId
   const isLocked = workspace.status === 'locked'
+  const isPlaceholder = isPlaceholderWorkspace(workspace)
   const hasChildren = children.length > 0
   const isCollapsed = useSidebarStore((s) => s.collapsedWorkspaces.has(workspace.id))
+  const repo = useSidebarStore((s) => s.repos.find((r) => r.id === repoId))
   const expanded = !isCollapsed
 
   const {
@@ -37,22 +46,28 @@ export function WorkspaceTreeItem({
     startRenaming,
     confirmRename,
     cancelRename,
-    draggingWs,
-    hoverTargetId,
     onPointerDownDrag,
-  } = useWorkspaceTreeContext()
+    pendingCreates,
+    clearPendingCreate,
+  } = useWorkspaceTreeActions()
+  const { draggingWs, hoverTargetId, movingWsId } = useWorkspaceTreeDrag()
 
   const isCreatingChild = creatingChildOf?.parentId === workspace.id
   const isRenaming = renamingId === workspace.id
   const isDraggingThis = draggingWs?.id === workspace.id
+  const isMoving = movingWsId === workspace.id
   const isDropTarget = hoverTargetId === `ws:${workspace.id}` && !isDraggingThis
-  const showChildrenSection = (hasChildren && expanded) || isCreatingChild
+  // An in-flight create lives in pendingCreates AFTER the inline input is hidden
+  // (confirmCreate clears creatingChildOf immediately). For a LEAF workspace
+  // hasChildren and isCreatingChild are both false by then, so without this the
+  // children section — and the optimistic spinner row inside it — would not
+  // render and the create would show nothing.
+  const hasPendingChild = Array.from(pendingCreates.values()).some(
+    (p) => p.parentId === workspace.id,
+  )
+  const showChildrenSection = (hasChildren && expanded) || isCreatingChild || hasPendingChild
 
-  const variant = isActive
-    ? 'border-background bg-background text-foreground shadow-xs shadow-black/10 not-disabled:inset-shadow-[0_1px_--theme(--color-white/16%)] active:inset-shadow-[0_1px_--theme(--color-black/8%)] active:shadow-none'
-    : isLocked
-      ? 'border-transparent text-foreground/30 hover:bg-accent'
-      : 'border-transparent text-foreground hover:bg-accent'
+  const variant = isActive ? ROW_ACTIVE : ROW_INACTIVE
 
   return (
     <div>
@@ -65,13 +80,14 @@ export function WorkspaceTreeItem({
             ROW_BASE,
             variant,
             isDraggingThis && 'opacity-40',
+            isMoving && 'opacity-50 pointer-events-none',
             isDropTarget && 'ring-1 ring-ring',
           )}
-          onClick={() => !isRenaming && onWorkspaceClick(workspace.id)}
+          onClick={() => !isRenaming && onWorkspaceClick(workspace.id, projectId, repoId)}
           onKeyDown={(e) => {
             if (!isRenaming && (e.key === 'Enter' || e.key === ' ')) {
               e.preventDefault()
-              onWorkspaceClick(workspace.id)
+              onWorkspaceClick(workspace.id, projectId, repoId)
             }
           }}
           onPointerDown={
@@ -80,7 +96,11 @@ export function WorkspaceTreeItem({
               : undefined
           }
         >
-          <WorkspaceBranchIcon status={workspace.status ?? 'new'} />
+          <WorkspaceBranchIcon
+            status={workspace.status ?? 'new'}
+            working={workspace.working || isMoving}
+            isPlaceholder={isPlaceholder}
+          />
 
           {isRenaming ? (
             <WorkspaceInlineInput
@@ -106,20 +126,10 @@ export function WorkspaceTreeItem({
             (workspace.added !== undefined || workspace.deleted !== undefined) && (
               <span className="flex shrink-0 gap-1 font-mono">
                 {workspace.added !== undefined && workspace.added > 0 && (
-                  <span className="text-green-300">
-                    +
-                    {workspace.added > 999
-                      ? `${Math.round(workspace.added / 1000)}k`
-                      : workspace.added}
-                  </span>
+                  <span className="text-green-300">+{formatChangeCount(workspace.added)}</span>
                 )}
                 {workspace.deleted !== undefined && workspace.deleted > 0 && (
-                  <span className="text-red-300">
-                    -
-                    {workspace.deleted > 999
-                      ? `${Math.round(workspace.deleted / 1000)}k`
-                      : workspace.deleted}
-                  </span>
+                  <span className="text-red-300">-{formatChangeCount(workspace.deleted)}</span>
                 )}
               </span>
             )}
@@ -168,12 +178,14 @@ export function WorkspaceTreeItem({
                 strokeWidth="2"
                 strokeLinecap="round"
               >
-                <path d="M8 3v10M3 8h10" />
+                <path d={ADD_GLYPH_PATH} />
               </svg>
             </button>
           ) : null}
         </div>
       </div>
+
+      {isPlaceholder && <PlaceholderRowActions workspace={workspace} />}
 
       {showChildrenSection && (
         <div>
@@ -185,8 +197,21 @@ export function WorkspaceTreeItem({
                 node={child}
                 depth={depth + 1}
                 repoId={repoId}
+                projectId={projectId}
                 activeWorkspaceId={activeWorkspaceId}
                 onWorkspaceClick={onWorkspaceClick}
+              />
+            ))}
+
+          {Array.from(pendingCreates.entries())
+            .filter(([, p]) => p.parentId === workspace.id)
+            .map(([tempId, pending]) => (
+              <PendingCreateRow
+                key={tempId}
+                tempId={tempId}
+                pending={pending}
+                paddingLeft={(depth + 2) * 14}
+                onClear={clearPendingCreate}
               />
             ))}
 
@@ -202,9 +227,14 @@ export function WorkspaceTreeItem({
                   strokeWidth="2"
                   strokeLinecap="round"
                 >
-                  <path d="M8 3v10M3 8h10" />
+                  <path d={ADD_GLYPH_PATH} />
                 </svg>
-                <WorkspaceInlineInput onConfirm={confirmCreate} onCancel={cancelCreate} />
+                <WorkspaceInlineInput
+                  onConfirm={confirmCreate}
+                  onCancel={cancelCreate}
+                  resolveExisting={(b) => (repo ? findWorkspaceForBranch(repo, b) : null)}
+                  onOpenExisting={(wsId) => onWorkspaceClick(wsId, projectId, repoId)}
+                />
               </div>
             ) : (
               <div
@@ -231,7 +261,7 @@ export function WorkspaceTreeItem({
                   strokeWidth="2"
                   strokeLinecap="round"
                 >
-                  <path d="M8 3v10M3 8h10" />
+                  <path d={ADD_GLYPH_PATH} />
                 </svg>
                 <span className="font-mono text-left text-[13px]">New</span>
               </div>

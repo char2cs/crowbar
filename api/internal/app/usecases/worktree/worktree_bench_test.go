@@ -9,9 +9,10 @@ import (
 	"time"
 
 	"github.com/char2cs/asynx"
+	asynxModels "github.com/char2cs/asynx/models"
 	"github.com/stretchr/testify/require"
 
-	eventsqlite "github.com/char2cs/crowbar/api/internal/adapter/eventstore/sqlite"
+	"github.com/char2cs/crowbar/api/internal/adapter"
 	storesqlite "github.com/char2cs/crowbar/api/internal/adapter/store/sqlite"
 	"github.com/char2cs/crowbar/api/internal/app/repositories/workspace"
 	"github.com/char2cs/crowbar/api/internal/app/usecases/worktree"
@@ -35,21 +36,23 @@ func newBenchHarness(
 	b *testing.B,
 ) *benchHarness {
 	b.Helper()
-	es, err := eventsqlite.NewEventStore(":memory:")
+	adapters, err := adapter.New(adapter.WithHomeDir(b.TempDir()))
 	require.NoError(b, err)
-	ax, err := asynx.New[domain.Workspace]().
-		WithEventStore(es).
-		WithShardingOpts(asynx.ShardingOpts{Shards: 8, QueueDepth: 1000}).
-		Build()
-	require.NoError(b, err)
-	b.Cleanup(func() { _ = ax.Shutdown(context.Background()) })
+	b.Cleanup(func() { _ = adapters.Close() })
 
-	db, err := storesqlite.OpenDB(":memory:")
-	require.NoError(b, err)
-	workspaces, err := workspace.New(ax, db, func(domain.Workspace) {})
+	workspaces, err := workspace.New(
+		adapters,
+		func(context.Context, domain.Workspace) {},
+		func(es asynxModels.Store) (asynx.Asynx[domain.Workspace], error) {
+			return asynx.New[domain.Workspace]().
+				WithEventStore(es).
+				WithShardingOpts(asynx.ShardingOpts{Shards: 8, QueueDepth: 1000}).
+				Build()
+		},
+	)
 	require.NoError(b, err)
 
-	repos, err := storesqlite.NewFromDB[domain.Repository, string](db)
+	repos, err := storesqlite.NewFromDB[domain.Repository, string](adapters.GlobalView())
 	require.NoError(b, err)
 
 	repoPath := benchInitRepo(b)
@@ -62,6 +65,7 @@ func newBenchHarness(
 		ProjectID: projectID,
 		Name:      "repo",
 		Path:      repoPath,
+		RemoteURL: "https://github.com/test/bench-repo.git",
 	}))
 
 	prov := &stubProvider{}
@@ -71,6 +75,7 @@ func newBenchHarness(
 		prov,
 		repos,
 		func() time.Time { return time.Now() },
+		func() (string, error) { return b.TempDir(), nil },
 	)
 
 	parentID := "w-parent"
@@ -103,6 +108,11 @@ func benchInitRepo(
 	benchGitRun(b, dir, "config", "user.email", "t@t")
 	benchGitRun(b, dir, "config", "user.name", "t")
 	benchGitRun(b, dir, "commit", "--allow-empty", "-m", "init")
+	// Bare `origin` so the usecase's RemoteBranchExists check has a remote to
+	// query; bench branches are never pushed, so CreateChild stays create-local.
+	bare := filepath.Join(b.TempDir(), "origin.git")
+	benchGitRun(b, b.TempDir(), "init", "--bare", bare)
+	benchGitRun(b, dir, "remote", "add", "origin", bare)
 	return dir
 }
 
@@ -161,6 +171,7 @@ func (h *benchHarness) createChild(
 		RepoID:       h.repoID,
 		ProjectID:    h.projectID,
 		RepoPath:     h.repoPath,
+		RemoteURL:    "https://github.com/test/bench-repo.git",
 		Branch:       branch,
 		ParentID:     parentID,
 		ParentBranch: parentBranch,

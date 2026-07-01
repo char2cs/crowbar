@@ -39,6 +39,18 @@ func BenchmarkBroadcaster_PushFanOut(b *testing.B) {
 	}
 }
 
+// BenchmarkBroadcaster_PrefixNamespaceMatch measures the hierarchical
+// segment-prefix match used to scope WS fan-out (03 §5). A repo-scoped client
+// evaluates this against every event namespace on the Push hot path, so its
+// per-call cost matters under a file-write burst.
+func BenchmarkBroadcaster_PrefixNamespaceMatch(b *testing.B) {
+	b.ReportAllocs()
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		_ = ws.PrefixMatch("proj/repo", "proj/repo/workspace")
+	}
+}
+
 func dialN(
 	b *testing.B,
 	srv *httptest.Server,

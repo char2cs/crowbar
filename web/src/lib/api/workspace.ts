@@ -1,48 +1,49 @@
 import { apiFetch } from '@/lib/api'
-import { saveWorkspaceHierarchy } from '@/lib/persistence/workspace-hierarchy'
-import { useSidebarStore } from '@/lib/store/sidebar'
+import { workspaceBase } from '@/lib/workspace-scope-url'
 
 /**
- * Reparent a workspace via the backend, then apply the change locally.
- *
- * TODO(reparent-to-root): the backend's POST /v0/workspaces/:wsId/reparent
- * requires a non-empty newParentId, so moving a workspace back to the repo
- * root (newParentId === undefined) is applied locally only until the API
- * supports it.
+ * Reparent a workspace on the backend (§3, 202 Accepted). The new `parentId`
+ * lives on the WorkspaceDTO delivered over the scoped WS broadcaster, so this
+ * call no longer persists hierarchy locally — it just fires the hierarchical
+ * mutation and the WS-driven cache reflects the new parent.
  */
 export async function reparentWorkspace(
-  wsId: string,
-  newParentId: string | undefined,
+  projectId: string,
   repoId: string,
+  wsId: string,
+  newParentId: string,
 ): Promise<void> {
-  if (newParentId !== undefined) {
-    await apiFetch(`/v0/workspaces/${wsId}/reparent`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ newParentId }),
-    })
-  }
-  await handleWorkspaceReparented(wsId, newParentId, repoId)
+  await apiFetch(`/v0/projects/${projectId}/repos/${repoId}/workspaces/${wsId}/reparent`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ newParentId }),
+  })
 }
 
 /**
- * Notification handler — called after a successful reparent call and, in
- * future, by the real-time WS/SSE message from the backend.
+ * User-initiated "finish the move": rebase a moved-but-conflicting workspace onto
+ * its current parent (§3, 202 Accepted). A clean rebase integrates it; a
+ * conflicting one is kept for the standard resolve flow. The outcome rides the WS
+ * broadcast.
  */
-export async function handleWorkspaceReparented(
-  wsId: string,
-  newParentId: string | undefined,
-  repoId: string,
-): Promise<void> {
-  useSidebarStore.getState().reparentWorkspace(wsId, newParentId)
+export async function rebaseOntoParent(wsId: string): Promise<void> {
+  await apiFetch(`${workspaceBase(wsId)}/rebase-onto-parent`, { method: 'POST' })
+}
 
-  const repo = useSidebarStore.getState().repos.find((r) => r.id === repoId)
-  if (!repo) return
+/**
+ * Retry provisioning a placeholder workspace in place (§3.3, 202 Accepted). On
+ * success the backend attaches the worktree and the WS broadcast reflects the
+ * now-managed row; a failure (branch still held) surfaces as LastError.
+ */
+export async function retryProvision(wsId: string): Promise<void> {
+  await apiFetch(`${workspaceBase(wsId)}/retry-provision`, { method: 'POST' })
+}
 
-  const entries = repo.workspaces.map((w) => ({
-    wsId: w.id,
-    ...(w.parentId !== undefined && { parentId: w.parentId }),
-  }))
-
-  await saveWorkspaceHierarchy(repoId, entries)
+/**
+ * Detach the holder off a placeholder's branch with the user's consent, then
+ * re-provision in place (§3.5/§3.7, 202 Accepted). The outcome rides the WS
+ * broadcast; a detach blocked mid-operation surfaces as LastError.
+ */
+export async function detachHolder(wsId: string): Promise<void> {
+  await apiFetch(`${workspaceBase(wsId)}/detach-holder`, { method: 'POST' })
 }

@@ -6,6 +6,15 @@ import (
 	gitdomain "github.com/char2cs/crowbar/api/internal/domain/git"
 )
 
+// WorkspaceKind distinguishes git-worktree workspaces from the project-level
+// home workspace which has no branch and no git operations.
+type WorkspaceKind string
+
+const (
+	WorkspaceKindGit  WorkspaceKind = "git"
+	WorkspaceKindHome WorkspaceKind = "home"
+)
+
 // Workspace is the git-worktree aggregate; the single source of truth for the
 // sidebar row (00 §5.3). Mutated only through Asynx commands.
 type Workspace struct {
@@ -17,10 +26,7 @@ type Workspace struct {
 	ForkPointSha   string                  `json:"forkPointSha"`
 	ParentID       string                  `json:"parentId,omitempty"`
 	Status         WorkspaceStatus         `json:"status,omitempty"`
-	Locked         bool                    `json:"locked"`
-	HasConflicts   bool                    `json:"hasConflicts"`
 	MergeStrategy  gitdomain.MergeStrategy `json:"mergeStrategy"`
-	PendingMerge   *gitdomain.PendingMerge `json:"pendingMerge,omitempty"`
 	Added          int                     `json:"added"`
 	Deleted        int                     `json:"deleted"`
 	PRUrl          string                  `json:"prUrl,omitempty"`
@@ -28,8 +34,31 @@ type Workspace struct {
 	PRTargetBranch string                  `json:"prTargetBranch,omitempty"`
 	LastActivity   time.Time               `json:"lastActivity"`
 	CreatedAt      time.Time               `json:"createdAt"`
-	// AgentRunning is a derived, non-persisted overlay (00 §6.1, 03 §7): true iff
-	// at least one AgentRun for this workspace is running. It is computed at
-	// broadcast time and is never written by any command.
-	AgentRunning bool `json:"agentRunning"`
+	// Working is a derived, non-persisted overlay (00 §6.1, 03 §7): true iff the
+	// workspace has live work in progress. It is computed at broadcast time and is
+	// never written by any command. With the agent-run concept removed it is
+	// always false in scope.
+	Working bool `json:"working"`
+	// LastError carries the message from the most recent failed background
+	// mutation (00 §4): create/sync/merge/reparent set it on failure so the wire
+	// DTO can surface the error against the entity. Empty when the last mutation
+	// succeeded.
+	LastError string `json:"lastError,omitempty"`
+	// IsDefault marks the workspace that represents the repo's main worktree (the
+	// on-disk folder the user originally imported). It is served on every list and
+	// stream like any other workspace; the frontend pulls it out of the sidebar
+	// tree and opens it from the repo header by its real id (there is no "default"
+	// wsId alias).
+	IsDefault bool `json:"isDefault,omitempty"`
+	// Kind distinguishes git-worktree workspaces ("git", default) from the
+	// project-level home workspace ("home"). Old persisted records without this
+	// field replay as WorkspaceKindGit.
+	Kind WorkspaceKind `json:"kind,omitempty"`
+	// HeldByPath is the worktree directory currently holding this workspace's
+	// branch, set only on a PLACEHOLDER (a locked row with an empty WorktreePath)
+	// that could not get a managed worktree because a live worktree — the repo
+	// home or an external checkout — holds the branch. It is the single durable
+	// signal from which the frontend reconstructs the placeholder reason; a
+	// successful Retry clears it. Empty on every healthy workspace (00 §4, spec §4).
+	HeldByPath string `json:"heldByPath,omitempty"`
 }

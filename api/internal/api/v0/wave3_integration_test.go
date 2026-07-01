@@ -48,13 +48,14 @@ func readUntil(
 func TestWave3_WorkspaceCommand_ReachesWSClient(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	tc := newApp(t)
+	seedRepo(t, tc, "r1")
 	c := v0.New(tc.app, tc.eng)
 	r := gin.New()
 	c.Register(r.Group("/v0"))
 	srv := httptest.NewServer(r)
 	t.Cleanup(srv.Close)
 
-	url := "ws" + srv.URL[len("http"):] + "/v0/ws/workspaces?projectId=p1"
+	url := "ws" + srv.URL[len("http"):] + "/v0/projects/p1/repos/r1/workspaces"
 	conn, resp, err := websocket.DefaultDialer.Dial(url, nil)
 	if resp != nil {
 		_ = resp.Body.Close()
@@ -84,9 +85,11 @@ func TestWave3_WorkspaceCommand_ReachesWSClient(t *testing.T) {
 	// A freshly created workspace carries the "new" status badge.
 	assert.Equal(t, "new", created["status"])
 
-	// Command 2: SyncWorkingTreeState — a git working-tree summary mutation. With
-	// HasCommits=true the "new" badge clears and the added count is recorded; this
-	// proves a git-summary mutation propagates the UPDATED row over WS.
+	// Command 2: SyncWorkingTreeState — a git working-tree summary mutation. The
+	// added/deleted counts are recorded; this proves a git-summary mutation
+	// propagates the UPDATED row over WS. Per D4 the status STAYS "new" after
+	// HasCommits (commits no longer clear the badge — "new" is a first-class
+	// lifecycle status, not a transient "no commits yet" hint).
 	_, err = tc.app.Repositories.Workspace.SyncWorkingTreeState(
 		ctx,
 		workspace.SyncInput{ID: "w1", Added: 7, Deleted: 2, HasCommits: true},
@@ -101,53 +104,6 @@ func TestWave3_WorkspaceCommand_ReachesWSClient(t *testing.T) {
 	assert.Equal(t, "w1", updated["id"])
 	assert.Equal(t, float64(7), updated["added"])
 	assert.Equal(t, float64(2), updated["deleted"])
-	// Status badge "new" cleared (omitempty -> absent) once the branch has commits.
-	_, hasStatus := updated["status"]
-	assert.False(t, hasStatus, "status badge should clear after HasCommits")
-}
-
-// TestWave3_AgentRunProjection_DrivesChatStatusOverWS proves the AgentRun ->
-// Chat projection chain: an AgentRun MarkRunning command -> the AgentRun
-// projection (registered via RegisterHubProjections in app.New) -> Chat
-// SetAgentRunning -> the Chat read-model projection -> hub.BroadcastChat -> the
-// Chats broadcaster -> a connected WS client receives status=agent-running.
-func TestWave3_AgentRunProjection_DrivesChatStatusOverWS(t *testing.T) {
-	gin.SetMode(gin.TestMode)
-	tc := newApp(t)
-	c := v0.New(tc.app, tc.eng)
-	r := gin.New()
-	c.Register(r.Group("/v0"))
-	srv := httptest.NewServer(r)
-	t.Cleanup(srv.Close)
-
-	url := "ws" + srv.URL[len("http"):] + "/v0/ws/chats?wsId=w1"
-	conn, resp, err := websocket.DefaultDialer.Dial(url, nil)
-	if resp != nil {
-		_ = resp.Body.Close()
-	}
-	require.NoError(t, err)
-	t.Cleanup(func() { _ = conn.Close() })
-	c.WaitChatsRegistered()
-
-	ctx := context.Background()
-	now := time.Unix(1, 0).UTC()
-
-	// Create the chat (this itself broadcasts an idle ChatStatusEvent).
-	_, err = tc.app.Repositories.Chat.Create(ctx, "c1", "w1", "title", now)
-	require.NoError(t, err)
-
-	// Drive an AgentRun: Create then MarkRunning. MarkRunning's projection sets the
-	// chat to agent-running, whose own projection broadcasts the status event.
-	_, err = tc.app.Repositories.AgentRun.Create(ctx, "run1", "w1", "c1", now)
-	require.NoError(t, err)
-	_, err = tc.app.Repositories.AgentRun.MarkRunning(ctx, "run1")
-	require.NoError(t, err)
-
-	// The idle create-event may arrive first; loop until the agent-running event.
-	got := readUntil(t, conn, func(m map[string]any) bool {
-		return m["chatId"] == "c1" && m["status"] == "agent-running"
-	})
-	assert.Equal(t, "c1", got["chatId"])
-	assert.Equal(t, "w1", got["wsId"])
-	assert.Equal(t, "agent-running", got["status"])
+	// Status badge stays "new" after HasCommits (D4): commits do not clear it.
+	assert.Equal(t, "new", updated["status"], "status must stay new after HasCommits (D4)")
 }

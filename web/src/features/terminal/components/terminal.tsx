@@ -1,12 +1,13 @@
-import { terminalCreate } from '@/lib/crowbar-bridge'
+import {
+  terminalCreate,
+  terminalListLive,
+  terminalResize,
+  onTransportDrop,
+} from '@/lib/crowbar-bridge'
 import { getActiveWorkspaceId } from '@/features/workspace/stores/workspace-store-registry'
-
-// Create a PTY session against the active workspace on the Go daemon.
-const createTerminal = async (config: Record<string, unknown>): Promise<string> => {
-  const wsId = getActiveWorkspaceId()
-  if (!wsId) throw new Error('no active workspace for terminal')
-  return terminalCreate(wsId, config.profileId as string | undefined)
-}
+import { workspaceBase } from '@/lib/workspace-scope-url'
+import { resolveTerminalConnection } from './resolve-terminal-connection'
+import { saveReconnect } from '../lib/terminal-reconnect-map'
 import type { ISearchOptions } from '@xterm/addon-search'
 import { Terminal } from '@xterm/xterm'
 import React, { useCallback, useEffect, useRef, useState } from 'react'
@@ -26,13 +27,13 @@ import { useTerminalConnection } from '../hooks/use-terminal-connection'
 import { useTerminalTheme } from '../hooks/use-terminal-theme'
 import { useTerminalStore } from '../stores/terminal-store'
 import { formatDroppedPathsForTerminal } from '../utils/terminal-file-drop'
+import { analyzeTerminalPaste } from '../utils/paste-guard'
 import { resolveTerminalFont } from '../utils/resolve-font'
+import { resolveKeyOverride } from '../utils/terminal-key-overrides'
+import { toast } from '@/features/window/stores/toast-store'
 import { TerminalSearch, type TerminalSearchOptions } from './terminal-search'
 import '@xterm/xterm/css/xterm.css'
 import '../styles/terminal.css'
-
-const MULTILINE_PASTE_LINE_THRESHOLD = 5
-const LARGE_PASTE_CHAR_THRESHOLD = 1000
 
 interface XtermTerminalProps {
   sessionId: string
@@ -64,12 +65,21 @@ export const XtermTerminal: React.FC<XtermTerminalProps> = ({
   const [isSearchVisible, setIsSearchVisible] = useState(false)
   const [searchResults, setSearchResults] = useState({ current: 0, total: 0 })
   const isInitializingRef = useRef(false)
+  const pasteGuardAttachedRef = useRef(false)
 
   const updateSession = useTerminalStore((s) => s.updateSession)
   const getSession = useTerminalStore((s) => s.getSession)
   const session = getSession(sessionId)
   const connectionId = session?.connectionId
-  const hadExistingConnectionOnMountRef = useRef(Boolean(session?.connectionId))
+  // State-backed reuse flag: updated after resolveTerminalConnection returns so
+  // post-mount re-attaches (workspace re-entry) correctly suppress the initial
+  // command resend and font-settle delay, same as a native remount would.
+  const [reuseConnection, setReuseConnection] = useState(Boolean(session?.connectionId))
+
+  // Bumped after a transport-drop reconnect so useTerminalConnection re-registers
+  // its terminalListen call on the fresh connection object, even when the
+  // connectionId itself has not changed (daemon restarted, session restored).
+  const [reconnectKey, setReconnectKey] = useState(0)
 
   const {
     theme: terminalThemeId,
@@ -99,8 +109,9 @@ export const XtermTerminal: React.FC<XtermTerminalProps> = ({
       if (!container || !addons) return
 
       const rect = container.getBoundingClientRect()
-      const isContainerVisible = container.offsetParent !== null
-      if (rect.width <= 0 || rect.height <= 0 || !isContainerVisible) {
+      // Use rect dimensions only — offsetParent is null inside position:fixed
+      // ancestors (popup windows, overlays) even when the element is visible.
+      if (rect.width <= 0 || rect.height <= 0) {
         if (attempt < attempts - 1) {
           attempt += 1
           rafId = requestAnimationFrame(runFit)
@@ -108,18 +119,20 @@ export const XtermTerminal: React.FC<XtermTerminalProps> = ({
         return
       }
 
+      const term = xtermRef.current
+      const prevRows = term?.rows ?? 0
+      const prevCols = term?.cols ?? 0
       addons.fitAddon.fit()
 
       if (attempt < attempts - 1) {
         attempt += 1
         rafId = requestAnimationFrame(runFit)
-      } else {
-        // Final pass: force a renderer refresh so the canvas/WebGL backend
-        // repaints after a size change. Without this, splitting a pane (or any
-        // layout change that resizes the container) leaves the buffer in memory
-        // but unpainted until the window regains focus.
-        const term = xtermRef.current
-        if (term) term.refresh(0, term.rows - 1)
+      } else if (term && (term.rows !== prevRows || term.cols !== prevCols)) {
+        // Final pass: only force a full WebGL repaint when dimensions actually
+        // changed. An unconditional refresh(0, rows-1) on every fit call causes
+        // expensive full-canvas repaints that compound with WKWebView's CA layer
+        // re-rasterization, making the app feel sluggish after terminal updates.
+        term.refresh(0, term.rows - 1)
       }
     }
 
@@ -130,14 +143,66 @@ export const XtermTerminal: React.FC<XtermTerminalProps> = ({
     }
   }, [])
 
+  // Re-resolve the terminal connection after a transport drop (daemon restart)
+  // without recreating the xterm UI. Runs resolveTerminalConnection which
+  // handles the reuse/re-attach/create decision, updates the store, and then
+  // bumps reconnectKey so useTerminalConnection re-subscribes its listener on
+  // the freshly-attached connection object.
+  const doReconnect = useCallback(async () => {
+    if (isInitializingRef.current) return
+    const wsId = getActiveWorkspaceId()
+    if (!wsId) return
+    const base = `${workspaceBase(wsId)}/terminals`
+    const existingSession = getSession(sessionId)
+    isInitializingRef.current = true
+    try {
+      const result = await resolveTerminalConnection({
+        workspaceId: wsId,
+        tabSessionId: sessionId,
+        storeConnectionId: existingSession?.connectionId,
+        base,
+        listLiveSessions: () => terminalListLive(base),
+        createTerminal: () => terminalCreate(wsId, existingSession?.profileId),
+      })
+      updateSession(sessionId, { connectionId: result.connectionId })
+      saveReconnect(wsId, sessionId, result.connectionId)
+      // Sync PTY dimensions after re-attach so TUI apps redraw correctly.
+      const term = xtermRef.current
+      if (term) {
+        void terminalResize(result.connectionId, term.rows, term.cols).catch(() => {})
+      }
+      setReconnectKey((k) => k + 1)
+    } catch (err) {
+      console.error('[terminal] transport-drop reconnect failed:', err)
+      toast.error(
+        'Terminal disconnected',
+        'Could not reconnect to the terminal session. Try closing and reopening the tab.',
+      )
+    } finally {
+      isInitializingRef.current = false
+    }
+  }, [getSession, sessionId, updateSession])
+
+  // Subscribe to unexpected transport drops for the current connection. When
+  // the daemon restarts while a pane terminal stays mounted, the WS closes
+  // without a user-initiated detach — this effect picks that up and triggers
+  // doReconnect so the tab re-attaches without a manual workspace switch.
+  useEffect(() => {
+    if (!connectionId) return
+    return onTransportDrop(connectionId, () => {
+      void doReconnect()
+    })
+  }, [connectionId, doReconnect])
+
   const { currentConnectionIdRef, writeBuffered } = useTerminalConnection({
     connectionId,
     getTerminalTheme,
     initialCommand,
     isInitialized,
     onTerminalExit,
+    reconnectKey,
     remoteConnectionId,
-    reuseExistingConnection: hadExistingConnectionOnMountRef.current,
+    reuseExistingConnection: reuseConnection,
     sessionId,
     terminal: xtermRef.current,
     updateSession,
@@ -169,12 +234,20 @@ export const XtermTerminal: React.FC<XtermTerminalProps> = ({
     if (!container || isInitialized || isInitializingRef.current) return
 
     const rect = container.getBoundingClientRect()
-    const isContainerVisible = container.offsetParent !== null
-    if (rect.width <= 0 || rect.height <= 0 || !isContainerVisible) return
+    if (rect.width <= 0 || rect.height <= 0) return
 
     isInitializingRef.current = true
     const resolved = await resolveTerminalFont(terminalFontFamily, effectiveTerminalFontSize)
-    await new Promise((resolve) => setTimeout(resolve, 100))
+    // Skip the font-settle delay when reconnecting to an existing PTY — font is
+    // already loaded and rasterized, so the wait is pure dead time that makes
+    // the blank gap on pane splits/moves visibly long. We read the store here
+    // (before resolveTerminalConnection runs) because it reflects the mount-time
+    // state; the post-resolve setReuseConnection() updates only affect the next
+    // render's useTerminalConnection call, not this init path.
+    const hadConnectionAtInitStart = Boolean(getSession(sessionId)?.connectionId)
+    if (!hadConnectionAtInitStart) {
+      await new Promise((resolve) => setTimeout(resolve, 100))
+    }
 
     if (!terminalContainerRef.current) {
       isInitializingRef.current = false
@@ -191,6 +264,7 @@ export const XtermTerminal: React.FC<XtermTerminalProps> = ({
         cursorStyle: terminalCursorStyle,
         cursorWidth: effectiveTerminalCursorWidth,
         allowProposedApi: true,
+        allowTransparency: true,
         theme: getTerminalTheme(),
         scrollback: terminalScrollback,
         convertEol: false,
@@ -204,13 +278,20 @@ export const XtermTerminal: React.FC<XtermTerminalProps> = ({
 
       terminal.open(terminalContainerRef.current)
       terminal.attachCustomKeyEventHandler((event) => {
-        if (event.ctrlKey && !event.metaKey) return true
-        if (
-          event.metaKey &&
-          ['Backspace', 'k', 'a', 'e', 'f', 'ArrowLeft', 'ArrowRight'].includes(event.key)
-        ) {
-          return true
+        // The ONLY manual key override (Shift/Alt+Enter): emit the CSI-u sequence
+        // here and return false to SUPPRESS xterm's default CR, so it is sent
+        // exactly once. Everything else is left to xterm's built-in keyboard
+        // model — re-implementing it (the old onKey shortcuts) double-sent keys.
+        const override = resolveKeyOverride(event)
+        if (override !== null) {
+          event.preventDefault()
+          writeBuffered(override)
+          return false
         }
+        // Ctrl combos (without Cmd) → xterm handles them (Ctrl+U, Ctrl+C, …).
+        if (event.ctrlKey && !event.metaKey) return true
+        // Cmd combos are app/OS shortcuts (copy, paste, select-all, search) — keep
+        // them out of the terminal; everything else goes to xterm.
         return !event.metaKey
       })
 
@@ -225,22 +306,30 @@ export const XtermTerminal: React.FC<XtermTerminalProps> = ({
             writeBuffered(text)
           }
         })
+      }
 
-        terminal.textarea.addEventListener(
+      // Paste interception MUST be on the container in the capture phase.
+      // xterm registers its own textarea paste listener inside terminal.open()
+      // (before ours), and same-element listeners fire in registration order
+      // regardless of the capture flag — a textarea-level listener runs after
+      // xterm has already written the paste to the PTY (BUG-016). Capturing on
+      // the ancestor runs first; stopPropagation keeps xterm's handler out.
+      // The ref guard makes an init retry (e.g. PTY create failure) not stack
+      // a second listener.
+      if (!pasteGuardAttachedRef.current) {
+        pasteGuardAttachedRef.current = true
+        terminalContainerRef.current.addEventListener(
           'paste',
           (event) => {
             const text = event.clipboardData?.getData('text/plain')
             if (!text || !currentConnectionIdRef.current) return
 
-            const normalizedText = text.replace(/\r\n/g, '\n')
-            const lineCount = normalizedText.split('\n').length
-            const requiresConfirmation =
-              lineCount >= MULTILINE_PASTE_LINE_THRESHOLD ||
-              normalizedText.length >= LARGE_PASTE_CHAR_THRESHOLD
+            event.preventDefault()
+            event.stopPropagation()
+
+            const { normalizedText, lineCount, requiresConfirmation } = analyzeTerminalPaste(text)
 
             if (requiresConfirmation) {
-              event.preventDefault()
-              event.stopImmediatePropagation()
               void primitiveConfirm(
                 `Paste ${lineCount} lines into the terminal? This may execute multiple commands.`,
                 { title: 'Paste Into Terminal', confirmLabel: 'Paste' },
@@ -250,8 +339,6 @@ export const XtermTerminal: React.FC<XtermTerminalProps> = ({
               return
             }
 
-            event.preventDefault()
-            event.stopImmediatePropagation()
             writeBuffered(normalizedText)
           },
           true,
@@ -265,37 +352,81 @@ export const XtermTerminal: React.FC<XtermTerminalProps> = ({
       xtermRef.current = terminal
       addonsRef.current = addons
 
-      // Fit synchronously after open so terminal.rows/cols reflect the actual container size
-      // before we create the PTY with those dimensions
+      // FitAddon.proposeDimensions() returns undefined until the renderer has computed
+      // cell metrics (css.cell.width/height > 0). With WebGL this takes at least one
+      // rAF after open(). Poll here so the PTY is created with the correct dimensions
+      // instead of xterm's default 80×24.
+      const maxWaitFrames = 20
+      for (let waitFrame = 0; waitFrame < maxWaitFrames; waitFrame++) {
+        if (addons.fitAddon.proposeDimensions()) break
+        await new Promise<void>((resolve) => {
+          requestAnimationFrame(() => resolve())
+        })
+        if (!terminalContainerRef.current) {
+          isInitializingRef.current = false
+          return
+        }
+      }
       addons.fitAddon.fit()
 
       const existingSession = getSession(sessionId)
 
-      // If the session already has a live PTY connection (e.g., component
-      // remounted after a pane split or tab move), reuse the existing
-      // connection instead of killing the running process.
-      let activeConnectionId: string
-      if (existingSession?.connectionId) {
-        activeConnectionId = existingSession.connectionId
-      } else {
-        const targetDirectory =
-          workingDirectory || existingSession?.currentDirectory || rootFolderPath
-        // parseRemotePath does not expose connectionId in the stub; use only the passed remoteConnectionId
-        const effectiveRemoteConnectionId = remoteConnectionId || undefined
+      // §3/Open-Q2: do NOT fall back to the synthetic rootFolderPath
+      // ('/repos/<id>') — it is not a real filesystem path and the daemon
+      // already defaults a new PTY's cwd to the workspace worktree. Only pass
+      // an explicit working directory when one is actually known.
+      const targetDirectory = workingDirectory || existingSession?.currentDirectory
+      // parseRemotePath does not expose connectionId in the stub; use only the passed remoteConnectionId
+      const effectiveRemoteConnectionId = remoteConnectionId || undefined
 
-        activeConnectionId = await createTerminal({
-          working_directory: targetDirectory || undefined,
-          shell: existingSession?.shell || undefined,
-          rows: terminal.rows,
-          cols: terminal.cols,
-        })
+      // Derive the workspace base for attach/listLive paths.
+      // getActiveWorkspaceId() is safe here (we're inside an async callback,
+      // not the render path), and terminalCreate uses the same strategy.
+      const wsId = getActiveWorkspaceId()
+      if (!wsId) throw new Error('no active workspace for terminal')
+      const base = `${workspaceBase(wsId)}/terminals`
 
-        updateSession(sessionId, {
-          connectionId: activeConnectionId,
-          currentDirectory: targetDirectory ?? undefined,
-          remoteConnectionId: effectiveRemoteConnectionId,
-        })
-      }
+      // Resolve: reuse live transport → re-attach detached → create fresh.
+      const result = await resolveTerminalConnection({
+        workspaceId: wsId,
+        tabSessionId: sessionId,
+        storeConnectionId: existingSession?.connectionId,
+        base,
+        listLiveSessions: () => terminalListLive(base),
+        createTerminal: () => terminalCreate(wsId, existingSession?.profileId),
+      })
+      const activeConnectionId = result.connectionId
+
+      // Always sync the store so in-memory connectionId is up to date.
+      // Only include remoteConnectionId when it is actually defined — writing
+      // undefined would clobber a previously-stored value on a reuse where the
+      // prop is absent.
+      updateSession(sessionId, {
+        connectionId: activeConnectionId,
+        currentDirectory: targetDirectory ?? undefined,
+        ...(effectiveRemoteConnectionId ? { remoteConnectionId: effectiveRemoteConnectionId } : {}),
+      })
+
+      // Persist the tab→connectionId mapping now (not only on workspace switch).
+      // Without this, if the user stays on the same workspace and the daemon
+      // restarts, loadReconnect() returns null and resolve creates a fresh shell
+      // instead of re-attaching the restored session. Idempotent — overwrites
+      // with the current (correct) connectionId on every init.
+      saveReconnect(wsId, sessionId, activeConnectionId)
+
+      // Thread the resolver's reused decision into useTerminalConnection so
+      // initial-command resend and other first-connect side-effects are correctly
+      // suppressed when we're reusing or re-attaching an existing PTY.
+      setReuseConnection(result.reused)
+
+      // Force-sync the PTY to xterm's freshly-fitted size for BOTH paths:
+      // - New session: the backend spawns the PTY at its default 80×24 and does
+      //   not honor the create-time rows/cols, so without this full-screen TUIs
+      //   (cmatrix, vim, htop) only use 24 rows.
+      // - Remount (pane split / tab move): the PTY keeps its old size, and the
+      //   post-create fit() is a no-op for xterm's dimensions, so no onResize
+      //   fires. Pushing the size here makes the running process redraw.
+      void terminalResize(activeConnectionId, terminal.rows, terminal.cols).catch(() => {})
 
       // No snapshot replay: xterm is portaled and never remounts mid-session,
       // so the live PTY redrawing via SIGWINCH is the source of truth.
@@ -427,8 +558,7 @@ export const XtermTerminal: React.FC<XtermTerminalProps> = ({
       if (isInitialized || isInitializingRef.current) return
 
       const rect = container.getBoundingClientRect()
-      const isContainerVisible = container.offsetParent !== null
-      if (rect.width <= 0 || rect.height <= 0 || !isContainerVisible) {
+      if (rect.width <= 0 || rect.height <= 0) {
         rafId = requestAnimationFrame(attemptInitialize)
         return
       }
@@ -443,10 +573,10 @@ export const XtermTerminal: React.FC<XtermTerminalProps> = ({
     }
   }, [initializeTerminal, isInitialized, isVisible])
 
-  // Dispose only the xterm UI on unmount. The PTY process is owned by
-  // the buffer store and killed in closeBufferForce when the user actually
-  // closes the tab — NOT here. This prevents pane splits, tab moves, and
-  // other layout changes from killing running terminal processes.
+  // Dispose only the xterm UI on unmount. The PTY process is owned by the
+  // buffer store and killed in closeBuffer (via killTerminalSession) when the
+  // user actually closes the tab — NOT here. This prevents pane splits, tab
+  // moves, and other layout changes from killing running terminal processes.
   useEffect(() => {
     return () => {
       if (xtermRef.current) {
@@ -454,6 +584,7 @@ export const XtermTerminal: React.FC<XtermTerminalProps> = ({
         xtermRef.current = null
         addonsRef.current = null
       }
+      pasteGuardAttachedRef.current = false
     }
   }, [])
 
@@ -489,10 +620,21 @@ export const XtermTerminal: React.FC<XtermTerminalProps> = ({
   useEffect(() => {
     if (!addonsRef.current || !terminalContainerRef.current || !isInitialized) return
 
+    // Mirror Monaco's pattern: suppress fitting during pane/sidebar drags
+    // (data-pane-resizing attribute) and do one final fit on pane-resize-end.
+    // Without this, fitAddon.fit() + terminalResize() IPC fires every frame
+    // during drag — far heavier than editor.layout() and causes canvas glitches.
     let rafId: number | null = null
+    let needsFitAfterResize = false
+
     const resizeObserver = new ResizeObserver(() => {
+      if (document.documentElement.hasAttribute('data-pane-resizing')) {
+        needsFitAfterResize = true
+        return
+      }
       if (rafId) cancelAnimationFrame(rafId)
       rafId = requestAnimationFrame(() => {
+        rafId = null
         const container = terminalContainerRef.current
         if (!addonsRef.current || !container) return
 
@@ -503,12 +645,29 @@ export const XtermTerminal: React.FC<XtermTerminalProps> = ({
       })
     })
 
+    const handlePaneResizeEnd = () => {
+      if (!needsFitAfterResize) return
+      needsFitAfterResize = false
+      if (rafId !== null) cancelAnimationFrame(rafId)
+      rafId = requestAnimationFrame(() => {
+        rafId = null
+        const container = terminalContainerRef.current
+        if (!addonsRef.current || !container) return
+        const rect = container.getBoundingClientRect()
+        if (rect.width > 0 && rect.height > 0) {
+          fitTerminal(3)
+        }
+      })
+    }
+    window.addEventListener('pane-resize-end', handlePaneResizeEnd)
+
     resizeObserver.observe(terminalContainerRef.current)
-    const cleanupFit = fitTerminal(12)
+    const cleanupFit = fitTerminal(3)
 
     return () => {
       resizeObserver.disconnect()
       if (rafId) cancelAnimationFrame(rafId)
+      window.removeEventListener('pane-resize-end', handlePaneResizeEnd)
       cleanupFit?.()
     }
   }, [fitTerminal, isInitialized])
@@ -721,7 +880,7 @@ export const XtermTerminal: React.FC<XtermTerminalProps> = ({
   )
 
   return (
-    <div className="relative flex h-full w-full flex-col overflow-hidden bg-background">
+    <div className="relative flex h-full w-full flex-col overflow-hidden bg-transparent">
       <TerminalSearch
         isVisible={isSearchVisible}
         onSearch={handleSearch}

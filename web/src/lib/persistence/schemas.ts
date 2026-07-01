@@ -5,12 +5,12 @@ import type {
   ReviewThread,
   MergeStrategy,
 } from '@/features/workspace/stores/slices/branch-review-slice'
+import type { ProjectDTO, RepoDTO, WorkspaceDTO, ThreadDTO } from '@/lib/types'
 
 export interface BranchReviewPersistedState {
   wsId: string
   description: string
   mergeStrategy: MergeStrategy
-  activeSubtab: 'about' | 'git' | 'diff'
   threads: ReviewThread[]
   updatedAt: number
 }
@@ -100,4 +100,10 @@ export interface CrowbarDB extends DBSchema {
   'chat-history': { key: string; value: CachedRecord<unknown> }
   'projects-data': { key: string; value: CachedRecord<unknown> }
   'chats-data': { key: string; value: CachedRecord<unknown> }
+  // §6 entity cache (v7) — complete DTOs keyed by their own id. WS frames
+  // upsert these by id; status:'deleted' tombstones remove them.
+  crowbar_projects: { key: string; value: ProjectDTO }
+  crowbar_repos: { key: string; value: RepoDTO }
+  crowbar_workspaces: { key: string; value: WorkspaceDTO }
+  crowbar_threads: { key: string; value: ThreadDTO }
 }

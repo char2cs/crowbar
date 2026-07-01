@@ -4,9 +4,6 @@ import (
 	"github.com/char2cs/crowbar/api/internal/domain"
 )
 
-// RepoDTO is the wire shape of a Repository: a git repo imported under a
-// Project (00 §5.2). The workspace tree is intentionally absent: no usecase
-// currently composes it, so repo detail returns the repo fields only.
 type RepoDTO struct {
 	ID            string `json:"id"`
 	ProjectID     string `json:"projectId"`
@@ -15,12 +12,29 @@ type RepoDTO struct {
 	DefaultBranch string `json:"defaultBranch"`
 	AvatarLabel   string `json:"avatarLabel"`
 	AvatarColor   string `json:"avatarColor"`
+	// AvatarURL is the hierarchical icon proxy
+	// "/v0/projects/<projectId>/repos/<id>/icon", set only when the repo has an
+	// on-disk icon (AvatarHasIcon). Empty otherwise.
+	AvatarURL string `json:"avatarUrl,omitempty"`
+	// AvatarEmoji passes the emoji icon through to the client, which renders it
+	// directly. Empty when the repo uses an on-disk image or a generated avatar.
+	AvatarEmoji string `json:"avatarEmoji,omitempty"`
+	// Status carries the tombstone marker on the Repo broadcast channel: "" for a
+	// live repo, "deleted" for a removal frame so the FE entity cache drops it
+	// (00 §6, one-type-per-channel, mirroring ProjectDTO). Read-path DTOs leave
+	// it empty.
+	Status string `json:"status,omitempty"`
 }
 
-// RepoDTOFrom converts a domain Repository into its wire DTO.
-func RepoDTOFrom(
-	r domain.Repository,
-) RepoDTO {
+// RepoDTOFrom maps a domain Repository onto the wire DTO. Icon precedence is
+// resolved client-side (emoji > on-disk image > generated label/color); this
+// converter only surfaces the proxy URL when an on-disk icon exists and passes
+// the emoji through untouched.
+func RepoDTOFrom(r domain.Repository) RepoDTO {
+	avatarURL := ""
+	if r.AvatarHasIcon {
+		avatarURL = "/v0/projects/" + r.ProjectID + "/repos/" + r.ID + "/icon"
+	}
 	return RepoDTO{
 		ID:            r.ID,
 		ProjectID:     r.ProjectID,
@@ -29,14 +43,12 @@ func RepoDTOFrom(
 		DefaultBranch: r.DefaultBranch,
 		AvatarLabel:   r.AvatarLabel,
 		AvatarColor:   r.AvatarColor,
+		AvatarURL:     avatarURL,
+		AvatarEmoji:   r.AvatarEmoji,
 	}
 }
 
-// RepoDTOList converts a slice of domain Repositories into wire DTOs, returning
-// a non-nil empty slice when the input is empty so the envelope carries [].
-func RepoDTOList(
-	repos []domain.Repository,
-) []RepoDTO {
+func RepoDTOList(repos []domain.Repository) []RepoDTO {
 	dtos := make([]RepoDTO, 0, len(repos))
 	for _, r := range repos {
 		dtos = append(dtos, RepoDTOFrom(r))

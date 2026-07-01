@@ -32,4 +32,16 @@ export default tseslint.config(
       ],
     },
   },
+  {
+    // The vetted bridge modules — the only files allowed to import
+    // `@tauri-apps/*` directly. Everything else goes through them.
+    files: [
+      'src/lib/crowbar-bridge.ts',
+      'src/lib/ws/tauri-transport.ts',
+      'src/lib/native-dialog.ts',
+    ],
+    rules: {
+      'no-restricted-imports': 'off',
+    },
+  },
 )

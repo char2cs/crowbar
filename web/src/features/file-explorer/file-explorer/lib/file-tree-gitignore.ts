@@ -107,12 +107,13 @@ export function collectGitIgnoreFileReferences(
 
   walk(files)
 
-  // Fall back to the conventional root .gitignore only when the loaded tree
-  // didn't surface one (e.g. tree not yet expanded).
-  if (references.size === 0) {
-    addReference(GITIGNORE_FILE_NAME)
-  }
-
+  // Reference only the .gitignore files actually present in the loaded tree. We
+  // deliberately do NOT synthesize a conventional root .gitignore: the backend
+  // file tree includes dotfiles, so a real root .gitignore is always surfaced by
+  // the walk above once the root level loads (it loads first). Synthesizing one
+  // when the project root has none — common for the project-home workspace whose
+  // root is the bare project directory — fetched a non-existent file and 404'd on
+  // every load.
   return [...references.values()].sort(compareIgnoreReferences)
 }
 

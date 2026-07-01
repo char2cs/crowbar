@@ -1,9 +1,10 @@
 import { apiFetch } from '@/lib/api'
 import { getActiveWorkspaceId } from '@/features/workspace/stores/workspace-store-registry'
+import { workspaceBase } from '@/lib/workspace-scope-url'
 
-// Backend file routes are workspace-scoped; resolve the active workspace and
-// build its files base URL. Throws when no workspace is active so callers fail
-// loudly rather than silently dropping a save.
+// Backend file routes are workspace-scoped (§3 hierarchical); resolve the active
+// workspace and build its files base URL. Throws when no workspace is active so
+// callers fail loudly rather than silently dropping a save.
 function filesBase(): string {
   const wsId = getActiveWorkspaceId()
   if (!wsId) throw new Error('no active workspace for file operation')
@@ -11,7 +12,7 @@ function filesBase(): string {
 }
 
 function filesBaseFor(wsId: string): string {
-  return `/v0/workspaces/${encodeURIComponent(wsId)}/files`
+  return `${workspaceBase(wsId)}/files`
 }
 
 export async function openFile(): Promise<string | null> {

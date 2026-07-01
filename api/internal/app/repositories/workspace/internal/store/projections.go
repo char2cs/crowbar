@@ -14,6 +14,7 @@ import (
 
 // BroadcastFunc receives every projected Workspace row for hub fan-out (03 §2).
 type BroadcastFunc func(
+	ctx context.Context,
 	ws domain.Workspace,
 )
 
@@ -47,7 +48,7 @@ func (p *projector) onEvent(
 		slog.ErrorContext(ctx, "workspace projection: save", "id", evt.Aggregate.ID, "err", err)
 		return
 	}
-	p.broadcast(evt.Aggregate)
+	p.broadcast(ctx, evt.Aggregate)
 }
 
 func (p *projector) saveWithRetry(

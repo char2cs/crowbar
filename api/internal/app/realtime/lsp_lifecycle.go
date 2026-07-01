@@ -7,13 +7,15 @@ import "context"
 // Shutdown runs on the last.
 //
 // Nuance (10 §1, lsp.Engine): the real LSP engine is document-driven — language
-// servers are spawned lazily on textDocument/didOpen and torn down when the last
-// open document for a (wsID, languageID) is released, all via the synchronous
-// editor-feature path. There is no per-workspace "spawn every server" or
-// "shut down the whole workspace" call on lsp.Engine. The production lifecycle
-// is therefore the noop lifecycle: the LSPManager still owns the correct
-// independent refcount so the topology and the Files∪Git vs LSP separation hold,
-// but the actual server processes follow document sync, not subscription edges.
+// servers are spawned lazily on textDocument/didOpen and kept warm by the
+// open-document refcount. There is no per-workspace "spawn every server" call,
+// so Ensure does no work. The teardown edge, however, MUST do work: the only
+// per-document decrement-to-zero path is an explicit DidClose, so a force-quit,
+// crash, or WS-drop that loses the connection without sending DidClose for every
+// open file would otherwise leak the workspace's language servers forever. The
+// production lifecycle therefore releases the whole workspace on the last
+// LSP-subscriber edge (R11), mirroring how the file watcher stops on its own
+// last-unsubscribe edge.
 type LSPLifecycle interface {
 	Ensure(
 		ctx context.Context,
@@ -25,8 +27,45 @@ type LSPLifecycle interface {
 	)
 }
 
-// NoopLSPLifecycle returns the production LSP lifecycle: the LSP engine has no
-// subscription-tied spawn/shutdown, so the refcount edges do no work.
+// WorkspaceReleaser is the slice of lsp.Engine the production lifecycle needs:
+// the ability to tear down every server for a workspace regardless of refcount.
+type WorkspaceReleaser interface {
+	ReleaseWorkspace(
+		ctx context.Context,
+		wsID string,
+	)
+}
+
+// NewLSPLifecycle returns the production LSP lifecycle over the LSP engine.
+// Ensure is a no-op (servers follow document sync, not subscription edges);
+// Shutdown releases all of the workspace's language servers on the last
+// LSP-subscriber edge so a WS-drop with files still open does not leak them.
+func NewLSPLifecycle(
+	engine WorkspaceReleaser,
+) LSPLifecycle {
+	return engineLSPLifecycle{engine: engine}
+}
+
+type engineLSPLifecycle struct {
+	engine WorkspaceReleaser
+}
+
+func (engineLSPLifecycle) Ensure(
+	_ context.Context,
+	_ string,
+) {
+}
+
+func (l engineLSPLifecycle) Shutdown(
+	ctx context.Context,
+	wsID string,
+) {
+	l.engine.ReleaseWorkspace(ctx, wsID)
+}
+
+// NoopLSPLifecycle returns a lifecycle whose edges do no work. It is used in
+// tests and any wiring that has no LSP engine to release; production uses
+// NewLSPLifecycle so the last-unsubscribe edge releases the workspace's servers.
 func NoopLSPLifecycle() LSPLifecycle {
 	return noopLSPLifecycle{}
 }

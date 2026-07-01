@@ -41,14 +41,19 @@ jobs:
       - name: Validate branch naming convention
         run: |
           BRANCH="${{ github.head_ref }}"
+          # release-please manages its own branch naming — skip validation
+          if echo "$BRANCH" | grep -qE '^release-please'; then
+            echo "✅ Release Please branch, skipping validation"
+            exit 0
+          fi
           if [[ "${{ github.base_ref }}" == "develop" ]]; then
             if ! echo "$BRANCH" | grep -qE '^(enhancement|feature|fix|refactor|dependabot|backport)/'; then
               echo "❌ Branch '$BRANCH' targeting develop must start with enhancement/, feature/, fix/, refactor/, dependabot/, or backport/"
               exit 1
             fi
           elif [[ "${{ github.base_ref }}" == "master" ]]; then
-            if ! echo "$BRANCH" | grep -qE '^(hotfix|beta)/'; then
-              echo "❌ Branch '$BRANCH' targeting master must start with hotfix/ or beta/"
+            if ! echo "$BRANCH" | grep -qE '^(prerelease|hotfix)/'; then
+              echo "❌ Branch '$BRANCH' targeting master must start with prerelease/ or hotfix/"
               exit 1
             fi
           fi
@@ -66,22 +71,25 @@ jobs:
           cache-dependency-path: api/go.sum
       - name: Go vet
         run: cd api && go vet -tags noEmbed ./...
-      - name: Race-detected tests
+      - name: Race-detected unit tests
         run: cd api && go test -tags noEmbed -race ./...
-      - name: Test coverage (≥90%)
+      - name: Test coverage (≥92%)
         run: |
-          cd api && go test -tags noEmbed -coverprofile=coverage.out ./...
-          go tool cover -func=coverage.out | tail -1 | awk '{
-            pct = $3+0
-            if (pct < 90) { print "❌ Coverage " pct "% < 90%"; exit 1 }
-            else { print "✅ Coverage " pct "%" }
-          }'
+          cd api
+          COVERPKG=$(go list -tags noEmbed ./... | grep -v '/cmd/' | paste -sd,)
+          go test -tags noEmbed -race -coverpkg="$COVERPKG" -coverprofile=coverage.out ./...
+          # Ratchet floor, not a target: set just under measured coverage (92.9% as of
+          # 2026-07-01) so the gate is green yet still fails on regressions. The
+          # remaining gap to the original 95% goal is real (workspace reparenting
+          # command handlers, LSP process lifecycle, a WS handler) — raise this back
+          # as that gets covered, not by lowering it further.
+          go tool cover -func=coverage.out | awk '/^total:/{gsub("%",""); if ($3+0 < 92) {print "❌ Coverage " $3 "% < 92%"; exit 1} else {print "✅ Coverage " $3 "%"}}'
       - name: Build (Linux)
         run: cd api && go build -tags noEmbed ./cmd/crowbar
-      - name: Cross-compile (macOS)
+      - name: Cross-compile (macOS arm64)
         run: cd api && GOOS=darwin GOARCH=arm64 go build -tags noEmbed ./cmd/crowbar
-      - name: Cross-compile (Windows)
-        run: cd api && GOOS=windows GOARCH=amd64 go build -tags noEmbed ./cmd/crowbar
+      - name: Cross-compile (macOS amd64)
+        run: cd api && GOOS=darwin GOARCH=amd64 go build -tags noEmbed ./cmd/crowbar
 
   frontend-checks:
     needs: changes
@@ -101,13 +109,11 @@ jobs:
       - name: Test coverage (ratchet)
         run: cd web && bun run test:coverage
       - name: Build
-        # vite build (rollup + tsc) outgrew Node's default ~2GB heap on the
-        # runner; give it room instead of letting CI die with exit 134.
         env:
           NODE_OPTIONS: --max-old-space-size=6144
         run: cd web && bun run build
 
-  tauri-checks:
+  tauri-checks-linux:
     needs: changes
     if: needs.changes.outputs.tauri == 'true'
     runs-on: ubuntu-latest
@@ -115,20 +121,56 @@ jobs:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
         with:
-          toolchain: '1.85'
+          toolchain: '1.88'
           components: rustfmt, clippy
       - uses: Swatinem/rust-cache@v2
         with:
           workspaces: desktop/src-tauri
-      - name: Install system deps (Linux)
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.26.2'
+          cache-dependency-path: api/go.sum
+      - name: Install system deps
         run: |
           sudo apt-get update
           sudo apt-get install -y libwebkit2gtk-4.1-dev libayatana-appindicator3-dev librsvg2-dev
+      - name: Build Go sidecar (Linux x86_64)
+        run: |
+          mkdir -p desktop/src-tauri/binaries
+          cd api && GOOS=linux GOARCH=amd64 CGO_ENABLED=0 go build -tags noEmbed \
+            -o ../desktop/src-tauri/binaries/crowbar-api-x86_64-unknown-linux-gnu ./cmd/crowbar
       - name: Cargo fmt
         run: cd desktop/src-tauri && cargo fmt --check
       - name: Cargo clippy
         run: cd desktop/src-tauri && cargo clippy -- -D warnings
       - name: Cargo test
         run: cd desktop/src-tauri && cargo test
-      - name: Cargo check (release)
-        run: cd desktop/src-tauri && cargo check --release
+      - name: Cargo build --release (Linux)
+        run: cd desktop/src-tauri && cargo build --release
+
+  tauri-checks-macos:
+    needs: changes
+    if: needs.changes.outputs.tauri == 'true'
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: '1.88'
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: desktop/src-tauri
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.26.2'
+          cache-dependency-path: api/go.sum
+      - name: Build Go sidecar (macOS arm64 + amd64)
+        run: |
+          mkdir -p desktop/src-tauri/binaries
+          cd api
+          GOOS=darwin GOARCH=arm64 CGO_ENABLED=0 go build -tags noEmbed \
+            -o ../desktop/src-tauri/binaries/crowbar-api-aarch64-apple-darwin ./cmd/crowbar
+          GOOS=darwin GOARCH=amd64 CGO_ENABLED=0 go build -tags noEmbed \
+            -o ../desktop/src-tauri/binaries/crowbar-api-x86_64-apple-darwin ./cmd/crowbar
+      - name: Cargo build --release (macOS)
+        run: cd desktop/src-tauri && cargo build --release

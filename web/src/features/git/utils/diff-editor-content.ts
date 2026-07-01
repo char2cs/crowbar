@@ -164,6 +164,93 @@ export function serializeGitDiffSourceForEditor(diff: GitDiff): SerializedEditor
   }
 }
 
+export interface UnifiedAnchorEntry {
+  oldLine: number | null
+  newLine: number | null
+}
+
+/**
+ * Per-model-line old/new git line numbers for the UNIFIED reconstruction,
+ * emitted in lockstep with serializeGitDiffSourceForEditor so that
+ * `anchors[i]` corresponds to Monaco model line `i + 1`. Unlike `actualLines`
+ * (which collapses old/new into one number), this keeps both sides separate so
+ * a thread anchored to {side, line} can be inverted to a model line
+ * unambiguously, including on context lines whose old/new numbers differ.
+ */
+export function buildUnifiedThreadAnchorMap(diff: GitDiff): UnifiedAnchorEntry[] {
+  const anchors: UnifiedAnchorEntry[] = []
+  let previousWasHeader = true
+  // Mirrors `lines[lines.length - 1]` in serializeGitDiffSourceForEditor:
+  // null = empty output so far, otherwise the last emitted line's text.
+  let lastText: string | null = null
+
+  for (const line of diff.lines) {
+    if (line.line_type === 'header') {
+      if (!previousWasHeader && lastText !== null && lastText !== '') {
+        anchors.push({ oldLine: null, newLine: null }) // spacer
+        lastText = ''
+      }
+      previousWasHeader = true
+      continue
+    }
+    anchors.push({
+      oldLine: line.old_line_number ?? null,
+      newLine: line.new_line_number ?? null,
+    })
+    lastText = line.content
+    previousWasHeader = false
+  }
+
+  return anchors
+}
+
+/**
+ * Invert a thread anchor {side, line} to a 1-based Monaco model line in the
+ * unified reconstruction, or null when the line no longer exists in the diff
+ * (i.e. the thread is outdated).
+ */
+export function findUnifiedModelLine(
+  anchors: UnifiedAnchorEntry[],
+  side: 'old' | 'new',
+  line: number,
+): number | null {
+  for (let i = 0; i < anchors.length; i++) {
+    const a = anchors[i]
+    if (side === 'new' && a.newLine === line) return i + 1
+    if (side === 'old' && a.oldLine === line) return i + 1
+  }
+  return null
+}
+
+/**
+ * Best-effort model line for a thread whose exact anchor line no longer exists
+ * in the diff (an outdated thread). Returns the model line of the nearest
+ * non-spacer anchor on the same side — preferring the closest line at or below
+ * the target, else the closest above it. Returns null only when the diff has no
+ * anchored lines on that side at all. Used to keep outdated threads visible
+ * (rendered collapsed) instead of dropping them.
+ */
+export function findNearestUnifiedModelLine(
+  anchors: UnifiedAnchorEntry[],
+  side: 'old' | 'new',
+  line: number,
+): number | null {
+  let bestBelow: { model: number; line: number } | null = null
+  let bestAbove: { model: number; line: number } | null = null
+
+  for (let i = 0; i < anchors.length; i++) {
+    const sideLine = side === 'new' ? anchors[i].newLine : anchors[i].oldLine
+    if (sideLine == null) continue // spacer / other-side-only line
+    if (sideLine <= line) {
+      if (!bestBelow || sideLine > bestBelow.line) bestBelow = { model: i + 1, line: sideLine }
+    } else if (!bestAbove || sideLine < bestAbove.line) {
+      bestAbove = { model: i + 1, line: sideLine }
+    }
+  }
+
+  return (bestBelow ?? bestAbove)?.model ?? null
+}
+
 export function serializeGitDiffSourceForSplitEditor(
   diff: GitDiff,
 ): SerializedSplitEditorDiffContent {

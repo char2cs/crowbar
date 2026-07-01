@@ -16,6 +16,8 @@ type OpenReviewThread struct {
 	WsID       string
 	FilePath   string
 	LineNumber int
+	StartLine  int
+	EndLine    int
 	Side       domain.ReviewSide
 	MessageID  string
 	Author     string
@@ -51,11 +53,21 @@ func (c OpenReviewThread) Validate(
 func (c OpenReviewThread) EmitEvent(
 	_ *domain.ReviewThread,
 ) domain.ReviewThread {
+	startLine := c.StartLine
+	if startLine == 0 {
+		startLine = c.LineNumber
+	}
+	endLine := c.EndLine
+	if endLine == 0 {
+		endLine = c.LineNumber
+	}
 	return domain.ReviewThread{
 		ID:         c.ID,
 		WsID:       c.WsID,
 		FilePath:   c.FilePath,
 		LineNumber: c.LineNumber,
+		StartLine:  startLine,
+		EndLine:    endLine,
 		Side:       c.Side,
 		Status:     domain.ReviewThreadStatusOpen,
 		Messages: []domain.ReviewMessage{{

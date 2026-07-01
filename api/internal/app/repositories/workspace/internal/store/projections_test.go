@@ -23,7 +23,7 @@ type captureHub struct {
 	rows []domain.Workspace
 }
 
-func (h *captureHub) push(ws domain.Workspace) {
+func (h *captureHub) push(_ context.Context, ws domain.Workspace) {
 	h.mu.Lock()
 	defer h.mu.Unlock()
 	h.rows = append(h.rows, ws)
@@ -116,7 +116,7 @@ func TestRegisterProjections_SubscribeError(t *testing.T) {
 	st, err := newStorageStore(db)
 	require.NoError(t, err)
 	ax := &fakeAx{subscribeErr: errors.New("bus down")}
-	err = registerProjections(st, ax, func(_ domain.Workspace) {})
+	err = registerProjections(st, ax, func(_ context.Context, _ domain.Workspace) {})
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "workspace projection: subscribe")
 	_ = ctx
@@ -128,7 +128,7 @@ func TestRegisterProjections_OnForgetError(t *testing.T) {
 	st, err := newStorageStore(db)
 	require.NoError(t, err)
 	ax := &fakeAx{subscribeErr: nil, forgetErr: errors.New("bus down")}
-	err = registerProjections(st, ax, func(_ domain.Workspace) {})
+	err = registerProjections(st, ax, func(_ context.Context, _ domain.Workspace) {})
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "workspace projection: on forget")
 }
@@ -137,7 +137,7 @@ func TestProjection_OnEvent_SaveError_DoesNotPanic(t *testing.T) {
 	ctx := context.Background()
 	p := &projector{
 		store:     &storageStore{inner: &errInner{err: errors.New("db down")}},
-		broadcast: func(_ domain.Workspace) {},
+		broadcast: func(_ context.Context, _ domain.Workspace) {},
 	}
 	// onEvent must not panic; it logs and returns.
 	p.onEvent(ctx, asynxModels.Event[domain.Workspace]{Aggregate: domain.Workspace{ID: "w1"}})
@@ -147,7 +147,7 @@ func TestProjection_OnForget_DeleteError_DoesNotPanic(t *testing.T) {
 	ctx := context.Background()
 	p := &projector{
 		store:     &storageStore{inner: &errInner{err: errors.New("db down")}},
-		broadcast: func(_ domain.Workspace) {},
+		broadcast: func(_ context.Context, _ domain.Workspace) {},
 	}
 	// onForget must not panic; it logs and returns.
 	p.onForget(ctx, asynxModels.Event[domain.Workspace]{Aggregate: domain.Workspace{ID: "w1"}})

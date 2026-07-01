@@ -108,6 +108,25 @@ func (s *eventStore) ReadRange(
 	return toBlobs(entries), nil
 }
 
+// AggregateIDs returns the distinct aggregate ids that have at least one event in
+// the store. It backs the global read-model reconcile-on-open for the chat and
+// reviewthread aggregates, whose single store holds every aggregate's events:
+// enumerating the ids lets the read model replay each one from the authoritative
+// event log after a crash dropped a projection.
+func (s *eventStore) AggregateIDs(
+	ctx context.Context,
+) ([]string, error) {
+	var ids []string
+	err := s.db.WithContext(ctx).
+		Model(&eventEntry{}).
+		Distinct().
+		Pluck("aggregate_id", &ids).Error
+	if err != nil {
+		return nil, fmt.Errorf("eventstore: aggregate ids: %w", err)
+	}
+	return ids, nil
+}
+
 func (s *eventStore) Count(
 	ctx context.Context,
 	aggregateID string,

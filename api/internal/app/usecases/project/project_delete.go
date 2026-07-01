@@ -4,6 +4,8 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
+	"os"
+	"strings"
 
 	"github.com/char2cs/crowbar/api/internal/app/apperr"
 	"github.com/char2cs/crowbar/api/internal/app/usecases/internal/worktreepath"
@@ -65,10 +67,15 @@ type DeleteGitEngine interface {
 
 // DeleteDeps wires the delete usecase's collaborators.
 type DeleteDeps struct {
-	Projects   DeleteProjectStore
-	Repos      DeleteRepositoryStore
-	Workspaces DeleteWorkspaceRepo
-	Git        DeleteGitEngine
+	Projects    DeleteProjectStore
+	Repos       DeleteRepositoryStore
+	Workspaces  DeleteWorkspaceRepo
+	Git         DeleteGitEngine
+	CrowbarHome func() (string, error)
+	// RemoveAll deletes the entity-scoped project directory tree (worktrees,
+	// storages, icon) under ~/.crowbar/projects/<P>. Defaults to os.RemoveAll
+	// when nil; tests stub it to assert the exact path removed.
+	RemoveAll func(path string) error
 }
 
 // DeleteUsecase removes a project and cascades over its records: every
@@ -77,14 +84,14 @@ type DeleteDeps struct {
 //
 // Disk safety (00 §5.7 import adoption vs 07 §5 teardown): the user's real
 // repository directories are NEVER touched. Only crowbar-created worktree
-// directories — the ones whose path matches the deterministic
-// .crowbar-worktrees layout derived by worktreepath.For — are removed from
-// disk (git worktree remove + force branch delete, mirroring the workspace
-// cascade-delete teardown). Locked workspaces and adopted worktrees (main
-// checkouts and any pre-existing user worktree picked up at import) lose only
-// their record. Disk teardown is best-effort: a failed worktree removal is
-// logged and the record cascade continues, because the project purge must not
-// be blocked by a stale git state.
+// directories — unlocked workspaces whose path differs from the repo root —
+// are removed from disk (git worktree remove + force branch delete, mirroring
+// the workspace cascade-delete teardown). Locked workspaces and adopted
+// worktrees (main checkouts and any pre-existing user worktree picked up at
+// import, whose WorktreePath equals repo.Path) lose only their record. Disk
+// teardown is best-effort: a failed worktree removal is logged and the record
+// cascade continues, because the project purge must not be blocked by a stale
+// git state.
 type DeleteUsecase interface {
 	Delete(
 		ctx context.Context,
@@ -100,6 +107,9 @@ type projectDelete struct {
 func NewDelete(
 	deps DeleteDeps,
 ) DeleteUsecase {
+	if deps.RemoveAll == nil {
+		deps.RemoveAll = os.RemoveAll
+	}
 	return &projectDelete{deps: deps}
 }
 
@@ -127,7 +137,35 @@ func (u *projectDelete) Delete(
 	if err := u.deps.Projects.Delete(ctx, id); err != nil {
 		return fmt.Errorf("project delete: delete project %s: %w", id, err)
 	}
+	u.removeProjectDir(ctx, id)
 	return nil
+}
+
+// removeProjectDir rm -rf's the entity-scoped project directory tree
+// (~/.crowbar/projects/<P> — worktrees, storages, icon) once the GORM rows are
+// gone. It is guarded by the crowbarHome prefix so it can NEVER touch a user's
+// real repo Path or an adopted main worktree (both live outside ~/.crowbar).
+// Best-effort: a removal failure is logged, not fatal, so a stale on-disk tree
+// never blocks the record cascade.
+func (u *projectDelete) removeProjectDir(
+	ctx context.Context,
+	projectID string,
+) {
+	if u.deps.CrowbarHome == nil {
+		return
+	}
+	home, err := u.deps.CrowbarHome()
+	if err != nil || home == "" {
+		return
+	}
+	dir := worktreepath.ProjectDir(home, projectID)
+	if !strings.HasPrefix(dir, home) {
+		return
+	}
+	if err := u.deps.RemoveAll(dir); err != nil {
+		slog.WarnContext(ctx, "project delete: remove project dir failed; records already gone",
+			"project_id", projectID, "dir", dir, "err", err)
+	}
 }
 
 func (u *projectDelete) projectRepos(
@@ -181,11 +219,10 @@ func (u *projectDelete) deleteOneWorkspace(
 
 // removeWorktreeIfCrowbarManaged tears the workspace's worktree directory and
 // branch down when, and only when, the worktree was created by crowbar: the
-// workspace is unlocked and its path is exactly the deterministic
-// .crowbar-worktrees location worktreepath.For derives for the repo and branch.
-// Adopted worktrees (including the repo's main checkout, whose path is the
-// repo path itself) never match and are left untouched on disk. Failures are
-// logged and swallowed so the record cascade always completes.
+// workspace is unlocked, has a non-empty path, and its path differs from the
+// repository root (adopted/main worktrees have WorktreePath == repo.Path and
+// must never be deleted). Failures are logged and swallowed so the record
+// cascade always completes.
 func (u *projectDelete) removeWorktreeIfCrowbarManaged(
 	ctx context.Context,
 	ws domain.Workspace,
@@ -195,10 +232,21 @@ func (u *projectDelete) removeWorktreeIfCrowbarManaged(
 	if !ok {
 		return
 	}
-	if ws.Locked || ws.WorktreePath == "" {
+	if ws.Status == domain.WorkspaceStatusLocked || ws.WorktreePath == "" {
 		return
 	}
-	if ws.WorktreePath != worktreepath.For(repo.Path, ws.Branch) {
+	// Only remove worktrees that live under the crowbar home directory.
+	// Adopted worktrees (the repo's main checkout, user-created worktrees
+	// imported at project-add time) live outside ~/.crowbar and must never be
+	// touched. If CrowbarHome is not configured, skip disk teardown entirely.
+	if u.deps.CrowbarHome == nil {
+		return
+	}
+	home, err := u.deps.CrowbarHome()
+	if err != nil || home == "" {
+		return
+	}
+	if !strings.HasPrefix(ws.WorktreePath, home+"/") {
 		return
 	}
 	if err := u.deps.Git.WorktreeRemove(ctx, repo.Path, ws.WorktreePath); err != nil {

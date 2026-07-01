@@ -14,10 +14,44 @@
   font-display: swap;
 }
 
+/*
+ * Symbols Nerd Font Mono — icon-glyph fallback for the terminal.
+ *
+ * TUIs like Claude Code render Nerd Font / Powerline icon glyphs (private-use
+ * codepoints). Those are NOT in JetBrains Mono or any system mono font, so
+ * without this they fall through the whole chain to a missing-glyph box (tofu).
+ * The terminal font chain (terminal-fonts.ts) already lists "Symbols Nerd Font
+ * Mono"/"Symbols Nerd Font" as the first fallbacks; bundling the symbols-only
+ * font under those exact family names lights that chain up. Single-cell ("Mono")
+ * width keeps icons aligned to the terminal grid. One file backs both names.
+ */
+@font-face {
+  font-family: 'Symbols Nerd Font Mono';
+  src: url('/fonts/SymbolsNerdFontMono-Regular.woff2') format('woff2');
+  font-weight: normal;
+  font-style: normal;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: 'Symbols Nerd Font';
+  src: url('/fonts/SymbolsNerdFontMono-Regular.woff2') format('woff2');
+  font-weight: normal;
+  font-style: normal;
+  font-display: swap;
+}
+
 @theme inline {
-  --font-sans: 'CalSansUI', sans-serif;
-  --font-heading: 'CalSans', sans-serif;
+  /* Single source of truth: the UI font picked in Settings (--app-font-family,
+     written to :root by the bootstrap + FontStyleInjector). 'CalSansUI' is the
+     bundled default and the fallback if the runtime var is ever unset. */
+  --font-sans: var(--app-font-family, 'CalSansUI', sans-serif);
+  /* Headings share the UI font; CalSans remains only as a load-bearing fallback. */
+  --font-heading: var(--app-font-family, 'CalSans', sans-serif);
+  /* Mono follows the Editor Font Family from Settings (--editor-font-family). */
+  --font-mono: var(--editor-font-family, 'JetBrains Mono Variable', ui-monospace, monospace);
   --color-background: var(--background);
+  --color-pane-background: var(--pane-background);
   --color-foreground: var(--foreground);
   --color-card: var(--card);
   --color-card-foreground: var(--card-foreground);
@@ -49,6 +83,9 @@
   --color-sidebar-accent-foreground: var(--sidebar-accent-foreground);
   --color-sidebar-border: var(--sidebar-border);
   --color-sidebar-ring: var(--sidebar-ring);
+  --color-sidebar-element-idle: var(--sidebar-element-idle);
+  --color-sidebar-element-hover: var(--sidebar-element-hover);
+  --color-sidebar-element-press: var(--sidebar-element-press);
   --color-success: var(--success);
   --color-success-foreground: var(--success-foreground);
   --color-warning: var(--warning);
@@ -174,19 +211,22 @@
   /* ── Cross/UI light-mode tokens ── */
   --radius: 0.625rem;
   --background: var(--color-white);
+  --pane-background: oklch(1 0 0 / 60%);
   --foreground: var(--color-neutral-800);
   --card: var(--color-white);
   --card-foreground: var(--color-neutral-800);
   --popover: var(--color-white);
   --popover-foreground: var(--color-neutral-800);
-  --primary: var(--color-neutral-800);
-  --primary-foreground: var(--color-neutral-50);
-  --secondary: oklch(0 0 0 / 4%);
-  --secondary-foreground: var(--color-neutral-800);
+  --primary: oklch(0.49 0.082 130);
+  --primary-foreground: oklch(0.98 0.027 98);
+  --secondary: oklch(0.17 0.033 140);
+  --secondary-foreground: oklch(0.98 0.027 98);
   --muted: oklch(0 0 0 / 4%);
   --muted-foreground: oklch(0.52 0 0);
   --accent: oklch(0 0 0 / 4%);
   --accent-foreground: var(--color-neutral-800);
+  /* Editor text-selection wash (needs real opacity, unlike the 4% --accent) */
+  --editor-selection: oklch(0.62 0.13 235 / 0.3);
   --destructive: var(--color-red-500);
   --destructive-foreground: var(--color-red-700);
   --info: var(--color-blue-500);
@@ -203,7 +243,7 @@
   --chart-3: var(--color-cyan-900);
   --chart-4: var(--color-amber-400);
   --chart-5: var(--color-amber-500);
-  --sidebar: var(--color-neutral-50);
+  --sidebar: oklch(0 0 0 / 0%);
   --sidebar-foreground: var(--color-neutral-800);
   --sidebar-primary: var(--color-neutral-800);
   --sidebar-primary-foreground: var(--color-neutral-50);
@@ -211,41 +251,111 @@
   --sidebar-accent-foreground: var(--color-neutral-800);
   --sidebar-border: oklch(0 0 0 / 6%);
   --sidebar-ring: var(--color-neutral-400);
+  --sidebar-element-idle: color-mix(in oklch, var(--foreground) 6%, transparent);
+  --sidebar-element-hover: oklch(0 0 0 / 8%);
+  --sidebar-element-press: color-mix(in oklch, var(--foreground) 8%, transparent);
   --code: var(--color-white);
   --code-foreground: var(--foreground);
   --code-highlight: oklch(0 0 0 / 4%);
 
+  /* ── Git status decorations — light (file tree + changes) ──
+     The @theme block maps --color-git-* → these base tokens; without values
+     here every text-git-* utility resolved to empty and inherited foreground. */
+  /* Derive from the semantic tokens where the hue matches (the house pattern,
+     e.g. --syntax-error: var(--destructive)) so git status tracks the theme. */
+  --git-modified: var(--warning);
+  --git-modified-staged: var(--success);
+  --git-added: var(--success);
+  --git-untracked: var(--color-lime-600);
+  --git-deleted: var(--destructive);
+  --git-renamed: var(--color-sky-600);
+
   /* ── Crowbar UI-layer tokens (not in Cross/UI) ── */
-  --chrome-bg: oklch(1 0 0 / 75%);
+  --chrome-bg: oklch(0 0 0 / 0%);
 
   --app-ui-scale: 1;
   --ui-text-xs: calc(0.6875rem * var(--app-ui-scale));
   --ui-text-sm: calc(0.75rem * var(--app-ui-scale));
   --ui-text-base: calc(0.875rem * var(--app-ui-scale));
+  --ui-text-lg: calc(1rem * var(--app-ui-scale));
   --app-scrollbar-size: 11px;
   --app-scrollbar-thumb: oklch(0.55 0 0 / 42%);
   --app-scrollbar-thumb-border: 3px solid transparent;
   --app-scrollbar-thumb-hover: oklch(0.55 0 0 / 58%);
   --app-scrollbar-track: transparent;
   --app-scrollbar-radius: 999px;
+
+  /* ── Syntax tokens — light mode ───────────────────────────────── */
+  /* Bound to shadcn semantics (auto-track the UI theme) */
+  --syntax-comment: var(--muted-foreground);
+  --syntax-variable: var(--foreground);
+  --syntax-punctuation: var(--muted-foreground);
+  --syntax-operator: var(--muted-foreground);
+  --syntax-error: var(--destructive);
+
+  /* Dedicated hues — Palette A "Refined Anthropic" (light) */
+  --syntax-keyword: #b26045;
+  --syntax-string: #578141;
+  --syntax-number: #976f30;
+  --syntax-constant: #368189;
+  --syntax-function: #2f6fae;
+  --syntax-type: #8257a8;
+  --syntax-property: #5a564d;
+  --syntax-tag: #2f6fae;
+  --syntax-attribute: #976f30;
+  --syntax-boolean: #368189;
+  --syntax-null: #8257a8;
+  --syntax-regex: #368189;
+  --syntax-jsx: #2f6fae;
+  --syntax-jsx-attribute: #976f30;
+  --syntax-markdown-heading: #2f6fae;
+  --syntax-markdown-bold: #976f30;
+  --syntax-markdown-italic: #b26045;
+  --syntax-markdown-strikethrough: var(--muted-foreground);
+  --syntax-markdown-link: #2f6fae;
+  --syntax-markdown-link-text: #578141;
+  --syntax-markdown-code: #578141;
+  --syntax-markdown-list: #b26045;
+  --syntax-markdown-quote: var(--muted-foreground);
+
+  /* ── Terminal ANSI-16 — pure aliases onto the unified layer ───── */
+  /* magenta/cyan have no shadcn equivalent → reuse coordinated syntax hues */
+  --terminal-black: oklch(0.27 0 0);
+  --terminal-red: var(--destructive);
+  --terminal-green: var(--success);
+  --terminal-yellow: var(--warning);
+  --terminal-blue: var(--info);
+  --terminal-magenta: var(--syntax-type);
+  --terminal-cyan: var(--syntax-constant);
+  --terminal-white: var(--muted-foreground);
+  --terminal-bright-black: var(--muted-foreground);
+  --terminal-bright-red: var(--destructive);
+  --terminal-bright-green: var(--success);
+  --terminal-bright-yellow: var(--warning);
+  --terminal-bright-blue: var(--info);
+  --terminal-bright-magenta: var(--syntax-type);
+  --terminal-bright-cyan: var(--syntax-constant);
+  --terminal-bright-white: var(--foreground);
 }
 
 .dark {
   /* ── Cross/UI dark-mode tokens ── */
   --background: oklch(0.19 0 0);
+  --pane-background: oklch(1 0 0 / 10%);
   --foreground: var(--color-neutral-100);
   --card: var(--background);
   --card-foreground: var(--color-neutral-100);
   --popover: var(--background);
   --popover-foreground: var(--color-neutral-100);
-  --primary: var(--color-neutral-100);
-  --primary-foreground: var(--color-neutral-800);
-  --secondary: oklch(1 0 0 / 4%);
-  --secondary-foreground: var(--color-neutral-100);
+  --primary: oklch(0.49 0.082 130);
+  --primary-foreground: oklch(0.98 0.027 98);
+  --secondary: oklch(0.17 0.033 140);
+  --secondary-foreground: oklch(0.98 0.027 98);
   --muted: oklch(1 0 0 / 4%);
   --muted-foreground: oklch(0.6 0 0);
   --accent: oklch(1 0 0 / 4%);
   --accent-foreground: var(--color-neutral-100);
+  --editor-selection: oklch(0.7 0.13 235 / 0.32);
   --destructive: oklch(0.65 0.22 24);
   --destructive-foreground: var(--color-red-400);
   --info: var(--color-blue-500);
@@ -262,7 +372,7 @@
   --chart-3: var(--color-amber-500);
   --chart-4: var(--color-purple-500);
   --chart-5: var(--color-rose-500);
-  --sidebar: oklch(0.18 0 0);
+  --sidebar: oklch(0 0 0 / 18%);
   --sidebar-foreground: var(--color-neutral-100);
   --sidebar-primary: var(--color-neutral-100);
   --sidebar-primary-foreground: var(--color-neutral-800);
@@ -270,10 +380,44 @@
   --sidebar-accent-foreground: var(--color-neutral-100);
   --sidebar-border: oklch(1 0 0 / 5%);
   --sidebar-ring: var(--color-neutral-400);
+  --sidebar-element-idle: color-mix(in oklch, var(--foreground) 11%, transparent);
+  --sidebar-element-hover: oklch(1 0 0 / 10%);
+  --sidebar-element-press: color-mix(in oklch, var(--foreground) 7%, transparent);
   --code: var(--background);
   --code-foreground: var(--foreground);
   --code-highlight: oklch(1 0 0 / 4%);
 
+  /* ── Git status decorations — dark (file tree + changes) ── */
+  --git-modified: var(--warning);
+  --git-modified-staged: var(--success);
+  --git-added: var(--success);
+  --git-untracked: var(--color-lime-400);
+  --git-deleted: var(--destructive);
+  --git-renamed: var(--color-sky-400);
+
   /* ── Crowbar UI-layer dark overrides ── */
-  --chrome-bg: oklch(0.2 0 0 / 90%);
+  --chrome-bg: oklch(0 0 0 / 40%);
+
+  /* ── Syntax dedicated hues — Palette A (dark) ─────────────────── */
+  --syntax-keyword: #d97757;
+  --syntax-string: #a3c585;
+  --syntax-number: #d6a95c;
+  --syntax-constant: #5fbcc4;
+  --syntax-function: #6fb0e0;
+  --syntax-type: #c4a6dd;
+  --syntax-property: #cfc9bd;
+  --syntax-tag: #6fb0e0;
+  --syntax-attribute: #d6a95c;
+  --syntax-boolean: #5fbcc4;
+  --syntax-null: #c4a6dd;
+  --syntax-regex: #7ec0cf;
+  --syntax-jsx: #6fb0e0;
+  --syntax-jsx-attribute: #d6a95c;
+  --syntax-markdown-heading: #6fb0e0;
+  --syntax-markdown-bold: #d6a95c;
+  --syntax-markdown-italic: #d97757;
+  --syntax-markdown-link: #6fb0e0;
+  --syntax-markdown-link-text: #a3c585;
+  --syntax-markdown-code: #a3c585;
+  --syntax-markdown-list: #d97757;
 }

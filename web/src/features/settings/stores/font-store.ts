@@ -23,12 +23,22 @@ interface FontActions {
 
 const FONT_CACHE_KEY = 'athas_font_cache'
 const FONT_CACHE_EXPIRY = 24 * 60 * 60 * 1000 // 24 hours in milliseconds
-const FALLBACK_FONTS: FontInfo[] = [
+// Fonts that ship with the app and are therefore always selectable, regardless
+// of OS-level font enumeration (which is unavailable in the WKWebView). The
+// static "JetBrains Mono" is the WebGL-friendly terminal default; the variable
+// cut forces xterm's slow DOM renderer (see resolve-font.ts).
+const BUNDLED_FONTS: FontInfo[] = [
   {
-    name: 'IBM Plex Sans Variable',
-    family: 'IBM Plex Sans Variable',
+    name: 'CalSansUI',
+    family: 'CalSansUI',
     style: 'Regular',
     is_monospace: false,
+  },
+  {
+    name: 'JetBrains Mono',
+    family: 'JetBrains Mono',
+    style: 'Regular',
+    is_monospace: true,
   },
   {
     name: 'JetBrains Mono Variable',
@@ -37,6 +47,9 @@ const FALLBACK_FONTS: FontInfo[] = [
     is_monospace: true,
   },
 ]
+
+// Retained alias — older call sites referenced FALLBACK_FONTS.
+const FALLBACK_FONTS: FontInfo[] = BUNDLED_FONTS
 
 interface FontCache {
   availableFonts: FontInfo[]
@@ -131,7 +144,9 @@ export const useFontStore = createSelectors(
             })
 
             try {
-              const fonts: FontInfo[] = [] // stub in web mode
+              // OS font enumeration is unavailable in the WKWebView, so the
+              // selectable set is the fonts the app bundles.
+              const fonts: FontInfo[] = BUNDLED_FONTS
               const monospaceFonts = fonts.filter((font) => font.is_monospace)
 
               set((state) => {
@@ -180,7 +195,7 @@ export const useFontStore = createSelectors(
             })
 
             try {
-              const fonts: FontInfo[] = [] // stub in web mode
+              const fonts: FontInfo[] = BUNDLED_FONTS.filter((font) => font.is_monospace)
 
               set((state) => {
                 state.monospaceFonts = fonts

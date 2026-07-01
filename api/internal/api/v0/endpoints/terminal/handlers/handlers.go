@@ -4,6 +4,7 @@ package handlers
 import (
 	"context"
 
+	"github.com/char2cs/crowbar/api/internal/api/v0/dto"
 	"github.com/char2cs/crowbar/api/internal/domain"
 	engineterminal "github.com/char2cs/crowbar/api/internal/engine/terminal"
 )
@@ -34,6 +35,21 @@ type TerminalEngine interface {
 		sessionID string,
 		conn WSConn,
 	) error
+	ListSessionsForWorkspace(
+		workspaceID string,
+	) []string
+	// StateOf returns the current lifecycle state ("active", "detached",
+	// "suspended") for the given session and true; ("", false) if not found.
+	StateOf(sessionID string) (string, bool)
+}
+
+// TerminalBroadcaster receives terminal-session lifecycle DTOs so the v0
+// Broadcaster[TerminalSessionDTO] can fan them out to subscribed clients. The
+// session create/kill paths push active/ended frames through it (D2).
+type TerminalBroadcaster interface {
+	Push(
+		d dto.TerminalSessionDTO,
+	)
 }
 
 // ProfileStore is the CRUD surface for terminal profiles.
@@ -54,6 +70,7 @@ type Handlers struct {
 	termEng      TerminalEngine
 	profileStore ProfileStore
 	wsReader     WorkspaceReader
+	broadcast    TerminalBroadcaster
 }
 
 // New returns an initialised Handlers.
@@ -61,10 +78,12 @@ func New(
 	termEng TerminalEngine,
 	profileStore ProfileStore,
 	wsReader WorkspaceReader,
+	broadcast TerminalBroadcaster,
 ) *Handlers {
 	return &Handlers{
 		termEng:      termEng,
 		profileStore: profileStore,
 		wsReader:     wsReader,
+		broadcast:    broadcast,
 	}
 }

@@ -9,7 +9,7 @@ function isMultiFileDiff(data: unknown): data is MultiFileDiff {
   return typeof data === 'object' && data !== null && 'files' in data && Array.isArray(data.files)
 }
 
-const DiffViewer = memo((_props: DiffViewerProps) => {
+const DiffViewer = memo((props: DiffViewerProps) => {
   const { diff, rawDiffData, filePath, isLoading, error } = useDiffData()
 
   const multiFileDiff = useMemo(() => {
@@ -20,7 +20,7 @@ const DiffViewer = memo((_props: DiffViewerProps) => {
   }, [rawDiffData])
 
   if (multiFileDiff) {
-    return <GitDiffEditorStack multiDiff={multiFileDiff} />
+    return <GitDiffEditorStack multiDiff={multiFileDiff} isActivePane={props.isActivePane} />
   }
 
   if (isLoading) {

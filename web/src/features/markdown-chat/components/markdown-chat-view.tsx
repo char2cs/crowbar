@@ -4,8 +4,8 @@ import { nanoid } from 'nanoid'
 import type { EditorView } from '@codemirror/view'
 import { getOrCreateConversationStore } from '../stores/conversation-store'
 import { wsManager } from '@/lib/ws/manager'
-import { useChatStore } from '@/features/markdown-chat/stores/chat-store'
-import { dataOf } from '@/lib/loadable'
+import { completeRun } from '@/lib/api/run'
+import { startAgentRunForChat } from '../lib/start-run'
 import { MarkdownHistory } from './markdown/markdown-history'
 import { MarkdownChatInput } from './markdown-chat-input'
 import { MarkdownChatToolbar } from './markdown-chat-toolbar'
@@ -13,16 +13,18 @@ import type { SlashCommand } from './slash-command-palette'
 import type { MarkdownTurn, WidgetData } from '../types'
 
 interface MarkdownChatViewProps {
-  workspaceId: string
-  stepId: string
+  /** Backend chat id (domain.Chat). Keys the conversation store and the
+   *  per-chat content stream (/v0/ws/chats/:chatId/stream). */
+  chatId: string
 }
 
-export function MarkdownChatView({ workspaceId, stepId }: MarkdownChatViewProps) {
-  const store = getOrCreateConversationStore(workspaceId)
+export function MarkdownChatView({ chatId }: MarkdownChatViewProps) {
+  const store = getOrCreateConversationStore(chatId)
   const turns = useStore(store, (s) => s.turns)
   const [inputEditorView, setInputEditorView] = useState<EditorView | null>(null)
   const [isStreaming, setIsStreaming] = useState(false)
   const cancelStreamRef = useRef<(() => void) | null>(null)
+  const runIdRef = useRef<string | null>(null)
   const draftWidgetsRef = useRef<WidgetData[]>([])
   const historyScrollRef = useRef<HTMLDivElement>(null)
   const prevTurnCountRef = useRef(0)
@@ -49,33 +51,28 @@ export function MarkdownChatView({ workspaceId, stepId }: MarkdownChatViewProps)
     ]
   }, [store])
 
-  // Seed turns on mount from API — only when the store is empty (cold start)
-  const chatLoadable = useChatStore((s) => s.data)
-  const initialTurns = dataOf(chatLoadable)
-  useEffect(() => {
-    void useChatStore.getState().fetch(workspaceId, stepId)
-  }, [workspaceId, stepId])
-  useEffect(() => {
-    const state = store.getState()
-    if (!initialTurns || state.turns.length > 0) return
-    initialTurns.forEach((t) => state.appendTurn(t))
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [initialTurns])
+  // No history seeding: the backend has no chat-history endpoint yet (the
+  // frame protocol is deferred to the agentic bridge spike), so a freshly
+  // opened chat starts from the in-memory conversation store only.
 
-  // Cleanup streaming on unmount/workspace change
+  // Cleanup streaming on unmount/chat change
   useEffect(() => {
     return () => {
       cancelStreamRef.current?.()
     }
-  }, [workspaceId, stepId])
+  }, [chatId])
 
   // Store-driven: the React history (MarkdownHistory) renders reactively from the
   // store, so submitting only updates the store — no imperative view calls.
   const handleSubmit = useCallback(
     (content: string) => {
       cancelStreamRef.current?.()
+      cancelStreamRef.current = null
+      runIdRef.current = null
 
       const state = store.getState()
+      // Close out any bubble left streaming by an interrupted previous send.
+      state.turns.filter((t) => t.streaming).forEach((t) => state.finalizeStreamingTurn(t.id))
       const userId = nanoid()
       const agentId = nanoid()
 
@@ -102,25 +99,51 @@ export function MarkdownChatView({ workspaceId, stepId }: MarkdownChatViewProps)
         streaming: true,
       })
 
-      // Per-chat content stream (content/done frames). stepId identifies the
-      // chat. Real route: /v0/ws/chats/:chatId/stream.
-      const endpoint = `/v0/ws/chats/${stepId}/stream`
+      // Per-chat content stream (content/done frames) — the real
+      // /v0/ws/chats/:chatId/stream route. Subscribe before starting the run
+      // so no frame can slip past between start and subscribe.
+      const endpoint = `/v0/ws/chats/${encodeURIComponent(chatId)}/stream`
       setIsStreaming(true)
       const unsubscribe = wsManager.subscribe(endpoint, (msg: unknown) => {
-        const m = msg as { content: string; done: boolean }
-        if (!m.done) {
+        const m = msg as { content?: string; done?: boolean } | null
+        if (typeof m?.content === 'string' && m.content.length > 0) {
           state.updateStreamingTurn(agentId, m.content)
-        } else {
+        }
+        if (m?.done) {
           state.finalizeStreamingTurn(agentId)
-          cancelStreamRef.current = null
-          setIsStreaming(false)
+          if (cancelStreamRef.current === unsubscribe) {
+            cancelStreamRef.current = null
+            runIdRef.current = null
+            setIsStreaming(false)
+          }
           unsubscribe()
         }
       })
-      wsManager.send(endpoint, { turnId: agentId, message: content })
       cancelStreamRef.current = unsubscribe
+
+      // The agent run only errors the UI if this send is still the active one
+      // (the user may have stopped it or sent again while the POST was in
+      // flight) — never leave a perpetual empty streaming bubble behind.
+      const failSend = (err: unknown) => {
+        const message = err instanceof Error ? err.message : String(err)
+        state.setTurnError(agentId, `Agent run failed to start: ${message}`)
+        unsubscribe()
+        if (cancelStreamRef.current === unsubscribe) {
+          cancelStreamRef.current = null
+          runIdRef.current = null
+          setIsStreaming(false)
+        }
+      }
+
+      // Kick off the agent run: POST the run for this chat's workspace, then
+      // start it. The chat id maps to its workspace via the sidebar store.
+      startAgentRunForChat(chatId)
+        .then((runId) => {
+          if (cancelStreamRef.current === unsubscribe) runIdRef.current = runId
+        })
+        .catch(failSend)
     },
-    [store],
+    [store, chatId],
   )
 
   const handleWidgetChange = useCallback(
@@ -170,10 +193,17 @@ export function MarkdownChatView({ workspaceId, stepId }: MarkdownChatViewProps)
   }, [inputEditorView, handleSubmit])
 
   const handleStop = useCallback(() => {
+    // Tell the backend the run is over (fire-and-forget; the run may already
+    // be finished), then close out any still-streaming bubble locally.
+    const runId = runIdRef.current
+    runIdRef.current = null
+    if (runId) void completeRun(runId).catch(() => {})
+    const state = store.getState()
+    state.turns.filter((t) => t.streaming).forEach((t) => state.finalizeStreamingTurn(t.id))
     cancelStreamRef.current?.()
     cancelStreamRef.current = null
     setIsStreaming(false)
-  }, [])
+  }, [store])
 
   // Auto-follow the conversation: jump to the bottom when a new turn is added
   // (you just sent), and follow streaming output — unless you've scrolled up.

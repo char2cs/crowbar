@@ -166,6 +166,21 @@ export const EditorSettings = () => {
         </SettingRow>
 
         <SettingRow
+          label="Semantic Highlighting"
+          description="Color functions, types, and properties using the Tree-sitter tokenizer"
+          onReset={() =>
+            updateSetting('semanticHighlighting', getDefaultSetting('semanticHighlighting'))
+          }
+          canReset={settings.semanticHighlighting !== getDefaultSetting('semanticHighlighting')}
+        >
+          <Switch
+            checked={settings.semanticHighlighting}
+            onChange={(checked) => updateSetting('semanticHighlighting', checked)}
+            size="sm"
+          />
+        </SettingRow>
+
+        <SettingRow
           label="Highlight Occurrences"
           description="Highlight visible matches for the word under the cursor"
           onReset={() =>

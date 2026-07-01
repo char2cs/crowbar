@@ -9,167 +9,218 @@
 // Additionally, you should also exclude this file from your linter and/or formatter to prevent it from being checked or modified.
 
 import { Route as rootRouteImport } from './routes/__root'
-import { Route as IndexRouteImport } from './routes/index'
-import { Route as ProjectsIndexRouteImport } from './routes/projects/index'
-import { Route as WorkspacesNewRouteImport } from './routes/workspaces/new'
-import { Route as WorkspacesWsIdRouteImport } from './routes/workspaces/$wsId'
-import { Route as ChatChatIdRouteImport } from './routes/chat/$chatId'
-import { Route as WorkspacesWsIdIndexRouteImport } from './routes/workspaces/$wsId/index'
+import { Route as OobeRouteImport } from './routes/oobe'
+import { Route as ShellRouteImport } from './routes/_shell'
+import { Route as ShellIndexRouteImport } from './routes/_shell/index'
+import { Route as ShellWorkspacesNewRouteImport } from './routes/_shell/workspaces/new'
+import { Route as ShellChatChatIdRouteImport } from './routes/_shell/chat/$chatId'
+import { Route as ShellIdeProjectIdHomeRouteImport } from './routes/_shell/ide/$projectId/home'
+import { Route as ShellIdeProjectIdRepoIdWsIdRouteImport } from './routes/_shell/ide/$projectId/$repoId/$wsId'
+import { Route as ShellIdeProjectIdRepoIdWsIdIndexRouteImport } from './routes/_shell/ide/$projectId/$repoId/$wsId/index'
 
-const IndexRoute = IndexRouteImport.update({
+const OobeRoute = OobeRouteImport.update({
+  id: '/oobe',
+  path: '/oobe',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const ShellRoute = ShellRouteImport.update({
+  id: '/_shell',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const ShellIndexRoute = ShellIndexRouteImport.update({
   id: '/',
   path: '/',
-  getParentRoute: () => rootRouteImport,
+  getParentRoute: () => ShellRoute,
 } as any)
-const ProjectsIndexRoute = ProjectsIndexRouteImport.update({
-  id: '/projects/',
-  path: '/projects/',
-  getParentRoute: () => rootRouteImport,
-} as any)
-const WorkspacesNewRoute = WorkspacesNewRouteImport.update({
+const ShellWorkspacesNewRoute = ShellWorkspacesNewRouteImport.update({
   id: '/workspaces/new',
   path: '/workspaces/new',
-  getParentRoute: () => rootRouteImport,
+  getParentRoute: () => ShellRoute,
 } as any)
-const WorkspacesWsIdRoute = WorkspacesWsIdRouteImport.update({
-  id: '/workspaces/$wsId',
-  path: '/workspaces/$wsId',
-  getParentRoute: () => rootRouteImport,
-} as any)
-const ChatChatIdRoute = ChatChatIdRouteImport.update({
+const ShellChatChatIdRoute = ShellChatChatIdRouteImport.update({
   id: '/chat/$chatId',
   path: '/chat/$chatId',
-  getParentRoute: () => rootRouteImport,
+  getParentRoute: () => ShellRoute,
 } as any)
-const WorkspacesWsIdIndexRoute = WorkspacesWsIdIndexRouteImport.update({
-  id: '/',
-  path: '/',
-  getParentRoute: () => WorkspacesWsIdRoute,
+const ShellIdeProjectIdHomeRoute = ShellIdeProjectIdHomeRouteImport.update({
+  id: '/ide/$projectId/home',
+  path: '/ide/$projectId/home',
+  getParentRoute: () => ShellRoute,
 } as any)
+const ShellIdeProjectIdRepoIdWsIdRoute =
+  ShellIdeProjectIdRepoIdWsIdRouteImport.update({
+    id: '/ide/$projectId/$repoId/$wsId',
+    path: '/ide/$projectId/$repoId/$wsId',
+    getParentRoute: () => ShellRoute,
+  } as any)
+const ShellIdeProjectIdRepoIdWsIdIndexRoute =
+  ShellIdeProjectIdRepoIdWsIdIndexRouteImport.update({
+    id: '/',
+    path: '/',
+    getParentRoute: () => ShellIdeProjectIdRepoIdWsIdRoute,
+  } as any)
 
 export interface FileRoutesByFullPath {
-  '/': typeof IndexRoute
-  '/chat/$chatId': typeof ChatChatIdRoute
-  '/workspaces/$wsId': typeof WorkspacesWsIdRouteWithChildren
-  '/workspaces/new': typeof WorkspacesNewRoute
-  '/projects/': typeof ProjectsIndexRoute
-  '/workspaces/$wsId/': typeof WorkspacesWsIdIndexRoute
+  '/': typeof ShellIndexRoute
+  '/oobe': typeof OobeRoute
+  '/chat/$chatId': typeof ShellChatChatIdRoute
+  '/workspaces/new': typeof ShellWorkspacesNewRoute
+  '/ide/$projectId/home': typeof ShellIdeProjectIdHomeRoute
+  '/ide/$projectId/$repoId/$wsId': typeof ShellIdeProjectIdRepoIdWsIdRouteWithChildren
+  '/ide/$projectId/$repoId/$wsId/': typeof ShellIdeProjectIdRepoIdWsIdIndexRoute
 }
 export interface FileRoutesByTo {
-  '/': typeof IndexRoute
-  '/chat/$chatId': typeof ChatChatIdRoute
-  '/workspaces/new': typeof WorkspacesNewRoute
-  '/projects': typeof ProjectsIndexRoute
-  '/workspaces/$wsId': typeof WorkspacesWsIdIndexRoute
+  '/oobe': typeof OobeRoute
+  '/': typeof ShellIndexRoute
+  '/chat/$chatId': typeof ShellChatChatIdRoute
+  '/workspaces/new': typeof ShellWorkspacesNewRoute
+  '/ide/$projectId/home': typeof ShellIdeProjectIdHomeRoute
+  '/ide/$projectId/$repoId/$wsId': typeof ShellIdeProjectIdRepoIdWsIdIndexRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
-  '/': typeof IndexRoute
-  '/chat/$chatId': typeof ChatChatIdRoute
-  '/workspaces/$wsId': typeof WorkspacesWsIdRouteWithChildren
-  '/workspaces/new': typeof WorkspacesNewRoute
-  '/projects/': typeof ProjectsIndexRoute
-  '/workspaces/$wsId/': typeof WorkspacesWsIdIndexRoute
+  '/_shell': typeof ShellRouteWithChildren
+  '/oobe': typeof OobeRoute
+  '/_shell/': typeof ShellIndexRoute
+  '/_shell/chat/$chatId': typeof ShellChatChatIdRoute
+  '/_shell/workspaces/new': typeof ShellWorkspacesNewRoute
+  '/_shell/ide/$projectId/home': typeof ShellIdeProjectIdHomeRoute
+  '/_shell/ide/$projectId/$repoId/$wsId': typeof ShellIdeProjectIdRepoIdWsIdRouteWithChildren
+  '/_shell/ide/$projectId/$repoId/$wsId/': typeof ShellIdeProjectIdRepoIdWsIdIndexRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
   fullPaths:
     | '/'
+    | '/oobe'
     | '/chat/$chatId'
-    | '/workspaces/$wsId'
     | '/workspaces/new'
-    | '/projects/'
-    | '/workspaces/$wsId/'
+    | '/ide/$projectId/home'
+    | '/ide/$projectId/$repoId/$wsId'
+    | '/ide/$projectId/$repoId/$wsId/'
   fileRoutesByTo: FileRoutesByTo
   to:
+    | '/oobe'
     | '/'
     | '/chat/$chatId'
     | '/workspaces/new'
-    | '/projects'
-    | '/workspaces/$wsId'
+    | '/ide/$projectId/home'
+    | '/ide/$projectId/$repoId/$wsId'
   id:
     | '__root__'
-    | '/'
-    | '/chat/$chatId'
-    | '/workspaces/$wsId'
-    | '/workspaces/new'
-    | '/projects/'
-    | '/workspaces/$wsId/'
+    | '/_shell'
+    | '/oobe'
+    | '/_shell/'
+    | '/_shell/chat/$chatId'
+    | '/_shell/workspaces/new'
+    | '/_shell/ide/$projectId/home'
+    | '/_shell/ide/$projectId/$repoId/$wsId'
+    | '/_shell/ide/$projectId/$repoId/$wsId/'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
-  IndexRoute: typeof IndexRoute
-  ChatChatIdRoute: typeof ChatChatIdRoute
-  WorkspacesWsIdRoute: typeof WorkspacesWsIdRouteWithChildren
-  WorkspacesNewRoute: typeof WorkspacesNewRoute
-  ProjectsIndexRoute: typeof ProjectsIndexRoute
+  ShellRoute: typeof ShellRouteWithChildren
+  OobeRoute: typeof OobeRoute
 }
 
 declare module '@tanstack/react-router' {
   interface FileRoutesByPath {
-    '/': {
-      id: '/'
+    '/oobe': {
+      id: '/oobe'
+      path: '/oobe'
+      fullPath: '/oobe'
+      preLoaderRoute: typeof OobeRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/_shell': {
+      id: '/_shell'
+      path: ''
+      fullPath: '/'
+      preLoaderRoute: typeof ShellRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/_shell/': {
+      id: '/_shell/'
       path: '/'
       fullPath: '/'
-      preLoaderRoute: typeof IndexRouteImport
-      parentRoute: typeof rootRouteImport
+      preLoaderRoute: typeof ShellIndexRouteImport
+      parentRoute: typeof ShellRoute
     }
-    '/projects/': {
-      id: '/projects/'
-      path: '/projects'
-      fullPath: '/projects/'
-      preLoaderRoute: typeof ProjectsIndexRouteImport
-      parentRoute: typeof rootRouteImport
-    }
-    '/workspaces/new': {
-      id: '/workspaces/new'
+    '/_shell/workspaces/new': {
+      id: '/_shell/workspaces/new'
       path: '/workspaces/new'
       fullPath: '/workspaces/new'
-      preLoaderRoute: typeof WorkspacesNewRouteImport
-      parentRoute: typeof rootRouteImport
+      preLoaderRoute: typeof ShellWorkspacesNewRouteImport
+      parentRoute: typeof ShellRoute
     }
-    '/workspaces/$wsId': {
-      id: '/workspaces/$wsId'
-      path: '/workspaces/$wsId'
-      fullPath: '/workspaces/$wsId'
-      preLoaderRoute: typeof WorkspacesWsIdRouteImport
-      parentRoute: typeof rootRouteImport
-    }
-    '/chat/$chatId': {
-      id: '/chat/$chatId'
+    '/_shell/chat/$chatId': {
+      id: '/_shell/chat/$chatId'
       path: '/chat/$chatId'
       fullPath: '/chat/$chatId'
-      preLoaderRoute: typeof ChatChatIdRouteImport
-      parentRoute: typeof rootRouteImport
+      preLoaderRoute: typeof ShellChatChatIdRouteImport
+      parentRoute: typeof ShellRoute
     }
-    '/workspaces/$wsId/': {
-      id: '/workspaces/$wsId/'
+    '/_shell/ide/$projectId/home': {
+      id: '/_shell/ide/$projectId/home'
+      path: '/ide/$projectId/home'
+      fullPath: '/ide/$projectId/home'
+      preLoaderRoute: typeof ShellIdeProjectIdHomeRouteImport
+      parentRoute: typeof ShellRoute
+    }
+    '/_shell/ide/$projectId/$repoId/$wsId': {
+      id: '/_shell/ide/$projectId/$repoId/$wsId'
+      path: '/ide/$projectId/$repoId/$wsId'
+      fullPath: '/ide/$projectId/$repoId/$wsId'
+      preLoaderRoute: typeof ShellIdeProjectIdRepoIdWsIdRouteImport
+      parentRoute: typeof ShellRoute
+    }
+    '/_shell/ide/$projectId/$repoId/$wsId/': {
+      id: '/_shell/ide/$projectId/$repoId/$wsId/'
       path: '/'
-      fullPath: '/workspaces/$wsId/'
-      preLoaderRoute: typeof WorkspacesWsIdIndexRouteImport
-      parentRoute: typeof WorkspacesWsIdRoute
+      fullPath: '/ide/$projectId/$repoId/$wsId/'
+      preLoaderRoute: typeof ShellIdeProjectIdRepoIdWsIdIndexRouteImport
+      parentRoute: typeof ShellIdeProjectIdRepoIdWsIdRoute
     }
   }
 }
 
-interface WorkspacesWsIdRouteChildren {
-  WorkspacesWsIdIndexRoute: typeof WorkspacesWsIdIndexRoute
+interface ShellIdeProjectIdRepoIdWsIdRouteChildren {
+  ShellIdeProjectIdRepoIdWsIdIndexRoute: typeof ShellIdeProjectIdRepoIdWsIdIndexRoute
 }
 
-const WorkspacesWsIdRouteChildren: WorkspacesWsIdRouteChildren = {
-  WorkspacesWsIdIndexRoute: WorkspacesWsIdIndexRoute,
+const ShellIdeProjectIdRepoIdWsIdRouteChildren: ShellIdeProjectIdRepoIdWsIdRouteChildren =
+  {
+    ShellIdeProjectIdRepoIdWsIdIndexRoute:
+      ShellIdeProjectIdRepoIdWsIdIndexRoute,
+  }
+
+const ShellIdeProjectIdRepoIdWsIdRouteWithChildren =
+  ShellIdeProjectIdRepoIdWsIdRoute._addFileChildren(
+    ShellIdeProjectIdRepoIdWsIdRouteChildren,
+  )
+
+interface ShellRouteChildren {
+  ShellIndexRoute: typeof ShellIndexRoute
+  ShellChatChatIdRoute: typeof ShellChatChatIdRoute
+  ShellWorkspacesNewRoute: typeof ShellWorkspacesNewRoute
+  ShellIdeProjectIdHomeRoute: typeof ShellIdeProjectIdHomeRoute
+  ShellIdeProjectIdRepoIdWsIdRoute: typeof ShellIdeProjectIdRepoIdWsIdRouteWithChildren
 }
 
-const WorkspacesWsIdRouteWithChildren = WorkspacesWsIdRoute._addFileChildren(
-  WorkspacesWsIdRouteChildren,
-)
+const ShellRouteChildren: ShellRouteChildren = {
+  ShellIndexRoute: ShellIndexRoute,
+  ShellChatChatIdRoute: ShellChatChatIdRoute,
+  ShellWorkspacesNewRoute: ShellWorkspacesNewRoute,
+  ShellIdeProjectIdHomeRoute: ShellIdeProjectIdHomeRoute,
+  ShellIdeProjectIdRepoIdWsIdRoute:
+    ShellIdeProjectIdRepoIdWsIdRouteWithChildren,
+}
+
+const ShellRouteWithChildren = ShellRoute._addFileChildren(ShellRouteChildren)
 
 const rootRouteChildren: RootRouteChildren = {
-  IndexRoute: IndexRoute,
-  ChatChatIdRoute: ChatChatIdRoute,
-  WorkspacesWsIdRoute: WorkspacesWsIdRouteWithChildren,
-  WorkspacesNewRoute: WorkspacesNewRoute,
-  ProjectsIndexRoute: ProjectsIndexRoute,
+  ShellRoute: ShellRouteWithChildren,
+  OobeRoute: OobeRoute,
 }
 export const routeTree = rootRouteImport
   ._addFileChildren(rootRouteChildren)

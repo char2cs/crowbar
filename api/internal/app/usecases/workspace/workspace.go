@@ -29,15 +29,27 @@ type WorkspaceLifecycleRepo interface {
 		in wsrepo.SyncInput,
 		now time.Time,
 	) (domain.Workspace, error)
+	ResolveConflicts(
+		ctx context.Context,
+		id string,
+		now time.Time,
+	) (domain.Workspace, error)
 }
 
-// WorkingTreeGitEngine is the git surface used to recompute the summary.
+// WorkingTreeGitEngine is the git surface used to recompute the summary and to
+// predict whether folding a child into its parent would conflict.
 type WorkingTreeGitEngine interface {
 	WorkingTreeSummary(
 		ctx context.Context,
 		repoPath string,
 		forkPointSha string,
 	) (added, deleted int, hasConflicts, hasCommits bool, err error)
+	WouldMergeConflict(
+		ctx context.Context,
+		repoPath string,
+		ours string,
+		theirs string,
+	) (bool, error)
 }
 
 // ProjectActivityRollup is the best-effort project lastActivity roll-up surface.
@@ -78,6 +90,24 @@ type Usecase interface {
 		id string,
 		now time.Time,
 	) (domain.Workspace, error)
+
+	// ResolveConflicts clears a sticky pr-conflicts status once the operation in
+	// the workspace's own worktree has been resolved (the git usecase calls this
+	// on a successful operation continue).
+	ResolveConflicts(
+		ctx context.Context,
+		id string,
+		now time.Time,
+	) (domain.Workspace, error)
+
+	// MergeEligibilityFor resolves whether ws can be merged into its local
+	// parent, reading the parent's status from the caller-held sibling set. The
+	// ctx scopes the predicted-conflict git dry-run.
+	MergeEligibilityFor(
+		ctx context.Context,
+		ws domain.Workspace,
+		siblings []domain.Workspace,
+	) MergeEligibility
 }
 
 type workspaceUsecase struct {
@@ -157,6 +187,36 @@ func (u *workspaceUsecase) SyncWorkingTreeState(
 	}
 	u.rollup.TouchProjectActivity(ctx, ws.RepoID, now)
 	return synced, nil
+}
+
+// ResolveConflicts clears the workspace's pr-conflicts status after the operation
+// in its own worktree has been resolved (the git usecase calls this on a
+// successful operation continue). pr-conflicts is sticky otherwise, so this is
+// the path that lets a resolved kept-rebase drop its conflict warning.
+func (u *workspaceUsecase) ResolveConflicts(
+	ctx context.Context,
+	id string,
+	now time.Time,
+) (domain.Workspace, error) {
+	ws, err := u.repo.ResolveConflicts(ctx, id, now)
+	if err != nil {
+		return domain.Workspace{}, fmt.Errorf("workspace: resolve conflicts: %w", err)
+	}
+	u.rollup.TouchProjectActivity(ctx, ws.RepoID, now)
+	return ws, nil
+}
+
+// MergeEligibilityFor resolves whether ws can be merged into its local parent.
+// No repository call is made — the parent is resolved from siblings, which the
+// caller already holds from a preceding List call. Delegates to
+// ResolveMergeEligibility so the snapshot read and the live broadcast share one
+// implementation; the caller supplies the context for the conflict dry-run.
+func (u *workspaceUsecase) MergeEligibilityFor(
+	ctx context.Context,
+	ws domain.Workspace,
+	siblings []domain.Workspace,
+) MergeEligibility {
+	return ResolveMergeEligibility(ctx, ws, siblings, u.git)
 }
 
 func (u *workspaceUsecase) summarize(

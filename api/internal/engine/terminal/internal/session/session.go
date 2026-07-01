@@ -1,18 +1,41 @@
 package session
 
 import (
+	"bytes"
 	"errors"
 	"fmt"
 	"io"
+	"net/url"
 	"os"
 	"os/exec"
+	"strings"
 	"sync"
 	"syscall"
+	"time"
 
 	"github.com/creack/pty"
+
+	"github.com/char2cs/crowbar/api/internal/core/safego"
+	"github.com/char2cs/crowbar/api/internal/engine/terminal/internal/model"
 )
 
 const clientSendBuf = 256
+
+// newModel is the model-construction seam. It is a package-level var only so a unit test can
+// substitute a model whose Resize/Serialize panics, driving the §8.5 session recover
+// backstops (mutateModelLocked/serializeLocked) through Session.Resize/Attach — the real
+// vtModel recovers Write panics internally, so those session backstops are otherwise
+// unreachable from a test. Production never reassigns it; spawn is its sole caller.
+var newModel = model.New
+
+// defaultScrollbackLines is the scrollback depth a create/restore with no explicit
+// value resolves to — mirroring the frontend's terminalScrollback default (§9.1).
+const defaultScrollbackLines = 10000
+
+// foregroundSampleInterval debounces the per-chunk foreground-process-group sample so
+// the TIOCGPGRP ioctl (and the app-death-edge model teardown) stays off the hot path
+// while still converging within ~¼ s of an app exiting (§11.1 sampling site #1).
+const foregroundSampleInterval = 250 * time.Millisecond
 
 // OutputFrame is a chunk of PTY output delivered to attached clients.
 type OutputFrame struct {
@@ -25,46 +48,226 @@ type client struct {
 	send chan OutputFrame
 }
 
-// Session is a single live PTY session.
+// Session is a single PTY session. It may be live (ptmx != nil, model != nil) or
+// suspended (ptmx == nil, model == nil, created via NewPlaceholder which holds only the
+// persisted rawBlob).
 type Session struct {
-	id      string
-	ptmx    *os.File
-	cmd     *exec.Cmd
-	ring    *RingBuffer
-	mu      sync.Mutex
-	clients map[*client]struct{}
-	done    chan struct{}
-	once    sync.Once
+	id         string
+	ptmx       *os.File
+	cmd        *exec.Cmd
+	model      model.TerminalModel
+	serializer model.Serializer
+	mu         sync.Mutex
+	flushMu    sync.Mutex
+	clients    map[*client]struct{}
+	done       chan struct{}
+	once       sync.Once
+	suspending bool
+	dirty      bool
+	exitCode   int
+	cwd        string
+	shell      string
+	profileID  string
+	// lastBlob caches the last live-session serialized blob (header + redraw) so a
+	// cadence flush of an unchanged session reuses it and skips the grid render (§8.4).
+	// It is reclaimable under memory pressure (DropCachedBlob, §9.4).
+	lastBlob []byte
+	// rawBlob is the placeholder's persisted serialized blob, returned verbatim by the
+	// model-less Snapshot fast-path. Distinct from lastBlob and never aliased (§8.4).
+	rawBlob []byte
+	// modelPanics counts recovered emulator panics across every model-access path
+	// (Write/Resize/Serialize/teardown), surfaced via Stats and never fatal (§8.5).
+	modelPanics int
+	// lastForegroundPgid latches the previous foreground process-group sample so the
+	// app→shell return edge fires OnForegroundReset exactly once (§11.1).
+	lastForegroundPgid int
+	lastFgSampleAt     time.Time
+	// sampleForegroundLocked is the §11.1 site #1 foreground-process-group probe that
+	// pumpStep runs strictly LAST in its critical section (after fan-out and the model
+	// write). It is a field — wired to checkForegroundResetLocked in newBareSession —
+	// solely so a test can substitute a deterministic hooked sampler to pin the
+	// fan-out → model-write → foreground-sample ordering the spec mandates (§11.1 site #1).
+	sampleForegroundLocked func()
 }
 
-// New spawns a PTY subprocess and starts the io pump.
-// shell is the binary to exec; cwd is the working directory.
+// newBareSession allocates a Session shell with no PTY and no model. New/NewRestored fill
+// it in via spawn; NewPlaceholder stores only its rawBlob.
+func newBareSession(
+	id string,
+	shell string,
+	cwd string,
+	profileID string,
+) *Session {
+	s := &Session{
+		id:        id,
+		clients:   make(map[*client]struct{}),
+		done:      make(chan struct{}),
+		cwd:       cwd,
+		shell:     shell,
+		profileID: profileID,
+		exitCode:  -1,
+	}
+	s.sampleForegroundLocked = s.checkForegroundResetLocked
+	return s
+}
+
+// spawnParams carries exactly one of the two birth modes (§9.1): create (Blob == nil,
+// size+scrollback from Cols/Rows/ScrollbackLines) or restore (Blob != nil, size+scrollback
+// parsed from the blob's CRWB1 header, the rest ignored).
+type spawnParams struct {
+	Cols            int
+	Rows            int
+	ScrollbackLines int
+	Blob            []byte
+}
+
+// New spawns a PTY subprocess at cols×rows, builds the screen model at that size and the
+// resolved scrollback depth, and starts the io pump.
 func New(
 	id string,
 	shell string,
 	cwd string,
+	profileID string,
 	env []string,
+	cols int,
+	rows int,
+	scrollbackLines int,
 ) (*Session, error) {
-	cmd := exec.Command(shell)
-	cmd.Dir = cwd
+	s := newBareSession(id, shell, cwd, profileID)
+	if err := s.spawn(env, spawnParams{Cols: cols, Rows: rows, ScrollbackLines: scrollbackLines}); err != nil {
+		return nil, err
+	}
+	return s, nil
+}
+
+// NewRestored spawns a PTY subprocess and rebuilds the screen model from a persisted blob:
+// spawn parses the blob's CRWB1 header for the authoritative size+scrollback (§12), sizes
+// the PTY to it BEFORE the first read, and feeds the redraw bytes into the fresh model
+// before the pump starts so the restored screen is reproduced exactly.
+func NewRestored(
+	id string,
+	shell string,
+	cwd string,
+	profileID string,
+	env []string,
+	rawBlob []byte,
+) (*Session, error) {
+	s := newBareSession(id, shell, cwd, profileID)
+	if err := s.spawn(env, spawnParams{Blob: rawBlob}); err != nil {
+		return nil, err
+	}
+	return s, nil
+}
+
+// NewPlaceholder builds a suspended Session with no live PTY and no model. The serialized
+// rawBlob is retained so a later restore re-reads it; Snapshot returns it verbatim. No pump
+// goroutine is started — a later Attach→restore spawns a fresh NewRestored session.
+func NewPlaceholder(
+	id string,
+	shell string,
+	cwd string,
+	profileID string,
+	rawBlob []byte,
+) *Session {
+	s := newBareSession(id, shell, cwd, profileID)
+	s.rawBlob = rawBlob
+	return s
+}
+
+// spawn is the single PTY-birth helper shared by the create and restore paths. It starts
+// the PTY, sizes it to the resolved dimensions BEFORE the first read (preserving the
+// model==PTY size invariant, §4.2), builds the model+serializer at that size, replays the
+// restore redraw (if any) into the model, and launches the pump goroutine.
+func (s *Session) spawn(
+	env []string,
+	p spawnParams,
+) error {
+	cols, rows, sbLines, redraw := s.resolveBirth(p)
+
+	cmd := exec.Command(s.shell)
+	cmd.Dir = s.cwd
 	cmd.Env = env
 
 	ptmx, err := pty.Start(cmd)
 	if err != nil {
-		return nil, fmt.Errorf("session: pty start: %w", err)
+		return fmt.Errorf("session: pty start: %w", err)
 	}
 
-	s := &Session{
-		id:      id,
-		ptmx:    ptmx,
-		cmd:     cmd,
-		ring:    newRingBuffer(defaultRingSize),
-		clients: make(map[*client]struct{}),
-		done:    make(chan struct{}),
+	// Size the PTY to the persisted/requested dimensions before any Read so the shell's
+	// first output is generated at the correct width.
+	_ = pty.Setsize(ptmx, &pty.Winsize{Cols: uint16(cols), Rows: uint16(rows)})
+
+	m, ser := newModel(cols, rows, sbLines)
+	if len(redraw) > 0 {
+		m.Write(redraw)
 	}
+
+	s.ptmx = ptmx
+	s.cmd = cmd
+	s.model = m
+	s.serializer = ser
 
 	go s.pump()
-	return s, nil
+	return nil
+}
+
+// resolveBirth returns the size, scrollback depth, and restore redraw bytes for a spawn,
+// applying the §9.1 defaults (80×24, scrollback 10000) and, for the restore path, parsing
+// the CRWB1 header.
+func (s *Session) resolveBirth(
+	p spawnParams,
+) (cols int, rows int, sbLines int, redraw []byte) {
+	if p.Blob != nil {
+		hc, hr, hsb, body := parseBlob(p.Blob)
+		return resolveCols(hc), resolveRows(hr), resolveScrollback(hsb), body
+	}
+	return resolveCols(p.Cols), resolveRows(p.Rows), resolveScrollback(p.ScrollbackLines), nil
+}
+
+func resolveCols(
+	c int,
+) int {
+	if c <= 0 {
+		return 80
+	}
+	return c
+}
+
+func resolveRows(
+	r int,
+) int {
+	if r <= 0 {
+		return 24
+	}
+	return r
+}
+
+func resolveScrollback(
+	n int,
+) int {
+	if n <= 0 {
+		return defaultScrollbackLines
+	}
+	return n
+}
+
+// parseBlob splits a persisted blob into its CRWB1 header fields and the redraw body. A
+// malformed/absent header (including a stale raw .buf) returns zero size and a nil body,
+// which resolveBirth treats as an empty session at the default size (§12, no migration).
+func parseBlob(
+	blob []byte,
+) (cols int, rows int, scrollbackLines int, body []byte) {
+	nl := bytes.IndexByte(blob, '\n')
+	if nl < 0 {
+		return 0, 0, 0, nil
+	}
+	header := string(blob[:nl])
+	var alt int
+	n, err := fmt.Sscanf(header, "CRWB1 %d %d %d %d", &cols, &rows, &alt, &scrollbackLines)
+	if err != nil || n != 4 {
+		return 0, 0, 0, nil
+	}
+	return cols, rows, scrollbackLines, blob[nl+1:]
 }
 
 // ID returns the session identifier.
@@ -77,9 +280,73 @@ func (s *Session) Done() <-chan struct{} {
 	return s.done
 }
 
-// Attach registers a new client and returns its channel, pre-filled with the
-// ring-buffer snapshot. The snapshot and registration happen under a single
-// mutex acquisition so no output is lost or duplicated.
+// IsLive reports whether the PTY is still open (ptmx != nil).
+func (s *Session) IsLive() bool {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.ptmx != nil
+}
+
+// AttachedCount returns the number of currently attached clients.
+func (s *Session) AttachedCount() int {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return len(s.clients)
+}
+
+// State returns one of "active", "detached", or "suspended".
+func (s *Session) State() string {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.ptmx == nil {
+		return "suspended"
+	}
+	if len(s.clients) > 0 {
+		return "active"
+	}
+	return "detached"
+}
+
+// CWD returns the last known working directory (updated from OSC 7 sequences).
+func (s *Session) CWD() string {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.cwd
+}
+
+// Shell returns the shell binary path.
+func (s *Session) Shell() string {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.shell
+}
+
+// ProfileID returns the terminal profile identifier.
+func (s *Session) ProfileID() string {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.profileID
+}
+
+// FlushMu returns the dedicated flush mutex used by the engine to serialise bulk
+// persistence with the cadence flush. It is separate from s.mu; Snapshot takes s.mu
+// INSIDE the flushMu hold, never the reverse (§8.4).
+func (s *Session) FlushMu() *sync.Mutex {
+	return &s.flushMu
+}
+
+// IsIdle reports whether the shell is idle (no foreground child process).
+func (s *Session) IsIdle() bool {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.isIdleLocked()
+}
+
+// Attach registers a new client and returns its channel, pre-filled with ONE clean
+// ground-state redraw serialized from the current model (§8.3/Appendix A). No raw replay,
+// no DEC-mode preamble: the serialized state is self-contained, query-free, and fully
+// terminated. The buffered mid-sequence partial is appended after the redraw so the new
+// client's fresh parser converges to the same boundary the live clients hold.
 func (s *Session) Attach() (<-chan OutputFrame, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -92,9 +359,16 @@ func (s *Session) Attach() (<-chan OutputFrame, error) {
 
 	cl := &client{send: make(chan OutputFrame, clientSendBuf)}
 
-	snap := s.ring.Snapshot()
-	if len(snap) > 0 {
-		cl.send <- OutputFrame{SessionID: s.id, Data: snap}
+	if s.model != nil {
+		// Sample the foreground-reset detector before serializing (§11.1 site #2) so a
+		// re-attach inside the pumpStep debounce window of a SIGKILLed app never bakes its
+		// stale alt/mouse modes into the new client.
+		s.checkForegroundResetLocked()
+		redraw := s.serializeLocked()
+		redraw = append(redraw, s.model.PendingInput()...)
+		if len(redraw) > 0 {
+			cl.send <- OutputFrame{SessionID: s.id, Data: redraw}
+		}
 	}
 
 	s.clients[cl] = struct{}{}
@@ -110,8 +384,7 @@ func (s *Session) Detach(
 	s.detachLocked(ch)
 }
 
-// detachLocked removes the client whose send channel matches ch.
-// Caller must hold s.mu.
+// detachLocked removes the client whose send channel matches ch. Caller must hold s.mu.
 func (s *Session) detachLocked(
 	ch <-chan OutputFrame,
 ) {
@@ -124,52 +397,144 @@ func (s *Session) detachLocked(
 	}
 }
 
-// Write sends data to the PTY stdin.
+// Write sends data to the PTY stdin. Returns an error if the PTY is not live.
 func (s *Session) Write(
 	data []byte,
 ) error {
-	_, err := s.ptmx.Write(data)
+	s.mu.Lock()
+	ptmx := s.ptmx
+	s.mu.Unlock()
+	if ptmx == nil {
+		return fmt.Errorf("session: write: session not live")
+	}
+	_, err := ptmx.Write(data)
 	if err != nil {
 		return fmt.Errorf("session: write: %w", err)
 	}
 	return nil
 }
 
-// Resize updates the PTY window size.
+// Resize updates the PTY window size and reshapes the model in lockstep under one s.mu
+// hold, with the syscall before the model reshape and no intervening model.Write, so the
+// model and PTY never disagree on the active width (§4.2/§8.3). The model reshape is
+// panic-isolated (§8.5). Returns an error if the PTY is not live.
 func (s *Session) Resize(
 	cols uint16,
 	rows uint16,
 ) error {
-	err := pty.Setsize(s.ptmx, &pty.Winsize{
-		Cols: cols,
-		Rows: rows,
-	})
-	if err != nil {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.ptmx == nil {
+		return fmt.Errorf("session: resize: session not live")
+	}
+	if err := pty.Setsize(s.ptmx, &pty.Winsize{Cols: cols, Rows: rows}); err != nil {
 		return fmt.Errorf("session: resize: %w", err)
 	}
+	s.mutateModelLocked(func() { s.model.Resize(int(cols), int(rows)) })
+	s.dirty = true
+	s.lastBlob = nil
 	return nil
 }
 
-// Kill terminates the PTY process and waits for cleanup.
+// Kill terminates the PTY process. For placeholder sessions (ptmx == nil) it only calls
+// shutdown(). For live sessions it closes the PTY, kills the child, nils ptmx, then calls
+// shutdown() WITHOUT holding s.mu (shutdown re-acquires it inside once.Do).
 func (s *Session) Kill() {
+	s.mu.Lock()
+	if s.ptmx == nil {
+		s.mu.Unlock()
+		s.shutdown()
+		return
+	}
 	_ = s.ptmx.Close()
-	_ = s.cmd.Process.Kill()
-	_ = s.cmd.Wait()
+	if s.cmd != nil && s.cmd.Process != nil {
+		_ = s.cmd.Process.Kill()
+	}
+	s.ptmx = nil
+	s.mu.Unlock()
+
 	s.shutdown()
 }
 
-// pump reads PTY stdout, appends to the ring, and fans out to all clients.
+// pumpStep is the production critical section for one PTY output chunk. Under s.mu it fans
+// the RAW bytes out to live clients FIRST (zero added latency, §8.2), THEN feeds the chunk
+// to the model under a panic backstop, then — last, debounced — samples the foreground
+// process group so neither the ioctl nor the app-death teardown can ever precede or delay
+// the live fan-out. OSC 7 is scanned outside the lock on the freshly-owned chunk.
+func (s *Session) pumpStep(chunk []byte) {
+	path, ok := parseLastOSC7(chunk)
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if ok {
+		s.cwd = path
+	}
+	s.fanOutLocked(chunk)
+	s.writeModelLocked(chunk)
+	s.dirty = true
+	if now := time.Now(); now.Sub(s.lastFgSampleAt) >= foregroundSampleInterval {
+		s.lastFgSampleAt = now
+		s.sampleForegroundLocked()
+	}
+}
+
+// writeModelLocked feeds a chunk into the model under a recover backstop so a parse panic
+// on adversarial bytes bumps modelPanics and continues rather than stranding s.mu or
+// killing the session (§8.2). Caller holds s.mu.
+func (s *Session) writeModelLocked(chunk []byte) {
+	defer func() {
+		if r := recover(); r != nil {
+			s.modelPanics++
+		}
+	}()
+	if s.model != nil {
+		s.model.Write(chunk)
+	}
+}
+
+// serializeLocked runs serializer.Serialize under a recover so a Serialize/downcast panic
+// can never escape (§8.5). Caller holds s.mu. On panic it bumps modelPanics and returns
+// nil ("no redraw this time").
+func (s *Session) serializeLocked() (redraw []byte) {
+	defer func() {
+		if r := recover(); r != nil {
+			s.modelPanics++
+			redraw = nil
+		}
+	}()
+	return s.serializer.Serialize(s.model)
+}
+
+// mutateModelLocked runs a void model mutation under the same recover backstop as the
+// Write/Serialize paths so a Resize-drain or teardown panic bumps modelPanics and returns
+// instead of escaping (§8.5). Caller holds s.mu.
+func (s *Session) mutateModelLocked(fn func()) {
+	defer func() {
+		if r := recover(); r != nil {
+			s.modelPanics++
+		}
+	}()
+	fn()
+}
+
+// pump reads PTY stdout and delivers each chunk via pumpStep.
 func (s *Session) pump() {
+	defer safego.Recover("terminal.session.pump")
 	defer s.shutdown()
 
-	buf := make([]byte, 4096)
+	s.mu.Lock()
+	ptmx := s.ptmx
+	s.mu.Unlock()
+	if ptmx == nil {
+		return
+	}
+
+	buf := make([]byte, 64*1024)
 	for {
-		n, err := s.ptmx.Read(buf)
+		n, err := ptmx.Read(buf)
 		if n > 0 {
 			chunk := make([]byte, n)
 			copy(chunk, buf[:n])
-			s.ring.Write(chunk)
-			s.fanOut(chunk)
+			s.pumpStep(chunk)
 		}
 		if err != nil {
 			if !isNormalPTYClose(err) {
@@ -195,15 +560,22 @@ func isNormalPTYClose(
 	return false
 }
 
-// fanOut delivers a chunk to all currently attached clients.
-// Clients whose channel is full are disconnected (drop-on-overflow).
+// fanOut delivers a chunk to all currently attached clients. Thin wrapper for callers that
+// do not already hold s.mu.
 func (s *Session) fanOut(
 	chunk []byte,
 ) {
-	frame := OutputFrame{SessionID: s.id, Data: chunk}
-
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	s.fanOutLocked(chunk)
+}
+
+// fanOutLocked delivers a chunk to all currently attached clients. Clients whose channel is
+// full are disconnected (drop-on-overflow). Caller must hold s.mu.
+func (s *Session) fanOutLocked(
+	chunk []byte,
+) {
+	frame := OutputFrame{SessionID: s.id, Data: chunk}
 
 	var overflow []*client
 	for cl := range s.clients {
@@ -220,16 +592,280 @@ func (s *Session) fanOut(
 	}
 }
 
-// shutdown closes the done channel and all client channels exactly once.
+// shutdown reaps the child process, tears down the model, and closes the done + client
+// channels exactly once. The cmd.Wait() here is the ONLY reap. once guards against a double
+// Wait when both Kill() and pump()'s exit reach shutdown.
 func (s *Session) shutdown() {
 	s.once.Do(func() {
+		code := -1
+		if s.cmd != nil {
+			err := s.cmd.Wait()
+			if err == nil {
+				code = 0
+			} else {
+				var exitErr *exec.ExitError
+				if errors.As(err, &exitErr) {
+					code = exitErr.ExitCode()
+				}
+			}
+		}
+
 		s.mu.Lock()
 		defer s.mu.Unlock()
 
+		s.exitCode = code
+		s.ptmx = nil
+		if s.model != nil {
+			s.model.Close()
+		}
 		for cl := range s.clients {
 			close(cl.send)
 		}
 		s.clients = make(map[*client]struct{})
 		close(s.done)
 	})
+}
+
+// Snapshot returns the session's persisted blob and whether it changed since the last
+// flush (§8.4). A model-less placeholder returns its stored rawBlob verbatim with no model
+// access. A live session samples the foreground reset, reuses lastBlob when clean, otherwise
+// serializes header+redraw under one s.mu hold and clears the dirty bit in that same hold.
+func (s *Session) Snapshot() (blob []byte, changed bool) {
+	if s.model == nil {
+		return s.rawBlob, false
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.checkForegroundResetLocked()
+	if !s.dirty && s.lastBlob != nil {
+		return s.lastBlob, false
+	}
+	blob = append([]byte(s.header()), s.serializeLocked()...)
+	s.lastBlob = blob
+	s.dirty = false
+	return blob, true
+}
+
+// header builds the mandatory CRWB1 size line, sourced entirely from the model's
+// HeaderState so it never re-parses the stream (§12). Caller holds s.mu; only live sessions
+// (model != nil) call it.
+func (s *Session) header() string {
+	cols, rows, alt, sb := s.model.HeaderState()
+	altBit := 0
+	if alt {
+		altBit = 1
+	}
+	return fmt.Sprintf("CRWB1 %d %d %d %d\n", cols, rows, altBit, sb)
+}
+
+// InjectLocal feeds a clean-ANSI chunk into THIS session's model only — never the live wire
+// and never the persisted .buf. It is the sole sanctioned way for the engine to push a
+// synthetic, daemon-authored on-screen notice (restore/suspend) so it surfaces on the next
+// Serialize (§12).
+func (s *Session) InjectLocal(
+	b []byte,
+) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.injectLocalLocked(b)
+}
+
+// injectLocalLocked is the lock-free core of InjectLocal. Caller holds s.mu. It feeds bytes
+// through writeModelLocked (the §8.5 recover) so a parse panic on a daemon notice cannot
+// escape, and defensively drives the model to the primary buffer first so a notice can never
+// land in a transient alt buffer (§12). It marks the session dirty and drops the cache; it
+// never fans out.
+func (s *Session) injectLocalLocked(
+	b []byte,
+) {
+	if s.model == nil {
+		return
+	}
+	if _, _, alt, _ := s.model.HeaderState(); alt {
+		s.writeModelLocked([]byte("\x1b[?1049l\x1b[?47l\x1b[?1047l"))
+	}
+	s.writeModelLocked(b)
+	s.dirty = true
+	s.lastBlob = nil
+}
+
+// ForceSuspendSnapshot performs the §11.2 teardown and the suspending serialize as ONE
+// uninterrupted s.mu critical section, so no live pumpStep chunk can interleave between the
+// teardown and the serialize and repaint alt content onto the model just forced to primary.
+// It drives the model to the primary buffer (OnForegroundReset), injects the notice into
+// that primary screen, serializes a clean primary blob, caches it, and returns it for the
+// engine to persist verbatim WITHOUT re-Snapshotting. Caller must NOT already hold s.mu.
+func (s *Session) ForceSuspendSnapshot(
+	notice []byte,
+) []byte {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.model == nil {
+		return s.rawBlob
+	}
+	s.mutateModelLocked(s.model.OnForegroundReset)
+	s.injectLocalLocked(notice)
+	blob := append([]byte(s.header()), s.serializeLocked()...)
+	s.dirty = false
+	s.lastBlob = blob
+	return blob
+}
+
+// ExitCode returns the process exit code captured by shutdown(). -1 if not yet exited or
+// killed with a signal (unknown code).
+func (s *Session) ExitCode() int {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.exitCode
+}
+
+// BeginSuspendIfEligible atomically checks idle/no-clients/not-already-suspending and, if
+// eligible, sets the suspending flag — closing the TOCTOU window before the kill.
+func (s *Session) BeginSuspendIfEligible() bool {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if len(s.clients) > 0 || s.suspending || !s.isIdleLocked() {
+		return false
+	}
+	s.suspending = true
+	return true
+}
+
+// Suspending reports whether the suspend flag has been set.
+func (s *Session) Suspending() bool {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.suspending
+}
+
+// BeginForceSuspend atomically sets the suspending flag for a DETACHED session even when it
+// is not idle. Returns false if it has clients or is already suspending.
+func (s *Session) BeginForceSuspend() bool {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if len(s.clients) > 0 || s.suspending {
+		return false
+	}
+	s.suspending = true
+	return true
+}
+
+// MarkSuspendingForShutdown unconditionally sets suspending=true so reapOnDone preserves the
+// .buf/meta row Shutdown wrote for daemon-restart restore.
+func (s *Session) MarkSuspendingForShutdown() {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.suspending = true
+}
+
+// Health reports the session's parse-health for the engine's Stats observability surface
+// (§9.4): whether the model is in the sticky degraded state, and the total recovered parse
+// panics. The count combines the model's own ModelHealth.ParsePanics() (panics x/vt's Write
+// recovered internally) with the session-level s.modelPanics backstop counter (panics that
+// escaped a model method — Resize/Serialize/teardown — into the §8.5 recover), so neither
+// is write-only and a blanked-and-reparsed session is observable. A placeholder (model ==
+// nil) or a backend that does not implement ModelHealth contributes only s.modelPanics.
+func (s *Session) Health() (degraded bool, parsePanics int) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	parsePanics = s.modelPanics
+	if h, ok := s.model.(model.ModelHealth); ok {
+		if h.Degraded() {
+			degraded = true
+		}
+		parsePanics += h.ParsePanics()
+	}
+	return
+}
+
+// ModelBytes returns the session's estimated resident size for the engine's memory ceiling:
+// a placeholder counts only its rawBlob; a live session counts the model's grid+scrollback
+// estimate plus the cached blob (§9.4).
+func (s *Session) ModelBytes() int64 {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.model == nil {
+		return int64(len(s.rawBlob))
+	}
+	return s.model.ModelBytes() + int64(len(s.lastBlob))
+}
+
+// SerializedLen returns the byte length of a fresh serialize of the current screen (a
+// placeholder reports its stored blob length). It is a PURE read: unlike Snapshot it does
+// NOT consume the dirty bit or update the cached blob, so observers can poll the screen size
+// without perturbing the cadence-flush change tracking.
+func (s *Session) SerializedLen() int {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.model == nil {
+		return len(s.rawBlob)
+	}
+	return len(s.serializeLocked())
+}
+
+// DropCachedBlob reclaims the live-session blob cache under memory pressure (§9.4 Phase-3
+// pre-step): it nils lastBlob and marks the session dirty so the next Snapshot re-serializes
+// a correct, current blob. No-op for a placeholder. Returns the bytes reclaimed.
+func (s *Session) DropCachedBlob() int64 {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.model == nil || s.lastBlob == nil {
+		return 0
+	}
+	n := int64(len(s.lastBlob))
+	s.lastBlob = nil
+	s.dirty = true
+	return n
+}
+
+// parseLastOSC7 scans b for OSC 7 sequences of the form
+//
+//	ESC ] 7 ; file://[host]/path BEL
+//
+// and returns the decoded path from the last match found. Best-effort: partial sequences
+// that span chunk boundaries are silently ignored.
+func parseLastOSC7(b []byte) (string, bool) {
+	prefix := []byte("\x1b]7;")
+	last := ""
+	found := false
+
+	for {
+		idx := bytes.Index(b, prefix)
+		if idx < 0 {
+			break
+		}
+		b = b[idx+len(prefix):]
+
+		end := -1
+		for i := 0; i < len(b); i++ {
+			if b[i] == '\x07' {
+				end = i
+				break
+			}
+			if b[i] == '\x1b' && i+1 < len(b) && b[i+1] == '\\' {
+				end = i
+				break
+			}
+		}
+		if end < 0 {
+			break
+		}
+
+		uri := string(b[:end])
+		b = b[end+1:]
+
+		if !strings.HasPrefix(uri, "file://") {
+			continue
+		}
+
+		parsed, err := url.Parse(uri)
+		if err != nil || parsed.Path == "" {
+			continue
+		}
+
+		last = parsed.Path
+		found = true
+	}
+
+	return last, found
 }

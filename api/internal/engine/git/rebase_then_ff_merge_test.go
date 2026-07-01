@@ -67,15 +67,16 @@ func TestRepoMutex_SharedAcrossWorktreesOfSameClone(
 	childWT := filepath.Join(t.TempDir(), "child")
 	gitRun(t, repo, "worktree", "add", "-b", "wt", childWT)
 
+	ctx := context.Background()
 	assert.True(
 		t,
-		git.SameRepoMutex(repo, childWT),
+		git.SameRepoMutex(ctx, repo, childWT),
 		"sibling worktrees of one clone must share a lock",
 	)
 	assert.Equal(
 		t,
-		git.ExportedResolveCommonDir(repo),
-		git.ExportedResolveCommonDir(childWT),
+		git.ExportedResolveCommonDir(ctx, repo),
+		git.ExportedResolveCommonDir(ctx, childWT),
 		"both worktrees must resolve to the same common dir",
 	)
 }
@@ -84,5 +85,5 @@ func TestResolveCommonDir_NonGitDir_FallsBackToPath(
 	t *testing.T,
 ) {
 	dir := t.TempDir()
-	assert.Equal(t, dir, git.ExportedResolveCommonDir(dir))
+	assert.Equal(t, dir, git.ExportedResolveCommonDir(context.Background(), dir))
 }

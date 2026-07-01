@@ -12,10 +12,17 @@ import "github.com/gin-gonic/gin"
 // resources such as the FileWatcher and LSP servers. When the hooks are nil the
 // Broadcaster behaves exactly as without them (no regression).
 type StreamDef[T any] struct {
-	Namespace     func(T) string
-	Serialize     func(T) ([]byte, error)
-	Filters       []FilterDef[T]
-	Snapshot      func() []T
+	Namespace func(T) string
+	Serialize func(T) ([]byte, error)
+	Filters   []FilterDef[T]
+	Snapshot  func(scope string) []T
+	// FlatNamespace marks a stream whose Namespace is a bare leaf id (e.g. the
+	// git/files/lsp wsId) rather than a hierarchical "p/r/w" path. Such streams
+	// are scoped only by their explicit Filters; the hierarchical client-scope
+	// prefix (derived from the projectId/repoId/wsId path params their routes
+	// now nest under) is not applied, since a "p/r" prefix can never match a
+	// bare wsId namespace.
+	FlatNamespace bool
 	ScopeKey      func(*gin.Context) string
 	OnSubscribe   func(scope string)
 	OnUnsubscribe func(scope string)

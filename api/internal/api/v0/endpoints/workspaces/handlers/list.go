@@ -1,16 +1,22 @@
 package handlers
 
 import (
+	"context"
+
 	"github.com/gin-gonic/gin"
 
 	"github.com/char2cs/crowbar/api/internal/api/libs"
 	"github.com/char2cs/crowbar/api/internal/api/v0/dto"
+	"github.com/char2cs/crowbar/api/internal/app/usecases/workspace"
 	"github.com/char2cs/crowbar/api/internal/domain"
 )
 
-// List handles GET /v0/workspaces, returning the flat WorkspaceDTO[] list. An
-// optional projectId or repoId query parameter scopes the result to a single
-// project or repository; both may be supplied and are applied conjunctively.
+// List handles
+// GET /v0/projects/:projectId/repos/:repoId/workspaces, returning the
+// repo-scoped WorkspaceDTO[] list. The scope is taken from the :projectId and
+// :repoId path params and applied conjunctively over the workspace set; the
+// repo-filtered slice IS the sibling set used to compute each row's merge
+// eligibility (CanMergeLocally/ParentBranch).
 func (h *Handlers) List(
 	c *gin.Context,
 ) {
@@ -22,13 +28,16 @@ func (h *Handlers) List(
 	}
 	filtered := filterWorkspaces(
 		rows,
-		c.Query("projectId"),
-		c.Query("repoId"),
+		c.Param("projectId"),
+		c.Param("repoId"),
 	)
-	libs.WriteQueryOK(c, dto.WorkspaceDTOList(filtered))
+	libs.WriteQueryOK(c, dto.WorkspaceDTOList(filtered, h.eligibilityIn(c.Request.Context(), filtered)))
 }
 
-// Detail handles GET /v0/workspaces/:wsId, returning a single WorkspaceDTO.
+// Detail handles
+// GET /v0/projects/:projectId/repos/:repoId/workspaces/:wsId, returning a
+// single WorkspaceDTO with its merge eligibility computed against the same-repo
+// siblings.
 func (h *Handlers) Detail(
 	c *gin.Context,
 ) {
@@ -38,7 +47,38 @@ func (h *Handlers) Detail(
 		libs.WriteErr(c, status, msg)
 		return
 	}
-	libs.WriteQueryOK(c, dto.WorkspaceDTOFrom(ws))
+	siblings, err := h.siblingsOf(c, ws)
+	if err != nil {
+		status, msg := libs.StatusAndMessage(err)
+		libs.WriteErr(c, status, msg)
+		return
+	}
+	elig := h.reader.MergeEligibilityFor(c.Request.Context(), ws, siblings)
+	libs.WriteQueryOK(c, dto.WorkspaceDTOFrom(ws, elig))
+}
+
+// eligibilityIn returns a per-row eligibility resolver bound to the given
+// sibling set and request context, suitable for WorkspaceDTOList.
+func (h *Handlers) eligibilityIn(
+	ctx context.Context,
+	siblings []domain.Workspace,
+) func(domain.Workspace) workspace.MergeEligibility {
+	return func(ws domain.Workspace) workspace.MergeEligibility {
+		return h.reader.MergeEligibilityFor(ctx, ws, siblings)
+	}
+}
+
+// siblingsOf loads the same-repo workspace set for ws so Detail can compute its
+// merge eligibility against the rows the list view would scope to.
+func (h *Handlers) siblingsOf(
+	c *gin.Context,
+	ws domain.Workspace,
+) ([]domain.Workspace, error) {
+	rows, err := h.reader.List(c.Request.Context())
+	if err != nil {
+		return nil, err
+	}
+	return filterWorkspaces(rows, ws.ProjectID, ws.RepoID), nil
 }
 
 func filterWorkspaces(

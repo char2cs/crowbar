@@ -45,3 +45,20 @@ func SetErrorRunner(cleanup func(func())) {
 	gitRunner = errRunner
 	cleanup(func() { gitRunner = orig })
 }
+
+// SetRecordingRunner replaces gitRunner with a stub that records every
+// invocation's args and returns benign success, restoring the original on
+// cleanup. The returned pointer accumulates the recorded arg lists so tests can
+// assert a `--` end-of-options separator precedes a user operand.
+func SetRecordingRunner(cleanup func(func())) *[][]string {
+	var recorded [][]string
+	orig := gitRunner
+	gitRunner = func(_ context.Context, _ string, args ...string) exec.Result {
+		captured := make([]string, len(args))
+		copy(captured, args)
+		recorded = append(recorded, captured)
+		return exec.Result{ExitCode: 0}
+	}
+	cleanup(func() { gitRunner = orig })
+	return &recorded
+}

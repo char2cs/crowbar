@@ -9,6 +9,7 @@ import (
 
 	"github.com/char2cs/crowbar/api/internal/domain"
 	gitdomain "github.com/char2cs/crowbar/api/internal/domain/git"
+	"github.com/char2cs/crowbar/api/internal/engine/fs/safepath"
 )
 
 // StatusProvider resolves git status for a repo path. Implemented by the git
@@ -26,7 +27,10 @@ func List(
 	dirPath string,
 	provider StatusProvider,
 ) ([]domain.FileNode, error) {
-	full := filepath.Join(repoPath, dirPath)
+	full, err := safepath.Resolve(repoPath, dirPath)
+	if err != nil {
+		return nil, fmt.Errorf("tree: readdir %s: %w", dirPath, err)
+	}
 	entries, err := os.ReadDir(full)
 	if err != nil {
 		return nil, fmt.Errorf("tree: readdir %s: %w", dirPath, err)

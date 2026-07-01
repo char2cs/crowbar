@@ -51,20 +51,27 @@ func newContainerDeps(
 	t.Cleanup(func() { _ = adapters.Close() })
 
 	repos, err := repositories.New(
-		adapters.DB,
+		context.Background(),
+		adapters,
 		hub.NewHub(),
-		newTestAsynx[domain.Workspace](t, adapters.WorkspaceES),
-		newTestAsynx[domain.Chat](t, adapters.ChatES),
-		newTestAsynx[domain.AgentRun](t, adapters.AgentRunES),
-		newTestAsynx[domain.ReviewThread](t, adapters.ReviewThreadES),
+		newTestAsynx[domain.Chat](t, adapters.ChatES()),
+		newTestAsynx[domain.ReviewThread](t, adapters.ReviewThreadES()),
+		func(es asynxModels.Store) (asynx.Asynx[domain.Workspace], error) {
+			return asynx.New[domain.Workspace]().
+				WithEventStore(es).
+				WithShardingOpts(asynx.ShardingOpts{Shards: 8, QueueDepth: 1000}).
+				Build()
+		},
+		nil, // git conflict-checker not exercised by this test
 	)
 	require.NoError(t, err)
 
-	projects, err := storesqlite.NewFromDB[domain.Project, string](adapters.DB)
+	globalView := adapters.GlobalView()
+	projects, err := storesqlite.NewFromDB[domain.Project, string](globalView)
 	require.NoError(t, err)
-	repoStore, err := storesqlite.NewFromDB[domain.Repository, string](adapters.DB)
+	repoStore, err := storesqlite.NewFromDB[domain.Repository, string](globalView)
 	require.NoError(t, err)
-	profiles, err := storesqlite.NewFromDB[domain.TerminalProfile, string](adapters.DB)
+	profiles, err := storesqlite.NewFromDB[domain.TerminalProfile, string](globalView)
 	require.NoError(t, err)
 
 	gormStores := usecases.GORMStores{
@@ -81,7 +88,7 @@ func newContainerDeps(
 func TestContainer_New_BuildsEveryUsecase(t *testing.T) {
 	repos, gormStores, eng := newContainerDeps(t)
 
-	c, err := usecases.New(repos, gormStores, eng)
+	c, err := usecases.New(repos, gormStores, eng, func() (string, error) { return t.TempDir(), nil })
 	require.NoError(t, err)
 
 	assert.NotNil(t, c.Project)
@@ -98,7 +105,7 @@ func TestContainer_New_BuildsEveryUsecase(t *testing.T) {
 
 func TestContainer_FileTree_DelegatesToRealFsEngine(t *testing.T) {
 	repos, gormStores, eng := newContainerDeps(t)
-	c, err := usecases.New(repos, gormStores, eng)
+	c, err := usecases.New(repos, gormStores, eng, func() (string, error) { return t.TempDir(), nil })
 	require.NoError(t, err)
 
 	dir := t.TempDir()
@@ -117,7 +124,7 @@ func TestContainer_FileTree_DelegatesToRealFsEngine(t *testing.T) {
 
 func TestContainer_Import_ResolvesDefaultBranchViaRealGit(t *testing.T) {
 	repos, gormStores, eng := newContainerDeps(t)
-	c, err := usecases.New(repos, gormStores, eng)
+	c, err := usecases.New(repos, gormStores, eng, func() (string, error) { return t.TempDir(), nil })
 	require.NoError(t, err)
 
 	root := t.TempDir()

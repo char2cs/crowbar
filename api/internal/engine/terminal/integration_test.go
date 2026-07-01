@@ -145,7 +145,7 @@ func TestIntegration_TwoClientsReceiveOutput(t *testing.T) {
 	<-attachDone2
 }
 
-func TestIntegration_RingBufferReplay(t *testing.T) {
+func TestIntegration_ReattachSerializedRedraw(t *testing.T) {
 	eng := terminal.New()
 	ctx := context.Background()
 	dir := t.TempDir()
@@ -168,7 +168,9 @@ func TestIntegration_RingBufferReplay(t *testing.T) {
 	conn1.Close()
 	<-attachDone1
 
-	// Second client attaches after data is in the ring — must receive replay.
+	// Second client attaches after the screen model has captured the output.
+	// On attach the session serializes its current screen state and redraws it
+	// to the new client, so the reattaching client sees the prior output.
 	conn2 := newPipeConn()
 	attachDone2 := make(chan struct{})
 	go func() {
@@ -176,7 +178,7 @@ func TestIntegration_RingBufferReplay(t *testing.T) {
 		_ = eng.Attach(ctx, sid, conn2)
 	}()
 
-	assert.True(t, waitForOutput(t, conn2, hasRing, 3*time.Second), "replayed ring must contain 'ring'")
+	assert.True(t, waitForOutput(t, conn2, hasRing, 3*time.Second), "serialized redraw must contain 'ring'")
 
 	conn2.Close()
 	require.NoError(t, eng.Kill(ctx, sid))

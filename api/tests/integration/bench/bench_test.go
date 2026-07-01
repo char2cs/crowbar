@@ -23,140 +23,83 @@ var wsPushSeq atomic.Int64
 // mergeSeq is a package-level monotonic counter for unique worktree branches.
 var mergeSeq atomic.Int64
 
-// runWorkspaceWSPushIteration performs one benchmark iteration: creates a
-// workspace and waits for the corresponding WS broadcast event.
+// runWorkspaceWSPushIteration performs one benchmark iteration: posts a 202
+// workspace create and waits for the corresponding WS broadcast (status:"new")
+// on a shared repo-scoped watcher. This is the create→broadcast hot path.
 func runWorkspaceWSPushIteration(
 	t *testing.T,
 	env *kit.Env,
+	imported kit.ImportedRepo,
 	watcher *kit.WSWatcher,
 ) {
 	t.Helper()
 	seq := wsPushSeq.Add(1)
-	safeName := strings.ReplaceAll(
-		t.Name(),
-		"/",
-		"-",
-	)
-	branch := fmt.Sprintf(
-		"feature/bench-ws-%s-%d",
-		safeName,
-		seq,
-	)
-	resp := env.POST(t, "/v0/workspaces", map[string]any{
-		"repoId": "r1",
-		"branch": branch,
+	safeName := strings.ReplaceAll(t.Name(), "/", "-")
+	branch := fmt.Sprintf("feature/bench-ws-%s-%d", safeName, seq)
+
+	resp := env.POST(t,
+		"/v0/projects/"+imported.ProjectID+"/repos/"+imported.RepoID+"/workspaces",
+		map[string]any{"branch": branch})
+	kit.RequireStatus(t, resp, http.StatusAccepted)
+	resp.Body.Close()
+	watcher.ReadUntil(t, 10*time.Second, func(m map[string]any) bool {
+		return m["branch"] == branch && m["status"] == "new"
 	})
-	kit.RequireStatus(t, resp, http.StatusCreated)
-	wsID := kit.MutationID(t, resp)
-	kit.WaitForWorkspace(
-		t,
-		watcher,
-		wsID,
-		10*time.Second,
-		func(_ map[string]any) bool { return true },
-	)
 }
 
 // TestBenchmarkWorkspaceWSPushLatency measures the end-to-end push latency from a
-// Workspace Create (SendWait) to the WS event being received by a connected client.
-// This is the critical broadcast hot path for the Workspaces topic.
+// 202 Workspace Create to the WS event being received by a connected client.
 //
 // This is a latency regression test, not a standard Go benchmark. Run with
 // -tags=integration and UPDATE_BASELINE=1 to record a new baseline.
 func TestBenchmarkWorkspaceWSPushLatency(t *testing.T) {
 	const n = 50
 	env := kit.BuildEnv(t)
+	imported := env.ImportRepo(t, "bench-ws", "")
 
-	// Register the repo once; workspace creates reference it by ID.
-	repoResp := env.POST(t, "/v0/repos", map[string]any{
-		"id":        "r1",
-		"projectId": "bench-p",
-		"name":      "repo",
+	watcher := env.DialWorkspaces(t, imported.ProjectID, imported.RepoID)
+
+	result := kit.RunBenchmark(t, "WorkspaceWSPushLatency", n, func() {
+		runWorkspaceWSPushIteration(t, env, imported, watcher)
 	})
-	kit.RequireStatus(t, repoResp, http.StatusCreated)
-	repoResp.Body.Close()
 
-	watcher := env.DialWorkspaces(t, "?projectId=bench-p")
-
-	result := kit.RunBenchmark(
-		t,
-		"WorkspaceWSPushLatency",
-		n,
-		func() {
-			runWorkspaceWSPushIteration(t, env, watcher)
-		},
-	)
-
-	t.Logf(
-		"WorkspaceWSPushLatency p50=%v p99=%v",
-		result.P50,
-		result.P99,
-	)
-	kit.AssertNoRegression(
-		t,
-		result,
-	)
+	t.Logf("WorkspaceWSPushLatency p50=%v p99=%v", result.P50, result.P99)
+	kit.AssertNoRegression(t, result)
 }
 
-// runWorktreeMergeIteration performs one benchmark iteration: creates a parent
-// workspace, creates a child worktree, commits a file, and merges it back.
+// runWorktreeMergeIteration performs one benchmark iteration: creates a child
+// worktree, commits a file, and merges it back into the adopted-main parent.
 func runWorktreeMergeIteration(
 	t *testing.T,
 	env *kit.Env,
-	repoPath string,
-	baseBranch string,
+	imported kit.ImportedRepo,
 ) {
 	t.Helper()
 	seq := mergeSeq.Add(1)
-	safeName := strings.ReplaceAll(
-		t.Name(),
-		"/",
-		"-",
-	)
-	branch := fmt.Sprintf(
-		"feature/bench-%s-%d",
-		safeName,
-		seq,
-	)
+	safeName := strings.ReplaceAll(t.Name(), "/", "-")
+	branch := fmt.Sprintf("feature/bench-%s-%d", safeName, seq)
 
-	// Create parent workspace via HTTP; capture the server-assigned UUID.
-	parentResp := env.POST(t, "/v0/workspaces", map[string]any{
-		"repoId": "r1",
-		"branch": baseBranch,
-	})
-	kit.RequireStatus(t, parentResp, http.StatusCreated)
-	parentID := kit.MutationID(t, parentResp)
-
-	// Create child workspace via POST /v0/workspaces with parentId.
-	childResp := env.POST(t, "/v0/workspaces", map[string]any{
-		"repoId":   "r1",
-		"branch":   branch,
-		"parentId": parentID,
-	})
-	kit.RequireStatus(t, childResp, http.StatusCreated)
-	childID := kit.MutationID(t, childResp)
-
-	// Fetch child detail to get the worktree path.
-	getResp := env.GET(t, "/v0/workspaces/"+childID)
-	kit.RequireStatus(t, getResp, http.StatusOK)
-	var childWs map[string]any
-	kit.DecodeEnvData(t, getResp, &childWs)
-	childPath := childWs["worktreePath"].(string)
-
-	kit.CommitFile(
+	childID := env.CreateChildWorkspace(
 		t,
-		childPath,
-		"bench.txt",
-		fmt.Sprintf("bench content %d\n", seq),
-		"bench commit",
+		imported.ProjectID,
+		imported.RepoID,
+		branch,
+		imported.WorkspaceID,
 	)
+	childPath := env.WorktreePath(imported.ProjectID, imported.RepoID, childID)
 
-	// Merge child into parent via HTTP.
-	mergeResp := env.POST(t, "/v0/workspaces/"+childID+"/merge-into-parent", map[string]any{
-		"strategy": "merge",
-	})
-	kit.RequireStatus(t, mergeResp, http.StatusOK)
+	kit.CommitFile(t, childPath, "bench.txt", fmt.Sprintf("bench content %d\n", seq), "bench commit")
+
+	watcher := env.DialWorkspace(t, imported.ProjectID, imported.RepoID, childID)
+	mergeResp := env.POST(t,
+		"/v0/projects/"+imported.ProjectID+"/repos/"+imported.RepoID+"/workspaces/"+childID+"/merge-into-parent",
+		map[string]any{"strategy": "merge"})
+	kit.RequireStatus(t, mergeResp, http.StatusAccepted)
 	mergeResp.Body.Close()
+	kit.WaitForWorkspace(t, watcher, childID, 10*time.Second, func(m map[string]any) bool {
+		fp, _ := m["forkPointSha"].(string)
+		return fp != "" && fp == kit.RevParse(t, imported.RepoPath, "HEAD")
+	})
 }
 
 // TestBenchmarkWorktreeMergeIntoParent measures the local child→parent merge hot path.
@@ -166,47 +109,13 @@ func runWorktreeMergeIteration(
 func TestBenchmarkWorktreeMergeIntoParent(t *testing.T) {
 	const n = 10
 
-	// Build the environment once outside the loop to avoid spinning up n
-	// server stacks (HTTP listeners, SQLite files, engine goroutines) simultaneously.
 	env := kit.BuildEnv(t)
-	repoPath := kit.InitRepo(t)
-	kit.GitRun(t, repoPath, "branch", "-m", "main", "feature/bench-base")
-	baseBranch := kit.BranchName(
-		t,
-		repoPath,
-	)
+	imported := env.ImportRepo(t, "bench-merge", "")
 
-	// Insert the repository record once via HTTP; it is shared across all benchmark iterations.
-	repoResp := env.POST(t, "/v0/repos", map[string]any{
-		"id":        "r1",
-		"projectId": "p1",
-		"name":      "repo",
-		"path":      repoPath,
+	result := kit.RunBenchmark(t, "WorktreeMergeIntoParent", n, func() {
+		runWorktreeMergeIteration(t, env, imported)
 	})
-	kit.RequireStatus(t, repoResp, http.StatusCreated)
-	repoResp.Body.Close()
 
-	result := kit.RunBenchmark(
-		t,
-		"WorktreeMergeIntoParent",
-		n,
-		func() {
-			runWorktreeMergeIteration(
-				t,
-				env,
-				repoPath,
-				baseBranch,
-			)
-		},
-	)
-
-	t.Logf(
-		"WorktreeMergeIntoParent p50=%v p99=%v",
-		result.P50,
-		result.P99,
-	)
-	kit.AssertNoRegression(
-		t,
-		result,
-	)
+	t.Logf("WorktreeMergeIntoParent p50=%v p99=%v", result.P50, result.P99)
+	kit.AssertNoRegression(t, result)
 }

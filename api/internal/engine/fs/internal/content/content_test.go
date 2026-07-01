@@ -11,6 +11,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/char2cs/crowbar/api/internal/engine/fs/internal/content"
+	"github.com/char2cs/crowbar/api/internal/engine/fs/safepath"
 )
 
 func TestRead_TextFile(
@@ -146,4 +147,122 @@ func TestWrite_WriteFileError(
 
 	err := content.Write(dir, "readonly/file.txt", "hello")
 	require.Error(t, err)
+}
+
+// TestRegression_ContentRead_RejectsOversizeFile verifies that content.Read
+// rejects files above the cap with ErrFileTooLarge and that files below the
+// cap are still returned correctly (hardening finding R16).
+// A 4-byte cap is injected via content.ReadWithCap so no 25 MiB file needs to
+// exist on disk.
+func TestRegression_ContentRead_RejectsOversizeFile(
+	t *testing.T,
+) {
+	dir := t.TempDir()
+
+	// File that exceeds the injected cap (5 bytes > 4-byte cap).
+	require.NoError(t, os.WriteFile(filepath.Join(dir, "big.txt"), []byte("hello"), 0o600))
+	_, err := content.ReadWithCap(dir, "big.txt", 4)
+	require.Error(t, err)
+	require.ErrorIs(t, err, content.ErrFileTooLarge, "oversized file must return ErrFileTooLarge")
+
+	// File that fits within the injected cap (3 bytes <= 4-byte cap).
+	require.NoError(t, os.WriteFile(filepath.Join(dir, "small.txt"), []byte("hi\n"), 0o600))
+	fc, err := content.ReadWithCap(dir, "small.txt", 4)
+	require.NoError(t, err, "file within cap must succeed")
+	assert.Equal(t, "hi\n", fc.Content)
+}
+
+// escapeCases are the adversarial workspace-relative paths every fs op must
+// reject (security finding R1).
+var escapeCases = []struct {
+	name string
+	path string
+}{
+	{"parent traversal", "../../etc/passwd"},
+	{"absolute path", "/etc/passwd"},
+	{"mid-path escape", "a/../../b"},
+}
+
+// TestRegression_Read_RejectsPathEscape verifies content.Read refuses any path
+// that escapes the workspace root, so it cannot read arbitrary host files.
+func TestRegression_Read_RejectsPathEscape(
+	t *testing.T,
+) {
+	root := t.TempDir()
+	// A real secret outside the root to prove it is never returned.
+	outside := t.TempDir()
+	require.NoError(t, os.WriteFile(filepath.Join(outside, "passwd"), []byte("root:x:0:0"), 0o600))
+
+	for _, tc := range escapeCases {
+		t.Run(tc.name, func(t *testing.T) {
+			_, err := content.Read(root, tc.path)
+			require.ErrorIs(t, err, safepath.ErrPathEscapesWorkspace)
+		})
+	}
+}
+
+// TestRegression_Read_AllowsInWorkspace confirms a normal in-workspace read
+// still works after the containment guard.
+func TestRegression_Read_AllowsInWorkspace(
+	t *testing.T,
+) {
+	root := t.TempDir()
+	require.NoError(t, os.WriteFile(filepath.Join(root, "ok.txt"), []byte("hi"), 0o600))
+
+	fc, err := content.Read(root, "ok.txt")
+	require.NoError(t, err)
+	assert.Equal(t, "hi", fc.Content)
+}
+
+// TestRegression_Write_RejectsPathEscape verifies content.Write refuses to
+// write outside the workspace root (arbitrary host write / RCE vector).
+func TestRegression_Write_RejectsPathEscape(
+	t *testing.T,
+) {
+	root := t.TempDir()
+	outside := t.TempDir()
+
+	for _, tc := range escapeCases {
+		t.Run(tc.name, func(t *testing.T) {
+			err := content.Write(root, tc.path, "pwned")
+			require.ErrorIs(t, err, safepath.ErrPathEscapesWorkspace)
+		})
+	}
+
+	// Nothing was written outside the root.
+	entries, err := os.ReadDir(outside)
+	require.NoError(t, err)
+	assert.Empty(t, entries)
+}
+
+// TestRegression_Write_RejectsSymlinkEscape verifies content.Write cannot
+// follow a symlinked parent that points outside the workspace.
+func TestRegression_Write_RejectsSymlinkEscape(
+	t *testing.T,
+) {
+	if runtime.GOOS == "windows" {
+		t.Skip("symlink semantics differ on windows")
+	}
+	outside := t.TempDir()
+	root := t.TempDir()
+	require.NoError(t, os.Symlink(outside, filepath.Join(root, "link")))
+
+	err := content.Write(root, "link/escaped.txt", "pwned")
+	require.ErrorIs(t, err, safepath.ErrPathEscapesWorkspace)
+
+	_, statErr := os.Stat(filepath.Join(outside, "escaped.txt"))
+	assert.True(t, os.IsNotExist(statErr), "write must not land outside the root via symlink")
+}
+
+// TestRegression_Write_AllowsInWorkspace confirms a normal in-workspace write
+// still works after the containment guard.
+func TestRegression_Write_AllowsInWorkspace(
+	t *testing.T,
+) {
+	root := t.TempDir()
+	require.NoError(t, content.Write(root, "sub/ok.txt", "data"))
+
+	data, err := os.ReadFile(filepath.Join(root, "sub/ok.txt"))
+	require.NoError(t, err)
+	assert.Equal(t, "data", string(data))
 }

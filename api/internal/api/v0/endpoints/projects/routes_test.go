@@ -9,7 +9,9 @@ import (
 	"github.com/gin-gonic/gin"
 	"github.com/stretchr/testify/assert"
 
+	"github.com/char2cs/crowbar/api/internal/api/v0/dto"
 	"github.com/char2cs/crowbar/api/internal/api/v0/endpoints/projects"
+	"github.com/char2cs/crowbar/api/internal/api/v0/ws"
 	"github.com/char2cs/crowbar/api/internal/domain"
 )
 
@@ -45,6 +47,14 @@ func (stubImporter) Import(
 	return domain.Project{}, nil
 }
 
+func (stubImporter) Create(
+	_ context.Context,
+	_ string,
+	_ string,
+) (domain.Project, error) {
+	return domain.Project{}, nil
+}
+
 type stubDeleter struct{}
 
 func (stubDeleter) Delete(
@@ -58,7 +68,16 @@ func TestRegisterMountsRoutes(
 	t *testing.T,
 ) {
 	r := gin.New()
-	projects.Register(r.Group("/v0"), stubReader{}, stubImporter{}, stubDeleter{})
+	noopWS := func(_ *gin.Context) {}
+	projects.Register(
+		r.Group("/v0"),
+		stubReader{},
+		stubImporter{},
+		stubDeleter{},
+		func(dto.ProjectDTO) {},
+		noopWS,
+		ws.DualServe,
+	)
 
 	cases := []struct {
 		method string

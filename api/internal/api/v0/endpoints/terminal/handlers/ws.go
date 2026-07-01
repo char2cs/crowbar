@@ -1,12 +1,15 @@
 package handlers
 
 import (
+	"log/slog"
 	"net/http"
 	"time"
 
 	"github.com/gin-gonic/gin"
 
 	"github.com/char2cs/crowbar/api/internal/api/libs"
+	"github.com/char2cs/crowbar/api/internal/api/origin"
+	"github.com/char2cs/crowbar/api/internal/core/safego"
 	"github.com/gorilla/websocket"
 )
 
@@ -16,13 +19,27 @@ const (
 	wsPingPeriod = 45 * time.Second // must be < wsPongWait
 )
 
+// terminalUpgrader rejects cross-origin WebSocket upgrades from a non-allow-listed
+// Origin: the terminal socket is a live shell, so a blanket "return true" would let
+// any website the user visited open a PTY through their browser. See origin.Allowed.
 var terminalUpgrader = websocket.Upgrader{
-	ReadBufferSize:  4096,
-	WriteBufferSize: 4096,
-	CheckOrigin:     func(_ *http.Request) bool { return true },
+	ReadBufferSize: 4096,
+	// 64 KB write buffer matches the writePump coalescing target so a coalesced
+	// output message flushes in a couple of socket writes instead of being
+	// re-fragmented into ~64 writes by a small 4 KB buffer.
+	WriteBufferSize: 64 * 1024,
+	CheckOrigin: func(r *http.Request) bool {
+		o := r.Header.Get("Origin")
+		if origin.Allowed(o, r.Host) {
+			return true
+		}
+		slog.WarnContext(r.Context(), "terminal ws: rejected cross-origin upgrade",
+			"origin", o, "host", r.Host)
+		return false
+	},
 }
 
-// WS handles GET /v0/ws/terminals/:sessionId.
+// WS handles GET .../workspaces/:wsId/terminals/:sessionId/ws.
 // It verifies the session exists before upgrading, sets up ping/pong keepalive,
 // then runs the read/write pumps via the terminal engine.
 func (h *Handlers) WS(ctx *gin.Context) {
@@ -50,6 +67,7 @@ func (h *Handlers) WS(ctx *gin.Context) {
 	_ = conn.SetReadDeadline(time.Now().Add(wsPongWait))
 
 	go func() {
+		defer safego.Recover("terminal.ws.pinger")
 		ticker := time.NewTicker(wsPingPeriod)
 		defer ticker.Stop()
 		for {

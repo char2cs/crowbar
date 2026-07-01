@@ -41,6 +41,11 @@ func Create(
 	switchTo bool,
 ) error {
 	if switchTo {
+		// `git checkout -b` does not accept a `--` end-of-options separator
+		// before the new branch name (it reinterprets the operand as a commit:
+		// "a branch '--' cannot be created from it"), so the leading-dash
+		// operand rejection at the usecase boundary (git_write.go) is the guard
+		// for name/source here.
 		args := []string{"checkout", "-b", name}
 		if source != "" {
 			args = append(args, source)
@@ -48,7 +53,8 @@ func Create(
 		r := gitRunner(ctx, repoPath, args...)
 		return exec.RequireSuccess("branches: create", r)
 	}
-	args := []string{"branch", name}
+	// `--` end-of-options separator so name/source can never be read as options.
+	args := []string{"branch", "--", name}
 	if source != "" {
 		args = append(args, source)
 	}
@@ -63,7 +69,7 @@ func Rename(
 	oldName string,
 	newName string,
 ) error {
-	r := gitRunner(ctx, repoPath, "branch", "-m", oldName, newName)
+	r := gitRunner(ctx, repoPath, "branch", "-m", "--", oldName, newName)
 	return exec.RequireSuccess("branches: rename", r)
 }
 
@@ -74,7 +80,7 @@ func Delete(
 	repoPath string,
 	name string,
 ) error {
-	r := gitRunner(ctx, repoPath, "branch", "-d", name)
+	r := gitRunner(ctx, repoPath, "branch", "-d", "--", name)
 	return exec.RequireSuccess("branches: delete", r)
 }
 
@@ -85,11 +91,16 @@ func ForceDelete(
 	repoPath string,
 	name string,
 ) error {
-	r := gitRunner(ctx, repoPath, "branch", "-D", name)
+	r := gitRunner(ctx, repoPath, "branch", "-D", "--", name)
 	return exec.RequireSuccess("branches: force-delete", r)
 }
 
 // Switch checks out an existing branch by name.
+//
+// `git checkout` does not accept a `--` end-of-options separator before a
+// branch name (it reinterprets the operand as a pathspec), so the leading-dash
+// operand rejection at the usecase boundary (git_write.go) is the guard for the
+// name here.
 func Switch(
 	ctx context.Context,
 	repoPath string,

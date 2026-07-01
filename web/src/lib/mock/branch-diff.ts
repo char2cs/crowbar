@@ -24,11 +24,20 @@ function thread(
   id: string,
   filePath: string,
   lineNumber: number,
-  side: 'left' | 'right',
+  side: 'old' | 'new',
   messages: ReviewMessage[],
   isResolved: boolean,
 ): ReviewThread {
-  return { id, filePath, lineNumber, side, messages, isResolved }
+  return {
+    id,
+    filePath,
+    lineNumber,
+    startLine: lineNumber,
+    endLine: lineNumber,
+    side,
+    messages,
+    isResolved,
+  }
 }
 
 /**
@@ -1494,7 +1503,7 @@ const THREADS: Record<string, ReviewThread[]> = {
       't-ws3-1',
       'src/features/settings/lib/design-tokens.ts',
       9,
-      'right',
+      'new',
       [
         msg(
           'm-ws3-1-1',
@@ -1518,7 +1527,7 @@ const THREADS: Record<string, ReviewThread[]> = {
       't-ws3-2',
       'src/features/settings/components/theme-provider.tsx',
       22,
-      'right',
+      'new',
       [
         msg(
           'm-ws3-2-1',
@@ -1541,7 +1550,7 @@ const THREADS: Record<string, ReviewThread[]> = {
       't-ws3-3',
       'src/features/settings/components/settings-panel.tsx',
       21,
-      'right',
+      'new',
       [
         msg(
           'm-ws3-3-1',
@@ -1571,7 +1580,7 @@ const THREADS: Record<string, ReviewThread[]> = {
       't-ws3-4',
       'src/features/settings/lib/settings-store.ts',
       25,
-      'right',
+      'new',
       [
         msg(
           'm-ws3-4-1',
@@ -1594,7 +1603,7 @@ const THREADS: Record<string, ReviewThread[]> = {
       't-ws3-5',
       'src/features/settings/components/theme-provider.tsx',
       27,
-      'right',
+      'new',
       [
         msg(
           'm-ws3-5-1',
@@ -1613,7 +1622,7 @@ const THREADS: Record<string, ReviewThread[]> = {
       't-ws1-1',
       'src/commands/scaffold.ts',
       11,
-      'right',
+      'new',
       [
         msg(
           'm-ws1-1-1',
@@ -1632,7 +1641,7 @@ const THREADS: Record<string, ReviewThread[]> = {
       't-ws2-1',
       'src/lib/jwt.ts',
       3,
-      'right',
+      'new',
       [
         msg(
           'm-ws2-1-1',
@@ -1656,7 +1665,7 @@ const THREADS: Record<string, ReviewThread[]> = {
       't-ws2-2',
       'src/api/auth/login.ts',
       17,
-      'right',
+      'new',
       [
         msg(
           'm-ws2-2-1',
@@ -1679,7 +1688,7 @@ const THREADS: Record<string, ReviewThread[]> = {
       't-ws2-3',
       'src/middleware/auth.ts',
       11,
-      'right',
+      'new',
       [
         msg(
           'm-ws2-3-1',
@@ -1709,7 +1718,7 @@ const THREADS: Record<string, ReviewThread[]> = {
       't-ws2-4',
       'src/lib/jwt.ts',
       23,
-      'right',
+      'new',
       [
         msg(
           'm-ws2-4-1',
@@ -1735,7 +1744,7 @@ const THREADS: Record<string, ReviewThread[]> = {
       't-ws4-1',
       'src/lib/ws/channel.ts',
       11,
-      'right',
+      'new',
       [
         msg(
           'm-ws4-1-1',
@@ -1758,7 +1767,7 @@ const THREADS: Record<string, ReviewThread[]> = {
       't-ws4-2',
       'src/lib/ws/ws-client.ts',
       18,
-      'right',
+      'new',
       [
         msg(
           'm-ws4-2-1',
@@ -1788,7 +1797,7 @@ const THREADS: Record<string, ReviewThread[]> = {
       't-ws4-3',
       'src/hooks/use-ws-channel.ts',
       7,
-      'right',
+      'new',
       [
         msg(
           'm-ws4-3-1',
@@ -1811,7 +1820,7 @@ const THREADS: Record<string, ReviewThread[]> = {
       't-ws4-4',
       'src/lib/ws/channel.ts',
       23,
-      'right',
+      'new',
       [
         msg(
           'm-ws4-4-1',
@@ -1837,7 +1846,7 @@ const THREADS: Record<string, ReviewThread[]> = {
       't-ws5-1',
       'src/lib/query/query-layer.ts',
       28,
-      'right',
+      'new',
       [
         msg(
           'm-ws5-1-1',
@@ -1874,7 +1883,7 @@ const THREADS: Record<string, ReviewThread[]> = {
       't-ws5-2',
       'src/lib/query/query-layer.ts',
       38,
-      'right',
+      'new',
       [
         msg(
           'm-ws5-2-1',
@@ -1898,7 +1907,7 @@ const THREADS: Record<string, ReviewThread[]> = {
       't-ws5-3',
       'src/lib/query/query-layer.ts',
       55,
-      'right',
+      'new',
       [
         msg(
           'm-ws5-3-1',
@@ -1921,7 +1930,7 @@ const THREADS: Record<string, ReviewThread[]> = {
       't-ws5-4',
       'src/lib/query/query-layer.ts',
       63,
-      'right',
+      'new',
       [
         msg(
           'm-ws5-4-1',
@@ -1951,7 +1960,7 @@ const THREADS: Record<string, ReviewThread[]> = {
       't-ws5-5',
       'src/lib/query/cache-manager.ts',
       14,
-      'right',
+      'new',
       [
         msg(
           'm-ws5-5-1',
@@ -1974,7 +1983,7 @@ const THREADS: Record<string, ReviewThread[]> = {
       't-ws5-6',
       'src/lib/query/query-layer.ts',
       72,
-      'right',
+      'new',
       [
         msg(
           'm-ws5-6-1',
@@ -2011,7 +2020,7 @@ const THREADS: Record<string, ReviewThread[]> = {
       't-ws5-7',
       'src/lib/query/index.ts',
       1,
-      'right',
+      'new',
       [
         msg(
           'm-ws5-7-1',
@@ -2041,7 +2050,7 @@ const THREADS: Record<string, ReviewThread[]> = {
       't-ws5-8',
       'src/lib/query/cache-manager.ts',
       35,
-      'right',
+      'new',
       [
         msg(
           'm-ws5-8-1',

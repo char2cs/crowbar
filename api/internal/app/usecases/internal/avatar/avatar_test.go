@@ -1,10 +1,46 @@
 package avatar
 
 import (
+	"context"
+	"net/http"
+	"net/http/httptest"
+	"os"
+	"path/filepath"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
+
+// TestRegression_DownloadBytes_RejectsOversize proves pass-8: an avatar host that
+// streams more than the cap is rejected (soft failure) rather than read into
+// memory, so a malicious/misconfigured URL can't OOM the import path.
+func TestRegression_DownloadBytes_RejectsOversize(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "image/png")
+		_, _ = w.Write(make([]byte, maxAvatarBytes+1024))
+	}))
+	defer srv.Close()
+
+	data, ct, err := downloadBytes(context.Background(), srv.URL)
+	require.NoError(t, err)
+	assert.Nil(t, data, "an oversize avatar body must be rejected, not returned")
+	assert.Empty(t, ct)
+}
+
+// TestDownloadBytes_AcceptsUnderCap proves a normal (small) avatar still downloads.
+func TestDownloadBytes_AcceptsUnderCap(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "image/png")
+		_, _ = w.Write([]byte("small-png-bytes"))
+	}))
+	defer srv.Close()
+
+	data, ct, err := downloadBytes(context.Background(), srv.URL)
+	require.NoError(t, err)
+	assert.Equal(t, "small-png-bytes", string(data))
+	assert.Equal(t, "image/png", ct)
+}
 
 func TestPaletteSizeMatchesConst(t *testing.T) {
 	assert.Len(t, Palette(), paletteSize)
@@ -31,4 +67,45 @@ func TestColor_DistributesAcrossPalette(t *testing.T) {
 		seen[Color(n)] = true
 	}
 	assert.GreaterOrEqual(t, len(seen), 2)
+}
+
+func TestScanRepoIcon_FindsFaviconSVG(t *testing.T) {
+	dir := t.TempDir()
+	require.NoError(t, os.WriteFile(filepath.Join(dir, "favicon.svg"), []byte("<svg/>"), 0o644))
+	got := ScanRepoIcon(dir)
+	assert.Equal(t, filepath.Join(dir, "favicon.svg"), got)
+}
+
+func TestScanRepoIcon_PriorityOrder(t *testing.T) {
+	dir := t.TempDir()
+	require.NoError(t, os.WriteFile(filepath.Join(dir, "favicon.ico"), []byte("ico"), 0o644))
+	require.NoError(t, os.WriteFile(filepath.Join(dir, "favicon.svg"), []byte("<svg/>"), 0o644))
+	got := ScanRepoIcon(dir)
+	assert.Equal(t, filepath.Join(dir, "favicon.svg"), got) // svg wins over ico
+}
+
+func TestScanRepoIcon_PublicSubdir(t *testing.T) {
+	dir := t.TempDir()
+	pub := filepath.Join(dir, "public")
+	require.NoError(t, os.Mkdir(pub, 0o755))
+	require.NoError(t, os.WriteFile(filepath.Join(pub, "logo.png"), []byte("png"), 0o644))
+	got := ScanRepoIcon(dir)
+	assert.Equal(t, filepath.Join(pub, "logo.png"), got)
+}
+
+func TestScanRepoIcon_NoMatch_ReturnsEmpty(t *testing.T) {
+	dir := t.TempDir()
+	got := ScanRepoIcon(dir)
+	assert.Empty(t, got)
+}
+
+func TestFetchOwnerAvatarBytes_DegradesEmptyWhenNoGh(t *testing.T) {
+	// A bare temp dir is not a git repo, so `git remote get-url origin` fails
+	// and the helper must degrade to (nil, "", nil) — no error swallowed
+	// wrongly, no bytes fabricated.
+	dir := t.TempDir()
+	data, ct, err := FetchOwnerAvatarBytes(context.Background(), dir)
+	require.NoError(t, err)
+	assert.Nil(t, data)
+	assert.Empty(t, ct)
 }

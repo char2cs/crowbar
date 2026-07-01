@@ -225,7 +225,7 @@ func lockedWorkspace(
 	syncer *mocks.WorkspaceSyncer,
 ) {
 	syncer.GetFn = func(_ context.Context, id string) (domain.Workspace, error) {
-		return domain.Workspace{ID: id, WorktreePath: "/repo/x", Locked: true}, nil
+		return domain.Workspace{ID: id, WorktreePath: "/repo/x", Status: domain.WorkspaceStatusLocked}, nil
 	}
 }
 

@@ -83,6 +83,8 @@ func TestService_FactoryErrorReleaseIsNoop(t *testing.T) {
 		enginegit.Engine(stubGitEngine{}),
 		stubFSEngine{},
 		NoopLSPLifecycle(),
+		newFakePoller(),
+		testPollInterval,
 		time.Now,
 	)
 
@@ -90,9 +92,58 @@ func TestService_FactoryErrorReleaseIsNoop(t *testing.T) {
 	require.NotPanics(t, func() { s.ReleaseWatcher("w1") })
 }
 
+func TestService_AcquireReleaseProviderPollDrivesManager(t *testing.T) {
+	p := newFakePoller()
+	s := newTestServiceWithPoller(t, &recordingLifecycle{}, p)
+
+	s.AcquireProviderPoll("w1")
+	select {
+	case got := <-p.calls:
+		assert.Equal(t, "w1", got)
+	case <-time.After(time.Second):
+		t.Fatal("AcquireProviderPoll did not start polling")
+	}
+
+	s.providerPoll.mu.Lock()
+	_, held := s.providerPoll.handles["w1"]
+	s.providerPoll.mu.Unlock()
+	require.True(t, held)
+
+	s.ReleaseProviderPoll("w1")
+
+	s.providerPoll.mu.Lock()
+	_, stillHeld := s.providerPoll.handles["w1"]
+	s.providerPoll.mu.Unlock()
+	assert.False(t, stillHeld)
+}
+
+func TestService_Close_StopsProviderPoll(t *testing.T) {
+	p := newFakePoller()
+	s := newTestServiceWithPoller(t, &recordingLifecycle{}, p)
+
+	s.AcquireProviderPoll("w1")
+	<-p.calls
+
+	require.NotPanics(t, s.Close)
+
+	s.providerPoll.mu.Lock()
+	remaining := len(s.providerPoll.handles)
+	s.providerPoll.mu.Unlock()
+	assert.Equal(t, 0, remaining)
+}
+
 func newTestService(
 	t *testing.T,
 	lc LSPLifecycle,
+) *Service {
+	t.Helper()
+	return newTestServiceWithPoller(t, lc, newFakePoller())
+}
+
+func newTestServiceWithPoller(
+	t *testing.T,
+	lc LSPLifecycle,
+	poller ProviderPoller,
 ) *Service {
 	t.Helper()
 	return New(
@@ -102,6 +153,8 @@ func newTestService(
 		enginegit.Engine(stubGitEngine{}),
 		stubFSEngine{watcher: &enginefs.Watcher{}},
 		lc,
+		poller,
+		testPollInterval,
 		time.Now,
 	)
 }

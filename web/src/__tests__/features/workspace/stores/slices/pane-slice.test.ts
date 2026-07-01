@@ -1,9 +1,10 @@
 // web/src/__tests__/features/workspace/stores/slices/pane-slice.test.ts
-import { describe, it, expect, beforeEach } from 'vitest'
+import { describe, it, expect, beforeEach, vi } from 'vitest'
 import { createStore } from 'zustand'
 import { immer } from 'zustand/middleware/immer'
 import { createPaneSlice, type PaneSlice } from '@/features/workspace/stores/slices/pane-slice'
 import { ROOT_PANE_ID, BOTTOM_PANE_ID } from '@/features/panes/constants/pane'
+import { fileUri } from '@/features/editor/lib/editor-uri'
 
 function makeStore() {
   return createStore<PaneSlice>()(
@@ -52,6 +53,28 @@ describe('pane-slice', () => {
     const rootGroup = store.getState().paneActions.getPaneById(ROOT_PANE_ID)
     expect(rootGroup?.bufferIds).not.toContain('buf-1')
     expect(rootGroup?.bufferIds).toContain('buf-2')
+  })
+
+  it('closing the active tab activates the ADJACENT tab (right neighbor, else left when last)', () => {
+    const actions = store.getState().paneActions
+    actions.addBufferToPane(ROOT_PANE_ID, 'buf-1', true)
+    actions.addBufferToPane(ROOT_PANE_ID, 'buf-2', false)
+    actions.addBufferToPane(ROOT_PANE_ID, 'buf-3', false)
+    const activeOf = () => store.getState().paneActions.getPaneById(ROOT_PANE_ID)?.activeBufferId
+
+    // Activate the MIDDLE tab, then close it -> the right neighbor activates
+    // (not the first tab, which is what dropped users onto a far-away tab).
+    store.getState().paneActions.activatePaneBuffer(ROOT_PANE_ID, 'buf-2')
+    store.getState().paneActions.removeBufferFromPane(ROOT_PANE_ID, 'buf-2')
+    expect(activeOf()).toBe('buf-3')
+
+    // buf-3 is now the last + active; closing it falls back to the left neighbor.
+    store.getState().paneActions.removeBufferFromPane(ROOT_PANE_ID, 'buf-3')
+    expect(activeOf()).toBe('buf-1')
+
+    // Closing the only remaining tab leaves the pane empty.
+    store.getState().paneActions.removeBufferFromPane(ROOT_PANE_ID, 'buf-1')
+    expect(activeOf()).toBeNull()
   })
 
   it('getAllPaneGroups returns all leaf groups from paneRoot and bottomRoot', () => {
@@ -135,5 +158,44 @@ describe('pane-slice bottomRoot routing', () => {
     expect(rootPaneGroup?.bufferIds).toContain('buf-x')
     const bottomPaneGroup = store.getState().paneActions.getPaneById(BOTTOM_PANE_ID)
     expect(bottomPaneGroup?.bufferIds).not.toContain('buf-x')
+  })
+})
+
+// C1 regression: removing/closing an editor buffer must release its retained
+// Monaco model via the editorManager (keyed by FILE URI), so closing a tab frees
+// the model and a reopen reads fresh content. Wires a fake editorManager onto the
+// store object (the same place `createWorkspaceStore` Object.assign's it).
+describe('pane-slice → editorManager model release (C1)', () => {
+  function makeStoreWithManager() {
+    const closeBuffer = vi.fn()
+    // The pane slice reads `get().buffers` (path lookup) and `api.editorManager`.
+    type S = PaneSlice & { buffers: Array<{ id: string; type: string; path: string }> }
+    let api: { editorManager: { closeBuffer: typeof closeBuffer } }
+    const store = createStore<S>()(
+      immer((set, get, rawApi) => {
+        api = rawApi as unknown as typeof api
+        api.editorManager = { closeBuffer }
+        return {
+          ...createPaneSlice(
+            ...([set, get, rawApi] as unknown as Parameters<typeof createPaneSlice>),
+          ),
+          buffers: [{ id: 'buf-ed', type: 'editor', path: '/src/a.ts' }],
+        }
+      }),
+    )
+    return { store, closeBuffer }
+  }
+
+  it('removeBufferFromPane releases the model for that pane (paneId + fileUri)', () => {
+    const { store, closeBuffer } = makeStoreWithManager()
+    store.getState().paneActions.addBufferToPane(ROOT_PANE_ID, 'buf-ed', true)
+    store.getState().paneActions.removeBufferFromPane(ROOT_PANE_ID, 'buf-ed', true)
+    expect(closeBuffer).toHaveBeenCalledWith(ROOT_PANE_ID, fileUri('/src/a.ts'))
+  })
+
+  it('does not release for a pane that never held the buffer', () => {
+    const { store, closeBuffer } = makeStoreWithManager()
+    store.getState().paneActions.removeBufferFromPane(ROOT_PANE_ID, 'buf-ed', true)
+    expect(closeBuffer).not.toHaveBeenCalled()
   })
 })

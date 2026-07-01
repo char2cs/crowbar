@@ -1,5 +1,5 @@
 /* Token theme for Tree-sitter based syntax highlighting */
-/* Uses --syntax-* variables declared in index.css */
+/* Uses --syntax-* variables declared in styles/theme.css */
 
 /* Keywords */
 .token-keyword {

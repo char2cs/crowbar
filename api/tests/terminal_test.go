@@ -15,24 +15,26 @@ import (
 )
 
 // TestTerminal_CreateStreamKill proves the PTY lifecycle end to end: create a
-// session, attach over the terminal WebSocket, write a command, read its echoed
-// output through the PTY, then kill the session.
+// session, attach over the co-located terminal WebSocket
+// (.../terminals/:sessionId/ws), write a command, read its echoed output through
+// the PTY, then kill the session (202).
 func TestTerminal_CreateStreamKill(t *testing.T) {
 	h := newHarness(t)
 	imported := importProject(t, h)
+	base := wsBase(imported)
 
 	var session struct {
 		SessionID string `json:"sessionId"`
 	}
 	h.post(
-		"/v0/workspaces/"+imported.workspaceID+"/terminals",
+		base+"/terminals",
 		map[string]string{},
 		http.StatusCreated,
 		&session,
 	)
 	require.NotEmpty(t, session.SessionID)
 
-	conn := h.dial("/v0/ws/terminals/" + session.SessionID)
+	conn := h.dial(base + "/terminals/" + session.SessionID + "/ws")
 
 	input, err := json.Marshal(map[string]string{"data": "echo crowbar-e2e\n"})
 	require.NoError(t, err)
@@ -43,7 +45,7 @@ func TestTerminal_CreateStreamKill(t *testing.T) {
 	var killed struct {
 		ID string `json:"id"`
 	}
-	h.del("/v0/terminals/"+session.SessionID, nil, http.StatusOK, &killed)
+	h.del(base+"/terminals/"+session.SessionID, nil, http.StatusAccepted, &killed)
 	assert.Equal(t, session.SessionID, killed.ID)
 }
 

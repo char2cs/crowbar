@@ -30,131 +30,149 @@ func expectedRoutes() map[string]struct{} {
 	return out
 }
 
-// specRoutes is every route in 02 §2 + §3, one per spec line.
+// specRoutes is every route in 02 §2 + §3, one per spec line, re-nested under
+// the hierarchical /v0/projects/:projectId/repos/:repoId/workspaces/:wsId/...
+// prefix (spec §3). Health, system, and the terminal profiles CRUD remain
+// top-level (outside /projects). The dedicated /ws/* routes are GONE (W7-2):
+// the entity list+detail GET routes dual-serve REST/WS, and the raw/diagnostic
+// streams are co-located as .../files/ws, .../lsp/ws, .../terminals/:sessionId/ws.
 func specRoutes() []string {
+	const repo = "/v0/projects/:projectId/repos/:repoId"
+	const ws = repo + "/workspaces/:wsId"
 	return []string{
 		// §2.1 Projects & Repositories
 		"GET /v0/projects",
 		"POST /v0/projects",
-		"GET /v0/projects/:id",
-		"GET /v0/repos",
-		"POST /v0/repos",
-		"GET /v0/repos/:id",
+		"GET /v0/projects/:projectId",
+		"GET /v0/projects/:projectId/repos",
+		"POST /v0/projects/:projectId/repos",
+		"GET " + repo,
 		// §2.2 Workspaces (+hierarchy)
-		"GET /v0/workspaces",
-		"GET /v0/workspaces/:wsId",
-		"POST /v0/workspaces",
-		"DELETE /v0/workspaces/:wsId",
-		"POST /v0/workspaces/:wsId/sync",
-		"POST /v0/workspaces/:wsId/merge-into-parent",
-		"POST /v0/workspaces/:wsId/reparent",
-		// §2.3 Chats
-		"GET /v0/workspaces/:wsId/chats",
-		"POST /v0/workspaces/:wsId/chats",
-		"POST /v0/chats/:id/fork",
-		"PATCH /v0/chats/:id",
-		"DELETE /v0/chats/:id",
+		"GET /v0/projects/:projectId/repos/:repoId/workspaces",
+		"GET " + ws,
+		"POST /v0/projects/:projectId/repos/:repoId/workspaces",
+		"DELETE " + ws,
+		"POST " + ws + "/sync",
+		"POST " + ws + "/merge-into-parent",
+		"POST " + ws + "/reparent",
+		// §2.3 Chats — chat WebSocket surface removed per D11; chat domain, repo
+		// CRUD, and usecase remain dormant TODO (routes not remounted in this PR).
 		// §2.4 Files
-		"GET /v0/workspaces/:wsId/files/tree",
-		"GET /v0/workspaces/:wsId/files/content",
-		"PUT /v0/workspaces/:wsId/files/content",
-		"POST /v0/workspaces/:wsId/files",
-		"PATCH /v0/workspaces/:wsId/files",
-		"DELETE /v0/workspaces/:wsId/files",
+		"GET " + ws + "/files/tree",
+		"GET " + ws + "/files/content",
+		"PUT " + ws + "/files/content",
+		"POST " + ws + "/files",
+		"PATCH " + ws + "/files",
+		"DELETE " + ws + "/files",
 		// §2.5 Editor / LSP (+blame)
-		"GET /v0/workspaces/:wsId/blame",
-		"POST /v0/workspaces/:wsId/lsp/completion",
-		"POST /v0/workspaces/:wsId/lsp/hover",
-		"POST /v0/workspaces/:wsId/lsp/definition",
-		"POST /v0/workspaces/:wsId/lsp/references",
-		"POST /v0/workspaces/:wsId/lsp/rename",
-		"POST /v0/workspaces/:wsId/lsp/codeAction",
-		"POST /v0/workspaces/:wsId/lsp/documentSymbol",
-		"GET /v0/workspaces/:wsId/lsp/diagnostics",
+		"GET " + ws + "/blame",
+		"POST " + ws + "/lsp/completion",
+		"POST " + ws + "/lsp/hover",
+		"POST " + ws + "/lsp/definition",
+		"POST " + ws + "/lsp/references",
+		"POST " + ws + "/lsp/rename",
+		"POST " + ws + "/lsp/codeAction",
+		"POST " + ws + "/lsp/documentSymbol",
+		"GET " + ws + "/lsp/diagnostics",
 		// §2.6 Git — Read
-		"GET /v0/workspaces/:wsId/git/status",
-		"GET /v0/workspaces/:wsId/git/log",
-		"GET /v0/workspaces/:wsId/git/diff",
-		"GET /v0/workspaces/:wsId/git/blame",
-		"GET /v0/workspaces/:wsId/git/branches",
-		"GET /v0/workspaces/:wsId/git/stashes",
-		"GET /v0/workspaces/:wsId/git/conflicts",
-		"GET /v0/workspaces/:wsId/git/conflict-hunks",
-		"GET /v0/workspaces/:wsId/git/commit-diff",
+		"GET " + ws + "/git/status",
+		"GET " + ws + "/git/log",
+		"GET " + ws + "/git/diff",
+		"GET " + ws + "/git/blame",
+		"GET " + ws + "/git/branches",
+		"GET " + ws + "/git/stashes",
+		"GET " + ws + "/git/conflicts",
+		"GET " + ws + "/git/conflict-hunks",
+		"GET " + ws + "/git/commit-diff",
 		// §2.7 Git — Write
-		"POST /v0/workspaces/:wsId/git/stage",
-		"POST /v0/workspaces/:wsId/git/stage-hunk",
-		"POST /v0/workspaces/:wsId/git/unstage",
-		"POST /v0/workspaces/:wsId/git/unstage-hunk",
-		"POST /v0/workspaces/:wsId/git/discard",
-		"POST /v0/workspaces/:wsId/git/commit",
-		"POST /v0/workspaces/:wsId/git/push",
-		"POST /v0/workspaces/:wsId/git/pull",
-		"POST /v0/workspaces/:wsId/git/fetch",
-		"POST /v0/workspaces/:wsId/git/branches",
-		"PATCH /v0/workspaces/:wsId/git/branches",
-		"DELETE /v0/workspaces/:wsId/git/branches",
-		"POST /v0/workspaces/:wsId/git/switch",
-		"POST /v0/workspaces/:wsId/git/stash",
-		"POST /v0/workspaces/:wsId/git/stash-apply",
-		"POST /v0/workspaces/:wsId/git/stash-pop",
-		"DELETE /v0/workspaces/:wsId/git/stash",
-		"POST /v0/workspaces/:wsId/git/reset",
-		"POST /v0/workspaces/:wsId/git/merge",
-		"POST /v0/workspaces/:wsId/git/rebase",
-		"POST /v0/workspaces/:wsId/git/resolve-hunk",
+		"POST " + ws + "/git/stage",
+		"POST " + ws + "/git/stage-hunk",
+		"POST " + ws + "/git/unstage",
+		"POST " + ws + "/git/unstage-hunk",
+		"POST " + ws + "/git/discard",
+		"POST " + ws + "/git/commit",
+		"POST " + ws + "/git/push",
+		"POST " + ws + "/git/pull",
+		"POST " + ws + "/git/fetch",
+		"POST " + ws + "/git/branches",
+		"PATCH " + ws + "/git/branches",
+		"DELETE " + ws + "/git/branches",
+		"POST " + ws + "/git/switch",
+		"POST " + ws + "/git/stash",
+		"POST " + ws + "/git/stash-apply",
+		"POST " + ws + "/git/stash-pop",
+		"DELETE " + ws + "/git/stash",
+		"POST " + ws + "/git/reset",
+		"POST " + ws + "/git/merge",
+		"POST " + ws + "/git/rebase",
+		"POST " + ws + "/git/resolve-hunk",
 		// §2.8 Conflicts (+operation)
-		"POST /v0/workspaces/:wsId/git/operation/continue",
-		"POST /v0/workspaces/:wsId/git/operation/abort",
+		"POST " + ws + "/git/operation/continue",
+		"POST " + ws + "/git/operation/abort",
 		// §2.9 Review
-		"GET /v0/workspaces/:wsId/review",
-		"PATCH /v0/workspaces/:wsId/review",
-		"POST /v0/workspaces/:wsId/review/threads",
-		"POST /v0/workspaces/:wsId/review/threads/:id/reply",
-		"PATCH /v0/workspaces/:wsId/review/threads/:id",
+		"GET " + ws + "/review",
+		"PATCH " + ws + "/review",
+		// §2.9a Threads (promoted out of /review into a first-class endpoint, W9)
+		"GET " + ws + "/threads",
+		"POST " + ws + "/threads",
+		"GET " + ws + "/threads/:threadId",
+		"PATCH " + ws + "/threads/:threadId",
+		"POST " + ws + "/threads/:threadId/replies",
 		// §2.9b Provider (read-only)
-		"GET /v0/workspaces/:wsId/provider",
-		"GET /v0/repos/:id/protected-branches",
+		"GET " + ws + "/provider",
+		"GET " + repo + "/protected-branches",
 		// §2.10 Search
-		"POST /v0/workspaces/:wsId/search",
-		"POST /v0/workspaces/:wsId/search/replace",
+		"POST " + ws + "/search",
+		"POST " + ws + "/search/replace",
 		// §2.11 Terminal (+profiles)
 		"GET /v0/settings/terminal/profiles",
 		"GET /v0/settings/terminal/profiles/:id",
 		"POST /v0/settings/terminal/profiles",
 		"PUT /v0/settings/terminal/profiles/:id",
 		"DELETE /v0/settings/terminal/profiles/:id",
-		"POST /v0/workspaces/:wsId/terminals",
-		"DELETE /v0/terminals/:sessionId",
-		// §2.12 Agent Runs
-		"POST /v0/workspaces/:wsId/runs",
-		"GET /v0/runs/:id",
-		"GET /v0/runs/running",
-		"POST /v0/runs/:id/start",
-		"POST /v0/runs/:id/complete",
-		"POST /v0/runs/:id/fail",
+		"GET " + ws + "/terminals",
+		"POST " + ws + "/terminals",
+		"DELETE " + ws + "/terminals/:sessionId",
+		// §2.12 System
+		"GET /v0/system/prerequisites",
 		// §2.13 Health
 		"GET /v0/health",
-		// §3 WebSocket endpoints
-		"GET /v0/ws/workspaces",
-		"GET /v0/ws/chats",
-		"GET /v0/ws/git",
-		"GET /v0/ws/files",
-		"GET /v0/ws/lsp",
-		"GET /v0/ws/terminals/:sessionId",
-		"GET /v0/ws/chats/:chatId/stream",
+		// §3 WebSocket endpoints — co-located on the nested tree (W7-2). The
+		// entity list+detail GET routes dual-serve REST/WS in place (no separate
+		// path); the raw/diagnostic streams hang off their workspace subtree.
+		"GET " + ws + "/files/ws",
+		"GET " + ws + "/lsp/ws",
+		"GET " + ws + "/terminals/:sessionId/ws",
 	}
 }
 
 // extraRoutes is the documented superset registered beyond the core spec:
-// project deletion (record-only cascade) and LSP document-sync notifications
-// (04 §3, 10).
+// repo icon management, repo branch listing, project deletion (record-only
+// cascade), and LSP document-sync notifications (04 §3, 10).
 func extraRoutes() []string {
+	const repo = "/v0/projects/:projectId/repos/:repoId"
+	const ws = repo + "/workspaces/:wsId"
 	return []string{
-		"DELETE /v0/projects/:id",
-		"POST /v0/workspaces/:wsId/lsp/didOpen",
-		"POST /v0/workspaces/:wsId/lsp/didChange",
-		"POST /v0/workspaces/:wsId/lsp/didClose",
+		"DELETE /v0/projects/:projectId",
+		"DELETE " + repo,
+		"GET " + repo + "/icon",
+		"PUT " + repo + "/icon",
+		"DELETE " + repo + "/icon",
+		"PUT " + repo + "/icon/emoji",
+		"PUT " + repo + "/icon/github",
+		"GET " + repo + "/branches",
+		"POST " + ws + "/lsp/didOpen",
+		"POST " + ws + "/lsp/didChange",
+		"POST " + ws + "/lsp/didClose",
+		// Registered hierarchy/feature routes the §2 spec list did not yet
+		// enumerate: the rebase-onto-parent hierarchy op (sibling of
+		// merge-into-parent/reparent), the git-identity read, and the
+		// review-thread message CRUD.
+		"POST " + ws + "/rebase-onto-parent",
+		"GET " + ws + "/identity",
+		"DELETE " + ws + "/threads/:threadId",
+		"PATCH " + ws + "/threads/:threadId/messages/:messageId",
+		"DELETE " + ws + "/threads/:threadId/messages/:messageId",
 	}
 }
 
@@ -193,9 +211,39 @@ func TestRouteAudit_AllSpecRoutesRegistered(t *testing.T) {
 	assert.Len(t, got, len(want), "registered route count drifted from expected set")
 }
 
-// TestRouteAudit_DualServe_RestMode proves the two dual-served live-read routes
+// TestRouteAudit_NoLegacyWsRoutes asserts the five dedicated /ws/* routes are
+// GONE from the registered surface (W7-2): /ws/workspaces, /ws/git, /ws/files,
+// /ws/lsp, and /ws/terminals/:sessionId were folded into the dual-served entity
+// GET routes and the co-located .../files/ws, .../lsp/ws, .../terminals/:id/ws.
+func TestRouteAudit_NoLegacyWsRoutes(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	got := registeredRoutes(t)
+
+	const repo = "/v0/projects/:projectId/repos/:repoId"
+	legacy := []string{
+		"GET " + repo + "/ws/workspaces",
+		"GET " + repo + "/ws/git",
+		"GET " + repo + "/ws/files",
+		"GET " + repo + "/ws/lsp",
+		"GET " + repo + "/ws/terminals/:sessionId",
+	}
+	for _, r := range legacy {
+		_, ok := got[r]
+		assert.Falsef(t, ok, "legacy /ws/* route must be removed: %s", r)
+	}
+	// Any residual /ws/ segment anywhere in the surface is a regression.
+	for r := range got {
+		assert.NotContainsf(t, r, "/ws/workspaces", "legacy ws route present: %s", r)
+		assert.NotContainsf(t, r, "/ws/git", "legacy ws route present: %s", r)
+		assert.NotContainsf(t, r, "/ws/lsp", "legacy ws route present: %s", r)
+	}
+}
+
+// TestRouteAudit_DualServe_RestMode proves the dual-served live-read routes
 // answer a plain (non-Upgrade) GET on REST — the complement of the WS-upgrade
-// proofs in container_test.go, so both modes of both routes are covered.
+// proofs below, so both modes of every route are covered. It exercises the
+// entity list+detail routes (projects, projects/:id, repos, repos/:id,
+// workspaces, workspaces/:id) plus git/status.
 func TestRouteAudit_DualServe_RestMode(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	tc := newApp(t)
@@ -205,9 +253,17 @@ func TestRouteAudit_DualServe_RestMode(t *testing.T) {
 	srv := httptest.NewServer(r)
 	t.Cleanup(srv.Close)
 
+	// w1 must exist under p1/r1 so the scope guard admits the :wsId routes below.
+	seedWorkspace(t, tc, "w1")
+
 	for _, path := range []string{
-		"/v0/workspaces",
-		"/v0/workspaces/w1/git/status",
+		"/v0/projects",
+		"/v0/projects/p1",
+		"/v0/projects/p1/repos",
+		"/v0/projects/p1/repos/r1",
+		"/v0/projects/p1/repos/r1/workspaces",
+		"/v0/projects/p1/repos/r1/workspaces/w1",
+		"/v0/projects/p1/repos/r1/workspaces/w1/git/status",
 	} {
 		resp, err := http.Get(srv.URL + path)
 		require.NoError(t, err)
@@ -222,8 +278,9 @@ func TestRouteAudit_DualServe_RestMode(t *testing.T) {
 	}
 }
 
-// TestRouteAudit_DualServe_WsMode proves both dual-served routes upgrade to a
-// live WebSocket stream when the request carries Upgrade: websocket.
+// TestRouteAudit_DualServe_WsMode proves every dual-served route upgrades to a
+// live WebSocket stream when the request carries Upgrade: websocket — including
+// the new project/repo/workspace detail routes (W7-2).
 func TestRouteAudit_DualServe_WsMode(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	tc := newApp(t)
@@ -233,9 +290,17 @@ func TestRouteAudit_DualServe_WsMode(t *testing.T) {
 	srv := httptest.NewServer(r)
 	t.Cleanup(srv.Close)
 
+	// w1 must exist under p1/r1 so the scope guard admits the :wsId routes below.
+	seedWorkspace(t, tc, "w1")
+
 	for _, path := range []string{
-		"/v0/ws/workspaces",
-		"/v0/workspaces/w1/git/status",
+		"/v0/projects",
+		"/v0/projects/p1",
+		"/v0/projects/p1/repos",
+		"/v0/projects/p1/repos/r1",
+		"/v0/projects/p1/repos/r1/workspaces",
+		"/v0/projects/p1/repos/r1/workspaces/w1",
+		"/v0/projects/p1/repos/r1/workspaces/w1/git/status",
 	} {
 		url := "ws" + srv.URL[len("http"):] + path
 		conn, resp, err := websocket.DefaultDialer.Dial(url, nil)

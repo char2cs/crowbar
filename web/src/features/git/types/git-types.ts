@@ -42,6 +42,8 @@ export interface GitDiff {
   raw_patch?: string
   additions?: number
   deletions?: number
+  // true when the file has working-tree changes not yet committed (blended review diff).
+  uncommitted?: boolean
 }
 
 export interface GitHunk {

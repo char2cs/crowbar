@@ -101,15 +101,55 @@ func (u *branchReviewUsecase) Get(
 	if err != nil {
 		return domain.BranchReview{}, fmt.Errorf("branch review: get workspace: %w", asNotFound(err))
 	}
-	base, err := u.resolveBase(ctx, ws)
+	ref, err := u.resolveDiffRef(ctx, ws)
 	if err != nil {
-		return domain.BranchReview{}, fmt.Errorf("branch review: resolve base: %w", err)
+		return domain.BranchReview{}, fmt.Errorf("branch review: resolve ref: %w", err)
 	}
-	diff, err := u.git.RangeDiff(ctx, ws.WorktreePath, base, ws.Branch)
+	diff, err := u.git.DiffAgainstRef(ctx, ws.WorktreePath, ref)
 	if err != nil {
 		return domain.BranchReview{}, fmt.Errorf("branch review: diff: %w", err)
 	}
+	u.annotateUncommitted(ctx, ws, &diff)
 	return u.assemble(ctx, ws, diff)
+}
+
+// resolveDiffRef returns the ref the review diffs against: the workspace's
+// recorded fork point when known, else the merge-base of the parent/default
+// branch and HEAD. This makes the diff show exactly this workspace's changes
+// (committed + uncommitted) since it diverged.
+func (u *branchReviewUsecase) resolveDiffRef(
+	ctx context.Context,
+	ws domain.Workspace,
+) (string, error) {
+	if ws.ForkPointSha != "" {
+		return ws.ForkPointSha, nil
+	}
+	base, err := u.resolveBase(ctx, ws)
+	if err != nil {
+		return "", err
+	}
+	return u.git.MergeBase(ctx, ws.WorktreePath, base, "HEAD")
+}
+
+// annotateUncommitted marks each diff file as uncommitted when it has a matching
+// entry in git status (staged or unstaged working-tree change). Status failures
+// are non-fatal: the diff is still returned, just without the flags.
+func (u *branchReviewUsecase) annotateUncommitted(
+	ctx context.Context,
+	ws domain.Workspace,
+	diff *gitdomain.MultiFileDiff,
+) {
+	status, err := u.git.Status(ctx, ws.WorktreePath)
+	if err != nil {
+		return
+	}
+	dirty := make(map[string]bool, len(status.Files))
+	for _, f := range status.Files {
+		dirty[f.Path] = true
+	}
+	for i := range diff.Files {
+		diff.Files[i].Uncommitted = dirty[diff.Files[i].FilePath]
+	}
 }
 
 func (u *branchReviewUsecase) resolveBase(
@@ -193,7 +233,7 @@ func (u *branchReviewUsecase) Reply(
 	threadID string,
 	body string,
 ) (domain.ReviewThread, error) {
-	thread, err := u.threads.Reply(ctx, threadID, uuid.NewString(), body, u.now())
+	thread, err := u.threads.Reply(ctx, threadID, uuid.NewString(), "", false, body, u.now())
 	if err != nil {
 		return domain.ReviewThread{}, fmt.Errorf("branch review: reply: %w", asNotFound(err))
 	}

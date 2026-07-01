@@ -2,6 +2,7 @@ package git
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"path/filepath"
 	"strings"
@@ -35,23 +36,23 @@ type engine struct {
 // one lock and their git operations serialize (07 §3.1). Resolution runs once
 // per input path before the lock is taken (no reentrancy), and falls back to the
 // raw path when repoPath is not inside a git repo.
-func (e *engine) repoMutex(repoPath string) *sync.Mutex {
-	key := e.resolveCommonDir(repoPath)
+func (e *engine) repoMutex(ctx context.Context, repoPath string) *sync.Mutex {
+	key := e.resolveCommonDir(ctx, repoPath)
 	actual, _ := e.mu.LoadOrStore(key, &sync.Mutex{})
 	return actual.(*sync.Mutex)
 }
 
-func (e *engine) resolveCommonDir(repoPath string) string {
+func (e *engine) resolveCommonDir(ctx context.Context, repoPath string) string {
 	if cached, ok := e.commonDir.Load(repoPath); ok {
 		return cached.(string)
 	}
-	key := e.computeCommonDir(repoPath)
+	key := e.computeCommonDir(ctx, repoPath)
 	e.commonDir.Store(repoPath, key)
 	return key
 }
 
-func (e *engine) computeCommonDir(repoPath string) string {
-	r := e.exec(context.Background(), repoPath, "rev-parse", "--git-common-dir")
+func (e *engine) computeCommonDir(ctx context.Context, repoPath string) string {
+	r := e.exec(ctx, repoPath, "rev-parse", "--git-common-dir")
 	if gitexec.RequireSuccess("rev-parse --git-common-dir", r) != nil {
 		return repoPath
 	}
@@ -69,9 +70,8 @@ func (e *engine) computeCommonDir(repoPath string) string {
 	return filepath.Clean(abs)
 }
 
-// lockRepo acquires the per-repo mutex and returns an unlock func for use with defer.
-func (e *engine) lockRepo(repoPath string) func() {
-	mu := e.repoMutex(repoPath)
+func (e *engine) lockRepo(ctx context.Context, repoPath string) func() {
+	mu := e.repoMutex(ctx, repoPath)
 	mu.Lock()
 	return mu.Unlock
 }
@@ -86,27 +86,92 @@ func New() Engine {
 
 var _ Engine = (*engine)(nil)
 
-// classifyGitError inspects git output and wraps the appropriate sentinel error.
+// errorRule maps a git exit code + output substrings to a sentinel error.
+// All patterns in contains must be present in the output (AND semantics).
+// Rules are evaluated in order; first match wins.
+type errorRule struct {
+	exitCode int
+	contains []string
+	sentinel error
+}
+
+var errorRules = []errorRule{
+	// Exit 1 — soft failure: git ran but reported a condition.
+	{1, []string{"conflict"}, ErrConflict},
+	{1, []string{"nothing to commit"}, ErrNothingToCommit},
+	{1, []string{"rejected", "non-fast-forward"}, ErrRejectedNonFastForward},
+	{1, []string{"not possible to fast-forward"}, ErrNonFastForward},
+	{1, []string{"your local changes"}, ErrDirtyTree},
+	{1, []string{"please commit or stash"}, ErrDirtyTree},
+
+	// Exit 128 — fatal: git refused to execute.
+	{128, []string{"authentication failed"}, ErrAuthFailed},
+	{128, []string{"could not read username"}, ErrAuthFailed},
+	{128, []string{"already exists"}, ErrBranchAlreadyExists},
+	{128, []string{"already checked out"}, ErrBranchAlreadyExists},
+	{128, []string{"already used by worktree"}, ErrBranchAlreadyExists},
+	{128, []string{"did not match any"}, ErrBranchNotFound},
+	{128, []string{"unknown revision or path"}, ErrBranchNotFound},
+	{128, []string{"does not appear to be a git repository"}, ErrNoRemote},
+	{128, []string{"no remote configured"}, ErrNoRemote},
+	{128, []string{"refusing to merge unrelated histories"}, ErrNonFastForward},
+	{128, []string{"your local changes"}, ErrDirtyTree},
+	{128, []string{"please commit or stash"}, ErrDirtyTree},
+}
+
+// matchRules returns the first sentinel whose exit code and all patterns match,
+// or nil if no rule applies.
+func matchRules(exitCode int, out string) error {
+	lower := strings.ToLower(out)
+	for _, r := range errorRules {
+		if r.exitCode != exitCode {
+			continue
+		}
+		if allPresent(lower, r.contains) {
+			return r.sentinel
+		}
+	}
+	return nil
+}
+
+func allPresent(s string, patterns []string) bool {
+	for _, p := range patterns {
+		if !strings.Contains(s, p) {
+			return false
+		}
+	}
+	return true
+}
+
+// classifyGitError maps a git subprocess result to a typed sentinel using
+// exit code as the primary discriminator and output text only to disambiguate
+// within the same exit code.
 func classifyGitError(op string, r gitexec.Result) error {
-	stderr := strings.ToLower(r.Stderr + r.Stdout)
 	base := gitexec.RequireSuccess(op, r)
 	if base == nil {
 		return nil
 	}
-	switch {
-	case strings.Contains(stderr, "conflict") || strings.Contains(stderr, "merge conflict"):
-		return fmt.Errorf("%w: %s", ErrConflict, base)
-	case strings.Contains(stderr, "rejected") && strings.Contains(stderr, "non-fast-forward"):
-		return fmt.Errorf("%w: %s", ErrRejectedNonFastForward, base)
-	case strings.Contains(stderr, "nothing to commit"):
-		return fmt.Errorf("%w: %s", ErrNothingToCommit, base)
-	case strings.Contains(stderr, "error: your local changes") || strings.Contains(stderr, "please commit or stash"):
-		return fmt.Errorf("%w: %s", ErrDirtyTree, base)
-	case strings.Contains(stderr, "authentication failed") || strings.Contains(stderr, "could not read username"):
-		return fmt.Errorf("%w: %s", ErrAuthFailed, base)
-	default:
-		return base
+	if sentinel := matchRules(r.ExitCode, r.Stderr+r.Stdout); sentinel != nil {
+		return fmt.Errorf("%w: %s", sentinel, base)
 	}
+	return base
+}
+
+// reclassifyError applies the same rule table to an error returned by an
+// internal subpackage (e.g. branches) that manages its own exec calls.
+// It uses errors.As to extract the exit code directly from the GitError struct.
+func reclassifyError(err error) error {
+	if err == nil {
+		return nil
+	}
+	var gitErr *gitexec.GitError
+	if !errors.As(err, &gitErr) {
+		return err
+	}
+	if sentinel := matchRules(gitErr.ExitCode, gitErr.Message); sentinel != nil {
+		return fmt.Errorf("%w: %s", sentinel, err)
+	}
+	return err
 }
 
 func (e *engine) Status(
@@ -168,7 +233,7 @@ func (e *engine) StageFile(
 	repoPath string,
 	filePath string,
 ) error {
-	defer e.lockRepo(repoPath)()
+	defer e.lockRepo(ctx, repoPath)()
 	r := e.exec(ctx, repoPath, "add", filePath)
 	return gitexec.RequireSuccess("stage file", r)
 }
@@ -179,7 +244,7 @@ func (e *engine) StageHunk(
 	filePath string,
 	hunkID string,
 ) error {
-	defer e.lockRepo(repoPath)()
+	defer e.lockRepo(ctx, repoPath)()
 	return e.applyHunk(ctx, repoPath, filePath, hunkID, false)
 }
 
@@ -188,7 +253,7 @@ func (e *engine) UnstageFile(
 	repoPath string,
 	filePath string,
 ) error {
-	defer e.lockRepo(repoPath)()
+	defer e.lockRepo(ctx, repoPath)()
 	r := e.exec(ctx, repoPath, "restore", "--staged", filePath)
 	return gitexec.RequireSuccess("unstage file", r)
 }
@@ -199,7 +264,7 @@ func (e *engine) UnstageHunk(
 	filePath string,
 	hunkID string,
 ) error {
-	defer e.lockRepo(repoPath)()
+	defer e.lockRepo(ctx, repoPath)()
 	return e.applyHunk(ctx, repoPath, filePath, hunkID, true)
 }
 
@@ -208,7 +273,7 @@ func (e *engine) Discard(
 	repoPath string,
 	filePath string,
 ) error {
-	defer e.lockRepo(repoPath)()
+	defer e.lockRepo(ctx, repoPath)()
 	st, err := e.Status(ctx, repoPath)
 	if err != nil {
 		return fmt.Errorf("git: discard: status: %w", err)
@@ -249,7 +314,7 @@ func (e *engine) Commit(
 	subject string,
 	body string,
 ) error {
-	defer e.lockRepo(repoPath)()
+	defer e.lockRepo(ctx, repoPath)()
 	args := []string{"commit", "-m", subject}
 	if body != "" {
 		args = append(args, "-m", body)
@@ -262,7 +327,7 @@ func (e *engine) Push(
 	ctx context.Context,
 	repoPath string,
 ) error {
-	defer e.lockRepo(repoPath)()
+	defer e.lockRepo(ctx, repoPath)()
 	r := e.exec(ctx, repoPath, "push")
 	return classifyGitError("push", r)
 }
@@ -271,9 +336,33 @@ func (e *engine) Fetch(
 	ctx context.Context,
 	repoPath string,
 ) error {
-	defer e.lockRepo(repoPath)()
+	defer e.lockRepo(ctx, repoPath)()
 	r := e.exec(ctx, repoPath, "fetch")
-	return gitexec.RequireSuccess("fetch", r)
+	return classifyGitError("fetch", r)
+}
+
+func (e *engine) FetchRef(
+	ctx context.Context,
+	repoPath string,
+	branch string,
+) error {
+	defer e.lockRepo(ctx, repoPath)()
+	r := e.exec(ctx, repoPath, "fetch", "origin", branch)
+	return classifyGitError("fetch ref", r)
+}
+
+// FastForwardBranch fetches origin/<branch> and fast-forwards the local branch
+// ref to match it in one step (`git fetch origin <branch>:<branch>`). Unlike
+// FetchRef, which only updates the remote-tracking ref, this ensures the local
+// branch is up to date before checking it out into a worktree.
+func (e *engine) FastForwardBranch(
+	ctx context.Context,
+	repoPath string,
+	branch string,
+) error {
+	defer e.lockRepo(ctx, repoPath)()
+	r := e.exec(ctx, repoPath, "fetch", "origin", branch+":"+branch)
+	return classifyGitError("fast-forward branch", r)
 }
 
 func (e *engine) Pull(
@@ -281,7 +370,7 @@ func (e *engine) Pull(
 	repoPath string,
 	mode string,
 ) error {
-	defer e.lockRepo(repoPath)()
+	defer e.lockRepo(ctx, repoPath)()
 	flag := "--no-rebase"
 	if mode == "rebase" {
 		flag = "--rebase"
@@ -297,7 +386,7 @@ func (e *engine) CreateBranch(
 	source string,
 	switchTo bool,
 ) error {
-	return branches.Create(ctx, repoPath, name, source, switchTo)
+	return reclassifyError(branches.Create(ctx, repoPath, name, source, switchTo))
 }
 
 func (e *engine) RenameBranch(
@@ -330,7 +419,7 @@ func (e *engine) SwitchBranch(
 	repoPath string,
 	name string,
 ) error {
-	return branches.Switch(ctx, repoPath, name)
+	return reclassifyError(branches.Switch(ctx, repoPath, name))
 }
 
 func (e *engine) StashPush(
@@ -365,13 +454,18 @@ func (e *engine) StashDrop(
 	return stash.Drop(ctx, repoPath, id)
 }
 
+// Reset runs `git reset --<mode> [<commit>]`. mode is allowlisted and commit is
+// validated for a leading dash at the usecase boundary (git_write.go), which is
+// the guard here: `git reset` does not accept a `--` end-of-options separator
+// before a commit (it would reinterpret the commit as a pathspec — "Cannot do
+// hard reset with paths"), so a separator is infeasible for this subcommand.
 func (e *engine) Reset(
 	ctx context.Context,
 	repoPath string,
 	mode string,
 	commit string,
 ) error {
-	defer e.lockRepo(repoPath)()
+	defer e.lockRepo(ctx, repoPath)()
 	flag := "--" + mode
 	args := []string{"reset", flag}
 	if commit != "" {
@@ -386,8 +480,11 @@ func (e *engine) Merge(
 	repoPath string,
 	branch string,
 ) error {
-	defer e.lockRepo(repoPath)()
-	r := e.exec(ctx, repoPath, "merge", branch)
+	defer e.lockRepo(ctx, repoPath)()
+	// `--` end-of-options separator so a branch value can never be read as a git
+	// option (argument injection); the usecase boundary also rejects leading-dash
+	// operands as defense in depth.
+	r := e.exec(ctx, repoPath, "merge", "--", branch)
 	return classifyGitError("merge", r)
 }
 
@@ -396,8 +493,11 @@ func (e *engine) Rebase(
 	repoPath string,
 	onto string,
 ) error {
-	defer e.lockRepo(repoPath)()
-	r := e.exec(ctx, repoPath, "rebase", onto)
+	defer e.lockRepo(ctx, repoPath)()
+	// `--` end-of-options separator so an onto value can never be read as a git
+	// option such as `--exec=<cmd>` (argument injection → arbitrary command
+	// execution); the usecase boundary also rejects leading-dash operands.
+	r := e.exec(ctx, repoPath, "rebase", "--", onto)
 	return classifyGitError("rebase", r)
 }
 
@@ -431,7 +531,7 @@ func (e *engine) OperationContinue(
 	ctx context.Context,
 	repoPath string,
 ) error {
-	defer e.lockRepo(repoPath)()
+	defer e.lockRepo(ctx, repoPath)()
 	return e.operationContinue(ctx, repoPath)
 }
 
@@ -439,8 +539,19 @@ func (e *engine) OperationAbort(
 	ctx context.Context,
 	repoPath string,
 ) error {
-	defer e.lockRepo(repoPath)()
+	defer e.lockRepo(ctx, repoPath)()
 	return e.operationAbort(ctx, repoPath)
+}
+
+// OperationInProgress reports the in-progress git operation at repoPath, reading
+// only the .git marker files. It takes no repo lock: the marker check is a pure
+// read and the recovery sweep calls it on workspaces whose worktrees may be mid
+// operation, where blocking on a write lock would be wrong.
+func (e *engine) OperationInProgress(
+	ctx context.Context,
+	repoPath string,
+) (string, error) {
+	return detectInProgressOp(ctx, repoPath), nil
 }
 
 func (e *engine) WorkingTreeSummary(

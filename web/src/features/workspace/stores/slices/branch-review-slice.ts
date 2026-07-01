@@ -16,7 +16,9 @@ export interface ReviewThread {
   id: string
   filePath: string
   lineNumber: number
-  side: 'left' | 'right'
+  startLine: number
+  endLine: number
+  side: 'old' | 'new'
   messages: ReviewMessage[]
   isResolved: boolean
 }
@@ -31,24 +33,30 @@ export interface ReviewConversation {
 export interface BranchReviewState {
   description: string
   mergeStrategy: MergeStrategy
-  activeSubtab: 'about' | 'git' | 'diff'
   diffCache: MultiFileDiff | null
   diffStatus: 'idle' | 'loading' | 'loaded' | 'error'
   threads: ReviewThread[]
   conversations: ReviewConversation[]
+  activeFileKey: string | null
+  activeFileNonce: number
 }
 
 export interface BranchReviewSlice {
   branchReview: BranchReviewState
   setBranchReviewDescription: (description: string) => void
   setBranchReviewMergeStrategy: (strategy: MergeStrategy) => void
-  setBranchReviewSubtab: (tab: BranchReviewState['activeSubtab']) => void
   setBranchReviewDiff: (diff: MultiFileDiff) => void
   setBranchReviewDiffStatus: (status: BranchReviewState['diffStatus']) => void
+  setBranchReviewActiveFile: (key: string | null) => void
   addReviewThread: (thread: ReviewThread) => void
   removeReviewThread: (threadId: string) => void
   addReviewMessage: (threadId: string, message: ReviewMessage) => void
+  /** @deprecated Use setReviewThreadResolved(id, true) instead. Kept for backward compat. */
   resolveReviewThread: (threadId: string) => void
+  /** Two-way: pass false to reopen. */
+  setReviewThreadResolved: (threadId: string, isResolved: boolean) => void
+  /** Insert if new id; merge (replace) if id already exists. */
+  upsertReviewThread: (thread: ReviewThread) => void
   setBranchReviewConversations: (conversations: ReviewConversation[]) => void
   addReviewConversation: (conversation: ReviewConversation) => void
 }
@@ -56,11 +64,12 @@ export interface BranchReviewSlice {
 export const INITIAL_BRANCH_REVIEW_STATE: BranchReviewState = {
   description: '',
   mergeStrategy: 'merge',
-  activeSubtab: 'about',
   diffCache: null,
   diffStatus: 'idle',
   threads: [],
   conversations: [],
+  activeFileKey: null,
+  activeFileNonce: 0,
 }
 
 export interface OptimisticOp {
@@ -108,11 +117,6 @@ export const createBranchReviewSlice: StateCreator<
       s.branchReview.mergeStrategy = strategy
     }),
 
-  setBranchReviewSubtab: (tab) =>
-    set((s) => {
-      s.branchReview.activeSubtab = tab
-    }),
-
   setBranchReviewDiff: (diff) =>
     set((s) => {
       s.branchReview.diffCache = diff
@@ -122,6 +126,12 @@ export const createBranchReviewSlice: StateCreator<
   setBranchReviewDiffStatus: (status) =>
     set((s) => {
       s.branchReview.diffStatus = status
+    }),
+
+  setBranchReviewActiveFile: (key) =>
+    set((s) => {
+      s.branchReview.activeFileKey = key
+      s.branchReview.activeFileNonce += 1
     }),
 
   addReviewThread: (thread) =>
@@ -144,6 +154,22 @@ export const createBranchReviewSlice: StateCreator<
     set((s) => {
       const t = s.branchReview.threads.find((t) => t.id === threadId)
       if (t) t.isResolved = true
+    }),
+
+  setReviewThreadResolved: (threadId, isResolved) =>
+    set((s) => {
+      const t = s.branchReview.threads.find((t) => t.id === threadId)
+      if (t) t.isResolved = isResolved
+    }),
+
+  upsertReviewThread: (thread) =>
+    set((s) => {
+      const idx = s.branchReview.threads.findIndex((t) => t.id === thread.id)
+      if (idx === -1) {
+        s.branchReview.threads.push(thread)
+      } else {
+        s.branchReview.threads[idx] = thread
+      }
     }),
 
   setBranchReviewConversations: (conversations) =>

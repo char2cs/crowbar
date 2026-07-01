@@ -11,8 +11,8 @@ import (
 	"github.com/stretchr/testify/assert"
 
 	"github.com/char2cs/crowbar/api/internal/api/v0/endpoints/files"
-	"github.com/char2cs/crowbar/api/internal/domain"
 	fileusecase "github.com/char2cs/crowbar/api/internal/app/usecases/file"
+	"github.com/char2cs/crowbar/api/internal/domain"
 )
 
 func TestMain(

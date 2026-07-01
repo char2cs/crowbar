@@ -37,19 +37,6 @@ export const createPaneContent = (id: string, spec: OpenContentSpec): PaneConten
         remoteConnectionId: spec.remoteConnectionId,
       }
     }
-    case 'webViewer':
-      return {
-        ...base,
-        type: 'webViewer',
-        path: `web-viewer://${spec.url}`,
-        name: 'Web Viewer',
-        isPreview: false,
-        url: spec.url,
-        zoomLevel: spec.zoomLevel,
-        profileKey: spec.profileKey,
-        history: spec.history,
-        historyIndex: spec.historyIndex,
-      }
     case 'newTab':
       return {
         ...base,
@@ -113,6 +100,15 @@ export const createPaneContent = (id: string, spec: OpenContentSpec): PaneConten
         ...base,
         type: 'crowbarChat',
         path: `crowbar-chat://${spec.wsId}`,
+        name: spec.name,
+        isPreview: false,
+        wsId: spec.wsId,
+      }
+    case 'branchReview':
+      return {
+        ...base,
+        type: 'branchReview',
+        path: `branch-review://${spec.wsId}`,
         name: spec.name,
         isPreview: false,
         wsId: spec.wsId,

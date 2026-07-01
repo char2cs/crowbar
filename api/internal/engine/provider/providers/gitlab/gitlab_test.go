@@ -206,3 +206,19 @@ func TestParseMRList_InvalidJSON(t *testing.T) {
 	_, err := parseMRList([]byte("not json"))
 	require.Error(t, err)
 }
+
+func TestGlabProvider_OwnerAvatarURL(t *testing.T) {
+	dir := t.TempDir()
+	g := NewWithExec(fakeCmd("https://gitlab.com/uploads/group/avatar/42/icon.png", 0))
+	got, err := g.OwnerAvatarURL(context.Background(), dir)
+	require.NoError(t, err)
+	assert.Equal(t, "https://gitlab.com/uploads/group/avatar/42/icon.png", got)
+}
+
+func TestGlabProvider_OwnerAvatarURL_CliError_ReturnsEmpty(t *testing.T) {
+	dir := t.TempDir()
+	g := NewWithExec(fakeCmd("", 1))
+	got, err := g.OwnerAvatarURL(context.Background(), dir)
+	require.NoError(t, err)
+	assert.Empty(t, got)
+}

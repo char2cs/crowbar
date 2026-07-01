@@ -4,13 +4,44 @@ package kit
 
 import (
 	"context"
+	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/char2cs/crowbar/api/internal/domain"
 	gitdomain "github.com/char2cs/crowbar/api/internal/domain/git"
 )
+
+// projectDirOf mirrors worktreepath.ProjectDir for the oracle's path-shape
+// assertion. The worktreepath package is doubly-internal (under
+// app/usecases/internal) and therefore not importable from tests/kit, so the
+// UUID layout is reconstructed here from the same contract (spec §1/§8).
+func projectDirOf(
+	home string,
+	projectID string,
+) string {
+	return filepath.Join(home, "projects", projectID)
+}
+
+// worktreePathOf mirrors worktreepath.For: the crowbar-created worktree dir for
+// a workspace, <home>/projects/<P>/<R>/workspaces/<W>/worktree.
+func worktreePathOf(
+	home string,
+	projectID string,
+	repoID string,
+	wsID string,
+) string {
+	return filepath.Join(
+		projectDirOf(home, projectID),
+		repoID,
+		"workspaces",
+		wsID,
+		"worktree",
+	)
+}
 
 // AssertWorkspaceConsistency verifies that the workspace read-model is consistent
 // with what is stored on disk for wsID.
@@ -62,6 +93,24 @@ func AssertWorkspaceConsistency(
 	)
 
 	if ws.WorktreePath != "" {
+		// A crowbar-created child worktree (one living under the crowbar home's
+		// projects tree) must follow the UUID layout (spec §1/§8):
+		// <home>/projects/<P>/<R>/workspaces/<W>/worktree. An adopted main
+		// worktree points at the user's real on-disk repo path and is exempt.
+		if strings.HasPrefix(ws.WorktreePath, projectDirOf(env.homeDir, ws.ProjectID)) {
+			assert.Equal(
+				t,
+				worktreePathOf(
+					env.homeDir,
+					ws.ProjectID,
+					ws.RepoID,
+					ws.ID,
+				),
+				ws.WorktreePath,
+				"oracle: crowbar-created worktree path must equal the UUID layout",
+			)
+		}
+
 		dirOK := DirExists(
 			t,
 			ws.WorktreePath,
@@ -88,8 +137,10 @@ func AssertWorkspaceConsistency(
 	}
 }
 
-// AssertGitStateMatchesReadModel verifies that the git status of wsID's worktree
-// matches the HasConflicts flag stored in the workspace read-model.
+// AssertGitStateMatchesReadModel verifies that a conflicted git worktree is
+// reflected by the workspace read-model's status (spec §5): if the worktree has
+// conflicted files, the workspace Status must be pr-conflicts. (HasConflicts was
+// removed; conflict state is now carried by the status enum.)
 func AssertGitStateMatchesReadModel(
 	t *testing.T,
 	env *Env,
@@ -130,12 +181,14 @@ func AssertGitStateMatchesReadModel(
 		}
 	}
 
-	assert.Equal(
-		t,
-		ws.HasConflicts,
-		hasConflicts,
-		"oracle: HasConflicts mismatch for workspace %s",
-		wsID,
-	)
+	if hasConflicts {
+		assert.Equal(
+			t,
+			domain.WorkspaceStatusPRConflicts,
+			ws.Status,
+			"oracle: conflicted worktree must set status pr-conflicts for workspace %s",
+			wsID,
+		)
+	}
 }
 

@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 vi.mock('@/lib/api', () => ({ apiFetch: vi.fn() }))
 
@@ -10,6 +10,13 @@ import {
   mergeChildren,
   toAppFile,
 } from '@/features/files/lib/file-tree-api'
+import { setWorkspaceScope } from '@/lib/workspace-scope'
+
+// §3: file routes are hierarchical; register the scope for the test wsIds.
+beforeEach(() => {
+  setWorkspaceScope({ projectId: 'p1', repoId: 'r1', wsId: 'ws-1' })
+  setWorkspaceScope({ projectId: 'p1', repoId: 'r1', wsId: 'ws-9' })
+})
 
 afterEach(() => vi.clearAllMocks())
 
@@ -32,20 +39,22 @@ describe('fetchFileTree', () => {
       { name: 'README.md', path: 'README.md', type: 'file' },
     ])
     const tree = await fetchFileTree('ws-1')
-    expect(apiFetch).toHaveBeenCalledWith('/v0/workspaces/ws-1/files/tree')
+    expect(apiFetch).toHaveBeenCalledWith('/v0/projects/p1/repos/r1/workspaces/ws-1/files/tree')
     expect(tree[0].name).toBe('README.md')
   })
 
   it('encodes the path query for a subdirectory', async () => {
     ;(apiFetch as ReturnType<typeof vi.fn>).mockResolvedValue([])
     await fetchFileTree('ws-1', 'src/utils')
-    expect(apiFetch).toHaveBeenCalledWith('/v0/workspaces/ws-1/files/tree?path=src%2Futils')
+    expect(apiFetch).toHaveBeenCalledWith(
+      '/v0/projects/p1/repos/r1/workspaces/ws-1/files/tree?path=src%2Futils',
+    )
   })
 })
 
 describe('filesWsEndpoint', () => {
   it('builds the wsId-scoped files topic', () => {
-    expect(filesWsEndpoint('ws-9')).toBe('/v0/ws/files?wsId=ws-9')
+    expect(filesWsEndpoint('ws-9')).toBe('/v0/projects/p1/repos/r1/workspaces/ws-9/files/ws')
   })
 })
 

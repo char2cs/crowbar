@@ -16,8 +16,9 @@ import (
 
 	"github.com/char2cs/crowbar/api/internal/adapter"
 	v0 "github.com/char2cs/crowbar/api/internal/api/v0"
+	"github.com/char2cs/crowbar/api/internal/api/v0/dto"
 	"github.com/char2cs/crowbar/api/internal/app"
-	"github.com/char2cs/crowbar/api/internal/app/hub"
+	"github.com/char2cs/crowbar/api/internal/app/repositories/workspace"
 	"github.com/char2cs/crowbar/api/internal/domain"
 	gitdomain "github.com/char2cs/crowbar/api/internal/domain/git"
 	lspdomain "github.com/char2cs/crowbar/api/internal/domain/lsp"
@@ -42,20 +43,53 @@ func newApp(t *testing.T) testContainers {
 	return testContainers{app: a, eng: eng}
 }
 
-func workspaceFixture() domain.Workspace {
-	return domain.Workspace{ID: "w1", RepoID: "r1", ProjectID: "p1"}
+func workspaceFixture() dto.WorkspaceDTO {
+	return dto.WorkspaceDTO{ID: "w1", RepoID: "r1", ProjectID: "p1"}
+}
+
+// seedRepo creates a real repository row under project p1 so the repo scope guard
+// (scopeRepoToPath) admits a request to /projects/p1/repos/:repoId/...; a :repoId
+// that resolves to no row, or to a different project, is now 404'd before the
+// handler. Save is an upsert, so seeding the same repo twice is harmless.
+func seedRepoIn(t *testing.T, tc testContainers, projectID, repoID string) {
+	t.Helper()
+	require.NoError(t, tc.app.GORM.Repositories.Save(
+		context.Background(),
+		domain.Repository{ID: repoID, ProjectID: projectID, Name: repoID, Path: t.TempDir()},
+	))
+}
+
+func seedRepo(t *testing.T, tc testContainers, repoID string) {
+	t.Helper()
+	seedRepoIn(t, tc, "p1", repoID)
+}
+
+// seedWorkspace creates a real workspace row under p1/r1 (plus its repo) so both
+// scope guards (scopeRepoToPath, scopeWorkspaceToPath) admit a request/WS upgrade
+// to /workspaces/:id/...; a :repoId/:wsId that resolves to no row, or to a
+// different scope, is now 404'd before the handler.
+func seedWorkspace(t *testing.T, tc testContainers, id string) {
+	t.Helper()
+	seedRepo(t, tc, "r1")
+	_, err := tc.app.Repositories.Workspace.Create(
+		context.Background(),
+		workspace.CreateInput{ID: id, RepoID: "r1", ProjectID: "p1", WorktreePath: t.TempDir()},
+		time.Now(),
+	)
+	require.NoError(t, err)
 }
 
 func TestV0_HubBroadcastReachesWSClient(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	tc := newApp(t)
+	seedRepo(t, tc, "r1")
 	c := v0.New(tc.app, tc.eng)
 	r := gin.New()
 	c.Register(r.Group("/v0"))
 	srv := httptest.NewServer(r)
 	t.Cleanup(srv.Close)
 
-	url := "ws" + srv.URL[len("http"):] + "/v0/ws/workspaces"
+	url := "ws" + srv.URL[len("http"):] + "/v0/projects/p1/repos/r1/workspaces"
 	conn, resp, err := websocket.DefaultDialer.Dial(url, nil)
 	if resp != nil {
 		_ = resp.Body.Close()
@@ -74,48 +108,19 @@ func TestV0_HubBroadcastReachesWSClient(t *testing.T) {
 	assert.Equal(t, "w1", got["id"])
 }
 
-func TestV0_PushChat_ReachesWSClient(t *testing.T) {
-	gin.SetMode(gin.TestMode)
-	tc := newApp(t)
-	c := v0.New(tc.app, tc.eng)
-	r := gin.New()
-	c.Register(r.Group("/v0"))
-	srv := httptest.NewServer(r)
-	t.Cleanup(srv.Close)
-
-	url := "ws" + srv.URL[len("http"):] + "/v0/ws/chats"
-	conn, resp, err := websocket.DefaultDialer.Dial(url, nil)
-	if resp != nil {
-		_ = resp.Body.Close()
-	}
-	require.NoError(t, err)
-	t.Cleanup(func() { _ = conn.Close() })
-	c.WaitChatsRegistered()
-
-	tc.app.Hub.BroadcastChat(hub.ChatStatusEvent{
-		ChatID: "c1",
-		WsID:   "w1",
-		Status: domain.ChatStatusIdle,
-	})
-
-	require.NoError(t, conn.SetReadDeadline(time.Now().Add(2*time.Second)))
-	_, msg, err := conn.ReadMessage()
-	require.NoError(t, err)
-	var got map[string]any
-	require.NoError(t, json.Unmarshal(msg, &got))
-	assert.Equal(t, "c1", got["chatId"])
-}
-
 func TestV0_WorkspacesFilter_ProjectId(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	tc := newApp(t)
+	seedRepo(t, tc, "r1")
 	c := v0.New(tc.app, tc.eng)
 	r := gin.New()
 	c.Register(r.Group("/v0"))
 	srv := httptest.NewServer(r)
 	t.Cleanup(srv.Close)
 
-	url := "ws" + srv.URL[len("http"):] + "/v0/ws/workspaces?projectId=p1"
+	// The nested WS route binds projectId/repoId as path params, so the client
+	// scope is "p1/r1"; the p1/r1/w1 fixture prefix-matches and is delivered.
+	url := "ws" + srv.URL[len("http"):] + "/v0/projects/p1/repos/r1/workspaces"
 	conn, resp, err := websocket.DefaultDialer.Dial(url, nil)
 	if resp != nil {
 		_ = resp.Body.Close()
@@ -124,7 +129,7 @@ func TestV0_WorkspacesFilter_ProjectId(t *testing.T) {
 	t.Cleanup(func() { _ = conn.Close() })
 	c.WaitWorkspacesRegistered()
 
-	// This workspace has projectId=p1 so it should pass the filter.
+	// This workspace has projectId=p1/repoId=r1 so it passes the prefix filter.
 	tc.app.Hub.BroadcastWorkspace(workspaceFixture())
 
 	require.NoError(t, conn.SetReadDeadline(time.Now().Add(2*time.Second)))
@@ -138,13 +143,16 @@ func TestV0_WorkspacesFilter_ProjectId(t *testing.T) {
 func TestV0_WorkspacesFilter_RepoId(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	tc := newApp(t)
+	seedRepo(t, tc, "r1")
 	c := v0.New(tc.app, tc.eng)
 	r := gin.New()
 	c.Register(r.Group("/v0"))
 	srv := httptest.NewServer(r)
 	t.Cleanup(srv.Close)
 
-	url := "ws" + srv.URL[len("http"):] + "/v0/ws/workspaces?repoId=r1"
+	// Prefix scoping is hierarchical: a repo-scoped subscription supplies both
+	// projectId and repoId (the standalone repoId query is no longer a scope key).
+	url := "ws" + srv.URL[len("http"):] + "/v0/projects/p1/repos/r1/workspaces"
 	conn, resp, err := websocket.DefaultDialer.Dial(url, nil)
 	if resp != nil {
 		_ = resp.Body.Close()
@@ -163,6 +171,77 @@ func TestV0_WorkspacesFilter_RepoId(t *testing.T) {
 	assert.Equal(t, "w1", got["id"])
 }
 
+// TestContainer_PushProject_RouteByPrefix proves the Projects broadcaster routes
+// by hierarchical prefix derived from the :projectId path param: a client scoped
+// to "p1" receives only that project's frame; a sibling project's frame is
+// filtered out (spec §5).
+func TestContainer_PushProject_RouteByPrefix(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	tc := newApp(t)
+	c := v0.New(tc.app, tc.eng)
+	r := gin.New()
+	r.GET("/v0/projects/:projectId", c.ProjectsHandle)
+	srv := httptest.NewServer(r)
+	t.Cleanup(srv.Close)
+
+	url := "ws" + srv.URL[len("http"):] + "/v0/projects/p1"
+	conn, resp, err := websocket.DefaultDialer.Dial(url, nil)
+	if resp != nil {
+		_ = resp.Body.Close()
+	}
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = conn.Close() })
+	c.WaitProjectsRegistered()
+
+	// A sibling project's frame must be filtered out; only p1's arrives.
+	tc.app.Hub.BroadcastProject(dto.ProjectDTO{ID: "p2", Name: "skip"})
+	tc.app.Hub.BroadcastProject(dto.ProjectDTO{ID: "p1", Name: "keep"})
+
+	require.NoError(t, conn.SetReadDeadline(time.Now().Add(2*time.Second)))
+	_, msg, err := conn.ReadMessage()
+	require.NoError(t, err)
+	var got map[string]any
+	require.NoError(t, json.Unmarshal(msg, &got))
+	assert.Equal(t, "p1", got["id"])
+	assert.Equal(t, "keep", got["name"])
+}
+
+// TestContainer_PushRepo_RouteByPrefix proves the Repos broadcaster routes by
+// hierarchical prefix derived from the :projectId path param: a client scoped to
+// the project "p1" (prefix "p1") receives every child repo ("p1/r1") but not a
+// sibling project's repo ("p2/r1") (spec §5).
+func TestContainer_PushRepo_RouteByPrefix(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	tc := newApp(t)
+	c := v0.New(tc.app, tc.eng)
+	r := gin.New()
+	r.GET("/v0/projects/:projectId/repos", c.ReposHandle)
+	srv := httptest.NewServer(r)
+	t.Cleanup(srv.Close)
+
+	url := "ws" + srv.URL[len("http"):] + "/v0/projects/p1/repos"
+	conn, resp, err := websocket.DefaultDialer.Dial(url, nil)
+	if resp != nil {
+		_ = resp.Body.Close()
+	}
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = conn.Close() })
+	c.WaitReposRegistered()
+
+	// A sibling project's repo must be filtered out; only p1's child repo arrives.
+	tc.app.Hub.BroadcastRepo(dto.RepoDTO{ID: "r1", ProjectID: "p2", Name: "skip"})
+	tc.app.Hub.BroadcastRepo(dto.RepoDTO{ID: "r1", ProjectID: "p1", Name: "keep"})
+
+	require.NoError(t, conn.SetReadDeadline(time.Now().Add(2*time.Second)))
+	_, msg, err := conn.ReadMessage()
+	require.NoError(t, err)
+	var got map[string]any
+	require.NoError(t, json.Unmarshal(msg, &got))
+	assert.Equal(t, "r1", got["id"])
+	assert.Equal(t, "p1", got["projectId"])
+	assert.Equal(t, "keep", got["name"])
+}
+
 func TestV0_PushLSP_ReachesFilteredClient(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	tc := newApp(t)
@@ -172,7 +251,8 @@ func TestV0_PushLSP_ReachesFilteredClient(t *testing.T) {
 	srv := httptest.NewServer(r)
 	t.Cleanup(srv.Close)
 
-	url := "ws" + srv.URL[len("http"):] + "/v0/ws/lsp?wsId=w1"
+	seedWorkspace(t, tc, "w1")
+	url := "ws" + srv.URL[len("http"):] + "/v0/projects/p1/repos/r1/workspaces/w1/lsp/ws"
 	conn, resp, err := websocket.DefaultDialer.Dial(url, nil)
 	if resp != nil {
 		_ = resp.Body.Close()
@@ -205,7 +285,8 @@ func TestV0_PushGit_QueryScope_IsolatesWsId(t *testing.T) {
 	srv := httptest.NewServer(r)
 	t.Cleanup(srv.Close)
 
-	url := "ws" + srv.URL[len("http"):] + "/v0/ws/git?wsId=A"
+	seedWorkspace(t, tc, "A")
+	url := "ws" + srv.URL[len("http"):] + "/v0/projects/p1/repos/r1/workspaces/A/git/status"
 	conn, resp, err := websocket.DefaultDialer.Dial(url, nil)
 	if resp != nil {
 		_ = resp.Body.Close()
@@ -236,7 +317,8 @@ func TestV0_GitDualServe_PathScope_IsolatesWsId(t *testing.T) {
 	t.Cleanup(srv.Close)
 
 	// The dual-served route scopes by the :wsId PATH param, not a query param.
-	url := "ws" + srv.URL[len("http"):] + "/v0/workspaces/A/git/status"
+	seedWorkspace(t, tc, "A")
+	url := "ws" + srv.URL[len("http"):] + "/v0/projects/p1/repos/r1/workspaces/A/git/status"
 	conn, resp, err := websocket.DefaultDialer.Dial(url, nil)
 	if resp != nil {
 		_ = resp.Body.Close()
@@ -256,30 +338,6 @@ func TestV0_GitDualServe_PathScope_IsolatesWsId(t *testing.T) {
 	assert.Equal(t, "branch-A", got.Branch)
 }
 
-func TestV0_ChatStream_RouteRegistered_NoFrames(t *testing.T) {
-	gin.SetMode(gin.TestMode)
-	tc := newApp(t)
-	c := v0.New(tc.app, tc.eng)
-	r := gin.New()
-	c.Register(r.Group("/v0"))
-	srv := httptest.NewServer(r)
-	t.Cleanup(srv.Close)
-
-	// The post-spike ChatStream route exists and upgrades, but no producer ever
-	// pushes a frame, so the read must time out rather than deliver anything.
-	url := "ws" + srv.URL[len("http"):] + "/v0/ws/chats/c1/stream"
-	conn, resp, err := websocket.DefaultDialer.Dial(url, nil)
-	if resp != nil {
-		_ = resp.Body.Close()
-	}
-	require.NoError(t, err)
-	t.Cleanup(func() { _ = conn.Close() })
-
-	_ = conn.SetReadDeadline(time.Now().Add(200 * time.Millisecond))
-	_, _, err = conn.ReadMessage()
-	assert.Error(t, err)
-}
-
 func TestV0_PushFile_ReachesFilteredClient(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	tc := newApp(t)
@@ -289,7 +347,8 @@ func TestV0_PushFile_ReachesFilteredClient(t *testing.T) {
 	srv := httptest.NewServer(r)
 	t.Cleanup(srv.Close)
 
-	url := "ws" + srv.URL[len("http"):] + "/v0/ws/files?wsId=w1"
+	seedWorkspace(t, tc, "w1")
+	url := "ws" + srv.URL[len("http"):] + "/v0/projects/p1/repos/r1/workspaces/w1/files/ws"
 	conn, resp, err := websocket.DefaultDialer.Dial(url, nil)
 	if resp != nil {
 		_ = resp.Body.Close()
@@ -307,36 +366,4 @@ func TestV0_PushFile_ReachesFilteredClient(t *testing.T) {
 	var got domain.FileChangeEvent
 	require.NoError(t, json.Unmarshal(msg, &got))
 	assert.Equal(t, "a.go", got.Path)
-}
-
-func TestV0_ChatsFilter_WsId(t *testing.T) {
-	gin.SetMode(gin.TestMode)
-	tc := newApp(t)
-	c := v0.New(tc.app, tc.eng)
-	r := gin.New()
-	c.Register(r.Group("/v0"))
-	srv := httptest.NewServer(r)
-	t.Cleanup(srv.Close)
-
-	url := "ws" + srv.URL[len("http"):] + "/v0/ws/chats?wsId=w1"
-	conn, resp, err := websocket.DefaultDialer.Dial(url, nil)
-	if resp != nil {
-		_ = resp.Body.Close()
-	}
-	require.NoError(t, err)
-	t.Cleanup(func() { _ = conn.Close() })
-	c.WaitChatsRegistered()
-
-	tc.app.Hub.BroadcastChat(hub.ChatStatusEvent{
-		ChatID: "c1",
-		WsID:   "w1",
-		Status: domain.ChatStatusIdle,
-	})
-
-	require.NoError(t, conn.SetReadDeadline(time.Now().Add(2*time.Second)))
-	_, msg, err := conn.ReadMessage()
-	require.NoError(t, err)
-	var got map[string]any
-	require.NoError(t, json.Unmarshal(msg, &got))
-	assert.Equal(t, "c1", got["chatId"])
 }

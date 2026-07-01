@@ -1,65 +1,62 @@
 @import '@fontsource-variable/jetbrains-mono';
+/* Static "JetBrains Mono" (non-variable) for the terminal. Variable cuts force
+   xterm.js onto its slow DOM renderer (texture-atlas misalignment); the static
+   family keeps the WebGL renderer. Weights 400/700 cover regular + bold; latin
+   + latin-ext cover the terminal's glyph needs. See resolve-font.ts. */
+@import '@fontsource/jetbrains-mono/latin-400.css';
+@import '@fontsource/jetbrains-mono/latin-700.css';
+@import '@fontsource/jetbrains-mono/latin-ext-400.css';
+@import '@fontsource/jetbrains-mono/latin-ext-700.css';
 
 :root {
   --editor-font-family: ui-monospace, 'JetBrains Mono Variable', monospace;
-
-  /* Syntax highlighting — light mode */
-  --syntax-keyword: oklch(0.45 0.18 310);
-  --syntax-string: oklch(0.42 0.14 140);
-  --syntax-number: oklch(0.5 0.15 45);
-  --syntax-constant: oklch(0.48 0.12 215);
-  --syntax-comment: oklch(0.52 0.01 255);
-  --syntax-variable: oklch(0.45 0.15 15);
-  --syntax-property: oklch(0.45 0.15 270);
-  --syntax-type: oklch(0.52 0.16 95);
-  --syntax-function: oklch(0.45 0.15 220);
-  --syntax-operator: oklch(0.48 0.12 215);
-  --syntax-punctuation: oklch(0.25 0 0);
-  --syntax-tag: oklch(0.45 0.15 15);
-  --syntax-attribute: oklch(0.45 0.18 310);
-  --syntax-boolean: oklch(0.42 0.22 15);
-  --syntax-null: oklch(0.42 0.22 15);
-  --syntax-regex: oklch(0.48 0.12 215);
-  --syntax-jsx: oklch(0.48 0.12 215);
-  --syntax-jsx-attribute: var(--syntax-attribute);
-  --syntax-markdown-heading: oklch(0.45 0.15 270);
-  --syntax-markdown-bold: oklch(0.5 0.15 45);
-  --syntax-markdown-italic: oklch(0.45 0.18 310);
-  --syntax-markdown-strikethrough: oklch(0.45 0.15 15);
-  --syntax-markdown-link: oklch(0.48 0.12 215);
-  --syntax-markdown-link-text: oklch(0.45 0.15 270);
-  --syntax-markdown-code: oklch(0.42 0.14 140);
-  --syntax-markdown-list: oklch(0.45 0.18 310);
-  --syntax-markdown-quote: oklch(0.52 0.01 255);
 }
 
-.dark {
-  /* Syntax highlighting — dark mode */
-  --syntax-keyword: oklch(0.68 0.18 310);
-  --syntax-string: oklch(0.85 0.14 130);
-  --syntax-number: oklch(0.75 0.15 45);
-  --syntax-constant: oklch(0.85 0.09 215);
-  --syntax-comment: oklch(0.62 0.01 255);
-  --syntax-variable: oklch(0.7 0.15 15);
-  --syntax-property: oklch(0.72 0.15 270);
-  --syntax-type: oklch(0.87 0.16 95);
-  --syntax-function: oklch(0.72 0.15 220);
-  --syntax-operator: oklch(0.85 0.09 215);
-  --syntax-punctuation: oklch(0.9 0 0);
-  --syntax-tag: oklch(0.7 0.15 15);
-  --syntax-attribute: oklch(0.68 0.18 310);
-  --syntax-boolean: oklch(0.65 0.22 15);
-  --syntax-null: oklch(0.65 0.22 15);
-  --syntax-regex: oklch(0.85 0.09 215);
-  --syntax-jsx: oklch(0.85 0.09 215);
-  --syntax-jsx-attribute: var(--syntax-attribute);
-  --syntax-markdown-heading: oklch(0.72 0.15 270);
-  --syntax-markdown-bold: oklch(0.75 0.15 45);
-  --syntax-markdown-italic: oklch(0.68 0.18 310);
-  --syntax-markdown-strikethrough: oklch(0.7 0.15 15);
-  --syntax-markdown-link: oklch(0.85 0.09 215);
-  --syntax-markdown-link-text: oklch(0.72 0.15 270);
-  --syntax-markdown-code: oklch(0.85 0.14 130);
-  --syntax-markdown-list: oklch(0.68 0.18 310);
-  --syntax-markdown-quote: oklch(0.56 0.01 255);
+/*
+ * Pane-resize GPU layer pre-promotion.
+ *
+ * `will-change: transform` is applied to the `.monaco-editor-shell` wrapper
+ * (NOT `.monaco-editor` directly) to keep each editor in its own Core Animation
+ * layer. This eliminates the ~47ms first-drag-frame rasterization spike.
+ *
+ * IMPORTANT: WKWebView (Tauri) treats `will-change: transform` as establishing
+ * a new containing block for `position:fixed` descendants — same as a computed
+ * `transform`. Applying it directly to `.monaco-editor` breaks `fixedOverflowWidgets`
+ * (suggest, hover, signature help): Monaco positions them relative to the viewport
+ * but they end up offset relative to the editor instead.
+ *
+ * Promoting the shell wrapper preserves GPU layering while leaving `.monaco-editor`
+ * free of containing-block side-effects.
+ *
+ * During the actual drag, `transform: translateZ(0)` on `.monaco-editor` activates
+ * the layer as a proper compositor clip target (~9ms/frame vs ~55-66ms/frame).
+ * `transform` does create a containing block, but no overflow widgets are open
+ * mid-drag and editor.layout() is suppressed for the drag duration.
+ */
+.monaco-editor-shell {
+  will-change: transform;
+}
+
+html[data-pane-resizing] .monaco-editor {
+  transform: translateZ(0);
+}
+
+/*
+ * Non-sash pane layout changes (new pane open/close, terminal split, etc.).
+ * The ResizeObserver in editor-surface sets this attribute for two frames while
+ * editor.layout() runs, so WKWebView rasterizes the resized editor surface on
+ * the GPU compositor instead of blocking the main thread.
+ */
+html[data-editor-layout] .monaco-editor {
+  transform: translateZ(0);
+}
+
+/*
+ * Monaco drag-to-select. Pointer-down in the editor sets this attribute;
+ * pointer-up on window clears it. Keeps Monaco in a composited CALayer so
+ * per-frame selection-overlay updates are GPU-composited rather than triggering
+ * WKWebView CPU tile re-rasterization across every selected line.
+ */
+html[data-editor-selecting] .monaco-editor {
+  transform: translateZ(0);
 }

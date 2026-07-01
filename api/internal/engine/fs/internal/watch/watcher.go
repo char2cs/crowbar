@@ -15,6 +15,7 @@ import (
 
 	"github.com/fsnotify/fsnotify"
 
+	"github.com/char2cs/crowbar/api/internal/core/safego"
 	"github.com/char2cs/crowbar/api/internal/domain"
 	gitdomain "github.com/char2cs/crowbar/api/internal/domain/git"
 )
@@ -52,6 +53,9 @@ type Watcher struct {
 	started      bool
 	stopped      bool
 	fswCloseOnce sync.Once
+
+	gitDirOnce     sync.Once
+	resolvedGitDir string
 
 	prevAdded    int
 	prevDeleted  int
@@ -210,8 +214,17 @@ func (w *Watcher) Stop() {
 func (w *Watcher) loop(
 	ctx context.Context,
 ) {
+	defer safego.Recover("fs.watch.loop")
 	defer w.closeFSW()
 
+	// No initial git emit on subscribe: the snapshot-on-subscribe already delivers
+	// fresh git status (gitSnapshot reads real `git status`, not the read model),
+	// so an initial broadcast would be a redundant duplicate of the snapshot — and,
+	// racing ahead of or behind the snapshot, it would either leak a stray frame to
+	// a wsId-scoped client (cross-workspace isolation) or suppress the first real
+	// change. Live git frames are driven purely by real file changes; the
+	// read-model summary badge is kept fresh by the startup ReconcileAll sweep and
+	// by file-change recomputes (H19).
 	timer := time.NewTimer(0)
 	if !timer.Stop() {
 		<-timer.C
@@ -356,6 +369,10 @@ func (w *Watcher) fanOutGit(
 	// Workspaces sharing a .git (linked worktrees) all see each other's ref
 	// events; without this guard every such event re-broadcasts an unchanged
 	// status to every subscriber (observed as a ~6Hz identical-frame storm).
+	// prevStatus starts unset, so the FIRST recompute always broadcasts; since the
+	// watcher does no initial recompute on subscribe (see loop — the snapshot
+	// already delivers fresh status), that first broadcast is the first real
+	// file-change, and subsequent identical frames are deduped here.
 	if !w.prevStatusSet || !gitStatusEqual(w.prevStatus, status) {
 		w.prevStatus = status
 		w.prevStatusSet = true
@@ -391,10 +408,11 @@ func (w *Watcher) fanOutGit(
 }
 
 func (w *Watcher) isRewriteInProgress() bool {
+	gitDir := w.gitDir()
 	checks := []string{
-		filepath.Join(w.repoPath, ".git", "MERGE_HEAD"),
-		filepath.Join(w.repoPath, ".git", "rebase-merge"),
-		filepath.Join(w.repoPath, ".git", "rebase-apply"),
+		filepath.Join(gitDir, "MERGE_HEAD"),
+		filepath.Join(gitDir, "rebase-merge"),
+		filepath.Join(gitDir, "rebase-apply"),
 	}
 	for _, path := range checks {
 		if _, err := os.Stat(path); err == nil {
@@ -402,6 +420,41 @@ func (w *Watcher) isRewriteInProgress() bool {
 		}
 	}
 	return false
+}
+
+// gitDir resolves and caches the real git directory for repoPath. The main
+// worktree's repoPath/.git is a directory; a child (linked) worktree's .git is a
+// FILE ("gitdir: <path>") pointing at the per-worktree dir under the common dir —
+// which is where that worktree's MERGE_HEAD / rebase-merge / rebase-apply live.
+// Statting repoPath/.git/<marker> directly returns ENOTDIR for a linked worktree,
+// so the rewrite guard would always read "false" mid-rebase/merge and broadcast
+// transient, wrong status frames during exactly the rewrite it should skip.
+func (w *Watcher) gitDir() string {
+	w.gitDirOnce.Do(func() {
+		dotGit := filepath.Join(w.repoPath, ".git")
+		if info, err := os.Stat(dotGit); err == nil && info.IsDir() {
+			w.resolvedGitDir = dotGit
+			return
+		}
+		// .git is a gitlink file ("gitdir: <path>"). Fall back to dotGit on any
+		// parse failure (worst case: the guard behaves as before for this worktree).
+		w.resolvedGitDir = dotGit
+		data, err := os.ReadFile(dotGit)
+		if err != nil {
+			return
+		}
+		line := strings.TrimSpace(string(data))
+		const prefix = "gitdir:"
+		if !strings.HasPrefix(line, prefix) {
+			return
+		}
+		p := strings.TrimSpace(strings.TrimPrefix(line, prefix))
+		if !filepath.IsAbs(p) {
+			p = filepath.Join(w.repoPath, p)
+		}
+		w.resolvedGitDir = p
+	})
+	return w.resolvedGitDir
 }
 
 // walkFn is the filepath.Walk callback used by addRecursive.

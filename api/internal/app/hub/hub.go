@@ -3,6 +3,7 @@ package hub
 import (
 	"sync"
 
+	"github.com/char2cs/crowbar/api/internal/api/v0/dto"
 	"github.com/char2cs/crowbar/api/internal/domain"
 	gitdomain "github.com/char2cs/crowbar/api/internal/domain/git"
 )
@@ -28,25 +29,60 @@ func (h *Hub) Register(
 	h.subscribers = append(h.subscribers, s)
 }
 
-// BroadcastWorkspace fans a Workspace row out to every subscriber.
-func (h *Hub) BroadcastWorkspace(
-	ws domain.Workspace,
+// BroadcastProject fans a ProjectDTO out to every subscriber (spec §5).
+func (h *Hub) BroadcastProject(
+	p dto.ProjectDTO,
 ) {
 	h.mu.RLock()
 	defer h.mu.RUnlock()
 	for _, s := range h.subscribers {
-		s.PushWorkspace(ws)
+		s.PushProject(p)
 	}
 }
 
-// BroadcastChat fans a ChatStatusEvent out to every subscriber.
-func (h *Hub) BroadcastChat(
-	evt ChatStatusEvent,
+// BroadcastRepo fans a RepoDTO out to every subscriber (spec §5).
+func (h *Hub) BroadcastRepo(
+	r dto.RepoDTO,
 ) {
 	h.mu.RLock()
 	defer h.mu.RUnlock()
 	for _, s := range h.subscribers {
-		s.PushChat(evt)
+		s.PushRepo(r)
+	}
+}
+
+// BroadcastWorkspace fans a WorkspaceDTO out to every subscriber (spec §5). The
+// merge-eligibility overlay is resolved by the producer before this call.
+func (h *Hub) BroadcastWorkspace(
+	w dto.WorkspaceDTO,
+) {
+	h.mu.RLock()
+	defer h.mu.RUnlock()
+	for _, s := range h.subscribers {
+		s.PushWorkspace(w)
+	}
+}
+
+// BroadcastThread fans a ThreadDTO out to every subscriber (spec §5).
+func (h *Hub) BroadcastThread(
+	t dto.ThreadDTO,
+) {
+	h.mu.RLock()
+	defer h.mu.RUnlock()
+	for _, s := range h.subscribers {
+		s.PushThread(t)
+	}
+}
+
+// BroadcastTerminalSession fans a TerminalSessionDTO out to every subscriber
+// (spec §5).
+func (h *Hub) BroadcastTerminalSession(
+	s dto.TerminalSessionDTO,
+) {
+	h.mu.RLock()
+	defer h.mu.RUnlock()
+	for _, sub := range h.subscribers {
+		sub.PushTerminalSession(s)
 	}
 }
 

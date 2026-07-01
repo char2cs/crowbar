@@ -11,7 +11,6 @@ import (
 
 	"github.com/char2cs/crowbar/api/internal/api/v0/endpoints/review/handlers"
 	"github.com/char2cs/crowbar/api/internal/app/apperr"
-	"github.com/char2cs/crowbar/api/internal/app/usecases/branchreview"
 	"github.com/char2cs/crowbar/api/internal/domain"
 	gitdomain "github.com/char2cs/crowbar/api/internal/domain/git"
 )
@@ -30,38 +29,12 @@ func (e errUsecase) SetMergeStrategy(
 	return e.err
 }
 
-func (e errUsecase) OpenThread(
-	_ context.Context,
-	_ branchreview.OpenThreadInput,
-) (domain.ReviewThread, error) {
-	return domain.ReviewThread{}, e.err
-}
-
-func (e errUsecase) Reply(
-	_ context.Context,
-	_ string,
-	_ string,
-) (domain.ReviewThread, error) {
-	return domain.ReviewThread{}, e.err
-}
-
-func (e errUsecase) SetThreadResolved(
-	_ context.Context,
-	_ string,
-	_ bool,
-) (domain.ReviewThread, error) {
-	return domain.ReviewThread{}, e.err
-}
-
 func newErrRouter(uc handlers.ReviewUsecase) *gin.Engine {
 	r := gin.New()
 	h := handlers.New(uc)
 	rg := r.Group("/v0")
 	rg.GET("/workspaces/:wsId/review", h.Get)
 	rg.PATCH("/workspaces/:wsId/review", h.SetMergeStrategy)
-	rg.POST("/workspaces/:wsId/review/threads", h.OpenThread)
-	rg.POST("/workspaces/:wsId/review/threads/:id/reply", h.Reply)
-	rg.PATCH("/workspaces/:wsId/review/threads/:id", h.SetThreadResolved)
 	return r
 }
 
@@ -71,10 +44,6 @@ func TestReviewHandlers_NotFound(
 	r := newErrRouter(errUsecase{err: apperr.ErrNotFound})
 
 	assert.Equal(t, http.StatusNotFound, do(r, http.MethodGet, "/v0/workspaces/ws1/review", nil).Code)
-	assert.Equal(t, http.StatusNotFound, do(r, http.MethodPost, "/v0/workspaces/ws1/review/threads/t1/reply",
-		map[string]any{"body": "x"}).Code)
-	assert.Equal(t, http.StatusNotFound, do(r, http.MethodPatch, "/v0/workspaces/ws1/review/threads/t1",
-		map[string]any{"isResolved": true}).Code)
 }
 
 func TestReviewHandlers_InternalError(

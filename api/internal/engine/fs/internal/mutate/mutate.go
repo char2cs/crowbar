@@ -5,6 +5,8 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+
+	"github.com/char2cs/crowbar/api/internal/engine/fs/safepath"
 )
 
 // CreateFile creates an empty file at filePath. Parent directories are created
@@ -13,11 +15,14 @@ func CreateFile(
 	repoPath string,
 	filePath string,
 ) error {
-	full := filepath.Join(repoPath, filePath)
+	full, err := safepath.Resolve(repoPath, filePath)
+	if err != nil {
+		return fmt.Errorf("mutate: create %s: %w", filePath, err)
+	}
 	if err := os.MkdirAll(filepath.Dir(full), 0o700); err != nil {
 		return fmt.Errorf("mutate: mkdir %s: %w", filePath, err)
 	}
-	f, err := os.OpenFile(full, os.O_CREATE|os.O_EXCL, 0o600) //nolint:gosec // workspace-relative path under the user's own repo (local single-user IDE)
+	f, err := os.OpenFile(full, os.O_CREATE|os.O_EXCL, 0o600) //nolint:gosec // containment-validated by safepath.Resolve above
 	if err != nil {
 		return fmt.Errorf("mutate: create %s: %w", filePath, err)
 	}
@@ -29,7 +34,10 @@ func CreateDir(
 	repoPath string,
 	dirPath string,
 ) error {
-	full := filepath.Join(repoPath, dirPath)
+	full, err := safepath.Resolve(repoPath, dirPath)
+	if err != nil {
+		return fmt.Errorf("mutate: mkdir %s: %w", dirPath, err)
+	}
 	if err := os.MkdirAll(full, 0o700); err != nil {
 		return fmt.Errorf("mutate: mkdir %s: %w", dirPath, err)
 	}
@@ -43,8 +51,14 @@ func Rename(
 	oldPath string,
 	newPath string,
 ) error {
-	oldFull := filepath.Join(repoPath, oldPath)
-	newFull := filepath.Join(repoPath, newPath)
+	oldFull, err := safepath.Resolve(repoPath, oldPath)
+	if err != nil {
+		return fmt.Errorf("mutate: rename old %s: %w", oldPath, err)
+	}
+	newFull, err := safepath.Resolve(repoPath, newPath)
+	if err != nil {
+		return fmt.Errorf("mutate: rename new %s: %w", newPath, err)
+	}
 	if err := os.MkdirAll(filepath.Dir(newFull), 0o700); err != nil {
 		return fmt.Errorf("mutate: rename mkdirall %s: %w", newPath, err)
 	}
@@ -60,7 +74,10 @@ func Delete(
 	repoPath string,
 	filePath string,
 ) error {
-	full := filepath.Join(repoPath, filePath)
+	full, err := safepath.Resolve(repoPath, filePath)
+	if err != nil {
+		return fmt.Errorf("mutate: delete %s: %w", filePath, err)
+	}
 	if err := os.RemoveAll(full); err != nil {
 		return fmt.Errorf("mutate: delete %s: %w", filePath, err)
 	}

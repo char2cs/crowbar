@@ -73,6 +73,13 @@ type Server interface {
 	OnDiagnostics(
 		fn func(lsp.DiagnosticsEvent),
 	)
+	// OnExit registers the callback invoked once when the underlying process
+	// exits on its own (crash/OOM) — NOT when the server is deliberately Closed
+	// or its transport is swapped by Replay. The manager uses it to evict the
+	// dead pool entry.
+	OnExit(
+		fn func(),
+	)
 	// OpenDocs returns the content-free set of currently open document URIs.
 	OpenDocs() *OpenDocs
 	// Replay respawns the underlying process and re-sends didOpen for every
@@ -93,6 +100,7 @@ type server struct {
 	nextID     int
 	waiters    map[int]chan waiterResult
 	onDiag     func(lsp.DiagnosticsEvent)
+	onExit     func()
 	closed     bool
 	openParams map[string]json.RawMessage
 
@@ -117,25 +125,27 @@ func newOverTransport(
 }
 
 // New spawns the language server described by command/args in dir and returns a
-// running Server. The process stdin/stdout become the JSON-RPC transport.
+// running Server. The process stdin/stdout become the JSON-RPC transport. Each
+// spawned process is watched by a reaper that reaps it on natural exit and
+// drives the server's OnExit callback so a crashed server is evicted, not left
+// a zombie in the pool (R10).
 func New(
 	command string,
 	args []string,
 	dir string,
 ) (Server, error) {
-	spawn := commandSpawn(command, args, dir)
-	transport, err := spawn(context.Background())
-	if err != nil {
-		return nil, err
-	}
 	s := &server{
-		spawn:      spawn,
-		transport:  transport,
-		reader:     bufio.NewReader(transport),
 		waiters:    make(map[int]chan waiterResult),
 		openParams: make(map[string]json.RawMessage),
 		docs:       NewOpenDocs(),
 	}
+	s.spawn = commandSpawn(command, args, dir, s.handleProcessExit)
+	transport, err := s.spawn(context.Background())
+	if err != nil {
+		return nil, err
+	}
+	s.transport = transport
+	s.reader = bufio.NewReader(transport)
 	go s.readLoop(s.transport, s.reader)
 	return s, nil
 }
@@ -144,6 +154,7 @@ func commandSpawn(
 	command string,
 	args []string,
 	dir string,
+	onExit func(),
 ) spawnFunc {
 	return func(
 		_ context.Context,
@@ -153,7 +164,7 @@ func commandSpawn(
 		// engine's entire purpose.
 		cmd := exec.Command(command, args...) // #nosec G204 G702
 		cmd.Dir = dir
-		return newProcessTransport(cmd)
+		return newProcessTransport(cmd, onExit)
 	}
 }
 
@@ -192,6 +203,27 @@ func (s *server) OnDiagnostics(
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.onDiag = fn
+}
+
+func (s *server) OnExit(
+	fn func(),
+) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.onExit = fn
+}
+
+// handleProcessExit is invoked by the transport reaper when the process exits
+// on its own. It forwards to the registered OnExit callback. The transport
+// suppresses this on a deliberate Close/Replay, so it fires only on a genuine
+// crash/OOM of the live process.
+func (s *server) handleProcessExit() {
+	s.mu.Lock()
+	fn := s.onExit
+	s.mu.Unlock()
+	if fn != nil {
+		fn()
+	}
 }
 
 func (s *server) Request(

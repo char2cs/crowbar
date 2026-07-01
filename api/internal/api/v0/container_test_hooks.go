@@ -3,27 +3,75 @@
 package v0
 
 import (
+	"github.com/gin-gonic/gin"
+
 	lspdomain "github.com/char2cs/crowbar/api/internal/domain/lsp"
 )
 
+// ProjectsHandle exposes the Projects broadcaster's WS upgrade handler so tests
+// can mount it on an ad-hoc route before the hierarchical router lands (W7).
+func (c *Container) ProjectsHandle(
+	ctx *gin.Context,
+) {
+	c.projects.Handle(ctx)
+}
+
+// ReposHandle exposes the Repos broadcaster's WS upgrade handler so tests can
+// mount it on an ad-hoc route before the hierarchical router lands (W7).
+func (c *Container) ReposHandle(
+	ctx *gin.Context,
+) {
+	c.repos.Handle(ctx)
+}
+
+// WaitProjectsRegistered blocks until a projects WS client registers.
+func (c *Container) WaitProjectsRegistered() { c.projects.WaitRegistered() }
+
+// WaitNProjectsRegistered blocks until exactly n projects WS clients register.
+func (c *Container) WaitNProjectsRegistered(
+	n int,
+) {
+	c.projects.WaitNRegistered(n)
+}
+
+// WaitReposRegistered blocks until a repos WS client registers.
+func (c *Container) WaitReposRegistered() { c.repos.WaitRegistered() }
+
+// WaitNReposRegistered blocks until exactly n repos WS clients register.
+func (c *Container) WaitNReposRegistered(
+	n int,
+) {
+	c.repos.WaitNRegistered(n)
+}
+
 // WaitWorkspacesRegistered blocks until a workspaces WS client registers.
 func (c *Container) WaitWorkspacesRegistered() { c.workspaces.WaitRegistered() }
+
+// WaitThreadsRegistered blocks until a threads WS client registers.
+func (c *Container) WaitThreadsRegistered() { c.threads.WaitRegistered() }
+
+// WaitNThreadsRegistered blocks until exactly n threads WS clients register.
+func (c *Container) WaitNThreadsRegistered(
+	n int,
+) {
+	c.threads.WaitNRegistered(n)
+}
+
+// WaitTerminalsRegistered blocks until a terminals WS client registers.
+func (c *Container) WaitTerminalsRegistered() { c.terminals.WaitRegistered() }
+
+// WaitNTerminalsRegistered blocks until exactly n terminals WS clients register.
+func (c *Container) WaitNTerminalsRegistered(
+	n int,
+) {
+	c.terminals.WaitNRegistered(n)
+}
 
 // WaitNWorkspacesRegistered blocks until exactly n workspaces WS clients register.
 func (c *Container) WaitNWorkspacesRegistered(
 	n int,
 ) {
 	c.workspaces.WaitNRegistered(n)
-}
-
-// WaitChatsRegistered blocks until a chats WS client registers.
-func (c *Container) WaitChatsRegistered() { c.chats.WaitRegistered() }
-
-// WaitNChatsRegistered blocks until exactly n chats WS clients register.
-func (c *Container) WaitNChatsRegistered(
-	n int,
-) {
-	c.chats.WaitNRegistered(n)
 }
 
 // WaitFilesRegistered blocks until a files WS client registers.
@@ -63,4 +111,3 @@ func (c *Container) PushLSP(
 ) {
 	c.lsp.Push(evt)
 }
-

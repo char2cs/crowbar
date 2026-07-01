@@ -116,6 +116,26 @@ type Engine interface {
 		repoPath string,
 	) error
 
+	// FetchRef fetches a single branch from the `origin` remote via
+	// `git fetch origin <branch>`, making `origin/<branch>` available locally.
+	// Used by the worktree usecase before checking out a branch that exists on
+	// the remote but not yet locally (07 / Spec §3).
+	FetchRef(
+		ctx context.Context,
+		repoPath string,
+		branch string,
+	) error
+
+	// FastForwardBranch fetches origin/<branch> and updates the local branch ref
+	// to match via `git fetch origin <branch>:<branch>`. Unlike FetchRef, which
+	// only updates the remote-tracking ref, this ensures the local branch is at
+	// the same commit as origin before being checked out into a worktree.
+	FastForwardBranch(
+		ctx context.Context,
+		repoPath string,
+		branch string,
+	) error
+
 	// Pull runs git pull. mode is "merge" or "rebase" (04 §5).
 	Pull(
 		ctx context.Context,
@@ -247,6 +267,18 @@ type Engine interface {
 		repoPath string,
 	) error
 
+	// OperationInProgress reports the in-progress git operation at repoPath, if
+	// any: "rebase", "merge", "squash", or "" when the worktree is at rest. It
+	// reads the .git marker files (MERGE_HEAD, rebase-merge/, AUTO_MERGE, …) and
+	// never mutates. The recovery sweep uses it to tell a workspace that is mid
+	// conflict-resolution (markers resolved + staged but the rebase/merge not yet
+	// continued) apart from a truly clean tree, so it doesn't prematurely clear a
+	// real pr-conflicts state.
+	OperationInProgress(
+		ctx context.Context,
+		repoPath string,
+	) (string, error)
+
 	// WorktreeAdd adds a git worktree for branch at path (04 write ops / 07).
 	WorktreeAdd(
 		ctx context.Context,
@@ -262,11 +294,35 @@ type Engine interface {
 		worktreePath string,
 	) error
 
+	// WorktreePrune reaps worktree registrations whose on-disk directory is gone
+	// (`git worktree prune`). Used by the startup recovery sweep to clean up
+	// orphaned worktrees left behind by a crash mid-teardown (H19).
+	WorktreePrune(
+		ctx context.Context,
+		repoPath string,
+	) error
+
 	// WorktreeList lists all git worktrees in a repo (04 / 07).
 	WorktreeList(
 		ctx context.Context,
 		repoPath string,
 	) ([]WorktreeEntry, error)
+
+	// DetachWorktree detaches HEAD of the worktree at worktreePath (keeping its
+	// files), freeing the branch it had checked out so another worktree can take
+	// it (07 — managed-worktree import of the unmanaged main folder's branch).
+	DetachWorktree(
+		ctx context.Context,
+		worktreePath string,
+	) error
+
+	// CheckoutBranch switches the worktree at worktreePath onto branch,
+	// re-attaching a detached HEAD (rollback / restore the main folder).
+	CheckoutBranch(
+		ctx context.Context,
+		worktreePath string,
+		branch string,
+	) error
 
 	// RebaseOnto runs `git rebase --onto newTip forkPoint branch` (04 / 07).
 	RebaseOnto(
@@ -300,6 +356,15 @@ type Engine interface {
 		a string,
 		b string,
 	) (string, error)
+
+	// WouldMergeConflict reports whether a three-way merge of theirs into ours
+	// would conflict, computed non-destructively (git merge-tree --write-tree).
+	WouldMergeConflict(
+		ctx context.Context,
+		repoPath string,
+		ours string,
+		theirs string,
+	) (bool, error)
 
 	// WorktreeAddBranch creates a new git worktree at worktreePath on a freshly
 	// created branch starting at startPoint, returning the resolved start SHA so
@@ -339,6 +404,16 @@ type Engine interface {
 		childBranch string,
 	) error
 
+	// RemoteBranchExists reports whether branch exists on the `origin` remote
+	// via `git ls-remote --heads origin <branch>` (non-empty output ⇒ true).
+	// Used by the worktree usecase to decide checkout-existing vs create-local
+	// before adding a worktree (07 / Spec §3).
+	RemoteBranchExists(
+		ctx context.Context,
+		repoPath string,
+		branch string,
+	) (bool, error)
+
 	// RangeDiff returns the three-dot diff between base and branch (09 §2).
 	// Uses `git diff -M <base>...<branch>` to show commits reachable from
 	// branch but not from base. Commit metadata fields are always zero-value.
@@ -347,6 +422,15 @@ type Engine interface {
 		repoPath string,
 		base string,
 		branch string,
+	) (gitdomain.MultiFileDiff, error)
+
+	// DiffAgainstRef returns the working-tree-inclusive diff against ref:
+	// committed changes since ref plus uncommitted tracked modifications
+	// (`git diff -M <ref> --`). Used for the blended branch-review diff.
+	DiffAgainstRef(
+		ctx context.Context,
+		repoPath string,
+		ref string,
 	) (gitdomain.MultiFileDiff, error)
 }
 

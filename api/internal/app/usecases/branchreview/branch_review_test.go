@@ -45,7 +45,7 @@ func TestBranchReview_Get_InternalGitError_IsNotNotFound(t *testing.T) {
 	repoStore := mocks.NewRepositoryStore()
 	_ = repoStore.Save(ctx, domain.Repository{ID: "repo1", DefaultBranch: "main"})
 	gitEng := &mockGitEngine{
-		RangeDiffFn: func(_ context.Context, _, _, _ string) (gitdomain.MultiFileDiff, error) {
+		DiffAgainstRefFn: func(_ context.Context, _, _ string) (gitdomain.MultiFileDiff, error) {
 			return gitdomain.MultiFileDiff{}, errors.New("git: not a repository")
 		},
 	}
@@ -95,20 +95,49 @@ func (m *mockWorkspace) Reparent(ctx context.Context, id, parentID, forkPointSha
 	return domain.Workspace{}, nil
 }
 
+func (m *mockWorkspace) ResolveConflicts(ctx context.Context, id string, now time.Time) (domain.Workspace, error) {
+	return domain.Workspace{}, nil
+}
+
 func (m *mockWorkspace) UpdateForkPoint(ctx context.Context, id, forkPointSha string) (domain.Workspace, error) {
 	return domain.Workspace{}, nil
 }
 
-func (m *mockWorkspace) SetPendingMerge(ctx context.Context, id string, s gitdomain.MergeStrategy, target string) (domain.Workspace, error) {
-	return domain.Workspace{}, nil
+func (m *mockWorkspace) ProvisionInPlace(
+	_ context.Context,
+	id string,
+	worktreePath string,
+	forkPointSha string,
+) (domain.Workspace, error) {
+	return domain.Workspace{ID: id, WorktreePath: worktreePath, ForkPointSha: forkPointSha}, nil
 }
 
-func (m *mockWorkspace) ClearPendingMerge(ctx context.Context, id string) (domain.Workspace, error) {
-	return domain.Workspace{}, nil
+func (m *mockWorkspace) ClearBranch(
+	_ context.Context,
+	id string,
+) (domain.Workspace, error) {
+	return domain.Workspace{ID: id}, nil
 }
+
 func (m *mockWorkspace) Delete(ctx context.Context, id string) error { return nil }
 func (m *mockWorkspace) List(ctx context.Context) ([]domain.Workspace, error) {
 	return nil, nil
+}
+
+func (m *mockWorkspace) SetParentFromPR(ctx context.Context, id string, parentID string) (domain.Workspace, error) {
+	return domain.Workspace{}, nil
+}
+
+func (m *mockWorkspace) SetLastError(ctx context.Context, id string, message string) (domain.Workspace, error) {
+	return domain.Workspace{}, nil
+}
+
+func (m *mockWorkspace) GetHomeForProject(_ context.Context, _ string) (domain.Workspace, error) {
+	return domain.Workspace{}, nil
+}
+
+func (m *mockWorkspace) CreateHome(_ context.Context, _, _ string, _ time.Time) (domain.Workspace, error) {
+	return domain.Workspace{}, nil
 }
 
 var _ workspace.Workspace = (*mockWorkspace)(nil)
@@ -117,7 +146,7 @@ var _ workspace.Workspace = (*mockWorkspace)(nil)
 
 type mockReviewThread struct {
 	OpenFn            func(ctx context.Context, in reviewthread.OpenInput, now time.Time) (domain.ReviewThread, error)
-	ReplyFn           func(ctx context.Context, id, messageID, body string, now time.Time) (domain.ReviewThread, error)
+	ReplyFn           func(ctx context.Context, id, messageID, author string, isAgent bool, body string, now time.Time) (domain.ReviewThread, error)
 	ResolveFn         func(ctx context.Context, id string) (domain.ReviewThread, error)
 	ReopenFn          func(ctx context.Context, id string) (domain.ReviewThread, error)
 	ListByWorkspaceFn func(ctx context.Context, wsID string) ([]domain.ReviewThread, error)
@@ -127,8 +156,20 @@ func (m *mockReviewThread) Open(ctx context.Context, in reviewthread.OpenInput, 
 	return m.OpenFn(ctx, in, now)
 }
 
-func (m *mockReviewThread) Reply(ctx context.Context, id, messageID, body string, now time.Time) (domain.ReviewThread, error) {
-	return m.ReplyFn(ctx, id, messageID, body, now)
+func (m *mockReviewThread) Reply(ctx context.Context, id, messageID, author string, isAgent bool, body string, now time.Time) (domain.ReviewThread, error) {
+	return m.ReplyFn(ctx, id, messageID, author, isAgent, body, now)
+}
+
+func (m *mockReviewThread) EditMessage(_ context.Context, _, _, _ string) (domain.ReviewThread, error) {
+	return domain.ReviewThread{}, nil
+}
+
+func (m *mockReviewThread) DeleteMessage(_ context.Context, _, _ string) (domain.ReviewThread, error) {
+	return domain.ReviewThread{}, nil
+}
+
+func (m *mockReviewThread) DeleteThread(_ context.Context, _ string) error {
+	return nil
 }
 
 func (m *mockReviewThread) Resolve(ctx context.Context, id string) (domain.ReviewThread, error) {
@@ -175,14 +216,6 @@ func (m *mockChat) Delete(ctx context.Context, id string, now time.Time) (domain
 	return domain.Chat{}, nil
 }
 
-func (m *mockChat) ResetIdle(ctx context.Context, id string) (domain.Chat, error) {
-	return domain.Chat{}, nil
-}
-
-func (m *mockChat) SetAgentRunning(ctx context.Context, id string) (domain.Chat, error) {
-	return domain.Chat{}, nil
-}
-
 func (m *mockChat) Get(ctx context.Context, id string) (domain.Chat, error) {
 	return domain.Chat{}, nil
 }
@@ -191,17 +224,33 @@ func (m *mockChat) ListByWorkspace(ctx context.Context, wsID string) ([]domain.C
 	return m.ListByWorkspaceFn(ctx, wsID)
 }
 
-// --- local git engine mock (only RangeDiff is exercised by these tests) ---
+// --- local git engine mock ---
 
 type mockGitEngine struct {
-	RangeDiffFn func(ctx context.Context, repoPath, base, branch string) (gitdomain.MultiFileDiff, error)
+	RangeDiffFn      func(ctx context.Context, repoPath, base, branch string) (gitdomain.MultiFileDiff, error)
+	DiffAgainstRefFn func(ctx context.Context, repoPath, ref string) (gitdomain.MultiFileDiff, error)
+	MergeBaseFn      func(ctx context.Context, repoPath, a, b string) (string, error)
+	StatusFn         func(ctx context.Context, repoPath string) (gitdomain.GitStatus, error)
 }
 
 func (g *mockGitEngine) RangeDiff(ctx context.Context, repoPath, base, branch string) (gitdomain.MultiFileDiff, error) {
-	return g.RangeDiffFn(ctx, repoPath, base, branch)
+	if g.RangeDiffFn != nil {
+		return g.RangeDiffFn(ctx, repoPath, base, branch)
+	}
+	return gitdomain.MultiFileDiff{}, nil
+}
+
+func (g *mockGitEngine) DiffAgainstRef(ctx context.Context, repoPath, ref string) (gitdomain.MultiFileDiff, error) {
+	if g.DiffAgainstRefFn != nil {
+		return g.DiffAgainstRefFn(ctx, repoPath, ref)
+	}
+	return gitdomain.MultiFileDiff{}, nil
 }
 
 func (g *mockGitEngine) Status(ctx context.Context, repoPath string) (gitdomain.GitStatus, error) {
+	if g.StatusFn != nil {
+		return g.StatusFn(ctx, repoPath)
+	}
 	return gitdomain.GitStatus{}, nil
 }
 
@@ -248,6 +297,12 @@ func (g *mockGitEngine) Commit(ctx context.Context, repoPath, subject, body stri
 func (g *mockGitEngine) Push(ctx context.Context, repoPath string) error { return nil }
 
 func (g *mockGitEngine) Fetch(ctx context.Context, repoPath string) error { return nil }
+
+func (g *mockGitEngine) FetchRef(ctx context.Context, repoPath, branch string) error { return nil }
+
+func (g *mockGitEngine) FastForwardBranch(ctx context.Context, repoPath, branch string) error {
+	return nil
+}
 
 func (g *mockGitEngine) Pull(ctx context.Context, repoPath, mode string) error { return nil }
 
@@ -296,6 +351,9 @@ func (g *mockGitEngine) ResolveHunk(ctx context.Context, repoPath, filePath, hun
 }
 func (g *mockGitEngine) OperationContinue(ctx context.Context, repoPath string) error { return nil }
 func (g *mockGitEngine) OperationAbort(ctx context.Context, repoPath string) error    { return nil }
+func (g *mockGitEngine) OperationInProgress(ctx context.Context, repoPath string) (string, error) {
+	return "", nil
+}
 func (g *mockGitEngine) WorktreeAdd(ctx context.Context, repoPath, worktreePath, branch string) error {
 	return nil
 }
@@ -304,8 +362,18 @@ func (g *mockGitEngine) WorktreeRemove(ctx context.Context, repoPath, worktreePa
 	return nil
 }
 
+func (g *mockGitEngine) WorktreePrune(ctx context.Context, repoPath string) error {
+	return nil
+}
+
 func (g *mockGitEngine) WorktreeList(ctx context.Context, repoPath string) ([]gitengine.WorktreeEntry, error) {
 	return nil, nil
+}
+
+func (g *mockGitEngine) DetachWorktree(ctx context.Context, worktreePath string) error { return nil }
+
+func (g *mockGitEngine) CheckoutBranch(ctx context.Context, worktreePath, branch string) error {
+	return nil
 }
 
 func (g *mockGitEngine) RebaseOnto(ctx context.Context, repoPath, newTip, forkPoint, branch string) error {
@@ -325,8 +393,15 @@ func (g *mockGitEngine) WorkingTreeSummary(ctx context.Context, repoPath, forkPo
 	return 0, 0, false, false, nil
 }
 
+func (g *mockGitEngine) WouldMergeConflict(ctx context.Context, repoPath, ours, theirs string) (bool, error) {
+	return false, nil
+}
+
 func (g *mockGitEngine) MergeBase(ctx context.Context, repoPath, a, b string) (string, error) {
-	return "", nil
+	if g.MergeBaseFn != nil {
+		return g.MergeBaseFn(ctx, repoPath, a, b)
+	}
+	return a, nil
 }
 
 func (g *mockGitEngine) WorktreeAddBranch(ctx context.Context, repoPath, worktreePath, branch, startPoint string) (string, error) {
@@ -339,6 +414,10 @@ func (g *mockGitEngine) RevParse(ctx context.Context, repoPath, rev string) (str
 
 func (g *mockGitEngine) MergeSquash(ctx context.Context, repoPath, branch, subject string) error {
 	return nil
+}
+
+func (g *mockGitEngine) RemoteBranchExists(ctx context.Context, repoPath, branch string) (bool, error) {
+	return false, nil
 }
 
 var _ gitengine.Engine = (*mockGitEngine)(nil)
@@ -419,11 +498,15 @@ func TestBranchReview_Get_RootUsesDefaultBranch(t *testing.T) {
 			return nil, nil
 		},
 	}
-	var gotBase, gotBranch string
+	var gotMergeBase string
+	var gotDiffRef string
 	gitEng := &mockGitEngine{
-		RangeDiffFn: func(_ context.Context, _, base, branch string) (gitdomain.MultiFileDiff, error) {
-			gotBase = base
-			gotBranch = branch
+		MergeBaseFn: func(_ context.Context, _, a, _ string) (string, error) {
+			gotMergeBase = a
+			return "abc123", nil
+		},
+		DiffAgainstRefFn: func(_ context.Context, _, ref string) (gitdomain.MultiFileDiff, error) {
+			gotDiffRef = ref
 			return expectedDiff, nil
 		},
 	}
@@ -433,8 +516,8 @@ func TestBranchReview_Get_RootUsesDefaultBranch(t *testing.T) {
 	review, err := uc.Get(ctx, "ws1")
 
 	require.NoError(t, err)
-	assert.Equal(t, "main", gotBase)
-	assert.Equal(t, "feature", gotBranch)
+	assert.Equal(t, "main", gotMergeBase, "MergeBase must be called with the default branch as base")
+	assert.Equal(t, "abc123", gotDiffRef, "DiffAgainstRef must receive the SHA returned by MergeBase")
 	assert.Equal(t, expectedDiff, review.Diff)
 	assert.Equal(t, expectedThreads, review.Threads)
 	assert.Equal(t, gitdomain.MergeStrategyMerge, review.MergeStrategy)
@@ -468,10 +551,15 @@ func TestBranchReview_Get_ChildUsesParentBranch(t *testing.T) {
 		},
 	}
 	repoStore := mocks.NewRepositoryStore()
-	var gotBase string
+	var gotMergeBase string
+	var gotDiffRef string
 	gitEng := &mockGitEngine{
-		RangeDiffFn: func(_ context.Context, _, base, _ string) (gitdomain.MultiFileDiff, error) {
-			gotBase = base
+		MergeBaseFn: func(_ context.Context, _, a, _ string) (string, error) {
+			gotMergeBase = a
+			return "fork123", nil
+		},
+		DiffAgainstRefFn: func(_ context.Context, _, ref string) (gitdomain.MultiFileDiff, error) {
+			gotDiffRef = ref
 			return gitdomain.MultiFileDiff{}, nil
 		},
 	}
@@ -481,7 +569,8 @@ func TestBranchReview_Get_ChildUsesParentBranch(t *testing.T) {
 	_, err := uc.Get(ctx, "child")
 
 	require.NoError(t, err)
-	assert.Equal(t, "develop", gotBase)
+	assert.Equal(t, "develop", gotMergeBase, "MergeBase must be called with the parent branch as base")
+	assert.Equal(t, "fork123", gotDiffRef, "DiffAgainstRef must receive the SHA returned by MergeBase")
 }
 
 func TestBranchReview_Get_WorkspaceNotFound(t *testing.T) {
@@ -515,7 +604,7 @@ func TestBranchReview_Get_RepoNil(t *testing.T) {
 	_, err := uc.Get(ctx, "ws1")
 
 	require.Error(t, err)
-	assert.Contains(t, err.Error(), "branch review: resolve base")
+	assert.Contains(t, err.Error(), "branch review: resolve ref")
 }
 
 func TestBranchReview_Get_RepoStoreError(t *testing.T) {
@@ -533,7 +622,7 @@ func TestBranchReview_Get_RepoStoreError(t *testing.T) {
 	_, err := uc.Get(ctx, "ws1")
 
 	require.Error(t, err)
-	assert.Contains(t, err.Error(), "branch review: resolve base")
+	assert.Contains(t, err.Error(), "branch review: resolve ref")
 }
 
 func TestBranchReview_Get_DiffError(t *testing.T) {
@@ -549,7 +638,7 @@ func TestBranchReview_Get_DiffError(t *testing.T) {
 	_ = repoStore.Save(ctx, repo)
 
 	gitEng := &mockGitEngine{
-		RangeDiffFn: func(_ context.Context, _, _, _ string) (gitdomain.MultiFileDiff, error) {
+		DiffAgainstRefFn: func(_ context.Context, _, _ string) (gitdomain.MultiFileDiff, error) {
 			return gitdomain.MultiFileDiff{}, errors.New("git: diff failed")
 		},
 	}
@@ -725,7 +814,7 @@ func TestBranchReview_Reply_MintsMessageID(t *testing.T) {
 
 	var capturedMsgID string
 	threads := &mockReviewThread{
-		ReplyFn: func(_ context.Context, id, messageID, body string, _ time.Time) (domain.ReviewThread, error) {
+		ReplyFn: func(_ context.Context, id, messageID, author string, isAgent bool, body string, _ time.Time) (domain.ReviewThread, error) {
 			capturedMsgID = messageID
 			return domain.ReviewThread{ID: id}, nil
 		},
@@ -743,7 +832,7 @@ func TestBranchReview_Reply_Error(t *testing.T) {
 	ctx := context.Background()
 
 	threads := &mockReviewThread{
-		ReplyFn: func(_ context.Context, _, _, _ string, _ time.Time) (domain.ReviewThread, error) {
+		ReplyFn: func(_ context.Context, _, _, _ string, _ bool, _ string, _ time.Time) (domain.ReviewThread, error) {
 			return domain.ReviewThread{}, errors.New("not found")
 		},
 	}
@@ -854,7 +943,133 @@ func TestBranchReview_Get_ParentGetError(t *testing.T) {
 	_, err := uc.Get(ctx, "child")
 
 	require.Error(t, err)
-	assert.Contains(t, err.Error(), "branch review: resolve base")
+	assert.Contains(t, err.Error(), "branch review: resolve ref")
+}
+
+// --- ForkPointSha fast-path and annotateUncommitted tests ---
+
+// TestBranchReview_Get_UsesForkPointSha verifies that when ws.ForkPointSha is
+// set, MergeBase is never called and DiffAgainstRef receives that exact SHA.
+func TestBranchReview_Get_UsesForkPointSha(t *testing.T) {
+	ctx := context.Background()
+
+	ws := domain.Workspace{
+		ID:           "ws1",
+		RepoID:       "repo1",
+		Branch:       "feature",
+		WorktreePath: "/wt/feature",
+		ForkPointSha: "sha123",
+	}
+	wsMock := &mockWorkspace{
+		GetFn: func(_ context.Context, _ string) (domain.Workspace, error) { return ws, nil },
+	}
+	repoStore := mocks.NewRepositoryStore()
+
+	var gotDiffRef string
+	gitEng := &mockGitEngine{
+		// MergeBaseFn is intentionally nil: the mock panics via t.Fatal if invoked.
+		MergeBaseFn: func(_ context.Context, _, _, _ string) (string, error) {
+			t.Fatal("MergeBase must not be called when ForkPointSha is set")
+			return "", nil
+		},
+		DiffAgainstRefFn: func(_ context.Context, _, ref string) (gitdomain.MultiFileDiff, error) {
+			gotDiffRef = ref
+			return gitdomain.MultiFileDiff{}, nil
+		},
+	}
+
+	uc := newTestUsecase(wsMock, noopThreads(), noopChats(), repoStore, gitEng)
+
+	_, err := uc.Get(ctx, "ws1")
+
+	require.NoError(t, err)
+	assert.Equal(t, "sha123", gotDiffRef, "DiffAgainstRef must receive ForkPointSha directly")
+}
+
+// TestBranchReview_Get_AnnotatesUncommitted verifies that files appearing in
+// git Status are marked Uncommitted=true, while others remain false.
+func TestBranchReview_Get_AnnotatesUncommitted(t *testing.T) {
+	ctx := context.Background()
+
+	ws := domain.Workspace{
+		ID:           "ws1",
+		RepoID:       "repo1",
+		Branch:       "feature",
+		WorktreePath: "/wt/feature",
+		ForkPointSha: "sha123",
+	}
+	wsMock := &mockWorkspace{
+		GetFn: func(_ context.Context, _ string) (domain.Workspace, error) { return ws, nil },
+	}
+	repoStore := mocks.NewRepositoryStore()
+
+	diff := gitdomain.MultiFileDiff{
+		Files: []gitdomain.FileDiff{
+			{FilePath: "foo.go"},
+			{FilePath: "bar.go"},
+		},
+	}
+	gitEng := &mockGitEngine{
+		DiffAgainstRefFn: func(_ context.Context, _, _ string) (gitdomain.MultiFileDiff, error) {
+			return diff, nil
+		},
+		StatusFn: func(_ context.Context, _ string) (gitdomain.GitStatus, error) {
+			return gitdomain.GitStatus{
+				Files: []gitdomain.GitFile{
+					{Path: "foo.go", Status: gitdomain.GitFileStatusModified},
+				},
+			}, nil
+		},
+	}
+
+	uc := newTestUsecase(wsMock, noopThreads(), noopChats(), repoStore, gitEng)
+
+	review, err := uc.Get(ctx, "ws1")
+
+	require.NoError(t, err)
+	require.Len(t, review.Diff.Files, 2)
+	assert.True(t, review.Diff.Files[0].Uncommitted, "foo.go should be marked uncommitted")
+	assert.False(t, review.Diff.Files[1].Uncommitted, "bar.go should not be marked uncommitted")
+}
+
+// TestBranchReview_Get_StatusError_DiffStillReturned verifies that a Status
+// error is non-fatal: Get still succeeds and Uncommitted is left false.
+func TestBranchReview_Get_StatusError_DiffStillReturned(t *testing.T) {
+	ctx := context.Background()
+
+	ws := domain.Workspace{
+		ID:           "ws1",
+		RepoID:       "repo1",
+		Branch:       "feature",
+		WorktreePath: "/wt/feature",
+		ForkPointSha: "sha123",
+	}
+	wsMock := &mockWorkspace{
+		GetFn: func(_ context.Context, _ string) (domain.Workspace, error) { return ws, nil },
+	}
+	repoStore := mocks.NewRepositoryStore()
+
+	diff := gitdomain.MultiFileDiff{
+		Files: []gitdomain.FileDiff{
+			{FilePath: "foo.go"},
+		},
+	}
+	gitEng := &mockGitEngine{
+		DiffAgainstRefFn: func(_ context.Context, _, _ string) (gitdomain.MultiFileDiff, error) {
+			return diff, nil
+		},
+		StatusFn: func(_ context.Context, _ string) (gitdomain.GitStatus, error) {
+			return gitdomain.GitStatus{}, errors.New("git: status failed")
+		},
+	}
+
+	uc := newTestUsecase(wsMock, noopThreads(), noopChats(), repoStore, gitEng)
+
+	review, err := uc.Get(ctx, "ws1")
+
+	require.NoError(t, err, "Status error must not propagate")
+	require.Len(t, review.Diff.Files, 1)
+	assert.False(t, review.Diff.Files[0].Uncommitted, "Uncommitted must remain false when Status errors")
 }
 
 // errRepoStore is a store.Store[domain.Repository, string] that always errors on FindByKey.

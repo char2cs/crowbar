@@ -1,12 +1,10 @@
 import { memo, useCallback, useRef } from 'react'
-import type { PanelSize } from 'react-resizable-panels'
-import { ResizableHandle, ResizablePanel, ResizablePanelGroup } from '@/components/ui/resizable'
 import { usePaneActions, usePanes } from '@/features/workspace/stores/hooks/use-pane-store'
 import type { LayoutNode, PanePosition } from '../types/pane'
 import { ROOT_PANE_POSITION } from '../types/pane'
-import { MIN_PANE_SIZE } from '../constants/pane'
 import { PaneContainer } from './pane-container'
 import { PaneBoundary } from './pane-boundary'
+import { PaneSash } from './pane-sash'
 
 interface PaneNodeRendererProps {
   node: LayoutNode
@@ -42,37 +40,22 @@ export const PaneNodeRenderer = memo(function PaneNodeRenderer({
 }: PaneNodeRendererProps) {
   const panes = usePanes()
   const { resizePaneSplit } = usePaneActions()
-  const firstSizeRef = useRef(node.type === 'split' ? node.sizes[0] : 50)
-  const secondSizeRef = useRef(node.type === 'split' ? node.sizes[1] : 50)
-  const isDraggingRef = useRef(false)
 
-  const handleFirstResize = useCallback((size: PanelSize) => {
-    firstSizeRef.current = size.asPercentage
-  }, [])
+  const containerRef = useRef<HTMLDivElement>(null)
+  const firstPaneRef = useRef<HTMLDivElement>(null)
+  const secondPaneRef = useRef<HTMLDivElement>(null)
 
-  const handleSecondResize = useCallback((size: PanelSize) => {
-    secondSizeRef.current = size.asPercentage
-  }, [])
-
-  const handleLayoutChange = useCallback(() => {
-    if (!isDraggingRef.current) {
-      isDraggingRef.current = true
-      document.documentElement.setAttribute('data-pane-resizing', '1')
-    }
-  }, [])
-
-  const handleLayoutChanged = useCallback(() => {
-    isDraggingRef.current = false
-    document.documentElement.removeAttribute('data-pane-resizing')
-    window.dispatchEvent(new CustomEvent('pane-resize-end'))
-    if (node.type === 'split') {
-      resizePaneSplit(node.id, 0, [firstSizeRef.current, secondSizeRef.current])
-    }
-  }, [node, resizePaneSplit])
+  const splitId = node.type === 'split' ? node.id : null
+  const handleResizeCommit = useCallback(
+    (sizes: [number, number]) => {
+      if (splitId) resizePaneSplit(splitId, 0, sizes)
+    },
+    [splitId, resizePaneSplit],
+  )
 
   if (node.type === 'pane') {
     if (hiddenPaneId === node.id) {
-      return <div className="h-full w-full bg-background" aria-hidden="true" />
+      return <div className="h-full w-full bg-transparent" aria-hidden="true" />
     }
     const pane = panes[node.id]
     if (!pane) return null
@@ -83,36 +66,37 @@ export const PaneNodeRenderer = memo(function PaneNodeRenderer({
     )
   }
 
+  const isHorizontal = node.direction === 'horizontal'
   const firstPos = binaryPosition(position, true, node.direction)
   const secondPos = binaryPosition(position, false, node.direction)
-  const minPct = `${MIN_PANE_SIZE}%`
 
   return (
-    <ResizablePanelGroup
-      orientation={node.direction}
-      onLayoutChange={handleLayoutChange}
-      onLayoutChanged={handleLayoutChanged}
-      className="h-full w-full"
+    <div
+      ref={containerRef}
+      className={`flex h-full w-full ${isHorizontal ? 'flex-row' : 'flex-col'}`}
     >
-      <ResizablePanel
-        defaultSize={`${node.sizes[0]}%`}
-        minSize={minPct}
-        onResize={handleFirstResize}
+      <div
+        ref={firstPaneRef}
+        className="min-h-0 min-w-0 grow-0 shrink"
+        style={{ flexBasis: `${node.sizes[0]}%` }}
       >
-        <div className="h-full w-full overflow-hidden">
-          <PaneNodeRenderer node={node.first} hiddenPaneId={hiddenPaneId} position={firstPos} />
-        </div>
-      </ResizablePanel>
-      <ResizableHandle />
-      <ResizablePanel
-        defaultSize={`${node.sizes[1]}%`}
-        minSize={minPct}
-        onResize={handleSecondResize}
+        <PaneNodeRenderer node={node.first} hiddenPaneId={hiddenPaneId} position={firstPos} />
+      </div>
+      <PaneSash
+        direction={node.direction}
+        sizes={node.sizes}
+        containerRef={containerRef}
+        firstPaneRef={firstPaneRef}
+        secondPaneRef={secondPaneRef}
+        onResizeCommit={handleResizeCommit}
+      />
+      <div
+        ref={secondPaneRef}
+        className="min-h-0 min-w-0 grow-0 shrink"
+        style={{ flexBasis: `${node.sizes[1]}%` }}
       >
-        <div className="h-full w-full overflow-hidden">
-          <PaneNodeRenderer node={node.second} hiddenPaneId={hiddenPaneId} position={secondPos} />
-        </div>
-      </ResizablePanel>
-    </ResizablePanelGroup>
+        <PaneNodeRenderer node={node.second} hiddenPaneId={hiddenPaneId} position={secondPos} />
+      </div>
+    </div>
   )
 })

@@ -66,6 +66,15 @@ func (stubRepo) ListByWorkspace(
 	return nil, nil
 }
 
+type stubWsReader struct{}
+
+func (stubWsReader) Get(
+	_ context.Context,
+	id string,
+) (domain.Workspace, error) {
+	return domain.Workspace{ID: id}, nil
+}
+
 func TestRegisterMountsRoutes(
 	t *testing.T,
 ) {
@@ -74,6 +83,7 @@ func TestRegisterMountsRoutes(
 		r.Group("/v0"),
 		stubUsecase{},
 		stubRepo{},
+		stubWsReader{},
 		func(_ *gin.Context) {},
 		func(_ *gin.Context) {},
 	)

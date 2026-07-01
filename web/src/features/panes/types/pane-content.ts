@@ -15,7 +15,6 @@ export interface TokenEntry {
 export type PaneContentType =
   | 'editor'
   | 'terminal'
-  | 'webViewer'
   | 'newTab'
   | 'diff'
   | 'markdownPreview'
@@ -23,6 +22,7 @@ export type PaneContentType =
   | 'csvPreview'
   | 'externalEditor'
   | 'crowbarChat'
+  | 'branchReview'
 
 // ── Base fields shared by every content type ────────────────────────
 
@@ -50,6 +50,12 @@ export interface EditorContent extends PaneContentBase {
    * Cleared on the next successful save or external reload.
    */
   hasExternalChange?: boolean
+  /**
+   * The file backing this buffer no longer exists on disk (the content load
+   * 404'd at session restore). Terminal until the file reappears — the pane
+   * renders a "file not found" placeholder and no further loads are retried.
+   */
+  fileMissing?: boolean
   isVirtual: boolean
   language?: string
   languageOverride?: string
@@ -62,17 +68,6 @@ export interface TerminalContent extends PaneContentBase {
   initialCommand?: string
   workingDirectory?: string
   remoteConnectionId?: string
-}
-
-export interface WebViewerContent extends PaneContentBase {
-  type: 'webViewer'
-  url: string
-  title?: string
-  favicon?: string
-  zoomLevel?: number
-  profileKey?: string
-  history?: string[]
-  historyIndex?: number
 }
 
 export interface NewTabContent extends PaneContentBase {
@@ -114,12 +109,16 @@ export interface CrowbarChatContent extends PaneContentBase {
   wsId: string
 }
 
+export interface BranchReviewContent extends PaneContentBase {
+  type: 'branchReview'
+  wsId: string
+}
+
 // ── Discriminated union ─────────────────────────────────────────────
 
 export type PaneContent =
   | EditorContent
   | TerminalContent
-  | WebViewerContent
   | NewTabContent
   | DiffContent
   | MarkdownPreviewContent
@@ -127,6 +126,7 @@ export type PaneContent =
   | CsvPreviewContent
   | ExternalEditorContent
   | CrowbarChatContent
+  | BranchReviewContent
 
 // ── Type guards ─────────────────────────────────────────────────────
 
@@ -136,10 +136,6 @@ export function isEditorContent(c: PaneContent): c is EditorContent {
 
 export function isTerminalContent(c: PaneContent): c is TerminalContent {
   return c.type === 'terminal'
-}
-
-export function isWebViewerContent(c: PaneContent): c is WebViewerContent {
-  return c.type === 'webViewer'
 }
 
 export function isNewTabContent(c: PaneContent): c is NewTabContent {
@@ -154,6 +150,10 @@ export function isExternalEditorContent(c: PaneContent): c is ExternalEditorCont
   return c.type === 'externalEditor'
 }
 
+export function isBranchReviewContent(c: PaneContent): c is BranchReviewContent {
+  return c.type === 'branchReview'
+}
+
 // ── Helpers ─────────────────────────────────────────────────────────
 
 /** Content types that represent real files on disk and should be persisted to session. */
@@ -164,9 +164,9 @@ export function isPersistableContent(c: PaneContent): c is EditorContent {
 /** Content types that are virtual (not backed by a real file on disk). */
 const VIRTUAL_TYPES: ReadonlySet<PaneContentType> = new Set([
   'terminal',
-  'webViewer',
   'newTab',
   'crowbarChat',
+  'branchReview',
 ])
 
 export function isVirtualContent(c: PaneContent): boolean {
@@ -224,14 +224,6 @@ export type OpenContentSpec =
       sessionId?: string
       path?: string
     }
-  | {
-      type: 'webViewer'
-      url: string
-      zoomLevel?: number
-      profileKey?: string
-      history?: string[]
-      historyIndex?: number
-    }
   | { type: 'newTab' }
   | {
       type: 'diff'
@@ -269,6 +261,11 @@ export type OpenContentSpec =
     }
   | {
       type: 'crowbarChat'
+      wsId: string
+      name: string
+    }
+  | {
+      type: 'branchReview'
       wsId: string
       name: string
     }

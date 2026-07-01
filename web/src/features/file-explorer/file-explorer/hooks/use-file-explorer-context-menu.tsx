@@ -1,9 +1,7 @@
 import {
   CaretDoubleUp,
-  Clipboard,
   Copy,
   PencilSimple as Edit,
-  Eye,
   FilePlus,
   FileText,
   FolderOpen,
@@ -13,11 +11,8 @@ import {
   Link,
   ArrowClockwise as RefreshCw,
   Scissors,
-  MagnifyingGlass as Search,
   TerminalWindow as Terminal,
   Trash,
-  X,
-  Upload,
   Warning,
 } from '@phosphor-icons/react'
 import { useCallback, useMemo, useState } from 'react'
@@ -34,7 +29,6 @@ import type { ContextMenuState } from '@/features/file-system/types/app'
 import { Button } from '@/components/ui/button'
 import { ContextMenu, type ContextMenuItem } from '@/components/ui/context-menu'
 import { AppDialog as Dialog } from '@/components/ui/dialog'
-import { toast } from '@/components/ui/toast'
 import { getBaseName, getDirName, getRelativePath, joinPath } from '@/utils/path-helpers'
 
 interface UseFileExplorerContextMenuOptions {
@@ -112,8 +106,22 @@ export function useFileExplorerContextMenu({
   const [contextMenu, setContextMenu] = useState<ContextMenuState | null>(null)
   const [envOverwriteDialog, setEnvOverwriteDialog] = useState<EnvOverwriteDialogState | null>(null)
   const [propertiesDialog, setPropertiesDialog] = useState<PropertiesDialogState | null>(null)
+  const [fileFeedback, setFileFeedback] = useState<
+    Map<string, 'copied-path' | 'copied-rel' | 'created' | 'err'>
+  >(new Map())
   const clipboardActions = useFileClipboardStore((state) => state.actions)
   const clipboard = useFileClipboardStore((state) => state.clipboard)
+
+  function flashFeedback(path: string, kind: 'copied-path' | 'copied-rel' | 'created' | 'err') {
+    setFileFeedback((prev) => new Map(prev).set(path, kind))
+    setTimeout(() => {
+      setFileFeedback((prev) => {
+        const next = new Map(prev)
+        next.delete(path)
+        return next
+      })
+    }, 1500)
+  }
 
   const createEnvTemplateFile = useCallback(
     async (sourcePath: string, targetFileName: string, options?: { overwrite?: boolean }) => {
@@ -124,7 +132,7 @@ export function useFileExplorerContextMenu({
 
       try {
         if (targetPath === sourcePath) {
-          toast.error('Choose a different env file name')
+          // Silent no-op: same-name env file is an edge case; skip without feedback
           return
         }
 
@@ -166,13 +174,9 @@ export function useFileExplorerContextMenu({
         }
 
         onRefreshDirectory?.(directoryPath)
-        toast.success(`Created ${targetFileName}`)
+        flashFeedback(createdPath, 'created')
       } catch (error) {
         console.error('Failed to create env template file:', error)
-        toast.error(
-          `Failed to create ${targetFileName}`,
-          error instanceof Error ? error.message : undefined,
-        )
       }
     },
     [onCreateNewFileInDirectory, onRefreshDirectory],
@@ -206,79 +210,67 @@ export function useFileExplorerContextMenu({
     const items: ContextMenuItem[] = []
 
     if (contextMenu.isDir) {
+      // Empty-space (root) right-click passes the absolute wsId as contextMenu.path,
+      // but tree nodes are worktree-relative (root === ''). Normalise so the
+      // directory actions address the worktree root, not a node literally named
+      // the wsId. isWorkspaceRootPath is true for the wsId root (and any added
+      // workspace root) and false for a real subdir like "api". Only the action
+      // onClicks use this — NOT the Rename/Delete visibility gate below, which
+      // must keep reading contextMenu.path so those stay hidden on the root.
+      const isRootTarget = isWorkspaceRootPath?.(contextMenu.path) ?? false
+      const dirTargetPath = isRootTarget ? '' : contextMenu.path
+
       items.push(
         {
           id: 'new-file',
           label: 'New File',
           icon: <FilePlus />,
-          onClick: () => onStartInlineEditing(contextMenu.path, false),
+          onClick: () => onStartInlineEditing(dirTargetPath, false),
         },
         {
           id: 'new-folder',
           label: 'New Folder',
           icon: <FolderPlus />,
-          onClick: () => {
-            if (onCreateNewFolderInDirectory) onStartInlineEditing(contextMenu.path, true)
-          },
-        },
-        {
-          id: 'upload-files',
-          label: 'Upload Files',
-          icon: <Upload />,
-          onClick: () => onUploadFile?.(contextMenu.path),
+          onClick: () => onStartInlineEditing(dirTargetPath, true),
         },
         {
           id: 'refresh',
           label: 'Refresh',
           icon: <RefreshCw />,
-          onClick: () => onRefreshDirectory?.(contextMenu.path),
+          onClick: () => {
+            void onRefreshDirectory?.(dirTargetPath)
+          },
         },
-        {
-          id: 'add-folder-to-workspace',
-          label: 'Add Folder to Workspace',
-          icon: <FolderPlus />,
-          onClick: () => onAddFolderToWorkspace?.(),
-        },
-        ...(canRemoveWorkspaceRootPath?.(contextMenu.path)
-          ? [
-              {
-                id: 'remove-folder-from-workspace',
-                label: 'Remove Folder from Workspace',
-                icon: <X />,
-                onClick: () => onRemoveFolderFromWorkspace?.(contextMenu.path),
-              },
-            ]
-          : []),
         {
           id: 'open-all-files',
           label: 'Open All Files',
           icon: <FolderOpen />,
-          onClick: () => void onOpenAllFilesInDirectory(contextMenu.path),
+          onClick: () => void onOpenAllFilesInDirectory(dirTargetPath),
         },
         {
           id: 'collapse-all',
           label: 'Collapse All',
           icon: <CaretDoubleUp />,
-          onClick: () => useFileTreeStore.getState().collapsePath(contextMenu.path),
+          onClick: () => {
+            // '' doesn't match relative paths, so the root collapses everything
+            // via collapseAll(); a subdir collapses just its own subtree.
+            const treeStore = useFileTreeStore.getState()
+            if (isRootTarget) treeStore.collapseAll()
+            else treeStore.collapsePath(contextMenu.path)
+          },
         },
         {
           id: 'open-terminal',
           label: 'Open in Terminal',
           icon: <Terminal />,
           onClick: () => {
-            const folderName = getBaseName(contextMenu.path, 'terminal')
+            const folderName = getBaseName(dirTargetPath, 'terminal')
             getActiveWorkspaceStoreRef()?.getState().bufferActions.openContent({
               type: 'terminal',
               name: folderName,
-              workingDirectory: contextMenu.path,
+              workingDirectory: dirTargetPath,
             })
           },
-        },
-        {
-          id: 'find-in-folder',
-          label: 'Find in Folder',
-          icon: <Search />,
-          onClick: () => {},
         },
       )
 
@@ -319,12 +311,6 @@ export function useFileExplorerContextMenu({
               /* intentionally ignored */
             }
           },
-        },
-        {
-          id: 'duplicate-file',
-          label: 'Duplicate',
-          icon: <FileText />,
-          onClick: () => onDuplicatePath?.(contextMenu.path),
         },
         ...(canCreateEnvTemplate
           ? [
@@ -373,55 +359,52 @@ export function useFileExplorerContextMenu({
         id: 'copy-path',
         label: 'Copy Path',
         icon: <Link />,
-        onClick: async () => {
-          try {
-            await navigator.clipboard.writeText(contextMenu.path)
-          } catch {
-            /* intentionally ignored */
-          }
+        onClick: () => {
+          // contextMenu.path is root-relative for tree nodes (e.g. "api/main.go").
+          // Join with rootFolderPath to produce the absolute path, unless the path
+          // is already absolute (happens when right-clicking the workspace root itself,
+          // which passes rootFolderPath directly as contextMenu.path).
+          const absolutePath =
+            rootFolderPath && !contextMenu.path.startsWith(rootFolderPath)
+              ? joinPath(rootFolderPath, contextMenu.path)
+              : contextMenu.path
+          navigator.clipboard.writeText(absolutePath).then(
+            () => flashFeedback(contextMenu.path, 'copied-path'),
+            () => flashFeedback(contextMenu.path, 'err'),
+          )
         },
       },
       {
         id: 'copy-relative-path',
         label: 'Copy Relative Path',
         icon: <FileText />,
-        onClick: async () => {
-          try {
-            const relativePath = getRelativePath(contextMenu.path, rootFolderPath)
-            await navigator.clipboard.writeText(relativePath)
-          } catch {
-            /* intentionally ignored */
-          }
+        onClick: () => {
+          // getRelativePath strips rootFolderPath when the path is absolute.
+          // For already-relative paths it returns the path unchanged, which is correct.
+          const relativePath = getRelativePath(contextMenu.path, rootFolderPath)
+          navigator.clipboard.writeText(relativePath || '.').then(
+            () => flashFeedback(contextMenu.path, 'copied-rel'),
+            () => flashFeedback(contextMenu.path, 'err'),
+          )
         },
       },
       {
         id: 'copy',
         label: 'Copy',
         icon: <Copy />,
-        onClick: () =>
-          clipboardActions.copy([{ path: contextMenu.path, is_dir: contextMenu.isDir }]),
+        onClick: () => {
+          clipboardActions.copy([{ path: contextMenu.path, is_dir: contextMenu.isDir }])
+        },
       },
       {
         id: 'cut',
         label: 'Cut',
         icon: <Scissors />,
-        onClick: () =>
-          clipboardActions.cut([{ path: contextMenu.path, is_dir: contextMenu.isDir }]),
+        onClick: () => {
+          clipboardActions.cut([{ path: contextMenu.path, is_dir: contextMenu.isDir }])
+        },
       },
     )
-
-    if (clipboard && contextMenu.isDir) {
-      items.push({
-        id: 'paste',
-        label: 'Paste',
-        icon: <Clipboard />,
-        onClick: () => {
-          clipboardActions.paste(contextMenu.path).then(() => {
-            onRefreshDirectory?.(contextMenu.path)
-          })
-        },
-      })
-    }
 
     if (shouldShowFileManagementItems) {
       items.push(
@@ -430,19 +413,6 @@ export function useFileExplorerContextMenu({
           label: 'Rename',
           icon: <Edit />,
           onClick: () => onRenamePath?.(contextMenu.path),
-        },
-        {
-          id: 'reveal',
-          label: 'Reveal in Finder',
-          icon: <Eye />,
-          onClick: () => {
-            if (onRevealInFinder) onRevealInFinder(contextMenu.path)
-            else if (window.electron) window.electron.shell.showItemInFolder(contextMenu.path)
-            else {
-              const parentDir = getDirName(contextMenu.path)
-              window.open(`file://${parentDir}`, '_blank')
-            }
-          },
         },
         { id: 'sep-end', label: '', separator: true, onClick: () => {} },
         {
@@ -453,13 +423,6 @@ export function useFileExplorerContextMenu({
           onClick: () => onDeleteRequested({ path: contextMenu.path, isDir: contextMenu.isDir }),
         },
       )
-    } else {
-      items.push({
-        id: 'reveal',
-        label: 'Reveal in Finder',
-        icon: <Eye />,
-        onClick: () => onRevealInFinder?.(contextMenu.path),
-      })
     }
 
     return items
@@ -551,5 +514,6 @@ export function useFileExplorerContextMenu({
     setContextMenu,
     handleContextMenu,
     contextMenuElement,
+    fileFeedback,
   }
 }

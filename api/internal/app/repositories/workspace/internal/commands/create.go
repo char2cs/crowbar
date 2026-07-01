@@ -19,8 +19,11 @@ type CreateWorkspace struct {
 	WorktreePath  string
 	ForkPointSha  string
 	ParentID      string
-	Locked        bool
+	Protected     bool
+	IsDefault     bool
 	MergeStrategy gitdomain.MergeStrategy
+	Kind          domain.WorkspaceKind
+	HeldByPath    string
 	Now           time.Time
 }
 
@@ -42,8 +45,11 @@ func (c CreateWorkspace) Validate(
 	if current != nil {
 		return fmt.Errorf("create workspace: %w", asynxModels.ErrValidation)
 	}
-	if c.ID == "" || c.RepoID == "" || c.ProjectID == "" {
+	if c.ID == "" || c.ProjectID == "" {
 		return fmt.Errorf("create workspace: missing ids: %w", asynxModels.ErrValidation)
+	}
+	if c.Kind != domain.WorkspaceKindHome && c.RepoID == "" {
+		return fmt.Errorf("create workspace: missing repoId for git workspace: %w", asynxModels.ErrValidation)
 	}
 	return nil
 }
@@ -55,6 +61,16 @@ func (c CreateWorkspace) EmitEvent(
 	if strategy == "" {
 		strategy = gitdomain.MergeStrategyMerge
 	}
+	kind := c.Kind
+	if kind == "" {
+		kind = domain.WorkspaceKindGit
+	}
+	// Seed the lifecycle status from the protected flag: a protected branch
+	// starts locked, every other workspace starts new (00 §6.1).
+	status := domain.WorkspaceStatusNew
+	if c.Protected {
+		status = domain.WorkspaceStatusLocked
+	}
 	return domain.Workspace{
 		ID:            c.ID,
 		RepoID:        c.RepoID,
@@ -63,9 +79,11 @@ func (c CreateWorkspace) EmitEvent(
 		WorktreePath:  c.WorktreePath,
 		ForkPointSha:  c.ForkPointSha,
 		ParentID:      c.ParentID,
-		Status:        domain.WorkspaceStatusNew,
-		Locked:        c.Locked,
+		Status:        status,
 		MergeStrategy: strategy,
+		IsDefault:     c.IsDefault,
+		Kind:          kind,
+		HeldByPath:    c.HeldByPath,
 		LastActivity:  c.Now,
 		CreatedAt:     c.Now,
 	}

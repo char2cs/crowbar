@@ -187,3 +187,235 @@ func TestProviderSync_PollWorkspace_PollError_Propagates(t *testing.T) {
 	err := uc.PollWorkspace(ctx, "w1")
 	assert.Error(t, err)
 }
+
+func TestSyncFromState_AutoReparentsWhenPRTargetMatchesWorkspace(t *testing.T) {
+	parentWsID := "parent-ws"
+	currentWsID := "current-ws"
+	repoID := "repo-1"
+
+	var reparentedID, reparentedParent string
+	wsRepo, _, uc := newProviderSyncUsecase(t)
+
+	wsRepo.GetFn = func(_ context.Context, id string) (domain.Workspace, error) {
+		return domain.Workspace{
+			ID:             currentWsID,
+			RepoID:         repoID,
+			Branch:         "feature/foo",
+			ParentID:       "", // no parent yet
+			PRTargetBranch: "develop",
+		}, nil
+	}
+	wsRepo.SyncProviderFn = func(_ context.Context, in workspace.ProviderInput, _ time.Time) (domain.Workspace, error) {
+		return domain.Workspace{ID: in.ID, PRTargetBranch: in.PRTargetBranch}, nil
+	}
+	wsRepo.ListFn = func(_ context.Context) ([]domain.Workspace, error) {
+		return []domain.Workspace{
+			{ID: parentWsID, RepoID: repoID, Branch: "develop"},
+			{ID: currentWsID, RepoID: repoID, Branch: "feature/foo"},
+		}, nil
+	}
+	wsRepo.SetParentFromPRFn = func(_ context.Context, id, parentID string) (domain.Workspace, error) {
+		reparentedID = id
+		reparentedParent = parentID
+		return domain.Workspace{}, nil
+	}
+
+	state := engineprovider.ProviderState{
+		PR: &providertypes.PRInfo{
+			Status:       "open",
+			TargetBranch: "develop",
+		},
+	}
+	err := uc.SyncFromState(context.Background(), currentWsID, state, time.Now())
+	require.NoError(t, err)
+	assert.Equal(t, currentWsID, reparentedID)
+	assert.Equal(t, parentWsID, reparentedParent)
+}
+
+// TestSyncFromState_SkipsSelfParentWhenPRTargetsOwnBranch proves R15: a PR that
+// targets the workspace's own branch (candidate == ws) must never self-parent.
+// A self-loop detaches the node from the tree and makes it unreparentable.
+func TestSyncFromState_SkipsSelfParentWhenPRTargetsOwnBranch(t *testing.T) {
+	called := false
+	wsRepo, _, uc := newProviderSyncUsecase(t)
+
+	wsRepo.GetFn = func(_ context.Context, id string) (domain.Workspace, error) {
+		return domain.Workspace{
+			ID:       "ws1",
+			RepoID:   "r1",
+			Branch:   "develop", // same as the PR target below
+			ParentID: "",
+		}, nil
+	}
+	wsRepo.SyncProviderFn = func(_ context.Context, _ workspace.ProviderInput, _ time.Time) (domain.Workspace, error) {
+		return domain.Workspace{}, nil
+	}
+	wsRepo.ListFn = func(_ context.Context) ([]domain.Workspace, error) {
+		return []domain.Workspace{
+			{ID: "ws1", RepoID: "r1", Branch: "develop"},
+		}, nil
+	}
+	wsRepo.SetParentFromPRFn = func(_ context.Context, _, _ string) (domain.Workspace, error) {
+		called = true
+		return domain.Workspace{}, nil
+	}
+
+	state := engineprovider.ProviderState{
+		PR: &providertypes.PRInfo{Status: "open", TargetBranch: "develop"},
+	}
+	err := uc.SyncFromState(context.Background(), "ws1", state, time.Now())
+	require.NoError(t, err)
+	assert.False(t, called, "SetParentFromPR must not be called when the PR targets the workspace's own branch")
+}
+
+// TestSyncFromState_SkipsReparentThatWouldCreateCycle proves R15: if ws is
+// already an ancestor of the candidate (candidate's ParentID chain reaches ws),
+// parenting ws under the candidate closes a cycle. Any later tree walk would then
+// spin forever, so the reparent must be skipped.
+func TestSyncFromState_SkipsReparentThatWouldCreateCycle(t *testing.T) {
+	called := false
+	wsRepo, _, uc := newProviderSyncUsecase(t)
+
+	// Tree: A (no parent) <- B (parent A). A's PR targets B's branch. Reparenting
+	// A under B would form A -> B -> A.
+	wsRepo.GetFn = func(_ context.Context, _ string) (domain.Workspace, error) {
+		return domain.Workspace{
+			ID:       "A",
+			RepoID:   "r1",
+			Branch:   "feature/a",
+			ParentID: "",
+		}, nil
+	}
+	wsRepo.SyncProviderFn = func(_ context.Context, _ workspace.ProviderInput, _ time.Time) (domain.Workspace, error) {
+		return domain.Workspace{}, nil
+	}
+	wsRepo.ListFn = func(_ context.Context) ([]domain.Workspace, error) {
+		return []domain.Workspace{
+			{ID: "A", RepoID: "r1", Branch: "feature/a", ParentID: ""},
+			{ID: "B", RepoID: "r1", Branch: "feature/b", ParentID: "A"},
+		}, nil
+	}
+	wsRepo.SetParentFromPRFn = func(_ context.Context, _, _ string) (domain.Workspace, error) {
+		called = true
+		return domain.Workspace{}, nil
+	}
+
+	state := engineprovider.ProviderState{
+		PR: &providertypes.PRInfo{Status: "open", TargetBranch: "feature/b"},
+	}
+	err := uc.SyncFromState(context.Background(), "A", state, time.Now())
+	require.NoError(t, err)
+	assert.False(t, called, "SetParentFromPR must not be called when it would create a parent cycle")
+}
+
+// TestSyncFromState_SkipsReparentForProtectedWorkspace proves a protected
+// (locked) branch is a branch-tree root and must never be auto-reparented under
+// another branch, even when an OPEN PR targets a sibling workspace. This mirrors
+// the user-facing reparent invariant (locked rows are undraggable; guardReparent
+// rejects a locked parent) which the provider auto-reparent path previously
+// bypassed — a protected `master` with a PR into `develop` was wrongly nested.
+func TestSyncFromState_SkipsReparentForProtectedWorkspace(t *testing.T) {
+	called := false
+	wsRepo, _, uc := newProviderSyncUsecase(t)
+
+	wsRepo.GetFn = func(_ context.Context, id string) (domain.Workspace, error) {
+		return domain.Workspace{
+			ID:       "master-ws",
+			RepoID:   "r1",
+			Branch:   "master",
+			ParentID: "",
+			Status:   domain.WorkspaceStatusLocked, // protected → tree root
+		}, nil
+	}
+	wsRepo.SyncProviderFn = func(_ context.Context, _ workspace.ProviderInput, _ time.Time) (domain.Workspace, error) {
+		return domain.Workspace{}, nil
+	}
+	wsRepo.ListFn = func(_ context.Context) ([]domain.Workspace, error) {
+		return []domain.Workspace{
+			{ID: "develop-ws", RepoID: "r1", Branch: "develop"},
+			{ID: "master-ws", RepoID: "r1", Branch: "master", Status: domain.WorkspaceStatusLocked},
+		}, nil
+	}
+	wsRepo.SetParentFromPRFn = func(_ context.Context, _, _ string) (domain.Workspace, error) {
+		called = true
+		return domain.Workspace{}, nil
+	}
+
+	state := engineprovider.ProviderState{
+		Protected: true,
+		PR:        &providertypes.PRInfo{Status: "open", TargetBranch: "develop"},
+	}
+	err := uc.SyncFromState(context.Background(), "master-ws", state, time.Now())
+	require.NoError(t, err)
+	assert.False(t, called, "SetParentFromPR must not be called for a protected (locked) workspace")
+}
+
+// TestSyncFromState_SkipsReparentForNonOpenPR proves only an OPEN PR drives the
+// auto-reparent. A closed or merged PR is stale history and must not reshape the
+// tree — a long-closed `master → develop` PR previously pinned the branch under
+// develop on the very first poll after import.
+func TestSyncFromState_SkipsReparentForNonOpenPR(t *testing.T) {
+	for _, prStatus := range []string{"closed", "merged"} {
+		t.Run(prStatus, func(t *testing.T) {
+			called := false
+			wsRepo, _, uc := newProviderSyncUsecase(t)
+
+			wsRepo.GetFn = func(_ context.Context, id string) (domain.Workspace, error) {
+				return domain.Workspace{
+					ID:       "feature-ws",
+					RepoID:   "r1",
+					Branch:   "feature/foo",
+					ParentID: "",
+				}, nil
+			}
+			wsRepo.SyncProviderFn = func(_ context.Context, _ workspace.ProviderInput, _ time.Time) (domain.Workspace, error) {
+				return domain.Workspace{}, nil
+			}
+			wsRepo.ListFn = func(_ context.Context) ([]domain.Workspace, error) {
+				return []domain.Workspace{
+					{ID: "develop-ws", RepoID: "r1", Branch: "develop"},
+					{ID: "feature-ws", RepoID: "r1", Branch: "feature/foo"},
+				}, nil
+			}
+			wsRepo.SetParentFromPRFn = func(_ context.Context, _, _ string) (domain.Workspace, error) {
+				called = true
+				return domain.Workspace{}, nil
+			}
+
+			state := engineprovider.ProviderState{
+				PR: &providertypes.PRInfo{Status: prStatus, TargetBranch: "develop"},
+			}
+			err := uc.SyncFromState(context.Background(), "feature-ws", state, time.Now())
+			require.NoError(t, err)
+			assert.False(t, called, "SetParentFromPR must not be called for a %s PR", prStatus)
+		})
+	}
+}
+
+func TestSyncFromState_SkipsReparentWhenParentAlreadySet(t *testing.T) {
+	called := false
+	wsRepo, _, uc := newProviderSyncUsecase(t)
+
+	wsRepo.GetFn = func(_ context.Context, id string) (domain.Workspace, error) {
+		return domain.Workspace{
+			ID:             "ws1",
+			RepoID:         "r1",
+			ParentID:       "already-set", // already has parent
+			PRTargetBranch: "develop",
+		}, nil
+	}
+	wsRepo.SyncProviderFn = func(_ context.Context, in workspace.ProviderInput, _ time.Time) (domain.Workspace, error) {
+		return domain.Workspace{}, nil
+	}
+	wsRepo.SetParentFromPRFn = func(_ context.Context, id, parentID string) (domain.Workspace, error) {
+		called = true
+		return domain.Workspace{}, nil
+	}
+
+	state := engineprovider.ProviderState{
+		PR: &providertypes.PRInfo{Status: "open", TargetBranch: "develop"},
+	}
+	err := uc.SyncFromState(context.Background(), "ws1", state, time.Now())
+	require.NoError(t, err)
+	assert.False(t, called, "SetParentFromPR must not be called when parentID is already set")
+}

@@ -38,17 +38,31 @@ export function createTerminalAddons(
   terminal.loadAddon(serializeAddon)
   terminal.loadAddon(unicode11Addon)
 
-  let webglAddon: WebglAddon | null = null
+  const addons: TerminalAddons = { fitAddon, searchAddon, serializeAddon, webglAddon: null }
 
   if (!options.skipWebGL) {
-    webglAddon = new WebglAddon()
-    webglAddon.onContextLoss(() => {
-      webglAddon?.dispose()
-    })
-    terminal.loadAddon(webglAddon)
+    let retries = 0
+    const MAX_RETRIES = 3
+
+    const attachWebGL = () => {
+      const newAddon = new WebglAddon()
+      newAddon.onContextLoss(() => {
+        newAddon.dispose()
+        addons.webglAddon = null
+        if (retries < MAX_RETRIES) {
+          retries++
+          // Give the GPU a moment to release the context before recreating.
+          setTimeout(attachWebGL, 200)
+        }
+      })
+      terminal.loadAddon(newAddon)
+      addons.webglAddon = newAddon
+    }
+
+    attachWebGL()
   }
 
-  return { fitAddon, searchAddon, serializeAddon, webglAddon }
+  return addons
 }
 
 export function loadWebLinksAddon(terminal: Terminal): void {

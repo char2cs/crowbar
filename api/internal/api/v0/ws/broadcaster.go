@@ -5,6 +5,8 @@ import (
 	"sync"
 
 	"github.com/gin-gonic/gin"
+
+	"github.com/char2cs/crowbar/api/internal/core/safego"
 )
 
 type filteredClient[T any] struct {
@@ -64,18 +66,28 @@ func (b *Broadcaster[T]) Handle(
 		c.AbortWithStatus(http.StatusBadRequest)
 		return
 	}
+	// The hijacked conn, the clients-map entry, and the watcher/LSP refcount must
+	// all be released even if snapshotFor/onSubscribe panics (gin's Recovery would
+	// otherwise unwind past the cleanup, leaking an FD, a dead map entry that every
+	// future Push iterates, and a watcher/LSP refcount). Defers make cleanup
+	// unconditional; double-close of conn is harmless (the err is ignored).
+	defer func() { _ = conn.Close() }()
+
 	predicate := BuildPredicate(c, b.def)
 	cl := &filteredClient[T]{client: newClient(), predicate: predicate}
 
 	scope := b.scopeKey(c)
+	snapScope := clientScope(c)
 
 	b.register(cl)
-	snapshot := b.snapshotFor(cl)
+	defer b.remove(cl)
+
+	snapshot := b.snapshotFor(cl, snapScope)
 	b.onSubscribe(scope)
-	go writePump(conn, cl.client, snapshot)
+	defer b.onUnsubscribe(scope)
+
+	safego.Go("broadcaster.writePump", func() { writePump(conn, cl.client, snapshot) })
 	readPump(conn)
-	b.remove(cl)
-	b.onUnsubscribe(scope)
 }
 
 func (b *Broadcaster[T]) scopeKey(
@@ -132,7 +144,7 @@ func (b *Broadcaster[T]) remove(
 	b.mu.Lock()
 	defer b.mu.Unlock()
 	delete(b.clients, cl)
-	close(cl.done)
+	cl.closeDone()
 }
 
 // snapshotFor computes cl's snapshot OUTSIDE the broadcaster lock (b.def.Snapshot
@@ -142,11 +154,12 @@ func (b *Broadcaster[T]) remove(
 // buffer; writePump flushes these ahead of any live frame.
 func (b *Broadcaster[T]) snapshotFor(
 	cl *filteredClient[T],
+	scope string,
 ) [][]byte {
 	if b.def.Snapshot == nil {
 		return nil
 	}
-	items := b.def.Snapshot()
+	items := b.def.Snapshot(scope)
 	frames := make([][]byte, 0, len(items))
 	for _, item := range items {
 		if !cl.predicate(item) {
@@ -172,7 +185,12 @@ func (b *Broadcaster[T]) Push(
 	b.mu.RLock()
 	defer b.mu.RUnlock()
 	for cl := range b.clients {
-		sendIfMatch(cl, event, data)
+		// A panic in one client's predicate must not abort the fan-out to the rest
+		// (nor crash the daemon — Push runs on a watcher/projection goroutine).
+		func() {
+			defer safego.Recover("broadcaster.Push")
+			sendIfMatch(cl, event, data)
+		}()
 	}
 }
 
@@ -187,5 +205,12 @@ func sendIfMatch[T any](
 	select {
 	case cl.send <- data:
 	default:
+		// Buffer full: this client's writePump is stalled. Silently dropping the
+		// frame would leave it permanently stale for the coalesced git-status /
+		// file-change streams — the watcher dedups against its previous value and
+		// will not re-broadcast an identical state. Disconnect instead so the
+		// client reconnects and gets a fresh snapshot-on-subscribe (the full-state
+		// DTO streams self-heal the same way). closeDone is idempotent.
+		cl.closeDone()
 	}
 }

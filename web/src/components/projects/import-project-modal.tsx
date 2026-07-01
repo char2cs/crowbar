@@ -9,9 +9,14 @@ import {
 } from '@/components/ui/dialog'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
-import { toast } from 'sonner'
-import { postProject, fetchProject } from '@/lib/api'
-import type { Project } from '@/lib/types'
+import { FolderOpen } from '@phosphor-icons/react'
+import { toast } from '@/features/window/stores/toast-store'
+import { openNativeDialog as openDialog } from '@/lib/native-dialog'
+import { isTauri } from '@/lib/crowbar-bridge'
+import { postProject } from '@/lib/api'
+import { awaitEntity } from '@/lib/ws/await-entity'
+import { projectFromDTO } from '@/lib/store/project-from-dto'
+import type { Project, ProjectDTO } from '@/lib/types'
 
 interface ImportProjectModalProps {
   open: boolean
@@ -31,20 +36,32 @@ export function ImportProjectModal({ open, onOpenChange, onImport }: ImportProje
   const trimmedPath = selectedPath.trim()
   const pathLooksAbsolute = trimmedPath.startsWith('/') || /^[A-Za-z]:[\\/]/.test(trimmedPath)
 
+  async function handleBrowse() {
+    const selected = await openDialog({ directory: true, multiple: false })
+    if (typeof selected === 'string') setSelectedPath(selected)
+  }
+
   const handleImport = async () => {
     if (!pathLooksAbsolute) return
     setLoading(true)
     try {
-      // The mutation returns only { id }; re-fetch the full project so the
-      // sidebar gets a complete entity (name/path) rather than undefined fields.
+      // §4/§6 subscribe-before-POST: postProject answers 202 with no body — the
+      // daemon assigns the id and only the canonical ProjectDTO carries it, on
+      // the `/v0/projects` WS stream. We subscribe FIRST, fire the POST, then
+      // resolve the real project by matching the submitted path (the one field
+      // we can correlate before the id exists). No client-fabricated uuid.
       const fallbackName =
         trimmedPath
           .replace(/[\\/]+$/, '')
           .split(/[\\/]/)
           .pop() ?? trimmedPath
-      const { id } = await postProject(projectName.trim() || fallbackName, trimmedPath)
-      const project = await fetchProject(id)
-      onImport(project)
+      const name = projectName.trim() || fallbackName
+      const dto = await awaitEntity<ProjectDTO>({
+        endpoint: '/v0/projects',
+        match: (p) => p.path === trimmedPath && p.status !== 'deleted',
+        action: () => postProject(name, trimmedPath),
+      })
+      onImport(projectFromDTO(dto))
       setSelectedPath('')
       setProjectName('')
     } catch (err) {
@@ -61,15 +78,22 @@ export function ImportProjectModal({ open, onOpenChange, onImport }: ImportProje
           <DialogTitle>Import project</DialogTitle>
         </DialogHeader>
 
-        <div className="space-y-4 py-2">
-          <div className="space-y-1.5">
+        <div className="space-y-5 px-6 py-5">
+          <div className="space-y-2">
             <label className="text-sm font-medium text-foreground">Project folder</label>
-            <Input
-              value={selectedPath}
-              onChange={(e) => setSelectedPath(e.target.value)}
-              placeholder="/absolute/path/to/project"
-              className="font-mono text-[12px]"
-            />
+            <div className="flex gap-2">
+              <Input
+                value={selectedPath}
+                onChange={(e) => setSelectedPath(e.target.value)}
+                placeholder="/absolute/path/to/project"
+                className="font-mono text-[12px]"
+              />
+              {isTauri() && (
+                <Button variant="outline" size="icon" onClick={handleBrowse} title="Browse…">
+                  <FolderOpen className="size-4" />
+                </Button>
+              )}
+            </div>
             {trimmedPath !== '' && !pathLooksAbsolute && (
               <p className="text-[12px] text-destructive">
                 Enter an absolute path (e.g. /Users/you/code/my-repo)
@@ -77,7 +101,7 @@ export function ImportProjectModal({ open, onOpenChange, onImport }: ImportProje
             )}
           </div>
 
-          <div className="space-y-1.5">
+          <div className="space-y-2">
             <label className="text-sm font-medium text-foreground">Project name</label>
             <Input
               value={projectName}

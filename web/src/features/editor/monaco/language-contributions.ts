@@ -1,4 +1,5 @@
 import { languages } from 'monaco-editor'
+import { registerTreeSitterSemanticTokens } from './semantic-tokens-provider'
 
 import 'monaco-editor/esm/vs/basic-languages/cpp/cpp.contribution'
 import 'monaco-editor/esm/vs/basic-languages/css/css.contribution'
@@ -261,3 +262,5 @@ languages.setMonarchTokensProvider('ocaml', {
     ],
   },
 })
+
+registerTreeSitterSemanticTokens()

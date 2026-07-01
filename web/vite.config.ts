@@ -31,6 +31,9 @@ export default defineConfig({
   },
   resolve: {
     alias: { '@': path.resolve(__dirname, './src') },
+    // Force a single copy of react/react-dom — pnpm's virtual store can
+    // resolve multiple versions when peer deps differ across packages.
+    dedupe: ['react', 'react-dom'],
   },
   test: {
     environment: 'jsdom',

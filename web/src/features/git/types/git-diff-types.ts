@@ -1,9 +1,16 @@
-import type { HighlightToken } from '@/features/editor/lib/wasm-parser/types'
 import type { GitDiff, GitDiffLine, GitHunk } from './git-types'
+
+export interface AddCommentAnchor {
+  filePath: string
+  side: 'old' | 'new'
+  line: number
+}
 
 export interface DiffViewerProps {
   onStageHunk?: (hunk: GitHunk) => void
   onUnstageHunk?: (hunk: GitHunk) => void
+  /** Whether this diff's pane is active (gates the diff find bar). */
+  isActivePane?: boolean
 }
 
 export interface DiffLineWithIndex extends GitDiffLine {
@@ -53,29 +60,6 @@ export interface DiffHunkHeaderProps {
   isInMultiFileView?: boolean
 }
 
-export interface DiffLineProps {
-  line: GitDiffLine
-  viewMode: 'unified' | 'split'
-  splitSide?: 'left' | 'right'
-  wordWrap: boolean
-  showWhitespace: boolean
-  fontSize: number
-  lineHeight: number
-  tabSize: number
-  tokens?: HighlightToken[]
-}
-
-export interface TextDiffViewerProps {
-  diff: GitDiff
-  isStaged: boolean
-  viewMode: 'unified' | 'split'
-  showWhitespace: boolean
-  onStageHunk?: (hunk: GitHunk) => void
-  onUnstageHunk?: (hunk: GitHunk) => void
-  isInMultiFileView?: boolean
-  isEmbeddedInScrollView?: boolean
-}
-
 export interface ImageDiffViewerProps {
   diff: GitDiff
   fileName: string
@@ -113,4 +97,5 @@ export interface FileDiffSummary {
   additions: number
   deletions: number
   shouldAutoCollapse: boolean
+  uncommitted: boolean
 }

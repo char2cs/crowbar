@@ -11,6 +11,7 @@ import (
 	"github.com/char2cs/crowbar/api/internal/app/repositories"
 	"github.com/char2cs/crowbar/api/internal/app/repositories/workspace"
 	"github.com/char2cs/crowbar/api/internal/app/usecases"
+	"github.com/char2cs/crowbar/api/internal/core/safego"
 	"github.com/char2cs/crowbar/api/internal/domain"
 	"github.com/char2cs/crowbar/api/internal/engine"
 	"github.com/char2cs/crowbar/api/internal/engine/provider"
@@ -28,52 +29,53 @@ type Container struct {
 	Realtime     *realtime.Service
 }
 
-// New constructs the application layer from the engine and adapter containers,
-// wires hub projections, and runs AgentRun crash recovery synchronously before
-// returning (00 §6.2, §7).
+// New constructs the application layer from the engine and adapter containers
+// and wires the aggregate repositories into the hub (00 §7).
 func New(
 	ctx context.Context,
 	engines *engine.Container,
 	adapters *adapter.Container,
 ) (*Container, error) {
-	axWorkspace, err := newAsynx[domain.Workspace](adapters.WorkspaceES)
-	if err != nil {
-		return nil, fmt.Errorf("app: asynx workspace: %w", err)
-	}
-	axChat, err := newAsynx[domain.Chat](adapters.ChatES)
+	axChat, err := newAsynx[domain.Chat](adapters.ChatES())
 	if err != nil {
 		return nil, fmt.Errorf("app: asynx chat: %w", err)
 	}
-	axAgentRun, err := newAsynx[domain.AgentRun](adapters.AgentRunES)
-	if err != nil {
-		return nil, fmt.Errorf("app: asynx agent run: %w", err)
-	}
-	axReviewThread, err := newAsynx[domain.ReviewThread](adapters.ReviewThreadES)
+	axReviewThread, err := newAsynx[domain.ReviewThread](adapters.ReviewThreadES())
 	if err != nil {
 		return nil, fmt.Errorf("app: asynx review thread: %w", err)
 	}
 
-	gormStores, err := newGORMStores(adapters.DB)
+	gormStores, err := newGORMStores(adapters.GlobalView())
 	if err != nil {
 		return nil, err
 	}
 
 	h := hub.NewHub()
-	repos, err := repositories.New(adapters.DB, h, axWorkspace, axChat, axAgentRun, axReviewThread)
+	repos, err := repositories.New(
+		ctx,
+		adapters,
+		h,
+		axChat,
+		axReviewThread,
+		newAsynx[domain.Workspace],
+		engines.Git,
+	)
 	if err != nil {
 		return nil, fmt.Errorf("app: repositories: %w", err)
 	}
-	if err := repos.RegisterHubProjections(axAgentRun); err != nil {
-		return nil, fmt.Errorf("app: hub projections: %w", err)
-	}
-	repos.RecoverOrphans(ctx)
 
-	ucs, err := usecases.New(repos, toUsecaseStores(gormStores), engines)
+	// Path-deriving usecases must share the adapter's resolved home so git
+	// worktrees and per-entity storages land under the same root.
+	crowbarHome := adapters.CrowbarHome()
+	homeFunc := func() (string, error) { return crowbarHome, nil }
+	ucs, err := usecases.New(repos, toUsecaseStores(gormStores), engines, homeFunc)
 	if err != nil {
 		return nil, fmt.Errorf("app: usecases: %w", err)
 	}
 
 	startProviderSweep(ctx, engines, repos, ucs)
+	startRecoverySweep(ctx, ucs)
+	startRestoreTerminalSessions(ctx, ucs)
 
 	rt := realtime.New(
 		ctx,
@@ -81,7 +83,9 @@ func New(
 		repos.Workspace,
 		engines.Git,
 		engines.FS,
-		realtime.NoopLSPLifecycle(),
+		realtime.NewLSPLifecycle(engines.LSP),
+		ucs.ProviderSync,
+		poll.PerConnectionInterval,
 		time.Now,
 	)
 
@@ -109,6 +113,7 @@ func toUsecaseStores(
 		Projects:         gormStores.Projects,
 		Repositories:     gormStores.Repositories,
 		TerminalProfiles: gormStores.TerminalProfiles,
+		TerminalSessions: gormStores.TerminalSessions,
 	}
 }
 
@@ -123,6 +128,37 @@ func startProviderSweep(
 		sweepTargets(repos.Workspace),
 		sweepCallback(ctx, ucs),
 	)
+}
+
+// startRecoverySweep runs the one-shot startup recovery sweep (H19) in the
+// background so boot stays fast. Unlike the provider sweep this is not a cron —
+// it runs exactly once at startup, re-syncing each workspace's git state from
+// disk and reaping orphaned worktrees. Its effects broadcast over WS as each
+// workspace re-syncs. A panic is contained by safego; ReconcileAll is itself
+// best-effort and never returns a fatal error, so its result is ignored.
+func startRecoverySweep(
+	ctx context.Context,
+	ucs *usecases.Container,
+) {
+	safego.Go("app.recoverySweep", func() {
+		_ = ucs.Worktree.ReconcileAll(context.WithoutCancel(ctx))
+	})
+}
+
+// startRestoreTerminalSessions reloads persisted terminal sessions as PTY-less
+// placeholders so a subsequent client Attach transparently restores them.
+// FIX 3: runs SYNCHRONOUSLY before the engine/HTTP layer starts serving, so
+// the registry is fully populated before the first Attach can arrive. Running
+// it in the background allowed concurrent Attach + restore races. Best-effort:
+// per-row errors are logged; orphaned rows are reconciled automatically.
+func startRestoreTerminalSessions(
+	ctx context.Context,
+	ucs *usecases.Container,
+) {
+	if ucs.Terminal == nil {
+		return
+	}
+	_ = ucs.Terminal.RestorePersistedSessions(context.WithoutCancel(ctx))
 }
 
 func sweepCallback(
@@ -145,6 +181,24 @@ func sweepCallback(
 	}
 }
 
+// shouldSweep reports whether the global cron should re-poll a workspace: it
+// must have a live PR (PRUrl != "") and must not be in a terminal PR state
+// (pr-merged/pr-closed), which are never re-polled (D10/§11). This widens the
+// old Status==pr-open filter so pr-open->pr-merged/closed transitions are
+// observed on unwatched workspaces and pr-conflicts workspaces keep syncing.
+func shouldSweep(
+	ws domain.Workspace,
+) bool {
+	if ws.PRUrl == "" {
+		return false
+	}
+	if ws.Status == domain.WorkspaceStatusPRMerged ||
+		ws.Status == domain.WorkspaceStatusPRClosed {
+		return false
+	}
+	return true
+}
+
 func sweepTargets(
 	repo workspace.Workspace,
 ) func() []poll.SweepTarget {
@@ -155,7 +209,7 @@ func sweepTargets(
 		}
 		targets := make([]poll.SweepTarget, 0, len(rows))
 		for _, ws := range rows {
-			if ws.Status != domain.WorkspaceStatusPROpen {
+			if !shouldSweep(ws) {
 				continue
 			}
 			targets = append(targets, poll.SweepTarget{

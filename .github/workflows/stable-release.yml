@@ -7,59 +7,240 @@ on:
 
 permissions:
   contents: write
+  pull-requests: write
   actions: write
 
 jobs:
-  stable:
-    if: github.event.pull_request.merged == true && (startsWith(github.head_ref, 'beta/') || startsWith(github.head_ref, 'hotfix/'))
+  guard:
+    # Triggers on:
+    # - prerelease/* → master  (normal release flow)
+    # - hotfix/* → master      (emergency fix, no prerelease cycle)
+    # - release-please--branches--master--* → master  (release-please version bump after hotfix)
+    if: >
+      github.event.pull_request.merged == true && (
+        startsWith(github.head_ref, 'prerelease/') ||
+        startsWith(github.head_ref, 'hotfix/') ||
+        startsWith(github.head_ref, 'release-please--branches--master--')
+      )
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+      tag: ${{ steps.version.outputs.tag }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: master
+      - name: Read version from Cargo.toml
+        id: version
+        run: |
+          VERSION=$(grep -m1 '^version' desktop/src-tauri/Cargo.toml | grep -oP '[\d.]+')
+          echo "version=${VERSION}" >> $GITHUB_OUTPUT
+          echo "tag=v${VERSION}" >> $GITHUB_OUTPUT
+          echo "Stable release: v${VERSION}"
+
+  daemon:
+    needs: guard
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-
-      - name: Derive stable tag
-        id: tag
-        run: |
-          BRANCH="${{ github.head_ref }}"
-          VERSION=$(echo "$BRANCH" | cut -d/ -f2-)
-          TAG="stable-${VERSION}"
-          echo "tag=$TAG" >> $GITHUB_OUTPUT
-
+        with:
+          ref: master
       - uses: actions/setup-go@v5
         with:
-          go-version: '1.25'
+          go-version: '1.26.2'
           cache-dependency-path: api/go.sum
-
       - uses: oven-sh/setup-bun@v2
-
       - name: Build frontend
+        env:
+          NODE_OPTIONS: --max-old-space-size=6144
         run: cd web && bun install --frozen-lockfile && bun run build
-
       - name: Stage web assets for embedding
         run: cd api && make embed-web
-
-      - name: Cross-compile Go daemon
+      - name: Cross-compile daemon
         run: |
           mkdir -p dist
           cd api
-          for PLATFORM in linux/amd64 linux/arm64 darwin/amd64 darwin/arm64 windows/amd64; do
+          for PLATFORM in linux/amd64 linux/arm64 darwin/amd64 darwin/arm64; do
             OS=${PLATFORM%/*}; ARCH=${PLATFORM#*/}
-            EXT=$([ "$OS" = "windows" ] && echo ".exe" || echo "")
             GOOS=$OS GOARCH=$ARCH CGO_ENABLED=0 go build \
-              -o ../dist/crowbar-api-${OS}-${ARCH}${EXT} ./cmd/crowbar
-            (cd ../dist && sha256sum "crowbar-api-${OS}-${ARCH}${EXT}") >> ../dist/SHA256SUMS
+              -o ../dist/crowbar-api-${OS}-${ARCH} ./cmd/crowbar
           done
-
-      - name: Create stable GitHub release
-        uses: softprops/action-gh-release@v2
+      - uses: actions/upload-artifact@v4
         with:
-          tag_name: ${{ steps.tag.outputs.tag }}
+          name: daemon-binaries
+          path: dist/
+
+  desktop-macos:
+    needs: guard
+    runs-on: macos-latest
+    env:
+      VERSION: ${{ needs.guard.outputs.version }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: master
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: '1.88'
+          targets: aarch64-apple-darwin,x86_64-apple-darwin
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: desktop/src-tauri
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.26.2'
+          cache-dependency-path: api/go.sum
+      - uses: oven-sh/setup-bun@v2
+      - uses: cargo-bins/cargo-binstall@main
+      - name: Install tauri-cli
+        run: cargo binstall tauri-cli@^2 --no-confirm --locked
+      - name: Build Go sidecar (arm64 + amd64)
+        run: |
+          mkdir -p desktop/src-tauri/binaries
+          cd api
+          GOOS=darwin GOARCH=arm64 CGO_ENABLED=0 go build -tags noEmbed \
+            -o ../desktop/src-tauri/binaries/crowbar-api-aarch64-apple-darwin ./cmd/crowbar
+          GOOS=darwin GOARCH=amd64 CGO_ENABLED=0 go build -tags noEmbed \
+            -o ../desktop/src-tauri/binaries/crowbar-api-x86_64-apple-darwin ./cmd/crowbar
+      - name: Build frontend
+        env:
+          NODE_OPTIONS: --max-old-space-size=6144
+        run: cd web && bun install --frozen-lockfile && bun run build
+      - name: Sync version into tauri.conf.json
+        run: jq ".version = \"${VERSION}\"" desktop/src-tauri/tauri.conf.json > /tmp/tc.json && mv /tmp/tc.json desktop/src-tauri/tauri.conf.json
+      - name: Compile Liquid Glass icon (Xcode 26+ only)
+        run: bash desktop/icons-compiler/compile-icon.sh
+      - name: Build Tauri app (universal DMG)
+        working-directory: desktop/src-tauri
+        run: |
+          if [ -f icons/Assets.car ]; then
+            cargo tauri build --target universal-apple-darwin --bundles dmg
+          else
+            cargo tauri build --target universal-apple-darwin --bundles dmg \
+              --config '{"bundle":{"macOS":{"files":{}}}}'
+          fi
+      - name: Verify artifact
+        run: |
+          DMG=$(find desktop/src-tauri/target/universal-apple-darwin/release/bundle/dmg -name '*.dmg' | head -1)
+          [ -s "$DMG" ] || (echo "DMG missing or empty" && exit 1)
+          echo "DMG: $DMG ($(du -h "$DMG" | cut -f1))"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: desktop-macos
+          path: desktop/src-tauri/target/universal-apple-darwin/release/bundle/dmg/*.dmg
+
+  desktop-linux:
+    needs: guard
+    runs-on: ubuntu-latest
+    env:
+      VERSION: ${{ needs.guard.outputs.version }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: master
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: '1.88'
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: desktop/src-tauri
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.26.2'
+          cache-dependency-path: api/go.sum
+      - uses: oven-sh/setup-bun@v2
+      - name: Install system deps
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libwebkit2gtk-4.1-dev libayatana-appindicator3-dev librsvg2-dev
+      - uses: cargo-bins/cargo-binstall@main
+      - name: Install tauri-cli
+        run: cargo binstall tauri-cli@^2 --no-confirm --locked
+      - name: Build Go sidecar (Linux x86_64)
+        run: |
+          mkdir -p desktop/src-tauri/binaries
+          cd api && GOOS=linux GOARCH=amd64 CGO_ENABLED=0 go build -tags noEmbed \
+            -o ../desktop/src-tauri/binaries/crowbar-api-x86_64-unknown-linux-gnu ./cmd/crowbar
+      - name: Build frontend
+        env:
+          NODE_OPTIONS: --max-old-space-size=6144
+        run: cd web && bun install --frozen-lockfile && bun run build
+      - name: Sync version into tauri.conf.json
+        run: jq ".version = \"${VERSION}\"" desktop/src-tauri/tauri.conf.json > /tmp/tc.json && mv /tmp/tc.json desktop/src-tauri/tauri.conf.json
+      - name: Build Tauri app (AppImage + deb)
+        working-directory: desktop/src-tauri
+        run: |
+          cargo tauri build --bundles appimage,deb \
+            --config '{"bundle":{"macOS":{"files":{}}}}'
+      - name: Verify artifacts
+        run: |
+          APPIMAGE=$(find desktop/src-tauri/target/release/bundle/appimage -name '*.AppImage' | head -1)
+          [ -s "$APPIMAGE" ] || (echo "AppImage missing or empty" && exit 1)
+          echo "AppImage: $APPIMAGE ($(du -h "$APPIMAGE" | cut -f1))"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: desktop-linux
+          path: |
+            desktop/src-tauri/target/release/bundle/appimage/*.AppImage
+            desktop/src-tauri/target/release/bundle/deb/*.deb
+
+  release:
+    needs: [guard, daemon, desktop-macos, desktop-linux]
+    # All jobs must succeed — no partial stable releases
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: release-artifacts/
+          merge-multiple: true
+      - name: Generate unified SHA256SUMS
+        run: |
+          cd release-artifacts
+          find . -type f ! -name 'SHA256SUMS' -exec sha256sum {} \; | sed 's|./||' > SHA256SUMS
+      - uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ needs.guard.outputs.tag }}
+          name: "Crowbar ${{ needs.guard.outputs.tag }}"
           prerelease: false
-          files: dist/*
+          make_latest: true
+          files: release-artifacts/**/*
           generate_release_notes: true
 
-      - name: Trigger backport workflow
+  backport:
+    needs: [guard, release]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          token: ${{ secrets.GITHUB_TOKEN }}
+      - name: Configure git
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+      - name: Open backport PR to develop
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          VERSION: ${{ needs.guard.outputs.version }}
+          TAG: ${{ needs.guard.outputs.tag }}
         run: |
-          gh workflow run backport.yml \
-            --field version=${{ steps.tag.outputs.tag }}
+          BRANCH="backport/v${VERSION}"
+
+          git checkout -b "$BRANCH" origin/develop
+
+          # Conflicts are expected when develop has diverged significantly.
+          # Push the branch regardless so the PR can be resolved manually.
+          if ! git merge --no-ff origin/master -m "chore: backport ${TAG} to develop"; then
+            echo "⚠️ Merge conflicts detected — pushing branch for manual resolution"
+            git add -A
+            git commit -m "chore: backport ${TAG} to develop (conflicts need resolution)"
+          fi
+
+          git push origin "$BRANCH"
+
+          gh pr create \
+            --title "chore: backport ${TAG} to develop" \
+            --body "Backport stable release ${TAG} from \`master\` to \`develop\`." \
+            --base develop \
+            --head "$BRANCH" \
+            --label "backport"

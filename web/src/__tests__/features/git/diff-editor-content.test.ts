@@ -1,6 +1,31 @@
 import { describe, expect, test } from 'vitest'
 import type { GitDiff, GitDiffLine } from '@/features/git/types/git-types'
-import { buildMonacoDiffContent } from '@/features/git/utils/diff-editor-content'
+import {
+  buildMonacoDiffContent,
+  buildUnifiedThreadAnchorMap,
+  findNearestUnifiedModelLine,
+  findUnifiedModelLine,
+  serializeGitDiffSourceForEditor,
+} from '@/features/git/utils/diff-editor-content'
+
+type RawLine = {
+  type: GitDiffLine['line_type']
+  content: string
+  old?: number
+  new?: number
+}
+const makeRawDiff = (lines: RawLine[]): GitDiff => ({
+  file_path: 'src/foo.ts',
+  is_new: false,
+  is_deleted: false,
+  is_renamed: false,
+  lines: lines.map((l) => ({
+    line_type: l.type,
+    content: l.content,
+    old_line_number: l.old,
+    new_line_number: l.new,
+  })),
+})
 
 const makeDiff = (lines: Array<{ type: GitDiffLine['line_type']; content: string }>): GitDiff => ({
   file_path: 'src/foo.ts',
@@ -79,5 +104,87 @@ describe('buildMonacoDiffContent', () => {
     // raw_patch is not parsed by buildMonacoDiffContent; callers must handle this case
     expect(original).toBe('')
     expect(modified).toBe('')
+  })
+})
+
+describe('unified thread anchor map', () => {
+  // A diff where old/new numbers diverge after the inserted line, so the
+  // side-aware map must be consulted (the collapsed actualLines would be wrong
+  // for the old side of context lines below the insertion).
+  const diff = makeRawDiff([
+    { type: 'header', content: '@@ -5,4 +5,5 @@' },
+    { type: 'context', content: 'a', old: 5, new: 5 },
+    { type: 'removed', content: 'b', old: 6 },
+    { type: 'added', content: 'c', new: 6 },
+    { type: 'added', content: 'd', new: 7 },
+    { type: 'context', content: 'e', old: 7, new: 8 },
+  ])
+
+  test('anchor map aligns 1:1 with the unified reconstruction (model line i → entry i)', () => {
+    const anchors = buildUnifiedThreadAnchorMap(diff)
+    const { content } = serializeGitDiffSourceForEditor(diff)
+    // One anchor entry per reconstructed model line.
+    expect(anchors).toHaveLength(content.split('\n').length)
+    expect(anchors).toEqual([
+      { oldLine: 5, newLine: 5 }, // context a
+      { oldLine: 6, newLine: null }, // removed b
+      { oldLine: null, newLine: 6 }, // added c
+      { oldLine: null, newLine: 7 }, // added d
+      { oldLine: 7, newLine: 8 }, // context e (old/new diverge)
+    ])
+  })
+
+  test('inverts {side,line} to the correct 1-based model line', () => {
+    const anchors = buildUnifiedThreadAnchorMap(diff)
+    expect(findUnifiedModelLine(anchors, 'new', 5)).toBe(1)
+    expect(findUnifiedModelLine(anchors, 'old', 6)).toBe(2) // removed line, old side
+    expect(findUnifiedModelLine(anchors, 'new', 6)).toBe(3) // added line, new side
+    expect(findUnifiedModelLine(anchors, 'new', 7)).toBe(4)
+    // Context line whose old (7) and new (8) differ — both resolve to its row.
+    expect(findUnifiedModelLine(anchors, 'old', 7)).toBe(5)
+    expect(findUnifiedModelLine(anchors, 'new', 8)).toBe(5)
+  })
+
+  test('returns null when the anchored line is no longer in the diff (outdated)', () => {
+    const anchors = buildUnifiedThreadAnchorMap(diff)
+    expect(findUnifiedModelLine(anchors, 'new', 99)).toBeNull()
+    expect(findUnifiedModelLine(anchors, 'old', 6)).not.toBeNull()
+    expect(findUnifiedModelLine(anchors, 'new', 6)).not.toBeNull()
+    // 'old' side never had line 6's new number, etc.
+    expect(findUnifiedModelLine(anchors, 'old', 8)).toBeNull()
+  })
+
+  describe('findNearestUnifiedModelLine (outdated fallback)', () => {
+    const anchors = buildUnifiedThreadAnchorMap(diff)
+
+    test('returns the exact model line when present', () => {
+      expect(findNearestUnifiedModelLine(anchors, 'new', 5)).toBe(1)
+      expect(findNearestUnifiedModelLine(anchors, 'new', 8)).toBe(5)
+    })
+
+    test('falls back to the closest line at or below the target', () => {
+      // new side has lines 5,6,7,8 → target 99 clamps to the last one (model 5).
+      expect(findNearestUnifiedModelLine(anchors, 'new', 99)).toBe(5)
+      // 7 is an exact new-side anchor mapping to model line 4.
+      expect(findNearestUnifiedModelLine(anchors, 'new', 7)).toBe(4)
+    })
+
+    test('falls back to the closest line above when nothing is at or below', () => {
+      // new side smallest is 5; target 1 has nothing below → nearest above is 5 (model 1).
+      expect(findNearestUnifiedModelLine(anchors, 'new', 1)).toBe(1)
+    })
+
+    test('returns null only when the side has no anchored lines at all', () => {
+      const addedOnly = buildUnifiedThreadAnchorMap(
+        makeRawDiff([
+          { type: 'header', content: '@@ -0,0 +1,2 @@' },
+          { type: 'added', content: 'x', new: 1 },
+          { type: 'added', content: 'y', new: 2 },
+        ]),
+      )
+      // No removed/context lines → the 'old' side has no numbers anywhere.
+      expect(findNearestUnifiedModelLine(addedOnly, 'old', 3)).toBeNull()
+      expect(findNearestUnifiedModelLine(addedOnly, 'new', 9)).toBe(2)
+    })
   })
 })

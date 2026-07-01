@@ -3,6 +3,8 @@ package sqlite
 import (
 	"context"
 	"errors"
+	"os"
+	"path/filepath"
 	"testing"
 
 	"github.com/char2cs/asynx/models"
@@ -26,6 +28,35 @@ func cancelledCtx() context.Context {
 func TestNewEventStore_InvalidPath_ReturnsError(t *testing.T) {
 	_, err := NewEventStore("/nonexistent-dir-crowbar/db.sqlite")
 	assert.Error(t, err)
+}
+
+// TestNewEventStore_ReadonlyDB_JournalModeError covers the PRAGMA
+// journal_mode=WAL error branch: create a valid sqlite file, then strip
+// write permission from both the file and its parent directory so the PRAGMA
+// (which needs to write the WAL header) fails while gorm.Open itself still
+// succeeds.
+func TestNewEventStore_ReadonlyDB_JournalModeError(t *testing.T) {
+	if os.Getuid() == 0 {
+		t.Skip("running as root; permission denial has no effect")
+	}
+	dir := t.TempDir()
+	path := filepath.Join(dir, "ro.sqlite")
+
+	s, err := NewEventStore(path)
+	require.NoError(t, err)
+	type closer interface{ Close() error }
+	require.NoError(t, s.(closer).Close())
+
+	require.NoError(t, os.Chmod(path, 0o444))
+	require.NoError(t, os.Chmod(dir, 0o555))
+	t.Cleanup(func() {
+		_ = os.Chmod(dir, 0o755)
+		_ = os.Chmod(path, 0o644)
+	})
+
+	_, err = NewEventStore(path)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "journal_mode")
 }
 
 func TestEventStore_Append_ThenReadFrom(t *testing.T) {
@@ -127,4 +158,44 @@ func TestEventStore_Count_ContextCancelled(t *testing.T) {
 	s := newTestEventStore(t)
 	_, err := s.Count(cancelledCtx(), "agg-1", 1)
 	assert.Error(t, err)
+}
+
+func TestEventStore_AggregateIDs_ReturnsDistinct(t *testing.T) {
+	s := newTestEventStore(t)
+	ctx := context.Background()
+	require.NoError(t, s.Append(ctx, "agg-1", 1, []byte("a")))
+	require.NoError(t, s.Append(ctx, "agg-1", 2, []byte("b")))
+	require.NoError(t, s.Append(ctx, "agg-2", 1, []byte("c")))
+
+	lister, ok := s.(interface {
+		AggregateIDs(ctx context.Context) ([]string, error)
+	})
+	require.True(t, ok)
+
+	ids, err := lister.AggregateIDs(ctx)
+	require.NoError(t, err)
+	assert.ElementsMatch(t, []string{"agg-1", "agg-2"}, ids)
+}
+
+func TestEventStore_AggregateIDs_ContextCancelled(t *testing.T) {
+	s := newTestEventStore(t)
+	lister, ok := s.(interface {
+		AggregateIDs(ctx context.Context) ([]string, error)
+	})
+	require.True(t, ok)
+
+	_, err := lister.AggregateIDs(cancelledCtx())
+	assert.Error(t, err)
+}
+
+func TestEventStore_AggregateIDs_EmptyStore(t *testing.T) {
+	s := newTestEventStore(t)
+	lister, ok := s.(interface {
+		AggregateIDs(ctx context.Context) ([]string, error)
+	})
+	require.True(t, ok)
+
+	ids, err := lister.AggregateIDs(context.Background())
+	require.NoError(t, err)
+	assert.Empty(t, ids)
 }

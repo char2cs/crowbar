@@ -34,15 +34,30 @@ func TestCreateWorkspace_EmitEvent_SeedsNewStatusAndDefaultStrategy(t *testing.T
 	assert.Equal(t, now, ws.CreatedAt)
 }
 
+func TestCreate_SeedsLockedWhenProtected(t *testing.T) {
+	now := time.Unix(1000, 0)
+	locked := CreateWorkspace{ID: "w1", RepoID: "r1", ProjectID: "p1", Protected: true, Now: now}.EmitEvent(nil)
+	assert.Equal(t, domain.WorkspaceStatusLocked, locked.Status)
+
+	unlocked := CreateWorkspace{ID: "w2", RepoID: "r1", ProjectID: "p1", Now: now}.EmitEvent(nil)
+	assert.Equal(t, domain.WorkspaceStatusNew, unlocked.Status)
+}
+
 func TestSyncWorkingTreeState_Validate_RejectsMissing(t *testing.T) {
 	err := SyncWorkingTreeState{ID: "w1"}.Validate(nil)
 	assert.True(t, errors.Is(err, asynxModels.ErrValidation))
 }
 
-func TestSyncWorkingTreeState_ClearsNewWhenHasCommits(t *testing.T) {
+func TestSyncWorkingTreeState_KeepsNewWhenHasCommits(t *testing.T) {
 	cur := &domain.Workspace{ID: "w1", Status: domain.WorkspaceStatusNew}
 	ws := SyncWorkingTreeState{ID: "w1", HasCommits: true}.EmitEvent(cur)
-	assert.Equal(t, domain.WorkspaceStatus(""), ws.Status)
+	assert.Equal(t, domain.WorkspaceStatusNew, ws.Status)
+}
+
+func TestSyncWorkingTree_LocalConflictSetsPRConflicts(t *testing.T) {
+	cur := &domain.Workspace{ID: "w1", Status: domain.WorkspaceStatusNew}
+	ws := SyncWorkingTreeState{ID: "w1", HasConflicts: true}.EmitEvent(cur)
+	assert.Equal(t, domain.WorkspaceStatusPRConflicts, ws.Status)
 }
 
 func TestSyncWorkingTreeState_DoesNotStompPROpen(t *testing.T) {
@@ -92,16 +107,47 @@ func TestCommands_Metadata(t *testing.T) {
 	assert.Equal(t, "w1", ufp.AggregateID())
 	assert.Contains(t, ufp.EventName(), "fork_point_updated")
 	assert.False(t, ufp.ShouldSnapshot())
+}
 
-	spm := SetPendingMerge{ID: "w1"}
-	assert.Equal(t, "w1", spm.AggregateID())
-	assert.Contains(t, spm.EventName(), "pending_merge_set")
-	assert.False(t, spm.ShouldSnapshot())
+func TestSetLastError_SetsMessage(t *testing.T) {
+	cur := &domain.Workspace{ID: "w1", Status: domain.WorkspaceStatusNew}
+	ws := SetLastError{ID: "w1", Message: "boom"}.EmitEvent(cur)
+	assert.Equal(t, "boom", ws.LastError)
+	assert.Equal(t, domain.WorkspaceStatusNew, ws.Status)
+}
 
-	cpm := ClearPendingMerge{ID: "w1"}
-	assert.Equal(t, "w1", cpm.AggregateID())
-	assert.Contains(t, cpm.EventName(), "pending_merge_cleared")
-	assert.False(t, cpm.ShouldSnapshot())
+func TestSetLastError_Validate_RejectsMissing(t *testing.T) {
+	err := SetLastError{ID: "w1", Message: "x"}.Validate(nil)
+	assert.True(t, errors.Is(err, asynxModels.ErrValidation))
+}
+
+func TestSetLastError_Validate_AcceptsExisting(t *testing.T) {
+	err := SetLastError{ID: "w1", Message: "x"}.Validate(&domain.Workspace{ID: "w1"})
+	assert.NoError(t, err)
+}
+
+func TestSetLastError_Metadata(t *testing.T) {
+	c := SetLastError{ID: "w1"}
+	assert.Equal(t, "w1", c.AggregateID())
+	assert.Contains(t, c.EventName(), "last_error_set")
+	assert.False(t, c.ShouldSnapshot())
+}
+
+func TestCreate_ClearsLastError(t *testing.T) {
+	ws := CreateWorkspace{ID: "w1", RepoID: "r1", ProjectID: "p1", Now: time.Unix(1, 0)}.EmitEvent(nil)
+	assert.Empty(t, ws.LastError)
+}
+
+func TestSyncWorkingTreeState_ClearsLastError(t *testing.T) {
+	cur := &domain.Workspace{ID: "w1", Status: domain.WorkspaceStatusNew, LastError: "stale"}
+	ws := SyncWorkingTreeState{ID: "w1", HasCommits: true}.EmitEvent(cur)
+	assert.Empty(t, ws.LastError)
+}
+
+func TestSyncProviderState_ClearsLastError(t *testing.T) {
+	cur := &domain.Workspace{ID: "w1", Status: domain.WorkspaceStatusNew, LastError: "stale"}
+	ws := SyncProviderState{ID: "w1", HasPR: true, PRStatus: "open"}.EmitEvent(cur)
+	assert.Empty(t, ws.LastError)
 }
 
 func TestCreateWorkspace_Validate_AcceptsValidNew(t *testing.T) {
@@ -130,8 +176,9 @@ func TestCreateWorkspace_EmitEvent_UsesProvidedStrategy(t *testing.T) {
 	assert.Equal(t, now, ws.LastActivity)
 }
 
-func TestSyncProviderState_SetsPROpenAndLocked(t *testing.T) {
-	cur := &domain.Workspace{ID: "w1", Status: domain.WorkspaceStatusNew}
+func TestSyncProvider_ProtectedSetsLocked_PrStatusOtherwise(t *testing.T) {
+	// Protected wins (D4 precedence): Status=locked even with an open PR; PR fields still recorded.
+	curProtected := &domain.Workspace{ID: "w1", Status: domain.WorkspaceStatusNew}
 	cmd := SyncProviderState{
 		ID:             "w1",
 		Protected:      true,
@@ -142,19 +189,39 @@ func TestSyncProviderState_SetsPROpenAndLocked(t *testing.T) {
 		PRTargetBranch: "main",
 		Now:            time.Unix(3000, 0),
 	}
-	ws := cmd.EmitEvent(cur)
-	assert.Equal(t, domain.WorkspaceStatusPROpen, ws.Status)
-	assert.True(t, ws.Locked)
+	ws := cmd.EmitEvent(curProtected)
+	assert.Equal(t, domain.WorkspaceStatusLocked, ws.Status)
 	assert.Equal(t, "https://x/pr/1", ws.PRUrl)
 	assert.Equal(t, "main", ws.PRTargetBranch)
+
+	// Not protected: PR status maps to pr-*.
+	curOpen := &domain.Workspace{ID: "w2", Status: domain.WorkspaceStatusNew}
+	wsOpen := SyncProviderState{ID: "w2", Protected: false, HasPR: true, PRStatus: "open"}.EmitEvent(curOpen)
+	assert.Equal(t, domain.WorkspaceStatusPROpen, wsOpen.Status)
+}
+
+func TestSyncProvider_Precedence_DoesNotClobberLocked(t *testing.T) {
+	// pr-* must not overwrite an existing locked status.
+	curLocked := &domain.Workspace{ID: "w1", Status: domain.WorkspaceStatusLocked}
+	ws := SyncProviderState{ID: "w1", Protected: false, HasPR: true, PRStatus: "open"}.EmitEvent(curLocked)
+	assert.Equal(t, domain.WorkspaceStatusLocked, ws.Status)
+
+	// pr-* must not overwrite an existing pr-conflicts status.
+	curConflicts := &domain.Workspace{ID: "w2", Status: domain.WorkspaceStatusPRConflicts}
+	wsc := SyncProviderState{ID: "w2", Protected: false, HasPR: true, PRStatus: "merged"}.EmitEvent(curConflicts)
+	assert.Equal(t, domain.WorkspaceStatusPRConflicts, wsc.Status)
+
+	// deleted is highest precedence.
+	curDeleted := &domain.Workspace{ID: "w3", Status: domain.WorkspaceStatusDeleted}
+	wsd := SyncProviderState{ID: "w3", Protected: true, HasPR: true, PRStatus: "open"}.EmitEvent(curDeleted)
+	assert.Equal(t, domain.WorkspaceStatusDeleted, wsd.Status)
 }
 
 func TestSyncProviderState_NoPRLeavesStatusButSetsLocked(t *testing.T) {
-	cur := &domain.Workspace{ID: "w1", Status: ""}
+	cur := &domain.Workspace{ID: "w1", Status: domain.WorkspaceStatusNew}
 	cmd := SyncProviderState{ID: "w1", Protected: true, HasPR: false}
 	ws := cmd.EmitEvent(cur)
-	assert.Equal(t, domain.WorkspaceStatus(""), ws.Status)
-	assert.True(t, ws.Locked)
+	assert.Equal(t, domain.WorkspaceStatusLocked, ws.Status)
 	assert.Empty(t, ws.PRUrl)
 }
 
@@ -267,44 +334,6 @@ func TestUpdateForkPoint_Validate_RejectsMissingSha(t *testing.T) {
 	assert.True(t, errors.Is(err, asynxModels.ErrValidation))
 }
 
-func TestSetPendingMerge_SetsMarker(t *testing.T) {
-	cur := &domain.Workspace{ID: "w1"}
-	ws := SetPendingMerge{
-		ID:             "w1",
-		Strategy:       gitdomain.MergeStrategyRebase,
-		TargetParentID: "p",
-	}.EmitEvent(cur)
-	require.NotNil(t, ws.PendingMerge)
-	assert.Equal(t, "p", ws.PendingMerge.TargetParentID)
-	assert.Equal(t, gitdomain.MergeStrategyRebase, ws.PendingMerge.Strategy)
-}
-
-func TestSetPendingMerge_Validate_RejectsMissingCurrent(t *testing.T) {
-	err := SetPendingMerge{ID: "w1", TargetParentID: "p"}.Validate(nil)
-	assert.True(t, errors.Is(err, asynxModels.ErrValidation))
-}
-
-func TestSetPendingMerge_Validate_RejectsMissingTarget(t *testing.T) {
-	err := SetPendingMerge{ID: "w1"}.Validate(&domain.Workspace{ID: "w1"})
-	assert.True(t, errors.Is(err, asynxModels.ErrValidation))
-}
-
-func TestClearPendingMerge_ClearsMarker(t *testing.T) {
-	cur := &domain.Workspace{ID: "w1", PendingMerge: &gitdomain.PendingMerge{TargetParentID: "p"}}
-	ws := ClearPendingMerge{ID: "w1"}.EmitEvent(cur)
-	assert.Nil(t, ws.PendingMerge)
-}
-
-func TestClearPendingMerge_Validate_RejectsMissing(t *testing.T) {
-	err := ClearPendingMerge{ID: "w1"}.Validate(nil)
-	assert.True(t, errors.Is(err, asynxModels.ErrValidation))
-}
-
-func TestClearPendingMerge_Validate_AcceptsExisting(t *testing.T) {
-	err := ClearPendingMerge{ID: "w1"}.Validate(&domain.Workspace{ID: "w1"})
-	assert.NoError(t, err)
-}
-
 func TestReparent_Validate_RejectsMissingForkPoint(t *testing.T) {
 	err := Reparent{ID: "w1", ParentID: "p"}.Validate(&domain.Workspace{ID: "w1"})
 	assert.True(t, errors.Is(err, asynxModels.ErrValidation))
@@ -320,7 +349,57 @@ func TestUpdateForkPoint_Validate_AcceptsValid(t *testing.T) {
 	assert.NoError(t, err)
 }
 
-func TestSetPendingMerge_Validate_AcceptsValid(t *testing.T) {
-	err := SetPendingMerge{ID: "w1", TargetParentID: "p"}.Validate(&domain.Workspace{ID: "w1"})
-	assert.NoError(t, err)
+func TestCreateWorkspace_EmitEvent_KindDefault(t *testing.T) {
+	cmd := CreateWorkspace{
+		ID:        "ws-1",
+		RepoID:    "repo-1",
+		ProjectID: "proj-1",
+		Branch:    "main",
+		Now:       time.Now(),
+		// Kind not set → should default to git
+	}
+	ws := cmd.EmitEvent(nil)
+	require.Equal(t, domain.WorkspaceKindGit, ws.Kind)
+}
+
+func TestCreateWorkspace_EmitEvent_KindHome(t *testing.T) {
+	cmd := CreateWorkspace{
+		ID:        "ws-home",
+		ProjectID: "proj-1",
+		Kind:      domain.WorkspaceKindHome,
+		Now:       time.Now(),
+	}
+	ws := cmd.EmitEvent(nil)
+	require.Equal(t, domain.WorkspaceKindHome, ws.Kind)
+	require.Empty(t, ws.RepoID)
+}
+
+func TestCreateWorkspace_Validate_HomeAllowsEmptyRepoID(t *testing.T) {
+	cmd := CreateWorkspace{
+		ID:        "ws-home",
+		ProjectID: "proj-1",
+		Kind:      domain.WorkspaceKindHome,
+	}
+	require.NoError(t, cmd.Validate(nil))
+}
+
+func TestCreateWorkspace_Validate_GitRequiresRepoID(t *testing.T) {
+	cmd := CreateWorkspace{
+		ID:        "ws-git",
+		ProjectID: "proj-1",
+		Kind:      domain.WorkspaceKindGit,
+	}
+	require.Error(t, cmd.Validate(nil))
+}
+
+func TestCreateWorkspace_EmitEvent_CarriesHeldByPath(t *testing.T) {
+	now := time.Unix(1000, 0)
+	ws := CreateWorkspace{
+		ID: "w1", RepoID: "r1", ProjectID: "p1",
+		Protected: true, HeldByPath: "/repo", Now: now,
+	}.EmitEvent(nil)
+	assert.Equal(t, "/repo", ws.HeldByPath)
+	assert.Equal(t, domain.WorkspaceStatusLocked, ws.Status,
+		"a placeholder is still seeded locked from Protected")
+	assert.Empty(t, ws.WorktreePath, "a placeholder carries no worktree path")
 }

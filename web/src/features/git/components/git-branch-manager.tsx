@@ -1,6 +1,6 @@
 import { Check, GitBranch, Plus, Trash as Trash2 } from '@phosphor-icons/react'
 import { type KeyboardEvent, useCallback, useEffect, useMemo, useState } from 'react'
-import { useToast } from '@/features/layout/contexts/toast-context'
+import { toast } from '@/features/window/stores/toast-store'
 import { useUIState } from '@/features/window/stores/ui-state-store'
 import { Button } from '@/components/ui/button'
 import { CommandEmpty, CommandItem, CommandList } from '@/components/ui/command'
@@ -63,12 +63,11 @@ const GitBranchManager = ({
   const hasBlockingModalOpen = useUIState(
     (state) =>
       state.isQuickOpenVisible ||
-      state.isCommandPaletteVisible ||
       state.isGlobalSearchVisible ||
       state.isSettingsDialogVisible ||
       state.isProjectPickerVisible,
   )
-  const { showToast } = useToast()
+
   const activeBranch = currentBranch ?? ''
   const triggerText = activeBranch
   const triggerTextWidthCh = Math.min(Math.max(triggerText.length + 1, 6), 40)
@@ -133,7 +132,7 @@ const GitBranchManager = ({
       const result = await checkoutBranch(repoPath, branchName)
 
       if (result.hasChanges) {
-        showToast({
+        toast.show({
           message: result.message,
           type: 'warning',
           duration: 0,
@@ -145,21 +144,21 @@ const GitBranchManager = ({
                 if (stashSuccess) {
                   const retryResult = await checkoutBranch(repoPath, branchName)
                   if (retryResult.success) {
-                    showToast({
+                    toast.show({
                       message: 'Changes stashed and branch switched successfully',
                       type: 'success',
                     })
                     setIsDropdownOpen(false)
                     onBranchChange?.()
                   } else {
-                    showToast({
+                    toast.show({
                       message: 'Failed to switch branch after stashing',
                       type: 'error',
                     })
                   }
                 }
               } catch {
-                showToast({
+                toast.show({
                   message: 'Failed to stash changes',
                   type: 'error',
                 })
@@ -171,7 +170,7 @@ const GitBranchManager = ({
         setIsDropdownOpen(false)
         onBranchChange?.()
       } else {
-        showToast({
+        toast.show({
           message: result.message,
           type: 'error',
         })

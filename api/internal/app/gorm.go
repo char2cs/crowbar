@@ -15,6 +15,7 @@ type GORMStores struct {
 	Projects         store.Store[domain.Project, string]
 	Repositories     store.Store[domain.Repository, string]
 	TerminalProfiles store.Store[domain.TerminalProfile, string]
+	TerminalSessions store.Store[domain.TerminalSession, string]
 }
 
 func newGORMStores(
@@ -32,9 +33,14 @@ func newGORMStores(
 	if err != nil {
 		return nil, fmt.Errorf("app: terminal profile store: %w", err)
 	}
+	sessions, err := storesqlite.NewFromDB[domain.TerminalSession, string](db)
+	if err != nil {
+		return nil, fmt.Errorf("app: terminal session store: %w", err)
+	}
 	return &GORMStores{
 		Projects:         projects,
 		Repositories:     repos,
 		TerminalProfiles: profiles,
+		TerminalSessions: sessions,
 	}, nil
 }

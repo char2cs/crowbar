@@ -225,13 +225,22 @@ interface EditorStateActions {
   // Cursor actions
   setCursorPosition: (position: Position, options?: { ensureVisible?: boolean }) => void
   setSelection: (selection?: Range) => void
+  /**
+   * Batched cursor + selection write in a SINGLE store update — used by the
+   * rAF-coalesced editor syncer so a burst of cursor moves produces one store
+   * write (and one subscriber re-render) per frame instead of two per move.
+   */
+  setCursorAndSelection: (
+    position: Position,
+    selection?: Range,
+    options?: { ensureVisible?: boolean },
+  ) => void
   setDesiredColumn: (column?: number) => void
   setCursorVisibility: (visible: boolean) => void
   getCachedPosition: (bufferId: string) => Position | null
   getCachedViewState: (bufferId: string) => EditorViewState | null
   cacheViewStateForBuffer: (bufferId: string, state: EditorViewState) => void
   clearPositionCache: (bufferId?: string) => void
-  restorePositionForFile: (bufferId: string) => EditorViewState
   resetOnBufferSwitch: () => void
 
   // Multi-cursor actions
@@ -323,6 +332,28 @@ export const useEditorStateStore = createSelectors(
             set({ selection })
           }
         },
+        setCursorAndSelection: (position, selection, options) => {
+          const currentState = useEditorStateStore.getState()
+          const _ws = getActiveWorkspaceStoreRef()?.getState()
+          const activeBufferId = _ws ? (_ws.panes[_ws.activePaneId]?.activeBufferId ?? null) : null
+          const viewKey = currentState.activeEditorViewKey ?? activeBufferId
+          if (viewKey) {
+            viewStateCache.setCursor(viewKey, position)
+            viewStateCache.setSelection(viewKey, selection)
+          }
+          const cursorChanged = !positionsEqual(currentState.cursorPosition, position)
+          const selectionChanged = !rangesEqual(currentState.selection, selection)
+          if (cursorChanged && selectionChanged) {
+            set({ cursorPosition: position, selection })
+          } else if (cursorChanged) {
+            set({ cursorPosition: position })
+          } else if (selectionChanged) {
+            set({ selection })
+          }
+          if (options?.ensureVisible !== false) {
+            ensureCursorVisible(position)
+          }
+        },
         setDesiredColumn: (column) => {
           if (useEditorStateStore.getState().desiredColumn !== column) {
             set({ desiredColumn: column })
@@ -339,23 +370,6 @@ export const useEditorStateStore = createSelectors(
           viewStateCache.set(bufferId, state)
         },
         clearPositionCache: (bufferId) => viewStateCache.clear(bufferId),
-        restorePositionForFile: (bufferId) => {
-          const cachedState = viewStateCache.get(bufferId)
-          const restoredState = cachedState ?? {
-            cursor: { line: 0, column: 0, offset: 0 },
-            scrollTop: 0,
-            scrollLeft: 0,
-          }
-
-          set({
-            cursorPosition: restoredState.cursor,
-            selection: restoredState.selection,
-            scrollTop: restoredState.scrollTop,
-            scrollLeft: restoredState.scrollLeft,
-          })
-
-          return restoredState
-        },
         resetOnBufferSwitch: () => {
           set({
             multiCursorState: null,

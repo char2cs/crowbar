@@ -9,6 +9,7 @@ import { stageHunk, unstageHunk } from '@/features/git/api/git-status-api'
 import type { GitHunk } from '@/features/git/types/git-types'
 import { useSettingsStore } from '@/features/settings/store'
 import { buildPaneContentStyle } from '../utils/pane-border'
+import { cn } from '@/lib/utils'
 import { ROOT_PANE_POSITION, type PanePosition } from '../types/pane'
 import TabBar from '@/features/tabs/components/tab-bar'
 import { extractDroppedFilePaths } from '@/features/file-system/utils/file-system-dropped-paths'
@@ -23,7 +24,12 @@ import { EmptyEditorState } from './empty-editor-state'
 import { BOTTOM_PANE_ID } from '../constants/pane'
 import { useActivePaneId, usePaneActions } from '@/features/workspace/stores/hooks/use-pane-store'
 import type { PaneGroup } from '../types/pane'
-import type { CrowbarChatContent, EditorContent, NewTabContent } from '../types/pane-content'
+import type {
+  BranchReviewContent,
+  CrowbarChatContent,
+  EditorContent,
+  NewTabContent,
+} from '../types/pane-content'
 import {
   ensureBufferInPaneDropTarget,
   moveBufferToPaneDropTarget,
@@ -41,9 +47,13 @@ const MarkdownChatView = lazy(() =>
     default: m.MarkdownChatView,
   })),
 )
+const BranchReviewPane = lazy(() =>
+  import('@/features/git/components/branch-review-pane').then((m) => ({
+    default: m.BranchReviewPane,
+  })),
+)
 import { EditorPane } from './editor-pane'
 import { TerminalPane } from './terminal-pane'
-import { WebViewerPane } from './web-viewer-pane'
 import { DiffPane } from './diff-pane'
 
 interface PaneContainerProps {
@@ -447,7 +457,13 @@ export function PaneContainer({ pane, position = ROOT_PANE_POSITION }: PaneConta
           )
 
         case 'diff':
-          return <DiffPane onStageHunk={handleStageHunk} onUnstageHunk={handleUnstageHunk} />
+          return (
+            <DiffPane
+              onStageHunk={handleStageHunk}
+              onUnstageHunk={handleUnstageHunk}
+              isActivePane={isActivePane}
+            />
+          )
 
         case 'externalEditor':
           return (
@@ -460,8 +476,16 @@ export function PaneContainer({ pane, position = ROOT_PANE_POSITION }: PaneConta
           )
 
         case 'crowbarChat':
+          // CrowbarChatContent.wsId historically holds the *chat* id — chat
+          // buffers are opened with the sidebar chat's id (see chat-tree.tsx).
+          return <MarkdownChatView chatId={(buffer as CrowbarChatContent).wsId} />
+
+        case 'branchReview':
           return (
-            <MarkdownChatView workspaceId={(buffer as CrowbarChatContent).wsId} stepId="chat" />
+            <BranchReviewPane
+              wsId={(buffer as BranchReviewContent).wsId}
+              isActivePane={isActivePane}
+            />
           )
 
         default:
@@ -515,7 +539,11 @@ export function PaneContainer({ pane, position = ROOT_PANE_POSITION }: PaneConta
         disablePaneActions={pane.id === BOTTOM_PANE_ID}
       />
       <div
-        className="relative min-h-0 flex-1 overflow-hidden bg-background"
+        className={cn(
+          'relative z-[1] min-h-0 flex-1 overflow-hidden bg-pane-background',
+          (sidebarPosition === 'left' ? position.atLeft : position.atRight) &&
+            'shadow-[0_3px_8px_rgba(0,0,0,0.24)]',
+        )}
         style={paneContentStyle}
       >
         {!activeBuffer && <EmptyEditorState />}
@@ -526,12 +554,7 @@ export function PaneContainer({ pane, position = ROOT_PANE_POSITION }: PaneConta
                 PTY sessions and embedded webview state. */}
             {paneBuffers
               .filter(
-                (
-                  b,
-                ): b is
-                  | import('../types/pane-content').TerminalContent
-                  | import('../types/pane-content').WebViewerContent =>
-                  b.type === 'terminal' || b.type === 'webViewer',
+                (b): b is import('../types/pane-content').TerminalContent => b.type === 'terminal',
               )
               .map((b) => {
                 const isActive = b.id === activeBuffer?.id
@@ -541,34 +564,19 @@ export function PaneContainer({ pane, position = ROOT_PANE_POSITION }: PaneConta
                     className="absolute inset-0"
                     style={isActive ? undefined : { visibility: 'hidden' }}
                   >
-                    {b.type === 'terminal' ? (
-                      <TerminalPane
-                        sessionId={b.sessionId}
-                        bufferId={b.id}
-                        paneId={pane.id}
-                        initialCommand={b.initialCommand}
-                        workingDirectory={b.workingDirectory}
-                        isActive={isActive && isActivePane}
-                        isVisible={isActive}
-                      />
-                    ) : (
-                      <WebViewerPane
-                        url={b.url}
-                        bufferId={b.id}
-                        profileKey={b.profileKey}
-                        history={b.history}
-                        historyIndex={b.historyIndex}
-                        isActive={isActive && isActivePane}
-                        isVisible={isActive}
-                      />
-                    )}
+                    <TerminalPane
+                      sessionId={b.sessionId}
+                      bufferId={b.id}
+                      paneId={pane.id}
+                      initialCommand={b.initialCommand}
+                      workingDirectory={b.workingDirectory}
+                      isActive={isActive && isActivePane}
+                      isVisible={isActive}
+                    />
                   </div>
                 )
               })}
-            {activeBuffer &&
-              activeBuffer.type !== 'terminal' &&
-              activeBuffer.type !== 'webViewer' &&
-              renderActiveBuffer(activeBuffer)}
+            {activeBuffer && activeBuffer.type !== 'terminal' && renderActiveBuffer(activeBuffer)}
           </>
         </Suspense>
       </div>

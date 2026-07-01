@@ -318,6 +318,8 @@ type mockProvider struct {
 	protectedErr      error
 	pr                *PRInfo
 	prErr             error
+	avatarURL         string
+	avatarErr         error
 }
 
 func (m *mockProvider) ProtectedBranches(
@@ -333,4 +335,52 @@ func (m *mockProvider) PullRequestForBranch(
 	_ string,
 ) (*PRInfo, error) {
 	return m.pr, m.prErr
+}
+
+func (m *mockProvider) OwnerAvatarURL(
+	_ context.Context,
+	_ string,
+) (string, error) {
+	return m.avatarURL, m.avatarErr
+}
+
+func TestOwnerAvatarURL_WithProvider(t *testing.T) {
+	mp := &mockProvider{
+		avatarURL: "https://avatars.githubusercontent.com/u/1",
+	}
+	e := makeEngineWithProvider("github", true, mp)
+	got, err := e.OwnerAvatarURL(context.Background(), "/repo")
+	require.NoError(t, err)
+	assert.Equal(t, "https://avatars.githubusercontent.com/u/1", got)
+}
+
+func TestOwnerAvatarURL_DetectError_ReturnsEmpty(t *testing.T) {
+	e := makeEngine("", false, errors.New("no git"))
+	got, err := e.OwnerAvatarURL(context.Background(), "/repo")
+	require.NoError(t, err)
+	assert.Empty(t, got)
+}
+
+func TestOwnerAvatarURL_NotEnabled_ReturnsEmpty(t *testing.T) {
+	e := makeEngine("github", false, nil)
+	got, err := e.OwnerAvatarURL(context.Background(), "/repo")
+	require.NoError(t, err)
+	assert.Empty(t, got)
+}
+
+func TestOwnerAvatarURL_UnknownKind_ReturnsEmpty(t *testing.T) {
+	e := makeEngine("none", true, nil)
+	got, err := e.OwnerAvatarURL(context.Background(), "/repo")
+	require.NoError(t, err)
+	assert.Empty(t, got)
+}
+
+func TestOwnerAvatarURL_ProviderError_ReturnsEmpty(t *testing.T) {
+	mp := &mockProvider{
+		avatarErr: errors.New("api error"),
+	}
+	e := makeEngineWithProvider("github", true, mp)
+	got, err := e.OwnerAvatarURL(context.Background(), "/repo")
+	require.NoError(t, err)
+	assert.Empty(t, got)
 }

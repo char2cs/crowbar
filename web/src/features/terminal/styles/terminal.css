@@ -4,6 +4,15 @@
   overflow: hidden;
   display: flex;
   flex-direction: column;
+  /*
+   * Pre-promote the terminal into its own Core Animation layer (same pattern as
+   * .monaco-editor in editor-theme.css). Without this, every xterm WebGL canvas
+   * update (e.g. htop refreshing) forces WKWebView to re-raster the Monaco
+   * editor surface in the same CA layer — causing the app to feel "unusable"
+   * while a TUI app is running. With its own layer, compositor updates to the
+   * terminal are isolated from Monaco and the rest of the page.
+   */
+  will-change: transform;
 }
 
 /* Ensure xterm fills its container */

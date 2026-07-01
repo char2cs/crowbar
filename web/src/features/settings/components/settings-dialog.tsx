@@ -19,6 +19,7 @@ import { GitSettings } from './tabs/git-settings'
 import { FileTreeSettings } from './tabs/file-tree-settings'
 import { TerminalSettings } from './tabs/terminal-settings'
 import { DeveloperSettings } from './tabs/developer-settings'
+import { KeybindingsSettings } from './tabs/keybindings-settings'
 
 interface SettingsDialogProps {
   isOpen: boolean
@@ -91,6 +92,8 @@ const SettingsDialog = ({ isOpen, onClose }: SettingsDialogProps) => {
         return <GitSettings />
       case 'terminal':
         return <TerminalSettings />
+      case 'keybindings':
+        return <KeybindingsSettings />
       case 'developer':
         return <DeveloperSettings />
       default:

@@ -22,7 +22,8 @@ type Container struct {
 	// LSP is the LSP host facade. It is always non-nil; graceful absence (no
 	// server installed for a language) is signalled by empty results rather than
 	// errors (10 §5).
-	LSP enginelsp.Engine
+	LSP      enginelsp.Engine
+	Identity *enginegit.IdentityEngine
 }
 
 type engineOpts struct {
@@ -58,5 +59,24 @@ func New(
 		Search:   enginesearch.New(),
 		Terminal: engineterminal.New(),
 		LSP:      enginelsp.New(nil),
+		Identity: enginegit.NewIdentityEngine(),
 	}, nil
+}
+
+// Close releases engine resources that own OS-level handles on daemon shutdown.
+// Most engines are stateless facades, but the terminal engine holds live PTY
+// child processes plus their master FDs; without this they are orphaned to init
+// on shutdown/restart (dev hot-restart, crash-restart, OS quit) — the shell and
+// any dev servers/builds it launched keep running and holding ports with no UI
+// to manage them, and the PTY master FDs leak. The LSP host likewise holds live
+// language-server subprocesses (gopls/tsserver/rust-analyzer) plus their stdio
+// pipe FDs; without Shutdown every spawned server survives the daemon, leaking
+// RAM, CPU, and FDs across restarts (R8).
+func (c *Container) Close() {
+	if c.Terminal != nil {
+		c.Terminal.Shutdown()
+	}
+	if c.LSP != nil {
+		c.LSP.Shutdown(context.Background())
+	}
 }

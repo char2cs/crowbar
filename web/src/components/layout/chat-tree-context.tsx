@@ -7,7 +7,7 @@ import {
   useState,
   type ReactNode,
 } from 'react'
-import { useSidebarStore } from '@/lib/store/sidebar'
+import { useSidebarStore, type ProjectChat } from '@/lib/store/sidebar'
 import {
   postChat,
   forkChat as apiForkChat,
@@ -15,21 +15,29 @@ import {
   deleteChat as apiDeleteChat,
   chatDtoToProjectChat,
 } from '@/lib/api/chat'
-import { toast } from '@/components/ui/toast'
+
+type SetChatError = (id: string, msg: string) => void
 
 /**
  * Creates the chat on the backend, then mirrors it into the sidebar store
  * using the real id the backend returned. On failure no phantom node is
- * added — the error is surfaced via toast.
+ * added — the error is surfaced inline via setChatError.
  */
-export async function performCreateChat(wsId: string, title: string): Promise<void> {
-  if (!wsId || !title.trim()) return
+export async function performCreateChat(
+  wsId: string,
+  title: string,
+  setChatError?: SetChatError,
+): Promise<ProjectChat | null> {
+  if (!wsId || !title.trim()) return null
   try {
     const chat = await postChat(wsId, title.trim())
-    useSidebarStore.getState().addChat(chatDtoToProjectChat(chat))
+    const projectChat = chatDtoToProjectChat(chat)
+    useSidebarStore.getState().addChat(projectChat)
+    return projectChat
   } catch (err) {
     console.error('Failed to create chat:', err)
-    toast.error('Failed to create chat', err instanceof Error ? err.message : undefined)
+    setChatError?.('create', err instanceof Error ? err.message : 'Failed to create chat')
+    return null
   }
 }
 
@@ -39,13 +47,17 @@ export async function performCreateChat(wsId: string, title: string): Promise<vo
  * typed a different title the fork is renamed right after. On fork failure
  * no phantom node is added.
  */
-export async function performForkChat(parentId: string, title: string): Promise<void> {
+export async function performForkChat(
+  parentId: string,
+  title: string,
+  setChatError?: SetChatError,
+): Promise<void> {
   let chat
   try {
     chat = await apiForkChat(parentId)
   } catch (err) {
     console.error('Failed to fork chat:', err)
-    toast.error('Failed to fork chat', err instanceof Error ? err.message : undefined)
+    setChatError?.(parentId, err instanceof Error ? err.message : 'Failed to fork chat')
     return
   }
   const trimmed = title.trim()
@@ -56,7 +68,7 @@ export async function performForkChat(parentId: string, title: string): Promise<
       // The fork itself succeeded — keep it (with the parent title) and
       // surface the rename failure.
       console.error('Failed to rename forked chat:', err)
-      toast.error('Failed to rename forked chat', err instanceof Error ? err.message : undefined)
+      setChatError?.(parentId, err instanceof Error ? err.message : 'Failed to rename forked chat')
     }
   }
   useSidebarStore.getState().addChat(chatDtoToProjectChat(chat))
@@ -66,14 +78,18 @@ export async function performForkChat(parentId: string, title: string): Promise<
  * Renames the chat on the backend, then updates the sidebar store. On
  * failure the local store is left untouched.
  */
-export async function performRenameChat(chatId: string, title: string): Promise<void> {
+export async function performRenameChat(
+  chatId: string,
+  title: string,
+  setChatError?: SetChatError,
+): Promise<void> {
   if (!title.trim()) return
   try {
     await patchChat(chatId, title.trim())
     useSidebarStore.getState().renameChat(chatId, title.trim())
   } catch (err) {
     console.error('Failed to rename chat:', err)
-    toast.error('Failed to rename chat', err instanceof Error ? err.message : undefined)
+    setChatError?.(chatId, err instanceof Error ? err.message : 'Failed to rename chat')
   }
 }
 
@@ -81,7 +97,10 @@ export async function performRenameChat(chatId: string, title: string): Promise<
  * Deletes the chat on the backend, then removes it from the sidebar store.
  * On failure the local store is left untouched.
  */
-export async function performDeleteChat(chatId: string): Promise<void> {
+export async function performDeleteChat(
+  chatId: string,
+  setChatError?: SetChatError,
+): Promise<void> {
   const chat = useSidebarStore.getState().chats.find((c) => c.id === chatId)
   if (!chat) return
   try {
@@ -89,7 +108,7 @@ export async function performDeleteChat(chatId: string): Promise<void> {
     useSidebarStore.getState().deleteChat(chatId)
   } catch (err) {
     console.error('Failed to delete chat:', err)
-    toast.error('Failed to delete chat', err instanceof Error ? err.message : undefined)
+    setChatError?.(chatId, err instanceof Error ? err.message : 'Failed to delete chat')
   }
 }
 
@@ -112,9 +131,11 @@ interface ChatTreeContextValue {
   confirmRename: (title: string) => void
   cancelRename: () => void
   draggingChat: DraggingState | null
-  dragPos: { x: number; y: number } | null
   hoverTrash: boolean
   onPointerDownDrag: (chatId: string, label: string, e: React.PointerEvent) => void
+  chatErrors: Map<string, string>
+  setChatError: (id: string, msg: string) => void
+  clearChatError: (id: string) => void
 }
 
 const ChatTreeContext = createContext<ChatTreeContextValue | null>(null)
@@ -134,8 +155,28 @@ export function ChatTreeProvider({ children }: { children: ReactNode }) {
   const [creatingChildOf, setCreatingChildOf] = useState<CreatingState | null>(null)
   const [renamingId, setRenamingId] = useState<string | null>(null)
   const [draggingChat, setDraggingChat] = useState<DraggingState | null>(null)
-  const [dragPos, setDragPos] = useState<{ x: number; y: number } | null>(null)
   const [hoverTrash, setHoverTrash] = useState(false)
+  const [chatErrors, setChatErrors] = useState<Map<string, string>>(new Map())
+
+  const setChatError = useCallback((id: string, msg: string) => {
+    setChatErrors((prev) => new Map(prev).set(id, msg))
+  }, [])
+
+  const clearChatError = useCallback((id: string) => {
+    setChatErrors((prev) => {
+      const n = new Map(prev)
+      n.delete(id)
+      return n
+    })
+  }, [])
+
+  // Ghost div position is updated imperatively in pointermove — no React state,
+  // no tree re-renders on every pixel of mouse movement.
+  const ghostRef = useRef<HTMLDivElement | null>(null)
+  // Tracks the initial position for the ghost's first render.
+  const lastDragPosRef = useRef<{ x: number; y: number } | null>(null)
+  // Equality refs — avoids state writes when values haven't changed.
+  const hoverTrashRef = useRef(false)
 
   const pendingRef = useRef<{
     chatId: string
@@ -154,10 +195,10 @@ export function ChatTreeProvider({ children }: { children: ReactNode }) {
   const confirmCreate = useCallback(
     (title: string) => {
       if (!creatingChildOf || !title.trim()) return
-      void performForkChat(creatingChildOf.parentId, title)
+      void performForkChat(creatingChildOf.parentId, title, setChatError)
       setCreatingChildOf(null)
     },
-    [creatingChildOf],
+    [creatingChildOf, setChatError],
   )
 
   const cancelCreate = useCallback(() => setCreatingChildOf(null), [])
@@ -166,11 +207,11 @@ export function ChatTreeProvider({ children }: { children: ReactNode }) {
   const confirmRename = useCallback(
     (title: string) => {
       if (renamingId && title.trim()) {
-        void performRenameChat(renamingId, title)
+        void performRenameChat(renamingId, title, setChatError)
       }
       setRenamingId(null)
     },
-    [renamingId],
+    [renamingId, setChatError],
   )
 
   const cancelRename = useCallback(() => setRenamingId(null), [])
@@ -197,15 +238,28 @@ export function ChatTreeProvider({ children }: { children: ReactNode }) {
           if (target.isConnected) target.setPointerCapture(pointerId)
           const chat = { id: chatId, label }
           draggingRef.current = chat
+          // Store position before the React re-render so the ghost mounts at
+          // the correct location on its first render.
+          lastDragPosRef.current = { x: e.clientX, y: e.clientY }
           setDraggingChat(chat)
-          setDragPos({ x: e.clientX, y: e.clientY })
-          setHoverTrash(isOverTrash(e.clientX, e.clientY))
+          const initialTrash = isOverTrash(e.clientX, e.clientY)
+          hoverTrashRef.current = initialTrash
+          setHoverTrash(initialTrash)
         }
         return
       }
       if (!draggingRef.current) return
-      setDragPos({ x: e.clientX, y: e.clientY })
-      setHoverTrash(isOverTrash(e.clientX, e.clientY))
+      // Move ghost directly — no React state update, no tree re-render.
+      if (ghostRef.current) {
+        ghostRef.current.style.left = `${e.clientX + 12}px`
+        ghostRef.current.style.top = `${e.clientY - 10}px`
+      }
+      // Only re-render when trash hover state actually changes.
+      const newHoverTrash = isOverTrash(e.clientX, e.clientY)
+      if (newHoverTrash !== hoverTrashRef.current) {
+        hoverTrashRef.current = newHoverTrash
+        setHoverTrash(newHoverTrash)
+      }
     }
 
     function onPointerUp(e: PointerEvent) {
@@ -213,11 +267,12 @@ export function ChatTreeProvider({ children }: { children: ReactNode }) {
       const chat = draggingRef.current
       if (!chat) return
       if (isOverTrash(e.clientX, e.clientY)) {
-        void performDeleteChat(chat.id)
+        void performDeleteChat(chat.id, setChatError)
       }
       draggingRef.current = null
+      hoverTrashRef.current = false
+      lastDragPosRef.current = null
       setDraggingChat(null)
-      setDragPos(null)
       setHoverTrash(false)
     }
 
@@ -225,8 +280,9 @@ export function ChatTreeProvider({ children }: { children: ReactNode }) {
       pendingRef.current = null
       if (draggingRef.current) {
         draggingRef.current = null
+        hoverTrashRef.current = false
+        lastDragPosRef.current = null
         setDraggingChat(null)
-        setDragPos(null)
         setHoverTrash(false)
       }
     }
@@ -239,26 +295,42 @@ export function ChatTreeProvider({ children }: { children: ReactNode }) {
       window.removeEventListener('pointerup', onPointerUp)
       window.removeEventListener('pointercancel', onPointerCancel)
     }
-  }, [])
+  }, [setChatError])
 
   return (
-    <ChatTreeContext.Provider
-      value={{
-        creatingChildOf,
-        startCreating,
-        confirmCreate,
-        cancelCreate,
-        renamingId,
-        startRenaming,
-        confirmRename,
-        cancelRename,
-        draggingChat,
-        dragPos,
-        hoverTrash,
-        onPointerDownDrag,
-      }}
-    >
-      {children}
-    </ChatTreeContext.Provider>
+    <>
+      <ChatTreeContext.Provider
+        value={{
+          creatingChildOf,
+          startCreating,
+          confirmCreate,
+          cancelCreate,
+          renamingId,
+          startRenaming,
+          confirmRename,
+          cancelRename,
+          draggingChat,
+          hoverTrash,
+          onPointerDownDrag,
+          chatErrors,
+          setChatError,
+          clearChatError,
+        }}
+      >
+        {children}
+      </ChatTreeContext.Provider>
+      {draggingChat && (
+        <div
+          ref={ghostRef}
+          className="pointer-events-none fixed z-50 rounded-md border border-border bg-secondary px-2 py-1 text-[13px] text-secondary-foreground shadow-md opacity-90"
+          style={{
+            left: lastDragPosRef.current ? lastDragPosRef.current.x + 12 : 0,
+            top: lastDragPosRef.current ? lastDragPosRef.current.y - 10 : 0,
+          }}
+        >
+          {draggingChat.label}
+        </div>
+      )}
+    </>
   )
 }

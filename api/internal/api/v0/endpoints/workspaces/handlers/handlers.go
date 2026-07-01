@@ -7,14 +7,15 @@ import (
 	"context"
 	"time"
 
+	"github.com/char2cs/crowbar/api/internal/app/usecases/workspace"
 	"github.com/char2cs/crowbar/api/internal/app/usecases/worktree"
 	"github.com/char2cs/crowbar/api/internal/domain"
 	gitdomain "github.com/char2cs/crowbar/api/internal/domain/git"
 )
 
 // Reader is the workspace read surface the handlers need: list every workspace
-// row from the read model, fetch one by id, and sync the working-tree state on
-// demand.
+// row from the read model, fetch one by id, sync the working-tree state on
+// demand, and resolve a row's merge eligibility against its sibling set.
 type Reader interface {
 	List(
 		ctx context.Context,
@@ -28,6 +29,11 @@ type Reader interface {
 		id string,
 		now time.Time,
 	) (domain.Workspace, error)
+	MergeEligibilityFor(
+		ctx context.Context,
+		ws domain.Workspace,
+		siblings []domain.Workspace,
+	) workspace.MergeEligibility
 }
 
 // Hierarchy is the worktree-orchestration surface the handlers need: create a
@@ -48,10 +54,25 @@ type Hierarchy interface {
 		childID string,
 		newParentID string,
 	) (domain.Workspace, error)
+	RebaseOntoParent(
+		ctx context.Context,
+		childID string,
+	) (domain.Workspace, error)
 	DeleteCascade(
 		ctx context.Context,
 		rootID string,
 	) error
+	// RetryProvision re-provisions a placeholder workspace in place (spec §3.3).
+	RetryProvision(
+		ctx context.Context,
+		wsID string,
+	) (domain.Workspace, error)
+	// DetachHolder frees the placeholder's branch from its holder (with consent),
+	// then re-provisions in place (spec §3.5/§3.7).
+	DetachHolder(
+		ctx context.Context,
+		wsID string,
+	) (domain.Workspace, error)
 }
 
 // Repos resolves a repository by id so the create handler can derive the repo's
@@ -63,24 +84,39 @@ type Repos interface {
 	) (*domain.Repository, error)
 }
 
+// LastErrorSetter records the message from a failed background mutation on the
+// workspace entity so the failure is delivered on the workspace WebSocket stream
+// (00 §4: errors live on the entity, never a separate WS frame).
+type LastErrorSetter interface {
+	SetLastError(
+		ctx context.Context,
+		id string,
+		message string,
+	) (domain.Workspace, error)
+}
+
 // Handlers serves the /v0/workspaces routes from the workspace read usecase, the
-// worktree hierarchy usecase, and the repository store.
+// worktree hierarchy usecase, the repository store, and the workspace error
+// sink that surfaces async-mutation failures on the entity.
 type Handlers struct {
-	reader    Reader
-	hierarchy Hierarchy
-	repos     Repos
+	reader     Reader
+	hierarchy  Hierarchy
+	repos      Repos
+	lastErrors LastErrorSetter
 }
 
 // New builds the workspaces Handlers from the workspace read usecase, the
-// worktree hierarchy usecase, and the repository store.
+// worktree hierarchy usecase, the repository store, and the workspace error sink.
 func New(
 	reader Reader,
 	hierarchy Hierarchy,
 	repos Repos,
+	lastErrors LastErrorSetter,
 ) *Handlers {
 	return &Handlers{
-		reader:    reader,
-		hierarchy: hierarchy,
-		repos:     repos,
+		reader:     reader,
+		hierarchy:  hierarchy,
+		repos:      repos,
+		lastErrors: lastErrors,
 	}
 }

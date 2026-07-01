@@ -13,10 +13,11 @@ func Register(
 	rg *gin.RouterGroup,
 	chatUsecase chathandlers.ChatUsecase,
 	chatRepo chathandlers.ChatRepo,
+	wsReader chathandlers.WorkspaceReader,
 	chatsWS gin.HandlerFunc,
 	chatStreamWS gin.HandlerFunc,
 ) {
-	h := chathandlers.New(chatUsecase, chatRepo)
+	h := chathandlers.New(chatUsecase, chatRepo, wsReader)
 
 	rg.POST("/workspaces/:wsId/chats", h.Create)
 	rg.GET("/workspaces/:wsId/chats", h.List)

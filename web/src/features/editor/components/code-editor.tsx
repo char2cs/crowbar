@@ -34,7 +34,7 @@ import { MarkdownPreview } from '../markdown/markdown-preview'
 import type { Position, Range } from '../types/editor'
 import { ScrollDebugOverlay } from './debug/scroll-debug-overlay'
 import { HtmlPreview } from './html/html-preview'
-import { MonacoBackedEditor } from './monaco-editor'
+import { DiffMonacoEditor } from './monaco-diff-editor'
 import { EditorStylesheet } from './stylesheet'
 import Breadcrumb, { type BreadcrumbProps } from './toolbar/breadcrumb'
 import FindBar from './toolbar/find-bar'
@@ -58,6 +58,14 @@ interface CodeEditorProps {
   currentHighlightIndex?: number
   lineNumberStart?: number
   lineNumberMap?: Array<number | null>
+  commentZones?: import('./use-diff-comment-zones').CommentZoneSpec[]
+  onAddCommentAtLine?: (modelLine: number) => void
+  onContentHeightChange?: (height: number) => void
+  diffLineKinds?: Array<'context' | 'added' | 'removed' | 'spacer'>
+  /** Diff-wide search highlights for this editor's content (model line + columns). */
+  diffSearchMatches?: Array<{ lineNumber: number; startColumn: number; endColumn: number }> | null
+  activeDiffSearchMatch?: { lineNumber: number; startColumn: number; endColumn: number } | null
+  diffSearchRevealNonce?: number
   onContentChange?: (
     content: string,
     previousContent?: string,
@@ -97,6 +105,13 @@ const CodeEditor = ({
   currentHighlightIndex,
   lineNumberStart,
   lineNumberMap,
+  commentZones,
+  onAddCommentAtLine,
+  onContentHeightChange,
+  diffLineKinds,
+  diffSearchMatches,
+  activeDiffSearchMatch,
+  diffSearchRevealNonce,
   onContentChange,
   isPreview = false,
   onPromote,
@@ -530,7 +545,7 @@ const CodeEditor = ({
           )}
 
           {/* Main editor - absolute positioned to fill container */}
-          <div className="absolute inset-0 bg-background">
+          <div className="absolute inset-0 bg-transparent">
             {showMarkdownPreview ? (
               <MarkdownPreview />
             ) : showHtmlPreview ? (
@@ -538,7 +553,8 @@ const CodeEditor = ({
             ) : showCsvPreview ? (
               <CsvPreview />
             ) : (
-              <MonacoBackedEditor
+              <DiffMonacoEditor
+                paneId={paneId}
                 bufferId={activeBufferId ?? undefined}
                 viewStateKey={editorViewKey ?? undefined}
                 isActiveSurface={isActiveSurface}
@@ -551,6 +567,13 @@ const CodeEditor = ({
                 currentHighlightIndex={currentHighlightIndex}
                 lineNumberStart={lineNumberStart}
                 lineNumberMap={lineNumberMap}
+                commentZones={commentZones}
+                onAddCommentAtLine={onAddCommentAtLine}
+                onContentHeightChange={onContentHeightChange}
+                diffLineKinds={diffLineKinds}
+                diffSearchMatches={diffSearchMatches}
+                activeDiffSearchMatch={activeDiffSearchMatch}
+                diffSearchRevealNonce={diffSearchRevealNonce}
                 onContentChange={onChangeWithPromote}
                 onScrollOffsetChange={syncLspOverlayTransform}
                 onCoordinateResolverChange={handleCoordinateResolverChange}

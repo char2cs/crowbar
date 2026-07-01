@@ -13,15 +13,17 @@ import (
 
 // Register mounts all git REST and WebSocket routes on rg.
 // gitWS is the pre-built broadcaster handle for the live git-status stream;
-// it is registered both as the /ws/git topic and as the dual-serve target on
-// the /git/status route so clients can upgrade on either URL.
+// it is dual-served on the /git/status route (a plain GET answers REST, a
+// WebSocket upgrade is routed to gitWS) — the dedicated /ws/git route is gone
+// (W7-2).
 func Register(
 	rg *gin.RouterGroup,
 	gitSvc githandlers.Git,
+	lastErrors githandlers.LastErrorSetter,
 	gitWS gin.HandlerFunc,
 	dispatch func(rest, ws gin.HandlerFunc) gin.HandlerFunc,
 ) {
-	h := githandlers.New(gitSvc)
+	h := githandlers.New(gitSvc, lastErrors)
 	// Reads
 	rg.GET("/workspaces/:wsId/git/status", dispatch(h.Status, gitWS))
 	rg.GET("/workspaces/:wsId/git/diff", h.Diff)
@@ -56,6 +58,4 @@ func Register(
 	rg.POST("/workspaces/:wsId/git/resolve-hunk", h.ResolveHunk)
 	rg.POST("/workspaces/:wsId/git/operation/continue", h.OperationContinue)
 	rg.POST("/workspaces/:wsId/git/operation/abort", h.OperationAbort)
-	// WebSocket — co-located with HTTP git routes
-	rg.GET("/ws/git", gitWS)
 }

@@ -125,6 +125,81 @@ func TestReplyReviewThread_Validate_Accepts(t *testing.T) {
 	assert.NoError(t, ReplyReviewThread{ID: "t1", MessageID: "m1"}.Validate(&domain.ReviewThread{ID: "t1"}))
 }
 
+func threadWith(messages ...domain.ReviewMessage) *domain.ReviewThread {
+	return &domain.ReviewThread{ID: "t1", Status: domain.ReviewThreadStatusOpen, Messages: messages}
+}
+
+func TestEditReviewMessage_RewritesBody(t *testing.T) {
+	cur := threadWith(
+		domain.ReviewMessage{ID: "m1", Body: "root"},
+		domain.ReviewMessage{ID: "m2", Body: "old reply"},
+	)
+	th := EditReviewMessage{ID: "t1", MessageID: "m2", Body: "new reply"}.EmitEvent(cur)
+	require.Len(t, th.Messages, 2)
+	assert.Equal(t, "new reply", th.Messages[1].Body)
+	// Original aggregate is not mutated in place.
+	assert.Equal(t, "old reply", cur.Messages[1].Body)
+}
+
+func TestEditReviewMessage_CanEditRoot(t *testing.T) {
+	cur := threadWith(domain.ReviewMessage{ID: "m1", Body: "root"})
+	th := EditReviewMessage{ID: "t1", MessageID: "m1", Body: "edited root"}.EmitEvent(cur)
+	assert.Equal(t, "edited root", th.Messages[0].Body)
+}
+
+func TestEditReviewMessage_Validate(t *testing.T) {
+	cur := threadWith(domain.ReviewMessage{ID: "m1", Body: "root"})
+	assert.True(t, errors.Is(EditReviewMessage{ID: "t1", MessageID: "m1", Body: "x"}.Validate(nil), asynxModels.ErrValidation))
+	assert.True(t, errors.Is(EditReviewMessage{ID: "t1", Body: "x"}.Validate(cur), asynxModels.ErrValidation))
+	assert.True(t, errors.Is(EditReviewMessage{ID: "t1", MessageID: "m1"}.Validate(cur), asynxModels.ErrValidation))
+	assert.True(t, errors.Is(EditReviewMessage{ID: "t1", MessageID: "nope", Body: "x"}.Validate(cur), asynxModels.ErrValidation))
+	assert.NoError(t, EditReviewMessage{ID: "t1", MessageID: "m1", Body: "x"}.Validate(cur))
+}
+
+func TestDeleteReviewMessage_RemovesReply(t *testing.T) {
+	cur := threadWith(
+		domain.ReviewMessage{ID: "m1", Body: "root"},
+		domain.ReviewMessage{ID: "m2", Body: "reply"},
+	)
+	th := DeleteReviewMessage{ID: "t1", MessageID: "m2"}.EmitEvent(cur)
+	require.Len(t, th.Messages, 1)
+	assert.Equal(t, "m1", th.Messages[0].ID)
+	// Original aggregate is not mutated in place.
+	require.Len(t, cur.Messages, 2)
+}
+
+func TestDeleteReviewMessage_Validate_RejectsRoot(t *testing.T) {
+	cur := threadWith(
+		domain.ReviewMessage{ID: "m1", Body: "root"},
+		domain.ReviewMessage{ID: "m2", Body: "reply"},
+	)
+	// Deleting the root (Messages[0]) is rejected — use DeleteThread instead.
+	assert.True(t, errors.Is(DeleteReviewMessage{ID: "t1", MessageID: "m1"}.Validate(cur), asynxModels.ErrValidation))
+}
+
+func TestDeleteReviewMessage_Validate(t *testing.T) {
+	cur := threadWith(
+		domain.ReviewMessage{ID: "m1", Body: "root"},
+		domain.ReviewMessage{ID: "m2", Body: "reply"},
+	)
+	assert.True(t, errors.Is(DeleteReviewMessage{ID: "t1", MessageID: "m2"}.Validate(nil), asynxModels.ErrValidation))
+	assert.True(t, errors.Is(DeleteReviewMessage{ID: "t1"}.Validate(cur), asynxModels.ErrValidation))
+	assert.True(t, errors.Is(DeleteReviewMessage{ID: "t1", MessageID: "nope"}.Validate(cur), asynxModels.ErrValidation))
+	assert.NoError(t, DeleteReviewMessage{ID: "t1", MessageID: "m2"}.Validate(cur))
+}
+
+func TestEditDeleteMessage_Metadata(t *testing.T) {
+	edit := EditReviewMessage{ID: "t1"}
+	assert.Equal(t, "t1", edit.AggregateID())
+	assert.Contains(t, edit.EventName(), "message_edited")
+	assert.False(t, edit.ShouldSnapshot())
+
+	del := DeleteReviewMessage{ID: "t1"}
+	assert.Equal(t, "t1", del.AggregateID())
+	assert.Contains(t, del.EventName(), "message_deleted")
+	assert.False(t, del.ShouldSnapshot())
+}
+
 func TestCommands_Metadata(t *testing.T) {
 	open := OpenReviewThread{ID: "t1"}
 	assert.Equal(t, "t1", open.AggregateID())

@@ -1,13 +1,17 @@
 import { useEffect, useLayoutEffect, useState } from 'react'
 import { WorkspaceStoreContext } from '../stores/workspace-context'
-import { getOrCreateWorkspaceStore, setActiveWorkspaceId } from '../stores/workspace-store-registry'
+import {
+  getOrCreateWorkspaceStore,
+  setActiveWorkspaceId,
+  destroyWorkspaceStore,
+} from '../stores/workspace-store-registry'
 import { setActiveWorkspaceStoreRef } from '../stores/workspace-store-ref'
 import { hydrateWorkspace } from '@/lib/persistence/hydrate'
 import { WorkspaceLayoutRoot } from './workspace-layout-root'
 import { useWorkspaceEffects } from '../stores/hooks/use-workspace-effects'
-import { BrowserPaneEventListener } from '@/features/web-viewer/components/browser-pane-event-listener'
 import { useSaveKeyboard } from '@/features/keymaps/hooks/use-save-keyboard'
 import { usePaneKeyboard } from '@/features/panes/hooks/use-pane-keyboard'
+import { useSidebarTabKeyboard } from '@/features/keymaps/hooks/use-sidebar-tab-keyboard'
 
 interface WorkspaceViewProps {
   wsId: string
@@ -42,6 +46,12 @@ export function WorkspaceView({ wsId }: WorkspaceViewProps) {
     }
   }, [wsId])
 
+  useEffect(() => {
+    return () => {
+      destroyWorkspaceStore(wsId)
+    }
+  }, [wsId])
+
   if (hydratedWsId !== wsId) return null
 
   return (
@@ -55,10 +65,6 @@ function WorkspaceViewInner({ wsId }: Pick<WorkspaceViewProps, 'wsId'>) {
   useWorkspaceEffects(wsId)
   useSaveKeyboard()
   usePaneKeyboard()
-  return (
-    <>
-      <BrowserPaneEventListener />
-      <WorkspaceLayoutRoot />
-    </>
-  )
+  useSidebarTabKeyboard()
+  return <WorkspaceLayoutRoot />
 }

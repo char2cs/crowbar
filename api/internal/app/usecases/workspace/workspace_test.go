@@ -148,7 +148,11 @@ func TestWorkspaceUsecase_SyncWorkingTreeState_RecomputesAndRollsUp(t *testing.T
 		_ time.Time,
 	) (domain.Workspace, error) {
 		captured = in
-		return domain.Workspace{ID: in.ID, Added: in.Added, Deleted: in.Deleted, HasConflicts: in.HasConflicts}, nil
+		ws := domain.Workspace{ID: in.ID, Added: in.Added, Deleted: in.Deleted}
+		if in.HasConflicts {
+			ws.Status = domain.WorkspaceStatusPRConflicts
+		}
+		return ws, nil
 	}
 
 	got, err := uc.SyncWorkingTreeState(ctx, "w1", now)
@@ -219,4 +223,69 @@ func TestWorkspaceUsecase_SyncWorkingTreeState_SyncError(t *testing.T) {
 
 	_, err := uc.SyncWorkingTreeState(ctx, "w1", time.Now())
 	assert.Error(t, err)
+}
+
+func TestMergeEligibilityFor_NoParent(t *testing.T) {
+	_, _, _, uc := newWorkspaceUsecase(t)
+
+	ws := domain.Workspace{ID: "w1"}
+	siblings := []domain.Workspace{
+		{ID: "p1", Branch: "main", Status: domain.WorkspaceStatusNew},
+	}
+
+	got := uc.MergeEligibilityFor(context.Background(), ws, siblings)
+	assert.False(t, got.CanMergeLocally)
+	assert.Empty(t, got.ParentBranch)
+}
+
+func TestMergeEligibilityFor_ParentLocked(t *testing.T) {
+	_, _, _, uc := newWorkspaceUsecase(t)
+
+	ws := domain.Workspace{ID: "w1", ParentID: "p1"}
+	siblings := []domain.Workspace{
+		{ID: "p1", Branch: "main", Status: domain.WorkspaceStatusLocked},
+	}
+
+	got := uc.MergeEligibilityFor(context.Background(), ws, siblings)
+	assert.False(t, got.CanMergeLocally)
+	assert.Equal(t, "main", got.ParentBranch)
+}
+
+func TestMergeEligibilityFor_ParentDeleted(t *testing.T) {
+	_, _, _, uc := newWorkspaceUsecase(t)
+
+	ws := domain.Workspace{ID: "w1", ParentID: "p1"}
+	siblings := []domain.Workspace{
+		{ID: "p1", Branch: "main", Status: domain.WorkspaceStatusDeleted},
+	}
+
+	got := uc.MergeEligibilityFor(context.Background(), ws, siblings)
+	assert.False(t, got.CanMergeLocally)
+	assert.Equal(t, "main", got.ParentBranch)
+}
+
+func TestMergeEligibilityFor_ParentIdle(t *testing.T) {
+	_, _, _, uc := newWorkspaceUsecase(t)
+
+	ws := domain.Workspace{ID: "w1", ParentID: "p1"}
+	siblings := []domain.Workspace{
+		{ID: "p1", Branch: "feature/x", Status: domain.WorkspaceStatusNew},
+	}
+
+	got := uc.MergeEligibilityFor(context.Background(), ws, siblings)
+	assert.True(t, got.CanMergeLocally)
+	assert.Equal(t, "feature/x", got.ParentBranch)
+}
+
+func TestMergeEligibilityFor_ParentMissing(t *testing.T) {
+	_, _, _, uc := newWorkspaceUsecase(t)
+
+	ws := domain.Workspace{ID: "w1", ParentID: "p1"}
+	siblings := []domain.Workspace{
+		{ID: "p2", Branch: "main", Status: domain.WorkspaceStatusNew},
+	}
+
+	got := uc.MergeEligibilityFor(context.Background(), ws, siblings)
+	assert.False(t, got.CanMergeLocally)
+	assert.Empty(t, got.ParentBranch)
 }

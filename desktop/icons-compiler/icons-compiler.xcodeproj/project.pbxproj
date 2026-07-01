@@ -1,0 +1,65 @@
+// !$*UTF8*$!
+{
+	archiveVersion = 1;
+	classes = {};
+	objectVersion = 77;
+	objects = {
+		A1000001 = {isa = PBXBuildFile; fileRef = A1000010; };
+		A1000002 = {isa = PBXBuildFile; fileRef = A1000011; };
+		A1000010 = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = stub.swift; sourceTree = "<group>"; };
+		A1000011 = {isa = PBXFileReference; lastKnownFileType = "folder.iconcomposer.icon"; name = "crowbar.icon"; path = "../src-tauri/icons/crowbar.icon"; sourceTree = SOURCE_ROOT; };
+		A1000020 = {isa = PBXGroup; children = (A1000010, A1000011); name = "icons-compiler"; path = "icons-compiler"; sourceTree = "<group>"; };
+		A1000030 = {isa = PBXGroup; children = (A1000020); sourceTree = "<group>"; };
+		A1000040 = {isa = PBXSourcesBuildPhase; buildActionMask = 2147483647; files = (A1000001); runOnlyForDeploymentPostprocessing = 0; };
+		A1000041 = {isa = PBXResourcesBuildPhase; buildActionMask = 2147483647; files = (A1000002); runOnlyForDeploymentPostprocessing = 0; };
+		A1000050 = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = A1000060;
+			buildPhases = (A1000041, A1000040);
+			buildRules = ();
+			dependencies = ();
+			name = "icons-compiler";
+			productType = "com.apple.product-type.framework";
+		};
+		A1000060 = {
+			isa = XCConfigurationList;
+			buildConfigurations = (A1000061);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+		A1000061 = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				PRODUCT_NAME = "icons-compiler";
+				SWIFT_VERSION = 5.0;
+				MACOSX_DEPLOYMENT_TARGET = 26.0;
+				ASSETCATALOG_COMPILER_APPICON_NAME = crowbar;
+				DEFINES_MODULE = YES;
+				SKIP_INSTALL = YES;
+				CODE_SIGNING_ALLOWED = NO;
+			};
+			name = Release;
+		};
+		A1000070 = {
+			isa = XCConfigurationList;
+			buildConfigurations = (A1000071);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+		A1000071 = {
+			isa = XCBuildConfiguration;
+			buildSettings = {};
+			name = Release;
+		};
+		A1000080 = {
+			isa = PBXProject;
+			buildConfigurationList = A1000070;
+			compatibilityVersion = "Xcode 14.0";
+			mainGroup = A1000030;
+			projectDirPath = "";
+			projectRoot = "";
+			targets = (A1000050);
+		};
+	};
+	rootObject = A1000080;
+}

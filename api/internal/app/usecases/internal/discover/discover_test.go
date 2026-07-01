@@ -76,9 +76,10 @@ func TestRepos_IgnoresRegularFiles(t *testing.T) {
 	assert.Equal(t, []string{filepath.Join(root, "repo")}, got)
 }
 
-func TestRepos_FindsGitFileWorktree(t *testing.T) {
-	// A git worktree (and submodule) records its real git dir via a `.git`
-	// FILE, not a directory. Such checkouts must still be discovered.
+func TestRepos_SkipsGitFileWorktree(t *testing.T) {
+	// A linked git worktree (and submodule) records its real git dir via a
+	// `.git` FILE, not a directory. Such checkouts belong to another repo and
+	// must NOT be discovered as repos of their own (BUG-011).
 	root := buildTree(t, []string{"wt"})
 	require.NoError(
 		t,
@@ -87,12 +88,12 @@ func TestRepos_FindsGitFileWorktree(t *testing.T) {
 
 	got, err := Repos(root, 2)
 	require.NoError(t, err)
-	assert.Equal(t, []string{filepath.Join(root, "wt")}, got)
+	assert.Empty(t, got)
 }
 
 func TestRepos_GitFileStopsDescent(t *testing.T) {
-	// A repo marked by a `.git` file must not have its subdirectories scanned
-	// for further repos.
+	// A directory marked by a `.git` file is a linked worktree: it is not a
+	// repo itself and its subdirectories must not be scanned for further repos.
 	root := buildTree(t, []string{"wt/nested"})
 	require.NoError(
 		t,
@@ -102,5 +103,5 @@ func TestRepos_GitFileStopsDescent(t *testing.T) {
 
 	got, err := Repos(root, 5)
 	require.NoError(t, err)
-	assert.Equal(t, []string{filepath.Join(root, "wt")}, got)
+	assert.Empty(t, got)
 }

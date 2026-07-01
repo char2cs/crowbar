@@ -1,6 +1,10 @@
 package adapter_test
 
 import (
+	"context"
+	"os"
+	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -9,23 +13,182 @@ import (
 	"github.com/char2cs/crowbar/api/internal/adapter"
 )
 
-func TestNew_BootsAllStores(t *testing.T) {
+func storagesDir(
+	home string,
+	projectID string,
+	repoID string,
+	wsID string,
+) string {
+	return filepath.Join(
+		home,
+		"projects",
+		projectID,
+		repoID,
+		"workspaces",
+		wsID,
+		"storages",
+	)
+}
+
+func TestWorkspaceES_LazyOpenCreatesEventStreamDB(t *testing.T) {
 	home := t.TempDir()
 	c, err := adapter.New(adapter.WithHomeDir(home))
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = c.Close() })
-	assert.NotNil(t, c.WorkspaceES)
-	assert.NotNil(t, c.ChatES)
-	assert.NotNil(t, c.AgentRunES)
-	assert.NotNil(t, c.ReviewThreadES)
-	assert.NotNil(t, c.DB)
+
+	dbPath := filepath.Join(storagesDir(home, "p1", "r1", "w1"), "event_stream.db")
+	_, statErr := os.Stat(dbPath)
+	require.True(t, os.IsNotExist(statErr), "event_stream.db must not exist before first access")
+
+	es, release, err := c.WorkspaceES("p1", "r1", "w1")
+	require.NoError(t, err)
+	require.NotNil(t, es)
+	t.Cleanup(release)
+
+	_, statErr = os.Stat(dbPath)
+	assert.NoError(t, statErr, "event_stream.db must exist after WorkspaceES")
 }
 
-func TestClose_Idempotentish(t *testing.T) {
+func TestWorkspaceView_LazyOpenCreatesViewDB(t *testing.T) {
 	home := t.TempDir()
 	c, err := adapter.New(adapter.WithHomeDir(home))
 	require.NoError(t, err)
-	assert.NoError(t, c.Close())
+	t.Cleanup(func() { _ = c.Close() })
+
+	dbPath := filepath.Join(storagesDir(home, "p1", "r1", "w1"), "view.db")
+	_, statErr := os.Stat(dbPath)
+	require.True(t, os.IsNotExist(statErr), "view.db must not exist before first access")
+
+	view, release, err := c.WorkspaceView("p1", "r1", "w1")
+	require.NoError(t, err)
+	require.NotNil(t, view)
+	t.Cleanup(release)
+
+	_, statErr = os.Stat(dbPath)
+	assert.NoError(t, statErr, "view.db must exist after WorkspaceView")
+}
+
+func TestWorkspaceES_CachedSecondCall(t *testing.T) {
+	home := t.TempDir()
+	c, err := adapter.New(adapter.WithHomeDir(home))
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = c.Close() })
+
+	first, releaseFirst, err := c.WorkspaceES("p1", "r1", "w1")
+	require.NoError(t, err)
+	t.Cleanup(releaseFirst)
+	second, releaseSecond, err := c.WorkspaceES("p1", "r1", "w1")
+	require.NoError(t, err)
+	t.Cleanup(releaseSecond)
+	assert.Same(t, first, second)
+}
+
+func TestGlobalView_HoldsProfilesAndSettings(t *testing.T) {
+	home := t.TempDir()
+	c, err := adapter.New(adapter.WithHomeDir(home))
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = c.Close() })
+
+	view := c.GlobalView()
+	require.NotNil(t, view)
+
+	dbPath := filepath.Join(home, "state", "view.db")
+	_, statErr := os.Stat(dbPath)
+	assert.NoError(t, statErr, "global view.db must exist under state/")
+}
+
+func TestChatAndReviewThreadES_Global(t *testing.T) {
+	home := t.TempDir()
+	c, err := adapter.New(adapter.WithHomeDir(home))
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = c.Close() })
+
+	assert.NotNil(t, c.ChatES())
+	assert.NotNil(t, c.ReviewThreadES())
+}
+
+func TestClose_ClosesAllAndLock(t *testing.T) {
+	home := t.TempDir()
+	c, err := adapter.New(adapter.WithHomeDir(home))
+	require.NoError(t, err)
+
+	_, releaseES, err := c.WorkspaceES("p1", "r1", "w1")
+	require.NoError(t, err)
+	releaseES()
+	_, releaseView, err := c.WorkspaceView("p1", "r1", "w1")
+	require.NoError(t, err)
+	releaseView()
+
+	require.NoError(t, c.Close())
+
+	// The lock is released, so a fresh container can open the same home.
+	again, err := adapter.New(adapter.WithHomeDir(home))
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = again.Close() })
+
+	// And the per-entity stores re-open cleanly after the prior Close.
+	es, releaseAgain, err := again.WorkspaceES("p1", "r1", "w1")
+	require.NoError(t, err)
+	t.Cleanup(releaseAgain)
+	assert.NotNil(t, es)
+	_, err = es.ReadFrom(context.Background(), "missing", 0)
+	assert.NoError(t, err)
+}
+
+func TestRegression_AccessorsRefuseReopenAfterClose(t *testing.T) {
+	// A detached good-path-async goroutine (runAsync on context.WithoutCancel)
+	// could lazily re-open a per-entity DB just after Close, re-creating its
+	// storages dir and racing teardown. The accessors must refuse once closed.
+	home := t.TempDir()
+	c, err := adapter.New(adapter.WithHomeDir(home))
+	require.NoError(t, err)
+
+	require.NoError(t, c.Close())
+
+	_, _, esErr := c.WorkspaceES("p1", "r1", "w1")
+	require.ErrorIs(t, esErr, adapter.ErrClosed)
+	_, _, viewErr := c.WorkspaceView("p1", "r1", "w1")
+	require.ErrorIs(t, viewErr, adapter.ErrClosed)
+
+	// The closed accessor must NOT have re-created the entity storages dir.
+	assert.NoDirExists(t, filepath.Join(home, "projects", "p1", "r1", "workspaces", "w1", "storages"))
+}
+
+func TestWorkspaceES_MkdirError(t *testing.T) {
+	home := t.TempDir()
+	c, err := adapter.New(adapter.WithHomeDir(home))
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = c.Close() })
+
+	// Plant a regular file where the projects subtree would need a directory, so
+	// MkdirAll of the storages dir fails.
+	require.NoError(t, os.MkdirAll(filepath.Join(home, "projects"), 0o750))
+	require.NoError(t, os.WriteFile(filepath.Join(home, "projects", "p1"), []byte("x"), 0o600))
+
+	_, _, err = c.WorkspaceES("p1", "r1", "w1")
+	assert.Error(t, err)
+
+	_, _, err = c.WorkspaceView("p1", "r1", "w1")
+	assert.Error(t, err)
+}
+
+func TestRegression_StateDirSingleInstanceLock(t *testing.T) {
+	home := t.TempDir()
+
+	first, err := adapter.New(adapter.WithHomeDir(home))
+	require.NoError(t, err)
+
+	second, err := adapter.New(adapter.WithHomeDir(home))
+	require.Error(t, err)
+	assert.Nil(t, second)
+	assert.Contains(t, strings.ToLower(err.Error()), "lock")
+
+	require.NoError(t, first.Close())
+
+	third, err := adapter.New(adapter.WithHomeDir(home))
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = third.Close() })
+	assert.NotNil(t, third.GlobalView())
 }
 
 func TestNew_DefaultDirs_UsesHome(t *testing.T) {
@@ -33,5 +196,5 @@ func TestNew_DefaultDirs_UsesHome(t *testing.T) {
 	c, err := adapter.New()
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = c.Close() })
-	assert.NotNil(t, c.WorkspaceES)
+	assert.NotNil(t, c.GlobalView())
 }

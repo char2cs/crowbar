@@ -20,7 +20,6 @@ import { useSettingsStore } from '@/features/settings/store'
 import type { PaneContent } from '@/features/panes/types/pane-content'
 import { useEditorAppStore } from '@/features/editor/stores/editor-app-store'
 import { useSidebarStore } from '@/features/layout/stores/sidebar-store'
-import { useWebViewerNavigationStore } from '@/features/web-viewer/stores/web-viewer-navigation-store'
 import UnsavedChangesDialog from '@/features/window/components/unsaved-changes-dialog'
 import { useSidebar } from '@/components/ui/sidebar'
 import { getRelativePath } from '@/utils/path-helpers'
@@ -33,7 +32,6 @@ import TabNewButton from './tab-new-button'
 import SortableEditorTab from './sortable-editor-tab'
 import { useBufferDisplayName } from '../hooks/use-buffer-display-name'
 import { useTabKeyboardNav } from '../hooks/use-tab-keyboard-nav'
-import { useJumpNavigation } from '../hooks/use-jump-navigation'
 import { useTabDrag } from '../hooks/use-tab-drag'
 import { useTabBarScroll } from '../hooks/use-tab-bar-scroll'
 import { NoDndPointerSensor } from '../lib/no-dnd-pointer-sensor'
@@ -157,18 +155,6 @@ const TabBar = ({
   const sidebarPosition = useSettingsStore((s) => s.settings.sidebarPosition)
   const { open: sidebarOpen, toggleSidebar } = useSidebar()
   const rootFolderPath = useFileSystemStore.use.rootFolderPath?.() || undefined
-  const activeBuffer = useMemo(
-    () => buffers.find((buffer) => buffer.id === activeBufferId) ?? null,
-    [activeBufferId, buffers],
-  )
-  const activeWebViewerNavigation = useWebViewerNavigationStore((state) =>
-    activeBuffer?.type === 'webViewer' ? state.navigationByBufferId[activeBuffer.id] : undefined,
-  )
-  const usesWebViewerNavigation = activeBuffer?.type === 'webViewer'
-  const { canGoBack, canGoForward, handleJumpBack, handleJumpForward } = useJumpNavigation({
-    usesWebViewerNavigation,
-    activeWebViewerNavigation,
-  })
   const allPanes = useWorkspaceStoreContext((s) => s.panes)
   const mainPaneCount = Object.keys(allPanes).filter((id) => id !== BOTTOM_PANE_ID).length
   const isInSplit = pane !== null && paneId !== null && mainPaneCount > 1
@@ -236,10 +222,18 @@ const TabBar = ({
       splitPane(targetPaneId, direction, bufferId, placement) ?? undefined,
   })
 
-  const { tabBarRef, isAtLeftEdge, handleWheel } = useTabBarScroll({
+  const { tabBarRef, isAtLeftEdge, isAtRightEdge, handleWheel } = useTabBarScroll({
     sidebarPosition,
     draggedBufferId,
   })
+
+  // The tab-bar sidebar-toggle is only a fallback for reopening a collapsed
+  // sidebar (when open, the sidebar header owns the toggle). It appears on the
+  // window-edge pane matching the configured sidebar side.
+  const showReopenToggleLeft =
+    !sidebarOpen && !isBottomPane && sidebarPosition === 'left' && isAtLeftEdge
+  const showReopenToggleRight =
+    !sidebarOpen && !isBottomPane && sidebarPosition === 'right' && isAtRightEdge
 
   const getBufferDisplayName = useBufferDisplayName({ buffers, rootFolderPath })
 
@@ -421,26 +415,30 @@ const TabBar = ({
           className={cn(
             'relative flex shrink-0 items-center gap-1.5 overflow-hidden px-2 py-1',
             IS_MAC ? 'h-[44px]' : 'h-[34px]',
-            IS_MAC && !isBottomPane && isAtLeftEdge && 'pl-[80px]',
+            IS_MAC && !isBottomPane && isAtLeftEdge && 'pl-[88px]',
           )}
           role="tablist"
           aria-label="Open files"
           data-tauri-drag-region
           onWheel={handleWheel}
         >
-          <TabNavigationButtons
-            isBottomPane={isBottomPane}
-            sidebarOpen={sidebarOpen}
-            sidebarPosition={sidebarPosition}
-            canGoBack={canGoBack}
-            canGoForward={canGoForward}
-            onToggleSidebar={toggleSidebar}
-            onJumpBack={handleJumpBack}
-            onJumpForward={handleJumpForward}
-          />
+          {showReopenToggleLeft && (
+            <TabNavigationButtons
+              isBottomPane={isBottomPane}
+              sidebarOpen={sidebarOpen}
+              sidebarPosition={sidebarPosition}
+              onToggleSidebar={toggleSidebar}
+            />
+          )}
 
           <SortableContext items={sortedBufferIds} strategy={horizontalListSortingStrategy}>
-            <div className="tab-scrollbar flex min-w-0 flex-1 items-center gap-1.5 overflow-x-auto overflow-y-hidden [overscroll-behavior-x:contain]">
+            {/* The empty area of this scroll container is a window drag handle.
+                Tauri only drags on the exact element with the attribute, so the
+                tab children remain interactive and reorderable. */}
+            <div
+              data-tauri-drag-region
+              className="tab-scrollbar flex min-w-0 flex-1 items-center gap-1.5 overflow-x-auto overflow-y-hidden [overscroll-behavior-x:contain]"
+            >
               {sortedBuffers.map((buffer, index) => (
                 <SortableEditorTab
                   key={buffer.id}
@@ -480,11 +478,16 @@ const TabBar = ({
                 setActivePane(paneId)
                 openContent({ type: 'terminal' })
               }}
-              onOpenUrl={() => {
-                setActivePane(paneId)
-                openContent({ type: 'webViewer', url: 'https://' })
-              }}
               onClosePane={() => closePane(paneId)}
+            />
+          )}
+
+          {showReopenToggleRight && (
+            <TabNavigationButtons
+              isBottomPane={isBottomPane}
+              sidebarOpen={sidebarOpen}
+              sidebarPosition={sidebarPosition}
+              onToggleSidebar={toggleSidebar}
             />
           )}
         </div>

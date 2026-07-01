@@ -1,7 +1,7 @@
 import * as React from 'react'
+import { Menu as MenuPrimitive } from '@base-ui/react/menu'
 import { ContextMenu as ContextMenuPrimitive } from '@base-ui/react/context-menu'
-import { useCallback, useEffect, useRef, useState } from 'react'
-import { createPortal } from 'react-dom'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 
 import { cn } from '@/lib/utils'
 import { ChevronRightIcon, CheckIcon } from 'lucide-react'
@@ -19,6 +19,8 @@ export interface ContextMenuItem {
   keybinding?: React.ReactNode
   className?: string
   items?: ContextMenuItem[]
+  /** When false, clicking this item will not auto-close the menu. Defaults to true. */
+  closeOnClick?: boolean
 }
 
 export interface ContextMenuRootProps {
@@ -27,6 +29,8 @@ export interface ContextMenuRootProps {
   items: ContextMenuItem[]
   onClose: () => void
   className?: string
+  /** Optional content rendered below the last menu item (e.g. inline error panel). */
+  footer?: React.ReactNode
 }
 
 function ImperativeContextMenu({
@@ -35,80 +39,88 @@ function ImperativeContextMenu({
   items,
   onClose,
   className,
+  footer,
 }: ContextMenuRootProps) {
   const onCloseRef = useRef(onClose)
   useEffect(() => {
     onCloseRef.current = onClose
   }, [onClose])
 
-  useEffect(() => {
-    if (!isOpen) return
-    const handler = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') {
-        e.preventDefault()
-        e.stopPropagation()
-        e.stopImmediatePropagation()
-        onCloseRef.current()
-      }
-    }
-    document.addEventListener('keydown', handler)
-    return () => document.removeEventListener('keydown', handler)
-  }, [isOpen])
-
-  if (!isOpen) return null
-
-  const style: React.CSSProperties = {
-    position: 'fixed',
-    top: position.y,
-    left: position.x,
-    zIndex: 10040,
-  }
-
-  const menu = (
-    <div
-      style={style}
-      className={cn(
-        'min-w-[180px] rounded-lg border border-border bg-popover p-1 shadow-lg text-popover-foreground',
-        className,
-      )}
-      onContextMenu={(e) => e.preventDefault()}
-    >
-      {items.map((item) =>
-        item.separator ? (
-          <div key={item.id} className="my-1 h-px bg-border" />
-        ) : (
-          <button
-            key={item.id}
-            type="button"
-            disabled={item.disabled}
-            className="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-sm hover:bg-accent hover:text-accent-foreground disabled:pointer-events-none disabled:opacity-50"
-            onClick={() => {
-              item.onClick()
-              onClose()
-            }}
-          >
-            {item.icon && <span className="size-4 shrink-0">{item.icon}</span>}
-            <span className="flex-1">{item.label}</span>
-            {item.shortcut && (
-              <span className="ml-auto text-xs text-muted-foreground">{item.shortcut}</span>
-            )}
-          </button>
-        ),
-      )}
-    </div>
+  const virtualAnchor = useMemo(
+    () => ({
+      getBoundingClientRect: (): DOMRect =>
+        ({
+          x: position.x,
+          y: position.y,
+          top: position.y,
+          left: position.x,
+          right: position.x,
+          bottom: position.y,
+          width: 0,
+          height: 0,
+          toJSON() {
+            return this
+          },
+        }) as DOMRect,
+    }),
+    [position.x, position.y],
   )
 
-  return createPortal(
-    <>
-      <div
-        role="presentation"
-        className="fixed inset-0 z-[10039]"
-        onClick={onClose}
-        onContextMenu={onClose}
-      />
-      {menu}
-    </>,
-    document.body,
+  return (
+    <MenuPrimitive.Root
+      modal={false}
+      open={isOpen}
+      onOpenChange={(open) => {
+        if (!open) onCloseRef.current()
+      }}
+    >
+      <MenuPrimitive.Portal>
+        <MenuPrimitive.Positioner
+          anchor={virtualAnchor}
+          side="bottom"
+          align="start"
+          sideOffset={0}
+          className="z-[10040]"
+        >
+          <MenuPrimitive.Popup
+            className={cn(
+              "relative flex not-[class*='w-']:min-w-[180px] origin-(--transform-origin) rounded-lg border bg-popover not-dark:bg-clip-padding shadow-lg/5 outline-none before:pointer-events-none before:absolute before:inset-0 before:rounded-[calc(var(--radius-lg)-1px)] before:shadow-[0_1px_--theme(--color-black/4%)] focus:outline-none dark:before:shadow-[0_-1px_--theme(--color-white/6%)]",
+              className,
+            )}
+          >
+            <div className="max-h-(--available-height) w-full overflow-y-auto p-1">
+              {items.map((item) =>
+                item.separator ? (
+                  <MenuPrimitive.Separator key={item.id} className="mx-2 my-1 h-px bg-border" />
+                ) : (
+                  <MenuPrimitive.Item
+                    key={item.id}
+                    disabled={item.disabled}
+                    className={cn(
+                      "flex min-h-8 cursor-default select-none items-center gap-2 rounded-sm px-2 py-1 text-base text-foreground outline-none data-disabled:pointer-events-none data-highlighted:bg-accent data-highlighted:text-accent-foreground data-disabled:opacity-64 sm:min-h-7 sm:text-sm [&>svg:not([class*='opacity-'])]:opacity-80 [&>svg:not([class*='size-'])]:size-4.5 sm:[&>svg:not([class*='size-'])]:size-4 [&>svg]:pointer-events-none [&>svg]:-mx-0.5 [&>svg]:shrink-0",
+                      item.className,
+                    )}
+                    onClick={() => {
+                      item.onClick()
+                      if (item.closeOnClick !== false) onCloseRef.current()
+                    }}
+                  >
+                    {item.icon}
+                    <span className="flex-1">{item.label}</span>
+                    {item.shortcut && (
+                      <kbd className="ms-auto font-medium font-sans text-muted-foreground/72 text-xs tracking-widest">
+                        {item.shortcut}
+                      </kbd>
+                    )}
+                  </MenuPrimitive.Item>
+                ),
+              )}
+              {footer}
+            </div>
+          </MenuPrimitive.Popup>
+        </MenuPrimitive.Positioner>
+      </MenuPrimitive.Portal>
+    </MenuPrimitive.Root>
   )
 }
 

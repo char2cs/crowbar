@@ -1,6 +1,7 @@
 package handlers
 
 import (
+	"context"
 	"net/http"
 	"strconv"
 	"time"
@@ -210,52 +211,54 @@ func (h *Handlers) Commit(
 	libs.WriteMutationOK(ctx, http.StatusOK, wsID)
 }
 
-// Push POST /workspaces/:wsId/git/push
+// Push POST /workspaces/:wsId/git/push is a slow git op: it returns 202 and runs
+// the push in the background, leaving the post-push state to the git-status
+// watcher broadcast and a failure to the workspace LastError (00 §4).
 func (h *Handlers) Push(
 	ctx *gin.Context,
 ) {
-	reqCtx := ctx.Request.Context()
 	wsID := ctx.Param("wsId")
 
-	if err := h.git.Push(reqCtx, wsID, time.Now()); err != nil {
-		status, msg := libs.StatusAndMessage(err)
-		libs.WriteErr(ctx, status, msg)
-		return
-	}
-
-	ctx.Status(http.StatusOK)
+	libs.WriteAccepted(ctx)
+	h.runAsync(
+		ctx.Request.Context(),
+		wsID,
+		func(c context.Context) error {
+			return h.git.Push(c, wsID, time.Now())
+		},
+	)
 }
 
-// Fetch POST /workspaces/:wsId/git/fetch
+// Fetch POST /workspaces/:wsId/git/fetch is a slow git op (202 + async).
 func (h *Handlers) Fetch(
 	ctx *gin.Context,
 ) {
-	reqCtx := ctx.Request.Context()
 	wsID := ctx.Param("wsId")
 
-	if err := h.git.Fetch(reqCtx, wsID, time.Now()); err != nil {
-		status, msg := libs.StatusAndMessage(err)
-		libs.WriteErr(ctx, status, msg)
-		return
-	}
-
-	ctx.Status(http.StatusOK)
+	libs.WriteAccepted(ctx)
+	h.runAsync(
+		ctx.Request.Context(),
+		wsID,
+		func(c context.Context) error {
+			return h.git.Fetch(c, wsID, time.Now())
+		},
+	)
 }
 
-// Pull POST /workspaces/:wsId/git/pull
+// Pull POST /workspaces/:wsId/git/pull is a slow git op (202 + async).
 func (h *Handlers) Pull(
 	ctx *gin.Context,
 ) {
-	reqCtx := ctx.Request.Context()
 	wsID := ctx.Param("wsId")
 
-	if err := h.git.Pull(reqCtx, wsID, "", time.Now()); err != nil {
-		status, msg := libs.StatusAndMessage(err)
-		libs.WriteErr(ctx, status, msg)
-		return
-	}
-
-	ctx.Status(http.StatusOK)
+	libs.WriteAccepted(ctx)
+	h.runAsync(
+		ctx.Request.Context(),
+		wsID,
+		func(c context.Context) error {
+			return h.git.Pull(c, wsID, "", time.Now())
+		},
+	)
 }
 
 // CreateBranch POST /workspaces/:wsId/git/branches
@@ -509,11 +512,12 @@ func (h *Handlers) Reset(
 	ctx.Status(http.StatusOK)
 }
 
-// Merge POST /workspaces/:wsId/git/merge
+// Merge POST /workspaces/:wsId/git/merge is a slow git op: it validates the
+// target branch synchronously (4xx) then returns 202 and runs the merge in the
+// background (00 §4).
 func (h *Handlers) Merge(
 	ctx *gin.Context,
 ) {
-	reqCtx := ctx.Request.Context()
 	wsID := ctx.Param("wsId")
 
 	var body struct {
@@ -528,20 +532,22 @@ func (h *Handlers) Merge(
 		return
 	}
 
-	if err := h.git.Merge(reqCtx, wsID, body.Branch, time.Now()); err != nil {
-		status, msg := libs.StatusAndMessage(err)
-		libs.WriteErr(ctx, status, msg)
-		return
-	}
-
-	ctx.Status(http.StatusOK)
+	libs.WriteAccepted(ctx)
+	h.runAsync(
+		ctx.Request.Context(),
+		wsID,
+		func(c context.Context) error {
+			return h.git.Merge(c, wsID, body.Branch, time.Now())
+		},
+	)
 }
 
-// Rebase POST /workspaces/:wsId/git/rebase
+// Rebase POST /workspaces/:wsId/git/rebase is a slow git op: it validates the
+// onto branch synchronously (4xx) then returns 202 and runs the rebase in the
+// background (00 §4).
 func (h *Handlers) Rebase(
 	ctx *gin.Context,
 ) {
-	reqCtx := ctx.Request.Context()
 	wsID := ctx.Param("wsId")
 
 	var body struct {
@@ -556,13 +562,14 @@ func (h *Handlers) Rebase(
 		return
 	}
 
-	if err := h.git.Rebase(reqCtx, wsID, body.Branch, time.Now()); err != nil {
-		status, msg := libs.StatusAndMessage(err)
-		libs.WriteErr(ctx, status, msg)
-		return
-	}
-
-	ctx.Status(http.StatusOK)
+	libs.WriteAccepted(ctx)
+	h.runAsync(
+		ctx.Request.Context(),
+		wsID,
+		func(c context.Context) error {
+			return h.git.Rebase(c, wsID, body.Branch, time.Now())
+		},
+	)
 }
 
 // ResolveHunk POST /workspaces/:wsId/git/resolve-hunk

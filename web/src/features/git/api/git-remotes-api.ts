@@ -1,8 +1,12 @@
-// Crowbar stub — FUTURE: replace with Go API calls
+import { apiFetch } from '@/lib/api'
+import { workspaceBase } from '@/lib/workspace-scope-url'
+import type { GitRemote } from '../types/git-types'
+
+// Remote-management (list/add/remove) has no daemon endpoint yet — still a stub.
+// FUTURE: migrate to Go API calls alongside the dedicated remote-manager UI.
 const tauriInvoke = async <T>(_cmd: string, _args?: unknown): Promise<T> => {
   throw new Error(`Not implemented: ${_cmd}`)
 }
-import type { GitRemote } from '../types/git-types'
 
 export interface GitRemoteActionResult {
   success: boolean
@@ -41,52 +45,28 @@ export const removeRemote = async (repoPath: string, name: string): Promise<bool
   }
 }
 
-export const pushChanges = async (
-  repoPath: string,
-  branch?: string,
-  remote: string = 'origin',
+// Push/pull/fetch are slow git ops: the daemon accepts them (202 Accepted) and
+// runs them in the background. The real outcome — new ahead/behind counts, a
+// merge conflict — arrives over the git-status WebSocket stream, not this
+// response. A rejected POST (4xx/5xx) means the op never started.
+const gitRemoteOp = async (
+  wsId: string,
+  action: 'push' | 'pull' | 'fetch',
 ): Promise<GitRemoteActionResult> => {
   try {
-    await tauriInvoke('git_push', { repoPath, branch, remote })
+    await apiFetch(`${workspaceBase(wsId)}/git/${action}`, { method: 'POST' })
     return { success: true }
   } catch (error) {
-    console.error('Failed to push changes:', error)
-    return {
-      success: false,
-      error: error instanceof Error ? error.message : String(error),
-    }
+    console.error(`Failed to ${action}:`, error)
+    return { success: false, error: error instanceof Error ? error.message : String(error) }
   }
 }
 
-export const pullChanges = async (
-  repoPath: string,
-  branch?: string,
-  remote: string = 'origin',
-): Promise<GitRemoteActionResult> => {
-  try {
-    await tauriInvoke('git_pull', { repoPath, branch, remote })
-    return { success: true }
-  } catch (error) {
-    console.error('Failed to pull changes:', error)
-    return {
-      success: false,
-      error: error instanceof Error ? error.message : String(error),
-    }
-  }
-}
+export const pushChanges = (wsId: string): Promise<GitRemoteActionResult> =>
+  gitRemoteOp(wsId, 'push')
 
-export const fetchChanges = async (
-  repoPath: string,
-  remote?: string,
-): Promise<GitRemoteActionResult> => {
-  try {
-    await tauriInvoke('git_fetch', { repoPath, remote })
-    return { success: true }
-  } catch (error) {
-    console.error('Failed to fetch changes:', error)
-    return {
-      success: false,
-      error: error instanceof Error ? error.message : String(error),
-    }
-  }
-}
+export const pullChanges = (wsId: string): Promise<GitRemoteActionResult> =>
+  gitRemoteOp(wsId, 'pull')
+
+export const fetchChanges = (wsId: string): Promise<GitRemoteActionResult> =>
+  gitRemoteOp(wsId, 'fetch')

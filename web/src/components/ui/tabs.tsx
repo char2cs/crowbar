@@ -4,7 +4,7 @@ import { Tabs as TabsPrimitive } from '@base-ui/react/tabs'
 import * as React from 'react'
 import { cn } from '@/lib/utils'
 
-export type TabsVariant = 'default' | 'underline' | 'segmented'
+export type TabsVariant = 'default' | 'underline'
 
 export function Tabs({ className, ...props }: TabsPrimitive.Root.Props): React.ReactElement {
   return (
@@ -43,7 +43,7 @@ export function TabsList({
           'absolute bottom-0 left-0 h-(--active-tab-height) w-(--active-tab-width) translate-x-(--active-tab-left) -translate-y-(--active-tab-bottom) transition-[width,translate] duration-200 ease-in-out',
           variant === 'underline'
             ? 'z-10 bg-primary data-[orientation=horizontal]:h-0.5 data-[orientation=vertical]:w-0.5 data-[orientation=vertical]:-translate-x-px data-[orientation=horizontal]:translate-y-px'
-            : '-z-1 rounded-md bg-background shadow-sm/5 dark:bg-input',
+            : '-z-1 rounded-lg border border-background bg-background shadow-xs shadow-black/10 inset-shadow-[0_1px_--theme(--color-white/16%)]',
         )}
         data-slot="tab-indicator"
       />
@@ -74,7 +74,6 @@ export function TabsPanel({ className, ...props }: TabsPrimitive.Panel.Props): R
   )
 }
 
-/** Standalone tab button used by Crowbar feature modules (does not require a tabs value context) */
 export interface TabProps extends React.ButtonHTMLAttributes<HTMLButtonElement> {
   isActive?: boolean
   isDragged?: boolean
@@ -120,26 +119,6 @@ const Tab = React.forwardRef<HTMLButtonElement, TabProps>(
   ),
 )
 Tab.displayName = 'Tab'
-
-/** Crowbar tab item descriptor */
-export interface TabsItem {
-  id: string
-  icon?: React.ReactNode
-  label?: string
-  isActive?: boolean
-  onClick?: () => void
-  role?: string
-  ariaLabel?: string
-  className?: string
-  tabIndex?: number
-  title?: string
-  tooltip?: {
-    content: string
-    shortcut?: string
-    side?: 'top' | 'right' | 'bottom' | 'left'
-    className?: string
-  }
-}
 
 export { Tab }
 

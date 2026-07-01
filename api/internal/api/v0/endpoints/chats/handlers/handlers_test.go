@@ -42,12 +42,18 @@ func (stubRepo) ListByWorkspace(_ context.Context, wsID string) ([]domain.Chat, 
 	return []domain.Chat{{ID: "c1", WsID: wsID}}, nil
 }
 
+type stubWsReader struct{}
+
+func (stubWsReader) Get(_ context.Context, id string) (domain.Workspace, error) {
+	return domain.Workspace{ID: id}, nil
+}
+
 func newRouter(
 	uc handlers.ChatUsecase,
 	repo handlers.ChatRepo,
 ) *gin.Engine {
 	r := gin.New()
-	h := handlers.New(uc, repo)
+	h := handlers.New(uc, repo, stubWsReader{})
 	rg := r.Group("/v0")
 	rg.POST("/workspaces/:wsId/chats", h.Create)
 	rg.GET("/workspaces/:wsId/chats", h.List)

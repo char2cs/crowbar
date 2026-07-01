@@ -9,7 +9,9 @@ import (
 	"github.com/gin-gonic/gin"
 	"github.com/stretchr/testify/assert"
 
+	"github.com/char2cs/crowbar/api/internal/api/v0/dto"
 	"github.com/char2cs/crowbar/api/internal/api/v0/endpoints/repos"
+	"github.com/char2cs/crowbar/api/internal/api/v0/ws"
 	"github.com/char2cs/crowbar/api/internal/domain"
 )
 
@@ -42,18 +44,30 @@ func (stubStore) Save(
 	return nil
 }
 
+func (stubStore) Delete(
+	_ context.Context,
+	_ string,
+) error {
+	return nil
+}
+
 func TestRegisterMountsRoutes(
 	t *testing.T,
 ) {
 	r := gin.New()
-	repos.Register(r.Group("/v0"), stubStore{})
+	// repos.Register mounts on the project-scoped group, so build the
+	// hierarchical prefix to mirror the production router chain.
+	projectScoped := r.Group("/v0/projects/:projectId")
+	noopWS := func(_ *gin.Context) {}
+	repos.Register(projectScoped, stubStore{}, nil, nil, nil, func(dto.RepoDTO) {}, noopWS, ws.DualServe)
 
 	cases := []struct {
 		method string
 		path   string
 	}{
-		{http.MethodGet, "/v0/repos"},
-		{http.MethodGet, "/v0/repos/r1"},
+		{http.MethodGet, "/v0/projects/p1/repos"},
+		{http.MethodGet, "/v0/projects/p1/repos/r1"},
+		{http.MethodDelete, "/v0/projects/p1/repos/r1"},
 	}
 	for _, tc := range cases {
 		rec := httptest.NewRecorder()

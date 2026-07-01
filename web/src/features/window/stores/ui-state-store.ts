@@ -24,6 +24,7 @@ export type SettingsTab =
   | 'enterprise'
   | 'file-explorer'
   | 'language'
+  | 'keybindings'
   | 'developer'
 
 export type BottomPaneTab = 'terminal' | 'buffers'
@@ -55,11 +56,6 @@ export interface UIState {
   sidebarActivityItem: SidebarActivityItem | null
   setSidebarActivityItem: (item: SidebarActivityItem | null) => void
   openSettingsDialog: (tab?: SettingsTab) => void
-  openCommandPaletteView: (view?: string) => void
-  // Command palette
-  isCommandPaletteVisible: boolean
-  commandPaletteInitialView: string | null
-  setIsCommandPaletteVisible: (v: boolean) => void
   isSettingsDialogVisible: boolean
   setIsSettingsDialogVisible: (v: boolean) => void
   setActiveView: (view: string | null) => void
@@ -76,6 +72,8 @@ export interface UIState {
   setIsGlobalSearchVisible: (v: boolean) => void
   isProjectPickerVisible: boolean
   setIsProjectPickerVisible: (v: boolean) => void
+  ideShellMounted: boolean
+  setIdeShellMounted: (v: boolean) => void
 }
 
 export const useUIState = create<UIState>((set) => ({
@@ -118,12 +116,6 @@ export const useUIState = create<UIState>((set) => ({
   setSidebarActivityItem: (item) => set({ sidebarActivityItem: item }),
   openSettingsDialog: (tab) =>
     set({ isSettingsOpen: true, settingsInitialTab: tab ?? 'appearance' }),
-  openCommandPaletteView: (view) =>
-    set({ isCommandPaletteVisible: true, commandPaletteInitialView: view ?? null }),
-  // Command palette
-  isCommandPaletteVisible: false,
-  commandPaletteInitialView: null,
-  setIsCommandPaletteVisible: (v) => set({ isCommandPaletteVisible: v }),
   isSettingsDialogVisible: false,
   setIsSettingsDialogVisible: (v) => set({ isSettingsOpen: v, isSettingsDialogVisible: v }),
   setActiveView: (view) => set({ activeView: view }),
@@ -140,4 +132,6 @@ export const useUIState = create<UIState>((set) => ({
   setIsGlobalSearchVisible: (v) => set({ isGlobalSearchVisible: v }),
   isProjectPickerVisible: false,
   setIsProjectPickerVisible: (v) => set({ isProjectPickerVisible: v }),
+  ideShellMounted: false,
+  setIdeShellMounted: (v) => set({ ideShellMounted: v }),
 }))

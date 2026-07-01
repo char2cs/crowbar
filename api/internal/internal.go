@@ -2,6 +2,7 @@ package internal
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"io/fs"
 	"net"
@@ -20,6 +21,7 @@ import (
 type Container struct {
 	server   *http.Server
 	listener net.Listener
+	engines  *engine.Container
 	adapter  *adapter.Container
 	app      *app.Container
 	api      *crowbarapi.Container
@@ -81,6 +83,7 @@ func New(
 	return &Container{
 		server:   &http.Server{Handler: apiContainer.Handler(), ReadHeaderTimeout: 30 * time.Second},
 		listener: listener,
+		engines:  engines,
 		adapter:  adapters,
 		app:      appContainer,
 		api:      apiContainer,
@@ -96,15 +99,29 @@ func adapterOptions(
 	return []adapter.Option{adapter.WithHomeDir(homeDir)}
 }
 
-// Run serves until ctx is cancelled, then gracefully shuts down.
+// Run serves until ctx is cancelled, then gracefully shuts down. It also watches
+// for an early Serve failure: if Serve returns before shutdown is requested
+// (listener invalidated, accept failing permanently under FD pressure), the
+// error is surfaced so the process exits non-zero and its supervisor restarts
+// the daemon — rather than silently hanging "up" while accepting no connections.
 func (c *Container) Run(
 	ctx context.Context,
 ) error {
-	go c.server.Serve(c.listener) //nolint:errcheck
-	<-ctx.Done()
-	shutdownCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-	defer cancel()
-	return c.server.Shutdown(shutdownCtx)
+	serveErr := make(chan error, 1)
+	go func() { serveErr <- c.server.Serve(c.listener) }()
+	select {
+	case <-ctx.Done():
+		shutdownCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+		return c.server.Shutdown(shutdownCtx)
+	case err := <-serveErr:
+		// ErrServerClosed only occurs after Shutdown (handled above), so any error
+		// arriving here is a genuine listen/accept failure.
+		if err != nil && !errors.Is(err, http.ErrServerClosed) {
+			return fmt.Errorf("internal: serve: %w", err)
+		}
+		return nil
+	}
 }
 
 // Close tears the backend down in dependency order: the HTTP server has already
@@ -114,6 +131,10 @@ func (c *Container) Run(
 // connections), then releases the adapter layer and the listener.
 func (c *Container) Close() {
 	c.app.Close()
+	// Tear down engine OS resources (live PTY child processes + master FDs) so a
+	// shutdown/restart doesn't orphan every open terminal's shell and the dev
+	// servers it spawned.
+	c.engines.Close()
 	_ = c.adapter.Close()
 	_ = c.listener.Close()
 }

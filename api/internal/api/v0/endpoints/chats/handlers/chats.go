@@ -41,6 +41,11 @@ func (h *Handlers) List(
 	rctx := ctx.Request.Context()
 	wsID := ctx.Param("wsId")
 
+	if _, err := h.wsReader.Get(rctx, wsID); err != nil {
+		libs.WriteErr(ctx, http.StatusNotFound, "workspace not found")
+		return
+	}
+
 	chats, err := h.chatRepo.ListByWorkspace(rctx, wsID)
 	if err != nil {
 		libs.WriteErr(ctx, http.StatusInternalServerError, err.Error())

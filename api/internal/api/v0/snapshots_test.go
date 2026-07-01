@@ -94,12 +94,13 @@ func initGitRepo(
 	return dir
 }
 
-// TestSnapshot_Workspaces_DeliveredOnConnectWithOverlay proves the Workspaces
+// TestSnapshot_Workspaces_DeliveredOnConnect proves the Workspaces
 // snapshot-on-subscribe (03 §1a): a client receives the current workspace row
-// immediately on connect (before any live Push), with the agent-running overlay
-// computed at snapshot time and the persisted hasConflicts surfaced.
-func TestSnapshot_Workspaces_DeliveredOnConnectWithOverlay(t *testing.T) {
+// immediately on connect (before any live Push), with the persisted hasConflicts
+// surfaced. With the agent-run concept removed, working is always false.
+func TestSnapshot_Workspaces_DeliveredOnConnect(t *testing.T) {
 	tc := newApp(t)
+	seedRepo(t, tc, "r1")
 	ctx := context.Background()
 	now := time.Unix(1, 0).UTC()
 
@@ -115,26 +116,24 @@ func TestSnapshot_Workspaces_DeliveredOnConnectWithOverlay(t *testing.T) {
 		now.Add(time.Minute),
 	)
 	require.NoError(t, err)
-	_, err = tc.app.Repositories.Chat.Create(ctx, "c1", "w1", "title", now)
-	require.NoError(t, err)
-	_, err = tc.app.Repositories.AgentRun.Create(ctx, "run1", "w1", "c1", now)
-	require.NoError(t, err)
-	_, err = tc.app.Repositories.AgentRun.MarkRunning(ctx, "run1")
-	require.NoError(t, err)
 
 	_, srv := serveV0(t, tc.app, tc.eng)
-	conn := dialV0(t, srv, "/v0/ws/workspaces?projectId=p1")
+	conn := dialV0(t, srv, "/v0/projects/p1/repos/r1/workspaces")
 
 	got := readSnapshot(t, conn)
 	assert.Equal(t, "w1", got["id"])
-	assert.Equal(t, true, got["agentRunning"])
-	assert.Equal(t, true, got["hasConflicts"])
+	assert.Equal(t, false, got["working"])
+	// hasConflicts was retired in W4; the working-tree conflict is now carried by
+	// status. The snapshot frame is the WorkspaceDTO wire shape (spec §9).
+	_, present := got["hasConflicts"]
+	assert.False(t, present)
 }
 
 // TestSnapshot_Workspaces_ScopePredicateFilters proves the snapshot is filtered
-// by the per-client predicate: a projectId=p2 client sees only its workspace.
+// by the per-client predicate: a p2/r2-scoped client sees only its workspace.
 func TestSnapshot_Workspaces_ScopePredicateFilters(t *testing.T) {
 	tc := newApp(t)
+	seedRepoIn(t, tc, "p2", "r2")
 	ctx := context.Background()
 	now := time.Unix(1, 0).UTC()
 
@@ -152,43 +151,17 @@ func TestSnapshot_Workspaces_ScopePredicateFilters(t *testing.T) {
 	require.NoError(t, err)
 
 	_, srv := serveV0(t, tc.app, tc.eng)
-	conn := dialV0(t, srv, "/v0/ws/workspaces?projectId=p2")
+	conn := dialV0(t, srv, "/v0/projects/p2/repos/r2/workspaces")
 
 	got := readSnapshot(t, conn)
 	assert.Equal(t, "w2", got["id"])
-}
-
-// TestSnapshot_Chats_DeliveredOnConnect proves the Chats snapshot-on-subscribe:
-// a wsId-scoped client receives the current ChatStatusEvent on connect.
-func TestSnapshot_Chats_DeliveredOnConnect(t *testing.T) {
-	tc := newApp(t)
-	ctx := context.Background()
-	now := time.Unix(1, 0).UTC()
-
-	_, err := tc.app.Repositories.Workspace.Create(
-		ctx,
-		workspace.CreateInput{ID: "w1", RepoID: "r1", ProjectID: "p1"},
-		now,
-	)
-	require.NoError(t, err)
-	_, err = tc.app.Repositories.Chat.Create(ctx, "c1", "w1", "title", now)
-	require.NoError(t, err)
-	_, err = tc.app.Repositories.Chat.Create(ctx, "c2", "w2", "other", now)
-	require.NoError(t, err)
-
-	_, srv := serveV0(t, tc.app, tc.eng)
-	conn := dialV0(t, srv, "/v0/ws/chats?wsId=w1")
-
-	got := readSnapshot(t, conn)
-	assert.Equal(t, "c1", got["chatId"])
-	assert.Equal(t, "w1", got["wsId"])
-	assert.Equal(t, "idle", got["status"])
 }
 
 // TestSnapshot_Git_DeliveredOnConnectScoped proves the Git snapshot-on-subscribe:
 // a wsId-scoped client receives the current GitStatus of its workspace only.
 func TestSnapshot_Git_DeliveredOnConnectScoped(t *testing.T) {
 	tc := newApp(t)
+	seedRepo(t, tc, "rA")
 	ctx := context.Background()
 	now := time.Unix(1, 0).UTC()
 	repoA := initGitRepo(t)
@@ -207,8 +180,10 @@ func TestSnapshot_Git_DeliveredOnConnectScoped(t *testing.T) {
 	)
 	require.NoError(t, err)
 
+	// The URL scope must match workspace A's actual repo (rA): the scope guard
+	// now rejects a :wsId that does not belong to the :repoId in the path.
 	_, srv := serveV0(t, tc.app, tc.eng)
-	conn := dialV0(t, srv, "/v0/ws/git?wsId=A")
+	conn := dialV0(t, srv, "/v0/projects/p1/repos/rA/workspaces/A/git/status")
 
 	got := readSnapshot(t, conn)
 	assert.Equal(t, "main", got["branch"])
@@ -220,6 +195,7 @@ func TestSnapshot_Git_DeliveredOnConnectScoped(t *testing.T) {
 // wsId-scoped client receives the engine's current diagnostics for its workspace.
 func TestSnapshot_LSP_DeliveredOnConnect(t *testing.T) {
 	tc := newApp(t)
+	seedRepo(t, tc, "r1")
 	ctx := context.Background()
 	now := time.Unix(1, 0).UTC()
 
@@ -235,7 +211,7 @@ func TestSnapshot_LSP_DeliveredOnConnect(t *testing.T) {
 	}
 
 	_, srv := serveV0(t, tc.app, tc.eng)
-	conn := dialV0(t, srv, "/v0/ws/lsp?wsId=w1")
+	conn := dialV0(t, srv, "/v0/projects/p1/repos/r1/workspaces/w1/lsp/ws")
 
 	got := readSnapshot(t, conn)
 	assert.Equal(t, "w1", got["wsId"])

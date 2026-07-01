@@ -1,0 +1,202 @@
+name: Nightly
+
+on:
+  push:
+    branches: [develop]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: nightly
+  cancel-in-progress: true
+
+jobs:
+  derive-version:
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.v.outputs.version }}
+    steps:
+      - uses: actions/checkout@v4
+      - id: v
+        run: |
+          VERSION=$(grep -m1 '^version' desktop/src-tauri/Cargo.toml | grep -oP '[\d.]+')
+          echo "version=${VERSION}" >> $GITHUB_OUTPUT
+
+  daemon:
+    needs: derive-version
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: develop
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.26.2'
+          cache-dependency-path: api/go.sum
+      - uses: oven-sh/setup-bun@v2
+      - name: Build frontend
+        env:
+          NODE_OPTIONS: --max-old-space-size=6144
+        run: cd web && bun install --frozen-lockfile && bun run build
+      - name: Stage web assets for embedding
+        run: cd api && make embed-web
+      - name: Cross-compile daemon
+        run: |
+          mkdir -p dist
+          cd api
+          for PLATFORM in linux/amd64 linux/arm64 darwin/amd64 darwin/arm64; do
+            OS=${PLATFORM%/*}; ARCH=${PLATFORM#*/}
+            GOOS=$OS GOARCH=$ARCH CGO_ENABLED=0 go build \
+              -o ../dist/crowbar-api-${OS}-${ARCH} ./cmd/crowbar
+          done
+      - uses: actions/upload-artifact@v4
+        with:
+          name: nightly-daemon
+          path: dist/
+
+  desktop-macos:
+    needs: derive-version
+    runs-on: macos-latest
+    env:
+      VERSION: ${{ needs.derive-version.outputs.version }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: develop
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: '1.88'
+          targets: aarch64-apple-darwin,x86_64-apple-darwin
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: desktop/src-tauri
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.26.2'
+          cache-dependency-path: api/go.sum
+      - uses: oven-sh/setup-bun@v2
+      - uses: cargo-bins/cargo-binstall@main
+      - name: Install tauri-cli
+        run: cargo binstall tauri-cli@^2 --no-confirm --locked
+      - name: Build Go sidecar (arm64 + amd64)
+        run: |
+          mkdir -p desktop/src-tauri/binaries
+          cd api
+          GOOS=darwin GOARCH=arm64 CGO_ENABLED=0 go build -tags noEmbed \
+            -o ../desktop/src-tauri/binaries/crowbar-api-aarch64-apple-darwin ./cmd/crowbar
+          GOOS=darwin GOARCH=amd64 CGO_ENABLED=0 go build -tags noEmbed \
+            -o ../desktop/src-tauri/binaries/crowbar-api-x86_64-apple-darwin ./cmd/crowbar
+      - name: Build frontend
+        env:
+          NODE_OPTIONS: --max-old-space-size=6144
+        run: cd web && bun install --frozen-lockfile && bun run build
+      - name: Sync version into tauri.conf.json
+        run: jq ".version = \"${VERSION}-nightly\"" desktop/src-tauri/tauri.conf.json > /tmp/tc.json && mv /tmp/tc.json desktop/src-tauri/tauri.conf.json
+      - name: Compile Liquid Glass icon (Xcode 26+ only)
+        run: bash desktop/icons-compiler/compile-icon.sh
+      - name: Build Tauri app (universal DMG)
+        working-directory: desktop/src-tauri
+        run: |
+          if [ -f icons/Assets.car ]; then
+            cargo tauri build --target universal-apple-darwin --bundles dmg
+          else
+            cargo tauri build --target universal-apple-darwin --bundles dmg \
+              --config '{"bundle":{"macOS":{"files":{}}}}'
+          fi
+      - name: Verify artifact
+        run: |
+          DMG=$(find desktop/src-tauri/target/universal-apple-darwin/release/bundle/dmg -name '*.dmg' | head -1)
+          [ -s "$DMG" ] || (echo "DMG missing or empty" && exit 1)
+          echo "DMG: $DMG ($(du -h "$DMG" | cut -f1))"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: nightly-macos
+          path: desktop/src-tauri/target/universal-apple-darwin/release/bundle/dmg/*.dmg
+
+  desktop-linux:
+    needs: derive-version
+    runs-on: ubuntu-latest
+    env:
+      VERSION: ${{ needs.derive-version.outputs.version }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: develop
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: '1.88'
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: desktop/src-tauri
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.26.2'
+          cache-dependency-path: api/go.sum
+      - uses: oven-sh/setup-bun@v2
+      - name: Install system deps
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libwebkit2gtk-4.1-dev libayatana-appindicator3-dev librsvg2-dev
+      - uses: cargo-bins/cargo-binstall@main
+      - name: Install tauri-cli
+        run: cargo binstall tauri-cli@^2 --no-confirm --locked
+      - name: Build Go sidecar (Linux x86_64)
+        run: |
+          mkdir -p desktop/src-tauri/binaries
+          cd api && GOOS=linux GOARCH=amd64 CGO_ENABLED=0 go build -tags noEmbed \
+            -o ../desktop/src-tauri/binaries/crowbar-api-x86_64-unknown-linux-gnu ./cmd/crowbar
+      - name: Build frontend
+        env:
+          NODE_OPTIONS: --max-old-space-size=6144
+        run: cd web && bun install --frozen-lockfile && bun run build
+      - name: Sync version into tauri.conf.json
+        run: jq ".version = \"${VERSION}-nightly\"" desktop/src-tauri/tauri.conf.json > /tmp/tc.json && mv /tmp/tc.json desktop/src-tauri/tauri.conf.json
+      - name: Build Tauri app (AppImage + deb)
+        working-directory: desktop/src-tauri
+        run: |
+          cargo tauri build --bundles appimage,deb \
+            --config '{"bundle":{"macOS":{"files":{}}}}'
+      - name: Verify artifacts
+        run: |
+          APPIMAGE=$(find desktop/src-tauri/target/release/bundle/appimage -name '*.AppImage' | head -1)
+          [ -s "$APPIMAGE" ] || (echo "AppImage missing or empty" && exit 1)
+          echo "AppImage: $APPIMAGE ($(du -h "$APPIMAGE" | cut -f1))"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: nightly-linux
+          path: |
+            desktop/src-tauri/target/release/bundle/appimage/*.AppImage
+            desktop/src-tauri/target/release/bundle/deb/*.deb
+
+  publish:
+    needs: [derive-version, daemon, desktop-macos, desktop-linux]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: develop
+      - uses: actions/download-artifact@v4
+        with:
+          path: release-artifacts/
+          merge-multiple: true
+      - name: Generate unified SHA256SUMS
+        run: |
+          cd release-artifacts
+          find . -type f ! -name 'SHA256SUMS' -exec sha256sum {} \; | sed 's|./||' > SHA256SUMS
+      - name: Delete previous nightly release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: gh release delete nightly --yes --cleanup-tag 2>/dev/null || true
+      - name: Publish nightly release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: nightly
+          name: "Nightly (${{ github.run_id }})"
+          body: |
+            Automated nightly build from `develop` — ${{ github.sha }}
+
+            > ⚠️ This is an unstable build. Use at your own risk.
+          prerelease: true
+          files: release-artifacts/**/*

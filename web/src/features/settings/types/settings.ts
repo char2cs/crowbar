@@ -26,6 +26,7 @@ export interface Settings {
   lineNumbers: boolean
   renderWhitespace: RenderWhitespaceMode
   renderIndentGuides: boolean
+  semanticHighlighting: boolean
   highlightOccurrences: boolean
   showMinimap: boolean
   // Terminal
@@ -80,6 +81,7 @@ export interface Settings {
   enterpriseManagedMode: boolean
   enterpriseRequireExtensionAllowlist: boolean
   enterpriseAllowedExtensionIds: string[]
+  showFpsOverlay: boolean
   // Other
   extensionsActiveTab:
     | 'all'

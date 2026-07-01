@@ -1,10 +1,14 @@
 package ws
 
 import (
+	"log/slog"
 	"net/http"
+	"sync"
 	"time"
 
 	"github.com/gorilla/websocket"
+
+	"github.com/char2cs/crowbar/api/internal/api/origin"
 )
 
 const (
@@ -14,13 +18,26 @@ const (
 	sendBuffer   = 64
 )
 
+// upgrader rejects cross-origin WebSocket upgrades from a non-allow-listed Origin
+// so a malicious website can't open the per-workspace event stream through the
+// user's browser. A blanket "return true" let any page hijack the socket; see
+// origin.Allowed for the allowlist (Tauri webview, loopback, env overrides).
 var upgrader = websocket.Upgrader{
-	CheckOrigin: func(r *http.Request) bool { return true },
+	CheckOrigin: func(r *http.Request) bool {
+		o := r.Header.Get("Origin")
+		if origin.Allowed(o, r.Host) {
+			return true
+		}
+		slog.WarnContext(r.Context(), "ws: rejected cross-origin upgrade",
+			"origin", o, "host", r.Host)
+		return false
+	},
 }
 
 type client struct {
-	send chan []byte
-	done chan struct{}
+	send      chan []byte
+	done      chan struct{}
+	closeOnce sync.Once
 }
 
 func newClient() *client {
@@ -28,6 +45,13 @@ func newClient() *client {
 		send: make(chan []byte, sendBuffer),
 		done: make(chan struct{}),
 	}
+}
+
+// closeDone signals the client's writePump to stop, exactly once. Both the
+// normal removal path and a slow-consumer overflow disconnect route through it,
+// so done is never double-closed (which would panic).
+func (c *client) closeDone() {
+	c.closeOnce.Do(func() { close(c.done) })
 }
 
 func readPump(

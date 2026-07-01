@@ -1,5 +1,6 @@
 import { useEffect, useRef, Suspense } from 'react'
 import { useRouterState } from '@tanstack/react-router'
+import { NavStack } from './nav-stack'
 import { WorkspaceTree } from './workspace-tree'
 import { ChatTree } from './chat-tree'
 import { FileExplorerTree } from '@/features/file-explorer/components/file-explorer-tree'
@@ -9,6 +10,7 @@ import { SidebarSkeleton } from './sidebar-skeleton'
 import { useFileTreeStore } from '@/features/file-explorer/stores/file-explorer-tree-store'
 import { useFileSystemStore } from '@/features/file-system/controllers/store'
 import { useSidebarStore, type SidebarTab } from '@/lib/store/sidebar'
+import { parseWorkspaceScopeFromPath } from '@/lib/workspace-scope'
 
 const TABS: SidebarTab[] = ['workspaces', 'chats', 'files', 'git']
 
@@ -18,12 +20,22 @@ interface SidebarCarouselProps {
 
 export function SidebarCarousel({ activeWorkspaceRepoPath }: SidebarCarouselProps) {
   const pathname = useRouterState({ select: (s) => s.location.pathname })
-  const activeWorkspaceId = pathname.match(/\/workspaces\/([^/]+)/)?.[1] ?? ''
+  const activeWorkspaceId = parseWorkspaceScopeFromPath(pathname)?.wsId ?? ''
   const activeTab = useSidebarStore((s) => s.activeTab)
   const setActiveTab = useSidebarStore((s) => s.setActiveTab)
   const files = useFileSystemStore((s) => s.files)
   const handleFileOpen = useFileSystemStore.use.handleFileOpen?.()
   const handleFileSelect = useFileSystemStore.use.handleFileSelect?.()
+  // File-tree mutation handlers (create/rename/delete/refresh) live on the
+  // file-system store; thread them into the explorer so its context menu and
+  // inline-edit actions actually run (the daemon backs them via /files).
+  const setFiles = useFileSystemStore((s) => s.setFiles)
+  const handleCreateNewFileInDirectory = useFileSystemStore.use.handleCreateNewFileInDirectory?.()
+  const handleCreateNewFolderInDirectory =
+    useFileSystemStore.use.handleCreateNewFolderInDirectory?.()
+  const handleRenamePath = useFileSystemStore.use.handleRenamePath?.()
+  const handleDeletePath = useFileSystemStore.use.handleDeletePath?.()
+  const refreshDirectory = useFileSystemStore.use.refreshDirectory?.()
   const containerRef = useRef<HTMLDivElement>(null)
   const isScrollingProgrammatically = useRef(false)
 
@@ -74,53 +86,60 @@ export function SidebarCarousel({ activeWorkspaceRepoPath }: SidebarCarouselProp
   }
 
   return (
-    <div
-      ref={containerRef}
-      onScroll={handleScroll}
-      data-sidebar-carousel=""
-      className="flex flex-1 overflow-x-scroll overflow-y-hidden [scroll-snap-type:x_mandatory] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
-    >
-      {/* Workspaces panel */}
-      <div className="min-w-full [scroll-snap-align:start] flex flex-col overflow-hidden">
-        <WorkspaceTree />
-      </div>
+    <NavStack>
+      <div
+        ref={containerRef}
+        onScroll={handleScroll}
+        data-sidebar-carousel=""
+        className="flex flex-1 overflow-x-scroll overflow-y-hidden [scroll-snap-type:x_mandatory] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
+      >
+        {/* Workspaces panel */}
+        <div className="min-w-full [scroll-snap-align:start] flex flex-col overflow-hidden h-full">
+          <WorkspaceTree />
+        </div>
 
-      {/* Chats panel */}
-      <div className="min-w-full [scroll-snap-align:start] flex flex-col overflow-hidden">
-        <ChatTree wsId={activeWorkspaceId} />
-      </div>
+        {/* Chats panel */}
+        <div className="min-w-full [scroll-snap-align:start] flex flex-col overflow-hidden">
+          <ChatTree wsId={activeWorkspaceId} />
+        </div>
 
-      {/* Files panel */}
-      <div className="min-w-full [scroll-snap-align:start] flex flex-col overflow-hidden">
-        <ErrorBoundary>
-          <Suspense fallback={<SidebarSkeleton />}>
-            <FileExplorerTree
-              files={files}
-              rootFolderPath={activeWorkspaceRepoPath}
-              onFileSelect={(path, isDir) => {
-                if (isDir) {
-                  useFileTreeStore.getState().toggleFolder(path)
-                } else {
-                  handleFileSelect?.(path, false)
+        {/* Files panel */}
+        <div className="min-w-full [scroll-snap-align:start] flex flex-col overflow-hidden">
+          <ErrorBoundary>
+            <Suspense fallback={<SidebarSkeleton />}>
+              <FileExplorerTree
+                files={files}
+                rootFolderPath={activeWorkspaceRepoPath}
+                onFileSelect={(path, isDir) => {
+                  if (isDir) {
+                    useFileTreeStore.getState().toggleFolder(path)
+                  } else {
+                    handleFileSelect?.(path, false)
+                  }
+                }}
+                onFileOpen={
+                  handleFileOpen
+                    ? (path: string, isDir: boolean) => {
+                        if (!isDir) void handleFileOpen(path, false)
+                      }
+                    : undefined
                 }
-              }}
-              onFileOpen={
-                handleFileOpen
-                  ? (path: string, isDir: boolean) => {
-                      if (!isDir) void handleFileOpen(path, false)
-                    }
-                  : undefined
-              }
-              onCreateNewFileInDirectory={() => {}}
-            />
-          </Suspense>
-        </ErrorBoundary>
-      </div>
+                onUpdateFiles={setFiles}
+                onCreateNewFileInDirectory={handleCreateNewFileInDirectory ?? (() => {})}
+                onCreateNewFolderInDirectory={handleCreateNewFolderInDirectory ?? undefined}
+                onRenamePath={handleRenamePath ?? undefined}
+                onDeletePath={handleDeletePath ?? undefined}
+                onRefreshDirectory={refreshDirectory ?? undefined}
+              />
+            </Suspense>
+          </ErrorBoundary>
+        </div>
 
-      {/* Git panel */}
-      <div className="min-w-full [scroll-snap-align:start] flex flex-col overflow-hidden">
-        <GitPanel />
+        {/* Git panel */}
+        <div className="min-w-full [scroll-snap-align:start] flex flex-col overflow-hidden">
+          <GitPanel />
+        </div>
       </div>
-    </div>
+    </NavStack>
   )
 }

@@ -1,5 +1,5 @@
 import type React from 'react'
-import { memo } from 'react'
+import { memo, useEffect, useRef } from 'react'
 import {
   FILE_TREE_DENSITY_CONFIG,
   type FileTreeDensity,
@@ -62,6 +62,7 @@ interface FileExplorerTreeItemProps {
   searchQuery?: string
   isSearchMatch?: boolean
   rowId?: string
+  fileFeedback?: Map<string, 'copied-path' | 'copied-rel' | 'created' | 'err'>
 }
 
 function renderHighlightedLabel(label: string, query: string | undefined) {
@@ -106,6 +107,7 @@ function FileExplorerTreeItemComponent({
   searchQuery,
   isSearchMatch = false,
   rowId,
+  fileFeedback,
 }: FileExplorerTreeItemProps) {
   const isCut = useFileClipboardStore(
     (s) =>
@@ -143,6 +145,24 @@ function FileExplorerTreeItemComponent({
     </div>
   )
 
+  const inputRef = useRef<HTMLInputElement>(null)
+  useEffect(() => {
+    if (!file.isEditing && !file.isRenaming) return
+    const el = inputRef.current
+    if (!el) return
+    // Defer focus by one frame so any cleanup effects from unmounting components
+    // (e.g. @base-ui/react/menu restoring focus on close) settle first. Without
+    // this, the menu cleanup fires after el.focus() and returns focus to body,
+    // which immediately triggers handleBlur → cancelInlineEditing.
+    const timer = setTimeout(() => {
+      if (el.isConnected) {
+        el.focus()
+        el.scrollIntoView({ behavior: 'smooth', block: 'center', inline: 'nearest' })
+      }
+    }, 16)
+    return () => clearTimeout(timer)
+  }, [file.isEditing, file.isRenaming])
+
   if (file.isEditing || file.isRenaming) {
     return (
       <div className="file-tree-item w-full" data-depth={depth}>
@@ -163,16 +183,7 @@ function FileExplorerTreeItemComponent({
             className="relative z-[1] shrink-0 text-muted-foreground"
           />
           <Input
-            ref={(el) => {
-              if (el) {
-                el.focus()
-                el.scrollIntoView({
-                  behavior: 'smooth',
-                  block: 'center',
-                  inline: 'nearest',
-                })
-              }
-            }}
+            ref={inputRef}
             type="text"
             autoCapitalize="none"
             autoComplete="off"
@@ -237,14 +248,39 @@ function FileExplorerTreeItemComponent({
           isSymlink={file.isSymlink}
           className="relative z-1 shrink-0 text-muted-foreground"
         />
-        <span
-          className={cn(
-            'relative z-1 select-none whitespace-nowrap',
-            gitStatusDecoration?.colorClassName,
+        <span className="relative z-1 flex min-w-0 items-baseline gap-1.5">
+          <span
+            className={cn(
+              'select-none truncate whitespace-nowrap',
+              gitStatusDecoration?.colorClassName,
+            )}
+          >
+            {renderHighlightedLabel(displayName ?? file.name, searchQuery)}
+          </span>
+          {gitStatusDecoration && (
+            <span
+              className={cn(
+                'shrink-0 select-none font-mono text-[10px] leading-none opacity-80',
+                gitStatusDecoration.colorClassName,
+              )}
+              aria-label={gitStatusDecoration.label}
+            >
+              {gitStatusDecoration.statusLetter}
+            </span>
           )}
-        >
-          {renderHighlightedLabel(displayName ?? file.name, searchQuery)}
         </span>
+        {fileFeedback?.get(file.path) === 'copied-path' && (
+          <span className="ml-auto text-xs text-green-500 shrink-0">✓ path copied</span>
+        )}
+        {fileFeedback?.get(file.path) === 'copied-rel' && (
+          <span className="ml-auto text-xs text-green-500 shrink-0">✓ rel copied</span>
+        )}
+        {fileFeedback?.get(file.path) === 'created' && (
+          <span className="ml-auto text-xs text-green-500 shrink-0">✓ created</span>
+        )}
+        {fileFeedback?.get(file.path) === 'err' && (
+          <span className="ml-auto text-xs text-destructive shrink-0">✕ failed</span>
+        )}
       </TreeRow>
     </div>
   )
@@ -272,5 +308,6 @@ export const FileExplorerTreeItem = memo(
     prev.getGitStatusDecoration === next.getGitStatusDecoration &&
     prev.searchQuery === next.searchQuery &&
     prev.isSearchMatch === next.isSearchMatch &&
-    prev.rowId === next.rowId,
+    prev.rowId === next.rowId &&
+    prev.fileFeedback?.get(prev.file.path) === next.fileFeedback?.get(next.file.path),
 )

@@ -12,6 +12,7 @@ import (
 	"github.com/char2cs/crowbar/api/internal/domain"
 	gitdomain "github.com/char2cs/crowbar/api/internal/domain/git"
 	gitengine "github.com/char2cs/crowbar/api/internal/engine/git"
+	engineterminal "github.com/char2cs/crowbar/api/internal/engine/terminal"
 	provider "github.com/char2cs/crowbar/api/internal/engine/provider"
 )
 
@@ -19,6 +20,7 @@ import (
 type ProjectStore struct {
 	Saved   []domain.Project
 	SaveErr error
+	FindErr error
 }
 
 // NewProjectStore returns an empty ProjectStore.
@@ -48,6 +50,9 @@ func (s *ProjectStore) FindByKey(
 	ctx context.Context,
 	id string,
 ) (*domain.Project, error) {
+	if s.FindErr != nil {
+		return nil, s.FindErr
+	}
 	for i := range s.Saved {
 		if s.Saved[i].ID == id {
 			return &s.Saved[i], nil
@@ -88,6 +93,15 @@ func (s *RepositoryStore) Delete(
 	ctx context.Context,
 	id string,
 ) error {
+	// Remove the row so Saved reflects the net persisted state (a rollback after a
+	// Save leaves no row), matching the real store.
+	kept := s.Saved[:0]
+	for _, r := range s.Saved {
+		if r.ID != id {
+			kept = append(kept, r)
+		}
+	}
+	s.Saved = kept
 	return nil
 }
 
@@ -113,6 +127,9 @@ func (s *RepositoryStore) FindAll(
 type WorkspaceRepo struct {
 	Created   []domain.Workspace
 	CreateErr error
+	// CreateFn, when non-nil, is called instead of the default stub logic. The
+	// caller is responsible for appending to Created if it wants tracking.
+	CreateFn func(ctx context.Context, in workspace.CreateInput, now time.Time) (domain.Workspace, error)
 }
 
 // NewWorkspaceRepo returns an empty WorkspaceRepo.
@@ -125,8 +142,15 @@ func (r *WorkspaceRepo) Create(
 	in workspace.CreateInput,
 	now time.Time,
 ) (domain.Workspace, error) {
+	if r.CreateFn != nil {
+		return r.CreateFn(ctx, in, now)
+	}
 	if r.CreateErr != nil {
 		return domain.Workspace{}, r.CreateErr
+	}
+	status := domain.WorkspaceStatusNew
+	if in.Protected {
+		status = domain.WorkspaceStatusLocked
 	}
 	ws := domain.Workspace{
 		ID:            in.ID,
@@ -136,8 +160,11 @@ func (r *WorkspaceRepo) Create(
 		WorktreePath:  in.WorktreePath,
 		ForkPointSha:  in.ForkPointSha,
 		ParentID:      in.ParentID,
-		Locked:        in.Locked,
+		Status:        status,
 		MergeStrategy: in.MergeStrategy,
+		IsDefault:     in.IsDefault,
+		Kind:          in.Kind,
+		HeldByPath:    in.HeldByPath,
 		CreatedAt:     now,
 	}
 	r.Created = append(r.Created, ws)
@@ -154,6 +181,32 @@ type GitEngine struct {
 	// WorktreeListFn, when non-nil, overrides Worktrees/WorktreeListErr for
 	// per-repo control in tests.
 	WorktreeListFn func(repoPath string) ([]gitengine.WorktreeEntry, error)
+
+	// Protected-branch managed-worktree provisioning fakes (project import).
+	Detached        []string          // worktree paths detached to HEAD
+	CheckedOut      []WorktreeAddCall // (path, branch) re-attach calls
+	WorktreeAdds    []WorktreeAddCall // (path, branch) worktrees materialised
+	WorktreeRemoves []string          // worktree paths force-removed
+	FetchedRefs          []string // branches fetched from origin (FetchRef)
+	FastForwardedBranches []string // branches fast-forwarded from origin (FastForwardBranch)
+	RemoteBranches  map[string]bool   // branch -> exists on origin (default false)
+	RevParseShas    map[string]string // rev -> sha (default "")
+	DetachErr       error             // forces DetachWorktree to fail
+	// WorktreeAddErrByBranch forces WorktreeAdd to fail for specific branches.
+	WorktreeAddErrByBranch map[string]error
+	// Pruned records repo paths WorktreePrune was called on.
+	Pruned []string
+	// DeadRegistrations maps a dead worktree dir -> branch it "holds"; WorktreePrune
+	// removes them and merges the survivors into the list holder.Resolve sees.
+	DeadRegistrations map[string]string
+	// FastForwardErr forces FastForwardBranch to fail (best-effort FF path).
+	FastForwardErr error
+}
+
+// WorktreeAddCall records a fake WorktreeAdd invocation.
+type WorktreeAddCall struct {
+	Path   string
+	Branch string
 }
 
 // NewGitEngine returns an empty GitEngine.
@@ -171,7 +224,11 @@ func (g *GitEngine) WorktreeList(
 	if g.WorktreeListErr != nil {
 		return nil, g.WorktreeListErr
 	}
-	return g.Worktrees, nil
+	out := append([]gitengine.WorktreeEntry(nil), g.Worktrees...)
+	for path, branch := range g.DeadRegistrations {
+		out = append(out, gitengine.WorktreeEntry{Path: path, Branch: branch})
+	}
+	return out, nil
 }
 
 func (g *GitEngine) MergeBase(
@@ -186,10 +243,103 @@ func (g *GitEngine) MergeBase(
 	return g.MergeBaseSha, nil
 }
 
+func (g *GitEngine) DetachWorktree(
+	ctx context.Context,
+	worktreePath string,
+) error {
+	if g.DetachErr != nil {
+		return g.DetachErr
+	}
+	g.Detached = append(g.Detached, worktreePath)
+	return nil
+}
+
+func (g *GitEngine) CheckoutBranch(
+	ctx context.Context,
+	worktreePath string,
+	branch string,
+) error {
+	g.CheckedOut = append(g.CheckedOut, WorktreeAddCall{Path: worktreePath, Branch: branch})
+	return nil
+}
+
+func (g *GitEngine) RemoteBranchExists(
+	ctx context.Context,
+	repoPath string,
+	branch string,
+) (bool, error) {
+	return g.RemoteBranches[branch], nil
+}
+
+func (g *GitEngine) FetchRef(
+	ctx context.Context,
+	repoPath string,
+	branch string,
+) error {
+	g.FetchedRefs = append(g.FetchedRefs, branch)
+	return nil
+}
+
+func (g *GitEngine) FastForwardBranch(
+	ctx context.Context,
+	repoPath string,
+	branch string,
+) error {
+	if g.FastForwardErr != nil {
+		return g.FastForwardErr
+	}
+	g.FastForwardedBranches = append(g.FastForwardedBranches, branch)
+	return nil
+}
+
+func (g *GitEngine) WorktreeAdd(
+	ctx context.Context,
+	repoPath string,
+	worktreePath string,
+	branch string,
+) error {
+	if err := g.WorktreeAddErrByBranch[branch]; err != nil {
+		return err
+	}
+	g.WorktreeAdds = append(g.WorktreeAdds, WorktreeAddCall{Path: worktreePath, Branch: branch})
+	return nil
+}
+
+func (g *GitEngine) WorktreeRemove(
+	ctx context.Context,
+	repoPath string,
+	worktreePath string,
+) error {
+	g.WorktreeRemoves = append(g.WorktreeRemoves, worktreePath)
+	return nil
+}
+
+func (g *GitEngine) WorktreePrune(
+	ctx context.Context,
+	repoPath string,
+) error {
+	g.Pruned = append(g.Pruned, repoPath)
+	g.DeadRegistrations = nil // prune reaps every dead registration
+	return nil
+}
+
+func (g *GitEngine) RevParse(
+	ctx context.Context,
+	repoPath string,
+	rev string,
+) (string, error) {
+	if sha, ok := g.RevParseShas[rev]; ok {
+		return sha, nil
+	}
+	return "", nil
+}
+
 // ProviderEngine is a fake of the provider operations the import usecase consumes.
 type ProviderEngine struct {
 	Protected    []string
 	ProtectedErr error
+	AvatarURL    string
+	AvatarURLErr error
 }
 
 // NewProviderEngine returns an empty ProviderEngine.
@@ -207,11 +357,20 @@ func (p *ProviderEngine) ProtectedBranches(
 	return p.Protected, nil
 }
 
+func (p *ProviderEngine) OwnerAvatarURL(
+	ctx context.Context,
+	repoPath string,
+) (string, error) {
+	return p.AvatarURL, p.AvatarURLErr
+}
+
 // ProviderSyncWorkspaceRepo is a fake of the workspace.Workspace surface used
 // by ProviderSyncUsecase.
 type ProviderSyncWorkspaceRepo struct {
-	GetFn          func(ctx context.Context, id string) (domain.Workspace, error)
-	SyncProviderFn func(ctx context.Context, in workspace.ProviderInput, now time.Time) (domain.Workspace, error)
+	GetFn             func(ctx context.Context, id string) (domain.Workspace, error)
+	SyncProviderFn    func(ctx context.Context, in workspace.ProviderInput, now time.Time) (domain.Workspace, error)
+	ListFn            func(ctx context.Context) ([]domain.Workspace, error)
+	SetParentFromPRFn func(ctx context.Context, id string, parentID string) (domain.Workspace, error)
 }
 
 // NewProviderSyncWorkspaceRepo returns an empty ProviderSyncWorkspaceRepo.
@@ -232,6 +391,20 @@ func (r *ProviderSyncWorkspaceRepo) SyncProviderState(
 	now time.Time,
 ) (domain.Workspace, error) {
 	return r.SyncProviderFn(ctx, in, now)
+}
+
+func (r *ProviderSyncWorkspaceRepo) List(ctx context.Context) ([]domain.Workspace, error) {
+	if r.ListFn != nil {
+		return r.ListFn(ctx)
+	}
+	return nil, nil
+}
+
+func (r *ProviderSyncWorkspaceRepo) SetParentFromPR(ctx context.Context, id string, parentID string) (domain.Workspace, error) {
+	if r.SetParentFromPRFn != nil {
+		return r.SetParentFromPRFn(ctx, id, parentID)
+	}
+	return domain.Workspace{}, nil
 }
 
 // ProviderSyncEngine is a fake of the provider.Engine surface used by
@@ -270,6 +443,11 @@ type WorkspaceLifecycleRepo struct {
 		in workspace.SyncInput,
 		now time.Time,
 	) (domain.Workspace, error)
+	ResolveConflictsFn func(
+		ctx context.Context,
+		id string,
+		now time.Time,
+	) (domain.Workspace, error)
 }
 
 // NewWorkspaceLifecycleRepo returns an empty WorkspaceLifecycleRepo.
@@ -306,6 +484,17 @@ func (r *WorkspaceLifecycleRepo) SyncWorkingTreeState(
 	return r.SyncWorkingTreeFn(ctx, in, now)
 }
 
+func (r *WorkspaceLifecycleRepo) ResolveConflicts(
+	ctx context.Context,
+	id string,
+	now time.Time,
+) (domain.Workspace, error) {
+	if r.ResolveConflictsFn != nil {
+		return r.ResolveConflictsFn(ctx, id, now)
+	}
+	return domain.Workspace{ID: id}, nil
+}
+
 // WorkingTreeGitEngine is a fake of the git WorkingTreeSummary surface.
 type WorkingTreeGitEngine struct {
 	WorkingTreeSummaryFn func(
@@ -313,6 +502,12 @@ type WorkingTreeGitEngine struct {
 		repoPath string,
 		forkPointSha string,
 	) (int, int, bool, bool, error)
+	WouldMergeConflictFn func(
+		ctx context.Context,
+		repoPath string,
+		ours string,
+		theirs string,
+	) (bool, error)
 }
 
 // NewWorkingTreeGitEngine returns an empty WorkingTreeGitEngine.
@@ -326,6 +521,18 @@ func (g *WorkingTreeGitEngine) WorkingTreeSummary(
 	forkPointSha string,
 ) (int, int, bool, bool, error) {
 	return g.WorkingTreeSummaryFn(ctx, repoPath, forkPointSha)
+}
+
+func (g *WorkingTreeGitEngine) WouldMergeConflict(
+	ctx context.Context,
+	repoPath string,
+	ours string,
+	theirs string,
+) (bool, error) {
+	if g.WouldMergeConflictFn == nil {
+		return false, nil
+	}
+	return g.WouldMergeConflictFn(ctx, repoPath, ours, theirs)
 }
 
 // ProjectRollup is a fake of the project lastActivity roll-up surface. It
@@ -482,11 +689,14 @@ func (r *ChatWorkspaceRepo) TouchActivity(
 // WorkspaceSyncer is a fake of the workspace syncer surface used by the file and
 // git usecases.
 type WorkspaceSyncer struct {
-	Synced   bool
-	SyncedID string
+	Synced     bool
+	SyncedID   string
+	Resolved   bool
+	ResolvedID string
 
-	GetFn  func(ctx context.Context, id string) (domain.Workspace, error)
-	SyncFn func(ctx context.Context, id string, now time.Time) (domain.Workspace, error)
+	GetFn     func(ctx context.Context, id string) (domain.Workspace, error)
+	SyncFn    func(ctx context.Context, id string, now time.Time) (domain.Workspace, error)
+	ResolveFn func(ctx context.Context, id string, now time.Time) (domain.Workspace, error)
 }
 
 // NewWorkspaceSyncer returns an empty WorkspaceSyncer.
@@ -510,6 +720,19 @@ func (s *WorkspaceSyncer) SyncWorkingTreeState(
 	s.SyncedID = id
 	if s.SyncFn != nil {
 		return s.SyncFn(ctx, id, now)
+	}
+	return domain.Workspace{ID: id}, nil
+}
+
+func (s *WorkspaceSyncer) ResolveConflicts(
+	ctx context.Context,
+	id string,
+	now time.Time,
+) (domain.Workspace, error) {
+	s.Resolved = true
+	s.ResolvedID = id
+	if s.ResolveFn != nil {
+		return s.ResolveFn(ctx, id, now)
 	}
 	return domain.Workspace{ID: id}, nil
 }
@@ -586,8 +809,9 @@ func (e *FsEngine) Delete(
 // TerminalEngine is a fake of the terminal-engine surface used by the terminal
 // usecase.
 type TerminalEngine struct {
-	CreateFn func(ctx context.Context, wsID, dir string, prof *domain.TerminalProfile) (string, error)
-	KillFn   func(ctx context.Context, sessionID string) error
+	CreateFn          func(ctx context.Context, wsID, dir string, prof *domain.TerminalProfile) (string, error)
+	KillFn            func(ctx context.Context, sessionID string) error
+	LoadPlaceholderFn func(ctx context.Context, m engineterminal.SessionMeta, scrollback []byte) error
 }
 
 // NewTerminalEngine returns an empty TerminalEngine.
@@ -609,6 +833,18 @@ func (e *TerminalEngine) Kill(
 	sessionID string,
 ) error {
 	return e.KillFn(ctx, sessionID)
+}
+
+// LoadPlaceholder is a no-op by default; set LoadPlaceholderFn to override.
+func (e *TerminalEngine) LoadPlaceholder(
+	ctx context.Context,
+	m engineterminal.SessionMeta,
+	scrollback []byte,
+) error {
+	if e.LoadPlaceholderFn != nil {
+		return e.LoadPlaceholderFn(ctx, m, scrollback)
+	}
+	return nil
 }
 
 // TerminalProfileStore is a fake store.Store[domain.TerminalProfile, string].

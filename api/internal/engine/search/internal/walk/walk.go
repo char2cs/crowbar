@@ -12,6 +12,8 @@ import (
 	"sync"
 
 	"github.com/bmatcuk/doublestar/v4"
+
+	"github.com/char2cs/crowbar/api/internal/core/safego"
 )
 
 // Ignorer decides whether an absolute path should be excluded from results.
@@ -46,6 +48,7 @@ func Walk(
 	raw := make(chan string, runtime.GOMAXPROCS(0)*4)
 
 	go func() {
+		defer safego.Recover("search.walk.producer")
 		defer close(raw)
 		_ = filepath.WalkDir(repoPath, func(
 			path string,
@@ -83,6 +86,7 @@ func Walk(
 
 	for range poolSize {
 		go func() {
+			defer safego.Recover("search.walk.worker")
 			defer wg.Done()
 			for path := range raw {
 				if !passesGlobs(repoPath, path, includeGlobs, excludeGlobs) {
@@ -98,6 +102,7 @@ func Walk(
 	}
 
 	go func() {
+		defer safego.Recover("search.walk.closer")
 		wg.Wait()
 		close(out)
 	}()

@@ -6,7 +6,24 @@ import (
 	"context"
 	"sync"
 	"time"
+
+	"github.com/char2cs/crowbar/api/internal/core/safego"
 )
+
+// GlobalCronInterval is the cadence of the daemon-wide background sweep that
+// polls every workspace with a live PR, even ones nobody is watching (D10/§11).
+const GlobalCronInterval = 5 * time.Minute
+
+// PerConnectionInterval is the cadence of the per-active-WS-connection poll that
+// the realtime ProviderPollManager runs for the single subscribed workspace
+// (D10/§11).
+const PerConnectionInterval = 1 * time.Minute
+
+// perTargetTimeout bounds a single target's pollFn (which runs network
+// subprocesses: gh/glab/git). Without it one hung remote would stall the whole
+// serial sweep — every other workspace's PR status would stop updating until the
+// hang resolved. The sweep ctx still cancels every target on shutdown.
+const perTargetTimeout = 30 * time.Second
 
 // SweepTarget is the minimal info the sweep needs per workspace.
 type SweepTarget struct {
@@ -52,6 +69,7 @@ type sweeper struct {
 	pollFn        PollFn
 	onStateChange OnStateChangeFn
 	interval      time.Duration
+	targetTimeout time.Duration
 	mu            sync.Mutex
 	lastState     map[string]ProviderStateSnapshot
 }
@@ -66,12 +84,13 @@ type Sweeper interface {
 	)
 }
 
-// NewSweeper creates a Sweeper with the default 60-second interval.
+// NewSweeper creates a Sweeper with the default 5-minute global cron interval
+// (D10/§11). newSweeperWithInterval stays the test seam for a short interval.
 func NewSweeper(
 	pollFn PollFn,
 	onStateChange OnStateChangeFn,
 ) Sweeper {
-	return newSweeperWithInterval(pollFn, onStateChange, 60*time.Second)
+	return newSweeperWithInterval(pollFn, onStateChange, GlobalCronInterval)
 }
 
 // newSweeperWithInterval creates a Sweeper with a configurable interval.
@@ -85,6 +104,7 @@ func newSweeperWithInterval(
 		pollFn:        pollFn,
 		onStateChange: onStateChange,
 		interval:      interval,
+		targetTimeout: perTargetTimeout,
 		lastState:     make(map[string]ProviderStateSnapshot),
 	}
 }
@@ -102,6 +122,7 @@ func (s *sweeper) run(
 	ctx context.Context,
 	workspacesFn func() []SweepTarget,
 ) {
+	defer safego.Recover("provider.poll.run")
 	ticker := time.NewTicker(s.interval)
 	defer ticker.Stop()
 
@@ -123,6 +144,30 @@ func (s *sweeper) sweepOnce(
 	for _, t := range targets {
 		s.sweepTarget(ctx, t)
 	}
+	s.pruneLastState(targets)
+}
+
+// pruneLastState drops lastState entries whose workspace is no longer among the
+// sweep targets. targets is recomputed from the live workspace list each tick, so
+// a workspace absent from it has been deleted (or its repo/project removed);
+// without this prune the map keeps one stale snapshot per deleted PR-bearing
+// workspace for the daemon's whole lifetime. Self-correcting: a workspace gone
+// for one tick is reaped on that tick.
+func (s *sweeper) pruneLastState(targets []SweepTarget) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if len(s.lastState) == 0 {
+		return
+	}
+	seen := make(map[string]struct{}, len(targets))
+	for _, t := range targets {
+		seen[t.WSID] = struct{}{}
+	}
+	for wsID := range s.lastState {
+		if _, ok := seen[wsID]; !ok {
+			delete(s.lastState, wsID)
+		}
+	}
 }
 
 // sweepTarget polls a single workspace target and notifies only on state change.
@@ -134,7 +179,14 @@ func (s *sweeper) sweepTarget(
 		return
 	}
 
-	state, err := s.pollFn(ctx, t.WSID, t.RepoPath, t.Branch)
+	timeout := s.targetTimeout
+	if timeout <= 0 {
+		timeout = perTargetTimeout
+	}
+	targetCtx, cancel := context.WithTimeout(ctx, timeout)
+	defer cancel()
+
+	state, err := s.pollFn(targetCtx, t.WSID, t.RepoPath, t.Branch)
 	if err != nil {
 		return
 	}

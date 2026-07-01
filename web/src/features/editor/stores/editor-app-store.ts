@@ -30,6 +30,18 @@ function reportSaveError(error: unknown): void {
 }
 
 async function saveEditorBufferById(bufferId: string): Promise<boolean> {
+  // Managed Monaco editors are model-authoritative: keystrokes land in the model
+  // and reach the Zustand buffer store through a throttled ContentSink (150ms
+  // trailing flush). If the user types and saves within that window WITHOUT
+  // blurring the editor, the last keystrokes are still pending in the sink and
+  // not yet in the store. Synchronously dispatch a flush BEFORE reading
+  // buffer.content below: the editor's listener calls sink.flush() synchronously,
+  // and the sink's write updates the store synchronously, so getState() below
+  // sees the latest content.
+  if (typeof window !== 'undefined') {
+    window.dispatchEvent(new Event('flush-editor-content'))
+  }
+
   const wsRef = getActiveWorkspaceStoreRef()
   const wsStore = wsRef?.getState()
   if (!wsStore) return false
@@ -184,7 +196,17 @@ interface AppActions {
     previousContent?: string,
     previousCursorPosition?: Position,
     previousSelection?: Range,
-    options?: { contentAlreadyApplied?: boolean; skipUndoGrouping?: boolean },
+    options?: {
+      contentAlreadyApplied?: boolean
+      skipUndoGrouping?: boolean
+      /**
+       * Pin the write to a SPECIFIC buffer instead of the currently-active one.
+       * The retained editor passes the buffer its ContentSink was tracking so a
+       * flush during a fast tab switch attributes content to the edited buffer,
+       * not whichever buffer is active when the write lands (I3 data-loss fix).
+       */
+      targetBufferId?: string
+    },
   ) => Promise<void>
   handleSave: () => Promise<void>
   handleSaveAll: () => Promise<number>
@@ -201,23 +223,30 @@ export const useEditorAppStore = createSelectors(
           previousContent?: string,
           previousCursorPosition?: Position,
           previousSelection?: Range,
-          options?: { contentAlreadyApplied?: boolean; skipUndoGrouping?: boolean },
+          options?: {
+            contentAlreadyApplied?: boolean
+            skipUndoGrouping?: boolean
+            targetBufferId?: string
+          },
         ) => {
           const wsRef = getActiveWorkspaceStoreRef()
           const wsStore = wsRef?.getState()
           if (!wsStore) return
           const { buffers, panes, activePaneId } = wsStore
-          const activeBufferId = panes[activePaneId]?.activeBufferId ?? null
+          // Pin to the explicitly-targeted buffer when provided (I3); otherwise
+          // fall back to the active buffer (legacy seam behavior).
+          const targetBufferId =
+            options?.targetBufferId ?? panes[activePaneId]?.activeBufferId ?? null
           const { settings } = useSettingsStore.getState()
           const { markPendingSave } = useFileWatcherStore.getState()
           const contentAlreadyApplied = options?.contentAlreadyApplied === true
 
-          const activeBuffer = buffers.find((b) => b.id === activeBufferId)
+          const activeBuffer = buffers.find((b) => b.id === targetBufferId)
           if (!activeBuffer || !isEditorContent(activeBuffer)) return
 
-          if (activeBufferId) {
+          if (targetBufferId) {
             trackBufferHistoryChange({
-              bufferId: activeBufferId,
+              bufferId: targetBufferId,
               currentContent: activeBuffer.content,
               nextContent: content,
               previousContent,

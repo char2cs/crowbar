@@ -2,6 +2,8 @@ package chat_test
 
 import (
 	"context"
+	"fmt"
+	"sync"
 	"testing"
 	"time"
 
@@ -29,7 +31,7 @@ func newRepo(
 	t.Cleanup(func() { _ = ax.Shutdown(context.Background()) })
 	db, err := storesqlite.OpenDB(":memory:")
 	require.NoError(t, err)
-	repo, err := chat.New(ax, db, func(domain.Chat) {})
+	repo, err := chat.New(context.Background(), ax, es, db, func(domain.Chat) {})
 	require.NoError(t, err)
 	return context.Background(), repo
 }
@@ -42,17 +44,6 @@ func TestChat_Create_RoundTrips(t *testing.T) {
 	reloaded, err := repo.Get(ctx, "c1")
 	require.NoError(t, err)
 	assert.Equal(t, "w1", reloaded.WsID)
-}
-
-func TestChat_ResetIdle_Idempotent(t *testing.T) {
-	ctx, repo := newRepo(t)
-	_, err := repo.Create(ctx, "c1", "w1", "hello", time.Unix(1, 0))
-	require.NoError(t, err)
-	_, err = repo.ResetIdle(ctx, "c1")
-	require.NoError(t, err)
-	second, err := repo.ResetIdle(ctx, "c1")
-	require.NoError(t, err)
-	assert.Equal(t, domain.ChatStatusIdle, second.Status)
 }
 
 func TestChat_Create_ErrorOnDuplicate(t *testing.T) {
@@ -69,12 +60,6 @@ func TestChat_Get_ErrorOnMissing(t *testing.T) {
 	assert.Error(t, err)
 }
 
-func TestChat_ResetIdle_ErrorOnMissing(t *testing.T) {
-	ctx, repo := newRepo(t)
-	_, err := repo.ResetIdle(ctx, "does-not-exist")
-	assert.Error(t, err)
-}
-
 func TestChat_Get_ReturnsCreated(t *testing.T) {
 	ctx, repo := newRepo(t)
 	now := time.Unix(500, 0)
@@ -84,21 +69,6 @@ func TestChat_Get_ReturnsCreated(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, "w2", got.WsID)
 	assert.Equal(t, domain.ChatStatusIdle, got.Status)
-}
-
-func TestChat_SetAgentRunning_RoundTrips(t *testing.T) {
-	ctx, repo := newRepo(t)
-	_, err := repo.Create(ctx, "c1", "w1", "hello", time.Unix(1, 0))
-	require.NoError(t, err)
-	running, err := repo.SetAgentRunning(ctx, "c1")
-	require.NoError(t, err)
-	assert.Equal(t, domain.ChatStatusAgentRunning, running.Status)
-}
-
-func TestChat_SetAgentRunning_ErrorOnMissing(t *testing.T) {
-	ctx, repo := newRepo(t)
-	_, err := repo.SetAgentRunning(ctx, "does-not-exist")
-	assert.Error(t, err)
 }
 
 func TestChat_ForkRenameDeleteList(t *testing.T) {
@@ -155,6 +125,39 @@ func TestChat_Delete_ErrorOnMissing(t *testing.T) {
 	assert.Error(t, err)
 }
 
+// TestChat_ConcurrentSameAggregateCommandsAllSucceed proves R6 for the global
+// chat repo: many commands targeting the SAME chat aggregate at once must ALL
+// commit. The chat aggregate shares one asynx (8 workers) and one event store
+// across every chat; without single-writer-per-aggregate serialization the
+// optimistic event store rejects the losers with a version/PK conflict and the
+// read model silently goes stale.
+func TestChat_ConcurrentSameAggregateCommandsAllSucceed(t *testing.T) {
+	ctx, repo := newRepo(t)
+	now := time.Unix(1000, 0).UTC()
+	_, err := repo.Create(ctx, "c1", "w1", "root", now)
+	require.NoError(t, err)
+
+	const n = 32
+	errs := make([]error, n)
+	var wg sync.WaitGroup
+	for i := 0; i < n; i++ {
+		wg.Add(1)
+		go func(idx int) {
+			defer wg.Done()
+			_, errs[idx] = repo.Rename(ctx, "c1", fmt.Sprintf("title-%d", idx))
+		}(i)
+	}
+	wg.Wait()
+
+	failed := 0
+	for _, e := range errs {
+		if e != nil {
+			failed++
+		}
+	}
+	require.Zero(t, failed, "%d/%d concurrent same-aggregate commands failed with a version conflict", failed, n)
+}
+
 func TestChat_New_ErrorOnClosedDB(t *testing.T) {
 	es, err := eventsqlite.NewEventStore(":memory:")
 	require.NoError(t, err)
@@ -171,6 +174,6 @@ func TestChat_New_ErrorOnClosedDB(t *testing.T) {
 	require.NoError(t, sqlErr)
 	sqlDB.Close()
 
-	_, newErr := chat.New(ax, db, func(domain.Chat) {})
+	_, newErr := chat.New(context.Background(), ax, es, db, func(domain.Chat) {})
 	assert.Error(t, newErr)
 }

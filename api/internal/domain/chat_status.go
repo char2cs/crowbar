@@ -4,6 +4,5 @@ package domain
 type ChatStatus string
 
 const (
-	ChatStatusIdle         ChatStatus = "idle"
-	ChatStatusAgentRunning ChatStatus = "agent-running"
+	ChatStatusIdle ChatStatus = "idle"
 )

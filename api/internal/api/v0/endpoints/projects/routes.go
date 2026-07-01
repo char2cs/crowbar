@@ -4,21 +4,28 @@ package projects
 import (
 	"github.com/gin-gonic/gin"
 
+	"github.com/char2cs/crowbar/api/internal/api/v0/dto"
 	projecthandlers "github.com/char2cs/crowbar/api/internal/api/v0/endpoints/projects/handlers"
 )
 
 // Register mounts the project list, detail, import, and delete routes on the
 // supplied router group, backed by the project read, import, and delete
-// usecases.
+// usecases. The list and detail GET routes are dual-served: a plain GET answers
+// REST while a WebSocket upgrade is routed to projectsWS (the Broadcaster
+// [ProjectDTO] handle) for the live stream — a list-scope subscriber receives
+// all projects, a :projectId-scope subscriber receives only that project (W7-2).
 func Register(
 	rg *gin.RouterGroup,
 	reader projecthandlers.ListGetter,
 	importer projecthandlers.Importer,
 	deleter projecthandlers.Deleter,
+	broadcast func(dto.ProjectDTO),
+	projectsWS gin.HandlerFunc,
+	dispatch func(rest, ws gin.HandlerFunc) gin.HandlerFunc,
 ) {
-	h := projecthandlers.New(reader, importer, deleter)
-	rg.GET("/projects", h.List)
+	h := projecthandlers.New(reader, importer, deleter, broadcast)
+	rg.GET("/projects", dispatch(h.List, projectsWS))
 	rg.POST("/projects", h.Import)
-	rg.GET("/projects/:id", h.Detail)
-	rg.DELETE("/projects/:id", h.Delete)
+	rg.GET("/projects/:projectId", dispatch(h.Detail, projectsWS))
+	rg.DELETE("/projects/:projectId", h.Delete)
 }

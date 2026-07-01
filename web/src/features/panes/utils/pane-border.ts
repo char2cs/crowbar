@@ -25,9 +25,9 @@ export function buildPaneContentStyle(
   sidebarSide: 'left' | 'right',
 ): CSSProperties {
   const we = (edge: Edge) => isWindowEdge(edge, position, sidebarSide)
-  const BORDER = '1px solid var(--border)'
+  const BORDER = 'none'
   const NONE = 'none'
-  const R = 'var(--radius-xl)'
+  const R = 'var(--radius-lg)'
   const ZERO = '0'
 
   return {

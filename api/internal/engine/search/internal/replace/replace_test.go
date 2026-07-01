@@ -132,6 +132,39 @@ func TestApplyToFile_PreservesPermissions(t *testing.T) {
 	assert.Equal(t, "#!/bin/sh\ngoodbye\n", string(data))
 }
 
+// TestApplyToFile_NoReadPermission covers the "open for sniff" error branch:
+// os.Stat succeeds (it doesn't require read permission on the file itself),
+// but the subsequent os.Open for the binary sniff fails because the file has
+// no read permission.
+func TestApplyToFile_NoReadPermission(t *testing.T) {
+	if os.Getuid() == 0 {
+		t.Skip("running as root; cannot test permission denial")
+	}
+	dir := t.TempDir()
+	path := writeFile(t, dir, "file.go", "hello\n")
+	require.NoError(t, os.Chmod(path, 0o000))
+	t.Cleanup(func() { _ = os.Chmod(path, 0o600) })
+
+	re := regexp.MustCompile(`hello`)
+	err := replace.ApplyToFile(path, re, "goodbye", false)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "open for sniff")
+}
+
+// TestApplyToFile_DirectoryAsPath covers the binary-sniff read error branch
+// (readErr != io.EOF): os.Stat and os.Open both succeed against a directory,
+// but reading from it fails with "is a directory".
+func TestApplyToFile_DirectoryAsPath(t *testing.T) {
+	dir := t.TempDir()
+	sub := filepath.Join(dir, "subdir")
+	require.NoError(t, os.Mkdir(sub, 0o755))
+
+	re := regexp.MustCompile(`hello`)
+	err := replace.ApplyToFile(sub, re, "goodbye", false)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "sniff")
+}
+
 func TestApplyToFile_RenameFailsWhenDirReadOnly(t *testing.T) {
 	if os.Getuid() == 0 {
 		t.Skip("running as root; cannot test permission denial")

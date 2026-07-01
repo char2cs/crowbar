@@ -20,7 +20,7 @@ func TestChatDTOFrom(
 		WsID:      "w1",
 		Title:     "title",
 		ParentID:  "c0",
-		Status:    domain.ChatStatusAgentRunning,
+		Status:    domain.ChatStatusIdle,
 		Type:      domain.ChatTypeChat,
 		CreatedAt: now,
 	})
@@ -28,7 +28,7 @@ func TestChatDTOFrom(
 	assert.Equal(t, "w1", got.WsID)
 	assert.Equal(t, "title", got.Title)
 	assert.Equal(t, "c0", got.ParentID)
-	assert.Equal(t, domain.ChatStatusAgentRunning, got.Status)
+	assert.Equal(t, domain.ChatStatusIdle, got.Status)
 	assert.Equal(t, now, got.CreatedAt)
 }
 

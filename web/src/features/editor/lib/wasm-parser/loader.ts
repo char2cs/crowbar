@@ -50,11 +50,22 @@ class WasmParserLoader {
     try {
       await Parser.init({
         locateFile(scriptName: string) {
-          const baseOrigin =
-            typeof globalThis !== 'undefined' && globalThis.location?.origin
-              ? `${globalThis.location.origin}/`
-              : '/'
-          return new URL(`tree-sitter/${scriptName}`, baseOrigin).toString()
+          // In a Vite blob: worker, `location.origin` is the literal string
+          // "null" — so we must not use it directly. Instead, derive the real
+          // app origin from `location.href`: `new URL(blobHref).origin` parses
+          // the embedded http(s) origin correctly even from a blob: context.
+          let appOrigin = ''
+          if (typeof globalThis !== 'undefined' && globalThis.location?.href) {
+            try {
+              const parsed = new URL(globalThis.location.href)
+              if (parsed.origin !== 'null') {
+                appOrigin = parsed.origin
+              }
+            } catch {
+              // ignore — appOrigin stays ''
+            }
+          }
+          return `${appOrigin}/tree-sitter/${scriptName}`
         },
       })
       this.initialized = true

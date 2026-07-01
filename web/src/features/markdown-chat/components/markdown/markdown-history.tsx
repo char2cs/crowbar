@@ -1,3 +1,4 @@
+import { memo } from 'react'
 import type { CSSProperties } from 'react'
 import type { MarkdownTurn, TurnRole } from '../../types'
 import { TurnMarkdown } from './turn-markdown'
@@ -62,54 +63,83 @@ const metaStyle: CSSProperties = {
   fontVariantNumeric: 'tabular-nums',
 }
 
-export function MarkdownHistory({ turns, onWidgetChange }: MarkdownHistoryProps) {
+interface TurnItemProps {
+  turn: MarkdownTurn
+  onWidgetChange?: (widgetId: string, payload: unknown) => void
+}
+
+// One turn's <article>. Memoized so that a streaming update — which hands
+// MarkdownHistory a new `turns` array but keeps every unchanged turn's object
+// reference (the store only replaces the streaming turn) — re-renders just the
+// streaming turn. Finalized turns shallow-compare equal (same `turn` reference,
+// same `onWidgetChange` callback) and are skipped, avoiding a full ReactMarkdown
+// re-parse of the whole history on every streamed token.
+const TurnItem = memo(function TurnItem({ turn, onWidgetChange }: TurnItemProps) {
+  return (
+    <article
+      style={{
+        ...articleStyle,
+        // Same tint as the input/composer (markdown-chat-view).
+        background:
+          turn.role === 'user' ? 'color-mix(in srgb, var(--primary) 10%, transparent)' : undefined,
+      }}
+    >
+      {/* Full-height column rails (span the tint and touch the adjacent
+            turn's rails); colored by role. */}
+      <div
+        aria-hidden
+        className="pointer-events-none absolute inset-y-0 w-px"
+        style={{ left: COLUMN_EDGE, background: railColor(turn.role) }}
+      />
+      <div
+        aria-hidden
+        className="pointer-events-none absolute inset-y-0 w-px"
+        style={{ right: COLUMN_EDGE, background: railColor(turn.role) }}
+      />
+      {/* Hidden when the pane is too narrow to hold the label in the margin. */}
+      <header className="text-muted-foreground @max-[880px]:hidden" style={metaStyle}>
+        {metaLabel(turn)}
+      </header>
+      <div
+        style={{
+          gridColumn: 2,
+          minWidth: 0,
+          paddingLeft: '24px',
+          paddingRight: '24px',
+        }}
+      >
+        <TurnMarkdown
+          content={turn.content}
+          widgets={turn.widgets}
+          streaming={turn.streaming}
+          onWidgetChange={onWidgetChange}
+        />
+        {turn.error && (
+          <div
+            role="alert"
+            className="my-2 rounded-md border border-destructive/40 bg-destructive/10 px-3 py-2 text-xs text-destructive"
+          >
+            {turn.error}
+          </div>
+        )}
+      </div>
+    </article>
+  )
+})
+
+// Memoized: MarkdownChatView re-renders on every streamed frame (the store
+// returns a new `turns` array each one). With a stable `onWidgetChange`, this
+// re-renders only when `turns` actually changes; the per-turn memo above then
+// confines the work to the single streaming turn.
+export const MarkdownHistory = memo(function MarkdownHistory({
+  turns,
+  onWidgetChange,
+}: MarkdownHistoryProps) {
   return (
     <div className="pt-10">
       {turns.map((turn) => (
-        <article
-          key={turn.id}
-          style={{
-            ...articleStyle,
-            // Same tint as the input/composer (markdown-chat-view).
-            background:
-              turn.role === 'user'
-                ? 'color-mix(in srgb, var(--primary) 10%, transparent)'
-                : undefined,
-          }}
-        >
-          {/* Full-height column rails (span the tint and touch the adjacent
-                turn's rails); colored by role. */}
-          <div
-            aria-hidden
-            className="pointer-events-none absolute inset-y-0 w-px"
-            style={{ left: COLUMN_EDGE, background: railColor(turn.role) }}
-          />
-          <div
-            aria-hidden
-            className="pointer-events-none absolute inset-y-0 w-px"
-            style={{ right: COLUMN_EDGE, background: railColor(turn.role) }}
-          />
-          {/* Hidden when the pane is too narrow to hold the label in the margin. */}
-          <header className="text-muted-foreground @max-[880px]:hidden" style={metaStyle}>
-            {metaLabel(turn)}
-          </header>
-          <div
-            style={{
-              gridColumn: 2,
-              minWidth: 0,
-              paddingLeft: '24px',
-              paddingRight: '24px',
-            }}
-          >
-            <TurnMarkdown
-              content={turn.content}
-              widgets={turn.widgets}
-              streaming={turn.streaming}
-              onWidgetChange={onWidgetChange}
-            />
-          </div>
-        </article>
+        <TurnItem key={turn.id} turn={turn} onWidgetChange={onWidgetChange} />
       ))}
     </div>
   )
-}
+})

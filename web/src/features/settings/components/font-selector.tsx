@@ -22,8 +22,8 @@ import { cn } from '@/utils/cn'
 // Bundled fonts that are always available
 const BUNDLED_FONTS: FontInfo[] = [
   {
-    name: 'IBM Plex Sans Variable',
-    family: 'IBM Plex Sans Variable',
+    name: 'CalSansUI',
+    family: 'CalSansUI',
     style: 'Regular',
     is_monospace: false,
   },

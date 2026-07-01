@@ -3,69 +3,65 @@ import {
   useCallback,
   useContext,
   useEffect,
+  useMemo,
   useRef,
   useState,
   type ReactNode,
 } from 'react'
-import { useSidebarStore } from '@/lib/store/sidebar'
+import { useNavigate, useRouter } from '@tanstack/react-router'
+import { getPostDeleteNavigationTarget, useSidebarStore } from '@/lib/store/sidebar'
 import { reparentWorkspace } from '@/lib/api/workspace'
 import { postWorkspace, deleteWorkspace as apiDeleteWorkspace } from '@/lib/api'
-import { toast } from '@/components/ui/toast'
 
 /**
- * Creates the workspace on the backend, then mirrors it into the sidebar
- * store using the real id the backend returned. On failure no phantom node
- * is added — the error is surfaced via toast.
+ * Resolve the owning project id for a repo from the sidebar tree. Hierarchical
+ * mutations need both ids; the tree always carries `projectId` from the §5
+ * RepoDTO once the repo has seeded.
+ */
+function projectIdForRepo(repoId: string): string | undefined {
+  return useSidebarStore.getState().repos.find((r) => r.id === repoId)?.projectId
+}
+
+/**
+ * Fire the hierarchical create mutation (202 Accepted, §3). No optimistic node
+ * is added: the WorkspaceDTO arrives over the scoped WS stream (status 'new'
+ * then the real status) and the WS-driven cache inserts it.
  */
 export async function performCreateWorkspace(
   repoId: string,
   branch: string,
   parentId?: string,
 ): Promise<void> {
+  const projectId = projectIdForRepo(repoId)
+  if (!projectId) {
+    console.error('Failed to create workspace: unknown project for repo', repoId)
+    return
+  }
   try {
-    const { id } = await postWorkspace(repoId, branch, parentId)
-    useSidebarStore.getState().addWorkspace(repoId, id, branch, parentId)
+    await postWorkspace(projectId, repoId, branch, parentId)
   } catch (err) {
     console.error('Failed to create workspace:', err)
-    toast.error('Failed to create workspace', err instanceof Error ? err.message : undefined)
   }
 }
 
 /**
- * Deletes the workspace on the backend, then removes it from the sidebar
- * store. Locked workspaces are never deleted. On failure the local store is
- * left untouched and the error is surfaced via toast.
+ * Fire the hierarchical delete mutation (202 Accepted, §3). Locked workspaces
+ * are never deleted. No optimistic removal: the backend owns the cascade and
+ * emits one status:'deleted' tombstone per removed id, which the WS-driven
+ * cache applies. On failure the item stays in the list via WS non-arrival — no
+ * toast needed.
  */
 export async function performDeleteWorkspace(wsId: string): Promise<void> {
-  const ws = useSidebarStore
-    .getState()
-    .repos.flatMap((r) => r.workspaces)
-    .find((w) => w.id === wsId)
-  if (!ws || ws.status === 'locked') return
+  const repo = useSidebarStore.getState().repos.find((r) => r.workspaces.some((w) => w.id === wsId))
+  const ws = repo?.workspaces.find((w) => w.id === wsId)
+  if (!repo || !ws || ws.status === 'locked') return
+  const projectId = repo.projectId
+  if (!projectId) return
   try {
-    await apiDeleteWorkspace(wsId)
-    useSidebarStore.getState().deleteWorkspace(wsId)
+    await apiDeleteWorkspace(projectId, repo.id, wsId)
   } catch (err) {
     console.error('Failed to delete workspace:', err)
-    toast.error('Failed to delete workspace', err instanceof Error ? err.message : undefined)
-  }
-}
-
-/**
- * Reparents the workspace on the backend, then mirrors the change into the
- * sidebar store. On failure the local store is left untouched and the error
- * is surfaced via toast.
- */
-export async function performReparentWorkspace(
-  wsId: string,
-  newParentId: string | undefined,
-  repoId: string,
-): Promise<void> {
-  try {
-    await reparentWorkspace(wsId, newParentId, repoId)
-  } catch (err) {
-    console.error('Failed to reparent workspace:', err)
-    toast.error('Failed to reparent workspace', err instanceof Error ? err.message : undefined)
+    // item stays in list via WS non-arrival — no toast needed
   }
 }
 
@@ -80,30 +76,76 @@ interface DraggingState {
   label: string
 }
 
-interface WorkspaceTreeContextValue {
+export interface PendingCreate {
+  repoId: string
+  parentId: string
+  branch: string
+  error?: string
+}
+
+/**
+ * The slow-changing slice: action callbacks (stable identities) plus the
+ * create/rename UI state, which only flips on explicit user intent. Split out
+ * from the drag slice so that a drag (which fires `setHoverTargetId` on every
+ * drop-boundary crossing) does not recreate this value and re-render every row
+ * that only needs the actions.
+ */
+interface WorkspaceTreeActionsContextValue {
   // Create
   creatingChildOf: CreatingState | null
   startCreating: (repoId: string, parentId: string) => void
   confirmCreate: (branch: string) => void
   cancelCreate: () => void
+  // Pending creates (in-flight / errored)
+  pendingCreates: Map<string, PendingCreate>
+  clearPendingCreate: (tempId: string) => void
   // Rename
   renamingId: string | null
   startRenaming: (wsId: string) => void
   confirmRename: (branch: string) => void
   cancelRename: () => void
-  // Drag (pointer-based)
-  draggingWs: DraggingState | null
-  dragPos: { x: number; y: number } | null
-  hoverTargetId: string | null
+  // Drag start (pointer-based) — stable callback, lives with the actions
   onPointerDownDrag: (wsId: string, repoId: string, label: string, e: React.PointerEvent) => void
 }
 
-const WorkspaceTreeContext = createContext<WorkspaceTreeContextValue | null>(null)
+/**
+ * The fast-changing slice: the live drag state. `hoverTargetId` updates on every
+ * boundary crossing during a drag; keeping it in its own context means only the
+ * subscribers that actually read drag state re-render on those updates.
+ */
+interface WorkspaceTreeDragContextValue {
+  draggingWs: DraggingState | null
+  hoverTargetId: string | null
+  movingWsId: string | null // wsId of item currently being moved (API in-flight)
+}
 
-export function useWorkspaceTreeContext() {
-  const ctx = useContext(WorkspaceTreeContext)
-  if (!ctx) throw new Error('useWorkspaceTreeContext must be used inside WorkspaceTreeProvider')
+const WorkspaceTreeActionsContext = createContext<WorkspaceTreeActionsContextValue | null>(null)
+const WorkspaceTreeDragContext = createContext<WorkspaceTreeDragContextValue | null>(null)
+
+export function useWorkspaceTreeActions() {
+  const ctx = useContext(WorkspaceTreeActionsContext)
+  if (!ctx) throw new Error('useWorkspaceTreeActions must be used inside WorkspaceTreeProvider')
   return ctx
+}
+
+export function useWorkspaceTreeDrag() {
+  const ctx = useContext(WorkspaceTreeDragContext)
+  if (!ctx) throw new Error('useWorkspaceTreeDrag must be used inside WorkspaceTreeProvider')
+  return ctx
+}
+
+// A completed drag still produces a click on the captured row (pointerdown +
+// pointerup on the same element), which would select/navigate into the
+// dragged workspace. Swallow that one click in the capture phase.
+function suppressNextClick(): void {
+  const swallow = (e: MouseEvent) => {
+    e.stopPropagation()
+    e.preventDefault()
+  }
+  window.addEventListener('click', swallow, { capture: true, once: true })
+  // The click (if any) fires synchronously after pointerup; drop the trap
+  // right after so a later real click is never swallowed.
+  setTimeout(() => window.removeEventListener('click', swallow, { capture: true }), 0)
 }
 
 // Skips the dragging workspace itself to prevent self-drop flicker
@@ -121,11 +163,42 @@ function findDropTarget(x: number, y: number, draggingId: string | null): string
 }
 
 export function WorkspaceTreeProvider({ children }: { children: ReactNode }) {
+  const navigate = useNavigate()
+  const router = useRouter()
   const [creatingChildOf, setCreatingChildOf] = useState<CreatingState | null>(null)
   const [renamingId, setRenamingId] = useState<string | null>(null)
   const [draggingWs, setDraggingWs] = useState<DraggingState | null>(null)
-  const [dragPos, setDragPos] = useState<{ x: number; y: number } | null>(null)
   const [hoverTargetId, setHoverTargetId] = useState<string | null>(null)
+  const [pendingCreates, setPendingCreates] = useState<Map<string, PendingCreate>>(new Map())
+  const [movingWsId, setMovingWsId] = useState<string | null>(null)
+
+  function addPendingCreate(tempId: string, entry: PendingCreate) {
+    setPendingCreates((prev) => new Map(prev).set(tempId, entry))
+  }
+  function setPendingCreateError(tempId: string, error: string) {
+    setPendingCreates((prev) => {
+      const entry = prev.get(tempId)
+      if (!entry) return prev
+      return new Map(prev).set(tempId, { ...entry, error })
+    })
+  }
+  function clearPendingCreate(tempId: string) {
+    setPendingCreates((prev) => {
+      const n = new Map(prev)
+      n.delete(tempId)
+      return n
+    })
+  }
+
+  // Ghost div position is updated imperatively in pointermove — no React state,
+  // no tree re-renders on every pixel of mouse movement.
+  const ghostRef = useRef<HTMLDivElement | null>(null)
+  // Tracks the initial position for the ghost's first render (set just before
+  // setDraggingWs so the ghost mounts at the correct location).
+  const lastDragPosRef = useRef<{ x: number; y: number } | null>(null)
+  // Mirrors hoverTargetId for equality checks — avoids state writes when the
+  // drop target hasn't actually changed.
+  const hoverTargetIdRef = useRef<string | null>(null)
 
   const pendingRef = useRef<{
     wsId: string
@@ -140,6 +213,10 @@ export function WorkspaceTreeProvider({ children }: { children: ReactNode }) {
   // Set synchronously at the point of change, not via useEffect, to avoid one-render lag.
   const draggingRef = useRef<DraggingState | null>(null)
 
+  // Ref so the onPointerUp closure can call setMovingWsId without stale captures.
+  const setMovingWsIdRef = useRef(setMovingWsId)
+  setMovingWsIdRef.current = setMovingWsId
+
   const startCreating = useCallback((repoId: string, parentId: string) => {
     setCreatingChildOf({ repoId, parentId })
   }, [])
@@ -147,10 +224,36 @@ export function WorkspaceTreeProvider({ children }: { children: ReactNode }) {
   const confirmCreate = useCallback(
     (branch: string) => {
       if (!creatingChildOf) return
-      void performCreateWorkspace(creatingChildOf.repoId, branch, creatingChildOf.parentId)
-      setCreatingChildOf(null)
+      const { repoId, parentId } = creatingChildOf
+      const tempId = crypto.randomUUID()
+      setCreatingChildOf(null) // hide input immediately
+
+      addPendingCreate(tempId, { repoId, parentId, branch })
+
+      // Subscribe to sidebar store: when the real workspace arrives, remove pending
+      const unsub = useSidebarStore.subscribe((state) => {
+        const repo = state.repos.find((r) => r.id === repoId)
+        if (!repo) return
+        const found = repo.workspaces.find((w) => w.branch === branch && w.parentId === parentId)
+        if (found) {
+          clearPendingCreate(tempId)
+          unsub()
+        }
+      })
+
+      // Fire the API
+      const projectId = projectIdForRepo(repoId)
+      if (!projectId) {
+        setPendingCreateError(tempId, 'Unknown project')
+        unsub()
+        return
+      }
+      postWorkspace(projectId, repoId, branch, parentId).catch((err) => {
+        unsub()
+        setPendingCreateError(tempId, err instanceof Error ? err.message : 'Create failed')
+      })
     },
-    [creatingChildOf],
+    [creatingChildOf], // eslint-disable-line react-hooks/exhaustive-deps
   )
 
   const cancelCreate = useCallback(() => setCreatingChildOf(null), [])
@@ -197,16 +300,30 @@ export function WorkspaceTreeProvider({ children }: { children: ReactNode }) {
           if (target.isConnected) target.setPointerCapture(pointerId)
           const ws = { id: wsId, repoId, label }
           draggingRef.current = ws
+          // Store position before triggering the React re-render so the ghost
+          // div mounts at the correct location on its first render.
+          lastDragPosRef.current = { x: e.clientX, y: e.clientY }
           setDraggingWs(ws)
-          setDragPos({ x: e.clientX, y: e.clientY })
           // Update hover target immediately so highlight appears on the first move
-          setHoverTargetId(findDropTarget(e.clientX, e.clientY, wsId))
+          const initialTarget = findDropTarget(e.clientX, e.clientY, wsId)
+          hoverTargetIdRef.current = initialTarget
+          setHoverTargetId(initialTarget)
         }
         return
       }
       if (!draggingRef.current) return
-      setDragPos({ x: e.clientX, y: e.clientY })
-      setHoverTargetId(findDropTarget(e.clientX, e.clientY, draggingRef.current.id))
+      // Move ghost directly — no React state update, no tree re-render.
+      if (ghostRef.current) {
+        ghostRef.current.style.left = `${e.clientX + 12}px`
+        ghostRef.current.style.top = `${e.clientY - 10}px`
+      }
+      // Only trigger a React re-render when the drop target actually changes
+      // (mouse crosses a boundary), not on every pixel of movement.
+      const newTarget = findDropTarget(e.clientX, e.clientY, draggingRef.current.id)
+      if (newTarget !== hoverTargetIdRef.current) {
+        hoverTargetIdRef.current = newTarget
+        setHoverTargetId(newTarget)
+      }
     }
 
     function onPointerUp(e: PointerEvent) {
@@ -214,29 +331,85 @@ export function WorkspaceTreeProvider({ children }: { children: ReactNode }) {
       const ws = draggingRef.current
       if (!ws) return
 
+      // The browser fires a click for this pointerup on the captured row;
+      // a drop must never double as a row click (selection/navigation).
+      suppressNextClick()
+
       const target = findDropTarget(e.clientX, e.clientY, ws.id)
 
       if (target === 'trash') {
-        void performDeleteWorkspace(ws.id)
+        // Resolve the fallback before deletion mutates the store.
+        const fallbackWsId = getPostDeleteNavigationTarget(useSidebarStore.getState().repos, ws.id)
+        void performDeleteWorkspace(ws.id).then(() => {
+          // If the active workspace no longer exists (it was the dragged one
+          // or a deleted descendant), leave the dead route: go to the parent
+          // / repo base workspace, or the projects page as last resort.
+          const pathname = router.state.location.pathname
+          const activeId = pathname.match(/\/ide\/[^/]+\/[^/]+\/([^/]+)/)?.[1]
+          if (!activeId) return
+          const stillExists = useSidebarStore
+            .getState()
+            .repos.some((r) => r.workspaces.some((w) => w.id === activeId))
+          if (stillExists) return
+          if (fallbackWsId) {
+            const updatedRepos = useSidebarStore.getState().repos
+            const fallbackRepo = updatedRepos.find((r) =>
+              r.workspaces.some((w) => w.id === fallbackWsId),
+            )
+            if (fallbackRepo) {
+              void navigate({
+                to: '/ide/$projectId/$repoId/$wsId',
+                params: {
+                  projectId: fallbackRepo.projectId ?? '',
+                  repoId: fallbackRepo.id,
+                  wsId: fallbackWsId,
+                },
+              })
+            } else {
+              void navigate({ to: '/' })
+            }
+          } else {
+            void navigate({ to: '/' })
+          }
+        })
       } else if (target?.startsWith('ws:')) {
         const targetWsId = target.slice(3)
         if (targetWsId !== ws.id) {
           const repos = useSidebarStore.getState().repos
           const targetRepo = repos.find((r) => r.workspaces.some((w) => w.id === targetWsId))
           if (targetRepo?.id === ws.repoId) {
-            void performReparentWorkspace(ws.id, targetWsId, ws.repoId)
+            // Capture original parent before optimistic move
+            const originalParentId = repos
+              .flatMap((r) => r.workspaces)
+              .find((w) => w.id === ws.id)?.parentId
+
+            // Optimistic: move immediately in store
+            useSidebarStore.getState().reparentWorkspace(ws.id, targetWsId)
+            setMovingWsIdRef.current(ws.id)
+
+            const projectId = projectIdForRepo(ws.repoId)
+            if (projectId) {
+              reparentWorkspace(projectId, ws.repoId, ws.id, targetWsId)
+                .catch(() => {
+                  // Snap back on failure
+                  useSidebarStore.getState().reparentWorkspace(ws.id, originalParentId)
+                })
+                .finally(() => {
+                  setMovingWsIdRef.current(null)
+                })
+            } else {
+              // Can't move — revert immediately
+              useSidebarStore.getState().reparentWorkspace(ws.id, originalParentId)
+              setMovingWsIdRef.current(null)
+            }
           }
-        }
-      } else if (target?.startsWith('repo:')) {
-        const targetRepoId = target.slice(5)
-        if (targetRepoId === ws.repoId) {
-          void performReparentWorkspace(ws.id, undefined, ws.repoId)
         }
       }
 
       draggingRef.current = null
+      hoverTargetIdRef.current = null
+      lastDragPosRef.current = null
       setDraggingWs(null)
-      setDragPos(null)
       setHoverTargetId(null)
     }
 
@@ -244,8 +417,9 @@ export function WorkspaceTreeProvider({ children }: { children: ReactNode }) {
       pendingRef.current = null
       if (draggingRef.current) {
         draggingRef.current = null
+        hoverTargetIdRef.current = null
+        lastDragPosRef.current = null
         setDraggingWs(null)
-        setDragPos(null)
         setHoverTargetId(null)
       }
     }
@@ -258,26 +432,63 @@ export function WorkspaceTreeProvider({ children }: { children: ReactNode }) {
       window.removeEventListener('pointerup', onPointerUp)
       window.removeEventListener('pointercancel', onPointerCancel)
     }
-  }, [])
+  }, [navigate, router])
+
+  // Memoize each slice so the Provider hands out stable values: the actions
+  // value only changes when the create/rename state does (its callbacks are
+  // stable), and the drag value only changes on a real drag update.
+  const actionsValue = useMemo<WorkspaceTreeActionsContextValue>(
+    () => ({
+      creatingChildOf,
+      startCreating,
+      confirmCreate,
+      cancelCreate,
+      pendingCreates,
+      clearPendingCreate,
+      renamingId,
+      startRenaming,
+      confirmRename,
+      cancelRename,
+      onPointerDownDrag,
+    }),
+    [
+      creatingChildOf,
+      startCreating,
+      confirmCreate,
+      cancelCreate,
+      pendingCreates,
+      renamingId,
+      startRenaming,
+      confirmRename,
+      cancelRename,
+      onPointerDownDrag,
+    ],
+  )
+
+  const dragValue = useMemo<WorkspaceTreeDragContextValue>(
+    () => ({ draggingWs, hoverTargetId, movingWsId }),
+    [draggingWs, hoverTargetId, movingWsId],
+  )
 
   return (
-    <WorkspaceTreeContext.Provider
-      value={{
-        creatingChildOf,
-        startCreating,
-        confirmCreate,
-        cancelCreate,
-        renamingId,
-        startRenaming,
-        confirmRename,
-        cancelRename,
-        draggingWs,
-        dragPos,
-        hoverTargetId,
-        onPointerDownDrag,
-      }}
-    >
-      {children}
-    </WorkspaceTreeContext.Provider>
+    <>
+      <WorkspaceTreeActionsContext.Provider value={actionsValue}>
+        <WorkspaceTreeDragContext.Provider value={dragValue}>
+          {children}
+        </WorkspaceTreeDragContext.Provider>
+      </WorkspaceTreeActionsContext.Provider>
+      {draggingWs && (
+        <div
+          ref={ghostRef}
+          className="pointer-events-none fixed z-50 rounded-md border border-border bg-secondary px-2 py-1 font-mono text-[13px] text-secondary-foreground shadow-md opacity-90"
+          style={{
+            left: lastDragPosRef.current ? lastDragPosRef.current.x + 12 : 0,
+            top: lastDragPosRef.current ? lastDragPosRef.current.y - 10 : 0,
+          }}
+        >
+          {draggingWs.label}
+        </div>
+      )}
+    </>
   )
 }

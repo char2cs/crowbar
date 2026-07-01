@@ -7,6 +7,7 @@ import { useEventListener } from 'usehooks-ts'
 import { useFileClipboardStore } from '@/features/file-explorer/stores/file-explorer-clipboard-store'
 import { useFileTreeStore } from '@/features/file-explorer/stores/file-explorer-tree-store'
 import {
+  computeFileTreeSearchHits,
   filterFileTreeForFffHits,
   getGuideAncestorRows,
   getStickyAncestorRows,
@@ -14,6 +15,7 @@ import {
 import {
   createFileTreeGitStatusLookup,
   getFileTreeEntryGitStatusDecoration,
+  resolveActiveWorkspaceGitStatus,
   type FileTreeGitStatusDecoration,
   type FileTreeGitStatusLookup,
 } from '@/features/file-explorer/lib/file-tree-git-status'
@@ -26,13 +28,11 @@ import { useFileSystemStore } from '@/features/file-system/controllers/store'
 import type { FileEntry } from '@/features/file-system/types/app'
 import { useGitStore } from '@/features/git/stores/git-store'
 import { useSettingsStore } from '@/features/settings/store'
+import { getWorkspaceScope } from '@/lib/workspace-scope'
+import { Button } from '@/components/ui/button'
 import { Dropdown, type MenuItem } from '@/components/ui/dropdown'
-import {
-  SidebarEmptyActionState,
-  SidebarHeader,
-  SidebarHeaderIconButton,
-  SidebarHeaderSearch,
-} from '@/components/ui/sidebar'
+import { Input } from '@/components/ui/input'
+import { SidebarEmptyActionState, SidebarHeader } from '@/components/ui/sidebar'
 import { cn } from '@/utils/cn'
 import { frontendTrace } from '@/utils/frontend-trace'
 import { getRelativePath, pathStartsWithRoot } from '@/utils/path-helpers'
@@ -138,6 +138,7 @@ function FileExplorerTreeComponent({
   const searchInputRef = useRef<HTMLInputElement>(null)
   const filterButtonRef = useRef<HTMLButtonElement>(null)
   const documentRef = useRef<Document>(document)
+  const savedExpandedPathsRef = useRef<Set<string> | null>(null)
 
   const workspaceGitStatus = useGitStore((state) => state.workspaceGitStatus)
   const currentWorkspaceRepoPath = useGitStore((state) => state.currentWorkspaceRepoPath)
@@ -232,10 +233,16 @@ function FileExplorerTreeComponent({
     getWorkspaceRootForPath,
   )
 
-  const gitStatus =
-    currentWorkspaceRepoPath && currentWorkspaceRepoPath === rootFolderPath
-      ? workspaceGitStatus
-      : null
+  // The git store keys workspaceGitStatus by the wsId it loaded
+  // (currentWorkspaceRepoPath). rootFolderPath is the synthetic `/repos/<repoId>`
+  // mock-era prefix (a different id space), so it cannot be the match key — the
+  // file explorer always renders the active workspace, so gate on its wsId.
+  const activeWorkspaceId = getWorkspaceScope()?.wsId ?? null
+  const gitStatus = resolveActiveWorkspaceGitStatus(
+    workspaceGitStatus,
+    currentWorkspaceRepoPath,
+    activeWorkspaceId,
+  )
 
   const gitStatusDecorationLookup = useMemo(() => {
     const startedAt = performance.now()
@@ -253,12 +260,15 @@ function FileExplorerTreeComponent({
     return lookup
   }, [gitStatus, settings.showGitStatusInFileTree])
 
+  // Resolve straight from the lookup: tree paths and git-status keys are both
+  // workspace-relative, so getFileTreeEntryGitStatusDecoration matches them and
+  // returns null for files with no change. (The old `getWorkspaceRootForPath ===
+  // rootFolderPath` guard compared a relative path against the synthetic
+  // `/repos/<repoId>` root — always false — and blocked every decoration.)
   const getGitStatusDecoration = useCallback(
     (file: FileEntry): FileTreeGitStatusDecoration | null =>
-      getWorkspaceRootForPath(file.path) === rootFolderPath
-        ? getFileTreeEntryGitStatusDecoration(file, rootFolderPath, gitStatusDecorationLookup)
-        : null,
-    [getWorkspaceRootForPath, gitStatusDecorationLookup, rootFolderPath],
+      getFileTreeEntryGitStatusDecoration(file, rootFolderPath, gitStatusDecorationLookup),
+    [gitStatusDecorationLookup, rootFolderPath],
   )
 
   const filteredFiles = useMemo(() => {
@@ -314,8 +324,12 @@ function FileExplorerTreeComponent({
     isTreeSearchActive && treeSearchQuery.trim() !== debouncedTreeSearchQuery.trim()
   const isTreeSearchSearching = isTreeSearchActive && isTreeSearchSettling
   const treeSearchResult = useMemo(
-    () => filterFileTreeForFffHits(filteredFiles, []),
-    [filteredFiles],
+    () =>
+      filterFileTreeForFffHits(
+        filteredFiles,
+        computeFileTreeSearchHits(filteredFiles, debouncedTreeSearchQuery),
+      ),
+    [filteredFiles, debouncedTreeSearchQuery],
   )
   const displayedFiles =
     isTreeSearchActive && !isTreeSearchSearching
@@ -336,7 +350,7 @@ function FileExplorerTreeComponent({
         label: 'Hidden Files',
         icon: <Eye />,
         keybinding: settings.showHiddenFilesInFileTree ? (
-          <Check className="size-3.5 text-accent" />
+          <Check className="size-3.5 text-primary" />
         ) : null,
         onClick: () =>
           void updateSetting('showHiddenFilesInFileTree', !settings.showHiddenFilesInFileTree),
@@ -346,7 +360,7 @@ function FileExplorerTreeComponent({
         label: 'Gitignored Files',
         icon: <GitBranch />,
         keybinding: settings.showGitignoredFilesInFileTree ? (
-          <Check className="size-3.5 text-accent" />
+          <Check className="size-3.5 text-primary" />
         ) : null,
         onClick: () =>
           void updateSetting(
@@ -360,7 +374,7 @@ function FileExplorerTreeComponent({
         label: 'Git Status',
         icon: <GitBranch />,
         keybinding: settings.showGitStatusInFileTree ? (
-          <Check className="size-3.5 text-accent" />
+          <Check className="size-3.5 text-primary" />
         ) : null,
         onClick: () =>
           void updateSetting('showGitStatusInFileTree', !settings.showGitStatusInFileTree),
@@ -510,6 +524,23 @@ function FileExplorerTreeComponent({
     return () => window.removeEventListener('file-tree-open-search', handleFileTreeOpenSearch)
   }, [])
 
+  // When search is active, expand all directories so the lazy loader fetches their
+  // children — otherwise files in unexpanded dirs are invisible to the search.
+  // The pre-search expansion state is saved and restored when search clears.
+  useEffect(() => {
+    if (debouncedTreeSearchQuery.trim()) {
+      if (!savedExpandedPathsRef.current) {
+        savedExpandedPathsRef.current = new Set(useFileTreeStore.getState().expandedPaths)
+      }
+      useFileTreeStore.getState().expandAll(filteredFiles)
+    } else {
+      if (savedExpandedPathsRef.current) {
+        useFileTreeStore.getState().setExpandedPaths(savedExpandedPathsRef.current)
+        savedExpandedPathsRef.current = null
+      }
+    }
+  }, [debouncedTreeSearchQuery, filteredFiles])
+
   // No sticky overlays or global guides
 
   const { editingValue, setEditingValue, startInlineEditing, handleKeyDown, handleBlur } =
@@ -536,8 +567,19 @@ function FileExplorerTreeComponent({
 
   const collectLoadedFilesInDirectory = useCallback(
     (directoryPath: string): string[] => {
-      const directory = findFileInTree(filteredFiles, directoryPath)
-      if (!directory || !directory.isDir) return []
+      // The workspace root is addressed by its absolute path (=== rootFolderPath)
+      // or '', but the tree's own nodes are root-relative, so there is no node to
+      // look up — walk the top-level entries directly. Any other directory is a
+      // real relative-path node in the tree.
+      const isRoot = !directoryPath || directoryPath === rootFolderPath
+      let rootEntries: FileEntry[] | undefined
+      if (isRoot) {
+        rootEntries = filteredFiles
+      } else {
+        const directory = findFileInTree(filteredFiles, directoryPath)
+        if (!directory || !directory.isDir) return []
+        rootEntries = directory.children
+      }
 
       const collected: string[] = []
       const walk = (entries?: FileEntry[]) => {
@@ -551,10 +593,10 @@ function FileExplorerTreeComponent({
         }
       }
 
-      walk(directory.children)
+      walk(rootEntries)
       return collected
     },
-    [filteredFiles],
+    [filteredFiles, rootFolderPath],
   )
 
   const collectLocalFilesInDirectory = useCallback(
@@ -663,30 +705,35 @@ function FileExplorerTreeComponent({
     }
   }, [openAllFilesDialog, openFilePathsInTabs])
 
-  const { setContextMenu, handleContextMenu, contextMenuElement } = useFileExplorerContextMenu({
-    rootFolderPath,
-    onFileSelect,
-    onCreateNewFileInDirectory,
-    onCreateNewFolderInDirectory,
-    onGenerateImage,
-    onRefreshDirectory,
-    onRenamePath,
-    onRevealInFinder,
-    onUploadFile,
-    onDuplicatePath,
-    onAddFolderToWorkspace: () => {
-      void addFolderToWorkspace()
-    },
-    onRemoveFolderFromWorkspace: (path) => {
-      void removeFolderFromWorkspace(path)
-    },
-    isWorkspaceRootPath: (path) => workspaceRootPaths.includes(path),
-    canRemoveWorkspaceRootPath: (path) =>
-      path !== rootFolderPath && workspaceRootPaths.includes(path),
-    onDeleteRequested: setDeleteCandidate,
-    onStartInlineEditing: startInlineEditing,
-    onOpenAllFilesInDirectory: handleOpenAllFilesInDirectory,
-  })
+  const { setContextMenu, handleContextMenu, contextMenuElement, fileFeedback } =
+    useFileExplorerContextMenu({
+      rootFolderPath,
+      onFileSelect,
+      onCreateNewFileInDirectory,
+      onCreateNewFolderInDirectory,
+      onGenerateImage,
+      onRefreshDirectory,
+      onRenamePath,
+      onRevealInFinder,
+      onUploadFile,
+      onDuplicatePath,
+      onAddFolderToWorkspace: () => {
+        void addFolderToWorkspace()
+      },
+      onRemoveFolderFromWorkspace: (path) => {
+        void removeFolderFromWorkspace(path)
+      },
+      // Only the actual workspace root hides Rename/Delete. workspaceRootPaths
+      // lists every top-level folder (a multi-root-workspace notion that doesn't
+      // apply to Crowbar's single worktree); using it here wrongly treated every
+      // top-level folder as a root, so Delete/Rename never appeared on them.
+      isWorkspaceRootPath: (path) => path === rootFolderPath,
+      canRemoveWorkspaceRootPath: (path) =>
+        path !== rootFolderPath && workspaceRootPaths.includes(path),
+      onDeleteRequested: setDeleteCandidate,
+      onStartInlineEditing: startInlineEditing,
+      onOpenAllFilesInDirectory: handleOpenAllFilesInDirectory,
+    })
 
   useEventListener(
     'keydown',
@@ -758,17 +805,13 @@ function FileExplorerTreeComponent({
       if (!t) return
       e.preventDefault()
       e.stopPropagation()
-      if (!t.isDir) {
-        fileOpenBenchmark.ensureStarted(t.path, 'explorer-double-click')
-        fileOpenBenchmark.mark(t.path, 'explorer-double-click')
-      }
       setFocusedPath(t.path)
-      void Promise.resolve(onFileOpen?.(t.path, t.isDir))
-      if (t.isDir) {
-        updateActivePath?.(t.path)
-      }
+      // Double-click begins an inline rename (onRenamePath with no new name marks
+      // the node editable). Single-click still opens/previews; the context-menu
+      // "Rename" uses this same path.
+      onRenamePath?.(t.path)
     },
-    [onFileOpen, updateActivePath, pathToFile],
+    [onRenamePath],
   )
 
   const handleContainerContextMenu = useCallback(
@@ -1027,47 +1070,63 @@ function FileExplorerTreeComponent({
       onMouseLeave={handleContainerMouseLeave}
     >
       <SidebarHeader onClick={(e) => e.stopPropagation()} onMouseDown={(e) => e.stopPropagation()}>
-        <SidebarHeaderSearch
-          ref={searchInputRef}
-          value={treeSearchQuery}
-          onChange={setTreeSearchQuery}
-          leftIcon={Search}
-          placeholder="Search"
-          name="file-tree-filter"
-          aria-label="Filter files in tree"
-          aria-controls="file-tree-results"
-          autoCapitalize="none"
-          autoComplete="off"
-          autoCorrect="off"
-          spellCheck="false"
-          onKeyDown={(e) => {
-            if (e.key === 'Escape') {
-              e.preventDefault()
-              e.stopPropagation()
-              closeTreeSearch()
-              return
-            }
+        <div className="flex items-stretch gap-1.5">
+          <span className="relative flex min-w-0 flex-1 items-center">
+            <Search className="pointer-events-none absolute start-2.5 z-10 size-3.5 text-muted-foreground/72" />
+            <Input
+              nativeInput
+              ref={searchInputRef}
+              value={treeSearchQuery}
+              onChange={(e) => setTreeSearchQuery(e.target.value)}
+              size="sm"
+              placeholder="Search"
+              className="ps-5"
+              name="file-tree-filter"
+              aria-label="Filter files in tree"
+              aria-controls="file-tree-results"
+              autoCapitalize="none"
+              autoComplete="off"
+              autoCorrect="off"
+              spellCheck="false"
+              onKeyDown={(e) => {
+                if (e.key === 'Escape') {
+                  e.preventDefault()
+                  e.stopPropagation()
+                  closeTreeSearch()
+                  return
+                }
 
-            if (e.key === 'Enter') {
-              e.preventDefault()
-              e.stopPropagation()
-              navigateTreeSearchMatch(e.shiftKey ? -1 : 1)
-            }
-          }}
-        />
-        <SidebarHeaderIconButton
-          ref={filterButtonRef}
-          active={hasActiveFileTreeFilters}
-          className="shrink-0"
-          tooltip="Filter Files"
-          tooltipSide="bottom"
-          onClick={() => setIsFileTreeFilterMenuOpen(true)}
-        >
-          <Funnel />
-        </SidebarHeaderIconButton>
+                if (e.key === 'Enter') {
+                  e.preventDefault()
+                  e.stopPropagation()
+                  navigateTreeSearchMatch(e.shiftKey ? -1 : 1)
+                }
+              }}
+            />
+          </span>
+          <Button
+            ref={filterButtonRef}
+            variant="outline"
+            active={hasActiveFileTreeFilters}
+            tooltip="Filter Files"
+            tooltipSide="bottom"
+            className={cn(
+              'h-7.5 w-7.5 shrink-0 self-stretch rounded-lg p-0 sm:h-6.5 sm:w-6.5',
+              // The theme's muted/accent tokens are ~4% alpha, so the default hover
+              // just makes the button translucent over the glass sidebar. Use an
+              // opaque mix of the popover base + foreground for a real muted fill.
+              'hover:bg-[color-mix(in_oklch,var(--popover),var(--foreground)_10%)] dark:hover:bg-[color-mix(in_oklch,var(--popover),var(--foreground)_10%)]',
+              'data-pressed:bg-[color-mix(in_oklch,var(--popover),var(--foreground)_16%)] dark:data-pressed:bg-[color-mix(in_oklch,var(--popover),var(--foreground)_16%)]',
+              hasActiveFileTreeFilters && 'text-accent',
+            )}
+            onClick={() => setIsFileTreeFilterMenuOpen(true)}
+          >
+            <Funnel className="size-3.5" />
+          </Button>
+        </div>
       </SidebarHeader>
       {!rootFolderPath ? (
-        <div className="file-tree-empty-state absolute inset-0 flex items-center justify-center">
+        <div className="file-tree-empty-state flex flex-1 items-center justify-center">
           <SidebarEmptyActionState
             message="No folder open"
             actionLabel="Open Folder"
@@ -1075,7 +1134,7 @@ function FileExplorerTreeComponent({
           />
         </div>
       ) : displayedFiles.length === 0 ? (
-        <div className="file-tree-empty-state absolute inset-0 flex items-center justify-center">
+        <div className="file-tree-empty-state flex flex-1 items-center justify-center">
           <SidebarEmptyActionState
             message={
               isTreeSearchSearching
@@ -1197,6 +1256,7 @@ function FileExplorerTreeComponent({
                       rowId={getFileTreeRowId(row.file.path)}
                       searchQuery={isTreeSearchActive ? treeSearchQuery : undefined}
                       isSearchMatch={treeSearchResult.matchedPaths.has(row.file.path)}
+                      fileFeedback={fileFeedback}
                     />
                   )
                 })}

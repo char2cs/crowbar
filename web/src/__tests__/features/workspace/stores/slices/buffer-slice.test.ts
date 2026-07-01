@@ -6,6 +6,32 @@ import {
   type BufferSlice,
 } from '@/features/workspace/stores/slices/buffer-slice'
 
+const { killTerminalSession } = vi.hoisted(() => ({
+  killTerminalSession: vi.fn(async () => {}),
+}))
+
+vi.mock('@/features/terminal/lib/kill-terminal-session', () => ({
+  killTerminalSession,
+}))
+
+const { destroyConversationStore } = vi.hoisted(() => ({
+  destroyConversationStore: vi.fn(),
+}))
+
+vi.mock('@/features/markdown-chat/stores/conversation-store', () => ({
+  destroyConversationStore,
+}))
+
+const { clearReconnect } = vi.hoisted(() => ({
+  clearReconnect: vi.fn(),
+}))
+
+vi.mock('@/features/terminal/lib/terminal-reconnect-map', () => ({
+  clearReconnect,
+  saveReconnect: vi.fn(),
+  loadReconnect: vi.fn(() => null),
+}))
+
 const makePaneActions = () => ({
   addBufferToPane: vi.fn(),
   setPanePreviewBuffer: vi.fn(),
@@ -16,11 +42,12 @@ const makePaneActions = () => ({
 
 type PaneActions = ReturnType<typeof makePaneActions>
 
-function makeStore(paneActions: PaneActions = makePaneActions()) {
-  const store = createStore<BufferSlice & { paneActions: PaneActions }>()(
+function makeStore(paneActions: PaneActions = makePaneActions(), workspaceId = 'ws-test') {
+  const store = createStore<BufferSlice & { paneActions: PaneActions; workspaceId: string }>()(
     immer((set, get) => ({
       ...createBufferSlice(...([set, get, {}] as unknown as Parameters<typeof createBufferSlice>)),
       paneActions,
+      workspaceId,
     })),
   )
   return { store, paneActions }
@@ -79,6 +106,78 @@ describe('buffer-slice', () => {
     })
     store.getState().bufferActions.closeBuffer(id)
     expect(store.getState().buffers).toHaveLength(0)
+  })
+
+  // BUG-015: closing a terminal tab is final (terminals never enter the
+  // undo-close history), so the backend PTY must be killed on close —
+  // otherwise every closed tab leaks a live shell process.
+  it('closeBuffer kills the backend PTY session of a terminal buffer', async () => {
+    killTerminalSession.mockClear()
+    const id = store.getState().bufferActions.openContent({
+      type: 'terminal',
+      sessionId: 'sess-9',
+      name: 'Terminal 1',
+    })
+    store.getState().bufferActions.closeBuffer(id)
+    expect(store.getState().buffers).toHaveLength(0)
+    // The kill goes through a dynamic import — flush microtasks.
+    await vi.waitFor(() => expect(killTerminalSession).toHaveBeenCalledWith('sess-9'))
+  })
+
+  it('closeBuffer clears the reconnect map entry after killing a terminal buffer', async () => {
+    clearReconnect.mockClear()
+    const { store: localStore } = makeStore(makePaneActions(), 'ws-99')
+    const id = localStore.getState().bufferActions.openContent({
+      type: 'terminal',
+      sessionId: 'sess-reconnect',
+      name: 'Terminal 2',
+    })
+    localStore.getState().bufferActions.closeBuffer(id)
+    // clearReconnect fires after killTerminalSession completes (both in the same async chain)
+    await vi.waitFor(() => expect(clearReconnect).toHaveBeenCalledWith('ws-99', 'sess-reconnect'))
+  })
+
+  // H10: each "New Conversation" mints a fresh wsId-keyed conversation store
+  // holding the full streamed turns[]. Closing the chat tab is final, so the
+  // store must be destroyed on close — otherwise every closed chat leaks its
+  // entire message history for the lifetime of the session.
+  it('closeBuffer destroys the conversation store of a crowbarChat buffer', async () => {
+    destroyConversationStore.mockClear()
+    const id = store.getState().bufferActions.openContent({
+      type: 'crowbarChat',
+      wsId: 'chat-ws-7',
+      name: 'Chat',
+    })
+    store.getState().bufferActions.closeBuffer(id)
+    expect(store.getState().buffers).toHaveLength(0)
+    // The teardown goes through a dynamic import — flush microtasks.
+    await vi.waitFor(() => expect(destroyConversationStore).toHaveBeenCalledWith('chat-ws-7'))
+  })
+
+  it('closeBuffer does not destroy conversation stores for non-chat buffers', async () => {
+    destroyConversationStore.mockClear()
+    const id = store.getState().bufferActions.openContent({
+      type: 'editor',
+      path: '/y.ts',
+      name: 'y.ts',
+      content: '',
+    })
+    store.getState().bufferActions.closeBuffer(id)
+    await new Promise((resolve) => setTimeout(resolve, 0))
+    expect(destroyConversationStore).not.toHaveBeenCalled()
+  })
+
+  it('closeBuffer does not kill PTYs for non-terminal buffers', async () => {
+    killTerminalSession.mockClear()
+    const id = store.getState().bufferActions.openContent({
+      type: 'editor',
+      path: '/x.ts',
+      name: 'x.ts',
+      content: '',
+    })
+    store.getState().bufferActions.closeBuffer(id)
+    await new Promise((resolve) => setTimeout(resolve, 0))
+    expect(killTerminalSession).not.toHaveBeenCalled()
   })
 
   it('preview flag is set when isPreview is true', () => {

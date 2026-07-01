@@ -1,18 +1,18 @@
 // Package handlers holds the gin handlers backing the review endpoint: the
-// composite branch-review read model, merge-strategy mutation, and
-// review-thread CRUD (open, reply, resolve/reopen) (02 §2.9, 09).
+// composite branch-review read model and merge-strategy mutation (02 §2.9, 09).
+// Review-thread CRUD was promoted to the first-class /threads endpoint (W9).
 package handlers
 
 import (
 	"context"
 
-	"github.com/char2cs/crowbar/api/internal/app/usecases/branchreview"
 	"github.com/char2cs/crowbar/api/internal/domain"
 	gitdomain "github.com/char2cs/crowbar/api/internal/domain/git"
 )
 
-// ReviewUsecase is the branch-review surface the review handlers consume. It
-// mirrors branchreview.Usecase so the concrete usecase satisfies it directly.
+// ReviewUsecase is the branch-review surface the review handlers consume. It is
+// satisfied by branchreview.Usecase, whose thread methods are now consumed by
+// the dedicated threads endpoint rather than here.
 type ReviewUsecase interface {
 	// Get assembles the composite branch-review read model for a workspace.
 	Get(
@@ -25,23 +25,6 @@ type ReviewUsecase interface {
 		wsID string,
 		strategy gitdomain.MergeStrategy,
 	) error
-	// OpenThread opens a new review thread anchored to a file location.
-	OpenThread(
-		ctx context.Context,
-		in branchreview.OpenThreadInput,
-	) (domain.ReviewThread, error)
-	// Reply appends a reply message to an existing review thread.
-	Reply(
-		ctx context.Context,
-		threadID string,
-		body string,
-	) (domain.ReviewThread, error)
-	// SetThreadResolved marks a review thread resolved or reopens it.
-	SetThreadResolved(
-		ctx context.Context,
-		threadID string,
-		resolved bool,
-	) (domain.ReviewThread, error)
 }
 
 // Handlers serves the /v0 branch-review routes from the branch-review usecase.
