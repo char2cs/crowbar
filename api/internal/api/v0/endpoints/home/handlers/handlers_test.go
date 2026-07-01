@@ -40,6 +40,16 @@ func (stubProjectReader) FindByKey(_ context.Context, _ string) (*domain.Project
 	return nil, apperr.ErrNotFound
 }
 
+// ── ProjectReader mock — controllable for lazy home provisioning tests ───────
+
+type mockProjectReader struct{ mock.Mock }
+
+func (m *mockProjectReader) FindByKey(ctx context.Context, id string) (*domain.Project, error) {
+	args := m.Called(ctx, id)
+	proj, _ := args.Get(0).(*domain.Project)
+	return proj, args.Error(1)
+}
+
 // ── Files stub (no-op, always returns empty results) ──────────────────────────
 
 type stubFiles struct{}
@@ -161,5 +171,156 @@ func TestFileTree_Returns200WhenWorkspaceExists(t *testing.T) {
 	r.ServeHTTP(w, req)
 
 	require.Equal(t, http.StatusOK, w.Code)
+	reader.AssertExpectations(t)
+}
+
+// ── resolveHome — lazy provisioning ───────────────────────────────────────
+
+// TestGetHome_LazilyProvisions verifies that when GetHomeForProject reports
+// ErrNotFound, resolveHome falls back to looking up the project and creating
+// a home workspace from its path, supporting projects created before the
+// home feature existed.
+func TestGetHome_LazilyProvisions(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	r := gin.New()
+
+	reader := &mockHomeReader{}
+	reader.On("GetHomeForProject", mock.Anything, "proj-legacy").
+		Return(domain.Workspace{}, apperr.ErrNotFound)
+	newWS := domain.Workspace{
+		ID:           "ws-new",
+		ProjectID:    "proj-legacy",
+		Kind:         domain.WorkspaceKindHome,
+		WorktreePath: "/projects/legacy",
+	}
+	reader.On("CreateHome", mock.Anything, "proj-legacy", "/projects/legacy", mock.AnythingOfType("time.Time")).
+		Return(newWS, nil)
+
+	projects := &mockProjectReader{}
+	projects.On("FindByKey", mock.Anything, "proj-legacy").
+		Return(&domain.Project{ID: "proj-legacy", Path: "/projects/legacy"}, nil)
+
+	h := handlers.New(reader, projects, nil, nil)
+	r.GET("/projects/:projectId/home", h.Get)
+
+	w := httptest.NewRecorder()
+	req, _ := http.NewRequest("GET", "/projects/proj-legacy/home", nil)
+	r.ServeHTTP(w, req)
+
+	require.Equal(t, http.StatusOK, w.Code)
+	reader.AssertExpectations(t)
+	projects.AssertExpectations(t)
+}
+
+// TestGetHome_LazyProvisionCreateFails verifies that a CreateHome failure
+// during lazy provisioning surfaces as a 500.
+func TestGetHome_LazyProvisionCreateFails(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	r := gin.New()
+
+	reader := &mockHomeReader{}
+	reader.On("GetHomeForProject", mock.Anything, "proj-legacy2").
+		Return(domain.Workspace{}, apperr.ErrNotFound)
+	reader.On("CreateHome", mock.Anything, "proj-legacy2", "/projects/legacy2", mock.AnythingOfType("time.Time")).
+		Return(domain.Workspace{}, errors.New("write failed"))
+
+	projects := &mockProjectReader{}
+	projects.On("FindByKey", mock.Anything, "proj-legacy2").
+		Return(&domain.Project{ID: "proj-legacy2", Path: "/projects/legacy2"}, nil)
+
+	h := handlers.New(reader, projects, nil, nil)
+	r.GET("/projects/:projectId/home", h.Get)
+
+	w := httptest.NewRecorder()
+	req, _ := http.NewRequest("GET", "/projects/proj-legacy2/home", nil)
+	r.ServeHTTP(w, req)
+
+	require.Equal(t, http.StatusInternalServerError, w.Code)
+	reader.AssertExpectations(t)
+	projects.AssertExpectations(t)
+}
+
+// TestGetHome_LazyProvisionProjectLookupErrors verifies that a non-nil error
+// from the project lookup (distinct from a nil project) also yields 404.
+func TestGetHome_LazyProvisionProjectLookupErrors(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	r := gin.New()
+
+	reader := &mockHomeReader{}
+	reader.On("GetHomeForProject", mock.Anything, "proj-err").
+		Return(domain.Workspace{}, apperr.ErrNotFound)
+
+	projects := &mockProjectReader{}
+	projects.On("FindByKey", mock.Anything, "proj-err").
+		Return(nil, errors.New("db unreachable"))
+
+	h := handlers.New(reader, projects, nil, nil)
+	r.GET("/projects/:projectId/home", h.Get)
+
+	w := httptest.NewRecorder()
+	req, _ := http.NewRequest("GET", "/projects/proj-err/home", nil)
+	r.ServeHTTP(w, req)
+
+	require.Equal(t, http.StatusNotFound, w.Code)
+	reader.AssertExpectations(t)
+	projects.AssertExpectations(t)
+}
+
+// ── RequireHomeWorkspace ───────────────────────────────────────────────────
+
+// TestRequireHomeWorkspace_SetsWsIdAndCallsNext verifies the middleware
+// injects the resolved home workspace id as the :wsId param and continues
+// the chain to the downstream handler.
+func TestRequireHomeWorkspace_SetsWsIdAndCallsNext(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	r := gin.New()
+
+	reader := &mockHomeReader{}
+	reader.On("GetHomeForProject", mock.Anything, "proj-mw").Return(domain.Workspace{
+		ID:        "ws-mw",
+		ProjectID: "proj-mw",
+		Kind:      domain.WorkspaceKindHome,
+	}, nil)
+
+	h := handlers.New(reader, nil, nil, nil)
+	var capturedWsID string
+	r.GET("/projects/:projectId/home/thing", h.RequireHomeWorkspace, func(c *gin.Context) {
+		capturedWsID = c.Param("wsId")
+		c.Status(http.StatusOK)
+	})
+
+	w := httptest.NewRecorder()
+	req, _ := http.NewRequest("GET", "/projects/proj-mw/home/thing", nil)
+	r.ServeHTTP(w, req)
+
+	require.Equal(t, http.StatusOK, w.Code)
+	require.Equal(t, "ws-mw", capturedWsID)
+	reader.AssertExpectations(t)
+}
+
+// TestRequireHomeWorkspace_AbortsChainOnFailure verifies that when the home
+// workspace cannot be resolved, the middleware aborts and the downstream
+// handler never runs.
+func TestRequireHomeWorkspace_AbortsChainOnFailure(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	r := gin.New()
+
+	reader := &mockHomeReader{}
+	reader.On("GetHomeForProject", mock.Anything, "proj-abort").
+		Return(domain.Workspace{}, errors.New("storage error"))
+
+	h := handlers.New(reader, nil, nil, nil)
+	called := false
+	r.GET("/projects/:projectId/home/thing", h.RequireHomeWorkspace, func(c *gin.Context) {
+		called = true
+		c.Status(http.StatusOK)
+	})
+
+	w := httptest.NewRecorder()
+	req, _ := http.NewRequest("GET", "/projects/proj-abort/home/thing", nil)
+	r.ServeHTTP(w, req)
+
+	require.Equal(t, http.StatusInternalServerError, w.Code)
+	require.False(t, called)
 	reader.AssertExpectations(t)
 }
