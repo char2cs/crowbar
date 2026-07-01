@@ -46,14 +46,17 @@ type vtModel struct {
 	altDesyncWarned bool
 	pendingPartial  []byte
 
-	// In-Write SCS / SI-SO / DECSTBM scanner state (escan.go). The pinned x/vt commit
-	// surfaces none of charset, locking-shift, or scroll-region through vt.Callbacks, so
-	// the adapter parses those few sequences itself to keep shadow.g0/g1/glLock and the
-	// scroll region populated for serialize steps 10-11. State is carried across Write
-	// calls so a sequence split across PTY chunks is still recognised.
+	// In-Write SCS / SI-SO / DECSTBM / OSC-title scanner state (escan.go). The pinned x/vt
+	// commit surfaces none of charset, locking-shift, or scroll-region through vt.Callbacks
+	// (so the adapter parses those to keep shadow.g0/g1/glLock and the scroll region populated
+	// for serialize steps 10-11), and its OSC callbacks truncate UTF-8 titles at an embedded
+	// 0x9C ST byte (so the adapter parses OSC 0/1/2 itself, UTF-8-transparently, for
+	// shadow.title / shadow.iconName). State is carried across Write calls so a sequence split
+	// across PTY chunks is still recognised.
 	escanState   int
 	escanParams  []byte
 	escanPrivate bool
+	escanOSC     []byte
 }
 
 var _ TerminalModel = (*vtModel)(nil)
@@ -80,9 +83,11 @@ func (m *vtModel) buildEmu(
 	cols int,
 	rows int,
 ) emulator {
+	// Title / IconName are deliberately NOT bound: x/vt's OSC-string parser terminates a
+	// UTF-8 title at an embedded 8-bit ST byte (0x9C), which is also a UTF-8 continuation byte,
+	// so its callback delivers a truncated, invalid-UTF-8 fragment. The UTF-8-transparent
+	// escan scanner (escan.go) is the authoritative source for shadow.title / shadow.iconName.
 	cb := vt.Callbacks{
-		Title:            func(s string) { m.shadow.title = s },
-		IconName:         func(s string) { m.shadow.iconName = s },
 		AltScreen:        func(on bool) { m.shadow.altScreen = on },
 		CursorVisibility: func(v bool) { m.shadow.cursorVisible = v },
 		CursorStyle: func(style vt.CursorStyle, blink bool) {

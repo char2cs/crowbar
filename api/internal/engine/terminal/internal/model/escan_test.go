@@ -3,9 +3,189 @@ package model
 import (
 	"strings"
 	"testing"
+	"unicode/utf8"
 
 	"github.com/charmbracelet/x/ansi"
 )
+
+// serializedOSC2 extracts the payload of the FIRST OSC 2 (window title) sequence in a
+// serialized redraw — the bytes between the "\x1b]2;" introducer and its ST terminator
+// "\x1b\\" — or "", false when the redraw contains no OSC 2.
+func serializedOSC2(
+	payload string,
+) (string, bool) {
+	const intro = "\x1b]2;"
+	i := strings.Index(payload, intro)
+	if i < 0 {
+		return "", false
+	}
+	rest := payload[i+len(intro):]
+	j := strings.Index(rest, "\x1b\\")
+	if j < 0 {
+		return "", false
+	}
+	return rest[:j], true
+}
+
+// TestOSCTitleUTF8WithC1STByte is the mandated regression for the garbled-tab-title bug: an
+// OSC 2 title whose UTF-8 bytes contain 0x9C (the sparkle "✳" U+2733 = E2 9C B3, whose middle
+// byte is the C1 String Terminator) must be captured WHOLE, not truncated at the 0x9C by
+// x/vt's OSC parser. It FAILS on the old code, where the x/vt Title callback delivered just
+// "\xe2" and the serializer emitted an invalid-UTF-8 OSC 2.
+func TestOSCTitleUTF8WithC1STByte(t *testing.T) {
+	const want = "✳ Claude Code"
+	m, s := New(40, 12, 100)
+	m.Write([]byte("\x1b]2;\xe2\x9c\xb3 Claude Code\x07"))
+
+	if got := m.Title(); got != want {
+		t.Fatalf("Title() = %q, want %q (truncated at the 0x9C C1-ST byte?)", got, want)
+	}
+
+	out := string(s.Serialize(m))
+	payload, ok := serializedOSC2(out)
+	if !ok {
+		t.Fatalf("serialized redraw has no OSC 2 title: %q", out)
+	}
+	if payload != want {
+		t.Fatalf("serialized OSC 2 payload = %q, want %q", payload, want)
+	}
+	if !utf8.ValidString(payload) {
+		t.Fatalf("serialized OSC 2 payload is not valid UTF-8: %x", payload)
+	}
+}
+
+func TestOSCTitleTerminators(t *testing.T) {
+	cases := []struct {
+		name string
+		seq  string
+	}{
+		{"BEL", "\x1b]2;\xe2\x9c\xb3 Claude Code\x07"},
+		{"7-bit ST", "\x1b]2;\xe2\x9c\xb3 Claude Code\x1b\\"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			m := newVTModel(40, 12, 100)
+			m.Write([]byte(tc.seq))
+			if got := m.Title(); got != "✳ Claude Code" {
+				t.Fatalf("Title() = %q, want %q", got, "✳ Claude Code")
+			}
+		})
+	}
+}
+
+func TestOSCTitleSplitAcrossWrites(t *testing.T) {
+	m := newVTModel(40, 12, 100)
+	// A title split mid-multibyte-char across two PTY reads must still be captured whole.
+	m.Write([]byte("\x1b]2;\xe2\x9c"))
+	m.Write([]byte("\xb3 Claude\x07"))
+	if got := m.Title(); got != "✳ Claude" {
+		t.Fatalf("split-across-writes Title() = %q, want %q", got, "✳ Claude")
+	}
+}
+
+func TestOSCIconNameCaptured(t *testing.T) {
+	m := newVTModel(40, 12, 100)
+	m.Write([]byte("\x1b]1;myicon\x07"))
+	if m.shadow.iconName != "myicon" {
+		t.Fatalf("iconName = %q, want %q", m.shadow.iconName, "myicon")
+	}
+	if m.Title() != "" {
+		t.Fatalf("OSC 1 must not set the title; Title() = %q", m.Title())
+	}
+}
+
+func TestOSCZeroSetsBothTitleAndIcon(t *testing.T) {
+	m := newVTModel(40, 12, 100)
+	m.Write([]byte("\x1b]0;both\x1b\\"))
+	if m.shadow.title != "both" || m.shadow.iconName != "both" {
+		t.Fatalf("OSC 0 title/icon = %q/%q, want both %q", m.shadow.title, m.shadow.iconName, "both")
+	}
+}
+
+func TestOSCPlainASCIITitle(t *testing.T) {
+	m := newVTModel(40, 12, 100)
+	m.Write([]byte("\x1b]2;claude\x07"))
+	if got := m.Title(); got != "claude" {
+		t.Fatalf("plain ASCII Title() = %q, want %q", got, "claude")
+	}
+}
+
+func TestOSCTitlePreservesHighBytes(t *testing.T) {
+	// A title whose UTF-8 carries a 0x9D byte ('Н' U+041D = D0 9D) must survive — 0x9D, like
+	// 0x9C, is a C1 code point but here it is UTF-8 content, never a terminator/introducer.
+	m := newVTModel(40, 12, 100)
+	m.Write([]byte("\x1b]2;\xd0\x9d\x07"))
+	if got := m.Title(); got != "Н" {
+		t.Fatalf("Title() = %q, want %q", got, "Н")
+	}
+}
+
+func TestOSCNonTitleSequencesIgnored(t *testing.T) {
+	m := newVTModel(40, 12, 100)
+	m.Write([]byte("\x1b]2;real\x07")) // establish a title first
+	cases := []string{
+		"\x1b]52;c;YWJj\x07",   // clipboard — numeric code not in {0,1,2}
+		"\x1b]8;;http://x\x07", // hyperlink — code 8
+		"\x1b]abc\x07",         // no ';' separator
+		"\x1b]x;foo\x07",       // non-numeric code
+	}
+	for _, seq := range cases {
+		m.Write([]byte(seq))
+		if got := m.Title(); got != "real" {
+			t.Fatalf("after %q, Title() = %q, want unchanged %q", seq, got, "real")
+		}
+	}
+}
+
+func TestOSCAbortedByCAN(t *testing.T) {
+	m := newVTModel(40, 12, 100)
+	m.Write([]byte("\x1b]2;first\x07"))     // a valid title
+	m.Write([]byte("\x1b]2;discarded\x18")) // CAN aborts before any terminator
+	if got := m.Title(); got != "first" {
+		t.Fatalf("CAN-aborted OSC changed the title to %q, want %q", got, "first")
+	}
+	if m.escanState != escGround {
+		t.Fatalf("scanner not in ground after CAN: %d", m.escanState)
+	}
+}
+
+func TestOSCEscNonBackslashStaysInString(t *testing.T) {
+	// An ESC inside the OSC that is not the ST '\\' does not terminate the string; the byte
+	// after it is treated as content and collection continues to the real BEL.
+	m := newVTModel(40, 12, 100)
+	m.Write([]byte("\x1b]2;ab\x1bXcd\x07"))
+	if got := m.Title(); got != "abXcd" {
+		t.Fatalf("Title() = %q, want %q (ESC dropped, X kept)", got, "abXcd")
+	}
+}
+
+func TestOSCBodyCapped(t *testing.T) {
+	m := newVTModel(40, 12, 100)
+	long := "\x1b]2;" + strings.Repeat("a", maxEscanOSCText+500) + "\x07"
+	m.Write([]byte(long))
+	if len(m.escanOSC) > maxEscanOSCText {
+		t.Fatalf("escanOSC grew past cap: %d", len(m.escanOSC))
+	}
+	// The captured title is bounded but the parameter head survived, so it is still a title.
+	if m.Title() == "" {
+		t.Fatal("capped OSC title unexpectedly empty")
+	}
+	if m.escanState != escGround {
+		t.Fatalf("scanner not in ground after capped OSC: %d", m.escanState)
+	}
+}
+
+func TestResetEscanClearsOSC(t *testing.T) {
+	m := newVTModel(40, 12, 100)
+	m.scanCharsetAndRegion([]byte("\x1b]2;partial")) // leave scanner mid-OSC
+	if m.escanState != escOSC || len(m.escanOSC) == 0 {
+		t.Fatal("setup did not leave scanner mid-OSC")
+	}
+	m.resetEscan()
+	if m.escanState != escGround || len(m.escanOSC) != 0 {
+		t.Fatalf("resetEscan left OSC state: %d osc:%d", m.escanState, len(m.escanOSC))
+	}
+}
 
 func TestScanSCSDesignatesG0AndG1(t *testing.T) {
 	m := newVTModel(20, 6, 100)
@@ -150,12 +330,41 @@ func TestScanNonDECSTBMCSIIgnored(t *testing.T) {
 	}
 }
 
-func TestScanCSIviaC1Introducer(t *testing.T) {
+// TestScanC1CSIIntroducerIsUTF8Content pins that the 8-bit C1 CSI introducer 0x9B is NOT
+// framed as a sequence start: it is a valid UTF-8 continuation byte (e.g. '‛' U+201B =
+// E2 80 9B), so a glyph ending in 0x9B immediately followed by a real ESC]2; OSC title must
+// leave the scanner in ground and capture the title WHOLE. On the old code the 0x9B entered
+// escCSI, swallowed the ESC as a param and consumed the ']' as the CSI final, dropping the
+// title entirely.
+func TestScanC1CSIIntroducerIsUTF8Content(t *testing.T) {
 	m := newVTModel(20, 10, 100)
-	m.scanCharsetAndRegion([]byte{0x9b, '2', ';', '8', 'r'}) // 8-bit CSI ... DECSTBM
-	if !m.shadow.scrollRegionSet || m.shadow.scrollTop != 2 || m.shadow.scrollBottom != 8 {
-		t.Fatalf("C1 CSI DECSTBM: set:%v top:%d bottom:%d",
-			m.shadow.scrollRegionSet, m.shadow.scrollTop, m.shadow.scrollBottom)
+	// '‛' (E2 80 9B) then an OSC 2 title. The 0x9B must be ignored as content, not a CSI start.
+	m.Write([]byte("\xe2\x80\x9b\x1b]2;hello\x07"))
+	if m.escanState != escGround {
+		t.Fatalf("scanner not in ground after C1-byte + OSC: %d", m.escanState)
+	}
+	if got := m.Title(); got != "hello" {
+		t.Fatalf("Title() = %q, want %q (0x9B mis-framed as CSI swallowed the OSC?)", got, "hello")
+	}
+	if m.shadow.scrollRegionSet {
+		t.Fatal("0x9B mis-framing synthesized a bogus scroll region")
+	}
+}
+
+// TestScanCSIAbortedByESC pins the defense-in-depth abort: a bare ESC arriving mid-CSI must
+// abort the CSI and begin a fresh sequence, not be appended as a param byte. Here a truncated
+// CSI is followed by a real SCS designation that must still be recognised.
+func TestScanCSIAbortedByESC(t *testing.T) {
+	m := newVTModel(20, 10, 100)
+	m.scanCharsetAndRegion([]byte("\x1b[2;7\x1b(0")) // ESC mid-CSI, then ESC ( 0 designates G0
+	if m.shadow.scrollRegionSet {
+		t.Fatal("ESC-aborted CSI still applied a region")
+	}
+	if m.shadow.g0 != '0' {
+		t.Fatalf("SCS after mid-CSI ESC not recognised: g0 = %q", m.shadow.g0)
+	}
+	if m.escanState != escGround {
+		t.Fatalf("scanner not in ground after ESC-aborted CSI + SCS: %d", m.escanState)
 	}
 }
 

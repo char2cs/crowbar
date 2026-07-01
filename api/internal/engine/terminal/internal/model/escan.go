@@ -1,6 +1,7 @@
 package model
 
 import (
+	"bytes"
 	"strconv"
 	"strings"
 )
@@ -11,12 +12,21 @@ import (
 // to ground, but whose parameters we stop accumulating.
 const maxEscanParams = 64
 
+// maxEscanOSCText bounds the OSC 0/1/2 body bytes the in-Write scanner buffers for one
+// title/icon sequence. A real window title is far shorter; the cap bounds growth on a
+// never-terminated OSC (the parameter number lives at the head of the body, so it is never
+// lost to the cap — only the trailing title text is truncated). The serializer independently
+// caps the emitted title at maxOSCTextRunes.
+const maxEscanOSCText = 4096
+
 const (
 	escGround = iota
 	escEsc
 	escSCSG0
 	escSCSG1
 	escCSI
+	escOSC
+	escOSCEsc
 )
 
 // scanCharsetAndRegion runs a minimal, stateful in-Write scanner over p to recover the
@@ -33,6 +43,14 @@ const (
 //     on the app's next repaint rather than being reproduced exactly on attach.
 //   - DECSTBM scroll region — CSI <top> ; <bottom> r, recorded in shadow.scrollTop/Bottom/
 //     scrollRegionSet and re-emitted by serialize step 11 (guarded out when full-screen).
+//   - OSC 0/1/2 window title / icon name — ESC ] <0|1|2> ; <text> BEL|ST, recorded in
+//     shadow.title / shadow.iconName. x/vt DOES surface these via its Title/IconName
+//     callbacks, but its OSC-string parser honours the 8-bit C1 ST (0x9C) as a terminator,
+//     and 0x9C is also a valid UTF-8 continuation byte (e.g. the sparkle "✳" U+2733 = E2 9C
+//     B3), so a UTF-8 title carrying that byte is TRUNCATED at the 0x9C by x/vt. This scanner
+//     is UTF-8-transparent — it terminates only on BEL (0x07) or the 7-bit ST (ESC \), never
+//     on any byte >= 0x80 — so it captures the full title where x/vt's callback cannot. Its
+//     value is authoritative: the Title/IconName callbacks are dropped from buildEmu.
 //
 // It is the spec §4.1 contract-note / step-10 fallback for these missing callbacks. It
 // recognises ONLY these sequences (never general escape semantics) and carries its state
@@ -53,6 +71,7 @@ func (m *vtModel) resetEscan() {
 	m.escanState = escGround
 	m.escanParams = m.escanParams[:0]
 	m.escanPrivate = false
+	m.escanOSC = m.escanOSC[:0]
 }
 
 func (m *vtModel) escanStep(
@@ -67,11 +86,21 @@ func (m *vtModel) escanStep(
 		m.escanFromSCS(c, 0)
 	case escSCSG1:
 		m.escanFromSCS(c, 1)
-	default:
+	case escCSI:
 		m.escanFromCSI(c)
+	case escOSC:
+		m.escanFromOSC(c)
+	default: // escOSCEsc
+		m.escanFromOSCEsc(c)
 	}
 }
 
+// escanFromGround dispatches ground-state bytes. Only the 7-bit ESC introduces a sequence:
+// the 8-bit C1 CSI introducer 0x9B is deliberately NOT honoured, because the emulator is fed
+// a UTF-8 byte stream where 0x9B is a valid continuation byte (e.g. '‛' U+201B = E2 80 9B),
+// and framing it as a CSI start would swallow the following bytes — the identical UTF-8
+// mis-framing class commit 94d2da39 removed from scanPartial and beginOSC excludes for the
+// sibling 0x9D OSC introducer. Real apps emit the 7-bit ESC[ CSI form.
 func (m *vtModel) escanFromGround(
 	c byte,
 ) {
@@ -82,8 +111,6 @@ func (m *vtModel) escanFromGround(
 		m.shadow.glLock = 0
 	case 0x1b: // ESC
 		m.escanState = escEsc
-	case 0x9b: // 8-bit C1 CSI introducer
-		m.beginCSI()
 	}
 }
 
@@ -97,6 +124,8 @@ func (m *vtModel) escanFromEsc(
 		m.escanState = escSCSG1
 	case '[': // CSI
 		m.beginCSI()
+	case ']': // OSC — icon/title string
+		m.beginOSC()
 	case 'c': // RIS — full reset
 		m.applyRIS()
 		m.escanState = escGround
@@ -151,6 +180,9 @@ func (m *vtModel) escanFromCSI(
 	switch {
 	case c == 0x18 || c == 0x1a: // CAN / SUB abort
 		m.escanState = escGround
+	case c == 0x1b: // ESC — abort this CSI and start a fresh sequence (defense-in-depth: a
+		// real sequence arriving mid-CSI must not be swallowed as a param byte).
+		m.escanState = escEsc
 	case c >= 0x40 && c <= 0x7e: // final byte
 		m.finishCSI(c)
 		m.escanState = escGround
@@ -232,4 +264,78 @@ func (m *vtModel) parseDECSTBM(
 		return 0, 0, false // a region must span at least two rows
 	}
 	return top, bottom, true
+}
+
+// beginOSC starts accumulating an OSC (Operating System Command) body. Only the 7-bit ESC ]
+// introducer starts an OSC here; the 8-bit C1 OSC introducer (0x9D) is deliberately NOT
+// honoured, because — like the 0x9C ST this scanner exists to survive — 0x9D is a valid
+// UTF-8 continuation byte (e.g. 'Н' U+041D = D0 9D) and honouring it as an introducer would
+// spuriously start an OSC on ordinary text. Real apps emit the 7-bit ESC ] form.
+func (m *vtModel) beginOSC() {
+	m.escanState = escOSC
+	m.escanOSC = m.escanOSC[:0]
+}
+
+// escanFromOSC accumulates the OSC body until a UTF-8-safe terminator. BEL (0x07) commits the
+// string; ESC (0x1B) may begin a 7-bit ST (ESC \) so it defers to escanFromOSCEsc; CAN/SUB
+// abort and discard. Every other byte — crucially INCLUDING the 8-bit ST 0x9C and all other
+// bytes >= 0x80 — is title content, appended up to maxEscanOSCText. This is the whole point:
+// x/vt's own OSC parser truncates a UTF-8 title at an embedded 0x9C; this one does not.
+func (m *vtModel) escanFromOSC(
+	c byte,
+) {
+	switch c {
+	case 0x07: // BEL terminates
+		m.finishOSC()
+		m.escanState = escGround
+	case 0x1b: // possible 7-bit ST (ESC \)
+		m.escanState = escOSCEsc
+	case 0x18, 0x1a: // CAN / SUB abort — discard the partial string
+		m.escanState = escGround
+	default:
+		if len(m.escanOSC) < maxEscanOSCText {
+			m.escanOSC = append(m.escanOSC, c)
+		}
+	}
+}
+
+// escanFromOSCEsc resolves the byte after an ESC inside an OSC string: ESC \ is the 7-bit ST
+// terminator and commits the string; any other byte means that ESC was not a terminator, so
+// the scanner returns to the string and treats the byte as content (matching the pending-input
+// framing). A lone ESC is never itself appended, so it cannot corrupt the captured title.
+func (m *vtModel) escanFromOSCEsc(
+	c byte,
+) {
+	if c == '\\' {
+		m.finishOSC()
+		m.escanState = escGround
+		return
+	}
+	m.escanState = escOSC
+	m.escanFromOSC(c)
+}
+
+// finishOSC parses a completed OSC body of the form "<code>;<text>" and routes the text to the
+// shadow title (code 0/2) and/or icon name (code 1/0). A body with no ';' separator or a
+// non-numeric code is not a title/icon OSC (e.g. OSC 8 hyperlink, OSC 10/11/12 colour, OSC 52
+// clipboard) and is ignored. The stored text is raw UTF-8; the serializer sanitizes it.
+func (m *vtModel) finishOSC() {
+	i := bytes.IndexByte(m.escanOSC, ';')
+	if i < 0 {
+		return
+	}
+	code, err := strconv.Atoi(string(m.escanOSC[:i]))
+	if err != nil {
+		return
+	}
+	text := string(m.escanOSC[i+1:])
+	switch code {
+	case 0:
+		m.shadow.title = text
+		m.shadow.iconName = text
+	case 1:
+		m.shadow.iconName = text
+	case 2:
+		m.shadow.title = text
+	}
 }

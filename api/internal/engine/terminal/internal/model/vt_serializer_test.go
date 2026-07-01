@@ -426,7 +426,9 @@ func TestSanitizeOSCText(t *testing.T) {
 		{"drop del", "a\x7fb", "ab"},
 		{"drop c1", "ab", "ab"},
 		{"keep utf8", "héllo", "héllo"},
-		{"invalid utf8 byte to replacement", string([]byte{0xff, 'a'}), "�a"},
+		{"invalid utf8 byte dropped", string([]byte{0xff, 'a'}), "a"},
+		{"truncated multibyte lead dropped", string([]byte{0xe2, 'a'}), "a"},
+		{"genuine replacement char kept", "�a", "�a"},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {

@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"image/color"
 	"strings"
+	"unicode/utf8"
 
 	uv "github.com/charmbracelet/ultraviolet"
 	"github.com/charmbracelet/x/ansi"
@@ -307,14 +308,25 @@ func decscusr(
 }
 
 // sanitizeOSCText makes app-controlled OSC string text safe to re-emit inside our own
-// OSC 1/2 ... ST envelope: invalid UTF-8 becomes U+FFFD, every C0 control (including ESC
-// and BEL), DEL, and every C1 control (including the 8-bit ST) is dropped, and the result
-// is capped at maxOSCTextRunes runes on a rune boundary.
+// OSC 1/2 ... ST envelope: a byte that is not valid UTF-8 is DROPPED (never emitted as a
+// U+FFFD replacement char, which is itself how a truncated multi-byte title byte would leak
+// out as garbage), every C0 control (including ESC and BEL), DEL, and every C1 control
+// (including the 8-bit ST) is dropped, and the result is capped at maxOSCTextRunes runes on a
+// rune boundary. This is the belt-and-suspenders guarantee that the serializer can NEVER emit
+// an invalid-UTF-8 OSC title, independent of what the scanner stored.
+//
+// A raw invalid byte decodes as (utf8.RuneError, size 1) and is dropped; a genuine, correctly
+// encoded U+FFFD in the source (size 3) is legitimate content and is kept.
 func sanitizeOSCText(
 	s string,
 ) string {
 	out := make([]rune, 0, len(s))
-	for _, r := range s {
+	for i := 0; i < len(s); {
+		r, size := utf8.DecodeRuneInString(s[i:])
+		i += size
+		if r == utf8.RuneError && size == 1 {
+			continue // invalid UTF-8 byte — drop it rather than emit a replacement char
+		}
 		if r < 0x20 || r == 0x7f {
 			continue
 		}
