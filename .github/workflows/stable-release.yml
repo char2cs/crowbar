@@ -97,10 +97,11 @@ jobs:
       - name: Build Go sidecar (arm64 + amd64)
         run: |
           mkdir -p desktop/src-tauri/binaries
+          cd api
           GOOS=darwin GOARCH=arm64 CGO_ENABLED=0 go build -tags noEmbed \
-            -o desktop/src-tauri/binaries/crowbar-api-aarch64-apple-darwin ./api/cmd/crowbar
+            -o ../desktop/src-tauri/binaries/crowbar-api-aarch64-apple-darwin ./cmd/crowbar
           GOOS=darwin GOARCH=amd64 CGO_ENABLED=0 go build -tags noEmbed \
-            -o desktop/src-tauri/binaries/crowbar-api-x86_64-apple-darwin ./api/cmd/crowbar
+            -o ../desktop/src-tauri/binaries/crowbar-api-x86_64-apple-darwin ./cmd/crowbar
       - name: Build frontend
         env:
           NODE_OPTIONS: --max-old-space-size=6144
@@ -158,8 +159,8 @@ jobs:
       - name: Build Go sidecar (Linux x86_64)
         run: |
           mkdir -p desktop/src-tauri/binaries
-          GOOS=linux GOARCH=amd64 CGO_ENABLED=0 go build -tags noEmbed \
-            -o desktop/src-tauri/binaries/crowbar-api-x86_64-unknown-linux-gnu ./api/cmd/crowbar
+          cd api && GOOS=linux GOARCH=amd64 CGO_ENABLED=0 go build -tags noEmbed \
+            -o ../desktop/src-tauri/binaries/crowbar-api-x86_64-unknown-linux-gnu ./cmd/crowbar
       - name: Build frontend
         env:
           NODE_OPTIONS: --max-old-space-size=6144
