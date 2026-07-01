@@ -57,6 +57,17 @@ type vtModel struct {
 	escanParams  []byte
 	escanPrivate bool
 	escanOSC     []byte
+
+	// OSC 0/1/2 strip-from-emulator state (osc_strip.go). The pinned x/vt honours an embedded
+	// 8-bit ST (0x9C) — a UTF-8 continuation byte — as an OSC terminator, so a UTF-8 title
+	// carrying that byte makes x/vt drop out of the OSC early and PRINT the leftover title
+	// bytes into its grid. We already capture titles UTF-8-transparently via escan, so OSC
+	// 0/1/2 are removed from the byte stream before it reaches x/vt. State is carried across
+	// Write calls so an OSC split across PTY chunks is stripped correctly and no dangling
+	// partial title ever reaches the emulator.
+	stripState    int
+	stripWithheld []byte
+	stripCode     []byte
 }
 
 var _ TerminalModel = (*vtModel)(nil)
@@ -157,7 +168,14 @@ func (m *vtModel) clearDefaultColor(
 	}
 }
 
-// Write feeds a chunk to the emulator. On a parse panic — x/vt is an untagged emulator
+// Write feeds a chunk to the emulator. The chunk is first passed through stripOSCTitles
+// (osc_strip.go), which removes OSC 0/1/2 (icon/title) sequences so x/vt never mis-prints a
+// UTF-8 title carrying an embedded 0x9C into its grid; the title is still captured, whole and
+// UTF-8-transparently, by scanCharsetAndRegion below. scanCharsetAndRegion and
+// trackPendingPartial run over the RAW chunk (title capture and partial-input framing must see
+// the unstripped stream); only the EMULATOR is fed the stripped bytes.
+//
+// On a parse panic — x/vt is an untagged emulator
 // fed arbitrary PTY bytes and buffers parser state across writes — the emulator is
 // recreated to a known-blank state at the current size so every later Write parses
 // correctly. The running app repaints on its next frame and live clients already received
@@ -186,7 +204,7 @@ func (m *vtModel) Write(
 		m.parsePanics++
 		m.pendingPartial = nil
 	}()
-	m.emu.Write(p)
+	m.emu.Write(m.stripOSCTitles(p))
 	m.scanCharsetAndRegion(p)
 	m.trackPendingPartial(p)
 }
@@ -203,6 +221,7 @@ func (m *vtModel) recreateEmu(
 	m.emu = m.buildEmu(cols, rows)
 	m.shadow.resetTransientModes()
 	m.resetEscan()
+	m.resetStrip()
 }
 
 // Resize forwards the new geometry to the emulator and clears the shadow scroll region.
