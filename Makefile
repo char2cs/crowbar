@@ -4,6 +4,12 @@ export CARGO_HOME := $(HOME)/.cargo
 
 .PHONY: dev dev-api dev-web dev-desktop dev-bundle build test test-coverage lint pr-checks ci docker-up docker-down
 
+# Dev isolation: every dev target roots Crowbar state (projects, store, socket,
+# logs) at <this workspace>/.crowbar instead of ~/.crowbar, so a dev instance
+# never collides with the production app. Scoped to dev targets only — tests
+# pin the ~/.crowbar default and must run without the override.
+dev dev-api dev-web dev-desktop dev-bundle: export CROWBAR_HOME ?= $(CURDIR)/.crowbar
+
 # Parallel dev: starts all three subsystems
 dev:
 	@$(MAKE) dev-api & $(MAKE) dev-web & $(MAKE) dev-desktop & wait

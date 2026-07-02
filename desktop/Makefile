@@ -4,6 +4,11 @@ export CARGO_HOME := $(HOME)/.cargo
 
 .PHONY: dev dev-bundle build test test-coverage lint fetch-sidecar
 
+# Dev isolation: root all Crowbar state at <workspace>/.crowbar, not ~/.crowbar
+# (see root Makefile). Debug builds also default to this via cfg(debug_assertions)
+# in src-tauri/src/sidecar/mod.rs, which covers the dev-bundle .app launched by
+# `open` (launchd does not inherit this env).
+dev: export CROWBAR_HOME ?= $(abspath ..)/.crowbar
 dev: fetch-sidecar
 	bunx @tauri-apps/cli dev
 

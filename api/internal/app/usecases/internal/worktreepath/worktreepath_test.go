@@ -6,6 +6,8 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/char2cs/crowbar/api/internal/core/metadata"
 )
 
 func TestFor_UUIDPath(t *testing.T) {
@@ -78,8 +80,16 @@ func TestFor_DivergesByWorkspace(t *testing.T) {
 }
 
 func TestDefaultCrowbarHome(t *testing.T) {
+	t.Setenv(metadata.HomeEnvVar, "")
 	t.Setenv("HOME", "/home/tester")
 	home, err := DefaultCrowbarHome()
 	require.NoError(t, err)
 	assert.Equal(t, filepath.Join("/home/tester", ".crowbar"), home)
+}
+
+func TestDefaultCrowbarHome_EnvOverride(t *testing.T) {
+	t.Setenv(metadata.HomeEnvVar, "/tmp/dev-crowbar-home")
+	home, err := DefaultCrowbarHome()
+	require.NoError(t, err)
+	assert.Equal(t, "/tmp/dev-crowbar-home", home)
 }

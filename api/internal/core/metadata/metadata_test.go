@@ -42,6 +42,26 @@ func TestGetVersion_NonEmpty(t *testing.T) {
 	assert.NotEmpty(t, GetVersion())
 }
 
+func TestGetHomePath_EnvOverride(t *testing.T) {
+	t.Cleanup(resetForTesting)
+	resetForTesting()
+	t.Setenv(HomeEnvVar, "/tmp/crowbar-dev-home")
+	assert.Equal(t, "/tmp/crowbar-dev-home", GetHomePath())
+	// Every derived path must root at the override too.
+	assert.True(t, strings.HasPrefix(GetStateDirPath(), "/tmp/crowbar-dev-home"))
+	assert.True(t, strings.HasPrefix(GetProjectsPath(), "/tmp/crowbar-dev-home"))
+	assert.True(t, strings.HasPrefix(GetConfigPath(), "/tmp/crowbar-dev-home"))
+}
+
+func TestGetHomePath_DefaultExpandsTilde(t *testing.T) {
+	t.Cleanup(resetForTesting)
+	resetForTesting()
+	t.Setenv(HomeEnvVar, "")
+	t.Setenv("HOME", "/home/crowtester")
+	got := GetHomePath()
+	assert.Equal(t, "/home/crowtester/.crowbar", got)
+}
+
 func TestGetStateDirPath_IsStateDir(t *testing.T) {
 	t.Cleanup(resetForTesting)
 	resetForTesting()
