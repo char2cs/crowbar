@@ -39,8 +39,23 @@ func TestRepoDTOFrom_ProxyURLHierarchical(
 		ProjectID:     "p1",
 		AvatarHasIcon: true,
 	})
-	assert.Equal(t, "/v0/projects/p1/repos/r1/icon", got.AvatarURL)
+	assert.Equal(t, "/v0/projects/p1/repos/r1/icon?v=0", got.AvatarURL)
 	assert.Empty(t, got.AvatarEmoji)
+}
+
+// TestRepoDTOFrom_ProxyURLCarriesAvatarVersion pins the cache-busting query
+// param: uploads change the icon bytes behind a stable path, so the version
+// must be part of the URL for clients to refetch the image.
+func TestRepoDTOFrom_ProxyURLCarriesAvatarVersion(
+	t *testing.T,
+) {
+	got := dto.RepoDTOFrom(domain.Repository{
+		ID:            "r1",
+		ProjectID:     "p1",
+		AvatarHasIcon: true,
+		AvatarVersion: 3,
+	})
+	assert.Equal(t, "/v0/projects/p1/repos/r1/icon?v=3", got.AvatarURL)
 }
 
 func TestRepoDTOFrom_EmojiPassthrough(

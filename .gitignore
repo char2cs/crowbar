@@ -13,6 +13,9 @@ web/.vite/
 desktop/src-tauri/target/
 desktop/src-tauri/binaries/
 
+# Dev-instance Crowbar home (dev mode roots all state in the workspace, not ~/.crowbar)
+/.crowbar/
+
 # General
 .DS_Store
 *.env

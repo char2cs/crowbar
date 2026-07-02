@@ -153,6 +153,7 @@ func TestGitRemoteURL_RealRepo(t *testing.T) {
 // wires crowbarHome to defaultCrowbarHome) and DeleteRepo, the cheapest
 // exported path that calls it.
 func TestDefaultCrowbarHome(t *testing.T) {
+	t.Setenv("CROWBAR_HOME", "") // pin the default: override must be inert when unset
 	homeDir, err := os.UserHomeDir()
 	require.NoError(t, err)
 	want := filepath.Join(homeDir, ".crowbar")
@@ -177,6 +178,30 @@ func TestDefaultCrowbarHome(t *testing.T) {
 	r2.ServeHTTP(rec2, req2)
 	assert.Equal(t, http.StatusOK, rec2.Code, "defaultCrowbarHome must resolve to ~/.crowbar for Icon to find the file")
 	assert.Equal(t, png, rec2.Body.Bytes())
+}
+
+// TestDefaultCrowbarHome_CrowbarHomeOverride pins the dev-isolation root: with
+// CROWBAR_HOME set, the zero-arg New() constructor roots icon storage there
+// instead of ~/.crowbar.
+func TestDefaultCrowbarHome_CrowbarHomeOverride(t *testing.T) {
+	devHome := t.TempDir()
+	t.Setenv("CROWBAR_HOME", devHome)
+
+	iconPath := filepath.Join(devHome, "projects", "probe-project", "probe-repo", "icon")
+	require.NoError(t, os.MkdirAll(filepath.Dir(iconPath), 0o755))
+	png := append([]byte("\x89PNG\r\n\x1a\n"), []byte("dev-home-probe")...)
+	require.NoError(t, os.WriteFile(iconPath, png, 0o644))
+
+	store := &fakeStore{byKey: &domain.Repository{ID: "probe-repo", ProjectID: "probe-project", AvatarHasIcon: true}}
+	h := repohandlers.New(store) // real defaultCrowbarHome, CROWBAR_HOME override active
+	r := gin.New()
+	r.GET("/v0/projects/:projectId/repos/:repoId/icon", h.Icon)
+
+	req := httptest.NewRequest(http.MethodGet, "/v0/projects/probe-project/repos/probe-repo/icon", http.NoBody)
+	rec := httptest.NewRecorder()
+	r.ServeHTTP(rec, req)
+	assert.Equal(t, http.StatusOK, rec.Code, "defaultCrowbarHome must resolve to CROWBAR_HOME for Icon to find the file")
+	assert.Equal(t, png, rec.Body.Bytes())
 }
 
 // ---------------------------------------------------------------------------
@@ -813,6 +838,7 @@ func TestDefaultCrowbarHome_UserHomeDirError_Returns500(t *testing.T) {
 	// os.UserHomeDir errors when HOME (and on some platforms the OS-specific
 	// fallback vars) are unset. Icon calls h.crowbarHome() -> defaultCrowbarHome
 	// and treats a resolution error the same as 404.
+	t.Setenv("CROWBAR_HOME", "") // the override branch would mask the error path
 	t.Setenv("HOME", "")
 	if runtime.GOOS == "darwin" {
 		// os.UserHomeDir on darwin only consults $HOME.

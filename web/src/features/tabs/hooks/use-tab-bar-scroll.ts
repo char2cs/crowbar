@@ -10,6 +10,7 @@ interface UseTabBarScrollResult {
   tabBarRef: RefObject<HTMLDivElement | null>
   isAtLeftEdge: boolean
   isAtRightEdge: boolean
+  isAtTopEdge: boolean
   handleWheel: (e: React.WheelEvent<HTMLDivElement>) => void
 }
 
@@ -20,6 +21,7 @@ export function useTabBarScroll({
   const tabBarRef = useRef<HTMLDivElement>(null)
   const [isAtLeftEdge, setIsAtLeftEdge] = useState(false)
   const [isAtRightEdge, setIsAtRightEdge] = useState(false)
+  const [isAtTopEdge, setIsAtTopEdge] = useState(false)
 
   useLayoutEffect(() => {
     const el = tabBarRef.current
@@ -28,6 +30,10 @@ export function useTabBarScroll({
       const rect = el?.getBoundingClientRect()
       setIsAtLeftEdge((rect?.left ?? 1) < 10)
       setIsAtRightEdge((rect?.right ?? 0) > window.innerWidth - 10)
+      // Top edge matters for the macOS traffic-light inset: in a vertical
+      // split every pane's tab bar is at the window's LEFT edge, but only the
+      // one at the window's TOP overlaps the window controls.
+      setIsAtTopEdge((rect?.top ?? 1) < 10)
     }
     check()
     const ro = new ResizeObserver(check)
@@ -74,5 +80,5 @@ export function useTabBarScroll({
     [canScrollTabsHorizontally, draggedBufferId],
   )
 
-  return { tabBarRef, isAtLeftEdge, isAtRightEdge, handleWheel }
+  return { tabBarRef, isAtLeftEdge, isAtRightEdge, isAtTopEdge, handleWheel }
 }

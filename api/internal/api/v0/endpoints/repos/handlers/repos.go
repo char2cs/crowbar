@@ -16,10 +16,13 @@ import (
 
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
+	"github.com/rivo/uniseg"
 
 	"github.com/char2cs/crowbar/api/internal/api/libs"
 	"github.com/char2cs/crowbar/api/internal/api/v0/dto"
 	"github.com/char2cs/crowbar/api/internal/app/apperr"
+	"github.com/char2cs/crowbar/api/internal/core/binpath"
+	"github.com/char2cs/crowbar/api/internal/core/metadata"
 	"github.com/char2cs/crowbar/api/internal/domain"
 )
 
@@ -449,6 +452,10 @@ func (h *Handlers) Icon(c *gin.Context) {
 		c.Status(http.StatusNotFound)
 		return
 	}
+	// no-cache: revalidate on every use. The bytes change in place behind this
+	// URL (uploads overwrite the same file); the ?v= param on the DTO URL is
+	// the primary cache-buster, this header is the belt-and-braces layer.
+	c.Header("Cache-Control", "no-cache")
 	c.Data(http.StatusOK, http.DetectContentType(data), data)
 }
 
@@ -476,9 +483,13 @@ func repoIconPath(
 	return filepath.Join(crowbarHome, "projects", projectID, repoID, "icon")
 }
 
-// defaultCrowbarHome returns ~/.crowbar, the production root for all
-// crowbar-managed state.
+// defaultCrowbarHome returns the root for all crowbar-managed state: the
+// CROWBAR_HOME env override when set (dev instances point it inside the
+// workspace being developed), otherwise ~/.crowbar.
 func defaultCrowbarHome() (string, error) {
+	if override := os.Getenv(metadata.HomeEnvVar); override != "" {
+		return override, nil
+	}
 	h, err := os.UserHomeDir()
 	if err != nil {
 		return "", fmt.Errorf("crowbar home: %w", err)
@@ -542,7 +553,9 @@ func githubAvatarURL(
 	if err != nil {
 		return ""
 	}
-	out, err := exec.CommandContext(ctx, "gh", "api", "repos/"+slug, "--jq", ".owner.avatar_url").Output()
+	// binpath.Resolve: the packaged .app daemon inherits launchd's minimal PATH,
+	// which misses Homebrew's /opt/homebrew/bin where gh usually lives.
+	out, err := exec.CommandContext(ctx, binpath.Resolve("gh"), "api", "repos/"+slug, "--jq", ".owner.avatar_url").Output()
 	if err != nil {
 		return ""
 	}
@@ -688,6 +701,9 @@ func (h *Handlers) PutIconEmoji(c *gin.Context) {
 		libs.WriteErr(c, http.StatusInternalServerError, err.Error())
 		return
 	}
+	// Deliver the updated avatar to every client on the repos WS stream — the
+	// store Save alone does not fan out.
+	h.broadcast(dto.RepoDTOFrom(*repo))
 	c.Status(http.StatusNoContent)
 }
 
@@ -709,6 +725,9 @@ func (h *Handlers) DeleteIcon(c *gin.Context) {
 		libs.WriteErr(c, http.StatusInternalServerError, err.Error())
 		return
 	}
+	// Deliver the updated avatar to every client on the repos WS stream — the
+	// store Save alone does not fan out.
+	h.broadcast(dto.RepoDTOFrom(*repo))
 	c.Status(http.StatusNoContent)
 }
 
@@ -757,13 +776,17 @@ func (h *Handlers) PutIcon(c *gin.Context) {
 
 	repo.AvatarHasIcon = true
 	repo.AvatarEmoji = ""
+	// New bytes behind the stable icon URL: bump the version so the DTO's
+	// ?v= param changes and clients refetch the image.
+	repo.AvatarVersion++
 	if err := h.store.Save(c.Request.Context(), *repo); err != nil {
 		libs.WriteErr(c, http.StatusInternalServerError, err.Error())
 		return
 	}
 	// 204, consistent with the other icon mutations: the FE apiFetch throws on
 	// any non-enveloped 200 body, and the updated avatar is delivered on the
-	// repos WS stream (the Save above broadcasts it), not in this response.
+	// repos WS stream by the broadcast below, not in this response.
+	h.broadcast(dto.RepoDTOFrom(*repo))
 	c.Status(http.StatusNoContent)
 }
 
@@ -897,24 +920,38 @@ func (h *Handlers) PutIconGithub(c *gin.Context) {
 	}
 	repo.AvatarHasIcon = true
 	repo.AvatarEmoji = ""
+	// New bytes behind the stable icon URL: bump the version so the DTO's
+	// ?v= param changes and clients refetch the image.
+	repo.AvatarVersion++
 	if err := h.store.Save(c.Request.Context(), *repo); err != nil {
 		libs.WriteErr(c, http.StatusInternalServerError, err.Error())
 		return
 	}
+	// Deliver the updated avatar to every client on the repos WS stream — the
+	// store Save alone does not fan out.
+	h.broadcast(dto.RepoDTOFrom(*repo))
 	c.Status(http.StatusNoContent)
 }
 
 // isSingleEmoji returns true when s is a non-empty string containing exactly
-// one Unicode code point that is not a plain ASCII letter/digit.
+// one user-perceived character (grapheme cluster) that is not a plain ASCII
+// letter. Grapheme clusters — not code points — are the unit that matters:
+// most real emoji are multi-codepoint sequences (❤️ carries a variation
+// selector, 👨‍💻 is a ZWJ sequence, 🇦🇷 is a two-codepoint flag, 👍🏽 carries a
+// skin-tone modifier) and must all be accepted as "a single emoji".
 func isSingleEmoji(s string) bool {
 	if s == "" {
 		return false
 	}
-	r, size := utf8.DecodeRuneInString(s)
-	if r == utf8.RuneError {
+	g := uniseg.NewGraphemes(s)
+	if !g.Next() {
 		return false
 	}
-	if size != len(s) {
+	if g.Next() {
+		return false // more than one user-perceived character
+	}
+	r, _ := utf8.DecodeRuneInString(s)
+	if r == utf8.RuneError {
 		return false
 	}
 	return !unicode.IsLetter(r) || r > 127

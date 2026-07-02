@@ -11,6 +11,7 @@
     },
     "shell:allow-spawn",
     "shell:allow-kill",
+    "shell:allow-open",
     "log:default",
     "core:window:allow-start-dragging",
     "dialog:allow-open"

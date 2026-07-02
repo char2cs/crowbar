@@ -1,3 +1,4 @@
+import { useEffect, useState } from 'react'
 import { cn } from '@/lib/utils'
 
 export type RepoAvatarData = { url?: string; label: string; color: string }
@@ -5,6 +6,37 @@ export type RepoAvatarData = { url?: string; label: string; color: string }
 const sizeClasses = {
   sm: { box: 'h-4 w-4', text: 'text-[10px]', emoji: 'text-xs' },
   lg: { box: 'h-5 w-5', text: 'text-[11px]', emoji: 'text-sm' },
+}
+
+// Icon <img> with graceful degradation: when the icon URL 404s (icon reset
+// racing the WS frame, stale URL after a daemon wipe) render the caller's
+// letter/color fallback instead of the browser's broken-image glyph. The
+// error state resets whenever the src changes (e.g. a new ?v= version).
+export function RepoAvatarImg({
+  src,
+  alt,
+  className,
+  fallback,
+}: {
+  src: string
+  alt: string
+  className?: string
+  fallback: React.ReactNode
+}) {
+  const [errored, setErrored] = useState(false)
+  useEffect(() => {
+    setErrored(false)
+  }, [src])
+  if (errored) return <>{fallback}</>
+  return (
+    <img
+      src={src}
+      alt={alt}
+      draggable={false}
+      className={className}
+      onError={() => setErrored(true)}
+    />
+  )
 }
 
 export function RepoAvatar({
@@ -26,17 +58,7 @@ export function RepoAvatar({
       </span>
     )
   }
-  if (avatar.url) {
-    return (
-      <img
-        src={avatar.url}
-        alt={name}
-        draggable={false}
-        className={cn('shrink-0 rounded-sm object-cover', box)}
-      />
-    )
-  }
-  return (
+  const letterFallback = (
     <span
       className={cn(
         'inline-flex shrink-0 items-center justify-center rounded-sm px-0.5 font-bold text-primary-foreground',
@@ -48,4 +70,15 @@ export function RepoAvatar({
       {avatar.label}
     </span>
   )
+  if (avatar.url) {
+    return (
+      <RepoAvatarImg
+        src={avatar.url}
+        alt={name}
+        className={cn('shrink-0 rounded-sm object-cover', box)}
+        fallback={letterFallback}
+      />
+    )
+  }
+  return letterFallback
 }

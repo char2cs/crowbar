@@ -6,6 +6,9 @@ embed-web:
 	mkdir -p cmd/crowbar/web
 	cp -r ../web/dist cmd/crowbar/web/dist
 
+# Dev isolation: root all daemon state at <workspace>/.crowbar, not ~/.crowbar
+# (see root Makefile). Applies when this target is invoked directly too.
+dev: export CROWBAR_HOME ?= $(abspath ..)/.crowbar
 dev:
 	go run -tags noEmbed ./cmd/crowbar serve --host tcp://127.0.0.1:3737
 

@@ -4,6 +4,7 @@ import { createRoot } from 'react-dom/client'
 import { enableMapSet } from 'immer'
 import { RouterProvider, createRouter, createHashHistory } from '@tanstack/react-router'
 import { TooltipProvider } from '@/components/ui/tooltip'
+import { PrimitiveDialogProvider } from '@/components/ui/primitive-dialog-service'
 import { routeTree } from './routeTree.gen'
 import { connectDaemonEvents } from '@/lib/events/connect'
 import { initializeSettingsStore } from '@/features/settings/store'
@@ -48,7 +49,12 @@ function renderApp() {
   createRoot(document.getElementById('root')!).render(
     <StrictMode>
       <TooltipProvider>
-        <RouterProvider router={router} />
+        {/* primitiveConfirm/alert/prompt render through this host; without it
+            every primitive dialog request queues forever and callers (terminal
+            link confirm, multi-line paste guard) look silently dead. */}
+        <PrimitiveDialogProvider>
+          <RouterProvider router={router} />
+        </PrimitiveDialogProvider>
       </TooltipProvider>
     </StrictMode>,
   )

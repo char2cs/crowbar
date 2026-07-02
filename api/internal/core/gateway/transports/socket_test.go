@@ -5,10 +5,13 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
+	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/char2cs/crowbar/api/internal/core/metadata"
 )
 
 // tempSocketPath returns a short unique socket path safe on macOS, where the
@@ -139,9 +142,46 @@ func TestSocketPath_NonEmpty(t *testing.T) {
 }
 
 func TestSocketPath_EmptyUsesHome(t *testing.T) {
+	t.Setenv(metadata.HomeEnvVar, "")
 	t.Setenv("HOME", t.TempDir())
 	path, err := socketPath("")
 	require.NoError(t, err)
 	assert.NotEmpty(t, path)
 	assert.Contains(t, path, defaultSocketName)
+}
+
+func TestSocketPath_EmptyUsesCrowbarHomeOverride(t *testing.T) {
+	home := filepath.Join(t.TempDir(), "dev-home")
+	t.Setenv(metadata.HomeEnvVar, home)
+	path, err := socketPath("")
+	require.NoError(t, err)
+	// The socket must NOT live inside the override home (sun_path is capped at
+	// 104 bytes on macOS and override homes are deep workspace paths) — it goes
+	// to the temp dir under a home-keyed name instead.
+	assert.Equal(t, overrideSocketPath(home), path)
+	assert.NotContains(t, path, home)
+	// The override home dir itself is created for the daemon's state.
+	info, statErr := os.Stat(home)
+	require.NoError(t, statErr)
+	assert.True(t, info.IsDir())
+}
+
+// TestOverrideSocketPath_MatchesDesktopDerivation pins the fnv1a64 hash so the
+// Go daemon and the Rust desktop shell (sidecar/mod.rs) can never drift: both
+// must map "/dev/crowbar-home" to crowbar-c13f09536446a88e.sock.
+func TestOverrideSocketPath_MatchesDesktopDerivation(t *testing.T) {
+	got := overrideSocketPath("/dev/crowbar-home")
+	assert.Equal(t, "crowbar-c13f09536446a88e.sock", filepath.Base(got))
+}
+
+// TestNewSocket_CrowbarHomeOverride_BindsShortPath proves an override home too
+// deep for sun_path still yields a bindable socket.
+func TestNewSocket_CrowbarHomeOverride_BindsShortPath(t *testing.T) {
+	deep := filepath.Join(t.TempDir(), strings.Repeat("deep-segment/", 12), ".crowbar")
+	t.Setenv(metadata.HomeEnvVar, deep)
+
+	l, err := NewSocket("unix://")
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = l.Close() })
+	assert.Greater(t, 104, len(l.Addr().String()), "socket path must fit sun_path")
 }

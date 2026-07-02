@@ -9,6 +9,9 @@ import (
 )
 
 func resolveHome() string {
+	if override := os.Getenv(HomeEnvVar); override != "" {
+		return override
+	}
 	home := Get().Paths.Home.Resolve()
 	if !strings.HasPrefix(home, "~") {
 		return home

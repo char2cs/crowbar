@@ -222,7 +222,7 @@ const TabBar = ({
       splitPane(targetPaneId, direction, bufferId, placement) ?? undefined,
   })
 
-  const { tabBarRef, isAtLeftEdge, isAtRightEdge, handleWheel } = useTabBarScroll({
+  const { tabBarRef, isAtLeftEdge, isAtRightEdge, isAtTopEdge, handleWheel } = useTabBarScroll({
     sidebarPosition,
     draggedBufferId,
   })
@@ -415,7 +415,11 @@ const TabBar = ({
           className={cn(
             'relative flex shrink-0 items-center gap-1.5 overflow-hidden px-2 py-1',
             IS_MAC ? 'h-[44px]' : 'h-[34px]',
-            IS_MAC && !isBottomPane && isAtLeftEdge && 'pl-[88px]',
+            // Traffic-light inset: only the tab bar that actually sits under
+            // the macOS window controls (window top-left) reserves the space —
+            // in a vertical split the lower pane is at the left edge too but
+            // nowhere near the traffic lights.
+            IS_MAC && !isBottomPane && isAtLeftEdge && isAtTopEdge && 'pl-[88px]',
           )}
           role="tablist"
           aria-label="Open files"

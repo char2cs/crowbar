@@ -44,6 +44,12 @@ type Paths struct {
 	Logs     string          `yaml:"logs"`
 }
 
+// HomeEnvVar overrides the crowbar home root when set to a non-empty absolute
+// path. Dev instances use it to keep all state (projects, store, socket, logs)
+// inside the workspace being developed instead of sharing ~/.crowbar with the
+// production app.
+const HomeEnvVar = "CROWBAR_HOME"
+
 // Metadata is the top-level structure parsed from metadata.yaml.
 type Metadata struct {
 	Version  Version      `yaml:"version"`
@@ -66,6 +72,13 @@ func Get() *Metadata {
 // GetVersion returns the application version number.
 func GetVersion() string {
 	return Get().Version.Number
+}
+
+// GetHomePath returns the resolved crowbar home root: the CROWBAR_HOME env
+// override when set, otherwise the home template from metadata.yaml with "~"
+// expanded.
+func GetHomePath() string {
+	return resolveHome()
 }
 
 // GetStateDirPath returns the resolved absolute path to the state directory,

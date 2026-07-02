@@ -1,6 +1,8 @@
 package dto
 
 import (
+	"strconv"
+
 	"github.com/char2cs/crowbar/api/internal/domain"
 )
 
@@ -33,7 +35,11 @@ type RepoDTO struct {
 func RepoDTOFrom(r domain.Repository) RepoDTO {
 	avatarURL := ""
 	if r.AvatarHasIcon {
-		avatarURL = "/v0/projects/" + r.ProjectID + "/repos/" + r.ID + "/icon"
+		// The ?v=<AvatarVersion> query param cache-busts the otherwise-stable
+		// icon URL: uploads replace the bytes in place, and without a changing
+		// URL the webview's image cache keeps serving the old icon.
+		avatarURL = "/v0/projects/" + r.ProjectID + "/repos/" + r.ID + "/icon" +
+			"?v=" + strconv.FormatInt(r.AvatarVersion, 10)
 	}
 	return RepoDTO{
 		ID:            r.ID,

@@ -7,6 +7,8 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+
+	"github.com/char2cs/crowbar/api/internal/core/metadata"
 )
 
 // For returns the git worktree directory for a workspace.
@@ -115,9 +117,13 @@ func GlobalStateDir(crowbarHome string) string {
 	return filepath.Join(crowbarHome, "state")
 }
 
-// DefaultCrowbarHome returns ~/.crowbar, the production root for all
-// Crowbar-managed state.
+// DefaultCrowbarHome returns the root for all Crowbar-managed state: the
+// CROWBAR_HOME env override when set (dev instances point it inside the
+// workspace being developed), otherwise ~/.crowbar.
 func DefaultCrowbarHome() (string, error) {
+	if override := os.Getenv(metadata.HomeEnvVar); override != "" {
+		return override, nil
+	}
 	h, err := os.UserHomeDir()
 	if err != nil {
 		return "", fmt.Errorf("crowbar home: %w", err)

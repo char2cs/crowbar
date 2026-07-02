@@ -24,6 +24,11 @@ import {
   type TerminalAddons,
 } from '../hooks/use-terminal-addons'
 import { useTerminalConnection } from '../hooks/use-terminal-connection'
+import { registerTerminalFileLinks, workspaceRelativePath } from '../lib/terminal-file-links'
+import { useSidebarStore } from '@/lib/store/sidebar'
+import { useFileSystemStore } from '@/features/file-system/controllers/store'
+import { useProjectDataStore } from '@/lib/store/projects'
+import { dataOf } from '@/lib/loadable'
 import { useTerminalTheme } from '../hooks/use-terminal-theme'
 import { useTerminalStore } from '../stores/terminal-store'
 import { formatDroppedPathsForTerminal } from '../utils/terminal-file-drop'
@@ -34,6 +39,30 @@ import { toast } from '@/features/window/stores/toast-store'
 import { TerminalSearch, type TerminalSearchOptions } from './terminal-search'
 import '@xterm/xterm/css/xterm.css'
 import '../styles/terminal.css'
+
+// Resolves the on-disk root of the current view for terminal file links:
+// the active workspace's worktree, the repo root for the default workspace,
+// or — on the project-home route, whose special workspace is not in the
+// sidebar repo list — the project's own path.
+function resolveWorkspaceRootPath(): string | undefined {
+  const wsId = getActiveWorkspaceId()
+  if (wsId) {
+    for (const repo of useSidebarStore.getState().repos) {
+      const ws = repo.workspaces?.find((w) => w.id === wsId)
+      if (ws) return ws.localPath ?? repo.localPath
+      // The default (main-worktree) workspace is not in the workspaces array;
+      // it maps to the repo root path.
+      if (repo.defaultWorkspaceId === wsId) return repo.localPath
+    }
+  }
+  // Project home route (/ide/<projectId>/home): use the project path.
+  const projectId = window.location.hash.match(/\/ide\/([^/]+)\/home/)?.[1]
+  if (projectId) {
+    const projects = dataOf(useProjectDataStore.getState().data) ?? []
+    return projects.find((p) => p.id === projectId)?.path
+  }
+  return undefined
+}
 
 interface XtermTerminalProps {
   sessionId: string
@@ -346,6 +375,38 @@ export const XtermTerminal: React.FC<XtermTerminalProps> = ({
       }
 
       loadWebLinksAddon(terminal)
+      // File references (foo/bar.ts:12, /abs/path, ./rel) open inside Crowbar.
+      // Relative paths resolve against the session cwd when known, else the
+      // workspace root; the resolved ABSOLUTE path is then relativized back
+      // onto the workspace root because handleFileOpen (the workspace-scoped
+      // files API) only accepts worktree-relative paths. The provider is
+      // disposed with the terminal instance.
+      registerTerminalFileLinks(terminal, {
+        getRoot: () => {
+          const cwd = getSession(sessionId)?.currentDirectory
+          if (cwd?.startsWith('/')) return cwd
+          return resolveWorkspaceRootPath()
+        },
+        openFile: (absolutePath) => {
+          const root = resolveWorkspaceRootPath()
+          const rel = workspaceRelativePath(absolutePath, root)
+          if (!rel) {
+            toast.error('Cannot open file', `${absolutePath} is outside the current workspace.`)
+            return
+          }
+          const openHandler = useFileSystemStore.getState().handleFileOpen
+          if (!openHandler) {
+            toast.error('Cannot open file', 'No editor is available in this view.')
+            return
+          }
+          void openHandler(rel).catch(() => {
+            toast.error('Could not open file', absolutePath)
+          })
+        },
+        onUnresolved: (candidateText) => {
+          toast.error('Cannot open file', `Could not resolve ${candidateText} to a path.`)
+        },
+      })
       terminal.unicode.activeVersion = '11'
       injectLinkStyles(sessionId, terminalContainerRef.current.id || `terminal-${sessionId}`)
 
@@ -601,6 +662,61 @@ export const XtermTerminal: React.FC<XtermTerminalProps> = ({
       terminal,
     })
   }, [isInitialized, onTerminalRef])
+
+  // Window-level geometry changes: moving the window to another display (a
+  // vertical→horizontal monitor, or one with a different scale factor) can
+  // resize the window in one native transaction and flip devicePixelRatio.
+  // A DPR flip re-measures xterm's cell metrics WITHOUT changing the
+  // container box, so the container ResizeObserver above never fires and the
+  // grid/PTY stay at the old dimensions (the "TUI keeps a scroll artifact
+  // until you switch workspace and back" bug — the workspace re-attach fixed
+  // it by force-pushing dims). Mirror that here: on window resize or DPR
+  // change, debounce, refit, and ALWAYS push the PTY size (idempotent when
+  // unchanged, and terminal.onResize would not fire when only the cell
+  // metrics — not cols/rows — went stale).
+  useEffect(() => {
+    if (!isInitialized) return
+
+    let timer: number | null = null
+    const refit = () => {
+      if (timer !== null) window.clearTimeout(timer)
+      timer = window.setTimeout(() => {
+        timer = null
+        const container = terminalContainerRef.current
+        const addons = addonsRef.current
+        const term = xtermRef.current
+        if (!container || !addons || !term) return
+        const rect = container.getBoundingClientRect()
+        if (rect.width <= 0 || rect.height <= 0) return
+        addons.fitAddon.fit()
+        term.refresh(0, term.rows - 1)
+        const connId = currentConnectionIdRef.current
+        if (connId) void terminalResize(connId, term.rows, term.cols).catch(() => {})
+      }, 150)
+    }
+
+    window.addEventListener('resize', refit)
+
+    // devicePixelRatio has no event; the standard pattern is a resolution
+    // media query re-registered after each flip (it fires exactly once).
+    let mql: MediaQueryList | null = null
+    const onDprChange = () => {
+      refit()
+      listenDpr()
+    }
+    const listenDpr = () => {
+      mql?.removeEventListener('change', onDprChange)
+      mql = window.matchMedia(`(resolution: ${window.devicePixelRatio}dppx)`)
+      mql.addEventListener('change', onDprChange)
+    }
+    listenDpr()
+
+    return () => {
+      window.removeEventListener('resize', refit)
+      mql?.removeEventListener('change', onDprChange)
+      if (timer !== null) window.clearTimeout(timer)
+    }
+  }, [currentConnectionIdRef, isInitialized])
 
   // Listen for portal-target changes from TerminalHost; force a fit + repaint
   // so PTY/xterm dims match the new slot before any TUI relies on them.

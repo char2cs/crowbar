@@ -14,6 +14,8 @@ import (
 	"strings"
 	"time"
 	"unicode"
+
+	"github.com/char2cs/crowbar/api/internal/core/binpath"
 )
 
 // paletteSize is the number of entries in palette(); must equal len(palette()).
@@ -131,7 +133,9 @@ func ownerAvatarURL(
 	if err != nil {
 		return ""
 	}
-	out, err := exec.CommandContext(ctx, "gh", "api", "repos/"+slug, "--jq", ".owner.avatar_url").Output()
+	// binpath.Resolve: the packaged .app daemon inherits launchd's minimal PATH,
+	// which misses Homebrew's /opt/homebrew/bin where gh usually lives.
+	out, err := exec.CommandContext(ctx, binpath.Resolve("gh"), "api", "repos/"+slug, "--jq", ".owner.avatar_url").Output()
 	if err != nil {
 		return ""
 	}
