@@ -10,6 +10,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/char2cs/crowbar/api/internal/core/binpath"
 	providertypes "github.com/char2cs/crowbar/api/internal/engine/provider/types"
 )
 
@@ -228,7 +229,9 @@ func (g *ghProvider) runGH(
 	repoPath string,
 	args ...string,
 ) (string, error) {
-	cmd := g.execFn(ctx, "gh", args...)
+	// binpath.Resolve: the packaged .app daemon inherits launchd's minimal
+	// PATH, which misses Homebrew's /opt/homebrew/bin where gh usually lives.
+	cmd := g.execFn(ctx, binpath.Resolve("gh"), args...)
 	cmd.Dir = repoPath
 
 	var out, errBuf bytes.Buffer
