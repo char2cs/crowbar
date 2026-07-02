@@ -102,6 +102,13 @@ jobs:
             -o ../desktop/src-tauri/binaries/crowbar-api-aarch64-apple-darwin ./cmd/crowbar
           GOOS=darwin GOARCH=amd64 CGO_ENABLED=0 go build -tags noEmbed \
             -o ../desktop/src-tauri/binaries/crowbar-api-x86_64-apple-darwin ./cmd/crowbar
+          # cargo tauri build --target universal-apple-darwin bundles a single
+          # sidecar named for the "universal-apple-darwin" triple — it does not
+          # lipo the two arch-specific sidecars above on its own.
+          lipo -create \
+            ../desktop/src-tauri/binaries/crowbar-api-aarch64-apple-darwin \
+            ../desktop/src-tauri/binaries/crowbar-api-x86_64-apple-darwin \
+            -output ../desktop/src-tauri/binaries/crowbar-api-universal-apple-darwin
       - name: Build frontend
         env:
           NODE_OPTIONS: --max-old-space-size=6144
