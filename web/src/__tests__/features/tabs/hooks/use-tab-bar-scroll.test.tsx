@@ -29,7 +29,16 @@ function renderWithRect(rect: { left: number; right: number; top: number }) {
         ref={(el) => {
           if (el) {
             el.getBoundingClientRect = vi.fn(
-              () => ({ ...rect, bottom: rect.top + 44, width: 400, height: 44, x: rect.left, y: rect.top, toJSON: () => ({}) }) as DOMRect,
+              () =>
+                ({
+                  ...rect,
+                  bottom: rect.top + 44,
+                  width: 400,
+                  height: 44,
+                  x: rect.left,
+                  y: rect.top,
+                  toJSON: () => ({}),
+                }) as DOMRect,
             )
           }
           tabBarRef.current = el

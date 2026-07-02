@@ -5,7 +5,9 @@ import { RepoAvatar, RepoAvatarImg } from '@/components/layout/repo-avatar'
 
 describe('RepoAvatar', () => {
   it('renders the emoji variant for emoji: urls', () => {
-    render(<RepoAvatar avatar={{ url: 'emoji:🦊', label: 'R', color: 'avatar-rose' }} name="repo" />)
+    render(
+      <RepoAvatar avatar={{ url: 'emoji:🦊', label: 'R', color: 'avatar-rose' }} name="repo" />,
+    )
     expect(screen.getByText('🦊')).toBeInTheDocument()
   })
 
@@ -40,9 +42,7 @@ describe('RepoAvatar', () => {
 describe('RepoAvatarImg', () => {
   it('recovers from an error when the src changes (new ?v= version)', () => {
     const fallback = <span>FB</span>
-    const { rerender } = render(
-      <RepoAvatarImg src="/icon?v=1" alt="repo" fallback={fallback} />,
-    )
+    const { rerender } = render(<RepoAvatarImg src="/icon?v=1" alt="repo" fallback={fallback} />)
     fireEvent.error(screen.getByRole('img'))
     expect(screen.getByText('FB')).toBeInTheDocument()
 

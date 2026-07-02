@@ -391,10 +391,7 @@ export const XtermTerminal: React.FC<XtermTerminalProps> = ({
           const root = resolveWorkspaceRootPath()
           const rel = workspaceRelativePath(absolutePath, root)
           if (!rel) {
-            toast.error(
-              'Cannot open file',
-              `${absolutePath} is outside the current workspace.`,
-            )
+            toast.error('Cannot open file', `${absolutePath} is outside the current workspace.`)
             return
           }
           const openHandler = useFileSystemStore.getState().handleFileOpen

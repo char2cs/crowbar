@@ -37,9 +37,7 @@ describe('parseFileLinkCandidates', () => {
   })
 
   it('does NOT match the path portion of URLs', () => {
-    expect(parseFileLinkCandidates('visit https://github.com/char2cs/crowbar for info')).toEqual(
-      [],
-    )
+    expect(parseFileLinkCandidates('visit https://github.com/char2cs/crowbar for info')).toEqual([])
     expect(parseFileLinkCandidates('at http://localhost:5173/some/route')).toEqual([])
   })
 
