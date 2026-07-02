@@ -6,10 +6,19 @@ if [[ "$(uname)" != "Darwin" ]]; then
   exit 0
 fi
 
-# Requires Xcode 26+ for folder.iconcomposer.icon / AssetCatalogAgent-Runtime support
-XCODE_MAJOR=$(xcodebuild -version 2>/dev/null | head -1 | grep -oE '[0-9]+' | head -1 || echo "0")
-if [[ "$XCODE_MAJOR" -lt 26 ]]; then
-  echo "Icon compilation skipped (requires Xcode 26+, found: $(xcodebuild -version 2>/dev/null | head -1 || echo 'Xcode not found'))"
+# Requires Xcode 26+ for folder.iconcomposer.icon / AssetCatalogAgent-Runtime support.
+#
+# Capture the full output BEFORE extracting the version: piping xcodebuild
+# straight into `head -1` under pipefail can kill xcodebuild with SIGPIPE and
+# fail the whole pipeline even though the version was already printed — the
+# `|| echo 0` fallback then APPENDED a second line, the numeric guard became a
+# syntax error ("[[: 16\n0"), the skip branch was silently not taken, and the
+# build died later at the Assets.car copy on Xcode <26 runners.
+XCODE_VERSION_OUTPUT=$(xcodebuild -version 2>/dev/null || true)
+XCODE_MAJOR=$(printf '%s\n' "$XCODE_VERSION_OUTPUT" | sed -n '1s/[^0-9]*\([0-9][0-9]*\).*/\1/p')
+if [[ "${XCODE_MAJOR:-0}" -lt 26 ]]; then
+  XCODE_VERSION_LINE=${XCODE_VERSION_OUTPUT%%$'\n'*}
+  echo "Icon compilation skipped (requires Xcode 26+, found: ${XCODE_VERSION_LINE:-Xcode not found})"
   exit 0
 fi
 
