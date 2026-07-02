@@ -12,6 +12,7 @@ import (
 
 	"github.com/char2cs/crowbar/api/internal"
 	"github.com/char2cs/crowbar/api/internal/core/metadata"
+	"github.com/char2cs/crowbar/api/internal/core/shellenv"
 )
 
 func newRootCmd() *cobra.Command {
@@ -51,6 +52,13 @@ func runServe(
 ) error {
 	ctx, cancel := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer cancel()
+
+	// Apply the user's login-shell PATH process-wide BEFORE anything execs
+	// external tools or spawns PTYs. A daemon launched by macOS launchd (the
+	// packaged .app) inherits a minimal PATH without Homebrew/npm/go dirs —
+	// without this, gh/glab, language servers and terminal children all see a
+	// crippled environment. Degrades to the inherited PATH on failure.
+	shellenv.ApplyLoginShellPath(ctx)
 
 	staticFS, err := embeddedStaticFS()
 	if err != nil {

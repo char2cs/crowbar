@@ -7,6 +7,7 @@ import (
 	"os/exec"
 	"strings"
 
+	"github.com/char2cs/crowbar/api/internal/core/binpath"
 	gitdomain "github.com/char2cs/crowbar/api/internal/domain/git"
 	gitexec "github.com/char2cs/crowbar/api/internal/engine/git/internal/exec"
 )
@@ -44,7 +45,9 @@ func identityFromGH(
 	ctx context.Context,
 	worktreePath string,
 ) (gitdomain.Identity, bool) {
-	cmd := exec.CommandContext(ctx, "gh", "api", "user")
+	// binpath.Resolve: the packaged .app daemon inherits launchd's minimal
+	// PATH, which misses Homebrew's /opt/homebrew/bin where gh usually lives.
+	cmd := exec.CommandContext(ctx, binpath.Resolve("gh"), "api", "user")
 	cmd.Dir = worktreePath
 
 	var out, errBuf bytes.Buffer
