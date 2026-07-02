@@ -1,4 +1,3 @@
-import React from 'react'
 import { render } from '@testing-library/react'
 import { describe, it, expect, vi } from 'vitest'
 import { useTabBarScroll } from '@/features/tabs/hooks/use-tab-bar-scroll'
