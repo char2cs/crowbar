@@ -1,9 +1,4 @@
-// Tauri plugins replaced with browser equivalents
-const ask = async (message: string, _options?: Record<string, unknown>): Promise<boolean> =>
-  window.confirm(message)
-const open = async (url: string) => {
-  window.open(url, '_blank')
-}
+import { openExternalUrl } from '@/lib/external-open'
 import { FitAddon } from '@xterm/addon-fit'
 import { SearchAddon } from '@xterm/addon-search'
 import { SerializeAddon } from '@xterm/addon-serialize'
@@ -66,21 +61,13 @@ export function createTerminalAddons(
 }
 
 export function loadWebLinksAddon(terminal: Terminal): void {
-  const webLinksAddon = new WebLinksAddon(async (_event: MouseEvent, uri: string) => {
-    try {
-      const confirmed = await ask(`Do you want to open this link in your browser?\n\n${uri}`, {
-        title: 'Open External Link',
-        kind: 'warning',
-        okLabel: 'Open',
-        cancelLabel: 'Cancel',
-      })
-
-      if (confirmed) {
-        await open(uri)
-      }
-    } catch (error) {
+  // No confirmation step by design: clicking a URL goes straight to the
+  // default browser. openExternalUrl (not window.open): window.open is a
+  // silent no-op in the Tauri WKWebView.
+  const webLinksAddon = new WebLinksAddon((_event: MouseEvent, uri: string) => {
+    openExternalUrl(uri).catch((error) => {
       console.error('Failed to open link:', error)
-    }
+    })
   })
   terminal.loadAddon(webLinksAddon)
 }

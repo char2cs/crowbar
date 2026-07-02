@@ -39,6 +39,7 @@ export default tseslint.config(
       'src/lib/crowbar-bridge.ts',
       'src/lib/ws/tauri-transport.ts',
       'src/lib/native-dialog.ts',
+      'src/lib/external-open.ts',
     ],
     rules: {
       'no-restricted-imports': 'off',
