@@ -136,8 +136,8 @@ export function RepoSettingsPanel({ projectId, repoId, repoName }: RepoSettingsP
       // and merges into the cache — no manual list refetch.
       await apiFetch(`${repoBase}/icon`, { method: 'PUT', body: form })
       setIconVersion((v) => v + 1)
-    } catch {
-      // ignore
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : 'Failed to set icon')
     } finally {
       setIconLoading(false)
       if (fileRef.current) fileRef.current.value = ''
@@ -156,8 +156,8 @@ export function RepoSettingsPanel({ projectId, repoId, repoName }: RepoSettingsP
       })
       setEmojiInput('')
       setShowEmojiInput(false)
-    } catch {
-      // ignore
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : 'Failed to set emoji')
     } finally {
       setIconLoading(false)
     }
@@ -169,7 +169,13 @@ export function RepoSettingsPanel({ projectId, repoId, repoName }: RepoSettingsP
       await apiFetch(`${repoBase}/icon/github`, { method: 'PUT' })
       setIconVersion((v) => v + 1)
     } catch {
-      // ignore
+      // The daemon soft-fails avatar resolution (no GitHub origin, gh CLI
+      // missing or unauthenticated) into a single 422 — spell the likely
+      // causes out for the user instead of failing silently.
+      toast.error(
+        'Could not fetch the GitHub avatar',
+        'Check that the repo has a GitHub origin remote and the gh CLI is installed and authenticated.',
+      )
     } finally {
       setIconLoading(false)
     }
@@ -180,8 +186,8 @@ export function RepoSettingsPanel({ projectId, repoId, repoName }: RepoSettingsP
     try {
       await apiFetch(`${repoBase}/icon`, { method: 'DELETE' })
       setIconVersion((v) => v + 1)
-    } catch {
-      // ignore
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : 'Failed to reset icon')
     } finally {
       setIconLoading(false)
     }

@@ -11,6 +11,7 @@ import { WorkspaceInlineInput } from './workspace-inline-input'
 import { findWorkspaceForBranch } from '@/lib/workspace/branch-workspace'
 import { WorkspaceTreeFooter } from './workspace-tree-footer'
 import { WorkspaceTreeItem } from './workspace-tree-item'
+import { RepoAvatarImg } from './repo-avatar'
 import { PendingCreateRow } from './pending-create-row'
 import {
   WorkspaceTreeProvider,
@@ -152,11 +153,20 @@ function WorkspaceTreeInner() {
                       {repo.avatarURL.slice(6)}
                     </span>
                   ) : repo.avatarURL ? (
-                    <img
+                    <RepoAvatarImg
                       src={repo.avatarURL}
                       alt={repo.name}
-                      draggable={false}
                       className="pointer-events-none h-5 w-5 shrink-0 rounded-md object-cover"
+                      fallback={
+                        <span
+                          className={cn(
+                            'pointer-events-none inline-flex h-5 w-5 shrink-0 items-center justify-center rounded-md px-1 text-[11px] font-bold text-primary-foreground',
+                            repo.avatarColor,
+                          )}
+                        >
+                          {repo.avatarLabel}
+                        </span>
+                      }
                     />
                   ) : (
                     <span
