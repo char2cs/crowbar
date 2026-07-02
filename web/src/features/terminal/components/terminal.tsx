@@ -602,6 +602,61 @@ export const XtermTerminal: React.FC<XtermTerminalProps> = ({
     })
   }, [isInitialized, onTerminalRef])
 
+  // Window-level geometry changes: moving the window to another display (a
+  // vertical→horizontal monitor, or one with a different scale factor) can
+  // resize the window in one native transaction and flip devicePixelRatio.
+  // A DPR flip re-measures xterm's cell metrics WITHOUT changing the
+  // container box, so the container ResizeObserver above never fires and the
+  // grid/PTY stay at the old dimensions (the "TUI keeps a scroll artifact
+  // until you switch workspace and back" bug — the workspace re-attach fixed
+  // it by force-pushing dims). Mirror that here: on window resize or DPR
+  // change, debounce, refit, and ALWAYS push the PTY size (idempotent when
+  // unchanged, and terminal.onResize would not fire when only the cell
+  // metrics — not cols/rows — went stale).
+  useEffect(() => {
+    if (!isInitialized) return
+
+    let timer: number | null = null
+    const refit = () => {
+      if (timer !== null) window.clearTimeout(timer)
+      timer = window.setTimeout(() => {
+        timer = null
+        const container = terminalContainerRef.current
+        const addons = addonsRef.current
+        const term = xtermRef.current
+        if (!container || !addons || !term) return
+        const rect = container.getBoundingClientRect()
+        if (rect.width <= 0 || rect.height <= 0) return
+        addons.fitAddon.fit()
+        term.refresh(0, term.rows - 1)
+        const connId = currentConnectionIdRef.current
+        if (connId) void terminalResize(connId, term.rows, term.cols).catch(() => {})
+      }, 150)
+    }
+
+    window.addEventListener('resize', refit)
+
+    // devicePixelRatio has no event; the standard pattern is a resolution
+    // media query re-registered after each flip (it fires exactly once).
+    let mql: MediaQueryList | null = null
+    const onDprChange = () => {
+      refit()
+      listenDpr()
+    }
+    const listenDpr = () => {
+      mql?.removeEventListener('change', onDprChange)
+      mql = window.matchMedia(`(resolution: ${window.devicePixelRatio}dppx)`)
+      mql.addEventListener('change', onDprChange)
+    }
+    listenDpr()
+
+    return () => {
+      window.removeEventListener('resize', refit)
+      mql?.removeEventListener('change', onDprChange)
+      if (timer !== null) window.clearTimeout(timer)
+    }
+  }, [currentConnectionIdRef, isInitialized])
+
   // Listen for portal-target changes from TerminalHost; force a fit + repaint
   // so PTY/xterm dims match the new slot before any TUI relies on them.
   useEffect(() => {

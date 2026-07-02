@@ -516,8 +516,8 @@ export function PaneContainer({ pane, position = ROOT_PANE_POSITION }: PaneConta
       data-pane-container
       data-pane-id={pane.id}
       className={`relative flex h-full w-full flex-col overflow-hidden ${
-        isActivePane ? 'ring-1 ring-accent/30' : ''
-      } ${isDragOver || internalHoverZone ? 'ring-2 ring-accent' : ''}`}
+        isDragOver || internalHoverZone ? 'ring-2 ring-accent' : ''
+      }`}
       onMouseDownCapture={handlePaneMouseDownCapture}
       onClick={handlePaneClick}
       onMouseUp={handleMouseUp}
