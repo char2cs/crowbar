@@ -74,14 +74,14 @@ const normalNode = {
   children: [],
 }
 
-function renderItem(node: unknown, onWorkspaceClick = vi.fn()) {
+function renderItem(node: unknown, activeWorkspaceId = '', onWorkspaceClick = vi.fn()) {
   render(
     <WorkspaceTreeItem
       node={node as never}
       depth={0}
       repoId="r1"
       projectId="p1"
-      activeWorkspaceId=""
+      activeWorkspaceId={activeWorkspaceId}
       onWorkspaceClick={onWorkspaceClick}
     />,
   )
@@ -89,31 +89,32 @@ function renderItem(node: unknown, onWorkspaceClick = vi.fn()) {
 }
 
 describe('WorkspaceTreeItem placeholder details', () => {
-  it('hides the reason and actions until the row is clicked', () => {
+  it('hides the reason and actions while the placeholder is not the active workspace', () => {
     renderItem(placeholderNode)
     expect(screen.queryByText(/checked out at/i)).toBeNull()
     expect(screen.queryByRole('button', { name: /detach/i })).toBeNull()
   })
 
-  it('expands the details inside the row on click, without navigating', async () => {
+  it('still navigates into the placeholder on click', async () => {
     const onClick = renderItem(placeholderNode)
     await userEvent.click(screen.getByText('develop'))
+    expect(onClick).toHaveBeenCalledWith('ws-ph', 'p1', 'r1')
+  })
+
+  it('shows the details attached to the row while the placeholder is active', () => {
+    renderItem(placeholderNode, 'ws-ph')
     expect(screen.getByText(/checked out at \/repo\/home/i)).toBeInTheDocument()
     expect(screen.getByRole('button', { name: /retry/i })).toBeInTheDocument()
     expect(screen.getByRole('button', { name: /detach/i })).toBeInTheDocument()
-    expect(onClick).not.toHaveBeenCalled()
   })
 
-  it('collapses the details on a second click', async () => {
-    renderItem(placeholderNode)
-    await userEvent.click(screen.getByText('develop'))
-    await userEvent.click(screen.getByText('develop'))
+  it('hides the details when another workspace is active', () => {
+    renderItem(placeholderNode, 'ws-other')
     expect(screen.queryByText(/checked out at/i)).toBeNull()
   })
 
-  it('still navigates on click for non-placeholder rows', async () => {
-    const onClick = renderItem(normalNode)
-    await userEvent.click(screen.getByText('feature/x'))
-    expect(onClick).toHaveBeenCalledWith('ws-n', 'p1', 'r1')
+  it('never shows details on non-placeholder rows, active or not', () => {
+    renderItem(normalNode, 'ws-n')
+    expect(screen.queryByText(/checked out at/i)).toBeNull()
   })
 })

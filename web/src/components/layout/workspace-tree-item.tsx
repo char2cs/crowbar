@@ -1,4 +1,3 @@
-import { useState } from 'react'
 import { cn } from '@/lib/utils'
 import { formatChangeCount } from './format-change-count'
 import { WorkspaceBranchIcon } from './workspace-branch-icon'
@@ -54,9 +53,9 @@ export function WorkspaceTreeItem({
   const { draggingWs, hoverTargetId, movingWsId } = useWorkspaceTreeDrag()
 
   // A placeholder row keeps its reason + Retry/Detach… collapsed until the user
-  // clicks the row — clicking toggles the attached details panel instead of
-  // navigating (a placeholder has no worktree to open).
-  const [placeholderOpen, setPlaceholderOpen] = useState(false)
+  // ENTERS the workspace: the details render as an attached part of the row
+  // while it is the active workspace and disappear when the user moves away.
+  const showPlaceholderDetails = isPlaceholder && isActive
 
   const isCreatingChild = creatingChildOf?.parentId === workspace.id
   const isRenaming = renamingId === workspace.id
@@ -82,30 +81,19 @@ export function WorkspaceTreeItem({
           role="button"
           tabIndex={0}
           data-ws-drop={!isRenaming ? workspace.id : undefined}
-          aria-expanded={isPlaceholder ? placeholderOpen : undefined}
+          aria-expanded={isPlaceholder ? showPlaceholderDetails : undefined}
           className={cn(
             ROW_BASE,
             variant,
             isDraggingThis && 'opacity-40',
             isMoving && 'opacity-50 pointer-events-none',
             isDropTarget && 'ring-1 ring-ring',
-            isPlaceholder && placeholderOpen && 'mb-0 rounded-b-none bg-accent',
+            showPlaceholderDetails && 'mb-0 rounded-b-none',
           )}
-          onClick={() => {
-            if (isRenaming) return
-            if (isPlaceholder) {
-              setPlaceholderOpen((open) => !open)
-              return
-            }
-            onWorkspaceClick(workspace.id, projectId, repoId)
-          }}
+          onClick={() => !isRenaming && onWorkspaceClick(workspace.id, projectId, repoId)}
           onKeyDown={(e) => {
             if (!isRenaming && (e.key === 'Enter' || e.key === ' ')) {
               e.preventDefault()
-              if (isPlaceholder) {
-                setPlaceholderOpen((open) => !open)
-                return
-              }
               onWorkspaceClick(workspace.id, projectId, repoId)
             }
           }}
@@ -203,8 +191,15 @@ export function WorkspaceTreeItem({
           ) : null}
         </div>
 
-        {isPlaceholder && placeholderOpen && (
-          <div className="mx-1.5 mb-0.5 rounded-b-lg bg-accent px-2.5 pb-2 pt-0.5">
+        {showPlaceholderDetails && (
+          <div
+            className={cn(
+              'mx-1.5 mb-0.5 rounded-b-lg px-2.5 pb-2 pt-0.5',
+              // Continue the ACTIVE row's raised surface so row + details read
+              // as one card (the row squares its bottom corners while shown).
+              'bg-background shadow-xs shadow-black/10',
+            )}
+          >
             <PlaceholderRowActions workspace={workspace} />
           </div>
         )}
