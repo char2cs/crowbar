@@ -4,7 +4,6 @@ package session
 
 import (
 	"os"
-	"strings"
 	"testing"
 	"time"
 
@@ -245,7 +244,7 @@ func TestModelDriven_BurstCoalescesFrames(t *testing.T) {
 		s.mu.Lock()
 		s.lastEmitAt = time.Now()
 		s.mu.Unlock()
-		s.pumpStep([]byte(strings.Repeat("x", 1) + "\n"))
+		s.pumpStep([]byte("x\n"))
 		if i < burstChunks {
 			s.mu.Lock()
 			s.stopEmitTimerLocked()

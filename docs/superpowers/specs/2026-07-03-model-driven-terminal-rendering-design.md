@@ -132,17 +132,29 @@ Nearly none. xterm consumes frames as today. Two adjustments:
 - **Slow client**: unchanged — overflow disconnects the client (existing
   fanOutLocked behavior); re-attach delivers a keyframe. Diff frames are
   therefore reliable-or-reattach; no per-client diff state exists.
-- **Divergence backstop**: a debug-only (dev builds) checksum — every Nth
-  emit, hash the model grid; the client (dev flag) hashes its grid post-apply
-  and logs mismatches. Not shipped in release builds. This is the conformance
-  canary while the flag bakes; it must stay silent for the flag to default on.
+- **Divergence backstop** (as shipped): an env-gated, daemon-side **shadow
+  client simulator**, not a client-side grid hash. When
+  `CROWBAR_TERMINAL_MODEL_DRIVEN_CANARY=1` is set, a model-driven session builds a second
+  `TerminalModel` (`canarySim`) and mirrors every fanned-out frame into it —
+  applying keyframes as a fresh-model reset and diffs as an incremental write,
+  exactly as a real client would. After each frame it compares
+  `model.GridHash(authoritative)` against `GridHash(canarySim)` and counts +
+  throttled-logs mismatches (`CanaryDivergences()`). This runs in ANY build (it
+  is env-gated, not build-tagged), needs no client cooperation, and is a pure
+  observer: a panic in its body disables the canary for that session only,
+  never the authoritative path. It is the conformance canary while the flag
+  bakes; it must stay silent (zero divergences) for the flag to default on.
 
 ### 3.7 Rollout flag
 
-`terminal.modelDrivenOutput` per-profile setting + `CROWBAR_TERMINAL_MODEL_DRIVEN`
-env override; default ON in dev builds, OFF in release until the canary and
-daily-driver period pass. Flag is read at session spawn (no mid-session
-switching; a restart applies it).
+`CROWBAR_TERMINAL_MODEL_DRIVEN` env override + build default (ON in dev, OFF in
+release until the canary and daily-driver period pass). Flag is read at session
+spawn (no mid-session switching; a restart applies it).
+
+**Deferred**: the `terminal.modelDrivenOutput` per-profile setting is a
+follow-up — only the env override and the build default shipped in this phase.
+The env+build gate is sufficient for the bake period; the per-profile UI toggle
+is added once the flag is ready to be user-visible.
 
 ## 3.8 Device queries (amendment, plan phase)
 
@@ -167,8 +179,13 @@ today (the client remains the answerer). One answerer at a time, always.
 - **TUI repaint** (Claude Code): frames are bounded by the 8ms clock; a full
   repaint tick is one screen of ANSI (≈85KB worst case) — today's raw path
   already ships similar volume through the same pumps.
-- **Memory**: one extra cols×rows cell buffer per live session (`lastEmitted`),
-  ≈ 170×50×~24B ≈ 200KB worst case; accounted in the engine memory stats.
+- **Memory**: one extra cols×rows cell buffer per live session (the diff
+  emitter's `lastGrid`), ≈ 170×50×~32B ≈ 270KB worst case. `Session.ModelBytes()`
+  now folds `DiffEmitter.EstimatedBytes()` (a coarse cols×rows×32 estimate of
+  that grid) into the engine memory ceiling, plus — when the env-gated canary is
+  running — the shadow sim's own `ModelBytes()` (it is a second full model, so
+  it roughly doubles a session's footprint while enabled; acceptable for a
+  dev/observer path).
 
 ## 5. Testing
 
@@ -209,3 +226,30 @@ today (the client remains the answerer). One answerer at a time, always.
 - Structured diff wire format → rejected for this phase (ANSI keeps xterm and
   the browser transport unchanged); revisit only if profiling shows ANSI
   re-parse cost matters.
+
+## 8. Post-implementation deviations
+
+Recorded during the final whole-branch review (2026-07-03); the sections above
+are amended in place, this subsection is the change log.
+
+- **Divergence canary (§3.6)**: shipped as an env-gated (`CROWBAR_TERMINAL_MODEL_DRIVEN_CANARY=1`)
+  daemon-side shadow client-simulator that mirrors fanned-out frames and compares
+  grid hashes, NOT the originally-described client-side post-apply hash. It works
+  in any build and needs no client cooperation.
+- **Rollout flag (§3.7)**: only the env override + build default shipped; the
+  `terminal.modelDrivenOutput` per-profile setting is deferred to a follow-up.
+- **Scrollback-ring rotation (§3.2 scrollback delta)**: x/vt's scrollback ring
+  evicts the oldest line at cap, so `ScrollbackLen()` plateaus once saturated and
+  a plain `sbLen > lastLen` compare stops seeing scrolled-off lines. The diff
+  emitter now anchors on the FNV-1a hash of the last scrollback line and scans
+  backward (bounded by `rotationScanLimit=256`) to recover the true new-line
+  boundary across rotation; an anchor evicted past the scan window forces a
+  keyframe. One mechanism covers both plain growth and growth-with-rotation.
+- **Active scroll region / origin mode (§3.2)**: a DECSTBM region or DECOM
+  (mode 6) set BEFORE the diff base was primed passes the change-guard, but the
+  client's park-at-`CUP(rows,1)`+LF scrollback trick is confined to the region
+  and cannot deposit committed lines into client history. When committed
+  scrollback lines coincide with an active region/origin, the emitter now forces
+  a keyframe (reset clears + re-asserts) rather than emitting a diff.
+- **Memory accounting (§4)**: `Session.ModelBytes()` now includes the diff
+  emitter's `lastGrid` estimate and the canary sim's model bytes.
