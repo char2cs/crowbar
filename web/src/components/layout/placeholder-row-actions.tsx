@@ -2,6 +2,7 @@ import type { Workspace } from '@/lib/store/sidebar'
 import { placeholderReason } from '@/lib/workspace/placeholder'
 import { retryProvision } from '@/lib/api/workspace'
 import { useDetachModalStore } from '@/features/window/stores/detach-modal-store'
+import { toast } from '@/features/window/stores/toast-store'
 
 // The inline surface for a placeholder row (spec §3.3): a reconstructed reason
 // plus Retry and Detach… actions. Retry re-provisions in place; Detach… opens the
@@ -13,7 +14,14 @@ export function PlaceholderRowActions({ workspace }: { workspace: Workspace }) {
 
   const onRetry = (e: React.MouseEvent) => {
     e.stopPropagation()
-    void retryProvision(workspace.id)
+    retryProvision(workspace.id).catch((err: unknown) => {
+      toast.show({
+        message: `Couldn't retry ${workspace.branch}`,
+        description: err instanceof Error ? err.message : String(err),
+        type: 'error',
+        key: `retry-${workspace.id}`,
+      })
+    })
   }
 
   const onDetach = (e: React.MouseEvent) => {
