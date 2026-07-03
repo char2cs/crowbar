@@ -41,6 +41,7 @@ func (m *orderModel) Rows() int                          { return 24 }
 func (m *orderModel) HeaderState() (int, int, bool, int) { return 80, 24, false, 0 }
 func (m *orderModel) ModelBytes() int64                  { return 0 }
 func (m *orderModel) Close()                             {}
+func (m *orderModel) SetResponseSink(func(p []byte))     {}
 
 var _ model.TerminalModel = (*orderModel)(nil)
 

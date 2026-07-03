@@ -505,3 +505,39 @@ drain:
 	}
 	assert.Equal(t, 0, frames, "no frame may arrive after teardown (trailing timer must have been stopped)")
 }
+
+// TestModelDriven_CPRQueryAnsweredToPTY proves the daemon answers a cursor-position-report
+// query (ESC[6n) from the model under the model-driven flag (spec §3.8): the client xterm
+// never sees the query in this mode, so without the session's response sink writing the
+// model's synthesized reply back to the PTY master, an app reading the reply from stdin
+// (here, the shell's `read`) would hang/time out.
+func TestModelDriven_CPRQueryAnsweredToPTY(t *testing.T) {
+	s, err := NewModelDriven("sid-md-cpr", "/bin/sh", t.TempDir(), "", os.Environ(), 80, 24, 200)
+	require.NoError(t, err)
+	t.Cleanup(s.Kill)
+	ch, err := s.Attach()
+	require.NoError(t, err)
+	defer s.Detach(ch)
+	_, _ = collect(ch, 500*time.Millisecond)
+
+	// `read -s -t 3 REPLY` after emitting ESC[6n: the shell captures whatever
+	// comes back on stdin. If the daemon answers, REPLY holds the CPR and the
+	// marker prints; with no answer, read times out and prints NOANSWER.
+	//
+	// Sent as ONE PTY line (single trailing '\n'): the whole line is queued to
+	// the shell atomically and fully parsed/executed before `read` blocks, so
+	// there is no leftover queued text for the async CPR reply to race against
+	// (a two-line script races: the second line can reach the tty input queue
+	// ahead of, or interleaved with, the reply). The two markers are written
+	// as separate back-to-back printf calls (nothing between them in the
+	// EXECUTED output) but are never contiguous in the bytes actually TYPED
+	// (shell syntax sits between them there), so the PTY's canonical-mode
+	// local echo of the command line itself cannot satisfy the assertions
+	// below — only the genuinely executed branch's printf output can.
+	script := "printf '\\x1b[6n'; IFS= read -rs -t 3 -d R REPLY; " +
+		"if [ -n \"$REPLY\" ]; then printf 'CPR'; printf -- '-ANSWERED\\n'; else printf 'NO'; printf 'ANSWER\\n'; fi\n"
+	require.NoError(t, s.Write([]byte(script)))
+	data, _ := collect(ch, 5*time.Second)
+	assert.Contains(t, data, "CPR-ANSWERED")
+	assert.NotContains(t, data, "NOANSWER")
+}

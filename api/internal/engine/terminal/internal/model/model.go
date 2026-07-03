@@ -54,8 +54,10 @@ package model
 // TerminalModel is a headless terminal emulator: an authoritative, in-memory mirror of
 // the screen a correct terminal would currently display for a session. It is fed every
 // PTY output byte and maintains the visible cell grid, bounded scrollback, cursor,
-// active DEC private modes, alt-screen flag, and title. It performs no IO and never
-// answers device queries.
+// active DEC private modes, alt-screen flag, and title. It performs no IO itself; it
+// synthesizes device-query replies (CPR, DA, OSC color queries) but only ever hands
+// them to the installed SetResponseSink, never writing them anywhere on its own
+// (spec §3.8).
 type TerminalModel interface {
 	// Write feeds one chunk of raw PTY output into the emulator, advancing screen
 	// state. Partial escape sequences split across chunk boundaries are buffered
@@ -105,6 +107,14 @@ type TerminalModel interface {
 	// term on top (§9.4). It is a pure read the session calls under s.mu for the
 	// engine's global memory-ceiling accounting.
 	ModelBytes() int64
+
+	// SetResponseSink installs the receiver for the emulator's device-query
+	// answers (CPR, DA, OSC color queries). nil (the default) discards them —
+	// correct while a live client xterm is the answerer (raw mode). The sink
+	// is called from the model's internal drain goroutine; implementations of
+	// the sink must be safe for that (the session's sink only calls
+	// ptmx.Write, which is safe concurrently with reads).
+	SetResponseSink(sink func(p []byte))
 
 	// Close releases internal resources. Safe to call once; idempotent.
 	Close()

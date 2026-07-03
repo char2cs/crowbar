@@ -287,6 +287,15 @@ func (s *Session) spawn(
 	if p.ModelDriven {
 		s.emitter = model.NewDiffEmitter()
 	}
+	if p.ModelDriven && s.model != nil {
+		ptmx := s.ptmx
+		s.model.SetResponseSink(func(reply []byte) {
+			// Answer device queries from the model (spec §3.8). ptmx.Write is
+			// safe from the drain goroutine; a write error just means the PTY
+			// is going away — the reply is moot.
+			_, _ = ptmx.Write(reply)
+		})
+	}
 
 	go s.pump()
 	return nil
