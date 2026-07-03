@@ -268,6 +268,61 @@ func TestConformance_RegionActiveScroll(t *testing.T) {
 		"client scrollback must match the model after the region-active scroll resync")
 }
 
+// TestConformance_UnsaturatedRingBlankTailMisanchor pins the blocker found in
+// the final whole-branch review: on an UNSATURATED ring (sbLen < cap, nothing
+// ever evicted) scrollbackNewStart still ran its backward tail-anchor scan on
+// every growth. The old scrollbackLen is already the exact boundary in that
+// regime — nothing has ever scrolled off — so any scan can only misanchor on
+// a newer line that happens to hash-collide with the anchor. Blank lines are
+// the natural repeat offender (prompt-gapped output is full of them): if the
+// batch just committed itself ends in a blank line, its hash equals the
+// hash of the OLD tail (also blank), the scan matches immediately at the new
+// tail, and start collapses to sbLen — the entire batch is silently dropped
+// from client scrollback, not just misplaced by a few lines.
+//
+// Verified red against pre-fix code: batch 3's scrollbackStrings assertion
+// fails, client stuck at 5 lines while the model has 16 (11 new lines lost).
+// A large cap keeps the ring far from saturation throughout, isolating the
+// unsaturated-growth path from the (separately covered) saturated-rotation
+// path in TestConformance_RingFullStreaming.
+func TestConformance_UnsaturatedRingBlankTailMisanchor(t *testing.T) {
+	const cols, rows, cap = 20, 4, 1000
+	m, ser := New(cols, rows, cap)
+	t.Cleanup(func() { m.Close() })
+	sim := newClientSim(t, cols, rows, cap)
+	t.Cleanup(func() { sim.m.Close() })
+	e := NewDiffEmitter()
+
+	// Prime: first Emit on an unprimed emitter always demands a keyframe.
+	conformanceStep(t, m, e, ser, sim, []byte("start"))
+
+	// Commit "start","p1","p2","p3","" (blank) to scrollback, leaving the
+	// screen showing p5..p8. The tail anchor after this batch is the blank
+	// line.
+	needKeyframe := conformanceStep(t, m, e, ser, sim,
+		[]byte("\r\np1\r\np2\r\np3\r\n\r\np5\r\np6\r\np7\r\np8"))
+	require.False(t, needKeyframe, "setup batch must be served by the diff path")
+	require.Equal(t, scrollbackStrings(m), scrollbackStrings(sim.m),
+		"setup batch: client scrollback must match the model")
+	require.Less(t, m.(*vtModel).emu.ScrollbackLen(), cap, "test setup: ring must stay unsaturated")
+
+	// Commit six distinct lines followed by ANOTHER blank line, then push
+	// enough trailing content (D1-D4) to scroll all of them off-screen into
+	// scrollback. The freshly committed batch's own last line is blank, which
+	// hashes identically to the pre-batch tail anchor (also blank) — the
+	// pre-fix scan matches at the new tail and reports zero new lines.
+	needKeyframe = conformanceStep(t, m, e, ser, sim,
+		[]byte("\r\nf1\r\nf2\r\nf3\r\nf4\r\nb1\r\nb2\r\n\r\nD1\r\nD2\r\nD3\r\nD4"))
+	require.False(t, needKeyframe, "probe batch must be served by the diff path")
+	require.Less(t, m.(*vtModel).emu.ScrollbackLen(), cap, "test setup: ring must still be unsaturated")
+
+	wantSB := scrollbackStrings(m)
+	require.Len(t, wantSB, 16, "test setup: expected exactly 16 committed scrollback lines")
+	require.Equal(t, wantSB, scrollbackStrings(sim.m),
+		"client scrollback must track the model on an unsaturated ring even when the "+
+			"newly committed batch ends in a line that duplicates the prior tail's content")
+}
+
 func TestConformance_RandomizedByteSplits(t *testing.T) {
 	// A fixed-seed random walk over printable text, cursor moves, SGR, line
 	// feeds and occasional clears, delivered in adversarial split sizes.
