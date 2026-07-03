@@ -37,6 +37,10 @@ const defaultScrollbackLines = 10000
 // while still converging within ~¼ s of an app exiting (§11.1 sampling site #1).
 const foregroundSampleInterval = 250 * time.Millisecond
 
+// minEmitInterval is the model-driven frame clock (spec §3.3): interactive
+// deltas emit immediately; bursts coalesce to at most one frame per interval.
+const minEmitInterval = 8 * time.Millisecond
+
 // OutputFrame is a chunk of PTY output delivered to attached clients.
 //
 // Snapshot marks a self-contained ground-state redraw (the serialized model)
@@ -109,6 +113,12 @@ type Session struct {
 	// adversarial PTY input can reach deterministically, since the emitter's Emit never
 	// panics on real model state. Production never sets it.
 	emitForTest func(m model.TerminalModel) ([]byte, bool)
+	// Adaptive frame clock (spec §3.3): emits immediately when the last emit
+	// is older than minEmitInterval (interactive echo stays un-batched), else
+	// arms one trailing timer at the boundary so bursts coalesce. Guarded by
+	// s.mu; the timer callback re-locks.
+	lastEmitAt time.Time
+	emitTimer  *time.Timer
 }
 
 // newBareSession allocates a Session shell with no PTY and no model. New/NewRestored fill
@@ -443,7 +453,13 @@ func (s *Session) Attach() (<-chan OutputFrame, error) {
 			// that pending delta to existing clients FIRST — through the same
 			// emitFrameLocked path the pump uses — so no output is lost, THEN
 			// serialize the fresh snapshot for the new client and Prime.
-			s.emitFrameLocked()
+			//
+			// flushPendingEmitLocked (Task 7) also disarms any trailing frame-
+			// clock timer here: without that, a burst chunk could still be
+			// sitting behind an unfired 8ms timer, and letting it fire AFTER
+			// this attach's own snapshot/Prime would emit a stale diff off the
+			// wrong base straight into the new client's freshly-primed state.
+			s.flushPendingEmitLocked()
 		}
 		redraw := s.serializeLocked()
 		redraw = append(redraw, s.model.PendingInput()...)
@@ -483,8 +499,18 @@ func (s *Session) Resync() bool {
 		// One mechanism: invalidate the diff base so emitFrameLocked's next
 		// Emit demands a keyframe, then let it serialize+fan out+re-prime —
 		// the exact same path the pump uses for a post-resize keyframe.
+		//
+		// Cancel any armed trailing frame-clock timer (Task 7) FIRST: the
+		// keyframe below is serialized from the current model, which already
+		// reflects every chunk written so far (the clock only defers the
+		// EMIT, never the model write) — so it subsumes whatever delta the
+		// timer was going to flush. Leaving the timer armed would just let it
+		// fire later and emit a redundant/stale diff off the base this
+		// keyframe just re-primed.
+		s.stopEmitTimerLocked()
 		s.emitter.Invalidate()
 		s.emitFrameLocked()
+		s.lastEmitAt = time.Now()
 		return true
 	}
 
@@ -609,8 +635,8 @@ func (s *Session) pumpStep(chunk []byte) {
 		// UNLESS the emit path itself degrades on THIS chunk (see below).
 		s.writeModelLocked(chunk)
 		panicsBefore := s.modelPanics
-		s.emitFrameLocked()
-		if s.modelPanics > panicsBefore {
+		emittedNow := s.scheduleEmitLocked()
+		if emittedNow && s.modelPanics > panicsBefore {
 			// The model consumed this chunk (writeModelLocked succeeded) but the
 			// emit/serialize path just panicked and recovered, so no frame went
 			// out for it — without this fallback the chunk's visual delta would
@@ -622,6 +648,16 @@ func (s *Session) pumpStep(chunk []byte) {
 			// next attach/resync keyframe. useModelDrivenLocked already logged
 			// the degraded flip; from the NEXT chunk pumpStep takes the raw
 			// branch below.
+			//
+			// Asymmetry (Task 7): this fallback only fires on the IMMEDIATE
+			// emit path, where pumpStep still holds the triggering chunk. A
+			// flip discovered inside the TRAILING TIMER callback (a burst
+			// chunk that only armed a deferred emit) has no chunk in scope to
+			// fall back with — that chunk's frame is lost. useModelDrivenLocked
+			// still logs the degraded flip exactly once either way, and the
+			// loss self-heals at the next attach/resync/resize keyframe, same
+			// as the pre-existing residual-drift argument above; deferred
+			// emission merely widens the window in which it can happen.
 			s.fanOutLocked(chunk)
 		}
 	} else {
@@ -653,10 +689,76 @@ func (s *Session) useModelDrivenLocked() bool {
 	return false
 }
 
+// scheduleEmitLocked implements the adaptive frame clock (spec §3.3, Task 7):
+// when at least minEmitInterval has elapsed since the last emit, it emits
+// immediately (so interactive echo is never batched); otherwise it arms — or
+// leaves armed — a single trailing timer that fires exactly at the interval
+// boundary, coalescing an arbitrarily long burst of chunks into one frame per
+// interval. Caller holds s.mu. Returns whether it emitted synchronously
+// (false means a trailing timer now owns the pending delta).
+func (s *Session) scheduleEmitLocked() bool {
+	if time.Since(s.lastEmitAt) >= minEmitInterval {
+		s.lastEmitAt = time.Now()
+		s.emitFrameLocked()
+		return true
+	}
+	if s.emitTimer != nil {
+		return false // trailing emit already armed
+	}
+	delay := minEmitInterval - time.Since(s.lastEmitAt)
+	s.emitTimer = time.AfterFunc(delay, func() {
+		s.mu.Lock()
+		defer s.mu.Unlock()
+		s.emitTimer = nil
+		select {
+		case <-s.done:
+			return // session tore down while the timer was in flight
+		default:
+		}
+		if !s.useModelDrivenLocked() {
+			return
+		}
+		s.lastEmitAt = time.Now()
+		s.emitFrameLocked()
+	})
+	return false
+}
+
+// stopEmitTimerLocked cancels an armed trailing emit timer, if any, without
+// running the emit it would otherwise have performed. Used at lifecycle
+// boundaries (Resync, teardown) that either perform their own equivalent
+// emit or no longer need one, so a stale timer can never fire a redundant or
+// out-of-order frame afterward. Caller holds s.mu.
+func (s *Session) stopEmitTimerLocked() {
+	if s.emitTimer != nil {
+		s.emitTimer.Stop()
+		s.emitTimer = nil
+	}
+}
+
+// flushPendingEmitLocked cancels an armed trailing emit timer and, only if
+// one was armed (i.e. a delta is genuinely waiting), runs the emit
+// immediately in its place. Used at boundaries — Attach's flush-then-serialize
+// is the current caller — where client-visible state is about to be read or
+// rebased and a delta accumulated under the trailing timer must reach
+// existing clients first, rather than being silently superseded. A no-op
+// when no timer is armed (the last emit was already synchronous). Caller
+// holds s.mu.
+func (s *Session) flushPendingEmitLocked() {
+	if s.emitTimer == nil {
+		return
+	}
+	s.stopEmitTimerLocked()
+	s.lastEmitAt = time.Now()
+	s.emitFrameLocked()
+}
+
 // emitFrameLocked derives one frame from the model and fans it out: a diff
 // frame normally, a snapshot keyframe when the emitter demands one (unprimed,
-// resize, alt flip, scrollback shrink). Caller holds s.mu. Task 7 replaces the
-// per-chunk call with the adaptive frame clock.
+// resize, alt flip, scrollback shrink). Caller holds s.mu. Reached either
+// synchronously from scheduleEmitLocked/flushPendingEmitLocked or directly by
+// Attach/Resync's own forced keyframes, which always reflect the full
+// current model state regardless of the frame clock.
 func (s *Session) emitFrameLocked() {
 	data, needKeyframe := s.emitLocked()
 	if needKeyframe {
@@ -839,6 +941,13 @@ func (s *Session) shutdown() {
 
 		s.mu.Lock()
 		defer s.mu.Unlock()
+
+		// Stop the frame-clock timer (Task 7) under the same lock hold that
+		// closes s.done, so a still-armed trailing emit can never fire after
+		// teardown: its own s.done check would already guard against that,
+		// but stopping it here also releases the timer goroutine promptly
+		// instead of leaving it to wake up once more just to no-op.
+		s.stopEmitTimerLocked()
 
 		s.exitCode = code
 		s.ptmx = nil

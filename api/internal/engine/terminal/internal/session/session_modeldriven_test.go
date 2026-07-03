@@ -4,6 +4,7 @@ package session
 
 import (
 	"os"
+	"strings"
 	"testing"
 	"time"
 
@@ -175,4 +176,174 @@ func TestModelDriven_EmitPanicOnFlipDoesNotDropTheTriggeringChunk(t *testing.T) 
 	f2, ok := waitFrame(t, ch, time.Second)
 	require.True(t, ok, "session must keep streaming raw after the flip")
 	assert.Equal(t, "AFTER-FLIP", string(f2.Data))
+}
+
+// TestModelDriven_BurstCoalescesFrames proves the Task 7 adaptive frame
+// clock: a burst of PTY output produced faster than minEmitInterval must
+// coalesce into far fewer client-visible frames than lines, instead of the
+// pre-Task-7 one-frame-per-chunk behavior.
+func TestModelDriven_BurstCoalescesFrames(t *testing.T) {
+	s, err := NewModelDriven("sid-md-burst", "/bin/sh", t.TempDir(), "", os.Environ(), 80, 24, 2000)
+	require.NoError(t, err)
+	t.Cleanup(s.Kill)
+	ch, err := s.Attach()
+	require.NoError(t, err)
+	defer s.Detach(ch)
+	// settle: drain attach snapshot + prompt
+	_, _ = collect(ch, 500*time.Millisecond)
+
+	// A burst of 200 lines in one command: with the 8ms clock the client must
+	// receive far fewer frames than lines.
+	require.NoError(t, s.Write([]byte("seq 1 200\n")))
+	frames := 0
+	deadline := time.After(3 * time.Second)
+	gotLast := false
+	for !gotLast {
+		select {
+		case f := <-ch:
+			frames++
+			if strings.Contains(string(f.Data), "200") {
+				gotLast = true
+			}
+		case <-deadline:
+			t.Fatal("burst output never completed")
+		}
+	}
+	assert.Less(t, frames, 100, "8ms clock must coalesce a 200-line burst (got %d frames)", frames)
+}
+
+// TestModelDriven_TrailingTimerFlushesFinalState proves output that arrives
+// entirely inside one 8ms coalesce window still reaches the client: the
+// trailing timer must fire and flush it rather than losing it.
+func TestModelDriven_TrailingTimerFlushesFinalState(t *testing.T) {
+	s, err := NewModelDriven("sid-md-trail", "/bin/sh", t.TempDir(), "", os.Environ(), 80, 24, 200)
+	require.NoError(t, err)
+	t.Cleanup(s.Kill)
+	ch, err := s.Attach()
+	require.NoError(t, err)
+	defer s.Detach(ch)
+	_, _ = collect(ch, 500*time.Millisecond)
+
+	require.NoError(t, s.Write([]byte("echo TRAILING-EDGE-OK\n")))
+	data, _ := collect(ch, 2*time.Second)
+	assert.Contains(t, data, "TRAILING-EDGE-OK",
+		"output arriving inside the coalesce window must still flush via the trailing timer")
+}
+
+// TestModelDriven_AttachDisarmsStaleTrailingTimer proves the Attach boundary
+// (Task 7 carry-forward): if a burst chunk left the trailing frame-clock
+// timer armed, Attach must flush that pending delta to existing clients and
+// disarm the timer synchronously — not merely rely on the timer eventually
+// firing on its own — so a second attach's freshly-primed emitter base is
+// never raced by a late diff built off the pre-attach base, and no duplicate
+// frame reaches the existing client.
+//
+// Built directly on newBareSession (as the emit-panic test above does) so the
+// two writes below can be driven through pumpStep at exact, test-controlled
+// timing instead of racing a live PTY's own chunking.
+func TestModelDriven_AttachDisarmsStaleTrailingTimer(t *testing.T) {
+	s := newBareSession("sid-md-attach-timer", "/bin/sh", t.TempDir(), "")
+	m, ser := newModel(80, 24, 200)
+	s.model = m
+	s.serializer = ser
+	s.modelDriven = true
+	s.emitter = model.NewDiffEmitter()
+
+	ch1, err := s.Attach()
+	require.NoError(t, err)
+	defer s.Detach(ch1)
+	_, ok := waitFrame(t, ch1, time.Second)
+	require.True(t, ok, "attach must deliver an initial snapshot")
+
+	// The clock starts cold (lastEmitAt is zero), so this first chunk emits
+	// immediately and also stamps lastEmitAt to "now".
+	s.pumpStep([]byte("echo A\n"))
+	_, ok = waitFrame(t, ch1, time.Second)
+	require.True(t, ok, "first chunk must emit immediately (cold clock)")
+
+	// This second chunk lands inside the 8ms window and must only ARM the
+	// trailing timer rather than emit synchronously.
+	s.pumpStep([]byte("echo B\n"))
+	s.mu.Lock()
+	armed := s.emitTimer != nil
+	s.mu.Unlock()
+	require.True(t, armed, "test setup: second chunk inside the window must arm the trailing timer")
+
+	// Attach a second client while the trailing timer is still armed.
+	ch2, err := s.Attach()
+	require.NoError(t, err)
+	defer s.Detach(ch2)
+
+	s.mu.Lock()
+	stillArmed := s.emitTimer != nil
+	s.mu.Unlock()
+	assert.False(t, stillArmed, "Attach must disarm the stale trailing timer")
+
+	// Attach's own flush delivers the pending "B" delta to the existing
+	// client exactly once.
+	_, ok = waitFrame(t, ch1, time.Second)
+	require.True(t, ok, "Attach must flush the pending delta to the existing client")
+
+	f2, ok := waitFrame(t, ch2, time.Second)
+	require.True(t, ok, "second attach must deliver a snapshot")
+	assert.True(t, f2.Snapshot)
+
+	// The disarmed timer must never separately fire afterward and duplicate
+	// the flush already delivered above.
+	select {
+	case extra := <-ch1:
+		t.Fatalf("unexpected extra frame on ch1 after Attach's flush (stale timer fired?): %+v", extra)
+	case <-time.After(50 * time.Millisecond):
+	}
+}
+
+// TestModelDriven_ResyncDisarmsStaleTrailingTimer proves the Resync boundary
+// (Task 7 carry-forward): Resync's forced keyframe already reflects every
+// chunk written so far (the clock only defers the EMIT, never the model
+// write), so a trailing timer armed by an unflushed burst chunk must be
+// cancelled rather than left to fire later and re-emit a stale/duplicate
+// frame off the base Resync's own keyframe just re-primed.
+func TestModelDriven_ResyncDisarmsStaleTrailingTimer(t *testing.T) {
+	s := newBareSession("sid-md-resync-timer", "/bin/sh", t.TempDir(), "")
+	m, ser := newModel(80, 24, 200)
+	s.model = m
+	s.serializer = ser
+	s.modelDriven = true
+	s.emitter = model.NewDiffEmitter()
+
+	ch, err := s.Attach()
+	require.NoError(t, err)
+	defer s.Detach(ch)
+	_, ok := waitFrame(t, ch, time.Second)
+	require.True(t, ok, "attach must deliver an initial snapshot")
+
+	s.pumpStep([]byte("echo A\n"))
+	_, ok = waitFrame(t, ch, time.Second)
+	require.True(t, ok, "first chunk must emit immediately (cold clock)")
+
+	s.pumpStep([]byte("echo B\n"))
+	s.mu.Lock()
+	armed := s.emitTimer != nil
+	s.mu.Unlock()
+	require.True(t, armed, "test setup: second chunk inside the window must arm the trailing timer")
+
+	ok = s.Resync()
+	require.True(t, ok, "Resync must emit a keyframe for a non-idle bare session")
+
+	s.mu.Lock()
+	stillArmed := s.emitTimer != nil
+	s.mu.Unlock()
+	assert.False(t, stillArmed, "Resync must disarm the stale trailing timer")
+
+	f, ok := waitFrame(t, ch, time.Second)
+	require.True(t, ok, "Resync must deliver its keyframe")
+	assert.True(t, f.Snapshot, "Resync's frame must be a keyframe")
+
+	// The disarmed timer must never separately fire afterward and deliver a
+	// second, redundant frame.
+	select {
+	case extra := <-ch:
+		t.Fatalf("unexpected extra frame after Resync (stale timer fired?): %+v", extra)
+	case <-time.After(50 * time.Millisecond):
+	}
 }
