@@ -49,12 +49,7 @@ export function PlaceholderRowActions({ workspace }: { workspace: Workspace }) {
           Retry
         </Button>
         {workspace.heldByPath ? (
-          <Button
-            variant="outline"
-            size="sm"
-            onClick={onDetach}
-            onPointerDown={(e) => e.stopPropagation()}
-          >
+          <Button size="sm" onClick={onDetach} onPointerDown={(e) => e.stopPropagation()}>
             Detach…
           </Button>
         ) : null}
