@@ -590,3 +590,74 @@ func TestModelDriven_RawSessionNeverInstallsResponseSink(t *testing.T) {
 	s.mu.Unlock()
 	assert.False(t, installed, "a raw (non-model-driven) session must never install a response sink")
 }
+
+// TestModelDriven_CanaryStaysSilentOnHealthySession proves the dev
+// divergence canary (Task 9, spec-brief) is a true no-op cost-wise unless
+// enabled, and that a healthy model-driven session — where the shadow
+// client-sim mirrors every emitted frame exactly the way a real client's
+// terminal would — never reports a divergence.
+func TestModelDriven_CanaryStaysSilentOnHealthySession(t *testing.T) {
+	t.Setenv("CROWBAR_TERMINAL_MODEL_DRIVEN_CANARY", "1")
+	s, err := NewModelDriven("sid-md-canary", "/bin/sh", t.TempDir(), "", os.Environ(), 80, 24, 200)
+	require.NoError(t, err)
+	t.Cleanup(s.Kill)
+	ch, err := s.Attach()
+	require.NoError(t, err)
+	defer s.Detach(ch)
+
+	require.NoError(t, s.Write([]byte("seq 1 50; echo CANARY-DONE\n")))
+	data, _ := collect(ch, 3*time.Second)
+	require.Contains(t, data, "CANARY-DONE")
+	assert.Equal(t, int64(0), s.CanaryDivergences(), "healthy stream must never diverge")
+}
+
+// TestModelDriven_CanaryFiresOnInjectedDivergence proves the canary is
+// falsifiable: without a way to deliberately desync the shadow sim from the
+// authoritative model, TestModelDriven_CanaryStaysSilentOnHealthySession
+// passing would be unfalsifiable — it could pass just as well with a canary
+// that never actually compares anything. corruptCanarySimForTest writes
+// bytes straight into the sim, outside mirrorCanaryLocked's normal mirroring,
+// so the very next mirrored frame's grid-hash comparison must disagree.
+func TestModelDriven_CanaryFiresOnInjectedDivergence(t *testing.T) {
+	t.Setenv("CROWBAR_TERMINAL_MODEL_DRIVEN_CANARY", "1")
+	s, err := NewModelDriven("sid-md-canary-neg", "/bin/sh", t.TempDir(), "", os.Environ(), 80, 24, 200)
+	require.NoError(t, err)
+	t.Cleanup(s.Kill)
+	ch, err := s.Attach()
+	require.NoError(t, err)
+	defer s.Detach(ch)
+
+	_, ok := waitFrame(t, ch, time.Second)
+	require.True(t, ok, "attach must deliver an initial snapshot")
+
+	corruptCanarySimForTest(s)
+
+	require.NoError(t, s.Write([]byte("echo CANARY-FIRE\n")))
+	data, _ := collect(ch, 3*time.Second)
+	require.Contains(t, data, "CANARY-FIRE")
+	assert.Greater(t, s.CanaryDivergences(), int64(0),
+		"a deliberately corrupted canary sim must diverge from the authoritative model")
+}
+
+// TestModelDriven_CanaryDisabledByDefault proves the canary is opt-in: with
+// the env var unset, s.canarySim stays nil even for a model-driven session,
+// so CanaryDivergences() always reports 0 regardless of what the session
+// does — the zero-cost path production runs.
+func TestModelDriven_CanaryDisabledByDefault(t *testing.T) {
+	s, err := NewModelDriven("sid-md-canary-off", "/bin/sh", t.TempDir(), "", os.Environ(), 80, 24, 200)
+	require.NoError(t, err)
+	t.Cleanup(s.Kill)
+	ch, err := s.Attach()
+	require.NoError(t, err)
+	defer s.Detach(ch)
+
+	require.NoError(t, s.Write([]byte("echo NO-CANARY\n")))
+	data, _ := collect(ch, 3*time.Second)
+	require.Contains(t, data, "NO-CANARY")
+	assert.Equal(t, int64(0), s.CanaryDivergences())
+
+	s.mu.Lock()
+	nilSim := s.canarySim == nil
+	s.mu.Unlock()
+	assert.True(t, nilSim, "canary sim must stay nil when the env var is unset")
+}

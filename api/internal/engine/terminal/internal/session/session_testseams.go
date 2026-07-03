@@ -90,3 +90,28 @@ func forceEmitPanicForTest(s *Session) {
 		panic("forceEmitPanicForTest: simulated emit panic")
 	}
 }
+
+// corruptCanarySimForTest writes bytes directly into a model-driven session's
+// dev divergence canary shadow sim (Task 9), bypassing mirrorCanaryLocked
+// entirely, so a test can prove CanaryDivergences() actually fires when the
+// sim disagrees with the authoritative model. mirrorCanaryLocked always keeps
+// a healthy canary sim in lockstep with the model, so no adversarial PTY
+// input can desync it deterministically — this seam is the only way to reach
+// that path, mirroring the forceModelPanicForTest/forceEmitPanicForTest
+// pattern above for other otherwise-unreachable states. A no-op if the canary
+// was never enabled (s.canarySim == nil, e.g. the env var wasn't set at
+// spawn). Production never calls this.
+func corruptCanarySimForTest(s *Session) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.canarySim == nil {
+		return
+	}
+	// Absolute-position the corruption at a row (20 of the default 24) the
+	// small amount of shell output this seam's callers drive afterward will
+	// never touch — mirrorCanaryLocked's diff path only rewrites rows the
+	// REAL model actually changed, so corrupting a row near the prompt would
+	// just get overwritten by the next legitimate row rewrite and mask the
+	// injected divergence instead of proving it.
+	s.canarySim.Write([]byte("\x1b[20;1HCANARY-CORRUPTION-SEAM"))
+}
