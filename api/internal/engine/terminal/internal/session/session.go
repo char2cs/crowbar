@@ -706,10 +706,20 @@ func (s *Session) scheduleEmitLocked() bool {
 		return false // trailing emit already armed
 	}
 	delay := minEmitInterval - time.Since(s.lastEmitAt)
-	s.emitTimer = time.AfterFunc(delay, func() {
+	// Capture the timer's own identity so a stale, lock-blocked callback can
+	// only clear ITS OWN handle: if an explicit stop (stopEmitTimerLocked) had
+	// already nil'd s.emitTimer and a NEWER timer t2 was armed before this
+	// callback got the lock, comparing against the captured local t (rather
+	// than unconditionally nil-ing s.emitTimer) leaves t2's handle intact —
+	// t2 still fires safely either way, but this keeps stopEmitTimerLocked
+	// able to cancel it during the gap instead of losing track of it.
+	var t *time.Timer
+	t = time.AfterFunc(delay, func() {
 		s.mu.Lock()
 		defer s.mu.Unlock()
-		s.emitTimer = nil
+		if s.emitTimer == t {
+			s.emitTimer = nil
+		}
 		select {
 		case <-s.done:
 			return // session tore down while the timer was in flight
@@ -719,8 +729,18 @@ func (s *Session) scheduleEmitLocked() bool {
 			return
 		}
 		s.lastEmitAt = time.Now()
+		// emitFrameLocked → emitLocked → DiffEmitter.Emit is safe to invoke
+		// even if a newer immediate emit already flushed this same delta: Emit
+		// is idempotent against its own primed base (an empty diff yields no
+		// frame), so a harmless double-emit race here never double-delivers
+		// visible output to clients.
 		s.emitFrameLocked()
 	})
+	// Assign under the already-held s.mu (not inside the callback closure)
+	// so the field update happens-before any concurrent read of s.emitTimer
+	// under the lock; the callback only ever fires after AfterFunc returns
+	// with delay > 0, but this ordering removes any reliance on that timing.
+	s.emitTimer = t
 	return false
 }
 
