@@ -1,11 +1,14 @@
 package model
 
 import (
+	"image/color"
+	"sort"
 	"strconv"
 	"strings"
 
 	uv "github.com/charmbracelet/ultraviolet"
 	"github.com/charmbracelet/x/ansi"
+	"github.com/charmbracelet/x/vt"
 )
 
 // cup returns an always-explicit CUP sequence ("\x1b[<row>;<col>H", 1-based).
@@ -38,6 +41,72 @@ type DiffEmitter struct {
 	scrollbackLen int
 	lastGrid      [][]uv.Cell
 	lastCursor    uv.Position
+	chrome        chromeBase
+}
+
+// chromeBase is the subset of shadow state whose CHANGES must stream to live
+// clients between keyframes. Grid content is covered by the screen diff; this
+// covers everything else a client-side terminal tracks statefully: DEC
+// private modes, the window title, cursor visibility/style and the app-set
+// default colours. Scroll region and origin mode (DECOM, mode 6) are tracked
+// here too, but ONLY to detect their change in Emit's keyframe guard — the
+// diff emitter's absolute CUPs are not valid once either is active, so a
+// change to either forces a keyframe rather than a diff (see Emit).
+type chromeBase struct {
+	modes           map[int]bool
+	title           string
+	cursorVisible   bool
+	cursorShapeSet  bool
+	cursorShape     vt.CursorStyle
+	cursorBlink     bool
+	fg, bg          color.Color
+	cursorColor     color.Color
+	fgSet, bgSet    bool
+	cursorColorSet  bool
+	scrollRegionSet bool
+	scrollTop       int
+	scrollBottom    int
+	origin          bool
+}
+
+// captureChrome snapshots the shadow fields writeChromeDelta diffs against on
+// the NEXT Emit, plus the scroll-region/origin-mode fields Emit's keyframe
+// guard compares against.
+func captureChrome(sh *shadowState) chromeBase {
+	modes := make(map[int]bool, len(sh.modes))
+	for k, v := range sh.modes {
+		modes[k] = v
+	}
+	return chromeBase{
+		modes:           modes,
+		title:           sh.title,
+		cursorVisible:   sh.cursorVisible,
+		cursorShapeSet:  sh.cursorShapeSet,
+		cursorShape:     sh.cursorShape,
+		cursorBlink:     sh.cursorBlink,
+		fg:              sh.fg,
+		bg:              sh.bg,
+		cursorColor:     sh.cursorColor,
+		fgSet:           sh.fgSet,
+		bgSet:           sh.bgSet,
+		cursorColorSet:  sh.cursorColorSet,
+		scrollRegionSet: sh.scrollRegionSet,
+		scrollTop:       sh.scrollTop,
+		scrollBottom:    sh.scrollBottom,
+		origin:          sh.modes[6],
+	}
+}
+
+// colorsEqual reports whether two color.Color values represent the same RGBA
+// value. It is nil-safe: two nil colours are equal, and a nil next to a
+// non-nil colour is not.
+func colorsEqual(a, b color.Color) bool {
+	if a == nil || b == nil {
+		return a == b
+	}
+	ar, ag, ab, aa := a.RGBA()
+	br, bg, bb, ba := b.RGBA()
+	return ar == br && ag == bg && ab == bb && aa == ba
 }
 
 // NewDiffEmitter returns an unprimed emitter (first Emit demands a keyframe).
@@ -60,6 +129,7 @@ func (e *DiffEmitter) Prime(m TerminalModel) {
 	e.scrollbackLen = vm.emu.ScrollbackLen()
 	e.lastCursor = vm.emu.CursorPosition()
 	e.lastGrid = snapshotGrid(vm.emu, e.cols, e.rows)
+	e.chrome = captureChrome(&vm.shadow)
 	e.valid = true
 }
 
@@ -76,6 +146,18 @@ func (e *DiffEmitter) Emit(m TerminalModel) (data []byte, needKeyframe bool) {
 		return nil, true
 	}
 
+	sh := &vm.shadow
+	if sh.scrollRegionSet != e.chrome.scrollRegionSet ||
+		sh.scrollTop != e.chrome.scrollTop ||
+		sh.scrollBottom != e.chrome.scrollBottom ||
+		sh.modes[6] != e.chrome.origin {
+		// The diff emitter's absolute CUPs assume no active scroll region and
+		// no origin mode; a change to either is only correct to reproduce via
+		// a full keyframe redraw (which handles both in its documented step
+		// order), never an incremental diff.
+		return nil, true
+	}
+
 	if sbLen > e.scrollbackLen {
 		// The client screen scrolls while absorbing the delta; every row's
 		// on-screen identity moves, so rebuild the whole viewport after.
@@ -88,9 +170,11 @@ func (e *DiffEmitter) Emit(m TerminalModel) (data []byte, needKeyframe bool) {
 	e.writeScrollbackDelta(&b, vm, sbLen, rows)
 	dirty := e.writeScreenDiff(&b, vm, cols, rows)
 	e.writeCursorDelta(&b, vm, dirty)
+	e.writeChromeDelta(&b, sh)
 
 	e.scrollbackLen = sbLen
 	e.lastCursor = vm.emu.CursorPosition()
+	e.chrome = captureChrome(sh)
 	if b.Len() == 0 {
 		return nil, false
 	}
@@ -170,6 +254,100 @@ func (e *DiffEmitter) writeCursorDelta(
 		return
 	}
 	b.WriteString(cup(cur.Y+1, cur.X+1))
+}
+
+// writeChromeDelta emits mode flips, title changes, and cursor-chrome changes
+// (visibility, style, default colours) since the diff base. Mode order
+// follows serializedModeOrder for determinism; modes outside that list still
+// stream (sorted numerically) so nothing an app set is silently dropped.
+// Mode 6 (DECOM) is excluded: a change to it forces a keyframe in Emit before
+// writeChromeDelta ever runs, so forwarding it here too would double-handle
+// it once Prime re-captures.
+func (e *DiffEmitter) writeChromeDelta(
+	b *strings.Builder,
+	sh *shadowState,
+) {
+	e.writeModeDelta(b, sh)
+	if sh.title != e.chrome.title {
+		b.WriteString("\x1b]0;" + sanitizeOSCText(sh.title) + "\x07")
+	}
+	e.writeCursorChromeDelta(b, sh)
+}
+
+// writeModeDelta diffs the DEC private mode set (excluding mode 6, which is
+// handled by Emit's keyframe guard) and forwards each flip as SetMode or
+// ResetMode.
+func (e *DiffEmitter) writeModeDelta(
+	b *strings.Builder,
+	sh *shadowState,
+) {
+	seen := map[int]bool{6: true}
+	keys := make([]int, 0, len(serializedModeOrder)+len(sh.modes)+len(e.chrome.modes))
+	for _, k := range serializedModeOrder {
+		if seen[k] {
+			continue
+		}
+		keys = append(keys, k)
+		seen[k] = true
+	}
+	extra := make([]int, 0)
+	for k := range sh.modes {
+		if !seen[k] {
+			extra = append(extra, k)
+			seen[k] = true
+		}
+	}
+	for k := range e.chrome.modes {
+		if !seen[k] {
+			extra = append(extra, k)
+			seen[k] = true
+		}
+	}
+	sort.Ints(extra)
+	keys = append(keys, extra...)
+
+	for _, mode := range keys {
+		now, nowOK := sh.modes[mode]
+		was, wasOK := e.chrome.modes[mode]
+		if nowOK == wasOK && now == was {
+			continue
+		}
+		if now {
+			b.WriteString(ansi.SetMode(ansi.DECMode(mode)))
+		} else {
+			b.WriteString(ansi.ResetMode(ansi.DECMode(mode)))
+		}
+	}
+}
+
+// writeCursorChromeDelta diffs cursor visibility, cursor style/blink and the
+// app-set default fg/bg/cursor colours, mirroring the emission forms
+// writeCursor/writeChrome use in the serializer's full redraw.
+func (e *DiffEmitter) writeCursorChromeDelta(
+	b *strings.Builder,
+	sh *shadowState,
+) {
+	if sh.cursorVisible != e.chrome.cursorVisible {
+		if sh.cursorVisible {
+			b.WriteString(ansi.SetMode(ansi.DECMode(25)))
+		} else {
+			b.WriteString(ansi.ResetMode(ansi.DECMode(25)))
+		}
+	}
+	if sh.cursorShapeSet && (!e.chrome.cursorShapeSet ||
+		sh.cursorShape != e.chrome.cursorShape ||
+		sh.cursorBlink != e.chrome.cursorBlink) {
+		b.WriteString(ansi.SetCursorStyle(decscusr(sh.cursorShape, sh.cursorBlink)))
+	}
+	if sh.fgSet && (!e.chrome.fgSet || !colorsEqual(sh.fg, e.chrome.fg)) {
+		b.WriteString(oscColor(10, sh.fg))
+	}
+	if sh.bgSet && (!e.chrome.bgSet || !colorsEqual(sh.bg, e.chrome.bg)) {
+		b.WriteString(oscColor(11, sh.bg))
+	}
+	if sh.cursorColorSet && (!e.chrome.cursorColorSet || !colorsEqual(sh.cursorColor, e.chrome.cursorColor)) {
+		b.WriteString(oscColor(12, sh.cursorColor))
+	}
 }
 
 func snapshotGrid(emu emulator, cols, rows int) [][]uv.Cell {
