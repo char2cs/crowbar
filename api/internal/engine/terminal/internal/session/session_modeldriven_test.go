@@ -661,3 +661,64 @@ func TestModelDriven_CanaryDisabledByDefault(t *testing.T) {
 	s.mu.Unlock()
 	assert.True(t, nilSim, "canary sim must stay nil when the env var is unset")
 }
+
+// TestModelDriven_CanaryPanicIsContained proves the canary is a true OBSERVER: a panic out of
+// its shadow sim (mirrorCanaryLocked, Task 9) must never harm the session it is watching. Two
+// failure modes exist without a recover boundary around mirrorCanaryLocked: (a) reached via
+// scheduleEmitLocked's trailing time.AfterFunc goroutine, which has no safego.Recover above
+// it — an unrecovered panic there crashes the whole daemon; (b) reached synchronously from
+// pump(), where the outer recover would still tear down the real session via its own
+// defer s.shutdown(). forceCanaryPanicForTest swaps in a sim whose Write always panics, so
+// this test drives mirrorCanaryLocked straight into that boundary and asserts the session
+// survives unharmed: it keeps streaming model-driven frames, modelPanics stays at 0 (a canary
+// panic is an observer fault, not a model fault), CanaryDivergences is unaffected, and the
+// canary sim is permanently disabled (nil) afterward.
+func TestModelDriven_CanaryPanicIsContained(t *testing.T) {
+	t.Setenv("CROWBAR_TERMINAL_MODEL_DRIVEN_CANARY", "1")
+	s, err := NewModelDriven("sid-md-canary-panic", "/bin/sh", t.TempDir(), "", os.Environ(), 80, 24, 200)
+	require.NoError(t, err)
+	t.Cleanup(s.Kill)
+	ch, err := s.Attach()
+	require.NoError(t, err)
+	defer s.Detach(ch)
+
+	_, ok := waitFrame(t, ch, time.Second)
+	require.True(t, ok, "attach must deliver an initial snapshot")
+
+	_, panicsBefore := s.Health()
+
+	forceCanaryPanicForTest(s)
+
+	// This write drives the panicking canary sim's Write via mirrorCanaryLocked. Without
+	// the recover boundary, this either crashes the process (AfterFunc path) or tears the
+	// session down via pump()'s defer s.shutdown() (synchronous path) — either way the
+	// session would stop serving and this test would hang/fail on the requireOpen and
+	// post-panic Write/collect below rather than passing cleanly.
+	require.NoError(t, s.Write([]byte("echo CANARY-PANIC-SURVIVED\n")))
+	data, _ := collect(ch, 3*time.Second)
+	require.Contains(t, data, "CANARY-PANIC-SURVIVED",
+		"session must keep streaming model-driven frames after a canary panic")
+
+	select {
+	case <-s.Done():
+		t.Fatal("session done closed after a recovered canary panic — the observer harmed the observed session")
+	default:
+	}
+
+	_, panicsAfter := s.Health()
+	assert.Equal(t, panicsBefore, panicsAfter,
+		"a canary panic is an observer fault, not a model fault — modelPanics must not bump")
+	assert.Equal(t, int64(0), s.CanaryDivergences(),
+		"a canary panic must not be misreported as a divergence")
+
+	s.mu.Lock()
+	nilSim := s.canarySim == nil
+	s.mu.Unlock()
+	assert.True(t, nilSim, "canary sim must be permanently disabled (nil) after a recovered panic")
+
+	// The canary being disabled must not affect the session's core function: it keeps
+	// serving model-driven output normally on a further write.
+	require.NoError(t, s.Write([]byte("echo CANARY-STILL-SERVING\n")))
+	data2, _ := collect(ch, 3*time.Second)
+	require.Contains(t, data2, "CANARY-STILL-SERVING")
+}

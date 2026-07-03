@@ -115,3 +115,40 @@ func corruptCanarySimForTest(s *Session) {
 	// injected divergence instead of proving it.
 	s.canarySim.Write([]byte("\x1b[20;1HCANARY-CORRUPTION-SEAM"))
 }
+
+// canaryPanicStub is a model.TerminalModel whose Write always panics; every other method is
+// an inert no-op. It exists only to back forceCanaryPanicForTest below.
+type canaryPanicStub struct{}
+
+func (canaryPanicStub) Write(p []byte) {
+	panic("forceCanaryPanicForTest: simulated canary write panic")
+}
+func (canaryPanicStub) Resize(cols, rows int)              {}
+func (canaryPanicStub) OnForegroundReset()                 {}
+func (canaryPanicStub) PendingInput() []byte               { return nil }
+func (canaryPanicStub) Title() string                      { return "" }
+func (canaryPanicStub) Cols() int                          { return 0 }
+func (canaryPanicStub) Rows() int                          { return 0 }
+func (canaryPanicStub) HeaderState() (int, int, bool, int) { return 0, 0, false, 0 }
+func (canaryPanicStub) ModelBytes() int64                  { return 0 }
+func (canaryPanicStub) SetResponseSink(func(p []byte))     {}
+func (canaryPanicStub) Close()                             {}
+
+var _ model.TerminalModel = canaryPanicStub{}
+
+// forceCanaryPanicForTest swaps a model-driven session's dev divergence canary shadow sim
+// (Task 9, mirrorCanaryLocked) for a stub whose Write always panics, one shot: the very next
+// mirrorCanaryLocked call panics, gets recovered, and permanently disables the canary (nils
+// s.canarySim), mirroring forceEmitPanicForTest's one-shot style for the emit path. No
+// adversarial PTY input can panic the real canary sim's Write deterministically, so this seam
+// is the only way to reach that recover boundary. A no-op if the canary was never enabled
+// (s.canarySim == nil, e.g. the env var wasn't set at spawn). Production never calls this.
+func forceCanaryPanicForTest(s *Session) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.canarySim == nil {
+		return
+	}
+	s.canarySim.Close()
+	s.canarySim = canaryPanicStub{}
+}
