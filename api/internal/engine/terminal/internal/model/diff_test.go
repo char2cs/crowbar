@@ -1,10 +1,13 @@
 package model
 
 import (
+	"image/color"
 	"strings"
 	"testing"
 
 	uv "github.com/charmbracelet/ultraviolet"
+	"github.com/charmbracelet/x/ansi"
+	"github.com/charmbracelet/x/vt"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -194,4 +197,90 @@ func TestDiffEmitter_AltScreenSkipsScrollback(t *testing.T) {
 	data, need := e.Emit(m)
 	require.False(t, need)
 	assert.Contains(t, string(data), "APP")
+}
+
+func TestDiffEmitter_ModeToggleForwarded(t *testing.T) {
+	m, _ := newTestModel(t, 10, 3)
+	e := NewDiffEmitter()
+	e.Prime(m)
+	m.Write([]byte("\x1b[?2004h")) // bracketed paste ON
+	data, need := e.Emit(m)
+	require.False(t, need)
+	assert.Contains(t, string(data), "\x1b[?2004h")
+
+	m.Write([]byte("\x1b[?2004l")) // OFF again
+	data, _ = e.Emit(m)
+	assert.Contains(t, string(data), "\x1b[?2004l")
+}
+
+func TestDiffEmitter_TitleChangeForwarded(t *testing.T) {
+	m, _ := newTestModel(t, 10, 3)
+	e := NewDiffEmitter()
+	e.Prime(m)
+	m.Write([]byte("\x1b]0;my-title\x07"))
+	data, need := e.Emit(m)
+	require.False(t, need)
+	assert.Contains(t, string(data), "\x1b]0;my-title\x07")
+}
+
+func TestDiffEmitter_UnchangedChromeEmitsNothing(t *testing.T) {
+	m, _ := newTestModel(t, 10, 3)
+	m.Write([]byte("\x1b[?2004h\x1b]0;t\x07"))
+	e := NewDiffEmitter()
+	e.Prime(m)
+	data, need := e.Emit(m)
+	require.False(t, need)
+	assert.Empty(t, data, "already-primed chrome must not re-emit")
+}
+
+func TestDiffEmitter_ScrollRegionChangeNeedsKeyframe(t *testing.T) {
+	m, _ := newTestModel(t, 10, 5)
+	e := NewDiffEmitter()
+	e.Prime(m)
+	m.Write([]byte("\x1b[2;5r")) // DECSTBM
+	_, need := e.Emit(m)
+	assert.True(t, need, "a new scroll region invalidates the absolute-CUP diff base")
+}
+
+func TestDiffEmitter_OriginModeChangeNeedsKeyframe(t *testing.T) {
+	m, _ := newTestModel(t, 10, 5)
+	e := NewDiffEmitter()
+	e.Prime(m)
+	m.Write([]byte("\x1b[?6h")) // DECOM origin mode
+	_, need := e.Emit(m)
+	assert.True(t, need, "origin mode invalidates the absolute-CUP diff base")
+}
+
+func TestDiffEmitter_CursorVisibilityChangeForwarded(t *testing.T) {
+	m, _ := newTestModel(t, 10, 3)
+	e := NewDiffEmitter()
+	e.Prime(m)
+	m.Write([]byte("\x1b[?25l")) // hide cursor
+	data, need := e.Emit(m)
+	require.False(t, need)
+	assert.Contains(t, string(data), ansi.ResetMode(ansi.DECMode(25)))
+}
+
+func TestDiffEmitter_CursorStyleChangeForwarded(t *testing.T) {
+	m, _ := newTestModel(t, 10, 3)
+	e := NewDiffEmitter()
+	e.Prime(m)
+	vm := m.(*vtModel)
+	vm.shadow.cursorShapeSet = true
+	vm.shadow.cursorShape = vt.CursorBar
+	vm.shadow.cursorBlink = true
+	data, need := e.Emit(m)
+	require.False(t, need)
+	assert.Contains(t, string(data), ansi.SetCursorStyle(5))
+}
+
+func TestDiffEmitter_DefaultColorChangeForwarded(t *testing.T) {
+	m, _ := newTestModel(t, 10, 3)
+	e := NewDiffEmitter()
+	e.Prime(m)
+	vm := m.(*vtModel)
+	vm.shadow.setDefaultColor(0, color.RGBA{R: 0xff, A: 0xff})
+	data, need := e.Emit(m)
+	require.False(t, need)
+	assert.Contains(t, string(data), "\x1b]10;rgb:ffff/0000/0000\x1b\\")
 }
