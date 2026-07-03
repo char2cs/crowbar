@@ -65,8 +65,11 @@ func gridString(m TerminalModel) string {
 }
 
 // conformanceStep feeds bytes to the authoritative model, emits, applies the
-// emission to the client sim, and asserts grid equality between them.
-func conformanceStep(t *testing.T, m TerminalModel, e *DiffEmitter, ser Serializer, sim *clientSim, chunk []byte) {
+// emission to the client sim, and asserts grid equality between them. It
+// returns whether the emission demanded a keyframe, so callers that care
+// which path served a given chunk (diff vs. keyframe redraw) can assert on
+// it explicitly.
+func conformanceStep(t *testing.T, m TerminalModel, e *DiffEmitter, ser Serializer, sim *clientSim, chunk []byte) (needKeyframe bool) {
 	t.Helper()
 	m.Write(chunk)
 	data, needKeyframe := e.Emit(m)
@@ -79,6 +82,7 @@ func conformanceStep(t *testing.T, m TerminalModel, e *DiffEmitter, ser Serializ
 	}
 	require.Equal(t, gridString(m), gridString(sim.m),
 		"client grid diverged from model after chunk %q", string(chunk))
+	return needKeyframe
 }
 
 func TestConformance_ScriptedScenarios(t *testing.T) {
@@ -107,10 +111,6 @@ func TestConformance_ScriptedScenarios(t *testing.T) {
 			"\x1b[?6l",     // DECOM off
 			"\x1b[1;1Hend", // positioned write, absolute again
 		},
-		// Multi-batch scroll burst: >2x screen height of lines delivered in ONE
-		// chunk, pinning the chunked write-then-scroll scrollback-delta path
-		// (writeScrollbackDelta batches by `rows`).
-		{scrollBurst(20)}, // 20 lines into a 6-row screen (>2x rows)
 		// Title + mode-flip mid-stream: chrome delta continuity across
 		// multiple diff frames without an intervening keyframe.
 		{
@@ -146,6 +146,45 @@ func scrollBurst(n int) string {
 		fmt.Fprintf(&b, "line-%d", i)
 	}
 	return b.String()
+}
+
+// TestConformance_MultiBatchScrollBurst pins writeScrollbackDelta's chunked
+// write-then-scroll batching loop (base += rows) with a burst of >2x screen
+// height of lines delivered in ONE chunk, arriving through the DIFF path
+// rather than a keyframe redraw. A small first chunk primes the emitter so
+// the burst is a real incremental Emit, not the initial unprimed keyframe
+// that Serializer.Serialize would otherwise satisfy in one shot (which never
+// touches writeScrollbackDelta's batching at all).
+//
+// conformanceStep's grid-equality check alone cannot pin this: after any
+// scrollback growth, Emit nils the client's row cache and writeScreenDiff
+// unconditionally repaints the whole viewport, so an incorrect (e.g.
+// truncated) scrollback replay is invisible in the visible grid — the
+// off-screen content it corrupts is the client's *scrollback buffer*, which
+// gridString never renders. So this test additionally compares scrollback
+// contents directly.
+func TestConformance_MultiBatchScrollBurst(t *testing.T) {
+	m, ser := newTestModel(t, 20, 6)
+	sim := newClientSim(t, 20, 6, 200)
+	t.Cleanup(func() { sim.m.Close() })
+	e := NewDiffEmitter()
+
+	// Prime: first Emit on an unprimed emitter always demands a keyframe, so
+	// spend it here on something small.
+	conformanceStep(t, m, e, ser, sim, []byte("start"))
+
+	// 20 lines into a 6-row screen (>2x rows): forces writeScrollbackDelta's
+	// base += rows loop through multiple iterations. Assert this is actually
+	// served by the diff path, not silently upgraded to a keyframe redraw —
+	// otherwise the batching loop below Emit is never exercised.
+	needKeyframe := conformanceStep(t, m, e, ser, sim, []byte(scrollBurst(20)))
+	require.False(t, needKeyframe,
+		"scroll burst must be served by the diff path (writeScrollbackDelta), not a keyframe redraw")
+
+	wantSB := scrollbackStrings(m)
+	require.NotEmpty(t, wantSB, "burst must have committed scrollback lines to actually exercise the batching loop")
+	require.Equal(t, wantSB, scrollbackStrings(sim.m),
+		"client scrollback must match the model's after a multi-batch diff replay")
 }
 
 func TestConformance_RandomizedByteSplits(t *testing.T) {
