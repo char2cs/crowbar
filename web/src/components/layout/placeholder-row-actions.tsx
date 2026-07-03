@@ -1,3 +1,4 @@
+import { Button } from '@/components/ui/button'
 import type { Workspace } from '@/lib/store/sidebar'
 import { placeholderReason } from '@/lib/workspace/placeholder'
 import { retryProvision } from '@/lib/api/workspace'
@@ -39,23 +40,23 @@ export function PlaceholderRowActions({ workspace }: { workspace: Workspace }) {
         {placeholderReason(workspace)}
       </p>
       <div className="flex gap-1.5">
-        <button
-          type="button"
-          className="rounded-lg border border-border/60 px-3 py-1.5 text-[13px] text-foreground/80 hover:bg-accent hover:text-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
+        <Button
+          variant="outline"
+          size="sm"
           onClick={onRetry}
           onPointerDown={(e) => e.stopPropagation()}
         >
           Retry
-        </button>
+        </Button>
         {workspace.heldByPath ? (
-          <button
-            type="button"
-            className="rounded-lg border border-border/60 px-3 py-1.5 text-[13px] text-foreground/80 hover:bg-accent hover:text-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
+          <Button
+            variant="outline"
+            size="sm"
             onClick={onDetach}
             onPointerDown={(e) => e.stopPropagation()}
           >
             Detach…
-          </button>
+          </Button>
         ) : null}
       </div>
     </div>
