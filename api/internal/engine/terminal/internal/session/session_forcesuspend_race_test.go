@@ -83,8 +83,9 @@ func (m *interleaveModel) Rows() int            { return 24 }
 func (m *interleaveModel) HeaderState() (int, int, bool, int) {
 	return 80, 24, m.isAlt(), 500
 }
-func (m *interleaveModel) ModelBytes() int64 { return 0 }
-func (m *interleaveModel) Close()            {}
+func (m *interleaveModel) ModelBytes() int64              { return 0 }
+func (m *interleaveModel) Close()                         {}
+func (m *interleaveModel) SetResponseSink(func(p []byte)) {}
 
 var _ model.TerminalModel = (*interleaveModel)(nil)
 

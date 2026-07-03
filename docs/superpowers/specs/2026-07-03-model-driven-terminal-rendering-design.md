@@ -144,6 +144,16 @@ env override; default ON in dev builds, OFF in release until the canary and
 daily-driver period pass. Flag is read at session spawn (no mid-session
 switching; a restart applies it).
 
+## 3.8 Device queries (amendment, plan phase)
+
+In raw mode the client xterm answers device queries (CPR `ESC[6n`, DA,
+OSC 10/11/12 color queries) by writing replies into the PTY. Model-driven
+clients never receive the queries, so the daemon answers them from the model:
+x/vt already synthesizes the replies into its response pipe (drained and
+discarded today). Under the flag the session installs a response sink that
+writes those bytes to the PTY master. Flag off → sink nil → discarded as
+today (the client remains the answerer). One answerer at a time, always.
+
 ## 4. Performance analysis
 
 - **Echo latency**: +diff-of-tiny-delta on the emit path (µs); the immediate

@@ -68,10 +68,18 @@ type vtModel struct {
 	stripState    int
 	stripWithheld []byte
 	stripCode     []byte
+
+	// responseSink is the last sink installed via SetResponseSink, retained so
+	// recreateEmu (parse-panic recovery, §Write) can re-arm it on the fresh
+	// emulator — otherwise a panic recovery would silently revert a model-driven
+	// session to discarding device-query replies until the next explicit call.
+	responseSink func(p []byte)
 }
 
-var _ TerminalModel = (*vtModel)(nil)
-var _ ModelHealth = (*vtModel)(nil)
+var (
+	_ TerminalModel = (*vtModel)(nil)
+	_ ModelHealth   = (*vtModel)(nil)
+)
 
 func newVTModel(
 	cols int,
@@ -219,9 +227,21 @@ func (m *vtModel) recreateEmu(
 ) {
 	m.emu.Close()
 	m.emu = m.buildEmu(cols, rows)
+	if m.responseSink != nil {
+		m.emu.SetResponseSink(m.responseSink)
+	}
 	m.shadow.resetTransientModes()
 	m.resetEscan()
 	m.resetStrip()
+}
+
+// SetResponseSink installs the receiver for the emulator's device-query replies (spec
+// §3.8) and forwards it to the current emulator. The sink is retained on the model (not
+// just the emulator) so a parse-panic recreate (recreateEmu) re-arms it on the fresh
+// emulator rather than silently reverting to discard.
+func (m *vtModel) SetResponseSink(f func(p []byte)) {
+	m.responseSink = f
+	m.emu.SetResponseSink(f)
 }
 
 // Resize forwards the new geometry to the emulator and clears the shadow scroll region.

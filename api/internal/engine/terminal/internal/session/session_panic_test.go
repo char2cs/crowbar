@@ -45,19 +45,22 @@ func (m *fakeModel) Resize(cols, rows int) {
 	m.cols, m.rows = cols, rows
 }
 
-func (m *fakeModel) OnForegroundReset()                  {}
-func (m *fakeModel) PendingInput() []byte                { return nil }
-func (m *fakeModel) Title() string                       { return "" }
-func (m *fakeModel) Cols() int                           { return m.cols }
-func (m *fakeModel) Rows() int                           { return m.rows }
-func (m *fakeModel) HeaderState() (int, int, bool, int)  { return m.cols, m.rows, false, 0 }
-func (m *fakeModel) ModelBytes() int64                   { return 0 }
-func (m *fakeModel) Close()                              {}
-func (m *fakeModel) Degraded() bool                      { return m.degraded }
-func (m *fakeModel) ParsePanics() int                    { return m.panics }
+func (m *fakeModel) OnForegroundReset()                 {}
+func (m *fakeModel) PendingInput() []byte               { return nil }
+func (m *fakeModel) Title() string                      { return "" }
+func (m *fakeModel) Cols() int                          { return m.cols }
+func (m *fakeModel) Rows() int                          { return m.rows }
+func (m *fakeModel) HeaderState() (int, int, bool, int) { return m.cols, m.rows, false, 0 }
+func (m *fakeModel) ModelBytes() int64                  { return 0 }
+func (m *fakeModel) Close()                             {}
+func (m *fakeModel) Degraded() bool                     { return m.degraded }
+func (m *fakeModel) ParsePanics() int                   { return m.panics }
+func (m *fakeModel) SetResponseSink(func(p []byte))     {}
 
-var _ model.TerminalModel = (*fakeModel)(nil)
-var _ model.ModelHealth = (*fakeModel)(nil)
+var (
+	_ model.TerminalModel = (*fakeModel)(nil)
+	_ model.ModelHealth   = (*fakeModel)(nil)
+)
 
 // panicSerializer panics from Serialize on demand to drive the Attach serializeLocked
 // backstop; otherwise it emits a fixed sentinel redraw.

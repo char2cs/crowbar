@@ -307,6 +307,7 @@ func (otherModel) Rows() int                          { return 0 }
 func (otherModel) HeaderState() (int, int, bool, int) { return 0, 0, false, 0 }
 func (otherModel) ModelBytes() int64                  { return 0 }
 func (otherModel) Close()                             {}
+func (otherModel) SetResponseSink(func(p []byte))     {}
 
 func TestEncodeGridRowOutOfBounds(t *testing.T) {
 	m := newVTModel(5, 3, 100)
