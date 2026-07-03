@@ -179,11 +179,113 @@ func TestModelDriven_EmitPanicOnFlipDoesNotDropTheTriggeringChunk(t *testing.T) 
 }
 
 // TestModelDriven_BurstCoalescesFrames proves the Task 7 adaptive frame
-// clock: a burst of PTY output produced faster than minEmitInterval must
-// coalesce into far fewer client-visible frames than lines, instead of the
-// pre-Task-7 one-frame-per-chunk behavior.
+// clock: a burst of chunks arriving faster than minEmitInterval must
+// coalesce into exactly one immediate frame (the cold-clock chunk that stamps
+// lastEmitAt) plus one trailing-timer frame for everything else in the
+// window — never one frame per chunk.
+//
+// Built directly on newBareSession + pumpStep (the pattern the boundary
+// tests above use) rather than a live PTY: TestModelDriven_BurstCoalescesFrames
+// previously drove a real `seq 1 200` through a live shell and asserted
+// frames < 100, which flaked under CPU contention — a descheduled pump
+// goroutine can leave the immediate-emit branch (elapsed >= minEmitInterval)
+// true for MULTIPLE chunks in the same logical burst, inflating the frame
+// count independent of the coalescing logic actually under test. Driving
+// pumpStep directly removes the scheduler from the timing-sensitive path
+// entirely: every chunk in the burst loop below is fed well within one 8ms
+// window by construction, so the assertion pins the coalescing property
+// itself instead of hoping the host stays fast enough.
 func TestModelDriven_BurstCoalescesFrames(t *testing.T) {
-	s, err := NewModelDriven("sid-md-burst", "/bin/sh", t.TempDir(), "", os.Environ(), 80, 24, 2000)
+	s := newBareSession("sid-md-burst", "/bin/sh", t.TempDir(), "")
+	m, ser := newModel(80, 24, 2000)
+	s.model = m
+	s.serializer = ser
+	s.modelDriven = true
+	s.emitter = model.NewDiffEmitter()
+
+	ch, err := s.Attach()
+	require.NoError(t, err)
+	defer s.Detach(ch)
+	_, ok := waitFrame(t, ch, time.Second)
+	require.True(t, ok, "attach must deliver an initial snapshot")
+
+	// The clock starts cold (lastEmitAt is zero), so this first chunk emits
+	// immediately and stamps lastEmitAt to "now" — the one immediate frame
+	// the burst is allowed.
+	s.pumpStep([]byte("line0\n"))
+	_, ok = waitFrame(t, ch, time.Second)
+	require.True(t, ok, "first chunk must emit immediately (cold clock)")
+
+	// Feed the rest of the burst — 50 chunks — pinning s.lastEmitAt to "now"
+	// immediately before each pumpStep call, and defusing every timer it
+	// arms except the very last one. This is deliberate, not just a speed
+	// hack: under -race, 50 back-to-back lock/unlock + model-write cycles
+	// can themselves take longer in wall-clock time than the 8ms window
+	// (observed 9-19ms locally). A naive "let each chunk's own real timer
+	// race the rest of the loop" version is exactly as flaky as the old
+	// live-PTY test it replaces — the trailing timer armed by chunk 1 can
+	// fire mid-loop while chunks 2-50 are still landing, producing more than
+	// one trailing frame for reasons that have nothing to do with the
+	// coalescing logic under test.
+	//
+	// So each iteration: pin lastEmitAt to "now" (this chunk is always
+	// inside the window, regardless of real elapsed time), pumpStep it
+	// (writes the model + arms a fresh trailing timer, since the previous
+	// one was just defused), then immediately stop that timer again — EXCEPT
+	// on the last chunk, where the timer is left armed to fire for real.
+	// Stopping a timer never discards the chunk's contribution: pumpStep
+	// already wrote it into the model before scheduleEmitLocked runs, so an
+	// undefused-but-uncommitted delta simply accumulates until the surviving
+	// timer's real Emit picks up the full accumulated diff at the end. This
+	// deterministically simulates "50 chunks landed inside one coalesce
+	// window" without needing the test goroutine to outrun -race
+	// instrumentation.
+	const burstChunks = 50
+	for i := 1; i <= burstChunks; i++ {
+		s.mu.Lock()
+		s.lastEmitAt = time.Now()
+		s.mu.Unlock()
+		s.pumpStep([]byte(strings.Repeat("x", 1) + "\n"))
+		if i < burstChunks {
+			s.mu.Lock()
+			s.stopEmitTimerLocked()
+			s.mu.Unlock()
+		}
+	}
+
+	s.mu.Lock()
+	armed := s.emitTimer != nil
+	s.mu.Unlock()
+	require.True(t, armed, "test setup: the final burst chunk must leave the trailing timer armed")
+
+	// No frame may arrive synchronously for any of the 50 coalesced chunks —
+	// only the trailing timer, once it fires, may deliver one.
+	select {
+	case extra := <-ch:
+		t.Fatalf("unexpected synchronous frame during the coalesce window: %+v", extra)
+	case <-time.After(minEmitInterval / 2):
+	}
+
+	// Poll-wait for the trailing timer's single flush.
+	_, ok = waitFrame(t, ch, 3*minEmitInterval)
+	require.True(t, ok, "trailing timer must flush the coalesced burst")
+
+	// Exactly one frame — no more — must follow the trailing flush.
+	select {
+	case extra := <-ch:
+		t.Fatalf("unexpected second trailing frame (coalescing failed): %+v", extra)
+	case <-time.After(3 * minEmitInterval):
+	}
+}
+
+// TestModelDriven_BurstOverLivePTYDeliversAllOutput is a live-PTY smoke test
+// kept alongside the deterministic coalescing test above: it asserts only a
+// contention-proof property (all 200 lines eventually arrive), never a frame
+// COUNT, so it cannot flake under CPU pressure the way the old frames < 100
+// assertion did while still exercising the real spawn → pump → pumpStep path
+// end to end against a live shell.
+func TestModelDriven_BurstOverLivePTYDeliversAllOutput(t *testing.T) {
+	s, err := NewModelDriven("sid-md-burst-live", "/bin/sh", t.TempDir(), "", os.Environ(), 80, 24, 2000)
 	require.NoError(t, err)
 	t.Cleanup(s.Kill)
 	ch, err := s.Attach()
@@ -192,24 +294,9 @@ func TestModelDriven_BurstCoalescesFrames(t *testing.T) {
 	// settle: drain attach snapshot + prompt
 	_, _ = collect(ch, 500*time.Millisecond)
 
-	// A burst of 200 lines in one command: with the 8ms clock the client must
-	// receive far fewer frames than lines.
 	require.NoError(t, s.Write([]byte("seq 1 200\n")))
-	frames := 0
-	deadline := time.After(3 * time.Second)
-	gotLast := false
-	for !gotLast {
-		select {
-		case f := <-ch:
-			frames++
-			if strings.Contains(string(f.Data), "200") {
-				gotLast = true
-			}
-		case <-deadline:
-			t.Fatal("burst output never completed")
-		}
-	}
-	assert.Less(t, frames, 100, "8ms clock must coalesce a 200-line burst (got %d frames)", frames)
+	data, _ := collect(ch, 5*time.Second)
+	assert.Contains(t, data, "200", "burst output must fully arrive regardless of coalescing frame count")
 }
 
 // TestModelDriven_TrailingTimerFlushesFinalState proves output that arrives
@@ -346,4 +433,75 @@ func TestModelDriven_ResyncDisarmsStaleTrailingTimer(t *testing.T) {
 		t.Fatalf("unexpected extra frame after Resync (stale timer fired?): %+v", extra)
 	case <-time.After(50 * time.Millisecond):
 	}
+}
+
+// TestModelDriven_TeardownStopsTrailingTimer pins the shutdown() guard
+// (Task 7): if a trailing frame-clock timer is still armed when the session
+// tears down, shutdown must stop it under the same s.mu hold that closes
+// s.done, so the timer can never deliver a frame — or panic on a nil model/
+// closed-channel send — after teardown. This is the deterministic
+// counterpart to the <-s.done check inside the timer callback itself: it
+// pins the guard against regression (e.g. someone reordering shutdown to
+// close s.done before stopping the timer, or dropping the stop call
+// entirely and relying solely on the done-channel check, which would still
+// let the timer goroutine wake up and race the close of s.clients).
+func TestModelDriven_TeardownStopsTrailingTimer(t *testing.T) {
+	s := newBareSession("sid-md-teardown-timer", "/bin/sh", t.TempDir(), "")
+	m, ser := newModel(80, 24, 200)
+	s.model = m
+	s.serializer = ser
+	s.modelDriven = true
+	s.emitter = model.NewDiffEmitter()
+
+	// Attach a client BEFORE arming the timer so there is a channel to drain
+	// and count frames on after teardown.
+	ch, err := s.Attach()
+	require.NoError(t, err)
+	_, ok := waitFrame(t, ch, time.Second)
+	require.True(t, ok, "attach must deliver an initial snapshot")
+
+	// Cold-clock immediate emit, then a second chunk inside the window arms
+	// the trailing timer — same two-step pattern as the Attach/Resync
+	// disarm tests above.
+	s.pumpStep([]byte("echo A\n"))
+	_, ok = waitFrame(t, ch, time.Second)
+	require.True(t, ok, "first chunk must emit immediately (cold clock)")
+
+	s.pumpStep([]byte("echo B\n"))
+	s.mu.Lock()
+	armed := s.emitTimer != nil
+	s.mu.Unlock()
+	require.True(t, armed, "test setup: second chunk inside the window must arm the trailing timer")
+
+	// Kill on a placeholder-shaped bare session (ptmx == nil) takes the
+	// direct shutdown() branch, exercising the exact guard under test: a
+	// still-armed timer at teardown time.
+	require.NotPanics(t, func() { s.Kill() })
+
+	select {
+	case <-s.Done():
+	case <-time.After(time.Second):
+		t.Fatal("Kill must close s.done")
+	}
+
+	// Drain whatever shutdown enqueued (its own close(cl.send) fan-out, if
+	// any) and wait well past the coalesce window the armed timer was due to
+	// fire in — no frame may arrive from the stopped timer, and the channel
+	// must end up closed with nothing further trickling in.
+	frames := 0
+	deadline := time.After(2 * minEmitInterval)
+drain:
+	for {
+		select {
+		case f, ok := <-ch:
+			if !ok {
+				break drain
+			}
+			frames++
+			t.Logf("unexpected frame after teardown: %+v", f)
+		case <-deadline:
+			break drain
+		}
+	}
+	assert.Equal(t, 0, frames, "no frame may arrive after teardown (trailing timer must have been stopped)")
 }
