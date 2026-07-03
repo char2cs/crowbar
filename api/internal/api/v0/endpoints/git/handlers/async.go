@@ -23,13 +23,18 @@ func (h *Handlers) runAsync(
 	fn func(ctx context.Context) error,
 ) {
 	ctx := context.WithoutCancel(parent)
+	h.working.BeginWork(ctx, wsID)
 	go func() {
-		// A panic in the detached git op must not crash the daemon; surface it on
-		// the workspace entity (same channel as an error) instead of vanishing.
+		// A panic in the detached git op must not crash the daemon; release the
+		// working overlay, then surface it on the workspace entity (same channel
+		// as an error) instead of vanishing.
 		defer safego.RecoverFn("git.runAsync", func(r any) {
+			h.working.EndWork(ctx, wsID)
 			_, _ = h.lastErrors.SetLastError(ctx, wsID, fmt.Sprintf("internal error: %v", r))
 		})
-		if err := fn(ctx); err != nil {
+		err := fn(ctx)
+		h.working.EndWork(ctx, wsID)
+		if err != nil {
 			_, _ = h.lastErrors.SetLastError(ctx, wsID, err.Error())
 		}
 	}()

@@ -31,6 +31,7 @@ func (h *Handlers) List(
 		c.Param("projectId"),
 		c.Param("repoId"),
 	)
+	h.applyWorking(filtered)
 	libs.WriteQueryOK(c, dto.WorkspaceDTOList(filtered, h.eligibilityIn(c.Request.Context(), filtered)))
 }
 
@@ -54,7 +55,18 @@ func (h *Handlers) Detail(
 		return
 	}
 	elig := h.reader.MergeEligibilityFor(c.Request.Context(), ws, siblings)
+	ws.Working = h.working.IsWorking(ws.ID)
 	libs.WriteQueryOK(c, dto.WorkspaceDTOFrom(ws, elig))
+}
+
+// applyWorking stamps the derived working overlay onto the rows so REST reads
+// agree with the live broadcast frames during a background mutation.
+func (h *Handlers) applyWorking(
+	rows []domain.Workspace,
+) {
+	for i := range rows {
+		rows[i].Working = h.working.IsWorking(rows[i].ID)
+	}
 }
 
 // eligibilityIn returns a per-row eligibility resolver bound to the given

@@ -364,16 +364,44 @@ func (s *WorktreeSuite) TestWorktree_rebaseOntoParentConflictKeepsForResolve() {
 	})
 
 	// User clicks "Rebase onto parent" → keep the conflict for resolution.
+	// The row is already pr-conflicts from the reparent above, and the working
+	// overlay re-broadcasts the current row when the async op begins — so wait
+	// on the op's real outcome (the persisted fork point), not the status alone.
 	resp2 := s.Env.POST(t, s.wsBase(childID)+"/rebase-onto-parent", map[string]any{})
 	kit.RequireStatus(t, resp2, http.StatusAccepted)
 	resp2.Body.Close()
-	kit.WaitForWorkspaceState(t, watcher, childID, "pr-conflicts", 10*time.Second)
+	kit.WaitForWorkspace(t, watcher, childID, 10*time.Second, func(m map[string]any) bool {
+		return m["status"] == "pr-conflicts" && m["forkPointSha"] == parentBTip
+	})
 
 	got := s.getWorkspace(childID)
 	s.Assert().Equal(parentBTip, got["forkPointSha"], "the intended fork point is persisted up front")
 	s.Assert().Equal("HEAD",
 		kit.TrimNewline(kit.GitRun(t, childPath, "rev-parse", "--abbrev-ref", "HEAD")),
 		"the rebase is kept in progress (detached HEAD) for the user to resolve")
+}
+
+// TestWorktree_asyncOpBroadcastsWorkingOverlay pins the working-overlay
+// contract on the wire: accepting an async workspace mutation immediately
+// broadcasts the row with working=true (the tree spinner starts with the 202),
+// and the op's completion broadcasts working=false so the spinner always
+// resolves.
+func (s *WorktreeSuite) TestWorktree_asyncOpBroadcastsWorkingOverlay() {
+	t := s.T()
+
+	childID, _ := s.createChild("feature/working-overlay")
+	watcher := s.Env.DialWorkspace(t, s.imported.ProjectID, s.imported.RepoID, childID)
+
+	resp := s.Env.POST(t, s.wsBase(childID)+"/sync", map[string]any{})
+	kit.RequireStatus(t, resp, http.StatusAccepted)
+	resp.Body.Close()
+
+	kit.WaitForWorkspace(t, watcher, childID, 10*time.Second, func(m map[string]any) bool {
+		return m["working"] == true
+	})
+	kit.WaitForWorkspace(t, watcher, childID, 10*time.Second, func(m map[string]any) bool {
+		return m["working"] == false
+	})
 }
 
 func (s *WorktreeSuite) TestWorktree_reparentWithChildrenRejected() {

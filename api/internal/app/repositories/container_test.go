@@ -163,9 +163,9 @@ func TestContainer_CreateWorkspace_ProjectsAndBroadcasts(t *testing.T) {
 	assert.GreaterOrEqual(t, h.count(), 1)
 }
 
-// TestBroadcastWorkspace_WorkingFalse pins the post-removal overlay behaviour:
-// with the agent-run producer gone, every broadcast carries Working=false
-// (00 §5).
+// TestBroadcastWorkspace_WorkingFalse pins the idle baseline of the working
+// overlay: with no background mutation in flight, every broadcast carries
+// Working=false.
 func TestBroadcastWorkspace_WorkingFalse(t *testing.T) {
 	ctx := context.Background()
 	h := &captureHub{}
@@ -182,8 +182,9 @@ func TestBroadcastWorkspace_WorkingFalse(t *testing.T) {
 	}, time.Second, 5*time.Millisecond)
 }
 
-// TestContainer_ListWorkspaces_NoWorkingOverlay asserts the snapshot
-// source returns workspace rows with the working overlay always false (00 §5).
+// TestContainer_ListWorkspaces_NoWorkingOverlay asserts the snapshot source
+// returns workspace rows with the working overlay false while no background
+// mutation is in flight.
 func TestContainer_ListWorkspaces_NoWorkingOverlay(t *testing.T) {
 	ctx := context.Background()
 	c := newContainer(t, &captureHub{})
@@ -200,6 +201,87 @@ func TestContainer_ListWorkspaces_NoWorkingOverlay(t *testing.T) {
 	rows, err := c.ListWorkspaces(ctx)
 	require.NoError(t, err)
 	require.Len(t, rows, 1)
+	assert.False(t, rows[0].Working)
+}
+
+// TestContainer_BeginEndWork_BroadcastsWorkingOverlay pins the real working
+// overlay (00 §4 async mutations): BeginWork immediately re-broadcasts the row
+// with Working=true, event-driven frames emitted while the mutation runs carry
+// Working=true, and EndWork re-broadcasts with Working=false so the client
+// spinner always resolves.
+func TestContainer_BeginEndWork_BroadcastsWorkingOverlay(t *testing.T) {
+	ctx := context.Background()
+	h := &captureHub{}
+	c := newContainer(t, h)
+
+	_, err := c.Workspace.Create(ctx, workspace.CreateInput{
+		ID: "w1", RepoID: "r1", ProjectID: "p1", Branch: "b",
+	}, time.Unix(1, 0).UTC())
+	require.NoError(t, err)
+	require.Eventually(t, func() bool {
+		_, ok := h.last("w1")
+		return ok
+	}, time.Second, 5*time.Millisecond)
+
+	c.BeginWork(ctx, "w1")
+	working, ok := h.lastWorking("w1")
+	require.True(t, ok)
+	assert.True(t, working, "BeginWork must broadcast Working=true")
+	assert.True(t, c.IsWorking("w1"))
+
+	c.EndWork(ctx, "w1")
+	working, ok = h.lastWorking("w1")
+	require.True(t, ok)
+	assert.False(t, working, "EndWork must broadcast Working=false")
+	assert.False(t, c.IsWorking("w1"))
+}
+
+// TestContainer_BeginWork_NestsPerWorkspace asserts overlapping background
+// mutations on the same workspace stay Working until the LAST one ends, and
+// that blank ids (a create that has no entity yet) are ignored.
+func TestContainer_BeginWork_NestsPerWorkspace(t *testing.T) {
+	ctx := context.Background()
+	c := newContainer(t, &captureHub{})
+
+	c.BeginWork(ctx, "w1")
+	c.BeginWork(ctx, "w1")
+	c.EndWork(ctx, "w1")
+	assert.True(t, c.IsWorking("w1"))
+	c.EndWork(ctx, "w1")
+	assert.False(t, c.IsWorking("w1"))
+
+	c.EndWork(ctx, "w1")
+	assert.False(t, c.IsWorking("w1"), "unbalanced EndWork must not underflow")
+
+	c.BeginWork(ctx, "")
+	assert.False(t, c.IsWorking(""), "blank ids are ignored")
+}
+
+// TestContainer_ListWorkspaces_WorkingOverlay asserts the snapshot source
+// carries the live working overlay, so a client subscribing mid-mutation sees
+// the spinner state without waiting for the next broadcast.
+func TestContainer_ListWorkspaces_WorkingOverlay(t *testing.T) {
+	ctx := context.Background()
+	c := newContainer(t, &captureHub{})
+
+	_, err := c.Workspace.Create(ctx, workspace.CreateInput{
+		ID: "w1", RepoID: "r1", ProjectID: "p1", Branch: "b",
+	}, time.Unix(1, 0).UTC())
+	require.NoError(t, err)
+	require.Eventually(t, func() bool {
+		list, listErr := c.Workspace.List(ctx)
+		return listErr == nil && len(list) == 1
+	}, time.Second, 5*time.Millisecond)
+
+	c.BeginWork(ctx, "w1")
+	rows, err := c.ListWorkspaces(ctx)
+	require.NoError(t, err)
+	require.Len(t, rows, 1)
+	assert.True(t, rows[0].Working)
+
+	c.EndWork(ctx, "w1")
+	rows, err = c.ListWorkspaces(ctx)
+	require.NoError(t, err)
 	assert.False(t, rows[0].Working)
 }
 

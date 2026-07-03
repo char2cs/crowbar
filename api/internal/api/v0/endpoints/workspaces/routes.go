@@ -23,10 +23,11 @@ func Register(
 	hierarchy workspacehandlers.Hierarchy,
 	repos workspacehandlers.Repos,
 	lastErrors workspacehandlers.LastErrorSetter,
+	working workspacehandlers.WorkSignal,
 	wsHandle gin.HandlerFunc,
 	dispatch func(rest, ws gin.HandlerFunc) gin.HandlerFunc,
 ) {
-	h := workspacehandlers.New(reader, hierarchy, repos, lastErrors)
+	h := workspacehandlers.New(reader, hierarchy, repos, lastErrors, working)
 	rg.GET("/workspaces", dispatch(h.List, wsHandle))
 	rg.GET("/workspaces/:wsId", dispatch(h.Detail, wsHandle))
 	rg.POST("/workspaces", h.Create)

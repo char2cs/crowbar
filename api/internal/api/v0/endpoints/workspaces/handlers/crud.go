@@ -67,6 +67,7 @@ func (h *Handlers) Create(
 	libs.WriteAccepted(c)
 	runAsync(
 		c.Request.Context(),
+		h.working,
 		h.broadcastLastError,
 		"",
 		func(ctx context.Context) error {
@@ -178,6 +179,7 @@ func (h *Handlers) Delete(
 	libs.WriteAccepted(c)
 	runAsync(
 		c.Request.Context(),
+		h.working,
 		h.broadcastLastError,
 		id,
 		func(ctx context.Context) error {

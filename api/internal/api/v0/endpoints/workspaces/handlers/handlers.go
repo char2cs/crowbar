@@ -95,28 +95,53 @@ type LastErrorSetter interface {
 	) (domain.Workspace, error)
 }
 
+// WorkSignal brackets a workspace's background mutation window so the daemon
+// serves a real Working overlay: BeginWork re-broadcasts the row with
+// Working=true the moment an async op is accepted, EndWork resolves it, and
+// IsWorking overlays the REST reads so a list/detail fetched mid-mutation
+// agrees with the live stream. Blank ids (a create with no entity yet) are
+// no-ops.
+type WorkSignal interface {
+	BeginWork(
+		ctx context.Context,
+		wsID string,
+	)
+	EndWork(
+		ctx context.Context,
+		wsID string,
+	)
+	IsWorking(
+		wsID string,
+	) bool
+}
+
 // Handlers serves the /v0/workspaces routes from the workspace read usecase, the
-// worktree hierarchy usecase, the repository store, and the workspace error
-// sink that surfaces async-mutation failures on the entity.
+// worktree hierarchy usecase, the repository store, the workspace error sink
+// that surfaces async-mutation failures on the entity, and the work signal
+// that drives the entity's Working overlay around async mutations.
 type Handlers struct {
 	reader     Reader
 	hierarchy  Hierarchy
 	repos      Repos
 	lastErrors LastErrorSetter
+	working    WorkSignal
 }
 
 // New builds the workspaces Handlers from the workspace read usecase, the
-// worktree hierarchy usecase, the repository store, and the workspace error sink.
+// worktree hierarchy usecase, the repository store, the workspace error sink,
+// and the working-overlay signal.
 func New(
 	reader Reader,
 	hierarchy Hierarchy,
 	repos Repos,
 	lastErrors LastErrorSetter,
+	working WorkSignal,
 ) *Handlers {
 	return &Handlers{
 		reader:     reader,
 		hierarchy:  hierarchy,
 		repos:      repos,
 		lastErrors: lastErrors,
+		working:    working,
 	}
 }

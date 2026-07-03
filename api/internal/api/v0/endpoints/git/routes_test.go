@@ -117,6 +117,11 @@ func (stubLastErrors) SetLastError(
 	return domain.Workspace{ID: id, LastError: message}, nil
 }
 
+type stubWork struct{}
+
+func (stubWork) BeginWork(_ context.Context, _ string) {}
+func (stubWork) EndWork(_ context.Context, _ string)   {}
+
 func passthrough(
 	rest gin.HandlerFunc,
 	_ gin.HandlerFunc,
@@ -128,7 +133,7 @@ func TestRegisterMountsRoutes(
 	t *testing.T,
 ) {
 	r := gin.New()
-	git.Register(r.Group("/v0"), stubGit{}, stubLastErrors{}, func(_ *gin.Context) {}, passthrough)
+	git.Register(r.Group("/v0"), stubGit{}, stubLastErrors{}, stubWork{}, func(_ *gin.Context) {}, passthrough)
 
 	cases := []struct {
 		method string

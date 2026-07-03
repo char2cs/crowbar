@@ -94,7 +94,7 @@ func TestMergeIntoParentAsyncErrorBroadcastsLastError(
 	hierarchy := &fakeHierarchy{mergeErr: worktree.ErrParentLocked}
 	r := gin.New()
 	lastErrors := &fakeLastErrors{called: make(chan struct{}, 1)}
-	h := workspacehandlers.New(reader, hierarchy, &fakeRepos{}, lastErrors)
+	h := workspacehandlers.New(reader, hierarchy, &fakeRepos{}, lastErrors, fakeWork{})
 	rg := r.Group("/v0/projects/:projectId/repos/:repoId")
 	rg.POST("/workspaces/:wsId/merge-into-parent", h.MergeIntoParent)
 	rec := do(r, http.MethodPost, "/v0/projects/p1/repos/r1/workspaces/child/merge-into-parent", `{"strategy":"merge"}`)
@@ -186,7 +186,7 @@ func TestReparentAsyncErrorBroadcastsLastError(
 	hierarchy := &fakeHierarchy{reparentErr: worktree.ErrNewParentLocked}
 	r := gin.New()
 	lastErrors := &fakeLastErrors{called: make(chan struct{}, 1)}
-	h := workspacehandlers.New(reader, hierarchy, &fakeRepos{}, lastErrors)
+	h := workspacehandlers.New(reader, hierarchy, &fakeRepos{}, lastErrors, fakeWork{})
 	rg := r.Group("/v0/projects/:projectId/repos/:repoId")
 	rg.POST("/workspaces/:wsId/reparent", h.Reparent)
 	rec := do(r, http.MethodPost, "/v0/projects/p1/repos/r1/workspaces/child/reparent", `{"newParentId":"np"}`)

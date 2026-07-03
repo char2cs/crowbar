@@ -127,6 +127,12 @@ func (stubLastErrors) SetLastError(
 	return domain.Workspace{ID: id, LastError: message}, nil
 }
 
+type stubWork struct{}
+
+func (stubWork) BeginWork(_ context.Context, _ string) {}
+func (stubWork) EndWork(_ context.Context, _ string)   {}
+func (stubWork) IsWorking(_ string) bool               { return false }
+
 func passthrough(
 	rest gin.HandlerFunc,
 	_ gin.HandlerFunc,
@@ -148,6 +154,7 @@ func TestRegisterMountsRoutes(
 		stubHierarchy{},
 		stubRepos{},
 		stubLastErrors{},
+		stubWork{},
 		func(_ *gin.Context) { wsHit = true },
 		passthrough,
 	)

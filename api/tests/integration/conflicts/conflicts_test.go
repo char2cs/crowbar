@@ -179,6 +179,7 @@ func (s *ConflictsSuite) keptRebaseConflictOnChild() (childID string) {
 		s.T(), s.imported.ProjectID, s.imported.RepoID, "feature/conflict-parent-b", s.parentID)
 	parentBPath := s.Env.WorktreePath(s.imported.ProjectID, s.imported.RepoID, parentBID)
 	kit.CommitFile(s.T(), parentBPath, "shared.txt", "parent-b version\n", "parent-b edit")
+	parentBTip := kit.RevParse(s.T(), parentBPath, "HEAD")
 
 	childID = s.Env.CreateChildWorkspace(
 		s.T(), s.imported.ProjectID, s.imported.RepoID, "feature/conflict-rebase-child", s.parentID)
@@ -195,10 +196,15 @@ func (s *ConflictsSuite) keptRebaseConflictOnChild() (childID string) {
 	})
 
 	// Rebase onto parentB: KEEPS the conflicting rebase in the child's worktree.
+	// The row is already pr-conflicts from the reparent above and the working
+	// overlay re-broadcasts it when the async op begins, so wait on the op's
+	// real outcome (the persisted fork point), not the status alone.
 	resp2 := s.Env.POST(s.T(), s.wsBase(childID)+"/rebase-onto-parent", map[string]any{})
 	kit.RequireStatus(s.T(), resp2, http.StatusAccepted)
 	resp2.Body.Close()
-	kit.WaitForWorkspaceState(s.T(), watcher, childID, "pr-conflicts", 10*time.Second)
+	kit.WaitForWorkspace(s.T(), watcher, childID, 10*time.Second, func(m map[string]any) bool {
+		return m["status"] == "pr-conflicts" && m["forkPointSha"] == parentBTip
+	})
 	return childID
 }
 
