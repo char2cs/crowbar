@@ -49,8 +49,11 @@ function SidebarToastItem({
             </div>
           )}
           <div className="flex min-w-0 flex-col gap-0.5">
-            <Toast.Title className="font-medium" data-slot="toast-title" />
-            <Toast.Description className="text-muted-foreground" data-slot="toast-description" />
+            <Toast.Title className="min-w-0 break-words font-medium" data-slot="toast-title" />
+            <Toast.Description
+              className="min-w-0 break-words text-muted-foreground"
+              data-slot="toast-description"
+            />
           </div>
         </div>
         {toast.actionProps && (
