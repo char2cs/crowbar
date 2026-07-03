@@ -34,12 +34,14 @@ export function PlaceholderRowActions({ workspace }: { workspace: Workspace }) {
   }
 
   return (
-    <div className="flex flex-col gap-1 pl-6 pr-2 pb-1">
-      <p className="text-xs text-muted-foreground">{placeholderReason(workspace)}</p>
-      <div className="flex gap-2">
+    <div className="flex flex-col gap-1.5">
+      <p className="text-xs leading-relaxed text-muted-foreground">
+        {placeholderReason(workspace)}
+      </p>
+      <div className="flex gap-1.5">
         <button
           type="button"
-          className="rounded-md px-2 py-0.5 text-xs text-foreground/70 hover:bg-accent hover:text-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
+          className="rounded-md border border-border/60 px-2 py-0.5 text-xs text-foreground/80 hover:bg-background hover:text-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
           onClick={onRetry}
           onPointerDown={(e) => e.stopPropagation()}
         >
@@ -48,7 +50,7 @@ export function PlaceholderRowActions({ workspace }: { workspace: Workspace }) {
         {workspace.heldByPath ? (
           <button
             type="button"
-            className="rounded-md px-2 py-0.5 text-xs text-foreground/70 hover:bg-accent hover:text-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
+            className="rounded-md border border-border/60 px-2 py-0.5 text-xs text-foreground/80 hover:bg-background hover:text-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
             onClick={onDetach}
             onPointerDown={(e) => e.stopPropagation()}
           >

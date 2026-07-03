@@ -1,3 +1,4 @@
+import { useState } from 'react'
 import { cn } from '@/lib/utils'
 import { formatChangeCount } from './format-change-count'
 import { WorkspaceBranchIcon } from './workspace-branch-icon'
@@ -52,6 +53,11 @@ export function WorkspaceTreeItem({
   } = useWorkspaceTreeActions()
   const { draggingWs, hoverTargetId, movingWsId } = useWorkspaceTreeDrag()
 
+  // A placeholder row keeps its reason + Retry/Detach… collapsed until the user
+  // clicks the row — clicking toggles the attached details panel instead of
+  // navigating (a placeholder has no worktree to open).
+  const [placeholderOpen, setPlaceholderOpen] = useState(false)
+
   const isCreatingChild = creatingChildOf?.parentId === workspace.id
   const isRenaming = renamingId === workspace.id
   const isDraggingThis = draggingWs?.id === workspace.id
@@ -76,17 +82,30 @@ export function WorkspaceTreeItem({
           role="button"
           tabIndex={0}
           data-ws-drop={!isRenaming ? workspace.id : undefined}
+          aria-expanded={isPlaceholder ? placeholderOpen : undefined}
           className={cn(
             ROW_BASE,
             variant,
             isDraggingThis && 'opacity-40',
             isMoving && 'opacity-50 pointer-events-none',
             isDropTarget && 'ring-1 ring-ring',
+            isPlaceholder && placeholderOpen && 'mb-0 rounded-b-none bg-accent',
           )}
-          onClick={() => !isRenaming && onWorkspaceClick(workspace.id, projectId, repoId)}
+          onClick={() => {
+            if (isRenaming) return
+            if (isPlaceholder) {
+              setPlaceholderOpen((open) => !open)
+              return
+            }
+            onWorkspaceClick(workspace.id, projectId, repoId)
+          }}
           onKeyDown={(e) => {
             if (!isRenaming && (e.key === 'Enter' || e.key === ' ')) {
               e.preventDefault()
+              if (isPlaceholder) {
+                setPlaceholderOpen((open) => !open)
+                return
+              }
               onWorkspaceClick(workspace.id, projectId, repoId)
             }
           }}
@@ -183,9 +202,13 @@ export function WorkspaceTreeItem({
             </button>
           ) : null}
         </div>
-      </div>
 
-      {isPlaceholder && <PlaceholderRowActions workspace={workspace} />}
+        {isPlaceholder && placeholderOpen && (
+          <div className="mx-1.5 mb-0.5 rounded-b-lg bg-accent px-2.5 pb-2 pt-0.5">
+            <PlaceholderRowActions workspace={workspace} />
+          </div>
+        )}
+      </div>
 
       {showChildrenSection && (
         <div>
