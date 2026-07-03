@@ -244,6 +244,20 @@ func (m *vtModel) SetResponseSink(f func(p []byte)) {
 	m.emu.SetResponseSink(f)
 }
 
+// ResponseSinkInstalledForTest reports whether m currently has a non-nil response sink
+// installed (spec §3.8). It exists purely so an out-of-package test (the session
+// package's degraded-flip test) can assert the sink is uninstalled exactly once when a
+// model-driven session falls back to raw — a state responseSink is unexported precisely
+// to prevent production code from inspecting. Production never calls this; it only
+// type-asserts to *vtModel, so a TerminalModel backed by a test fake reports false.
+func ResponseSinkInstalledForTest(m TerminalModel) bool {
+	vm, ok := m.(*vtModel)
+	if !ok {
+		return false
+	}
+	return vm.responseSink != nil
+}
+
 // Resize forwards the new geometry to the emulator and clears the shadow scroll region.
 // x/vt's Screen.Resize unconditionally resets its scroll region to the full new bounds
 // (s.scroll = buf.Bounds()), and the scroll region is tracked in the shadow by the
