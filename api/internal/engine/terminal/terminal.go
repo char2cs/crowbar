@@ -274,11 +274,14 @@ func (e *terminalEngine) lockSession(id string) func() {
 	return mu.Unlock
 }
 
-// outputMsg is the server→client wire frame.
+// outputMsg is the server→client wire frame. Snapshot marks a self-contained
+// ground-state redraw the client must apply onto a RESET buffer (attach
+// redraw, post-resize resync) instead of appending like incremental output.
 type outputMsg struct {
 	SessionID string `json:"sessionId"`
 	Data      string `json:"data"`
 	IsInput   bool   `json:"isInput"`
+	Snapshot  bool   `json:"snapshot,omitempty"`
 }
 
 // inputMsg is the client→server wire frame for PTY input.
@@ -664,7 +667,8 @@ func resolveRestoreCWD(
 		home = ""
 	}
 	notice := fmt.Sprintf(
-		"\r\n[crowbar] previous directory unavailable; restored in %s\r\n", home)
+		"\r\n[crowbar] previous directory unavailable; restored in %s\r\n", home,
+	)
 	return home, []byte(notice)
 }
 
@@ -759,7 +763,8 @@ func (e *terminalEngine) suspend(ctx context.Context, sid string, force bool) er
 		// inside the session so no live chunk can re-alt the model between them (§11.2).
 		// Persist the returned clean-primary blob verbatim — no second Snapshot.
 		blob = s.ForceSuspendSnapshot(
-			[]byte("\r\n[crowbar] session suspended to free resources; re-open to restore\r\n"))
+			[]byte("\r\n[crowbar] session suspended to free resources; re-open to restore\r\n"),
+		)
 	} else {
 		blob, _ = s.Snapshot()
 	}
@@ -960,13 +965,42 @@ func (e *terminalEngine) writePump(
 		_ = conn.Close()
 		close(done)
 	}()
+
+	// writeMsg marshals and sends one wire frame; false means the socket died.
+	writeMsg := func(data []byte, snapshot bool) bool {
+		msg := outputMsg{
+			SessionID: sessionID,
+			Data:      string(data),
+			Snapshot:  snapshot,
+		}
+		payload, err := json.Marshal(msg)
+		if err != nil {
+			return true
+		}
+		return conn.WriteMessage(websocket.TextMessage, payload) == nil
+	}
+
 	var pending []byte
 	for frame := range ch {
+		// Snapshot frames are coalescing BARRIERS: a snapshot is a
+		// self-contained redraw the client applies onto a reset buffer, so it
+		// must never be merged into (or split across) incremental output
+		// messages. Any held-back partial rune belongs to the pre-snapshot
+		// stream the reset supersedes — drop it.
+		if frame.Snapshot {
+			pending = pending[:0]
+			if !writeMsg(frame.Data, true) {
+				return
+			}
+			continue
+		}
+
 		buf := make([]byte, 0, len(pending)+len(frame.Data))
 		buf = append(buf, pending...)
 		buf = append(buf, frame.Data...)
 		pending = pending[:0]
 		closed := false
+		var snapshotAfter *session.OutputFrame
 
 	drain:
 		for len(buf) < maxCoalesceBytes {
@@ -976,6 +1010,11 @@ func (e *terminalEngine) writePump(
 					closed = true
 					break drain
 				}
+				if next.Snapshot {
+					snap := next
+					snapshotAfter = &snap
+					break drain
+				}
 				buf = append(buf, next.Data...)
 			default:
 				break drain
@@ -983,8 +1022,9 @@ func (e *terminalEngine) writePump(
 		}
 
 		// Hold back a trailing incomplete rune until its remaining bytes arrive.
-		// On channel close there is no more data, so flush everything as-is.
-		if !closed {
+		// On channel close there is no more data, so flush everything as-is; a
+		// queued snapshot supersedes the tail too, so no holdback either.
+		if !closed && snapshotAfter == nil {
 			if n := trailingIncompleteUTF8(buf); n > 0 {
 				pending = append(pending, buf[len(buf)-n:]...)
 				buf = buf[:len(buf)-n]
@@ -992,15 +1032,13 @@ func (e *terminalEngine) writePump(
 		}
 
 		if len(buf) > 0 {
-			msg := outputMsg{
-				SessionID: sessionID,
-				Data:      string(buf),
+			if !writeMsg(buf, false) {
+				return
 			}
-			data, err := json.Marshal(msg)
-			if err == nil {
-				if writeErr := conn.WriteMessage(websocket.TextMessage, data); writeErr != nil {
-					return
-				}
+		}
+		if snapshotAfter != nil {
+			if !writeMsg(snapshotAfter.Data, true) {
+				return
 			}
 		}
 		if closed {
@@ -1028,6 +1066,12 @@ func (e *terminalEngine) readPump(
 
 		if msg.Type == "resize" {
 			_ = s.Resize(msg.Cols, msg.Rows)
+			continue
+		}
+		if msg.Type == "resync" {
+			// Post-resize convergence: re-emit the model snapshot to attached
+			// clients (no-op at an idle shell prompt — see Session.Resync).
+			_ = s.Resync()
 			continue
 		}
 

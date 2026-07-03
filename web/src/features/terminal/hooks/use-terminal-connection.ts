@@ -1,4 +1,10 @@
-import { terminalWrite, terminalResize, terminalClose, terminalListen } from '@/lib/crowbar-bridge'
+import {
+  terminalWrite,
+  terminalResize,
+  terminalResync,
+  terminalClose,
+  terminalListen,
+} from '@/lib/crowbar-bridge'
 import type { IDisposable, Terminal as XtermTerminal } from '@xterm/xterm'
 import { useEffect, useRef } from 'react'
 import { themeRegistry } from '@/extensions/themes/theme-registry'
@@ -185,9 +191,27 @@ export function useTerminalConnection({
     // produce (Shift/Alt+Enter disambiguation, kitty protocol) is handled once in
     // the attachCustomKeyEventHandler in terminal.tsx (see resolveKeyOverride).
 
+    // Post-resize convergence: after the grid dimensions settle (debounced past
+    // the last onResize of a gesture — sash drag, window/monitor resize, sidebar
+    // toggle), ask the daemon to re-emit its model snapshot. xterm's client-side
+    // reflow deposits stale copies of a repainting TUI into LOCAL scrollback on
+    // every resize; the daemon model never reflows, so replacing the local
+    // buffer with the snapshot removes the junk. The daemon no-ops at an idle
+    // shell prompt, where xterm's native reflow is already correct and a resync
+    // would only cost the scroll position.
+    let resyncTimer: number | null = null
+    const scheduleResync = () => {
+      if (resyncTimer !== null) window.clearTimeout(resyncTimer)
+      resyncTimer = window.setTimeout(() => {
+        resyncTimer = null
+        void terminalResync(connectionId).catch(() => {})
+      }, 300)
+    }
+
     disposables.push(
       terminal.onResize(({ cols, rows }) => {
         void terminalResize(connectionId, rows, cols).catch(() => {})
+        scheduleResync()
       }),
     )
 
@@ -213,9 +237,28 @@ export function useTerminalConnection({
       terminal.options.theme = getTerminalTheme()
     })
 
-    // Use terminalListen from crowbar-bridge for PTY output
-    const unlistenOutput = terminalListen(connectionId, (data: string) => {
-      outputBufferRef.current += data
+    // Use terminalListen from crowbar-bridge for PTY output. Snapshot frames
+    // (the attach redraw, the post-resize resync) are self-contained
+    // ground-state redraws serialized from the daemon's screen model: apply
+    // them onto a RESET buffer — dropping any buffered pre-snapshot output the
+    // redraw supersedes — so client-side reflow junk (stale TUI copies pushed
+    // into local scrollback by xterm's resize semantics) is replaced by truth.
+    const unlistenOutput = terminalListen(connectionId, (frame) => {
+      if (frame.snapshot) {
+        outputBufferRef.current = ''
+        if (outputFlushFrameRef.current !== null) {
+          cancelAnimationFrame(outputFlushFrameRef.current)
+          outputFlushFrameRef.current = null
+        }
+        pendingAttachFinalizeRef.current = false
+        terminal.reset()
+        terminal.write(frame.data, () => {
+          terminal.scrollToBottom()
+          terminal.refresh(0, terminal.rows - 1)
+        })
+        return
+      }
+      outputBufferRef.current += frame.data
       scheduleOutputFlush()
     })
 
@@ -264,6 +307,7 @@ export function useTerminalConnection({
       window.removeEventListener('focus', handleWindowFocus)
       window.removeEventListener('blur', handleWindowBlur)
       wheelContainer?.removeEventListener('wheel', handleWheel, true)
+      if (resyncTimer !== null) window.clearTimeout(resyncTimer)
       if (outputFlushFrameRef.current !== null) {
         cancelAnimationFrame(outputFlushFrameRef.current)
         flushOutputBuffer()

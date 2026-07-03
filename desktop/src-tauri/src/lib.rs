@@ -428,6 +428,7 @@ pub fn run() {
             terminal::terminal_open,
             terminal::terminal_send,
             terminal::terminal_resize,
+            terminal::terminal_resync,
             terminal::terminal_close,
             ws_bridge::ws_open,
             ws_bridge::ws_send,

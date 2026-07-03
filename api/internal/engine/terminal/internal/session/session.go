@@ -38,9 +38,15 @@ const defaultScrollbackLines = 10000
 const foregroundSampleInterval = 250 * time.Millisecond
 
 // OutputFrame is a chunk of PTY output delivered to attached clients.
+//
+// Snapshot marks a self-contained ground-state redraw (the serialized model)
+// rather than incremental PTY bytes: the client must RESET its local buffer
+// before applying Data, replacing whatever it accumulated — the mechanism
+// behind both the attach redraw and the post-resize resync.
 type OutputFrame struct {
 	SessionID string
 	Data      []byte
+	Snapshot  bool
 }
 
 // client represents one attached WebSocket subscriber.
@@ -367,12 +373,45 @@ func (s *Session) Attach() (<-chan OutputFrame, error) {
 		redraw := s.serializeLocked()
 		redraw = append(redraw, s.model.PendingInput()...)
 		if len(redraw) > 0 {
-			cl.send <- OutputFrame{SessionID: s.id, Data: redraw}
+			cl.send <- OutputFrame{SessionID: s.id, Data: redraw, Snapshot: true}
 		}
 	}
 
 	s.clients[cl] = struct{}{}
 	return cl.send, nil
+}
+
+// Resync re-emits the serialized ground-state redraw to every attached client
+// as a Snapshot frame. It is the post-resize convergence path: xterm's
+// client-side reflow deposits stale copies of a repainting TUI into the LOCAL
+// scrollback on every resize, while this model never reflows — so replacing
+// the client buffer with the model state removes the junk.
+//
+// Gated on a foreground app being present: at an idle shell prompt xterm's
+// native reflow is already correct (append-only output) and a resync would
+// only cost the client its scroll position. Returns whether a snapshot was
+// emitted. A client whose send buffer is full is skipped rather than blocked —
+// it is already saturated with output that supersedes this snapshot.
+func (s *Session) Resync() bool {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	if s.model == nil || s.isIdleLocked() {
+		return false
+	}
+	s.checkForegroundResetLocked()
+	redraw := s.serializeLocked()
+	redraw = append(redraw, s.model.PendingInput()...)
+	if len(redraw) == 0 {
+		return false
+	}
+	for cl := range s.clients {
+		select {
+		case cl.send <- OutputFrame{SessionID: s.id, Data: redraw, Snapshot: true}:
+		default:
+		}
+	}
+	return true
 }
 
 // Detach removes a client from the fan-out set and closes its channel.

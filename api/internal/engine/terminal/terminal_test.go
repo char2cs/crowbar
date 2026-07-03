@@ -412,6 +412,40 @@ func TestEngine_Attach_DeadSession(t *testing.T) {
 	assert.Error(t, err)
 }
 
+// TestEngine_Attach_ResyncMessage covers the readPump "resync" dispatch: the
+// message must route to Session.Resync (a no-op at the idle prompt — the gate
+// itself is pinned by the session package's resync tests) without being
+// written to the PTY as input.
+func TestEngine_Attach_ResyncMessage(t *testing.T) {
+	eng := terminal.New()
+	terminal.StopMaintenanceForTest(eng)
+	ctx := context.Background()
+	dir := t.TempDir()
+
+	sid, err := eng.Create(ctx, "ws-1", dir, nil)
+	require.NoError(t, err)
+
+	resyncMsg, _ := json.Marshal(map[string]any{"type": "resync"})
+	msgs := [][]byte{resyncMsg, resyncMsg}
+	conn := newSeqConn(msgs)
+
+	attachDone := make(chan struct{})
+	go func() {
+		defer close(attachDone)
+		_ = eng.Attach(ctx, sid, conn)
+	}()
+
+	select {
+	case <-conn.allConsumed:
+	case <-time.After(3 * time.Second):
+		t.Fatal("timeout waiting for resync messages to be consumed")
+	}
+
+	conn.Close()
+	require.NoError(t, eng.Kill(ctx, sid))
+	<-attachDone
+}
+
 func TestEngine_Attach_ResizeMessage(t *testing.T) {
 	eng := terminal.New()
 	terminal.StopMaintenanceForTest(eng)
