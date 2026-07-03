@@ -91,3 +91,50 @@ func TestDiffEmitter_PrimeAfterKeyframeResumesDiffing(t *testing.T) {
 	assert.Empty(t, data)
 	_ = strings.TrimSpace("")
 }
+
+func TestDiffEmitter_ScrollbackDeltaEmittedBeforeScreenDiff(t *testing.T) {
+	m, _ := newTestModel(t, 10, 3)
+	e := NewDiffEmitter()
+	e.Prime(m)
+
+	// Write 5 numbered lines into a 3-row screen: 2+ lines commit to scrollback.
+	m.Write([]byte("one\r\ntwo\r\nthree\r\nfour\r\nfive"))
+	data, need := e.Emit(m)
+	require.False(t, need)
+	s := string(data)
+
+	// Committed scrollback lines are emitted as bottom-row writes + newline
+	// so the CLIENT scrolls them into its own history.
+	assert.Contains(t, s, "one")
+	assert.Contains(t, s, "two")
+	// The scrollback flow must precede the first screen-diff CUP.
+	sbIdx := strings.Index(s, "one")
+	screenIdx := strings.Index(s, "\x1b[1;1H")
+	require.GreaterOrEqual(t, screenIdx, 0)
+	assert.Less(t, sbIdx, screenIdx, "scrollback delta must precede screen diff")
+}
+
+func TestDiffEmitter_NoScrollbackDeltaWhenNoneCommitted(t *testing.T) {
+	m, _ := newTestModel(t, 10, 3)
+	m.Write([]byte("hi"))
+	e := NewDiffEmitter()
+	e.Prime(m)
+	m.Write([]byte("!"))
+	data, need := e.Emit(m)
+	require.False(t, need)
+	// Exactly one dirty row, no scroll flow (no bare "\n" scroll writes).
+	assert.Equal(t, 1, strings.Count(string(data), "\x1b[1;1H"))
+}
+
+func TestDiffEmitter_AltScreenSkipsScrollback(t *testing.T) {
+	m, _ := newTestModel(t, 10, 3)
+	e := NewDiffEmitter()
+	m.Write([]byte("\x1b[?1049h")) // alt screen
+	_, need := e.Emit(m)
+	require.True(t, need) // flip → keyframe
+	e.Prime(m)
+	m.Write([]byte("APP"))
+	data, need := e.Emit(m)
+	require.False(t, need)
+	assert.Contains(t, string(data), "APP")
+}
