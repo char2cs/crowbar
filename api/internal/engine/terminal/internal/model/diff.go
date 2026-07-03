@@ -281,6 +281,9 @@ func (e *DiffEmitter) writeModeDelta(
 	b *strings.Builder,
 	sh *shadowState,
 ) {
+	if modesEqual(sh.modes, e.chrome.modes) {
+		return
+	}
 	seen := map[int]bool{6: true}
 	keys := make([]int, 0, len(serializedModeOrder)+len(sh.modes)+len(e.chrome.modes))
 	for _, k := range serializedModeOrder {
@@ -323,6 +326,15 @@ func (e *DiffEmitter) writeModeDelta(
 // writeCursorChromeDelta diffs cursor visibility, cursor style/blink and the
 // app-set default fg/bg/cursor colours, mirroring the emission forms
 // writeCursor/writeChrome use in the serializer's full redraw.
+//
+// Unlike the serializer — whose keyframe is always preceded by DECSTR, so it
+// only ever needs to assert the current ON state — this diff path has no
+// implicit reset between emits: every (set bool, value) pair must be handled
+// SYMMETRICALLY, emitting the corresponding reset sequence on a set→unset
+// transition (e.g. OSC 110/111/112 for the default colours, DECSCUSR 0 for
+// cursor shape) just as it emits the set form on a value change. Dropping the
+// unset direction would leave a live client stuck on a stale colour/shape
+// until an unrelated keyframe happens to resync it.
 func (e *DiffEmitter) writeCursorChromeDelta(
 	b *strings.Builder,
 	sh *shadowState,
@@ -334,20 +346,49 @@ func (e *DiffEmitter) writeCursorChromeDelta(
 			b.WriteString(ansi.ResetMode(ansi.DECMode(25)))
 		}
 	}
-	if sh.cursorShapeSet && (!e.chrome.cursorShapeSet ||
+	switch {
+	case sh.cursorShapeSet && (!e.chrome.cursorShapeSet ||
 		sh.cursorShape != e.chrome.cursorShape ||
-		sh.cursorBlink != e.chrome.cursorBlink) {
+		sh.cursorBlink != e.chrome.cursorBlink):
 		b.WriteString(ansi.SetCursorStyle(decscusr(sh.cursorShape, sh.cursorBlink)))
+	case !sh.cursorShapeSet && e.chrome.cursorShapeSet:
+		b.WriteString(ansi.SetCursorStyle(0)) // DECSCUSR default, undoing the app's explicit style
 	}
-	if sh.fgSet && (!e.chrome.fgSet || !colorsEqual(sh.fg, e.chrome.fg)) {
+	switch {
+	case sh.fgSet && (!e.chrome.fgSet || !colorsEqual(sh.fg, e.chrome.fg)):
 		b.WriteString(oscColor(10, sh.fg))
+	case !sh.fgSet && e.chrome.fgSet:
+		b.WriteString(ansi.ResetForegroundColor)
 	}
-	if sh.bgSet && (!e.chrome.bgSet || !colorsEqual(sh.bg, e.chrome.bg)) {
+	switch {
+	case sh.bgSet && (!e.chrome.bgSet || !colorsEqual(sh.bg, e.chrome.bg)):
 		b.WriteString(oscColor(11, sh.bg))
+	case !sh.bgSet && e.chrome.bgSet:
+		b.WriteString(ansi.ResetBackgroundColor)
 	}
-	if sh.cursorColorSet && (!e.chrome.cursorColorSet || !colorsEqual(sh.cursorColor, e.chrome.cursorColor)) {
+	switch {
+	case sh.cursorColorSet && (!e.chrome.cursorColorSet || !colorsEqual(sh.cursorColor, e.chrome.cursorColor)):
 		b.WriteString(oscColor(12, sh.cursorColor))
+	case !sh.cursorColorSet && e.chrome.cursorColorSet:
+		b.WriteString(ansi.ResetCursorColor)
 	}
+}
+
+// modesEqual reports whether two mode maps hold identical entries, letting
+// writeModeDelta skip the ordered-list allocation on the common no-change
+// Emit. A length mismatch short-circuits; otherwise every key in a must be
+// present in b with the same value (equal length rules out b having extra
+// keys a lacks).
+func modesEqual(a, b map[int]bool) bool {
+	if len(a) != len(b) {
+		return false
+	}
+	for k, v := range a {
+		if bv, ok := b[k]; !ok || bv != v {
+			return false
+		}
+	}
+	return true
 }
 
 func snapshotGrid(emu emulator, cols, rows int) [][]uv.Cell {

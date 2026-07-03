@@ -284,3 +284,75 @@ func TestDiffEmitter_DefaultColorChangeForwarded(t *testing.T) {
 	require.False(t, need)
 	assert.Contains(t, string(data), "\x1b]10;rgb:ffff/0000/0000\x1b\\")
 }
+
+// The following tests cover the set→unset direction of chrome state: an app
+// that sets a default colour or cursor shape and then explicitly resets it
+// must have the client's corresponding state corrected too, not left stale
+// until an unrelated keyframe.
+//
+// The colour tests drive the shadow fields directly (vm.shadow.fgSet = false,
+// mirroring how TestDiffEmitter_CursorStyleChangeForwarded and
+// TestDiffEmitter_DefaultColorChangeForwarded already isolate the diff layer
+// from the model's OSC plumbing) rather than writing a real OSC 110/111/112
+// through m.Write: the pinned x/vt commit's Set*Color(nil) substitutes its
+// internal defaultFg/defaultBg (color.White/color.Black, set in NewEmulator)
+// for the nil argument before invoking the ForegroundColor/BackgroundColor
+// callback, so an app-issued OSC 110/111/112 never actually delivers nil to
+// vtModel.observeDefaultColor at this pin — clearDefaultColor is reachable
+// only by other means (this is an upstream-plumbing gap outside diff.go's
+// scope; the diff emitter must still forward the set→unset transition
+// correctly whenever the shadow does clear the flag).
+
+func TestDiffEmitter_ForegroundColorResetForwarded(t *testing.T) {
+	m, _ := newTestModel(t, 10, 3)
+	e := NewDiffEmitter()
+	vm := m.(*vtModel)
+	vm.shadow.setDefaultColor(0, color.RGBA{R: 0xff, A: 0xff})
+	e.Prime(m)
+
+	vm.shadow.fg, vm.shadow.fgSet = nil, false
+	data, need := e.Emit(m)
+	require.False(t, need)
+	assert.Contains(t, string(data), ansi.ResetForegroundColor, "fg set→unset must emit the OSC 110 reset")
+}
+
+func TestDiffEmitter_BackgroundColorResetForwarded(t *testing.T) {
+	m, _ := newTestModel(t, 10, 3)
+	e := NewDiffEmitter()
+	vm := m.(*vtModel)
+	vm.shadow.setDefaultColor(1, color.RGBA{G: 0xff, A: 0xff})
+	e.Prime(m)
+
+	vm.shadow.bg, vm.shadow.bgSet = nil, false
+	data, need := e.Emit(m)
+	require.False(t, need)
+	assert.Contains(t, string(data), ansi.ResetBackgroundColor, "bg set→unset must emit the OSC 111 reset")
+}
+
+func TestDiffEmitter_CursorColorResetForwarded(t *testing.T) {
+	m, _ := newTestModel(t, 10, 3)
+	e := NewDiffEmitter()
+	vm := m.(*vtModel)
+	vm.shadow.setDefaultColor(2, color.RGBA{B: 0xff, A: 0xff})
+	e.Prime(m)
+
+	vm.shadow.cursorColor, vm.shadow.cursorColorSet = nil, false
+	data, need := e.Emit(m)
+	require.False(t, need)
+	assert.Contains(t, string(data), ansi.ResetCursorColor, "cursor-colour set→unset must emit the OSC 112 reset")
+}
+
+func TestDiffEmitter_CursorShapeResetForwarded(t *testing.T) {
+	m, _ := newTestModel(t, 10, 3)
+	vm := m.(*vtModel)
+	vm.shadow.cursorShapeSet = true
+	vm.shadow.cursorShape = vt.CursorBar
+	vm.shadow.cursorBlink = true
+	e := NewDiffEmitter()
+	e.Prime(m)
+
+	m.OnForegroundReset() // clears cursorShapeSet via resetTransientModes
+	data, need := e.Emit(m)
+	require.False(t, need)
+	assert.Contains(t, string(data), ansi.SetCursorStyle(0), "cursor-shape set→unset must emit the DECSCUSR default form")
+}
