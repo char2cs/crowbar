@@ -75,3 +75,18 @@ func forceModelPanicForTest(s *Session) {
 	defer s.mu.Unlock()
 	s.modelPanics++
 }
+
+// forceEmitPanicForTest installs an emitForTest hook that panics on the very next
+// emitLocked call, then clears itself so only that one call panics. It exists so a test
+// can make the EMIT path (not writeModelLocked) degrade — the boundary the production
+// pumpStep fallback (fan the triggering chunk's raw bytes out rather than dropping them)
+// exists for. No adversarial PTY input can panic the real emitter deterministically, so
+// this seam is the only way to reach that boundary. Production never calls this.
+func forceEmitPanicForTest(s *Session) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.emitForTest = func(m model.TerminalModel) ([]byte, bool) {
+		s.emitForTest = nil
+		panic("forceEmitPanicForTest: simulated emit panic")
+	}
+}

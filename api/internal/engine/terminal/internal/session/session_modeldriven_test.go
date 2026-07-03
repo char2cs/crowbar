@@ -9,6 +9,8 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/char2cs/crowbar/api/internal/engine/terminal/internal/model"
 )
 
 // collect drains frames for d, concatenating data and remembering snapshots.
@@ -123,4 +125,54 @@ func TestModelDriven_AttachFlushesPendingDeltaBeforeRebasing(t *testing.T) {
 	f2, ok := waitFrame(t, ch2, time.Second)
 	require.True(t, ok, "second attach must deliver a snapshot")
 	assert.True(t, f2.Snapshot)
+}
+
+// TestModelDriven_EmitPanicOnFlipDoesNotDropTheTriggeringChunk proves the boundary the
+// review finding called out: writeModelLocked can succeed (the model consumed the
+// chunk) while the EMIT path (emitLocked / the keyframe serializeLocked) panics and
+// recovers, bumping modelPanics and flipping the session to raw for the NEXT chunk. If
+// pumpStep did nothing else, that chunk's visual delta would be silently dropped —
+// no frame goes out for it, and the flip only affects chunks after this one. pumpStep
+// must detect the flip and fan the triggering chunk's raw bytes out instead, and the
+// session must keep flowing normally (raw) afterward.
+//
+// It builds the Session directly (newBareSession + a real model/emitter) instead of
+// spawning a live PTY: a spawned session's background pump goroutine reads the real
+// shell asynchronously (startup mode-set sequences, prompt redraw) and would race this
+// test's own direct pumpStep calls on the same synthetic chunks, nondeterministically
+// landing the armed panic on the wrong chunk and masking a real drop. With no PTY there
+// is nothing to race — pumpStep only ever runs on the exact chunks this test injects.
+func TestModelDriven_EmitPanicOnFlipDoesNotDropTheTriggeringChunk(t *testing.T) {
+	s := newBareSession("sid-md-emitpanic", "/bin/sh", t.TempDir(), "")
+	m, ser := newModel(80, 24, 200)
+	s.model = m
+	s.serializer = ser
+	s.modelDriven = true
+	s.emitter = model.NewDiffEmitter()
+
+	ch, err := s.Attach()
+	require.NoError(t, err)
+	defer s.Detach(ch)
+
+	// Drain the initial attach snapshot so it can't be mistaken for the fallback frame.
+	_, ok := waitFrame(t, ch, time.Second)
+	require.True(t, ok, "attach must deliver an initial snapshot")
+
+	// Arm the emit-path panic for exactly the next emitLocked call, then drive that
+	// exact chunk through pumpStep directly.
+	forceEmitPanicForTest(s)
+	s.pumpStep([]byte("LOST-CHUNK-GUARD"))
+
+	f, ok := waitFrame(t, ch, time.Second)
+	require.True(t, ok, "the chunk that triggered the emit-path panic must still reach the client via raw fallback, not be dropped")
+	assert.Equal(t, "LOST-CHUNK-GUARD", string(f.Data),
+		"the fallback frame must carry the triggering chunk's raw bytes verbatim")
+	assert.False(t, f.Snapshot, "the fallback frame is a raw chunk, not a model snapshot")
+
+	// The session must now be flipped to raw (modelPanics > 0) and keep streaming
+	// normally through the pre-existing raw branch for every subsequent chunk.
+	s.pumpStep([]byte("AFTER-FLIP"))
+	f2, ok := waitFrame(t, ch, time.Second)
+	require.True(t, ok, "session must keep streaming raw after the flip")
+	assert.Equal(t, "AFTER-FLIP", string(f2.Data))
 }
