@@ -229,15 +229,14 @@ func (e *DiffEmitter) writeScreenDiff(
 ) bool {
 	dirty := false
 	for y := 0; y < rows; y++ {
-		row := snapshotRow(vm.emu, cols, y)
-		if rowsEqual(e.lastGrid[y], row) {
+		if rowEqualsGrid(vm.emu, e.lastGrid[y], cols, y) {
 			continue
 		}
 		dirty = true
 		b.WriteString(cup(y+1, 1)) // row y+1, col 1 (1-based)
 		b.WriteString(ansi.EraseLineRight)
 		b.WriteString(encodeGridRow(vm.emu, cols, y))
-		e.lastGrid[y] = row
+		e.lastGrid[y] = snapshotRow(vm.emu, cols, y)
 	}
 	return dirty
 }
@@ -411,12 +410,23 @@ func snapshotRow(emu emulator, cols, y int) []uv.Cell {
 	return row
 }
 
-func rowsEqual(a, b []uv.Cell) bool {
-	if len(a) != len(b) {
+// rowEqualsGrid reports whether row y of emu matches lastRow without
+// allocating a fresh snapshot to compare against. A nil lastRow (the
+// scrollback-growth invalidation marker set in Emit) always reports NOT
+// equal, forcing the row to be rewritten and re-snapshotted.
+func rowEqualsGrid(emu emulator, lastRow []uv.Cell, cols, y int) bool {
+	if lastRow == nil || len(lastRow) != cols {
 		return false
 	}
-	for i := range a {
-		if !a[i].Equal(&b[i]) {
+	for x := 0; x < cols; x++ {
+		c := emu.CellAt(x, y)
+		if c == nil {
+			if !uv.EmptyCell.Equal(&lastRow[x]) {
+				return false
+			}
+			continue
+		}
+		if !c.Equal(&lastRow[x]) {
 			return false
 		}
 	}
