@@ -76,6 +76,14 @@ func (e *DiffEmitter) Emit(m TerminalModel) (data []byte, needKeyframe bool) {
 		return nil, true
 	}
 
+	if sbLen > e.scrollbackLen {
+		// The client screen scrolls while absorbing the delta; every row's
+		// on-screen identity moves, so rebuild the whole viewport after.
+		for y := range e.lastGrid {
+			e.lastGrid[y] = nil // nil never equals a real row → forced rewrite
+		}
+	}
+
 	var b strings.Builder
 	e.writeScrollbackDelta(&b, vm, sbLen, rows)
 	dirty := e.writeScreenDiff(&b, vm, cols, rows)
@@ -89,9 +97,28 @@ func (e *DiffEmitter) Emit(m TerminalModel) (data []byte, needKeyframe bool) {
 	return []byte(b.String()), false
 }
 
-// writeScrollbackDelta emits lines newly pushed into scrollback since the last
-// base. Task 2.
-func (e *DiffEmitter) writeScrollbackDelta(*strings.Builder, *vtModel, int, int) {}
+// writeScrollbackDelta emits every scrollback line the model committed since
+// the last emit. Technique (mirrors the serializer's writeContent flow): park
+// the cursor on the bottom row, then write each line followed by CR+LF — the
+// client scrolls, the line enters ITS scrollback, and the screen area is
+// repainted by the screen diff that follows (which sees all rows dirty after
+// a scroll anyway). Primary buffer only; the alt screen has no scrollback.
+func (e *DiffEmitter) writeScrollbackDelta(
+	b *strings.Builder,
+	vm *vtModel,
+	sbLen int,
+	rows int,
+) {
+	if e.alt || sbLen <= e.scrollbackLen {
+		return
+	}
+	b.WriteString(cup(rows, 1)) // park on the bottom row
+	for y := e.scrollbackLen; y < sbLen; y++ {
+		line := vm.emu.ScrollbackLine(y)
+		b.WriteString("\r\n")
+		b.WriteString(encodeLine(line, len(line), true))
+	}
+}
 
 // writeScreenDiff rewrites every changed grid row in place (CUP + encoded row,
 // pen reset per row via encodeLine's contract) and updates the diff base.
