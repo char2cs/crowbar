@@ -10,6 +10,7 @@ import (
 	"os/exec"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"syscall"
 	"time"
 
@@ -40,6 +41,20 @@ const foregroundSampleInterval = 250 * time.Millisecond
 // minEmitInterval is the model-driven frame clock (spec §3.3): interactive
 // deltas emit immediately; bursts coalesce to at most one frame per interval.
 const minEmitInterval = 8 * time.Millisecond
+
+// canaryDivergenceLogEvery throttles the dev divergence canary's stderr log to once
+// per this many divergence events, so a persistently-diverging session logs a
+// steady drumbeat rather than flooding stderr once per emitted frame.
+const canaryDivergenceLogEvery = 100
+
+// canaryEnabled reports whether the dev divergence canary (Task 9) was
+// requested via CROWBAR_TERMINAL_MODEL_DRIVEN_CANARY=1. Read once at spawn
+// time for a model-driven session; unset (the default) keeps s.canarySim nil
+// for the session's whole lifetime, so mirrorCanaryLocked is a single nil
+// check and nothing more — zero cost in production.
+func canaryEnabled() bool {
+	return os.Getenv("CROWBAR_TERMINAL_MODEL_DRIVEN_CANARY") == "1"
+}
 
 // OutputFrame is a chunk of PTY output delivered to attached clients.
 //
@@ -119,6 +134,18 @@ type Session struct {
 	// s.mu; the timer callback re-locks.
 	lastEmitAt time.Time
 	emitTimer  *time.Timer
+	// canarySim is the dev divergence canary's shadow client-sim model (spec
+	// Task 9, env CROWBAR_TERMINAL_MODEL_DRIVEN_CANARY=1): a second model
+	// instance, constructed the same way the conformance test's clientSim is
+	// (fresh instance on every keyframe, plain Write on every diff), fed
+	// exactly the frames emitFrameLocked fans out to real clients. Its grid
+	// hash is compared against the authoritative model's on every mirrored
+	// frame. nil unless the env var was set at spawn time for a model-driven
+	// session — zero cost (no construction, no compare) otherwise.
+	canarySim model.TerminalModel
+	// canaryDivergences counts grid-hash mismatches the canary observed.
+	// Atomic so CanaryDivergences() can be read without s.mu.
+	canaryDivergences atomic.Int64
 }
 
 // newBareSession allocates a Session shell with no PTY and no model. New/NewRestored fill
@@ -286,6 +313,9 @@ func (s *Session) spawn(
 	s.modelDriven = p.ModelDriven
 	if p.ModelDriven {
 		s.emitter = model.NewDiffEmitter()
+		if canaryEnabled() {
+			s.canarySim, _ = newModel(cols, rows, sbLines)
+		}
 	}
 	if p.ModelDriven && s.model != nil {
 		ptmx := s.ptmx
@@ -805,11 +835,57 @@ func (s *Session) emitFrameLocked() {
 		}
 		s.fanOutFrameLocked(OutputFrame{SessionID: s.id, Data: redraw, Snapshot: true})
 		s.primeLocked()
+		s.mirrorCanaryLocked(redraw, true)
 		return
 	}
 	if len(data) > 0 {
 		s.fanOutFrameLocked(OutputFrame{SessionID: s.id, Data: data})
+		s.mirrorCanaryLocked(data, false)
 	}
+}
+
+// mirrorCanaryLocked is the dev divergence canary (Task 9): it mirrors an
+// already-fanned-out frame into the shadow client-sim model and compares its
+// resulting grid hash against the authoritative model's. A no-op whenever
+// s.canarySim is nil — i.e. always in production, unless
+// CROWBAR_TERMINAL_MODEL_DRIVEN_CANARY=1 was set at spawn. Caller holds s.mu.
+//
+// Sim semantics mirror the conformance test's clientSim exactly (see
+// model/conformance_test.go): a keyframe replaces the sim with a FRESH model
+// instance before writing the redraw (terminal.reset() equivalent); a diff
+// frame is a plain incremental Write on the existing instance.
+//
+// Resize handling: Resize/Resync always Invalidate the emitter, forcing the
+// NEXT model-driven frame down the keyframe branch above — which rebuilds
+// canarySim fresh at the model's CURRENT dimensions (read from HeaderState,
+// not the dimensions the sim was last built at). So a resize needs no
+// separate canary-resize path: it is subsumed by the ordinary keyframe reset,
+// the same way a real client's terminal.reset() picks up the new size from
+// the keyframe redraw it's about to receive.
+func (s *Session) mirrorCanaryLocked(data []byte, keyframe bool) {
+	if s.canarySim == nil {
+		return
+	}
+	if keyframe {
+		s.canarySim.Close()
+		cols, rows, _, sb := s.model.HeaderState()
+		s.canarySim, _ = newModel(cols, rows, sb)
+	}
+	s.canarySim.Write(data)
+	if model.GridHash(s.model) == model.GridHash(s.canarySim) {
+		return
+	}
+	n := s.canaryDivergences.Add(1)
+	if n%canaryDivergenceLogEvery == 1 {
+		_, _ = fmt.Fprintf(os.Stderr, "terminal: model-driven canary divergence session=%s count=%d\n", s.id, n)
+	}
+}
+
+// CanaryDivergences reports how many divergence events the dev canary saw.
+// Always 0 unless CROWBAR_TERMINAL_MODEL_DRIVEN_CANARY=1 was set at spawn for
+// a model-driven session.
+func (s *Session) CanaryDivergences() int64 {
+	return s.canaryDivergences.Load()
 }
 
 // emitLocked / primeLocked wrap the emitter in the same §8.5 recover backstop
@@ -990,6 +1066,10 @@ func (s *Session) shutdown() {
 		s.ptmx = nil
 		if s.model != nil {
 			s.model.Close()
+		}
+		if s.canarySim != nil {
+			s.canarySim.Close()
+			s.canarySim = nil
 		}
 		for cl := range s.clients {
 			close(cl.send)

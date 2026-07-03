@@ -1,6 +1,8 @@
 package model
 
 import (
+	"fmt"
+	"hash/fnv"
 	"image/color"
 	"sort"
 	"strconv"
@@ -388,6 +390,28 @@ func modesEqual(a, b map[int]bool) bool {
 		}
 	}
 	return true
+}
+
+// GridHash returns a cheap FNV-1a hash over m's visible grid content plus
+// cursor position and alt-screen flag — exactly the state conformanceStep's
+// gridString compares in the model package's own tests, collapsed to a
+// single uint64 so a caller (the session's dev divergence canary) can detect
+// drift with one integer comparison instead of building and diffing full
+// grid strings on every emitted frame.
+func GridHash(m TerminalModel) uint64 {
+	vm := m.(*vtModel)
+	cols, rows := vm.emu.Width(), vm.emu.Height()
+	h := fnv.New64a()
+	for y := 0; y < rows; y++ {
+		row := snapshotRow(vm.emu, cols, y)
+		for x := range row {
+			_, _ = h.Write([]byte(row[x].String()))
+		}
+		_, _ = h.Write([]byte{'\n'})
+	}
+	cur := vm.emu.CursorPosition()
+	fmt.Fprintf(h, "cursor=%d,%d alt=%v", cur.X, cur.Y, vm.emu.IsAltScreen())
+	return h.Sum64()
 }
 
 func snapshotGrid(emu emulator, cols, rows int) [][]uv.Cell {
