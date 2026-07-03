@@ -253,3 +253,37 @@ are amended in place, this subsection is the change log.
   a keyframe (reset clears + re-asserts) rather than emitting a diff.
 - **Memory accounting (§4)**: `Session.ModelBytes()` now includes the diff
   emitter's `lastGrid` estimate and the canary sim's model bytes.
+- **Unsaturated-ring boundary scan (§3.2 scrollback delta)**: the rotation scan
+  above ran on EVERY scrollback growth, including below saturation, where the
+  previous length is already the exact boundary and the scan could only
+  misanchor on a newer line whose content happens to duplicate the anchor
+  (e.g. a freshly committed batch ending in a blank line) — silently dropping
+  the whole batch from client history. Fixed by scanning only once the ring
+  has saturated (`sbLen >= scrollbackLines`); below that, the emitter returns
+  the previous length directly.
+- **Residual: identical line at the saturation boundary** — with the scan now
+  confined to the saturated ring, a run of content-identical scrollback lines
+  spanning the saturation transition can still misanchor the scan onto a
+  newer duplicate, misplacing the new-line boundary by the run's length.
+  Accepted-by-argument (rare, self-heals on the next keyframe); not exercised
+  by the bake gate — see the canary-blindness note below.
+- **Grid-hash canary is blind to scrollback residuals**: the divergence canary
+  (§3.6) compares `GridHash`, which covers only the visible grid, cursor, and
+  alt-screen flag — it never reads scrollback content. A misplaced
+  scrollback boundary (either residual above) produces zero canary signal;
+  "canary silent" cannot be used as the bake's clearance criterion for these,
+  which is why they are accepted by argument rather than bake evidence.
+
+  Bake-watch notes (things to keep an eye on, not blockers):
+  - Keyframe-per-tick cadence cliff when a single tick lands more than
+    `rotationScanLimit=256` distinct scrollback lines on an already-saturated
+    ring — the scan gives up and forces a keyframe every such tick.
+  - Same cliff when apps scroll heavily inside an active DECSTBM region (the
+    Finding B keyframe guard fires per qualifying emit, not once).
+  - `BenchmarkDiffScrollBurst` writes identical lines each iteration, so its
+    post-fix number under-measures the delta path's real cost (the
+    saturated-path anchor scan is cheaper against repeated content than
+    against distinct content); re-baseline with distinct lines later.
+  - A rare pre-Prime DECOM positioned-write residual is grid-level, not
+    scrollback-level, so it IS canary-visible (unlike the two residuals
+    above).

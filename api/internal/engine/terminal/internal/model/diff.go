@@ -234,10 +234,19 @@ func (e *DiffEmitter) Emit(m TerminalModel) (data []byte, needKeyframe bool) {
 // mechanism covers both plain growth and growth-with-rotation-at-cap: whatever
 // lies after the anchor is new.
 //
+// The scan runs ONLY once the ring has saturated (sbLen >= vm.scrollbackLines).
+// Below saturation nothing has ever been evicted, so the previous scrollbackLen
+// is already the exact boundary by construction — scanning there would only
+// risk misanchoring on a newer line whose CONTENT duplicates the anchor (not
+// just a 2^-64 hash collision: repeated blank/prompt lines are common, and if
+// the batch just committed itself ends in one, its hash equals the old tail's
+// and the scan matches immediately at the new tail, silently discarding the
+// whole batch). See scrollbackLineHash for the saturated-path residual this
+// still leaves.
+//
 // Lazy: with no anchor yet (scrollbackLen==0) every current line is new; and
-// when the length is unchanged AND the ring is not yet saturated no line can
-// have scrolled off, so the anchor is still the tail and the per-emit hash is
-// skipped entirely (keeping the interactive echo path hash-free).
+// below saturation the anchor is always still the tail, so the per-emit hash
+// is skipped entirely (keeping the interactive echo path hash-free).
 func (e *DiffEmitter) scrollbackNewStart(vm *vtModel, sbLen int) (start int, ok bool) {
 	if e.alt {
 		return sbLen, true // alt screen has no scrollback
@@ -245,8 +254,14 @@ func (e *DiffEmitter) scrollbackNewStart(vm *vtModel, sbLen int) (start int, ok 
 	if e.scrollbackLen == 0 {
 		return 0, true
 	}
-	if sbLen == e.scrollbackLen && sbLen < vm.scrollbackLines {
-		return sbLen, true
+	if sbLen < vm.scrollbackLines {
+		// Ring never saturated → nothing has ever been evicted → the previous
+		// length IS the exact boundary; scanning could only misanchor on
+		// duplicate content (e.g. a freshly committed batch that itself ends
+		// in a blank line, hashing the same as the old tail). Scan solely at
+		// saturation (sbLen == cap), which covers both the grew-into-cap
+		// transition and the plateau.
+		return e.scrollbackLen, true
 	}
 	lo := sbLen - 1 - rotationScanLimit
 	if lo < 0 {
@@ -261,10 +276,14 @@ func (e *DiffEmitter) scrollbackNewStart(vm *vtModel, sbLen int) (start int, ok 
 }
 
 // scrollbackLineHash returns an FNV-1a hash over scrollback line idx's encoded
-// content — the anchor scrollbackNewStart matches against. FNV-1a is a
-// non-cryptographic hash: a collision would misplace the new-line boundary
-// (duplicating or dropping a scrolled line in client history) and self-heal on
-// the next keyframe — an acceptable risk on this dev-flag path.
+// content — the anchor scrollbackNewStart matches against. Two distinct
+// misplacement triggers exist, both scoped to the SATURATED ring (the only
+// regime scrollbackNewStart still scans in): a genuine 2^-64 FNV-1a collision,
+// and — far more likely in practice — a newer scrolled-off line whose CONTENT
+// legitimately duplicates the anchor (repeated blank or prompt lines).
+// Either misplaces the new-line boundary (duplicating or dropping a scrolled
+// line in client history) and self-heals on the next keyframe — an accepted
+// residual on this dev-flag path.
 func scrollbackLineHash(vm *vtModel, idx int) uint64 {
 	line := vm.emu.ScrollbackLine(idx)
 	h := fnv.New64a()
