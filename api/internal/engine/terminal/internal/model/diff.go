@@ -41,10 +41,23 @@ type DiffEmitter struct {
 	cols, rows    int
 	alt           bool
 	scrollbackLen int
-	lastGrid      [][]uv.Cell
-	lastCursor    uv.Position
-	chrome        chromeBase
+	// scrollbackTail is the FNV-1a hash of the LAST scrollback line as of the
+	// previous Emit/Prime (zero when scrollbackLen==0). It is the rotation
+	// anchor: x/vt's ring evicts the oldest line at cap, so once saturated
+	// ScrollbackLen() plateaus and a plain length compare can no longer see
+	// scrolled-off lines. Matching this hash back in the current ring (see
+	// scrollbackNewStart) recovers the true new-line boundary across rotation.
+	scrollbackTail uint64
+	lastGrid       [][]uv.Cell
+	lastCursor     uv.Position
+	chrome         chromeBase
 }
+
+// rotationScanLimit bounds how far back scrollbackNewStart scans for the
+// rotation anchor before giving up and demanding a keyframe. A gap larger than
+// this between emits is rare (it needs hundreds of lines committed in a single
+// coalesce window) and a keyframe resync is the correct, cheap recovery.
+const rotationScanLimit = 256
 
 // chromeBase is the subset of shadow state whose CHANGES must stream to live
 // clients between keyframes. Grid content is covered by the screen diff; this
@@ -129,6 +142,11 @@ func (e *DiffEmitter) Prime(m TerminalModel) {
 	e.cols, e.rows = vm.emu.Width(), vm.emu.Height()
 	e.alt = vm.emu.IsAltScreen()
 	e.scrollbackLen = vm.emu.ScrollbackLen()
+	if e.scrollbackLen > 0 {
+		e.scrollbackTail = scrollbackLineHash(vm, e.scrollbackLen-1)
+	} else {
+		e.scrollbackTail = 0
+	}
 	e.lastCursor = vm.emu.CursorPosition()
 	e.lastGrid = snapshotGrid(vm.emu, e.cols, e.rows)
 	e.chrome = captureChrome(&vm.shadow)
@@ -160,7 +178,17 @@ func (e *DiffEmitter) Emit(m TerminalModel) (data []byte, needKeyframe bool) {
 		return nil, true
 	}
 
-	if sbLen > e.scrollbackLen {
+	// Locate the first scrollback line committed since the last emit, tolerant
+	// of x/vt's ring rotation at cap (Finding A: ScrollbackLen() plateaus once
+	// saturated, so a length compare alone would starve the delta path).
+	sbStart, ok := e.scrollbackNewStart(vm, sbLen)
+	if !ok {
+		// The rotation anchor scrolled out of the scan window; resync.
+		return nil, true
+	}
+	newLines := sbLen - sbStart
+
+	if newLines > 0 && !e.alt {
 		// The client screen scrolls while absorbing the delta; every row's
 		// on-screen identity moves, so rebuild the whole viewport after.
 		for y := range e.lastGrid {
@@ -169,18 +197,81 @@ func (e *DiffEmitter) Emit(m TerminalModel) (data []byte, needKeyframe bool) {
 	}
 
 	var b strings.Builder
-	e.writeScrollbackDelta(&b, vm, sbLen, rows)
+	e.writeScrollbackDelta(&b, vm, sbStart, sbLen, rows)
 	dirty := e.writeScreenDiff(&b, vm, cols, rows)
 	e.writeCursorDelta(&b, vm, dirty)
 	e.writeChromeDelta(&b, sh)
 
 	e.scrollbackLen = sbLen
+	if newLines > 0 && sbLen > 0 {
+		// The tail moved; re-anchor. Skipped when nothing scrolled so the echo
+		// path stays hash-free (the anchor is still valid).
+		e.scrollbackTail = scrollbackLineHash(vm, sbLen-1)
+	}
 	e.lastCursor = vm.emu.CursorPosition()
 	e.chrome = captureChrome(sh)
 	if b.Len() == 0 {
 		return nil, false
 	}
 	return []byte(b.String()), false
+}
+
+// scrollbackNewStart returns the index of the first scrollback line committed
+// since the last emit/prime, tolerating x/vt's ring rotation at cap. It anchors
+// on e.scrollbackTail (the hash of the previously-last scrollback line): it
+// scans BACKWARD from the current tail within rotationScanLimit lines and
+// returns the index just past the match. ok=false means the anchor rotated out
+// of the scan window — the caller must resync via keyframe. This single
+// mechanism covers both plain growth and growth-with-rotation-at-cap: whatever
+// lies after the anchor is new.
+//
+// Lazy: with no anchor yet (scrollbackLen==0) every current line is new; and
+// when the length is unchanged AND the ring is not yet saturated no line can
+// have scrolled off, so the anchor is still the tail and the per-emit hash is
+// skipped entirely (keeping the interactive echo path hash-free).
+func (e *DiffEmitter) scrollbackNewStart(vm *vtModel, sbLen int) (start int, ok bool) {
+	if e.alt {
+		return sbLen, true // alt screen has no scrollback
+	}
+	if e.scrollbackLen == 0 {
+		return 0, true
+	}
+	if sbLen == e.scrollbackLen && sbLen < vm.scrollbackLines {
+		return sbLen, true
+	}
+	lo := sbLen - 1 - rotationScanLimit
+	if lo < 0 {
+		lo = 0
+	}
+	for i := sbLen - 1; i >= lo; i-- {
+		if scrollbackLineHash(vm, i) == e.scrollbackTail {
+			return i + 1, true
+		}
+	}
+	return 0, false
+}
+
+// scrollbackLineHash returns an FNV-1a hash over scrollback line idx's encoded
+// content — the anchor scrollbackNewStart matches against. FNV-1a is a
+// non-cryptographic hash: a collision would misplace the new-line boundary
+// (duplicating or dropping a scrolled line in client history) and self-heal on
+// the next keyframe — an acceptable risk on this dev-flag path.
+func scrollbackLineHash(vm *vtModel, idx int) uint64 {
+	line := vm.emu.ScrollbackLine(idx)
+	h := fnv.New64a()
+	_, _ = h.Write([]byte(encodeLine(line, len(line), true)))
+	return h.Sum64()
+}
+
+// EstimatedBytes returns a coarse resident-size estimate for the diff base the
+// emitter retains (the lastGrid cell buffer), for the session's memory
+// accounting (spec §4). ~32B/cell covers each uv.Cell's content string header,
+// style and link. Zero before the first Prime.
+func (e *DiffEmitter) EstimatedBytes() int64 {
+	if e.lastGrid == nil {
+		return 0
+	}
+	return int64(e.cols) * int64(e.rows) * 32
 }
 
 // writeScrollbackDelta replays every scrollback line the model committed since
@@ -196,13 +287,14 @@ func (e *DiffEmitter) Emit(m TerminalModel) (data []byte, needKeyframe bool) {
 func (e *DiffEmitter) writeScrollbackDelta(
 	b *strings.Builder,
 	vm *vtModel,
+	start int,
 	sbLen int,
 	rows int,
 ) {
-	if e.alt || sbLen <= e.scrollbackLen {
+	if e.alt || start >= sbLen {
 		return
 	}
-	for base := e.scrollbackLen; base < sbLen; base += rows {
+	for base := start; base < sbLen; base += rows {
 		batch := sbLen - base
 		if batch > rows {
 			batch = rows

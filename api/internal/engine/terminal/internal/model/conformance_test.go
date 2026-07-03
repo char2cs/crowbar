@@ -187,6 +187,46 @@ func TestConformance_MultiBatchScrollBurst(t *testing.T) {
 		"client scrollback must match the model's after a multi-batch diff replay")
 }
 
+// TestConformance_RingFullStreaming pins Finding A: once x/vt's scrollback ring
+// saturates, ScrollbackLen() plateaus at the cap, so the pre-fix delta path
+// (which fired only on sbLen > lastLen) stopped forwarding scrolled-off lines to
+// live clients entirely. A SMALL cap makes the ring saturate + rotate within a
+// few Emits; the client sim carries the same cap so its own ring evicts
+// identically — a correct implementation keeps the two scrollback contents
+// equal across every rotating Emit. gridString equality (checked by
+// conformanceStep) cannot catch this: the corrupted content is off-screen in
+// the client's scrollback, which the visible grid never renders, so this
+// asserts scrollbackStrings directly after each batch.
+//
+// Verified red-first: with scrollbackNewStart's rotation scan disabled (forced
+// to the pre-fix `return sbLen, true` at plateau) the batch-3+ assertions fail.
+func TestConformance_RingFullStreaming(t *testing.T) {
+	const cols, rows, cap = 20, 4, 8
+	m, ser := New(cols, rows, cap)
+	t.Cleanup(func() { m.Close() })
+	sim := newClientSim(t, cols, rows, cap)
+	t.Cleanup(func() { sim.m.Close() })
+	e := NewDiffEmitter()
+
+	// Spend the mandatory initial keyframe on something small so the bursts
+	// below are real incremental Emits through the diff path.
+	conformanceStep(t, m, e, ser, sim, []byte("start"))
+
+	for batch := 0; batch < 6; batch++ {
+		var chunk strings.Builder
+		for i := 0; i < 5; i++ {
+			fmt.Fprintf(&chunk, "b%d-l%d\r\n", batch, i)
+		}
+		conformanceStep(t, m, e, ser, sim, []byte(chunk.String()))
+		require.Equal(t, scrollbackStrings(m), scrollbackStrings(sim.m),
+			"client scrollback diverged from model after batch %d (ring rotation not tracked)", batch)
+	}
+	// Sanity: the ring must actually have saturated for this to have exercised
+	// the plateau path at all.
+	vm := m.(*vtModel)
+	require.Equal(t, cap, vm.emu.ScrollbackLen(), "test setup: ring must be saturated at cap")
+}
+
 func TestConformance_RandomizedByteSplits(t *testing.T) {
 	// A fixed-seed random walk over printable text, cursor moves, SGR, line
 	// feeds and occasional clears, delivered in adversarial split sizes.
