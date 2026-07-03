@@ -41,7 +41,7 @@ export function PlaceholderRowActions({ workspace }: { workspace: Workspace }) {
       <div className="flex gap-1.5">
         <button
           type="button"
-          className="rounded-md border border-border/60 px-2 py-0.5 text-xs text-foreground/80 hover:bg-background hover:text-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
+          className="rounded-lg border border-border/60 px-3 py-1.5 text-[13px] text-foreground/80 hover:bg-accent hover:text-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
           onClick={onRetry}
           onPointerDown={(e) => e.stopPropagation()}
         >
@@ -50,7 +50,7 @@ export function PlaceholderRowActions({ workspace }: { workspace: Workspace }) {
         {workspace.heldByPath ? (
           <button
             type="button"
-            className="rounded-md border border-border/60 px-2 py-0.5 text-xs text-foreground/80 hover:bg-background hover:text-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
+            className="rounded-lg border border-border/60 px-3 py-1.5 text-[13px] text-foreground/80 hover:bg-accent hover:text-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
             onClick={onDetach}
             onPointerDown={(e) => e.stopPropagation()}
           >
