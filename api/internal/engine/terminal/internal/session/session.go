@@ -693,6 +693,14 @@ func (s *Session) useModelDrivenLocked() bool {
 	}
 	if !s.modelDrivenFellBack {
 		s.modelDrivenFellBack = true
+		// One answerer at a time, always: once raw bytes (including device queries)
+		// start reaching the client xterm, it becomes the answerer too — the model's
+		// response sink must come down here or the app gets a double reply to every
+		// query from now on (and, without this, recreateEmu would keep re-arming a
+		// sink this session no longer wants after any later parse-panic recovery).
+		if s.model != nil {
+			s.model.SetResponseSink(nil)
+		}
 		_, _ = fmt.Fprintf(os.Stderr, "terminal: session %s: model degraded (parse panic), falling back to raw output\n", s.id)
 	}
 	return false

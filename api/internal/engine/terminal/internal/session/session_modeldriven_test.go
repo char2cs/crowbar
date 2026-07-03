@@ -541,3 +541,52 @@ func TestModelDriven_CPRQueryAnsweredToPTY(t *testing.T) {
 	assert.Contains(t, data, "CPR-ANSWERED")
 	assert.NotContains(t, data, "NOANSWER")
 }
+
+// TestModelDriven_DegradedFlipUninstallsResponseSink proves the T8 review finding fix:
+// once a model-driven session degrades to raw fallback (modelPanics > 0), the model's
+// response sink must be uninstalled. Left armed, the model would keep answering device
+// queries (e.g. CPR) from the PTY's raw bytes at the same time the client's own xterm —
+// which now also sees those raw bytes — answers them too, so the app would receive
+// DOUBLE replies to every query after the flip. One answerer at a time, always.
+func TestModelDriven_DegradedFlipUninstallsResponseSink(t *testing.T) {
+	s, err := NewModelDriven("sid-md-sink-flip", "/bin/sh", t.TempDir(), "", os.Environ(), 80, 24, 200)
+	require.NoError(t, err)
+	t.Cleanup(s.Kill)
+
+	ch, err := s.Attach()
+	require.NoError(t, err)
+	defer s.Detach(ch)
+
+	s.mu.Lock()
+	installed := model.ResponseSinkInstalledForTest(s.model)
+	s.mu.Unlock()
+	require.True(t, installed, "test setup: a fresh model-driven session must spawn with the sink installed")
+
+	forceModelPanicForTest(s)
+
+	// Drive the flip through the useModelDrivenLocked latch (pumpStep -> writeModelLocked
+	// -> useModelDrivenLocked), the same way TestModelDriven_DegradedFallsBackToRaw does.
+	require.NoError(t, s.Write([]byte("echo SINK-FLIP-TRIGGER\n")))
+	_, _ = collect(ch, 3*time.Second)
+
+	s.mu.Lock()
+	stillInstalled := model.ResponseSinkInstalledForTest(s.model)
+	fellBack := s.modelDrivenFellBack
+	s.mu.Unlock()
+	require.True(t, fellBack, "test setup: the degraded flip must have latched")
+	assert.False(t, stillInstalled, "the response sink must be uninstalled once the session flips to raw fallback")
+}
+
+// TestModelDriven_RawSessionNeverInstallsResponseSink is the raw-mode sibling of the
+// degraded-flip test above: a plain (non-model-driven) session must never install a
+// response sink at spawn — the client xterm is the sole answerer for raw sessions.
+func TestModelDriven_RawSessionNeverInstallsResponseSink(t *testing.T) {
+	s, err := New("sid-raw-no-sink", "/bin/sh", t.TempDir(), "", os.Environ(), 80, 24, 200)
+	require.NoError(t, err)
+	t.Cleanup(s.Kill)
+
+	s.mu.Lock()
+	installed := s.model != nil && model.ResponseSinkInstalledForTest(s.model)
+	s.mu.Unlock()
+	assert.False(t, installed, "a raw (non-model-driven) session must never install a response sink")
+}
