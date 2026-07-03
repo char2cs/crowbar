@@ -94,6 +94,15 @@ type Session struct {
 	// solely so a test can substitute a deterministic hooked sampler to pin the
 	// fan-out → model-write → foreground-sample ordering the spec mandates (§11.1 site #1).
 	sampleForegroundLocked func()
+	// Model-driven output (spec 2026-07-03): when set, clients receive
+	// model-derived diff/keyframe frames instead of raw PTY bytes. Falls back
+	// to raw streaming for the session's lifetime once the model degrades
+	// (modelPanics > 0). emitter state is guarded by s.mu like the model.
+	modelDriven bool
+	emitter     *model.DiffEmitter
+	// modelDrivenFellBack latches the raw-fallback log so a degraded session logs the
+	// flip exactly once instead of once per chunk.
+	modelDrivenFellBack bool
 }
 
 // newBareSession allocates a Session shell with no PTY and no model. New/NewRestored fill
@@ -125,6 +134,11 @@ type spawnParams struct {
 	Rows            int
 	ScrollbackLines int
 	Blob            []byte
+	// ModelDriven selects the model-derived output path for the spawned session
+	// (spec §3.1). New/NewRestored always spawn raw (ModelDriven: false) for
+	// their direct callers; NewCreate/NewRestoredWithParams thread it through
+	// from the engine's modelDrivenEnabled() resolution.
+	ModelDriven bool
 }
 
 // New spawns a PTY subprocess at cols×rows, builds the screen model at that size and the
@@ -146,6 +160,28 @@ func New(
 	return s, nil
 }
 
+// NewCreate is identical to New but additionally threads the model-driven output flag
+// (spec §3.1) through to spawn. It is the engine's Create-path entry point —
+// modelDrivenEnabled() is resolved once, at spawn time (§7), and passed in here. New itself
+// stays raw-only and UNCHANGED for its existing direct callers (registry/hardening tests).
+func NewCreate(
+	id string,
+	shell string,
+	cwd string,
+	profileID string,
+	env []string,
+	cols int,
+	rows int,
+	scrollbackLines int,
+	modelDriven bool,
+) (*Session, error) {
+	s := newBareSession(id, shell, cwd, profileID)
+	if err := s.spawn(env, spawnParams{Cols: cols, Rows: rows, ScrollbackLines: scrollbackLines, ModelDriven: modelDriven}); err != nil {
+		return nil, err
+	}
+	return s, nil
+}
+
 // NewRestored spawns a PTY subprocess and rebuilds the screen model from a persisted blob:
 // spawn parses the blob's CRWB1 header for the authoritative size+scrollback (§12), sizes
 // the PTY to it BEFORE the first read, and feeds the redraw bytes into the fresh model
@@ -160,6 +196,25 @@ func NewRestored(
 ) (*Session, error) {
 	s := newBareSession(id, shell, cwd, profileID)
 	if err := s.spawn(env, spawnParams{Blob: rawBlob}); err != nil {
+		return nil, err
+	}
+	return s, nil
+}
+
+// NewRestoredWithParams is identical to NewRestored but additionally threads the
+// model-driven output flag through to spawn. It is the engine's restore-path entry point;
+// NewRestored itself stays raw-only and UNCHANGED for its existing direct callers.
+func NewRestoredWithParams(
+	id string,
+	shell string,
+	cwd string,
+	profileID string,
+	env []string,
+	rawBlob []byte,
+	modelDriven bool,
+) (*Session, error) {
+	s := newBareSession(id, shell, cwd, profileID)
+	if err := s.spawn(env, spawnParams{Blob: rawBlob, ModelDriven: modelDriven}); err != nil {
 		return nil, err
 	}
 	return s, nil
@@ -212,6 +267,10 @@ func (s *Session) spawn(
 	s.cmd = cmd
 	s.model = m
 	s.serializer = ser
+	s.modelDriven = p.ModelDriven
+	if p.ModelDriven {
+		s.emitter = model.NewDiffEmitter()
+	}
 
 	go s.pump()
 	return nil
@@ -370,10 +429,23 @@ func (s *Session) Attach() (<-chan OutputFrame, error) {
 		// re-attach inside the pumpStep debounce window of a SIGKILLed app never bakes its
 		// stale alt/mouse modes into the new client.
 		s.checkForegroundResetLocked()
+		if s.useModelDrivenLocked() {
+			// Model-driven Attach re-bases the emitter to the CURRENT model
+			// state, which is safe for the new client but would silently drop
+			// any delta accumulated since the last Emit/Prime for EXISTING
+			// clients (the attach snapshot is not fanned out to them). Flush
+			// that pending delta to existing clients FIRST — through the same
+			// emitFrameLocked path the pump uses — so no output is lost, THEN
+			// serialize the fresh snapshot for the new client and Prime.
+			s.emitFrameLocked()
+		}
 		redraw := s.serializeLocked()
 		redraw = append(redraw, s.model.PendingInput()...)
 		if len(redraw) > 0 {
 			cl.send <- OutputFrame{SessionID: s.id, Data: redraw, Snapshot: true}
+		}
+		if s.useModelDrivenLocked() {
+			s.primeLocked()
 		}
 	}
 
@@ -400,6 +472,16 @@ func (s *Session) Resync() bool {
 		return false
 	}
 	s.checkForegroundResetLocked()
+
+	if s.useModelDrivenLocked() {
+		// One mechanism: invalidate the diff base so emitFrameLocked's next
+		// Emit demands a keyframe, then let it serialize+fan out+re-prime —
+		// the exact same path the pump uses for a post-resize keyframe.
+		s.emitter.Invalidate()
+		s.emitFrameLocked()
+		return true
+	}
+
 	redraw := s.serializeLocked()
 	redraw = append(redraw, s.model.PendingInput()...)
 	if len(redraw) == 0 {
@@ -470,6 +552,12 @@ func (s *Session) Resize(
 		return fmt.Errorf("session: resize: %w", err)
 	}
 	s.mutateModelLocked(func() { s.model.Resize(int(cols), int(rows)) })
+	if s.emitter != nil {
+		// A resize can never be expressed as an absolute-addressed diff (the
+		// grid dimensions themselves changed); force the next model-driven
+		// frame to be a full keyframe.
+		s.emitter.Invalidate()
+	}
 	s.dirty = true
 	s.lastBlob = nil
 	return nil
@@ -495,11 +583,13 @@ func (s *Session) Kill() {
 	s.shutdown()
 }
 
-// pumpStep is the production critical section for one PTY output chunk. Under s.mu it fans
-// the RAW bytes out to live clients FIRST (zero added latency, §8.2), THEN feeds the chunk
-// to the model under a panic backstop, then — last, debounced — samples the foreground
-// process group so neither the ioctl nor the app-death teardown can ever precede or delay
-// the live fan-out. OSC 7 is scanned outside the lock on the freshly-owned chunk.
+// pumpStep is the production critical section for one PTY output chunk. Under s.mu it
+// either drives the model-driven path (model write FIRST, then a model-derived frame fans
+// out — raw fan-out skipped entirely) or the raw path (RAW bytes fan out to live clients
+// FIRST, zero added latency, §8.2, THEN the chunk feeds the model under a panic backstop),
+// then — last, debounced — samples the foreground process group so neither the ioctl nor
+// the app-death teardown can ever precede or delay the fan-out. OSC 7 is scanned outside the
+// lock on the freshly-owned chunk.
 func (s *Session) pumpStep(chunk []byte) {
 	path, ok := parseLastOSC7(chunk)
 	s.mu.Lock()
@@ -507,13 +597,80 @@ func (s *Session) pumpStep(chunk []byte) {
 	if ok {
 		s.cwd = path
 	}
-	s.fanOutLocked(chunk)
-	s.writeModelLocked(chunk)
+	if s.useModelDrivenLocked() {
+		// Model-driven (spec §3.1): the model is written FIRST and clients
+		// receive model-derived frames. Raw fan-out is skipped entirely.
+		s.writeModelLocked(chunk)
+		s.emitFrameLocked()
+	} else {
+		// Raw path — §11.1 ordering preserved verbatim.
+		s.fanOutLocked(chunk)
+		s.writeModelLocked(chunk)
+	}
 	s.dirty = true
 	if now := time.Now(); now.Sub(s.lastFgSampleAt) >= foregroundSampleInterval {
 		s.lastFgSampleAt = now
 		s.sampleForegroundLocked()
 	}
+}
+
+// useModelDrivenLocked: the flag, gated by model health — a degraded model
+// (any recovered parse panic) can no longer be the source of truth, so the
+// session flips to raw streaming for its remaining lifetime. Caller holds s.mu.
+func (s *Session) useModelDrivenLocked() bool {
+	if !s.modelDriven || s.model == nil || s.emitter == nil {
+		return false
+	}
+	if s.modelPanics == 0 {
+		return true
+	}
+	if !s.modelDrivenFellBack {
+		s.modelDrivenFellBack = true
+		_, _ = fmt.Fprintf(os.Stderr, "terminal: session %s: model degraded (parse panic), falling back to raw output\n", s.id)
+	}
+	return false
+}
+
+// emitFrameLocked derives one frame from the model and fans it out: a diff
+// frame normally, a snapshot keyframe when the emitter demands one (unprimed,
+// resize, alt flip, scrollback shrink). Caller holds s.mu. Task 7 replaces the
+// per-chunk call with the adaptive frame clock.
+func (s *Session) emitFrameLocked() {
+	data, needKeyframe := s.emitLocked()
+	if needKeyframe {
+		redraw := s.serializeLocked()
+		if len(redraw) == 0 {
+			return // serialize panicked → modelPanics bumped → raw fallback next chunk
+		}
+		s.fanOutFrameLocked(OutputFrame{SessionID: s.id, Data: redraw, Snapshot: true})
+		s.primeLocked()
+		return
+	}
+	if len(data) > 0 {
+		s.fanOutFrameLocked(OutputFrame{SessionID: s.id, Data: data})
+	}
+}
+
+// emitLocked / primeLocked wrap the emitter in the same §8.5 recover backstop
+// as every other model access. A panic bumps modelPanics, flipping the session
+// to raw fallback.
+func (s *Session) emitLocked() (data []byte, needKeyframe bool) {
+	defer func() {
+		if r := recover(); r != nil {
+			s.modelPanics++
+			data, needKeyframe = nil, false
+		}
+	}()
+	return s.emitter.Emit(s.model)
+}
+
+func (s *Session) primeLocked() {
+	defer func() {
+		if r := recover(); r != nil {
+			s.modelPanics++
+		}
+	}()
+	s.emitter.Prime(s.model)
 }
 
 // writeModelLocked feeds a chunk into the model under a recover backstop so a parse panic
@@ -614,8 +771,14 @@ func (s *Session) fanOut(
 func (s *Session) fanOutLocked(
 	chunk []byte,
 ) {
-	frame := OutputFrame{SessionID: s.id, Data: chunk}
+	s.fanOutFrameLocked(OutputFrame{SessionID: s.id, Data: chunk})
+}
 
+// fanOutFrameLocked delivers an already-built frame to all currently attached clients.
+// Clients whose channel is full are disconnected (drop-on-overflow). Caller must hold s.mu.
+func (s *Session) fanOutFrameLocked(
+	frame OutputFrame,
+) {
 	var overflow []*client
 	for cl := range s.clients {
 		select {

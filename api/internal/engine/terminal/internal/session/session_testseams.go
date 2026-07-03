@@ -44,3 +44,34 @@ func NewDoneClosedForTest(
 	s.once.Do(func() { close(s.done) })
 	return s
 }
+
+// NewModelDriven is the test-facing constructor for a model-driven session. It mirrors New's
+// body exactly, adding ModelDriven: true to spawnParams so pumpStep takes the model-derived
+// fan-out path (§3.1) instead of raw streaming.
+func NewModelDriven(
+	id string,
+	shell string,
+	cwd string,
+	profileID string,
+	env []string,
+	cols int,
+	rows int,
+	scrollback int,
+) (*Session, error) {
+	s := newBareSession(id, shell, cwd, profileID)
+	if err := s.spawn(env, spawnParams{Cols: cols, Rows: rows, ScrollbackLines: scrollback, ModelDriven: true}); err != nil {
+		return nil, err
+	}
+	return s, nil
+}
+
+// forceModelPanicForTest drives a model-driven session into the degraded/raw-fallback state
+// the same way a real recovered Write/Resize/Serialize/Emit panic would (via the §8.5
+// modelPanics counter), without needing adversarial PTY bytes. It exists so an
+// out-of-package-adjacent test can exercise useModelDrivenLocked's fallback gate
+// deterministically. Production never calls this.
+func forceModelPanicForTest(s *Session) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.modelPanics++
+}
