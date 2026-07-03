@@ -522,8 +522,10 @@ func (s *Session) Attach() (<-chan OutputFrame, error) {
 //
 // Gated on a foreground app being present: at an idle shell prompt xterm's
 // native reflow is already correct (append-only output) and a resync would
-// only cost the client its scroll position. Returns whether a snapshot was
-// emitted. A client whose send buffer is full is skipped rather than blocked —
+// only cost the client its scroll position. Returns true when a resync was
+// REQUESTED/attempted (a foreground app was present and not idle), even if the
+// model-driven emit path then panicked into raw fallback — not a guarantee that
+// bytes reached every client. A client whose send buffer is full is skipped rather than blocked —
 // it is already saturated with output that supersedes this snapshot.
 func (s *Session) Resync() bool {
 	s.mu.Lock()
@@ -1267,14 +1269,23 @@ func (s *Session) Health() (degraded bool, parsePanics int) {
 
 // ModelBytes returns the session's estimated resident size for the engine's memory ceiling:
 // a placeholder counts only its rawBlob; a live session counts the model's grid+scrollback
-// estimate plus the cached blob (§9.4).
+// estimate plus the cached blob (§9.4), and — under the model-driven flag — the diff
+// emitter's retained lastGrid estimate plus the divergence canary's shadow-sim model bytes
+// when that dev-only observer is running.
 func (s *Session) ModelBytes() int64 {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if s.model == nil {
 		return int64(len(s.rawBlob))
 	}
-	return s.model.ModelBytes() + int64(len(s.lastBlob))
+	total := s.model.ModelBytes() + int64(len(s.lastBlob))
+	if s.emitter != nil {
+		total += s.emitter.EstimatedBytes()
+	}
+	if s.canarySim != nil {
+		total += s.canarySim.ModelBytes()
+	}
+	return total
 }
 
 // SerializedLen returns the byte length of a fresh serialize of the current screen (a

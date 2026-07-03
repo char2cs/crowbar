@@ -121,7 +121,6 @@ func TestDiffEmitter_PrimeAfterKeyframeResumesDiffing(t *testing.T) {
 	data, need := e.Emit(m)
 	assert.False(t, need)
 	assert.Empty(t, data)
-	_ = strings.TrimSpace("")
 }
 
 func TestDiffEmitter_ScrollbackDeltaEmittedBeforeScreenDiff(t *testing.T) {
