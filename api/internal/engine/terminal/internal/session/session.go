@@ -103,6 +103,12 @@ type Session struct {
 	// modelDrivenFellBack latches the raw-fallback log so a degraded session logs the
 	// flip exactly once instead of once per chunk.
 	modelDrivenFellBack bool
+	// emitForTest, when non-nil, replaces s.emitter.Emit inside emitLocked. It exists
+	// solely so a test can make the EMIT path panic (writeModelLocked having already
+	// succeeded) while staying inside emitLocked's own recover scope — a state no
+	// adversarial PTY input can reach deterministically, since the emitter's Emit never
+	// panics on real model state. Production never sets it.
+	emitForTest func(m model.TerminalModel) ([]byte, bool)
 }
 
 // newBareSession allocates a Session shell with no PTY and no model. New/NewRestored fill
@@ -599,9 +605,25 @@ func (s *Session) pumpStep(chunk []byte) {
 	}
 	if s.useModelDrivenLocked() {
 		// Model-driven (spec §3.1): the model is written FIRST and clients
-		// receive model-derived frames. Raw fan-out is skipped entirely.
+		// receive model-derived frames. Raw fan-out is skipped entirely —
+		// UNLESS the emit path itself degrades on THIS chunk (see below).
 		s.writeModelLocked(chunk)
+		panicsBefore := s.modelPanics
 		s.emitFrameLocked()
+		if s.modelPanics > panicsBefore {
+			// The model consumed this chunk (writeModelLocked succeeded) but the
+			// emit/serialize path just panicked and recovered, so no frame went
+			// out for it — without this fallback the chunk's visual delta would
+			// be silently dropped until an unrelated resize/reattach keyframe.
+			// Fan the raw bytes out so the update is not lost. This is an
+			// approximation for a client whose screen is a model projection: it
+			// is acceptable because (a) model and client were in sync as of the
+			// last successful emit, and (b) any residual drift self-heals at the
+			// next attach/resync keyframe. useModelDrivenLocked already logged
+			// the degraded flip; from the NEXT chunk pumpStep takes the raw
+			// branch below.
+			s.fanOutLocked(chunk)
+		}
 	} else {
 		// Raw path — §11.1 ordering preserved verbatim.
 		s.fanOutLocked(chunk)
@@ -661,6 +683,9 @@ func (s *Session) emitLocked() (data []byte, needKeyframe bool) {
 			data, needKeyframe = nil, false
 		}
 	}()
+	if s.emitForTest != nil {
+		return s.emitForTest(s.model)
+	}
 	return s.emitter.Emit(s.model)
 }
 
