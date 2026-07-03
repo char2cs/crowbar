@@ -17,10 +17,33 @@ import { workspaceBase } from '@/lib/workspace-scope-url'
 // PTY to the webview over a Tauri Channel — see the `isTauri()` branches below
 // and desktop/src-tauri/src/terminal.rs. Both paths honour the same contract.
 
+// One parsed daemon→client terminal frame. `snapshot` marks a self-contained
+// ground-state redraw (the daemon's serialized screen model) that must be
+// applied onto a RESET xterm buffer — the attach redraw and the post-resize
+// resync — as opposed to incremental PTY output that appends.
+export interface TerminalFrame {
+  data: string
+  snapshot: boolean
+}
+
+// parseTerminalFrame decodes one wire frame ({sessionId, data, isInput,
+// snapshot?}) shared by both transports (browser WebSocket text frames and the
+// whole-frame strings Rust forwards down the Tauri channel). Returns null for
+// malformed frames.
+function parseTerminalFrame(raw: string): TerminalFrame | null {
+  try {
+    const msg = JSON.parse(raw) as { data?: unknown; snapshot?: unknown }
+    if (typeof msg.data !== 'string') return null
+    return { data: msg.data, snapshot: msg.snapshot === true }
+  } catch {
+    return null
+  }
+}
+
 interface TerminalConnection {
   ws: WebSocket
-  listener: ((data: string) => void) | null
-  outputBuffer: string[]
+  listener: ((frame: TerminalFrame) => void) | null
+  outputBuffer: TerminalFrame[]
   inputQueue: string[]
   open: boolean
 }
@@ -37,8 +60,8 @@ const dropCallbacks = new Map<string, Set<() => void>>()
 // Desktop transport: output arrives over a Tauri Channel instead of a WebSocket.
 // Same buffer-until-listener semantics as the browser TerminalConnection.
 interface TauriTerminal {
-  listener: ((data: string) => void) | null
-  outputBuffer: string[]
+  listener: ((frame: TerminalFrame) => void) | null
+  outputBuffer: TerminalFrame[]
   unlisten?: () => void // unsubscribe fn for the terminal:transport-dropped listener
 }
 
@@ -66,15 +89,10 @@ function openBrowserSocket(connectionId: string, base: string): void {
     conn.inputQueue = []
   }
   ws.onmessage = (event) => {
-    let data: string | undefined
-    try {
-      data = (JSON.parse(event.data as string) as { data?: string }).data
-    } catch {
-      return
-    }
-    if (typeof data !== 'string') return
-    if (conn.listener) conn.listener(data)
-    else conn.outputBuffer.push(data)
+    const frame = parseTerminalFrame(event.data as string)
+    if (!frame) return
+    if (conn.listener) conn.listener(frame)
+    else conn.outputBuffer.push(frame)
   }
   ws.onerror = () => {
     // Error events are followed by a close event on the same socket; all
@@ -101,9 +119,13 @@ function openBrowserSocket(connectionId: string, base: string): void {
 async function openTauriSocket(connectionId: string, wsPath: string): Promise<void> {
   const conn: TauriTerminal = { listener: null, outputBuffer: [] }
   const channel = new Channel<string>()
-  channel.onmessage = (data) => {
-    if (conn.listener) conn.listener(data)
-    else conn.outputBuffer.push(data)
+  channel.onmessage = (raw) => {
+    // Rust forwards the wire frame whole; parse it here so both transports
+    // share one frame decoder.
+    const frame = parseTerminalFrame(raw)
+    if (!frame) return
+    if (conn.listener) conn.listener(frame)
+    else conn.outputBuffer.push(frame)
   }
   tauriTerminals.set(connectionId, conn)
 
@@ -171,6 +193,19 @@ export async function terminalResize(id: string, rows: number, cols: number): Pr
   if (conn?.open) conn.ws.send(JSON.stringify({ type: 'resize', cols, rows }))
 }
 
+// Ask the daemon to re-emit its model snapshot for this session (post-resize
+// convergence). The daemon no-ops at an idle shell prompt; when a foreground
+// app is running, a snapshot frame arrives on the output stream and the
+// terminal hook resets the local buffer with it.
+export async function terminalResync(id: string): Promise<void> {
+  if (isTauri()) {
+    if (tauriTerminals.has(id)) await tauriInvoke('terminal_resync', { sessionId: id })
+    return
+  }
+  const conn = terminals.get(id)
+  if (conn?.open) conn.ws.send(JSON.stringify({ type: 'resync' }))
+}
+
 export async function terminalClose(id: string): Promise<void> {
   // The DELETE is the hierarchical .../terminals/:sessionId under the workspace
   // base recorded at create time. If the base is unknown (e.g. a session created
@@ -198,29 +233,31 @@ export async function terminalClose(id: string): Promise<void> {
 }
 
 // Register the output sink for a session, flushing any frames that arrived
-// before the listener attached (e.g. the shell's first prompt).
-export function terminalListen(id: string, onData: (data: string) => void): () => void {
+// before the listener attached (e.g. the shell's first prompt / the attach
+// snapshot). The listener receives parsed TerminalFrames — check `snapshot`
+// to distinguish reset-and-redraw frames from incremental output.
+export function terminalListen(id: string, onFrame: (frame: TerminalFrame) => void): () => void {
   if (isTauri()) {
     const conn = tauriTerminals.get(id)
     if (!conn) return () => {}
-    conn.listener = onData
+    conn.listener = onFrame
     if (conn.outputBuffer.length > 0) {
-      for (const chunk of conn.outputBuffer) onData(chunk)
+      for (const frame of conn.outputBuffer) onFrame(frame)
       conn.outputBuffer = []
     }
     return () => {
-      if (conn.listener === onData) conn.listener = null
+      if (conn.listener === onFrame) conn.listener = null
     }
   }
   const conn = terminals.get(id)
   if (!conn) return () => {}
-  conn.listener = onData
+  conn.listener = onFrame
   if (conn.outputBuffer.length > 0) {
-    for (const chunk of conn.outputBuffer) onData(chunk)
+    for (const frame of conn.outputBuffer) onFrame(frame)
     conn.outputBuffer = []
   }
   return () => {
-    if (conn.listener === onData) conn.listener = null
+    if (conn.listener === onFrame) conn.listener = null
   }
 }
 

@@ -4,19 +4,22 @@ import { renderHook, act } from '@testing-library/react'
 // vi.hoisted runs before the vi.mock factories below, so the bridge spies and
 // the captured listen callback exist when the mock module is constructed.
 const bridge = vi.hoisted(() => {
-  let listenCb: ((data: string) => void) | null = null
+  let listenCb: ((frame: { data: string; snapshot: boolean }) => void) | null = null
   return {
     terminalWrite: vi.fn(async () => {}),
     terminalResize: vi.fn(async () => {}),
+    terminalResync: vi.fn(async () => {}),
     terminalClose: vi.fn(async () => {}),
-    terminalListen: vi.fn((_id: string, onData: (data: string) => void) => {
-      listenCb = onData
-      return () => {
-        listenCb = null
-      }
-    }),
+    terminalListen: vi.fn(
+      (_id: string, onFrame: (frame: { data: string; snapshot: boolean }) => void) => {
+        listenCb = onFrame
+        return () => {
+          listenCb = null
+        }
+      },
+    ),
     // Simulate a PTY output frame arriving from the daemon.
-    deliver: (data: string) => listenCb?.(data),
+    deliver: (data: string, snapshot = false) => listenCb?.({ data, snapshot }),
     reset: () => {
       listenCb = null
     },
@@ -26,6 +29,7 @@ const bridge = vi.hoisted(() => {
 vi.mock('@/lib/crowbar-bridge', () => ({
   terminalWrite: bridge.terminalWrite,
   terminalResize: bridge.terminalResize,
+  terminalResync: bridge.terminalResync,
   terminalClose: bridge.terminalClose,
   terminalListen: bridge.terminalListen,
 }))
@@ -42,24 +46,37 @@ import { useTerminalConnection } from '@/features/terminal/hooks/use-terminal-co
 function makeFakeTerminal() {
   const scrollToBottom = vi.fn()
   const refresh = vi.fn()
+  const reset = vi.fn()
   const write = vi.fn((_data: string, cb?: () => void) => {
     cb?.()
   })
   const disposable = () => ({ dispose: () => {} })
   const parent = { addEventListener: vi.fn(), removeEventListener: vi.fn() }
+  let resizeCb: ((size: { cols: number; rows: number }) => void) | null = null
   const terminal = {
     rows: 40,
     write,
+    reset,
     scrollToBottom,
     refresh,
     onData: vi.fn(disposable),
-    onResize: vi.fn(disposable),
+    onResize: vi.fn((cb: (size: { cols: number; rows: number }) => void) => {
+      resizeCb = cb
+      return { dispose: () => {} }
+    }),
     onTitleChange: vi.fn(disposable),
     element: { parentElement: parent },
     buffer: { active: { type: 'normal' } },
     modes: { mouseTrackingMode: 'none', sendFocusMode: false },
   }
-  return { terminal, scrollToBottom, refresh, write }
+  return {
+    terminal,
+    scrollToBottom,
+    refresh,
+    reset,
+    write,
+    fireResize: (size: { cols: number; rows: number }) => resizeCb?.(size),
+  }
 }
 
 function renderConnection(terminal: unknown, overrides: Record<string, unknown> = {}) {
@@ -92,6 +109,7 @@ describe('useTerminalConnection — re-attach viewport finalize', () => {
 
   beforeEach(() => {
     bridge.terminalListen.mockClear()
+    bridge.terminalResync.mockClear()
     bridge.reset()
     rafCbs = []
     vi.spyOn(window, 'requestAnimationFrame').mockImplementation((cb: FrameRequestCallback) => {
@@ -140,5 +158,113 @@ describe('useTerminalConnection — re-attach viewport finalize', () => {
     // Finalize stays one-shot: streaming keeps xterm's cheap incremental render.
     expect(scrollToBottom).toHaveBeenCalledTimes(1)
     expect(refresh).toHaveBeenCalledTimes(1)
+  })
+})
+
+describe('useTerminalConnection — snapshot frames (attach redraw / resize resync)', () => {
+  let rafCbs: FrameRequestCallback[] = []
+  const flushRaf = () => {
+    const cbs = rafCbs
+    rafCbs = []
+    for (const cb of cbs) cb(0)
+  }
+
+  beforeEach(() => {
+    bridge.terminalListen.mockClear()
+    bridge.terminalResync.mockClear()
+    bridge.reset()
+    rafCbs = []
+    vi.spyOn(window, 'requestAnimationFrame').mockImplementation((cb: FrameRequestCallback) => {
+      rafCbs.push(cb)
+      return rafCbs.length
+    })
+    vi.spyOn(window, 'cancelAnimationFrame').mockImplementation(() => {})
+  })
+
+  afterEach(() => {
+    vi.restoreAllMocks()
+  })
+
+  it('applies a snapshot onto a RESET buffer with the repaint finalize', () => {
+    const { terminal, reset, write, scrollToBottom, refresh } = makeFakeTerminal()
+    renderConnection(terminal)
+
+    act(() => {
+      bridge.deliver('CLEAN REDRAW', true)
+    })
+
+    expect(reset).toHaveBeenCalledTimes(1)
+    expect(write).toHaveBeenCalledTimes(1)
+    expect(write.mock.calls[0][0]).toBe('CLEAN REDRAW')
+    expect(scrollToBottom).toHaveBeenCalledTimes(1)
+    expect(refresh).toHaveBeenCalledWith(0, 39)
+    // reset must precede the write.
+    expect(reset.mock.invocationCallOrder[0]).toBeLessThan(write.mock.invocationCallOrder[0])
+  })
+
+  it('drops buffered pre-snapshot output the redraw supersedes', () => {
+    const { terminal, write } = makeFakeTerminal()
+    renderConnection(terminal)
+
+    act(() => {
+      bridge.deliver('stale junk') // buffered, not yet flushed
+      bridge.deliver('CLEAN REDRAW', true)
+      flushRaf() // a stale scheduled flush must find an empty buffer
+    })
+
+    const written = (write.mock.calls as [string][]).map(([d]) => d)
+    expect(written).toEqual(['CLEAN REDRAW'])
+  })
+
+  it('keeps delivering incremental output normally after a snapshot', () => {
+    const { terminal, write, reset } = makeFakeTerminal()
+    renderConnection(terminal)
+
+    act(() => {
+      bridge.deliver('CLEAN REDRAW', true)
+    })
+    act(() => {
+      bridge.deliver('after')
+      flushRaf()
+    })
+
+    const written = (write.mock.calls as [string][]).map(([d]) => d)
+    expect(written).toEqual(['CLEAN REDRAW', 'after'])
+    expect(reset).toHaveBeenCalledTimes(1)
+  })
+})
+
+describe('useTerminalConnection — debounced resize resync', () => {
+  beforeEach(() => {
+    bridge.terminalListen.mockClear()
+    bridge.terminalResize.mockClear()
+    bridge.terminalResync.mockClear()
+    bridge.reset()
+    vi.useFakeTimers()
+  })
+
+  afterEach(() => {
+    vi.useRealTimers()
+    vi.restoreAllMocks()
+  })
+
+  it('requests one resync after the last onResize of a gesture', () => {
+    const { terminal, fireResize } = makeFakeTerminal()
+    renderConnection(terminal)
+
+    act(() => {
+      fireResize({ cols: 100, rows: 30 })
+      fireResize({ cols: 110, rows: 28 })
+      fireResize({ cols: 120, rows: 25 })
+    })
+    expect(bridge.terminalResync).not.toHaveBeenCalled()
+
+    act(() => {
+      vi.advanceTimersByTime(300)
+    })
+    expect(bridge.terminalResync).toHaveBeenCalledTimes(1)
+    expect(bridge.terminalResync).toHaveBeenCalledWith('conn-1')
+    // Every resize still syncs the PTY dimensions immediately.
+    expect(bridge.terminalResize).toHaveBeenCalledTimes(3)
   })
 })
