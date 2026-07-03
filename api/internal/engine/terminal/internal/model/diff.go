@@ -189,6 +189,15 @@ func (e *DiffEmitter) Emit(m TerminalModel) (data []byte, needKeyframe bool) {
 	newLines := sbLen - sbStart
 
 	if newLines > 0 && !e.alt {
+		// Finding B: an active scroll region or origin mode confines the
+		// client's park-at-cup(rows,1)+LF scroll trick — it does not scroll
+		// below the region bottom, so committed lines would never enter client
+		// history. A keyframe reset clears + re-asserts both, then re-primes.
+		// (A change to either is already caught by the guard above; this covers
+		// a region/origin set BEFORE Prime, which passes that change-guard.)
+		if sh.scrollRegionSet || sh.modes[6] {
+			return nil, true
+		}
 		// The client screen scrolls while absorbing the delta; every row's
 		// on-screen identity moves, so rebuild the whole viewport after.
 		for y := range e.lastGrid {

@@ -227,6 +227,47 @@ func TestConformance_RingFullStreaming(t *testing.T) {
 	require.Equal(t, cap, vm.emu.ScrollbackLen(), "test setup: ring must be saturated at cap")
 }
 
+// TestConformance_RegionActiveScroll pins Finding B: a scroll region set BEFORE
+// the emitter primes is captured into the diff base, so a later scroll does NOT
+// trip Emit's region-CHANGE keyframe guard. With a top-anchored region whose
+// bottom is above the last row, x/vt still commits scrolled lines to scrollback,
+// but the client's park-at-cup(rows,1)+LF trick scrolls below the region bottom
+// and never deposits them in client history — so the diff path would silently
+// diverge. The fix forces a keyframe whenever committed lines coincide with an
+// active region/origin; this asserts a keyframe fired AND final scrollback
+// equality.
+//
+// Verified red-first: with Finding B's guard removed the emitter serves the
+// scroll as a diff, sawKeyframe stays false, and the scrollback assertion fails.
+func TestConformance_RegionActiveScroll(t *testing.T) {
+	const cols, rows = 20, 6
+	m, ser := newTestModel(t, cols, rows)
+	sim := newClientSim(t, cols, rows, 200)
+	t.Cleanup(func() { sim.m.Close() })
+	e := NewDiffEmitter()
+
+	// Region rows 1-4 (top-anchored so scrolled lines reach scrollback; bottom
+	// above the last row so the client LF trick cannot reproduce it), set on the
+	// first (unprimed) Emit so Prime captures it — the change-guard is bypassed.
+	conformanceStep(t, m, e, ser, sim, []byte("\x1b[1;4r"))
+
+	sawKeyframe := false
+	for i := 0; i < 4; i++ {
+		// Home to the region top and write DISTINCT lines that scroll through
+		// the region, committing unique lines to scrollback each iteration
+		// (unique so the rotation anchor is unambiguous — blank duplicates would
+		// be a separate hash-collision corner).
+		chunk := fmt.Sprintf("\x1b[1;1Hu%d-a\r\nu%d-b\r\nu%d-c\r\nu%d-d\r\nu%d-e\r\nu%d-f", i, i, i, i, i, i)
+		if conformanceStep(t, m, e, ser, sim, []byte(chunk)) {
+			sawKeyframe = true
+		}
+	}
+	require.True(t, sawKeyframe,
+		"a scroll under an active scroll region must force a keyframe (Finding B)")
+	require.Equal(t, scrollbackStrings(m), scrollbackStrings(sim.m),
+		"client scrollback must match the model after the region-active scroll resync")
+}
+
 func TestConformance_RandomizedByteSplits(t *testing.T) {
 	// A fixed-seed random walk over printable text, cursor moves, SGR, line
 	// feeds and occasional clears, delivered in adversarial split sizes.
