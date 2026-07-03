@@ -4,9 +4,38 @@ import (
 	"strings"
 	"testing"
 
+	uv "github.com/charmbracelet/ultraviolet"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
+
+// plainText concatenates each cell's content into a single string, mirroring
+// cellContent's blank-cell handling in vt_serializer_test.go.
+func plainText(cells []uv.Cell) string {
+	var b strings.Builder
+	for i := range cells {
+		c := cells[i].Content
+		if c == "" {
+			c = " "
+		}
+		b.WriteString(c)
+	}
+	return b.String()
+}
+
+// scrollbackStrings renders a model's scrollback lines as trimmed plain text.
+func scrollbackStrings(m TerminalModel) []string {
+	vm := m.(*vtModel)
+	n := vm.emu.ScrollbackLen()
+	out := make([]string, 0, n)
+	for y := 0; y < n; y++ {
+		line := vm.emu.ScrollbackLine(y)
+		cells := make([]uv.Cell, len(line))
+		copy(cells, line)
+		out = append(out, strings.TrimRight(plainText(cells), " "))
+	}
+	return out
+}
 
 // newTestModel mirrors vt_model_test.go's construction.
 func newTestModel(t *testing.T, cols, rows int) (TerminalModel, Serializer) {
@@ -103,15 +132,20 @@ func TestDiffEmitter_ScrollbackDeltaEmittedBeforeScreenDiff(t *testing.T) {
 	require.False(t, need)
 	s := string(data)
 
-	// Committed scrollback lines are emitted as bottom-row writes + newline
-	// so the CLIENT scrolls them into its own history.
+	// Committed scrollback lines are painted onto the top rows and then
+	// scrolled out (write-then-scroll) so the CLIENT gains them in its own
+	// history.
 	assert.Contains(t, s, "one")
 	assert.Contains(t, s, "two")
-	// The scrollback flow must precede the first screen-diff CUP.
+	// The scrollback flow (which also uses "\x1b[1;1H" to paint its own top
+	// row) must precede the final screen-diff repaint. Since both phases can
+	// address row 1, detect the screen-diff repaint's CUP as the LAST
+	// occurrence of "\x1b[1;1H" and confirm the scrollback content ("one")
+	// appears before it.
 	sbIdx := strings.Index(s, "one")
-	screenIdx := strings.Index(s, "\x1b[1;1H")
+	screenIdx := strings.LastIndex(s, "\x1b[1;1H")
 	require.GreaterOrEqual(t, screenIdx, 0)
-	assert.Less(t, sbIdx, screenIdx, "scrollback delta must precede screen diff")
+	assert.Less(t, sbIdx, screenIdx, "scrollback delta must precede the final screen-diff repaint")
 }
 
 func TestDiffEmitter_NoScrollbackDeltaWhenNoneCommitted(t *testing.T) {
@@ -124,6 +158,29 @@ func TestDiffEmitter_NoScrollbackDeltaWhenNoneCommitted(t *testing.T) {
 	require.False(t, need)
 	// Exactly one dirty row, no scroll flow (no bare "\n" scroll writes).
 	assert.Equal(t, 1, strings.Count(string(data), "\x1b[1;1H"))
+}
+
+func TestDiffEmitter_ClientScrollbackReceivesCommittedContent(t *testing.T) {
+	m, _ := newTestModel(t, 10, 3)
+	sim, _ := newTestModel(t, 10, 3) // client simulator
+	e := NewDiffEmitter()
+	e.Prime(m)
+
+	m.Write([]byte("one\r\ntwo\r\nthree\r\nfour\r\nfive"))
+	data, need := e.Emit(m)
+	require.False(t, need)
+	sim.Write(data)
+
+	vmAuth := m.(*vtModel)
+	simSB := scrollbackStrings(sim)
+	require.Equal(t, vmAuth.emu.ScrollbackLen(), len(simSB), "sim must gain exactly the committed line count")
+	for y := 0; y < vmAuth.emu.ScrollbackLen(); y++ {
+		authLine := vmAuth.emu.ScrollbackLine(y)
+		authCells := make([]uv.Cell, len(authLine))
+		copy(authCells, authLine)
+		authText := strings.TrimRight(plainText(authCells), " ")
+		assert.Equal(t, authText, simSB[y], "scrollback line %d", y)
+	}
 }
 
 func TestDiffEmitter_AltScreenSkipsScrollback(t *testing.T) {

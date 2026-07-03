@@ -97,12 +97,16 @@ func (e *DiffEmitter) Emit(m TerminalModel) (data []byte, needKeyframe bool) {
 	return []byte(b.String()), false
 }
 
-// writeScrollbackDelta emits every scrollback line the model committed since
-// the last emit. Technique (mirrors the serializer's writeContent flow): park
-// the cursor on the bottom row, then write each line followed by CR+LF — the
-// client scrolls, the line enters ITS scrollback, and the screen area is
-// repainted by the screen diff that follows (which sees all rows dirty after
-// a scroll anyway). Primary buffer only; the alt screen has no scrollback.
+// writeScrollbackDelta replays every scrollback line the model committed since
+// the last emit INTO the client's own scrollback. Technique (write-then-scroll,
+// chunked by screen height): paint each batch of committed lines onto the top
+// rows, then scroll the batch out with LFs from a parked bottom-row cursor —
+// each scroll flushes a top row we JUST wrote, so the client's scrollback
+// receives exactly the committed content. (Scrolling FIRST would flush the
+// client's stale pre-delta rows instead — the bug this replaced.) The screen is
+// left trashed by design; Emit invalidates the row cache on any scrollback
+// growth, so the screen diff that follows repaints the full viewport. Primary
+// buffer only; the alt screen has no scrollback.
 func (e *DiffEmitter) writeScrollbackDelta(
 	b *strings.Builder,
 	vm *vtModel,
@@ -112,11 +116,21 @@ func (e *DiffEmitter) writeScrollbackDelta(
 	if e.alt || sbLen <= e.scrollbackLen {
 		return
 	}
-	b.WriteString(cup(rows, 1)) // park on the bottom row
-	for y := e.scrollbackLen; y < sbLen; y++ {
-		line := vm.emu.ScrollbackLine(y)
-		b.WriteString("\r\n")
-		b.WriteString(encodeLine(line, len(line), true))
+	for base := e.scrollbackLen; base < sbLen; base += rows {
+		batch := sbLen - base
+		if batch > rows {
+			batch = rows
+		}
+		for j := 0; j < batch; j++ {
+			line := vm.emu.ScrollbackLine(base + j)
+			b.WriteString(cup(j+1, 1))
+			b.WriteString(ansi.EraseLineRight)
+			b.WriteString(encodeLine(line, len(line), true))
+		}
+		b.WriteString(cup(rows, 1))
+		for j := 0; j < batch; j++ {
+			b.WriteString("\r\n")
+		}
 	}
 }
 
