@@ -39,7 +39,7 @@ export function PlaceholderRowActions({ workspace }: { workspace: Workspace }) {
       <p className="text-xs leading-relaxed text-muted-foreground">
         {placeholderReason(workspace)}
       </p>
-      <div className="flex gap-1.5">
+      <div className="flex justify-end gap-1.5">
         <Button
           variant="outline"
           size="sm"
