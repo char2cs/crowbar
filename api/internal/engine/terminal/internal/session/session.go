@@ -866,10 +866,44 @@ func (s *Session) mirrorCanaryLocked(data []byte, keyframe bool) {
 	if s.canarySim == nil {
 		return
 	}
+	// The canary is an OBSERVER: a panic anywhere in its body (sim recreation on a
+	// keyframe, the mirrored Write, or GridHash) must never propagate — that would
+	// either crash the whole daemon (this can run off scheduleEmitLocked's trailing
+	// time.AfterFunc goroutine, which has no safego.Recover above it) or tear down the
+	// real session via pump()'s defer s.shutdown(). Recover permanently disables the
+	// canary for this session instead: the authoritative model/session are never
+	// touched, so modelPanics is deliberately NOT bumped here (§8.5 pattern, but this
+	// is an observer fault, not a model fault).
+	defer func() {
+		if r := recover(); r != nil {
+			// Close and nil whatever sim state is live exactly once. By the time we
+			// get here the field holds either: the pre-keyframe sim (Write/GridHash
+			// panicked before any recreation happened), or the freshly recreated sim
+			// (Write/GridHash panicked after recreation succeeded). Either way it's
+			// safe to Close+nil unconditionally. The keyframe branch below always
+			// nils s.canarySim itself before closing the OLD sim, so a panic out of
+			// that old Close() leaves the field already nil and this is a no-op —
+			// no double-Close. A panic out of newModel() itself is unrecoverable at
+			// the construction site (no handle to the partial result), so there is
+			// nothing further to close there either; the field is already nil.
+			if s.canarySim != nil {
+				s.canarySim.Close()
+				s.canarySim = nil
+			}
+			_, _ = fmt.Fprintf(os.Stderr, "terminal: canary disabled after panic session=%s\n", s.id)
+		}
+	}()
 	if keyframe {
-		s.canarySim.Close()
+		old := s.canarySim
+		// Detach before closing the old sim: if old.Close() itself panics, the field
+		// is already nil so the recover above does not try to Close it a second time.
+		s.canarySim = nil
+		old.Close()
 		cols, rows, _, sb := s.model.HeaderState()
-		s.canarySim, _ = newModel(cols, rows, sb)
+		sim, _ := newModel(cols, rows, sb)
+		// Only publish the new sim once construction fully returns, so a panic inside
+		// newModel leaves s.canarySim nil rather than a half-built value.
+		s.canarySim = sim
 	}
 	s.canarySim.Write(data)
 	if model.GridHash(s.model) == model.GridHash(s.canarySim) {
