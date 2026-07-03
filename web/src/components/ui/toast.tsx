@@ -132,7 +132,7 @@ function Toasts({
               swipeDirection={swipeDirection}
               toast={toast}
             >
-              <Toast.Content className="pointer-events-auto flex items-center justify-between gap-1.5 overflow-hidden px-3.5 py-3 text-sm transition-opacity duration-250 data-behind:not-data-expanded:pointer-events-none data-behind:opacity-0 data-expanded:opacity-100">
+              <Toast.Content className="pointer-events-auto flex flex-col gap-2 overflow-hidden px-3.5 py-3 text-sm transition-opacity duration-250 data-behind:not-data-expanded:pointer-events-none data-behind:opacity-0 data-expanded:opacity-100">
                 <div className="flex gap-2">
                   {Icon && (
                     <div
@@ -152,13 +152,15 @@ function Toasts({
                   </div>
                 </div>
                 {toast.actionProps && (
-                  <Toast.Action
-                    className={buttonVariants({ size: 'xs' })}
-                    data-slot="toast-action"
-                    onClick={toast.actionProps.onClick}
-                  >
-                    {toast.actionProps.children}
-                  </Toast.Action>
+                  <div className="flex justify-end" data-slot="toast-action-row">
+                    <Toast.Action
+                      className={buttonVariants({ size: 'xs' })}
+                      data-slot="toast-action"
+                      onClick={toast.actionProps.onClick}
+                    >
+                      {toast.actionProps.children}
+                    </Toast.Action>
+                  </div>
                 )}
               </Toast.Content>
             </Toast.Root>
@@ -214,7 +216,7 @@ function AnchoredToasts({
                     <Toast.Title data-slot="toast-title" />
                   </Toast.Content>
                 ) : (
-                  <Toast.Content className="pointer-events-auto flex items-center justify-between gap-1.5 overflow-hidden px-3.5 py-3 text-sm">
+                  <Toast.Content className="pointer-events-auto flex flex-col gap-2 overflow-hidden px-3.5 py-3 text-sm">
                     <div className="flex gap-2">
                       {Icon && (
                         <div
@@ -234,13 +236,15 @@ function AnchoredToasts({
                       </div>
                     </div>
                     {toast.actionProps && (
-                      <Toast.Action
-                        className={buttonVariants({ size: 'xs' })}
-                        data-slot="toast-action"
-                        onClick={toast.actionProps.onClick}
-                      >
-                        {toast.actionProps.children}
-                      </Toast.Action>
+                      <div className="flex justify-end" data-slot="toast-action-row">
+                        <Toast.Action
+                          className={buttonVariants({ size: 'xs' })}
+                          data-slot="toast-action"
+                          onClick={toast.actionProps.onClick}
+                        >
+                          {toast.actionProps.children}
+                        </Toast.Action>
+                      </div>
                     )}
                   </Toast.Content>
                 )}
