@@ -127,10 +127,11 @@ func (s *Service) ReleaseOriginSync(
 	s.originSync.Release(wsID)
 }
 
-// Close cancels the root context shared by every watcher, LSP, and provider-poll
-// goroutine, then stops and clears every resource still held by the managers so
-// fsnotify file descriptors and LSP subprocesses are released promptly. It is
-// idempotent and safe to call when nothing was ever started.
+// Close cancels the root context shared by every watcher, LSP, provider-poll,
+// and origin-sync goroutine, then stops and clears every resource still held
+// by the managers so fsnotify file descriptors and LSP subprocesses are
+// released promptly. It is idempotent and safe to call when nothing was ever
+// started.
 func (s *Service) Close() {
 	s.closeOnce.Do(func() {
 		s.cancel()
