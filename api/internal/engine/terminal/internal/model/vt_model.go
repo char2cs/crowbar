@@ -74,6 +74,22 @@ type vtModel struct {
 	// emulator — otherwise a panic recovery would silently revert a model-driven
 	// session to discarding device-query replies until the next explicit call.
 	responseSink func(p []byte)
+
+	// themeBg / themeFg are the host's terminal default colours (the values an OSC
+	// 11 / OSC 10 QUERY answers with), pushed by the session on a Crowbar theme
+	// switch via SetDefaultColors. Retained on the model — not just the emulator —
+	// so recreateEmu re-applies them to the fresh emulator (whose default bg is
+	// x/vt's hardcoded black); otherwise a parse-panic recovery would silently
+	// revert a querying app to detecting "dark" until the next theme push. Nil
+	// means "never set" (the emulator keeps its default).
+	themeBg, themeFg color.Color
+
+	// themeNotify mirrors DEC private mode 2031: the foreground app's subscription to
+	// theme-change notifications. Tracked here (not in the shadow) on purpose — it is
+	// NOT parser/render state, so it must SURVIVE a parse-panic recreateEmu (the app is
+	// still running and still subscribed) yet be cleared on the app-death edge
+	// (OnForegroundReset), so a returned shell never receives a CSI ?997;n report.
+	themeNotify bool
 }
 
 var (
@@ -129,6 +145,13 @@ func (m *vtModel) buildEmu(
 // keypad (ESC >).
 const decModeNumericKeypad = 66
 
+// decModeThemeNotify is DEC private mode 2031 (colour-scheme / theme-change notification).
+// When an app sets it (CSI ?2031h) it is asking the terminal to send an unsolicited
+// CSI ?997;1n (dark) / CSI ?997;2n (light) report whenever the terminal's light/dark theme
+// changes. It is NOT a rendering mode — the serializer never re-asserts it — so it is pulled
+// out of the tracked-mode map into its own model flag that gates theme-switch notifications.
+const decModeThemeNotify = 2031
+
 // observeMode records a DEC private mode toggle. Non-DEC (ANSI) modes are ignored: only
 // private modes are re-asserted by the serializer. Application-keypad mode (DEC 66) is
 // pulled out into its own shadow flag because the serializer must re-emit it as ESC = /
@@ -144,6 +167,10 @@ func (m *vtModel) observeMode(
 	}
 	if dm.Mode() == decModeNumericKeypad {
 		m.shadow.keypadApplication = on
+		return
+	}
+	if dm.Mode() == decModeThemeNotify {
+		m.themeNotify = on
 		return
 	}
 	m.shadow.setMode(dm.Mode(), on)
@@ -173,6 +200,45 @@ func (m *vtModel) clearDefaultColor(
 		m.shadow.bg, m.shadow.bgSet = nil, false
 	case 2:
 		m.shadow.cursorColor, m.shadow.cursorColorSet = nil, false
+	}
+}
+
+// SetDefaultColors sets the host terminal's default background/foreground — the colours an
+// OSC 11 / OSC 10 QUERY answers with — so a querying foreground app (Claude Code's `auto`
+// theme, etc.) detects Crowbar's light/dark theme. It routes through the emulator's
+// SetDefault*Color, which set ONLY the query-answer defaults (emu.defaultBg/defaultFg) and
+// fire no callback — so this NEVER sets shadow.bgSet/fgSet and the serializer never re-emits
+// an OSC 11/10 SET to the transparent client xterm (no glass leak). A nil channel is a no-op
+// for that channel: an unparseable colour on the wire must not clobber the other channel nor
+// reset the report to x/vt's black default. The values are retained so recreateEmu re-applies
+// them to a post-parse-panic fresh emulator. Part of the ThemeAware surface. Caller (the
+// session) holds s.mu, mirroring every other model access.
+func (m *vtModel) SetDefaultColors(bg, fg color.Color) {
+	if bg != nil {
+		m.themeBg = bg
+		m.emu.SetDefaultBackgroundColor(bg)
+	}
+	if fg != nil {
+		m.themeFg = fg
+		m.emu.SetDefaultForegroundColor(fg)
+	}
+}
+
+// ThemeNotifyEnabled reports whether the foreground app subscribed to theme-change
+// notifications via DEC private mode 2031. Part of the ThemeAware surface.
+func (m *vtModel) ThemeNotifyEnabled() bool {
+	return m.themeNotify
+}
+
+// applyThemeColorsLocked re-applies the retained default colours to the current emulator.
+// Called from recreateEmu so a parse-panic-recovered (blank, default-black) emulator still
+// answers OSC 11/10 queries with the host theme.
+func (m *vtModel) applyThemeColorsLocked() {
+	if m.themeBg != nil {
+		m.emu.SetDefaultBackgroundColor(m.themeBg)
+	}
+	if m.themeFg != nil {
+		m.emu.SetDefaultForegroundColor(m.themeFg)
 	}
 }
 
@@ -230,6 +296,11 @@ func (m *vtModel) recreateEmu(
 	if m.responseSink != nil {
 		m.emu.SetResponseSink(m.responseSink)
 	}
+	// Re-apply the host theme's default colours: the fresh emulator resets to x/vt's
+	// hardcoded black, so without this a still-running app that re-queries after its
+	// post-panic repaint would detect "dark". themeNotify is intentionally NOT reset —
+	// the app is still running and still subscribed (see the field doc).
+	m.applyThemeColorsLocked()
 	m.shadow.resetTransientModes()
 	m.resetEscan()
 	m.resetStrip()
@@ -298,6 +369,12 @@ func (m *vtModel) Resize(
 func (m *vtModel) OnForegroundReset() {
 	m.emu.Write([]byte(foregroundResetTeardown))
 	m.shadow.resetTransientModes()
+	// The foreground app has died and the shell is back: drop its DEC 2031 theme-notify
+	// subscription so a later theme switch never injects a CSI ?997;n report into the
+	// shell's input line. (The theme default COLOURS are intentionally retained — they are
+	// a property of the host terminal, not the app, and a fresh app should still detect
+	// them.)
+	m.themeNotify = false
 }
 
 func (m *vtModel) PendingInput() []byte {

@@ -45,6 +45,11 @@ interface TerminalConnection {
   listener: ((frame: TerminalFrame) => void) | null
   outputBuffer: TerminalFrame[]
   inputQueue: string[]
+  // The most recent theme frame pushed before the socket opened. Unlike input, only the
+  // LAST theme matters, so it coalesces to one frame flushed on open — this is what makes
+  // the initial on-attach theme push (which races the WS handshake) reach the daemon, so a
+  // freshly started app detects the right background instead of the default.
+  pendingTheme: string | null
   open: boolean
 }
 
@@ -81,12 +86,17 @@ function openBrowserSocket(connectionId: string, base: string): void {
     listener: null,
     outputBuffer: [],
     inputQueue: [],
+    pendingTheme: null,
     open: false,
   }
   ws.onopen = () => {
     conn.open = true
     for (const data of conn.inputQueue) ws.send(JSON.stringify({ data }))
     conn.inputQueue = []
+    if (conn.pendingTheme) {
+      ws.send(conn.pendingTheme)
+      conn.pendingTheme = null
+    }
   }
   ws.onmessage = (event) => {
     const frame = parseTerminalFrame(event.data as string)
@@ -215,6 +225,41 @@ export async function terminalResync(id: string): Promise<void> {
   }
   const conn = terminals.get(id)
   if (conn?.open) conn.ws.send(JSON.stringify({ type: 'resync' }))
+}
+
+// Push the host terminal's light/dark theme to the daemon so a foreground app's automatic
+// theme can follow a Crowbar theme switch: `bg`/`fg` are the resolved default colours (an
+// OSC 11/10 query answers with them) and `dark` is the light/dark polarity for the daemon's
+// DEC 2031 CSI ?997;n theme-change report. Best-effort and idempotent — the daemon updates the
+// query colours every call and dedupes the notification by polarity.
+export async function terminalSetTheme(
+  id: string,
+  theme: { background: string; foreground: string; dark: boolean },
+): Promise<void> {
+  if (isTauri()) {
+    if (tauriTerminals.has(id)) {
+      await tauriInvoke('terminal_set_theme', {
+        sessionId: id,
+        bg: theme.background,
+        fg: theme.foreground,
+        dark: theme.dark,
+      })
+    }
+    return
+  }
+  const conn = terminals.get(id)
+  if (!conn) return
+  const frame = JSON.stringify({
+    type: 'theme',
+    bg: theme.background,
+    fg: theme.foreground,
+    dark: theme.dark,
+  })
+  // Coalesce-until-open: the on-attach push can beat the WS handshake, and unlike input a
+  // dropped theme frame would never be retried (there is no theme equivalent of a follow-up
+  // keystroke), leaving the daemon on its default background.
+  if (conn.open) conn.ws.send(frame)
+  else conn.pendingTheme = frame
 }
 
 export async function terminalClose(id: string): Promise<void> {

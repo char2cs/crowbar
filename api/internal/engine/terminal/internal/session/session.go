@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"errors"
 	"fmt"
+	"image/color"
 	"io"
 	"net/url"
 	"os"
@@ -133,6 +134,14 @@ type Session struct {
 	// s.mu; the timer callback re-locks.
 	lastEmitAt time.Time
 	emitTimer  *time.Timer
+
+	// Theme-notify dedupe (SetTheme): themeEmitted latches once a CSI ?997;n report has
+	// been emitted, themeEmittedDark records the last-emitted polarity. Together they
+	// gate the report to the first subscribed push and every subsequent light<->dark
+	// FLIP, so an unrelated same-polarity theme tweak never spams a running app with
+	// redundant re-query triggers. Guarded by s.mu.
+	themeEmitted     bool
+	themeEmittedDark bool
 }
 
 // newBareSession allocates a Session shell with no PTY and no model. New/NewRestored fill
@@ -604,6 +613,65 @@ func (s *Session) Write(
 		return fmt.Errorf("session: write: %w", err)
 	}
 	return nil
+}
+
+// SetTheme propagates the host terminal's light/dark theme to the session (spec: theme
+// propagation). It does two decoupled things, both required to make a foreground app's
+// automatic theme follow a Crowbar theme switch:
+//
+//  1. Sets the model's OSC 10/11 QUERY-answer colours (bg/fg) so an app that detects its
+//     theme by querying the background colour reads the truth — this alone fixes a freshly
+//     started app and any later query. It never re-emits colour to the transparent client
+//     xterm (see model.SetDefaultColors), so the glass background is untouched.
+//
+//  2. If the foreground app subscribed to theme-change notifications (DEC private mode 2031),
+//     injects a CSI ?997;n report into the PTY so an ALREADY-running app re-queries and
+//     switches live. The report is gated on the 2031 subscription (a shell that never opted
+//     in must not receive it) and deduped by polarity so only the first push and each
+//     light<->dark flip notify.
+//
+// The model mutation runs under s.mu (via the §8.5 recover backstop, like every model
+// access); the PTY write is issued OFF the lock through s.Write, so it can never run the
+// blocking ptmx.Write while the session lock is held (the C1 invariant, spec §3.8).
+func (s *Session) SetTheme(
+	bg color.Color,
+	fg color.Color,
+	dark bool,
+) {
+	s.mu.Lock()
+	ta, ok := s.model.(model.ThemeAware)
+	if s.model == nil || !ok {
+		s.mu.Unlock()
+		return
+	}
+	var notifyEnabled bool
+	s.mutateModelLocked(func() {
+		ta.SetDefaultColors(bg, fg)
+		notifyEnabled = ta.ThemeNotifyEnabled()
+	})
+	// Emit on the first subscribed push and on every polarity flip; skip a redundant
+	// same-polarity push. themeEmitted/themeEmittedDark only advance when we actually emit,
+	// so a push while unsubscribed (notifyEnabled==false) still emits the first time the app
+	// later subscribes and pushes.
+	emit := notifyEnabled && (!s.themeEmitted || s.themeEmittedDark != dark)
+	if emit {
+		s.themeEmitted = true
+		s.themeEmittedDark = dark
+	}
+	s.mu.Unlock()
+
+	if emit {
+		_ = s.Write(themeNotifySeq(dark))
+	}
+}
+
+// themeNotifySeq returns the DEC mode 2031 theme-change report a terminal sends to a
+// subscribed app: CSI ?997;1n for a dark theme, CSI ?997;2n for a light theme.
+func themeNotifySeq(dark bool) []byte {
+	if dark {
+		return []byte("\x1b[?997;1n")
+	}
+	return []byte("\x1b[?997;2n")
 }
 
 // Resize updates the PTY window size and reshapes the model in lockstep under one s.mu

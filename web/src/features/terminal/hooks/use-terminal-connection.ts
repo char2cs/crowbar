@@ -2,6 +2,7 @@ import {
   terminalWrite,
   terminalResize,
   terminalResync,
+  terminalSetTheme,
   terminalClose,
   terminalListen,
 } from '@/lib/crowbar-bridge'
@@ -10,6 +11,7 @@ import { useEffect, useRef } from 'react'
 import { themeRegistry } from '@/extensions/themes/theme-registry'
 import { parseOSC7 } from '../utils/osc-parser'
 import { sanitizeTerminalTitle } from '../utils/terminal-title'
+import { readTerminalThemePayload } from './use-terminal-theme'
 import { useTerminalWriteBuffer } from './use-terminal-write-buffer'
 
 interface UseTerminalConnectionOptions {
@@ -257,8 +259,18 @@ export function useTerminalConnection({
       }),
     )
 
+    // Propagate the host light/dark theme to the daemon so a foreground app's automatic
+    // theme (Claude Code's `auto`) follows Crowbar. Push once on (re)attach — so a freshly
+    // started app queries the correct background — and again on every theme switch — so an
+    // ALREADY-running, DEC-2031-subscribed app is notified and re-queries live.
+    const pushTheme = () => {
+      void terminalSetTheme(connectionId, readTerminalThemePayload()).catch(() => {})
+    }
+    pushTheme()
+
     const unlistenThemeChange = themeRegistry.onThemeChange(() => {
       terminal.options.theme = getTerminalTheme()
+      pushTheme()
     })
 
     // Use terminalListen from crowbar-bridge for PTY output. Snapshot frames

@@ -51,6 +51,8 @@
 // (and this residual is deleted).
 package model
 
+import "image/color"
+
 // TerminalModel is a headless terminal emulator: an authoritative, in-memory mirror of
 // the screen a correct terminal would currently display for a session. It is fed every
 // PTY output byte and maintains the visible cell grid, bounded scrollback, cursor,
@@ -133,6 +135,22 @@ type Serializer interface {
 	Serialize(
 		m TerminalModel,
 	) []byte
+}
+
+// ThemeAware is an optional interface a TerminalModel may also implement to accept the
+// host's terminal light/dark theme, so a foreground app (Claude Code's `auto` theme,
+// vim, delta, …) can detect and follow it. It is kept off the core TerminalModel surface
+// — and read via a guarded type assertion, like ModelHealth — so alternate backends and
+// test fakes need not implement it.
+//
+// SetDefaultColors sets the colours an OSC 10/11 QUERY answers with (never the rendered
+// grid — see the emulator SetDefault* contract). ThemeNotifyEnabled reports whether the
+// foreground app subscribed to theme-change notifications via DEC private mode 2031, so the
+// session knows whether emitting a CSI ?997;n report on a theme switch is wanted (and safe:
+// a shell that never enabled 2031 must not receive one).
+type ThemeAware interface {
+	SetDefaultColors(bg, fg color.Color)
+	ThemeNotifyEnabled() bool
 }
 
 // ModelHealth is an optional interface a TerminalModel may also implement to expose its

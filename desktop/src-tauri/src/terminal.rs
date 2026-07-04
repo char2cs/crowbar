@@ -11,9 +11,9 @@
 //!     is forwarded WHOLE down a Tauri `Channel<String>`; the frontend bridge
 //!     parses it (same as the browser-WebSocket path) so frame semantics like
 //!     the snapshot flag live in one place, not here.
-//!   * webview → daemon: `terminal_send` / `terminal_resize` / `terminal_resync`
-//!     enqueue `{data}` / `{type:"resize",cols,rows}` / `{type:"resync"}` frames
-//!     for the session's writer.
+//!   * webview → daemon: `terminal_send` / `terminal_resize` / `terminal_resync` /
+//!     `terminal_set_theme` enqueue `{data}` / `{type:"resize",cols,rows}` /
+//!     `{type:"resync"}` / `{type:"theme",bg,fg,dark}` frames for the session's writer.
 //!
 //! The frontend still creates the PTY session with a normal `POST` over the
 //! proxy; only the streaming leg comes through these commands.
@@ -190,6 +190,23 @@ pub async fn terminal_resync(
     manager: State<'_, TerminalManager>,
 ) -> Result<(), String> {
     let frame = serde_json::json!({ "type": "resync" }).to_string();
+    enqueue(&manager, &session_id, Message::Text(frame))
+}
+
+/// Push the host light/dark theme to the daemon so a foreground app's automatic theme
+/// (Claude Code's `auto`) can follow a Crowbar theme switch: `bg`/`fg` are the resolved
+/// default colours an OSC 11/10 query answers with, `dark` the light/dark polarity for the
+/// daemon's DEC 2031 CSI ?997;n theme-change report.
+#[tauri::command]
+pub async fn terminal_set_theme(
+    session_id: String,
+    bg: String,
+    fg: String,
+    dark: bool,
+    manager: State<'_, TerminalManager>,
+) -> Result<(), String> {
+    let frame =
+        serde_json::json!({ "type": "theme", "bg": bg, "fg": fg, "dark": dark }).to_string();
     enqueue(&manager, &session_id, Message::Text(frame))
 }
 

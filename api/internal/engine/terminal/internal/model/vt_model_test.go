@@ -71,8 +71,10 @@ func (f *fakeEmu) ScrollbackLine(y int) uv.Line {
 	}
 	return f.scrollback[y]
 }
-func (f *fakeEmu) Close()                         { f.closed++ }
-func (f *fakeEmu) SetResponseSink(func(p []byte)) {}
+func (f *fakeEmu) Close()                                { f.closed++ }
+func (f *fakeEmu) SetResponseSink(func(p []byte))        {}
+func (f *fakeEmu) SetDefaultBackgroundColor(color.Color) {}
+func (f *fakeEmu) SetDefaultForegroundColor(color.Color) {}
 
 func TestNewReturnsPairedModelAndSerializer(t *testing.T) {
 	m, s := New(80, 24, 500)

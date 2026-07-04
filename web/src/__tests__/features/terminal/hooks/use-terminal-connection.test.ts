@@ -9,6 +9,7 @@ const bridge = vi.hoisted(() => {
     terminalWrite: vi.fn(async () => {}),
     terminalResize: vi.fn(async () => {}),
     terminalResync: vi.fn(async () => {}),
+    terminalSetTheme: vi.fn(async () => {}),
     terminalClose: vi.fn(async () => {}),
     terminalListen: vi.fn(
       (_id: string, onFrame: (frame: { data: string; snapshot: boolean }) => void) => {
@@ -30,12 +31,31 @@ vi.mock('@/lib/crowbar-bridge', () => ({
   terminalWrite: bridge.terminalWrite,
   terminalResize: bridge.terminalResize,
   terminalResync: bridge.terminalResync,
+  terminalSetTheme: bridge.terminalSetTheme,
   terminalClose: bridge.terminalClose,
   terminalListen: bridge.terminalListen,
 }))
 
+// Capturing themeRegistry mock: fire() invokes the hook's registered onThemeChange
+// callback so a test can simulate a light<->dark switch.
+const themeReg = vi.hoisted(() => {
+  let cb: (() => void) | null = null
+  return {
+    onThemeChange: (fn: () => void) => {
+      cb = fn
+      return () => {
+        cb = null
+      }
+    },
+    fire: () => cb?.(),
+    reset: () => {
+      cb = null
+    },
+  }
+})
+
 vi.mock('@/extensions/themes/theme-registry', () => ({
-  themeRegistry: { onThemeChange: () => () => {} },
+  themeRegistry: { onThemeChange: themeReg.onThemeChange },
 }))
 
 import { useTerminalConnection } from '@/features/terminal/hooks/use-terminal-connection'
@@ -72,6 +92,8 @@ function makeFakeTerminal() {
     element: { parentElement: parent },
     buffer: { active: { type: 'normal' } },
     modes: { mouseTrackingMode: 'none', sendFocusMode: false },
+    // The onThemeChange handler assigns terminal.options.theme; give it a home.
+    options: {} as { theme?: unknown },
   }
   return {
     terminal,
@@ -312,6 +334,8 @@ function makeAsyncFakeTerminal() {
     element: { parentElement: parent },
     buffer: { active: { type: 'normal' } },
     modes: { mouseTrackingMode: 'none', sendFocusMode: false },
+    // The onThemeChange handler assigns terminal.options.theme; give it a home.
+    options: {} as { theme?: unknown },
   }
   return { terminal, write, reset, order, drainWrites, queueLength: () => queue.length }
 }
@@ -597,5 +621,43 @@ describe('useTerminalConnection — debounced resize resync', () => {
     expect(bridge.terminalResync).toHaveBeenCalledWith('conn-1')
     // Every resize still syncs the PTY dimensions immediately.
     expect(bridge.terminalResize).toHaveBeenCalledTimes(3)
+  })
+})
+
+describe('useTerminalConnection — theme propagation', () => {
+  beforeEach(() => {
+    bridge.terminalSetTheme.mockClear()
+    themeReg.reset()
+  })
+
+  afterEach(() => {
+    themeReg.reset()
+  })
+
+  it('pushes the current theme to the daemon on attach', () => {
+    const { terminal } = makeFakeTerminal()
+    renderConnection(terminal)
+
+    expect(bridge.terminalSetTheme).toHaveBeenCalledWith(
+      'conn-1',
+      expect.objectContaining({
+        background: expect.any(String),
+        foreground: expect.any(String),
+        dark: expect.any(Boolean),
+      }),
+    )
+  })
+
+  it('re-pushes the theme when the app theme switches', () => {
+    const { terminal } = makeFakeTerminal()
+    renderConnection(terminal)
+    bridge.terminalSetTheme.mockClear()
+
+    act(() => {
+      themeReg.fire()
+    })
+
+    expect(bridge.terminalSetTheme).toHaveBeenCalledTimes(1)
+    expect(bridge.terminalSetTheme).toHaveBeenCalledWith('conn-1', expect.any(Object))
   })
 })

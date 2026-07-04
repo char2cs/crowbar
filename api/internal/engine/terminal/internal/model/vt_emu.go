@@ -1,6 +1,7 @@
 package model
 
 import (
+	"image/color"
 	"io"
 	"sync/atomic"
 
@@ -40,6 +41,13 @@ type emulator interface {
 	// SetResponseSink installs the receiver for device-query replies drained from
 	// the emulator's response pipe. nil discards them. See vtEmu.SetResponseSink.
 	SetResponseSink(f func(p []byte))
+	// SetDefaultBackgroundColor / SetDefaultForegroundColor set the terminal's
+	// default colours — the values an OSC 11 / OSC 10 QUERY answers with. They
+	// deliberately do NOT touch the per-cell rendering colour (e.bgColor/fgColor)
+	// and fire no callback, so setting them changes only what a querying app reads,
+	// never the serialized grid. Promoted from the embedded *vt.Emulator.
+	SetDefaultBackgroundColor(c color.Color)
+	SetDefaultForegroundColor(c color.Color)
 }
 
 type vtEmu struct {
