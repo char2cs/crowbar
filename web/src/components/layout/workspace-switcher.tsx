@@ -1,4 +1,4 @@
-import { useMemo } from 'react'
+import { useEffect, useMemo, useRef } from 'react'
 import { useNavigate, useRouterState } from '@tanstack/react-router'
 import { Check, House } from '@phosphor-icons/react'
 import { ArrowDownIcon, ArrowUpIcon, CornerDownLeftIcon } from 'lucide-react'
@@ -52,6 +52,54 @@ export function WorkspaceSwitcherMenu({ onClose }: WorkspaceSwitcherMenuProps) {
     [repos, activeWorkspaceId, isHomeRoute, activeProjectId, projects],
   )
 
+  // base-ui's `autoHighlight="always"` parks the selection cursor on the first row
+  // on open and exposes no controlled-highlight prop. So on open we walk the cursor
+  // down to the current workspace's row *in place* — list order is untouched, only the
+  // highlight moves to where the active workspace already sits.
+  //
+  // We can't just count key presses to the current index: base-ui's initial highlight
+  // settles asynchronously (sometimes "nothing", sometimes row 0), so a fixed count
+  // races and lands off-by-one. Instead we drive its own ArrowDown navigation one step
+  // per frame and stop once the current row actually carries `data-highlighted` — this
+  // self-corrects regardless of the starting state and scrolls the row into view.
+  const rootRef = useRef<HTMLDivElement>(null)
+  // Latches only once the cursor has actually landed — set at start it would be
+  // cleared by StrictMode's double-invoke (first run schedules the frame, its cleanup
+  // cancels it, and a start-latch would then block the real second run).
+  const positionedRef = useRef(false)
+  useEffect(() => {
+    if (positionedRef.current) return
+    const root = rootRef.current
+    if (!root) return
+    const currentIndex = items.findIndex((item) => item.isCurrent)
+    if (currentIndex < 0) return // list not populated yet (async project load)
+    if (currentIndex === 0) {
+      positionedRef.current = true // already the auto-highlighted first row
+      return
+    }
+
+    let frame = 0
+    let steps = 0
+    const maxSteps = items.length + 1 // safety bound against an unreachable target
+    const step = () => {
+      const currentEl = root.querySelector('[data-current="true"]')
+      const input = root.querySelector('input')
+      if (!currentEl || !input || steps >= maxSteps) {
+        positionedRef.current = true
+        return
+      }
+      if (currentEl.hasAttribute('data-highlighted')) {
+        positionedRef.current = true // cursor arrived
+        return
+      }
+      steps += 1
+      input.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowDown', bubbles: true }))
+      frame = requestAnimationFrame(step) // re-check after base-ui re-renders
+    }
+    frame = requestAnimationFrame(step)
+    return () => cancelAnimationFrame(frame)
+  }, [items])
+
   function select(item: WorkspaceSwitcherItem) {
     if (item.kind === 'home') {
       void navigate({ to: '/ide/$projectId/home', params: { projectId: item.projectId } })
@@ -65,100 +113,104 @@ export function WorkspaceSwitcherMenu({ onClose }: WorkspaceSwitcherMenuProps) {
   }
 
   return (
-    <Command
-      className="ui-font flex min-h-0 w-full flex-1 flex-col"
-      items={items}
-      itemToStringValue={(item) => {
-        const ws = item as WorkspaceSwitcherItem
-        if (ws.kind === 'home') return `${ws.projectName} home`
-        return `${ws.repoName} / ${ws.branch}`
-      }}
-      filter={(item, query, itemToString) => fuzzyMatch(query, itemToString?.(item) ?? '')}
-    >
-      <CommandInput placeholder="Switch workspace…" />
-      <CommandPanel className="flex min-h-0 flex-1 flex-col">
-        <CommandEmpty>No workspaces found</CommandEmpty>
-        <CommandList>
-          {(item: WorkspaceSwitcherItem) =>
-            item.kind === 'home' ? (
-              <CommandItem
-                key={`home-${item.projectId}`}
-                className="flex items-center gap-2 font-editor"
-                onClick={() => select(item)}
-                value={item}
-              >
-                <House
-                  size={14}
-                  weight={item.isCurrent ? 'fill' : 'regular'}
-                  className="shrink-0 text-muted-foreground"
-                />
-                <span className="min-w-0 flex-1 truncate text-[13px]">
-                  <span className="text-muted-foreground">{item.projectName} / </span>
-                  <span className="text-foreground">home</span>
-                </span>
-                {item.isCurrent && (
-                  <Check aria-label="current" className="shrink-0 text-muted-foreground" />
-                )}
-              </CommandItem>
-            ) : (
-              <CommandItem
-                key={item.wsId}
-                className="flex items-center gap-2 font-editor"
-                onClick={() => select(item)}
-                value={item}
-              >
-                {item.repoAvatar ? (
-                  <RepoAvatar avatar={item.repoAvatar} name={item.repoName} />
-                ) : (
-                  <WorkspaceBranchIcon status={item.status} working={item.working} />
-                )}
-                <span className="min-w-0 flex-1 truncate text-[13px]">
-                  <span className="text-muted-foreground">{item.repoName} / </span>
-                  <span className="text-foreground">{item.branch}</span>
-                </span>
-                {(item.added ?? 0) > 0 && (
-                  <span className="shrink-0 text-green-300">
-                    +{formatChangeCount(item.added ?? 0)}
+    <div ref={rootRef} className="contents">
+      <Command
+        className="ui-font flex min-h-0 w-full flex-1 flex-col"
+        items={items}
+        itemToStringValue={(item) => {
+          const ws = item as WorkspaceSwitcherItem
+          if (ws.kind === 'home') return `${ws.projectName} home`
+          return `${ws.repoName} / ${ws.branch}`
+        }}
+        filter={(item, query, itemToString) => fuzzyMatch(query, itemToString?.(item) ?? '')}
+      >
+        <CommandInput placeholder="Switch workspace…" />
+        <CommandPanel className="flex min-h-0 flex-1 flex-col">
+          <CommandEmpty>No workspaces found</CommandEmpty>
+          <CommandList>
+            {(item: WorkspaceSwitcherItem) =>
+              item.kind === 'home' ? (
+                <CommandItem
+                  key={`home-${item.projectId}`}
+                  className="flex items-center gap-2 font-editor"
+                  data-current={item.isCurrent ? 'true' : undefined}
+                  onClick={() => select(item)}
+                  value={item}
+                >
+                  <House
+                    size={14}
+                    weight={item.isCurrent ? 'fill' : 'regular'}
+                    className="shrink-0 text-muted-foreground"
+                  />
+                  <span className="min-w-0 flex-1 truncate text-[13px]">
+                    <span className="text-muted-foreground">{item.projectName} / </span>
+                    <span className="text-foreground">home</span>
                   </span>
-                )}
-                {(item.deleted ?? 0) > 0 && (
-                  <span className="shrink-0 text-red-300">
-                    -{formatChangeCount(item.deleted ?? 0)}
+                  {item.isCurrent && (
+                    <Check aria-label="current" className="shrink-0 text-muted-foreground" />
+                  )}
+                </CommandItem>
+              ) : (
+                <CommandItem
+                  key={item.wsId}
+                  className="flex items-center gap-2 font-editor"
+                  data-current={item.isCurrent ? 'true' : undefined}
+                  onClick={() => select(item)}
+                  value={item}
+                >
+                  {item.repoAvatar ? (
+                    <RepoAvatar avatar={item.repoAvatar} name={item.repoName} />
+                  ) : (
+                    <WorkspaceBranchIcon status={item.status} working={item.working} />
+                  )}
+                  <span className="min-w-0 flex-1 truncate text-[13px]">
+                    <span className="text-muted-foreground">{item.repoName} / </span>
+                    <span className="text-foreground">{item.branch}</span>
                   </span>
-                )}
-                {item.isCurrent && (
-                  <Check aria-label="current" className="shrink-0 text-muted-foreground" />
-                )}
-              </CommandItem>
-            )
-          }
-        </CommandList>
-      </CommandPanel>
-      <CommandFooter>
-        <div className="flex items-center gap-4">
-          <div className="flex items-center gap-2">
-            <KbdGroup>
+                  {(item.added ?? 0) > 0 && (
+                    <span className="shrink-0 text-green-300">
+                      +{formatChangeCount(item.added ?? 0)}
+                    </span>
+                  )}
+                  {(item.deleted ?? 0) > 0 && (
+                    <span className="shrink-0 text-red-300">
+                      -{formatChangeCount(item.deleted ?? 0)}
+                    </span>
+                  )}
+                  {item.isCurrent && (
+                    <Check aria-label="current" className="shrink-0 text-muted-foreground" />
+                  )}
+                </CommandItem>
+              )
+            }
+          </CommandList>
+        </CommandPanel>
+        <CommandFooter>
+          <div className="flex items-center gap-4">
+            <div className="flex items-center gap-2">
+              <KbdGroup>
+                <Kbd>
+                  <ArrowUpIcon />
+                </Kbd>
+                <Kbd>
+                  <ArrowDownIcon />
+                </Kbd>
+              </KbdGroup>
+              <span>Navigate</span>
+            </div>
+            <div className="flex items-center gap-2">
               <Kbd>
-                <ArrowUpIcon />
+                <CornerDownLeftIcon />
               </Kbd>
-              <Kbd>
-                <ArrowDownIcon />
-              </Kbd>
-            </KbdGroup>
-            <span>Navigate</span>
+              <span>Open</span>
+            </div>
           </div>
           <div className="flex items-center gap-2">
-            <Kbd>
-              <CornerDownLeftIcon />
-            </Kbd>
-            <span>Open</span>
+            <Kbd>Esc</Kbd>
+            <span>Close</span>
           </div>
-        </div>
-        <div className="flex items-center gap-2">
-          <Kbd>Esc</Kbd>
-          <span>Close</span>
-        </div>
-      </CommandFooter>
-    </Command>
+        </CommandFooter>
+      </Command>
+    </div>
   )
 }
