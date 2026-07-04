@@ -130,6 +130,7 @@ export function WorkspaceTreeItem({
 
           {isActive &&
             !isRenaming &&
+            !isLocked &&
             (workspace.added !== undefined || workspace.deleted !== undefined) && (
               <span className="flex shrink-0 gap-1 font-mono">
                 {workspace.added !== undefined && workspace.added > 0 && (
