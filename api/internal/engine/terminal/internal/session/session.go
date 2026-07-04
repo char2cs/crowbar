@@ -1122,7 +1122,12 @@ func (s *Session) ModelBytes() int64 {
 	}
 	total := s.model.ModelBytes() + int64(len(s.lastBlob))
 	if s.emitter != nil {
-		total += s.emitter.EstimatedBytes()
+		// Stable-from-spawn estimate derived from the model's dims (see
+		// model.EmitterGridBytes): counting the grid only after the first
+		// Prime would make the session's reported size jump ~3× at its
+		// first output, destabilizing the maintenance ceiling arithmetic.
+		cols, rows, _, _ := s.model.HeaderState()
+		total += model.EmitterGridBytes(cols, rows)
 	}
 	return total
 }

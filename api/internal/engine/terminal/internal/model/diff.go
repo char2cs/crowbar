@@ -290,15 +290,16 @@ func scrollbackLineHash(vm *vtModel, idx int) uint64 {
 	return h.Sum64()
 }
 
-// EstimatedBytes returns a coarse resident-size estimate for the diff base the
-// emitter retains (the lastGrid cell buffer), for the session's memory
-// accounting (spec §4). ~32B/cell covers each uv.Cell's content string header,
-// style and link. Zero before the first Prime.
-func (e *DiffEmitter) EstimatedBytes() int64 {
-	if e.lastGrid == nil {
-		return 0
-	}
-	return int64(e.cols) * int64(e.rows) * 32
+// EmitterGridBytes returns a coarse resident-size estimate for the diff base a
+// DiffEmitter retains for a cols×rows grid (the lastGrid cell buffer), for the
+// session's memory accounting (spec §4). ~32B/cell covers each uv.Cell's
+// content string header, style and link. Computed from the MODEL's dimensions
+// rather than the emitter's primed state so the estimate is stable from spawn:
+// the allocation is inevitable for a live session, and lazy accounting would
+// otherwise make a session's reported size jump ~3× at its first output —
+// destabilizing the engine's memory-ceiling arithmetic between observations.
+func EmitterGridBytes(cols, rows int) int64 {
+	return int64(cols) * int64(rows) * 32
 }
 
 // writeScrollbackDelta replays every scrollback line the model committed since
