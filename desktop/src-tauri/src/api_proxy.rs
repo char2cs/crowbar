@@ -29,7 +29,8 @@ pub fn handle_request<R: Runtime>(
     request: http::Request<Vec<u8>>,
     responder: UriSchemeResponder,
 ) {
-    let socket = ctx.app_handle().state::<SidecarHandle>().socket_path();
+    let app = ctx.app_handle().clone();
+    let socket = app.state::<SidecarHandle>().socket_path();
 
     tauri::async_runtime::spawn(async move {
         let resp = match socket {
@@ -38,7 +39,12 @@ pub fn handle_request<R: Runtime>(
                 .unwrap_or_else(|e| error_response(502, &format!("crowbar proxy error: {e}"))),
             None => error_response(502, "crowbar daemon socket not ready"),
         };
-        responder.respond(resp);
+        // Respond on the main thread: WKURLSchemeTask cancellation
+        // (webView:stopURLSchemeTask:) is delivered on the main thread, so
+        // responding there serializes with it. Responding from a tokio worker
+        // races with cancellation and a stopped task makes WebKit throw an
+        // NSException that cannot unwind through the ObjC bridge -> abort().
+        let _ = app.run_on_main_thread(move || responder.respond(resp));
     });
 }
 

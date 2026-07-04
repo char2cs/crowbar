@@ -18,14 +18,14 @@ import (
 // as wire DTOs, scoped to the repo parsed from the connecting client's
 // subscription prefix ("p/r/..."). Each row carries the merge-eligibility
 // overlay (CanMergeLocally/ParentBranch) computed from its repo siblings via the
-// §10 rule. The derived working overlay is always false now the agent-run
-// concept is removed.
+// §10 rule, and the derived working overlay (via ListWorkspaces) so a client
+// subscribing mid-mutation sees the in-flight state immediately.
 func workspacesSnapshot(
 	appContainer *app.Container,
 ) func(scope string) []dto.WorkspaceDTO {
 	return func(scope string) []dto.WorkspaceDTO {
 		projectID, repoID := parseRepoScope(scope)
-		rows, err := appContainer.Repositories.Workspace.List(context.Background())
+		rows, err := appContainer.Repositories.ListWorkspaces(context.Background())
 		if err != nil {
 			return nil
 		}

@@ -10,6 +10,7 @@ import (
 	uv "github.com/charmbracelet/ultraviolet"
 	"github.com/charmbracelet/x/ansi"
 	"github.com/charmbracelet/x/vt"
+	"github.com/stretchr/testify/assert"
 )
 
 // TestEmulatorDrainsDeviceQueryReplies proves the production emulator does not deadlock on a
@@ -70,7 +71,10 @@ func (f *fakeEmu) ScrollbackLine(y int) uv.Line {
 	}
 	return f.scrollback[y]
 }
-func (f *fakeEmu) Close() { f.closed++ }
+func (f *fakeEmu) Close()                                { f.closed++ }
+func (f *fakeEmu) SetResponseSink(func(p []byte))        {}
+func (f *fakeEmu) SetDefaultBackgroundColor(color.Color) {}
+func (f *fakeEmu) SetDefaultForegroundColor(color.Color) {}
 
 func TestNewReturnsPairedModelAndSerializer(t *testing.T) {
 	m, s := New(80, 24, 500)
@@ -454,6 +458,26 @@ func TestPendingInputNeverPrintableLeadingBlob(t *testing.T) {
 	}
 	if len(pi) > 16 {
 		t.Fatalf("partial tail not bounded-small: len=%d", len(pi))
+	}
+}
+
+// TestResponseSink_ReceivesCPRAnswer proves the model's SetResponseSink taps the
+// emulator's device-query replies (spec §3.8): a cursor-position-report query
+// (ESC[6n) written into the model must reach the installed sink as a CPR reply.
+func TestResponseSink_ReceivesCPRAnswer(t *testing.T) {
+	m, _ := New(20, 5, 100)
+	t.Cleanup(func() { m.Close() })
+	got := make(chan []byte, 4)
+	m.SetResponseSink(func(p []byte) {
+		cp := append([]byte(nil), p...)
+		got <- cp
+	})
+	m.Write([]byte("\x1b[6n")) // cursor position report query
+	select {
+	case reply := <-got:
+		assert.Regexp(t, `\x1b\[\d+;\d+R`, string(reply), "CPR reply expected")
+	case <-time.After(2 * time.Second):
+		t.Fatal("no device-query reply reached the sink")
 	}
 }
 

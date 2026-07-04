@@ -170,11 +170,22 @@ func writeChrome(
 		b.WriteString(ansi.ResetMode(ansi.DECMode(25)))
 	}
 	if icon := sanitizeOSCText(sh.iconName); icon != "" {
-		b.WriteString("\x1b]1;" + icon + "\x1b\\")
+		b.WriteString(oscTitleSeq(1, icon))
 	}
 	if title := sanitizeOSCText(sh.title); title != "" {
-		b.WriteString("\x1b]2;" + title + "\x1b\\")
+		b.WriteString(oscTitleSeq(2, title))
 	}
+}
+
+// oscTitleSeq wraps already-sanitized OSC string text in its ST-terminated
+// envelope: code 1 is the icon name, code 2 the window title. The serializer's
+// keyframe and the diff emitter's chrome delta share it so both paths emit
+// byte-identical icon/title sequences.
+func oscTitleSeq(
+	code int,
+	sanitized string,
+) string {
+	return fmt.Sprintf("\x1b]%d;%s\x1b\\", code, sanitized)
 }
 
 // writeCharset emits step 10: the G0/G1 charset designation and the active locking shift.

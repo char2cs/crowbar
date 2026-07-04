@@ -1,9 +1,17 @@
-import { terminalWrite, terminalResize, terminalClose, terminalListen } from '@/lib/crowbar-bridge'
+import {
+  terminalWrite,
+  terminalResize,
+  terminalResync,
+  terminalSetTheme,
+  terminalClose,
+  terminalListen,
+} from '@/lib/crowbar-bridge'
 import type { IDisposable, Terminal as XtermTerminal } from '@xterm/xterm'
 import { useEffect, useRef } from 'react'
 import { themeRegistry } from '@/extensions/themes/theme-registry'
 import { parseOSC7 } from '../utils/osc-parser'
 import { sanitizeTerminalTitle } from '../utils/terminal-title'
+import { readTerminalThemePayload } from './use-terminal-theme'
 import { useTerminalWriteBuffer } from './use-terminal-write-buffer'
 
 interface UseTerminalConnectionOptions {
@@ -54,6 +62,26 @@ export function useTerminalConnection({
   // One-shot flag: armed on every (re)attach, consumed by the first output
   // flush (the daemon's bulk scrollback replay) to force a viewport repaint.
   const pendingAttachFinalizeRef = useRef(false)
+  // Latched while a snapshot's reset+redraw is sequenced through xterm's async
+  // write queue (see the snapshot branch below). Incremental frames that arrive
+  // while this is set must NOT be flushed — xterm parses writes in enqueue
+  // order, so a frame flushed between the barrier write and its callback would
+  // parse AFTER reset() but BEFORE the redraw, landing on a blank buffer and
+  // then getting silently overwritten by the redraw that follows it. Cleared
+  // only inside the barrier callback, immediately after the redraw write is
+  // enqueued, so anything still buffered is flushed strictly after the redraw.
+  const snapshotPendingRef = useRef(false)
+  // Guards the barrier callback above against two races the boolean latch alone
+  // cannot express: (a) a second snapshot arriving before the first snapshot's
+  // barrier callback has fired — both barriers would otherwise fire and both
+  // would reset+redraw, replaying scrollback twice — and (b) this effect
+  // tearing down (reconnectKey bump mid-burst) while a barrier is still
+  // in-flight — the stale callback would otherwise fire later against a
+  // NEW connection's terminal state. Bumped each time a snapshot latches (the
+  // barrier closes over its own generation) and again on effect cleanup; a
+  // barrier whose captured generation no longer matches the live counter is
+  // inert — no reset, no redraw write, no unlatch, no flush reschedule.
+  const snapshotGenRef = useRef(0)
   const { write, flush } = useTerminalWriteBuffer({
     getConnectionId: () => currentConnectionIdRef.current,
     writeChunk: async (activeConnectionId, data) => {
@@ -135,6 +163,10 @@ export function useTerminalConnection({
     }
 
     const scheduleOutputFlush = () => {
+      // While a snapshot's reset+redraw is pending in xterm's write queue,
+      // keep everything in outputBufferRef and do not schedule a flush — see
+      // snapshotPendingRef above for why flushing here would race the redraw.
+      if (snapshotPendingRef.current) return
       if (outputFlushFrameRef.current !== null) return
       outputFlushFrameRef.current = window.requestAnimationFrame(flushOutputBuffer)
     }
@@ -185,9 +217,27 @@ export function useTerminalConnection({
     // produce (Shift/Alt+Enter disambiguation, kitty protocol) is handled once in
     // the attachCustomKeyEventHandler in terminal.tsx (see resolveKeyOverride).
 
+    // Post-resize convergence: after the grid dimensions settle (debounced past
+    // the last onResize of a gesture — sash drag, window/monitor resize, sidebar
+    // toggle), ask the daemon to re-emit its model snapshot. xterm's client-side
+    // reflow deposits stale copies of a repainting TUI into LOCAL scrollback on
+    // every resize; the daemon model never reflows, so replacing the local
+    // buffer with the snapshot removes the junk. The daemon no-ops at an idle
+    // shell prompt, where xterm's native reflow is already correct and a resync
+    // would only cost the scroll position.
+    let resyncTimer: number | null = null
+    const scheduleResync = () => {
+      if (resyncTimer !== null) window.clearTimeout(resyncTimer)
+      resyncTimer = window.setTimeout(() => {
+        resyncTimer = null
+        void terminalResync(connectionId).catch(() => {})
+      }, 300)
+    }
+
     disposables.push(
       terminal.onResize(({ cols, rows }) => {
         void terminalResize(connectionId, rows, cols).catch(() => {})
+        scheduleResync()
       }),
     )
 
@@ -209,13 +259,77 @@ export function useTerminalConnection({
       }),
     )
 
+    // Propagate the host light/dark theme to the daemon so a foreground app's automatic
+    // theme (Claude Code's `auto`) follows Crowbar. Push once on (re)attach — so a freshly
+    // started app queries the correct background — and again on every theme switch — so an
+    // ALREADY-running, DEC-2031-subscribed app is notified and re-queries live.
+    const pushTheme = () => {
+      void terminalSetTheme(connectionId, readTerminalThemePayload()).catch(() => {})
+    }
+    pushTheme()
+
     const unlistenThemeChange = themeRegistry.onThemeChange(() => {
       terminal.options.theme = getTerminalTheme()
+      pushTheme()
     })
 
-    // Use terminalListen from crowbar-bridge for PTY output
-    const unlistenOutput = terminalListen(connectionId, (data: string) => {
-      outputBufferRef.current += data
+    // Use terminalListen from crowbar-bridge for PTY output. Snapshot frames
+    // (the attach redraw, the post-resize resync) are self-contained
+    // ground-state redraws serialized from the daemon's screen model: apply
+    // them onto a RESET buffer — dropping any buffered pre-snapshot output the
+    // redraw supersedes — so client-side reflow junk (stale TUI copies pushed
+    // into local scrollback by xterm's resize semantics) is replaced by truth.
+    const unlistenOutput = terminalListen(connectionId, (frame) => {
+      if (frame.snapshot) {
+        outputBufferRef.current = ''
+        if (outputFlushFrameRef.current !== null) {
+          cancelAnimationFrame(outputFlushFrameRef.current)
+          outputFlushFrameRef.current = null
+        }
+        pendingAttachFinalizeRef.current = false
+        // Latch BEFORE the barrier write so any incremental frame that arrives
+        // (and gets rAF-flushed) before the barrier callback fires is held in
+        // outputBufferRef instead of being written — see snapshotPendingRef.
+        snapshotPendingRef.current = true
+        // Bump the generation and let this barrier's callback close over its
+        // own value. If a second snapshot latches before this barrier's
+        // callback runs, that second snapshot bumps the counter again — this
+        // barrier's captured `gen` then no longer matches
+        // snapshotGenRef.current, so its callback becomes a dead no-op below
+        // (only the LAST snapshot's barrier ever resets+redraws — see
+        // snapshotGenRef above).
+        const gen = ++snapshotGenRef.current
+        // Sequence the reset + redraw THROUGH xterm's async write queue. xterm
+        // parses write() data asynchronously, so any live bytes handed to
+        // terminal.write() before this snapshot arrived are still sitting in that
+        // queue. A synchronous terminal.reset() here would run BEFORE those queued
+        // bytes are parsed — they would then apply onto the freshly reset buffer,
+        // injecting stale content into the snapshot. Deferring the reset+redraw to
+        // an empty write's parse-complete callback runs them only AFTER everything
+        // already queued ahead has been parsed, so the snapshot lands on a truly
+        // clean buffer.
+        terminal.write('', () => {
+          // Stale barrier: a newer snapshot latched (or this effect tore down)
+          // since this write was enqueued. Do nothing — no reset, no redraw
+          // write, no unlatch, no flush reschedule — the current generation's
+          // barrier (or the fresh effect's teardown state) owns all of that.
+          if (snapshotGenRef.current !== gen) return
+          terminal.reset()
+          terminal.write(frame.data, () => {
+            terminal.scrollToBottom()
+            terminal.refresh(0, terminal.rows - 1)
+          })
+          // Clear the latch immediately after the redraw write is ENQUEUED
+          // (not after its parse-complete callback runs). xterm parses writes
+          // in enqueue order, so anything scheduled here is guaranteed to
+          // parse strictly after the redraw above — never between reset() and
+          // the redraw.
+          snapshotPendingRef.current = false
+          if (outputBufferRef.current) scheduleOutputFlush()
+        })
+        return
+      }
+      outputBufferRef.current += frame.data
       scheduleOutputFlush()
     })
 
@@ -264,6 +378,18 @@ export function useTerminalConnection({
       window.removeEventListener('focus', handleWindowFocus)
       window.removeEventListener('blur', handleWindowBlur)
       wheelContainer?.removeEventListener('wheel', handleWheel, true)
+      if (resyncTimer !== null) window.clearTimeout(resyncTimer)
+      // Never leave a reconnect starting latched: a fresh (re)attach effect
+      // must be free to schedule flushes from its first frame. Also bump the
+      // generation so any barrier still in flight from THIS effect instance
+      // (enqueued but not yet parsed — e.g. a reconnectKey bump mid-burst)
+      // becomes inert instead of firing later against the next connection's
+      // terminal state — see snapshotGenRef above. Note: outputBufferRef may
+      // still hold unflushed bytes buffered while latched; that's benign,
+      // since the next attach's snapshot resets outputBufferRef to '' before
+      // anything is written.
+      snapshotGenRef.current += 1
+      snapshotPendingRef.current = false
       if (outputFlushFrameRef.current !== null) {
         cancelAnimationFrame(outputFlushFrameRef.current)
         flushOutputBuffer()

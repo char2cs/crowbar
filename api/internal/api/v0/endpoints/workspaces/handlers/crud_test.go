@@ -83,7 +83,7 @@ func TestCreateBadJSON(
 func TestCreateMissingRepoID(
 	t *testing.T,
 ) {
-	h := workspacehandlers.New(&fakeReader{}, &fakeHierarchy{}, &fakeRepos{}, &fakeLastErrors{})
+	h := workspacehandlers.New(&fakeReader{}, &fakeHierarchy{}, &fakeRepos{}, &fakeLastErrors{}, fakeWork{})
 	r := gin.New()
 	r.POST("/v0/workspaces", h.Create)
 	rec := do(r, http.MethodPost, "/v0/workspaces", `{"branch":"feat"}`)
@@ -283,7 +283,7 @@ func TestDeleteAsyncErrorBroadcastsLastError(
 	reader := &fakeReader{get: domain.Workspace{ID: "w1"}}
 	r := gin.New()
 	lastErrors := &fakeLastErrors{called: make(chan struct{}, 1)}
-	h := workspacehandlers.New(reader, hierarchy, &fakeRepos{}, lastErrors)
+	h := workspacehandlers.New(reader, hierarchy, &fakeRepos{}, lastErrors, fakeWork{})
 	rg := r.Group("/v0/projects/:projectId/repos/:repoId")
 	rg.DELETE("/workspaces/:wsId", h.Delete)
 	rec := do(r, http.MethodDelete, "/v0/projects/p1/repos/r1/workspaces/w1", "")

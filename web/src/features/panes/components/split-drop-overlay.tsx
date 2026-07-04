@@ -67,7 +67,7 @@ export function SplitDropOverlay({ activeZoneOverride, onDrop, visible }: SplitD
       {effectiveZone && (
         <div
           className={cn(
-            'pointer-events-none absolute border-2 border-accent bg-accent/14 shadow-[0_0_0_1px_rgba(96,165,250,0.25)] transition-all duration-100',
+            'pointer-events-none absolute border-2 border-secondary bg-secondary/14 shadow-[0_0_0_1px_color-mix(in_oklch,var(--color-secondary)_25%,transparent)] transition-all duration-100',
             zoneStyles[effectiveZone],
           )}
         />

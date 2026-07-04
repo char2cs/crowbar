@@ -1,0 +1,24 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN"
+  "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <!--
+      Hardened Runtime entitlements for Crowbar.
+
+      These are only consumed when the app is signed with a real Developer ID
+      identity and `hardenedRuntime` is enabled (see
+      desktop/scripts/build-macos-dmg.sh). They are REQUIRED for a notarized
+      Tauri app to launch: the WKWebView JavaScript engine JIT-compiles code and
+      allocates executable memory, which the Hardened Runtime blocks by default.
+      Without these three keys the app passes notarization but then crashes on
+      first launch with a code-signing / EXC_BAD_ACCESS error.
+    -->
+    <key>com.apple.security.cs.allow-jit</key>
+    <true/>
+    <key>com.apple.security.cs.allow-unsigned-executable-memory</key>
+    <true/>
+    <key>com.apple.security.cs.allow-dyld-environment-variables</key>
+    <true/>
+</dict>
+</plist>

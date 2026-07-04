@@ -59,21 +59,39 @@ type LastErrorSetter interface {
 	) (domain.Workspace, error)
 }
 
+// WorkSignal brackets a workspace's background git-op window so the daemon
+// serves a real Working overlay on the workspace entity (spinner in the tree).
+// It is satisfied by the repositories container, wired in router.go.
+type WorkSignal interface {
+	BeginWork(
+		ctx context.Context,
+		wsID string,
+	)
+	EndWork(
+		ctx context.Context,
+		wsID string,
+	)
+}
+
 // Handlers holds the git usecase, the workspace error sink for slow-op failures,
-// and exposes HTTP handler methods.
+// the working-overlay signal, and exposes HTTP handler methods.
 type Handlers struct {
 	git        Git
 	lastErrors LastErrorSetter
+	working    WorkSignal
 }
 
-// New builds a Handlers from the git usecase and the workspace error sink that
-// surfaces slow-op async failures on the workspace entity.
+// New builds a Handlers from the git usecase, the workspace error sink that
+// surfaces slow-op async failures on the workspace entity, and the
+// working-overlay signal that marks the entity while a slow git op runs.
 func New(
 	git Git,
 	lastErrors LastErrorSetter,
+	working WorkSignal,
 ) *Handlers {
 	return &Handlers{
 		git:        git,
 		lastErrors: lastErrors,
+		working:    working,
 	}
 }

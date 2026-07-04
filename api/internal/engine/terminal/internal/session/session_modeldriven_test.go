@@ -1,0 +1,657 @@
+//go:build !windows
+
+package session
+
+import (
+	"os"
+	"os/exec"
+	"strings"
+	"testing"
+	"time"
+
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
+
+	"github.com/char2cs/crowbar/api/internal/engine/terminal/internal/model"
+)
+
+// collect drains frames for d, concatenating data and remembering snapshots.
+func collect(ch <-chan OutputFrame, d time.Duration) (data string, snapshots int) {
+	deadline := time.After(d)
+	for {
+		select {
+		case f, ok := <-ch:
+			if !ok {
+				return data, snapshots
+			}
+			if f.Snapshot {
+				snapshots++
+			}
+			data += string(f.Data)
+		case <-deadline:
+			return data, snapshots
+		}
+	}
+}
+
+func TestModelDriven_OutputIsModelDerived(t *testing.T) {
+	s, err := New("sid-md", "/bin/sh", t.TempDir(), "", os.Environ(), 80, 24, 200)
+	require.NoError(t, err)
+	t.Cleanup(s.Kill)
+
+	ch, err := s.Attach()
+	require.NoError(t, err)
+	defer s.Detach(ch)
+
+	require.NoError(t, s.Write([]byte("echo MD-MARKER-42\n")))
+	data, _ := collect(ch, 3*time.Second)
+	// The marker must arrive (via diff frames), proving the emit path works
+	// end to end. Diff frames use absolute cursor addressing, which raw shell
+	// echo never emits at the prompt for plain output.
+	assert.Contains(t, data, "MD-MARKER-42")
+	assert.Contains(t, data, "\x1b[", "model-driven output is synthesized ANSI")
+}
+
+// TestModelDriven_HealthyAttachSnapshotHasNoPendingInput pins the I3 fix: a
+// healthy (model-driven) attach snapshot must end EXACTLY at the serializer
+// output, with no buffered mid-sequence partial appended. Under model-driven
+// emission the client only ever receives model-derived frames, so the raw
+// continuation of a partial escape never arrives — appending the partial would
+// strand the fresh client's parser mid-escape (truncated OSC title, mid-rune
+// U+FFFD). The partial is appended ONLY on the degraded/raw path, where the
+// continuation genuinely follows over the live byte stream.
+func TestModelDriven_HealthyAttachSnapshotHasNoPendingInput(t *testing.T) {
+	s := newBareSession("sid-md-pending", "/bin/sh", t.TempDir(), "")
+	m, ser := newModel(80, 24, 200)
+	s.model = m
+	s.serializer = ser
+	s.emitter = model.NewDiffEmitter()
+
+	// Feed printable text plus a trailing INCOMPLETE CSI so the model buffers a
+	// non-empty pending partial (an unterminated "\x1b[1;5").
+	s.pumpStep([]byte("hello\x1b[1;5"))
+	require.NotEmpty(t, s.model.PendingInput(), "test setup: model must hold a pending partial")
+
+	ch, err := s.Attach()
+	require.NoError(t, err)
+	defer s.Detach(ch)
+
+	f, ok := waitFrame(t, ch, time.Second)
+	require.True(t, ok, "attach must deliver a snapshot")
+	require.True(t, f.Snapshot, "healthy attach frame must be a snapshot")
+
+	s.mu.Lock()
+	want := ser.Serialize(m)
+	pending := append([]byte(nil), s.model.PendingInput()...)
+	s.mu.Unlock()
+
+	require.NotEmpty(t, pending, "test setup: partial must still be buffered at attach time")
+	assert.Equal(t, string(want), string(f.Data),
+		"healthy attach snapshot must equal serializer output with no pending partial appended")
+	assert.NotContains(t, string(f.Data), string(pending),
+		"the buffered mid-sequence partial must never appear in a healthy attach snapshot")
+}
+
+func TestModelDriven_DegradedFallsBackToRaw(t *testing.T) {
+	s, err := New("sid-md-deg", "/bin/sh", t.TempDir(), "", os.Environ(), 80, 24, 200)
+	require.NoError(t, err)
+	t.Cleanup(s.Kill)
+
+	ch, err := s.Attach()
+	require.NoError(t, err)
+	defer s.Detach(ch)
+
+	// Force the degraded state the way the panic tests do (see
+	// session_panic_test.go / session_testseams.go for the seam that swaps in
+	// a panicking model — reuse it exactly).
+	forceModelPanicForTest(s)
+
+	require.NoError(t, s.Write([]byte("echo RAW-FALLBACK-7\n")))
+	data, _ := collect(ch, 3*time.Second)
+	assert.Contains(t, data, "RAW-FALLBACK-7", "degraded session must still stream raw")
+}
+
+// TestModelDriven_ResizeInvalidatesEmitterForcingNextKeyframe proves Resize
+// invalidates the diff emitter (spec: a resize can never be expressed as an
+// absolute-addressed diff), so the very next model-derived frame after a
+// resize is a Snapshot keyframe rather than an incremental diff.
+func TestModelDriven_ResizeInvalidatesEmitterForcingNextKeyframe(t *testing.T) {
+	s, err := New("sid-md-resize", "/bin/sh", t.TempDir(), "", os.Environ(), 80, 24, 200)
+	require.NoError(t, err)
+	t.Cleanup(s.Kill)
+
+	ch, err := s.Attach()
+	require.NoError(t, err)
+	defer s.Detach(ch)
+
+	// Drain the initial attach snapshot and let the emitter settle (Prime'd).
+	_, ok := waitFrame(t, ch, time.Second)
+	require.True(t, ok, "attach must deliver an initial snapshot")
+
+	require.NoError(t, s.Resize(100, 40))
+
+	require.NoError(t, s.Write([]byte("echo POST-RESIZE\n")))
+	f, ok := waitFrame(t, ch, 3*time.Second)
+	require.True(t, ok, "post-resize output must produce a frame")
+	assert.True(t, f.Snapshot, "the first frame emitted after Resize must be a keyframe (emitter invalidated)")
+	// The resize keyframe (the freshly-resized blank screen) can flush before the
+	// shell's echo output is parsed and rendered, so the marker lands in this keyframe
+	// or a later frame depending on how the PTY chunks the write. Accumulate until it
+	// shows rather than asserting it rode the very first keyframe.
+	data := string(f.Data)
+	if !strings.Contains(data, "POST-RESIZE") {
+		more, _ := collect(ch, 3*time.Second)
+		data += more
+	}
+	assert.Contains(t, data, "POST-RESIZE")
+}
+
+// TestModelDriven_AttachFlushesPendingDeltaBeforeRebasing proves Attach flushes
+// any pending delta to EXISTING clients via emitFrameLocked before serializing the
+// fresh-attach snapshot and priming the emitter — so a delta accumulated behind an
+// unfired trailing frame-clock timer between the last emit and this attach is never
+// silently dropped for clients that were already attached (M5d).
+//
+// Built directly on newBareSession + pumpStep (like the other timing-sensitive
+// model-driven tests) so the pre-attach write can be pinned inside the coalesce
+// window deterministically — a live PTY's own chunking would race the assertion.
+// It asserts the flushed frame's CONTENT (the pre-attach write's text), not just
+// that a frame arrived, and that the new client's snapshot already includes it.
+func TestModelDriven_AttachFlushesPendingDeltaBeforeRebasing(t *testing.T) {
+	s := newBareSession("sid-md-flush", "/bin/sh", t.TempDir(), "")
+	m, ser := newModel(80, 24, 200)
+	s.model = m
+	s.serializer = ser
+	s.emitter = model.NewDiffEmitter()
+
+	ch1, err := s.Attach()
+	require.NoError(t, err)
+	defer s.Detach(ch1)
+	_, ok := waitFrame(t, ch1, time.Second)
+	require.True(t, ok, "attach must deliver an initial snapshot")
+
+	// Cold-clock immediate emit stamps lastEmitAt.
+	s.pumpStep([]byte("echo A\n"))
+	_, ok = waitFrame(t, ch1, time.Second)
+	require.True(t, ok, "first chunk must emit immediately (cold clock)")
+
+	// This chunk lands inside the 8ms window: it only ARMS the trailing timer, so
+	// its delta is pending (unflushed) when the second client attaches.
+	s.pumpStep([]byte("PENDING-DELTA-XYZ"))
+	s.mu.Lock()
+	armed := s.emitTimer != nil
+	s.mu.Unlock()
+	require.True(t, armed, "test setup: the second chunk must arm the trailing timer (pending delta)")
+
+	// Second attach must flush that pending delta to the EXISTING client (ch1)
+	// before rebasing the emitter for the new client (ch2).
+	ch2, err := s.Attach()
+	require.NoError(t, err)
+	defer s.Detach(ch2)
+
+	f1, ok := waitFrame(t, ch1, time.Second)
+	require.True(t, ok, "Attach must flush the pending delta to the existing client")
+	assert.False(t, f1.Snapshot, "the flushed pending delta is an incremental diff, not a snapshot")
+	assert.Contains(t, string(f1.Data), "PENDING-DELTA-XYZ",
+		"the flushed delta frame must carry the pre-attach write's text, not silently drop it")
+
+	// The new client's own snapshot must already reflect the pre-attach write.
+	f2, ok := waitFrame(t, ch2, time.Second)
+	require.True(t, ok, "second attach must deliver a snapshot")
+	assert.True(t, f2.Snapshot)
+	assert.Contains(t, string(f2.Data), "PENDING-DELTA-XYZ",
+		"the new client's attach snapshot must already include the pre-attach write")
+}
+
+// TestModelDriven_EmitPanicOnFlipDoesNotDropTheTriggeringChunk proves the boundary the
+// review finding called out: writeModelLocked can succeed (the model consumed the
+// chunk) while the EMIT path (emitLocked / the keyframe serializeLocked) panics and
+// recovers, bumping modelPanics and flipping the session to raw for the NEXT chunk. If
+// pumpStep did nothing else, that chunk's visual delta would be silently dropped —
+// no frame goes out for it, and the flip only affects chunks after this one. pumpStep
+// must detect the flip and fan the triggering chunk's raw bytes out instead, and the
+// session must keep flowing normally (raw) afterward.
+//
+// It builds the Session directly (newBareSession + a real model/emitter) instead of
+// spawning a live PTY: a spawned session's background pump goroutine reads the real
+// shell asynchronously (startup mode-set sequences, prompt redraw) and would race this
+// test's own direct pumpStep calls on the same synthetic chunks, nondeterministically
+// landing the armed panic on the wrong chunk and masking a real drop. With no PTY there
+// is nothing to race — pumpStep only ever runs on the exact chunks this test injects.
+func TestModelDriven_EmitPanicOnFlipDoesNotDropTheTriggeringChunk(t *testing.T) {
+	s := newBareSession("sid-md-emitpanic", "/bin/sh", t.TempDir(), "")
+	m, ser := newModel(80, 24, 200)
+	s.model = m
+	s.serializer = ser
+	s.emitter = model.NewDiffEmitter()
+
+	ch, err := s.Attach()
+	require.NoError(t, err)
+	defer s.Detach(ch)
+
+	// Drain the initial attach snapshot so it can't be mistaken for the fallback frame.
+	_, ok := waitFrame(t, ch, time.Second)
+	require.True(t, ok, "attach must deliver an initial snapshot")
+
+	// Arm the emit-path panic for exactly the next emitLocked call, then drive that
+	// exact chunk through pumpStep directly.
+	forceEmitPanicForTest(s)
+	s.pumpStep([]byte("LOST-CHUNK-GUARD"))
+
+	f, ok := waitFrame(t, ch, time.Second)
+	require.True(t, ok, "the chunk that triggered the emit-path panic must still reach the client via raw fallback, not be dropped")
+	assert.Equal(t, "LOST-CHUNK-GUARD", string(f.Data),
+		"the fallback frame must carry the triggering chunk's raw bytes verbatim")
+	assert.False(t, f.Snapshot, "the fallback frame is a raw chunk, not a model snapshot")
+
+	// The session must now be flipped to raw (modelPanics > 0) and keep streaming
+	// normally through the pre-existing raw branch for every subsequent chunk.
+	s.pumpStep([]byte("AFTER-FLIP"))
+	f2, ok := waitFrame(t, ch, time.Second)
+	require.True(t, ok, "session must keep streaming raw after the flip")
+	assert.Equal(t, "AFTER-FLIP", string(f2.Data))
+}
+
+// TestModelDriven_BurstCoalescesFrames proves the Task 7 adaptive frame
+// clock: a burst of chunks arriving faster than minEmitInterval must
+// coalesce into exactly one immediate frame (the cold-clock chunk that stamps
+// lastEmitAt) plus one trailing-timer frame for everything else in the
+// window — never one frame per chunk.
+//
+// Built directly on newBareSession + pumpStep (the pattern the boundary
+// tests above use) rather than a live PTY: TestModelDriven_BurstCoalescesFrames
+// previously drove a real `seq 1 200` through a live shell and asserted
+// frames < 100, which flaked under CPU contention — a descheduled pump
+// goroutine can leave the immediate-emit branch (elapsed >= minEmitInterval)
+// true for MULTIPLE chunks in the same logical burst, inflating the frame
+// count independent of the coalescing logic actually under test. Driving
+// pumpStep directly removes the scheduler from the timing-sensitive path
+// entirely: every chunk in the burst loop below is fed well within one 8ms
+// window by construction, so the assertion pins the coalescing property
+// itself instead of hoping the host stays fast enough.
+func TestModelDriven_BurstCoalescesFrames(t *testing.T) {
+	s := newBareSession("sid-md-burst", "/bin/sh", t.TempDir(), "")
+	m, ser := newModel(80, 24, 2000)
+	s.model = m
+	s.serializer = ser
+	s.emitter = model.NewDiffEmitter()
+
+	ch, err := s.Attach()
+	require.NoError(t, err)
+	defer s.Detach(ch)
+	_, ok := waitFrame(t, ch, time.Second)
+	require.True(t, ok, "attach must deliver an initial snapshot")
+
+	// The clock starts cold (lastEmitAt is zero), so this first chunk emits
+	// immediately and stamps lastEmitAt to "now" — the one immediate frame
+	// the burst is allowed.
+	s.pumpStep([]byte("line0\n"))
+	_, ok = waitFrame(t, ch, time.Second)
+	require.True(t, ok, "first chunk must emit immediately (cold clock)")
+
+	// Feed the rest of the burst — 50 chunks — pinning s.lastEmitAt to "now"
+	// immediately before each pumpStep call, and defusing every timer it
+	// arms except the very last one. This is deliberate, not just a speed
+	// hack: under -race, 50 back-to-back lock/unlock + model-write cycles
+	// can themselves take longer in wall-clock time than the 8ms window
+	// (observed 9-19ms locally). A naive "let each chunk's own real timer
+	// race the rest of the loop" version is exactly as flaky as the old
+	// live-PTY test it replaces — the trailing timer armed by chunk 1 can
+	// fire mid-loop while chunks 2-50 are still landing, producing more than
+	// one trailing frame for reasons that have nothing to do with the
+	// coalescing logic under test.
+	//
+	// So each iteration: pin lastEmitAt to "now" (this chunk is always
+	// inside the window, regardless of real elapsed time), pumpStep it
+	// (writes the model + arms a fresh trailing timer, since the previous
+	// one was just defused), then immediately stop that timer again — EXCEPT
+	// on the last chunk, where the timer is left armed to fire for real.
+	// Stopping a timer never discards the chunk's contribution: pumpStep
+	// already wrote it into the model before scheduleEmitLocked runs, so an
+	// undefused-but-uncommitted delta simply accumulates until the surviving
+	// timer's real Emit picks up the full accumulated diff at the end. This
+	// deterministically simulates "50 chunks landed inside one coalesce
+	// window" without needing the test goroutine to outrun -race
+	// instrumentation.
+	const burstChunks = 50
+	for i := 1; i <= burstChunks; i++ {
+		s.mu.Lock()
+		s.lastEmitAt = time.Now()
+		s.mu.Unlock()
+		s.pumpStep([]byte("x\n"))
+		if i < burstChunks {
+			s.mu.Lock()
+			s.stopEmitTimerLocked()
+			s.mu.Unlock()
+		}
+	}
+
+	s.mu.Lock()
+	armed := s.emitTimer != nil
+	s.mu.Unlock()
+	require.True(t, armed, "test setup: the final burst chunk must leave the trailing timer armed")
+
+	// No frame may arrive synchronously for any of the 50 coalesced chunks —
+	// only the trailing timer, once it fires, may deliver one.
+	select {
+	case extra := <-ch:
+		t.Fatalf("unexpected synchronous frame during the coalesce window: %+v", extra)
+	case <-time.After(minEmitInterval / 2):
+	}
+
+	// Poll-wait for the trailing timer's single flush.
+	_, ok = waitFrame(t, ch, 3*minEmitInterval)
+	require.True(t, ok, "trailing timer must flush the coalesced burst")
+
+	// Exactly one frame — no more — must follow the trailing flush.
+	select {
+	case extra := <-ch:
+		t.Fatalf("unexpected second trailing frame (coalescing failed): %+v", extra)
+	case <-time.After(3 * minEmitInterval):
+	}
+}
+
+// TestModelDriven_BurstOverLivePTYDeliversAllOutput is a live-PTY smoke test
+// kept alongside the deterministic coalescing test above: it asserts only a
+// contention-proof property (all 200 lines eventually arrive), never a frame
+// COUNT, so it cannot flake under CPU pressure the way the old frames < 100
+// assertion did while still exercising the real spawn → pump → pumpStep path
+// end to end against a live shell.
+func TestModelDriven_BurstOverLivePTYDeliversAllOutput(t *testing.T) {
+	s, err := New("sid-md-burst-live", "/bin/sh", t.TempDir(), "", os.Environ(), 80, 24, 2000)
+	require.NoError(t, err)
+	t.Cleanup(s.Kill)
+	ch, err := s.Attach()
+	require.NoError(t, err)
+	defer s.Detach(ch)
+	// settle: drain attach snapshot + prompt
+	_, _ = collect(ch, 500*time.Millisecond)
+
+	require.NoError(t, s.Write([]byte("seq 1 200\n")))
+	data, _ := collect(ch, 5*time.Second)
+	assert.Contains(t, data, "200", "burst output must fully arrive regardless of coalescing frame count")
+}
+
+// TestModelDriven_TrailingTimerFlushesFinalState proves output that arrives
+// entirely inside one 8ms coalesce window still reaches the client: the
+// trailing timer must fire and flush it rather than losing it.
+func TestModelDriven_TrailingTimerFlushesFinalState(t *testing.T) {
+	s, err := New("sid-md-trail", "/bin/sh", t.TempDir(), "", os.Environ(), 80, 24, 200)
+	require.NoError(t, err)
+	t.Cleanup(s.Kill)
+	ch, err := s.Attach()
+	require.NoError(t, err)
+	defer s.Detach(ch)
+	_, _ = collect(ch, 500*time.Millisecond)
+
+	require.NoError(t, s.Write([]byte("echo TRAILING-EDGE-OK\n")))
+	data, _ := collect(ch, 2*time.Second)
+	assert.Contains(t, data, "TRAILING-EDGE-OK",
+		"output arriving inside the coalesce window must still flush via the trailing timer")
+}
+
+// TestModelDriven_AttachDisarmsStaleTrailingTimer proves the Attach boundary
+// (Task 7 carry-forward): if a burst chunk left the trailing frame-clock
+// timer armed, Attach must flush that pending delta to existing clients and
+// disarm the timer synchronously — not merely rely on the timer eventually
+// firing on its own — so a second attach's freshly-primed emitter base is
+// never raced by a late diff built off the pre-attach base, and no duplicate
+// frame reaches the existing client.
+//
+// Built directly on newBareSession (as the emit-panic test above does) so the
+// two writes below can be driven through pumpStep at exact, test-controlled
+// timing instead of racing a live PTY's own chunking.
+func TestModelDriven_AttachDisarmsStaleTrailingTimer(t *testing.T) {
+	s := newBareSession("sid-md-attach-timer", "/bin/sh", t.TempDir(), "")
+	m, ser := newModel(80, 24, 200)
+	s.model = m
+	s.serializer = ser
+	s.emitter = model.NewDiffEmitter()
+
+	ch1, err := s.Attach()
+	require.NoError(t, err)
+	defer s.Detach(ch1)
+	_, ok := waitFrame(t, ch1, time.Second)
+	require.True(t, ok, "attach must deliver an initial snapshot")
+
+	// The clock starts cold (lastEmitAt is zero), so this first chunk emits
+	// immediately and also stamps lastEmitAt to "now".
+	s.pumpStep([]byte("echo A\n"))
+	_, ok = waitFrame(t, ch1, time.Second)
+	require.True(t, ok, "first chunk must emit immediately (cold clock)")
+
+	// This second chunk lands inside the 8ms window and must only ARM the
+	// trailing timer rather than emit synchronously.
+	s.pumpStep([]byte("echo B\n"))
+	s.mu.Lock()
+	armed := s.emitTimer != nil
+	s.mu.Unlock()
+	require.True(t, armed, "test setup: second chunk inside the window must arm the trailing timer")
+
+	// Attach a second client while the trailing timer is still armed.
+	ch2, err := s.Attach()
+	require.NoError(t, err)
+	defer s.Detach(ch2)
+
+	s.mu.Lock()
+	stillArmed := s.emitTimer != nil
+	s.mu.Unlock()
+	assert.False(t, stillArmed, "Attach must disarm the stale trailing timer")
+
+	// Attach's own flush delivers the pending "B" delta to the existing
+	// client exactly once.
+	_, ok = waitFrame(t, ch1, time.Second)
+	require.True(t, ok, "Attach must flush the pending delta to the existing client")
+
+	f2, ok := waitFrame(t, ch2, time.Second)
+	require.True(t, ok, "second attach must deliver a snapshot")
+	assert.True(t, f2.Snapshot)
+
+	// The disarmed timer must never separately fire afterward and duplicate
+	// the flush already delivered above.
+	select {
+	case extra := <-ch1:
+		t.Fatalf("unexpected extra frame on ch1 after Attach's flush (stale timer fired?): %+v", extra)
+	case <-time.After(50 * time.Millisecond):
+	}
+}
+
+// TestModelDriven_ResyncDisarmsStaleTrailingTimer proves the Resync boundary
+// (Task 7 carry-forward): Resync's forced keyframe already reflects every
+// chunk written so far (the clock only defers the EMIT, never the model
+// write), so a trailing timer armed by an unflushed burst chunk must be
+// cancelled rather than left to fire later and re-emit a stale/duplicate
+// frame off the base Resync's own keyframe just re-primed.
+func TestModelDriven_ResyncDisarmsStaleTrailingTimer(t *testing.T) {
+	s := newBareSession("sid-md-resync-timer", "/bin/sh", t.TempDir(), "")
+	m, ser := newModel(80, 24, 200)
+	s.model = m
+	s.serializer = ser
+	s.emitter = model.NewDiffEmitter()
+
+	ch, err := s.Attach()
+	require.NoError(t, err)
+	defer s.Detach(ch)
+	_, ok := waitFrame(t, ch, time.Second)
+	require.True(t, ok, "attach must deliver an initial snapshot")
+
+	s.pumpStep([]byte("echo A\n"))
+	_, ok = waitFrame(t, ch, time.Second)
+	require.True(t, ok, "first chunk must emit immediately (cold clock)")
+
+	s.pumpStep([]byte("echo B\n"))
+	s.mu.Lock()
+	armed := s.emitTimer != nil
+	s.mu.Unlock()
+	require.True(t, armed, "test setup: second chunk inside the window must arm the trailing timer")
+
+	ok = s.Resync()
+	require.True(t, ok, "Resync must emit a keyframe for a non-idle bare session")
+
+	s.mu.Lock()
+	stillArmed := s.emitTimer != nil
+	s.mu.Unlock()
+	assert.False(t, stillArmed, "Resync must disarm the stale trailing timer")
+
+	f, ok := waitFrame(t, ch, time.Second)
+	require.True(t, ok, "Resync must deliver its keyframe")
+	assert.True(t, f.Snapshot, "Resync's frame must be a keyframe")
+
+	// The disarmed timer must never separately fire afterward and deliver a
+	// second, redundant frame.
+	select {
+	case extra := <-ch:
+		t.Fatalf("unexpected extra frame after Resync (stale timer fired?): %+v", extra)
+	case <-time.After(50 * time.Millisecond):
+	}
+}
+
+// TestModelDriven_TeardownStopsTrailingTimer pins the shutdown() guard
+// (Task 7): if a trailing frame-clock timer is still armed when the session
+// tears down, shutdown must stop it under the same s.mu hold that closes
+// s.done, so the timer can never deliver a frame — or panic on a nil model/
+// closed-channel send — after teardown. This is the deterministic
+// counterpart to the <-s.done check inside the timer callback itself: it
+// pins the guard against regression (e.g. someone reordering shutdown to
+// close s.done before stopping the timer, or dropping the stop call
+// entirely and relying solely on the done-channel check, which would still
+// let the timer goroutine wake up and race the close of s.clients).
+func TestModelDriven_TeardownStopsTrailingTimer(t *testing.T) {
+	s := newBareSession("sid-md-teardown-timer", "/bin/sh", t.TempDir(), "")
+	m, ser := newModel(80, 24, 200)
+	s.model = m
+	s.serializer = ser
+	s.emitter = model.NewDiffEmitter()
+
+	// Attach a client BEFORE arming the timer so there is a channel to drain
+	// and count frames on after teardown.
+	ch, err := s.Attach()
+	require.NoError(t, err)
+	_, ok := waitFrame(t, ch, time.Second)
+	require.True(t, ok, "attach must deliver an initial snapshot")
+
+	// Cold-clock immediate emit, then a second chunk inside the window arms
+	// the trailing timer — same two-step pattern as the Attach/Resync
+	// disarm tests above.
+	s.pumpStep([]byte("echo A\n"))
+	_, ok = waitFrame(t, ch, time.Second)
+	require.True(t, ok, "first chunk must emit immediately (cold clock)")
+
+	s.pumpStep([]byte("echo B\n"))
+	s.mu.Lock()
+	armed := s.emitTimer != nil
+	s.mu.Unlock()
+	require.True(t, armed, "test setup: second chunk inside the window must arm the trailing timer")
+
+	// Kill on a placeholder-shaped bare session (ptmx == nil) takes the
+	// direct shutdown() branch, exercising the exact guard under test: a
+	// still-armed timer at teardown time.
+	require.NotPanics(t, func() { s.Kill() })
+
+	select {
+	case <-s.Done():
+	case <-time.After(time.Second):
+		t.Fatal("Kill must close s.done")
+	}
+
+	// Drain whatever shutdown enqueued (its own close(cl.send) fan-out, if
+	// any) and wait well past the coalesce window the armed timer was due to
+	// fire in — no frame may arrive from the stopped timer, and the channel
+	// must end up closed with nothing further trickling in.
+	frames := 0
+	deadline := time.After(2 * minEmitInterval)
+drain:
+	for {
+		select {
+		case f, ok := <-ch:
+			if !ok {
+				break drain
+			}
+			frames++
+			t.Logf("unexpected frame after teardown: %+v", f)
+		case <-deadline:
+			break drain
+		}
+	}
+	assert.Equal(t, 0, frames, "no frame may arrive after teardown (trailing timer must have been stopped)")
+}
+
+// TestModelDriven_CPRQueryAnsweredToPTY proves the daemon answers a cursor-position-report
+// query (ESC[6n) from the model (spec §3.8): the client xterm
+// never sees the query in this mode, so without the session's response sink writing the
+// model's synthesized reply back to the PTY master, an app reading the reply from stdin
+// (here, the shell's `read`) would hang/time out.
+func TestModelDriven_CPRQueryAnsweredToPTY(t *testing.T) {
+	// The read vehicle below needs `read -s -t 3 -d R`, which are bash extensions:
+	// on a dash /bin/sh (Linux CI) they error out ("read: Illegal option -s") and the
+	// shell falls through to NOANSWER before the daemon's reply can ever matter. Drive
+	// the round-trip through bash explicitly so the test exercises the response sink,
+	// not the host shell's read dialect.
+	bash, err := exec.LookPath("bash")
+	if err != nil {
+		t.Skip("bash unavailable; CPR read vehicle requires bash (read -s/-d/-t)")
+	}
+	s, err := New("sid-md-cpr", bash, t.TempDir(), "", os.Environ(), 80, 24, 200)
+	require.NoError(t, err)
+	t.Cleanup(s.Kill)
+	ch, err := s.Attach()
+	require.NoError(t, err)
+	defer s.Detach(ch)
+	_, _ = collect(ch, 500*time.Millisecond)
+
+	// `read -s -t 3 REPLY` after emitting ESC[6n: the shell captures whatever
+	// comes back on stdin. If the daemon answers, REPLY holds the CPR and the
+	// marker prints; with no answer, read times out and prints NOANSWER.
+	//
+	// Sent as ONE PTY line (single trailing '\n'): the whole line is queued to
+	// the shell atomically and fully parsed/executed before `read` blocks, so
+	// there is no leftover queued text for the async CPR reply to race against
+	// (a two-line script races: the second line can reach the tty input queue
+	// ahead of, or interleaved with, the reply). The two markers are written
+	// as separate back-to-back printf calls (nothing between them in the
+	// EXECUTED output) but are never contiguous in the bytes actually TYPED
+	// (shell syntax sits between them there), so the PTY's canonical-mode
+	// local echo of the command line itself cannot satisfy the assertions
+	// below — only the genuinely executed branch's printf output can.
+	script := "printf '\\x1b[6n'; IFS= read -rs -t 3 -d R REPLY; " +
+		"if [ -n \"$REPLY\" ]; then printf 'CPR'; printf -- '-ANSWERED\\n'; else printf 'NO'; printf 'ANSWER\\n'; fi\n"
+	require.NoError(t, s.Write([]byte(script)))
+	data, _ := collect(ch, 5*time.Second)
+	assert.Contains(t, data, "CPR-ANSWERED")
+	assert.NotContains(t, data, "NOANSWER")
+}
+
+// TestModelDriven_DegradedFlipUninstallsResponseSink proves the T8 review finding fix:
+// once a model-driven session degrades to raw fallback (modelPanics > 0), the model's
+// response sink must be uninstalled. Left armed, the model would keep answering device
+// queries (e.g. CPR) from the PTY's raw bytes at the same time the client's own xterm —
+// which now also sees those raw bytes — answers them too, so the app would receive
+// DOUBLE replies to every query after the flip. One answerer at a time, always.
+func TestModelDriven_DegradedFlipUninstallsResponseSink(t *testing.T) {
+	s, err := New("sid-md-sink-flip", "/bin/sh", t.TempDir(), "", os.Environ(), 80, 24, 200)
+	require.NoError(t, err)
+	t.Cleanup(s.Kill)
+
+	ch, err := s.Attach()
+	require.NoError(t, err)
+	defer s.Detach(ch)
+
+	s.mu.Lock()
+	installed := model.ResponseSinkInstalledForTest(s.model)
+	s.mu.Unlock()
+	require.True(t, installed, "test setup: a fresh model-driven session must spawn with the sink installed")
+
+	forceModelPanicForTest(s)
+
+	// Drive the flip through the modelEmitHealthyLocked latch (pumpStep -> writeModelLocked
+	// -> modelEmitHealthyLocked), the same way TestModelDriven_DegradedFallsBackToRaw does.
+	require.NoError(t, s.Write([]byte("echo SINK-FLIP-TRIGGER\n")))
+	_, _ = collect(ch, 3*time.Second)
+
+	s.mu.Lock()
+	stillInstalled := model.ResponseSinkInstalledForTest(s.model)
+	fellBack := s.modelDrivenFellBack
+	s.mu.Unlock()
+	require.True(t, fellBack, "test setup: the degraded flip must have latched")
+	assert.False(t, stillInstalled, "the response sink must be uninstalled once the session flips to raw fallback")
+}

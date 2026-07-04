@@ -7,6 +7,8 @@ import (
 	"os/exec"
 	"strings"
 	"time"
+
+	"github.com/char2cs/crowbar/api/internal/core/binpath"
 )
 
 // DetectExecFn matches exec.CommandContext so callers can inject a test stub.
@@ -130,7 +132,11 @@ func cliAuthed(
 		return false
 	}
 
-	cmd := execFn(ctx, cli, "auth", "status")
+	// binpath.Resolve: the packaged .app daemon inherits launchd's minimal
+	// PATH, which misses Homebrew's /opt/homebrew/bin where gh/glab usually
+	// live — without this, detection marks the provider disabled and PR
+	// statuses never sync in the packaged app.
+	cmd := execFn(ctx, binpath.Resolve(cli), "auth", "status")
 	var out bytes.Buffer
 	cmd.Stdout = &out
 	cmd.Stderr = &out

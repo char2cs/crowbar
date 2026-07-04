@@ -149,12 +149,19 @@ func newRouterWith(g handlers.Git) *gin.Engine {
 	return newRouterWithErrors(g, &fakeLastErrors{})
 }
 
+// noopWork satisfies handlers.WorkSignal for tests that don't assert the
+// working overlay.
+type noopWork struct{}
+
+func (noopWork) BeginWork(_ context.Context, _ string) {}
+func (noopWork) EndWork(_ context.Context, _ string)   {}
+
 func newRouterWithErrors(
 	g handlers.Git,
 	lastErrors handlers.LastErrorSetter,
 ) *gin.Engine {
 	r := gin.New()
-	h := handlers.New(g, lastErrors)
+	h := handlers.New(g, lastErrors, noopWork{})
 	rg := r.Group("/v0/workspaces/:wsId/git")
 	rg.GET("/status", h.Status)
 	rg.GET("/diff", h.Diff)

@@ -122,18 +122,19 @@ func (h *hookedReg) List() []string {
 // engine's Stats aggregation has a degraded session to count without a real vt parse panic.
 type degradedModel struct{ cols, rows int }
 
-func (m *degradedModel) Write([]byte)                          {}
-func (m *degradedModel) Resize(c, r int)                       { m.cols, m.rows = c, r }
-func (m *degradedModel) OnForegroundReset()                    {}
-func (m *degradedModel) PendingInput() []byte                  { return nil }
-func (m *degradedModel) Title() string                         { return "" }
-func (m *degradedModel) Cols() int                             { return m.cols }
-func (m *degradedModel) Rows() int                             { return m.rows }
-func (m *degradedModel) HeaderState() (int, int, bool, int)    { return m.cols, m.rows, false, 0 }
-func (m *degradedModel) ModelBytes() int64                     { return 0 }
-func (m *degradedModel) Close()                                {}
-func (m *degradedModel) Degraded() bool                        { return true }
-func (m *degradedModel) ParsePanics() int                      { return 7 }
+func (m *degradedModel) Write([]byte)                       {}
+func (m *degradedModel) Resize(c, r int)                    { m.cols, m.rows = c, r }
+func (m *degradedModel) OnForegroundReset()                 {}
+func (m *degradedModel) PendingInput() []byte               { return nil }
+func (m *degradedModel) Title() string                      { return "" }
+func (m *degradedModel) Cols() int                          { return m.cols }
+func (m *degradedModel) Rows() int                          { return m.rows }
+func (m *degradedModel) HeaderState() (int, int, bool, int) { return m.cols, m.rows, false, 0 }
+func (m *degradedModel) ModelBytes() int64                  { return 0 }
+func (m *degradedModel) Close()                             {}
+func (m *degradedModel) SetResponseSink(func(p []byte))     {}
+func (m *degradedModel) Degraded() bool                     { return true }
+func (m *degradedModel) ParsePanics() int                   { return 7 }
 
 type degradedSerializer struct{}
 
@@ -213,10 +214,10 @@ func TestTrailingIncompleteUTF8(t *testing.T) {
 		{"empty", nil, 0},
 		{"ascii", []byte("abc"), 0},
 		{"single-ascii", []byte("a"), 0},
-		{"complete-2byte", []byte{0xC3, 0xA9}, 0},          // é, full
-		{"lone-2byte-lead", []byte{0xC3}, 1},               // lead present, 1 cont missing
-		{"truncated-3byte", []byte{0xE2, 0x82}, 2},         // 3-byte rune missing 1 cont
-		{"truncated-4byte", []byte{0xF0, 0x9F, 0x98}, 3},   // 4-byte rune missing 1 cont
+		{"complete-2byte", []byte{0xC3, 0xA9}, 0},             // é, full
+		{"lone-2byte-lead", []byte{0xC3}, 1},                  // lead present, 1 cont missing
+		{"truncated-3byte", []byte{0xE2, 0x82}, 2},            // 3-byte rune missing 1 cont
+		{"truncated-4byte", []byte{0xF0, 0x9F, 0x98}, 3},      // 4-byte rune missing 1 cont
 		{"orphan-continuations", []byte{0x80, 0x80, 0x80}, 0}, // no lead within last 3
 	}
 	for _, c := range cases {

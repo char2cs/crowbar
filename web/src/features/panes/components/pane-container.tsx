@@ -90,16 +90,16 @@ export function PaneContainer({ pane, position = ROOT_PANE_POSITION }: PaneConta
   const rootFolderPath = useFileSystemStore.use.rootFolderPath?.()
   const handleFileOpen = useFileSystemStore.use.handleFileOpen?.()
   const sidebarPosition = useSettingsStore((state) => state.settings.sidebarPosition)
+  const isActivePane = pane.id === activePaneId
   const paneContentStyle = useMemo(
-    () => buildPaneContentStyle(position, sidebarPosition),
-    [position, sidebarPosition],
+    () => buildPaneContentStyle(position, sidebarPosition, isActivePane),
+    [position, sidebarPosition, isActivePane],
   )
 
   const [isDragOver, setIsDragOver] = useState(false)
   const [isTabDragOver, setIsTabDragOver] = useState(false)
   const [internalHoverZone, setInternalHoverZone] = useState<DropZone>(null)
   const containerRef = useRef<HTMLDivElement>(null)
-  const isActivePane = pane.id === activePaneId
 
   const rawPaneBuffers = useBuffersByIds(pane.bufferIds)
   const paneBuffers = useMemo((): PaneRenderBuffer[] => {
@@ -516,7 +516,9 @@ export function PaneContainer({ pane, position = ROOT_PANE_POSITION }: PaneConta
       data-pane-container
       data-pane-id={pane.id}
       className={`relative flex h-full w-full flex-col overflow-hidden ${
-        isDragOver || internalHoverZone ? 'ring-2 ring-accent' : ''
+        // Only ring the whole pane for file drags. Tab drags get the inner
+        // SplitDropOverlay zone border instead — showing both is a double border.
+        isDragOver && !isTabDragOver && !internalHoverZone ? 'ring-2 ring-secondary' : ''
       }`}
       onMouseDownCapture={handlePaneMouseDownCapture}
       onClick={handlePaneClick}
@@ -526,7 +528,7 @@ export function PaneContainer({ pane, position = ROOT_PANE_POSITION }: PaneConta
       onDrop={handleDrop}
     >
       {(isDragOver || internalHoverZone) && !isTabDragOver && !internalHoverZone && (
-        <div className="pointer-events-none absolute inset-0 z-40 bg-accent/10" />
+        <div className="pointer-events-none absolute inset-0 z-40 bg-secondary/10" />
       )}
       <SplitDropOverlay
         visible={isTabDragOver || !!internalHoverZone}

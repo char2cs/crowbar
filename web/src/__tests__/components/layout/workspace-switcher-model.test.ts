@@ -90,6 +90,18 @@ describe('flattenWorkspaces', () => {
     expect(items.filter((i) => i.isCurrent)).toHaveLength(1)
   })
 
+  it('keeps items in stable grouped order regardless of which is current', () => {
+    // The current item must NOT be reordered — only the highlight cursor moves to it.
+    const items = flattenWorkspaces(repos, 'ws1', false, 'p1', projects)
+    expect(items.map((i) => (i.kind === 'workspace' ? i.wsId : 'home'))).toEqual([
+      'home',
+      'ws-default',
+      'ws1',
+      'ws2',
+      'ws3',
+    ])
+  })
+
   it('defaults a missing status to "new"', () => {
     const items = flattenWorkspaces(
       repos,

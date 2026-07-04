@@ -36,10 +36,10 @@ function SidebarToastItem({
     <Toast.Root
       toast={toast}
       swipeDirection={swipeDirection}
-      className="pointer-events-auto relative flex w-full items-center justify-between gap-1.5 overflow-hidden rounded-lg border bg-popover px-3.5 py-3 text-sm text-popover-foreground shadow-lg/5 not-dark:bg-clip-padding transition-opacity duration-200 data-starting-style:opacity-0 data-ending-style:opacity-0"
+      className="pointer-events-auto relative w-full overflow-hidden rounded-lg border bg-popover px-3.5 py-3 text-sm text-popover-foreground shadow-lg/5 not-dark:bg-clip-padding transition-opacity duration-200 data-starting-style:opacity-0 data-ending-style:opacity-0"
     >
-      <Toast.Content className="flex min-w-0 flex-1 items-center gap-1.5 overflow-hidden">
-        <div className="flex min-w-0 flex-1 gap-2">
+      <Toast.Content className="flex min-w-0 flex-col gap-2">
+        <div className="flex min-w-0 gap-2 pr-6">
           {Icon && (
             <div
               className="[&>svg]:h-lh [&>svg]:w-4 [&_svg]:pointer-events-none [&_svg]:shrink-0"
@@ -49,21 +49,26 @@ function SidebarToastItem({
             </div>
           )}
           <div className="flex min-w-0 flex-col gap-0.5">
-            <Toast.Title className="font-medium" data-slot="toast-title" />
-            <Toast.Description className="text-muted-foreground" data-slot="toast-description" />
+            <Toast.Title className="min-w-0 break-words font-medium" data-slot="toast-title" />
+            <Toast.Description
+              className="min-w-0 break-words text-muted-foreground"
+              data-slot="toast-description"
+            />
           </div>
         </div>
         {toast.actionProps && (
-          <Toast.Action
-            className={buttonVariants({ size: 'xs' })}
-            data-slot="toast-action"
-            onClick={toast.actionProps.onClick}
-          >
-            {toast.actionProps.children}
-          </Toast.Action>
+          <div className="flex justify-end" data-slot="toast-action-row">
+            <Toast.Action
+              className={buttonVariants({ size: 'xs' })}
+              data-slot="toast-action"
+              onClick={toast.actionProps.onClick}
+            >
+              {toast.actionProps.children}
+            </Toast.Action>
+          </div>
         )}
       </Toast.Content>
-      <Toast.Close className="rounded p-0.5 opacity-50 hover:opacity-100 hover:bg-muted transition-opacity">
+      <Toast.Close className="absolute top-3 right-3 rounded p-0.5 opacity-50 hover:opacity-100 hover:bg-muted transition-opacity">
         <X className="h-3.5 w-3.5" />
       </Toast.Close>
     </Toast.Root>

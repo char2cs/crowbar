@@ -183,3 +183,13 @@ with the D1 wrap residual and the D2 unproven-against-`xterm.js` caveat both in 
   accounting (§9.2/§9.4) is therefore also deferred with D1, to the same revisit trigger.
 - Step-2 set-signal: `Callbacks.{Foreground,Background,Cursor}Color` (recorded above).
 - Locking-shift / charset / scroll-region: in-`Write` scan (`escan.go`), recorded above.
+
+## Diff emitter backend (2026-07-03, model-driven rendering P0)
+
+Hand-rolled line diff adopted (diff.go) over ultraviolet's renderer:
+uv's diff/render pipeline is a TUI *presenter* (owns cursor state, assumes it
+is the only writer, renders to an io.Writer with its own frame lifecycle);
+constraining its output to our emit contract (absolute CUP per dirty row, pen
+reset per row via encodeLine, no cursor-state ownership) would mean fighting
+the library. The hand-rolled diff is ~120 lines and reuses the serializer's
+encodeGridRow/encodeLine, so both emission paths share one cell renderer.

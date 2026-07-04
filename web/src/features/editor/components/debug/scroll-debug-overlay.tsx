@@ -62,7 +62,7 @@ function ScrollDebugOverlayInner() {
         backgroundColor: 'rgba(0, 0, 0, 0.85)',
       }}
     >
-      <div className="mb-2 font-bold text-accent">Scroll Debug</div>
+      <div className="mb-2 font-bold text-secondary">Scroll Debug</div>
       <div className="space-y-1">
         <div>
           ScrollTop: <span className="text-info">{metrics.scrollTop.toFixed(0)}px</span>

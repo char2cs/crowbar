@@ -1,7 +1,9 @@
 package model
 
 import (
+	"image/color"
 	"io"
+	"sync/atomic"
 
 	uv "github.com/charmbracelet/ultraviolet"
 	"github.com/charmbracelet/x/vt"
@@ -36,11 +38,26 @@ type emulator interface {
 	// Close releases the emulator (and, for the production emulator, stops its
 	// response-pipe drain goroutine). Idempotent.
 	Close()
+	// SetResponseSink installs the receiver for device-query replies drained from
+	// the emulator's response pipe. nil discards them. See vtEmu.SetResponseSink.
+	SetResponseSink(f func(p []byte))
+	// SetDefaultBackgroundColor / SetDefaultForegroundColor set the terminal's
+	// default colours — the values an OSC 11 / OSC 10 QUERY answers with. They
+	// deliberately do NOT touch the per-cell rendering colour (e.bgColor/fgColor)
+	// and fire no callback, so setting them changes only what a querying app reads,
+	// never the serialized grid. Promoted from the embedded *vt.Emulator.
+	SetDefaultBackgroundColor(c color.Color)
+	SetDefaultForegroundColor(c color.Color)
 }
 
 type vtEmu struct {
 	*vt.Emulator
 	drainDone chan struct{}
+	// sink receives each reply chunk drainResponses reads off the InputPipe, or is
+	// nil to discard (today's raw-mode behaviour: the live client xterm answers
+	// device queries instead). Set via SetResponseSink; read from the drain
+	// goroutine, so it is an atomic.Pointer rather than a plain field.
+	sink atomic.Pointer[func(p []byte)]
 }
 
 // Write feeds bytes to the underlying emulator, discarding its (n, err) return. The
@@ -62,17 +79,37 @@ func (v *vtEmu) Write(
 	_, _ = v.Emulator.Write(p)
 }
 
-// drainResponses consumes and discards the bytes x/vt auto-writes to its InputPipe in reply
-// to device queries (see Write). It exits when Close shuts the pipe (Read → io.EOF),
-// signalling completion on drainDone so Close can join it.
+// drainResponses consumes the bytes x/vt auto-writes to its InputPipe in reply to device
+// queries (see Write) and hands each complete read to the installed sink, or discards it
+// when no sink is installed (raw mode: the live client xterm is the answerer, spec §3.8).
+// It exits when Close shuts the pipe (Read → io.EOF), signalling completion on drainDone
+// so Close can join it.
 func (v *vtEmu) drainResponses() {
 	defer close(v.drainDone)
 	buf := make([]byte, 512)
 	for {
-		if _, err := v.Emulator.Read(buf); err != nil {
+		n, err := v.Emulator.Read(buf)
+		if n > 0 {
+			if sink := v.sink.Load(); sink != nil {
+				(*sink)(append([]byte(nil), buf[:n]...))
+			}
+		}
+		if err != nil {
 			return
 		}
 	}
+}
+
+// SetResponseSink installs f as the receiver of device-query replies drained from the
+// emulator's response pipe (see drainResponses). Passing nil reverts to discarding them.
+// Safe to call concurrently with the drain goroutine (atomic.Pointer swap); the session
+// calls it once at spawn, under its own lock, well before any Write can race it.
+func (v *vtEmu) SetResponseSink(f func(p []byte)) {
+	if f == nil {
+		v.sink.Store(nil)
+		return
+	}
+	v.sink.Store(&f)
 }
 
 // Close ends drainResponses and waits for it, so a closed emulator leaves no lingering

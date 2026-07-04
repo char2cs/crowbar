@@ -193,13 +193,21 @@ func (f *fakeLastErrors) SetLastError(
 	return domain.Workspace{ID: id, LastError: message}, nil
 }
 
+// fakeWork satisfies workspacehandlers.WorkSignal for tests that don't assert
+// the working overlay.
+type fakeWork struct{}
+
+func (fakeWork) BeginWork(_ context.Context, _ string) {}
+func (fakeWork) EndWork(_ context.Context, _ string)   {}
+func (fakeWork) IsWorking(_ string) bool               { return false }
+
 func newRouter(
 	reader workspacehandlers.Reader,
 	hierarchy workspacehandlers.Hierarchy,
 	repos workspacehandlers.Repos,
 ) *gin.Engine {
 	r := gin.New()
-	h := workspacehandlers.New(reader, hierarchy, repos, &fakeLastErrors{})
+	h := workspacehandlers.New(reader, hierarchy, repos, &fakeLastErrors{}, fakeWork{})
 	// Mount under the hierarchical repo-scoped prefix so the handlers read
 	// :projectId/:repoId/:wsId from the path, mirroring the production router.
 	rg := r.Group("/v0/projects/:projectId/repos/:repoId")

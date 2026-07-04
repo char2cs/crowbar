@@ -108,6 +108,7 @@ func (c *Container) Register(
 		c.app.Usecases.Worktree,
 		c.app.GORM.Repositories,
 		c.app.Repositories.Workspace,
+		c.app.Repositories,
 		c.workspaces.Handle,
 		ws.DualServe,
 	)
@@ -124,6 +125,7 @@ func (c *Container) Register(
 		repoScoped,
 		c.app.Usecases.Git,
 		c.app.Repositories.Workspace,
+		c.app.Repositories,
 		c.git.Handle,
 		ws.DualServe,
 	)

@@ -86,7 +86,7 @@ const TabBarItem = memo(function TabBarItem({
      */
     <div ref={tabRef} className="group/tab relative">
       {showDropIndicatorBefore ? (
-        <div className="drop-indicator absolute top-1 bottom-1 left-0 z-20 w-0.5 bg-accent" />
+        <div className="drop-indicator absolute top-1 bottom-1 left-0 z-20 w-0.5 bg-secondary" />
       ) : null}
       <Tab
         role="tab"
@@ -168,7 +168,7 @@ const TabBarItem = memo(function TabBarItem({
           draggable={false}
         >
           {buffer.isPinned ? (
-            <Pin className="pointer-events-none select-none size-3.5 fill-current text-accent" />
+            <Pin className="pointer-events-none select-none size-3.5 fill-current text-secondary" />
           ) : (
             <X className="pointer-events-none select-none size-3" />
           )}

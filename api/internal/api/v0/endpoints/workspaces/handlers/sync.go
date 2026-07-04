@@ -26,6 +26,7 @@ func (h *Handlers) Sync(
 	libs.WriteAccepted(c)
 	runAsync(
 		c.Request.Context(),
+		h.working,
 		h.broadcastLastError,
 		id,
 		func(ctx context.Context) error {

@@ -9,6 +9,7 @@ import {
 import { Button } from '@/components/ui/button'
 import { useDetachModalStore } from '@/features/window/stores/detach-modal-store'
 import { detachHolder } from '@/lib/api/workspace'
+import { toast } from '@/features/window/stores/toast-store'
 
 // The consent modal for freeing a protected branch from a live holder. Framed as
 // disruptive-not-destructive: per the git engine's contract, detach never touches
@@ -22,7 +23,18 @@ export function DetachHolderModal() {
   if (!target) return null
 
   const onConfirm = async () => {
-    await detachHolder(target.wsId)
+    try {
+      await detachHolder(target.wsId)
+    } catch (err) {
+      // The request never firing (e.g. no recorded scope) must not look like a
+      // successful detach — surface it; backend failures ride LastError instead.
+      toast.show({
+        message: `Couldn't detach ${target.branch}`,
+        description: err instanceof Error ? err.message : String(err),
+        type: 'error',
+        key: `detach-${target.wsId}`,
+      })
+    }
     close()
   }
 

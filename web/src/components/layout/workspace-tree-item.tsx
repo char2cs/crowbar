@@ -52,6 +52,11 @@ export function WorkspaceTreeItem({
   } = useWorkspaceTreeActions()
   const { draggingWs, hoverTargetId, movingWsId } = useWorkspaceTreeDrag()
 
+  // A placeholder row keeps its reason + Retry/Detach… collapsed until the user
+  // ENTERS the workspace: the details render as an attached part of the row
+  // while it is the active workspace and disappear when the user moves away.
+  const showPlaceholderDetails = isPlaceholder && isActive
+
   const isCreatingChild = creatingChildOf?.parentId === workspace.id
   const isRenaming = renamingId === workspace.id
   const isDraggingThis = draggingWs?.id === workspace.id
@@ -76,12 +81,14 @@ export function WorkspaceTreeItem({
           role="button"
           tabIndex={0}
           data-ws-drop={!isRenaming ? workspace.id : undefined}
+          aria-expanded={isPlaceholder ? showPlaceholderDetails : undefined}
           className={cn(
             ROW_BASE,
             variant,
             isDraggingThis && 'opacity-40',
             isMoving && 'opacity-50 pointer-events-none',
             isDropTarget && 'ring-1 ring-ring',
+            showPlaceholderDetails && 'mb-0 rounded-b-none',
           )}
           onClick={() => !isRenaming && onWorkspaceClick(workspace.id, projectId, repoId)}
           onKeyDown={(e) => {
@@ -183,9 +190,20 @@ export function WorkspaceTreeItem({
             </button>
           ) : null}
         </div>
-      </div>
 
-      {isPlaceholder && <PlaceholderRowActions workspace={workspace} />}
+        {showPlaceholderDetails && (
+          <div
+            className={cn(
+              'mx-1.5 mb-0.5 rounded-b-lg px-2.5 pb-2 pt-0.5',
+              // Continue the ACTIVE row's raised surface so row + details read
+              // as one card (the row squares its bottom corners while shown).
+              'bg-background shadow-xs shadow-black/10',
+            )}
+          >
+            <PlaceholderRowActions workspace={workspace} />
+          </div>
+        )}
+      </div>
 
       {showChildrenSection && (
         <div>

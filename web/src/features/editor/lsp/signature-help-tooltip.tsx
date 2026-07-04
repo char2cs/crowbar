@@ -232,7 +232,7 @@ const SignatureHelpTooltipImpl = ({
       return (
         <span>
           {signature.label.slice(0, start)}
-          <span className="font-bold text-accent">{signature.label.slice(start, end)}</span>
+          <span className="font-bold text-secondary">{signature.label.slice(start, end)}</span>
           {signature.label.slice(end)}
         </span>
       )
@@ -246,7 +246,7 @@ const SignatureHelpTooltipImpl = ({
     return (
       <span>
         {signature.label.slice(0, idx)}
-        <span className="font-bold text-accent">{paramStr}</span>
+        <span className="font-bold text-secondary">{paramStr}</span>
         {signature.label.slice(idx + paramStr.length)}
       </span>
     )

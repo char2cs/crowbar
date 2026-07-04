@@ -123,6 +123,9 @@
       },
     },
   },
+  "patchedDependencies": {
+    "@xterm/addon-webgl@0.18.0": "patches/@xterm%2Faddon-webgl@0.18.0.patch",
+  },
   "overrides": {
     "dompurify": ">=3.4.11",
     "hono": ">=4.12.25",

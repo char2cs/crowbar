@@ -2,6 +2,7 @@ import { create } from 'zustand'
 import { saveSidebarUI } from '@/lib/persistence/sidebar-ui'
 import type { WorkspaceDTO } from '@/lib/types'
 import { toSidebarWorkspace } from '@/lib/store/build-repo-tree'
+import { recordWorkspaceScope } from '@/lib/workspace-scope'
 
 export interface ProjectChat {
   id: string
@@ -156,6 +157,31 @@ export function getPostDeleteNavigationTarget(repos: Repo[], wsId: string): stri
   return (base ?? survivors[0])?.id ?? null
 }
 
+/**
+ * Record the project/repo scope of every workspace a repo carries (including
+ * the default workspace, which lives on the repo header rather than in the
+ * tree). Workspace-scoped API calls (workspaceBase) throw on an unrecorded
+ * scope, and the route only records the workspace you navigate to — so without
+ * this, acting on a never-visited workspace (Retry/Detach… on a placeholder
+ * row) failed before the request was sent. Repos without a projectId are
+ * skipped: no scoped URL can be built for them anyway.
+ */
+function recordRepoScopes(repos: Repo[]): void {
+  for (const repo of repos) {
+    if (!repo.projectId) continue
+    for (const ws of repo.workspaces) {
+      recordWorkspaceScope({ projectId: repo.projectId, repoId: repo.id, wsId: ws.id })
+    }
+    if (repo.defaultWorkspaceId) {
+      recordWorkspaceScope({
+        projectId: repo.projectId,
+        repoId: repo.id,
+        wsId: repo.defaultWorkspaceId,
+      })
+    }
+  }
+}
+
 export function getInitialState() {
   return {
     chats: [],
@@ -286,10 +312,14 @@ export const useSidebarStore = create<SidebarState>()((set) => ({
 
   setActiveTab: (tab) => set({ activeTab: tab }),
 
-  setRepos: (repos) => set({ repos }),
+  setRepos: (repos) => {
+    recordRepoScopes(repos)
+    set({ repos })
+  },
 
   mergeRepos: (incoming) =>
     set((s) => {
+      recordRepoScopes(incoming)
       let changed = false
       const next = [...s.repos]
       const byId = new Map(next.map((r, i) => [r.id, i]))
@@ -314,6 +344,9 @@ export const useSidebarStore = create<SidebarState>()((set) => ({
 
   applyWorkspaceDTO: (dto) =>
     set((s) => {
+      if (dto.status !== 'deleted') {
+        recordWorkspaceScope({ projectId: dto.projectId, repoId: dto.repoId, wsId: dto.id })
+      }
       // A 'deleted' tombstone removes the workspace from whichever repo holds
       // it — the backend owns the cascade, so we never BFS-remove locally.
       if (dto.status === 'deleted') {

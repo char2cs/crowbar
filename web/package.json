@@ -143,5 +143,8 @@
     "workerDirectory": [
       "public"
     ]
+  },
+  "patchedDependencies": {
+    "@xterm/addon-webgl@0.18.0": "patches/@xterm%2Faddon-webgl@0.18.0.patch"
   }
 }

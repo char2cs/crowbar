@@ -44,3 +44,29 @@ func NewDoneClosedForTest(
 	s.once.Do(func() { close(s.done) })
 	return s
 }
+
+// forceModelPanicForTest drives a model-driven session into the degraded/raw-fallback state
+// the same way a real recovered Write/Resize/Serialize/Emit panic would (via the §8.5
+// modelPanics counter), without needing adversarial PTY bytes. It exists so an
+// out-of-package-adjacent test can exercise modelEmitHealthyLocked's fallback gate
+// deterministically. Production never calls this.
+func forceModelPanicForTest(s *Session) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.modelPanics++
+}
+
+// forceEmitPanicForTest installs an emitForTest hook that panics on the very next
+// emitLocked call, then clears itself so only that one call panics. It exists so a test
+// can make the EMIT path (not writeModelLocked) degrade — the boundary the production
+// pumpStep fallback (fan the triggering chunk's raw bytes out rather than dropping them)
+// exists for. No adversarial PTY input can panic the real emitter deterministically, so
+// this seam is the only way to reach that boundary. Production never calls this.
+func forceEmitPanicForTest(s *Session) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.emitForTest = func(m model.TerminalModel) ([]byte, bool) {
+		s.emitForTest = nil
+		panic("forceEmitPanicForTest: simulated emit panic")
+	}
+}

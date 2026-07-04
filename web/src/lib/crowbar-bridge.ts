@@ -17,11 +17,39 @@ import { workspaceBase } from '@/lib/workspace-scope-url'
 // PTY to the webview over a Tauri Channel — see the `isTauri()` branches below
 // and desktop/src-tauri/src/terminal.rs. Both paths honour the same contract.
 
+// One parsed daemon→client terminal frame. `snapshot` marks a self-contained
+// ground-state redraw (the daemon's serialized screen model) that must be
+// applied onto a RESET xterm buffer — the attach redraw and the post-resize
+// resync — as opposed to incremental PTY output that appends.
+export interface TerminalFrame {
+  data: string
+  snapshot: boolean
+}
+
+// parseTerminalFrame decodes one wire frame ({sessionId, data, snapshot?})
+// shared by both transports (browser WebSocket text frames and the whole-frame
+// strings Rust forwards down the Tauri channel). Returns null for malformed
+// frames.
+function parseTerminalFrame(raw: string): TerminalFrame | null {
+  try {
+    const msg = JSON.parse(raw) as { data?: unknown; snapshot?: unknown }
+    if (typeof msg.data !== 'string') return null
+    return { data: msg.data, snapshot: msg.snapshot === true }
+  } catch {
+    return null
+  }
+}
+
 interface TerminalConnection {
   ws: WebSocket
-  listener: ((data: string) => void) | null
-  outputBuffer: string[]
+  listener: ((frame: TerminalFrame) => void) | null
+  outputBuffer: TerminalFrame[]
   inputQueue: string[]
+  // The most recent theme frame pushed before the socket opened. Unlike input, only the
+  // LAST theme matters, so it coalesces to one frame flushed on open — this is what makes
+  // the initial on-attach theme push (which races the WS handshake) reach the daemon, so a
+  // freshly started app detects the right background instead of the default.
+  pendingTheme: string | null
   open: boolean
 }
 
@@ -37,8 +65,8 @@ const dropCallbacks = new Map<string, Set<() => void>>()
 // Desktop transport: output arrives over a Tauri Channel instead of a WebSocket.
 // Same buffer-until-listener semantics as the browser TerminalConnection.
 interface TauriTerminal {
-  listener: ((data: string) => void) | null
-  outputBuffer: string[]
+  listener: ((frame: TerminalFrame) => void) | null
+  outputBuffer: TerminalFrame[]
   unlisten?: () => void // unsubscribe fn for the terminal:transport-dropped listener
 }
 
@@ -58,23 +86,23 @@ function openBrowserSocket(connectionId: string, base: string): void {
     listener: null,
     outputBuffer: [],
     inputQueue: [],
+    pendingTheme: null,
     open: false,
   }
   ws.onopen = () => {
     conn.open = true
     for (const data of conn.inputQueue) ws.send(JSON.stringify({ data }))
     conn.inputQueue = []
+    if (conn.pendingTheme) {
+      ws.send(conn.pendingTheme)
+      conn.pendingTheme = null
+    }
   }
   ws.onmessage = (event) => {
-    let data: string | undefined
-    try {
-      data = (JSON.parse(event.data as string) as { data?: string }).data
-    } catch {
-      return
-    }
-    if (typeof data !== 'string') return
-    if (conn.listener) conn.listener(data)
-    else conn.outputBuffer.push(data)
+    const frame = parseTerminalFrame(event.data as string)
+    if (!frame) return
+    if (conn.listener) conn.listener(frame)
+    else conn.outputBuffer.push(frame)
   }
   ws.onerror = () => {
     // Error events are followed by a close event on the same socket; all
@@ -101,9 +129,13 @@ function openBrowserSocket(connectionId: string, base: string): void {
 async function openTauriSocket(connectionId: string, wsPath: string): Promise<void> {
   const conn: TauriTerminal = { listener: null, outputBuffer: [] }
   const channel = new Channel<string>()
-  channel.onmessage = (data) => {
-    if (conn.listener) conn.listener(data)
-    else conn.outputBuffer.push(data)
+  channel.onmessage = (raw) => {
+    // Rust forwards the wire frame whole; parse it here so both transports
+    // share one frame decoder.
+    const frame = parseTerminalFrame(raw)
+    if (!frame) return
+    if (conn.listener) conn.listener(frame)
+    else conn.outputBuffer.push(frame)
   }
   tauriTerminals.set(connectionId, conn)
 
@@ -124,7 +156,18 @@ async function openTauriSocket(connectionId: string, wsPath: string): Promise<vo
   })
   conn.unlisten = unlisten
 
-  await tauriInvoke('terminal_open', { sessionId: connectionId, wsPath, onData: channel })
+  try {
+    await tauriInvoke('terminal_open', { sessionId: connectionId, wsPath, onData: channel })
+  } catch (err) {
+    // terminal_open rejected: the map entry and the transport-dropped listener
+    // were registered up-front (so buffered output isn't lost in the race window).
+    // On failure they must be torn down, or a phantom tauriTerminals entry lingers
+    // — terminalHasTransport would report a live transport that never opened, and a
+    // later attach/create would reuse the dead entry instead of re-dialing.
+    tauriTerminals.delete(connectionId)
+    unlisten()
+    throw err
+  }
 }
 
 // Create a PTY session in the workspace and open its stream. Returns the
@@ -171,6 +214,54 @@ export async function terminalResize(id: string, rows: number, cols: number): Pr
   if (conn?.open) conn.ws.send(JSON.stringify({ type: 'resize', cols, rows }))
 }
 
+// Ask the daemon to re-emit its model snapshot for this session (post-resize
+// convergence). The daemon no-ops at an idle shell prompt; when a foreground
+// app is running, a snapshot frame arrives on the output stream and the
+// terminal hook resets the local buffer with it.
+export async function terminalResync(id: string): Promise<void> {
+  if (isTauri()) {
+    if (tauriTerminals.has(id)) await tauriInvoke('terminal_resync', { sessionId: id })
+    return
+  }
+  const conn = terminals.get(id)
+  if (conn?.open) conn.ws.send(JSON.stringify({ type: 'resync' }))
+}
+
+// Push the host terminal's light/dark theme to the daemon so a foreground app's automatic
+// theme can follow a Crowbar theme switch: `bg`/`fg` are the resolved default colours (an
+// OSC 11/10 query answers with them) and `dark` is the light/dark polarity for the daemon's
+// DEC 2031 CSI ?997;n theme-change report. Best-effort and idempotent — the daemon updates the
+// query colours every call and dedupes the notification by polarity.
+export async function terminalSetTheme(
+  id: string,
+  theme: { background: string; foreground: string; dark: boolean },
+): Promise<void> {
+  if (isTauri()) {
+    if (tauriTerminals.has(id)) {
+      await tauriInvoke('terminal_set_theme', {
+        sessionId: id,
+        bg: theme.background,
+        fg: theme.foreground,
+        dark: theme.dark,
+      })
+    }
+    return
+  }
+  const conn = terminals.get(id)
+  if (!conn) return
+  const frame = JSON.stringify({
+    type: 'theme',
+    bg: theme.background,
+    fg: theme.foreground,
+    dark: theme.dark,
+  })
+  // Coalesce-until-open: the on-attach push can beat the WS handshake, and unlike input a
+  // dropped theme frame would never be retried (there is no theme equivalent of a follow-up
+  // keystroke), leaving the daemon on its default background.
+  if (conn.open) conn.ws.send(frame)
+  else conn.pendingTheme = frame
+}
+
 export async function terminalClose(id: string): Promise<void> {
   // The DELETE is the hierarchical .../terminals/:sessionId under the workspace
   // base recorded at create time. If the base is unknown (e.g. a session created
@@ -198,29 +289,31 @@ export async function terminalClose(id: string): Promise<void> {
 }
 
 // Register the output sink for a session, flushing any frames that arrived
-// before the listener attached (e.g. the shell's first prompt).
-export function terminalListen(id: string, onData: (data: string) => void): () => void {
+// before the listener attached (e.g. the shell's first prompt / the attach
+// snapshot). The listener receives parsed TerminalFrames — check `snapshot`
+// to distinguish reset-and-redraw frames from incremental output.
+export function terminalListen(id: string, onFrame: (frame: TerminalFrame) => void): () => void {
   if (isTauri()) {
     const conn = tauriTerminals.get(id)
     if (!conn) return () => {}
-    conn.listener = onData
+    conn.listener = onFrame
     if (conn.outputBuffer.length > 0) {
-      for (const chunk of conn.outputBuffer) onData(chunk)
+      for (const frame of conn.outputBuffer) onFrame(frame)
       conn.outputBuffer = []
     }
     return () => {
-      if (conn.listener === onData) conn.listener = null
+      if (conn.listener === onFrame) conn.listener = null
     }
   }
   const conn = terminals.get(id)
   if (!conn) return () => {}
-  conn.listener = onData
+  conn.listener = onFrame
   if (conn.outputBuffer.length > 0) {
-    for (const chunk of conn.outputBuffer) onData(chunk)
+    for (const frame of conn.outputBuffer) onFrame(frame)
     conn.outputBuffer = []
   }
   return () => {
-    if (conn.listener === onData) conn.listener = null
+    if (conn.listener === onFrame) conn.listener = null
   }
 }
 

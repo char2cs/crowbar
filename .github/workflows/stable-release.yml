@@ -118,14 +118,17 @@ jobs:
       - name: Compile Liquid Glass icon (Xcode 26+ only)
         run: bash desktop/icons-compiler/compile-icon.sh
       - name: Build Tauri app (universal DMG)
-        working-directory: desktop/src-tauri
-        run: |
-          if [ -f icons/Assets.car ]; then
-            cargo tauri build --target universal-apple-darwin --bundles dmg
-          else
-            cargo tauri build --target universal-apple-darwin --bundles dmg \
-              --config '{"bundle":{"macOS":{"files":{}}}}'
-          fi
+        env:
+          # Signing + notarization are opt-in: when these secrets are unset they
+          # expand to empty strings and the script builds the same ad-hoc
+          # (unsigned) DMG as before. See desktop/scripts/build-macos-dmg.sh.
+          APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
+          APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
+          APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_PASSWORD: ${{ secrets.APPLE_PASSWORD }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+        run: bash desktop/scripts/build-macos-dmg.sh
       - name: Verify artifact
         run: |
           DMG=$(find desktop/src-tauri/target/universal-apple-darwin/release/bundle/dmg -name '*.dmg' | head -1)

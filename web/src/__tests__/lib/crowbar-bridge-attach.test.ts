@@ -35,8 +35,22 @@ describe('terminalAttach', () => {
   it('delivers the replay snapshot to a later terminalListen', async () => {
     await terminalAttach('conn-2', '/base')
     const received: string[] = []
-    terminalListen('conn-2', (d) => received.push(d))
+    terminalListen('conn-2', (frame) => received.push(frame.data))
     FakeWebSocket.instances[0].onmessage?.({ data: JSON.stringify({ data: 'REPLAY' }) })
     expect(received).toContain('REPLAY')
+  })
+
+  it('parses the snapshot flag; absent means incremental output', async () => {
+    await terminalAttach('conn-3', '/base')
+    const frames: { data: string; snapshot: boolean }[] = []
+    terminalListen('conn-3', (frame) => frames.push(frame))
+    FakeWebSocket.instances[0].onmessage?.({
+      data: JSON.stringify({ data: 'REDRAW', snapshot: true }),
+    })
+    FakeWebSocket.instances[0].onmessage?.({ data: JSON.stringify({ data: 'tail' }) })
+    expect(frames).toEqual([
+      { data: 'REDRAW', snapshot: true },
+      { data: 'tail', snapshot: false },
+    ])
   })
 })

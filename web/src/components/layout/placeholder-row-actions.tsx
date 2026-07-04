@@ -1,7 +1,9 @@
+import { Button } from '@/components/ui/button'
 import type { Workspace } from '@/lib/store/sidebar'
 import { placeholderReason } from '@/lib/workspace/placeholder'
 import { retryProvision } from '@/lib/api/workspace'
 import { useDetachModalStore } from '@/features/window/stores/detach-modal-store'
+import { toast } from '@/features/window/stores/toast-store'
 
 // The inline surface for a placeholder row (spec §3.3): a reconstructed reason
 // plus Retry and Detach… actions. Retry re-provisions in place; Detach… opens the
@@ -13,7 +15,14 @@ export function PlaceholderRowActions({ workspace }: { workspace: Workspace }) {
 
   const onRetry = (e: React.MouseEvent) => {
     e.stopPropagation()
-    void retryProvision(workspace.id)
+    retryProvision(workspace.id).catch((err: unknown) => {
+      toast.show({
+        message: `Couldn't retry ${workspace.branch}`,
+        description: err instanceof Error ? err.message : String(err),
+        type: 'error',
+        key: `retry-${workspace.id}`,
+      })
+    })
   }
 
   const onDetach = (e: React.MouseEvent) => {
@@ -26,26 +35,23 @@ export function PlaceholderRowActions({ workspace }: { workspace: Workspace }) {
   }
 
   return (
-    <div className="flex flex-col gap-1 pl-6 pr-2 pb-1">
-      <p className="text-xs text-muted-foreground">{placeholderReason(workspace)}</p>
-      <div className="flex gap-2">
-        <button
-          type="button"
-          className="rounded-md px-2 py-0.5 text-xs text-foreground/70 hover:bg-accent hover:text-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
+    <div className="flex flex-col gap-1.5">
+      <p className="text-xs leading-relaxed text-muted-foreground">
+        {placeholderReason(workspace)}
+      </p>
+      <div className="flex justify-end gap-1.5">
+        <Button
+          variant="outline"
+          size="sm"
           onClick={onRetry}
           onPointerDown={(e) => e.stopPropagation()}
         >
           Retry
-        </button>
+        </Button>
         {workspace.heldByPath ? (
-          <button
-            type="button"
-            className="rounded-md px-2 py-0.5 text-xs text-foreground/70 hover:bg-accent hover:text-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
-            onClick={onDetach}
-            onPointerDown={(e) => e.stopPropagation()}
-          >
+          <Button size="sm" onClick={onDetach} onPointerDown={(e) => e.stopPropagation()}>
             Detach…
-          </button>
+          </Button>
         ) : null}
       </div>
     </div>

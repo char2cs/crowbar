@@ -1,5 +1,8 @@
 import { describe, expect, it } from 'vitest'
-import { buildTerminalTheme } from '@/features/terminal/hooks/use-terminal-theme'
+import {
+  buildTerminalTheme,
+  buildTerminalThemePayload,
+} from '@/features/terminal/hooks/use-terminal-theme'
 
 const ANSI = {
   black: '#1f1f1f',
@@ -36,5 +39,33 @@ describe('buildTerminalTheme', () => {
   it('derives a translucent selection from the cursor color', () => {
     const theme = buildTerminalTheme(ANSI, UI)
     expect(theme.selectionBackground).toBe('rgba(245, 245, 245, 0.25)')
+  })
+})
+
+describe('buildTerminalThemePayload', () => {
+  it('reports the resolved --background/--foreground and dark flag to the daemon', () => {
+    const resolve = (name: string) =>
+      name === '--background' ? '#101014' : name === '--foreground' ? '#e8e8e8' : null
+    expect(buildTerminalThemePayload(resolve, true)).toEqual({
+      background: '#101014',
+      foreground: '#e8e8e8',
+      dark: true,
+    })
+  })
+
+  it('carries the light polarity independently of the resolved colours', () => {
+    const resolve = (name: string) => (name === '--background' ? '#ffffff' : '#111111')
+    expect(buildTerminalThemePayload(resolve, false)).toEqual({
+      background: '#ffffff',
+      foreground: '#111111',
+      dark: false,
+    })
+  })
+
+  it('falls back to sane opaque defaults when the vars are unresolved', () => {
+    const payload = buildTerminalThemePayload(() => null, false)
+    expect(payload.dark).toBe(false)
+    expect(payload.background).toMatch(/^#[0-9a-f]{6}$/i)
+    expect(payload.foreground).toMatch(/^#[0-9a-f]{6}$/i)
   })
 })

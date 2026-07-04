@@ -23,6 +23,17 @@ export function setWorkspaceScope(scope: WorkspaceScope): void {
   _activeWorkspaceId = scope.wsId
 }
 
+/**
+ * Record a workspace's scope WITHOUT making it the active workspace. The
+ * sidebar store calls this for every workspace as its data arrives, so actions
+ * on a workspace the user never navigated to (e.g. Retry/Detach… on a
+ * placeholder row) can still build their scoped URL — workspaceBase throws on
+ * an unrecorded scope, which used to make those buttons silently no-op.
+ */
+export function recordWorkspaceScope(scope: WorkspaceScope): void {
+  _scopes.set(scope.wsId, scope)
+}
+
 // The router pathname for the active workspace route. Not anchored to the start
 // so it also matches the hash-history in-hash path; captures exactly the three
 // /ide/:projectId/:repoId/:wsId segments and stops at the next separator.
