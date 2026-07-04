@@ -86,10 +86,17 @@ is computed by **grid comparison at emit time**, not tracked per-write:
   rendering — this is small).
 - Scrollback delta: `emu` scrollback length is monotonic per screen-buffer
   epoch; the session records `lastEmittedScrollbackLen`. New lines are emitted
-  FIRST, as: `CUP(rows,1)` + line + `\n` per committed line (the client
-  scrolls them into its own scrollback naturally, same technique as the
-  serializer's scrollback flow). Then the screen diff repaints. Alt screen has
-  no scrollback: skip step 1, diff the alt grid.
+  FIRST, using a **write-then-scroll** technique chunked by screen height (see
+  `writeScrollbackDelta`): for each batch of up to `rows` committed lines, PAINT
+  them onto the top rows (`CUP(row,1)` + erase-right + encoded line), then scroll
+  the batch out with LFs from a parked bottom-row cursor (`CUP(rows,1)` then one
+  `\r\n` per line). Each LF flushes a top row we JUST wrote, so the client's
+  scrollback receives exactly the committed content. (Scrolling FIRST — the naïve
+  `CUP(rows,1)`+line+`\n` per line — flushes the client's stale pre-delta rows
+  instead; that was the bug this replaced.) The screen is intentionally left
+  trashed: Emit invalidates the row cache on any scrollback growth, so the screen
+  diff that follows repaints the full viewport. Alt screen has no scrollback: skip
+  step 1, diff the alt grid.
 - Resize/clear-screen/alt-screen-switch invalidate `lastEmitted` → the next
   emission is a **keyframe** (snapshot frame via the existing serializer)
   instead of a diff. Cheap, correct, and already client-supported.
@@ -136,12 +143,18 @@ byte corpora through a session and asserts a client simulator's grid/cursor/
 modes match the model after every frame; mutation testing keeps it honest. That
 proof happens at test time, so production carries no shadow-simulator cost.
 
-- **Model degraded / parse panic** (`modelPanics` sticky state): the session
-  flips to raw-stream emission for its remaining lifetime and logs once, and the
-  model's response sink is uninstalled so the client xterm becomes the sole
-  device-query answerer again (§3.8). The existing §8/§9.4 degraded machinery is
-  the trigger; no new states. This raw branch is reachable ONLY via degradation
-  (or a nil model on a placeholder before restore), never configuration —
+- **Model degraded / session-level model-access panic** (`modelPanics` sticky
+  state): the session flips to raw-stream emission for its remaining lifetime and
+  logs once, and the model's response sink is uninstalled so the client xterm
+  becomes the sole device-query answerer again (§3.8). The `modelPanics` counter
+  that triggers this is bumped ONLY by the §8.5 session backstops around
+  *model-access* calls — Resize, Serialize, Emit, Prime, teardown — NOT by the
+  emulator's own byte-parsing. A parse panic INSIDE `vtModel.Write` (adversarial
+  PTY bytes tripping x/vt's parser) self-heals within the model: `recreateEmu`
+  swaps in a fresh emulator (blank grid, scrollback content lost, depth+title
+  preserved) and the session STAYS model-driven — a self-heal, not a fallback.
+  So the raw branch is reachable only when a model *method* panics (or a nil model
+  on a placeholder before restore), never from stream content alone;
   `modelEmitHealthyLocked` gates it.
 - **Slow client**: unchanged — overflow disconnects the client (existing
   fanOutLocked behavior); re-attach delivers a keyframe. Diff frames are
@@ -185,8 +198,9 @@ bytes, becomes the answerer again. One answerer at a time, always.
   already ships similar volume through the same pumps.
 - **Memory**: one extra cols×rows cell buffer per live session (the diff
   emitter's `lastGrid`), ≈ 170×50×~32B ≈ 270KB worst case. `Session.ModelBytes()`
-  now folds `DiffEmitter.EstimatedBytes()` (a coarse cols×rows×32 estimate of
-  that grid) into the engine memory ceiling.
+  now folds `model.EmitterGridBytes(cols, rows)` (a coarse cols×rows×32 estimate of
+  that grid, computed from the model's dimensions so it is stable from spawn) into
+  the engine memory ceiling.
 
 ## 5. Testing
 
@@ -282,6 +296,19 @@ are amended in place, this subsection is the change log.
   which read only the visible grid/cursor/alt-flag — they are accepted by
   argument, and the conformance suite (which does assert scrollback) is now the
   place to grow coverage for them if ever needed.
+
+- **Scrollback-delta emission technique (§3.2) — corrected**: the original
+  "`CUP(rows,1)` + line + `\n` per committed line" description was the buggy
+  scroll-FIRST form (it flushes the client's stale pre-delta rows into history).
+  The shipped `writeScrollbackDelta` uses the WRITE-then-scroll technique chunked
+  by screen height: paint each batch onto the top rows, then scroll it out with
+  LFs from a parked bottom-row cursor so each LF flushes a row just written. §3.2
+  is amended to match.
+- **`IsInput` wire field (§3.4) — DELETED**: the server→client `outputMsg` carried
+  a vestigial `isInput` bool that was always `false` and read by nobody — the FE
+  `parseTerminalFrame` decodes only `data`/`snapshot`, and Rust forwards the whole
+  frame opaquely. Dropped from the Go struct and the FE mirror type. The wire is
+  now `{sessionId, data, snapshot?}`.
 
   Known perf notes (things to keep an eye on, not blockers):
   - Keyframe-per-tick cadence cliff when a single tick lands more than

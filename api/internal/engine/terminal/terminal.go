@@ -280,7 +280,6 @@ func (e *terminalEngine) lockSession(id string) func() {
 type outputMsg struct {
 	SessionID string `json:"sessionId"`
 	Data      string `json:"data"`
-	IsInput   bool   `json:"isInput"`
 	Snapshot  bool   `json:"snapshot,omitempty"`
 }
 

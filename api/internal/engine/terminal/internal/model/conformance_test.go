@@ -323,6 +323,57 @@ func TestConformance_UnsaturatedRingBlankTailMisanchor(t *testing.T) {
 			"newly committed batch ends in a line that duplicates the prior tail's content")
 }
 
+// TestConformance_AltScreenRoundTripOnSaturatedRing pins M5(c): a full-screen TUI
+// round-trip (enter alt, draw, exit) performed while the PRIMARY scrollback ring
+// is already saturated must leave the client's scrollback exactly equal to the
+// model's — through the enter/exit keyframes AND the rotating-ring diff replay of
+// scrollback committed after returning to primary. The alt buffer has no
+// scrollback, so the primary history must survive the round-trip untouched.
+func TestConformance_AltScreenRoundTripOnSaturatedRing(t *testing.T) {
+	const cols, rows, capLines = 20, 4, 8
+	m, ser := New(cols, rows, capLines)
+	t.Cleanup(func() { m.Close() })
+	sim := newClientSim(t, cols, rows, capLines)
+	t.Cleanup(func() { sim.m.Close() })
+	e := NewDiffEmitter()
+
+	// Spend the mandatory initial keyframe on something small.
+	conformanceStep(t, m, e, ser, sim, []byte("start"))
+
+	// Saturate the primary-buffer scrollback ring with distinct lines.
+	var fill strings.Builder
+	for i := 0; i < 12; i++ {
+		fmt.Fprintf(&fill, "pre-%02d\r\n", i)
+	}
+	conformanceStep(t, m, e, ser, sim, []byte(fill.String()))
+	require.Equal(t, capLines, m.(*vtModel).emu.ScrollbackLen(),
+		"test setup: ring must be saturated before the alt round-trip")
+	require.Equal(t, scrollbackStrings(m), scrollbackStrings(sim.m),
+		"scrollback must match after saturating the ring")
+
+	// Alt round-trip: both the enter and exit flip alt → force keyframes.
+	require.True(t, conformanceStep(t, m, e, ser, sim, []byte("\x1b[?1049h")),
+		"entering alt must force a keyframe")
+	conformanceStep(t, m, e, ser, sim, []byte("\x1b[2;3HALT-FRAME"))
+	require.True(t, conformanceStep(t, m, e, ser, sim, []byte("\x1b[?1049l")),
+		"exiting alt must force a keyframe")
+
+	require.Equal(t, scrollbackStrings(m), scrollbackStrings(sim.m),
+		"primary scrollback must survive the alt round-trip intact")
+
+	// Commit MORE scrollback after returning to primary, on the still-saturated
+	// ring — exercising the rotating-ring diff replay after the alt keyframe.
+	var more strings.Builder
+	for i := 0; i < 6; i++ {
+		fmt.Fprintf(&more, "post-%02d\r\n", i)
+	}
+	conformanceStep(t, m, e, ser, sim, []byte(more.String()))
+
+	require.Equal(t, capLines, m.(*vtModel).emu.ScrollbackLen(), "ring must stay saturated")
+	require.Equal(t, scrollbackStrings(m), scrollbackStrings(sim.m),
+		"client scrollback must equal the model's after an alt round-trip on a saturated ring")
+}
+
 func TestConformance_RandomizedByteSplits(t *testing.T) {
 	// A fixed-seed random walk over printable text, cursor moves, SGR, line
 	// feeds and occasional clears, delivered in adversarial split sizes.
