@@ -268,6 +268,154 @@ describe('useTerminalConnection — snapshot frames (attach redraw / resize resy
   })
 })
 
+// Async fake terminal: write(data, cb) does NOT invoke cb synchronously.
+// Instead it pushes {data, cb} onto a queue that the test drains explicitly
+// via drainWrites(), one entry at a time — mirroring xterm's real contract
+// where write() schedules an async parse and the callback fires only once
+// that parse completes. The synchronous fake above is vacuous for ordering
+// bugs where a rAF-flushed frame can be enqueued BETWEEN the barrier write
+// and its callback; this fake makes that race observable.
+function makeAsyncFakeTerminal() {
+  const order: string[] = []
+  type QueueEntry = { data: string; cb?: () => void }
+  const queue: QueueEntry[] = []
+  const scrollToBottom = vi.fn()
+  const refresh = vi.fn()
+  const reset = vi.fn(() => order.push('reset'))
+  const write = vi.fn((data: string, cb?: () => void) => {
+    order.push(`enqueue:${data}`)
+    queue.push({ data, cb })
+  })
+  // Drains only the entries present in the queue AT CALL TIME — a callback
+  // invoked mid-drain can itself enqueue new writes (e.g. the snapshot barrier
+  // enqueuing the redraw), and those must wait for the NEXT drainWrites() call
+  // rather than being swept up in this one. That's what makes "step by step"
+  // draining actually observe the enqueue-vs-parse ordering.
+  const drainWrites = () => {
+    const batch = queue.splice(0, queue.length)
+    for (const entry of batch) {
+      order.push(`parse:${entry.data}`)
+      entry.cb?.()
+    }
+  }
+  const disposable = () => ({ dispose: () => {} })
+  const parent = { addEventListener: vi.fn(), removeEventListener: vi.fn() }
+  const terminal = {
+    rows: 40,
+    write,
+    reset,
+    scrollToBottom,
+    refresh,
+    onData: vi.fn(disposable),
+    onResize: vi.fn(() => ({ dispose: () => {} })),
+    onTitleChange: vi.fn(disposable),
+    element: { parentElement: parent },
+    buffer: { active: { type: 'normal' } },
+    modes: { mouseTrackingMode: 'none', sendFocusMode: false },
+  }
+  return { terminal, write, reset, order, drainWrites, queueLength: () => queue.length }
+}
+
+describe('useTerminalConnection — snapshot latch vs async xterm write queue', () => {
+  let rafCbs: FrameRequestCallback[] = []
+  const flushRaf = () => {
+    const cbs = rafCbs
+    rafCbs = []
+    for (const cb of cbs) cb(0)
+  }
+
+  beforeEach(() => {
+    bridge.terminalListen.mockClear()
+    bridge.terminalResync.mockClear()
+    bridge.reset()
+    rafCbs = []
+    vi.spyOn(window, 'requestAnimationFrame').mockImplementation((cb: FrameRequestCallback) => {
+      rafCbs.push(cb)
+      return rafCbs.length
+    })
+    vi.spyOn(window, 'cancelAnimationFrame').mockImplementation(() => {})
+  })
+
+  afterEach(() => {
+    vi.restoreAllMocks()
+  })
+
+  it('holds post-snapshot frames until the barrier callback actually runs, never parsing them between reset and the redraw', () => {
+    const { terminal, write, order, drainWrites } = makeAsyncFakeTerminal()
+    renderConnection(terminal)
+
+    // D0 lands and gets rAF-flushed, but xterm has not parsed it yet — it sits
+    // enqueued in the async write queue (undrained backlog), exactly like a
+    // real xterm under load.
+    act(() => {
+      bridge.deliver('D0')
+      flushRaf()
+    })
+    expect(order).toEqual(['enqueue:D0'])
+
+    // Snapshot arrives while D0 is still unparsed.
+    act(() => {
+      bridge.deliver('SNAP', true)
+    })
+    // The barrier write is enqueued behind D0; nothing has parsed yet, so
+    // reset()/the redraw write must not have happened.
+    expect(order).toEqual(['enqueue:D0', 'enqueue:'])
+    expect(reset_not_called(terminal)).toBe(true)
+
+    // D1 arrives and is rAF-flushed BEFORE anything is drained. Because the
+    // snapshot latch (snapshotPendingRef) is set, this must NOT reach
+    // terminal.write at all — it must stay buffered in outputBufferRef.
+    act(() => {
+      bridge.deliver('D1')
+      flushRaf()
+    })
+    expect(write).not.toHaveBeenCalledWith('D1', expect.anything())
+    expect(order).toEqual(['enqueue:D0', 'enqueue:'])
+
+    // Drain step by step: first D0 parses (stale, pre-barrier content), then
+    // the empty barrier write parses, running its callback synchronously,
+    // which calls reset(), enqueues the redraw write (SNAP), clears the latch,
+    // and reschedules a flush for the buffered D1 (via rAF — not synchronous).
+    drainWrites()
+
+    expect(order).toEqual(['enqueue:D0', 'enqueue:', 'parse:D0', 'parse:', 'reset', 'enqueue:SNAP'])
+
+    // The rescheduled flush actually enqueues D1's write only once its rAF
+    // fires — and only AFTER the redraw (SNAP) was already enqueued above.
+    act(() => {
+      flushRaf()
+    })
+    expect(order).toEqual([
+      'enqueue:D0',
+      'enqueue:',
+      'parse:D0',
+      'parse:',
+      'reset',
+      'enqueue:SNAP',
+      'enqueue:D1',
+    ])
+
+    // Draining the rest parses SNAP then D1, in that order — D1 parses only
+    // AFTER the redraw, never between reset and SNAP.
+    drainWrites()
+    expect(order).toEqual([
+      'enqueue:D0',
+      'enqueue:',
+      'parse:D0',
+      'parse:',
+      'reset',
+      'enqueue:SNAP',
+      'enqueue:D1',
+      'parse:SNAP',
+      'parse:D1',
+    ])
+  })
+})
+
+function reset_not_called(terminal: { reset: ReturnType<typeof vi.fn> }) {
+  return terminal.reset.mock.calls.length === 0
+}
+
 describe('useTerminalConnection — debounced resize resync', () => {
   beforeEach(() => {
     bridge.terminalListen.mockClear()

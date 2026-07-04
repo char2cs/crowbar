@@ -60,6 +60,15 @@ export function useTerminalConnection({
   // One-shot flag: armed on every (re)attach, consumed by the first output
   // flush (the daemon's bulk scrollback replay) to force a viewport repaint.
   const pendingAttachFinalizeRef = useRef(false)
+  // Latched while a snapshot's reset+redraw is sequenced through xterm's async
+  // write queue (see the snapshot branch below). Incremental frames that arrive
+  // while this is set must NOT be flushed — xterm parses writes in enqueue
+  // order, so a frame flushed between the barrier write and its callback would
+  // parse AFTER reset() but BEFORE the redraw, landing on a blank buffer and
+  // then getting silently overwritten by the redraw that follows it. Cleared
+  // only inside the barrier callback, immediately after the redraw write is
+  // enqueued, so anything still buffered is flushed strictly after the redraw.
+  const snapshotPendingRef = useRef(false)
   const { write, flush } = useTerminalWriteBuffer({
     getConnectionId: () => currentConnectionIdRef.current,
     writeChunk: async (activeConnectionId, data) => {
@@ -141,6 +150,10 @@ export function useTerminalConnection({
     }
 
     const scheduleOutputFlush = () => {
+      // While a snapshot's reset+redraw is pending in xterm's write queue,
+      // keep everything in outputBufferRef and do not schedule a flush — see
+      // snapshotPendingRef above for why flushing here would race the redraw.
+      if (snapshotPendingRef.current) return
       if (outputFlushFrameRef.current !== null) return
       outputFlushFrameRef.current = window.requestAnimationFrame(flushOutputBuffer)
     }
@@ -251,6 +264,10 @@ export function useTerminalConnection({
           outputFlushFrameRef.current = null
         }
         pendingAttachFinalizeRef.current = false
+        // Latch BEFORE the barrier write so any incremental frame that arrives
+        // (and gets rAF-flushed) before the barrier callback fires is held in
+        // outputBufferRef instead of being written — see snapshotPendingRef.
+        snapshotPendingRef.current = true
         // Sequence the reset + redraw THROUGH xterm's async write queue. xterm
         // parses write() data asynchronously, so any live bytes handed to
         // terminal.write() before this snapshot arrived are still sitting in that
@@ -266,6 +283,13 @@ export function useTerminalConnection({
             terminal.scrollToBottom()
             terminal.refresh(0, terminal.rows - 1)
           })
+          // Clear the latch immediately after the redraw write is ENQUEUED
+          // (not after its parse-complete callback runs). xterm parses writes
+          // in enqueue order, so anything scheduled here is guaranteed to
+          // parse strictly after the redraw above — never between reset() and
+          // the redraw.
+          snapshotPendingRef.current = false
+          if (outputBufferRef.current) scheduleOutputFlush()
         })
         return
       }
@@ -319,6 +343,9 @@ export function useTerminalConnection({
       window.removeEventListener('blur', handleWindowBlur)
       wheelContainer?.removeEventListener('wheel', handleWheel, true)
       if (resyncTimer !== null) window.clearTimeout(resyncTimer)
+      // Never leave a reconnect starting latched: a fresh (re)attach effect
+      // must be free to schedule flushes from its first frame.
+      snapshotPendingRef.current = false
       if (outputFlushFrameRef.current !== null) {
         cancelAnimationFrame(outputFlushFrameRef.current)
         flushOutputBuffer()
