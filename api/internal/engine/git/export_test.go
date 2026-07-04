@@ -3,6 +3,7 @@ package git
 
 import (
 	"context"
+	"time"
 
 	gitdomain "github.com/char2cs/crowbar/api/internal/domain/git"
 	gitexec "github.com/char2cs/crowbar/api/internal/engine/git/internal/exec"
@@ -67,6 +68,20 @@ func ExportedDetectInProgressOp(
 	repoPath string,
 ) string {
 	return detectInProgressOp(ctx, repoPath)
+}
+
+// SetNetTimeoutsForTest overrides the network git timeouts and returns a
+// restore func, so tests can exercise the stalled-remote bound without
+// waiting minutes.
+func SetNetTimeoutsForTest(
+	transfer time.Duration,
+	query time.Duration,
+) func() {
+	origTransfer, origQuery := netTransferTimeout, netQueryTimeout
+	netTransferTimeout, netQueryTimeout = transfer, query
+	return func() {
+		netTransferTimeout, netQueryTimeout = origTransfer, origQuery
+	}
 }
 
 func errExec(_ context.Context, _ string, _ ...string) gitexec.Result {

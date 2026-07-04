@@ -387,12 +387,21 @@ pub fn run() {
                 }
             });
 
+            // Supervise it: deep readiness probes, goroutine dump + restart on
+            // a wedge (see sidecar::start_watchdog).
+            sidecar::start_watchdog(app.handle().clone());
+
             Ok(())
         })
         .on_window_event(|window, event| {
             if let tauri::WindowEvent::CloseRequested { .. } | tauri::WindowEvent::Destroyed = event
             {
                 if let Some(state) = window.try_state::<sidecar::SidecarHandle>() {
+                    // Tell the supervisor this exit is intentional so neither
+                    // the output pump nor the watchdog respawns the daemon.
+                    state
+                        .shutting_down
+                        .store(true, std::sync::atomic::Ordering::SeqCst);
                     if let Some(child) = state.child.lock().unwrap().take() {
                         // On Unix: send SIGTERM to allow the daemon's graceful
                         // shutdown path (Container.Close → Terminal.Shutdown →

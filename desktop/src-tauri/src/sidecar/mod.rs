@@ -1,13 +1,35 @@
+pub mod supervisor;
+
+use std::io::Write;
 use std::path::PathBuf;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Mutex;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use http_body_util::{BodyExt, Empty};
 use hyper::Request;
 use hyper_util::rt::TokioIo;
-use tauri::{AppHandle, Manager, Runtime};
-use tauri_plugin_shell::{process::CommandChild, ShellExt};
+use tauri::{AppHandle, Emitter, Manager, Runtime};
+use tauri_plugin_shell::{
+    process::{CommandChild, CommandEvent},
+    ShellExt,
+};
 use tokio::net::UnixStream;
+
+/// Cap per daemon-log generation; one previous generation is kept as `.1`.
+const DAEMON_LOG_MAX_LEN: u64 = 4 * 1024 * 1024;
+/// How often the watchdog probes the daemon's deep readiness path.
+const WATCHDOG_INTERVAL: Duration = Duration::from_secs(10);
+/// Per-probe budget; the deep path answers in microseconds when healthy.
+const PROBE_TIMEOUT: Duration = Duration::from_secs(5);
+/// Consecutive failed probes before the watchdog declares a wedge.
+const PROBE_FAILURE_THRESHOLD: u32 = 3;
+/// At most this many automatic respawns per window; beyond it the daemon is
+/// declared dead until the next app launch (guards against crash loops).
+const RESTART_MAX: usize = 3;
+const RESTART_WINDOW: Duration = Duration::from_secs(600);
+/// Grace between SIGQUIT (Go dumps goroutines to captured stderr) and SIGKILL.
+const SIGQUIT_GRACE: Duration = Duration::from_secs(2);
 
 /// Holds the child process handle for the crowbar-api sidecar so it can be
 /// killed cleanly when the Tauri window closes, plus the path to the unix
@@ -15,6 +37,10 @@ use tokio::net::UnixStream;
 pub struct SidecarHandle {
     pub child: Mutex<Option<CommandChild>>,
     pub socket_path: Mutex<Option<PathBuf>>,
+    /// Set by the window-close kill path so the supervisor never respawns a
+    /// daemon the user is intentionally shutting down.
+    pub shutting_down: AtomicBool,
+    restart_budget: Mutex<supervisor::RestartBudget>,
 }
 
 impl SidecarHandle {
@@ -22,6 +48,8 @@ impl SidecarHandle {
         Self {
             child: Mutex::new(None),
             socket_path: Mutex::new(None),
+            shutting_down: AtomicBool::new(false),
+            restart_budget: Mutex::new(supervisor::RestartBudget::new(RESTART_MAX, RESTART_WINDOW)),
         }
     }
 
@@ -29,6 +57,36 @@ impl SidecarHandle {
     pub fn socket_path(&self) -> Option<PathBuf> {
         self.socket_path.lock().unwrap().clone()
     }
+}
+
+/// The daemon's captured stdout/stderr: `<crowbar home>/logs/daemon.log`.
+/// This is the only place a Go panic's stack trace survives in the packaged
+/// app — the sidecar's pipes are otherwise connected to nothing.
+pub fn daemon_log_path() -> PathBuf {
+    let (home, _) = crowbar_home();
+    home.unwrap_or_else(std::env::temp_dir)
+        .join("logs")
+        .join("daemon.log")
+}
+
+fn open_daemon_log() -> Option<std::fs::File> {
+    let path = daemon_log_path();
+    if let Some(dir) = path.parent() {
+        let _ = std::fs::create_dir_all(dir);
+    }
+    let _ = supervisor::rotate_if_needed(&path, DAEMON_LOG_MAX_LEN);
+    std::fs::OpenOptions::new()
+        .create(true)
+        .append(true)
+        .open(&path)
+        .ok()
+}
+
+fn epoch_secs() -> u64 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_secs())
+        .unwrap_or(0)
 }
 
 /// The daemon's unix-socket path: a fixed, well-known location matching the
@@ -136,7 +194,7 @@ pub async fn spawn<R: Runtime>(
         }
     }
 
-    let (_rx, child) = sidecar.spawn()?;
+    let (rx, child) = sidecar.spawn()?;
 
     // Store child + socket path in managed state so it can be killed on window
     // close and so the api_proxy / lib.rs can locate the socket.
@@ -146,9 +204,111 @@ pub async fn spawn<R: Runtime>(
         state.socket_path.lock().unwrap().replace(socket.clone());
     }
 
+    // Capture the daemon's stdout/stderr into the daemon log and supervise its
+    // exit — without this pump a Go panic's stack trace vanishes with the pipe.
+    let pump_app = app.clone();
+    tauri::async_runtime::spawn(pump_output(pump_app, rx));
+
     wait_for_health(&socket, 30).await?;
     log::info!("crowbar daemon is ready on {}", socket.display());
     Ok(())
+}
+
+/// Drains the sidecar's output channel into the daemon log. On termination it
+/// records the exit code/signal — the datum every past silent daemon death was
+/// missing — and hands off to the respawn policy.
+async fn pump_output<R: Runtime>(
+    app: AppHandle<R>,
+    mut rx: tauri::async_runtime::Receiver<CommandEvent>,
+) {
+    let mut log_file = open_daemon_log();
+    let mut lines_since_rotate_check: u32 = 0;
+    let mut write_line = |file: &mut Option<std::fs::File>, prefix: &str, text: &str| {
+        if let Some(f) = file {
+            let _ = writeln!(f, "{prefix} {}", text.trim_end_matches(['\r', '\n']));
+        }
+    };
+    write_line(
+        &mut log_file,
+        "===",
+        &format!("daemon spawned (epoch {})", epoch_secs()),
+    );
+
+    while let Some(event) = rx.recv().await {
+        // The Go daemon logs every request to stderr, so one long-lived daemon
+        // can outgrow the cap between spawns; re-check size periodically.
+        lines_since_rotate_check += 1;
+        if lines_since_rotate_check >= 5000 {
+            lines_since_rotate_check = 0;
+            if supervisor::rotate_if_needed(&daemon_log_path(), DAEMON_LOG_MAX_LEN).is_ok() {
+                log_file = open_daemon_log();
+            }
+        }
+        match event {
+            CommandEvent::Stdout(bytes) => {
+                write_line(&mut log_file, "[out]", &String::from_utf8_lossy(&bytes));
+            }
+            CommandEvent::Stderr(bytes) => {
+                write_line(&mut log_file, "[err]", &String::from_utf8_lossy(&bytes));
+            }
+            CommandEvent::Error(e) => {
+                write_line(&mut log_file, "[evt]", &format!("channel error: {e}"));
+            }
+            CommandEvent::Terminated(payload) => {
+                let summary = format!(
+                    "daemon terminated (epoch {}, code={:?}, signal={:?})",
+                    epoch_secs(),
+                    payload.code,
+                    payload.signal
+                );
+                write_line(&mut log_file, "===", &summary);
+                log::error!("crowbar {summary}");
+                let _ = app.emit("daemon:terminated", summary.clone());
+                handle_termination(&app);
+                break;
+            }
+            _ => {}
+        }
+    }
+}
+
+/// Decides what happens after the daemon exits: nothing during an intentional
+/// shutdown, a budgeted respawn otherwise. Runs the respawn as a boxed task —
+/// spawn() owns the pump future, so re-entering it from the pump must cross a
+/// type-erased boundary.
+fn handle_termination<R: Runtime>(app: &AppHandle<R>) {
+    let state = app.state::<SidecarHandle>();
+    state.child.lock().unwrap().take();
+
+    if state.shutting_down.load(Ordering::SeqCst) {
+        return;
+    }
+    if !state.restart_budget.lock().unwrap().allow(Instant::now()) {
+        log::error!(
+            "crowbar daemon died {RESTART_MAX} times within {RESTART_WINDOW:?}; \
+             giving up until the next app launch"
+        );
+        let _ = app.emit("daemon:dead", ());
+        return;
+    }
+
+    let app = app.clone();
+    let respawn: std::pin::Pin<Box<dyn std::future::Future<Output = ()> + Send>> =
+        Box::pin(async move {
+            tokio::time::sleep(Duration::from_millis(500)).await;
+            let state = app.state::<SidecarHandle>();
+            if state.shutting_down.load(Ordering::SeqCst) {
+                return;
+            }
+            log::warn!("respawning crowbar daemon after unexpected exit");
+            match spawn(&app, socket_path()).await {
+                Ok(()) => {
+                    let _ = app.emit("daemon:restarted", ());
+                }
+                Err(e) => log::error!("failed to respawn crowbar daemon: {e}"),
+            }
+        });
+    tauri::async_runtime::spawn(respawn);
 }
 
 async fn wait_for_health(
@@ -170,6 +330,21 @@ async fn wait_for_health(
 }
 
 async fn check_health(socket: &PathBuf) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+    let resp = http_get(socket, "/v0/health").await?;
+    if resp.status().is_success() {
+        // Drain the body so the connection can be reused/closed cleanly.
+        let _ = resp.into_body().collect().await;
+        Ok(())
+    } else {
+        Err(format!("health check returned {}", resp.status()).into())
+    }
+}
+
+/// One HTTP/1.1 GET over the daemon's unix socket.
+async fn http_get(
+    socket: &PathBuf,
+    path: &str,
+) -> Result<hyper::Response<hyper::body::Incoming>, Box<dyn std::error::Error + Send + Sync>> {
     let stream = UnixStream::connect(socket).await?;
     let io = TokioIo::new(stream);
 
@@ -183,17 +358,122 @@ async fn check_health(socket: &PathBuf) -> Result<(), Box<dyn std::error::Error 
     // Host header for HTTP/1.1, so use a placeholder.
     let req = Request::builder()
         .method("GET")
-        .uri("/v0/health")
+        .uri(path)
         .header("Host", "localhost")
         .body(Empty::<bytes::Bytes>::new())?;
 
-    let resp = sender.send_request(req).await?;
-    if resp.status().is_success() {
-        // Drain the body so the connection can be reused/closed cleanly.
-        let _ = resp.into_body().collect().await;
-        Ok(())
-    } else {
-        Err(format!("health check returned {}", resp.status()).into())
+    Ok(sender.send_request(req).await?)
+}
+
+/// Deep readiness probe. Unlike /v0/health — which answers from a static
+/// handler and stays green while the daemon is wedged — /v0/projects goes
+/// through the global view store, the exact resource every observed
+/// production wedge pinned. A daemon that cannot answer this is not serving
+/// users, whatever its liveness endpoint says.
+async fn probe_ready(socket: &PathBuf) -> bool {
+    match http_get(socket, "/v0/projects").await {
+        Ok(resp) => {
+            let ok = resp.status().is_success();
+            let _ = resp.into_body().collect().await;
+            ok
+        }
+        Err(_) => false,
+    }
+}
+
+/// Fetches a full goroutine dump from the daemon's pprof surface, so a wedge
+/// leaves behind the stacks that explain which lock everything was stuck on.
+async fn capture_goroutine_dump(socket: &PathBuf) -> Option<String> {
+    let resp = http_get(socket, "/debug/pprof/goroutine?debug=2")
+        .await
+        .ok()?;
+    if !resp.status().is_success() {
+        return None;
+    }
+    let body = resp.into_body().collect().await.ok()?.to_bytes();
+    Some(String::from_utf8_lossy(&body).into_owned())
+}
+
+/// Watches the daemon and recovers it from wedges: after
+/// PROBE_FAILURE_THRESHOLD consecutive failed deep probes it appends a
+/// goroutine dump to the daemon log, SIGQUITs the daemon (the Go runtime
+/// prints all stacks to the captured stderr and exits), and escalates to
+/// SIGKILL; the output pump's Terminated handler then respawns within budget.
+///
+/// Spawned once per app run — respawned daemons are picked up automatically
+/// because the probe reads the socket path from managed state on every tick.
+pub fn start_watchdog<R: Runtime>(app: AppHandle<R>) {
+    tauri::async_runtime::spawn(async move {
+        let mut tracker = supervisor::FailureTracker::new(PROBE_FAILURE_THRESHOLD);
+        loop {
+            tokio::time::sleep(WATCHDOG_INTERVAL).await;
+
+            let state = app.state::<SidecarHandle>();
+            if state.shutting_down.load(Ordering::SeqCst) {
+                return;
+            }
+            // No child: daemon is mid-respawn or gave up its budget; nothing
+            // to probe (and nothing the watchdog could kill anyway).
+            if state.child.lock().unwrap().is_none() {
+                tracker.reset();
+                continue;
+            }
+            let Some(socket) = state.socket_path() else {
+                continue;
+            };
+
+            let healthy = tokio::time::timeout(PROBE_TIMEOUT, probe_ready(&socket))
+                .await
+                .unwrap_or(false);
+            if !tracker.observe(healthy) {
+                continue;
+            }
+
+            log::error!(
+                "crowbar daemon failed {PROBE_FAILURE_THRESHOLD} consecutive readiness \
+                 probes; capturing goroutine dump and restarting it"
+            );
+            let _ = app.emit("daemon:unhealthy", ());
+
+            if let Some(dump) =
+                tokio::time::timeout(Duration::from_secs(10), capture_goroutine_dump(&socket))
+                    .await
+                    .ok()
+                    .flatten()
+            {
+                if let Some(mut f) = open_daemon_log() {
+                    let _ = writeln!(
+                        f,
+                        "=== watchdog goroutine dump (epoch {}) ===\n{dump}\n=== end dump ===",
+                        epoch_secs()
+                    );
+                }
+            }
+
+            kill_wedged(&app).await;
+            tracker.reset();
+        }
+    });
+}
+
+/// SIGQUIT then SIGKILL for a daemon that stopped answering. SIGQUIT is not
+/// caught by the daemon (it handles only SIGINT/SIGTERM), so the Go runtime's
+/// default handler prints every goroutine stack to stderr — captured by the
+/// output pump — and exits; SIGKILL covers a runtime too wedged even for that.
+async fn kill_wedged<R: Runtime>(app: &AppHandle<R>) {
+    let child = app.state::<SidecarHandle>().child.lock().unwrap().take();
+    let Some(child) = child else { return };
+    #[cfg(unix)]
+    {
+        let pid = child.pid() as libc::pid_t;
+        unsafe { libc::kill(pid, libc::SIGQUIT) };
+        tokio::time::sleep(SIGQUIT_GRACE).await;
+        // No-op (returns an error) if the SIGQUIT dump already ended it.
+        let _ = child.kill();
+    }
+    #[cfg(not(unix))]
+    {
+        let _ = child.kill();
     }
 }
 

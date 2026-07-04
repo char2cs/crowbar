@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 	"strings"
 	"sync"
+	"time"
 
 	gitdomain "github.com/char2cs/crowbar/api/internal/domain/git"
 	"github.com/char2cs/crowbar/api/internal/engine/git/internal/blame"
@@ -85,6 +86,41 @@ func New() Engine {
 }
 
 var _ Engine = (*engine)(nil)
+
+// netTransferTimeout bounds git subprocesses that move data to or from a
+// remote (fetch/pull/push); netQueryTimeout bounds pure remote queries
+// (ls-remote). Without a bound, a remote whose TCP connection has gone dead
+// stalls the subprocess for the OS retransmission timeout (~15 min observed
+// in production) while the per-repo mutex is held, wedging every git
+// operation on that clone until the kernel gives up.
+var (
+	netTransferTimeout = 3 * time.Minute
+	netQueryTimeout    = 30 * time.Second
+)
+
+// execNet runs a network git command under timeout and reports a
+// deadline-driven kill as an explicit timeout error instead of the opaque
+// exit -1 the subprocess exits with after CommandContext kills it. A parent
+// context that was itself cancelled keeps the ordinary classification path.
+func (e *engine) execNet(
+	ctx context.Context,
+	op string,
+	timeout time.Duration,
+	repoPath string,
+	args ...string,
+) error {
+	nctx, cancel := context.WithTimeout(ctx, timeout)
+	defer cancel()
+	r := e.exec(nctx, repoPath, args...)
+	if errors.Is(nctx.Err(), context.DeadlineExceeded) && ctx.Err() == nil {
+		return &gitexec.GitError{
+			Op:       op,
+			ExitCode: r.ExitCode,
+			Message:  fmt.Sprintf("network operation timed out after %s", timeout),
+		}
+	}
+	return classifyGitError(op, r)
+}
 
 // errorRule maps a git exit code + output substrings to a sentinel error.
 // All patterns in contains must be present in the output (AND semantics).
@@ -328,8 +364,7 @@ func (e *engine) Push(
 	repoPath string,
 ) error {
 	defer e.lockRepo(ctx, repoPath)()
-	r := e.exec(ctx, repoPath, "push")
-	return classifyGitError("push", r)
+	return e.execNet(ctx, "push", netTransferTimeout, repoPath, "push")
 }
 
 func (e *engine) Fetch(
@@ -337,8 +372,7 @@ func (e *engine) Fetch(
 	repoPath string,
 ) error {
 	defer e.lockRepo(ctx, repoPath)()
-	r := e.exec(ctx, repoPath, "fetch")
-	return classifyGitError("fetch", r)
+	return e.execNet(ctx, "fetch", netTransferTimeout, repoPath, "fetch")
 }
 
 func (e *engine) FetchRef(
@@ -347,8 +381,7 @@ func (e *engine) FetchRef(
 	branch string,
 ) error {
 	defer e.lockRepo(ctx, repoPath)()
-	r := e.exec(ctx, repoPath, "fetch", "origin", branch)
-	return classifyGitError("fetch ref", r)
+	return e.execNet(ctx, "fetch ref", netTransferTimeout, repoPath, "fetch", "origin", branch)
 }
 
 // FastForwardBranch fetches origin/<branch> and fast-forwards the local branch
@@ -361,8 +394,7 @@ func (e *engine) FastForwardBranch(
 	branch string,
 ) error {
 	defer e.lockRepo(ctx, repoPath)()
-	r := e.exec(ctx, repoPath, "fetch", "origin", branch+":"+branch)
-	return classifyGitError("fast-forward branch", r)
+	return e.execNet(ctx, "fast-forward branch", netTransferTimeout, repoPath, "fetch", "origin", branch+":"+branch)
 }
 
 func (e *engine) Pull(
@@ -375,8 +407,7 @@ func (e *engine) Pull(
 	if mode == "rebase" {
 		flag = "--rebase"
 	}
-	r := e.exec(ctx, repoPath, "pull", flag)
-	return classifyGitError("pull", r)
+	return e.execNet(ctx, "pull", netTransferTimeout, repoPath, "pull", flag)
 }
 
 func (e *engine) CreateBranch(
