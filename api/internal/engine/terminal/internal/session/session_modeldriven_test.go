@@ -4,6 +4,8 @@ package session
 
 import (
 	"os"
+	"os/exec"
+	"strings"
 	"testing"
 	"time"
 
@@ -132,7 +134,16 @@ func TestModelDriven_ResizeInvalidatesEmitterForcingNextKeyframe(t *testing.T) {
 	f, ok := waitFrame(t, ch, 3*time.Second)
 	require.True(t, ok, "post-resize output must produce a frame")
 	assert.True(t, f.Snapshot, "the first frame emitted after Resize must be a keyframe (emitter invalidated)")
-	assert.Contains(t, string(f.Data), "POST-RESIZE")
+	// The resize keyframe (the freshly-resized blank screen) can flush before the
+	// shell's echo output is parsed and rendered, so the marker lands in this keyframe
+	// or a later frame depending on how the PTY chunks the write. Accumulate until it
+	// shows rather than asserting it rode the very first keyframe.
+	data := string(f.Data)
+	if !strings.Contains(data, "POST-RESIZE") {
+		more, _ := collect(ch, 3*time.Second)
+		data += more
+	}
+	assert.Contains(t, data, "POST-RESIZE")
 }
 
 // TestModelDriven_AttachFlushesPendingDeltaBeforeRebasing proves Attach flushes
@@ -571,7 +582,16 @@ drain:
 // model's synthesized reply back to the PTY master, an app reading the reply from stdin
 // (here, the shell's `read`) would hang/time out.
 func TestModelDriven_CPRQueryAnsweredToPTY(t *testing.T) {
-	s, err := New("sid-md-cpr", "/bin/sh", t.TempDir(), "", os.Environ(), 80, 24, 200)
+	// The read vehicle below needs `read -s -t 3 -d R`, which are bash extensions:
+	// on a dash /bin/sh (Linux CI) they error out ("read: Illegal option -s") and the
+	// shell falls through to NOANSWER before the daemon's reply can ever matter. Drive
+	// the round-trip through bash explicitly so the test exercises the response sink,
+	// not the host shell's read dialect.
+	bash, err := exec.LookPath("bash")
+	if err != nil {
+		t.Skip("bash unavailable; CPR read vehicle requires bash (read -s/-d/-t)")
+	}
+	s, err := New("sid-md-cpr", bash, t.TempDir(), "", os.Environ(), 80, 24, 200)
 	require.NoError(t, err)
 	t.Cleanup(s.Kill)
 	ch, err := s.Attach()
