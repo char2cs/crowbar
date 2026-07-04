@@ -1,3 +1,0 @@
-- [x] Detach branch don't work on prod. 
-- [x] Resizing terminals scroll bug.
-- [ ] Terminal when reloading the Tauri app freezes
