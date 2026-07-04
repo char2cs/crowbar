@@ -282,7 +282,7 @@ func (e *DiffEmitter) scrollbackNewStart(vm *vtModel, sbLen int) (start int, ok 
 // legitimately duplicates the anchor (repeated blank or prompt lines).
 // Either misplaces the new-line boundary (duplicating or dropping a scrolled
 // line in client history) and self-heals on the next keyframe — an accepted
-// residual on this dev-flag path.
+// residual.
 func scrollbackLineHash(vm *vtModel, idx int) uint64 {
 	line := vm.emu.ScrollbackLine(idx)
 	h := fnv.New64a()
