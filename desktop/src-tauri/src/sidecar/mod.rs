@@ -341,7 +341,7 @@ async fn check_health(socket: &PathBuf) -> Result<(), Box<dyn std::error::Error 
 }
 
 /// One HTTP/1.1 GET over the daemon's unix socket.
-async fn http_get(
+pub(crate) async fn http_get(
     socket: &PathBuf,
     path: &str,
 ) -> Result<hyper::Response<hyper::body::Incoming>, Box<dyn std::error::Error + Send + Sync>> {

@@ -1,4 +1,5 @@
 mod api_proxy;
+mod diagnostics;
 mod sidecar;
 mod terminal;
 mod ws_bridge;
@@ -443,6 +444,7 @@ pub fn run() {
             ws_bridge::ws_open,
             ws_bridge::ws_send,
             ws_bridge::ws_close,
+            diagnostics::diagnostics_export,
             set_vibrancy_appearance,
         ])
         .run(tauri::generate_context!())
