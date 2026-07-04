@@ -41,6 +41,13 @@ const foregroundSampleInterval = 250 * time.Millisecond
 // deltas emit immediately; bursts coalesce to at most one frame per interval.
 const minEmitInterval = 8 * time.Millisecond
 
+// responseReplyBufDepth bounds the device-query reply queue that decouples the
+// model's response sink from the blocking ptmx.Write (spec §3.8, C1). A hostile
+// or broken foreground app can emit queries faster than it drains its own stdin;
+// once the queue and the PTY input buffer are both full, further replies are
+// dropped (a lost query answer times out, it never wedges the session lock).
+const responseReplyBufDepth = 64
+
 // OutputFrame is a chunk of PTY output delivered to attached clients.
 //
 // Snapshot marks a self-contained ground-state redraw (the serialized model)
@@ -242,17 +249,59 @@ func (s *Session) spawn(
 	s.serializer = ser
 	s.emitter = model.NewDiffEmitter()
 	if s.model != nil {
-		ptmx := s.ptmx
-		s.model.SetResponseSink(func(reply []byte) {
-			// Answer device queries from the model (spec §3.8). ptmx.Write is
-			// safe from the drain goroutine; a write error just means the PTY
-			// is going away — the reply is moot.
-			_, _ = ptmx.Write(reply)
-		})
+		s.startResponseSink(s.ptmx)
 	}
 
 	go s.pump()
 	return nil
+}
+
+// startResponseSink wires the model's device-query response path (spec §3.8) so
+// the blocking ptmx.Write NEVER runs on the model's drain goroutine while s.mu is
+// held. That decoupling is load-bearing (C1): x/vt answers CPR/DA/colour queries
+// by writing into an UNBUFFERED reply pipe drained by vtEmu.drainResponses, which
+// then invokes this sink SYNCHRONOUSLY. If the sink did ptmx.Write directly, a
+// hostile app that emits queries (e.g. a loop printing ESC[6n) without reading its
+// own stdin would fill the PTY input queue, block ptmx.Write inside the drain,
+// stall the drain's next pipe read, block emu.Write inside pumpStep's model write
+// (which holds s.mu), and permanently wedge Kill/Snapshot/Shutdown — engine-wide.
+//
+// Instead: a bounded queue + one writer goroutine own the blocking write OFF the
+// lock, and the sink only does a NON-BLOCKING send. When both the queue and the
+// PTY input buffer saturate, replies are dropped rather than blocking — a dropped
+// answer merely times that one query out. The writer exits when s.done closes
+// (Kill closes ptmx first, unblocking any in-flight ptmx.Write with an error, then
+// shutdown closes s.done). replyCh is never closed, so the sink's post-teardown
+// non-blocking sends harmlessly fill/drop instead of panicking on a closed channel.
+func (s *Session) startResponseSink(
+	ptmx *os.File,
+) {
+	replyCh := make(chan []byte, responseReplyBufDepth)
+	done := s.done
+	safego.Go("terminal.session.replyWriter", func() {
+		for {
+			select {
+			case reply := <-replyCh:
+				// Ignore write errors: a failing write means the PTY is going
+				// away, so keep draining replyCh (the sink must never block)
+				// until s.done releases the goroutine.
+				_, _ = ptmx.Write(reply)
+			case <-done:
+				return
+			}
+		}
+	})
+	s.model.SetResponseSink(func(reply []byte) {
+		// reply is a fresh per-call allocation from vtEmu.drainResponses
+		// (append([]byte(nil), buf[:n]...)), so we own it outright — no copy
+		// needed before handing it to the writer goroutine.
+		select {
+		case replyCh <- reply:
+		default:
+			// Queue full and the PTY input buffer is backed up too; drop the
+			// reply rather than block the drain goroutine (see the doc above).
+		}
+	})
 }
 
 // resolveBirth returns the size, scrollback depth, and restore redraw bytes for a spawn,
