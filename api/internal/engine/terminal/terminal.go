@@ -302,23 +302,6 @@ type engineBirth struct {
 	ScrollbackLines int
 	Blob            []byte
 	Notice          []byte
-	// ModelDriven selects the model-derived output path for this session
-	// (spec §3.1/§3.7), resolved once at spawn time via modelDrivenEnabled().
-	ModelDriven bool
-}
-
-// modelDrivenEnabled resolves the model-driven output flag: the
-// CROWBAR_TERMINAL_MODEL_DRIVEN env var when set ("1"/"true" on, "0"/"false"
-// off), otherwise the build default. Read at session spawn/restore; never
-// mid-session (spec §7).
-func modelDrivenEnabled() bool {
-	switch os.Getenv("CROWBAR_TERMINAL_MODEL_DRIVEN") {
-	case "1", "true":
-		return true
-	case "0", "false":
-		return false
-	}
-	return modelDrivenBuildDefault
 }
 
 // spawn creates a live session (create or restore), registers it in the registry under
@@ -339,9 +322,9 @@ func (e *terminalEngine) spawn(
 		err error
 	)
 	if b.Blob != nil {
-		s, err = session.NewRestoredWithParams(id, shell, cwd, profileID, ptyEnv(), b.Blob, b.ModelDriven)
+		s, err = session.NewRestored(id, shell, cwd, profileID, ptyEnv(), b.Blob)
 	} else {
-		s, err = session.NewCreate(id, shell, cwd, profileID, ptyEnv(), b.Cols, b.Rows, b.ScrollbackLines, b.ModelDriven)
+		s, err = session.New(id, shell, cwd, profileID, ptyEnv(), b.Cols, b.Rows, b.ScrollbackLines)
 	}
 	if err != nil {
 		return nil, err
@@ -366,7 +349,7 @@ func (e *terminalEngine) Create(
 	// Create births at the historical 80×24 default with the default scrollback depth; the
 	// session resolves the zero values (§9.1 step 5). FE-measured dims are a deferred wire
 	// addition — until then a fresh attach's first resize reshapes both PTY and model.
-	s, err := e.spawn(id, workspaceID, resolved.Shell, resolved.CWD, "", engineBirth{ModelDriven: modelDrivenEnabled()})
+	s, err := e.spawn(id, workspaceID, resolved.Shell, resolved.CWD, "", engineBirth{})
 	if err != nil {
 		return "", fmt.Errorf("terminal: create: %w", err)
 	}
@@ -638,7 +621,7 @@ func (e *terminalEngine) restore(ctx context.Context, sid string) error {
 	// model (never the persisted .buf) via engineBirth.Notice (§12).
 	cwd, notice := resolveRestoreCWD(cwd)
 
-	if _, err := e.spawn(sid, ws, shell, cwd, profileID, engineBirth{Blob: rawBlob, Notice: notice, ModelDriven: modelDrivenEnabled()}); err != nil {
+	if _, err := e.spawn(sid, ws, shell, cwd, profileID, engineBirth{Blob: rawBlob, Notice: notice}); err != nil {
 		// Un-restorable even after the CWD fallback (e.g. the shell binary itself
 		// is gone). Never leave the placeholder in the registry: drop it, delete
 		// its persisted state, and fire ended so the FE removes the dead tab
