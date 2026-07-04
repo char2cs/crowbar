@@ -435,14 +435,21 @@ func (e *DiffEmitter) writeChromeDelta(
 	sh *shadowState,
 ) {
 	e.writeModeDelta(b, sh)
+	// Title-only: OSC 2, never OSC 0. OSC 0 sets BOTH the title and the icon
+	// name, so emitting it here for a title-only change would silently
+	// overwrite the client's icon with the (unchanged) title text — and since
+	// shadow.iconName itself didn't change, the icon-name branch below would
+	// never fire to correct it, leaving the client's icon wrong until the next
+	// keyframe. Uses the serializer's exact OSC 2 ST form (oscTitleSeq) so the
+	// keyframe and diff paths emit byte-identical title sequences.
 	if sh.title != e.chrome.title {
-		b.WriteString("\x1b]0;" + sanitizeOSCText(sh.title) + "\x07")
+		b.WriteString(oscTitleSeq(2, sanitizeOSCText(sh.title)))
 	}
 	// Icon name streams independently of the title: an app can set it alone via
-	// OSC 1 (OSC 0 sets both, OSC 2 the title only). Emitted AFTER the title's
-	// OSC 0 above so, when a single OSC 0 changed both, this re-asserts the icon
-	// the OSC 0 already implied — and when only the icon changed, this is the sole
-	// carrier. Uses the serializer's exact OSC 1 ST form (oscTitleSeq).
+	// OSC 1 (OSC 0 sets both, OSC 2 the title only). Uses the serializer's exact
+	// OSC 1 ST form (oscTitleSeq); this is now the sole carrier for an icon
+	// change regardless of whether the title also changed, since the title
+	// delta above never touches the icon.
 	if sh.iconName != e.chrome.iconName {
 		b.WriteString(oscTitleSeq(1, sanitizeOSCText(sh.iconName)))
 	}
