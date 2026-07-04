@@ -95,8 +95,8 @@ func TestModelDriven_ResizeInvalidatesEmitterForcingNextKeyframe(t *testing.T) {
 	assert.Contains(t, string(f.Data), "POST-RESIZE")
 }
 
-// TestModelDriven_AttachFlushesPendingDeltaBeforeRebasing proves Attach, under
-// the flag, flushes any pending delta to EXISTING clients via emitFrameLocked
+// TestModelDriven_AttachFlushesPendingDeltaBeforeRebasing proves Attach
+// flushes any pending delta to EXISTING clients via emitFrameLocked
 // before serializing the fresh-attach snapshot and priming the emitter — so a
 // delta accumulated between the last emit and this attach is never silently
 // dropped for clients that were already attached.
