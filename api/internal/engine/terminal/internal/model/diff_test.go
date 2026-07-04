@@ -213,6 +213,11 @@ func TestDiffEmitter_ModeToggleForwarded(t *testing.T) {
 	assert.Contains(t, string(data), "\x1b[?2004l")
 }
 
+// TestDiffEmitter_TitleChangeForwarded pins the title delta to the
+// serializer's exact OSC 2 ST form — never OSC 0. OSC 0 sets BOTH title and
+// icon; emitting it for a title-only change would clobber the client's icon
+// name, and since shadow.iconName didn't change no corrective OSC 1 would
+// fire, leaving the icon wrong until the next keyframe.
 func TestDiffEmitter_TitleChangeForwarded(t *testing.T) {
 	m, _ := newTestModel(t, 10, 3)
 	e := NewDiffEmitter()
@@ -220,7 +225,9 @@ func TestDiffEmitter_TitleChangeForwarded(t *testing.T) {
 	m.Write([]byte("\x1b]0;my-title\x07"))
 	data, need := e.Emit(m)
 	require.False(t, need)
-	assert.Contains(t, string(data), "\x1b]0;my-title\x07")
+	assert.Contains(t, string(data), "\x1b]2;my-title\x1b\\",
+		"a title change must stream in the serializer's OSC 2 ST form")
+	assert.NotContains(t, string(data), "\x1b]0;", "a title change must not emit an OSC 0 (which would clobber the icon)")
 }
 
 // TestDiffEmitter_IconNameChangeForwarded pins M3: an app that sets ONLY the icon
@@ -237,6 +244,27 @@ func TestDiffEmitter_IconNameChangeForwarded(t *testing.T) {
 	assert.Contains(t, string(data), "\x1b]1;my-icon\x1b\\",
 		"a lone icon-name (OSC 1) change must stream in the serializer's OSC 1 ST form")
 	assert.NotContains(t, string(data), "\x1b]0;", "an OSC 1 change must not emit an OSC 0 (which would clobber the title)")
+}
+
+// TestDiffEmitter_TitleOnlyChangeDoesNotClobberIcon is the red-first
+// regression for the OSC-0-clobbers-icon bug: prime with an icon name set via
+// OSC 1, then change ONLY the title via OSC 2. The delta must carry the title
+// as OSC 2 and must NOT contain any OSC 0/OSC 1 write — an OSC 0 would
+// overwrite the (unchanged) icon with the title text, and a spurious OSC 1
+// would be redundant since the icon never changed.
+func TestDiffEmitter_TitleOnlyChangeDoesNotClobberIcon(t *testing.T) {
+	m, _ := newTestModel(t, 10, 3)
+	m.Write([]byte("\x1b]1;my-icon\x07")) // set the icon before priming
+	e := NewDiffEmitter()
+	e.Prime(m)
+	m.Write([]byte("\x1b]2;new-title\x07")) // title-only change
+	data, need := e.Emit(m)
+	require.False(t, need)
+	got := string(data)
+	assert.Contains(t, got, "\x1b]2;new-title\x1b\\",
+		"a title-only change must stream in the serializer's OSC 2 ST form")
+	assert.NotContains(t, got, "\x1b]0;", "a title-only change must never emit an OSC 0 (it would clobber the icon)")
+	assert.NotContains(t, got, "\x1b]1;", "the icon did not change, so no OSC 1 icon-name write should be emitted")
 }
 
 func TestDiffEmitter_UnchangedChromeEmitsNothing(t *testing.T) {
