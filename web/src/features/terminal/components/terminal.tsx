@@ -1012,7 +1012,7 @@ export const XtermTerminal: React.FC<XtermTerminalProps> = ({
           id={`terminal-${sessionId}`}
           data-terminal-drop-target
           data-terminal-session-id={sessionId}
-          className={`xterm-container flex h-full min-h-0 flex-1 text-foreground ${!isActive ? 'opacity-60' : ''}`}
+          className="xterm-container flex h-full min-h-0 flex-1 text-foreground"
           onDragOver={handleTerminalDragOver}
           onDrop={handleTerminalFileDrop}
           onMouseDown={() => {

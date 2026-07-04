@@ -23,15 +23,18 @@ export function isWindowEdge(
 export function buildPaneContentStyle(
   position: PanePosition,
   sidebarSide: 'left' | 'right',
+  isActive: boolean,
 ): CSSProperties {
   const we = (edge: Edge) => isWindowEdge(edge, position, sidebarSide)
-  const BORDER = 'none'
+  // Constant width (transparent when inactive) so toggling the active pane
+  // never shifts layout; 2px matches the tab-drag ring (ring-2 ring-secondary).
+  const BORDER = isActive ? '2px solid var(--secondary)' : '2px solid transparent'
   const NONE = 'none'
   const R = 'var(--radius-lg)'
   const ZERO = '0'
 
   return {
-    borderTop: NONE,
+    borderTop: BORDER,
     borderLeft: we('left') ? NONE : BORDER,
     borderRight: we('right') ? NONE : BORDER,
     borderBottom: we('bottom') ? NONE : BORDER,
