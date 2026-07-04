@@ -2,7 +2,7 @@ pub mod supervisor;
 
 use std::io::Write;
 use std::path::PathBuf;
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicI32, Ordering};
 use std::sync::Mutex;
 use std::time::{Duration, Instant};
 
@@ -40,6 +40,13 @@ pub struct SidecarHandle {
     /// Set by the window-close kill path so the supervisor never respawns a
     /// daemon the user is intentionally shutting down.
     pub shutting_down: AtomicBool,
+    /// The daemon's pid as self-reported by /v0/health at spawn; 0 = unknown.
+    ///
+    /// Every kill path signals THIS pid via libc, never `CommandChild::pid()`:
+    /// that call locks the shared_child mutex the shell plugin's wait thread
+    /// holds for the child's entire lifetime, and deadlocks on a live daemon
+    /// (observed live 2026-07-04 — the watchdog froze mid-kill).
+    daemon_pid: AtomicI32,
     restart_budget: Mutex<supervisor::RestartBudget>,
 }
 
@@ -49,6 +56,7 @@ impl SidecarHandle {
             child: Mutex::new(None),
             socket_path: Mutex::new(None),
             shutting_down: AtomicBool::new(false),
+            daemon_pid: AtomicI32::new(0),
             restart_budget: Mutex::new(supervisor::RestartBudget::new(RESTART_MAX, RESTART_WINDOW)),
         }
     }
@@ -56,6 +64,14 @@ impl SidecarHandle {
     /// Returns the daemon's unix-socket path, if the sidecar has been spawned.
     pub fn socket_path(&self) -> Option<PathBuf> {
         self.socket_path.lock().unwrap().clone()
+    }
+
+    /// The daemon's self-reported pid, if health reporting has captured one.
+    pub fn daemon_pid(&self) -> Option<i32> {
+        match self.daemon_pid.load(Ordering::SeqCst) {
+            0 => None,
+            pid => Some(pid),
+        }
     }
 }
 
@@ -209,8 +225,16 @@ pub async fn spawn<R: Runtime>(
     let pump_app = app.clone();
     tauri::async_runtime::spawn(pump_output(pump_app, rx));
 
-    wait_for_health(&socket, 30).await?;
-    log::info!("crowbar daemon is ready on {}", socket.display());
+    let pid = wait_for_health(&socket, 30).await?;
+    {
+        let state = app.state::<SidecarHandle>();
+        state.daemon_pid.store(pid.unwrap_or(0), Ordering::SeqCst);
+    }
+    log::info!(
+        "crowbar daemon is ready on {} (pid {:?})",
+        socket.display(),
+        pid
+    );
     Ok(())
 }
 
@@ -314,27 +338,30 @@ fn handle_termination<R: Runtime>(app: &AppHandle<R>) {
 async fn wait_for_health(
     socket: &PathBuf,
     attempts: u32,
-) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+) -> Result<Option<i32>, Box<dyn std::error::Error + Send + Sync>> {
     for i in 0..attempts {
         tokio::time::sleep(Duration::from_millis(200)).await;
 
-        if check_health(socket).await.is_ok() {
-            return Ok(());
+        if let Ok(pid) = check_health(socket).await {
+            return Ok(pid);
         }
 
         if i == attempts - 1 {
             return Err("daemon did not become healthy within 6s".into());
         }
     }
-    Ok(())
+    Ok(None)
 }
 
-async fn check_health(socket: &PathBuf) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+/// Probes /v0/health; on success returns the daemon's self-reported pid
+/// (None for a daemon predating the pid field).
+async fn check_health(
+    socket: &PathBuf,
+) -> Result<Option<i32>, Box<dyn std::error::Error + Send + Sync>> {
     let resp = http_get(socket, "/v0/health").await?;
     if resp.status().is_success() {
-        // Drain the body so the connection can be reused/closed cleanly.
-        let _ = resp.into_body().collect().await;
-        Ok(())
+        let body = resp.into_body().collect().await?.to_bytes();
+        Ok(parse_health_pid(&body))
     } else {
         Err(format!("health check returned {}", resp.status()).into())
     }
@@ -460,26 +487,81 @@ pub fn start_watchdog<R: Runtime>(app: AppHandle<R>) {
 /// caught by the daemon (it handles only SIGINT/SIGTERM), so the Go runtime's
 /// default handler prints every goroutine stack to stderr — captured by the
 /// output pump — and exits; SIGKILL covers a runtime too wedged even for that.
+///
+/// Signals go to the health-reported pid via libc; the CommandChild is taken
+/// and dropped without calling into it — pid()/kill() lock the shared_child
+/// mutex the shell plugin's wait thread holds for the child's lifetime, which
+/// deadlocked this exact path in the 2026-07-04 live wedge drill.
 async fn kill_wedged<R: Runtime>(app: &AppHandle<R>) {
-    let child = app.state::<SidecarHandle>().child.lock().unwrap().take();
+    let (child, pid) = {
+        let state = app.state::<SidecarHandle>();
+        let child = state.child.lock().unwrap().take();
+        (child, state.daemon_pid())
+    };
     let Some(child) = child else { return };
     #[cfg(unix)]
     {
-        let pid = child.pid() as libc::pid_t;
-        unsafe { libc::kill(pid, libc::SIGQUIT) };
-        tokio::time::sleep(SIGQUIT_GRACE).await;
-        // No-op (returns an error) if the SIGQUIT dump already ended it.
-        let _ = child.kill();
+        match pid {
+            Some(pid) => {
+                let pid = pid as libc::pid_t;
+                unsafe { libc::kill(pid, libc::SIGQUIT) };
+                tokio::time::sleep(SIGQUIT_GRACE).await;
+                // No-op (ESRCH) if the SIGQUIT dump already ended it.
+                unsafe { libc::kill(pid, libc::SIGKILL) };
+                drop(child);
+            }
+            None => {
+                // Daemon predating pid reporting: CommandChild::kill is the
+                // only lever left, deadlock risk and all.
+                log::warn!("daemon pid unknown; falling back to CommandChild::kill");
+                let _ = child.kill();
+            }
+        }
     }
     #[cfg(not(unix))]
     {
+        let _ = pid;
         let _ = child.kill();
     }
 }
 
+/// Extracts the daemon's self-reported pid from the /v0/health envelope:
+/// `{"success":true,"data":{"status":"ok","version":"...","pid":<n>}}`.
+///
+/// This is the ONLY safe pid source: `CommandChild::pid()` locks the
+/// shared_child mutex that the shell plugin's wait thread holds for the
+/// child's entire lifetime — calling it on a live daemon deadlocks (observed
+/// live 2026-07-04: the watchdog froze inside pid() during the wedge drill).
+fn parse_health_pid(body: &[u8]) -> Option<i32> {
+    let v: serde_json::Value = serde_json::from_slice(body).ok()?;
+    let pid = v.get("data")?.get("pid")?.as_i64()?;
+    i32::try_from(pid).ok().filter(|p| *p > 0)
+}
+
 #[cfg(test)]
 mod tests {
-    use super::{fnv1a64, override_socket_path, socket_path};
+    use super::{fnv1a64, override_socket_path, parse_health_pid, socket_path};
+
+    #[test]
+    fn parse_health_pid_reads_the_envelope() {
+        let body = br#"{"success":true,"data":{"status":"ok","version":"0.1.0","pid":54321}}"#;
+        assert_eq!(parse_health_pid(body), Some(54321));
+    }
+
+    #[test]
+    fn parse_health_pid_rejects_missing_or_invalid() {
+        assert_eq!(
+            parse_health_pid(br#"{"success":true,"data":{"status":"ok"}}"#),
+            None,
+            "old daemons without a pid field must not yield one"
+        );
+        assert_eq!(parse_health_pid(b"not json"), None);
+        assert_eq!(
+            parse_health_pid(br#"{"success":true,"data":{"pid":0}}"#),
+            None,
+            "pid 0 would signal the whole process group — never accept it"
+        );
+    }
 
     #[test]
     fn socket_path_is_fixed_and_deterministic() {
