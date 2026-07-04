@@ -251,10 +251,21 @@ export function useTerminalConnection({
           outputFlushFrameRef.current = null
         }
         pendingAttachFinalizeRef.current = false
-        terminal.reset()
-        terminal.write(frame.data, () => {
-          terminal.scrollToBottom()
-          terminal.refresh(0, terminal.rows - 1)
+        // Sequence the reset + redraw THROUGH xterm's async write queue. xterm
+        // parses write() data asynchronously, so any live bytes handed to
+        // terminal.write() before this snapshot arrived are still sitting in that
+        // queue. A synchronous terminal.reset() here would run BEFORE those queued
+        // bytes are parsed — they would then apply onto the freshly reset buffer,
+        // injecting stale content into the snapshot. Deferring the reset+redraw to
+        // an empty write's parse-complete callback runs them only AFTER everything
+        // already queued ahead has been parsed, so the snapshot lands on a truly
+        // clean buffer.
+        terminal.write('', () => {
+          terminal.reset()
+          terminal.write(frame.data, () => {
+            terminal.scrollToBottom()
+            terminal.refresh(0, terminal.rows - 1)
+          })
         })
         return
       }

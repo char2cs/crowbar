@@ -26,10 +26,10 @@ export interface TerminalFrame {
   snapshot: boolean
 }
 
-// parseTerminalFrame decodes one wire frame ({sessionId, data, isInput,
-// snapshot?}) shared by both transports (browser WebSocket text frames and the
-// whole-frame strings Rust forwards down the Tauri channel). Returns null for
-// malformed frames.
+// parseTerminalFrame decodes one wire frame ({sessionId, data, snapshot?})
+// shared by both transports (browser WebSocket text frames and the whole-frame
+// strings Rust forwards down the Tauri channel). Returns null for malformed
+// frames.
 function parseTerminalFrame(raw: string): TerminalFrame | null {
   try {
     const msg = JSON.parse(raw) as { data?: unknown; snapshot?: unknown }
@@ -146,7 +146,18 @@ async function openTauriSocket(connectionId: string, wsPath: string): Promise<vo
   })
   conn.unlisten = unlisten
 
-  await tauriInvoke('terminal_open', { sessionId: connectionId, wsPath, onData: channel })
+  try {
+    await tauriInvoke('terminal_open', { sessionId: connectionId, wsPath, onData: channel })
+  } catch (err) {
+    // terminal_open rejected: the map entry and the transport-dropped listener
+    // were registered up-front (so buffered output isn't lost in the race window).
+    // On failure they must be torn down, or a phantom tauriTerminals entry lingers
+    // — terminalHasTransport would report a live transport that never opened, and a
+    // later attach/create would reuse the dead entry instead of re-dialing.
+    tauriTerminals.delete(connectionId)
+    unlisten()
+    throw err
+  }
 }
 
 // Create a PTY session in the workspace and open its stream. Returns the

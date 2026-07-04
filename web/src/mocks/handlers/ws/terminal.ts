@@ -4,12 +4,10 @@ export const terminalWsHandler = ws
   .link('/v0/ws/terminals/:sessionId')
   .addEventListener('connection', ({ client, params }) => {
     const sessionId = params.sessionId as string
-    client.send(
-      JSON.stringify({ sessionId, data: 'crowbar mock terminal ready\r\n$ ', isInput: false }),
-    )
+    client.send(JSON.stringify({ sessionId, data: 'crowbar mock terminal ready\r\n$ ' }))
 
     client.addEventListener('message', ({ data }) => {
       const frame = typeof data === 'string' ? JSON.parse(data) : data
-      client.send(JSON.stringify({ sessionId, data: frame.data, isInput: false }))
+      client.send(JSON.stringify({ sessionId, data: frame.data }))
     })
   })
