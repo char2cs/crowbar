@@ -416,6 +416,155 @@ function reset_not_called(terminal: { reset: ReturnType<typeof vi.fn> }) {
   return terminal.reset.mock.calls.length === 0
 }
 
+// Renders with rerenderable props so tests can bump reconnectKey mid-test to
+// force the main effect to tear down and re-run on the SAME terminal instance
+// (simulating a transport-drop re-attach), unlike renderConnection() above
+// which fixes all props for the hook's lifetime.
+function renderConnectionRerenderable(
+  terminal: unknown,
+  initialOverrides: Record<string, unknown> = {},
+) {
+  return renderHook(
+    (props: Record<string, unknown>) =>
+      useTerminalConnection({
+        connectionId: 'conn-1',
+        getTerminalTheme: () => ({}),
+        isInitialized: true,
+        reconnectKey: 0,
+        sessionId: 'sess-1',
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        terminal: terminal as any,
+        updateSession: () => {},
+        ...props,
+      }),
+    { initialProps: initialOverrides },
+  )
+}
+
+describe('useTerminalConnection — generation-guarded snapshot barrier (R3-1)', () => {
+  let rafCbs: FrameRequestCallback[] = []
+  const flushRaf = () => {
+    const cbs = rafCbs
+    rafCbs = []
+    for (const cb of cbs) cb(0)
+  }
+
+  beforeEach(() => {
+    bridge.terminalListen.mockClear()
+    bridge.terminalResync.mockClear()
+    bridge.reset()
+    rafCbs = []
+    vi.spyOn(window, 'requestAnimationFrame').mockImplementation((cb: FrameRequestCallback) => {
+      rafCbs.push(cb)
+      return rafCbs.length
+    })
+    vi.spyOn(window, 'cancelAnimationFrame').mockImplementation(() => {})
+  })
+
+  afterEach(() => {
+    vi.restoreAllMocks()
+  })
+
+  it('double snapshot: only the SECOND snapshot resets+redraws; the first barrier is dead', () => {
+    const { terminal, reset, order, drainWrites } = makeAsyncFakeTerminal()
+    renderConnection(terminal)
+
+    act(() => {
+      // S1 latches and enqueues its barrier — undrained.
+      bridge.deliver('S1', true)
+      // S2 arrives before S1's barrier callback has run: re-latches, enqueues
+      // a second barrier.
+      bridge.deliver('S2', true)
+      // An increment delivered while still latched must stay buffered and can
+      // only reach xterm after S2's redraw is enqueued.
+      bridge.deliver('INC')
+    })
+    // Both barriers enqueued, nothing parsed yet.
+    expect(order).toEqual(['enqueue:', 'enqueue:'])
+
+    // Drain everything currently queued: both barrier callbacks fire. The
+    // first (stale) must be a no-op; only the second may reset + enqueue the
+    // redraw write.
+    drainWrites()
+
+    expect(reset).toHaveBeenCalledTimes(1)
+    expect(order).toEqual(['enqueue:', 'enqueue:', 'parse:', 'parse:', 'reset', 'enqueue:S2'])
+
+    // The buffered increment reschedules its own flush via rAF (not
+    // synchronously) once the live latch clears.
+    act(() => {
+      flushRaf()
+    })
+    expect(order).toEqual([
+      'enqueue:',
+      'enqueue:',
+      'parse:',
+      'parse:',
+      'reset',
+      'enqueue:S2',
+      'enqueue:INC',
+    ])
+
+    // Draining the rest parses the redraw (S2) then the increment, in order —
+    // S1's content never reaches xterm at all.
+    drainWrites()
+    expect(order).toEqual([
+      'enqueue:',
+      'enqueue:',
+      'parse:',
+      'parse:',
+      'reset',
+      'enqueue:S2',
+      'enqueue:INC',
+      'parse:S2',
+      'parse:INC',
+    ])
+  })
+
+  it('stale barrier across an effect re-run (reconnectKey bump) never fires against the new connection', () => {
+    const { terminal, reset, order, drainWrites } = makeAsyncFakeTerminal()
+    const { rerender } = renderConnectionRerenderable(terminal, { reconnectKey: 0 })
+
+    act(() => {
+      // S1 latches on the FIRST effect instance and its barrier is enqueued —
+      // left undrained across the reconnect below.
+      bridge.deliver('S1', true)
+    })
+    expect(order).toEqual(['enqueue:'])
+
+    // Simulate a transport-drop re-attach: reconnectKey bumps, the main
+    // effect tears down (bumping the generation + clearing the latch) and
+    // re-runs, re-registering terminalListen on the same terminal instance.
+    act(() => {
+      rerender({ reconnectKey: 1 })
+    })
+
+    act(() => {
+      // S2 latches on the NEW effect instance/generation.
+      bridge.deliver('S2', true)
+    })
+    expect(order).toEqual(['enqueue:', 'enqueue:'])
+
+    // Drain everything: S1's stale barrier must be inert (no reset, no
+    // write), and must not have unlatched/interfered with S2's barrier.
+    drainWrites()
+
+    expect(reset).toHaveBeenCalledTimes(1)
+    expect(order).toEqual(['enqueue:', 'enqueue:', 'parse:', 'parse:', 'reset', 'enqueue:S2'])
+
+    drainWrites()
+    expect(order).toEqual([
+      'enqueue:',
+      'enqueue:',
+      'parse:',
+      'parse:',
+      'reset',
+      'enqueue:S2',
+      'parse:S2',
+    ])
+  })
+})
+
 describe('useTerminalConnection — debounced resize resync', () => {
   beforeEach(() => {
     bridge.terminalListen.mockClear()

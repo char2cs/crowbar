@@ -69,6 +69,17 @@ export function useTerminalConnection({
   // only inside the barrier callback, immediately after the redraw write is
   // enqueued, so anything still buffered is flushed strictly after the redraw.
   const snapshotPendingRef = useRef(false)
+  // Guards the barrier callback above against two races the boolean latch alone
+  // cannot express: (a) a second snapshot arriving before the first snapshot's
+  // barrier callback has fired — both barriers would otherwise fire and both
+  // would reset+redraw, replaying scrollback twice — and (b) this effect
+  // tearing down (reconnectKey bump mid-burst) while a barrier is still
+  // in-flight — the stale callback would otherwise fire later against a
+  // NEW connection's terminal state. Bumped each time a snapshot latches (the
+  // barrier closes over its own generation) and again on effect cleanup; a
+  // barrier whose captured generation no longer matches the live counter is
+  // inert — no reset, no redraw write, no unlatch, no flush reschedule.
+  const snapshotGenRef = useRef(0)
   const { write, flush } = useTerminalWriteBuffer({
     getConnectionId: () => currentConnectionIdRef.current,
     writeChunk: async (activeConnectionId, data) => {
@@ -268,6 +279,14 @@ export function useTerminalConnection({
         // (and gets rAF-flushed) before the barrier callback fires is held in
         // outputBufferRef instead of being written — see snapshotPendingRef.
         snapshotPendingRef.current = true
+        // Bump the generation and let this barrier's callback close over its
+        // own value. If a second snapshot latches before this barrier's
+        // callback runs, that second snapshot bumps the counter again — this
+        // barrier's captured `gen` then no longer matches
+        // snapshotGenRef.current, so its callback becomes a dead no-op below
+        // (only the LAST snapshot's barrier ever resets+redraws — see
+        // snapshotGenRef above).
+        const gen = ++snapshotGenRef.current
         // Sequence the reset + redraw THROUGH xterm's async write queue. xterm
         // parses write() data asynchronously, so any live bytes handed to
         // terminal.write() before this snapshot arrived are still sitting in that
@@ -278,6 +297,11 @@ export function useTerminalConnection({
         // already queued ahead has been parsed, so the snapshot lands on a truly
         // clean buffer.
         terminal.write('', () => {
+          // Stale barrier: a newer snapshot latched (or this effect tore down)
+          // since this write was enqueued. Do nothing — no reset, no redraw
+          // write, no unlatch, no flush reschedule — the current generation's
+          // barrier (or the fresh effect's teardown state) owns all of that.
+          if (snapshotGenRef.current !== gen) return
           terminal.reset()
           terminal.write(frame.data, () => {
             terminal.scrollToBottom()
@@ -344,7 +368,15 @@ export function useTerminalConnection({
       wheelContainer?.removeEventListener('wheel', handleWheel, true)
       if (resyncTimer !== null) window.clearTimeout(resyncTimer)
       // Never leave a reconnect starting latched: a fresh (re)attach effect
-      // must be free to schedule flushes from its first frame.
+      // must be free to schedule flushes from its first frame. Also bump the
+      // generation so any barrier still in flight from THIS effect instance
+      // (enqueued but not yet parsed — e.g. a reconnectKey bump mid-burst)
+      // becomes inert instead of firing later against the next connection's
+      // terminal state — see snapshotGenRef above. Note: outputBufferRef may
+      // still hold unflushed bytes buffered while latched; that's benign,
+      // since the next attach's snapshot resets outputBufferRef to '' before
+      // anything is written.
+      snapshotGenRef.current += 1
       snapshotPendingRef.current = false
       if (outputFlushFrameRef.current !== null) {
         cancelAnimationFrame(outputFlushFrameRef.current)
