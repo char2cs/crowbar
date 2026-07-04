@@ -17,14 +17,15 @@
 #   APPLE_SIGNING_IDENTITY   e.g. "Developer ID Application: Name (TEAMID)".
 #                            Its presence is the switch that turns signing on.
 #
-# Env vars consumed transparently by the Tauri bundler (just need to be
-# exported by the caller; this script does not touch them):
+# Env vars consumed transparently by the Tauri bundler when signing is on:
 #   APPLE_CERTIFICATE            base64-encoded .p12 (Tauri imports it into a
 #                                temporary keychain automatically)
 #   APPLE_CERTIFICATE_PASSWORD   password for the .p12
 #   APPLE_ID / APPLE_PASSWORD / APPLE_TEAM_ID   notarization credentials
 #                                (app-specific password). If unset, Tauri signs
 #                                but skips notarization.
+# When APPLE_SIGNING_IDENTITY is empty these are actively unset (see below) so
+# an unconfigured CI run behaves exactly as it did before signing was wired up.
 #
 set -euo pipefail
 
@@ -54,6 +55,15 @@ if [ -n "${APPLE_SIGNING_IDENTITY:-}" ]; then
     }')
 else
   echo "==> No APPLE_SIGNING_IDENTITY: building ad-hoc (unsigned) bundle."
+  # CRITICAL: the Tauri bundler decides to sign based on the *presence* of the
+  # APPLE_CERTIFICATE env var, NOT on our signingIdentity gate. GitHub Actions
+  # exports an unset secret as a defined-but-empty string ("" != unset), which
+  # is enough to make the bundler attempt `security import ""` and fail with
+  # "SecKeychainItemImport: ... parameters ... not valid". Actively unset every
+  # Apple var so the bundler sees the same clean environment it did before
+  # signing was wired up. (No-op when the vars were never exported.)
+  unset APPLE_CERTIFICATE APPLE_CERTIFICATE_PASSWORD APPLE_SIGNING_IDENTITY \
+    APPLE_ID APPLE_PASSWORD APPLE_TEAM_ID
 fi
 
 # --- Build ------------------------------------------------------------------
