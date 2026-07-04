@@ -65,7 +65,13 @@ jobs:
 
   desktop-macos:
     needs: derive-tag
-    runs-on: macos-latest
+    # Pinned to macos-26 (NOT macos-latest): the Liquid Glass icon step needs an
+    # Xcode whose actool can compile Icon Composer .icon assets. macOS 26 ships
+    # Xcode 26.5 which does; macOS 15's newest is Xcode 26.3.0 whose actool
+    # CRASHES on our .icon (CompileAssetCatalogVariant exit 65). `macos-latest`
+    # is mid-migration from 15→26 and nondeterministically lands on either, so it
+    # must not be used here.
+    runs-on: macos-26
     env:
       VERSION: ${{ needs.derive-tag.outputs.version }}
     steps:
