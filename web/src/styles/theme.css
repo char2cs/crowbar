@@ -219,7 +219,10 @@
   --popover-foreground: var(--color-neutral-800);
   --primary: oklch(0.49 0.082 130);
   --primary-foreground: oklch(0.98 0.027 98);
-  --secondary: oklch(0.17 0.033 140);
+  /* Crowbar brand accent (hex BC6C25). Secondary is shadcn's second brand
+     colour; primary stays the brand green. Emphasis usages (pins, active
+     states, drop zones, links) pull this via text-/border-/ring-secondary. */
+  --secondary: oklch(0.609 0.13 57.4);
   --secondary-foreground: oklch(0.98 0.027 98);
   --muted: oklch(0 0 0 / 4%);
   --muted-foreground: oklch(0.52 0 0);
@@ -349,7 +352,8 @@
   --popover-foreground: var(--color-neutral-100);
   --primary: oklch(0.49 0.082 130);
   --primary-foreground: oklch(0.98 0.027 98);
-  --secondary: oklch(0.17 0.033 140);
+  /* Crowbar brand accent (hex BC6C25) — see :root note above. */
+  --secondary: oklch(0.609 0.13 57.4);
   --secondary-foreground: oklch(0.98 0.027 98);
   --muted: oklch(1 0 0 / 4%);
   --muted-foreground: oklch(0.6 0 0);

@@ -406,7 +406,7 @@ export function EditorStatusActions({ bufferId, editorViewKey }: EditorStatusAct
                   }
                 }}
                 placeholder="Search languages..."
-                className="ui-font w-full rounded-md border border-border/70 bg-background px-2 py-1 ui-text-xs text-foreground outline-none placeholder:text-muted-foreground/50 focus:border-accent/50"
+                className="ui-font w-full rounded-md border border-border/70 bg-background px-2 py-1 ui-text-xs text-foreground outline-none placeholder:text-muted-foreground/50 focus:border-secondary/50"
                 autoFocus
                 aria-label="Search languages"
               />
@@ -420,13 +420,15 @@ export function EditorStatusActions({ bufferId, editorViewKey }: EditorStatusAct
                   variant="ghost"
                   compact
                   className={dropdownItemClassName(
-                    cn('justify-between', lang.id === currentFileLanguageId && 'text-accent'),
+                    cn('justify-between', lang.id === currentFileLanguageId && 'text-secondary'),
                   )}
                   role="option"
                   aria-selected={lang.id === currentFileLanguageId}
                 >
                   <span className="truncate">{lang.displayName}</span>
-                  {lang.id === currentFileLanguageId && <Check className="shrink-0 text-accent" />}
+                  {lang.id === currentFileLanguageId && (
+                    <Check className="shrink-0 text-secondary" />
+                  )}
                 </Button>
               ))}
               {filteredLanguages.length === 0 && (
@@ -596,7 +598,7 @@ export function EditorStatusActions({ bufferId, editorViewKey }: EditorStatusAct
                     <Keybinding binding={option.shortcut} className="shrink-0" />
                   ) : null}
                   <span className="flex size-4 items-center justify-center">
-                    {option.checked ? <Check className="text-accent" /> : null}
+                    {option.checked ? <Check className="text-secondary" /> : null}
                   </span>
                 </span>
               </Button>
@@ -614,7 +616,7 @@ export function EditorStatusActions({ bufferId, editorViewKey }: EditorStatusAct
               >
                 <span>{option.label}</span>
                 <span className="flex size-4 items-center justify-center">
-                  {option.checked ? <Check className="text-accent" /> : null}
+                  {option.checked ? <Check className="text-secondary" /> : null}
                 </span>
               </Button>
             ))}
@@ -631,7 +633,7 @@ export function EditorStatusActions({ bufferId, editorViewKey }: EditorStatusAct
               >
                 <span>{option.label}</span>
                 <span className="flex size-4 items-center justify-center">
-                  {option.checked ? <Check className="text-accent" /> : null}
+                  {option.checked ? <Check className="text-secondary" /> : null}
                 </span>
               </Button>
             ))}

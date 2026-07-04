@@ -892,7 +892,7 @@ function FileExplorerTreeComponent({
       className={cn(
         'file-tree-container relative flex min-w-full flex-1 select-none flex-col overflow-auto p-0',
         dragState.dragOverPath === '__ROOT__' &&
-          'border-2! border-dashed! border-accent! bg-accent! bg-opacity-10!',
+          'border-2! border-dashed! border-secondary! bg-secondary! bg-opacity-10!',
       )}
       ref={containerRef}
       style={{ scrollBehavior: 'auto', overscrollBehavior: 'contain' }}
@@ -1117,7 +1117,7 @@ function FileExplorerTreeComponent({
               // opaque mix of the popover base + foreground for a real muted fill.
               'hover:bg-[color-mix(in_oklch,var(--popover),var(--foreground)_10%)] dark:hover:bg-[color-mix(in_oklch,var(--popover),var(--foreground)_10%)]',
               'data-pressed:bg-[color-mix(in_oklch,var(--popover),var(--foreground)_16%)] dark:data-pressed:bg-[color-mix(in_oklch,var(--popover),var(--foreground)_16%)]',
-              hasActiveFileTreeFilters && 'text-accent',
+              hasActiveFileTreeFilters && 'text-secondary',
             )}
             onClick={() => setIsFileTreeFilterMenuOpen(true)}
           >

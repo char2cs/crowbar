@@ -66,7 +66,7 @@ const RenameInput = forwardRef(
             left: `${left}px`,
           }}
         >
-          <div className="flex items-center gap-1 rounded-md border border-accent/60 bg-card p-0.5 shadow-lg">
+          <div className="flex items-center gap-1 rounded-md border border-secondary/60 bg-card p-0.5 shadow-lg">
             <Input
               ref={inputRef}
               value={value}

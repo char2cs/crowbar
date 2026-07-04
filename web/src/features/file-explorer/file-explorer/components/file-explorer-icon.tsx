@@ -52,7 +52,7 @@ export function FileExplorerIcon({
           width="8"
           height="8"
           viewBox="0 0 16 16"
-          className="-bottom-0.5 -right-0.5 absolute text-accent"
+          className="-bottom-0.5 -right-0.5 absolute text-secondary"
           role="img"
           aria-label="Symlink"
         >
@@ -118,7 +118,7 @@ export function FileExplorerIcon({
           width="8"
           height="8"
           viewBox="0 0 16 16"
-          className="-bottom-0.5 -right-0.5 absolute text-accent"
+          className="-bottom-0.5 -right-0.5 absolute text-secondary"
           role="img"
           aria-label="Symlink"
         >

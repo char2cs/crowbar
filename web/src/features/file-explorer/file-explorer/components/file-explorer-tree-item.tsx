@@ -230,7 +230,7 @@ function FileExplorerTreeItemComponent({
         className={cn(
           densityConfig.rowClassName,
           dragOverPath === file.path &&
-            '!border-2 !border-dashed !border-accent !bg-accent !bg-opacity-20',
+            '!border-2 !border-dashed !border-secondary !bg-secondary !bg-opacity-20',
           isDragging && 'cursor-move',
           file.ignored && 'opacity-50',
           isCut && 'italic opacity-40',

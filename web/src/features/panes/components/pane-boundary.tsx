@@ -48,7 +48,7 @@ function PaneErrorState({ error, onRetry }: { error: Error | null; onRetry: () =
       <button
         type="button"
         onClick={onRetry}
-        className="rounded-md bg-accent px-3 py-1.5 text-xs font-medium text-accent-foreground hover:bg-accent/80"
+        className="rounded-md bg-secondary px-3 py-1.5 text-xs font-medium text-secondary-foreground hover:bg-secondary/80"
       >
         Retry
       </button>

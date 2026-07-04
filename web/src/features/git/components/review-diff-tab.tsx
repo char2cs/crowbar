@@ -40,7 +40,7 @@ export function ReviewDiffTab({ onRetry, branchHeader, isActivePane }: ReviewDif
         <button
           type="button"
           onClick={onRetry}
-          className="ui-text-sm text-accent underline-offset-4 hover:underline"
+          className="ui-text-sm text-secondary underline-offset-4 hover:underline"
         >
           Retry
         </button>
