@@ -1,11 +1,11 @@
 package model
 
 import (
+	"bytes"
 	"hash/fnv"
 	"image/color"
 	"sort"
 	"strconv"
-	"strings"
 
 	uv "github.com/charmbracelet/ultraviolet"
 	"github.com/charmbracelet/x/ansi"
@@ -69,6 +69,7 @@ const rotationScanLimit = 256
 type chromeBase struct {
 	modes           map[int]bool
 	title           string
+	iconName        string
 	cursorVisible   bool
 	cursorShapeSet  bool
 	cursorShape     vt.CursorStyle
@@ -85,15 +86,22 @@ type chromeBase struct {
 
 // captureChrome snapshots the shadow fields writeChromeDelta diffs against on
 // the NEXT Emit, plus the scroll-region/origin-mode fields Emit's keyframe
-// guard compares against.
+// guard compares against. It copies the mode map; Prime (no prior base) uses it.
 func captureChrome(sh *shadowState) chromeBase {
-	modes := make(map[int]bool, len(sh.modes))
-	for k, v := range sh.modes {
-		modes[k] = v
-	}
+	return captureChromeModes(sh, copyModes(sh.modes))
+}
+
+// captureChromeModes builds the chrome snapshot using the caller-supplied modes
+// map (assumed already owned by the emitter). Splitting the map out lets Emit
+// REUSE the previous base's map when the mode set did not change (the common
+// echo case) instead of allocating and copying a fresh one every frame — the
+// emitter never mutates e.chrome.modes in place, so sharing the unchanged
+// reference is safe until the next genuine change re-copies it.
+func captureChromeModes(sh *shadowState, modes map[int]bool) chromeBase {
 	return chromeBase{
 		modes:           modes,
 		title:           sh.title,
+		iconName:        sh.iconName,
 		cursorVisible:   sh.cursorVisible,
 		cursorShapeSet:  sh.cursorShapeSet,
 		cursorShape:     sh.cursorShape,
@@ -109,6 +117,27 @@ func captureChrome(sh *shadowState) chromeBase {
 		scrollBottom:    sh.scrollBottom,
 		origin:          sh.modes[6],
 	}
+}
+
+// copyModes returns a fresh copy of a DEC-private-mode map.
+func copyModes(src map[int]bool) map[int]bool {
+	m := make(map[int]bool, len(src))
+	for k, v := range src {
+		m[k] = v
+	}
+	return m
+}
+
+// recaptureChrome snapshots chrome for the NEXT Emit, reusing the current base's
+// mode map when the shadow's modes are unchanged (skipping the per-frame map
+// copy on the hot echo path). Callers that have no prior base (Prime) use
+// captureChrome instead.
+func (e *DiffEmitter) recaptureChrome(sh *shadowState) chromeBase {
+	modes := e.chrome.modes
+	if !modesEqual(sh.modes, modes) {
+		modes = copyModes(sh.modes)
+	}
+	return captureChromeModes(sh, modes)
 }
 
 // colorsEqual reports whether two color.Color values represent the same RGBA
@@ -153,8 +182,23 @@ func (e *DiffEmitter) Prime(m TerminalModel) {
 }
 
 // Emit returns the incremental ANSI since the last Prime/Emit, or
-// needKeyframe=true when diffing is impossible (unprimed, invalidated, resize,
-// alt-screen flip, scrollback shrink). On success the emitter re-bases itself.
+// needKeyframe=true when diffing is impossible. This is the ONE canonical,
+// exhaustive list of keyframe triggers (other docs reference it rather than
+// restate it):
+//
+//  1. emitter unprimed or Invalidate()d (no valid base)
+//  2. grid resize (cols or rows changed)
+//  3. alt-screen flip (primary↔alt)
+//  4. scrollback shrink (sbLen < the primed length — an ED3-style clear)
+//  5. scroll-region (DECSTBM) or origin-mode (DECOM, mode 6) CHANGE vs the base
+//     — the diff's absolute CUPs are invalid under either
+//  6. rotation-anchor loss — the scrollback tail hashed at the last emit rotated
+//     out of the bounded scan window (scrollbackNewStart returned ok=false)
+//  7. committed scrollback lines WHILE a scroll region or origin mode is already
+//     active (set before the base was primed) — the client's park-at-CUP(rows,1)
+//     +LF scroll trick cannot deposit them into history under an active region
+//
+// On success the emitter re-bases itself.
 func (e *DiffEmitter) Emit(m TerminalModel) (data []byte, needKeyframe bool) {
 	vm := m.(*vtModel)
 	cols, rows := vm.emu.Width(), vm.emu.Height()
@@ -204,7 +248,7 @@ func (e *DiffEmitter) Emit(m TerminalModel) (data []byte, needKeyframe bool) {
 		}
 	}
 
-	var b strings.Builder
+	var b bytes.Buffer
 	e.writeScrollbackDelta(&b, vm, sbStart, sbLen, rows)
 	dirty := e.writeScreenDiff(&b, vm, cols, rows)
 	e.writeCursorDelta(&b, vm, dirty)
@@ -217,11 +261,13 @@ func (e *DiffEmitter) Emit(m TerminalModel) (data []byte, needKeyframe bool) {
 		e.scrollbackTail = scrollbackLineHash(vm, sbLen-1)
 	}
 	e.lastCursor = vm.emu.CursorPosition()
-	e.chrome = captureChrome(sh)
+	e.chrome = e.recaptureChrome(sh)
 	if b.Len() == 0 {
 		return nil, false
 	}
-	return []byte(b.String()), false
+	// b.Bytes() aliases the local buffer, which is discarded when Emit returns —
+	// so the frame is handed off with no extra copy (unlike []byte(b.String())).
+	return b.Bytes(), false
 }
 
 // scrollbackNewStart returns the index of the first scrollback line committed
@@ -313,7 +359,7 @@ func EmitterGridBytes(cols, rows int) int64 {
 // growth, so the screen diff that follows repaints the full viewport. Primary
 // buffer only; the alt screen has no scrollback.
 func (e *DiffEmitter) writeScrollbackDelta(
-	b *strings.Builder,
+	b *bytes.Buffer,
 	vm *vtModel,
 	start int,
 	sbLen int,
@@ -344,7 +390,7 @@ func (e *DiffEmitter) writeScrollbackDelta(
 // pen reset per row via encodeLine's contract) and updates the diff base.
 // Returns whether anything was written.
 func (e *DiffEmitter) writeScreenDiff(
-	b *strings.Builder,
+	b *bytes.Buffer,
 	vm *vtModel,
 	cols int,
 	rows int,
@@ -366,7 +412,7 @@ func (e *DiffEmitter) writeScreenDiff(
 // writeCursorDelta repositions the client cursor to the model's position when
 // it moved or when screen rewrites displaced it.
 func (e *DiffEmitter) writeCursorDelta(
-	b *strings.Builder,
+	b *bytes.Buffer,
 	vm *vtModel,
 	dirty bool,
 ) {
@@ -377,20 +423,28 @@ func (e *DiffEmitter) writeCursorDelta(
 	b.WriteString(cup(cur.Y+1, cur.X+1))
 }
 
-// writeChromeDelta emits mode flips, title changes, and cursor-chrome changes
-// (visibility, style, default colours) since the diff base. Mode order
+// writeChromeDelta emits mode flips, title/icon-name changes, and cursor-chrome
+// changes (visibility, style, default colours) since the diff base. Mode order
 // follows serializedModeOrder for determinism; modes outside that list still
 // stream (sorted numerically) so nothing an app set is silently dropped.
 // Mode 6 (DECOM) is excluded: a change to it forces a keyframe in Emit before
 // writeChromeDelta ever runs, so forwarding it here too would double-handle
 // it once Prime re-captures.
 func (e *DiffEmitter) writeChromeDelta(
-	b *strings.Builder,
+	b *bytes.Buffer,
 	sh *shadowState,
 ) {
 	e.writeModeDelta(b, sh)
 	if sh.title != e.chrome.title {
 		b.WriteString("\x1b]0;" + sanitizeOSCText(sh.title) + "\x07")
+	}
+	// Icon name streams independently of the title: an app can set it alone via
+	// OSC 1 (OSC 0 sets both, OSC 2 the title only). Emitted AFTER the title's
+	// OSC 0 above so, when a single OSC 0 changed both, this re-asserts the icon
+	// the OSC 0 already implied — and when only the icon changed, this is the sole
+	// carrier. Uses the serializer's exact OSC 1 ST form (oscTitleSeq).
+	if sh.iconName != e.chrome.iconName {
+		b.WriteString(oscTitleSeq(1, sanitizeOSCText(sh.iconName)))
 	}
 	e.writeCursorChromeDelta(b, sh)
 }
@@ -399,7 +453,7 @@ func (e *DiffEmitter) writeChromeDelta(
 // handled by Emit's keyframe guard) and forwards each flip as SetMode or
 // ResetMode.
 func (e *DiffEmitter) writeModeDelta(
-	b *strings.Builder,
+	b *bytes.Buffer,
 	sh *shadowState,
 ) {
 	if modesEqual(sh.modes, e.chrome.modes) {
@@ -457,7 +511,7 @@ func (e *DiffEmitter) writeModeDelta(
 // unset direction would leave a live client stuck on a stale colour/shape
 // until an unrelated keyframe happens to resync it.
 func (e *DiffEmitter) writeCursorChromeDelta(
-	b *strings.Builder,
+	b *bytes.Buffer,
 	sh *shadowState,
 ) {
 	if sh.cursorVisible != e.chrome.cursorVisible {

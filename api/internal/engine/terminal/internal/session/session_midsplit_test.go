@@ -12,13 +12,18 @@ import (
 	"github.com/char2cs/crowbar/api/internal/engine/terminal/internal/model"
 )
 
-// TestRegression_ReattachMidSplitSequence pins the §8.3 mid-sequence re-sync: when a live
-// chunk ends mid-escape-sequence, Attach appends model.PendingInput() AFTER the clean redraw
-// so a freshly attached client's parser converges to the same in-flight boundary the live
-// clients hold. It asserts (a) the Attach payload ends with the buffered partial, (b) the
-// live tail then completes correctly against that payload (the move-and-overwrite happens, the
-// tail is NOT rendered as literal text), and (c) Snapshot()/.buf EXCLUDE the partial (a clean,
-// fully-terminated persisted frame). Deleting the Attach PendingInput append regresses (a)/(b).
+// TestRegression_ReattachMidSplitSequence pins the §8.3 mid-sequence re-sync on the
+// DEGRADED/raw path (the ONLY path that still appends the partial, per I3): when a
+// live chunk ends mid-escape-sequence and the session is streaming raw bytes, Attach
+// appends model.PendingInput() AFTER the clean redraw so a freshly attached client's
+// parser converges to the same in-flight boundary the live clients hold — the raw
+// continuation genuinely follows over the byte stream. It asserts (a) the Attach
+// payload ends with the buffered partial, (b) the live tail then completes correctly
+// against that payload (the move-and-overwrite happens, the tail is NOT rendered as
+// literal text), and (c) Snapshot()/.buf EXCLUDE the partial (a clean, fully-
+// terminated persisted frame). Deleting the raw-path PendingInput append regresses
+// (a)/(b). (The HEALTHY model-driven path must NOT append — the continuation never
+// arrives there — which TestModelDriven_HealthyAttachSnapshotHasNoPendingInput pins.)
 func TestRegression_ReattachMidSplitSequence(t *testing.T) {
 	dir := t.TempDir()
 	s, err := newTestSession(t, "sid-midsplit", dir)
@@ -35,6 +40,11 @@ func TestRegression_ReattachMidSplitSequence(t *testing.T) {
 
 	pending := append([]byte(nil), s.model.PendingInput()...)
 	require.Equal(t, "\x1b[5", string(pending), "model must hold the incomplete CSI as pending input")
+
+	// Force the raw/degraded fallback so the Attach appends the partial: under
+	// healthy model-driven emission the client would never receive the raw
+	// continuation, so the append is now gated on !modelEmitHealthyLocked() (I3).
+	forceModelPanicForTest(s)
 
 	ch, err := s.Attach()
 	require.NoError(t, err)

@@ -50,6 +50,46 @@ func TestModelDriven_OutputIsModelDerived(t *testing.T) {
 	assert.Contains(t, data, "\x1b[", "model-driven output is synthesized ANSI")
 }
 
+// TestModelDriven_HealthyAttachSnapshotHasNoPendingInput pins the I3 fix: a
+// healthy (model-driven) attach snapshot must end EXACTLY at the serializer
+// output, with no buffered mid-sequence partial appended. Under model-driven
+// emission the client only ever receives model-derived frames, so the raw
+// continuation of a partial escape never arrives — appending the partial would
+// strand the fresh client's parser mid-escape (truncated OSC title, mid-rune
+// U+FFFD). The partial is appended ONLY on the degraded/raw path, where the
+// continuation genuinely follows over the live byte stream.
+func TestModelDriven_HealthyAttachSnapshotHasNoPendingInput(t *testing.T) {
+	s := newBareSession("sid-md-pending", "/bin/sh", t.TempDir(), "")
+	m, ser := newModel(80, 24, 200)
+	s.model = m
+	s.serializer = ser
+	s.emitter = model.NewDiffEmitter()
+
+	// Feed printable text plus a trailing INCOMPLETE CSI so the model buffers a
+	// non-empty pending partial (an unterminated "\x1b[1;5").
+	s.pumpStep([]byte("hello\x1b[1;5"))
+	require.NotEmpty(t, s.model.PendingInput(), "test setup: model must hold a pending partial")
+
+	ch, err := s.Attach()
+	require.NoError(t, err)
+	defer s.Detach(ch)
+
+	f, ok := waitFrame(t, ch, time.Second)
+	require.True(t, ok, "attach must deliver a snapshot")
+	require.True(t, f.Snapshot, "healthy attach frame must be a snapshot")
+
+	s.mu.Lock()
+	want := ser.Serialize(m)
+	pending := append([]byte(nil), s.model.PendingInput()...)
+	s.mu.Unlock()
+
+	require.NotEmpty(t, pending, "test setup: partial must still be buffered at attach time")
+	assert.Equal(t, string(want), string(f.Data),
+		"healthy attach snapshot must equal serializer output with no pending partial appended")
+	assert.NotContains(t, string(f.Data), string(pending),
+		"the buffered mid-sequence partial must never appear in a healthy attach snapshot")
+}
+
 func TestModelDriven_DegradedFallsBackToRaw(t *testing.T) {
 	s, err := New("sid-md-deg", "/bin/sh", t.TempDir(), "", os.Environ(), 80, 24, 200)
 	require.NoError(t, err)
@@ -95,36 +135,61 @@ func TestModelDriven_ResizeInvalidatesEmitterForcingNextKeyframe(t *testing.T) {
 	assert.Contains(t, string(f.Data), "POST-RESIZE")
 }
 
-// TestModelDriven_AttachFlushesPendingDeltaBeforeRebasing proves Attach
-// flushes any pending delta to EXISTING clients via emitFrameLocked
-// before serializing the fresh-attach snapshot and priming the emitter — so a
-// delta accumulated between the last emit and this attach is never silently
-// dropped for clients that were already attached.
+// TestModelDriven_AttachFlushesPendingDeltaBeforeRebasing proves Attach flushes
+// any pending delta to EXISTING clients via emitFrameLocked before serializing the
+// fresh-attach snapshot and priming the emitter — so a delta accumulated behind an
+// unfired trailing frame-clock timer between the last emit and this attach is never
+// silently dropped for clients that were already attached (M5d).
+//
+// Built directly on newBareSession + pumpStep (like the other timing-sensitive
+// model-driven tests) so the pre-attach write can be pinned inside the coalesce
+// window deterministically — a live PTY's own chunking would race the assertion.
+// It asserts the flushed frame's CONTENT (the pre-attach write's text), not just
+// that a frame arrived, and that the new client's snapshot already includes it.
 func TestModelDriven_AttachFlushesPendingDeltaBeforeRebasing(t *testing.T) {
-	s, err := New("sid-md-flush", "/bin/sh", t.TempDir(), "", os.Environ(), 80, 24, 200)
-	require.NoError(t, err)
-	t.Cleanup(s.Kill)
+	s := newBareSession("sid-md-flush", "/bin/sh", t.TempDir(), "")
+	m, ser := newModel(80, 24, 200)
+	s.model = m
+	s.serializer = ser
+	s.emitter = model.NewDiffEmitter()
 
 	ch1, err := s.Attach()
 	require.NoError(t, err)
 	defer s.Detach(ch1)
-
-	// Drain ch1's initial keyframe snapshot.
 	_, ok := waitFrame(t, ch1, time.Second)
-	require.True(t, ok)
+	require.True(t, ok, "attach must deliver an initial snapshot")
 
-	require.NoError(t, s.Write([]byte("echo FIRST-CLIENT-DELTA\n")))
-	data1, _ := collect(ch1, 2*time.Second)
-	assert.Contains(t, data1, "FIRST-CLIENT-DELTA", "existing client must see output emitted before the second attach")
+	// Cold-clock immediate emit stamps lastEmitAt.
+	s.pumpStep([]byte("echo A\n"))
+	_, ok = waitFrame(t, ch1, time.Second)
+	require.True(t, ok, "first chunk must emit immediately (cold clock)")
 
-	// A second attach must not lose any already-emitted output for ch1, and
-	// must itself receive a self-contained snapshot.
+	// This chunk lands inside the 8ms window: it only ARMS the trailing timer, so
+	// its delta is pending (unflushed) when the second client attaches.
+	s.pumpStep([]byte("PENDING-DELTA-XYZ"))
+	s.mu.Lock()
+	armed := s.emitTimer != nil
+	s.mu.Unlock()
+	require.True(t, armed, "test setup: the second chunk must arm the trailing timer (pending delta)")
+
+	// Second attach must flush that pending delta to the EXISTING client (ch1)
+	// before rebasing the emitter for the new client (ch2).
 	ch2, err := s.Attach()
 	require.NoError(t, err)
 	defer s.Detach(ch2)
+
+	f1, ok := waitFrame(t, ch1, time.Second)
+	require.True(t, ok, "Attach must flush the pending delta to the existing client")
+	assert.False(t, f1.Snapshot, "the flushed pending delta is an incremental diff, not a snapshot")
+	assert.Contains(t, string(f1.Data), "PENDING-DELTA-XYZ",
+		"the flushed delta frame must carry the pre-attach write's text, not silently drop it")
+
+	// The new client's own snapshot must already reflect the pre-attach write.
 	f2, ok := waitFrame(t, ch2, time.Second)
 	require.True(t, ok, "second attach must deliver a snapshot")
 	assert.True(t, f2.Snapshot)
+	assert.Contains(t, string(f2.Data), "PENDING-DELTA-XYZ",
+		"the new client's attach snapshot must already include the pre-attach write")
 }
 
 // TestModelDriven_EmitPanicOnFlipDoesNotDropTheTriggeringChunk proves the boundary the
@@ -501,7 +566,7 @@ drain:
 }
 
 // TestModelDriven_CPRQueryAnsweredToPTY proves the daemon answers a cursor-position-report
-// query (ESC[6n) from the model under the model-driven flag (spec §3.8): the client xterm
+// query (ESC[6n) from the model (spec §3.8): the client xterm
 // never sees the query in this mode, so without the session's response sink writing the
 // model's synthesized reply back to the PTY master, an app reading the reply from stdin
 // (here, the shell's `read`) would hang/time out.

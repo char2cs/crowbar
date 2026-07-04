@@ -1,6 +1,7 @@
 package model
 
 import (
+	"fmt"
 	"image/color"
 	"strings"
 	"testing"
@@ -222,6 +223,22 @@ func TestDiffEmitter_TitleChangeForwarded(t *testing.T) {
 	assert.Contains(t, string(data), "\x1b]0;my-title\x07")
 }
 
+// TestDiffEmitter_IconNameChangeForwarded pins M3: an app that sets ONLY the icon
+// name (OSC 1) must have that change streamed as a diff, in the serializer's exact
+// OSC 1 ST form — previously the diff emitter tracked only the title and silently
+// dropped a lone icon-name change.
+func TestDiffEmitter_IconNameChangeForwarded(t *testing.T) {
+	m, _ := newTestModel(t, 10, 3)
+	e := NewDiffEmitter()
+	e.Prime(m)
+	m.Write([]byte("\x1b]1;my-icon\x07")) // OSC 1 icon name only
+	data, need := e.Emit(m)
+	require.False(t, need)
+	assert.Contains(t, string(data), "\x1b]1;my-icon\x1b\\",
+		"a lone icon-name (OSC 1) change must stream in the serializer's OSC 1 ST form")
+	assert.NotContains(t, string(data), "\x1b]0;", "an OSC 1 change must not emit an OSC 0 (which would clobber the title)")
+}
+
 func TestDiffEmitter_UnchangedChromeEmitsNothing(t *testing.T) {
 	m, _ := newTestModel(t, 10, 3)
 	m.Write([]byte("\x1b[?2004h\x1b]0;t\x07"))
@@ -230,6 +247,55 @@ func TestDiffEmitter_UnchangedChromeEmitsNothing(t *testing.T) {
 	data, need := e.Emit(m)
 	require.False(t, need)
 	assert.Empty(t, data, "already-primed chrome must not re-emit")
+}
+
+// TestDiffEmitter_AutowrapModeFlipForwarded pins M5(a): a tracked DEC private
+// mode that is NOT in serializedModeOrder — DECAWM autowrap (mode 7) — must still
+// stream its flip, via writeModeDelta's "extras" path (the sorted append of modes
+// outside the ordered list).
+func TestDiffEmitter_AutowrapModeFlipForwarded(t *testing.T) {
+	m, _ := newTestModel(t, 10, 3)
+	e := NewDiffEmitter()
+	e.Prime(m)
+	m.Write([]byte("\x1b[?7l")) // DECAWM autowrap OFF
+	data, need := e.Emit(m)
+	require.False(t, need)
+	assert.Contains(t, string(data), "\x1b[?7l",
+		"an autowrap (mode 7) flip must stream through writeModeDelta's extras path")
+}
+
+// TestDiffEmitter_RotationAnchorLostForcesKeyframe pins M5(b): once the scrollback
+// ring is SATURATED, scrollbackNewStart anchors on the previously-emitted tail's
+// hash and scans back only rotationScanLimit lines. If a single emit gap commits
+// MORE than that many distinct lines, the anchor is evicted past the scan window,
+// scrollbackNewStart returns ok=false, and Emit must demand a keyframe rather than
+// silently misplacing the new-line boundary.
+func TestDiffEmitter_RotationAnchorLostForcesKeyframe(t *testing.T) {
+	const capLines = 300
+	m, _ := New(20, 5, capLines)
+	t.Cleanup(func() { m.Close() })
+	e := NewDiffEmitter()
+
+	// Saturate the ring with distinct lines so ScrollbackLen plateaus at the cap.
+	var fill []byte
+	for i := 0; i < capLines+50; i++ {
+		fill = append(fill, fmt.Sprintf("pre-%04d\r\n", i)...)
+	}
+	m.Write(fill)
+	require.Equal(t, capLines, m.(*vtModel).emu.ScrollbackLen(), "test setup: ring must be saturated")
+	e.Prime(m) // anchors on the current (pre-fill) tail
+
+	// One gap commits > rotationScanLimit distinct lines, evicting the primed
+	// anchor beyond the backward scan window.
+	var gap []byte
+	for i := 0; i < rotationScanLimit+50; i++ {
+		gap = append(gap, fmt.Sprintf("post-%04d\r\n", i)...)
+	}
+	m.Write(gap)
+
+	_, need := e.Emit(m)
+	assert.True(t, need,
+		"an anchor evicted past rotationScanLimit must force a keyframe resync, not a misanchored diff")
 }
 
 func TestDiffEmitter_ScrollRegionChangeNeedsKeyframe(t *testing.T) {

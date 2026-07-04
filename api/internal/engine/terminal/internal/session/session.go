@@ -92,8 +92,10 @@ type Session struct {
 	// rawBlob is the placeholder's persisted serialized blob, returned verbatim by the
 	// model-less Snapshot fast-path. Distinct from lastBlob and never aliased (§8.4).
 	rawBlob []byte
-	// modelPanics counts recovered emulator panics across every model-access path
-	// (Write/Resize/Serialize/teardown), surfaced via Stats and never fatal (§8.5).
+	// modelPanics counts recovered SESSION-LEVEL model-access panics — the §8.5
+	// backstops around Resize/Serialize/Emit/Prime/teardown — surfaced via Stats
+	// and never fatal. It does NOT count vtModel.Write's internal parse panics,
+	// which the model recovers itself (recreateEmu) while staying model-driven.
 	modelPanics int
 	// lastForegroundPgid latches the previous foreground process-group sample so the
 	// app→shell return edge fires OnForegroundReset exactly once (§11.1).
@@ -107,10 +109,14 @@ type Session struct {
 	sampleForegroundLocked func()
 	// Model-driven output (spec 2026-07-03): every live session is model-driven —
 	// clients receive model-derived diff/keyframe frames, never raw PTY bytes.
-	// Raw streaming survives ONLY as the degraded fallback: once the model
-	// degrades (modelPanics > 0) or is nil (a placeholder before restore), the
-	// session streams raw chunks for its remaining lifetime. emitter state is
-	// guarded by s.mu like the model.
+	// Raw streaming survives ONLY as the degraded fallback. modelPanics counts
+	// solely the SESSION-LEVEL model-access panics the §8.5 backstops recover
+	// (resize/serialize/emit/prime); a nonzero count (or a nil model on a
+	// placeholder before restore) flips the session to raw streaming for its
+	// remaining lifetime. It deliberately does NOT count the model's internal
+	// parse panics: vtModel.Write recovers those itself (fresh emulator, blanked
+	// screen) and stays model-driven — a self-heal, not a fallback. emitter state
+	// is guarded by s.mu like the model.
 	emitter *model.DiffEmitter
 	// modelDrivenFellBack latches the raw-fallback log so a degraded session logs the
 	// flip exactly once instead of once per chunk.
@@ -474,7 +480,22 @@ func (s *Session) Attach() (<-chan OutputFrame, error) {
 			s.flushPendingEmitLocked()
 		}
 		redraw := s.serializeLocked()
-		redraw = append(redraw, s.model.PendingInput()...)
+		if !s.modelEmitHealthyLocked() {
+			// Append the buffered mid-sequence partial ONLY on the degraded/raw
+			// path. There the client keeps receiving live PTY bytes, so the
+			// CONTINUATION of that partial genuinely arrives after this snapshot —
+			// priming the fresh client's parser with the partial makes it converge
+			// to the same boundary the live clients hold.
+			//
+			// Under healthy model-driven emission the client receives only model-
+			// DERIVED frames; the raw continuation bytes NEVER come. Appending the
+			// partial would strand the client's parser mid-escape forever — a
+			// truncated OSC title committed as the window title, or a mid-rune byte
+			// surfacing as U+FFFD once json.Marshal re-encodes it. The serializer's
+			// output is already self-contained, query-free and fully terminated, so
+			// a healthy attach snapshot ends exactly there.
+			redraw = append(redraw, s.model.PendingInput()...)
+		}
 		if len(redraw) > 0 {
 			cl.send <- OutputFrame{SessionID: s.id, Data: redraw, Snapshot: true}
 		}
@@ -498,8 +519,12 @@ func (s *Session) Attach() (<-chan OutputFrame, error) {
 // only cost the client its scroll position. Returns true when a resync was
 // REQUESTED/attempted (a foreground app was present and not idle), even if the
 // model-driven emit path then panicked into raw fallback — not a guarantee that
-// bytes reached every client. A client whose send buffer is full is skipped rather than blocked —
-// it is already saturated with output that supersedes this snapshot.
+// bytes reached every client. Overflow handling differs by branch: the healthy
+// model-driven branch fans the keyframe out via fanOutFrameLocked, which
+// DISCONNECTS a client whose send buffer is full (drop-on-overflow; it re-attaches
+// to a fresh keyframe). Only the degraded RAW branch below SKIPS a full client
+// rather than blocking or disconnecting — it is already saturated with raw output
+// that supersedes this snapshot.
 func (s *Session) Resync() bool {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -689,10 +714,17 @@ func (s *Session) pumpStep(chunk []byte) {
 // modelEmitHealthyLocked reports whether the session can still emit model-derived
 // frames. Model-driven output is now the ONLY configured pipeline — the false
 // (raw-streaming) branch is reachable solely via DEGRADATION, never configuration:
-// a nil model (a placeholder before restore, no emitter) or a model that has
-// degraded (any recovered parse panic, modelPanics > 0) can no longer be the
-// source of truth, so the session flips to raw streaming for its remaining
-// lifetime. Caller holds s.mu.
+// a nil model (a placeholder before restore, no emitter) or a nonzero modelPanics
+// can no longer be the source of truth, so the session flips to raw streaming for
+// its remaining lifetime.
+//
+// modelPanics counts ONLY session-level model-access panics the §8.5 backstops
+// recover: Resize (mutateModelLocked), Serialize (serializeLocked), Emit
+// (emitLocked) and Prime (primeLocked). It does NOT count vtModel.Write's internal
+// parse panics — those self-heal inside the model (recreateEmu blanks to a fresh
+// emulator) and keep the session model-driven, so an adversarial byte stream that
+// only trips the emulator's own parser never forces the raw fallback. Caller holds
+// s.mu.
 func (s *Session) modelEmitHealthyLocked() bool {
 	if s.model == nil || s.emitter == nil {
 		return false
@@ -800,11 +832,12 @@ func (s *Session) flushPendingEmitLocked() {
 }
 
 // emitFrameLocked derives one frame from the model and fans it out: a diff
-// frame normally, a snapshot keyframe when the emitter demands one (unprimed,
-// resize, alt flip, scrollback shrink). Caller holds s.mu. Reached either
-// synchronously from scheduleEmitLocked/flushPendingEmitLocked or directly by
-// Attach/Resync's own forced keyframes, which always reflect the full
-// current model state regardless of the frame clock.
+// frame normally, a snapshot keyframe when the emitter demands one (see
+// model.DiffEmitter.Emit for the canonical, exhaustive keyframe-trigger list).
+// Caller holds s.mu. Reached either synchronously from
+// scheduleEmitLocked/flushPendingEmitLocked or directly by Attach/Resync's own
+// forced keyframes, which always reflect the full current model state regardless
+// of the frame clock.
 func (s *Session) emitFrameLocked() {
 	data, needKeyframe := s.emitLocked()
 	if needKeyframe {
@@ -846,8 +879,12 @@ func (s *Session) primeLocked() {
 	s.emitter.Prime(s.model)
 }
 
-// writeModelLocked feeds a chunk into the model under a recover backstop so a parse panic
-// on adversarial bytes bumps modelPanics and continues rather than stranding s.mu or
+// writeModelLocked feeds a chunk into the model under a recover backstop. In production
+// this backstop is defence-in-depth: the real vtModel.Write recovers its own parse panics
+// internally (recreateEmu) and never re-panics, so an adversarial byte stream self-heals in
+// the model and does NOT bump s.modelPanics or force the raw fallback. The recover here only
+// fires if a model.Write escapes a panic (a test fake, or a future backend without its own
+// recover); when it does it bumps modelPanics and continues rather than stranding s.mu or
 // killing the session (§8.2). Caller holds s.mu.
 func (s *Session) writeModelLocked(chunk []byte) {
 	defer func() {
@@ -1143,9 +1180,11 @@ func (s *Session) MarkSuspendingForShutdown() {
 // Health reports the session's parse-health for the engine's Stats observability surface
 // (§9.4): whether the model is in the sticky degraded state, and the total recovered parse
 // panics. The count combines the model's own ModelHealth.ParsePanics() (panics x/vt's Write
-// recovered internally) with the session-level s.modelPanics backstop counter (panics that
-// escaped a model method — Resize/Serialize/teardown — into the §8.5 recover), so neither
-// is write-only and a blanked-and-reparsed session is observable. A placeholder (model ==
+// recovered internally, self-healing without forcing the raw fallback) with the session-
+// level s.modelPanics backstop counter (panics that escaped a model method —
+// Resize/Serialize/Emit/Prime/teardown — into the §8.5 recover and DID flip the session to
+// raw), so neither is write-only and a blanked-and-reparsed session is observable. A
+// placeholder (model ==
 // nil) or a backend that does not implement ModelHealth contributes only s.modelPanics.
 func (s *Session) Health() (degraded bool, parsePanics int) {
 	s.mu.Lock()
