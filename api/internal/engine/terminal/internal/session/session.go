@@ -10,7 +10,6 @@ import (
 	"os/exec"
 	"strings"
 	"sync"
-	"sync/atomic"
 	"syscall"
 	"time"
 
@@ -41,20 +40,6 @@ const foregroundSampleInterval = 250 * time.Millisecond
 // minEmitInterval is the model-driven frame clock (spec §3.3): interactive
 // deltas emit immediately; bursts coalesce to at most one frame per interval.
 const minEmitInterval = 8 * time.Millisecond
-
-// canaryDivergenceLogEvery throttles the dev divergence canary's stderr log to once
-// per this many divergence events, so a persistently-diverging session logs a
-// steady drumbeat rather than flooding stderr once per emitted frame.
-const canaryDivergenceLogEvery = 100
-
-// canaryEnabled reports whether the dev divergence canary (Task 9) was
-// requested via CROWBAR_TERMINAL_MODEL_DRIVEN_CANARY=1. Read once at spawn
-// time for a model-driven session; unset (the default) keeps s.canarySim nil
-// for the session's whole lifetime, so mirrorCanaryLocked is a single nil
-// check and nothing more — zero cost in production.
-func canaryEnabled() bool {
-	return os.Getenv("CROWBAR_TERMINAL_MODEL_DRIVEN_CANARY") == "1"
-}
 
 // OutputFrame is a chunk of PTY output delivered to attached clients.
 //
@@ -113,12 +98,13 @@ type Session struct {
 	// solely so a test can substitute a deterministic hooked sampler to pin the
 	// fan-out → model-write → foreground-sample ordering the spec mandates (§11.1 site #1).
 	sampleForegroundLocked func()
-	// Model-driven output (spec 2026-07-03): when set, clients receive
-	// model-derived diff/keyframe frames instead of raw PTY bytes. Falls back
-	// to raw streaming for the session's lifetime once the model degrades
-	// (modelPanics > 0). emitter state is guarded by s.mu like the model.
-	modelDriven bool
-	emitter     *model.DiffEmitter
+	// Model-driven output (spec 2026-07-03): every live session is model-driven —
+	// clients receive model-derived diff/keyframe frames, never raw PTY bytes.
+	// Raw streaming survives ONLY as the degraded fallback: once the model
+	// degrades (modelPanics > 0) or is nil (a placeholder before restore), the
+	// session streams raw chunks for its remaining lifetime. emitter state is
+	// guarded by s.mu like the model.
+	emitter *model.DiffEmitter
 	// modelDrivenFellBack latches the raw-fallback log so a degraded session logs the
 	// flip exactly once instead of once per chunk.
 	modelDrivenFellBack bool
@@ -134,18 +120,6 @@ type Session struct {
 	// s.mu; the timer callback re-locks.
 	lastEmitAt time.Time
 	emitTimer  *time.Timer
-	// canarySim is the dev divergence canary's shadow client-sim model (spec
-	// Task 9, env CROWBAR_TERMINAL_MODEL_DRIVEN_CANARY=1): a second model
-	// instance, constructed the same way the conformance test's clientSim is
-	// (fresh instance on every keyframe, plain Write on every diff), fed
-	// exactly the frames emitFrameLocked fans out to real clients. Its grid
-	// hash is compared against the authoritative model's on every mirrored
-	// frame. nil unless the env var was set at spawn time for a model-driven
-	// session — zero cost (no construction, no compare) otherwise.
-	canarySim model.TerminalModel
-	// canaryDivergences counts grid-hash mismatches the canary observed.
-	// Atomic so CanaryDivergences() can be read without s.mu.
-	canaryDivergences atomic.Int64
 }
 
 // newBareSession allocates a Session shell with no PTY and no model. New/NewRestored fill
@@ -177,15 +151,12 @@ type spawnParams struct {
 	Rows            int
 	ScrollbackLines int
 	Blob            []byte
-	// ModelDriven selects the model-derived output path for the spawned session
-	// (spec §3.1). New/NewRestored always spawn raw (ModelDriven: false) for
-	// their direct callers; NewCreate/NewRestoredWithParams thread it through
-	// from the engine's modelDrivenEnabled() resolution.
-	ModelDriven bool
 }
 
 // New spawns a PTY subprocess at cols×rows, builds the screen model at that size and the
-// resolved scrollback depth, and starts the io pump.
+// resolved scrollback depth, and starts the io pump. Every session spawned this way is
+// model-driven (spec 2026-07-03): clients receive model-derived frames, and raw streaming
+// survives only as the degraded fallback.
 func New(
 	id string,
 	shell string,
@@ -198,28 +169,6 @@ func New(
 ) (*Session, error) {
 	s := newBareSession(id, shell, cwd, profileID)
 	if err := s.spawn(env, spawnParams{Cols: cols, Rows: rows, ScrollbackLines: scrollbackLines}); err != nil {
-		return nil, err
-	}
-	return s, nil
-}
-
-// NewCreate is identical to New but additionally threads the model-driven output flag
-// (spec §3.1) through to spawn. It is the engine's Create-path entry point —
-// modelDrivenEnabled() is resolved once, at spawn time (§7), and passed in here. New itself
-// stays raw-only and UNCHANGED for its existing direct callers (registry/hardening tests).
-func NewCreate(
-	id string,
-	shell string,
-	cwd string,
-	profileID string,
-	env []string,
-	cols int,
-	rows int,
-	scrollbackLines int,
-	modelDriven bool,
-) (*Session, error) {
-	s := newBareSession(id, shell, cwd, profileID)
-	if err := s.spawn(env, spawnParams{Cols: cols, Rows: rows, ScrollbackLines: scrollbackLines, ModelDriven: modelDriven}); err != nil {
 		return nil, err
 	}
 	return s, nil
@@ -239,25 +188,6 @@ func NewRestored(
 ) (*Session, error) {
 	s := newBareSession(id, shell, cwd, profileID)
 	if err := s.spawn(env, spawnParams{Blob: rawBlob}); err != nil {
-		return nil, err
-	}
-	return s, nil
-}
-
-// NewRestoredWithParams is identical to NewRestored but additionally threads the
-// model-driven output flag through to spawn. It is the engine's restore-path entry point;
-// NewRestored itself stays raw-only and UNCHANGED for its existing direct callers.
-func NewRestoredWithParams(
-	id string,
-	shell string,
-	cwd string,
-	profileID string,
-	env []string,
-	rawBlob []byte,
-	modelDriven bool,
-) (*Session, error) {
-	s := newBareSession(id, shell, cwd, profileID)
-	if err := s.spawn(env, spawnParams{Blob: rawBlob, ModelDriven: modelDriven}); err != nil {
 		return nil, err
 	}
 	return s, nil
@@ -310,14 +240,8 @@ func (s *Session) spawn(
 	s.cmd = cmd
 	s.model = m
 	s.serializer = ser
-	s.modelDriven = p.ModelDriven
-	if p.ModelDriven {
-		s.emitter = model.NewDiffEmitter()
-		if canaryEnabled() {
-			s.canarySim, _ = newModel(cols, rows, sbLines)
-		}
-	}
-	if p.ModelDriven && s.model != nil {
+	s.emitter = model.NewDiffEmitter()
+	if s.model != nil {
 		ptmx := s.ptmx
 		s.model.SetResponseSink(func(reply []byte) {
 			// Answer device queries from the model (spec §3.8). ptmx.Write is
@@ -484,7 +408,7 @@ func (s *Session) Attach() (<-chan OutputFrame, error) {
 		// re-attach inside the pumpStep debounce window of a SIGKILLed app never bakes its
 		// stale alt/mouse modes into the new client.
 		s.checkForegroundResetLocked()
-		if s.useModelDrivenLocked() {
+		if s.modelEmitHealthyLocked() {
 			// Model-driven Attach re-bases the emitter to the CURRENT model
 			// state, which is safe for the new client but would silently drop
 			// any delta accumulated since the last Emit/Prime for EXISTING
@@ -505,7 +429,7 @@ func (s *Session) Attach() (<-chan OutputFrame, error) {
 		if len(redraw) > 0 {
 			cl.send <- OutputFrame{SessionID: s.id, Data: redraw, Snapshot: true}
 		}
-		if s.useModelDrivenLocked() {
+		if s.modelEmitHealthyLocked() {
 			s.primeLocked()
 		}
 	}
@@ -536,7 +460,7 @@ func (s *Session) Resync() bool {
 	}
 	s.checkForegroundResetLocked()
 
-	if s.useModelDrivenLocked() {
+	if s.modelEmitHealthyLocked() {
 		// One mechanism: invalidate the diff base so emitFrameLocked's next
 		// Emit demands a keyframe, then let it serialize+fan out+re-prime —
 		// the exact same path the pump uses for a post-resize keyframe.
@@ -670,7 +594,7 @@ func (s *Session) pumpStep(chunk []byte) {
 	if ok {
 		s.cwd = path
 	}
-	if s.useModelDrivenLocked() {
+	if s.modelEmitHealthyLocked() {
 		// Model-driven (spec §3.1): the model is written FIRST and clients
 		// receive model-derived frames. Raw fan-out is skipped entirely —
 		// UNLESS the emit path itself degrades on THIS chunk (see below).
@@ -686,7 +610,7 @@ func (s *Session) pumpStep(chunk []byte) {
 			// approximation for a client whose screen is a model projection: it
 			// is acceptable because (a) model and client were in sync as of the
 			// last successful emit, and (b) any residual drift self-heals at the
-			// next attach/resync keyframe. useModelDrivenLocked already logged
+			// next attach/resync keyframe. modelEmitHealthyLocked already logged
 			// the degraded flip; from the NEXT chunk pumpStep takes the raw
 			// branch below.
 			//
@@ -694,7 +618,7 @@ func (s *Session) pumpStep(chunk []byte) {
 			// emit path, where pumpStep still holds the triggering chunk. A
 			// flip discovered inside the TRAILING TIMER callback (a burst
 			// chunk that only armed a deferred emit) has no chunk in scope to
-			// fall back with — that chunk's frame is lost. useModelDrivenLocked
+			// fall back with — that chunk's frame is lost. modelEmitHealthyLocked
 			// still logs the degraded flip exactly once either way, and the
 			// loss self-heals at the next attach/resync/resize keyframe, same
 			// as the pre-existing residual-drift argument above; deferred
@@ -713,11 +637,15 @@ func (s *Session) pumpStep(chunk []byte) {
 	}
 }
 
-// useModelDrivenLocked: the flag, gated by model health — a degraded model
-// (any recovered parse panic) can no longer be the source of truth, so the
-// session flips to raw streaming for its remaining lifetime. Caller holds s.mu.
-func (s *Session) useModelDrivenLocked() bool {
-	if !s.modelDriven || s.model == nil || s.emitter == nil {
+// modelEmitHealthyLocked reports whether the session can still emit model-derived
+// frames. Model-driven output is now the ONLY configured pipeline — the false
+// (raw-streaming) branch is reachable solely via DEGRADATION, never configuration:
+// a nil model (a placeholder before restore, no emitter) or a model that has
+// degraded (any recovered parse panic, modelPanics > 0) can no longer be the
+// source of truth, so the session flips to raw streaming for its remaining
+// lifetime. Caller holds s.mu.
+func (s *Session) modelEmitHealthyLocked() bool {
+	if s.model == nil || s.emitter == nil {
 		return false
 	}
 	if s.modelPanics == 0 {
@@ -774,7 +702,7 @@ func (s *Session) scheduleEmitLocked() bool {
 			return // session tore down while the timer was in flight
 		default:
 		}
-		if !s.useModelDrivenLocked() {
+		if !s.modelEmitHealthyLocked() {
 			return
 		}
 		s.lastEmitAt = time.Now()
@@ -837,91 +765,11 @@ func (s *Session) emitFrameLocked() {
 		}
 		s.fanOutFrameLocked(OutputFrame{SessionID: s.id, Data: redraw, Snapshot: true})
 		s.primeLocked()
-		s.mirrorCanaryLocked(redraw, true)
 		return
 	}
 	if len(data) > 0 {
 		s.fanOutFrameLocked(OutputFrame{SessionID: s.id, Data: data})
-		s.mirrorCanaryLocked(data, false)
 	}
-}
-
-// mirrorCanaryLocked is the dev divergence canary (Task 9): it mirrors an
-// already-fanned-out frame into the shadow client-sim model and compares its
-// resulting grid hash against the authoritative model's. A no-op whenever
-// s.canarySim is nil — i.e. always in production, unless
-// CROWBAR_TERMINAL_MODEL_DRIVEN_CANARY=1 was set at spawn. Caller holds s.mu.
-//
-// Sim semantics mirror the conformance test's clientSim exactly (see
-// model/conformance_test.go): a keyframe replaces the sim with a FRESH model
-// instance before writing the redraw (terminal.reset() equivalent); a diff
-// frame is a plain incremental Write on the existing instance.
-//
-// Resize handling: Resize/Resync always Invalidate the emitter, forcing the
-// NEXT model-driven frame down the keyframe branch above — which rebuilds
-// canarySim fresh at the model's CURRENT dimensions (read from HeaderState,
-// not the dimensions the sim was last built at). So a resize needs no
-// separate canary-resize path: it is subsumed by the ordinary keyframe reset,
-// the same way a real client's terminal.reset() picks up the new size from
-// the keyframe redraw it's about to receive.
-func (s *Session) mirrorCanaryLocked(data []byte, keyframe bool) {
-	if s.canarySim == nil {
-		return
-	}
-	// The canary is an OBSERVER: a panic anywhere in its body (sim recreation on a
-	// keyframe, the mirrored Write, or GridHash) must never propagate — that would
-	// either crash the whole daemon (this can run off scheduleEmitLocked's trailing
-	// time.AfterFunc goroutine, which has no safego.Recover above it) or tear down the
-	// real session via pump()'s defer s.shutdown(). Recover permanently disables the
-	// canary for this session instead: the authoritative model/session are never
-	// touched, so modelPanics is deliberately NOT bumped here (§8.5 pattern, but this
-	// is an observer fault, not a model fault).
-	defer func() {
-		if r := recover(); r != nil {
-			// Close and nil whatever sim state is live exactly once. By the time we
-			// get here the field holds either: the pre-keyframe sim (Write/GridHash
-			// panicked before any recreation happened), or the freshly recreated sim
-			// (Write/GridHash panicked after recreation succeeded). Either way it's
-			// safe to Close+nil unconditionally. The keyframe branch below always
-			// nils s.canarySim itself before closing the OLD sim, so a panic out of
-			// that old Close() leaves the field already nil and this is a no-op —
-			// no double-Close. A panic out of newModel() itself is unrecoverable at
-			// the construction site (no handle to the partial result), so there is
-			// nothing further to close there either; the field is already nil.
-			if s.canarySim != nil {
-				s.canarySim.Close()
-				s.canarySim = nil
-			}
-			_, _ = fmt.Fprintf(os.Stderr, "terminal: canary disabled after panic session=%s\n", s.id)
-		}
-	}()
-	if keyframe {
-		old := s.canarySim
-		// Detach before closing the old sim: if old.Close() itself panics, the field
-		// is already nil so the recover above does not try to Close it a second time.
-		s.canarySim = nil
-		old.Close()
-		cols, rows, _, sb := s.model.HeaderState()
-		sim, _ := newModel(cols, rows, sb)
-		// Only publish the new sim once construction fully returns, so a panic inside
-		// newModel leaves s.canarySim nil rather than a half-built value.
-		s.canarySim = sim
-	}
-	s.canarySim.Write(data)
-	if model.GridHash(s.model) == model.GridHash(s.canarySim) {
-		return
-	}
-	n := s.canaryDivergences.Add(1)
-	if n%canaryDivergenceLogEvery == 1 {
-		_, _ = fmt.Fprintf(os.Stderr, "terminal: model-driven canary divergence session=%s count=%d\n", s.id, n)
-	}
-}
-
-// CanaryDivergences reports how many divergence events the dev canary saw.
-// Always 0 unless CROWBAR_TERMINAL_MODEL_DRIVEN_CANARY=1 was set at spawn for
-// a model-driven session.
-func (s *Session) CanaryDivergences() int64 {
-	return s.canaryDivergences.Load()
 }
 
 // emitLocked / primeLocked wrap the emitter in the same §8.5 recover backstop
@@ -1103,10 +951,6 @@ func (s *Session) shutdown() {
 		if s.model != nil {
 			s.model.Close()
 		}
-		if s.canarySim != nil {
-			s.canarySim.Close()
-			s.canarySim = nil
-		}
 		for cl := range s.clients {
 			close(cl.send)
 		}
@@ -1269,9 +1113,7 @@ func (s *Session) Health() (degraded bool, parsePanics int) {
 
 // ModelBytes returns the session's estimated resident size for the engine's memory ceiling:
 // a placeholder counts only its rawBlob; a live session counts the model's grid+scrollback
-// estimate plus the cached blob (§9.4), and — under the model-driven flag — the diff
-// emitter's retained lastGrid estimate plus the divergence canary's shadow-sim model bytes
-// when that dev-only observer is running.
+// estimate plus the cached blob (§9.4) and the diff emitter's retained lastGrid estimate.
 func (s *Session) ModelBytes() int64 {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -1281,9 +1123,6 @@ func (s *Session) ModelBytes() int64 {
 	total := s.model.ModelBytes() + int64(len(s.lastBlob))
 	if s.emitter != nil {
 		total += s.emitter.EstimatedBytes()
-	}
-	if s.canarySim != nil {
-		total += s.canarySim.ModelBytes()
 	}
 	return total
 }

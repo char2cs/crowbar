@@ -32,17 +32,19 @@ Goals:
 - No regression in: echo latency (≤ one frame-clock tick worse, target ≤ 8ms
   added), fast-scroll throughput (`cat` a large file), full-screen TUI
   smoothness (Claude Code), scrollback UX (selection/search/scroll untouched).
-- Graceful degradation: per-session opt-out flag AND automatic fallback to the
-  current raw-stream path when the model is degraded (sticky parse-panic
-  state) — the raw path is not deleted in this phase.
+- Graceful degradation: automatic fallback to raw-stream emission when the
+  model is degraded (sticky parse-panic state) or a session has no live model
+  (a placeholder before restore). This is the ONLY remaining use of the raw
+  path — it is error handling, not a configuration choice.
 
 Non-goals (explicitly out of scope):
 
 - Replacing xterm.js or its renderer.
 - Structured (non-ANSI) diff wire format, client-side cell grids, scrollback
   paging-on-demand. The wire stays ANSI-in-`data`; only its provenance changes.
-- Deleting the raw-stream code path (that is a later cleanup once the flag has
-  baked).
+- Keeping a configurable raw-stream pipeline. Model-driven is the only
+  pipeline; raw streaming survives solely as the degraded/nil-model fallback
+  above (migration complete — no flag, no opt-out).
 
 ## 3. Architecture
 
@@ -109,11 +111,12 @@ Adaptive emit, tuned for the two regimes:
 ### 3.4 Frame taxonomy (wire, unchanged from PR #26)
 
 - `snapshot:true` — full ground-state redraw; client resets buffer first.
-  Emitted on: attach, resize resync, `lastEmitted` invalidation (§3.2),
-  divergence backstop (§3.6). Coalescing barrier in writePump (shipped).
-- `snapshot` absent — incremental bytes; with the flag ON these are
-  model-derived diff frames, with it OFF they are raw PTY bytes. **The client
-  cannot and need not distinguish** — that is the point of keeping ANSI.
+  Emitted on: attach, resize resync, `lastEmitted` invalidation (§3.2).
+  Coalescing barrier in writePump (shipped).
+- `snapshot` absent — incremental bytes; normally these are model-derived diff
+  frames, and only in the degraded/nil-model fallback (§3.6) are they raw PTY
+  bytes. **The client cannot and need not distinguish** — that is the point of
+  keeping ANSI.
 
 ### 3.5 Client changes
 
@@ -121,50 +124,51 @@ Nearly none. xterm consumes frames as today. Two adjustments:
 
 - The client no longer needs its own scrollback cap to exceed the model's
   (they now describe the same history); config stays as-is, documented.
-- The PR #26 resize-resync request stays (it now returns a keyframe under the
-  flag — same behavior, one mechanism).
+- The PR #26 resize-resync request stays (it now always returns a keyframe —
+  same behavior, one mechanism).
 
 ### 3.6 Failure & recovery
 
+The safety story is the **mutation-hardened conformance suite** (§5, the
+"by-construction" proof run in CI) plus the **degraded fallback** below — not a
+runtime divergence canary. The conformance suite feeds recorded + generated
+byte corpora through a session and asserts a client simulator's grid/cursor/
+modes match the model after every frame; mutation testing keeps it honest. That
+proof happens at test time, so production carries no shadow-simulator cost.
+
 - **Model degraded / parse panic** (`modelPanics` sticky state): the session
-  flips to raw-stream emission for its remaining lifetime and logs once. The
-  existing §8/§9.4 degraded machinery is the trigger; no new states.
+  flips to raw-stream emission for its remaining lifetime and logs once, and the
+  model's response sink is uninstalled so the client xterm becomes the sole
+  device-query answerer again (§3.8). The existing §8/§9.4 degraded machinery is
+  the trigger; no new states. This raw branch is reachable ONLY via degradation
+  (or a nil model on a placeholder before restore), never configuration —
+  `modelEmitHealthyLocked` gates it.
 - **Slow client**: unchanged — overflow disconnects the client (existing
   fanOutLocked behavior); re-attach delivers a keyframe. Diff frames are
   therefore reliable-or-reattach; no per-client diff state exists.
-- **Divergence backstop** (as shipped): an env-gated, daemon-side **shadow
-  client simulator**, not a client-side grid hash. When
-  `CROWBAR_TERMINAL_MODEL_DRIVEN_CANARY=1` is set, a model-driven session builds a second
-  `TerminalModel` (`canarySim`) and mirrors every fanned-out frame into it —
-  applying keyframes as a fresh-model reset and diffs as an incremental write,
-  exactly as a real client would. After each frame it compares
-  `model.GridHash(authoritative)` against `GridHash(canarySim)` and counts +
-  throttled-logs mismatches (`CanaryDivergences()`). This runs in ANY build (it
-  is env-gated, not build-tagged), needs no client cooperation, and is a pure
-  observer: a panic in its body disables the canary for that session only,
-  never the authoritative path. It is the conformance canary while the flag
-  bakes; it must stay silent (zero divergences) for the flag to default on.
 
-### 3.7 Rollout flag
+### 3.7 Migration
 
-`CROWBAR_TERMINAL_MODEL_DRIVEN` env override + build default (ON in dev, OFF in
-release until the canary and daily-driver period pass). Flag is read at session
-spawn (no mid-session switching; a restart applies it).
-
-**Deferred**: the `terminal.modelDrivenOutput` per-profile setting is a
-follow-up — only the env override and the build default shipped in this phase.
-The env+build gate is sufficient for the bake period; the per-profile UI toggle
-is added once the flag is ready to be user-visible.
+Model-driven emission is the **only** pipeline. There is no rollout flag, env
+override, build default, or per-profile toggle: every live session installs the
+diff emitter and response sink at spawn and emits model-derived frames. Raw
+streaming survives solely as the degraded/nil-model fallback in §3.6 — it is
+error handling, not a choice. (Historical: this shipped behind
+`CROWBAR_TERMINAL_MODEL_DRIVEN` + a `noEmbed` build default and a
+`CROWBAR_TERMINAL_MODEL_DRIVEN_CANARY` shadow-sim canary while it baked under
+daily use; the migration deleted all of that machinery once the pipeline
+proved out.)
 
 ## 3.8 Device queries (amendment, plan phase)
 
-In raw mode the client xterm answers device queries (CPR `ESC[6n`, DA,
-OSC 10/11/12 color queries) by writing replies into the PTY. Model-driven
+The client xterm can only answer device queries (CPR `ESC[6n`, DA,
+OSC 10/11/12 color queries) for bytes it actually receives. Model-driven
 clients never receive the queries, so the daemon answers them from the model:
 x/vt already synthesizes the replies into its response pipe (drained and
-discarded today). Under the flag the session installs a response sink that
-writes those bytes to the PTY master. Flag off → sink nil → discarded as
-today (the client remains the answerer). One answerer at a time, always.
+discarded historically). Every live session installs a response sink that
+writes those bytes to the PTY master. When a session degrades to the raw
+fallback (§3.6) the sink is uninstalled — the client, now seeing the raw
+bytes, becomes the answerer again. One answerer at a time, always.
 
 ## 4. Performance analysis
 
@@ -182,26 +186,26 @@ today (the client remains the answerer). One answerer at a time, always.
 - **Memory**: one extra cols×rows cell buffer per live session (the diff
   emitter's `lastGrid`), ≈ 170×50×~32B ≈ 270KB worst case. `Session.ModelBytes()`
   now folds `DiffEmitter.EstimatedBytes()` (a coarse cols×rows×32 estimate of
-  that grid) into the engine memory ceiling, plus — when the env-gated canary is
-  running — the shadow sim's own `ModelBytes()` (it is a second full model, so
-  it roughly doubles a session's footprint while enabled; acceptable for a
-  dev/observer path).
+  that grid) into the engine memory ceiling.
 
 ## 5. Testing
 
 - **Conformance (the centerpiece)**: property test — feed recorded + generated
   byte corpora (the §13.2 corpus, TUI captures, adversarial splits) through a
-  session with the flag ON; apply the emitted frame stream to a second x/vt
-  instance ("client simulator"); assert grid+cursor+modes equality with the
-  session model after every frame. This is the "by construction" proof as a
-  test.
+  session; apply the emitted frame stream to a second x/vt instance ("client
+  simulator"); assert grid+cursor+modes equality with the session model after
+  every frame. This is the "by construction" proof as a test, and — hardened by
+  mutation testing — it is the standing safety net that replaced the runtime
+  divergence canary.
 - **Regime benches**: echo latency, `yes`/`cat` throughput, TUI repaint volume
-  — flag ON vs OFF, gate on no-regression thresholds.
+  — gate on no-regression thresholds (echo <100µs budget).
 - **Unit**: scrollback-delta bookkeeping across epochs (clear, alt-screen,
   resize), lastEmitted invalidation → keyframe, degraded fallback flip,
   adaptive clock (immediate vs batched paths).
-- **Existing suites must stay green with the flag OFF unchanged**, proving the
-  raw path is untouched.
+- **Existing suites must stay green**: because model-driven is now the only
+  pipeline, existing session/engine tests exercise it by default. Assertions on
+  content arrival hold unchanged; only tests whose PURPOSE is the raw/degraded
+  path drive the degraded seam explicitly.
 - **Live protocol** (manual, in the running Tauri app — never claim done from
   tests alone): Claude Code under resize storms, reload, workspace switches,
   monitor moves — the full bug-family checklist from the 2026-07-03 session.
@@ -212,17 +216,19 @@ today (the client remains the answerer). One answerer at a time, always.
   regimes on the raw path (baseline numbers).
 - P1: `lastEmitted` buffer + line-diff emitter + scrollback delta (pure model/
   package units, conformance test first).
-- P2: session pump reordering + adaptive frame clock + flag + degraded
-  fallback.
-- P3: dev-build divergence canary; live verification pass; bake period.
-- P4 (separate, later): delete raw path once the flag has defaulted ON through
-  a release cycle.
+- P2: session pump reordering + adaptive frame clock + degraded fallback
+  (originally shipped behind a flag + a shadow-sim canary while it baked).
+- P3: live verification pass; bake period under daily use.
+- P4 (done, this migration): model-driven is the only pipeline — the flag,
+  build defaults, and shadow-sim canary are deleted; raw streaming remains only
+  as the degraded/nil-model fallback.
 
 ## 7. Open questions (resolved decisions)
 
 - Ultraviolet vs hand-rolled diff → P0 spike decides; both are acceptable.
-- Mid-session flag switching → rejected (restart applies); avoids a hybrid
-  state machine for negligible benefit.
+- Configurable/mid-session pipeline switching → rejected, then removed
+  entirely by the migration: model-driven is the only pipeline, so there is no
+  switch to make. Raw survives only as the automatic degraded fallback.
 - Structured diff wire format → rejected for this phase (ANSI keeps xterm and
   the browser transport unchanged); revisit only if profiling shows ANSI
   re-parse cost matters.
@@ -232,12 +238,17 @@ today (the client remains the answerer). One answerer at a time, always.
 Recorded during the final whole-branch review (2026-07-03); the sections above
 are amended in place, this subsection is the change log.
 
-- **Divergence canary (§3.6)**: shipped as an env-gated (`CROWBAR_TERMINAL_MODEL_DRIVEN_CANARY=1`)
-  daemon-side shadow client-simulator that mirrors fanned-out frames and compares
-  grid hashes, NOT the originally-described client-side post-apply hash. It works
-  in any build and needs no client cooperation.
-- **Rollout flag (§3.7)**: only the env override + build default shipped; the
-  `terminal.modelDrivenOutput` per-profile setting is deferred to a follow-up.
+- **Divergence canary (§3.6) — DELETED by the migration**: it shipped as an
+  env-gated (`CROWBAR_TERMINAL_MODEL_DRIVEN_CANARY=1`) daemon-side shadow
+  client-simulator that mirrored fanned-out frames and compared grid hashes. It
+  served its purpose during the bake and is now removed: the mutation-hardened
+  conformance suite (§5) is the standing proof, and the degraded fallback (§3.6)
+  is the runtime safety net. `model.GridHash` went with it.
+- **Rollout flag (§3.7) — DELETED by the migration**: the
+  `CROWBAR_TERMINAL_MODEL_DRIVEN` env override, the `noEmbed` build default, and
+  the never-shipped `terminal.modelDrivenOutput` per-profile setting are all
+  gone. Model-driven is the only pipeline; every session installs the emitter
+  and response sink at spawn.
 - **Scrollback-ring rotation (§3.2 scrollback delta)**: x/vt's scrollback ring
   evicts the oldest line at cap, so `ScrollbackLen()` plateaus once saturated and
   a plain `sbLen > lastLen` compare stops seeing scrolled-off lines. The diff
@@ -252,7 +263,8 @@ are amended in place, this subsection is the change log.
   scrollback lines coincide with an active region/origin, the emitter now forces
   a keyframe (reset clears + re-asserts) rather than emitting a diff.
 - **Memory accounting (§4)**: `Session.ModelBytes()` now includes the diff
-  emitter's `lastGrid` estimate and the canary sim's model bytes.
+  emitter's `lastGrid` estimate. (The shadow-sim contribution was removed with
+  the canary.)
 - **Unsaturated-ring boundary scan (§3.2 scrollback delta)**: the rotation scan
   above ran on EVERY scrollback growth, including below saturation, where the
   previous length is already the exact boundary and the scan could only
@@ -265,16 +277,13 @@ are amended in place, this subsection is the change log.
   confined to the saturated ring, a run of content-identical scrollback lines
   spanning the saturation transition can still misanchor the scan onto a
   newer duplicate, misplacing the new-line boundary by the run's length.
-  Accepted-by-argument (rare, self-heals on the next keyframe); not exercised
-  by the bake gate — see the canary-blindness note below.
-- **Grid-hash canary is blind to scrollback residuals**: the divergence canary
-  (§3.6) compares `GridHash`, which covers only the visible grid, cursor, and
-  alt-screen flag — it never reads scrollback content. A misplaced
-  scrollback boundary (either residual above) produces zero canary signal;
-  "canary silent" cannot be used as the bake's clearance criterion for these,
-  which is why they are accepted by argument rather than bake evidence.
+  Accepted residual (rare, self-heals on the next keyframe). Note these
+  scrollback residuals were never observable by the retired grid-hash canary,
+  which read only the visible grid/cursor/alt-flag — they are accepted by
+  argument, and the conformance suite (which does assert scrollback) is now the
+  place to grow coverage for them if ever needed.
 
-  Bake-watch notes (things to keep an eye on, not blockers):
+  Known perf notes (things to keep an eye on, not blockers):
   - Keyframe-per-tick cadence cliff when a single tick lands more than
     `rotationScanLimit=256` distinct scrollback lines on an already-saturated
     ring — the scan gives up and forces a keyframe every such tick.
@@ -285,5 +294,5 @@ are amended in place, this subsection is the change log.
     saturated-path anchor scan is cheaper against repeated content than
     against distinct content); re-baseline with distinct lines later.
   - A rare pre-Prime DECOM positioned-write residual is grid-level, not
-    scrollback-level, so it IS canary-visible (unlike the two residuals
-    above).
+    scrollback-level, so the conformance suite's grid assertions catch it
+    (unlike the two scrollback residuals above).

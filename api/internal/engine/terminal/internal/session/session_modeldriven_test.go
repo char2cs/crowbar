@@ -33,7 +33,7 @@ func collect(ch <-chan OutputFrame, d time.Duration) (data string, snapshots int
 }
 
 func TestModelDriven_OutputIsModelDerived(t *testing.T) {
-	s, err := NewModelDriven("sid-md", "/bin/sh", t.TempDir(), "", os.Environ(), 80, 24, 200)
+	s, err := New("sid-md", "/bin/sh", t.TempDir(), "", os.Environ(), 80, 24, 200)
 	require.NoError(t, err)
 	t.Cleanup(s.Kill)
 
@@ -51,7 +51,7 @@ func TestModelDriven_OutputIsModelDerived(t *testing.T) {
 }
 
 func TestModelDriven_DegradedFallsBackToRaw(t *testing.T) {
-	s, err := NewModelDriven("sid-md-deg", "/bin/sh", t.TempDir(), "", os.Environ(), 80, 24, 200)
+	s, err := New("sid-md-deg", "/bin/sh", t.TempDir(), "", os.Environ(), 80, 24, 200)
 	require.NoError(t, err)
 	t.Cleanup(s.Kill)
 
@@ -74,7 +74,7 @@ func TestModelDriven_DegradedFallsBackToRaw(t *testing.T) {
 // absolute-addressed diff), so the very next model-derived frame after a
 // resize is a Snapshot keyframe rather than an incremental diff.
 func TestModelDriven_ResizeInvalidatesEmitterForcingNextKeyframe(t *testing.T) {
-	s, err := NewModelDriven("sid-md-resize", "/bin/sh", t.TempDir(), "", os.Environ(), 80, 24, 200)
+	s, err := New("sid-md-resize", "/bin/sh", t.TempDir(), "", os.Environ(), 80, 24, 200)
 	require.NoError(t, err)
 	t.Cleanup(s.Kill)
 
@@ -101,7 +101,7 @@ func TestModelDriven_ResizeInvalidatesEmitterForcingNextKeyframe(t *testing.T) {
 // delta accumulated between the last emit and this attach is never silently
 // dropped for clients that were already attached.
 func TestModelDriven_AttachFlushesPendingDeltaBeforeRebasing(t *testing.T) {
-	s, err := NewModelDriven("sid-md-flush", "/bin/sh", t.TempDir(), "", os.Environ(), 80, 24, 200)
+	s, err := New("sid-md-flush", "/bin/sh", t.TempDir(), "", os.Environ(), 80, 24, 200)
 	require.NoError(t, err)
 	t.Cleanup(s.Kill)
 
@@ -147,7 +147,6 @@ func TestModelDriven_EmitPanicOnFlipDoesNotDropTheTriggeringChunk(t *testing.T) 
 	m, ser := newModel(80, 24, 200)
 	s.model = m
 	s.serializer = ser
-	s.modelDriven = true
 	s.emitter = model.NewDiffEmitter()
 
 	ch, err := s.Attach()
@@ -199,7 +198,6 @@ func TestModelDriven_BurstCoalescesFrames(t *testing.T) {
 	m, ser := newModel(80, 24, 2000)
 	s.model = m
 	s.serializer = ser
-	s.modelDriven = true
 	s.emitter = model.NewDiffEmitter()
 
 	ch, err := s.Attach()
@@ -284,7 +282,7 @@ func TestModelDriven_BurstCoalescesFrames(t *testing.T) {
 // assertion did while still exercising the real spawn → pump → pumpStep path
 // end to end against a live shell.
 func TestModelDriven_BurstOverLivePTYDeliversAllOutput(t *testing.T) {
-	s, err := NewModelDriven("sid-md-burst-live", "/bin/sh", t.TempDir(), "", os.Environ(), 80, 24, 2000)
+	s, err := New("sid-md-burst-live", "/bin/sh", t.TempDir(), "", os.Environ(), 80, 24, 2000)
 	require.NoError(t, err)
 	t.Cleanup(s.Kill)
 	ch, err := s.Attach()
@@ -302,7 +300,7 @@ func TestModelDriven_BurstOverLivePTYDeliversAllOutput(t *testing.T) {
 // entirely inside one 8ms coalesce window still reaches the client: the
 // trailing timer must fire and flush it rather than losing it.
 func TestModelDriven_TrailingTimerFlushesFinalState(t *testing.T) {
-	s, err := NewModelDriven("sid-md-trail", "/bin/sh", t.TempDir(), "", os.Environ(), 80, 24, 200)
+	s, err := New("sid-md-trail", "/bin/sh", t.TempDir(), "", os.Environ(), 80, 24, 200)
 	require.NoError(t, err)
 	t.Cleanup(s.Kill)
 	ch, err := s.Attach()
@@ -332,7 +330,6 @@ func TestModelDriven_AttachDisarmsStaleTrailingTimer(t *testing.T) {
 	m, ser := newModel(80, 24, 200)
 	s.model = m
 	s.serializer = ser
-	s.modelDriven = true
 	s.emitter = model.NewDiffEmitter()
 
 	ch1, err := s.Attach()
@@ -394,7 +391,6 @@ func TestModelDriven_ResyncDisarmsStaleTrailingTimer(t *testing.T) {
 	m, ser := newModel(80, 24, 200)
 	s.model = m
 	s.serializer = ser
-	s.modelDriven = true
 	s.emitter = model.NewDiffEmitter()
 
 	ch, err := s.Attach()
@@ -449,7 +445,6 @@ func TestModelDriven_TeardownStopsTrailingTimer(t *testing.T) {
 	m, ser := newModel(80, 24, 200)
 	s.model = m
 	s.serializer = ser
-	s.modelDriven = true
 	s.emitter = model.NewDiffEmitter()
 
 	// Attach a client BEFORE arming the timer so there is a channel to drain
@@ -511,7 +506,7 @@ drain:
 // model's synthesized reply back to the PTY master, an app reading the reply from stdin
 // (here, the shell's `read`) would hang/time out.
 func TestModelDriven_CPRQueryAnsweredToPTY(t *testing.T) {
-	s, err := NewModelDriven("sid-md-cpr", "/bin/sh", t.TempDir(), "", os.Environ(), 80, 24, 200)
+	s, err := New("sid-md-cpr", "/bin/sh", t.TempDir(), "", os.Environ(), 80, 24, 200)
 	require.NoError(t, err)
 	t.Cleanup(s.Kill)
 	ch, err := s.Attach()
@@ -548,7 +543,7 @@ func TestModelDriven_CPRQueryAnsweredToPTY(t *testing.T) {
 // which now also sees those raw bytes — answers them too, so the app would receive
 // DOUBLE replies to every query after the flip. One answerer at a time, always.
 func TestModelDriven_DegradedFlipUninstallsResponseSink(t *testing.T) {
-	s, err := NewModelDriven("sid-md-sink-flip", "/bin/sh", t.TempDir(), "", os.Environ(), 80, 24, 200)
+	s, err := New("sid-md-sink-flip", "/bin/sh", t.TempDir(), "", os.Environ(), 80, 24, 200)
 	require.NoError(t, err)
 	t.Cleanup(s.Kill)
 
@@ -563,8 +558,8 @@ func TestModelDriven_DegradedFlipUninstallsResponseSink(t *testing.T) {
 
 	forceModelPanicForTest(s)
 
-	// Drive the flip through the useModelDrivenLocked latch (pumpStep -> writeModelLocked
-	// -> useModelDrivenLocked), the same way TestModelDriven_DegradedFallsBackToRaw does.
+	// Drive the flip through the modelEmitHealthyLocked latch (pumpStep -> writeModelLocked
+	// -> modelEmitHealthyLocked), the same way TestModelDriven_DegradedFallsBackToRaw does.
 	require.NoError(t, s.Write([]byte("echo SINK-FLIP-TRIGGER\n")))
 	_, _ = collect(ch, 3*time.Second)
 
@@ -574,150 +569,4 @@ func TestModelDriven_DegradedFlipUninstallsResponseSink(t *testing.T) {
 	s.mu.Unlock()
 	require.True(t, fellBack, "test setup: the degraded flip must have latched")
 	assert.False(t, stillInstalled, "the response sink must be uninstalled once the session flips to raw fallback")
-}
-
-// TestModelDriven_RawSessionNeverInstallsResponseSink is the raw-mode sibling of the
-// degraded-flip test above: a plain (non-model-driven) session must never install a
-// response sink at spawn — the client xterm is the sole answerer for raw sessions.
-func TestModelDriven_RawSessionNeverInstallsResponseSink(t *testing.T) {
-	s, err := New("sid-raw-no-sink", "/bin/sh", t.TempDir(), "", os.Environ(), 80, 24, 200)
-	require.NoError(t, err)
-	t.Cleanup(s.Kill)
-
-	s.mu.Lock()
-	installed := s.model != nil && model.ResponseSinkInstalledForTest(s.model)
-	s.mu.Unlock()
-	assert.False(t, installed, "a raw (non-model-driven) session must never install a response sink")
-}
-
-// TestModelDriven_CanaryStaysSilentOnHealthySession proves the dev
-// divergence canary (Task 9, spec-brief) is a true no-op cost-wise unless
-// enabled, and that a healthy model-driven session — where the shadow
-// client-sim mirrors every emitted frame exactly the way a real client's
-// terminal would — never reports a divergence.
-func TestModelDriven_CanaryStaysSilentOnHealthySession(t *testing.T) {
-	t.Setenv("CROWBAR_TERMINAL_MODEL_DRIVEN_CANARY", "1")
-	s, err := NewModelDriven("sid-md-canary", "/bin/sh", t.TempDir(), "", os.Environ(), 80, 24, 200)
-	require.NoError(t, err)
-	t.Cleanup(s.Kill)
-	ch, err := s.Attach()
-	require.NoError(t, err)
-	defer s.Detach(ch)
-
-	require.NoError(t, s.Write([]byte("seq 1 50; echo CANARY-DONE\n")))
-	data, _ := collect(ch, 3*time.Second)
-	require.Contains(t, data, "CANARY-DONE")
-	assert.Equal(t, int64(0), s.CanaryDivergences(), "healthy stream must never diverge")
-}
-
-// TestModelDriven_CanaryFiresOnInjectedDivergence proves the canary is
-// falsifiable: without a way to deliberately desync the shadow sim from the
-// authoritative model, TestModelDriven_CanaryStaysSilentOnHealthySession
-// passing would be unfalsifiable — it could pass just as well with a canary
-// that never actually compares anything. corruptCanarySimForTest writes
-// bytes straight into the sim, outside mirrorCanaryLocked's normal mirroring,
-// so the very next mirrored frame's grid-hash comparison must disagree.
-func TestModelDriven_CanaryFiresOnInjectedDivergence(t *testing.T) {
-	t.Setenv("CROWBAR_TERMINAL_MODEL_DRIVEN_CANARY", "1")
-	s, err := NewModelDriven("sid-md-canary-neg", "/bin/sh", t.TempDir(), "", os.Environ(), 80, 24, 200)
-	require.NoError(t, err)
-	t.Cleanup(s.Kill)
-	ch, err := s.Attach()
-	require.NoError(t, err)
-	defer s.Detach(ch)
-
-	_, ok := waitFrame(t, ch, time.Second)
-	require.True(t, ok, "attach must deliver an initial snapshot")
-
-	corruptCanarySimForTest(s)
-
-	require.NoError(t, s.Write([]byte("echo CANARY-FIRE\n")))
-	data, _ := collect(ch, 3*time.Second)
-	require.Contains(t, data, "CANARY-FIRE")
-	assert.Greater(t, s.CanaryDivergences(), int64(0),
-		"a deliberately corrupted canary sim must diverge from the authoritative model")
-}
-
-// TestModelDriven_CanaryDisabledByDefault proves the canary is opt-in: with
-// the env var unset, s.canarySim stays nil even for a model-driven session,
-// so CanaryDivergences() always reports 0 regardless of what the session
-// does — the zero-cost path production runs.
-func TestModelDriven_CanaryDisabledByDefault(t *testing.T) {
-	s, err := NewModelDriven("sid-md-canary-off", "/bin/sh", t.TempDir(), "", os.Environ(), 80, 24, 200)
-	require.NoError(t, err)
-	t.Cleanup(s.Kill)
-	ch, err := s.Attach()
-	require.NoError(t, err)
-	defer s.Detach(ch)
-
-	require.NoError(t, s.Write([]byte("echo NO-CANARY\n")))
-	data, _ := collect(ch, 3*time.Second)
-	require.Contains(t, data, "NO-CANARY")
-	assert.Equal(t, int64(0), s.CanaryDivergences())
-
-	s.mu.Lock()
-	nilSim := s.canarySim == nil
-	s.mu.Unlock()
-	assert.True(t, nilSim, "canary sim must stay nil when the env var is unset")
-}
-
-// TestModelDriven_CanaryPanicIsContained proves the canary is a true OBSERVER: a panic out of
-// its shadow sim (mirrorCanaryLocked, Task 9) must never harm the session it is watching. Two
-// failure modes exist without a recover boundary around mirrorCanaryLocked: (a) reached via
-// scheduleEmitLocked's trailing time.AfterFunc goroutine, which has no safego.Recover above
-// it — an unrecovered panic there crashes the whole daemon; (b) reached synchronously from
-// pump(), where the outer recover would still tear down the real session via its own
-// defer s.shutdown(). forceCanaryPanicForTest swaps in a sim whose Write always panics, so
-// this test drives mirrorCanaryLocked straight into that boundary and asserts the session
-// survives unharmed: it keeps streaming model-driven frames, modelPanics stays at 0 (a canary
-// panic is an observer fault, not a model fault), CanaryDivergences is unaffected, and the
-// canary sim is permanently disabled (nil) afterward.
-func TestModelDriven_CanaryPanicIsContained(t *testing.T) {
-	t.Setenv("CROWBAR_TERMINAL_MODEL_DRIVEN_CANARY", "1")
-	s, err := NewModelDriven("sid-md-canary-panic", "/bin/sh", t.TempDir(), "", os.Environ(), 80, 24, 200)
-	require.NoError(t, err)
-	t.Cleanup(s.Kill)
-	ch, err := s.Attach()
-	require.NoError(t, err)
-	defer s.Detach(ch)
-
-	_, ok := waitFrame(t, ch, time.Second)
-	require.True(t, ok, "attach must deliver an initial snapshot")
-
-	_, panicsBefore := s.Health()
-
-	forceCanaryPanicForTest(s)
-
-	// This write drives the panicking canary sim's Write via mirrorCanaryLocked. Without
-	// the recover boundary, this either crashes the process (AfterFunc path) or tears the
-	// session down via pump()'s defer s.shutdown() (synchronous path) — either way the
-	// session would stop serving and this test would hang/fail on the requireOpen and
-	// post-panic Write/collect below rather than passing cleanly.
-	require.NoError(t, s.Write([]byte("echo CANARY-PANIC-SURVIVED\n")))
-	data, _ := collect(ch, 3*time.Second)
-	require.Contains(t, data, "CANARY-PANIC-SURVIVED",
-		"session must keep streaming model-driven frames after a canary panic")
-
-	select {
-	case <-s.Done():
-		t.Fatal("session done closed after a recovered canary panic — the observer harmed the observed session")
-	default:
-	}
-
-	_, panicsAfter := s.Health()
-	assert.Equal(t, panicsBefore, panicsAfter,
-		"a canary panic is an observer fault, not a model fault — modelPanics must not bump")
-	assert.Equal(t, int64(0), s.CanaryDivergences(),
-		"a canary panic must not be misreported as a divergence")
-
-	s.mu.Lock()
-	nilSim := s.canarySim == nil
-	s.mu.Unlock()
-	assert.True(t, nilSim, "canary sim must be permanently disabled (nil) after a recovered panic")
-
-	// The canary being disabled must not affect the session's core function: it keeps
-	// serving model-driven output normally on a further write.
-	require.NoError(t, s.Write([]byte("echo CANARY-STILL-SERVING\n")))
-	data2, _ := collect(ch, 3*time.Second)
-	require.Contains(t, data2, "CANARY-STILL-SERVING")
 }

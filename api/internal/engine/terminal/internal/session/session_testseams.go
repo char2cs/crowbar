@@ -45,30 +45,10 @@ func NewDoneClosedForTest(
 	return s
 }
 
-// NewModelDriven is the test-facing constructor for a model-driven session. It mirrors New's
-// body exactly, adding ModelDriven: true to spawnParams so pumpStep takes the model-derived
-// fan-out path (§3.1) instead of raw streaming.
-func NewModelDriven(
-	id string,
-	shell string,
-	cwd string,
-	profileID string,
-	env []string,
-	cols int,
-	rows int,
-	scrollback int,
-) (*Session, error) {
-	s := newBareSession(id, shell, cwd, profileID)
-	if err := s.spawn(env, spawnParams{Cols: cols, Rows: rows, ScrollbackLines: scrollback, ModelDriven: true}); err != nil {
-		return nil, err
-	}
-	return s, nil
-}
-
 // forceModelPanicForTest drives a model-driven session into the degraded/raw-fallback state
 // the same way a real recovered Write/Resize/Serialize/Emit panic would (via the §8.5
 // modelPanics counter), without needing adversarial PTY bytes. It exists so an
-// out-of-package-adjacent test can exercise useModelDrivenLocked's fallback gate
+// out-of-package-adjacent test can exercise modelEmitHealthyLocked's fallback gate
 // deterministically. Production never calls this.
 func forceModelPanicForTest(s *Session) {
 	s.mu.Lock()
@@ -89,66 +69,4 @@ func forceEmitPanicForTest(s *Session) {
 		s.emitForTest = nil
 		panic("forceEmitPanicForTest: simulated emit panic")
 	}
-}
-
-// corruptCanarySimForTest writes bytes directly into a model-driven session's
-// dev divergence canary shadow sim (Task 9), bypassing mirrorCanaryLocked
-// entirely, so a test can prove CanaryDivergences() actually fires when the
-// sim disagrees with the authoritative model. mirrorCanaryLocked always keeps
-// a healthy canary sim in lockstep with the model, so no adversarial PTY
-// input can desync it deterministically — this seam is the only way to reach
-// that path, mirroring the forceModelPanicForTest/forceEmitPanicForTest
-// pattern above for other otherwise-unreachable states. A no-op if the canary
-// was never enabled (s.canarySim == nil, e.g. the env var wasn't set at
-// spawn). Production never calls this.
-func corruptCanarySimForTest(s *Session) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	if s.canarySim == nil {
-		return
-	}
-	// Absolute-position the corruption at a row (20 of the default 24) the
-	// small amount of shell output this seam's callers drive afterward will
-	// never touch — mirrorCanaryLocked's diff path only rewrites rows the
-	// REAL model actually changed, so corrupting a row near the prompt would
-	// just get overwritten by the next legitimate row rewrite and mask the
-	// injected divergence instead of proving it.
-	s.canarySim.Write([]byte("\x1b[20;1HCANARY-CORRUPTION-SEAM"))
-}
-
-// canaryPanicStub is a model.TerminalModel whose Write always panics; every other method is
-// an inert no-op. It exists only to back forceCanaryPanicForTest below.
-type canaryPanicStub struct{}
-
-func (canaryPanicStub) Write(p []byte) {
-	panic("forceCanaryPanicForTest: simulated canary write panic")
-}
-func (canaryPanicStub) Resize(cols, rows int)              {}
-func (canaryPanicStub) OnForegroundReset()                 {}
-func (canaryPanicStub) PendingInput() []byte               { return nil }
-func (canaryPanicStub) Title() string                      { return "" }
-func (canaryPanicStub) Cols() int                          { return 0 }
-func (canaryPanicStub) Rows() int                          { return 0 }
-func (canaryPanicStub) HeaderState() (int, int, bool, int) { return 0, 0, false, 0 }
-func (canaryPanicStub) ModelBytes() int64                  { return 0 }
-func (canaryPanicStub) SetResponseSink(func(p []byte))     {}
-func (canaryPanicStub) Close()                             {}
-
-var _ model.TerminalModel = canaryPanicStub{}
-
-// forceCanaryPanicForTest swaps a model-driven session's dev divergence canary shadow sim
-// (Task 9, mirrorCanaryLocked) for a stub whose Write always panics, one shot: the very next
-// mirrorCanaryLocked call panics, gets recovered, and permanently disables the canary (nils
-// s.canarySim), mirroring forceEmitPanicForTest's one-shot style for the emit path. No
-// adversarial PTY input can panic the real canary sim's Write deterministically, so this seam
-// is the only way to reach that recover boundary. A no-op if the canary was never enabled
-// (s.canarySim == nil, e.g. the env var wasn't set at spawn). Production never calls this.
-func forceCanaryPanicForTest(s *Session) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	if s.canarySim == nil {
-		return
-	}
-	s.canarySim.Close()
-	s.canarySim = canaryPanicStub{}
 }
