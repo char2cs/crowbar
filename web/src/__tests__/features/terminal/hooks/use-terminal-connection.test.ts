@@ -44,10 +44,14 @@ import { useTerminalConnection } from '@/features/terminal/hooks/use-terminal-co
 // its parse-complete callback synchronously, mirroring xterm's contract closely
 // enough to assert the finalize fires after the bulk replay is written.
 function makeFakeTerminal() {
+  // order records the relative sequence of reset() vs write(data) so the snapshot
+  // sequencing (empty write's callback → reset → redraw write) can be asserted.
+  const order: string[] = []
   const scrollToBottom = vi.fn()
   const refresh = vi.fn()
-  const reset = vi.fn()
-  const write = vi.fn((_data: string, cb?: () => void) => {
+  const reset = vi.fn(() => order.push('reset'))
+  const write = vi.fn((data: string, cb?: () => void) => {
+    order.push(`write:${data}`)
     cb?.()
   })
   const disposable = () => ({ dispose: () => {} })
@@ -75,6 +79,7 @@ function makeFakeTerminal() {
     refresh,
     reset,
     write,
+    order,
     fireResize: (size: { cols: number; rows: number }) => resizeCb?.(size),
   }
 }
@@ -186,7 +191,7 @@ describe('useTerminalConnection — snapshot frames (attach redraw / resize resy
   })
 
   it('applies a snapshot onto a RESET buffer with the repaint finalize', () => {
-    const { terminal, reset, write, scrollToBottom, refresh } = makeFakeTerminal()
+    const { terminal, reset, scrollToBottom, refresh, order } = makeFakeTerminal()
     renderConnection(terminal)
 
     act(() => {
@@ -194,12 +199,11 @@ describe('useTerminalConnection — snapshot frames (attach redraw / resize resy
     })
 
     expect(reset).toHaveBeenCalledTimes(1)
-    expect(write).toHaveBeenCalledTimes(1)
-    expect(write.mock.calls[0][0]).toBe('CLEAN REDRAW')
+    // The reset + redraw are sequenced through an empty write's parse-complete
+    // callback: empty write first, then reset, then the redraw write.
+    expect(order).toEqual(['write:', 'reset', 'write:CLEAN REDRAW'])
     expect(scrollToBottom).toHaveBeenCalledTimes(1)
     expect(refresh).toHaveBeenCalledWith(0, 39)
-    // reset must precede the write.
-    expect(reset.mock.invocationCallOrder[0]).toBeLessThan(write.mock.invocationCallOrder[0])
   })
 
   it('drops buffered pre-snapshot output the redraw supersedes', () => {
@@ -212,7 +216,9 @@ describe('useTerminalConnection — snapshot frames (attach redraw / resize resy
       flushRaf() // a stale scheduled flush must find an empty buffer
     })
 
-    const written = (write.mock.calls as [string][]).map(([d]) => d)
+    // Only the redraw reaches xterm as real content (the empty sequencing write
+    // carries no data and is filtered out).
+    const written = (write.mock.calls as [string][]).map(([d]) => d).filter((d) => d !== '')
     expect(written).toEqual(['CLEAN REDRAW'])
   })
 
@@ -228,9 +234,37 @@ describe('useTerminalConnection — snapshot frames (attach redraw / resize resy
       flushRaf()
     })
 
-    const written = (write.mock.calls as [string][]).map(([d]) => d)
+    const written = (write.mock.calls as [string][]).map(([d]) => d).filter((d) => d !== '')
     expect(written).toEqual(['CLEAN REDRAW', 'after'])
     expect(reset).toHaveBeenCalledTimes(1)
+  })
+
+  it('sequences reset+redraw through the write queue so queued live output cannot land after reset', () => {
+    const { terminal, order } = makeFakeTerminal()
+    renderConnection(terminal)
+
+    act(() => {
+      // Live output flushes into xterm's write queue BEFORE the snapshot arrives.
+      bridge.deliver('live-1')
+      flushRaf()
+      // A snapshot arrives: reset+redraw must sequence THROUGH the write queue so
+      // the already-queued 'live-1' parse completes before reset runs.
+      bridge.deliver('CLEAN REDRAW', true)
+    })
+
+    const liveIdx = order.indexOf('write:live-1')
+    const emptyIdx = order.indexOf('write:')
+    const resetIdx = order.indexOf('reset')
+    const redrawIdx = order.indexOf('write:CLEAN REDRAW')
+
+    expect(liveIdx).toBeGreaterThanOrEqual(0)
+    // The empty sequencing write is queued after the live write; its callback
+    // (reset → redraw) therefore runs only after 'live-1' is parsed.
+    expect(emptyIdx).toBeGreaterThan(liveIdx)
+    expect(resetIdx).toBeGreaterThan(emptyIdx)
+    expect(redrawIdx).toBeGreaterThan(resetIdx)
+    // The snapshot redraw is the LAST write — no stale live bytes land after it.
+    expect(redrawIdx).toBe(order.length - 1)
   })
 })
 

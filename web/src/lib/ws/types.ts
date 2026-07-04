@@ -18,7 +18,6 @@ export interface ChatChunk {
 export interface TerminalFrame {
   sessionId: string
   data: string
-  isInput: boolean
 }
 export interface DaemonStatus {
   status: string
