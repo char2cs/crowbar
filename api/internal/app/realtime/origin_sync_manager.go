@@ -6,6 +6,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/char2cs/crowbar/api/internal/core/safego"
 	"github.com/char2cs/crowbar/api/internal/domain"
 )
 
@@ -165,6 +166,7 @@ func (m *OriginSyncManager) run(
 	ctx context.Context,
 	wsID string,
 ) {
+	defer safego.Recover("realtime.originSync.run")
 	// Sync once immediately on the 0->1 subscriber transition so a freshly
 	// viewed protected workspace's ahead/behind updates within ~1s instead of
 	// after a full interval. Skip it only if the subscriber already released
