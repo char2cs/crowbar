@@ -268,6 +268,28 @@ func TestGitSnapshot_ScopedToWorkspaceRepo(t *testing.T) {
 	assert.NotContains(t, ids, "w2")
 }
 
+// TestGitSnapshot_ExcludesSameRepoSibling proves gitSnapshot no longer computes
+// git status for the resolved workspace's repo siblings — only the resolved
+// workspace itself — since the broadcaster's wsId predicate discards every
+// other row after delivery anyway (03 §1a / container.go ScopeKey). Before this
+// fix, a same-repo sibling (w3, same p1/r1 as w1) WOULD have appeared in the
+// snapshot returned by scopedWorkspaceRows (only a different-repo workspace was
+// excluded); this test proves it's excluded even at the snapshot-builder level
+// now, not just downstream by the broadcaster's predicate.
+func TestGitSnapshot_ExcludesSameRepoSibling(t *testing.T) {
+	a := newAppForSnapshot(t)
+	seedWorkspace(t, a, "w1", "p1", "r1", "", "")
+	seedWorkspace(t, a, "w3", "p1", "r1", "", "")
+
+	got := gitSnapshot(a)("w1")
+
+	ids := make([]string, len(got))
+	for i, e := range got {
+		ids[i] = e.WsID
+	}
+	assert.Equal(t, []string{"w1"}, ids)
+}
+
 func TestLSPSnapshot_ScopedToWorkspaceRepo(t *testing.T) {
 	a := newAppForSnapshot(t)
 	seedWorkspace(t, a, "w1", "p1", "r1", "", "")

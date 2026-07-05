@@ -141,7 +141,7 @@ func threadsSnapshot(
 	}
 }
 
-// scopedWorkspaceRows resolves scope to the workspaces gitSnapshot/lspSnapshot
+// scopedWorkspaceRows resolves scope to the workspace(s) gitSnapshot/lspSnapshot
 // should cover. The broadcaster (ws/broadcaster.go Handle) always invokes
 // Snapshot with clientScope's full hierarchical "p/r/w" prefix — never the bare
 // id ScopeKey/scopeWsID resolves for the separate OnSubscribe/OnUnsubscribe
@@ -150,14 +150,18 @@ func threadsSnapshot(
 // segment is the workspace id. A scope with fewer than 3 segments (or callers,
 // such as unit tests, that pass a bare workspace id directly with no "/") is
 // treated as already being the workspace id verbatim, so a direct call like
-// gitSnapshot(a)("w1") still resolves. The resolved workspace's repo siblings
-// are returned; the broadcaster's own wsId predicate filters delivery down to
-// the connecting client's exact workspace afterward, exactly as it already
-// does today. A blank scope (a list-level subscribe — not currently used by
+// gitSnapshot(a)("w1") still resolves.
+//
+// Only the resolved workspace is returned — not its repo siblings — because
+// gitDef/lspDef scope their WS subscription to exactly one wsId with an
+// exact-match predicate (container.go, ScopeKey = scopeWsID): every event for
+// any other workspace is discarded after delivery, so computing git status /
+// diagnostics for siblings would be wasted work on this exact tab-open hot
+// path. An unresolvable scope (unknown workspace id) yields no rows rather
+// than an error, since a snapshot degrading to empty is safe and a
+// stale/racing subscribe for an already-deleted workspace is expected, not
+// exceptional. A blank scope (a list-level subscribe — not currently used by
 // either broadcaster, but handled defensively) falls back to every workspace.
-// An unresolvable scope (unknown workspace id) yields no rows rather than an
-// error, since a snapshot degrading to empty is safe and a stale/racing
-// subscribe for an already-deleted workspace is expected, not exceptional.
 func scopedWorkspaceRows(
 	ctx context.Context,
 	appContainer *app.Container,
@@ -174,7 +178,7 @@ func scopedWorkspaceRows(
 	if err != nil {
 		return nil, nil
 	}
-	return appContainer.Repositories.ListWorkspacesInRepo(ctx, ws.ProjectID, ws.RepoID)
+	return []domain.Workspace{ws}, nil
 }
 
 // gitSnapshot builds the Git snapshot-on-subscribe source (03 §1a): the current
