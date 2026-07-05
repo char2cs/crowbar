@@ -37,3 +37,21 @@ func TestPrimaryKeyColumn_NoPrimaryKey(t *testing.T) {
 	require.Error(t, err)
 	assert.Equal(t, "no primary key field found", err.Error())
 }
+
+func TestOpenDBWithPool_SetsMaxOpenConns(t *testing.T) {
+	db, err := OpenDBWithPool(":memory:", 8)
+	require.NoError(t, err)
+
+	sqlDB, err := db.DB()
+	require.NoError(t, err)
+	assert.Equal(t, 8, sqlDB.Stats().MaxOpenConnections)
+}
+
+func TestOpenDB_StillSingleConnection(t *testing.T) {
+	db, err := OpenDB(":memory:")
+	require.NoError(t, err)
+
+	sqlDB, err := db.DB()
+	require.NoError(t, err)
+	assert.Equal(t, 1, sqlDB.Stats().MaxOpenConnections)
+}
