@@ -24,12 +24,12 @@ func workspacesSnapshot(
 	appContainer *app.Container,
 ) func(scope string) []dto.WorkspaceDTO {
 	return func(scope string) []dto.WorkspaceDTO {
+		ctx := context.Background()
 		projectID, repoID := parseRepoScope(scope)
-		rows, err := appContainer.Repositories.ListWorkspaces(context.Background())
+		siblings, err := appContainer.Repositories.ListWorkspacesInRepo(ctx, projectID, repoID)
 		if err != nil {
 			return nil
 		}
-		siblings := scopeWorkspacesToRepo(rows, projectID, repoID)
 		// Snapshot-on-subscribe has no request to scope to (it's built lazily for
 		// a connecting client), so it owns a background context — the same one it
 		// already uses for the List above. The detached context is a visible,
@@ -58,31 +58,6 @@ func parseRepoScope(
 		repoID = segs[1]
 	}
 	return projectID, repoID
-}
-
-// scopeWorkspacesToRepo filters rows to those matching the given projectID and
-// repoID. An empty component matches every value at that level, so a
-// project-level scope keeps all of a project's repos and an empty scope keeps
-// every row.
-func scopeWorkspacesToRepo(
-	rows []domain.Workspace,
-	projectID string,
-	repoID string,
-) []domain.Workspace {
-	if projectID == "" && repoID == "" {
-		return rows
-	}
-	out := make([]domain.Workspace, 0, len(rows))
-	for _, w := range rows {
-		if projectID != "" && w.ProjectID != projectID {
-			continue
-		}
-		if repoID != "" && w.RepoID != repoID {
-			continue
-		}
-		out = append(out, w)
-	}
-	return out
 }
 
 // projectSnapshot builds the Projects snapshot-on-subscribe source (03 §1a) as
@@ -166,16 +141,59 @@ func threadsSnapshot(
 	}
 }
 
+// scopedWorkspaceRows resolves scope to the workspaces gitSnapshot/lspSnapshot
+// should cover. The broadcaster (ws/broadcaster.go Handle) always invokes
+// Snapshot with clientScope's full hierarchical "p/r/w" prefix — never the bare
+// id ScopeKey/scopeWsID resolves for the separate OnSubscribe/OnUnsubscribe
+// lifecycle hooks (watcher/LSP/origin-sync refcounting) — so scope here is
+// parsed exactly like threadsSnapshot/terminalsSnapshot parse it: the third
+// segment is the workspace id. A scope with fewer than 3 segments (or callers,
+// such as unit tests, that pass a bare workspace id directly with no "/") is
+// treated as already being the workspace id verbatim, so a direct call like
+// gitSnapshot(a)("w1") still resolves. The resolved workspace's repo siblings
+// are returned; the broadcaster's own wsId predicate filters delivery down to
+// the connecting client's exact workspace afterward, exactly as it already
+// does today. A blank scope (a list-level subscribe — not currently used by
+// either broadcaster, but handled defensively) falls back to every workspace.
+// An unresolvable scope (unknown workspace id) yields no rows rather than an
+// error, since a snapshot degrading to empty is safe and a stale/racing
+// subscribe for an already-deleted workspace is expected, not exceptional.
+func scopedWorkspaceRows(
+	ctx context.Context,
+	appContainer *app.Container,
+	scope string,
+) ([]domain.Workspace, error) {
+	if scope == "" {
+		return appContainer.Repositories.ListWorkspaces(ctx)
+	}
+	wsID := scope
+	if parts := strings.Split(scope, "/"); len(parts) >= 3 && parts[2] != "" {
+		wsID = parts[2]
+	}
+	ws, err := appContainer.Repositories.Workspace.Get(ctx, wsID)
+	if err != nil {
+		return nil, nil
+	}
+	return appContainer.Repositories.ListWorkspacesInRepo(ctx, ws.ProjectID, ws.RepoID)
+}
+
 // gitSnapshot builds the Git snapshot-on-subscribe source (03 §1a): the current
 // GitStatus per workspace as the wsId-scoped GitStatusEvent the live broadcaster
 // uses. Each client's wsId predicate filters the snapshot down to its workspace.
 func gitSnapshot(
 	appContainer *app.Container,
 ) func(scope string) []gitdomain.GitStatusEvent {
-	return func(_ string) []gitdomain.GitStatusEvent {
+	return func(scope string) []gitdomain.GitStatusEvent {
 		ctx := context.Background()
-		rows, err := appContainer.Repositories.Workspace.List(ctx)
+		rows, err := scopedWorkspaceRows(ctx, appContainer, scope)
 		if err != nil {
+			return nil
+		}
+		// scopedWorkspaceRows returns a literal nil (not merely empty) for an
+		// unresolvable scope; preserve that nil rather than let the make() below
+		// paper over it with a non-nil empty slice, so an unknown/racing
+		// workspace id degrades the snapshot exactly like a list error does.
+		if rows == nil {
 			return nil
 		}
 		events := make([]gitdomain.GitStatusEvent, 0, len(rows))
@@ -215,10 +233,16 @@ func lspSnapshot(
 	if engContainer == nil || engContainer.LSP == nil {
 		return nil
 	}
-	return func(_ string) []lspdomain.DiagnosticsEvent {
+	return func(scope string) []lspdomain.DiagnosticsEvent {
 		ctx := context.Background()
-		rows, err := appContainer.Repositories.Workspace.List(ctx)
+		rows, err := scopedWorkspaceRows(ctx, appContainer, scope)
 		if err != nil {
+			return nil
+		}
+		// See the matching guard in gitSnapshot: preserve scopedWorkspaceRows'
+		// literal nil for an unresolvable scope instead of upgrading it to a
+		// non-nil empty slice via make().
+		if rows == nil {
 			return nil
 		}
 		events := make([]lspdomain.DiagnosticsEvent, 0, len(rows))
