@@ -50,6 +50,21 @@ describe('parseFileLinkCandidates', () => {
     const found = parseFileLinkCandidates('diff a/web/index.ts b/web/index.ts')
     expect(found.map((c) => c.path)).toEqual(['a/web/index.ts', 'b/web/index.ts'])
   })
+
+  it('strips a sentence-ending period run straight into the path', () => {
+    const [c] = parseFileLinkCandidates(
+      'Spec written to docs/superpowers/specs/design.md. Please review it',
+    )
+    expect(c).toMatchObject({
+      path: 'docs/superpowers/specs/design.md',
+      text: 'docs/superpowers/specs/design.md',
+    })
+  })
+
+  it('keeps a line suffix when trailing punctuation follows it', () => {
+    const [c] = parseFileLinkCandidates('see web/src/foo.ts:12. done')
+    expect(c).toMatchObject({ path: 'web/src/foo.ts', text: 'web/src/foo.ts:12', line: 12 })
+  })
 })
 
 describe('resolveFileLinkPath', () => {
