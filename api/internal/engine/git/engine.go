@@ -28,7 +28,7 @@ type (
 type engine struct {
 	exec      execFn
 	execStdin execStdinFn
-	mu        sync.Map
+	mu        sync.Map // key: common dir (string) -> *sync.RWMutex
 	commonDir sync.Map
 }
 
@@ -37,10 +37,10 @@ type engine struct {
 // one lock and their git operations serialize (07 §3.1). Resolution runs once
 // per input path before the lock is taken (no reentrancy), and falls back to the
 // raw path when repoPath is not inside a git repo.
-func (e *engine) repoMutex(ctx context.Context, repoPath string) *sync.Mutex {
+func (e *engine) repoMutex(ctx context.Context, repoPath string) *sync.RWMutex {
 	key := e.resolveCommonDir(ctx, repoPath)
-	actual, _ := e.mu.LoadOrStore(key, &sync.Mutex{})
-	return actual.(*sync.Mutex)
+	actual, _ := e.mu.LoadOrStore(key, &sync.RWMutex{})
+	return actual.(*sync.RWMutex)
 }
 
 func (e *engine) resolveCommonDir(ctx context.Context, repoPath string) string {
@@ -71,10 +71,24 @@ func (e *engine) computeCommonDir(ctx context.Context, repoPath string) string {
 	return filepath.Clean(abs)
 }
 
+// lockRepo takes the exclusive write lock for repoPath's clone, for any
+// operation that mutates the working tree, index, refs, or touches the
+// network (07 §3.1).
 func (e *engine) lockRepo(ctx context.Context, repoPath string) func() {
 	mu := e.repoMutex(ctx, repoPath)
 	mu.Lock()
 	return mu.Unlock
+}
+
+// lockRepoRead takes the shared read lock for repoPath's clone, for any
+// read-only inspection (status/diff/log/…). Concurrent reads never block each
+// other; a read blocks only while a write (including a background origin-sync
+// fetch) holds the exclusive lock, and is guaranteed to observe either the
+// fully-pre- or fully-post-mutation state, never a torn one.
+func (e *engine) lockRepoRead(ctx context.Context, repoPath string) func() {
+	mu := e.repoMutex(ctx, repoPath)
+	mu.RLock()
+	return mu.RUnlock
 }
 
 // New returns a new Engine that shells out to the system git binary.
@@ -214,6 +228,7 @@ func (e *engine) Status(
 	ctx context.Context,
 	repoPath string,
 ) (gitdomain.GitStatus, error) {
+	defer e.lockRepoRead(ctx, repoPath)()
 	return status.Parse(ctx, repoPath)
 }
 
@@ -222,6 +237,7 @@ func (e *engine) Diff(
 	repoPath string,
 	staged bool,
 ) ([]gitdomain.FileDiff, error) {
+	defer e.lockRepoRead(ctx, repoPath)()
 	return diff.WorkingTree(ctx, repoPath, staged)
 }
 
@@ -230,6 +246,7 @@ func (e *engine) CommitDiff(
 	repoPath string,
 	sha string,
 ) (gitdomain.MultiFileDiff, error) {
+	defer e.lockRepoRead(ctx, repoPath)()
 	return diff.Commit(ctx, repoPath, sha)
 }
 
@@ -239,6 +256,7 @@ func (e *engine) Log(
 	limit int,
 	skip int,
 ) ([]gitdomain.Commit, error) {
+	defer e.lockRepoRead(ctx, repoPath)()
 	return gitlog.List(ctx, repoPath, limit, skip)
 }
 
@@ -247,6 +265,7 @@ func (e *engine) Blame(
 	repoPath string,
 	filePath string,
 ) ([]gitdomain.BlameEntry, error) {
+	defer e.lockRepoRead(ctx, repoPath)()
 	return blame.File(ctx, repoPath, filePath)
 }
 
@@ -254,6 +273,7 @@ func (e *engine) Branches(
 	ctx context.Context,
 	repoPath string,
 ) ([]gitdomain.Branch, error) {
+	defer e.lockRepoRead(ctx, repoPath)()
 	return branches.List(ctx, repoPath)
 }
 
@@ -261,6 +281,7 @@ func (e *engine) Stashes(
 	ctx context.Context,
 	repoPath string,
 ) ([]gitdomain.Stash, error) {
+	defer e.lockRepoRead(ctx, repoPath)()
 	return stash.List(ctx, repoPath)
 }
 
@@ -310,7 +331,10 @@ func (e *engine) Discard(
 	filePath string,
 ) error {
 	defer e.lockRepo(ctx, repoPath)()
-	st, err := e.Status(ctx, repoPath)
+	// Call status.Parse directly, NOT e.Status: e.Status now takes RLock, and
+	// this method already holds the exclusive Lock — Go's sync.RWMutex is not
+	// reentrant, so going through e.Status here would deadlock.
+	st, err := status.Parse(ctx, repoPath)
 	if err != nil {
 		return fmt.Errorf("git: discard: status: %w", err)
 	}
@@ -536,6 +560,7 @@ func (e *engine) ConflictedFiles(
 	ctx context.Context,
 	repoPath string,
 ) ([]string, error) {
+	defer e.lockRepoRead(ctx, repoPath)()
 	return conflicts.ConflictedFiles(ctx, repoPath)
 }
 
@@ -544,6 +569,7 @@ func (e *engine) ConflictHunks(
 	repoPath string,
 	filePath string,
 ) ([]gitdomain.ConflictHunk, error) {
+	defer e.lockRepoRead(ctx, repoPath)()
 	return conflicts.ParseFile(ctx, repoPath, filePath)
 }
 
@@ -590,6 +616,7 @@ func (e *engine) WorkingTreeSummary(
 	repoPath string,
 	forkPointSha string,
 ) (int, int, bool, bool, error) {
+	defer e.lockRepoRead(ctx, repoPath)()
 	return e.computeWorkingTreeSummary(ctx, repoPath, forkPointSha)
 }
 
@@ -598,7 +625,8 @@ func (e *engine) ComputeStatus(
 	ctx context.Context,
 	repoPath string,
 ) (gitdomain.GitStatus, error) {
-	return e.Status(ctx, repoPath)
+	defer e.lockRepoRead(ctx, repoPath)()
+	return status.Parse(ctx, repoPath)
 }
 
 // ComputeWorkingTreeSummary implements watch.GitStatusProvider.
@@ -607,7 +635,8 @@ func (e *engine) ComputeWorkingTreeSummary(
 	repoPath string,
 	forkPointSha string,
 ) (int, int, bool, bool, error) {
-	return e.WorkingTreeSummary(ctx, repoPath, forkPointSha)
+	defer e.lockRepoRead(ctx, repoPath)()
+	return e.computeWorkingTreeSummary(ctx, repoPath, forkPointSha)
 }
 
 func (e *engine) applyHunk(

@@ -84,6 +84,15 @@ func SetNetTimeoutsForTest(
 	}
 }
 
+// NewWithExec builds an engine over a fake exec function, for white-box
+// concurrency tests that need to control command timing without a real git
+// subprocess.
+func NewWithExec(
+	exec func(ctx context.Context, dir string, args ...string) gitexec.Result,
+) Engine {
+	return &engine{exec: exec}
+}
+
 func errExec(_ context.Context, _ string, _ ...string) gitexec.Result {
 	return gitexec.Result{ExitCode: 1, Stderr: "injected exec error"}
 }
