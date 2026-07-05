@@ -247,7 +247,7 @@ async fn pump_output<R: Runtime>(
 ) {
     let mut log_file = open_daemon_log();
     let mut lines_since_rotate_check: u32 = 0;
-    let mut write_line = |file: &mut Option<std::fs::File>, prefix: &str, text: &str| {
+    let write_line = |file: &mut Option<std::fs::File>, prefix: &str, text: &str| {
         if let Some(f) = file {
             let _ = writeln!(f, "{prefix} {}", text.trim_end_matches(['\r', '\n']));
         }
