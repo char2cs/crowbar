@@ -70,6 +70,18 @@ function fireDragStart(element: HTMLElement) {
   element.dispatchEvent(evt)
 }
 
+/** Fire a pointermove on window with real movement, as the drag listener expects. */
+function fireDragMove(clientX = 210) {
+  const evt = new MouseEvent('pointermove', { clientX, clientY: 0, bubbles: true })
+  window.dispatchEvent(evt)
+}
+
+/** Fire a pointerup on window, as the drag listener expects. */
+function fireDragEnd(clientX = 200) {
+  const evt = new MouseEvent('pointerup', { clientX, clientY: 0, bubbles: true })
+  window.dispatchEvent(evt)
+}
+
 // ---------------------------------------------------------------------------
 // Tests
 // ---------------------------------------------------------------------------
@@ -95,8 +107,10 @@ describe('PaneSash unmount-mid-drag cleanup', () => {
     const { container, unmount } = renderSash()
     const sash = container.querySelector('[data-slot="resizable-handle"]') as HTMLElement
 
-    // Start a drag.
+    // Start a drag and actually move — the resizing attribute is only set
+    // lazily, on the first real pointermove (see click-only test below).
     fireDragStart(sash)
+    fireDragMove()
 
     // The resizing attribute should now be set.
     expect(document.documentElement.hasAttribute('data-pane-resizing')).toBe(true)
@@ -156,5 +170,54 @@ describe('PaneSash unmount-mid-drag cleanup', () => {
       (['pointermove', 'pointerup', 'pointercancel'] as string[]).includes(type as string),
     )
     expect(relevantCalls).toHaveLength(0)
+  })
+})
+
+describe('PaneSash click-only interaction (no drag)', () => {
+  beforeEach(() => {
+    document.documentElement.removeAttribute('data-pane-resizing')
+  })
+
+  afterEach(() => {
+    document.documentElement.removeAttribute('data-pane-resizing')
+    cleanup()
+    document.body.innerHTML = ''
+  })
+
+  it('does not set data-pane-resizing on a bare click (pointerdown -> pointerup, no move)', () => {
+    const { container } = renderSash()
+    const sash = container.querySelector('[data-slot="resizable-handle"]') as HTMLElement
+
+    fireDragStart(sash)
+    fireDragEnd()
+
+    expect(document.documentElement.hasAttribute('data-pane-resizing')).toBe(false)
+  })
+
+  it('does not commit sizes or dispatch pane-resize-end on a bare click', () => {
+    const { container, onResizeCommit } = renderSash()
+    const sash = container.querySelector('[data-slot="resizable-handle"]') as HTMLElement
+    const resizeEndSpy = vi.fn()
+    window.addEventListener('pane-resize-end', resizeEndSpy)
+
+    fireDragStart(sash)
+    fireDragEnd()
+
+    expect(onResizeCommit).not.toHaveBeenCalled()
+    expect(resizeEndSpy).not.toHaveBeenCalled()
+    window.removeEventListener('pane-resize-end', resizeEndSpy)
+  })
+
+  it('still enters and exits the resizing state normally when the pointer actually moves', () => {
+    const { container, onResizeCommit } = renderSash()
+    const sash = container.querySelector('[data-slot="resizable-handle"]') as HTMLElement
+
+    fireDragStart(sash)
+    fireDragMove(210)
+    expect(document.documentElement.hasAttribute('data-pane-resizing')).toBe(true)
+
+    fireDragEnd(210)
+    expect(document.documentElement.hasAttribute('data-pane-resizing')).toBe(false)
+    expect(onResizeCommit).toHaveBeenCalledTimes(1)
   })
 })
