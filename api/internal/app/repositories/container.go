@@ -3,6 +3,7 @@ package repositories
 import (
 	"context"
 	"fmt"
+	"log/slog"
 	"sync"
 
 	"github.com/char2cs/asynx"
@@ -13,6 +14,7 @@ import (
 	"github.com/char2cs/crowbar/api/internal/app/repositories/chat"
 	"github.com/char2cs/crowbar/api/internal/app/repositories/reviewthread"
 	"github.com/char2cs/crowbar/api/internal/app/repositories/workspace"
+	workspacedir "github.com/char2cs/crowbar/api/internal/app/repositories/workspace/directory"
 	wsusecase "github.com/char2cs/crowbar/api/internal/app/usecases/workspace"
 	"github.com/char2cs/crowbar/api/internal/domain"
 )
@@ -24,6 +26,11 @@ type Container struct {
 	ReviewThread reviewthread.ReviewThread
 	hub          hub.WebSocketHub
 	git          wsusecase.MergeConflictChecker
+	// directory is the queryable, rebuildable workspace_directory projection
+	// (workspace/directory package) backing ListWorkspacesInRepo and the
+	// repo-scoped snapshot-on-subscribe builders. The per-entity Workspace
+	// store remains authoritative; directory is a query-only convenience index.
+	directory workspacedir.Directory
 	// inflight counts the background mutations currently running per workspace
 	// id (00 §4 fail-fast/good-path-async). It backs the derived Working overlay:
 	// the API layer brackets each async op with BeginWork/EndWork, and every
@@ -48,14 +55,20 @@ func New(
 	asynxFactory workspace.AsynxFactory,
 	git wsusecase.MergeConflictChecker,
 ) (*Container, error) {
-	c := &Container{hub: h, git: git, inflight: map[string]int{}}
+	db := adapters.GlobalView()
+	dir, err := workspacedir.New(db)
+	if err != nil {
+		return nil, fmt.Errorf("repositories: directory: %w", err)
+	}
+	c := &Container{hub: h, git: git, directory: dir, inflight: map[string]int{}}
 	ws, err := workspace.New(adapters, func(ctx context.Context, w domain.Workspace) {
 		c.broadcastWorkspace(ctx, w)
 	}, asynxFactory)
 	if err != nil {
 		return nil, err
 	}
-	db := adapters.GlobalView()
+	c.Workspace = ws
+	c.rebuildDirectory(ctx)
 	ch, err := chat.New(ctx, axChat, adapters.ChatES(), db, func(domain.Chat) {})
 	if err != nil {
 		return nil, err
@@ -64,10 +77,28 @@ func New(
 	if err != nil {
 		return nil, err
 	}
-	c.Workspace = ws
 	c.Chat = ch
 	c.ReviewThread = rt
 	return c, nil
+}
+
+// rebuildDirectory repopulates the workspace_directory projection from a full
+// per-entity scan. It runs once at container construction, covering both a
+// fresh install (table empty) and an upgrade (table missing rows from before
+// this projection existed). Best-effort: a failure here never fails Container
+// construction — the per-entity stores remain the source of truth, and future
+// broadcasts keep populating the table going forward regardless.
+func (c *Container) rebuildDirectory(
+	ctx context.Context,
+) {
+	rows, err := c.Workspace.List(ctx)
+	if err != nil {
+		slog.WarnContext(ctx, "repositories: rebuild directory: list", "err", err)
+		return
+	}
+	if err := c.directory.Rebuild(ctx, rows); err != nil {
+		slog.WarnContext(ctx, "repositories: rebuild directory", "err", err)
+	}
 }
 
 // broadcastWorkspace converts a workspace row to its wire DTO and pushes it to
@@ -82,8 +113,29 @@ func (c *Container) broadcastWorkspace(
 	ws domain.Workspace,
 ) {
 	ws.Working = c.IsWorking(ws.ID)
+	c.syncDirectory(ctx, ws)
 	elig := c.eligibilityFor(ctx, ws)
 	c.hub.BroadcastWorkspace(dto.WorkspaceDTOFrom(ws, elig))
+}
+
+// syncDirectory keeps the workspace_directory projection in sync with every
+// broadcasted row: deleted on the tombstone, upserted otherwise. Best-effort —
+// a failure is logged and swallowed; the per-entity store already committed by
+// the time this runs, so a projection write failure can never lose data, only
+// cause a transient list omission until the next event or a rebuild.
+func (c *Container) syncDirectory(
+	ctx context.Context,
+	ws domain.Workspace,
+) {
+	if ws.Status == domain.WorkspaceStatusDeleted {
+		if err := c.directory.Delete(ctx, ws.ID); err != nil {
+			slog.WarnContext(ctx, "repositories: directory delete", "workspace_id", ws.ID, "err", err)
+		}
+		return
+	}
+	if err := c.directory.Upsert(ctx, ws); err != nil {
+		slog.WarnContext(ctx, "repositories: directory upsert", "workspace_id", ws.ID, "err", err)
+	}
 }
 
 // BeginWork marks the start of a background mutation on the workspace and
@@ -163,11 +215,11 @@ func (c *Container) eligibilityFor(
 	if ws.ParentID == "" {
 		return wsusecase.MergeEligibility{}
 	}
-	rows, err := c.Workspace.List(ctx)
+	siblings, err := c.Workspace.ListInRepo(ctx, ws.ProjectID, ws.RepoID)
 	if err != nil {
 		return wsusecase.MergeEligibility{}
 	}
-	return wsusecase.ResolveMergeEligibility(ctx, ws, rows, c.git)
+	return wsusecase.ResolveMergeEligibility(ctx, ws, siblings, c.git)
 }
 
 // ListWorkspaces returns every workspace row with the derived Working overlay
@@ -179,6 +231,25 @@ func (c *Container) ListWorkspaces(
 	rows, err := c.Workspace.List(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("repositories: list workspaces: %w", err)
+	}
+	for i := range rows {
+		rows[i].Working = c.IsWorking(rows[i].ID)
+	}
+	return rows, nil
+}
+
+// ListWorkspacesInRepo returns every workspace row scoped to one repo, with
+// the derived Working overlay applied, from the workspace_directory
+// projection — a single indexed query instead of ListWorkspaces' full-install
+// per-entity scan. It backs the repo-scoped snapshot-on-subscribe builders.
+func (c *Container) ListWorkspacesInRepo(
+	ctx context.Context,
+	projectID string,
+	repoID string,
+) ([]domain.Workspace, error) {
+	rows, err := c.directory.ListByRepo(ctx, projectID, repoID)
+	if err != nil {
+		return nil, fmt.Errorf("repositories: list workspaces in repo: %w", err)
 	}
 	for i := range rows {
 		rows[i].Working = c.IsWorking(rows[i].ID)

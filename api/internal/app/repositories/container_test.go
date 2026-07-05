@@ -337,3 +337,48 @@ func TestContainer_ListWorkspaces_ListErrorPropagates(t *testing.T) {
 	require.Error(t, err)
 	assert.Nil(t, rows)
 }
+
+func TestContainer_ListWorkspacesInRepo_ScopesToRepo(t *testing.T) {
+	ctx := context.Background()
+	c := newContainer(t, &captureHub{})
+
+	_, err := c.Workspace.Create(ctx, workspace.CreateInput{
+		ID: "w1", ProjectID: "p1", RepoID: "r1", Branch: "b",
+	}, time.Unix(1, 0).UTC())
+	require.NoError(t, err)
+	_, err = c.Workspace.Create(ctx, workspace.CreateInput{
+		ID: "w2", ProjectID: "p1", RepoID: "r2", Branch: "b",
+	}, time.Unix(2, 0).UTC())
+	require.NoError(t, err)
+
+	require.Eventually(t, func() bool {
+		rows, listErr := c.ListWorkspacesInRepo(ctx, "p1", "r1")
+		return listErr == nil && len(rows) == 1
+	}, time.Second, 5*time.Millisecond)
+
+	rows, err := c.ListWorkspacesInRepo(ctx, "p1", "r1")
+	require.NoError(t, err)
+	require.Len(t, rows, 1)
+	assert.Equal(t, "w1", rows[0].ID)
+}
+
+func TestContainer_BroadcastWorkspace_DeletedRemovesFromDirectory(t *testing.T) {
+	ctx := context.Background()
+	c := newContainer(t, &captureHub{})
+
+	_, err := c.Workspace.Create(ctx, workspace.CreateInput{
+		ID: "w1", ProjectID: "p1", RepoID: "r1", Branch: "b",
+	}, time.Unix(1, 0).UTC())
+	require.NoError(t, err)
+	require.Eventually(t, func() bool {
+		rows, listErr := c.ListWorkspacesInRepo(ctx, "p1", "r1")
+		return listErr == nil && len(rows) == 1
+	}, time.Second, 5*time.Millisecond)
+
+	require.NoError(t, c.Workspace.Delete(ctx, "w1"))
+
+	require.Eventually(t, func() bool {
+		rows, listErr := c.ListWorkspacesInRepo(ctx, "p1", "r1")
+		return listErr == nil && len(rows) == 0
+	}, time.Second, 5*time.Millisecond)
+}
