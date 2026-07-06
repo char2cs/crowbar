@@ -31,7 +31,9 @@ func (l *Ledger) Append(providerID string, at time.Time, blob []byte) (string, e
 	if err != nil {
 		return "", err
 	}
-	name := fmt.Sprintf("%04d-%s-%s.blob", seq, at.UTC().Format("20060102T150405Z"), providerID)
+	// %08d keeps lexical order == chronological order well past any realistic
+	// per-chat turn count (a 4-digit width would invert once seq crosses 9999).
+	name := fmt.Sprintf("%08d-%s-%s.blob", seq, at.UTC().Format("20060102T150405Z"), providerID)
 	if err := os.WriteFile(filepath.Join(l.dir, name), blob, 0o640); err != nil { //nolint:gosec // ledger entries are group-readable by design; name is ledger-generated
 		return "", fmt.Errorf("ledger: write: %w", err)
 	}
