@@ -10,7 +10,6 @@ type AgentSegment struct {
 	ProviderSessionID string     `gorm:"index"      json:"providerSessionId"`
 	CrowbarSegmentID  string     `gorm:"index"      json:"crowbarSegmentId"`
 	TerminalSessionID string     `json:"terminalSessionId"`
-	TranscriptPath    string     `json:"transcriptPath"`
 	StartedAt         time.Time  `json:"startedAt"`
 	EndedAt           *time.Time `json:"endedAt,omitempty"`
 	Status            string     `json:"status"`
