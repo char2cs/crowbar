@@ -7,6 +7,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"log/slog"
 	"os"
 	"path/filepath"
 	"strings"
@@ -19,6 +20,7 @@ import (
 	"github.com/char2cs/crowbar/api/internal/app/usecases/internal/worktreepath"
 	"github.com/char2cs/crowbar/api/internal/domain"
 	engineagent "github.com/char2cs/crowbar/api/internal/engine/agent"
+	engineterminal "github.com/char2cs/crowbar/api/internal/engine/terminal"
 )
 
 // TerminalCommander is the terminal-engine seam the usecase spawns vendor CLIs
@@ -444,10 +446,30 @@ func (u *Usecase) SwitchProvider(
 	// Read-before-kill: the ledger/transcript are already on disk (the
 	// transcript is written incrementally on each turn_stop hook), so
 	// assembling the handoff does not depend on the outgoing CLI still
-	// being alive.
-	handoff, _ := u.AssembleHandoff(ctx, chatID)
+	// being alive. A failure here must abort the switch (return before Kill)
+	// rather than silently proceed with an EMPTY handoff — nothing destructive
+	// has happened yet, so aborting leaves the chat exactly as it was.
+	handoff, err := u.AssembleHandoff(ctx, chatID)
+	if err != nil {
+		return "", fmt.Errorf("agent: switch provider: assemble handoff: %w", err)
+	}
 
-	_ = u.term.Kill(ctx, oldSeg.TerminalSessionID)
+	// A failed Kill is surfaced, not swallowed: if the outgoing CLI's terminal
+	// session still exists but could not be killed, proceeding would spawn a
+	// SECOND live CLI into the same worktree while the DB marks only the new
+	// one active — the exact "two live CLIs" hazard this guards against. The
+	// one error Kill can return today (registry.ErrSessionNotFound, exported
+	// as terminal.ErrSessionNotFound) means the session is already gone
+	// (process previously exited/reaped) — safe, even correct, to continue:
+	// the alternative would trap a chat unable to ever switch again once its
+	// terminal session ends on its own.
+	if err := u.term.Kill(ctx, oldSeg.TerminalSessionID); err != nil {
+		if !errors.Is(err, engineterminal.ErrSessionNotFound) {
+			return "", fmt.Errorf("agent: switch provider: kill outgoing terminal: %w", err)
+		}
+		slog.WarnContext(ctx, "agent: switch provider: outgoing terminal session already gone before kill; continuing switch",
+			"chat_id", chatID, "segment_id", oldSeg.ID, "terminal_session_id", oldSeg.TerminalSessionID, "err", err)
+	}
 	now := time.Now()
 	oldSeg.Status = "ended"
 	oldSeg.EndedAt = &now

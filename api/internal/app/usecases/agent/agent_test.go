@@ -28,10 +28,11 @@ type commandCall struct {
 }
 
 type fakeCommander struct {
-	calls  []commandCall
-	killed []string
-	nextID int
-	err    error
+	calls   []commandCall
+	killed  []string
+	nextID  int
+	err     error
+	killErr error
 }
 
 func (f *fakeCommander) CreateCommand(
@@ -60,6 +61,9 @@ func (f *fakeCommander) Kill(
 	_ context.Context,
 	sessionID string,
 ) error {
+	if f.killErr != nil {
+		return f.killErr
+	}
 	f.killed = append(f.killed, sessionID)
 	return nil
 }
