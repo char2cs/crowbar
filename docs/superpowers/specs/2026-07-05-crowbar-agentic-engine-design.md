@@ -36,10 +36,11 @@ zero engine changes — that is the thesis this iteration exists to prove.
 **Headline finding:** Codex's hook system is a near-clone of Claude's (same event names,
 same wire shape). The doc's #1 fear — Codex lifecycle granularity — is largely unfounded.
 
-**Two cells still unverified** (confirmed *while building the Codex connector*; they do not
-change any interface, each carries a documented fallback):
-- Codex `SessionStart.source` granularity (its `move_signal`).
-- Codex's hook-injection mechanism (relocate `CODEX_HOME` vs `-c hooks=<path>`) + trust-seeding.
+**Unverified, confirmed while building the Codex connector** (documented fallback each):
+- **One that matters:** Codex's hook-injection mechanism (relocate `CODEX_HOME` vs
+  `-c hooks=<path>`) + trust-seeding.
+- **One that doesn't:** Codex `SessionStart.source` granularity — now *optional metadata only*
+  (§7 makes detection branch on the session id, not the label), so its absence changes nothing.
 
 ---
 
@@ -139,16 +140,13 @@ config_injection:
 hooks:                                  # events to register + field-maps (JSONPath into the payload)
   session_start:
     provider_event: SessionStart
-    fields: { session_id: $.session_id, move_signal: $.source, transcript: $.transcript_path }
+    fields:
+      session_id: $.session_id          # REQUIRED — the only field the reducer branches on
+      transcript: $.transcript_path
+      move_signal: $.source             # OPTIONAL metadata only — recorded, never control-flow (§7)
   turn_stop:
     provider_event: Stop
     fields: { session_id: $.session_id, transcript: $.transcript_path }
-
-move_signal_map:                        # provider raw value → canonical enum
-  startup: fresh
-  resume:  resumed
-  clear:   cleared
-  compact: compacted
 
 transcript:                             # for ADOPTION when no hook handed us a path (foreign session)
   locate:  "~/.claude/projects/{cwd_slug}/{session_id}.jsonl"
@@ -182,8 +180,8 @@ config_injection:                       # the genuine divergence: a procedure, n
   - render_hooks: { format: codex_hooks_json, into: "{tmp}/codex-home/hooks.json" }
   - seed_trust: { file: "{tmp}/codex-home/hooks.json" }   # writes trusted_hash into config.toml
 
-hooks:                                  # SAME canonical events; move_signal PENDING VERIFY
-  session_start: { provider_event: SessionStart, fields: { session_id: $.session_id, move_signal: $.source, transcript: $.transcript_path } }
+hooks:                                  # SAME canonical events (move_signal optional metadata; may be absent — fine)
+  session_start: { provider_event: SessionStart, fields: { session_id: $.session_id, transcript: $.transcript_path, move_signal: $.source } }
   turn_stop:     { provider_event: Stop,         fields: { session_id: $.session_id, transcript: $.transcript_path } }
 
 transcript:
@@ -218,7 +216,7 @@ A hook is a config entry: "when event X fires, run command Y." The CLI spawns Y 
   running, even for Codex where we don't control the session id.
 - **Canonical events:** the ingest endpoint maps the provider's raw event + fields to a
   canonical event via the descriptor's `hooks` field-map. Engine code reads only canonical
-  events (`session_start{session_id, move_signal, transcript}`, `turn_stop{session_id, transcript}`).
+  events (`session_start{session_id, transcript, move_signal?}`, `turn_stop{session_id, transcript}`).
 
 ```
 claude/codex ─(event)→ runs `$CROWBAR_HOME/bin/crowbar hook <event>`
@@ -273,30 +271,40 @@ that has ever touched the chat, in one place, in order*.
 underneath it* changes — the user typed `/clear` (new session id) or `/resume <x>` (different
 existing session id). Same process, different conversation.
 
-**The only signal is the `SessionStart` hook** (`{session_id, move_signal}`), attributed to a
-segment via `CROWBAR_SEGMENT_ID`. No input-watching — reacting to the hook loses nothing,
-because the outgoing context is already in the ledger (snapshotted on every `turn_stop`) and
-the vendor's old transcript file persists on disk after a `/clear`.
+**The only signal is the `SessionStart` hook**, attributed to a segment via `CROWBAR_SEGMENT_ID`.
+No input-watching — reacting to the hook loses nothing, because the outgoing context is already
+in the ledger (snapshotted on every `turn_stop`) and the vendor's old transcript file persists
+on disk after a `/clear`.
+
+**The reducer branches on FACTS, never on the meaning of a lifecycle label.** There are only two
+observations — no CLI can assign them a "weird meaning" because they are observations, not
+semantics: (1) *did the session id under this segment change?* (2) *is the new id one we know?*
 
 **One serialized reducer** (single writer → registry never corrupts, an acceptance criterion):
 
 ```
-on session_start{session_id S, move_signal m}  (segment seg):
-    prev = registry.session_for(seg)
-    if S == prev:              → no-op (confirmation of a Crowbar-initiated action)
-    elif m == cleared:         → close chat-assoc; OPEN NEW chat on this segment
-    elif registry.knows(S):    → CASE 1: move focus to chat(S)          (emit chat.focus)
-    else:                      → CASE 2: register NEW chat for S; adopt transcript (may lag 1 turn)
+on session_start{session_id S}  (segment seg):
+    prev = registry.session_for(seg)      # last id seen for this segment, or none
+    if   S == prev:      → no-op
+    elif prev == none:   → first id for this segment → bind its chat → S   (spawn / switch-continuation)
+    elif registry.knows(S): → CASE 1: move focus to chat(S)     (emit chat.focus)
+    else:                → CASE 2: register NEW chat for S; adopt transcript (may lag 1 turn)
     registry.bind(seg → S)
 
-on turn_stop{transcript}:      → append opaque snapshot to that chat's ledger (§6.1)
+on turn_stop{transcript}:  → append opaque snapshot to that chat's ledger (§6.1)
 ```
 
+- Walk it through: `/clear` → a new id appears → unknown → new chat (we never encode "clear means
+  new chat"; it simply *is* a new id). `/resume` → known→focus, unknown→adopt. `/compact` → if it
+  keeps the id → no-op; if some CLI's compact mints a new id → handled generically as a move.
+  **Each is correct without the engine knowing what the command does.**
 - **"Known"** is well-defined: Crowbar records every session id it spawns/sees. Foreign ids
   (raw-terminal `/resume` of a pre-existing conversation) are the unknowns → adopt.
-- **Codex fallback:** if `SessionStart.source` is absent, `move_signal` is unknown but a *move*
-  is still detected (session id changed under a known segment). Known→focus, unknown→adopt
-  still hold; only clear-vs-foreign flavor is blurred, and both actions converge on "track it".
+- **The `source`/`move_signal` label is NOT load-bearing.** It is captured as *optional metadata*
+  (recorded in the ledger for legibility, and available as an additive backstop for the exotic
+  case an id-change can't see — a CLI that resets context *in place*, same id). A provider that
+  omits it, or one with unusual lifecycle semantics, cannot break or corrupt the registry — so
+  "does Codex emit `source`?" is moot for correctness.
 
 ---
 
@@ -375,10 +383,11 @@ No message endpoint. The terminal PTY stream itself rides the existing terminal 
 
 `1 → 2 → 3`, session record is substrate for switching.
 
-- **Phase 0 (spike, carried into the plan):** confirm the pending cells against the real
-  binaries: (a) Codex `SessionStart.source` granularity; (b) Codex's hook-injection mechanism
-  (relocate `CODEX_HOME` vs `-c hooks=<path>`) and trust-seeding. Each has a documented fallback
-  so a negative result reshapes a descriptor cell, not the architecture.
+- **Phase 0 (spike, carried into the plan):** confirm against the real binaries: Codex's
+  hook-injection mechanism (relocate `CODEX_HOME` vs `-c hooks=<path>`) and trust-seeding — the
+  one genuinely open cell, with a documented fallback so a negative result reshapes a descriptor
+  cell, not the architecture. (Codex `SessionStart.source` is only optional metadata now — §7 —
+  so it needs no gating spike; we note whatever it emits while building.)
 - **Component 1 — Adapter contract + dual PTY control:** extend `engine/terminal` spawn to
   argv+env; `engine/agent` descriptor load + generic inject step-runner; `crowbar hook`
   subcommand + ingest endpoint; canonical events. *Acceptance:* one engine path spawns, and
