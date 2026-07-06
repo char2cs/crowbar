@@ -11,10 +11,11 @@
 package agent_test
 
 import (
-	"bufio"
 	"context"
 	"encoding/json"
 	"os"
+	"path/filepath"
+	"sort"
 	"strings"
 	"testing"
 	"time"
@@ -76,7 +77,7 @@ func TestAgent_CodexTurnAppendsLedger(t *testing.T) {
 	ctx := context.Background()
 
 	repoPath := kit.InitRepo(t)
-	_, _, wsID := h.importRepoAndWorkspace(t, "codex-turn", repoPath)
+	projectID, repoID, wsID := h.importRepoAndWorkspace(t, "codex-turn", repoPath)
 
 	chatID, segID, err := h.app.Usecases.Agent.SpawnChat(ctx, wsID, "codex")
 	require.NoError(t, err)
@@ -127,111 +128,90 @@ func TestAgent_CodexTurnAppendsLedger(t *testing.T) {
 			"proves codex's own Stop hook never reached /v0/agent/hooks, or turn_stop -> ledger.Append "+
 			"never ran")
 	require.Contains(t, handoff, codeword, "ledger blob must carry the turn we just drove")
+
+	// The doc comment's second half: the entry is PHYSICALLY ON DISK, a .turn
+	// JSON record tagged with the codex provider id. AssembleHandoff proves the
+	// round trip landed something legible; this proves the concrete v2 storage
+	// shape (a .turn file, not the pre-v2 .blob) carrying the codex provider tag
+	// the reducer wrote from codex's own hook.
+	turns := readLedgerTurns(t, h.home, projectID, repoID, wsID, chatID)
+	require.NotEmpty(t, turns, "codex's turn_stop must have written a .turn ledger entry on disk")
+	var codexTagged, carriesCodeword bool
+	for _, tn := range turns {
+		if tn.Provider != "codex" {
+			continue
+		}
+		codexTagged = true
+		if strings.Contains(tn.Text, codeword) {
+			carriesCodeword = true
+		}
+	}
+	require.True(t, codexTagged,
+		"a .turn ledger entry must be physically on disk tagged with the codex provider id; turns=%+v", turns)
+	require.True(t, carriesCodeword,
+		"the codex-tagged ledger turns must carry the driven codeword; turns=%+v", turns)
 }
 
-// claudeAssistantTexts scans a Claude Code transcript (~/.claude/projects/
-// <slug>/<uuid>.jsonl) and returns every assistant message's text content, in
-// transcript order, mirroring the Phase-0 spike's claude_answer_from_transcript
-// fallback (docs/superpowers/specs/spike-2026-07-05-agentic/orchestrator.py),
-// generalized to return the whole sequence rather than just the last one (see
-// TestAgent_SwitchBackRestoresClaudeContext's doc comment for why: a resumed
-// session may interleave a synthetic housekeeping turn among real replies in
-// an unpredictable order, so callers there search the whole sequence rather
-// than trust any single index). Returns nil if the file does not exist yet or
-// has no assistant text.
-func claudeAssistantTexts(transcriptPath string) []string {
-	f, err := os.Open(transcriptPath) //nolint:gosec // transcriptPath comes from a hook payload we control in-test
-	if err != nil {
+// ledgerTurn mirrors the on-disk JSON shape of one Crowbar ledger entry
+// (internal/app/ledger.Turn): a single conversation turn Crowbar recorded from
+// a vendor CLI's own UserPromptSubmit/Stop hook. Under descriptor-v2 this is
+// Crowbar's OWN hook-derived record — the oracle for "what each side said" —
+// NOT a vendor transcript. v2 reads no vendor transcript and records no
+// transcript path, so the tests below assert on this ledger instead.
+type ledgerTurn struct {
+	Role     string `json:"role"`     // "user" | "assistant"
+	Provider string `json:"provider"` // the segment provider that produced the turn
+	Text     string `json:"text"`
+}
+
+// readLedgerTurns reads chatID's ledger directory — the same
+// <home>/projects/<projectID>/<repoID>/workspaces/<wsID>/agent-ledger/<chatID>
+// path worktreepath.AgentLedgerDir resolves and AssembleHandoff renders from —
+// and returns every recorded turn in chronological order. AppendTurn names its
+// entries with an %08d sequence prefix, so the .turn filenames sort
+// lexically == chronologically. Returns nil when the ledger has no entries yet.
+func readLedgerTurns(t *testing.T, home, projectID, repoID, wsID, chatID string) []ledgerTurn {
+	t.Helper()
+	dir := filepath.Join(home, "projects", projectID, repoID, "workspaces", wsID, "agent-ledger", chatID)
+	des, err := os.ReadDir(dir)
+	if os.IsNotExist(err) {
 		return nil
 	}
-	defer f.Close()
+	require.NoError(t, err, "read ledger dir %s", dir)
 
+	var names []string
+	for _, de := range des {
+		if !de.IsDir() && strings.HasSuffix(de.Name(), ".turn") {
+			names = append(names, de.Name())
+		}
+	}
+	sort.Strings(names)
+
+	var turns []ledgerTurn
+	for _, n := range names {
+		data, err := os.ReadFile(filepath.Join(dir, n))
+		require.NoError(t, err, "read ledger entry %s", n)
+		var tn ledgerTurn
+		require.NoError(t, json.Unmarshal(data, &tn), "unmarshal ledger entry %s", n)
+		turns = append(turns, tn)
+	}
+	return turns
+}
+
+// assistantReplies returns, in order, the text of every ASSISTANT turn the
+// given provider produced — the model's OWN Stop-hook output, isolated from
+// echoed user prompts and handoff text. This is the ledger analogue of the old
+// per-vendor transcript readers, but it reads Crowbar's own record and can
+// attribute a reply to the exact provider that generated it — which the
+// rendered AssembleHandoff blob (every turn flattened into one string) cannot.
+func assistantReplies(turns []ledgerTurn, provider string) []string {
 	var out []string
-	sc := bufio.NewScanner(f)
-	sc.Buffer(make([]byte, 0, 64*1024), 10*1024*1024)
-	for sc.Scan() {
-		var line struct {
-			Type    string `json:"type"`
-			Message struct {
-				Role    string `json:"role"`
-				Content []struct {
-					Type string `json:"type"`
-					Text string `json:"text"`
-				} `json:"content"`
-			} `json:"message"`
-		}
-		if err := json.Unmarshal(sc.Bytes(), &line); err != nil {
-			continue
-		}
-		if line.Type != "assistant" {
-			continue
-		}
-		var text string
-		for _, blk := range line.Message.Content {
-			if blk.Type == "text" && blk.Text != "" {
-				text = blk.Text
-			}
-		}
-		if text != "" {
-			out = append(out, text)
+	for _, tn := range turns {
+		if tn.Role == "assistant" && tn.Provider == provider {
+			out = append(out, tn.Text)
 		}
 	}
 	return out
-}
-
-// claudeLastAssistantText returns the most recent entry from
-// claudeAssistantTexts, or "" if there is none.
-func claudeLastAssistantText(transcriptPath string) string {
-	texts := claudeAssistantTexts(transcriptPath)
-	if len(texts) == 0 {
-		return ""
-	}
-	return texts[len(texts)-1]
-}
-
-// codexLastAssistantText scans a Codex rollout transcript (~/.codex/sessions/
-// YYYY/MM/DD/rollout-*.jsonl) for the most recent assistant message's output
-// text. Schema confirmed live 2026-07-06 against codex 0.139.0 via a throwaway
-// `codex exec` prototype run (isolated CODEX_HOME/cwd, never the real
-// ~/.codex): each line is {"type":"response_item","payload":{"type":"message",
-// "role":"assistant","content":[{"type":"output_text","text":"..."}],
-// "phase":"final_answer"}}. Returns "" if the file does not exist yet or no
-// assistant message is found.
-func codexLastAssistantText(transcriptPath string) string {
-	f, err := os.Open(transcriptPath) //nolint:gosec // transcriptPath comes from a hook payload we control in-test
-	if err != nil {
-		return ""
-	}
-	defer f.Close()
-
-	var last string
-	sc := bufio.NewScanner(f)
-	sc.Buffer(make([]byte, 0, 64*1024), 10*1024*1024)
-	for sc.Scan() {
-		var line struct {
-			Type    string `json:"type"`
-			Payload struct {
-				Type    string `json:"type"`
-				Role    string `json:"role"`
-				Content []struct {
-					Type string `json:"type"`
-					Text string `json:"text"`
-				} `json:"content"`
-			} `json:"payload"`
-		}
-		if err := json.Unmarshal(sc.Bytes(), &line); err != nil {
-			continue
-		}
-		if line.Type != "response_item" || line.Payload.Type != "message" || line.Payload.Role != "assistant" {
-			continue
-		}
-		for _, blk := range line.Payload.Content {
-			if blk.Type == "output_text" && blk.Text != "" {
-				last = blk.Text
-			}
-		}
-	}
-	return last
 }
 
 // TestAgent_LiveClearRegistersNewChat proves the reducer's "registered"
@@ -399,11 +379,19 @@ func seedClaudeThenSwitchToCodex(
 // assertion on a model reply"). This test pays that cost to close the gap:
 // after a real claude->codex switch (via seedClaudeThenSwitchToCodex), it
 // asks codex directly what codeword appeared in the context it was given, and
-// asserts CODEX'S OWN REPLY (parsed from its rollout transcript's last
-// assistant message, not the echoed user turn) contains it — the Go-stack
-// proof of the Phase-0 spike's "Codex read Claude's raw 38 KB .jsonl and
-// extracted the codeword" finding (docs/superpowers/specs/
+// asserts CODEX'S OWN REPLY (isolated from the echoed user/handoff turns by
+// reading only assistant turns tagged with the codex provider in Crowbar's
+// ledger — codex's own Stop-hook output) contains it — the Go-stack proof of
+// the Phase-0 spike's "Codex read Claude's raw 38 KB .jsonl and extracted the
+// codeword" finding (docs/superpowers/specs/
 // 2026-07-05-crowbar-agentic-engine-design.md §1 scorecard).
+//
+// The ledger — not a vendor transcript — is the v2 oracle. AssembleHandoff's
+// rendered blob is NOT usable for this check: it flattens EVERY turn (claude's
+// seeding turn, the echoed handoff, the follow-up prompt) into one string that
+// already contains the codeword, so "handoff contains codeword" would be
+// trivially true without proving codex generated anything. Reading only the
+// codex-tagged ASSISTANT turns isolates codex's own model output.
 func TestAgent_CodexUsesHandoff(t *testing.T) {
 	requireCLI(t, "claude")
 	requireCLI(t, "codex")
@@ -411,22 +399,11 @@ func TestAgent_CodexUsesHandoff(t *testing.T) {
 	ctx := context.Background()
 
 	repoPath := kit.InitRepo(t)
-	_, _, wsID := h.importRepoAndWorkspace(t, "codex-handoff", repoPath)
+	projectID, repoID, wsID := h.importRepoAndWorkspace(t, "codex-handoff", repoPath)
 
 	const codeword = "OSPREY-4482"
-	chatID, _, codexSegID, codexTermSessID := seedClaudeThenSwitchToCodex(t, h, wsID, codeword)
+	chatID, _, _, codexTermSessID := seedClaudeThenSwitchToCodex(t, h, wsID, codeword)
 	t.Cleanup(func() { _ = h.eng.Terminal.Kill(context.Background(), codexTermSessID) })
-
-	segs, err := h.app.Usecases.Agent.SegmentsFor(ctx, chatID)
-	require.NoError(t, err)
-	var codexSeg domain.AgentSegment
-	for _, s := range segs {
-		if s.ID == codexSegID {
-			codexSeg = s
-		}
-	}
-	require.NotEmpty(t, codexSeg.TranscriptPath, "codex segment must have a transcript path recorded from its SessionStart hook: %+v", segs)
-	t.Logf("codex transcript: %s", codexSeg.TranscriptPath)
 
 	// codex's first turn is the handoff itself (auto-submitted as its initial
 	// positional prompt once past the trust dialog — see
@@ -434,20 +411,25 @@ func TestAgent_CodexUsesHandoff(t *testing.T) {
 	// its own (AssembleHandoff just wraps the raw ledger in a header/footer), so
 	// codex free-associates a short reply to it (observed live: a bare
 	// "acknowledged", apparently echoing the pattern in claude's handed-off
-	// transcript) — wait for that first turn to fully land BEFORE typing our own
-	// follow-up, so a race between "our follow-up's reply" and "the auto-turn's
-	// own reply" can't produce a false pass (this raced and DID false-pass on
-	// the first version of this test: baseline was captured empty right after
-	// SessionStart bound, before turn 1 had actually finished, and nudgeUntil
-	// below matched turn 1's own "acknowledged" instead of our follow-up).
+	// transcript) — wait for that first turn's assistant reply to land in the
+	// ledger BEFORE typing our own follow-up, so a race between "our follow-up's
+	// reply" and "the auto-turn's own reply" can't produce a false pass (this
+	// raced and DID false-pass on the first version of this test: baseline was
+	// captured before turn 1 had actually finished, and the wait below matched
+	// turn 1's own "acknowledged" instead of our follow-up). We then require a
+	// NEW codex assistant turn (index beyond the baseline count) to carry the
+	// codeword, so even a codex auto-reply that happened to echo it could not
+	// satisfy the assertion — only a reply codex produced AFTER we asked can.
 	baselineStart := time.Now()
-	baseline := nudgeUntil(h, codexTermSessID, 30*time.Second, func() (string, bool) {
-		cur := codexLastAssistantText(codexSeg.TranscriptPath)
-		return cur, cur != ""
+	var baselineCount int
+	nudgeUntil(h, codexTermSessID, 30*time.Second, func() (bool, bool) {
+		baselineCount = len(assistantReplies(readLedgerTurns(t, h.home, projectID, repoID, wsID, chatID), "codex"))
+		return true, baselineCount >= 1
 	})
-	t.Logf("waited %s for codex's auto-submitted-handoff turn to land; its (uninstructed) reply was %q",
-		time.Since(baselineStart), baseline)
-	require.NotEmpty(t, baseline, "timed out waiting for codex's first (auto-submitted handoff) turn to produce any assistant reply")
+	t.Logf("waited %s for codex's auto-submitted-handoff turn to land in the ledger (%d codex assistant turns)",
+		time.Since(baselineStart), baselineCount)
+	require.GreaterOrEqual(t, baselineCount, 1,
+		"timed out waiting for codex's first (auto-submitted handoff) turn to append an assistant .turn entry")
 
 	followUp := "What exact codeword appeared in the context you were given above? Reply with only that word."
 	require.NoError(t, h.eng.Terminal.Write(ctx, codexTermSessID, []byte(followUp)))
@@ -456,11 +438,16 @@ func TestAgent_CodexUsesHandoff(t *testing.T) {
 
 	start := time.Now()
 	reply := nudgeUntil(h, codexTermSessID, 90*time.Second, func() (string, bool) {
-		cur := codexLastAssistantText(codexSeg.TranscriptPath)
-		return cur, cur != "" && cur != baseline
+		replies := assistantReplies(readLedgerTurns(t, h.home, projectID, repoID, wsID, chatID), "codex")
+		for _, r := range replies[min(baselineCount, len(replies)):] {
+			if strings.Contains(r, codeword) {
+				return r, true
+			}
+		}
+		return "", false
 	})
 	t.Logf("waited %s for codex's reply to the follow-up turn", time.Since(start))
-	require.NotEmpty(t, reply, "timed out waiting for codex to produce a NEW assistant reply to the follow-up turn")
+	require.NotEmpty(t, reply, "timed out waiting for codex to produce a NEW assistant reply (after the auto-handoff turn) referencing the codeword")
 	require.Contains(t, reply, codeword,
 		"codex's own reply must reference the codeword handed off from claude's session — proves codex "+
 			"actually READ the opaque handoff, not just that the string was passed to it; codex's full reply was: %q", reply)
@@ -470,15 +457,17 @@ func TestAgent_CodexUsesHandoff(t *testing.T) {
 // Priority-1 e2e audit: codex->claude switch-back via `--resume`, proving the
 // returning claude restores its native context. It combines two proofs:
 //
-//  1. Deterministic/cheap: the resumed segment's ProviderSessionID and
-//     TranscriptPath must equal the ORIGINAL (pre-switch) claude segment's —
-//     i.e. SwitchProvider's `--resume <id>` (internal/app/usecases/agent/
-//     agent.go's priorSessionID lookup + descriptor session.resume) actually
-//     reattached claude to its own prior session file, the Go-stack proof of
-//     the Phase-0 spike's "Native resume / Case-1 (--resume <id> ->
-//     source=resume)" scorecard row. This alone needs no model turn at all.
+//  1. Deterministic/cheap: the resumed segment's ProviderSessionID must equal
+//     the ORIGINAL (pre-switch) claude segment's — i.e. SwitchProvider's
+//     `--resume <id>` (internal/app/usecases/agent/agent.go's priorSessionID
+//     lookup + descriptor session.resume) actually reattached claude to its own
+//     prior native session, the Go-stack proof of the Phase-0 spike's "Native
+//     resume / Case-1 (--resume <id> -> source=resume)" scorecard row. Under
+//     descriptor-v2 the session id is the continuity witness (Crowbar no longer
+//     records a vendor transcript path). This alone needs no model turn at all.
 //  2. Behavioural: ask the resumed claude to recall the codeword seeded
-//     before the first switch, and check its reply. NOTE this is NOT a clean
+//     before the first switch, and check its reply — read from claude's own
+//     Stop-hook assistant turns in Crowbar's ledger. NOTE this is NOT a clean
 //     isolation of "answered purely from native --resume" vs "answered from
 //     the freshly re-appended handoff": SwitchProvider always appends
 //     AssembleHandoff's blob as `--append-system-prompt` on EVERY switch,
@@ -493,7 +482,7 @@ func TestAgent_SwitchBackRestoresClaudeContext(t *testing.T) {
 	ctx := context.Background()
 
 	repoPath := kit.InitRepo(t)
-	_, _, wsID := h.importRepoAndWorkspace(t, "switch-back", repoPath)
+	projectID, repoID, wsID := h.importRepoAndWorkspace(t, "switch-back", repoPath)
 
 	const codeword = "TALON-6631"
 	chatID, claudeSegID, _, codexTermSessID := seedClaudeThenSwitchToCodex(t, h, wsID, codeword)
@@ -510,7 +499,6 @@ func TestAgent_SwitchBackRestoresClaudeContext(t *testing.T) {
 		}
 	}
 	require.NotEmpty(t, origClaudeSeg.ProviderSessionID, "original claude segment must have bound a session id: %+v", segsBeforeSwitchBack)
-	require.NotEmpty(t, origClaudeSeg.TranscriptPath, "original claude segment must have recorded a transcript path: %+v", segsBeforeSwitchBack)
 
 	newClaudeSegID, err := h.app.Usecases.Agent.SwitchProvider(ctx, chatID, "claude")
 	require.NoError(t, err)
@@ -535,37 +523,25 @@ func TestAgent_SwitchBackRestoresClaudeContext(t *testing.T) {
 			resumedSeg = s
 		}
 	}
-	require.Equal(t, origClaudeSeg.TranscriptPath, resumedSeg.TranscriptPath,
-		"a native --resume must reattach to the SAME transcript file as before ANY switch happened")
+	require.Equal(t, origClaudeSeg.ProviderSessionID, resumedSeg.ProviderSessionID,
+		"native --resume reattaches the same provider session: the resumed segment persists the ORIGINAL "+
+			"claude session id, not a freshly minted one (v2's continuity witness, replacing the pre-v2 "+
+			"transcript-path equality)")
 
 	// A resumed claude given a freshly `--append-system-prompt`-ed delta may
-	// emit a synthetic (non-model, "model":"<synthetic>") housekeeping turn
-	// before anything we type is processed — observed live across repeated
-	// runs: Claude Code sometimes auto-injects a synthetic "Continue from
-	// where you left off." user turn and replies "No response requested.",
-	// apparently closing out the ORIGINAL codeword-seeding turn when its real
-	// "acknowledged" reply lost a race with SwitchProvider's Kill of the
-	// outgoing terminal (internal/engine/terminal/internal/session's
-	// Session.Kill -> cmd.Process.Kill() is an unconditional hard SIGKILL for
-	// EVERY provider — the design doc explicitly warns this is unsafe for
-	// claude specifically: "Claude flushes its transcript only on a clean
-	// exit ... never SIGKILL mid-flight", docs/superpowers/specs/
-	// 2026-07-05-crowbar-agentic-engine-design.md §1). Flagged here, not
-	// fixed — this file's brief is proving behavior end to end, not patching
-	// the daemon.
-	//
-	// This housekeeping turn's on-disk appearance was wildly inconsistent
-	// across live runs: absent entirely (the original "acknowledged" survived
-	// intact), appearing within milliseconds, and once still NOT on disk after
-	// a full 45s of idle polling (only flushing once our own follow-up keystrokes
-	// landed) — its persistence is evidently tied to some later event, not a
-	// fixed delay. Rather than trying to name which array index is "the real
-	// reply" (an earlier version of this test tried settle-then-diff and
-	// index-counting, both of which raced against this same unpredictability),
-	// just drive the follow-up immediately and wait for ANY assistant entry to
-	// contain the codeword — unambiguous, since neither the original
-	// "acknowledged" turn nor a "No response requested." housekeeping turn
-	// could ever satisfy that on their own.
+	// emit a synthetic "Continue from where you left off." / "No response
+	// requested." housekeeping turn before anything we type is processed
+	// (observed live across repeated runs pre-graceful-terminate). Whether such
+	// a turn even reaches Crowbar's ledger depends on whether it fires claude's
+	// Stop hook, which was inconsistent live. Rather than try to name which
+	// assistant turn is "the real reply" (an earlier version raced on
+	// index-counting), drive the follow-up immediately and wait for ANY of
+	// claude's own assistant turns in the ledger to contain the codeword —
+	// unambiguous, since neither the original "acknowledged" turn nor a "No
+	// response requested." housekeeping turn could ever satisfy that on their
+	// own. Reading claude-tagged assistant turns from Crowbar's ledger replaces
+	// the pre-v2 read of claude's native transcript (which v2 no longer records
+	// a path to).
 	followUp := "What was the codeword I asked you to remember earlier in our conversation? Reply with only that word."
 	require.NoError(t, h.eng.Terminal.Write(ctx, newClaudeTermSessID, []byte(followUp)))
 	time.Sleep(300 * time.Millisecond)
@@ -574,7 +550,7 @@ func TestAgent_SwitchBackRestoresClaudeContext(t *testing.T) {
 	start = time.Now()
 	var texts []string
 	found := nudgeUntil(h, newClaudeTermSessID, 90*time.Second, func() (bool, bool) {
-		texts = claudeAssistantTexts(resumedSeg.TranscriptPath)
+		texts = assistantReplies(readLedgerTurns(t, h.home, projectID, repoID, wsID, chatID), "claude")
 		for _, tx := range texts {
 			if strings.Contains(tx, codeword) {
 				return true, true
@@ -582,9 +558,9 @@ func TestAgent_SwitchBackRestoresClaudeContext(t *testing.T) {
 		}
 		return false, false
 	})
-	t.Logf("waited %s for a reply referencing the codeword; all assistant texts observed: %q", time.Since(start), texts)
+	t.Logf("waited %s for a reply referencing the codeword; all claude assistant turns observed: %q", time.Since(start), texts)
 	require.True(t, found,
-		"timed out waiting for any assistant reply (including the follow-up's) to reference the codeword; texts observed: %q", texts)
+		"timed out waiting for any claude assistant turn (including the follow-up's) to reference the codeword; turns observed: %q", texts)
 }
 
 // TestAgent_GracefulTerminate_PreservesClaudePreSwitchReply is the empirical
@@ -601,17 +577,30 @@ func TestAgent_SwitchBackRestoresClaudeContext(t *testing.T) {
 // implemented.
 //
 // This test is the strict version: it captures claude's REAL reply to the
-// seeded turn from its own on-disk transcript BEFORE ever calling
-// SwitchProvider (the one moment we can be certain nothing has touched the
-// process yet), switches away to codex and back to claude (exercising the
-// exact TerminateGraceful call path SwitchProvider now uses for every
-// provider, no branching), drives one follow-up turn to force claude to
-// settle/flush its resumed state to disk (mirroring
-// TestAgent_SwitchBackRestoresClaudeContext's hard-won finding that a
-// synthetic housekeeping turn, if one was going to appear, may not flush to
-// disk until further input lands), and then asserts BOTH that the captured
-// baseline reply is still present verbatim and that no synthetic "No response
-// requested." entry ever appeared.
+// seeded turn from claude's OWN Stop-hook assistant turn in Crowbar's ledger
+// BEFORE ever calling SwitchProvider, switches away to codex and back to
+// claude (exercising the exact TerminateGraceful call path SwitchProvider now
+// uses for every provider, no branching), drives one follow-up turn to force
+// claude to settle/flush its resumed state (mirroring
+// TestAgent_SwitchBackRestoresClaudeContext's hard-won finding that a synthetic
+// housekeeping turn, if one was going to appear, may not surface until further
+// input lands), and then asserts BOTH that the captured baseline reply is still
+// present verbatim and that no synthetic "No response requested." entry ever
+// appeared.
+//
+// v2 CAVEAT (honest scope): pre-v2 this test read claude's NATIVE transcript,
+// which directly witnessed a hard SIGKILL corrupting/replacing claude's last
+// reply. v2 records NO vendor transcript; the ledger is populated by claude's
+// own Stop hook, an INDEPENDENT subprocess that completes BEFORE the switch (we
+// wait for it above), so the ledger's copy of the pre-switch reply is durable
+// regardless of how the outgoing process later dies — the "still present
+// verbatim" half is therefore a weak (append-only) check under v2. The
+// discriminating signal that survives is the "no synthetic 'No response
+// requested.' turn" half: a resume over a hard-kill-corrupted native session
+// can make claude emit that housekeeping turn, and IF it fires claude's Stop
+// hook it lands in the ledger — but whether that synthetic turn fires the hook
+// is itself unverified. Treat this as a best-effort regression signal, not the
+// airtight native-transcript proof its pre-v2 form was.
 //
 // Run this multiple times (`go test -tags 'integration noEmbed' -race -p 1
 // -run TestAgent_GracefulTerminate_PreservesClaudePreSwitchReply -count=N
@@ -625,7 +614,7 @@ func TestAgent_GracefulTerminate_PreservesClaudePreSwitchReply(t *testing.T) {
 	ctx := context.Background()
 
 	repoPath := kit.InitRepo(t)
-	_, _, wsID := h.importRepoAndWorkspace(t, "graceful-terminate", repoPath)
+	projectID, repoID, wsID := h.importRepoAndWorkspace(t, "graceful-terminate", repoPath)
 
 	chatID, claudeSegID, err := h.app.Usecases.Agent.SpawnChat(ctx, wsID, "claude")
 	require.NoError(t, err)
@@ -637,14 +626,6 @@ func TestAgent_GracefulTerminate_PreservesClaudePreSwitchReply(t *testing.T) {
 	providerSessionID, segs := waitForProviderSessionID(t, h, claudeTermSessID, chatID, claudeSegID, 30*time.Second)
 	require.NotEmpty(t, providerSessionID, "claude never bound before a turn could be driven: %+v", segs)
 	t.Logf("claude bound in %s (session=%s)", time.Since(start), providerSessionID)
-
-	var transcriptPath string
-	for _, s := range segs {
-		if s.ID == claudeSegID {
-			transcriptPath = s.TranscriptPath
-		}
-	}
-	require.NotEmpty(t, transcriptPath, "claude segment must have a transcript path recorded from SessionStart: %+v", segs)
 
 	const codeword = "GRACEFUL-8847"
 	prompt := "Remember this exact codeword for the rest of our conversation: " + codeword +
@@ -665,20 +646,22 @@ func TestAgent_GracefulTerminate_PreservesClaudePreSwitchReply(t *testing.T) {
 	t.Logf("waited %s for claude's Stop hook (ledger append)", time.Since(start))
 	require.Contains(t, handoff, codeword, "ledger blob must carry the turn we just drove")
 
-	// Read claude's REAL reply from its own on-disk transcript — separate
-	// from (and the whole point of testing beyond) Crowbar's ledger copy —
-	// while the process is STILL ALIVE and BEFORE SwitchProvider has touched
-	// it. This is the exact on-disk state a hard SIGKILL was accused of
-	// sometimes corrupting/losing before the process could finish flushing.
+	// Capture claude's REAL reply to the seeded turn from its OWN Stop-hook
+	// assistant turn in Crowbar's ledger, while the process is STILL ALIVE and
+	// BEFORE SwitchProvider has touched it. Pre-v2 this read claude's native
+	// transcript directly; v2 records no transcript path, so the Stop-hook
+	// ledger turn is the pre-switch reply we later assert survives the round
+	// trip (see the v2 CAVEAT in the doc comment for what that can and cannot
+	// prove now).
 	baselineReply := nudgeUntil(h, claudeTermSessID, 15*time.Second, func() (string, bool) {
-		texts := claudeAssistantTexts(transcriptPath)
+		texts := assistantReplies(readLedgerTurns(t, h.home, projectID, repoID, wsID, chatID), "claude")
 		if len(texts) == 0 {
 			return "", false
 		}
 		return texts[len(texts)-1], true
 	})
-	require.NotEmpty(t, baselineReply, "claude's own on-disk transcript never showed the seeded turn's reply")
-	t.Logf("baseline (pre-switch, process still alive) reply on disk: %q", baselineReply)
+	require.NotEmpty(t, baselineReply, "claude's own Stop-hook ledger turn never showed the seeded turn's reply")
+	t.Logf("baseline (pre-switch, process still alive) reply in ledger: %q", baselineReply)
 
 	// Switch away — the exact call under test: SwitchProvider now uses
 	// TerminateGraceful (SIGTERM + grace, falling back to SIGKILL only if
@@ -706,22 +689,16 @@ func TestAgent_GracefulTerminate_PreservesClaudePreSwitchReply(t *testing.T) {
 	resumedProviderSessionID, segsAfter := waitForProviderSessionID(t, h, newClaudeTermSessID, chatID, newClaudeSegID, 30*time.Second)
 	t.Logf("claude resumed in %s (session=%s)", time.Since(start), resumedProviderSessionID)
 	require.NotEmpty(t, resumedProviderSessionID, "timed out waiting for the switched-back claude's SessionStart hook to bind: %+v", segsAfter)
-	require.Equal(t, providerSessionID, resumedProviderSessionID, "switch-back must --resume the ORIGINAL claude session id")
+	require.Equal(t, providerSessionID, resumedProviderSessionID,
+		"switch-back must --resume the ORIGINAL claude session id (v2's native-resume continuity witness, "+
+			"replacing the pre-v2 transcript-path equality)")
 
-	var resumedTranscriptPath string
-	for _, s := range segsAfter {
-		if s.ID == newClaudeSegID {
-			resumedTranscriptPath = s.TranscriptPath
-		}
-	}
-	require.Equal(t, transcriptPath, resumedTranscriptPath, "a native --resume must reattach to the SAME transcript file as before ANY switch happened")
-
-	// Drive one follow-up turn to force claude to settle/flush its resumed
-	// state to disk — TestAgent_SwitchBackRestoresClaudeContext found live
-	// that a synthetic housekeeping turn, when the OLD hard-kill bug produced
-	// one, could remain unflushed to disk until further input landed, so
-	// reading immediately post-resume with no follow-up would not reliably
-	// exercise the failure mode this test exists to catch.
+	// Drive one follow-up turn to force claude to settle its resumed state —
+	// TestAgent_SwitchBackRestoresClaudeContext found live that a synthetic
+	// housekeeping turn, when the OLD hard-kill bug produced one, could remain
+	// unsurfaced until further input landed, so reading immediately post-resume
+	// with no follow-up would not reliably exercise the failure mode this test
+	// exists to catch.
 	followUp := "What was the codeword I asked you to remember earlier in our conversation? Reply with only that word."
 	require.NoError(t, h.eng.Terminal.Write(ctx, newClaudeTermSessID, []byte(followUp)))
 	time.Sleep(300 * time.Millisecond)
@@ -730,7 +707,7 @@ func TestAgent_GracefulTerminate_PreservesClaudePreSwitchReply(t *testing.T) {
 	start = time.Now()
 	var texts []string
 	found := nudgeUntil(h, newClaudeTermSessID, 90*time.Second, func() (bool, bool) {
-		texts = claudeAssistantTexts(resumedTranscriptPath)
+		texts = assistantReplies(readLedgerTurns(t, h.home, projectID, repoID, wsID, chatID), "claude")
 		for _, tx := range texts {
 			if strings.Contains(tx, codeword) {
 				return true, true
@@ -738,22 +715,21 @@ func TestAgent_GracefulTerminate_PreservesClaudePreSwitchReply(t *testing.T) {
 		}
 		return false, false
 	})
-	t.Logf("waited %s for the follow-up's reply; all assistant texts observed after switch-back: %q", time.Since(start), texts)
-	require.True(t, found, "timed out waiting for the follow-up turn's reply to reference the codeword; texts observed: %q", texts)
+	t.Logf("waited %s for the follow-up's reply; all claude assistant turns observed after switch-back: %q", time.Since(start), texts)
+	require.True(t, found, "timed out waiting for the follow-up turn's reply to reference the codeword; turns observed: %q", texts)
 
-	// THE KEY EMPIRICAL ASSERTIONS for this bug fix: the ORIGINAL pre-switch
-	// reply must still be present verbatim, and no synthetic gap-filling
-	// housekeeping entry must have appeared — proving the graceful
-	// SIGTERM+grace terminate let claude flush its native transcript before
-	// the outgoing process died. Pre-fix, a hard SIGKILL was observed to
-	// sometimes replace/lose this exact entry with a synthetic "No response
-	// requested." turn instead.
+	// THE KEY ASSERTIONS for this bug fix (see the v2 CAVEAT above for their
+	// reduced strength under the ledger): the ORIGINAL pre-switch reply must
+	// still be present verbatim, and no synthetic gap-filling "No response
+	// requested." housekeeping entry must have reached claude's own assistant
+	// turns — the surviving regression signal that the graceful SIGTERM+grace
+	// terminate let claude exit cleanly instead of being SIGKILLed mid-flight.
 	assert.Contains(t, texts, baselineReply,
-		"the original pre-switch reply must still be present verbatim in claude's native transcript after a "+
-			"graceful terminate + native resume; texts observed: %q", texts)
+		"the original pre-switch reply must still be present verbatim in claude's own assistant turns after a "+
+			"graceful terminate + native resume; turns observed: %q", texts)
 	for _, tx := range texts {
 		assert.NotContains(t, strings.ToLower(tx), "no response requested",
-			"a synthetic housekeeping reply appearing here means claude's clean-exit transcript flush did not "+
-				"happen before the outgoing process died; texts observed: %q", texts)
+			"a synthetic housekeeping reply appearing here means claude did not exit cleanly before the "+
+				"outgoing process died; turns observed: %q", texts)
 	}
 }
