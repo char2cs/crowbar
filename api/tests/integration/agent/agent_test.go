@@ -231,14 +231,19 @@ func nudgeUntil[T any](
 	}
 }
 
-// waitForProviderSessionID polls the chat's segments until the given segment
-// id has a non-empty ProviderSessionID (the reducer's "bound" outcome having
-// landed), nudging past claude's trust dialog in the meantime.
+// waitForProviderSessionID polls the chat's segments until segID's
+// ProviderSessionID becomes non-empty (the reducer's "bound" outcome having
+// landed), nudging past the CLI's trust dialog in the meantime. It matches on
+// segID rather than assuming an index because SegmentsFor returns segments
+// oldest-first: once a chat has switched providers, index 0 is the ORIGINAL
+// (already-bound) segment, not the one under test, so a positional lookup
+// would silently pass by observing a stale bind instead of the new one.
 func waitForProviderSessionID(
 	t *testing.T,
 	h *harness,
 	termSessID string,
 	chatID string,
+	segID string,
 	timeout time.Duration,
 ) (string, []domain.AgentSegment) {
 	t.Helper()
@@ -248,10 +253,12 @@ func waitForProviderSessionID(
 		segs, err := h.app.Usecases.Agent.SegmentsFor(ctx, chatID)
 		require.NoError(t, err)
 		lastSegs = segs
-		if len(segs) == 0 {
-			return "", false
+		for _, s := range segs {
+			if s.ID == segID {
+				return s.ProviderSessionID, s.ProviderSessionID != ""
+			}
 		}
-		return segs[0].ProviderSessionID, segs[0].ProviderSessionID != ""
+		return "", false
 	})
 	return sid, lastSegs
 }
@@ -281,7 +288,7 @@ func TestAgent_ClaudeSpawnAndDetect(t *testing.T) {
 	t.Cleanup(func() { _ = h.eng.Terminal.Kill(context.Background(), termSessID) })
 
 	start := time.Now()
-	providerSessionID, segs := waitForProviderSessionID(t, h, termSessID, chatID, 30*time.Second)
+	providerSessionID, segs := waitForProviderSessionID(t, h, termSessID, chatID, segID, 30*time.Second)
 	t.Logf("waited %s for SessionStart hook round trip; segments=%+v", time.Since(start), segs)
 
 	require.NotEmpty(t, providerSessionID,
@@ -314,14 +321,14 @@ func TestAgent_SwitchClaudeToCodex(t *testing.T) {
 	repoPath := kit.InitRepo(t)
 	_, _, wsID := h.importRepoAndWorkspace(t, "claude-switch", repoPath)
 
-	chatID, _, err := h.app.Usecases.Agent.SpawnChat(ctx, wsID, "claude")
+	chatID, claudeSegID, err := h.app.Usecases.Agent.SpawnChat(ctx, wsID, "claude")
 	require.NoError(t, err)
 
 	termSessID := segmentTerminalSessionID(t, h, chatID)
 	t.Cleanup(func() { _ = h.eng.Terminal.Kill(context.Background(), termSessID) })
 
 	start := time.Now()
-	providerSessionID, segs := waitForProviderSessionID(t, h, termSessID, chatID, 30*time.Second)
+	providerSessionID, segs := waitForProviderSessionID(t, h, termSessID, chatID, claudeSegID, 30*time.Second)
 	require.NotEmpty(t, providerSessionID, "claude never bound a session before a turn could be driven: %+v", segs)
 	t.Logf("claude bound in %s (session=%s)", time.Since(start), providerSessionID)
 
@@ -353,6 +360,21 @@ func TestAgent_SwitchClaudeToCodex(t *testing.T) {
 	newTermSessID := segmentTerminalSessionID(t, h, chatID)
 	require.NotEqual(t, termSessID, newTermSessID, "switch must spawn a new terminal session for the codex segment")
 	t.Cleanup(func() { _ = h.eng.Terminal.Kill(context.Background(), newTermSessID) })
+
+	// This is the novel dual-provider-parity claim: not just that the switch
+	// mechanically spawned a new PTY and persisted a codex segment row, but
+	// that codex's OWN SessionStart hook shells out to `crowbar hook
+	// session_start`, reaches the daemon over the same unix socket, and the
+	// reducer binds a ProviderSessionID on the NEW segment — exactly as Test A
+	// proves for claude.
+	codexStart := time.Now()
+	codexProviderSessionID, segsAfterSwitch := waitForProviderSessionID(t, h, newTermSessID, chatID, newSegID, 30*time.Second)
+	t.Logf("codex bound in %s (session=%s)", time.Since(codexStart), codexProviderSessionID)
+	require.NotEmpty(t, codexProviderSessionID,
+		"timed out after 30s waiting for codex's SessionStart hook to reach /v0/agent/hooks and bind a "+
+			"ProviderSessionID on the switched-to segment; this means either codex never started in the new PTY, "+
+			"its SessionStart hook never fired, `crowbar hook` could not reach the unix socket, or IngestHook/the "+
+			"reducer did not persist the outcome — segments observed: %+v", segsAfterSwitch)
 
 	segsAfter, err := h.app.Usecases.Agent.SegmentsFor(ctx, chatID)
 	require.NoError(t, err)
