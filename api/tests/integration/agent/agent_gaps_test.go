@@ -285,7 +285,14 @@ func TestAgent_LiveClearRegistersNewChat(t *testing.T) {
 		require.NoError(t, err)
 		lastChats = chats
 		for _, c := range chats {
-			if c.ID != originalChatID {
+			// Require the FULLY-FORMED registered chat: a non-original chat that
+			// already carries its ActiveSegmentID. This is race-proof against the
+			// vacated-chat clear in persistRegistered — if /clear yields more than one
+			// registration, an intermediate chat gets its ActiveSegmentID cleared when
+			// the process moves on, so "first non-original chat" could otherwise land on
+			// a now-vacated one and see an empty ActiveSegmentID. Skipping ActiveSegmentID=="",
+			// we settle on the chat the process currently hosts.
+			if c.ID != originalChatID && c.ActiveSegmentID != "" {
 				return c, true
 			}
 		}
