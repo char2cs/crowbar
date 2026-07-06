@@ -271,6 +271,58 @@ func (s *Session) spawn(
 	return nil
 }
 
+// NewCommand spawns an explicit argv (not a login shell) under a PTY. Used by the
+// agentic engine to launch vendor CLIs (claude/codex) with descriptor-built args
+// and env. The joined argv is stored as the display "shell".
+func NewCommand(
+	id string,
+	argv []string,
+	cwd string,
+	env []string,
+	cols int,
+	rows int,
+	scrollbackLines int,
+) (*Session, error) {
+	if len(argv) == 0 {
+		return nil, fmt.Errorf("session: NewCommand requires non-empty argv")
+	}
+	s := newBareSession(id, strings.Join(argv, " "), cwd, "")
+	if err := s.spawnCmd(argv, env, spawnParams{Cols: cols, Rows: rows, ScrollbackLines: scrollbackLines}); err != nil {
+		return nil, err
+	}
+	return s, nil
+}
+
+// spawnCmd is spawn() with an explicit argv instead of a bare shell.
+func (s *Session) spawnCmd(argv []string, env []string, p spawnParams) error {
+	cols, rows, sbLines, redraw := s.resolveBirth(p)
+
+	cmd := exec.Command(argv[0], argv[1:]...)
+	cmd.Dir = s.cwd
+	cmd.Env = env
+
+	ptmx, err := pty.Start(cmd)
+	if err != nil {
+		return fmt.Errorf("session: pty start: %w", err)
+	}
+	_ = pty.Setsize(ptmx, &pty.Winsize{Cols: uint16(cols), Rows: uint16(rows)})
+
+	m, ser := newModel(cols, rows, sbLines)
+	if len(redraw) > 0 {
+		m.Write(redraw)
+	}
+	s.ptmx = ptmx
+	s.cmd = cmd
+	s.model = m
+	s.serializer = ser
+	s.emitter = model.NewDiffEmitter()
+	if s.model != nil {
+		s.startResponseSink(s.ptmx)
+	}
+	go s.pump()
+	return nil
+}
+
 // startResponseSink wires the model's device-query response path (spec §3.8) so
 // the blocking ptmx.Write NEVER runs on the model's drain goroutine while s.mu is
 // held. That decoupling is load-bearing (C1): x/vt answers CPR/DA/colour queries
