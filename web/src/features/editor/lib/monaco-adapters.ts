@@ -29,6 +29,9 @@ export const EDITOR_CREATE_OPTIONS: monacoEditor.IStandaloneEditorConstructionOp
   editContext: false,
   insertSpaces: true,
   detectIndentation: false,
+  // Collapse Monaco's default 10px decorations strip between the line-number
+  // column and the text so the number sits snug against the code.
+  lineDecorationsWidth: 0,
   minimap: { enabled: false },
   scrollBeyondLastLine: false,
   occurrencesHighlight: 'off',
