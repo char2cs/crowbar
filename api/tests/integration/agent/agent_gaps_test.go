@@ -20,6 +20,7 @@ import (
 
 	"github.com/stretchr/testify/require"
 
+	"github.com/char2cs/crowbar/api/internal/domain"
 	"github.com/char2cs/crowbar/api/tests/kit"
 )
 
@@ -210,4 +211,89 @@ func codexLastAssistantText(transcriptPath string) string {
 		}
 	}
 	return last
+}
+
+// TestAgent_LiveClearRegistersNewChat proves the reducer's "registered"
+// outcome (internal/engine/agent/registry.go's OnSessionStart, CASE 2: "an
+// unknown id appeared -> register a new chat") through the REAL Go stack, not
+// just internal/engine/agent/registry_test.go's pure-registry unit test or
+// internal/app/usecases/agent/agent_test.go's TestIngestHook_SessionStart_
+// Registered_MovesOldSegmentAndCreatesNewChat (which fires IngestHook twice
+// with synthetic session ids, never a real CLI). TestAgent_ClaudeSpawnAndDetect
+// only proves the FIRST "bound" outcome for a freshly spawned segment; this
+// test drives a real claude session that is ALREADY bound to mint a brand new
+// native session id UNDERNEATH THE SAME LIVE PROCESS via a real `/clear`
+// (spike-proven in docs/superpowers/specs/spike-2026-07-05-agentic/drive.py to
+// re-fire SessionStart with a changed id — "Detection: a conversation move
+// re-fires SessionStart with a changed id" in docs/superpowers/specs/
+// 2026-07-05-crowbar-agentic-engine-design.md §1's scorecard), and asserts the
+// daemon reacted correctly end to end: a brand-new AgentChat appears with a
+// new AgentSegment carrying a DIFFERENT ProviderSessionID, still tagged with
+// the SAME CrowbarSegmentID (same live process/terminal session), and the
+// vacated original chat's ActiveSegmentID is cleared.
+func TestAgent_LiveClearRegistersNewChat(t *testing.T) {
+	requireCLI(t, "claude")
+	h := newHarness(t)
+	ctx := context.Background()
+
+	repoPath := kit.InitRepo(t)
+	_, _, wsID := h.importRepoAndWorkspace(t, "claude-clear", repoPath)
+
+	originalChatID, segID, err := h.app.Usecases.Agent.SpawnChat(ctx, wsID, "claude")
+	require.NoError(t, err)
+
+	termSessID := segmentTerminalSessionID(t, h, originalChatID)
+	t.Cleanup(func() { _ = h.eng.Terminal.Kill(context.Background(), termSessID) })
+
+	start := time.Now()
+	originalProviderSessionID, segs := waitForProviderSessionID(t, h, termSessID, originalChatID, segID, 30*time.Second)
+	require.NotEmpty(t, originalProviderSessionID, "claude never bound before /clear could be driven: %+v", segs)
+	t.Logf("claude bound in %s (session=%s)", time.Since(start), originalProviderSessionID)
+
+	// Drive a real /clear. Text and the submitting Enter are separate writes,
+	// mirroring TestAgent_SwitchClaudeToCodex's finding for pasted prompts (a
+	// trailing \r in the same write lands as a literal newline, not a submit).
+	require.NoError(t, h.eng.Terminal.Write(ctx, termSessID, []byte("/clear")))
+	time.Sleep(300 * time.Millisecond)
+	require.NoError(t, h.eng.Terminal.Write(ctx, termSessID, []byte("\r")))
+
+	start = time.Now()
+	var lastChats []domain.AgentChat
+	newChat := nudgeUntil(h, termSessID, 30*time.Second, func() (domain.AgentChat, bool) {
+		chats, err := h.app.Usecases.Agent.ListChats(ctx)
+		require.NoError(t, err)
+		lastChats = chats
+		for _, c := range chats {
+			if c.ID != originalChatID {
+				return c, true
+			}
+		}
+		return domain.AgentChat{}, false
+	})
+	t.Logf("waited %s for /clear's SessionStart to register a new chat", time.Since(start))
+	require.NotEmpty(t, newChat.ID,
+		"timed out after 30s waiting for a NEW AgentChat to appear after driving a real /clear; this "+
+			"means either /clear never reached claude's TUI, SessionStart did not re-fire with a changed "+
+			"id, or the reducer did not persist a \"registered\" outcome — chats observed: %+v", lastChats)
+	require.NotEqual(t, originalChatID, newChat.ID, "a /clear move must register a DIFFERENT chat, not reuse the original")
+
+	require.NotEmpty(t, newChat.ActiveSegmentID, "the newly registered chat must have an active segment")
+	newSegs, err := h.app.Usecases.Agent.SegmentsFor(ctx, newChat.ID)
+	require.NoError(t, err)
+	require.Len(t, newSegs, 1, "the registered chat must have exactly one (new) segment: %+v", newSegs)
+	newSeg := newSegs[0]
+	require.Equal(t, segID, newSeg.CrowbarSegmentID,
+		"the new segment must still be tagged with the SAME crowbar segment id — /clear moves the chat under "+
+			"the same live process, it does not spawn a new one")
+	require.NotEmpty(t, newSeg.ProviderSessionID, "the new segment must carry a bound native provider session id")
+	require.NotEqual(t, originalProviderSessionID, newSeg.ProviderSessionID, "/clear must mint a DIFFERENT native session id")
+
+	originalChat, err := h.app.Usecases.Agent.GetChat(ctx, originalChatID)
+	require.NoError(t, err)
+	require.Empty(t, originalChat.ActiveSegmentID, "the vacated original chat's ActiveSegmentID must be cleared")
+
+	originalSegs, err := h.app.Usecases.Agent.SegmentsFor(ctx, originalChatID)
+	require.NoError(t, err)
+	require.Len(t, originalSegs, 1, "%+v", originalSegs)
+	require.Equal(t, "moved", originalSegs[0].Status, "the original segment must be marked moved, not left dangling as active")
 }
