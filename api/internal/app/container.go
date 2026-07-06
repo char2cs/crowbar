@@ -3,6 +3,8 @@ package app
 import (
 	"context"
 	"fmt"
+	"os"
+	"path/filepath"
 	"time"
 
 	"github.com/char2cs/crowbar/api/internal/adapter"
@@ -82,6 +84,7 @@ func New(
 	startRecoverySweep(ctx, ucs)
 	startRestoreTerminalSessions(ctx, ucs)
 	seedAgentRegistry(ctx, ucs)
+	sweepStaleAgentTmp(crowbarHome)
 
 	rt := realtime.New(
 		ctx,
@@ -182,6 +185,23 @@ func seedAgentRegistry(
 		return
 	}
 	_ = ucs.Agent.SeedRegistry(context.WithoutCancel(ctx))
+}
+
+// sweepStaleAgentTmp best-effort removes <home>/agent-tmp at daemon startup.
+// agent.Usecase.spawnSegment renders each spawned segment's hook config (and,
+// for codex, a COPY of ~/.codex/auth.json — a credential) into
+// <home>/agent-tmp/<segID>, kept alive for the whole life of the running
+// vendor CLI and removed via the terminal engine's onExit callback when that
+// CLI's PTY session ends. No agentic PTY survives a daemon restart, so on the
+// next startup every entry under agent-tmp is guaranteed stale — sweeping the
+// whole directory (rather than resolving the home from persisted segments,
+// which SeedRegistry has no clean path to) is both simpler and sufficient. It
+// runs synchronously, before the HTTP layer starts serving, so it can never
+// race a freshly spawned segment's own tmp dir. Best-effort: an error here
+// only leaves a slightly larger stale-dir backlog for the following restart,
+// never blocks startup.
+func sweepStaleAgentTmp(crowbarHome string) {
+	_ = os.RemoveAll(filepath.Join(crowbarHome, "agent-tmp"))
 }
 
 func sweepCallback(

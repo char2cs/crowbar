@@ -106,12 +106,18 @@ type Engine interface {
 	// CreateCommand spawns an explicit argv+env as a registered session (streamable
 	// over the terminal WS), skipping profile resolution. Used by the agentic
 	// engine to launch vendor CLIs (claude/codex) with descriptor-built argv/env.
+	// onExit, if non-nil, is invoked exactly once — after the session is fully
+	// reaped (natural PTY exit or an explicit Kill) — so a caller can release
+	// resources (e.g. the per-spawn hook-config tmp dir) that must stay alive for
+	// the whole lifetime of the running CLI. It is never called for a session
+	// that is merely suspended/detached.
 	CreateCommand(
 		ctx context.Context,
 		workspaceID string,
 		cwd string,
 		argv []string,
 		env []string,
+		onExit func(),
 	) (sessionID string, err error)
 
 	// Attach connects a WebSocket connection to an existing session, sending the
@@ -250,6 +256,13 @@ type terminalEngine struct {
 	// or leave clients attached to a dead placeholder. Lock order:
 	// sessionMu (outer) → s.mu/flushMu (inner). Never reverse.
 	sessionMu sync.Map // map[string]*sync.Mutex
+
+	// cmdCleanups holds the optional onExit callback passed to CreateCommand,
+	// keyed by session id. reapOnDone fires and removes it exactly once when the
+	// session's PTY session ends (natural exit or Kill) — never on suspend, since
+	// the caller's resources (e.g. an agentic CLI's hook-config tmp dir) must
+	// outlive the running process, not just an idle-detach.
+	cmdCleanups sync.Map // map[string]func()
 
 	stop     chan struct{}
 	stopOnce sync.Once
@@ -410,12 +423,15 @@ func (e *terminalEngine) Create(
 
 // CreateCommand spawns an explicit argv+env as a registered session (streamable
 // over the terminal WS). Used by the agentic engine for vendor-CLI segments.
+// onExit, if non-nil, is recorded and fired once by reapOnDone when the session
+// terminates — see the Engine interface doc for the exact contract.
 func (e *terminalEngine) CreateCommand(
 	_ context.Context,
 	workspaceID string,
 	cwd string,
 	argv []string,
 	env []string,
+	onExit func(),
 ) (string, error) {
 	id := uuid.NewString()
 	// The real terminal engine seeds ptyEnv() (TERM/COLORTERM); CreateCommand takes
@@ -425,6 +441,11 @@ func (e *terminalEngine) CreateCommand(
 	s, err := session.NewCommand(id, argv, cwd, env, 80, 24, 0)
 	if err != nil {
 		return "", fmt.Errorf("terminal: create command: %w", err)
+	}
+	// Store BEFORE launching the reap goroutine so it can never observe a
+	// self-exit and look up the cleanup before it is recorded.
+	if onExit != nil {
+		e.cmdCleanups.Store(id, onExit)
 	}
 	e.reg.Add(id, workspaceID, s)
 	go e.reapOnDone(id, workspaceID, s)
@@ -491,6 +512,13 @@ func (e *terminalEngine) reapOnDone(
 	// it here, so the explicitly-closed terminal never resurrects.
 	exitCode := s.ExitCode()
 	e.reg.Remove(id)
+
+	// Fire the CreateCommand caller's onExit exactly once, now that the session
+	// is fully reaped: the running CLI (if any) that read the callback's backing
+	// files for its whole lifetime is guaranteed gone.
+	if v, ok := e.cmdCleanups.LoadAndDelete(id); ok && v != nil {
+		v.(func())()
+	}
 
 	ctx := context.Background()
 	dir, _ := e.storageDir(ctx, workspaceID)

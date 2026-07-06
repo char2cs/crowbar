@@ -24,6 +24,7 @@ type commandCall struct {
 	cwd         string
 	argv        []string
 	env         []string
+	onExit      func()
 }
 
 type fakeCommander struct {
@@ -39,6 +40,7 @@ func (f *fakeCommander) CreateCommand(
 	cwd string,
 	argv []string,
 	env []string,
+	onExit func(),
 ) (string, error) {
 	if f.err != nil {
 		return "", f.err
@@ -49,6 +51,7 @@ func (f *fakeCommander) CreateCommand(
 		cwd:         cwd,
 		argv:        append([]string{}, argv...),
 		env:         append([]string{}, env...),
+		onExit:      onExit,
 	})
 	return fmt.Sprintf("term-%d", f.nextID), nil
 }
@@ -212,6 +215,40 @@ func TestSpawnChat_PersistsChatAndSegmentAndSpawns(t *testing.T) {
 	assert.Equal(t, "claude", call.argv[0])
 	assert.Contains(t, call.env, "CROWBAR_SEGMENT_ID="+segID)
 	assert.NotContains(t, call.argv, "--append-system-prompt")
+}
+
+// TestSpawnSegment_TmpDirSurvivesSpawnAndIsRemovedOnlyWhenSessionEnds guards
+// the resource-leak fix: spawnSegment's per-spawn tmp dir (holding the
+// rendered hook config, and for codex a copy of ~/.codex/auth.json) must be
+// home-scoped under <home>/agent-tmp/<segID>, must still exist right after
+// spawn (the running CLI reads it for its whole lifetime), and must be
+// removed only when the terminal engine invokes the onExit callback passed to
+// CreateCommand — i.e. when the CLI's PTY session actually ends, not eagerly
+// after the spawn call returns.
+func TestSpawnSegment_TmpDirSurvivesSpawnAndIsRemovedOnlyWhenSessionEnds(t *testing.T) {
+	f := newFixture(t)
+	ctx := context.Background()
+
+	_, segID, err := f.usecase.SpawnChat(ctx, "ws1", "claude")
+	require.NoError(t, err)
+
+	tmpDir := filepath.Join(f.ws.home, "agent-tmp", segID)
+	info, err := os.Stat(tmpDir)
+	require.NoError(t, err, "agent-tmp dir must exist immediately after spawn")
+	assert.True(t, info.IsDir())
+
+	require.Len(t, f.term.calls, 1)
+	require.NotNil(t, f.term.calls[0].onExit, "CreateCommand must receive a non-nil onExit")
+
+	// Session still "running": tmp dir must not have been touched.
+	_, err = os.Stat(tmpDir)
+	require.NoError(t, err, "agent-tmp dir must survive while the CLI is running")
+
+	// Simulate the terminal engine firing onExit once the PTY session ends.
+	f.term.calls[0].onExit()
+
+	_, err = os.Stat(tmpDir)
+	assert.True(t, os.IsNotExist(err), "agent-tmp dir must be removed once the session ends")
 }
 
 func TestSpawnChat_UsesDescriptorCmdAsArgv0(t *testing.T) {

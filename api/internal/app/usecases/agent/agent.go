@@ -30,6 +30,7 @@ type TerminalCommander interface {
 		cwd string,
 		argv []string,
 		env []string,
+		onExit func(),
 	) (string, error)
 	Kill(
 		ctx context.Context,
@@ -140,9 +141,15 @@ func (u *Usecase) spawnSegment(
 		return "", fmt.Errorf("agent: spawn segment: resolve descriptor: %w", err)
 	}
 
-	tmpDir, err := os.MkdirTemp("", "crowbar-agent-")
-	if err != nil {
-		return "", fmt.Errorf("agent: spawn segment: mkdtemp: %w", err)
+	// Home-scoped (not system-tmp) and keyed by segID so it is deterministic and
+	// so sweepStaleAgentTmp can reliably find every leftover on daemon startup.
+	// This dir holds the rendered hook config and, for codex, a COPY of
+	// ~/.codex/auth.json (a credential) — it must survive for the whole life of
+	// the spawned CLI, so it is removed via onExit below (on PTY session end),
+	// never eagerly after spawn.
+	tmpDir := filepath.Join(crowbarHome, "agent-tmp", segID)
+	if err := os.MkdirAll(tmpDir, 0o700); err != nil {
+		return "", fmt.Errorf("agent: spawn segment: mkdir tmp: %w", err)
 	}
 
 	tctx := engineagent.TemplateCtx{
@@ -159,8 +166,12 @@ func (u *Usecase) spawnSegment(
 	argv := append([]string{descriptor.Spawn.Cmd}, plan.Argv...)
 	env := append(plan.Env, "CROWBAR_SEGMENT_ID="+segID)
 
-	termSessID, err := u.term.CreateCommand(ctx, chat.WorkspaceID, worktree, argv, env)
+	termSessID, err := u.term.CreateCommand(ctx, chat.WorkspaceID, worktree, argv, env,
+		func() { _ = os.RemoveAll(tmpDir) })
 	if err != nil {
+		// CreateCommand never got far enough to register onExit — clean up here
+		// so a spawn failure doesn't leak the tmp dir until the next restart sweep.
+		_ = os.RemoveAll(tmpDir)
 		return "", fmt.Errorf("agent: spawn segment: create command: %w", err)
 	}
 
