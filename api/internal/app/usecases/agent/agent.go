@@ -167,6 +167,8 @@ func (u *Usecase) spawnSegment(
 		Cwd:         worktree,
 		CrowbarHook: u.crowbarHookPath(crowbarHome),
 		Handoff:     handoff,
+		Segid:       segID,
+		Provider:    providerID,
 	}
 	plan, err := engineagent.BuildSpawnPlan(descriptor, tctx, os.Environ(), extraSteps)
 	if err != nil {
@@ -174,9 +176,8 @@ func (u *Usecase) spawnSegment(
 	}
 
 	argv := append([]string{descriptor.Spawn.Cmd}, plan.Argv...)
-	env := append(plan.Env, "CROWBAR_SEGMENT_ID="+segID)
 
-	termSessID, err := u.term.CreateCommand(ctx, chat.WorkspaceID, worktree, argv, env,
+	termSessID, err := u.term.CreateCommand(ctx, chat.WorkspaceID, worktree, argv, plan.Env,
 		func() { _ = os.RemoveAll(tmpDir) })
 	if err != nil {
 		// CreateCommand never got far enough to register onExit — clean up here
@@ -205,14 +206,16 @@ func (u *Usecase) crowbarHookPath(home string) string {
 }
 
 // IngestHook maps an incoming vendor hook to a canonical event, runs the
-// context-move reducer on session_start (persisting the outcome and emitting a
-// WS event), and appends the transcript to the chat's ledger on turn_stop. An
-// unknown crowbarSegID (no active segment) is ignored, not an error.
+// context-move reducer on session_start, and appends a conversation turn to the
+// chat's ledger on user_prompt / turn_stop. An unknown crowbarSegID (no active
+// segment) or a malformed payload is ignored, never an error — a hook must
+// never break the vendor CLI's turn.
 func (u *Usecase) IngestHook(
 	ctx context.Context,
 	crowbarSegID string,
+	provider string,
 	canonicalEvent string,
-	payload map[string]any,
+	rawPayload []byte,
 ) error {
 	// Serialize the whole read -> reduce -> persist sequence per crowbarSegID
 	// (see keyed_mutex.go). Unrelated segments proceed fully concurrently.
@@ -237,9 +240,23 @@ func (u *Usecase) IngestHook(
 		return fmt.Errorf("agent: ingest hook: worktree dir: %w", err)
 	}
 
+	// The active segment is the source of truth for which provider spawned this
+	// CLI. The hook's self-reported provider is only a guard against a
+	// mis-authored descriptor.
+	if provider != "" && provider != seg.ProviderID {
+		slog.WarnContext(ctx, "agent: ingest hook: provider mismatch",
+			"hook_provider", provider, "segment_provider", seg.ProviderID, "segment_id", crowbarSegID)
+	}
+
 	descriptor, err := engineagent.ResolveDescriptor(crowbarHome, seg.ProviderID)
 	if err != nil {
 		return fmt.Errorf("agent: ingest hook: resolve descriptor: %w", err)
+	}
+
+	payload, err := descriptor.ParsePayload(rawPayload)
+	if err != nil {
+		slog.WarnContext(ctx, "agent: ingest hook: parse payload", "err", err, "segment_id", crowbarSegID)
+		return nil
 	}
 
 	ev, _ := descriptor.MapHook(canonicalEvent, payload)
@@ -247,8 +264,10 @@ func (u *Usecase) IngestHook(
 	switch ev.Kind {
 	case "session_start":
 		return u.handleSessionStart(ctx, crowbarSegID, seg, chat, ev)
+	case "user_prompt":
+		return u.appendTurn(ctx, seg, chat, crowbarHome, projectID, repoID, "user", ev.Message)
 	case "turn_stop":
-		return u.handleTurnStop(ctx, seg, chat, crowbarHome, projectID, repoID, ev)
+		return u.appendTurn(ctx, seg, chat, crowbarHome, projectID, repoID, "assistant", ev.Message)
 	}
 	return nil
 }
@@ -287,7 +306,6 @@ func (u *Usecase) persistBound(
 	if seg.ProviderSessionID == "" {
 		seg.ProviderSessionID = ev.SessionID
 	}
-	seg.TranscriptPath = ev.Transcript
 	if err := u.repo.SaveSegment(ctx, seg); err != nil {
 		return fmt.Errorf("agent: ingest hook: bound: save segment: %w", err)
 	}
@@ -315,7 +333,6 @@ func (u *Usecase) persistRegistered(
 		ProviderID:        oldSeg.ProviderID,
 		CrowbarSegmentID:  crowbarSegID,
 		ProviderSessionID: ev.SessionID,
-		TranscriptPath:    ev.Transcript,
 		TerminalSessionID: oldSeg.TerminalSessionID,
 		Status:            "active",
 		StartedAt:         now,
@@ -418,28 +435,31 @@ func (u *Usecase) clearVacatedChatActiveSegment(
 	return u.repo.SaveChat(ctx, c)
 }
 
-func (u *Usecase) handleTurnStop(
+// appendTurn records one conversation turn (user or assistant) into the chat's
+// ledger and broadcasts the lifecycle event. Empty text is a no-op.
+func (u *Usecase) appendTurn(
 	ctx context.Context,
 	seg domain.AgentSegment,
 	chat domain.AgentChat,
 	crowbarHome, projectID, repoID string,
-	ev engineagent.CanonicalEvent,
+	role, text string,
 ) error {
-	blob, err := os.ReadFile(ev.Transcript)
-	if err != nil {
+	if text == "" {
 		return nil
 	}
-
 	dir := worktreepath.AgentLedgerDir(crowbarHome, projectID, repoID, chat.WorkspaceID, chat.ID)
 	led, err := ledger.Open(dir)
 	if err != nil {
-		return fmt.Errorf("agent: ingest hook: turn stop: ledger open: %w", err)
+		return fmt.Errorf("agent: ingest hook: ledger open: %w", err)
 	}
-	if _, err := led.Append(seg.ProviderID, time.Now(), blob); err != nil {
-		return fmt.Errorf("agent: ingest hook: turn stop: ledger append: %w", err)
+	if _, err := led.AppendTurn(role, seg.ProviderID, time.Now(), text); err != nil {
+		return fmt.Errorf("agent: ingest hook: ledger append: %w", err)
 	}
-
-	u.bc.BroadcastAgentChat(chat.ID, "turn_stopped")
+	kind := "turn_stopped"
+	if role == "user" {
+		kind = "user_prompt"
+	}
+	u.bc.BroadcastAgentChat(chat.ID, kind)
 	return nil
 }
 
@@ -467,7 +487,7 @@ func (u *Usecase) AssembleHandoff(
 		return "", fmt.Errorf("agent: assemble handoff: ledger open: %w", err)
 	}
 
-	blob, err := led.ReadAll()
+	blob, err := led.RenderConversation()
 	if err != nil {
 		return "", fmt.Errorf("agent: assemble handoff: ledger read all: %w", err)
 	}

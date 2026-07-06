@@ -127,7 +127,7 @@ func TestSwitchProvider_Forward_SpawnsTargetProviderWithHandoff(t *testing.T) {
 	chatID, segID, err := f.usecase.SpawnChat(ctx, "ws1", "claude")
 	require.NoError(t, err)
 
-	appendTranscript(t, f, segID, "sid-1", "prior turn content for handoff")
+	appendTranscript(t, f, segID, "claude", "sid-1", "prior turn content for handoff")
 
 	newSegID, err := f.usecase.SwitchProvider(ctx, chatID, "codex")
 	require.NoError(t, err)
@@ -189,10 +189,9 @@ func TestSwitchProvider_SwitchBack_ResumesNativeSessionWithSeparateArgvTokens(t 
 	chatID, segID, err := f.usecase.SpawnChat(ctx, "ws1", "claude")
 	require.NoError(t, err)
 
-	require.NoError(t, f.usecase.IngestHook(ctx, segID, "session_start", map[string]any{
-		"session_id":      "sid-claude-native",
-		"transcript_path": "/tmp/whatever.jsonl",
-	}))
+	require.NoError(t, f.usecase.IngestHook(ctx, segID, "claude", "session_start", mustJSON(t, map[string]any{
+		"session_id": "sid-claude-native",
+	})))
 
 	boundSeg, err := f.repo.GetSegment(ctx, segID)
 	require.NoError(t, err)
@@ -231,12 +230,11 @@ func TestSwitchProvider_SwitchBack_ResumeStepsPrecedeHandoff(t *testing.T) {
 	chatID, segID, err := f.usecase.SpawnChat(ctx, "ws1", "codex")
 	require.NoError(t, err)
 
-	require.NoError(t, f.usecase.IngestHook(ctx, segID, "session_start", map[string]any{
-		"session_id":      "sid-codex-native",
-		"transcript_path": "/tmp/whatever.jsonl",
-	}))
+	require.NoError(t, f.usecase.IngestHook(ctx, segID, "codex", "session_start", mustJSON(t, map[string]any{
+		"session_id": "sid-codex-native",
+	})))
 
-	appendTranscript(t, f, segID, "sid-codex-native", "codex ledger content")
+	appendTranscript(t, f, segID, "codex", "sid-codex-native", "codex ledger content")
 
 	_, err = f.usecase.SwitchProvider(ctx, chatID, "claude")
 	require.NoError(t, err)

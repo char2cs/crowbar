@@ -2,8 +2,6 @@ package agent_test
 
 import (
 	"context"
-	"os"
-	"path/filepath"
 	"strings"
 	"testing"
 
@@ -18,8 +16,8 @@ func TestAssembleHandoff_WrapsLedgerEntriesInPreamble(t *testing.T) {
 	chatID, segID, err := f.usecase.SpawnChat(ctx, "ws1", "claude")
 	require.NoError(t, err)
 
-	appendTranscript(t, f, segID, "sid-1", "first turn transcript")
-	appendTranscript(t, f, segID, "sid-1", "second turn transcript")
+	appendTranscript(t, f, segID, "claude", "sid-1", "first turn transcript")
+	appendTranscript(t, f, segID, "claude", "sid-1", "second turn transcript")
 
 	got, err := f.usecase.AssembleHandoff(ctx, chatID)
 	require.NoError(t, err)
@@ -53,13 +51,14 @@ func TestAssembleHandoff_UnknownChat_ReturnsError(t *testing.T) {
 
 // appendTranscript drives a turn_stop hook through IngestHook so a ledger
 // entry gets appended for the chat behind segID, via the same path
-// production code uses to populate the ledger.
-func appendTranscript(t *testing.T, f testFixture, segID, sessionID, content string) {
+// production code uses to populate the ledger: the assistant's turn text
+// comes straight from the hook payload's last_assistant_message field, not a
+// vendor transcript file.
+func appendTranscript(t *testing.T, f testFixture, segID, provider, sessionID, content string) {
 	t.Helper()
-	path := filepath.Join(t.TempDir(), "transcript.jsonl")
-	require.NoError(t, os.WriteFile(path, []byte(content), 0o600))
-	require.NoError(t, f.usecase.IngestHook(context.Background(), segID, "turn_stop", map[string]any{
-		"session_id":      sessionID,
-		"transcript_path": path,
-	}))
+	require.NoError(t, f.usecase.IngestHook(context.Background(), segID, provider, "turn_stop",
+		mustJSON(t, map[string]any{
+			"session_id":             sessionID,
+			"last_assistant_message": content,
+		})))
 }

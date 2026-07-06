@@ -2,9 +2,11 @@ package agent_test
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -14,10 +16,17 @@ import (
 	storesqlite "github.com/char2cs/crowbar/api/internal/adapter/store/sqlite"
 	"github.com/char2cs/crowbar/api/internal/app/repositories/agentchat"
 	agentusecase "github.com/char2cs/crowbar/api/internal/app/usecases/agent"
-	"github.com/char2cs/crowbar/api/internal/app/usecases/internal/worktreepath"
 	"github.com/char2cs/crowbar/api/internal/domain"
 	engineagent "github.com/char2cs/crowbar/api/internal/engine/agent"
 )
+
+// mustJSON marshals m to raw JSON bytes for IngestHook's rawPayload argument.
+func mustJSON(t *testing.T, m map[string]any) []byte {
+	t.Helper()
+	b, err := json.Marshal(m)
+	require.NoError(t, err)
+	return b
+}
 
 type commandCall struct {
 	workspaceID string
@@ -217,7 +226,6 @@ func TestSpawnChat_PersistsChatAndSegmentAndSpawns(t *testing.T) {
 	assert.Equal(t, "ws1", call.workspaceID)
 	assert.Equal(t, f.ws.worktree, call.cwd)
 	assert.Equal(t, "claude", call.argv[0])
-	assert.Contains(t, call.env, "CROWBAR_SEGMENT_ID="+segID)
 	assert.NotContains(t, call.argv, "--append-system-prompt")
 }
 
@@ -307,23 +315,46 @@ func argAfter(t *testing.T, argv []string, flag string) string {
 	return ""
 }
 
-func TestIngestHook_SessionStart_Bound_RecordsProviderSessionAndTranscript(t *testing.T) {
+// TestSpawn_HookConfigCarriesSegmentAndProvider guards the arg-based spawn
+// attribution fix: the segment id and provider that identify which chat/CLI a
+// hook came from are now rendered into the hook config command line via the
+// descriptor's {segid}/{provider} template vars, not injected as an
+// environment variable — so a hook can self-identify without trusting an env
+// var the spawned CLI could otherwise see/tamper with.
+func TestSpawn_HookConfigCarriesSegmentAndProvider(t *testing.T) {
 	f := newFixture(t)
 	ctx := context.Background()
 
 	_, segID, err := f.usecase.SpawnChat(ctx, "ws1", "claude")
 	require.NoError(t, err)
 
-	err = f.usecase.IngestHook(ctx, segID, "session_start", map[string]any{
-		"session_id":      "sid-abc",
-		"transcript_path": "/tmp/whatever.jsonl",
-	})
+	require.Len(t, f.term.calls, 1)
+	call := f.term.calls[0]
+	settingsPath := argAfter(t, call.argv, "--settings")
+	data, err := os.ReadFile(settingsPath)
+	require.NoError(t, err)
+	assert.Contains(t, string(data), "--segment "+segID+" --provider claude")
+
+	for _, kv := range call.env {
+		assert.False(t, strings.HasPrefix(kv, "CROWBAR_SEGMENT_ID="), "env must not carry CROWBAR_SEGMENT_ID: %q", kv)
+	}
+}
+
+func TestIngestHook_SessionStart_Bound_RecordsProviderSessionID(t *testing.T) {
+	f := newFixture(t)
+	ctx := context.Background()
+
+	_, segID, err := f.usecase.SpawnChat(ctx, "ws1", "claude")
+	require.NoError(t, err)
+
+	err = f.usecase.IngestHook(ctx, segID, "claude", "session_start", mustJSON(t, map[string]any{
+		"session_id": "sid-abc",
+	}))
 	require.NoError(t, err)
 
 	seg, err := f.repo.GetActiveSegmentByCrowbarID(ctx, segID)
 	require.NoError(t, err)
 	assert.Equal(t, "sid-abc", seg.ProviderSessionID)
-	assert.Equal(t, "/tmp/whatever.jsonl", seg.TranscriptPath)
 
 	require.Len(t, f.bc.calls, 1)
 	assert.Equal(t, "bound", f.bc.calls[0].kind)
@@ -341,16 +372,14 @@ func TestIngestHook_SessionStart_Bound_NeverOverwritesExistingProviderSessionID(
 	seg.ProviderSessionID = "sid-preexisting"
 	require.NoError(t, f.repo.SaveSegment(ctx, seg))
 
-	err = f.usecase.IngestHook(ctx, segID, "session_start", map[string]any{
-		"session_id":      "sid-new",
-		"transcript_path": "/tmp/x.jsonl",
-	})
+	err = f.usecase.IngestHook(ctx, segID, "claude", "session_start", mustJSON(t, map[string]any{
+		"session_id": "sid-new",
+	}))
 	require.NoError(t, err)
 
 	got, err := f.repo.GetActiveSegmentByCrowbarID(ctx, segID)
 	require.NoError(t, err)
 	assert.Equal(t, "sid-preexisting", got.ProviderSessionID)
-	assert.Equal(t, "/tmp/x.jsonl", got.TranscriptPath)
 }
 
 func TestIngestHook_SessionStart_SameSessionIsNoop(t *testing.T) {
@@ -360,8 +389,8 @@ func TestIngestHook_SessionStart_SameSessionIsNoop(t *testing.T) {
 	_, segID, err := f.usecase.SpawnChat(ctx, "ws1", "claude")
 	require.NoError(t, err)
 
-	require.NoError(t, f.usecase.IngestHook(ctx, segID, "session_start", map[string]any{"session_id": "sid-1"}))
-	require.NoError(t, f.usecase.IngestHook(ctx, segID, "session_start", map[string]any{"session_id": "sid-1"}))
+	require.NoError(t, f.usecase.IngestHook(ctx, segID, "claude", "session_start", mustJSON(t, map[string]any{"session_id": "sid-1"})))
+	require.NoError(t, f.usecase.IngestHook(ctx, segID, "claude", "session_start", mustJSON(t, map[string]any{"session_id": "sid-1"})))
 
 	require.Len(t, f.bc.calls, 2)
 	assert.Equal(t, "bound", f.bc.calls[0].kind)
@@ -379,14 +408,12 @@ func TestIngestHook_SessionStart_Registered_MovesOldSegmentAndCreatesNewChat(t *
 	chatID, segID, err := f.usecase.SpawnChat(ctx, "ws1", "claude")
 	require.NoError(t, err)
 
-	require.NoError(t, f.usecase.IngestHook(ctx, segID, "session_start", map[string]any{
-		"session_id":      "sid-1",
-		"transcript_path": "/tmp/a.jsonl",
-	}))
-	require.NoError(t, f.usecase.IngestHook(ctx, segID, "session_start", map[string]any{
-		"session_id":      "sid-2",
-		"transcript_path": "/tmp/b.jsonl",
-	}))
+	require.NoError(t, f.usecase.IngestHook(ctx, segID, "claude", "session_start", mustJSON(t, map[string]any{
+		"session_id": "sid-1",
+	})))
+	require.NoError(t, f.usecase.IngestHook(ctx, segID, "claude", "session_start", mustJSON(t, map[string]any{
+		"session_id": "sid-2",
+	})))
 
 	oldSeg, err := f.repo.GetSegment(ctx, segID)
 	require.NoError(t, err)
@@ -398,7 +425,6 @@ func TestIngestHook_SessionStart_Registered_MovesOldSegmentAndCreatesNewChat(t *
 	require.NoError(t, err)
 	assert.NotEqual(t, segID, newActive.ID)
 	assert.Equal(t, "sid-2", newActive.ProviderSessionID)
-	assert.Equal(t, "/tmp/b.jsonl", newActive.TranscriptPath)
 	assert.NotEqual(t, chatID, newActive.ChatID)
 	assert.Equal(t, oldSeg.TerminalSessionID, newActive.TerminalSessionID)
 
@@ -424,8 +450,8 @@ func TestIngestHook_SessionStart_Registered_ClearsVacatedChatsActiveSegmentID(t 
 	chatID, segID, err := f.usecase.SpawnChat(ctx, "ws1", "claude")
 	require.NoError(t, err)
 
-	require.NoError(t, f.usecase.IngestHook(ctx, segID, "session_start", map[string]any{"session_id": "sid-1"}))
-	require.NoError(t, f.usecase.IngestHook(ctx, segID, "session_start", map[string]any{"session_id": "sid-2"}))
+	require.NoError(t, f.usecase.IngestHook(ctx, segID, "claude", "session_start", mustJSON(t, map[string]any{"session_id": "sid-1"})))
+	require.NoError(t, f.usecase.IngestHook(ctx, segID, "claude", "session_start", mustJSON(t, map[string]any{"session_id": "sid-2"})))
 
 	vacatedChat, err := f.repo.GetChat(ctx, chatID)
 	require.NoError(t, err)
@@ -439,9 +465,9 @@ func TestIngestHook_SessionStart_Focus_ReactivatesKnownChat(t *testing.T) {
 	chatID, segID, err := f.usecase.SpawnChat(ctx, "ws1", "claude")
 	require.NoError(t, err)
 
-	require.NoError(t, f.usecase.IngestHook(ctx, segID, "session_start", map[string]any{"session_id": "sid-1"}))
-	require.NoError(t, f.usecase.IngestHook(ctx, segID, "session_start", map[string]any{"session_id": "sid-2"}))
-	require.NoError(t, f.usecase.IngestHook(ctx, segID, "session_start", map[string]any{"session_id": "sid-1"}))
+	require.NoError(t, f.usecase.IngestHook(ctx, segID, "claude", "session_start", mustJSON(t, map[string]any{"session_id": "sid-1"})))
+	require.NoError(t, f.usecase.IngestHook(ctx, segID, "claude", "session_start", mustJSON(t, map[string]any{"session_id": "sid-2"})))
+	require.NoError(t, f.usecase.IngestHook(ctx, segID, "claude", "session_start", mustJSON(t, map[string]any{"session_id": "sid-1"})))
 
 	active, err := f.repo.GetActiveSegmentByCrowbarID(ctx, segID)
 	require.NoError(t, err)
@@ -468,60 +494,81 @@ func TestIngestHook_SessionStart_Focus_ClearsVacatedChatsActiveSegmentID(t *test
 	_, segID, err := f.usecase.SpawnChat(ctx, "ws1", "claude")
 	require.NoError(t, err)
 
-	require.NoError(t, f.usecase.IngestHook(ctx, segID, "session_start", map[string]any{"session_id": "sid-1"}))
-	require.NoError(t, f.usecase.IngestHook(ctx, segID, "session_start", map[string]any{"session_id": "sid-2"}))
+	require.NoError(t, f.usecase.IngestHook(ctx, segID, "claude", "session_start", mustJSON(t, map[string]any{"session_id": "sid-1"})))
+	require.NoError(t, f.usecase.IngestHook(ctx, segID, "claude", "session_start", mustJSON(t, map[string]any{"session_id": "sid-2"})))
 
 	registeredActive, err := f.repo.GetActiveSegmentByCrowbarID(ctx, segID)
 	require.NoError(t, err)
 	registeredChatID := registeredActive.ChatID
 
-	require.NoError(t, f.usecase.IngestHook(ctx, segID, "session_start", map[string]any{"session_id": "sid-1"}))
+	require.NoError(t, f.usecase.IngestHook(ctx, segID, "claude", "session_start", mustJSON(t, map[string]any{"session_id": "sid-1"})))
 
 	vacatedChat, err := f.repo.GetChat(ctx, registeredChatID)
 	require.NoError(t, err)
 	assert.Empty(t, vacatedChat.ActiveSegmentID, "vacated chat's ActiveSegmentID must be cleared after focus moves away from it")
 }
 
-func TestIngestHook_TurnStop_AppendsLedgerEntry(t *testing.T) {
+// TestIngestHook_TurnStopAppendsAssistantTurn guards the hook-derived-turn
+// fix: turn_stop no longer reads a vendor transcript file off disk — the
+// assistant's turn text comes straight from the hook payload's
+// last_assistant_message field (via the descriptor's canonical "message"
+// mapping) and is appended to the ledger directly.
+func TestIngestHook_TurnStopAppendsAssistantTurn(t *testing.T) {
 	f := newFixture(t)
 	ctx := context.Background()
 
 	chatID, segID, err := f.usecase.SpawnChat(ctx, "ws1", "claude")
 	require.NoError(t, err)
 
-	transcriptPath := filepath.Join(t.TempDir(), "transcript.jsonl")
-	require.NoError(t, os.WriteFile(transcriptPath, []byte("hello transcript"), 0o600))
-
-	err = f.usecase.IngestHook(ctx, segID, "turn_stop", map[string]any{
-		"session_id":      "sid-1",
-		"transcript_path": transcriptPath,
-	})
+	err = f.usecase.IngestHook(ctx, segID, "claude", "turn_stop",
+		mustJSON(t, map[string]any{"session_id": "s1", "last_assistant_message": "done thing"}))
 	require.NoError(t, err)
 
-	ledgerDir := worktreepath.AgentLedgerDir(f.ws.home, f.ws.projectID, f.ws.repoID, "ws1", chatID)
-	entries, err := os.ReadDir(ledgerDir)
+	handoff, err := f.usecase.AssembleHandoff(ctx, chatID)
 	require.NoError(t, err)
-	require.Len(t, entries, 1)
-	data, err := os.ReadFile(filepath.Join(ledgerDir, entries[0].Name()))
-	require.NoError(t, err)
-	assert.Equal(t, "hello transcript", string(data))
+	assert.Contains(t, handoff, "assistant (claude): done thing")
 
 	require.Len(t, f.bc.calls, 1)
 	assert.Equal(t, "turn_stopped", f.bc.calls[0].kind)
 	assert.Equal(t, chatID, f.bc.calls[0].chatID)
 }
 
-func TestIngestHook_TurnStop_MissingTranscript_NoOps(t *testing.T) {
+// TestIngestHook_UserPromptAppendsUserTurn guards the new user_prompt
+// canonical event: it appends a "user" turn to the ledger from the hook
+// payload's prompt field.
+func TestIngestHook_UserPromptAppendsUserTurn(t *testing.T) {
+	f := newFixture(t)
+	ctx := context.Background()
+
+	chatID, segID, err := f.usecase.SpawnChat(ctx, "ws1", "claude")
+	require.NoError(t, err)
+
+	err = f.usecase.IngestHook(ctx, segID, "claude", "user_prompt",
+		mustJSON(t, map[string]any{"prompt": "please do the thing"}))
+	require.NoError(t, err)
+
+	handoff, err := f.usecase.AssembleHandoff(ctx, chatID)
+	require.NoError(t, err)
+	assert.Contains(t, handoff, "user: please do the thing")
+
+	require.Len(t, f.bc.calls, 1)
+	assert.Equal(t, "user_prompt", f.bc.calls[0].kind)
+	assert.Equal(t, chatID, f.bc.calls[0].chatID)
+}
+
+// TestIngestHook_TurnStop_EmptyMessage_NoOps guards appendTurn's empty-text
+// no-op: a turn_stop hook whose payload carries no last_assistant_message
+// (e.g. a turn that produced no final assistant text) must not write a
+// ledger entry or broadcast a lifecycle event.
+func TestIngestHook_TurnStop_EmptyMessage_NoOps(t *testing.T) {
 	f := newFixture(t)
 	ctx := context.Background()
 
 	_, segID, err := f.usecase.SpawnChat(ctx, "ws1", "claude")
 	require.NoError(t, err)
 
-	err = f.usecase.IngestHook(ctx, segID, "turn_stop", map[string]any{
-		"session_id":      "sid-1",
-		"transcript_path": filepath.Join(t.TempDir(), "does-not-exist.jsonl"),
-	})
+	err = f.usecase.IngestHook(ctx, segID, "claude", "turn_stop",
+		mustJSON(t, map[string]any{"session_id": "sid-1"}))
 	require.NoError(t, err)
 	assert.Empty(t, f.bc.calls)
 }
@@ -533,33 +580,27 @@ func TestIngestHook_TurnStop_AfterMove_AttributesToNewChat(t *testing.T) {
 	_, segID, err := f.usecase.SpawnChat(ctx, "ws1", "claude")
 	require.NoError(t, err)
 
-	require.NoError(t, f.usecase.IngestHook(ctx, segID, "session_start", map[string]any{"session_id": "sid-1"}))
-	require.NoError(t, f.usecase.IngestHook(ctx, segID, "session_start", map[string]any{"session_id": "sid-2"}))
+	require.NoError(t, f.usecase.IngestHook(ctx, segID, "claude", "session_start", mustJSON(t, map[string]any{"session_id": "sid-1"})))
+	require.NoError(t, f.usecase.IngestHook(ctx, segID, "claude", "session_start", mustJSON(t, map[string]any{"session_id": "sid-2"})))
 
 	newActive, err := f.repo.GetActiveSegmentByCrowbarID(ctx, segID)
 	require.NoError(t, err)
 
-	transcriptPath := filepath.Join(t.TempDir(), "t2.jsonl")
-	require.NoError(t, os.WriteFile(transcriptPath, []byte("second chat transcript"), 0o600))
-	require.NoError(t, f.usecase.IngestHook(ctx, segID, "turn_stop", map[string]any{
-		"session_id":      "sid-2",
-		"transcript_path": transcriptPath,
-	}))
+	require.NoError(t, f.usecase.IngestHook(ctx, segID, "claude", "turn_stop", mustJSON(t, map[string]any{
+		"session_id":             "sid-2",
+		"last_assistant_message": "second chat transcript",
+	})))
 
-	ledgerDir := worktreepath.AgentLedgerDir(f.ws.home, f.ws.projectID, f.ws.repoID, "ws1", newActive.ChatID)
-	entries, err := os.ReadDir(ledgerDir)
+	handoff, err := f.usecase.AssembleHandoff(ctx, newActive.ChatID)
 	require.NoError(t, err)
-	require.Len(t, entries, 1)
-	data, err := os.ReadFile(filepath.Join(ledgerDir, entries[0].Name()))
-	require.NoError(t, err)
-	assert.Equal(t, "second chat transcript", string(data))
+	assert.Contains(t, handoff, "second chat transcript")
 }
 
 func TestIngestHook_UnknownSegment_IsIgnored(t *testing.T) {
 	f := newFixture(t)
 	ctx := context.Background()
 
-	err := f.usecase.IngestHook(ctx, "does-not-exist", "session_start", map[string]any{"session_id": "sid-1"})
+	err := f.usecase.IngestHook(ctx, "does-not-exist", "claude", "session_start", mustJSON(t, map[string]any{"session_id": "sid-1"}))
 	require.NoError(t, err)
 	assert.Empty(t, f.bc.calls)
 }
@@ -571,7 +612,7 @@ func TestIngestHook_UnmappedCanonicalEvent_ReturnsNil(t *testing.T) {
 	_, segID, err := f.usecase.SpawnChat(ctx, "ws1", "claude")
 	require.NoError(t, err)
 
-	err = f.usecase.IngestHook(ctx, segID, "not_a_real_hook", map[string]any{})
+	err = f.usecase.IngestHook(ctx, segID, "claude", "not_a_real_hook", mustJSON(t, map[string]any{}))
 	require.NoError(t, err)
 	assert.Empty(t, f.bc.calls)
 }
@@ -604,8 +645,8 @@ func TestSeedRegistry_RehydratesKnownSessions(t *testing.T) {
 	_, segA, err := f.usecase.SpawnChat(ctx, "ws1", "claude")
 	require.NoError(t, err)
 
-	require.NoError(t, f.usecase.IngestHook(ctx, segA, "session_start", map[string]any{"session_id": "s0"}))
-	require.NoError(t, f.usecase.IngestHook(ctx, segA, "session_start", map[string]any{"session_id": "sid-known"}))
+	require.NoError(t, f.usecase.IngestHook(ctx, segA, "claude", "session_start", mustJSON(t, map[string]any{"session_id": "s0"})))
+	require.NoError(t, f.usecase.IngestHook(ctx, segA, "claude", "session_start", mustJSON(t, map[string]any{"session_id": "sid-known"})))
 
 	active, err := f.repo.GetActiveSegmentByCrowbarID(ctx, segA)
 	require.NoError(t, err)
@@ -716,7 +757,7 @@ func TestIngestHook_ChatLookupFailure_ReturnsWrappedError(t *testing.T) {
 		StartedAt:        time.Now(),
 	}))
 
-	err := f.usecase.IngestHook(ctx, "seg1", "session_start", map[string]any{"session_id": "sid-1"})
+	err := f.usecase.IngestHook(ctx, "seg1", "claude", "session_start", mustJSON(t, map[string]any{"session_id": "sid-1"}))
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "ingest hook: chat")
 }
@@ -729,7 +770,7 @@ func TestIngestHook_WorktreeDirFailure_ReturnsWrappedError(t *testing.T) {
 	require.NoError(t, err)
 
 	f.ws.err = fmt.Errorf("boom: worktree lookup")
-	err = f.usecase.IngestHook(ctx, segID, "session_start", map[string]any{"session_id": "sid-1"})
+	err = f.usecase.IngestHook(ctx, segID, "claude", "session_start", mustJSON(t, map[string]any{"session_id": "sid-1"}))
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "worktree dir")
 }
@@ -748,7 +789,7 @@ func TestIngestHook_UnknownProvider_ReturnsWrappedDescriptorError(t *testing.T) 
 		StartedAt:        time.Now(),
 	}))
 
-	err := f.usecase.IngestHook(ctx, "seg1", "session_start", map[string]any{"session_id": "sid-1"})
+	err := f.usecase.IngestHook(ctx, "seg1", "not-a-real-provider", "session_start", mustJSON(t, map[string]any{"session_id": "sid-1"}))
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "resolve descriptor")
 }
@@ -765,9 +806,9 @@ func TestIngestHook_Registered_OldSegmentSaveFailure_ReturnsWrappedError(t *test
 
 	_, segID, err := f.usecase.SpawnChat(ctx, "ws1", "claude")
 	require.NoError(t, err)
-	require.NoError(t, f.usecase.IngestHook(ctx, segID, "session_start", map[string]any{"session_id": "sid-1"}))
+	require.NoError(t, f.usecase.IngestHook(ctx, segID, "claude", "session_start", mustJSON(t, map[string]any{"session_id": "sid-1"})))
 
-	err = f.usecase.IngestHook(ctx, segID, "session_start", map[string]any{"session_id": "sid-2"})
+	err = f.usecase.IngestHook(ctx, segID, "claude", "session_start", mustJSON(t, map[string]any{"session_id": "sid-2"}))
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "registered: save old segment")
 }
@@ -779,9 +820,9 @@ func TestIngestHook_Registered_NewSegmentSaveFailure_ReturnsWrappedError(t *test
 
 	_, segID, err := f.usecase.SpawnChat(ctx, "ws1", "claude")
 	require.NoError(t, err)
-	require.NoError(t, f.usecase.IngestHook(ctx, segID, "session_start", map[string]any{"session_id": "sid-1"}))
+	require.NoError(t, f.usecase.IngestHook(ctx, segID, "claude", "session_start", mustJSON(t, map[string]any{"session_id": "sid-1"})))
 
-	err = f.usecase.IngestHook(ctx, segID, "session_start", map[string]any{"session_id": "sid-2"})
+	err = f.usecase.IngestHook(ctx, segID, "claude", "session_start", mustJSON(t, map[string]any{"session_id": "sid-2"}))
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "registered: save new segment")
 }
@@ -793,9 +834,9 @@ func TestIngestHook_Registered_NewChatSaveFailure_ReturnsWrappedError(t *testing
 
 	_, segID, err := f.usecase.SpawnChat(ctx, "ws1", "claude")
 	require.NoError(t, err)
-	require.NoError(t, f.usecase.IngestHook(ctx, segID, "session_start", map[string]any{"session_id": "sid-1"}))
+	require.NoError(t, f.usecase.IngestHook(ctx, segID, "claude", "session_start", mustJSON(t, map[string]any{"session_id": "sid-1"})))
 
-	err = f.usecase.IngestHook(ctx, segID, "session_start", map[string]any{"session_id": "sid-2"})
+	err = f.usecase.IngestHook(ctx, segID, "claude", "session_start", mustJSON(t, map[string]any{"session_id": "sid-2"}))
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "registered: save new chat")
 }
@@ -807,10 +848,10 @@ func TestIngestHook_Focus_OldSegmentSaveFailure_ReturnsWrappedError(t *testing.T
 
 	_, segID, err := f.usecase.SpawnChat(ctx, "ws1", "claude")
 	require.NoError(t, err)
-	require.NoError(t, f.usecase.IngestHook(ctx, segID, "session_start", map[string]any{"session_id": "sid-1"}))
-	require.NoError(t, f.usecase.IngestHook(ctx, segID, "session_start", map[string]any{"session_id": "sid-2"}))
+	require.NoError(t, f.usecase.IngestHook(ctx, segID, "claude", "session_start", mustJSON(t, map[string]any{"session_id": "sid-1"})))
+	require.NoError(t, f.usecase.IngestHook(ctx, segID, "claude", "session_start", mustJSON(t, map[string]any{"session_id": "sid-2"})))
 
-	err = f.usecase.IngestHook(ctx, segID, "session_start", map[string]any{"session_id": "sid-1"})
+	err = f.usecase.IngestHook(ctx, segID, "claude", "session_start", mustJSON(t, map[string]any{"session_id": "sid-1"}))
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "focus: save old segment")
 }
@@ -822,10 +863,10 @@ func TestIngestHook_Focus_NewSegmentSaveFailure_ReturnsWrappedError(t *testing.T
 
 	_, segID, err := f.usecase.SpawnChat(ctx, "ws1", "claude")
 	require.NoError(t, err)
-	require.NoError(t, f.usecase.IngestHook(ctx, segID, "session_start", map[string]any{"session_id": "sid-1"}))
-	require.NoError(t, f.usecase.IngestHook(ctx, segID, "session_start", map[string]any{"session_id": "sid-2"}))
+	require.NoError(t, f.usecase.IngestHook(ctx, segID, "claude", "session_start", mustJSON(t, map[string]any{"session_id": "sid-1"})))
+	require.NoError(t, f.usecase.IngestHook(ctx, segID, "claude", "session_start", mustJSON(t, map[string]any{"session_id": "sid-2"})))
 
-	err = f.usecase.IngestHook(ctx, segID, "session_start", map[string]any{"session_id": "sid-1"})
+	err = f.usecase.IngestHook(ctx, segID, "claude", "session_start", mustJSON(t, map[string]any{"session_id": "sid-1"}))
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "focus: save new segment")
 }
@@ -837,10 +878,10 @@ func TestIngestHook_Focus_ChatLoadFailure_ReturnsWrappedError(t *testing.T) {
 
 	_, segID, err := f.usecase.SpawnChat(ctx, "ws1", "claude")
 	require.NoError(t, err)
-	require.NoError(t, f.usecase.IngestHook(ctx, segID, "session_start", map[string]any{"session_id": "sid-1"}))
-	require.NoError(t, f.usecase.IngestHook(ctx, segID, "session_start", map[string]any{"session_id": "sid-2"}))
+	require.NoError(t, f.usecase.IngestHook(ctx, segID, "claude", "session_start", mustJSON(t, map[string]any{"session_id": "sid-1"})))
+	require.NoError(t, f.usecase.IngestHook(ctx, segID, "claude", "session_start", mustJSON(t, map[string]any{"session_id": "sid-2"})))
 
-	err = f.usecase.IngestHook(ctx, segID, "session_start", map[string]any{"session_id": "sid-1"})
+	err = f.usecase.IngestHook(ctx, segID, "claude", "session_start", mustJSON(t, map[string]any{"session_id": "sid-1"}))
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "focus: load chat")
 }
@@ -858,9 +899,9 @@ func TestIngestHook_Registered_ClearVacatedChatFailure_ReturnsWrappedError(t *te
 
 	_, segID, err := f.usecase.SpawnChat(ctx, "ws1", "claude")
 	require.NoError(t, err)
-	require.NoError(t, f.usecase.IngestHook(ctx, segID, "session_start", map[string]any{"session_id": "sid-1"}))
+	require.NoError(t, f.usecase.IngestHook(ctx, segID, "claude", "session_start", mustJSON(t, map[string]any{"session_id": "sid-1"})))
 
-	err = f.usecase.IngestHook(ctx, segID, "session_start", map[string]any{"session_id": "sid-2"})
+	err = f.usecase.IngestHook(ctx, segID, "claude", "session_start", mustJSON(t, map[string]any{"session_id": "sid-2"}))
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "registered: clear vacated chat")
 }
@@ -878,10 +919,10 @@ func TestIngestHook_Focus_ClearVacatedChatGetFailure_ReturnsWrappedError(t *test
 
 	_, segID, err := f.usecase.SpawnChat(ctx, "ws1", "claude")
 	require.NoError(t, err)
-	require.NoError(t, f.usecase.IngestHook(ctx, segID, "session_start", map[string]any{"session_id": "sid-1"}))
-	require.NoError(t, f.usecase.IngestHook(ctx, segID, "session_start", map[string]any{"session_id": "sid-2"}))
+	require.NoError(t, f.usecase.IngestHook(ctx, segID, "claude", "session_start", mustJSON(t, map[string]any{"session_id": "sid-1"})))
+	require.NoError(t, f.usecase.IngestHook(ctx, segID, "claude", "session_start", mustJSON(t, map[string]any{"session_id": "sid-2"})))
 
-	err = f.usecase.IngestHook(ctx, segID, "session_start", map[string]any{"session_id": "sid-1"})
+	err = f.usecase.IngestHook(ctx, segID, "claude", "session_start", mustJSON(t, map[string]any{"session_id": "sid-1"}))
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "focus: clear vacated chat")
 }
@@ -893,10 +934,10 @@ func TestIngestHook_Focus_ClearVacatedChatSaveFailure_ReturnsWrappedError(t *tes
 
 	_, segID, err := f.usecase.SpawnChat(ctx, "ws1", "claude")
 	require.NoError(t, err)
-	require.NoError(t, f.usecase.IngestHook(ctx, segID, "session_start", map[string]any{"session_id": "sid-1"}))
-	require.NoError(t, f.usecase.IngestHook(ctx, segID, "session_start", map[string]any{"session_id": "sid-2"}))
+	require.NoError(t, f.usecase.IngestHook(ctx, segID, "claude", "session_start", mustJSON(t, map[string]any{"session_id": "sid-1"})))
+	require.NoError(t, f.usecase.IngestHook(ctx, segID, "claude", "session_start", mustJSON(t, map[string]any{"session_id": "sid-2"})))
 
-	err = f.usecase.IngestHook(ctx, segID, "session_start", map[string]any{"session_id": "sid-1"})
+	err = f.usecase.IngestHook(ctx, segID, "claude", "session_start", mustJSON(t, map[string]any{"session_id": "sid-1"}))
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "focus: clear vacated chat")
 }
@@ -909,7 +950,7 @@ func TestIngestHook_Bound_SaveSegmentFailure_ReturnsWrappedError(t *testing.T) {
 	_, segID, err := f.usecase.SpawnChat(ctx, "ws1", "claude")
 	require.NoError(t, err)
 
-	err = f.usecase.IngestHook(ctx, segID, "session_start", map[string]any{"session_id": "sid-1"})
+	err = f.usecase.IngestHook(ctx, segID, "claude", "session_start", mustJSON(t, map[string]any{"session_id": "sid-1"}))
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "bound: save segment")
 }

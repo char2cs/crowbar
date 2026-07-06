@@ -32,18 +32,22 @@ func TestIngestHook_ConcurrentSessionStarts_NeverProduceTwoActiveSegmentsForSame
 	// Seed an initial bound session so every session_start fired below is a
 	// genuine "registered" (unknown-id) move, not the special first-ever
 	// "bound" case (which never creates a second active segment on its own).
-	require.NoError(t, f.usecase.IngestHook(ctx, segID, "session_start", map[string]any{"session_id": "sid-seed"}))
+	require.NoError(t, f.usecase.IngestHook(ctx, segID, "claude", "session_start", mustJSON(t, map[string]any{"session_id": "sid-seed"})))
 
 	const n = 25
 	var wg sync.WaitGroup
 	wg.Add(n)
 	for i := 0; i < n; i++ {
-		go func(i int) {
+		// Payload is marshaled here, on the main test goroutine, not inside the
+		// spawned goroutine below: t.Helper()/require calls are only safe from
+		// the goroutine running the Test function.
+		payload := mustJSON(t, map[string]any{
+			"session_id": fmt.Sprintf("sid-concurrent-%d", i),
+		})
+		go func(payload []byte) {
 			defer wg.Done()
-			_ = f.usecase.IngestHook(ctx, segID, "session_start", map[string]any{
-				"session_id": fmt.Sprintf("sid-concurrent-%d", i),
-			})
-		}(i)
+			_ = f.usecase.IngestHook(ctx, segID, "claude", "session_start", payload)
+		}(payload)
 	}
 	wg.Wait()
 
