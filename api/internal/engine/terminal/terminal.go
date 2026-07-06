@@ -152,6 +152,18 @@ type Engine interface {
 		sessionID string,
 	) error
 
+	// TerminateGraceful gracefully quits a running vendor CLI (spec §8): it
+	// sends a clean-exit SIGTERM — a PID-level action, never a PTY write —
+	// and waits up to an internal grace window before falling back to a hard
+	// Kill if the process hasn't exited on its own. Used by provider switches
+	// so a well-behaved CLI (e.g. Claude Code) gets the chance to flush its
+	// native transcript on a clean exit — a hard SIGKILL can lose the
+	// outgoing CLI's last pre-switch turn.
+	TerminateGraceful(
+		ctx context.Context,
+		sessionID string,
+	) error
+
 	// Suspend intentionally tears down an idle, unattached session's PTY,
 	// persists its scrollback to disk, and replaces the registry entry with a
 	// placeholder. A subsequent Attach transparently restores it. Returns nil
@@ -1227,31 +1239,71 @@ func (e *terminalEngine) Resize(
 	return s.Resize(cols, rows)
 }
 
+// gracefulTerminateGrace bounds how long TerminateGraceful waits for a
+// SIGTERM'd child to exit on its own (spec §8) before falling back to a hard
+// SIGKILL. ~3s is enough for a well-behaved CLI to flush and exit without
+// making a provider switch feel stuck on a wedged/signal-ignoring process.
+// It is a package-level var ONLY so a unit test can shorten it (via
+// SetGracefulTerminateGraceForTest) to exercise the fallback-to-hard-kill
+// path without a multi-second sleep. Production never reassigns it.
+var gracefulTerminateGrace = 3 * time.Second
+
 func (e *terminalEngine) Kill(
 	ctx context.Context,
 	sessionID string,
 ) error {
-	// FIX 1: serialise with concurrent suspend / restore so Kill never races a
+	return e.terminateSession(ctx, "kill", sessionID, func(s *session.Session) { s.Kill() })
+}
+
+// TerminateGraceful gracefully quits a running vendor CLI (spec §8): it sends
+// a clean-exit SIGTERM (a PID-level action, never a PTY write) and waits up
+// to gracefulTerminateGrace for the process to exit on its own before falling
+// back to a hard Kill. Used by provider switches so a well-behaved CLI (e.g.
+// Claude Code) gets the chance to flush its native transcript on a clean exit
+// — a hard SIGKILL can lose the outgoing CLI's last pre-switch turn.
+func (e *terminalEngine) TerminateGraceful(
+	ctx context.Context,
+	sessionID string,
+) error {
+	return e.terminateSession(ctx, "terminate", sessionID, func(s *session.Session) {
+		s.Terminate(gracefulTerminateGrace)
+	})
+}
+
+// terminateSession is the shared Kill/TerminateGraceful orchestration: it
+// serialises with concurrent suspend/restore, removes the session from the
+// registry, invokes the given per-session teardown (hard kill or graceful
+// terminate), and — for placeholder sessions only, which have no reapOnDone
+// goroutine listening on s.Done() — performs the reap-equivalent cleanup
+// (deleteMeta/DeleteBuf/fireEnded) inline. op names the caller in wrapped
+// error/log messages ("kill" or "terminate").
+func (e *terminalEngine) terminateSession(
+	ctx context.Context,
+	op string,
+	sessionID string,
+	terminate func(*session.Session),
+) error {
+	// FIX 1: serialise with concurrent suspend / restore so this never races a
 	// suspend that could resurrect the session in the registry after removal.
 	unlock := e.lockSession(sessionID)
 
 	s, ok := e.reg.Get(sessionID)
 	if !ok {
 		unlock()
-		return fmt.Errorf("terminal: kill: %w: %s", registry.ErrSessionNotFound, sessionID)
+		return fmt.Errorf("terminal: %s: %w: %s", op, registry.ErrSessionNotFound, sessionID)
 	}
 
 	// Capture whether this is a placeholder BEFORE modifying state. A placeholder
 	// session has no live PTY (IsLive() == false) so no reapOnDone goroutine is
-	// running to fire ended/cleanup after Kill returns.
+	// running to fire ended/cleanup after this returns.
 	isPlaceholder := !s.IsLive()
 	ws, wsOK := e.reg.WorkspaceID(sessionID)
 
-	// Remove from registry eagerly so callers see it gone immediately after Kill returns.
+	// Remove from registry eagerly so callers see it gone immediately after this returns.
 	// For live sessions, reapOnDone will also call reg.Remove (idempotent no-op) and then
 	// handle the remaining cleanup: deleteMeta, DeleteBuf, fireEnded.
 	e.reg.Remove(sessionID)
-	s.Kill()
+	terminate(s)
 
 	// For placeholder sessions (suspended state), no reapOnDone goroutine is listening
 	// on s.Done(). Perform the cleanup and fire the ended callback inline.
@@ -1260,14 +1312,14 @@ func (e *terminalEngine) Kill(
 		dir, _ := e.storageDir(ctx, ws)
 		if dir != "" {
 			if delErr := persistence.DeleteBuf(dir, sessionID); delErr != nil {
-				_, _ = fmt.Fprintf(os.Stderr, "terminal: kill: delete buf %s: %v\n", sessionID, delErr)
+				_, _ = fmt.Fprintf(os.Stderr, "terminal: %s: delete buf %s: %v\n", op, sessionID, delErr)
 			}
 		}
 		e.deleteMeta(ctx, sessionID)
 		e.fireEnded(ctx, ws, sessionID, exitCode)
 
 		// FIX 4: prune per-session maps. For live sessions, reapOnDone handles
-		// this after the PTY exits. For placeholders, Kill is the terminal path.
+		// this after the PTY exits. For placeholders, this is the terminal path.
 		e.mu.Lock()
 		delete(e.lastActive, sessionID)
 		delete(e.endedOnce, sessionID)

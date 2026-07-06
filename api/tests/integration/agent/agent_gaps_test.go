@@ -19,6 +19,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
 	"github.com/char2cs/crowbar/api/internal/domain"
@@ -577,4 +578,175 @@ func TestAgent_SwitchBackRestoresClaudeContext(t *testing.T) {
 	t.Logf("waited %s for a reply referencing the codeword; all assistant texts observed: %q", time.Since(start), texts)
 	require.True(t, found,
 		"timed out waiting for any assistant reply (including the follow-up's) to reference the codeword; texts observed: %q", texts)
+}
+
+// TestAgent_GracefulTerminate_PreservesClaudePreSwitchReply is the empirical
+// proof for the fix described in docs/superpowers/specs/
+// 2026-07-05-crowbar-agentic-engine-design.md §8: SwitchProvider now quits the
+// outgoing CLI via a graceful terminate (SIGTERM + a grace window, falling
+// back to SIGKILL only if the process is still alive after it) instead of an
+// unconditional hard Kill. TestAgent_SwitchBackRestoresClaudeContext already
+// documented, live, that the OLD hard-SIGKILL behavior could sometimes lose
+// claude's real pre-switch reply from its own native transcript — replaced by
+// a synthetic "No response requested." housekeeping turn on resume — but that
+// test tolerates the gap (it searches every assistant text, including a
+// driven follow-up's, for the codeword) because closing the gap was not yet
+// implemented.
+//
+// This test is the strict version: it captures claude's REAL reply to the
+// seeded turn from its own on-disk transcript BEFORE ever calling
+// SwitchProvider (the one moment we can be certain nothing has touched the
+// process yet), switches away to codex and back to claude (exercising the
+// exact TerminateGraceful call path SwitchProvider now uses for every
+// provider, no branching), drives one follow-up turn to force claude to
+// settle/flush its resumed state to disk (mirroring
+// TestAgent_SwitchBackRestoresClaudeContext's hard-won finding that a
+// synthetic housekeeping turn, if one was going to appear, may not flush to
+// disk until further input lands), and then asserts BOTH that the captured
+// baseline reply is still present verbatim and that no synthetic "No response
+// requested." entry ever appeared.
+//
+// Run this multiple times (`go test -tags 'integration noEmbed' -race -p 1
+// -run TestAgent_GracefulTerminate_PreservesClaudePreSwitchReply -count=N
+// ./tests/integration/agent/...`) to gauge reliability against the real
+// claude/codex binaries — a single pass is not strong evidence either way for
+// a fix whose whole premise is an unverified CLI-internal flush behavior.
+func TestAgent_GracefulTerminate_PreservesClaudePreSwitchReply(t *testing.T) {
+	requireCLI(t, "claude")
+	requireCLI(t, "codex")
+	h := newHarness(t)
+	ctx := context.Background()
+
+	repoPath := kit.InitRepo(t)
+	_, _, wsID := h.importRepoAndWorkspace(t, "graceful-terminate", repoPath)
+
+	chatID, claudeSegID, err := h.app.Usecases.Agent.SpawnChat(ctx, wsID, "claude")
+	require.NoError(t, err)
+
+	claudeTermSessID := segmentTerminalSessionID(t, h, chatID)
+	t.Cleanup(func() { _ = h.eng.Terminal.Kill(context.Background(), claudeTermSessID) })
+
+	start := time.Now()
+	providerSessionID, segs := waitForProviderSessionID(t, h, claudeTermSessID, chatID, claudeSegID, 30*time.Second)
+	require.NotEmpty(t, providerSessionID, "claude never bound before a turn could be driven: %+v", segs)
+	t.Logf("claude bound in %s (session=%s)", time.Since(start), providerSessionID)
+
+	var transcriptPath string
+	for _, s := range segs {
+		if s.ID == claudeSegID {
+			transcriptPath = s.TranscriptPath
+		}
+	}
+	require.NotEmpty(t, transcriptPath, "claude segment must have a transcript path recorded from SessionStart: %+v", segs)
+
+	const codeword = "GRACEFUL-8847"
+	prompt := "Remember this exact codeword for the rest of our conversation: " + codeword +
+		". Reply with only the word: acknowledged."
+	require.NoError(t, h.eng.Terminal.Write(ctx, claudeTermSessID, []byte(prompt)))
+	time.Sleep(300 * time.Millisecond)
+	require.NoError(t, h.eng.Terminal.Write(ctx, claudeTermSessID, []byte("\r")))
+
+	// Wait for claude's own Stop hook to append to Crowbar's ledger — proof
+	// the turn is FULLY complete, mirroring every other switch test's
+	// synchronization point.
+	start = time.Now()
+	handoff := nudgeUntil(h, claudeTermSessID, 90*time.Second, func() (string, bool) {
+		blob, err := h.app.Usecases.Agent.AssembleHandoff(ctx, chatID)
+		require.NoError(t, err)
+		return blob, strings.Contains(blob, codeword)
+	})
+	t.Logf("waited %s for claude's Stop hook (ledger append)", time.Since(start))
+	require.Contains(t, handoff, codeword, "ledger blob must carry the turn we just drove")
+
+	// Read claude's REAL reply from its own on-disk transcript — separate
+	// from (and the whole point of testing beyond) Crowbar's ledger copy —
+	// while the process is STILL ALIVE and BEFORE SwitchProvider has touched
+	// it. This is the exact on-disk state a hard SIGKILL was accused of
+	// sometimes corrupting/losing before the process could finish flushing.
+	baselineReply := nudgeUntil(h, claudeTermSessID, 15*time.Second, func() (string, bool) {
+		texts := claudeAssistantTexts(transcriptPath)
+		if len(texts) == 0 {
+			return "", false
+		}
+		return texts[len(texts)-1], true
+	})
+	require.NotEmpty(t, baselineReply, "claude's own on-disk transcript never showed the seeded turn's reply")
+	t.Logf("baseline (pre-switch, process still alive) reply on disk: %q", baselineReply)
+
+	// Switch away — the exact call under test: SwitchProvider now uses
+	// TerminateGraceful (SIGTERM + grace, falling back to SIGKILL only if
+	// still alive) instead of the old hard Kill for the outgoing claude CLI.
+	_, err = h.app.Usecases.Agent.SwitchProvider(ctx, chatID, "codex")
+	require.NoError(t, err)
+
+	codexTermSessID := segmentTerminalSessionID(t, h, chatID)
+	t.Cleanup(func() { _ = h.eng.Terminal.Kill(context.Background(), codexTermSessID) })
+
+	// Switch back to claude immediately — AssembleHandoff only reads
+	// Crowbar's own ledger from disk, so this does not depend on codex having
+	// bound a session or processed anything; it exercises TerminateGraceful a
+	// second time (against codex, which the design doc already established
+	// tolerates a hard kill, so this leg is not the interesting one) and then
+	// the native --resume path back into claude's original session.
+	newClaudeSegID, err := h.app.Usecases.Agent.SwitchProvider(ctx, chatID, "claude")
+	require.NoError(t, err)
+
+	newClaudeTermSessID := segmentTerminalSessionID(t, h, chatID)
+	require.NotEqual(t, codexTermSessID, newClaudeTermSessID, "switch-back must spawn a new terminal session")
+	t.Cleanup(func() { _ = h.eng.Terminal.Kill(context.Background(), newClaudeTermSessID) })
+
+	start = time.Now()
+	resumedProviderSessionID, segsAfter := waitForProviderSessionID(t, h, newClaudeTermSessID, chatID, newClaudeSegID, 30*time.Second)
+	t.Logf("claude resumed in %s (session=%s)", time.Since(start), resumedProviderSessionID)
+	require.NotEmpty(t, resumedProviderSessionID, "timed out waiting for the switched-back claude's SessionStart hook to bind: %+v", segsAfter)
+	require.Equal(t, providerSessionID, resumedProviderSessionID, "switch-back must --resume the ORIGINAL claude session id")
+
+	var resumedTranscriptPath string
+	for _, s := range segsAfter {
+		if s.ID == newClaudeSegID {
+			resumedTranscriptPath = s.TranscriptPath
+		}
+	}
+	require.Equal(t, transcriptPath, resumedTranscriptPath, "a native --resume must reattach to the SAME transcript file as before ANY switch happened")
+
+	// Drive one follow-up turn to force claude to settle/flush its resumed
+	// state to disk — TestAgent_SwitchBackRestoresClaudeContext found live
+	// that a synthetic housekeeping turn, when the OLD hard-kill bug produced
+	// one, could remain unflushed to disk until further input landed, so
+	// reading immediately post-resume with no follow-up would not reliably
+	// exercise the failure mode this test exists to catch.
+	followUp := "What was the codeword I asked you to remember earlier in our conversation? Reply with only that word."
+	require.NoError(t, h.eng.Terminal.Write(ctx, newClaudeTermSessID, []byte(followUp)))
+	time.Sleep(300 * time.Millisecond)
+	require.NoError(t, h.eng.Terminal.Write(ctx, newClaudeTermSessID, []byte("\r")))
+
+	start = time.Now()
+	var texts []string
+	found := nudgeUntil(h, newClaudeTermSessID, 90*time.Second, func() (bool, bool) {
+		texts = claudeAssistantTexts(resumedTranscriptPath)
+		for _, tx := range texts {
+			if strings.Contains(tx, codeword) {
+				return true, true
+			}
+		}
+		return false, false
+	})
+	t.Logf("waited %s for the follow-up's reply; all assistant texts observed after switch-back: %q", time.Since(start), texts)
+	require.True(t, found, "timed out waiting for the follow-up turn's reply to reference the codeword; texts observed: %q", texts)
+
+	// THE KEY EMPIRICAL ASSERTIONS for this bug fix: the ORIGINAL pre-switch
+	// reply must still be present verbatim, and no synthetic gap-filling
+	// housekeeping entry must have appeared — proving the graceful
+	// SIGTERM+grace terminate let claude flush its native transcript before
+	// the outgoing process died. Pre-fix, a hard SIGKILL was observed to
+	// sometimes replace/lose this exact entry with a synthetic "No response
+	// requested." turn instead.
+	assert.Contains(t, texts, baselineReply,
+		"the original pre-switch reply must still be present verbatim in claude's native transcript after a "+
+			"graceful terminate + native resume; texts observed: %q", texts)
+	for _, tx := range texts {
+		assert.NotContains(t, strings.ToLower(tx), "no response requested",
+			"a synthetic housekeeping reply appearing here means claude's clean-exit transcript flush did not "+
+				"happen before the outgoing process died; texts observed: %q", texts)
+	}
 }

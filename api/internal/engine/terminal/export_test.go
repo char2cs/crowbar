@@ -92,3 +92,13 @@ func HasSessionMuForTest(eng Engine, id string) bool {
 	_, ok := eng.(*terminalEngine).sessionMu.Load(id)
 	return ok
 }
+
+// SetGracefulTerminateGraceForTest overrides the package-level grace window
+// TerminateGraceful waits before falling back to a hard kill, and returns a
+// restore function. Lets a unit test exercise the fallback-to-hard-kill path
+// (a signal-ignoring child) without a multi-second sleep.
+func SetGracefulTerminateGraceForTest(d time.Duration) (restore func()) {
+	old := gracefulTerminateGrace
+	gracefulTerminateGrace = d
+	return func() { gracefulTerminateGrace = old }
+}

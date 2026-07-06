@@ -28,11 +28,11 @@ type commandCall struct {
 }
 
 type fakeCommander struct {
-	calls   []commandCall
-	killed  []string
-	nextID  int
-	err     error
-	killErr error
+	calls        []commandCall
+	terminated   []string
+	nextID       int
+	err          error
+	terminateErr error
 }
 
 func (f *fakeCommander) CreateCommand(
@@ -57,14 +57,14 @@ func (f *fakeCommander) CreateCommand(
 	return fmt.Sprintf("term-%d", f.nextID), nil
 }
 
-func (f *fakeCommander) Kill(
+func (f *fakeCommander) TerminateGraceful(
 	_ context.Context,
 	sessionID string,
 ) error {
-	if f.killErr != nil {
-		return f.killErr
+	if f.terminateErr != nil {
+		return f.terminateErr
 	}
-	f.killed = append(f.killed, sessionID)
+	f.terminated = append(f.terminated, sessionID)
 	return nil
 }
 

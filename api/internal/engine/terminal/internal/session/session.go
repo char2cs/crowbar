@@ -790,6 +790,59 @@ func (s *Session) Kill() {
 	s.shutdown()
 }
 
+// Terminate gracefully quits the session's child process (spec §8): it sends
+// a clean-exit SIGTERM via the terminateSignal seam — a PID-level action,
+// never a PTY write, so the C-invariant (no keystrokes are ever synthesized
+// to an app) holds — then waits up to grace for the process to exit on its
+// own. A well-behaved CLI (e.g. Claude Code) gets the chance to flush state
+// on a clean exit that an unconditional SIGKILL denies it. If the process is
+// still alive once grace elapses (or there was no live process/signal to
+// send), Terminate falls back to Kill's unconditional hard kill, so a caller
+// never blocks longer than grace waiting for a wedged or signal-ignoring
+// child.
+//
+// Terminate is a no-op-equivalent-to-Kill for placeholder sessions (ptmx ==
+// nil): there is no process to signal, so shutdown() runs directly, exactly
+// like Kill.
+func (s *Session) Terminate(grace time.Duration) {
+	s.mu.Lock()
+	if s.ptmx == nil {
+		s.mu.Unlock()
+		s.shutdown()
+		return
+	}
+	var proc *os.Process
+	if s.cmd != nil {
+		proc = s.cmd.Process
+	}
+	done := s.done
+	s.mu.Unlock()
+
+	if proc == nil {
+		s.Kill()
+		return
+	}
+
+	if err := terminateSignal(proc); err != nil {
+		// Already gone, or signalling failed outright: the hard-kill fallback
+		// is safe either way (Kill/shutdown are idempotent via s.once).
+		s.Kill()
+		return
+	}
+
+	select {
+	case <-done:
+		// Exited on its own within the grace window: shutdown() already ran
+		// (via pump()'s exit path), nothing left to do.
+		return
+	case <-time.After(grace):
+	}
+
+	// Still alive after the grace window: fall back to the unconditional
+	// hard kill.
+	s.Kill()
+}
+
 // pumpStep is the production critical section for one PTY output chunk. Under s.mu it
 // either drives the model-driven path (model write FIRST, then a model-derived frame fans
 // out — raw fan-out skipped entirely) or the raw path (RAW bytes fan out to live clients

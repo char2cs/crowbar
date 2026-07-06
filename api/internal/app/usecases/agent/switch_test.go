@@ -15,7 +15,7 @@ import (
 	engineterminal "github.com/char2cs/crowbar/api/internal/engine/terminal"
 )
 
-func TestSwitchProvider_KillsOutgoingTerminal_AndEndsOldSegment(t *testing.T) {
+func TestSwitchProvider_TerminatesOutgoingTerminal_AndEndsOldSegment(t *testing.T) {
 	f := newFixture(t)
 	ctx := context.Background()
 
@@ -29,7 +29,7 @@ func TestSwitchProvider_KillsOutgoingTerminal_AndEndsOldSegment(t *testing.T) {
 	_, err = f.usecase.SwitchProvider(ctx, chatID, "codex")
 	require.NoError(t, err)
 
-	assert.Contains(t, f.term.killed, oldSeg.TerminalSessionID)
+	assert.Contains(t, f.term.terminated, oldSeg.TerminalSessionID)
 
 	ended, err := f.repo.GetSegment(ctx, segID)
 	require.NoError(t, err)
@@ -37,20 +37,20 @@ func TestSwitchProvider_KillsOutgoingTerminal_AndEndsOldSegment(t *testing.T) {
 	require.NotNil(t, ended.EndedAt)
 }
 
-// TestSwitchProvider_KillFailure_SessionAlreadyGone_ContinuesSwitch guards the
-// fix that surfaces (rather than swallows) Kill's error: when Kill fails
-// because the terminal session is already gone (the one error the real
-// terminal engine's Kill can return today), the switch must still proceed —
-// aborting would trap a chat that could never switch again once its terminal
-// session ends on its own.
-func TestSwitchProvider_KillFailure_SessionAlreadyGone_ContinuesSwitch(t *testing.T) {
+// TestSwitchProvider_TerminateFailure_SessionAlreadyGone_ContinuesSwitch guards
+// the fix that surfaces (rather than swallows) TerminateGraceful's error: when
+// it fails because the terminal session is already gone (the one error the
+// real terminal engine's TerminateGraceful can return today), the switch must
+// still proceed — aborting would trap a chat that could never switch again
+// once its terminal session ends on its own.
+func TestSwitchProvider_TerminateFailure_SessionAlreadyGone_ContinuesSwitch(t *testing.T) {
 	f := newFixture(t)
 	ctx := context.Background()
 
 	chatID, segID, err := f.usecase.SpawnChat(ctx, "ws1", "claude")
 	require.NoError(t, err)
 
-	f.term.killErr = fmt.Errorf("terminal: kill: %w: term-1", engineterminal.ErrSessionNotFound)
+	f.term.terminateErr = fmt.Errorf("terminal: terminate: %w: term-1", engineterminal.ErrSessionNotFound)
 
 	newSegID, err := f.usecase.SwitchProvider(ctx, chatID, "codex")
 	require.NoError(t, err)
@@ -65,39 +65,41 @@ func TestSwitchProvider_KillFailure_SessionAlreadyGone_ContinuesSwitch(t *testin
 	assert.Equal(t, newSegID, chat.ActiveSegmentID)
 }
 
-// TestSwitchProvider_KillFailure_OtherError_AbortsSwitch guards the other half
-// of the same fix: a Kill failure that is NOT "session already gone" must
-// abort the switch entirely rather than proceed to spawn a second live CLI
-// into the same worktree while the DB marks only the new one active.
-func TestSwitchProvider_KillFailure_OtherError_AbortsSwitch(t *testing.T) {
+// TestSwitchProvider_TerminateFailure_OtherError_AbortsSwitch guards the other
+// half of the same fix: a TerminateGraceful failure that is NOT "session
+// already gone" must abort the switch entirely rather than proceed to spawn a
+// second live CLI into the same worktree while the DB marks only the new one
+// active.
+func TestSwitchProvider_TerminateFailure_OtherError_AbortsSwitch(t *testing.T) {
 	f := newFixture(t)
 	ctx := context.Background()
 
 	chatID, segID, err := f.usecase.SpawnChat(ctx, "ws1", "claude")
 	require.NoError(t, err)
 
-	f.term.killErr = errors.New("boom: kill genuinely failed")
+	f.term.terminateErr = errors.New("boom: terminate genuinely failed")
 
 	_, err = f.usecase.SwitchProvider(ctx, chatID, "codex")
 	require.Error(t, err)
-	assert.Contains(t, err.Error(), "kill outgoing terminal")
+	assert.Contains(t, err.Error(), "terminate outgoing terminal")
 
 	oldSeg, err := f.repo.GetSegment(ctx, segID)
 	require.NoError(t, err)
-	assert.Equal(t, "active", oldSeg.Status, "old segment must NOT be marked ended when Kill genuinely failed")
+	assert.Equal(t, "active", oldSeg.Status, "old segment must NOT be marked ended when terminate genuinely failed")
 
-	require.Len(t, f.term.calls, 1, "no new segment/terminal should have been spawned after a real kill failure")
+	require.Len(t, f.term.calls, 1, "no new segment/terminal should have been spawned after a real terminate failure")
 
 	chat, err := f.repo.GetChat(ctx, chatID)
 	require.NoError(t, err)
 	assert.Equal(t, segID, chat.ActiveSegmentID, "active segment must be unchanged")
 }
 
-// TestSwitchProvider_AssembleHandoffFailure_AbortsBeforeKill guards the fix
-// that surfaces (rather than swallows) AssembleHandoff's error: previously the
-// switch proceeded with a silently EMPTY handoff. Since AssembleHandoff runs
-// BEFORE Kill, aborting here must leave the chat completely untouched.
-func TestSwitchProvider_AssembleHandoffFailure_AbortsBeforeKill(t *testing.T) {
+// TestSwitchProvider_AssembleHandoffFailure_AbortsBeforeTerminate guards the
+// fix that surfaces (rather than swallows) AssembleHandoff's error: previously
+// the switch proceeded with a silently EMPTY handoff. Since AssembleHandoff
+// runs BEFORE terminate, aborting here must leave the chat completely
+// untouched.
+func TestSwitchProvider_AssembleHandoffFailure_AbortsBeforeTerminate(t *testing.T) {
 	// AssembleHandoff makes its own internal GetChat(chatID) call; SwitchProvider's
 	// own leading GetChat is call #1, so #2 is AssembleHandoff's.
 	repo := &erroringStore{Store: newRealStore(t), failGetChatAt: 2}
@@ -111,7 +113,7 @@ func TestSwitchProvider_AssembleHandoffFailure_AbortsBeforeKill(t *testing.T) {
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "assemble handoff")
 
-	assert.Empty(t, f.term.killed, "the outgoing terminal must never be killed when handoff assembly fails first")
+	assert.Empty(t, f.term.terminated, "the outgoing terminal must never be terminated when handoff assembly fails first")
 	seg, err := f.repo.GetSegment(ctx, segID)
 	require.NoError(t, err)
 	assert.Equal(t, "active", seg.Status, "old segment must be untouched")

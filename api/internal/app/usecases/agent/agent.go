@@ -34,7 +34,12 @@ type TerminalCommander interface {
 		env []string,
 		onExit func(),
 	) (string, error)
-	Kill(
+	// TerminateGraceful gracefully quits the outgoing CLI on a provider switch
+	// (spec §8): a clean-exit SIGTERM, not SIGKILL — Claude flushes its native
+	// transcript on a clean exit, and a hard kill can lose the outgoing CLI's
+	// last pre-switch turn. Applies uniformly to every provider (Codex
+	// tolerates it too); no provider branching here.
+	TerminateGraceful(
 		ctx context.Context,
 		sessionID string,
 	) error
@@ -496,31 +501,38 @@ func (u *Usecase) SwitchProvider(
 		return "", fmt.Errorf("agent: switch provider: active segment: %w", err)
 	}
 
-	// Read-before-kill: the ledger/transcript are already on disk (the
+	// Read-before-terminate: the ledger/transcript are already on disk (the
 	// transcript is written incrementally on each turn_stop hook), so
 	// assembling the handoff does not depend on the outgoing CLI still
-	// being alive. A failure here must abort the switch (return before Kill)
-	// rather than silently proceed with an EMPTY handoff — nothing destructive
-	// has happened yet, so aborting leaves the chat exactly as it was.
+	// being alive. A failure here must abort the switch (return before
+	// terminate) rather than silently proceed with an EMPTY handoff — nothing
+	// destructive has happened yet, so aborting leaves the chat exactly as it
+	// was.
 	handoff, err := u.AssembleHandoff(ctx, chatID)
 	if err != nil {
 		return "", fmt.Errorf("agent: switch provider: assemble handoff: %w", err)
 	}
 
-	// A failed Kill is surfaced, not swallowed: if the outgoing CLI's terminal
-	// session still exists but could not be killed, proceeding would spawn a
-	// SECOND live CLI into the same worktree while the DB marks only the new
-	// one active — the exact "two live CLIs" hazard this guards against. The
-	// one error Kill can return today (registry.ErrSessionNotFound, exported
-	// as terminal.ErrSessionNotFound) means the session is already gone
-	// (process previously exited/reaped) — safe, even correct, to continue:
-	// the alternative would trap a chat unable to ever switch again once its
-	// terminal session ends on its own.
-	if err := u.term.Kill(ctx, oldSeg.TerminalSessionID); err != nil {
+	// The outgoing CLI is quit gracefully (spec §8: clean-exit SIGTERM, never
+	// SIGKILL) so a well-behaved CLI — Claude Code in particular — gets the
+	// chance to flush its native transcript before it dies; a hard kill can
+	// lose the outgoing CLI's last pre-switch turn. Applies uniformly to
+	// every provider (Codex tolerates it too), no per-provider branching.
+	//
+	// A failed terminate is surfaced, not swallowed: if the outgoing CLI's
+	// terminal session still exists but could not be terminated, proceeding
+	// would spawn a SECOND live CLI into the same worktree while the DB marks
+	// only the new one active — the exact "two live CLIs" hazard this guards
+	// against. The one error TerminateGraceful can return today
+	// (registry.ErrSessionNotFound, exported as terminal.ErrSessionNotFound)
+	// means the session is already gone (process previously exited/reaped) —
+	// safe, even correct, to continue: the alternative would trap a chat
+	// unable to ever switch again once its terminal session ends on its own.
+	if err := u.term.TerminateGraceful(ctx, oldSeg.TerminalSessionID); err != nil {
 		if !errors.Is(err, engineterminal.ErrSessionNotFound) {
-			return "", fmt.Errorf("agent: switch provider: kill outgoing terminal: %w", err)
+			return "", fmt.Errorf("agent: switch provider: terminate outgoing terminal: %w", err)
 		}
-		slog.WarnContext(ctx, "agent: switch provider: outgoing terminal session already gone before kill; continuing switch",
+		slog.WarnContext(ctx, "agent: switch provider: outgoing terminal session already gone before terminate; continuing switch",
 			"chat_id", chatID, "segment_id", oldSeg.ID, "terminal_session_id", oldSeg.TerminalSessionID, "err", err)
 	}
 	now := time.Now()
