@@ -10,6 +10,7 @@ import (
 	"os"
 	"sort"
 	"strconv"
+	"strings"
 	"sync"
 	"time"
 
@@ -100,6 +101,17 @@ type Engine interface {
 		workspaceID string,
 		workspaceDir string,
 		prof *domain.TerminalProfile,
+	) (sessionID string, err error)
+
+	// CreateCommand spawns an explicit argv+env as a registered session (streamable
+	// over the terminal WS), skipping profile resolution. Used by the agentic
+	// engine to launch vendor CLIs (claude/codex) with descriptor-built argv/env.
+	CreateCommand(
+		ctx context.Context,
+		workspaceID string,
+		cwd string,
+		argv []string,
+		env []string,
 	) (sessionID string, err error)
 
 	// Attach connects a WebSocket connection to an existing session, sending the
@@ -394,6 +406,50 @@ func (e *terminalEngine) Create(
 	}
 
 	return id, nil
+}
+
+// CreateCommand spawns an explicit argv+env as a registered session (streamable
+// over the terminal WS). Used by the agentic engine for vendor-CLI segments.
+func (e *terminalEngine) CreateCommand(
+	_ context.Context,
+	workspaceID string,
+	cwd string,
+	argv []string,
+	env []string,
+) (string, error) {
+	id := uuid.NewString()
+	// The real terminal engine seeds ptyEnv() (TERM/COLORTERM); CreateCommand takes
+	// the caller's env verbatim, so under launchd TERM is absent and Ink TUIs
+	// misrender. Backfill the terminal defaults for any keys not already set.
+	env = withTerminalDefaults(env)
+	s, err := session.NewCommand(id, argv, cwd, env, 80, 24, 0)
+	if err != nil {
+		return "", fmt.Errorf("terminal: create command: %w", err)
+	}
+	e.reg.Add(id, workspaceID, s)
+	go e.reapOnDone(id, workspaceID, s)
+	return id, nil
+}
+
+// withTerminalDefaults appends TERM=xterm-256color / COLORTERM=truecolor only for
+// keys the caller did not already provide, matching the real terminal engine's
+// ptyEnv() seeding.
+func withTerminalDefaults(env []string) []string {
+	has := func(key string) bool {
+		for _, kv := range env {
+			if strings.HasPrefix(kv, key+"=") {
+				return true
+			}
+		}
+		return false
+	}
+	if !has("TERM") {
+		env = append(env, "TERM=xterm-256color")
+	}
+	if !has("COLORTERM") {
+		env = append(env, "COLORTERM=truecolor")
+	}
+	return env
 }
 
 // reapOnDone removes the session from the registry once it terminates and fires
