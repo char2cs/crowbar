@@ -371,6 +371,41 @@ func (u *Usecase) handleTurnStop(
 	return nil
 }
 
+// AssembleHandoff resolves chatID's ledger directory, reads every entry, and
+// wraps them in a legible preamble/footer so a freshly spawned provider CLI
+// can be handed the prior context. Returns "" (not an error) when the ledger
+// has no entries yet.
+func (u *Usecase) AssembleHandoff(
+	ctx context.Context,
+	chatID string,
+) (string, error) {
+	chat, err := u.repo.GetChat(ctx, chatID)
+	if err != nil {
+		return "", fmt.Errorf("agent: assemble handoff: chat: %w", err)
+	}
+
+	crowbarHome, projectID, repoID, _, err := u.ws.WorktreeDir(ctx, chat.WorkspaceID)
+	if err != nil {
+		return "", fmt.Errorf("agent: assemble handoff: worktree dir: %w", err)
+	}
+
+	dir := worktreepath.AgentLedgerDir(crowbarHome, projectID, repoID, chat.WorkspaceID, chat.ID)
+	led, err := ledger.Open(dir)
+	if err != nil {
+		return "", fmt.Errorf("agent: assemble handoff: ledger open: %w", err)
+	}
+
+	blob, err := led.ReadAll()
+	if err != nil {
+		return "", fmt.Errorf("agent: assemble handoff: ledger read all: %w", err)
+	}
+	if len(blob) == 0 {
+		return "", nil
+	}
+
+	return "=== HANDED-OFF CONTEXT (Crowbar) ===\n" + string(blob) + "\n=== END ===", nil
+}
+
 // ListChats returns every persisted AgentChat.
 func (u *Usecase) ListChats(
 	ctx context.Context,
