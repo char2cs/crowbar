@@ -62,7 +62,7 @@ func runStep(d *Descriptor, st InjectStep, ctx TemplateCtx, plan *SpawnPlan) err
 	case "write_file":
 		return writeFileStep(arg("path"), arg("content"), arg("from"))
 	case "render_hooks":
-		return renderHooks(d, arg("format"), arg("into"), ctx)
+		return renderHooks(d, arg("into"), ctx)
 	case "pass_arg":
 		if pos, ok := st.Args["positional"]; ok {
 			plan.Argv = append(plan.Argv, Expand(asString(pos), ctx))
@@ -72,10 +72,6 @@ func runStep(d *Descriptor, st InjectStep, ctx TemplateCtx, plan *SpawnPlan) err
 		if _, ok := st.Args["value"]; ok {
 			plan.Argv = append(plan.Argv, arg("value"))
 		}
-	case "copy_tree":
-		return copyTree(arg("from"), arg("into"))
-	case "seed_trust":
-		return nil // no-op this iteration; codex uses --dangerously-bypass-hook-trust
 	default:
 		return fmt.Errorf("agent: unknown inject verb %q", st.Verb)
 	}
@@ -85,7 +81,7 @@ func runStep(d *Descriptor, st InjectStep, ctx TemplateCtx, plan *SpawnPlan) err
 // renderHooks writes the provider hook config that maps each descriptor hook to
 // `<crowbar_hook> hook <canonical-event>`. Both Claude settings.json and Codex
 // hooks.json share the same nested shape {hooks:{Event:[{hooks:[{type,command}]}]}}.
-func renderHooks(d *Descriptor, format, into string, ctx TemplateCtx) error {
+func renderHooks(d *Descriptor, into string, ctx TemplateCtx) error {
 	type cmd struct {
 		Type    string `json:"type"`
 		Command string `json:"command"`
@@ -179,18 +175,4 @@ func copyFile(src, dst string) error {
 	defer out.Close()
 	_, err = io.Copy(out, in)
 	return err
-}
-
-func copyTree(from, into string) error {
-	return filepath.Walk(from, func(p string, info os.FileInfo, err error) error {
-		if err != nil {
-			return err
-		}
-		rel, _ := filepath.Rel(from, p)
-		dst := filepath.Join(into, rel)
-		if info.IsDir() {
-			return os.MkdirAll(dst, 0o700)
-		}
-		return copyFile(p, dst)
-	})
 }

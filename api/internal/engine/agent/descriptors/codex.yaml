@@ -13,7 +13,7 @@ config_injection:
   - set_env:    { name: CODEX_HOME, value: "{tmp}/codex-home" }
   - write_file: { path: "{tmp}/codex-home/auth.json", from: "~/.codex/auth.json" }
   - write_file: { path: "{tmp}/codex-home/config.toml", content: "[projects.\"{cwd}\"]\ntrust_level = \"trusted\"\n" }
-  - render_hooks: { format: codex_hooks_json, into: "{tmp}/codex-home/hooks.json" }
+  - render_hooks: { into: "{tmp}/codex-home/hooks.json" }
 hooks:
   session_start:
     provider_event: SessionStart

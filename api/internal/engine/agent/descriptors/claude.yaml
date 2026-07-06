@@ -11,7 +11,7 @@ spawn:
 session:
   resume: { arg: "--resume {id}" }
 config_injection:
-  - render_hooks: { format: claude_settings_json, into: "{tmp}/settings.json" }
+  - render_hooks: { into: "{tmp}/settings.json" }
   - pass_arg:     { arg: "--settings", value: "{tmp}/settings.json" }
 hooks:
   session_start:

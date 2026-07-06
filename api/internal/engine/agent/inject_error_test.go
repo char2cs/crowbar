@@ -28,46 +28,6 @@ func TestBuildSpawnPlan_UnknownInjectVerb_ReturnsError(t *testing.T) {
 	require.Contains(t, err.Error(), "unknown inject verb")
 }
 
-func TestBuildSpawnPlan_SeedTrustIsNoop(t *testing.T) {
-	d := mustDescriptor(t, "\nconfig_injection:\n  - seed_trust: {}\n")
-	ctx := agent.TemplateCtx{Tmp: t.TempDir(), Cwd: t.TempDir(), CrowbarHook: "/bin/crowbar"}
-
-	plan, err := agent.BuildSpawnPlan(d, ctx, nil, nil)
-	require.NoError(t, err)
-	defer plan.Cleanup()
-	require.Empty(t, plan.Argv)
-}
-
-func TestBuildSpawnPlan_CopyTreeCopiesNestedDirectory(t *testing.T) {
-	from := t.TempDir()
-	require.NoError(t, os.MkdirAll(filepath.Join(from, "sub"), 0o755))
-	require.NoError(t, os.WriteFile(filepath.Join(from, "top.txt"), []byte("top"), 0o644))
-	require.NoError(t, os.WriteFile(filepath.Join(from, "sub", "nested.txt"), []byte("nested"), 0o644))
-
-	d := mustDescriptor(t, "\nconfig_injection:\n  - copy_tree: { from: \""+from+"\", into: \"{tmp}/copied\" }\n")
-	ctx := agent.TemplateCtx{Tmp: t.TempDir(), Cwd: t.TempDir(), CrowbarHook: "/bin/crowbar"}
-
-	plan, err := agent.BuildSpawnPlan(d, ctx, nil, nil)
-	require.NoError(t, err)
-	defer plan.Cleanup()
-
-	got, err := os.ReadFile(filepath.Join(ctx.Tmp, "copied", "top.txt"))
-	require.NoError(t, err)
-	require.Equal(t, "top", string(got))
-
-	gotNested, err := os.ReadFile(filepath.Join(ctx.Tmp, "copied", "sub", "nested.txt"))
-	require.NoError(t, err)
-	require.Equal(t, "nested", string(gotNested))
-}
-
-func TestBuildSpawnPlan_CopyTreeMissingSourceReturnsError(t *testing.T) {
-	d := mustDescriptor(t, "\nconfig_injection:\n  - copy_tree: { from: \"/no/such/source/dir\", into: \"{tmp}/copied\" }\n")
-	ctx := agent.TemplateCtx{Tmp: t.TempDir(), Cwd: t.TempDir(), CrowbarHook: "/bin/crowbar"}
-
-	_, err := agent.BuildSpawnPlan(d, ctx, nil, nil)
-	require.Error(t, err)
-}
-
 func TestWriteFileStep_MissingFromSource_WritesEmptyDestination(t *testing.T) {
 	d := mustDescriptor(t, "\nconfig_injection:\n  - write_file: { path: \"{tmp}/dest.txt\", from: \"{tmp}/does-not-exist.txt\" }\n")
 	ctx := agent.TemplateCtx{Tmp: t.TempDir(), Cwd: t.TempDir(), CrowbarHook: "/bin/crowbar"}
@@ -118,7 +78,7 @@ func TestRenderHooksStep_MkdirFailsWhenIntoParentIsAFile(t *testing.T) {
 	blocker := filepath.Join(ctx.Tmp, "blocker")
 	require.NoError(t, os.WriteFile(blocker, []byte("x"), 0o644))
 
-	d := mustDescriptor(t, "\nconfig_injection:\n  - render_hooks: { format: claude_settings_json, into: \""+blocker+"/nested/settings.json\" }\n")
+	d := mustDescriptor(t, "\nconfig_injection:\n  - render_hooks: { into: \""+blocker+"/nested/settings.json\" }\n")
 
 	_, err := agent.BuildSpawnPlan(d, ctx, nil, nil)
 	require.Error(t, err)

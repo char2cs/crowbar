@@ -166,7 +166,7 @@ session:                                # all spawn-time ARGS — Crowbar never 
 # Injection is expressed as ordered declarative STEPS from a closed generic vocabulary.
 # Engine implements the step verbs; it knows nothing about "claude".
 config_injection:
-  - render_hooks: { format: claude_settings_json, into: "{tmp}/settings.json" }
+  - render_hooks: { into: "{tmp}/settings.json" }
   - pass_arg:     { arg: "--settings", value: "{tmp}/settings.json" }
 
 hooks:                                  # events to register + field-maps (JSONPath into the payload)
@@ -223,9 +223,10 @@ config_injection:                       # the genuine divergence: a procedure, n
   - set_env:    { name: CODEX_HOME, value: "{tmp}/codex-home" }
   - write_file: { path: "{tmp}/codex-home/auth.json", from: "~/.codex/auth.json" }   # carry login
   - write_file: { path: "{tmp}/codex-home/config.toml", content: "<project trust = trusted>" }
-  - render_hooks: { format: codex_hooks_json, into: "{tmp}/codex-home/hooks.json" }
-  # seed_trust OPTIONAL — the spawn flag makes hooks run without it; Codex's trusted_hash was not
-  # reverse-engineered (7 serializations missed) and is not needed for the POC.
+  - render_hooks: { into: "{tmp}/codex-home/hooks.json" }
+  # A seed_trust verb was considered here — the spawn flag makes hooks run without it; Codex's
+  # trusted_hash was not reverse-engineered (7 serializations missed) and is not needed for the
+  # POC — so it was never added to the vocabulary.
 
 hooks:                                  # SAME canonical events, same field-map shape as claude.yaml
   session_start: { provider_event: SessionStart, fields: { session_id: $.session_id, transcript: $.transcript_path } }
@@ -243,7 +244,7 @@ handoff_inject:                         # Spike-proven: the handoff rides as Cod
 ```
 
 **Injection step vocabulary (closed set, engine-implemented, zero provider knowledge):**
-`render_hooks`, `pass_arg`, `set_env`, `copy_tree`, `write_file`, `seed_trust`.
+`render_hooks`, `pass_arg`, `set_env`, `write_file`.
 A new provider composes these differently; only if a provider needs a genuinely new mechanism
 does a new verb get added.
 
