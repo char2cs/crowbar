@@ -39,20 +39,29 @@ same wire shape). The doc's #1 fear — Codex lifecycle granularity — is large
 **Two cells still unverified** (confirmed *while building the Codex connector*; they do not
 change any interface, each carries a documented fallback):
 - Codex `SessionStart.source` granularity (its `move_signal`).
-- `/compact` capture over stdin for both CLIs.
+- Codex's hook-injection mechanism (relocate `CODEX_HOME` vs `-c hooks=<path>`) + trust-seeding.
 
 ---
 
 ## 2. Interaction model (read this before the architecture)
 
 The human talks to the agent by **typing directly into the terminal** — the real CLI TUI in
-the PTY, exactly like using it in iTerm2. **There is no "send a message" API. Ever.**
+the PTY, exactly like using it in iTerm2. **There is no "send a message" API, and Crowbar
+never writes to the PTY at all.**
 
-- Crowbar's *only* writes to a PTY are its own **orchestration commands** (e.g. `/compact` on
-  a switch, `/resume` on a switch-back). Every such write goes through the **single dispatch
-  chokepoint** (one engine function — also the switch-injection, logging, and replay point).
+- **The terminal's input belongs entirely to the human.** Crowbar injects no keystrokes — not
+  messages, not `/compact`, not `/clear`. Writing into a live Ink TUI is fragile (it depends on
+  the TUI's current mode) and would race with the user typing. It is also unnecessary (below).
+- **All Crowbar orchestration is out-of-band**, three tools only: (a) **spawn-time arguments**
+  (`--session-id`, `--resume`, handoff via `--append-system-prompt` / `-c developer_instructions`);
+  (b) **read-only side channels** (hooks + transcript); (c) **process lifecycle** (spawn /
+  terminate a PID — a signal, not a PTY write).
 - Crowbar **observes** via hooks + transcript, **owns** the chat + ledger, **detects** moves
-  via `SessionStart`, and **orchestrates** switches. It never relays the user's conversation.
+  via `SessionStart`, and **orchestrates** switches by spawning/terminating processes — never
+  by typing into them.
+- The **single dispatch chokepoint** is therefore the one **spawn** function every provider
+  process is born through (it applies the descriptor: hooks + handoff + `CROWBAR_SEGMENT_ID`) —
+  the switch-injection, logging, and replay point.
 - The HTTP API is **lifecycle/management only**: spawn an agent session, switch provider,
   dump handoff, list/observe chats, plus a WS event stream. No message endpoint.
 
@@ -75,7 +84,7 @@ api/
         + spawn(argv,env)      # EXTEND: today spawns only s.shell; generalize to arbitrary argv+env
       agent/                   # NEW — provider-agnostic agentic engine
         descriptor/            #   YAML load + validate + template resolution
-        inject/                #   generic step runner (write_file/set_env/pass_arg/seed_trust/stdin)
+        inject/                #   generic step runner (write_file/set_env/pass_arg/seed_trust)
         hooks/                 #   ingest → canonical events (field-map from descriptor)
         transcript/            #   locate + read + forward opaque
         descriptors/           #   claude.yaml, codex.yaml  (go:embed, on-disk override)
@@ -117,15 +126,9 @@ spawn:
   forbid_flags: ["-p", "--print"]       # §3 hard guard, enforced in engine
   env: {}                               # cwd supplied by the chat at runtime
 
-input:                                  # how the engine writes orchestration commands to the PTY
-  multiline: bracketed_paste
-  submit: "\r"
-
-session:
+session:                                # all spawn-time ARGS — Crowbar never writes to the PTY
   assign:  { arg: "--session-id {uuid}" }   # Crowbar owns the id
   resume:  { arg: "--resume {id}" }
-  compact: { stdin: "/compact" }
-  clear:   { stdin: "/clear" }
 
 # Injection is expressed as ordered declarative STEPS from a closed generic vocabulary.
 # Engine implements the step verbs; it knows nothing about "claude".
@@ -169,8 +172,6 @@ session:
   # Codex mints its own id on fresh start (no --session-id equivalent confirmed);
   # Crowbar learns it from the first SessionStart hook (correlated by CROWBAR_SEGMENT_ID).
   resume:  { arg: "resume {id}" }
-  compact: { stdin: "/compact" }        # PENDING VERIFY — fallback: skip compact, snapshot transcript only
-  clear:   { stdin: "/clear" }
 
 config_injection:                       # the genuine divergence: a procedure, not a flag
   # PENDING VERIFY (Phase 0) — the exact steps below are the leading hypothesis, not confirmed.
@@ -194,7 +195,7 @@ handoff_inject:
 ```
 
 **Injection step vocabulary (closed set, engine-implemented, zero provider knowledge):**
-`render_hooks`, `pass_arg`, `set_env`, `copy_tree`, `write_file`, `seed_trust`, `stdin`.
+`render_hooks`, `pass_arg`, `set_env`, `copy_tree`, `write_file`, `seed_trust`.
 A new provider composes these differently; only if a provider needs a genuinely new mechanism
 does a new verb get added.
 
@@ -305,13 +306,14 @@ User-initiated, orchestrated by Crowbar (not a user "send"):
 
 ```
 POST /chats/{id}/switch { provider: codex }
-  1. send `/compact` to the outgoing PTY (via chokepoint, descriptor session.compact)
-  2. on turn_stop → snapshot transcript/compact output into the ledger (opaque)
-  3. assemble handoff blob from the ledger
-  4. gracefully terminate the outgoing CLI          # kill-on-switch
-  5. spawn the target CLI in the same chat as a NEW segment, injecting the handoff
+  1. read the outgoing session's transcript from disk → append an opaque snapshot to the ledger
+     (the ledger already holds prior turns from turn_stop; this captures anything since the last Stop)
+  2. assemble the handoff blob from the ledger
+  3. gracefully terminate the outgoing CLI process  # kill-on-switch (a PID signal, NOT a PTY write)
+  4. spawn the target CLI in the same chat as a NEW segment, injecting the handoff at spawn time
      (descriptor handoff_inject) + a fresh CROWBAR_SEGMENT_ID
-  6. new segment bound to the chat; active_segment updated
+  5. new segment bound to the chat; active_segment updated
+  # No keystrokes are ever written to any PTY.
 ```
 
 - **Switch-back** reuses `session.resume`: returning to a prior provider resumes its old
@@ -346,7 +348,8 @@ No message endpoint. The terminal PTY stream itself rides the existing terminal 
 1. Engine is truth; CLI/GUI/agents are clients. No domain logic in `cmd/crowbar` or endpoints.
 2. One code path per operation; provider differences live only in the descriptor.
 3. All CLI-specific knowledge is isolated in the YAML. No `if provider == "claude"` in the engine.
-4. Every Crowbar-originated PTY write routes through the single dispatch chokepoint.
+4. Crowbar never writes to the PTY; every provider **spawn** routes through the single dispatch
+   chokepoint (the switch-injection / logging point). Orchestration is spawn-args + PID lifecycle.
 5. Every Crowbar feature is additive/removable without breaking the underlying session
    (Terminal-only stays a real fallback).
 6. Uniform surface, honest internals (the engine absorbs provider non-uniformity;
@@ -373,10 +376,9 @@ No message endpoint. The terminal PTY stream itself rides the existing terminal 
 `1 → 2 → 3`, session record is substrate for switching.
 
 - **Phase 0 (spike, carried into the plan):** confirm the pending cells against the real
-  binaries: (a) Codex `SessionStart.source` granularity; (b) `/compact` capture over stdin for
-  both CLIs; (c) Codex's hook-injection mechanism (relocate `CODEX_HOME` vs `-c hooks=<path>`)
-  and trust-seeding. Each has a documented fallback so a negative result reshapes a descriptor
-  cell, not the architecture.
+  binaries: (a) Codex `SessionStart.source` granularity; (b) Codex's hook-injection mechanism
+  (relocate `CODEX_HOME` vs `-c hooks=<path>`) and trust-seeding. Each has a documented fallback
+  so a negative result reshapes a descriptor cell, not the architecture.
 - **Component 1 — Adapter contract + dual PTY control:** extend `engine/terminal` spawn to
   argv+env; `engine/agent` descriptor load + generic inject step-runner; `crowbar hook`
   subcommand + ingest endpoint; canonical events. *Acceptance:* one engine path spawns, and
@@ -384,7 +386,7 @@ No message endpoint. The terminal PTY stream itself rides the existing terminal 
 - **Component 2 — Session record + detection:** chat/segment model + ledger writer; the
   serialized reducer; `CROWBAR_SEGMENT_ID` attribution. *Acceptance:* accurate registry across
   both CLIs; known-move → focus, unknown-move → adopt; never corrupts the registry.
-- **Component 3 — One provider switch:** `/compact` → snapshot → kill → spawn-with-handoff →
+- **Component 3 — One provider switch:** read-transcript → snapshot → kill → spawn-with-handoff →
   new segment; switch-back via resume; `handoff dump`. *Acceptance:* live switch continues
   coherently; switch-back correct; inspector shows exactly what was captured and injected.
 
@@ -394,7 +396,8 @@ No message endpoint. The terminal PTY stream itself rides the existing terminal 
 
 Full agent-facing `crowbar` CLI surface (only the `hook` subcommand + install scaffolding now);
 super-harness injection (MCP/skills/subagents — `super_harness:` reserved); LSP-over-MCP;
-workflows; handoff fidelity tuning; all GUI/visual work; per-provider transcript **parsers**
+workflows; handoff fidelity tuning (incl. `/compact`-based condensation — the *only* flow that
+would ever write to the PTY, out of scope here); all GUI/visual work; per-provider transcript **parsers**
 (agents are the only readers of transcript content this iteration); auth handling (the CLI
 authenticates itself with the user's existing login — Crowbar never touches credentials);
 additional providers (OpenCode, Cursor).
