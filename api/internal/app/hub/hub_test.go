@@ -19,6 +19,12 @@ type fakeSubscriber struct {
 	terminals   []dto.TerminalSessionDTO
 	gitStatuses []gitdomain.GitStatus
 	fileEvents  []domain.FileChangeEvent
+	agentChats  []agentChatPush
+}
+
+type agentChatPush struct {
+	chatID string
+	kind   string
 }
 
 func (f *fakeSubscriber) PushProject(
@@ -62,6 +68,13 @@ func (f *fakeSubscriber) PushFile(
 	evt domain.FileChangeEvent,
 ) {
 	f.fileEvents = append(f.fileEvents, evt)
+}
+
+func (f *fakeSubscriber) PushAgentChat(
+	chatID string,
+	kind string,
+) {
+	f.agentChats = append(f.agentChats, agentChatPush{chatID: chatID, kind: kind})
 }
 
 func TestHub_BroadcastProject_FansOut(t *testing.T) {
@@ -160,6 +173,20 @@ func TestHub_BroadcastFile_FansOut(t *testing.T) {
 	assert.Len(t, a.fileEvents, 1)
 	assert.Len(t, b.fileEvents, 1)
 	assert.Equal(t, "a.go", a.fileEvents[0].Path)
+}
+
+func TestHub_BroadcastAgentChat_FansOut(t *testing.T) {
+	h := hub.NewHub()
+	a := &fakeSubscriber{}
+	b := &fakeSubscriber{}
+	h.Register(a)
+	h.Register(b)
+
+	h.BroadcastAgentChat("c1", "bound")
+
+	assert.Len(t, a.agentChats, 1)
+	assert.Len(t, b.agentChats, 1)
+	assert.Equal(t, agentChatPush{chatID: "c1", kind: "bound"}, a.agentChats[0])
 }
 
 func TestHub_NoSubscribers_DoesNotPanic(t *testing.T) {

@@ -264,6 +264,14 @@ func (c *Container) PushFile(
 	c.files.Push(evt)
 }
 
+// PushAgentChat implements hub.Subscriber. It is a stub until Task 15 wires a
+// real agent-chat broadcaster onto this container.
+func (c *Container) PushAgentChat(
+	chatID string,
+	kind string,
+) {
+}
+
 // projectsDef serves the Projects topic. Its hierarchical namespace is the bare
 // project id (spec §5). The snapshot returns every project as a wire DTO from
 // the GORM store; the per-client prefix predicate filters it (spec §9).

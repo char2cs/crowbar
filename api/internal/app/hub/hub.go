@@ -109,4 +109,17 @@ func (h *Hub) BroadcastFile(
 	}
 }
 
+// BroadcastAgentChat fans an agent-chat lifecycle event (spawn/bound/focus/
+// registered/switched/turn_stopped) out to every subscriber.
+func (h *Hub) BroadcastAgentChat(
+	chatID string,
+	kind string,
+) {
+	h.mu.RLock()
+	defer h.mu.RUnlock()
+	for _, s := range h.subscribers {
+		s.PushAgentChat(chatID, kind)
+	}
+}
+
 var _ WebSocketHub = (*Hub)(nil)

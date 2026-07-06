@@ -33,4 +33,8 @@ type WebSocketHub interface {
 	BroadcastFile(
 		evt domain.FileChangeEvent,
 	)
+	BroadcastAgentChat(
+		chatID string,
+		kind string,
+	)
 }

@@ -33,4 +33,8 @@ type Subscriber interface {
 	PushFile(
 		evt domain.FileChangeEvent,
 	)
+	PushAgentChat(
+		chatID string,
+		kind string,
+	)
 }
