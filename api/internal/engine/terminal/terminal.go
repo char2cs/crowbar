@@ -1474,6 +1474,9 @@ func (e *terminalEngine) runMaintenanceOnce(ctx context.Context) {
 			if !ok || !s.IsLive() {
 				continue
 			}
+			if s.IsCommand() {
+				continue // agentic vendor CLI — never suspend/evict, never counted
+			}
 			if s.AttachedCount() > 0 {
 				continue // attached — never touch
 			}
@@ -1511,6 +1514,9 @@ func (e *terminalEngine) runMaintenanceOnce(ctx context.Context) {
 		s, ok := e.reg.Get(id)
 		if !ok || !s.IsLive() {
 			continue
+		}
+		if s.IsCommand() {
+			continue // agentic vendor CLI — never suspend/evict, never counted
 		}
 		if s.AttachedCount() > 0 {
 			continue // attached — never touch

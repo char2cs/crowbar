@@ -406,6 +406,66 @@ func TestMaintenance_GlobalForceLastResort(t *testing.T) {
 }
 
 // ---------------------------------------------------------------------------
+// TestMaintenance_CommandSessionsNeverSuspended
+// ---------------------------------------------------------------------------
+
+// TestMaintenance_CommandSessionsNeverSuspended guards the fatal agentic-CLI bug: a
+// command session (spawned via CreateCommand, e.g. an agentic vendor CLI) must never be
+// idle- or force-suspended by the maintenance sweep, even when it is the sole cause of
+// blowing through both the per-workspace soft limit and the global session-count
+// ceiling. Suspend would tear down the PTY (killing the vendor process outright) and a
+// subsequent restore cannot bring it back (it would exec.Command the joined argv string
+// instead of the original binary) — so these sessions must be entirely invisible to the
+// sweep's candidate-collection loops.
+func TestMaintenance_CommandSessionsNeverSuspended(t *testing.T) {
+	restoreSoft := terminal.SetSoftLimitPerWorkspaceForTest(0)
+	defer restoreSoft()
+	restoreCeiling := terminal.SetMaxTotalSessionsForTest(1)
+	defer restoreCeiling()
+
+	eng := terminal.New()
+	terminal.StopMaintenanceForTest(eng) // prevent ticker from racing with limit-var writes
+	ctx := context.Background()
+	dir := t.TempDir()
+	store := newFakeMetaStore(t)
+	eng.SetMetaStore(store)
+	defer eng.Shutdown()
+
+	// Two long-running, detached command sessions in one workspace: soft limit is 0
+	// (any detached session is "excess") and the global ceiling is 1 (two sessions is
+	// already over), so both phases would fire on ordinary shell sessions.
+	sid1, err := eng.CreateCommand(ctx, "ws-cmd-ceiling", dir,
+		[]string{"/bin/sh", "-c", "sleep 9999"}, os.Environ(), nil)
+	require.NoError(t, err)
+	sid2, err := eng.CreateCommand(ctx, "ws-cmd-ceiling", dir,
+		[]string{"/bin/sh", "-c", "sleep 9999"}, os.Environ(), nil)
+	require.NoError(t, err)
+
+	// Oldest-first ordering would normally pick sid1 first for eviction; stagger
+	// lastActive so the test would fail loudly (not by accident) if the guard broke.
+	base := time.Now().Add(-10 * time.Minute)
+	terminal.SetLastActiveForTest(eng, sid1, base)
+	terminal.SetLastActiveForTest(eng, sid2, base.Add(time.Minute))
+
+	terminal.RunMaintenanceOnceForTest(eng, ctx)
+	time.Sleep(200 * time.Millisecond)
+
+	for _, sid := range []string{sid1, sid2} {
+		assert.True(t, eng.SessionExists(ctx, sid), "command session %s must still exist", sid)
+		state, ok := eng.StateOf(sid)
+		require.True(t, ok, "command session %s must still be registered", sid)
+		assert.NotEqual(t, "suspended", state, "command session %s must never be suspended", sid)
+		assert.False(t, store.hasSavedWithState(sid, "suspended"),
+			"command session %s must never be persisted as suspended", sid)
+		assert.NoError(t, eng.Write(ctx, sid, []byte("echo still-alive\n")),
+			"command session %s must still be live/writable", sid)
+	}
+
+	_ = eng.Kill(ctx, sid1)
+	_ = eng.Kill(ctx, sid2)
+}
+
+// ---------------------------------------------------------------------------
 // TestMaintenance_ShutdownStopsGoroutine
 // ---------------------------------------------------------------------------
 

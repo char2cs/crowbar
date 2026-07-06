@@ -86,6 +86,14 @@ type Session struct {
 	cwd        string
 	shell      string
 	profileID  string
+	// command marks a session spawned via NewCommand — an explicit-argv agentic vendor
+	// CLI (claude/codex), as opposed to a login shell. It is set exactly once in
+	// NewCommand before any goroutine starts and never mutated again, so reading it
+	// without s.mu is race-safe. A command session can never survive Suspend's PTY
+	// teardown+restore (restore would exec.Command the joined argv string as a bogus
+	// binary), so it must be excluded from the maintenance sweep's suspend/evict
+	// eligibility entirely (BeginSuspendIfEligible/BeginForceSuspend below).
+	command bool
 	// lastBlob caches the last live-session serialized blob (header + redraw) so a
 	// cadence flush of an unchanged session reuses it and skips the grid render (§8.4).
 	// It is reclaimable under memory pressure (DropCachedBlob, §9.4).
@@ -287,6 +295,7 @@ func NewCommand(
 		return nil, fmt.Errorf("session: NewCommand requires non-empty argv")
 	}
 	s := newBareSession(id, strings.Join(argv, " "), cwd, "")
+	s.command = true
 	if err := s.spawnCmd(argv, env, spawnParams{Cols: cols, Rows: rows, ScrollbackLines: scrollbackLines}); err != nil {
 		return nil, err
 	}
@@ -486,6 +495,13 @@ func (s *Session) ProfileID() string {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	return s.profileID
+}
+
+// IsCommand reports whether this session was spawned via NewCommand (an explicit-argv
+// agentic vendor CLI) rather than a login shell. command is set once, before spawn's
+// goroutine starts, and never mutated again, so it is safe to read without s.mu.
+func (s *Session) IsCommand() bool {
+	return s.command
 }
 
 // FlushMu returns the dedicated flush mutex used by the engine to serialise bulk
@@ -1261,6 +1277,13 @@ func (s *Session) ExitCode() int {
 // BeginSuspendIfEligible atomically checks idle/no-clients/not-already-suspending and, if
 // eligible, sets the suspending flag — closing the TOCTOU window before the kill.
 func (s *Session) BeginSuspendIfEligible() bool {
+	if s.command {
+		// A command session is a live agentic vendor CLI, not a login shell: Suspend's
+		// PTY teardown would kill the vendor process outright, and restore cannot bring
+		// it back (it would exec.Command the joined argv string as a bogus binary).
+		// Command sessions must never be suspended — see IsCommand's doc.
+		return false
+	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if len(s.clients) > 0 || s.suspending || !s.isIdleLocked() {
@@ -1280,6 +1303,11 @@ func (s *Session) Suspending() bool {
 // BeginForceSuspend atomically sets the suspending flag for a DETACHED session even when it
 // is not idle. Returns false if it has clients or is already suspending.
 func (s *Session) BeginForceSuspend() bool {
+	if s.command {
+		// See BeginSuspendIfEligible: a live agentic CLI can never survive
+		// force-suspend's teardown+restore either.
+		return false
+	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if len(s.clients) > 0 || s.suspending {
