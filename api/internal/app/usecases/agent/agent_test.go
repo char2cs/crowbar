@@ -413,6 +413,25 @@ func TestIngestHook_SessionStart_Registered_MovesOldSegmentAndCreatesNewChat(t *
 	assert.Equal(t, newActive.ChatID, f.bc.calls[1].chatID)
 }
 
+// TestIngestHook_SessionStart_Registered_ClearsVacatedChatsActiveSegmentID
+// guards the stale-ActiveSegmentID fix: once oldSeg moves away from its
+// original chat into a brand-new one, the vacated chat's ActiveSegmentID must
+// no longer point at the now-"moved" segment.
+func TestIngestHook_SessionStart_Registered_ClearsVacatedChatsActiveSegmentID(t *testing.T) {
+	f := newFixture(t)
+	ctx := context.Background()
+
+	chatID, segID, err := f.usecase.SpawnChat(ctx, "ws1", "claude")
+	require.NoError(t, err)
+
+	require.NoError(t, f.usecase.IngestHook(ctx, segID, "session_start", map[string]any{"session_id": "sid-1"}))
+	require.NoError(t, f.usecase.IngestHook(ctx, segID, "session_start", map[string]any{"session_id": "sid-2"}))
+
+	vacatedChat, err := f.repo.GetChat(ctx, chatID)
+	require.NoError(t, err)
+	assert.Empty(t, vacatedChat.ActiveSegmentID, "vacated chat's ActiveSegmentID must be cleared, not left pointing at the moved segment")
+}
+
 func TestIngestHook_SessionStart_Focus_ReactivatesKnownChat(t *testing.T) {
 	f := newFixture(t)
 	ctx := context.Background()
@@ -436,6 +455,31 @@ func TestIngestHook_SessionStart_Focus_ReactivatesKnownChat(t *testing.T) {
 	require.Len(t, f.bc.calls, 3)
 	assert.Equal(t, "focus", f.bc.calls[2].kind)
 	assert.Equal(t, chatID, f.bc.calls[2].chatID)
+}
+
+// TestIngestHook_SessionStart_Focus_ClearsVacatedChatsActiveSegmentID guards
+// the same stale-ActiveSegmentID fix on the "focus" outcome: sid-2's chat
+// (registered in the middle step) loses its live segment when the process
+// focuses back to sid-1's chat, so its ActiveSegmentID must be cleared too.
+func TestIngestHook_SessionStart_Focus_ClearsVacatedChatsActiveSegmentID(t *testing.T) {
+	f := newFixture(t)
+	ctx := context.Background()
+
+	_, segID, err := f.usecase.SpawnChat(ctx, "ws1", "claude")
+	require.NoError(t, err)
+
+	require.NoError(t, f.usecase.IngestHook(ctx, segID, "session_start", map[string]any{"session_id": "sid-1"}))
+	require.NoError(t, f.usecase.IngestHook(ctx, segID, "session_start", map[string]any{"session_id": "sid-2"}))
+
+	registeredActive, err := f.repo.GetActiveSegmentByCrowbarID(ctx, segID)
+	require.NoError(t, err)
+	registeredChatID := registeredActive.ChatID
+
+	require.NoError(t, f.usecase.IngestHook(ctx, segID, "session_start", map[string]any{"session_id": "sid-1"}))
+
+	vacatedChat, err := f.repo.GetChat(ctx, registeredChatID)
+	require.NoError(t, err)
+	assert.Empty(t, vacatedChat.ActiveSegmentID, "vacated chat's ActiveSegmentID must be cleared after focus moves away from it")
 }
 
 func TestIngestHook_TurnStop_AppendsLedgerEntry(t *testing.T) {
@@ -799,6 +843,62 @@ func TestIngestHook_Focus_ChatLoadFailure_ReturnsWrappedError(t *testing.T) {
 	err = f.usecase.IngestHook(ctx, segID, "session_start", map[string]any{"session_id": "sid-1"})
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "focus: load chat")
+}
+
+// TestIngestHook_Registered_ClearVacatedChatFailure_ReturnsWrappedError
+// targets the NEW SaveChat call persistRegistered makes to clear the vacated
+// chat's ActiveSegmentID: SpawnChat makes 2 SaveChat calls (create + set
+// active), the first session_start's "bound" outcome makes none, and
+// "registered" makes one more (the new chat) before this one — so the 4th
+// SaveChat call is the vacated-chat clear.
+func TestIngestHook_Registered_ClearVacatedChatFailure_ReturnsWrappedError(t *testing.T) {
+	repo := &erroringStore{Store: newRealStore(t), failSaveChatAt: 4}
+	f := newFixtureWithRepo(t, repo)
+	ctx := context.Background()
+
+	_, segID, err := f.usecase.SpawnChat(ctx, "ws1", "claude")
+	require.NoError(t, err)
+	require.NoError(t, f.usecase.IngestHook(ctx, segID, "session_start", map[string]any{"session_id": "sid-1"}))
+
+	err = f.usecase.IngestHook(ctx, segID, "session_start", map[string]any{"session_id": "sid-2"})
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "registered: clear vacated chat")
+}
+
+// TestIngestHook_Focus_ClearVacatedChatGetFailure_ReturnsWrappedError and
+// TestIngestHook_Focus_ClearVacatedChatSaveFailure_ReturnsWrappedError target
+// clearVacatedChatActiveSegment's own Get/Save calls in the focus path (the
+// 5th GetChat call and 6th SaveChat call across the 3-session_start
+// bound->registered->focus sequence, both AFTER the existing focus:load
+// chat/focus:save chat calls already covered by other tests here).
+func TestIngestHook_Focus_ClearVacatedChatGetFailure_ReturnsWrappedError(t *testing.T) {
+	repo := &erroringStore{Store: newRealStore(t), failGetChatAt: 5}
+	f := newFixtureWithRepo(t, repo)
+	ctx := context.Background()
+
+	_, segID, err := f.usecase.SpawnChat(ctx, "ws1", "claude")
+	require.NoError(t, err)
+	require.NoError(t, f.usecase.IngestHook(ctx, segID, "session_start", map[string]any{"session_id": "sid-1"}))
+	require.NoError(t, f.usecase.IngestHook(ctx, segID, "session_start", map[string]any{"session_id": "sid-2"}))
+
+	err = f.usecase.IngestHook(ctx, segID, "session_start", map[string]any{"session_id": "sid-1"})
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "focus: clear vacated chat")
+}
+
+func TestIngestHook_Focus_ClearVacatedChatSaveFailure_ReturnsWrappedError(t *testing.T) {
+	repo := &erroringStore{Store: newRealStore(t), failSaveChatAt: 6}
+	f := newFixtureWithRepo(t, repo)
+	ctx := context.Background()
+
+	_, segID, err := f.usecase.SpawnChat(ctx, "ws1", "claude")
+	require.NoError(t, err)
+	require.NoError(t, f.usecase.IngestHook(ctx, segID, "session_start", map[string]any{"session_id": "sid-1"}))
+	require.NoError(t, f.usecase.IngestHook(ctx, segID, "session_start", map[string]any{"session_id": "sid-2"}))
+
+	err = f.usecase.IngestHook(ctx, segID, "session_start", map[string]any{"session_id": "sid-1"})
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "focus: clear vacated chat")
 }
 
 func TestIngestHook_Bound_SaveSegmentFailure_ReturnsWrappedError(t *testing.T) {

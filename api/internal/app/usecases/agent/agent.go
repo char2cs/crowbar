@@ -328,6 +328,18 @@ func (u *Usecase) persistRegistered(
 	if err := u.repo.SaveChat(ctx, newChat); err != nil {
 		return fmt.Errorf("agent: ingest hook: registered: save new chat: %w", err)
 	}
+
+	// oldSeg just vacated priorChat (the process moved to a brand-new chat);
+	// left alone, priorChat.ActiveSegmentID would keep pointing at a segment
+	// that is now "moved", not active. Harmless in practice (callers resolve
+	// "the active segment for a process" via GetActiveSegmentByCrowbarID,
+	// never chat.ActiveSegmentID directly) but stale/misleading to inspect.
+	if priorChat.ActiveSegmentID == oldSeg.ID {
+		priorChat.ActiveSegmentID = ""
+		if err := u.repo.SaveChat(ctx, priorChat); err != nil {
+			return fmt.Errorf("agent: ingest hook: registered: clear vacated chat: %w", err)
+		}
+	}
 	return nil
 }
 
@@ -365,7 +377,40 @@ func (u *Usecase) persistFocus(
 	if err := u.repo.SaveChat(ctx, focusedChat); err != nil {
 		return fmt.Errorf("agent: ingest hook: focus: save chat: %w", err)
 	}
+
+	// oldSeg was the active segment of ITS OWN chat, which may differ from the
+	// chat we just focused into (that is the whole point of "focus": moving
+	// into a DIFFERENT known chat). Clear that vacated chat's ActiveSegmentID
+	// so it doesn't keep pointing at a now-"moved" segment. Guarded on
+	// oldSeg.ChatID != out.ChatID so a same-chat edge case never clobbers the
+	// focusedChat update just made above.
+	if oldSeg.ChatID != out.ChatID {
+		if err := u.clearVacatedChatActiveSegment(ctx, oldSeg.ChatID, oldSeg.ID); err != nil {
+			return fmt.Errorf("agent: ingest hook: focus: clear vacated chat: %w", err)
+		}
+	}
 	return nil
+}
+
+// clearVacatedChatActiveSegment nulls chatID's ActiveSegmentID when it still
+// points at vacatedSegID (the segment a session_start move just carried the
+// live process away from), so a chat's ActiveSegmentID never outlives the
+// segment it names. A mismatch is left untouched (defensive: some other
+// change may already have updated it).
+func (u *Usecase) clearVacatedChatActiveSegment(
+	ctx context.Context,
+	chatID string,
+	vacatedSegID string,
+) error {
+	c, err := u.repo.GetChat(ctx, chatID)
+	if err != nil {
+		return err
+	}
+	if c.ActiveSegmentID != vacatedSegID {
+		return nil
+	}
+	c.ActiveSegmentID = ""
+	return u.repo.SaveChat(ctx, c)
 }
 
 func (u *Usecase) handleTurnStop(
