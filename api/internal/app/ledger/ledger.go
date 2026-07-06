@@ -1,9 +1,11 @@
-// Package ledger implements the per-chat, append-only, provider-tagged store
-// of opaque transcript snapshots. Crowbar owns this store; the contents are
-// never parsed (agentic-engine spec §6).
+// Package ledger implements the per-chat, append-only, provider-tagged store of
+// conversation turns Crowbar derives from vendor-CLI hooks (agentic-engine
+// descriptor-v2 §7). Crowbar builds this record itself; it never reads a file
+// the vendor CLI wrote.
 package ledger
 
 import (
+	"encoding/json"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -11,8 +13,15 @@ import (
 	"time"
 )
 
-// Ledger is a per-chat, append-only, provider-tagged store of opaque
-// transcript snapshots.
+// Turn is one conversation turn recorded from a hook.
+type Turn struct {
+	Role     string    `json:"role"` // "user" | "assistant"
+	Provider string    `json:"provider"`
+	Text     string    `json:"text"`
+	At       time.Time `json:"at"`
+}
+
+// Ledger is a per-chat, append-only store of conversation turns.
 type Ledger struct{ dir string }
 
 // Open ensures the ledger directory exists and returns a handle to it.
@@ -23,18 +32,23 @@ func Open(dir string) (*Ledger, error) {
 	return &Ledger{dir: dir}, nil
 }
 
-// Append writes the next opaque snapshot, prefixed with a zero-padded
-// sequence so lexical order == chronological order. Returns the written
-// filename.
-func (l *Ledger) Append(providerID string, at time.Time, blob []byte) (string, error) {
+// AppendTurn records one conversation turn. Empty text is a no-op (returns
+// ("", nil)) so a provider that fires turn_stop with no final message never
+// writes a blank entry. The %08d prefix keeps lexical == chronological order.
+func (l *Ledger) AppendTurn(role, provider string, at time.Time, text string) (string, error) {
+	if text == "" {
+		return "", nil
+	}
 	seq, err := l.nextSeq()
 	if err != nil {
 		return "", err
 	}
-	// %08d keeps lexical order == chronological order well past any realistic
-	// per-chat turn count (a 4-digit width would invert once seq crosses 9999).
-	name := fmt.Sprintf("%08d-%s-%s.blob", seq, at.UTC().Format("20060102T150405Z"), providerID)
-	if err := os.WriteFile(filepath.Join(l.dir, name), blob, 0o640); err != nil { //nolint:gosec // ledger entries are group-readable by design; name is ledger-generated
+	rec, err := json.Marshal(Turn{Role: role, Provider: provider, Text: text, At: at.UTC()})
+	if err != nil {
+		return "", fmt.Errorf("ledger: marshal turn: %w", err)
+	}
+	name := fmt.Sprintf("%08d-%s-%s-%s.turn", seq, at.UTC().Format("20060102T150405Z"), role, provider)
+	if err := os.WriteFile(filepath.Join(l.dir, name), rec, 0o640); err != nil { //nolint:gosec // ledger entries are group-readable by design; name is ledger-generated
 		return "", fmt.Errorf("ledger: write: %w", err)
 	}
 	return name, nil
@@ -47,7 +61,7 @@ func (l *Ledger) entries() ([]string, error) {
 	}
 	var names []string
 	for _, de := range des {
-		if !de.IsDir() && filepath.Ext(de.Name()) == ".blob" {
+		if !de.IsDir() && filepath.Ext(de.Name()) == ".turn" {
 			names = append(names, de.Name())
 		}
 	}
@@ -63,9 +77,9 @@ func (l *Ledger) nextSeq() (int, error) {
 	return len(names) + 1, nil
 }
 
-// ReadAll concatenates every entry in order, separated by a legible header so
-// a receiving model can tell segments apart.
-func (l *Ledger) ReadAll() ([]byte, error) {
+// RenderConversation reads every turn in order and renders a legible plain-text
+// conversation for a receiving model.
+func (l *Ledger) RenderConversation() ([]byte, error) {
 	names, err := l.entries()
 	if err != nil {
 		return nil, err
@@ -76,8 +90,15 @@ func (l *Ledger) ReadAll() ([]byte, error) {
 		if err != nil {
 			return nil, fmt.Errorf("ledger: read %s: %w", n, err)
 		}
-		out = append(out, []byte("\n===== LEDGER ENTRY "+n+" =====\n")...)
-		out = append(out, data...)
+		var tn Turn
+		if err := json.Unmarshal(data, &tn); err != nil {
+			return nil, fmt.Errorf("ledger: unmarshal %s: %w", n, err)
+		}
+		header := tn.Role
+		if tn.Role == "assistant" && tn.Provider != "" {
+			header = fmt.Sprintf("assistant (%s)", tn.Provider)
+		}
+		out = append(out, []byte(header+": "+tn.Text+"\n\n")...)
 	}
 	return out, nil
 }
