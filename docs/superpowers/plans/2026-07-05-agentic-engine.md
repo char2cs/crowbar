@@ -52,7 +52,6 @@ api/internal/engine/agent/
   template.go              # token resolution ({tmp},{uuid},{id},{handoff},{cwd_slug})
   inject.go                # generic step-runner -> Spawn{Argv,Env,Cwd,Cleanup}
   hooks.go                 # field-map: raw provider payload -> canonical event
-  transcript.go            # locate (from hook) + read opaque + slurp
   engine.go                # AgentEngine facade: LoadDescriptor, BuildSpawn, MapHook
   registry.go              # segment->session-id registry (serialized reducer state)
   reducer.go               # the detection reducer (facts, not labels)
@@ -2073,7 +2072,6 @@ Co-Authored-By: Claude Opus 4.8 (1M context) <noreply@anthropic.com>"
   - `type Outcome struct { Kind string; ChatID, SessionID, SegmentID string }` (`Kind` ∈ `noop|bound|focus|registered`).
   - `type Registry struct { ... }`, `func NewRegistry() *Registry`.
   - `func (r *Registry) BindSegment(segmentID, chatID string)` — record which chat a freshly-spawned segment belongs to (called before its first hook).
-  - `func (r *Registry) ChatForSegment(segmentID string) string` — the chat a segment currently hosts (used by the usecase to attribute `turn_stop` to the reducer's current chat, not a stale DB value).
   - `func (r *Registry) Seed(sessionID, chatID string)` — mark a session id as known (rehydration from DB at startup).
   - `func (r *Registry) OnSessionStart(segmentID, sessionID string, newChatID func() string) Outcome` — the serialized reducer.
 
@@ -2140,15 +2138,6 @@ func TestReducer_ClearThenResumeSequence(t *testing.T) {
 	require.Equal(t, "chatA", back.ChatID)
 }
 
-func TestReducer_ChatForSegmentTracksCurrentChat(t *testing.T) {
-	r := agent.NewRegistry()
-	r.BindSegment("seg1", "chatA")
-	require.Equal(t, "chatA", r.ChatForSegment("seg1"))
-	r.OnSessionStart("seg1", "s0", newID("x"))
-	r.OnSessionStart("seg1", "s1", newID("chatB")) // clear -> registered, seg now hosts chatB
-	require.Equal(t, "chatB", r.ChatForSegment("seg1"))
-}
-
 func newID(id string) func() string { return func() string { return id } }
 ```
 
@@ -2195,15 +2184,6 @@ func (r *Registry) BindSegment(segmentID, chatID string) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	r.segToChat[segmentID] = chatID
-}
-
-// ChatForSegment returns the chat a segment currently hosts (empty if unknown).
-// The usecase uses this to attribute turn_stop to the reducer's current chat
-// rather than a possibly-stale DB row.
-func (r *Registry) ChatForSegment(segmentID string) string {
-	r.mu.Lock()
-	defer r.mu.Unlock()
-	return r.segToChat[segmentID]
 }
 
 // Seed marks a session id as known (used to rehydrate from the DB at startup).
@@ -2289,7 +2269,7 @@ Co-Authored-By: Claude Opus 4.8 (1M context) <noreply@anthropic.com>"
 - Test: `api/internal/app/usecases/agent/agent_test.go`
 
 **Interfaces:**
-- Consumes: `agent.Registry`, `agent.ResolveDescriptor`/`BuildSpawnPlan`/`MapHook`, `agentchat.Store`, `ledger`, a `TerminalCommander` seam (`CreateCommand`), `transcript.Read`, a `WorkspaceReader` (to resolve the workspace's worktree dir), a `Broadcaster` seam, `selfinstall`/`metadata` for the crowbar-hook path.
+- Consumes: `agent.Registry`, `agent.ResolveDescriptor`/`BuildSpawnPlan`/`MapHook`, `agentchat.Store`, `ledger`, a `TerminalCommander` seam (`CreateCommand`), a `WorkspaceReader` (to resolve the workspace's worktree dir), a `Broadcaster` seam, `selfinstall`/`metadata` for the crowbar-hook path.
 - Produces:
   - `type Usecase struct { ... }`, `func New(...) *Usecase`.
   - `func (u *Usecase) SpawnChat(ctx, workspaceID, providerID string) (chatID, segmentID string, err error)` — creates AgentChat + AgentSegment, binds the reducer, builds the spawn plan (with `CROWBAR_SEGMENT_ID`), spawns via `CreateCommand`.
@@ -2306,12 +2286,27 @@ type Broadcaster interface{ BroadcastAgentChat(chatID, kind string) }
 type WorkspaceReader interface{ WorktreeDir(ctx context.Context, workspaceID string) (crowbarHome, projectID, repoID, worktree string, err error) }
 ```
 
+**Shared helper `spawnSegment` — the single owner of `AgentChat.ActiveSegmentID`.** Both `SpawnChat` and `SwitchProvider` (Task 17) go through it, so `ActiveSegmentID` is always set by exactly one code path (never left `""`, which would break `SwitchProvider`'s `GetSegment(chat.ActiveSegmentID)` lookup):
+
+```go
+func (u *Usecase) spawnSegment(ctx context.Context, chat domain.AgentChat, providerID string, extraSteps []agent.InjectStep, handoff string) (segID string, err error)
+```
+
+The `handoff` param is the assembled handoff blob (empty for a fresh spawn); it binds the descriptor's `{handoff}` token via `TemplateCtx.Handoff` so `handoff_inject` steps in `extraSteps` resolve.
+
+Contract (every step is normative):
+1. `segID := uuid.NewString()` (also the `CrowbarSegmentID`).
+2. Persist `AgentSegment{ID: segID, ChatID: chat.ID, ProviderID: providerID, CrowbarSegmentID: segID, Status: "active", StartedAt: now}`.
+3. `registry.BindSegment(segID, chat.ID)`.
+4. Resolve descriptor(providerID); build `TemplateCtx{Tmp: mkdtemp, Cwd: worktree(chat.WorkspaceID), CrowbarHook, Handoff: handoff}`; `plan, err := BuildSpawnPlan(d, ctx, os.Environ(), extraSteps)`; `argv = append([]string{d.Spawn.Cmd}, plan.Argv...)`; `env = append(plan.Env, "CROWBAR_SEGMENT_ID="+segID)`.
+5. `termSessID := term.CreateCommand(ctx, chat.WorkspaceID, worktree, argv, env)`; set `seg.TerminalSessionID = termSessID`; save the segment.
+6. **`chat.ActiveSegmentID = segID`; `SaveChat(chat)`.**
+7. return `segID`.
+
 **Design of `SpawnChat`:**
-1. `chatID := uuid.NewString()`; `segID := uuid.NewString()` (this is the `CrowbarSegmentID`).
-2. Persist `AgentChat{ID:chatID, WorkspaceID, CreatedAt:now}` and `AgentSegment{ID:segID, ChatID, ProviderID, CrowbarSegmentID:segID, Status:"active", StartedAt:now}`.
-3. `u.registry.BindSegment(segID, chatID)`.
-4. Resolve descriptor. Build `TemplateCtx{ Tmp: mkdtemp, Cwd: worktree, CrowbarHook: <home>/bin/crowbar }`. Run `BuildSpawnPlan`. Prepend `descriptor.Spawn.Cmd` as argv[0], append plan.Argv. Set `CROWBAR_SEGMENT_ID=segID` in plan.Env.
-5. `termSessID := u.term.CreateCommand(ctx, workspaceID, worktree, append([]string{descriptor.Spawn.Cmd}, plan.Argv...), plan.Env)`. Store `termSessID` on the segment.
+1. `chatID := uuid.NewString()`; create + persist `AgentChat{ID: chatID, WorkspaceID, CreatedAt: now}` (no `ActiveSegmentID` yet — the helper sets it).
+2. `segID, err := u.spawnSegment(ctx, chat, providerID, nil, "")` — this creates + spawns the first segment and, per its contract, sets the chat's `ActiveSegmentID`. (Empty handoff: a fresh chat has no prior context.)
+3. Return `chatID, segID`.
 
 **Invariant (see Task 11):** one live process (`CrowbarSegmentID`) has **at most one** `AgentSegment` with `status="active"`, and its `ProviderID` is stable for life. A single process can host different chats over time (`/clear` registers a new chat; `/resume`-to-known focuses another), so the DB must *follow* the reducer — a move **ends the current active segment and opens a new active segment** rather than mutating a static `ChatID`. Therefore every "current segment for this process" lookup resolves via `GetActiveSegmentByCrowbarID(crowbarSegID)`, never a bare `.First` on `crowbar_segment_id` (which now matches multiple rows).
 
@@ -2320,20 +2315,25 @@ type WorkspaceReader interface{ WorktreeDir(ctx context.Context, workspaceID str
 - If `ev.Kind == "session_start"`: `out := u.registry.OnSessionStart(crowbarSegID, ev.SessionID, func() string { return uuid.NewString() })`, then persist per outcome:
   - `bound`: set the active segment's `ProviderSessionID = ev.SessionID` and `TranscriptPath = ev.Transcript`; save. **Never overwrite a non-empty `ProviderSessionID`** (guard before assigning).
   - `registered`: mark the current active segment `Status="moved"`, `EndedAt=now`; save — **KEEP its `ProviderSessionID`** (switch-back resume to the old id must still work). Create a new `AgentChat{ID: out.ChatID, WorkspaceID: <the prior chat's WorkspaceID>, CreatedAt: now}`, and a **new** `AgentSegment{ID: uuid.NewString(), ChatID: out.ChatID, ProviderID: <same>, CrowbarSegmentID: crowbarSegID, ProviderSessionID: ev.SessionID, TranscriptPath: ev.Transcript, Status: "active", StartedAt: now}`; set the new chat's `ActiveSegmentID` to that segment; save.
-  - `focus`: mark the current active segment `Status="moved"`, save; create a **new** `AgentSegment{ID: uuid.NewString(), ChatID: out.ChatID (the known chat), ProviderID: <same>, CrowbarSegmentID: crowbarSegID, ProviderSessionID: ev.SessionID, Status: "active", StartedAt: now}`; broadcast focus. (`ProviderSessionID` may repeat across rows — that is expected; the active-status invariant keeps the "current segment" unambiguous.)
+  - `focus`: mark the current active segment `Status="moved"`, save; create a **new** `AgentSegment{ID: newSegID (=uuid.NewString()), ChatID: out.ChatID (the known chat), ProviderID: <same>, CrowbarSegmentID: crowbarSegID, ProviderSessionID: ev.SessionID, Status: "active", StartedAt: now}`; save. This path does **not** call `spawnSegment` — no new process is started; the *same* live process now hosts an already-known chat. So after saving the new active row, explicitly load the focused chat (`out.ChatID`), set its **`ActiveSegmentID = newSegID`**, and `SaveChat` (keeping that chat's `ActiveSegmentID` correct for its next switch). Broadcast focus. (`ProviderSessionID` may repeat across rows — that is expected; the active-status invariant keeps the "current segment" unambiguous.)
   - `noop`: nothing.
   - Always `u.bc.BroadcastAgentChat(out.ChatID, out.Kind)`.
-- If `ev.Kind == "turn_stop"`: resolve the active segment for `crowbarSegID` → its **current** `ChatID` → `AgentLedgerDir(...)` → `ledger.Open(...).Append(providerID, now, blob)` where `blob` is read from `ev.Transcript` (opaque); `BroadcastAgentChat(chatID, "turn_stopped")`.
+- If `ev.Kind == "turn_stop"`: resolve `seg, err := agentchat.GetActiveSegmentByCrowbarID(ctx, crowbarSegID)` — the DB active row is the **single source of truth** for which chat the process currently hosts, so read the chat id directly as `seg.ChatID` (this is why `Registry.ChatForSegment` is unnecessary). Read the transcript inline as an opaque slurp: `blob, rerr := os.ReadFile(ev.Transcript)`. **If `rerr != nil`** (path missing / not yet written on disk), **SKIP the ledger append** — log at debug and return `nil`; do **not** error the hook. On a successful read: `AgentLedgerDir(...)` → `ledger.Open(...).Append(seg.ProviderID, now, blob)`; `BroadcastAgentChat(seg.ChatID, "turn_stopped")`.
 
 - [ ] **Step 1: Write the failing test** (fakes for terminal/ws/workspace)
 
 ```go
 // api/internal/app/usecases/agent/agent_test.go — table/behavior tests:
 // (a) SpawnChat persists a chat+segment, binds the reducer, and calls CreateCommand
-//     with CROWBAR_SEGMENT_ID in env and the descriptor cmd as argv[0].
+//     with CROWBAR_SEGMENT_ID in env and the descriptor cmd as argv[0]; it also
+//     leaves the chat's ActiveSegmentID NON-EMPTY and EQUAL to the created segment
+//     id, so a later SwitchProvider resolves the outgoing active segment via
+//     GetSegment(chat.ActiveSegmentID).
 // (b) IngestHook(session_start) with a NEW id under a bound segment records the
 //     provider session id (and TranscriptPath) on the active segment.
-// (c) IngestHook(turn_stop) writes a ledger entry from a transcript file on disk.
+// (c) IngestHook(turn_stop) with a REAL transcript file on disk appends a ledger
+//     entry; with a MISSING/unwritten transcript path it no-ops (no ledger entry,
+//     no error returned).
 // (d) IngestHook(session_start) yielding "registered" (a second, unknown id under
 //     the same crowbarSegID) marks the old segment Status="moved" (keeping its
 //     ProviderSessionID intact — NOT overwritten) and creates a NEW active segment
@@ -2482,22 +2482,34 @@ Co-Authored-By: Claude Opus 4.8 (1M context) <noreply@anthropic.com>"
 1. Load chat; load its active segment (`GetSegment(chat.ActiveSegmentID)`), which carries `TerminalSessionID` + `ProviderID` + `ProviderSessionID`.
 2. `handoff, _ := u.AssembleHandoff(ctx, chatID)` (ledger already holds prior turns).
 3. Terminate the outgoing CLI: `u.term.Kill(ctx, oldSeg.TerminalSessionID)`; mark `oldSeg.Status="ended"`, `oldSeg.EndedAt=now`, save.
-4. Determine switch-back: if a prior segment in this chat exists with `ProviderID==targetProviderID` and a non-empty `ProviderSessionID`, this is a **switch-back** — build `session.resume` extraSteps so native context is restored; still also inject the handoff delta via `handoff_inject`. Otherwise, a **forward switch** — inject only the handoff.
+4. Determine switch-back: if a prior segment in this chat exists with `ProviderID==targetProviderID` and a non-empty `ProviderSessionID`, this is a **switch-back** — build `session.resume` extraSteps so native context is restored; still also inject the handoff delta via `handoff_inject`. Otherwise, a **forward switch** — inject only the handoff (`resumeSteps` stays empty).
    - **Resume arg must be split into separate argv tokens.** `descriptor.Session.Resume.Arg` is one string like `"--resume {id}"` / `"resume {id}"`; passing it whole as a single `pass_arg{arg}`/`pass_arg{positional}` hands `exec.Command` one literal argument (e.g. `"--resume abc123"`) and resume fails. Expand the resume arg with `{id}=priorSessionID`, then split on whitespace and append each token as its own argv element:
      ```go
-     resumeCtx := agent.TemplateCtx{ID: priorSessionID} // only {id} matters here
-     for _, tok := range strings.Fields(agent.Expand(d.Session.Resume.Arg, resumeCtx)) {
-         steps = append(steps, agent.InjectStep{Verb: "pass_arg", Args: map[string]any{"positional": tok}})
+     var resumeSteps []agent.InjectStep
+     if switchBack {
+         resumeCtx := agent.TemplateCtx{ID: priorSessionID} // only {id} matters here
+         for _, tok := range strings.Fields(agent.Expand(d.Session.Resume.Arg, resumeCtx)) {
+             resumeSteps = append(resumeSteps, agent.InjectStep{Verb: "pass_arg", Args: map[string]any{"positional": tok}})
+         }
      }
      ```
-5. Build the new segment exactly like `SpawnChat` but reuse the existing `chatID`: new `segID=uuid`, persist `AgentSegment{ChatID:chatID, ProviderID:target, CrowbarSegmentID:segID, Status:"active"}`, `registry.BindSegment(segID, chatID)`, build spawn plan with `extraSteps = handoff_inject (+ resume)`, `CROWBAR_SEGMENT_ID=segID`, `CreateCommand`, store `TerminalSessionID`.
-6. `chat.ActiveSegmentID=segID`, save; `BroadcastAgentChat(chatID,"switched")`. Return `segID`.
+   - **Resume steps must precede the handoff positional.** Codex resume is the subcommand `resume <id>`, which must come *before* any positional handoff arg; assemble the extra steps with the resume steps FIRST:
+     ```go
+     // resume goes first so codex's `resume <id>` subcommand precedes the
+     // positional handoff. The {handoff} token inside handoffSteps is bound by
+     // spawnSegment's TemplateCtx.Handoff (the `handoff` arg passed below).
+     handoffSteps := d.HandoffInject
+     extraSteps := append(resumeSteps, handoffSteps...)
+     ```
+     (For claude the handoff is a flag pair `--append-system-prompt {handoff}`, so order is irrelevant there; prepending resume keeps the subcommand-style codex resume correct.)
+5. Build the new segment through the shared helper (Task 14), the single owner of `ActiveSegmentID`: `newSegID, err := u.spawnSegment(ctx, chat, targetProviderID, extraSteps, handoff)` — passing the assembled `handoff` so `{handoff}` in `handoffSteps` resolves. The helper persists the new `AgentSegment` (`ProviderID:target`, `CrowbarSegmentID:newSegID`, `Status:"active"`), binds the reducer, builds the spawn plan with `extraSteps`, stamps `CROWBAR_SEGMENT_ID`, calls `CreateCommand`, stores `TerminalSessionID`, **and sets `chat.ActiveSegmentID = newSegID` + `SaveChat`** — so no inline segment-creation or `ActiveSegmentID` assignment is duplicated here.
+6. `BroadcastAgentChat(chatID, "switched")`. Return `newSegID`.
 
 - [ ] **Step 1: Write the failing test** (fakes): assert (a) old terminal session killed, (b) `CreateCommand` argv for the new segment contains the target descriptor cmd and the handoff value (forward), (c) a new active segment is persisted with the target provider, (d) switch-back path adds the resume flag and the prior session id as **separate** argv tokens (e.g. `--resume` and `priorSessionID` are two distinct elements of the new segment's argv, not one `"--resume priorSessionID"` token).
 
 - [ ] **Step 2: Run test → fails.** Run: `cd api && go test -tags noEmbed ./internal/app/usecases/agent/ -run Switch -v`
 
-- [ ] **Step 3: Implement `SwitchProvider`** per the design (share a private `spawnSegment(ctx, chat, providerID, extraSteps)` helper factored out of `SpawnChat`).
+- [ ] **Step 3: Implement `SwitchProvider`** per the design, reusing the shared private `spawnSegment(ctx, chat, providerID, extraSteps, handoff)` helper defined in Task 14 (it owns `ActiveSegmentID`) — do not re-implement segment creation inline.
 
 - [ ] **Step 4: Run test → passes.**
 
