@@ -32,7 +32,7 @@ func envValue(env []string, name string) string {
 func TestBuildSpawnPlan_ClaudeWritesSettingsAndArgs(t *testing.T) {
 	d, err := agent.ResolveDescriptor(t.TempDir(), "claude")
 	require.NoError(t, err)
-	ctx := agent.TemplateCtx{Tmp: t.TempDir(), Cwd: t.TempDir(), CrowbarHook: "/bin/crowbar"}
+	ctx := agent.TemplateCtx{Tmp: t.TempDir(), Cwd: t.TempDir(), CrowbarHook: "/bin/crowbar", Segid: "seg-9", Provider: "claude"}
 
 	plan, err := agent.BuildSpawnPlan(d, ctx, os.Environ(), nil)
 	require.NoError(t, err)
@@ -45,7 +45,7 @@ func TestBuildSpawnPlan_ClaudeWritesSettingsAndArgs(t *testing.T) {
 	data, err := os.ReadFile(settingsPath)
 	require.NoError(t, err)
 	require.Contains(t, string(data), "SessionStart")
-	require.Contains(t, string(data), "/bin/crowbar")
+	require.Contains(t, string(data), "/bin/crowbar hook turn_stop --segment seg-9 --provider claude")
 
 	// nested-CC markers are cleared from Env
 	for _, kv := range plan.Env {
@@ -57,7 +57,7 @@ func TestBuildSpawnPlan_ClaudeWritesSettingsAndArgs(t *testing.T) {
 func TestBuildSpawnPlan_CodexSetsHomeAndBypassFlag(t *testing.T) {
 	d, err := agent.ResolveDescriptor(t.TempDir(), "codex")
 	require.NoError(t, err)
-	ctx := agent.TemplateCtx{Tmp: t.TempDir(), Cwd: t.TempDir(), CrowbarHook: "/bin/crowbar"}
+	ctx := agent.TemplateCtx{Tmp: t.TempDir(), Cwd: t.TempDir(), CrowbarHook: "/bin/crowbar", Segid: "seg-c", Provider: "codex"}
 	plan, err := agent.BuildSpawnPlan(d, ctx, os.Environ(), nil)
 	require.NoError(t, err)
 	defer plan.Cleanup()
@@ -66,6 +66,10 @@ func TestBuildSpawnPlan_CodexSetsHomeAndBypassFlag(t *testing.T) {
 	require.Contains(t, envValue(plan.Env, "CODEX_HOME"), filepath.Base(ctx.Tmp)) // CODEX_HOME under tmp
 	_, err = os.Stat(envValue(plan.Env, "CODEX_HOME") + "/hooks.json")
 	require.NoError(t, err)
+
+	hooksData, err := os.ReadFile(envValue(plan.Env, "CODEX_HOME") + "/hooks.json")
+	require.NoError(t, err)
+	require.Contains(t, string(hooksData), "--segment seg-c --provider codex")
 }
 
 func TestBuildSpawnPlan_RejectsForbiddenFlag(t *testing.T) {

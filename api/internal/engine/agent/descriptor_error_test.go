@@ -18,10 +18,10 @@ spawn:
   cmd: testcmd
   interactive_required: true
 hooks:
-  session_start:
-    provider_event: SessionStart
-    fields:
-      session_id: "$.session_id"
+  format: json
+  events:
+    session_start: { session_id: session_id }
+    turn_stop: { message: last_assistant_message }
 `
 
 func TestLoadDescriptor_RejectsMalformedYAML(t *testing.T) {
@@ -35,8 +35,10 @@ id: testprov
 spawn:
   interactive_required: true
 hooks:
-  session_start:
-    fields: { session_id: "$.session_id" }
+  format: json
+  events:
+    session_start: { session_id: session_id }
+    turn_stop: { message: last_assistant_message }
 `))
 	require.Error(t, err)
 }
@@ -48,8 +50,10 @@ spawn:
   cmd: testcmd
   interactive_required: false
 hooks:
-  session_start:
-    fields: { session_id: "$.session_id" }
+  format: json
+  events:
+    session_start: { session_id: session_id }
+    turn_stop: { message: last_assistant_message }
 `))
 	require.Error(t, err)
 }
@@ -67,14 +71,37 @@ spawn:
 func TestLoadDescriptor_RejectsSessionStartMissingSessionIDField(t *testing.T) {
 	_, err := agent.LoadDescriptor([]byte(`
 id: testprov
-spawn:
-  cmd: testcmd
-  interactive_required: true
+spawn: { cmd: testcmd, interactive_required: true }
 hooks:
-  session_start:
-    provider_event: SessionStart
-    fields:
-      transcript: "$.transcript_path"
+  format: json
+  events:
+    session_start: { }
+    turn_stop: { message: last_assistant_message }
+`))
+	require.Error(t, err)
+}
+
+func TestLoadDescriptor_RejectsMissingHooksFormat(t *testing.T) {
+	_, err := agent.LoadDescriptor([]byte(`
+id: testprov
+spawn: { cmd: testcmd, interactive_required: true }
+hooks:
+  events:
+    session_start: { session_id: session_id }
+    turn_stop: { message: last_assistant_message }
+`))
+	require.Error(t, err)
+}
+
+func TestLoadDescriptor_RejectsTurnStopMissingMessage(t *testing.T) {
+	_, err := agent.LoadDescriptor([]byte(`
+id: testprov
+spawn: { cmd: testcmd, interactive_required: true }
+hooks:
+  format: json
+  events:
+    session_start: { session_id: session_id }
+    turn_stop: { }
 `))
 	require.Error(t, err)
 }

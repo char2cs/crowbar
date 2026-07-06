@@ -73,17 +73,6 @@ func TestWriteFileStep_CopyFailsWhenDestDirReadOnly(t *testing.T) {
 	require.Error(t, err)
 }
 
-func TestRenderHooksStep_MkdirFailsWhenIntoParentIsAFile(t *testing.T) {
-	ctx := agent.TemplateCtx{Tmp: t.TempDir(), Cwd: t.TempDir(), CrowbarHook: "/bin/crowbar"}
-	blocker := filepath.Join(ctx.Tmp, "blocker")
-	require.NoError(t, os.WriteFile(blocker, []byte("x"), 0o644))
-
-	d := mustDescriptor(t, "\nconfig_injection:\n  - render_hooks: { into: \""+blocker+"/nested/settings.json\" }\n")
-
-	_, err := agent.BuildSpawnPlan(d, ctx, nil, nil)
-	require.Error(t, err)
-}
-
 func TestWriteFileStep_MkdirFailsWhenPathParentIsAFile(t *testing.T) {
 	ctx := agent.TemplateCtx{Tmp: t.TempDir(), Cwd: t.TempDir(), CrowbarHook: "/bin/crowbar"}
 	blocker := filepath.Join(ctx.Tmp, "blocker")

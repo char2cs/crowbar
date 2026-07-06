@@ -6,40 +6,52 @@ import (
 )
 
 type CanonicalEvent struct {
-	Kind       string
-	SessionID  string
-	Transcript string
-	Raw        map[string]any
+	Kind      string
+	SessionID string
+	Message   string
+	Raw       map[string]any
 }
 
 func (d *Descriptor) MapHook(canonical string, payload map[string]any) (CanonicalEvent, error) {
-	hm, ok := d.Hooks[canonical]
+	fields, ok := d.Hooks.Events[canonical]
 	if !ok {
 		return CanonicalEvent{}, fmt.Errorf("agent: descriptor %q has no hook %q", d.ID, canonical)
 	}
 	get := func(field string) string {
-		path, ok := hm.Fields[field]
+		path, ok := fields[field]
 		if !ok {
 			return ""
 		}
 		return extract(payload, path)
 	}
 	return CanonicalEvent{
-		Kind:       canonical,
-		SessionID:  get("session_id"),
-		Transcript: get("transcript"),
-		Raw:        payload,
+		Kind:      canonical,
+		SessionID: get("session_id"),
+		Message:   get("message"),
+		Raw:       payload,
 	}, nil
 }
 
-// extract reads a shallow `$.field` path from the payload (the only shape the
-// descriptors use). Returns "" for a missing/non-string value.
+// extract walks a dotted path ("a.b.c") into a decoded payload, returning "" for
+// any missing segment or a non-string leaf. A bare key ("session_id") is a
+// one-segment path.
 func extract(payload map[string]any, path string) string {
-	key := strings.TrimPrefix(path, "$.")
-	if v, ok := payload[key]; ok {
-		if s, ok := v.(string); ok {
-			return s
+	if path == "" {
+		return ""
+	}
+	var cur any = payload
+	for _, p := range strings.Split(path, ".") {
+		m, ok := cur.(map[string]any)
+		if !ok {
+			return ""
 		}
+		cur, ok = m[p]
+		if !ok {
+			return ""
+		}
+	}
+	if s, ok := cur.(string); ok {
+		return s
 	}
 	return ""
 }

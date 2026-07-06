@@ -1,7 +1,6 @@
 package agent
 
 import (
-	"encoding/json"
 	"fmt"
 	"io"
 	"os"
@@ -35,7 +34,7 @@ func BuildSpawnPlan(d *Descriptor, ctx TemplateCtx, baseEnv []string, extraSteps
 	steps := append([]InjectStep{}, d.ConfigInjection...)
 	steps = append(steps, extraSteps...)
 	for _, st := range steps {
-		if err := runStep(d, st, ctx, plan); err != nil {
+		if err := runStep(st, ctx, plan); err != nil {
 			plan.Cleanup()
 			return nil, err
 		}
@@ -53,16 +52,13 @@ func BuildSpawnPlan(d *Descriptor, ctx TemplateCtx, baseEnv []string, extraSteps
 	return plan, nil
 }
 
-func runStep(d *Descriptor, st InjectStep, ctx TemplateCtx, plan *SpawnPlan) error {
+func runStep(st InjectStep, ctx TemplateCtx, plan *SpawnPlan) error {
 	arg := func(k string) string { return Expand(asString(st.Args[k]), ctx) }
 	switch st.Verb {
 	case "set_env":
-		kv := arg("name") + "=" + arg("value")
-		plan.Env = append(plan.Env, kv)
+		plan.Env = append(plan.Env, arg("name")+"="+arg("value"))
 	case "write_file":
 		return writeFileStep(arg("path"), arg("content"), arg("from"))
-	case "render_hooks":
-		return renderHooks(d, arg("into"), ctx)
 	case "pass_arg":
 		if pos, ok := st.Args["positional"]; ok {
 			plan.Argv = append(plan.Argv, Expand(asString(pos), ctx))
@@ -76,33 +72,6 @@ func runStep(d *Descriptor, st InjectStep, ctx TemplateCtx, plan *SpawnPlan) err
 		return fmt.Errorf("agent: unknown inject verb %q", st.Verb)
 	}
 	return nil
-}
-
-// renderHooks writes the provider hook config that maps each descriptor hook to
-// `<crowbar_hook> hook <canonical-event>`. Both Claude settings.json and Codex
-// hooks.json share the same nested shape {hooks:{Event:[{hooks:[{type,command}]}]}}.
-func renderHooks(d *Descriptor, into string, ctx TemplateCtx) error {
-	type cmd struct {
-		Type    string `json:"type"`
-		Command string `json:"command"`
-	}
-	type group struct {
-		Hooks []cmd `json:"hooks"`
-	}
-	events := map[string][]group{}
-	for canonical, hm := range d.Hooks {
-		command := ctx.CrowbarHook + " hook " + canonical
-		events[hm.ProviderEvent] = []group{{Hooks: []cmd{{Type: "command", Command: command}}}}
-	}
-	payload := map[string]any{"hooks": events}
-	buf, err := json.MarshalIndent(payload, "", "  ")
-	if err != nil {
-		return fmt.Errorf("agent: render hooks: %w", err)
-	}
-	if err := os.MkdirAll(filepath.Dir(into), 0o700); err != nil {
-		return fmt.Errorf("agent: render hooks mkdir: %w", err)
-	}
-	return os.WriteFile(into, buf, 0o600)
 }
 
 func writeFileStep(path, content, from string) error {

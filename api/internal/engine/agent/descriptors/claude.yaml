@@ -1,6 +1,4 @@
-# Validated against claude 2.1.201 (Phase-0 spike; see
-# docs/superpowers/specs/2026-07-05-crowbar-agentic-engine-design.md §1).
-# This is documentation only, not a wired version check.
+# Validated against claude 2.1.201 (Phase-0 spike). Documentation only.
 id: claude
 spawn:
   cmd: claude
@@ -11,14 +9,23 @@ spawn:
 session:
   resume: { arg: "--resume {id}" }
 config_injection:
-  - render_hooks: { into: "{tmp}/settings.json" }
-  - pass_arg:     { arg: "--settings", value: "{tmp}/settings.json" }
+  - write_file:
+      path: "{tmp}/settings.json"
+      content: |
+        {"hooks":{
+          "SessionStart":[{"hooks":[{"type":"command",
+            "command":"{crowbar_hook} hook session_start --segment {segid} --provider {provider}"}]}],
+          "UserPromptSubmit":[{"hooks":[{"type":"command",
+            "command":"{crowbar_hook} hook user_prompt --segment {segid} --provider {provider}"}]}],
+          "Stop":[{"hooks":[{"type":"command",
+            "command":"{crowbar_hook} hook turn_stop --segment {segid} --provider {provider}"}]}]
+        }}
+  - pass_arg: { arg: "--settings", value: "{tmp}/settings.json" }
 hooks:
-  session_start:
-    provider_event: SessionStart
-    fields: { session_id: "$.session_id", transcript: "$.transcript_path" }
-  turn_stop:
-    provider_event: Stop
-    fields: { session_id: "$.session_id", transcript: "$.transcript_path" }
+  format: json
+  events:
+    session_start: { session_id: session_id }
+    user_prompt:   { message: prompt }
+    turn_stop:     { session_id: session_id, message: last_assistant_message }
 handoff_inject:
   - pass_arg: { arg: "--append-system-prompt", value: "{handoff}" }

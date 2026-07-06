@@ -1,18 +1,15 @@
 package agent
 
 import (
+	"encoding/json"
 	"fmt"
 
 	"gopkg.in/yaml.v3"
 )
 
-// Descriptor holds only fields the engine actually consumes. version.pinned,
-// version.compat_check, session.assign, the transcript: block, and
-// hooks.*.fields.move_signal all used to parse into this struct without ever
-// being read anywhere — dead config identified during the daemon-hardening
-// pass and removed rather than wired, so every remaining field here is
-// genuinely load-bearing. (The pinned CLI version each descriptor was
-// validated against is now a plain YAML comment, not a struct field.)
+// Descriptor holds only fields the engine consumes. Every field here is
+// load-bearing; provider-specific shapes (hook-config layout, native event
+// names) live in the descriptor's literal write-side content, never here.
 type Descriptor struct {
 	ID    string `yaml:"id"`
 	Spawn struct {
@@ -27,18 +24,21 @@ type Descriptor struct {
 	Session struct {
 		Resume *ArgSpec `yaml:"resume"`
 	} `yaml:"session"`
-	ConfigInjection []InjectStep       `yaml:"config_injection"`
-	Hooks           map[string]HookMap `yaml:"hooks"`
-	HandoffInject   []InjectStep       `yaml:"handoff_inject"`
+	ConfigInjection []InjectStep `yaml:"config_injection"`
+	Hooks           HookSpec     `yaml:"hooks"`
+	HandoffInject   []InjectStep `yaml:"handoff_inject"`
 }
 
 type ArgSpec struct {
 	Arg string `yaml:"arg"`
 }
 
-type HookMap struct {
-	ProviderEvent string            `yaml:"provider_event"`
-	Fields        map[string]string `yaml:"fields"`
+// HookSpec is the read side: how to parse this CLI's hook payloads (format) and
+// where each Crowbar vocabulary field sits inside each canonical event's
+// payload (events[canonical][vocab] = dotted path).
+type HookSpec struct {
+	Format string                       `yaml:"format"`
+	Events map[string]map[string]string `yaml:"events"`
 }
 
 // InjectStep is one declarative injection verb, e.g. `- pass_arg: {arg: --settings, value: x}`.
@@ -84,11 +84,32 @@ func (d *Descriptor) Validate() error {
 	if !d.Spawn.InteractiveRequired {
 		return fmt.Errorf("agent: descriptor %q must set spawn.interactive_required", d.ID)
 	}
-	if _, ok := d.Hooks["session_start"]; !ok {
-		return fmt.Errorf("agent: descriptor %q missing hooks.session_start", d.ID)
+	if d.Hooks.Format == "" {
+		return fmt.Errorf("agent: descriptor %q missing hooks.format", d.ID)
 	}
-	if d.Hooks["session_start"].Fields["session_id"] == "" {
-		return fmt.Errorf("agent: descriptor %q session_start must map session_id", d.ID)
+	if ss := d.Hooks.Events["session_start"]; ss["session_id"] == "" {
+		return fmt.Errorf("agent: descriptor %q hooks.events.session_start must map session_id", d.ID)
+	}
+	if ts := d.Hooks.Events["turn_stop"]; ts["message"] == "" {
+		return fmt.Errorf("agent: descriptor %q hooks.events.turn_stop must map message", d.ID)
 	}
 	return nil
+}
+
+// ParsePayload decodes raw hook bytes into a map per the descriptor's declared
+// format. An unsupported format is an explicit error (documented boundary).
+func (d *Descriptor) ParsePayload(raw []byte) (map[string]any, error) {
+	switch d.Hooks.Format {
+	case "json":
+		if len(raw) == 0 {
+			return map[string]any{}, nil
+		}
+		var m map[string]any
+		if err := json.Unmarshal(raw, &m); err != nil {
+			return nil, fmt.Errorf("agent: descriptor %q parse json payload: %w", d.ID, err)
+		}
+		return m, nil
+	default:
+		return nil, fmt.Errorf("agent: descriptor %q unsupported hooks.format %q", d.ID, d.Hooks.Format)
+	}
 }

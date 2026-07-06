@@ -1,6 +1,4 @@
-# Validated against codex 0.139.0 (Phase-0 spike; see
-# docs/superpowers/specs/2026-07-05-crowbar-agentic-engine-design.md §1).
-# This is documentation only, not a wired version check.
+# Validated against codex 0.139.0 (Phase-0 spike). Documentation only.
 id: codex
 spawn:
   cmd: codex
@@ -12,14 +10,27 @@ session:
 config_injection:
   - set_env:    { name: CODEX_HOME, value: "{tmp}/codex-home" }
   - write_file: { path: "{tmp}/codex-home/auth.json", from: "~/.codex/auth.json" }
-  - write_file: { path: "{tmp}/codex-home/config.toml", content: "[projects.\"{cwd}\"]\ntrust_level = \"trusted\"\n" }
-  - render_hooks: { into: "{tmp}/codex-home/hooks.json" }
+  - write_file:
+      path: "{tmp}/codex-home/config.toml"
+      content: |
+        [projects."{cwd}"]
+        trust_level = "trusted"
+  - write_file:
+      path: "{tmp}/codex-home/hooks.json"
+      content: |
+        {"hooks":{
+          "SessionStart":[{"hooks":[{"type":"command",
+            "command":"{crowbar_hook} hook session_start --segment {segid} --provider {provider}"}]}],
+          "UserPromptSubmit":[{"hooks":[{"type":"command",
+            "command":"{crowbar_hook} hook user_prompt --segment {segid} --provider {provider}"}]}],
+          "Stop":[{"hooks":[{"type":"command",
+            "command":"{crowbar_hook} hook turn_stop --segment {segid} --provider {provider}"}]}]
+        }}
 hooks:
-  session_start:
-    provider_event: SessionStart
-    fields: { session_id: "$.session_id", transcript: "$.transcript_path" }
-  turn_stop:
-    provider_event: Stop
-    fields: { session_id: "$.session_id", transcript: "$.transcript_path" }
+  format: json
+  events:
+    session_start: { session_id: session_id }
+    user_prompt:   { message: prompt }
+    turn_stop:     { session_id: session_id, message: last_assistant_message }
 handoff_inject:
   - pass_arg: { positional: "{handoff}" }
