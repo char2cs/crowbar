@@ -19,8 +19,14 @@ func newHookCmd() *cobra.Command {
 		Args:   cobra.ExactArgs(1),
 		Hidden: true,
 		RunE: func(_ *cobra.Command, args []string) error {
-			// A hook must never break the vendor CLI: swallow errors, exit 0.
-			_ = runHook(args[0], os.Stdin, "unix://")
+			// A hook must never break the vendor CLI: swallow the error into
+			// an exit-0 RunE. Still surface it on stderr (never stdout, which
+			// some hook wire shapes may parse) so a broken hook round trip
+			// (daemon down, socket unreachable, ...) is at least diagnosable
+			// instead of being a fully silent no-op.
+			if err := runHook(args[0], os.Stdin, "unix://"); err != nil {
+				fmt.Fprintf(os.Stderr, "crowbar hook %s: %v\n", args[0], err)
+			}
 			return nil
 		},
 	}
