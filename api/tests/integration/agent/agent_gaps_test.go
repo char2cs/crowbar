@@ -590,51 +590,47 @@ func TestAgent_SwitchBackRestoresClaudeContext(t *testing.T) {
 		"timed out waiting for any claude assistant turn (including the follow-up's) to reference the codeword; turns observed: %q", texts)
 }
 
-// TestAgent_GracefulTerminate_PreservesClaudePreSwitchReply is the empirical
-// proof for the fix described in docs/superpowers/specs/
-// 2026-07-05-crowbar-agentic-engine-design.md §8: SwitchProvider now quits the
-// outgoing CLI via a graceful terminate (SIGTERM + a grace window, falling
-// back to SIGKILL only if the process is still alive after it) instead of an
-// unconditional hard Kill. TestAgent_SwitchBackRestoresClaudeContext already
-// documented, live, that the OLD hard-SIGKILL behavior could sometimes lose
-// claude's real pre-switch reply from its own native transcript — replaced by
-// a synthetic "No response requested." housekeeping turn on resume — but that
-// test tolerates the gap (it searches every assistant text, including a
-// driven follow-up's, for the codeword) because closing the gap was not yet
-// implemented.
+// TestAgent_SwitchRoundTrip_ResumesAndAvoidsSyntheticLedgerTurn drives a full
+// switch-away-then-switch-back round trip (claude -> codex -> claude) through
+// SwitchProvider's TerminateGraceful call path (spec §8: SIGTERM + a grace
+// window, falling back to SIGKILL only if the process is still alive after
+// it, applied uniformly to every provider, no per-provider branching) and
+// verifies two things once claude comes back:
 //
-// This test is the strict version: it captures claude's REAL reply to the
-// seeded turn from claude's OWN Stop-hook assistant turn in Crowbar's ledger
-// BEFORE ever calling SwitchProvider, switches away to codex and back to
-// claude (exercising the exact TerminateGraceful call path SwitchProvider now
-// uses for every provider, no branching), drives one follow-up turn to force
-// claude to settle/flush its resumed state (mirroring
-// TestAgent_SwitchBackRestoresClaudeContext's hard-won finding that a synthetic
-// housekeeping turn, if one was going to appear, may not surface until further
-// input lands), and then asserts BOTH that the captured baseline reply is still
-// present verbatim and that no synthetic "No response requested." entry ever
-// appeared.
+//  1. Native resume continuity: the resumed segment's ProviderSessionID
+//     equals the ORIGINAL (pre-switch) claude segment's — i.e. SwitchProvider's
+//     `--resume <id>` (agent.go's priorSessionID lookup + descriptor
+//     session.resume) actually reattached claude to its own prior native
+//     session rather than minting a new one.
+//  2. No synthetic housekeeping turn: after driving a follow-up turn to force
+//     claude to settle its resumed state, none of claude's own assistant
+//     turns recorded in Crowbar's ledger contain a synthetic "No response
+//     requested." housekeeping reply — the kind of gap-filling turn a resume
+//     over a corrupted native session can produce.
 //
-// v2 CAVEAT (honest scope): pre-v2 this test read claude's NATIVE transcript,
-// which directly witnessed a hard SIGKILL corrupting/replacing claude's last
-// reply. v2 records NO vendor transcript; the ledger is populated by claude's
-// own Stop hook, an INDEPENDENT subprocess that completes BEFORE the switch (we
-// wait for it above), so the ledger's copy of the pre-switch reply is durable
-// regardless of how the outgoing process later dies — the "still present
-// verbatim" half is therefore a weak (append-only) check under v2. The
-// discriminating signal that survives is the "no synthetic 'No response
-// requested.' turn" half: a resume over a hard-kill-corrupted native session
-// can make claude emit that housekeeping turn, and IF it fires claude's Stop
-// hook it lands in the ledger — but whether that synthetic turn fires the hook
-// is itself unverified. Treat this as a best-effort regression signal, not the
-// airtight native-transcript proof its pre-v2 form was.
+// v2 CAVEAT (honest scope): this test does NOT verify vendor-native-transcript
+// flush integrity, i.e. it cannot distinguish "the outgoing claude CLI exited
+// cleanly via SIGTERM and flushed its own transcript" from "claude was
+// SIGKILLed mid-flight". Pre-v2 that distinction was directly observable by
+// reading claude's native transcript file, where a hard kill could corrupt or
+// replace the last written reply. Under descriptor-v2 Crowbar never reads the
+// vendor transcript at all — the ledger is built entirely from claude's own
+// turn_stop/user_prompt hooks, and the hook that recorded the pre-switch reply
+// runs to completion and appends to the append-only ledger BEFORE
+// SwitchProvider ever touches the process, so the ledger's copy of that reply
+// is durable no matter how the outgoing process later dies. That distinction
+// is simply no longer observable to Crowbar, so this test does not assert on
+// it. The no-synthetic-turn check above is the one signal that still tracks
+// graceful vs. hard termination, and even it is best-effort: whether a
+// synthetic housekeeping turn (if the CLI ever emits one) fires claude's Stop
+// hook at all was observed to be inconsistent live.
 //
 // Run this multiple times (`go test -tags 'integration noEmbed' -race -p 1
-// -run TestAgent_GracefulTerminate_PreservesClaudePreSwitchReply -count=N
+// -run TestAgent_SwitchRoundTrip_ResumesAndAvoidsSyntheticLedgerTurn -count=N
 // ./tests/integration/agent/...`) to gauge reliability against the real
 // claude/codex binaries — a single pass is not strong evidence either way for
 // a fix whose whole premise is an unverified CLI-internal flush behavior.
-func TestAgent_GracefulTerminate_PreservesClaudePreSwitchReply(t *testing.T) {
+func TestAgent_SwitchRoundTrip_ResumesAndAvoidsSyntheticLedgerTurn(t *testing.T) {
 	requireCLI(t, "claude")
 	requireCLI(t, "codex")
 	h := newHarness(t)
@@ -672,23 +668,6 @@ func TestAgent_GracefulTerminate_PreservesClaudePreSwitchReply(t *testing.T) {
 	})
 	t.Logf("waited %s for claude's Stop hook (ledger append)", time.Since(start))
 	require.Contains(t, handoff, codeword, "ledger blob must carry the turn we just drove")
-
-	// Capture claude's REAL reply to the seeded turn from its OWN Stop-hook
-	// assistant turn in Crowbar's ledger, while the process is STILL ALIVE and
-	// BEFORE SwitchProvider has touched it. Pre-v2 this read claude's native
-	// transcript directly; v2 records no transcript path, so the Stop-hook
-	// ledger turn is the pre-switch reply we later assert survives the round
-	// trip (see the v2 CAVEAT in the doc comment for what that can and cannot
-	// prove now).
-	baselineReply := nudgeUntil(h, claudeTermSessID, 15*time.Second, func() (string, bool) {
-		texts := assistantReplies(readLedgerTurns(t, h.home, projectID, repoID, wsID, chatID), "claude")
-		if len(texts) == 0 {
-			return "", false
-		}
-		return texts[len(texts)-1], true
-	})
-	require.NotEmpty(t, baselineReply, "claude's own Stop-hook ledger turn never showed the seeded turn's reply")
-	t.Logf("baseline (pre-switch, process still alive) reply in ledger: %q", baselineReply)
 
 	// Switch away — the exact call under test: SwitchProvider now uses
 	// TerminateGraceful (SIGTERM + grace, falling back to SIGKILL only if
@@ -745,15 +724,11 @@ func TestAgent_GracefulTerminate_PreservesClaudePreSwitchReply(t *testing.T) {
 	t.Logf("waited %s for the follow-up's reply; all claude assistant turns observed after switch-back: %q", time.Since(start), texts)
 	require.True(t, found, "timed out waiting for the follow-up turn's reply to reference the codeword; turns observed: %q", texts)
 
-	// THE KEY ASSERTIONS for this bug fix (see the v2 CAVEAT above for their
-	// reduced strength under the ledger): the ORIGINAL pre-switch reply must
-	// still be present verbatim, and no synthetic gap-filling "No response
-	// requested." housekeeping entry must have reached claude's own assistant
-	// turns — the surviving regression signal that the graceful SIGTERM+grace
-	// terminate let claude exit cleanly instead of being SIGKILLed mid-flight.
-	assert.Contains(t, texts, baselineReply,
-		"the original pre-switch reply must still be present verbatim in claude's own assistant turns after a "+
-			"graceful terminate + native resume; turns observed: %q", texts)
+	// THE KEY ASSERTION for this round trip (see the v2 CAVEAT above for its
+	// best-effort strength): no synthetic gap-filling "No response requested."
+	// housekeeping entry must have reached claude's own assistant turns — the
+	// surviving regression signal that the graceful SIGTERM+grace terminate
+	// let claude exit cleanly instead of being SIGKILLed mid-flight.
 	for _, tx := range texts {
 		assert.NotContains(t, strings.ToLower(tx), "no response requested",
 			"a synthetic housekeeping reply appearing here means claude did not exit cleanly before the "+

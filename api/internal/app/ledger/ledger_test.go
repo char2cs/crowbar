@@ -57,11 +57,11 @@ func TestOpen_MkdirAllFails_ReturnsError(t *testing.T) {
 	require.Contains(t, err.Error(), "mkdir")
 }
 
-// TestLedger_EntriesReadDirFails_PropagatesToAppendAndReadAll makes the
-// ledger dir unreadable after Open succeeds, so entries()'s os.ReadDir call
-// fails; both AppendTurn (via nextSeq) and RenderConversation must propagate
-// that error.
-func TestLedger_EntriesReadDirFails_PropagatesToAppendAndReadAll(t *testing.T) {
+// TestLedger_EntriesReadDirFails_PropagatesToAppendTurnAndRenderConversation
+// makes the ledger dir unreadable after Open succeeds, so entries()'s
+// os.ReadDir call fails; both AppendTurn (via nextSeq) and RenderConversation
+// must propagate that error.
+func TestLedger_EntriesReadDirFails_PropagatesToAppendTurnAndRenderConversation(t *testing.T) {
 	dir := filepath.Join(t.TempDir(), "c1")
 	l, err := ledger.Open(dir)
 	require.NoError(t, err)
@@ -92,9 +92,10 @@ func TestLedger_AppendWriteFileFails_ReadOnlyDir(t *testing.T) {
 	require.Contains(t, err.Error(), "write")
 }
 
-// TestLedger_ReadAllReadFileFails_PerEntryUnreadable makes one already-written
-// entry unreadable so RenderConversation's per-entry os.ReadFile fails.
-func TestLedger_ReadAllReadFileFails_PerEntryUnreadable(t *testing.T) {
+// TestLedger_RenderConversationReadFileFails_PerEntryUnreadable makes one
+// already-written entry unreadable so RenderConversation's per-entry
+// os.ReadFile fails.
+func TestLedger_RenderConversationReadFileFails_PerEntryUnreadable(t *testing.T) {
 	dir := filepath.Join(t.TempDir(), "c1")
 	l, err := ledger.Open(dir)
 	require.NoError(t, err)
@@ -103,9 +104,9 @@ func TestLedger_ReadAllReadFileFails_PerEntryUnreadable(t *testing.T) {
 	name, err := l.AppendTurn("assistant", "claude", at, "hello")
 	require.NoError(t, err)
 
-	blobPath := filepath.Join(dir, name)
-	require.NoError(t, os.Chmod(blobPath, 0o000))
-	t.Cleanup(func() { _ = os.Chmod(blobPath, 0o644) })
+	entryPath := filepath.Join(dir, name)
+	require.NoError(t, os.Chmod(entryPath, 0o000))
+	t.Cleanup(func() { _ = os.Chmod(entryPath, 0o644) })
 
 	_, err = l.RenderConversation()
 	require.Error(t, err)

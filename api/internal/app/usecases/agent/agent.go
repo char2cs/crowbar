@@ -521,13 +521,12 @@ func (u *Usecase) SwitchProvider(
 		return "", fmt.Errorf("agent: switch provider: active segment: %w", err)
 	}
 
-	// Read-before-terminate: the ledger/transcript are already on disk (the
-	// transcript is written incrementally on each turn_stop hook), so
-	// assembling the handoff does not depend on the outgoing CLI still
-	// being alive. A failure here must abort the switch (return before
-	// terminate) rather than silently proceed with an EMPTY handoff — nothing
-	// destructive has happened yet, so aborting leaves the chat exactly as it
-	// was.
+	// Read-before-terminate: the ledger is built from hooks (appended on each
+	// turn_stop/user_prompt hook) and is already on disk, so assembling the
+	// handoff does not depend on the outgoing CLI still being alive. A
+	// failure here must abort the switch (return before terminate) rather
+	// than silently proceed with an EMPTY handoff — nothing destructive has
+	// happened yet, so aborting leaves the chat exactly as it was.
 	handoff, err := u.AssembleHandoff(ctx, chatID)
 	if err != nil {
 		return "", fmt.Errorf("agent: switch provider: assemble handoff: %w", err)

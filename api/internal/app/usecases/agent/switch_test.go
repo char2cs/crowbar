@@ -127,7 +127,7 @@ func TestSwitchProvider_Forward_SpawnsTargetProviderWithHandoff(t *testing.T) {
 	chatID, segID, err := f.usecase.SpawnChat(ctx, "ws1", "claude")
 	require.NoError(t, err)
 
-	appendTranscript(t, f, segID, "claude", "sid-1", "prior turn content for handoff")
+	appendAssistantTurn(t, f, segID, "claude", "sid-1", "prior turn content for handoff")
 
 	newSegID, err := f.usecase.SwitchProvider(ctx, chatID, "codex")
 	require.NoError(t, err)
@@ -234,7 +234,7 @@ func TestSwitchProvider_SwitchBack_ResumeStepsPrecedeHandoff(t *testing.T) {
 		"session_id": "sid-codex-native",
 	})))
 
-	appendTranscript(t, f, segID, "codex", "sid-codex-native", "codex ledger content")
+	appendAssistantTurn(t, f, segID, "codex", "sid-codex-native", "codex ledger content")
 
 	_, err = f.usecase.SwitchProvider(ctx, chatID, "claude")
 	require.NoError(t, err)
