@@ -13,9 +13,7 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func TestRunHook_ForwardsSegmentAndPayload(t *testing.T) {
-	// Use a short temp directory to stay under macOS's 104-byte sun_path
-	// limit (t.TempDir() nests under the long test name and overflows it).
+func TestRunHook_ForwardsSegmentProviderAndRawPayload(t *testing.T) {
 	tmpDir, err := os.MkdirTemp("/tmp", "hook")
 	require.NoError(t, err)
 	defer os.RemoveAll(tmpDir)
@@ -35,14 +33,30 @@ func TestRunHook_ForwardsSegmentAndPayload(t *testing.T) {
 	go srv.Serve(ln)
 	defer srv.Close()
 
-	t.Setenv("CROWBAR_SEGMENT_ID", "seg-42")
-	err = runHook("session_start", strings.NewReader(`{"session_id":"abc","source":"startup"}`), "unix://"+sock)
+	err = runHook("turn_stop", "seg-42", "claude", []byte(`{"session_id":"abc"}`), "unix://"+sock)
 	require.NoError(t, err)
 
 	mu.Lock()
 	defer mu.Unlock()
 	require.Equal(t, "seg-42", got["segment_id"])
-	require.Equal(t, "session_start", got["event"])
-	payload := got["payload"].(map[string]any)
-	require.Equal(t, "abc", payload["session_id"])
+	require.Equal(t, "claude", got["provider"])
+	require.Equal(t, "turn_stop", got["event"])
+	require.Equal(t, `{"session_id":"abc"}`, got["payload_raw"])
+}
+
+func TestResolvePayload_Precedence(t *testing.T) {
+	f := filepath.Join(t.TempDir(), "p.json")
+	require.NoError(t, os.WriteFile(f, []byte("FROMFILE"), 0o644))
+
+	inline, err := resolvePayload("INLINE", f, strings.NewReader("FROMSTDIN"))
+	require.NoError(t, err)
+	require.Equal(t, "INLINE", string(inline))
+
+	fromFile, err := resolvePayload("", f, strings.NewReader("FROMSTDIN"))
+	require.NoError(t, err)
+	require.Equal(t, "FROMFILE", string(fromFile))
+
+	fromStdin, err := resolvePayload("", "", strings.NewReader("FROMSTDIN"))
+	require.NoError(t, err)
+	require.Equal(t, "FROMSTDIN", string(fromStdin))
 }
