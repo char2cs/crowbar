@@ -28,6 +28,15 @@ func TestStorageDir(t *testing.T) {
 	)
 }
 
+func TestAgentLedgerDir(t *testing.T) {
+	dir := AgentLedgerDir("/crow", "proj-1", "repo-1", "ws-abc", "chat-1")
+	assert.Equal(
+		t,
+		"/crow/projects/proj-1/repo-1/workspaces/ws-abc/agent-ledger/chat-1",
+		dir,
+	)
+}
+
 func TestThreadsStorageDir(t *testing.T) {
 	dir := ThreadsStorageDir("/crow", "proj-1", "repo-1", "ws-abc")
 	assert.Equal(

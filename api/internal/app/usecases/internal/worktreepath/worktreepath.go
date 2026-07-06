@@ -57,6 +57,24 @@ func ThreadsStorageDir(
 	)
 }
 
+// AgentLedgerDir returns the per-chat agentic ledger directory under the
+// workspace's Crowbar-managed storage (NOT inside the git worktree).
+//
+// Path: .../workspaces/<workspaceID>/agent-ledger/<chatID>
+func AgentLedgerDir(
+	crowbarHome string,
+	projectID string,
+	repoID string,
+	workspaceID string,
+	chatID string,
+) string {
+	return filepath.Join(
+		workspaceDir(crowbarHome, projectID, repoID, workspaceID),
+		"agent-ledger",
+		chatID,
+	)
+}
+
 // RepoDir returns the per-repo directory.
 //
 // Path: <crowbarHome>/projects/<projectID>/<repoID>
