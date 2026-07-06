@@ -63,6 +63,9 @@ type Usecase struct {
 	term     TerminalCommander
 	bc       Broadcaster
 	ws       WorkspaceReader
+	// segMu serializes IngestHook per crowbarSegID; see keyed_mutex.go for why
+	// this exists (the read/reduce/persist sequence is not atomic on its own).
+	segMu segmentMutex
 }
 
 // New builds a Usecase from its repository, reducer registry, and seams.
@@ -206,6 +209,11 @@ func (u *Usecase) IngestHook(
 	canonicalEvent string,
 	payload map[string]any,
 ) error {
+	// Serialize the whole read -> reduce -> persist sequence per crowbarSegID
+	// (see keyed_mutex.go). Unrelated segments proceed fully concurrently.
+	u.segMu.Lock(crowbarSegID)
+	defer u.segMu.Unlock(crowbarSegID)
+
 	seg, err := u.repo.GetActiveSegmentByCrowbarID(ctx, crowbarSegID)
 	if errors.Is(err, agentchat.ErrNotFound) {
 		return nil
