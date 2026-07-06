@@ -13,6 +13,8 @@ import (
 	crowbarapi "github.com/char2cs/crowbar/api/internal/api"
 	"github.com/char2cs/crowbar/api/internal/app"
 	"github.com/char2cs/crowbar/api/internal/core/gateway"
+	"github.com/char2cs/crowbar/api/internal/core/metadata"
+	"github.com/char2cs/crowbar/api/internal/core/selfinstall"
 	"github.com/char2cs/crowbar/api/internal/engine"
 )
 
@@ -78,6 +80,12 @@ func New(
 	apiContainer, err := crowbarapi.New(appContainer, engines, staticFS)
 	if err != nil {
 		return nil, fmt.Errorf("internal: api: %w", err)
+	}
+
+	// Install the crowbar binary into $CROWBAR_HOME/bin so vendor CLI hooks can
+	// invoke `crowbar hook` by absolute path. Best-effort: never block startup.
+	if p, err := selfinstall.Install(metadata.GetHomePath()); err == nil {
+		_ = p // path is re-derived by the agent engine when rendering descriptors
 	}
 
 	return &Container{
