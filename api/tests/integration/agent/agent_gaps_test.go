@@ -68,9 +68,15 @@ func codexDismissTrustDialog(ctx context.Context, h *harness, termSessID string,
 // its own hooks.json, per the codex.yaml descriptor) reaches the daemon over
 // the unix socket and produces a real ledger entry from codex's own rollout
 // transcript. This spawns codex directly (no switch involved), drives one
-// tiny real turn, and asserts the resulting ledger entry is both non-empty
-// (via AssembleHandoff) and physically on disk tagged with the codex provider
-// id.
+// tiny real turn, and asserts: the resulting ledger entry is non-empty (via
+// AssembleHandoff); a codex-tagged ASSISTANT .turn entry specifically exists
+// physically on disk — the actual proof that codex's turn_stop hook (not its
+// UserPromptSubmit hook, which separately writes a codex-tagged USER turn for
+// the driven prompt and alone could satisfy a role-blind check) appended a
+// ledger entry; and the driven codeword round-trips onto some codex-tagged
+// turn on disk (that UserPromptSubmit-recorded user turn, which echoes the
+// prompt verbatim — codex was asked to reply with only "acknowledged", so its
+// own assistant text never contains the codeword).
 func TestAgent_CodexTurnAppendsLedger(t *testing.T) {
 	requireCLI(t, "codex")
 	h := newHarness(t)
@@ -116,26 +122,46 @@ func TestAgent_CodexTurnAppendsLedger(t *testing.T) {
 			"never fired, `crowbar hook` could not reach the unix socket, or IngestHook/the reducer did "+
 			"not persist the outcome — segments observed: %+v", segs)
 
+	// AssembleHandoff's rendered blob goes non-empty as soon as ANY ledger
+	// turn exists for this chat — including the codex-tagged USER turn its
+	// OWN UserPromptSubmit hook writes for the prompt we just drove — so
+	// waiting on blob != "" alone is not a wait for the turn_stop hook at all:
+	// observed live, it is satisfied in well under a second, long before
+	// codex's real model reply and Stop hook actually run. Poll the ledger
+	// directly for a codex-tagged ASSISTANT turn specifically — the actual
+	// on-disk signal that turn_stop -> ledger.Append ran — and only then treat
+	// the wait as done. An earlier version of this test waited on the blob
+	// alone and read the ledger exactly once right after, which raced the
+	// real Stop hook and would have passed even if turn_stop never appended
+	// an assistant entry.
 	start = time.Now()
-	handoff := nudgeUntil(h, termSessID, 90*time.Second, func() (string, bool) {
-		blob, err := h.app.Usecases.Agent.AssembleHandoff(ctx, chatID)
-		require.NoError(t, err)
-		return blob, blob != ""
+	var turns []ledgerTurn
+	nudgeUntil(h, termSessID, 90*time.Second, func() (bool, bool) {
+		turns = readLedgerTurns(t, h.home, projectID, repoID, wsID, chatID)
+		ok := len(assistantReplies(turns, "codex")) > 0
+		return ok, ok
 	})
-	t.Logf("waited %s for codex's Stop hook (ledger append)", time.Since(start))
-	require.NotEmpty(t, handoff,
-		"timed out waiting for a turn_stop hook (ledger append) after driving a real codex turn; this "+
-			"proves codex's own Stop hook never reached /v0/agent/hooks, or turn_stop -> ledger.Append "+
-			"never ran")
+	t.Logf("waited %s for codex's Stop hook (assistant ledger append); turns observed=%+v", time.Since(start), turns)
+	require.NotEmpty(t, assistantReplies(turns, "codex"),
+		"timed out waiting for codex's turn_stop hook to append an ASSISTANT .turn ledger entry after driving "+
+			"a real codex turn; this proves codex's own Stop hook never reached /v0/agent/hooks, or "+
+			"turn_stop -> ledger.Append never ran; turns observed: %+v", turns)
+
+	handoff, err := h.app.Usecases.Agent.AssembleHandoff(ctx, chatID)
+	require.NoError(t, err)
 	require.Contains(t, handoff, codeword, "ledger blob must carry the turn we just drove")
 
 	// The doc comment's second half: the entry is PHYSICALLY ON DISK, a .turn
-	// JSON record tagged with the codex provider id. AssembleHandoff proves the
-	// round trip landed something legible; this proves the concrete v2 storage
-	// shape (a .turn file, not the pre-v2 .blob) carrying the codex provider tag
-	// the reducer wrote from codex's own hook.
-	turns := readLedgerTurns(t, h.home, projectID, repoID, wsID, chatID)
-	require.NotEmpty(t, turns, "codex's turn_stop must have written a .turn ledger entry on disk")
+	// JSON record tagged with the codex provider id. The wait above already
+	// proved a codex-tagged ASSISTANT turn exists — the actual proof this test
+	// is named for, that codex's turn_stop hook (not its UserPromptSubmit
+	// hook, which separately writes a codex-tagged USER turn carrying our
+	// full prompt) appended a ledger entry. What remains is a content
+	// round-trip check: the driven codeword must land on SOME codex-tagged
+	// turn on disk (that UserPromptSubmit-recorded user turn, which echoes
+	// the prompt verbatim — codex was asked to reply with only
+	// "acknowledged", so its own assistant text never contains the codeword,
+	// and this check is deliberately not scoped to the assistant turn).
 	var codexTagged, carriesCodeword bool
 	for _, tn := range turns {
 		if tn.Provider != "codex" {
@@ -149,7 +175,8 @@ func TestAgent_CodexTurnAppendsLedger(t *testing.T) {
 	require.True(t, codexTagged,
 		"a .turn ledger entry must be physically on disk tagged with the codex provider id; turns=%+v", turns)
 	require.True(t, carriesCodeword,
-		"the codex-tagged ledger turns must carry the driven codeword; turns=%+v", turns)
+		"the codeword must round-trip onto some codex-tagged ledger turn on disk (the UserPromptSubmit-recorded "+
+			"user turn, which echoes the driven prompt verbatim); turns=%+v", turns)
 }
 
 // ledgerTurn mirrors the on-disk JSON shape of one Crowbar ledger entry
