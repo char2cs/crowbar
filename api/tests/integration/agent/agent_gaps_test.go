@@ -15,6 +15,7 @@ import (
 	"context"
 	"encoding/json"
 	"os"
+	"strings"
 	"testing"
 	"time"
 
@@ -127,19 +128,24 @@ func TestAgent_CodexTurnAppendsLedger(t *testing.T) {
 	require.Contains(t, handoff, codeword, "ledger blob must carry the turn we just drove")
 }
 
-// claudeLastAssistantText scans a Claude Code transcript (~/.claude/projects/
-// <slug>/<uuid>.jsonl) for the most recent assistant message's text content,
-// mirroring the Phase-0 spike's claude_answer_from_transcript fallback
-// (docs/superpowers/specs/spike-2026-07-05-agentic/orchestrator.py). Returns ""
-// if the file does not exist yet or no assistant text block is found.
-func claudeLastAssistantText(transcriptPath string) string {
+// claudeAssistantTexts scans a Claude Code transcript (~/.claude/projects/
+// <slug>/<uuid>.jsonl) and returns every assistant message's text content, in
+// transcript order, mirroring the Phase-0 spike's claude_answer_from_transcript
+// fallback (docs/superpowers/specs/spike-2026-07-05-agentic/orchestrator.py),
+// generalized to return the whole sequence rather than just the last one (see
+// TestAgent_SwitchBackRestoresClaudeContext's doc comment for why: a resumed
+// session may interleave a synthetic housekeeping turn among real replies in
+// an unpredictable order, so callers there search the whole sequence rather
+// than trust any single index). Returns nil if the file does not exist yet or
+// has no assistant text.
+func claudeAssistantTexts(transcriptPath string) []string {
 	f, err := os.Open(transcriptPath) //nolint:gosec // transcriptPath comes from a hook payload we control in-test
 	if err != nil {
-		return ""
+		return nil
 	}
 	defer f.Close()
 
-	var last string
+	var out []string
 	sc := bufio.NewScanner(f)
 	sc.Buffer(make([]byte, 0, 64*1024), 10*1024*1024)
 	for sc.Scan() {
@@ -159,13 +165,27 @@ func claudeLastAssistantText(transcriptPath string) string {
 		if line.Type != "assistant" {
 			continue
 		}
+		var text string
 		for _, blk := range line.Message.Content {
 			if blk.Type == "text" && blk.Text != "" {
-				last = blk.Text
+				text = blk.Text
 			}
 		}
+		if text != "" {
+			out = append(out, text)
+		}
 	}
-	return last
+	return out
+}
+
+// claudeLastAssistantText returns the most recent entry from
+// claudeAssistantTexts, or "" if there is none.
+func claudeLastAssistantText(transcriptPath string) string {
+	texts := claudeAssistantTexts(transcriptPath)
+	if len(texts) == 0 {
+		return ""
+	}
+	return texts[len(texts)-1]
 }
 
 // codexLastAssistantText scans a Codex rollout transcript (~/.codex/sessions/
@@ -436,4 +456,125 @@ func TestAgent_CodexUsesHandoff(t *testing.T) {
 	require.Contains(t, reply, codeword,
 		"codex's own reply must reference the codeword handed off from claude's session — proves codex "+
 			"actually READ the opaque handoff, not just that the string was passed to it; codex's full reply was: %q", reply)
+}
+
+// TestAgent_SwitchBackRestoresClaudeContext is the best-effort gap 4 of the
+// Priority-1 e2e audit: codex->claude switch-back via `--resume`, proving the
+// returning claude restores its native context. It combines two proofs:
+//
+//  1. Deterministic/cheap: the resumed segment's ProviderSessionID and
+//     TranscriptPath must equal the ORIGINAL (pre-switch) claude segment's —
+//     i.e. SwitchProvider's `--resume <id>` (internal/app/usecases/agent/
+//     agent.go's priorSessionID lookup + descriptor session.resume) actually
+//     reattached claude to its own prior session file, the Go-stack proof of
+//     the Phase-0 spike's "Native resume / Case-1 (--resume <id> ->
+//     source=resume)" scorecard row. This alone needs no model turn at all.
+//  2. Behavioural: ask the resumed claude to recall the codeword seeded
+//     before the first switch, and check its reply. NOTE this is NOT a clean
+//     isolation of "answered purely from native --resume" vs "answered from
+//     the freshly re-appended handoff": SwitchProvider always appends
+//     AssembleHandoff's blob as `--append-system-prompt` on EVERY switch,
+//     including a switch-back, and that blob already contains the codeword
+//     (it was claude's own earlier turn). Proof (1) above is what actually
+//     isolates the resume mechanism; this turn additionally proves the round
+//     trip leaves claude in a working, answerable state.
+func TestAgent_SwitchBackRestoresClaudeContext(t *testing.T) {
+	requireCLI(t, "claude")
+	requireCLI(t, "codex")
+	h := newHarness(t)
+	ctx := context.Background()
+
+	repoPath := kit.InitRepo(t)
+	_, _, wsID := h.importRepoAndWorkspace(t, "switch-back", repoPath)
+
+	const codeword = "TALON-6631"
+	chatID, claudeSegID, _, codexTermSessID := seedClaudeThenSwitchToCodex(t, h, wsID, codeword)
+	// seedClaudeThenSwitchToCodex leaves codex live and active; switching back
+	// below kills it, but guard the cleanup in case the switch itself fails.
+	t.Cleanup(func() { _ = h.eng.Terminal.Kill(context.Background(), codexTermSessID) })
+
+	segsBeforeSwitchBack, err := h.app.Usecases.Agent.SegmentsFor(ctx, chatID)
+	require.NoError(t, err)
+	var origClaudeSeg domain.AgentSegment
+	for _, s := range segsBeforeSwitchBack {
+		if s.ID == claudeSegID {
+			origClaudeSeg = s
+		}
+	}
+	require.NotEmpty(t, origClaudeSeg.ProviderSessionID, "original claude segment must have bound a session id: %+v", segsBeforeSwitchBack)
+	require.NotEmpty(t, origClaudeSeg.TranscriptPath, "original claude segment must have recorded a transcript path: %+v", segsBeforeSwitchBack)
+
+	newClaudeSegID, err := h.app.Usecases.Agent.SwitchProvider(ctx, chatID, "claude")
+	require.NoError(t, err)
+
+	newClaudeTermSessID := segmentTerminalSessionID(t, h, chatID)
+	require.NotEqual(t, codexTermSessID, newClaudeTermSessID, "switch-back must spawn a new terminal session")
+	t.Cleanup(func() { _ = h.eng.Terminal.Kill(context.Background(), newClaudeTermSessID) })
+
+	start := time.Now()
+	resumedProviderSessionID, segsAfter := waitForProviderSessionID(t, h, newClaudeTermSessID, chatID, newClaudeSegID, 30*time.Second)
+	t.Logf("claude resumed in %s (session=%s)", time.Since(start), resumedProviderSessionID)
+	require.NotEmpty(t, resumedProviderSessionID,
+		"timed out after 30s waiting for the switched-back claude's SessionStart hook to bind: %+v", segsAfter)
+
+	require.Equal(t, origClaudeSeg.ProviderSessionID, resumedProviderSessionID,
+		"switch-back must --resume the ORIGINAL claude session id, not mint a new one — this is the "+
+			"Go-stack proof of native resume (Phase-0 spike's Case-1)")
+
+	var resumedSeg domain.AgentSegment
+	for _, s := range segsAfter {
+		if s.ID == newClaudeSegID {
+			resumedSeg = s
+		}
+	}
+	require.Equal(t, origClaudeSeg.TranscriptPath, resumedSeg.TranscriptPath,
+		"a native --resume must reattach to the SAME transcript file as before ANY switch happened")
+
+	// A resumed claude given a freshly `--append-system-prompt`-ed delta may
+	// emit a synthetic (non-model, "model":"<synthetic>") housekeeping turn
+	// before anything we type is processed — observed live across repeated
+	// runs: Claude Code sometimes auto-injects a synthetic "Continue from
+	// where you left off." user turn and replies "No response requested.",
+	// apparently closing out the ORIGINAL codeword-seeding turn when its real
+	// "acknowledged" reply lost a race with SwitchProvider's Kill of the
+	// outgoing terminal (internal/engine/terminal/internal/session's
+	// Session.Kill -> cmd.Process.Kill() is an unconditional hard SIGKILL for
+	// EVERY provider — the design doc explicitly warns this is unsafe for
+	// claude specifically: "Claude flushes its transcript only on a clean
+	// exit ... never SIGKILL mid-flight", docs/superpowers/specs/
+	// 2026-07-05-crowbar-agentic-engine-design.md §1). Flagged here, not
+	// fixed — this file's brief is proving behavior end to end, not patching
+	// the daemon.
+	//
+	// This housekeeping turn's on-disk appearance was wildly inconsistent
+	// across live runs: absent entirely (the original "acknowledged" survived
+	// intact), appearing within milliseconds, and once still NOT on disk after
+	// a full 45s of idle polling (only flushing once our own follow-up keystrokes
+	// landed) — its persistence is evidently tied to some later event, not a
+	// fixed delay. Rather than trying to name which array index is "the real
+	// reply" (an earlier version of this test tried settle-then-diff and
+	// index-counting, both of which raced against this same unpredictability),
+	// just drive the follow-up immediately and wait for ANY assistant entry to
+	// contain the codeword — unambiguous, since neither the original
+	// "acknowledged" turn nor a "No response requested." housekeeping turn
+	// could ever satisfy that on their own.
+	followUp := "What was the codeword I asked you to remember earlier in our conversation? Reply with only that word."
+	require.NoError(t, h.eng.Terminal.Write(ctx, newClaudeTermSessID, []byte(followUp)))
+	time.Sleep(300 * time.Millisecond)
+	require.NoError(t, h.eng.Terminal.Write(ctx, newClaudeTermSessID, []byte("\r")))
+
+	start = time.Now()
+	var texts []string
+	found := nudgeUntil(h, newClaudeTermSessID, 90*time.Second, func() (bool, bool) {
+		texts = claudeAssistantTexts(resumedSeg.TranscriptPath)
+		for _, tx := range texts {
+			if strings.Contains(tx, codeword) {
+				return true, true
+			}
+		}
+		return false, false
+	})
+	t.Logf("waited %s for a reply referencing the codeword; all assistant texts observed: %q", time.Since(start), texts)
+	require.True(t, found,
+		"timed out waiting for any assistant reply (including the follow-up's) to reference the codeword; texts observed: %q", texts)
 }
