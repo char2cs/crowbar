@@ -39,6 +39,7 @@ type Container struct {
 	git        *ws.Broadcaster[gitdomain.GitStatusEvent]
 	files      *ws.Broadcaster[domain.FileChangeEvent]
 	lsp        *ws.Broadcaster[lspdomain.DiagnosticsEvent]
+	agentChats *ws.Broadcaster[dto.AgentChatEvent]
 	app        *app.Container
 	eng        *engine.Container
 }
@@ -70,6 +71,7 @@ func New(
 		git:        ws.NewBroadcaster(withWatcherLifecycle(gitDef(appContainer), appContainer)),
 		files:      ws.NewBroadcaster(withWatcherLifecycle(filesDef(), appContainer)),
 		lsp:        ws.NewBroadcaster(withLSPLifecycle(lspDef(appContainer, engContainer), appContainer)),
+		agentChats: ws.NewBroadcaster(agentChatDef()),
 		app:        appContainer,
 		eng:        engContainer,
 	}
@@ -264,12 +266,16 @@ func (c *Container) PushFile(
 	c.files.Push(evt)
 }
 
-// PushAgentChat implements hub.Subscriber. It is a stub until Task 15 wires a
-// real agent-chat broadcaster onto this container.
+// PushAgentChat implements hub.Subscriber. It fans an agent-chat lifecycle
+// event out to every subscriber of the agent-chat WebSocket (GET
+// /v0/agent/ws/chats): unlike PushGit/PushFile there is no per-workspace
+// scoping — the route carries no :wsId, so every connected client sees every
+// chat's lifecycle events.
 func (c *Container) PushAgentChat(
 	chatID string,
 	kind string,
 ) {
+	c.agentChats.Push(dto.AgentChatEvent{ChatID: chatID, Kind: kind})
 }
 
 // projectsDef serves the Projects topic. Its hierarchical namespace is the bare
@@ -393,6 +399,24 @@ func filesDef() ws.StreamDef[domain.FileChangeEvent] {
 		Filters: []ws.FilterDef[domain.FileChangeEvent]{
 			{Param: "wsId", Extract: func(e domain.FileChangeEvent) string { return e.WsID }, Match: ws.ExactMatch},
 		},
+	}
+}
+
+// agentChatDef serves the agent-chat lifecycle event stream (GET
+// /v0/agent/ws/chats). Unlike the full-state resource streams above (projects,
+// repos, workspaces, ...), it is a bare, unscoped event feed: it carries no
+// snapshot (a freshly-connected client simply waits for the next lifecycle
+// event — there is no "current state" to replay) and no hierarchical
+// namespace, since the route is global (no :projectId/:repoId/:wsId path
+// params to scope by). FlatNamespace opts it out of the hierarchical
+// prefix-match so a bare Namespace of "" combined with no Filters lets every
+// event reach every subscriber.
+func agentChatDef() ws.StreamDef[dto.AgentChatEvent] {
+	return ws.StreamDef[dto.AgentChatEvent]{
+		Namespace:     func(dto.AgentChatEvent) string { return "" },
+		Serialize:     func(e dto.AgentChatEvent) ([]byte, error) { return json.Marshal(e) },
+		Snapshot:      func(string) []dto.AgentChatEvent { return nil },
+		FlatNamespace: true,
 	}
 }
 

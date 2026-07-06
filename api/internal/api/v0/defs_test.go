@@ -135,6 +135,26 @@ func TestFilesDef_Lambdas(t *testing.T) {
 	assert.Equal(t, "w1", def.Filters[0].Extract(evt))
 }
 
+func TestAgentChatDef_Lambdas(t *testing.T) {
+	def := agentChatDef()
+	evt := dto.AgentChatEvent{ChatID: "c1", Kind: "bound"}
+
+	// A bare event stream carries no hierarchical namespace: every subscriber
+	// receives every event, so Namespace is always "".
+	assert.Equal(t, "", def.Namespace(evt))
+	assert.True(t, def.FlatNamespace)
+	assert.Empty(t, def.Filters)
+
+	data, err := def.Serialize(evt)
+	require.NoError(t, err)
+	assert.Contains(t, string(data), "c1")
+	assert.Contains(t, string(data), "bound")
+
+	// No snapshot: a freshly-connected client waits for the next lifecycle
+	// event rather than replaying a "current state".
+	assert.Nil(t, def.Snapshot(""))
+}
+
 func TestLSPDef_Lambdas(t *testing.T) {
 	def := lspDef(nil, nil)
 	evt := lspdomain.DiagnosticsEvent{WsID: "w1"}

@@ -12,6 +12,7 @@ import (
 
 	"github.com/char2cs/crowbar/api/internal/api/libs"
 	"github.com/char2cs/crowbar/api/internal/app/apperr"
+	"github.com/char2cs/crowbar/api/internal/app/repositories/agentchat"
 	"github.com/char2cs/crowbar/api/internal/app/usecases/worktree"
 	"github.com/char2cs/crowbar/api/internal/engine/fs/safepath"
 	enginegit "github.com/char2cs/crowbar/api/internal/engine/git"
@@ -54,6 +55,11 @@ func TestStatusAndMessageMapping(t *testing.T) {
 		{
 			name:   "asynx aggregate not found",
 			err:    asynxmodels.ErrNotFound,
+			status: http.StatusNotFound,
+		},
+		{
+			name:   "agentchat not found",
+			err:    agentchat.ErrNotFound,
 			status: http.StatusNotFound,
 		},
 		{

@@ -17,6 +17,7 @@ import (
 	storesqlite "github.com/char2cs/crowbar/api/internal/adapter/store/sqlite"
 	"github.com/char2cs/crowbar/api/internal/app/hub"
 	"github.com/char2cs/crowbar/api/internal/app/repositories"
+	"github.com/char2cs/crowbar/api/internal/app/repositories/agentchat"
 	"github.com/char2cs/crowbar/api/internal/app/repositories/workspace"
 	"github.com/char2cs/crowbar/api/internal/app/usecases"
 	"github.com/char2cs/crowbar/api/internal/domain"
@@ -44,6 +45,7 @@ func newContainerDeps(
 	*repositories.Container,
 	usecases.GORMStores,
 	*engine.Container,
+	agentchat.Store,
 ) {
 	t.Helper()
 	adapters, err := adapter.New(adapter.WithHomeDir(t.TempDir()))
@@ -82,13 +84,17 @@ func newContainerDeps(
 
 	eng, err := engine.New(context.Background())
 	require.NoError(t, err)
-	return repos, gormStores, eng
+
+	agentChats, err := agentchat.New(globalView)
+	require.NoError(t, err)
+
+	return repos, gormStores, eng, agentChats
 }
 
 func TestContainer_New_BuildsEveryUsecase(t *testing.T) {
-	repos, gormStores, eng := newContainerDeps(t)
+	repos, gormStores, eng, agentChats := newContainerDeps(t)
 
-	c, err := usecases.New(repos, gormStores, eng, func() (string, error) { return t.TempDir(), nil })
+	c, err := usecases.New(repos, gormStores, eng, func() (string, error) { return t.TempDir(), nil }, agentChats, hub.NewHub())
 	require.NoError(t, err)
 
 	assert.NotNil(t, c.Project)
@@ -101,11 +107,12 @@ func TestContainer_New_BuildsEveryUsecase(t *testing.T) {
 	assert.NotNil(t, c.ProviderSync)
 	assert.NotNil(t, c.Worktree)
 	assert.NotNil(t, c.BranchReview)
+	assert.NotNil(t, c.Agent)
 }
 
 func TestContainer_FileTree_DelegatesToRealFsEngine(t *testing.T) {
-	repos, gormStores, eng := newContainerDeps(t)
-	c, err := usecases.New(repos, gormStores, eng, func() (string, error) { return t.TempDir(), nil })
+	repos, gormStores, eng, agentChats := newContainerDeps(t)
+	c, err := usecases.New(repos, gormStores, eng, func() (string, error) { return t.TempDir(), nil }, agentChats, hub.NewHub())
 	require.NoError(t, err)
 
 	dir := t.TempDir()
@@ -123,8 +130,8 @@ func TestContainer_FileTree_DelegatesToRealFsEngine(t *testing.T) {
 }
 
 func TestContainer_Import_ResolvesDefaultBranchViaRealGit(t *testing.T) {
-	repos, gormStores, eng := newContainerDeps(t)
-	c, err := usecases.New(repos, gormStores, eng, func() (string, error) { return t.TempDir(), nil })
+	repos, gormStores, eng, agentChats := newContainerDeps(t)
+	c, err := usecases.New(repos, gormStores, eng, func() (string, error) { return t.TempDir(), nil }, agentChats, hub.NewHub())
 	require.NoError(t, err)
 
 	root := t.TempDir()

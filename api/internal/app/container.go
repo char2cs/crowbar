@@ -9,6 +9,7 @@ import (
 	"github.com/char2cs/crowbar/api/internal/app/hub"
 	"github.com/char2cs/crowbar/api/internal/app/realtime"
 	"github.com/char2cs/crowbar/api/internal/app/repositories"
+	"github.com/char2cs/crowbar/api/internal/app/repositories/agentchat"
 	"github.com/char2cs/crowbar/api/internal/app/repositories/workspace"
 	"github.com/char2cs/crowbar/api/internal/app/usecases"
 	"github.com/char2cs/crowbar/api/internal/core/safego"
@@ -49,6 +50,10 @@ func New(
 	if err != nil {
 		return nil, err
 	}
+	agentChats, err := agentchat.New(adapters.GlobalView())
+	if err != nil {
+		return nil, fmt.Errorf("app: agentchat store: %w", err)
+	}
 
 	h := hub.NewHub()
 	repos, err := repositories.New(
@@ -68,7 +73,7 @@ func New(
 	// worktrees and per-entity storages land under the same root.
 	crowbarHome := adapters.CrowbarHome()
 	homeFunc := func() (string, error) { return crowbarHome, nil }
-	ucs, err := usecases.New(repos, toUsecaseStores(gormStores), engines, homeFunc)
+	ucs, err := usecases.New(repos, toUsecaseStores(gormStores), engines, homeFunc, agentChats, h)
 	if err != nil {
 		return nil, fmt.Errorf("app: usecases: %w", err)
 	}
@@ -76,6 +81,7 @@ func New(
 	startProviderSweep(ctx, engines, repos, ucs)
 	startRecoverySweep(ctx, ucs)
 	startRestoreTerminalSessions(ctx, ucs)
+	seedAgentRegistry(ctx, ucs)
 
 	rt := realtime.New(
 		ctx,
@@ -159,6 +165,23 @@ func startRestoreTerminalSessions(
 		return
 	}
 	_ = ucs.Terminal.RestorePersistedSessions(context.WithoutCancel(ctx))
+}
+
+// seedAgentRegistry rehydrates the agent usecase's context-move reducer from
+// persisted segments (see agent.Usecase.SeedRegistry's doc comment): it runs
+// synchronously at startup, before the HTTP layer starts serving, so a
+// resumed vendor-CLI process that /resumes into a pre-restart chat is
+// recognized as a "focus" move rather than mistakenly "registered" as new.
+// Best-effort: a failure here only degrades context-move detection for
+// already-running segments, it never blocks startup.
+func seedAgentRegistry(
+	ctx context.Context,
+	ucs *usecases.Container,
+) {
+	if ucs.Agent == nil {
+		return
+	}
+	_ = ucs.Agent.SeedRegistry(context.WithoutCancel(ctx))
 }
 
 func sweepCallback(

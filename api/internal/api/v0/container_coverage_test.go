@@ -198,6 +198,28 @@ func TestContainer_PushFile_ReachesFilteredClient(t *testing.T) {
 	assert.Equal(t, "a.go", got["path"])
 }
 
+// TestContainer_PushAgentChat_ReachesClient proves PushAgentChat reaches every
+// subscriber of the agent-chat WebSocket with no per-workspace scoping (the
+// route carries no :wsId).
+func TestContainer_PushAgentChat_ReachesClient(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	a := newAppForSnapshot(t)
+	c := New(a, nil)
+	r := gin.New()
+	r.GET("/v0/agent/ws/chats", func(ctx *gin.Context) { c.agentChats.Handle(ctx) })
+	srv := httptest.NewServer(r)
+	t.Cleanup(srv.Close)
+
+	conn := dialWSAt(t, srv, "/v0/agent/ws/chats")
+	c.agentChats.WaitRegistered()
+
+	c.PushAgentChat("chat-1", "bound")
+
+	got := readJSON(t, conn)
+	assert.Equal(t, "chat-1", got["chatId"])
+	assert.Equal(t, "bound", got["kind"])
+}
+
 // TestScopeWsID_PrefersPathThenQuery proves scopeWsID reads the :wsId path
 // param when present, falling back to the "wsId" query param, and returning ""
 // when neither is set (T15's dual-served-route scoping).

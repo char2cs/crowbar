@@ -3,6 +3,7 @@ package v0
 import (
 	"github.com/gin-gonic/gin"
 
+	"github.com/char2cs/crowbar/api/internal/api/v0/endpoints/agent"
 	"github.com/char2cs/crowbar/api/internal/api/v0/endpoints/editor"
 	"github.com/char2cs/crowbar/api/internal/api/v0/endpoints/files"
 	"github.com/char2cs/crowbar/api/internal/api/v0/endpoints/git"
@@ -49,6 +50,7 @@ func (c *Container) Register(
 	// Top-level, non-entity-scoped routes stay on rg (outside /projects).
 	health.Register(rg)
 	system.Register(rg)
+	agent.Register(rg, c.app.Usecases.Agent, c.agentChats.Handle)
 
 	projects := rg.Group("/projects")
 	projectScoped := projects.Group("/:projectId")
