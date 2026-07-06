@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"time"
 
 	"github.com/google/uuid"
@@ -404,6 +405,92 @@ func (u *Usecase) AssembleHandoff(
 	}
 
 	return "=== HANDED-OFF CONTEXT (Crowbar) ===\n" + string(blob) + "\n=== END ===", nil
+}
+
+// SwitchProvider is the headline provider-switch: it terminates chatID's
+// active provider CLI, assembles a handoff from the ledger, and spawns
+// targetProviderID as a NEW segment in the SAME chat with the handoff
+// injected. If a prior segment for targetProviderID already carries a native
+// ProviderSessionID (a switch-back), the target CLI is also resumed into that
+// session via the descriptor's session.resume; otherwise (a forward switch)
+// it receives only the handoff. Reuses spawnSegment (Task 14), the single
+// owner of ActiveSegmentID, so segment creation is never duplicated here.
+func (u *Usecase) SwitchProvider(
+	ctx context.Context,
+	chatID string,
+	targetProviderID string,
+) (string, error) {
+	chat, err := u.repo.GetChat(ctx, chatID)
+	if err != nil {
+		return "", fmt.Errorf("agent: switch provider: chat: %w", err)
+	}
+
+	oldSeg, err := u.repo.GetSegment(ctx, chat.ActiveSegmentID)
+	if err != nil {
+		return "", fmt.Errorf("agent: switch provider: active segment: %w", err)
+	}
+
+	// Read-before-kill: the ledger/transcript are already on disk (the
+	// transcript is written incrementally on each turn_stop hook), so
+	// assembling the handoff does not depend on the outgoing CLI still
+	// being alive.
+	handoff, _ := u.AssembleHandoff(ctx, chatID)
+
+	_ = u.term.Kill(ctx, oldSeg.TerminalSessionID)
+	now := time.Now()
+	oldSeg.Status = "ended"
+	oldSeg.EndedAt = &now
+	if err := u.repo.SaveSegment(ctx, oldSeg); err != nil {
+		return "", fmt.Errorf("agent: switch provider: save old segment: %w", err)
+	}
+
+	segs, err := u.repo.ListSegmentsByChat(ctx, chatID)
+	if err != nil {
+		return "", fmt.Errorf("agent: switch provider: list segments: %w", err)
+	}
+	// ListSegmentsByChat is ordered by started_at asc, so the last match
+	// found while scanning forward is the most recent prior segment for the
+	// target provider.
+	var priorSessionID string
+	for _, s := range segs {
+		if s.ProviderID == targetProviderID && s.ProviderSessionID != "" {
+			priorSessionID = s.ProviderSessionID
+		}
+	}
+
+	crowbarHome, _, _, _, err := u.ws.WorktreeDir(ctx, chat.WorkspaceID)
+	if err != nil {
+		return "", fmt.Errorf("agent: switch provider: worktree dir: %w", err)
+	}
+	d, err := engineagent.ResolveDescriptor(crowbarHome, targetProviderID)
+	if err != nil {
+		return "", fmt.Errorf("agent: switch provider: resolve descriptor: %w", err)
+	}
+
+	// Resume arg must be split into separate argv tokens: exec.Command does
+	// NOT split a string on whitespace, so a whole "--resume {id}" template
+	// handed to a single pass_arg would become one literal argument.
+	var resumeSteps []engineagent.InjectStep
+	if priorSessionID != "" && d.Session.Resume != nil && d.Session.Resume.Arg != "" {
+		resumeCtx := engineagent.TemplateCtx{ID: priorSessionID}
+		for _, tok := range strings.Fields(engineagent.Expand(d.Session.Resume.Arg, resumeCtx)) {
+			resumeSteps = append(resumeSteps, engineagent.InjectStep{
+				Verb: "pass_arg",
+				Args: map[string]any{"positional": tok},
+			})
+		}
+	}
+	// Resume goes first so codex's `resume <id>` subcommand precedes the
+	// positional handoff; order is irrelevant for claude's flag pair.
+	extraSteps := append(resumeSteps, d.HandoffInject...)
+
+	newSegID, err := u.spawnSegment(ctx, chat, targetProviderID, extraSteps, handoff)
+	if err != nil {
+		return "", err
+	}
+
+	u.bc.BroadcastAgentChat(chatID, "switched")
+	return newSegID, nil
 }
 
 // ListChats returns every persisted AgentChat.
