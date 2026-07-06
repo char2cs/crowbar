@@ -1,0 +1,27 @@
+id: claude
+version: { pinned: "2.1.201", compat_check: "claude --version" }
+spawn:
+  cmd: claude
+  interactive_required: true
+  forbid_flags: ["-p", "--print"]
+  env:
+    clear: ["CLAUDE_CODE_CHILD_SESSION", "CLAUDECODE"]
+session:
+  assign: { arg: "--session-id {uuid}" }
+  resume: { arg: "--resume {id}" }
+config_injection:
+  - render_hooks: { format: claude_settings_json, into: "{tmp}/settings.json" }
+  - pass_arg:     { arg: "--settings", value: "{tmp}/settings.json" }
+hooks:
+  session_start:
+    provider_event: SessionStart
+    fields: { session_id: "$.session_id", transcript: "$.transcript_path", move_signal: "$.source" }
+  turn_stop:
+    provider_event: Stop
+    fields: { session_id: "$.session_id", transcript: "$.transcript_path" }
+transcript:
+  from_hook: "$.transcript_path"
+  locate: "~/.claude/projects/{cwd_slug}/{session_id}.jsonl"
+  content: opaque
+handoff_inject:
+  - pass_arg: { arg: "--append-system-prompt", value: "{handoff}" }

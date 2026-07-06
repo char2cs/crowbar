@@ -1,0 +1,27 @@
+id: codex
+version: { pinned: "0.139.0", compat_check: "codex --version" }
+spawn:
+  cmd: codex
+  interactive_required: true
+  forbid_flags: ["exec"]
+  args: ["--dangerously-bypass-hook-trust"]
+session:
+  resume: { arg: "resume {id}" }
+config_injection:
+  - set_env:    { name: CODEX_HOME, value: "{tmp}/codex-home" }
+  - write_file: { path: "{tmp}/codex-home/auth.json", from: "~/.codex/auth.json" }
+  - write_file: { path: "{tmp}/codex-home/config.toml", content: "[projects.\"{cwd}\"]\ntrust_level = \"trusted\"\n" }
+  - render_hooks: { format: codex_hooks_json, into: "{tmp}/codex-home/hooks.json" }
+hooks:
+  session_start:
+    provider_event: SessionStart
+    fields: { session_id: "$.session_id", transcript: "$.transcript_path", move_signal: "$.source" }
+  turn_stop:
+    provider_event: Stop
+    fields: { session_id: "$.session_id", transcript: "$.transcript_path" }
+transcript:
+  from_hook: "$.transcript_path"
+  locate: "~/.codex/sessions/{yyyy}/{mm}/{dd}/rollout-*-{session_id}.jsonl"
+  content: opaque
+handoff_inject:
+  - pass_arg: { positional: "{handoff}" }
