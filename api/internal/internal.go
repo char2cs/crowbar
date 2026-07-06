@@ -82,9 +82,16 @@ func New(
 		return nil, fmt.Errorf("internal: api: %w", err)
 	}
 
-	// Install the crowbar binary into $CROWBAR_HOME/bin so vendor CLI hooks can
-	// invoke `crowbar hook` by absolute path. Best-effort: never block startup.
-	if p, err := selfinstall.Install(metadata.GetHomePath()); err == nil {
+	// Install the crowbar binary into <home>/bin so vendor CLI hooks can invoke
+	// `crowbar hook` by absolute path. Use the container's CONFIGURED home so tests
+	// and dev instances (WithHomeDir) stay isolated; fall back to the resolved global
+	// home only when none was configured — the production `serve` path. Best-effort:
+	// never block startup, and never write to the real ~/.crowbar from a test.
+	installHome := cfg.homeDir
+	if installHome == "" {
+		installHome = metadata.GetHomePath()
+	}
+	if p, err := selfinstall.Install(installHome); err == nil {
 		_ = p // path is re-derived by the agent engine when rendering descriptors
 	}
 
