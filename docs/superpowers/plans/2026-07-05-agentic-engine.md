@@ -168,6 +168,8 @@ func SocketPath(host string) (string, error) {
 
 In `api/internal/core/gateway/transports/socket.go`, replace the body line `path, err := socketPath(strings.TrimPrefix(host, "unix://"))` with `path, err := SocketPath(host)`. (Behavior identical; single source of truth.)
 
+This drops the only `strings.TrimPrefix` call in `socket.go`, so `"strings"` becomes an unused import → compile error. Remove `"strings"` from `socket.go`'s import block as part of this step. Verify first with `grep -n 'strings\.' api/internal/core/gateway/transports/socket.go` — keep the import only if another `strings.*` use remains, otherwise delete it.
+
 - [ ] **Step 5: Run tests to verify they pass**
 
 Run: `cd api && go test -tags noEmbed ./internal/core/gateway/transports/ -v`
@@ -902,6 +904,17 @@ func TestBuildSpawnPlan_CodexSetsHomeAndBypassFlag(t *testing.T) {
 	_, err = os.Stat(envValue(plan.Env, "CODEX_HOME") + "/hooks.json")
 	require.NoError(t, err)
 }
+
+func TestBuildSpawnPlan_RejectsForbiddenFlag(t *testing.T) {
+	d, err := agent.ResolveDescriptor(t.TempDir(), "claude")
+	require.NoError(t, err)
+	ctx := agent.TemplateCtx{Tmp: t.TempDir(), Cwd: t.TempDir(), CrowbarHook: "/bin/crowbar"}
+	// A handoff/positional step that smuggles a headless flag must be rejected.
+	_, err = agent.BuildSpawnPlan(d, ctx, os.Environ(), []agent.InjectStep{
+		{Verb: "pass_arg", Args: map[string]any{"positional": "-p"}},
+	})
+	require.Error(t, err)
+}
 ```
 
 (Provide tiny `indexOf`, `envValue` helpers in the test file.)
@@ -955,6 +968,16 @@ func BuildSpawnPlan(d *Descriptor, ctx TemplateCtx, baseEnv []string, extraSteps
 		if err := runStep(d, st, ctx, plan); err != nil {
 			plan.Cleanup()
 			return nil, err
+		}
+	}
+	// Hard guard (Global Constraints): the engine must never spawn a headless CLI.
+	// Reject if any assembled argv token exactly equals a descriptor forbid_flag.
+	for _, tok := range plan.Argv {
+		for _, forbidden := range d.Spawn.ForbidFlags {
+			if tok == forbidden {
+				plan.Cleanup()
+				return nil, fmt.Errorf("agent: forbidden flag %q for provider %q", tok, d.ID)
+			}
 		}
 	}
 	return plan, nil
@@ -1300,6 +1323,17 @@ func TestCreateCommand_RegistersSession(t *testing.T) {
 	require.True(t, e.SessionExists(context.Background(), id))
 	require.Contains(t, e.ListSessionsForWorkspace("ws1"), id)
 }
+
+func TestWithTerminalDefaults_InjectsTERMWhenAbsent(t *testing.T) {
+	// A command session started with an env lacking TERM ends up with the default.
+	got := withTerminalDefaults([]string{"PATH=/usr/bin"})
+	require.Contains(t, got, "TERM=xterm-256color")
+	require.Contains(t, got, "COLORTERM=truecolor")
+	// Does not override a caller-provided TERM.
+	got = withTerminalDefaults([]string{"TERM=screen"})
+	require.Contains(t, got, "TERM=screen")
+	require.NotContains(t, got, "TERM=xterm-256color")
+}
 ```
 
 - [ ] **Step 2: Run test to verify it fails**
@@ -1320,6 +1354,10 @@ func (e *terminalEngine) CreateCommand(
 	env []string,
 ) (string, error) {
 	id := uuid.NewString()
+	// The real terminal engine seeds ptyEnv() (TERM/COLORTERM); CreateCommand takes
+	// the caller's env verbatim, so under launchd TERM is absent and Ink TUIs
+	// misrender. Backfill the terminal defaults for any keys not already set.
+	env = withTerminalDefaults(env)
 	s, err := session.NewCommand(id, argv, cwd, env, 80, 24, 0)
 	if err != nil {
 		return "", fmt.Errorf("terminal: create command: %w", err)
@@ -1328,9 +1366,30 @@ func (e *terminalEngine) CreateCommand(
 	go e.reapOnDone(id, workspaceID, s)
 	return id, nil
 }
+
+// withTerminalDefaults appends TERM=xterm-256color / COLORTERM=truecolor only for
+// keys the caller did not already provide, matching the real terminal engine's
+// ptyEnv() seeding.
+func withTerminalDefaults(env []string) []string {
+	has := func(key string) bool {
+		for _, kv := range env {
+			if strings.HasPrefix(kv, key+"=") {
+				return true
+			}
+		}
+		return false
+	}
+	if !has("TERM") {
+		env = append(env, "TERM=xterm-256color")
+	}
+	if !has("COLORTERM") {
+		env = append(env, "COLORTERM=truecolor")
+	}
+	return env
+}
 ```
 
-Add `CreateCommand(ctx context.Context, workspaceID, cwd string, argv, env []string) (string, error)` to the `Engine` interface in terminal.go.
+Add `CreateCommand(ctx context.Context, workspaceID, cwd string, argv, env []string) (string, error)` to the `Engine` interface in terminal.go. Add `"strings"` to terminal.go's imports if not already present (used by `withTerminalDefaults`).
 
 - [ ] **Step 4: Run tests to verify they pass**
 
@@ -1621,7 +1680,9 @@ Co-Authored-By: Claude Opus 4.8 (1M context) <noreply@anthropic.com>"
 - Produces:
   - `domain.AgentChat{ ID, WorkspaceID, Title, ActiveSegmentID string; CreatedAt time.Time }` (table `agent_chats`).
   - `domain.AgentSegment{ ID, ChatID, ProviderID, ProviderSessionID, CrowbarSegmentID string; StartedAt time.Time; EndedAt *time.Time; Status string }` (table `agent_segments`, `ChatID gorm:"index"`).
-  - `agentchat.Store` interface + `agentchat.New(db *gorm.DB) (Store, error)` with: `SaveChat/GetChat/ListChats/SaveSegment/GetSegment/ListSegmentsByChat/AllSegments`.
+  - `agentchat.Store` interface + `agentchat.New(db *gorm.DB) (Store, error)` with: `SaveChat/GetChat/ListChats/SaveSegment/GetSegment/GetActiveSegmentByCrowbarID/ListSegmentsByChat/AllSegments`.
+
+**Invariant (relied on by the reducer/persistence in Task 14):** at most one `AgentSegment` with `status="active"` exists per `CrowbarSegmentID` (one live process = one active segment; a chat move ends the old active segment and opens a new one), and a given process's `ProviderID` is stable for its whole life. "The current segment for a process" is therefore always resolved via `GetActiveSegmentByCrowbarID`, never a bare `.First` on `crowbar_segment_id` (multiple rows can share it once moves have happened).
 
 Mirror the bespoke gorm repo template at `app/repositories/workspace/internal/locations/locations.go:60-121` (self-`AutoMigrate` in `New`, `db.WithContext(ctx).Save`, `.First(&row,"id = ?",id)`, `.Find`, translate `gorm.ErrRecordNotFound` → package `ErrNotFound`). Models follow `domain/project.go` conventions (string PK, `TableName()`, json tags).
 
@@ -1707,6 +1768,7 @@ type AgentSegment struct {
 	ProviderSessionID string     `gorm:"index"      json:"providerSessionId"`
 	CrowbarSegmentID  string     `gorm:"index"      json:"crowbarSegmentId"`
 	TerminalSessionID string     `json:"terminalSessionId"`
+	TranscriptPath    string     `json:"transcriptPath"`
 	StartedAt         time.Time  `json:"startedAt"`
 	EndedAt           *time.Time `json:"endedAt,omitempty"`
 	Status            string     `json:"status"`
@@ -1738,6 +1800,7 @@ type Store interface {
 	ListChats(ctx context.Context) ([]domain.AgentChat, error)
 	SaveSegment(ctx context.Context, s domain.AgentSegment) error
 	GetSegment(ctx context.Context, id string) (domain.AgentSegment, error)
+	GetActiveSegmentByCrowbarID(ctx context.Context, crowbarSegID string) (domain.AgentSegment, error)
 	ListSegmentsByChat(ctx context.Context, chatID string) ([]domain.AgentSegment, error)
 	AllSegments(ctx context.Context) ([]domain.AgentSegment, error)
 }
@@ -1778,6 +1841,25 @@ func (s *gormStore) SaveSegment(ctx context.Context, seg domain.AgentSegment) er
 func (s *gormStore) GetSegment(ctx context.Context, id string) (domain.AgentSegment, error) {
 	var seg domain.AgentSegment
 	if err := s.db.WithContext(ctx).First(&seg, "id = ?", id).Error; err != nil {
+		if errors.Is(err, gormdb.ErrRecordNotFound) {
+			return domain.AgentSegment{}, ErrNotFound
+		}
+		return domain.AgentSegment{}, err
+	}
+	return seg, nil
+}
+
+// GetActiveSegmentByCrowbarID returns the single active segment for a live process
+// (its CrowbarSegmentID). Multiple rows may share a crowbar_segment_id after chat
+// moves, but the invariant guarantees at most one is active — so callers resolving
+// "the current segment for a process" MUST use this, never a bare .First on the id.
+func (s *gormStore) GetActiveSegmentByCrowbarID(ctx context.Context, crowbarSegID string) (domain.AgentSegment, error) {
+	var seg domain.AgentSegment
+	err := s.db.WithContext(ctx).
+		Where("crowbar_segment_id = ? AND status = ?", crowbarSegID, "active").
+		Order("started_at desc").
+		First(&seg).Error
+	if err != nil {
 		if errors.Is(err, gormdb.ErrRecordNotFound) {
 			return domain.AgentSegment{}, ErrNotFound
 		}
@@ -1991,6 +2073,7 @@ Co-Authored-By: Claude Opus 4.8 (1M context) <noreply@anthropic.com>"
   - `type Outcome struct { Kind string; ChatID, SessionID, SegmentID string }` (`Kind` ∈ `noop|bound|focus|registered`).
   - `type Registry struct { ... }`, `func NewRegistry() *Registry`.
   - `func (r *Registry) BindSegment(segmentID, chatID string)` — record which chat a freshly-spawned segment belongs to (called before its first hook).
+  - `func (r *Registry) ChatForSegment(segmentID string) string` — the chat a segment currently hosts (used by the usecase to attribute `turn_stop` to the reducer's current chat, not a stale DB value).
   - `func (r *Registry) Seed(sessionID, chatID string)` — mark a session id as known (rehydration from DB at startup).
   - `func (r *Registry) OnSessionStart(segmentID, sessionID string, newChatID func() string) Outcome` — the serialized reducer.
 
@@ -2057,6 +2140,15 @@ func TestReducer_ClearThenResumeSequence(t *testing.T) {
 	require.Equal(t, "chatA", back.ChatID)
 }
 
+func TestReducer_ChatForSegmentTracksCurrentChat(t *testing.T) {
+	r := agent.NewRegistry()
+	r.BindSegment("seg1", "chatA")
+	require.Equal(t, "chatA", r.ChatForSegment("seg1"))
+	r.OnSessionStart("seg1", "s0", newID("x"))
+	r.OnSessionStart("seg1", "s1", newID("chatB")) // clear -> registered, seg now hosts chatB
+	require.Equal(t, "chatB", r.ChatForSegment("seg1"))
+}
+
 func newID(id string) func() string { return func() string { return id } }
 ```
 
@@ -2103,6 +2195,15 @@ func (r *Registry) BindSegment(segmentID, chatID string) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	r.segToChat[segmentID] = chatID
+}
+
+// ChatForSegment returns the chat a segment currently hosts (empty if unknown).
+// The usecase uses this to attribute turn_stop to the reducer's current chat
+// rather than a possibly-stale DB row.
+func (r *Registry) ChatForSegment(segmentID string) string {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	return r.segToChat[segmentID]
 }
 
 // Seed marks a session id as known (used to rehydrate from the DB at startup).
@@ -2212,10 +2313,17 @@ type WorkspaceReader interface{ WorktreeDir(ctx context.Context, workspaceID str
 4. Resolve descriptor. Build `TemplateCtx{ Tmp: mkdtemp, Cwd: worktree, CrowbarHook: <home>/bin/crowbar }`. Run `BuildSpawnPlan`. Prepend `descriptor.Spawn.Cmd` as argv[0], append plan.Argv. Set `CROWBAR_SEGMENT_ID=segID` in plan.Env.
 5. `termSessID := u.term.CreateCommand(ctx, workspaceID, worktree, append([]string{descriptor.Spawn.Cmd}, plan.Argv...), plan.Env)`. Store `termSessID` on the segment.
 
-**Design of `IngestHook`:**
-- Look up the segment by `CrowbarSegmentID == segmentID` (repo `AllSegments` filter, or add `GetSegmentByCrowbarID`). Resolve its provider descriptor. `ev, _ := d.MapHook(canonicalEvent, payload)`.
-- If `ev.Kind == "session_start"`: `out := u.registry.OnSessionStart(segmentID, ev.SessionID, func() string { return uuid.NewString() })`. Persist per outcome: `bound`/`registered` → set the segment's `ProviderSessionID = ev.SessionID` (and for `registered`, create the new AgentChat row + a segment row for the new chat); `focus` → update `activeSegmentID`/emit. Always `u.bc.BroadcastAgentChat(out.ChatID, out.Kind)`.
-- If `ev.Kind == "turn_stop"`: read the transcript at `ev.Transcript` (opaque), `ledger.Open(AgentLedgerDir(...)).Append(providerID, now, blob)`, `BroadcastAgentChat(chatID, "turn_stopped")`.
+**Invariant (see Task 11):** one live process (`CrowbarSegmentID`) has **at most one** `AgentSegment` with `status="active"`, and its `ProviderID` is stable for life. A single process can host different chats over time (`/clear` registers a new chat; `/resume`-to-known focuses another), so the DB must *follow* the reducer — a move **ends the current active segment and opens a new active segment** rather than mutating a static `ChatID`. Therefore every "current segment for this process" lookup resolves via `GetActiveSegmentByCrowbarID(crowbarSegID)`, never a bare `.First` on `crowbar_segment_id` (which now matches multiple rows).
+
+**Design of `IngestHook`** (`segmentID` here is the process's `CrowbarSegmentID`, i.e. `crowbarSegID`):
+- Resolve the **active** segment for `crowbarSegID` via `agentchat.GetActiveSegmentByCrowbarID(ctx, crowbarSegID)` → its `ProviderID` → `ResolveDescriptor` → `ev, _ := d.MapHook(canonicalEvent, payload)`.
+- If `ev.Kind == "session_start"`: `out := u.registry.OnSessionStart(crowbarSegID, ev.SessionID, func() string { return uuid.NewString() })`, then persist per outcome:
+  - `bound`: set the active segment's `ProviderSessionID = ev.SessionID` and `TranscriptPath = ev.Transcript`; save. **Never overwrite a non-empty `ProviderSessionID`** (guard before assigning).
+  - `registered`: mark the current active segment `Status="moved"`, `EndedAt=now`; save — **KEEP its `ProviderSessionID`** (switch-back resume to the old id must still work). Create a new `AgentChat{ID: out.ChatID, WorkspaceID: <the prior chat's WorkspaceID>, CreatedAt: now}`, and a **new** `AgentSegment{ID: uuid.NewString(), ChatID: out.ChatID, ProviderID: <same>, CrowbarSegmentID: crowbarSegID, ProviderSessionID: ev.SessionID, TranscriptPath: ev.Transcript, Status: "active", StartedAt: now}`; set the new chat's `ActiveSegmentID` to that segment; save.
+  - `focus`: mark the current active segment `Status="moved"`, save; create a **new** `AgentSegment{ID: uuid.NewString(), ChatID: out.ChatID (the known chat), ProviderID: <same>, CrowbarSegmentID: crowbarSegID, ProviderSessionID: ev.SessionID, Status: "active", StartedAt: now}`; broadcast focus. (`ProviderSessionID` may repeat across rows — that is expected; the active-status invariant keeps the "current segment" unambiguous.)
+  - `noop`: nothing.
+  - Always `u.bc.BroadcastAgentChat(out.ChatID, out.Kind)`.
+- If `ev.Kind == "turn_stop"`: resolve the active segment for `crowbarSegID` → its **current** `ChatID` → `AgentLedgerDir(...)` → `ledger.Open(...).Append(providerID, now, blob)` where `blob` is read from `ev.Transcript` (opaque); `BroadcastAgentChat(chatID, "turn_stopped")`.
 
 - [ ] **Step 1: Write the failing test** (fakes for terminal/ws/workspace)
 
@@ -2224,8 +2332,15 @@ type WorkspaceReader interface{ WorktreeDir(ctx context.Context, workspaceID str
 // (a) SpawnChat persists a chat+segment, binds the reducer, and calls CreateCommand
 //     with CROWBAR_SEGMENT_ID in env and the descriptor cmd as argv[0].
 // (b) IngestHook(session_start) with a NEW id under a bound segment records the
-//     provider session id on the segment.
+//     provider session id (and TranscriptPath) on the active segment.
 // (c) IngestHook(turn_stop) writes a ledger entry from a transcript file on disk.
+// (d) IngestHook(session_start) yielding "registered" (a second, unknown id under
+//     the same crowbarSegID) marks the old segment Status="moved" (keeping its
+//     ProviderSessionID intact — NOT overwritten) and creates a NEW active segment
+//     + AgentChat carrying the prior chat's WorkspaceID; the old chat's active
+//     segment is no longer active.
+// (e) IngestHook(turn_stop) AFTER a move attributes the ledger entry to the NEW
+//     chat (GetActiveSegmentByCrowbarID resolves the current, not the moved, row).
 // Use a fakeCommander capturing argv/env, a fakeWorkspace returning a temp worktree,
 // and a fakeBroadcaster recording (chatID,kind).
 ```
@@ -2236,7 +2351,7 @@ type WorkspaceReader interface{ WorktreeDir(ctx context.Context, workspaceID str
 Run: `cd api && go test -tags noEmbed ./internal/app/usecases/agent/ -v`
 Expected: FAIL — package does not exist.
 
-- [ ] **Step 3: Write the usecase** (implement `New`, `SpawnChat`, `IngestHook`, `ListChats`, `GetChat`, `SegmentsFor` per the design above). Add `GetSegmentByCrowbarID(ctx, crowbarSegID)` to the `agentchat.Store` interface + impl (`.First(&seg,"crowbar_segment_id = ?", id)`).
+- [ ] **Step 3: Write the usecase** (implement `New`, `SpawnChat`, `IngestHook`, `ListChats`, `GetChat`, `SegmentsFor` per the design above). Segment lookups use `agentchat.GetActiveSegmentByCrowbarID` (added in Task 11) — do **not** add a plain `GetSegmentByCrowbarID`, since a bare `.First` on `crowbar_segment_id` mis-attributes once a process has hosted multiple chats.
 
 - [ ] **Step 4: Add the hub plumbing** — mirror an existing topic exactly:
   - `hub/subscriber.go`: add `PushAgentChat(chatID, kind string)` to the `Subscriber` interface.
@@ -2274,7 +2389,7 @@ Co-Authored-By: Claude Opus 4.8 (1M context) <noreply@anthropic.com>"
   - `POST /v0/agent/hooks` (body `{segment_id, event, payload}`) → `IngestHook` → `WriteAccepted`.
   - `GET  /v0/agent/ws/chats` → `c.agentChats.Handle` (the broadcaster).
 
-Mirror the dormant `chats` endpoint package (`endpoints/chats/`) for structure, and the workspaces `Register` signature. For the WS broadcaster, add a `agentChats *ws.Broadcaster[dto.AgentChatDTO]` field to the v0 `Container` (container.go:33-44), construct it with an `agentChatDef(appContainer)` `StreamDef` (mirror `gitDef` container.go:366-378), implement `PushAgentChat` (mirror `PushGit` container.go:248-258), and register the v0 container as the hub subscriber already does (`appContainer.Hub.Register(c)`).
+Mirror the dormant `chats` endpoint package (`endpoints/chats/`) for structure, and the workspaces `Register` signature. For the WS broadcaster, add a `agentChats *ws.Broadcaster[dto.AgentChatDTO]` field to the v0 `Container` (container.go:33-44), construct it with an `agentChatDef(appContainer)` `StreamDef` that is **UNSCOPED** — `GET /v0/agent/ws/chats` is a global route (no `:wsId` path param), so do **NOT** mirror `gitDef` (which is wsId-scoped via a `wsId` Filter + `withWatcherLifecycle`, container.go:70/366-378). Mirror the flat topic defs instead (the shape of `filesDef`/`lspDef`, container.go:380-405) but **omit the `:wsId` Filter and any per-workspace lifecycle wrapper** — the closest fully-unscoped exemplars are `projectsDef`/`reposDef` (container.go:270-292): registered bare in `NewBroadcaster` with no Filters and no lifecycle wrapper. Namespace by `chatID`. Implement `PushAgentChat` mirroring `PushGit` (container.go:248-258) but pushing to all subscribers (no wsId scoping), and register the v0 container as the hub subscriber already does (`appContainer.Hub.Register(c)`).
 
 - [ ] **Step 1: Write the failing unit test (hooks handler decodes + dispatches)**
 
@@ -2294,8 +2409,9 @@ Expected: FAIL — package does not exist.
 
 - [ ] **Step 4: Mount + wire**
   - `router.go`: after the `system.Register(rg)` line (router.go:50-51), add `agent.Register(rg, c.app.Usecases.Agent, c.agentChats.Handle)`.
-  - `container.go` (v0): add the `agentChats` broadcaster field + construct + `PushAgentChat` + `agentChatDef`.
+  - `container.go` (v0): add the `agentChats` broadcaster field + construct (UNSCOPED `agentChatDef` — no `:wsId` Filter, no lifecycle wrapper) + `PushAgentChat` + `agentChatDef`.
   - `app/container.go` + `usecases/container.go`: construct `agent.New(...)` with the terminal engine, `agentchat` repo (built off `adapters.GlobalView()` in `repositories.New` or a new `GORMStores` entry), ledger factory, registry, the hub as broadcaster, and a workspace reader. Expose as `Usecases.Agent`.
+    - **Concrete `WorkspaceReader.WorktreeDir` resolver** (the seam declared in Task 14): given `workspaceID`, resolve `projectID`/`repoID` from the workspace-location index — `c.app.Repositories.Workspace.Get(ctx, workspaceID)` returns a `domain.Workspace` carrying `ProjectID`/`RepoID` (it looks up the `locations` store at `repositories/workspace/internal/locations`, the authority for "where does this workspace live"). Then `crowbarHome := metadata.GetHomePath()` (`core/metadata`), and `worktree := worktreepath.For(crowbarHome, projectID, repoID, workspaceID)` (`app/usecases/internal/worktreepath`, the same helper `worktree.go` uses). Return `(crowbarHome, projectID, repoID, worktree, nil)`.
   - Seed the registry from persisted segments at startup (rehydration): in `app/container.go` after building the agent usecase, call `ucs.Agent.SeedRegistry(ctx)` which loads `AllSegments` and `registry.Seed(seg.ProviderSessionID, seg.ChatID)` for each non-empty session id.
 
 - [ ] **Step 5: Run tests + build**
@@ -2366,11 +2482,18 @@ Co-Authored-By: Claude Opus 4.8 (1M context) <noreply@anthropic.com>"
 1. Load chat; load its active segment (`GetSegment(chat.ActiveSegmentID)`), which carries `TerminalSessionID` + `ProviderID` + `ProviderSessionID`.
 2. `handoff, _ := u.AssembleHandoff(ctx, chatID)` (ledger already holds prior turns).
 3. Terminate the outgoing CLI: `u.term.Kill(ctx, oldSeg.TerminalSessionID)`; mark `oldSeg.Status="ended"`, `oldSeg.EndedAt=now`, save.
-4. Determine switch-back: if a prior segment in this chat exists with `ProviderID==targetProviderID` and a non-empty `ProviderSessionID`, this is a **switch-back** — build `session.resume` extraSteps (`{arg: descriptor.Session.Resume.Arg}` expanded with `{id}=priorSessionID`) so native context is restored; still also inject the handoff delta via `handoff_inject`. Otherwise, a **forward switch** — inject only the handoff.
+4. Determine switch-back: if a prior segment in this chat exists with `ProviderID==targetProviderID` and a non-empty `ProviderSessionID`, this is a **switch-back** — build `session.resume` extraSteps so native context is restored; still also inject the handoff delta via `handoff_inject`. Otherwise, a **forward switch** — inject only the handoff.
+   - **Resume arg must be split into separate argv tokens.** `descriptor.Session.Resume.Arg` is one string like `"--resume {id}"` / `"resume {id}"`; passing it whole as a single `pass_arg{arg}`/`pass_arg{positional}` hands `exec.Command` one literal argument (e.g. `"--resume abc123"`) and resume fails. Expand the resume arg with `{id}=priorSessionID`, then split on whitespace and append each token as its own argv element:
+     ```go
+     resumeCtx := agent.TemplateCtx{ID: priorSessionID} // only {id} matters here
+     for _, tok := range strings.Fields(agent.Expand(d.Session.Resume.Arg, resumeCtx)) {
+         steps = append(steps, agent.InjectStep{Verb: "pass_arg", Args: map[string]any{"positional": tok}})
+     }
+     ```
 5. Build the new segment exactly like `SpawnChat` but reuse the existing `chatID`: new `segID=uuid`, persist `AgentSegment{ChatID:chatID, ProviderID:target, CrowbarSegmentID:segID, Status:"active"}`, `registry.BindSegment(segID, chatID)`, build spawn plan with `extraSteps = handoff_inject (+ resume)`, `CROWBAR_SEGMENT_ID=segID`, `CreateCommand`, store `TerminalSessionID`.
 6. `chat.ActiveSegmentID=segID`, save; `BroadcastAgentChat(chatID,"switched")`. Return `segID`.
 
-- [ ] **Step 1: Write the failing test** (fakes): assert (a) old terminal session killed, (b) `CreateCommand` argv for the new segment contains the target descriptor cmd and the handoff value (forward), (c) a new active segment is persisted with the target provider, (d) switch-back path adds the resume arg with the prior session id.
+- [ ] **Step 1: Write the failing test** (fakes): assert (a) old terminal session killed, (b) `CreateCommand` argv for the new segment contains the target descriptor cmd and the handoff value (forward), (c) a new active segment is persisted with the target provider, (d) switch-back path adds the resume flag and the prior session id as **separate** argv tokens (e.g. `--resume` and `priorSessionID` are two distinct elements of the new segment's argv, not one `"--resume priorSessionID"` token).
 
 - [ ] **Step 2: Run test → fails.** Run: `cd api && go test -tags noEmbed ./internal/app/usecases/agent/ -run Switch -v`
 
