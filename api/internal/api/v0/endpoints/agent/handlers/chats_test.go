@@ -134,6 +134,21 @@ func (u *configurableListGetUsecase) SegmentsFor(
 	return u.segs, nil
 }
 
+func (configurableListGetUsecase) SwitchProvider(
+	_ context.Context,
+	_ string,
+	_ string,
+) (string, error) {
+	return "", nil
+}
+
+func (configurableListGetUsecase) AssembleHandoff(
+	_ context.Context,
+	_ string,
+) (string, error) {
+	return "", nil
+}
+
 // TestList_Success proves List returns every chat as wire DTOs.
 func TestList_Success(
 	t *testing.T,

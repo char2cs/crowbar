@@ -34,6 +34,24 @@ func NewClient(host string) (*Client, error) {
 	}}, nil
 }
 
+// Get issues a GET request against path over the daemon's unix socket,
+// returning the response status and raw body. It never returns a non-nil
+// error on a non-2xx status; callers decode the {success,error,data} envelope
+// themselves to distinguish daemon-reported failures from transport failures.
+func (c *Client) Get(ctx context.Context, path string) (int, []byte, error) {
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, "http://unix"+path, nil)
+	if err != nil {
+		return 0, nil, fmt.Errorf("ipc: request: %w", err)
+	}
+	resp, err := c.http.Do(req)
+	if err != nil {
+		return 0, nil, fmt.Errorf("ipc: do: %w", err)
+	}
+	defer resp.Body.Close()
+	respBody, _ := io.ReadAll(resp.Body)
+	return resp.StatusCode, respBody, nil
+}
+
 func (c *Client) PostJSON(ctx context.Context, path string, body any) (int, []byte, error) {
 	buf, err := json.Marshal(body)
 	if err != nil {

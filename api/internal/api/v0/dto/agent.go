@@ -66,6 +66,14 @@ func AgentChatDetailDTOFrom(
 	}
 }
 
+// HandoffDTO is the wire shape of GET /v0/agent/chats/:id/handoff: the
+// assembled handoff blob a freshly spawned provider CLI can be given as prior
+// context. Handoff is "" (not omitted) when the chat's ledger has no entries
+// yet.
+type HandoffDTO struct {
+	Handoff string `json:"handoff"`
+}
+
 // AgentChatEvent is the wire frame pushed on the agent-chat lifecycle
 // WebSocket (GET /v0/agent/ws/chats): the chat that changed and the lifecycle
 // kind (bound/focus/registered/turn_stopped, etc. — 00 agentic-engine spec §7).

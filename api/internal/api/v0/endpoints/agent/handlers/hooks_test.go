@@ -96,12 +96,24 @@ type fakeAgentUsecase struct {
 	spawnChatID string
 	spawnSegID  string
 	spawnErr    error
+
+	switchCalls    []switchCall
+	switchNewSegID string
+	switchErr      error
+
+	handoffStr string
+	handoffErr error
 }
 
 type ingestCall struct {
 	segID   string
 	event   string
 	payload map[string]any
+}
+
+type switchCall struct {
+	chatID   string
+	provider string
 }
 
 func (f *fakeAgentUsecase) SpawnChat(
@@ -143,4 +155,26 @@ func (f *fakeAgentUsecase) SegmentsFor(
 	_ string,
 ) ([]domain.AgentSegment, error) {
 	return nil, nil
+}
+
+func (f *fakeAgentUsecase) SwitchProvider(
+	_ context.Context,
+	chatID string,
+	provider string,
+) (string, error) {
+	f.switchCalls = append(f.switchCalls, switchCall{chatID: chatID, provider: provider})
+	if f.switchErr != nil {
+		return "", f.switchErr
+	}
+	return f.switchNewSegID, nil
+}
+
+func (f *fakeAgentUsecase) AssembleHandoff(
+	_ context.Context,
+	_ string,
+) (string, error) {
+	if f.handoffErr != nil {
+		return "", f.handoffErr
+	}
+	return f.handoffStr, nil
 }

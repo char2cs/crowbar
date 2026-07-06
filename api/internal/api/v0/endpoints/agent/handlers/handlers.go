@@ -37,6 +37,22 @@ type AgentUsecase interface {
 		ctx context.Context,
 		chatID string,
 	) ([]domain.AgentSegment, error)
+
+	// SwitchProvider terminates chatID's active provider CLI, hands off the
+	// accumulated context, and spawns targetProviderID as a new segment in the
+	// same chat, returning the new segment's id.
+	SwitchProvider(
+		ctx context.Context,
+		chatID string,
+		targetProviderID string,
+	) (newSegID string, err error)
+
+	// AssembleHandoff resolves chatID's ledger into the legible handoff blob a
+	// freshly spawned provider CLI can be given as prior context.
+	AssembleHandoff(
+		ctx context.Context,
+		chatID string,
+	) (string, error)
 }
 
 // Handlers serves the /v0/agent routes from the agent usecase.
