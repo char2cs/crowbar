@@ -1,6 +1,7 @@
 # Crowbar — Agentic Engine & Provider-Switching Core (Iteration 1)
 
-**Status:** design approved, pre-implementation
+**Status:** design validated by a Phase-0 spike — every load-bearing claim proven live on the
+real binaries (§1 scorecard). Ready for implementation planning.
 **Date:** 2026-07-05
 **Scope:** backend only. No GUI, no input overlay, no viewer. Interface left bare;
 exercised via HTTP + integration tests against the real CLIs.
@@ -27,20 +28,44 @@ zero engine changes — that is the thesis this iteration exists to prove.
 |---|---|---|
 | Spawn (interactive default) | `claude` | `codex` |
 | Hook inject | `--settings <json\|file>` (additive merge) | `$CODEX_HOME/hooks.json` + trust seed |
-| Hook events | `SessionStart` / `UserPromptSubmit` / `Stop` / … | **same event names** (+ `PermissionRequest`, `SubagentStart`) |
+| Hook events (all fired live) | `SessionStart` / `UserPromptSubmit` / `Stop` | **same event names**, same nested `{hooks:[{type,command}]}` shape |
 | Hook wire (stdin JSON) | `session_id`, `transcript_path`, `hook_event_name`, `source` | convergent (`hook_event_name`, `hookSpecificOutput`, `stop_hook_active`) |
-| Session id | hook payload; **`--session-id <uuid>` to assign**; `--resume <id>` | rollout filename + `session_meta`; `resume <id>` / `--last` |
-| Transcript | `~/.claude/projects/<slug>/<uuid>.jsonl` | `~/.codex/sessions/YYYY/MM/DD/rollout-*-<uuid>.jsonl` |
-| Sys-prompt inject | `--append-system-prompt` / `--system-prompt-file` | `-c developer_instructions=…` / `AGENTS.md` |
+| Session id | hook payload; `--session-id` can assign, but engine **records the native id** (uniform w/ Codex); `--resume <id>` | rollout filename + hook; **no `--session-id`**; `resume <id>` / `--last` |
+| Transcript — path **read from the hook**, never computed | `~/.claude/projects/<slug>/<uuid>.jsonl` (slug truncated + hash-suffixed) | `~/.codex/sessions/YYYY/MM/DD/rollout-*-<uuid>.jsonl` |
+| Handoff inject | `--append-system-prompt` (per-invocation, **non-polluting** — proven) | initial-prompt arg (proven); `-c developer_instructions` (alt, untested) |
 
 **Headline finding:** Codex's hook system is a near-clone of Claude's (same event names,
-same wire shape). The doc's #1 fear — Codex lifecycle granularity — is largely unfounded.
+same wire shape). The doc's #1 fear — Codex lifecycle granularity — is unfounded.
 
-**Unverified, confirmed while building the Codex connector** (documented fallback each):
-- **One that matters:** Codex's hook-injection mechanism (relocate `CODEX_HOME` vs
-  `-c hooks=<path>`) + trust-seeding.
-- **One that doesn't:** Codex `SessionStart.source` granularity — now *optional metadata only*
-  (§7 makes detection branch on the session id, not the label), so its absence changes nothing.
+### Phase-0 spike — RESULTS (all PROVEN live, before any engine code)
+
+A throwaway PTY harness drove the two real binaries through every risky path. Scorecard:
+
+| Claim | Claude | Codex |
+|---|---|---|
+| `SessionStart` hook → `session_id` + `transcript_path` (+ `source`) | ✅ | ✅ |
+| One generic stdin-reading hook drives both, same field names | ✅ | ✅ |
+| Detection: a conversation move re-fires `SessionStart` with a **changed** id | ✅ `/clear` | ✅ `/new` |
+| Session-scoped injection, no mutation of the user's real config | ✅ `--settings` | ✅ relocated `CODEX_HOME` |
+| Forward handoff = cross-provider **opaque** transcript read | ✅ Codex read Claude's raw 38 KB `.jsonl` and extracted the codeword | — |
+| Native resume / Case-1 (`--resume <id>` → `source=resume`) | ✅ | ✅ `resume` |
+| Backward handoff (`--append-system-prompt` delta) lands | ✅ | — |
+| **Pollution:** does the appended delta persist into the vendor session file? | ✅ **No — per-invocation, clean** | — |
+
+**Vindication of facts-not-labels (§7):** the *same kind* of move is labelled `source:"clear"`
+by Claude but `source:"startup"` by Codex — the labels disagree, the id-change does not. Any
+reducer that branched on the label would already be broken across these two CLIs.
+
+**Gotchas the spike forced into this design (each folded into the sections below):**
+- **`CLAUDE_CODE_CHILD_SESSION=1` / `CLAUDECODE=1`** (inherited when a `claude` child is spawned
+  from inside Claude Code) **suppress the child's transcript persistence** → `--resume` breaks.
+  A spike artifact (Crowbar's Go daemon spawns clean), but `spawn.env` clears them defensively (§4.1).
+- **Transcript path is READ from the hook payload, never computed** — Claude's slug is
+  truncated + hash-suffixed; Codex's is a date-partitioned rollout (§4).
+- **Codex hooks fire interactively only** (not under `codex exec`) — which is exactly where the
+  product runs. Injection = relocated `CODEX_HOME` + `--dangerously-bypass-hook-trust` (§4.2).
+- **Switch = gracefully quit the outgoing CLI** (Claude flushes on a clean exit; Codex tolerates
+  a hard kill) — never SIGKILL mid-flight (§8).
 
 ---
 
@@ -54,7 +79,7 @@ never writes to the PTY at all.**
   messages, not `/compact`, not `/clear`. Writing into a live Ink TUI is fragile (it depends on
   the TUI's current mode) and would race with the user typing. It is also unnecessary (below).
 - **All Crowbar orchestration is out-of-band**, three tools only: (a) **spawn-time arguments**
-  (`--session-id`, `--resume`, handoff via `--append-system-prompt` / `-c developer_instructions`);
+  (`--resume`, handoff via Claude's `--append-system-prompt` or Codex's initial-prompt arg);
   (b) **read-only side channels** (hooks + transcript); (c) **process lifecycle** (spawn /
   terminate a PID — a signal, not a PTY write).
 - Crowbar **observes** via hooks + transcript, **owns** the chat + ledger, **detects** moves
@@ -125,10 +150,13 @@ spawn:
   cmd: claude
   interactive_required: true            # engine refuses to launch headless
   forbid_flags: ["-p", "--print"]       # §3 hard guard, enforced in engine
-  env: {}                               # cwd supplied by the chat at runtime
+  env:                                  # cwd supplied by the chat at runtime
+    clear: ["CLAUDE_CODE_CHILD_SESSION", "CLAUDECODE"]  # else a nested spawn won't persist its
+                                        #   transcript → --resume breaks (Phase-0 finding)
 
 session:                                # all spawn-time ARGS — Crowbar never writes to the PTY
-  assign:  { arg: "--session-id {uuid}" }   # Crowbar owns the id
+  assign:  { arg: "--session-id {uuid}" }   # available (Claude-only); engine DEFAULTS to recording
+                                        #   the native id instead, for uniformity with Codex
   resume:  { arg: "--resume {id}" }
 
 # Injection is expressed as ordered declarative STEPS from a closed generic vocabulary.
@@ -148,11 +176,16 @@ hooks:                                  # events to register + field-maps (JSONP
     provider_event: Stop
     fields: { session_id: $.session_id, transcript: $.transcript_path }
 
-transcript:                             # for ADOPTION when no hook handed us a path (foreign session)
-  locate:  "~/.claude/projects/{cwd_slug}/{session_id}.jsonl"
+transcript:
+  from_hook: $.transcript_path          # PRIMARY — the hook hands us the exact path. The slug is
+                                        #   truncated + hash-suffixed, so COMPUTING it is wrong (spike).
+  locate:  "~/.claude/projects/{cwd_slug}/{session_id}.jsonl"  # FALLBACK only — best-effort, for
+                                        #   ADOPTING a foreign session that no hook announced
   content: opaque                       # stored & forwarded, never parsed (POC)
 
 handoff_inject:                         # how a handoff blob enters a fresh spawn
+  # Spike-proven: on a --resume spawn the appended prompt is applied PER-INVOCATION — it is NOT
+  # written into the vendor session file, so switch-back injects a delta without polluting it.
   - pass_arg: { arg: "--append-system-prompt", value: "{handoff}" }
 
 super_harness: {}                       # RESERVED, unused (MCP/skills/subagents — invariant 7)
@@ -164,32 +197,44 @@ super_harness: {}                       # RESERVED, unused (MCP/skills/subagents
 id: codex
 version: { pinned: "0.139.0", compat_check: "codex --version" }
 
-spawn: { cmd: codex, interactive_required: true, forbid_flags: ["exec"] }
+spawn:
+  cmd: codex
+  interactive_required: true
+  forbid_flags: ["exec"]
+  # Spike-proven: Codex hooks fire in the interactive TUI ONLY (never under `codex exec`) — which is
+  # exactly where Crowbar runs. --dangerously-bypass-hook-trust lets our injected hooks run without
+  # per-hash trust seeding (intended for vetted automation).
+  args: ["--dangerously-bypass-hook-trust"]
 
 session:
-  # Codex mints its own id on fresh start (no --session-id equivalent confirmed);
-  # Crowbar learns it from the first SessionStart hook (correlated by CROWBAR_SEGMENT_ID).
+  # Codex mints its own id (no --session-id) — Crowbar learns it from the first SessionStart hook,
+  # correlated by CROWBAR_SEGMENT_ID. This is the record-not-assign model, now uniform with Claude.
   resume:  { arg: "resume {id}" }
 
 config_injection:                       # the genuine divergence: a procedure, not a flag
-  # PENDING VERIFY (Phase 0) — the exact steps below are the leading hypothesis, not confirmed.
-  # Open question: relocate CODEX_HOME (isolates the user's real config) vs `-c hooks=<path>`
-  # (lighter, but trust-seeding still mutates config). Whichever wins, it stays pure YAML data.
+  # Spike-PROVEN: relocate CODEX_HOME (isolates the user's real ~/.codex), carry auth + project
+  # trust, drop in our hooks. Hooks fired live; trust is bypassed by the spawn flag above.
   - set_env:    { name: CODEX_HOME, value: "{tmp}/codex-home" }
-  - copy_tree:  { from: "~/.codex", into: "{tmp}/codex-home", except: ["sessions", "logs*"] }
+  - write_file: { path: "{tmp}/codex-home/auth.json", from: "~/.codex/auth.json" }   # carry login
+  - write_file: { path: "{tmp}/codex-home/config.toml", content: "<project trust = trusted>" }
   - render_hooks: { format: codex_hooks_json, into: "{tmp}/codex-home/hooks.json" }
-  - seed_trust: { file: "{tmp}/codex-home/hooks.json" }   # writes trusted_hash into config.toml
+  # seed_trust OPTIONAL — the spawn flag makes hooks run without it; Codex's trusted_hash was not
+  # reverse-engineered (7 serializations missed) and is not needed for the POC.
 
 hooks:                                  # SAME canonical events (move_signal optional metadata; may be absent — fine)
   session_start: { provider_event: SessionStart, fields: { session_id: $.session_id, transcript: $.transcript_path, move_signal: $.source } }
   turn_stop:     { provider_event: Stop,         fields: { session_id: $.session_id, transcript: $.transcript_path } }
 
 transcript:
-  locate:  "~/.codex/sessions/{yyyy}/{mm}/{dd}/rollout-*-{session_id}.jsonl"
+  from_hook: $.transcript_path          # PRIMARY — path from the hook (date-partitioned rollout)
+  locate:  "~/.codex/sessions/{yyyy}/{mm}/{dd}/rollout-*-{session_id}.jsonl"   # FALLBACK only
   content: opaque
 
-handoff_inject:
-  - pass_arg: { arg: "-c", value: "developer_instructions={handoff}" }
+handoff_inject:                         # Spike-proven: the handoff rides as Codex's INITIAL PROMPT
+  # (a spawn-time positional arg — Crowbar still never writes to the PTY). Codex read a raw Claude
+  # transcript injected this way and correctly extracted its content. `-c developer_instructions=`
+  # is a plausible system-level alternative, untested.
+  - pass_arg: { positional: "{handoff}" }
 ```
 
 **Injection step vocabulary (closed set, engine-implemented, zero provider knowledge):**
@@ -272,9 +317,10 @@ underneath it* changes — the user typed `/clear` (new session id) or `/resume 
 existing session id). Same process, different conversation.
 
 **The only signal is the `SessionStart` hook**, attributed to a segment via `CROWBAR_SEGMENT_ID`.
-No input-watching — reacting to the hook loses nothing, because the outgoing context is already
-in the ledger (snapshotted on every `turn_stop`) and the vendor's old transcript file persists
-on disk after a `/clear`.
+Spike-verified live on both CLIs: Claude `/clear` and Codex `/new` each re-fired `SessionStart`
+with a changed session id. No input-watching — reacting to the hook loses nothing, because the
+outgoing context is already in the ledger (snapshotted on every `turn_stop`) and the vendor's old
+transcript file persists on disk after a `/clear`.
 
 **The reducer branches on FACTS, never on the meaning of a lifecycle label.** There are only two
 observations — no CLI can assign them a "weird meaning" because they are observations, not
@@ -310,14 +356,16 @@ on turn_stop{transcript}:  → append opaque snapshot to that chat's ledger (§6
 
 ## 8. Provider switch (Component 3)
 
-User-initiated, orchestrated by Crowbar (not a user "send"):
+User-initiated, orchestrated by Crowbar (not a user "send"). **Spike-proven end-to-end** — a full
+Claude→Codex→Claude round-trip carried a codeword across both switches (§1 scorecard).
 
 ```
 POST /chats/{id}/switch { provider: codex }
   1. read the outgoing session's transcript from disk → append an opaque snapshot to the ledger
      (the ledger already holds prior turns from turn_stop; this captures anything since the last Stop)
   2. assemble the handoff blob from the ledger
-  3. gracefully terminate the outgoing CLI process  # kill-on-switch (a PID signal, NOT a PTY write)
+  3. gracefully quit the outgoing CLI  # clean exit, NOT SIGKILL: Claude flushes its transcript on a
+     #   clean exit; Codex tolerates a hard kill (spike). A PID-level action, never a PTY write.
   4. spawn the target CLI in the same chat as a NEW segment, injecting the handoff at spawn time
      (descriptor handoff_inject) + a fresh CROWBAR_SEGMENT_ID
   5. new segment bound to the chat; active_segment updated
@@ -326,7 +374,9 @@ POST /chats/{id}/switch { provider: codex }
 
 - **Switch-back** reuses `session.resume`: returning to a prior provider resumes its old
   session id, restoring **native** context (higher fidelity than a re-injected summary) — so
-  we never keep idle processes alive.
+  we never keep idle processes alive. **Spike-proven:** the returning CLI restored its native
+  session (`source=resume`) *and* absorbed the appended delta, and the appended delta did **not**
+  pollute the vendor session file (per-invocation — §4.1). So switch-back is both lossless and clean.
 - **`crowbar handoff dump <chat>`** prints `handoff.yaml` from day one. The switch is the
   feature most likely to be silently wrong and cannot be verified from the terminal; its
   internal state must be legible.
@@ -368,6 +418,10 @@ No message endpoint. The terminal PTY stream itself rides the existing terminal 
 
 ## 11. Verification (no UI, so this is how we know it works)
 
+- **Phase-0 already proved the mechanisms** end-to-end with a throwaway Python PTY harness
+  driving the real binaries (§1 scorecard). Implementation re-verifies the same assertions
+  **through Crowbar's Go `engine/terminal`** — the one integration surface the harness did not
+  exercise. The harness scripts are retained as executable reference for the test authors.
 - **Integration tests drive the real pinned CLIs** in a PTY (tagged, per the black-box
   regression convention), asserting on: single engine path spawning both CLIs; hook payloads
   arriving and mapping to canonical events; ledger accumulation; the detection reducer across
@@ -383,11 +437,12 @@ No message endpoint. The terminal PTY stream itself rides the existing terminal 
 
 `1 → 2 → 3`, session record is substrate for switching.
 
-- **Phase 0 (spike, carried into the plan):** confirm against the real binaries: Codex's
-  hook-injection mechanism (relocate `CODEX_HOME` vs `-c hooks=<path>`) and trust-seeding — the
-  one genuinely open cell, with a documented fallback so a negative result reshapes a descriptor
-  cell, not the architecture. (Codex `SessionStart.source` is only optional metadata now — §7 —
-  so it needs no gating spike; we note whatever it emits while building.)
+- **Phase 0 (spike) — ✅ COMPLETE (2026-07-05).** Every load-bearing claim proven live on the
+  real binaries before any engine code (§1 scorecard): dual-provider hook convergence, detection
+  by id-change, session-scoped injection, and the full Claude→Codex→Claude switch incl.
+  non-polluting resume. The one formerly-open cell — Codex's hook-injection mechanism — is settled:
+  relocated `CODEX_HOME` + `--dangerously-bypass-hook-trust`. No open architectural risk remains;
+  the rest is Tier-3 plumbing (below) on a proven foundation.
 - **Component 1 — Adapter contract + dual PTY control:** extend `engine/terminal` spawn to
   argv+env; `engine/agent` descriptor load + generic inject step-runner; `crowbar hook`
   subcommand + ingest endpoint; canonical events. *Acceptance:* one engine path spawns, and
