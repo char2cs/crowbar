@@ -9,7 +9,6 @@ type CanonicalEvent struct {
 	Kind       string
 	SessionID  string
 	Transcript string
-	MoveSignal string
 	Raw        map[string]any
 }
 
@@ -29,7 +28,6 @@ func (d *Descriptor) MapHook(canonical string, payload map[string]any) (Canonica
 		Kind:       canonical,
 		SessionID:  get("session_id"),
 		Transcript: get("transcript"),
-		MoveSignal: get("move_signal"),
 		Raw:        payload,
 	}, nil
 }

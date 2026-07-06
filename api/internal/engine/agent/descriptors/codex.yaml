@@ -1,5 +1,7 @@
+# Validated against codex 0.139.0 (Phase-0 spike; see
+# docs/superpowers/specs/2026-07-05-crowbar-agentic-engine-design.md §1).
+# This is documentation only, not a wired version check.
 id: codex
-version: { pinned: "0.139.0", compat_check: "codex --version" }
 spawn:
   cmd: codex
   interactive_required: true
@@ -15,13 +17,9 @@ config_injection:
 hooks:
   session_start:
     provider_event: SessionStart
-    fields: { session_id: "$.session_id", transcript: "$.transcript_path", move_signal: "$.source" }
+    fields: { session_id: "$.session_id", transcript: "$.transcript_path" }
   turn_stop:
     provider_event: Stop
     fields: { session_id: "$.session_id", transcript: "$.transcript_path" }
-transcript:
-  from_hook: "$.transcript_path"
-  locate: "~/.codex/sessions/{yyyy}/{mm}/{dd}/rollout-*-{session_id}.jsonl"
-  content: opaque
 handoff_inject:
   - pass_arg: { positional: "{handoff}" }

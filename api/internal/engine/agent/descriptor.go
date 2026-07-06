@@ -6,12 +6,15 @@ import (
 	"gopkg.in/yaml.v3"
 )
 
+// Descriptor holds only fields the engine actually consumes. version.pinned,
+// version.compat_check, session.assign, the transcript: block, and
+// hooks.*.fields.move_signal all used to parse into this struct without ever
+// being read anywhere — dead config identified during the daemon-hardening
+// pass and removed rather than wired, so every remaining field here is
+// genuinely load-bearing. (The pinned CLI version each descriptor was
+// validated against is now a plain YAML comment, not a struct field.)
 type Descriptor struct {
-	ID      string `yaml:"id"`
-	Version struct {
-		Pinned      string `yaml:"pinned"`
-		CompatCheck string `yaml:"compat_check"`
-	} `yaml:"version"`
+	ID    string `yaml:"id"`
 	Spawn struct {
 		Cmd                 string   `yaml:"cmd"`
 		InteractiveRequired bool     `yaml:"interactive_required"`
@@ -22,17 +25,11 @@ type Descriptor struct {
 		} `yaml:"env"`
 	} `yaml:"spawn"`
 	Session struct {
-		Assign *ArgSpec `yaml:"assign"`
 		Resume *ArgSpec `yaml:"resume"`
 	} `yaml:"session"`
 	ConfigInjection []InjectStep       `yaml:"config_injection"`
 	Hooks           map[string]HookMap `yaml:"hooks"`
-	Transcript      struct {
-		FromHook string `yaml:"from_hook"`
-		Locate   string `yaml:"locate"`
-		Content  string `yaml:"content"`
-	} `yaml:"transcript"`
-	HandoffInject []InjectStep `yaml:"handoff_inject"`
+	HandoffInject   []InjectStep       `yaml:"handoff_inject"`
 }
 
 type ArgSpec struct {

@@ -141,10 +141,12 @@ One file tells the generic engine everything about a CLI. Provider-specific real
 ### 4.1 `claude.yaml`
 
 ```yaml
+# Validated against claude 2.1.201 (Phase-0 spike, §1). The pinned CLI version
+# is documentation only — there is no wired compat/version-drift check (a
+# version.compat_check field existed early on but was parsed and never
+# consumed by anything; removed during the daemon-hardening pass rather than
+# wired, per YAGNI — see that pass's report for the rationale).
 id: claude
-version:
-  pinned: "2.1.201"
-  compat_check: "claude --version"      # engine warns on drift
 
 spawn:
   cmd: claude
@@ -155,8 +157,10 @@ spawn:
                                         #   transcript → --resume breaks (Phase-0 finding)
 
 session:                                # all spawn-time ARGS — Crowbar never writes to the PTY
-  assign:  { arg: "--session-id {uuid}" }   # available (Claude-only); engine DEFAULTS to recording
-                                        #   the native id instead, for uniformity with Codex
+  # Claude's --session-id COULD assign an id at spawn time (a session.assign
+  # field existed for this), but the engine always records the native id
+  # instead (uniform with Codex, which has no such flag) — assign was never
+  # read anywhere, so it was removed as dead config rather than wired.
   resume:  { arg: "--resume {id}" }
 
 # Injection is expressed as ordered declarative STEPS from a closed generic vocabulary.
@@ -171,17 +175,18 @@ hooks:                                  # events to register + field-maps (JSONP
     fields:
       session_id: $.session_id          # REQUIRED — the only field the reducer branches on
       transcript: $.transcript_path
-      move_signal: $.source             # OPTIONAL metadata only — recorded, never control-flow (§7)
   turn_stop:
     provider_event: Stop
     fields: { session_id: $.session_id, transcript: $.transcript_path }
 
-transcript:
-  from_hook: $.transcript_path          # PRIMARY — the hook hands us the exact path. The slug is
-                                        #   truncated + hash-suffixed, so COMPUTING it is wrong (spike).
-  locate:  "~/.claude/projects/{cwd_slug}/{session_id}.jsonl"  # FALLBACK only — best-effort, for
-                                        #   ADOPTING a foreign session that no hook announced
-  content: opaque                       # stored & forwarded, never parsed (POC)
+# NOTE: an earlier revision of this descriptor also had a top-level
+# `transcript: { from_hook, locate, content }` block and a
+# `hooks.session_start.fields.move_signal: $.source` entry. Neither was ever
+# read by any engine code (the transcript PATH the engine actually uses comes
+# from hooks.*.fields.transcript above, and the reducer branches purely on
+# session-id-changed / session-id-known — §7 — never on a lifecycle label).
+# Both were removed as dead config during the daemon-hardening pass rather
+# than wired, so every field left in this file is genuinely consumed.
 
 handoff_inject:                         # how a handoff blob enters a fresh spawn
   # Spike-proven: on a --resume spawn the appended prompt is applied PER-INVOCATION — it is NOT
@@ -194,8 +199,9 @@ super_harness: {}                       # RESERVED, unused (MCP/skills/subagents
 ### 4.2 `codex.yaml` (delta only — same shape, this is the abstraction proof)
 
 ```yaml
+# Validated against codex 0.139.0 (Phase-0 spike, §1) — documentation only, see
+# the claude.yaml comment above for why there is no version field here.
 id: codex
-version: { pinned: "0.139.0", compat_check: "codex --version" }
 
 spawn:
   cmd: codex
@@ -221,14 +227,13 @@ config_injection:                       # the genuine divergence: a procedure, n
   # seed_trust OPTIONAL — the spawn flag makes hooks run without it; Codex's trusted_hash was not
   # reverse-engineered (7 serializations missed) and is not needed for the POC.
 
-hooks:                                  # SAME canonical events (move_signal optional metadata; may be absent — fine)
-  session_start: { provider_event: SessionStart, fields: { session_id: $.session_id, transcript: $.transcript_path, move_signal: $.source } }
+hooks:                                  # SAME canonical events, same field-map shape as claude.yaml
+  session_start: { provider_event: SessionStart, fields: { session_id: $.session_id, transcript: $.transcript_path } }
   turn_stop:     { provider_event: Stop,         fields: { session_id: $.session_id, transcript: $.transcript_path } }
 
-transcript:
-  from_hook: $.transcript_path          # PRIMARY — path from the hook (date-partitioned rollout)
-  locate:  "~/.codex/sessions/{yyyy}/{mm}/{dd}/rollout-*-{session_id}.jsonl"   # FALLBACK only
-  content: opaque
+# (No transcript: block or move_signal field — see the NOTE under claude.yaml
+# above; both were removed as dead config, never wired, during the
+# daemon-hardening pass.)
 
 handoff_inject:                         # Spike-proven: the handoff rides as Codex's INITIAL PROMPT
   # (a spawn-time positional arg — Crowbar still never writes to the PTY). Codex read a raw Claude
@@ -261,7 +266,7 @@ A hook is a config entry: "when event X fires, run command Y." The CLI spawns Y 
   running, even for Codex where we don't control the session id.
 - **Canonical events:** the ingest endpoint maps the provider's raw event + fields to a
   canonical event via the descriptor's `hooks` field-map. Engine code reads only canonical
-  events (`session_start{session_id, transcript, move_signal?}`, `turn_stop{session_id, transcript}`).
+  events (`session_start{session_id, transcript}`, `turn_stop{session_id, transcript}`).
 
 ```
 claude/codex ─(event)→ runs `$CROWBAR_HOME/bin/crowbar hook <event>`
@@ -346,11 +351,12 @@ on turn_stop{transcript}:  → append opaque snapshot to that chat's ledger (§6
   **Each is correct without the engine knowing what the command does.**
 - **"Known"** is well-defined: Crowbar records every session id it spawns/sees. Foreign ids
   (raw-terminal `/resume` of a pre-existing conversation) are the unknowns → adopt.
-- **The `source`/`move_signal` label is NOT load-bearing.** It is captured as *optional metadata*
-  (recorded in the ledger for legibility, and available as an additive backstop for the exotic
-  case an id-change can't see — a CLI that resets context *in place*, same id). A provider that
-  omits it, or one with unusual lifecycle semantics, cannot break or corrupt the registry — so
-  "does Codex emit `source`?" is moot for correctness.
+- **The `source`/`move_signal` label was NEVER load-bearing** — the reducer branches purely on
+  session-id-changed / session-id-known, never on a lifecycle label's meaning. A descriptor
+  `move_signal` field existed early on to capture it as optional metadata, but nothing ever read
+  the captured value, so it was removed as dead config during the daemon-hardening pass rather
+  than wired. A provider that omits the label, or one with unusual lifecycle semantics, still
+  cannot break or corrupt the registry — "does Codex emit `source`?" remains moot for correctness.
 
 ---
 

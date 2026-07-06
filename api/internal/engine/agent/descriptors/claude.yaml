@@ -1,5 +1,7 @@
+# Validated against claude 2.1.201 (Phase-0 spike; see
+# docs/superpowers/specs/2026-07-05-crowbar-agentic-engine-design.md §1).
+# This is documentation only, not a wired version check.
 id: claude
-version: { pinned: "2.1.201", compat_check: "claude --version" }
 spawn:
   cmd: claude
   interactive_required: true
@@ -7,7 +9,6 @@ spawn:
   env:
     clear: ["CLAUDE_CODE_CHILD_SESSION", "CLAUDECODE"]
 session:
-  assign: { arg: "--session-id {uuid}" }
   resume: { arg: "--resume {id}" }
 config_injection:
   - render_hooks: { format: claude_settings_json, into: "{tmp}/settings.json" }
@@ -15,13 +16,9 @@ config_injection:
 hooks:
   session_start:
     provider_event: SessionStart
-    fields: { session_id: "$.session_id", transcript: "$.transcript_path", move_signal: "$.source" }
+    fields: { session_id: "$.session_id", transcript: "$.transcript_path" }
   turn_stop:
     provider_event: Stop
     fields: { session_id: "$.session_id", transcript: "$.transcript_path" }
-transcript:
-  from_hook: "$.transcript_path"
-  locate: "~/.claude/projects/{cwd_slug}/{session_id}.jsonl"
-  content: opaque
 handoff_inject:
   - pass_arg: { arg: "--append-system-prompt", value: "{handoff}" }
