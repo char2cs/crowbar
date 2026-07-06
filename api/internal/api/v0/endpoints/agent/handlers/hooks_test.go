@@ -31,16 +31,17 @@ func newTestContext(
 	return ctx, rec
 }
 
-// TestHooks_DecodesAndDispatches proves Hooks decodes the {segment_id, event,
-// payload} body and forwards the decoded values verbatim to IngestHook,
-// writing a bare 202 on success (fail-fast/good-path-async, 00 §4).
+// TestHooks_DecodesAndDispatches proves Hooks decodes the
+// {segment_id, provider, event, payload_raw} body and forwards the decoded
+// values verbatim to IngestHook, writing a bare 202 on success
+// (fail-fast/good-path-async, 00 §4).
 func TestHooks_DecodesAndDispatches(
 	t *testing.T,
 ) {
 	uc := &fakeAgentUsecase{}
 	h := handlers.New(uc)
 
-	body := []byte(`{"segment_id":"seg-1","event":"session_start","payload":{"sessionId":"sess-1"}}`)
+	body := []byte(`{"segment_id":"seg-1","provider":"claude","event":"session_start","payload_raw":"{\"sessionId\":\"sess-1\"}"}`)
 	ctx, rec := newTestContext(t, http.MethodPost, "/v0/agent/hooks", body)
 
 	h.Hooks(ctx)
@@ -50,8 +51,9 @@ func TestHooks_DecodesAndDispatches(
 
 	require.Len(t, uc.ingestCalls, 1)
 	assert.Equal(t, "seg-1", uc.ingestCalls[0].segID)
+	assert.Equal(t, "claude", uc.ingestCalls[0].provider)
 	assert.Equal(t, "session_start", uc.ingestCalls[0].event)
-	assert.Equal(t, "sess-1", uc.ingestCalls[0].payload["sessionId"])
+	assert.Contains(t, string(uc.ingestCalls[0].raw), `"sessionId":"sess-1"`)
 }
 
 // TestHooks_BadJSON proves a malformed body is rejected 400 without reaching
@@ -78,7 +80,7 @@ func TestHooks_UsecaseError(
 	uc := &fakeAgentUsecase{ingestErr: errors.New("boom")}
 	h := handlers.New(uc)
 
-	body := []byte(`{"segment_id":"seg-1","event":"turn_stop","payload":{}}`)
+	body := []byte(`{"segment_id":"seg-1","provider":"claude","event":"turn_stop","payload_raw":"{}"}`)
 	ctx, rec := newTestContext(t, http.MethodPost, "/v0/agent/hooks", body)
 
 	h.Hooks(ctx)
@@ -106,9 +108,10 @@ type fakeAgentUsecase struct {
 }
 
 type ingestCall struct {
-	segID   string
-	event   string
-	payload map[string]any
+	segID    string
+	provider string
+	event    string
+	raw      []byte
 }
 
 type switchCall struct {
@@ -130,10 +133,11 @@ func (f *fakeAgentUsecase) SpawnChat(
 func (f *fakeAgentUsecase) IngestHook(
 	_ context.Context,
 	segID string,
+	provider string,
 	event string,
-	payload map[string]any,
+	raw []byte,
 ) error {
-	f.ingestCalls = append(f.ingestCalls, ingestCall{segID: segID, event: event, payload: payload})
+	f.ingestCalls = append(f.ingestCalls, ingestCall{segID: segID, provider: provider, event: event, raw: raw})
 	return f.ingestErr
 }
 

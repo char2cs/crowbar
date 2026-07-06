@@ -20,8 +20,9 @@ type AgentUsecase interface {
 	IngestHook(
 		ctx context.Context,
 		crowbarSegID string,
+		provider string,
 		event string,
-		payload map[string]any,
+		rawPayload []byte,
 	) error
 
 	ListChats(

@@ -34,7 +34,8 @@ func (stubUsecase) IngestHook(
 	_ context.Context,
 	_ string,
 	_ string,
-	_ map[string]any,
+	_ string,
+	_ []byte,
 ) error {
 	return nil
 }
