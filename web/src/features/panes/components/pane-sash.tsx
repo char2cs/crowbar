@@ -24,6 +24,11 @@ interface PaneSashProps {
  *
  * The `data-pane-resizing` attribute on <html> and the `pane-resize-end`
  * window event are preserved exactly — the Monaco perf fix depends on them.
+ * Both are entered lazily on the first real `pointermove`, not on
+ * `pointerdown`: a plain click (down+up, no movement) must be a total no-op,
+ * since the attribute globally GPU-layer-promotes every mounted
+ * `.monaco-editor` (including off-screen/retained ones), and toggling that
+ * on a click that resizes nothing can visibly glitch WKWebView's compositor.
  */
 export function PaneSash({
   direction,
@@ -41,6 +46,13 @@ export function PaneSash({
 
   // Track whether a drag is currently active (for unmount cleanup).
   const isDraggingRef = useRef<boolean>(false)
+  // Whether the pointer has actually moved since pointerdown. A plain click
+  // (pointerdown -> pointerup with zero pointermove) must be a no-op: it must
+  // not toggle `data-pane-resizing`, since that attribute globally promotes
+  // every mounted `.monaco-editor` (including off-screen/retained ones) onto
+  // a GPU compositing layer and back within one tick, which can visibly glitch
+  // WKWebView's compositor even though nothing was actually resized.
+  const hasMovedRef = useRef<boolean>(false)
 
   // Stable refs for listener functions so the same instance is always used for
   // both addEventListener and removeEventListener (including unmount cleanup).
@@ -82,8 +94,13 @@ export function PaneSash({
       window.removeEventListener('pointercancel', onUp)
     }
 
-    document.documentElement.removeAttribute('data-pane-resizing')
-    window.dispatchEvent(new CustomEvent('pane-resize-end'))
+    // Only touch the shared attribute/event if this drag ever actually
+    // entered the resizing state (i.e. the pointer moved at least once).
+    if (hasMovedRef.current) {
+      document.documentElement.removeAttribute('data-pane-resizing')
+      window.dispatchEvent(new CustomEvent('pane-resize-end'))
+    }
+    hasMovedRef.current = false
   }, [])
 
   /**
@@ -112,11 +129,18 @@ export function PaneSash({
       containerPxRef.current = containerPx
       const [firstPx] = percentsToPx(containerPx, sizesRef.current)
       liveFirstPx.current = firstPx
+      hasMovedRef.current = false
 
       // Build stable listener instances and store in refs before attaching.
       const onMove = (ev: globalThis.PointerEvent) => {
         const c = containerRef.current
         if (!c) return
+        // Enter the resizing state lazily, on the first real move, rather
+        // than on pointerdown. A bare click never reaches this line.
+        if (!hasMovedRef.current) {
+          hasMovedRef.current = true
+          document.documentElement.setAttribute('data-pane-resizing', '1')
+        }
         const rect = c.getBoundingClientRect()
         const cPx = measureContainerPx()
         containerPxRef.current = cPx
@@ -131,6 +155,14 @@ export function PaneSash({
       }
 
       const onUp = (ev: globalThis.PointerEvent) => {
+        // A plain click (no pointermove ever fired) must be a total no-op:
+        // no attribute toggle, no pane-resize-end, no size commit.
+        if (!hasMovedRef.current) {
+          teardownDrag()
+          ev.preventDefault()
+          return
+        }
+
         const cPx = containerPxRef.current
         const finalSizes =
           cPx > 0 ? pxToPercents(cPx, liveFirstPx.current, MIN_PANE_SIZE) : sizesRef.current
@@ -149,7 +181,6 @@ export function PaneSash({
       onPointerUpRef.current = onUp
 
       isDraggingRef.current = true
-      document.documentElement.setAttribute('data-pane-resizing', '1')
       window.addEventListener('pointermove', onMove)
       window.addEventListener('pointerup', onUp)
       window.addEventListener('pointercancel', onUp)

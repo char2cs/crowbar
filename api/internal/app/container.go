@@ -86,6 +86,7 @@ func New(
 		realtime.NewLSPLifecycle(engines.LSP),
 		ucs.ProviderSync,
 		poll.PerConnectionInterval,
+		realtime.OriginSyncInterval,
 		time.Now,
 	)
 

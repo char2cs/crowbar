@@ -22,6 +22,13 @@ const (
 	viewDBName        = "view.db"
 )
 
+// globalViewMaxOpenConns bounds the global view.db's connection pool. WAL mode
+// (set by storesqlite.OpenDBWithPool) already allows concurrent readers with
+// one serialized writer; before this, SetMaxOpenConns(1) forced every reader
+// and writer through a single Go-level connection regardless, serializing
+// even concurrent reads of the now read-heavy workspace_directory projection.
+const globalViewMaxOpenConns = 8
+
 // Container is the persistence layer. The workspace aggregate is event-sourced
 // per entity: each workspace owns its own event_stream.db + view.db under
 // <home>/projects/<P>/<R>/workspaces/<W>/storages, opened lazily and cached in a
@@ -125,7 +132,7 @@ func newLocked(
 		return nil, fmt.Errorf("adapter: review thread event store: %w", err)
 	}
 
-	globalView, err := storesqlite.OpenDB(filepath.Join(stateDir, viewDBName))
+	globalView, err := storesqlite.OpenDBWithPool(filepath.Join(stateDir, viewDBName), globalViewMaxOpenConns)
 	if err != nil {
 		closeIfCloser(chatES)
 		closeIfCloser(reviewThreadES)

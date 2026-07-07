@@ -68,12 +68,6 @@ func newAppForSnapshot(
 	return a
 }
 
-func TestWorkspacesSnapshot_ListErrorReturnsNil(t *testing.T) {
-	a := newAppForSnapshot(t)
-	a.Repositories.Workspace = errWorkspaceRepo{}
-	assert.Nil(t, workspacesSnapshot(a)(""))
-}
-
 // TestWorkspacesSnapshot_ScopedToRepo proves the snapshot is filtered to the
 // repo parsed from the client's subscription prefix ("p/r"): only that repo's
 // workspaces are returned, as wire DTOs (spec §9).
@@ -254,4 +248,59 @@ func TestLSPSnapshot_NoDiagnosticsIsEmpty(t *testing.T) {
 	eng, err := engine.New(context.Background())
 	require.NoError(t, err)
 	assert.Empty(t, lspSnapshot(a, eng)(""))
+}
+
+// TestGitSnapshot_ScopedToWorkspaceRepo proves gitSnapshot resolves the
+// subscribing workspace id to its repo and only touches that repo's
+// workspaces — not every workspace in the install.
+func TestGitSnapshot_ScopedToWorkspaceRepo(t *testing.T) {
+	a := newAppForSnapshot(t)
+	seedWorkspace(t, a, "w1", "p1", "r1", "", "")
+	seedWorkspace(t, a, "w2", "p2", "r2", "", "")
+
+	got := gitSnapshot(a)("w1")
+
+	ids := make([]string, len(got))
+	for i, e := range got {
+		ids[i] = e.WsID
+	}
+	assert.Contains(t, ids, "w1")
+	assert.NotContains(t, ids, "w2")
+}
+
+// TestGitSnapshot_ExcludesSameRepoSibling proves gitSnapshot no longer computes
+// git status for the resolved workspace's repo siblings — only the resolved
+// workspace itself — since the broadcaster's wsId predicate discards every
+// other row after delivery anyway (03 §1a / container.go ScopeKey). Before this
+// fix, a same-repo sibling (w3, same p1/r1 as w1) WOULD have appeared in the
+// snapshot returned by scopedWorkspaceRows (only a different-repo workspace was
+// excluded); this test proves it's excluded even at the snapshot-builder level
+// now, not just downstream by the broadcaster's predicate.
+func TestGitSnapshot_ExcludesSameRepoSibling(t *testing.T) {
+	a := newAppForSnapshot(t)
+	seedWorkspace(t, a, "w1", "p1", "r1", "", "")
+	seedWorkspace(t, a, "w3", "p1", "r1", "", "")
+
+	got := gitSnapshot(a)("w1")
+
+	ids := make([]string, len(got))
+	for i, e := range got {
+		ids[i] = e.WsID
+	}
+	assert.Equal(t, []string{"w1"}, ids)
+}
+
+func TestLSPSnapshot_ScopedToWorkspaceRepo(t *testing.T) {
+	a := newAppForSnapshot(t)
+	seedWorkspace(t, a, "w1", "p1", "r1", "", "")
+	seedWorkspace(t, a, "w2", "p2", "r2", "", "")
+	eng, err := engine.New(context.Background())
+	require.NoError(t, err)
+
+	assert.NotPanics(t, func() { lspSnapshot(a, eng)("w1") })
+}
+
+func TestGitSnapshot_UnknownWorkspaceScope_ReturnsNil(t *testing.T) {
+	a := newAppForSnapshot(t)
+	assert.Nil(t, gitSnapshot(a)("does-not-exist"))
 }

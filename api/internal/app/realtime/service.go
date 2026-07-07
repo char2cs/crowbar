@@ -28,15 +28,17 @@ type Service struct {
 	watchers     *WatcherManager
 	lsps         *LSPManager
 	providerPoll *ProviderPollManager
+	originSync   *OriginSyncManager
 	cancel       context.CancelFunc
 	closeOnce    sync.Once
 }
 
 // New builds the realtime Service from the hub, the workspace repository, the
 // git and fs engines, the LSP lifecycle, the provider-poll usecase, the
-// per-connection poll interval, and a clock. It derives a cancelable child of
-// ctx so Close can stop every watcher, LSP host, and provider poll on graceful
-// shutdown; New must not block, so the goroutines are started lazily on Acquire.
+// per-connection poll interval, the origin-sync interval, and a clock. It
+// derives a cancelable child of ctx so Close can stop every watcher, LSP
+// host, provider poll, and origin sync on graceful shutdown; New must not
+// block, so the goroutines are started lazily on Acquire.
 func New(
 	ctx context.Context,
 	h *hub.Hub,
@@ -46,6 +48,7 @@ func New(
 	lspLifecycle LSPLifecycle,
 	providerPoll ProviderPoller,
 	perConnPollInterval time.Duration,
+	originSyncInterval time.Duration,
 	now func() time.Time,
 ) *Service {
 	root, cancel := context.WithCancel(ctx)
@@ -53,6 +56,7 @@ func New(
 		watchers:     NewWatcherManager(root, h, workspace, gitEngine, fsEngine, now),
 		lsps:         NewLSPManager(root, lspLifecycle),
 		providerPoll: NewProviderPollManager(root, perConnPollInterval, providerPoll),
+		originSync:   NewOriginSyncManager(root, originSyncInterval, workspace, gitEngine),
 		cancel:       cancel,
 	}
 }
@@ -106,15 +110,34 @@ func (s *Service) ReleaseProviderPoll(
 	s.providerPoll.Release(wsID)
 }
 
-// Close cancels the root context shared by every watcher, LSP, and provider-poll
-// goroutine, then stops and clears every resource still held by the managers so
-// fsnotify file descriptors and LSP subprocesses are released promptly. It is
-// idempotent and safe to call when nothing was ever started.
+// AcquireOriginSync records one git/status WS subscriber for wsID, starting
+// the 5-minute per-connection protected-branch origin check on the 0->1
+// transition. A blank wsID (the workspace list scope) no-ops in the manager.
+func (s *Service) AcquireOriginSync(
+	wsID string,
+) {
+	s.originSync.Acquire(wsID)
+}
+
+// ReleaseOriginSync drops one git/status WS subscriber for wsID, stopping the
+// per-connection origin check on the 1->0 transition.
+func (s *Service) ReleaseOriginSync(
+	wsID string,
+) {
+	s.originSync.Release(wsID)
+}
+
+// Close cancels the root context shared by every watcher, LSP, provider-poll,
+// and origin-sync goroutine, then stops and clears every resource still held
+// by the managers so fsnotify file descriptors and LSP subprocesses are
+// released promptly. It is idempotent and safe to call when nothing was ever
+// started.
 func (s *Service) Close() {
 	s.closeOnce.Do(func() {
 		s.cancel()
 		s.watchers.StopAll()
 		s.lsps.StopAll()
 		s.providerPoll.StopAll()
+		s.originSync.StopAll()
 	})
 }

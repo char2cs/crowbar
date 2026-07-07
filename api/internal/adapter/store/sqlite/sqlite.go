@@ -32,9 +32,25 @@ func New[T any, K comparable](
 
 // OpenDB opens (or creates) a single-connection SQLite database at path.
 // WAL journal mode and a 5-second busy timeout are enabled so that a second
-// opener (e.g. in crash-recovery tests) does not get SQLITE_BUSY on DDL.
+// opener (e.g. in crash-recovery tests) does not get SQLITE_BUSY on DDL. Used
+// for the per-entity workspace databases, which are effectively single-tenant
+// (one workspace, one or two open tabs at most).
 func OpenDB(
 	path string,
+) (*gorm.DB, error) {
+	return OpenDBWithPool(path, 1)
+}
+
+// OpenDBWithPool opens (or creates) a SQLite database at path with WAL journal
+// mode, a 5-second busy timeout, and up to maxOpenConns open connections. WAL
+// mode allows one writer plus many concurrent readers at the SQLite level;
+// maxOpenConns controls how many of those concurrent readers the Go
+// connection pool actually allows through at once — use a value greater than
+// 1 for a database that serves concurrent read-heavy traffic (the global
+// view.db), and 1 (via OpenDB) for a single-tenant per-entity database.
+func OpenDBWithPool(
+	path string,
+	maxOpenConns int,
 ) (*gorm.DB, error) {
 	db, err := gorm.Open(glebarez.Open(path), &gorm.Config{
 		Logger: logger.Default.LogMode(logger.Silent),
@@ -46,7 +62,7 @@ func OpenDB(
 	if err != nil {
 		return nil, fmt.Errorf("sqlite: db: %w", err)
 	}
-	sqlDB.SetMaxOpenConns(1)
+	sqlDB.SetMaxOpenConns(maxOpenConns)
 	if err := db.Exec("PRAGMA journal_mode=WAL").Error; err != nil {
 		return nil, fmt.Errorf("sqlite: journal_mode: %w", err)
 	}

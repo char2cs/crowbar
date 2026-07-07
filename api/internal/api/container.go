@@ -51,6 +51,7 @@ func New(
 
 	v0Container := v0.New(appContainer, engContainer)
 	v0Container.Register(router.Group("/v0"))
+	mountDebug(router)
 
 	if staticFS != nil {
 		RegisterStatic(router, staticFS)

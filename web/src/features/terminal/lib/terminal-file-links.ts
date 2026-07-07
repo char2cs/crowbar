@@ -26,13 +26,20 @@ const FILE_LINK_RE =
 // a URL scheme belongs to a URL — the web-links addon owns those.
 const URL_PREFIX_RE = /(?:[a-zA-Z][a-zA-Z0-9+.-]*:\/\/|www\.)[^\s]*$/
 
+// "." is a valid path character (extensions, dotfiles), so prose that runs
+// straight into a path with no space ("...design.md. Please review") has its
+// sentence-ending period swallowed into the match. Trim trailing dots the
+// path can't legitimately end with.
+const TRAILING_DOTS_RE = /\.+$/
+
 export function parseFileLinkCandidates(rowText: string): FileLinkCandidate[] {
   const out: FileLinkCandidate[] = []
   FILE_LINK_RE.lastIndex = 0
   for (let m = FILE_LINK_RE.exec(rowText); m !== null; m = FILE_LINK_RE.exec(rowText)) {
-    const path = m[1]
+    const path = m[1].replace(TRAILING_DOTS_RE, '')
+    if (!path) continue
     const suffix = m[2] ?? ''
-    const startIndex = m.index + m[0].indexOf(path)
+    const startIndex = m.index + m[0].indexOf(m[1])
     // Skip path-looking tails of URLs ("https://github.com/a/b").
     if (URL_PREFIX_RE.test(rowText.slice(0, startIndex))) continue
     const line = suffix ? Number(suffix.slice(1).split(':')[0]) : undefined

@@ -167,12 +167,12 @@ export function WorkspaceSwitcherMenu({ onClose }: WorkspaceSwitcherMenuProps) {
                     <span className="text-muted-foreground">{item.repoName} / </span>
                     <span className="text-foreground">{item.branch}</span>
                   </span>
-                  {(item.added ?? 0) > 0 && (
+                  {item.status !== 'locked' && (item.added ?? 0) > 0 && (
                     <span className="shrink-0 text-green-300">
                       +{formatChangeCount(item.added ?? 0)}
                     </span>
                   )}
-                  {(item.deleted ?? 0) > 0 && (
+                  {item.status !== 'locked' && (item.deleted ?? 0) > 0 && (
                     <span className="shrink-0 text-red-300">
                       -{formatChangeCount(item.deleted ?? 0)}
                     </span>

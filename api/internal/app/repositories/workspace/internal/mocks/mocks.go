@@ -26,6 +26,7 @@ type MockWorkspace struct {
 	DeleteFn              func(ctx context.Context, id string) error
 	GetFn                 func(ctx context.Context, id string) (domain.Workspace, error)
 	ListFn                func(ctx context.Context) ([]domain.Workspace, error)
+	ListInRepoFn          func(ctx context.Context, projectID, repoID string) ([]domain.Workspace, error)
 	GetHomeForProjectFn   func(ctx context.Context, projectID string) (domain.Workspace, error)
 	CreateHomeFn          func(ctx context.Context, projectID, worktreePath string, now time.Time) (domain.Workspace, error)
 }
@@ -149,6 +150,17 @@ func (m *MockWorkspace) List(
 	ctx context.Context,
 ) ([]domain.Workspace, error) {
 	return m.ListFn(ctx)
+}
+
+func (m *MockWorkspace) ListInRepo(
+	ctx context.Context,
+	projectID string,
+	repoID string,
+) ([]domain.Workspace, error) {
+	if m.ListInRepoFn != nil {
+		return m.ListInRepoFn(ctx, projectID, repoID)
+	}
+	return nil, nil
 }
 
 func (m *MockWorkspace) GetHomeForProject(

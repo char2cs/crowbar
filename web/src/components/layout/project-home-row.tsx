@@ -43,40 +43,45 @@ export function ProjectHomeRow() {
       <div
         role="button"
         tabIndex={0}
-        className={cn(ROW_BASE, 'group pr-1', isActive ? ROW_ACTIVE : ROW_INACTIVE)}
+        className={cn(ROW_BASE, 'group', isActive ? ROW_ACTIVE : ROW_INACTIVE)}
         onClick={handleClick}
         onKeyDown={(e) => {
           if (e.key === 'Enter' || e.key === ' ') handleClick()
         }}
       >
-        <House size={14} weight={isActive ? 'fill' : 'regular'} className="shrink-0" />
+        {/* Match the repo-header rows: the House sits in the same 20px (h-5 w-5)
+            box the repo avatar uses, so the label lines up with the repo names
+            rather than shifting left off a bare 14px glyph. */}
+        <span className="inline-flex h-5 w-5 shrink-0 items-center justify-center">
+          <House size={16} weight={isActive ? 'fill' : 'regular'} />
+        </span>
         <span className="min-w-0 flex-1 truncate font-mono text-left">
           {activeProject?.name ?? 'home'}
         </span>
-        <div className="flex shrink-0 items-center">
-          <Button
-            variant="ghost"
-            size="icon-sm"
-            className="h-5 w-5 text-muted-foreground hover:text-foreground"
-            tooltip="Import Repository"
-            tooltipSide="bottom"
-            aria-label="Import repository"
-            onClick={handleAddRepo}
-          >
-            <FolderPlus size={13} />
-          </Button>
-          <Button
-            variant="ghost"
-            size="icon-sm"
-            className="h-5 w-5 text-muted-foreground hover:text-foreground"
-            tooltip="Switch Project"
-            tooltipSide="bottom"
-            aria-label="Switch project"
-            onClick={handleOpenSwitcher}
-          >
-            <ChevronsUpDown className="size-3" />
-          </Button>
-        </div>
+        {/* Trailing actions are direct row children (no wrapper) so they inherit
+            ROW_BASE's gap-2 and share the repo-header rows' trailing rhythm. */}
+        <Button
+          variant="ghost"
+          size="icon-sm"
+          className="h-5 w-5 text-muted-foreground hover:text-foreground"
+          tooltip="Import Repository"
+          tooltipSide="bottom"
+          aria-label="Import repository"
+          onClick={handleAddRepo}
+        >
+          <FolderPlus size={13} />
+        </Button>
+        <Button
+          variant="ghost"
+          size="icon-sm"
+          className="h-5 w-5 text-muted-foreground hover:text-foreground"
+          tooltip="Switch Project"
+          tooltipSide="bottom"
+          aria-label="Switch project"
+          onClick={handleOpenSwitcher}
+        >
+          <ChevronsUpDown className="size-3" />
+        </Button>
       </div>
       <AddRepositoryModal open={addRepoOpen} onOpenChange={setAddRepoOpen} />
     </>

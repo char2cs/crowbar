@@ -17,6 +17,7 @@ import (
 	"os"
 	"os/exec"
 	"strings"
+	"time"
 )
 
 const optionalLocksOffEnv = "GIT_OPTIONAL_LOCKS=0"
@@ -88,6 +89,13 @@ func run(
 	cmd.Dir = dir
 	cmd.Env = append(os.Environ(), optionalLocksOffEnv)
 	cmd.Env = append(cmd.Env, extraEnv...)
+	// After a context-driven kill, Wait normally still blocks until every
+	// process holding the stdout/stderr pipes exits — and git's own children
+	// (ssh, git-remote-https, credential helpers) can outlive the killed git
+	// and hold them open indefinitely. WaitDelay forcibly closes the pipes
+	// shortly after cancellation so a timed-out network command actually
+	// returns instead of trading one unbounded hang for another.
+	cmd.WaitDelay = 3 * time.Second
 	if hasStdin {
 		cmd.Stdin = strings.NewReader(stdin)
 	}

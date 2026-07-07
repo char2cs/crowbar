@@ -1,4 +1,5 @@
 mod api_proxy;
+mod diagnostics;
 mod sidecar;
 mod terminal;
 mod ws_bridge;
@@ -387,34 +388,58 @@ pub fn run() {
                 }
             });
 
+            // Supervise it: deep readiness probes, goroutine dump + restart on
+            // a wedge (see sidecar::start_watchdog).
+            sidecar::start_watchdog(app.handle().clone());
+
             Ok(())
         })
         .on_window_event(|window, event| {
             if let tauri::WindowEvent::CloseRequested { .. } | tauri::WindowEvent::Destroyed = event
             {
                 if let Some(state) = window.try_state::<sidecar::SidecarHandle>() {
+                    // Tell the supervisor this exit is intentional so neither
+                    // the output pump nor the watchdog respawns the daemon.
+                    state
+                        .shutting_down
+                        .store(true, std::sync::atomic::Ordering::SeqCst);
                     if let Some(child) = state.child.lock().unwrap().take() {
                         // On Unix: send SIGTERM to allow the daemon's graceful
                         // shutdown path (Container.Close → Terminal.Shutdown →
                         // flush+persist) to run. Poll up to 3 s, then SIGKILL.
                         // On Windows: fall back to the existing SIGKILL-only path.
+                        //
+                        // Signals use the health-reported pid via libc, never
+                        // CommandChild::pid()/kill() — those lock the
+                        // shared_child mutex the shell plugin's wait thread
+                        // holds while the child lives, deadlocking this path.
                         #[cfg(unix)]
                         {
-                            let pid = child.pid() as libc::pid_t;
-                            // SIGTERM — request orderly shutdown.
-                            unsafe { libc::kill(pid, libc::SIGTERM) };
-                            // Wait up to 3 s for the daemon to exit cleanly.
-                            let deadline =
-                                std::time::Instant::now() + std::time::Duration::from_secs(3);
-                            while std::time::Instant::now() < deadline {
-                                std::thread::sleep(std::time::Duration::from_millis(100));
-                                // kill(pid, 0) returns 0 while the process exists.
-                                if unsafe { libc::kill(pid, 0) } != 0 {
-                                    break; // Process exited — no SIGKILL needed.
+                            match state.daemon_pid() {
+                                Some(pid) => {
+                                    let pid = pid as libc::pid_t;
+                                    // SIGTERM — request orderly shutdown.
+                                    unsafe { libc::kill(pid, libc::SIGTERM) };
+                                    // Wait up to 3 s for the daemon to exit cleanly.
+                                    let deadline = std::time::Instant::now()
+                                        + std::time::Duration::from_secs(3);
+                                    while std::time::Instant::now() < deadline {
+                                        std::thread::sleep(std::time::Duration::from_millis(100));
+                                        // kill(pid, 0) returns 0 while the process exists.
+                                        if unsafe { libc::kill(pid, 0) } != 0 {
+                                            break; // Process exited — no SIGKILL needed.
+                                        }
+                                    }
+                                    // SIGKILL fallback — no-op (ESRCH) if already gone.
+                                    unsafe { libc::kill(pid, libc::SIGKILL) };
+                                    drop(child);
+                                }
+                                None => {
+                                    // Daemon predating pid reporting: only the
+                                    // (deadlock-prone) child handle remains.
+                                    let _ = child.kill();
                                 }
                             }
-                            // SIGKILL fallback — no-op (returns error) if already gone.
-                            let _ = child.kill();
                         }
                         #[cfg(not(unix))]
                         {
@@ -434,6 +459,7 @@ pub fn run() {
             ws_bridge::ws_open,
             ws_bridge::ws_send,
             ws_bridge::ws_close,
+            diagnostics::diagnostics_export,
             set_vibrancy_appearance,
         ])
         .run(tauri::generate_context!())

@@ -150,6 +150,17 @@ type Workspace interface {
 	List(
 		ctx context.Context,
 	) ([]domain.Workspace, error)
+	// ListInRepo returns every workspace scoped to one project+repo. It reads
+	// from the same per-entity stores as List — just skipping entities outside
+	// the requested repo before opening them — so it has identical read-after-
+	// write consistency to List, only cheaper. Used by the merge-eligibility
+	// broadcast overlay so a broadcast of a parented workspace no longer scans
+	// the whole install to find its one sibling.
+	ListInRepo(
+		ctx context.Context,
+		projectID string,
+		repoID string,
+	) ([]domain.Workspace, error)
 	// GetHomeForProject returns the home workspace for the given project.
 	// Returns apperr.ErrNotFound if no home workspace exists yet.
 	GetHomeForProject(
@@ -723,6 +734,36 @@ func (w *workspace) List(
 		ws, err := w.readRow(ctx, loc)
 		if err != nil {
 			return nil, fmt.Errorf("workspace: list: %w", err)
+		}
+		if ws == nil {
+			continue
+		}
+		rows = append(rows, *ws)
+	}
+	return rows, nil
+}
+
+// ListInRepo returns every workspace scoped to projectID+repoID. It filters
+// the (cheap, index-only) location list before acquiring any per-entity
+// store, so it only opens entities inside the requested repo — unlike List,
+// which opens every entity in the whole install.
+func (w *workspace) ListInRepo(
+	ctx context.Context,
+	projectID string,
+	repoID string,
+) ([]domain.Workspace, error) {
+	locs, err := w.locations.List(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("workspace: list in repo: list locations: %w", err)
+	}
+	rows := make([]domain.Workspace, 0, len(locs))
+	for _, loc := range locs {
+		if loc.ProjectID != projectID || loc.RepoID != repoID {
+			continue
+		}
+		ws, err := w.readRow(ctx, loc)
+		if err != nil {
+			return nil, fmt.Errorf("workspace: list in repo: %w", err)
 		}
 		if ws == nil {
 			continue
