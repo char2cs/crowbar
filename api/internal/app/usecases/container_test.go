@@ -100,7 +100,6 @@ func TestContainer_New_BuildsEveryUsecase(t *testing.T) {
 	assert.NotNil(t, c.Project)
 	assert.NotNil(t, c.ProjectImport)
 	assert.NotNil(t, c.Workspace)
-	assert.NotNil(t, c.Chat)
 	assert.NotNil(t, c.File)
 	assert.NotNil(t, c.Git)
 	assert.NotNil(t, c.Terminal)

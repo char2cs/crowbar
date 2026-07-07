@@ -9,7 +9,6 @@ import (
 	"github.com/char2cs/crowbar/api/internal/app/repositories/agentchat"
 	"github.com/char2cs/crowbar/api/internal/app/usecases/agent"
 	"github.com/char2cs/crowbar/api/internal/app/usecases/branchreview"
-	"github.com/char2cs/crowbar/api/internal/app/usecases/chat"
 	"github.com/char2cs/crowbar/api/internal/app/usecases/file"
 	"github.com/char2cs/crowbar/api/internal/app/usecases/git"
 	"github.com/char2cs/crowbar/api/internal/app/usecases/internal/discover"
@@ -42,7 +41,6 @@ type Container struct {
 	ProjectImport project.ImportUsecase
 	ProjectDelete project.DeleteUsecase
 	Workspace     workspace.Usecase
-	Chat          chat.Usecase
 	File          file.Usecase
 	Git           git.Usecase
 	Terminal      terminal.Usecase
@@ -82,12 +80,6 @@ func New(
 		repos.Workspace,
 		engines.Git,
 		projectUsecase,
-	)
-	chatUsecase := chat.New(
-		repos.Chat,
-		repos.Workspace,
-		projectUsecase,
-		nowFunc,
 	)
 	fileUsecase := file.New(
 		newFsEngineAdapter(engines.FS),
@@ -159,7 +151,6 @@ func New(
 		ProjectImport: projectImport,
 		ProjectDelete: projectDelete,
 		Workspace:     workspaceUsecase,
-		Chat:          chatUsecase,
 		File:          fileUsecase,
 		Git:           gitUsecase,
 		Terminal:      terminalUsecase,
