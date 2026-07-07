@@ -1,5 +1,9 @@
 config:
-  intelligence:
-    light: "claude-haiku-4-5"
-    medium: "claude-sonnet-4-6"
-    heavy: "claude-opus-4-8"
+  prompts:
+    title_instruction: |
+      Give this conversation a short title, once, by running exactly this command (replace the placeholder with a concise 2-5 word Title-Case title of the task):
+      {crowbar} chat rename {chatid} "<title>"
+    handoff_wrapper: |
+      === HANDED-OFF CONTEXT (Crowbar) ===
+      {conversation}
+      === END ===
