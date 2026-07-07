@@ -2,6 +2,9 @@ package agent_test
 
 import (
 	"context"
+	"os"
+	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -104,8 +107,11 @@ func TestIngestHook_UserPrompt_SetsDerivedTitle(t *testing.T) {
 
 // TestSpawnChat_InjectsTitleInstruction guards Step 4: a fresh SpawnChat
 // injects the configured title instruction (expanded with {crowbar}/{chatid})
-// as the system-prompt document via the descriptor's handoff_inject steps —
-// claude's is the --append-system-prompt flag.
+// as a true system-prompt document via the descriptor's system_prompt_inject
+// steps — claude's is the --append-system-prompt flag. (Task 9: this used to
+// go through handoff_inject, which for codex is a positional arg that would
+// hijack its initial user turn; system_prompt_inject is the fix, distinct
+// from handoff_inject which SwitchProvider still uses unchanged below.)
 func TestSpawnChat_InjectsTitleInstruction(t *testing.T) {
 	f := newFixture(t)
 	ctx := context.Background()
@@ -120,10 +126,47 @@ func TestSpawnChat_InjectsTitleInstruction(t *testing.T) {
 	assert.Contains(t, doc, "chat rename "+chatID)
 }
 
+// TestSpawnChat_Codex_InjectsTitleInstructionViaAgentsFile is codex's
+// counterpart to TestSpawnChat_InjectsTitleInstruction: codex has no
+// per-invocation system-prompt flag, so its system_prompt_inject step (see
+// codex.yaml) writes the expanded title instruction to
+// $CODEX_HOME/AGENTS.md instead — verified live to be obeyed by real codex
+// (0.139.0). This guards the Task 9 fix: the title instruction must never
+// land as codex's positional initial prompt (that was handoff_inject's
+// behavior and hijacked codex's first real turn).
+func TestSpawnChat_Codex_InjectsTitleInstructionViaAgentsFile(t *testing.T) {
+	f := newFixture(t)
+	ctx := context.Background()
+
+	chatID, _, err := f.usecase.SpawnChat(ctx, "ws1", "codex")
+	require.NoError(t, err)
+
+	require.Len(t, f.term.calls, 1)
+	call := f.term.calls[0]
+
+	// codex has no positional prompt injected at spawn time: the title must
+	// not appear anywhere in argv (that would be the bug this task fixes).
+	for _, a := range call.argv {
+		assert.NotContains(t, a, "chat rename "+chatID, "title must not be injected as a codex positional arg")
+	}
+
+	var codexHome string
+	for _, kv := range call.env {
+		if v, ok := strings.CutPrefix(kv, "CODEX_HOME="); ok {
+			codexHome = v
+		}
+	}
+	require.NotEmpty(t, codexHome, "CODEX_HOME must be set in the spawned env")
+
+	data, err := os.ReadFile(filepath.Join(codexHome, "AGENTS.md"))
+	require.NoError(t, err)
+	assert.Contains(t, string(data), "chat rename "+chatID)
+}
+
 // TestSwitchProvider_DoesNotInjectTitleInstruction guards the injectTitle=false
 // side of Step 4: SwitchProvider must never inject the title instruction (only
-// the ledger handoff), even though the target descriptor's handoff_inject
-// mechanism is the same one used for the title on a fresh spawn.
+// the ledger handoff) — it still goes through the descriptor's handoff_inject
+// mechanism, unchanged by Task 9's system_prompt_inject addition.
 func TestSwitchProvider_DoesNotInjectTitleInstruction(t *testing.T) {
 	f := newFixture(t)
 	ctx := context.Background()

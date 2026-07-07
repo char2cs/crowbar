@@ -17,6 +17,14 @@ func TestResolveDescriptor_EmbeddedClaudeValid(t *testing.T) {
 	require.Equal(t, "json", d.Hooks.Format)
 	require.Equal(t, "session_id", d.Hooks.Events["session_start"]["session_id"])
 	require.Equal(t, "last_assistant_message", d.Hooks.Events["turn_stop"]["message"])
+
+	// Task 9: claude's system_prompt_inject delivers the title instruction via
+	// the same real --append-system-prompt flag as handoff_inject, distinct
+	// mechanisms that happen to render to the same flag for this provider.
+	require.Len(t, d.SystemPromptInject, 1)
+	require.Equal(t, "pass_arg", d.SystemPromptInject[0].Verb)
+	require.Equal(t, "--append-system-prompt", d.SystemPromptInject[0].Args["arg"])
+	require.Equal(t, "{system_prompt}", d.SystemPromptInject[0].Args["value"])
 }
 
 func TestResolveDescriptor_EmbeddedCodexValid(t *testing.T) {
@@ -25,6 +33,14 @@ func TestResolveDescriptor_EmbeddedCodexValid(t *testing.T) {
 	require.Equal(t, "codex", d.ID)
 	require.Contains(t, d.Spawn.ForbidFlags, "exec")
 	require.Contains(t, d.Spawn.Args, "--dangerously-bypass-hook-trust")
+
+	// Task 9: codex has no system-prompt flag, so system_prompt_inject writes
+	// the title instruction to $CODEX_HOME/AGENTS.md instead of hijacking
+	// codex's positional initial-prompt arg (handoff_inject's mechanism).
+	require.Len(t, d.SystemPromptInject, 1)
+	require.Equal(t, "write_file", d.SystemPromptInject[0].Verb)
+	require.Equal(t, "{tmp}/codex-home/AGENTS.md", d.SystemPromptInject[0].Args["path"])
+	require.Equal(t, "{system_prompt}", d.SystemPromptInject[0].Args["content"])
 }
 
 func TestLoadDescriptor_RejectsMissingID(t *testing.T) {

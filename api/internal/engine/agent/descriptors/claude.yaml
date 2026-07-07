@@ -29,3 +29,5 @@ hooks:
     turn_stop:     { session_id: session_id, message: last_assistant_message }
 handoff_inject:
   - pass_arg: { arg: "--append-system-prompt", value: "{handoff}" }
+system_prompt_inject:
+  - pass_arg: { arg: "--append-system-prompt", value: "{system_prompt}" }

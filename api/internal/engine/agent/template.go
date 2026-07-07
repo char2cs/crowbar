@@ -3,14 +3,15 @@ package agent
 import "strings"
 
 type TemplateCtx struct {
-	Tmp         string
-	ID          string
-	Handoff     string
-	Cwd         string
-	CrowbarHook string
-	Segid       string
-	Provider    string
-	Chatid      string
+	Tmp          string
+	ID           string
+	Handoff      string
+	Cwd          string
+	CrowbarHook  string
+	Segid        string
+	Provider     string
+	Chatid       string
+	SystemPrompt string
 }
 
 func Expand(s string, ctx TemplateCtx) string {
@@ -24,6 +25,7 @@ func Expand(s string, ctx TemplateCtx) string {
 		"{segid}", ctx.Segid,
 		"{provider}", ctx.Provider,
 		"{chatid}", ctx.Chatid,
+		"{system_prompt}", ctx.SystemPrompt,
 	)
 	return r.Replace(s)
 }

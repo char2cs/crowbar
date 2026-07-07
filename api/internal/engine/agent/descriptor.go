@@ -27,6 +27,12 @@ type Descriptor struct {
 	ConfigInjection []InjectStep `yaml:"config_injection"`
 	Hooks           HookSpec     `yaml:"hooks"`
 	HandoffInject   []InjectStep `yaml:"handoff_inject"`
+	// SystemPromptInject renders a true per-invocation system-prompt document
+	// (e.g. the chat-title instruction) — distinct from HandoffInject, which
+	// for some providers (codex) is a positional arg that would otherwise
+	// hijack the CLI's initial user turn. See spawnSegment's injectTitle
+	// branch, the only caller.
+	SystemPromptInject []InjectStep `yaml:"system_prompt_inject"`
 }
 
 type ArgSpec struct {

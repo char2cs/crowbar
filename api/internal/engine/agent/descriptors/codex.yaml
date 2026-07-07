@@ -34,3 +34,10 @@ hooks:
     turn_stop:     { session_id: session_id, message: last_assistant_message }
 handoff_inject:
   - pass_arg: { positional: "{handoff}" }
+# codex has no per-invocation system-prompt flag, but obeys an additive
+# instruction placed at $CODEX_HOME/AGENTS.md (verified live against codex
+# 0.139.0). Writing here — rather than reusing handoff_inject's positional
+# pass_arg — keeps codex's first turn as the user's real prompt instead of
+# hijacking it with the title instruction.
+system_prompt_inject:
+  - write_file: { path: "{tmp}/codex-home/AGENTS.md", content: "{system_prompt}" }

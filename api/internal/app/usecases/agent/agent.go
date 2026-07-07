@@ -177,8 +177,8 @@ func deriveTitle(prompt string) string {
 // both the segment and the chat. Both SpawnChat and SwitchProvider go through
 // it so ActiveSegmentID is never left unset. injectTitle is true only for a
 // genuine fresh-chat spawn (SpawnChat): it injects the configured title
-// instruction as the system-prompt document via the descriptor's
-// handoff_inject steps, instead of the (here empty) handoff.
+// instruction as a true system-prompt document via the descriptor's
+// system_prompt_inject steps, instead of the (here empty) handoff.
 func (u *Usecase) spawnSegment(
 	ctx context.Context,
 	chat domain.AgentChat,
@@ -232,10 +232,13 @@ func (u *Usecase) spawnSegment(
 	}
 	steps := extraSteps
 	if injectTitle {
-		// Fresh chat: the injected system-prompt document is the title instruction
-		// (from config), delivered through the descriptor's handoff_inject mechanism.
-		tctx.Handoff = engineagent.Expand(config.GetPrompts().TitleInstruction, tctx)
-		steps = descriptor.HandoffInject
+		// Fresh chat: the injected document is the title instruction (from
+		// config), delivered through the descriptor's system_prompt_inject
+		// mechanism — a true per-invocation system prompt, NOT handoff_inject
+		// (which for codex is a positional arg that would otherwise hijack its
+		// initial user turn; see descriptor.go's SystemPromptInject doc).
+		tctx.SystemPrompt = engineagent.Expand(config.GetPrompts().TitleInstruction, tctx)
+		steps = descriptor.SystemPromptInject
 	} else {
 		tctx.Handoff = handoff
 	}
