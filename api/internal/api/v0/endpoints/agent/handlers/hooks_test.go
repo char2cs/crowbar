@@ -105,6 +105,9 @@ type fakeAgentUsecase struct {
 
 	handoffStr string
 	handoffErr error
+
+	renameCalls []renameCall
+	renameErr   error
 }
 
 type ingestCall struct {
@@ -117,6 +120,12 @@ type ingestCall struct {
 type switchCall struct {
 	chatID   string
 	provider string
+}
+
+type renameCall struct {
+	chatID string
+	title  string
+	source string
 }
 
 func (f *fakeAgentUsecase) SpawnChat(
@@ -181,4 +190,12 @@ func (f *fakeAgentUsecase) AssembleHandoff(
 		return "", f.handoffErr
 	}
 	return f.handoffStr, nil
+}
+
+func (f *fakeAgentUsecase) RenameChat(
+	_ context.Context,
+	chatID, title, source string,
+) error {
+	f.renameCalls = append(f.renameCalls, renameCall{chatID: chatID, title: title, source: source})
+	return f.renameErr
 }

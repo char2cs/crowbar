@@ -75,6 +75,13 @@ func (stubUsecase) AssembleHandoff(
 	return "", nil
 }
 
+func (stubUsecase) RenameChat(
+	_ context.Context,
+	_, _, _ string,
+) error {
+	return nil
+}
+
 // TestRegisterMountsRoutes proves Register mounts every /v0/agent route,
 // including the WS upgrade route delegating to the supplied handler.
 func TestRegisterMountsRoutes(
@@ -95,6 +102,7 @@ func TestRegisterMountsRoutes(
 		{http.MethodGet, "/v0/agent/chats"},
 		{http.MethodGet, "/v0/agent/chats/c1"},
 		{http.MethodPost, "/v0/agent/chats/c1/switch"},
+		{http.MethodPost, "/v0/agent/chats/c1/rename"},
 		{http.MethodGet, "/v0/agent/chats/c1/handoff"},
 		{http.MethodPost, "/v0/agent/hooks"},
 		{http.MethodGet, "/v0/agent/ws/chats"},

@@ -25,6 +25,7 @@ func Register(
 	rg.GET("/agent/chats", h.List)
 	rg.GET("/agent/chats/:id", h.Get)
 	rg.POST("/agent/chats/:id/switch", h.Switch)
+	rg.POST("/agent/chats/:id/rename", h.Rename)
 	rg.GET("/agent/chats/:id/handoff", h.Handoff)
 	rg.POST("/agent/hooks", h.Hooks)
 	rg.GET("/agent/ws/chats", wsHandle)

@@ -54,6 +54,13 @@ type AgentUsecase interface {
 		ctx context.Context,
 		chatID string,
 	) (string, error)
+
+	// RenameChat sets chatID's title under user>agent>derived precedence (see
+	// (*agent.Usecase).RenameChat). Broadcasts "titled" on a successful change.
+	RenameChat(
+		ctx context.Context,
+		chatID, title, source string,
+	) error
 }
 
 // Handlers serves the /v0/agent routes from the agent usecase.

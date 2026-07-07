@@ -77,3 +77,29 @@ func (h *Handlers) Get(
 
 	libs.WriteQueryOK(ctx, dto.AgentChatDetailDTOFrom(chat, segs))
 }
+
+// Rename handles POST /v0/agent/chats/:id/rename: sets the chat's title.
+// `?source=agent` applies the agent precedence rule (skip if user-locked); the
+// default (a human/FE rename) sets unconditionally and locks.
+func (h *Handlers) Rename(
+	ctx *gin.Context,
+) {
+	rctx := ctx.Request.Context()
+	id := ctx.Param("id")
+	source := ctx.Query("source")
+
+	var body struct {
+		Title string `json:"title"`
+	}
+	if err := ctx.ShouldBindJSON(&body); err != nil {
+		libs.WriteErr(ctx, http.StatusBadRequest, err.Error())
+		return
+	}
+
+	if err := h.usecase.RenameChat(rctx, id, body.Title, source); err != nil {
+		status, msg := libs.StatusAndMessage(err)
+		libs.WriteErr(ctx, status, msg)
+		return
+	}
+	libs.WriteAccepted(ctx)
+}

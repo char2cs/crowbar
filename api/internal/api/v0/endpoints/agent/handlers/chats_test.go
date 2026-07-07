@@ -150,6 +150,13 @@ func (configurableListGetUsecase) AssembleHandoff(
 	return "", nil
 }
 
+func (configurableListGetUsecase) RenameChat(
+	_ context.Context,
+	_, _, _ string,
+) error {
+	return nil
+}
+
 // TestList_Success proves List returns every chat as wire DTOs.
 func TestList_Success(
 	t *testing.T,
@@ -258,4 +265,62 @@ func TestGet_SegmentsError(
 	h.Get(ctx)
 
 	assert.Equal(t, http.StatusInternalServerError, rec.Code)
+}
+
+// TestRename_PostsTitleAndSource proves Rename decodes {title}, forwards the
+// path id, decoded title, and the `source` query param to RenameChat, and
+// responds 202 with an empty body on success.
+func TestRename_PostsTitleAndSource(
+	t *testing.T,
+) {
+	uc := &fakeAgentUsecase{}
+	h := handlers.New(uc)
+
+	body := []byte(`{"title":"My Title"}`)
+	ctx, rec := newTestContext(t, http.MethodPost, "/v0/agent/chats/c-1/rename?source=agent", body)
+	ctx.Params = gin.Params{{Key: "id", Value: "c-1"}}
+
+	h.Rename(ctx)
+
+	require.Equal(t, http.StatusAccepted, rec.Code)
+	assert.Empty(t, rec.Body.Bytes())
+
+	require.Len(t, uc.renameCalls, 1)
+	assert.Equal(t, "c-1", uc.renameCalls[0].chatID)
+	assert.Equal(t, "My Title", uc.renameCalls[0].title)
+	assert.Equal(t, "agent", uc.renameCalls[0].source)
+}
+
+// TestRename_BadJSON proves a malformed body is rejected 400 without reaching
+// the usecase.
+func TestRename_BadJSON(
+	t *testing.T,
+) {
+	uc := &fakeAgentUsecase{}
+	h := handlers.New(uc)
+
+	ctx, rec := newTestContext(t, http.MethodPost, "/v0/agent/chats/c-1/rename", []byte("{not json"))
+	ctx.Params = gin.Params{{Key: "id", Value: "c-1"}}
+
+	h.Rename(ctx)
+
+	assert.Equal(t, http.StatusBadRequest, rec.Code)
+	assert.Empty(t, uc.renameCalls)
+}
+
+// TestRename_UsecaseError proves a RenameChat failure surfaces as a mapped
+// error response rather than a 202.
+func TestRename_UsecaseError(
+	t *testing.T,
+) {
+	uc := &fakeAgentUsecase{renameErr: agentchat.ErrNotFound}
+	h := handlers.New(uc)
+
+	body := []byte(`{"title":"My Title"}`)
+	ctx, rec := newTestContext(t, http.MethodPost, "/v0/agent/chats/missing/rename", body)
+	ctx.Params = gin.Params{{Key: "id", Value: "missing"}}
+
+	h.Rename(ctx)
+
+	assert.Equal(t, http.StatusNotFound, rec.Code)
 }
