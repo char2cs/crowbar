@@ -7,6 +7,8 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/char2cs/crowbar/api/internal/core/config"
 )
 
 func TestAssembleHandoff_WrapsLedgerEntriesInPreamble(t *testing.T) {
@@ -21,8 +23,16 @@ func TestAssembleHandoff_WrapsLedgerEntriesInPreamble(t *testing.T) {
 
 	got, err := f.usecase.AssembleHandoff(ctx, chatID)
 	require.NoError(t, err)
-	assert.True(t, strings.HasPrefix(got, "=== HANDED-OFF CONTEXT (Crowbar) ===\n"))
-	assert.True(t, strings.HasSuffix(got, "\n=== END ==="))
+
+	// AssembleHandoff wraps the rendered ledger in the CONFIGURED
+	// handoff_wrapper (config-driven, not a hardcoded literal): assert against
+	// the actual configured template split around {conversation}, so this
+	// test tracks config-driven behavior rather than re-hardcoding it.
+	wrapper := config.GetPrompts().HandoffWrapper
+	pre, post, ok := strings.Cut(wrapper, "{conversation}")
+	require.True(t, ok, "handoff_wrapper must contain {conversation}")
+	assert.True(t, strings.HasPrefix(got, pre))
+	assert.True(t, strings.HasSuffix(got, post))
 	assert.Contains(t, got, "first turn transcript")
 	assert.Contains(t, got, "second turn transcript")
 	// Both entries must appear, in append order.

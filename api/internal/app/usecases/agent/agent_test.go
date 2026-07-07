@@ -226,7 +226,11 @@ func TestSpawnChat_PersistsChatAndSegmentAndSpawns(t *testing.T) {
 	assert.Equal(t, "ws1", call.workspaceID)
 	assert.Equal(t, f.ws.worktree, call.cwd)
 	assert.Equal(t, "claude", call.argv[0])
-	assert.NotContains(t, call.argv, "--append-system-prompt")
+	// A fresh SpawnChat injects the title instruction via the descriptor's
+	// handoff_inject mechanism (see TestSpawnChat_InjectsTitleInstruction for
+	// content assertions); it must be present here too, not the raw ledger
+	// handoff (there is none yet for a brand-new chat).
+	assert.Contains(t, call.argv, "--append-system-prompt")
 }
 
 // TestSpawnSegment_TmpDirSurvivesSpawnAndIsRemovedOnlyWhenSessionEnds guards
@@ -551,9 +555,14 @@ func TestIngestHook_UserPromptAppendsUserTurn(t *testing.T) {
 	require.NoError(t, err)
 	assert.Contains(t, handoff, "user: please do the thing")
 
-	require.Len(t, f.bc.calls, 1)
-	assert.Equal(t, "user_prompt", f.bc.calls[0].kind)
+	// The user_prompt hook also fires the derived-title fallback (an empty
+	// title picks up the prompt's first line), so "titled" broadcasts before
+	// "user_prompt".
+	require.Len(t, f.bc.calls, 2)
+	assert.Equal(t, "titled", f.bc.calls[0].kind)
 	assert.Equal(t, chatID, f.bc.calls[0].chatID)
+	assert.Equal(t, "user_prompt", f.bc.calls[1].kind)
+	assert.Equal(t, chatID, f.bc.calls[1].chatID)
 }
 
 // TestIngestHook_TurnStop_EmptyMessage_NoOps guards appendTurn's empty-text

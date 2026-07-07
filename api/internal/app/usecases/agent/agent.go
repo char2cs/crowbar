@@ -18,6 +18,7 @@ import (
 	"github.com/char2cs/crowbar/api/internal/app/ledger"
 	"github.com/char2cs/crowbar/api/internal/app/repositories/agentchat"
 	"github.com/char2cs/crowbar/api/internal/app/usecases/internal/worktreepath"
+	"github.com/char2cs/crowbar/api/internal/core/config"
 	"github.com/char2cs/crowbar/api/internal/domain"
 	engineagent "github.com/char2cs/crowbar/api/internal/engine/agent"
 	engineterminal "github.com/char2cs/crowbar/api/internal/engine/terminal"
@@ -108,24 +109,83 @@ func (u *Usecase) SpawnChat(
 		return "", "", fmt.Errorf("agent: spawn chat: save chat: %w", err)
 	}
 
-	segID, err = u.spawnSegment(ctx, chat, providerID, nil, "")
+	segID, err = u.spawnSegment(ctx, chat, providerID, nil, "", true)
 	if err != nil {
 		return "", "", err
 	}
 	return chatID, segID, nil
 }
 
+// RenameChat sets a chat's title under user>agent>derived precedence:
+//
+//	source "derived": set only if the title is currently empty (first-prompt fallback).
+//	source "agent":   set unless the title is user-locked (agent may upgrade a derived title).
+//	source "user"/"": set unconditionally AND lock (a manual rename wins and sticks).
+//
+// An empty title is always a no-op. Broadcasts "titled" on a successful change.
+func (u *Usecase) RenameChat(
+	ctx context.Context,
+	chatID, title, source string,
+) error {
+	if title == "" {
+		return nil
+	}
+	chat, err := u.repo.GetChat(ctx, chatID)
+	if err != nil {
+		return fmt.Errorf("agent: rename chat: get: %w", err)
+	}
+	switch source {
+	case "derived":
+		if chat.Title != "" {
+			return nil
+		}
+	case "agent":
+		if chat.TitleLocked {
+			return nil
+		}
+	default: // "user" / "" — manual rename wins and locks
+		chat.TitleLocked = true
+	}
+	chat.Title = title
+	if err := u.repo.SaveChat(ctx, chat); err != nil {
+		return fmt.Errorf("agent: rename chat: save: %w", err)
+	}
+	u.bc.BroadcastAgentChat(chatID, "titled")
+	return nil
+}
+
+// deriveTitle turns a user prompt into a short chat title: the first non-empty
+// line, trimmed, capped to 60 runes.
+func deriveTitle(prompt string) string {
+	for _, line := range strings.Split(prompt, "\n") {
+		line = strings.TrimSpace(line)
+		if line == "" {
+			continue
+		}
+		r := []rune(line)
+		if len(r) > 60 {
+			return strings.TrimSpace(string(r[:60])) + "…"
+		}
+		return line
+	}
+	return ""
+}
+
 // spawnSegment is the single owner of AgentChat.ActiveSegmentID: it persists a
 // new active AgentSegment, binds the reducer, builds and launches the
 // provider's spawn plan, and stamps the segment's terminal session id onto
 // both the segment and the chat. Both SpawnChat and SwitchProvider go through
-// it so ActiveSegmentID is never left unset.
+// it so ActiveSegmentID is never left unset. injectTitle is true only for a
+// genuine fresh-chat spawn (SpawnChat): it injects the configured title
+// instruction as the system-prompt document via the descriptor's
+// handoff_inject steps, instead of the (here empty) handoff.
 func (u *Usecase) spawnSegment(
 	ctx context.Context,
 	chat domain.AgentChat,
 	providerID string,
 	extraSteps []engineagent.InjectStep,
 	handoff string,
+	injectTitle bool,
 ) (string, error) {
 	segID := uuid.NewString()
 	seg := domain.AgentSegment{
@@ -166,11 +226,20 @@ func (u *Usecase) spawnSegment(
 		Tmp:         tmpDir,
 		Cwd:         worktree,
 		CrowbarHook: u.crowbarHookPath(crowbarHome),
-		Handoff:     handoff,
 		Segid:       segID,
 		Provider:    providerID,
+		Chatid:      chat.ID,
 	}
-	plan, err := engineagent.BuildSpawnPlan(descriptor, tctx, os.Environ(), extraSteps)
+	steps := extraSteps
+	if injectTitle {
+		// Fresh chat: the injected system-prompt document is the title instruction
+		// (from config), delivered through the descriptor's handoff_inject mechanism.
+		tctx.Handoff = engineagent.Expand(config.GetPrompts().TitleInstruction, tctx)
+		steps = descriptor.HandoffInject
+	} else {
+		tctx.Handoff = handoff
+	}
+	plan, err := engineagent.BuildSpawnPlan(descriptor, tctx, os.Environ(), steps)
 	if err != nil {
 		return "", fmt.Errorf("agent: spawn segment: build spawn plan: %w", err)
 	}
@@ -265,6 +334,9 @@ func (u *Usecase) IngestHook(
 	case "session_start":
 		return u.handleSessionStart(ctx, crowbarSegID, seg, chat, ev)
 	case "user_prompt":
+		if err := u.RenameChat(ctx, chat.ID, deriveTitle(ev.Message), "derived"); err != nil {
+			slog.WarnContext(ctx, "agent: ingest hook: derived title", "err", err, "chat_id", chat.ID)
+		}
 		return u.appendTurn(ctx, seg, chat, crowbarHome, projectID, repoID, "user", ev.Message)
 	case "turn_stop":
 		return u.appendTurn(ctx, seg, chat, crowbarHome, projectID, repoID, "assistant", ev.Message)
@@ -495,7 +567,7 @@ func (u *Usecase) AssembleHandoff(
 		return "", nil
 	}
 
-	return "=== HANDED-OFF CONTEXT (Crowbar) ===\n" + string(blob) + "\n=== END ===", nil
+	return strings.ReplaceAll(config.GetPrompts().HandoffWrapper, "{conversation}", string(blob)), nil
 }
 
 // SwitchProvider is the headline provider-switch: it terminates chatID's
@@ -601,7 +673,7 @@ func (u *Usecase) SwitchProvider(
 	// positional handoff; order is irrelevant for claude's flag pair.
 	extraSteps := append(resumeSteps, d.HandoffInject...)
 
-	newSegID, err := u.spawnSegment(ctx, chat, targetProviderID, extraSteps, handoff)
+	newSegID, err := u.spawnSegment(ctx, chat, targetProviderID, extraSteps, handoff, false)
 	if err != nil {
 		return "", err
 	}
