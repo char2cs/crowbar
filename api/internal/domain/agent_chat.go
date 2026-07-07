@@ -8,6 +8,7 @@ type AgentChat struct {
 	ID              string    `gorm:"primaryKey" json:"id"`
 	WorkspaceID     string    `gorm:"index"      json:"workspaceId"`
 	Title           string    `json:"title"`
+	TitleLocked     bool      `json:"titleLocked"`
 	ActiveSegmentID string    `json:"activeSegmentId"`
 	CreatedAt       time.Time `json:"createdAt"`
 }

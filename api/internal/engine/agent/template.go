@@ -10,6 +10,7 @@ type TemplateCtx struct {
 	CrowbarHook string
 	Segid       string
 	Provider    string
+	Chatid      string
 }
 
 func Expand(s string, ctx TemplateCtx) string {
@@ -19,8 +20,10 @@ func Expand(s string, ctx TemplateCtx) string {
 		"{handoff}", ctx.Handoff,
 		"{cwd}", ctx.Cwd,
 		"{crowbar_hook}", ctx.CrowbarHook,
+		"{crowbar}", ctx.CrowbarHook, // same binary as {crowbar_hook}; friendlier for non-hook commands
 		"{segid}", ctx.Segid,
 		"{provider}", ctx.Provider,
+		"{chatid}", ctx.Chatid,
 	)
 	return r.Replace(s)
 }
