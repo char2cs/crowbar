@@ -238,7 +238,7 @@ func (u *Usecase) spawnSegment(
 		// (which for codex is a positional arg that would otherwise hijack its
 		// initial user turn; see descriptor.go's SystemPromptInject doc).
 		tctx.SystemPrompt = engineagent.Expand(config.GetPrompts().TitleInstruction, tctx)
-		steps = descriptor.SystemPromptInject
+		steps = append(steps, descriptor.SystemPromptInject...)
 	} else {
 		tctx.Handoff = handoff
 	}

@@ -10,7 +10,12 @@ import (
 )
 
 func TestGetPrompts_FromEmbeddedDefaults(t *testing.T) {
+	// Isolate from a dev box's real ~/.crowbar/config.yaml so this test only
+	// ever sees the embedded defaults.
+	t.Setenv("CROWBAR_HOME", t.TempDir())
 	resetForTesting()
+	t.Cleanup(resetForTesting)
+
 	p := GetPrompts()
 	assert.Contains(t, p.TitleInstruction, "chat rename {chatid}")
 	assert.Contains(t, p.HandoffWrapper, "{conversation}")

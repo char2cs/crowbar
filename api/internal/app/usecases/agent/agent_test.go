@@ -227,8 +227,8 @@ func TestSpawnChat_PersistsChatAndSegmentAndSpawns(t *testing.T) {
 	assert.Equal(t, f.ws.worktree, call.cwd)
 	assert.Equal(t, "claude", call.argv[0])
 	// A fresh SpawnChat injects the title instruction via the descriptor's
-	// handoff_inject mechanism (see TestSpawnChat_InjectsTitleInstruction for
-	// content assertions); it must be present here too, not the raw ledger
+	// system_prompt_inject mechanism (see TestSpawnChat_InjectsTitleInstruction
+	// for content assertions); it must be present here too, not the raw ledger
 	// handoff (there is none yet for a brand-new chat).
 	assert.Contains(t, call.argv, "--append-system-prompt")
 }

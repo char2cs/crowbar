@@ -123,7 +123,7 @@ export function destroyWorkspaceStore(wsId: string): void {
     // global singleton keyed by file path, so clearAllBlame() would wipe blame for
     // OTHER still-active workspaces; we instead clear only this workspace's editor
     // buffer paths. Dynamic import avoids a registry → git-feature cycle, mirroring
-    // the terminal/chat branches above.
+    // the terminal branch above.
     const editorPaths = buffers.filter(isEditorContent).map((b) => b.path)
     if (editorPaths.length > 0) {
       void import('@/features/git/stores/git-blame-store').then(({ useGitBlameStore }) => {

@@ -73,8 +73,6 @@ interface SidebarState {
   collapsedWorkspaces: Set<string>
   /** Persisted active tab so re-mounts don't reset it. */
   activeTab: SidebarTab
-  collapsedChats: Set<string>
-  toggleChat: (chatId: string) => void
   addWorkspace: (repoId: string, wsId: string, branch: string, parentId?: string) => void
   deleteWorkspace: (wsId: string) => void
   renameWorkspace: (wsId: string, branch: string) => void
@@ -170,21 +168,12 @@ export function getInitialState() {
     repos: [],
     collapsedRepos: new Set<string>(),
     collapsedWorkspaces: new Set<string>(),
-    collapsedChats: new Set<string>(),
     activeTab: 'workspaces' as SidebarTab,
   }
 }
 
 export const useSidebarStore = create<SidebarState>()((set) => ({
   ...getInitialState(),
-
-  toggleChat: (chatId) =>
-    set((s) => {
-      const next = new Set(s.collapsedChats)
-      next.has(chatId) ? next.delete(chatId) : next.add(chatId)
-      void saveSidebarUI([...s.collapsedRepos], [...s.collapsedWorkspaces], [...next])
-      return { collapsedChats: next }
-    }),
 
   addWorkspace: (repoId, wsId, branch, parentId) =>
     set((s) => ({
