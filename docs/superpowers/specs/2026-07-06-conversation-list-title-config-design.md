@@ -11,7 +11,7 @@
 There have been three attempts at "Crowbar conversations." Two are dead and get deleted; the third is the keeper and gets rebuilt on the real engine:
 
 1. **`markdown-chat`** — a rich chat-bubble UI driven by a **mock** `/v0/runs` API that has no backend. Dead brainstorming code → **delete**.
-2. **The dormant backend `domain.Chat`** (event-sourced) + `endpoints/chats` + repo + usecase — never mounted (decision D11), superseded by the new `AgentChat`. → **delete**.
+2. **The dead chat REST + CRUD usecase** — `endpoints/chats` (never mounted, D11) + `usecases/chat` (only that endpoint used it). → **delete**. (Note: `domain.Chat` + its repo are NOT dead — Branch Review reads them — so they stay; see §1.2.)
 3. **The sidebar "Chats" list** — this is where Crowbar shows the user their conversations. Terminal-first: clicking a conversation opens/focuses the real CLI's terminal. It gets **repointed onto the agentic engine (`/v0/agent/*`)**. (FE build is a **later phase** — this spec prepares the backend for it.)
 
 Two new capabilities land now, both backend:
@@ -27,8 +27,15 @@ Two new capabilities land now, both backend:
 ### 1.1 Frontend — `markdown-chat` + mock runs (iteration 1)
 Delete `web/src/features/markdown-chat/` (whole feature), `web/src/routes/_shell/chat/$chatId.tsx`, `web/src/lib/api/run.ts`, `web/src/mocks/handlers/markdown-chat.ts`, `web/src/lib/mock/markdown-chat.ts`, and the mirrored tests under `web/src/__tests__/features/markdown-chat/`. Surgically excise the `crowbarChat` buffer kind from the shared pane/buffer system (`pane-content.ts` union member, `pane-container.tsx` render case, `buffer-slice.ts` open/close branches, `workspace-store-registry.ts`, tab bar/new-button, mock scenarios' `markdownTurns`, chaos `FaultKey`), and delete the already-orphaned `editor/stores/buffer-content-factory.ts` (zero importers, references `crowbarChat`). Per project convention (pre-production, no legacy migration) do **not** add stale-snapshot guards; dev clears its own persisted state.
 
-### 1.2 Backend — dormant `domain.Chat` (iteration 2)
-Delete `api/internal/api/v0/endpoints/chats/`, the event-sourced `domain.Chat` aggregate, its repo (`app/repositories/chat/`), and usecase (`app/usecases/chat/`). It is never mounted (`router.go` never calls `chats.Register`; D11) and is superseded by `AgentChat`/`AgentSegment`. **Do NOT touch** `app/usecases/internal/branchchat/` + `domain.BranchChat` — that's a live Branch-Review read-model, unrelated despite the similar name.
+### 1.2 Backend — dead chat REST + CRUD usecase (iteration 2)
+**Correction from code inspection:** `domain.Chat` and `app/repositories/chat/` are **NOT dormant** — they are live infrastructure for Branch Review (`app/usecases/branchreview` reads `repos.Chat` → `domain.Chat` and projects it via `branchchat`; the `review` endpoint is mounted; `container.go:42` builds the chat asynx store). Deleting them would break Branch Review.
+
+So iteration-2 removal is only the genuinely-dead surface:
+- **Delete** `api/internal/api/v0/endpoints/chats/` — never mounted (`router.go` never calls `chats.Register`; D11).
+- **Delete** `api/internal/app/usecases/chat/` — the CRUD usecase (create/fork/rename/delete/list). Consumed only by the never-mounted `endpoints/chats` and its own container wiring; branchreview uses the *repo* directly, not this usecase.
+- **Unwire** the chat usecase from `app/usecases/container.go` (drop the `usecases/chat` import, the `chatUsecase := chat.New(repos.Chat, …)` construction, and the `Chat: chatUsecase` field), while **keeping** the `repos.Chat` argument passed to branchreview construction on the same file.
+
+**Keep (live — do NOT touch):** `domain.Chat`, `app/repositories/chat/`, `app/usecases/branchreview`, `app/usecases/internal/branchchat/`, `domain.BranchChat`, the chat asynx store wiring. `domain.Chat`'s AutoMigrate stays.
 
 ### 1.3 The sidebar-chats FE seam
 The current sidebar chats UI (`components/layout/chat-tree*.tsx`, `lib/store/chat-list-store.ts`, `lib/api/chat.ts`, the "Chats" tab, `ide-shell.tsx`'s `/chat/:id` branch) is wired entirely to the dead system (dead `/v0/workspaces/:wsId/chats` routes, opens `crowbarChat`). Its *concept* is the keeper; its *code* is dead-wired.
@@ -53,7 +60,7 @@ This section is the north star for §3–§4's backend prep; no FE is written no
 No CLI hook carries a title, and reading each provider's private title store (claude's transcript `ai-title`, codex's `state_5.sqlite` `threads.title`) is fragile and per-provider. Instead we invert it: **Crowbar instructs the agent to name the chat**, via an injected system-prompt line telling it to run a `crowbar` command. This is provider-agnostic (works for any CLI that runs shell commands) and needs zero per-provider title logic.
 
 - **Command:** `crowbar chat <chatid> rename "<title>"` — a new hidden CLI subcommand (sibling of `crowbar hook`). It POSTs to the daemon and, like `crowbar hook`, **never breaks the CLI** (errors swallowed to exit-0, stderr only). `<chatid>` is Crowbar's real chat id, injected into the instruction at spawn (see §4).
-- **Endpoint:** `PATCH /v0/agent/chats/:id` `{ "title": "..." }`. This same endpoint serves the agent, a human via CLI, and the future FE rename — one surface, mirroring the REST resource.
+- **Endpoint:** `POST /v0/agent/chats/:id/rename` `{ "title": "..." }`. Mutation-as-POST matches the existing `/chats/:id/switch` convention, and the ipc client is POST-only. This same endpoint serves the agent, a human via CLI, and the future FE rename — one surface.
 - **Routing by chat id (not segment):** the title belongs to the chat. `{chatid}` is a guaranteed spawn variable (`chat.ID` is known at spawn). Accepted tradeoff: it's pinned to the chat live at spawn, so if a user `/clear`s mid-session and the agent re-titles, it renames the *original* chat and the new chat falls back to its derived title (§3.3) — graceful, not broken, and `/clear`-then-agent-retitle is rare.
 
 ### 3.2 Precedence & set-once
@@ -62,7 +69,7 @@ No CLI hook carries a title, and reading each provider's private title store (cl
 - **Agent rename** (`crowbar chat … rename`) sets `Title` unless `TitleLocked` — it may upgrade a derived title, never clobber a user title.
 - **User/FE rename** sets `Title` **and** `TitleLocked = true`.
 
-The `PATCH` endpoint distinguishes these with a query flag: `?source=agent` applies the agent rule (skip if locked); the default (FE/user) sets unconditionally and locks. The agent's injected command uses `?source=agent`.
+The rename endpoint distinguishes these with a query flag: `?source=agent` applies the agent rule (skip if locked); the default (FE/user) sets unconditionally and locks. The agent's injected command uses `?source=agent`.
 
 ### 3.3 Derived fallback (first prompt)
 On the **first `user_prompt` hook for a chat**, if `Title == ""`, set `Title` to a short derivation of the prompt (first non-empty line, trimmed, capped ~60 chars). This runs in the usecase's existing `user_prompt` ingest path (which already appends the ledger turn). It guarantees every chat has a title even if the agent skips the rename; the agent's later rename upgrades it (§3.2). Empty/whitespace prompt → leave empty (FE shows a placeholder).
@@ -118,7 +125,7 @@ The split stays clean:
 
 **Domain:** `AgentChat.TitleLocked bool` (`Title` already exists).
 
-**API (`api/v0/endpoints/agent`):** `PATCH /v0/agent/chats/:id` → `RenameChat`; `?source=agent` flag; broadcast `titled`.
+**API (`api/v0/endpoints/agent`):** `POST /v0/agent/chats/:id/rename` → `RenameChat`; `?source=agent` flag; broadcast `titled`.
 
 **CLI (`cmd/crowbar`):** `crowbar chat <chatid> rename <title>` subcommand → `PATCH …` via the ipc client; swallow-errors-to-exit-0 like `crowbar hook`.
 
@@ -129,11 +136,11 @@ The split stays clean:
 - **Config:** defaults load; `~/.crowbar/config.yaml` overlays `prompts`; absent prompts keep embedded defaults. The old `intelligence`/`ModelForTier` tests are removed with the section.
 - **Title fallback:** first `user_prompt` sets a derived title; second prompt does not overwrite; empty prompt leaves it empty.
 - **Precedence:** derived → agent upgrade works; agent rename skips when `TitleLocked`; user rename sets + locks; agent cannot clobber locked.
-- **Endpoint:** `PATCH` sets/locks correctly per `source`; broadcasts `titled`.
+- **Endpoint:** `POST …/rename` sets/locks correctly per `source`; broadcasts `titled`.
 - **CLI:** `crowbar chat <id> rename <t>` posts the right body; a daemon-down error exits 0 with stderr.
 - **Handoff:** `AssembleHandoff` uses the config wrapper; expanding `{conversation}` yields the rendered ledger; a custom `~/.crowbar/config.yaml` wrapper is honored.
 - **Spawn injection:** a fresh `SpawnChat` injects the expanded title instruction (`{crowbar}`/`{chatid}` filled); a `SwitchProvider` does not.
-- **Removals:** whole-module build green; no dangling refs to `crowbarChat`, `markdown-chat`, `domain.Chat`, `endpoints/chats`; integration suite still green.
+- **Removals:** whole-module build green; no dangling refs to `crowbarChat`, `markdown-chat`, `endpoints/chats`, `usecases/chat`; **Branch Review still compiles and works** (it keeps using `repos.Chat`/`domain.Chat`); integration suite still green.
 - **Live (per project rule):** after green tests, sample a real chat via `make dev-desktop` — confirm the agent runs `crowbar chat … rename` and the title lands, and the fallback fires when it doesn't.
 
 ## 7. Out of scope / deferred
