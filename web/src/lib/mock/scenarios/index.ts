@@ -1,11 +1,10 @@
-import type { Repo, ProjectChat } from '@/lib/store/sidebar'
+import type { Repo } from '@/lib/store/sidebar'
 import type { Project, WorkspacePayload } from '@/lib/types'
 import type { FileNode } from '@/lib/mock/files'
 import type { MultiFileDiff } from '@/features/git/types/git-diff-types'
 import type { ReviewThread } from '@/features/workspace/stores/slices/branch-review-slice'
 import type { BranchReviewChat } from '@/lib/mock/branch-diff'
 import type { Commit, GitStatus, Branch } from '@/lib/mock/git-data'
-import type { MarkdownTurn } from '@/features/markdown-chat/types'
 
 export interface ScenarioDataset {
   repos: () => Repo[]
@@ -21,8 +20,6 @@ export interface ScenarioDataset {
   gitLog: (repoPath: string) => Commit[]
   gitStatus: (repoPath: string) => GitStatus
   gitBranches: (repoPath: string) => Branch[]
-  markdownTurns: (wsId: string, stepId: string) => MarkdownTurn[]
-  chats: (wsId: string) => ProjectChat[]
 }
 
 import { normalDataset } from './normal'

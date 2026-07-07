@@ -13,7 +13,6 @@ import { Route as OobeRouteImport } from './routes/oobe'
 import { Route as ShellRouteImport } from './routes/_shell'
 import { Route as ShellIndexRouteImport } from './routes/_shell/index'
 import { Route as ShellWorkspacesNewRouteImport } from './routes/_shell/workspaces/new'
-import { Route as ShellChatChatIdRouteImport } from './routes/_shell/chat/$chatId'
 import { Route as ShellIdeProjectIdHomeRouteImport } from './routes/_shell/ide/$projectId/home'
 import { Route as ShellIdeProjectIdRepoIdWsIdRouteImport } from './routes/_shell/ide/$projectId/$repoId/$wsId'
 import { Route as ShellIdeProjectIdRepoIdWsIdIndexRouteImport } from './routes/_shell/ide/$projectId/$repoId/$wsId/index'
@@ -37,11 +36,6 @@ const ShellWorkspacesNewRoute = ShellWorkspacesNewRouteImport.update({
   path: '/workspaces/new',
   getParentRoute: () => ShellRoute,
 } as any)
-const ShellChatChatIdRoute = ShellChatChatIdRouteImport.update({
-  id: '/chat/$chatId',
-  path: '/chat/$chatId',
-  getParentRoute: () => ShellRoute,
-} as any)
 const ShellIdeProjectIdHomeRoute = ShellIdeProjectIdHomeRouteImport.update({
   id: '/ide/$projectId/home',
   path: '/ide/$projectId/home',
@@ -63,7 +57,6 @@ const ShellIdeProjectIdRepoIdWsIdIndexRoute =
 export interface FileRoutesByFullPath {
   '/': typeof ShellIndexRoute
   '/oobe': typeof OobeRoute
-  '/chat/$chatId': typeof ShellChatChatIdRoute
   '/workspaces/new': typeof ShellWorkspacesNewRoute
   '/ide/$projectId/home': typeof ShellIdeProjectIdHomeRoute
   '/ide/$projectId/$repoId/$wsId': typeof ShellIdeProjectIdRepoIdWsIdRouteWithChildren
@@ -72,7 +65,6 @@ export interface FileRoutesByFullPath {
 export interface FileRoutesByTo {
   '/oobe': typeof OobeRoute
   '/': typeof ShellIndexRoute
-  '/chat/$chatId': typeof ShellChatChatIdRoute
   '/workspaces/new': typeof ShellWorkspacesNewRoute
   '/ide/$projectId/home': typeof ShellIdeProjectIdHomeRoute
   '/ide/$projectId/$repoId/$wsId': typeof ShellIdeProjectIdRepoIdWsIdIndexRoute
@@ -82,7 +74,6 @@ export interface FileRoutesById {
   '/_shell': typeof ShellRouteWithChildren
   '/oobe': typeof OobeRoute
   '/_shell/': typeof ShellIndexRoute
-  '/_shell/chat/$chatId': typeof ShellChatChatIdRoute
   '/_shell/workspaces/new': typeof ShellWorkspacesNewRoute
   '/_shell/ide/$projectId/home': typeof ShellIdeProjectIdHomeRoute
   '/_shell/ide/$projectId/$repoId/$wsId': typeof ShellIdeProjectIdRepoIdWsIdRouteWithChildren
@@ -93,7 +84,6 @@ export interface FileRouteTypes {
   fullPaths:
     | '/'
     | '/oobe'
-    | '/chat/$chatId'
     | '/workspaces/new'
     | '/ide/$projectId/home'
     | '/ide/$projectId/$repoId/$wsId'
@@ -102,7 +92,6 @@ export interface FileRouteTypes {
   to:
     | '/oobe'
     | '/'
-    | '/chat/$chatId'
     | '/workspaces/new'
     | '/ide/$projectId/home'
     | '/ide/$projectId/$repoId/$wsId'
@@ -111,7 +100,6 @@ export interface FileRouteTypes {
     | '/_shell'
     | '/oobe'
     | '/_shell/'
-    | '/_shell/chat/$chatId'
     | '/_shell/workspaces/new'
     | '/_shell/ide/$projectId/home'
     | '/_shell/ide/$projectId/$repoId/$wsId'
@@ -151,13 +139,6 @@ declare module '@tanstack/react-router' {
       path: '/workspaces/new'
       fullPath: '/workspaces/new'
       preLoaderRoute: typeof ShellWorkspacesNewRouteImport
-      parentRoute: typeof ShellRoute
-    }
-    '/_shell/chat/$chatId': {
-      id: '/_shell/chat/$chatId'
-      path: '/chat/$chatId'
-      fullPath: '/chat/$chatId'
-      preLoaderRoute: typeof ShellChatChatIdRouteImport
       parentRoute: typeof ShellRoute
     }
     '/_shell/ide/$projectId/home': {
@@ -201,7 +182,6 @@ const ShellIdeProjectIdRepoIdWsIdRouteWithChildren =
 
 interface ShellRouteChildren {
   ShellIndexRoute: typeof ShellIndexRoute
-  ShellChatChatIdRoute: typeof ShellChatChatIdRoute
   ShellWorkspacesNewRoute: typeof ShellWorkspacesNewRoute
   ShellIdeProjectIdHomeRoute: typeof ShellIdeProjectIdHomeRoute
   ShellIdeProjectIdRepoIdWsIdRoute: typeof ShellIdeProjectIdRepoIdWsIdRouteWithChildren
@@ -209,7 +189,6 @@ interface ShellRouteChildren {
 
 const ShellRouteChildren: ShellRouteChildren = {
   ShellIndexRoute: ShellIndexRoute,
-  ShellChatChatIdRoute: ShellChatChatIdRoute,
   ShellWorkspacesNewRoute: ShellWorkspacesNewRoute,
   ShellIdeProjectIdHomeRoute: ShellIdeProjectIdHomeRoute,
   ShellIdeProjectIdRepoIdWsIdRoute:

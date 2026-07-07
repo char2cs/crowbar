@@ -3,7 +3,6 @@ import { useEffectiveChordMap } from '@/features/keymaps/hooks/use-effective-key
 import { eventMatchesChord } from '@/features/keymaps/utils/chord'
 import {
   SIDEBAR_TAB_WORKSPACES,
-  SIDEBAR_TAB_CHATS,
   SIDEBAR_TAB_FILES,
   SIDEBAR_TAB_GIT,
 } from '@/features/keymaps/registry'
@@ -12,7 +11,6 @@ import type { SidebarTab } from '@/lib/store/sidebar'
 
 const SIDEBAR_TAB_COMMANDS: Array<[string, SidebarTab]> = [
   [SIDEBAR_TAB_WORKSPACES, 'workspaces'],
-  [SIDEBAR_TAB_CHATS, 'chats'],
   [SIDEBAR_TAB_FILES, 'files'],
   [SIDEBAR_TAB_GIT, 'git'],
 ]

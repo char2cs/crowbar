@@ -4,19 +4,6 @@ import type { WorkspaceDTO } from '@/lib/types'
 import { toSidebarWorkspace } from '@/lib/store/build-repo-tree'
 import { recordWorkspaceScope } from '@/lib/workspace-scope'
 
-export interface ProjectChat {
-  id: string
-  wsId: string // workspace this chat belongs to
-  title: string
-  age: string
-  parentId?: string // for forks
-  status: ChatStatus
-  type: ChatType
-}
-
-export type ChatStatus = 'idle' | 'agent-running'
-export type ChatType = 'chat' | 'workflow'
-
 // §5 7-value status union (drops the old 'agent-running' overlay — an agent in
 // flight is now the separate `working` flag). locked / pr-conflicts / deleted
 // are first-class statuses.
@@ -78,18 +65,14 @@ export interface Repo {
   localPath?: string
 }
 
-export type SidebarTab = 'workspaces' | 'chats' | 'files' | 'git'
+export type SidebarTab = 'workspaces' | 'files' | 'git'
 
 interface SidebarState {
-  chats: ProjectChat[]
   repos: Repo[]
   collapsedRepos: Set<string>
   collapsedWorkspaces: Set<string>
   /** Persisted active tab so re-mounts don't reset it. */
   activeTab: SidebarTab
-  addChat: (chat: ProjectChat) => void
-  deleteChat: (id: string) => void
-  renameChat: (id: string, title: string) => void
   collapsedChats: Set<string>
   toggleChat: (chatId: string) => void
   addWorkspace: (repoId: string, wsId: string, branch: string, parentId?: string) => void
@@ -184,7 +167,6 @@ function recordRepoScopes(repos: Repo[]): void {
 
 export function getInitialState() {
   return {
-    chats: [],
     repos: [],
     collapsedRepos: new Set<string>(),
     collapsedWorkspaces: new Set<string>(),
@@ -195,13 +177,6 @@ export function getInitialState() {
 
 export const useSidebarStore = create<SidebarState>()((set) => ({
   ...getInitialState(),
-
-  addChat: (chat) => set((s) => ({ chats: [...s.chats, chat] })),
-
-  deleteChat: (id) => set((s) => ({ chats: s.chats.filter((c) => c.id !== id) })),
-
-  renameChat: (id, title) =>
-    set((s) => ({ chats: s.chats.map((c) => (c.id === id ? { ...c, title } : c)) })),
 
   toggleChat: (chatId) =>
     set((s) => {

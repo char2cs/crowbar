@@ -1,5 +1,4 @@
 import {
-  Chat,
   GitBranch,
   GitPullRequest,
   Package,
@@ -104,9 +103,7 @@ const TabBarItem = memo(function TabBarItem({
         onAuxClick={handleAuxClick}
       >
         <div className="grid size-3.5 shrink-0 place-content-center">
-          {buffer.type === 'crowbarChat' ? (
-            <Chat className="text-muted-foreground" />
-          ) : buffer.path === 'extensions://marketplace' ? (
+          {buffer.path === 'extensions://marketplace' ? (
             <Package className="text-muted-foreground" />
           ) : buffer.type === 'branchReview' ? (
             <GitPullRequest className="text-muted-foreground" />

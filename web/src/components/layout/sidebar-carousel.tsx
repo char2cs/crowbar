@@ -1,8 +1,6 @@
 import { useEffect, useRef, Suspense } from 'react'
-import { useRouterState } from '@tanstack/react-router'
 import { NavStack } from './nav-stack'
 import { WorkspaceTree } from './workspace-tree'
-import { ChatTree } from './chat-tree'
 import { FileExplorerTree } from '@/features/file-explorer/components/file-explorer-tree'
 import { GitPanel } from '@/features/git/components/git-panel'
 import { ErrorBoundary } from '@/components/error-boundary'
@@ -10,17 +8,14 @@ import { SidebarSkeleton } from './sidebar-skeleton'
 import { useFileTreeStore } from '@/features/file-explorer/stores/file-explorer-tree-store'
 import { useFileSystemStore } from '@/features/file-system/controllers/store'
 import { useSidebarStore, type SidebarTab } from '@/lib/store/sidebar'
-import { parseWorkspaceScopeFromPath } from '@/lib/workspace-scope'
 
-const TABS: SidebarTab[] = ['workspaces', 'chats', 'files', 'git']
+const TABS: SidebarTab[] = ['workspaces', 'files', 'git']
 
 interface SidebarCarouselProps {
   activeWorkspaceRepoPath: string
 }
 
 export function SidebarCarousel({ activeWorkspaceRepoPath }: SidebarCarouselProps) {
-  const pathname = useRouterState({ select: (s) => s.location.pathname })
-  const activeWorkspaceId = parseWorkspaceScopeFromPath(pathname)?.wsId ?? ''
   const activeTab = useSidebarStore((s) => s.activeTab)
   const setActiveTab = useSidebarStore((s) => s.setActiveTab)
   const files = useFileSystemStore((s) => s.files)
@@ -96,11 +91,6 @@ export function SidebarCarousel({ activeWorkspaceRepoPath }: SidebarCarouselProp
         {/* Workspaces panel */}
         <div className="min-w-full [scroll-snap-align:start] flex flex-col overflow-hidden h-full">
           <WorkspaceTree />
-        </div>
-
-        {/* Chats panel */}
-        <div className="min-w-full [scroll-snap-align:start] flex flex-col overflow-hidden">
-          <ChatTree wsId={activeWorkspaceId} />
         </div>
 
         {/* Files panel */}

@@ -10,9 +10,8 @@ vi.mock('@/utils/platform', async (importOriginal) => ({
 vi.mock('@/features/keymaps/hooks/use-effective-keymap', () => ({
   useEffectiveChordMap: () => ({
     'navigation.sidebarWorkspaces': 'mod+1',
-    'navigation.sidebarChats': 'mod+2',
-    'navigation.sidebarFiles': 'mod+3',
-    'navigation.sidebarGit': 'mod+4',
+    'navigation.sidebarFiles': 'mod+2',
+    'navigation.sidebarGit': 'mod+3',
   }),
 }))
 
@@ -41,23 +40,16 @@ describe('useSidebarTabKeyboard', () => {
     expect(event.defaultPrevented).toBe(true)
   })
 
-  it('switches to chats on Ctrl+2', () => {
+  it('switches to files on Ctrl+2', () => {
     renderHook(() => useSidebarTabKeyboard())
     const event = dispatchKeydown({ key: '2', ctrlKey: true })
-    expect(setActiveTab).toHaveBeenCalledWith('chats')
-    expect(event.defaultPrevented).toBe(true)
-  })
-
-  it('switches to files on Ctrl+3', () => {
-    renderHook(() => useSidebarTabKeyboard())
-    const event = dispatchKeydown({ key: '3', ctrlKey: true })
     expect(setActiveTab).toHaveBeenCalledWith('files')
     expect(event.defaultPrevented).toBe(true)
   })
 
-  it('switches to git on Ctrl+4', () => {
+  it('switches to git on Ctrl+3', () => {
     renderHook(() => useSidebarTabKeyboard())
-    const event = dispatchKeydown({ key: '4', ctrlKey: true })
+    const event = dispatchKeydown({ key: '3', ctrlKey: true })
     expect(setActiveTab).toHaveBeenCalledWith('git')
     expect(event.defaultPrevented).toBe(true)
   })

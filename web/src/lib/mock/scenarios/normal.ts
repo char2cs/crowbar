@@ -1,6 +1,5 @@
 import { nanoid } from 'nanoid'
 import type { ScenarioDataset } from './index'
-import type { ProjectChat } from '@/lib/store/sidebar'
 import type {
   ReviewThread,
   ReviewMessage,
@@ -8,53 +7,8 @@ import type {
 import type { BranchReviewChat } from '@/lib/mock/branch-diff'
 import type { GitDiffLine } from '@/features/git/types/git-types'
 import type { MultiFileDiff } from '@/features/git/types/git-diff-types'
-import type { MarkdownTurn } from '@/features/markdown-chat/types'
 import { getMockFileTree, getMockFileContent } from '@/lib/mock/files'
 import type { FileNode } from '@/lib/mock/files'
-import { getMockMarkdownTurns } from '@/lib/mock/markdown-chat'
-
-// Fallback conversation for chats/workspaces without a specific fixture, so an
-// opened conversation is never empty in the normal scenario.
-function genNormalTurns(wsId: string): MarkdownTurn[] {
-  return [
-    {
-      id: `turn-${wsId}-0-u`,
-      role: 'user',
-      content: 'How should we validate the email field before submitting the signup form?',
-      timestamp: '2026-06-01T09:00:00Z',
-      authorName: 'Mateo',
-      widgets: [],
-    },
-    {
-      id: `turn-${wsId}-0-a`,
-      role: 'agent',
-      content:
-        'Validate client-side for instant feedback, then trust the server as the source of truth:\n\n```ts\nif (!isValidEmail(data.email)) {\n  setError("email", { message: "Invalid email address" })\n  return\n}\n```\n\nKeep the regex permissive (`/^[^\\s@]+@[^\\s@]+\\.[^\\s@]+$/`) — strict RFC validation is a rabbit hole and rejects valid addresses. The API still re-validates, so this is purely UX.',
-      timestamp: '2026-06-01T09:00:30Z',
-      authorName: 'Claude',
-      model: 'Opus 4.8',
-      widgets: [],
-    },
-    {
-      id: `turn-${wsId}-1-u`,
-      role: 'user',
-      content: 'Should the form show a single error or distinguish network vs validation failures?',
-      timestamp: '2026-06-01T09:01:00Z',
-      authorName: 'Mateo',
-      widgets: [],
-    },
-    {
-      id: `turn-${wsId}-1-a`,
-      role: 'agent',
-      content:
-        'Distinguish them: inline field errors for validation, a toast for network/server errors. They have different recovery actions — fix the input vs retry — so collapsing them into one message hurts UX.',
-      timestamp: '2026-06-01T09:01:30Z',
-      authorName: 'Claude',
-      model: 'Opus 4.8',
-      widgets: [],
-    },
-  ]
-}
 
 // ─── Repos ───────────────────────────────────────────────────────────────────
 
@@ -448,67 +402,6 @@ const CHATS: Record<string, BranchReviewChat[]> = {
   'rb-fix': [],
 }
 
-// ─── Project Chats ────────────────────────────────────────────────────────────
-
-const PROJECT_CHATS: Record<string, ProjectChat[]> = {
-  'rb-fix': [
-    {
-      id: 'chat-fix-1',
-      wsId: 'rb-fix',
-      title: 'Email validation approach',
-      age: '5m',
-      status: 'idle',
-      type: 'chat',
-    },
-    {
-      id: 'chat-fix-2',
-      wsId: 'rb-fix',
-      title: 'Form error handling',
-      age: '2h',
-      parentId: 'chat-fix-1',
-      status: 'agent-running',
-      type: 'chat',
-    },
-    {
-      id: 'chat-fix-3',
-      wsId: 'rb-fix',
-      title: 'Unit test strategy',
-      age: '1d',
-      status: 'idle',
-      type: 'chat',
-    },
-  ],
-  'rb-onboarding': [
-    {
-      id: 'chat-ob-1',
-      wsId: 'rb-onboarding',
-      title: 'Onboarding flow design',
-      age: '3d',
-      status: 'idle',
-      type: 'chat',
-    },
-    {
-      id: 'chat-ob-2',
-      wsId: 'rb-onboarding',
-      title: 'Step validation logic',
-      age: '4d',
-      parentId: 'chat-ob-1',
-      status: 'idle',
-      type: 'chat',
-    },
-  ],
-  'rb-develop': [
-    {
-      id: 'chat-dev-1',
-      wsId: 'rb-develop',
-      title: 'Architecture review',
-      age: '1w',
-      status: 'idle',
-      type: 'chat',
-    },
-  ],
-}
-
 // ─── Git ──────────────────────────────────────────────────────────────────────
 
 const COMMIT_MSGS = [
@@ -553,7 +446,6 @@ export const normalDataset: ScenarioDataset = {
   branchThreads: (wsId) => THREADS[wsId] ?? [],
   branchDescription: (wsId) => DESCRIPTIONS[wsId] ?? '',
   branchChats: (wsId) => CHATS[wsId] ?? [],
-  chats: (wsId) => PROJECT_CHATS[wsId] ?? [],
   gitLog: () =>
     Array.from({ length: 20 }, (_, i) => ({
       hash: genHash(i + 1),
@@ -581,8 +473,4 @@ export const normalDataset: ScenarioDataset = {
     { name: 'feature/onboarding', isCurrent: true, isRemote: false },
     { name: 'fix/signup-form', isCurrent: false, isRemote: false },
   ],
-  markdownTurns: (wsId, stepId) => {
-    const fixture = getMockMarkdownTurns(wsId, stepId)
-    return fixture.length > 0 ? fixture : genNormalTurns(wsId)
-  },
 }

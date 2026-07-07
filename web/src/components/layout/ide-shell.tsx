@@ -7,14 +7,12 @@ import { SidebarProjectHeader } from './sidebar-project-header'
 import { SidebarTabBar } from './sidebar-tab-bar'
 import { ContextPill } from './context-pill'
 import { SidebarCarousel } from './sidebar-carousel'
-import { IS_MAC } from '@/utils/platform'
 import { useSidebarStore } from '@/lib/store/sidebar'
 import { useProjectStore, useProjectDataStore, EMPTY_PROJECTS } from '@/lib/store/projects'
 import { WorkspaceView } from '@/features/workspace/components/workspace-view'
 import SettingsDialog from '@/features/settings/components/settings-dialog'
 import { TerminalHost } from '@/features/terminal/components/terminal-host'
 import { ErrorBoundary } from '@/components/error-boundary'
-import { cn } from '@/utils/cn'
 import { useSettingsStore } from '@/features/settings/store'
 import { useUIState } from '@/features/window/stores/ui-state-store'
 import { FontStyleInjector } from '@/features/settings/components/font-style-injector'
@@ -43,7 +41,6 @@ function loadSidebarWidth(): number {
 export function IDEShell() {
   const routerState = useRouterState()
   const pathname = routerState.location.pathname
-  const chats = useSidebarStore((s) => s.chats)
   const repos = useSidebarStore((s) => s.repos)
   const isSettingsOpen = useUIState((s) => s.isSettingsOpen)
   const sidebarPosition = useSettingsStore((state) => state.settings.sidebarPosition)
@@ -67,7 +64,6 @@ export function IDEShell() {
   // this is what starts the daemon's per-connection provider poll so a branch with
   // an open PR flips to the green pr-open icon (the list stream never starts it).
   useWorkspaceProviderStream(activeProjectIdFromRoute, activeRepoIdFromRoute, activeWorkspaceId)
-  const activeChatId = pathname.match(/\/chat\/([^/]+)/)?.[1]
   const activeRepo = repos.find((r) => r.id === activeRepoIdFromRoute)
   // Use the on-disk worktree path from the backend DTO so that "Copy Path" and
   // other filesystem operations produce real paths regardless of how workspaces
@@ -85,7 +81,6 @@ export function IDEShell() {
     : ''
   const activeWorkspaceRepoPath =
     activeWorkspace?.localPath ?? activeRepo?.localPath ?? projectFallbackPath
-  const chatTabLabel = chats.find((c) => c.id === activeChatId)?.title ?? 'Chat'
 
   const hasNavScreen = useSidebarNavStore((s) => s.stack.length > 0)
 
@@ -154,21 +149,6 @@ export function IDEShell() {
                 (e.g. unknown-workspace redirect); they must stay mounted. */}
             <Outlet />
           </>
-        ) : activeChatId ? (
-          <div className="flex h-full flex-col overflow-hidden">
-            <div
-              className={cn(
-                'flex flex-shrink-0 items-center border-b border-border px-3 font-medium',
-                IS_MAC ? 'h-[44px] text-[13px]' : 'h-[34px] text-xs',
-              )}
-              data-tauri-drag-region
-            >
-              {chatTabLabel}
-            </div>
-            <div className="flex min-h-0 flex-1 overflow-hidden bg-background">
-              <Outlet />
-            </div>
-          </div>
         ) : (
           // overflow-visible (not hidden) so the content pane's drop shadow can
           // render past this wrapper toward the sidebar instead of being clipped

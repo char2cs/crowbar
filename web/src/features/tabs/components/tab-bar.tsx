@@ -1,7 +1,6 @@
 import { DndContext, DragOverlay, closestCenter, useSensor, useSensors } from '@dnd-kit/core'
 import { SortableContext, horizontalListSortingStrategy } from '@dnd-kit/sortable'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { nanoid } from 'nanoid'
 import { useEditorStateStore } from '@/features/editor/stores/state-store'
 import { useFileSystemStore } from '@/features/file-system/controllers/store'
 import { BOTTOM_PANE_ID } from '@/features/panes/constants/pane'
@@ -474,10 +473,6 @@ const TabBar = ({
               isBottomPane={isBottomPane}
               disablePaneActions={disablePaneActions}
               isInSplit={isInSplit}
-              onNewConversation={() => {
-                setActivePane(paneId)
-                openContent({ type: 'crowbarChat', wsId: nanoid(), name: 'New Conversation' })
-              }}
               onNewTerminal={() => {
                 setActivePane(paneId)
                 openContent({ type: 'terminal' })

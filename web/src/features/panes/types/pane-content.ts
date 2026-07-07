@@ -21,7 +21,6 @@ export type PaneContentType =
   | 'htmlPreview'
   | 'csvPreview'
   | 'externalEditor'
-  | 'crowbarChat'
   | 'branchReview'
 
 // ── Base fields shared by every content type ────────────────────────
@@ -104,11 +103,6 @@ export interface ExternalEditorContent extends PaneContentBase {
   terminalConnectionId: string
 }
 
-export interface CrowbarChatContent extends PaneContentBase {
-  type: 'crowbarChat'
-  wsId: string
-}
-
 export interface BranchReviewContent extends PaneContentBase {
   type: 'branchReview'
   wsId: string
@@ -125,7 +119,6 @@ export type PaneContent =
   | HtmlPreviewContent
   | CsvPreviewContent
   | ExternalEditorContent
-  | CrowbarChatContent
   | BranchReviewContent
 
 // ── Type guards ─────────────────────────────────────────────────────
@@ -162,12 +155,7 @@ export function isPersistableContent(c: PaneContent): c is EditorContent {
 }
 
 /** Content types that are virtual (not backed by a real file on disk). */
-const VIRTUAL_TYPES: ReadonlySet<PaneContentType> = new Set([
-  'terminal',
-  'newTab',
-  'crowbarChat',
-  'branchReview',
-])
+const VIRTUAL_TYPES: ReadonlySet<PaneContentType> = new Set(['terminal', 'newTab', 'branchReview'])
 
 export function isVirtualContent(c: PaneContent): boolean {
   if (VIRTUAL_TYPES.has(c.type)) return true
@@ -258,11 +246,6 @@ export type OpenContentSpec =
       path: string
       name: string
       terminalConnectionId: string
-    }
-  | {
-      type: 'crowbarChat'
-      wsId: string
-      name: string
     }
   | {
       type: 'branchReview'

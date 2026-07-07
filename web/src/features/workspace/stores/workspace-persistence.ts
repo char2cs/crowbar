@@ -12,7 +12,7 @@ export function saveToLocalStorage(wsId: string, snapshot: WorkspaceSnapshot): v
   }
 }
 
-// branchReview is a virtual/ephemeral pane (like crowbarChat): it is never
+// branchReview is a virtual/ephemeral pane: it is never
 // serialized to the session and must not be restored from a stale snapshot —
 // it would render an empty tab with no live review state. We drop it on
 // restore (the simpler correct option: the entry points re-open it on demand).

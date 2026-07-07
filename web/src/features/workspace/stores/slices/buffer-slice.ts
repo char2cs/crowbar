@@ -4,7 +4,6 @@ import type {
   PaneContent,
   OpenContentSpec,
   EditorContent,
-  CrowbarChatContent,
   BranchReviewContent,
   DiffContent,
   TerminalContent,
@@ -74,11 +73,6 @@ export const createBufferSlice: StateCreator<
         const existing = (() => {
           if (spec.type === 'editor') {
             return get().buffers.find((b) => b.type === 'editor' && b.path === spec.path)
-          }
-          if (spec.type === 'crowbarChat') {
-            return get().buffers.find(
-              (b) => b.type === 'crowbarChat' && (b as CrowbarChatContent).wsId === spec.wsId,
-            )
           }
           if (spec.type === 'branchReview') {
             return get().buffers.find(
@@ -153,17 +147,6 @@ export const createBufferSlice: StateCreator<
             isPreview,
             isActive: false,
           } satisfies EditorContent
-        } else if (spec.type === 'crowbarChat') {
-          buf = {
-            id,
-            type: 'crowbarChat',
-            wsId: spec.wsId,
-            name: spec.name,
-            path: '',
-            isPinned: false,
-            isPreview: false,
-            isActive: false,
-          } satisfies CrowbarChatContent
         } else if (spec.type === 'branchReview') {
           buf = {
             id,
@@ -292,17 +275,6 @@ export const createBufferSlice: StateCreator<
                 await import('@/features/terminal/lib/terminal-reconnect-map')
               clearReconnect(workspaceId, sessionId)
             },
-          )
-        }
-        // Closing a chat tab is final too — drop its conversation store so the
-        // streamed turns[] (full agent/user message text) don't leak for the
-        // lifetime of the session. The store is keyed by the chat's wsId (the
-        // nanoid minted at open). Dynamic import avoids a workspace-slice →
-        // markdown-chat-feature cycle, mirroring the terminal branch above.
-        if (buf && buf.type === 'crowbarChat') {
-          const { wsId } = buf as CrowbarChatContent
-          void import('@/features/markdown-chat/stores/conversation-store').then(
-            ({ destroyConversationStore }) => destroyConversationStore(wsId),
           )
         }
         if (buf && shouldStartLsp(buf)) {

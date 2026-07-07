@@ -335,7 +335,6 @@ describe('hydrateSidebar', () => {
     resetDB()
     globalThis.indexedDB = new IDBFactory()
     useSidebarStore.setState({
-      chats: [],
       repos: HYDRATE_TEST_REPOS.map((r) => ({ ...r, workspaces: [...r.workspaces] })),
       collapsedRepos: new Set<string>(),
       collapsedWorkspaces: new Set<string>(),
