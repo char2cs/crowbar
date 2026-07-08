@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"math/rand/v2"
 	"sync"
 	"time"
 
@@ -27,8 +28,12 @@ import (
 // (decision 10): with writeMu deleted, concurrent Sends to one aggregate id can
 // version-collide, so the losers retry — Send re-reads the current version each
 // attempt (the shard's pre-assigned version is ignored by the event store), so a
-// retry converges. ErrValidation is NEVER retried; ErrQueueFull is surfaced.
-const maxOCCAttempts = 5
+// retry converges. The budget is sized for a burst of concurrent same-aggregate
+// commands: each needs its own version slot, so the tail committer may lose to
+// several winners before landing. occBackoff spreads the retries (full jitter) so
+// they converge without exhausting the budget on lockstep re-collisions.
+// ErrValidation is NEVER retried; ErrQueueFull is surfaced.
+const maxOCCAttempts = 16
 
 // CreateInput carries the fields needed to create a workspace.
 type CreateInput struct {
@@ -335,7 +340,7 @@ func occSend(
 	cmd asynxModels.Command[domain.Workspace],
 ) (asynxModels.Event[domain.Workspace], error) {
 	var lastErr error
-	for range maxOCCAttempts {
+	for attempt := range maxOCCAttempts {
 		evt, err := send(ctx, cmd)
 		if err == nil {
 			return evt, nil
@@ -347,11 +352,50 @@ func occSend(
 			return asynxModels.Event[domain.Workspace]{}, fmt.Errorf("workspace: send: %w", apperr.ErrUnavailable)
 		case errors.Is(err, asynxModels.ErrPipelineFailed):
 			lastErr = err
+			// Back off before retrying so version losers do not re-read and re-collide
+			// in lockstep: without a jittered pause, heavy same-aggregate contention can
+			// exhaust maxOCCAttempts even though a serialised commit order exists (OCC
+			// livelock). Full-jitter exponential backoff desynchronises contenders so
+			// they converge within the budget. No wait after the final attempt, and a
+			// cancelled context aborts the wait. The happy path never reaches here (the
+			// first send commits), so this adds zero latency without contention.
+			if attempt < maxOCCAttempts-1 {
+				if werr := occBackoff(ctx, attempt); werr != nil {
+					return asynxModels.Event[domain.Workspace]{}, werr
+				}
+			}
 		default:
 			return asynxModels.Event[domain.Workspace]{}, err
 		}
 	}
 	return asynxModels.Event[domain.Workspace]{}, lastErr
+}
+
+// OCC retry backoff is capped full-jitter exponential: retry attempt k (0-based)
+// waits a random duration in [0, min(occBackoffBase·2^k, occBackoffCap)). The base
+// is sub-millisecond so early retries stay fast; the cap keeps the deepest retries
+// from ballooning latency while still spreading contenders across a wide window.
+const (
+	occBackoffBase = 200 * time.Microsecond
+	occBackoffCap  = 2 * time.Millisecond
+)
+
+// occBackoff sleeps a capped full-jitter exponential backoff for the 0-based retry
+// attempt, returning ctx.Err() early if the context is cancelled first. math/rand/v2
+// is goroutine-safe, so concurrent contenders draw independent jitter.
+func occBackoff(ctx context.Context, attempt int) error {
+	window := occBackoffBase << attempt // occBackoffBase · 2^attempt
+	if window > occBackoffCap || window <= 0 {
+		window = occBackoffCap
+	}
+	timer := time.NewTimer(time.Duration(rand.Int64N(int64(window))))
+	defer timer.Stop()
+	select {
+	case <-ctx.Done():
+		return ctx.Err()
+	case <-timer.C:
+		return nil
+	}
 }
 
 // sendWithOCC dispatches cmd to the singleton axWorkspace with OCC retry.

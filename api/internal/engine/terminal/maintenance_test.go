@@ -301,24 +301,30 @@ func TestMaintenance_RunningNeverIdleSuspended(t *testing.T) {
 	eng.SetMetaStore(store)
 	defer eng.Shutdown()
 
+	// These waits drive real shell subprocesses (spawn, prompt emission, fork/exec
+	// of `sleep`). Under a saturated full-suite `-race` run the subprocess can be
+	// starved well past a tight deadline (observed: waitNotIdle timing out at 10 s),
+	// so the deadline is generous — a passing wait returns as soon as its condition
+	// holds, so headroom never slows the common case. This engine's maintenance
+	// ticker is stopped (StopMaintenanceForTest above), so a longer wait cannot race
+	// a ticker firing. waitForSettled before the write ensures the shell is fully
+	// initialised (250 ms of output silence) so it runs the sleep command promptly
+	// once scheduled.
+	const wait = 30 * time.Second
+
 	// Create an idle session (will be over limit).
 	sidIdle, err := eng.Create(ctx, "ws-running", dir, nil)
 	require.NoError(t, err)
-	waitIdle(t, eng, sidIdle, 10*time.Second)
-	waitForSettled(t, eng, sidIdle, 10*time.Second)
+	waitIdle(t, eng, sidIdle, wait)
+	waitForSettled(t, eng, sidIdle, wait)
 
 	// Create a running session (foreground sleep).
-	// waitForSettled before writing ensures the shell is fully initialised (250 ms
-	// of output silence). This makes the shell respond to the sleep command
-	// immediately, so waitNotIdle completes in < 1 s rather than possibly close to
-	// its 10 s deadline — which would allow the engine's 10-second maintenance ticker
-	// to fire and race with the next test's global-variable writes.
 	sidRunning, err := eng.Create(ctx, "ws-running", dir, nil)
 	require.NoError(t, err)
-	waitIdle(t, eng, sidRunning, 10*time.Second)
-	waitForSettled(t, eng, sidRunning, 10*time.Second)
+	waitIdle(t, eng, sidRunning, wait)
+	waitForSettled(t, eng, sidRunning, wait)
 	require.NoError(t, eng.Write(ctx, sidRunning, []byte("sleep 9999\n")))
-	waitNotIdle(t, eng, sidRunning, 10*time.Second)
+	waitNotIdle(t, eng, sidRunning, wait)
 
 	// Assign lastActive: running session is "older" so it would be first candidate
 	// if idle — but it's not idle, so it must be skipped.
