@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"strings"
 	"time"
 
 	"github.com/char2cs/asynx"
@@ -210,7 +211,7 @@ func startBootSweep(
 	if err != nil {
 		return fmt.Errorf("app: boot sweep: paths store: %w", err)
 	}
-	sweeper.Sweep(ctx, bootSweepPurge(ax, pathsStore))
+	sweeper.Sweep(ctx, bootSweepPurge(ax, pathsStore, adapters.CrowbarHome()))
 	return nil
 }
 
@@ -226,6 +227,7 @@ func startBootSweep(
 func bootSweepPurge(
 	ax asynx.Asynx[domain.Workspace],
 	pathsStore wspaths.WorkspacePaths,
+	crowbarHome string,
 ) func(ctx context.Context, wsID string) error {
 	return func(ctx context.Context, wsID string) error {
 		path, err := pathsStore.Get(ctx, wsID)
@@ -235,7 +237,12 @@ func bootSweepPurge(
 		case err != nil:
 			return fmt.Errorf("resolve worktree path: %w", err)
 		}
-		if path != "" {
+		// GUARD: only rm a crowbar-managed worktree (strictly under the home). An
+		// adopted home/main worktree's mapped path is the user's REAL checkout
+		// (repo.Path/project.Path, outside the home) and must never be destroyed —
+		// so a crash-recovery re-drive of a tombstoned home never deletes a user's
+		// repository (mirrors the delete reactor's worktreeRemover guard).
+		if path != "" && crowbarHome != "" && strings.HasPrefix(path, strings.TrimRight(crowbarHome, "/")+"/") {
 			if err := os.RemoveAll(path); err != nil {
 				return fmt.Errorf("rm worktree %q: %w", path, err)
 			}

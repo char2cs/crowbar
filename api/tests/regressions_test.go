@@ -451,10 +451,13 @@ func TestRegression_IconServedFromDiskNotGitHub(t *testing.T) {
 	_ = resp.Body.Close()
 }
 
-// workspaceWorktreePath resolves the on-disk worktree of a workspace.
-// WorktreePath is no longer carried on the wire WorkspaceDTO (D13), so it is
-// reconstructed from the deterministic UUID layout the daemon uses:
-// <home>/projects/<P>/<R>/workspaces/<W>/worktree.
+// workspaceWorktreePath resolves the on-disk worktree of a managed workspace.
+// WorktreePath is no longer carried on the wire WorkspaceDTO (D13) and the daemon
+// moved worktrees off the retired UUID layout to the human-readable path (spec
+// §3.9), so it is reconstructed as <home>/projects/<P>/<slug>/<branch>, where the
+// slug degrades to the repo's on-disk name (filepath.Base(repoPath)) for a
+// no-remote fixture repo and the branch — a nested branch maps to nested
+// directories — is read back from the workspace DTO.
 func workspaceWorktreePath(
 	t *testing.T,
 	h *harness,
@@ -465,11 +468,24 @@ func workspaceWorktreePath(
 		h.home,
 		"projects",
 		imported.projectID,
-		imported.repoID,
-		"workspaces",
-		imported.workspaceID,
-		"worktree",
+		filepath.Base(imported.repoPath),
+		workspaceBranch(t, h, imported),
 	)
+}
+
+// workspaceBranch reads a managed workspace's branch back from its DTO. The wire
+// no longer carries worktreePath, but branch is authoritative for the friendly
+// worktree path (spec §3.9).
+func workspaceBranch(
+	t *testing.T,
+	h *harness,
+	imported importedRepo,
+) string {
+	t.Helper()
+	var ws workspaceDTO
+	h.get("/v0/projects/"+imported.projectID+"/repos/"+imported.repoID+
+		"/workspaces/"+imported.workspaceID, &ws)
+	return ws.Branch
 }
 
 // worktreeGitDir resolves the private git dir of a (possibly linked) worktree,

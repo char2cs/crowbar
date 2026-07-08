@@ -326,25 +326,29 @@ func (e *Env) ShutdownTerminal() {
 	}
 }
 
-// WorktreePath mirrors worktreepath.For (the usecase-internal path builder,
-// which the kit cannot import): the on-disk worktree for a workspace at
-// <home>/projects/<P>/<R>/workspaces/<W>/worktree. Use it in tests that must
-// operate on a child workspace's worktree, since worktreePath is server-side
-// only and never surfaced in the WorkspaceDTO (spec §8/§5).
+// WorktreePath returns the on-disk git worktree directory for a workspace by
+// reading the server's own persisted path from the durable read model
+// (domain.Workspace.WorktreePath). Task 3b retired the UUID worktree layout in
+// favour of the human-readable <home>/projects/<project>/<slug>/<branch> (spec
+// §3.9); rather than re-derive the slug — which the kit cannot reach, since
+// worktreepath is doubly-internal — it returns the ground-truth path the
+// provisioner used for `git worktree add`, so a managed child, an adopted main
+// (repo.Path), or a .home leaf all resolve correctly. worktreePath is
+// server-side only and never surfaced in the WorkspaceDTO (spec §8/§5). The
+// projectID/repoID params are retained for call-site stability; the path is
+// keyed solely by wsID.
 func (e *Env) WorktreePath(
 	projectID string,
 	repoID string,
 	wsID string,
 ) string {
-	return filepath.Join(
-		e.homeDir,
-		"projects",
-		projectID,
-		repoID,
-		"workspaces",
-		wsID,
-		"worktree",
-	)
+	_ = projectID
+	_ = repoID
+	ws, err := e.app.Repositories.Workspace.Get(context.Background(), wsID)
+	if err != nil {
+		panic(fmt.Sprintf("kit: WorktreePath: get workspace %q: %v", wsID, err))
+	}
+	return ws.WorktreePath
 }
 
 // WorkspaceStorageDir mirrors worktreepath.StorageDir:

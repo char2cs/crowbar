@@ -3,7 +3,9 @@ package repositories
 import (
 	"context"
 	"fmt"
+	"log/slog"
 	"os"
+	"strings"
 	"sync"
 
 	"github.com/char2cs/asynx"
@@ -102,7 +104,7 @@ func New(
 	// delete reactor + its review-thread forget cascade, all joined to the shared
 	// drain WaitGroup so graceful shutdown can quiesce them (Task 15). Both repos
 	// must already be built — the cascade calls into c.ReviewThread.
-	if err := c.wireCallbacks(ctx); err != nil {
+	if err := c.wireCallbacks(ctx, adapters.CrowbarHome()); err != nil {
 		return nil, fmt.Errorf("repositories: wire callbacks: %w", err)
 	}
 	return c, nil
@@ -120,6 +122,7 @@ func New(
 // and double-broadcast — they are deliberately left where the live wiring puts them.
 func (c *Container) wireCallbacks(
 	ctx context.Context,
+	crowbarHome string,
 ) error {
 	c.drainWG = &sync.WaitGroup{}
 	c.drainCtx, c.drainCancel = context.WithCancel(ctx)
@@ -131,7 +134,7 @@ func (c *Container) wireCallbacks(
 	if !ok {
 		return fmt.Errorf("workspace repository does not support delete-reactor registration")
 	}
-	if err := registrar.RegisterDeleteReactor(c.forgetReviewThreads, removeWorktree, c.drainWG); err != nil {
+	if err := registrar.RegisterDeleteReactor(c.forgetReviewThreads, worktreeRemover(crowbarHome), c.drainWG); err != nil {
 		return fmt.Errorf("delete reactor: %w", err)
 	}
 	return nil
@@ -293,15 +296,45 @@ func (c *Container) ListWorkspaces(
 	return rows, nil
 }
 
-// removeWorktree is the bounded fs delete the async delete reactor uses to rm -rf a
-// deleted workspace's worktree, off the synchronous write path (spec §3.6, decision
-// 9). A blank path or an already-gone dir is an idempotent no-op (os.RemoveAll
-// returns nil for a missing path), so a crash re-driven cascade rm's to nothing.
-func removeWorktree(
-	path string,
-) error {
-	if err := os.RemoveAll(path); err != nil {
-		return fmt.Errorf("repositories: remove worktree %q: %w", path, err)
+// worktreeRemover builds the bounded fs delete the async delete reactor uses to
+// rm -rf a deleted workspace's worktree, off the synchronous write path (spec
+// §3.6, decision 9). It is GUARDED by the crowbar home: only a CROWBAR-MANAGED
+// worktree (a path strictly under the home) is ever removed. An adopted home /
+// main worktree's id↔path entry is the user's REAL checkout (repo.Path /
+// project.Path, which live OUTSIDE the home) and must NEVER be deleted — the guard
+// mirrors the synchronous project-delete removeWorktreeIfCrowbarManaged so both the
+// delete reactor and the boot orphan-sweep converge without ever destroying a
+// user's repository. A blank path, a path outside the home, or an already-gone dir
+// is an idempotent no-op (os.RemoveAll returns nil for a missing path), so a crash
+// re-driven cascade rm's to nothing.
+func worktreeRemover(
+	crowbarHome string,
+) func(path string) error {
+	return func(path string) error {
+		if !managedWorktreePath(path, crowbarHome) {
+			if path != "" {
+				slog.Warn("repositories: refusing to rm worktree outside the crowbar home",
+					"path", path, "home", crowbarHome)
+			}
+			return nil
+		}
+		if err := os.RemoveAll(path); err != nil {
+			return fmt.Errorf("repositories: remove worktree %q: %w", path, err)
+		}
+		return nil
 	}
-	return nil
+}
+
+// managedWorktreePath reports whether path is a crowbar-managed worktree: a
+// non-empty path strictly under the crowbar home. Adopted checkouts (repo.Path /
+// project.Path) live outside the home and are excluded, so a delete/sweep never
+// rm's the user's real repository (spec §3.9; the locked workspace-model law).
+func managedWorktreePath(
+	path string,
+	crowbarHome string,
+) bool {
+	if path == "" || crowbarHome == "" {
+		return false
+	}
+	return strings.HasPrefix(path, strings.TrimRight(crowbarHome, "/")+"/")
 }

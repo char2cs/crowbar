@@ -354,13 +354,19 @@ func TestContainer_ListWorkspaces_ListErrorPropagates(t *testing.T) {
 // tombstoned the row and nothing purged, so this cascade never converged.
 func TestContainer_WireCallbacks_DeleteCascade(t *testing.T) {
 	ctx := context.Background()
-	c := newContainer(t, &captureHub{})
+	ad := newAdapter(t)
+	c, err := repositories.New(ctx, ad, &captureHub{}, ax[domain.ReviewThread](t), wsAx(t, ad), nil)
+	require.NoError(t, err)
 
-	// A real worktree the delete reactor must rm off the write path.
-	worktree := t.TempDir()
+	// A real MANAGED worktree UNDER the crowbar home: the delete reactor's rm is
+	// guarded to the home (an adopted checkout outside the home is never touched, so
+	// a delete can never destroy a user's real repository), so the reaped worktree
+	// must live under <home>/projects/... like a real crowbar-managed one.
+	worktree := filepath.Join(ad.CrowbarHome(), "projects", "p1", "managed", "b")
+	require.NoError(t, os.MkdirAll(worktree, 0o755))
 	require.NoError(t, os.WriteFile(filepath.Join(worktree, "f"), []byte("x"), 0o600))
 
-	_, err := c.Workspace.Create(ctx, workspace.CreateInput{
+	_, err = c.Workspace.Create(ctx, workspace.CreateInput{
 		ID: "w1", RepoID: "r1", ProjectID: "p1", Branch: "b", WorktreePath: worktree,
 	}, time.Unix(1, 0).UTC())
 	require.NoError(t, err)
@@ -394,4 +400,40 @@ func TestContainer_WireCallbacks_DeleteCascade(t *testing.T) {
 		_, statErr := os.Stat(worktree)
 		return os.IsNotExist(statErr)
 	}, 3*time.Second, 10*time.Millisecond)
+}
+
+// TestContainer_WireCallbacks_DeleteNeverRmsAdoptedCheckout pins the delete-cascade
+// DATA-LOSS guard: an adopted home/main workspace's WorktreePath is the user's REAL
+// checkout (repo.Path/project.Path), which lives OUTSIDE the crowbar home. Deleting
+// it must reap the record while the async reactor's rm — guarded to the crowbar home
+// — leaves the on-disk checkout untouched. An unguarded os.RemoveAll here would
+// os.RemoveAll the user's repository (the regression this guard prevents).
+func TestContainer_WireCallbacks_DeleteNeverRmsAdoptedCheckout(t *testing.T) {
+	ctx := context.Background()
+	ad := newAdapter(t)
+	c, err := repositories.New(ctx, ad, &captureHub{}, ax[domain.ReviewThread](t), wsAx(t, ad), nil)
+	require.NoError(t, err)
+
+	// The user's real checkout, OUTSIDE the crowbar home (an adopted worktree).
+	adopted := t.TempDir()
+	require.NoError(t, os.WriteFile(filepath.Join(adopted, "README.md"), []byte("real"), 0o600))
+
+	_, err = c.Workspace.Create(ctx, workspace.CreateInput{
+		ID: "home1", RepoID: "r1", ProjectID: "p1", Branch: "main",
+		WorktreePath: adopted, Kind: domain.WorkspaceKindHome,
+	}, time.Unix(1, 0).UTC())
+	require.NoError(t, err)
+
+	require.NoError(t, c.Workspace.Delete(ctx, "home1"))
+
+	// The record is reaped (aggregate Forgotten, read-model row gone) ...
+	require.Eventually(t, func() bool {
+		rows, e := c.Workspace.List(ctx)
+		return e == nil && len(rows) == 0
+	}, 3*time.Second, 10*time.Millisecond, "the deleted workspace record must be reaped")
+
+	// ... but the user's real checkout on disk must survive untouched.
+	_, statErr := os.Stat(filepath.Join(adopted, "README.md"))
+	require.NoError(t, statErr,
+		"an adopted checkout outside the crowbar home must never be rm'd by a workspace delete")
 }

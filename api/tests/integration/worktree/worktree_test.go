@@ -134,7 +134,7 @@ func (s *WorktreeSuite) TestWorktree_createChildAddsWorktreeOnDisk() {
 	child := s.getWorkspace(childID)
 	s.Assert().Equal(s.parentID, child["parentId"])
 
-	kit.AssertWorkspaceConsistency(t, s.Env, childID)
+	kit.AssertWorkspaceConsistency(t, s.Env, s.imported.RepoPath, childID)
 }
 
 // TestWorktree_mergeStrategyMerge verifies the fast-forward merge advances the parent.
@@ -545,11 +545,17 @@ func (s *WorktreeSuite) TestWorktree_deleteCascadeSkipsLockedChild() {
 	resp.Body.Close()
 	kit.WaitForWorkspaceState(t, rootWatcher, rootID, "deleted", 5*time.Second)
 
-	all := s.listWorkspaces()
-	ids := map[string]bool{}
-	for _, ws := range all {
-		ids[ws["id"].(string)] = true
-	}
-	s.Assert().True(ids[lockedID], "locked child must survive cascade delete")
-	s.Assert().False(ids[rootID], "unlocked root must be removed")
+	// Delete is async (spec §3.6/§3.8): the 202 + "deleted" tombstone precedes the
+	// purge reactor, which then Forgets the aggregate and drops its read-model row.
+	// Await the eventual convergence rather than sampling the transient tombstone
+	// window — the locked child must survive the cascade while the unlocked root is
+	// reaped from the list.
+	s.Require().Eventuallyf(func() bool {
+		ids := map[string]bool{}
+		for _, ws := range s.listWorkspaces() {
+			ids[ws["id"].(string)] = true
+		}
+		return ids[lockedID] && !ids[rootID]
+	}, 5*time.Second, 50*time.Millisecond,
+		"cascade delete must reap the unlocked root and keep the locked child")
 }

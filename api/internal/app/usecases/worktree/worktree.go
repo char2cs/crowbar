@@ -273,23 +273,29 @@ func (u *worktreeUsecase) deriveWorktreePath(
 	return path, nil
 }
 
-// resolveSlug resolves the repo's on-disk identity slug (spec §3.9). A caller
-// that already carries the remote URL (Create) resolves it directly; otherwise
-// the repo row is loaded so the no-remote fallback can reach its name.
+// resolveSlug resolves the repo's on-disk identity slug (spec §3.9). It always
+// loads the repo row so the no-remote / unparseable-URL fallback can reach the
+// repo NAME: RemoteSlug degrades a remote that does not encode a host/owner/repo
+// identity (a local bare path, a nameless remote) to Repository.Name, and a
+// caller-supplied remoteURL carries no name — so resolving from the URL alone
+// would fold such a remote to an EMPTY slug and fail Derive. A caller that
+// carries the remote URL (Create) has it applied over the loaded row so the
+// parse still prefers the caller's value while the name stays available as the
+// fallback.
 func (u *worktreeUsecase) resolveSlug(
 	ctx context.Context,
 	repoID string,
 	remoteURL string,
 ) (string, error) {
-	if remoteURL != "" {
-		return worktreepath.RemoteSlug(domain.Repository{RemoteURL: remoteURL}), nil
-	}
 	repo, err := u.repos.FindByKey(ctx, repoID)
 	if err != nil {
 		return "", err
 	}
 	if repo == nil {
 		return "", apperr.ErrNotFound
+	}
+	if remoteURL != "" {
+		repo.RemoteURL = remoteURL
 	}
 	return worktreepath.RemoteSlug(*repo), nil
 }
