@@ -3,6 +3,7 @@ package repositories
 import (
 	"context"
 	"fmt"
+	"os"
 	"sync"
 
 	"github.com/char2cs/asynx"
@@ -30,6 +31,27 @@ type Container struct {
 	// the client spinner tracks real daemon activity.
 	mu       sync.Mutex
 	inflight map[string]int
+
+	// drainWG tracks every post-commit reactor goroutine wireCallbacks registered
+	// (the async delete reactor, and — once wired — the reconcile-on-open tasks) so
+	// the app layer's ordered graceful shutdown (Task 15) can wait them out before
+	// closing the DBs; drainCancel closes the shared drain gate to stop reactors
+	// starting new work, derived from drainCtx (decisions 9 + 11). They are created
+	// and stored by wireCallbacks and reached from app.Container via Drain().
+	drainWG     *sync.WaitGroup
+	drainCtx    context.Context
+	drainCancel context.CancelFunc
+}
+
+// ReactorDrain is the shared shutdown handle for every post-commit reactor
+// wireCallbacks registered. The app layer's ordered graceful shutdown (Task 15)
+// closes the gate (Cancel) so reactors stop starting new work, then waits on WG
+// (bounded by the shutdown deadline) before the adapter closes the DBs. Ctx is the
+// cancelable parent the gate is derived from (decisions 9 + 11).
+type ReactorDrain struct {
+	Ctx    context.Context
+	WG     *sync.WaitGroup
+	Cancel context.CancelFunc
 }
 
 // New builds all aggregate repositories, wiring each projection's broadcast into
@@ -75,7 +97,73 @@ func New(
 		return nil, err
 	}
 	c.ReviewThread = rt
+
+	// Wire the post-commit cross-aggregate reactions (spec §3.6): the workspace
+	// delete reactor + its review-thread forget cascade, all joined to the shared
+	// drain WaitGroup so graceful shutdown can quiesce them (Task 15). Both repos
+	// must already be built — the cascade calls into c.ReviewThread.
+	if err := c.wireCallbacks(ctx); err != nil {
+		return nil, fmt.Errorf("repositories: wire callbacks: %w", err)
+	}
 	return c, nil
+}
+
+// wireCallbacks registers the app-level cross-aggregate reactions on the singleton
+// asynx instances (spec §3.6), mirroring quiver's container wireCallbacks. It
+// creates and stores the shared drain WaitGroup + cancelable drain context every
+// reactor it registers joins (decisions 9 + 11), reachable by the app layer via
+// Drain() for the ordered graceful shutdown (Task 15). Today it registers the
+// workspace delete reactor (Task 8) with the review-thread forget cascade and the
+// bounded fs worktree delete; the two hub projections are already registered at
+// construction (workspace hub in New above via RegisterHubProjection; reviewthread
+// hub inside reviewthread.New), so re-registering them here would double-subscribe
+// and double-broadcast — they are deliberately left where the live wiring puts them.
+func (c *Container) wireCallbacks(
+	ctx context.Context,
+) error {
+	c.drainWG = &sync.WaitGroup{}
+	c.drainCtx, c.drainCancel = context.WithCancel(ctx)
+
+	// The reactor lives under workspace/internal (unimportable from this out-of-tree
+	// container), so it is registered through the repository's own seam, which hands
+	// it the singleton axWorkspace + read model + id↔path map it holds privately.
+	registrar, ok := c.Workspace.(workspace.DeleteReactorRegistrar)
+	if !ok {
+		return fmt.Errorf("workspace repository does not support delete-reactor registration")
+	}
+	if err := registrar.RegisterDeleteReactor(c.forgetReviewThreads, removeWorktree, c.drainWG); err != nil {
+		return fmt.Errorf("delete reactor: %w", err)
+	}
+	return nil
+}
+
+// Drain exposes the shared reactor drain handle so the app layer's ordered graceful
+// shutdown (Task 15) can quiesce every reactor wireCallbacks registered: Cancel
+// closes the gate, then it waits on WG (bounded by the shutdown deadline) before the
+// adapter closes the DBs (decisions 9 + 11).
+func (c *Container) Drain() ReactorDrain {
+	return ReactorDrain{Ctx: c.drainCtx, WG: c.drainWG, Cancel: c.drainCancel}
+}
+
+// forgetReviewThreads is the review-thread half of the workspace delete cascade
+// (spec §3.6): every review thread anchored to the deleted workspace is Forgotten,
+// and each Forget's synchronous OnForget drops that thread's read-model row. It is
+// injected into the async delete reactor by wireCallbacks and runs post-commit, off
+// the synchronous write path.
+func (c *Container) forgetReviewThreads(
+	ctx context.Context,
+	wsID string,
+) error {
+	threads, err := c.ReviewThread.ListByWorkspace(ctx, wsID)
+	if err != nil {
+		return fmt.Errorf("repositories: delete cascade: list review threads for %q: %w", wsID, err)
+	}
+	for _, t := range threads {
+		if err := c.ReviewThread.DeleteThread(ctx, t.ID); err != nil {
+			return fmt.Errorf("repositories: delete cascade: forget review thread %q: %w", t.ID, err)
+		}
+	}
+	return nil
 }
 
 // enrichFrame builds the WS frame for ws: it attaches the two derived overlays
@@ -203,4 +291,17 @@ func (c *Container) ListWorkspaces(
 		rows[i].Working = c.IsWorking(rows[i].ID)
 	}
 	return rows, nil
+}
+
+// removeWorktree is the bounded fs delete the async delete reactor uses to rm -rf a
+// deleted workspace's worktree, off the synchronous write path (spec §3.6, decision
+// 9). A blank path or an already-gone dir is an idempotent no-op (os.RemoveAll
+// returns nil for a missing path), so a crash re-driven cascade rm's to nothing.
+func removeWorktree(
+	path string,
+) error {
+	if err := os.RemoveAll(path); err != nil {
+		return fmt.Errorf("repositories: remove worktree %q: %w", path, err)
+	}
+	return nil
 }

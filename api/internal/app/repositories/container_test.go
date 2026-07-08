@@ -3,6 +3,8 @@ package repositories_test
 import (
 	"context"
 	"errors"
+	"os"
+	"path/filepath"
 	"sync"
 	"testing"
 	"time"
@@ -16,6 +18,7 @@ import (
 	"github.com/char2cs/crowbar/api/internal/api/v0/dto"
 	"github.com/char2cs/crowbar/api/internal/app/hub"
 	"github.com/char2cs/crowbar/api/internal/app/repositories"
+	"github.com/char2cs/crowbar/api/internal/app/repositories/reviewthread"
 	"github.com/char2cs/crowbar/api/internal/app/repositories/workspace"
 	"github.com/char2cs/crowbar/api/internal/domain"
 )
@@ -340,4 +343,55 @@ func TestContainer_ListWorkspaces_ListErrorPropagates(t *testing.T) {
 	rows, err := c.ListWorkspaces(context.Background())
 	require.Error(t, err)
 	assert.Nil(t, rows)
+}
+
+// TestContainer_WireCallbacks_DeleteCascade pins the cross-aggregate delete
+// cascade wireCallbacks wires (Task 14, spec §3.6): deleting a workspace fires the
+// pure Delete command, and the async delete reactor — gated on the persisted
+// "deleted" tombstone — forgets every review thread anchored to the workspace
+// (their rows vanish), rm -rf's the worktree, and Forgets the workspace aggregate
+// (dropping its read-model row). Before wireCallbacks was wired, Delete only
+// tombstoned the row and nothing purged, so this cascade never converged.
+func TestContainer_WireCallbacks_DeleteCascade(t *testing.T) {
+	ctx := context.Background()
+	c := newContainer(t, &captureHub{})
+
+	// A real worktree the delete reactor must rm off the write path.
+	worktree := t.TempDir()
+	require.NoError(t, os.WriteFile(filepath.Join(worktree, "f"), []byte("x"), 0o600))
+
+	_, err := c.Workspace.Create(ctx, workspace.CreateInput{
+		ID: "w1", RepoID: "r1", ProjectID: "p1", Branch: "b", WorktreePath: worktree,
+	}, time.Unix(1, 0).UTC())
+	require.NoError(t, err)
+
+	// A review thread anchored to the workspace: the cascade must forget it.
+	_, err = c.ReviewThread.Open(ctx, reviewthread.OpenInput{
+		ID: "t1", WsID: "w1", FilePath: "a.go", MessageID: "m1", Author: "u", Body: "hi",
+	}, time.Unix(2, 0).UTC())
+	require.NoError(t, err)
+
+	// The thread's read-model row must be present before we delete, so the cascade
+	// has a row to forget.
+	require.Eventually(t, func() bool {
+		threads, e := c.ReviewThread.ListByWorkspace(ctx, "w1")
+		return e == nil && len(threads) == 1
+	}, time.Second, 5*time.Millisecond)
+
+	require.NoError(t, c.Workspace.Delete(ctx, "w1"))
+
+	// The async delete reactor cascades: review threads forgotten (rows gone),
+	// worktree removed, workspace aggregate Forgotten (read-model row gone).
+	require.Eventually(t, func() bool {
+		threads, e := c.ReviewThread.ListByWorkspace(ctx, "w1")
+		if e != nil || len(threads) != 0 {
+			return false
+		}
+		rows, e2 := c.Workspace.List(ctx)
+		if e2 != nil || len(rows) != 0 {
+			return false
+		}
+		_, statErr := os.Stat(worktree)
+		return os.IsNotExist(statErr)
+	}, 3*time.Second, 10*time.Millisecond)
 }

@@ -23,8 +23,11 @@ import (
 	"github.com/char2cs/crowbar/api/internal/domain"
 )
 
-// Store is the workspace read model. Per-id reads fold the aggregate from the
-// event log via axWorkspace.Get, so Get is not part of this surface.
+// Store is the workspace read model. Per-request per-id reads fold the aggregate
+// from the event log via axWorkspace.Get (always current), so that per-id read is
+// not part of this surface. The one exception is Get below, which the async delete
+// reactor's ordering gate needs precisely because it reflects only the DURABLE
+// projection, not the always-current fold.
 type Store interface {
 	// List returns the durable projection at state/store/workspace.db DIRECTLY,
 	// WITHOUT lazy Replay repair. The boot orphan-sweep uses this path (spec §3.8)
@@ -32,6 +35,17 @@ type Store interface {
 	List(
 		ctx context.Context,
 	) ([]domain.Workspace, error)
+	// Get returns the workspace's DURABLE read-model row, or nil when the model has
+	// no such row. It reflects only what the store projection has persisted — NOT
+	// the always-current event-log fold Workspace.Get returns — which is exactly
+	// what the async delete reactor's ordering gate must observe: it purges only
+	// once the projection has persisted the "deleted" tombstone, so the tombstone
+	// can never be re-saved after the worktree is gone (spec §3.6 ordering
+	// contract). Also satisfies the reactor package's StoreReader seam.
+	Get(
+		ctx context.Context,
+		id string,
+	) (*domain.Workspace, error)
 	// ListOrRebuild returns the read model (which doubles as the location index,
 	// §3.7), first healing it via whole-model lazy Replay when the model is empty
 	// but the event log still holds aggregates (spec §3.7, decision 7). The
@@ -75,4 +89,14 @@ func (s *service) List(
 	ctx context.Context,
 ) ([]domain.Workspace, error) {
 	return s.store.List(ctx)
+}
+
+// Get returns the durable read-model row for id (nil when absent), delegating to
+// the save-only store projection — the persisted view the delete reactor's
+// ordering gate observes (spec §3.6).
+func (s *service) Get(
+	ctx context.Context,
+	id string,
+) (*domain.Workspace, error) {
+	return s.store.Get(ctx, id)
 }

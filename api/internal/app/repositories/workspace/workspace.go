@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"sync"
 	"time"
 
 	"github.com/char2cs/asynx"
@@ -14,6 +15,7 @@ import (
 	"github.com/char2cs/crowbar/api/internal/adapter/store/wspaths"
 	"github.com/char2cs/crowbar/api/internal/app/apperr"
 	"github.com/char2cs/crowbar/api/internal/app/repositories/workspace/internal/commands"
+	"github.com/char2cs/crowbar/api/internal/app/repositories/workspace/internal/reactors"
 	"github.com/char2cs/crowbar/api/internal/app/repositories/workspace/internal/reconcile"
 	"github.com/char2cs/crowbar/api/internal/app/repositories/workspace/internal/store"
 	"github.com/char2cs/crowbar/api/internal/app/repositories/workspace/internal/store/projections"
@@ -194,6 +196,26 @@ type BootSweeper interface {
 		ctx context.Context,
 		purge func(ctx context.Context, wsID string) error,
 	)
+}
+
+// DeleteReactorRegistrar wires this aggregate's async delete reactor (Task 8) onto
+// its singleton axWorkspace. It is the app-level seam (Task 14 wireCallbacks) for
+// the post-commit cross-aggregate purge: the app-level composition root injects the
+// review-thread forget cascade, the bounded fs delete, and the shared drain
+// WaitGroup, while this repository keeps its ax / read model / id↔path handles
+// private — the reactor gates on the read model's persisted "deleted" tombstone,
+// resolves the worktree path via the id↔path map, cascades the forget, rm -rf's the
+// worktree, and Forgets the aggregate (spec §3.6/§3.8). The reactor lives under
+// workspace/internal, so an out-of-tree caller (repositories.Container) cannot reach
+// it directly; this method is the seam. Kept OFF the main Workspace interface (like
+// BootSweeper) so cross-aggregate wiring never leaks into the per-request surface
+// and existing Workspace fakes stay untouched; the concrete *workspace satisfies it.
+type DeleteReactorRegistrar interface {
+	RegisterDeleteReactor(
+		reviewThreadForget func(ctx context.Context, wsID string) error,
+		rmWorktree func(path string) error,
+		drainWG *sync.WaitGroup,
+	) error
 }
 
 // workspace is the singleton-backed workspace aggregate repository. One
@@ -595,6 +617,30 @@ func (w *workspace) Sweep(
 	purge func(ctx context.Context, wsID string) error,
 ) {
 	reconcile.NewSweeper(reconcile.SweepListFunc(w.readModel.List), purge).Sweep(ctx)
+}
+
+// RegisterDeleteReactor subscribes the async delete reactor to this repo's
+// singleton axWorkspace, handing it this repo's own private handles — axWorkspace,
+// the durable read model (the ordering-gate StoreReader; w.readModel satisfies
+// reactors.StoreReader via its Get), and the id↔path map — and the app-injected
+// cross-aggregate deps: the review-thread forget cascade, the bounded fs delete,
+// and the shared drain WaitGroup every reactor goroutine joins (spec §3.6/§3.8,
+// Task 8/14). It is the seam repositories.Container reaches the internal reactor
+// through (the reactors package is under workspace/internal, unimportable from the
+// out-of-tree container).
+func (w *workspace) RegisterDeleteReactor(
+	reviewThreadForget func(ctx context.Context, wsID string) error,
+	rmWorktree func(path string) error,
+	drainWG *sync.WaitGroup,
+) error {
+	return reactors.RegisterDeleteReactor(
+		w.ax,
+		w.readModel,
+		w.pathsStore,
+		reviewThreadForget,
+		rmWorktree,
+		drainWG,
+	)
 }
 
 // GetHomeForProject scans all workspaces for the project and returns the one
