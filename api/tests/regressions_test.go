@@ -816,6 +816,93 @@ func TestRegression_ImportDefaultBranchStaysHomeWithPlaceholder(t *testing.T) {
 		"the held default branch must be surfaced as a non-default placeholder row")
 }
 
+// TestRegression_DetachHolderFreesBranchAndMaterialisesWorktree proves the
+// Detach-holder flow end-to-end through the real HTTP + git stack (spec
+// §3.5/§3.7): a protected default branch the repo home still holds is surfaced as
+// a placeholder; POST .../detach-holder moves the home to a detached HEAD
+// (releasing the branch — the working tree is untouched) and re-provisions that
+// branch into its OWN managed worktree in place. The placeholder becomes a real,
+// on-disk locked worktree — heldByPath cleared, localPath set, .git present —
+// with no LastError. The op is async (202 Accepted), so the outcome is observed
+// by polling the read model. This is the deterministic contract that "Detach
+// works" (it once failed silently when the derived path was already occupied).
+func TestRegression_DetachHolderFreesBranchAndMaterialisesWorktree(t *testing.T) {
+	h := newHarness(t)
+	imported := importProjectHomeHoldsDefault(t, h)
+	repoBase := "/v0/projects/" + imported.projectID + "/repos/" + imported.repoID
+
+	// Precondition: the home sits on main (Crowbar never force-detaches).
+	require.Equal(t, "main", currentBranch(t, imported.repoPath),
+		"precondition: repo home holds the protected default branch")
+
+	type wsRow struct {
+		ID         string `json:"id"`
+		Branch     string `json:"branch"`
+		IsDefault  bool   `json:"isDefault"`
+		Status     string `json:"status"`
+		LocalPath  string `json:"localPath"`
+		HeldByPath string `json:"heldByPath"`
+		LastError  string `json:"lastError"`
+	}
+	// Goroutine-safe raw fetch (no test assertions), callable from Eventually.
+	listURL := h.url + repoBase + "/workspaces"
+	fetchRows := func() []wsRow {
+		r, err := h.server.Client().Get(listURL)
+		if err != nil {
+			return nil
+		}
+		defer func() { _ = r.Body.Close() }()
+		var env struct {
+			Data []wsRow `json:"data"`
+		}
+		if json.NewDecoder(r.Body).Decode(&env) != nil {
+			return nil
+		}
+		return env.Data
+	}
+
+	var placeholderID string
+	for _, w := range fetchRows() {
+		if w.Branch == "main" && !w.IsDefault {
+			placeholderID = w.ID
+			require.Empty(t, w.LocalPath, "precondition: placeholder has no managed worktree yet")
+			require.NotEmpty(t, w.HeldByPath, "precondition: placeholder records the repo home as the holder")
+		}
+	}
+	require.NotEmpty(t, placeholderID, "the held main branch must surface as a placeholder")
+
+	// Act: detach the holder (async → 202 Accepted).
+	resp := h.raw(http.MethodPost, repoBase+"/workspaces/"+placeholderID+"/detach-holder", nil, http.StatusAccepted)
+	_ = resp.Body.Close()
+
+	// Assert: the placeholder becomes a real, on-disk managed worktree — the branch
+	// was freed and re-provisioned in place, with no error.
+	var final wsRow
+	require.Eventually(t, func() bool {
+		for _, w := range fetchRows() {
+			if w.ID != placeholderID {
+				continue
+			}
+			if w.HeldByPath == "" && w.LocalPath != "" && dirExists(w.LocalPath) && w.LastError == "" {
+				final = w
+				return true
+			}
+		}
+		return false
+	}, 10*time.Second, 100*time.Millisecond,
+		"detach-holder must free the branch and materialise the placeholder into a managed worktree (no LastError)")
+
+	require.FileExists(t, filepath.Join(final.LocalPath, ".git"),
+		"the materialised placeholder must be a real linked git worktree (.git pointer present)")
+	require.Equal(t, "locked", final.Status,
+		"a protected-branch worktree stays locked after materialisation")
+
+	// And: the repo home was moved to a detached HEAD — the branch is genuinely
+	// released, not merely reported as freed.
+	require.Equal(t, "HEAD", currentBranch(t, imported.repoPath),
+		"detach-holder leaves the repo home on a detached HEAD, releasing the branch")
+}
+
 // currentBranch returns dir's checked-out branch, or "HEAD" when detached.
 func currentBranch(t *testing.T, dir string) string {
 	t.Helper()
