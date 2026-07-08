@@ -3,7 +3,6 @@ package watch_test
 import (
 	"context"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"sync"
 	"testing"
@@ -53,21 +52,6 @@ func (c *captureDispatcher) OnSyncWorkingTreeState(
 	c.syncCalls = append(c.syncCalls, input)
 }
 
-func (c *captureDispatcher) waitForGitCall(t *testing.T) {
-	t.Helper()
-	deadline := time.Now().Add(5 * time.Second)
-	for time.Now().Before(deadline) {
-		c.mu.Lock()
-		n := c.gitCalls
-		c.mu.Unlock()
-		if n > 0 {
-			return
-		}
-		time.Sleep(20 * time.Millisecond)
-	}
-	t.Fatal("timeout: OnGitStatus never called")
-}
-
 func (c *captureDispatcher) waitForSyncCall(t *testing.T) watch.SyncInput {
 	t.Helper()
 	deadline := time.Now().Add(5 * time.Second)
@@ -100,26 +84,6 @@ func (c *captureDispatcher) noSyncCallWithin(t *testing.T, d time.Duration) {
 		}
 		time.Sleep(20 * time.Millisecond)
 	}
-}
-
-// gitCmd runs a git command in dir and fails the test on error.
-func gitCmd(t *testing.T, dir string, args ...string) {
-	t.Helper()
-	cmd := exec.Command("git", args...)
-	cmd.Dir = dir
-	out, err := cmd.CombinedOutput()
-	require.NoError(t, err, "git %v: %s", args, out)
-}
-
-// initGitRepo creates a real, minimal git repo with an initial commit.
-func initGitRepo(t *testing.T) string {
-	t.Helper()
-	dir := t.TempDir()
-	gitCmd(t, dir, "init", "-b", "main")
-	gitCmd(t, dir, "config", "user.email", "test@example.com")
-	gitCmd(t, dir, "config", "user.name", "Test")
-	gitCmd(t, dir, "commit", "--allow-empty", "-m", "initial")
-	return dir
 }
 
 // newCapturingWatcher creates a Watcher with captureDispatcher, starts it, and registers cleanup.

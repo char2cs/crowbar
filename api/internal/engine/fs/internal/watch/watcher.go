@@ -439,7 +439,7 @@ func (w *Watcher) gitDir() string {
 		// .git is a gitlink file ("gitdir: <path>"). Fall back to dotGit on any
 		// parse failure (worst case: the guard behaves as before for this worktree).
 		w.resolvedGitDir = dotGit
-		data, err := os.ReadFile(dotGit)
+		data, err := os.ReadFile(dotGit) //nolint:gosec // G304: dotGit is repoPath/.git, a fixed path derived from the watched repo
 		if err != nil {
 			return
 		}
@@ -491,6 +491,7 @@ func (w *Watcher) addRecursive(
 // isIgnored reports whether path is ignored by git (via git check-ignore).
 // Fix 3: exit 0 = ignored, exit 1 = not ignored, exit 128 = no git repo.
 func (w *Watcher) isIgnored(path string) bool {
+	//nolint:gosec // G204: fixed "git check-ignore" invocation; path is a filesystem path from the watcher, not shell-interpreted
 	cmd := exec.Command(
 		"git",
 		"-C", w.repoPath,
@@ -505,10 +506,7 @@ func (w *Watcher) shouldIgnoreDir(
 	path string,
 ) bool {
 	base := filepath.Base(path)
-	if base == ".git" {
-		return true
-	}
-	return false
+	return base == ".git"
 }
 
 func (w *Watcher) shouldIgnore(

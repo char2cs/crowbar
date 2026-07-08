@@ -54,7 +54,9 @@ func readWithCap(
 		return domain.FileContent{}, fmt.Errorf("content: read %s: %w", filePath, ErrFileTooLarge)
 	}
 
-	f, err := os.Open(full)
+	// full is the output of safepath.Resolve, which confines the path to
+	// repoPath and rejects traversal, so it is not attacker-controllable.
+	f, err := os.Open(full) //nolint:gosec // G304: full is validated by safepath.Resolve (confined to repoPath)
 	if err != nil {
 		return domain.FileContent{}, fmt.Errorf("content: read %s: %w", filePath, err)
 	}
